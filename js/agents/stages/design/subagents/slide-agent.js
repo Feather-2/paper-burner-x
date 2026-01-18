@@ -9,6 +9,16 @@ const MAX_LINKED_FILE_CHARS = 1200;
 const isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined";
 let fsPromises = null;
 let pathModule = null;
+/** @type {string|null} - 受控根目录，null 表示禁止文件读取 */
+let linkedFilesRootDir = null;
+
+/**
+ * 设置 linkedFiles 允许读取的根目录（路径前缀白名单）
+ * @param {string|null} rootDir - 绝对路径根目录，null 禁止读取
+ */
+export function setLinkedFilesRoot(rootDir) {
+  linkedFilesRootDir = typeof rootDir === "string" ? rootDir : null;
+}
 
 /**
  * @typedef {(name: string, event: { actor: string, status: string, payload: any }) => void} EmitFn
@@ -18,18 +28,27 @@ async function ensureNodeModules() {
   if (fsPromises && pathModule) return true;
   if (isBrowser) return false;
   try {
-    /** @type {string} */
-    const fsSpecifier = "node:fs";
-    /** @type {string} */
-    const pathSpecifier = "node:path";
-    const fsMod = await import(fsSpecifier);
-    const pathMod = await import(pathSpecifier);
+    /* Dynamic import specifier kept in variable to avoid static bundler analysis of node:* */
+    const fsMod = await import(/* webpackIgnore: true */ "node:fs");
+    const pathMod = await import(/* webpackIgnore: true */ "node:path");
     fsPromises = fsMod.promises || (fsMod.default && fsMod.default.promises) || fsMod;
     pathModule = pathMod.default || pathMod;
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * 校验路径是否在受控根目录内
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+function isPathAllowed(filePath) {
+  if (!linkedFilesRootDir || !pathModule) return false;
+  const resolved = pathModule.resolve(filePath);
+  const root = pathModule.resolve(linkedFilesRootDir);
+  return resolved === root || resolved.startsWith(root + pathModule.sep);
 }
 
 async function readLinkedFiles(linkedFiles = []) {
@@ -43,6 +62,10 @@ async function readLinkedFiles(linkedFiles = []) {
   for (const filePath of files) {
     const file = toNonEmptyString(filePath);
     if (!file) continue;
+    if (!isPathAllowed(file)) {
+      sections.push(`--- ${file} ---\n[access denied: path outside allowed root]`);
+      continue;
+    }
     try {
       const raw = await fsPromises.readFile(file, "utf8");
       const trimmed = raw.length > MAX_LINKED_FILE_CHARS
@@ -277,6 +300,8 @@ export class SlideSubAgent {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      const cause = err instanceof Error && err.cause ? err.cause : undefined;
       this._transition(SlideStatus.FAILED, { slideIntentId, slideIndex, error: msg });
       return {
         slideIntentId,
@@ -286,6 +311,8 @@ export class SlideSubAgent {
         status: this.state.status,
         source: "error",
         error: msg,
+        ...(stack ? { stack } : {}),
+        ...(cause ? { cause } : {}),
       };
     }
   }

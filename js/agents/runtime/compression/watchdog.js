@@ -130,7 +130,7 @@ export class Watchdog {
       const suggestion = typeof this._behaviorFingerprint.getSuggestion === "function" ? this._behaviorFingerprint.getSuggestion() : null;
       if (loopCount > this._behaviorLastNotifiedLoopCount) {
         this._behaviorLastNotifiedLoopCount = loopCount;
-        this._emit(WatchdogEvents.WATCHDOG_INTERVENTION || "watchdog.intervention", {
+        this._emit(WatchdogEvents.WATCHDOG_INTERVENTION || "watchdog:intervention", {
           issues: [
             {
               type: "tool_loop",

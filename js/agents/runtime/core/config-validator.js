@@ -116,7 +116,9 @@ export class ConfigValidator {
         } else if (fieldSchema.default !== undefined) {
           result[key] = typeof fieldSchema.default === "function"
             ? fieldSchema.default()
-            : structuredClone(fieldSchema.default);
+            : (typeof globalThis.structuredClone === "function"
+                ? globalThis.structuredClone(fieldSchema.default)
+                : JSON.parse(JSON.stringify(fieldSchema.default)));
         }
         continue;
       }

@@ -315,7 +315,7 @@ export function createPreToolUseHook(options = {}) {
       });
       if (decision && decision.allowed === false) {
         const reason = toNonEmptyString(decision.reason) || "tool_restricted";
-        eventBus?.emit?.("tool.denied", {
+        eventBus?.emit?.("tool:denied", {
           tool: toolName,
           reason,
           args: sanitizeArgs(params),
@@ -343,7 +343,7 @@ export function createPreToolUseHook(options = {}) {
         const classification = classifyCommand(cmd);
         if (classification.requiresApproval && blocking) {
           const reason = `Command requires approval: ${classification.baseCommand || "unknown"}`;
-          eventBus?.emit?.("tool.denied", {
+          eventBus?.emit?.("tool:denied", {
             tool: toolName,
             reason,
             args: sanitizeArgs(params),
@@ -359,7 +359,7 @@ export function createPreToolUseHook(options = {}) {
         if (!modelRouter || typeof modelRouter.call !== "function") {
           if (blocking) {
             const reason = "Prompt hook blocked: ModelRouter unavailable";
-            eventBus?.emit?.("tool.denied", {
+            eventBus?.emit?.("tool:denied", {
               tool: toolName,
               reason,
               args: sanitizeArgs(params),
@@ -384,7 +384,7 @@ export function createPreToolUseHook(options = {}) {
           if (!decision) {
             if (blocking) {
               const reason = "Prompt hook blocked: unparseable decision";
-              eventBus?.emit?.("tool.denied", {
+              eventBus?.emit?.("tool:denied", {
                 tool: toolName,
                 reason,
                 args: sanitizeArgs(params),
@@ -396,13 +396,13 @@ export function createPreToolUseHook(options = {}) {
           }
           if (!decision.allow && blocking) {
             const reason = decision.reason || "Prompt hook denied";
-            eventBus?.emit?.("tool.denied", { tool: toolName, reason, args: sanitizeArgs(params), policy: { hookType: "prompt" } });
+            eventBus?.emit?.("tool:denied", { tool: toolName, reason, args: sanitizeArgs(params), policy: { hookType: "prompt" } });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "prompt" } } };
           }
         } catch (err) {
           if (blocking) {
             const reason = `Prompt hook blocked: ${err?.message || String(err)}`;
-            eventBus?.emit?.("tool.denied", {
+            eventBus?.emit?.("tool:denied", {
               tool: toolName,
               reason,
               args: sanitizeArgs(params),
@@ -420,7 +420,7 @@ export function createPreToolUseHook(options = {}) {
         if (!registry || typeof registry.getFactory !== "function") {
           if (blocking) {
             const reason = "Agent hook blocked: SubagentRegistry unavailable";
-            eventBus?.emit?.("tool.denied", {
+            eventBus?.emit?.("tool:denied", {
               tool: toolName,
               reason,
               args: sanitizeArgs(params),
@@ -436,7 +436,7 @@ export function createPreToolUseHook(options = {}) {
         if (!factory) {
           if (blocking) {
             const reason = `Agent hook blocked: unknown agentType "${agentType || ""}"`;
-            eventBus?.emit?.("tool.denied", {
+            eventBus?.emit?.("tool:denied", {
               tool: toolName,
               reason,
               args: sanitizeArgs(params),
@@ -464,13 +464,13 @@ export function createPreToolUseHook(options = {}) {
           const finalAllow = allow && !denied;
           if (!finalAllow && blocking) {
             const reason = toNonEmptyString(out?.reason) || toNonEmptyString(out?.error) || "Agent hook denied";
-            eventBus?.emit?.("tool.denied", { tool: toolName, reason, args: sanitizeArgs(params), policy: { hookType: "agent", agentType } });
+            eventBus?.emit?.("tool:denied", { tool: toolName, reason, args: sanitizeArgs(params), policy: { hookType: "agent", agentType } });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "agent", agentType } } };
           }
         } catch (err) {
           if (blocking) {
             const reason = `Agent hook blocked: ${err?.message || String(err)}`;
-            eventBus?.emit?.("tool.denied", { tool: toolName, reason, args: sanitizeArgs(params), policy: { hookType: "agent", agentType } });
+            eventBus?.emit?.("tool:denied", { tool: toolName, reason, args: sanitizeArgs(params), policy: { hookType: "agent", agentType } });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "agent", agentType } } };
           }
         }
@@ -511,13 +511,13 @@ export function createPreAgentHook(options = {}) {
           const result = await hook.handler({ sessionId, runId, input, context });
           if (result?.skip && blocking) {
             const reason = toNonEmptyString(result.reason) || "PreAgent hook denied";
-            eventBus?.emit?.("agent.denied", { sessionId, runId, reason });
+            eventBus?.emit?.("agent:denied", { sessionId, runId, reason });
             return { skip: true, value: result.value, reason };
           }
         } catch (err) {
           if (blocking) {
             const reason = `PreAgent hook error: ${err?.message || String(err)}`;
-            eventBus?.emit?.("agent.denied", { sessionId, runId, reason });
+            eventBus?.emit?.("agent:denied", { sessionId, runId, reason });
             return { skip: true, reason };
           }
         }
@@ -553,7 +553,7 @@ export function createPostAgentHook(options = {}) {
           await hook.handler({ sessionId, runId, input, result, error, duration, context });
         } catch (err) {
           // PostAgent 错误不阻塞，只记录
-          eventBus?.emit?.("agent.hook.error", {
+          eventBus?.emit?.("agent:hook-error", {
             sessionId,
             runId,
             hookEvent: hookEventName,

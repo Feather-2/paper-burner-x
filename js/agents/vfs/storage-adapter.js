@@ -168,7 +168,14 @@ export class OpfsStorageAdapter extends StorageAdapter {
 
   _keyToPath(key) {
     // 将 key 转换为安全的文件名
-    return encodeURIComponent(String(key)).replace(/%/g, "_");
+    // 先转义下划线为 %5F，再转义其他字符，最后把 % 替换为 _
+    // 这样可以保证编码可逆：原始 _ -> %5F -> _5F，原始 % -> %25 -> _25
+    return encodeURIComponent(String(key)).replace(/_/g, "%5F").replace(/%/g, "_");
+  }
+
+  _pathToKey(fileName) {
+    // 逆向解码：_ 还原为 %，然后 decodeURIComponent
+    return decodeURIComponent(fileName.replace(/_/g, "%"));
   }
 
   async get(key) {
@@ -190,10 +197,13 @@ export class OpfsStorageAdapter extends StorageAdapter {
     const fileName = this._keyToPath(key);
     const fileHandle = await root.getFileHandle(fileName, { create: true });
 
-    // 使用 createWritable 写入
+    // 使用 createWritable 写入，确保 finally 中关闭
     const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(value));
-    await writable.close();
+    try {
+      await writable.write(JSON.stringify(value));
+    } finally {
+      await writable.close();
+    }
   }
 
   async delete(key) {
@@ -223,7 +233,7 @@ export class OpfsStorageAdapter extends StorageAdapter {
     const root = await this._getRootDir();
     const keys = [];
     for await (const [name] of /** @type {any} */ (root)) {
-      keys.push(decodeURIComponent(name.replace(/_/g, "%")));
+      keys.push(this._pathToKey(name));
     }
     return keys;
   }

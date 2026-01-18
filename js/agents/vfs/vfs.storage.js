@@ -429,13 +429,9 @@ export class StorageVfs {
     if (!p) throw new Error("EPERM: cannot remove root");
 
     const recursive = options?.recursive === true;
-    try {
-      const st = await this.stat(p);
-      if (st?.isDirectory?.()) return this.rmdir(p, { recursive });
-      return this.unlink(p);
-    } catch (err) {
-      throw err;
-    }
+    const st = await this.stat(p);
+    if (st?.isDirectory?.()) return this.rmdir(p, { recursive });
+    return this.unlink(p);
   }
 }
 

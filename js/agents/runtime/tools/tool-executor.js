@@ -412,7 +412,7 @@ export class ToolExecutor {
         const { valid, errors } = validateArgs(args, schema);
         if (!valid) {
           this._log("warn", `Schema validation failed for ${name}`, { errors });
-          this._emit("tool.validation.failed", { tool: name, args, errors });
+          this._emit("tool:validationFailed", { tool: name, args, errors });
 
           if (strictMode) {
             return this._buildResult(false, null, `Validation failed: ${errors.join("; ")}`);
@@ -447,12 +447,12 @@ export class ToolExecutor {
       });
       if (decision && decision.allowed === false) {
         const reason = typeof decision.reason === "string" ? decision.reason : "denied";
-        this._emit("tool.denied", { tool: name, args: finalArgs, reason, policy: decision });
+        this._emit("tool:denied", { tool: name, args: finalArgs, reason, policy: decision });
         return this._buildResult(false, null, `Policy denied: ${reason}`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this._emit("tool.denied", { tool: name, args: finalArgs, reason: "policy_error", error: msg });
+      this._emit("tool:denied", { tool: name, args: finalArgs, reason: "policy_error", error: msg });
       return this._buildResult(false, null, `Policy error: ${msg}`);
     }
 
@@ -477,7 +477,7 @@ export class ToolExecutor {
         const duration = Date.now() - startTime;
 
         this._log("debug", `Tool ${name} completed`, { duration, attempt });
-        this._emit("tool.completed", { tool: name, args: finalArgs, result, duration });
+        this._emit("tool:completed", { tool: name, args: finalArgs, result, duration });
 
         let normalized = this._normalizeResult(result);
 
@@ -505,7 +505,7 @@ export class ToolExecutor {
     }
 
     const duration = Date.now() - startTime;
-    this._emit("tool.failed", { tool: name, args, error: lastError?.message, duration });
+    this._emit("tool:failed", { tool: name, args, error: lastError?.message, duration });
     return this._buildResult(false, null, lastError?.message || "Unknown error");
   }
 

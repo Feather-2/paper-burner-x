@@ -1,6 +1,7 @@
 import { BaseAdapter } from "./base.js";
 import { extractAssetsFromMarkdown } from "../extract-assets.js";
 import { SourceKind } from "../constants.js";
+import { basenameOfPath, fileLikeFromPath as nodeFileLikeFromPath } from "./node-io.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 function guessMimeType(filename) {
@@ -92,33 +93,8 @@ function extractAsciiStrings(bytes, { minLen = 4, maxStrings = 200, maxChars = 2
   return unique.join("\n").trim();
 }
 
-async function basenameOfPath(path) {
-  const { basename } = await import("node:path");
-  return basename(path);
-}
-
-function bufferToArrayBuffer(buf) {
-  if (!buf) return new ArrayBuffer(0);
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-}
-
 async function fileLikeFromPath(path, { maxBytes } = {}) {
-  const { readFile, stat } = await import("node:fs/promises");
-  const limit = normalizeMaxFileSize(maxBytes, Infinity);
-  const stats = await stat(path);
-  if (Number.isFinite(limit) && limit > 0 && stats.size > limit) {
-    throw new Error(`PdfAdapter: file too large: ${stats.size} bytes (max ${limit})`);
-  }
-  const buf = await readFile(path);
-  const name = await basenameOfPath(path);
-  return {
-    name,
-    type: "application/pdf",
-    size: buf.length,
-    async arrayBuffer() {
-      return bufferToArrayBuffer(buf);
-    },
-  };
+  return nodeFileLikeFromPath(path, { maxBytes, mimeType: "application/pdf" });
 }
 
 function fileLabel(input) {
@@ -180,9 +156,19 @@ export class PdfAdapter extends BaseAdapter {
     let ocrResult = null;
 
     if (ocr) {
-      ocrResult = await ocr.processFile(file, progress);
-      markdown = String(ocrResult?.markdown || "");
-      images = Array.isArray(ocrResult?.images) ? ocrResult.images : [];
+      try {
+        ocrResult = await ocr.processFile(file, progress);
+        markdown = String(ocrResult?.markdown || "");
+        images = Array.isArray(ocrResult?.images) ? ocrResult.images : [];
+      } catch (ocrError) {
+        // OCR failed; fall back to embedded text extraction
+        console.warn?.(`PdfAdapter: OCR failed, falling back to text extraction: ${ocrError?.message || ocrError}`);
+        const ab = typeof file?.arrayBuffer === "function" ? await file.arrayBuffer() : new ArrayBuffer(0);
+        const text = extractAsciiStrings(new Uint8Array(ab));
+        markdown = text ? `# ${fileLabel(input)}\n\n${text}\n` : `# ${fileLabel(input)}\n\n(OCR failed; extracted embedded text strings.))\n`;
+        images = [];
+        ocrResult = { markdown, images: [], metadata: { engine: "fallback", hint: `OCR error: ${ocrError?.message || "unknown"}` } };
+      }
     } else {
       // Fallback: best-effort text extraction from embedded printable strings.
       // This is not a full PDF parser, but avoids hard failure when OCR is unavailable.

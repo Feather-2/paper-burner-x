@@ -1,6 +1,7 @@
 import { BaseAdapter } from "./base.js";
 import { extractAssetsFromMarkdown } from "../extract-assets.js";
 import { SourceKind } from "../constants.js";
+import { basenameOfPath, fileLikeFromPath as nodeFileLikeFromPath } from "./node-io.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 function guessMimeType(filename) {
@@ -19,33 +20,9 @@ function normalizeMaxFileSize(value, fallback) {
 // Default DOCX max file size (25MB). Override via new DocxAdapter({ maxFileSize }).
 const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
 
-async function basenameOfPath(path) {
-  const { basename } = await import("node:path");
-  return basename(path);
-}
-
-function bufferToArrayBuffer(buf) {
-  if (!buf) return new ArrayBuffer(0);
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-}
-
 async function fileLikeFromPath(path, { maxBytes } = {}) {
-  const { readFile, stat } = await import("node:fs/promises");
-  const limit = normalizeMaxFileSize(maxBytes, Infinity);
-  const stats = await stat(path);
-  if (Number.isFinite(limit) && limit > 0 && stats.size > limit) {
-    throw new Error(`DocxAdapter: file too large: ${stats.size} bytes (max ${limit})`);
-  }
-  const buf = await readFile(path);
   const name = await basenameOfPath(path);
-  return {
-    name,
-    type: guessMimeType(name),
-    size: buf.length,
-    async arrayBuffer() {
-      return bufferToArrayBuffer(buf);
-    },
-  };
+  return nodeFileLikeFromPath(path, { maxBytes, mimeType: guessMimeType(name) });
 }
 
 function resolveMammoth(stageApi) {

@@ -58,8 +58,13 @@ export class SilentErrorReporter {
     this._enabled = options.enabled ?? true;
     /** @type {ErrorEntry[]} */
     this._samples = [];
+    // Validate maxSamples: must be finite positive integer, else fallback to 100
+    const rawMax = options.maxSamples ?? 100;
     /** @type {number} */
-    this._maxSamples = options.maxSamples ?? 100;
+    this._maxSamples =
+      Number.isFinite(rawMax) && rawMax > 0
+        ? Math.min(Math.floor(rawMax), 10000)
+        : 100;
     /** @type {((entry: ErrorEntry) => void) | null} */
     this._onError = options.onError ?? null;
   }
@@ -91,6 +96,16 @@ export class SilentErrorReporter {
   report(error, context) {
     if (!this._enabled) return;
 
+    // Validate context: must be object with non-empty string location
+    if (
+      context == null ||
+      typeof context !== 'object' ||
+      typeof context.location !== 'string' ||
+      context.location === ''
+    ) {
+      context = { location: 'unknown', category: context?.category, operation: context?.operation };
+    }
+
     const err = error instanceof Error ? error : null;
     /** @type {ErrorEntry} */
     const entry = {
@@ -112,8 +127,16 @@ export class SilentErrorReporter {
     if (this._onError) {
       try {
         this._onError(entry);
-      } catch {
-        // Prevent callback errors from propagating
+      } catch (callbackError) {
+        // Record callback error to samples for debuggability
+        this._samples.push({
+          message: callbackError instanceof Error ? callbackError.message : String(callbackError),
+          stack: callbackError instanceof Error ? callbackError.stack?.split('\n').slice(0, 3).join('\n') : undefined,
+          location: 'SilentErrorReporter.onError',
+          category: ErrorCategory.DEGRADED,
+          operation: 'callback',
+          ts: Date.now(),
+        });
       }
     }
   }
@@ -125,10 +148,14 @@ export class SilentErrorReporter {
    * @private
    */
   _groupBy(key) {
+    // Use null-prototype object to prevent prototype pollution
     /** @type {Record<string, number>} */
-    const groups = {};
+    const groups = Object.create(null);
+    const dangerousKeys = new Set(['__proto__', 'constructor', 'prototype']);
     for (const sample of this._samples) {
       const value = sample[key] ?? 'unknown';
+      // Skip dangerous keys to prevent prototype pollution
+      if (dangerousKeys.has(value)) continue;
       groups[value] = (groups[value] ?? 0) + 1;
     }
     return groups;

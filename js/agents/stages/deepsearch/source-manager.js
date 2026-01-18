@@ -590,7 +590,13 @@ export class SourceManager {
 
     // 2) Best-effort embedding rerank (avoid full-document embeddings).
     const snippets = candidates.map((r) => String(r?.snippet || "").slice(0, 2000));
-    const vectors = await svc.embed([trimmed, ...snippets], { ...(timeoutMs ? { timeoutMs } : {}) });
+    let vectors;
+    try {
+      vectors = await svc.embed([trimmed, ...snippets], { ...(timeoutMs ? { timeoutMs } : {}) });
+    } catch {
+      // Embedding failed; fall back to keyword candidates
+      return candidates.slice(0, maxResults);
+    }
     if (!Array.isArray(vectors) || vectors.length !== snippets.length + 1) {
       return candidates.slice(0, maxResults);
     }

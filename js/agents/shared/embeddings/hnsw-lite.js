@@ -251,12 +251,21 @@ export class HnswLiteIndex {
     return this._rows.size;
   }
 
+  /**
+   * Check if a vector exists in the index.
+   * @param {string} id - Vector identifier.
+   * @returns {boolean} True if the vector exists.
+   */
   has(id) {
     const key = toNonEmptyString(id);
     if (!key) return false;
     return this._rows.has(key);
   }
 
+  /**
+   * Clear all vectors from the index.
+   * @returns {void}
+   */
   clear() {
     this._rows.clear();
     this._buckets.clear();
@@ -265,6 +274,11 @@ export class HnswLiteIndex {
     this._deletedCount = 0;
   }
 
+  /**
+   * Delete a vector from the index.
+   * @param {string} id - Vector identifier.
+   * @returns {boolean} True if the vector was deleted.
+   */
   delete(id) {
     const key = toNonEmptyString(id);
     if (!key) return false;
@@ -291,6 +305,13 @@ export class HnswLiteIndex {
     return true;
   }
 
+  /**
+   * Insert or update a vector in the index.
+   * @param {string} id - Vector identifier.
+   * @param {Float32Array|number[]|ArrayBufferView} vector - The vector to store.
+   * @param {*} [meta] - Optional metadata to associate with the vector.
+   * @returns {boolean} True if the operation succeeded.
+   */
   upsert(id, vector, meta) {
     const key = toNonEmptyString(id);
     if (!key) return false;
@@ -469,7 +490,8 @@ export class HnswLiteIndex {
   }
 
   /**
-   * 获取分区统计
+   * Get partition statistics for the index.
+   * @returns {{ hot: number, warm: number, cold: number, total: number }}
    */
   getPartitionStats() {
     const now = Date.now();
@@ -483,7 +505,8 @@ export class HnswLiteIndex {
   }
 
   /**
-   * 获取索引统计
+   * Get index statistics.
+   * @returns {{ inserts: number, deletes: number, searches: number, rebuilds: number, avgCandidates: number, size: number, numBuckets: number, dimension: number|null }}
    */
   getStats() {
     return {
@@ -523,7 +546,8 @@ export class HnswLiteIndex {
   }
 
   /**
-   * 序列化索引
+   * Serialize the index to a JSON-compatible object.
+   * @returns {{ version: number, dim: number|null, numHashBits: number, numProbes: number, seed: number, rows: Array<{ id: string, vec: number[], meta: *, hash: number }> }}
    */
   toJSON() {
     const rows = [];
@@ -541,7 +565,10 @@ export class HnswLiteIndex {
   }
 
   /**
-   * 从 JSON 恢复索引
+   * Restore an index from a serialized JSON object.
+   * @param {{ version: number, dim: number|null, numHashBits: number, numProbes: number, seed: number, rows: Array<{ id: string, vec: number[], meta: *, hash: number }> }} json - Serialized index data.
+   * @returns {HnswLiteIndex} Restored index instance.
+   * @throws {Error} If the JSON is invalid or has an unsupported version.
    */
   static fromJSON(json) {
     if (!json || json.version !== 1) {

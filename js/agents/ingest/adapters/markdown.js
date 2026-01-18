@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
 import { SourceKind } from "../constants.js";
+import { basenameOfPath as nodeBasenameOfPath, readTextFromPath as nodeReadTextFromPath, isNodeEnvironment } from "./node-io.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 function guessMimeType(filename) {
@@ -9,15 +10,31 @@ function guessMimeType(filename) {
   return "text/plain";
 }
 
-async function readTextFromPath(path) {
-  const { readFile } = await import("node:fs/promises");
-  const buf = await readFile(path);
-  return { text: buf.toString("utf8"), size: buf.length };
+/**
+ * Read text from filesystem path (Node.js only).
+ * @param {string} path
+ * @param {{allowPathRead?:boolean}} options
+ * @returns {Promise<{text:string,size:number}>}
+ */
+async function readTextFromPath(path, { allowPathRead = false } = {}) {
+  if (!allowPathRead) {
+    throw new Error("MarkdownAdapter: path string inputs are disabled (set allowPathRead:true to enable in Node.js)");
+  }
+  return nodeReadTextFromPath(path);
 }
 
+/**
+ * Extract basename from path (Node.js or fallback to split).
+ * @param {string} path
+ * @returns {Promise<string>}
+ */
 async function basenameOfPath(path) {
-  const { basename } = await import("node:path");
-  return basename(path);
+  if (isNodeEnvironment()) {
+    return nodeBasenameOfPath(path);
+  }
+  // Fallback for non-Node environments
+  const parts = String(path || "").split(/[\\/]/);
+  return parts[parts.length - 1] || path;
 }
 
 function decodeUtf8(data) {
@@ -41,10 +58,12 @@ export class MarkdownAdapter extends BaseAdapter {
 
   /**
    * @param {string|{name?:string,type?:string,size?:number,text?:Function,arrayBuffer?:Function}} input
+   * @param {{allowPathRead?:boolean}=} stageApi
    * @returns {Promise<object>} ParsedDocument
    */
-  async parse(input) {
+  async parse(input, stageApi = {}) {
     const t0 = Date.now();
+    const allowPathRead = stageApi?.allowPathRead === true;
 
     let filename = "";
     let mimeType = "";
@@ -54,7 +73,7 @@ export class MarkdownAdapter extends BaseAdapter {
     if (typeof input === "string") {
       filename = await basenameOfPath(input);
       mimeType = guessMimeType(filename);
-      const res = await readTextFromPath(input);
+      const res = await readTextFromPath(input, { allowPathRead });
       size = res.size;
       markdown = res.text;
     } else if (input && typeof input === "object") {

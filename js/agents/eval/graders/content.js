@@ -283,9 +283,10 @@ export class EvaluateStage {
       return { passed: false, score: 0, issues, dimensions: {} };
     }
 
-    // 确定要运行的评估器
-    const evaluatorNames = this.enabledDimensions
-      ?? [...this._evaluators.keys()];
+    // 确定要运行的评估器（校验 dimensions 类型）
+    const evaluatorNames = Array.isArray(this.enabledDimensions)
+      ? this.enabledDimensions.filter(d => typeof d === "string")
+      : [...this._evaluators.keys()];
 
     // 并行执行所有评估器
     const evaluatorPromises = evaluatorNames

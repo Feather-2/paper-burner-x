@@ -88,9 +88,9 @@ export const LIMITS = Object.freeze({
 
 /**
  * 根据场景获取限制值
- * @param {keyof typeof LIMITS} key
- * @param {number} [override]
- * @returns {number}
+ * @param {keyof typeof LIMITS} key - 限制常量键名
+ * @param {number} [override] - 覆盖值（正数时使用此值替代默认）
+ * @returns {number} 限制值，未匹配时回退 100
  */
 export function getLimit(key, override) {
   if (typeof override === "number" && Number.isFinite(override) && override > 0) {

@@ -66,10 +66,13 @@ export default createPlugin({
     const getProvider = async () => {
       if (provider) return provider;
 
-      /** @ts-ignore - llm/index.js may not exist in all builds */
-      const { createProvider } = await import('../../llm/index.js');
-      provider = await createProvider(ctx.config);
-      return provider;
+      try {
+        const { createProvider } = await import('../../llm/index.js');
+        provider = await createProvider(ctx.config);
+        return provider;
+      } catch (err) {
+        throw new Error(`Failed to load LLM provider: ${err.message}`);
+      }
     };
 
     ctx.registerService('llm', {

@@ -62,6 +62,21 @@ export class RunReplayController {
     this._runId = null;
   }
 
+  /**
+   * @typedef {object} ReplayState
+   * @property {string|null} runId - 当前加载的 run ID
+   * @property {"idle"|"playing"|"paused"|"completed"} status - 回放状态
+   * @property {number} speed - 回放速度倍率
+   * @property {number} maxDelayMs - 最大延迟 (ms)
+   * @property {number} cursor - 当前事件索引
+   * @property {number} total - 总事件数
+   * @property {number} elapsedMs - 已播放时间 (ms)
+   */
+
+  /**
+   * 获取当前回放状态
+   * @returns {ReplayState}
+   */
   get state() {
     return {
       runId: this._runId,
@@ -119,14 +134,21 @@ export class RunReplayController {
     return this;
   }
 
+  /**
+   * 设置回放速度
+   * @param {number} speed - 速度倍率 (>0)
+   * @returns {void}
+   */
   setSpeed(speed) {
     this.speed = normalizeSpeed(speed);
   }
 
   /**
+   * 开始回放
    * @param {object} [param0]
-   * @param {number=} param0.fromIndex
-   * @param {number=} param0.speed
+   * @param {number=} param0.fromIndex - 起始事件索引
+   * @param {number=} param0.speed - 回放速度
+   * @returns {void}
    */
   play({ fromIndex, speed } = {}) {
     if (Number.isFinite(speed)) this.setSpeed(speed);
@@ -139,6 +161,10 @@ export class RunReplayController {
     this._scheduleNext();
   }
 
+  /**
+   * 暂停回放
+   * @returns {void}
+   */
   pause() {
     if (this._timer) {
       clearTimeout(this._timer);
@@ -147,6 +173,10 @@ export class RunReplayController {
     if (this._status === "playing") this._status = "paused";
   }
 
+  /**
+   * 停止回放并重置
+   * @returns {void}
+   */
   stop() {
     this.pause();
     this._cursor = 0;
@@ -155,9 +185,11 @@ export class RunReplayController {
   }
 
   /**
+   * 跳转到指定位置
    * @param {object} [param0]
-   * @param {number=} param0.index
-   * @param {number=} param0.offsetMs
+   * @param {number=} param0.index - 目标事件索引
+   * @param {number=} param0.offsetMs - 目标时间偏移 (ms)
+   * @returns {void}
    */
   seek({ index, offsetMs } = {}) {
     if (Number.isFinite(index)) {
@@ -173,6 +205,10 @@ export class RunReplayController {
     }
   }
 
+  /**
+   * 单步播放下一个事件
+   * @returns {void}
+   */
   step() {
     if (this._cursor >= this._events.length) return;
     const next = this._events[this._cursor];

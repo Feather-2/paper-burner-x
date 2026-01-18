@@ -17,6 +17,7 @@ export const definition = {
 /**
  * @param {Object} args - 无参数
  * @param {Object} context - { state, emit }
+ * @returns {Promise<{success: boolean, count: number, docs: Array<{sourceId: string, name: string, size: number}>}>}
  */
 export async function handler(args, context) {
   const { state, emit } = context;

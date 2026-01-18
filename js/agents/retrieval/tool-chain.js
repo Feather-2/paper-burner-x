@@ -394,6 +394,24 @@ async function strategyGrepOnly(chunks, { keywords = [] }, tools = {}) {
 }
 
 /**
+ * @typedef {object} SearchSuccessResult
+ * @property {true} ok - 成功标记
+ * @property {Array} results - 搜索结果
+ * @property {object} stats - 统计信息
+ * @property {string} strategy - 使用的策略
+ * @property {string=} fallbackReason - 降级原因（如有）
+ * @property {string=} originalStrategy - 原始策略（降级时）
+ */
+
+/**
+ * @typedef {object} SearchValidationError
+ * @property {false} ok - 失败标记
+ * @property {string} code - 错误代码
+ * @property {string} message - 错误信息
+ * @property {object=} details - 错误详情
+ */
+
+/**
  * 工具链主入口：多策略搜索
  *
  * @param {Array<{chunkId:string,text:string,sourceId?:string}>} chunks
@@ -407,7 +425,7 @@ async function strategyGrepOnly(chunks, { keywords = [] }, tools = {}) {
  * @param {boolean=} tools.regex - 是否启用正则
  * @param {boolean=} tools.caseSensitive - 是否大小写敏感
  * @param {number=} tools.timeoutMs - 超时时间
- * @returns {Promise<{results: Array, stats: object, strategy: string, fallbackReason?: string}>}
+ * @returns {Promise<SearchSuccessResult | SearchValidationError>}
  */
 export async function search(chunks, query = {}, tools = {}) {
   // Fail-fast: schema validation

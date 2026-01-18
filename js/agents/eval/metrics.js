@@ -29,6 +29,7 @@ function mean(values) {
  *
  * @param {Trial[]} trials
  * @param {number} k
+ * @returns {number}
  */
 export function passAtK(trials, k) {
   const list = Array.isArray(trials) ? trials : [];
@@ -49,6 +50,7 @@ export function passAtK(trials, k) {
  *
  * @param {Trial[]} trials
  * @param {number} k
+ * @returns {number}
  */
 export function passExpK(trials, k) {
   const list = Array.isArray(trials) ? trials : [];

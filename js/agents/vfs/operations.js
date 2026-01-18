@@ -358,7 +358,7 @@ export async function writeTextFileWithPolicy({
       }
 
       const emit = getEmitFn(stageApi);
-      emit?.("vfs.write.completed", {
+      emit?.("vfs:write:completed", {
         path: normalizedPath,
         bytes: content.length,
         ...(checkpointRef ? { checkpoint: checkpointRef } : {}),
@@ -514,7 +514,7 @@ export async function multiEditTextFileWithPolicy({
       }
 
       const emit = getEmitFn(stageApi);
-      emit?.("vfs.write.completed", {
+      emit?.("vfs:write:completed", {
         path: normalizedPath,
         bytes: after.length,
         ...(checkpointRef ? { checkpoint: checkpointRef } : {}),

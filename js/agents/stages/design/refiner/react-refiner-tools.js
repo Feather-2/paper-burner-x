@@ -233,7 +233,10 @@ async function sanitizeHtmlFragment(html) {
     return wrap.innerHTML;
   }
 
-  const mod = await import("linkedom");
+  // Node.js fallback: linkedom is a Node-only dependency.
+  // Build tools should externalize this import for browser bundles.
+  // @ts-ignore - dynamic import for Node.js only
+  const mod = await import(/* webpackIgnore: true */ "linkedom");
   const { document } = mod.parseHTML(wrapped);
   const wrap = document.getElementById(WRAP_ID);
   if (!wrap) return "";
@@ -277,7 +280,10 @@ async function parseSectionDom(sectionHtml) {
     return { section, serialize: () => (section ? section.outerHTML : html.trim()) };
   }
 
-  const mod = await import("linkedom");
+  // Node.js fallback: linkedom is a Node-only dependency.
+  // Build tools should externalize this import for browser bundles.
+  // @ts-ignore - dynamic import for Node.js only
+  const mod = await import(/* webpackIgnore: true */ "linkedom");
   const { document } = mod.parseHTML(html.trim());
   const section = document.querySelector("section");
   return { section, serialize: () => (section ? section.outerHTML : html.trim()) };
@@ -517,13 +523,48 @@ async function screenshotAll(context, params) {
   }
 }
 
+/**
+ * Whitelist for safe attribute prefixes/names.
+ * Blocks on* event handlers, dangerous URL attributes, and style injection.
+ */
+const SAFE_ATTR_PREFIXES = ["data-", "aria-"];
+const SAFE_ATTR_NAMES = new Set(["class", "id", "title", "lang", "dir", "tabindex", "role", "hidden", "slot", "part"]);
+const URL_ATTR_NAMES = new Set(["href", "src", "xlink:href", "formaction", "action", "srcset", "poster", "background"]);
+
+function isAttrAllowed(attrName, attrValue) {
+  const lower = attrName.toLowerCase();
+  // Block all on* event handlers
+  if (lower.startsWith("on")) return false;
+  // Whitelist safe prefixes
+  for (const prefix of SAFE_ATTR_PREFIXES) {
+    if (lower.startsWith(prefix)) return true;
+  }
+  // Whitelist safe names
+  if (SAFE_ATTR_NAMES.has(lower)) return true;
+  // URL attributes: allow only if value is safe
+  if (URL_ATTR_NAMES.has(lower)) {
+    return !isDangerousUrl(attrValue);
+  }
+  // style: allow only if value is safe
+  if (lower === "style") {
+    return !isDangerousStyle(attrValue);
+  }
+  // Block unknown attributes by default for security
+  return false;
+}
+
 function applyAttrChanges(el, attrs) {
   if (!el || !isPlainObject(attrs)) return;
   for (const [k, v] of Object.entries(attrs)) {
     const key = toNonEmptyString(k);
     if (!key) continue;
-    if (v === null || v === undefined) el.removeAttribute(key);
-    else el.setAttribute(key, String(v));
+    if (v === null || v === undefined) {
+      el.removeAttribute(key);
+    } else {
+      const strValue = String(v);
+      if (!isAttrAllowed(key, strValue)) continue; // Skip disallowed attributes
+      el.setAttribute(key, strValue);
+    }
   }
 }
 

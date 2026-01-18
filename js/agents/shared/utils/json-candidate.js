@@ -11,6 +11,8 @@
 /**
  * Strip DeepSeek-R1 style <think>...</think> reasoning blocks from output.
  * These blocks contain chain-of-thought reasoning that should not be part of the final output.
+ * @param {string} text - The input text potentially containing thinking tags.
+ * @returns {string} The text with thinking tags removed.
  */
 export function stripThinkingTags(text) {
   const s = String(text || "");

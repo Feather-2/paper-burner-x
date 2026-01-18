@@ -4,8 +4,6 @@
  * 允许模型在发现错误、死胡同或需要尝试不同路径时，主动回溯到之前的 Checkpoint。
  */
 
-import { normalizeToolResult } from "../../shared/contracts/index.js";
-
 /**
  * @typedef {object} BacktrackManager
  * @property {Function} [getCheckpoints]
@@ -37,26 +35,34 @@ export function createBacktrackTool({ backtrackManager }) {
 
         logger.warn(`模型请求回溯: ${reason}`, { checkpoint_id, hint });
 
-        const result = await backtrackManager.prepareBacktrack(checkpoint_id);
+        try {
+            const result = await backtrackManager.prepareBacktrack(checkpoint_id);
 
-        if (!result.success) {
-            return { ok: false, error: `Backtrack failed: ${result.reason}` };
-        }
-
-        // 这是一个特殊的信号，由 AgentLoop 捕获以便执行真正的状态还原
-        const signal = {
-            ok: true,
-            backtrack: {
-                checkpointId: result.checkpointId,
-                state: result.state,
-                reason,
-                hint
+            if (!result.success) {
+                emit("agent:backtrackFailed", { checkpoint_id, reason: result.reason });
+                return { ok: false, error: `Backtrack failed: ${result.reason}` };
             }
-        };
 
-        emit("agent.backtrack_requested", signal.backtrack);
+            // 这是一个特殊的信号，由 AgentLoop 捕获以便执行真正的状态还原
+            const signal = {
+                ok: true,
+                backtrack: {
+                    checkpointId: result.checkpointId,
+                    state: result.state,
+                    reason,
+                    hint
+                }
+            };
 
-        return signal;
+            emit("agent:backtrackRequested", signal.backtrack);
+
+            return signal;
+        } catch (err) {
+            const error = err instanceof Error ? err.message : String(err);
+            logger.error(`Backtrack prepareBacktrack failed: ${error}`);
+            emit("agent:backtrackFailed", { checkpoint_id, error });
+            return { ok: false, error: `Backtrack error: ${error}` };
+        }
     };
 }
 

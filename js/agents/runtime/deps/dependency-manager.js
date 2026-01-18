@@ -43,6 +43,8 @@ const PYODIDE_BUILTIN = new Set([
 
 /**
  * 解析包名（去掉版本约束）
+ * @param {string} spec - 包名规格 (如 "numpy>=1.20")
+ * @returns {string} 纯包名 (小写)
  */
 function parsePackageName(spec) {
   return spec.split(/[<>=!~\[]/)[0].trim().toLowerCase();
@@ -60,6 +62,8 @@ function sanitizeWheelFilenameFromUrl(url) {
 
 /**
  * 计算 SHA-256 哈希
+ * @param {ArrayBuffer|Uint8Array} data - 要计算哈希的数据
+ * @returns {Promise<string>} 小写十六进制哈希字符串
  */
 async function sha256(data) {
   const buffer = data instanceof ArrayBuffer ? data : data.buffer;
@@ -174,7 +178,8 @@ export class DependencyManager {
       }
 
       return { ...wheel, localPath: cachePath, cached: true };
-    } catch {
+    } catch (err) {
+      logger.debug(`Failed to read cached wheel ${filename}:`, { error: err.message });
       return null;
     }
   }
@@ -190,6 +195,12 @@ export class DependencyManager {
     }
 
     try {
+      // 安全校验：仅允许 https 协议
+      const urlObj = new URL(wheel.url);
+      if (urlObj.protocol !== "https:") {
+        throw new Error(`Insecure protocol: ${urlObj.protocol} - only https is allowed for wheel downloads`);
+      }
+
       const resp = await fetch(wheel.url);
       if (!resp.ok) {
         throw new Error(`Failed to fetch ${wheel.url}: ${resp.status}`);
@@ -217,8 +228,14 @@ export class DependencyManager {
 
       return { ...wheel, localPath: cachePath, cached: true };
     } catch (err) {
-      logger.error(`Failed to cache wheel ${wheel.url}:`, { error: err.message });
-      return wheel; // 失败时返回原始，让 micropip 直接从 URL 加载
+      // SHA256 校验失败或安全校验失败时直接抛错，阻止安装
+      if (err.message.includes("SHA256 mismatch") || err.message.includes("Insecure protocol")) {
+        logger.error(`Security error for wheel ${wheel.url}:`, { error: err.message });
+        throw err;
+      }
+      // 其他错误 (网络、VFS 写入等) 记录警告并返回原始 URL
+      logger.warn(`Failed to cache wheel ${wheel.url}:`, { error: err.message });
+      return wheel;
     }
   }
 

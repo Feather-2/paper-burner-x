@@ -52,12 +52,17 @@ function normalizeNodeFsModule(mod) {
 }
 
 /**
+ * Attempt to load the Node.js fs module.
+ * NOTE: This uses dynamic import of "node:fs" which is Node-only.
+ * In browser environments, the import will fail and return null,
+ * causing FileWatcher to fall back to polling mode with VFS.
  * @returns {Promise<any | null>}
  */
 async function loadNodeFsModule() {
   if (_nodeFsModulePromise) return _nodeFsModulePromise;
   _nodeFsModulePromise = (async () => {
     try {
+      // Node-only: browsers will fail this import and fall back to polling.
       /** @type {string} */
       const fsSpecifier = "node:fs";
       const mod = await import(/* @vite-ignore */ fsSpecifier);

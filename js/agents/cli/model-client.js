@@ -1,6 +1,9 @@
 /**
  * CLI Model Client - Node.js 环境下的模型调用
  *
+ * @fileoverview Node-only 模块，依赖 node:fs/node:path/node:url/process.env。
+ * 仅供 CLI 脚本使用，不应被浏览器环境导入。
+ *
  * 支持:
  * - 本地配置文件 (cli-config.json)
  * - 多模型配置

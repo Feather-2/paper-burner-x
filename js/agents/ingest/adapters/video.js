@@ -1,30 +1,14 @@
 import { BaseAdapter } from "./base.js";
 import { getVideoFrames } from "../tools/video-frames.js";
 import { SourceKind } from "../constants.js";
+import { basenameOfPath, fileLikeFromPath as nodeFileLikeFromPath } from "./node-io.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
-async function basenameOfPath(path) {
-  const { basename } = await import("node:path");
-  return basename(path);
-}
-
-function bufferToArrayBuffer(buf) {
-  if (!buf) return new ArrayBuffer(0);
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-}
 
 async function fileLikeFromPath(path, { filename, mimeType } = {}) {
-  const { readFile } = await import("node:fs/promises");
-  const buf = await readFile(path);
-  const name = filename || (await basenameOfPath(path));
-  return {
-    name,
-    type: mimeType || "",
-    size: buf.length,
-    async arrayBuffer() {
-      return bufferToArrayBuffer(buf);
-    },
-  };
+  const file = await nodeFileLikeFromPath(path, { mimeType: mimeType || "" });
+  if (filename) file.name = filename;
+  return file;
 }
 
 function guessMimeType(filename) {

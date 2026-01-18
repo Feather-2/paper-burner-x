@@ -27,6 +27,26 @@ function toTimelineRow(evt) {
   };
 }
 
+/**
+ * 检查事件名是否匹配 todo 事件（兼容 domain.action 和 domain:action 格式）
+ * @param {string|undefined} name - 事件名
+ * @returns {boolean}
+ */
+function isTodoEvent(name) {
+  const s = String(name || "");
+  return s.includes("todo.") || s.includes("todo:");
+}
+
+/**
+ * 检查事件名是否为 todo.created 事件（兼容 domain.action 和 domain:action 格式）
+ * @param {string|undefined} name - 事件名
+ * @returns {boolean}
+ */
+function isTodoCreatedEvent(name) {
+  const s = String(name || "");
+  return s.endsWith(".todo.created") || s.endsWith(":todo.created") || s === "todo.created" || s === "todo:created";
+}
+
 function upsertTodo(todosById, evt) {
   const payload = isPlainObject(evt?.payload) ? evt.payload : {};
   const todoId = toNonEmptyString(payload.todoId);
@@ -39,7 +59,7 @@ function upsertTodo(todosById, evt) {
   if (toNonEmptyString(payload.status)) next.status = String(payload.status);
   if (toNonEmptyString(payload.relatedGapId)) next.relatedGapId = String(payload.relatedGapId);
 
-  if (!next.createdAt && (evt?.name === "deepsearch.todo.created" || String(evt?.name || "").endsWith(".todo.created"))) {
+  if (!next.createdAt && isTodoCreatedEvent(evt?.name)) {
     next.createdAt = evt.ts;
   }
   next.updatedAt = evt.ts;
@@ -66,6 +86,7 @@ export function subscribeTelemetry(eventBus, runStore, options = {}) {
   const timeline = [];
   const todosById = new Map();
   let pending = Promise.resolve();
+  let lastError = null;
 
   const handler = (evt) => {
     if (evt?.meta?.replay) return;
@@ -74,16 +95,32 @@ export function subscribeTelemetry(eventBus, runStore, options = {}) {
       timeline.splice(0, timeline.length - maxTimelineEntries);
     }
 
-    if (String(evt?.name || "").includes("todo.")) upsertTodo(todosById, evt);
+    if (isTodoEvent(evt?.name)) upsertTodo(todosById, evt);
 
     const runId = toNonEmptyString(evt?.runId) || toNonEmptyString(bus?.runId);
     if (!runId) return;
-    pending = pending.then(() => store.appendEvent(runId, evt)).catch((err) => logger.warn("Telemetry append error", { error: err.message }));
+    pending = pending
+      .then(() => store.appendEvent(runId, evt))
+      .catch((err) => {
+        lastError = err;
+        logger.warn("Telemetry append error", { error: err.message });
+      });
   };
 
   const unsubscribe = bus.on("*", handler);
 
-  const flush = async () => pending;
+  /**
+   * Flush pending writes.
+   * @returns {Promise<void>} Resolves when all pending writes complete; rejects if the last write failed.
+   */
+  const flush = async () => {
+    await pending;
+    if (lastError) {
+      const err = lastError;
+      lastError = null;
+      throw err;
+    }
+  };
   const snapshot = () => ({ timeline: timeline.slice(), todos: [...todosById.values()] });
 
   return {

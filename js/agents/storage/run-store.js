@@ -228,6 +228,11 @@ export class RunStore {
     return this.prefix + runId + ":manifest";
   }
 
+  /**
+   * Save a task object to the store.
+   * @param {object} task - Task object with a `taskId` property.
+   * @returns {Promise<void>}
+   */
   async saveTask(task) {
     if (!task || typeof task !== "object") throw new Error("saveTask(task): task must be an object");
     const taskId = task.taskId;
@@ -246,6 +251,11 @@ export class RunStore {
     });
   }
 
+  /**
+   * Load a task object from the store.
+   * @param {string} taskId - The task identifier.
+   * @returns {Promise<object|null>} The task object or null if not found.
+   */
   async loadTask(taskId) {
     if (!taskId || typeof taskId !== "string") throw new Error("loadTask(taskId): taskId must be a string");
 
@@ -259,6 +269,12 @@ export class RunStore {
     return typeof data === "string" ? safeJsonParse(data, null) : data;
   }
 
+  /**
+   * Save run state to the store.
+   * @param {string} runId - The run identifier.
+   * @param {object} state - State object to persist (may have `.toJSON()` method).
+   * @returns {Promise<void>}
+   */
   async saveState(runId, state) {
     if (!runId || typeof runId !== "string") throw new Error("saveState(runId, state): runId must be a string");
     const payload = state && typeof state.toJSON === "function" ? state.toJSON() : state;
@@ -276,6 +292,11 @@ export class RunStore {
     });
   }
 
+  /**
+   * Load run state from the store.
+   * @param {string} runId - The run identifier.
+   * @returns {Promise<object|null>} The state object or null if not found.
+   */
   async loadState(runId) {
     if (!runId || typeof runId !== "string") throw new Error("loadState(runId): runId must be a string");
 

@@ -47,7 +47,24 @@ function buildToolList(tools) {
   return entries.map(([key, info]) => `- ${key}: ${info?.description || ""}`.trim()).join("\n");
 }
 
+/**
+ * Agent loop for interactive slide editing.
+ */
 export class EditModeAgentLoop {
+  /**
+   * @param {object} [options]
+   * @param {object} [options.tools] - Tool definitions (defaults to EditModeTools)
+   * @param {object} [options.sessionMachine] - State machine for edit session
+   * @param {object} [options.historyManager] - Undo/redo history manager
+   * @param {object} [options.modelRouter] - LLM model router for intent parsing
+   * @param {object} [options.canvasBridge] - Bridge to canvas rendering layer
+   * @param {object} [options.chat] - Chat interface for user communication
+   * @param {Function} [options.emit] - Event emitter function
+   * @param {Function} [options.intentParser] - Custom intent parser function
+   * @param {Function} [options.waitForUserAction] - Async function to await user action
+   * @param {Function} [options.toolExecutorFactory] - Factory for tool executor
+   * @param {number} [options.maxTurns] - Maximum edit turns (null for unlimited)
+   */
   constructor(options = {}) {
     this.tools = options.tools || EditModeTools;
     this.sessionMachine = options.sessionMachine || editSessionMachine;
@@ -62,6 +79,23 @@ export class EditModeAgentLoop {
     this.maxTurns = Number.isFinite(options.maxTurns) ? options.maxTurns : null;
   }
 
+  /**
+   * Run the edit loop until exit or maxTurns reached.
+   * @param {object} initialState - Initial deck state with slides array
+   * @param {object} [context] - Runtime context overrides
+   * @param {object} [context.historyManager] - Override history manager
+   * @param {object} [context.canvasBridge] - Override canvas bridge
+   * @param {object} [context.modelRouter] - Override model router
+   * @param {object} [context.chat] - Override chat interface
+   * @param {Function} [context.emit] - Override event emitter
+   * @param {Function} [context.intentParser] - Override intent parser
+   * @param {number} [context.maxTurns] - Override max turns
+   * @param {Array} [context.actions] - Pre-queued actions for testing
+   * @param {Function} [context.waitForUserAction] - Override action awaiter
+   * @param {object} [context.toolExecutor] - Override tool executor
+   * @param {Function} [context.onSessionTransition] - Session transition callback
+   * @returns {Promise<object>} Final deck state
+   */
   async run(initialState, context = {}) {
     const state = ensureState(initialState);
     const session = ensureSession(state);
@@ -120,7 +154,7 @@ export class EditModeAgentLoop {
       if (type === "element_selected") {
         selectedElement = action.elementId || action.id || null;
         state.selectedElementId = selectedElement;
-        if (typeof emit === "function") emit("edit.element.selected", { elementId: selectedElement });
+        if (typeof emit === "function") emit("edit:element.selected", { elementId: selectedElement });
         if (chat?.send) {
           await chat.send({
             message:
@@ -176,7 +210,7 @@ export class EditModeAgentLoop {
       if (context.state) context.state.editSessionStatus = session.status;
       if (typeof context.onSessionTransition === "function") context.onSessionTransition(from, to);
       if (typeof context.emit === "function") {
-        context.emit("edit.session.transition", { from, to });
+        context.emit("edit:session.transition", { from, to });
       }
     }
     return ok;
@@ -300,16 +334,32 @@ ${toolList}
     this._transitionSession(session, EditSessionStatus.PROCESSING, { state, emit, onSessionTransition });
 
     const userMessage = normalizeMessage(action);
-    const { currentDsl, screenshot } = await this._captureCanvasContext({ state, canvasBridge, toolExecutor });
-    const intent = await this._interpretIntent({
-      userMessage,
-      currentDsl,
-      screenshot,
-      state,
-      selectedElement,
-      modelRouter,
-      intentParser,
-    });
+
+    let currentDsl = "";
+    let screenshot = null;
+    let intent = null;
+
+    try {
+      const captured = await this._captureCanvasContext({ state, canvasBridge, toolExecutor });
+      currentDsl = captured.currentDsl;
+      screenshot = captured.screenshot;
+
+      intent = await this._interpretIntent({
+        userMessage,
+        currentDsl,
+        screenshot,
+        state,
+        selectedElement,
+        modelRouter,
+        intentParser,
+      });
+    } catch (captureError) {
+      if (chat?.send) {
+        await chat.send({ message: `解析失败: ${captureError.message || String(captureError)}` });
+      }
+      this._transitionSession(session, EditSessionStatus.AWAITING_INPUT, { state, emit, onSessionTransition });
+      return;
+    }
 
     if (intent?.needsClarification && chat?.send) {
       await chat.send({ message: intent.clarificationQuestion || "你能具体说说要怎么改吗？" });

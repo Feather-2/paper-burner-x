@@ -69,6 +69,10 @@ function dot(a, b) {
  * Intended for small collections (<~5000), e.g., runtime memory.
  */
 export class VectorIndex {
+  /**
+   * Create a new VectorIndex.
+   * @param {{ maxItems?: number }} [options] - Configuration options.
+   */
   constructor(options = {}) {
     const cfg = isPlainObject(options) ? options : {};
     this._maxItems = toPositiveInt(cfg.maxItems, 1000);
@@ -84,23 +88,44 @@ export class VectorIndex {
     return this._rows.size;
   }
 
+  /**
+   * Check if a vector exists in the index.
+   * @param {string} id - Vector identifier.
+   * @returns {boolean} True if the vector exists.
+   */
   has(id) {
     const key = toNonEmptyString(id);
     if (!key) return false;
     return this._rows.has(key);
   }
 
+  /**
+   * Clear all vectors from the index.
+   * @returns {void}
+   */
   clear() {
     this._rows.clear();
     this._dim = null;
   }
 
+  /**
+   * Delete a vector from the index.
+   * @param {string} id - Vector identifier.
+   * @returns {boolean} True if the vector was deleted.
+   */
   delete(id) {
     const key = toNonEmptyString(id);
     if (!key) return false;
     return this._rows.delete(key);
   }
 
+  /**
+   * Insert or update a vector in the index.
+   * @param {string} id - Vector identifier.
+   * @param {Float32Array|number[]|ArrayBufferView} vector - The vector to store.
+   * @param {*} [meta] - Optional metadata to associate with the vector.
+   * @returns {boolean} True if the operation succeeded.
+   */
   upsert(id, vector, meta) {
     const key = toNonEmptyString(id);
     if (!key) return false;

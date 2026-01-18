@@ -336,7 +336,14 @@ export class CRDTDocument {
         }
         {
           const counter = this._counters.get(op.field);
-          changed = counter instanceof PNCounter
+          const isPNOp = op.type?.startsWith('pn') || op.type === 'decrement';
+          const isPNCounter = counter instanceof PNCounter;
+          // 类型不一致：GCounter 收到 decrement，拒绝
+          if (isPNOp && !isPNCounter) {
+            // GCounter 无法处理 PNCounter 操作，跳过
+            return false;
+          }
+          changed = isPNCounter
             ? counter.apply(/** @type {any} */ (op))
             : counter.apply(/** @type {any} */ (op.op || op));
         }

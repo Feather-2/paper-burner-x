@@ -164,7 +164,7 @@ export async function runAutomatedRepair(repairTask, options = {}) {
       lastError = `Quality score ${refineResult.qualityScore} below threshold ${REPAIR_CONFIG.qualityThreshold}`;
     } catch (err) {
       lastError = err?.message || String(err);
-      emit?.("design.repair.error", {
+      emit?.("design:repair.error", {
         actor: "design",
         status: "error",
         payload: { retry, error: lastError },
@@ -208,7 +208,7 @@ export async function repairSlides(failedSlides, options = {}) {
     });
 
     // 发出进度事件
-    options.emit?.("design.repair.progress", {
+    options.emit?.("design:repair.progress", {
       actor: "design",
       status: "progress",
       payload: {

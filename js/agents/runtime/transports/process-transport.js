@@ -3,6 +3,10 @@
  *
  * 通过 stdio 与外部二进制通信 (Codex CLI, Playwright, etc.)
  * 支持 JSONL 双向消息流。
+ *
+ * @module
+ * @platform node - This module requires Node.js; do not import in browser bundles.
+ * Use conditional imports or package.json exports to prevent browser inclusion.
  */
 
 import { spawn } from "node:child_process";
@@ -45,6 +49,9 @@ export class ProcessTransport extends EventEmitter {
     this.process = null;
     this.buffer = "";
     this.connected = false;
+
+    /** @type {number} 最大缓冲区大小 (防 DoS) */
+    this._maxBufferSize = 1024 * 1024; // 1MB
     this._requestId = 0;
     /** @type {Map<string|number, { resolve: Function, reject: Function, timer: any }>} */
     this._pending = new Map();
@@ -58,6 +65,21 @@ export class ProcessTransport extends EventEmitter {
     if (this.connected) return;
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      let connectTimer = null;
+
+      const cleanup = () => {
+        if (connectTimer) clearTimeout(connectTimer);
+      };
+
+      const settle = (success, error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (success) resolve();
+        else reject(error);
+      };
+
       try {
         this.process = spawn(this.command, this.args, {
           cwd: this.cwd,
@@ -68,35 +90,43 @@ export class ProcessTransport extends EventEmitter {
 
         this.process.on("error", (err) => {
           this.connected = false;
-          this.emit("error", err);
-          reject(err);
+          this.emit("transport:error", err);
+          settle(false, err);
         });
 
         this.process.on("exit", (code, signal) => {
           this.connected = false;
           this._rejectAllPending(new Error(`Process exited: code=${code}, signal=${signal}`));
-          this.emit("exit", { code, signal });
+          this.emit("transport:exit", { code, signal });
+          // 如果进程在 connect 期间退出，拒绝 Promise
+          settle(false, new Error(`Process exited during connect: code=${code}, signal=${signal}`));
         });
 
         this.process.stdout?.on("data", (chunk) => {
           this.buffer += chunk.toString();
           this._processBuffer();
+          // 首次收到有效数据即视为就绪
+          if (!settled && !this.connected) {
+            this.connected = true;
+            this.emit("transport:connected");
+            settle(true);
+          }
         });
 
         this.process.stderr?.on("data", (chunk) => {
-          this.emit("stderr", chunk.toString());
+          this.emit("transport:stderr", chunk.toString());
         });
 
-        // 给进程一点启动时间
-        setTimeout(() => {
-          if (this.process && !this.process.killed) {
+        // 超时保底: 若 spawn 成功且未退出，也视为连接就绪
+        connectTimer = setTimeout(() => {
+          if (!settled && this.process && !this.process.killed) {
             this.connected = true;
-            this.emit("connected");
-            resolve();
+            this.emit("transport:connected");
+            settle(true);
           }
-        }, 50);
+        }, 100);
       } catch (err) {
-        reject(err);
+        settle(false, err);
       }
     });
   }
@@ -148,6 +178,15 @@ export class ProcessTransport extends EventEmitter {
    * @private
    */
   _processBuffer() {
+    // 防止 DoS: 超过阈值时截断并告警
+    if (this.buffer.length > this._maxBufferSize) {
+      this.emit("transport:buffer_overflow", {
+        size: this.buffer.length,
+        limit: this._maxBufferSize,
+      });
+      this.buffer = this.buffer.slice(-this._maxBufferSize / 2);
+    }
+
     const lines = this.buffer.split("\n");
     this.buffer = lines.pop() || "";
 
@@ -159,7 +198,7 @@ export class ProcessTransport extends EventEmitter {
         const message = JSON.parse(trimmed);
         this._handleMessage(message);
       } catch (err) {
-        this.emit("parse_error", { line: trimmed, error: err });
+        this.emit("transport:parse_error", { line: trimmed, error: err });
       }
     }
   }
@@ -185,7 +224,7 @@ export class ProcessTransport extends EventEmitter {
     }
 
     // 通知/事件消息
-    this.emit("message", message);
+    this.emit("transport:message", message);
 
     // 按 method 分发事件
     if (message.method) {
@@ -223,7 +262,7 @@ export class ProcessTransport extends EventEmitter {
     }
 
     this.process = null;
-    this.emit("disconnected");
+    this.emit("transport:disconnected");
   }
 
   /**

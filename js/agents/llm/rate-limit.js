@@ -45,6 +45,12 @@ function isAbortSignal(signal) {
   return !!signal && typeof signal === "object" && typeof signal.aborted === "boolean" && typeof signal.addEventListener === "function";
 }
 
+/**
+ * Normalizes rate limit configuration with defaults.
+ * @param {object} input - Raw configuration object.
+ * @param {object} [fallback={}] - Fallback defaults.
+ * @returns {{ enabled: boolean, rps: number, burst: number, concurrency: number, maxQueue: number }}
+ */
 export function normalizeRateLimitConfig(input, fallback = {}) {
   const base = isPlainObject(fallback) ? fallback : {};
   const raw = isPlainObject(input) ? input : {};
@@ -70,6 +76,12 @@ export function normalizeRateLimitConfig(input, fallback = {}) {
   return { enabled, rps, burst, concurrency, maxQueue };
 }
 
+/**
+ * Loads rate limit configuration from storage.
+ * Falls back to defaults if storage is unavailable or data is invalid.
+ * @param {{ storageKey?: string, storage?: Storage | null }} [options={}]
+ * @returns {{ enabled: boolean, rps: number, burst: number, concurrency: number, maxQueue: number }}
+ */
 export function loadRateLimitConfig({ storageKey = "paperburner_llm_rate_limit_v1", storage = null } = {}) {
   try {
     const store = isStorageLike(storage) ? storage : null;

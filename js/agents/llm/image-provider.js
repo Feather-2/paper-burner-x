@@ -388,10 +388,27 @@ export class ImageProvider {
 
 // ============ Factory Functions ============
 
+/**
+ * 创建 ImageProvider 实例
+ * @param {object} config - 配置对象
+ * @param {string} [config.provider] - 'gemini-image' | 'openai-image' | 'gemini' | 'openai'
+ * @param {string} [config.apiKey] - API 密钥
+ * @param {string} [config.model] - 模型 ID
+ * @param {string} [config.baseUrl] - 自定义 API 基础 URL
+ * @returns {ImageProvider}
+ */
 export function createImageProvider(config) {
   return new ImageProvider(config);
 }
 
+/**
+ * 从存储配置创建 ImageProvider
+ * @param {object} [options] - 配置选项
+ * @param {Storage|null} [options.storage] - 存储对象，默认 localStorage
+ * @param {((provider: string) => Array<{value: string, status?: string}>)|null} [options.keyLoader] - API 密钥加载器
+ * @param {string} [options.storageKey] - 存储键名
+ * @returns {ImageProvider}
+ */
 export function createImageProviderFromConfig({ storage, keyLoader, storageKey = IMAGE_PROVIDER_STORAGE_KEY } = {}) {
   let config = null;
   try {

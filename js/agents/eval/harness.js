@@ -283,9 +283,13 @@ export class EvalHarness {
       outcome = { error: errorObj };
       if (!recorder) {
         recorder = this._recordTranscript(null, task, trialIndex, options);
-        recorder.record("input", task.input, { taskId: task.id, trialIndex, description: task.description });
+        const taskId = task?.id ?? "unknown";
+        const taskInput = task?.input;
+        const taskDescription = task?.description;
+        recorder.record("input", taskInput, { taskId, trialIndex, description: taskDescription });
       }
-      recorder.record("error", errorObj, { taskId: task.id, trialIndex });
+      const taskId = task?.id ?? "unknown";
+      recorder.record("error", errorObj, { taskId, trialIndex });
     } finally {
       if (recorder) {
         recorder.transcript.endTime = now();

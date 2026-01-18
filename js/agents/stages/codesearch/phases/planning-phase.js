@@ -33,8 +33,8 @@ const logger = createLogger("stages/codesearch/phases/planning-phase");
  * @property {string=} query
  * @property {string=} taskGoal
  * @property {CodeSearchTodoLike[]=} todos
- * @property {(todo: CodeSearchTodoLike) => (CodeSearchTodoLike|null)=} addTodo
- * @property {(text: string) => void=} addObservation
+ * @property {(todo: CodeSearchTodoLike) => (CodeSearchTodoLike|null)} addTodo
+ * @property {(text: string) => void} addObservation
  *
  * @typedef {object} BudgetManagerLike
  * @property {(usage: { input: number, output: number }) => void=} recordUsage
@@ -124,7 +124,7 @@ export async function runPlanningPhase({
 
   const query = state.query || state.taskGoal || "分析代码库";
   logger.info("Starting planning phase", { query });
-  emit?.("codesearch.planning.started", { query });
+  emit?.("codesearch:planning_started", { query });
 
   const todoPrompt = CODESEARCH_TODO_PLANNER_PROMPT.replace("{QUERY}", query);
   const messages = [
@@ -143,7 +143,7 @@ export async function runPlanningPhase({
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn("Todo planning failed: model error", { error: message });
-    emit?.("codesearch.planning.failed", { error: message });
+    emit?.("codesearch:planning_failed", { error: message });
     return { success: false, todos: [], error: message };
   }
 
@@ -178,7 +178,7 @@ export async function runPlanningPhase({
   }
 
   state.addObservation(`[Planning] Todos created (${createdTodos.length})\n${formatOpenTodos(state.todos)}`);
-  emit?.("codesearch.planning.completed", { todoCount: createdTodos.length });
+  emit?.("codesearch:planning_completed", { todoCount: createdTodos.length });
 
   logger.info("Planning phase completed", { todoCount: createdTodos.length });
   return { success: true, todos: createdTodos };

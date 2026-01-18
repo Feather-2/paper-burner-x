@@ -134,6 +134,18 @@ function normalizeEncryptionConfig(input) {
   return { enabled, passphrase, required, aad, iterations };
 }
 
+/**
+ * Configure encryption for user skill store.
+ *
+ * @param {Object} [options] - Encryption configuration
+ * @param {boolean} [options.enabled] - Enable encryption
+ * @param {string} [options.passphrase] - Encryption passphrase
+ * @param {boolean} [options.required] - Throw if encryption unavailable
+ * @param {string} [options.aad] - Additional authenticated data
+ * @param {number} [options.iterations] - PBKDF2 iterations
+ * @returns {{ enabled: boolean, passphrase: string, required: boolean, aad: string, iterations: number, available: boolean }}
+ * @throws {Error} If required but passphrase missing or WebCrypto unavailable
+ */
 export function configureUserSkillStoreEncryption(options = {}) {
   const next = normalizeEncryptionConfig(options);
   if (next.enabled && !next.passphrase) {
@@ -269,6 +281,14 @@ async function hydrateFromLocalStorage() {
   }
 }
 
+/**
+ * Initialize user skill store (IndexedDB or localStorage fallback).
+ *
+ * @param {Object} [options] - Init options
+ * @param {boolean} [options.forceReload] - Force re-initialization
+ * @param {Object} [options.encryption] - Encryption config (passed to configureUserSkillStoreEncryption)
+ * @returns {Promise<{ ok: boolean, mode: 'indexeddb' | 'localstorage' | 'memory', count?: number }>}
+ */
 export async function initUserSkillStore({ forceReload = false } = {}) {
   // Optional: initUserSkillStore({ encryption: { passphrase, ... } })
   try {
@@ -343,11 +363,21 @@ export async function initUserSkillStore({ forceReload = false } = {}) {
   return _initPromise;
 }
 
+/**
+ * List all user skills metadata.
+ *
+ * @returns {Array<{ name: string, description: string, [key: string]: unknown }>}
+ */
 export function listUserSkills() {
   const index = loadUserSkillsIndex();
   return index.skills;
 }
 
+/**
+ * Load the user skills index from storage.
+ *
+ * @returns {{ schemaVersion: string, skills: Array<{ name: string, [key: string]: unknown }> }}
+ */
 export function loadUserSkillsIndex() {
   if (shouldUseIndexedDB()) {
     if (!_initDone) void initUserSkillStore().catch((err) => logger.debug("User store error", { error: err?.message }));
@@ -364,6 +394,12 @@ export function loadUserSkillsIndex() {
   return normalizeIndex(parsed);
 }
 
+/**
+ * Save the user skills index to storage.
+ *
+ * @param {{ schemaVersion?: string, skills: Array<{ name: string, [key: string]: unknown }> }} index
+ * @returns {boolean}
+ */
 export function saveUserSkillsIndex(index) {
   const normalized = normalizeIndex(index);
   MEMORY.index = normalized;
@@ -402,6 +438,12 @@ export function saveUserSkillsIndex(index) {
   return true;
 }
 
+/**
+ * Get the body content of a user skill.
+ *
+ * @param {string} name - Skill name
+ * @returns {string}
+ */
 export function getUserSkillBody(name) {
   const id = toNonEmptyString(name);
   if (!id) return "";
@@ -417,6 +459,13 @@ export function getUserSkillBody(name) {
   return String(localStorage.getItem(BODY_PREFIX + id) || "");
 }
 
+/**
+ * Set the body content of a user skill.
+ *
+ * @param {string} name - Skill name
+ * @param {string} body - Skill body content
+ * @returns {boolean}
+ */
 export function setUserSkillBody(name, body) {
   const id = toNonEmptyString(name);
   if (!id) return false;
@@ -458,7 +507,22 @@ export function setUserSkillBody(name, body) {
 }
 
 /**
- * @param {{ metadata?: Record<string, unknown>, body?: string }} [input]
+ * Upsert a user skill (create or update).
+ *
+ * @param {Object} input - Skill data
+ * @param {Object} input.metadata - Skill metadata (must include name and description)
+ * @param {string} input.metadata.name - Skill name
+ * @param {string} input.metadata.description - Skill description
+ * @param {string} [input.metadata.shortDescription] - Short description
+ * @param {string[]} [input.metadata.keywords] - Keywords for matching (any mode)
+ * @param {string[]} [input.metadata.keywordsAll] - Keywords for matching (all mode)
+ * @param {string} [input.metadata.allowedTools] - Comma-separated allowed tools
+ * @param {Record<string, string>} [input.metadata.tags] - Key-value tags
+ * @param {string[]} [input.metadata.traits] - Skill traits
+ * @param {number} [input.metadata.priority] - Priority (lower = higher)
+ * @param {string} [input.body] - Skill body content
+ * @returns {{ ok: boolean, name: string }}
+ * @throws {Error} If metadata.name or metadata.description is missing
  */
 export function upsertUserSkill({ metadata, body } = {}) {
   const meta = isPlainObject(metadata) ? metadata : {};
@@ -502,6 +566,12 @@ export function upsertUserSkill({ metadata, body } = {}) {
   return { ok: true, name };
 }
 
+/**
+ * Delete a user skill by name.
+ *
+ * @param {string} name - Skill name to delete
+ * @returns {boolean}
+ */
 export function deleteUserSkill(name) {
   const id = toNonEmptyString(name);
   if (!id) return false;
@@ -524,6 +594,11 @@ export function deleteUserSkill(name) {
   return true;
 }
 
+/**
+ * Clear all user skills.
+ *
+ * @returns {boolean}
+ */
 export function clearUserSkills() {
   const index = loadUserSkillsIndex();
   for (const s of index.skills) {

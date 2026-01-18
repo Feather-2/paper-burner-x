@@ -42,6 +42,12 @@ export class BinarySkillProvider {
     /** @type {Map<string, { transport: ProcessTransport, config: BinarySkillConfig }>} */
     this._connections = new Map();
     this._initialized = false;
+    /** @type {boolean} 关闭标记，阻止重连 */
+    this._shuttingDown = false;
+    /** @type {Map<string, number>} 重试次数 */
+    this._retryCount = new Map();
+    /** @type {number} 最大重试次数 */
+    this._maxRetries = 5;
   }
 
   /**
@@ -56,7 +62,7 @@ export class BinarySkillProvider {
     }
 
     this._initialized = true;
-    this._emit("binary.provider.ready", { skills: this.skills.map(s => s.name) });
+    this._emit("binary:provider:ready", { skills: this.skills.map(s => s.name) });
   }
 
   /**
@@ -74,34 +80,49 @@ export class BinarySkillProvider {
     });
 
     // 绑定事件
-    transport.on("message", (msg) => {
-      this._emit(`binary.${config.name}.message`, msg);
+    transport.on("transport:message", (msg) => {
+      this._emit(`binary:${config.name}:message`, msg);
       if (msg.method) {
-        this._emit(`binary.${config.name}.${msg.method}`, msg.params);
+        this._emit(`binary:${config.name}:${msg.method}`, msg.params);
       }
     });
 
-    transport.on("stderr", (text) => {
+    transport.on("transport:stderr", (text) => {
       this.logger?.debug?.(`[${config.name}] ${text}`);
     });
 
-    transport.on("exit", ({ code, signal }) => {
-      this._emit(`binary.${config.name}.exit`, { code, signal });
+    transport.on("transport:exit", ({ code, signal }) => {
+      this._emit(`binary:${config.name}:exit`, { code, signal });
       this._connections.delete(config.name);
 
-      if (config.autoReconnect) {
-        setTimeout(() => this._initSkill(config), 1000);
+      // 阻止重连：shutdown 或超过最大重试次数
+      if (config.autoReconnect && !this._shuttingDown) {
+        const retries = (this._retryCount.get(config.name) || 0) + 1;
+        if (retries > this._maxRetries) {
+          this.logger?.warn?.(`Max reconnect attempts for ${config.name}`);
+          this._retryCount.delete(config.name);
+          return;
+        }
+        this._retryCount.set(config.name, retries);
+        // 指数退避: 1s, 2s, 4s, 8s, 16s
+        const delay = Math.min(1000 * Math.pow(2, retries - 1), 16000);
+        setTimeout(() => {
+          if (this._shuttingDown) return;
+          this._initSkill(config).catch((err) => {
+            this.logger?.error?.(`Reconnect failed for ${config.name}`, err);
+          });
+        }, delay);
       }
     });
 
-    transport.on("error", (err) => {
-      this._emit(`binary.${config.name}.error`, { error: err.message });
+    transport.on("transport:error", (err) => {
+      this._emit(`binary:${config.name}:error`, { error: err.message });
     });
 
     try {
       await transport.connect();
       this._connections.set(config.name, { transport, config });
-      this._emit(`binary.${config.name}.connected`, {});
+      this._emit(`binary:${config.name}:connected`, {});
 
       // 注册到 ServiceBus
       if (this.serviceBus?.register) {
@@ -144,14 +165,14 @@ export class BinarySkillProvider {
       throw new Error(`Binary skill not found: ${skillName}`);
     }
 
-    this._emit(`binary.${skillName}.call`, { method, params });
+    this._emit(`binary:${skillName}:call`, { method, params });
 
     try {
       const result = await conn.transport.request(method, params);
-      this._emit(`binary.${skillName}.result`, { method, result });
+      this._emit(`binary:${skillName}:result`, { method, result });
       return result;
     } catch (err) {
-      this._emit(`binary.${skillName}.error`, { method, error: err.message });
+      this._emit(`binary:${skillName}:error`, { method, error: err.message });
       throw err;
     }
   }
@@ -197,13 +218,16 @@ export class BinarySkillProvider {
 
   /**
    * 关闭所有连接
+   * @returns {Promise<void>}
    */
   async shutdown() {
+    this._shuttingDown = true;
     for (const [name, { transport }] of this._connections) {
       transport.disconnect();
-      this._emit(`binary.${name}.disconnected`, {});
+      this._emit(`binary:${name}:disconnected`, {});
     }
     this._connections.clear();
+    this._retryCount.clear();
     this._initialized = false;
   }
 

@@ -215,17 +215,17 @@ export async function executeTool(name, args, context) {
       if (span && typeof span.recordException === "function") span.recordException(err);
       const msg = err instanceof Error ? err.message : String(err || "Unknown error");
       const errorName = err instanceof Error ? err.name : "Error";
-      const stack = err instanceof Error && typeof err.stack === "string" ? err.stack : null;
       const code =
         err && typeof err === "object" && "code" in err && (typeof err.code === "string" || typeof err.code === "number")
           ? err.code
           : null;
+      // Note: stack is intentionally omitted from the return to prevent information leakage.
+      // The span.recordException above captures the full error for internal debugging.
       return {
         success: false,
         error: msg,
         errorName,
         ...(code !== null ? { errorCode: code } : {}),
-        ...(stack ? { stack } : {}),
       };
     }
   };

@@ -422,6 +422,12 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
 
 /**
  * Backward-compatible alias for async-only retrieval.
+ *
+ * @param {{sourceId:string,chunks:Array<{chunkId:string,text:string,locator:any}>,toc?:any[],fullText?:string}} sourceIndex
+ * @param {Array<any>} gaps
+ * @param {object=} config
+ * @returns {Promise<Array<{chunkId:string,sourceId:string,locator:any,text:string,score?:number,relevance?:string,matchedGapIds?:string[]}>>}
+ * @see retrieve
  */
 export async function retrieveAsync(sourceIndex, gaps, config = {}) {
   return retrieve(sourceIndex, gaps, config);

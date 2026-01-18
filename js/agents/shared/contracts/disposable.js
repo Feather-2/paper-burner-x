@@ -40,7 +40,11 @@ export async function safeDispose(obj, options = {}) {
   } catch (e) {
     const error = e instanceof Error ? e : new Error(String(e));
     if (typeof options.onError === "function") {
-      options.onError(error);
+      try {
+        options.onError(error);
+      } catch {
+        // 吞掉 onError 回调异常，保持 safeDispose 永不抛错
+      }
     } else {
       console.warn("[safeDispose] error:", error.message);
     }
@@ -91,9 +95,16 @@ export async function using(resource, fn) {
 }
 
 /**
+ * @typedef {Object} CompositeDisposable
+ * @property {boolean} disposed - 是否已释放
+ * @property {() => Promise<void>} dispose - 释放所有资源
+ * @property {(d: Disposable | (() => void | Promise<void>)) => void} add - 添加新的 disposable
+ */
+
+/**
  * 创建复合 Disposable（组合多个资源）
  * @param {Array<Disposable | (() => void | Promise<void>)>} disposables
- * @returns {Disposable}
+ * @returns {CompositeDisposable}
  */
 export function createCompositeDisposable(disposables) {
   let disposed = false;

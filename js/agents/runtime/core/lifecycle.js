@@ -44,6 +44,10 @@ import { AgentStatus } from "./agent-status.js";
 
 /**
  * 标准事件 payload 格式
+ * @param {string} actor - Actor 名称
+ * @param {string} status - 状态标识
+ * @param {Object} [data={}] - 附加数据
+ * @returns {{ timestamp: number } & Object} 带时间戳的 payload
  */
 export function createEventPayload(actor, status, data = {}) {
   // NOTE: payload is nested under EventRecord.payload; actor/status live on the record.
@@ -53,6 +57,12 @@ export function createEventPayload(actor, status, data = {}) {
 
 /**
  * 创建阶段转换事件 payload
+ * @param {string} actor - Actor 名称
+ * @param {string} from - 源阶段
+ * @param {string} to - 目标阶段
+ * @param {string} runId - 运行 ID
+ * @param {Object} [extra={}] - 附加数据
+ * @returns {{ timestamp: number, runId: string, from: string, to: string } & Object}
  */
 export function createPhaseTransitionPayload(actor, from, to, runId, extra = {}) {
   return createEventPayload(actor, "progress", { runId, from, to, ...extra });
@@ -60,6 +70,12 @@ export function createPhaseTransitionPayload(actor, from, to, runId, extra = {})
 
 /**
  * 创建 Agent 状态变更事件 payload
+ * @param {string} actor - Actor 名称
+ * @param {string} from - 源状态
+ * @param {string} to - 目标状态
+ * @param {string} runId - 运行 ID
+ * @param {Object} [extra={}] - 附加数据
+ * @returns {{ timestamp: number, runId: string, from: string, to: string } & Object}
  */
 export function createStatusChangePayload(actor, from, to, runId, extra = {}) {
   return createEventPayload(actor, "info", { runId, from, to, ...extra });
@@ -67,6 +83,12 @@ export function createStatusChangePayload(actor, from, to, runId, extra = {}) {
 
 /**
  * 创建步骤事件 payload
+ * @param {string} actor - Actor 名称
+ * @param {number} step - 当前步骤
+ * @param {number} total - 总步骤数
+ * @param {string} status - 状态标识
+ * @param {Object} [extra={}] - 附加数据
+ * @returns {{ timestamp: number, step: number, total: number } & Object}
  */
 export function createStepPayload(actor, step, total, status, extra = {}) {
   return createEventPayload(actor, status, { step, total, ...extra });
@@ -74,25 +96,28 @@ export function createStepPayload(actor, step, total, status, extra = {}) {
 
 /**
  * 生命周期事件名生成器
+ * @param {string} actor - Actor 名称
+ * @param {string} event - 事件类型
+ * @returns {string} 格式化的事件名 (domain:action)
  */
 export function lifecycleEvent(actor, event) {
-  return `${actor}.${event}`;
+  return `${actor}:${event}`;
 }
 
 /**
  * 标准生命周期事件名
  */
 export const LifecycleEventNames = {
-  started: (actor) => `${actor}.started`,
-  completed: (actor) => `${actor}.completed`,
-  failed: (actor) => `${actor}.failed`,
-  paused: (actor) => `${actor}.paused`,
-  resumed: (actor) => `${actor}.resumed`,
-  statusChanged: (actor) => `${actor}.agent.status.changed`,
-  phaseTransition: (actor) => `${actor}.phase.transition`,
-  stepStarted: (actor) => `${actor}.step.started`,
-  stepCompleted: (actor) => `${actor}.step.completed`,
-  stepFailed: (actor) => `${actor}.step.failed`,
+  started: (actor) => `${actor}:started`,
+  completed: (actor) => `${actor}:completed`,
+  failed: (actor) => `${actor}:failed`,
+  paused: (actor) => `${actor}:paused`,
+  resumed: (actor) => `${actor}:resumed`,
+  statusChanged: (actor) => `${actor}:agent:status:changed`,
+  phaseTransition: (actor) => `${actor}:phase:transition`,
+  stepStarted: (actor) => `${actor}:step:started`,
+  stepCompleted: (actor) => `${actor}:step:completed`,
+  stepFailed: (actor) => `${actor}:step:failed`,
 };
 
 function uniqStrings(values) {
@@ -159,10 +184,10 @@ export function createLifecycleEmitter({ actor, emit, eventBus }) {
     return out;
   };
 
-  const startedEventNames = uniqStrings([LifecycleEventNames.started(actor), `${actor}.agent.started`]);
-  const failedEventNames = uniqStrings([LifecycleEventNames.failed(actor), `${actor}.agent.failed`]);
-  const pausedEventNames = uniqStrings([LifecycleEventNames.paused(actor), `${actor}.agent.paused`]);
-  const resumedEventNames = uniqStrings([LifecycleEventNames.resumed(actor), `${actor}.agent.resumed`]);
+  const startedEventNames = uniqStrings([LifecycleEventNames.started(actor), `${actor}:agent:started`]);
+  const failedEventNames = uniqStrings([LifecycleEventNames.failed(actor), `${actor}:agent:failed`]);
+  const pausedEventNames = uniqStrings([LifecycleEventNames.paused(actor), `${actor}:agent:paused`]);
+  const resumedEventNames = uniqStrings([LifecycleEventNames.resumed(actor), `${actor}:agent:resumed`]);
 
   return {
     started: (runId, extra = {}) => {
@@ -172,12 +197,12 @@ export function createLifecycleEmitter({ actor, emit, eventBus }) {
 
     completed: (runId, extra = {}) => {
       const payload = createEventPayload(actor, "completed", { runId, ...extra });
-      emitMany([LifecycleEventNames.completed(actor), `${actor}.agent.completed`], recordOf({ status: "completed", payload, runId }));
+      emitMany([LifecycleEventNames.completed(actor), `${actor}:agent:completed`], recordOf({ status: "completed", payload, runId }));
 
-      // Design: legacy completion event is `design.ended` with status `ended` and no runId in payload.
+      // Design: legacy completion event is `design:ended` with status `ended` and no runId in payload.
       if (actor === "design") {
         const legacyPayload = createEventPayload(actor, "ended", { ...extra });
-        emitRecord(`${actor}.ended`, recordOf({ status: "ended", payload: legacyPayload }));
+        emitRecord(`${actor}:ended`, recordOf({ status: "ended", payload: legacyPayload }));
       }
     },
 
@@ -236,6 +261,9 @@ export function createLifecycleEmitter({ actor, emit, eventBus }) {
 
 /**
  * 检查是否可以进行状态转换
+ * @param {string} from - 源状态
+ * @param {string} to - 目标状态
+ * @returns {boolean} 是否允许转换
  */
 export function canTransitionStatus(from, to) {
   const validTransitions = {
@@ -252,6 +280,11 @@ export function canTransitionStatus(from, to) {
 
 /**
  * 断言状态转换有效
+ * @param {string} from - 源状态
+ * @param {string} to - 目标状态
+ * @param {string} [actor="unknown"] - Actor 名称（用于错误消息）
+ * @returns {void}
+ * @throws {Error} 如果状态转换无效
  */
 export function assertValidTransition(from, to, actor = "unknown") {
   if (!canTransitionStatus(from, to)) {

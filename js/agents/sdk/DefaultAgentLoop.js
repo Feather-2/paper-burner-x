@@ -282,8 +282,10 @@ export class DefaultAgentLoop extends BaseAgentLoop {
   }
 
   /**
-   * @param {any} input
-   * @param {StageApiLike} [stageApi]
+   * Run the agent loop with the given input.
+   * @param {any} input - Query string, tool request, or run config object
+   * @param {StageApiLike} [stageApi] - Stage API context (model caller, signal, emit, etc.)
+   * @returns {Promise<{ success: boolean, mode: string, output?: string, error?: string, toolCalls?: any[], iterations?: number, parsed?: boolean }>}
    */
   async run(input, stageApi = {}) {
     /** @type {StageApiLike} */
@@ -458,7 +460,7 @@ export class DefaultAgentLoop extends BaseAgentLoop {
         runtimeState.lastCheckpointId = saved.checkpointId;
       }
 
-      emit?.("archive.checkpoint.saved", {
+      emit?.("archive:checkpointSaved", {
         runId,
         checkpointId: saved?.checkpointId,
         iteration: iteration ?? undefined,
@@ -471,11 +473,20 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       checkCancelled(signal);
       await this.flushCompression?.();
 
-      const resp = await runWithMiddleware(
-        "callModel",
-        (ctx) => callModel(Array.isArray(ctx.messages) ? ctx.messages : this.messages, { signal: ctx.signal }),
-        { messages: this.messages }
-      );
+      let resp;
+      try {
+        resp = await runWithMiddleware(
+          "callModel",
+          (ctx) => callModel(Array.isArray(ctx.messages) ? ctx.messages : this.messages, { signal: ctx.signal }),
+          { messages: this.messages }
+        );
+      } catch (modelError) {
+        const errorMsg = modelError instanceof Error ? modelError.message : String(modelError ?? "");
+        (api.logger ?? this.logger)?.error?.(`[DefaultAgentLoop] Model call failed at iteration ${i + 1}: ${errorMsg}`);
+        await saveCheckpoint({ iteration: i + 1, status: "model_error", output: errorMsg, force: true });
+        emit?.("agent:modelError", { iteration: i + 1, error: errorMsg });
+        throw modelError;
+      }
       const content = extractContent(resp);
       this.addMessage({ role: "assistant", content });
       results.push({ kind: "model", iteration: i + 1, content });
@@ -524,7 +535,16 @@ export class DefaultAgentLoop extends BaseAgentLoop {
         const executeAction = async (step) => {
           const action = toNonEmptyString(step.action) || "complete";
           const args = isPlainObject(step.args) ? step.args : {};
-          const result = await runWithMiddleware(`tool:${action}`, (ctx) => toolExecutor(action, args, ctx), { tool: action, args });
+          let result;
+          try {
+            result = await runWithMiddleware(`tool:${action}`, (ctx) => toolExecutor(action, args, ctx), { tool: action, args });
+          } catch (toolError) {
+            const errorMsg = toolError instanceof Error ? toolError.message : String(toolError ?? "");
+            (baseCtx.logger ?? this.logger)?.error?.(`[DefaultAgentLoop] Tool ${action} failed: ${errorMsg}`);
+            emit?.("agent:toolError", { tool: action, args, error: errorMsg, iteration: i + 1 });
+            // Return error result instead of throwing to allow loop to continue/checkpoint
+            return { action, args, result: { ok: false, error: errorMsg } };
+          }
           if (result?.ok && result?.dmail) {
             const logger = baseCtx.logger ?? this.logger;
             const manager = this.softBacktrackManager;
@@ -542,7 +562,7 @@ export class DefaultAgentLoop extends BaseAgentLoop {
               logger?.warn?.("[DefaultAgentLoop] D-Mail signal received without softBacktrackManager", { action, dmail: result.dmail });
             }
             if (typeof emit === "function") {
-              emit("agent.dmail_processed", { action, dmail: result.dmail, result: dmailResult });
+              emit("agent:dmailProcessed", { action, dmail: result.dmail, result: dmailResult });
             }
             if (!dmailResult || dmailResult.success !== false) {
               logger?.info?.("[DefaultAgentLoop] D-Mail processed", { action, dmail: result.dmail, result: dmailResult });

@@ -80,6 +80,12 @@ function truncate(text, maxLen = 200) {
 // Initial State Factory
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Create initial state for StateEngine.
+ * @param {object} [options] - Options
+ * @param {string} [options.runId] - Run ID (auto-generated if not provided)
+ * @returns {object} Initial state object with L0-L3 layers
+ */
 export function createInitialState(options = {}) {
   return {
     // Metadata
@@ -136,6 +142,13 @@ export function createInitialState(options = {}) {
 // Reducers (Pure Functions)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * L0 layer reducer.
+ * @param {object} state - Current state
+ * @param {object} action - Action with type and payload
+ * @returns {object} Next state
+ * @private
+ */
 function reduceL0(state, action) {
   const L0 = state.L0;
   const { type, payload } = action;
@@ -209,6 +222,13 @@ function reduceL0(state, action) {
   }
 }
 
+/**
+ * L1 layer reducer.
+ * @param {object} state - Current state
+ * @param {object} action - Action with type and payload
+ * @returns {object} Next state
+ * @private
+ */
 function reduceL1(state, action) {
   const L1 = state.L1;
   const { type, payload } = action;
@@ -365,6 +385,13 @@ function reduceL1(state, action) {
   }
 }
 
+/**
+ * L2 layer reducer.
+ * @param {object} state - Current state
+ * @param {object} action - Action with type and payload
+ * @returns {object} Next state
+ * @private
+ */
 function reduceL2(state, action) {
   const L2 = state.L2;
   const { type, payload } = action;
@@ -442,6 +469,13 @@ function reduceL2(state, action) {
   }
 }
 
+/**
+ * L3 layer reducer.
+ * @param {object} state - Current state
+ * @param {object} action - Action with type and payload
+ * @returns {object} Next state
+ * @private
+ */
 function reduceL3(state, action) {
   const L3 = state.L3;
   const { type, payload } = action;
@@ -502,6 +536,12 @@ function reduceL3(state, action) {
 // Root Reducer
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Root reducer - dispatches to layer reducers.
+ * @param {object} state - Current state
+ * @param {object} action - Action with type and payload
+ * @returns {object} Next state
+ */
 function rootReducer(state, action) {
   const { type, payload } = action;
 
@@ -995,7 +1035,7 @@ export class StateEngine extends DisposableBase {
     if (!this._eventBus?.emit) return;
 
     const layer = getActionLayer(action.type);
-    this._eventBus.emit("state.changed", {
+    this._eventBus.emit("state:changed", {
       action: {
         type: action.type,
         layer,
@@ -1020,7 +1060,7 @@ export class StateEngine extends DisposableBase {
       if (layer) layers.add(layer);
     }
 
-    this._eventBus.emit("state.batch_changed", {
+    this._eventBus.emit("state:batchChanged", {
       actions: actions.map(a => ({
         type: a.type,
         layer: getActionLayer(a.type),

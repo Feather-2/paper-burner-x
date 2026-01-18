@@ -4,10 +4,23 @@ import { createStorageAdapter } from "./storage-adapter.js";
 import { StorageVfs } from "./vfs.storage.js";
 
 /**
+ * @typedef {object} CreateBrowserVfsOptions
+ * @property {'memory'|'mem'|'opfs'|'storage'} [kind] - VFS backend type
+ * @property {string} [rootDirName] - Root directory name for OPFS
+ * @property {boolean} [preferOpfs] - Prefer OPFS over StorageAdapter (default: true)
+ * @property {boolean} [silent] - Suppress fallback warnings
+ * @property {string} [keyPrefix] - Key prefix for StorageVfs
+ * @property {import('./storage-adapter.js').StorageAdapter} [storageAdapter] - Custom storage adapter
+ */
+
+/**
  * Browser-only VFS entrypoint.
  *
  * - Prefers OPFS when available
  * - Falls back to StorageAdapter-backed VFS
+ *
+ * @param {CreateBrowserVfsOptions} [options] - VFS configuration options
+ * @returns {Promise<MemoryVfs | OpfsVfs | StorageVfs>}
  */
 export async function createVfs(options = {}) {
   const preferred = typeof options.kind === "string" ? options.kind.trim().toLowerCase() : "";

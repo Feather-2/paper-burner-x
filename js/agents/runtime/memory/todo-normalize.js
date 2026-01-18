@@ -5,6 +5,11 @@ function defaultGenerateId(prefix = "id") {
   return makeSecureTimestampedId(prefix);
 }
 
+/**
+ * Normalize todo status to canonical form.
+ * @param {any} value - Raw status value
+ * @returns {string} Normalized status ("pending", "completed", "in_progress", "cancelled", or original)
+ */
 export function normalizeTodoStatus(value) {
   const v = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (!v) return "pending";
@@ -14,6 +19,11 @@ export function normalizeTodoStatus(value) {
   return v;
 }
 
+/**
+ * Normalize todo priority to canonical form.
+ * @param {any} value - Raw priority value
+ * @returns {string} Normalized priority ("high", "medium", "low", or original)
+ */
 export function normalizeTodoPriority(value) {
   const v = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (v === "high" || v === "medium" || v === "low") return v;
@@ -24,11 +34,12 @@ export function normalizeTodoPriority(value) {
 /**
  * Normalize todo into a canonical object.
  *
- * @param {any} todo
+ * @param {any} todo - Raw todo input
  * @param {{
  *   generateId?: (prefix?: string) => string,
  *   fillTimestamps?: boolean,
- * }} [options]
+ * }} [options] - Options
+ * @returns {object} Normalized todo object
  */
 export function normalizeTodoEntry(todo, options = {}) {
   const raw = isPlainObject(todo) ? todo : { text: String(todo ?? "") };
@@ -74,6 +85,11 @@ export function normalizeTodoEntry(todo, options = {}) {
   return out;
 }
 
+/**
+ * Normalize todo in place (mutates input).
+ * @param {object} todo - Todo object to normalize
+ * @returns {object|null} The normalized todo or null if invalid
+ */
 export function normalizeTodoInPlace(todo) {
   if (!todo || typeof todo !== "object") return null;
 

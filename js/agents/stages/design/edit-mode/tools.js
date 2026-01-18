@@ -146,7 +146,7 @@ function emitStyleWarning(context, deviations) {
   const emit = context?.emit;
   if (typeof emit !== 'function') return;
 
-  emit('edit.style.deviation', {
+  emit('edit:style.deviation', {
     actor: 'design',
     status: 'warning',
     payload: {
@@ -661,6 +661,17 @@ const TOOL_HANDLERS = {
   [EditOperationType.REDO]: applyRedo,
 };
 
+/**
+ * Create a tool executor bound to the given context.
+ * @param {object} [context] - Execution context
+ * @param {object} [context.state] - Current deck state
+ * @param {object} [context.historyManager] - History manager for undo/redo
+ * @param {object} [context.canvasBridge] - Canvas bridge for screenshot/DSL
+ * @param {Function} [context.emit] - Event emitter function
+ * @param {Function} [context.idGenerator] - Custom element ID generator
+ * @param {Function} [context.slideIdGenerator] - Custom slide ID generator
+ * @returns {Function} Async function (toolName, params) => { success, data?, error? }
+ */
 export function createEditToolExecutor(context = {}) {
   const ctx = isPlainObject(context) ? context : {};
   return async function executeEditTool(toolName, params = {}) {

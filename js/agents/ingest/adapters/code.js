@@ -1,5 +1,6 @@
 import { BaseAdapter, toNonEmptyString } from "./base.js";
 import { SourceKind } from "../constants.js";
+import { basenameOfPath, readTextFromPath as nodeReadTextFromPath } from "./node-io.js";
 
 // 支持的代码文件扩展名 -> 语言映射
 const EXT_TO_LANG = {
@@ -113,19 +114,8 @@ function isBlockedFile(filename) {
   return SENSITIVE_PATTERNS.some(p => p.test(name));
 }
 
-async function basenameOfPath(path) {
-  const { basename } = await import("node:path");
-  return basename(path);
-}
-
 async function readTextFromPath(path) {
-  const { readFile, stat } = await import("node:fs/promises");
-  const stats = await stat(path);
-  if (stats.size > MAX_FILE_SIZE) {
-    throw new Error(`File too large: ${stats.size} bytes (max ${MAX_FILE_SIZE})`);
-  }
-  const buf = await readFile(path);
-  return { text: buf.toString("utf8"), size: buf.length };
+  return nodeReadTextFromPath(path, { maxBytes: MAX_FILE_SIZE });
 }
 
 function decodeUtf8(data) {
@@ -149,14 +139,17 @@ export class CodeAdapter extends BaseAdapter {
   }
 
   /**
-   * Check if a file is a supported code file
+   * Check if a file is a supported code file.
+   * @param {string} filename - Filename to check
+   * @returns {boolean} True if file extension is supported and not blocked
    */
   static isSupported(filename) {
     return isSupportedCodeFile(filename) && !isBlockedFile(filename);
   }
 
   /**
-   * Get supported extensions list
+   * Get list of supported file extensions.
+   * @returns {string[]} Array of supported extensions (e.g., ['.js', '.py', '.ts'])
    */
   static getSupportedExtensions() {
     return Object.keys(EXT_TO_LANG);
@@ -235,7 +228,11 @@ export class CodeAdapter extends BaseAdapter {
   }
 
   /**
-   * Build markdown from code with optional comment extraction
+   * Build markdown from code with optional comment extraction.
+   * @param {string} filename - Source filename for title
+   * @param {string} code - Source code content
+   * @param {string} lang - Language identifier for syntax highlighting
+   * @returns {string} Formatted markdown with title, doc comment, and code block
    */
   buildMarkdown(filename, code, lang) {
     const parts = [];
@@ -264,7 +261,11 @@ export class CodeAdapter extends BaseAdapter {
   }
 
   /**
-   * Extract leading doc comment from code
+   * Extract leading doc comment from code.
+   * Supports JSDoc, C-style block comments, Python/Ruby docstrings, and line comments.
+   * @param {string} code - Source code content
+   * @param {string} lang - Language identifier (e.g., 'python', 'ruby', 'javascript')
+   * @returns {string|null} Extracted doc comment text, or null if none found
    */
   extractDocComment(code, lang) {
     const lines = code.split("\n");

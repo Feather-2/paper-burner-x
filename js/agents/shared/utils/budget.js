@@ -144,6 +144,8 @@ export class BudgetManager {
 
 /**
  * 创建 budget 管理器的工厂函数
+ * @param {{ budget?: BudgetManagerOptions }} [userConfig] - User configuration containing optional budget settings.
+ * @returns {BudgetManager} A new BudgetManager instance.
  */
 export function createBudgetManager(userConfig = {}) {
   const budgetConfig = /** @type {any} */ (userConfig?.budget || {});

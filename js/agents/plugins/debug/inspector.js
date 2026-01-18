@@ -8,143 +8,167 @@ import { createPlugin } from '../../core/plugin.js';
 
 /** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
 
-export default createPlugin({
-  name: 'debug/inspector',
-  version: '1.0.0',
-  description: '运行时检查器 - 调试 API',
+/**
+ * @typedef {Object} KernelStatus
+ * @property {string} id - 内核 ID
+ * @property {string} phase - 当前阶段
+ * @property {number} uptime - 运行时间 (ms)
+ */
 
-  defaultConfig: {
-    enabled: true,
-    exposeGlobal: false,
-  },
+/**
+ * @typedef {Object} KernelSnapshot
+ * @property {string} id - 快照 ID
+ * @property {number} timestamp - 时间戳
+ * @property {Object} state - 状态数据
+ */
 
-  /**
-   * @param {PluginContext} ctx
-   * @returns {void}
-   */
-  install(ctx) {
-    if (!ctx.config.enabled) return;
+/**
+ * @typedef {Object} HealthCheckResult
+ * @property {boolean} healthy - 是否健康
+ * @property {string[]} issues - 问题列表
+ */
 
-    const inspector = {
-      // 内核信息
-      kernel: {
-        id: ctx._kernel.id,
+/**
+ * @typedef {Object} EventRecord
+ * @property {string} name - 事件名
+ * @property {unknown} payload - 事件载荷
+ * @property {number} timestamp - 时间戳
+ */
 
-        /**
-         * @returns {any}
-         */
-        status: () => ctx._kernel.status,
+/**
+ * @typedef {Object} WaitForResult
+ * @property {string} event - 事件名
+ * @property {unknown} data - 事件数据
+ */
 
-        /**
-         * @returns {any}
-         */
-        snapshot: () => ctx._kernel.snapshot(),
+/**
+ * @typedef {Object} StateChangeEntry
+ * @property {string} path - 状态路径
+ * @property {unknown} oldValue - 旧值
+ * @property {unknown} newValue - 新值
+ * @property {number} timestamp - 时间戳
+ */
 
-        /**
-         * @returns {Promise<any>}
-         */
-        healthCheck: () => ctx._kernel.healthCheck(),
-      },
+/**
+ * @typedef {Object} ServiceInfo
+ * @property {string} name - 服务名
+ * @property {string[]} methods - 方法列表
+ */
 
-      // 事件
-      events: {
+/**
+ * @typedef {Object} ServiceStats
+ * @property {number} calls - 调用次数
+ * @property {number} errors - 错误次数
+ * @property {number} avgTime - 平均耗时 (ms)
+ */
 
-        /**
-         * @param {string} [pattern]
-         * @returns {any[]}
-         */
-        history: (pattern) => ctx.events.getHistory(pattern),
+/**
+ * @typedef {Object} PluginInfo
+ * @property {string} name - 插件名
+ * @property {string} version - 版本号
+ */
 
-        /**
-         * @param {string} event
-         * @param {any} [data]
-         * @returns {any}
-         */
-        emit: (event, data) => ctx.events.emit(event, data),
+/**
+ * @typedef {Object} InspectorKernel
+ * @property {string} id - 内核 ID
+ * @property {() => KernelStatus} status - 获取状态
+ * @property {() => KernelSnapshot} snapshot - 导出快照
+ * @property {() => Promise<HealthCheckResult>} healthCheck - 健康检查
+ */
 
-        /**
-         * @param {string} pattern
-         * @param {number} [timeout]
-         * @returns {Promise<{ event: string, data: any }>}
-         */
-        waitFor: (pattern, timeout) => ctx.events.waitFor(pattern, timeout),
-      },
+/**
+ * @typedef {Object} InspectorEvents
+ * @property {(pattern?: string) => EventRecord[]} history - 事件历史
+ * @property {(event: string, data?: unknown) => void} emit - 发射事件
+ * @property {(pattern: string, timeout?: number) => Promise<WaitForResult>} waitFor - 等待事件
+ */
 
-      // 状态
-      state: {
+/**
+ * @typedef {Object} InspectorState
+ * @property {(path: string) => unknown} get - 获取状态
+ * @property {(path: string, value: unknown) => void} set - 设置状态
+ * @property {(id?: string | null) => string} snapshot - 创建快照
+ * @property {(id: string) => boolean} rollback - 回滚快照
+ * @property {(limit?: number) => StateChangeEntry[]} changeLog - 变更日志
+ */
 
-        /**
-         * @param {string} path
-         * @returns {any}
-         */
-        get: (path) => ctx.state.getGlobal(path),
+/**
+ * @typedef {Object} InspectorServices
+ * @property {() => ServiceInfo[]} list - 服务列表
+ * @property {(name: string, method: string, args?: unknown[]) => Promise<unknown>} call - 调用服务
+ * @property {(name?: string) => ServiceStats} stats - 服务统计
+ */
 
-        /**
-         * @param {string} path
-         * @param {any} value
-         * @returns {void}
-         */
-        set: (path, value) => ctx.state.set(path, value),
+/**
+ * @typedef {Object} InspectorPlugins
+ * @property {() => PluginInfo[]} list - 插件列表
+ */
 
-        /**
-         * @param {string | null} [id]
-         * @returns {string}
-         */
-        snapshot: (id) => ctx._kernel.state.snapshot(id),
+/**
+ * @typedef {Object} Inspector
+ * @property {InspectorKernel} kernel - 内核检查
+ * @property {InspectorEvents} events - 事件检查
+ * @property {InspectorState} state - 状态检查
+ * @property {InspectorServices} services - 服务检查
+ * @property {InspectorPlugins} plugins - 插件检查
+ * @property {() => void} help - 输出帮助信息
+ */
 
-        /**
-         * @param {string} id
-         * @returns {boolean}
-         */
-        rollback: (id) => ctx._kernel.state.rollback(id),
+/**
+ * 检查当前是否为开发环境
+ * @returns {boolean}
+ */
+function isDevelopmentEnv() {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env.NODE_ENV !== 'production';
+  }
+  if (typeof globalThis !== 'undefined' && globalThis.__DEV__ !== undefined) {
+    return !!globalThis.__DEV__;
+  }
+  return true; // 默认允许（调试插件本就用于开发）
+}
 
-        /**
-         * @param {number} [limit]
-         * @returns {any[]}
-         */
-        changeLog: (limit) => ctx._kernel.state.getChangeLog(limit),
-      },
+/**
+ * 构建 inspector 对象
+ * @param {PluginContext} ctx
+ * @returns {Inspector}
+ */
+function buildInspector(ctx) {
+  return {
+    kernel: {
+      id: ctx._kernel.id,
+      status: () => ctx._kernel.status,
+      snapshot: () => ctx._kernel.snapshot(),
+      healthCheck: () => ctx._kernel.healthCheck(),
+    },
 
-      // 服务
-      services: {
+    events: {
+      history: (pattern) => ctx.events.getHistory(pattern),
+      emit: (event, data) => ctx.events.emit(event, data),
+      waitFor: (pattern, timeout) => ctx.events.waitFor(pattern, timeout),
+    },
 
-        /**
-         * @returns {any[]}
-         */
-        list: () => ctx.services.list(),
+    state: {
+      get: (path) => ctx.state.getGlobal(path),
+      set: (path, value) => ctx.state.set(path, value),
+      snapshot: (id) => ctx._kernel.state.snapshot(id),
+      rollback: (id) => ctx._kernel.state.rollback(id),
+      changeLog: (limit) => ctx._kernel.state.getChangeLog(limit),
+    },
 
-        /**
-         * @param {string} name
-         * @param {string} method
-         * @param {any[]} [args]
-         * @returns {Promise<any>}
-         */
-        call: (name, method, args) => ctx.services.call(name, method, args),
+    services: {
+      list: () => ctx.services.list(),
+      call: (name, method, args) => ctx.services.call(name, method, args),
+      stats: (name) => ctx.services.getStats(name),
+    },
 
-        /**
-         * @param {string} [name]
-         * @returns {any}
-         */
-        stats: (name) => ctx.services.getStats(name),
-      },
+    plugins: {
+      list: () => ctx._kernel.getPlugins(),
+    },
 
-      // 插件
-      plugins: {
-
-        /**
-         * @returns {any[]}
-         */
-        list: () => ctx._kernel.getPlugins(),
-      },
-
-      // 便捷方法
-
-      /**
-       * @returns {void}
-       */
-      help: () => {
-        console.log(`
-🔍 Inspector API:
+    help: () => {
+      console.log(`
+Inspector API:
 
   inspector.kernel.status()       - 获取内核状态
   inspector.kernel.snapshot()     - 导出完整快照
@@ -163,19 +187,49 @@ export default createPlugin({
   inspector.services.stats()      - 调用统计
 
   inspector.plugins.list()        - 插件列表
-        `);
-      },
-    };
+      `);
+    },
+  };
+}
 
-    // 注册为服务
+/**
+ * 尝试暴露到全局（仅开发环境）
+ * @param {PluginContext} ctx
+ * @param {Inspector} inspector
+ */
+function tryExposeGlobal(ctx, inspector) {
+  if (!ctx.config.exposeGlobal) return;
+  if (typeof globalThis === 'undefined') return;
+
+  if (!isDevelopmentEnv()) {
+    ctx.log.warn('exposeGlobal disabled: non-development environment');
+    return;
+  }
+
+  globalThis.__kernelInspector = inspector;
+  ctx.log.info('Inspector exposed as globalThis.__kernelInspector');
+}
+
+export default createPlugin({
+  name: 'debug/inspector',
+  version: '1.0.0',
+  description: '运行时检查器 - 调试 API',
+
+  defaultConfig: {
+    enabled: true,
+    exposeGlobal: false,
+  },
+
+  /**
+   * @param {PluginContext} ctx
+   * @returns {void}
+   */
+  install(ctx) {
+    if (!ctx.config.enabled) return;
+
+    const inspector = buildInspector(ctx);
     ctx.registerService('inspector', inspector);
-
-    // 可选：暴露到全局
-    if (ctx.config.exposeGlobal && typeof globalThis !== 'undefined') {
-      globalThis.__kernelInspector = inspector;
-      ctx.log.info('Inspector exposed as globalThis.__kernelInspector');
-    }
-
+    tryExposeGlobal(ctx, inspector);
     ctx.log.info('Debug inspector plugin installed');
   },
 

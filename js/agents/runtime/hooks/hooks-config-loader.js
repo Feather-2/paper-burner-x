@@ -2,6 +2,9 @@ import DisposableBase from "../../shared/base/disposable-base.js";
 import HookRegistry, { HookEvent, HookType } from "./hook-registry.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 import { FileWatcher, isNativeWatchSupported } from "../../shared/utils/file-watcher.js";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/hooks/config-loader");
 
 /** @type {Set<string>} */
 const VALID_HOOK_EVENTS = new Set(Object.values(HookEvent));
@@ -94,7 +97,7 @@ export class HooksConfigLoader extends DisposableBase {
     /** @type {string} */
     this._lastHash = "";
 
-    /** @type {ReturnType<typeof setInterval> | null} */
+    /** @type {number | NodeJS.Timeout | null} */
     this._watchTimer = null;
 
     /** @type {FileWatcher | null} */
@@ -134,7 +137,7 @@ export class HooksConfigLoader extends DisposableBase {
       return this._parseConfigContent(text);
     } catch (err) {
       if (isMissingPathError(err)) return null;
-      console.warn(`[HooksConfigLoader] Failed to read hooks config: ${this._configPath}`, err);
+      logger.warn(`[HooksConfigLoader] Failed to read hooks config: ${this._configPath}`, err);
       return null;
     }
   }
@@ -150,38 +153,38 @@ export class HooksConfigLoader extends DisposableBase {
     try {
       this._registry.clear();
     } catch (err) {
-      console.warn("[HooksConfigLoader] Failed to clear hook registry", err);
+      logger.warn("[HooksConfigLoader] Failed to clear hook registry", err);
       return;
     }
 
     if (!config) return;
     if (!isPlainObject(config)) {
-      console.warn("[HooksConfigLoader] hooks.json root must be an object; ignoring");
+      logger.warn("[HooksConfigLoader] hooks.json root must be an object; ignoring");
       return;
     }
 
     const hooks = Array.isArray(config.hooks) ? config.hooks : null;
     if (!hooks) {
-      if (config.hooks !== undefined) console.warn("[HooksConfigLoader] hooks.json: 'hooks' must be an array; ignoring");
+      if (config.hooks !== undefined) logger.warn("[HooksConfigLoader] hooks.json: 'hooks' must be an array; ignoring");
       return;
     }
 
     for (let i = 0; i < hooks.length; i++) {
       const raw = hooks[i];
       if (!isPlainObject(raw)) {
-        console.warn(`[HooksConfigLoader] Skipping hooks[${i}]: expected an object`);
+        logger.warn(`[HooksConfigLoader] Skipping hooks[${i}]: expected an object`);
         continue;
       }
 
       const eventName = normalizeEventName(raw.event ?? raw.eventName ?? raw.event_name);
       if (!eventName) {
-        console.warn(`[HooksConfigLoader] Skipping hooks[${i}]: invalid 'event'`);
+        logger.warn(`[HooksConfigLoader] Skipping hooks[${i}]: invalid 'event'`);
         continue;
       }
 
       const type = toNonEmptyString(raw.type)?.toLowerCase();
       if (!type || !VALID_HOOK_TYPES.has(type)) {
-        console.warn(
+        logger.warn(
           `[HooksConfigLoader] Skipping hooks[${i}]: invalid 'type' (expected one of: ${Array.from(VALID_HOOK_TYPES).join(", ")})`
         );
         continue;
@@ -195,7 +198,7 @@ export class HooksConfigLoader extends DisposableBase {
       try {
         this._registry.register(eventName, def);
       } catch (err) {
-        console.warn(`[HooksConfigLoader] Skipping hooks[${i}]: failed to register`, err);
+        logger.warn(`[HooksConfigLoader] Skipping hooks[${i}]: failed to register`, err);
       }
     }
   }
@@ -262,7 +265,7 @@ export class HooksConfigLoader extends DisposableBase {
         vfs: this._vfs,
         pollIntervalMs: this._pollIntervalMs,
         onChange: () => {
-          this.reload().catch((err) => console.warn("[HooksConfigLoader] reload failed", err));
+          this.reload().catch((err) => logger.warn("[HooksConfigLoader] reload failed", err));
         },
       });
       await this._fileWatcher.start();
@@ -272,7 +275,7 @@ export class HooksConfigLoader extends DisposableBase {
     if (!this._pollIntervalMs) return;
     this._watchTimer = setInterval(() => {
       // Ensure errors do not surface as unhandled promise rejections.
-      this.reload().catch((err) => console.warn("[HooksConfigLoader] reload failed", err));
+      this.reload().catch((err) => logger.warn("[HooksConfigLoader] reload failed", err));
     }, this._pollIntervalMs);
   }
 
@@ -314,7 +317,7 @@ export class HooksConfigLoader extends DisposableBase {
     try {
       this._registry.clear();
     } catch (err) {
-      console.warn("[HooksConfigLoader] Failed to clear hook registry during dispose", err);
+      logger.warn("[HooksConfigLoader] Failed to clear hook registry during dispose", err);
     }
     await super.dispose();
   }
@@ -340,7 +343,7 @@ export class HooksConfigLoader extends DisposableBase {
       return { exists: true, content, mtimeMs };
     } catch (err) {
       if (isMissingPathError(err)) return { exists: false, content: "", mtimeMs: 0 };
-      console.warn(`[HooksConfigLoader] Failed to read hooks config: ${path}`, err);
+      logger.warn(`[HooksConfigLoader] Failed to read hooks config: ${path}`, err);
       return { exists: false, content: "", mtimeMs: 0 };
     }
   }
@@ -352,20 +355,29 @@ export class HooksConfigLoader extends DisposableBase {
     try {
       const parsed = JSON.parse(text);
       if (!isPlainObject(parsed)) {
-        console.warn(`[HooksConfigLoader] hooks config must be a JSON object: ${this._configPath}`);
+        logger.warn(`[HooksConfigLoader] hooks config must be a JSON object: ${this._configPath}`);
         return null;
       }
       return parsed;
     } catch (err) {
-      console.warn(`[HooksConfigLoader] Failed to parse hooks config JSON: ${this._configPath}`, err);
+      logger.warn(`[HooksConfigLoader] Failed to parse hooks config JSON: ${this._configPath}`, err);
       return null;
     }
   }
 }
 
 /**
+ * @typedef {object} HooksConfigLoaderOptions
+ * @property {any} vfs - VFS instance (required)
+ * @property {HookRegistry} registry - HookRegistry instance (required)
+ * @property {string=} configPath - Config path in VFS (default: '.agents/hooks.json')
+ * @property {number=} pollIntervalMs - Poll interval for hot reload (default: 2000)
+ * @property {boolean=} useNativeWatch - Prefer native fs.watch when available (default: true)
+ */
+
+/**
  * Factory helper.
- * @param {ConstructorParameters<typeof HooksConfigLoader>[0]} options
+ * @param {HooksConfigLoaderOptions} options
  * @returns {HooksConfigLoader}
  */
 export function createHooksConfigLoader(options) {

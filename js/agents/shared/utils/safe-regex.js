@@ -65,6 +65,10 @@ export function createSafeRegex(pattern, flags = "gu") {
 /**
  * Executes a regex match with a "timeout" parameter for API compatibility.
  * Note: JS regex execution is synchronous; we rely on pre-validation instead.
+ * @param {string} text - The text to search.
+ * @param {RegExp} regex - The regular expression to match against.
+ * @param {number} [timeoutMs=2000] - Timeout in milliseconds (for API compatibility, not enforced).
+ * @returns {RegExpMatchArray | null} The match result or null.
  */
 export function safeMatch(text, regex, timeoutMs = DEFAULT_TIMEOUT_MS) {
   void timeoutMs;

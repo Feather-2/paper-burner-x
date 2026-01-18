@@ -77,6 +77,11 @@ export function normalizeVfsPath(inputPath) {
   return parts.join("/");
 }
 
+/**
+ * Returns the directory portion of a VFS path.
+ * @param {string} inputPath - The path to process.
+ * @returns {string} Directory path, or empty string if no directory.
+ */
 export function dirnameVfsPath(inputPath) {
   const p = normalizeVfsPath(inputPath);
   if (!p) return "";
@@ -84,6 +89,11 @@ export function dirnameVfsPath(inputPath) {
   return idx >= 0 ? p.slice(0, idx) : "";
 }
 
+/**
+ * Returns the base name (final segment) of a VFS path.
+ * @param {string} inputPath - The path to process.
+ * @returns {string} Base name, or empty string if path is empty.
+ */
 export function basenameVfsPath(inputPath) {
   const p = normalizeVfsPath(inputPath);
   if (!p) return "";
@@ -91,6 +101,12 @@ export function basenameVfsPath(inputPath) {
   return idx >= 0 ? p.slice(idx + 1) : p;
 }
 
+/**
+ * Joins two VFS path segments.
+ * @param {string} base - Base path.
+ * @param {string} child - Child path to append.
+ * @returns {string} Combined path.
+ */
 export function joinVfsPath(base, child) {
   const b = normalizeVfsPath(base);
   const c = normalizeVfsPath(child);

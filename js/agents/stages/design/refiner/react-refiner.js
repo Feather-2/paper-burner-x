@@ -323,7 +323,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
         maxTokens: 8000,
       });
     } catch (err) {
-      emit?.("design.refine.step", { stepIndex, error: String(err?.message || err), phase: "model_call" }, { status: "error" });
+      emit?.("design:refine.step", { stepIndex, error: String(err?.message || err), phase: "model_call" }, { status: "error" });
       throw err;
     }
 
@@ -378,7 +378,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
         mode,
       };
       steps.push({ stepIndex, thought: undefined, observation, duration: Date.now() - startTime });
-      emit?.("design.refine.step", { stepIndex, observation, duration: Date.now() - startTime });
+      emit?.("design:refine.step", { stepIndex, observation, duration: Date.now() - startTime });
       onStep?.({ stepIndex, observation });
       continue;
     }
@@ -393,7 +393,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
         mode,
       };
       steps.push({ stepIndex, thought: parsedStep?.thought, observation, duration: Date.now() - startTime });
-      emit?.("design.refine.step", { stepIndex, thought: parsedStep?.thought, observation, duration: Date.now() - startTime }, { status: "warn" });
+      emit?.("design:refine.step", { stepIndex, thought: parsedStep?.thought, observation, duration: Date.now() - startTime }, { status: "warn" });
       onStep?.({ stepIndex, thought: parsedStep?.thought, observation });
       continue;
     }
@@ -420,7 +420,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
           observation,
           duration: Date.now() - startTime,
         });
-        emit?.("design.refine.step", { stepIndex, thought, tool: toolName, params, result: observation, duration: Date.now() - startTime }, { status: "warn" });
+        emit?.("design:refine.step", { stepIndex, thought, tool: toolName, params, result: observation, duration: Date.now() - startTime }, { status: "warn" });
         onStep?.({ stepIndex, thought, action: parsedStep.action, observation });
         continue;
       }
@@ -452,7 +452,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
         duration: Date.now() - startTime,
       });
 
-      emit?.("design.refine.step", { stepIndex, thought, tool: toolName, params, result: toolResult, duration: Date.now() - startTime });
+      emit?.("design:refine.step", { stepIndex, thought, tool: toolName, params, result: toolResult, duration: Date.now() - startTime });
       onStep?.({ stepIndex, thought, action: parsedStep.action, observation });
     }
 
@@ -472,9 +472,9 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
           observation,
           duration: Date.now() - startTime,
         });
-        emit?.("design.refine.step", { stepIndex, thought, finish: parsedStep.finish, observation, duration: Date.now() - startTime }, { status: "warn" });
+        emit?.("design:refine.step", { stepIndex, thought, finish: parsedStep.finish, observation, duration: Date.now() - startTime }, { status: "warn" });
         emit?.(
-          "design.refine.finish_rejected",
+          "design:refine.finish_rejected",
           { stepIndex, thought, finish: parsedStep.finish, reason: finishValidation.reason, duration: Date.now() - startTime },
           { status: "warn" }
         );
@@ -490,9 +490,9 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
         accepted: true,
         duration: Date.now() - startTime,
       });
-      emit?.("design.refine.step", { stepIndex, thought, finish: finalFinish, accepted: true, duration: Date.now() - startTime });
+      emit?.("design:refine.step", { stepIndex, thought, finish: finalFinish, accepted: true, duration: Date.now() - startTime });
 
-      emit?.("design.refine.finish_accepted", {
+      emit?.("design:refine.finish_accepted", {
         stepIndex,
         thought,
         qualityScore: finalFinish.qualityScore,
@@ -506,7 +506,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
   }
 
   if (!finalFinish) {
-    emit?.("design.refine.hard_limit", { stepCount: steps.length, hardLimit }, { status: "warn" });
+    emit?.("design:refine.hard_limit", { stepCount: steps.length, hardLimit }, { status: "warn" });
     finalFinish = { qualityScore: 6, remainingIssues: 99, refinements: [], aiDecided: false };
   }
 

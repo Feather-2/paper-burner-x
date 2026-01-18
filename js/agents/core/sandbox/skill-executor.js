@@ -885,6 +885,9 @@ export class SkillExecutor {
       });
 
       // 构建受限执行函数（best-effort；不是强安全边界）
+      // SECURITY: Fallback sandbox via new Function/with - TRUSTED-ONLY.
+      // This path is only reached when WASM sandbox is unavailable.
+      // Do not route untrusted input here; prefer WASM/Worker sandbox.
       const wrappedCode = `
         return (async function () {
           with (sandbox) {
@@ -893,7 +896,7 @@ export class SkillExecutor {
         }).call(sandbox);
       `;
 
-      // eslint-disable-next-line no-new-func
+      // eslint-disable-next-line no-new-func -- trusted-only fallback
       const fn = new Function('sandbox', wrappedCode);
 
       /** @type {ReturnType<typeof setTimeout> | null} */

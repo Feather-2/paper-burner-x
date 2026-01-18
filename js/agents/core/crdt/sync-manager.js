@@ -24,7 +24,7 @@ import { CRDTDocument } from './document.js';
 /** @typedef {{ type: 'crdt:peer-join', from: string, ts: number }} CRDTPeerJoinMessage */
 /** @typedef {{ type: 'crdt:peer-leave', from: string, ts: number }} CRDTPeerLeaveMessage */
 /** @typedef {CRDTOpMessage | CRDTSyncRequestMessage | CRDTSyncResponseMessage | CRDTPeerJoinMessage | CRDTPeerLeaveMessage} CRDTSyncMessage */
-/** @typedef {{ nodeId?: string, transport?: CRDTTransport, events?: CRDTEventBusLike }} CRDTSyncManagerOptions */
+/** @typedef {{ nodeId?: string, transport?: CRDTTransport, events?: CRDTEventBusLike, maxPendingOps?: number, maxOpsPerSync?: number, maxOpSize?: number }} CRDTSyncManagerOptions */
 /**
  * @typedef {{
  *   nodeId: string,
@@ -55,6 +55,14 @@ export class CRDTSyncManager {
     this._transport = options.transport;
     /** @type {CRDTEventBusLike | undefined} */
     this._events = options.events;
+
+    // 配额限制
+    /** @type {number} */
+    this._maxPendingOps = options.maxPendingOps || 500;
+    /** @type {number} */
+    this._maxOpsPerSync = options.maxOpsPerSync || 200;
+    /** @type {number} */
+    this._maxOpSize = options.maxOpSize || 65536; // 64KB per op
 
     // 文档注册表
     /** @type {Map<string, CRDTDocument>} */
@@ -160,11 +168,15 @@ export class CRDTSyncManager {
     if (this._connected && this._transport) {
       this._transport.send(message);
     } else {
-      // 离线时缓存
+      // 离线时缓存，超限丢弃最旧消息
+      if (this._pendingOps.length >= this._maxPendingOps) {
+        this._pendingOps.shift();
+        this._emit('pendingOverflow', { dropped: 1 });
+      }
       this._pendingOps.push(message);
     }
 
-    this._emit('op:sent', { docId, op });
+    this._emit('opSent', { docId, op });
   }
 
   /**
@@ -244,6 +256,26 @@ export class CRDTSyncManager {
   }
 
   /**
+   * 校验单条 op 的必需字段与大小
+   * @param {unknown} op
+   * @returns {boolean}
+   */
+  _validateOp(op) {
+    if (!op || typeof op !== 'object') return false;
+    const o = /** @type {Record<string, unknown>} */ (op);
+    // 必需字段
+    if (typeof o.field !== 'string' || typeof o.fieldType !== 'string') return false;
+    // 大小限制（序列化后）
+    try {
+      const size = JSON.stringify(op).length;
+      if (size > this._maxOpSize) return false;
+    } catch {
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * @param {CRDTOpMessage} message
    * @returns {void}
    */
@@ -251,9 +283,14 @@ export class CRDTSyncManager {
     const doc = this._documents.get(message.docId);
     if (!doc) return;
 
+    if (!this._validateOp(message.op)) {
+      this._emit('opRejected', { docId: message.docId, reason: 'invalid' });
+      return;
+    }
+
     const applied = doc.applyOp(/** @type {any} */ (message.op));
     if (applied) {
-      this._emit('op:applied', {
+      this._emit('opApplied', {
         docId: message.docId,
         op: message.op,
         from: message.from,
@@ -284,8 +321,19 @@ export class CRDTSyncManager {
     const doc = this._documents.get(message.docId);
     if (!doc) return;
 
-    const applied = doc.applyOps(/** @type {any} */ (message.ops));
-    this._emit('sync:complete', {
+    // 校验 ops 数组长度与各条结构
+    if (!Array.isArray(message.ops)) return;
+    if (message.ops.length > this._maxOpsPerSync) {
+      this._emit('syncRejected', { docId: message.docId, reason: 'tooManyOps', count: message.ops.length });
+      return;
+    }
+    const validOps = message.ops.filter(op => this._validateOp(op));
+    if (validOps.length !== message.ops.length) {
+      this._emit('syncPartial', { docId: message.docId, skipped: message.ops.length - validOps.length });
+    }
+
+    const applied = doc.applyOps(/** @type {any} */ (validOps));
+    this._emit('syncComplete', {
       docId: message.docId,
       applied,
       from: message.from,
@@ -298,7 +346,7 @@ export class CRDTSyncManager {
    */
   _handlePeerJoin(message) {
     this._peers.add(message.from);
-    this._emit('peer:join', { nodeId: message.from });
+    this._emit('peerJoin', { nodeId: message.from });
 
     // 向新节点发送所有文档的同步请求
     for (const docId of this._documents.keys()) {
@@ -312,7 +360,7 @@ export class CRDTSyncManager {
    */
   _handlePeerLeave(message) {
     this._peers.delete(message.from);
-    this._emit('peer:leave', { nodeId: message.from });
+    this._emit('peerLeave', { nodeId: message.from });
   }
 
   // ===== 连接管理 =====
@@ -425,8 +473,6 @@ export class CRDTSyncManager {
  * @returns {{ register: (nodeId: string) => CRDTTransport }}
  */
 export function createMemoryTransport() {
-  /** @type {Set<unknown>} */
-  const listeners = new Set();
   /** @type {Map<string, (message: CRDTSyncMessage) => void>} */
   const channels = new Map(); // nodeId → handler
 

@@ -282,7 +282,7 @@ async function discoverSkillsUnderRoot(rootPath, scope, outcome) {
           if (scope !== SkillScope.SYSTEM) {
             outcome.errors.push({
               path: fullPath,
-              message: err.message,
+              message: err instanceof Error ? err.message : String(err),
             });
           }
         }
@@ -401,14 +401,14 @@ export async function loadSkillsFromNexus(nexusProvider) {
       } catch (err) {
         outcome.errors.push({
           path: `nexus://${skill.name}`,
-          message: err.message,
+          message: err instanceof Error ? err.message : String(err),
         });
       }
     }
   } catch (err) {
     outcome.errors.push({
       path: "nexus://",
-      message: `Failed to connect to Nexus: ${err.message}`,
+      message: `Failed to connect to Nexus: ${err instanceof Error ? err.message : String(err)}`,
     });
   }
 

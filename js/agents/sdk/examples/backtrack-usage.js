@@ -19,7 +19,7 @@ const agent = createAgent({ actor: "traveler" })
 
 /**
  * 运行回溯演示
- * @returns {Promise<void>}
+ * @returns {Promise<void>} 执行回溯流程演示并输出日志
  */
 async function runDemo() {
     console.log("=== Agent Skill Catalog ===");
@@ -75,7 +75,12 @@ async function runDemo() {
     console.log(list.data);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// 如果直接运行 (Node.js 环境)
+if (
+    typeof process !== "undefined" &&
+    process.argv &&
+    import.meta.url === `file://${process.argv[1]}`
+) {
     runDemo().catch((error) => logger.error("runDemo failed", { error }));
 }
 

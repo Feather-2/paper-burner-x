@@ -49,6 +49,12 @@ export function validateRpcRequest(msg) {
     return { ok: false, error: "RpcRequest.type: required non-empty string" };
   }
 
+  // 校验 domain:action 格式
+  const typePattern = /^[a-z][a-zA-Z0-9]*:[a-z][a-zA-Z0-9]*$/;
+  if (!typePattern.test(type.trim())) {
+    return { ok: false, error: "RpcRequest.type: must be domain:action format" };
+  }
+
   return {
     ok: true,
     value: {

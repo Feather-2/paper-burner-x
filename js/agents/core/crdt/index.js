@@ -33,7 +33,20 @@ export const OpType = {
   REMOVE: 'remove',
 };
 
+/**
+ * @typedef {{ type: string, key: unknown, value: unknown, clock: LamportClockState, nodeId: string }} Op
+ */
+/** @typedef {{ seq: number, ts: number, id: string }} LamportClockState */
+
 // 创建操作
+/**
+ * 创建 CRDT 操作对象
+ * @param {string} type - 操作类型 (set/delete/increment/decrement/add/remove)
+ * @param {unknown} key - 操作的键或字段名
+ * @param {unknown} value - 操作的值
+ * @param {LamportClockState} [clock] - Lamport 时钟状态
+ * @returns {Op} 操作对象
+ */
 export function createOp(type, key, value, clock) {
   return {
     type,

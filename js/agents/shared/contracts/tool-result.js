@@ -48,7 +48,7 @@ export function validateToolResult(result) {
       success: hasExplicitFailure ? false : ok,
       data: obj.data,
       error: typeof obj.error === "string" ? obj.error : undefined,
-      meta: typeof obj.meta === "object" && obj.meta !== null
+      meta: typeof obj.meta === "object" && obj.meta !== null && !Array.isArray(obj.meta)
         ? /** @type {Record<string, unknown>} */ (obj.meta)
         : undefined,
     },
@@ -74,7 +74,7 @@ export function normalizeToolResult(raw) {
         success: false,
         data: obj.data,
         error: obj.error,
-        meta: typeof obj.meta === "object" && obj.meta !== null
+        meta: typeof obj.meta === "object" && obj.meta !== null && !Array.isArray(obj.meta)
           ? /** @type {Record<string, unknown>} */ (obj.meta)
           : undefined,
       };
@@ -85,7 +85,7 @@ export function normalizeToolResult(raw) {
         success: true,
         data: obj.data,
         error: undefined,
-        meta: typeof obj.meta === "object" && obj.meta !== null
+        meta: typeof obj.meta === "object" && obj.meta !== null && !Array.isArray(obj.meta)
           ? /** @type {Record<string, unknown>} */ (obj.meta)
           : undefined,
       };

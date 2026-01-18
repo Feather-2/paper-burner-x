@@ -12,8 +12,28 @@
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
 import { isNonRetryableError as isNonRetryableDesignError } from "../../shared/utils/error-classifier.js";
 
-/** @type {any} */
-const process = /** @type {any} */ (globalThis).process;
+/**
+ * Environment adapter - reads env vars from globalThis.process.env or import.meta.env.
+ * Falls back gracefully when neither is available (browser without polyfill).
+ * @returns {Record<string, string | undefined> | null}
+ */
+function getEnvAdapter() {
+  // Prefer import.meta.env (Vite/modern bundlers)
+  try {
+    // @ts-ignore - import.meta.env may not exist
+    if (typeof import.meta !== "undefined" && import.meta.env && typeof import.meta.env === "object") {
+      return /** @type {Record<string, string | undefined>} */ (import.meta.env);
+    }
+  } catch {
+    // import.meta not supported
+  }
+  // Fallback to globalThis.process.env (Node.js or bundler polyfill)
+  const proc = /** @type {any} */ (globalThis).process;
+  if (proc && typeof proc === "object" && proc.env && typeof proc.env === "object") {
+    return proc.env;
+  }
+  return null;
+}
 
 /**
  * Error class for non-retryable errors (config missing, auth failed, etc.)
@@ -75,14 +95,14 @@ function isTruthyEnvFlag(value) {
 }
 
 function isProductionEnv() {
-  const env = typeof process !== "undefined" ? process.env : null;
+  const env = getEnvAdapter();
   const nodeEnv = env && typeof env.NODE_ENV === "string" ? env.NODE_ENV : "";
   return String(nodeEnv).trim().toLowerCase() === "production";
 }
 
 function isDebugEnabled() {
   if (isProductionEnv()) return false;
-  const env = typeof process !== "undefined" ? process.env : null;
+  const env = getEnvAdapter();
   return isTruthyEnvFlag(env?.DEBUG_DESIGN_MODEL);
 }
 
@@ -113,7 +133,7 @@ function abortErrorFromSignal(signal) {
 }
 
 function readEnvTimeoutMs() {
-  const env = typeof process !== "undefined" ? process.env : null;
+  const env = getEnvAdapter();
   const raw = env?.DESIGN_MODEL_TIMEOUT_MS;
   const s = typeof raw === "string" ? raw.trim() : raw == null ? "" : String(raw).trim();
   if (!s) return DEFAULT_TIMEOUT_MS;

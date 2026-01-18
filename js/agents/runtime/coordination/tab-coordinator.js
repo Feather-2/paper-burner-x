@@ -13,12 +13,17 @@ import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.
  */
 
 /**
+ * @typedef {Object} LoggerLike
+ * @property {(...args: unknown[]) => void} [warn]
+ */
+
+/**
  * @typedef {Object} TabCoordinatorOptions
  * @property {string} [channelName]
  * @property {number} [heartbeatMs]
  * @property {(sessionId: string) => void} [onEviction]
  * @property {(sessionId: string) => void} [onAccess]
- * @property {any} [logger]
+ * @property {LoggerLike} [logger]
  */
 
 const DEFAULT_CHANNEL_NAME = "agent-sessions";

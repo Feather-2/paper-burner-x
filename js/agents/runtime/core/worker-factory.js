@@ -8,6 +8,7 @@ import { isNodeLike } from "../../shared/platform.js";
 
 /**
  * 检测 Worker 是否可用
+ * @returns {boolean} 是否支持 Worker
  */
 export function isWorkerSupported() {
   if (isNodeLike()) {
@@ -43,6 +44,7 @@ export async function createWorker(scriptUrl, options = {}) {
 /**
  * 终止 Worker
  * @param {Worker} worker
+ * @returns {Promise<void>}
  */
 export async function terminateWorker(worker) {
   if (!worker) return;

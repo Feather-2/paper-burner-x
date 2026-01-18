@@ -16,7 +16,11 @@ export const DEFAULT_MODE_CONFIG = {
 };
 
 /**
- * 深度排序用于稳定 JSON 输出
+ * Deep sort for stable JSON output.
+ * Recursively sorts object keys and handles circular references.
+ * @param {any} value - The value to sort
+ * @param {WeakSet} [seen] - WeakSet to track seen objects for circular reference detection
+ * @returns {any} - The sorted value
  */
 export function deepSortForStableJson(value, seen = new WeakSet()) {
   if (value === null || value === undefined) return value;
@@ -30,7 +34,10 @@ export function deepSortForStableJson(value, seen = new WeakSet()) {
 }
 
 /**
- * 稳定字符串化（排序 + 截断）
+ * Stable stringify with sorting and truncation.
+ * @param {any} value - The value to stringify
+ * @param {{ maxChars?: number }} [options] - Options for truncation
+ * @returns {string} - The stringified value
  */
 export function stableStringify(value, { maxChars = 2000 } = {}) {
   const cleaned = sanitizeForJson(value);
@@ -50,7 +57,10 @@ export function stableStringify(value, { maxChars = 2000 } = {}) {
 }
 
 /**
- * 将值夹紧到 [0, 1] 区间
+ * Clamp a value to the [0, 1] interval.
+ * @param {any} value - The value to clamp
+ * @param {number} fallback - Fallback value if parsing fails
+ * @returns {number} - The clamped value
  */
 export function toClamped01Float(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
@@ -59,7 +69,9 @@ export function toClamped01Float(value, fallback) {
 }
 
 /**
- * 规范化报告收敛配置
+ * Normalize report convergence configuration.
+ * @param {object} [config] - Raw convergence configuration
+ * @returns {{ enabled: boolean, stopOnConvergence: boolean, windowSize: number, minIterations: number, minReportChars: number, sampleMaxChars: number, entropyThreshold?: number, similarityThreshold?: number }}
  */
 export function normalizeReportConvergenceConfig(config) {
   const cfg = isPlainObject(config) ? config : {};
@@ -87,7 +99,9 @@ export function normalizeReportConvergenceConfig(config) {
 }
 
 /**
- * 规范化换行符
+ * Normalize newlines (CRLF and CR to LF).
+ * @param {string} text - The text to normalize
+ * @returns {string} - The normalized text
  */
 export function normalizeNewlines(text) {
   return String(text || "")
@@ -96,7 +110,10 @@ export function normalizeNewlines(text) {
 }
 
 /**
- * 从尾部截取文本
+ * Slice text from the tail.
+ * @param {string} text - The text to slice
+ * @param {number} maxChars - Maximum characters to keep from the tail
+ * @returns {string} - The sliced text
  */
 export function sliceTail(text, maxChars) {
   const s = String(text || "");
@@ -128,7 +145,9 @@ export function buildConvergenceSample({ reportMarkdown, gaps, maxChars } = {}) 
 }
 
 /**
- * 解析 ErrorBoundary
+ * Resolve ErrorBoundary from stageApi or container.
+ * @param {object} [stageApi] - Stage API object
+ * @returns {object} - The resolved ErrorBoundary
  */
 export function resolveErrorBoundary(stageApi) {
   const direct = stageApi?.errorBoundary;
@@ -156,7 +175,9 @@ export function resolveErrorBoundary(stageApi) {
 }
 
 /**
- * 规范化工具调用守卫配置
+ * Normalize tool call guard configuration.
+ * @param {object} [config] - Raw guard configuration
+ * @returns {{ enabled: boolean, maxConsecutive: number, warnAt: number, maxSigChars: number, ignoreTools: Set<string> }}
  */
 export function normalizeToolCallGuard(config) {
   const cfg = isPlainObject(config) ? config : {};
@@ -169,7 +190,9 @@ export function normalizeToolCallGuard(config) {
 }
 
 /**
- * 规范化行为指纹配置
+ * Normalize behavior fingerprint configuration.
+ * @param {object|boolean} [config] - Raw fingerprint configuration or false to disable
+ * @returns {{ enabled: boolean, historySize?: number, minPatternLength?: number, maxPatternLength?: number, loopThreshold?: number }}
  */
 export function normalizeBehaviorFingerprintConfig(config) {
   if (config === false) return { enabled: false };
@@ -183,7 +206,9 @@ export function normalizeBehaviorFingerprintConfig(config) {
 }
 
 /**
- * 解析 Stage 级别的 TraceContext
+ * Resolve stage-level TraceContext from stageApi.
+ * @param {object} [stageApi] - Stage API object
+ * @returns {TraceContext} - The resolved TraceContext
  */
 export function resolveStageTraceContext(stageApi) {
   const candidate = stageApi?.traceContext;
@@ -209,7 +234,10 @@ export function resolveStageTraceContext(stageApi) {
 }
 
 /**
- * 获取模式配置
+ * Get mode configuration with defaults and overrides.
+ * @param {string} mode - The analysis mode (quick/wider/deeper)
+ * @param {object} [globalConfig] - Global configuration object
+ * @returns {{ maxIterations: number, writeIterations: number, maxToolCalls: number, subagentIterations: number, description: string }}
  */
 export function getModeConfig(mode, globalConfig) {
   const defaults = DEFAULT_MODE_CONFIG[mode] || DEFAULT_MODE_CONFIG.wider;

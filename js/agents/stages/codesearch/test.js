@@ -2,6 +2,9 @@
  * CodeSearch Stage 测试
  *
  * 运行: node js/agents/stages/codesearch/test.js
+ *
+ * @fileoverview Node.js-only test file. DO NOT bundle for browser.
+ * @node-only
  */
 
 import { createToolExecutor, formatToolDefinitionsForLLM } from "./code-tools.js";

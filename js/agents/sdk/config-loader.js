@@ -114,7 +114,13 @@ export async function loadAgentConfig(projectRoot) {
             _path: configPath,
             _raw: frontmatter,
         };
-    } catch {
+    } catch (err) {
+        // Distinguish file-not-found from other errors (parse failure, permission issues)
+        const code = err?.code;
+        if (code !== "ENOENT" && code !== "ENOTDIR") {
+            // Log parse/permission errors for debugging, but still return default
+            console.warn?.(`[config-loader] Failed to load ${configPath}: ${err?.message || err}`);
+        }
         return defaultConfig;
     }
 }

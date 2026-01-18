@@ -131,6 +131,9 @@ function getJsonType(value) {
  * 将简化参数定义转换为 JSON Schema
  *
  * 简化格式: { fieldName: "描述" } 或 { fieldName: { type, description, required } }
+ *
+ * @param {Object} schema - 简化参数定义或已规范化的 JSON Schema
+ * @returns {{ type: string, properties?: Object, required?: string[] }} 规范化的 JSON Schema 对象
  */
 export function normalizeSchema(schema) {
   // 已经是 JSON Schema 格式
@@ -189,6 +192,11 @@ function inferType(key, description) {
 
 /**
  * 创建验证 hook (用于 ToolExecutor)
+ *
+ * @param {Object} [options] - 配置选项
+ * @param {boolean} [options.strict=false] - 严格模式：验证失败时直接跳过执行并返回错误
+ * @param {(details: { tool: string, params: Object, errors: string[] }) => void} [options.onError] - 验证失败回调
+ * @returns {(hookContext: { tool: string, params: Object, context: Object }) => Promise<{ params?: Object, skip?: boolean, value?: Object }>} 验证 hook 函数
  */
 export function createValidationHook(options = {}) {
   const { strict = false, onError } = options;

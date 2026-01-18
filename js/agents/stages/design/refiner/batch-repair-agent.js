@@ -16,6 +16,7 @@ const logger = createLogger("stages/design/refiner/batch-repair-agent");
  *
  * @param {object} params - { deckPackage, qaIssues, styleIssues, designSystem }
  * @param {object} context - { runContext, stageApi, aiApiService, modelRouter }
+ * @returns {Promise<{ finalDeck: object, steps: object[], qualityScore: number, toolCalls: object[], terminationReason: string }>}
  */
 export async function runBatchRepair(params, context) {
     const { deckPackage, qaIssues = [], styleIssues = [], designSystem } = params;
@@ -59,7 +60,7 @@ export async function runBatchRepair(params, context) {
         toolExecutor,
         systemPromptOverride: batchRepairSystemPrompt, // 我们需要在 react-refiner.js 中支持这个参数
         onStep: (step) => {
-            stageApi?.emit?.("design.batch_repair.step", {
+            stageApi?.emit?.("design:batchRepair.step", {
                 actor: "design",
                 status: "progress",
                 payload: step
@@ -108,8 +109,15 @@ Rules:
             signal,
         });
 
-        let fixed = (response.text || "").replace(/```html/g, "").replace(/```/g, "").trim();
-        return fixed.includes("<section") ? fixed : currentHtml;
+        const rawText = response.content || response.text || "";
+        let fixed = rawText.replace(/```html/g, "").replace(/```/g, "").trim();
+        if (!fixed.includes("<section")) return currentHtml;
+        // Sanitize LLM output to prevent XSS (strip script/on* handlers)
+        fixed = fixed
+            .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+            .replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, "")
+            .replace(/\s+on\w+\s*=\s*[^\s>]+/gi, "");
+        return fixed;
     } catch (err) {
         logger.error("[SingleSlideRepair] Failed:", { error: err?.message });
         return currentHtml;

@@ -1,8 +1,12 @@
 import { isPlainObject, toPositiveInt } from "../shared/utils/value-utils.js";
-import { createSafeRegex } from "../shared/utils/safe-regex.js";
+import { createSafeRegex, isPotentiallyDangerous } from "../shared/utils/safe-regex.js";
 
 function compileRegex(pattern, caseSensitive) {
   if (pattern instanceof RegExp) {
+    // Validate pattern.source to prevent ReDoS from untrusted RegExp instances
+    if (isPotentiallyDangerous(pattern.source)) {
+      throw new Error("RegExp pattern exceeds complexity limits (Potential ReDoS)");
+    }
     const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
     const wantI = !caseSensitive;
     const hasI = flags.includes("i");

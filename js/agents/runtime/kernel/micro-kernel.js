@@ -10,15 +10,93 @@ import { EventBus } from "../../core/event-bus.js";
 import { ServiceId } from "../di/defaults.js";
 import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
 
+/** Default timeout for request() in milliseconds */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+/** Maximum code length for scheduled tasks */
+const MAX_TASK_CODE_LENGTH = 1_000_000;
+
+/** Allowed runtime types for dispatch tasks */
+const ALLOWED_RUNTIME_TYPES = Object.freeze(["js", "python", "wasm", ""]);
+
+/**
+ * Custom error for MicroKernel configuration issues.
+ */
+export class MicroKernelConfigError extends Error {
+  /**
+   * @param {string} message
+   */
+  constructor(message) {
+    super(message);
+    this.name = "MicroKernelConfigError";
+  }
+}
+
+/**
+ * Custom error for MicroKernel runtime issues.
+ */
+export class MicroKernelError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ code?: string }} [options]
+   */
+  constructor(message, options = {}) {
+    super(message);
+    this.name = "MicroKernelError";
+    this.code = options.code ?? null;
+  }
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
 function toFiniteTimeoutMs(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n) || n < 0) return fallback;
   return Math.floor(n);
 }
 
+/**
+ * @typedef {object} MicroKernelScheduler
+ * @property {(runtimeType: string, code: string, inputState: Record<string, unknown>, options: Record<string, unknown>) => Promise<unknown>} dispatch
+ */
+
+/**
+ * @typedef {object} MicroKernelProvider
+ * @property {(kernel: MicroKernel) => void | Promise<void>} [register]
+ * @property {(kernel: MicroKernel) => void | Promise<void>} [start]
+ * @property {(kernel: MicroKernel) => void | Promise<void>} [stop]
+ */
+
+/**
+ * @typedef {object} MicroKernelOptions
+ * @property {MicroKernelScheduler | null} [scheduler] - Task dispatcher
+ * @property {MicroKernelProvider[]} [providers] - Lifecycle providers
+ * @property {string | null} [runId] - Run identifier for tracing
+ */
+
+/**
+ * @typedef {object} DispatchTask
+ * @property {string} [runtimeType] - Runtime type (js, python, wasm)
+ * @property {string} [type] - Alternative to runtimeType
+ * @property {string} code - Code to execute
+ * @property {Record<string, unknown>} [inputState] - Input state
+ * @property {Record<string, unknown>} [options] - Additional options
+ */
+
+/**
+ * @typedef {object} RequestOptions
+ * @property {number} [timeoutMs] - Timeout in milliseconds
+ * @property {number} [timeout] - Alternative to timeoutMs
+ */
+
 export class MicroKernel {
   /**
-   * @param {{ scheduler?: any, providers?: any[] }} [options]
+   * Creates a MicroKernel instance.
+   * @param {MicroKernelOptions} [options] - Configuration options
+   * @throws {MicroKernelConfigError} When options is provided but invalid
    */
   constructor(options = {}) {
     const base = options && typeof options === "object" ? options : {};
@@ -27,19 +105,19 @@ export class MicroKernel {
     this.eventBus = new EventBus({ runId: base.runId || null });
     enhanceEventBusWithHooks(this.eventBus);
 
-    /** @type {any} */
+    /** @type {MicroKernelScheduler | null} */
     this.scheduler = base.scheduler || null;
 
-    /** @type {any[]} */
+    /** @type {MicroKernelProvider[]} */
     this.providers = Array.isArray(base.providers) ? base.providers : [];
 
     /** @type {boolean} */
     this._started = false;
 
-    /** @type {Map<string, any>} */
+    /** @type {Map<string, unknown>} */
     this._instances = new Map();
 
-    /** @type {Map<string, () => any>} */
+    /** @type {Map<string, (kernel: MicroKernel) => unknown>} */
     this._factories = new Map();
 
     /**
@@ -59,13 +137,14 @@ export class MicroKernel {
    * Register a service (singleton).
    * If a factory is provided, it will run on first getService().
    *
-   * @param {string} id
-   * @param {any} factoryOrValue
+   * @param {string} id - Service identifier
+   * @param {unknown | ((kernel: MicroKernel) => unknown)} factoryOrValue - Service instance or factory
    * @returns {this}
+   * @throws {MicroKernelConfigError} When id is empty
    */
   register(id, factoryOrValue) {
     const key = String(id || "");
-    if (!key) throw new TypeError("MicroKernel.register(id): id is required");
+    if (!key) throw new MicroKernelConfigError("MicroKernel.register(id): id is required");
 
     if (typeof factoryOrValue === "function") {
       this._factories.set(key, factoryOrValue);
@@ -80,8 +159,8 @@ export class MicroKernel {
 
   /**
    * Resolve a service synchronously.
-   * @param {string} id
-   * @returns {any|null}
+   * @param {string} id - Service identifier
+   * @returns {unknown} Service instance or null if not found
    */
   getService(id) {
     const key = String(id || "");
@@ -100,8 +179,8 @@ export class MicroKernel {
 
   /**
    * Emit an event with a raw payload.
-   * @param {string} type
-   * @param {any} payload
+   * @param {string} type - Event type
+   * @param {unknown} payload - Event payload
    * @returns {void}
    */
   emit(type, payload) {
@@ -110,14 +189,15 @@ export class MicroKernel {
 
   /**
    * Subscribe to events; handler receives the raw payload.
-   * @param {string} type
-   * @param {(payload: any) => any} handler
-   * @returns {() => void}
+   * @param {string} type - Event type
+   * @param {(payload: unknown) => unknown} handler - Event handler
+   * @returns {() => void} Unsubscribe function
+   * @throws {MicroKernelConfigError} When type is empty or handler is not a function
    */
   on(type, handler) {
     const name = String(type || "");
-    if (!name) throw new TypeError("MicroKernel.on(type): type is required");
-    if (typeof handler !== "function") throw new TypeError("MicroKernel.on(type): handler must be a function");
+    if (!name) throw new MicroKernelConfigError("MicroKernel.on(type): type is required");
+    if (typeof handler !== "function") throw new MicroKernelConfigError("MicroKernel.on(type): handler must be a function");
 
     let map = this._handlerWrappers.get(name);
     if (!map) {
@@ -138,29 +218,31 @@ export class MicroKernel {
 
   /**
    * Request/response helper that invokes the first registered handler.
-   * @param {string} type
-   * @param {any} payload
-   * @param {{ timeoutMs?: number, timeout?: number }} [options]
-   * @returns {Promise<any>}
+   * @param {string} type - Event type
+   * @param {unknown} payload - Request payload
+   * @param {RequestOptions} [options] - Request options
+   * @returns {Promise<unknown>} Handler result
+   * @throws {MicroKernelConfigError} When type is empty
+   * @throws {MicroKernelError} When request times out
    */
   async request(type, payload, options = {}) {
     const name = String(type || "");
-    if (!name) throw new TypeError("MicroKernel.request(type): type is required");
+    if (!name) throw new MicroKernelConfigError("MicroKernel.request(type): type is required");
 
-    const timeoutMs = toFiniteTimeoutMs(options?.timeoutMs ?? options?.timeout, 30_000);
+    const timeoutMs = toFiniteTimeoutMs(options?.timeoutMs ?? options?.timeout, DEFAULT_REQUEST_TIMEOUT_MS);
     const handlers = this._handlerWrappers.get(name);
     const handler = handlers ? handlers.keys().next().value : null;
 
     if (typeof handler !== "function") {
       await new Promise((resolve) => setTimeout(resolve, timeoutMs));
-      throw new Error(`Request timeout: ${name}`);
+      throw new MicroKernelError(`Request timeout: ${name}`, { code: "TIMEOUT" });
     }
 
     let timer = null;
     const timeoutPromise =
       timeoutMs > 0
         ? new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error(`Request timeout: ${name}`)), timeoutMs);
+            timer = setTimeout(() => reject(new MicroKernelError(`Request timeout: ${name}`, { code: "TIMEOUT" })), timeoutMs);
           })
         : null;
 
@@ -174,9 +256,11 @@ export class MicroKernel {
 
   /**
    * Schedule either a function or a dispatch task.
-   * @param {(() => any) | { runtimeType?: string, type?: string, code: string, inputState?: any, options?: any }} task
-   * @param {number} [priority]
-   * @returns {Promise<any>}
+   * @param {(() => unknown) | DispatchTask} task - Function or dispatch task object
+   * @param {number} [priority] - Task priority
+   * @returns {Promise<unknown>} Task result
+   * @throws {MicroKernelConfigError} When task is invalid or runtimeType is not allowed
+   * @throws {MicroKernelError} When scheduler is not available
    */
   async schedule(task, priority) {
     if (typeof task === "function") {
@@ -184,17 +268,25 @@ export class MicroKernel {
     }
 
     if (!task || typeof task !== "object") {
-      throw new TypeError("MicroKernel.schedule(task): task must be a function or dispatch object");
+      throw new MicroKernelConfigError("MicroKernel.schedule(task): task must be a function or dispatch object");
     }
 
     if (!this.scheduler || typeof this.scheduler.dispatch !== "function") {
-      throw new Error("Scheduler not available");
+      throw new MicroKernelError("Scheduler not available", { code: "SCHEDULER_UNAVAILABLE" });
     }
 
     const runtimeType = String(task.runtimeType || task.type || "");
+    if (!ALLOWED_RUNTIME_TYPES.includes(runtimeType)) {
+      throw new MicroKernelConfigError(`MicroKernel.schedule(task): invalid runtimeType "${runtimeType}", allowed: ${ALLOWED_RUNTIME_TYPES.join(", ")}`);
+    }
+
     const code = String(task.code || "");
-    const inputState = task.inputState && typeof task.inputState === "object" ? task.inputState : {};
-    const options = task.options && typeof task.options === "object" ? task.options : {};
+    if (code.length > MAX_TASK_CODE_LENGTH) {
+      throw new MicroKernelConfigError(`MicroKernel.schedule(task): code exceeds maximum length of ${MAX_TASK_CODE_LENGTH}`);
+    }
+
+    const inputState = task.inputState && typeof task.inputState === "object" ? task.inputState : Object.create(null);
+    const options = task.options && typeof task.options === "object" ? task.options : Object.create(null);
 
     return await this.scheduler.dispatch(runtimeType, code, inputState, {
       ...options,
@@ -202,6 +294,10 @@ export class MicroKernel {
     });
   }
 
+  /**
+   * Start the kernel and all registered providers.
+   * @returns {Promise<void>}
+   */
   async start() {
     if (this._started) return;
     this._started = true;
@@ -219,6 +315,10 @@ export class MicroKernel {
     }
   }
 
+  /**
+   * Stop the kernel and all registered providers.
+   * @returns {Promise<void>}
+   */
   async stop() {
     if (!this._started) return;
     this._started = false;

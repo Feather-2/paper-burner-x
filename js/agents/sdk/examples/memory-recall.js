@@ -27,7 +27,7 @@ const agent = createAgent({ actor: "historian" })
 
 /**
  * 运行记忆演示
- * @returns {Promise<void>}
+ * @returns {Promise<void>} 执行记忆检索演示并输出日志
  */
 async function runDemo() {
     console.log("=== Historian Agent Skill Catalog ===");
@@ -75,7 +75,12 @@ async function runDemo() {
     console.log("Detailed info:", JSON.stringify(getResult.data, null, 2));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// 如果直接运行 (Node.js 环境)
+if (
+    typeof process !== "undefined" &&
+    process.argv &&
+    import.meta.url === `file://${process.argv[1]}`
+) {
     runDemo().catch((error) => logger.error("runDemo failed", { error }));
 }
 

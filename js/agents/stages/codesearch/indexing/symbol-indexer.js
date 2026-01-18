@@ -22,6 +22,7 @@ import { LRUCache } from "../../../shared/utils/lru-cache.js";
  */
 function extname(path) {
   const p = toNonEmptyString(path);
+  if (!p) return "";
   const idx = p.lastIndexOf(".");
   return idx >= 0 ? p.slice(idx).toLowerCase() : "";
 }

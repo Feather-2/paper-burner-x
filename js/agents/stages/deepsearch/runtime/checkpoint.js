@@ -11,6 +11,11 @@ export const CHECKPOINT_SCHEMA_VERSION = "1.0";
 
 const DEFAULT_CHECKPOINT_STRATEGY = () => CheckpointMode.LITE;
 
+/**
+ * Normalize a checkpoint strategy value to a valid CheckpointMode.
+ * @param {string|null|undefined} v - Raw strategy value to normalize
+ * @returns {string} Normalized CheckpointMode (LITE, MINIMAL, or FULL)
+ */
 export function normalizeCheckpointStrategy(v) {
   const raw = toNonEmptyString(v);
   const s = raw ? raw.toLowerCase() : "";
@@ -19,6 +24,12 @@ export function normalizeCheckpointStrategy(v) {
   return CheckpointMode.LITE;
 }
 
+/**
+ * Derive the checkpoint strategy from state or an override value.
+ * @param {object|null|undefined} state - DeepSearch state containing userConfig
+ * @param {string=} override - Optional override value (takes precedence over state)
+ * @returns {string} Resolved CheckpointMode
+ */
 export function getCheckpointStrategyFromState(state, override) {
   const direct = override !== undefined ? override : state?.userConfig?.checkpointStrategy;
   return normalizeCheckpointStrategy(direct || DEFAULT_CHECKPOINT_STRATEGY());
@@ -112,12 +123,22 @@ function hasCycle(root) {
   return false;
 }
 
+/**
+ * Deep clone a value safely, handling cycles and non-cloneable objects.
+ * @param {*} v - Value to clone
+ * @param {WeakSet=} seen - Internal tracker for circular reference detection
+ * @returns {*} Cloned value
+ */
 export function cloneValue(v, seen = new WeakSet()) {
   if (v === null || typeof v !== "object") return v;
   if (typeof structuredClone === "function") {
     try {
       if (!hasCycle(v)) return structuredClone(v);
-    } catch { /* intentional: structuredClone may fail on certain objects */ }
+    } catch (err) {
+      logger.debug("structuredClone failed, falling back to manual clone", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   return cloneValueFallback(v, seen);

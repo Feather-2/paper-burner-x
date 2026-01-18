@@ -626,9 +626,9 @@ export class UnifiedMemoryStore {
       const id = await l3Storage.archive(stageKey, data, keywords);
       const entry = await l3Storage.getSnapshot(id);
       if (entry) {
-        this._emit("memory.archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
+        this._emit("memory:archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
       } else {
-        this._emit("memory.archived", { id, stageKey, ts: Date.now() });
+        this._emit("memory:archived", { id, stageKey, ts: Date.now() });
       }
       return id;
     }
@@ -652,7 +652,7 @@ export class UnifiedMemoryStore {
       const snap = this._getStateRef().L3?.snapshots?.[id] || null;
       // 更新字节统计
       this._l3BytesUsed += estimateBytes(snap || entry);
-      this._emit("memory.archived", { id, stageKey: last?.stageKey || stageKey || null, summary: snap?.summary || last?.summary, ts: last?.ts });
+      this._emit("memory:archived", { id, stageKey: last?.stageKey || stageKey || null, summary: snap?.summary || last?.summary, ts: last?.ts });
     }
     // No-op: keep API compatible even if archive didn't change state.
     return id || (timeline.length > prevLen ? timeline[timeline.length - 1]?.id : null);
@@ -927,7 +927,7 @@ export class UnifiedMemoryStore {
 
     this.dispatchBatchSync(actions);
     this._stats.compressionCount += 1;
-    this._emit("memory.compressed", { compressedCount: toCompress.length, keptCount: kept.length });
+    this._emit("memory:compressed", { compressedCount: toCompress.length, keptCount: kept.length });
     this._updateTokenUsage();
     return true;
   }
@@ -1477,7 +1477,7 @@ export class UnifiedMemoryStore {
   }
 
   _emitUpdate(field, delta) {
-    this._emit("memory.updated", { field, delta, ts: Date.now() });
+    this._emit("memory:updated", { field, delta, ts: Date.now() });
   }
 }
 

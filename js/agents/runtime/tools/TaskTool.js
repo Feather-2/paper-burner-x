@@ -169,7 +169,7 @@ export function createTaskTool({ registry, container, parentAgent, buildHandoff 
                 throw new Error(`Factory for "${subagent_type}" did not return a valid AgentInstance`);
             }
 
-            emit("subagent.started", { type: subagent_type, prompt, context_mode });
+            emit("subagent:started", { type: subagent_type, prompt, context_mode });
 
             const result = await subagent.run({ task: prompt }, { signal });
 
@@ -188,7 +188,7 @@ export function createTaskTool({ registry, container, parentAgent, buildHandoff 
                 });
             }
 
-            emit("subagent.completed", { type: subagent_type, resultId });
+            emit("subagent:completed", { type: subagent_type, resultId });
 
             // 只返回轻量引用，父 agent 按需通过 sharedContext 获取详情
             return {
@@ -201,7 +201,7 @@ export function createTaskTool({ registry, container, parentAgent, buildHandoff 
         } catch (err) {
             const error = err instanceof Error ? err.message : String(err);
             logger.error(`Subagent "${subagent_type}" failed: ${error}`);
-            emit("subagent.failed", { type: subagent_type, error });
+            emit("subagent:failed", { type: subagent_type, error });
             return { ok: false, error };
         }
     };

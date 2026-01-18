@@ -2,6 +2,9 @@
  * CodeSearch 完整 Agent Loop 测试（Mock LLM）
  *
  * 运行: node js/agents/stages/codesearch/test-agent-loop.js
+ *
+ * @fileoverview Node.js-only test file. DO NOT bundle for browser.
+ * @node-only
  */
 
 import { CodeSearchStage } from "./codesearch-stage.js";

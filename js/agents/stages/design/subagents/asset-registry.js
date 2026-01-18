@@ -83,12 +83,23 @@ export class AssetRegistry {
     return assetId;
   }
 
+  /**
+   * 根据 assetId 获取资产
+   * @param {string} assetId
+   * @returns {any|null}
+   */
   getAsset(assetId) {
     const id = toNonEmptyString(assetId);
     if (!id) return null;
     return this.byId.get(id) || null;
   }
 
+  /**
+   * 将资产关联到指定幻灯片
+   * @param {string} slideId
+   * @param {string|string[]} assetIds
+   * @returns {boolean}
+   */
   linkToSlide(slideId, assetIds) {
     const key = toNonEmptyString(slideId);
     if (!key) return false;
@@ -103,6 +114,11 @@ export class AssetRegistry {
     return true;
   }
 
+  /**
+   * 获取指定幻灯片关联的所有资产
+   * @param {string} slideId
+   * @returns {any[]}
+   */
   getAssetsForSlide(slideId) {
     const key = toNonEmptyString(slideId);
     if (!key) return [];
@@ -110,6 +126,10 @@ export class AssetRegistry {
     return ids.map((id) => this.byId.get(id)).filter(Boolean);
   }
 
+  /**
+   * 导出 registry 快照用于持久化
+   * @returns {{ uploaded: any[], extracted: any[], videoFrames: any[], generated: any[], slideAssetMapping: Record<string, string[]> }}
+   */
   export() {
     const mapping = {};
     for (const [slideId, assetIds] of this.slideAssetMapping.entries()) {
@@ -124,12 +144,19 @@ export class AssetRegistry {
     };
   }
 
-  /** JSON.stringify 自动调用 */
+  /**
+   * JSON.stringify 自动调用
+   * @returns {{ _v: number, uploaded: any[], extracted: any[], videoFrames: any[], generated: any[], slideAssetMapping: Record<string, string[]> }}
+   */
   toJSON() {
     return { _v: 1, ...this.export() };
   }
 
-  /** 从 JSON 反序列化 */
+  /**
+   * 从 JSON 反序列化
+   * @param {any} json
+   * @returns {AssetRegistry}
+   */
   static fromJSON(json) {
     if (!json || typeof json !== "object") return new AssetRegistry();
     return new AssetRegistry(json);

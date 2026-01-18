@@ -304,6 +304,7 @@ const INJECTION_SCANNER_SERVICE_ID = "injectionScanner";
  * Global scanner singleton (compatibility layer).
  *
  * @deprecated Prefer resolving via DI container (`ServiceId.INJECTION_SCANNER`) or passing an explicit instance.
+ * @returns {InjectionScanner} The global injection scanner instance
  */
 export function getGlobalInjectionScanner() {
   const container = getGlobalContainer();
@@ -314,21 +315,28 @@ export function getGlobalInjectionScanner() {
 }
 
 /**
- * 便捷函数：扫描文本
+ * Scan text for potential prompt injection attacks.
+ * @param {string} text - The text to scan
+ * @param {object} [context] - Optional context for audit logging
+ * @returns {{ clean: boolean, code: string, detections: Array<{ type: string, pattern?: string, detail?: string }> }} Scan result
  */
 export function scanForInjection(text, context = {}) {
   return getGlobalInjectionScanner().scan(text, context);
 }
 
 /**
- * 便捷函数：清理文本
+ * Sanitize text by removing dangerous control markers.
+ * @param {string} text - The text to sanitize
+ * @returns {string} Sanitized text
  */
 export function sanitizeOutput(text) {
   return getGlobalInjectionScanner().sanitize(text);
 }
 
 /**
- * 便捷函数：检查是否干净
+ * Check if text is clean (no injection detected).
+ * @param {string} text - The text to check
+ * @returns {boolean} True if clean, false if injection detected
  */
 export function isCleanOutput(text) {
   return getGlobalInjectionScanner().scan(text).clean;

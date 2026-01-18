@@ -134,6 +134,11 @@ function normalizeEmbeddingResponse(json, expectedCount) {
   return out;
 }
 
+/**
+ * Normalize raw embedding configuration into a validated EmbeddingConfig.
+ * @param {unknown} raw - Raw configuration object.
+ * @returns {EmbeddingConfig | null} Normalized config or null if invalid/disabled.
+ */
 export function normalizeEmbeddingConfig(raw) {
   const cfg = isPlainObject(raw) ? raw : null;
   if (!cfg) return null;
@@ -423,11 +428,31 @@ export class EmbeddingService {
         const batchTexts = [];
         const batchReqs = [];
 
+        // Derive combined signal/timeout for batch from pending requests
+        let combinedSignal = null;
+        let combinedTimeoutMs = Infinity;
+
         while (this._queue.length && batchTexts.length < batchSize) {
           const req = this._queue[0];
+
+          // Skip requests that are already aborted
+          if (req.signal?.aborted) {
+            this._queue.shift();
+            req.resolve?.(null);
+            continue;
+          }
+
           const remaining = batchSize - batchTexts.length;
           const take = Math.min(remaining, req.texts.length);
           if (take <= 0) break;
+
+          // Track shortest timeout and first valid signal for batch
+          if (req.timeoutMs != null && Number.isFinite(req.timeoutMs) && req.timeoutMs < combinedTimeoutMs) {
+            combinedTimeoutMs = req.timeoutMs;
+          }
+          if (req.signal && !combinedSignal) {
+            combinedSignal = req.signal;
+          }
 
           batchReqs.push({ req, take });
           batchTexts.push(...req.texts.slice(0, take));
@@ -440,7 +465,16 @@ export class EmbeddingService {
           }
         }
 
-        const vectors = await this._callEmbeddings(batchTexts);
+        // Skip empty batch (all requests were aborted)
+        if (batchTexts.length === 0) continue;
+
+        const batchOptions = {};
+        if (combinedSignal) batchOptions.signal = combinedSignal;
+        if (Number.isFinite(combinedTimeoutMs) && combinedTimeoutMs < Infinity) {
+          batchOptions.timeoutMs = combinedTimeoutMs;
+        }
+
+        const vectors = await this._callEmbeddings(batchTexts, batchOptions);
         if (!vectors) {
           // Degrade immediately: resolve all pending (including leftovers) with null.
           for (const { req } of batchReqs) req.resolve?.(null);
@@ -475,6 +509,12 @@ export class EmbeddingService {
   }
 }
 
+/**
+ * Factory function to create an EmbeddingService instance.
+ * @param {unknown} config - Embedding configuration.
+ * @param {{ fetchImpl?: typeof fetch }} [options] - Optional fetch implementation.
+ * @returns {EmbeddingService} A new EmbeddingService instance.
+ */
 export function createEmbeddingService(config, options) {
   return new EmbeddingService(config, options);
 }

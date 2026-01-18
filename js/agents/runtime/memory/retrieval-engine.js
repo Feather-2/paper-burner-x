@@ -364,7 +364,8 @@ export class RetrievalEngine {
   }
 
   /**
-   * 执行单个索引任务（带重试）
+   * Execute a single index task with retry support.
+   * @private
    */
   async _executeIndexTask(task) {
     const { id, text, entry, retries } = task;
@@ -375,12 +376,16 @@ export class RetrievalEngine {
         this.vectorIndex.upsert(id, v, { stageKey: entry.stageKey, ts: entry.ts });
       }
     } catch (err) {
-      // 重试逻辑
+      // Retry logic
       if (retries < this._indexRetryMax) {
         await new Promise((r) => setTimeout(r, this._indexRetryDelayMs * (retries + 1)));
         this._indexQueue.push({ ...task, retries: retries + 1 });
+      } else {
+        // Exceeded retry count - emit error event for observability
+        if (this.eventBus && typeof this.eventBus.emit === "function") {
+          this.eventBus.emit("retrieval:indexError", { id, error: String(err?.message || err), retries });
+        }
       }
-      // 超过重试次数则静默丢弃
     } finally {
       this._indexInFlight--;
       this._processIndexQueue();
@@ -503,6 +508,12 @@ export class RetrievalEngine {
     await this._rateLimiter.schedule(() => {}, { label });
   }
 
+  /**
+   * Keyword-based recall from archived memory.
+   * @param {string} query - Search query
+   * @param {{ limit?: number }} [options] - Options
+   * @returns {Array<{ id: string, summary: string, data: any }>} Matched results
+   */
   keywordRecall(query, { limit = 3 } = {}) {
     const q = toNonEmptyString(query) || "";
     const k = toPositiveInt(limit, 3);
@@ -545,8 +556,10 @@ export class RetrievalEngine {
   }
 
   /**
-   * @param {string} query
-   * @param {{ limit?: number, fallback?: boolean, timeoutMs?: number }} [options]
+   * Semantic recall using vector embeddings.
+   * @param {string} query - Search query
+   * @param {{ limit?: number, fallback?: boolean, timeoutMs?: number }} [options] - Options
+   * @returns {Promise<Array<{ id: string, score?: number, summary: string, data: any }>>} Matched results
    */
   async semanticRecall(query, { limit = 3, fallback = true, timeoutMs } = {}) {
     await this._acquireRateLimit("semanticRecall");
@@ -559,23 +572,31 @@ export class RetrievalEngine {
       return fallback ? this.keywordRecall(q, { limit: k }) : [];
     }
 
-    // Ensure archive vectors exist (best-effort); doesn't block queue-based indexing.
-    await this.ensureIndexed({ ...(timeoutMs ? { timeoutMs } : {}) });
+    try {
+      // Ensure archive vectors exist (best-effort); doesn't block queue-based indexing.
+      await this.ensureIndexed({ ...(timeoutMs ? { timeoutMs } : {}) });
 
-    const vectors = await svc.embed([q], { ...(timeoutMs ? { timeoutMs } : {}) });
-    const v = Array.isArray(vectors) ? vectors[0] : null;
-    if (!v) return fallback ? this.keywordRecall(q, { limit: k }) : [];
+      const vectors = await svc.embed([q], { ...(timeoutMs ? { timeoutMs } : {}) });
+      const v = Array.isArray(vectors) ? vectors[0] : null;
+      if (!v) return fallback ? this.keywordRecall(q, { limit: k }) : [];
 
-    const hits = idx.search(v, { topK: k });
-    const out = [];
-    for (const h of hits) {
-      const snap = getSnapshotById(getSnapshots(this.memoryStore), h.id);
-      if (!snap) continue;
-      out.push({ id: h.id, score: h.score, summary: snap.summary, data: snap.data });
+      const hits = idx.search(v, { topK: k });
+      const out = [];
+      for (const h of hits) {
+        const snap = getSnapshotById(getSnapshots(this.memoryStore), h.id);
+        if (!snap) continue;
+        out.push({ id: h.id, score: h.score, summary: snap.summary, data: snap.data });
+      }
+
+      if (out.length) return out;
+      return fallback ? this.keywordRecall(q, { limit: k }) : [];
+    } catch (err) {
+      // Embedding service error - fallback to keyword recall
+      if (this.eventBus && typeof this.eventBus.emit === "function") {
+        this.eventBus.emit("retrieval:error", { method: "semanticRecall", error: String(err?.message || err) });
+      }
+      return fallback ? this.keywordRecall(q, { limit: k }) : [];
     }
-
-    if (out.length) return out;
-    return fallback ? this.keywordRecall(q, { limit: k }) : [];
   }
 
   /**

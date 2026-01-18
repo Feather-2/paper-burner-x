@@ -34,7 +34,7 @@ export default createPlugin({
       return AgentLoop;
     };
 
-    ctx.registerService('stage:deepsearch', {
+    ctx.registerService('deepsearchStage', {
       /**
        * 运行 DeepSearch
        * @param {any} input
@@ -55,7 +55,7 @@ export default createPlugin({
         ctx.state.set('status', 'running');
         ctx.state.set('startedAt', Date.now());
 
-        ctx.events.emit('stage.deepsearch.start', { input });
+        ctx.events.emit('deepsearch:start', { input });
 
         try {
           // 构建运行上下文
@@ -79,14 +79,14 @@ export default createPlugin({
             outputCount: result?.output?.length || 0,
           });
 
-          ctx.events.emit('stage.deepsearch.complete', { result });
+          ctx.events.emit('deepsearch:complete', { result });
 
           return result;
         } catch (error) {
           ctx.state.set('status', 'failed');
           ctx.state.set('error', error.message);
 
-          ctx.events.emit('stage.deepsearch.error', { error });
+          ctx.events.emit('deepsearch:error', { error });
 
           throw error;
         }

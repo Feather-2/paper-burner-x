@@ -50,6 +50,11 @@ function expandOneBrace(pattern) {
   return out;
 }
 
+/**
+ * Expands brace expressions in a glob pattern.
+ * @param {string} pattern - Glob pattern with optional brace expressions.
+ * @returns {string[]} Array of expanded patterns.
+ */
 export function expandBraces(pattern) {
   const p = normalizePattern(pattern);
   let acc = [p];
@@ -69,6 +74,12 @@ export function expandBraces(pattern) {
   return Array.from(new Set(acc));
 }
 
+/**
+ * Converts a glob pattern to a RegExp.
+ * Supports **, *, ? wildcards and brace expansion.
+ * @param {string} globPattern - Glob pattern to convert.
+ * @returns {RegExp} Compiled regular expression.
+ */
 export function globToRegExp(globPattern) {
   const pattern = normalizePattern(globPattern);
   let re = "";
@@ -107,6 +118,12 @@ export function globToRegExp(globPattern) {
   return new RegExp(`^${re}$`);
 }
 
+/**
+ * Tests if a path matches a glob pattern.
+ * @param {string} globPattern - Glob pattern to match against.
+ * @param {string} path - Path to test.
+ * @returns {boolean} True if path matches the pattern.
+ */
 export function matchGlob(globPattern, path) {
   const p = normalizeVfsPath(path);
   for (const expanded of expandBraces(globPattern)) {

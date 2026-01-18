@@ -6,8 +6,11 @@ import { CommonSchemas, validateConfig } from "./core/config-validator.js";
 import { TaskGraph } from "./parallel/task-graph.js";
 import { enhanceEventBusWithHooks } from "./hooks/event-bus-hooks.js";
 import { DisposableBase } from "../shared/base/disposable-base.js";
+import { createLogger } from "../shared/utils/logger.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+
+const logger = createLogger("runtime/orchestrator");
 
 /**
  * @typedef {import("./core/constants.js").OrchestratorState[keyof import("./core/constants.js").OrchestratorState]} OrchestratorStateValue
@@ -341,7 +344,7 @@ export class AgentOrchestrator extends DisposableBase {
       );
       const errors = settled.filter((r) => r.status === "rejected").map((r) => r.reason);
       if (errors.length > 0) {
-        console.warn(`[${this.constructor.name}] ${errors.length} child agent(s) failed to dispose`, errors);
+        logger.warn(`[${this.constructor.name}] ${errors.length} child agent(s) failed to dispose`, errors);
       }
     });
 

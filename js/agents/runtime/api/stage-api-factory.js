@@ -84,10 +84,9 @@ const DEFAULT_EVENTBUS_BACKPRESSURE = Object.freeze({
 
 /**
  * 过滤掉 undefined 和 null 的值，避免覆盖已有配置
- */
-/**
- * @param {Record<string, any> | null | undefined} obj
- * @returns {Record<string, any>}
+ * @private
+ * @param {Record<string, any> | null | undefined} obj - object to filter
+ * @returns {Record<string, any>} filtered object with only defined values
  */
 function filterDefinedValues(obj) {
   if (!obj || typeof obj !== 'object') return {};
@@ -97,8 +96,9 @@ function filterDefinedValues(obj) {
 }
 
 /**
- * @param {any} value
- * @returns {boolean}
+ * @private
+ * @param {any} value - value to check
+ * @returns {boolean} true if value has TraceContext-like interface
  */
 function isTraceContextLike(value) {
   return (
@@ -112,8 +112,9 @@ function isTraceContextLike(value) {
 }
 
 /**
- * @param {ServiceContainerLike | null | undefined} container
- * @returns {any | null}
+ * @private
+ * @param {ServiceContainerLike | null | undefined} container - DI container to resolve from
+ * @returns {any | null} resolved TraceContext or null
  */
 function resolveTraceContextFromContainer(container) {
   const c = container && typeof container === "object" ? container : null;
@@ -126,7 +127,9 @@ function resolveTraceContextFromContainer(container) {
     try {
       const candidate = c.get("traceContext");
       return isTraceContextLike(candidate) ? candidate : null;
-    } catch {
+    } catch (e) {
+      // container.get may throw if key not registered; safe to ignore
+      logger.debug("[resolveTraceContextFromContainer] container.get threw", e);
       return null;
     }
   }
@@ -134,8 +137,9 @@ function resolveTraceContextFromContainer(container) {
 }
 
 /**
- * @param {{ traceContext?: any, traceparent?: string, container?: ServiceContainerLike } | undefined} [options]
- * @returns {any}
+ * @private
+ * @param {{ traceContext?: any, traceparent?: string, container?: ServiceContainerLike }} [options] - resolution options
+ * @returns {any} resolved TraceContext (creates new one if not found)
  */
 function resolveTraceContext({ traceContext, traceparent, container } = {}) {
   if (isTraceContextLike(traceContext)) return traceContext;
@@ -154,8 +158,9 @@ function resolveTraceContext({ traceContext, traceparent, container } = {}) {
 }
 
 /**
- * @param {any} value
- * @returns {boolean}
+ * @private
+ * @param {any} value - value to check
+ * @returns {boolean} true if value has RetryStrategy-like interface
  */
 function isRetryStrategyLike(value) {
   return (
@@ -166,8 +171,9 @@ function isRetryStrategyLike(value) {
 }
 
 /**
- * @param {ServiceContainerLike | null | undefined} container
- * @returns {any | null}
+ * @private
+ * @param {ServiceContainerLike | null | undefined} container - DI container to resolve from
+ * @returns {any | null} resolved RetryStrategy or null
  */
 function resolveRetryStrategyFromContainer(container) {
   const c = container && typeof container === "object" ? container : null;
@@ -180,7 +186,9 @@ function resolveRetryStrategyFromContainer(container) {
     try {
       const candidate = c.get("retryStrategy");
       return isRetryStrategyLike(candidate) ? candidate : null;
-    } catch {
+    } catch (e) {
+      // container.get may throw if key not registered; safe to ignore
+      logger.debug("[resolveRetryStrategyFromContainer] container.get threw", e);
       return null;
     }
   }
@@ -188,8 +196,9 @@ function resolveRetryStrategyFromContainer(container) {
 }
 
 /**
- * @param {{ retryStrategy?: any, container?: ServiceContainerLike } | undefined} [options]
- * @returns {any | null}
+ * @private
+ * @param {{ retryStrategy?: any, container?: ServiceContainerLike }} [options] - resolution options
+ * @returns {any | null} resolved RetryStrategy or null
  */
 function resolveRetryStrategy({ retryStrategy, container } = {}) {
   if (isRetryStrategyLike(retryStrategy)) return retryStrategy;
@@ -199,16 +208,18 @@ function resolveRetryStrategy({ retryStrategy, container } = {}) {
 }
 
 /**
- * @param {any} value
- * @returns {boolean}
+ * @private
+ * @param {any} value - value to check
+ * @returns {boolean} true if value has ErrorBoundary-like interface
  */
 function isErrorBoundaryLike(value) {
   return value !== null && typeof value === "object" && typeof value.wrap === "function";
 }
 
 /**
- * @param {ServiceContainerLike | null | undefined} container
- * @returns {any | null}
+ * @private
+ * @param {ServiceContainerLike | null | undefined} container - DI container to resolve from
+ * @returns {any | null} resolved ErrorBoundary or null
  */
 function resolveErrorBoundaryFromContainer(container) {
   const c = container && typeof container === "object" ? container : null;
@@ -221,7 +232,9 @@ function resolveErrorBoundaryFromContainer(container) {
     try {
       const candidate = c.get("errorBoundary");
       return isErrorBoundaryLike(candidate) ? candidate : null;
-    } catch {
+    } catch (e) {
+      // container.get may throw if key not registered; safe to ignore
+      logger.debug("[resolveErrorBoundaryFromContainer] container.get threw", e);
       return null;
     }
   }
@@ -229,8 +242,9 @@ function resolveErrorBoundaryFromContainer(container) {
 }
 
 /**
- * @param {{ errorBoundary?: any, container?: ServiceContainerLike } | undefined} [options]
- * @returns {any}
+ * @private
+ * @param {{ errorBoundary?: any, container?: ServiceContainerLike }} [options] - resolution options
+ * @returns {any} resolved ErrorBoundary (uses global fallback if not found)
  */
 function resolveErrorBoundary({ errorBoundary, container } = {}) {
   if (isErrorBoundaryLike(errorBoundary)) return errorBoundary;
@@ -240,16 +254,18 @@ function resolveErrorBoundary({ errorBoundary, container } = {}) {
 }
 
 /**
- * @param {any} value
- * @returns {boolean}
+ * @private
+ * @param {any} value - value to check
+ * @returns {boolean} true if value has ToolQuotaManager-like interface
  */
 function isToolQuotaManagerLike(value) {
   return value !== null && typeof value === "object" && typeof value.tryCall === "function";
 }
 
 /**
- * @param {ServiceContainerLike | null | undefined} container
- * @returns {any | null}
+ * @private
+ * @param {ServiceContainerLike | null | undefined} container - DI container to resolve from
+ * @returns {any | null} resolved ToolQuotaManager or null
  */
 function resolveToolQuotaManagerFromContainer(container) {
   const c = container && typeof container === "object" ? container : null;
@@ -262,7 +278,9 @@ function resolveToolQuotaManagerFromContainer(container) {
     try {
       const candidate = c.get("toolQuotaManager");
       return isToolQuotaManagerLike(candidate) ? candidate : null;
-    } catch {
+    } catch (e) {
+      // container.get may throw if key not registered; safe to ignore
+      logger.debug("[resolveToolQuotaManagerFromContainer] container.get threw", e);
       return null;
     }
   }
@@ -270,8 +288,9 @@ function resolveToolQuotaManagerFromContainer(container) {
 }
 
 /**
- * @param {{ toolQuotaManager?: any, container?: ServiceContainerLike } | undefined} [options]
- * @returns {any | null}
+ * @private
+ * @param {{ toolQuotaManager?: any, container?: ServiceContainerLike }} [options] - resolution options
+ * @returns {any | null} resolved ToolQuotaManager or null
  */
 function resolveToolQuotaManager({ toolQuotaManager, container } = {}) {
   if (isToolQuotaManagerLike(toolQuotaManager)) return toolQuotaManager;
@@ -281,6 +300,11 @@ function resolveToolQuotaManager({ toolQuotaManager, container } = {}) {
 }
 
 // P6.3: MessageBus 解析
+/**
+ * @private
+ * @param {any} value - value to check
+ * @returns {boolean} true if value has MessageBus-like interface
+ */
 function isMessageBusLike(value) {
   return (
     value !== null &&
@@ -290,6 +314,11 @@ function isMessageBusLike(value) {
   );
 }
 
+/**
+ * @private
+ * @param {ServiceContainerLike | null | undefined} container - DI container to resolve from
+ * @returns {any | null} resolved MessageBus or null
+ */
 function resolveMessageBusFromContainer(container) {
   const c = container && typeof container === "object" ? container : null;
   if (!c) return null;
@@ -301,7 +330,9 @@ function resolveMessageBusFromContainer(container) {
     try {
       const candidate = c.get("messageBus");
       return isMessageBusLike(candidate) ? candidate : null;
-    } catch {
+    } catch (e) {
+      // container.get may throw if key not registered; safe to ignore
+      logger.debug("[resolveMessageBusFromContainer] container.get threw", e);
       return null;
     }
   }
@@ -309,8 +340,9 @@ function resolveMessageBusFromContainer(container) {
 }
 
 /**
- * @param {{ messageBus?: any, eventBus?: any, container?: ServiceContainerLike } | undefined} [options]
- * @returns {any | null}
+ * @private
+ * @param {{ messageBus?: any, eventBus?: any, container?: ServiceContainerLike }} [options] - resolution options
+ * @returns {any | null} resolved MessageBus or null
  */
 function resolveMessageBus({ messageBus, eventBus, container } = {}) {
   if (isMessageBusLike(messageBus)) return messageBus;
@@ -320,7 +352,9 @@ function resolveMessageBus({ messageBus, eventBus, container } = {}) {
   if (eventBus && typeof eventBus.emit === "function") {
     try {
       return new MessageBus(eventBus);
-    } catch {
+    } catch (e) {
+      // MessageBus construction may fail; log and fall through
+      logger.debug("[resolveMessageBus] MessageBus construction failed", e);
       return null;
     }
   }
@@ -335,8 +369,9 @@ const DEFAULT_TOOL_QUOTAS = Object.freeze({
 });
 
 /**
- * @param {any} eventBus
- * @param {any} config
+ * @private
+ * @param {any} eventBus - EventBus instance to configure
+ * @param {any} config - backpressure configuration
  * @returns {void}
  */
 function ensureEventBusBackpressure(eventBus, config) {
@@ -350,14 +385,16 @@ function ensureEventBusBackpressure(eventBus, config) {
 
   try {
     eventBus.enableBackpressure({ ...DEFAULT_EVENTBUS_BACKPRESSURE, ...cfg });
-  } catch {
-    // ignore
+  } catch (e) {
+    // Backpressure setup may fail on incompatible buses; non-fatal
+    logger.debug("[ensureEventBusBackpressure] enableBackpressure failed", e);
   }
 }
 
 /**
- * @param {any} resp
- * @returns {{ promptTokens: number, completionTokens: number }}
+ * @private
+ * @param {any} resp - LLM response object
+ * @returns {{ promptTokens: number, completionTokens: number }} extracted token counts
  */
 function extractTokenUsage(resp) {
   const usage = resp && typeof resp === "object" ? resp.usage : null;
@@ -388,20 +425,87 @@ function extractTokenUsage(resp) {
 }
 
 /**
- * @param {any} aiApiService
+ * @private
+ * @param {any} breakerRegistry - circuit breaker registry
+ * @param {string} usage - usage context identifier
+ * @param {string} model - model identifier
+ * @returns {any | null} circuit breaker instance or null
+ */
+function createCircuitBreaker(breakerRegistry, usage, model) {
+  if (!breakerRegistry || typeof breakerRegistry.get !== "function") return null;
+  return breakerRegistry.get(`aiApiService:chat:${usage}:${model}`, {
+    failureThreshold: 4,
+    successThreshold: 1,
+    openDurationMs: 15_000,
+    halfOpenMaxCalls: 1,
+    isFailure: (err) => err?.name !== "AbortError",
+  });
+}
+
+/**
+ * @private
+ * @param {any} resp - LLM response
+ * @param {any} opts - request options
+ * @param {number} latencyMs - request latency in ms
+ * @returns {void}
+ */
+function recordTokenTrackingSuccess(resp, opts, latencyMs) {
+  try {
+    const { promptTokens, completionTokens } = extractTokenUsage(resp);
+    getGlobalTokenTracker().record({
+      model: typeof resp?.model === "string" ? resp.model : typeof opts?.model === "string" ? opts.model : "unknown",
+      provider: typeof resp?.provider === "string" ? resp.provider : "aiApiService",
+      usage: typeof opts?.usage === "string" ? opts.usage : "unknown",
+      promptTokens,
+      completionTokens,
+      latencyMs,
+      success: true,
+    });
+  } catch {
+    // Ignore tracker errors
+  }
+}
+
+/**
+ * @private
+ * @param {any} opts - request options
+ * @param {number} latencyMs - request latency in ms
+ * @param {Error | any} err - error that occurred
+ * @returns {void}
+ */
+function recordTokenTrackingFailure(opts, latencyMs, err) {
+  try {
+    getGlobalTokenTracker().record({
+      model: typeof opts?.model === "string" ? opts.model : "unknown",
+      provider: "aiApiService",
+      usage: typeof opts?.usage === "string" ? opts.usage : "unknown",
+      promptTokens: 0,
+      completionTokens: 0,
+      latencyMs,
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  } catch {
+    // Ignore tracker errors
+  }
+}
+
+/**
+ * @private
+ * @param {any} aiApiService - AI API service to wrap with token tracking
  * @returns {void}
  */
 function ensureAiApiServiceTokenTracking(aiApiService) {
   if (!aiApiService || typeof aiApiService !== "object") return;
   const originalChat = aiApiService.chat;
   if (typeof originalChat !== "function") return;
+
   const registryLike =
     aiApiService?.circuitBreakerRegistry && typeof aiApiService.circuitBreakerRegistry.get === "function"
       ? aiApiService.circuitBreakerRegistry
       : null;
 
   if (originalChat.__tokenTrackerWrapped === true) {
-    // Allow updating the active registry even after wrapping.
     if (registryLike) originalChat.__pbCircuitBreakerRegistry = registryLike;
     return;
   }
@@ -414,54 +518,15 @@ function ensureAiApiServiceTokenTracking(aiApiService) {
         : null;
     const usage = typeof opts?.usage === "string" && opts.usage ? opts.usage : "unknown";
     const model = typeof opts?.model === "string" && opts.model ? opts.model : "auto";
-    const breaker = breakerRegistry
-      ? breakerRegistry.get(`aiApiService:chat:${usage}:${model}`, {
-          failureThreshold: 4,
-          successThreshold: 1,
-          openDurationMs: 15_000,
-          halfOpenMaxCalls: 1,
-          isFailure: (err) => {
-            if (err?.name === "AbortError") return false;
-            return true;
-          },
-        })
-      : null;
+    const breaker = createCircuitBreaker(breakerRegistry, usage, model);
 
     try {
       const call = () => originalChat.call(aiApiService, opts);
       const resp = breaker ? await breaker.execute(call) : await call();
-      const latencyMs = Date.now() - startedAt;
-      try {
-        const { promptTokens, completionTokens } = extractTokenUsage(resp);
-        getGlobalTokenTracker().record({
-          model: typeof resp?.model === "string" ? resp.model : typeof opts?.model === "string" ? opts.model : "unknown",
-          provider: typeof resp?.provider === "string" ? resp.provider : "aiApiService",
-          usage: typeof opts?.usage === "string" ? opts.usage : "unknown",
-          promptTokens,
-          completionTokens,
-          latencyMs,
-          success: true,
-        });
-      } catch {
-        // Ignore tracker errors.
-      }
+      recordTokenTrackingSuccess(resp, opts, Date.now() - startedAt);
       return resp;
     } catch (err) {
-      const latencyMs = Date.now() - startedAt;
-      try {
-        getGlobalTokenTracker().record({
-          model: typeof opts?.model === "string" ? opts.model : "unknown",
-          provider: "aiApiService",
-          usage: typeof opts?.usage === "string" ? opts.usage : "unknown",
-          promptTokens: 0,
-          completionTokens: 0,
-          latencyMs,
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      } catch {
-        // Ignore tracker errors.
-      }
+      recordTokenTrackingFailure(opts, Date.now() - startedAt, err);
       throw err;
     }
   }
@@ -473,8 +538,9 @@ function ensureAiApiServiceTokenTracking(aiApiService) {
 }
 
 /**
- * @param {any} aiApiService
- * @param {any} retryStrategy
+ * @private
+ * @param {any} aiApiService - AI API service to wrap
+ * @param {any} retryStrategy - retry strategy to apply
  * @returns {void}
  */
 function ensureAiApiServiceRetry(aiApiService, retryStrategy) {
@@ -529,8 +595,9 @@ function ensureAiApiServiceRetry(aiApiService, retryStrategy) {
 }
 
 /**
- * @param {any} mcpClient
- * @param {any} retryStrategy
+ * @private
+ * @param {any} mcpClient - MCP client to wrap
+ * @param {any} retryStrategy - retry strategy to apply
  * @returns {void}
  */
 function ensureMcpClientRetry(mcpClient, retryStrategy) {
@@ -563,7 +630,8 @@ function ensureMcpClientRetry(mcpClient, retryStrategy) {
 
 export class StageApiFactory {
   /**
-   * @param {StageApiFactoryServices} [services]
+   * 创建 StageApiFactory 实例
+   * @param {StageApiFactoryServices} [services] - 服务配置与依赖注入
    */
   constructor(services = {}) {
     /** @type {StageApiFactoryServices} */
@@ -616,9 +684,9 @@ export class StageApiFactory {
   }
 
   /**
-   * 创建基础 StageApi
-   * @param {Record<string, any>} [overrides]
-   * @returns {any}
+   * 创建基础 StageApi，包含运行时增强（回压、重试、遥测）
+   * @param {Record<string, any>} [overrides] - 覆盖或扩展默认服务配置
+   * @returns {any} 增强后的 StageApi 实例
    */
   createBaseApi(overrides = {}) {
     // 过滤 undefined 值，避免覆盖已有配置
@@ -659,9 +727,9 @@ export class StageApiFactory {
   }
 
   /**
-   * 创建 DeepSearch 专用 StageApi
-   * @param {Record<string, any>} [overrides]
-   * @returns {any}
+   * 创建 DeepSearch 专用 StageApi，包含检索与 OCR 服务
+   * @param {Record<string, any>} [overrides] - 覆盖或扩展默认服务配置
+   * @returns {any} DeepSearch 专用 StageApi 实例
    */
   createDeepSearchApi(overrides = {}) {
     const api = this.createBaseApi({
@@ -677,9 +745,9 @@ export class StageApiFactory {
   }
 
   /**
-   * 创建 Design 专用 StageApi
-   * @param {Record<string, any>} [overrides]
-   * @returns {any}
+   * 创建 Design 专用 StageApi，包含图像与 SVG 服务
+   * @param {Record<string, any>} [overrides] - 覆盖或扩展默认服务配置
+   * @returns {any} Design 专用 StageApi 实例
    */
   createDesignApi(overrides = {}) {
     const api = this.createBaseApi({
@@ -695,19 +763,19 @@ export class StageApiFactory {
 
   /**
    * 创建 TextPrep 专用 StageApi
-   * @param {Record<string, any>} [overrides]
-   * @returns {any}
+   * @param {Record<string, any>} [overrides] - 覆盖或扩展默认服务配置
+   * @returns {any} TextPrep 专用 StageApi 实例
    */
   createTextPrepApi(overrides = {}) {
     return this.createBaseApi(overrides);
   }
 
   /**
-   * 验证 StageApi 必需字段
-   * @param {any} api
-   * @param {string[]} requiredFields
-   * @param {string} [stageName]
-   * @returns {boolean}
+   * 验证 StageApi 必需字段，缺失时记录警告
+   * @param {any} api - 待验证的 StageApi 实例
+   * @param {string[]} requiredFields - 必需字段名数组
+   * @param {string} [stageName] - Stage 名称，用于日志
+   * @returns {boolean} 所有必需字段都存在则返回 true
    */
   validate(api, requiredFields, stageName = "Stage") {
     const missing = requiredFields.filter((field) => {
@@ -723,9 +791,9 @@ export class StageApiFactory {
   }
 
   /**
-   * 从 workflow context 创建 Factory
-   * @param {any} ctx
-   * @returns {StageApiFactory}
+   * 从 workflow context 创建 Factory，自动提取常用服务
+   * @param {any} ctx - workflow context 对象
+   * @returns {StageApiFactory} 新的 Factory 实例
    */
   static fromWorkflowContext(ctx) {
     return new StageApiFactory({
@@ -755,8 +823,9 @@ export class StageApiFactory {
 }
 
 /**
- * @param {StageApiFactoryServices} services
- * @returns {StageApiFactory}
+ * 创建 StageApiFactory 的工厂函数
+ * @param {StageApiFactoryServices} services - 服务配置与依赖注入
+ * @returns {StageApiFactory} 新的 Factory 实例
  */
 export function createStageApiFactory(services) {
   return new StageApiFactory(services);

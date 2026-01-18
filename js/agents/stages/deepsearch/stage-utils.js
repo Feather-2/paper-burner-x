@@ -9,6 +9,10 @@ let nodeIdCounter = 0;
 
 /**
  * 创建带限流的 stage 事件发射器
+ * @param {object} stageApi - Stage API 对象，需提供 emit 或 eventBus.emit 方法
+ * @param {string} [actor="deepsearch"] - 事件 actor 标识
+ * @param {() => object} [getContext] - 可选的上下文获取函数
+ * @returns {((name: string, payload: any, meta?: { status?: string, throttle?: boolean }) => void) | null}
  */
 export function makeStageEmitter(stageApi, actor = "deepsearch", getContext) {
   const emitFn =
@@ -73,6 +77,9 @@ export function generateNodeId(runId, kind, { stage, iteration, trajectoryId } =
 
 /**
  * 检查是否已取消
+ * @param {object} stageApi - Stage API 对象
+ * @returns {void}
+ * @throws {Error} 当运行已被取消时抛出错误
  */
 export function checkCancelled(stageApi) {
   if (typeof stageApi?.checkCancelled === "function") stageApi.checkCancelled();

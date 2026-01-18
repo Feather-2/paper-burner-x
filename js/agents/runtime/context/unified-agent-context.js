@@ -12,7 +12,7 @@
  * - 统一 Checkpoint
  */
 
-import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/value-utils.js";
+import { toNonEmptyString, deepClone } from "../../shared/utils/value-utils.js";
 import { createLogger } from "../../shared/utils/logger.js";
 
 const logger = createLogger("runtime/context/unified-agent-context");
@@ -81,6 +81,11 @@ export class UnifiedAgentContext {
     return st || "";
   }
 
+  /**
+   * 设置任务目标
+   * @param {string} goal - 任务目标描述
+   * @returns {void}
+   */
   setTaskGoal(goal) {
     const normalized = toNonEmptyString(goal) || "";
     if (this._state) this._state.taskGoal = normalized;
@@ -101,6 +106,11 @@ export class UnifiedAgentContext {
     return st || [];
   }
 
+  /**
+   * 添加待办事项
+   * @param {object} todo - 待办事项对象
+   * @returns {object|null} 添加结果或 null
+   */
   addTodo(todo) {
     // Prefer state.addTodo() to preserve DeepSearch business rules (sync-to-shared, IDs, etc).
     if (this._state?.addTodo) return this._state.addTodo(todo);
@@ -108,6 +118,12 @@ export class UnifiedAgentContext {
     return null;
   }
 
+  /**
+   * 更新待办事项
+   * @param {string} id - 待办事项 ID
+   * @param {object} updates - 更新内容
+   * @returns {object|null} 更新结果或 null
+   */
   updateTodo(id, updates) {
     const sharedTodos =
       this._state &&
@@ -130,6 +146,11 @@ export class UnifiedAgentContext {
     return this._memory?.L1?.messages || [];
   }
 
+  /**
+   * 添加消息
+   * @param {object} msg - 消息对象
+   * @returns {void}
+   */
   addMessage(msg) {
     if (this._memory?.addMessage) this._memory.addMessage(msg);
   }
@@ -142,7 +163,17 @@ export class UnifiedAgentContext {
     return this._memory?.L2?.claims || this._state?.L1?.claims || [];
   }
 
+  /**
+   * 添加 claim/发现
+   * @param {object} claim - claim 对象，包含 text/content/source/confidence/verified
+   * @returns {void}
+   */
   addClaim(claim) {
+    // 校验 claim 为有效对象
+    if (!claim || typeof claim !== "object") {
+      logger.warn("UnifiedAgentContext.addClaim: invalid claim (null or non-object)");
+      return;
+    }
     if (this._state?.addClaim) this._state.addClaim(claim);
     if (this._memory?.addClaim) {
       try {
@@ -159,9 +190,9 @@ export class UnifiedAgentContext {
     if (this._sharedContext?.addFinding) {
       this._sharedContext.addFinding({
         type: "claim",
-        content: claim.text || claim.content || "",
-        source: claim.source,
-        confidence: claim.confidence,
+        content: claim?.text || claim?.content || "",
+        source: claim?.source,
+        confidence: claim?.confidence,
       });
     }
   }
@@ -170,12 +201,23 @@ export class UnifiedAgentContext {
   // Signals (跨阶段通信)
   // ─────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * 发送跨阶段信号
+   * @param {string} type - 信号类型
+   * @param {unknown} payload - 信号载荷
+   * @returns {void}
+   */
   signal(type, payload) {
     if (this._sharedContext?.signal) {
       this._sharedContext.signal(type, payload);
     }
   }
 
+  /**
+   * 获取信号列表
+   * @param {object} [filter] - 过滤条件
+   * @returns {Array<object>} 信号列表
+   */
   getSignals(filter) {
     if (this._sharedContext?.getSignals) {
       return this._sharedContext.getSignals(filter);
@@ -187,6 +229,11 @@ export class UnifiedAgentContext {
   // Decisions (决策记录)
   // ─────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * 记录决策
+   * @param {object} decision - 决策对象
+   * @returns {void}
+   */
   recordDecision(decision) {
     if (this._memory?.recordDecision) this._memory.recordDecision(decision);
     if (this._sharedContext?.recordDecision) this._sharedContext.recordDecision(decision);
@@ -200,10 +247,20 @@ export class UnifiedAgentContext {
     return this._memory?.getScratchpad?.() || {};
   }
 
+  /**
+   * 设置 scratchpad 键值
+   * @param {string} key - 键名
+   * @param {unknown} value - 值
+   * @returns {void}
+   */
   setScratchpad(key, value) {
     if (this._memory?.setScratchpad) this._memory.setScratchpad(key, value);
   }
 
+  /**
+   * 清空 scratchpad
+   * @returns {void}
+   */
   clearScratchpad() {
     if (this._memory?.clearScratchpad) this._memory.clearScratchpad();
   }
@@ -216,6 +273,12 @@ export class UnifiedAgentContext {
     return this._memory?.getFlags?.() || { awaitUserFeedback: false, taskImpossible: false };
   }
 
+  /**
+   * 设置反馈标志
+   * @param {string} name - 标志名称
+   * @param {boolean} value - 标志值
+   * @returns {void}
+   */
   setFeedbackFlag(name, value) {
     if (this._memory?.setFlag) this._memory.setFlag(name, value);
   }
@@ -244,6 +307,11 @@ export class UnifiedAgentContext {
     return this._state?.L1?.report || null;
   }
 
+  /**
+   * 设置报告
+   * @param {object} report - 报告对象
+   * @returns {void}
+   */
   setReport(report) {
     if (this._state) {
       if (!this._state.L1) this._state.L1 = {};
@@ -267,6 +335,14 @@ export class UnifiedAgentContext {
   // Checkpoint (统一入口)
   // ─────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * 保存检查点
+   * @param {object} [options] - 选项
+   * @param {boolean} [options.includeMemoryL3] - 是否包含 L3 记忆
+   * @param {boolean} [options.incremental] - 是否使用增量快照
+   * @param {string} [options.stateStrategy] - 状态策略
+   * @returns {Promise<object>} 检查点对象
+   */
   async saveCheckpoint(options = {}) {
     const checkpointTimestamp = new Date().toISOString();
     const stateStrategy = options?.stateStrategy ?? options?.strategy;
@@ -346,6 +422,11 @@ export class UnifiedAgentContext {
     return checkpoint;
   }
 
+  /**
+   * 恢复检查点
+   * @param {object} checkpoint - 检查点对象
+   * @returns {Promise<boolean>} 恢复是否成功
+   */
   async restoreCheckpoint(checkpoint) {
     if (!checkpoint) return false;
 
@@ -370,6 +451,10 @@ export class UnifiedAgentContext {
   // Context Status (统一入口)
   // ─────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * 获取上下文状态信息
+   * @returns {object} 状态摘要
+   */
   getContextStatus() {
     const memoryStatus = this._memory?.getContextStatus?.() || {};
     return {
@@ -386,6 +471,10 @@ export class UnifiedAgentContext {
   // Serialization
   // ─────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * 序列化上下文为普通对象
+   * @returns {object} 序列化结果
+   */
   serialize() {
     return {
       runId: this.runId,

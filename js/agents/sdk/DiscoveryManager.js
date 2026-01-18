@@ -171,7 +171,7 @@ export class DiscoveryManager {
     evaluateGap(id, data) {
         this.upsertDiscovery(id, data);
         if (this.emit) {
-            this.emit("deepsearch.gap.evaluated", {
+            this.emit("deepsearch:gapEvaluated", {
                 payload: { gapId: id, ...data }
             });
         }

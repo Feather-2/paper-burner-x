@@ -794,6 +794,7 @@ export function createToolExecutor(options = {}) {
 
 /**
  * 格式化工具定义为 LLM 可读格式
+ * @returns {string} 格式化的工具定义文本（Markdown 格式）
  */
 export function formatToolDefinitionsForLLM() {
   return TOOL_DEFINITIONS.map(tool => {

@@ -1,6 +1,8 @@
 import LRUCache from "../../shared/utils/lru-cache.js";
 import DisposableBase from "../../shared/base/disposable-base.js";
+import { createLogger } from "../../shared/utils/logger.js";
 
+const logger = createLogger("runtime/memory/l3-storage");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const TAB_COORDINATOR_HOOKS_KEY = "__l3StorageHooks";
@@ -63,6 +65,22 @@ function toNonEmptyString(value) {
   return s ? s : null;
 }
 
+/**
+ * Validate runId to prevent path traversal attacks.
+ * @param {string} runId - Run ID to validate
+ * @returns {string} Validated runId
+ * @throws {Error} If runId contains path traversal characters
+ */
+function validateRunId(runId) {
+  const id = toNonEmptyString(runId);
+  if (!id) throw new Error("L3Storage requires { runId }");
+  // Reject path traversal attempts
+  if (id.includes("..") || id.includes("/") || id.includes("\\")) {
+    throw new Error("L3Storage runId contains invalid characters (path traversal attempt)");
+  }
+  return id;
+}
+
 function encodeTabCoordinatorSession(runId, snapshotId) {
   const resolvedRunId = toNonEmptyString(runId);
   const resolvedSnapshotId = toNonEmptyString(snapshotId);
@@ -91,7 +109,7 @@ function callTabCoordinatorHandler(handler, sessionId, label) {
   try {
     handler(sessionId);
   } catch (err) {
-    console.warn(`[L3Storage] tabCoordinator ${label} handler error:`, err);
+    logger.warn(`[L3Storage] tabCoordinator ${label} handler error:`, err);
   }
 }
 
@@ -215,9 +233,8 @@ export class L3Storage extends DisposableBase {
 
     const o = options && typeof options === "object" ? options : {};
     const vfs = o.vfs;
-    const runId = toNonEmptyString(o.runId);
+    const runId = validateRunId(o.runId);
     if (!vfs || typeof vfs !== "object") throw new Error("L3Storage requires { vfs }");
-    if (!runId) throw new Error("L3Storage requires { runId }");
     if (typeof vfs.readFile !== "function") throw new Error("L3Storage requires vfs.readFile(path)");
     if (typeof vfs.writeFile !== "function") throw new Error("L3Storage requires vfs.writeFile(path, data)");
     if (typeof vfs.mkdir !== "function") throw new Error("L3Storage requires vfs.mkdir(path, { recursive })");
@@ -382,7 +399,7 @@ export class L3Storage extends DisposableBase {
       try {
         await coordinator.init();
       } catch (err) {
-        console.warn("[L3Storage] tabCoordinator init failed:", err);
+        logger.warn("[L3Storage] tabCoordinator init failed:", err);
       }
     }
 
@@ -579,7 +596,7 @@ export class L3Storage extends DisposableBase {
 
     // Trigger background eviction (non-blocking)
     this._evictionPromise = this._maybeEvict().catch((err) => {
-      console.warn("[L3Storage] eviction error:", err);
+      logger.warn("[L3Storage] eviction error:", err);
     });
 
     return id;
@@ -1128,7 +1145,7 @@ export class L3Storage extends DisposableBase {
     try {
       await this.persistIndex();
     } catch (err) {
-      console.warn("[L3Storage] persistIndex() failed during dispose:", err);
+      logger.warn("[L3Storage] persistIndex() failed during dispose:", err);
     }
     try {
       this._snapshotCache.clear();

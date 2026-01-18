@@ -23,11 +23,6 @@ const AI_IMAGE_VISUAL_TYPES = new Set(
   [VisualType.ILLUSTRATION, VisualType.PHOTO, VisualType.ICON, VisualType.BACKGROUND_IMAGE].map(String)
 );
 
-function safeNumber(value, fallback) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
 function normalizeAssetUri(asset) {
   const uri =
     toNonEmptyString(asset?.assetUri) ||

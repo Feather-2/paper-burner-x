@@ -5,15 +5,21 @@
  * Consumers should treat the returned snapshot as an opaque, versioned object owned
  * by the implementing component.
  *
+ * @typedef {object} SnapshotOptions
+ * @property {boolean} [includeCheckpoints] - 是否包含检查点历史
+ * @property {boolean} [incremental] - 是否使用增量快照
+ */
+
+/**
  * @typedef {object} Snapshotable
- * @property {(options?: any) => object} toSnapshot
- * @property {(snapshot: object) => void} fromSnapshot
+ * @property {(options?: SnapshotOptions) => object} toSnapshot - 生成快照
+ * @property {(snapshot: object) => void} fromSnapshot - 从快照恢复
  */
 
 /**
  * Runtime guard for Snapshotable.
  *
- * @param {any} value
+ * @param {unknown} value - 待检测的值
  * @returns {value is Snapshotable}
  */
 export function isSnapshotable(value) {
@@ -23,9 +29,10 @@ export function isSnapshotable(value) {
 /**
  * Runtime assertion for Snapshotable.
  *
- * @param {any} value
- * @param {string} [label]
+ * @param {unknown} value - 待断言的值
+ * @param {string} [label] - 标签（用于错误消息）
  * @returns {Snapshotable}
+ * @throws {TypeError} 如果值不符合 Snapshotable 协议
  */
 export function assertSnapshotable(value, label = "value") {
   if (!value) throw new TypeError(`${label} is required`);

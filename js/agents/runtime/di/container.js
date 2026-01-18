@@ -13,7 +13,7 @@ export const TRANSIENT = Symbol("transient");
 
 /**
  * @typedef {Object} ServiceEntry
- * @property {Function} factory - Factory function (container) => instance
+ * @property {Function} factory - Factory function (container) => instance or Promise<instance>
  * @property {Symbol} scope - SINGLETON or TRANSIENT
  */
 
@@ -78,8 +78,11 @@ export class Container {
   /**
    * Get a service instance.
    *
+   * NOTE: If the factory is async, this returns a Promise.
+   * Callers should always `await container.get(id)` when async factories are possible.
+   *
    * @param {string} id - Service identifier
-   * @returns {*} Service instance
+   * @returns {*|Promise<*>} Service instance (or Promise if factory is async)
    * @throws {Error} If service is not registered
    */
   get(id) {
@@ -107,14 +110,22 @@ export class Container {
   }
 
   /**
-   * Try to get a service, return undefined if not registered.
+   * Try to get a service, return undefined if not registered or on error.
+   *
+   * NOTE: Handles async factory rejections by returning Promise<undefined>.
    *
    * @param {string} id - Service identifier
-   * @returns {*|undefined}
+   * @returns {*|Promise<*|undefined>|undefined} Service instance or undefined on failure
    */
   tryGet(id) {
+    if (!this.has(id)) return undefined;
     try {
-      return this.has(id) ? this.get(id) : undefined;
+      const result = this.get(id);
+      // Handle async factory rejection
+      if (result && typeof result.then === "function") {
+        return result.catch(() => undefined);
+      }
+      return result;
     } catch {
       return undefined;
     }

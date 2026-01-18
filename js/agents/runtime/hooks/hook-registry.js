@@ -29,9 +29,13 @@ const VALID_HOOK_TYPES = new Set(Object.values(HookType));
 
 /**
  * @typedef {object} HookDefinition
- * @property {string} type - HookType
+ * @property {string} type - HookType (command/prompt/agent)
  * @property {boolean=} blocking - Whether the hook can block execution (default true)
  * @property {string | string[]=} tools - Tool name wildcard(s) to match; omitted => match all
+ * @property {string=} tool - Alias for tools (single tool name)
+ * @property {string=} toolPattern - Alias for tools (single pattern)
+ * @property {string | string[]=} toolPatterns - Alias for tools (multiple patterns)
+ * @property {((ctx: object) => Promise<{skip?: boolean, reason?: string, value?: any} | null | void>) =} handler - Custom handler function (command hooks)
  * @property {string=} prompt - Prompt template (prompt/agent hooks)
  * @property {string=} usage - ModelRouter usage (prompt hooks)
  * @property {string=} agentType - Subagent type (agent hooks)

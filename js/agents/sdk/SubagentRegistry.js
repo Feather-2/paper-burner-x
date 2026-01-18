@@ -125,6 +125,12 @@ function validateOutput(output, schema = DEFAULT_OUTPUT_SCHEMA) {
  * Quarantine wrapper for subagent output.
  * Validates and sanitizes output before passing to parent agent.
  * P3.4: Now includes injection scanning.
+ *
+ * @param {any} output - Raw output from subagent
+ * @param {object} schema - Schema definition for validation
+ * @param {string} subagentType - Type of the subagent (for audit logging)
+ * @param {InjectionScanner|null} injectionScanner - Scanner instance for injection detection
+ * @returns {{ ok?: boolean, summary?: string, report?: string, error?: string, _quarantine: { valid: boolean, warnings: string[], injectionDetections?: any[], subagentType: string, timestamp: number } }} Quarantined output with metadata
  */
 function quarantineOutput(output, schema, subagentType, injectionScanner) {
   const result = validateOutput(output, schema);

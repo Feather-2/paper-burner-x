@@ -264,6 +264,20 @@ export class BaseAdapter {
     return { ok: true };
   }
 
+  /**
+   * Build a ParsedDocument from parsed content.
+   * @param {object} params
+   * @param {string} [params.sourceType] - Source type constant (e.g., SourceKind.PDF)
+   * @param {object} [params.origin] - Original source info (filename, URL, etc.)
+   * @param {string} [params.markdown] - Markdown content
+   * @param {Array<{id:string,type:string,data:string|Uint8Array,mimeType?:string}>} [params.assets] - Extracted assets
+   * @param {object} [params.metadata] - Document metadata (title, author, etc.)
+   * @param {{adapter:string,durationMs?:number}} [params.parseInfo] - Parsing info
+   * @param {string} [params.docId] - Optional explicit document ID
+   * @param {{chunkSize?:number,overlap?:number,includeLineNumbers?:boolean,forceStrategy?:string}} [params.chunkOptions] - Chunking options
+   * @param {boolean} [params.useSmartChunk=false] - Use smart chunking strategy
+   * @returns {{docId:string,markdown:string,textNormalized:string,textHash:string,toc:object,chunks:Array,chunkStrategy:string,chunkMeta:object,assets:Array,metadata:object,parseInfo:object}} ParsedDocument
+   */
   buildParsedDocument({ sourceType, origin, markdown, assets, metadata, parseInfo, docId, chunkOptions, useSmartChunk = false } = {}) {
     const md = String(markdown || "");
     const normalized = normalizeText(md);

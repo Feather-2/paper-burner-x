@@ -8,6 +8,61 @@ import { VisualDataStatus } from "../constants.js";
 
 import { escapeHtml } from "../shared/design-utils.js";
 
+// --- Security: Attribute Sanitization ---
+
+/**
+ * Validate and sanitize dimension value (x/y/w/h).
+ * Only allows: numbers, numbers with %, "auto".
+ * @param {string|number|undefined} val
+ * @param {string} fallback
+ * @returns {string}
+ */
+function sanitizeDimension(val, fallback = "0%") {
+  if (val === undefined || val === null) return fallback;
+  if (val === "auto") return "auto";
+  const s = String(val).trim();
+  // Allow: "10", "10%", "10.5", "10.5%"
+  if (/^-?\d+(?:\.\d+)?%?$/.test(s)) {
+    return s.endsWith("%") ? s : `${s}%`;
+  }
+  return fallback;
+}
+
+/**
+ * Validate and sanitize color value.
+ * Only allows: hex (#rgb, #rrggbb, #rrggbbaa), rgb(), rgba(), hsl(), hsla(), named colors.
+ * @param {string|undefined} val
+ * @param {string} fallback
+ * @returns {string}
+ */
+function sanitizeColor(val, fallback = "#000000") {
+  if (val === undefined || val === null) return fallback;
+  const s = String(val).trim();
+  // Hex: #rgb, #rrggbb, #rrggbbaa
+  if (/^#[0-9A-Fa-f]{3,8}$/.test(s)) return s;
+  // rgb/rgba/hsl/hsla with safe characters
+  if (/^(?:rgb|rgba|hsl|hsla)\([^()]*\)$/i.test(s) && !/[<>"']/.test(s)) return s;
+  // Named colors (safe subset, no special chars)
+  if (/^[a-zA-Z]{3,20}$/.test(s)) return s;
+  return fallback;
+}
+
+/**
+ * Validate and sanitize numeric value within range.
+ * @param {string|number|undefined} val
+ * @param {number} min
+ * @param {number} max
+ * @param {number} fallback
+ * @returns {number}
+ */
+function sanitizeNumber(val, min, max, fallback) {
+  const n = Number(val);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+// --- End Security ---
+
 function normalizePageType(pageType) {
   return String(pageType || "overview").toLowerCase();
 }
@@ -83,79 +138,108 @@ function resolveBuildArgs(arg3, arg4, arg5) {
 }
 
 function makeTextEl({ x, y, w, h = "auto", font, color, bold = false, align = "", lineHeight = null, content }) {
+  const safeX = sanitizeDimension(x, "0%");
+  const safeY = sanitizeDimension(y, "0%");
+  const safeW = sanitizeDimension(w, "100%");
+  const safeH = sanitizeDimension(h, "auto");
+  const safeFont = sanitizeNumber(font, 8, 200, 16);
+  const safeColor = sanitizeColor(color, "#000000");
   const attrs = [
     `data-el="text"`,
-    `data-x="${x}"`,
-    `data-y="${y}"`,
-    `data-w="${w}"`,
-    `data-h="${h}"`,
-    `data-font="${font}"`,
-    `data-color="${color}"`,
+    `data-x="${safeX}"`,
+    `data-y="${safeY}"`,
+    `data-w="${safeW}"`,
+    `data-h="${safeH}"`,
+    `data-font="${safeFont}"`,
+    `data-color="${safeColor}"`,
   ];
   if (bold) attrs.push(`data-bold="true"`);
-  if (align) attrs.push(`data-align="${align}"`);
-  if (lineHeight) attrs.push(`data-line-height="${lineHeight}"`);
+  if (align && /^(?:left|center|right|justify)$/.test(align)) attrs.push(`data-align="${align}"`);
+  if (lineHeight) attrs.push(`data-line-height="${sanitizeNumber(lineHeight, 0.5, 5, 1.4)}"`);
   return `<div ${attrs.join(" ")}>${content}</div>`;
 }
 
 function makeShapeEl({ x, y, w, h, fill, stroke, radius = 14 }) {
+  const safeX = sanitizeDimension(x, "0%");
+  const safeY = sanitizeDimension(y, "0%");
+  const safeW = sanitizeDimension(w, "100%");
+  const safeH = sanitizeDimension(h, "100%");
+  const safeFill = sanitizeColor(fill, "#ffffff");
+  const safeRadius = sanitizeNumber(radius, 0, 100, 14);
   const attrs = [
     `data-el="shape"`,
     `data-shape="rounded"`,
-    `data-x="${x}"`,
-    `data-y="${y}"`,
-    `data-w="${w}"`,
-    `data-h="${h}"`,
-    `data-fill="${fill}"`,
+    `data-x="${safeX}"`,
+    `data-y="${safeY}"`,
+    `data-w="${safeW}"`,
+    `data-h="${safeH}"`,
+    `data-fill="${safeFill}"`,
   ];
-  if (stroke) attrs.push(`data-stroke="${stroke}"`);
-  if (radius) attrs.push(`data-radius="${String(radius)}"`);
+  if (stroke) attrs.push(`data-stroke="${sanitizeColor(stroke, "#000000")}"`);
+  if (safeRadius) attrs.push(`data-radius="${safeRadius}"`);
   return `<div ${attrs.join(" ")}></div>`;
 }
 
 function makeImageEl({ x, y, w, h, src, alt = "图片", fit = "cover", radius = 12 }) {
+  const safeX = sanitizeDimension(x, "0%");
+  const safeY = sanitizeDimension(y, "0%");
+  const safeW = sanitizeDimension(w, "100%");
+  const safeH = sanitizeDimension(h, "100%");
+  const safeRadius = sanitizeNumber(radius, 0, 100, 12);
+  const safeFit = /^(?:cover|contain|fill|none|scale-down)$/.test(fit) ? fit : "cover";
   const attrs = [
     `data-el="image"`,
-    `data-x="${x}"`,
-    `data-y="${y}"`,
-    `data-w="${w}"`,
-    `data-h="${h}"`,
+    `data-x="${safeX}"`,
+    `data-y="${safeY}"`,
+    `data-w="${safeW}"`,
+    `data-h="${safeH}"`,
     `data-src="${escapeHtml(src)}"`,
     `data-alt="${escapeHtml(alt)}"`,
-    `data-fit="${escapeHtml(fit)}"`,
+    `data-fit="${safeFit}"`,
   ];
-  if (radius !== undefined && radius !== null) attrs.push(`data-radius="${String(radius)}"`);
+  if (safeRadius !== 0) attrs.push(`data-radius="${safeRadius}"`);
   return `<div ${attrs.join(" ")}></div>`;
 }
 
 function makeTableEl({ x, y, w, h, data, colors, fontSize = 12, radius = 8 }) {
+  const safeX = sanitizeDimension(x, "0%");
+  const safeY = sanitizeDimension(y, "0%");
+  const safeW = sanitizeDimension(w, "100%");
+  const safeH = sanitizeDimension(h, "100%");
+  const safeFontSize = sanitizeNumber(fontSize, 8, 72, 12);
+  const safeRadius = sanitizeNumber(radius, 0, 100, 8);
   const attrs = [
     `data-el="table"`,
-    `data-x="${x}"`,
-    `data-y="${y}"`,
-    `data-w="${w}"`,
-    `data-h="${h}"`,
+    `data-x="${safeX}"`,
+    `data-y="${safeY}"`,
+    `data-w="${safeW}"`,
+    `data-h="${safeH}"`,
     `data-data='${escapeHtml(data)}'`,
-    `data-header-bg="${colors.primary}"`,
+    `data-header-bg="${sanitizeColor(colors.primary, "#0ea5e9")}"`,
     `data-header-color="#FFFFFF"`,
-    `data-row-bg="${colors.panel}"`,
-    `data-alt-row-bg="${colors.panel}"`,
-    `data-cell-color="${colors.text}"`,
-    `data-border-color="${colors.border}"`,
-    `data-font-size="${String(fontSize)}"`,
-    `data-radius="${String(radius)}"`,
+    `data-row-bg="${sanitizeColor(colors.panel, "#ffffff")}"`,
+    `data-alt-row-bg="${sanitizeColor(colors.panel, "#ffffff")}"`,
+    `data-cell-color="${sanitizeColor(colors.text, "#0f172a")}"`,
+    `data-border-color="${sanitizeColor(colors.border, "#e2e8f0")}"`,
+    `data-font-size="${safeFontSize}"`,
+    `data-radius="${safeRadius}"`,
   ];
   return `<div ${attrs.join(" ")}></div>`;
 }
 
 function makeChartEl({ x, y, w, h, chartType = "bar", chartData = "{}", colors = [] }) {
+  const safeX = sanitizeDimension(x, "0%");
+  const safeY = sanitizeDimension(y, "0%");
+  const safeW = sanitizeDimension(w, "100%");
+  const safeH = sanitizeDimension(h, "100%");
+  const safeChartType = /^(?:bar|line|pie|doughnut|area|scatter|radar)$/.test(chartType) ? chartType : "bar";
   const attrs = [
     `data-el="chart"`,
-    `data-x="${x}"`,
-    `data-y="${y}"`,
-    `data-w="${w}"`,
-    `data-h="${h}"`,
-    `data-chart-type="${escapeHtml(chartType)}"`,
+    `data-x="${safeX}"`,
+    `data-y="${safeY}"`,
+    `data-w="${safeW}"`,
+    `data-h="${safeH}"`,
+    `data-chart-type="${safeChartType}"`,
     `data-chart-data="${escapeHtml(chartData)}"`,
     `data-colors='${escapeHtml(JSON.stringify(colors))}'`,
   ];
@@ -166,21 +250,22 @@ function makeImagePlaceholderEl(slot, box = {}) {
   const slotId = String(slot?.slotId || "").trim();
   if (!slotId) return "";
 
-  const aspectRatio = String(slot?.aspectRatio || "16:9").trim() || "16:9";
+  const rawAspect = String(slot?.aspectRatio || "16:9").trim() || "16:9";
+  const safeAspect = /^\d{1,2}:\d{1,2}$/.test(rawAspect) ? rawAspect : "16:9";
   const attrs = [
     `data-el="image-placeholder"`,
     `id="${escapeHtml(slotId)}"`,
     `data-slot-id="${escapeHtml(slotId)}"`,
     `data-status="${VisualDataStatus.PENDING}"`,
-    `data-aspect-ratio="${escapeHtml(aspectRatio)}"`,
+    `data-aspect-ratio="${safeAspect}"`,
     `data-fallback="gradient"`,
   ];
 
-  if (box?.x) attrs.push(`data-x="${box.x}"`);
-  if (box?.y) attrs.push(`data-y="${box.y}"`);
-  if (box?.w) attrs.push(`data-w="${box.w}"`);
-  if (box?.h) attrs.push(`data-h="${box.h}"`);
-  if (box?.z !== undefined) attrs.push(`data-z="${String(box.z)}"`);
+  if (box?.x) attrs.push(`data-x="${sanitizeDimension(box.x, "0%")}"`);
+  if (box?.y) attrs.push(`data-y="${sanitizeDimension(box.y, "0%")}"`);
+  if (box?.w) attrs.push(`data-w="${sanitizeDimension(box.w, "100%")}"`);
+  if (box?.h) attrs.push(`data-h="${sanitizeDimension(box.h, "100%")}"`);
+  if (box?.z !== undefined) attrs.push(`data-z="${sanitizeNumber(box.z, 0, 1000, 0)}"`);
 
   return `<div ${attrs.join(" ")}></div>`;
 }

@@ -10,20 +10,43 @@
 import { executeTool } from "../tools/index.js";
 import { maybePersistToolOutput } from "../../../runtime/persisted-output.js";
 
+/** 工具调用默认超时 (ms) */
+const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+
+/**
+ * 带超时的 Promise 包装
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} timeoutMs
+ * @param {string} toolName - 用于错误消息
+ * @returns {Promise<T>}
+ */
+function withTimeout(promise, timeoutMs, toolName) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Tool "${toolName}" timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    promise.then(
+      (result) => { clearTimeout(timer); resolve(result); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
 /**
  * @typedef {object} DeepSearchToolAction
  * @property {string} action
- * @property {Record<string, any>=} args
+ * @property {Record<string, unknown>=} args
  *
  * @typedef {object} DeepSearchDecision
  * @property {string=} thought
  * @property {string=} action
- * @property {Record<string, any>=} args
+ * @property {Record<string, unknown>=} args
  * @property {DeepSearchToolAction[]=} actions
  *
  * @typedef {object} DeepSearchStageApi
- * @property {any=} runStore
- * @property {{ getCursor?: () => any }=} sideEffects
+ * @property {unknown=} runStore
+ * @property {{ getCursor?: () => unknown }=} sideEffects
  *
  * @typedef {object} ExecuteDeepSearchDecisionParams
  * @property {any} agent
@@ -35,6 +58,26 @@ import { maybePersistToolOutput } from "../../../runtime/persisted-output.js";
  * @property {number} toolCalls
  * @property {boolean=} backtracked
  */
+
+/**
+ * 校验工具调用项的 action/args 结构合法性
+ * @param {{ action?: unknown, args?: unknown }} item
+ * @param {object=} logger
+ * @returns {{ valid: boolean, toolName: string, toolArgs: Record<string, unknown> }}
+ */
+function validateToolAction(item, logger) {
+  const action = item?.action;
+  const args = item?.args;
+  if (typeof action !== "string" || !action) {
+    logger?.warn?.(`Invalid tool action (not a string): ${JSON.stringify(action)}`);
+    return { valid: false, toolName: "ask-user", toolArgs: { reason: "invalid_tool_action" } };
+  }
+  if (args !== undefined && args !== null && (typeof args !== "object" || Array.isArray(args))) {
+    logger?.warn?.(`Invalid tool args (not a plain object): ${JSON.stringify(args)?.slice(0, 100)}`);
+    return { valid: false, toolName: "ask-user", toolArgs: { reason: "invalid_tool_args" } };
+  }
+  return { valid: true, toolName: action, toolArgs: /** @type {Record<string, unknown>} */ (args || {}) };
+}
 
 function buildLoopGuardNote(guard) {
   if (!guard || typeof guard !== "object") return "";
@@ -65,11 +108,13 @@ function buildLoopGuardNote(guard) {
   return "";
 }
 
-function getSideEffectsCursor(stageApi) {
+function getSideEffectsCursor(stageApi, logger) {
   if (!stageApi?.sideEffects || typeof stageApi.sideEffects.getCursor !== "function") return null;
   try {
     return stageApi.sideEffects.getCursor();
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger?.warn?.(`getSideEffectsCursor failed (ignored): ${msg}`);
     return null;
   }
 }
@@ -77,7 +122,7 @@ function getSideEffectsCursor(stageApi) {
 async function maybeSaveCheckpoint({ agent, stageApi, plannedIteration }) {
   if (!agent.checkpoint) return;
   try {
-    const cursor = getSideEffectsCursor(stageApi);
+    const cursor = getSideEffectsCursor(stageApi, agent._logger);
     await agent.checkpoint.save?.(agent.state, {
       iteration: plannedIteration,
       metadata: cursor ? { sideEffectsCursor: cursor } : {},
@@ -110,21 +155,27 @@ export async function executeDeepSearchDecision({
 
     const results = await Promise.all(
       decision.actions.map(async (item) => {
-        const toolName = item.action;
-        const toolArgs = item.args || {};
+        const validated = validateToolAction(item, agent._logger);
+        const toolName = validated.toolName;
+        const toolArgs = validated.toolArgs;
         const guard = agent._recordToolCall?.(toolName, toolArgs);
         if (guard?.shouldWarn) loopGuardWarn = guard;
         try {
           agent.sourceManager?.syncSources?.(agent.state?.L0?.sources);
-          const result = await executeTool(toolName, toolArgs, {
-            state: agent.state,
-            emit: (n, p) => agent._emit?.(n, p),
-            stageApi,
-            sharedContext: agent.sharedContext,
-            discoveryManager: agent.discoveryManager,
-            memory: agent.memory,
-            sourceManager: agent.sourceManager,
-          });
+          const timeoutMs = stageApi?.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+          const result = await withTimeout(
+            executeTool(toolName, toolArgs, {
+              state: agent.state,
+              emit: (n, p) => agent._emit?.(n, p),
+              stageApi,
+              sharedContext: agent.sharedContext,
+              discoveryManager: agent.discoveryManager,
+              memory: agent.memory,
+              sourceManager: agent.sourceManager,
+            }),
+            timeoutMs,
+            toolName
+          );
           const toolSuccess = typeof result?.success === "boolean" ? result.success : true;
           if (toolSuccess) return { tool: toolName, args: toolArgs, success: true, result };
 
@@ -176,21 +227,35 @@ export async function executeDeepSearchDecision({
   }
 
   // Single tool
-  agent._logger?.info?.(`Executing tool: ${decision.action}`);
+  const singleValidated = validateToolAction(decision, agent._logger);
+  const singleToolName = singleValidated.toolName;
+  const singleToolArgs = singleValidated.toolArgs;
+  agent._logger?.info?.(`Executing tool: ${singleToolName}`);
 
   agent.sourceManager?.syncSources?.(agent.state?.L0?.sources);
-  const toolResult = await executeTool(decision.action, decision.args || {}, {
-    state: agent.state,
-    emit: (n, p) => agent._emit?.(n, p),
-    stageApi,
-    sharedContext: agent.sharedContext,
-    discoveryManager: agent.discoveryManager,
-    memory: agent.memory,
-    sourceManager: agent.sourceManager,
-  });
+  const singleTimeoutMs = stageApi?.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+  const toolResult = await withTimeout(
+    executeTool(singleToolName, singleToolArgs, {
+      state: agent.state,
+      emit: (n, p) => agent._emit?.(n, p),
+      stageApi,
+      sharedContext: agent.sharedContext,
+      discoveryManager: agent.discoveryManager,
+      memory: agent.memory,
+      sourceManager: agent.sourceManager,
+    }),
+    singleTimeoutMs,
+    singleToolName
+  );
 
-  agent._logger?.debug?.(`Tool result: ${JSON.stringify(toolResult).slice(0, 200)}`);
-  const loopGuard = agent._recordToolCall?.(decision.action, decision.args || {});
+  // 仅记录元数据，避免敏感字段泄露到日志
+  const resultMeta = {
+    success: typeof toolResult?.success === "boolean" ? toolResult.success : true,
+    hasMode: !!toolResult?.mode,
+    byteSize: JSON.stringify(toolResult)?.length ?? 0,
+  };
+  agent._logger?.debug?.(`Tool result meta: ${JSON.stringify(resultMeta)}`);
+  const loopGuard = agent._recordToolCall?.(singleToolName, singleToolArgs);
 
   // watchdog handoff 触发回溯
   if (toolResult?.mode === "handoff" && agent.backtrackManager?.canBacktrack?.()) {
@@ -221,8 +286,8 @@ export async function executeDeepSearchDecision({
     const stored = await maybePersistToolOutput(/** @type {any} */ ({
       runStore,
       runId: agent.state?.runId,
-      toolName: decision.action,
-      args: decision.args || {},
+      toolName: singleToolName,
+      args: singleToolArgs,
       iteration: plannedIteration,
       result: toolResult,
     }));

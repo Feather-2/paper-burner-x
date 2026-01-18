@@ -1,6 +1,7 @@
 import { BaseAdapter } from "./base.js";
 import { extractAssetsFromMarkdown } from "../extract-assets.js";
 import { SourceKind } from "../constants.js";
+import { basenameOfPath, readTextFromPath as nodeReadTextFromPath } from "./node-io.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 function guessMimeType(filename) {
@@ -9,15 +10,9 @@ function guessMimeType(filename) {
   return "text/html";
 }
 
-async function basenameOfPath(path) {
-  const { basename } = await import("node:path");
-  return basename(path);
-}
-
 async function readTextFromPath(path) {
-  const { readFile } = await import("node:fs/promises");
-  const buf = await readFile(path);
-  return { text: buf.toString("utf8"), size: buf.length };
+  const result = await nodeReadTextFromPath(path);
+  return { text: result.text, size: result.size };
 }
 
 function decodeUtf8(data) {

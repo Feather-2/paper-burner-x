@@ -741,10 +741,10 @@ export class MemoryStore extends DisposableBase {
       const id = await l3Storage.archive(stageKey, data, keywords);
       const entry = await l3Storage.getSnapshot(id);
       if (entry) {
-        this._emit("memory.archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
+        this._emit("memory:archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
         this._emit("memory:l3:archive", { id, stageKey: entry.stageKey, keywordCount: keywords.length });
       } else {
-        this._emit("memory.archived", { id, stageKey, ts: Date.now() });
+        this._emit("memory:archived", { id, stageKey, ts: Date.now() });
         this._emit("memory:l3:archive", { id, stageKey, keywordCount: keywords.length });
       }
       this._stats.archiveCount = (this._stats.archiveCount || 0) + 1;
@@ -785,7 +785,7 @@ export class MemoryStore extends DisposableBase {
 
     // 时间线
     this._L3.index.timeline.push({ id, ts: entry.ts, summary: entry.summary });
-    this._emit("memory.archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
+    this._emit("memory:archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
     this._emit("memory:l3:archive", { id, stageKey: entry.stageKey, keywordCount: keywords.length });
     this._stats.archiveCount = (this._stats.archiveCount || 0) + 1;
 
@@ -1157,7 +1157,7 @@ export class MemoryStore extends DisposableBase {
     this._stats.l1Tokens = nextL1Tokens;
     this._stats.tokenUsage += nextL1Tokens - prevL1Tokens;
 
-    this._emit("memory.compressed", {
+    this._emit("memory:compressed", {
       compressedCount: toCompress.length,
       keptCount: kept.length,
     });
@@ -1306,7 +1306,7 @@ export class MemoryStore extends DisposableBase {
    * PushSync: 状态变更时触发 memory.updated 事件
    */
   _emitUpdate(field, delta) {
-    this._emit("memory.updated", { field, delta, ts: Date.now() });
+    this._emit("memory:updated", { field, delta, ts: Date.now() });
   }
 
   // ===== Stats =====

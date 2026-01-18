@@ -249,6 +249,7 @@ export class BehaviorFingerprint {
 
   /**
    * 获取行为分析
+   * @returns {{ totalActions: number, uniqueActions: number, diversityScore: number, actionFrequency: Record<string, number>, repeatingPatterns: Array<{ pattern: string[], count: number, positions: number[] }>, consecutiveLoops: Array<{ pattern: string[], consecutiveCount: number, startPos: number }>, loopCount: number, lastLoopPattern: object|null }}
    */
   getAnalysis() {
     const signatures = this._history.map((h) => h.signature);
@@ -292,6 +293,7 @@ export class BehaviorFingerprint {
 
   /**
    * 获取建议
+   * @returns {{ action: string, severity: string, reason: string, suggestion: string|null }}
    */
   getSuggestion() {
     const analysis = this.getAnalysis();
@@ -336,6 +338,7 @@ export class BehaviorFingerprint {
 
   /**
    * 检查是否在循环中
+   * @returns {boolean}
    */
   isInLoop() {
     const analysis = this.getAnalysis();
@@ -347,6 +350,7 @@ export class BehaviorFingerprint {
   /**
    * 获取最近的行为序列
    * @param {number} count
+   * @returns {Array<{ signature: string, ts: number }>}
    */
   getRecentActions(count = 10) {
     return this._history.slice(-count).map((h) => ({
@@ -357,6 +361,7 @@ export class BehaviorFingerprint {
 
   /**
    * 重置
+   * @returns {void}
    */
   reset() {
     this._history = [];
@@ -366,6 +371,7 @@ export class BehaviorFingerprint {
 
   /**
    * 获取统计信息
+   * @returns {{ historySize: number, maxHistorySize: number, loopCount: number, hasActiveLoop: boolean }}
    */
   get stats() {
     return {
@@ -446,7 +452,55 @@ export class ContextDistiller {
     distilled.childTask = childTask;
     distilled.distilledAt = Date.now();
 
-    return distilled;
+    // 按 token 预算截断
+    return this._enforceTokenLimit(distilled);
+  }
+
+  /**
+   * 强制执行 token 限制
+   * @private
+   * @param {object} distilled
+   * @returns {object}
+   */
+  _enforceTokenLimit(distilled) {
+    const serialized = JSON.stringify(distilled);
+    // 粗略估算：4 字符约 1 token
+    const estimatedTokens = Math.ceil(serialized.length / 4);
+
+    if (estimatedTokens <= this._maxTokens) {
+      return distilled;
+    }
+
+    // 按优先级裁剪字段
+    const result = { ...distilled };
+    const ratio = this._maxTokens / estimatedTokens;
+
+    // 裁剪 relevantDiscoveries
+    if (result.relevantDiscoveries && result.relevantDiscoveries.length > 0) {
+      const keepCount = Math.max(1, Math.floor(result.relevantDiscoveries.length * ratio));
+      result.relevantDiscoveries = result.relevantDiscoveries.slice(0, keepCount);
+    }
+
+    // 裁剪 keyDecisions
+    if (result.keyDecisions && result.keyDecisions.length > 0) {
+      const keepCount = Math.max(1, Math.floor(result.keyDecisions.length * ratio));
+      result.keyDecisions = result.keyDecisions.slice(0, keepCount);
+    }
+
+    // 裁剪 constraints
+    if (result.constraints && result.constraints.length > 0) {
+      const keepCount = Math.max(1, Math.floor(result.constraints.length * ratio));
+      result.constraints = result.constraints.slice(0, keepCount);
+    }
+
+    // 如果仍超限，截断 parentGoal
+    const recheck = JSON.stringify(result);
+    if (Math.ceil(recheck.length / 4) > this._maxTokens && result.parentGoal) {
+      const goalLimit = Math.max(50, Math.floor(result.parentGoal.length * ratio));
+      result.parentGoal = this._truncate(result.parentGoal, goalLimit);
+    }
+
+    return result;
   }
 
   /**
@@ -503,11 +557,33 @@ export class ContextDistiller {
 // Helper - tokenize for distiller
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * 检测是否支持 Unicode 属性转义
+ * @returns {boolean}
+ */
+const supportsUnicodeProperty = (() => {
+  try {
+    new RegExp("\\p{L}", "u");
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * 简单分词（兼容旧浏览器）
+ * @param {string} text
+ * @returns {string[]}
+ */
 function tokenize(text) {
   if (!text || typeof text !== "string") return [];
+  // 降级正则：移除非字母数字空格字符
+  const pattern = supportsUnicodeProperty
+    ? /[^\p{L}\p{N}\s]/gu
+    : /[^a-zA-Z0-9\u00C0-\u024F\u4E00-\u9FFF\s]/g;
   return text
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(pattern, " ")
     .split(/\s+/)
     .filter((t) => t.length > 1);
 }

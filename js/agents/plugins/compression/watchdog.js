@@ -28,10 +28,14 @@ export default createPlugin({
   async install(ctx) {
     // 防御：重复安装时先清理旧资源，避免 interval / listener 叠加
     if (typeof ctx._watchdogCleanup === 'function') {
-      try { ctx._watchdogCleanup(); } catch {}
+      try {
+        ctx._watchdogCleanup();
+      } catch (err) {
+        ctx.log?.warn?.('Watchdog cleanup failed:', err);
+      }
     }
 
-    /** @type {ReturnType<typeof setInterval> | null} */
+    /** @type {number | null} */
     let intervalId = null;
     /** @type {(() => void) | null} */
     let unsubscribe = null;
@@ -90,14 +94,16 @@ export default createPlugin({
       // 定期检查
       if (ctx.config.checkInterval > 0) {
         intervalId = setInterval(() => {
-          void checkHealth();
+          checkHealth().catch((err) => ctx.log?.error?.('Scheduled health check failed:', err));
         }, ctx.config.checkInterval);
       }
 
-      // 订阅 token 更新事件
+      // 订阅 token 更新事件（节流间隔 1s）
+      /** @type {number} Token 事件节流间隔 (ms) */
+      const TOKEN_EVENT_THROTTLE_MS = 1000;
       unsubscribe = ctx.on('runtime.tokens.*', () => {
-        if (Date.now() - lastCheck > 1000) {
-          void checkHealth();
+        if (Date.now() - lastCheck > TOKEN_EVENT_THROTTLE_MS) {
+          checkHealth().catch((err) => ctx.log?.error?.('Token event health check failed:', err));
         }
       });
 

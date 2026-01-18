@@ -10,6 +10,64 @@
  */
 
 /**
+ * @typedef {Object} ChatOptions
+ * @property {Array<{role: string, content: string}>} messages - 消息数组
+ * @property {string} [usage] - 用途标识
+ */
+
+/**
+ * @typedef {Object} ChatResponse
+ * @property {string} content - 响应内容
+ * @property {string} model - 模型名称
+ * @property {{total_tokens: number}} usage - Token 使用统计
+ * @property {string} finish_reason - 结束原因
+ * @property {string} system_fingerprint - 系统指纹
+ * @property {any} logprobs - 日志概率
+ */
+
+/**
+ * @typedef {Object} ScenarioStep
+ * @property {string} [input] - 用户输入
+ * @property {string} [expectedOutput] - 期望输出
+ * @property {string} [toolCall] - 工具调用名称
+ * @property {Object} [args] - 工具参数
+ * @property {Object} [expectedResult] - 期望工具结果
+ * @property {string} [assertEvent] - 断言事件名
+ * @property {number} [eventCount] - 期望事件触发次数
+ */
+
+/**
+ * @typedef {Object} Scenario
+ * @property {string} name - 场景名称
+ * @property {ScenarioStep[]} steps - 执行步骤
+ * @property {Function} [setup] - 初始化函数
+ * @property {Function} [teardown] - 清理函数
+ */
+
+/**
+ * @typedef {Object} ScenarioResult
+ * @property {string} name - 场景名称
+ * @property {boolean} passed - 是否通过
+ * @property {Array<{index: number, passed: boolean, output?: string, error?: string}>} steps - 步骤结果
+ * @property {string[]} errors - 错误列表
+ */
+
+/**
+ * @typedef {Object} MockTestEnvOptions
+ * @property {Object} [model] - MockModelClient 配置
+ * @property {Object} [mcp] - MockMcpProvider 配置
+ */
+
+/**
+ * @typedef {Object} MockTestEnv
+ * @property {MockModelClient} modelClient - 模拟 LLM 客户端
+ * @property {MockMcpProvider} mcpProvider - 模拟 MCP 提供者
+ * @property {MockEventBus} eventBus - 模拟事件总线
+ * @property {ScenarioRunner} runner - 场景运行器
+ * @property {Function} createStageApi - 创建 stageApi 兼容对象
+ */
+
+/**
  * Mock Model Client - 模拟 LLM 响应
  *
  * 支持:
@@ -44,6 +102,8 @@ export class MockModelClient {
 
   /**
    * 模拟 chat 调用
+   * @param {ChatOptions} options - 聊天选项
+   * @returns {Promise<ChatResponse>} 标准化的聊天响应
    */
   async chat(options) {
     const { messages, usage = "worker" } = options;
@@ -109,6 +169,9 @@ export class MockModelClient {
 
   /**
    * 简单单轮对话
+   * @param {string} prompt - 用户输入
+   * @param {string} [systemPrompt] - 可选的系统提示词
+   * @returns {Promise<string>} 模型响应内容
    */
   async ask(prompt, systemPrompt) {
     const messages = [];
@@ -174,6 +237,9 @@ export class MockMcpProvider {
 
   /**
    * 模拟搜索
+   * @param {string} query - 搜索查询
+   * @param {Object} [options] - 搜索选项
+   * @returns {Promise<{success: boolean, results: Array}>} 搜索结果
    */
   async search(query, options = {}) {
     this.callHistory.push({ method: "search", query, options });
@@ -192,6 +258,9 @@ export class MockMcpProvider {
 
   /**
    * 模拟 fetch
+   * @param {string} url - 请求 URL
+   * @param {Object} [options] - fetch 选项
+   * @returns {Promise<{success: boolean, content: string, title: string}>} fetch 结果
    */
   async fetch(url, options = {}) {
     this.callHistory.push({ method: "fetch", url, options });
@@ -209,6 +278,9 @@ export class MockMcpProvider {
 
   /**
    * 模拟工具调用
+   * @param {string} name - 工具名称
+   * @param {Object} args - 工具参数
+   * @returns {Promise<{success: boolean, data: any}>} 工具执行结果
    */
   async callTool(name, args) {
     this.callHistory.push({ method: "callTool", name, args });
@@ -261,11 +333,11 @@ export class MockEventBus {
    * @param {Object} [payloadMatcher] - payload 匹配器（当第二参数为数量时）
    *
    * 用法示例:
-   * - assertEmitted("event", 2) // 触发 2 次
-   * - assertEmitted("event", { status: "ok" }) // 至少 1 次且 payload 匹配
-   * - assertEmitted("event", 2, { status: "ok" }) // 恰好 2 次且 payload 匹配
-   * - assertEmitted("event", { status: /success|ok/ }) // 正则匹配
-   * - assertEmitted("event", { count: v => v > 0 }) // 函数断言
+   * - assertEmitted("agent:step", 2) // 触发 2 次
+   * - assertEmitted("mcp:call", { status: "ok" }) // 至少 1 次且 payload 匹配
+   * - assertEmitted("llm:complete", 2, { status: "ok" }) // 恰好 2 次且 payload 匹配
+   * - assertEmitted("tool:result", { status: /success|ok/ }) // 正则匹配
+   * - assertEmitted("test:done", { count: v => v > 0 }) // 函数断言
    */
   assertEmitted(name, countOrMatcher = 1, payloadMatcher) {
     const matches = this.events.filter(e => e.name === name);
@@ -499,7 +571,11 @@ class MockResponse {
 
   async json() {
     const text = await this.text();
-    return JSON.parse(text);
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      throw new Error(`MockResponse.json(): Invalid JSON body - ${err.message}. Body was: "${text.slice(0, 100)}${text.length > 100 ? "..." : ""}"`);
+    }
   }
 
   async arrayBuffer() {
@@ -588,6 +664,15 @@ export class MockServer {
     return this;
   }
 
+  /**
+   * 模拟 fetch 请求
+   * @param {string} url - 请求 URL
+   * @param {Object} [options] - fetch 选项
+   * @param {string} [options.method] - HTTP 方法
+   * @param {Object} [options.headers] - 请求头
+   * @param {any} [options.body] - 请求体
+   * @returns {Promise<MockResponse>} 模拟响应
+   */
   async fetch(url, options = {}) {
     const method = normalizeMethod(options.method);
     const path = normalizePath(url, this.baseUrl);
@@ -640,6 +725,8 @@ export class ScenarioRunner {
 
   /**
    * 运行场景
+   * @param {Scenario} scenario - 测试场景
+   * @returns {Promise<ScenarioResult>} 场景执行结果
    */
   async run(scenario) {
     const { name, steps, setup, teardown } = scenario;
@@ -712,6 +799,8 @@ export class ScenarioRunner {
 
   /**
    * 批量运行场景
+   * @param {Scenario[]} scenarios - 测试场景数组
+   * @returns {Promise<{total: number, passed: number, failed: number, results: ScenarioResult[]}>} 批量执行结果
    */
   async runAll(scenarios) {
     const results = [];
@@ -776,6 +865,8 @@ export class ScenarioRunner {
 
 /**
  * 创建完整的 Mock 测试环境
+ * @param {MockTestEnvOptions} [options] - 环境配置选项
+ * @returns {MockTestEnv} 测试环境对象
  */
 export function createMockTestEnv(options = {}) {
   const modelClient = new MockModelClient(options.model || {});

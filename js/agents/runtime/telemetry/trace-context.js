@@ -495,6 +495,7 @@ export { generateTraceId, generateSpanId };
  * @param {string} name
  * @param {(span: Span|null) => any|Promise<any>} fn
  * @param {object} [options]
+ * @returns {Promise<any>} The result of fn
  */
 export async function withSpan(traceContext, name, fn, options = {}) {
   const ctx = traceContext && typeof traceContext.withSpan === "function" ? traceContext : null;
@@ -505,6 +506,7 @@ export async function withSpan(traceContext, name, fn, options = {}) {
 /**
  * Helper: parse W3C traceparent header.
  * @param {string} traceparent
+ * @returns {{version: string, traceId: string, spanId: string, sampled: boolean}|null} Parsed traceparent or null if invalid
  */
 export function parseTraceparent(traceparent) {
   return TraceContext.parseTraceparent(traceparent);

@@ -4,7 +4,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../../../../js/agents/stages/design/runtime/deck-analyzer.js", () => {
   return {
     createDeckAnalyzer: vi.fn(() => ({ mocked: "analyzer" })),
-    analyzeStyleConsistency: vi.fn(() => ({ issues: [], stats: {} })),
     collectAllDsl: vi.fn(() => []),
   };
 });
@@ -42,6 +41,7 @@ let buildReviewContext;
 let runAutoReview;
 let AutoReviewer;
 let createAutoReviewer;
+let ReviewInputError;
 
 function slideHtml({ layout, color, bg, font }) {
   return `<section data-layout="${layout}"><div style="color: ${color}; background-color: ${bg}; font-family: ${font};"></div></section>`;
@@ -53,7 +53,7 @@ describe("design/reviewer/auto-reviewer", () => {
     vi.resetModules();
 
     ({ collectAllDsl } = await import("../../../../js/agents/stages/design/runtime/deck-analyzer.js"));
-    ({ IssueType, IssueSeverity, REVIEW_CONFIG, buildReviewContext, runAutoReview, AutoReviewer, createAutoReviewer } =
+    ({ IssueType, IssueSeverity, REVIEW_CONFIG, buildReviewContext, runAutoReview, AutoReviewer, createAutoReviewer, ReviewInputError } =
       await import("../../../../js/agents/stages/design/reviewer/auto-reviewer.js"));
   });
 
@@ -158,5 +158,64 @@ describe("design/reviewer/auto-reviewer", () => {
     expect(cfg).toMatchObject({ ...REVIEW_CONFIG, minConsistencyScore: 0.99 });
     cfg.minConsistencyScore = 0;
     expect(reviewer.getConfig().minConsistencyScore).toBe(0.99);
+  });
+
+  // --- Boundary input tests (Issue #6) ---
+
+  it("buildReviewContext() throws ReviewInputError for non-string deckHtmlDsl", () => {
+    collectAllDsl.mockReturnValue([]);
+    expect(() => buildReviewContext({ deckHtmlDsl: 123 }, {})).toThrow(ReviewInputError);
+    expect(() => buildReviewContext({ deckHtmlDsl: {} }, {})).toThrow("deckHtmlDsl must be a string");
+  });
+
+  it("buildReviewContext() throws ReviewInputError for non-array slidesMeta", () => {
+    collectAllDsl.mockReturnValue([]);
+    expect(() => buildReviewContext({ deckHtmlDsl: "", slidesMeta: "not-array" }, {})).toThrow(ReviewInputError);
+    expect(() => buildReviewContext({ deckHtmlDsl: "", slidesMeta: { foo: 1 } }, {})).toThrow("slidesMeta must be an array");
+  });
+
+  it("buildReviewContext() accepts null/undefined for optional fields", () => {
+    collectAllDsl.mockReturnValue([{ slideIndex: 0, html: "<section/>", elements: [] }]);
+    const ctx = buildReviewContext({ deckHtmlDsl: null, slidesMeta: undefined }, null);
+    expect(ctx.deckHtmlDsl).toBe("");
+    expect(ctx.slidesMeta).toEqual([]);
+    expect(ctx.designSystem).toEqual({});
+  });
+
+  it("runAutoReview() returns aborted result when signal is already aborted", async () => {
+    collectAllDsl.mockReturnValue([{ slideIndex: 0, html: slideHtml({ layout: "l1", color: "#111", bg: "#222", font: "Inter" }), elements: [] }]);
+
+    const abortController = new AbortController();
+    abortController.abort();
+
+    const res = await runAutoReview({ deckHtmlDsl: "<section/>" }, {}, { signal: abortController.signal });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Review aborted");
+    expect(res.issues).toEqual([]);
+  });
+
+  it("runAutoReview() handles empty deckHtmlDsl gracefully", async () => {
+    collectAllDsl.mockReturnValue([]);
+    const res = await runAutoReview({ deckHtmlDsl: "" }, {});
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("No slides");
+  });
+
+  it("runAutoReview() handles undefined/null deckPackage gracefully", async () => {
+    collectAllDsl.mockReturnValue([]);
+    const res1 = await runAutoReview(undefined, {});
+    expect(res1.success).toBe(false);
+
+    const res2 = await runAutoReview(null, {});
+    expect(res2.success).toBe(false);
+  });
+
+  it("runAutoReview() works with minimal valid input", async () => {
+    collectAllDsl.mockReturnValue([{ slideIndex: 0, html: "<section data-layout='a'><div style='color: #000;'></div></section>", elements: [] }]);
+
+    const res = await runAutoReview({ deckHtmlDsl: "<section/>" }, {});
+    expect(res.success).toBe(true);
+    expect(res.slideCount).toBe(1);
+    expect(res.score).toBeGreaterThan(0);
   });
 });

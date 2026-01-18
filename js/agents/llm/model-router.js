@@ -635,7 +635,7 @@ export class ModelRouter {
       },
       onStateChange: (event) => {
         this._logger.info(`[ModelRouter] Circuit breaker ${event.name}: ${event.from} → ${event.to} (${event.reason})`);
-        this.emit("circuit.stateChange", event);
+        this.emit("circuit:stateChange", event);
       },
       time: this._time,
     });
@@ -1017,7 +1017,7 @@ export class ModelRouter {
         this._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${toErrorInfo(err).message}`);
         const permanent = isPermanentAuthError(err);
         const health = permanent ? this.disableModel(modelId, err, { reason: "auth" }) : this.markUnhealthy(modelId, err);
-        this.emit("model.unhealthy", {
+        this.emit("model:unhealthy", {
           usage,
           modelId,
           provider: entry.provider,
@@ -1037,7 +1037,7 @@ export class ModelRouter {
           : null;
 
         if (next) {
-          this.emit("model.failover", {
+          this.emit("model:failover", {
             usage,
             fromModelId: modelId,
             toModelId: next,
@@ -1189,7 +1189,7 @@ export class ModelRouter {
         this._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${toErrorInfo(err).message}`);
         const permanent = isPermanentAuthError(err);
         const health = permanent ? this.disableModel(modelId, err, { reason: "auth" }) : this.markUnhealthy(modelId, err);
-        this.emit("model.unhealthy", {
+        this.emit("model:unhealthy", {
           usage,
           modelId,
           provider: entry.provider,
@@ -1202,7 +1202,7 @@ export class ModelRouter {
 
         const nextModelId = this._findNextCandidate(idx + 1, orderedCandidates, requiredTags);
         if (nextModelId) {
-          this.emit("model.failover", {
+          this.emit("model:failover", {
             usage,
             fromModelId: modelId,
             toModelId: nextModelId,

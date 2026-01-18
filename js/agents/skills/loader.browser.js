@@ -12,6 +12,9 @@ import { SkillScope } from "./model.js";
 import { initUserSkillStore, listUserSkills, getUserSkillBody } from "./user-store.js";
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 import { createResponseTooLargeError, normalizeMaxBytes, readJsonWithLimit, readTextWithLimit } from "../shared/utils/response-limits.js";
+import { createLogger } from "../shared/utils/logger.js";
+
+const logger = createLogger("skills/loader.browser");
 
 // Vite serves `public/` at the site root ("/skills/manifest.json").
 // Some deployments may still expose it under "/public/skills/manifest.json".
@@ -305,8 +308,11 @@ export async function loadSkills({ manifestUrl, maxManifestBytes } = {}) {
       const skill = normalizeSkillFromUserStore(item);
       if (skill) outcome.skills.push(skill);
     }
-  } catch {
-    // ignore user skill store errors
+  } catch (err) {
+    // Log user skill store errors for diagnostics instead of silently swallowing
+    logger.warn("User skill store initialization failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   const scopeRank = {
@@ -344,6 +350,15 @@ export async function loadSkills({ manifestUrl, maxManifestBytes } = {}) {
   return outcome;
 }
 
+/**
+ * Load skills from a Nexus remote provider.
+ *
+ * @param {Object} nexusProvider - Nexus provider instance with isAvailable/listSkills/getSkillContent methods
+ * @param {() => Promise<boolean>} nexusProvider.isAvailable - Check if Nexus is available
+ * @param {() => Promise<Array<{ name: string, description: string, allowedTools?: string[], priority?: number }>>} nexusProvider.listSkills - List available skills
+ * @param {(name: string) => Promise<{ body: string, supportFiles?: Record<string, string> }>} nexusProvider.getSkillContent - Get skill content by name
+ * @returns {Promise<{ skills: Array<{ metadata: Object, body: string | null, supportFiles?: Record<string, string> }>, errors: Array<{ path: string, message: string }> }>}
+ */
 export async function loadSkillsFromNexus(nexusProvider) {
   const outcome = { skills: [], errors: [] };
   if (!nexusProvider) return outcome;
@@ -415,6 +430,13 @@ export async function loadAllSkills({ manifestUrl, nexusProvider, maxManifestByt
 
 /**
  * 从指定路径加载单个 Skill（Browser 版本：fetch）
+ *
+ * @param {string} filePath - Skill file path or URL (supports "user:skillName" for user skills)
+ * @param {import("./model.js").SkillScope | Object} [scope] - Skill scope or options object
+ * @param {Object} [options] - Load options
+ * @param {number} [options.maxSkillBytes] - Maximum skill body size in bytes
+ * @returns {Promise<{ metadata: Object, body: string }>}
+ * @throws {Error} If filePath is empty, fetch fails, or body is missing
  */
 export async function loadSkillFromPath(filePath, scope = SkillScope.SYSTEM, options = {}) {
   /** @type {any} */

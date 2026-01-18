@@ -1,6 +1,7 @@
 import { BaseAdapter } from "./base.js";
 import { extractAssetsFromMarkdown } from "../extract-assets.js";
 import { SourceKind } from "../constants.js";
+import { basenameOfPath as nodeBasenameOfPath, fileLikeFromPath as nodeFileLikeFromPath, isNodeEnvironment, readFileFromPath } from "./node-io.js";
 
 import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 function guessMimeType(filename) {
@@ -10,27 +11,24 @@ function guessMimeType(filename) {
 }
 
 async function basenameOfPath(path) {
-  const { basename } = await import("node:path");
-  return basename(path);
+  if (isNodeEnvironment()) {
+    return nodeBasenameOfPath(path);
+  }
+  const parts = String(path || "").split(/[\\/]/);
+  return parts[parts.length - 1] || path;
 }
 
-function bufferToArrayBuffer(buf) {
-  if (!buf) return new ArrayBuffer(0);
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-}
-
-async function fileLikeFromPath(path) {
-  const { readFile } = await import("node:fs/promises");
-  const buf = await readFile(path);
+/**
+ * Read PPTX file from path (Node.js only, requires allowPathRead).
+ * @param {string} path
+ * @param {{allowPathRead?:boolean}} options
+ */
+async function fileLikeFromPath(path, { allowPathRead = false } = {}) {
+  if (!allowPathRead) {
+    throw new Error("PptxAdapter: path string inputs are disabled (set allowPathRead:true to enable in Node.js)");
+  }
   const name = await basenameOfPath(path);
-  return {
-    name,
-    type: guessMimeType(name),
-    size: buf.length,
-    async arrayBuffer() {
-      return bufferToArrayBuffer(buf);
-    },
-  };
+  return nodeFileLikeFromPath(path, { mimeType: guessMimeType(name) });
 }
 
 function extFromMime(mimeType) {
@@ -61,16 +59,21 @@ function extractBase64FromDataUri(dataUri) {
   return s.slice(comma + 1);
 }
 
+/**
+ * Load PPTXSlideParser via Node.js vm module (Node-only fallback).
+ * Browser builds should provide stageApi.pptxParser or globalThis.PPTXSlideParser.
+ */
 async function loadPptxSlideParserFromScript() {
-  const { readFile } = await import("node:fs/promises");
+  if (!isNodeEnvironment()) {
+    throw new Error("PptxAdapter: loadPptxSlideParserFromScript requires Node.js; provide stageApi.pptxParser or globalThis.PPTXSlideParser for browser");
+  }
+
+  const code = await readFileFromPath(new URL("../../../ppt/core/slide-parser-pptx.js", import.meta.url), "utf8");
   const vm = await import("node:vm");
 
   const { DOMParser } = await import("linkedom");
   const jszipMod = await import("jszip");
   const JSZip = jszipMod?.default || jszipMod;
-
-  const srcUrl = new URL("../../../ppt/core/slide-parser-pptx.js", import.meta.url);
-  const code = await readFile(srcUrl, "utf8");
 
   const sandbox = {
     console,
@@ -119,11 +122,12 @@ export class PptxAdapter extends BaseAdapter {
 
   /**
    * @param {string|{name?:string,filename?:string,type?:string,mimeType?:string,size?:number,arrayBuffer?:Function}} input
-   * @param {{pptxParser?:{parse:Function}}=} stageApi
+   * @param {{pptxParser?:{parse:Function},allowPathRead?:boolean}=} stageApi
    * @returns {Promise<object>} ParsedDocument
    */
   async parse(input, stageApi = {}) {
     const t0 = Date.now();
+    const allowPathRead = stageApi?.allowPathRead === true;
 
     let file = input;
     let filename = "";
@@ -133,7 +137,7 @@ export class PptxAdapter extends BaseAdapter {
     if (typeof input === "string") {
       filename = await basenameOfPath(input);
       mimeType = guessMimeType(filename);
-      file = await fileLikeFromPath(input);
+      file = await fileLikeFromPath(input, { allowPathRead });
       size = file.size;
     } else if (input && typeof input === "object") {
       filename = toNonEmptyString(input.name) || toNonEmptyString(input.filename) || "slides.pptx";

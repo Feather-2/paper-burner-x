@@ -99,19 +99,19 @@ export class AlertMonitor {
         if (!this.agent) return;
 
         // 订阅工具调用完成事件 (关注结果一致性)
-        this.agent.on("*.tool.completed", async (event) => {
+        this.agent.on("*:toolCompleted", async (event) => {
             const payload = event.payload || event;
             await this._onActionCompleted(payload);
         });
 
         // 订阅黑板更新事件 (潜意识最关注的地方)
-        this.agent.on("deepsearch.gap.evaluated", async (event) => {
+        this.agent.on("deepsearch:gapEvaluated", async (event) => {
             const payload = event.payload || event;
             await this._onDiscoveryUpdated(payload);
         });
 
-        // 定期进行“全量潜意识扫描”
-        this.agent.on("agent.iteration", (event) => {
+        // 定期进行"全量潜意识扫描"
+        this.agent.on("agent:iteration", (event) => {
             const messages = this.agent._loop?.messages || [];
             this._learnFromFeedback(messages);
             this._auditGlobalState();
@@ -272,7 +272,7 @@ export class AlertMonitor {
      * @returns {void}
      */
     _forceBacktrack(reason) {
-        this.agent?.eventBus?.emit("alertmonitor.force_backtrack", { reason });
+        this.agent?.eventBus?.emit("alertmonitor:forceBacktrack", { reason });
     }
 
     /**

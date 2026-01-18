@@ -20,7 +20,7 @@ const logger = createLogger("sdk/examples/webarranger-resilience");
 
 /**
  * 主演示函数
- * @returns {Promise<void>}
+ * @returns {Promise<void>} 执行韧性编排演示并输出日志
  */
 async function main() {
     console.log("🚀 Starting Resilient WebArranger Workflow...");

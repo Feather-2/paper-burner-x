@@ -21,6 +21,15 @@ import { injectSystemHint } from "../../../shared/utils/message-utils.js";
  */
 
 /**
+ * @typedef {object} CallOptions
+ * @property {AbortSignal} [signal] - Abort signal for cancellation
+ * @property {string} [model] - Model identifier override
+ * @property {number} [temperature] - Temperature for sampling
+ * @property {number} [maxTokens] - Maximum tokens to generate
+ * @property {Record<string, unknown>} [rest] - Additional options
+ */
+
+/**
  * Build a base model caller from stage API
  * @param {StageApiLike} stageApi
  * @param {BuildBaseCallerOptions} [options]
@@ -33,7 +42,7 @@ export function buildBaseCaller(stageApi, { usage = "worker" } = {}) {
   if (typeof routerCall === "function") {
     const legacySignature = routerCall.length >= 2;
     return (messages, opts = {}) => {
-      const forwardOpts = /** @type {any} */ (opts && typeof opts === "object" ? opts : {});
+      const forwardOpts = /** @type {CallOptions} */ (opts && typeof opts === "object" ? opts : {});
       const { signal: providedSignal, ...rest } = forwardOpts;
       const signal = providedSignal ?? defaultSignal;
       const hintedMessages = injectSystemHint(messages, systemHint);
@@ -46,7 +55,7 @@ export function buildBaseCaller(stageApi, { usage = "worker" } = {}) {
   const chat = aiApiService?.chat;
   if (typeof chat === "function") {
     return (messages, opts = {}) => {
-      const forwardOpts = /** @type {any} */ (opts && typeof opts === "object" ? opts : {});
+      const forwardOpts = /** @type {CallOptions} */ (opts && typeof opts === "object" ? opts : {});
       const { signal: providedSignal, ...rest } = forwardOpts;
       const signal = providedSignal ?? defaultSignal;
       const hintedMessages = injectSystemHint(messages, systemHint);

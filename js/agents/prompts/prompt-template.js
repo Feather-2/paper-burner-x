@@ -135,6 +135,10 @@ function formatValueDefault(value) {
  * - Placeholder matching is case-insensitive (by lowercasing both sides).
  * - Dotted keys are supported via object flattening (e.g. `minWords.quick`).
  * - Formatter pipeline is supported via `{{var|json}}`, `{{var|bullets}}`, etc.
+ *
+ * @param {string} template - The template string containing `{{VAR}}` placeholders
+ * @param {RenderPromptTemplateOptions} [options] - Rendering options
+ * @returns {string} The rendered template with placeholders replaced
  */
 export function renderPromptTemplate(
   template,

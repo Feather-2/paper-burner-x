@@ -114,9 +114,18 @@ function parseStepDecision(text) {
     const argsMatch = text.match(/"args"\s*:\s*(\{[^}]+\})/);
 
     if (actionMatch || toolMatch) {
+      let parsedArgs = {};
+      if (argsMatch) {
+        try {
+          parsedArgs = JSON.parse(argsMatch[1]);
+        } catch {
+          // JSON.parse 失败，使用空对象
+          logger.warn("Failed to parse args JSON in LLM response", { argsText: argsMatch[1]?.slice(0, 200) });
+        }
+      }
       parsed = {
         action: actionMatch?.[1] || toolMatch?.[1],
-        args: argsMatch ? JSON.parse(argsMatch[1]) : {},
+        args: parsedArgs,
       };
     } else if (text.includes('"done": true') || text.toLowerCase().includes("analysis complete")) {
       parsed = { done: true };
@@ -196,7 +205,28 @@ function formatToolResult(toolName, result) {
 }
 
 /**
+ * @typedef {object} ExecutionStepArgs
+ * @property {import('../state.js').CodeSearchState} state - CodeSearch 状态
+ * @property {number} step - 当前步骤号
+ * @property {number} maxSteps - 最大步骤数
+ * @property {string} systemPrompt - 系统提示词
+ * @property {(messages: Array<{ role: string, content: string }>, options?: any) => Promise<any>} callModel - LLM 调用函数
+ * @property {{ execute: (toolName: string, args: any) => Promise<any> }} tools - 工具执行器
+ * @property {import('../../../shared/utils/budget.js').BudgetManager=} budgetManager - 预算管理器
+ * @property {((eventName: string, payload: any) => void)=} emit - 事件发射函数
+ * @property {AbortSignal|null=} signal - 取消信号
+ *
+ * @typedef {object} ExecutionStepResult
+ * @property {boolean} done - 是否完成
+ * @property {string=} reason - 完成原因
+ * @property {string=} error - 错误信息
+ * @property {string=} watchdogOutput - Watchdog 输出
+ */
+
+/**
  * 运行执行阶段（单步）
+ * @param {ExecutionStepArgs} args - 执行步骤参数
+ * @returns {Promise<ExecutionStepResult>} 执行结果
  */
 export async function runExecutionStep({
   state,
@@ -217,7 +247,7 @@ export async function runExecutionStep({
   }
 
   logger.info(`Executing step ${step}/${maxSteps}`);
-  emit?.("codesearch.step.started", { step, total: maxSteps });
+  emit?.("codesearch:step_started", { step, total: maxSteps });
 
   // 构建 step prompt
   const stepPrompt = CODESEARCH_STEP_PROMPT
@@ -233,12 +263,20 @@ export async function runExecutionStep({
   ];
 
   // 调用 LLM
-  const response = await callModel(messages, {
-    model: "auto",
-    temperature: 0.3,
-    maxTokens: 1000,
-    signal,
-  });
+  let response;
+  try {
+    response = await callModel(messages, {
+      model: "auto",
+      temperature: 0.3,
+      maxTokens: 1000,
+      signal,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn("Execution step failed: model error", { step, error: message });
+    state.addObservation(`[Step ${step}] Model error: ${message}`);
+    return { done: false, error: "model_error", watchdogOutput: `step=${step} | model_error | ${message.slice(0, 120)}` };
+  }
 
   if (response?.usage && budgetManager) {
     budgetManager.recordUsage({
@@ -263,7 +301,7 @@ export async function runExecutionStep({
       state.updateTodo(selectedTodo.todoId, { status: TodoStatus.COMPLETED });
     }
     state.finalThought = decision.thought || responseText;
-    emit?.("codesearch.step.completed", { step, action: "done" });
+    emit?.("codesearch:step_completed", { step, action: "done" });
     return {
       done: true,
       reason: "llm_done",
@@ -320,7 +358,7 @@ export async function runExecutionStep({
       state.updateTodo(selectedTodo.todoId, { status: TodoStatus.CANCELLED });
     }
 
-    emit?.("codesearch.step.completed", { step, tool: "batch", count: batchResults.length });
+    emit?.("codesearch:step_completed", { step, tool: "batch", count: batchResults.length });
     return {
       done: false,
       watchdogOutput: buildWatchdogOutput({
@@ -357,7 +395,7 @@ export async function runExecutionStep({
     state.updateTodo(selectedTodo.todoId, { status: TodoStatus.CANCELLED });
   }
 
-  emit?.("codesearch.step.completed", { step, tool: actionName, resultSummary: result.error || `${actionName} completed` });
+  emit?.("codesearch:step_completed", { step, tool: actionName, resultSummary: result.error || `${actionName} completed` });
   return {
     done: false,
     watchdogOutput: buildWatchdogOutput({

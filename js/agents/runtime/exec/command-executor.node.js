@@ -3,6 +3,11 @@
  *
  * 提供简单的命令执行接口，支持超时、流式输出和安全控制。
  * 设计用于 Agent 工具调用场景。
+ *
+ * @module runtime/exec/command-executor
+ * @environment node - 此模块依赖 Node.js child_process API，
+ *   浏览器环境应使用 command-executor.browser.js stub。
+ *   构建工具通过 package.json exports/browser field 自动选择。
  */
 
 import { spawn } from 'node:child_process';
@@ -34,6 +39,11 @@ const logger = createLogger('runtime/exec');
  * @property {boolean} timedOut - 是否超时
  * @property {boolean} truncated - 输出是否被截断
  * @property {string} [error] - 错误信息
+ */
+
+/**
+ * @typedef {Error & { exitCode: number; stderr: string; stdout: string }} ExecError
+ * 命令执行失败时抛出的错误类型，包含额外的执行信息。
  */
 
 /**
@@ -254,11 +264,33 @@ export async function exec(command, args = [], options = {}) {
 /**
  * 执行 shell 命令 (使用系统 shell)
  *
+ * **安全警告**: 此函数将 command 直接传递给系统 shell 执行，
+ * 若 command 由不可信输入拼接，将导致命令注入/RCE 风险。
+ * 建议：
+ * - 仅在可信输入下使用此函数
+ * - 不可信输入应改用 exec(command, args) 分离参数
+ * - 必须使用用户输入时，应进行严格白名单校验或转义
+ *
  * @param {string} command - Shell 命令字符串
  * @param {ExecOptions} [options={}] - 选项
  * @returns {Promise<ExecResult>}
+ * @throws {Error} 若 command 为空或非字符串
+ * @security 命令注入风险 - 仅接受可信输入
  */
 export async function execShell(command, options = {}) {
+  if (typeof command !== 'string' || command.trim() === '') {
+    return {
+      success: false,
+      exitCode: -1,
+      signal: null,
+      stdout: '',
+      stderr: '',
+      duration: 0,
+      timedOut: false,
+      truncated: false,
+      error: 'execShell: command must be a non-empty string',
+    };
+  }
   const isWindows = process.platform === 'win32';
   const shell = isWindows ? 'cmd.exe' : '/bin/sh';
   const shellArgs = isWindows ? ['/c', command] : ['-c', command];
@@ -273,18 +305,18 @@ export async function execShell(command, options = {}) {
  * @param {string[]} [args=[]] - 参数
  * @param {ExecOptions} [options={}] - 选项
  * @returns {Promise<string>} stdout
- * @throws {Error} 如果命令失败
+ * @throws {ExecError} 如果命令失败，错误对象包含 exitCode, stderr, stdout 属性
  */
 export async function execSimple(command, args = [], options = {}) {
   const result = await exec(command, args, options);
 
   if (!result.success) {
-    const error = new Error(result.error || `Command failed: ${command} (exit code: ${result.exitCode})`);
-    // @ts-ignore - 附加额外信息
+    /** @type {ExecError} */
+    const error = /** @type {ExecError} */ (
+      new Error(result.error || `Command failed: ${command} (exit code: ${result.exitCode})`)
+    );
     error.exitCode = result.exitCode;
-    // @ts-ignore
     error.stderr = result.stderr;
-    // @ts-ignore
     error.stdout = result.stdout;
     throw error;
   }

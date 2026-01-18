@@ -6,6 +6,15 @@
  * const snapshot = await archive.load('run_123:ckpt_1');
  */
 
+/**
+ * 存储适配器接口
+ * @typedef {Object} StorageAdapter
+ * @property {(key: string) => Promise<any|null>} get - 获取值
+ * @property {(key: string, value: any) => Promise<boolean>} set - 设置值
+ * @property {(key: string) => Promise<boolean>} delete - 删除值
+ * @property {(pattern?: string) => Promise<string[]>} keys - 列出键
+ */
+
 import { isPlainObject, toNonEmptyString, toPositiveInt } from "../utils/value-utils.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -23,6 +32,7 @@ const DEFAULT_DIFF_CONFIG = Object.freeze({
   maxDepth: 12,
 });
 const DEFAULT_RESTORE_CACHE_MAX = 200;
+const DEFAULT_RESTORE_MAX_DEPTH = 50;
 
 function normalizeCacheMax(value, fallback) {
   if (value === Infinity) return Infinity;
@@ -366,9 +376,19 @@ export class Archive {
     this._restoreCache.set(id, cached);
   }
 
-  async _restoreCheckpointInternal(checkpointId) {
+  async _restoreCheckpointInternal(checkpointId, visited = new Set(), depth = 0) {
     const id = toNonEmptyString(checkpointId);
     if (!id) return null;
+
+    // Guard: cycle detection
+    if (visited.has(id)) {
+      throw new Error(`Circular checkpoint reference detected: ${id}`);
+    }
+    // Guard: max depth
+    if (depth > DEFAULT_RESTORE_MAX_DEPTH) {
+      throw new Error(`Checkpoint restore max depth exceeded (${DEFAULT_RESTORE_MAX_DEPTH}): ${id}`);
+    }
+
     const cached = this._restoreCache.get(id);
     if (cached) {
       this._touchRestoreCache(id);
@@ -409,7 +429,9 @@ export class Archive {
       return out;
     }
 
-    const base = await this._restoreCheckpointInternal(baseId);
+    // Add current id to visited set for cycle detection
+    visited.add(id);
+    const base = await this._restoreCheckpointInternal(baseId, visited, depth + 1);
     const reconstructed = applyJsonPatch(base?.nodeStates ?? {}, patch);
     const out = {
       ...(schemaVersion ? { schemaVersion } : {}),
@@ -628,29 +650,54 @@ export class Archive {
 
 /**
  * 内存存储适配器
+ * @implements {StorageAdapter}
  */
 export class MapAdapter {
+  /** @type {Map<string, any>} */
+  store;
+
   constructor() {
     this.store = new Map();
   }
 
+  /**
+   * 获取存储值
+   * @param {string} key - 键
+   * @returns {Promise<any|null>} 值或 null
+   */
   async get(key) {
     const k = String(key);
     if (!this.store.has(k)) return null;
     return this.store.get(k);
   }
 
+  /**
+   * 设置存储值
+   * @param {string} key - 键
+   * @param {any} value - 值
+   * @returns {Promise<boolean>} 成功返回 true
+   */
   async set(key, value) {
     const k = String(key);
     this.store.set(k, value);
     return true;
   }
 
+  /**
+   * 删除存储值
+   * @param {string} key - 键
+   * @returns {Promise<boolean>} 是否删除成功
+   */
   async delete(key) {
     const k = String(key);
     return this.store.delete(k);
   }
 
+  /**
+   * 按模式列出键
+   * @param {string} [pattern="*"] - glob 模式 (仅支持 *)
+   * @returns {Promise<string[]>} 匹配的键列表
+   */
   async keys(pattern) {
     const p = toNonEmptyString(pattern) ?? "*";
     const escaped = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
@@ -664,8 +711,22 @@ export class MapAdapter {
 /**
  * IndexedDB 存储适配器（浏览器持久化）
  * 解决问题：MapAdapter 是内存存储，刷新即丢失
+ * @implements {StorageAdapter}
  */
 export class IndexedDBAdapter {
+  /** @type {string} */
+  dbName;
+  /** @type {string} */
+  storeName;
+  /** @type {IDBDatabase|null} */
+  _db;
+  /** @type {Promise<IDBDatabase>|null} */
+  _initPromise;
+
+  /**
+   * @param {string} [dbName="ppt_archive"] - 数据库名称
+   * @param {string} [storeName="checkpoints"] - 对象存储名称
+   */
   constructor(dbName = "ppt_archive", storeName = "checkpoints") {
     this.dbName = dbName;
     this.storeName = storeName;
@@ -673,6 +734,11 @@ export class IndexedDBAdapter {
     this._initPromise = null;
   }
 
+  /**
+   * 确保数据库已初始化
+   * @returns {Promise<IDBDatabase>}
+   * @private
+   */
   async _ensureDb() {
     if (this._db) return this._db;
     if (this._initPromise) return this._initPromise;
@@ -718,50 +784,87 @@ export class IndexedDBAdapter {
     return this._initPromise;
   }
 
+  /**
+   * 获取存储值
+   * @param {string} key - 键
+   * @returns {Promise<any|null>} 值或 null
+   */
   async get(key) {
     const db = await this._ensureDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(this.storeName, "readonly");
       const store = tx.objectStore(this.storeName);
       const request = store.get(String(key));
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
+      let settled = false;
+      const settle = (fn) => { if (!settled) { settled = true; fn(); } };
+      tx.onerror = () => settle(() => reject(tx.error ?? new Error("Transaction error")));
+      tx.onabort = () => settle(() => reject(tx.error ?? new Error("Transaction aborted")));
+      request.onerror = () => settle(() => reject(request.error));
+      request.onsuccess = () => settle(() => {
         const result = request.result;
         resolve(result ? result.value : null);
-      };
+      });
     });
   }
 
+  /**
+   * 设置存储值
+   * @param {string} key - 键
+   * @param {any} value - 值
+   * @returns {Promise<boolean>} 成功返回 true
+   */
   async set(key, value) {
     const db = await this._ensureDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(this.storeName, "readwrite");
       const store = tx.objectStore(this.storeName);
       const request = store.put({ key: String(key), value });
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(true);
+      let settled = false;
+      const settle = (fn) => { if (!settled) { settled = true; fn(); } };
+      tx.onerror = () => settle(() => reject(tx.error ?? new Error("Transaction error")));
+      tx.onabort = () => settle(() => reject(tx.error ?? new Error("Transaction aborted")));
+      request.onerror = () => settle(() => reject(request.error));
+      request.onsuccess = () => settle(() => resolve(true));
     });
   }
 
+  /**
+   * 删除存储值
+   * @param {string} key - 键
+   * @returns {Promise<boolean>} 是否删除成功
+   */
   async delete(key) {
     const db = await this._ensureDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(this.storeName, "readwrite");
       const store = tx.objectStore(this.storeName);
       const request = store.delete(String(key));
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(true);
+      let settled = false;
+      const settle = (fn) => { if (!settled) { settled = true; fn(); } };
+      tx.onerror = () => settle(() => reject(tx.error ?? new Error("Transaction error")));
+      tx.onabort = () => settle(() => reject(tx.error ?? new Error("Transaction aborted")));
+      request.onerror = () => settle(() => reject(request.error));
+      request.onsuccess = () => settle(() => resolve(true));
     });
   }
 
+  /**
+   * 按模式列出键
+   * @param {string} [pattern="*"] - glob 模式 (仅支持 *)
+   * @returns {Promise<string[]>} 匹配的键列表
+   */
   async keys(pattern) {
     const db = await this._ensureDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(this.storeName, "readonly");
       const store = tx.objectStore(this.storeName);
       const request = store.getAllKeys();
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
+      let settled = false;
+      const settle = (fn) => { if (!settled) { settled = true; fn(); } };
+      tx.onerror = () => settle(() => reject(tx.error ?? new Error("Transaction error")));
+      tx.onabort = () => settle(() => reject(tx.error ?? new Error("Transaction aborted")));
+      request.onerror = () => settle(() => reject(request.error));
+      request.onsuccess = () => settle(() => {
         const allKeys = request.result || [];
         const p = toNonEmptyString(pattern) ?? "*";
         const escaped = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
@@ -769,21 +872,33 @@ export class IndexedDBAdapter {
         const matches = allKeys.filter((key) => regex.test(key));
         matches.sort();
         resolve(matches);
-      };
+      });
     });
   }
 
+  /**
+   * 清空所有数据
+   * @returns {Promise<boolean>} 成功返回 true
+   */
   async clear() {
     const db = await this._ensureDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(this.storeName, "readwrite");
       const store = tx.objectStore(this.storeName);
       const request = store.clear();
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(true);
+      let settled = false;
+      const settle = (fn) => { if (!settled) { settled = true; fn(); } };
+      tx.onerror = () => settle(() => reject(tx.error ?? new Error("Transaction error")));
+      tx.onabort = () => settle(() => reject(tx.error ?? new Error("Transaction aborted")));
+      request.onerror = () => settle(() => reject(request.error));
+      request.onsuccess = () => settle(() => resolve(true));
     });
   }
 
+  /**
+   * 关闭数据库连接
+   * @returns {void}
+   */
   close() {
     if (this._db) {
       this._db.close();
@@ -795,8 +910,24 @@ export class IndexedDBAdapter {
 
 /**
  * 降级适配器：优先 IndexedDB，失败时回退到 MapAdapter
+ * @implements {StorageAdapter}
  */
 export class FallbackAdapter {
+  /** @type {IndexedDBAdapter|null} */
+  _primary;
+  /** @type {MapAdapter} */
+  _fallback;
+  /** @type {boolean} */
+  _useFallback;
+  /** @type {string} */
+  _dbName;
+  /** @type {string} */
+  _storeName;
+
+  /**
+   * @param {string} [dbName="ppt_archive"] - 数据库名称
+   * @param {string} [storeName="checkpoints"] - 对象存储名称
+   */
   constructor(dbName = "ppt_archive", storeName = "checkpoints") {
     this._primary = null;
     this._fallback = new MapAdapter();
@@ -805,6 +936,11 @@ export class FallbackAdapter {
     this._storeName = storeName;
   }
 
+  /**
+   * 确保适配器可用
+   * @returns {Promise<MapAdapter|IndexedDBAdapter>}
+   * @private
+   */
   async _ensureAdapter() {
     if (this._useFallback) return this._fallback;
     if (this._primary) return this._primary;
@@ -823,21 +959,42 @@ export class FallbackAdapter {
     }
   }
 
+  /**
+   * 获取存储值
+   * @param {string} key - 键
+   * @returns {Promise<any|null>} 值或 null
+   */
   async get(key) {
     const adapter = await this._ensureAdapter();
     return adapter.get(key);
   }
 
+  /**
+   * 设置存储值
+   * @param {string} key - 键
+   * @param {any} value - 值
+   * @returns {Promise<boolean>} 成功返回 true
+   */
   async set(key, value) {
     const adapter = await this._ensureAdapter();
     return adapter.set(key, value);
   }
 
+  /**
+   * 删除存储值
+   * @param {string} key - 键
+   * @returns {Promise<boolean>} 是否删除成功
+   */
   async delete(key) {
     const adapter = await this._ensureAdapter();
     return adapter.delete(key);
   }
 
+  /**
+   * 按模式列出键
+   * @param {string} [pattern="*"] - glob 模式 (仅支持 *)
+   * @returns {Promise<string[]>} 匹配的键列表
+   */
   async keys(pattern) {
     const adapter = await this._ensureAdapter();
     return adapter.keys(pattern);

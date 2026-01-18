@@ -10,7 +10,7 @@ import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.
  * @property {string} status
  * @property {string} [createdAt]
  * @property {string} [updatedAt]
- * @property {Record<string, any>} [meta]
+ * @property {Record<string, unknown>} [meta] - 步骤元数据 (扩展字段)
  */
 
 /**
@@ -26,12 +26,14 @@ import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.
  * @property {string} [status] - legacy alias of lifecycleStatus
  * @property {number} selectedStepIndex
  * @property {PlanStep[]} steps
- * @property {Record<string, any>} [meta]
+ * @property {Record<string, unknown>} [meta] - 计划元数据 (扩展字段)
  */
 
 /**
- * @param {string | number | Date | null} [timestamp]
- * @returns {string}
+ * 将时间戳转换为 ISO 8601 字符串。
+ * @private
+ * @param {string | number | Date | null} [timestamp] - 输入时间戳，支持字符串/毫秒/Date 对象
+ * @returns {string} ISO 8601 格式时间字符串
  */
 function toIso(timestamp) {
   if (typeof timestamp === "string" && timestamp.trim()) return timestamp;
@@ -40,7 +42,9 @@ function toIso(timestamp) {
 }
 
 /**
- * @returns {string}
+ * 生成唯一的计划 ID。
+ * @private
+ * @returns {string} 带 plan_ 前缀的唯一 ID
  */
 function generatePlanId() {
   return makeSecureTimestampedId("plan");

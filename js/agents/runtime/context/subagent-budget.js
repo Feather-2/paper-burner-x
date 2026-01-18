@@ -141,7 +141,7 @@ export class SubagentBudgetManager {
     const available = this.getAvailable();
 
     let budget;
-    if (requestedBudget !== undefined && requestedBudget > 0) {
+    if (requestedBudget !== undefined && Number.isFinite(requestedBudget) && requestedBudget > 0) {
       // 使用请求预算，但不超过模式上限和可用预算
       budget = Math.min(requestedBudget, maxForMode, available);
     } else {
@@ -193,8 +193,10 @@ export class SubagentBudgetManager {
       return { ok: false, error: `Allocation for ${subagentId} is not active` };
     }
 
-    record.used += Math.max(0, tokensUsed);
-    this._totalUsed += Math.max(0, tokensUsed);
+    // 校验 tokensUsed 为有效数值
+    const safeTokens = Number.isFinite(tokensUsed) ? Math.max(0, tokensUsed) : 0;
+    record.used += safeTokens;
+    this._totalUsed += safeTokens;
 
     const remaining = record.allocated - record.used;
     const exceeded = remaining < 0;
@@ -225,9 +227,10 @@ export class SubagentBudgetManager {
     const refunded = Math.max(0, record.allocated - record.used);
     this._totalAllocated -= refunded;
 
-    // 更新状态
+    // 更新状态并删除记录（避免内存泄漏）
     record.status = "completed";
     record.endTime = Date.now();
+    this._allocations.delete(subagentId);
 
     return { ok: true, refunded };
   }
@@ -249,6 +252,7 @@ export class SubagentBudgetManager {
 
     record.status = "aborted";
     record.endTime = Date.now();
+    this._allocations.delete(subagentId);
 
     return { ok: true };
   }
@@ -327,11 +331,14 @@ export class SubagentBudgetManager {
 
   /**
    * 调整父预算 (运行时动态调整)
-   * @param {number} newBudget
+   * @param {number} newBudget - 新的父预算值
+   * @returns {{oldBudget: number, newBudget: number, distributableBudget: number, available: number}}
    */
   adjustParentBudget(newBudget) {
+    // 校验 newBudget 为有效数值
+    const safeBudget = Number.isFinite(newBudget) ? newBudget : this._parentBudget;
     const oldBudget = this._parentBudget;
-    this._parentBudget = Math.max(1, newBudget);
+    this._parentBudget = Math.max(1, safeBudget);
     this._distributableBudget = Math.floor(this._parentBudget * (1 - this._reserveRatio));
 
     // 如果新预算小于已分配，不回收活跃分配，但阻止新分配

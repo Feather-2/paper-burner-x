@@ -2,6 +2,11 @@ import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js"
 
 export const MODEL_TAGS = Object.freeze(["text", "vision", "reasoning", "long-context", "fast", "cheap"]);
 
+/**
+ * Normalizes model tags array, removing duplicates and empty values.
+ * @param {unknown[]} tags - Raw tags array.
+ * @returns {string[]} Normalized unique tags.
+ */
 export function normalizeModelTags(tags) {
   const out = [];
   const seen = new Set();
@@ -14,6 +19,11 @@ export function normalizeModelTags(tags) {
   return out;
 }
 
+/**
+ * Asserts that an object is a valid ModelEntry.
+ * @param {object} entry - Object to validate.
+ * @throws {TypeError} If entry is invalid.
+ */
 export function assertModelEntry(entry) {
   if (!isPlainObject(entry)) throw new TypeError("ModelEntry must be an object");
   const id = toNonEmptyString(entry.id);
@@ -35,6 +45,11 @@ export function assertModelEntry(entry) {
   }
 }
 
+/**
+ * Asserts that an object is a valid UsageConfig.
+ * @param {object} config - Object to validate.
+ * @throws {TypeError} If config is invalid.
+ */
 export function assertUsageConfig(config) {
   if (!isPlainObject(config)) throw new TypeError("UsageConfig must be an object");
   for (const [k, list] of Object.entries(config)) {
@@ -46,6 +61,11 @@ export function assertUsageConfig(config) {
   }
 }
 
+/**
+ * Asserts that messages array is valid for chat API.
+ * @param {unknown[]} messages - Messages array to validate.
+ * @throws {TypeError} If messages are invalid.
+ */
 export function assertChatMessages(messages) {
   if (!Array.isArray(messages)) throw new TypeError("messages must be an array");
   for (const m of messages) {
@@ -57,11 +77,21 @@ export function assertChatMessages(messages) {
   }
 }
 
+/**
+ * Asserts that a chat response object is valid.
+ * @param {object} resp - Response object to validate.
+ * @throws {TypeError} If response is invalid.
+ */
 export function assertChatResponse(resp) {
   if (!isPlainObject(resp)) throw new TypeError("chat() response must be an object");
   if (typeof resp.content !== "string") throw new TypeError("chat() response.content must be a string");
 }
 
+/**
+ * Asserts that a provider implements the required interface.
+ * @param {object} provider - Provider object to validate.
+ * @throws {TypeError} If provider is invalid.
+ */
 export function assertProvider(provider) {
   if (!provider || typeof provider.chat !== "function") throw new TypeError("ModelProvider must implement chat()");
   const id = toNonEmptyString(provider.id);

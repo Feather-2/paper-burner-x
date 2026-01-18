@@ -17,22 +17,28 @@ const logger = createLogger("sdk/examples/basic-usage");
 // ============================================================================
 
 const basicAgent = createAgent({ actor: "demo" })
-    .useCapability("echo", async (args) => ({
-        success: true,
-        data: { echoed: args.text },
-    }))
+    .useCapability("echo", async (args) => {
+        const text = typeof args.text === "string" ? args.text : "";
+        return {
+            success: true,
+            data: { echoed: text },
+        };
+    })
     .useCapability("greet", {
         definition: {
             name: "greet",
             description: "向用户问好",
             activation: { keywords: ["hello", "hi", "你好"] },
         },
-        handler: async (args) => ({
-            success: true,
-            data: { message: `Hello, ${args.name || "World"}!` },
-        }),
+        handler: async (args) => {
+            const name = typeof args.name === "string" ? args.name : "World";
+            return {
+                success: true,
+                data: { message: `Hello, ${name}!` },
+            };
+        },
     })
-    .onEvent("demo.*", (event) => {
+    .onEvent("demo:*", (event) => {
         console.log("[Event]", event);
     })
     .build();
@@ -44,10 +50,13 @@ const basicAgent = createAgent({ actor: "demo" })
 const auditLogger = createLogger({ actor: "audit" });
 
 const agentWithHooks = createAgent({ actor: "audited" })
-    .useCapability("search", async (args) => ({
-        success: true,
-        data: { results: [`Result for: ${args.query}`] },
-    }))
+    .useCapability("search", async (args) => {
+        const query = typeof args.query === "string" ? args.query : "";
+        return {
+            success: true,
+            data: { results: [`Result for: ${query}`] },
+        };
+    })
     // Before hook: 记录所有工具调用
     .useHook("before", async ({ tool, params }) => {
         auditLogger.info(`Calling tool: ${tool}`, { params });
@@ -86,7 +95,7 @@ const lazyAgent = createAgent({ actor: "lazy" })
 
 /**
  * 运行所有示例
- * @returns {Promise<void>}
+ * @returns {Promise<void>} 执行示例并输出日志
  */
 async function runExamples() {
     console.log("=== Basic Agent ===");
@@ -103,7 +112,11 @@ async function runExamples() {
 // 导出供测试使用
 export { basicAgent, agentWithHooks, lazyAgent, runExamples };
 
-// 如果直接运行
-if (import.meta.url === `file://${process.argv[1]}`) {
+// 如果直接运行 (Node.js 环境)
+if (
+    typeof process !== "undefined" &&
+    process.argv &&
+    import.meta.url === `file://${process.argv[1]}`
+) {
     runExamples().catch((error) => logger.error("runExamples failed", { error }));
 }

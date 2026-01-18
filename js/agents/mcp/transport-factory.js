@@ -47,6 +47,7 @@ export async function createMcpTransport(options = {}) {
 
 /**
  * 获取当前环境支持的传输类型列表
+ * @returns {TransportType[]} 支持的传输类型数组
  */
 export function getSupportedTransports() {
   const supported = ['http', 'sse'];

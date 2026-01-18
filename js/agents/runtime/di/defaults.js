@@ -367,7 +367,7 @@ export function createAgentContainer(overrides = {}) {
     { scope: SINGLETON }
   );
 
-  // P6.6: Delta Sync (TRANSIENT - 每次同步独立)
+  // P6.6: Delta Sync (SINGLETON - 返回类供调用方实例化)
   container.register(
     ServiceId.DELTA_SYNC,
     async () => {
@@ -426,7 +426,7 @@ export function createAgentContainer(overrides = {}) {
     { scope: TRANSIENT }
   );
 
-  // P7.3: VFS Proxy (TRANSIENT - Worker 通信代理)
+  // P7.3: VFS Proxy (SINGLETON - 返回类供 Worker 场景实例化)
   container.register(
     ServiceId.VFS_PROXY,
     async () => {

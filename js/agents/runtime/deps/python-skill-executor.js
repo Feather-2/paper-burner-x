@@ -177,6 +177,10 @@ export function createPythonSkillExecutor(options = {}) {
 
 /**
  * 便捷方法：执行单个 Python Skill
+ * @param {Object} skill - Skill 元数据和路径
+ * @param {SkillExecutionContext} context - 执行上下文
+ * @param {Object} [options] - PythonSkillExecutor 选项
+ * @returns {Promise<SkillExecutionResult>} 执行结果
  */
 export async function executePythonSkill(skill, context, options = {}) {
   const executor = new PythonSkillExecutor({

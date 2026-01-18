@@ -268,6 +268,10 @@ export const DslEffect = Object.freeze({
  * @property {number} COST_STANDARD_IMAGE
  * @property {number} OPACITY_IMAGE
  * @property {number} OPACITY_SHAPE
+ * @property {number} DEFAULT_MAX_IMAGES
+ * @property {number} DEFAULT_MAX_COST_USD
+ * @property {number} LARGE_IMAGE_AREA_THRESHOLD
+ * @property {number} MIN_READABLE_FONT_SIZE
  */
 
 /**
@@ -288,6 +292,14 @@ export const VisualHeuristics = Object.freeze({
   // 透明度 (image-planner.js)
   OPACITY_IMAGE: 0.95,
   OPACITY_SHAPE: 0.98,
+
+  // 预算默认值 (image-planner.js)
+  DEFAULT_MAX_IMAGES: 5, // 默认最大图片数
+  DEFAULT_MAX_COST_USD: 1.0, // 默认最大成本（美元）
+
+  // 面积与字号阈值 (image-planner.js)
+  LARGE_IMAGE_AREA_THRESHOLD: 4500, // ~67% x 67% 的面积阈值
+  MIN_READABLE_FONT_SIZE: 12, // 最小可读字号
 });
 
 /**

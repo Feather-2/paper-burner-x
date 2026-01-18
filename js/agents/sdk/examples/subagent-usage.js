@@ -12,27 +12,37 @@ import { createAgent, createLogger } from "../index.js";
 const logger = createLogger("sdk/examples/subagent-usage");
 
 /**
+ * @typedef {import('../AgentBuilder.js').BuiltAgent} BuiltAgent
+ */
+
+/**
  * 创建探索子代理
- * @param {{ prompt: string, model: string }} options
- * @returns {Promise<any>}
+ * @param {{ prompt: string, model: string }} options - 子代理创建参数
+ * @param {string} options.prompt - 子代理执行的提示词
+ * @param {string} options.model - 使用的模型标识
+ * @returns {Promise<BuiltAgent>} 构建完成的探索子代理实例
  */
 const createExplorer = async ({ prompt, model }) => {
     return createAgent({ actor: "explorer" })
         .useCapability("search", async (args) => {
-            return { success: true, results: [`Search results for "${args.query}"`] };
+            const query = typeof args.query === "string" ? args.query : "";
+            return { success: true, results: [`Search results for "${query}"`] };
         })
         .build();
 };
 
 /**
  * 创建写作子代理
- * @param {{ prompt: string, model: string }} options
- * @returns {Promise<any>}
+ * @param {{ prompt: string, model: string }} options - 子代理创建参数
+ * @param {string} options.prompt - 子代理执行的提示词
+ * @param {string} options.model - 使用的模型标识
+ * @returns {Promise<BuiltAgent>} 构建完成的写作子代理实例
  */
 const createWriter = async ({ prompt, model }) => {
     return createAgent({ actor: "writer" })
         .useCapability("write", async (args) => {
-            return { success: true, text: `Drafting content: ${args.topic}` };
+            const topic = typeof args.topic === "string" ? args.topic : "";
+            return { success: true, text: `Drafting content: ${topic}` };
         })
         .build();
 };
@@ -45,7 +55,7 @@ const bossAgent = createAgent({ actor: "boss" })
 
 /**
  * 运行子代理演示
- * @returns {Promise<void>}
+ * @returns {Promise<void>} 执行子代理演示并输出日志
  */
 async function runDemo() {
     console.log("=== Boss Agent Capability Catalog ===");
@@ -68,7 +78,12 @@ async function runDemo() {
     console.log("Task Result:", JSON.stringify(result, null, 2));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// 如果直接运行 (Node.js 环境)
+if (
+    typeof process !== "undefined" &&
+    process.argv &&
+    import.meta.url === `file://${process.argv[1]}`
+) {
     runDemo().catch((error) => logger.error("runDemo failed", { error }));
 }
 

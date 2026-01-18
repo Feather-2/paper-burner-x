@@ -1,7 +1,19 @@
 import { safeJsonParse } from "../../shared/utils/safe-json.js";
 
 /**
- * @typedef {Record<string, any>} PolicyRule
+ * @typedef {object} PolicyRule
+ * @property {string} [ruleId]
+ * @property {string} [id]
+ * @property {string} effect
+ * @property {string | string[]} [type]
+ * @property {string | string[]} [types]
+ * @property {string} [tool]
+ * @property {string} [resource]
+ * @property {string} [path]
+ * @property {boolean} [enabled]
+ * @property {number} [priority]
+ * @property {string} [createdAt]
+ * @property {string} [updatedAt]
  */
 
 /**

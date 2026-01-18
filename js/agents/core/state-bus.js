@@ -8,6 +8,10 @@
  * - 自动与 EventBus 联动
  */
 
+import { createLogger } from "../shared/utils/logger.js";
+
+const logger = createLogger("core/state-bus");
+
 /**
  * @typedef {import('./types').EventBus} EventBus
  * @typedef {import('./types').StateBusOptions} StateBusOptions
@@ -411,7 +415,7 @@ export class StateBus {
           try {
             cb(change);
           } catch (err) {
-            console.error(`[StateBus] Subscriber error for "${pattern}":`, err);
+            logger.error(`Subscriber error for "${pattern}":`, err);
           }
         }
       }

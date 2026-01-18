@@ -8,6 +8,173 @@ import { createPlugin } from '../../core/plugin.js';
 
 /** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
 
+/**
+ * @typedef {Object} LoggerConfig
+ * @property {'debug' | 'info' | 'warn' | 'error'} level - 日志级别
+ * @property {boolean} pretty - 美化输出
+ * @property {boolean} includeTimestamp - 包含时间戳
+ * @property {boolean} includeEventData - 包含事件数据
+ * @property {number} maxDataLength - 数据最大长度
+ * @property {number} [maxBuffer] - 缓冲区最大条目数
+ * @property {string[]} [sensitiveFields] - 敏感字段名列表
+ */
+
+/**
+ * @typedef {Object} LogBufferEntry
+ * @property {'debug' | 'info' | 'warn' | 'error'} level - 日志级别
+ * @property {string} event - 事件名
+ * @property {unknown} data - 事件数据（已脱敏）
+ * @property {number} timestamp - 时间戳
+ */
+
+/**
+ * @typedef {Object} LoggerService
+ * @property {() => LoggerConfig} getConfig - 获取配置
+ * @property {() => LogBufferEntry[]} getBuffer - 获取缓冲区
+ * @property {() => boolean} clearBuffer - 清空缓冲区
+ */
+
+/** @type {string[]} */
+const DEFAULT_SENSITIVE_FIELDS = [
+  'token', 'apiKey', 'api_key', 'apikey',
+  'password', 'secret', 'authorization',
+  'credential', 'credentials', 'key',
+  'accessToken', 'access_token', 'refreshToken', 'refresh_token',
+  'bearer', 'jwt', 'sessionId', 'session_id',
+];
+
+/**
+ * 对数据中的敏感字段进行脱敏
+ * @param {unknown} data - 原始数据
+ * @param {string[]} sensitiveFields - 敏感字段名列表
+ * @returns {unknown} 脱敏后的数据
+ */
+function sanitizeData(data, sensitiveFields) {
+  if (data === null || data === undefined) return data;
+  if (typeof data !== 'object') return data;
+
+  if (Array.isArray(data)) {
+    return data.map((item) => sanitizeData(item, sensitiveFields));
+  }
+
+  const result = {};
+  for (const [key, value] of Object.entries(data)) {
+    const lowerKey = key.toLowerCase();
+    const isSensitive = sensitiveFields.some((f) =>
+      lowerKey.includes(f.toLowerCase())
+    );
+
+    if (isSensitive && value !== undefined && value !== null) {
+      result[key] = '[REDACTED]';
+    } else if (typeof value === 'object' && value !== null) {
+      result[key] = sanitizeData(value, sensitiveFields);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/**
+ * 格式化时间戳
+ * @param {boolean} include - 是否包含时间戳
+ * @returns {string}
+ */
+function formatTime(include) {
+  if (!include) return '';
+  const now = new Date();
+  return `[${now.toISOString().slice(11, 23)}]`;
+}
+
+/**
+ * 截断字符串
+ * @param {string} str - 原字符串
+ * @param {number} max - 最大长度
+ * @returns {string}
+ */
+function truncate(str, max) {
+  if (str.length <= max) return str;
+  return str.slice(0, max) + '...';
+}
+
+/**
+ * 格式化数据为字符串
+ * @param {unknown} data - 数据
+ * @param {boolean} include - 是否包含
+ * @param {number} maxLen - 最大长度
+ * @returns {string}
+ */
+function formatData(data, include, maxLen) {
+  if (!include || data === undefined) return '';
+  try {
+    const str = JSON.stringify(data);
+    return ' ' + truncate(str, maxLen);
+  } catch {
+    return ' [circular]';
+  }
+}
+
+/**
+ * 确定事件的日志级别
+ * @param {string} event - 事件名
+ * @returns {'debug' | 'info' | 'warn' | 'error'}
+ */
+function classifyEventLevel(event) {
+  if (event.includes('.error')) return 'error';
+  if (event.includes('.warning') || event.includes('.warn')) return 'warn';
+  if (event.startsWith('kernel.') || event.startsWith('plugin.')) return 'info';
+  return 'debug';
+}
+
+/**
+ * 创建日志函数
+ * @param {Object} options
+ * @param {Record<string, number>} options.levels - 级别映射
+ * @param {number} options.currentLevel - 当前级别
+ * @param {LogBufferEntry[]} options.buffer - 缓冲区
+ * @param {number} options.maxBuffer - 最大缓冲条目
+ * @param {LoggerConfig} options.config - 配置
+ * @param {string[]} options.sensitiveFields - 敏感字段
+ * @returns {(level: string, event: string, data: unknown) => void}
+ */
+function createLogFn(options) {
+  const { levels, currentLevel, buffer, maxBuffer, config, sensitiveFields } = options;
+
+  return (level, event, data) => {
+    if (levels[level] < currentLevel) return;
+
+    const sanitized = sanitizeData(data, sensitiveFields);
+
+    if (maxBuffer > 0) {
+      buffer.push({ level, event, data: sanitized, timestamp: Date.now() });
+      while (buffer.length > maxBuffer) buffer.shift();
+    }
+
+    const prefix = config.pretty
+      ? `${formatTime(config.includeTimestamp)} [${level.toUpperCase().padEnd(5)}]`
+      : `${formatTime(config.includeTimestamp)} ${level}:`;
+
+    console[level](`${prefix} ${event}${formatData(sanitized, config.includeEventData, config.maxDataLength)}`);
+  };
+}
+
+/**
+ * 注册事件监听
+ * @param {PluginContext} ctx
+ * @param {(level: string, event: string, data: unknown) => void} log
+ */
+function registerEventListeners(ctx, log) {
+  ctx.on('*', (evt) => {
+    const event = typeof evt?.name === 'string' ? evt.name : '';
+    const data = evt?.payload;
+    log(classifyEventLevel(event), event, data);
+  });
+
+  ctx.state.subscribe('*', (newValue, oldValue, path) => {
+    log('debug', `state.change:${path}`, { old: oldValue, new: newValue });
+  });
+}
+
 export default createPlugin({
   name: 'debug/logger',
   version: '1.0.0',
@@ -17,8 +184,9 @@ export default createPlugin({
     level: 'debug', // debug | info | warn | error
     pretty: true,
     includeTimestamp: true,
-    includeEventData: true,
+    includeEventData: false, // 默认关闭以减少敏感数据暴露
     maxDataLength: 500,
+    sensitiveFields: [],
   },
 
   /**
@@ -29,96 +197,39 @@ export default createPlugin({
     const levels = { debug: 0, info: 1, warn: 2, error: 3 };
     const currentLevel = levels[ctx.config.level] || 0;
 
+    /** @type {LogBufferEntry[]} */
     const buffer = [];
     const maxBuffer = Number.isFinite(ctx.config.maxBuffer)
       ? Math.max(0, Math.floor(ctx.config.maxBuffer))
       : 200;
 
-    const pushBuffer = (entry) => {
-      if (maxBuffer <= 0) return;
-      buffer.push(entry);
-      while (buffer.length > maxBuffer) buffer.shift();
-    };
+    const sensitiveFields = [
+      ...DEFAULT_SENSITIVE_FIELDS,
+      ...(ctx.config.sensitiveFields || []),
+    ];
 
-    const formatTime = () => {
-      if (!ctx.config.includeTimestamp) return '';
-      const now = new Date();
-      return `[${now.toISOString().slice(11, 23)}]`;
-    };
+    const log = createLogFn({
+      levels,
+      currentLevel,
+      buffer,
+      maxBuffer,
+      config: ctx.config,
+      sensitiveFields,
+    });
 
-    const truncate = (str, max) => {
-      if (str.length <= max) return str;
-      return str.slice(0, max) + '...';
-    };
-
-    const formatData = (data) => {
-      if (!ctx.config.includeEventData || data === undefined) return '';
-      try {
-        const str = JSON.stringify(data);
-        return ' ' + truncate(str, ctx.config.maxDataLength);
-      } catch {
-        return ' [circular]';
-      }
-    };
-
-    const log = (level, event, data) => {
-      if (levels[level] < currentLevel) return;
-
-      pushBuffer({ level, event, data, timestamp: Date.now() });
-
-      const prefix = ctx.config.pretty
-        ? `${formatTime()} [${level.toUpperCase().padEnd(5)}]`
-        : `${formatTime()} ${level}:`;
-
-      console[level](`${prefix} ${event}${formatData(data)}`);
-    };
-
-    // 暴露服务接口（便于调试/测试）
-    ctx.registerService('logger', {
-      /**
-       * @returns {Record<string, any>}
-       */
+    /** @type {LoggerService} */
+    const loggerService = {
       getConfig: () => ({ ...ctx.config }),
-
-      /**
-       * @returns {any[]}
-       */
       getBuffer: () => buffer.slice(),
-
-      /**
-       * @returns {boolean}
-       */
       clearBuffer: () => {
         buffer.length = 0;
         return true;
       },
-    });
+    };
 
-    // 记录插件状态（作用域写入）
+    ctx.registerService('logger', loggerService);
     ctx.state.set('installedAt', Date.now());
-
-    // 监听所有事件
-    ctx.on('*', (evt) => {
-      const event = typeof evt?.name === 'string' ? evt.name : '';
-      const data = evt?.payload;
-
-      // 分类事件级别
-      if (event.includes('.error')) {
-        log('error', event, data);
-      } else if (event.includes('.warning') || event.includes('.warn')) {
-        log('warn', event, data);
-      } else if (event.startsWith('kernel.') || event.startsWith('plugin.')) {
-        log('info', event, data);
-      } else {
-        log('debug', event, data);
-      }
-    });
-
-    // 监听状态变更
-    ctx.state.subscribe('*', (newValue, oldValue, path) => {
-      log('debug', `state.change:${path}`, { old: oldValue, new: newValue });
-    });
-
+    registerEventListeners(ctx, log);
     ctx.log.info('Debug logger plugin installed');
   },
 });

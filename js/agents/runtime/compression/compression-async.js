@@ -37,6 +37,7 @@ function getCompressionRpc() {
 
 /**
  * 终止 Worker（用于清理资源）
+ * @returns {void}
  */
 export function terminateCompressionWorker() {
   if (!_compressionRpc) return;
@@ -51,6 +52,7 @@ export function terminateCompressionWorker() {
 
 /**
  * 检查 Worker 是否可用
+ * @returns {boolean} 是否支持 Web Worker
  */
 export function isCompressionWorkerAvailable() {
   return canUseWorker();
@@ -59,6 +61,16 @@ export function isCompressionWorkerAvailable() {
 /**
  * SESSION_HISTORY 同步压缩（作为回退）
  * 复制自 compression.worker.js 核心逻辑
+ *
+ * @param {Array<object>} messages - 消息数组
+ * @param {object} [options] - 压缩选项
+ * @param {number} [options.keepLastTurns=6] - 保留最近几轮
+ * @param {number} [options.summaryLineChars=120] - 摘要行最大字符数
+ * @param {boolean} [options.titleOnly=false] - 仅保留标题
+ * @param {number} [options.titleMaxWords=10] - 标题最大单词数
+ * @param {number} [options.titleMaxChars=80] - 标题最大字符数
+ * @param {string} [options.sessionSummary] - 已有摘要
+ * @returns {{ messages: Array<object>, sessionSummary: string|null, stats: object, afterTokens: number }}
  */
 function compressSessionHistorySync(messages, options = {}) {
   const keepLastTurns = Number.isFinite(options.keepLastTurns) ? options.keepLastTurns : 6;
@@ -369,6 +381,20 @@ function sanitizeKeptMessages(messages, maxKeptMessageChars) {
  * - Excludes existing "[Context Summary]" messages from the compression input.
  * - Preserves and carries forward any prior summary text.
  * - Appends the summary message at the end to keep the prompt prefix stable.
+ *
+ * @param {Array<object>} messages - 消息数组
+ * @param {object} [options] - 压缩选项
+ * @param {number} [options.keepLastTurns] - 保留最近几轮
+ * @param {boolean} [options.titleOnly] - 仅保留标题
+ * @param {number} [options.titleMaxWords] - 标题最大单词数
+ * @param {number} [options.titleMaxChars] - 标题最大字符数
+ * @param {number} [options.summaryLineChars] - 摘要行最大字符数
+ * @param {number} [options.maxKeptMessageChars] - 保留消息最大字符数
+ * @param {object} [runtime] - 运行时选项
+ * @param {AbortSignal} [runtime.signal] - 取消信号
+ * @param {boolean} [runtime.useWorker] - 是否使用 Worker
+ * @param {number} [runtime.workerThresholdMessages] - Worker 阈值消息数
+ * @returns {Promise<{ messages: Array<object>, sessionSummary: string|null, stats: object|null, afterTokens: number|undefined }>}
  */
 export async function compressAgentLoopMessagesAsync(messages, options = {}, runtime = {}) {
   const list = Array.isArray(messages) ? messages : [];
@@ -410,5 +436,18 @@ export async function compressAgentLoopMessagesAsync(messages, options = {}, run
   };
 }
 
+/**
+ * SESSION_HISTORY 同步压缩（导出别名）
+ *
+ * @param {Array<object>} messages - 消息数组
+ * @param {object} [options] - 压缩选项
+ * @param {number} [options.keepLastTurns=6] - 保留最近几轮
+ * @param {number} [options.summaryLineChars=120] - 摘要行最大字符数
+ * @param {boolean} [options.titleOnly=false] - 仅保留标题
+ * @param {number} [options.titleMaxWords=10] - 标题最大单词数
+ * @param {number} [options.titleMaxChars=80] - 标题最大字符数
+ * @param {string} [options.sessionSummary] - 已有摘要
+ * @returns {{ messages: Array<object>, sessionSummary: string|null, stats: object, afterTokens: number }}
+ */
 export { compressSessionHistorySync };
 export default compressSessionHistoryAsync;

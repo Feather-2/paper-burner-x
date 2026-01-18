@@ -2,9 +2,12 @@ import { computeSha256 } from "../../storage/artifact-manager.js";
 import { PolicyEngine } from "./engine.js";
 import { PolicyRuleStore } from "./store.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
+import { createLogger } from "../../shared/utils/logger.js";
 
 import { isNodeLike } from "../../shared/platform.js";
 import { toNonEmptyString } from "../../shared/utils/value-utils.js";
+
+const logger = createLogger("runtime/policy/manager");
 
 /**
  * @typedef {object} PolicyRule
@@ -68,19 +71,25 @@ function summarizeArgs(args) {
 async function sha256OfJson(value) {
   try {
     return await computeSha256(JSON.stringify(value ?? null));
-  } catch {
+  } catch (err) {
+    logger.warn("sha256OfJson failed", { error: err?.message ?? String(err) });
     return null;
   }
 }
 
 /**
  * @param {PolicyRequest} req
- * @returns {PolicyRule}
+ * @returns {PolicyRule | null}
  */
 function defaultDeriveRuleFromRequest(req) {
   const type = toNonEmptyString(req?.type);
   const tool = toNonEmptyString(req?.tool);
   const resource = toNonEmptyString(req?.resource);
+  // Require at least type, or (tool/resource) to avoid overly broad rules
+  if (!type && !tool && !resource) {
+    logger.warn("defaultDeriveRuleFromRequest: missing type/tool/resource, refusing to generate rule");
+    return null;
+  }
   const rule = {
     ruleId: makeSecureTimestampedId("rule"),
     effect: "allow",
@@ -143,13 +152,33 @@ async function waitForApprovalResponse(eventBus, requestId, { timeoutMs = 300000
   });
 }
 
+/**
+ * @typedef {object} PolicyRuleStoreLike
+ * @property {() => PolicyRule[]} load
+ * @property {(rules: PolicyRule[]) => boolean} save
+ * @property {() => boolean} [clear]
+ */
+
+/**
+ * @typedef {object} PolicyEngineLike
+ * @property {(rules: PolicyRule[] | null | undefined) => void} setRules
+ * @property {() => PolicyRule[]} getRules
+ * @property {(request: PolicyRequest | null | undefined) => { allowed: boolean, requiresApproval: boolean, reason: string }} evaluate
+ */
+
+/**
+ * @typedef {object} RunStoreLike
+ * @property {(id: string, data: unknown) => void} [set]
+ * @property {(id: string) => unknown} [get]
+ */
+
 export class PolicyManager {
   /**
    * @param {object} [options]
-   * @param {any} [options.ruleStore]
-   * @param {any} [options.engine]
+   * @param {PolicyRuleStoreLike} [options.ruleStore]
+   * @param {PolicyEngineLike} [options.engine]
    * @param {EventBusLike | null} [options.eventBus]
-   * @param {any} [options.runStore]
+   * @param {RunStoreLike | null} [options.runStore]
    * @param {string | null} [options.runId]
    * @param {boolean} [options.interactive]
    * @param {number} [options.approvalTimeoutMs]
@@ -171,7 +200,7 @@ export class PolicyManager {
   }
 
   /**
-   * @param {{ eventBus?: EventBusLike | null, runStore?: any, runId?: string | null }} [context]
+   * @param {{ eventBus?: EventBusLike | null, runStore?: RunStoreLike | null, runId?: string | null }} [context]
    */
   setRunContext({ eventBus, runStore, runId } = {}) {
     if (eventBus) this.eventBus = eventBus;

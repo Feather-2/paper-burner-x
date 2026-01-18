@@ -81,7 +81,7 @@ import { isPlainObject, toNonEmptyString } from '../../shared/utils/value-utils.
  * @property {PlanStep[]} steps - 实施步骤
  * @property {Risk[]} risks - 风险评估
  * @property {CriticalFile[]} criticalFiles - 关键文件
- * @property {Record<string, any>} [meta] - 元数据
+ * @property {Record<string, unknown>} [meta] - 元数据 (扩展字段)
  */
 
 export const STRUCTURED_PLAN_SCHEMA_VERSION = '1.0';
@@ -279,118 +279,207 @@ export function validateStructuredPlan(plan) {
   return { valid: errors.length === 0, errors };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Markdown 渲染辅助函数
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * 将结构化计划转换为 Markdown
- * @param {StructuredPlan} plan
- * @returns {string}
+ * 转义 Markdown 特殊字符，防止 XSS 与格式破坏。
+ * @private
+ * @param {string} text - 原始文本
+ * @returns {string} 转义后的文本
+ */
+function escapeMarkdown(text) {
+  if (typeof text !== 'string') return '';
+  // 转义 Markdown 特殊字符：\ ` * _ { } [ ] ( ) # + - . ! | < >
+  return text.replace(/([\\`*_{}[\]()#+\-.!|<>])/g, '\\$1');
+}
+
+/**
+ * 转义 Markdown 表格单元格内容。
+ * @private
+ * @param {string} text - 原始文本
+ * @returns {string} 转义后的文本
+ */
+function escapeTableCell(text) {
+  if (typeof text !== 'string') return '';
+  // 表格中需要转义 | 和换行
+  return text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+}
+
+/**
+ * 渲染需求分析 Markdown。
+ * @private
+ * @param {RequirementsAnalysis} req - 需求分析对象
+ * @returns {string[]} Markdown 行数组
+ */
+function renderRequirements(req) {
+  const lines = [];
+  if (!req?.functional?.length && !req?.nonFunctional?.length) return lines;
+
+  lines.push('## Requirements');
+  lines.push('');
+
+  if (req.functional?.length) {
+    lines.push('### Functional');
+    for (const r of req.functional) {
+      lines.push(`- **[${escapeMarkdown(r.priority)}]** ${escapeMarkdown(r.description)}`);
+      if (r.acceptanceCriteria?.length) {
+        for (const ac of r.acceptanceCriteria) {
+          lines.push(`  - ${escapeMarkdown(ac)}`);
+        }
+      }
+    }
+    lines.push('');
+  }
+
+  if (req.nonFunctional?.length) {
+    lines.push('### Non-Functional');
+    for (const r of req.nonFunctional) {
+      lines.push(`- **[${escapeMarkdown(r.priority)}]** ${escapeMarkdown(r.description)}`);
+    }
+    lines.push('');
+  }
+
+  if (req.assumptions?.length) {
+    lines.push('### Assumptions');
+    for (const a of req.assumptions) {
+      lines.push(`- ${escapeMarkdown(a)}`);
+    }
+    lines.push('');
+  }
+
+  return lines;
+}
+
+/**
+ * 渲染架构决策 Markdown。
+ * @private
+ * @param {ArchitecturalDecision[]} decisions - 决策数组
+ * @returns {string[]} Markdown 行数组
+ */
+function renderDecisions(decisions) {
+  const lines = [];
+  if (!decisions?.length) return lines;
+
+  lines.push('## Architecture Decisions');
+  lines.push('');
+
+  for (const d of decisions) {
+    lines.push(`### ${escapeMarkdown(d.title)}`);
+    lines.push('');
+    if (d.context) lines.push(`**Context:** ${escapeMarkdown(d.context)}`);
+    if (d.decision) lines.push(`**Decision:** ${escapeMarkdown(d.decision)}`);
+    if (d.rationale) lines.push(`**Rationale:** ${escapeMarkdown(d.rationale)}`);
+    if (d.tradeoffs?.length) {
+      lines.push('**Trade-offs:**');
+      for (const t of d.tradeoffs) {
+        lines.push(`- ${escapeMarkdown(t)}`);
+      }
+    }
+    lines.push('');
+  }
+
+  return lines;
+}
+
+/**
+ * 渲染实施步骤 Markdown。
+ * @private
+ * @param {PlanStep[]} steps - 步骤数组
+ * @returns {string[]} Markdown 行数组
+ */
+function renderSteps(steps) {
+  const lines = [];
+  if (!steps?.length) return lines;
+
+  const statusIcons = { pending: 'o', in_progress: '~', completed: 'x', skipped: '-', failed: '!' };
+
+  lines.push('## Implementation Steps');
+  lines.push('');
+
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const icon = statusIcons[s.status] || 'o';
+    lines.push(`${i + 1}. [${icon}] **${escapeMarkdown(s.title)}** [${escapeMarkdown(s.complexity)}]`);
+    if (s.description) lines.push(`   ${escapeMarkdown(s.description)}`);
+    if (s.files?.length) lines.push(`   Files: ${s.files.map(escapeMarkdown).join(', ')}`);
+    if (s.dependencies?.length) lines.push(`   Depends on: ${s.dependencies.map(escapeMarkdown).join(', ')}`);
+  }
+  lines.push('');
+
+  return lines;
+}
+
+/**
+ * 渲染关键文件表格 Markdown。
+ * @private
+ * @param {CriticalFile[]} files - 关键文件数组
+ * @returns {string[]} Markdown 行数组
+ */
+function renderCriticalFiles(files) {
+  const lines = [];
+  if (!files?.length) return lines;
+
+  lines.push('## Critical Files');
+  lines.push('');
+  lines.push('| File | Action | Reason |');
+  lines.push('|------|--------|--------|');
+
+  for (const f of files) {
+    lines.push(`| \`${escapeTableCell(f.path)}\` | ${escapeTableCell(f.action)} | ${escapeTableCell(f.reason)} |`);
+  }
+  lines.push('');
+
+  return lines;
+}
+
+/**
+ * 渲染风险 Markdown。
+ * @private
+ * @param {Risk[]} risks - 风险数组
+ * @returns {string[]} Markdown 行数组
+ */
+function renderRisks(risks) {
+  const lines = [];
+  if (!risks?.length) return lines;
+
+  const severityLabels = { low: 'LOW', medium: 'MED', high: 'HIGH', critical: 'CRIT' };
+
+  lines.push('## Risks');
+  lines.push('');
+
+  for (const r of risks) {
+    const label = severityLabels[r.severity] || 'MED';
+    lines.push(`- [${label}] **[${escapeMarkdown(r.category)}]** ${escapeMarkdown(r.description)}`);
+    if (r.mitigation) lines.push(`  - Mitigation: ${escapeMarkdown(r.mitigation)}`);
+  }
+  lines.push('');
+
+  return lines;
+}
+
+/**
+ * 将结构化计划转换为 Markdown。
+ * @param {StructuredPlan} plan - 结构化计划对象
+ * @returns {string} Markdown 字符串
  */
 export function structuredPlanToMarkdown(plan) {
   const lines = [];
 
-  lines.push(`# ${plan.title || 'Implementation Plan'}`);
+  lines.push(`# ${escapeMarkdown(plan.title || 'Implementation Plan')}`);
   lines.push('');
 
   if (plan.summary) {
-    lines.push(plan.summary);
+    lines.push(escapeMarkdown(plan.summary));
     lines.push('');
   }
 
-  // Requirements
-  if (plan.requirements) {
-    const req = plan.requirements;
-    if (req.functional?.length || req.nonFunctional?.length) {
-      lines.push('## Requirements');
-      lines.push('');
-
-      if (req.functional?.length) {
-        lines.push('### Functional');
-        for (const r of req.functional) {
-          lines.push(`- **[${r.priority}]** ${r.description}`);
-          if (r.acceptanceCriteria?.length) {
-            for (const ac of r.acceptanceCriteria) {
-              lines.push(`  - ✓ ${ac}`);
-            }
-          }
-        }
-        lines.push('');
-      }
-
-      if (req.nonFunctional?.length) {
-        lines.push('### Non-Functional');
-        for (const r of req.nonFunctional) {
-          lines.push(`- **[${r.priority}]** ${r.description}`);
-        }
-        lines.push('');
-      }
-
-      if (req.assumptions?.length) {
-        lines.push('### Assumptions');
-        for (const a of req.assumptions) {
-          lines.push(`- ${a}`);
-        }
-        lines.push('');
-      }
-    }
-  }
-
-  // Architecture Decisions
-  if (plan.decisions?.length) {
-    lines.push('## Architecture Decisions');
-    lines.push('');
-    for (const d of plan.decisions) {
-      lines.push(`### ${d.title}`);
-      lines.push('');
-      if (d.context) lines.push(`**Context:** ${d.context}`);
-      if (d.decision) lines.push(`**Decision:** ${d.decision}`);
-      if (d.rationale) lines.push(`**Rationale:** ${d.rationale}`);
-      if (d.tradeoffs?.length) {
-        lines.push('**Trade-offs:**');
-        for (const t of d.tradeoffs) {
-          lines.push(`- ${t}`);
-        }
-      }
-      lines.push('');
-    }
-  }
-
-  // Implementation Steps
-  if (plan.steps?.length) {
-    lines.push('## Implementation Steps');
-    lines.push('');
-    for (let i = 0; i < plan.steps.length; i++) {
-      const s = plan.steps[i];
-      const statusIcon = { pending: '○', in_progress: '◐', completed: '●', skipped: '⊘', failed: '✗' }[s.status] || '○';
-      lines.push(`${i + 1}. ${statusIcon} **${s.title}** [${s.complexity}]`);
-      if (s.description) lines.push(`   ${s.description}`);
-      if (s.files?.length) lines.push(`   Files: ${s.files.join(', ')}`);
-      if (s.dependencies?.length) lines.push(`   Depends on: ${s.dependencies.join(', ')}`);
-    }
-    lines.push('');
-  }
-
-  // Critical Files
-  if (plan.criticalFiles?.length) {
-    lines.push('## Critical Files');
-    lines.push('');
-    lines.push('| File | Action | Reason |');
-    lines.push('|------|--------|--------|');
-    for (const f of plan.criticalFiles) {
-      lines.push(`| \`${f.path}\` | ${f.action} | ${f.reason} |`);
-    }
-    lines.push('');
-  }
-
-  // Risks
-  if (plan.risks?.length) {
-    lines.push('## Risks');
-    lines.push('');
-    for (const r of plan.risks) {
-      const severityIcon = { low: '🟢', medium: '🟡', high: '🟠', critical: '🔴' }[r.severity] || '⚪';
-      lines.push(`- ${severityIcon} **[${r.category}]** ${r.description}`);
-      if (r.mitigation) lines.push(`  - Mitigation: ${r.mitigation}`);
-    }
-    lines.push('');
-  }
+  lines.push(...renderRequirements(plan.requirements));
+  lines.push(...renderDecisions(plan.decisions));
+  lines.push(...renderSteps(plan.steps));
+  lines.push(...renderCriticalFiles(plan.criticalFiles));
+  lines.push(...renderRisks(plan.risks));
 
   return lines.join('\n');
 }

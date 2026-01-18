@@ -367,9 +367,27 @@ export class TokenTracker {
 const TOKEN_TRACKER_SERVICE_ID = "tokenTracker";
 
 /**
+ * @typedef {object} TokenUsageSummary
+ * @property {number} totalCalls
+ * @property {number} successCalls
+ * @property {number} failedCalls
+ * @property {number} successRate
+ * @property {number} totalPromptTokens
+ * @property {number} totalCompletionTokens
+ * @property {number} totalTokens
+ * @property {number} totalLatencyMs
+ * @property {number} avgLatencyMs
+ * @property {number} avgTokensPerCall
+ * @property {Object<string, object>} byModel
+ * @property {Object<string, object>} byUsage
+ * @property {Object<string, object>} byProvider
+ */
+
+/**
  * Global token tracker singleton (compatibility layer).
  *
  * @deprecated Prefer resolving via DI container (`ServiceId.TOKEN_TRACKER`) or passing an explicit tracker instance.
+ * @returns {TokenTracker} The global TokenTracker instance.
  */
 export function getGlobalTokenTracker() {
   const container = getGlobalContainer();
@@ -381,6 +399,16 @@ export function getGlobalTokenTracker() {
 
 /**
  * 便捷函数：记录 token 使用
+ * @param {object} params
+ * @param {string} params.model - 模型 ID
+ * @param {string} params.provider - 提供商 ID
+ * @param {string} params.usage - 用途
+ * @param {number} params.promptTokens - 输入 token 数
+ * @param {number} params.completionTokens - 输出 token 数
+ * @param {number} params.latencyMs - 延迟 (ms)
+ * @param {boolean} [params.success=true] - 是否成功
+ * @param {string} [params.error] - 错误信息
+ * @returns {TokenUsageRecord} 新创建的记录
  */
 export function trackTokenUsage(params) {
   return getGlobalTokenTracker().record(params);
@@ -388,6 +416,7 @@ export function trackTokenUsage(params) {
 
 /**
  * 便捷函数：获取统计摘要
+ * @returns {TokenUsageSummary} Token 使用统计摘要
  */
 export function getTokenUsageSummary() {
   return getGlobalTokenTracker().getSummary();
@@ -395,6 +424,7 @@ export function getTokenUsageSummary() {
 
 /**
  * 便捷函数：导出 JSON
+ * @returns {string} JSON 格式的导出数据
  */
 export function exportTokenUsageJson() {
   return getGlobalTokenTracker().exportJson();
@@ -402,6 +432,7 @@ export function exportTokenUsageJson() {
 
 /**
  * 便捷函数：导出 CSV
+ * @returns {string} CSV 格式的导出数据
  */
 export function exportTokenUsageCsv() {
   return getGlobalTokenTracker().exportCsv();

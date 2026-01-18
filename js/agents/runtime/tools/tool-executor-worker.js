@@ -1,4 +1,9 @@
-/** @ts-ignore - 浏览器构建不包含 @types/node，此导入在浏览器环境会被打包工具替换 */
+/**
+ * @ts-ignore - 浏览器构建不包含 @types/node，此导入在浏览器环境会被打包工具替换
+ * @module
+ * @platform node - This module uses node:worker_threads; browser builds should
+ * exclude or stub this file via bundler configuration.
+ */
 import { parentPort } from "node:worker_threads";
 import { createToolExecutorHandler } from "./tool-executor-worker-shared.js";
 

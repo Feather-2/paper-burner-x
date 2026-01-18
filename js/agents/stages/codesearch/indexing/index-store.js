@@ -15,6 +15,7 @@ const STORE_SYMBOLS = "symbols";
  *
  * @typedef {object} PutSymbolRecordParams
  * @property {string=} sha256
+ * @property {string=} hash - Alias for sha256 (fallback)
  * @property {any[]=} symbols
  * @property {string=} updatedAt
  */
@@ -93,6 +94,11 @@ export class CodeSearchIndexStore {
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
+      req.onblocked = () => reject(new Error("IndexedDB open blocked by another connection"));
+    }).catch((err) => {
+      // Reset _dbp so future calls can retry; fall back to memory storage
+      this._dbp = null;
+      return null;
     });
 
     return this._dbp;

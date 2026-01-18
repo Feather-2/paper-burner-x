@@ -407,11 +407,35 @@ export async function importRunFromZip(file, options = {}) {
   const JSZip = await getJSZip();
   const { runStore, overwrite, atomic, backupOnOverwrite, validate } = normalizeImportOptions(options);
 
+  // Default max size: 256 MB to prevent zip bomb / resource exhaustion
+  const MAX_ZIP_SIZE = 256 * 1024 * 1024;
+
   let zipInput = file;
+  let inputSize = 0;
+
   if (typeof Blob !== "undefined" && file instanceof Blob) {
+    inputSize = file.size;
+    if (inputSize > MAX_ZIP_SIZE) {
+      throw new Error(`importRunFromZip: zip file too large (${inputSize} bytes, max ${MAX_ZIP_SIZE})`);
+    }
     zipInput = await file.arrayBuffer();
+  } else if (file instanceof ArrayBuffer) {
+    inputSize = file.byteLength;
+    if (inputSize > MAX_ZIP_SIZE) {
+      throw new Error(`importRunFromZip: zip file too large (${inputSize} bytes, max ${MAX_ZIP_SIZE})`);
+    }
+  } else if (ArrayBuffer.isView(file)) {
+    inputSize = file.byteLength;
+    if (inputSize > MAX_ZIP_SIZE) {
+      throw new Error(`importRunFromZip: zip file too large (${inputSize} bytes, max ${MAX_ZIP_SIZE})`);
+    }
+    zipInput = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
   } else if (file && typeof file.arrayBuffer === "function") {
     zipInput = await file.arrayBuffer();
+    inputSize = zipInput.byteLength;
+    if (inputSize > MAX_ZIP_SIZE) {
+      throw new Error(`importRunFromZip: zip file too large (${inputSize} bytes, max ${MAX_ZIP_SIZE})`);
+    }
   }
 
   const zip = await JSZip.loadAsync(zipInput);

@@ -6,7 +6,6 @@
  */
 
 import { SkillExecutor } from '../core/sandbox/skill-executor.js';
-import { SandboxPreset, ResourceLimits } from '../core/sandbox/index.js';
 
 /** @typedef {import("./manager.js").SkillsManager} SkillsManager */
 /** @typedef {SkillsManager & Record<string, any>} SkillsManagerWithSandbox */
@@ -50,7 +49,7 @@ export function enhanceWithSandbox(manager, options = {}) {
           } catch (err) {
             return {
               success: false,
-              error: `Failed to load remote skill: ${err.message}`,
+              error: `Failed to load remote skill: ${err instanceof Error ? err.message : String(err)}`,
               data: null,
               metrics: {},
             };
@@ -94,6 +93,16 @@ export function enhanceWithSandbox(manager, options = {}) {
 
 /**
  * 创建一个带沙箱的 SkillsManager
+ *
+ * @param {Object} [options] - Configuration options
+ * @param {string} [options.homeDir] - User home directory
+ * @param {string} [options.manifestUrl] - Skills manifest URL
+ * @param {Object} [options.remoteProvider] - Remote skills provider
+ * @param {number} [options.cacheTtlMs] - Cache TTL in milliseconds
+ * @param {number} [options.cacheMaxEntries] - Maximum cache entries
+ * @param {Object} [options.kernel] - Kernel instance for sandbox
+ * @param {Function} [options.trustChecker] - Trust checker function
+ * @returns {Promise<SkillsManagerWithSandbox>} Enhanced manager with sandbox execution
  */
 export async function createSandboxedSkillsManager(options = {}) {
   const { SkillsManager } = await import('./manager.js');
@@ -114,6 +123,9 @@ export async function createSandboxedSkillsManager(options = {}) {
 
 /**
  * 安全检查：分析 Skill 代码的潜在风险
+ *
+ * @param {string} skillBody - Skill body content to analyze
+ * @returns {{ overallRisk: 'safe' | 'low' | 'medium' | 'high' | 'critical', risks: Array<{ risk: string, desc: string, pattern: string }>, safe: boolean }}
  */
 export function analyzeSkillRisk(skillBody) {
   const risks = [];

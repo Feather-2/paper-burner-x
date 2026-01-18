@@ -36,7 +36,7 @@ export function createLogger(options = {}) {
             ...(data && typeof data === "object" ? data : {}),
         };
 
-        emitFn?.(`${actorName}.log.${level}`, payload, { status: level === "error" ? "failed" : "info" });
+        emitFn?.(`${actorName}:log`, { ...payload, level }, { status: level === "error" ? "failed" : "info" });
 
         const consoleObj = typeof globalThis !== "undefined" ? globalThis.console : undefined;
         const consoleFn =

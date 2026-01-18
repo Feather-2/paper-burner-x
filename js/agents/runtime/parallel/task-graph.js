@@ -37,7 +37,7 @@ export class TaskGraph {
     if (!id) throw new TypeError("TaskGraph.addTask(taskId): taskId must be a non-empty string");
 
     const deps = Array.isArray(dependencies)
-      ? dependencies.map((d) => toNonEmptyString(d)).filter(Boolean)
+      ? [...new Set(dependencies.map((d) => toNonEmptyString(d)).filter(Boolean))]
       : [];
 
     this._tasks.set(id, { dependencies: deps });
@@ -70,10 +70,14 @@ export class TaskGraph {
 
     // Initialize
     for (const [id, task] of this._tasks) {
-      inDegree.set(id, task.dependencies.length);
+      // Filter out missing deps when allowMissingDependencies is true
+      const effectiveDeps = allowMissing
+        ? task.dependencies.filter((depId) => this._tasks.has(depId))
+        : task.dependencies;
+      inDegree.set(id, effectiveDeps.length);
       if (!dependents.has(id)) dependents.set(id, new Set());
-      for (const depId of task.dependencies) {
-        if (!this._tasks.has(depId) && !allowMissing) {
+      for (const depId of effectiveDeps) {
+        if (!this._tasks.has(depId)) {
           throw new Error(`TaskGraph: missing dependency "${depId}" required by "${id}"`);
         }
         if (!dependents.has(depId)) dependents.set(depId, new Set());

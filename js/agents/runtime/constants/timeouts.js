@@ -68,9 +68,9 @@ export const TIMEOUTS = Object.freeze({
 
 /**
  * 根据场景获取超时时间
- * @param {keyof typeof TIMEOUTS} key
- * @param {number} [override] - 覆盖值
- * @returns {number}
+ * @param {keyof typeof TIMEOUTS} key - 超时常量键名
+ * @param {number} [override] - 覆盖值（正数时使用此值替代默认）
+ * @returns {number} 超时时间（毫秒），未匹配时回退 30000
  */
 export function getTimeout(key, override) {
   if (typeof override === "number" && Number.isFinite(override) && override > 0) {

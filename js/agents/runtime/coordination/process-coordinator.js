@@ -3,6 +3,10 @@
  *
  * Mirrors TabCoordinator API but uses cluster IPC for multi-process sync.
  * Falls back to no-op when cluster is unavailable.
+ *
+ * @module process-coordinator
+ * @environment node - This module uses Node.js-only APIs (globalThis.process, node:cluster).
+ *                     Do NOT bundle for browser targets; use conditional imports or build aliases.
  */
 
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
@@ -21,10 +25,15 @@ import { Platform } from "../../shared/platform.js";
  */
 
 /**
+ * @typedef {Object} LoggerLike
+ * @property {(...args: unknown[]) => void} [warn]
+ */
+
+/**
  * @typedef {object} ProcessCoordinatorOptions
  * @property {(sessionId: string) => void} [onEviction]
  * @property {(sessionId: string) => void} [onAccess]
- * @property {any} [logger]
+ * @property {LoggerLike} [logger]
  */
 
 /**
@@ -123,8 +132,9 @@ async function loadClusterModule() {
       const mod = await import(/* @vite-ignore */ specifier);
       clusterModule = normalizeClusterModule(mod);
       return clusterModule;
-    } catch {
-      return null;
+    } catch (err) {
+      // Re-throw to let init() handle logging; expected in browser/non-cluster environments
+      throw err;
     } finally {
       clusterModulePromise = null;
     }

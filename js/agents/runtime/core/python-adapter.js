@@ -104,8 +104,17 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
       if (type === 'result') {
         // 处理回传的文件变更
         if (files && request.vfs) {
-          for (const file of files) {
-            await request.vfs.writeFile(file.path, file.content);
+          try {
+            for (const file of files) {
+              await request.vfs.writeFile(file.path, file.content);
+            }
+          } catch (writeErr) {
+            logger.error("[PythonRuntime] Failed to write file back to VFS", {
+              error: writeErr?.message || String(writeErr),
+            });
+            request.reject(writeErr);
+            this.pendingRequests.delete(id);
+            return;
           }
         }
         request.resolve(data);

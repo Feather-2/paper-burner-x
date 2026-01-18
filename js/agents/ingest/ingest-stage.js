@@ -16,6 +16,38 @@ import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js"
 import { validateFetchUrl } from "../mcp/http-proxy.js";
 import { createResponseTooLargeError, normalizeMaxBytes, readTextWithLimit } from "../shared/utils/response-limits.js";
 
+/**
+ * @typedef {object} IngestInput
+ * @property {Array<File|string|{name?:string,type?:string,arrayBuffer?:Function}>} [files] - Files to ingest
+ * @property {string[]} [urls] - URLs to fetch and ingest
+ * @property {string[]} [historyIds] - History IDs to retrieve
+ * @property {Array<string|{text:string,title?:string}>} [rawTexts] - Raw text inputs
+ */
+
+/**
+ * @typedef {object} ParsedDocument
+ * @property {string} docId - Unique document identifier
+ * @property {string} sourceType - Source type (markdown, pdf, etc.)
+ * @property {string} markdown - Extracted markdown content
+ * @property {string} textNormalized - Normalized text for matching
+ * @property {string} textHash - Hash of normalized text
+ * @property {Array<{heading:string,level:number}>} [toc] - Table of contents
+ * @property {Array<{text:string,locator:object}>} [chunks] - Document chunks
+ * @property {Array<{id:string,mimeType:string,data?:string}>} [assets] - Extracted assets
+ * @property {object} [metadata] - Document metadata
+ * @property {{adapter:string,durationMs:number}} [parseInfo] - Parse timing info
+ * @property {object} [origin] - Original file info
+ */
+
+/**
+ * @typedef {object} IngestStageOutput
+ * @property {Array<{sourceId:string,kind:string,title?:string,uri?:string,sourceTextNormalized:string,textHash:string,chunks?:Array,assetIds?:string[],metadata:object}>} sources - Ingested sources
+ * @property {Array<{id:string,mimeType:string,docId?:string,understanding?:object}>} assets - All assets
+ * @property {Array<{origin:string,error:string}>} parseErrors - Parse failures
+ * @property {string[]} warnings - Non-fatal warnings
+ * @property {{totalDocs:number,successDocs:number,failedDocs:number,totalAssets:number,durationMs:number}} metrics - Processing metrics
+ */
+
 const MAX_DOC_CONCURRENCY = 16;
 const DEFAULT_MAX_URL_BYTES = 4 * 1024 * 1024; // 4 MiB
 
@@ -280,7 +312,7 @@ export class IngestStage {
     const rawTexts = Array.isArray(ingestInput?.rawTexts) ? ingestInput.rawTexts : [];
 
     const inputCount = files.length + urls.length + historyIds.length + rawTexts.length;
-    emit?.("ingest.started", { inputCount, runId: runContext?.runId }, { status: "started" });
+    emit?.("ingest:started", { inputCount, runId: runContext?.runId }, { status: "started" });
 
     const runId = runContext?.runId;
     const runStore = stageApi?.runStore || null;
@@ -388,7 +420,7 @@ export class IngestStage {
           }
 
           emit?.(
-            "ingest.resumed",
+            "ingest:resumed",
             { runId, processed: processedOrigins.size, sourceCount: sources.length, assetCount: assets.count() },
             { status: "info" }
           );
@@ -419,10 +451,10 @@ export class IngestStage {
       checkCancelled(stageApi);
       const origin = originKeyForRawText(item);
       if (shouldSkipOrigin(origin)) {
-        emit?.("ingest.doc.skipped", { origin }, { status: "skipped" });
+        emit?.("ingest:doc:skipped", { origin }, { status: "skipped" });
         return;
       }
-      emit?.("ingest.doc.started", { origin }, { status: "started" });
+      emit?.("ingest:doc:started", { origin }, { status: "started" });
       try {
         const parsed = await withTimeout(adapters.rawText.parse(item), docTimeoutMs, { signal: stageApi?.signal, label: origin });
         const addedAssetIds = assets.addAssets(Array.isArray(parsed.assets) ? parsed.assets.map((a) => ({ ...a, docId: parsed.docId })) : []);
@@ -430,7 +462,7 @@ export class IngestStage {
         sources.push(sourceFromParsed(parsed, assetIds));
         successDocs++;
         emit?.(
-          "ingest.doc.completed",
+          "ingest:doc:completed",
           { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 },
           { status: "completed" }
         );
@@ -439,7 +471,7 @@ export class IngestStage {
         failedDocs++;
         const msg = sanitizeErrorMessage(e);
         parseErrors.push({ origin, error: msg });
-        emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
+        emit?.("ingest:doc:failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
       }
     });
@@ -449,10 +481,10 @@ export class IngestStage {
       checkCancelled(stageApi);
       const origin = `history:${hid}`;
       if (shouldSkipOrigin(origin)) {
-        emit?.("ingest.doc.skipped", { origin, historyId: hid }, { status: "skipped" });
+        emit?.("ingest:doc:skipped", { origin, historyId: hid }, { status: "skipped" });
         return;
       }
-      emit?.("ingest.doc.started", { origin, historyId: hid }, { status: "started" });
+      emit?.("ingest:doc:started", { origin, historyId: hid }, { status: "started" });
       try {
         const parsed = await withTimeout(adapters.history.parse(hid), docTimeoutMs, { signal: stageApi?.signal, label: origin });
         const addedAssetIds = assets.addAssets(Array.isArray(parsed.assets) ? parsed.assets.map((a) => ({ ...a, docId: parsed.docId })) : []);
@@ -460,7 +492,7 @@ export class IngestStage {
         sources.push(sourceFromParsed(parsed, assetIds));
         successDocs++;
         emit?.(
-          "ingest.doc.completed",
+          "ingest:doc:completed",
           { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 },
           { status: "completed" }
         );
@@ -469,7 +501,7 @@ export class IngestStage {
         failedDocs++;
         const msg = sanitizeErrorMessage(e);
         parseErrors.push({ origin, error: msg });
-        emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
+        emit?.("ingest:doc:failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
       }
     });
@@ -482,10 +514,10 @@ export class IngestStage {
       const mimeType = mimeOfFile(f);
       const origin = `file:${label}`;
       if (shouldSkipOrigin(origin)) {
-        emit?.("ingest.doc.skipped", { origin, filename: label }, { status: "skipped" });
+        emit?.("ingest:doc:skipped", { origin, filename: label }, { status: "skipped" });
         return;
       }
-      emit?.("ingest.doc.started", { origin, filename: label }, { status: "started" });
+      emit?.("ingest:doc:started", { origin, filename: label }, { status: "started" });
 
       const isPdf = mimeType === "application/pdf" || ext === "pdf";
       const isMarkdown = ext === "md" || ext === "markdown" || ext === "txt";
@@ -501,7 +533,7 @@ export class IngestStage {
         failedDocs++;
         const msg = `Unsupported file type: .${ext || "(none)"}${mimeType ? ` (${mimeType})` : ""}`;
         parseErrors.push({ origin, error: msg });
-        emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
+        emit?.("ingest:doc:failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
         return;
       }
@@ -530,7 +562,7 @@ export class IngestStage {
         sources.push(sourceFromParsed(parsed, assetIds));
         successDocs++;
         emit?.(
-          "ingest.doc.completed",
+          "ingest:doc:completed",
           { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 },
           { status: "completed" }
         );
@@ -539,7 +571,7 @@ export class IngestStage {
         failedDocs++;
         const msg = sanitizeErrorMessage(e);
         parseErrors.push({ origin, error: msg });
-        emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
+        emit?.("ingest:doc:failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
       }
     });
@@ -613,16 +645,16 @@ export class IngestStage {
       const targetUrl = toNonEmptyString(url);
       const origin = `url:${targetUrl || url}`;
       if (shouldSkipOrigin(origin)) {
-        emit?.("ingest.doc.skipped", { origin, url: targetUrl || url }, { status: "skipped" });
+        emit?.("ingest:doc:skipped", { origin, url: targetUrl || url }, { status: "skipped" });
         return;
       }
-      emit?.("ingest.doc.started", { origin, url: targetUrl || url }, { status: "started" });
+      emit?.("ingest:doc:started", { origin, url: targetUrl || url }, { status: "started" });
 
       if (!targetUrl) {
         failedDocs++;
         const error = "URL is empty";
         parseErrors.push({ origin, error });
-        emit?.("ingest.doc.failed", { origin, error }, { status: "failed" });
+        emit?.("ingest:doc:failed", { origin, error }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error });
         return;
       }
@@ -657,7 +689,7 @@ export class IngestStage {
         sources.push(sourceFromParsed(parsed, assetIds));
         successDocs++;
         emit?.(
-          "ingest.doc.completed",
+          "ingest:doc:completed",
           { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 },
           { status: "completed" }
         );
@@ -666,7 +698,7 @@ export class IngestStage {
         failedDocs++;
         const msg = sanitizeErrorMessage(e);
         parseErrors.push({ origin, error: msg });
-        emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
+        emit?.("ingest:doc:failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
       }
     });
@@ -681,7 +713,7 @@ export class IngestStage {
         const visionApi = stageApi?.visionApi || config?.visionApi || null;
         const modelRouter = stageApi?.modelRouter || config?.modelRouter || null;
 
-        emit?.("ingest.assets.understanding.started", { assetCount: allAssets.length }, { status: "started" });
+        emit?.("ingest:assets:understanding:started", { assetCount: allAssets.length }, { status: "started" });
         try {
           const results = await runAssetUnderstanding(allAssets, {
             ...understandingConfig,
@@ -689,7 +721,7 @@ export class IngestStage {
             modelRouter,
             onProgress: (p) => {
               checkCancelled(stageApi);
-              emit?.("ingest.assets.understanding.progress", p, { status: "progress" });
+              emit?.("ingest:assets:understanding:progress", p, { status: "progress" });
               understandingConfig?.onProgress?.(p);
             },
           });
@@ -700,11 +732,11 @@ export class IngestStage {
             const existing = isPlainObject(allAssets[i].understanding) ? allAssets[i].understanding : {};
             allAssets[i].understanding = isPlainObject(understanding) ? { ...existing, ...understanding } : understanding;
           }
-          emit?.("ingest.assets.understanding.completed", { assetCount: allAssets.length }, { status: "completed" });
+          emit?.("ingest:assets:understanding:completed", { assetCount: allAssets.length }, { status: "completed" });
         } catch (e) {
           checkCancelled(stageApi);
           const msg = sanitizeErrorMessage(e);
-          emit?.("ingest.assets.understanding.failed", { error: msg }, { status: "failed" });
+          emit?.("ingest:assets:understanding:failed", { error: msg }, { status: "failed" });
         }
       }
     }
@@ -738,7 +770,7 @@ export class IngestStage {
     } catch {
       // ignore
     }
-    emit?.("ingest.completed", { sourceCount: sources.length, assetCount: output.assets.length, durationMs: output.metrics.durationMs }, { status: "completed" });
+    emit?.("ingest:completed", { sourceCount: sources.length, assetCount: output.assets.length, durationMs: output.metrics.durationMs }, { status: "completed" });
     return output;
   }
 }

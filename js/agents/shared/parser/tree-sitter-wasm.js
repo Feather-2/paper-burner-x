@@ -62,6 +62,13 @@ export async function initTreeSitter({ wasmBaseUrl = DEFAULT_TREE_SITTER_WASM_BA
   return _initPromise;
 }
 
+/**
+ * Load a Tree-sitter language from a WASM file.
+ * @param {string} wasmFileName - The WASM file name for the language (e.g., "tree-sitter-javascript.wasm").
+ * @param {object} [options] - Options.
+ * @param {string} [options.wasmBaseUrl="wasm/tree-sitter/"] - Base URL for WASM files.
+ * @returns {Promise<any | null>} The loaded Language object, or null if not in web runtime.
+ */
 export async function loadTreeSitterLanguage(wasmFileName, { wasmBaseUrl = DEFAULT_TREE_SITTER_WASM_BASE_URL } = {}) {
   const env = await initTreeSitter({ wasmBaseUrl });
   if (!env) return null;

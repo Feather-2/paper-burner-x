@@ -23,9 +23,9 @@ const logger = createLogger("stages/codesearch/phases/summarizing-phase");
  * @typedef {object} CodeSearchStateLike
  * @property {string=} query
  * @property {string=} taskGoal
- * @property {string[]=} observations
- * @property {any[]=} steps
- * @property {CodeSearchTodoLike[]=} todos
+ * @property {string[]} observations
+ * @property {any[]} steps
+ * @property {CodeSearchTodoLike[]} todos
  * @property {string|null=} finalThought
  * @property {any=} budgetUsage
  *
@@ -80,7 +80,7 @@ export async function runSummarizingPhase({
   checkCancelled(signal);
 
   logger.info("Starting summarizing phase");
-  emit?.("codesearch.summarizing.started", { steps: state.steps.length });
+  emit?.("codesearch:summarizing_started", { steps: state.steps.length });
 
   const query = state.query || state.taskGoal || "";
   const observations = state.observations.join("\n\n---\n\n");
@@ -112,14 +112,15 @@ export async function runSummarizingPhase({
 
     summary = response?.content || response?.text || state.finalThought || "分析完成";
   } catch (err) {
-    logger.error("Summary generation failed", { error: err.message });
+    const errorMsg = err instanceof Error ? err.message : String(err ?? "Unknown error");
+    logger.error("Summary generation failed", { error: errorMsg });
     summary = state.finalThought || `分析完成，共 ${state.steps.length} 步`;
   }
 
   const todoStats = buildTodoCompletionStats(state.todos);
   state.budgetUsage = budgetManager?.getStats?.() || null;
 
-  emit?.("codesearch.summarizing.completed", { todoStats });
+  emit?.("codesearch:summarizing_completed", { todoStats });
   logger.info("Summarizing phase completed", { todoStats });
 
   return {

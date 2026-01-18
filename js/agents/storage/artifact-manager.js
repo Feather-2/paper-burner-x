@@ -198,17 +198,23 @@ export async function computeSha256(data) {
     return toHex(new Uint8Array(digest));
   }
 
-  // Node fallback (older runtimes)
-  try {
-    /** @ts-ignore - node:crypto 仅 Node.js 可用，浏览器构建会忽略此路径 */
-    const { createHash } = await import(/* @vite-ignore */ "node:crypto");
-    const h = createHash("sha256");
-    /** @ts-ignore - Buffer 是 Node.js 全局对象，浏览器环境不存在 */
-    h.update(Buffer.from(buf));
-    return h.digest("hex");
-  } catch {
-    return undefined;
+  // Node.js fallback - only attempt when running in Node-like environment
+  // Skip entirely in browser builds to avoid bundler warnings
+  if (typeof globalThis.process !== "undefined" && globalThis.process?.versions?.node) {
+    try {
+      const cryptoMod = await import(/* @vite-ignore */ "node:crypto");
+      const createHash = cryptoMod?.createHash;
+      if (typeof createHash === "function") {
+        const h = createHash("sha256");
+        h.update(new Uint8Array(buf));
+        return h.digest("hex");
+      }
+    } catch {
+      // Node crypto unavailable, fall through
+    }
   }
+
+  return undefined;
 }
 
 /**

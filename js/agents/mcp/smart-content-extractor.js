@@ -913,6 +913,9 @@ export function extractSmartContent(html, options = {}) {
 
 /**
  * 简单包装：只返回 Markdown
+ * @param {string} html - 输入的 HTML 字符串
+ * @param {object} [options={}] - 提取选项，同 extractSmartContent
+ * @returns {string} 提取的 Markdown 文本
  */
 export function htmlToMarkdown(html, options = {}) {
   const { markdown } = extractSmartContent(html, options);
@@ -921,6 +924,9 @@ export function htmlToMarkdown(html, options = {}) {
 
 /**
  * 简单包装：只返回纯文本
+ * @param {string} html - 输入的 HTML 字符串
+ * @param {object} [options={}] - 提取选项，同 extractSmartContent
+ * @returns {string} 提取的纯文本
  */
 export function htmlToPlainText(html, options = {}) {
   const { plainText } = extractSmartContent(html, options);

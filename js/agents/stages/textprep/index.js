@@ -261,7 +261,7 @@ export class TextPrepStage extends BaseStage {
       // ignore (non-extensible stageApi)
     }
 
-    const emit = (name, payload) => api.emit(name, { actor: "textprep", status: "completed", payload });
+    const emit = (name, payload) => api.emit(name.replace(/\./g, ":"), { actor: "textprep", status: "completed", payload });
     const rawText = toRawText(input);
 
     const shouldDegrade = () => {

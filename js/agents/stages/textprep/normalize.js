@@ -13,13 +13,48 @@ function toHex(bytes) {
   return out;
 }
 
+/**
+ * Manual UTF-8 encoder for legacy browsers without TextEncoder or Buffer.
+ * @param {string} str
+ * @returns {Uint8Array}
+ */
+function encodeUtf8Manual(str) {
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    let c = str.charCodeAt(i);
+    if (c < 0x80) {
+      bytes.push(c);
+    } else if (c < 0x800) {
+      bytes.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+    } else if (c >= 0xd800 && c < 0xdc00 && i + 1 < str.length) {
+      const next = str.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next < 0xe000) {
+        c = 0x10000 + ((c & 0x3ff) << 10) + (next & 0x3ff);
+        i++;
+        bytes.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 0x3f), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+      } else {
+        bytes.push(0xef, 0xbf, 0xbd); // replacement char
+      }
+    } else if (c >= 0xd800 && c < 0xe000) {
+      bytes.push(0xef, 0xbf, 0xbd); // replacement char for lone surrogate
+    } else {
+      bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    }
+  }
+  return new Uint8Array(bytes);
+}
+
 // Minimal synchronous SHA-256 for browser/node parity (no async WebCrypto).
 // Adapted from the standard SHA-256 compression function.
 function sha256HexUtf8(str) {
   // TextEncoder is available in modern browsers and Node >= 11.
   const enc = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
-  /** @ts-ignore - 浏览器环境无 Buffer，Node 环境无需 TextEncoder 的 fallback */
-  const msg = enc ? enc.encode(str) : Uint8Array.from(Buffer.from(String(str), "utf8"));
+  // Fallback: Node Buffer if available, otherwise manual UTF-8 encoding for legacy browsers.
+  const msg = enc
+    ? enc.encode(str)
+    : typeof Buffer !== "undefined"
+      ? Uint8Array.from(Buffer.from(String(str), "utf8"))
+      : encodeUtf8Manual(String(str));
 
   const K = new Uint32Array([
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,

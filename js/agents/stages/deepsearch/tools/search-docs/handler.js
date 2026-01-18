@@ -16,6 +16,33 @@ import { isPlainObject } from "../../../../shared/utils/value-utils.js";
  * @property {number=} maxTokens
  */
 
+/**
+ * @typedef {object} SearchHit
+ * @property {string} [sourceId] - 来源文档 ID
+ * @property {string} [docId] - 文档 ID（备用）
+ * @property {string} [id] - 通用 ID（备用）
+ * @property {string} [chunkId] - 分块 ID
+ * @property {string} [text] - 文本内容
+ * @property {string} [snippet] - 摘要片段
+ * @property {string} [content] - 内容（备用）
+ * @property {number} [score] - 相关性分数
+ * @property {number} [line] - 起始行号
+ * @property {number} [startLine] - 起始行号（备用）
+ */
+
+/**
+ * @typedef {object} SearchDocsResult
+ * @property {boolean} success - 是否成功
+ * @property {SearchHit[]} [results] - 搜索结果列表
+ * @property {string} [error] - 错误信息
+ * @property {string} [message] - 提示信息
+ * @property {string} [fallback] - 降级模式标识
+ * @property {object} [mmr] - MMR 重排元数据
+ * @property {boolean} [mmr.applied] - 是否应用 MMR
+ * @property {number} [mmr.pool] - 池大小
+ * @property {number} [mmr.lambda] - lambda 参数
+ */
+
 function resolveMmrSettings(args, limit) {
   const mmrCfg = args?.mmr;
   if (mmrCfg === false) return { enabled: false };
@@ -34,9 +61,10 @@ function resolveMmrSettings(args, limit) {
 }
 
 /**
- * @param {any[]} results
- * @param {ApplyMmrOptions=} options
- * @returns {any[]}
+ * 对搜索结果应用 MMR 重排序。
+ * @param {SearchHit[]} results - 原始搜索结果
+ * @param {ApplyMmrOptions} [options] - MMR 参数
+ * @returns {SearchHit[]} 重排后的结果
  */
 function applyMmrToResults(results, { topK, lambda, maxTokens } = {}) {
   const rows = Array.isArray(results) ? results : [];
@@ -75,16 +103,18 @@ function resolveEmbeddingService(context) {
     try {
       const st = cached.getStatus();
       if (st?.endpoint && (st.endpoint === cfg.endpoint || st.endpoint === cfg.url)) return cached;
-    } catch {
-      // ignore
+    } catch (e) {
+      // 缓存的 embedding service 状态检查失败，将创建新实例
+      ctx?.logger?.warn?.("[search-docs] cached embedding service status check failed", { error: e?.message });
     }
   }
 
   const svc = new EmbeddingService(cfg, { ...(typeof ctx?.fetchImpl === "function" ? { fetchImpl: ctx.fetchImpl } : {}) });
   try {
     ctx._pbEmbeddingService = svc;
-  } catch {
-    // ignore non-extensible contexts
+  } catch (e) {
+    // context 对象不可扩展，无法缓存服务实例
+    ctx?.logger?.debug?.("[search-docs] cannot cache embedding service on context", { error: e?.message });
   }
   return svc;
 }
@@ -109,17 +139,32 @@ export const definition = {
 };
 
 /**
+ * 在已加载的文档中搜索内容。
  * @param {Object} args
  * @param {string} args.query - 搜索查询
  * @param {string[]} [args.sources] - 限定的文档 ID 列表
- * @param {number} [args.limit=10] - 返回数量限制
+ * @param {number} [args.limit=10] - 返回数量限制（1-100）
  * @param {string} [args.gapId] - 关联的缺口 ID
- * @param {number} [args.semanticTimeoutMs] - 语义检索超时（ms）
- * @param {Object} context - { state, emit, retriever, discoveryManager }
+ * @param {number} [args.semanticTimeoutMs] - 语义检索超时（ms，上限 60000）
+ * @param {boolean|object} [args.mmr] - MMR 配置
+ * @param {Object} context - { state, emit, retriever, discoveryManager, logger }
+ * @returns {Promise<SearchDocsResult>} 搜索结果，包含 success/results/error/mmr 等字段
  */
 export async function handler(args, context) {
   const { state, emit, retriever, discoveryManager } = context;
-  const { query, sources, limit = 10, gapId, semanticTimeoutMs } = args;
+  const { query, sources, gapId } = args;
+
+  // 校验 limit：必须是有限数值，范围 1-100，无效时回退默认值 10
+  const rawLimit = args.limit;
+  const limit = Number.isFinite(rawLimit) && rawLimit >= 1 && rawLimit <= 100
+    ? Math.floor(rawLimit)
+    : 10;
+
+  // 校验 semanticTimeoutMs：必须是有限正数，上限 60000ms，无效时不设超时
+  const rawTimeout = args.semanticTimeoutMs;
+  const semanticTimeoutMs = Number.isFinite(rawTimeout) && rawTimeout > 0
+    ? Math.min(60000, Math.floor(rawTimeout))
+    : undefined;
 
   if (!query || typeof query !== "string") {
     return { success: false, error: "query is required" };
@@ -155,29 +200,35 @@ export async function handler(args, context) {
   };
 
   const runLocalSearch = async () => {
-    // 简单的关键词匹配回退（分词匹配）
-    const embeddingService = resolveEmbeddingService(context);
-    const rawResults =
-      embeddingService && typeof manager.semanticSearch === "function"
-        ? await manager.semanticSearch(query, {
-            sources: targetSources,
-            limit: effectiveLimit,
-            embeddingService,
-            ...(semanticTimeoutMs ? { timeoutMs: semanticTimeoutMs } : {}),
-          })
-        : manager.search(query, { sources: targetSources, limit: effectiveLimit });
+    try {
+      // 简单的关键词匹配回退（分词匹配）
+      const embeddingService = resolveEmbeddingService(context);
+      const rawResults =
+        embeddingService && typeof manager.semanticSearch === "function"
+          ? await manager.semanticSearch(query, {
+              sources: targetSources,
+              limit: effectiveLimit,
+              embeddingService,
+              ...(semanticTimeoutMs ? { timeoutMs: semanticTimeoutMs } : {}),
+            })
+          : manager.search(query, { sources: targetSources, limit: effectiveLimit });
 
-    const results = mmr.enabled ? applyMmrToResults(rawResults, { topK: limit, lambda: mmr.lambda, maxTokens: mmr.maxTokens }) : rawResults;
+      const results = mmr.enabled ? applyMmrToResults(rawResults, { topK: limit, lambda: mmr.lambda, maxTokens: mmr.maxTokens }) : rawResults;
 
-    addGapEvidence(results);
-    emit?.("deepsearch.search.completed", {
-      query,
-      gapId,
-      resultCount: results.length,
-      fallback: "local",
-      ...(mmr.enabled ? { mmr: { applied: true, pool: rawResults.length, lambda: mmr.lambda } } : {}),
-    });
-    return { success: true, results, fallback: "local", ...(mmr.enabled ? { mmr: { applied: true, pool: rawResults.length, lambda: mmr.lambda } } : {}) };
+      addGapEvidence(results);
+      emit?.("deepsearch:search_completed", {
+        query,
+        gapId,
+        resultCount: results.length,
+        fallback: "local",
+        ...(mmr.enabled ? { mmr: { applied: true, pool: rawResults.length, lambda: mmr.lambda } } : {}),
+      });
+      return { success: true, results, fallback: "local", ...(mmr.enabled ? { mmr: { applied: true, pool: rawResults.length, lambda: mmr.lambda } } : {}) };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      emit?.("deepsearch:search_failed", { query, gapId, error, fallback: "local" });
+      return { success: false, error, fallback: "local" };
+    }
   };
 
   // 使用 retriever 搜索（如果提供）
@@ -213,7 +264,7 @@ export async function handler(args, context) {
       // 如果指定了 gapId，自动将结果作为证据存入黑板
       addGapEvidence(finalResults);
 
-      emit?.("deepsearch.search.completed", {
+      emit?.("deepsearch:search_completed", {
         query,
         gapId,
         resultCount: finalResults.length,

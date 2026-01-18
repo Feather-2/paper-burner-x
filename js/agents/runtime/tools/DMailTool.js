@@ -100,7 +100,7 @@ export function createDMailTool(options = {}) {
         }
 
         if (typeof emit === "function") {
-            emit("agent.dmail_sent", dmail);
+            emit("agent:dmailSent", dmail);
         }
 
         return { ok: true, dmail };

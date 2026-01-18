@@ -43,12 +43,19 @@ Agent SDK CLI Demo
     process.exit(0);
 }
 
-// 创建模型路由
+/**
+ * 创建模型路由
+ * @returns {CliModelRouter}
+ */
 function createModelRouter() {
     return new CliModelRouter();
 }
 
-// 创建示例 Agent
+/**
+ * 创建示例 Agent
+ * @param {CliModelRouter} router - 模型路由实例
+ * @returns {Object} 构建好的 Agent 实例
+ */
 function buildDemoAgent(router) {
     const redactSensitive = (value, keyPath = []) => {
         if (value === null || value === undefined) return value;
@@ -100,9 +107,9 @@ function buildDemoAgent(router) {
             handler: async ({ prompt, system, role = "worker" }, ctx) => {
                 try {
                     const client = router.getClient(role);
-                    ctx.emit("demo.llm.start", { prompt, model: client.model });
+                    ctx.emit("demo:llm.start", { prompt, model: client.model });
                     const content = await client.ask(prompt, system);
-                    ctx.emit("demo.llm.done", { length: content.length });
+                    ctx.emit("demo:llm.done", { length: content.length });
                     return { content };
                 } catch (err) {
                     return { error: err.message };
@@ -123,7 +130,7 @@ function buildDemoAgent(router) {
                 }
             },
             handler: async ({ message }, ctx) => {
-                ctx.emit("demo.echo", { message });
+                ctx.emit("demo:echo", { message });
                 return { echoed: message, timestamp: new Date().toISOString() };
             }
         })
@@ -143,7 +150,7 @@ function buildDemoAgent(router) {
             handler: async ({ text, depth = "shallow" }, ctx) => {
                 const wordCount = text.split(/\s+/).length;
                 const charCount = text.length;
-                ctx.emit("demo.analyze.done", { wordCount, charCount, depth });
+                ctx.emit("demo:analyze.done", { wordCount, charCount, depth });
                 return {
                     wordCount,
                     charCount,
@@ -165,7 +172,7 @@ function buildDemoAgent(router) {
         // 配置 Watchdog
         .useWatchdog({ maxIterations: 20, maxTimeMs: 60000 })
         // 订阅事件
-        .onEvent("demo.*", (payload, meta) => {
+        .onEvent("demo:*", (payload, meta) => {
             // Avoid leaking secrets from tool payloads / model outputs.
             console.log(`[Event] ${meta?.name || "demo.*"}:`, safeStringify(payload?.payload || payload));
         })

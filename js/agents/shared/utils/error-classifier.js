@@ -77,6 +77,8 @@ function messageIncludes(message, patterns) {
 
 /**
  * DeepSearch error classifier (stages/deepsearch)
+ * @param {unknown} err - The error to classify.
+ * @returns {{ recoverable: boolean, category: string, statusCode: number | null, code: string | null, message: string }} Classification result.
  */
 export function classifyDeepSearchError(err) {
   const chain = collectCauseChain(err);
@@ -173,10 +175,20 @@ export function classifyDeepSearchError(err) {
   return { recoverable: true, category: "unknown", statusCode, code, message };
 }
 
+/**
+ * Check if a DeepSearch error is non-recoverable.
+ * @param {unknown} err - The error to check.
+ * @returns {boolean} True if the error is non-recoverable.
+ */
 export function isNonRecoverableDeepSearchError(err) {
   return classifyDeepSearchError(err).recoverable === false;
 }
 
+/**
+ * Extract the error message from a DeepSearch error.
+ * @param {unknown} err - The error to extract message from.
+ * @returns {string} The formatted error message.
+ */
 export function toDeepSearchErrorMessage(err) {
   return classifyDeepSearchError(err).message;
 }
@@ -238,6 +250,11 @@ export function classifyDesignError(err) {
   return { kind: "unknown", code: "UNKNOWN", canRetry: false };
 }
 
+/**
+ * Check if a Design error is non-retryable (auth or config errors).
+ * @param {unknown} err - The error to check.
+ * @returns {boolean} True if the error should not be retried.
+ */
 export function isNonRetryableError(err) {
   const c = classifyDesignError(err);
   return c.kind === "auth" || c.kind === "config";

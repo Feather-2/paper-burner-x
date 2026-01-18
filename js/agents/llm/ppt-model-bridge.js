@@ -131,14 +131,26 @@ export function getPptModelConfig(usage) {
   };
 }
 
+/**
+ * 获取 PPT 模型标签配置
+ * @returns {Record<string, string[]>} 模型到能力标签的映射
+ */
 export function getPptModelTags() {
   return normalizePptModelTags(loadPptConfig('modelTags'));
 }
 
+/**
+ * 获取 PPT 角色优先级配置
+ * @returns {Record<string, string[]>} 角色到模型列表的映射
+ */
 export function getPptRolePriority() {
   return normalizePptRolePriority(loadPptConfig('rolePriority'));
 }
 
+/**
+ * 获取 PPT 音频配置
+ * @returns {{ transcription: { provider: string, apiKey: string, model: string }, synthesis: { provider: string, apiKey: string, model: string, voice: string }}}
+ */
 export function getPptAudioConfig() {
   return normalizePptAudioConfig(loadPptConfig('audio'));
 }
@@ -148,6 +160,7 @@ export function getPptAudioConfig() {
  * - 优先使用 pptRolePriority 配置
  * - 回退到旧的单选配置
  * - 按 pptModelTags 软过滤（未标注的模型默认允许）
+ * @returns {Record<string, string[]>} usage 到模型列表的映射
  */
 export function buildPptUsageConfigForModelRouter() {
   const priority = getPptRolePriority();
@@ -223,8 +236,9 @@ export function buildPptUsageConfigForModelRouter() {
 /**
  * 创建带 PPT 配置的 chat 函数
  * 包装 aiApiService.chat，自动注入 PPT 配置的模型
- * @param {object} aiApiService - window.aiApiService
- * @param {string} usage - analyst/planner/writer/vision/image
+ * @param {object} aiApiService - AI API 服务对象，需实现 chat 方法
+ * @param {string} [usage='worker'] - 用途类型 analyst/planner/writer/vision/image
+ * @returns {((opts: { messages: any[], [key: string]: any }) => Promise<any>) | null}
  */
 export function createPptConfiguredChat(aiApiService, usage = 'worker') {
   if (!aiApiService || typeof aiApiService.chat !== 'function') {
@@ -268,6 +282,8 @@ export function createPptConfiguredChat(aiApiService, usage = 'worker') {
 /**
  * 创建 PPT 配置感知的 AI API Service 代理
  * 根据 usage 参数自动选择对应的 PPT 模型配置
+ * @param {object|null} baseService - 基础 AI API 服务对象
+ * @returns {object|null} 增强的服务代理，若 baseService 为空则返回 null
  */
 export function createPptAwareAiApiService(baseService) {
   if (!baseService) return null;
@@ -339,6 +355,7 @@ export function createPptAwareAiApiService(baseService) {
 
 /**
  * 获取当前 PPT 配置摘要（用于调试/显示）
+ * @returns {{ lang: string, img: string, vision: string, configured: boolean }}
  */
 export function getPptConfigSummary() {
   const lang = loadPptConfig('lang');

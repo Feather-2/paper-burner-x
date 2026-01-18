@@ -128,7 +128,15 @@ export class MiddlewareChain {
 // ===== 内置中间件 =====
 
 /**
+ * @typedef {Object} LoggingMiddlewareOptions
+ * @property {Object} [logger] - 日志对象 (需要 debug/error 方法)
+ * @property {string} [prefix='[AgentLoop]'] - 日志前缀
+ */
+
+/**
  * 日志中间件 - 记录执行时间和状态
+ * @param {LoggingMiddlewareOptions} [options]
+ * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
  */
 export function createLoggingMiddleware(options = {}) {
   const { logger, prefix = "[AgentLoop]" } = options;
@@ -153,7 +161,16 @@ export function createLoggingMiddleware(options = {}) {
 }
 
 /**
+ * @typedef {Object} TelemetryMiddlewareOptions
+ * @property {(event: string, payload: Object) => void} [emit] - 事件发射函数
+ * @property {string} [actor='agent'] - 执行者标识
+ * @property {string} [stageName='agent'] - 阶段名称
+ */
+
+/**
  * Telemetry 中间件 - 发射事件用于监控
+ * @param {TelemetryMiddlewareOptions} [options]
+ * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
  */
 export function createTelemetryMiddleware(options = {}) {
   const { emit, actor = "agent", stageName = "agent" } = options;
@@ -163,7 +180,7 @@ export function createTelemetryMiddleware(options = {}) {
     const stepName = ctx.stepName || ctx.phase || "step";
     const startTime = Date.now();
 
-    emitFn?.(`${stageName}.middleware.${stepName}.started`, {
+    emitFn?.(`${stageName}:middleware.${stepName}.started`, {
       actor,
       status: "progress",
       payload: { timestamp: startTime },
@@ -173,7 +190,7 @@ export function createTelemetryMiddleware(options = {}) {
       const result = await next();
       const duration = Date.now() - startTime;
 
-      emitFn?.(`${stageName}.middleware.${stepName}.completed`, {
+      emitFn?.(`${stageName}:middleware.${stepName}.completed`, {
         actor,
         status: "success",
         payload: { duration, timestamp: Date.now() },
@@ -183,7 +200,7 @@ export function createTelemetryMiddleware(options = {}) {
     } catch (err) {
       const duration = Date.now() - startTime;
 
-      emitFn?.(`${stageName}.middleware.${stepName}.failed`, {
+      emitFn?.(`${stageName}:middleware.${stepName}.failed`, {
         actor,
         status: "error",
         payload: { duration, error: err.message, timestamp: Date.now() },
@@ -196,6 +213,7 @@ export function createTelemetryMiddleware(options = {}) {
 
 /**
  * 取消检查中间件 - 在每个步骤前检查 signal
+ * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
  */
 export function createCancellationMiddleware() {
   return async (ctx, next) => {
@@ -209,7 +227,15 @@ export function createCancellationMiddleware() {
 }
 
 /**
+ * @typedef {Object} TimeoutMiddlewareOptions
+ * @property {number} [timeout=30000] - 超时时间 (ms)
+ * @property {(ctx: Object, err: Error) => void} [onTimeout] - 超时回调
+ */
+
+/**
  * 超时中间件 - 为步骤添加超时保护
+ * @param {TimeoutMiddlewareOptions} [options]
+ * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
  */
 export function createTimeoutMiddleware(options = {}) {
   const { timeout = 30000, onTimeout } = options;
@@ -219,10 +245,14 @@ export function createTimeoutMiddleware(options = {}) {
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        /** @type {Error & { code?: string }} */
+        /** @type {Error & { code?: string, cause?: Error }} */
         const err = new Error(`Step timeout after ${stepTimeout}ms`);
         err.code = "TIMEOUT";
-        onTimeout?.(ctx, err);
+        try {
+          onTimeout?.(ctx, err);
+        } catch (callbackErr) {
+          err.cause = /** @type {Error} */ (callbackErr);
+        }
         reject(err);
       }, stepTimeout);
 
@@ -240,8 +270,17 @@ export function createTimeoutMiddleware(options = {}) {
 }
 
 /**
+ * @typedef {Object} RetryMiddlewareOptions
+ * @property {number} [maxRetries=2] - 最大重试次数
+ * @property {number} [retryDelay=100] - 重试延迟基数 (ms)
+ * @property {(err: Error, attempt: number) => boolean} [shouldRetry] - 判断是否应该重试
+ */
+
+/**
  * 重试中间件 - 失败时自动重试
  * 注意：重试会重新执行整个后续中间件链
+ * @param {RetryMiddlewareOptions} [options]
+ * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
  */
 export function createRetryMiddleware(options = {}) {
   const { maxRetries = 2, retryDelay = 100, shouldRetry } = options;
@@ -277,7 +316,15 @@ export function createRetryMiddleware(options = {}) {
 }
 
 /**
+ * @typedef {Object} SnapshotMiddlewareOptions
+ * @property {(ctx: Object) => Promise<any>} [onBeforeSnapshot] - 执行前快照回调
+ * @property {(ctx: Object, result: any) => Promise<any>} [onAfterSnapshot] - 执行后快照回调
+ */
+
+/**
  * 状态快照中间件 - 在关键步骤前后保存状态
+ * @param {SnapshotMiddlewareOptions} [options]
+ * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
  */
 export function createSnapshotMiddleware(options = {}) {
   const { onBeforeSnapshot, onAfterSnapshot } = options;
@@ -300,7 +347,14 @@ export function createSnapshotMiddleware(options = {}) {
 }
 
 /**
+ * @typedef {Object} ShadowSystemMiddlewareOptions
+ * @property {(ctx: Object) => Promise<{ system?: string }>} [getShadowHints] - 获取影子提示
+ */
+
+/**
  * 影子系统注入中间件 - 注入潜意识提示
+ * @param {ShadowSystemMiddlewareOptions} [options]
+ * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
  */
 export function createShadowSystemMiddleware(options = {}) {
   const { getShadowHints } = options;
@@ -352,7 +406,15 @@ export function createShadowSystemMiddleware(options = {}) {
 }
 
 /**
+ * @typedef {Object} BlackboardMiddlewareOptions
+ * @property {{ set: (key: string, value: any) => void }} [blackboard] - 黑板对象
+ * @property {string[]} [syncKeys=[]] - 需要同步的 key 列表
+ */
+
+/**
  * 黑板更新中间件 - 同步状态到黑板
+ * @param {BlackboardMiddlewareOptions} [options]
+ * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
  */
 export function createBlackboardMiddleware(options = {}) {
   const { blackboard, syncKeys = [] } = options;
@@ -377,7 +439,20 @@ export function createBlackboardMiddleware(options = {}) {
 }
 
 /**
+ * @typedef {Object} DefaultMiddlewareChainOptions
+ * @property {Object} [logger] - 日志对象
+ * @property {(event: string, payload: Object) => void} [emit] - 事件发射函数
+ * @property {string} [actor] - 执行者标识
+ * @property {string} [stageName] - 阶段名称
+ * @property {number} [timeout] - 超时时间 (ms)
+ * @property {number} [maxRetries] - 最大重试次数
+ * @property {number} [retryDelay] - 重试延迟基数 (ms)
+ */
+
+/**
  * 创建预配置的中间件链
+ * @param {DefaultMiddlewareChainOptions} [options]
+ * @returns {MiddlewareChain}
  */
 export function createDefaultMiddlewareChain(options = {}) {
   const chain = new MiddlewareChain();

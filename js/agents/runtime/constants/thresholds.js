@@ -68,9 +68,9 @@ export const THRESHOLDS = Object.freeze({
 
 /**
  * 根据场景获取阈值
- * @param {keyof typeof THRESHOLDS} key
- * @param {number} [override]
- * @returns {number}
+ * @param {keyof typeof THRESHOLDS} key - 阈值常量键名
+ * @param {number} [override] - 覆盖值（有限数时使用此值替代默认，允许 0）
+ * @returns {number} 阈值，未匹配时回退 0.5
  */
 export function getThreshold(key, override) {
   if (typeof override === "number" && Number.isFinite(override)) {

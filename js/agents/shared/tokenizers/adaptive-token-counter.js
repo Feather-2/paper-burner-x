@@ -50,42 +50,112 @@ async function loadTiktoken() {
 }
 
 /**
- * @typedef {object} TokenCounter
- * @property {(value:any)=>number} count Synchronous, always returns a number.
- * @property {(options?:{model?:string,encoding?:string})=>Promise<boolean>} init Best-effort WASM init; resolves true when ready.
- * @property {()=>void} dispose Free WASM resources if allocated.
- * @property {()=>({mode:"heuristic"|"tiktoken",ready:boolean,failed:boolean})} getStatus
+ * Creates a log handler from options, falling back to console.warn/error.
+ * @param {((info: TokenCounterLogInfo) => void) | undefined} onLogOption - User-provided log callback.
+ * @returns {(info: TokenCounterLogInfo) => void} Resolved log handler.
+ */
+function createLogHandler(onLogOption) {
+  if (typeof onLogOption === "function") return onLogOption;
+  return ({ level, message, error }) => {
+    try {
+      const c = typeof console !== "undefined" ? console : null;
+      const fn = level === "error" ? c?.error : c?.warn;
+      if (typeof fn === "function") fn.call(c, message, error ? { error } : undefined);
+    } catch {
+      // ignore
+    }
+  };
+}
+
+/**
+ * Schedules warmup init based on options.
+ * @param {boolean} warmup - Whether to warmup.
+ * @param {number} warmupIdleMs - Delay in milliseconds.
+ * @param {() => void} triggerInit - Function to trigger init.
+ */
+function scheduleWarmup(warmup, warmupIdleMs, triggerInit) {
+  if (!warmup) return;
+  if (warmupIdleMs > 0 && typeof setTimeout === "function") {
+    setTimeout(triggerInit, warmupIdleMs);
+  } else {
+    triggerInit();
+  }
+}
+
+/**
+ * Parses warmup options from raw config.
+ * @param {boolean | undefined} warmupRaw - Raw warmup option.
+ * @param {number | undefined} warmupIdleMsRaw - Raw warmupIdleMs option.
+ * @returns {{ warmup: boolean, warmupIdleMs: number }} Parsed warmup config.
+ */
+function parseWarmupOptions(warmupRaw, warmupIdleMsRaw) {
+  const warmup = warmupRaw === undefined ? true : !!warmupRaw;
+  const warmupIdleMs = Number.isFinite(Number(warmupIdleMsRaw)) ? Math.max(0, Math.floor(Number(warmupIdleMsRaw))) : 0;
+  return { warmup, warmupIdleMs };
+}
+
+/**
+ * Input value accepted by TokenCounter.count().
+ * Accepts any value: strings are used directly, null/undefined return 0,
+ * objects/arrays are JSON-stringified, other types are coerced via String().
+ * @typedef {string | number | boolean | null | undefined | object | unknown[]} TokenCounterInput
  */
 
 /**
- * Create an adaptive token counter:
- * - Uses heuristic counts immediately
- * - Lazily upgrades to tiktoken (WASM) when supported and available
- * - Falls back permanently if tiktoken init fails
+ * Status returned by TokenCounter.getStatus().
+ * @typedef {object} TokenCounterStatus
+ * @property {"heuristic" | "tiktoken"} mode - Current counting mode.
+ * @property {boolean} ready - True if tiktoken WASM is initialized and ready.
+ * @property {boolean} failed - True if tiktoken init failed permanently.
+ */
+
+/**
+ * Options for TokenCounter.init() method.
+ * @typedef {object} TokenCounterInitOptions
+ * @property {string} [model] - Model name for encoding selection (e.g., "gpt-4o").
+ * @property {string} [encoding] - Encoding name (e.g., "cl100k_base").
+ */
+
+/**
+ * Log event info passed to onLog callback.
+ * @typedef {object} TokenCounterLogInfo
+ * @property {"warn" | "error"} level - Log level.
+ * @property {string} message - Log message.
+ * @property {string} [error] - Error message if applicable.
+ */
+
+/**
+ * Options for createAdaptiveTokenCounter().
+ * @typedef {object} AdaptiveTokenCounterOptions
+ * @property {string} [model] - Model name for encoding selection.
+ * @property {string} [encoding] - Encoding name override.
+ * @property {boolean} [warmup=true] - Whether to trigger background init immediately.
+ * @property {number} [warmupIdleMs=0] - Delay warmup via setTimeout to avoid blocking critical path.
+ * @property {(info: TokenCounterLogInfo) => void} [onLog] - Custom log handler.
+ */
+
+/**
+ * Adaptive token counter interface.
+ * @typedef {object} TokenCounter
+ * @property {(value: TokenCounterInput) => number} count - Counts tokens synchronously; always returns a non-negative integer.
+ * @property {(options?: TokenCounterInitOptions) => Promise<boolean>} init - Best-effort WASM init; resolves true when ready, false on failure.
+ * @property {() => void} dispose - Frees WASM resources if allocated; safe to call multiple times.
+ * @property {() => TokenCounterStatus} getStatus - Returns current counter status.
+ */
+
+/**
+ * Creates an adaptive token counter that uses heuristic estimation immediately
+ * and lazily upgrades to tiktoken (WASM) when supported. Falls back permanently
+ * if tiktoken initialization fails.
  *
- * @param {object} [options]
- * @param {string} [options.model]
- * @param {string} [options.encoding]
- * @param {boolean} [options.warmup=true]
- * @param {number} [options.warmupIdleMs=0] If set, delay warmup via setTimeout to avoid blocking critical path.
- * @param {(info:{level:"warn"|"error",message:string,error?:string})=>void} [options.onLog]
- * @returns {TokenCounter}
+ * @param {AdaptiveTokenCounterOptions} [options] - Configuration options.
+ * @returns {TokenCounter} Token counter instance.
+ * @throws {TypeError} If options is not a plain object.
  */
 export function createAdaptiveTokenCounter(options = {}) {
   if (!isPlainObject(options)) throw new TypeError("createAdaptiveTokenCounter(options): options must be an object");
 
-  const onLog =
-    typeof options.onLog === "function"
-      ? options.onLog
-      : ({ level, message, error }) => {
-          try {
-            const c = typeof console !== "undefined" ? console : null;
-            const fn = level === "error" ? c?.error : c?.warn;
-            if (typeof fn === "function") fn.call(c, message, error ? { error } : undefined);
-          } catch {
-            // ignore
-          }
-        };
+  const onLog = createLogHandler(options.onLog);
 
   let encoder = null;
   /** @type {"heuristic"|"tiktoken"} */
@@ -182,16 +252,8 @@ export function createAdaptiveTokenCounter(options = {}) {
 
   const getStatus = () => ({ mode, ready, failed });
 
-  const warmupRaw = options.warmup;
-  const warmup = warmupRaw === undefined ? true : !!warmupRaw;
-  const warmupIdleMs = Number.isFinite(Number(options.warmupIdleMs)) ? Math.max(0, Math.floor(Number(options.warmupIdleMs))) : 0;
-  if (warmup) {
-    if (warmupIdleMs > 0 && typeof setTimeout === "function") {
-      setTimeout(() => void init({ model: lastModel || undefined, encoding: lastEncoding || undefined }), warmupIdleMs);
-    } else {
-      void init({ model: lastModel || undefined, encoding: lastEncoding || undefined });
-    }
-  }
+  const { warmup, warmupIdleMs } = parseWarmupOptions(options.warmup, options.warmupIdleMs);
+  scheduleWarmup(warmup, warmupIdleMs, () => void init({ model: lastModel || undefined, encoding: lastEncoding || undefined }));
 
   return { count, init, dispose, getStatus };
 }

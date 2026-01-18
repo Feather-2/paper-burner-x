@@ -24,15 +24,32 @@ const DEFAULT_SIMILARITY_THRESHOLD = 0.85;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 简单分词
+ * 检测是否支持 Unicode 属性转义
+ * @returns {boolean}
+ */
+const supportsUnicodeProperty = (() => {
+  try {
+    new RegExp("\\p{L}", "u");
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * 简单分词（兼容旧浏览器）
  * @param {string} text
  * @returns {string[]}
  */
 function tokenize(text) {
   if (!text || typeof text !== "string") return [];
+  // 降级正则：移除非字母数字空格字符
+  const pattern = supportsUnicodeProperty
+    ? /[^\p{L}\p{N}\s]/gu
+    : /[^a-zA-Z0-9\u00C0-\u024F\u4E00-\u9FFF\s]/g;
   return text
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(pattern, " ")
     .split(/\s+/)
     .filter((t) => t.length > 1);
 }
@@ -193,6 +210,7 @@ export class ConvergenceDetector {
   /**
    * 计算收敛指标
    * @private
+   * @returns {{ entropy: number, avgSimilarity: number, diversityScore: number, isConverged: boolean, sampleCount: number, vocabSize?: number }}
    */
   _computeMetrics() {
     if (this._history.length < 2) {
@@ -282,6 +300,7 @@ export class ConvergenceDetector {
 
   /**
    * 检查是否收敛
+   * @returns {boolean}
    */
   isConverged() {
     return this._converged;
@@ -289,6 +308,7 @@ export class ConvergenceDetector {
 
   /**
    * 获取当前指标
+   * @returns {{ entropy: number, avgSimilarity: number, diversityScore: number, isConverged: boolean, sampleCount: number, vocabSize?: number }}
    */
   getMetrics() {
     return this._computeMetrics();
@@ -296,6 +316,7 @@ export class ConvergenceDetector {
 
   /**
    * 重置检测器
+   * @returns {void}
    */
   reset() {
     this._history = [];

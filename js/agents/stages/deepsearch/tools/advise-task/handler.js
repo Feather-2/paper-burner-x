@@ -78,7 +78,7 @@ export async function handler(args, context) {
     ts: Date.now(),
   });
 
-  emit?.("deepsearch.advice.sent", { taskId, advice, priority, type });
+  emit?.("deepsearch:advice_sent", { taskId, advice, priority, type });
 
   return {
     success: true,

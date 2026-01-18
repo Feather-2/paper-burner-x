@@ -109,11 +109,48 @@ export function createAction(type, payload, meta = {}) {
 }
 
 // L0 Action Creators
+
+/**
+ * Create action to set system prompt.
+ * @param {string} prompt - System prompt text
+ * @returns {object} Action object
+ */
 export const setSystemPrompt = (prompt) => createAction(L0_SET_SYSTEM_PROMPT, { prompt });
+
+/**
+ * Create action to set task goal.
+ * @param {string} goal - Task goal text
+ * @returns {object} Action object
+ */
 export const setTaskGoal = (goal) => createAction(L0_SET_TASK_GOAL, { goal });
+
+/**
+ * Create action to add a todo.
+ * @param {object} todo - Todo object
+ * @returns {object} Action object
+ */
 export const addTodo = (todo) => createAction(L0_ADD_TODO, { todo });
+
+/**
+ * Create action to update a todo.
+ * @param {string} id - Todo ID
+ * @param {object} updates - Fields to update
+ * @returns {object} Action object
+ */
 export const updateTodo = (id, updates) => createAction(L0_UPDATE_TODO, { id, updates });
+
+/**
+ * Create action to remove a todo.
+ * @param {string} id - Todo ID
+ * @returns {object} Action object
+ */
 export const removeTodo = (id) => createAction(L0_REMOVE_TODO, { id });
+
+/**
+ * Create action to replace all todos.
+ * @param {object[]} todos - New todos array
+ * @returns {object} Action object
+ */
 export const replaceTodos = (todos) => createAction(L0_REPLACE_TODOS, { todos });
 
 // L1 Action Creators
@@ -216,14 +253,18 @@ export const ALL_ACTIONS = Object.freeze([
 ]);
 
 /**
- * Check if an action type is valid
+ * Check if an action type is valid.
+ * @param {string} type - Action type to validate
+ * @returns {boolean} True if valid action type
  */
 export function isValidActionType(type) {
   return ALL_ACTIONS.includes(type);
 }
 
 /**
- * Get the layer affected by an action type
+ * Get the layer affected by an action type.
+ * @param {string} type - Action type
+ * @returns {string|null} Layer name ("L0", "L1", "L2", "L3") or null
  */
 export function getActionLayer(type) {
   if (L0_ACTIONS.includes(type)) return "L0";

@@ -8,6 +8,35 @@ import { createPlugin } from '../../core/plugin.js';
 
 /** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
 
+/**
+ * 压缩消息格式
+ * @typedef {Object} CompressionMessage
+ * @property {string} role - 消息角色 (user/assistant/system)
+ * @property {string} content - 消息内容
+ */
+
+/**
+ * 压缩选项
+ * @typedef {Object} CompressionOptions
+ * @property {number} [targetTokens] - 目标 token 数
+ * @property {boolean} [aggressive] - 是否激进压缩
+ */
+
+/**
+ * 压缩结果
+ * @typedef {Object} CompressionResult
+ * @property {CompressionMessage[]} messages - 压缩后的消息列表
+ * @property {number} ratio - 压缩比 (0-1)
+ * @property {number} [originalTokens] - 原始 token 数
+ * @property {number} [compressedTokens] - 压缩后 token 数
+ */
+
+/** @type {number} 触发压缩的 token 使用率阈值 */
+const SHOULD_COMPRESS_RATIO = 0.8;
+
+/** @type {number} 触发告警的 token 使用率阈值 */
+const WARNING_RATIO = 0.9;
+
 export default createPlugin({
   name: 'compression/cicada',
   version: '1.0.0',
@@ -38,9 +67,10 @@ export default createPlugin({
     // 注册服务
     ctx.registerService('compression', {
       /**
-       * @param {any[]} messages
-       * @param {Record<string, any>} [options]
-       * @returns {Promise<any>}
+       * 压缩消息列表，减少上下文 token 占用
+       * @param {CompressionMessage[]} messages - 待压缩的消息列表
+       * @param {CompressionOptions} [options] - 压缩选项
+       * @returns {Promise<CompressionResult>} 压缩结果
        */
       async compress(messages, options = {}) {
         const c = await getCompressor();
@@ -63,16 +93,18 @@ export default createPlugin({
       },
 
       /**
-       * @param {any[]} messages
-       * @param {number} tokenCount
-       * @returns {Promise<boolean>}
+       * 判断是否需要压缩
+       * @param {CompressionMessage[]} messages - 消息列表
+       * @param {number} tokenCount - 当前 token 数
+       * @returns {Promise<boolean>} 是否应当触发压缩
        */
       async shouldCompress(messages, tokenCount) {
-        return tokenCount > ctx.config.maxContextTokens * 0.8;
+        return tokenCount > ctx.config.maxContextTokens * SHOULD_COMPRESS_RATIO;
       },
 
       /**
-       * @returns {Record<string, any>}
+       * 获取压缩统计信息
+       * @returns {Record<string, unknown>} 统计数据
        */
       getStats() {
         return ctx.state.get('') || {};
@@ -82,7 +114,7 @@ export default createPlugin({
     // 监听 token 阈值
     ctx.on('runtime.tokens.updated', (evt) => {
       const data = evt?.payload;
-      if (data?.total > ctx.config.maxContextTokens * 0.9) {
+      if (data?.total > ctx.config.maxContextTokens * WARNING_RATIO) {
         ctx.events.emit('compression.warning', {
           current: data.total,
           threshold: ctx.config.maxContextTokens,

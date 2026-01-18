@@ -305,6 +305,11 @@ export function createWhisperProvider(config) {
 /**
  * 从全局模型配置创建 WhisperProvider
  * 读取 localStorage 中的配置
+ * @param {object} [options] - 配置选项
+ * @param {Storage|null} [options.storage] - 存储对象，默认 localStorage
+ * @param {((provider: string) => Array<{value: string, status?: string}>)|null} [options.keyLoader] - API 密钥加载器
+ * @param {string} [options.storageKey] - 存储键名
+ * @returns {WhisperProvider}
  */
 export function createWhisperProviderFromConfig({ storage, keyLoader, storageKey = "whisperProviderConfig" } = {}) {
   // 尝试读取已保存的配置
@@ -349,6 +354,8 @@ export function createWhisperProviderFromConfig({ storage, keyLoader, storageKey
 
 /**
  * 将标准化结果转为 LRC 格式
+ * @param {Array<{startSec: number, text: string}>} segments - 转录分段
+ * @returns {string} LRC 格式字符串
  */
 export function segmentsToLrc(segments) {
   return segments
@@ -364,6 +371,8 @@ export function segmentsToLrc(segments) {
 
 /**
  * 将标准化结果转为 SRT 格式
+ * @param {Array<{startSec: number, endSec: number, text: string}>} segments - 转录分段
+ * @returns {string} SRT 格式字符串
  */
 export function segmentsToSrt(segments) {
   return segments

@@ -7,7 +7,31 @@ import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.
  * @typedef {"allow" | "deny"} PolicyEffect
  * @typedef {"prompt" | PolicyEffect} PolicyDefaultEffect
  *
- * @typedef {Record<string, any>} PolicyRuleInput
+ * @typedef {object} PolicyRuleInput
+ * @property {string} [ruleId]
+ * @property {string} [id]
+ * @property {string} [effect]
+ * @property {string | string[]} [type]
+ * @property {string | string[]} [types]
+ * @property {string | string[]} [tool]
+ * @property {string | string[]} [toolPattern]
+ * @property {string | string[]} [resource]
+ * @property {string | string[]} [resourcePattern]
+ * @property {string | string[]} [path]
+ * @property {string | string[]} [paths]
+ * @property {string | string[]} [domainSuffixes]
+ * @property {string | string[]} [domainSuffix]
+ * @property {string | string[]} [hostSuffixes]
+ * @property {string | string[]} [hostSuffix]
+ * @property {object} [timeRange]
+ * @property {object} [window]
+ * @property {object} [timeWindow]
+ * @property {object} [match]
+ * @property {object} [when]
+ * @property {boolean} [enabled]
+ * @property {number} [priority]
+ * @property {string} [createdAt]
+ * @property {string} [updatedAt]
  *
  * @typedef {PolicyRuleInput & {
  *   ruleId: string,

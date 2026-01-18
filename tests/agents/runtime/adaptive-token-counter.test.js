@@ -240,5 +240,116 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
     const second = getGlobalTokenCounter();
     expect(first).toBe(second);
   });
+
+  describe("edge cases and boundary conditions", () => {
+    it("handles numeric edge values: 0, -1, MAX_SAFE_INTEGER", async () => {
+      wasmSupported = false;
+      const { createAdaptiveTokenCounter } = await importAdaptiveTokenCounter();
+      const counter = createAdaptiveTokenCounter({ warmup: false });
+
+      // Numbers are JSON-stringified
+      expect(counter.count(0)).toBeGreaterThan(0);
+      expect(counter.count(-1)).toBeGreaterThan(0);
+      expect(counter.count(Number.MAX_SAFE_INTEGER)).toBeGreaterThan(0);
+      expect(counter.count(Infinity)).toBeGreaterThan(0);
+      expect(counter.count(-Infinity)).toBeGreaterThan(0);
+      expect(counter.count(NaN)).toBeGreaterThan(0);
+    });
+
+    it("handles pure whitespace strings", async () => {
+      wasmSupported = false;
+      const { createAdaptiveTokenCounter } = await importAdaptiveTokenCounter();
+      const counter = createAdaptiveTokenCounter({ warmup: false });
+
+      expect(counter.count(" ")).toBeGreaterThanOrEqual(0);
+      expect(counter.count("   ")).toBeGreaterThanOrEqual(0);
+      expect(counter.count("\t")).toBeGreaterThanOrEqual(0);
+      expect(counter.count("\n")).toBeGreaterThanOrEqual(0);
+      expect(counter.count("  \t\n  ")).toBeGreaterThanOrEqual(0);
+    });
+
+    it("handles very long strings", async () => {
+      wasmSupported = false;
+      const { createAdaptiveTokenCounter } = await importAdaptiveTokenCounter();
+      const counter = createAdaptiveTokenCounter({ warmup: false });
+
+      const longString = "a".repeat(100000);
+      const count = counter.count(longString);
+      expect(count).toBeGreaterThan(0);
+      // Heuristic: ~4 chars per token
+      expect(count).toBeLessThanOrEqual(30000);
+    });
+
+    it("handles concurrent/consecutive init calls", async () => {
+      const encoder = {
+        encode: vi.fn(() => [1, 2]),
+        free: vi.fn(),
+      };
+      tiktokenGetEncoding = vi.fn(() => encoder);
+      tiktokenEncodingForModel = vi.fn(() => encoder);
+
+      const { createAdaptiveTokenCounter } = await importAdaptiveTokenCounter();
+      const counter = createAdaptiveTokenCounter({ warmup: false });
+
+      // Fire multiple concurrent init calls
+      const results = await Promise.all([
+        counter.init(),
+        counter.init(),
+        counter.init(),
+      ]);
+
+      // All should resolve to the same result (true)
+      expect(results.every(r => r === true)).toBe(true);
+      expect(counter.getStatus().ready).toBe(true);
+    });
+
+    it("handles undefined input", async () => {
+      wasmSupported = false;
+      const { createAdaptiveTokenCounter } = await importAdaptiveTokenCounter();
+      const counter = createAdaptiveTokenCounter({ warmup: false });
+
+      expect(counter.count(undefined)).toBe(0);
+    });
+
+    it("handles boolean values", async () => {
+      wasmSupported = false;
+      const { createAdaptiveTokenCounter } = await importAdaptiveTokenCounter();
+      const counter = createAdaptiveTokenCounter({ warmup: false });
+
+      expect(counter.count(true)).toBeGreaterThan(0);
+      expect(counter.count(false)).toBeGreaterThan(0);
+    });
+
+    it("handles deeply nested objects", async () => {
+      wasmSupported = false;
+      const { createAdaptiveTokenCounter } = await importAdaptiveTokenCounter();
+      const counter = createAdaptiveTokenCounter({ warmup: false });
+
+      const deep = { a: { b: { c: { d: { e: "value" } } } } };
+      expect(counter.count(deep)).toBeGreaterThan(0);
+    });
+
+    it("handles empty array and object", async () => {
+      wasmSupported = false;
+      const { createAdaptiveTokenCounter } = await importAdaptiveTokenCounter();
+      const counter = createAdaptiveTokenCounter({ warmup: false });
+
+      expect(counter.count([])).toBeGreaterThan(0); // "[]"
+      expect(counter.count({})).toBeGreaterThan(0); // "{}"
+    });
+
+    it("handles consecutive count calls rapidly", async () => {
+      wasmSupported = false;
+      const { createAdaptiveTokenCounter } = await importAdaptiveTokenCounter();
+      const counter = createAdaptiveTokenCounter({ warmup: false });
+
+      const counts = [];
+      for (let i = 0; i < 100; i++) {
+        counts.push(counter.count(`message ${i}`));
+      }
+
+      expect(counts.every(c => typeof c === "number" && c > 0)).toBe(true);
+    });
+  });
 });
 

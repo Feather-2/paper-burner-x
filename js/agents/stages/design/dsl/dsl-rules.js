@@ -61,6 +61,7 @@ export async function initDslRules() {
 
 /**
  * 清除缓存 (用于测试或热更新)
+ * @returns {void}
  */
 export function clearDslRulesCache() {
   _cachedDslRules = null;
@@ -90,8 +91,11 @@ const FALLBACK_DSL_RULES = `
 - data-opacity: 透明度 (0-1)
 `.trim();
 
-// 为了向后兼容，导出一个 getter
-// 注意：首次访问时可能为 null，需要先调用 initDslRules()
+/**
+ * DSL 规则的同步访问代理。
+ * 注意：首次访问时可能返回 fallback，需要先调用 initDslRules()。
+ * @type {string & { length: number }}
+ */
 export const DSL_RULES = new Proxy({}, {
   get(target, prop) {
     if (prop === Symbol.toPrimitive || prop === "toString" || prop === "valueOf") {

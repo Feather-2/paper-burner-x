@@ -135,6 +135,9 @@ export function renderSkillsSection(skills, options = {}) {
 
 /**
  * 渲染简短的 Skills 列表（用于 system prompt，按优先级排序）
+ *
+ * @param {Array<{ metadata?: { name: string, description: string, shortDescription?: string | null, priority?: number }, name?: string, description?: string, shortDescription?: string | null, priority?: number }>} skills - Skills list
+ * @returns {string} Formatted skills list for system prompt
  */
 export function renderSkillsList(skills) {
   if (!skills?.length) return "";

@@ -117,7 +117,7 @@ export class CodeSearchStage extends BaseAgentLoop {
 
     this.initLoopStatus({
       status: AgentStatus.IDLE,
-      eventName: "codesearch.agent.status.changed",
+      eventName: "codesearch:agent:status:changed",
     });
   }
 
@@ -490,8 +490,13 @@ export class CodeSearchStage extends BaseAgentLoop {
   }
 
   /**
+   * 获取默认文件系统（仅 Node.js 环境）
+   *
+   * 注意：此方法是 Node-only polyfill。浏览器环境下 dynamic import 会失败，
+   * catch 后返回 null，调用方应通过依赖注入提供 fs 或 vfs。
+   *
    * @private
-   * @returns {Promise<any|null>}
+   * @returns {Promise<{ readFile: Function, readdir: Function, stat: Function } | null>}
    */
   async _getDefaultFs() {
     try {
@@ -499,13 +504,18 @@ export class CodeSearchStage extends BaseAgentLoop {
       const { readFile, readdir, stat } = await import("node:fs/promises");
       return { readFile, readdir, stat };
     } catch {
+      // 浏览器环境下无法导入 node:fs/promises，返回 null
       return null;
     }
   }
 }
 
 /**
- * 便捷函数
+ * 便捷函数：创建 CodeSearchStage 并执行
+ * @param {any} runContext - 运行上下文
+ * @param {any} input - 输入参数
+ * @param {any} [stageApi] - Stage API
+ * @returns {Promise<any>} 执行结果
  */
 export async function runCodeSearchStage(runContext, input, stageApi = {}) {
   const stage = new CodeSearchStage(input?.options);
@@ -513,7 +523,10 @@ export async function runCodeSearchStage(runContext, input, stageApi = {}) {
 }
 
 /**
- * 注册到 Orchestrator
+ * 注册 CodeSearch 阶段到 Orchestrator
+ * @param {any} orchestrator - Orchestrator 实例
+ * @param {{ timeoutMs?: number }} [options] - 选项
+ * @returns {void}
  */
 export function registerCodeSearchStages(orchestrator, { timeoutMs = 120_000 } = {}) {
   orchestrator.registerStage("codesearch.pipeline", runCodeSearchStage, {

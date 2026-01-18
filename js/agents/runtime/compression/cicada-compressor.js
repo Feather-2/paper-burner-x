@@ -741,7 +741,8 @@ export class CicadaCompressor {
     let raw = null;
     try {
       raw = await this._callModel([{ role: "user", content: prompt }]);
-    } catch {
+    } catch (err) {
+      logger.warn("CicadaCompressor._compressWithLLM: LLM call failed", { error: err?.message || String(err) });
       raw = null;
     }
 
@@ -879,7 +880,16 @@ export class CicadaCompressor {
     // 如果有适配器，可能需要特殊的列出逻辑（这里先处理内存部分）
     let filtered = all;
     if (pattern) {
-      const regex = new RegExp(pattern, "i");
+      // 安全校验：限制 pattern 长度和复杂度，防止 ReDoS
+      const safePattern = String(pattern).slice(0, 100);
+      let regex;
+      try {
+        regex = new RegExp(safePattern, "i");
+      } catch {
+        // 非法正则表达式，转义为字面量匹配
+        const escaped = safePattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        regex = new RegExp(escaped, "i");
+      }
       filtered = all.filter(e => regex.test(e.summary) || regex.test(e.id));
     }
 

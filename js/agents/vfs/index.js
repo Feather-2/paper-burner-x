@@ -4,10 +4,24 @@ import { createVfs as createBrowserVfs } from "./index.browser.js";
 export * from "./index.browser.js";
 
 /**
+ * @typedef {object} CreateVfsOptions
+ * @property {'memory'|'mem'|'opfs'|'nodefs'|'storage'} [kind] - VFS backend type
+ * @property {string} [rootDirName] - Root directory name for OPFS
+ * @property {string} [rootPath] - Root path for NodeFsVfs
+ * @property {boolean} [preferOpfs] - Prefer OPFS over StorageAdapter
+ * @property {boolean} [silent] - Suppress fallback warnings
+ * @property {string} [keyPrefix] - Key prefix for StorageVfs
+ * @property {import('./storage-adapter.js').StorageAdapter} [storageAdapter] - Custom storage adapter
+ */
+
+/**
  * Create a VFS implementation that works in both Browser and Node.
  *
  * - Browser: prefers OPFS when available
  * - Node: defaults to MemoryVfs unless explicitly requested
+ *
+ * @param {CreateVfsOptions} [options] - VFS configuration options
+ * @returns {Promise<import('./vfs.memory.js').default | import('./vfs.opfs.js').OpfsVfs | import('./vfs.storage.js').StorageVfs | import('./vfs.node.js').NodeFsVfs>}
  */
 export async function createVfs(options = {}) {
   if (!Platform.isNode) {

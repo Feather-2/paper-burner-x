@@ -3,23 +3,61 @@
  *
  * 将多张幻灯片截图拼接成网格图，节省 token 并提供全局视觉上下文。
  * 默认 2x2 网格（4页一组）。
+ *
+ * Environment compatibility:
+ * - Browser: Uses native Canvas API (no dependencies)
+ * - Node.js: Optionally uses 'canvas' package if available
+ * - Bundler note: Configure 'canvas' as external to avoid bundling Node-only code
  */
 
 /**
+ * 检测运行环境
+ * @returns {boolean}
+ */
+function isBrowserEnv() {
+  return typeof window !== "undefined" && !!window?.document?.createElement;
+}
+
+/**
+ * 检测是否为 Node.js 环境
+ * @returns {boolean}
+ */
+function isNodeEnv() {
+  return (
+    typeof globalThis !== "undefined" &&
+    typeof /** @type {any} */ (globalThis).process !== "undefined" &&
+    /** @type {any} */ (globalThis).process?.versions?.node
+  );
+}
+
+/**
  * Node.js canvas 适配器
- * 尝试动态加载 canvas 包，失败则返回 null
+ * 尝试动态加载 canvas 包，失败则返回 null。
+ * 仅在 Node.js 环境下尝试加载，浏览器环境直接跳过。
  */
 let nodeCanvas = null;
 let nodeCanvasAvailable = null; // null = 未检测, true/false = 检测结果
 
 async function getNodeCanvas() {
+  // 浏览器环境：直接返回 null，不尝试加载 Node 包
+  if (isBrowserEnv()) {
+    nodeCanvasAvailable = false;
+    return null;
+  }
   if (nodeCanvasAvailable === false) return null;
   if (nodeCanvas) return nodeCanvas;
 
+  // 仅在 Node.js 环境下尝试加载
+  if (!isNodeEnv()) {
+    nodeCanvasAvailable = false;
+    return null;
+  }
+
   try {
     // 动态导入，避免在浏览器环境报错
+    // Bundler hints: webpack/vite/esbuild should mark 'canvas' as external
     // @ts-ignore - 打包工具应配置 canvas 为 external
-    const mod = await import(/* webpackIgnore: true */ "canvas");
+    const mod = await import(/* webpackIgnore: true */ /* @vite-ignore */ "canvas");
     nodeCanvas = mod;
     nodeCanvasAvailable = true;
     return nodeCanvas;
@@ -85,13 +123,6 @@ export const STITCHER_CONFIG = {
   placeholderTextColor: "#666666",
   placeholderFont: "14px sans-serif",
 };
-
-/**
- * 检测运行环境
- */
-function isBrowserEnv() {
-  return typeof window !== "undefined" && !!window?.document?.createElement;
-}
 
 /**
  * 拼接截图为网格

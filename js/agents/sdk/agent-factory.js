@@ -266,7 +266,7 @@ export class AgentInstance extends DisposableBase {
    */
   async run(input, context = {}) {
     const actorPrefix = this.actor.toLowerCase();
-    this.eventBus.emit(`${actorPrefix}.agent.started`, { runId: context.runId || Date.now().toString() });
+    this.eventBus.emit(`${actorPrefix}:agentStarted`, { runId: context.runId || Date.now().toString() });
 
     try {
       if (!this._loop) {
@@ -293,7 +293,7 @@ export class AgentInstance extends DisposableBase {
 
       return await this._loop.run(input, context);
     } catch (error) {
-      this.eventBus.emit(`${this.actor}.agent.failed`, { error: error.message });
+      this.eventBus.emit(`${this.actor}:agentFailed`, { error: error.message });
       throw error;
     }
   }

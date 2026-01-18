@@ -78,6 +78,11 @@ export class LoopRuntimeState {
     this.statusHistory = Array.isArray(statusHistory) ? statusHistory.map(normalizeHistoryItem) : [];
   }
 
+  /**
+   * 检查是否可以转换到目标状态
+   * @param {unknown} to - 目标状态
+   * @returns {boolean} 是否可以转换
+   */
   canTransition(to) {
     const target = normalizeStatus(to);
     const allowed = LOOP_RUNTIME_TRANSITIONS[this.status] || [];
@@ -105,6 +110,10 @@ export class LoopRuntimeState {
     return target;
   }
 
+  /**
+   * 序列化为 JSON 对象
+   * @returns {{status: LoopRuntimeStatus, cursor: any, pausedReason: string|null, lastCheckpointId: string|null, statusHistory: Array<{from: string|null, to: string|null, timestamp: string}>}}
+   */
   toJSON() {
     return {
       status: this.status,
@@ -115,6 +124,11 @@ export class LoopRuntimeState {
     };
   }
 
+  /**
+   * 从 JSON 对象反序列化
+   * @param {unknown} payload - JSON 对象
+   * @returns {LoopRuntimeState} 新的 LoopRuntimeState 实例
+   */
   static fromJSON(payload) {
     const raw = payload && typeof payload === "object" ? payload : {};
     return new LoopRuntimeState({
@@ -127,11 +141,23 @@ export class LoopRuntimeState {
   }
 }
 
+/**
+ * 获取与 signal 关联的运行时状态
+ * @param {object|Function} signal - WeakMap 键（通常是 AbortSignal 或对象）
+ * @returns {LoopRuntimeState|null} 关联的运行时状态，不存在时返回 null
+ */
 export function getRuntimeState(signal) {
   if (!signal || (typeof signal !== "object" && typeof signal !== "function")) return null;
   return runtimeStateBySignal.get(signal) || null;
 }
 
+/**
+ * 设置与 signal 关联的运行时状态
+ * @param {object|Function} signal - WeakMap 键（通常是 AbortSignal 或对象）
+ * @param {LoopRuntimeState|object} state - 运行时状态或初始化参数
+ * @returns {LoopRuntimeState} 设置的运行时状态
+ * @throws {TypeError} signal 必须是对象
+ */
 export function setRuntimeState(signal, state) {
   if (!signal || (typeof signal !== "object" && typeof signal !== "function")) {
     throw new TypeError("setRuntimeState(signal, state): signal must be an object");
@@ -141,12 +167,23 @@ export function setRuntimeState(signal, state) {
   return runtimeState;
 }
 
+/**
+ * 确保存在与 signal 关联的运行时状态（不存在时创建）
+ * @param {object|Function} signal - WeakMap 键（通常是 AbortSignal 或对象）
+ * @param {object} [initialState] - 初始状态参数
+ * @returns {LoopRuntimeState} 现有或新创建的运行时状态
+ */
 export function ensureRuntimeState(signal, initialState) {
   const existing = getRuntimeState(signal);
   if (existing) return existing;
   return setRuntimeState(signal, initialState);
 }
 
+/**
+ * 清除与 signal 关联的运行时状态
+ * @param {object|Function} signal - WeakMap 键（通常是 AbortSignal 或对象）
+ * @returns {void}
+ */
 export function clearRuntimeState(signal) {
   if (!signal || (typeof signal !== "object" && typeof signal !== "function")) return;
   runtimeStateBySignal.delete(signal);

@@ -4,6 +4,12 @@
  * - Arrays become `- item` lines.
  * - Strings are split by newlines into bullet lines.
  * - Other values become a single bullet.
+ *
+ * @param {unknown} value - The value to format (array, string, or other).
+ * @param {object} [options] - Formatting options.
+ * @param {string} [options.bullet="- "] - The bullet prefix for each line.
+ * @param {string} [options.indent=""] - Indentation prefix before the bullet.
+ * @returns {string} The formatted bullet list, or empty string for null/empty values.
  */
 export function formatBullets(value, { bullet = "- ", indent = "" } = {}) {
   const prefix = `${indent}${bullet}`;

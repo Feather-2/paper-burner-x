@@ -7,7 +7,6 @@
  *   1. Worker 隔离执行（best-effort；不是强安全边界）
  *   2. 主线程 fallback（仅用于 trusted 执行；默认拒绝不可信代码）
  *
- * TODO(AI4Sci): 添加 quickjs-emscripten WASM 沙箱作为第三层
  */
 
 import { RuntimeAdapter, RuntimeType } from './runtime-adapter.js';
@@ -433,7 +432,10 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
 
       const sandbox = createSandboxProxy(base, audit);
 
-      // eslint-disable-next-line no-new-func
+      // SECURITY: Fallback sandbox via new Function/with - TRUSTED-ONLY.
+      // Only enabled when mainThreadFallback policy is 'allow' or 'trustedOnly'.
+      // Do not route untrusted input here; prefer Worker sandbox.
+      // eslint-disable-next-line no-new-func -- trusted-only fallback
       const fn = new Function('sandbox', `
         return (async function () {
           with (sandbox) {

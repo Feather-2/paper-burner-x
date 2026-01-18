@@ -9,13 +9,65 @@ import { makeSecureTimestampedId } from "../../../../shared/utils/secure-id.js";
 import { toNonNegativeInt } from "../../../../shared/utils/value-utils.js";
 
 /**
+ * @typedef {'claim' | 'gap' | 'conflict'} FindingType
+ */
+
+/**
+ * @typedef {'high' | 'medium' | 'low'} FindingPriority
+ */
+
+/**
+ * @typedef {object} Finding
+ * @property {string} id
+ * @property {FindingType} type
+ * @property {string} content
+ * @property {string|null} source
+ * @property {number|null} lineStart
+ * @property {number|null} lineEnd
+ * @property {string|null} ref
+ * @property {string[]} sources
+ * @property {number|null} confidence
+ * @property {FindingPriority|null} priority
+ * @property {string[]} tags
+ * @property {number} createdAt
+ */
+
+/**
+ * @typedef {object} FindingItem
+ * @property {FindingType} type
+ * @property {string} content
+ * @property {string} [source]
+ * @property {number} [lineStart]
+ * @property {number} [lineEnd]
+ * @property {string[]} [sources]
+ * @property {number} [confidence]
+ * @property {FindingPriority} [priority]
+ * @property {string[]} [tags]
+ */
+
+/**
+ * @typedef {object} SharedContext
+ * @property {(content: string) => boolean} [hasSeen]
+ * @property {(content: string) => void} [markSeen]
+ * @property {(type: string, data: object) => void} [commit]
+ * @property {(query: string) => Array<object>} [search]
+ */
+
+/**
+ * @typedef {object} RecordFindingContext
+ * @property {object} state
+ * @property {(event: string, data?: object) => void} [emit]
+ * @property {SharedContext} [sharedContext]
+ */
+
+/**
  * @typedef {object} FindingRecordResult
  * @property {boolean} success
- * @property {any=} finding
- * @property {string=} error
- * @property {string=} reason
- * @property {string=} content
- * @property {number=} index
+ * @property {Finding} [finding]
+ * @property {string} [error]
+ * @property {string} [reason]
+ * @property {string} [content]
+ * @property {number} [index]
  */
 
 export const definition = {
@@ -68,10 +120,8 @@ function resolveGapFindingBudget(state) {
 
 /**
  * 处理单条发现
- */
-/**
- * @param {any} item
- * @param {any} context
+ * @param {FindingItem} item
+ * @param {RecordFindingContext} context
  * @returns {FindingRecordResult}
  */
 function processSingleFinding(item, context) {
@@ -91,15 +141,35 @@ function processSingleFinding(item, context) {
     return { success: false, error: "duplicate", content: trimmedContent.slice(0, 50) };
   }
 
+  // 输入校验：行号必须为正整数且 lineStart <= lineEnd
+  const validLineStart = Number.isFinite(lineStart) && Number.isInteger(lineStart) && lineStart > 0 ? lineStart : null;
+  const validLineEnd = Number.isFinite(lineEnd) && Number.isInteger(lineEnd) && lineEnd > 0 ? lineEnd : null;
+  // 确保 lineStart <= lineEnd
+  const normalizedLineStart = (validLineStart && validLineEnd && validLineStart > validLineEnd) ? validLineEnd : validLineStart;
+  const normalizedLineEnd = (validLineStart && validLineEnd && validLineStart > validLineEnd) ? validLineStart : validLineEnd;
+
+  // 输入校验：priority 白名单
+  const VALID_PRIORITIES = ["high", "medium", "low"];
+  const validPriority = typeof priority === "string" && VALID_PRIORITIES.includes(priority) ? priority : "medium";
+
+  // 输入校验：tags 必须为字符串数组
+  const validTags = Array.isArray(tags) ? tags.filter(t => typeof t === "string") : [];
+
+  // 输入校验：sources 必须为字符串数组
+  const validSource = typeof source === "string" && source.trim() ? source.trim() : null;
+  const validSources = Array.isArray(sources)
+    ? sources.filter(s => typeof s === "string" && s.trim())
+    : (validSource ? [validSource] : []);
+
   // 构建标准引用格式
   let ref = null;
-  if (source) {
-    if (lineStart && lineEnd && lineStart !== lineEnd) {
-      ref = `[${source}:L${lineStart}-L${lineEnd}]`;
-    } else if (lineStart) {
-      ref = `[${source}:L${lineStart}]`;
+  if (validSource) {
+    if (normalizedLineStart && normalizedLineEnd && normalizedLineStart !== normalizedLineEnd) {
+      ref = `[${validSource}:L${normalizedLineStart}-L${normalizedLineEnd}]`;
+    } else if (normalizedLineStart) {
+      ref = `[${validSource}:L${normalizedLineStart}]`;
     } else {
-      ref = `[${source}]`;
+      ref = `[${validSource}]`;
     }
   }
 
@@ -107,14 +177,14 @@ function processSingleFinding(item, context) {
     id: makeSecureTimestampedId(type),
     type,
     content: trimmedContent,
-    source: source || null,
-    lineStart: Number.isFinite(lineStart) ? lineStart : null,
-    lineEnd: Number.isFinite(lineEnd) ? lineEnd : null,
+    source: validSource,
+    lineStart: normalizedLineStart,
+    lineEnd: normalizedLineEnd,
     ref, // 标准引用格式
-    sources: Array.isArray(sources) ? sources : (source ? [source] : []),
+    sources: validSources,
     confidence: type === "claim" ? (Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.7) : null,
-    priority: type === "gap" ? (priority || "medium") : null,
-    tags: Array.isArray(tags) ? tags : [],
+    priority: type === "gap" ? validPriority : null,
+    tags: validTags,
     createdAt: Date.now(),
   };
 
@@ -144,93 +214,147 @@ function processSingleFinding(item, context) {
 }
 
 /**
- * @param {Object} args
- * @param {Array} [args.findings] - 批量发现数组
- * @param {string} [args.type] - claim | gap | conflict（单条时）
- * @param {string} [args.content] - 发现内容（单条时）
- * @param {Object} context - { state, emit, sharedContext }
+ * @typedef {object} GapBudget
+ * @property {number} maxTotal
+ * @property {number} maxPerCall
+ */
+
+/**
+ * @typedef {object} GapBudgetCheck
+ * @property {boolean} ok
+ * @property {string} [error]
+ * @property {string} [reason]
+ */
+
+/**
+ * 创建 gap 预算检查器
+ * @param {GapBudget} gapBudget
+ * @param {number} existingGapCount
+ * @returns {{ canAddGap: () => GapBudgetCheck, incrementGap: () => void }}
+ */
+function createGapBudgetChecker(gapBudget, existingGapCount) {
+  let gapAddedThisCall = 0;
+  return {
+    canAddGap: () => {
+      if (gapBudget.maxTotal > 0 && existingGapCount + gapAddedThisCall >= gapBudget.maxTotal) {
+        return { ok: false, error: "gap_budget_exceeded", reason: "max_total" };
+      }
+      if (gapBudget.maxPerCall > 0 && gapAddedThisCall >= gapBudget.maxPerCall) {
+        return { ok: false, error: "gap_budget_exceeded", reason: "max_per_call" };
+      }
+      return { ok: true };
+    },
+    incrementGap: () => { gapAddedThisCall += 1; },
+  };
+}
+
+/**
+ * 构建统计信息
+ * @param {SharedContext} [sharedContext]
+ * @returns {{ claims: number, gaps: number, conflicts: number }}
+ */
+function buildStats(sharedContext) {
+  if (!sharedContext?.search) return { claims: 0, gaps: 0, conflicts: 0 };
+  return {
+    claims: sharedContext.search("finding_claim").length,
+    gaps: sharedContext.search("finding_gap").length,
+    conflicts: sharedContext.search("finding_conflict").length,
+  };
+}
+
+/**
+ * 处理批量发现
+ * @param {FindingItem[]} items
+ * @param {RecordFindingContext} context
+ * @param {{ canAddGap: () => GapBudgetCheck, incrementGap: () => void }} budgetChecker
+ * @returns {object}
+ */
+function processBatchFindings(items, context, budgetChecker) {
+  if (items.length === 0) {
+    return { success: true, recorded: 0, skipped: 0, findings: [], errors: [], stats: buildStats(context.sharedContext) };
+  }
+
+  /** @type {FindingRecordResult[]} */
+  const results = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item?.type === "gap") {
+      const budget = budgetChecker.canAddGap();
+      if (!budget.ok) {
+        results.push({
+          success: false,
+          error: budget.error,
+          reason: budget.reason,
+          index: i,
+          content: item?.content?.slice?.(0, 50) || `[item ${i}]`,
+        });
+        continue;
+      }
+    }
+
+    const r = /** @type {FindingRecordResult} */ (processSingleFinding(item, context));
+    if (!r.success) r.index = i;
+    if (!r.success && !r.content) r.content = item?.content?.slice?.(0, 50) || `[item ${i}]`;
+    if (r.success && item?.type === "gap") budgetChecker.incrementGap();
+    results.push(r);
+  }
+
+  const succeeded = results.filter(r => r.success);
+  const failed = results.filter(r => !r.success);
+
+  return {
+    success: succeeded.length > 0,
+    recorded: succeeded.length,
+    skipped: failed.length,
+    findings: succeeded.map(r => r.finding),
+    errors: failed.map(r => ({ error: r.error, content: r.content, index: r.index })),
+    stats: buildStats(context.sharedContext),
+  };
+}
+
+/**
+ * @typedef {object} RecordFindingArgs
+ * @property {FindingItem[]} [findings]
+ * @property {FindingType} [type]
+ * @property {string} [content]
+ * @property {string} [source]
+ * @property {number} [lineStart]
+ * @property {number} [lineEnd]
+ * @property {string[]} [sources]
+ * @property {number} [confidence]
+ * @property {FindingPriority} [priority]
+ * @property {string[]} [tags]
+ */
+
+/**
+ * record-finding handler 入口
+ * @param {RecordFindingArgs} args
+ * @param {RecordFindingContext} context
  */
 export async function handler(args, context) {
   const { sharedContext, state } = context;
   const gapBudget = resolveGapFindingBudget(state);
   const existingGapCount = sharedContext?.search ? sharedContext.search("finding_gap").length : 0;
-  let gapAddedThisCall = 0;
-  const canAddGap = () => {
-    if (gapBudget.maxTotal > 0 && existingGapCount + gapAddedThisCall >= gapBudget.maxTotal) {
-      return { ok: false, error: "gap_budget_exceeded", reason: "max_total" };
-    }
-    if (gapBudget.maxPerCall > 0 && gapAddedThisCall >= gapBudget.maxPerCall) {
-      return { ok: false, error: "gap_budget_exceeded", reason: "max_per_call" };
-    }
-    return { ok: true };
-  };
+  const budgetChecker = createGapBudgetChecker(gapBudget, existingGapCount);
 
-  // 批量模式：显式传入 findings 数组
+  // 批量模式
   if (Array.isArray(args.findings)) {
-    if (args.findings.length === 0) {
-      return { success: true, recorded: 0, skipped: 0, findings: [], errors: [], stats: { claims: 0, gaps: 0, conflicts: 0 } };
-    }
-    /** @type {FindingRecordResult[]} */
-    const results = [];
-    for (let i = 0; i < args.findings.length; i++) {
-      const item = args.findings[i];
-      if (item?.type === "gap") {
-        const budget = canAddGap();
-        if (!budget.ok) {
-          results.push({
-            success: false,
-            error: budget.error,
-            reason: budget.reason,
-            index: i,
-            content: item?.content?.slice?.(0, 50) || `[item ${i}]`,
-          });
-          continue;
-        }
-      }
-
-      const r = /** @type {FindingRecordResult} */ (processSingleFinding(item, context));
-      if (!r.success) r.index = i; // 记录原始索引便于调试
-      if (!r.success && !r.content) r.content = item?.content?.slice?.(0, 50) || `[item ${i}]`;
-      if (r.success && item?.type === "gap") gapAddedThisCall += 1;
-      results.push(r);
-    }
-    const succeeded = results.filter(r => r.success);
-    const failed = results.filter(r => !r.success);
-
-    const stats = sharedContext ? {
-      claims: sharedContext.search("finding_claim").length,
-      gaps: sharedContext.search("finding_gap").length,
-      conflicts: sharedContext.search("finding_conflict").length,
-    } : { claims: 0, gaps: 0, conflicts: 0 };
-
-    return {
-      success: succeeded.length > 0,
-      recorded: succeeded.length,
-      skipped: failed.length,
-      findings: succeeded.map(r => r.finding),
-      errors: failed.map(r => ({ error: r.error, content: r.content, index: r.index })),
-      stats,
-    };
+    return processBatchFindings(args.findings, context, budgetChecker);
   }
 
-  // 单条模式（向后兼容）
+  // 单条模式
   if (args?.type === "gap") {
-    const budget = canAddGap();
+    const budget = budgetChecker.canAddGap();
     if (!budget.ok) {
       return { success: false, error: budget.error, reason: budget.reason, hint: "Too many gaps; consolidate or raise userConfig.gaps.maxFindingGaps." };
     }
   }
-  const result = processSingleFinding(args, context);
+
+  const result = processSingleFinding(/** @type {FindingItem} */ (args), context);
   if (!result.success) return result;
-  if (args?.type === "gap") gapAddedThisCall += 1;
+  if (args?.type === "gap") budgetChecker.incrementGap();
 
-  const stats = sharedContext ? {
-    claims: sharedContext.search("finding_claim").length,
-    gaps: sharedContext.search("finding_gap").length,
-    conflicts: sharedContext.search("finding_conflict").length,
-  } : { claims: 0, gaps: 0, conflicts: 0 };
-
-  return { ...result, stats };
+  return { ...result, stats: buildStats(sharedContext) };
 }
 
 export default { definition, handler };
