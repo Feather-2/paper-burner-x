@@ -67,7 +67,7 @@ it("McpClient: listAllTools captures provider failures (non-fatal)", async () =>
   expect(tools.length).toBe(1);
   expect(tools[0].providerId).toBe("good");
 
-  expect(Array.isArray(tools.errors)).toBeTruthy();
+  expect(tools.errors).toBeInstanceOf(Array);
   expect(tools.errors.length).toBe(1);
   expect(tools.errors[0].providerId).toBe("bad");
   expect(String(tools.errors[0].error)).toContain("boom");
@@ -305,8 +305,8 @@ it("SmartContentExtractor: works without DOMParser (fallback)", async () => {
 
   const out = extractSmartContent(html, { maxLength: 1000 });
   expect(typeof out.plainText).toBe("string");
-  expect(out.plainText.includes("Hello")).toBeTruthy();
-  expect(out.plainText.includes("World")).toBeTruthy();
+  expect(out.plainText).toContain("Hello");
+  expect(out.plainText).toContain("World");
   expect(out.plainText.includes("bad()")).toBe(false);
 
   if (typeof globalThis.DOMParser === "undefined") {

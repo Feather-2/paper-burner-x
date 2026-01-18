@@ -548,10 +548,10 @@ describe("mock-suite", () => {
 
       const stageApi = env.createStageApi();
 
-      expect(stageApi.signal).toBeTruthy();
+      expect(stageApi.signal).toBeInstanceOf(AbortSignal);
       expect(typeof stageApi.emit).toBe("function");
-      expect(stageApi.modelRouter).toBeTruthy();
-      expect(stageApi.aiApiService).toBeTruthy();
+      expect(stageApi.modelRouter).toMatchObject({ call: expect.any(Function) });
+      expect(stageApi.aiApiService).toMatchObject({ chat: expect.any(Function) });
 
       // Test modelRouter.call
       const result = await stageApi.modelRouter.call([{ role: "user", content: "Hi" }], {});

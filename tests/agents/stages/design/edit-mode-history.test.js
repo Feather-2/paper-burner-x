@@ -9,26 +9,39 @@ describe("design/edit-mode/history (branches)", () => {
     expect(mgr.undo()).toBeNull();
     expect(mgr.redo()).toBeNull();
 
-    mgr.push({});
+    const op = {};
+    mgr.push(op);
 
     const entry = mgr.undo();
-    expect(entry).toBeTruthy();
+    expect(entry).toEqual(
+      expect.objectContaining({
+        operations: [op],
+        timestamp: expect.any(Number),
+      }),
+    );
     expect(mgr.history).toHaveLength(0);
     expect(mgr.redoStack).toHaveLength(1);
 
     const redone = mgr.redo();
-    expect(redone).toBeTruthy();
+    expect(redone).toBe(entry);
     expect(mgr.history).toHaveLength(1);
     expect(mgr.redoStack).toHaveLength(0);
   });
 
   it("merges transaction operations and clears redo stack on commit", () => {
     const mgr = new EditHistoryManager();
-    mgr.push({ undo: vi.fn(), redo: vi.fn() });
+    const op = { undo: vi.fn(), redo: vi.fn() };
+    mgr.push(op);
 
     const undone = mgr.undo();
-    expect(undone).toBeTruthy();
+    expect(undone).toEqual(
+      expect.objectContaining({
+        operations: [op],
+        timestamp: expect.any(Number),
+      }),
+    );
     expect(mgr.redoStack).toHaveLength(1);
+    expect(mgr.redoStack[0]).toBe(undone);
 
     const op1 = { undo: vi.fn(), redo: vi.fn(), id: "a" };
     const op2 = { undo: vi.fn(), redo: vi.fn(), id: "b" };

@@ -48,7 +48,7 @@ describe("ModelResponseHandler", () => {
     expect(result.status).toBe("retry");
     expect(handler.retryCount).toBe(1);
     expect(messages.length).toBe(1);
-    expect(messages[0].content.includes("JSON")).toBeTruthy();
+    expect(messages[0].content).toContain("JSON");
   });
 
   it("should retry on parse failure", async () => {
@@ -137,7 +137,7 @@ describe("ModelResponseHandler", () => {
       { stageApi: {}, addMessage: () => {}, budget: null }
     );
 
-    expect(events.some(e => e.name === "deepsearch.model.responded")).toBeTruthy();
+    expect(events.map((event) => event.name)).toContain("deepsearch.model.responded");
   });
 
   it("should reset retry count", () => {

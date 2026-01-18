@@ -23,25 +23,25 @@ describe("schema-validator", () => {
     it("should reject non-object", () => {
       const r = validateChunk("not an object");
       expect(r.ok).toBe(false);
-      expect(r.errors[0].includes("expected object")).toBeTruthy();
+      expect(r.errors[0]).toContain("expected object");
     });
 
     it("should reject missing chunkId", () => {
       const r = validateChunk({ text: "hello" });
       expect(r.ok).toBe(false);
-      expect(r.errors.some(e => e.includes("chunkId"))).toBeTruthy();
+      expect(r.errors).toEqual(expect.arrayContaining([expect.stringContaining("chunkId")]));
     });
 
     it("should reject missing text", () => {
       const r = validateChunk({ chunkId: "c1" });
       expect(r.ok).toBe(false);
-      expect(r.errors.some(e => e.includes("text"))).toBeTruthy();
+      expect(r.errors).toEqual(expect.arrayContaining([expect.stringContaining("text")]));
     });
 
     it("should include index in error message", () => {
       const r = validateChunk({ chunkId: "" }, 5);
       expect(r.ok).toBe(false);
-      expect(r.errors[0].includes("chunk[5]")).toBeTruthy();
+      expect(r.errors[0]).toContain("chunk[5]");
     });
   });
 
@@ -59,13 +59,13 @@ describe("schema-validator", () => {
     it("should reject non-array", () => {
       const r = validateChunks("not an array");
       expect(r.ok).toBe(false);
-      expect(r.errors[0].includes("expected array")).toBeTruthy();
+      expect(r.errors[0]).toContain("expected array");
     });
 
     it("should reject empty array by default", () => {
       const r = validateChunks([]);
       expect(r.ok).toBe(false);
-      expect(r.errors[0].includes("empty")).toBeTruthy();
+      expect(r.errors[0]).toContain("empty");
     });
 
     it("should allow empty array with option", () => {
@@ -80,8 +80,8 @@ describe("schema-validator", () => {
       expect(r.ok).toBe(false);
       // maxErrors limits individual error messages, not chunk count
       // Each invalid chunk may generate multiple errors
-      expect(r.errors.length > 0).toBeTruthy();
-      expect(r.errors.length <= 10).toBeTruthy(); // reasonable upper bound
+      expect(r.errors.length).toBeGreaterThan(0);
+      expect(r.errors.length).toBeLessThanOrEqual(10); // reasonable upper bound
     });
 
     it("should return validated chunks even with some invalid", () => {
@@ -112,7 +112,7 @@ describe("schema-validator", () => {
     it("should reject missing files array", () => {
       const r = validateGlobResult({ fromCache: true });
       expect(r.ok).toBe(false);
-      expect(r.errors.some(e => e.includes("files"))).toBeTruthy();
+      expect(r.errors).toEqual(expect.arrayContaining([expect.stringContaining("files")]));
     });
 
     it("should filter non-string files", () => {
@@ -201,7 +201,7 @@ describe("schema-validator", () => {
     it("should reject invalid strategy", () => {
       const r = validateSearchQuery({ strategy: "invalid-strategy" });
       expect(r.ok).toBe(false);
-      expect(r.errors.some(e => e.includes("strategy"))).toBeTruthy();
+      expect(r.errors).toEqual(expect.arrayContaining([expect.stringContaining("strategy")]));
     });
 
     it("should default patterns to empty array", () => {

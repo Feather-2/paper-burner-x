@@ -167,7 +167,7 @@ describe('Archive', () => {
 
     expect(checkpointId).toMatch(/^run_123:\d+$/);
     const timestampPart = checkpointId.split(':')[1];
-    expect(timestampPart).toBeTruthy();
+    expect(timestampPart).toMatch(/^\d+$/);
     const ts = Number(timestampPart);
     expect(Number.isFinite(ts)).toBe(true);
     expect(ts).toBeGreaterThanOrEqual(before);
@@ -351,7 +351,11 @@ describe('Archive', () => {
     expect(deleted).toBe(1);
 
     await expect(archive.load(`run_gc:${oldTs}`)).resolves.toBe(null);
-    await expect(archive.load(`run_gc:${keepTs}`)).resolves.toBeTruthy();
+    await expect(archive.load(`run_gc:${keepTs}`)).resolves.toEqual({
+      nodeStates: { keep: true },
+      timestamp: keepTs,
+      metadata: undefined,
+    });
   });
 
   it('save: throws after too many collisions', async () => {
@@ -880,7 +884,7 @@ describe('archive adapters', () => {
 
       expect(warn).not.toHaveBeenCalled();
       expect(adapter._useFallback).toBe(false);
-      expect(adapter._primary).toBeTruthy();
+      expect(adapter._primary).toBeInstanceOf(IndexedDBAdapter);
     } finally {
       // eslint-disable-next-line no-global-assign
       globalThis.indexedDB = original;

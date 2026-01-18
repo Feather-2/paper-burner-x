@@ -52,8 +52,8 @@ describe("prompts/prompt-template", () => {
       const result = renderPromptTemplate("Main content", {
         appendIfMissing: { extra: "Extra section" },
       });
-      expect(result.includes("Main content")).toBeTruthy();
-      expect(result.includes("Extra section")).toBeTruthy();
+      expect(result).toContain("Main content");
+      expect(result).toContain("Extra section");
     });
 
     it("does not append if placeholder exists", () => {
@@ -61,24 +61,24 @@ describe("prompts/prompt-template", () => {
         vars: { extra: "content" },
         appendIfMissing: { extra: "Should not appear" },
       });
-      expect(!result.includes("Should not appear")).toBeTruthy();
+      expect(result).not.toContain("Should not appear");
     });
 
     it("handles array values", () => {
       const result = renderPromptTemplate("Items: {{items}}", {
         vars: { items: ["a", "b", "c"] },
       });
-      expect(result.includes("a")).toBeTruthy();
-      expect(result.includes("b")).toBeTruthy();
-      expect(result.includes("c")).toBeTruthy();
+      expect(result).toContain("a");
+      expect(result).toContain("b");
+      expect(result).toContain("c");
     });
 
     it("handles object values with JSON stringify", () => {
       const result = renderPromptTemplate("Data: {{data}}", {
         vars: { data: { key: "value" } },
       });
-      expect(result.includes("key")).toBeTruthy();
-      expect(result.includes("value")).toBeTruthy();
+      expect(result).toContain("key");
+      expect(result).toContain("value");
     });
 
     it("handles null and undefined values", () => {
@@ -108,14 +108,14 @@ describe("prompts/prompt-template", () => {
       const result = renderPromptTemplate("{{data|json}}", {
         vars: { data: { a: 1 } },
       });
-      expect(result.includes('"a"')).toBeTruthy();
+      expect(result).toContain('"a"');
     });
 
     it("applies bullets formatter", () => {
       const result = renderPromptTemplate("{{items|bullets}}", {
         vars: { items: ["one", "two"] },
       });
-      expect(result.includes("- one") || result.includes("• one")).toBeTruthy();
+      expect(result).toMatch(/(?:- one|• one)/);
     });
 
     it("applies trim formatter", () => {
@@ -163,15 +163,15 @@ describe("prompts/prompt-template", () => {
       const result = renderPromptTemplate("{{items|lines}}", {
         vars: { items: ["a", "b", "c"] },
       });
-      expect(result.includes("a")).toBeTruthy();
-      expect(result.includes("b")).toBeTruthy();
+      expect(result).toContain("a");
+      expect(result).toContain("b");
     });
   });
 
   describe("escapeTemplateDelimiters", () => {
     it("escapes {{ and }}", () => {
       const escaped = escapeTemplateDelimiters("Use {{var}} here");
-      expect(!escaped.includes("{{")).toBeTruthy();
+      expect(escaped).not.toContain("{{");
     });
   });
 
@@ -195,7 +195,7 @@ describe("prompts/prompt-registry", () => {
       const registry = new PromptRegistry();
       registry.register("greeting", "Hello {{name}}!");
       const tpl = registry.get("greeting");
-      expect(tpl instanceof PromptTemplate).toBeTruthy();
+      expect(tpl).toBeInstanceOf(PromptTemplate);
     });
 
     it("throws on empty name", () => {
@@ -220,22 +220,22 @@ describe("prompts/prompt-registry", () => {
     it("registers from object", () => {
       const registry = new PromptRegistry();
       registry.registerMany({ a: "Template A", b: "Template B" });
-      expect(registry.has("a")).toBeTruthy();
-      expect(registry.has("b")).toBeTruthy();
+      expect(registry.has("a")).toBe(true);
+      expect(registry.has("b")).toBe(true);
     });
 
     it("registers from array", () => {
       const registry = new PromptRegistry();
       registry.registerMany([["x", "X"], ["y", "Y"]]);
-      expect(registry.has("x")).toBeTruthy();
-      expect(registry.has("y")).toBeTruthy();
+      expect(registry.has("x")).toBe(true);
+      expect(registry.has("y")).toBe(true);
     });
 
     it("registers from Map", () => {
       const registry = new PromptRegistry();
       const map = new Map([["m", "M"]]);
       registry.registerMany(map);
-      expect(registry.has("m")).toBeTruthy();
+      expect(registry.has("m")).toBe(true);
     });
 
     it("handles null gracefully", () => {
@@ -263,8 +263,8 @@ describe("prompts/prompt-registry", () => {
       registry.register("a", "A");
       registry.register("b", "B");
       const names = registry.list();
-      expect(names.includes("a")).toBeTruthy();
-      expect(names.includes("b")).toBeTruthy();
+      expect(names).toContain("a");
+      expect(names).toContain("b");
     });
   });
 
@@ -304,28 +304,28 @@ describe("prompts/prompt-registry", () => {
 
 describe("prompts/formatters", () => {
   it("exports default formatters", () => {
-    expect(typeof DEFAULT_FORMATTERS.json === "function").toBeTruthy();
-    expect(typeof DEFAULT_FORMATTERS.bullets === "function").toBeTruthy();
-    expect(typeof DEFAULT_FORMATTERS.trim === "function").toBeTruthy();
-    expect(typeof DEFAULT_FORMATTERS.upper === "function").toBeTruthy();
-    expect(typeof DEFAULT_FORMATTERS.lines === "function").toBeTruthy();
-    expect(typeof DEFAULT_FORMATTERS.code === "function").toBeTruthy();
+    expect(typeof DEFAULT_FORMATTERS.json).toBe("function");
+    expect(typeof DEFAULT_FORMATTERS.bullets).toBe("function");
+    expect(typeof DEFAULT_FORMATTERS.trim).toBe("function");
+    expect(typeof DEFAULT_FORMATTERS.upper).toBe("function");
+    expect(typeof DEFAULT_FORMATTERS.lines).toBe("function");
+    expect(typeof DEFAULT_FORMATTERS.code).toBe("function");
   });
 
   it("json formats object", () => {
     const result = DEFAULT_FORMATTERS.json({ key: "value" });
-    expect(result.includes("key")).toBeTruthy();
+    expect(result).toContain("key");
   });
 
   it("bullets formats array", () => {
     const result = DEFAULT_FORMATTERS.bullets(["a", "b"]);
-    expect(result.includes("a")).toBeTruthy();
-    expect(result.includes("b")).toBeTruthy();
+    expect(result).toContain("a");
+    expect(result).toContain("b");
   });
 
   it("code wraps in code block", () => {
     const result = DEFAULT_FORMATTERS.code("const x = 1;", { args: ["js"] });
-    expect(result.includes("```")).toBeTruthy();
-    expect(result.includes("const x = 1;")).toBeTruthy();
+    expect(result).toContain("```");
+    expect(result).toContain("const x = 1;");
   });
 });

@@ -13,7 +13,7 @@ describe("shared/contracts/disposable", () => {
   describe("isDisposable", () => {
     it("returns true for object with dispose method", () => {
       const obj = { dispose: () => {} };
-      expect(isDisposable(obj)).toBeTruthy();
+      expect(isDisposable(obj)).toBe(true);
     });
 
     it("returns false for null", () => {
@@ -57,7 +57,7 @@ describe("shared/contracts/disposable", () => {
       };
       const result = await safeDispose(obj);
       expect(result).toBe(true);
-      expect(disposed).toBeTruthy();
+      expect(disposed).toBe(true);
     });
 
     it("handles async dispose", async () => {
@@ -70,7 +70,7 @@ describe("shared/contracts/disposable", () => {
       };
       const result = await safeDispose(obj);
       expect(result).toBe(true);
-      expect(disposed).toBeTruthy();
+      expect(disposed).toBe(true);
     });
 
     it("catches error and returns false", async () => {
@@ -89,7 +89,7 @@ describe("shared/contracts/disposable", () => {
       await safeDispose(obj, {
         onError: (e) => { capturedError = e; },
       });
-      expect(capturedError).toBeTruthy();
+      expect(capturedError).toBeInstanceOf(Error);
       expect(capturedError.message).toBe("test error");
     });
 
@@ -101,7 +101,8 @@ describe("shared/contracts/disposable", () => {
       await safeDispose(obj, {
         onError: (e) => { capturedError = e; },
       });
-      expect(capturedError instanceof Error).toBeTruthy();
+      expect(capturedError).toBeInstanceOf(Error);
+      expect(capturedError.message).toBe("string error");
     });
   });
 
@@ -159,7 +160,7 @@ describe("shared/contracts/disposable", () => {
       };
       const result = await using(resource, async (r) => r.value * 2);
       expect(result).toBe(84);
-      expect(disposed).toBeTruthy();
+      expect(disposed).toBe(true);
     });
 
     it("disposes even on error", async () => {
@@ -172,14 +173,14 @@ describe("shared/contracts/disposable", () => {
       } catch {
         // Expected
       }
-      expect(disposed).toBeTruthy();
+      expect(disposed).toBe(true);
     });
   });
 
   describe("createCompositeDisposable", () => {
     it("creates composite disposable", () => {
       const composite = createCompositeDisposable([]);
-      expect(isDisposable(composite)).toBeTruthy();
+      expect(isDisposable(composite)).toBe(true);
       expect(composite.disposed).toBe(false);
     });
 
@@ -242,7 +243,7 @@ describe("shared/contracts/disposable", () => {
         () => {}, // Should still run
       ]);
       await composite.dispose(); // Should not throw
-      expect(composite.disposed).toBeTruthy();
+      expect(composite.disposed).toBe(true);
     });
   });
 });

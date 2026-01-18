@@ -345,7 +345,9 @@ describe("agents/llm/whisper-provider", () => {
     expect(calls[0].init.body).toBeInstanceOf(FormData);
 
     const body = formDataToObject(calls[0].init.body);
-    expect(body.file).toBeTruthy();
+    expect(body.file).toBeInstanceOf(Blob);
+    expect(body.file.size).toBe(file.size);
+    expect(body.file.type).toBe(file.type);
     expect(body.model_id).toBe("scribe_v3");
     expect(body.language_code).toBe("zh");
     expect(body.diarize).toBe("true");
@@ -389,8 +391,9 @@ describe("agents/llm/whisper-provider", () => {
       });
     });
 
+    const file = new Blob(["x"]);
     const p = new WhisperProvider({ provider: "groq", apiKey: "GROQ_KEY" });
-    const out = await p.transcribe(new Blob(["x"]), { model: "whisper-large-v3-turbo", prompt: "x", language: "de" });
+    const out = await p.transcribe(file, { model: "whisper-large-v3-turbo", prompt: "x", language: "de" });
 
     expect(out.provider).toBe("groq");
     expect(out.model).toBe("whisper-large-v3-turbo");
@@ -409,7 +412,9 @@ describe("agents/llm/whisper-provider", () => {
     expect(calls[0].init.body).toBeInstanceOf(FormData);
 
     const body = formDataToObject(calls[0].init.body);
-    expect(body.file).toBeTruthy();
+    expect(body.file).toBeInstanceOf(Blob);
+    expect(body.file.size).toBe(file.size);
+    expect(body.file.type).toBe(file.type);
     expect(body.model).toBe("whisper-large-v3-turbo");
     expect(body.response_format).toBe("verbose_json");
     expect(body.language).toBe("de");

@@ -276,7 +276,7 @@ describe('ServiceBus', () => {
 
       const list = bus.list();
       const entry = list.find(e => e.name === 'svc');
-      expect(entry.registeredAt > 0).toBeTruthy();
+      expect(entry.registeredAt).toBeGreaterThan(0);
       expect(entry.options).toEqual({ override: true });
     });
   });
@@ -313,8 +313,7 @@ describe('ServiceBus', () => {
       await bus.call('specific', 'fn', []);
 
       const stats = bus.getStats('specific');
-      expect(stats !== null).toBeTruthy();
-      expect(stats.calls).toBe(1);
+      expect(stats).toMatchObject({ name: 'specific', calls: 1, errors: 0 });
     });
 
     it('should return null for unknown service stats', () => {
@@ -347,7 +346,7 @@ describe('ServiceBus', () => {
       await bus.call('timed', 'slow', []);
 
       const stats = bus.getStats('timed');
-      expect(stats.totalTime >= 5).toBeTruthy();
+      expect(stats.totalTime).toBeGreaterThanOrEqual(5);
     });
   });
 
@@ -430,7 +429,7 @@ describe('ServiceBus', () => {
 
       const result = await bus.healthCheck('errorNoMsg');
       expect(result.healthy).toBe(false);
-      expect(result.error).toBeTruthy();
+      expect(result.error).toBe('string error');
     });
   });
 
@@ -505,7 +504,8 @@ describe('ServiceBus', () => {
       bus.useProxy(createTimeoutProxy({ timeout: 1000 }));
 
       await bus.call('svc', 'fn', []);
-      expect(bus.getStats('svc')).toBeTruthy();
+      const stats = bus.getStats('svc');
+      expect(stats).toMatchObject({ name: 'svc', calls: 1, errors: 0 });
 
       bus.clear();
 
@@ -524,8 +524,10 @@ describe('ServiceBus', () => {
       bus.register('eventSvc', {});
 
       await new Promise(r => setTimeout(r, 0));
-      expect(emitted).toBeTruthy();
-      expect(emitted.payload.name).toBe('eventSvc');
+      expect(emitted).toMatchObject({
+        type: 'service.registered',
+        payload: { name: 'eventSvc' },
+      });
     });
 
     it('should emit service.call.start and service.call.success', async () => {
@@ -536,8 +538,8 @@ describe('ServiceBus', () => {
       bus.register('eventSvc', { fn: () => 'ok' });
       await bus.call('eventSvc', 'fn', []);
 
-      expect(emittedEvents.includes('service.call.start')).toBeTruthy();
-      expect(emittedEvents.includes('service.call.success')).toBeTruthy();
+      expect(emittedEvents).toContain('service.call.start');
+      expect(emittedEvents).toContain('service.call.success');
     });
 
     it('should emit service.call.error', async () => {
@@ -547,7 +549,10 @@ describe('ServiceBus', () => {
       bus.register('errorSvc', { fn: () => { throw new Error('fail'); } });
       await expect(bus.call('errorSvc', 'fn', [])).rejects.toThrow();
 
-      expect(emitted).toBeTruthy();
+      expect(emitted).toMatchObject({
+        type: 'service.call.error',
+        payload: expect.objectContaining({ service: 'errorSvc', method: 'fn' }),
+      });
     });
 
     it('should emit service.unregistered event', async () => {
@@ -558,8 +563,10 @@ describe('ServiceBus', () => {
       bus.unregister('toUnregister');
 
       await new Promise(r => setTimeout(r, 0));
-      expect(emitted).toBeTruthy();
-      expect(emitted.payload.name).toBe('toUnregister');
+      expect(emitted).toMatchObject({
+        type: 'service.unregistered',
+        payload: { name: 'toUnregister' },
+      });
     });
 
     it('should emit service.factory.registered event', async () => {
@@ -569,8 +576,10 @@ describe('ServiceBus', () => {
       bus.registerFactory('factoryEventSvc', () => ({}));
 
       await new Promise(r => setTimeout(r, 0));
-      expect(emitted).toBeTruthy();
-      expect(emitted.payload.name).toBe('factoryEventSvc');
+      expect(emitted).toMatchObject({
+        type: 'service.factory.registered',
+        payload: { name: 'factoryEventSvc' },
+      });
     });
 
     it('should work without events', async () => {

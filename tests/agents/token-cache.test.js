@@ -31,7 +31,7 @@ describe("shared/utils/token-cache", () => {
 
     it("estimates tokens for simple text", () => {
       const count = estimateTokensCached("Hello world");
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
     });
 
     it("caches repeated calls", () => {
@@ -61,7 +61,7 @@ describe("shared/utils/token-cache", () => {
       };
 
       const count = estimateTokensCached("test text", badCounter);
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
     });
 
     it("falls back when tokenCounter returns invalid", () => {
@@ -70,7 +70,7 @@ describe("shared/utils/token-cache", () => {
       };
 
       const count = estimateTokensCached("test text", badCounter);
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
     });
 
     it("falls back when tokenCounter returns negative", () => {
@@ -79,13 +79,13 @@ describe("shared/utils/token-cache", () => {
       };
 
       const count = estimateTokensCached("test text", badCounter);
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
     });
 
     it("handles long strings with hash key", () => {
       const longText = "x".repeat(200);
       const count = estimateTokensCached(longText);
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
 
       // Second call should hit cache
       const count2 = estimateTokensCached(longText);
@@ -100,7 +100,7 @@ describe("shared/utils/token-cache", () => {
       }
 
       const stats = getTokenCacheStats();
-      expect(stats.size > 0).toBeTruthy();
+      expect(stats.size).toBeGreaterThan(0);
     });
   });
 
@@ -129,7 +129,7 @@ describe("shared/utils/token-cache", () => {
 
     it("includes maxSize", () => {
       const stats = getTokenCacheStats();
-      expect(stats.maxSize > 0).toBeTruthy();
+      expect(stats.maxSize).toBeGreaterThan(0);
     });
 
     it("tracks hit rate", () => {
@@ -139,7 +139,7 @@ describe("shared/utils/token-cache", () => {
 
       const stats = getTokenCacheStats();
       // 1 miss, 2 hits = 66.67% hit rate
-      expect(stats.hitRate > 0.5).toBeTruthy();
+      expect(stats.hitRate).toBeGreaterThan(0.5);
     });
   });
 });

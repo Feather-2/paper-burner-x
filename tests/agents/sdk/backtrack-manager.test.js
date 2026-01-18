@@ -288,9 +288,9 @@ describe("BacktrackManager", () => {
 
         expect(logger.info.mock.calls.length).toBe(1);
         const logMessage = logger.info.mock.calls[0][0];
-        expect(logMessage.includes("春秋蝉")).toBeTruthy();
-        expect(logMessage.includes("1/3")).toBeTruthy();
-        expect(logMessage.includes("my_checkpoint")).toBeTruthy();
+        expect(logMessage).toContain("春秋蝉");
+        expect(logMessage).toContain("1/3");
+        expect(logMessage).toContain("my_checkpoint");
       });
     });
 

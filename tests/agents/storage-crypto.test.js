@@ -13,17 +13,17 @@ describe("shared/utils/storage-crypto", () => {
   describe("PB_ENCRYPTED_PREFIX", () => {
     it("is a string constant", () => {
       expect(typeof PB_ENCRYPTED_PREFIX).toBe("string");
-      expect(PB_ENCRYPTED_PREFIX.length > 0).toBeTruthy();
+      expect(PB_ENCRYPTED_PREFIX.length).toBeGreaterThan(0);
     });
 
     it("has expected format", () => {
-      expect(PB_ENCRYPTED_PREFIX.startsWith("pbenc:")).toBeTruthy();
+      expect(PB_ENCRYPTED_PREFIX).toMatch(/^pbenc:/);
     });
   });
 
   describe("isEncryptedString", () => {
     it("returns true for encrypted format", () => {
-      expect(isEncryptedString(`${PB_ENCRYPTED_PREFIX}{"data":"test"}`)).toBeTruthy();
+      expect(isEncryptedString(`${PB_ENCRYPTED_PREFIX}{"data":"test"}`)).toBe(true);
     });
 
     it("returns false for non-string", () => {
@@ -69,7 +69,7 @@ describe("shared/utils/storage-crypto", () => {
       const passphrase = "test-password-123";
 
       const encrypted = await encryptString(plaintext, { passphrase });
-      expect(isEncryptedString(encrypted)).toBeTruthy();
+      expect(isEncryptedString(encrypted)).toBe(true);
 
       const decrypted = await decryptString(encrypted, { passphrase });
       expect(decrypted).toBe(plaintext);
@@ -80,7 +80,7 @@ describe("shared/utils/storage-crypto", () => {
 
       const passphrase = "test-password";
       const encrypted = await encryptString(12345, { passphrase });
-      expect(isEncryptedString(encrypted)).toBeTruthy();
+      expect(isEncryptedString(encrypted)).toBe(true);
 
       const decrypted = await decryptString(encrypted, { passphrase });
       expect(decrypted).toBe("12345");

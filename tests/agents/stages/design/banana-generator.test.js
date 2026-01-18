@@ -19,9 +19,9 @@ describe("BananaGenerator", () => {
         keyMessage: "Key point",
       };
       const prompt = buildImagePrompt(intent, {});
-      expect(prompt.includes("Test Slide")).toBeTruthy();
-      expect(prompt.includes("content")).toBeTruthy();
-      expect(prompt.includes("chart")).toBeTruthy();
+      expect(prompt).toContain('Slide title: "Test Slide"');
+      expect(prompt).toContain("Page type: content");
+      expect(prompt).toContain("Visual focus: chart");
     });
 
     it("should include design system info", () => {
@@ -31,8 +31,8 @@ describe("BananaGenerator", () => {
         colorScheme: "blue",
       };
       const prompt = buildImagePrompt(intent, designSystem);
-      expect(prompt.includes("modern")).toBeTruthy();
-      expect(prompt.includes("blue")).toBeTruthy();
+      expect(prompt).toContain("theme: modern");
+      expect(prompt).toContain("colors: blue");
     });
 
     it("should include bullets", () => {
@@ -41,13 +41,13 @@ describe("BananaGenerator", () => {
         bullets: ["Point 1", "Point 2"],
       };
       const prompt = buildImagePrompt(intent, {});
-      expect(prompt.includes("Point 1")).toBeTruthy();
+      expect(prompt).toContain("Content points: Point 1, Point 2");
     });
 
     it("should include additional prompt", () => {
       const intent = { title: "Test" };
       const prompt = buildImagePrompt(intent, {}, { additionalPrompt: "Extra info" });
-      expect(prompt.includes("Extra info")).toBeTruthy();
+      expect(prompt).toContain("Extra info");
     });
   });
 
@@ -55,7 +55,7 @@ describe("BananaGenerator", () => {
     it("should require imageGenerator", async () => {
       const result = await runBananaGenerate([], {});
       expect(result.success).toBe(false);
-      expect(result.error.includes("imageGenerator")).toBeTruthy();
+      expect(result.error).toBe("imageGenerator is required");
     });
 
     it("should generate images for all intents", async () => {
@@ -88,12 +88,13 @@ describe("BananaGenerator", () => {
     it("should require imageGenerator", async () => {
       const result = await regenerate({ slideIndex: 0, command: "test" }, {});
       expect(result.success).toBe(false);
+      expect(result.error).toBe("imageGenerator is required");
     });
 
     it("should regenerate with modified prompt", async () => {
       const mockGenerator = {
         generate: async ({ prompt }) => {
-          expect(prompt.includes("Make it blue")).toBeTruthy();
+          expect(prompt).toContain("Modification request: Make it blue");
           return { url: "http://test.com/new.png" };
         },
       };
@@ -111,7 +112,7 @@ describe("BananaGenerator", () => {
     it("should include bbox reference", async () => {
       const mockGenerator = {
         generate: async ({ prompt }) => {
-          expect(prompt.includes("x=10")).toBeTruthy();
+          expect(prompt).toContain("Reference area: x=10, y=20, w=100, h=50");
           return { url: "http://test.com/new.png" };
         },
       };
@@ -129,22 +130,22 @@ describe("BananaGenerator", () => {
 
   describe("BANANA_CONFIG", () => {
     it("should have default values", () => {
-      expect(BANANA_CONFIG.defaultWidth > 0).toBeTruthy();
-      expect(BANANA_CONFIG.defaultHeight > 0).toBeTruthy();
-      expect(BANANA_CONFIG.maxConcurrency > 0).toBeTruthy();
+      expect(BANANA_CONFIG.defaultWidth).toBe(1920);
+      expect(BANANA_CONFIG.defaultHeight).toBe(1080);
+      expect(BANANA_CONFIG.maxConcurrency).toBe(4);
     });
   });
 
   describe("BananaGenerator class", () => {
     it("should create instance", () => {
       const generator = createBananaGenerator();
-      expect(generator instanceof BananaGenerator).toBeTruthy();
+      expect(generator).toBeInstanceOf(BananaGenerator);
     });
 
     it("should get config", () => {
       const generator = createBananaGenerator();
       const config = generator.getConfig();
-      expect(config.defaultWidth).toBeTruthy();
+      expect(config.defaultWidth).toBe(BANANA_CONFIG.defaultWidth);
     });
 
     it("should set image generator", () => {

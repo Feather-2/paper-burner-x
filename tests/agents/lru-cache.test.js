@@ -18,18 +18,18 @@ describe("shared/utils/lru-cache", () => {
     describe("constructor", () => {
       it("creates with default options", () => {
         const c = new LRUCache();
-        expect(c).toBeTruthy();
+        expect(c).toBeInstanceOf(LRUCache);
         expect(c.size).toBe(0);
       });
 
       it("enforces minimum maxSize", () => {
         const c = new LRUCache({ maxSize: 0 });
-        expect(c._maxSize >= 1).toBeTruthy();
+        expect(c._maxSize).toBeGreaterThanOrEqual(1);
       });
 
       it("handles invalid maxSize", () => {
         const c = new LRUCache({ maxSize: NaN });
-        expect(c._maxSize >= 1).toBeTruthy();
+        expect(c._maxSize).toBeGreaterThanOrEqual(1);
       });
 
       it("handles negative ttlMs", () => {
@@ -92,7 +92,7 @@ describe("shared/utils/lru-cache", () => {
       it("has returns false for expired entry", async () => {
         const ttlCache = new LRUCache({ maxSize: 10, ttlMs: 50 });
         ttlCache.set("a", 1);
-        expect(ttlCache.has("a")).toBeTruthy();
+        expect(ttlCache.has("a")).toBe(true);
         await new Promise((r) => setTimeout(r, 60));
         expect(ttlCache.has("a")).toBe(false);
       });
@@ -101,7 +101,7 @@ describe("shared/utils/lru-cache", () => {
     describe("has", () => {
       it("returns true for existing key", () => {
         cache.set("a", 1);
-        expect(cache.has("a")).toBeTruthy();
+        expect(cache.has("a")).toBe(true);
       });
 
       it("returns false for missing key", () => {
@@ -118,7 +118,7 @@ describe("shared/utils/lru-cache", () => {
 
       it("returns true when deleted", () => {
         cache.set("a", 1);
-        expect(cache.delete("a")).toBeTruthy();
+        expect(cache.delete("a")).toBe(true);
       });
 
       it("returns false when not found", () => {
@@ -205,8 +205,8 @@ describe("shared/utils/lru-cache", () => {
         cache.set("a", 1);
         cache.set("b", 2);
         const keys = cache.keys();
-        expect(keys.includes("a")).toBeTruthy();
-        expect(keys.includes("b")).toBeTruthy();
+        expect(keys).toContain("a");
+        expect(keys).toContain("b");
       });
     });
 
@@ -215,8 +215,8 @@ describe("shared/utils/lru-cache", () => {
         cache.set("a", 1);
         cache.set("b", 2);
         const values = cache.values();
-        expect(values.includes(1)).toBeTruthy();
-        expect(values.includes(2)).toBeTruthy();
+        expect(values).toContain(1);
+        expect(values).toContain(2);
       });
     });
 
@@ -284,14 +284,14 @@ describe("shared/utils/lru-cache", () => {
         ttlMs: 1000,
         pruneIntervalMs: 100,
       });
-      expect(cache instanceof LRUCache).toBeTruthy();
+      expect(cache).toBeInstanceOf(LRUCache);
       expect(typeof stop).toBe("function");
       stop(); // Cleanup
     });
 
     it("creates with default options", () => {
       const { cache, stop } = createAutoPruningCache();
-      expect(cache).toBeTruthy();
+      expect(cache).toBeInstanceOf(LRUCache);
       stop();
     });
 
@@ -306,7 +306,7 @@ describe("shared/utils/lru-cache", () => {
       cache.set("a", 1);
       cache.set("b", 2);
       cache.set("c", 3);
-      expect(called).toBeTruthy();
+      expect(called).toBe(true);
       stop();
     });
   });

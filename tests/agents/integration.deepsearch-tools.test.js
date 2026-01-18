@@ -23,7 +23,13 @@ it("Integration: DeepSearch ToolExecutor runs multiple tools end-to-end", async 
 
   const r1 = await executor.execute("manage-todos", { action: "create", text: "Do thing" }, { state, emit, sharedContext });
   expect(r1.success).toBe(true);
-  expect(r1.data.todo && r1.data.todo.todoId).toBeTruthy();
+  expect(r1.data.todo).toEqual(
+    expect.objectContaining({
+      todoId: expect.stringMatching(/^todo_/),
+      text: "Do thing",
+      status: "open",
+    })
+  );
   expect(state.todos.length).toBe(1);
 
   const r2 = await executor.execute(
@@ -32,9 +38,38 @@ it("Integration: DeepSearch ToolExecutor runs multiple tools end-to-end", async 
     { state, emit, sharedContext }
   );
   expect(r2.success).toBe(true);
-  expect(Array.isArray(commits ) && commits.length >= 1).toBeTruthy();
+  expect(r2.data.finding).toEqual(
+    expect.objectContaining({
+      id: expect.stringMatching(/^claim_[0-9a-z]+_[0-9a-f]{16}$/),
+      type: "claim",
+      content: "Finding",
+      source: "doc1",
+      lineStart: 1,
+      lineEnd: 1,
+      ref: "[doc1:L1]",
+    })
+  );
+  expect(commits).toHaveLength(1);
+  expect(commits[0]).toEqual({
+    kind: "finding_claim",
+    payload: expect.objectContaining({
+      full: r2.data.finding,
+    }),
+  });
 
-  expect(events.some(e => e.name === "deepsearch.todo.created")).toBeTruthy();
-  expect(events.some(e => e.name.startsWith("deepsearch.finding."))).toBeTruthy();
+  expect(events).toHaveLength(2);
+  expect(events[0]).toEqual({
+    name: "deepsearch.todo.created",
+    payload: {
+      todoId: r1.data.todo.todoId,
+      text: "Do thing",
+    },
+  });
+  expect(events[1]).toEqual({
+    name: "deepsearch.finding.claim",
+    payload: expect.objectContaining({
+      id: r2.data.finding.id,
+      content: "Finding",
+    }),
+  });
 });
-

@@ -55,7 +55,12 @@ describe('js/processing/formula_post_processor.esm.js', () => {
   it('exports default API and mirrors to window', async () => {
     const api = await loadFormulaPostProcessor();
 
-    expect(api.default).toBeTruthy();
+    expect(api.default).toEqual(
+      expect.objectContaining({
+        processFormulasInElement: expect.any(Function),
+        version: '1.0.0',
+      }),
+    );
     expect(api.default).toBe(globalThis.FormulaPostProcessor);
     expect(window.FormulaPostProcessor).toBe(api.default);
 
@@ -183,7 +188,7 @@ describe('js/processing/formula_post_processor.esm.js', () => {
 
     expect(root.querySelector('.katex-fallback')).toBeNull();
     const rendered = root.querySelector('span.katex-inline');
-    expect(rendered).toBeTruthy();
+    expect(rendered).toBeInstanceOf(HTMLSpanElement);
     expect(rendered.getAttribute('data-formula')).toBe('\\vec{x}');
   });
 

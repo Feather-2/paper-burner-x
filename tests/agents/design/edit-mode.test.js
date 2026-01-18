@@ -285,7 +285,7 @@ it("edit tools cover edge cases and undo/redo paths", async () => {
   try {
     const addRes = await executor("add_slide", { afterIndex: "bad" });
     expect(addRes.success).toBe(true);
-    expect(state.slides[state.slides.length - 1].id.startsWith("slide_")).toBeTruthy();
+    expect(state.slides[state.slides.length - 1].id).toMatch(/^slide_/);
     historyManager.undo();
     historyManager.redo();
 
@@ -321,7 +321,7 @@ it("edit tools cover edge cases and undo/redo paths", async () => {
     historyManager.redo();
 
     const addEl = await executor("add_element", { slideIndex: 0, elementType: "Shape" });
-    expect(addEl.data.element.id.startsWith("el_")).toBeTruthy();
+    expect(addEl.data.element.id).toMatch(/^el_/);
     historyManager.undo();
     historyManager.redo();
 
@@ -381,8 +381,8 @@ it("edit loop handles clarification, quick actions, and parsing errors", async (
     chat: { send: async ({ message }) => chatMessages.push(message) },
   });
 
-  expect(chatMessages.some(msg => msg.includes("clarify"))).toBeTruthy();
-  expect(emits.some(evt => evt.name === "edit.session.transition")).toBeTruthy();
+  expect(chatMessages).toEqual(expect.arrayContaining([expect.stringContaining("clarify")]));
+  expect(emits).toEqual(expect.arrayContaining([expect.objectContaining({ name: "edit.session.transition" })]));
 });
 
 it("EditModeAgentLoop intent parsing fallback and JSON errors", async () => {
@@ -453,7 +453,7 @@ it("edit loop rolls back transaction when a tool fails", async () => {
   await loop.run(state, { actions: [{ type: "chat_message", message: "change" }, { type: "exit" }], chat });
 
   expect(state.slides[0].elements[0].text).toBe("Title");
-  expect(messages.some(msg => msg.includes("操作失败"))).toBeTruthy();
+  expect(messages).toEqual(expect.arrayContaining([expect.stringContaining("操作失败")]));
 });
 
 it("edit loop requires a waitForUserAction or actions queue", async () => {

@@ -14,26 +14,26 @@ describe("shared/embeddings/vector-index", () => {
   describe("constructor", () => {
     it("creates with default options", () => {
       const idx = new VectorIndex();
-      expect(idx).toBeTruthy();
+      expect(idx).toBeInstanceOf(VectorIndex);
       expect(idx.size).toBe(0);
       expect(idx.dimension).toBe(null);
     });
 
     it("accepts maxItems option", () => {
       const idx = new VectorIndex({ maxItems: 50 });
-      expect(idx).toBeTruthy();
+      expect(idx).toBeInstanceOf(VectorIndex);
     });
 
     it("handles non-object options", () => {
       const idx = new VectorIndex("invalid");
-      expect(idx).toBeTruthy();
+      expect(idx).toBeInstanceOf(VectorIndex);
     });
   });
 
   describe("upsert", () => {
     it("adds vector with id", () => {
       const result = index.upsert("doc1", [1, 0, 0]);
-      expect(result).toBeTruthy();
+      expect(result).toBe(true);
       expect(index.size).toBe(1);
     });
 
@@ -94,27 +94,27 @@ describe("shared/embeddings/vector-index", () => {
     it("accepts Float32Array", () => {
       const vec = new Float32Array([1, 0, 0]);
       const result = index.upsert("doc1", vec);
-      expect(result).toBeTruthy();
+      expect(result).toBe(true);
     });
 
     it("accepts ArrayBuffer", () => {
       const vec = new Float32Array([1, 0, 0]).buffer;
       const result = index.upsert("doc1", vec);
-      expect(result).toBeTruthy();
+      expect(result).toBe(true);
     });
 
     it("handles vector with NaN (converted to 0)", () => {
       // NaN is converted to 0 by Number() in toFloat32Array
       const result = index.upsert("doc1", [1, NaN, 0]);
       // After conversion: [1, 0, 0] - valid vector
-      expect(result).toBeTruthy();
+      expect(result).toBe(true);
     });
   });
 
   describe("has", () => {
     it("returns true for existing id", () => {
       index.upsert("doc1", [1, 0, 0]);
-      expect(index.has("doc1")).toBeTruthy();
+      expect(index.has("doc1")).toBe(true);
     });
 
     it("returns false for non-existing id", () => {
@@ -130,7 +130,7 @@ describe("shared/embeddings/vector-index", () => {
     it("removes existing entry", () => {
       index.upsert("doc1", [1, 0, 0]);
       const result = index.delete("doc1");
-      expect(result).toBeTruthy();
+      expect(result).toBe(true);
       expect(index.has("doc1")).toBe(false);
     });
 
@@ -164,20 +164,20 @@ describe("shared/embeddings/vector-index", () => {
 
     it("returns top matches", () => {
       const results = index.search([1, 0, 0]);
-      expect(results.length > 0).toBeTruthy();
+      expect(results.length).toBeGreaterThan(0);
       expect(results[0].id).toBe("doc1");
-      expect(results[0].score > 0.9).toBeTruthy();
+      expect(results[0].score).toBeGreaterThan(0.9);
     });
 
     it("respects topK", () => {
       const results = index.search([1, 0, 0], { topK: 2 });
-      expect(results.length <= 2).toBeTruthy();
+      expect(results.length).toBeLessThanOrEqual(2);
     });
 
     it("uses default topK when 0 passed", () => {
       // toPositiveInt returns fallback (5) for 0
       const results = index.search([1, 0, 0], { topK: 0 });
-      expect(results.length > 0).toBeTruthy();
+      expect(results.length).toBeGreaterThan(0);
     });
 
     it("returns empty for empty index", () => {
@@ -208,13 +208,13 @@ describe("shared/embeddings/vector-index", () => {
     it("applies minScore threshold", () => {
       const results = index.search([1, 0, 0], { minScore: 0.99 });
       // Only exact match should pass
-      expect(results.length <= 1).toBeTruthy();
+      expect(results.length).toBeLessThanOrEqual(1);
     });
 
     it("returns results sorted by score", () => {
       const results = index.search([0.7, 0.7, 0], { topK: 3 });
       for (let i = 1; i < results.length; i++) {
-        expect(results[i - 1].score >= results[i].score).toBeTruthy();
+        expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score);
       }
     });
   });

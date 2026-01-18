@@ -34,7 +34,7 @@ describe('js/processing/content-list-to-chunks.js', () => {
   it('exports a ContentListToChunks facade with helper functions', async () => {
     const api = await loadContentListToChunks();
 
-    expect(api).toBeTruthy();
+    expect(api).toMatchObject({ version: '1.0.0' });
     expect(typeof api.generateChunksFromContentList).toBe('function');
     expect(typeof api.generateChunksFromFullText).toBe('function');
     expect(typeof api.groupByPage).toBe('function');
@@ -182,4 +182,3 @@ describe('js/processing/content-list-to-chunks.js', () => {
     });
   });
 });
-

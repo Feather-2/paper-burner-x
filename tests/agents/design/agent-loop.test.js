@@ -95,7 +95,7 @@ it("DesignAgentLoop runs phases, uses tools, emits events", async () => {
 
   expect(deck.schemaVersion).toBe("0.1");
   expect(deck.slidesMeta.length).toBe(2);
-  expect(deck.deckHtmlDsl.includes("<section")).toBeTruthy();
+  expect(deck.deckHtmlDsl).toContain("<section");
 
   expect(calls).toEqual(["parse_outline", "extract_style", "spawn_slide_agent", "fill_visual"]);
 
@@ -118,11 +118,11 @@ it("DesignAgentLoop runs phases, uses tools, emits events", async () => {
     DesignPhase.COMPLETED,
   ]);
 
-  expect(events.some(evt => evt.name === "design.started")).toBeTruthy();
-  expect(events.some(evt => evt.name === "design.tokens.ended")).toBeTruthy();
-  expect(events.some(evt => evt.name === "design.generate.ended")).toBeTruthy();
-  expect(events.some(evt => evt.name === "design.qa.ended")).toBeTruthy();
-  expect(events.some(evt => evt.name === "design.ended")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.started")).toBe(true);
+  expect(events.some(evt => evt.name === "design.tokens.ended")).toBe(true);
+  expect(events.some(evt => evt.name === "design.generate.ended")).toBe(true);
+  expect(events.some(evt => evt.name === "design.qa.ended")).toBe(true);
+  expect(events.some(evt => evt.name === "design.ended")).toBe(true);
 });
 
 it("DesignAgentLoop waits for confirmations across phases", async () => {
@@ -192,9 +192,9 @@ it("DesignAgentLoop waits for confirmations across phases", async () => {
   });
 
   expect(deck.slidesMeta.length).toBe(updatedSlides.length);
-  expect(events.some(evt => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.PLAN_CONFIRMING)).toBeTruthy();
-  expect(events.some(evt => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.LAYOUT_CONFIRMING)).toBeTruthy();
-  expect(calls.includes("spawn_slide_agent")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.PLAN_CONFIRMING)).toBe(true);
+  expect(events.some(evt => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.LAYOUT_CONFIRMING)).toBe(true);
+  expect(calls).toContain("spawn_slide_agent");
 });
 
 it("DesignAgentLoop reports QA failures and keeps degraded count", async () => {
@@ -239,9 +239,9 @@ it("DesignAgentLoop reports QA failures and keeps degraded count", async () => {
   // After safeMode fallback, qa reflects the fixed HTML (passes), but degraded=true marks it
   expect(deck.slidesMeta[0].qa.pass).toBe(true);
   expect(deck.slidesMeta[0].degraded).toBe(true);
-  expect(events.some(evt => evt.name === "design.qa.ended" && evt.record.payload?.degradedCount === 1)).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.qa.ended" && evt.record.payload?.degradedCount === 1)).toBe(true);
   // design.degraded event is emitted when safeMode fallback occurs
-  expect(events.some(evt => evt.name === "design.degraded")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.degraded")).toBe(true);
 });
 
 it("DesignAgentLoop._renderVisuals fills placeholders", async () => {
@@ -289,9 +289,9 @@ it("DesignAgentLoop._renderVisuals fills placeholders", async () => {
       ["img1"]
     );
 
-    expect(result.deckHtmlDsl.includes("data-el=\"image\"")).toBeTruthy();
-    expect(result.deckHtmlDsl.includes("data-el=\"svg\"")).toBeTruthy();
-    expect(result.deckHtmlDsl.includes("data-render-type=\"asset\"")).toBeTruthy();
+    expect(result.deckHtmlDsl).toContain('data-el="image"');
+    expect(result.deckHtmlDsl).toContain('data-el="svg"');
+    expect(result.deckHtmlDsl).toContain('data-render-type="asset"');
     expect(result.pendingImages).toEqual([]);
   } finally {
     VisualSubAgent.prototype.run = originalRun;
@@ -323,7 +323,7 @@ it("DesignAgentLoop._renderVisuals handles renderer errors", async () => {
     );
 
     expect(result.visualReport.hasFatalError).toBe(true);
-    expect(result.imageReport.error.includes("Render exploded")).toBeTruthy();
+    expect(result.imageReport.error).toContain("Render exploded");
     expect(result.pendingImages).toEqual(["img1"]);
   } finally {
     VisualSubAgent.prototype.run = originalRun;
@@ -346,7 +346,7 @@ it("DesignAgentLoop._toolChatAsk waits for user action", async () => {
 
   expect(result.actionName).toBe("chat_reply");
   expect(result.payload).toEqual({ reply: "ok" });
-  expect(events.some(evt => evt.name === "design.chat.ask")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.chat.ask")).toBe(true);
 });
 
 it("DesignAgentLoop._callTool resolves executors and reports errors", async () => {
@@ -371,7 +371,7 @@ it("DesignAgentLoop._callTool resolves executors and reports errors", async () =
 
   const missing = await loop._callTool("unknown_tool", {}, {});
   expect(missing.ok).toBe(false);
-  expect(missing.error.includes("Unknown tool")).toBeTruthy();
+  expect(missing.error).toContain("Unknown tool");
 });
 
 it("DesignAgentLoop.waitForUserAction requires an event bus", async () => {
@@ -514,10 +514,10 @@ it("DesignAgentLoop emits image planning events when configured", async () => {
   });
 
   const planning = events.find((evt) => evt.name === "design.image.planning.completed");
-  expect(planning, "planning event should be emitted").toBeTruthy();
+  expect(planning, "planning event should be emitted").toBeDefined();
   expect(planning.record.payload.planned).toBe(2);
   expect(planning.record.payload.estimatedCostUSD).toBe(0.08);
-  expect(calls.includes("spawn_slide_agent")).toBeTruthy();
+  expect(calls).toContain("spawn_slide_agent");
 });
 
 it("DesignAgentLoop.getToolDefinitions returns a copy", async () => {
@@ -628,7 +628,7 @@ it("DesignAgentLoop._transitionTo throws StagePausedError when pause requested",
     pauseError = err;
   }
 
-  expect(pauseError instanceof StagePausedError).toBeTruthy();
+  expect(pauseError).toBeInstanceOf(StagePausedError);
   expect(pauseError.reason).toBe("manual_pause");
 
   expect(loop.loopStatus).toBe(AgentStatus.PAUSED);
@@ -664,7 +664,7 @@ it("DesignAgentLoop run pauses before executing and persists checkpoint", async 
     pauseError = err;
   }
 
-  expect(pauseError instanceof StagePausedError).toBeTruthy();
+  expect(pauseError).toBeInstanceOf(StagePausedError);
   expect(pauseError.reason).toBe("manual_pause");
 
   expect(loop.loopStatus).toBe(AgentStatus.PAUSED);
@@ -712,7 +712,7 @@ it("DesignAgentLoop falls back when design system overrides are invalid", async 
     {}
   );
 
-  expect(style.designSystem?.designTokens, "fallback design tokens should be present").toBeTruthy();
+  expect(style.designSystem?.designTokens, "fallback design tokens should be present").toEqual(expect.any(Object));
 });
 
 it("DesignAgentLoop._renderVisuals emits visual error events", async () => {
@@ -746,7 +746,7 @@ it("DesignAgentLoop._renderVisuals emits visual error events", async () => {
     VisualSubAgent.prototype.run = originalRun;
   }
 
-  expect(events.some(evt => evt.name === "design.visual.errors")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.visual.errors")).toBe(true);
 });
 
 it("DesignAgentLoop serializes and hydrates node states", async () => {
@@ -797,7 +797,7 @@ it("DesignAgentLoop.backtrackTo restores blackboard version", async () => {
     loop.backtrackTo("v1", "test");
     throw new Error("Expected backtrackTo to throw BacktrackError" || 'Test failed');
   } catch (err) {
-    expect(err instanceof BacktrackError).toBeTruthy();
+    expect(err).toBeInstanceOf(BacktrackError);
     expect(err.targetPhase).toBe(DesignPhase.GENERATING);
     expect(loop.blackboard._currentVersion).toBe("v1");
   }
@@ -833,7 +833,7 @@ it("DesignAgentLoop runs refine when enabled", async () => {
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  expect(deck.refineReport, "refine report should be present when enabled").toBeTruthy();
+  expect(deck.refineReport, "refine report should be present when enabled").toEqual(expect.any(Object));
 });
 
 it("resumeDesignAgentLoop skips outline/style tools at deck planning checkpoint", async () => {
@@ -875,7 +875,7 @@ it("resumeDesignAgentLoop skips outline/style tools at deck planning checkpoint"
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  expect(deck.deckHtmlDsl.includes("<section")).toBeTruthy();
+  expect(deck.deckHtmlDsl).toContain("<section");
   expect(calls).toEqual(["spawn_slide_agent", "fill_visual"]);
 });
 
@@ -905,7 +905,8 @@ it("DesignAgentLoop saves pre-action checkpoint before executing", async () => {
 
   const checkpointId = await loop._transitionTo(AgentStatus.RUNNING, { runId, iteration: 1, nodeStates });
 
-  expect(typeof checkpointId === "string" && checkpointId.includes(":")).toBeTruthy();
+  expect(checkpointId).toBeTypeOf("string");
+  expect(checkpointId).toContain(":");
   const snapshot = await archive.restore(checkpointId);
   expect(snapshot.schemaVersion).toBe("1.0");
   expect(snapshot.metadata.type).toBe("pre-action");
@@ -921,7 +922,7 @@ it("DesignAgentLoop saves pre-action checkpoint before executing", async () => {
   expect(snapshot.nodeStates.slideHtmls).toEqual(loop.state.slideHtmls);
   expect(snapshot.nodeStates.deckHtmlDsl).toBe(loop.state.deckHtmlDsl);
   expect(snapshot.nodeStates.visualSlots).toEqual(loop.state.visualSlots);
-  expect(Array.isArray(snapshot.nodeStates.statusHistory)).toBeTruthy();
+  expect(snapshot.nodeStates.statusHistory).toBeInstanceOf(Array);
 });
 
 it("resumeDesignAgentLoop returns DeckPackage", async () => {
@@ -979,10 +980,10 @@ it("resumeDesignAgentLoop returns DeckPackage", async () => {
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  expect(deck).toBeTruthy();
+  expect(deck).toEqual(expect.any(Object));
   expect(deck.runId).toBe(contentPackage.runId);
-  expect(deck.designSystem).toBeTruthy();
-  expect(deck.deckHtmlDsl.includes("<section")).toBeTruthy();
+  expect(deck.designSystem).toEqual(expect.any(Object));
+  expect(deck.deckHtmlDsl).toContain("<section");
   expect(deck.slidesMeta.length).toBe(1);
   expect(calls).toEqual(["fill_visual"]);
 });
@@ -1017,9 +1018,10 @@ it("resumeDesignAgentLoop continues after pause checkpoint", async () => {
       toolExecutor,
     });
   } catch (err) {
-    expect(err instanceof StagePausedError).toBeTruthy();
+    expect(err).toBeInstanceOf(StagePausedError);
     checkpointId = err.checkpointId;
-    expect(typeof checkpointId === "string" && checkpointId.includes(":")).toBeTruthy();
+    expect(checkpointId).toBeTypeOf("string");
+    expect(checkpointId).toContain(":");
   }
 
   const calls = [];
@@ -1035,12 +1037,12 @@ it("resumeDesignAgentLoop continues after pause checkpoint", async () => {
     contentPackage, // 提供 contentPackage 作为 fallback
   });
 
-  expect(deck).toBeTruthy();
+  expect(deck).toEqual(expect.any(Object));
   expect(deck.runId).toBe(contentPackage.runId);
   expect(deck.slidesMeta.length).toBe(1);
-  expect(deck.designSystem).toBeTruthy();
+  expect(deck.designSystem).toEqual(expect.any(Object));
   // 由于暂停发生在 IDLE 阶段，resume 会重新执行所有步骤
-  expect(calls.includes("parse_outline") || calls.length > 0).toBeTruthy();
+  expect(calls.length).toBeGreaterThan(0);
 });
 
 it("DesignAgentLoop checkpoint snapshot is JSON serializable", async () => {
@@ -1062,5 +1064,5 @@ it("DesignAgentLoop checkpoint snapshot is JSON serializable", async () => {
   const roundtrip = JSON.parse(serialized);
 
   expect(roundtrip.nodeStates.loopStatus).toBe(AgentStatus.IDLE);
-  expect(Array.isArray(roundtrip.nodeStates.statusHistory)).toBeTruthy();
+  expect(roundtrip.nodeStates.statusHistory).toBeInstanceOf(Array);
 });

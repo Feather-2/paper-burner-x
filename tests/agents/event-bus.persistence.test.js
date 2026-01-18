@@ -153,8 +153,9 @@ it("EventBus replay(runId): syncs Lamport clock to replayed seq for cross-stage 
   await bus.replay("run_lamport");
 
   const evt = bus.emit("run.progress", { pct: 20 });
-  expect(evt.seq > remoteSeq).toBeTruthy();
-  expect(evt._clock && evt._clock.seq > remoteSeq).toBeTruthy();
+  expect(evt.seq).toBeGreaterThan(remoteSeq);
+  expect(evt._clock).toBeDefined();
+  expect(evt._clock.seq).toBeGreaterThan(remoteSeq);
 });
 
 it("EventBus replay(runId): missing runId throws clear error", async () => {
@@ -203,14 +204,16 @@ it("RunStoreAdapter integrates with RunStore (IndexedDB via fake-indexeddb)", as
   const storedBeforeReplay = await runStore.getEvents(runId);
   expect(storedBeforeReplay.length).toBe(2);
   expect(storedBeforeReplay[0].runId).toBe(runId);
-  expect(storedBeforeReplay[0].eventId).toBeTruthy();
+  expect(storedBeforeReplay[0].eventId).toMatch(new RegExp(`^evt_${runId}_\\d+$`));
 
   const replayBus = new EventBus({ runId: "run_store_replay", persistenceAdapter: adapter });
   const replayedSeen = [];
   replayBus.on("*", (e) => replayedSeen.push(e));
   await replayBus.replay(runId);
   expect(replayedSeen.length).toBe(2);
-  expect(replayedSeen.every(e => e.meta && e.meta.replay === true)).toBeTruthy();
+  for (const evt of replayedSeen) {
+    expect(evt.meta).toMatchObject({ replay: true });
+  }
 
   const storedAfterReplay = await runStore.getEvents(runId);
   expect(storedAfterReplay.length).toBe(2);

@@ -409,7 +409,15 @@ describe('runtime/tools/tool-executor: additional branches', () => {
 
     const pools = globalThis[POOLS_KEY];
     expect(pools instanceof Map).toBe(true);
-    expect(pools.get(getNodeWorkerPoolKey())).toBeTruthy();
+    expect(pools.has(getNodeWorkerPoolKey())).toBe(true);
+    expect(pools.get(getNodeWorkerPoolKey())).toEqual(
+      expect.objectContaining({
+        acquire: expect.any(Function),
+        release: expect.any(Function),
+        destroy: expect.any(Function),
+        setMaxWorkers: expect.any(Function),
+      })
+    );
   });
 
   it('covers the WebWorker execution path and cleans up event listeners', async () => {

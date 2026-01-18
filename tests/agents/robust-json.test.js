@@ -112,14 +112,14 @@ describe("shared/utils/robust-json", () => {
   describe("parseJsonStrict", () => {
     it("parses valid JSON directly", () => {
       const result = parseJsonStrict('{"key": "value"}');
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.code).toBe(ParseResultCode.OK);
       expect(result.data).toEqual({ key: "value" });
     });
 
     it("parses JSON from markdown block", () => {
       const result = parseJsonStrict('```json\n{"a": 1}\n```');
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.data).toEqual({ a: 1 });
     });
 
@@ -152,8 +152,9 @@ describe("shared/utils/robust-json", () => {
       const result = parseJsonStrict('prefix {"invalid": }');
       expect(result.ok).toBe(false);
       expect(result.code).toBe(ParseResultCode.INVALID_JSON);
-      expect(result.error).toBeTruthy();
-      expect(result.rawInput).toBeTruthy();
+      expect(result.error).toBeTypeOf("string");
+      expect(result.error).toMatch(/\S/);
+      expect(result.rawInput).toBe('{"invalid": }');
     });
 
     it("returns NO_JSON_FOUND when no structure found", () => {
@@ -164,13 +165,13 @@ describe("shared/utils/robust-json", () => {
 
     it("handles BOM in input", () => {
       const result = parseJsonStrict('\uFEFF{"bom": true}');
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.data).toEqual({ bom: true });
     });
 
     it("parses arrays", () => {
       const result = parseJsonStrict("[1, 2, 3]");
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.data).toEqual([1, 2, 3]);
     });
   });
@@ -284,30 +285,30 @@ describe("shared/utils/robust-json", () => {
   describe("generateJsonCorrectionPrompt", () => {
     it("includes error message", () => {
       const prompt = generateJsonCorrectionPrompt("Unexpected token", '{"bad": }');
-      expect(prompt.includes("Unexpected token")).toBeTruthy();
+      expect(prompt).toContain("Unexpected token");
     });
 
     it("includes raw input preview", () => {
       const prompt = generateJsonCorrectionPrompt("Error", '{"preview": "text"}');
-      expect(prompt.includes('{"preview": "text"}')).toBeTruthy();
+      expect(prompt).toContain('{"preview": "text"}');
     });
 
     it("handles empty raw input", () => {
       const prompt = generateJsonCorrectionPrompt("Error", "");
-      expect(prompt.includes("Error")).toBeTruthy();
-      expect(!prompt.includes("problematic content")).toBeTruthy();
+      expect(prompt).toContain("Error");
+      expect(prompt).not.toContain("problematic content");
     });
 
     it("truncates long raw input", () => {
       const longInput = "x".repeat(500);
       const prompt = generateJsonCorrectionPrompt("Error", longInput);
-      expect(prompt.length < longInput.length + 500).toBeTruthy();
+      expect(prompt.length).toBeLessThan(longInput.length + 500);
     });
   });
 
   describe("ParseResultCode", () => {
     it("is frozen", () => {
-      expect(Object.isFrozen(ParseResultCode)).toBeTruthy();
+      expect(Object.isFrozen(ParseResultCode)).toBe(true);
     });
 
     it("has expected codes", () => {

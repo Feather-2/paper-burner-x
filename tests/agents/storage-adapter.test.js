@@ -10,7 +10,7 @@ import {
 describe("vfs/storage-adapter", () => {
   describe("StorageBackend", () => {
     it("exports frozen constants", () => {
-      expect(Object.isFrozen(StorageBackend)).toBeTruthy();
+      expect(Object.isFrozen(StorageBackend)).toBe(true);
     });
 
     it("has OPFS backend", () => {
@@ -115,7 +115,7 @@ describe("vfs/storage-adapter", () => {
     describe("has", () => {
       it("returns true for existing key", async () => {
         await adapter.set("key1", "value");
-        expect(await adapter.has("key1")).toBeTruthy();
+        expect(await adapter.has("key1")).toBe(true);
       });
 
       it("returns false for missing key", async () => {
@@ -127,7 +127,7 @@ describe("vfs/storage-adapter", () => {
       it("removes existing key", async () => {
         await adapter.set("key1", "value");
         const result = await adapter.delete("key1");
-        expect(result).toBeTruthy();
+        expect(result).toBe(true);
         expect(await adapter.has("key1")).toBe(false);
       });
 

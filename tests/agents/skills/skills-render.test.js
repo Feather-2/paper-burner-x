@@ -111,9 +111,9 @@ describe("skills/render", () => {
     it("renders skills section with header", () => {
       const skills = [{ name: "TestSkill", description: "A test skill" }];
       const result = renderSkillsSection(skills);
-      expect(result.includes("## Skills")).toBeTruthy();
-      expect(result.includes("TestSkill")).toBeTruthy();
-      expect(result.includes("A test skill")).toBeTruthy();
+      expect(result.includes("## Skills")).toBe(true);
+      expect(result.includes("TestSkill")).toBe(true);
+      expect(result.includes("A test skill")).toBe(true);
     });
 
     it("shows priority group titles by default", () => {
@@ -123,9 +123,9 @@ describe("skills/render", () => {
         { name: "Optional", description: "desc", priority: "optional" },
       ];
       const result = renderSkillsSection(skills);
-      expect(result.includes("Core Skills")).toBeTruthy();
-      expect(result.includes("Standard Skills")).toBeTruthy();
-      expect(result.includes("Optional Skills")).toBeTruthy();
+      expect(result.includes("Core Skills")).toBe(true);
+      expect(result.includes("Standard Skills")).toBe(true);
+      expect(result.includes("Optional Skills")).toBe(true);
     });
 
     it("hides priority group titles when showPriority=false", () => {
@@ -134,13 +134,13 @@ describe("skills/render", () => {
         { name: "Important", description: "desc", priority: "important" },
       ];
       const result = renderSkillsSection(skills, { showPriority: false });
-      expect(!result.includes("### ")).toBeTruthy();
+      expect(result.includes("### ")).toBe(false);
     });
 
     it("includes file path when available", () => {
       const skills = [{ name: "PathSkill", description: "desc", path: "/home/user/skill.md" }];
       const result = renderSkillsSection(skills);
-      expect(result.includes("(file:")).toBeTruthy();
+      expect(result.includes("(file:")).toBe(true);
     });
 
     it("reads metadata from skill.metadata", () => {
@@ -148,43 +148,43 @@ describe("skills/render", () => {
         metadata: { name: "MetaSkill", description: "from meta", path: "test.md" }
       }];
       const result = renderSkillsSection(skills);
-      expect(result.includes("MetaSkill")).toBeTruthy();
-      expect(result.includes("from meta")).toBeTruthy();
+      expect(result.includes("MetaSkill")).toBe(true);
+      expect(result.includes("from meta")).toBe(true);
     });
 
     it("includes usage instructions in output", () => {
       const skills = [{ name: "TestSkill", description: "desc" }];
       const result = renderSkillsSection(skills);
-      expect(result.includes("Discovery:")).toBeTruthy();
-      expect(result.includes("Trigger rules:")).toBeTruthy();
-      expect(result.includes("How to use a skill")).toBeTruthy();
+      expect(result.includes("Discovery:")).toBe(true);
+      expect(result.includes("Trigger rules:")).toBe(true);
+      expect(result.includes("How to use a skill")).toBe(true);
     });
 
     it("normalizes absolute paths to filename only", () => {
       const skills = [{ name: "S", description: "d", path: "/long/absolute/path/to/skill.md" }];
       const result = renderSkillsSection(skills);
-      expect(result.includes("skill.md")).toBeTruthy();
-      expect(!result.includes("/long/absolute/path")).toBeTruthy();
+      expect(result.includes("skill.md")).toBe(true);
+      expect(result.includes("/long/absolute/path")).toBe(false);
     });
 
     it("normalizes Windows paths", () => {
       const skills = [{ name: "S", description: "d", path: "C:\\Users\\test\\skill.md" }];
       const result = renderSkillsSection(skills);
-      expect(result.includes("skill.md")).toBeTruthy();
+      expect(result.includes("skill.md")).toBe(true);
     });
 
     it("preserves user: and nexus:// prefixes", () => {
       const skills1 = [{ name: "S", description: "d", path: "user:my-skill" }];
       const skills2 = [{ name: "S", description: "d", path: "nexus://remote/skill" }];
-      expect(renderSkillsSection(skills1).includes("user:my-skill")).toBeTruthy();
-      expect(renderSkillsSection(skills2).includes("nexus://remote/skill")).toBeTruthy();
+      expect(renderSkillsSection(skills1).includes("user:my-skill")).toBe(true);
+      expect(renderSkillsSection(skills2).includes("nexus://remote/skill")).toBe(true);
     });
 
     it("extracts pathname from HTTP URLs", () => {
       const skills = [{ name: "S", description: "d", path: "https://example.com/skills/my-skill?v=1" }];
       const result = renderSkillsSection(skills);
-      expect(result.includes("/skills/my-skill?v=1")).toBeTruthy();
-      expect(!result.includes("https://example.com")).toBeTruthy();
+      expect(result.includes("/skills/my-skill?v=1")).toBe(true);
+      expect(result.includes("https://example.com")).toBe(false);
     });
   });
 
@@ -198,13 +198,13 @@ describe("skills/render", () => {
     it("renders available skills header", () => {
       const skills = [{ name: "Test", description: "desc" }];
       const result = renderSkillsList(skills);
-      expect(result.includes("Available skills:")).toBeTruthy();
+      expect(result.includes("Available skills:")).toBe(true);
     });
 
     it("prefixes skill names with $", () => {
       const skills = [{ name: "MySkill", description: "desc" }];
       const result = renderSkillsList(skills);
-      expect(result.includes("$MySkill")).toBeTruthy();
+      expect(result.includes("$MySkill")).toBe(true);
     });
 
     it("shows priority icons for critical and optional", () => {
@@ -219,11 +219,11 @@ describe("skills/render", () => {
       const criticalLine = lines.find(l => l.includes("$Critical"));
       const optionalLine = lines.find(l => l.includes("$Optional"));
       const importantLine = lines.find(l => l.includes("$Important"));
-      expect(criticalLine.includes("\u{1F534}")).toBeTruthy(); // red circle
-      expect(optionalLine.includes("\u26AA")).toBeTruthy(); // white circle
+      expect(criticalLine.includes("\u{1F534}")).toBe(true); // red circle
+      expect(optionalLine.includes("\u26AA")).toBe(true); // white circle
       expect(
         !importantLine.includes("\u{1F534}") && !importantLine.includes("\u26AA")
-      ).toBeTruthy();
+      ).toBe(true);
     });
 
     it("uses shortDescription when available", () => {
@@ -233,8 +233,8 @@ describe("skills/render", () => {
         shortDescription: "short desc"
       }];
       const result = renderSkillsList(skills);
-      expect(result.includes("short desc")).toBeTruthy();
-      expect(!result.includes("long description")).toBeTruthy();
+      expect(result.includes("short desc")).toBe(true);
+      expect(result.includes("long description")).toBe(false);
     });
 
     it("orders skills by priority: critical, important, optional", () => {
@@ -245,23 +245,23 @@ describe("skills/render", () => {
       ];
       const result = renderSkillsList(skills);
       const lines = result.split("\\n").filter(l => l.startsWith("-"));
-      expect(lines[0].includes("Critical")).toBeTruthy();
-      expect(lines[1].includes("Important")).toBeTruthy();
-      expect(lines[2].includes("Optional")).toBeTruthy();
+      expect(lines[0].includes("Critical")).toBe(true);
+      expect(lines[1].includes("Important")).toBe(true);
+      expect(lines[2].includes("Optional")).toBe(true);
     });
 
     it("reads from metadata", () => {
       const skills = [{ metadata: { name: "FromMeta", description: "meta desc" } }];
       const result = renderSkillsList(skills);
-      expect(result.includes("$FromMeta")).toBeTruthy();
-      expect(result.includes("meta desc")).toBeTruthy();
+      expect(result.includes("$FromMeta")).toBe(true);
+      expect(result.includes("meta desc")).toBe(true);
     });
   });
 
   describe("renderUnifiedCatalog", () => {
     it("returns header for empty input", () => {
       const result = renderUnifiedCatalog({});
-      expect(result.includes("## ")).toBeTruthy();
+      expect(result.includes("## ")).toBe(true);
     });
 
     it("renders capabilities section", () => {
@@ -270,9 +270,9 @@ describe("skills/render", () => {
         { definition: { name: "Tool2", description: "desc2", priority: "critical" } },
       ];
       const result = renderUnifiedCatalog({ capabilities });
-      expect(result.includes("Capabilities")).toBeTruthy();
-      expect(result.includes("**Tool1**")).toBeTruthy();
-      expect(result.includes("**Tool2**")).toBeTruthy();
+      expect(result.includes("Capabilities")).toBe(true);
+      expect(result.includes("**Tool1**")).toBe(true);
+      expect(result.includes("**Tool2**")).toBe(true);
     });
 
     it("renders skills section", () => {
@@ -281,9 +281,9 @@ describe("skills/render", () => {
         { name: "Skill2", description: "desc2", priority: "optional" },
       ];
       const result = renderUnifiedCatalog({ skills });
-      expect(result.includes("Skills")).toBeTruthy();
-      expect(result.includes("**$Skill1**")).toBeTruthy();
-      expect(result.includes("**$Skill2**")).toBeTruthy();
+      expect(result.includes("Skills")).toBe(true);
+      expect(result.includes("**$Skill1**")).toBe(true);
+      expect(result.includes("**$Skill2**")).toBe(true);
     });
 
     it("shows priority icons for capabilities", () => {
@@ -293,9 +293,9 @@ describe("skills/render", () => {
         { definition: { name: "Important", description: "d" } },
       ];
       const result = renderUnifiedCatalog({ capabilities });
-      expect(result.includes("\u{1F534}")).toBeTruthy(); // red
-      expect(result.includes("\u26AA")).toBeTruthy(); // white
-      expect(result.includes("\u{1F7E1}")).toBeTruthy(); // yellow
+      expect(result.includes("\u{1F534}")).toBe(true); // red
+      expect(result.includes("\u26AA")).toBe(true); // white
+      expect(result.includes("\u{1F7E1}")).toBe(true); // yellow
     });
 
     it("shows priority icons for skills", () => {
@@ -305,9 +305,9 @@ describe("skills/render", () => {
         { name: "Important", description: "d" },
       ];
       const result = renderUnifiedCatalog({ skills });
-      expect(result.includes("\u{1F534}")).toBeTruthy(); // red
-      expect(result.includes("\u26AA")).toBeTruthy(); // white
-      expect(result.includes("\u{1F7E1}")).toBeTruthy(); // yellow
+      expect(result.includes("\u{1F534}")).toBe(true); // red
+      expect(result.includes("\u26AA")).toBe(true); // white
+      expect(result.includes("\u{1F7E1}")).toBe(true); // yellow
     });
 
     it("uses shortDescription for skills when available", () => {
@@ -317,7 +317,7 @@ describe("skills/render", () => {
         shortDescription: "short"
       }];
       const result = renderUnifiedCatalog({ skills });
-      expect(result.includes("short")).toBeTruthy();
+      expect(result.includes("short")).toBe(true);
     });
 
     it("reads capability from definition or directly", () => {
@@ -326,8 +326,8 @@ describe("skills/render", () => {
         { definition: { name: "Wrapped", description: "wrapped desc" } },
       ];
       const result = renderUnifiedCatalog({ capabilities });
-      expect(result.includes("**Direct**")).toBeTruthy();
-      expect(result.includes("**Wrapped**")).toBeTruthy();
+      expect(result.includes("**Direct**")).toBe(true);
+      expect(result.includes("**Wrapped**")).toBe(true);
     });
 
     it("groups capabilities by priority: critical first, then important, then optional", () => {
@@ -340,8 +340,8 @@ describe("skills/render", () => {
       const critIdx = result.indexOf("**Crit**");
       const impIdx = result.indexOf("**Imp**");
       const optIdx = result.indexOf("**Opt**");
-      expect(critIdx < impIdx, "critical should come before important").toBeTruthy();
-      expect(impIdx < optIdx, "important should come before optional").toBeTruthy();
+      expect(critIdx < impIdx, "critical should come before important").toBe(true);
+      expect(impIdx < optIdx, "important should come before optional").toBe(true);
     });
 
     it("handles activation.priority for capabilities", () => {
@@ -352,7 +352,7 @@ describe("skills/render", () => {
       // priority 0 = critical
       const critIdx = result.indexOf("\u{1F534}");
       const actIdx = result.indexOf("**Act**");
-      expect(critIdx < actIdx || result.includes("\u{1F534} **Act**")).toBeTruthy();
+      expect(critIdx < actIdx || result.includes("\u{1F534} **Act**")).toBe(true);
     });
 
     it("reads skill metadata from skill.metadata", () => {
@@ -360,17 +360,17 @@ describe("skills/render", () => {
         metadata: { name: "FromMeta", description: "meta desc", priority: "critical" }
       }];
       const result = renderUnifiedCatalog({ skills });
-      expect(result.includes("**$FromMeta**")).toBeTruthy();
+      expect(result.includes("**$FromMeta**")).toBe(true);
     });
 
     it("renders both capabilities and skills together", () => {
       const capabilities = [{ definition: { name: "Cap", description: "cap desc" } }];
       const skills = [{ name: "Skill", description: "skill desc" }];
       const result = renderUnifiedCatalog({ capabilities, skills });
-      expect(result.includes("Capabilities")).toBeTruthy();
-      expect(result.includes("Skills")).toBeTruthy();
-      expect(result.includes("**Cap**")).toBeTruthy();
-      expect(result.includes("**$Skill**")).toBeTruthy();
+      expect(result.includes("Capabilities")).toBe(true);
+      expect(result.includes("Skills")).toBe(true);
+      expect(result.includes("**Cap**")).toBe(true);
+      expect(result.includes("**$Skill**")).toBe(true);
     });
   });
 
@@ -388,7 +388,7 @@ describe("skills/render", () => {
     it("handles empty path", () => {
       const skills = [{ name: "S", description: "d", path: "" }];
       const result = renderSkillsSection(skills);
-      expect(!result.includes("(file:")).toBeTruthy();
+      expect(result.includes("(file:")).toBe(false);
     });
 
     it("handles null/undefined path", () => {
@@ -396,26 +396,26 @@ describe("skills/render", () => {
       const skills2 = [{ name: "S", description: "d", path: undefined }];
       const result1 = renderSkillsSection(skills1);
       const result2 = renderSkillsSection(skills2);
-      expect(!result1.includes("(file:")).toBeTruthy();
-      expect(!result2.includes("(file:")).toBeTruthy();
+      expect(result1.includes("(file:")).toBe(false);
+      expect(result2.includes("(file:")).toBe(false);
     });
 
     it("handles remote: prefix", () => {
       const skills = [{ name: "S", description: "d", path: "remote:some-skill" }];
       const result = renderSkillsSection(skills);
-      expect(result.includes("remote:some-skill")).toBeTruthy();
+      expect(result.includes("remote:some-skill")).toBe(true);
     });
 
     it("handles relative paths", () => {
       const skills = [{ name: "S", description: "d", path: "skills/my-skill.md" }];
       const result = renderSkillsSection(skills);
-      expect(result.includes("skills/my-skill.md")).toBeTruthy();
+      expect(result.includes("skills/my-skill.md")).toBe(true);
     });
 
     it("handles relative paths with backslashes", () => {
       const skills = [{ name: "S", description: "d", path: "skills\\sub\\my-skill.md" }];
       const result = renderSkillsSection(skills);
-      expect(result.includes("skills/sub/my-skill.md")).toBeTruthy();
+      expect(result.includes("skills/sub/my-skill.md")).toBe(true);
     });
 
     it("handles invalid HTTP URL gracefully", () => {
@@ -423,7 +423,7 @@ describe("skills/render", () => {
       const skills = [{ name: "S", description: "d", path: "http://[invalid" }];
       const result = renderSkillsSection(skills);
       // Should fall back to returning the raw path
-      expect(result.includes("http://[invalid")).toBeTruthy();
+      expect(result.includes("http://[invalid")).toBe(true);
     });
   });
 });

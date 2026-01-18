@@ -13,7 +13,7 @@ describe("shared/utils/secure-id", () => {
     it("generates 32-char hex by default (16 bytes)", () => {
       const hex = cryptoRandomHex();
       expect(hex.length).toBe(32);
-      expect(/^[0-9a-f]+$/.test(hex)).toBeTruthy();
+      expect(hex).toMatch(/^[0-9a-f]+$/);
     });
 
     it("generates hex of specified byte length", () => {
@@ -54,7 +54,7 @@ describe("shared/utils/secure-id", () => {
       const uuid = cryptoRandomUuid();
       // UUID v4 format: xxxxxxxx-xxxx-4xxx-axxx-xxxxxxxxxxxx
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      expect(uuidRegex.test(uuid)).toBeTruthy();
+      expect(uuid).toMatch(uuidRegex);
     });
 
     it("generates different UUIDs each call", () => {
@@ -72,27 +72,27 @@ describe("shared/utils/secure-id", () => {
   describe("makeSecureId", () => {
     it("generates id with default prefix", () => {
       const id = makeSecureId();
-      expect(id.startsWith("id_")).toBeTruthy();
+      expect(id).toMatch(/^id_/);
     });
 
     it("generates id with custom prefix", () => {
       const id = makeSecureId("session");
-      expect(id.startsWith("session_")).toBeTruthy();
+      expect(id).toMatch(/^session_/);
     });
 
     it("trims whitespace from prefix", () => {
       const id = makeSecureId("  user  ");
-      expect(id.startsWith("user_")).toBeTruthy();
+      expect(id).toMatch(/^user_/);
     });
 
     it("uses default prefix for empty string", () => {
       const id = makeSecureId("");
-      expect(id.startsWith("id_")).toBeTruthy();
+      expect(id).toMatch(/^id_/);
     });
 
     it("uses default prefix for non-string", () => {
       const id = makeSecureId(123);
-      expect(id.startsWith("id_")).toBeTruthy();
+      expect(id).toMatch(/^id_/);
     });
 
     it("generates different ids each call", () => {
@@ -112,22 +112,22 @@ describe("shared/utils/secure-id", () => {
   describe("makeSecureTimestampedId", () => {
     it("generates id with default prefix", () => {
       const id = makeSecureTimestampedId();
-      expect(id.startsWith("id_")).toBeTruthy();
+      expect(id).toMatch(/^id_/);
     });
 
     it("generates id with custom prefix", () => {
       const id = makeSecureTimestampedId("run");
-      expect(id.startsWith("run_")).toBeTruthy();
+      expect(id).toMatch(/^run_/);
     });
 
     it("trims whitespace from prefix", () => {
       const id = makeSecureTimestampedId("  task  ");
-      expect(id.startsWith("task_")).toBeTruthy();
+      expect(id).toMatch(/^task_/);
     });
 
     it("uses default prefix for empty string", () => {
       const id = makeSecureTimestampedId("");
-      expect(id.startsWith("id_")).toBeTruthy();
+      expect(id).toMatch(/^id_/);
     });
 
     it("includes timestamp component", () => {
@@ -138,12 +138,12 @@ describe("shared/utils/secure-id", () => {
       // Extract timestamp part (after prefix, before second underscore)
       const parts = id.split("_");
       expect(parts[0]).toBe("event");
-      expect(parts.length >= 3).toBeTruthy();
+      expect(parts.length).toBeGreaterThanOrEqual(3);
 
       // Timestamp is base36 encoded
       const timestamp = parseInt(parts[1], 36);
-      expect(timestamp >= before).toBeTruthy();
-      expect(timestamp <= after).toBeTruthy();
+      expect(timestamp).toBeGreaterThanOrEqual(before);
+      expect(timestamp).toBeLessThanOrEqual(after);
     });
 
     it("includes random hex suffix", () => {
@@ -152,7 +152,7 @@ describe("shared/utils/secure-id", () => {
       const randomPart = parts[2];
       // 8 bytes = 16 hex chars
       expect(randomPart.length).toBe(16);
-      expect(/^[0-9a-f]+$/.test(randomPart)).toBeTruthy();
+      expect(randomPart).toMatch(/^[0-9a-f]+$/);
     });
 
     it("generates different ids each call", () => {

@@ -13,7 +13,7 @@ describe("shared/contracts/tool-result", () => {
         ok: true,
         data: { value: 42 },
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.ok).toBe(true);
       expect(result.value.success).toBe(true);
       expect(result.value.data).toEqual({ value: 42 });
@@ -24,7 +24,7 @@ describe("shared/contracts/tool-result", () => {
         success: true,
         data: "result",
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.ok).toBe(true);
       expect(result.value.success).toBe(true);
     });
@@ -34,7 +34,7 @@ describe("shared/contracts/tool-result", () => {
         ok: false,
         error: "Something failed",
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.ok).toBe(false);
       expect(result.value.success).toBe(false);
       expect(result.value.error).toBe("Something failed");
@@ -45,7 +45,7 @@ describe("shared/contracts/tool-result", () => {
         success: false,
         error: "Failed",
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.ok).toBe(false);
     });
 
@@ -61,14 +61,14 @@ describe("shared/contracts/tool-result", () => {
 
     it("handles missing ok and success", () => {
       const result = validateToolResult({ data: "test" });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       // Without explicit ok/success, defaults to false
       expect(result.value.ok).toBe(false);
     });
 
     it("handles non-string error", () => {
       const result = validateToolResult({ ok: false, error: 123 });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.error).toBe(undefined);
     });
 
@@ -77,19 +77,19 @@ describe("shared/contracts/tool-result", () => {
         ok: true,
         meta: { duration: 100 },
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.meta).toEqual({ duration: 100 });
     });
 
     it("handles null meta", () => {
       const result = validateToolResult({ ok: true, meta: null });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.meta).toBe(undefined);
     });
 
     it("handles non-object meta", () => {
       const result = validateToolResult({ ok: true, meta: "string" });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.meta).toBe(undefined);
     });
   });
@@ -114,7 +114,7 @@ describe("shared/contracts/tool-result", () => {
       expect(result.ok).toBe(false);
       expect(result.success).toBe(false);
       expect(result.error).toBe("Test error");
-      expect(result.meta?.stack).toBeTruthy();
+      expect(result.meta?.stack).toEqual(expect.any(String));
     });
 
     it("handles null", () => {

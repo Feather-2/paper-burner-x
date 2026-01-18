@@ -72,26 +72,30 @@ it("cross-verify: starts subtask and writes verdict back", async () => {
 
   expect(result.success).toBe(true);
   expect(result.factId).toBe("gap_revenue");
-  expect(typeof result.taskId === "string" && result.taskId.startsWith("task_")).toBeTruthy();
+  expect(result.taskId).toBeTypeOf("string");
+  expect(result.taskId).toMatch(/^task_/);
   expect(result.discoveryStatus).toBe(DiscoveryStatus.SATISFIED);
   expect(result.verification.factId).toBe("gap_revenue");
   expect(result.verification.discoveryStatus).toBe(DiscoveryStatus.SATISFIED);
   expect(result.verification.verdict.status).toBe("satisfied");
 
   const scratch = state.getScratchpad("crossVerify");
-  expect(scratch && typeof scratch === "object").toBeTruthy();
-  expect(scratch.gap_revenue).toBeTruthy();
+  expect(scratch).not.toBeNull();
+  expect(scratch).toBeTypeOf("object");
+  expect(scratch.gap_revenue).not.toBeNull();
+  expect(scratch.gap_revenue).toBeTypeOf("object");
   expect(scratch.gap_revenue.status).toBe("completed");
   expect(scratch.gap_revenue.taskId).toBe(result.taskId);
   expect(scratch.gap_revenue.discoveryStatus).toBe(DiscoveryStatus.SATISFIED);
 
   const pointer = sharedContext.getDetail("cross_verify:gap_revenue");
-  expect(pointer).toBeTruthy();
+  expect(pointer).not.toBeNull();
+  expect(pointer).toBeTypeOf("object");
   expect(pointer.taskId).toBe(result.taskId);
   expect(pointer.discoveryStatus).toBe(DiscoveryStatus.SATISFIED);
 
   const discovery = discoveryManager.getDiscovery("gap_revenue");
-  expect(discovery).toBeTruthy();
+  expect(discovery).not.toBeNull();
+  expect(discovery).toBeTypeOf("object");
   expect(discovery.status).toBe(DiscoveryStatus.SATISFIED);
 });
-

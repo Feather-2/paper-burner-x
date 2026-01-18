@@ -104,7 +104,7 @@ it("loadCheckpoint migrates gaps into todos and stamps L2 flags", async () => {
   };
 
   const loaded = loadCheckpoint(checkpoint);
-  expect(Array.isArray(loaded.stateSnapshot.todos)).toBeTruthy();
+  expect(loaded.stateSnapshot.todos).toBeInstanceOf(Array);
   expect(loaded.stateSnapshot.todos.length).toBe(1);
   const todo = loaded.stateSnapshot.todos[0];
   expect(todo.relatedGapId).toBe("gap_1");

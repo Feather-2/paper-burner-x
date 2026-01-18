@@ -47,6 +47,5 @@ it("DesignStage._buildVisualSlots: fallback ai-image to svg without imageProvide
   const slots = stage._buildVisualSlots(brainstormResult, [], null);
   expect(slots.length).toBe(1);
   expect(slots[0].renderType).toBe("svg");
-  expect(slots[0].svgSpec).toBeTruthy();
+  expect(slots[0].svgSpec).toEqual({ type: "diagram", description: "Test" });
 });
-

@@ -34,13 +34,13 @@ describe("runtime/errors/silent-error-reporter", () => {
 
     describe("constructor", () => {
       it("creates with default options", () => {
-        expect(reporter.isEnabled()).toBeTruthy();
+        expect(reporter.isEnabled()).toBe(true);
         expect(reporter.size).toBe(0);
       });
 
       it("respects enabled option", () => {
         const disabled = new SilentErrorReporter({ enabled: false });
-        expect(!disabled.isEnabled()).toBeTruthy();
+        expect(disabled.isEnabled()).toBe(false);
       });
 
       it("respects maxSamples option", () => {
@@ -57,7 +57,7 @@ describe("runtime/errors/silent-error-reporter", () => {
           onError: () => { called = true; },
         });
         withCallback.report(new Error("test"), { location: "test" });
-        expect(called).toBeTruthy();
+        expect(called).toBe(true);
       });
 
       it("ignores callback errors", () => {
@@ -73,9 +73,9 @@ describe("runtime/errors/silent-error-reporter", () => {
     describe("setEnabled/isEnabled", () => {
       it("enables and disables reporting", () => {
         reporter.setEnabled(false);
-        expect(!reporter.isEnabled()).toBeTruthy();
+        expect(reporter.isEnabled()).toBe(false);
         reporter.setEnabled(true);
-        expect(reporter.isEnabled()).toBeTruthy();
+        expect(reporter.isEnabled()).toBe(true);
       });
 
       it("does not collect when disabled", () => {
@@ -130,8 +130,8 @@ describe("runtime/errors/silent-error-reporter", () => {
         reporter.report(new Error("test"), { location: "test" });
         const after = Date.now();
         const samples = reporter.export();
-        expect(samples[0].ts >= before).toBeTruthy();
-        expect(samples[0].ts <= after).toBeTruthy();
+        expect(samples[0].ts).toBeGreaterThanOrEqual(before);
+        expect(samples[0].ts).toBeLessThanOrEqual(after);
       });
 
       it("truncates stack to 3 lines", () => {
@@ -140,7 +140,7 @@ describe("runtime/errors/silent-error-reporter", () => {
         const samples = reporter.export();
         if (samples[0].stack) {
           const lines = samples[0].stack.split("\n");
-          expect(lines.length <= 3).toBeTruthy();
+          expect(lines.length).toBeLessThanOrEqual(3);
         }
       });
 
@@ -252,7 +252,7 @@ describe("runtime/errors/silent-error-reporter", () => {
 
   describe("silentErrors singleton", () => {
     it("is a SilentErrorReporter instance", () => {
-      expect(silentErrors instanceof SilentErrorReporter).toBeTruthy();
+      expect(silentErrors).toBeInstanceOf(SilentErrorReporter);
     });
   });
 
@@ -263,7 +263,7 @@ describe("runtime/errors/silent-error-reporter", () => {
 
     it("reports error to singleton", () => {
       reportSilentError(new Error("test"), "MyModule.method");
-      expect(silentErrors.size > 0).toBeTruthy();
+      expect(silentErrors.size).toBeGreaterThan(0);
     });
 
     it("uses default category", () => {
@@ -286,7 +286,7 @@ describe("runtime/errors/silent-error-reporter", () => {
 
     it("creates scoped reporter", () => {
       const scoped = createScopedReporter("MyModule");
-      expect(scoped).toBeTruthy();
+      expect(scoped).toBeTypeOf("object");
       expect(typeof scoped.report).toBe("function");
     });
 
@@ -294,7 +294,7 @@ describe("runtime/errors/silent-error-reporter", () => {
       const scoped = createScopedReporter("MyModule");
       scoped.report(new Error("test"), "doSomething");
       const samples = silentErrors.export();
-      expect(samples[samples.length - 1].location.includes("MyModule.doSomething")).toBeTruthy();
+      expect(samples[samples.length - 1].location).toContain("MyModule.doSomething");
     });
 
     it("accepts category parameter", () => {

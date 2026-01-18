@@ -145,7 +145,8 @@ describe("RunExporter exportRunAsZip()", () => {
 
     const manifest = JSON.parse(await zip.file("manifest.json").async("string"));
     const planItem = (manifest.artifacts || []).find((a) => a?.type === "plan.json");
-    expect(planItem?.zipPath).toBeTruthy();
+    expect(planItem?.zipPath).toBeTypeOf("string");
+    expect(planItem?.zipPath).not.toBe("");
 
     const planPayload = JSON.parse(await zip.file(planItem.zipPath).async("string"));
     expect(planPayload).toEqual(nested);
@@ -1046,7 +1047,7 @@ describe("RunExporter importRunFromZip()", () => {
 
     const ctx = await store.getRun(runId);
     expect(typeof ctx?.startedAt).toBe("string");
-    expect(ctx?.startedAt).toBeTruthy();
+    expect(ctx?.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     await store.close();
     await LocalRunStore.deleteDatabase({ dbName });

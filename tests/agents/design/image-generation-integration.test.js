@@ -78,17 +78,23 @@ it("ImageGeneration E2E: ImagePlanner -> PromptBuilder -> ImageGenerator (happy 
 
   const slots = ImagePlanner.plan(contentPackage.slideIntents, designSystem, contentPackage.constraints);
   expect(slots.length).toBe(5); // cover + overview + comparison + process + summary
-  expect(slots.some(s => s.purpose === "hero" && s.priority === "critical" && s.aspectRatio === "16:9")).toBeTruthy();
-  expect(slots.some(s => s.purpose === "illustration" && s.priority === "important" && s.aspectRatio === "4:3")).toBeTruthy();
-  expect(slots.some(s => s.purpose === "chart_fallback" && s.priority === "optional" && s.aspectRatio === "16:9")).toBeTruthy();
+  expect(slots).toEqual(expect.arrayContaining([
+    expect.objectContaining({ purpose: "hero", priority: "critical", aspectRatio: "16:9" }),
+  ]));
+  expect(slots).toEqual(expect.arrayContaining([
+    expect.objectContaining({ purpose: "illustration", priority: "important", aspectRatio: "4:3" }),
+  ]));
+  expect(slots).toEqual(expect.arrayContaining([
+    expect.objectContaining({ purpose: "chart_fallback", priority: "optional", aspectRatio: "16:9" }),
+  ]));
 
   const hero = slots.find((s) => s.purpose === "hero");
   const prompt = buildPrompt(hero, designSystem, contentPackage);
-  expect(prompt.includes(`Topic: ${hero.promptHint}`)).toBeTruthy();
-  expect(prompt.includes("Purpose: hero.")).toBeTruthy();
-  expect(prompt.includes("Aspect ratio: 16:9")).toBeTruthy();
-  expect(prompt.includes(designSystem.imageStyle)).toBeTruthy();
-  expect(prompt.includes("Do not include any text in the image.")).toBeTruthy();
+  expect(prompt).toContain(`Topic: ${hero.promptHint}`);
+  expect(prompt).toContain("Purpose: hero.");
+  expect(prompt).toContain("Aspect ratio: 16:9");
+  expect(prompt).toContain(designSystem.imageStyle);
+  expect(prompt).toContain("Do not include any text in the image.");
 
   const provider = makeMockBase64Provider({ base64: "BASE64_1" });
   const gen = new ImageGenerator({ imageProvider: provider, concurrency: 2, budget: { maxImages: 20, maxCostUSD: 20, candidatesPerSlot: 1 } });
@@ -119,10 +125,10 @@ it("ImageGeneration E2E: PromptBuilder includes claim-derived keywords (integrat
   };
 
   const prompt = buildPrompt(slot, { imageStyle: "Modern, high clarity." }, contentPackage);
-  expect(prompt.includes("Key concepts:")).toBeTruthy();
-  expect(prompt.toLowerCase().includes("evidence")).toBeTruthy();
-  expect(prompt.toLowerCase().includes("citation")).toBeTruthy();
-  expect(prompt.toLowerCase().includes("tracking")).toBeTruthy();
+  expect(prompt).toContain("Key concepts:");
+  expect(prompt.toLowerCase()).toContain("evidence");
+  expect(prompt.toLowerCase()).toContain("citation");
+  expect(prompt.toLowerCase()).toContain("tracking");
 });
 
 it("ImageGeneration E2E: DesignStage imagePolicy=rich plans enough slots and populates DeckPackage fields", async () => {
@@ -137,15 +143,26 @@ it("ImageGeneration E2E: DesignStage imagePolicy=rich plans enough slots and pop
   const stage = new DesignStage({ batchSize: 4 });
   const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints }, emit });
 
-  expect(Array.isArray(deck.imageSlots ) && deck.imageSlots.length >= 4).toBeTruthy();
-  expect(deck.imageSlots.some(s => s.priority === "critical")).toBeTruthy();
-  expect(deck.imageSlots.some(s => s.priority === "important")).toBeTruthy();
-  expect(deck.imageSlots.some(s => s.priority === "optional")).toBeTruthy();
+  expect(deck.imageSlots).toBeInstanceOf(Array);
+  expect(deck.imageSlots.length).toBeGreaterThanOrEqual(4);
+  expect(deck.imageSlots).toEqual(expect.arrayContaining([
+    expect.objectContaining({ priority: "critical" }),
+  ]));
+  expect(deck.imageSlots).toEqual(expect.arrayContaining([
+    expect.objectContaining({ priority: "important" }),
+  ]));
+  expect(deck.imageSlots).toEqual(expect.arrayContaining([
+    expect.objectContaining({ priority: "optional" }),
+  ]));
 
   expect(deck.imageReport).toBe(null);
-  expect(Array.isArray(deck.pendingImages ) && deck.pendingImages.length === deck.imageSlots.length).toBeTruthy();
-  expect(typeof deck.deckHtmlDsl === "string" && deck.deckHtmlDsl.includes('data-el="image-placeholder"')).toBeTruthy();
-  expect(events.some(e => e.name === "design.image.planning.completed")).toBeTruthy();
+  expect(deck.pendingImages).toBeInstanceOf(Array);
+  expect(deck.pendingImages).toHaveLength(deck.imageSlots.length);
+  expect(typeof deck.deckHtmlDsl).toBe("string");
+  expect(deck.deckHtmlDsl).toContain('data-el="image-placeholder"');
+  expect(events).toEqual(expect.arrayContaining([
+    expect.objectContaining({ name: "design.image.planning.completed" }),
+  ]));
 });
 
 it("ImageGeneration E2E: DesignStage imagePolicy=minimal plans only critical slots", async () => {
@@ -158,10 +175,11 @@ it("ImageGeneration E2E: DesignStage imagePolicy=minimal plans only critical slo
   const stage = new DesignStage({ batchSize: 4 });
   const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints } });
 
-  expect(Array.isArray(deck.imageSlots)).toBeTruthy();
+  expect(deck.imageSlots).toBeInstanceOf(Array);
   expect(deck.imageSlots.length).toBe(1);
   expect(deck.imageSlots[0].priority).toBe("critical");
-  expect(Array.isArray(deck.pendingImages ) && deck.pendingImages.length === 1).toBeTruthy();
+  expect(deck.pendingImages).toBeInstanceOf(Array);
+  expect(deck.pendingImages).toHaveLength(1);
 });
 
 it("ImageGeneration E2E: DesignStage inserts placeholders for each planned slot", async () => {
@@ -178,8 +196,8 @@ it("ImageGeneration E2E: DesignStage inserts placeholders for each planned slot"
   expect(placeholders.length).toBe(deck.imageSlots.length);
 
   for (const slot of deck.imageSlots) {
-    expect(deck.deckHtmlDsl.includes(`data-slot-id="${slot.slotId}"`)).toBeTruthy();
-    expect(deck.deckHtmlDsl.includes(`id="${slot.slotId}"`)).toBeTruthy();
+    expect(deck.deckHtmlDsl).toContain(`data-slot-id="${slot.slotId}"`);
+    expect(deck.deckHtmlDsl).toContain(`id="${slot.slotId}"`);
   }
 });
 
@@ -202,14 +220,14 @@ it("ImageGeneration E2E: DesignStage uses VisualRenderer and emits design.visual
   });
 
   expect(provider.calls.length).toBe(1);
-  expect(deck.deckHtmlDsl.includes('data-el="image"')).toBeTruthy();
-  expect(deck.deckHtmlDsl.includes("data:image/png;base64,QUJD")).toBeTruthy();
+  expect(deck.deckHtmlDsl).toContain('data-el="image"');
+  expect(deck.deckHtmlDsl).toContain("data:image/png;base64,QUJD");
   expect(deck.pendingImages).toEqual([]);
-  expect(deck.imageReport && deck.imageReport.runId === contentPackage.runId).toBeTruthy();
+  expect(deck.imageReport).toEqual(expect.objectContaining({ runId: contentPackage.runId }));
 
   const names = events.map((e) => e.name);
-  expect(names.includes("design.visual.render.started")).toBeTruthy();
-  expect(names.includes("design.visual.render.completed")).toBeTruthy();
+  expect(names).toContain("design.visual.render.started");
+  expect(names).toContain("design.visual.render.completed");
 });
 
 it("ImageGeneration E2E: async fill replaces placeholder with <img data-el=\"image\"> (base64)", async () => {
@@ -229,10 +247,10 @@ it("ImageGeneration E2E: async fill replaces placeholder with <img data-el=\"ima
   const { filledSlots } = await gen.generate(deck.imageSlots, contentPackage, deck.designSystem, { runId: contentPackage.runId });
 
   const patched = fillImagePlaceholders(deck.deckHtmlDsl, filledSlots);
-  expect(patched.deckHtmlDsl.includes('data-el="image"')).toBeTruthy();
-  expect(patched.deckHtmlDsl.includes(`id="${slotId}"`)).toBeTruthy();
-  expect(patched.deckHtmlDsl.includes(`src="data:image/png;base64,QUJD"`)).toBeTruthy();
-  expect(!patched.deckHtmlDsl.includes(`data-el="image-placeholder" id="${slotId}"`)).toBeTruthy();
+  expect(patched.deckHtmlDsl).toContain('data-el="image"');
+  expect(patched.deckHtmlDsl).toContain(`id="${slotId}"`);
+  expect(patched.deckHtmlDsl).toContain(`src="data:image/png;base64,QUJD"`);
+  expect(patched.deckHtmlDsl).not.toContain(`data-el="image-placeholder" id="${slotId}"`);
 });
 
 it("ImageGeneration E2E: async fill emits per-task events + design.image.fill.completed", async () => {
@@ -279,9 +297,9 @@ it("ImageGeneration E2E: provider failure retries then succeeds (retryCount=1) a
   expect(report.tasks[0].retryCount).toBe(1);
 
   const patched = fillImagePlaceholders(deck.deckHtmlDsl, filledSlots);
-  expect(patched.deckHtmlDsl.includes(`id="${slotId}"`)).toBeTruthy();
-  expect(patched.deckHtmlDsl.includes('data-el="image"')).toBeTruthy();
-  expect(patched.deckHtmlDsl.includes("data:image/png;base64,RETRY_OK")).toBeTruthy();
+  expect(patched.deckHtmlDsl).toContain(`id="${slotId}"`);
+  expect(patched.deckHtmlDsl).toContain('data-el="image"');
+  expect(patched.deckHtmlDsl).toContain("data:image/png;base64,RETRY_OK");
 });
 
 it("ImageGeneration E2E: exceeds maxRetries leaves placeholder (degraded) and reports failed", async () => {
@@ -311,12 +329,13 @@ it("ImageGeneration E2E: exceeds maxRetries leaves placeholder (degraded) and re
   const { filledSlots, report } = await gen.generate(deck.imageSlots, contentPackage, deck.designSystem, { runId: contentPackage.runId, emit });
 
   expect(report.tasks[0].status).toBe("failed");
-  expect(events.some(e => e.name === "design.image.generate.failed")).toBeTruthy();
-  expect(events.some(e => e.name === "design.image.fill.completed")).toBeTruthy();
+  const eventNames = events.map((e) => e.name);
+  expect(eventNames).toContain("design.image.generate.failed");
+  expect(eventNames).toContain("design.image.fill.completed");
 
   const patched = fillImagePlaceholders(deck.deckHtmlDsl, filledSlots);
-  expect(patched.deckHtmlDsl.includes(`data-el="image-placeholder" id="${slotId}"`)).toBeTruthy();
-  expect(!patched.deckHtmlDsl.includes(`src="data:`)).toBeTruthy();
+  expect(patched.deckHtmlDsl).toContain(`data-el="image-placeholder" id="${slotId}"`);
+  expect(patched.deckHtmlDsl).not.toContain(`src="data:`);
 });
 
 it("ImageGeneration E2E: over maxCostUSD skips optional slots first (priority ordering)", async () => {

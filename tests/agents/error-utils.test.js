@@ -40,7 +40,7 @@ describe("shared/utils/error-utils", () => {
         () => { throw new Error("test error"); },
         { context: "test", onError: (err) => { capturedError = err; } }
       );
-      expect(capturedError).toBeTruthy();
+      expect(capturedError).toBeInstanceOf(Error);
       expect(capturedError.message).toBe("test error");
     });
 
@@ -63,7 +63,7 @@ describe("shared/utils/error-utils", () => {
         async () => { throw new Error("async error"); },
         { context: "test", onError: (err) => { capturedError = err; } }
       );
-      expect(capturedError).toBeTruthy();
+      expect(capturedError).toBeInstanceOf(Error);
       expect(capturedError.message).toBe("async error");
     });
 
@@ -143,7 +143,7 @@ describe("shared/utils/error-utils", () => {
   describe("isErrorType", () => {
     it("returns true for matching error name", () => {
       const err = new TypeError("test");
-      expect(isErrorType(err, "TypeError")).toBeTruthy();
+      expect(isErrorType(err, "TypeError")).toBe(true);
     });
 
     it("returns false for non-matching error name", () => {
@@ -164,13 +164,13 @@ describe("shared/utils/error-utils", () => {
     it("returns true for AbortError name", () => {
       const err = new Error("abort");
       err.name = "AbortError";
-      expect(isAbortError(err)).toBeTruthy();
+      expect(isAbortError(err)).toBe(true);
     });
 
     it("returns true for ABORT_ERR code", () => {
       const err = new Error("abort");
       err.code = "ABORT_ERR";
-      expect(isAbortError(err)).toBeTruthy();
+      expect(isAbortError(err)).toBe(true);
     });
 
     it("returns false for regular Error", () => {
@@ -186,13 +186,13 @@ describe("shared/utils/error-utils", () => {
     it("returns true for TimeoutError name", () => {
       const err = new Error("timeout");
       err.name = "TimeoutError";
-      expect(isTimeoutError(err)).toBeTruthy();
+      expect(isTimeoutError(err)).toBe(true);
     });
 
     it("returns true for ETIMEDOUT code", () => {
       const err = new Error("timeout");
       err.code = "ETIMEDOUT";
-      expect(isTimeoutError(err)).toBeTruthy();
+      expect(isTimeoutError(err)).toBe(true);
     });
 
     it("returns false for regular Error", () => {
@@ -205,8 +205,8 @@ describe("shared/utils/error-utils", () => {
       const original = new Error("original message");
       const wrapped = wrapError(original, "Additional context");
 
-      expect(wrapped.message.includes("Additional context")).toBeTruthy();
-      expect(wrapped.message.includes("original message")).toBeTruthy();
+      expect(wrapped.message).toContain("Additional context");
+      expect(wrapped.message).toContain("original message");
     });
 
     it("preserves original error as cause", () => {
@@ -220,7 +220,7 @@ describe("shared/utils/error-utils", () => {
       const original = new Error("original");
       const wrapped = wrapError(original, "Context");
 
-      expect(wrapped.stack.includes("Caused by:")).toBeTruthy();
+      expect(wrapped.stack).toContain("Caused by:");
     });
   });
 });

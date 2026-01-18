@@ -856,8 +856,9 @@ describe("agents/llm/model-router", () => {
 
   it("loads legacy numeric round-robin cursor values from storage", async () => {
     const time = createFakeTime(0);
+    const rrValue = JSON.stringify({ worker: 1 });
     const { store, storage } = createMockStorage({
-      rr_num: JSON.stringify({ worker: 1 }),
+      rr_num: rrValue,
     });
     const { provider } = createMockProvider({
       time,
@@ -883,7 +884,7 @@ describe("agents/llm/model-router", () => {
       time,
     });
 
-    expect(store.get("rr_num")).toBeTruthy();
+    expect(store.get("rr_num")).toBe(rrValue);
     const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] });
     expect(out.model).toBe("m2");
   });
@@ -1415,7 +1416,7 @@ describe("agents/llm/model-router", () => {
 
     await router._time.sleep(0);
     router.markUnhealthy("m1", "not-an-error");
-    expect(router.getHealth("m1")?.lastError?.message).toBeTruthy();
+    expect(router.getHealth("m1")?.lastError?.message).toBe("not-an-error");
   });
 
   it("cooldown object config overrides individual params", async () => {
@@ -1623,7 +1624,7 @@ describe("agents/llm/model-router", () => {
       providers: { mock: provider },
     });
 
-    expect(router).toBeTruthy();
+    expect(router).toBeInstanceOf(ModelRouter);
   });
 
   it("getCircuitBreakerState returns null for unknown model", () => {
@@ -1654,7 +1655,7 @@ describe("agents/llm/model-router", () => {
 
     await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
     const before = router.getCircuitBreakerState("m1");
-    expect(before).toBeTruthy();
+    expect(before?.state).toBe("closed");
 
     router.resetCircuitBreaker("m1");
     const after = router.getCircuitBreakerState("m1");

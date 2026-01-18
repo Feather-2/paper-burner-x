@@ -24,12 +24,12 @@ import {
 describe("shared/utils/value-utils", () => {
   describe("isPlainObject", () => {
     it("returns true for object literal", () => {
-      expect(isPlainObject({})).toBeTruthy();
-      expect(isPlainObject({ a: 1 })).toBeTruthy();
+      expect(isPlainObject({})).toBe(true);
+      expect(isPlainObject({ a: 1 })).toBe(true);
     });
 
     it("returns true for Object.create(null)", () => {
-      expect(isPlainObject(Object.create(null))).toBeTruthy();
+      expect(isPlainObject(Object.create(null))).toBe(true);
     });
 
     it("returns false for null", () => {
@@ -249,20 +249,20 @@ describe("shared/utils/value-utils", () => {
 
   describe("isCjkChar", () => {
     it("detects Chinese characters", () => {
-      expect(isCjkChar("中".charCodeAt(0))).toBeTruthy();
-      expect(isCjkChar("国".charCodeAt(0))).toBeTruthy();
+      expect(isCjkChar("中".charCodeAt(0))).toBe(true);
+      expect(isCjkChar("国".charCodeAt(0))).toBe(true);
     });
 
     it("detects Japanese hiragana", () => {
-      expect(isCjkChar("あ".charCodeAt(0))).toBeTruthy();
+      expect(isCjkChar("あ".charCodeAt(0))).toBe(true);
     });
 
     it("detects Japanese katakana", () => {
-      expect(isCjkChar("ア".charCodeAt(0))).toBeTruthy();
+      expect(isCjkChar("ア".charCodeAt(0))).toBe(true);
     });
 
     it("detects Korean hangul", () => {
-      expect(isCjkChar("한".charCodeAt(0))).toBeTruthy();
+      expect(isCjkChar("한".charCodeAt(0))).toBe(true);
     });
 
     it("returns false for ASCII", () => {
@@ -282,22 +282,22 @@ describe("shared/utils/value-utils", () => {
 
     it("estimates English text", () => {
       const count = estimateTokenCount("Hello world this is a test");
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
     });
 
     it("estimates Chinese text", () => {
       const count = estimateTokenCount("你好世界");
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
     });
 
     it("handles mixed text", () => {
       const count = estimateTokenCount("Hello 世界");
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
     });
 
     it("accepts custom config", () => {
       const count = estimateTokenCount("test", { latinCharsPerToken: 2 });
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
     });
   });
 
@@ -365,7 +365,7 @@ describe("shared/utils/value-utils", () => {
     it("clones Set", () => {
       const set = new Set([1, 2, 3]);
       const clone = deepClone(set);
-      expect(clone.has(1)).toBeTruthy();
+      expect(clone.has(1)).toBe(true);
       expect(clone).not.toBe(set);
     });
 
@@ -452,7 +452,7 @@ describe("shared/utils/value-utils", () => {
       const result = sanitizeForJson(obj);
       expect(result.a).toBe(1);
       // The function filters these out
-      expect(!Object.hasOwn(result, "__proto__") || result.__proto__ === undefined).toBeTruthy();
+      expect(Object.hasOwn(result, "__proto__")).toBe(false);
     });
 
     it("returns undefined for WeakMap", () => {
@@ -466,8 +466,8 @@ describe("shared/utils/value-utils", () => {
 
   describe("TOKEN_ESTIMATE_CONFIG", () => {
     it("exports config object", () => {
-      expect(TOKEN_ESTIMATE_CONFIG.latinCharsPerToken > 0).toBeTruthy();
-      expect(TOKEN_ESTIMATE_CONFIG.cjkTokensPerChar > 0).toBeTruthy();
+      expect(TOKEN_ESTIMATE_CONFIG.latinCharsPerToken).toBeGreaterThan(0);
+      expect(TOKEN_ESTIMATE_CONFIG.cjkTokensPerChar).toBeGreaterThan(0);
     });
   });
 });

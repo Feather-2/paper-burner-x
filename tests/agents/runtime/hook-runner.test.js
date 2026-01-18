@@ -35,7 +35,7 @@ async function getDeniedArgs(params, contextOverrides = {}) {
   const hook = createPreToolUseHook();
   await hook({ tool: "write", params, context });
   const denied = eventBus.events.find((e) => e.event === "tool.denied");
-  expect(denied, "expected tool.denied event").toBeTruthy();
+  expect(denied, "expected tool.denied event").toMatchObject({ event: "tool.denied" });
   return denied.payload.args;
 }
 
@@ -125,7 +125,7 @@ describe("createPreToolUseHook", () => {
       await hook({ tool: "delete_file", params: { path: "/x" }, context });
 
       const denied = eventBus.events.find((e) => e.event === "tool.denied");
-      expect(denied).toBeTruthy();
+      expect(denied).toMatchObject({ event: "tool.denied" });
       expect(denied.payload.tool).toBe("delete_file");
     });
   });
@@ -220,7 +220,7 @@ describe("createPreToolUseHook", () => {
       });
 
       expect(result.skip).toBe(true);
-      expect(result.value.error.includes("requires approval")).toBeTruthy();
+      expect(result.value.error).toContain("requires approval");
     });
 
     it("allows safe command", async () => {
@@ -278,7 +278,7 @@ describe("createPreToolUseHook", () => {
       });
 
       expect(result.skip).toBe(true);
-      expect(result.value.error.includes("ModelRouter unavailable")).toBeTruthy();
+      expect(result.value.error).toContain("ModelRouter unavailable");
     });
 
     it("continues when ModelRouter unavailable (non-blocking)", async () => {
@@ -355,7 +355,7 @@ describe("createPreToolUseHook", () => {
       const result = await hook({ tool: "read", params: {}, context });
 
       expect(result.skip).toBe(true);
-      expect(result.value.error.includes("unparseable")).toBeTruthy();
+      expect(result.value.error).toContain("unparseable");
     });
 
     it("blocks when model call throws (blocking)", async () => {
@@ -377,7 +377,7 @@ describe("createPreToolUseHook", () => {
       const result = await hook({ tool: "read", params: {}, context });
 
       expect(result.skip).toBe(true);
-      expect(result.value.error.includes("network error")).toBeTruthy();
+      expect(result.value.error).toContain("network error");
     });
   });
 
@@ -398,7 +398,7 @@ describe("createPreToolUseHook", () => {
       });
 
       expect(result.skip).toBe(true);
-      expect(result.value.error.includes("SubagentRegistry unavailable")).toBeTruthy();
+      expect(result.value.error).toContain("SubagentRegistry unavailable");
     });
 
     it("blocks when agentType not found (blocking)", async () => {
@@ -418,7 +418,7 @@ describe("createPreToolUseHook", () => {
       const result = await hook({ tool: "bash", params: {}, context });
 
       expect(result.skip).toBe(true);
-      expect(result.value.error.includes("unknown agentType")).toBeTruthy();
+      expect(result.value.error).toContain("unknown agentType");
     });
 
     it("allows when agent returns allow", async () => {
@@ -496,7 +496,7 @@ describe("createPreToolUseHook", () => {
       const result = await hook({ tool: "read", params: {}, context });
 
       expect(result.skip).toBe(true);
-      expect(result.value.error.includes("agent crashed")).toBeTruthy();
+      expect(result.value.error).toContain("agent crashed");
     });
 
     it("continues when SubagentRegistry unavailable (non-blocking)", async () => {
@@ -736,7 +736,7 @@ describe("createPreAgentHook", () => {
     await hook({ sessionId: "s1", runId: "r1", input: {}, context: createContext(eventBus) });
 
     const denied = eventBus.events.find((e) => e.event === "agent.denied");
-    expect(denied).toBeTruthy();
+    expect(denied).toMatchObject({ event: "agent.denied" });
     expect(denied.payload.sessionId).toBe("s1");
     expect(denied.payload.reason).toBe("quota exceeded");
   });
@@ -779,7 +779,7 @@ describe("createPreAgentHook", () => {
     });
 
     expect(result.skip).toBe(true);
-    expect(result.reason.includes("auth failed")).toBeTruthy();
+    expect(result.reason).toContain("auth failed");
   });
 
   it("continues when handler throws (non-blocking)", async () => {
@@ -948,9 +948,9 @@ describe("createPostAgentHook", () => {
     await hook({ sessionId: "s1", runId: "r1", result: {}, context: createContext(eventBus) });
 
     const errEvt = eventBus.events.find((e) => e.event === "agent.hook.error");
-    expect(errEvt).toBeTruthy();
+    expect(errEvt).toMatchObject({ event: "agent.hook.error" });
     expect(errEvt.payload.sessionId).toBe("s1");
-    expect(errEvt.payload.error.includes("db write failed")).toBeTruthy();
+    expect(errEvt.payload.error).toContain("db write failed");
   });
 
   it("executes all hooks even if some fail", async () => {
@@ -1070,9 +1070,9 @@ describe("sanitizeString", () => {
     });
 
     expect(args.payloadValue).toBe("[REDACTED]");
-    expect(args.cliValue.includes("--password [REDACTED]")).toBeTruthy();
-    expect(args.cliValue.includes("-u admin:[REDACTED]")).toBeTruthy();
-    expect(!args.cliValue.includes("supersecret")).toBeTruthy();
+    expect(args.cliValue).toContain("--password [REDACTED]");
+    expect(args.cliValue).toContain("-u admin:[REDACTED]");
+    expect(args.cliValue).not.toContain("supersecret");
   });
 
   it("redacts env var style secrets", async () => {

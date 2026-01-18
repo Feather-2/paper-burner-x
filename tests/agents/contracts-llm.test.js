@@ -14,7 +14,7 @@ describe("shared/contracts/llm-response", () => {
         args: { path: "/test.txt" },
         id: "call_123",
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.name).toBe("readFile");
       expect(result.value.args).toEqual({ path: "/test.txt" });
       expect(result.value.id).toBe("call_123");
@@ -22,14 +22,14 @@ describe("shared/contracts/llm-response", () => {
 
     it("trims name", () => {
       const result = validateToolCall({ name: "  readFile  " });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.name).toBe("readFile");
     });
 
     it("rejects null", () => {
       const result = validateToolCall(null);
       expect(result.ok).toBe(false);
-      expect(result.error.includes("expected object")).toBeTruthy();
+      expect(result.error).toContain("expected object");
     });
 
     it("rejects non-object", () => {
@@ -40,7 +40,7 @@ describe("shared/contracts/llm-response", () => {
     it("rejects missing name", () => {
       const result = validateToolCall({ args: {} });
       expect(result.ok).toBe(false);
-      expect(result.error.includes("name")).toBeTruthy();
+      expect(result.error).toContain("name");
     });
 
     it("rejects empty name", () => {
@@ -55,20 +55,20 @@ describe("shared/contracts/llm-response", () => {
 
     it("handles undefined args", () => {
       const result = validateToolCall({ name: "test" });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.args).toBe(undefined);
     });
 
     it("handles null args", () => {
       const result = validateToolCall({ name: "test", args: null });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.args).toBe(undefined);
     });
 
     it("rejects array args", () => {
       const result = validateToolCall({ name: "test", args: [1, 2, 3] });
       expect(result.ok).toBe(false);
-      expect(result.error.includes("args")).toBeTruthy();
+      expect(result.error).toContain("args");
     });
 
     it("rejects non-object args", () => {
@@ -78,18 +78,18 @@ describe("shared/contracts/llm-response", () => {
 
     it("includes index in error", () => {
       const result = validateToolCall(null, 5);
-      expect(result.error.includes("toolCalls[5]")).toBeTruthy();
+      expect(result.error).toContain("toolCalls[5]");
     });
 
     it("handles undefined id", () => {
       const result = validateToolCall({ name: "test" });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.id).toBe(undefined);
     });
 
     it("handles non-string id", () => {
       const result = validateToolCall({ name: "test", id: 123 });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.id).toBe(undefined);
     });
   });
@@ -100,7 +100,7 @@ describe("shared/contracts/llm-response", () => {
         content: "Hello world",
         stopReason: "end_turn",
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.content).toBe("Hello world");
       expect(result.value.stopReason).toBe("end_turn");
     });
@@ -109,7 +109,7 @@ describe("shared/contracts/llm-response", () => {
       const result = validateLlmResponse({
         toolCalls: [{ name: "test", args: {} }],
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.toolCalls.length).toBe(1);
       expect(result.value.toolCalls[0].name).toBe("test");
     });
@@ -119,7 +119,7 @@ describe("shared/contracts/llm-response", () => {
         content: "Let me help",
         toolCalls: [{ name: "readFile" }],
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.content).toBe("Let me help");
       expect(result.value.toolCalls.length).toBe(1);
     });
@@ -136,20 +136,20 @@ describe("shared/contracts/llm-response", () => {
 
     it("handles non-string content", () => {
       const result = validateLlmResponse({ content: 123 });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.content).toBe(undefined);
     });
 
     it("handles non-string stopReason", () => {
       const result = validateLlmResponse({ content: "test", stopReason: 123 });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.stopReason).toBe(undefined);
     });
 
     it("rejects non-array toolCalls", () => {
       const result = validateLlmResponse({ toolCalls: "not array" });
       expect(result.ok).toBe(false);
-      expect(result.error.includes("toolCalls")).toBeTruthy();
+      expect(result.error).toContain("toolCalls");
     });
 
     it("rejects invalid tool call in array", () => {
@@ -157,12 +157,12 @@ describe("shared/contracts/llm-response", () => {
         toolCalls: [{ name: "valid" }, { name: "" }],
       });
       expect(result.ok).toBe(false);
-      expect(result.error.includes("toolCalls[1]")).toBeTruthy();
+      expect(result.error).toContain("toolCalls[1]");
     });
 
     it("accepts empty response", () => {
       const result = validateLlmResponse({});
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.content).toBe(undefined);
       expect(result.value.toolCalls).toBe(undefined);
     });

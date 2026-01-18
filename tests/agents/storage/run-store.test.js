@@ -137,12 +137,12 @@ describe("RunStore (IndexedDB mode)", () => {
     const dbp1 = store._dbp;
     const p2 = store.open();
     const dbp2 = store._dbp;
-    expect(dbp1).toBeTruthy();
+    expect(dbp1).toBeInstanceOf(Promise);
     expect(dbp1).toBe(dbp2);
 
     const db1 = await p1;
     const db2 = await p2;
-    expect(db1).toBeTruthy();
+    expect(db1).toEqual(expect.objectContaining({ close: expect.any(Function) }));
     expect(db1).toBe(db2);
 
     await store.close();
@@ -487,8 +487,8 @@ describe("RunStore (IndexedDB mode)", () => {
     // pinned + keep newest, so oldest non-pinned should be deleted
     expect(maxRuns.deletedRunIds).toEqual([ids[0]]);
     expect(await store.getRun(ids[0])).toBeNull();
-    expect(await store.getRun(ids[1])).toBeTruthy();
-    expect(await store.getRun(ids[2])).toBeTruthy();
+    expect(await store.getRun(ids[1])).toEqual(expect.objectContaining({ runId: ids[1], pinned: true }));
+    expect(await store.getRun(ids[2])).toEqual(expect.objectContaining({ runId: ids[2] }));
 
     // maxAgeDays deletes runs older than cutoff (pinned still kept)
     const age = await store.cleanupRuns({ retention: { maxAgeDays: 0.00001 }, reason: "age" }); // tiny window
@@ -770,14 +770,15 @@ describe("RunStore (IndexedDB mode)", () => {
   it("quota: estimateQuota() is safe and _maybeWarnQuota() triggers callback + autoCleanup (best-effort)", async () => {
     const dbName = makeDbName("quota");
     await RunStore.deleteDatabase({ dbName });
+    const onQuotaWarning = vi.fn(() => {
+      throw new Error("quota warning handler failed");
+    });
     const store = new RunStore({
       dbName,
       quotaWarnRatio: 0.2,
       quotaCheckIntervalMs: 0,
       // Throw so _maybeWarnQuota falls through to logger + autoCleanup.
-      onQuotaWarning: vi.fn(() => {
-        throw new Error("quota warning handler failed");
-      }),
+      onQuotaWarning,
       autoCleanup: { enabled: true, maxRuns: 1 },
     });
 
@@ -798,7 +799,7 @@ describe("RunStore (IndexedDB mode)", () => {
 
     await store._maybeWarnQuota({ upcomingBytes: 0, runId: "run_q", type: "plan.json" });
 
-    expect(store._onQuotaWarning).toBeTruthy();
+    expect(store._onQuotaWarning).toBe(onQuotaWarning);
     expect(store._onQuotaWarning).toHaveBeenCalledTimes(1);
     expect(store._onQuotaWarning).toHaveBeenCalledWith(
       expect.objectContaining({

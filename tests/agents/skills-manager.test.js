@@ -66,7 +66,7 @@ describe("SkillsManager", () => {
     it("should create instance with default options", () => {
       const manager = new SkillsManager();
 
-      expect(manager.cacheByDir instanceof Map).toBeTruthy();
+      expect(manager.cacheByDir).toBeInstanceOf(Map);
       expect(manager.cacheTtlMs).toBe(5 * 60_000);
       expect(manager.cacheMaxEntries).toBe(32);
       expect(manager.remoteProvider).toBe(null);
@@ -143,7 +143,7 @@ describe("SkillsManager", () => {
     it("should detect homeDir from process.env if not provided", () => {
       const manager = new SkillsManager();
       // homeDir should be set from environment or null
-      expect(manager.homeDir === null || typeof manager.homeDir === "string").toBeTruthy();
+      expect(manager.homeDir === null || typeof manager.homeDir === "string").toBe(true);
     });
 
     it("should use envHome as fallback when homeDir not provided", () => {
@@ -211,7 +211,7 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       await manager.getSkillsForCwd("");
 
-      expect(manager.cacheByDir.has("__default__")).toBeTruthy();
+      expect(manager.cacheByDir.has("__default__")).toBe(true);
     });
 
     it("should force reload when forceReload is true", async () => {
@@ -272,9 +272,9 @@ describe("SkillsManager", () => {
         await manager.getSkillsForCwd(dir3);
 
         expect(manager.cacheByDir.size).toBe(2);
-        expect(!manager.cacheByDir.has(dir1)).toBeTruthy();
-        expect(manager.cacheByDir.has(dir2)).toBeTruthy();
-        expect(manager.cacheByDir.has(dir3)).toBeTruthy();
+        expect(manager.cacheByDir.has(dir1)).toBe(false);
+        expect(manager.cacheByDir.has(dir2)).toBe(true);
+        expect(manager.cacheByDir.has(dir3)).toBe(true);
       } finally {
         await fs.rm(dir1, { recursive: true, force: true });
         await fs.rm(dir2, { recursive: true, force: true });
@@ -296,8 +296,8 @@ describe("SkillsManager", () => {
       const localSkill = result.skills.find((s) => s.metadata.name === "LocalSkill");
       const remoteSkill = result.skills.find((s) => s.metadata.name === "RemoteSkill");
 
-      expect(localSkill).toBeTruthy();
-      expect(remoteSkill).toBeTruthy();
+      expect(localSkill).toEqual(expect.any(Object));
+      expect(remoteSkill).toEqual(expect.any(Object));
       expect(remoteSkill.metadata.scope).toBe("remote");
       expect(remoteSkill.metadata.path).toBe("remote:RemoteSkill");
       expect(remoteSkill.body).toBe(null);
@@ -349,14 +349,14 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       await manager.getSkillsForCwd(null);
 
-      expect(manager.cacheByDir.has("__default__")).toBeTruthy();
+      expect(manager.cacheByDir.has("__default__")).toBe(true);
     });
 
     it("should handle undefined cwd", async () => {
       const manager = new SkillsManager({ homeDir: null });
       await manager.getSkillsForCwd(undefined);
 
-      expect(manager.cacheByDir.has("__default__")).toBeTruthy();
+      expect(manager.cacheByDir.has("__default__")).toBe(true);
     });
 
     it("should handle cache entry with missing ts field", async () => {
@@ -368,7 +368,7 @@ describe("SkillsManager", () => {
       const result = await manager.getSkillsForCwd("/test");
 
       // Should reload because ts is missing/invalid (ts=0 means expired)
-      expect(result).toBeTruthy();
+      expect(result).toEqual(expect.objectContaining({ skills: expect.any(Array), errors: expect.any(Array) }));
     });
 
     it("should handle skills with empty keywords array from remote", async () => {
@@ -397,8 +397,8 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       const result = await manager.getSkillsForCwd("/non/existent/path");
 
-      expect(Array.isArray(result.skills)).toBeTruthy();
-      expect(Array.isArray(result.errors)).toBeTruthy();
+      expect(result.skills).toBeInstanceOf(Array);
+      expect(result.errors).toBeInstanceOf(Array);
     });
 
     it("should handle multiple remote skills", async () => {
@@ -427,7 +427,7 @@ describe("SkillsManager", () => {
       expect(manager.manifestUrl).toBe("/skills/manifest.json");
 
       const result = await manager.getSkillsForCwd(tmpDir);
-      expect(Array.isArray(result.skills)).toBeTruthy();
+      expect(result.skills).toBeInstanceOf(Array);
     });
   });
 
@@ -453,8 +453,8 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       const result = await manager.getCatalogPrompt(tmpDir);
 
-      expect(result.startsWith("## Skills Catalog")).toBeTruthy();
-      expect(result.includes("$TestSkill")).toBeTruthy();
+      expect(result).toMatch(/^## Skills Catalog/);
+      expect(result).toContain("$TestSkill");
     });
 
     it("should return catalog without header when header=false", async () => {
@@ -466,8 +466,8 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       const result = await manager.getCatalogPrompt(tmpDir, { header: false });
 
-      expect(!result.startsWith("## Skills Catalog")).toBeTruthy();
-      expect(result.includes("$TestSkill")).toBeTruthy();
+      expect(result).not.toMatch(/^## Skills Catalog/);
+      expect(result).toContain("$TestSkill");
     });
 
     it("should return empty string when no skills", async () => {
@@ -485,7 +485,7 @@ describe("SkillsManager", () => {
       await manager.getSkillsForCwd(tmpDir);
       const catalog = await manager.getCatalogPrompt(tmpDir);
 
-      expect(catalog.includes("$CachedSkill")).toBeTruthy();
+      expect(catalog).toContain("$CachedSkill");
     });
   });
 
@@ -513,8 +513,8 @@ describe("SkillsManager", () => {
 
         manager.clearCache(dir1);
 
-        expect(!manager.cacheByDir.has(dir1)).toBeTruthy();
-        expect(manager.cacheByDir.has(dir2)).toBeTruthy();
+        expect(manager.cacheByDir.has(dir1)).toBe(false);
+        expect(manager.cacheByDir.has(dir2)).toBe(true);
       } finally {
         await fs.rm(dir1, { recursive: true, force: true });
         await fs.rm(dir2, { recursive: true, force: true });
@@ -639,8 +639,8 @@ describe("SkillsManager", () => {
 
       expect(metadata[0].name).toBe("TestSkill");
       expect(metadata[0].description).toBe("Test description");
-      expect(metadata[0].path).toBeTruthy();
-      expect(metadata[0].scope).toBeTruthy();
+      expect(metadata[0].path).toMatch(/\S/);
+      expect(metadata[0].scope).toMatch(/\S/);
     });
   });
 
@@ -717,7 +717,7 @@ describe("SkillsManager", () => {
 
       const results = await Promise.all(promises);
 
-      expect(results.every(r => r.skills.length === 1)).toBeTruthy();
+      expect(results.map((result) => result.skills.length)).toEqual([1, 1, 1]);
     });
 
     it("should handle concurrent calls to different cwds", async () => {

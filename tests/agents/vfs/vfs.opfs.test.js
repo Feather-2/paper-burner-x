@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { OpfsVfs, supportsOpfs } from "../../../js/agents/vfs/vfs.opfs.js";
 
-import { createMockOpfsRoot, NotFoundError } from "./opfs-mock.js";
+import { createMockOpfsRoot, MockDirectoryHandle, NotFoundError } from "./opfs-mock.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -30,7 +30,9 @@ describe("agents/vfs/vfs.opfs", () => {
     const vfs = await OpfsVfs.create({ rootDirName: "workspace" });
 
     // Root dir name should create a directory handle under the storage root.
-    await expect(root.getDirectoryHandle("workspace", { create: false })).resolves.toBeTruthy();
+    await expect(root.getDirectoryHandle("workspace", { create: false })).resolves.toBeInstanceOf(
+      MockDirectoryHandle,
+    );
 
     await expect(vfs.mkdir("a/b", { recursive: true })).resolves.toBe(true);
     await expect(vfs.writeText("a/b/hello.txt", "hi")).resolves.toBe(true);

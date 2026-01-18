@@ -12,7 +12,8 @@ describe("deepsearch/tools handlers (unit)", () => {
 
     const created = await handler({ action: "create", text: "Do thing", priority: "high" }, { state, emit });
     expect(created.success).toBe(true);
-    expect(created.todo?.todoId).toBeTruthy();
+    expect(created.todo).toBeDefined();
+    expect(created.todo.todoId).toMatch(/^todo_[0-9a-z]+$/);
     expect(state.todos).toHaveLength(1);
 
     // Update without state.updateTodo (in-place branch)
@@ -124,4 +125,3 @@ describe("deepsearch/tools handlers (unit)", () => {
     expect(discoveryManager.upsertDiscovery).toHaveBeenCalledWith("gap_1", expect.any(Object));
   });
 });
-

@@ -9,7 +9,7 @@ import { Watchdog } from "../../../js/agents/runtime/compression/watchdog.js";
 describe("TaskTool", () => {
   it("should have context_mode in schema", () => {
     const props = TASK_TOOL_DEFINITION.parameters.properties;
-    expect(props.context_mode).toBeTruthy();
+    expect(props).toHaveProperty("context_mode");
     expect(props.context_mode.enum).toEqual(["isolated", "shared", "handoff"]);
   });
 
@@ -38,8 +38,7 @@ describe("TaskTool", () => {
 
     await handler({ subagent_type: "test", prompt: "do something", context_mode: "isolated" }, context);
 
-    expect(receivedContext).toBeTruthy();
-    expect(receivedContext.sharedContext).toEqual({ test: 1 });
+    expect(receivedContext).toMatchObject({ sharedContext: { test: 1 } });
     expect(receivedContext.messages).toBe(undefined);
     expect(receivedContext.handoff).toBe(undefined);
   });
@@ -68,10 +67,9 @@ describe("TaskTool", () => {
 
     await handler({ subagent_type: "test", prompt: "do something", context_mode: "shared" }, context);
 
-    expect(receivedContext).toBeTruthy();
+    expect(receivedContext).toMatchObject({ sharedContext: { shared: true } });
     // shared 模式不再传 messages（避免上下文膨胀）
     expect(receivedContext.messages).toBe(undefined);
-    expect(receivedContext.sharedContext).toEqual({ shared: true });
   });
 
   it("handoff mode: passes handoff document", async () => {
@@ -99,11 +97,12 @@ describe("TaskTool", () => {
 
     await handler({ subagent_type: "test", prompt: "do something", context_mode: "handoff" }, context);
 
-    expect(receivedContext).toBeTruthy();
-    expect(receivedContext.handoff).toBeTruthy();
-    expect(receivedContext.handoff.taskGoal).toBe("test goal");
-    expect(receivedContext.handoff.iteration).toBe(5);
-    expect(receivedContext.handoff.summary).toBe("test summary");
+    expect(receivedContext).toMatchObject({ handoff: expect.any(Object) });
+    expect(receivedContext.handoff).toMatchObject({
+      taskGoal: "test goal",
+      iteration: 5,
+      summary: "test summary",
+    });
   });
 
   it("default mode is isolated", async () => {
@@ -126,7 +125,7 @@ describe("TaskTool", () => {
     // 不传 context_mode
     await handler({ subagent_type: "test", prompt: "do something" }, context);
 
-    expect(receivedContext).toBeTruthy();
+    expect(receivedContext).toMatchObject({ sharedContext: { x: 1 } });
     expect(receivedContext.messages).toBe(undefined);
     expect(receivedContext.handoff).toBe(undefined);
   });
@@ -151,7 +150,9 @@ describe("Watchdog", () => {
 
     const result = watchdog.checkHealth({ maxIterations: 5 });
     expect(result.healthy).toBe(false);
-    expect(result.issues.some(i => i.type === "max_iterations")).toBeTruthy();
+    expect(result.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "max_iterations" })])
+    );
   });
 
   it("should be healthy when under limits", () => {
@@ -197,7 +198,7 @@ describe("CicadaCompressor.buildHandoff", () => {
     const handoff = compressor.buildHandoff(state, null);
 
     expect(handoff.runId).toBe("run_123");
-    expect(handoff.timestamp).toBeTruthy();
+    expect(handoff.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(handoff.accomplished.claimCount).toBe(3);
     expect(handoff.accomplished.completedTodos).toEqual(["step 1"]);
     expect(handoff.pending.taskGoal).toBe("analyze data");
@@ -210,7 +211,7 @@ describe("CicadaCompressor.buildHandoff", () => {
     const compressor = new CicadaCompressor({});
     const handoff = compressor.buildHandoff({}, null);
 
-    expect(handoff.timestamp).toBeTruthy();
+    expect(handoff.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(handoff.accomplished.summary).toBe("");
     expect(handoff.accomplished.completedTodos).toEqual([]);
     expect(handoff.pending.todos).toEqual([]);

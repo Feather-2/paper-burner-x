@@ -148,10 +148,11 @@ describe("codesearch/codesearch-stage", () => {
   it("_getDefaultFs returns node:fs/promises adapters when available", async () => {
     const stage = new CodeSearchStage();
     const fs = await stage._getDefaultFs();
-    expect(fs).toBeTruthy();
-    expect(typeof fs.readFile).toBe("function");
-    expect(typeof fs.readdir).toBe("function");
-    expect(typeof fs.stat).toBe("function");
+    expect(fs).toEqual({
+      readFile: expect.any(Function),
+      readdir: expect.any(Function),
+      stat: expect.any(Function),
+    });
   });
 
   it("pauses when planning phase cannot produce todos (planResult.success=false)", async () => {

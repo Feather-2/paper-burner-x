@@ -174,7 +174,7 @@ it("Design model-caller: logger injection, debug gating, hard timeout, and clean
       callModel([{ role: "user", content: "hi" }], { signal: outerSignal })
     ).rejects.toMatchObject({ code: 124, name: "TimeoutError" });
 
-    expect(capturedHardSignal && capturedHardSignal.aborted === true).toBeTruthy();
+    expect(capturedHardSignal?.aborted).toBe(true);
     expect(outerSignal._listeners.size).toBe(0);
   }).finally(() => setLogger(null));
 
@@ -232,7 +232,7 @@ it("Design model-caller: logger injection, debug gating, hard timeout, and clean
     const callModel = getDesignModelCaller(stageApi, { timeoutMs: 5_000 });
     const out = await callModel([{ role: "user", content: "hi" }], { timeoutMs: 5_000 });
     expect(out.content).toBe("ok-chat");
-    expect(capturedSignal && typeof capturedSignal.addEventListener === "function").toBeTruthy();
+    expect(typeof capturedSignal?.addEventListener).toBe("function");
   });
 
   // Legacy router signature (routerCall.length >= 2)
@@ -252,6 +252,6 @@ it("Design model-caller: logger injection, debug gating, hard timeout, and clean
     expect(out.content).toBe("ok-legacy");
     expect(seen.length).toBe(1);
     expect(seen[0].opts.usage).toBe("brainstorm");
-    expect(seen[0].opts.signal && typeof seen[0].opts.signal.addEventListener === "function").toBeTruthy();
+    expect(typeof seen[0].opts.signal?.addEventListener).toBe("function");
   });
 });

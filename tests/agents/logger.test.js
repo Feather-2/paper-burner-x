@@ -12,16 +12,16 @@ describe("shared/utils/logger", () => {
   describe("createLogger", () => {
     it("creates logger with default options", () => {
       const logger = createLogger();
-      expect(logger).toBeTruthy();
-      expect(typeof logger.debug === "function").toBeTruthy();
-      expect(typeof logger.info === "function").toBeTruthy();
-      expect(typeof logger.warn === "function").toBeTruthy();
-      expect(typeof logger.error === "function").toBeTruthy();
+      expect(logger).toEqual(expect.any(Object));
+      expect(logger.debug).toBeTypeOf("function");
+      expect(logger.info).toBeTypeOf("function");
+      expect(logger.warn).toBeTypeOf("function");
+      expect(logger.error).toBeTypeOf("function");
     });
 
     it("accepts string as stage name", () => {
       const logger = createLogger("my-stage");
-      expect(logger).toBeTruthy();
+      expect(logger.info).toBeTypeOf("function");
     });
 
     it("logs with emit function", () => {
@@ -34,7 +34,7 @@ describe("shared/utils/logger", () => {
       logger.info("test message", { extra: "data" });
 
       expect(emitted.length).toBe(1);
-      expect(emitted[0].event.includes("log.info")).toBeTruthy();
+      expect(emitted[0].event).toContain("log.info");
       expect(emitted[0].payload.message).toBe("test message");
     });
 
@@ -84,7 +84,7 @@ describe("shared/utils/logger", () => {
       });
 
       logger.info("message");
-      expect(emitted.length === 1).toBeTruthy();
+      expect(emitted).toHaveLength(1);
     });
 
     it("handles getContext returning non-object", () => {
@@ -96,12 +96,12 @@ describe("shared/utils/logger", () => {
       });
 
       logger.info("message");
-      expect(emitted[0].message === "message").toBeTruthy();
+      expect(emitted[0].message).toBe("message");
     });
 
     it("handles null options", () => {
       const logger = createLogger(null);
-      expect(logger).toBeTruthy();
+      expect(logger.info).toBeTypeOf("function");
     });
 
     it("uses custom actor name", () => {
@@ -113,7 +113,7 @@ describe("shared/utils/logger", () => {
 
       logger.info("test");
 
-      expect(emitted[0].includes("custom-actor")).toBeTruthy();
+      expect(emitted[0]).toContain("custom-actor");
     });
 
     it("handles data as non-object", () => {
@@ -123,7 +123,9 @@ describe("shared/utils/logger", () => {
       });
 
       logger.info("message", "string data");
-      expect(emitted[0]).toBeTruthy();
+      expect(emitted[0]).toEqual(
+        expect.objectContaining({ level: "info", message: "message" })
+      );
     });
   });
 
@@ -150,8 +152,8 @@ describe("shared/utils/logger", () => {
       await trackToolCall(logger, "myTool", { x: 1 }, async () => "result");
 
       expect(logs.length).toBe(2);
-      expect(logs[0].msg.includes("myTool")).toBeTruthy();
-      expect(logs[1].msg.includes("completed")).toBeTruthy();
+      expect(logs[0].msg).toContain("myTool");
+      expect(logs[1].msg).toContain("completed");
     });
 
     it("logs error on failure", async () => {
@@ -168,8 +170,8 @@ describe("shared/utils/logger", () => {
       ).rejects.toThrow(/tool failed/);
 
       const errorLog = logs.find((l) => l.level === "error");
-      expect(errorLog).toBeTruthy();
-      expect(errorLog.msg.includes("failed")).toBeTruthy();
+      expect(errorLog).toEqual(expect.objectContaining({ level: "error" }));
+      expect(errorLog.msg).toContain("failed");
     });
 
     it("returns result without logger", async () => {
@@ -193,7 +195,7 @@ describe("shared/utils/logger", () => {
 
       expect(result).toEqual([1, 2, 3]);
       const completionLog = logs.find((l) => l.msg.includes("completed"));
-      expect(completionLog.data.toolCalls[0].result.length === 3).toBeTruthy();
+      expect(completionLog.data.toolCalls[0].result.length).toBe(3);
     });
 
     it("handles non-object result", async () => {

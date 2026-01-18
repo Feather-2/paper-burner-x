@@ -9,7 +9,7 @@ describe("runtime/core/message-manager", () => {
       const m = new MessageManager();
       expect(m.messages).toEqual([]);
       expect(m.tokenUsage).toEqual({ input: 0, output: 0, total: 0 });
-      expect(m.contextConfig.contextWindow > 0).toBeTruthy();
+      expect(m.contextConfig.contextWindow).toBeGreaterThan(0);
     });
 
     it("accepts custom contextConfig", () => {
@@ -65,8 +65,8 @@ describe("runtime/core/message-manager", () => {
       manager.addMessage({ role: "user", content: "Hello world" });
 
       const usage = manager.tokenUsage;
-      expect(usage.input > 0).toBeTruthy();
-      expect(usage.total > 0).toBeTruthy();
+      expect(usage.input).toBeGreaterThan(0);
+      expect(usage.total).toBeGreaterThan(0);
       expect(usage.input).toBe(11); // "Hello world".length
     });
 
@@ -81,9 +81,9 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "user", content: "Test message" };
       manager.addMessage(msg);
 
-      expect(typeof msg._tokens === "number").toBeTruthy();
-      expect(msg._tokens > 0).toBeTruthy();
-      expect(typeof msg._contentHash === "number").toBeTruthy();
+      expect(msg._tokens).toBeTypeOf("number");
+      expect(msg._tokens).toBeGreaterThan(0);
+      expect(msg._contentHash).toBeTypeOf("number");
     });
 
     it("handles null content gracefully", () => {
@@ -112,7 +112,7 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "user", content: { key: "value", nested: { a: 1 } } };
       manager.addMessage(msg);
 
-      expect(msg._tokens > 0).toBeTruthy();
+      expect(msg._tokens).toBeGreaterThan(0);
     });
   });
 
@@ -243,7 +243,7 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
       manager.addMessage(msg);
 
-      expect(manager._pendingSummaryPromises.size > 0).toBeTruthy();
+      expect(manager._pendingSummaryPromises.size).toBeGreaterThan(0);
 
       await manager.reset();
 
@@ -350,14 +350,14 @@ describe("runtime/core/message-manager", () => {
       manager.addMessage({ role: "user", content: "Hello" });
       const status = manager.getStatus();
 
-      expect("messageCount" in status).toBeTruthy();
-      expect("tokenUsage" in status).toBeTruthy();
-      expect("contextWindow" in status).toBeTruthy();
-      expect("fillRatio" in status).toBeTruthy();
-      expect("compressThreshold" in status).toBeTruthy();
-      expect("needsCompression" in status).toBeTruthy();
-      expect("compressionPending" in status).toBeTruthy();
-      expect("compressionCount" in status).toBeTruthy();
+      expect(status).toHaveProperty("messageCount");
+      expect(status).toHaveProperty("tokenUsage");
+      expect(status).toHaveProperty("contextWindow");
+      expect(status).toHaveProperty("fillRatio");
+      expect(status).toHaveProperty("compressThreshold");
+      expect(status).toHaveProperty("needsCompression");
+      expect(status).toHaveProperty("compressionPending");
+      expect(status).toHaveProperty("compressionCount");
     });
 
     it("calculates fillRatio correctly", () => {
@@ -518,7 +518,8 @@ describe("runtime/core/message-manager", () => {
       manager._scheduleCompression();
 
       expect(manager._compressionPending).toBe(false);
-      expect(manager._compressionCooldownTimer).toBeTruthy();
+      expect(manager._compressionCooldownTimer).not.toBeNull();
+      expect(manager._compressionCooldownTimer).toBeDefined();
 
       await new Promise((resolve) => setTimeout(resolve, 40));
       if (manager._compressionPromise) {
@@ -564,14 +565,16 @@ describe("runtime/core/message-manager", () => {
 
       expect(manager.messages.length).toBe(2);
       expect(manager.messages[1].content).toBe("summary");
-      expect(manager.tokenUsage.total < beforeTokens).toBeTruthy();
+      expect(manager.tokenUsage.total).toBeLessThan(beforeTokens);
       expect(manager._compressionHistory.length).toBe(1);
       const record = manager._compressionHistory[0];
       expect(record.beforeCount).toBe(beforeCount);
       expect(record.afterCount).toBe(2);
       expect(record.beforeTokens).toBe(beforeTokens);
       expect(record.afterTokens).toBe(manager.tokenUsage.total);
-      expect(capturedSignal && typeof capturedSignal.aborted === "boolean").toBeTruthy();
+      expect(capturedSignal).not.toBeNull();
+      expect(capturedSignal).toBeDefined();
+      expect(capturedSignal.aborted).toBeTypeOf("boolean");
       expect(manager._compressionAbortController).toBe(null);
       expect(emitCalls.length).toBe(1);
       expect(emitCalls[0].name).toBe("demo.context.compressed");
@@ -664,7 +667,7 @@ describe("runtime/core/message-manager", () => {
       expect(record.afterCount).toBe(2);
       expect(record.beforeTokens).toBe(9);
       expect(record.afterTokens).toBe(manager.tokenUsage.total);
-      expect(typeof record.timestamp === "number").toBeTruthy();
+      expect(record.timestamp).toBeTypeOf("number");
       expect(emitCalls.length).toBe(1);
       expect(emitCalls[0].name).toBe("demo.context.compressed");
       expect(emitCalls[0].payload.actor).toBe("tester");
@@ -698,7 +701,7 @@ describe("runtime/core/message-manager", () => {
       await manager.flushCompression({ maxRounds: 2 });
       expect(manager.messages.length).toBe(1);
       expect(manager.getStatus().compressionCount).toBe(2);
-      expect(emitCalls.some(e => e.name === "demo.context.compressed")).toBeTruthy();
+      expect(emitCalls.map(e => e.name)).toContain("demo.context.compressed");
     });
 
     it("flushCompression() logs non-abort errors and suppresses abort-like errors", async () => {
@@ -799,9 +802,9 @@ describe("runtime/core/message-manager", () => {
       expect(small).toBe("small");
 
       const large = manager.wrapToolOutput("x".repeat(50), { threshold: 10, previewSize: 5 });
-      expect(large.includes("<persisted-output>")).toBeTruthy();
-      expect(large.includes("</persisted-output>")).toBeTruthy();
-      expect(large.includes("xxxxx")).toBeTruthy();
+      expect(large).toContain("<persisted-output>");
+      expect(large).toContain("</persisted-output>");
+      expect(large).toContain("xxxxx");
 
       const p1 = "<persisted-output>one</persisted-output>";
       const p2 = "<persisted-output>two</persisted-output>";
@@ -960,7 +963,7 @@ describe("runtime/core/message-manager", () => {
       await manager._waitForPendingSummaries();
       const elapsed = Date.now() - start;
 
-      expect(elapsed < 50).toBeTruthy();
+      expect(elapsed).toBeLessThan(50);
     });
 
     it("_waitForPendingSummaries waits for all pending summaries", async () => {
@@ -1180,7 +1183,7 @@ describe("runtime/core/message-manager", () => {
       // 重算应检测到 hash 不匹配，重新计数
       manager._recalculateTokenUsage();
 
-      expect(callCount > callsAfterAdd).toBeTruthy();
+      expect(callCount).toBeGreaterThan(callsAfterAdd);
       expect(manager.tokenUsage.total).toBe(11); // "hello world".length
       expect(msg._tokens).toBe(11);
       expect(msg._contentHash).toBe(manager._computeContentHash("hello world"));
@@ -1286,7 +1289,7 @@ describe("runtime/core/message-manager", () => {
         content: "决定使用方案A\n分析完成\n确定采用这个方法",
       };
       const summary = manager._generateBuiltinSummary(msg);
-      expect(summary.includes("[决策]")).toBeTruthy();
+      expect(summary).toContain("[决策]");
     });
 
     it("_generateBuiltinSummary generates summary for thinking messages without decisions", () => {
@@ -1298,7 +1301,7 @@ describe("runtime/core/message-manager", () => {
         content: "This is a thinking message without clear decisions",
       };
       const summary = manager._generateBuiltinSummary(msg);
-      expect(summary.includes("[Thinking]")).toBeTruthy();
+      expect(summary).toContain("[Thinking]");
     });
 
     it("_generateBuiltinSummary generates summary for long content", () => {
@@ -1307,8 +1310,8 @@ describe("runtime/core/message-manager", () => {
 
       const msg = { content: "x".repeat(300) };
       const summary = manager._generateBuiltinSummary(msg);
-      expect(summary.includes("...")).toBeTruthy();
-      expect(summary.length < 200).toBeTruthy();
+      expect(summary).toContain("...");
+      expect(summary.length).toBeLessThan(200);
     });
 
     it("_generateBuiltinSummary returns null for short content", () => {

@@ -204,7 +204,7 @@ it("DesignAgentLoop runs phases, uses tools, emits events", async () => {
 
   expect(deck.schemaVersion).toBe("0.1");
   expect(deck.slidesMeta.length).toBe(2);
-  expect(deck.deckHtmlDsl.includes("<section")).toBeTruthy();
+  expect(deck.deckHtmlDsl).toContain("<section");
 
   // Verify tool call order
   expect(calls).toEqual(["parse_outline", "extract_style", "spawn_slide_agent", "fill_visual"]);
@@ -214,24 +214,26 @@ it("DesignAgentLoop runs phases, uses tools, emits events", async () => {
     .filter((evt) => evt.name === "design.phase.transition")
     .map((evt) => evt.record.payload.to);
 
-  expect(transitions.includes(DesignPhase.OUTLINE_PARSING)).toBeTruthy();
-  expect(transitions.includes(DesignPhase.GENERATING)).toBeTruthy();
-  expect(transitions.includes(DesignPhase.COMPLETED)).toBeTruthy();
+  expect(transitions).toContain(DesignPhase.OUTLINE_PARSING);
+  expect(transitions).toContain(DesignPhase.GENERATING);
+  expect(transitions).toContain(DesignPhase.COMPLETED);
 
   // Verify lifecycle events
-  expect(events.some(evt => evt.name === "design.started")).toBeTruthy();
-  expect(events.some(evt => evt.name === "design.ended")).toBeTruthy();
+  const eventNames = events.map((evt) => evt.name);
+  expect(eventNames).toContain("design.started");
+  expect(eventNames).toContain("design.ended");
 });
 
 it("DesignAgentLoop exposes getPhase and getStatus methods", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
 
   const loop = new DesignAgentLoop();
 
   // Before run, phase should be IDLE
   expect(loop.getPhase()).toBe(DesignPhase.IDLE);
-  expect(loop.getStatus()).toBeTruthy();
+  expect(loop.getStatus()).toBe(AgentStatus.IDLE);
 });
 
 it("DesignAgentLoop handles tool execution errors gracefully", async () => {
@@ -493,8 +495,10 @@ it("createEditToolExecutor returns error for invalid operations", async () => {
 it("EditModeTools exports tool definitions", async () => {
   const { EditModeTools } = await import("../../../js/agents/stages/design/edit-mode/tools.js");
 
-  expect(EditModeTools).toBeTruthy();
-  expect(Array.isArray(EditModeTools) || typeof EditModeTools === "object").toBeTruthy();
+  expect(EditModeTools).not.toBeNull();
+  expect(EditModeTools).toBeTypeOf("object");
+  expect(Array.isArray(EditModeTools)).toBe(false);
+  expect(Object.keys(EditModeTools).length).toBeGreaterThan(0);
 });
 
 // ============================================================================
@@ -505,44 +509,50 @@ it("design module exports all expected components", async () => {
   const design = await import("../../../js/agents/stages/design/index.js");
 
   // Core classes
-  expect(design.DesignAgentLoop).toBeTruthy();
-  expect(design.DesignStage).toBeTruthy();
-  expect(design.runDesignStage).toBeTruthy();
+  expect(design.DesignAgentLoop).toBeTypeOf("function");
+  expect(design.DesignStage).toBeTypeOf("function");
+  expect(design.runDesignStage).toBeTypeOf("function");
 
   // Generators
-  expect(design.generateDesignTokens).toBeTruthy();
-  expect(design.ImageGenerator).toBeTruthy();
-  expect(design.SVGGenerator).toBeTruthy();
+  expect(design.generateDesignTokens).toBeTypeOf("function");
+  expect(design.ImageGenerator).toBeTypeOf("function");
+  expect(design.SVGGenerator).toBeTypeOf("function");
 
   // DSL
-  expect(design.buildSlideHtml).toBeTruthy();
+  expect(design.buildSlideHtml).toBeTypeOf("function");
 
   // Edit mode
-  expect(design.EditModeAgentLoop).toBeTruthy();
-  expect(design.EditHistoryManager).toBeTruthy();
-  expect(design.createEditToolExecutor).toBeTruthy();
-  expect(design.EditModeTools).toBeTruthy();
+  expect(design.EditModeAgentLoop).toBeTypeOf("function");
+  expect(design.EditHistoryManager).toBeTypeOf("function");
+  expect(design.createEditToolExecutor).toBeTypeOf("function");
+  expect(design.EditModeTools).not.toBeNull();
+  expect(design.EditModeTools).toBeTypeOf("object");
 
   // Sub agents
-  expect(design.SlideSubAgent).toBeTruthy();
-  expect(design.VisualSubAgent).toBeTruthy();
+  expect(design.SlideSubAgent).toBeTypeOf("function");
+  expect(design.VisualSubAgent).toBeTypeOf("function");
 
   // State machines
-  expect(design.DesignPhase).toBeTruthy();
-  expect(design.SlideStatus).toBeTruthy();
-  expect(design.EditSessionStatus).toBeTruthy();
-  expect(design.designPhaseMachine).toBeTruthy();
+  expect(design.DesignPhase).not.toBeNull();
+  expect(design.DesignPhase).toBeTypeOf("object");
+  expect(design.SlideStatus).not.toBeNull();
+  expect(design.SlideStatus).toBeTypeOf("object");
+  expect(design.EditSessionStatus).not.toBeNull();
+  expect(design.EditSessionStatus).toBeTypeOf("object");
+  expect(design.designPhaseMachine).not.toBeNull();
+  expect(design.designPhaseMachine).toBeTypeOf("object");
+  expect(design.designPhaseMachine.canTransition).toBeTypeOf("function");
 });
 
 it("DESIGN_AGENT_TOOL_DEFINITIONS contains expected tools", async () => {
   const { DESIGN_AGENT_TOOL_DEFINITIONS } = await import("../../../js/agents/stages/design/agent-loop.js");
 
-  expect(Array.isArray(DESIGN_AGENT_TOOL_DEFINITIONS)).toBeTruthy();
+  expect(DESIGN_AGENT_TOOL_DEFINITIONS).toBeInstanceOf(Array);
 
   const toolNames = DESIGN_AGENT_TOOL_DEFINITIONS.map((t) => t.name);
-  expect(toolNames.includes("parse_outline")).toBeTruthy();
-  expect(toolNames.includes("extract_style")).toBeTruthy();
-  expect(toolNames.includes("spawn_slide_agent")).toBeTruthy();
+  expect(toolNames).toContain("parse_outline");
+  expect(toolNames).toContain("extract_style");
+  expect(toolNames).toContain("spawn_slide_agent");
 });
 
 // ============================================================================
@@ -557,8 +567,12 @@ it("generateDesignTokens creates valid design tokens", async () => {
     accent: "#007AFF",
   });
 
-  expect(tokens).toBeTruthy();
-  expect(tokens.colors || tokens.designTokens).toBeTruthy();
+  expect(tokens).not.toBeNull();
+  expect(tokens).toBeTypeOf("object");
+  expect(tokens.designTokens).not.toBeNull();
+  expect(tokens.designTokens).toBeTypeOf("object");
+  expect(tokens.designTokens.colors).not.toBeNull();
+  expect(tokens.designTokens.colors).toBeTypeOf("object");
 });
 
 // ============================================================================
@@ -583,8 +597,8 @@ it("buildSlideHtml generates valid HTML from slide intent", async () => {
     slideNo: 1,
   });
 
-  expect(typeof html === "string").toBeTruthy();
-  expect(html.includes("<section") || html.includes("<div")).toBeTruthy();
+  expect(html).toBeTypeOf("string");
+  expect(html).toMatch(/<(section|div)\b/);
 });
 
 // ============================================================================

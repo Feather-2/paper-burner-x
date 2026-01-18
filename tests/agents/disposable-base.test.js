@@ -18,7 +18,7 @@ describe("shared/base/disposable-base", () => {
       });
 
       it("initializes empty disposables array", () => {
-        expect(Array.isArray(base._disposables)).toBeTruthy();
+        expect(Array.isArray(base._disposables)).toBe(true);
         expect(base._disposables.length).toBe(0);
       });
     });
@@ -104,7 +104,7 @@ describe("shared/base/disposable-base", () => {
           disposed = true;
         });
         await base.dispose();
-        expect(disposed).toBeTruthy();
+        expect(disposed).toBe(true);
       });
 
       it("does not dispose twice", async () => {
@@ -131,7 +131,7 @@ describe("shared/base/disposable-base", () => {
         let hookCalled = false;
         base._onDispose = () => { hookCalled = true; };
         await base.dispose();
-        expect(hookCalled).toBeTruthy();
+        expect(hookCalled).toBe(true);
       });
     });
 
@@ -157,7 +157,7 @@ describe("shared/base/disposable-base", () => {
         }
         const component = new MyComponent();
         await component.dispose();
-        expect(component.cleaned).toBeTruthy();
+        expect(component.cleaned).toBe(true);
       });
     });
   });

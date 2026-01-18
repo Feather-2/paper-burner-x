@@ -29,7 +29,7 @@ it("StageApiFactory createBaseApi merges services and overrides", async () => {
   expect(api.eventBus).toBe(eventBus);
   expect(api.aiApiService).toBe(overrideAiApi);
   expect(api.custom).toBe("fromOverrides");
-  expect(api.signal).toBeTruthy();
+  expect(api.signal).toBeInstanceOf(AbortSignal);
   expect(typeof api.emit).toBe("function");
 
   api.emit("run.test", { ok: true });
@@ -93,7 +93,7 @@ it("StageApiFactory createTextPrepApi passes overrides", async () => {
   const api = factory.createTextPrepApi({ mode: "textprep" });
 
   expect(api.mode).toBe("textprep");
-  expect(api.signal).toBeTruthy();
+  expect(api.signal).toBeInstanceOf(AbortSignal);
 });
 
 it("StageApiFactory validate returns boolean", async () => {
@@ -131,7 +131,7 @@ it("StageApiFactory fromWorkflowContext maps services and exports are wired", as
   };
 
   const factory = StageApiFactory.fromWorkflowContext(ctx);
-  expect(factory instanceof StageApiFactory).toBeTruthy();
+  expect(factory).toBeInstanceOf(StageApiFactory);
   expect(factory.services.signal).toBe("sig");
   expect(factory.services.emit).toBe(eventBus.emit);
   expect(factory.services.imageProvider).toBe("image-provider");
@@ -139,6 +139,6 @@ it("StageApiFactory fromWorkflowContext maps services and exports are wired", as
   expect(factory.services.logger).toBe("logger");
 
   const created = createStageApiFactory({ signal: "s" });
-  expect(created instanceof StageApiFactory).toBeTruthy();
+  expect(created).toBeInstanceOf(StageApiFactory);
   expect(DefaultExport).toBe(StageApiFactory);
 });

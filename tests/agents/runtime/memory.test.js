@@ -229,17 +229,34 @@ describe("runtime/memory/memory-store.impl.js", () => {
 
     const ckpt1 = await store.checkpoint({ incremental: true, fullSnapshotEvery: 99 });
     const snap1 = store.L3.checkpoints.find((c) => c.id === ckpt1);
-    expect(snap1).toBeTruthy();
+    expect(snap1).toEqual(
+      expect.objectContaining({
+        id: ckpt1,
+        runId: "mem_ckpt_inc",
+        encoding: "full",
+        L0: expect.objectContaining({
+          taskGoal: "Goal",
+          todos: expect.arrayContaining([expect.objectContaining({ content: "Task 1" })]),
+        }),
+      })
+    );
     expect(snap1.encoding).toBe("full");
 
     store.addMessage({ role: "user", content: "hello" });
     const ckpt2 = await store.checkpoint({ incremental: true, fullSnapshotEvery: 99 });
     const snap2 = store.L3.checkpoints.find((c) => c.id === ckpt2);
-    expect(snap2).toBeTruthy();
-    expect(snap2.encoding).toBe("incremental");
-    expect(snap2.baseId).toBe(ckpt1);
+    expect(snap2).toEqual(
+      expect.objectContaining({
+        id: ckpt2,
+        runId: "mem_ckpt_inc",
+        encoding: "incremental",
+        baseId: ckpt1,
+      })
+    );
     expect(snap2.L0).toBeUndefined();
-    expect(snap2.L1).toBeTruthy();
+    expect(snap2.L1).toMatchObject({
+      messages: [expect.objectContaining({ role: "user", content: "hello" })],
+    });
 
     // Mutate after checkpoint and restore.
     store.setTaskGoal("Changed");

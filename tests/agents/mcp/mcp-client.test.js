@@ -366,7 +366,7 @@ it("McpClient: listAllTools captures provider failures (non-fatal)", async () =>
   expect(tools.length).toBe(1);
   expect(tools[0].providerId).toBe("good");
 
-  expect(Array.isArray(tools.errors)).toBeTruthy();
+  expect(tools.errors).toBeInstanceOf(Array);
   expect(tools.errors.length).toBe(1);
   expect(tools.errors[0].providerId).toBe("bad");
   expect(String(tools.errors[0].error)).toContain("boom");
@@ -390,8 +390,8 @@ it("McpClient: listAllTools uses 'Unknown error' when a provider rejects with fa
   const client = new McpClient({ providers: [new BadProvider()], defaultProvider: "bad" });
   const tools = await client.listAllTools();
   expect(tools.length).toBe(0);
-  expect(Array.isArray(tools.errors)).toBeTruthy();
-  expect(tools.errors[0].error.includes("Unknown error")).toBeTruthy();
+  expect(tools.errors).toBeInstanceOf(Array);
+  expect(tools.errors[0].error).toContain("Unknown error");
 });
 
 it("McpClient: healthCheck returns ok for provider with listTools", async () => {
@@ -750,8 +750,8 @@ it("MCP constants are exported correctly", async () => {
   );
 
   expect(typeof MCP_PROTOCOL_VERSION).toBe("string");
-  expect(Array.isArray(MCP_SUPPORTED_VERSIONS)).toBeTruthy();
-  expect(MCP_SUPPORTED_VERSIONS.includes(MCP_PROTOCOL_VERSION)).toBeTruthy();
+  expect(MCP_SUPPORTED_VERSIONS).toBeInstanceOf(Array);
+  expect(MCP_SUPPORTED_VERSIONS).toContain(MCP_PROTOCOL_VERSION);
 
   expect(McpMethods.INITIALIZE).toBe("initialize");
   expect(McpMethods.TOOLS_LIST).toBe("tools/list");

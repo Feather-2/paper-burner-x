@@ -7,7 +7,7 @@ it("AudioAdapter: transcribes via whisperApi and outputs LRC + chunkable markdow
 
   const whisperApi = {
     async transcribe(file, opts) {
-      expect(file && typeof file.arrayBuffer === "function").toBeTruthy();
+      expect(file).toEqual(expect.objectContaining({ arrayBuffer: expect.any(Function) }));
       expect(opts.kind).toBe("audio");
       return {
         language: "en",
@@ -34,14 +34,15 @@ it("AudioAdapter: transcribes via whisperApi and outputs LRC + chunkable markdow
   );
 
   expect(parsed.sourceType).toBe("audio");
-  expect(parsed.markdown.includes("# clip.mp3")).toBeTruthy();
-  expect(parsed.markdown.includes("Welcome to the presentation.")).toBeTruthy();
-  expect(parsed.markdown.includes("Today we will discuss Alpha and Beta.")).toBeTruthy();
+  expect(parsed.markdown).toContain("# clip.mp3");
+  expect(parsed.markdown).toContain("Welcome to the presentation.");
+  expect(parsed.markdown).toContain("Today we will discuss Alpha and Beta.");
   expect(parsed.lrc).toBe(["[00:00.00]Welcome to the presentation.", "[00:03.50]Today we will discuss Alpha and Beta."].join("\n")
   );
-  expect(parsed.textNormalized.includes("Welcome")).toBeTruthy();
+  expect(parsed.textNormalized).toContain("Welcome");
   expect(String(parsed.textHash || "")).toMatch(/^sha256:/);
-  expect(Array.isArray(parsed.chunks ) && parsed.chunks.length >= 1).toBeTruthy();
+  expect(parsed.chunks).toEqual(expect.any(Array));
+  expect(parsed.chunks.length).toBeGreaterThanOrEqual(1);
 });
 
 it("AudioAdapter: throws if whisperApi is missing", async () => {
@@ -102,7 +103,8 @@ it("VideoAdapter: transcribes and attaches extracted keyframes as assets", async
 
   expect(parsed.sourceType).toBe("video");
   expect(parsed.lrc).toBe(["[00:00.00]A", "[00:01.00]B"].join("\n"));
-  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 3).toBeTruthy();
+  expect(parsed.assets).toEqual(expect.any(Array));
+  expect(parsed.assets).toHaveLength(3);
   expect(parsed.assets[0].mimeType).toBe("image/jpeg");
   expect(parsed.assets[0].data).toBe("AAAA");
   expect(parsed.assets[0].docId).toBe(parsed.docId);
@@ -185,4 +187,3 @@ it("getVideoFrames: returns [] when disabled or unavailable", async () => {
   expect(await getVideoFrames(new Blob(["x"]), 0, 1, 0)).toEqual([]);
   expect(await getVideoFrames(new Blob(["x"]), 0, 1, 2, { mediabunny: null })).toEqual([]);
 });
-

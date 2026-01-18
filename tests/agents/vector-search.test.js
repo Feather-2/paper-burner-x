@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { buildIndex, searchAsync } from "../../js/agents/retrieval/vector-search.js";
+import { VectorIndex } from "../../js/agents/shared/embeddings/vector-index.js";
 
 describe("retrieval/vector-search", () => {
   describe("buildIndex", () => {
@@ -13,7 +14,7 @@ describe("retrieval/vector-search", () => {
 
       const index = buildIndex(chunks);
 
-      expect(index.vectorIndex).toBeTruthy();
+      expect(index.vectorIndex).toBeInstanceOf(VectorIndex);
       expect(index.chunkIds).toEqual(["c1", "c2"]);
     });
 
@@ -51,7 +52,7 @@ describe("retrieval/vector-search", () => {
         getEmbedding: (c) => c.vec,
       });
 
-      expect(index.vectorIndex).toBeTruthy();
+      expect(index.vectorIndex).toBeInstanceOf(VectorIndex);
     });
 
     it("accepts injected vectorIndex", () => {
@@ -103,7 +104,10 @@ describe("retrieval/vector-search", () => {
         },
       });
 
-      expect(results.length >= 1).toBeTruthy();
+      expect(results).toEqual([
+        { chunkId: "c1", score: 0.9 },
+        { chunkId: "c2", score: 0.8 },
+      ]);
     });
 
     it("returns empty for empty query", async () => {

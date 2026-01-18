@@ -56,15 +56,15 @@ describe("DeltaSync: hash and manifest", () => {
 
     const manifest = await buildManifest(files);
 
-    expect(manifest.id.startsWith("manifest_")).toBeTruthy();
-    expect(manifest.ts > 0).toBeTruthy();
+    expect(manifest.id).toMatch(/^manifest_/);
+    expect(manifest.ts).toBeGreaterThan(0);
     expect(manifest.files.size).toBe(2);
 
     const aEntry = manifest.files.get("/a.txt");
-    expect(aEntry).toBeTruthy();
+    expect(aEntry).toBeDefined();
     expect(aEntry.path).toBe("/a.txt");
-    expect(aEntry.hash).toBeTruthy();
-    expect(aEntry.size > 0).toBeTruthy();
+    expect(aEntry.hash).toMatch(/^(?:[a-f0-9]{8}|[a-f0-9]{64})$/);
+    expect(aEntry.size).toBeGreaterThan(0);
 
     const bEntry = manifest.files.get("/b.txt");
     expect(bEntry.mtime).toBe(1000);
@@ -86,15 +86,15 @@ describe("DeltaSync: hash and manifest", () => {
     const delta = computeDelta(base, target);
 
     const modified = delta.find((d) => d.path === "/a.txt");
-    expect(modified).toBeTruthy();
+    expect(modified).toBeDefined();
     expect(modified.type).toBe("modify");
 
     const added = delta.find((d) => d.path === "/d.txt");
-    expect(added).toBeTruthy();
+    expect(added).toBeDefined();
     expect(added.type).toBe("add");
 
     const deleted = delta.find((d) => d.path === "/c.txt");
-    expect(deleted).toBeTruthy();
+    expect(deleted).toBeDefined();
     expect(deleted.type).toBe("delete");
 
     // /b.txt should not be in delta
@@ -116,8 +116,9 @@ describe("DeltaSync: hash and manifest", () => {
     const conflicts = detectConflicts(localDelta, remoteDelta);
 
     expect(conflicts.length).toBe(2);
-    expect(conflicts.some(c => c.path === "/a.txt")).toBeTruthy();
-    expect(conflicts.some(c => c.path === "/b.txt")).toBeTruthy();
+    const conflictPaths = conflicts.map((c) => c.path);
+    expect(conflictPaths).toContain("/a.txt");
+    expect(conflictPaths).toContain("/b.txt");
   });
 
   it("resolveConflicts applies strategy", async () => {
@@ -159,8 +160,8 @@ describe("DeltaSync: hash and manifest", () => {
 
     const plan = session.computeSyncPlan();
 
-    expect(plan.toUpload.length > 0).toBeTruthy(); // local.txt and modified a.txt
-    expect(plan.toDownload.length > 0).toBeTruthy(); // remote.txt
+    expect(plan.toUpload.length).toBeGreaterThan(0); // local.txt and modified a.txt
+    expect(plan.toDownload.length).toBeGreaterThan(0); // remote.txt
   });
 
   it("ConflictStrategy constants", () => {
@@ -190,7 +191,11 @@ describe("ConfigValidator: schema validation", () => {
 
     const result = validator.validate({});
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.message.includes("Required"))).toBeTruthy();
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining("Required") }),
+      ])
+    );
   });
 
   it("fills default values", () => {
@@ -227,7 +232,11 @@ describe("ConfigValidator: schema validation", () => {
       count: "not a number",
     });
     expect(invalid.valid).toBe(false);
-    expect(invalid.errors.some(e => e.path === "count")).toBeTruthy();
+    expect(invalid.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "count" }),
+      ])
+    );
   });
 
   it("validates enum values", () => {
@@ -318,7 +327,7 @@ describe("ConfigValidator: schema validation", () => {
 
     const invalid = validator.validate({ value: 3 });
     expect(invalid.valid).toBe(false);
-    expect(invalid.errors[0].message.includes("even")).toBeTruthy();
+    expect(invalid.errors[0].message).toContain("even");
   });
 
   it("strict mode rejects unknown fields", () => {
@@ -326,7 +335,11 @@ describe("ConfigValidator: schema validation", () => {
 
     const result = validator.validate({ known: "ok", unknown: "bad" });
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.message.includes("Unknown"))).toBeTruthy();
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining("Unknown") }),
+      ])
+    );
   });
 
   it("coerce mode converts types", () => {
@@ -343,10 +356,13 @@ describe("ConfigValidator: schema validation", () => {
   });
 
   it("CommonSchemas are defined", () => {
-    expect(CommonSchemas.positiveNumber).toBeTruthy();
-    expect(CommonSchemas.nonEmptyString).toBeTruthy();
-    expect(CommonSchemas.url).toBeTruthy();
-    expect(CommonSchemas.email).toBeTruthy();
+    expect(CommonSchemas.positiveNumber).toMatchObject({ type: "number", min: 0 });
+    expect(CommonSchemas.nonEmptyString).toMatchObject({ type: "string", minLength: 1 });
+    expect(CommonSchemas.url).toMatchObject({ type: "string", pattern: "^https?://" });
+    expect(CommonSchemas.email).toMatchObject({
+      type: "string",
+      pattern: "^[^@]+@[^@]+\\.[^@]+$",
+    });
   });
 });
 
@@ -400,10 +416,10 @@ describe("ErrorBoundary: error handling", () => {
 
     const info = createErrorInfo(error, { userId: 123 });
 
-    expect(info.id.startsWith("err_")).toBeTruthy();
+    expect(info.id).toMatch(/^err_/);
     expect(info.message).toBe("test error");
     expect(info.code).toBe("TEST_CODE");
-    expect(info.ts > 0).toBeTruthy();
+    expect(info.ts).toBeGreaterThan(0);
     expect(info.context.userId).toBe(123);
     expect(info.recovered).toBe(false);
   });
@@ -464,7 +480,7 @@ describe("ErrorBoundary: error handling", () => {
       throw new Error("test");
     });
 
-    expect(capturedInfo).toBeTruthy();
+    expect(capturedInfo).toBeDefined();
     expect(capturedInfo.message).toBe("test");
   });
 
@@ -493,7 +509,7 @@ describe("ErrorBoundary: error handling", () => {
     boundary.markRecovered(errorId);
 
     expect(boundary.errors[0].recovered).toBe(true);
-    expect(recovered).toBeTruthy();
+    expect(recovered).toEqual(expect.objectContaining({ id: errorId, recovered: true }));
   });
 
   it("stats reports error counts", async () => {

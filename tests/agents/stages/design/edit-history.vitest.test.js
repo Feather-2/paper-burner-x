@@ -72,14 +72,30 @@ describe("design/edit-mode/history", () => {
     mgr.commit();
 
     const entry = mgr.undo();
-    expect(entry).toBeTruthy();
+    expect(entry).toEqual(
+      expect.objectContaining({
+        operations: [
+          { undo: undoA, redo: redoA },
+          { undo: undoB, redo: redoB },
+        ],
+        timestamp: expect.any(Number),
+      }),
+    );
     // Undo runs in reverse order.
     expect(undoB).toHaveBeenCalledTimes(1);
     expect(undoA).toHaveBeenCalledTimes(1);
     expect(mgr.redoStack).toHaveLength(1);
 
     const redone = mgr.redo();
-    expect(redone).toBeTruthy();
+    expect(redone).toEqual(
+      expect.objectContaining({
+        operations: [
+          { undo: undoA, redo: redoA },
+          { undo: undoB, redo: redoB },
+        ],
+        timestamp: expect.any(Number),
+      }),
+    );
     expect(redoA).toHaveBeenCalledTimes(1);
     expect(redoB).toHaveBeenCalledTimes(1);
     expect(mgr.redoStack).toHaveLength(0);
@@ -105,4 +121,3 @@ describe("design/edit-mode/history", () => {
     expect(mgr.history).toHaveLength(1);
   });
 });
-

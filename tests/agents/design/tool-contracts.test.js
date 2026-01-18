@@ -17,7 +17,8 @@ it("fill_visual: normalizes visualSlots -> visualSlotsForRender", async () => {
 
   await handlers.fill_visual({ visualSlots }, {});
 
-  expect(calledWith, "Expected _renderVisuals to be called").toBeTruthy();
+  expect(calledWith, "Expected _renderVisuals to be called").toBeInstanceOf(Array);
+  expect(calledWith).toHaveLength(9);
   expect(calledWith[0]).toEqual(visualSlots);
 });
 
@@ -39,7 +40,8 @@ it("fill_visual: prefers visualSlotsForRender when provided", async () => {
 
   await handlers.fill_visual({ visualSlots, visualSlotsForRender }, {});
 
-  expect(calledWith, "Expected _renderVisuals to be called").toBeTruthy();
+  expect(calledWith, "Expected _renderVisuals to be called").toBeInstanceOf(Array);
+  expect(calledWith).toHaveLength(9);
   expect(calledWith[0]).toEqual(visualSlotsForRender);
 });
 
@@ -89,8 +91,8 @@ it("fix_slide: uses enriched values in LLM prompt when available", async () => {
   );
 
   expect(result.fixedHtml).toBe("<section>fixed</section>");
-  expect(seenUserPrompt.includes(stateDeckHtml)).toBeTruthy();
-  expect(seenUserPrompt.includes('"brand":"acme"')).toBeTruthy();
+  expect(seenUserPrompt).toContain(stateDeckHtml);
+  expect(seenUserPrompt).toContain('"brand":"acme"');
 });
 
 it("fix_slide: respects explicit currentHtml/designSystem over state", async () => {
@@ -121,9 +123,9 @@ it("fix_slide: respects explicit currentHtml/designSystem over state", async () 
     { aiApiService }
   );
 
-  expect(seenUserPrompt.includes(currentHtml)).toBeTruthy();
-  expect(seenUserPrompt.includes('"brand":"params"')).toBeTruthy();
-  expect(!seenUserPrompt.includes('"brand":"state"')).toBeTruthy();
+  expect(seenUserPrompt).toContain(currentHtml);
+  expect(seenUserPrompt).toContain('"brand":"params"');
+  expect(seenUserPrompt).not.toContain('"brand":"state"');
 });
 
 it("other design tools: basic handler contract sanity", async () => {
@@ -146,7 +148,7 @@ it("other design tools: basic handler contract sanity", async () => {
 
   const handlers = createDesignToolHandlers(agentLoop);
 
-  expect(Array.isArray(getToolDefinitions())).toBeTruthy();
+  expect(getToolDefinitions()).toBeInstanceOf(Array);
 
   const parsed = await handlers.parse_outline({ contentPackage: { slideIntents: [{ slideIntentId: "s1" }] } });
   expect(parsed.slideIntents.length).toBe(1);
@@ -155,7 +157,7 @@ it("other design tools: basic handler contract sanity", async () => {
     { contentPackage: { runId: "r1" }, constraints: { tone: "business" }, userConfig: { theme: "dark" } },
     { aiApiService: null }
   );
-  expect(extracted.designSystem?.ok).toBeTruthy();
+  expect(extracted.designSystem?.ok).toBe(true);
 
   const spawned = await handlers.spawn_slide_agent({}, { aiApiService: null });
   expect(spawned.generated).toEqual([]);
@@ -166,13 +168,12 @@ it("other design tools: basic handler contract sanity", async () => {
   const emitted = [];
   const chatReply = await handlers.chat_ask({ message: "hello" }, { emit: (n, r) => emitted.push({ n, r }) });
   expect(chatReply.actionName).toBe("chat_reply");
-  expect(emitted.some(evt => evt.n === "design.chat.ask")).toBeTruthy();
+  expect(emitted).toEqual(expect.arrayContaining([expect.objectContaining({ n: "design.chat.ask" })]));
 
   const chatWithAction = await handlers.chat_ask(
     { message: "confirm", actionName: "confirm_action" },
     { emit: () => {}, eventBus: {}, signal: null }
   );
   expect(chatWithAction.actionName).toBe("confirm_action");
-  expect(chatWithAction.payload?.ok).toBeTruthy();
+  expect(chatWithAction.payload?.ok).toBe(true);
 });
-

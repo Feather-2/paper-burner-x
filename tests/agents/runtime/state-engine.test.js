@@ -39,12 +39,34 @@ describe("StateEngine", () => {
   describe("createInitialState", () => {
     it("should create valid initial state structure", () => {
       const state = createInitialState();
-      expect(state.runId).toBeTruthy();
+      expect(state.runId).toEqual(expect.any(String));
+      expect(state.runId.length).toBeGreaterThan(0);
       expect(state.schemaVersion).toBe("1.0");
-      expect(state.L0).toBeTruthy();
-      expect(state.L1).toBeTruthy();
-      expect(state.L2).toBeTruthy();
-      expect(state.L3).toBeTruthy();
+      expect(state.L0).toEqual(expect.objectContaining({
+        systemPrompt: "",
+        taskGoal: "",
+        todos: expect.any(Array),
+      }));
+      expect(state.L1).toEqual(expect.objectContaining({
+        messages: expect.any(Array),
+        signals: expect.any(Array),
+        decisions: expect.any(Array),
+        deck: null,
+        syncTable: expect.any(Object),
+        scratchpad: expect.any(Object),
+        flags: expect.any(Object),
+      }));
+      expect(state.L2).toEqual(expect.objectContaining({
+        historySummary: "",
+        stageSummaries: expect.any(Object),
+        decisions: expect.any(Array),
+        claims: expect.any(Array),
+      }));
+      expect(state.L3).toEqual(expect.objectContaining({
+        snapshots: expect.any(Object),
+        index: expect.any(Object),
+        checkpoints: expect.any(Array),
+      }));
       expect(state.L0.todos).toEqual([]);
       expect(state.L1.messages).toEqual([]);
     });
@@ -61,8 +83,9 @@ describe("StateEngine", () => {
 
       const state = engine.getState();
       expect(state.L0.taskGoal).toBe("Test goal");
-      expect(action.meta.seq > 0).toBeTruthy();
-      expect(action.meta.ts).toBeTruthy();
+      expect(action.meta.seq).toBeGreaterThan(0);
+      expect(action.meta.ts).toBeTypeOf("number");
+      expect(action.meta.ts).toBeGreaterThan(0);
     });
 
     it("should throw on invalid action", async () => {
@@ -82,7 +105,7 @@ describe("StateEngine", () => {
 
       const state = engine.getState();
       expect(state.L0.taskGoal).toBe("Sync goal");
-      expect(action.meta.seq > 0).toBeTruthy();
+      expect(action.meta.seq).toBeGreaterThan(0);
     });
   });
 
@@ -193,7 +216,11 @@ describe("StateEngine", () => {
       engine.dispatchSync(syncDiscovery("disc_1", { status: "open", keywords: ["test"] }));
 
       const discoveries = engine.getState().L1.syncTable.discoveries;
-      expect(discoveries.disc_1).toBeTruthy();
+      expect(discoveries.disc_1).toMatchObject({
+        id: "disc_1",
+        status: "open",
+        keywords: ["test"],
+      });
       expect(discoveries.disc_1.status).toBe("open");
     });
 
@@ -201,7 +228,11 @@ describe("StateEngine", () => {
       engine.dispatchSync(syncSubagent("agent_1", { status: "running", progress: 50 }));
 
       const subagents = engine.getState().L1.syncTable.subagents;
-      expect(subagents.agent_1).toBeTruthy();
+      expect(subagents.agent_1).toMatchObject({
+        id: "agent_1",
+        status: "running",
+        progress: 50,
+      });
       expect(subagents.agent_1.progress).toBe(50);
     });
   });
@@ -230,8 +261,8 @@ describe("StateEngine", () => {
       const state = engine.getState();
       const snapshotIds = Object.keys(state.L3.snapshots);
       expect(snapshotIds.length).toBe(1);
-      expect(state.L3.index.keywords.search).toBeTruthy();
-      expect(state.L3.index.keywords.docs).toBeTruthy();
+      expect(state.L3.index.keywords.search).toEqual(snapshotIds);
+      expect(state.L3.index.keywords.docs).toEqual(snapshotIds);
     });
   });
 
@@ -324,8 +355,8 @@ describe("StateEngine", () => {
       const action2 = engine.dispatchSync(setTaskGoal("Goal 2"));
       const action3 = engine.dispatchSync(addTodo({ text: "Todo" }));
 
-      expect(action2.meta.seq > action1.meta.seq).toBeTruthy();
-      expect(action3.meta.seq > action2.meta.seq).toBeTruthy();
+      expect(action2.meta.seq).toBeGreaterThan(action1.meta.seq);
+      expect(action3.meta.seq).toBeGreaterThan(action2.meta.seq);
     });
 
     it("should handle clock receive", () => {
@@ -333,7 +364,7 @@ describe("StateEngine", () => {
       engine.receiveClockValue(100);
       const afterReceive = engine.getClockValue();
 
-      expect(afterReceive >= 100).toBeTruthy();
+      expect(afterReceive).toBeGreaterThanOrEqual(100);
     });
   });
 
@@ -352,9 +383,9 @@ describe("StateEngine", () => {
       // Verify seq numbers are monotonically increasing
       const history = engine.getActionHistory();
       for (let i = 1; i < history.length; i++) {
-        expect(history[i].meta.seq > history[i - 1].meta.seq,
+        expect(history[i].meta.seq,
           `seq ${history[i].meta.seq} should be > ${history[i - 1].meta.seq}`
-        ).toBeTruthy();
+        ).toBeGreaterThan(history[i - 1].meta.seq);
       }
     });
   });
@@ -397,7 +428,7 @@ describe("StateEngine", () => {
       });
 
       engine.reset();
-      expect(resetCalled).toBeTruthy();
+      expect(resetCalled).toBe(true);
     });
   });
 
@@ -465,7 +496,7 @@ describe("Queue Backpressure", () => {
     const overflowEvents = events.filter(e => e.name === "stateEngine:queueOverflow");
     expect(overflowEvents.length).toBe(3, "Should have emitted 3 overflow events");
     expect(overflowEvents[0].data.dropped).toBe(1);
-    expect(overflowEvents[0].data.totalDropped > 0).toBeTruthy();
+    expect(overflowEvents[0].data.totalDropped).toBeGreaterThan(0);
   });
 
   it("should call resolve with dropped info for overflow items", () => {

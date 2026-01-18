@@ -16,7 +16,7 @@ it("DeepSearch constants: AGENT_LOOP_CONFIG exports all fields with correct type
   };
 
   for (const [key, type] of Object.entries(expectedTypes)) {
-    expect(Object.prototype.hasOwnProperty.call(AGENT_LOOP_CONFIG, key)).toBeTruthy();
+    expect(Object.prototype.hasOwnProperty.call(AGENT_LOOP_CONFIG, key)).toBe(true);
     expect(typeof AGENT_LOOP_CONFIG[key]).toBe(type);
   }
 });
@@ -43,12 +43,13 @@ it("DeepSearch constants: AGENT_LOOP_CONFIG thresholds are in valid ranges", asy
   ];
 
   for (const ratio of ratios) {
-    expect(Number.isFinite(ratio)).toBeTruthy();
-    expect(ratio > 0 && ratio < 1).toBeTruthy();
+    expect(Number.isFinite(ratio)).toBe(true);
+    expect(ratio).toBeGreaterThan(0);
+    expect(ratio).toBeLessThan(1);
   }
 
   for (const count of counts) {
-    expect(Number.isFinite(count)).toBeTruthy();
-    expect(count > 0).toBeTruthy();
+    expect(Number.isFinite(count)).toBe(true);
+    expect(count).toBeGreaterThan(0);
   }
 });

@@ -14,15 +14,16 @@ import {
 describe("shared/utils/stage-api", () => {
   describe("StageApiSpec", () => {
     it("has required fields", () => {
-      expect(Array.isArray(StageApiSpec.required)).toBeTruthy();
-      expect(StageApiSpec.required.includes("signal")).toBeTruthy();
+      expect(Array.isArray(StageApiSpec.required)).toBe(true);
+      expect(StageApiSpec.required).toContain("signal");
     });
 
     it("has optional fields", () => {
-      expect(typeof StageApiSpec.optional === "object").toBeTruthy();
-      expect("emit" in StageApiSpec.optional).toBeTruthy();
-      expect("modelRouter" in StageApiSpec.optional).toBeTruthy();
-      expect("aiApiService" in StageApiSpec.optional).toBeTruthy();
+      expect(StageApiSpec.optional).not.toBeNull();
+      expect(StageApiSpec.optional).toBeTypeOf("object");
+      expect(StageApiSpec.optional).toHaveProperty("emit");
+      expect(StageApiSpec.optional).toHaveProperty("modelRouter");
+      expect(StageApiSpec.optional).toHaveProperty("aiApiService");
     });
   });
 
@@ -30,7 +31,7 @@ describe("shared/utils/stage-api", () => {
     it("returns invalid for non-object", () => {
       const result = validateStageApi(null);
       expect(result.valid).toBe(false);
-      expect(result.missing[0].includes("object")).toBeTruthy();
+      expect(result.missing[0]).toContain("object");
     });
 
     it("returns invalid for array", () => {
@@ -41,7 +42,7 @@ describe("shared/utils/stage-api", () => {
     it("returns invalid for missing signal", () => {
       const result = validateStageApi({});
       expect(result.valid).toBe(false);
-      expect(result.missing.includes("signal")).toBeTruthy();
+      expect(result.missing).toContain("signal");
     });
 
     it("returns valid for object with signal", () => {
@@ -87,8 +88,8 @@ describe("shared/utils/stage-api", () => {
   describe("createStageApi", () => {
     it("creates api with default signal", () => {
       const api = createStageApi();
-      expect(api.signal).toBeTruthy();
-      expect(api.signal instanceof AbortSignal).toBeTruthy();
+      expect(api.signal).toBeDefined();
+      expect(api.signal).toBeInstanceOf(AbortSignal);
     });
 
     it("preserves provided signal", () => {
@@ -116,7 +117,7 @@ describe("shared/utils/stage-api", () => {
       const emit = () => { called = true; };
       const api = createStageApi({ emit });
       api.emit("test", {});
-      expect(called).toBeTruthy();
+      expect(called).toBe(true);
     });
 
     it("uses eventBus.emit if no emit provided", () => {
@@ -124,7 +125,7 @@ describe("shared/utils/stage-api", () => {
       const eventBus = { emit: () => { called = true; } };
       const api = createStageApi({ eventBus });
       api.emit("test", {});
-      expect(called).toBeTruthy();
+      expect(called).toBe(true);
     });
 
     it("provides checkCancelled function", () => {
@@ -146,18 +147,18 @@ describe("shared/utils/stage-api", () => {
       const checkCancelled = () => { called = true; };
       const api = createStageApi({ checkCancelled });
       api.checkCancelled();
-      expect(called).toBeTruthy();
+      expect(called).toBe(true);
     });
 
     it("handles non-object partial", () => {
       const api = createStageApi("invalid");
-      expect(api.signal).toBeTruthy();
+      expect(api.signal).toBeInstanceOf(AbortSignal);
     });
 
     it("strict mode does not throw when signal auto-created", () => {
       // Signal is auto-created, so strict mode passes
       const api = createStageApi({}, { strict: true });
-      expect(api.signal).toBeTruthy();
+      expect(api.signal).toBeInstanceOf(AbortSignal);
     });
 
     it("strict mode passes with valid api", () => {
@@ -165,7 +166,7 @@ describe("shared/utils/stage-api", () => {
         { signal: new AbortController().signal },
         { strict: true }
       );
-      expect(api).toBeTruthy();
+      expect(api).toEqual(expect.any(Object));
     });
   });
 
@@ -188,7 +189,7 @@ describe("shared/utils/stage-api", () => {
       const eventBus = { emit: () => { called = true; } };
       const services = extractServices({ eventBus });
       services.emit("test");
-      expect(called).toBeTruthy();
+      expect(called).toBe(true);
     });
 
     it("provides default emit if none", () => {
@@ -210,13 +211,15 @@ describe("shared/utils/stage-api", () => {
 
     it("handles null input", () => {
       const services = extractServices(null);
-      expect(services).toBeTruthy();
+      expect(services).not.toBeNull();
+      expect(services).toBeTypeOf("object");
       expect(services.signal).toBe(null);
     });
 
     it("handles non-object input", () => {
       const services = extractServices("invalid");
-      expect(services).toBeTruthy();
+      expect(services).not.toBeNull();
+      expect(services).toBeTypeOf("object");
     });
 
     it("provides checkCancelled function", () => {
@@ -256,7 +259,7 @@ describe("shared/utils/stage-api", () => {
 
     it("returns valid stageApi with defaults", () => {
       const merged = mergeStageApis({});
-      expect(merged.signal).toBeTruthy();
+      expect(merged.signal).toBeInstanceOf(AbortSignal);
       expect(typeof merged.emit).toBe("function");
     });
   });
@@ -267,7 +270,7 @@ describe("shared/utils/stage-api", () => {
       const parent = { signal, modelRouter: { call: () => {} } };
       const child = createChildApi(parent);
       expect(child.signal).toBe(signal);
-      expect(child.modelRouter).toBeTruthy();
+      expect(child.modelRouter).toBe(parent.modelRouter);
     });
 
     it("overrides with provided values", () => {
@@ -325,7 +328,7 @@ describe("shared/utils/stage-api", () => {
       };
       const runTool = createRunTool({ modelRouter });
       const result = await runTool("synthesize_claims", { claims: [] });
-      expect(calledWith).toBeTruthy();
+      expect(calledWith).toEqual(expect.any(Object));
       expect(calledWith.taskType).toBe("tool_call");
       expect(result).toEqual({ mergedClaims: [] });
     });
@@ -340,7 +343,7 @@ describe("shared/utils/stage-api", () => {
       };
       const runTool = createRunTool({ modelRouter });
       const result = await runTool("analyze_conflicts", { pairs: [] });
-      expect(calledWith).toBeTruthy();
+      expect(calledWith).toEqual(expect.any(Object));
       expect(result).toEqual({ conflicts: [] });
     });
 
@@ -363,7 +366,7 @@ describe("shared/utils/stage-api", () => {
       await expect(
         runTool("synthesize_claims", { claims: [] })
       ).rejects.toThrow(/API error/);
-      expect(warned).toBeTruthy();
+      expect(warned).toBe(true);
     });
 
     it("respects signal in options", async () => {

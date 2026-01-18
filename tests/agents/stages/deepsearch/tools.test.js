@@ -82,8 +82,8 @@ describe("deepsearch/tools (branch coverage)", () => {
   it("registers Task and task aliases to the same tool", async () => {
     const { tools } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
 
-    expect(tools.Task).toBeTruthy();
-    expect(tools.task).toBeTruthy();
+    expect(tools.Task).toBe(hoisted.task);
+    expect(tools.task).toBe(hoisted.task);
     expect(tools.Task).toBe(tools.task);
   });
 

@@ -91,8 +91,7 @@ describe('TaskTool behavior', () => {
       }
     );
 
-    expect(receivedContext).toBeTruthy();
-    expect(receivedContext.sharedContext).toEqual({ test: 1 });
+    expect(receivedContext).toMatchObject({ sharedContext: { test: 1 } });
     expect(receivedContext.messages).toBeUndefined();
     expect(receivedContext.handoff).toBeUndefined();
   });
@@ -122,9 +121,8 @@ describe('TaskTool behavior', () => {
       }
     );
 
-    expect(receivedContext).toBeTruthy();
+    expect(receivedContext).toMatchObject({ sharedContext: { shared: true } });
     expect(receivedContext.messages).toBeUndefined();
-    expect(receivedContext.sharedContext).toEqual({ shared: true });
   });
 
   it('handoff mode uses buildHandoff when provided', async () => {
@@ -150,9 +148,10 @@ describe('TaskTool behavior', () => {
     );
 
     expect(buildHandoff).toHaveBeenCalledOnce();
-    expect(receivedContext).toBeTruthy();
-    expect(receivedContext.handoff).toEqual({ from: 'buildHandoff' });
-    expect(receivedContext.sharedContext).toEqual({ sc: 1 });
+    expect(receivedContext).toMatchObject({
+      handoff: { from: 'buildHandoff' },
+      sharedContext: { sc: 1 },
+    });
   });
 
   it('handoff mode falls back to a simple handoff document when buildHandoff is missing', async () => {

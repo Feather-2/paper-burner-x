@@ -128,8 +128,8 @@ describe("DI Container", () => {
     child.register("b", () => 2);
 
     const ids = child.getServiceIds();
-    expect(ids.includes("a")).toBeTruthy();
-    expect(ids.includes("b")).toBeTruthy();
+    expect(ids).toContain("a");
+    expect(ids).toContain("b");
   });
 
   it("createContainer helper", () => {

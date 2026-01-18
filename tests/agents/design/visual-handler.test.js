@@ -71,8 +71,7 @@ describe("VisualHandler", () => {
 
       expect(result.length).toBe(1);
       expect(result[0].renderType).toBe("svg");
-      expect(result[0].svgSpec).toBeTruthy();
-      expect(result[0].svgSpec.description).toBe("A diagram");
+      expect(result[0].svgSpec).toMatchObject({ type: "diagram", description: "A diagram" });
     });
 
     it("should preserve svg renderType", () => {
@@ -91,8 +90,7 @@ describe("VisualHandler", () => {
       const result = handler.buildVisualSlots({}, imageSlots, null, true);
 
       expect(result[0].renderType).toBe("asset");
-      expect(result[0].assetSpec).toBeTruthy();
-      expect(result[0].assetSpec.assetId).toBe("logo.png");
+      expect(result[0].assetSpec).toMatchObject({ assetId: "logo.png" });
     });
 
     it("should handle empty brainstorm candidatesBySlide", () => {
@@ -135,13 +133,13 @@ describe("VisualHandler", () => {
   describe("createVisualHandler factory", () => {
     it("should create VisualHandler instance", () => {
       const h = createVisualHandler({ imageConcurrency: 2 });
-      expect(h instanceof VisualHandler).toBeTruthy();
+      expect(h).toBeInstanceOf(VisualHandler);
       expect(h.imageConcurrency).toBe(2);
     });
 
     it("should create with defaults when no options", () => {
       const h = createVisualHandler();
-      expect(h instanceof VisualHandler).toBeTruthy();
+      expect(h).toBeInstanceOf(VisualHandler);
       expect(h.imageConcurrency).toBe(4);
     });
   });

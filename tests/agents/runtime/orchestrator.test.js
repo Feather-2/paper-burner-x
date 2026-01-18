@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { AgentOrchestrator, SchedulingMode } from "../../../js/agents/runtime/orchestrator.js";
+import { EventBus } from "../../../js/agents/core/event-bus.js";
 import { OrchestratorState } from "../../../js/agents/runtime/core/constants.js";
 
 // ============================================================================
@@ -59,8 +60,9 @@ describe("AgentOrchestrator", () => {
     it("creates with default options", () => {
       orchestrator = new AgentOrchestrator();
       expect(orchestrator.state).toBe(OrchestratorState.IDLE);
-      expect(orchestrator.runId).toBeTruthy();
-      expect(orchestrator.eventBus).toBeTruthy();
+      expect(orchestrator.runId).toEqual(expect.any(String));
+      expect(orchestrator.runId.length).toBeGreaterThan(0);
+      expect(orchestrator.eventBus).toBeInstanceOf(EventBus);
     });
 
     it("accepts custom runId and mode", () => {
@@ -100,7 +102,7 @@ describe("AgentOrchestrator", () => {
     it("registers a stage handler", () => {
       const handler = () => "result";
       orchestrator.registerStage("test.stage", handler);
-      expect(orchestrator._stages.has("test.stage")).toBeTruthy();
+      expect(orchestrator._stages.has("test.stage")).toBe(true);
     });
 
     it("throws on empty name", () => {
@@ -163,8 +165,8 @@ describe("AgentOrchestrator", () => {
       orchestrator.registerStage("test", () => "done");
       await orchestrator.runStage("test");
 
-      expect(events.some(e => e.status === "started")).toBeTruthy();
-      expect(events.some(e => e.status === "completed")).toBeTruthy();
+      expect(events.some(e => e.status === "started")).toBe(true);
+      expect(events.some(e => e.status === "completed")).toBe(true);
     });
 
     it("emits failed event on error", async () => {
@@ -176,7 +178,7 @@ describe("AgentOrchestrator", () => {
       });
 
       await expect(() => orchestrator.runStage("test")).rejects.toThrow(/stage error/);
-      expect(events.some(e => e.status === "failed")).toBeTruthy();
+      expect(events.some(e => e.status === "failed")).toBe(true);
     });
 
     it("runs stages sequentially", async () => {
@@ -210,7 +212,7 @@ describe("AgentOrchestrator", () => {
       await orchestrator.runStage("test");
       // Wait for backpressure flush
       await delay(50);
-      expect(events.length >= 1, "should emit at least one progress event").toBeTruthy();
+      expect(events.length, "should emit at least one progress event").toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -297,8 +299,8 @@ describe("AgentOrchestrator", () => {
         { name: "slow" },
       ]);
 
-      expect(results.has("fast")).toBeTruthy();
-      expect(results.has("slow")).toBeTruthy();
+      expect(results.has("fast")).toBe(true);
+      expect(results.has("slow")).toBe(true);
       expect(results.get("fast").success).toBe(true);
       expect(results.get("fast").result).toBe("fast-result");
       expect(results.get("slow").success).toBe(true);
@@ -334,7 +336,7 @@ describe("AgentOrchestrator", () => {
       ]);
 
       // Note: both use same stage name, last result wins
-      expect(results.has("echo")).toBeTruthy();
+      expect(results.has("echo")).toBe(true);
     });
   });
 
@@ -367,8 +369,8 @@ describe("AgentOrchestrator", () => {
       ]);
 
       expect(order[0]).toBe("a");
-      expect(order.includes("b")).toBeTruthy();
-      expect(order.includes("c")).toBeTruthy();
+      expect(order).toContain("b");
+      expect(order).toContain("c");
     });
 
     it("skips stages when dependency fails", async () => {
@@ -387,7 +389,7 @@ describe("AgentOrchestrator", () => {
 
       expect(results.get("a").success).toBe(false);
       expect(results.get("b").success).toBe(false);
-      expect(results.get("b").skipped).toBeTruthy();
+      expect(results.get("b").skipped).toBe(true);
     });
 
     it("throws on stage failure without continueOnError", async () => {
@@ -452,7 +454,7 @@ describe("AgentOrchestrator", () => {
       orchestrator.start();
       orchestrator.stop("user-cancelled");
       expect(orchestrator.state).toBe(OrchestratorState.CANCELLED);
-      expect(orchestrator.signal.aborted).toBeTruthy();
+      expect(orchestrator.signal.aborted).toBe(true);
     });
 
     it("stop with failure reason sets FAILED state", () => {
@@ -521,7 +523,7 @@ describe("AgentOrchestrator", () => {
       orchestrator.stop();
 
       await handled;
-      expect(wasRejected, "promise should be rejected").toBeTruthy();
+      expect(wasRejected, "promise should be rejected").toBe(true);
     });
 
     it("rejects pending parallel waiters on stop", async () => {
@@ -546,7 +548,7 @@ describe("AgentOrchestrator", () => {
       orchestrator.stop();
 
       await Promise.allSettled([r1, r2]);
-      expect(rejected1 || rejected2, "at least one promise should be rejected").toBeTruthy();
+      expect(rejected1 || rejected2, "at least one promise should be rejected").toBe(true);
     });
 
     it("runStage throws after stop", async () => {
@@ -585,7 +587,7 @@ describe("AgentOrchestrator", () => {
 
       await expect(orchestrator.runStage("fail")).rejects.toThrow(/boom/);
       expect(events.length).toBe(1);
-      expect(events[0].payload.error.includes("boom")).toBeTruthy();
+      expect(events[0].payload.error).toContain("boom");
     });
 
     it("throws on disposed orchestrator", async () => {
@@ -608,7 +610,7 @@ describe("AgentOrchestrator", () => {
     it("registers child agent", () => {
       const agent = new MockAgent("child");
       orchestrator.registerAgent(agent);
-      expect(orchestrator._childAgents.has(agent)).toBeTruthy();
+      expect(orchestrator._childAgents.has(agent)).toBe(true);
     });
 
     it("allows method chaining", () => {
@@ -630,8 +632,8 @@ describe("AgentOrchestrator", () => {
       orchestrator.registerAgent(agent1).registerAgent(agent2);
       await orchestrator.dispose();
 
-      expect(agent1.disposed).toBeTruthy();
-      expect(agent2.disposed).toBeTruthy();
+      expect(agent1.disposed).toBe(true);
+      expect(agent2.disposed).toBe(true);
     });
 
     it("accepts agents via constructor services", async () => {
@@ -640,7 +642,7 @@ describe("AgentOrchestrator", () => {
         services: { agents: [agent] },
       });
 
-      expect(orchestrator._childAgents.has(agent)).toBeTruthy();
+      expect(orchestrator._childAgents.has(agent)).toBe(true);
     });
   });
 
@@ -726,7 +728,7 @@ describe("AgentOrchestrator", () => {
       await orchestrator.dispose();
 
       expect(orchestrator._stages.size).toBe(0);
-      expect(orchestrator.disposed).toBeTruthy();
+      expect(orchestrator.disposed).toBe(true);
     });
 
     it("aborts signal on dispose", async () => {
@@ -735,7 +737,7 @@ describe("AgentOrchestrator", () => {
 
       await orchestrator.dispose();
 
-      expect(signal.aborted).toBeTruthy();
+      expect(signal.aborted).toBe(true);
     });
 
     it("rejects parallel waiters on dispose", async () => {
@@ -761,7 +763,7 @@ describe("AgentOrchestrator", () => {
 
       await Promise.allSettled([r1, r2]);
       // At least one should be rejected (the waiting one)
-      expect(rejected1 || rejected2, "at least one promise should be rejected").toBeTruthy();
+      expect(rejected1 || rejected2, "at least one promise should be rejected").toBe(true);
     });
   });
 });

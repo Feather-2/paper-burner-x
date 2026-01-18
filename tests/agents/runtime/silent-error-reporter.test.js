@@ -19,8 +19,10 @@ it("SilentErrorReporter: basic report and export", async () => {
   expect(exported[0].message).toBe("Test error");
   expect(exported[0].location).toBe("TestModule.testMethod");
   expect(exported[0].category).toBe(ErrorCategory.RECOVERABLE);
-  expect(exported[0].ts > 0).toBeTruthy();
-  expect(exported[0].stack).toBeTruthy();
+  expect(exported[0].ts).toBeTypeOf("number");
+  expect(exported[0].ts).toBeGreaterThan(0);
+  expect(exported[0].stack).toBeTypeOf("string");
+  expect(exported[0].stack).toContain("Test error");
 });
 
 it("SilentErrorReporter: respects category parameter", async () => {
@@ -227,7 +229,7 @@ it("SilentErrorReporter: stack trace truncation", async () => {
 
   const exported = reporter.export();
   const stackLines = exported[0].stack.split("\n");
-  expect(stackLines.length <= 3, "Stack should be truncated to 3 lines").toBeTruthy();
+  expect(stackLines.length).toBeLessThanOrEqual(3);
 });
 
 it("ErrorCategory: enum values", async () => {

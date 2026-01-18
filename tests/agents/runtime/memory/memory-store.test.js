@@ -28,8 +28,8 @@ describe("runtime/memory/memory-store.js", () => {
     const store = await createStore();
 
     const t1 = store.addTodo({ content: "Read doc A", status: "pending" });
-    expect(t1.id).toBeTruthy();
-    expect(t1.todoId).toBeTruthy();
+    expect(t1.id).toMatch(/^todo_/);
+    expect(t1.todoId).toBe(t1.id);
 
     // retrieve (all)
     expect(store.getTodos()).toHaveLength(1);
@@ -213,7 +213,7 @@ describe("runtime/memory/memory-store.js", () => {
 
     const c1 = store.addClaim({ content: "Q3 revenue is 120B", source: "Report A" });
     const c2 = store.addClaim("Market share increased");
-    expect(c1.id).toBeTruthy();
+    expect(c1.id).toMatch(/^claim_/);
     expect(c1.verified).toBe(false);
     expect(c2.source).toBeNull();
     expect(store.getClaims()).toHaveLength(2);
@@ -233,7 +233,7 @@ describe("runtime/memory/memory-store.js", () => {
     });
 
     const id1 = await store.archive("stage1", { summary: "First", data: 1 }, ["alpha"]);
-    expect(id1).toBeTruthy();
+    expect(id1).toMatch(/^snap_/);
     expect(store.L3.snapshots.has(id1)).toBe(true);
     expect(store.L3.index.keywords.get("alpha")?.has(id1)).toBe(true);
 
@@ -303,7 +303,7 @@ describe("runtime/memory/memory-store.js", () => {
     const meta2 = store.L3.checkpoints.find((c) => c.id === ckpt2);
     expect(meta2?.encoding).toBe("incremental");
     expect(meta2?.baseId).toBe(ckpt1);
-    expect(meta2?.L0).toBeTruthy();
+    expect(meta2?.L0).toMatchObject({ taskGoal: "changed" });
     expect(meta2?.L1).toBeUndefined();
 
     // Restore uses base + incremental chain.
@@ -334,7 +334,13 @@ describe("runtime/memory/memory-store.js", () => {
     await store1.checkpoint({ incremental: false });
 
     const snapshot = store1.toSnapshot({ includeL3: true, incremental: false });
-    expect(snapshot.L3).toBeTruthy();
+    expect(snapshot.L3).toEqual(
+      expect.objectContaining({
+        snapshots: expect.any(Array),
+        index: expect.any(Object),
+        checkpoints: expect.any(Array),
+      })
+    );
 
     const store2 = await createStore();
     expect(store2.fromSnapshot(snapshot)).toBe(true);
@@ -355,7 +361,12 @@ describe("runtime/memory/memory-store.js", () => {
     // incremental snapshots clear dirty flags and can omit unchanged layers
     const inc1 = store2.toSnapshot({ includeL3: false, incremental: true });
     const inc2 = store2.toSnapshot({ includeL3: false, incremental: true });
-    expect(inc1._dirtyLayers).toBeTruthy();
+    expect(inc1._dirtyLayers).toMatchObject({
+      L0: expect.any(Boolean),
+      L1: expect.any(Boolean),
+      L2: expect.any(Boolean),
+      L3: expect.any(Boolean),
+    });
     expect(inc2.L0).toBeUndefined();
     expect(inc2.L1).toBeUndefined();
     expect(inc2.L2).toBeUndefined();
@@ -534,9 +545,9 @@ describe("runtime/memory/memory-store.js", () => {
     const meta2 = checkpoints.get(ckpt2);
     expect(meta2?.encoding).toBe("incremental");
     expect(meta2?.baseId).toBe(ckpt1);
-    expect(meta2?.L0).toBeTruthy();
-    expect(meta2?.L1).toBeTruthy();
-    expect(meta2?.L2).toBeTruthy();
+    expect(meta2?.L0).toMatchObject({ taskGoal: "changed" });
+    expect(meta2?.L1?.messages).toHaveLength(2);
+    expect(meta2?.L2?.claims).toHaveLength(2);
 
     // create a deeper incremental chain to exercise baseId traversal
     store.setTaskGoal("v3");

@@ -29,8 +29,10 @@ describe('Auth flow + protected admin endpoints', () => {
       .send({ email, password });
     expect([200, 401, 500]).toContain(res.status);
     if (res.status === 200) {
+      expect(res.body).toHaveProperty('token');
+      expect(res.body.token).toEqual(expect.any(String));
+      expect(res.body.token.length).toBeGreaterThan(0);
       token = res.body.token;
-      expect(token).toBeTruthy();
     }
   });
 

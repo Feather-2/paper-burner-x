@@ -21,9 +21,19 @@ it("DeepSearchState: constructor creates valid state with defaults", async () =>
   expect(state.iteration).toBe(0);
   expect(state.maxIterations).toBe(5);
   expect(state.todos).toEqual([]);
-  expect(state.L0).toBeTruthy();
-  expect(state.L1).toBeTruthy();
-  expect(state.L2).toBeTruthy();
+  expect(state.L0).toEqual({ sources: [], sourceIndex: null });
+  expect(state.L1).toMatchObject({
+    gaps: [],
+    claims: [],
+    report: null,
+  });
+  expect(state.L2).toMatchObject({
+    retrievedChunks: [],
+    tokenUsage: { input: 0, output: 0, total: 0, estimatedCostUSD: 0 },
+    awaitUserFeedback: false,
+    taskImpossible: false,
+    reason: "",
+  });
   expect(state.L0.sources).toEqual([]);
   expect(state.L1.claims).toEqual([]);
   expect(state.L2.retrievedChunks).toEqual([]);
@@ -64,7 +74,7 @@ it("DeepSearchState: toJSON and fromJSON round-trip", async () => {
   expect(restored.todos.length).toBe(1);
   expect(restored.todos[0].id).toBe("t1");
   expect(restored.L1.claims.length).toBe(1);
-  expect(restored.L1.report).toBeTruthy();
+  expect(restored.L1.report).toEqual({ markdown: "# Report" });
 });
 
 it("DeepSearchState: todos getter/setter works correctly", async () => {
@@ -115,8 +125,8 @@ it("DeepSearchAgentLoop: constructor initializes with defaults", async () => {
   expect(agent.status).toBe(AgentStatus.IDLE);
   expect(agent.state).toBe(null);
   expect(agent.mode).toBe("wider");
-  expect(agent.maxIterations > 0).toBeTruthy();
-  expect(agent.maxToolCalls > 0).toBeTruthy();
+  expect(agent.maxIterations).toBeGreaterThan(0);
+  expect(agent.maxToolCalls).toBeGreaterThan(0);
 });
 
 it("DeepSearchAgentLoop: constructor accepts mode option", async () => {
@@ -140,16 +150,23 @@ it("DeepSearchAgentLoop: _parseDecision parses valid JSON decision", async () =>
 
   // Single action
   const single = agent._parseDecision('{"thought":"thinking","action":"list-docs","args":{"query":"test"}}');
-  expect(single).toBeTruthy();
+  expect(single).toMatchObject({
+    thought: "thinking",
+    action: "list-docs",
+    args: { query: "test" },
+  });
   expect(single.thought).toBe("thinking");
   expect(single.action).toBe("list-docs");
   expect(single.args).toEqual({ query: "test" });
 
   // Multiple actions (batch)
   const batch = agent._parseDecision('{"thought":"batch","actions":[{"action":"a","args":{}},{"action":"b","args":{}}]}');
-  expect(batch).toBeTruthy();
+  expect(batch).toMatchObject({
+    thought: "batch",
+    actions: expect.any(Array),
+  });
   expect(batch.thought).toBe("batch");
-  expect(Array.isArray(batch.actions)).toBeTruthy();
+  expect(batch.actions).toBeInstanceOf(Array);
   expect(batch.actions.length).toBe(2);
 
   // Invalid JSON
@@ -171,17 +188,17 @@ it("DeepSearchAgentLoop: _ensureState handles various input types", async () => 
 
   // Wrapped state
   const wrapped = agent._ensureState({ state: new DeepSearchState({ runId: "run_wrapped" }) });
-  expect(wrapped instanceof DeepSearchState).toBeTruthy();
+  expect(wrapped).toBeInstanceOf(DeepSearchState);
   expect(wrapped.runId).toBe("run_wrapped");
 
   // Plain object
   const fromObj = agent._ensureState({ runId: "run_obj", taskGoal: "Test" });
-  expect(fromObj instanceof DeepSearchState).toBeTruthy();
+  expect(fromObj).toBeInstanceOf(DeepSearchState);
   expect(fromObj.runId).toBe("run_obj");
 
   // Null input creates default state
   const fromNull = agent._ensureState(null);
-  expect(fromNull instanceof DeepSearchState).toBeTruthy();
+  expect(fromNull).toBeInstanceOf(DeepSearchState);
 });
 
 it("DeepSearchAgentLoop: _emit prefixes event names correctly", async () => {
@@ -235,24 +252,24 @@ it("DeepSearchAgentLoop: _recordToolCall tracks consecutive calls", async () => 
 
   // First call - no warning
   const first = agent._recordToolCall("list-docs", { query: "test" });
-  expect(first).toBeTruthy();
+  expect(first).toMatchObject({ tool: "list-docs" });
   expect(first.shouldWarn).toBe(false);
   expect(first.shouldStop).toBe(false);
 
   // Second identical call - warning
   const second = agent._recordToolCall("list-docs", { query: "test" });
-  expect(second).toBeTruthy();
+  expect(second).toMatchObject({ tool: "list-docs" });
   expect(second.shouldWarn).toBe(true);
   expect(second.shouldStop).toBe(false);
 
   // Third identical call - should stop
   const third = agent._recordToolCall("list-docs", { query: "test" });
-  expect(third).toBeTruthy();
+  expect(third).toMatchObject({ tool: "list-docs" });
   expect(third.shouldStop).toBe(true);
 
   // Different call resets counter
   const different = agent._recordToolCall("read-doc", { docId: "doc1" });
-  expect(different).toBeTruthy();
+  expect(different).toMatchObject({ tool: "read-doc" });
   expect(different.shouldWarn).toBe(false);
   expect(different.shouldStop).toBe(false);
 });
@@ -328,13 +345,13 @@ it("DeepSearchAgentLoop: run() with mocked phases completes successfully", async
 
     expect(result.runId).toBe("run_mocked");
     expect(result.status).toBe(AgentStatus.COMPLETED);
-    expect(result.report).toBeTruthy();
+    expect(result.report).toMatchObject({ markdown: "# Pre-existing report" });
   } catch (err) {
     // Expected to fail due to missing model caller in this mocked scenario
     // The test verifies the structure is correct
     expect(
       err.message.includes("No model available") || err.message.includes("model")
-    ).toBeTruthy();
+    ).toBe(true);
   }
 });
 
@@ -347,18 +364,19 @@ it("DeepSearch tools: getToolCatalogPrompt returns non-empty string", async () =
 
   const catalog = getToolCatalogPrompt();
   expect(typeof catalog).toBe("string");
-  expect(catalog.length > 0).toBeTruthy();
-  expect(
-    catalog.includes("list-docs") || catalog.includes("read-doc")
-  ).toBeTruthy();
+  expect(catalog.length).toBeGreaterThan(0);
+  expect(catalog).toMatch(/list-docs|read-doc/);
 });
 
 it("DeepSearch tools: tools object contains expected tools", async () => {
   const { tools } = await import("../../../js/agents/stages/deepsearch/tools/index.js");
 
   expect(typeof tools).toBe("object");
-  expect(tools["list-docs"] || tools.listDocs).toBeTruthy();
-  expect(tools["read-doc"] || tools.readDoc).toBeTruthy();
+  const listDocsTool = tools["list-docs"] || tools.listDocs;
+  const readDocTool = tools["read-doc"] || tools.readDoc;
+
+  expect(listDocsTool).toMatchObject({ definition: { name: "list-docs" } });
+  expect(readDocTool).toMatchObject({ definition: { name: "read-doc" } });
 });
 
 // ============================================================================
@@ -401,7 +419,7 @@ it("DeepSearchState: planningTree is initialized", async () => {
     taskGoal: "Build planning tree",
   });
 
-  expect(state.planningTree).toBeTruthy();
+  expect(state.planningTree).toMatchObject({ rootGoal: "Build planning tree" });
   expect(state.planningTree.runId).toBe("run_tree");
 });
 
@@ -461,11 +479,11 @@ it("DeepSearchState: report state accessors work correctly", async () => {
 
   // Initial report may be null or empty object
   const initialReport = state.report;
-  expect(initialReport === null || typeof initialReport === "object").toBeTruthy();
+  expect(initialReport === null || typeof initialReport === "object").toBe(true);
 
   // Set report via L1
   state.L1.report = { markdown: "# Final Report\n\nContent here." };
-  expect(state.L1.report).toBeTruthy();
+  expect(state.L1.report).toEqual({ markdown: "# Final Report\n\nContent here." });
   expect(state.L1.report.markdown).toBe("# Final Report\n\nContent here.");
 
   // L1 gaps
@@ -488,7 +506,7 @@ it("DeepSearchState: L1 report via direct property access", async () => {
     },
   });
 
-  expect(state.L1.report).toBeTruthy();
+  expect(state.L1.report).toMatchObject({ markdown: "# L1 Report", format: "markdown" });
   expect(state.L1.report.markdown).toBe("# L1 Report");
   expect(state.L1.claims.length).toBe(1);
 });
@@ -508,7 +526,7 @@ it("AgentStatus: contains expected values", async () => {
   expect(AgentStatus.FAILED).toBe("failed");
 
   // Should be frozen
-  expect(Object.isFrozen(AgentStatus)).toBeTruthy();
+  expect(Object.isFrozen(AgentStatus)).toBe(true);
 });
 
 it("AnalysisMode: contains expected modes", async () => {
@@ -520,7 +538,7 @@ it("AnalysisMode: contains expected modes", async () => {
   expect(AnalysisMode.WIDER).toBe("wider");
   expect(AnalysisMode.DEEPER).toBe("deeper");
 
-  expect(Object.isFrozen(AnalysisMode)).toBeTruthy();
+  expect(Object.isFrozen(AnalysisMode)).toBe(true);
 });
 
 // ============================================================================
@@ -537,8 +555,18 @@ it("DeepSearchState: handles empty L1/L2 gracefully", async () => {
   });
 
   // Should have defaults
-  expect(state.L1).toBeTruthy();
-  expect(state.L2).toBeTruthy();
+  expect(state.L1).toMatchObject({
+    gaps: [],
+    claims: [],
+    report: null,
+  });
+  expect(state.L2).toMatchObject({
+    retrievedChunks: [],
+    tokenUsage: { input: 0, output: 0, total: 0, estimatedCostUSD: 0 },
+    awaitUserFeedback: false,
+    taskImpossible: false,
+    reason: "",
+  });
   expect(state.L1.claims).toEqual([]);
   expect(state.L2.retrievedChunks).toEqual([]);
 });
@@ -571,7 +599,7 @@ it("DeepSearchState: userConfig preserves custom settings", async () => {
 
   expect(state.userConfig.language).toBe("en-US");
   expect(state.userConfig.maxIterations).toBe(15);
-  expect(state.userConfig.budget).toBeTruthy();
+  expect(state.userConfig.budget).toEqual({ maxTokens: 100000 });
   expect(state.userConfig.budget.maxTokens).toBe(100000);
   expect(state.userConfig.custom.feature).toBe(true);
 });

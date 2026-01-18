@@ -25,7 +25,7 @@ describe("NodeFsVfs", () => {
     it("reads binary file as Uint8Array", async () => {
       await fs.writeFile(path.join(tmpDir, "bin.dat"), Buffer.from([0x01, 0x02, 0x03]));
       const data = await vfs.readFile("bin.dat");
-      expect(data instanceof Uint8Array).toBeTruthy();
+      expect(data).toBeInstanceOf(Uint8Array);
       expect([...data]).toEqual([0x01, 0x02, 0x03]);
     });
 
@@ -124,8 +124,8 @@ describe("NodeFsVfs", () => {
       const st = await vfs.stat("stat.txt");
       expect(st.isFile()).toBe(true);
       expect(st.isDirectory()).toBe(false);
-      expect(st.size > 0).toBeTruthy();
-      expect(st.mtimeMs > 0).toBeTruthy();
+      expect(st.size).toBeGreaterThan(0);
+      expect(st.mtimeMs).toBeGreaterThan(0);
     });
 
     it("returns directory stat info", async () => {
@@ -149,22 +149,22 @@ describe("NodeFsVfs", () => {
 
     it("returns file names without withFileTypes", async () => {
       const entries = await vfs.readdir("dir");
-      expect(Array.isArray(entries)).toBeTruthy();
+      expect(entries).toBeInstanceOf(Array);
       const names = entries.map((e) => (typeof e === "string" ? e : e.name)).sort();
-      expect(names.includes("a.txt")).toBeTruthy();
-      expect(names.includes("b.txt")).toBeTruthy();
-      expect(names.includes("sub")).toBeTruthy();
+      expect(names).toContain("a.txt");
+      expect(names).toContain("b.txt");
+      expect(names).toContain("sub");
     });
 
     it("returns dirent objects with withFileTypes", async () => {
       const entries = await vfs.readdir("dir", { withFileTypes: true });
-      expect(Array.isArray(entries)).toBeTruthy();
+      expect(entries).toBeInstanceOf(Array);
       const fileEntry = entries.find((e) => e.name === "a.txt");
-      expect(fileEntry).toBeTruthy();
+      expect(fileEntry).toMatchObject({ name: "a.txt" });
       expect(typeof fileEntry.isDirectory).toBe("function");
       expect(fileEntry.isDirectory()).toBe(false);
       const dirEntry = entries.find((e) => e.name === "sub");
-      expect(dirEntry).toBeTruthy();
+      expect(dirEntry).toMatchObject({ name: "sub" });
       expect(dirEntry.isDirectory()).toBe(true);
     });
   });
@@ -174,19 +174,19 @@ describe("NodeFsVfs", () => {
       await vfs.writeText("legacy/file.txt", "f");
       await vfs.writeText("legacy/subdir/nested.txt", "n");
       const items = await vfs.list("legacy");
-      expect(Array.isArray(items)).toBeTruthy();
+      expect(items).toBeInstanceOf(Array);
       const file = items.find((i) => i.name === "file.txt");
-      expect(file).toBeTruthy();
+      expect(file).toBeDefined();
       expect(file.kind).toBe("file");
       const dir = items.find((i) => i.name === "subdir");
-      expect(dir).toBeTruthy();
+      expect(dir).toBeDefined();
       expect(dir.kind).toBe("dir");
     });
 
     it("handles empty/invalid entries gracefully", async () => {
       await vfs.writeText("empty/x.txt", "x");
       const items = await vfs.list("empty");
-      expect(items.length >= 1).toBeTruthy();
+      expect(items.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -201,10 +201,10 @@ describe("NodeFsVfs", () => {
 
     it("lists files recursively by default", async () => {
       const files = await vfs.listFiles({ prefix: "lf" });
-      expect(files.includes("lf/a.txt")).toBeTruthy();
-      expect(files.includes("lf/b.txt")).toBeTruthy();
-      expect(files.includes("lf/sub/c.txt")).toBeTruthy();
-      expect(files.includes("lf/sub/deep/d.txt")).toBeTruthy();
+      expect(files).toContain("lf/a.txt");
+      expect(files).toContain("lf/b.txt");
+      expect(files).toContain("lf/sub/c.txt");
+      expect(files).toContain("lf/sub/deep/d.txt");
     });
 
     it("excludes hidden files", async () => {
@@ -220,14 +220,14 @@ describe("NodeFsVfs", () => {
 
     it("lists files non-recursively", async () => {
       const files = await vfs.listFiles({ prefix: "lf", recursive: false });
-      expect(files.includes("lf/a.txt")).toBeTruthy();
-      expect(files.includes("lf/b.txt")).toBeTruthy();
-      expect(!files.includes("lf/sub/c.txt")).toBeTruthy();
+      expect(files).toContain("lf/a.txt");
+      expect(files).toContain("lf/b.txt");
+      expect(files).not.toContain("lf/sub/c.txt");
     });
 
     it("lists from root with empty prefix", async () => {
       const files = await vfs.listFiles({});
-      expect(files.length >= 4).toBeTruthy();
+      expect(files.length).toBeGreaterThanOrEqual(4);
     });
   });
 
@@ -244,9 +244,9 @@ describe("NodeFsVfs", () => {
       for await (const f of vfs.walkFiles({ prefix: "walk" })) {
         files.push(f);
       }
-      expect(files.includes("walk/x.txt")).toBeTruthy();
-      expect(files.includes("walk/y.txt")).toBeTruthy();
-      expect(files.includes("walk/sub/z.txt")).toBeTruthy();
+      expect(files).toContain("walk/x.txt");
+      expect(files).toContain("walk/y.txt");
+      expect(files).toContain("walk/sub/z.txt");
     });
 
     it("excludes hidden files", async () => {
@@ -262,9 +262,9 @@ describe("NodeFsVfs", () => {
       for await (const f of vfs.walkFiles({ prefix: "walk", recursive: false })) {
         files.push(f);
       }
-      expect(files.includes("walk/x.txt")).toBeTruthy();
-      expect(files.includes("walk/y.txt")).toBeTruthy();
-      expect(!files.includes("walk/sub/z.txt")).toBeTruthy();
+      expect(files).toContain("walk/x.txt");
+      expect(files).toContain("walk/y.txt");
+      expect(files).not.toContain("walk/sub/z.txt");
     });
 
     it("yields single file when prefix is a file", async () => {
@@ -292,9 +292,9 @@ describe("NodeFsVfs", () => {
           controller.abort();
         }
       } catch (err) {
-        expect(err.message.includes("aborted")).toBeTruthy();
+        expect(err.message).toContain("aborted");
       }
-      expect(files.length >= 1).toBeTruthy();
+      expect(files.length).toBeGreaterThanOrEqual(1);
     });
 
     it("yields files in sorted order", async () => {

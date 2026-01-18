@@ -31,11 +31,11 @@ describe("compression-async", () => {
       const result = compressSessionHistorySync(messages, { keepLastTurns: 2 });
 
       // Should keep system anchor + last 2 turns
-      expect(result.messages.length < messages.length).toBeTruthy();
+      expect(result.messages.length).toBeLessThan(messages.length);
       expect(result.messages[0].role).toBe("system");
       expect(result.messages[0].content).toBe("You are an assistant");
-      expect(result.sessionSummary).toBeTruthy();
-      expect(result.stats.summarizedMessages > 0).toBeTruthy();
+      expect(result.sessionSummary).toMatch(/\S/);
+      expect(result.stats.summarizedMessages).toBeGreaterThan(0);
     });
 
     it("should remove thinking messages", () => {
@@ -63,8 +63,8 @@ describe("compression-async", () => {
 
       expect(result.stats.mergedMessages).toBe(1);
       const userMsg = result.messages.find(m => m.role === "user");
-      expect(userMsg.content.includes("Part 1")).toBeTruthy();
-      expect(userMsg.content.includes("Part 2")).toBeTruthy();
+      expect(userMsg.content).toContain("Part 1");
+      expect(userMsg.content).toContain("Part 2");
     });
 
     it("should preserve existing sessionSummary", () => {
@@ -80,8 +80,8 @@ describe("compression-async", () => {
         sessionSummary: "Previous summary",
       });
 
-      expect(result.sessionSummary).toBeTruthy();
-      expect(result.sessionSummary.startsWith("Previous summary")).toBeTruthy();
+      expect(result.sessionSummary).toBeTypeOf("string");
+      expect(result.sessionSummary).toMatch(/^Previous summary/);
     });
 
     it("should use titleOnly mode", () => {
@@ -98,12 +98,12 @@ describe("compression-async", () => {
         titleMaxChars: 30,
       });
 
-      expect(result.sessionSummary).toBeTruthy();
+      expect(result.sessionSummary).toMatch(/\S/);
       // Title-only summaries should be shorter
       const lines = result.sessionSummary.split("\n");
       for (const line of lines) {
         // Each line should be role: title format, relatively short
-        expect(line.length < 100, `Line too long: ${line}`).toBeTruthy();
+        expect(line.length, `Line too long: ${line}`).toBeLessThan(100);
       }
     });
 
@@ -132,8 +132,8 @@ describe("compression-async", () => {
 
       const result = compressSessionHistorySync(messages, { keepLastTurns: 10 });
 
-      expect(typeof result.afterTokens === "number").toBeTruthy();
-      expect(result.afterTokens > 0).toBeTruthy();
+      expect(result.afterTokens).toBeTypeOf("number");
+      expect(result.afterTokens).toBeGreaterThan(0);
     });
 
     it("should handle CJK characters in token estimation", () => {
@@ -145,7 +145,7 @@ describe("compression-async", () => {
 
       // CJK characters should contribute more to token count
       // 4 CJK chars * 1.6 ≈ 6-7 tokens
-      expect(result.afterTokens >= 5).toBeTruthy();
+      expect(result.afterTokens).toBeGreaterThanOrEqual(5);
     });
 
     it("should handle Context Summary messages as anchors", () => {
@@ -172,9 +172,10 @@ describe("compression-async", () => {
 
       const result = await compressSessionHistoryAsync(messages, { keepLastTurns: 10 });
 
-      expect(Array.isArray(result.messages)).toBeTruthy();
-      expect(typeof result.stats === "object").toBeTruthy();
-      expect(typeof result.afterTokens === "number").toBeTruthy();
+      expect(result.messages).toBeInstanceOf(Array);
+      expect(result.stats).toBeTypeOf("object");
+      expect(result.stats).not.toBeNull();
+      expect(result.afterTokens).toBeTypeOf("number");
     });
 
     it("should respect abort signal", async () => {
@@ -208,8 +209,8 @@ describe("compression-async", () => {
         { useWorker: false }
       );
 
-      expect(result.sessionSummary).toBeTruthy();
-      expect(result.sessionSummary.startsWith("Prior")).toBeTruthy();
+      expect(result.sessionSummary).toBeTypeOf("string");
+      expect(result.sessionSummary).toMatch(/^Prior/);
     });
   });
 

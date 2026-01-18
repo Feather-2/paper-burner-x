@@ -73,7 +73,7 @@ describe("RetrievalEngine rate limiting", () => {
     const store = createMockMemoryStore();
     const engine = new RetrievalEngine({ memoryStore: store, subscribe: false });
     const stats = engine.getIndexQueueStats();
-    expect(stats.rateLimiter !== null, "should have rateLimiter in stats").toBeTruthy();
+    expect(stats.rateLimiter, "should have rateLimiter in stats").not.toBeNull();
   });
 
   it("constructor uses provided rateLimiter instance", () => {
@@ -128,7 +128,7 @@ describe("RetrievalEngine rate limiting", () => {
       subscribe: false,
     });
     const stats = engine.getIndexQueueStats();
-    expect(stats.rateLimiter).toBeTruthy();
+    expect(stats.rateLimiter).not.toBeNull();
     expect(stats.rateLimiter.rps).toBe(50);
   });
 
@@ -186,8 +186,8 @@ describe("RetrievalEngine rate limiting", () => {
 
     await engine.hybridRecall("test query");
     // hybridRecall calls _acquireRateLimit once, then calls semanticRecall which calls it again
-    expect(acquireLabels.includes("hybridRecall")).toBeTruthy();
-    expect(acquireLabels.includes("semanticRecall")).toBeTruthy();
+    expect(acquireLabels).toContain("hybridRecall");
+    expect(acquireLabels).toContain("semanticRecall");
   });
 
   it("rate limiter throttles high-frequency calls", async () => {
@@ -217,7 +217,7 @@ describe("RetrievalEngine rate limiting", () => {
     await p3;
 
     const end = limiter.getState().nowMs;
-    expect(end > start, "time should have advanced for rate limiting").toBeTruthy();
+    expect(end, "time should have advanced for rate limiting").toBeGreaterThan(start);
   });
 
   it("keywordRecall is synchronous and not rate limited", () => {
@@ -239,7 +239,7 @@ describe("RetrievalEngine rate limiting", () => {
 
     // keywordRecall should return synchronously
     const result = engine.keywordRecall("test");
-    expect(Array.isArray(result)).toBeTruthy();
+    expect(result).toBeInstanceOf(Array);
   });
 
   it("_acquireRateLimit is no-op when limiter is null", async () => {
@@ -251,7 +251,6 @@ describe("RetrievalEngine rate limiting", () => {
     });
 
     // Should not throw
-    await engine._acquireRateLimit("test");
-    expect(true, "_acquireRateLimit completes without limiter").toBeTruthy();
+    await expect(engine._acquireRateLimit("test"), "_acquireRateLimit completes without limiter").resolves.toBeUndefined();
   });
 });

@@ -96,7 +96,7 @@ it("CliModelClient: chat constructs correct request", async () => {
 
     expect(capturedRequest.url).toBe("https://test.api/v1/chat/completions");
     expect(capturedRequest.method).toBe("POST");
-    expect(capturedRequest.headers["Authorization"].includes("sk-test")).toBeTruthy();
+    expect(capturedRequest.headers["Authorization"]).toContain("sk-test");
 
     const body = JSON.parse(capturedRequest.body);
     expect(body.model).toBe("test-model");
@@ -275,7 +275,7 @@ it("CliModelRouter: constructor without config or env warns", async () => {
   try {
     const router = new CliModelRouter();
     expect(router.config).toBe(null);
-    expect(warns.some(w => w.includes("未找到配置"))).toBeTruthy();
+    expect(warns).toEqual(expect.arrayContaining([expect.stringContaining("未找到配置")]));
   } finally {
     process.env.OPENAI_API_KEY = originalEnv;
     console.warn = originalWarn;
@@ -487,10 +487,16 @@ it("createAiApiServiceAdapter: getAvailableModels returns formatted models", asy
 it("default export includes all expected exports", async () => {
   const defaultExport = await import("../../../js/agents/cli/model-client.js");
 
-  expect(defaultExport.CliModelClient).toBeTruthy();
-  expect(defaultExport.CliModelRouter).toBeTruthy();
-  expect(defaultExport.createAiApiServiceAdapter).toBeTruthy();
-  expect(defaultExport.default).toBeTruthy();
+  expect(defaultExport.CliModelClient).toBeTypeOf("function");
+  expect(defaultExport.CliModelRouter).toBeTypeOf("function");
+  expect(defaultExport.createAiApiServiceAdapter).toBeTypeOf("function");
+  expect(defaultExport.default).toEqual(
+    expect.objectContaining({
+      CliModelClient: defaultExport.CliModelClient,
+      CliModelRouter: defaultExport.CliModelRouter,
+      createAiApiServiceAdapter: defaultExport.createAiApiServiceAdapter,
+    })
+  );
   expect(defaultExport.default.CliModelClient).toBe(defaultExport.CliModelClient);
   expect(defaultExport.default.CliModelRouter).toBe(defaultExport.CliModelRouter);
 });
@@ -693,8 +699,10 @@ it("CliModelClient: contextWindow truncation is applied", async () => {
     await client.chat({ messages: longMessages, maxTokens: 50 });
 
     // Should have truncated some messages but kept system
-    expect(capturedMessages.length <= longMessages.length).toBeTruthy();
-    expect(capturedMessages.some(m => m.role === "system")).toBeTruthy();
+    expect(capturedMessages.length).toBeLessThanOrEqual(longMessages.length);
+    expect(capturedMessages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ role: "system" })])
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -728,7 +736,7 @@ it("CliModelRouter + CliModelClient integration", async () => {
     const router = new CliModelRouter();
     const client = router.getClient("worker");
 
-    expect(client instanceof CliModelClient).toBeTruthy();
+    expect(client).toBeInstanceOf(CliModelClient);
 
     const result = await client.ask("test");
     expect(result).toBe("integrated");

@@ -92,8 +92,8 @@ describe("state-diff", () => {
       const patch = buildStatePatch(base, next);
       const out = applyStatePatch(base, patch);
       expect(out).toEqual(next);
-      expect(patch.some(op => op.op === "remove" && op.path[0] === "b")).toBeTruthy();
-      expect(patch.some(op => op.op === "add" && op.path[0] === "c")).toBeTruthy();
+      expect(patch).toContainEqual({ op: "remove", path: ["b"] });
+      expect(patch).toContainEqual({ op: "add", path: ["c"], value: 3 });
     });
 
     it("should produce incremental ops for array append", () => {
@@ -101,7 +101,7 @@ describe("state-diff", () => {
       const base = { arr: [shared] };
       const next = { arr: [shared, { id: 2 }] };
       const patch = buildStatePatch(base, next);
-      expect(patch.some(op => op.op === "add" && op.path[0] === "arr")).toBeTruthy();
+      expect(patch).toContainEqual({ op: "add", path: ["arr", 1], value: { id: 2 } });
       expect(applyStatePatch(base, patch)).toEqual(next);
     });
 
@@ -125,7 +125,7 @@ describe("state-diff", () => {
       const next = { arr: [a, { ...b, id: "b2" }, c] };
 
       const patch = buildStatePatch(base, next, { maxDepth: 10 });
-      expect(patch.some(op => op.op === "replace" && op.path[0] === "arr" && op.path[1] === 1)).toBeTruthy();
+      expect(patch).toContainEqual({ op: "replace", path: ["arr", 1, "id"], value: "b2" });
       expect(applyStatePatch(base, patch)).toEqual(next);
     });
 
@@ -259,4 +259,3 @@ describe("StateEngine integration (diff checkpoints + layer subscribe)", () => {
     expect(restored3.L3.checkpoints.length).toBe(3);
   });
 });
-

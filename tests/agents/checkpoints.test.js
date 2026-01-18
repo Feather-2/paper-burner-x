@@ -19,7 +19,7 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
   describe("constructor", () => {
     it("accepts vfs option", () => {
       const s = new AgentCheckpointStore({ vfs });
-      expect(s).toBeTruthy();
+      expect(s).toBeInstanceOf(AgentCheckpointStore);
     });
 
     it("accepts runId option", () => {
@@ -53,9 +53,11 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
         step: 1,
       });
 
-      expect(result.checkpointId).toBeTruthy();
-      expect(result.checkpointId.startsWith("ckpt")).toBeTruthy();
-      expect(result.checkpoint).toBeTruthy();
+      expect(result.checkpointId).toMatch(/^ckpt_[0-9a-z]+_[0-9a-f]{8,16}$/);
+      expect(result.checkpointId.split("_")).toHaveLength(3);
+      expect(result.checkpoint).toEqual(
+        expect.objectContaining({ checkpointId: result.checkpointId })
+      );
       expect(result.checkpoint.runId).toBe(runId);
     });
 
@@ -107,9 +109,9 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
 
     it("handles missing arrays gracefully", async () => {
       const result = await store.saveCheckpoint({});
-      expect(Array.isArray(result.checkpoint.messages)).toBeTruthy();
-      expect(Array.isArray(result.checkpoint.toolCalls)).toBeTruthy();
-      expect(Array.isArray(result.checkpoint.results)).toBeTruthy();
+      expect(result.checkpoint.messages).toEqual([]);
+      expect(result.checkpoint.toolCalls).toEqual([]);
+      expect(result.checkpoint.results).toEqual([]);
     });
   });
 
@@ -136,8 +138,8 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
 
       const list = await store.listCheckpoints();
       expect(list[0].step).toBe(1);
-      expect(list[0].checkpointId).toBeTruthy();
-      expect(list[0].ts).toBeTruthy();
+      expect(list[0].checkpointId).toMatch(/^ckpt_[0-9a-z]+_[0-9a-f]{8,16}$/);
+      expect(list[0].ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     });
 
     it("accepts runId in options", async () => {

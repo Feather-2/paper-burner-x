@@ -14,9 +14,9 @@ it("TextPrep TP1: normalizeText newline/NBSP + sha256 stability", async () => {
   expect(a.textHash).toBe(b.textHash);
 
   expect(a.textHash.startsWith("sha256:")).toBe(true);
-  expect(a.normalization && a.normalization.profile === "v0").toBeTruthy();
-  expect(a.normalization.ops.includes("newline_to_lf")).toBeTruthy();
-  expect(a.normalization.ops.includes("nbsp_to_space")).toBeTruthy();
+  expect(a).toHaveProperty("normalization.profile", "v0");
+  expect(a.normalization.ops).toContain("newline_to_lf");
+  expect(a.normalization.ops).toContain("nbsp_to_space");
 
   // Known SHA-256 test vector.
   const v = normalizeText("abc");
@@ -82,11 +82,11 @@ it("TextPrep TP4: planSlides parses LLM JSON and ensures core slides", async () 
   const intents = await planSlides(chunks, { __services: { aiApiService }, pageCount: 6 });
   expect(calls.length).toBe(1);
 
-  expect(intents.length >= 4).toBeTruthy();
-  expect(intents.some(s => s.pageType === "cover")).toBeTruthy();
-  expect(intents.some(s => s.pageType === "agenda")).toBeTruthy();
-  expect(intents.some(s => s.pageType === "overview")).toBeTruthy();
-  expect(intents.some(s => s.pageType === "summary")).toBeTruthy();
+  expect(intents).toHaveLength(6);
+  expect(intents.map((s) => s.pageType)).toContain("cover");
+  expect(intents.map((s) => s.pageType)).toContain("agenda");
+  expect(intents.map((s) => s.pageType)).toContain("overview");
+  expect(intents.map((s) => s.pageType)).toContain("summary");
 
   // Allowed pageType only.
   for (const s of intents) expect(s.pageType).toMatch(/^(cover|agenda|overview|comparison|process|summary|appendix)$/);
@@ -99,9 +99,9 @@ it("TextPrep TP4: planSlides falls back when LLM output invalid", async () => {
   const chunks = chunkText("Topic\nBody.\n", { chunkSize: 20, overlap: 0 });
   const aiApiService = { chat: async () => ({ content: "not json" }) };
   const intents = await planSlides(chunks, { __services: { aiApiService }, pageCount: 5 });
-  expect(intents.length >= 4).toBeTruthy();
-  expect(intents.some(s => s.pageType === "cover")).toBeTruthy();
-  expect(intents.some(s => s.pageType === "summary")).toBeTruthy();
+  expect(intents).toHaveLength(5);
+  expect(intents.map((s) => s.pageType)).toContain("cover");
+  expect(intents.map((s) => s.pageType)).toContain("summary");
 });
 
 it("TextPrep TP5: extractClaims enforces evidence linkage + quote locatable", async () => {
@@ -119,21 +119,23 @@ it("TextPrep TP5: extractClaims enforces evidence linkage + quote locatable", as
   ];
 
   const { claims, evidenceLedger } = extractClaims(chunks, slideIntents, { sourceId: "user_text", sourceTextNormalized: norm.normalized, maxQuoteLen: 60 });
-  expect(claims.length >= 1).toBeTruthy();
-  expect(evidenceLedger.length >= 1).toBeTruthy();
+  expect(claims.length).toBeGreaterThan(0);
+  expect(evidenceLedger.length).toBeGreaterThan(0);
 
   const evidenceById = new Map(evidenceLedger.map((e) => [e.evidenceId, e]));
   for (const c of claims) {
-    expect(Array.isArray(c.evidenceIds ) && c.evidenceIds.length >= 1).toBeTruthy();
-    for (const eid of c.evidenceIds) expect(evidenceById.has(eid)).toBeTruthy();
+    expect(Array.isArray(c.evidenceIds)).toBe(true);
+    expect(c.evidenceIds.length).toBeGreaterThan(0);
+    for (const eid of c.evidenceIds) expect(evidenceById.has(eid)).toBe(true);
   }
 
   for (const e of evidenceLedger) {
     expect(e.sourceId).toBe("user_text");
-    expect(typeof e.locator?.charStart === "number" && typeof e.locator?.charEnd === "number").toBeTruthy();
-    expect(e.locator.charStart < e.locator.charEnd).toBeTruthy();
+    expect(typeof e.locator?.charStart).toBe("number");
+    expect(typeof e.locator?.charEnd).toBe("number");
+    expect(e.locator.charStart).toBeLessThan(e.locator.charEnd);
     const slice = norm.normalized.slice(e.locator.charStart, e.locator.charEnd);
-    expect(slice.includes(e.quote)).toBeTruthy();
+    expect(slice).toContain(e.quote);
   }
 });
 
@@ -158,11 +160,12 @@ it("TextPrep TP6: buildContentPackage validates hard gates (H1-H4)", async () =>
   expect(pkg.schemaVersion).toBe("0.1");
   expect(pkg.mode).toBe("textprep");
   expect(pkg.runId).toBe("run_test");
-  expect(Array.isArray(pkg.sources ) && pkg.sources.length === 1).toBeTruthy();
+  expect(pkg.sources).toHaveLength(1);
   expect(pkg.sources[0].sourceId).toBe("user_text");
   expect(pkg.sources[0].kind).toBe("user_text");
   expect(pkg.sources[0].textHash).toBe("sha256:deadbeef");
-  expect(typeof pkg.summary === "string" && pkg.summary.length > 0).toBeTruthy();
+  expect(pkg.summary).toEqual(expect.any(String));
+  expect(pkg.summary.length).toBeGreaterThan(0);
 
   expect(() =>
       buildContentPackage(
@@ -198,8 +201,8 @@ it("TextPrep Stage: accepts Ingest output input", async () => {
   const pkg = await stage.run(ingestOut, { runContext: { runId: "run_textprep_from_ingest", constraints: { pageCount: 4 } } });
 
   expect(pkg.mode).toBe("textprep");
-  expect(Array.isArray(pkg.slideIntents ) && pkg.slideIntents.length >= 4).toBeTruthy();
-  expect(Array.isArray(pkg.claims ) && pkg.claims.length >= 1).toBeTruthy();
+  expect(pkg.slideIntents.length).toBeGreaterThanOrEqual(4);
+  expect(pkg.claims.length).toBeGreaterThan(0);
 
   const merged = ingestOut.sources
     .map((s) => s.sourceTextNormalized || s.text || "")

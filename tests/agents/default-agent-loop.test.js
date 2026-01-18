@@ -121,7 +121,8 @@ it("recordUserInput stores entries with timestamp", async () => {
   const after = Date.now();
 
   expect(entry.payload).toEqual({ text: "hello" });
-  expect(entry.ts >= before && entry.ts <= after, "timestamp should be in valid range").toBeTruthy();
+  expect(entry.ts, "timestamp should be in valid range").toBeGreaterThanOrEqual(before);
+  expect(entry.ts, "timestamp should be in valid range").toBeLessThanOrEqual(after);
   expect(loop._userInputs.size).toBe(1);
 });
 
@@ -267,7 +268,7 @@ it("formatUserInputs handles circular reference objects", async () => {
 
   // 应该优雅处理循环引用，回退到 String()
   const result = loop.formatUserInputs([{ payload: circular }]);
-  expect(result.includes("object")).toBeTruthy(); // should contain string representation
+  expect(result).toContain("object"); // should contain string representation
 });
 
 it("applyUserInputsToConfig merges inputs into config", async () => {
@@ -282,7 +283,7 @@ it("applyUserInputsToConfig merges inputs into config", async () => {
   expect(result.existingKey).toBe("value");
   expect(result.userNotes).toEqual(["note 1\nnote 2"]);
   expect(result._lastUserNote).toBe("note 1\nnote 2");
-  expect(result._lastUserNoteAt > 0).toBeTruthy();
+  expect(result._lastUserNoteAt).toBeGreaterThan(0);
   expect(result._rawUserInputs.length).toBe(2);
   expect(loop._userInputs.size).toBe(0);
 });
@@ -355,12 +356,13 @@ it("_beginStep creates step with metadata and emits started event", async () => 
   const { step, context } = loop._beginStep({ name: "test-step", runId: "run_1", iteration: 0 });
   const after = Date.now();
 
-  expect(step.stepId.startsWith("lifecycle_")).toBeTruthy();
+  expect(step.stepId).toMatch(/^lifecycle_/);
   expect(step.name).toBe("test-step");
   expect(step.runId).toBe("run_1");
   expect(step.iteration).toBe(0);
-  expect(step.startedAt >= before && step.startedAt <= after).toBeTruthy();
-  expect(context.signal instanceof AbortSignal).toBeTruthy();
+  expect(step.startedAt).toBeGreaterThanOrEqual(before);
+  expect(step.startedAt).toBeLessThanOrEqual(after);
+  expect(context.signal).toBeInstanceOf(AbortSignal);
 
   expect(events.length).toBe(1);
   expect(events[0].name).toBe("lifecycle.step.started");
@@ -398,10 +400,10 @@ it("_beginStep sets _activeStep", async () => {
 
   loop._beginStep({ name: "active" });
 
-  expect(loop._activeStep).toBeTruthy();
+  expect(loop._activeStep).toEqual(expect.any(Object));
   expect(loop._activeStep.name).toBe("active");
-  expect(loop._activeStep.signal instanceof AbortSignal).toBeTruthy();
-  expect(loop._activeStep.controller instanceof AbortController).toBeTruthy();
+  expect(loop._activeStep.signal).toBeInstanceOf(AbortSignal);
+  expect(loop._activeStep.controller).toBeInstanceOf(AbortController);
 });
 
 it("_endStep emits completed event by default", async () => {
@@ -454,7 +456,7 @@ it("_endStep clears _activeStep when matching", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   const { step } = loop._beginStep({ name: "test" });
-  expect(loop._activeStep).toBeTruthy();
+  expect(loop._activeStep).toEqual(expect.any(Object));
 
   loop._endStep({ step });
   expect(loop._activeStep).toBe(null);
@@ -471,7 +473,7 @@ it("_endStep does not clear _activeStep when not matching", async () => {
 
   // 结束第一个 step 不应清除当前活跃的第二个 step
   loop._endStep({ step: firstStep });
-  expect(loop._activeStep).toBeTruthy();
+  expect(loop._activeStep).toEqual(expect.any(Object));
   expect(loop._activeStep.name).toBe("second");
 });
 
@@ -541,8 +543,8 @@ it("_createStepSignal creates independent signal", async () => {
 
   const { signal, controller } = loop._createStepSignal(null);
 
-  expect(signal instanceof AbortSignal).toBeTruthy();
-  expect(controller instanceof AbortController).toBeTruthy();
+  expect(signal).toBeInstanceOf(AbortSignal);
+  expect(controller).toBeInstanceOf(AbortController);
   expect(signal.aborted).toBe(false);
 
   controller.abort("test");
@@ -1025,8 +1027,8 @@ it("_detachEventBusListeners cleans up subscriptions", async () => {
   loop._attachUserInputListener(eventBus);
   loop._attachPauseListener(eventBus);
 
-  expect(loop._userInputUnsub).toBeTruthy();
-  expect(loop._pauseListenerUnsub).toBeTruthy();
+  expect(typeof loop._userInputUnsub).toBe("function");
+  expect(typeof loop._pauseListenerUnsub).toBe("function");
 
   loop._detachEventBusListeners();
 
@@ -1119,8 +1121,8 @@ it("tool registry exposes registered tool names", async () => {
 
   const tools = loop._toolRegistry.getToolNames();
 
-  expect(tools.includes("tool1")).toBeTruthy();
-  expect(tools.includes("tool2")).toBeTruthy();
+  expect(tools).toContain("tool1");
+  expect(tools).toContain("tool2");
 });
 
 // ============================================================================
@@ -1203,8 +1205,8 @@ it("constructor with tools as Map", async () => {
   const loop = new TestLoop({ tools: toolsMap });
   const tools = loop._toolRegistry.getToolNames();
 
-  expect(tools.includes("mapTool1")).toBeTruthy();
-  expect(tools.includes("mapTool2")).toBeTruthy();
+  expect(tools).toContain("mapTool1");
+  expect(tools).toContain("mapTool2");
 });
 
 it("constructor with tools as array of tuples", async () => {
@@ -1224,8 +1226,8 @@ it("constructor with tools as array of tuples", async () => {
   const loop = new TestLoop({ tools: toolsArray });
   const tools = loop._toolRegistry.getToolNames();
 
-  expect(tools.includes("arrayTool1")).toBeTruthy();
-  expect(tools.includes("arrayTool2")).toBeTruthy();
+  expect(tools).toContain("arrayTool1");
+  expect(tools).toContain("arrayTool2");
 });
 
 it("constructor without options uses defaults", async () => {

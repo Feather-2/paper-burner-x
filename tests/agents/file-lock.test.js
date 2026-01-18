@@ -17,7 +17,7 @@ describe("vfs/file-lock", () => {
   describe("constructor", () => {
     it("creates with default options", () => {
       const l = new FileLock();
-      expect(l).toBeTruthy();
+      expect(l).toBeInstanceOf(FileLock);
     });
 
     it("accepts custom timeout options", () => {
@@ -25,7 +25,7 @@ describe("vfs/file-lock", () => {
         lockTimeoutMs: 5000,
         acquireTimeoutMs: 2000,
       });
-      expect(l).toBeTruthy();
+      expect(l).toBeInstanceOf(FileLock);
     });
   });
 
@@ -33,8 +33,8 @@ describe("vfs/file-lock", () => {
     it("generates unique ids", () => {
       const id1 = lock.generateHolderId();
       const id2 = lock.generateHolderId();
-      expect(id1.startsWith("lock_")).toBeTruthy();
-      expect(id2.startsWith("lock_")).toBeTruthy();
+      expect(id1).toMatch(/^lock_/);
+      expect(id2).toMatch(/^lock_/);
       expect(id1).not.toBe(id2);
     });
   });
@@ -42,14 +42,14 @@ describe("vfs/file-lock", () => {
   describe("acquire", () => {
     it("acquires write lock on free path", async () => {
       const result = await lock.acquire("/test/file.txt");
-      expect(result.release).toBeTruthy();
-      expect(result.holder).toBeTruthy();
+      expect(result.release).toBeTypeOf("function");
+      expect(result.holder).toMatch(/^lock_/);
       result.release();
     });
 
     it("acquires read lock on free path", async () => {
       const result = await lock.acquire("/test/file.txt", { type: LockType.READ });
-      expect(result.release).toBeTruthy();
+      expect(result.release).toBeTypeOf("function");
       result.release();
     });
 
@@ -84,8 +84,8 @@ describe("vfs/file-lock", () => {
       const read1 = await lock.acquire("/test/file.txt", { type: LockType.READ });
       const read2 = await lock.acquire("/test/file.txt", { type: LockType.READ });
 
-      expect(read1.holder).toBeTruthy();
-      expect(read2.holder).toBeTruthy();
+      expect(read1.holder).toMatch(/^lock_/);
+      expect(read2.holder).toMatch(/^lock_/);
 
       read1.release();
       read2.release();
@@ -131,7 +131,7 @@ describe("vfs/file-lock", () => {
       first.release();
 
       const second = await secondPromise;
-      expect(secondAcquired).toBeTruthy();
+      expect(secondAcquired).toBe(true);
       second.release();
     });
   });
@@ -139,8 +139,8 @@ describe("vfs/file-lock", () => {
   describe("tryAcquire", () => {
     it("acquires when free", () => {
       const result = lock.tryAcquire("/test/file.txt");
-      expect(result.acquired).toBeTruthy();
-      expect(result.release).toBeTruthy();
+      expect(result.acquired).toBe(true);
+      expect(result.release).toBeTypeOf("function");
       result.release();
     });
 
@@ -158,7 +158,7 @@ describe("vfs/file-lock", () => {
       const first = await lock.acquire("/test/file.txt", { type: LockType.READ });
 
       const result = lock.tryAcquire("/test/file.txt", { type: LockType.READ });
-      expect(result.acquired).toBeTruthy();
+      expect(result.acquired).toBe(true);
 
       result.release();
       first.release();
@@ -169,7 +169,7 @@ describe("vfs/file-lock", () => {
     it("returns true on success", async () => {
       const acquired = await lock.acquire("/test/file.txt");
       const success = lock.release("/test/file.txt", acquired.holder);
-      expect(success).toBeTruthy();
+      expect(success).toBe(true);
     });
 
     it("returns false for unknown path", () => {
@@ -195,9 +195,9 @@ describe("vfs/file-lock", () => {
       const acquired = await lock.acquire("/test/file.txt", { type: LockType.WRITE });
 
       const status = lock.isLocked("/test/file.txt");
-      expect(status.locked).toBeTruthy();
+      expect(status.locked).toBe(true);
       expect(status.type).toBe(LockType.WRITE);
-      expect(status.holders.includes(acquired.holder)).toBeTruthy();
+      expect(status.holders).toContain(acquired.holder);
 
       acquired.release();
     });
@@ -206,7 +206,7 @@ describe("vfs/file-lock", () => {
       const acquired = await lock.acquire("/test/file.txt", { type: LockType.READ });
 
       const status = lock.isLocked("/test/file.txt");
-      expect(status.locked).toBeTruthy();
+      expect(status.locked).toBe(true);
       expect(status.type).toBe(LockType.READ);
 
       acquired.release();
@@ -225,8 +225,8 @@ describe("vfs/file-lock", () => {
 
       const all = lock.getAllLocks();
       expect(all.size).toBe(2);
-      expect(all.has("/file1.txt")).toBeTruthy();
-      expect(all.has("/file2.txt")).toBeTruthy();
+      expect(all.has("/file1.txt")).toBe(true);
+      expect(all.has("/file2.txt")).toBe(true);
 
       lock1.release();
       lock2.release();
@@ -258,7 +258,7 @@ describe("vfs/file-lock", () => {
       lock.releaseAllForHolder("holder-a");
 
       expect(lock.isLocked("/file1.txt").locked).toBe(false);
-      expect(lock.isLocked("/file2.txt").locked).toBeTruthy();
+      expect(lock.isLocked("/file2.txt").locked).toBe(true);
 
       lock2.release();
     });
@@ -279,7 +279,7 @@ describe("vfs/file-lock", () => {
 
       // Should be able to acquire now
       const result = shortLock.tryAcquire("/test/file.txt");
-      expect(result.acquired).toBeTruthy();
+      expect(result.acquired).toBe(true);
       result.release();
     });
   });
@@ -316,8 +316,8 @@ describe("vfs/file-lock", () => {
       events.push("w1-released");
 
       const writer2 = await writer2Promise;
-      expect(events.includes("w1-released")).toBeTruthy();
-      expect(events.includes("w2-acquired")).toBeTruthy();
+      expect(events).toContain("w1-released");
+      expect(events).toContain("w2-acquired");
 
       writer2.release();
     });

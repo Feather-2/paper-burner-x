@@ -34,7 +34,7 @@ describe("CircuitBreaker", () => {
     } catch (err) {
       blockedErr = err;
     }
-    expect(blockedErr).toBeTruthy();
+    expect(blockedErr).toBeInstanceOf(Error);
     expect(blockedErr.name).toBe("CircuitBreakerOpenError");
 
     time.advance(100);
@@ -70,7 +70,7 @@ describe("CircuitBreaker", () => {
     } catch (err) {
       secondErr = err;
     }
-    expect(secondErr).toBeTruthy();
+    expect(secondErr).toBeInstanceOf(Error);
     expect(secondErr.name).toBe("CircuitBreakerOpenError");
 
     release();

@@ -45,7 +45,7 @@ it("understandAsset(): generates description via modelRouter (prefers router ove
   expect(out.description).toBe("A concise description.");
   expect(out.textContent).toBe("HELLO");
   expect(visionCalls).toBe(0);
-  expect(routerCalls.length >= 1).toBeTruthy();
+  expect(routerCalls).toHaveLength(1);
   expect(routerCalls[0].usage).toBe("vision");
   expect(routerCalls[0].images).toEqual([asset.data]);
 });
@@ -150,7 +150,7 @@ it("understandAssets(): processes batch and returns results", async () => {
   expect(out.map((r) => r.description)).toEqual(["desc:img0", "desc:img1", "desc:img2", "desc:img3", "desc:img4"],
   );
   // 批量处理会有进度回调
-  expect(progress.length >= 1).toBeTruthy();
+  expect(progress).toEqual([{ processed: 5, total: 5 }]);
 });
 
 it("understandAssets(): handles errors gracefully", async () => {
@@ -166,5 +166,5 @@ it("understandAssets(): handles errors gracefully", async () => {
   const out = await understandAssets(assets, { modelRouter });
 
   expect(out.length).toBe(1);
-  expect(out[0].error).toBeTruthy();
+  expect(out[0].error).toBe("API error");
 });

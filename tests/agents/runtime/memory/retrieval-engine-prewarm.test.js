@@ -124,7 +124,8 @@ describe("RetrievalEngine prewarm", () => {
 
       expect(progress.indexed).toBe(2);
       expect(progress.total).toBe(3);
-      expect(progress.coverage > 0 && progress.coverage < 1).toBeTruthy();
+      expect(progress.coverage).toBeGreaterThan(0);
+      expect(progress.coverage).toBeLessThan(1);
     });
 
     it("should handle empty snapshots gracefully", () => {
@@ -147,7 +148,7 @@ describe("RetrievalEngine prewarm", () => {
 
       expect(result.indexed).toBe(3);
       expect(result.skipped).toBe(0);
-      expect(result.elapsed >= 0).toBeTruthy();
+      expect(result.elapsed).toBeGreaterThanOrEqual(0);
       expect(engine.isWarmed).toBe(true);
     });
 
@@ -181,7 +182,7 @@ describe("RetrievalEngine prewarm", () => {
       await engine.prewarm({ batchSize: 1, progressCallback });
 
       // Should have initial call + one call per batch
-      expect(progressCalls.length >= 2).toBeTruthy();
+      expect(progressCalls.length).toBeGreaterThanOrEqual(2);
       expect(progressCalls[0].total).toBe(3);
       expect(progressCalls[progressCalls.length - 1].indexed).toBe(3);
     });
@@ -246,7 +247,7 @@ describe("RetrievalEngine prewarm", () => {
       const result = await prewarmPromise;
 
       // Should have partial results due to interruption
-      expect(result.indexed < 3).toBeTruthy();
+      expect(result.indexed).toBeLessThan(3);
     });
 
     it("should emit retrieval:indexProgress events", async () => {
@@ -257,10 +258,10 @@ describe("RetrievalEngine prewarm", () => {
         (call) => call[0] === "retrieval:indexProgress"
       );
 
-      expect(progressEvents.length > 0).toBeTruthy();
+      expect(progressEvents.length).toBeGreaterThan(0);
       const lastEvent = progressEvents[progressEvents.length - 1];
       expect(lastEvent[0]).toBe("retrieval:indexProgress");
-      expect(lastEvent[1].coverage > 0).toBeTruthy();
+      expect(lastEvent[1].coverage).toBeGreaterThan(0);
     });
 
     it("should handle embedding service errors gracefully", async () => {
@@ -284,8 +285,8 @@ describe("RetrievalEngine prewarm", () => {
       const result = await failingEngine.prewarm({ batchSize: 1 });
 
       // Should continue despite first batch failing
-      expect(result.indexed > 0).toBeTruthy();
-      expect(result.indexed < 3).toBeTruthy();
+      expect(result.indexed).toBeGreaterThan(0);
+      expect(result.indexed).toBeLessThan(3);
     });
 
     it("should return early when no embedding service", async () => {
@@ -338,7 +339,7 @@ describe("RetrievalEngine prewarm", () => {
         (call) => call[0] === "retrieval:indexProgress"
       );
 
-      expect(progressEvents.length > 0).toBeTruthy();
+      expect(progressEvents.length).toBeGreaterThan(0);
     });
 
     it("should continue on partial batch failures", async () => {
@@ -387,7 +388,7 @@ describe("RetrievalEngine prewarm", () => {
       slowEngine.dispose();
 
       const result = await prewarmPromise;
-      expect(result.indexed < 3).toBeTruthy();
+      expect(result.indexed).toBeLessThan(3);
     });
 
     it("should clean up prewarm abort controller", async () => {

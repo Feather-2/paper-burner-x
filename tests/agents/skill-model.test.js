@@ -9,7 +9,7 @@ import {
 describe("skills/model", () => {
   describe("SkillScope", () => {
     it("exports frozen object", () => {
-      expect(Object.isFrozen(SkillScope)).toBeTruthy();
+      expect(Object.isFrozen(SkillScope)).toBe(true);
     });
 
     it("has SYSTEM scope", () => {
@@ -31,7 +31,7 @@ describe("skills/model", () => {
 
   describe("SkillRuntime", () => {
     it("exports frozen object", () => {
-      expect(Object.isFrozen(SkillRuntime)).toBeTruthy();
+      expect(Object.isFrozen(SkillRuntime)).toBe(true);
     });
 
     it("has JS runtime", () => {

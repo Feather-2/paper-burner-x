@@ -18,7 +18,14 @@ describe('js/processing/markdown_text_fix.js', () => {
   });
 
   it('sets globalThis.MarkdownTextFix before tests', () => {
-    expect(globalThis.MarkdownTextFix).toBeTruthy();
+    expect(globalThis.MarkdownTextFix).toEqual(expect.objectContaining({
+      fixMathTextDisplay: expect.any(Function),
+      renderMathImproved: expect.any(Function),
+      renderMathMarkdown: expect.any(Function),
+      fixRenderedMath: expect.any(Function),
+      enhancedKatexOptions: expect.any(Object),
+      escapeHtml: expect.any(Function)
+    }));
   });
 
   describe('fixMathTextDisplay', () => {
@@ -65,4 +72,3 @@ describe('js/processing/markdown_text_fix.js', () => {
     });
   });
 });
-

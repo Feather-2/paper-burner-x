@@ -130,7 +130,15 @@ describe("design/edit-mode/tools", () => {
     const out = await exec(EditOperationType.CHANGE_COLOR_SCHEME, { primary: "#999999" });
     expect(out.success).toBe(true);
     expect(state.designSystem.designTokens.colors.primary).toBe("#999999");
-    expect(out.data.styleDeviations).toBeTruthy();
+    expect(out.data.styleDeviations).toEqual([
+      expect.objectContaining({
+        key: "primary",
+        requested: "#999999",
+        locked: "#111111",
+        suggestion: "#111111",
+        warning: 'Color "primary" (#999999) deviates from locked style (#111111)',
+      }),
+    ]);
     expect(emit).toHaveBeenCalledWith(
       "edit.style.deviation",
       expect.objectContaining({ status: "warning", payload: expect.objectContaining({ deviations: expect.any(Array) }) })
@@ -237,4 +245,3 @@ describe("design/edit-mode/tools", () => {
     expect(historyManager.push).not.toHaveBeenCalled();
   });
 });
-

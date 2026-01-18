@@ -46,7 +46,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "isolated" });
 
-      expect(!("error" in result)).toBeTruthy();
+      expect(result).not.toHaveProperty("error");
       expect(result.mode).toBe("isolated");
       expect(result.budget).toBe(12000); // 80000 * 0.15
       expect(result.priority).toBe(3);
@@ -56,7 +56,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "shared" });
 
-      expect(!("error" in result)).toBeTruthy();
+      expect(result).not.toHaveProperty("error");
       expect(result.mode).toBe("shared");
       expect(result.budget).toBe(20000); // 80000 * 0.25
       expect(result.priority).toBe(2);
@@ -66,7 +66,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "handoff" });
 
-      expect(!("error" in result)).toBeTruthy();
+      expect(result).not.toHaveProperty("error");
       expect(result.mode).toBe("handoff");
       expect(result.budget).toBe(28000); // 80000 * 0.35
       expect(result.priority).toBe(1);
@@ -76,7 +76,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "handoff", requestedBudget: 5000 });
 
-      expect(!("error" in result)).toBeTruthy();
+      expect(result).not.toHaveProperty("error");
       expect(result.budget).toBe(5000);
     });
 
@@ -84,7 +84,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "isolated", requestedBudget: 50000 });
 
-      expect(!("error" in result)).toBeTruthy();
+      expect(result).not.toHaveProperty("error");
       expect(result.budget).toBe(12000); // capped at 80000 * 0.15
     });
 
@@ -103,8 +103,8 @@ describe("SubagentBudgetManager", () => {
       mgr.allocate("sub1", { mode: "isolated" });
       const result = mgr.allocate("sub1", { mode: "shared" });
 
-      expect("error" in result).toBeTruthy();
-      expect(result.error.includes("already has active allocation")).toBeTruthy();
+      expect(result).toHaveProperty("error");
+      expect(result.error).toContain("already has active allocation");
     });
 
     it("should respect maxConcurrent limit", () => {
@@ -113,8 +113,8 @@ describe("SubagentBudgetManager", () => {
       mgr.allocate("sub2", { mode: "isolated" });
       const result = mgr.allocate("sub3", { mode: "isolated" });
 
-      expect("error" in result).toBeTruthy();
-      expect(result.error.includes("Max concurrent limit")).toBeTruthy();
+      expect(result).toHaveProperty("error");
+      expect(result.error).toContain("Max concurrent limit");
     });
 
     it("should error when budget exhausted", () => {
@@ -125,14 +125,14 @@ describe("SubagentBudgetManager", () => {
 
       const result = mgr.allocate("sub4", { mode: "handoff" });
       // Should fail due to insufficient budget
-      expect("error" in result).toBeTruthy();
+      expect(result).toHaveProperty("error");
     });
 
     it("should normalize mode to lowercase", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "SHARED" });
 
-      expect(!("error" in result)).toBeTruthy();
+      expect(result).not.toHaveProperty("error");
       expect(result.mode).toBe("shared");
     });
 
@@ -140,7 +140,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "unknown" });
 
-      expect(!("error" in result)).toBeTruthy();
+      expect(result).not.toHaveProperty("error");
       expect(result.mode).toBe("isolated");
     });
   });
@@ -173,7 +173,7 @@ describe("SubagentBudgetManager", () => {
       const result = mgr.recordUsage("unknown", 1000);
 
       expect(result.ok).toBe(false);
-      expect(result.error.includes("No allocation found")).toBeTruthy();
+      expect(result.error).toContain("No allocation found");
     });
 
     it("should accumulate usage over multiple calls", () => {
@@ -221,7 +221,7 @@ describe("SubagentBudgetManager", () => {
 
       const allocation = mgr.getAllocation("sub1");
       expect(allocation.status).toBe("completed");
-      expect(allocation.endTime > 0).toBeTruthy();
+      expect(allocation.endTime).toBeGreaterThan(0);
     });
 
     it("should allow new allocation after release", () => {
@@ -231,7 +231,7 @@ describe("SubagentBudgetManager", () => {
 
       // Same ID can be reused after release
       const result = mgr.allocate("sub1", { mode: "shared" });
-      expect(!("error" in result)).toBeTruthy();
+      expect(result).not.toHaveProperty("error");
     });
   });
 
@@ -270,9 +270,9 @@ describe("SubagentBudgetManager", () => {
 
       expect(active.length).toBe(2);
       const ids = active.map((a) => a.subagentId);
-      expect(ids.includes("sub1")).toBeTruthy();
-      expect(ids.includes("sub3")).toBeTruthy();
-      expect(!ids.includes("sub2")).toBeTruthy();
+      expect(ids).toContain("sub1");
+      expect(ids).toContain("sub3");
+      expect(ids).not.toContain("sub2");
     });
   });
 
@@ -340,7 +340,7 @@ describe("SubagentBudgetManager", () => {
       const result = mgr.canAllocate();
 
       expect(result.canAllocate).toBe(false);
-      expect(result.reason.includes("Max concurrent")).toBeTruthy();
+      expect(result.reason).toContain("Max concurrent");
     });
   });
 });
@@ -349,7 +349,7 @@ describe("createSubagentBudgetManager", () => {
   it("should create manager with factory function", () => {
     const mgr = createSubagentBudgetManager({ parentBudget: 50000 });
 
-    expect(mgr instanceof SubagentBudgetManager).toBeTruthy();
+    expect(mgr).toBeInstanceOf(SubagentBudgetManager);
     expect(mgr.getStats().parentBudget).toBe(50000);
   });
 });

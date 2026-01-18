@@ -37,9 +37,9 @@ it("validateStageApi: emits warnings for invalid optional field types", async ()
   });
 
   expect(out.valid).toBe(true);
-  expect(out.warnings.includes("emit should be a function")).toBeTruthy();
-  expect(out.warnings.includes("modelRouter.call should be a function")).toBeTruthy();
-  expect(out.warnings.includes("aiApiService.chat should be a function")).toBeTruthy();
+  expect(out.warnings).toContain("emit should be a function");
+  expect(out.warnings).toContain("modelRouter.call should be a function");
+  expect(out.warnings).toContain("aiApiService.chat should be a function");
 });
 
 it("createStageApi: fills defaults (signal, emit, checkCancelled) and supports strict warnings", async () => {
@@ -47,7 +47,7 @@ it("createStageApi: fills defaults (signal, emit, checkCancelled) and supports s
 
   {
     const api = createStageApi();
-    expect(api.signal && typeof api.signal.aborted === "boolean").toBeTruthy();
+    expect(api.signal).toBeInstanceOf(AbortSignal);
     expect(typeof api.emit).toBe("function");
     expect(typeof api.checkCancelled).toBe("function");
   }
@@ -82,8 +82,8 @@ it("createStageApi: fills defaults (signal, emit, checkCancelled) and supports s
     try {
       // Force warnings: aiApiService present but invalid shape.
       const api = createStageApi({ aiApiService: {} }, { strict: true });
-      expect(api.signal).toBeTruthy();
-      expect(warnings.length >= 1).toBeTruthy();
+      expect(api.signal).toBeInstanceOf(AbortSignal);
+      expect(warnings.length).toBeGreaterThan(0);
     } finally {
       console.warn = originalWarn;
     }
@@ -146,7 +146,7 @@ it("mergeStageApis: merges non-null/undefined values and returns a complete api"
 
   expect(merged.signal).toBe(b.signal);
   expect(merged.eventBus).toBe(busB);
-  expect(merged.modelRouter && typeof merged.modelRouter.call === "function").toBeTruthy();
+  expect(merged.modelRouter).toMatchObject({ call: expect.any(Function) });
   expect(typeof merged.emit).toBe("function");
   expect(typeof merged.checkCancelled).toBe("function");
 });
@@ -159,7 +159,6 @@ it("createChildApi: inherits parent values and allows overrides", async () => {
   const child = createChildApi(parent, { externalSearchProvider: { search: async () => [] } });
 
   expect(child.signal).toBe(controller.signal);
-  expect(child.logger && typeof child.logger.info === "function").toBeTruthy();
-  expect(child.externalSearchProvider && typeof child.externalSearchProvider.search === "function").toBeTruthy();
+  expect(child.logger).toMatchObject({ info: expect.any(Function) });
+  expect(child.externalSearchProvider).toMatchObject({ search: expect.any(Function) });
 });
-

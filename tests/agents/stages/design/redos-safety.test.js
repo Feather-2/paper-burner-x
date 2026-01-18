@@ -30,7 +30,7 @@ describe("ReDoS Safety", () => {
       }
       const elapsed = Date.now() - start;
       // 安全实现应在 100ms 内完成
-      expect(elapsed < 1000, `Should complete quickly, took ${elapsed}ms`).toBeTruthy();
+      expect(elapsed, `Should complete quickly, took ${elapsed}ms`).toBeLessThan(1000);
     });
 
     it("findImagePlaceholders should handle malicious input quickly", async () => {
@@ -46,7 +46,7 @@ describe("ReDoS Safety", () => {
         pos = tagEnd + 1;
       }
       const elapsed = Date.now() - start;
-      expect(elapsed < 100, `Should complete quickly, took ${elapsed}ms`).toBeTruthy();
+      expect(elapsed, `Should complete quickly, took ${elapsed}ms`).toBeLessThan(100);
     });
   });
 
@@ -66,7 +66,7 @@ describe("ReDoS Safety", () => {
         // 可能没有暴露该方法
       }
       const elapsed = Date.now() - start;
-      expect(elapsed < 100, `Should complete quickly, took ${elapsed}ms`).toBeTruthy();
+      expect(elapsed, `Should complete quickly, took ${elapsed}ms`).toBeLessThan(100);
     });
   });
 
@@ -92,8 +92,8 @@ describe("ReDoS Safety", () => {
         pos = tagEnd + 1;
       }
       expect(results.length).toBe(2);
-      expect(results[0].includes("slot1")).toBeTruthy();
-      expect(results[1].includes("slot2")).toBeTruthy();
+      expect(results[0]).toContain("slot1");
+      expect(results[1]).toContain("slot2");
     });
 
     it("should handle edge cases", () => {

@@ -28,7 +28,12 @@ describe('compression/watchdog cleanup', () => {
 
     await watchdogPlugin.install(ctx);
 
-    expect(ctx._watchdogInterval).toBeTruthy();
+    expect(ctx._watchdogInterval).toEqual(
+      expect.objectContaining({
+        ref: expect.any(Function),
+        unref: expect.any(Function),
+      }),
+    );
     expect(typeof ctx._watchdogCleanup).toBe('function');
 
     await watchdogPlugin.uninstall(ctx);
@@ -42,4 +47,3 @@ describe('compression/watchdog cleanup', () => {
     ctx.dispose();
   });
 });
-

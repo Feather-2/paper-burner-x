@@ -11,6 +11,7 @@ import {
   createPythonSkillExecutor,
   executePythonSkill,
 } from "../../../js/agents/runtime/deps/python-skill-executor.js";
+import { DependencyManager } from "../../../js/agents/runtime/deps/dependency-manager.js";
 import { SkillRuntime } from "../../../js/agents/skills/model.js";
 
 describe("PythonSkillExecutor", () => {
@@ -19,7 +20,7 @@ describe("PythonSkillExecutor", () => {
       const executor = new PythonSkillExecutor();
       expect(executor.vfs).toBe(null);
       expect(executor.pythonAdapter).toBe(null);
-      expect(executor.dependencyManager).toBeTruthy();
+      expect(executor.dependencyManager).toBeInstanceOf(DependencyManager);
     });
 
     it("should accept custom options", () => {
@@ -47,7 +48,7 @@ describe("PythonSkillExecutor", () => {
       const result = await executor.execute(skill, {});
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("Expected Python skill")).toBeTruthy();
+      expect(result.error).toContain("Expected Python skill");
     });
 
     it("should require VFS for code reading", async () => {
@@ -75,7 +76,7 @@ describe("PythonSkillExecutor", () => {
       const result = await executor.execute(skill, { state: {} });
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("VFS required")).toBeTruthy();
+      expect(result.error).toContain("VFS required");
     });
 
     it("should execute Python skill with mocked adapter", async () => {
@@ -132,14 +133,14 @@ describe("PythonSkillExecutor", () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toBe("hello");
-      expect(mockVfs.readFile.mock.calls.length > 0).toBeTruthy();
-      expect(mockAdapter.execute.mock.calls.length > 0).toBeTruthy();
+      expect(mockVfs.readFile).toHaveBeenCalled();
+      expect(mockAdapter.execute).toHaveBeenCalled();
     });
 
     it("should use default entrypoint main.py", async () => {
       const mockVfs = {
         readFile: vi.fn((path) => {
-          expect(path.endsWith("main.py")).toBeTruthy();
+          expect(path).toMatch(/main\.py$/);
           return Promise.resolve('print("test")');
         }),
         mkdir: vi.fn(() => Promise.resolve()),
@@ -174,7 +175,7 @@ describe("PythonSkillExecutor", () => {
 
       await executor.execute(skill, {});
 
-      expect(mockVfs.readFile.mock.calls.length > 0).toBeTruthy();
+      expect(mockVfs.readFile).toHaveBeenCalled();
     });
 
     it("should handle execution errors gracefully", async () => {
@@ -213,7 +214,7 @@ describe("PythonSkillExecutor", () => {
       const result = await executor.execute(skill, {});
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("SyntaxError")).toBeTruthy();
+      expect(result.error).toContain("SyntaxError");
     });
 
     it("should decode Uint8Array code", async () => {
@@ -230,7 +231,7 @@ describe("PythonSkillExecutor", () => {
         preloadPlan: vi.fn(() => Promise.resolve()),
         execute: vi.fn((code) => {
           expect(typeof code).toBe("string");
-          expect(code.includes("print")).toBeTruthy();
+          expect(code).toContain("print");
           return Promise.resolve({ success: true, data: null, metrics: {} });
         }),
         _requestId: 0,
@@ -267,7 +268,7 @@ describe("PythonSkillExecutor", () => {
 
       await executor.terminate();
 
-      expect(mockAdapter.terminate.mock.calls.length > 0).toBeTruthy();
+      expect(mockAdapter.terminate).toHaveBeenCalled();
       expect(executor.pythonAdapter).toBe(null);
       expect(executor._initialized).toBe(false);
     });
@@ -281,7 +282,7 @@ describe("PythonSkillExecutor", () => {
   describe("createPythonSkillExecutor", () => {
     it("should create executor", () => {
       const executor = createPythonSkillExecutor({ vfs: {} });
-      expect(executor instanceof PythonSkillExecutor).toBeTruthy();
+      expect(executor).toBeInstanceOf(PythonSkillExecutor);
     });
   });
 
@@ -301,7 +302,7 @@ describe("PythonSkillExecutor", () => {
       const result = await executePythonSkill(skill, { vfs: mockVfs });
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("Expected Python")).toBeTruthy();
+      expect(result.error).toContain("Expected Python");
     });
   });
 });

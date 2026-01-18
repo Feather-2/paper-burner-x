@@ -22,25 +22,25 @@ describe("runtime/safety/tool-permissions", () => {
     it("returns restrictions for readonly level", () => {
       const restrictions = getPresetRestrictions("readonly");
 
-      expect(Array.isArray(restrictions.blockedTools)).toBeTruthy();
-      expect(restrictions.blockedTools.includes("write")).toBeTruthy();
-      expect(restrictions.blockedTools.includes("edit")).toBeTruthy();
-      expect(Array.isArray(restrictions.bash.allowedCommands)).toBeTruthy();
+      expect(restrictions.blockedTools).toBeInstanceOf(Array);
+      expect(restrictions.blockedTools).toContain("write");
+      expect(restrictions.blockedTools).toContain("edit");
+      expect(restrictions.bash.allowedCommands).toBeInstanceOf(Array);
     });
 
     it("returns restrictions for standard level", () => {
       const restrictions = getPresetRestrictions("standard");
 
-      expect(Array.isArray(restrictions.bash.blockedCommands)).toBeTruthy();
+      expect(restrictions.bash.blockedCommands).toBeInstanceOf(Array);
       expect(restrictions.bash.blockedCommands.some(cmd => cmd.includes("rm -rf")));
     });
 
     it("returns restrictions for elevated level", () => {
       const restrictions = getPresetRestrictions("elevated");
 
-      expect(Array.isArray(restrictions.bash.blockedCommands)).toBeTruthy();
+      expect(restrictions.bash.blockedCommands).toBeInstanceOf(Array);
       // Elevated has fewer restrictions
-      expect(restrictions.bash.blockedCommands.length <= 5).toBeTruthy();
+      expect(restrictions.bash.blockedCommands.length).toBeLessThanOrEqual(5);
     });
 
     it("returns null for custom level", () => {
@@ -56,8 +56,8 @@ describe("runtime/safety/tool-permissions", () => {
 
       const merged = mergeRestrictions(base, override);
 
-      expect(merged.blockedTools.includes("tool1")).toBeTruthy();
-      expect(merged.blockedTools.includes("tool2")).toBeTruthy();
+      expect(merged.blockedTools).toContain("tool1");
+      expect(merged.blockedTools).toContain("tool2");
     });
 
     it("override allowedCommands replaces base", () => {
@@ -99,7 +99,7 @@ describe("runtime/safety/tool-permissions", () => {
         const result = perm.check("write", null);
 
         expect(result.allowed).toBe(false);
-        expect(result.reason?.includes("blocked")).toBeTruthy();
+        expect(result.reason).toContain("blocked");
       });
 
       it("readonly allows read tools", () => {
@@ -150,7 +150,7 @@ describe("runtime/safety/tool-permissions", () => {
         const perm = ToolPermissions.custom({ allowedTools: [] }).allow(["my_tool"]);
         const restrictions = perm.getRestrictions();
 
-        expect(restrictions.allowedTools.includes("my_tool")).toBeTruthy();
+        expect(restrictions.allowedTools).toContain("my_tool");
       });
 
       it("blockBash() adds commands to blocklist", () => {
@@ -164,7 +164,7 @@ describe("runtime/safety/tool-permissions", () => {
         const perm = ToolPermissions.readonly().allowBash(["npm test"]);
         const restrictions = perm.getRestrictions();
 
-        expect(restrictions.bash.allowedCommands.includes("npm test")).toBeTruthy();
+        expect(restrictions.bash.allowedCommands).toContain("npm test");
       });
 
       it("methods are chainable", () => {
@@ -188,7 +188,7 @@ describe("runtime/safety/tool-permissions", () => {
         const result = perm.check("write", null);
         expect(result.allowed).toBe(false);
         // Reason can be 'tool_not_in_allowlist' (strict mode) or 'tool_not_allowed' (blocklist)
-        expect(["tool_not_in_allowlist", "tool_not_allowed"].includes(result.reason)).toBeTruthy();
+        expect(["tool_not_in_allowlist", "tool_not_allowed"]).toContain(result.reason);
       });
 
       it("allows listed tools", () => {

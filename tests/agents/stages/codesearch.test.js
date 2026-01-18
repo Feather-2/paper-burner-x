@@ -147,7 +147,7 @@ describe("CodeSearchState", () => {
         text: "Search for auth",
         status: TodoStatus.OPEN,
       });
-      expect(todo).toBeTruthy();
+      expect(todo).toEqual(expect.any(Object));
       expect(todo.todoId).toBe("todo-1");
       expect(todo.text).toBe("Search for auth");
       expect(todo.status).toBe(TodoStatus.OPEN);
@@ -222,8 +222,7 @@ describe("CodeSearchState", () => {
       state.addTodo({ title: "T1" });
       state.addObservation("Obs1");
       const snapshot = state.buildStateSnapshot();
-      // snapshot may be string or object - check query is set
-      expect(state.query === "auth").toBeTruthy();
+      expect(snapshot).toHaveProperty("query", "auth");
     });
 
     it("should serialize to JSON", () => {
@@ -264,7 +263,7 @@ describe("CodeSearchPhase enum", () => {
   });
 
   it("should be frozen", () => {
-    expect(Object.isFrozen(CodeSearchPhase)).toBeTruthy();
+    expect(Object.isFrozen(CodeSearchPhase)).toBe(true);
   });
 });
 
@@ -277,7 +276,7 @@ describe("TodoStatus enum", () => {
   });
 
   it("should be frozen", () => {
-    expect(Object.isFrozen(TodoStatus)).toBeTruthy();
+    expect(Object.isFrozen(TodoStatus)).toBe(true);
   });
 });
 
@@ -288,11 +287,11 @@ describe("TodoStatus enum", () => {
 describe("Planning Phase", () => {
   describe("isTodoOpen", () => {
     it("should return true for open status", () => {
-      expect(isTodoOpen({ status: TodoStatus.OPEN })).toBeTruthy();
+      expect(isTodoOpen({ status: TodoStatus.OPEN })).toBe(true);
     });
 
     it("should return true for pending status", () => {
-      expect(isTodoOpen({ status: TodoStatus.PENDING })).toBeTruthy();
+      expect(isTodoOpen({ status: TodoStatus.PENDING })).toBe(true);
     });
 
     it("should return false for completed status", () => {
@@ -312,20 +311,15 @@ describe("Planning Phase", () => {
         { id: "3", title: "Done", status: TodoStatus.COMPLETED },
       ];
       const formatted = formatOpenTodos(todos);
-      expect(formatted.includes("First")).toBeTruthy();
-      expect(formatted.includes("Second")).toBeTruthy();
-      expect(!formatted.includes("Done")).toBeTruthy();
+      expect(formatted).toContain("First");
+      expect(formatted).toContain("Second");
+      expect(formatted).not.toContain("Done");
     });
 
     it("should return empty indicator for no open todos", () => {
       const todos = [{ id: "1", title: "Done", status: TodoStatus.COMPLETED }];
       const formatted = formatOpenTodos(todos);
-      expect(
-        formatted.includes("none") ||
-        formatted.includes("None") ||
-        formatted.includes("(无)") ||
-        formatted === ""
-      ).toBeTruthy();
+      expect(formatted).toBe("(无)");
     });
   });
 
@@ -333,7 +327,7 @@ describe("Planning Phase", () => {
     it("should build a system prompt string", () => {
       const prompt = buildSystemPrompt();
       expect(typeof prompt).toBe("string");
-      expect(prompt.length > 0).toBeTruthy();
+      expect(prompt.length).toBeGreaterThan(0);
     });
   });
 
@@ -360,7 +354,8 @@ describe("Planning Phase", () => {
         signal: null,
       });
 
-      expect(result.success || result.todos).toBeTruthy();
+      expect(result.success).toBe(true);
+      expect(result.todos).toHaveLength(2);
     });
 
     it("should handle model errors gracefully", async () => {
@@ -377,7 +372,8 @@ describe("Planning Phase", () => {
         signal: null,
       });
 
-      expect(result.error || !result.success).toBeTruthy();
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Model error");
     });
   });
 });
@@ -419,7 +415,7 @@ describe("Execution Phase", () => {
         signal: null,
       });
 
-      expect(result !== undefined).toBeTruthy();
+      expect(result).toHaveProperty("done");
     });
 
     it("should handle tool calls", async () => {
@@ -462,7 +458,7 @@ describe("Execution Phase", () => {
         signal: null,
       });
 
-      expect(result !== undefined).toBeTruthy();
+      expect(result).toHaveProperty("done");
     });
   });
 });
@@ -517,7 +513,13 @@ describe("Summarizing Phase", () => {
         signal: null,
       });
 
-      expect(result.summary || result.todoStats).toBeTruthy();
+      expect(result.summary).toContain("Authentication uses JWT tokens");
+      expect(result.todoStats).toEqual({
+        total: 1,
+        completed: 1,
+        cancelled: 0,
+        open: 0,
+      });
     });
   });
 });
@@ -543,7 +545,7 @@ describe("SymbolIndexer", () => {
         const validate = (input) => input.length > 0;
       `;
       const symbols = await indexer.extractSymbols(code, "auth.js");
-      expect(Array.isArray(symbols)).toBeTruthy();
+      expect(symbols).toBeInstanceOf(Array);
       // Regex fallback should find function
       const funcSymbol = symbols.find(
         (s) => s.name === "authenticate" || s.type === "function"
@@ -561,7 +563,7 @@ describe("SymbolIndexer", () => {
         }
       `;
       const symbols = await indexer.extractSymbols(code, "user-service.js");
-      expect(Array.isArray(symbols)).toBeTruthy();
+      expect(symbols).toBeInstanceOf(Array);
       const classSymbol = symbols.find((s) => s.name === "UserService");
       if (classSymbol) {
         expect(classSymbol.type).toBe("class");
@@ -570,7 +572,7 @@ describe("SymbolIndexer", () => {
 
     it("should handle empty code", async () => {
       const symbols = await indexer.extractSymbols("", "empty.js");
-      expect(Array.isArray(symbols)).toBeTruthy();
+      expect(symbols).toBeInstanceOf(Array);
       expect(symbols.length).toBe(0);
     });
 
@@ -578,8 +580,7 @@ describe("SymbolIndexer", () => {
       const code = "function test() {}";
       const symbols = await indexer.extractSymbols(code, "path/to/file.js");
       if (symbols.length > 0) {
-        expect(symbols[0].file === "path/to/file.js" || symbols[0].path !== undefined
-        ).toBeTruthy();
+        expect(symbols[0].file).toBe("path/to/file.js");
       }
     });
   });
@@ -591,7 +592,7 @@ describe("SymbolIndexer", () => {
       await indexer.extractSymbols("class AuthService {}", "auth-service.js");
 
       const results = await indexer.query({ query: "auth" });
-      expect(Array.isArray(results)).toBeTruthy();
+      expect(results).toBeInstanceOf(Array);
     });
 
     it("should filter by path prefix", async () => {
@@ -602,7 +603,7 @@ describe("SymbolIndexer", () => {
         query: "function",
         pathPrefix: "src",
       });
-      expect(Array.isArray(results)).toBeTruthy();
+      expect(results).toBeInstanceOf(Array);
     });
 
     it("should respect limit", async () => {
@@ -611,7 +612,7 @@ describe("SymbolIndexer", () => {
       await indexer.extractSymbols("function c() {}", "c.js");
 
       const results = await indexer.query({ query: "function", limit: 2 });
-      expect(results.length <= 2).toBeTruthy();
+      expect(results.length).toBeLessThanOrEqual(2);
     });
   });
 });
@@ -638,7 +639,7 @@ describe("CodeSearchIndexStore", () => {
       await store.putSymbolRecord("auth.js", record);
       const retrieved = await store.getSymbolRecord("auth.js");
 
-      expect(retrieved).toBeTruthy();
+      expect(retrieved).toEqual(expect.objectContaining({ path: "auth.js" }));
       expect(retrieved.path).toBe("auth.js");
       expect(retrieved.symbols.length).toBe(1);
     });
@@ -663,13 +664,13 @@ describe("CodeSearchIndexStore", () => {
       await store.putSymbolRecord("b.js", { symbols: [] });
 
       const records = await store.listSymbolRecords();
-      expect(Array.isArray(records)).toBeTruthy();
-      expect(records.length >= 2).toBeTruthy();
+      expect(records).toBeInstanceOf(Array);
+      expect(records.length).toBeGreaterThanOrEqual(2);
     });
 
     it("should return empty array when no records", async () => {
       const records = await store.listSymbolRecords();
-      expect(Array.isArray(records)).toBeTruthy();
+      expect(records).toBeInstanceOf(Array);
     });
   });
 });
@@ -706,21 +707,21 @@ describe("createToolExecutor", () => {
   describe("glob tool", () => {
     it("should return matching files", async () => {
       const result = await tools.glob({ pattern: "**/*.js" });
-      expect(Array.isArray(result)).toBeTruthy();
+      expect(result).toBeInstanceOf(Array);
     });
   });
 
   describe("read_file tool", () => {
     it("should read file content", async () => {
       const result = await tools.read_file({ path: "/project/src/auth.js" });
-      expect(result.includes("function") || typeof result === "string").toBeTruthy();
+      expect(String(result)).toContain("function");
     });
 
     it("should handle file not found", async () => {
       try {
         await tools.read_file({ path: "/project/nonexistent.js" });
       } catch (e) {
-        expect(e.message.includes("ENOENT") || e.message.includes("not")).toBeTruthy();
+        expect(e.message).toMatch(/ENOENT|not/i);
       }
     });
   });
@@ -729,7 +730,8 @@ describe("createToolExecutor", () => {
     it("should list directory contents", async () => {
       mockFs.readdir = vi.fn(async () => ["auth.js", "user.js"]);
       const result = await tools.list_dir({ path: "/project/src" });
-      expect(Array.isArray(result) || typeof result === "string").toBeTruthy();
+      expect(result).toBeInstanceOf(Array);
+      expect(result.map((entry) => entry.name)).toEqual(["auth.js", "user.js"]);
     });
   });
 });
@@ -754,7 +756,7 @@ describe("CodeSearchStage", () => {
   describe("constructor", () => {
     it("should create stage with default options", () => {
       const s = new CodeSearchStage({ eventBus });
-      expect(s).toBeTruthy();
+      expect(s).toBeInstanceOf(CodeSearchStage);
     });
 
     it("should accept custom options", () => {
@@ -764,7 +766,7 @@ describe("CodeSearchStage", () => {
         timeoutMs: 60000,
         maxBacktracks: 3,
       });
-      expect(s).toBeTruthy();
+      expect(s).toBeInstanceOf(CodeSearchStage);
     });
   });
 
@@ -810,10 +812,10 @@ describe("CodeSearchStage", () => {
 
       try {
         const result = await stage.run(input, context);
-        expect(result).toBeTruthy();
+        expect(result).toEqual(expect.objectContaining({ query: input.query }));
       } catch (e) {
         // Stage may throw if internal requirements not met
-        expect(true).toBeTruthy();
+        expect(e).toBeInstanceOf(Error);
       }
     });
 
@@ -831,7 +833,7 @@ describe("CodeSearchStage", () => {
         await stage.run({ query: "test" }, context);
         throw new Error("Should have thrown");
       } catch (e) {
-        expect(e.name === "AbortError" || e.message.includes("abort") || true).toBeTruthy();
+        expect(["AbortError", "StagePausedError"]).toContain(e.name);
       }
     });
   });
@@ -860,7 +862,7 @@ describe("CodeSearchStage", () => {
       }
 
       // Events may or may not be emitted depending on implementation
-      expect(Array.isArray(events)).toBeTruthy();
+      expect(events).toBeInstanceOf(Array);
     });
   });
 });
@@ -894,7 +896,7 @@ describe("Edge Cases", () => {
         "function {{{ broken",
         "broken.js"
       );
-      expect(Array.isArray(symbols)).toBeTruthy();
+      expect(symbols).toBeInstanceOf(Array);
     });
 
     it("should handle very long files", async () => {
@@ -902,7 +904,7 @@ describe("Edge Cases", () => {
       const longCode =
         "function test() {}\n".repeat(1000) + "function final() {}";
       const symbols = await indexer.extractSymbols(longCode, "long.js");
-      expect(Array.isArray(symbols)).toBeTruthy();
+      expect(symbols).toBeInstanceOf(Array);
     });
   });
 
@@ -910,19 +912,24 @@ describe("Edge Cases", () => {
     it("buildTodoCompletionStats should handle undefined todos", () => {
       try {
         const stats = buildTodoCompletionStats(undefined);
-        expect(stats.total === 0 || stats === undefined).toBeTruthy();
+        expect(stats).toEqual({
+          total: 0,
+          completed: 0,
+          cancelled: 0,
+          open: 0,
+        });
       } catch (e) {
         // Expected behavior for undefined input
-        expect(true).toBeTruthy();
+        expect(e).toBeInstanceOf(Error);
       }
     });
 
     it("formatOpenTodos should handle undefined", () => {
       try {
         const formatted = formatOpenTodos(undefined);
-        expect(typeof formatted === "string" || formatted === undefined).toBeTruthy();
+        expect(formatted).toBe("(无)");
       } catch (e) {
-        expect(true).toBeTruthy();
+        expect(e).toBeInstanceOf(Error);
       }
     });
   });
@@ -947,7 +954,7 @@ describe("Performance", () => {
     }
 
     const elapsed = Date.now() - start;
-    expect(elapsed < 5000, `Should complete in <5s, took ${elapsed}ms`).toBeTruthy();
+    expect(elapsed, `Should complete in <5s, took ${elapsed}ms`).toBeLessThan(5000);
   });
 
   it("should handle large state efficiently", () => {
@@ -962,7 +969,7 @@ describe("Performance", () => {
     const snapshot = state.buildStateSnapshot();
     const elapsed = Date.now() - start;
 
-    expect(elapsed < 1000, `Should complete in <1s, took ${elapsed}ms`).toBeTruthy();
-    expect(snapshot.length > 0).toBeTruthy();
+    expect(elapsed, `Should complete in <1s, took ${elapsed}ms`).toBeLessThan(1000);
+    expect(snapshot.length).toBeGreaterThan(0);
   });
 });
