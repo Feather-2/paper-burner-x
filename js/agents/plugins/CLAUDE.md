@@ -2,6 +2,17 @@
 
 Kernel 插件集合，按功能分类。
 
+## 子目录上下文
+
+| 子目录 | 说明 | 入口 |
+|--------|------|------|
+| `compression/` | 上下文压缩与监控（Cicada/Watchdog） | `compression/CLAUDE.md` |
+| `debug/` | 运行时检查与结构化日志 | `debug/CLAUDE.md` |
+| `services/` | 内核基础服务注册（LLM/MCP/调度/VFS） | `services/CLAUDE.md` |
+| `analysis/` | 单文件插件目录（fingerprint） | - |
+| `resilience/` | 单文件插件目录（retry） | - |
+| `stages/` | 单文件插件目录（deepsearch stage） | - |
+
 ## 插件索引
 
 ### compression/ - 压缩
@@ -37,6 +48,7 @@ Kernel 插件集合，按功能分类。
 | `llm.js` | llm | LLM 服务注册 |
 | `mcp.js` | mcp | MCP 服务注册 |
 | `scheduler.js` | scheduler | 调度器服务 |
+| `vfs.js` | vfs | VFS 读写与 Glob |
 
 ### stages/ - 阶段
 

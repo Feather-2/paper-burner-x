@@ -1,59 +1,49 @@
 # ingest - 文档摄取
 
-多格式文档解析和资产提取，支持 PDF、Office、音视频等。
+多格式文档/媒体摄取，统一产出 ParsedDocument（markdown + chunks + assets）。
 
-## 核心文件
+## 核心文件列表
 
 | 文件 | 职责 |
-|------|------|
-| `ingest-stage.js` | IngestStage 主流程 |
-| `asset-manager.js` | 资产（图片/表格）管理 |
-| `asset-understanding.js` | 资产理解（OCR/描述） |
-| `chunked-loader.js` | 分块加载大文件 |
-| `extract-assets.js` | 从 Markdown 提取资产 |
-| `constants.js` | 常量定义 |
+| --- | --- |
+| `ingest-stage.js` | 主流程：路由输入、并发处理、超时/事件、可恢复持久化、可选资产理解 |
+| `asset-manager.js` | 资产去重与管理（hash + 碰撞签名），按需保存字节以降低内存 |
+| `asset-understanding.js` | 视觉模型批量分析图片资产，输出描述/分类/文本等 |
+| `chunked-loader.js` | 大文件分块读取与流式处理工具 |
+| `extract-assets.js` | 从 markdown 图像引用抽取资产与定位信息 |
+| `constants.js` | SourceKind、AssetMimeType、ExportFormat 等枚举 |
+| `index.js` | 模块出口：IngestStage/AssetManager/Adapters/extractAssetsFromMarkdown |
 
-## 适配器 (adapters/)
+## 关键概念
 
-| 适配器 | 支持格式 |
-|--------|----------|
-| `pdf.js` | PDF 文档 |
-| `docx.js` | Word 文档 (.docx) |
-| `pptx.js` | PowerPoint (.pptx) |
-| `html.js` | HTML 网页 |
-| `markdown.js` | Markdown |
-| `epub.js` | 电子书 (.epub) |
-| `audio.js` | 音频 (需 Whisper) |
-| `video.js` | 视频 (帧提取 + 音频) |
-| `code.js` | 代码文件 |
-| `raw-text.js` | 纯文本 |
-| `history.js` | 对话历史 |
-| `base.js` | BaseAdapter 基类 |
+- 输入与调度：支持 `files`、`urls`、`historyIds`、`rawTexts`；按 `maxConcurrentDocs` 并发，支持 `docTimeoutMs` 和 URL 大小上限；URL 可走 urlFetcher/MCP/fetch。
+- ParsedDocument：由 BaseAdapter.buildParsedDocument 生成，包含 `docId`、`markdown`、`textNormalized`、`textHash`、`toc`、`chunks`、`chunkStrategy`/`chunkMeta`、`assets`、`metadata`、`parseInfo`。
+- 分块策略：默认固定大小 + overlap + 行号；可选 smartChunk；每个 chunk 带 `locator`（char/line 范围）。
+- 资产与去重：`extractAssetsFromMarkdown()` 生成图片资产；`AssetManager` 以 hash 去重并检测碰撞，必要时存 bytes 而非大 base64。
+- 资产理解：`understandAssets` 可调用视觉模型批量分析图片（支持进度回调）。
+- 音视频：Audio/Video 依赖 `whisperApi` 转写，返回纯文本与 LRC；Video 可选抽帧生成图片资产。
 
-## 使用示例
+## 子模块索引
 
-```javascript
-import { IngestStage, PdfAdapter, AssetManager } from 'js/agents/ingest';
+### adapters/
 
-const stage = new IngestStage({
-  adapters: [new PdfAdapter()],
-  assetManager: new AssetManager(),
-});
+- `base.js`：流式解析与分块基类；统一规范化、TOC、chunk 元数据。
+- `markdown.js`：读取 md/txt（路径或 file-like），直接转 markdown。
+- `raw-text.js`：用户文本输入转 markdown。
+- `history.js`：从 storageAdapter 拉取历史记录（translation/ocr/markdown），附带图片资产。
+- `pdf.js`：优先 OCR（OcrManager/processFile），无 OCR 时提取内嵌文本；抽取图片资产。
+- `docx.js`：mammoth -> HTML -> Turndown -> markdown；提取内嵌/嵌入图片。
+- `pptx.js`：PPTXSlideParser 解析幻灯片文本/图片，生成分 slide 的 markdown。
+- `html.js`：Turndown 转 markdown；处理 HTML/data-uri 图片。
+- `epub.js`：JSZip + DOMParser 解析章节与资源；拼接章节 markdown；抽取图片。
+- `audio.js`：whisperApi 转写音频，生成纯文本与 LRC。
+- `video.js`：whisperApi 转写视频（可先抽音轨）；可选抽帧生成图片资产。
+- `code.js`：支持多语言代码文件；安全过滤敏感/过大文件；生成带语言标记的 code block。
 
-const result = await stage.process(fileBuffer, { type: 'application/pdf' });
-// → { markdown, assets, metadata }
-```
+### streaming/
 
-## 扩展适配器
+- `byte-buffer.js`：ByteBuffer 增量二进制缓冲区，支持 append/slice/indexOf/consume，降低复制开销。
 
-```javascript
-import { BaseAdapter } from 'js/agents/ingest';
+### tools/
 
-class CustomAdapter extends BaseAdapter {
-  static mimeTypes = ['application/x-custom'];
-
-  async parse(buffer, options) {
-    // 返回 { markdown, assets }
-  }
-}
-```
+- `video-frames.js`：`getVideoFrames()` 基于 mediabunny 抽帧，输出 base64 JPEG；支持自定义 frameToBase64 与 Canvas/WebCodecs 回退。
