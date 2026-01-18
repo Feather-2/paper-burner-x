@@ -2,6 +2,15 @@ import { restoreVfsCheckpoint } from "../../vfs/checkpoints.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 
+/** Maximum WAL file size in bytes (10 MB) to prevent DoS. */
+const MAX_WAL_FILE_SIZE = 10 * 1024 * 1024;
+
+/** Maximum single WAL line size in bytes (100 KB) to prevent memory issues. */
+const MAX_WAL_LINE_SIZE = 100 * 1024;
+
+/** Valid entry kinds for WAL structure validation. */
+const VALID_ENTRY_KINDS = new Set(["vfs_checkpoint", "unknown"]);
+
 /**
  * @typedef {object} SideEffectJournalCheckpointRef
  * @property {string} artifactId
@@ -23,15 +32,59 @@ import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.
  */
 
 /**
+ * Interface for RunStore-like objects (DI contract).
+ * @typedef {object} RunStoreLike
+ * @property {(runId: string) => Promise<unknown[]>} [getEvents] - Get events for a run
+ * @property {(artifactId: string) => Promise<unknown>} [getArtifactById] - Get artifact by ID
+ */
+
+/**
+ * Interface for VFS-like objects (DI contract).
+ * @typedef {object} VfsLike
+ * @property {(path: string) => Promise<boolean>} [exists] - Check if path exists
+ * @property {(path: string, recursive?: boolean) => Promise<void>} [mkdir] - Create directory
+ * @property {(path: string) => Promise<string|Uint8Array|null>} [read] - Read file
+ * @property {(path: string) => Promise<string|null>} [readText] - Read file as text
+ * @property {(path: string, data: Uint8Array) => Promise<void>} [write] - Write file
+ * @property {(path: string, text: string) => Promise<void>} [writeText] - Write text file
+ * @property {(path: string, content: string|Uint8Array) => Promise<void>} [writeFile] - Write file (string or bytes)
+ * @property {(path: string, text: string) => Promise<void>} [appendText] - Append text to file
+ * @property {(path: string) => Promise<unknown>} [readFile] - Read file (legacy)
+ */
+
+/**
+ * Interface for EventBus-like objects (DI contract).
+ * @typedef {object} EventBusLike
+ * @property {(pattern: string, handler: (evt: unknown) => void) => (() => void)} [subscribe] - Subscribe to events
+ * @property {(event: string, payload: unknown) => void} [emit] - Emit an event
+ */
+
+/**
+ * Interface for Logger-like objects (DI contract).
+ * @typedef {object} LoggerLike
+ * @property {(msg: string) => void} [warn] - Log warning message
+ * @property {(msg: string) => void} [info] - Log info message
+ * @property {(msg: string) => void} [debug] - Log debug message
+ * @property {(msg: string) => void} [error] - Log error message
+ */
+
+/**
+ * Interface for StorageAdapter-like objects (DI contract).
+ * @typedef {object} StorageAdapterLike
+ * @property {(key: string) => Promise<unknown>} [get] - Get value by key
+ * @property {(key: string, value: unknown) => Promise<void>} [set] - Set value
+ */
+
+/**
  * @typedef {object} SideEffectJournalOptions
- * @property {any=} runStore
- * @property {any=} storageAdapter
- * @property {string=} runId
- * @property {any=} vfs
- * @property {any=} eventBus
- * @property {any=} logger
- * @property {boolean=} autoPersist
- * @property {string=} walDir
+ * @property {RunStoreLike=} runStore - Run store for artifact/event retrieval
+ * @property {StorageAdapterLike=} storageAdapter - Storage adapter for persistence
+ * @property {string=} runId - The run identifier
+ * @property {VfsLike=} vfs - Virtual file system instance
+ * @property {EventBusLike=} eventBus - Event bus for VFS write events
+ * @property {LoggerLike=} logger - Logger instance
+ * @property {boolean=} autoPersist - Auto-persist entries to WAL
+ * @property {string=} walDir - WAL directory path
  */
 
 /**
@@ -81,8 +134,9 @@ import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.
  */
 
 /**
- * @param {unknown} ts
- * @returns {string}
+ * Convert a timestamp value to ISO 8601 string format.
+ * @param {unknown} ts - Timestamp value (string, number, or other)
+ * @returns {string} ISO 8601 formatted timestamp string
  */
 function toIso(ts) {
   if (typeof ts === "string" && ts.trim()) return ts;
@@ -91,8 +145,9 @@ function toIso(ts) {
 }
 
 /**
- * @param {unknown} value
- * @returns {number|null}
+ * Normalize a cursor value to a non-negative integer.
+ * @param {unknown} value - The cursor value to normalize
+ * @returns {number|null} Normalized cursor or null if invalid
  */
 function normalizeCursor(value) {
   const n = typeof value === "number" ? value : Number(value);
@@ -101,9 +156,28 @@ function normalizeCursor(value) {
 }
 
 /**
- * @param {string} dir
- * @param {string} name
- * @returns {string}
+ * Sanitize runId to prevent path traversal attacks.
+ * Rejects ../, absolute paths, and path separators.
+ * @param {string} id - The runId to sanitize
+ * @returns {string|null} Sanitized id or null if invalid
+ */
+function sanitizeRunId(id) {
+  if (typeof id !== "string" || !id.trim()) return null;
+  const trimmed = id.trim();
+  // Reject path traversal patterns
+  if (trimmed.includes("..") || trimmed.includes("/") || trimmed.includes("\\")) return null;
+  // Reject absolute paths (Windows drive letters or Unix root)
+  if (/^[a-zA-Z]:/.test(trimmed) || trimmed.startsWith("/")) return null;
+  // Only allow safe characters: alphanumeric, dash, underscore, dot (but not leading dot)
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+/**
+ * Join VFS directory and file name into a path.
+ * @param {string} dir - The directory path
+ * @param {string} name - The file name
+ * @returns {string} The joined path
  */
 function joinVfsPath(dir, name) {
   const left = typeof dir === "string" ? dir.trim() : "";
@@ -115,8 +189,9 @@ function joinVfsPath(dir, name) {
 }
 
 /**
- * @param {unknown} value
- * @returns {string}
+ * Convert a binary or buffer value to a text string.
+ * @param {unknown} value - The value to convert (string, Uint8Array, ArrayBuffer, etc.)
+ * @returns {string} The text representation
  */
 function bytesToText(value) {
   if (value === null || value === undefined) return "";
@@ -132,17 +207,19 @@ function bytesToText(value) {
 }
 
 /**
- * @param {unknown} value
- * @returns {Uint8Array}
+ * Convert a text value to UTF-8 encoded bytes.
+ * @param {unknown} value - The value to encode
+ * @returns {Uint8Array} UTF-8 encoded bytes
  */
 function textToBytes(value) {
   return new TextEncoder().encode(typeof value === "string" ? value : String(value ?? ""));
 }
 
 /**
- * @param {any} vfs
- * @param {string} path
- * @returns {Promise<string|null>}
+ * Read text content from a VFS path.
+ * @param {VfsLike} vfs - The VFS instance
+ * @param {string} path - The file path to read
+ * @returns {Promise<string|null>} The file content or null if unavailable
  */
 async function readTextFromVfs(vfs, path) {
   if (!vfs || typeof vfs !== "object") return null;
@@ -160,10 +237,11 @@ async function readTextFromVfs(vfs, path) {
 }
 
 /**
- * @param {any} vfs
- * @param {string} path
- * @param {string} text
- * @returns {Promise<boolean>}
+ * Write text content to a VFS path.
+ * @param {VfsLike} vfs - The VFS instance
+ * @param {string} path - The file path to write
+ * @param {string} text - The text content to write
+ * @returns {Promise<boolean>} True if write succeeded
  */
 async function writeTextToVfs(vfs, path, text) {
   if (!vfs || typeof vfs !== "object") return false;
@@ -183,10 +261,11 @@ async function writeTextToVfs(vfs, path, text) {
 }
 
 /**
- * @param {any} vfs
- * @param {string} path
- * @param {string} text
- * @returns {Promise<{ ok: boolean, appended: boolean }>}
+ * Append text content to a VFS path.
+ * @param {VfsLike} vfs - The VFS instance
+ * @param {string} path - The file path to append to
+ * @param {string} text - The text content to append
+ * @returns {Promise<{ ok: boolean, appended: boolean }>} Result with ok status and whether native append was used
  */
 async function appendTextToVfs(vfs, path, text) {
   if (!vfs || typeof vfs !== "object") return { ok: false, appended: false };
@@ -200,9 +279,10 @@ async function appendTextToVfs(vfs, path, text) {
 }
 
 /**
- * @param {any} vfs
- * @param {string} path
- * @returns {Promise<boolean>}
+ * Check whether a VFS path exists.
+ * @param {VfsLike} vfs - The VFS instance
+ * @param {string} path - The path to check
+ * @returns {Promise<boolean>} True if the path exists
  */
 async function vfsExists(vfs, path) {
   if (!vfs || typeof vfs !== "object") return false;
@@ -210,15 +290,48 @@ async function vfsExists(vfs, path) {
   try {
     const content = await readTextFromVfs(vfs, path);
     return content !== null;
-  } catch {
+  } catch (e) {
+    // Log suppressed error for observability
+    if (typeof console !== "undefined" && console.debug) {
+      console.debug("[SideEffectJournal] vfsExists check failed:", e);
+    }
     return false;
   }
 }
 
 /**
- * @param {any} entry
- * @param {number} seq
- * @returns {SideEffectJournalEntry}
+ * Validate parsed WAL entry structure.
+ * Ensures required fields exist and have valid types.
+ * @param {unknown} parsed - The parsed JSON object
+ * @returns {{ valid: boolean, reason?: string }} Validation result
+ */
+function validateWalEntry(parsed) {
+  if (!isPlainObject(parsed)) {
+    return { valid: false, reason: "not_plain_object" };
+  }
+  const entry = /** @type {Record<string, unknown>} */ (parsed);
+  // kind must be a non-empty string
+  const kind = entry.kind;
+  if (typeof kind !== "string" || !kind.trim()) {
+    return { valid: false, reason: "missing_kind" };
+  }
+  // ts must exist (string or number)
+  const ts = entry.ts;
+  if (ts === undefined || ts === null) {
+    return { valid: false, reason: "missing_ts" };
+  }
+  // reversible must be boolean if present
+  if (entry.reversible !== undefined && typeof entry.reversible !== "boolean") {
+    return { valid: false, reason: "invalid_reversible" };
+  }
+  return { valid: true };
+}
+
+/**
+ * Build a normalized journal entry from raw input.
+ * @param {unknown} entry - The raw entry data
+ * @param {number} seq - The sequence number for this entry
+ * @returns {SideEffectJournalEntry} The normalized journal entry
  */
 function buildJournalEntry(entry, seq) {
   const e = isPlainObject(entry) ? entry : {};
@@ -274,15 +387,16 @@ export class SideEffectJournal {
   }
 
   /**
-   * @param {any} eventBus
+   * Attach an EventBus to listen for VFS write events.
+   * @param {any} eventBus - The EventBus instance
    * @returns {void}
    */
   attachEventBus(eventBus) {
     if (this._unsub) {
       try {
         this._unsub();
-      } catch {
-        // ignore
+      } catch (e) {
+        this.logger?.warn?.(`[SideEffectJournal] Failed to unsubscribe previous listener: ${e instanceof Error ? e.message : String(e)}`);
       }
       this._unsub = null;
     }
@@ -301,28 +415,31 @@ export class SideEffectJournal {
   }
 
   /**
+   * Dispose the journal and unsubscribe from events.
    * @returns {void}
    */
   dispose() {
     if (this._unsub) {
       try {
         this._unsub();
-      } catch {
-        // ignore
+      } catch (e) {
+        this.logger?.warn?.(`[SideEffectJournal] dispose unsubscribe failed: ${e instanceof Error ? e.message : String(e)}`);
       }
       this._unsub = null;
     }
   }
 
   /**
-   * @returns {number}
+   * Get the current journal cursor (entry count).
+   * @returns {number} The current cursor position
    */
   getCursor() {
     return this._entries.length;
   }
 
   /**
-   * @returns {SideEffectJournalEntry[]}
+   * List all journal entries (shallow copies).
+   * @returns {SideEffectJournalEntry[]} Array of journal entries
    */
   listEntries() {
     return this._entries.map((e) => ({ ...e }));
@@ -408,8 +525,9 @@ export class SideEffectJournal {
 
   /**
    * Replay WAL storage into memory (crash recovery).
-   * @param {string=} runId
-   * @returns {Promise<ReplayResult>}
+   * Validates file size and entry structure to prevent DoS.
+   * @param {string=} runId - The run identifier
+   * @returns {Promise<ReplayResult>} The replay result
    */
   async replayFromStorage(runId) {
     const id = toNonEmptyString(runId) || this.runId;
@@ -428,28 +546,56 @@ export class SideEffectJournal {
       const text = await readTextFromVfs(vfs, walPath);
       if (text === null) return { ok: false, reason: "missing_wal", cursor: this.getCursor(), recovered: 0 };
 
+      // Check WAL file size limit to prevent DoS
+      const textSize = new TextEncoder().encode(text).length;
+      if (textSize > MAX_WAL_FILE_SIZE) {
+        this.logger?.warn?.(`[SideEffectJournal] WAL file too large: ${textSize} bytes (max ${MAX_WAL_FILE_SIZE})`);
+        return { ok: false, reason: "wal_too_large", cursor: this.getCursor(), recovered: 0 };
+      }
+
       const nextEntries = [];
       const nextSeen = new Set();
       const lines = String(text).split(/\r?\n/);
+      let skippedLines = 0;
 
       for (const rawLine of lines) {
         const line = typeof rawLine === "string" ? rawLine.trim() : "";
         if (!line) continue;
+
+        // Check single line size limit
+        if (line.length > MAX_WAL_LINE_SIZE) {
+          this.logger?.warn?.(`[SideEffectJournal] WAL line too large: ${line.length} chars (max ${MAX_WAL_LINE_SIZE})`);
+          skippedLines += 1;
+          continue;
+        }
+
         let parsed = null;
         try {
           parsed = JSON.parse(line);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           this.logger?.warn?.(`[SideEffectJournal] WAL parse error: ${msg}`);
+          skippedLines += 1;
           continue;
         }
-        if (!isPlainObject(parsed)) continue;
+
+        // Validate entry structure
+        const validation = validateWalEntry(parsed);
+        if (!validation.valid) {
+          this.logger?.warn?.(`[SideEffectJournal] WAL entry validation failed: ${validation.reason}`);
+          skippedLines += 1;
+          continue;
+        }
 
         const entry = buildJournalEntry(parsed, nextEntries.length + 1);
         nextEntries.push(entry);
 
         const eventId = toNonEmptyString(entry.eventId);
         if (eventId) nextSeen.add(eventId);
+      }
+
+      if (skippedLines > 0) {
+        this.logger?.warn?.(`[SideEffectJournal] Skipped ${skippedLines} invalid WAL lines`);
       }
 
       this._entries = nextEntries;
@@ -488,7 +634,8 @@ export class SideEffectJournal {
         if (typeof text === "string") {
           before = text.split(/\r?\n/).filter((line) => line.trim()).length;
         }
-      } catch {
+      } catch (e) {
+        this.logger?.warn?.(`[SideEffectJournal] compact read existing WAL failed: ${e instanceof Error ? e.message : String(e)}`);
         before = 0;
       }
 
@@ -572,16 +719,18 @@ export class SideEffectJournal {
         failures,
         reason: toNonEmptyString(reason) || null,
       });
-    } catch {
-      // ignore
+    } catch (e) {
+      this.logger?.warn?.(`[SideEffectJournal] Failed to emit rolled_back event: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     return { ok: failures.length === 0, rolledBack, failures, cursor: this.getCursor() };
   }
 
   /**
-   * @param {SideEffectJournalEntry} entry
-   * @returns {Promise<{ ok: boolean, reason?: string, error?: string, skipped?: boolean }>}
+   * Append a journal entry to WAL storage (queued).
+   * @private
+   * @param {SideEffectJournalEntry} entry - The entry to append
+   * @returns {Promise<{ ok: boolean, reason?: string, error?: string, skipped?: boolean }>} Append result
    */
   async _appendToStorage(entry) {
     const task = this._persistQueue.then(() => this._appendToStorageNow(entry));
@@ -593,8 +742,10 @@ export class SideEffectJournal {
   }
 
   /**
-   * @param {SideEffectJournalEntry} entry
-   * @returns {Promise<{ ok: boolean, reason?: string, error?: string, skipped?: boolean }>}
+   * Append a journal entry to WAL storage immediately.
+   * @private
+   * @param {SideEffectJournalEntry} entry - The entry to append
+   * @returns {Promise<{ ok: boolean, reason?: string, error?: string, skipped?: boolean }>} Append result
    */
   async _appendToStorageNow(entry) {
     const runId = this.runId;
@@ -642,18 +793,27 @@ export class SideEffectJournal {
   }
 
   /**
-   * @param {string} runId
-   * @returns {string|null}
+   * Get WAL file path for a given runId with path traversal protection.
+   * @private
+   * @param {string} runId - The run identifier
+   * @returns {string|null} The WAL path or null if invalid
    */
   _getWalPath(runId) {
-    const id = toNonEmptyString(runId) || this.runId;
+    const rawId = toNonEmptyString(runId) || this.runId;
+    const id = sanitizeRunId(rawId);
+    if (!id) {
+      this.logger?.warn?.(`[SideEffectJournal] Invalid runId rejected: ${rawId}`);
+      return null;
+    }
     const dir = toNonEmptyString(this.walDir) || ".agents/wal";
-    if (!id || !dir) return null;
+    if (!dir) return null;
     return joinVfsPath(dir, `${id}.jsonl`);
   }
 
   /**
-   * @returns {Promise<boolean>}
+   * Ensure the WAL directory exists, creating it if necessary.
+   * @private
+   * @returns {Promise<boolean>} True if the directory is available
    */
   async _ensureWalDir() {
     const vfs = this.vfs;
@@ -679,8 +839,10 @@ export class SideEffectJournal {
   }
 
   /**
-   * @param {SideEffectJournalEvent} evt
-   * @param {{ allowDuplicates?: boolean } | undefined} [options]
+   * Handle a VFS write event and record it as a journal entry.
+   * @private
+   * @param {SideEffectJournalEvent} evt - The VFS write event
+   * @param {{ allowDuplicates?: boolean }} [options] - Options for handling duplicates
    * @returns {void}
    */
   _onVfsWriteEvent(evt, { allowDuplicates = false } = {}) {

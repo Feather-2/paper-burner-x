@@ -20,17 +20,34 @@ import {
 export { StageApiSpec };
 
 /**
+ * @typedef {Record<string, string|number|boolean|null|undefined|object>} EventPayload
+ * @typedef {object} ModelCallOptions
+ * @property {string=} model
+ * @property {string|Array<{role:string, content:string}>=} messages
+ * @property {number=} temperature
+ * @property {number=} maxTokens
+ * @property {AbortSignal=} signal
+ *
+ * @typedef {object} ModelCallResult
+ * @property {string=} content
+ * @property {object=} usage
+ *
+ * @typedef {object} ToolCallArgs
+ * @property {string=} [key: string]
+ */
+
+/**
  * @typedef {object} StageApi
  * @property {AbortSignal} signal
- * @property {(eventName:string, payload:any)=>void} emit
- * @property {{emit:(eventName:string, payload:any)=>void}|null=} eventBus
- * @property {{call:(opts:any)=>Promise<any>}|null=} modelRouter
- * @property {{chat:(opts:any)=>Promise<any>}|null=} aiApiService
- * @property {any=} localRetriever
- * @property {any=} externalSearchProvider
- * @property {any=} logger
+ * @property {(eventName:string, payload:EventPayload)=>void} emit
+ * @property {{emit:(eventName:string, payload:EventPayload)=>void}|null=} eventBus
+ * @property {{call:(opts:ModelCallOptions)=>Promise<ModelCallResult>}|null=} modelRouter
+ * @property {{chat:(opts:ModelCallOptions)=>Promise<ModelCallResult>}|null=} aiApiService
+ * @property {object=} localRetriever
+ * @property {object=} externalSearchProvider
+ * @property {object=} logger
  * @property {(() => void)} checkCancelled
- * @property {((toolName:string, args:any)=>Promise<any>)|null=} runTool
+ * @property {((toolName:string, args:Record<string, unknown>)=>Promise<unknown>)|null=} runTool
  */
 
 /**

@@ -164,6 +164,11 @@ function analyzeSlideIntent(slideIntent, index, totalSlides) {
 
 /**
  * 为整个 deck 生成规划
+ *
+ * @param {Array<{ pageType?: string, title?: string, keyPoints?: string[], slideIntentId?: string }>} slideIntents - 页面意图列表
+ * @param {{ theme?: string, tokens?: any }} [designSystem] - 设计系统配置
+ * @param {{ [key: string]: any }} [options={}] - 附加选项
+ * @returns {{ plans: Array<{ slideIntentId: string, slideIndex: number, pageType: string, title: string, visualFocus: string, layoutHint: string, keyMessage: string, visualIntent: string, sellingPoint: string, contentDensity: string, suggestedEmphasis: string }>, summary: string, metadata?: { totalSlides: number, pageTypes: string[], densityDistribution: { high: number, medium: number, low: number }, theme: string } }}
  */
 export function planDeck(slideIntents, designSystem, options = {}) {
   if (!Array.isArray(slideIntents) || slideIntents.length === 0) {
@@ -199,6 +204,10 @@ export function planDeck(slideIntents, designSystem, options = {}) {
 
 /**
  * 应用用户修改到规划
+ *
+ * @param {Array<{ slideIntentId: string, [key: string]: any }>} plans - 当前规划列表
+ * @param {Array<{ slideIntentId?: string, slideIndex?: number, visualFocus?: string, layoutHint?: string, keyMessage?: string, visualIntent?: string, sellingPoint?: string }>} [edits] - 用户编辑列表
+ * @returns {Array<{ slideIntentId: string, userOverride?: boolean, [key: string]: any }>} 合并后的规划
  */
 export function applyUserEdits(plans, edits) {
   if (!Array.isArray(edits)) return plans;
@@ -231,6 +240,9 @@ export function applyUserEdits(plans, edits) {
 
 /**
  * 格式化规划为用户可读文本（表格形式）
+ *
+ * @param {Array<{ pageType: string, title?: string, layoutHint: string, visualFocus: string }>} plans - 规划列表
+ * @returns {string} 格式化后的表格文本
  */
 export function formatPlanForReview(plans) {
   if (!Array.isArray(plans) || plans.length === 0) {
@@ -257,6 +269,9 @@ export function formatPlanForReview(plans) {
 
 /**
  * 格式化规划为对话友好格式（用于用户交互）
+ *
+ * @param {Array<{ slideIntentId: string, title?: string, pageType: string, layoutHint: string, visualIntent: string, sellingPoint: string }>} plans - 规划列表
+ * @returns {{ text: string, cards: Array<{ slideNo: number, slideIntentId: string, title: string, pageType: string, layoutHint: string, visualIntent: string, sellingPoint: string, editable: string[] }>, instructions?: string[] }}
  */
 export function formatPlanForDialog(plans) {
   if (!Array.isArray(plans) || plans.length === 0) {
@@ -301,6 +316,10 @@ export function formatPlanForDialog(plans) {
 /**
  * 解析用户对规划的反馈（简单模式）
  * 复杂的自然语言理解交给 AI
+ *
+ * @param {string} feedback - 用户反馈文本
+ * @param {Array<{ slideIntentId?: string }>} plans - 当前规划列表
+ * @returns {Array<{ slideIndex: number, layoutHint?: string }>} 解析出的编辑列表
  */
 export function parseSimpleFeedback(feedback, plans) {
   if (!feedback || typeof feedback !== "string") return [];
@@ -382,8 +401,30 @@ ${feedback}
 
   try {
     const result = await llmCall(prompt);
-    const parsed = JSON.parse(result.replace(/```json?\n?|\n?```/g, "").trim());
-    return Array.isArray(parsed) ? parsed : [];
+    // 限制解析长度，防止资源消耗攻击
+    const trimmed = String(result || "").slice(0, 50000).replace(/```json?\n?|\n?```/g, "").trim();
+    if (!trimmed) return parseSimpleFeedback(feedback, plans);
+
+    const parsed = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) return [];
+
+    // 校验每个元素结构，过滤非法项
+    const MAX_EDITS = 100;
+    const validEdits = [];
+    for (const item of parsed.slice(0, MAX_EDITS)) {
+      if (typeof item !== "object" || item === null) continue;
+      const slideIndex = Number(item.slideIndex);
+      if (!Number.isInteger(slideIndex) || slideIndex < 0 || slideIndex >= plans.length) continue;
+
+      const edit = { slideIndex };
+      if (typeof item.layoutHint === "string") edit.layoutHint = item.layoutHint.slice(0, 50);
+      if (typeof item.visualIntent === "string") edit.visualIntent = item.visualIntent.slice(0, 200);
+      if (typeof item.sellingPoint === "string") edit.sellingPoint = item.sellingPoint.slice(0, 200);
+
+      // 至少有一个有效字段才保留
+      if (Object.keys(edit).length > 1) validEdits.push(edit);
+    }
+    return validEdits;
   } catch {
     return parseSimpleFeedback(feedback, plans);
   }

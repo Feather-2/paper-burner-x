@@ -74,17 +74,21 @@ function normalizeBudgetAction(v) {
   return DEFAULT_BUDGET_CONFIG.action;
 }
 
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 function normalizeModelPrices(raw) {
   const prices = isPlainObject(raw) ? raw : {};
-  const out = {};
+  const out = Object.create(null);
 
   for (const [modelId, entry] of Object.entries(prices)) {
-    if (!toNonEmptyString(modelId)) continue;
+    const key = toNonEmptyString(modelId);
+    if (!key) continue;
+    if (DANGEROUS_KEYS.has(key)) continue;
     if (!isPlainObject(entry)) continue;
     const input = safeNumber(entry.input ?? entry.inputPer1K ?? entry.inputUsdPer1K ?? entry.inputUSDPer1K);
     const output = safeNumber(entry.output ?? entry.outputPer1K ?? entry.outputUsdPer1K ?? entry.outputUSDPer1K);
     if (input === null && output === null) continue;
-    out[String(modelId)] = {
+    out[key] = {
       ...(input !== null ? { input: Math.max(0, input) } : {}),
       ...(output !== null ? { output: Math.max(0, output) } : {}),
     };

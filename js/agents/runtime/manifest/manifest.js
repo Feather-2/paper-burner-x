@@ -11,6 +11,23 @@
 export const MANIFEST_VERSION = "1.0.0";
 
 /**
+ * Manifest 校验错误
+ * @extends Error
+ */
+export class ManifestValidationError extends Error {
+  /**
+   * @param {string} message - 错误消息
+   * @param {string} [field] - 出错字段名
+   */
+  constructor(message, field) {
+    super(message);
+    this.name = "ManifestValidationError";
+    /** @type {string|undefined} 出错字段 */
+    this.field = field;
+  }
+}
+
+/**
  * 权限类型
  */
 export const PermissionType = Object.freeze({
@@ -60,8 +77,19 @@ export const PluginType = Object.freeze({
 
 /**
  * 创建 Tool Manifest
- * @param {Object} options
- * @returns {ManifestSchema}
+ * @param {Object} options - 工具配置选项
+ * @param {string} options.name - 工具名称
+ * @param {string} [options.version="1.0.0"] - 版本号 (semver)
+ * @param {string} options.description - 工具描述
+ * @param {Object} [options.parameters] - 参数定义（简化格式或 JSON Schema）
+ * @param {Object} [options.output] - 输出 JSON Schema
+ * @param {PermissionValue[]} [options.permissions=[]] - 所需权限
+ * @param {string[]} [options.keywords=[]] - 关键词
+ * @param {number} [options.priority] - 优先级
+ * @param {number} [options.layer] - 层级
+ * @param {Object} [options.activation] - 激活条件
+ * @returns {ManifestSchema} 创建的 Tool Manifest
+ * @throws {ManifestValidationError} 缺少必需字段时抛出
  */
 export function createToolManifest(options) {
   const {
@@ -77,8 +105,8 @@ export function createToolManifest(options) {
     activation,
   } = options;
 
-  if (!name) throw new Error("Manifest requires name");
-  if (!description) throw new Error("Manifest requires description");
+  if (!name) throw new ManifestValidationError("Manifest requires name", "name");
+  if (!description) throw new ManifestValidationError("Manifest requires description", "description");
 
   return {
     manifestVersion: MANIFEST_VERSION,
@@ -100,8 +128,20 @@ export function createToolManifest(options) {
 
 /**
  * 创建 Skill Manifest
- * @param {Object} options
- * @returns {ManifestSchema}
+ * @param {Object} options - 技能配置选项
+ * @param {string} options.name - 技能名称
+ * @param {string} [options.version="1.0.0"] - 版本号 (semver)
+ * @param {string} options.description - 技能描述
+ * @param {string[]} [options.keywords=[]] - 关键词
+ * @param {string[]} [options.keywordsAll=[]] - 必须全部匹配的关键词
+ * @param {string} [options.allowedTools] - 允许调用的工具
+ * @param {PermissionValue[]} [options.permissions=[]] - 所需权限
+ * @param {number} [options.priority] - 优先级
+ * @param {string} [options.scope] - 作用域 (repo/user/system)
+ * @param {string[]} [options.tags] - 标签
+ * @param {Object} [options.traits] - 特征
+ * @returns {ManifestSchema} 创建的 Skill Manifest
+ * @throws {ManifestValidationError} 缺少必需字段时抛出
  */
 export function createSkillManifest(options) {
   const {
@@ -118,8 +158,8 @@ export function createSkillManifest(options) {
     traits,
   } = options;
 
-  if (!name) throw new Error("Manifest requires name");
-  if (!description) throw new Error("Manifest requires description");
+  if (!name) throw new ManifestValidationError("Manifest requires name", "name");
+  if (!description) throw new ManifestValidationError("Manifest requires description", "description");
 
   return {
     manifestVersion: MANIFEST_VERSION,
@@ -142,8 +182,17 @@ export function createSkillManifest(options) {
 
 /**
  * 创建 Stage Manifest
- * @param {Object} options
- * @returns {ManifestSchema}
+ * @param {Object} options - 阶段配置选项
+ * @param {string} options.name - 阶段名称
+ * @param {string} [options.version="1.0.0"] - 版本号 (semver)
+ * @param {string} options.description - 阶段描述
+ * @param {PermissionValue[]} [options.permissions=[]] - 所需权限
+ * @param {Object} [options.dependencies={}] - 依赖声明
+ * @param {Object} [options.config={}] - 配置选项
+ * @param {Object} [options.input] - 输入 JSON Schema
+ * @param {Object} [options.output] - 输出 JSON Schema
+ * @returns {ManifestSchema} 创建的 Stage Manifest
+ * @throws {ManifestValidationError} 缺少必需字段时抛出
  */
 export function createStageManifest(options) {
   const {
@@ -157,8 +206,8 @@ export function createStageManifest(options) {
     output,
   } = options;
 
-  if (!name) throw new Error("Manifest requires name");
-  if (!description) throw new Error("Manifest requires description");
+  if (!name) throw new ManifestValidationError("Manifest requires name", "name");
+  if (!description) throw new ManifestValidationError("Manifest requires description", "description");
 
   return {
     manifestVersion: MANIFEST_VERSION,
@@ -176,8 +225,15 @@ export function createStageManifest(options) {
 
 /**
  * 创建 Middleware Manifest
- * @param {Object} options
- * @returns {ManifestSchema}
+ * @param {Object} options - 中间件配置选项
+ * @param {string} options.name - 中间件名称
+ * @param {string} [options.version="1.0.0"] - 版本号 (semver)
+ * @param {string} options.description - 中间件描述
+ * @param {PermissionValue[]} [options.permissions=[]] - 所需权限
+ * @param {number} [options.order=0] - 执行顺序
+ * @param {string[]} [options.phases=["before","after"]] - 执行阶段
+ * @returns {ManifestSchema} 创建的 Middleware Manifest
+ * @throws {ManifestValidationError} 缺少必需字段时抛出
  */
 export function createMiddlewareManifest(options) {
   const {
@@ -189,8 +245,8 @@ export function createMiddlewareManifest(options) {
     phases = ["before", "after"],
   } = options;
 
-  if (!name) throw new Error("Manifest requires name");
-  if (!description) throw new Error("Manifest requires description");
+  if (!name) throw new ManifestValidationError("Manifest requires name", "name");
+  if (!description) throw new ManifestValidationError("Manifest requires description", "description");
 
   return {
     manifestVersion: MANIFEST_VERSION,
@@ -206,22 +262,40 @@ export function createMiddlewareManifest(options) {
   };
 }
 
+/** @private 危险键黑名单，防止原型污染 */
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 /**
  * 将简化参数定义转换为 JSON Schema
+ * @private
+ * @param {Object|null|undefined} parameters - 参数定义（简化格式或 JSON Schema）
+ * @returns {Object|null} 归一化后的 JSON Schema，或 null
  */
 function normalizeParameterSchema(parameters) {
   if (!parameters) return null;
 
-  // 已经是 JSON Schema 格式
+  // 已经是 JSON Schema 格式 - 校验基本结构
   if (parameters.type === "object" || parameters.properties) {
+    // 清洗 properties 中的危险键
+    if (parameters.properties && typeof parameters.properties === "object") {
+      for (const key of Object.keys(parameters.properties)) {
+        if (DANGEROUS_KEYS.has(key)) {
+          delete parameters.properties[key];
+        }
+      }
+    }
     return parameters;
   }
 
-  // 简化格式转换
-  const properties = {};
+  // 简化格式转换 - 使用 null 原型对象防止原型污染
+  const properties = Object.create(null);
   const required = [];
 
   for (const [key, value] of Object.entries(parameters)) {
+    // 拒绝危险键
+    if (DANGEROUS_KEYS.has(key)) {
+      continue;
+    }
     if (typeof value === "string") {
       const isRequired = value.includes("必需") || value.includes("required");
       properties[key] = {
@@ -229,7 +303,7 @@ function normalizeParameterSchema(parameters) {
         description: value,
       };
       if (isRequired) required.push(key);
-    } else if (typeof value === "object") {
+    } else if (typeof value === "object" && value !== null) {
       properties[key] = value;
       if (value.required) required.push(key);
     }
@@ -237,7 +311,7 @@ function normalizeParameterSchema(parameters) {
 
   return {
     type: "object",
-    properties,
+    properties: { ...properties }, // 转回普通对象以便序列化
     required: required.length > 0 ? required : undefined,
   };
 }
@@ -466,6 +540,7 @@ export class ManifestRegistry {
 
 export default {
   MANIFEST_VERSION,
+  ManifestValidationError,
   PermissionType,
   PluginType,
   createToolManifest,

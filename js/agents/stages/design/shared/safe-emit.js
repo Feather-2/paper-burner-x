@@ -1,5 +1,9 @@
 /**
- * @typedef {(name: string, event: { actor: string, status: string, payload: any }) => void} EmitFn
+ * @typedef {Record<string, unknown>} EventPayload
+ */
+
+/**
+ * @typedef {(name: string, event: { actor: string, status: string, payload: EventPayload }) => void} EmitFn
  */
 
 /**
@@ -8,7 +12,7 @@
  * @param {EmitFn|undefined|null} emit
  * @param {string} name
  * @param {string} status
- * @param {any} payload
+ * @param {EventPayload} payload
  * @returns {void}
  */
 export function safeEmit(emit, name, status, payload) {

@@ -24,7 +24,6 @@
 | `includeIds/excludeIds` | 路由选择的白/黑名单过滤 |
 | `auto-register` | `recordResult` 在未知端点时自动创建统计项 |
 | `onRouteDecision` | 路由决策回调，用于日志/遥测 |
-| `latencyThresholdMs` | 预留阈值配置，当前不参与路由选择 |
 
 ## 常见任务
 

@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   MANIFEST_VERSION,
+  ManifestValidationError,
   PermissionType,
   PluginType,
   createToolManifest,
@@ -41,15 +42,11 @@ describe("manifest", () => {
     });
 
     it("should throw on missing name", () => {
-      expect(() => {
-        createToolManifest({ description: "test" }).toThrow();
-      }, /requires name/);
+      expect(() => createToolManifest({ description: "test" })).toThrow(/requires name/);
     });
 
     it("should throw on missing description", () => {
-      expect(() => {
-        createToolManifest({ name: "test" }).toThrow();
-      }, /requires description/);
+      expect(() => createToolManifest({ name: "test" })).toThrow(/requires description/);
     });
   });
 
@@ -235,9 +232,7 @@ describe("manifest", () => {
     });
 
     it("should throw on invalid manifest", () => {
-      expect(() => {
-        registry.register({ name: "test" }).toThrow(); // Missing type and description
-      }, /Invalid manifest/);
+      expect(() => registry.register({ name: "test" })).toThrow(/Invalid manifest/);
     });
 
     it("should get by type", () => {

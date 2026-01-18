@@ -31,6 +31,15 @@ export const definition = {
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_SUBAGENT_TYPE = "researcher";
 
+// 原型污染防护：禁止的 key
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+// 输入边界常量
+const MAX_FACT_ID_LENGTH = 256;
+const MAX_CONTRADICTION_LENGTH = 2000;
+const MAX_SOURCE_IDS_COUNT = 50;
+const MAX_SOURCE_ID_LENGTH = 256;
+
 function normalizeStringArray(value) {
   const arr = Array.isArray(value) ? value : value ? [value] : [];
   const out = [];
@@ -70,6 +79,10 @@ function getOrInitCrossVerifyMap(state) {
 }
 
 function upsertCrossVerifyEntry(state, factId, patch) {
+  // 原型污染防护：拒绝危险 key
+  if (FORBIDDEN_KEYS.has(factId)) {
+    return null;
+  }
   const map = getOrInitCrossVerifyMap(state);
   const existing = isPlainObject(map[factId]) ? map[factId] : { factId };
   map[factId] = { ...existing, ...patch };
@@ -292,17 +305,34 @@ async function finalizeVerification({ factId, contradiction, sourceIds, evidence
 export async function handler(args, context) {
   const { state, emit, discoveryManager, stageApi, sharedContext } = context;
 
-  const factId = toNonEmptyString(args?.factId);
-  const contradiction = toNonEmptyString(args?.contradiction);
+  let factId = toNonEmptyString(args?.factId);
+  let contradiction = toNonEmptyString(args?.contradiction);
   if (!factId || !contradiction) {
     return { success: false, error: "factId and contradiction are required" };
+  }
+
+  // 输入边界校验：防止过长输入造成性能/滥用问题
+  if (factId.length > MAX_FACT_ID_LENGTH) {
+    factId = factId.slice(0, MAX_FACT_ID_LENGTH);
+  }
+  if (contradiction.length > MAX_CONTRADICTION_LENGTH) {
+    contradiction = contradiction.slice(0, MAX_CONTRADICTION_LENGTH);
+  }
+
+  // 原型污染防护：拒绝危险 factId
+  if (FORBIDDEN_KEYS.has(factId)) {
+    return { success: false, error: "Invalid factId: reserved key" };
   }
 
   const force = toBoolean(args?.force);
   const isAsync = args?.async === undefined ? true : toBoolean(args?.async);
   const timeoutMs = normalizeTimeoutMs(args?.timeout);
 
-  const requestedSourceIds = normalizeStringArray(args?.sourceIds ?? args?.sources ?? args?.sourceId);
+  let requestedSourceIds = normalizeStringArray(args?.sourceIds ?? args?.sources ?? args?.sourceId);
+  // sourceIds 边界校验：限制数量和单项长度
+  requestedSourceIds = requestedSourceIds
+    .slice(0, MAX_SOURCE_IDS_COUNT)
+    .map((id) => (id.length > MAX_SOURCE_ID_LENGTH ? id.slice(0, MAX_SOURCE_ID_LENGTH) : id));
 
   const subagentType =
     toNonEmptyString(args?.subagent_type) ||
@@ -391,49 +421,52 @@ export async function handler(args, context) {
     sharedContext.addToIndex?.(`cross_verify:${factId}`, pointerKey);
   }
 
-  // 5) 注册完成回调：任务完成后自动回写结果
-  const running = getTaskStatus(taskId);
-  const promise = running?.promise;
-  if (promise && typeof promise.then === "function") {
-    promise
-      .then((taskResult) =>
-        finalizeVerification({
-          factId,
-          contradiction,
-          sourceIds: taskSourceIds,
-          evidenceIds,
-          taskId,
-          taskResult,
-          context: { state, emit, discoveryManager, sharedContext },
-        })
-      )
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        discoveryManager?.upsertDiscovery?.(factId, { status: DiscoveryStatus.BLOCKED, reason: message });
-        upsertCrossVerifyEntry(state, factId, { status: "failed", error: message, completedAt: Date.now() });
-        emit?.("deepsearch.verify.failed", { factId, taskId, error: message });
-      });
-  }
-  // 竞态兜底：如果任务极快完成，runningTasks 可能已被压缩记录替换，导致拿不到 promise
-  if (!promise && running && running.status && running.status !== "running") {
-    Promise.resolve()
-      .then(() =>
-        finalizeVerification({
-          factId,
-          contradiction,
-          sourceIds: taskSourceIds,
-          evidenceIds,
-          taskId,
-          taskResult: sharedContext?.getDetail?.(taskId) || running,
-          context: { state, emit, discoveryManager, sharedContext },
-        })
-      )
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        discoveryManager?.upsertDiscovery?.(factId, { status: DiscoveryStatus.BLOCKED, reason: message });
-        upsertCrossVerifyEntry(state, factId, { status: "failed", error: message, completedAt: Date.now() });
-        emit?.("deepsearch.verify.failed", { factId, taskId, error: message });
-      });
+  // 5) 注册完成回调：任务完成后自动回写结果（仅异步模式）
+  // 同步模式下跳过回调注册，避免重复 finalize
+  if (isAsync) {
+    const running = getTaskStatus(taskId);
+    const promise = running?.promise;
+    if (promise && typeof promise.then === "function") {
+      promise
+        .then((taskResult) =>
+          finalizeVerification({
+            factId,
+            contradiction,
+            sourceIds: taskSourceIds,
+            evidenceIds,
+            taskId,
+            taskResult,
+            context: { state, emit, discoveryManager, sharedContext },
+          })
+        )
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          discoveryManager?.upsertDiscovery?.(factId, { status: DiscoveryStatus.BLOCKED, reason: message });
+          upsertCrossVerifyEntry(state, factId, { status: "failed", error: message, completedAt: Date.now() });
+          emit?.("deepsearch.verify.failed", { factId, taskId, error: message });
+        });
+    }
+    // 竞态兜底：如果任务极快完成，runningTasks 可能已被压缩记录替换，导致拿不到 promise
+    if (!promise && running && running.status && running.status !== "running") {
+      Promise.resolve()
+        .then(() =>
+          finalizeVerification({
+            factId,
+            contradiction,
+            sourceIds: taskSourceIds,
+            evidenceIds,
+            taskId,
+            taskResult: sharedContext?.getDetail?.(taskId) || running,
+            context: { state, emit, discoveryManager, sharedContext },
+          })
+        )
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          discoveryManager?.upsertDiscovery?.(factId, { status: DiscoveryStatus.BLOCKED, reason: message });
+          upsertCrossVerifyEntry(state, factId, { status: "failed", error: message, completedAt: Date.now() });
+          emit?.("deepsearch.verify.failed", { factId, taskId, error: message });
+        });
+    }
   }
 
   if (!isAsync) {

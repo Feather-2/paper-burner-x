@@ -41,6 +41,21 @@ export const EDITOR_CONFIG = {
 import { isPlainObject } from "../shared/design-utils.js";
 
 /**
+ * HTML 转义，防止 XSS
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+  if (typeof str !== "string") return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
  * DeckEditor 类
  */
 export class DeckEditor {
@@ -231,6 +246,14 @@ export class DeckEditor {
    * @returns {ToolResult}
    */
   replaceSlideHtml(slideIndex, newHtml) {
+    // 输入验证：类型和长度限制
+    if (typeof newHtml !== "string") {
+      return { success: false, error: "newHtml must be a string" };
+    }
+    if (newHtml.length > 500000) {
+      return { success: false, error: "newHtml exceeds max length (500KB)" };
+    }
+
     const sections = parseSections(this._deckPackage.deckHtmlDsl);
     if (slideIndex < 0 || slideIndex >= sections.length) {
       return { success: false, error: `Invalid slideIndex: ${slideIndex}` };
@@ -335,10 +358,11 @@ export class DeckEditor {
       return { success: false, error: `Element not found: ${elementId}` };
     }
 
-    // 简单的文本替换
+    // 简单的文本替换（转义防 XSS）
     if (changes.text !== undefined) {
+      const safeText = escapeHtml(String(changes.text).slice(0, 10000));
       const regex = new RegExp(`(data-el="${elementId}"[^>]*>)[^<]*(<)`, "g");
-      sectionHtml = sectionHtml.replace(regex, `$1${changes.text}$2`);
+      sectionHtml = sectionHtml.replace(regex, `$1${safeText}$2`);
     }
 
     if (changes.style !== undefined) {
@@ -361,12 +385,21 @@ export class DeckEditor {
       return { success: false, error: `Invalid slideIndex: ${slideIndex}` };
     }
 
+    // HTML 替换：限制长度，仅接受字符串
     if (changes.html) {
+      if (typeof changes.html !== "string") {
+        return { success: false, error: "changes.html must be a string" };
+      }
+      if (changes.html.length > 500000) {
+        return { success: false, error: "changes.html exceeds max length (500KB)" };
+      }
       sections[slideIndex] = changes.html;
     }
 
+    // 布局替换：白名单验证
     if (changes.layout) {
-      sections[slideIndex] = sections[slideIndex].replace(/data-layout="[^"]*"/, `data-layout="${changes.layout}"`);
+      const safeLayout = String(changes.layout).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 50);
+      sections[slideIndex] = sections[slideIndex].replace(/data-layout="[^"]*"/, `data-layout="${safeLayout}"`);
     }
 
     this._deckPackage.deckHtmlDsl = joinSections(sections);

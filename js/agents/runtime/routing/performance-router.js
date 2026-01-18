@@ -16,7 +16,6 @@ const logger = createLogger("runtime/routing/performance-router");
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_EWMA_ALPHA = 0.3; // EWMA 衰减因子
-const DEFAULT_LATENCY_THRESHOLD_MS = 1000; // 延迟阈值
 const DEFAULT_ERROR_PENALTY_MS = 5000; // 错误惩罚延迟
 
 /**
@@ -185,16 +184,13 @@ class EndpointStats {
 export class PerformanceRouter {
   /**
    * @param {object} options
-   * @param {number} [options.latencyThresholdMs=1000] - 延迟阈值
    * @param {boolean} [options.preferFastTier=true] - 优先快速层
    * @param {function} [options.onRouteDecision] - 路由决策回调
    */
   constructor({
-    latencyThresholdMs = DEFAULT_LATENCY_THRESHOLD_MS,
     preferFastTier = true,
     onRouteDecision,
   } = {}) {
-    this._latencyThreshold = latencyThresholdMs;
     this._preferFastTier = preferFastTier;
     this._onRouteDecision = typeof onRouteDecision === "function" ? onRouteDecision : null;
 
@@ -204,14 +200,21 @@ export class PerformanceRouter {
 
   /**
    * 注册端点
-   * @param {string} endpointId
-   * @param {object} options
+   * @param {string} endpointId - 端点标识符
+   * @param {object} [options] - 配置选项
+   * @param {ModelTierType} [options.tier=ModelTier.POWER] - 端点层级
+   * @param {number} [options.weight=1.0] - 端点权重 (0-10)
+   * @returns {this} 链式调用
    */
   registerEndpoint(endpointId, { tier = ModelTier.POWER, weight = 1.0 } = {}) {
     if (!this._endpoints.has(endpointId)) {
       const stats = new EndpointStats(endpointId);
-      stats.tier = tier;
-      stats.weight = weight;
+      // Validate tier - must be a valid ModelTier value
+      stats.tier = Object.values(ModelTier).includes(tier) ? tier : ModelTier.POWER;
+      // Validate weight - must be finite number, clamped to [0, 10]
+      stats.weight = typeof weight === "number" && Number.isFinite(weight)
+        ? Math.max(0, Math.min(10, weight))
+        : 1.0;
       this._endpoints.set(endpointId, stats);
     }
     return this;
@@ -219,10 +222,19 @@ export class PerformanceRouter {
 
   /**
    * 记录请求结果
-   * @param {string} endpointId
-   * @param {object} result
+   * @param {string} endpointId - 端点标识符
+   * @param {object} [result] - 请求结果
+   * @param {boolean} [result.success] - 是否成功
+   * @param {number} [result.latencyMs] - 延迟毫秒数 (需 >= 0)
+   * @param {string} [result.error] - 错误信息
+   * @returns {void}
    */
   recordResult(endpointId, { success, latencyMs, error } = {}) {
+    // Validate endpointId
+    if (typeof endpointId !== "string" || !endpointId) {
+      return;
+    }
+
     let stats = this._endpoints.get(endpointId);
     if (!stats) {
       stats = new EndpointStats(endpointId);
@@ -230,7 +242,11 @@ export class PerformanceRouter {
     }
 
     if (success) {
-      stats.recordSuccess(latencyMs || 0);
+      // Validate latencyMs - must be finite non-negative number
+      const validLatency = typeof latencyMs === "number" && Number.isFinite(latencyMs) && latencyMs >= 0
+        ? latencyMs
+        : 0;
+      stats.recordSuccess(validLatency);
     } else {
       stats.recordError(error || "Unknown error");
     }
@@ -238,8 +254,11 @@ export class PerformanceRouter {
 
   /**
    * 选择最佳端点
-   * @param {object} options
-   * @returns {{ endpointId: string, reason: string } | null}
+   * @param {object} [options] - 选择选项
+   * @param {TaskComplexityType} [options.complexity=TaskComplexity.MODERATE] - 任务复杂度
+   * @param {string[]} [options.excludeIds=[]] - 排除的端点 ID 列表
+   * @param {string[] | null} [options.includeIds=null] - 仅包含的端点 ID 列表
+   * @returns {{ endpointId: string, reason: string } | null} 选择结果，无可用端点返回 null
    */
   selectEndpoint({ complexity = TaskComplexity.MODERATE, excludeIds = [], includeIds = null } = {}) {
     const excluded = new Set(Array.isArray(excludeIds) ? excludeIds : []);
@@ -285,7 +304,8 @@ export class PerformanceRouter {
 
   /**
    * 获取端点统计
-   * @param {string} endpointId
+   * @param {string} endpointId - 端点标识符
+   * @returns {object | null} 端点统计对象，不存在返回 null
    */
   getEndpointStats(endpointId) {
     const stats = this._endpoints.get(endpointId);
@@ -294,9 +314,10 @@ export class PerformanceRouter {
 
   /**
    * 获取所有端点统计
+   * @returns {Object<string, object>} 以端点 ID 为键的统计对象映射
    */
   getAllStats() {
-    const result = {};
+    const result = Object.create(null);
     for (const [id, stats] of this._endpoints) {
       result[id] = stats.toJSON();
     }
@@ -305,6 +326,7 @@ export class PerformanceRouter {
 
   /**
    * 获取按评分排序的端点列表
+   * @returns {object[]} 按评分降序排列的端点统计数组
    */
   getRankedEndpoints() {
     return [...this._endpoints.values()]
@@ -314,8 +336,9 @@ export class PerformanceRouter {
 
   /**
    * 更新端点权重
-   * @param {string} endpointId
-   * @param {number} weight
+   * @param {string} endpointId - 端点标识符
+   * @param {number} weight - 新权重 (会被 clamp 到 [0, 10])
+   * @returns {void}
    */
   setWeight(endpointId, weight) {
     const stats = this._endpoints.get(endpointId);
@@ -326,8 +349,9 @@ export class PerformanceRouter {
 
   /**
    * 更新端点层级
-   * @param {string} endpointId
-   * @param {ModelTierType} tier
+   * @param {string} endpointId - 端点标识符
+   * @param {ModelTierType} tier - 新层级
+   * @returns {void}
    */
   setTier(endpointId, tier) {
     const stats = this._endpoints.get(endpointId);
@@ -338,7 +362,8 @@ export class PerformanceRouter {
 
   /**
    * 移除端点
-   * @param {string} endpointId
+   * @param {string} endpointId - 端点标识符
+   * @returns {void}
    */
   removeEndpoint(endpointId) {
     this._endpoints.delete(endpointId);
@@ -346,6 +371,7 @@ export class PerformanceRouter {
 
   /**
    * 重置所有统计
+   * @returns {void}
    */
   resetStats() {
     for (const stats of this._endpoints.values()) {
@@ -364,8 +390,11 @@ export class PerformanceRouter {
 
 /**
  * 估算任务复杂度
- * @param {object} task
- * @returns {string}
+ * @param {object} [task] - 任务对象
+ * @param {string} [task.prompt] - 提示词
+ * @param {string} [task.content] - 内容
+ * @param {string} [task.message] - 消息
+ * @returns {TaskComplexityType} 任务复杂度
  */
 export function estimateComplexity(task) {
   if (!task) return TaskComplexity.SIMPLE;

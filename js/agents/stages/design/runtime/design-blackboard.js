@@ -24,6 +24,9 @@ import {
 
 const DESIGN_PREFIX = "design.";
 
+/** 危险 key，用于防止原型污染 */
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 function cloneValue(value) {
   if (value === null || value === undefined) return value;
   try {
@@ -347,7 +350,8 @@ export class DesignBlackboard extends DisposableBase {
   }
 
   getAllSummaries() {
-    const out = {};
+    /** @type {Record<string, string>} */
+    const out = Object.create(null);
 
     // 合并 StateEngine 和 MemoryStore 和本地
     if (this._stateEngine) {
@@ -356,7 +360,10 @@ export class DesignBlackboard extends DisposableBase {
         const stageSummaries = snap?.L2?.stageSummaries;
         if (isPlainObject(stageSummaries)) {
           for (const [k, v] of Object.entries(stageSummaries)) {
-            if (String(k).startsWith(DESIGN_PREFIX)) out[String(k).slice(DESIGN_PREFIX.length)] = v;
+            const key = String(k).slice(DESIGN_PREFIX.length);
+            if (String(k).startsWith(DESIGN_PREFIX) && !DANGEROUS_KEYS.has(key)) {
+              out[key] = v;
+            }
           }
         }
       } catch { /* fallback */ }
@@ -365,15 +372,15 @@ export class DesignBlackboard extends DisposableBase {
     // 合并 MemoryStore 和本地
     if (this._memoryStore?.L2?.stageSummaries) {
       for (const [k, v] of Object.entries(this._memoryStore.L2.stageSummaries)) {
-        if (String(k).startsWith(DESIGN_PREFIX)) {
-          const key = String(k).slice(DESIGN_PREFIX.length);
+        const key = String(k).slice(DESIGN_PREFIX.length);
+        if (String(k).startsWith(DESIGN_PREFIX) && !DANGEROUS_KEYS.has(key)) {
           if (!Object.prototype.hasOwnProperty.call(out, key)) out[key] = v;
         }
       }
     }
 
     for (const [k, v] of this._summaries) {
-      if (!out[k]) out[k] = v;
+      if (!DANGEROUS_KEYS.has(k) && !out[k]) out[k] = v;
     }
 
     return out;

@@ -115,9 +115,14 @@ export function createTodo(params = {}) {
   const todoId = toNonEmptyString(raw.todoId) || toNonEmptyString(raw.id) || `todo_${Date.now().toString(36)}`;
   const text = toNonEmptyString(raw.text) || toNonEmptyString(raw.content) || toNonEmptyString(raw.title) || "";
 
-  // 如果 text 为空，记录警告
+  // 如果 text 为空，记录警告（仅记录元数据，不记录原始输入）
   if (!text) {
-    logger.warn(`[createTodo] Creating todo ${todoId} with empty text:`, { raw: JSON.stringify(raw).slice(0, 200) });
+    logger.warn(`[createTodo] Creating todo ${todoId} with empty text`, {
+      hasContent: "content" in raw,
+      hasTitle: "title" in raw,
+      hasText: "text" in raw,
+      keys: Object.keys(raw).slice(0, 10),
+    });
   }
 
   const priority = normalizePriority(raw.priority);
@@ -231,7 +236,7 @@ export function transitionTodoStatus(todo, newStatus, emit) {
   if (!Array.isArray(todo.history)) todo.history = [];
   todo.history.push({ from, to, ts: now });
 
-  emit?.("deepsearch.todo.status.changed", {
+  emit?.("deepsearch:todo.status.changed", {
     todoId: toNonEmptyString(todo.todoId) || "todo_unknown",
     from,
     to,

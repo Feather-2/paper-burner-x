@@ -12,6 +12,11 @@ export { isPlainObject, toNonEmptyString };
 
 /**
  * Safely clamps a number between min and max.
+ * @param {unknown} v - Value to clamp.
+ * @param {number} min - Minimum bound.
+ * @param {number} max - Maximum bound.
+ * @param {number} [fallback=min] - Fallback value if v is not finite.
+ * @returns {number} Clamped value or fallback.
  */
 export function clamp(v, min, max, fallback = min) {
     const n = Number(v);
@@ -21,6 +26,7 @@ export function clamp(v, min, max, fallback = min) {
 
 /**
  * Returns current timestamp in milliseconds.
+ * @returns {number} Current Unix timestamp in ms.
  */
 export function nowMs() {
     return Date.now();
@@ -28,8 +34,9 @@ export function nowMs() {
 
 /**
  * Safely parses a number, returning fallback if invalid.
- * @param {*} n - value to parse
- * @param {*} [fallback=null] - value to return if n is not a finite number
+ * @param {unknown} n - Value to parse.
+ * @param {number | null} [fallback=null] - Value to return if n is not a finite number.
+ * @returns {number | null} The number if finite, otherwise fallback.
  */
 export function safeNumber(n, fallback = null) {
     return typeof n === "number" && Number.isFinite(n) ? n : fallback;
@@ -37,6 +44,8 @@ export function safeNumber(n, fallback = null) {
 
 /**
  * Safely parses an integer, returning null if invalid.
+ * @param {unknown} n - Value to parse.
+ * @returns {number | null} Floored integer if n is finite, otherwise null.
  */
 export function safeInt(n) {
     return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
@@ -53,11 +62,18 @@ const parseSectionsCache = new LRUCache({ maxSize: PARSE_SECTIONS_CACHE_LIMIT })
  *
  * Useful when callers mutate parsed section arrays and/or when the deck is
  * frequently regenerated (to avoid holding old deck strings in memory).
+ * @returns {void}
  */
 export function clearParseCache() {
     parseSectionsCache.clear();
 }
 
+/**
+ * Parses deckHtmlDsl into an array of <section> HTML strings.
+ * Results are cached (LRU, max 32 entries) and shallow-copied on return.
+ * @param {string} deckHtmlDsl - Full deck DSL HTML string.
+ * @returns {string[]} Array of section HTML strings.
+ */
 export function parseSections(deckHtmlDsl) {
     const html = typeof deckHtmlDsl === "string" ? deckHtmlDsl : "";
     if (!html) return [];
@@ -90,6 +106,8 @@ export function parseSections(deckHtmlDsl) {
 
 /**
  * Joins an array of <section> HTML strings back into a single DSL string.
+ * @param {string[]} sections - Array of section HTML strings.
+ * @returns {string} Combined DSL string.
  */
 export function joinSections(sections) {
     const parts = Array.isArray(sections) ? sections : [];
@@ -99,13 +117,29 @@ export function joinSections(sections) {
         .join("\n\n");
 }
 
+/** @type {Set<string>} Keys that must never be written to attrs to prevent prototype pollution. */
+const FORBIDDEN_ATTR_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * @typedef {Object} ExtractedElement
+ * @property {string} elementId - The data-el value.
+ * @property {string} tag - Lowercased tag name.
+ * @property {string} [id] - Element id attribute.
+ * @property {string} [class] - Element class attribute.
+ * @property {Record<string, string>} attrs - All parsed attributes (null-prototype).
+ * @property {string} [textPreview] - Text content preview (max 160 chars).
+ */
+
 /**
  * Extracts element metadata from a section HTML string based on data-el attributes.
+ * @param {string} sectionHtml - HTML string of a section.
+ * @returns {ExtractedElement[]} Array of extracted element metadata.
  */
 export function extractElements(sectionHtml) {
     const html = typeof sectionHtml === "string" ? sectionHtml : "";
     if (!html) return [];
 
+    /** @type {ExtractedElement[]} */
     const out = [];
     const elRe = /<([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)\bdata-el="([^"]+)"([^>]*)>/g;
     let m;
@@ -114,11 +148,15 @@ export function extractElements(sectionHtml) {
         const dataEl = String(m[3] || "");
         const attrsText = `${m[2] || ""} data-el="${dataEl}" ${m[4] || ""}`.trim();
 
-        const attrs = {};
+        /** @type {Record<string, string>} */
+        const attrs = Object.create(null);
         const attrRe = /([:@a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"/g;
         let am;
         while ((am = attrRe.exec(attrsText)) !== null) {
-            attrs[am[1]] = am[2];
+            const key = am[1];
+            if (!FORBIDDEN_ATTR_KEYS.has(key)) {
+                attrs[key] = am[2];
+            }
         }
 
         let textPreview = "";
@@ -148,6 +186,8 @@ export function extractElements(sectionHtml) {
 
 /**
  * Escapes HTML special characters.
+ * @param {unknown} s - Value to escape (converted to string).
+ * @returns {string} Escaped HTML string.
  */
 export function escapeHtml(s) {
     return String(s ?? "")
@@ -159,7 +199,16 @@ export function escapeHtml(s) {
 }
 
 /**
- * Converts hex color to RGB object or array.
+ * @typedef {Object} RgbColor
+ * @property {number} r - Red component (0-255).
+ * @property {number} g - Green component (0-255).
+ * @property {number} b - Blue component (0-255).
+ */
+
+/**
+ * Converts hex color to RGB object.
+ * @param {string} hex - Hex color string (e.g. "#fff" or "#ffffff").
+ * @returns {RgbColor | null} RGB object or null if invalid.
  */
 export function hexToRgb(hex) {
     const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;

@@ -213,7 +213,7 @@ export class DeckAnalyzer {
    * 创建 deck 概览（多页截图拼接）
    *
    * @param {DeckPackage} deckPackage
-   * @param {{ scale?: number, includeScreenshots?: boolean } & Record<string, any>} [options={}]
+   * @param {{ scale?: number, includeScreenshots?: boolean, timeoutMs?: number, slideTimeoutMs?: number } & Record<string, any>} [options={}]
    * @returns {Promise<{ success: boolean, error?: string, data?: any }>}
    */
   async createDeckOverview(deckPackage, options = {}) {
@@ -227,11 +227,47 @@ export class DeckAnalyzer {
       return { success: false, error: "No slides found" };
     }
 
-    // 获取所有截图
+    const slideTimeoutMs = options.slideTimeoutMs ?? 10000; // 每页超时 10s
+    const totalTimeoutMs = options.timeoutMs ?? 60000; // 总超时 60s
+    const startTime = Date.now();
+
+    // 带超时的截图辅助函数
+    const takeScreenshotWithTimeout = async (slideIndex, scale) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), slideTimeoutMs);
+
+      try {
+        const result = await Promise.race([
+          this._screenshotFn({ slideIndex, scale, signal: controller.signal }),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`Slide ${slideIndex} screenshot timeout`)), slideTimeoutMs)
+          ),
+        ]);
+        return result?.data?.base64 || null;
+      } catch {
+        return null; // 超时或错误，返回 null
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    // 获取所有截图，带总超时检查
     const screenshots = [];
     for (let i = 0; i < sections.length; i++) {
-      const result = await this._screenshotFn({ slideIndex: i, scale: options.scale || 1 });
-      screenshots.push(result?.data?.base64 || null);
+      if (Date.now() - startTime > totalTimeoutMs) {
+        // 超过总超时，返回部分结果
+        return {
+          success: true,
+          data: {
+            screenshots,
+            slideCount: sections.length,
+            partial: true,
+            completedSlides: i,
+          },
+        };
+      }
+      const base64 = await takeScreenshotWithTimeout(i, options.scale || 1);
+      screenshots.push(base64);
     }
 
     // 如果有 stitcher，拼接截图
