@@ -12,6 +12,7 @@
 
 import { SandboxBackend, DefaultSandboxConfig } from './constants.js';
 import { execCommand } from './detect.js';
+import { normalizeSandboxPath } from './path-utils.js';
 
 /**
  * Bubblewrap 执行选项
@@ -43,13 +44,17 @@ import { execCommand } from './detect.js';
  */
 export async function executeInBubblewrap(command, args, options) {
   const {
-    workDir = process.cwd(),
+    workDir,
     allowedReadPaths = DefaultSandboxConfig.allowedReadPaths,
     allowedWritePaths = DefaultSandboxConfig.allowedWritePaths,
     allowNetwork = DefaultSandboxConfig.allowNetwork,
     timeoutMs = DefaultSandboxConfig.timeoutMs,
     env = {},
   } = options;
+
+  if (!workDir) {
+    throw new Error('workDir is required for Bubblewrap sandbox');
+  }
 
   const bwrapArgs = buildBubblewrapArgs({
     workDir,
@@ -127,8 +132,8 @@ function buildBubblewrapArgs(options) {
 
   // 额外的写入路径
   for (const p of allowedWritePaths) {
-    const absPath = p.startsWith('/') ? p : `${workDir}/${p}`;
-    if (absPath !== workDir) {
+    const absPath = normalizeSandboxPath(p, workDir);
+    if (absPath && absPath !== workDir) {
       args.push('--bind-try', absPath, absPath);
     }
   }

@@ -31,10 +31,10 @@ import { execCommand, getPlatform } from './detect.js';
  */
 
 /**
- * 默认权限处理器 - 自动允许 (仅开发环境使用)
+ * 默认权限处理器 - 默认拒绝
  * @type {PermissionHandler}
  */
-const defaultPermissionHandler = async () => 'allow-once';
+const defaultPermissionHandler = async () => 'deny';
 
 /**
  * 权限缓存 - 存储 "allow-always" 的规则
@@ -43,12 +43,14 @@ const defaultPermissionHandler = async () => 'allow-once';
 const allowedPatterns = new Set();
 
 /**
- * 生成权限缓存键
+ * 生成权限缓存键（包含完整请求信息）
  * @param {PermissionRequest} request
  * @returns {string}
  */
 function getPermissionKey(request) {
-  return `${request.type}:${request.command}:${request.workDir}`;
+  const argsHash = request.args?.length ? JSON.stringify(request.args) : '';
+  const pathPart = request.path || '';
+  return `${request.type}:${request.command}:${request.workDir}:${argsHash}:${pathPart}`;
 }
 
 /**
@@ -80,11 +82,15 @@ function isAllowed(request) {
  */
 export async function executeWithPermission(command, args, options) {
   const {
-    workDir = process.cwd(),
+    workDir,
     permissionHandler = defaultPermissionHandler,
     timeoutMs = 60000,
     skipPermission = false,
   } = options;
+
+  if (!workDir) {
+    throw new Error('workDir is required for permission-only executor');
+  }
 
   const request = {
     type: 'shell',

@@ -99,8 +99,13 @@ export async function detectBubblewrap() {
         version: versionResult.stdout.trim(),
       };
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    return {
+      backend: SandboxBackend.BUBBLEWRAP,
+      platform,
+      available: false,
+      error: err?.message || 'bwrap detection failed',
+    };
   }
 
   return {
@@ -137,8 +142,13 @@ export async function detectSeatbelt() {
         path: result.stdout.trim(),
       };
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    return {
+      backend: SandboxBackend.SEATBELT,
+      platform,
+      available: false,
+      error: err?.message || 'sandbox-exec detection failed',
+    };
   }
 
   return {
@@ -177,8 +187,13 @@ export async function detectDocker() {
         error: 'Docker installed but daemon not running',
       };
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    return {
+      backend: SandboxBackend.DOCKER,
+      platform,
+      available: false,
+      error: err?.message || 'Docker detection failed',
+    };
   }
 
   return {
@@ -204,19 +219,31 @@ async function execCommand(cmd, args = [], options = {}) {
     const { spawn } = await import('child_process');
     return new Promise((resolve) => {
       const proc = spawn(cmd, args, {
-        timeout,
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       let stdout = '';
       let stderr = '';
+      let killed = false;
+
+      // 显式超时终止
+      const timer = setTimeout(() => {
+        killed = true;
+        proc.kill('SIGKILL');
+      }, timeout);
 
       proc.stdout?.on('data', (d) => (stdout += d));
       proc.stderr?.on('data', (d) => (stderr += d));
 
-      proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
-      proc.on('error', () => resolve({ code: 1, stdout, stderr }));
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        resolve({ code: killed ? 124 : (code ?? 1), stdout, stderr });
+      });
+      proc.on('error', () => {
+        clearTimeout(timer);
+        resolve({ code: 1, stdout, stderr });
+      });
     });
   }
 
@@ -228,14 +255,27 @@ async function execCommand(cmd, args = [], options = {}) {
         stdout: 'piped',
         stderr: 'piped',
       });
-      const output = await proc.output();
+      const child = proc.spawn();
+
+      // 超时处理
+      const timeoutId = setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // 进程可能已退出
+        }
+      }, timeout);
+
+      const output = await child.output();
+      clearTimeout(timeoutId);
+
       return {
         code: output.code,
         stdout: new TextDecoder().decode(output.stdout),
         stderr: new TextDecoder().decode(output.stderr),
       };
-    } catch {
-      return { code: 1, stdout: '', stderr: '' };
+    } catch (err) {
+      return { code: 1, stdout: '', stderr: err?.message || '' };
     }
   }
 
@@ -246,12 +286,24 @@ async function execCommand(cmd, args = [], options = {}) {
         stdout: 'pipe',
         stderr: 'pipe',
       });
+
+      // 超时处理
+      const timeoutId = setTimeout(() => {
+        try {
+          proc.kill();
+        } catch {
+          // 进程可能已退出
+        }
+      }, timeout);
+
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       await proc.exited;
+      clearTimeout(timeoutId);
+
       return { code: proc.exitCode ?? 1, stdout, stderr };
-    } catch {
-      return { code: 1, stdout: '', stderr: '' };
+    } catch (err) {
+      return { code: 1, stdout: '', stderr: err?.message || '' };
     }
   }
 

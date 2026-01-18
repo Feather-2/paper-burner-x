@@ -9,6 +9,7 @@
 
 import { SandboxBackend, DefaultSandboxConfig } from './constants.js';
 import { execCommand } from './detect.js';
+import { normalizeSandboxPath, isSafeForSBPL } from './path-utils.js';
 
 /**
  * Seatbelt 执行选项
@@ -30,12 +31,16 @@ import { execCommand } from './detect.js';
  */
 export async function executeInSeatbelt(command, args, options) {
   const {
-    workDir = process.cwd(),
+    workDir,
     allowedReadPaths = DefaultSandboxConfig.allowedReadPaths,
     allowedWritePaths = DefaultSandboxConfig.allowedWritePaths,
     allowNetwork = DefaultSandboxConfig.allowNetwork,
     timeoutMs = DefaultSandboxConfig.timeoutMs,
   } = options;
+
+  if (!workDir) {
+    throw new Error('workDir is required for Seatbelt sandbox');
+  }
 
   // 生成 SBPL profile
   const profile = generateSBPLProfile({
@@ -102,6 +107,9 @@ function generateSBPLProfile(options) {
   ];
 
   // 工作目录可读写
+  if (!isSafeForSBPL(workDir)) {
+    throw new Error('workDir contains unsafe characters for SBPL profile');
+  }
   lines.push('');
   lines.push('; 工作目录权限');
   lines.push(`(allow file-read* (subpath "${escapeForSBPL(workDir)}"))`);
@@ -112,7 +120,7 @@ function generateSBPLProfile(options) {
     lines.push('');
     lines.push('; 额外读取路径');
     for (const p of allowedReadPaths) {
-      if (p.startsWith('/')) {
+      if (p.startsWith('/') && isSafeForSBPL(p)) {
         lines.push(`(allow file-read* (subpath "${escapeForSBPL(p)}"))`);
       }
     }
@@ -123,8 +131,10 @@ function generateSBPLProfile(options) {
     lines.push('');
     lines.push('; 额外写入路径');
     for (const p of allowedWritePaths) {
-      const absPath = p.startsWith('/') ? p : `${workDir}/${p}`;
-      lines.push(`(allow file-write* (subpath "${escapeForSBPL(absPath)}"))`);
+      const absPath = normalizeSandboxPath(p, workDir);
+      if (absPath && isSafeForSBPL(absPath)) {
+        lines.push(`(allow file-write* (subpath "${escapeForSBPL(absPath)}"))`);
+      }
     }
   }
 
