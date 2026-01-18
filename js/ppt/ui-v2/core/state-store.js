@@ -3,7 +3,7 @@
  * 单一状态源，响应式更新
  */
 
-import { getUIEventBus } from './event-bus.js';
+import { getUIEventBus } from '../../../shared/core/event-bus.js';
 import { WorkflowState as RuntimeWorkflowState } from '../../workflow/workflow-states.js';
 import { mapWorkflowStateFromLoopStatus, normalizeLoopStatusForUi } from '../../workflow/unified-state-mapping.js';
 

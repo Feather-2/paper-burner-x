@@ -5,7 +5,7 @@
 
 import { bindActionEvents } from '../core/action-binder.js';
 import { escapeHtml, escapeAttr } from '../core/ui-utils.js';
-import { getUIEventBus } from '../core/event-bus.js';
+import { getUIEventBus } from '../../../shared/core/event-bus.js';
 import { getStateStore } from '../core/state-store.js';
 
 function formatSize(bytes) {
