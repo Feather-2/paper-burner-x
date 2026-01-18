@@ -18,14 +18,30 @@ function clampArrayStrings(arr) {
   return out.length ? out : undefined;
 }
 
+/** @private Maximum allowed JSON candidate length to prevent DoS via oversized payloads. */
+const MAX_JSON_CANDIDATE_LEN = 64_000;
+/** @private Maximum allowed slide intents to prevent memory exhaustion. */
+const MAX_SLIDE_INTENTS = 100;
+
 function tryParseSlideIntentsFromContent(content) {
   const candidate = extractJsonCandidate(content, { prefer: "array" });
   if (!candidate) return null;
+  // Length guard: reject oversized payloads before parsing.
+  if (candidate.length > MAX_JSON_CANDIDATE_LEN) {
+    console.warn("[slideplan] JSON candidate exceeds max length, rejecting");
+    return null;
+  }
   try {
     const parsed = JSON.parse(candidate);
     if (!Array.isArray(parsed)) return null;
+    // Cardinality guard: limit number of slide intents.
+    if (parsed.length > MAX_SLIDE_INTENTS) {
+      console.warn(`[slideplan] Parsed ${parsed.length} intents, truncating to ${MAX_SLIDE_INTENTS}`);
+      return parsed.slice(0, MAX_SLIDE_INTENTS);
+    }
     return parsed;
-  } catch {
+  } catch (err) {
+    console.warn("[slideplan] JSON parse failed:", err?.message);
     return null;
   }
 }
@@ -166,13 +182,15 @@ export async function planSlides(chunks, constraints = {}) {
         model: constraints?.model || "auto",
         temperature: 0.2,
         maxTokens: 1200,
+        timeout: constraints?.llmTimeout ?? 30_000,
       });
       const parsed = tryParseSlideIntentsFromContent(result?.content);
       if (parsed) {
         const normalized = parsed.map((it, i) => normalizeIntent(it, i));
         return ensureCoreSlides(normalized, chunks?.[0]?.text);
       }
-    } catch {
+    } catch (err) {
+      console.warn("[slideplan] LLM call failed, falling back to heuristic:", err?.message);
       // fall through to heuristic
     }
   }

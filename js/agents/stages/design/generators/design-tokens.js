@@ -210,6 +210,11 @@ export function validateDesignSystem(system) {
   return { ok: errors.length === 0, errors };
 }
 
+/**
+ * Generate design tokens from constraints.
+ * @param {{ theme?: 'light' | 'dark' | 'colorful' | 'auto', fontFamily?: string, safeMarginPct?: number, safeMargin?: number }} [constraints={}] - Theme and layout constraints
+ * @returns {{ theme: string, visualPreference: { mode: string }, designTokens: { colors: object, typography: object, spacing: object, grid: object, visualPreference: object } }} Design system with tokens
+ */
 export function generateDesignTokens(constraints = {}) {
   const theme = normalizeTheme(constraints?.theme);
   const resolvedTheme = theme === "auto" ? "light" : theme;

@@ -11,7 +11,18 @@ import { SandboxPreset, ResourceLimits } from './constants.js';
 const SANDBOX_POOL = Symbol('sandboxPool');
 
 /**
+ * 沙箱插件配置
+ * @typedef {Object} SandboxPluginOptions
+ * @property {number} [poolSize=4] - 沙箱池大小
+ * @property {number} [idleTimeoutMs=60000] - 空闲超时（毫秒）
+ * @property {string[]} [defaultCapabilities] - 默认能力集
+ * @property {Object} [defaultLimits] - 默认资源限制
+ */
+
+/**
  * 创建沙箱插件
+ * @param {SandboxPluginOptions} [options={}] - 插件配置
+ * @returns {import('../plugin.js').Plugin} 沙箱插件实例
  */
 export function createSandboxPlugin(options = {}) {
   const defaultConfig = {
@@ -53,7 +64,7 @@ export function createSandboxPlugin(options = {}) {
                 ctx.events.emit('sandbox:log', { level, args });
               },
               onEmit: (name, payload) => {
-                ctx.events.emit(`sandbox:emit:${name}`, payload);
+                ctx.events.emit('sandbox:emit', { name, ...payload });
               },
             },
             async sandbox => {

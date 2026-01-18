@@ -612,14 +612,14 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
           logger.warn("[design.batch] Non-retryable error detected, skipping retry");
           break;
         }
-        if (attempt < 1) safeEmit(emit, "design.slide.retrying", "retrying", { slideIndex, attempt: attempt + 1 });
+        if (attempt < 1) safeEmit(emit, "design:slide.retrying", "retrying", { slideIndex, attempt: attempt + 1 });
       }
     }
 
     const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr || "Unknown error");
     const errStack = lastErr instanceof Error ? lastErr.stack : undefined;
     logger.warn("[design.batch] generateSingleSlide falling back after retries", { slideIntentId, error: errMsg });
-    safeEmit(emit, "design.slide.failed", "failed", {
+    safeEmit(emit, "design:slide.failed", "failed", {
       slideIndex,
       error: { message: errMsg, stack: errStack }
     });
@@ -638,6 +638,10 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
  * - generateBatch(slideIntents, contentPackage, designSystem, options)
  * - generateBatch(slideIntents, contentPackage, options) where options.designSystem is provided
  *
+ * @param {Array<object>} slideIntents - Array of slide intent objects with slideIntentId, title, pageType, content, etc.
+ * @param {object} contentPackage - Content package containing claims, dataTables, and other content sources
+ * @param {object} [designSystemOrOptions={}] - Design system object or options object (if designSystem is in options)
+ * @param {object} [maybeOptions={}] - Options object when designSystem is passed as 3rd argument
  * @returns {Promise<Array<{slideIntentId:string,slideHtml:string,source:"llm"|"fallback"}>>}
  */
 export async function generateBatch(slideIntents, contentPackage, designSystemOrOptions = {}, maybeOptions = {}) {
@@ -685,7 +689,7 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
   const processBatch = async (slideIndexes, batchIndex, currentExamples) => {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
 
-    safeEmit(emit, "design.batch.started", "started", { batchIndex, slideIndexes, styleLock: batchIndex > 0 });
+    safeEmit(emit, "design:batch.started", "started", { batchIndex, slideIndexes, styleLock: batchIndex > 0 });
 
     const tBatch = nowMs();
     await Promise.all(
@@ -694,7 +698,7 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
         const imageSlotsForSlide = slotsBySlide.get(slideIndex) || [];
 
         const t0 = nowMs();
-        safeEmit(emit, "design.slide.started", "started", {
+        safeEmit(emit, "design:slide.started", "started", {
           slideIndex,
           slideIntent: {
             id: slideIntent?.slideIntentId || slideIntent?.slideIntentID,
@@ -707,7 +711,7 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
           }
         });
 
-        safeEmit(emit, "design.slide.progress", "progress", { slideIndex, step: "llm", msg: "Generating" });
+        safeEmit(emit, "design:slide.progress", "progress", { slideIndex, step: "llm", msg: "Generating" });
 
         try {
           const res = await generateSingleSlide(slideIntent, designSystem, dslRules, {
@@ -727,16 +731,16 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
 
           out[slideIndex] = res;
           const duration = nowMs() - t0;
-          safeEmit(emit, "design.slide.completed", "completed", { slideIndex, html: res.slideHtml, duration, source: res.source });
+          safeEmit(emit, "design:slide.completed", "completed", { slideIndex, html: res.slideHtml, duration, source: res.source });
           return;
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e || "Unknown error");
           const errStack = e instanceof Error ? e.stack : undefined;
-          safeEmit(emit, "design.slide.failed", "failed", {
+          safeEmit(emit, "design:slide.failed", "failed", {
             slideIndex,
             error: { message: errMsg, stack: errStack }
           });
-          safeEmit(emit, "design.slide.progress", "progress", { slideIndex, step: "fallback", msg: "Falling back to templates" });
+          safeEmit(emit, "design:slide.progress", "progress", { slideIndex, step: "fallback", msg: "Falling back to templates" });
 
           const res = await generateSingleSlide(slideIntent, designSystem, dslRules, {
             contentPackage,
@@ -749,12 +753,12 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
           });
           out[slideIndex] = res;
           const duration = nowMs() - t0;
-          safeEmit(emit, "design.slide.completed", "completed", { slideIndex, html: res.slideHtml, duration, source: res.source });
+          safeEmit(emit, "design:slide.completed", "completed", { slideIndex, html: res.slideHtml, duration, source: res.source });
         }
       })
     );
 
-    safeEmit(emit, "design.batch.completed", "completed", { batchIndex, slideIndexes, duration: nowMs() - tBatch });
+    safeEmit(emit, "design:batch.completed", "completed", { batchIndex, slideIndexes, duration: nowMs() - tBatch });
   };
 
   // Step 1: Process first batch synchronously to lock the style
@@ -768,7 +772,7 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
       .slice(0, 3);
 
     if (dslExamples.length > 0) {
-      safeEmit(emit, "design.styleLock.established", "progress", {
+      safeEmit(emit, "design:styleLock.established", "progress", {
         exampleCount: dslExamples.length,
         exampleIds: dslExamples.map(e => e.slideIntentId),
       });

@@ -39,10 +39,27 @@ async function withIndexLock(runId, fn) {
   }
 }
 
+/**
+ * 安全化路径段 - 仅保留安全字符并拒绝危险模式
+ * @private
+ * @param {unknown} value - 原始值
+ * @param {string} fallback - 空值回退
+ * @returns {string} 安全化后的路径段
+ * @throws {Error} 如果值包含路径遍历模式 (. 或 ..)
+ */
 function safeSegment(value, fallback) {
   const raw = toNonEmptyString(value);
   if (!raw) return fallback;
-  return raw.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // 拒绝 . 或 .. 路径遍历
+  if (raw === "." || raw === "..") {
+    throw new Error(`Invalid path segment: "${raw}" (path traversal not allowed)`);
+  }
+  const sanitized = raw.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // 二次检查：规范化后仍可能产生 . 或 ..
+  if (sanitized === "." || sanitized === "..") {
+    throw new Error(`Invalid path segment after sanitization: "${sanitized}"`);
+  }
+  return sanitized;
 }
 
 function buildCheckpointDir(runId) {
@@ -142,6 +159,25 @@ async function saveIndex(vfs, runId, checkpoints) {
   await writeText(vfs, buildIndexPath(runId), safeJsonStringify(payload));
 }
 
+/**
+ * 校验 checkpoint 数据的最小 schema
+ * @private
+ * @param {unknown} data - 解析后的数据
+ * @returns {object|null} 校验通过返回原对象，否则返回 null
+ */
+function validateCheckpoint(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const { schemaVersion, kind, checkpointId, runId } = data;
+  // 必须包含核心字段且类型正确
+  if (typeof schemaVersion !== "string") return null;
+  if (typeof kind !== "string" || kind !== CHECKPOINT_KIND) return null;
+  if (typeof checkpointId !== "string" || !checkpointId) return null;
+  if (typeof runId !== "string" || !runId) return null;
+  // metadata 必须是 plain object 或不存在
+  if (data.metadata !== undefined && !isPlainObject(data.metadata)) return null;
+  return data;
+}
+
 function normalizeRestoreMode(mode, { checkpointId, step } = {}) {
   const normalized = toNonEmptyString(mode)?.toLowerCase();
   if (normalized === "last" || normalized === "latest") return "last";
@@ -165,7 +201,27 @@ function normalizeIndexEntry(entry) {
   };
 }
 
+/**
+ * Agent 运行检查点存储
+ *
+ * 负责把一次运行的消息、工具调用、结果等快照写入 VFS，
+ * 并维护索引以支持按"最新 / 指定 ID / 指定步数"恢复。
+ *
+ * @example
+ * ```javascript
+ * const store = new AgentCheckpointStore({ vfs, runId: 'session_123' });
+ * const { checkpointId } = await store.saveCheckpoint({ messages, step: 12 });
+ * const latest = await store.loadCheckpoint();
+ * ```
+ */
 export class AgentCheckpointStore {
+  /**
+   * @param {object} options - 配置选项
+   * @param {object} [options.vfs] - VFS 实例 (需要 readFile/writeFile 能力)
+   * @param {object} [options.storageAdapter] - 存储适配器 (可替代 vfs)
+   * @param {string} [options.runId] - 默认运行 ID
+   * @param {object} [options.logger] - 自定义 logger
+   */
   constructor({ vfs, storageAdapter, runId, logger: customLogger } = {}) {
     this._logger = customLogger || logger;
     this._vfs = ensureVfs({ vfs, storageAdapter });
@@ -180,12 +236,23 @@ export class AgentCheckpointStore {
     this._runId = toNonEmptyString(value) || null;
   }
 
+  /**
+   * @private
+   * @returns {object} VFS 实例
+   * @throws {Error} 如果未配置 vfs 或 storageAdapter
+   */
   _requireVfs() {
     const vfs = this._vfs;
     if (!vfs) throw new Error("AgentCheckpointStore requires vfs or storageAdapter");
     return vfs;
   }
 
+  /**
+   * 列出指定运行的所有检查点
+   * @param {object} [options] - 选项
+   * @param {string} [options.runId] - 运行 ID (可选，默认使用实例 runId)
+   * @returns {Promise<Array<{checkpointId: string, ts: string, step?: number, iteration?: number, metadata?: object}>>}
+   */
   async listCheckpoints({ runId } = {}) {
     const id = toNonEmptyString(runId) || this._runId;
     if (!id) return [];
@@ -194,6 +261,19 @@ export class AgentCheckpointStore {
     return index.map(normalizeIndexEntry).filter(Boolean);
   }
 
+  /**
+   * 保存检查点
+   * @param {object} options - 检查点数据
+   * @param {string} [options.runId] - 运行 ID (可选，默认使用实例 runId)
+   * @param {Array} [options.messages] - 消息历史
+   * @param {Array} [options.toolCalls] - 工具调用记录
+   * @param {Array} [options.results] - 执行结果
+   * @param {object} [options.metadata] - 元数据
+   * @param {number} [options.step] - 步数
+   * @param {number} [options.iteration] - 迭代次数
+   * @returns {Promise<{checkpointId: string, checkpoint: object}>}
+   * @throws {Error} 如果 runId 未指定
+   */
   async saveCheckpoint({
     runId,
     messages,
@@ -245,6 +325,15 @@ export class AgentCheckpointStore {
     return { checkpointId, checkpoint };
   }
 
+  /**
+   * 加载检查点
+   * @param {object} [options] - 选项
+   * @param {string} [options.runId] - 运行 ID (可选，默认使用实例 runId)
+   * @param {string} [options.checkpointId] - 指定检查点 ID
+   * @param {number} [options.step] - 按步数匹配
+   * @param {'last'|'checkpoint'|'step'} [options.mode] - 恢复模式 (默认 'last')
+   * @returns {Promise<object|null>} 检查点数据，失败或未找到返回 null
+   */
   async loadCheckpoint({ runId, checkpointId, step, mode } = {}) {
     const id = toNonEmptyString(runId) || this._runId;
     if (!id) return null;
@@ -260,7 +349,13 @@ export class AgentCheckpointStore {
 
     try {
       const raw = await readText(vfs, buildCheckpointPath(id, resolved));
-      return safeJsonParse(raw, { maxChars: 5_000_000 });
+      const parsed = safeJsonParse(raw, { maxChars: 5_000_000 });
+      const validated = validateCheckpoint(parsed);
+      if (!validated) {
+        this._logger?.warn?.(`[checkpoint-store] Invalid checkpoint schema for ${resolved}`);
+        return null;
+      }
+      return validated;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err ?? "");
       this._logger?.warn?.(`[checkpoint-store] Failed to read checkpoint ${resolved}: ${msg}`);
@@ -268,6 +363,16 @@ export class AgentCheckpointStore {
     }
   }
 
+  /**
+   * 解析检查点 ID
+   * @private
+   * @param {object} options - 选项
+   * @param {string} [options.runId] - 运行 ID
+   * @param {string} [options.checkpointId] - 检查点 ID
+   * @param {number} [options.step] - 步数
+   * @param {string} [options.mode] - 恢复模式
+   * @returns {Promise<string|null>} 解析后的检查点 ID
+   */
   async _resolveCheckpointId({ runId, checkpointId, step, mode } = {}) {
     const id = toNonEmptyString(runId) || this._runId;
     if (!id) return null;

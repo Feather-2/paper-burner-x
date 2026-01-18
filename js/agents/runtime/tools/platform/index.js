@@ -19,7 +19,7 @@ import { Platform, isNodeLike } from '../../../shared/platform.js';
 /**
  * @typedef {object} PlatformTools
  * @property {(args: { pattern: string, path?: string }) => Promise<{ files: string[], error?: string }>} glob
- * @property {(args: { pattern: string, path?: string, regex?: boolean }) => Promise<{ matches: any[], error?: string }>} grep
+ * @property {(args: { pattern: string, path?: string, regex?: boolean, caseSensitive?: boolean }) => Promise<{ matches: any[], error?: string }>} grep - caseSensitive 仅 Node 端支持
  * @property {(args: { path: string, startLine?: number, endLine?: number }) => Promise<{ content: string, error?: string }>} read
  * @property {(args: { path: string, content: string }) => Promise<{ success: boolean, error?: string }>} write
  * @property {(args: { path: string }) => Promise<{ entries: string[], error?: string }>} list

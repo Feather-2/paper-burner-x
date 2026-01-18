@@ -75,6 +75,12 @@ const SENSITIVE_PATH_PATTERNS = [
   /(^|\/)\.(bash_history|zsh_history|python_history)$/i,
 ];
 
+/**
+ * Command substitution patterns that bypass allow/block rules.
+ * Detects $(), backticks, and process substitution <() >().
+ */
+const COMMAND_SUBSTITUTION_PATTERN = /\$\(|\`|<\(|>\(/;
+
 function toBaseName(cmd) {
   const raw = typeof cmd === "string" ? cmd.trim() : "";
   if (!raw) return "";
@@ -102,6 +108,16 @@ function looksSensitivePath(arg) {
   const candidate = normalizePathArg(arg);
   if (!candidate) return false;
   return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(candidate));
+}
+
+/**
+ * Check if command contains command substitution that could bypass rules.
+ * @param {string} command
+ * @returns {boolean}
+ */
+function hasCommandSubstitution(command) {
+  const raw = typeof command === "string" ? command : "";
+  return COMMAND_SUBSTITUTION_PATTERN.test(raw);
 }
 
 /**
@@ -139,8 +155,8 @@ function looksLikeForkBomb(command) {
   if (/\$0\s*&[^&]*\$0\s*&/.test(raw)) return true;
   if (/\$\{?0\}?\s*&/.test(raw) && (raw.match(/\$\{?0\}?\s*&/g) || []).length >= 2) return true;
 
-  // 5. 通过 bash -c 递归
-  if (/bash\s+-c\s*['"](.*)\1['"]\s*&/.test(raw)) return true;
+  // 5. 通过 bash -c 递归 (成对引号匹配)
+  if (/bash\s+-c\s*(['"])(.*?)\1[^'"]*&/.test(raw)) return true;
 
   // 6. 函数内调用自身两次以上（指数增长）
   const funcMatch = raw.match(/(\w+)\s*\(\)\s*\{([^}]+)\}/);
@@ -157,6 +173,10 @@ function looksLikeForkBomb(command) {
 /**
  * Minimal shell tokenizer (quotes + backslash escapes).
  * Conservative: does not aim to fully parse POSIX shell.
+ *
+ * NOTE: This tokenizer does NOT expand command substitutions ($(), ``, <(), >()).
+ * Use hasCommandSubstitution() to detect and reject such commands before tokenizing.
+ *
  * @param {string} input
  * @returns {string[]}
  */
@@ -291,6 +311,12 @@ export function parseCompoundCommand(input) {
  * @returns {CommandClassification}
  */
 export function classifyCommand(command) {
+  // Check for command substitution first - these bypass allow/block rules
+  const rawStr = typeof command === "string" ? command : Array.isArray(command) ? command.join(" ") : "";
+  if (hasCommandSubstitution(rawStr)) {
+    return { level: "dangerous", requiresApproval: true, reasons: ["command_substitution"] };
+  }
+
   if (looksLikeForkBomb(command)) {
     return { level: "dangerous", requiresApproval: true, reasons: ["fork_bomb"] };
   }
@@ -328,7 +354,7 @@ export function classifyCommand(command) {
   return worst || { level: "unknown", requiresApproval: true };
 }
 
-export const __internal = { tokenizeShell, toBaseName };
+export const __internal = { tokenizeShell, toBaseName, hasCommandSubstitution };
 
 export default {
   SAFE_COMMANDS,

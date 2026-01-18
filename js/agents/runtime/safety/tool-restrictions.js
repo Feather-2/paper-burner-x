@@ -20,7 +20,7 @@ function normalizeList(raw) {
   if (Array.isArray(raw)) return raw.filter(Boolean);
   if (typeof raw === "string") {
     return raw
-      .split(/[,\\n]/)
+      .split(/[,\n]/)
       .map((v) => v.trim())
       .filter(Boolean);
   }

@@ -6,8 +6,33 @@
  */
 import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
 
+/**
+ * @typedef {Object} EvidenceRow
+ * @property {string} evidenceId
+ * @property {string} [sourceId]
+ * @property {string} [chunkId]
+ * @property {string} [quote]
+ * @property {number} [lineStart]
+ * @property {number} [lineEnd]
+ * @property {{page?: number, section?: string}} [locator]
+ */
+
+/**
+ * @typedef {Object} SourceRow
+ * @property {string} sourceId
+ * @property {string} [title]
+ * @property {string} [uri]
+ */
+
 const CITE_REGEX = /\{\{\s*cite\s*:\s*([A-Za-z0-9._:-]+)\s*\}\}/g;
 
+/**
+ * Formats a quote for citation display.
+ * Truncates long quotes and replaces table data with a placeholder.
+ * @param {string|null|undefined} quote - The quote text to format
+ * @param {{maxLen?: number}} [options] - Formatting options
+ * @returns {string} Formatted quote string
+ */
 export function formatQuoteForCitation(quote, { maxLen = 200 } = {}) {
   if (!quote) return "";
   const src = typeof quote === "string" ? quote : String(quote);
@@ -31,8 +56,7 @@ export function extractEvidenceIdsFromMarkdownCitations(markdown) {
   const evidenceIdsInOrder = [];
   const firstSeen = new Set();
 
-  let m;
-  while ((m = CITE_REGEX.exec(src))) {
+  for (const m of src.matchAll(/\{\{\s*cite\s*:\s*([A-Za-z0-9._:-]+)\s*\}\}/g)) {
     const eid = toNonEmptyString(m[1]);
     if (!eid || firstSeen.has(eid)) continue;
     firstSeen.add(eid);
@@ -44,9 +68,9 @@ export function extractEvidenceIdsFromMarkdownCitations(markdown) {
 
 /**
  * Builds lookup maps for evidence rows and source rows.
- * @param {Array} evidenceLedger
- * @param {Array} sources
- * @returns {{evidenceById: Map<string, any>, sourceById: Map<string, any>}}
+ * @param {EvidenceRow[]} evidenceLedger
+ * @param {SourceRow[]} sources
+ * @returns {{evidenceById: Map<string, EvidenceRow>, sourceById: Map<string, SourceRow>}}
  */
 export function buildEvidenceIndex(evidenceLedger, sources) {
   const evidenceRows = Array.isArray(evidenceLedger) ? evidenceLedger : [];
@@ -88,11 +112,26 @@ export function formatRef(sourceId, lineStart, lineEnd) {
 }
 
 /**
+ * @typedef {Object} CitationEntry
+ * @property {number} citationId
+ * @property {string} evidenceId
+ * @property {string} [sourceId]
+ * @property {string} [sourceTitle]
+ * @property {string} [sourceUri]
+ * @property {{page?: number, section?: string}} [locator]
+ * @property {string} [quote]
+ * @property {string} [chunkId]
+ * @property {string} [ref]
+ * @property {number} [lineStart]
+ * @property {number} [lineEnd]
+ */
+
+/**
  * Builds an ordered citation list from evidence IDs (deduplicated), enriching with source metadata where available.
  * @param {string[]} evidenceIdsInOrder
- * @param {Array} evidenceLedger
- * @param {Array} sources
- * @returns {Array<{citationId:number,evidenceId:string,sourceId?:string,sourceTitle?:string,sourceUri?:string,locator?:any,quote?:string,chunkId?:string,ref?:string,lineStart?:number,lineEnd?:number}>}
+ * @param {EvidenceRow[]} evidenceLedger
+ * @param {SourceRow[]} sources
+ * @returns {CitationEntry[]}
  */
 export function buildCitationsFromEvidenceIds(evidenceIdsInOrder, evidenceLedger, sources) {
   const { evidenceById, sourceById } = buildEvidenceIndex(evidenceLedger, sources);
@@ -136,9 +175,9 @@ export function buildCitationsFromEvidenceIds(evidenceIdsInOrder, evidenceLedger
  * - 无行号: [sourceId]
  *
  * @param {string} markdown
- * @param {Array} evidenceLedger
- * @param {Array} sources
- * @returns {{markdown: string, citations: Array}}
+ * @param {EvidenceRow[]} evidenceLedger
+ * @param {SourceRow[]} sources
+ * @returns {{markdown: string, citations: CitationEntry[]}}
  */
 export function finalizeCitationsInMarkdown(markdown, evidenceLedger, sources) {
   const src = typeof markdown === "string" ? markdown : "";

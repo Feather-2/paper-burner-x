@@ -14,6 +14,29 @@ try {
 
 import { toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-utils.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
+
+/**
+ * Sanitize SVG content by removing dangerous elements and attributes.
+ * Strips: <script>, <foreignObject>, on* event handlers, javascript: URLs.
+ * @param {string} svg - Raw SVG string
+ * @returns {string} Sanitized SVG
+ */
+function sanitizeSvg(svg) {
+  if (typeof svg !== "string" || !svg.trim()) return "";
+  let s = svg;
+  // Remove <script>...</script> tags (case-insensitive, including self-closing)
+  s = s.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
+  s = s.replace(/<script\b[^>]*\/>/gi, "");
+  // Remove <foreignObject>...</foreignObject> tags
+  s = s.replace(/<foreignObject\b[^>]*>[\s\S]*?<\/foreignObject\s*>/gi, "");
+  s = s.replace(/<foreignObject\b[^>]*\/>/gi, "");
+  // Remove on* event attributes (onclick, onload, onerror, etc.)
+  s = s.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  // Remove javascript: and data: URLs in href/xlink:href attributes
+  s = s.replace(/\s+(href|xlink:href)\s*=\s*["']?\s*javascript:[^"'\s>]*/gi, "");
+  s = s.replace(/\s+(href|xlink:href)\s*=\s*["']?\s*data:[^"'\s>]*/gi, "");
+  return s;
+}
 import { classifyDesignError } from "../../../shared/utils/error-classifier.js";
 import { safeEmit } from "../shared/safe-emit.js";
 
@@ -302,13 +325,13 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
 
   if (typeof modelCaller !== "function") {
     const error = makeStructuredError("No available model for SVG generation");
-    safeEmit(emit, "design.svg.batch.failed", "failed", { slotIds, error });
+    safeEmit(emit, "design:svg.batch.failed", "failed", { slotIds, error });
     return { results: batchSlots.map((slot) => makeFallbackResult(slot, colors, error)), hasError: true };
   }
 
   if (!breaker.canExecute()) {
     const error = makeStructuredError("Circuit breaker is OPEN", { code: "CIRCUIT_OPEN", canRetry: true });
-    safeEmit(emit, "design.svg.batch.failed", "failed", { slotIds, error, circuit: { name: "svg-generator" } });
+    safeEmit(emit, "design:svg.batch.failed", "failed", { slotIds, error, circuit: { name: "svg-generator" } });
     return { results: batchSlots.map((slot) => makeFallbackResult(slot, colors, error)), hasError: true };
   }
 
@@ -385,7 +408,7 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
         level: lastStructuredError.level,
       });
 
-      safeEmit(emit, "design.svg.batch.failed", "failed", {
+      safeEmit(emit, "design:svg.batch.failed", "failed", {
         slotIds,
         attempt: attempt + 1,
         error: lastStructuredError,
@@ -446,7 +469,7 @@ export class SVGGenerator {
 
     const totalErrors = [];
 
-    safeEmit(emit, "design.svg.generate.started", "started", { slots: slots.length, concurrency: effectiveConcurrency });
+    safeEmit(emit, "design:svg.generate.started", "started", { slots: slots.length, concurrency: effectiveConcurrency });
 
     const batches = chunkArray(slots, this.batchSize);
     const allResults = new Array(batches.length);
@@ -480,7 +503,7 @@ export class SVGGenerator {
               if (r?.error) totalErrors.push(r.error);
             }
 
-            safeEmit(emit, "design.svg.batch.completed", "completed", {
+            safeEmit(emit, "design:svg.batch.completed", "completed", {
               batchIndex,
               batchCount: batches.length,
               hasError: !!batchRes?.hasError,
@@ -514,7 +537,7 @@ export class SVGGenerator {
     };
 
     if (fatalErrors.length && llmGenerated === 0) {
-      safeEmit(emit, "design.svg.generate.failed", "failed", {
+      safeEmit(emit, "design:svg.generate.failed", "failed", {
         slots: flatResults.length,
         llmGenerated,
         fallback,
@@ -523,7 +546,7 @@ export class SVGGenerator {
         report,
       });
     } else {
-      safeEmit(emit, "design.svg.generate.completed", "completed", {
+      safeEmit(emit, "design:svg.generate.completed", "completed", {
         slots: flatResults.length,
         llmGenerated,
         fallback,
@@ -539,6 +562,9 @@ export class SVGGenerator {
 
 /**
  * Replace `<div data-el="image-placeholder" ... data-render-type="svg">` with `<div data-el="svg">...</div>`.
+ * @param {string} html - Input HTML string containing SVG placeholders
+ * @param {Array<{ slotId: string, svgContent?: string, width?: number, height?: number }>} filledSlots - Array of filled slot objects with SVG content
+ * @returns {{ html: string, filledSlotIds: string[], skippedSlotIds: string[] }} Processed HTML and lists of filled/skipped slot IDs
  */
 export function fillSvgPlaceholders(html, filledSlots) {
   const input = typeof html === "string" ? html : "";
@@ -672,7 +698,8 @@ export function fillSvgPlaceholders(html, filledSlots) {
 
     const attrPairs = Object.entries(next).map(([k, v]) => `${k}="${escapeAttr(v)}"`);
     const body = selfClosing ? "" : innerHtml;
-    return { slotId, html: `<div ${attrPairs.join(" ")}>${svgContent || body}</div>` };
+    const sanitizedContent = svgContent ? sanitizeSvg(svgContent) : "";
+    return { slotId, html: `<div ${attrPairs.join(" ")}>${sanitizedContent || body}</div>` };
   };
 
   const placeholders = findImagePlaceholders(input);

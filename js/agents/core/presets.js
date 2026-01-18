@@ -171,6 +171,13 @@ export function resolvePreset(presetName) {
 
 /**
  * 合并预设与用户配置
+ *
+ * @param {string} presetName - 预设名称 (如 'minimal', 'standard', 'deepsearch')
+ * @param {Object} [userConfig={}] - 用户自定义配置
+ * @param {string[]} [userConfig.plugins] - 额外添加的插件列表
+ * @param {string[]} [userConfig.disablePlugins] - 要禁用的插件列表
+ * @param {Record<string, Record<string, unknown>>} [userConfig.config] - 插件配置覆盖
+ * @returns {{ name: string, description: string, plugins: string[], config: Record<string, Record<string, unknown>> }} 合并后的预设配置
  */
 export function mergePresetConfig(presetName, userConfig = {}) {
   const resolved = resolvePreset(presetName);
@@ -199,6 +206,8 @@ export function mergePresetConfig(presetName, userConfig = {}) {
 
 /**
  * 列出所有预设
+ *
+ * @returns {Array<{ name: string, description: string, extends: string | null, pluginCount: number }>} 预设摘要列表
  */
 export function listPresets() {
   return Object.entries(presets).map(([name, preset]) => ({

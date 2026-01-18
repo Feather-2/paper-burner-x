@@ -8,6 +8,57 @@ import { createPlugin } from '../../core/plugin.js';
 
 /** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
 
+/**
+ * @typedef {object} McpServerConfig
+ * @property {string} name - 服务器名称标识
+ * @property {string} url - 服务器 URL
+ * @property {Record<string, any>} [options] - 附加选项
+ */
+
+/** 禁止作为状态路径键的原型污染关键字 */
+const PROTO_BLACKLIST = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** 允许的 MCP URL 协议 */
+const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'ws:', 'wss:']);
+
+/**
+ * 校验 serverConfig.name 防止原型污染
+ * @param {string} name
+ * @returns {string}
+ * @throws {Error} 若 name 包含禁止关键字
+ */
+function sanitizeName(name) {
+  if (!name || typeof name !== 'string') {
+    throw new Error('MCP server name must be a non-empty string');
+  }
+  if (PROTO_BLACKLIST.has(name)) {
+    throw new Error(`Invalid MCP server name: "${name}" is reserved`);
+  }
+  return name;
+}
+
+/**
+ * 校验 serverConfig.url 防止 SSRF
+ * @param {string} url
+ * @returns {string}
+ * @throws {Error} 若 URL 协议不在白名单
+ */
+function validateUrl(url) {
+  if (!url || typeof url !== 'string') {
+    throw new Error('MCP server url must be a non-empty string');
+  }
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid MCP server url: "${url}"`);
+  }
+  if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
+    throw new Error(`MCP server url protocol not allowed: "${parsed.protocol}"`);
+  }
+  return url;
+}
+
 export default createPlugin({
   name: 'service/mcp',
   version: '1.0.0',
@@ -28,16 +79,21 @@ export default createPlugin({
     ctx.registerService('mcp', {
       /**
        * 连接 MCP 服务器
-       * @param {Record<string, any>} serverConfig
+       * @param {McpServerConfig} serverConfig
        * @returns {Promise<any>}
        */
       async connect(serverConfig) {
+        // Issue #1: 校验 URL 协议防止 SSRF
+        validateUrl(serverConfig.url);
+        // Issue #2: 校验 name 防止原型污染
+        const safeName = sanitizeName(serverConfig.name || serverConfig.url);
+
         const { McpClient } = await import('../../mcp/mcp-client.js');
         const client = new McpClient(serverConfig);
         await /** @type {any} */ (client).connect();
 
-        clients.set(serverConfig.name || serverConfig.url, client);
-        ctx.state.set(`servers.${serverConfig.name}`, { status: 'connected' });
+        clients.set(safeName, client);
+        ctx.state.set(`servers.${safeName}`, { status: 'connected' });
         ctx.events.emit('mcp.connected', { server: serverConfig.name });
 
         return client;

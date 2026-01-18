@@ -519,10 +519,23 @@ export class ImageGenerator {
   }
 }
 
+/**
+ * Create an ImageGenerator instance with the given options.
+ * @param {{ imageProvider?: any, stageApi?: any, budget?: object, concurrency?: number, circuitBreakerRegistry?: any }} [opts] - Generator configuration options
+ * @returns {ImageGenerator} Configured image generator instance
+ */
 export function createImageGenerator(opts) {
   return new ImageGenerator(opts);
 }
 
+/**
+ * Generate images for the given slots.
+ * @param {Array<object>} imageSlots - Array of image slot objects with slotId, purpose, aspectRatio, etc.
+ * @param {object} contentPackage - Content package with claims and context
+ * @param {object} designSystem - Design system with colors and typography tokens
+ * @param {{ imageProvider?: any, budget?: object, concurrency?: number, emit?: Function, signal?: AbortSignal }} [opts={}] - Generation options
+ * @returns {Promise<{ filledSlots: Array<object>, report: object }>} Generated images and execution report
+ */
 export async function generateImages(imageSlots, contentPackage, designSystem, opts = {}) {
   const generator = new ImageGenerator(opts);
   return generator.generate(imageSlots, contentPackage, designSystem, opts);

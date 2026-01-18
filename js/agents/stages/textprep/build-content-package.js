@@ -38,18 +38,27 @@ import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.
  * @property {string=} completionReason
  */
 
+/** @private Converts a value to string, preserving whitespace (null/undefined become empty string). */
 function toStringPreserveWhitespace(v) {
   if (v === undefined || v === null) return "";
   if (typeof v === "string") return v;
   return String(v);
 }
 
+/** @private Collapses consecutive whitespace to single space and trims. */
 function collapseWhitespace(s) {
   return String(s || "")
     .replaceAll(/\s+/g, " ")
     .trim();
 }
 
+/**
+ * Derives a summary from claims or source text.
+ * Prioritizes top claims' text; falls back to truncated source text.
+ * @param {string} sourceTextNormalized - Normalized source text for fallback.
+ * @param {Array<{text?: string}>} claims - Array of claim objects with text property.
+ * @returns {string} Derived summary (max ~280 chars if from source text).
+ */
 export function deriveSummary(sourceTextNormalized, claims) {
   const c = Array.isArray(claims) ? claims : [];
   const top = c
@@ -60,6 +69,7 @@ export function deriveSummary(sourceTextNormalized, claims) {
   return collapseWhitespace(sourceTextNormalized || "").slice(0, 280);
 }
 
+/** @private Indexes an array by a specified id key into a Map. */
 function indexById(arr, idKey) {
   const map = new Map();
   for (const it of Array.isArray(arr) ? arr : []) {
@@ -70,6 +80,7 @@ function indexById(arr, idKey) {
   return map;
 }
 
+/** @private Validates ContentPackage against Hard Gates (H1-H5). Throws on violation. */
 function assertHardGates({ sources, claims, evidenceLedger, slideIntents, dataTables, report, mode }) {
   // Build sourceTextNormalized lookup for H3 validation.
   const sourceTextById = new Map();
@@ -160,6 +171,7 @@ function assertHardGates({ sources, claims, evidenceLedger, slideIntents, dataTa
   }
 }
 
+/** @private Converts sources array to SourceRef array for ContentPackage (strips internal fields). */
 function toSourceRefs(sources) {
   const out = [];
   for (const s of Array.isArray(sources) ? sources : []) {

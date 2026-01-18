@@ -148,11 +148,18 @@ describe("BananaGenerator", () => {
       expect(config.defaultWidth).toBe(BANANA_CONFIG.defaultWidth);
     });
 
-    it("should set image generator", () => {
+    it("should set image generator and use it for generation", async () => {
       const generator = createBananaGenerator();
-      const mockGenerator = { generate: async () => ({}) };
+      let generateCalled = false;
+      const mockGenerator = {
+        generate: async () => {
+          generateCalled = true;
+          return { url: "http://test.com/image.png" };
+        },
+      };
       generator.setImageGenerator(mockGenerator);
-      // No error means success
+      await generator.generate([{ title: "Test" }], {});
+      expect(generateCalled).toBe(true);
     });
   });
 });

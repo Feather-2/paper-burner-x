@@ -109,9 +109,12 @@ export function createBrowserTools(options = {}) {
     }
 
     const searchPath = normalizePath(path || '.');
-    const searchPattern = regex ? new RegExp(pattern, 'gm') : pattern;
 
     try {
+      // 在 try 内构造 RegExp 以捕获非法 pattern
+      // 不使用 g flag 避免 test() 状态化问题
+      const searchPattern = regex ? new RegExp(pattern, 'm') : null;
+
       // 获取文件列表
       const { files } = await glob({ pattern: '**/*', path: searchPath });
       const matches = [];

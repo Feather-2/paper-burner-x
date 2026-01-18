@@ -4,8 +4,8 @@
  * 替代原有的 js-sandbox-worker，提供真正的隔离。
  *
  * 降级策略：
- * - 若运行环境不支持 WebAssembly（或 WASM 沙箱初始化失败），可降级到受限 JS 执行（best-effort）。
- * - 可通过 `fallbackMode: "none"` 禁用降级，强制要求 WASM 沙箱可用。
+ * - 默认 `fallbackMode: "none"`，WASM 不可用时直接报错。
+ * - 可通过 `fallbackMode: "eval"` 启用受限 JS 执行（best-effort；不是强安全边界）。
  */
 
 import { SandboxPool } from './pool.js';
@@ -268,13 +268,13 @@ export class SkillExecutor {
    * @param {Object} [options.kernel] - Kernel 实例（用于事件和状态）
    * @param {SandboxPool} [options.pool] - 沙箱池（可选，会自动创建）
    * @param {Function} [options.trustChecker] - 检查 Skill 是否可信
-   * @param {'eval'|'none'} [options.fallbackMode='eval'] - WASM 不可用时的降级策略
+   * @param {'eval'|'none'} [options.fallbackMode='none'] - WASM 不可用时的降级策略
    * @param {{ debug?: Function, info?: Function, warn?: Function, error?: Function }} [options.logger] - 日志实例
    */
   constructor(options = {}) {
     this.kernel = options.kernel;
     this.wasmSupported = null; // 延迟检测
-    this.fallbackMode = normalizeFallbackMode(options.fallbackMode ?? 'eval'); // 'eval' | 'none'
+    this.fallbackMode = normalizeFallbackMode(options.fallbackMode ?? 'none'); // 'eval' | 'none'
     this.pool = options.pool;
     this.logger = options.logger || createLogger('core/sandbox/skill-executor');
     this.trustChecker = options.trustChecker || this._defaultTrustChecker;

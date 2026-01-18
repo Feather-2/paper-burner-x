@@ -42,8 +42,13 @@ export async function createNodeTools(options = {}) {
    */
   function isSafePath(resolvedPath) {
     const normalized = path.normalize(resolvedPath);
-    // 允许 basePath 及其子目录
-    return normalized.startsWith(path.normalize(basePath));
+    const normalizedBase = path.normalize(basePath);
+    // 使用 relative 校验：相对路径不应以 '..' 开头或为绝对路径
+    const rel = path.relative(normalizedBase, normalized);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -51,6 +56,10 @@ export async function createNodeTools(options = {}) {
    */
   async function glob({ pattern, path: searchPath }) {
     const dir = resolvePath(searchPath || '.');
+
+    if (!isSafePath(dir)) {
+      return { files: [], error: 'Path outside allowed directory' };
+    }
 
     try {
       // 尝试使用 fast-glob (如果可用)
@@ -111,6 +120,10 @@ export async function createNodeTools(options = {}) {
    */
   async function grep({ pattern, path: searchPath, regex = false, caseSensitive = true }) {
     const dir = resolvePath(searchPath || '.');
+
+    if (!isSafePath(dir)) {
+      return { matches: [], error: 'Path outside allowed directory' };
+    }
 
     try {
       // 尝试使用 ripgrep (如果可用)

@@ -86,10 +86,19 @@ export class SystemSandboxExecutor {
   /**
    * 尝试使用指定后端
    * @param {string} backend
-   * @returns {Promise<boolean>}
+   * @returns {Promise<boolean>} - 是否成功绑定
    * @private
    */
   async _tryBackend(backend) {
+    // 先验证后端可用性（PERMISSION_ONLY 始终可用）
+    if (backend !== SandboxBackend.PERMISSION_ONLY) {
+      const allBackends = await detectAllBackends();
+      const info = allBackends.find((b) => b.backend === backend);
+      if (!info || !info.available) {
+        return false;
+      }
+    }
+
     const executorOptions = {
       workDir: this.config.workDir,
       allowedReadPaths: this.config.allowedReadPaths,

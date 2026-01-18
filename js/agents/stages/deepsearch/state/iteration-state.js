@@ -1,10 +1,24 @@
 import { isPlainObject, safeInt, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 
 /**
+ * @typedef {object} GapItem
+ * @property {string=} id - Gap identifier.
+ * @property {string=} status - Gap status (open/closed).
+ * @property {string=} description - Gap description.
+ */
+
+/**
+ * @typedef {object} ChunkItem
+ * @property {string=} id - Chunk identifier.
+ * @property {string=} content - Chunk text content.
+ * @property {number=} score - Relevance score.
+ */
+
+/**
  * @typedef {object} IterationStateRoot
  * @property {number=} iteration
- * @property {{ gaps?: any[] }=} L1
- * @property {{ phase?: string, retrievedChunks?: any[] }=} L2
+ * @property {{ gaps?: GapItem[] }=} L1
+ * @property {{ phase?: string, retrievedChunks?: ChunkItem[] }=} L2
  */
 
 /**

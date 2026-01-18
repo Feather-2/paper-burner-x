@@ -12,13 +12,27 @@ import { createStageApi } from "../../shared/utils/stage-api.js";
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
 import { extractJsonCandidate } from "../../shared/utils/json-candidate.js";
 
+/** @private Maximum allowed input text length (2MB) to prevent memory exhaustion. */
+const MAX_INPUT_TEXT_LEN = 2 * 1024 * 1024;
+/** @private Maximum allowed sources count. */
+const MAX_SOURCES_COUNT = 100;
+
 function toRawText(input) {
-  if (typeof input === "string") return input;
+  if (typeof input === "string") {
+    return input.length > MAX_INPUT_TEXT_LEN ? input.slice(0, MAX_INPUT_TEXT_LEN) : input;
+  }
   if (input && typeof input === "object") {
-    if (typeof input.text === "string") return input.text;
-    if (typeof input.rawText === "string") return input.rawText;
+    if (typeof input.text === "string") {
+      return input.text.length > MAX_INPUT_TEXT_LEN ? input.text.slice(0, MAX_INPUT_TEXT_LEN) : input.text;
+    }
+    if (typeof input.rawText === "string") {
+      return input.rawText.length > MAX_INPUT_TEXT_LEN ? input.rawText.slice(0, MAX_INPUT_TEXT_LEN) : input.rawText;
+    }
     if (Array.isArray(input.sources)) {
-      const merged = input.sources
+      const limitedSources = input.sources.length > MAX_SOURCES_COUNT
+        ? input.sources.slice(0, MAX_SOURCES_COUNT)
+        : input.sources;
+      const merged = limitedSources
         .map((s) => {
           if (typeof s === "string") return s;
           if (!s || typeof s !== "object") return "";
@@ -30,7 +44,9 @@ function toRawText(input) {
         })
         .filter(Boolean)
         .join("\n\n---\n\n");
-      if (merged) return merged;
+      if (merged) {
+        return merged.length > MAX_INPUT_TEXT_LEN ? merged.slice(0, MAX_INPUT_TEXT_LEN) : merged;
+      }
     }
   }
   return "";
@@ -194,13 +210,19 @@ async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
         model: constraints?.model || "auto",
         temperature: 0.1,
         maxTokens: 1200,
+        timeout: constraints?.llmTimeout ?? 30_000,
       });
       const candidate = extractJsonCandidate(result?.content, { prefer: "array" });
-      if (candidate) {
+      // Length guard: reject oversized payloads.
+      if (candidate && candidate.length > 64_000) {
+        console.warn("[textprep.alignClaims] JSON candidate exceeds max length, falling back to heuristic");
+      } else if (candidate) {
         const parsed = JSON.parse(candidate);
         if (Array.isArray(parsed)) {
+          // Cardinality guard: limit parsed rows.
+          const safeRows = parsed.length > 200 ? parsed.slice(0, 200) : parsed;
           const bySlide = new Map();
-          for (const row of parsed) {
+          for (const row of safeRows) {
             const sid = row?.slideIntentId;
             if (!slideIdSet.has(sid)) continue;
             const claimIdsRaw = Array.isArray(row?.claimIds) ? row.claimIds : [];
@@ -213,7 +235,8 @@ async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
           }));
         }
       }
-    } catch {
+    } catch (err) {
+      console.warn("[textprep.alignClaims] LLM call failed, falling back to heuristic:", err?.message);
       // fall through to heuristic
     }
   }

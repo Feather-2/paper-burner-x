@@ -179,6 +179,20 @@ export function buildImagePrompt(slideIntent, designSystem, options = {}) {
  * @returns {Promise<BananaBatchGenerateResult>}
  */
 export async function runBananaGenerate(slideIntents, designSystem, options = {}) {
+  // Input validation
+  if (!Array.isArray(slideIntents)) {
+    return { success: false, error: "slideIntents must be an array" };
+  }
+  for (let i = 0; i < slideIntents.length; i++) {
+    const intent = slideIntents[i];
+    if (intent === null || typeof intent !== "object") {
+      return { success: false, error: `slideIntents[${i}] must be an object` };
+    }
+  }
+  if (designSystem !== null && designSystem !== undefined && typeof designSystem !== "object") {
+    return { success: false, error: "designSystem must be an object or null" };
+  }
+
   const {
     imageGenerator,
     signal,
@@ -207,18 +221,23 @@ export async function runBananaGenerate(slideIntents, designSystem, options = {}
     });
   }
 
-  // 批量生成（简化实现：顺序执行）
+  const DEFAULT_TIMEOUT_MS = 60000;
+
+  // 批量生成（顺序执行，支持超时和取消）
   for (const item of prompts) {
     if (signal?.aborted) {
-      results.push({
-        slideIndex: item.slideIndex,
-        success: false,
-        error: "Cancelled",
-      });
-      continue;
+      // 填充剩余为已取消，然后退出
+      for (const remaining of prompts.slice(prompts.indexOf(item))) {
+        results.push({
+          slideIndex: remaining.slideIndex,
+          success: false,
+          error: "Cancelled",
+        });
+      }
+      break;
     }
 
-    emit?.("banana.generating", {
+    emit?.("banana:generating", {
       actor: "banana",
       status: "progress",
       payload: {
@@ -228,26 +247,46 @@ export async function runBananaGenerate(slideIntents, designSystem, options = {}
     });
 
     try {
-      const image = await imageGenerator.generate({
+      const generatePromise = imageGenerator.generate({
         prompt: item.prompt,
         width,
         height,
         model: options.model || BANANA_CONFIG.defaultModel,
       });
-
-      results.push({
-        slideIndex: item.slideIndex,
-        slideIntentId: item.slideIntentId,
-        success: true,
-        image: image?.url || image?.base64,
-        prompt: item.prompt,
+      const timeoutPromise = new Promise((_, reject) => {
+        const timer = setTimeout(() => reject(new Error("Generation timeout")), DEFAULT_TIMEOUT_MS);
+        signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("Cancelled"));
+        }, { once: true });
       });
+
+      const image = await Promise.race([generatePromise, timeoutPromise]);
+
+      const imageResult = image?.url || image?.base64;
+      if (!imageResult) {
+        results.push({
+          slideIndex: item.slideIndex,
+          slideIntentId: item.slideIntentId,
+          success: false,
+          error: "No image returned",
+          prompt: item.prompt,
+        });
+      } else {
+        results.push({
+          slideIndex: item.slideIndex,
+          slideIntentId: item.slideIntentId,
+          success: true,
+          image: imageResult,
+          prompt: item.prompt,
+        });
+      }
     } catch (err) {
       results.push({
         slideIndex: item.slideIndex,
         slideIntentId: item.slideIntentId,
         success: false,
-        error: err.message,
+        error: "Image generation failed",
         prompt: item.prompt,
       });
     }
@@ -255,7 +294,7 @@ export async function runBananaGenerate(slideIntents, designSystem, options = {}
 
   const successCount = results.filter((r) => r.success).length;
 
-  emit?.("banana.completed", {
+  emit?.("banana:completed", {
     actor: "banana",
     status: "ended",
     payload: {
@@ -320,7 +359,7 @@ export async function regenerate(request, options = {}) {
     newPrompt = `${newPrompt}\n\n(Reference area: x=${bbox.x}, y=${bbox.y}, w=${bbox.w}, h=${bbox.h})`;
   }
 
-  emit?.("banana.regenerating", {
+  emit?.("banana:regenerating", {
     actor: "banana",
     status: "progress",
     payload: { slideIndex },
@@ -334,17 +373,27 @@ export async function regenerate(request, options = {}) {
       model: options.model || BANANA_CONFIG.defaultModel,
     });
 
+    const imageResult = image?.url || image?.base64;
+    if (!imageResult) {
+      return {
+        success: false,
+        slideIndex,
+        error: "No image returned",
+        prompt: newPrompt,
+      };
+    }
+
     return {
       success: true,
       slideIndex,
-      image: image?.url || image?.base64,
+      image: imageResult,
       prompt: newPrompt,
     };
   } catch (err) {
     return {
       success: false,
       slideIndex,
-      error: err.message,
+      error: "Image generation failed",
       prompt: newPrompt,
     };
   }

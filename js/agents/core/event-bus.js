@@ -87,7 +87,8 @@ function isObject(value) {
  */
 function isValidEventName(name) {
   if (name === '*') return true;
-  return typeof name === 'string' && /^[a-z0-9_]+(\.[a-z0-9_]+)*$/.test(name);
+  // 支持 domain:action 和 domain.action 两种格式
+  return typeof name === 'string' && /^[a-z0-9_]+([.:][a-z0-9_]+)*$/.test(name);
 }
 
 /**
@@ -97,8 +98,8 @@ function isValidEventName(name) {
 function isValidEventPattern(pattern) {
   if (pattern === '*') return true;
   if (typeof pattern !== 'string') return false;
-  // Allow wildcard segments while keeping the same "dot-separated tokens" shape.
-  return /^[a-z0-9_*?]+(\.[a-z0-9_*?]+)*$/.test(pattern);
+  // 支持 domain:action 和 domain.action 两种格式，允许通配符
+  return /^[a-z0-9_*?]+([.:][a-z0-9_*?]+)*$/.test(pattern);
 }
 
 function assertValidEventName(name) {

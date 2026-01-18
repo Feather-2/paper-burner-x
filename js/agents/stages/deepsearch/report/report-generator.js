@@ -2,6 +2,7 @@ import { checkCancelled, extractJsonCandidate } from "../state.js";
 import { getModelCaller } from "../model.js";
 import { finalizeCitationsInMarkdown } from "./citations.js";
 import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { safeJsonParse } from "../../../shared/utils/safe-json.js";
 import { clampInt, mapConcurrent, normalizeStringArray, resolveMaxParallelSections } from "./write-utils.js";
 
 function clampProgress(progress) {
@@ -526,14 +527,7 @@ export async function generateReportSingleWithLLM(state, { claims, evidenceLedge
   checkCancelled(stageApi);
   const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 2500 });
   const candidate = extractJsonCandidate(result?.content);
-  let parsed = null;
-  if (candidate) {
-    try {
-      parsed = JSON.parse(candidate);
-    } catch {
-      parsed = null;
-    }
-  }
+  const parsed = safeJsonParse(candidate, { maxChars: 100_000 });
   const markdown = toNonEmptyString(parsed?.markdown) || toNonEmptyString(result?.content) || skeleton.draftMarkdown || skeleton.markdown;
   const titled = toNonEmptyString(parsed?.title) || toNonEmptyString(state?.userConfig?.title) || toNonEmptyString(state?.L1?.scanSummary?.title) || "";
   const hasTitle = typeof markdown === "string" && markdown.trimStart().startsWith("#");
@@ -601,14 +595,7 @@ export async function generateReportTocBasedWithLLM(state, { claims, evidenceLed
   checkCancelled(stageApi);
   const tocResult = await callModel(tocMessages, { model: "auto", temperature: 0.2, maxTokens: 1200 });
   const tocCandidate = extractJsonCandidate(tocResult?.content);
-  let tocParsed = null;
-  if (tocCandidate) {
-    try {
-      tocParsed = JSON.parse(tocCandidate);
-    } catch {
-      tocParsed = null;
-    }
-  }
+  const tocParsed = safeJsonParse(tocCandidate, { maxChars: 50_000 });
   const tocPlan = normalizeTocPlan(tocParsed, allClaimIds);
   const tocSectionsRaw = tocPlan.sections.length
     ? tocPlan.sections
@@ -712,14 +699,7 @@ export async function generateReportTocBasedWithLLM(state, { claims, evidenceLed
     checkCancelled(stageApi);
     const sectionResult = await callModel(sectionMessages, { model: "auto", temperature: 0.2, maxTokens: 2000 });
     const sectionCandidate = extractJsonCandidate(sectionResult?.content);
-    let sectionParsed = null;
-    if (sectionCandidate) {
-      try {
-        sectionParsed = JSON.parse(sectionCandidate);
-      } catch {
-        sectionParsed = null;
-      }
-    }
+    const sectionParsed = safeJsonParse(sectionCandidate, { maxChars: 50_000 });
 
     const sectionTitle = toNonEmptyString(sectionParsed?.title) || toNonEmptyString(plan.title) || `Section ${i + 1}`;
     const content = toNonEmptyString(sectionParsed?.content) || "";

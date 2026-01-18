@@ -68,15 +68,19 @@ export default createPlugin({
       try {
         ctx.events.emit('scheduler.task.start', { id: task.id, priority: task.priority });
 
-        const result = await Promise.race([
-          task.execute(),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Task timeout')), task.timeout)
-          ),
-        ]);
+        // Issue #3: 保存 timeout 句柄并在任务完成后清理
+        let timeoutHandle;
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error('Task timeout')), task.timeout);
+        });
 
-        task.resolve(result);
-        ctx.events.emit('scheduler.task.complete', { id: task.id });
+        try {
+          const result = await Promise.race([task.execute(), timeoutPromise]);
+          task.resolve(result);
+          ctx.events.emit('scheduler.task.complete', { id: task.id });
+        } finally {
+          clearTimeout(timeoutHandle);
+        }
       } catch (error) {
         task.reject(error);
         ctx.events.emit('scheduler.task.error', { id: task.id, error: error.message });

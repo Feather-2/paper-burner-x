@@ -7,6 +7,31 @@
 import { createPlugin } from '../../core/plugin.js';
 
 /**
+ * @typedef {object} VfsReadOptions
+ * @property {BufferEncoding} [encoding] - 文件编码
+ */
+
+/**
+ * @typedef {object} VfsWriteOptions
+ * @property {BufferEncoding} [encoding] - 文件编码
+ * @property {boolean} [recursive] - 是否递归创建目录
+ */
+
+/**
+ * @typedef {object} VfsDirEntry
+ * @property {string} name - 文件/目录名
+ * @property {'file' | 'dir'} kind - 类型
+ */
+
+/**
+ * @typedef {object} VfsStat
+ * @property {number} size - 文件大小（字节）
+ * @property {Date} mtime - 修改时间
+ * @property {boolean} isFile - 是否是文件
+ * @property {boolean} isDirectory - 是否是目录
+ */
+
+/**
  * @typedef {object} VfsLike
  * @property {(path: string, options?: any) => Promise<any>} readFile
  * @property {(path: string, data: any, options?: any) => Promise<any>} writeFile
@@ -37,17 +62,37 @@ export default createPlugin({
     const vfs = await createVfs(ctx.config);
 
     ctx.registerService('vfs', {
-      // 文件操作
+      /**
+       * 读取文件内容
+       * @param {string} path - 文件路径
+       * @param {VfsReadOptions} [options] - 读取选项
+       * @returns {Promise<string | Uint8Array>} 文件内容
+       * @throws {Error} 文件不存在或读取失败
+       */
       async readFile(path, options) {
         return vfs.readFile(path, options);
       },
 
+      /**
+       * 写入文件内容
+       * @param {string} path - 文件路径
+       * @param {string | Uint8Array} data - 文件内容
+       * @param {VfsWriteOptions} [options] - 写入选项
+       * @returns {Promise<void>}
+       * @throws {Error} 写入失败
+       */
       async writeFile(path, data, options) {
         const result = await vfs.writeFile(path, data, options);
         ctx.events.emit('vfs.write', { path });
         return result;
       },
 
+      /**
+       * 删除文件
+       * @param {string} path - 文件路径
+       * @returns {Promise<void>}
+       * @throws {Error} 文件不存在或删除失败
+       */
       async deleteFile(path) {
         const deleter =
           typeof vfs.deleteFile === 'function'
@@ -67,19 +112,40 @@ export default createPlugin({
         return result;
       },
 
+      /**
+       * 检查路径是否存在
+       * @param {string} path - 文件或目录路径
+       * @returns {Promise<boolean>}
+       */
       async exists(path) {
         return vfs.exists(path);
       },
 
+      /**
+       * 获取文件/目录状态信息
+       * @param {string} path - 文件或目录路径
+       * @returns {Promise<VfsStat>}
+       * @throws {Error} 路径不存在
+       */
       async stat(path) {
         return vfs.stat(path);
       },
 
-      // 目录操作
+      /**
+       * 读取目录内容（原始）
+       * @param {string} path - 目录路径
+       * @param {{withFileTypes?: boolean}} [options] - 选项
+       * @returns {Promise<string[] | object[]>}
+       */
       async readdir(path, options) {
         return vfs.readdir(path, options);
       },
 
+      /**
+       * 读取目录内容（结构化）
+       * @param {string} path - 目录路径
+       * @returns {Promise<VfsDirEntry[]>}
+       */
       async list(path) {
         const entries = await vfs.readdir(path, { withFileTypes: true });
         if (!Array.isArray(entries)) return [];
@@ -88,15 +154,33 @@ export default createPlugin({
           .map((e) => ({ name: e.name, kind: e.isDirectory?.() ? "dir" : "file" }));
       },
 
+      /**
+       * 创建目录
+       * @param {string} path - 目录路径
+       * @param {{recursive?: boolean}} [options] - 选项
+       * @returns {Promise<void>}
+       */
       async mkdir(path, options) {
         return vfs.mkdir(path, options);
       },
 
+      /**
+       * 删除目录
+       * @param {string} path - 目录路径
+       * @param {{recursive?: boolean}} [options] - 选项
+       * @returns {Promise<void>}
+       * @throws {Error} 目录不存在或非空
+       */
       async rmdir(path, options) {
         return vfs.rmdir(path, options);
       },
 
-      // Glob
+      /**
+       * 使用 glob 模式匹配文件
+       * @param {string | {pattern: string}} pattern - glob 模式
+       * @param {{cwd?: string, ignore?: string[]}} [options] - 选项
+       * @returns {Promise<string[]>} 匹配的文件路径列表
+       */
       async glob(pattern, options) {
         if (typeof vfs.glob === 'function') {
           return vfs.glob(pattern, options);
@@ -114,12 +198,18 @@ export default createPlugin({
         return globFn(request);
       },
 
-      // 获取底层 VFS 实例
+      /**
+       * 获取底层 VFS 实例
+       * @returns {VfsLike}
+       */
       getInstance() {
         return vfs;
       },
 
-      // 类型信息
+      /**
+       * 获取 VFS 类型名称
+       * @returns {string}
+       */
       getType() {
         return vfs.constructor.name;
       },

@@ -106,8 +106,9 @@ export class DegradationPolicy {
 
   /**
    * 检查功能是否可用
-   * @param {OperationLevelValue} level
-   * @param {string} feature
+   * @param {OperationLevelValue} level - 运行级别
+   * @param {string} feature - 功能名称
+   * @returns {boolean} 功能是否可用
    */
   isFeatureEnabled(level, feature) {
     return this.features[level]?.[feature] ?? false;
@@ -115,7 +116,8 @@ export class DegradationPolicy {
 
   /**
    * 获取级别的所有可用功能
-   * @param {OperationLevelValue} level
+   * @param {OperationLevelValue} level - 运行级别
+   * @returns {string[]} 可用功能名称数组
    */
   getEnabledFeatures(level) {
     return Object.entries(this.features[level] || {})
@@ -237,7 +239,13 @@ export class DegradationMatrix {
    * @param {object} result
    */
   recordRequest({ latencyMs = 0, isError = false } = {}) {
-    this._metrics.recordRequest(latencyMs, isError);
+    // Validate: latencyMs must be finite non-negative; isError must be boolean
+    const validLatency = typeof latencyMs === "number" && Number.isFinite(latencyMs) && latencyMs >= 0
+      ? latencyMs
+      : 0;
+    const validIsError = typeof isError === "boolean" ? isError : false;
+
+    this._metrics.recordRequest(validLatency, validIsError);
     this._evaluate();
   }
 
@@ -323,7 +331,11 @@ export class DegradationMatrix {
     logger.warn("Operation level changed", { from: oldLevel, to: newLevel, trigger });
 
     if (this._onLevelChange) {
-      this._onLevelChange({ from: oldLevel, to: newLevel, trigger });
+      try {
+        this._onLevelChange({ from: oldLevel, to: newLevel, trigger });
+      } catch (err) {
+        logger.error("onLevelChange callback threw", { error: err });
+      }
     }
   }
 
