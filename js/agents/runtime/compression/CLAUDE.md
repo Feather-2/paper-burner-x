@@ -206,6 +206,21 @@ const compressor = new CicadaCompressor({
 const compressed = await compressor.compress(messages, { targetTokens: 50000 });
 ```
 
+### 原子化规则 (Atomization)
+
+`_compressWithLLM()` 内置 SimpleMem 论文的原子化策略，确保每条记忆独立可理解：
+
+1. **指代消解 (Coreference Resolution)**
+   - 代词 → 具体实体："他/她/它" → 实际名称
+   - 指示词 → 具体对象："那个文件" → 实际文件名
+
+2. **时间归一化 (Temporal Normalization)**
+   - 相对时间 → ISO-8601："明天" → "2025-01-20"
+   - 模糊时间 → 精确时间戳："刚才" → "2025-01-19T14:30:00Z"
+
+3. **当前时间注入**
+   - Prompt 中自动包含 `Current time: ${ISO-8601}` 供 LLM 参考
+
 ## CompressionCoordinator
 
 协调 Watchdog + Compressor：
