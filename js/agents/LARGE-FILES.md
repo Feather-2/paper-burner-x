@@ -108,3 +108,25 @@
 | 日期 | 更新 |
 |------|------|
 | 2026-01-19 | 初始版本，统计 700+/1000+ 大文件 |
+
+## 拆分完成记录 (2026-01-20)
+
+### 原 1000+ 行文件拆分结果
+
+| 原文件 | 原行数 | 现行数 | 新模块 |
+|--------|--------|--------|--------|
+| memory-store.impl.js | 1655 | 2 | core + L0/L1/L2/L3 + utils |
+| unified-memory-store.js | 1484 | 144 | query + write + index + lifecycle + utils |
+| design/agent-loop.js | 1431 | 526 | phases/* + state-manager + tool-handler + deck-operations |
+| write-report/handler.js | 1356 | 799 | citations + formatting + template |
+| state-engine.js | 1268 | 540 | reducers + events + persistence + utils |
+| model-router.js | 1234 | 356 | call-executor + config-parser + health-manager + fallback + provider-selection |
+| event-bus.js | 1214 | 838 | event-record + subscriptions + utils |
+| l3-storage.js | 1167 | 710 | storage-io + index-manager + query + tab-coordinator |
+| run-store.js | 1136 | 209 | crud + queries + cache + utils |
+| runtime/agent-loop.js | 1016 | 684 | message-handling + tool-dispatch + lifecycle-hooks |
+| archive.js | 1002 | 309 | core + serialization + map-adapter |
+
+**结果**: 11 个文件全部降到 1000 行以下，6 个降到 500 行以下。
+
+Commit: `50e5d83`
