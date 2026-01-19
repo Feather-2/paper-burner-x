@@ -4,8 +4,8 @@ import {
   EmbeddingService,
   createEmbeddingService,
   normalizeEmbeddingConfig,
-} from "../../../js/agents/shared/embeddings/embedding-service.js";
-import { VectorIndex } from "../../../js/agents/shared/embeddings/vector-index.js";
+} from '../../../../js/agents/shared/embeddings/embedding-service.js';
+import { VectorIndex } from '../../../../js/agents/shared/embeddings/vector-index.js';
 
 afterEach(() => {
   vi.restoreAllMocks();

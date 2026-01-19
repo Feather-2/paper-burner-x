@@ -2,7 +2,7 @@
  * edit-mode/tools.js 单元测试
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { createEditToolExecutor, EditModeTools } from "../../../../js/agents/stages/design/edit-mode/tools.js";
+import { createEditToolExecutor, EditModeTools } from '../../../../../js/agents/stages/design/edit-mode/tools.js';
 
 describe("edit-mode/tools", () => {
   let context;

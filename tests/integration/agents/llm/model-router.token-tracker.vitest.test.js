@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ModelRouter } from "../../../js/agents/llm/model-router.js";
-import { getGlobalTokenTracker } from "../../../js/agents/runtime/telemetry/token-tracker.js";
+import { ModelRouter } from '../../../../js/agents/llm/model-router.js';
+import { getGlobalTokenTracker } from '../../../../js/agents/runtime/telemetry/token-tracker.js';
 
 import { createFakeTime, createMockProvider } from "./vitest-utils.js";
 

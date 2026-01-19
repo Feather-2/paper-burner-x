@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { McpProvider } from "../../../js/agents/mcp/mcp-client.js";
+import { McpProvider } from '../../../../js/agents/mcp/mcp-client.js';
 
 describe("McpProvider (base)", () => {
   it("defaults id/name/endpoint when missing", () => {

@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import { SkillsManager } from "../../js/agents/skills/manager.js";
+import { SkillsManager } from '../../../js/agents/skills/manager.js';
 
 /**
  * Create a mock skill content object

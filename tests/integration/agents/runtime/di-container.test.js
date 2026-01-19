@@ -3,7 +3,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { Container, SINGLETON, TRANSIENT, createContainer } from "../../../js/agents/runtime/di/container.js";
+import { Container, SINGLETON, TRANSIENT, createContainer } from '../../../../js/agents/runtime/di/container.js';
 
 describe("DI Container", () => {
   it("registers and resolves singleton", () => {

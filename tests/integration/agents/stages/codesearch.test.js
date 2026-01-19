@@ -6,26 +6,26 @@
 // Source imports
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { CodeSearchStage } from "../../../js/agents/stages/codesearch/codesearch-stage.js";
-import { CodeSearchState } from "../../../js/agents/stages/codesearch/state.js";
+import { CodeSearchStage } from '../../../../js/agents/stages/codesearch/codesearch-stage.js';
+import { CodeSearchState } from '../../../../js/agents/stages/codesearch/state.js';
 import {
   CodeSearchPhase,
   TodoStatus,
-} from "../../../js/agents/stages/codesearch/states.js";
-import { SymbolIndexer } from "../../../js/agents/stages/codesearch/indexing/symbol-indexer.js";
-import { CodeSearchIndexStore } from "../../../js/agents/stages/codesearch/indexing/index-store.js";
+} from '../../../../js/agents/stages/codesearch/states.js';
+import { SymbolIndexer } from '../../../../js/agents/stages/codesearch/indexing/symbol-indexer.js';
+import { CodeSearchIndexStore } from '../../../../js/agents/stages/codesearch/indexing/index-store.js';
 import {
   runPlanningPhase,
   buildSystemPrompt,
   formatOpenTodos,
   isTodoOpen,
-} from "../../../js/agents/stages/codesearch/phases/planning-phase.js";
-import { runExecutionStep } from "../../../js/agents/stages/codesearch/phases/execution-phase.js";
+} from '../../../../js/agents/stages/codesearch/phases/planning-phase.js';
+import { runExecutionStep } from '../../../../js/agents/stages/codesearch/phases/execution-phase.js';
 import {
   runSummarizingPhase,
   buildTodoCompletionStats,
-} from "../../../js/agents/stages/codesearch/phases/summarizing-phase.js";
-import { createToolExecutor } from "../../../js/agents/stages/codesearch/code-tools.js";
+} from '../../../../js/agents/stages/codesearch/phases/summarizing-phase.js';
+import { createToolExecutor } from '../../../../js/agents/stages/codesearch/code-tools.js';
 
 // ============================================================================
 // Mock Factories

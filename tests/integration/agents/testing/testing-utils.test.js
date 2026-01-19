@@ -8,7 +8,7 @@ import {
   MockServer,
   ScenarioRunner,
   createMockTestEnv,
-} from "../../../js/agents/testing/mock-suite.js";
+} from '../../../../js/agents/testing/mock-suite.js';
 
 // ============================================================================
 // MockModelClient

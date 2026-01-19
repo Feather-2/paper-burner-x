@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import ToolExecutor, { __test } from '../../../../js/agents/runtime/tools/tool-executor.js';
+import ToolExecutor, { __test } from '../../../../../js/agents/runtime/tools/tool-executor.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();

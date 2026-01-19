@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 
-import { validateRpcRequest, validateRpcResponse } from "../../../js/agents/shared/contracts/rpc-message.js";
-import { validateToolCall, validateLlmResponse } from "../../../js/agents/shared/contracts/llm-response.js";
+import { validateRpcRequest, validateRpcResponse } from '../../../../js/agents/shared/contracts/rpc-message.js';
+import { validateToolCall, validateLlmResponse } from '../../../../js/agents/shared/contracts/llm-response.js';
 
 describe("shared/contracts/rpc-message", () => {
   it("validateRpcRequest: rejects non-object and missing/blank type", () => {

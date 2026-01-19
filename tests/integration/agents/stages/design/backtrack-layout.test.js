@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { BacktrackError } from "../../../../js/agents/stages/design/agent-loop.js";
-import { DesignPhase, designPhaseMachine } from "../../../../js/agents/stages/design/states.js";
-import { generateLayoutHtml, generateLayoutBatch } from "../../../../js/agents/stages/design/generators/layout-generator.js";
+import { BacktrackError } from '../../../../../js/agents/stages/design/agent-loop.js';
+import { DesignPhase, designPhaseMachine } from '../../../../../js/agents/stages/design/states.js';
+import { generateLayoutHtml, generateLayoutBatch } from '../../../../../js/agents/stages/design/generators/layout-generator.js';
 
 describe("BacktrackError", () => {
   it("should create error with correct properties", () => {

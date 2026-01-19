@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { MemoryVfs } from "../../js/agents/vfs/vfs.memory.js";
+import { MemoryVfs } from '../../../js/agents/vfs/vfs.memory.js';
 
 describe("vfs/vfs.memory", () => {
   /** @type {MemoryVfs} */

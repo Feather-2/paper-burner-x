@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { Kernel, PluginContext } from '../../../js/agents/core/index.js';
-import watchdogPlugin from '../../../js/agents/plugins/compression/watchdog.js';
+import { Kernel, PluginContext } from '../../../../js/agents/core/index.js';
+import watchdogPlugin from '../../../../js/agents/plugins/compression/watchdog.js';
 
 describe('compression/watchdog cleanup', () => {
   afterEach(() => {

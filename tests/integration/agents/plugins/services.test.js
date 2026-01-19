@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Kernel } from '../../../js/agents/core/index.js';
+import { Kernel } from '../../../../js/agents/core/index.js';
 
 import pluginsIndexDefault, {
   createPluginLoader,
@@ -19,12 +19,12 @@ import pluginsIndexDefault, {
   listAvailablePlugins,
   loadPlugin,
   registerPlugin,
-} from '../../../js/agents/plugins/index.js';
+} from '../../../../js/agents/plugins/index.js';
 
-import retryPlugin from '../../../js/agents/plugins/resilience/retry.js';
-import schedulerPlugin, { TaskPriority } from '../../../js/agents/plugins/services/scheduler.js';
-import vfsPlugin from '../../../js/agents/plugins/services/vfs.js';
-import inspectorPlugin from '../../../js/agents/plugins/debug/inspector.js';
+import retryPlugin from '../../../../js/agents/plugins/resilience/retry.js';
+import schedulerPlugin, { TaskPriority } from '../../../../js/agents/plugins/services/scheduler.js';
+import vfsPlugin from '../../../../js/agents/plugins/services/vfs.js';
+import inspectorPlugin from '../../../../js/agents/plugins/debug/inspector.js';
 
 let createVfsOverride = null;
 

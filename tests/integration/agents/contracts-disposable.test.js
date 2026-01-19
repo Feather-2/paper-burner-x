@@ -7,7 +7,7 @@ import {
   disposeAll,
   using,
   createCompositeDisposable,
-} from "../../js/agents/shared/contracts/disposable.js";
+} from '../../../js/agents/shared/contracts/disposable.js';
 
 describe("shared/contracts/disposable", () => {
   describe("isDisposable", () => {

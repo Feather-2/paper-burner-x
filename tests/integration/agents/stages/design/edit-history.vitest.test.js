@@ -6,7 +6,7 @@ vi.mock("../../../../js/agents/shared/utils/value-utils.js", () => {
   };
 });
 
-import { EditHistoryManager } from "../../../../js/agents/stages/design/edit-mode/history.js";
+import { EditHistoryManager } from '../../../../../js/agents/stages/design/edit-mode/history.js';
 
 describe("design/edit-mode/history", () => {
   beforeEach(() => {

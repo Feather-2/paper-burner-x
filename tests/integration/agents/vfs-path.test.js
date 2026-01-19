@@ -6,7 +6,7 @@ import {
   dirnameVfsPath,
   basenameVfsPath,
   joinVfsPath,
-} from "../../js/agents/vfs/path.js";
+} from '../../../js/agents/vfs/path.js';
 
 describe("vfs/path", () => {
   describe("normalizeVfsPath", () => {

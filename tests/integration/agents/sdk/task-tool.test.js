@@ -1,10 +1,10 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { createTaskTool, ContextMode, TASK_TOOL_DEFINITION } from "../../../js/agents/runtime/tools/TaskTool.js";
-import { SubagentRegistry } from "../../../js/agents/sdk/SubagentRegistry.js";
-import { CicadaCompressor } from "../../../js/agents/runtime/compression/cicada-compressor.js";
-import { Watchdog } from "../../../js/agents/runtime/compression/watchdog.js";
+import { createTaskTool, ContextMode, TASK_TOOL_DEFINITION } from '../../../../js/agents/runtime/tools/TaskTool.js';
+import { SubagentRegistry } from '../../../../js/agents/sdk/SubagentRegistry.js';
+import { CicadaCompressor } from '../../../../js/agents/runtime/compression/cicada-compressor.js';
+import { Watchdog } from '../../../../js/agents/runtime/compression/watchdog.js';
 
 describe("TaskTool", () => {
   it("should have context_mode in schema", () => {

@@ -19,8 +19,8 @@ vi.mock(
   }
 );
 
-import { BaseAgentLoop, BaseStage } from "../../../../js/agents/runtime/core/agent-loop.js";
-import { getLimit } from "../../../../js/agents/runtime/constants/limits.js";
+import { BaseAgentLoop, BaseStage } from '../../../../../js/agents/runtime/core/agent-loop.js';
+import { getLimit } from '../../../../../js/agents/runtime/constants/limits.js';
 
 function createTestEventBus() {
   /** @type {Map<string, Set<Function>>} */

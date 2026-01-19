@@ -6,7 +6,7 @@ import {
   globToRegExp,
   matchGlob,
   createVfsGlobFn,
-} from "../../js/agents/vfs/glob.js";
+} from '../../../js/agents/vfs/glob.js';
 
 describe("vfs/glob", () => {
   describe("expandBraces", () => {

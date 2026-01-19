@@ -6,8 +6,8 @@ import {
   validateOutput,
   quarantineOutput,
   DEFAULT_OUTPUT_SCHEMA,
-} from "../../js/agents/sdk/SubagentRegistry.js";
-import { InjectionScanner } from "../../js/agents/sdk/injection-scanner.js";
+} from '../../../js/agents/sdk/SubagentRegistry.js';
+import { InjectionScanner } from '../../../js/agents/sdk/injection-scanner.js';
 
 describe("SubagentRegistry", () => {
   let registry;

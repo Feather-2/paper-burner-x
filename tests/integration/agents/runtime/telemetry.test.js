@@ -7,7 +7,7 @@ import TraceContext, {
   generateTraceId,
   parseTraceparent,
   withSpan as withSpanHelper,
-} from '../../../js/agents/runtime/telemetry/trace-context.js';
+} from '../../../../js/agents/runtime/telemetry/trace-context.js';
 
 import {
   LoopRuntimeState,
@@ -16,9 +16,9 @@ import {
   ensureRuntimeState,
   getRuntimeState,
   setRuntimeState,
-} from '../../../js/agents/runtime/telemetry/loop-runtime-state.js';
+} from '../../../../js/agents/runtime/telemetry/loop-runtime-state.js';
 
-import { RunReplayController } from '../../../js/agents/runtime/telemetry/replay-controller.js';
+import { RunReplayController } from '../../../../js/agents/runtime/telemetry/replay-controller.js';
 
 function silenceConsole() {
   const spies = [

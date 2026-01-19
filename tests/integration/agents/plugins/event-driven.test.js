@@ -9,12 +9,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Kernel } from '../../../js/agents/core/index.js';
+import { Kernel } from '../../../../js/agents/core/index.js';
 
-import cicadaPlugin from '../../../js/agents/plugins/compression/cicada.js';
-import watchdogPlugin from '../../../js/agents/plugins/compression/watchdog.js';
-import fingerprintPlugin from '../../../js/agents/plugins/analysis/fingerprint.js';
-import loggerPlugin from '../../../js/agents/plugins/debug/logger.js';
+import cicadaPlugin from '../../../../js/agents/plugins/compression/cicada.js';
+import watchdogPlugin from '../../../../js/agents/plugins/compression/watchdog.js';
+import fingerprintPlugin from '../../../../js/agents/plugins/analysis/fingerprint.js';
+import loggerPlugin from '../../../../js/agents/plugins/debug/logger.js';
 
 vi.mock('../../../js/agents/runtime/compression/cicada-compressor.js', () => {
   return {

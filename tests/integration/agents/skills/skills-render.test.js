@@ -5,7 +5,7 @@ import render, {
   renderSkillsSection,
   renderSkillsList,
   renderUnifiedCatalog,
-} from "../../../js/agents/skills/render.js";
+} from '../../../../js/agents/skills/render.js';
 
 const { getSkillPriority, groupSkillsByPriority } = render;
 

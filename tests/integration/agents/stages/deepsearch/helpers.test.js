@@ -14,11 +14,11 @@ import {
   sliceTail,
   stableStringify,
   toClamped01Float,
-} from "../../../../js/agents/stages/deepsearch/deepsearch-helpers.js";
-import { checkCancelled, generateNodeId, makeStageEmitter } from "../../../../js/agents/stages/deepsearch/stage-utils.js";
-import { SourceManager } from "../../../../js/agents/stages/deepsearch/source-manager.js";
-import { TraceContext } from "../../../../js/agents/runtime/telemetry/trace-context.js";
-import { ErrorBoundary, getErrorBoundary } from "../../../../js/agents/runtime/core/error-boundary.js";
+} from '../../../../../js/agents/stages/deepsearch/deepsearch-helpers.js';
+import { checkCancelled, generateNodeId, makeStageEmitter } from '../../../../../js/agents/stages/deepsearch/stage-utils.js';
+import { SourceManager } from '../../../../../js/agents/stages/deepsearch/source-manager.js';
+import { TraceContext } from '../../../../../js/agents/runtime/telemetry/trace-context.js';
+import { ErrorBoundary, getErrorBoundary } from '../../../../../js/agents/runtime/core/error-boundary.js';
 
 describe("deepsearch/deepsearch-helpers", () => {
   it("deepSortForStableJson: deep-sorts object keys and handles circular refs", () => {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fileURLToPath } from 'node:url';
 
-import ToolExecutor, { createToolExecutor, executeTool } from '../../../../js/agents/runtime/tools/tool-executor.js';
+import ToolExecutor, { createToolExecutor, executeTool } from '../../../../../js/agents/runtime/tools/tool-executor.js';
 
 const POOLS_KEY = '__PB_TOOL_EXECUTOR_WORKER_POOLS_V1__';
 

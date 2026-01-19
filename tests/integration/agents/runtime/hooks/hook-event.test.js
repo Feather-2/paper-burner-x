@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-import { HookEvent, HookRegistry, HookType } from '../../../../js/agents/runtime/hooks/index.js';
+import { HookEvent, HookRegistry, HookType } from '../../../../../js/agents/runtime/hooks/index.js';
 
 describe('HookEvent', () => {
   it('exposes the expected event names', () => {

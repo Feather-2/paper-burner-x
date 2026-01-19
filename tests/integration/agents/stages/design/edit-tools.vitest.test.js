@@ -27,8 +27,8 @@ vi.mock("../../../../js/agents/shared/utils/value-utils.js", () => {
   };
 });
 
-import { EditOperationType } from "../../../../js/agents/stages/design/constants.js";
-import { createEditToolExecutor } from "../../../../js/agents/stages/design/edit-mode/tools.js";
+import { EditOperationType } from '../../../../../js/agents/stages/design/constants.js';
+import { createEditToolExecutor } from '../../../../../js/agents/stages/design/edit-mode/tools.js';
 
 describe("design/edit-mode/tools", () => {
   beforeEach(() => {

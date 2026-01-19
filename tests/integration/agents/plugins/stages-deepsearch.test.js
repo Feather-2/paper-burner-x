@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Kernel } from '../../../js/agents/core/index.js';
-import deepsearchStagePlugin from '../../../js/agents/plugins/stages/deepsearch.js';
+import { Kernel } from '../../../../js/agents/core/index.js';
+import deepsearchStagePlugin from '../../../../js/agents/plugins/stages/deepsearch.js';
 
 let runImpl = null;
 /** @type {any[]} */

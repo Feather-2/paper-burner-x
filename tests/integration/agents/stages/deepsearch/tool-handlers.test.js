@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DeepSearchState } from "../../../../js/agents/stages/deepsearch/state.js";
-import { SourceManager } from "../../../../js/agents/stages/deepsearch/source-manager.js";
+import { DeepSearchState } from '../../../../../js/agents/stages/deepsearch/state.js';
+import { SourceManager } from '../../../../../js/agents/stages/deepsearch/source-manager.js';
 
 describe("deepsearch/tools handlers (unit)", () => {
   it("manage-todos: create/update/list/complete/cancel", async () => {

@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   validateRpcRequest,
   validateRpcResponse,
-} from "../../js/agents/shared/contracts/rpc-message.js";
+} from '../../../js/agents/shared/contracts/rpc-message.js';
 
 describe("shared/contracts/rpc-message", () => {
   describe("validateRpcRequest", () => {

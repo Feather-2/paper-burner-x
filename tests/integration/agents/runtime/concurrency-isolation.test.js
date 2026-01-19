@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { EventBus } from "../../../js/agents/core/event-bus.js";
-import { StateBus } from "../../../js/agents/core/state-bus.js";
-import { MessageBus } from "../../../js/agents/core/message-bus.js";
+import { EventBus } from '../../../../js/agents/core/event-bus.js';
+import { StateBus } from '../../../../js/agents/core/state-bus.js';
+import { MessageBus } from '../../../../js/agents/core/message-bus.js';
 
 describe("concurrency-isolation", () => {
   describe("StateBus isolation", () => {

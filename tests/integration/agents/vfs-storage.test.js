@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { StorageVfs } from "../../js/agents/vfs/vfs.storage.js";
+import { StorageVfs } from '../../../js/agents/vfs/vfs.storage.js';
 
 /**
  * Mock storage adapter implementing get/set/delete/keys/has interface.

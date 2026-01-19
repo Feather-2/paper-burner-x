@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   validateToolResult,
   normalizeToolResult,
-} from "../../js/agents/shared/contracts/tool-result.js";
+} from '../../../js/agents/shared/contracts/tool-result.js';
 
 describe("shared/contracts/tool-result", () => {
   describe("validateToolResult", () => {

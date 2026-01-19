@@ -9,7 +9,7 @@ import {
   getPlatformType,
   hasCapability,
   isNodeLike,
-} from "../../js/agents/runtime/tools/platform/index.js";
+} from '../../../js/agents/runtime/tools/platform/index.js';
 
 describe("runtime/tools/platform", () => {
   describe("platform detection", () => {

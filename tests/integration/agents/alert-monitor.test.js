@@ -1,7 +1,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { AlertMonitor } from "../../js/agents/sdk/AlertMonitor.js";
+import { AlertMonitor } from '../../../js/agents/sdk/AlertMonitor.js';
 
 /**
  * 创建 mock agent

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 
-import { NodeFsVfs } from "../../js/agents/vfs/vfs.node.js";
+import { NodeFsVfs } from '../../../js/agents/vfs/vfs.node.js';
 
 describe("NodeFsVfs", () => {
   /** @type {string} */

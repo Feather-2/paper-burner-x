@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import * as phases from "../../../../js/agents/stages/codesearch/phases/index.js";
+import * as phases from '../../../../../js/agents/stages/codesearch/phases/index.js';
 
 describe("codesearch/phases/index exports", () => {
   it("re-exports phase entrypoints", () => {

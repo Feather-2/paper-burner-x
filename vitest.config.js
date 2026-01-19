@@ -16,21 +16,10 @@ export default defineConfig({
   test: {
     testTimeout: 30000,
     include: [
-      'tests/app/**/*.test.js',
-      'tests/api/**/*.test.js',
-      'tests/chatbot/**/*.test.js',
-      'tests/core/**/*.test.js',
-      'tests/history/**/*.test.js',
-      'tests/processing/**/*.test.js',
-      // All agents tests are now vitest
-      'tests/agents/**/*.test.js',
-      // All ppt tests are now vitest
-      'tests/ppt/**/*.test.js',
-      'tests/ui/**/*.test.js',
-      'tests/storage/**/*.test.js',
-      'tests/annotations/**/*.test.js',
-      'tests/shared/**/*.test.js',
-      'tests/utils/**/*.test.js',
+      // Unit tests (1:1 source mapping)
+      'tests/unit/**/*.test.js',
+      // Integration tests (cross-module)
+      'tests/integration/**/*.test.js',
     ],
     coverage: {
       provider: 'v8',

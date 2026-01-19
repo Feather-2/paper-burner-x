@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 
-import { exec, execShell, execSimple, commandExists } from "../../js/agents/runtime/exec/index.js";
+import { exec, execShell, execSimple, commandExists } from '../../../js/agents/runtime/exec/index.js';
 
 describe("runtime/exec", () => {
   describe("exec", () => {

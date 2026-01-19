@@ -4,8 +4,8 @@ import {
   ToolRegistry,
   normalizeToolResult,
   resolveToolExecutor,
-} from '../../../js/agents/runtime/core/tool-registry.js';
-import StatusController from '../../../js/agents/runtime/core/status-controller.js';
+} from '../../../../js/agents/runtime/core/tool-registry.js';
+import StatusController from '../../../../js/agents/runtime/core/status-controller.js';
 import {
   AgentStatus,
   StepStatus,
@@ -13,7 +13,7 @@ import {
   isAgentTerminal,
   isValidAgentStatus,
   isValidStepStatus,
-} from '../../../js/agents/runtime/core/agent-status.js';
+} from '../../../../js/agents/runtime/core/agent-status.js';
 import {
   StageCancelledError,
   StagePausedError,
@@ -22,7 +22,7 @@ import {
   cancelledErrorFromSignal,
   fromErrorPayload,
   toErrorPayload,
-} from '../../../js/agents/runtime/core/stage-errors.js';
+} from '../../../../js/agents/runtime/core/stage-errors.js';
 import {
   ERROR_BOUNDARY_UNHANDLED,
   ErrorBoundary,
@@ -31,12 +31,12 @@ import {
   createErrorInfo,
   getErrorBoundary,
   withErrorBoundary,
-} from '../../../js/agents/runtime/core/error-boundary.js';
-import MessageManager from '../../../js/agents/runtime/core/message-manager.js';
-import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from '../../../js/agents/runtime/core/context-config.js';
-import WorkerRpcClient, { createRpcHandler } from '../../../js/agents/runtime/core/worker-rpc.js';
-import { setRuntimeState, LoopRuntimeStatuses } from '../../../js/agents/runtime/telemetry/loop-runtime-state.js';
-import { BaseAgentLoop, BaseStage } from '../../../js/agents/runtime/core/agent-loop.js';
+} from '../../../../js/agents/runtime/core/error-boundary.js';
+import MessageManager from '../../../../js/agents/runtime/core/message-manager.js';
+import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from '../../../../js/agents/runtime/core/context-config.js';
+import WorkerRpcClient, { createRpcHandler } from '../../../../js/agents/runtime/core/worker-rpc.js';
+import { setRuntimeState, LoopRuntimeStatuses } from '../../../../js/agents/runtime/telemetry/loop-runtime-state.js';
+import { BaseAgentLoop, BaseStage } from '../../../../js/agents/runtime/core/agent-loop.js';
 
 function createTestEventBus() {
   /** @type {Map<string, Set<Function>>} */

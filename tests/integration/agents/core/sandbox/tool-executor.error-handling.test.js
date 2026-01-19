@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { __test } from '../../../../js/agents/runtime/tools/tool-executor.js';
+import { __test } from '../../../../../js/agents/runtime/tools/tool-executor.js';
 
 describe('runtime/tools/tool-executor: WorkerPool', () => {
   it('rejects queued acquirers if worker creation fails', async () => {

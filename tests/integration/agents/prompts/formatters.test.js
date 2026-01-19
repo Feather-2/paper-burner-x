@@ -9,7 +9,7 @@ import {
   formatLines,
   formatTrim,
   formatUpper,
-} from "../../../js/agents/prompts/formatters/index.js";
+} from '../../../../js/agents/prompts/formatters/index.js';
 
 describe("agents/prompts/formatters", () => {
   describe("escapeTemplateDelimiters", () => {

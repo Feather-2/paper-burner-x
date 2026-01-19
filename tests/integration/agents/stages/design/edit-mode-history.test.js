@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
-import { EditHistoryManager } from "../../../../js/agents/stages/design/edit-mode/history.js";
+import { EditHistoryManager } from '../../../../../js/agents/stages/design/edit-mode/history.js';
 
 describe("design/edit-mode/history (branches)", () => {
   it("returns null at undo/redo boundaries and tolerates no-op operations", () => {

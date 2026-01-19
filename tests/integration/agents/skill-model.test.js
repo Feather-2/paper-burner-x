@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   SkillScope,
   SkillRuntime,
-} from "../../js/agents/skills/model.js";
+} from '../../../js/agents/skills/model.js';
 
 describe("skills/model", () => {
   describe("SkillScope", () => {

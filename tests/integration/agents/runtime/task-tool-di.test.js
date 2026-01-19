@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 
-import { createTaskTool } from '../../../js/agents/runtime/tools/TaskTool.js';
-import { createAgentContainer, createTestContainer, ServiceId } from '../../../js/agents/runtime/di/index.js';
-import { SubagentRegistry, globalSubagentRegistry } from '../../../js/agents/sdk/SubagentRegistry.js';
+import { createTaskTool } from '../../../../js/agents/runtime/tools/TaskTool.js';
+import { createAgentContainer, createTestContainer, ServiceId } from '../../../../js/agents/runtime/di/index.js';
+import { SubagentRegistry, globalSubagentRegistry } from '../../../../js/agents/sdk/SubagentRegistry.js';
 
 describe('TaskTool DI', () => {
   it('registers SubagentRegistry in default DI container', async () => {

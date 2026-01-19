@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { resetClock, currentSeq } from '../../../../js/agents/core/lamport-clock.js';
-import { LWWRegister } from '../../../../js/agents/core/crdt/lww-register.js';
-import { LWWMap } from '../../../../js/agents/core/crdt/lww-map.js';
-import { ORSet } from '../../../../js/agents/core/crdt/or-set.js';
-import { GCounter, PNCounter } from '../../../../js/agents/core/crdt/counters.js';
-import { CRDTDocument } from '../../../../js/agents/core/crdt/document.js';
+import { resetClock, currentSeq } from '../../../../../js/agents/core/lamport-clock.js';
+import { LWWRegister } from '../../../../../js/agents/core/crdt/lww-register.js';
+import { LWWMap } from '../../../../../js/agents/core/crdt/lww-map.js';
+import { ORSet } from '../../../../../js/agents/core/crdt/or-set.js';
+import { GCounter, PNCounter } from '../../../../../js/agents/core/crdt/counters.js';
+import { CRDTDocument } from '../../../../../js/agents/core/crdt/document.js';
 
 function makeClock(seq, ts = 0, id = `test_${seq}`) {
   return { seq, ts, id };

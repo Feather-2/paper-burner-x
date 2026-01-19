@@ -4,13 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 
-import { SkillScope } from "../../js/agents/skills/model.js";
-import { loadSkills } from "../../js/agents/skills/loader.js";
-import { loadSkillFromPath as loadSkillFromPathBrowser, loadSkills as loadSkillsBrowser } from "../../js/agents/skills/loader.browser.js";
-import { SkillsManager } from "../../js/agents/skills/manager.js";
-import { NexusSkillProvider } from "../../js/agents/mcp/nexus-skill-provider.js";
-import { SkillExecutor } from "../../js/agents/core/sandbox/skill-executor.js";
-import { readJsonWithLimit, readTextWithLimit } from "../../js/agents/shared/utils/response-limits.js";
+import { SkillScope } from '../../../js/agents/skills/model.js';
+import { loadSkills } from '../../../js/agents/skills/loader.js';
+import { loadSkillFromPath as loadSkillFromPathBrowser, loadSkills as loadSkillsBrowser } from '../../../js/agents/skills/loader.browser.js';
+import { SkillsManager } from '../../../js/agents/skills/manager.js';
+import { NexusSkillProvider } from '../../../js/agents/mcp/nexus-skill-provider.js';
+import { SkillExecutor } from '../../../js/agents/core/sandbox/skill-executor.js';
+import { readJsonWithLimit, readTextWithLimit } from '../../../js/agents/shared/utils/response-limits.js';
 
 async function writeSkillFile(rootDir, scope, name, body, frontmatter) {
   const skillsDir = path.join(rootDir, ".paper-burner", "skills", name);
