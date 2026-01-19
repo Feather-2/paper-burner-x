@@ -3,11 +3,10 @@
  *
  * Core components for the Skills-based Agent Loop architecture.
  *
- * For optional capabilities, use sub-path imports:
- * - import { ... } from 'js/agents/runtime/compression';
- * - import { ... } from 'js/agents/runtime/telemetry';
- * - import { ... } from 'js/agents/runtime/memory';
- * - import { ... } from 'js/agents/runtime/events';
+ * For optional capabilities, import directly from plugins/:
+ * - import { ... } from 'js/agents/plugins/compression';
+ * - import { ... } from 'js/agents/plugins/telemetry';
+ * - import { ... } from 'js/agents/plugins/memory';
  */
 
 // ============================================
@@ -32,13 +31,13 @@ export { loadMechanisms, initMechanisms } from "./core/mechanisms.js";
 export { getErrorBoundary, createDefaultErrorBoundary } from "./core/error-boundary.js";
 export { ResourceGuard } from "./core/resource-guard.js";
 export { normalizeReportLength, ReportLength } from "./core/constants.js";
-export { maybePersistToolOutput, maybePersistJsonArtifact } from "./persisted-output.js";
+export { maybePersistToolOutput, maybePersistJsonArtifact } from "./core/tool-output-persistence.js";
 export { wrapPersistedOutput, isPersistedOutput, createPersistedOutputHook } from "./core/persisted-output.js";
 
 // ============================================
 // Orchestration (multi-agent)
 // ============================================
-export { AgentOrchestrator, SchedulingMode } from "./orchestrator.js";
+export { AgentOrchestrator, SchedulingMode } from "./core/orchestrator.js";
 export { TaskGraph } from "./core/parallel/task-graph.js";
 
 // ============================================
@@ -80,10 +79,9 @@ export { UnifiedAgentContext } from "./core/context/unified-agent-context.js";
 
 // ============================================
 // Re-exports for backward compatibility
-// Use sub-path imports for new code
 // ============================================
 
-// Events - prefer: import { ... } from 'js/agents/runtime/events'
+// Events
 export { EventBus } from "../core/event-bus.js";
 export {
   RuntimeEvents,
@@ -97,16 +95,14 @@ export {
   PhaseEvents,
 } from "./events/events.js";
 
-// Compression - prefer: import { ... } from 'js/agents/runtime/compression'
+// Compression - import from plugins/compression for full API
+export { Watchdog } from "../plugins/compression/impl/watchdog.js";
 export {
-  Watchdog,
   CicadaCompressor,
   CompressionLayer,
-  CompressionCoordinator,
-} from "./compression.js";
+} from "../plugins/compression/impl/cicada-compressor.js";
+export { CompressionCoordinator } from "../plugins/compression/impl/coordinator.js";
 
-// Telemetry - prefer: import { ... } from 'js/agents/runtime/telemetry'
-export {
-  TokenTracker,
-  TraceContext,
-} from "./telemetry.js";
+// Telemetry - import from plugins/telemetry for full API
+export { TokenTracker } from "../plugins/telemetry/token-tracker.js";
+export { TraceContext } from "../plugins/telemetry/trace-context.js";

@@ -1,19 +1,19 @@
-import { createStageApi } from "../shared/utils/stage-api.js";
-import { EventBus } from "../core/event-bus.js";
-import { ActorType, OrchestratorState, isValidActorType } from "./core/constants.js";
-import { ServiceId } from "./di/defaults.js";
-import { CommonSchemas, validateConfig } from "./core/config-validator.js";
-import { TaskGraph } from "./core/parallel/task-graph.js";
-import { enhanceEventBusWithHooks } from "./hooks/event-bus-hooks.js";
-import { DisposableBase } from "../shared/base/disposable-base.js";
-import { createLogger } from "../shared/utils/logger.js";
+import { createStageApi } from "../../shared/utils/stage-api.js";
+import { EventBus } from "../../core/event-bus.js";
+import { ActorType, OrchestratorState, isValidActorType } from "./constants.js";
+import { ServiceId } from "../di/defaults.js";
+import { CommonSchemas, validateConfig } from "./config-validator.js";
+import { TaskGraph } from "./parallel/task-graph.js";
+import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
+import { DisposableBase } from "../../shared/base/disposable-base.js";
+import { createLogger } from "../../shared/utils/logger.js";
 
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 
 const logger = createLogger("runtime/orchestrator");
 
 /**
- * @typedef {import("./core/constants.js").OrchestratorState[keyof import("./core/constants.js").OrchestratorState]} OrchestratorStateValue
+ * @typedef {import("./constants.js").OrchestratorState[keyof import("./constants.js").OrchestratorState]} OrchestratorStateValue
  */
 
 /**

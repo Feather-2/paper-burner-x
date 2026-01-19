@@ -1,6 +1,6 @@
-import { computeSha256 } from "../storage/artifact-manager.js";
+import { computeSha256 } from "../../storage/artifact-manager.js";
 
-import { isPlainObject } from "../shared/utils/value-utils.js";
+import { isPlainObject } from "../../shared/utils/value-utils.js";
 function encodeUtf8Bytes(text) {
   if (typeof text !== "string") return 0;
   try {

@@ -6,7 +6,7 @@ import { planSlides } from "./slideplan.js";
 import { extractClaims } from "./claims.js";
 import { buildContentPackage } from "./build-content-package.js";
 import { BaseStage, getErrorBoundary } from "../../runtime/index.js";
-import { TraceContext } from "../../runtime/telemetry.js";
+import { TraceContext } from "../../plugins/telemetry/trace-context.js";
 import { createStageApi } from "../../shared/utils/stage-api.js";
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
 import { extractJsonCandidate } from "../../shared/utils/json-candidate.js";

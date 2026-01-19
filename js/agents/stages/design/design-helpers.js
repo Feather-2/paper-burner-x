@@ -4,7 +4,7 @@
  * 从 agent-loop.js 提取的辅助函数，减少主文件体积。
  */
 
-import { TraceContext } from "../../runtime/telemetry.js";
+import { TraceContext } from "../../plugins/telemetry/trace-context.js";
 import { getErrorBoundary } from "../../runtime/index.js";
 import { safeJsonParse } from "../../shared/utils/safe-json.js";
 import { createLogger } from "../../shared/utils/logger.js";
