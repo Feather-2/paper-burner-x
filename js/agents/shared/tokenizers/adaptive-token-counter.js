@@ -1,7 +1,7 @@
 import { isPlainObject } from "../utils/value-utils.js";
 import { estimateTokensCached } from "../utils/token-cache.js";
 import { isWasmSupported } from "../utils/wasm-support.js";
-import { getGlobalContainer } from "../../runtime/di/global-container.js";
+import { getGlobalContainer } from "../../core/di/global-container.js";
 
 function toText(value) {
   if (typeof value === "string") return value;

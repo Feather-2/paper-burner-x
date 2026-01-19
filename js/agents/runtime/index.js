@@ -52,7 +52,7 @@ export { ToolExecutor, createToolExecutor } from "./tools/tool-executor.js";
 export { HookRegistry, HookType, enhanceEventBusWithHooks, getHookRegistry, createPreToolUseHook } from "./hooks/index.js";
 
 // ============================================
-// Dependency Injection (essential)
+// Dependency Injection (re-export from core)
 // ============================================
 export {
   Container,
@@ -62,7 +62,7 @@ export {
   ServiceId,
   createAgentContainer,
   createTestContainer,
-} from "./di/index.js";
+} from "../core/di/index.js";
 
 // ============================================
 // Safety (essential)

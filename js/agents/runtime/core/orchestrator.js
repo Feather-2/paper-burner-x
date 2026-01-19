@@ -1,7 +1,7 @@
 import { createStageApi } from "../../shared/index.js";
 import { EventBus } from "../../core/event-bus.js";
 import { ActorType, OrchestratorState, isValidActorType } from "./constants.js";
-import { ServiceId } from "../di/defaults.js";
+import { ServiceId } from "../../core/di/defaults.js";
 import { CommonSchemas, validateConfig } from "./config-validator.js";
 import { TaskGraph } from "./parallel/task-graph.js";
 import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";

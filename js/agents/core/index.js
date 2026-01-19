@@ -75,6 +75,31 @@ export {
   createOp,
 } from './crdt/index.js';
 
+// === Archive (检查点) ===
+export { Archive, MapAdapter, FallbackAdapter } from './archive/archive.js';
+export { CheckpointType, createCheckpoint, migrateCheckpoint } from './archive/checkpoint-schema.js';
+
+// === Contracts (运行时契约) ===
+export {
+  validateRpcRequest,
+  validateRpcResponse,
+  validateLlmResponse,
+  validateToolCall,
+  validateToolResult,
+  normalizeToolResult,
+} from './contracts/index.js';
+
+// === Dependency Injection ===
+export {
+  Container,
+  SINGLETON,
+  TRANSIENT,
+  createContainer,
+  ServiceId,
+  createAgentContainer,
+  createTestContainer,
+} from './di/index.js';
+
 // === Level 0: 快捷函数 ===
 
 import { Kernel } from './kernel.js';

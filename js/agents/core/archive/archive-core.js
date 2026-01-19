@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString, toPositiveInt } from "../utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../../shared/utils/value-utils.js";
 import { applyJsonPatch, buildJsonPatch, safeJsonSize } from "./serialization.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;

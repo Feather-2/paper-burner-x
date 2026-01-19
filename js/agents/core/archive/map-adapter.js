@@ -1,4 +1,4 @@
-import { toNonEmptyString } from "../utils/value-utils.js";
+import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 
 /**
  * 内存存储适配器

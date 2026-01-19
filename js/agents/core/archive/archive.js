@@ -6,8 +6,8 @@
  * const snapshot = await archive.load('run_123:ckpt_1');
  */
 
-import { toNonEmptyString } from "../utils/value-utils.js";
-import { createLogger } from "../utils/logger.js";
+import { toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { createLogger } from "../../shared/utils/logger.js";
 import { MapAdapter } from "./map-adapter.js";
 
 export { Archive } from "./archive-core.js";

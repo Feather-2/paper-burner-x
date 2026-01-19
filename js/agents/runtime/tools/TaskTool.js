@@ -9,7 +9,7 @@
  * 结果回传：通过 SharedContext.commit() 分层存储，只返回轻量引用
  */
 
-import { ServiceId } from "../di/index.js";
+import { ServiceId } from "../../core/di/index.js";
 
 /**
  * @typedef {import("../../sdk/SubagentRegistry.js").SubagentRegistry} SubagentRegistry

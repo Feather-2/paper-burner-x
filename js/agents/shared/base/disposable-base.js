@@ -3,7 +3,7 @@
  * @module shared/base/disposable-base
  */
 
-import { isDisposable } from "../contracts/disposable.js";
+import { isDisposable } from "../../core/contracts/disposable.js";
 
 /**
  * Disposable 基类

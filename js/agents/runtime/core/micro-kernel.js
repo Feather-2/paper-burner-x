@@ -7,7 +7,7 @@
  */
 
 import { EventBus } from "../../core/event-bus.js";
-import { ServiceId } from "../di/defaults.js";
+import { ServiceId } from "../../core/di/defaults.js";
 import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
 
 /** Default timeout for request() in milliseconds */

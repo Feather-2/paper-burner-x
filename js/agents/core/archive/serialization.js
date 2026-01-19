@@ -1,4 +1,4 @@
-import { isPlainObject, toPositiveInt } from "../utils/value-utils.js";
+import { isPlainObject, toPositiveInt } from "../../shared/utils/value-utils.js";
 
 const DEFAULT_PATCH_MAX_DEPTH = 12;
 const DEFAULT_PATCH_MAX_OPS = 5000;

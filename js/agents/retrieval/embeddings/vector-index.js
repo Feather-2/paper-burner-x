@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString, toPositiveInt } from "../utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../../shared/utils/value-utils.js";
 
 // Partition configuration for time-based bucketing
 const PARTITION_CONFIG = Object.freeze({

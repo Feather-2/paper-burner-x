@@ -1,4 +1,4 @@
-import DisposableBase from "../../shared/index.js";
+import { DisposableBase } from "../../shared/index.js";
 import HookRegistry, { HookEvent, HookType } from "./hook-registry.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 import { FileWatcher, isNativeWatchSupported } from "../../shared/index.js";

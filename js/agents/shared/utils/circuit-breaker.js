@@ -10,7 +10,7 @@
  */
 
 import { toPositiveInt } from "./value-utils.js";
-import { getGlobalContainer } from "../../runtime/di/global-container.js";
+import { getGlobalContainer } from "../../core/di/global-container.js";
 
 export const CircuitState = Object.freeze({
   CLOSED: "closed",       // 正常状态，允许请求

@@ -5,14 +5,14 @@
  */
 
 import { Container, SINGLETON, TRANSIENT } from "./container.js";
-import { LamportClockService } from "../../core/lamport-clock.js";
+import { LamportClockService } from "../lamport-clock.js";
 import { CircuitBreakerRegistry } from "../../shared/index.js";
 import { createAdaptiveTokenCounter } from "../../shared/index.js";
 import { InjectionScanner } from "../../sdk/injection-scanner.js";
 import { FileLock } from "../../vfs/file-lock.js";
-import { createDefaultErrorBoundary } from "../core/error-boundary.js";
+import { createDefaultErrorBoundary } from "../../runtime/core/error-boundary.js";
 import { TokenTracker, TraceContext } from "../../plugins/telemetry/index.js";
-import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
+import { enhanceEventBusWithHooks } from "../../runtime/hooks/event-bus-hooks.js";
 
 /** @type {any} */
 const process = /** @type {any} */ (globalThis).process;

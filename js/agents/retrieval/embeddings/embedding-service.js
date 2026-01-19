@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString, toNonNegativeInt, toPositiveInt } from "../utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, toNonNegativeInt, toPositiveInt } from "../../shared/utils/value-utils.js";
 
 /**
  * @typedef {object} EmbeddingConfig

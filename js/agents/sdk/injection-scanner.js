@@ -11,7 +11,7 @@
  * 浏览器友好，无 Node.js 依赖。
  */
 
-import { getGlobalContainer } from "../runtime/di/global-container.js";
+import { getGlobalContainer } from "../core/di/global-container.js";
 
 /**
  * 扫描结果类型

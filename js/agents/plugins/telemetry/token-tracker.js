@@ -1,6 +1,6 @@
 import { cryptoRandomHex } from "../../shared/index.js";
 import { toNonNegativeInt } from "../../shared/index.js";
-import { getGlobalContainer } from "../../runtime/di/global-container.js";
+import { getGlobalContainer } from "../../core/di/global-container.js";
 
 const MAX_RECORDS = 500;
 

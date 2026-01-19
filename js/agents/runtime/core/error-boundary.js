@@ -9,7 +9,7 @@
  */
 
 import { createLogger } from "../../shared/index.js";
-import { getGlobalContainer } from "../di/global-container.js";
+import { getGlobalContainer } from "../../core/di/global-container.js";
 
 const logger = createLogger("runtime/core/error-boundary");
 

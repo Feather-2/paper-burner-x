@@ -12,7 +12,7 @@
  * - 查询: O(log N * M + k * log k) 其中 k 是 topK
  */
 
-import { isPlainObject, toNonEmptyString, toPositiveInt } from "../utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../../shared/utils/value-utils.js";
 
 // 分区配置（与 VectorIndex 保持一致）
 const PARTITION_CONFIG = Object.freeze({
