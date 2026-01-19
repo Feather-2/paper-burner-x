@@ -498,7 +498,7 @@ async function screenshotAll(context, params) {
     let overview = null;
     if (params?.stitch) {
       try {
-        const { createDeckOverview } = await import("../runtime/screenshot-stitcher.js");
+        const { createDeckOverview } = await import("../internal/screenshot-stitcher.js");
         overview = await createDeckOverview(
           results.map((r) => (r && typeof r.base64 === "string" ? r.base64 : null)),
           isPlainObject(params?.stitchOptions) ? params.stitchOptions : {}

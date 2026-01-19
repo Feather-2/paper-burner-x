@@ -1,7 +1,7 @@
 import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 import { ensureTokenUsage, normalizeBudgetConfig } from "../utils/state-utils.js";
 import { normalizeTokenUsage } from "../model/usage.js";
-import { cloneValue } from "../runtime/checkpoint.js";
+import { cloneValue } from "../internal/checkpoint.js";
 import { createTodo, transitionTodoStatus } from "../utils/todo-utils.js";
 import {
   addTodo as addTodoLogic,

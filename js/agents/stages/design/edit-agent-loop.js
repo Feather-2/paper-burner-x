@@ -11,10 +11,10 @@
 
 import { BaseAgentLoop, checkCancelled, getEmitFn } from "../../runtime/core/agent-loop.js";
 import { AgentStatus } from "../../runtime/core/agent-status.js";
-import { createDeckAnalyzer } from "./runtime/deck-analyzer.js";
-import { createDeckEditor } from "./runtime/deck-editor.js";
-import { createScreenshotStitcher } from "./runtime/screenshot-stitcher.js";
-import { DesignBlackboard } from "./runtime/design-blackboard.js";
+import { createDeckAnalyzer } from "./internal/deck-analyzer.js";
+import { createDeckEditor } from "./internal/deck-editor.js";
+import { createScreenshotStitcher } from "./internal/screenshot-stitcher.js";
+import { DesignBlackboard } from "./internal/design-blackboard.js";
 import { parseSections } from "./refiner/react-refiner-tools.js";
 import { EditModeAgentLoop } from "./edit-mode/edit-loop.js";
 

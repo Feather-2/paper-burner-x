@@ -2,7 +2,7 @@ import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/utils/val
 import { Deque } from "../../shared/utils/deque.js";
 import { DecisionOutcome, DecisionStage, GapStatus, TodoStatus } from "./states.js";
 import { createTodo, transitionTodoStatus } from "./utils/todo-utils.js";
-import { cloneValue } from "./runtime/checkpoint.js";
+import { cloneValue } from "./internal/checkpoint.js";
 
 /**
  * @typedef {object} SyncTodoOptions

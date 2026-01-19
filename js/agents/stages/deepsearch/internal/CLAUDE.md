@@ -1,4 +1,4 @@
-# runtime (deepsearch/runtime) - 运行时组件
+# internal (deepsearch/internal) - 内部运行时组件
 
 DeepSearch 阶段的运行时支撑：checkpoint/回溯、共享上下文、模型响应容错与写作阶段控制。
 

@@ -5,7 +5,7 @@ import { CheckpointMode } from "../constants.js";
 import { ensureTokenUsage } from "../utils/state-utils.js";
 import { migratGapToTodo } from "../utils/todo-utils.js";
 
-const logger = createLogger("stages/deepsearch/runtime/checkpoint");
+const logger = createLogger("stages/deepsearch/internal/checkpoint");
 
 export const CHECKPOINT_SCHEMA_VERSION = "1.0";
 

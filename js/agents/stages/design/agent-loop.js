@@ -9,9 +9,9 @@ import { StagePausedError } from "../../runtime/core/stage-errors.js";
 import { createLifecycleEmitter } from "../../runtime/core/lifecycle.js";
 import { getRuntimeState } from "../../runtime/telemetry/loop-runtime-state.js";
 import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./design-tools.js";
-import { VisualHandler } from "./runtime/visual-handler.js";
-import { runPreparationPhase, runGeneratingPhase, runBatchRepairPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./runtime/design-phases.js";
-import { DesignBlackboard } from "./runtime/design-blackboard.js";
+import { VisualHandler } from "./internal/visual-handler.js";
+import { runPreparationPhase, runGeneratingPhase, runBatchRepairPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./internal/design-phases.js";
+import { DesignBlackboard } from "./internal/design-blackboard.js";
 import { Watchdog } from "../../runtime/compression/watchdog.js";
 import {
   DESIGN_LOOP_DEFAULTS,

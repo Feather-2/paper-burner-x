@@ -25,7 +25,7 @@ AI 驱动的幻灯片设计和生成。
 | `refiner/` | QA 验证、React 精调 |
 | `subagents/` | 子 Agent（SlideSubAgent, VisualSubAgent） |
 | `edit-mode/` | 编辑模式 |
-| `runtime/` | 运行时（deck-planner） |
+| `internal/` | 内部运行时（deck-planner） |
 | `shared/` | 共享工具 |
 | `image/` | 图像处理 |
 | `reviewer/` | 审核 |

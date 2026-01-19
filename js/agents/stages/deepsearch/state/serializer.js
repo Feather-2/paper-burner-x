@@ -1,6 +1,6 @@
 import { isPlainObject, toNonEmptyString, sanitizeForJson } from "../../../shared/utils/value-utils.js";
 import { Deque } from "../../../shared/utils/deque.js";
-import { cloneValue } from "../runtime/checkpoint.js";
+import { cloneValue } from "../internal/checkpoint.js";
 
 /**
  * @typedef {object} CheckpointLike

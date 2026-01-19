@@ -9,7 +9,7 @@ import {
   getCheckpointStrategyFromState,
   loadCheckpoint,
   normalizeCheckpointStrategy,
-} from "../runtime/checkpoint.js";
+} from "../internal/checkpoint.js";
 import { buildStateSnapshot } from "./serializer.js";
 import { PlanningTree } from "./planning-tree.js";
 

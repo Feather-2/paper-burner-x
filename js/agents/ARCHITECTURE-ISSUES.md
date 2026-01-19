@@ -1,43 +1,277 @@
 # js/agents 架构问题清单
 
-> 来源：2025-01 架构评审
+> 来源：2026-01-19 深度架构评审
 > 状态：待处理
+> 验证时间：2026-01-19
 
 ## 概述
 
-整体架构设计合格，微内核 + 三总线 + 插件系统方向正确。以下是需要关注的改进点。
+整体架构方向正确：微内核 + 三总线 + 插件系统。但执行层面存在**边界膨胀**问题。
+
+### 实测数据
+
+| 指标 | 当前值 | 健康值 | 差距 |
+|------|--------|--------|------|
+| Runtime 子目录 | **28** | <10 | -18 |
+| Runtime 文件数 | **128** | <50 | -78 |
+| runtime/index.js 导出行 | **45** | <15 | -30 |
+| "阴影 runtime" 目录 | **2** | 0 | -2 |
 
 ---
 
-## P1 - 应优先处理
+## Linus 式架构改进路线图
 
-### 1. Kernel 兼容层过重
+> 原则：Keep it simple, stupid. 一次只改一个边界，每次改完能跑。
 
-**位置**: `core/kernel.js:260-353`
+### Phase 0: 命名清理 (今天)
 
-**问题**: Kernel 内 100+ 行是旧 API 兼容代码（`register`, `getService`, `emit`, `on`, `eventBus`, `container`），污染内核。
+**目标**: 消除命名冲突，零破坏性
 
-**建议**:
-- 迁移完成后删除
-- 或拆分到 `core/kernel-compat.js`，Kernel 只导入必要部分
+```bash
+# 重命名阴影 runtime 为 internal
+mv stages/deepsearch/runtime stages/deepsearch/internal
+mv stages/design/runtime stages/design/internal
 
----
+# 批量替换 import
+find js/agents/stages -name "*.js" -exec sed -i 's|/runtime/|/internal/|g' {} \;
+```
 
-### 2. Runtime 层过重
+**验证**: `grep -r "stages/.*/runtime" js/agents` 应返回空
 
-**位置**: `runtime/` (20+ 子目录)
-
-**问题**: compression/memory/telemetry/hooks/di/parallel 全部塞在 runtime，职责过多。
-
-**建议**:
-- `compression/` → 考虑作为独立层或可选插件
-- `memory/` → 同上
-- `telemetry/` → 同上
-- 保留 `core/`、`tools/`、`hooks/` 作为 runtime 核心
+**预估**: 30 分钟
 
 ---
 
-### 3. 构造函数参数过多
+### Phase 1: Runtime 瘦身 (本周)
+
+**目标**: Runtime 只保留核心执行能力，其他变为可选
+
+**当前 Runtime 结构** (28 个子目录):
+```
+runtime/
+├── core/           ← 保留 (AgentLoop, ToolRegistry, StatusController)
+├── tools/          ← 保留 (ToolExecutor, 内置工具)
+├── hooks/          ← 保留 (HookRegistry)
+├── events/         ← 保留 (事件类型)
+├── compression/    ← 移出 → plugins/compression/
+├── telemetry/      ← 移出 → plugins/telemetry/
+├── memory/         ← 移出 → plugins/memory/
+├── coordination/   ← 移出 → plugins/coordination/
+├── analysis/       ← 移出 → plugins/analysis/
+├── middleware/     ← 保留或移出
+├── di/             ← 保留 (依赖注入是基础)
+├── ... (其他 17 个目录，逐一评估)
+```
+
+**目标结构**:
+```
+runtime/                    # 核心执行 (≤50 文件)
+├── core/
+├── tools/
+├── hooks/
+├── events/
+├── di/
+└── index.js               # 只导出核心 API
+
+plugins/                    # 可选能力
+├── compression/           # 已存在，整合 runtime/compression
+├── telemetry/
+├── memory/
+├── analysis/
+└── coordination/
+```
+
+**迁移策略**:
+1. 在 plugins/ 创建新插件包装
+2. 修改 runtime/index.js 不再导出可选模块
+3. 更新依赖方 import 路径
+4. 删除 runtime/ 下的旧目录
+
+**验证**: `ls -d runtime/*/ | wc -l` 应 ≤10
+
+**预估**: 2-3 天
+
+---
+
+### Phase 2: 导出精简 (下周)
+
+**目标**: runtime/index.js 导出 ≤20 个符号
+
+**当前导出** (45 行，实际 70+ 符号):
+```javascript
+// 全部平铺，无层次
+export { BaseAgentLoop, checkCancelled, checkPaused } from "./core/agent-loop.js";
+export { MemoryStore } from "./memory/memory-store.js";
+export { Watchdog } from "./compression/watchdog.js";
+// ... 70+ 个
+```
+
+**目标导出**:
+```javascript
+// runtime/index.js - 只导出核心
+export { BaseAgentLoop, checkCancelled, checkPaused } from "./core/agent-loop.js";
+export { AgentStatus, StepStatus } from "./core/agent-status.js";
+export { ToolRegistry, normalizeToolResult } from "./core/tool-registry.js";
+export { AgentOrchestrator, SchedulingMode } from "./orchestrator.js";
+export { HookRegistry, HookType } from "./hooks/index.js";
+export { Container, createContainer } from "./di/index.js";
+
+// 高级 API 通过子路径 (tree-shakeable)
+// import { Watchdog } from 'js/agents/plugins/compression';
+// import { MemoryStore } from 'js/agents/plugins/memory';
+```
+
+**验证**: `grep -c "^export" runtime/index.js` 应 ≤15
+
+**预估**: 1 天
+
+---
+
+### Phase 3: Stage 解耦 (下个迭代)
+
+**目标**: Stage 通过接口访问 Runtime 能力，不直接 import 内部模块
+
+**当前问题** (deepsearch-agent-loop.js:7-21):
+```javascript
+import { BaseAgentLoop } from "../../runtime/core/agent-loop.js";          // OK
+import { ConvergenceDetector } from "../../runtime/analysis/convergence-detector.js";  // 紧耦合
+import { BehaviorFingerprint } from "../../runtime/analysis/behavior-fingerprint.js";  // 紧耦合
+```
+
+**目标模式**:
+```javascript
+// Stage 通过 StageApi 获取能力
+class DeepSearchAgentLoop extends BaseAgentLoop {
+  async run(input, context) {
+    const { stageApi } = context;
+
+    // 通过接口访问，不直接 import
+    const convergenceDetector = stageApi.analysis?.createConvergenceDetector();
+    const behaviorFingerprint = stageApi.analysis?.createBehaviorFingerprint();
+  }
+}
+
+// runtime/api/stage-api-factory.js 提供能力注入
+createStageApi({
+  analysis: analysisPlugin.isLoaded() ? analysisPlugin.api : null,
+});
+```
+
+**好处**:
+- Runtime 内部重构不破坏 Stage
+- 能力按需加载
+- 测试时易于 mock
+
+**预估**: 2 天
+
+---
+
+### Phase 4: 长期维护 (持续)
+
+1. **Typedef 集中**: 迁移分散的 typedef 到 `core/types.d.ts`, `runtime/types.d.ts`
+2. **工具函数整理**: 散落的 `isPromiseLike` 等移到 `shared/utils/`
+3. **大文件拆分**: `deepsearch-agent-loop.js` (706行) 拆成 3-4 个文件
+4. **Package imports**: 添加 `#agents/core` 等别名，消除深相对导入
+
+---
+
+## 成功标准
+
+| 阶段 | 完成标准 |
+|------|---------|
+| Phase 0 | `grep "stages/.*/runtime" js/agents` 返回空 |
+| Phase 1 | `ls -d runtime/*/ \| wc -l` ≤ 10 |
+| Phase 2 | `grep -c "^export" runtime/index.js` ≤ 15 |
+| Phase 3 | Stage 文件中无 `../../runtime/` 内部模块 import |
+
+---
+
+## 详细问题清单
+
+### P0.1 "阴影 runtime" 命名冲突
+
+**位置**:
+- `stages/deepsearch/runtime/` (7 个 JS 文件)
+- `stages/design/runtime/` (8 个 JS 文件)
+
+**实际文件**:
+```
+stages/deepsearch/runtime/
+├── backtrack-manager.js
+├── checkpoint.js
+├── error-classifier.js
+├── logger.js
+├── model-response-handler.js
+├── shared-context.js
+└── writing-phase-handler.js
+
+stages/design/runtime/
+├── deck-analyzer.js
+├── deck-editor.js
+├── deck-planner.js
+├── design-blackboard.js
+├── design-context.js
+├── design-phases.js
+├── screenshot-stitcher.js
+└── visual-handler.js
+```
+
+**问题**: 与顶层 `runtime/` 同名，import 路径易混淆
+
+**修复**: 见 Phase 0
+
+---
+
+### P1.1 Runtime 28 个子目录
+
+**位置**: `runtime/`
+
+**实际子目录**:
+```
+analysis/     api/          checkpoints/   compression/
+constants/    context/      coordination/  core/
+deps/         di/           errors/        events/
+exec/         hooks/        kernel/        manifest/
+memory/       middleware/   parallel/      plan/
+policy/       resilience/   routing/       safety/
+side-effects/ telemetry/    tools/         transports/
+```
+
+**问题**: 职责过多，非核心能力应插件化
+
+**修复**: 见 Phase 1
+
+---
+
+### P1.2 runtime/index.js 导出过多
+
+**位置**: `runtime/index.js`
+
+**实测**: 45 行 export，实际 70+ 符号
+
+**问题**: API 表面积过大，学习曲线陡峭
+
+**修复**: 见 Phase 2
+
+---
+
+### P2.1 Stage 紧耦合 Runtime 内部
+
+**位置**: `stages/deepsearch/deepsearch-agent-loop.js:7-21`
+
+**问题 import**:
+```javascript
+import { ConvergenceDetector } from "../../runtime/analysis/convergence-detector.js";
+import { BehaviorFingerprint } from "../../runtime/analysis/behavior-fingerprint.js";
+```
+
+**问题**: 直接依赖 Runtime 实现细节
+
+**修复**: 见 Phase 3
+
+---
+
+### P2.2 构造函数参数过多
 
 **位置**: `sdk/agent-factory.js:18-30`
 
@@ -49,95 +283,45 @@ constructor({
 }) { ... }
 ```
 
-**问题**: 11 个参数，难以维护和测试。
+**问题**: 11 个参数，难以维护
 
-**建议**:
-- 分组为 `{ core, capabilities, managers, options }`
-- 或使用 Builder 模式逐步构建
+**建议**: 分组为 `{ core, capabilities, managers, options }` 或 Builder 模式
 
 ---
 
-## P2 - 应逐步改进
-
-### 4. typedef 分散
+### P2.3 typedef 分散
 
 **位置**: `runtime/core/agent-loop.js:17-84` (67 行 typedef)
 
-**问题**: 类型定义散落在业务文件开头，阅读体验差。
+**问题**: 类型定义与业务代码混合
 
-**建议**:
-- 集中到 `types.d.ts` 或 `types.js`
-- 业务文件使用 `@import {Type} from './types.js'`
+**建议**: 集中到 `core/types.d.ts`, `runtime/types.d.ts`
 
 ---
 
-### 5. 工具函数散落
+### P2.4 工具函数散落
 
 **位置**: `runtime/orchestrator.js` 等
 
-**问题**: `isPromiseLike`, `maybeAwait`, `normalizeTimeoutMs` 等工具函数散落在业务代码中。
+**散落函数**: `isPromiseLike`, `maybeAwait`, `normalizeTimeoutMs`
 
-**建议**:
-- 移至 `shared/utils/`
-- 按功能分类：`promise-utils.js`, `normalize-utils.js`
+**建议**: 移至 `shared/utils/promise-utils.js`, `shared/utils/normalize-utils.js`
 
 ---
 
-### 6. shared/ 职责不纯
+### P3.1 深相对导入
 
-**位置**: `shared/`
+**位置**: 约 65 个文件使用 `../../../` 或更深
 
-**问题**: utils/embeddings/contracts/archive/tokenizers 混在一起，缺乏清晰边界。
-
-**建议**:
-- `embeddings/` → 考虑归入 `retrieval/`
-- `contracts/` → 考虑归入 `runtime/`
-- `archive/` → 考虑归入 `storage/`
+**建议**: 使用 package imports (`#agents/core` 等别名)
 
 ---
 
-### 7. Stages 内嵌 runtime 子目录
+### P3.2 大文件
 
-**位置**: `stages/deepsearch/runtime/`, `stages/design/runtime/`
+**位置**: `stages/deepsearch/deepsearch-agent-loop.js` (706 行)
 
-**问题**: Stage 内有自己的 runtime 子目录，与顶层 runtime 边界模糊。
-
-**建议**:
-- 重命名为 `stages/*/internal/` 或 `stages/*/helpers/`
-- 明确这是 Stage 私有实现，非运行时组件
-
----
-
-## P3 - 可选改进
-
-### 8. 状态机硬编码
-
-**位置**: `runtime/core/agent-loop.js:171-177`
-
-```javascript
-const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({
-  [AgentStatus.IDLE]: [AgentStatus.RUNNING, ...],
-  ...
-});
-```
-
-**问题**: 状态转换规则硬编码在代码中。
-
-**建议**:
-- 考虑配置化
-- 或使用轻量状态机库
-
----
-
-### 9. API 表面积大
-
-**位置**: `index.js`
-
-**问题**: 入口导出 50+ 符号，用户需要了解太多模块。
-
-**建议**:
-- 提供 `js/agents/prebuilt` 导出预组装 Agent
-- 分层导出：`js/agents/core`, `js/agents/runtime`, `js/agents/stages`
+**建议**: 拆分为 `deepsearch-guards.js`, `deepsearch-convergence.js` 等
 
 ---
 
@@ -469,3 +653,5 @@ t.Run("cancellation", func(t *testing.T) {
 | 2025-01-16 | 新增 Code Stage 设计边界，与主流 CLI Agent (Rust/TS) 对比分析 |
 | 2025-01-16 | 新增子 Agent 机制参考 (Explore/Plan/Bash/general-purpose)，可借鉴点分析 |
 | 2025-01-16 | 新增测试方法参考 (TS/Go CLI Agent)，Mock Server、安全测试、并发隔离等模式 |
+| 2026-01-19 | **深度架构评审**: 实测数据验证，新增 Linus 式改进路线图 (Phase 0-4) |
+| 2026-01-19 | 问题清单重组: P0 (命名冲突) → P1 (Runtime 瘦身) → P2 (解耦) → P3 (优化) |

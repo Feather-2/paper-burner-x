@@ -7,9 +7,9 @@
  * - 自动修复建议
  */
 
-import { createDeckAnalyzer, collectAllDsl } from "../runtime/deck-analyzer.js";
-import { createDeckEditor } from "../runtime/deck-editor.js";
-import { createScreenshotStitcher } from "../runtime/screenshot-stitcher.js";
+import { createDeckAnalyzer, collectAllDsl } from "../internal/deck-analyzer.js";
+import { createDeckEditor } from "../internal/deck-editor.js";
+import { createScreenshotStitcher } from "../internal/screenshot-stitcher.js";
 
 /**
  * @typedef {object} SlideMeta

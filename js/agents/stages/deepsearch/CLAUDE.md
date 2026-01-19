@@ -20,7 +20,7 @@
 | `phases/` | 阶段划分 |
 | `model/` | 预算/定价模型 |
 | `report/` | 报告生成、引用 |
-| `runtime/` | 运行时组件 |
+| `internal/` | 内部运行时组件 |
 | `state/` | 状态管理 |
 | `utils/` | 工具函数 |
 

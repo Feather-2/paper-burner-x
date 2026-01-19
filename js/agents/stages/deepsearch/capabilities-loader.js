@@ -70,21 +70,21 @@ export async function loadDeepSearchCapabilities() {
     }
 
     try {
-      const checkpoint = await import("./runtime/checkpoint.js");
+      const checkpoint = await import("./internal/checkpoint.js");
       capabilities.CheckpointManager = checkpoint.CheckpointManager || checkpoint.default;
     } catch (err) {
       warn("CheckpointManager", err);
     }
 
     try {
-      const shared = await import("./runtime/shared-context.js");
+      const shared = await import("./internal/shared-context.js");
       capabilities.SharedContext = shared.SharedContext || shared.default;
     } catch (err) {
       warn("SharedContext", err);
     }
 
     try {
-      const backtrack = /** @type {any} */ (await import("./runtime/backtrack-manager.js"));
+      const backtrack = /** @type {any} */ (await import("./internal/backtrack-manager.js"));
       capabilities.BacktrackManager = backtrack.BacktrackManager || backtrack.default;
     } catch (err) {
       warn("BacktrackManager", err);

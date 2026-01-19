@@ -7,7 +7,7 @@
  */
 
 import { executeTool } from "../tools/index.js";
-import { WritingPhaseHandler } from "../runtime/writing-phase-handler.js";
+import { WritingPhaseHandler } from "../internal/writing-phase-handler.js";
 
 /**
  * @typedef {"system"|"user"|"assistant"} DeepSearchChatRole

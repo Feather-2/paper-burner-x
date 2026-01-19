@@ -4,7 +4,7 @@ import { ensureTokenUsage, EVENT_SCHEMA_VERSION, EventStatus, extractJsonCandida
 import { Deque } from "../../shared/utils/deque.js";
 import { makeStageEmitter, generateNodeId, checkCancelled } from "./stage-utils.js";
 import { transitionGap, computeRoundHitsByGapId, validateIteration } from "./state-logic.js";
-import { cloneValue, loadCheckpoint } from "./runtime/checkpoint.js";
+import { cloneValue, loadCheckpoint } from "./internal/checkpoint.js";
 import { PlanningTree } from "./state/planning-tree.js";
 import { TaskState } from "./state/task-state.js";
 import { IterationState } from "./state/iteration-state.js";

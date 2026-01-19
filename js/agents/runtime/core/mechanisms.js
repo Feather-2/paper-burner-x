@@ -38,7 +38,7 @@ export async function loadMechanisms() {
   _loaded = true;
 
   try {
-    const checkpoint = await import("../../stages/deepsearch/runtime/checkpoint.js");
+    const checkpoint = await import("../../stages/deepsearch/internal/checkpoint.js");
     CheckpointManager = checkpoint.CheckpointManager || checkpoint.default;
   } catch (err) {
     if (shouldReportMechanismLoadError(err)) {
@@ -48,7 +48,7 @@ export async function loadMechanisms() {
   }
 
   try {
-    const shared = await import("../../stages/deepsearch/runtime/shared-context.js");
+    const shared = await import("../../stages/deepsearch/internal/shared-context.js");
     SharedContext = shared.SharedContext || shared.default;
   } catch (err) {
     if (shouldReportMechanismLoadError(err)) {
