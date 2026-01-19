@@ -20,10 +20,12 @@
  */
 
 import { generateReport } from "../../report/report-generator.js";
-import { isPlainObject, toNonEmptyString } from "../../../../shared/index.js";
+import { toNonEmptyString } from "../../../../shared/index.js";
 import { createLogger } from "../../../../shared/index.js";
 import { getReportProgress, prepareReportForSubmit, reviewReportMarkdown } from "../../report/report-postprocess.js";
-import SourceManager from "../../source-manager.js";
+import { handleGetSource, syncReportCitations } from "./report-citations.js";
+import { buildReportOutline, countContentChars, renderSectionsMarkdown } from "./report-formatting.js";
+import { renderReportTemplate } from "./report-template.js";
 
 const logger = createLogger("stages/deepsearch/tools/write-report/handler");
 
@@ -97,41 +99,7 @@ export const definition = {
     mode: "分析模式：quick|wider|deeper（影响字数和结构要求）",
   },
   // 报告结构模板
-  reportTemplate: `
-## 报告结构要求
-
-### 必需章节
-1. **摘要** (100-200字)
-   - 研究目标
-   - 核心发现（1-3句）
-   - 主要结论
-
-2. **核心发现** (按重要性排序)
-   - 每个发现必须有证据引用 [来源:页码]
-   - 标注置信度：高(多源印证)/中(单源)/低(推测)
-   - 区分事实和观点
-
-3. **共识与分歧** (wider/deeper 必需)
-   - 不同来源的一致观点
-   - 存在分歧的观点及原因分析
-   - 矛盾点的处理说明
-
-4. **信息缺口** (必需)
-   - 文档未覆盖的关键问题
-   - 需要进一步调查的领域
-   - 数据不足的地方
-
-5. **结论与建议**
-   - 基于发现的结论
-   - 可操作的下一步建议
-   - 研究局限性说明
-
-### 学术规范
-- 每个结论必须有证据支撑
-- 推测性内容必须标注
-- 使用 [来源:页码] 格式引用
-- 置信度标注：🟢高 🟡中 🔴低
-`,
+  reportTemplate: renderReportTemplate(),
 };
 
 
@@ -252,48 +220,6 @@ function handleGetFindings(args, context) {
 }
 
 /**
- * get-source: 获取原文内容
- */
-function handleGetSource(args, context, state) {
-  const manager = context?.sourceManager instanceof SourceManager ? context.sourceManager : new SourceManager(state?.L0?.sources || []);
-  manager.syncSources(state?.L0?.sources);
-
-  const sourceId = toNonEmptyString(args.sourceId);
-  if (!sourceId) {
-    const sources = manager.listSources();
-    return {
-      success: true,
-      action: "get-source",
-      available: sources.map((s) => ({ sourceId: s.sourceId, name: s.name, length: s.size })),
-      hint: "请指定 sourceId 查看原文",
-    };
-  }
-
-  const info = manager.getSourceInfo(sourceId);
-  if (!info) {
-    return { success: false, error: `Source not found: ${sourceId}` };
-  }
-
-  const rawMaxLength = Number(args.maxLength);
-  const rawStart = Number(args.start);
-  const maxLength = Number.isFinite(rawMaxLength) && rawMaxLength > 0
-    ? Math.min(rawMaxLength, 10000)
-    : 5000;
-  const start = Number.isFinite(rawStart) && rawStart >= 0 ? rawStart : 0;
-  const text = info.text.slice(start, start + maxLength);
-
-  return {
-    success: true,
-    action: "get-source",
-    sourceId: info.sourceId,
-    name: info.name,
-    content: text,
-    totalLength: info.text.length,
-    truncated: info.text.length > start + maxLength,
-  };
-}
-
-/**
  * submit: 最终提交
  */
 function handleSubmit(report, mode, state, emit) {
@@ -349,22 +275,15 @@ function handleSubmit(report, mode, state, emit) {
  * get-outline: 获取报告大纲
  */
 function handleGetOutline(report, state) {
-  const outline = report.sections.map((s, i) => ({
-    index: i,
-    sectionId: s.sectionId,
-    title: s.title,
-    wordCount: (s.content || "").replace(/\s+/g, "").length,
-    status: s.content ? "filled" : "empty",
-    minWords: state?.reportConfig?.sectionWordLimits?.[s.title] || null,
-  }));
+  const { outline, totalSections, filledSections, emptySections } = buildReportOutline(report.sections, state);
 
   return {
     success: true,
     action: "get-outline",
     outline,
-    totalSections: outline.length,
-    filledSections: outline.filter(s => s.status === "filled").length,
-    emptySections: outline.filter(s => s.status === "empty").length,
+    totalSections,
+    filledSections,
+    emptySections,
   };
 }
 
@@ -424,7 +343,7 @@ function handleFillSection(args, report, state, emit) {
     };
   }
 
-  const wordCount = content.replace(/\s+/g, "").length;
+  const wordCount = countContentChars(content);
   if (wordCount < minWords) {
     return {
       success: false,
@@ -438,7 +357,7 @@ function handleFillSection(args, report, state, emit) {
   report.sections[sectionIndex].updatedAt = Date.now();
   report.sections[sectionIndex].wordCount = wordCount;
 
-  report.markdown = report.sections.map(s => `## ${s.title}\n\n${s.content || "[待填充]"}`).join("\n\n");
+  report.markdown = renderSectionsMarkdown(report.sections, { emptyPlaceholder: "[待填充]" });
   report.draftMarkdown = report.markdown;
   recordHistory(report, "fill-section", title);
 
@@ -539,7 +458,7 @@ function handleUpdate(args, report, emit) {
     recordHistory(report, "add_section", section.title);
   }
 
-  report.markdown = report.sections.map(s => `## ${s.title}\n\n${s.content}`).join("\n\n");
+  report.markdown = renderSectionsMarkdown(report.sections);
   report.draftMarkdown = report.markdown;
 
   emit?.("deepsearch.section.updated", { sectionId, title, version: report.version });
@@ -626,7 +545,7 @@ function handleSections(args, report, state, emit) {
     }
   }
 
-  report.markdown = report.sections.map(s => `## ${s.title}\n\n${s.content}`).join("\n\n");
+  report.markdown = renderSectionsMarkdown(report.sections);
   report.draftMarkdown = report.markdown;
   recordHistory(report, "sections", `${sections.length} sections`);
 
@@ -649,7 +568,7 @@ function handleSection(args, report, emit) {
   };
 
   report.sections.push(section);
-  report.markdown = report.sections.map(s => `## ${s.title}\n\n${s.content}`).join("\n\n");
+  report.markdown = renderSectionsMarkdown(report.sections);
   report.draftMarkdown = report.markdown;
   recordHistory(report, "section", title);
 
@@ -673,7 +592,7 @@ function handleFull(report, mode, state, emit) {
     const processed = prepareReportForSubmit(generated?.markdown || "", mode, state);
     report.markdown = processed.markdown;
     report.sections = generated?.sections || [];
-    report.citations = generated?.citations || [];
+    syncReportCitations(report, generated?.citations);
     report.draftMarkdown = report.markdown;
     recordHistory(report, "full", `${claims.length} claims`);
 
@@ -821,536 +740,60 @@ export async function handler(args, context) {
 
   const report = ensureReport(state);
 
-  // ===== get-content: 获取当前报告完整内容（用于回顾）=====
   if (action === "get-content" || action === "read") {
-    const progress = getReportProgress(report, mode, state);
-    return {
-      success: true,
-      action: "get-content",
-      markdown: report.markdown || "",
-      wordCount: progress.wordCount,
-      progress,
-      version: report.version,
-      hint: progress.hint,
-    };
+    return handleGetContent(report, mode, state);
   }
 
-  // ===== get-findings: 从 SharedContext 检索发现 =====
   if (action === "get-findings" || action === "get-context") {
-    const sharedContext = context?.sharedContext;
-    if (!sharedContext) {
-      return { success: false, error: "SharedContext not available" };
-    }
-
-    // 支持过滤参数
-    const filterType = args.type;  // claim | gap | conflict
-    const keyword = args.keyword;
-    const minConfidence = args.minConfidence;
-    const limit = args.limit || 50;
-
-    // 从黑板检索
-    const types = filterType ? [filterType] : ["claim", "gap", "conflict"];
-    const findings = { claims: [], gaps: [], conflicts: [] };
-
-    for (const t of types) {
-      const ids = keyword
-        ? sharedContext.searchAll([`finding_${t}`, keyword])
-        : sharedContext.search(`finding_${t}`);
-
-      for (const id of ids.slice(0, limit)) {
-        const detail = sharedContext.getDetail(id);
-        if (!detail) continue;
-
-        // 置信度过滤
-        if (minConfidence && t === "claim" && (detail.confidence || 0) < minConfidence) {
-          continue;
-        }
-
-        const entry = {
-          id: detail.id,
-          content: detail.content,
-          source: detail.source,
-          ...(t === "claim" && { confidence: detail.confidence }),
-          ...(t === "gap" && { priority: detail.priority }),
-          ...(t === "conflict" && { sources: detail.sources }),
-        };
-
-        if (t === "claim") findings.claims.push(entry);
-        else if (t === "gap") findings.gaps.push(entry);
-        else findings.conflicts.push(entry);
-      }
-    }
-
-    // 黑板摘要（L1 层）
-    const blackboardPrompt = sharedContext.buildBlackboardPrompt?.({ maxSignals: 5, maxDecisions: 3 }) || "";
-
-    return {
-      success: true,
-      action: "get-findings",
-      findings,
-      stats: {
-        claimCount: findings.claims.length,
-        gapCount: findings.gaps.length,
-        conflictCount: findings.conflicts.length,
-        total: findings.claims.length + findings.gaps.length + findings.conflicts.length,
-      },
-      blackboard: blackboardPrompt,
-      hint: findings.claims.length === 0
-        ? "尚未记录任何发现，请先使用 record-finding 记录"
-        : `已收集 ${findings.claims.length} 条论点、${findings.gaps.length} 个缺口、${findings.conflicts.length} 个矛盾`,
-    };
+    return handleGetFindings(args, context);
   }
 
-  // ===== get-source: 获取原文内容（用于引用验证）=====
   if (action === "get-source") {
-    const manager = context?.sourceManager instanceof SourceManager ? context.sourceManager : new SourceManager(state?.L0?.sources || []);
-    manager.syncSources(state?.L0?.sources);
-
-    const sourceId = toNonEmptyString(args.sourceId);
-    if (!sourceId) {
-      // 返回所有可用源文档列表
-      const sources = manager.listSources();
-      return {
-        success: true,
-        action: "get-source",
-        available: sources.map((s) => ({ sourceId: s.sourceId, name: s.name, length: s.size })),
-        hint: "请指定 sourceId 查看原文",
-      };
-    }
-
-    const info = manager.getSourceInfo(sourceId);
-    if (!info) {
-      return { success: false, error: `Source not found: ${sourceId}` };
-    }
-
-    // 返回原文（可选截取）- 校验数值有效性
-    const rawMaxLength = Number(args.maxLength);
-    const rawStart = Number(args.start);
-    const maxLength = Number.isFinite(rawMaxLength) && rawMaxLength > 0
-      ? Math.min(rawMaxLength, 10000)  // 上限 10000 chars
-      : 5000;
-    const start = Number.isFinite(rawStart) && rawStart >= 0
-      ? rawStart
-      : 0;
-    const text = info.text.slice(start, start + maxLength);
-
-    return {
-      success: true,
-      action: "get-source",
-      sourceId: info.sourceId,
-      name: info.name,
-      content: text,
-      totalLength: info.text.length,
-      truncated: info.text.length > start + maxLength,
-    };
+    return handleGetSource(args, context, state);
   }
 
-  // ===== submit: 最终提交，严格验证 =====
   if (action === "submit" || action === "finalize") {
-    const markdown = report.markdown || "";
-    if (!markdown) {
-      return { success: false, error: "报告为空，无法提交" };
-    }
-
-    const processed = prepareReportForSubmit(markdown, mode, state);
-    if (processed.markdown !== markdown) {
-      report.markdown = processed.markdown;
-      report.draftMarkdown = processed.markdown;
-      recordHistory(report, "submit.postprocess", {
-        originalLength: markdown.length,
-        fixedLength: processed.markdown.length,
-      });
-    }
-
-    // 严格验证
-    const validation = processed.validation;
-    if (!validation.valid) {
-      const progress = getReportProgress(report, mode, state);
-      return {
-        success: false,
-        error: "报告质量不达标，无法提交",
-        validation,
-        review: processed.review,
-        progress,
-        hint: `请修改后重新提交。问题：${validation.issues.join("; ")}`,
-      };
-    }
-
-    // 标记为已提交
-    report.submitted = true;
-    report.submittedAt = Date.now();
-    report.validation = validation;
-
-    emit?.("deepsearch.report.submitted", {
-      runId: state.runId,
-      wordCount: validation.wordCount,
-      version: report.version,
-    });
-
-    return {
-      success: true,
-      action: "submit",
-      message: "报告提交成功",
-      validation,
-      review: processed.review,
-      version: report.version,
-    };
+    return handleSubmit(report, mode, state, emit);
   }
 
-  // ===== get-outline: 获取当前报告大纲 =====
   if (action === "get-outline") {
-    const outline = report.sections.map((s, i) => ({
-      index: i,
-      sectionId: s.sectionId,
-      title: s.title,
-      wordCount: (s.content || "").replace(/\s+/g, "").length,
-      status: s.content ? "filled" : "empty",
-      minWords: state?.reportConfig?.sectionWordLimits?.[s.title] || null,
-    }));
-
-    return {
-      success: true,
-      action: "get-outline",
-      outline,
-      totalSections: outline.length,
-      filledSections: outline.filter(s => s.status === "filled").length,
-      emptySections: outline.filter(s => s.status === "empty").length,
-    };
+    return handleGetOutline(report, state);
   }
 
-  // ===== review: 审查报告，检测并修复重复内容 =====
   if (action === "review") {
-    const markdown = report.markdown || "";
-    if (!markdown) {
-      return { success: false, error: "报告为空，无需审查" };
-    }
-
-    const reviewed = reviewReportMarkdown(markdown);
-    if (reviewed.fixed) {
-      report.markdown = reviewed.markdown;
-      report.draftMarkdown = reviewed.markdown;
-      recordHistory(report, "review", { issues: reviewed.issues, fixedLength: reviewed.fixedLength });
-    }
-
-    return {
-      success: true,
-      action: "review",
-      issues: reviewed.issues,
-      fixed: reviewed.fixed,
-      originalLength: reviewed.originalLength,
-      fixedLength: reviewed.fixedLength,
-      version: report.version,
-    };
+    return handleReview(report);
   }
 
-  // ===== fill-section: 填充指定章节（交互式框架模式）=====
   if (action === "fill-section") {
-    const sectionId = toNonEmptyString(args.sectionId);
-    const title = toNonEmptyString(args.title);
-    const content = toNonEmptyString(args.content) || "";
-    // 校验 minWords 为正整数，防止 NaN/负数绕过校验
-    const rawMinWords = Number(args.minWords);
-    const minWords = Number.isFinite(rawMinWords) && rawMinWords > 0
-      ? Math.min(Math.floor(rawMinWords), 10000)  // 上限 10000
-      : (state?.reportConfig?.sectionWordLimits?.[title] || 100);
-
-    if (!sectionId && !title) {
-      return { success: false, error: "fill-section requires sectionId or title" };
-    }
-
-    // 查找章节
-    const sectionIndex = report.sections.findIndex(s =>
-      s.sectionId === sectionId || s.title === title
-    );
-
-    if (sectionIndex < 0) {
-      return {
-        success: false,
-        error: `Section not found: ${sectionId || title}`,
-        hint: "请先使用 sections action 创建报告框架",
-        availableSections: report.sections.map(s => s.title),
-      };
-    }
-
-    // 验证章节字数
-    const wordCount = content.replace(/\s+/g, "").length;
-    if (wordCount < minWords) {
-      return {
-        success: false,
-        error: `章节字数不足：当前 ${wordCount} 字，要求至少 ${minWords} 字`,
-        sectionTitle: report.sections[sectionIndex].title,
-        hint: "请补充更多内容后重新提交",
-      };
-    }
-
-    // 更新章节
-    report.sections[sectionIndex].content = content;
-    report.sections[sectionIndex].updatedAt = Date.now();
-    report.sections[sectionIndex].wordCount = wordCount;
-
-    // 重新生成 markdown
-    report.markdown = report.sections.map(s => `## ${s.title}\n\n${s.content || "[待填充]"}`).join("\n\n");
-    report.draftMarkdown = report.markdown;
-    recordHistory(report, "fill-section", title);
-
-    // 计算进度
-    const filledCount = report.sections.filter(s => s.content).length;
-    const progress = Math.round((filledCount / report.sections.length) * 100);
-
-    emit?.("deepsearch.section.filled", {
-      sectionId: report.sections[sectionIndex].sectionId,
-      title: report.sections[sectionIndex].title,
-      wordCount,
-      progress,
-      version: report.version,
-    });
-
-    return {
-      success: true,
-      action: "fill-section",
-      sectionTitle: report.sections[sectionIndex].title,
-      wordCount,
-      progress: `${filledCount}/${report.sections.length} (${progress}%)`,
-      nextEmpty: report.sections.find(s => !s.content)?.title || null,
-      version: report.version,
-    };
+    return handleFillSection(args, report, state, emit);
   }
 
-  // ===== append: 追加内容到报告末尾 =====
   if (action === "append") {
-    const content = toNonEmptyString(args.content) || "";
-    if (!content) {
-      return { success: false, error: "append action requires content" };
-    }
-
-    // 防止重复追加：检查内容是否已存在
-    if (report.markdown && report.markdown.includes(content.trim())) {
-      const progress = getReportProgress(report, mode, state);
-      return {
-        success: false,
-        error: "内容已存在，跳过重复追加",
-        progress,
-        hint: "如需更新内容，请使用 update 或 patch action",
-      };
-    }
-
-    const separator = report.markdown ? "\n\n" : "";
-    report.markdown += separator + content;
-    report.draftMarkdown = report.markdown;
-    recordHistory(report, "append", content);
-
-    // 计算进度
-    const progress = getReportProgress(report, mode, state);
-
-    emit?.("deepsearch.draft.updated", {
-      wordCount: progress.wordCount,
-      version: report.version,
-    });
-
-    return {
-      success: true,
-      action: "append",
-      added: content.length,
-      wordCount: progress.wordCount,
-      progress,
-      version: report.version,
-      hint: progress.hint,
-      nextStep: progress.isReady ? "可以调用 submit 提交报告" : "继续完善报告内容",
-    };
+    return handleAppend(args, report, mode, state, emit);
   }
 
-  // ===== update: 更新特定章节 =====
   if (action === "update") {
-    const sectionId = toNonEmptyString(args.sectionId);
-    const title = toNonEmptyString(args.title);
-    const content = toNonEmptyString(args.content) || "";
-
-    if (!sectionId && !title) {
-      return { success: false, error: "update action requires sectionId or title" };
-    }
-
-    // 查找章节
-    const sectionIndex = report.sections.findIndex(s =>
-      s.sectionId === sectionId || s.title === title
-    );
-
-    if (sectionIndex >= 0) {
-      // 更新已有章节
-      const oldContent = report.sections[sectionIndex].content;
-      report.sections[sectionIndex].content = content;
-      report.sections[sectionIndex].updatedAt = Date.now();
-      recordHistory(report, "update", { sectionId, old: oldContent.slice(0, 50), new: content.slice(0, 50) });
-    } else {
-      // 创建新章节
-      const section = {
-        sectionId: sectionId || `sec_${Date.now()}`,
-        title: title || "未命名章节",
-        content,
-        createdAt: Date.now(),
-      };
-      report.sections.push(section);
-      recordHistory(report, "add_section", section.title);
-    }
-
-    // 重新生成 markdown
-    report.markdown = report.sections.map(s => `## ${s.title}\n\n${s.content}`).join("\n\n");
-    report.draftMarkdown = report.markdown;
-
-    emit?.("deepsearch.section.updated", { sectionId, title, version: report.version });
-    return { success: true, action: "update", sectionCount: report.sections.length, version: report.version };
+    return handleUpdate(args, report, emit);
   }
 
-  // ===== patch: 差异更新（替换指定内容） =====
   if (action === "patch") {
-    const search = toNonEmptyString(args.search) || toNonEmptyString(args.oldText);
-    const replace = toNonEmptyString(args.replace) || toNonEmptyString(args.newText) || "";
-
-    if (!search) {
-      return { success: false, error: "patch action requires search/oldText" };
-    }
-
-    if (!report.markdown.includes(search)) {
-      return { success: false, error: "search text not found in report" };
-    }
-
-    report.markdown = report.markdown.replace(search, replace);
-    report.draftMarkdown = report.markdown;
-    recordHistory(report, "patch", { search: search.slice(0, 30), replace: replace.slice(0, 30) });
-
-    emit?.("deepsearch.draft.patched", { version: report.version });
-    return { success: true, action: "patch", version: report.version };
+    return handlePatch(args, report, emit);
   }
 
-  // ===== direct/create: 直接设置报告内容 =====
   if (action === "direct" || action === "create" || args.report) {
-    const reportContent = toNonEmptyString(args.content) || toNonEmptyString(args.report) || "";
-    if (!reportContent) {
-      return { success: false, error: "direct/create action requires content or report" };
-    }
-
-    report.markdown = reportContent;
-    report.draftMarkdown = reportContent;
-    report.sections = [];
-    recordHistory(report, action, reportContent);
-
-    // 计算进度（不阻止写入，只提供反馈）
-    const progress = getReportProgress(report, mode, state);
-
-    emit?.("deepsearch.report.written", {
-      runId: state.runId,
-      wordCount: progress.wordCount,
-      version: report.version,
-    });
-
-    return {
-      success: true,
-      action,
-      wordCount: progress.wordCount,
-      progress,
-      version: report.version,
-      hint: progress.hint,
-      nextStep: progress.isReady ? "可以调用 submit 提交报告" : "继续完善报告内容",
-    };
+    return handleDirect(args, action, report, mode, state, emit);
   }
 
-  // ===== sections: 批量添加章节 =====
   if (action === "sections" || Array.isArray(args.sections)) {
-    const sections = Array.isArray(args.sections) ? args.sections : [];
-
-    for (const sec of sections) {
-      const title = toNonEmptyString(sec.title) || "";
-      const content = toNonEmptyString(sec.content) || "";
-
-      // 查找是否已存在同名章节
-      const existingIndex = report.sections.findIndex(s => s.title === title);
-      if (existingIndex >= 0) {
-        report.sections[existingIndex].content = content;
-        report.sections[existingIndex].updatedAt = Date.now();
-      } else {
-        report.sections.push({
-          sectionId: `sec_${Date.now()}_${report.sections.length}`,
-          title: title || `Section ${report.sections.length + 1}`,
-          content,
-          createdAt: Date.now(),
-        });
-      }
-    }
-
-    // 重新生成 markdown
-    report.markdown = report.sections.map(s => `## ${s.title}\n\n${s.content}`).join("\n\n");
-    report.draftMarkdown = report.markdown;
-    recordHistory(report, "sections", `${sections.length} sections`);
-
-    emit?.("deepsearch.report.generated", { runId: state.runId, hasReport: true, sectionCount: report.sections.length });
-    return { success: true, action: "sections", report };
+    return handleSections(args, report, state, emit);
   }
 
-  // ===== section: 添加单个章节 =====
   if (action === "section") {
-    const title = toNonEmptyString(args.title) || "章节";
-    const content = toNonEmptyString(args.content) || "";
-
-    const section = {
-      sectionId: `sec_${Date.now()}`,
-      title,
-      content,
-      createdAt: Date.now(),
-    };
-
-    report.sections.push(section);
-    report.markdown = report.sections.map(s => `## ${s.title}\n\n${s.content}`).join("\n\n");
-    report.draftMarkdown = report.markdown;
-    recordHistory(report, "section", title);
-
-    emit?.("deepsearch.section.written", { sectionId: section.sectionId, title, version: report.version });
-    return { success: true, action: "section", section, version: report.version };
+    return handleSection(args, report, emit);
   }
 
-  // ===== full: 基于 claims 生成完整报告 =====
-  const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
-  const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
-  const todos = Array.isArray(state?.todos) ? state.todos : [];
-  const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
-  const taskGoal = toNonEmptyString(state?.taskGoal) || "";
-  // mode 已在函数开头定义
+  return handleFull(report, mode, state, emit);
 
-  try {
-    const generated = generateReport(claims, evidenceLedger, todos, sources, taskGoal);
-
-    // full action 应该替换整个报告，而不是追加
-    // 如果需要保留历史，使用 append action
-    const processed = prepareReportForSubmit(generated?.markdown || "", mode, state);
-    report.markdown = processed.markdown;
-    report.sections = generated?.sections || [];
-    report.citations = generated?.citations || [];
-    report.draftMarkdown = report.markdown;
-    recordHistory(report, "full", `${claims.length} claims`);
-
-    // 验证报告质量（传入 state 以支持用户自定义配置）
-    const validation = processed.validation;
-    report.validation = validation;
-
-    emit?.("deepsearch.report.generated", {
-      runId: state.runId,
-      hasReport: true,
-      claimCount: claims.length,
-      version: report.version,
-      validation,
-    });
-
-    return {
-      success: true,
-      action: "full",
-      report,
-      validation,
-      hint: validation.valid
-        ? "报告质量验证通过"
-        : `报告质量不达标，请修改后重新提交。问题：${validation.issues.join("; ")}`,
-    };
-  } catch (err) {
-    logger.error("[write-report] generateReport failed:", { error: err.message, stack: err.stack });
-    return { success: false, error: err.message, errorCode: "REPORT_GENERATION_FAILED" };
-  }
 }
 
 export default { definition, handler };

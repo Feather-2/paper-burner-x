@@ -17,9 +17,10 @@
  * - AbortSignal 支持
  */
 
-import * as LamportClockModule from './lamport-clock.js';
-import { LamportClock } from './lamport-clock.js';
 import { createLogger } from '../shared/index.js';
+import { createEventRecord, createEventBusClock } from './event-record.js';
+import { createEventId, matchPattern } from './event-bus-utils.js';
+import { EventBusSubscriptions } from './event-bus-subscriptions.js';
 
 /**
  * @typedef {import('./types.d.ts').EventBusOptions} CoreEventBusOptions
@@ -66,7 +67,6 @@ import { createLogger } from '../shared/index.js';
  * @typedef {(event: EventRecord) => void | Promise<void>} EventHandler
  */
 
-const SCHEMA_VERSION = '0.1';
 const logger = createLogger('core/event-bus');
 
 // ============================================================
@@ -81,209 +81,11 @@ function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-/**
- * @param {unknown} name
- * @returns {boolean}
- */
-function isValidEventName(name) {
-  if (name === '*') return true;
-  // 支持 domain:action 和 domain.action 两种格式
-  return typeof name === 'string' && /^[a-z0-9_]+([.:][a-z0-9_]+)*$/.test(name);
-}
-
-/**
- * @param {unknown} pattern
- * @returns {boolean}
- */
-function isValidEventPattern(pattern) {
-  if (pattern === '*') return true;
-  if (typeof pattern !== 'string') return false;
-  // 支持 domain:action 和 domain.action 两种格式，允许通配符
-  return /^[a-z0-9_*?]+([.:][a-z0-9_*?]+)*$/.test(pattern);
-}
-
-function assertValidEventName(name) {
-  if (!isValidEventName(name)) {
-    throw new TypeError(`Invalid event name: ${String(name)}`);
-  }
-}
-
-function assertValidEventPattern(pattern) {
-  if (!isValidEventPattern(pattern)) {
-    throw new TypeError(`Invalid event pattern: ${String(pattern)}`);
-  }
-}
-
 function regexTest(re, text) {
   if (!re || typeof re.test !== 'function') return false;
   // Avoid RegExp.lastIndex footguns with /g and /y.
   if (re.global || re.sticky) re.lastIndex = 0;
   return re.test(text);
-}
-
-/**
- * @param {string | null | undefined} runId
- * @param {number} seq
- * @returns {string}
- */
-function createEventId(runId, seq) {
-  const base = runId && typeof runId === 'string' ? runId : 'run';
-  return `evt_${base}_${seq}`;
-}
-
-/**
- * 双指针通配符匹配 - O(m*n) 最坏情况，无指数回溯（防 ReDoS）
- * @param {string} pattern
- * @param {string} text
- * @returns {boolean}
- */
-function wildcardMatch(pattern, text) {
-  let pi = 0, ti = 0;
-  let starIdx = -1, matchIdx = -1;
-  const pLen = pattern.length, tLen = text.length;
-
-  while (ti < tLen) {
-    if (pi < pLen && (pattern[pi] === text[ti] || pattern[pi] === '?')) {
-      pi++;
-      ti++;
-    } else if (pi < pLen && pattern[pi] === '*') {
-      starIdx = pi;
-      matchIdx = ti;
-      pi++;
-    } else if (starIdx !== -1) {
-      pi = starIdx + 1;
-      matchIdx++;
-      ti = matchIdx;
-    } else {
-      return false;
-    }
-  }
-
-  while (pi < pLen && pattern[pi] === '*') pi++;
-  return pi === pLen;
-}
-
-/**
- * 匹配事件模式（安全实现，防 ReDoS）
- * @param {string} pattern
- * @param {string} eventName
- * @returns {boolean}
- */
-function matchPattern(pattern, eventName) {
-  if (typeof pattern !== 'string' || typeof eventName !== 'string') return false;
-  if (pattern === '*') return true;
-  if (pattern === eventName) return true;
-  if (!pattern.includes('*')) return false;
-
-  // 快速路径: "prefix.*" 模式
-  if (pattern.endsWith('.*') && !pattern.slice(0, -2).includes('*')) {
-    const prefix = pattern.slice(0, -2);
-    return eventName === prefix || eventName.startsWith(prefix + '.');
-  }
-
-  // 通用通配符匹配
-  return wildcardMatch(pattern, eventName);
-}
-
-// ============================================================
-// EventRecord 结构化事件
-// ============================================================
-
-/**
- * @typedef {object} CreateEventRecordOptions
- * @property {string | null} [runId]
- * @property {string} [eventId]
- * @property {string} [ts]
- * @property {string} [name]
- * @property {string} [actor]
- * @property {string} [status]
- * @property {unknown} [payload]
- * @property {unknown} [meta]
- * @property {string} [level]
- * @property {number} [durationMs]
- * @property {LamportClockState} [_clock]
- * @property {string} [id] - legacy alias for eventId
- * @property {string} [type] - legacy alias for name
- * @property {number} [timestamp] - legacy alias for ts (ms)
- * @property {LamportClockState} [clock] - legacy alias for _clock
- */
-
-/**
- * 创建结构化事件记录
- * @param {CreateEventRecordOptions} [options]
- * @returns {EventRecord}
- */
-export function createEventRecord({
-  runId,
-  eventId,
-  ts,
-  name,
-  actor = 'system',
-  status,
-  payload,
-  meta,
-  level,
-  durationMs,
-  _clock,
-  // legacy aliases (core/types.d.ts)
-  id,
-  type,
-  timestamp,
-  clock: clockInput,
-} = {}) {
-  // 生成逻辑时钟
-  let clock = _clock || clockInput;
-  if (!clock || typeof clock.seq !== 'number') {
-    clock = LamportClockModule.nextTick();
-  } else {
-    LamportClockModule.sync(clock.seq);
-  }
-
-  const resolvedName = typeof name === 'string' && name
-    ? name
-    : (typeof type === 'string' && type ? type : 'unknown');
-
-  assertValidEventName(resolvedName);
-
-  const resolvedTs = typeof ts === 'string' && ts
-    ? ts
-    : (typeof timestamp === 'number' && Number.isFinite(timestamp)
-        ? new Date(timestamp).toISOString()
-        : new Date().toISOString());
-
-  const resolvedTimestamp = (typeof timestamp === 'number' && Number.isFinite(timestamp))
-    ? timestamp
-    : (Number.isFinite(Date.parse(resolvedTs)) ? Date.parse(resolvedTs) : Date.now());
-
-  const resolvedEventId = (typeof eventId === 'string' && eventId)
-    ? eventId
-    : (typeof id === 'string' && id ? id : createEventId(runId, clock.seq));
-
-  /** @type {EventRecord} */
-  const record = {
-    // core/types.d.ts compatible fields
-    id: resolvedEventId,
-    type: resolvedName,
-    timestamp: resolvedTimestamp,
-    clock,
-
-    schemaVersion: SCHEMA_VERSION,
-    eventId: resolvedEventId,
-    runId: typeof runId === 'string' ? runId : null,
-    ts: resolvedTs,
-    name: resolvedName,
-    actor,
-    _clock: clock,
-    seq: clock.seq,
-  };
-
-  if (level) record.level = level;
-  if (status) record.status = status;
-  if (typeof durationMs === 'number') record.durationMs = durationMs;
-  if (payload !== undefined) record.payload = payload;
-  if (meta !== undefined) record.meta = meta;
-
-  return record;
 }
 
 // ============================================================
@@ -386,11 +188,7 @@ export class EventBus {
     this.runId = options.runId || null;
     this._seq = 0;
 
-    // 监听器存储
-    this._listeners = new Map(); // name -> Set(fn)
-    this._wildcardListeners = new Map(); // pattern -> Set(fn)
-    this._priorityListeners = new Map(); // name -> Map(priority -> Set(fn))
-    this._wildcardPriorityListeners = new Map(); // pattern -> Map(priority -> Set(fn))
+    this._subscriptions = new EventBusSubscriptions();
 
     // 事件历史
     this._history = options.keepHistory ? [] : null;
@@ -432,40 +230,7 @@ export class EventBus {
    * @returns {() => void} 取消订阅函数
    */
   on(name, handler, options) {
-    if (typeof handler !== 'function') {
-      throw new TypeError('EventBus.on: handler must be a function');
-    }
-
-    if (typeof name !== 'string' || !name) {
-      throw new TypeError('Invalid event name');
-    }
-    if (name.includes('*') || name.includes('?')) assertValidEventPattern(name);
-    else assertValidEventName(name);
-
-    const priority = options?.priority ?? 0;
-
-    // 带优先级的订阅走 subscribe 路径
-    if (priority !== 0) {
-      return this.subscribe(name, handler, { priority });
-    }
-
-    if (name.includes('*')) {
-      let set = this._wildcardListeners.get(name);
-      if (!set) {
-        set = new Set();
-        this._wildcardListeners.set(name, set);
-      }
-      set.add(handler);
-    } else {
-      let set = this._listeners.get(name);
-      if (!set) {
-        set = new Set();
-        this._listeners.set(name, set);
-      }
-      set.add(handler);
-    }
-
-    return () => this.off(name, handler);
+    return this._subscriptions.on(name, handler, options);
   }
 
   /**
@@ -475,13 +240,7 @@ export class EventBus {
    * @returns {() => void} 取消订阅函数
    */
   once(name, handler) {
-    /** @type {EventHandler & { _original?: EventHandler }} */
-    const wrapper = (evt) => {
-      this.off(name, wrapper);
-      return handler(evt);
-    };
-    wrapper._original = handler;
-    return this.on(name, wrapper);
+    return this._subscriptions.once(name, handler);
   }
 
   /**
@@ -492,69 +251,7 @@ export class EventBus {
    * @returns {() => void} 取消订阅函数
    */
   subscribe(eventType, handler, options = {}) {
-    const { priority = 0, signal } = options;
-
-    if (typeof handler !== 'function') {
-      throw new TypeError('EventBus.subscribe: handler must be a function');
-    }
-
-    if (typeof eventType !== 'string' || !eventType) {
-      throw new TypeError('Invalid event name');
-    }
-    if (eventType.includes('*') || eventType.includes('?')) assertValidEventPattern(eventType);
-    else assertValidEventName(eventType);
-
-    if (typeof priority !== 'number' || !Number.isFinite(priority)) {
-      throw new TypeError('EventBus.subscribe: priority must be a finite number');
-    }
-
-    // AbortSignal 支持
-    if (signal?.aborted) return () => {};
-
-    const wrapWithSignal = (unsubscribe) => {
-      if (!signal || typeof signal.addEventListener !== 'function') {
-        return unsubscribe;
-      }
-
-      let done = false;
-      const off = () => {
-        if (done) return;
-        done = true;
-        signal.removeEventListener?.('abort', off);
-        unsubscribe();
-      };
-
-      signal.addEventListener('abort', off, { once: true });
-      return off;
-    };
-
-    // 优先级订阅
-    if (priority !== 0) {
-      const isWildcard = eventType.includes('*');
-      const map = isWildcard ? this._wildcardPriorityListeners : this._priorityListeners;
-
-      let priorityMap = map.get(eventType);
-      if (!priorityMap) {
-        priorityMap = new Map();
-        map.set(eventType, priorityMap);
-      }
-
-      let set = priorityMap.get(priority);
-      if (!set) {
-        set = new Set();
-        priorityMap.set(priority, set);
-      }
-      set.add(handler);
-
-      return wrapWithSignal(() => {
-        set.delete(handler);
-        if (set.size === 0) priorityMap.delete(priority);
-        if (priorityMap.size === 0) map.delete(eventType);
-      });
-    }
-
-    // 普通订阅
-    return wrapWithSignal(this.on(eventType, handler));
+    return this._subscriptions.subscribe(eventType, handler, options);
   }
 
   /**
@@ -564,24 +261,7 @@ export class EventBus {
    * @returns {boolean} 是否成功取消
    */
   off(name, handler) {
-    // 检查普通监听器
-    const set = name.includes('*')
-      ? this._wildcardListeners.get(name)
-      : this._listeners.get(name);
-
-    if (set) {
-      for (const fn of set) {
-        if (fn === handler || fn._original === handler) {
-          set.delete(fn);
-          if (set.size === 0) {
-            (name.includes('*') ? this._wildcardListeners : this._listeners).delete(name);
-          }
-          return true;
-        }
-      }
-    }
-
-    return false;
+    return this._subscriptions.off(name, handler);
   }
 
   // ============================================================
@@ -894,10 +574,7 @@ export class EventBus {
    * @returns {void}
    */
   clear() {
-    this._listeners.clear();
-    this._wildcardListeners.clear();
-    this._priorityListeners.clear();
-    this._wildcardPriorityListeners.clear();
+    this._subscriptions.clear();
     this._waiters.clear();
     if (this._history) this._history.length = 0;
     this.disableBackpressure();
@@ -987,57 +664,7 @@ export class EventBus {
    * @returns {{ fn: Function, priority: number }[]}
    */
   _collectHandlers(eventName) {
-    const handlers = [];
-    let hasNonZeroPriority = false;
-
-    // 精确匹配 - 优先级
-    const priorityMap = this._priorityListeners.get(eventName);
-    if (priorityMap) {
-      for (const [priority, set] of priorityMap) {
-        for (const fn of set) {
-          handlers.push({ fn, priority });
-          if (priority !== 0) hasNonZeroPriority = true;
-        }
-      }
-    }
-
-    // 精确匹配 - 普通
-    const direct = this._listeners.get(eventName);
-    if (direct) {
-      for (const fn of direct) handlers.push({ fn, priority: 0 });
-    }
-
-    // 全局通配符
-    const any = this._listeners.get('*');
-    if (any) {
-      for (const fn of any) handlers.push({ fn, priority: 0 });
-    }
-
-    // 通配符 - 优先级
-    for (const [pattern, pMap] of this._wildcardPriorityListeners) {
-      if (matchPattern(pattern, eventName)) {
-        for (const [priority, set] of pMap) {
-          for (const fn of set) {
-            handlers.push({ fn, priority });
-            if (priority !== 0) hasNonZeroPriority = true;
-          }
-        }
-      }
-    }
-
-    // 通配符 - 普通
-    for (const [pattern, set] of this._wildcardListeners) {
-      if (matchPattern(pattern, eventName)) {
-        for (const fn of set) handlers.push({ fn, priority: 0 });
-      }
-    }
-
-    // 按优先级排序
-    if (hasNonZeroPriority) {
-      handlers.sort((a, b) => b.priority - a.priority);
-    }
-
-    return handlers;
+    return this._subscriptions.collectHandlers(eventName);
   }
 
   /**
@@ -1197,11 +824,7 @@ export class EventBus {
    * @returns {LamportClockState}
    */
   getClock() {
-    return {
-      seq: LamportClockModule.currentSeq(),
-      ts: typeof performance !== 'undefined' ? performance.now() : Date.now(),
-      id: `eventbus_${this._seq}`,
-    };
+    return createEventBusClock(this._seq);
   }
 }
 
@@ -1209,6 +832,7 @@ export class EventBus {
 // 导出
 // ============================================================
 
-export { LamportClock };
-export { isValidEventName, matchPattern, createEventId };
+export { LamportClock } from './lamport-clock.js';
+export { createEventRecord } from './event-record.js';
+export { isValidEventName, matchPattern, createEventId } from './event-bus-utils.js';
 export default EventBus;

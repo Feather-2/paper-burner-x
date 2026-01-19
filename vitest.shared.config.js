@@ -18,6 +18,9 @@ export default defineConfig({
         "js/agents/shared/contracts/rpc-message.js",
         "js/agents/shared/contracts/llm-response.js",
         "js/agents/shared/archive/archive.js",
+        "js/agents/shared/archive/archive-core.js",
+        "js/agents/shared/archive/map-adapter.js",
+        "js/agents/shared/archive/serialization.js",
         "js/agents/shared/archive/checkpoint-schema.js",
       ],
       statements: 90,
@@ -27,4 +30,3 @@ export default defineConfig({
     },
   },
 });
-

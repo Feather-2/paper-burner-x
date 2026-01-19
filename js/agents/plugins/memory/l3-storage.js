@@ -1,11 +1,31 @@
 import LRUCache from "../../shared/index.js";
 import DisposableBase from "../../shared/index.js";
 import { createLogger } from "../../shared/index.js";
+import { DEFAULT_MAX_SNAPSHOTS, DEFAULT_MAX_STORAGE_BYTES } from "./l3-storage/constants.js";
+import { computeContentHash } from "./l3-storage/hash.js";
+import {
+  addSnapshotToIndex,
+  createIndexState,
+  estimateStorageBytes,
+  getSupersededSnapshotCount,
+  markSnapshotSupersededInIndex,
+  markSnapshotsSupersededInIndex,
+  removeSnapshotFromIndex,
+  restoreIndexState,
+  serializeIndexState,
+  updateSnapshotAccess,
+} from "./l3-storage/index-manager.js";
+import { getSupersededTimeline, getTimeline, isDuplicate as isDuplicateQuery, searchByKeyword } from "./l3-storage/query.js";
+import { createStorageIO } from "./l3-storage/storage-io.js";
+import {
+  decodeTabCoordinatorSession,
+  encodeTabCoordinatorSession,
+  ensureTabCoordinatorHooks,
+  releaseTabCoordinatorHooks,
+} from "./l3-storage/tab-coordinator.js";
+import { getSummary, normalizeKeywords, toNonEmptyString, validateRunId } from "./l3-storage/utils.js";
 
 const logger = createLogger("runtime/memory/l3-storage");
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-const TAB_COORDINATOR_HOOKS_KEY = "__l3StorageHooks";
 
 /**
  * @typedef {object} L3TimelineEntry
@@ -23,198 +43,6 @@ const TAB_COORDINATOR_HOOKS_KEY = "__l3StorageHooks";
 
 /** @typedef {import("../coordination/tab-coordinator.js").TabCoordinator} TabCoordinator */
 
-/**
- * cyrb53 - fast, high-quality 53-bit hash.
- * @see https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js
- * @param {string} str
- * @param {number} [seed=0]
- * @returns {string} hex string
- */
-function cyrb53(str, seed = 0) {
-  let h1 = 0xdeadbeef ^ seed;
-  let h2 = 0x41c6ce57 ^ seed;
-  for (let i = 0; i < str.length; i++) {
-    const ch = str.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
-  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
-  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  // 53-bit integer as hex string
-  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
-}
-
-/**
- * Compute content hash for deduplication.
- * @param {any} data
- * @returns {string}
- */
-function computeContentHash(data) {
-  try {
-    const str = typeof data === "string" ? data : JSON.stringify(data);
-    return cyrb53(str);
-  } catch {
-    return cyrb53(String(data ?? ""));
-  }
-}
-
-function toNonEmptyString(value) {
-  const s = typeof value === "string" ? value.trim() : "";
-  return s ? s : null;
-}
-
-/**
- * Validate runId to prevent path traversal attacks.
- * @param {string} runId - Run ID to validate
- * @returns {string} Validated runId
- * @throws {Error} If runId contains path traversal characters
- */
-function validateRunId(runId) {
-  const id = toNonEmptyString(runId);
-  if (!id) throw new Error("L3Storage requires { runId }");
-  // Reject path traversal attempts
-  if (id.includes("..") || id.includes("/") || id.includes("\\")) {
-    throw new Error("L3Storage runId contains invalid characters (path traversal attempt)");
-  }
-  return id;
-}
-
-function encodeTabCoordinatorSession(runId, snapshotId) {
-  const resolvedRunId = toNonEmptyString(runId);
-  const resolvedSnapshotId = toNonEmptyString(snapshotId);
-  if (!resolvedRunId || !resolvedSnapshotId) return null;
-  return JSON.stringify({ runId: resolvedRunId, snapshotId: resolvedSnapshotId });
-}
-
-function decodeTabCoordinatorSession(sessionId) {
-  const raw = toNonEmptyString(sessionId);
-  if (!raw) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== "object") return null;
-  const runId = toNonEmptyString(parsed.runId);
-  const snapshotId = toNonEmptyString(parsed.snapshotId);
-  if (!runId || !snapshotId) return null;
-  return { runId, snapshotId };
-}
-
-function callTabCoordinatorHandler(handler, sessionId, label) {
-  if (typeof handler !== "function") return;
-  try {
-    handler(sessionId);
-  } catch (err) {
-    logger.warn(`[L3Storage] tabCoordinator ${label} handler error:`, err);
-  }
-}
-
-function callTabCoordinatorHandlers(handlers, sessionId, label) {
-  for (const handler of handlers) {
-    callTabCoordinatorHandler(handler, sessionId, label);
-  }
-}
-
-function ensureTabCoordinatorHooks(tabCoordinator) {
-  const coordinator = tabCoordinator && typeof tabCoordinator === "object" ? tabCoordinator : null;
-  if (!coordinator) return null;
-
-  const existing = coordinator[TAB_COORDINATOR_HOOKS_KEY];
-  if (existing && existing.eviction && existing.access) {
-    return existing;
-  }
-
-  const hooks = {
-    eviction: new Set(),
-    access: new Set(),
-    originalEviction: typeof coordinator._onEviction === "function" ? coordinator._onEviction : null,
-    originalAccess: typeof coordinator._onAccess === "function" ? coordinator._onAccess : null,
-  };
-
-  coordinator[TAB_COORDINATOR_HOOKS_KEY] = hooks;
-
-  coordinator._onEviction = (sessionId) => {
-    callTabCoordinatorHandler(hooks.originalEviction, sessionId, "onEviction");
-    callTabCoordinatorHandlers(hooks.eviction, sessionId, "onEviction");
-  };
-
-  coordinator._onAccess = (sessionId) => {
-    callTabCoordinatorHandler(hooks.originalAccess, sessionId, "onAccess");
-    callTabCoordinatorHandlers(hooks.access, sessionId, "onAccess");
-  };
-
-  return hooks;
-}
-
-function releaseTabCoordinatorHooks(tabCoordinator, hooks) {
-  const coordinator = tabCoordinator && typeof tabCoordinator === "object" ? tabCoordinator : null;
-  if (!coordinator || !hooks) return;
-  if (coordinator[TAB_COORDINATOR_HOOKS_KEY] !== hooks) return;
-
-  if (hooks.eviction.size === 0 && hooks.access.size === 0) {
-    coordinator._onEviction = hooks.originalEviction || null;
-    coordinator._onAccess = hooks.originalAccess || null;
-    delete coordinator[TAB_COORDINATOR_HOOKS_KEY];
-  }
-}
-
-function normalizeKeywords(keywords) {
-  const raw = Array.isArray(keywords) ? keywords : [];
-  const out = [];
-  const seen = new Set();
-  for (const kw of raw) {
-    const k = typeof kw === "string" ? kw.trim().toLowerCase() : "";
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
-    out.push(k);
-  }
-  return out;
-}
-
-function truncate(text, maxLen) {
-  const s = typeof text === "string" ? text : String(text ?? "");
-  const n = typeof maxLen === "number" && Number.isFinite(maxLen) ? Math.max(0, Math.floor(maxLen)) : 0;
-  if (!n) return "";
-  return s.length > n ? s.slice(0, n) : s;
-}
-
-function getSummary(data) {
-  const summary = data && typeof data === "object" ? toNonEmptyString(data.summary) : null;
-  if (summary) return summary;
-  try {
-    return truncate(typeof data === "string" ? data : JSON.stringify(data), 200);
-  } catch {
-    return truncate(String(data ?? ""), 200);
-  }
-}
-
-function isMissingPathError(err) {
-  const msg = String(err?.message || err || "");
-  return msg.includes("ENOENT") || msg.includes("NotFoundError") || msg.includes("NOT_FOUND");
-}
-
-/** Default max snapshots before eviction */
-const DEFAULT_MAX_SNAPSHOTS = 1000;
-/** Default max storage bytes (100MB) */
-const DEFAULT_MAX_STORAGE_BYTES = 100 * 1024 * 1024;
-/** Estimated bytes per character in summary (UTF-8 avg) */
-const BYTES_PER_CHAR = 2;
-/** Base overhead per snapshot entry (id, ts, stageKey, accessedAt, etc.) */
-const ENTRY_OVERHEAD_BYTES = 200;
-
-/**
- * L3Storage - L3 cold storage for MemoryStore.
- *
- * Persists snapshots + checkpoints to VFS, keeping only:
- * - index metadata
- * - a small LRU cache of recent snapshots/checkpoints
- *
- * Supports LRU eviction when snapshot count or storage bytes exceed limits.
- */
 export class L3Storage extends DisposableBase {
   /**
    * @param {object} options
@@ -276,6 +104,8 @@ export class L3Storage extends DisposableBase {
     /** @private */
     this._basePath = `.agents/runs/${runId}/l3`;
     /** @private */
+    this._io = createStorageIO({ vfs, basePath: this._basePath });
+    /** @private */
     this._deduplicateByDefault = o.deduplicateByDefault !== false;
 
     /** @private */
@@ -284,12 +114,7 @@ export class L3Storage extends DisposableBase {
     this._checkpointCache = new LRUCache({ maxSize: checkpointCacheSize });
 
     /** @private */
-    this._index = {
-      timeline: [], // entries now include accessedAt field
-      keywords: new Map(), // keyword -> Set<snapshotId>
-      stages: new Map(), // stageKey -> snapshotId (latest)
-      hashIndex: new Map(), // contentHash -> snapshotId
-    };
+    this._index = createIndexState();
 
     /** @private */
     this._checkpointIndex = [];
@@ -304,73 +129,6 @@ export class L3Storage extends DisposableBase {
     this._evictionPromise = null;
   }
 
-  _snapshotsDir() {
-    return `${this._basePath}/snapshots`;
-  }
-
-  _checkpointsDir() {
-    return `${this._basePath}/checkpoints`;
-  }
-
-  _indexPath() {
-    return `${this._basePath}/index.json`;
-  }
-
-  _indexTmpPath() {
-    return `${this._basePath}/index.json.tmp`;
-  }
-
-  _snapshotPath(id) {
-    return `${this._snapshotsDir()}/${id}.json`;
-  }
-
-  _checkpointPath(id) {
-    return `${this._checkpointsDir()}/${id}.json`;
-  }
-
-  async _ensureDirs() {
-    await this._vfs.mkdir(this._basePath, { recursive: true });
-    await this._vfs.mkdir(this._snapshotsDir(), { recursive: true });
-    await this._vfs.mkdir(this._checkpointsDir(), { recursive: true });
-  }
-
-  async _readJson(path) {
-    if (typeof this._vfs.exists === "function") {
-      const exists = await this._vfs.exists(path);
-      if (!exists) return null;
-    }
-
-    let bytes;
-    try {
-      bytes = await this._vfs.readFile(path);
-    } catch (err) {
-      if (isMissingPathError(err)) return null;
-      throw err;
-    }
-
-    const text = decoder.decode(bytes);
-    return JSON.parse(text);
-  }
-
-  async _writeJson(path, value) {
-    const json = JSON.stringify(value);
-    const bytes = encoder.encode(json);
-    await this._vfs.writeFile(path, bytes);
-  }
-
-  _serializeIndex() {
-    return {
-      schemaVersion: "0.1",
-      runId: this._runId,
-      updatedAt: Date.now(),
-      timeline: Array.isArray(this._index.timeline) ? this._index.timeline : [],
-      keywords: Array.from(this._index.keywords.entries()).map(([k, set]) => [k, Array.from(set || [])]),
-      stages: Array.from(this._index.stages.entries()),
-      hashIndex: Array.from(this._index.hashIndex.entries()),
-      checkpointIndex: Array.isArray(this._checkpointIndex) ? this._checkpointIndex : [],
-    };
-  }
-
   /**
    * Initialize storage: create directories and restore index from VFS.
    * @returns {Promise<void>}
@@ -379,7 +137,7 @@ export class L3Storage extends DisposableBase {
     this._ensureNotDisposed();
     if (this._initialized) return;
 
-    await this._ensureDirs();
+    await this._io.ensureDirs();
     await this.restoreIndex();
     await this._attachTabCoordinator();
     this._initialized = true;
@@ -403,7 +161,7 @@ export class L3Storage extends DisposableBase {
       }
     }
 
-    const hooks = ensureTabCoordinatorHooks(coordinator);
+    const hooks = ensureTabCoordinatorHooks(coordinator, logger);
     if (!hooks) return;
 
     const evictionHandler = (sessionId) => {
@@ -496,25 +254,7 @@ export class L3Storage extends DisposableBase {
     if (!id) return;
 
     this._snapshotCache.delete(id);
-
-    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
-    this._index.timeline = timeline.filter((e) => e?.id !== id);
-
-    for (const [, idSet] of this._index.keywords) {
-      idSet.delete(id);
-    }
-
-    for (const [stage, snapId] of this._index.stages) {
-      if (snapId === id) {
-        this._index.stages.delete(stage);
-      }
-    }
-
-    for (const [hash, snapId] of this._index.hashIndex) {
-      if (snapId === id) {
-        this._index.hashIndex.delete(hash);
-      }
-    }
+    removeSnapshotFromIndex(this._index, id);
   }
 
   /**
@@ -528,10 +268,7 @@ export class L3Storage extends DisposableBase {
     const id = toNonEmptyString(snapshotId);
     if (!id) return;
 
-    const timelineEntry = this._index.timeline.find((e) => e?.id === id);
-    if (timelineEntry) {
-      timelineEntry.accessedAt = Date.now();
-    }
+    updateSnapshotAccess(this._index, id, Date.now());
   }
 
   /**
@@ -578,18 +315,17 @@ export class L3Storage extends DisposableBase {
       data,
     };
 
-    await this._writeJson(this._snapshotPath(id), entry);
+    await this._io.writeJson(this._io.snapshotPath(id), entry);
     this._snapshotCache.set(id, entry);
 
-    for (const kw of normalizedKeywords) {
-      if (!this._index.keywords.has(kw)) this._index.keywords.set(kw, new Set());
-      this._index.keywords.get(kw).add(id);
-    }
-
-    if (stage) this._index.stages.set(stage, id);
-    // Include accessedAt for LRU tracking (initialized to ts)
-    this._index.timeline.push({ id, ts, accessedAt: ts, summary: entry.summary, stageKey: stage || undefined });
-    this._index.hashIndex.set(contentHash, id);
+    addSnapshotToIndex(this._index, {
+      id,
+      ts,
+      stageKey: stage,
+      keywords: normalizedKeywords,
+      summary: entry.summary,
+      contentHash,
+    });
 
     await this.persistIndex();
     this._lastArchiveResult = { id, deduplicated: false };
@@ -616,11 +352,7 @@ export class L3Storage extends DisposableBase {
     if (!snapId) return null;
 
     // Update accessedAt in timeline for LRU tracking
-    const timelineEntry = this._index.timeline.find((e) => e?.id === snapId);
-    if (timelineEntry) {
-      timelineEntry.accessedAt = Date.now();
-      // Persist is deferred (not blocking getSnapshot)
-    }
+    updateSnapshotAccess(this._index, snapId, Date.now());
 
     const cached = this._snapshotCache.get(snapId);
     if (cached) {
@@ -628,7 +360,7 @@ export class L3Storage extends DisposableBase {
       return cached;
     }
 
-    const entry = await this._readJson(this._snapshotPath(snapId));
+    const entry = await this._io.readJson(this._io.snapshotPath(snapId));
     if (!entry) return null;
 
     this._snapshotCache.set(snapId, entry);
@@ -652,7 +384,7 @@ export class L3Storage extends DisposableBase {
     const ts = typeof base.ts === "number" && Number.isFinite(base.ts) ? base.ts : Date.now();
 
     const checkpoint = { ...base, id, ts, runId: toNonEmptyString(base.runId) || this._runId };
-    await this._writeJson(this._checkpointPath(id), checkpoint);
+    await this._io.writeJson(this._io.checkpointPath(id), checkpoint);
     this._checkpointCache.set(id, checkpoint);
 
     const meta = {
@@ -685,7 +417,7 @@ export class L3Storage extends DisposableBase {
     const cached = this._checkpointCache.get(ckptId);
     if (cached) return cached;
 
-    const checkpoint = await this._readJson(this._checkpointPath(ckptId));
+    const checkpoint = await this._io.readJson(this._io.checkpointPath(ckptId));
     if (!checkpoint) return null;
 
     this._checkpointCache.set(ckptId, checkpoint);
@@ -730,31 +462,8 @@ export class L3Storage extends DisposableBase {
    */
   async persistIndex() {
     this._ensureNotDisposed();
-    await this._ensureDirs();
-
-    const indexPath = this._indexPath();
-    const tempPath = this._indexTmpPath();
-    const data = this._serializeIndex();
-    const json = JSON.stringify(data);
-    const bytes = encoder.encode(json);
-
-    // Step 1: Write to temporary file
-    await this._vfs.writeFile(tempPath, bytes);
-
-    // Step 2: Atomic rename if VFS supports it
-    if (typeof this._vfs.rename === "function") {
-      await this._vfs.rename(tempPath, indexPath);
-    } else {
-      // Fallback: write to target, then remove temp
-      await this._vfs.writeFile(indexPath, bytes);
-      try {
-        if (typeof this._vfs.unlink === "function") {
-          await this._vfs.unlink(tempPath);
-        }
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
+    const data = serializeIndexState(this._index, this._checkpointIndex, this._runId);
+    await this._io.persistIndex(data);
   }
 
   /**
@@ -764,104 +473,12 @@ export class L3Storage extends DisposableBase {
    */
   async restoreIndex() {
     this._ensureNotDisposed();
-    await this._ensureDirs();
-
-    const indexPath = this._indexPath();
-    const tempPath = this._indexTmpPath();
-
-    // Recovery: check for orphaned .tmp file from interrupted write
-    let tempExists = false;
-    if (typeof this._vfs.exists === "function") {
-      tempExists = await this._vfs.exists(tempPath);
-    } else {
-      try {
-        await this._vfs.readFile(tempPath);
-        tempExists = true;
-      } catch {
-        tempExists = false;
-      }
-    }
-
-    if (tempExists) {
-      // Attempt to recover from temp file
-      let tempData = null;
-      try {
-        tempData = await this._readJson(tempPath);
-      } catch {
-        // Parse error - treat as corrupted
-        tempData = null;
-      }
-
-      if (tempData && typeof tempData === "object") {
-        // Temp file is valid - complete the interrupted atomic write
-        if (typeof this._vfs.rename === "function") {
-          await this._vfs.rename(tempPath, indexPath);
-        } else {
-          const json = JSON.stringify(tempData);
-          const bytes = encoder.encode(json);
-          await this._vfs.writeFile(indexPath, bytes);
-          try {
-            if (typeof this._vfs.unlink === "function") {
-              await this._vfs.unlink(tempPath);
-            }
-          } catch {
-            // Ignore cleanup errors
-          }
-        }
-      } else {
-        // Temp file is corrupted - remove it
-        try {
-          if (typeof this._vfs.unlink === "function") {
-            await this._vfs.unlink(tempPath);
-          }
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    }
-
-    const raw = await this._readJson(indexPath);
+    const raw = await this._io.readIndexRaw();
     if (!raw || typeof raw !== "object") return;
-
-    const timeline = Array.isArray(raw.timeline) ? raw.timeline : [];
-    const keywordEntries = Array.isArray(raw.keywords) ? raw.keywords : [];
-    const stageEntries = Array.isArray(raw.stages) ? raw.stages : [];
-    const hashIndexEntries = Array.isArray(raw.hashIndex) ? raw.hashIndex : [];
-    const checkpointIndex = Array.isArray(raw.checkpointIndex)
-      ? raw.checkpointIndex
-      : Array.isArray(raw.checkpoints)
-        ? raw.checkpoints
-        : [];
-
-    this._index.timeline = timeline;
-    this._index.keywords = new Map(
-      keywordEntries
-        .filter((e) => Array.isArray(e) && typeof e[0] === "string")
-        .map(([k, ids]) => [k, new Set(Array.isArray(ids) ? ids.filter((id) => typeof id === "string") : [])])
-    );
-    this._index.stages = new Map(
-      stageEntries.filter((e) => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string")
-    );
-    this._index.hashIndex = new Map(
-      hashIndexEntries.filter((e) => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string")
-    );
-    this._checkpointIndex = checkpointIndex;
-  }
-
-  /**
-   * Estimate total storage bytes used by snapshots.
-   * Uses summary length as proxy (actual file size varies).
-   * @private
-   * @returns {number}
-   */
-  _estimateStorageBytes() {
-    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
-    let bytes = 0;
-    for (const entry of timeline) {
-      const summaryLen = typeof entry?.summary === "string" ? entry.summary.length : 0;
-      bytes += ENTRY_OVERHEAD_BYTES + summaryLen * BYTES_PER_CHAR;
-    }
-    return bytes;
+    const restored = restoreIndexState(raw);
+    if (!restored) return;
+    this._index = restored.index;
+    this._checkpointIndex = restored.checkpointIndex;
   }
 
   /**
@@ -876,7 +493,7 @@ export class L3Storage extends DisposableBase {
 
     // Check if eviction needed
     const count = timeline.length;
-    const bytes = this._estimateStorageBytes();
+    const bytes = estimateStorageBytes(this._index);
     if (count <= this._maxSnapshots && bytes <= this._maxStorageBytes) return;
 
     // Sort by accessedAt (oldest first) for LRU eviction
@@ -891,7 +508,7 @@ export class L3Storage extends DisposableBase {
     // Evict until under both limits
     for (const entry of sorted) {
       const currentCount = this._index.timeline.length;
-      const currentBytes = this._estimateStorageBytes();
+      const currentBytes = estimateStorageBytes(this._index);
       if (currentCount <= this._maxSnapshots && currentBytes <= this._maxStorageBytes) break;
 
       const id = entry?.id;
@@ -900,7 +517,7 @@ export class L3Storage extends DisposableBase {
       // Remove from VFS
       try {
         if (typeof this._vfs.unlink === "function") {
-          await this._vfs.unlink(this._snapshotPath(id));
+          await this._vfs.unlink(this._io.snapshotPath(id));
         }
       } catch {
         // Ignore removal errors
@@ -908,26 +525,7 @@ export class L3Storage extends DisposableBase {
 
       // Remove from indexes
       this._snapshotCache.delete(id);
-      this._index.timeline = this._index.timeline.filter((e) => e?.id !== id);
-
-      // Remove from keyword index
-      for (const [, idSet] of this._index.keywords) {
-        idSet.delete(id);
-      }
-
-      // Remove from stages if this was the latest
-      for (const [stage, snapId] of this._index.stages) {
-        if (snapId === id) {
-          this._index.stages.delete(stage);
-        }
-      }
-
-      // Remove from hashIndex
-      for (const [hash, snapId] of this._index.hashIndex) {
-        if (snapId === id) {
-          this._index.hashIndex.delete(hash);
-        }
-      }
+      removeSnapshotFromIndex(this._index, id);
 
       evicted.push(id);
     }
@@ -954,7 +552,7 @@ export class L3Storage extends DisposableBase {
     const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
     return {
       snapshotCount: timeline.length,
-      estimatedBytes: this._estimateStorageBytes(),
+      estimatedBytes: estimateStorageBytes(this._index),
       maxSnapshots: this._maxSnapshots,
       maxStorageBytes: this._maxStorageBytes,
     };
@@ -962,14 +560,7 @@ export class L3Storage extends DisposableBase {
 
   /** @returns {number} */
   get supersededSnapshotCount() {
-    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
-    let count = 0;
-    for (const entry of timeline) {
-      if (entry && typeof entry === "object" && entry.superseded === true) {
-        count += 1;
-      }
-    }
-    return count;
+    return getSupersededSnapshotCount(this._index);
   }
 
   /**
@@ -996,20 +587,15 @@ export class L3Storage extends DisposableBase {
     const id = toNonEmptyString(snapshotId);
     if (!id) return false;
 
-    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
-    const entry = timeline.find((e) => e?.id === id);
-    if (!entry) return false;
-
     const correctionText = typeof correction === "string" ? correction : String(correction ?? "");
-    const wasSuperseded = entry.superseded === true;
-    entry.superseded = true;
-    entry.supersededBy = correctionText;
+    const { entry, wasSuperseded } = markSnapshotSupersededInIndex(this._index, id, correctionText);
+    if (!entry) return false;
 
     const cached = this._snapshotCache.get(id);
     if (cached && typeof cached === "object") {
       cached.superseded = true;
       cached.supersededBy = correctionText;
-      await this._writeJson(this._snapshotPath(id), cached);
+      await this._io.writeJson(this._io.snapshotPath(id), cached);
     }
 
     await this.persistIndex();
@@ -1030,26 +616,14 @@ export class L3Storage extends DisposableBase {
     if (list.length === 0) return 0;
 
     const correctionText = typeof correction === "string" ? correction : String(correction ?? "");
-    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
-    let marked = 0;
-    let touched = false;
+    const { marked, touched, updatedIds } = markSnapshotsSupersededInIndex(this._index, list, correctionText);
 
-    for (const rawId of list) {
-      const id = toNonEmptyString(rawId);
-      if (!id) continue;
-      const entry = timeline.find((e) => e?.id === id);
-      if (!entry) continue;
-      const wasSuperseded = entry.superseded === true;
-      entry.superseded = true;
-      entry.supersededBy = correctionText;
-      if (!wasSuperseded) marked += 1;
-      touched = true;
-
+    for (const id of updatedIds) {
       const cached = this._snapshotCache.get(id);
       if (cached && typeof cached === "object") {
         cached.superseded = true;
         cached.supersededBy = correctionText;
-        await this._writeJson(this._snapshotPath(id), cached);
+        await this._io.writeJson(this._io.snapshotPath(id), cached);
       }
     }
 
@@ -1066,12 +640,7 @@ export class L3Storage extends DisposableBase {
    * @returns {L3TimelineEntry[]}
    */
   getTimeline(options = {}) {
-    const includeSuperseded = options?.includeSuperseded === true;
-    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
-    const filtered = includeSuperseded
-      ? timeline
-      : timeline.filter((e) => !(e && typeof e === "object" && e.superseded === true));
-    return filtered.map((e) => (e && typeof e === "object" ? { ...e } : e));
+    return getTimeline(this._index, options);
   }
 
   /**
@@ -1079,10 +648,7 @@ export class L3Storage extends DisposableBase {
    * @returns {L3TimelineEntry[]}
    */
   getSupersededTimeline() {
-    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
-    return timeline
-      .filter((e) => e && typeof e === "object" && e.superseded === true)
-      .map((e) => ({ ...e }));
+    return getSupersededTimeline(this._index);
   }
 
   /**
@@ -1092,26 +658,7 @@ export class L3Storage extends DisposableBase {
    * @returns {string[]} Snapshot IDs
    */
   searchByKeyword(keyword, options = {}) {
-    const k = typeof keyword === "string" ? keyword.trim().toLowerCase() : "";
-    if (!k) return [];
-    const ids = this._index.keywords.get(k);
-    if (!ids) return [];
-    const list = Array.from(ids || []);
-    const includeSuperseded = options?.includeSuperseded === true;
-    if (includeSuperseded) return list;
-
-    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
-    if (timeline.length === 0) return list;
-
-    const supersededIds = new Set();
-    for (const entry of timeline) {
-      const id = typeof entry?.id === "string" ? entry.id : null;
-      if (id && entry && typeof entry === "object" && entry.superseded === true) {
-        supersededIds.add(id);
-      }
-    }
-
-    return list.filter((id) => !supersededIds.has(id));
+    return searchByKeyword(this._index, keyword, options);
   }
 
   /**
@@ -1120,11 +667,7 @@ export class L3Storage extends DisposableBase {
    * @returns {{ duplicate: boolean, existingId?: string }}
    */
   isDuplicate(data) {
-    const contentHash = computeContentHash(data);
-    if (this._index.hashIndex.has(contentHash)) {
-      return { duplicate: true, existingId: this._index.hashIndex.get(contentHash) };
-    }
-    return { duplicate: false };
+    return isDuplicateQuery(this._index, data);
   }
 
   /**

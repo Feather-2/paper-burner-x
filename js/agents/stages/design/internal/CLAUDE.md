@@ -2,7 +2,7 @@
 
 设计阶段的运行时工具集，覆盖规划、阶段编排、编辑与视觉填充。
 
-> **文件统计**: 8 个 JS 文件
+> **文件统计**: 17 个 JS 文件
 
 ## 模块描述
 - 为 DesignAgentLoop 提供可复用的运行时能力：规划、阶段执行、视觉渲染、分析与编辑。
@@ -13,7 +13,8 @@
 
 | 文件 | 职责 |
 |------|------|
-| `design-phases.js` | 阶段编排（准备/规划/布局/生成/修复/视觉/评审） |
+| `phases/` | 阶段处理器（准备/规划/布局/生成/修复/视觉/评审） |
+| `design-phases.js` | 阶段处理器兼容导出（转发至 `phases/`） |
 | `deck-planner.js` | 规划生成与用户反馈解析（review/dialog 格式化、LLM 解析） |
 | `design-context.js` | 设计状态上下文（slideIntents/designSystem/输出） |
 | `design-blackboard.js` | 黑板：summary/signal/decision/版本管理，支持 MemoryStore/StateEngine |

@@ -7,6 +7,9 @@ Agent Loop 的核心组件。
 | 文件 | 职责 |
 |------|------|
 | `agent-loop.js` | BaseAgentLoop - 基础循环 |
+| `agent-loop-lifecycle-hooks.js` | Agent 生命周期钩子封装 |
+| `agent-loop-message-handling.js` | BaseAgentLoop 消息与用户输入处理 |
+| `agent-loop-tool-dispatch.js` | BaseAgentLoop 工具调度封装 |
 | `agent-status.js` | AgentStatus, StepStatus 枚举 |
 | `lifecycle.js` | 生命周期事件 |
 | `status-controller.js` | StatusController - 状态控制 |

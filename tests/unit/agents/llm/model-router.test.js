@@ -233,8 +233,8 @@ describe("agents/llm/model-router", () => {
 
     const onUnhealthy = vi.fn();
     const onFailover = vi.fn();
-    router.on("model.unhealthy", onUnhealthy);
-    router.on("model.failover", onFailover);
+    router.on("model:unhealthy", onUnhealthy);
+    router.on("model:failover", onFailover);
 
     const out = await router.call({ usage: "planner", messages: [{ role: "user", content: "plan" }] });
     expect(out.model).toBe("good");
@@ -273,7 +273,7 @@ describe("agents/llm/model-router", () => {
     });
 
     const onUnhealthy = vi.fn();
-    router.on("model.unhealthy", onUnhealthy);
+    router.on("model:unhealthy", onUnhealthy);
 
     const out1 = await router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] });
     expect(out1.model).toBe("good");
@@ -317,7 +317,7 @@ describe("agents/llm/model-router", () => {
     });
 
     const unhealthyEvents = [];
-    router.on("model.unhealthy", (e) => unhealthyEvents.push(e));
+    router.on("model:unhealthy", (e) => unhealthyEvents.push(e));
 
     await expect(router.call({ usage: "worker", messages: [{ role: "user", content: "a" }] })).rejects.toThrow(/All models failed/);
     expect(unhealthyEvents[0]).toMatchObject({ cooldownMs: 1000, backoffLevel: 0 });
@@ -582,9 +582,9 @@ describe("agents/llm/model-router", () => {
     });
 
     const handler = vi.fn();
-    router.on("model.unhealthy", handler);
-    router.off("model.unhealthy", () => {});
-    router.off("model.unhealthy", handler);
+    router.on("model:unhealthy", handler);
+    router.off("model:unhealthy", () => {});
+    router.off("model:unhealthy", handler);
 
     const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] });
     expect(out.model).toBe("good");
@@ -595,9 +595,9 @@ describe("agents/llm/model-router", () => {
     expect(router.isAvailable("bad")).toBe(true);
     router.resetUnhealthy("   ");
 
-    router.on("model.failover", () => {});
-    router.removeAllListeners("model.failover");
-    router.on("model.failover", () => {});
+    router.on("model:failover", () => {});
+    router.removeAllListeners("model:failover");
+    router.on("model:failover", () => {});
     router.removeAllListeners();
   });
 
@@ -794,7 +794,7 @@ describe("agents/llm/model-router", () => {
     });
 
     const stateChanges = [];
-    router.on("circuit.stateChange", (e) => stateChanges.push(e));
+    router.on("circuit:stateChange", (e) => stateChanges.push(e));
 
     // First 5 calls: attempt "bad" then fail over to "good"; advance time so "bad" becomes eligible again.
     for (let i = 0; i < 5; i++) {
@@ -1063,7 +1063,7 @@ describe("agents/llm/model-router", () => {
     router.markUnhealthy("cooldown", new Error("down"));
 
     const failovers = [];
-    router.on("model.failover", (e) => failovers.push(e));
+    router.on("model:failover", (e) => failovers.push(e));
 
     const out = await router.call({
       usage: "vision",
@@ -1165,8 +1165,8 @@ describe("agents/llm/model-router", () => {
 
     const unhealthy = vi.fn();
     const failover = vi.fn();
-    router.on("model.unhealthy", unhealthy);
-    router.on("model.failover", failover);
+    router.on("model:unhealthy", unhealthy);
+    router.on("model:failover", failover);
 
     const limiter = router._getRateLimiter(router.getModelEntry("m1"));
     const blockSpy = limiter ? vi.spyOn(limiter, "blockFor") : null;
@@ -1320,7 +1320,7 @@ describe("agents/llm/model-router", () => {
     });
 
     const unhealthy = [];
-    router.on("model.unhealthy", (e) => unhealthy.push(e));
+    router.on("model:unhealthy", (e) => unhealthy.push(e));
 
     for (let i = 0; i < 3; i++) {
       await expect(router.call({ usage: "worker", messages: [{ role: "user", content: `x-${i}` }] })).rejects.toThrow(
@@ -1354,7 +1354,7 @@ describe("agents/llm/model-router", () => {
     });
 
     const unhealthy = [];
-    router.on("model.unhealthy", (e) => unhealthy.push(e));
+    router.on("model:unhealthy", (e) => unhealthy.push(e));
 
     await expect(router.call({ usage: "worker", messages: [{ role: "user", content: "a" }] })).rejects.toThrow(/All models failed/);
     expect(unhealthy[0].cooldownMs).toBe(1000);
@@ -1433,7 +1433,7 @@ describe("agents/llm/model-router", () => {
     });
 
     const unhealthy = [];
-    router.on("model.unhealthy", (e) => unhealthy.push(e));
+    router.on("model:unhealthy", (e) => unhealthy.push(e));
 
     await expect(router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] })).rejects.toThrow(/All models failed/);
     expect(unhealthy[0].cooldownMs).toBe(5000);

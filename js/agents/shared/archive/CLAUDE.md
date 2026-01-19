@@ -6,7 +6,10 @@
 
 | 文件 | 职责 |
 |------|------|
-| `archive.js` | Archive, MapAdapter, IndexedDBAdapter, FallbackAdapter（差量快照/恢复缓存） |
+| `archive.js` | 入口导出：Archive、MapAdapter、IndexedDBAdapter、FallbackAdapter |
+| `archive-core.js` | Archive 类（差量快照/恢复缓存） |
+| `map-adapter.js` | MapAdapter（内存存储） |
+| `serialization.js` | JSON patch/diff 序列化逻辑 |
 | `checkpoint-schema.js` | Checkpoint 类型、版本、创建/校验/迁移 |
 
 ## Archive

@@ -1,148 +1,40 @@
-import { Archive, FallbackAdapter, MapAdapter } from "../../shared/index.js";
-import { deepClone } from "../../shared/index.js";
-import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/index.js";
-import { createLogger } from "../../shared/index.js";
-import { DesignPhase, designPhaseMachine } from "./states.js";
+import { AgentStatus, BaseAgentLoop, StagePausedError, createLifecycleEmitter, getEmitFn } from "../../runtime/index.js";
+import { DesignPhase } from "./states.js";
 import {
-  AgentStatus,
-  BaseAgentLoop,
-  checkCancelled,
-  getEmitFn,
-  resolveToolExecutor,
-  StagePausedError,
-  createLifecycleEmitter,
-  Watchdog,
-} from "../../runtime/index.js";
-import { getRuntimeState } from "../../plugins/telemetry/index.js";
-import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./design-tools.js";
-import { VisualHandler } from "./internal/visual-handler.js";
-import { runPreparationPhase, runGeneratingPhase, runBatchRepairPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./internal/design-phases.js";
+  runPreparationPhase,
+  runGeneratingPhase,
+  runBatchRepairPhase,
+  runVisualPhase,
+  runReviewPhase,
+  runPlanningPhase,
+  runLayoutPhase,
+} from "./internal/phases/index.js";
 import { DesignBlackboard } from "./internal/design-blackboard.js";
 import {
   DESIGN_LOOP_DEFAULTS,
-  resolveWatchdogSettings,
-  safeJsonStringify,
   resolveStageTraceContext,
   resolveErrorBoundary,
   createTracedAiApiService,
   createTracedModelRouter,
-  buildDesignWatchdogAdvice,
-  summarizeRefineEventForWatchdog,
   emitStage,
   loadDesignConcurrencyConfig,
   BacktrackError,
 } from "./design-helpers.js";
+import { DeckOperations, createDeckUpdateEmitter, finalizeDeck, initWatchdogManager, installDeckOperations } from "./internal/deck-operations.js";
+import { createEmptyDesignLoopState, installStateManager, resumeDesignAgentLoop as resumeDesignAgentLoopInternal } from "./internal/state-manager.js";
+import { initDesignTooling, installToolHandler } from "./internal/tool-handler.js";
+
+export { DESIGN_AGENT_TOOL_DEFINITIONS } from "./design-tools.js";
 
 /**
- * @typedef {object} DesignLoopConstructorOptions
- * @property {number} [batchSize]
- * @property {Archive|null} [archive]
- * @property {any} [eventBus]
- * @property {Record<string, Function>|null} [tools]
- * @property {any} [memoryStore]
- * @property {any} [stateEngine]
- * @property {any} [container]
+ * @typedef {import("./internal/design-loop-types.js").DesignLoopConstructorOptions} DesignLoopConstructorOptions
+ * @typedef {import("./internal/design-loop-types.js").DesignStageApi} DesignStageApi
+ * @typedef {import("./internal/design-loop-types.js").DesignPhaseState} DesignPhaseState
+ * @typedef {import("./internal/design-loop-types.js").DesignLoopState} DesignLoopState
  */
-
-/**
- * Minimal Stage API surface used by the design loop.
- * Keep it permissive (JSDoc-only typing) to reduce `checkJs` friction.
- *
- * @typedef {object} DesignStageApi
- * @property {{ runId?: string, constraints?: any, userConfig?: any }=} [runContext]
- * @property {(eventName: string, record: { actor?: string, status?: string, payload?: any }) => void=} [emit]
- * @property {any=} [eventBus]
- * @property {AbortSignal=} [signal]
- * @property {any=} [aiApiService]
- * @property {any=} [modelRouter]
- * @property {any=} [imageService]
- * @property {any=} [imageProvider]
- * @property {any=} [traceContext]
- * @property {any=} [runtimeHints]
- * @property {any=} [flushCompression]
- * @property {any=} [errorBoundaryConfig]
- * @property {boolean=} [errorBoundaryDegrade]
- * @property {boolean=} [degradeOnError]
- * @property {any=} [eventBusBackpressure]
- * @property {any=} [backpressure]
- * @property {any=} [memoryStore]
- * @property {any=} [stateEngine]
- * @property {any=} [watchdog]
- * @property {boolean=} [resumed]
- * @property {any=} [resumeState]
- * @property {any=} [toolExecutor]
- * @property {any=} [tools]
- * @property {boolean=} [enablePlanning]
- * @property {boolean=} [enableLayout]
- * @property {boolean=} [enableFinalReview]
- * @property {any=} [interactionMode]
- * @property {boolean=} [skipReview]
- * @property {any=} [userConfig]
- */
-
-/**
- * @typedef {object} DesignPhaseState
- * @property {string} status
- */
-
-/**
- * @typedef {Error & { code?: any, timeoutMs?: number }} ErrorWithCode
- */
-
-/**
- * @typedef {object} DesignLoopState
- * @property {any} contentPackage
- * @property {any[]} slideIntents
- * @property {any} designSystem
- * @property {Record<string, any>} constraints
- * @property {Record<string, any>} userConfig
- * @property {any} plans
- * @property {any[]} generated
- * @property {any[]} slideHtmls
- * @property {any[]} slidesMeta
- * @property {any[]} imageSlots
- * @property {any[]} visualSlots
- * @property {string} deckHtmlDsl
- * @property {any[]} pendingImages
- * @property {any} brainstormResult
- * @property {any=} layoutData
- * @property {any=} baseDeckHtmlDsl
- * @property {any=} degradedCount
- * @property {any=} finalImageSlots
- * @property {any=} imageReport
- * @property {any=} visualReport
- * @property {any=} refineResult
- * @property {any=} reviewResult
- */
-
-/**
- * @returns {DesignLoopState}
- */
-function createEmptyDesignLoopState() {
-  return {
-    contentPackage: null,
-    slideIntents: [],
-    designSystem: null,
-    constraints: {},
-    userConfig: {},
-    plans: null,
-    generated: [],
-    slideHtmls: [],
-    slidesMeta: [],
-    imageSlots: [],
-    visualSlots: [],
-    deckHtmlDsl: "",
-    pendingImages: [],
-    brainstormResult: null,
-  };
-}
-
-const logger = createLogger("stages/design/agent-loop");
 
 const SCHEMA_VERSION = "0.1";
 
-// Re-export for backward compatibility
-export { DESIGN_AGENT_TOOL_DEFINITIONS };
 export { BacktrackError };
 
 /**
@@ -161,14 +53,8 @@ export class DesignAgentLoop extends BaseAgentLoop {
     this.imageConcurrency = Math.max(1, Number(config?.imageConcurrency) || DESIGN_LOOP_DEFAULTS.imageConcurrency);
     // DI 容器
     this._container = container || null;
-    // Inject VisualHandler
-    this._visualHandler = new VisualHandler({ imageConcurrency: this.imageConcurrency });
-    // Register design tools - preserve _toolRegistry._tools reference set by BaseAgentLoop
-    const designTools = createDesignToolHandlers(this);
-    this.registerTools(designTools);
-    if (tools) this.registerTools(tools);
-    // Local reference for backward compat (used by _toolXxx shortcuts below)
-    this._designTools = designTools;
+    this._deckOps = new DeckOperations(this, { imageConcurrency: this.imageConcurrency });
+    initDesignTooling(this, tools);
     /** @type {DesignPhaseState} */
     this.phase = { status: DesignPhase.IDLE };
     /** @type {string} */
@@ -192,15 +78,6 @@ export class DesignAgentLoop extends BaseAgentLoop {
     this._emit = null;
     /** @type {any} Snapshot of last resume (resumeDesignAgentLoop). */
     this._resumeState = null;
-
-    // Expose tool methods for backward compatibility (tests)
-    this._toolParseOutline = this._designTools.parse_outline;
-    this._toolExtractStyle = this._designTools.extract_style;
-    this._toolSpawnSlideAgent = this._designTools.spawn_slide_agent;
-    this._toolTakeScreenshot = this._designTools.take_screenshot;
-    this._toolFixSlide = this._designTools.fix_slide;
-    this._toolFillVisual = this._designTools.fill_visual;
-    this._toolChatAsk = this._designTools.chat_ask;
   }
 
   /**
@@ -243,374 +120,6 @@ export class DesignAgentLoop extends BaseAgentLoop {
     }
     // 最后使用回退值
     return fallback;
-  }
-
-	  // === Version Management ===
-
-	  /**
-	   * @param {string} label
-	   * @returns {any}
-	   */
-	  saveVersion(label) {
-	    if (!this._blackboard) return null;
-	    const snapshot = {
-	      phase: this.phase?.status,
-      loopStatus: this._loopStatus,
-      state: deepClone(this.state), // 保存当前执行快照
-      timestamp: Date.now(),
-    };
-	    return this._blackboard.saveVersion(label, snapshot);
-	  }
-
-	  /**
-	   * @param {string} label
-	   * @returns {any}
-	   */
-	  getVersion(label) {
-	    return this._blackboard?.getVersion(label) || null;
-	  }
-
-	  /**
-	   * @returns {any[]}
-	   */
-	  listVersions() {
-	    return this._blackboard?.listVersions() || [];
-	  }
-
-  /**
-   * 回溯到指定版本（抛出 BacktrackError 触发主循环重启）
-   * @param {string} label - 版本标签
-   * @param {string} [reason] - 回溯原因
-   * @throws {BacktrackError} 触发主循环从目标阶段重启
-   */
-  backtrackTo(label, reason = "user_requested") {
-    if (!this._blackboard) throw new Error("Cannot backtrack: no blackboard");
-    const version = this._blackboard.getVersion(label);
-    if (!version) throw new Error(`Cannot backtrack: version "${label}" not found`);
-    // 恢复状态
-    const targetPhase = version.snapshot?.phase || DesignPhase.IDLE;
-    if (version.snapshot?.phase) this.phase.status = version.snapshot.phase;
-    if (version.snapshot?.loopStatus) this._loopStatus = version.snapshot.loopStatus;
-
-    // 深度恢复 state (对照 BacktrackManager)
-    if (version.snapshot?.state) {
-      this.state = deepClone(version.snapshot.state);
-    }
-
-    this._blackboard.restoreVersion(label);
-    this._emit?.("design.backtrack", { label, targetPhase, reason, timestamp: Date.now() });
-
-    // 标记正在回溯，防止 _runCore 重置状态
-    this._isBacktracking = true;
-    // 抛出 BacktrackError 触发主循环重启
-    throw new BacktrackError(targetPhase, label, reason);
-  }
-
-  /**
-   * 回溯到最近的 checkpoint
-   * @param {string} [reason] - 回溯原因
-   * @throws {BacktrackError} 触发主循环从目标阶段重启
-   */
-	  backtrackToLastCheckpoint(reason = "auto_recovery") {
-	    const versions = this.listVersions();
-	    if (versions.length === 0) throw new Error("Cannot backtrack: no versions available");
-	    const latest = versions[versions.length - 1];
-	    this.backtrackTo(latest.label, reason);
-	  }
-
-	  /**
-	   * @returns {any[]}
-	   */
-	  getToolDefinitions() {
-	    return DESIGN_AGENT_TOOL_DEFINITIONS.slice();
-	  }
-
-	  /**
-	   * @returns {Record<string, any>}
-	   */
-	  serializeNodeStates() {
-	    const state = this.state && typeof this.state === "object" ? this.state : {};
-	    const out = {
-	      contentPackage: state.contentPackage ?? null,
-      slideIntents: Array.isArray(state.slideIntents) ? state.slideIntents : [],
-      designSystem: state.designSystem ?? null,
-      slideHtmls: Array.isArray(state.slideHtmls) ? state.slideHtmls : [],
-      deckHtmlDsl: typeof state.deckHtmlDsl === "string" ? state.deckHtmlDsl : "",
-      imageSlots: Array.isArray(state.imageSlots) ? state.imageSlots : [],
-      visualSlots: Array.isArray(state.visualSlots) ? state.visualSlots : [],
-	    };
-	    return deepClone(out);
-	  }
-
-	  /**
-	   * @param {any} nodeStates
-	   * @returns {void}
-	   */
-	  hydrateFromNodeStates(nodeStates) {
-	    const source = nodeStates && typeof nodeStates === "object" ? nodeStates : {};
-	    if (!this.state || typeof this.state !== "object") this.state = createEmptyDesignLoopState();
-
-	    const contentPackage = source.contentPackage || source.parsedContentPackage || null;
-	    if (contentPackage && typeof contentPackage === "object") {
-	      this.state.contentPackage = deepClone(contentPackage);
-	    }
-
-    if (Array.isArray(source.slideIntents)) {
-      this.state.slideIntents = deepClone(source.slideIntents);
-    }
-
-    if (source.designSystem && typeof source.designSystem === "object") {
-      this.state.designSystem = deepClone(source.designSystem);
-    }
-
-    if (Array.isArray(source.slideHtmls)) {
-      this.state.slideHtmls = deepClone(source.slideHtmls);
-    }
-
-    if (typeof source.deckHtmlDsl === "string") {
-      this.state.deckHtmlDsl = source.deckHtmlDsl;
-    }
-
-    if (Array.isArray(source.imageSlots)) {
-      this.state.imageSlots = deepClone(source.imageSlots);
-    }
-
-    if (Array.isArray(source.visualSlots)) {
-      this.state.visualSlots = deepClone(source.visualSlots);
-    }
-	  }
-
-
-	  /**
-	   * @param {DesignPhaseState} state
-	   * @param {string} next
-	   * @param {{ emit?: Function, runId?: string, payload?: any, lifecycle?: any }} [context]
-	   * @returns {string}
-	   */
-	  _transitionPhase(state, next, { emit, runId, payload, lifecycle } = {}) {
-	    const from = state.status;
-	    const ok = designPhaseMachine.transition(state, next, { runId, from, to: next, ...payload });
-	    if (!ok) {
-      throw new Error(`DesignPhase transition rejected: ${from} -> ${next}`);
-    }
-    const phaseLifecycle =
-      lifecycle ||
-      this._lifecycle ||
-      createLifecycleEmitter({
-        actor: "design",
-        emit,
-        eventBus: this.eventBus,
-      });
-    const traceContext = this._traceContext;
-    if (traceContext && typeof traceContext.startSpan === "function" && typeof traceContext.endSpan === "function") {
-      const span = traceContext.startSpan("design.phase.transition", {
-        attributes: { from, to: next, runId },
-      });
-      try {
-        phaseLifecycle.phaseTransition(from, next, runId, payload);
-      } finally {
-        traceContext.endSpan(span);
-      }
-    } else {
-      phaseLifecycle.phaseTransition(from, next, runId, payload);
-    }
-	    return next;
-	  }
-
-	  /**
-	   * @param {string} newStatus
-	   * @param {Record<string, any>} [metadata]
-	   * @returns {Promise<string|null>}
-	   */
-	  async _transitionTo(newStatus, metadata = {}) {
-	    const oldStatus = this._loopStatus;
-	    if (oldStatus === newStatus) return null;
-
-    // 简化状态机：只验证基本转换
-    const validTransitions = {
-      [AgentStatus.IDLE]: [AgentStatus.RUNNING],
-      [AgentStatus.RUNNING]: [AgentStatus.COMPLETED, AgentStatus.FAILED, AgentStatus.PAUSED],
-      [AgentStatus.PAUSED]: [AgentStatus.RUNNING, AgentStatus.FAILED],
-      [AgentStatus.COMPLETED]: [],
-      [AgentStatus.FAILED]: [],
-    };
-	    const allowed = validTransitions[oldStatus] || [];
-	    if (!allowed.includes(newStatus)) {
-	      const err = new Error(`Invalid DesignLoop state transition: ${oldStatus} -> ${newStatus}`);
-	      /** @type {ErrorWithCode} */ (err).code = "INVALID_STATE_TRANSITION";
-	      throw err;
-	    }
-
-    const meta = metadata && typeof metadata === "object" ? metadata : {};
-    const { stageApi, nodeStates, ...historyMeta } = meta;
-    const timestamp = Date.now();
-    const runtimeState = stageApi?.signal ? getRuntimeState(stageApi.signal) : null;
-    const runtimePauseRequested = runtimeState?.status === "paused";
-    let checkpointId = null;
-
-    // 在 RUNNING 状态下检查暂停请求
-    if (newStatus === AgentStatus.RUNNING && this.archive) {
-      checkpointId = await this._savePreActionCheckpoint({
-        ...historyMeta,
-        ...(nodeStates && typeof nodeStates === "object" ? { nodeStates } : {}),
-      });
-      if (runtimeState && checkpointId) runtimeState.lastCheckpointId = checkpointId;
-    }
-
-    const shouldPause = this._pauseRequested || runtimePauseRequested;
-    if (shouldPause && newStatus === AgentStatus.RUNNING) {
-      const reason = runtimeState?.pausedReason || this._pauseReason || null;
-      const resolvedCheckpointId = checkpointId ?? historyMeta.checkpointId ?? runtimeState?.lastCheckpointId ?? null;
-      if (runtimeState && resolvedCheckpointId) runtimeState.lastCheckpointId = resolvedCheckpointId;
-
-      this._loopStatus = AgentStatus.PAUSED;
-      this._statusHistory.push({
-        from: oldStatus,
-        to: AgentStatus.PAUSED,
-        timestamp,
-        ...historyMeta,
-        ...(resolvedCheckpointId ? { checkpointId: resolvedCheckpointId } : {}),
-        pausedReason: reason,
-      });
-
-      // 发出暂停状态变更事件
-      this._emitAgentStatusChanged({ from: oldStatus, to: AgentStatus.PAUSED, timestamp, pausedReason: reason });
-
-      throw new StagePausedError("Run paused", {
-        checkpointId: resolvedCheckpointId,
-        reason,
-        timestamp,
-        runId: historyMeta.runId ?? null,
-      });
-    }
-
-    this._loopStatus = newStatus;
-    this._statusHistory.push({
-      from: oldStatus,
-      to: newStatus,
-      timestamp,
-      ...historyMeta,
-      ...(checkpointId ? { checkpointId } : {}),
-    });
-
-    // 发出状态变更事件，供 UI/Workflow 层监听
-    this._emitAgentStatusChanged({ from: oldStatus, to: newStatus, timestamp, ...historyMeta });
-
-    return checkpointId;
-  }
-
-  /**
-   * @param {any} payload
-   * @returns {void}
-   */
-  _emitAgentStatusChanged(payload) {
-    const emit = this.emit || this.eventBus?.emit;
-    if (typeof emit !== "function") return;
-    emit("design.agent.status.changed", { actor: "design", status: "info", payload });
-  }
-
-  /**
-   * @param {Record<string, any>} metadata
-   * @returns {Promise<string|null>}
-   */
-  async _savePreActionCheckpoint(metadata) {
-    if (!this.archive) return null;
-    const meta = metadata && typeof metadata === "object" ? metadata : {};
-    const { nodeStates, ...metadataRest } = meta;
-    const serialized = this.serializeNodeStates();
-    const mergedNodeStates = {
-      ...(serialized && typeof serialized === "object" ? serialized : {}),
-      ...(nodeStates && typeof nodeStates === "object" ? nodeStates : {}),
-    };
-    const state = {
-      phase: this.phase?.status,
-      loopStatus: this._loopStatus,
-      statusHistory: this._statusHistory.map((entry) => ({ ...entry })),
-      ...mergedNodeStates,
-    };
-
-    const checkpoint = createCheckpoint(state, {
-      ...metadataRest,
-      type: CheckpointType.PRE_ACTION,
-    });
-
-    return this.archive.save(meta.runId || "unknown", checkpoint);
-  }
-
-  /**
-   * @returns {string}
-   */
-  get loopStatus() {
-    return this._loopStatus;
-  }
-
-  /**
-   * @returns {any[]}
-   */
-  get statusHistory() {
-    return [...this._statusHistory];
-  }
-
-  // Delegate to VisualHandler
-  /**
-   * @param {any} contentPackage
-   * @param {DesignStageApi} context
-   * @param {any} constraints
-   * @param {any} userConfig
-   * @returns {Promise<any>}
-   */
-  async _initDesignSystem(contentPackage, context, constraints, userConfig) {
-    return this._visualHandler.initDesignSystem(contentPackage, context, constraints, userConfig);
-  }
-
-  /**
-   * @param {any} brainstormResult
-   * @param {any[]} imageSlots
-   * @param {any} imageProvider
-   * @param {boolean} [hasModelCapability]
-   * @returns {any[]}
-   */
-  _buildVisualSlots(brainstormResult, imageSlots, imageProvider, hasModelCapability = true) {
-    return this._visualHandler.buildVisualSlots(brainstormResult, imageSlots, imageProvider, hasModelCapability);
-  }
-
-  /**
-   * @param {any[]} visualSlotsForRender
-   * @param {any} contentPackage
-   * @param {any} designSystem
-   * @param {any[]} slideHtmls
-   * @param {DesignStageApi} context
-   * @param {any} runContext
-   * @param {any} constraints
-   * @param {any[]} imageSlots
-   * @param {string[]} aiImageSlotIds
-   * @returns {Promise<any>}
-   */
-  async _renderVisuals(
-    visualSlotsForRender,
-    contentPackage,
-    designSystem,
-    slideHtmls,
-    context,
-    runContext,
-    constraints,
-    imageSlots,
-    aiImageSlotIds
-  ) {
-    if (this.state && typeof this.state === "object") {
-      this.state.visualSlots = Array.isArray(visualSlotsForRender) ? deepClone(visualSlotsForRender) : [];
-    }
-    return this._visualHandler.renderVisuals(
-      visualSlotsForRender,
-      contentPackage,
-      designSystem,
-      slideHtmls,
-      context,
-      runContext,
-      constraints,
-      imageSlots,
-      aiImageSlotIds
-    );
   }
 
   /**
@@ -778,68 +287,15 @@ export class DesignAgentLoop extends BaseAgentLoop {
     });
     this._lifecycle = lifecycle;
 
-    // Watchdog: loop/oscillation detection (deck update + refine loop)
-    const initialUserConfig =
-      (runContext && typeof runContext === "object" ? runContext.userConfig : undefined) ||
-      (contentPackage && typeof contentPackage === "object" ? contentPackage.userConfig : undefined) ||
-      (context && typeof context === "object" ? context.userConfig : undefined) ||
-      {};
-    const watchdogSettings = resolveWatchdogSettings(initialUserConfig);
-    let watchdog = await this._resolveDependency("watchdog", context, null);
-    if (watchdog && typeof watchdog.reset === "function") watchdog.reset();
-    if (!watchdog) {
-      watchdog = new Watchdog(
-        /** @type {any} */ ({
-          eventBus: this.eventBus,
-          maxRecentOutputs: watchdogSettings.maxRecentOutputs,
-          oscillationThreshold: watchdogSettings.similarityThreshold,
-        })
-      );
-    } else if (typeof watchdog.configure === "function") {
-      watchdog.configure({
-        maxRecentOutputs: watchdogSettings.maxRecentOutputs,
-        oscillationThreshold: watchdogSettings.similarityThreshold,
-      });
-    }
-    this._watchdog = watchdog;
-	    let lastInterventionAt = 0;
-
-	    const handleWatchdogHealth = (health, meta = {}) => {
-      if (!health || health.healthy) return;
-      const now = Date.now();
-      if (now - lastInterventionAt < 1500) return;
-      lastInterventionAt = now;
-
-      const advice = buildDesignWatchdogAdvice(health.issues);
-      logger.warn("[design] Watchdog intervention", { runId, ...meta, issues: health.issues, stats: health.stats, advice });
-      emitStage(emit, "design.watchdog.intervention", "warn", { runId, ...meta, issues: health.issues, stats: health.stats, advice });
-      this._blackboard?.logDecision?.("watchdog_intervention", advice, { runId, ...meta, issues: health.issues, stats: health.stats });
-
-      // Soft reset to avoid repeated triggers without extending overall timers.
-      if (typeof watchdog?.resetOscillation === "function") watchdog.resetOscillation();
-    };
-
-	    const offRefineWatchdog =
-	      eventBus && typeof eventBus.on === "function"
-	        ? eventBus.on("design.refine.step", (evt) => {
-	          if (evt?.runId && evt.runId !== runId) return;
-	          if (!watchdog) return;
-
-          const summary = summarizeRefineEventForWatchdog(evt);
-          if (!summary) return;
-          watchdog.tick?.();
-          watchdog.recordOutput?.(summary);
-          const health = watchdog.checkHealth?.({
-            maxIterations: 200,
-            maxTimeMs: watchdogSettings.maxTimeMs,
-            stuckThresholdMs: watchdogSettings.stuckThresholdMs,
-            oscillationConsecutiveThreshold: watchdogSettings.maxConsecutiveSimilar,
-          });
-          if (health && !health.healthy) {
-            handleWatchdogHealth(health, { phase: this.phase?.status, source: "refine_step", refineStep: evt?.payload?.stepIndex });
-          }
-        })
-        : null;
+    const { watchdog, watchdogSettings, handleWatchdogHealth, offRefineWatchdog } = await initWatchdogManager({
+      loop: this,
+      context,
+      runContext,
+      contentPackage,
+      runId,
+      emit,
+      eventBus,
+    });
 
 	    // 仅在初始运行时初始化状态，回溯重启时保留已恢复的状态
 	    if (!context.resumed && !this._isBacktracking) {
@@ -862,12 +318,6 @@ export class DesignAgentLoop extends BaseAgentLoop {
       phase: this.phase?.status,
       step,
     });
-    const buildLoopMeta = (step, loopIteration) => ({
-      runId,
-      iteration: loopIteration,
-      state: buildLoopState(step),
-      stageApi,
-    });
     const startExecution = async (step, nodeStates) => {
       const loopIteration = ++iteration;
       watchdog?.tick?.();
@@ -885,50 +335,14 @@ export class DesignAgentLoop extends BaseAgentLoop {
       emitStage(emit, "design.step.completed", "progress", { runId, step, iteration: loopIteration });
       this._endStep(stepInfo, { status: "completed" });
     };
-    const buildDeckSignature = (deckHtmlDsl) => {
-      if (typeof deckHtmlDsl !== "string") return null;
-      const sigLen = DESIGN_LOOP_DEFAULTS.signatureLength;
-      const head = deckHtmlDsl.slice(0, sigLen);
-      const tail = deckHtmlDsl.slice(-sigLen);
-      return `${deckHtmlDsl.length}:${head}:${tail}`;
-	    };
-	    let lastDeckSignature = null;
-	    /**
-	     * @param {string} deckHtmlDsl
-	     * @param {any[]} slidesMeta
-	     * @param {{ source?: string }} [options]
-	     * @returns {void}
-	     */
-	    const emitDeckUpdate = (deckHtmlDsl, slidesMeta, { source } = {}) => {
-	      if (!emit || typeof deckHtmlDsl !== "string") return;
-	      if (!deckHtmlDsl.includes("<section")) return;
-      const signature = buildDeckSignature(deckHtmlDsl);
-
-      if (watchdog && signature) {
-        watchdog.recordOutput?.(`deck_update | source=${source || "update"} | sig=${signature}`);
-        const health = watchdog.checkHealth?.({
-          maxIterations: 200,
-          maxTimeMs: watchdogSettings.maxTimeMs,
-          stuckThresholdMs: watchdogSettings.stuckThresholdMs,
-          oscillationConsecutiveThreshold: watchdogSettings.maxConsecutiveSimilar,
-        });
-        if (health && !health.healthy) {
-          handleWatchdogHealth(health, { phase: this.phase?.status, source: source || "update" });
-        }
-      }
-
-      if (signature && signature === lastDeckSignature) return;
-      lastDeckSignature = signature;
-      this._blackboard?.setDeck?.({ deckHtmlDsl, slidesMeta: Array.isArray(slidesMeta) ? slidesMeta : [] });
-      emitStage(emit, "design.deck.updated", "progress", {
-        runId,
-        source: source || "update",
-        phase: this.phase?.status,
-        slides: Array.isArray(slidesMeta) ? slidesMeta.length : undefined,
-        deckHtmlDsl,
-        slidesMeta: Array.isArray(slidesMeta) ? slidesMeta : undefined,
-      });
-    };
+    const emitDeckUpdate = createDeckUpdateEmitter({
+      loop: this,
+      emit,
+      runId,
+      watchdog,
+      watchdogSettings,
+      handleWatchdogHealth,
+    });
 
     try {
       await this._transitionTo(AgentStatus.RUNNING, {
@@ -943,261 +357,82 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
       // --- 1. Preparation Phase (Outline + Style) ---
       if (!this.phase.status || this.phase.status === DesignPhase.IDLE || this.phase.status === DesignPhase.OUTLINE_PARSING) {
-        const prepResult = traceContext
-          ? await traceContext.withSpan("design.phase.preparation", async (span) => {
-              span.setAttributes({ runId, slideCount: Array.isArray(this.state.contentPackage?.slideIntents) ? this.state.contentPackage.slideIntents.length : 0 });
-              return await runPreparationPhase(this, {
-                contentPackage: this.state.contentPackage,
-                context,
-                runContext,
-                emit,
-                startExecution,
-                finishExecution,
-              });
-            })
-          : await runPreparationPhase(this, {
-              contentPackage: this.state.contentPackage,
-              context,
-              runContext,
-              emit,
-              startExecution,
-              finishExecution,
-            });
-        // 更新持久化状态
-        this.state.contentPackage = prepResult.parsedContentPackage;
-        this.state.slideIntents = prepResult.slideIntents;
-        this.state.designSystem = prepResult.designSystem;
-        this.state.constraints = prepResult.constraints;
-        this.state.userConfig = prepResult.userConfig;
-
-        this._blackboard.setSummary("outline", `${this.state.slideIntents.length} slides parsed`);
-        this._blackboard.setSummary("style", this.state.designSystem?.theme || "default");
-        this._blackboard.logDecision("preparation_complete", `Parsed ${this.state.slideIntents.length} slides`);
+        await runPreparationPhase(this, {
+          context,
+          runContext,
+          emit,
+          startExecution,
+          finishExecution,
+          traceContext,
+        });
       }
 
       // --- 2. Planning Phase ---
       if (context?.enablePlanning !== false && (!this.state.plans || this.phase.status === DesignPhase.DECK_PLANNING)) {
-        const planningResult = traceContext
-          ? await traceContext.withSpan("design.phase.planning", async (span) => {
-              span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideIntents) ? this.state.slideIntents.length : 0 });
-              return await runPlanningPhase(this, {
-                slideIntents: this.state.slideIntents,
-                designSystem: this.state.designSystem,
-                context,
-                runContext,
-                emit,
-              });
-            })
-          : await runPlanningPhase(this, {
-              slideIntents: this.state.slideIntents,
-              designSystem: this.state.designSystem,
-              context,
-              runContext,
-              emit,
-            });
-        this.state.plans = planningResult.plans;
-        this._blackboard.setSummary("plan", `${this.state.plans.length} slides planned`);
+        await runPlanningPhase(this, {
+          context,
+          runContext,
+          emit,
+          traceContext,
+        });
       }
 
       // --- 3. Layout Phase (New!) ---
       if (context?.enableLayout !== false && (!this.state.layoutData || this.phase.status === DesignPhase.LAYOUT_DEVELOPING)) {
-        const layoutResult = traceContext
-          ? await traceContext.withSpan("design.phase.layout", async (span) => {
-              span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideIntents) ? this.state.slideIntents.length : 0 });
-	              return await runLayoutPhase(this, /** @type {any} */ ({
-	                slideIntents: this.state.slideIntents,
-	                designSystem: this.state.designSystem,
-	                plans: this.state.plans,
-	                context,
-	                runContext,
-	                emit,
-	                startExecution,
-	                finishExecution,
-	              }));
-	            })
-	          : await runLayoutPhase(this, /** @type {any} */ ({
-	              slideIntents: this.state.slideIntents,
-	              designSystem: this.state.designSystem,
-	              plans: this.state.plans,
-	              context,
-	              runContext,
-	              emit,
-	              startExecution,
-	              finishExecution,
-	            }));
-        this.state.layoutData = layoutResult;
-        this._blackboard.setSummary("layout", "Wireframes generated");
+        await runLayoutPhase(this, {
+          context,
+          runContext,
+          emit,
+          traceContext,
+        });
       }
 
       this._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
-      this.state.userConfig = this.applyUserInputsToConfig(this.state.userConfig);
 
       // Compute skipReview flag for generating phase (skips REVIEWING transition)
       const skipReview = context?.skipReview === true || context?.interactionMode?.finalReview === "skip";
 
       // --- 4. Generating Phase ---
       if (this.phase.status === DesignPhase.GENERATING) {
-        const genPhaseResult = traceContext
-          ? await traceContext.withSpan("design.phase.generating", async (span) => {
-              span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideIntents) ? this.state.slideIntents.length : 0, skipReview });
-	              return await runGeneratingPhase(this, /** @type {any} */ ({
-	                slideIntents: this.state.slideIntents,
-	                contentPackage: this.state.contentPackage,
-	                designSystem: this.state.designSystem,
-	                constraints: this.state.constraints,
-	                userConfig: this.state.userConfig,
-	                context,
-	                runContext,
-	                emit,
-	                startExecution,
-	                finishExecution,
-	                emitDeckUpdate,
-	                plans: this.state.plans,
-	                layoutData: this.state.layoutData,
-	                skipReview,
-	              }));
-	            })
-	          : await runGeneratingPhase(this, /** @type {any} */ ({
-	              slideIntents: this.state.slideIntents,
-	              contentPackage: this.state.contentPackage,
-	              designSystem: this.state.designSystem,
-	              constraints: this.state.constraints,
-	              userConfig: this.state.userConfig,
-	              context,
-	              runContext,
-	              emit,
-	              startExecution,
-	              finishExecution,
-	              emitDeckUpdate,
-	              plans: this.state.plans,
-	              layoutData: this.state.layoutData,
-	              skipReview,
-	            }));
-
-        this.state.generated = genPhaseResult.generated;
-        this.state.slideHtmls = genPhaseResult.slideHtmls;
-        this.state.slidesMeta = genPhaseResult.slidesMeta;
-        this.state.imageSlots = genPhaseResult.imageSlots;
-        this.state.baseDeckHtmlDsl = genPhaseResult.baseDeckHtmlDsl;
-        this.state.pendingImages = genPhaseResult.pendingImages;
-        this.state.brainstormResult = genPhaseResult.brainstormResult;
-        this.state.degradedCount = genPhaseResult.degradedCount;
-
-        this.state.userConfig = this.applyUserInputsToConfig(this.state.userConfig);
+        await runGeneratingPhase(this, {
+          context,
+          runContext,
+          emit,
+          startExecution,
+          finishExecution,
+          traceContext,
+          skipReview,
+        });
 
         // --- 5. Batch Repair Phase (Orchestrated Health Check & Fix) ---
-        const repairResult = traceContext
-          ? await traceContext.withSpan("design.phase.repair", async (span) => {
-              span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideHtmls) ? this.state.slideHtmls.length : 0 });
-              return await runBatchRepairPhase(
-                this,
-                {
-                  slideHtmls: this.state.slideHtmls,
-                  slidesMeta: this.state.slidesMeta,
-                  designSystem: this.state.designSystem,
-                  contentPackage: this.state.contentPackage,
-                  baseDeckHtmlDsl: this.state.baseDeckHtmlDsl,
-                },
-                { context, runContext, emit }
-              );
-            })
-          : await runBatchRepairPhase(
-              this,
-              {
-                slideHtmls: this.state.slideHtmls,
-                slidesMeta: this.state.slidesMeta,
-                designSystem: this.state.designSystem,
-                contentPackage: this.state.contentPackage,
-                baseDeckHtmlDsl: this.state.baseDeckHtmlDsl,
-              },
-              { context, runContext, emit }
-            );
+        await runBatchRepairPhase(this, {
+          context,
+          runContext,
+          emit,
+          traceContext,
+        });
 
-        this.state.deckHtmlDsl = repairResult.deckHtmlDsl;
-        this.state.slidesMeta = repairResult.slidesMeta;
-        this.state.baseDeckHtmlDsl = repairResult.deckHtmlDsl; // Update base for next steps
-
-        // --- 5. Visual Filling Phase ---
-        const visualPhaseResult = traceContext
-          ? await traceContext.withSpan("design.phase.visual", async (span) => {
-              span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideHtmls) ? this.state.slideHtmls.length : 0 });
-              return await runVisualPhase(this, {
-                contentPackage: this.state.contentPackage,
-                slideIntents: this.state.slideIntents,
-                designSystem: this.state.designSystem,
-                generated: this.state.generated,
-                slideHtmls: this.state.slideHtmls,
-                slidesMeta: this.state.slidesMeta,
-                imageSlots: this.state.imageSlots,
-                baseDeckHtmlDsl: this.state.baseDeckHtmlDsl,
-                pendingImages: this.state.pendingImages,
-                brainstormResult: this.state.brainstormResult,
-                constraints: this.state.constraints,
-                userConfig: this.state.userConfig,
-                context,
-                runContext,
-                emit,
-                startExecution,
-                finishExecution,
-                emitDeckUpdate,
-              });
-            })
-          : await runVisualPhase(this, {
-              contentPackage: this.state.contentPackage,
-              slideIntents: this.state.slideIntents,
-              designSystem: this.state.designSystem,
-              generated: this.state.generated,
-              slideHtmls: this.state.slideHtmls,
-              slidesMeta: this.state.slidesMeta,
-              imageSlots: this.state.imageSlots,
-              baseDeckHtmlDsl: this.state.baseDeckHtmlDsl,
-              pendingImages: this.state.pendingImages,
-              brainstormResult: this.state.brainstormResult,
-              constraints: this.state.constraints,
-              userConfig: this.state.userConfig,
-              context,
-              runContext,
-              emit,
-              startExecution,
-              finishExecution,
-              emitDeckUpdate,
-            });
-
-        this.state.deckHtmlDsl = visualPhaseResult.deckHtmlDsl;
-        this.state.slidesMeta = visualPhaseResult.slidesMeta;
-        this.state.finalImageSlots = visualPhaseResult.imageSlots;
-        this.state.visualReport = visualPhaseResult.visualReport;
-        this.state.imageReport = visualPhaseResult.imageReport;
-        this.state.refineResult = visualPhaseResult.refineResult;
-        if (Array.isArray(visualPhaseResult.pendingImages)) {
-          this.state.pendingImages = visualPhaseResult.pendingImages;
-        }
+        // --- 6. Visual Filling Phase ---
+        await runVisualPhase(this, {
+          context,
+          runContext,
+          emit,
+          startExecution,
+          finishExecution,
+          emitDeckUpdate,
+          traceContext,
+        });
 
         // --- 7. Final Review Phase (Optional final audit) ---
         // skipReview already computed above
         if (context?.enableFinalReview === true && !skipReview) {
           this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runId });
-          const finalReviewResult = traceContext
-            ? await traceContext.withSpan("design.phase.review", async (span) => {
-                span.setAttributes({ runId, slideCount: Array.isArray(this.state.slidesMeta) ? this.state.slidesMeta.length : 0 });
-                return await runReviewPhase(this, {
-                  deckHtmlDsl: this.state.deckHtmlDsl,
-                  slidesMeta: this.state.slidesMeta,
-                  designSystem: this.state.designSystem,
-                  context,
-                  runContext,
-                  emit,
-                });
-              })
-            : await runReviewPhase(this, {
-                deckHtmlDsl: this.state.deckHtmlDsl,
-                slidesMeta: this.state.slidesMeta,
-                designSystem: this.state.designSystem,
-                context,
-                runContext,
-                emit,
-              });
-          this.state.reviewResult = finalReviewResult.reviewResult;
+          await runReviewPhase(this, {
+            context,
+            runContext,
+            emit,
+            traceContext,
+          });
         }
 
         this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
@@ -1208,13 +443,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
           state: buildLoopState("completed"),
         });
 
-        this._blackboard.setSummary("generation", `${this.state.slideHtmls.length} slides generated`);
-        this._blackboard.saveVersion("final", {
-          deckHtmlDsl: this.state.deckHtmlDsl,
-          designSystem: this.state.designSystem,
-          slidesMeta: this.state.slidesMeta,
-        });
-        this._blackboard.setDeck({ deckHtmlDsl: this.state.deckHtmlDsl, slidesMeta: this.state.slidesMeta });
+        finalizeDeck(this);
 
         lifecycle.completed(runId, { slides: this.state.slideHtmls.length, degradedCount: this.state.degradedCount });
 
@@ -1288,144 +517,10 @@ export class DesignAgentLoop extends BaseAgentLoop {
   }
 }
 
+installStateManager(DesignAgentLoop);
+installDeckOperations(DesignAgentLoop);
+installToolHandler(DesignAgentLoop);
+
 export async function resumeDesignAgentLoop(checkpointId, stageApi = {}) {
-  const archive =
-    stageApi?.archive ||
-    new Archive(typeof indexedDB !== "undefined" ? new FallbackAdapter("PPTArchiveDB", "checkpoints") : new MapAdapter());
-
-  const snapshot = migrateCheckpoint(await archive.restore(checkpointId));
-  if (!snapshot?.nodeStates) {
-    throw new Error(`Checkpoint not found: ${checkpointId}`);
-  }
-
-  const nodeStates = snapshot.nodeStates || {};
-
-  const agentLoop = new DesignAgentLoop({ ...stageApi, archive });
-  const restoredLoopStatus = nodeStates.loopStatus || AgentStatus.IDLE;
-  const restoredPhase = nodeStates.phase || DesignPhase.IDLE;
-
-  agentLoop._loopStatus = AgentStatus.IDLE;
-  // Start from a valid "forward" phase to avoid illegal transitions when resuming.
-  agentLoop.phase = { status: DesignPhase.IDLE };
-  if (Array.isArray(nodeStates.statusHistory)) {
-    agentLoop._statusHistory.length = 0;
-    for (const entry of nodeStates.statusHistory) agentLoop._statusHistory.push({ ...entry });
-  }
-
-  agentLoop._pauseRequested = false;
-  agentLoop._pauseReason = null;
-
-  agentLoop.hydrateFromNodeStates(nodeStates);
-
-  const resumeState = {
-    phase: restoredPhase,
-    loopStatus: restoredLoopStatus,
-    contentPackage: agentLoop.state?.contentPackage || null,
-    parsedContentPackage: nodeStates.parsedContentPackage || null,
-    slideIntents: Array.isArray(agentLoop.state?.slideIntents) ? agentLoop.state.slideIntents : null,
-    designSystem: agentLoop.state?.designSystem || null,
-    generated: Array.isArray(nodeStates.generated) ? nodeStates.generated : null,
-    slideHtmls: Array.isArray(agentLoop.state?.slideHtmls) ? agentLoop.state.slideHtmls : null,
-    deckHtmlDsl: typeof agentLoop.state?.deckHtmlDsl === "string" ? agentLoop.state.deckHtmlDsl : "",
-    slidesMeta: Array.isArray(nodeStates.slidesMeta) ? nodeStates.slidesMeta : null,
-    imageSlots: Array.isArray(agentLoop.state?.imageSlots) ? agentLoop.state.imageSlots : null,
-    visualSlots: Array.isArray(agentLoop.state?.visualSlots) ? agentLoop.state.visualSlots : null,
-    imageReport: nodeStates.imageReport || null,
-    visualReport: nodeStates.visualReport || null,
-    pendingImages: Array.isArray(nodeStates.pendingImages) ? nodeStates.pendingImages : null,
-    refineReport: nodeStates.refineReport || null,
-    constraints: nodeStates.constraints || null,
-    userConfig: nodeStates.userConfig || null,
-  };
-
-  agentLoop._resumeState = resumeState;
-
-  const fallbackContentPackage = stageApi?.contentPackage || stageApi?.input || null;
-  const contentPackage = resumeState.contentPackage || fallbackContentPackage;
-  if (!contentPackage || typeof contentPackage !== "object") {
-    throw new Error(`Checkpoint missing contentPackage: ${checkpointId}`);
-  }
-  if (agentLoop.state && typeof agentLoop.state === "object" && !agentLoop.state.contentPackage) {
-    agentLoop.state.contentPackage = deepClone(contentPackage);
-  }
-
-  const runIdFromMeta = snapshot?.metadata?.runId;
-  const resolvedRunId =
-    (stageApi?.runContext && stageApi.runContext.runId) || nodeStates.runId || runIdFromMeta || contentPackage.runId || "run_unknown";
-  const resolvedConstraints =
-    (stageApi?.runContext && stageApi.runContext.constraints) || contentPackage.constraints || resumeState.constraints || {};
-  const runContext = stageApi?.runContext
-    ? { ...stageApi.runContext, runId: resolvedRunId, constraints: stageApi.runContext.constraints || resolvedConstraints }
-    : { runId: resolvedRunId, constraints: resolvedConstraints };
-
-  const phaseRank = {
-    [DesignPhase.IDLE]: 0,
-    [DesignPhase.OUTLINE_PARSING]: 1,
-    [DesignPhase.OUTLINE_CONFIRMING]: 1,
-    [DesignPhase.STYLE_EXTRACTING]: 1,
-    [DesignPhase.STYLE_CONFIRMING]: 2,
-    [DesignPhase.DECK_PLANNING]: 2,
-    [DesignPhase.PLAN_CONFIRMING]: 2,
-    [DesignPhase.LAYOUT_ANALYZING]: 3,
-    [DesignPhase.LAYOUT_GENERATING]: 4,
-    [DesignPhase.LAYOUT_DEVELOPING]: 4,
-    [DesignPhase.LAYOUT_CONFIRMING]: 4,
-    [DesignPhase.GENERATING]: 5,
-    [DesignPhase.GENERATING_PAUSED]: 5,
-    [DesignPhase.REVIEWING]: 6,
-    [DesignPhase.FIXING]: 6,
-    [DesignPhase.REPAIR]: 6,
-    [DesignPhase.VISUAL_FILLING]: 7,
-    [DesignPhase.COMPLETED]: 8,
-    [DesignPhase.EDITING]: 8,
-    [DesignPhase.FAILED]: 0,
-  };
-
-  const resumePhase = resumeState.phase || DesignPhase.IDLE;
-  const resumeIndex = phaseRank[resumePhase] ?? 0;
-  const canUseOutline = resumeIndex >= phaseRank[DesignPhase.STYLE_EXTRACTING];
-  const canUseDesign = resumeIndex >= phaseRank[DesignPhase.STYLE_CONFIRMING];
-  const canUseGenerated = resumeIndex >= phaseRank[DesignPhase.VISUAL_FILLING];
-
-  const baseExecutor = resolveToolExecutor(stageApi);
-  const outlineContentPackage = resumeState.parsedContentPackage || resumeState.contentPackage || contentPackage;
-  const outlineSlideIntents =
-    resumeState.slideIntents ||
-    (Array.isArray(outlineContentPackage?.slideIntents) ? outlineContentPackage.slideIntents : null);
-  let cachedGenerated = resumeState.generated;
-  if (!cachedGenerated && Array.isArray(resumeState.slideHtmls)) {
-    const sources = Array.isArray(resumeState.slidesMeta) ? resumeState.slidesMeta : [];
-    cachedGenerated = resumeState.slideHtmls.map((slideHtml, index) => ({
-      slideHtml,
-      source: sources[index]?.source || "resume",
-    }));
-  }
-
-  const toolExecutor = async (name, params, context) => {
-    if (name === "parse_outline" && canUseOutline && Array.isArray(outlineSlideIntents)) {
-      return { contentPackage: outlineContentPackage, slideIntents: outlineSlideIntents };
-    }
-    if (name === "extract_style" && canUseDesign && resumeState.designSystem) {
-      return { designSystem: resumeState.designSystem };
-    }
-    if (name === "spawn_slide_agent" && canUseGenerated && Array.isArray(cachedGenerated)) {
-      return { generated: cachedGenerated };
-    }
-    if (typeof baseExecutor === "function") {
-      return baseExecutor(name, params, context);
-    }
-    const tool = agentLoop._tools?.[name];
-    if (typeof tool === "function") {
-      return tool(params, context);
-    }
-    return { ok: false, error: `Unknown tool: ${name}` };
-  };
-
-  return agentLoop.run(contentPackage, {
-    ...stageApi,
-    runContext,
-    resumed: true,
-    resumeState,
-    toolExecutor,
-  });
+  return resumeDesignAgentLoopInternal(checkpointId, stageApi, { DesignAgentLoopCtor: DesignAgentLoop });
 }

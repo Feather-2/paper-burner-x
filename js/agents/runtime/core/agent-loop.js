@@ -1,19 +1,16 @@
 import { createStageApi } from "../../shared/index.js";
 import { checkCancelled } from "../../shared/index.js";
-import { normalizeToolResult } from "../../shared/index.js";
 import { StagePausedError } from "./stage-errors.js";
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "../../plugins/telemetry/index.js";
 import { estimateTokensCached } from "../../shared/index.js";
 import { getGlobalTokenCounter } from "../../shared/index.js";
 import { CompressionCoordinator } from "../../plugins/compression/index.js";
-import { MessageManager } from "./message-manager.js";
-import { ToolRegistry } from "./tool-registry.js";
 import { StatusController } from "./status-controller.js";
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
-import { createPreAgentHook, createPostAgentHook } from "../hooks/hook-runner.js";
-import { getLimit } from "./constants/limits.js";
-import { Deque } from "../../shared/index.js";
+import { initMessageHandling, attachMessageHandling } from "./agent-loop-message-handling.js";
+import { initToolDispatch, attachToolDispatch } from "./agent-loop-tool-dispatch.js";
+import { runWithAgentLifecycleHooks } from "./agent-loop-lifecycle-hooks.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord
@@ -87,7 +84,9 @@ import { Deque } from "../../shared/index.js";
  */
 
 // Re-export 组合类供外部使用
-export { MessageManager, ToolRegistry, StatusController };
+export { MessageManager } from "./message-manager.js";
+export { ToolRegistry } from "./tool-registry.js";
+export { StatusController };
 
 // Re-export 配置供外部自定义
 export { DEFAULT_CONTEXT_CONFIG, mergeContextConfig };
@@ -231,20 +230,7 @@ export function checkCancelledOrPaused(signal) {
 }
 
 // Re-export from contracts for backward compatibility
-export { normalizeToolResult };
-
-/**
- * @param {any} context
- * @returns {ToolExecutor | null}
- */
-export function resolveToolExecutor(context) {
-  const executor = context?.toolExecutor || context?.tools;
-  if (typeof executor === "function") return executor;
-  if (executor && typeof executor.execute === "function") {
-    return (name, params, ctx) => executor.execute(name, params, ctx);
-  }
-  return null;
-}
+export { normalizeToolResult, resolveToolExecutor } from "./agent-loop-tool-dispatch.js";
 
 /**
  * @param {AbortSignal | null | undefined} a
@@ -359,21 +345,17 @@ export class BaseAgentLoop {
     this.stageName = stageName || actor || "agent";
     this.emit = typeof emit === "function" ? emit : null;
 
-    // 组合类实例（职责拆分）
-    this._messageManager = new MessageManager({
+    initMessageHandling(this, {
       contextConfig,
       tokenCounter,
       logger,
       emit: this.emit,
       stageName: this.stageName,
       actor: this.actor,
+      maxUserInputs,
     });
 
-    this._toolRegistry = new ToolRegistry({
-      tools,
-      hooks,
-      logger,
-    });
+    initToolDispatch(this, { tools, hooks, logger });
 
     this._statusController = new StatusController({
       status: AgentStatus.IDLE,
@@ -386,125 +368,8 @@ export class BaseAgentLoop {
       actor: this.actor,
     });
 
-    // 用户输入管理（保留在 BaseAgentLoop）
     this._activeStep = null;
-    /** @type {Deque<UserInputEntry>} */
-    this._userInputs = new Deque();
-    this._maxUserInputs = getLimit("MAX_USER_INPUTS", maxUserInputs);
-    this._userInputUnsub = null;
-    this._userInputBus = null;
-    this._userInputEvent = "user.input";
-    this._pauseListenerUnsub = null;
     this._executeAbortController = null;
-
-    // 向后兼容：保留旧属性引用（逐步废弃）
-    this._tools = this._toolRegistry._tools;
-    this._hooks = this._toolRegistry._hooks;
-  }
-
-  // ===== 消息管理 (委托给 MessageManager) =====
-
-  /** @returns {any[]} */
-  get messages() {
-    return this._messageManager.messages;
-  }
-
-  /** @returns {any} */
-  get _contextConfig() {
-    return this._messageManager._contextConfig;
-  }
-
-  /** @param {any} value */
-  set _contextConfig(value) {
-    this._messageManager._contextConfig = value;
-  }
-
-  /** @returns {{ input: number, output: number, total: number }} */
-  get _tokenUsage() {
-    return this._messageManager._tokenUsage;
-  }
-
-  /** @returns {any[]} */
-  get _compressionHistory() {
-    return this._messageManager._compressionHistory;
-  }
-
-  /** @returns {Promise<void> | null} */
-  get _compressionPromise() {
-    return this._messageManager._compressionPromise;
-  }
-
-  /** @returns {boolean} */
-  get _compressionPending() {
-    return this._messageManager._compressionPending;
-  }
-
-  /** @param {any} message */
-  addMessage(message) {
-    return this._messageManager.addMessage(message);
-  }
-
-  /** @param {any[]} messages */
-  addMessages(messages) {
-    return this._messageManager.addMessages(messages);
-  }
-
-  /** @param {{ clearCompressionHistory?: boolean } | null | undefined} [options] */
-  async resetMessages(options = {}) {
-    return this._messageManager.reset(options);
-  }
-
-  /** @returns {boolean} */
-  _shouldCompress() {
-    return this._messageManager._shouldCompress();
-  }
-
-  /** @param {{ force?: boolean } | null | undefined} [options] */
-  _scheduleCompression(options) {
-    return this._messageManager._scheduleCompression(options);
-  }
-
-  /** @param {{ maxRounds?: number } | null | undefined} [options] */
-  async flushCompression(options) {
-    return this._messageManager.flushCompression(options);
-  }
-
-  /** @returns {Promise<void>} */
-  async _compressMessages() {
-    return this._messageManager._compress();
-  }
-
-  /** @returns {any} */
-  getContextStatus() {
-    return this._messageManager.getStatus();
-  }
-
-  /** @param {AnyRecord} config */
-  setContextConfig(config) {
-    return this._messageManager.setContextConfig(config);
-  }
-
-  // ===== 工具管理 (委托给 ToolRegistry) =====
-
-  /** @param {any} tools */
-  registerTools(tools) {
-    return this._toolRegistry.registerTools(tools);
-  }
-
-  /** @param {string} name @param {Function} fn */
-  registerTool(name, fn) {
-    return this._toolRegistry.registerTool(name, fn);
-  }
-
-  /** @param {"before"|"after"} phase @param {(ctx: any) => any} fn @returns {this} */
-  useHook(phase, fn) {
-    this._toolRegistry.useHook(phase, fn);
-    return this;
-  }
-
-  /** @param {string} name @param {any} params @param {any} context @returns {Promise<ToolResult>} */
-  async _callTool(name, params, context) {
-    return this._toolRegistry.callTool(name, params, context);
   }
 
   // ===== 状态管理 (委托给 StatusController) =====
@@ -725,57 +590,15 @@ export class BaseAgentLoop {
     const sessionId = runContext?.sessionId || runContext?.id || null;
 
     try {
-      // === PreAgent 钩子 ===
-      const preAgentHook = createPreAgentHook();
-      const preResult = await preAgentHook({
-        sessionId,
+      return await runWithAgentLifecycleHooks({
+        loop: this,
         runId,
-        input,
-        context: { eventBus: this.eventBus, stageApi: base, signal: combinedSignal },
-      });
-      if (preResult?.skip) {
-        // 钩子拒绝了请求，提前返回
-        const emit = this.emit || this.eventBus?.emit;
-        if (typeof emit === "function") {
-          emit(`${this.stageName}.agent.skipped`, {
-            actor: this.actor,
-            status: "skipped",
-            payload: { runId, reason: preResult.reason, duration: Date.now() - startTime },
-          });
-        }
-        return preResult.value ?? { ok: false, error: preResult.reason };
-      }
-
-      // === 执行主逻辑 ===
-      const result = await this.run(input, context);
-
-      // === PostAgent 钩子 (成功) ===
-      const postAgentHook = createPostAgentHook();
-      await postAgentHook({
         sessionId,
-        runId,
         input,
-        result,
-        error: null,
-        duration: Date.now() - startTime,
-        context: { eventBus: this.eventBus, stageApi: base },
+        context,
+        stageApi: base,
+        startTime,
       });
-
-      return result;
-    } catch (err) {
-      // === PostAgent 钩子 (失败) ===
-      const postAgentHook = createPostAgentHook();
-      await postAgentHook({
-        sessionId,
-        runId,
-        input,
-        result: null,
-        error: err,
-        duration: Date.now() - startTime,
-        context: { eventBus: this.eventBus, stageApi: base },
-      });
-
-      throw err;
     } finally {
       try {
         executeController.abort("completed");
@@ -785,164 +608,6 @@ export class BaseAgentLoop {
       this._detachEventBusListeners();
       if (this._executeAbortController === executeController) this._executeAbortController = null;
     }
-  }
-
-  /**
-   * @param {EventBusLike} eventBus
-   * @param {AttachListenerOptions} [options]
-   */
-  _attachUserInputListener(eventBus, { eventName, signal } = {}) {
-    if (!eventBus || typeof eventBus.subscribe !== "function") return;
-    const resolvedEvent = typeof eventName === "string" && eventName ? eventName : this._userInputEvent;
-    if (this._userInputBus === eventBus && this._userInputEvent === resolvedEvent) return;
-    if (typeof this._userInputUnsub === "function") this._userInputUnsub();
-    this._userInputBus = eventBus;
-    this._userInputEvent = resolvedEvent;
-    this._userInputUnsub = eventBus.subscribe(
-      resolvedEvent,
-      (evt) => {
-        const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
-        this.recordUserInput(payload);
-      },
-      { ...(signal ? { signal } : {}) }
-    );
-  }
-
-  /**
-   * @param {EventBusLike} eventBus
-   * @param {{ signal?: AbortSignal }} [options]
-   */
-  _attachPauseListener(eventBus, { signal } = {}) {
-    if (!eventBus || typeof eventBus.subscribe !== "function") return;
-    if (this._pauseListenerUnsub) return;
-    this._pauseListenerUnsub = eventBus.subscribe(
-      "user.action.pause",
-      (evt) => {
-        const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
-        const reason = payload?.reason || payload?.message || payload;
-        this.pause(typeof reason === "string" ? reason : "user_requested");
-      },
-      { ...(signal ? { signal } : {}) }
-    );
-  }
-
-  /** @returns {void} */
-  _detachEventBusListeners() {
-    if (typeof this._userInputUnsub === "function") {
-      try {
-        this._userInputUnsub();
-      } catch {
-        // ignore
-      }
-    }
-    this._userInputUnsub = null;
-    this._userInputBus = null;
-
-    if (typeof this._pauseListenerUnsub === "function") {
-      try {
-        this._pauseListenerUnsub();
-      } catch {
-        // ignore
-      }
-    }
-    this._pauseListenerUnsub = null;
-  }
-
-  /**
-   * @param {any} payload
-   * @returns {UserInputEntry}
-   */
-  recordUserInput(payload) {
-    const entry = {
-      payload,
-      ts: Date.now(),
-    };
-    this._userInputs.push(entry);
-    const limit = this._maxUserInputs;
-    // O(1) 裁剪：从头部移除超出的元素
-    if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
-      while (this._userInputs.size > limit) {
-        this._userInputs.shift();
-      }
-    }
-    const emit = this.emit || this.eventBus?.emit;
-    if (typeof emit === "function") {
-      emit(`${this.stageName}.user.input`, { actor: this.actor, status: "info", payload: entry });
-    }
-    return entry;
-  }
-
-  /**
-   * @param {ConsumeUserInputsOptions} [options]
-   * @returns {UserInputEntry[]}
-   */
-  consumeUserInputs({ clear = true } = {}) {
-    const items = this._userInputs.toArray();
-    if (clear) this._userInputs.clear();
-    return items;
-  }
-
-  /**
-   * @param {DrainUserInputsOptions} [options]
-   * @returns {{ items: UserInputEntry[], text: string }}
-   */
-  drainUserInputsAsText({ clear = true } = {}) {
-    const items = this.consumeUserInputs({ clear });
-    const text = this.formatUserInputs(items);
-    return { items, text };
-  }
-
-  /**
-   * @param {AnyRecord} userConfig
-   * @param {ApplyUserInputsOptions} [options]
-   * @returns {AnyRecord}
-   */
-  applyUserInputsToConfig(userConfig, { key = "userNotes" } = {}) {
-    const { items, text } = this.drainUserInputsAsText({ clear: true });
-    if (!text) return userConfig;
-    const next = userConfig && typeof userConfig === "object" ? { ...userConfig } : {};
-    const existing = Array.isArray(next[key]) ? next[key] : typeof next[key] === "string" ? [next[key]] : [];
-    next[key] = [...existing, text];
-    next._lastUserNote = text;
-    next._lastUserNoteAt = Date.now();
-    next._rawUserInputs = Array.isArray(next._rawUserInputs) ? [...next._rawUserInputs, ...items] : [...items];
-    return next;
-  }
-
-  /** @returns {boolean} */
-  hasPendingUserInputs() {
-    return this._userInputs && this._userInputs.size > 0;
-  }
-
-  /**
-   * @param {Array<UserInputEntry | any>} items
-   * @returns {string}
-   */
-  formatUserInputs(items) {
-    const list = Array.isArray(items) ? items : [];
-    const lines = [];
-    for (const item of list) {
-      const payload = item?.payload ?? item;
-      if (payload == null) continue;
-      if (typeof payload === "string") {
-        lines.push(payload.trim());
-        continue;
-      }
-      if (typeof payload?.text === "string") {
-        lines.push(payload.text.trim());
-        continue;
-      }
-      if (typeof payload?.message === "string") {
-        lines.push(payload.message.trim());
-        continue;
-      }
-      try {
-        lines.push(JSON.stringify(payload));
-      } catch {
-        lines.push(String(payload));
-      }
-    }
-    return lines.filter(Boolean).join("\n");
   }
 
   /**
@@ -1014,3 +679,6 @@ export class BaseAgentLoop {
     return { signal, controller };
   }
 }
+
+attachMessageHandling(BaseAgentLoop);
+attachToolDispatch(BaseAgentLoop);
