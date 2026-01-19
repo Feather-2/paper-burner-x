@@ -11,7 +11,7 @@ import {
 } from "../../runtime/index.js";
 import { DeepSearchState } from "./state.js";
 import { getModelCaller } from "./model.js";
-import { createLogger } from "./internal/logger.js";
+import { createLogger } from "../../shared/utils/logger.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { checkCancelled } from "../../shared/utils/cancellation.js";
 import { isPlainObject, toPositiveInt } from "../../shared/utils/value-utils.js";
