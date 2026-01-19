@@ -1,9 +1,9 @@
 import { assertChatMessages, assertChatResponse, assertModelEntry, assertProvider, assertUsageConfig, normalizeModelTags } from "./provider.js";
 import { ModelUsage, RouterStrategy, isValidModelUsage, normalizeRouterStrategy } from "./constants.js";
 import { TokenBucketRateLimiter } from "./rate-limit.js";
-import { safeJsonParse } from "../shared/utils/safe-json.js";
-import { CircuitBreaker, CircuitState } from "../shared/utils/circuit-breaker.js";
-import { getGlobalTokenTracker } from "../plugins/telemetry/token-tracker.js";
+import { safeJsonParse } from "../shared/index.js";
+import { CircuitBreaker, CircuitState } from "../shared/index.js";
+import { getGlobalTokenTracker } from "../plugins/telemetry/index.js";
 import { ModelEventEmitter } from "./model-events.js";
 import { RetryStrategy } from "../runtime/core/retry-strategy.js";
 import { PerformanceRouter, estimateComplexity, ModelTier } from "../runtime/routing/performance-router.js";

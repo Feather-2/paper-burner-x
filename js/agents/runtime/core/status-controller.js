@@ -9,8 +9,8 @@
 
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { StagePausedError } from "./stage-errors.js";
-import { getRuntimeState } from "../../plugins/telemetry/loop-runtime-state.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { getRuntimeState } from "../../plugins/telemetry/index.js";
+import { createLogger } from "../../shared/index.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord

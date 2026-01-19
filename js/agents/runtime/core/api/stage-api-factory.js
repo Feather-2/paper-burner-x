@@ -7,14 +7,13 @@
  * 3. 各 stage 重复的注入逻辑
  */
 
-import { createStageApi } from "../../../shared/utils/stage-api.js";
+import { createStageApi } from "../../../shared/index.js";
 import { createFsAdapterFromVfs } from "../../../vfs/fs-adapter.js";
 import { createVfsGlobFn } from "../../../vfs/glob.js";
-import { createLogger } from "../../../shared/utils/logger.js";
-import { isPlainObject, toNonNegativeInt } from "../../../shared/utils/value-utils.js";
-import { getGlobalTokenTracker } from "../../../plugins/telemetry/token-tracker.js";
-import { CircuitBreakerRegistry } from "../../../shared/utils/circuit-breaker.js";
-import { TraceContext } from "../../../plugins/telemetry/trace-context.js";
+import { createLogger } from "../../../shared/index.js";
+import { isPlainObject, toNonNegativeInt } from "../../../shared/index.js";
+import { getGlobalTokenTracker, TraceContext } from "../../../plugins/telemetry/index.js";
+import { CircuitBreakerRegistry } from "../../../shared/index.js";
 import { withRetry } from "../retry-strategy.js";
 import { getErrorBoundary } from "../error-boundary.js";
 import { ToolQuotaManager } from "../../tools/tool-quotas.js";
