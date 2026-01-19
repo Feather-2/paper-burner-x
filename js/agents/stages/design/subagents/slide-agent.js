@@ -21,7 +21,9 @@ export function setLinkedFilesRoot(rootDir) {
 }
 
 /**
- * @typedef {(name: string, event: { actor: string, status: string, payload: any }) => void} EmitFn
+ * @typedef {Record<string, unknown>} EmitPayload
+ * @typedef {{ actor: string, status: string, payload: EmitPayload }} EmitEvent
+ * @typedef {(name: string, event: EmitEvent) => void} EmitFn
  */
 
 async function ensureNodeModules() {
@@ -29,8 +31,8 @@ async function ensureNodeModules() {
   if (isBrowser) return false;
   try {
     /* Dynamic import specifier kept in variable to avoid static bundler analysis of node:* */
-    const fsMod = await import(/* webpackIgnore: true */ "node:fs");
-    const pathMod = await import(/* webpackIgnore: true */ "node:path");
+    const fsMod = await import(/* webpackIgnore: true */ /* @vite-ignore */ "node:fs");
+    const pathMod = await import(/* webpackIgnore: true */ /* @vite-ignore */ "node:path");
     fsPromises = fsMod.promises || (fsMod.default && fsMod.default.promises) || fsMod;
     pathModule = pathMod.default || pathMod;
     return true;
@@ -300,8 +302,6 @@ export class SlideSubAgent {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error ? err.stack : undefined;
-      const cause = err instanceof Error && err.cause ? err.cause : undefined;
       this._transition(SlideStatus.FAILED, { slideIntentId, slideIndex, error: msg });
       return {
         slideIntentId,
@@ -311,8 +311,6 @@ export class SlideSubAgent {
         status: this.state.status,
         source: "error",
         error: msg,
-        ...(stack ? { stack } : {}),
-        ...(cause ? { cause } : {}),
       };
     }
   }

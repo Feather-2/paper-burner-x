@@ -284,17 +284,15 @@ async function appendTextToVfs(vfs, path, text) {
  * @param {string} path - The path to check
  * @returns {Promise<boolean>} True if the path exists
  */
-async function vfsExists(vfs, path) {
+async function vfsExists(vfs, path, logger) {
   if (!vfs || typeof vfs !== "object") return false;
   if (typeof vfs.exists === "function") return await vfs.exists(path);
   try {
     const content = await readTextFromVfs(vfs, path);
     return content !== null;
   } catch (e) {
-    // Log suppressed error for observability
-    if (typeof console !== "undefined" && console.debug) {
-      console.debug("[SideEffectJournal] vfsExists check failed:", e);
-    }
+    const msg = e instanceof Error ? e.message : String(e);
+    logger?.debug?.(`[SideEffectJournal] vfsExists check failed: ${msg}`);
     return false;
   }
 }
@@ -540,7 +538,7 @@ export class SideEffectJournal {
     if (!walPath) return { ok: false, reason: "missing_wal_path" };
 
     try {
-      const exists = await vfsExists(vfs, walPath);
+      const exists = await vfsExists(vfs, walPath, this.logger);
       if (!exists) return { ok: false, reason: "missing_wal", cursor: this.getCursor(), recovered: 0 };
 
       const text = await readTextFromVfs(vfs, walPath);

@@ -23,6 +23,7 @@ function safeStringify(value, maxChars = 2000) {
 const REDACTED = "[REDACTED]";
 const SENSITIVE_KEY_RE =
   /(?:pass(word)?|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|authorization|cookie|session|jwt|private[_-]?key|client[_-]?secret)/i;
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 function sanitizeString(input, maxChars) {
   const maxLen = Number.isFinite(maxChars) ? Math.max(32, Math.floor(maxChars)) : 500;
@@ -91,8 +92,9 @@ function sanitizeArgs(args, { maxDepth = 6, maxKeys = 50, maxArray = 50, maxStri
     const keys = Object.keys(obj);
     const limitedKeys = keys.slice(0, maxKeys);
     /** @type {Record<string, any>} */
-    const out = {};
+    const out = Object.create(null);
     for (const k of limitedKeys) {
+      if (DANGEROUS_KEYS.has(k)) continue;
       if (SENSITIVE_KEY_RE.test(k)) {
         out[k] = REDACTED;
         continue;
@@ -401,12 +403,13 @@ export function createPreToolUseHook(options = {}) {
           }
         } catch (err) {
           if (blocking) {
-            const reason = `Prompt hook blocked: ${err?.message || String(err)}`;
+            const reason = "Prompt hook blocked: model call failed";
             eventBus?.emit?.("tool:denied", {
               tool: toolName,
               reason,
               args: sanitizeArgs(params),
               policy: { hookType: "prompt", error: "model_call_failed" },
+              errorDetail: err?.message || String(err),
             });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "prompt", error: "model_call_failed" } } };
           }
@@ -515,11 +518,12 @@ export function createPreAgentHook(options = {}) {
             return { skip: true, value: result.value, reason };
           }
         } catch (err) {
-          if (blocking) {
-            const reason = `PreAgent hook error: ${err?.message || String(err)}`;
-            eventBus?.emit?.("agent:denied", { sessionId, runId, reason });
-            return { skip: true, reason };
-          }
+          eventBus?.emit?.("agent:hook-error", {
+            sessionId,
+            runId,
+            hookEvent: hookEventName,
+            error: err?.message || String(err),
+          });
         }
       }
     }

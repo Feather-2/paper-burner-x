@@ -391,6 +391,13 @@ export class WasmSandbox {
 
 /**
  * 快速创建沙箱
+ * @param {Object} [options]
+ * @param {string[]} [options.capabilities] - 允许的能力列表
+ * @param {Object} [options.limits] - 资源限制
+ * @param {Function} [options.onLog] - 日志回调
+ * @param {Function} [options.onEmit] - 事件发射回调
+ * @param {Object} [options.state] - 注入的状态
+ * @returns {Promise<WasmSandbox>}
  */
 export async function createSandbox(options = {}) {
   const sandbox = new WasmSandbox(options);

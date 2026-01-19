@@ -4,6 +4,94 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] hook-fail-closed
+*Archived: 2026-01-19T20:51:32.183Z*
+
+- **File**: js/agents/runtime/hooks/hook-runner.js:517
+- **Description**: PreAgent hook 的异常在 blocking 默认 true 时会阻断主流程，与“pre/post hooks 异常不应中断主流程”的要求不一致，导致临时故障即拒绝执行。
+- **Suggestion**: 将异常改为 fail-open（记录后继续），或显式要求 blocking=false；如安全场景确需 fail-closed，需在文档注明并加重试/超时保护。
+```
+try {
+  const result = await hook.handler({ sessionId, runId, input, context });
+  if (result?.skip && blocking) { ... return { skip: true, ... }; }
+} catch (err) {
+  if (blocking) {
+    const reason = `PreAgent hook error: ${err?.message || String(err)}`;
+    return { skip: true, ... };
+  }
+}
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] path-traversal
+*Archived: 2026-01-19T20:47:33.561Z*
+
+- **File**: js/agents/runtime/core/vfs-proxy-host.js:209
+- **Description**: VfsProxyHost 仅 stripLeadingSlashes 即直接将 path 传给 VFS；未过滤 `..` 等路径穿越片段。若 VFS 未强制 basePath/realpath 校验，worker 可访问宿主任意路径。
+- **Suggestion**: 在 host 侧强制路径规范化并拒绝 `..`/绝对路径；或将 basePath 注入并用 path.relative 校验；若依赖 VFS 自身保护，需在接口约定中强制说明并加断言。
+```
+const vfsPath = stripLeadingSlashes(path);
+
+if (op === VFS_OPS.READ) {
+  const bytes = await vfs.readFile(vfsPath);
+  ...
+}
+
+if (op === VFS_OPS.WRITE) {
+  await vfs.writeFile(vfsPath, data);
+}
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] unsafe-deserialization
+*Archived: 2026-01-19T20:46:45.941Z*
+
+- **File**: js/agents/runtime/hooks/hooks-config-loader.js:356
+- **Description**: HooksConfigLoader 对来自 VFS 的 JSON 配置直接 JSON.parse，仅检查为对象，缺少 schema 与大小限制。按清单属于未验证外部数据反序列化，可能导致异常行为或 DoS 风险。
+- **Suggestion**: 为 hooks config 定义 schema 校验（字段、类型、枚举），限制最大大小/深度；拒绝未知字段或类型不匹配的配置。
+```
+try {
+  const parsed = JSON.parse(text);
+  if (!isPlainObject(parsed)) {
+    logger.warn(...);
+    return null;
+  }
+  return parsed;
+} catch (err) { ... }
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] code-injection
+*Archived: 2026-01-19T20:46:22.430Z*
+
+- **File**: js/agents/runtime/core/js-adapter.js:435
+- **Description**: 主线程 fallback 使用 new Function 动态执行代码。即便标注为 trusted-only，只要策略或上下文被误配置，仍可能导致任意代码执行/沙箱逃逸，违反“禁止 eval/new Function”要求。
+- **Suggestion**: 移除主线程 fallback 或强制仅 Worker 沙箱执行；如必须保留，增加强制 allowlist + 来源校验，并确保 trustedOnly 不可被外部输入绕过；补充针对 untrusted 输入的拒绝测试。
+```
+// SECURITY: Fallback sandbox via new Function/with - TRUSTED-ONLY.
+// eslint-disable-next-line no-new-func -- trusted-only fallback
+const fn = new Function('sandbox', `
+  return (async function () {
+    with (sandbox) {
+      ${code}
+    }
+  }).call(sandbox);
+`);
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] code-exec

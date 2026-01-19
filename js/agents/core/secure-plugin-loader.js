@@ -4,7 +4,7 @@
 
 import { createLogger } from '../shared/index.js';
 import { toErrorMessage } from '../shared/index.js';
-import { isPlainObject, toNonEmptyString } from '../shared/index.js';
+import { isPlainObject, toNonEmptyString, isNodeLike } from '../shared/index.js';
 
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const DEFAULT_BLOB_TYPE = 'text/javascript';
@@ -95,6 +95,20 @@ function getDefaultBaseUrl() {
 }
 
 /**
+ * @param {string | null | undefined} baseUrl
+ * @returns {URL | null}
+ */
+function parseBaseUrl(baseUrl) {
+  const base = toNonEmptyString(baseUrl);
+  if (!base) return null;
+  try {
+    return new URL(base);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * @param {string} hostname
  * @returns {boolean}
  */
@@ -130,11 +144,16 @@ function resolveUrl(rawUrl, baseUrl) {
 
 /**
  * @param {string} rawUrl
- * @param {{ baseUrl: string | null, allowInsecure: boolean }} options
+ * @param {{ baseUrl: string | null, allowInsecure: boolean, requireBaseUrl?: boolean, enforceSameOrigin?: boolean }} options
  * @returns {{ ok: true, url: string } | ErrorResult}
  */
-function validatePluginUrl(rawUrl, { baseUrl, allowInsecure }) {
-  const resolved = resolveUrl(rawUrl, baseUrl);
+function validatePluginUrl(rawUrl, { baseUrl, allowInsecure, requireBaseUrl, enforceSameOrigin }) {
+  const base = toNonEmptyString(baseUrl) || null;
+  if (requireBaseUrl && !base) {
+    return errorResult('baseUrl is required in Node environments');
+  }
+
+  const resolved = resolveUrl(rawUrl, base);
   if (resolved.ok === false) return resolved;
 
   const { parsed } = resolved;
@@ -149,6 +168,14 @@ function validatePluginUrl(rawUrl, { baseUrl, allowInsecure }) {
   const isLocalhost = isLocalhostHost(hostname);
   if (protocol !== 'https:' && !isLocalhost && !allowInsecure) {
     return errorResult('URL must use HTTPS unless targeting localhost (or enable allowInsecure)');
+  }
+
+  if (enforceSameOrigin) {
+    const baseParsed = parseBaseUrl(base);
+    if (!baseParsed) return errorResult('baseUrl must be an absolute URL');
+    if (parsed.origin !== baseParsed.origin) {
+      return errorResult('URL must match baseUrl origin');
+    }
   }
 
   return { ok: true, url: parsed.toString() };
@@ -289,7 +316,13 @@ export class SecurePluginLoader {
     }
 
     const allowInsecure = opts.allowInsecure === true || this.allowInsecure === true;
-    const normalizedUrl = validatePluginUrl(url, { baseUrl: this.baseUrl, allowInsecure });
+    const nodeLike = isNodeLike();
+    const normalizedUrl = validatePluginUrl(url, {
+      baseUrl: this.baseUrl,
+      allowInsecure,
+      requireBaseUrl: nodeLike,
+      enforceSameOrigin: nodeLike,
+    });
     if (normalizedUrl.ok === false) return normalizedUrl;
 
     if (!this.fetchImpl) return errorResult('fetch is unavailable');

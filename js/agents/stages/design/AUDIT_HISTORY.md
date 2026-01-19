@@ -4,6 +4,90 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] browser-compat
+*Archived: 2026-01-19T20:51:50.207Z*
+
+- **File**: js/agents/stages/design/subagents/slide-agent.js:32
+- **Description**: Browser-first 模块仍动态引入 node:fs/node:path，部分 bundler 仍可能在浏览器构建时报错。
+- **Suggestion**: 确保构建时 externalize node: 模块或拆分 Node-only 入口并提供浏览器 stub。
+```
+const fsMod = await import(/* webpackIgnore: true */ "node:fs");
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] error-info-leak
+*Archived: 2026-01-19T20:51:36.568Z*
+
+- **File**: js/agents/stages/design/generators/batch-generator.js:624
+- **Description**: 事件总线 payload 包含错误堆栈，前端或日志系统可能直接展示堆栈信息。
+- **Suggestion**: emit 仅传递 message/code；堆栈写到 logger 或加 debug gate。
+```
+error: { message: errMsg, stack: errStack }
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] error-handling
+*Archived: 2026-01-19T20:51:24.151Z*
+
+- **File**: js/agents/stages/design/internal/design-blackboard.js:320
+- **Description**: 多个空 catch 块吞掉异常，可能掩盖 MemoryStore/StateEngine 同步失败，影响状态回滚与排障。
+- **Suggestion**: 至少记录 debug/warn 日志或上报可观测事件，避免静默失败。
+```
+} catch { /* intentional */ }
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] unsafe-deserialization
+*Archived: 2026-01-19T20:51:19.790Z*
+
+- **File**: js/agents/stages/design/edit-mode/edit-loop.js:39
+- **Description**: LLM 返回值直接 JSON.parse，缺少长度/结构校验，属于未验证外部数据反序列化，可能导致资源消耗或异常结构注入。
+- **Suggestion**: 限制最大长度与字段深度，解析后做 schema 校验（operations 数组、tool/params 类型），并拒绝额外字段或超大输入。
+```
+return JSON.parse(value);
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] error-info-leak
+*Archived: 2026-01-19T20:50:55.634Z*
+
+- **File**: js/agents/stages/design/subagents/slide-agent.js:303
+- **Description**: 失败返回值包含 stack/cause，若上层直接透传给 UI 或日志，会泄露内部实现细节与路径。
+- **Suggestion**: 对外仅返回友好 message/code；stack/cause 仅写内部日志或在 debug 开关下返回。
+```
+const stack = err instanceof Error ? err.stack : undefined;
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] prototype-pollution
+*Archived: 2026-01-19T20:50:50.626Z*
+
+- **File**: js/agents/stages/design/generators/design-system-generator.js:27
+- **Description**: deepMerge 将 userPreferences.designSystemOverrides 的键直接写入普通对象，未过滤 __proto__/constructor/prototype，存在原型污染风险（覆盖 UI 传入 overrides 时尤为明显）。
+- **Suggestion**: 在合并前过滤危险键或使用 null-prototype 容器（Object.create(null)），并在 overrides 边界做白名单校验。
+```
+out[k] = isPlainObject(bv) ? deepMerge({}, bv) : Array.isArray(bv) ? bv.slice() : bv;
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] async-error-handling

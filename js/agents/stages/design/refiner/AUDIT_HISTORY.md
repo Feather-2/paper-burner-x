@@ -4,6 +4,62 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] JSDoc
+*Archived: 2026-01-19T20:48:12.416Z*
+
+- **File**: js/agents/stages/design/refiner/react-refiner-tools.js:17
+- **Description**: 公共 typedef 使用 any（ToolResult/ToolExecutor/ToolContext），违反 no-any 规则，降低类型约束和审计可读性。
+- **Suggestion**: 将 any 改为具体结构/联合类型（例如 ToolResultData、ToolParams、contentPackage 结构），并在 typedef 中引用。
+```
+@typedef {{ success: boolean, data?: any, error?: string }} ToolResult\n@typedef {(toolName: string, params: any) => Promise<ToolResult>} ToolExecutor
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] XSS
+*Archived: 2026-01-19T20:48:02.777Z*
+
+- **File**: js/agents/stages/design/refiner/batch-repair-agent.js:115
+- **Description**: runSingleSlideRepair 仅移除 <script>/on*，未过滤 href/src 的 javascript: 或危险 style；修复后的 HTML 若直接渲染会导致 XSS。
+- **Suggestion**: 复用 react-refiner-tools 的 sanitizeHtmlFragment/DOMPurify，对 href/src/xlink:href 等 URL 和 style 进行过滤；或在返回前执行安全属性白名单。
+```
+// Sanitize LLM output to prevent XSS (strip script/on* handlers)\nfixed = fixed\n  .replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi, \"\")\n  .replace(/\\s+on\\w+\\s*=\\s*[\"'][^\"']*[\"']/gi, \"\")
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] Timeout
+*Archived: 2026-01-19T20:47:43.428Z*
+
+- **File**: js/agents/stages/design/refiner/react-refiner.js:319
+- **Description**: runReactRefiner 的 aiApiService.chat 调用未传入 AbortSignal/超时，长时间阻塞时无法中断，影响回滚/取消。
+- **Suggestion**: 为 aiApiService.chat 传入 stageApi.signal 或 per-step AbortController，并加超时（Promise.race + setTimeout），确保可中断。
+```
+modelResp = await aiApiService.chat({\n  messages: hintedMessages,\n  temperature: 0.2,\n  maxTokens: 8000,\n});
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] XSS
+*Archived: 2026-01-19T20:47:38.816Z*
+
+- **File**: js/agents/stages/design/refiner/react-refiner-tools.js:673
+- **Description**: editElement 将 changes.style 直接写入 DOM，绕过 isDangerousStyle 过滤；输入可控时可通过 CSS url(javascript:...) 或 expression 注入脚本。
+- **Suggestion**: 在设置 style 前调用 isDangerousStyle 校验，或只允许白名单 CSS 属性；不安全时拒绝/清空。也可改为通过 applyAttrChanges 设置 style 以统一过滤。
+```
+const style = changes.style !== undefined ? String(changes.style) : null;\nif (style !== null) el.setAttribute(\"style\", style);
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] security:xss

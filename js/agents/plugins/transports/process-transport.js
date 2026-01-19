@@ -12,6 +12,118 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 
+const MAX_MESSAGE_LENGTH = 256 * 1024; // 256KB per JSON line
+const MAX_JSON_DEPTH = 8;
+const MAX_COLLECTION_ENTRIES = 2000;
+const MAX_STRING_LENGTH = 10000;
+const MAX_METHOD_LENGTH = 200;
+const MAX_ID_LENGTH = 200;
+
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isValidJsonValue(value, depth = 0) {
+  if (value === undefined || value === null) return true;
+  if (typeof value === "string") return value.length <= MAX_STRING_LENGTH;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return true;
+  if (depth >= MAX_JSON_DEPTH) return false;
+  if (Array.isArray(value)) {
+    if (value.length > MAX_COLLECTION_ENTRIES) return false;
+    for (const entry of value) {
+      if (!isValidJsonValue(entry, depth + 1)) return false;
+    }
+    return true;
+  }
+  if (isPlainObject(value)) {
+    const entries = Object.entries(value);
+    if (entries.length > MAX_COLLECTION_ENTRIES) return false;
+    for (const [key, entry] of entries) {
+      if (typeof key !== "string" || key.length > MAX_STRING_LENGTH) return false;
+      if (!isValidJsonValue(entry, depth + 1)) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function sanitizeJsonRpcMessage(message) {
+  const sanitized = {};
+  if (message.jsonrpc !== undefined) sanitized.jsonrpc = message.jsonrpc;
+  if (message.id !== undefined) sanitized.id = message.id;
+  if (message.method !== undefined) sanitized.method = message.method;
+  if (message.params !== undefined) sanitized.params = message.params;
+  if (message.result !== undefined) sanitized.result = message.result;
+  if (message.error !== undefined) {
+    const error = {};
+    if (message.error.code !== undefined) error.code = message.error.code;
+    if (message.error.message !== undefined) error.message = message.error.message;
+    if (message.error.data !== undefined) error.data = message.error.data;
+    sanitized.error = error;
+  }
+  return sanitized;
+}
+
+function validateJsonRpcMessage(message) {
+  if (!isPlainObject(message)) return { ok: false, reason: "not_object" };
+  const keys = Object.keys(message);
+  if (keys.length === 0 || keys.length > MAX_COLLECTION_ENTRIES) {
+    return { ok: false, reason: "invalid_keys" };
+  }
+  if (message.jsonrpc !== undefined && message.jsonrpc !== "2.0") {
+    return { ok: false, reason: "invalid_jsonrpc" };
+  }
+  if (message.id !== undefined) {
+    if (typeof message.id !== "string" && typeof message.id !== "number") {
+      return { ok: false, reason: "invalid_id" };
+    }
+    if (typeof message.id === "string" && message.id.length > MAX_ID_LENGTH) {
+      return { ok: false, reason: "id_too_long" };
+    }
+  }
+  if (message.method !== undefined) {
+    if (typeof message.method !== "string" || !message.method.trim()) {
+      return { ok: false, reason: "invalid_method" };
+    }
+    if (message.method.length > MAX_METHOD_LENGTH) {
+      return { ok: false, reason: "method_too_long" };
+    }
+  }
+  if (message.error !== undefined) {
+    if (!isPlainObject(message.error)) {
+      return { ok: false, reason: "invalid_error" };
+    }
+    if (!Number.isFinite(message.error.code)) {
+      return { ok: false, reason: "invalid_error_code" };
+    }
+    if (typeof message.error.message !== "string" || !message.error.message.trim()) {
+      return { ok: false, reason: "invalid_error_message" };
+    }
+    if (message.error.message.length > MAX_STRING_LENGTH) {
+      return { ok: false, reason: "error_message_too_long" };
+    }
+    if (message.error.data !== undefined && !isValidJsonValue(message.error.data, 0)) {
+      return { ok: false, reason: "invalid_error_data" };
+    }
+  }
+  if (message.params !== undefined && !isValidJsonValue(message.params, 0)) {
+    return { ok: false, reason: "invalid_params" };
+  }
+  if (message.result !== undefined && !isValidJsonValue(message.result, 0)) {
+    return { ok: false, reason: "invalid_result" };
+  }
+  if (
+    message.method === undefined &&
+    message.id === undefined &&
+    message.result === undefined &&
+    message.error === undefined
+  ) {
+    return { ok: false, reason: "missing_fields" };
+  }
+  return { ok: true, message: sanitizeJsonRpcMessage(message) };
+}
+
 /**
  * @typedef {object} ProcessTransportOptions
  * @property {string} command - 可执行文件路径
@@ -52,6 +164,7 @@ export class ProcessTransport extends EventEmitter {
 
     /** @type {number} 最大缓冲区大小 (防 DoS) */
     this._maxBufferSize = 1024 * 1024; // 1MB
+    this._maxMessageSize = MAX_MESSAGE_LENGTH;
     this._requestId = 0;
     /** @type {Map<string|number, { resolve: Function, reject: Function, timer: any }>} */
     this._pending = new Map();
@@ -193,10 +306,22 @@ export class ProcessTransport extends EventEmitter {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
+      if (trimmed.length > this._maxMessageSize) {
+        this.emit("transport:message_too_large", {
+          size: trimmed.length,
+          limit: this._maxMessageSize,
+        });
+        continue;
+      }
 
       try {
         const message = JSON.parse(trimmed);
-        this._handleMessage(message);
+        const validation = validateJsonRpcMessage(message);
+        if (!validation.ok) {
+          this.emit("transport:invalid_message", { reason: validation.reason });
+          continue;
+        }
+        this._handleMessage(validation.message);
       } catch (err) {
         this.emit("transport:parse_error", { line: trimmed, error: err });
       }

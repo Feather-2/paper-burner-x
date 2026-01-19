@@ -1,7 +1,23 @@
 import { loadPrompt } from "../prompts/prompt-loader.js";
 
 /**
- * @typedef {Record<string, any> & { data: string, type: string }} IngestAsset
+ * @typedef {object} IngestAsset
+ * @property {string} data
+ * @property {string} type
+ * @property {string=} name
+ * @property {string=} filename
+ * @property {string=} mimeType
+ * @property {number=} size
+ */
+
+/**
+ * @typedef {object} VisionApi
+ * @property {(image: string | string[], prompt: string) => Promise<{content?: string} | string>} describe
+ */
+
+/**
+ * @typedef {object} ModelRouter
+ * @property {(prompt: string, options: {usage?: string, images?: string[]}) => Promise<{content?: string} | string>} call
  */
 
 /**
@@ -25,6 +41,9 @@ import { loadPrompt } from "../prompts/prompt-loader.js";
 
 const BATCH_SIZE = 5;
 const MAX_IMAGE_SIZE = 500 * 1024; // 500KB
+const MAX_JSON_RESPONSE_CHARS = 20000;
+const MAX_JSON_ITEMS = 25;
+const MAX_JSON_KEYS = 32;
 
 // 缓存的提示词
 let _batchAnalysisPrompt = null;
@@ -68,24 +87,38 @@ const BATCH_ANALYSIS_PROMPT = `Analyze these images for reuse in presentation sl
 ]
 Return ONLY the JSON array, no explanation.`;
 
+function isPlainRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function safeParseJson(payload) {
+  if (typeof payload !== "string") return null;
+  if (payload.length > MAX_JSON_RESPONSE_CHARS) return null;
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
+
 function parseJsonResponse(text) {
   const s = String(text || "").trim();
+  if (!s) return null;
+  if (s.length > MAX_JSON_RESPONSE_CHARS * 2) return null;
   // Try array first
   const arrMatch = s.match(/\[[\s\S]*\]/);
   if (arrMatch) {
-    try {
-      return JSON.parse(arrMatch[0]);
-    } catch {
-      // fall through
+    const parsed = safeParseJson(arrMatch[0]);
+    if (Array.isArray(parsed) && parsed.length <= MAX_JSON_ITEMS && parsed.every(isPlainRecord)) {
+      return parsed;
     }
   }
   // Try object
   const objMatch = s.match(/\{[\s\S]*\}/);
   if (objMatch) {
-    try {
-      return JSON.parse(objMatch[0]);
-    } catch {
-      return null;
+    const parsed = safeParseJson(objMatch[0]);
+    if (isPlainRecord(parsed) && Object.keys(parsed).length <= MAX_JSON_KEYS) {
+      return parsed;
     }
   }
   return null;
@@ -148,7 +181,7 @@ async function analyzeBatch(assets, callVision) {
  * Analyze a single asset using a vision-capable model.
  *
  * @param {IngestAsset} asset
- * @param {{ visionApi?: any, modelRouter?: any }} [options]
+ * @param {{ visionApi?: VisionApi, modelRouter?: ModelRouter }} [options]
  * @returns {Promise<AssetUnderstandingResult | null>}
  */
 export async function understandAsset(asset, { visionApi, modelRouter } = {}) {
@@ -171,7 +204,7 @@ export async function understandAsset(asset, { visionApi, modelRouter } = {}) {
  * Analyze multiple assets in batches.
  *
  * @param {IngestAsset[]} assets
- * @param {{ visionApi?: any, modelRouter?: any, onProgress?: (progress: AssetUnderstandingProgress) => void }} [options]
+ * @param {{ visionApi?: VisionApi, modelRouter?: ModelRouter, onProgress?: (progress: AssetUnderstandingProgress) => void }} [options]
  * @returns {Promise<Array<AssetUnderstandingResult | null>>}
  */
 export async function understandAssets(assets, options = {}) {

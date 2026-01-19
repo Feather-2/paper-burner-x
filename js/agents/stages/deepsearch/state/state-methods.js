@@ -19,7 +19,33 @@ import {
   L0_REPLACE_TODOS,
 } from "../../../plugins/memory/index.js";
 
+const TODO_PATCH_FIELDS = new Set([
+  "priority",
+  "queryHints",
+  "expectedEvidence",
+  "source",
+  "history",
+  "createdAt",
+  "updatedAt",
+  "relatedGapId",
+]);
+
+const BLOCKED_PATCH_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
+function applyTodoPatch(target, patch) {
+  for (const [key, value] of Object.entries(patch)) {
+    if (BLOCKED_PATCH_KEYS.has(key)) continue;
+    if (!TODO_PATCH_FIELDS.has(key)) continue;
+    target[key] = value;
+  }
+}
+
 export const stateMethods = {
+  /**
+   * Add token usage deltas to state.
+   * @param {Record<string, unknown>} usage
+   * @returns {{ input: number, output: number, total: number, estimatedCostUSD: number }}
+   */
   addTokenUsage(usage) {
     const delta = normalizeTokenUsage(usage);
     if (!delta) return this?.L2?.tokenUsage || { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
@@ -41,10 +67,19 @@ export const stateMethods = {
     return cur;
   },
 
+  /**
+   * Read normalized budget configuration.
+   * @returns {import("../utils/state-utils.js").BudgetConfig}
+   */
   getBudgetConfig() {
     return normalizeBudgetConfig(this?.userConfig?.budget);
   },
 
+  /**
+   * Add a todo item to the state.
+   * @param {Record<string, unknown>=} params
+   * @returns {import("../utils/todo-utils.js").DeepSearchTodo|Record<string, unknown>|null}
+   */
   addTodo(params = {}) {
     const engine = this?._stateEngine;
     if (engine && typeof engine.dispatchSync === "function") {
@@ -71,6 +106,11 @@ export const stateMethods = {
     return addTodoLogic(this, params);
   },
 
+  /**
+   * Replace the entire todo list.
+   * @param {Array<Record<string, unknown>>} todos
+   * @returns {Array<Record<string, unknown>>}
+   */
   replaceTodos(todos) {
     const list = Array.isArray(todos) ? todos : [];
     const engine = this?._stateEngine;
@@ -87,6 +127,13 @@ export const stateMethods = {
     return target;
   },
 
+  /**
+   * Update an existing todo.
+   * @param {string} id
+   * @param {Record<string, unknown>} updates
+   * @param {(eventName: string, payload: unknown) => void|null} [emit]
+   * @returns {Record<string, unknown>|null}
+   */
   updateTodo(id, updates, emit = null) {
     const key = toNonEmptyString(id);
     const patch = isPlainObject(updates) ? updates : null;
@@ -109,10 +156,7 @@ export const stateMethods = {
 
       if (patch.status !== undefined) transitionTodoStatus(draft, patch.status, emitFn);
 
-      for (const [k, v] of Object.entries(patch)) {
-        if (k === "text" || k === "content" || k === "title" || k === "status") continue;
-        draft[k] = v;
-      }
+      applyTodoPatch(draft, patch);
 
       engine.dispatchSync({ type: L0_UPDATE_TODO, payload: { id: key, updates: cloneValue(draft) } });
       if (typeof this?._syncFromStateEngine === "function") this._syncFromStateEngine();
@@ -137,10 +181,7 @@ export const stateMethods = {
 
     if (patch.status !== undefined) transitionTodoStatus(todo, patch.status, emitFn);
 
-    for (const [k, v] of Object.entries(patch)) {
-      if (k === "text" || k === "content" || k === "title" || k === "status") continue;
-      todo[k] = v;
-    }
+    applyTodoPatch(todo, patch);
 
     if (patch.status !== undefined && typeof this?._syncToShared === "function") {
       this._syncToShared("todo", todo.todoId || key, {
@@ -152,6 +193,11 @@ export const stateMethods = {
     return todo;
   },
 
+  /**
+   * Remove a todo by id.
+   * @param {string} id
+   * @returns {Record<string, unknown>|null}
+   */
   removeTodo(id) {
     const key = toNonEmptyString(id);
     if (!key) return null;

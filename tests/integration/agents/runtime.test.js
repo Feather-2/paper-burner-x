@@ -947,6 +947,53 @@ it("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", asy
   sub.unsubscribe();
 });
 
+it("Runtime Telemetry: subscribeTelemetry flush surfaces appendEvent errors", async () => {
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { subscribeTelemetry } = await import("../../js/agents/runtime/telemetry/runstore-telemetry.js");
+
+  const bus = new EventBus({ runId: "run_telemetry_error" });
+  const stored = [];
+  let failNext = true;
+  const runStore = {
+    async appendEvent(runId, evt) {
+      if (failNext) {
+        failNext = false;
+        throw new Error("append failed");
+      }
+      stored.push({ runId, evt });
+    },
+  };
+
+  const sub = subscribeTelemetry(bus, runStore);
+  bus.emit("run.progress", { i: 1 });
+  bus.emit("run.progress", { i: 2 });
+
+  await expect(sub.flush()).rejects.toThrow("append failed");
+  expect(stored.length).toBe(1);
+  sub.unsubscribe();
+});
+
+it("Runtime Telemetry: subscribeTelemetry skips replay events", async () => {
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { subscribeTelemetry } = await import("../../js/agents/runtime/telemetry/runstore-telemetry.js");
+
+  const bus = new EventBus({ runId: "run_telemetry_replay" });
+  const stored = [];
+  const runStore = {
+    async appendEvent(runId, evt) {
+      stored.push({ runId, evt });
+    },
+  };
+
+  const sub = subscribeTelemetry(bus, runStore);
+  bus.emit("run.progress", { payload: { i: 1 }, meta: { replay: true } });
+  await sub.flush();
+
+  expect(stored.length).toBe(0);
+  expect(sub.timeline.length).toBe(0);
+  sub.unsubscribe();
+});
+
 it("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for sync work", async () => {
   const path = require("node:path");
   const { pathToFileURL } = require("node:url");

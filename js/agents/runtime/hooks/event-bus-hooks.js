@@ -3,13 +3,21 @@ import { HookRegistry } from "./hook-registry.js";
 const REGISTRY_SYMBOL = Symbol.for("paperburner.hookRegistry.v1");
 
 /**
+ * @typedef {object} EventBusLike
+ * @property {(eventName: string, payload?: unknown) => void} [emit]
+ * @property {(eventName: string, hookDef: unknown) => void} [registerHook]
+ * @property {(eventName: string) => unknown[]} [getHooks]
+ * @property {(eventName?: string) => void} [clearHooks]
+ */
+
+/**
  * Attach a HookRegistry to an EventBus-like object.
  *
  * This is intentionally a runtime-layer enhancement to avoid adding hook state to
  * the core EventBus implementation.
  *
- * @param {any} eventBus
- * @returns {any}
+ * @param {EventBusLike | null | undefined} eventBus
+ * @returns {EventBusLike | null | undefined}
  */
 export function enhanceEventBusWithHooks(eventBus) {
   const bus = eventBus && typeof eventBus === "object" ? eventBus : null;
@@ -34,7 +42,7 @@ export function enhanceEventBusWithHooks(eventBus) {
 }
 
 /**
- * @param {any} eventBus
+ * @param {EventBusLike | null | undefined} eventBus
  * @returns {HookRegistry | null}
  */
 export function getHookRegistry(eventBus) {
@@ -44,4 +52,3 @@ export function getHookRegistry(eventBus) {
 }
 
 export default { enhanceEventBusWithHooks, getHookRegistry };
-

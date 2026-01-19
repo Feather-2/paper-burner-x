@@ -67,6 +67,59 @@ function parsePercent(value) {
   return Math.max(0, Math.min(100, n));
 }
 
+function makeTimeoutError(timeoutMs) {
+  const err = new Error(`Timed out after ${timeoutMs}ms`);
+  err.name = "TimeoutError";
+  return err;
+}
+
+function makeAbortError(signal) {
+  const reason = signal?.reason;
+  const message = reason instanceof Error ? reason.message : String(reason || "Aborted");
+  const err = new Error(message);
+  err.name = "AbortError";
+  return err;
+}
+
+function withAbortAndTimeout(promise, { signal, timeoutMs } = {}) {
+  const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
+  if (!signal && !ms) return promise;
+  let timer = null;
+  let onAbort = null;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+    };
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn(value);
+    };
+
+    if (signal?.aborted) {
+      finish(reject, makeAbortError(signal));
+      return;
+    }
+
+    if (signal) {
+      onAbort = () => finish(reject, makeAbortError(signal));
+      signal.addEventListener("abort", onAbort);
+    }
+
+    if (ms > 0) {
+      timer = setTimeout(() => finish(reject, makeTimeoutError(ms)), ms);
+    }
+
+    Promise.resolve(promise).then(
+      (value) => finish(resolve, value),
+      (err) => finish(reject, err)
+    );
+  });
+}
+
 function inferRenderTypeFromVisualType(type) {
   const raw = toNonEmptyString(type);
   if (!raw) return "";
@@ -234,16 +287,25 @@ export class VisualSubAgent {
     for (const slot of svgSlots) this._transitionSlot(slot, VisualSlotStatus.GENERATING, { slotId: slot.slotId });
     for (const slot of assetSlots) this._transitionSlot(slot, VisualSlotStatus.GENERATING, { slotId: slot.slotId });
 
+    const imageConcurrency = Number.isFinite(options.imageConcurrency) ? Math.max(1, Math.floor(options.imageConcurrency)) : 1;
+    const baseTimeoutMs = Number.isFinite(options.budget?.timeoutMs) ? Math.max(0, Math.floor(options.budget.timeoutMs)) : 0;
+    const imageTimeoutMs = baseTimeoutMs > 0
+      ? baseTimeoutMs * Math.max(1, Math.ceil(aiImageSlots.length / imageConcurrency))
+      : 0;
+
     const imagePromise = aiImageSlots.length && imageGenerator
-      ? imageGenerator.generate(aiImageSlots.map(visualSlotToImageSlot).filter(Boolean), contentPackage, designSystem, {
-        emit: options.emit,
-        runId: options.runId,
-        policy: options.policy,
-        budget: options.budget,
-        concurrency: options.imageConcurrency,
-        circuitBreakerRegistry: options.circuitBreakerRegistry,
-        imageProvider: options.imageProvider,
-      })
+      ? withAbortAndTimeout(
+        imageGenerator.generate(aiImageSlots.map(visualSlotToImageSlot).filter(Boolean), contentPackage, designSystem, {
+          emit: options.emit,
+          runId: options.runId,
+          policy: options.policy,
+          budget: options.budget,
+          concurrency: options.imageConcurrency,
+          circuitBreakerRegistry: options.circuitBreakerRegistry,
+          imageProvider: options.imageProvider,
+        }),
+        { signal: options.signal, timeoutMs: imageTimeoutMs }
+      )
       : Promise.resolve({ filledSlots: [], report: null });
 
     const svgPromise = svgSlots.length && svgGenerator

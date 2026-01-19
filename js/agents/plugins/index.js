@@ -54,7 +54,7 @@ const pluginRegistry = {
 
   // Resilience
   'resilience/retry': () => import('./resilience/retry.js'),
-  'resilience/level': () => import('./resilience/resilience-level.js'),
+  'resilience/level': () => import('./resilience/degradation-matrix.js'),
 
   // Stages
   'stage/deepsearch': () => import('./stages/deepsearch.js'),

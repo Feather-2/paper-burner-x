@@ -11,6 +11,24 @@
 import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("core/state-bus");
+const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
+/**
+ * @param {string} path
+ * @returns {string[] | null}
+ */
+function getSafePathSegments(path) {
+  const raw = typeof path === 'string' ? path : '';
+  if (!raw) return null;
+  const segments = raw.split('.');
+  for (const segment of segments) {
+    if (UNSAFE_PATH_SEGMENTS.has(segment)) {
+      logger.warn('StateBus blocked unsafe path segment', { path, segment });
+      return null;
+    }
+  }
+  return segments;
+}
 
 /**
  * @typedef {import('./types').EventBus} EventBus
@@ -143,7 +161,8 @@ export class StateBus {
   get(path) {
     if (!path) return this._state;
 
-    const keys = path.split('.');
+    const keys = getSafePathSegments(path);
+    if (!keys) return undefined;
     let current = this._state;
 
     for (const key of keys) {
@@ -164,10 +183,10 @@ export class StateBus {
    * @returns {void}
    */
   set(path, value, meta = {}) {
+    const keys = getSafePathSegments(path);
+    if (!keys) return;
     const oldValue = this.get(path);
     if (oldValue === value) return;
-
-    const keys = path.split('.');
     const lastKey = keys.pop();
     if (!lastKey) return;
     let current = this._state;
@@ -193,6 +212,8 @@ export class StateBus {
    * @returns {void}
    */
   merge(path, updates, meta = {}) {
+    const keys = getSafePathSegments(path);
+    if (!keys) return;
     const current = this.get(path) || {};
     if (current == null || typeof current !== 'object' || updates == null || typeof updates !== 'object') {
       this.set(path, updates, meta);
@@ -209,10 +230,10 @@ export class StateBus {
    * @returns {boolean}
    */
   delete(path) {
+    const keys = getSafePathSegments(path);
+    if (!keys) return false;
     const oldValue = this.get(path);
     if (oldValue === undefined) return false;
-
-    const keys = path.split('.');
     const lastKey = keys.pop();
     if (!lastKey) return false;
 

@@ -26,6 +26,7 @@ const logger = createLogger('runtime/exec');
  * @property {(chunk: string) => void} [onStderr] - stderr 流式回调
  * @property {string} [stdin] - 写入 stdin 的内容
  * @property {boolean} [shell=false] - 是否使用 shell 执行
+ * @property {boolean} [trusted=false] - execShell 是否允许执行 shell 命令
  */
 
 /**
@@ -46,6 +47,146 @@ const logger = createLogger('runtime/exec');
  * 命令执行失败时抛出的错误类型，包含额外的执行信息。
  */
 
+const DEFAULT_TIMEOUT_MS = 60000;
+const DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+function normalizeExecOptions(options = {}) {
+  const opts = options && typeof options === 'object' ? options : {};
+  return {
+    cwd: opts.cwd || process.cwd(),
+    env: { ...process.env, ...opts.env },
+    timeout: typeof opts.timeout === 'number' && Number.isFinite(opts.timeout) ? opts.timeout : DEFAULT_TIMEOUT_MS,
+    maxOutputBytes: typeof opts.maxOutputBytes === 'number' && Number.isFinite(opts.maxOutputBytes) ? opts.maxOutputBytes : DEFAULT_MAX_OUTPUT_BYTES,
+    shell: opts.shell === true,
+    signal: opts.signal,
+    onStdout: opts.onStdout,
+    onStderr: opts.onStderr,
+    stdin: opts.stdin,
+    trusted: opts.trusted === true,
+  };
+}
+
+function safeInvoke(callback, label, chunk) {
+  if (typeof callback !== 'function') return;
+  try {
+    callback(chunk);
+  } catch (err) {
+    logger.warn(`[exec] ${label} callback failed`, { error: err?.message || String(err) });
+  }
+}
+
+function createOutputCollector(maxOutputBytes, onStdout, onStderr) {
+  let stdout = '';
+  let stderr = '';
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  let truncated = false;
+
+  const append = (kind, chunk, handler) => {
+    const str = chunk.toString();
+    const bytes = Buffer.byteLength(str);
+
+    if (kind === 'stdout') {
+      if (stdoutBytes + bytes <= maxOutputBytes) {
+        stdout += str;
+        stdoutBytes += bytes;
+      } else if (!truncated) {
+        const remaining = maxOutputBytes - stdoutBytes;
+        if (remaining > 0) {
+          stdout += str.slice(0, remaining);
+        }
+        truncated = true;
+      }
+    } else {
+      if (stderrBytes + bytes <= maxOutputBytes) {
+        stderr += str;
+        stderrBytes += bytes;
+      } else if (!truncated) {
+        const remaining = maxOutputBytes - stderrBytes;
+        if (remaining > 0) {
+          stderr += str.slice(0, remaining);
+        }
+        truncated = true;
+      }
+    }
+
+    safeInvoke(handler, kind, str);
+  };
+
+  return {
+    appendStdout: (chunk) => append('stdout', chunk, onStdout),
+    appendStderr: (chunk) => append('stderr', chunk, onStderr),
+    get stdout() {
+      return stdout;
+    },
+    get stderr() {
+      return stderr;
+    },
+    get truncated() {
+      return truncated;
+    },
+  };
+}
+
+function safeKill(child, signal) {
+  try {
+    child.kill(signal);
+  } catch (err) {
+    logger.warn('[exec] Failed to terminate child process', { signal, error: err?.message || String(err) });
+  }
+}
+
+function buildExecResult(output, startTime, data) {
+  const result = {
+    success: data.success,
+    exitCode: data.exitCode,
+    signal: data.signal,
+    stdout: output.stdout,
+    stderr: output.stderr,
+    duration: Date.now() - startTime,
+    timedOut: data.timedOut,
+    truncated: output.truncated,
+  };
+
+  if (data.error) {
+    result.error = data.error;
+  }
+
+  return result;
+}
+
+function startTimeout(timeoutMs, onTimeout) {
+  if (timeoutMs <= 0) return null;
+  return setTimeout(onTimeout, timeoutMs);
+}
+
+function attachAbort(signal, onAbort) {
+  if (!signal) return;
+  signal.addEventListener('abort', onAbort, { once: true });
+}
+
+function writeStdin(child, stdin) {
+  if (!child.stdin) return;
+  if (stdin) {
+    child.stdin.write(stdin);
+  }
+  child.stdin.end();
+}
+
+function cleanupProcess(child, timeoutId) {
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+  }
+  if (child && !child.killed && child.exitCode === null && child.signalCode === null) {
+    safeKill(child, 'SIGTERM');
+    setTimeout(() => {
+      if (child && !child.killed && child.exitCode === null && child.signalCode === null) {
+        safeKill(child, 'SIGKILL');
+      }
+    }, 1000);
+  }
+}
+
 /**
  * 执行命令
  *
@@ -56,180 +197,69 @@ const logger = createLogger('runtime/exec');
  */
 export async function exec(command, args = [], options = {}) {
   const startTime = Date.now();
-  const opts = options && typeof options === 'object' ? options : {};
-
-  const cwd = opts.cwd || process.cwd();
-  const env = { ...process.env, ...opts.env };
-  const timeout = typeof opts.timeout === 'number' && Number.isFinite(opts.timeout) ? opts.timeout : 60000;
-  const maxOutputBytes = typeof opts.maxOutputBytes === 'number' && Number.isFinite(opts.maxOutputBytes) ? opts.maxOutputBytes : 10 * 1024 * 1024;
-  const shell = opts.shell === true;
-
-  let stdout = '';
-  let stderr = '';
-  let stdoutBytes = 0;
-  let stderrBytes = 0;
-  let truncated = false;
-  let timedOut = false;
+  const opts = normalizeExecOptions(options);
+  const output = createOutputCollector(opts.maxOutputBytes, opts.onStdout, opts.onStderr);
 
   return new Promise((resolve) => {
     /** @type {import('node:child_process').ChildProcess | null} */
     let child = null;
     /** @type {ReturnType<typeof setTimeout> | null} */
     let timeoutId = null;
+    let timedOut = false;
 
-    const cleanup = () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      if (child && !child.killed) {
-        try {
-          child.kill('SIGTERM');
-          // Force kill after grace period
-          setTimeout(() => {
-            if (child && !child.killed) {
-              try {
-                child.kill('SIGKILL');
-              } catch {
-                // ignore
-              }
-            }
-          }, 1000);
-        } catch {
-          // ignore
-        }
-      }
-    };
-
-    const finish = (result) => {
-      cleanup();
-      resolve(result);
+    const finish = (data) => {
+      cleanupProcess(child, timeoutId);
+      timeoutId = null;
+      resolve(buildExecResult(output, startTime, data));
     };
 
     try {
       child = spawn(command, args, {
-        cwd,
-        env,
-        shell,
+        cwd: opts.cwd,
+        env: opts.env,
+        shell: opts.shell,
         stdio: ['pipe', 'pipe', 'pipe'],
         signal: opts.signal,
       });
 
-      // Timeout handling
-      if (timeout > 0) {
-        timeoutId = setTimeout(() => {
-          timedOut = true;
-          cleanup();
-          finish({
-            success: false,
-            exitCode: -1,
-            signal: 'SIGTERM',
-            stdout,
-            stderr,
-            duration: Date.now() - startTime,
-            timedOut: true,
-            truncated,
-            error: `Command timed out after ${timeout}ms`,
-          });
-        }, timeout);
-      }
-
-      // Abort signal handling
-      if (opts.signal) {
-        opts.signal.addEventListener('abort', () => {
-          cleanup();
-          finish({
-            success: false,
-            exitCode: -1,
-            signal: 'SIGTERM',
-            stdout,
-            stderr,
-            duration: Date.now() - startTime,
-            timedOut: false,
-            truncated,
-            error: 'Command aborted',
-          });
-        }, { once: true });
-      }
-
-      // Write to stdin if provided
-      if (opts.stdin && child.stdin) {
-        child.stdin.write(opts.stdin);
-        child.stdin.end();
-      } else if (child.stdin) {
-        child.stdin.end();
-      }
-
-      // Collect stdout
-      child.stdout?.on('data', (chunk) => {
-        const str = chunk.toString();
-        const bytes = Buffer.byteLength(str);
-
-        if (stdoutBytes + bytes <= maxOutputBytes) {
-          stdout += str;
-          stdoutBytes += bytes;
-        } else if (!truncated) {
-          const remaining = maxOutputBytes - stdoutBytes;
-          if (remaining > 0) {
-            stdout += str.slice(0, remaining);
-          }
-          truncated = true;
-        }
-
-        if (opts.onStdout) {
-          try {
-            opts.onStdout(str);
-          } catch {
-            // ignore
-          }
-        }
-      });
-
-      // Collect stderr
-      child.stderr?.on('data', (chunk) => {
-        const str = chunk.toString();
-        const bytes = Buffer.byteLength(str);
-
-        if (stderrBytes + bytes <= maxOutputBytes) {
-          stderr += str;
-          stderrBytes += bytes;
-        } else if (!truncated) {
-          const remaining = maxOutputBytes - stderrBytes;
-          if (remaining > 0) {
-            stderr += str.slice(0, remaining);
-          }
-          truncated = true;
-        }
-
-        if (opts.onStderr) {
-          try {
-            opts.onStderr(str);
-          } catch {
-            // ignore
-          }
-        }
-      });
-
-      // Handle process exit
-      child.on('close', (code, signal) => {
-        if (timedOut) return; // Already handled
-
-        const exitCode = code ?? -1;
-        const success = exitCode === 0;
-
+      timeoutId = startTimeout(opts.timeout, () => {
+        timedOut = true;
         finish({
-          success,
-          exitCode,
-          signal,
-          stdout,
-          stderr,
-          duration: Date.now() - startTime,
-          timedOut: false,
-          truncated,
+          success: false,
+          exitCode: -1,
+          signal: 'SIGTERM',
+          timedOut: true,
+          error: `Command timed out after ${opts.timeout}ms`,
         });
       });
 
-      // Handle spawn error
+      attachAbort(opts.signal, () => {
+        finish({
+          success: false,
+          exitCode: -1,
+          signal: 'SIGTERM',
+          timedOut: false,
+          error: 'Command aborted',
+        });
+      });
+
+      writeStdin(child, opts.stdin);
+
+      child.stdout?.on('data', output.appendStdout);
+      child.stderr?.on('data', output.appendStderr);
+
+      child.on('close', (code, signal) => {
+        if (timedOut) return;
+
+        const exitCode = code ?? -1;
+        finish({
+          success: exitCode === 0,
+          exitCode,
+          signal,
+          timedOut: false,
+        });
+      });
+
       child.on('error', (err) => {
         if (timedOut) return;
 
@@ -237,25 +267,18 @@ export async function exec(command, args = [], options = {}) {
           success: false,
           exitCode: -1,
           signal: null,
-          stdout,
-          stderr,
-          duration: Date.now() - startTime,
           timedOut: false,
-          truncated,
           error: err.message,
         });
       });
     } catch (err) {
+      const message = err?.message || String(err);
       finish({
         success: false,
         exitCode: -1,
         signal: null,
-        stdout: '',
-        stderr: '',
-        duration: Date.now() - startTime,
         timedOut: false,
-        truncated: false,
-        error: err.message,
+        error: message,
       });
     }
   });
@@ -272,9 +295,8 @@ export async function exec(command, args = [], options = {}) {
  * - 必须使用用户输入时，应进行严格白名单校验或转义
  *
  * @param {string} command - Shell 命令字符串
- * @param {ExecOptions} [options={}] - 选项
+ * @param {ExecOptions} [options={}] - 选项 (需显式设置 trusted=true)
  * @returns {Promise<ExecResult>}
- * @throws {Error} 若 command 为空或非字符串
  * @security 命令注入风险 - 仅接受可信输入
  */
 export async function execShell(command, options = {}) {
@@ -291,11 +313,25 @@ export async function execShell(command, options = {}) {
       error: 'execShell: command must be a non-empty string',
     };
   }
+  const opts = options && typeof options === 'object' ? options : {};
+  if (!opts.trusted) {
+    return {
+      success: false,
+      exitCode: -1,
+      signal: null,
+      stdout: '',
+      stderr: '',
+      duration: 0,
+      timedOut: false,
+      truncated: false,
+      error: 'execShell: trusted option required',
+    };
+  }
   const isWindows = process.platform === 'win32';
   const shell = isWindows ? 'cmd.exe' : '/bin/sh';
   const shellArgs = isWindows ? ['/c', command] : ['-c', command];
 
-  return exec(shell, shellArgs, { ...options, shell: false });
+  return exec(shell, shellArgs, { ...opts, shell: false });
 }
 
 /**
@@ -337,7 +373,8 @@ export async function commandExists(command) {
 
     const result = await exec(checkCmd, [command], { timeout: 5000 });
     return result.success;
-  } catch {
+  } catch (err) {
+    logger.warn('[exec] commandExists failed', { command, error: err?.message || String(err) });
     return false;
   }
 }

@@ -1,4 +1,19 @@
-import { isPlainObject } from "../../../shared/index.js";
+import { createLogger, isPlainObject } from "../../../shared/index.js";
+
+const logger = createLogger("stages/deepsearch/state/memory-methods");
+
+const BLOCKED_SCRATCHPAD_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
+function copyScratchpadEntries(target, patch) {
+  for (const [key, value] of Object.entries(patch)) {
+    if (BLOCKED_SCRATCHPAD_KEYS.has(key)) continue;
+    target[key] = value;
+  }
+}
+
+function logDebug(message, err) {
+  logger.debug(message, { error: err?.message || err });
+}
 
 /**
  * @typedef {object} SharedContextLike
@@ -73,10 +88,15 @@ export const memoryMethods = {
    */
   setScratchpad(key, value) {
     if (this._memoryStore?.setScratchpad) this._memoryStore.setScratchpad(key, value);
-    if (!isPlainObject(this.L2)) this.L2 = { scratchpad: {} };
-    if (!isPlainObject(this.L2.scratchpad)) this.L2.scratchpad = {};
-    if (isPlainObject(key) && value === undefined) Object.assign(this.L2.scratchpad, key);
-    else this.L2.scratchpad[/** @type {string} */ (key)] = value;
+    if (!isPlainObject(this.L2)) this.L2 = {};
+    if (!isPlainObject(this.L2.scratchpad)) this.L2.scratchpad = Object.create(null);
+    if (isPlainObject(key) && value === undefined) {
+      copyScratchpadEntries(this.L2.scratchpad, key);
+      return;
+    }
+    const keyName = typeof key === "string" ? key : key != null ? String(key) : "";
+    if (!keyName || BLOCKED_SCRATCHPAD_KEYS.has(keyName)) return;
+    this.L2.scratchpad[keyName] = value;
   },
 
   /**
@@ -94,11 +114,15 @@ export const memoryMethods = {
     if (this._stateEngine && typeof this._syncFromStateEngine === "function") {
       try {
         this._syncFromStateEngine();
-      } catch { /* intentional */ }
+      } catch (err) {
+        logDebug("bindMemoryStore: sync from state engine failed", err);
+      }
       if (isPlainObject(this.L2?.scratchpad) && typeof memoryStore.setScratchpad === "function") {
         try {
           memoryStore.setScratchpad(this.L2.scratchpad);
-        } catch { /* intentional */ }
+        } catch (err) {
+          logDebug("bindMemoryStore: setScratchpad from L2 failed", err);
+        }
       }
       return;
     }
@@ -106,14 +130,17 @@ export const memoryMethods = {
     try {
       if (typeof memoryStore.setTaskGoal === "function") memoryStore.setTaskGoal(this.taskGoal || "");
       else if (memoryStore.L0 && typeof memoryStore.L0 === "object") memoryStore.L0.taskGoal = this.taskGoal || "";
-    } catch { /* intentional: memoryStore API may vary */ }
+    } catch (err) {
+      logDebug("bindMemoryStore: setTaskGoal failed", err);
+    }
 
     const stateTodos = Array.isArray(this.todos) ? this.todos : [];
     const memTodos = (() => {
       if (typeof memoryStore.getTodos === "function") {
         try {
           return memoryStore.getTodos();
-        } catch {
+        } catch (err) {
+          logDebug("bindMemoryStore: getTodos failed", err);
           return null;
         }
       }
@@ -137,7 +164,8 @@ export const memoryMethods = {
         if (Object.isFrozen(memoryStore.L0)) return false;
         if (!Array.isArray(memoryStore.L0.todos) || Object.isFrozen(memoryStore.L0.todos)) return false;
         return true;
-      } catch {
+      } catch (err) {
+        logDebug("bindMemoryStore: probe L0 shareability failed", err);
         return false;
       }
     })();
@@ -145,11 +173,15 @@ export const memoryMethods = {
     if (typeof memoryStore.replaceTodos === "function") {
       try {
         memoryStore.replaceTodos(canonicalTodos);
-      } catch { /* intentional */ }
+      } catch (err) {
+        logDebug("bindMemoryStore: replaceTodos failed", err);
+      }
     } else if (l0CanShareByRef) {
       try {
         if (!Array.isArray(memoryStore.L0.todos) || memoryStore.L0.todos !== canonicalTodos) memoryStore.L0.todos = canonicalTodos;
-      } catch { /* intentional */ }
+      } catch (err) {
+        logDebug("bindMemoryStore: assigning L0.todos failed", err);
+      }
     }
 
     const localTodos = canonicalTodos;
@@ -172,7 +204,8 @@ export const memoryMethods = {
             }
           },
         });
-      } catch {
+      } catch (err) {
+        logDebug("bindMemoryStore: defineProperty for todos failed", err);
         this.todos = Array.isArray(memTodos) ? memTodos : canonicalTodos;
       }
     } else {

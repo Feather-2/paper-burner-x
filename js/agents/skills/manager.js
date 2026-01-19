@@ -84,7 +84,10 @@ export class SkillsManager {
           }
         }
       } catch (err) {
-        // ignore remote skills errors (best-effort)
+        outcome.errors.push({
+          path: "remote://",
+          message: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 

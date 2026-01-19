@@ -4,6 +4,85 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] empty-catch
+*Archived: 2026-01-19T20:47:04.219Z*
+
+- **File**: js/agents/stages/design/generators/svg-generator.js:10
+- **Description**: 空 catch 块吞掉了动态 import 失败的异常，违反“不要吞掉异常”的错误处理规范。
+- **Suggestion**: 至少记录 debug/warn，或在注释中说明可忽略的原因；避免无声失败。
+```
+try {
+  const mod = await import("../../../shared/utils/circuit-breaker.js");
+  getCircuitBreaker = mod.getCircuitBreaker;
+} catch { }
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] xss
+*Archived: 2026-01-19T20:47:00.721Z*
+
+- **File**: js/agents/stages/design/generators/batch-generator.js:580
+- **Description**: LLM 返回的 slideHtml 仅做结构性检查后直接返回，未做 HTML/属性白名单过滤，若用户输入或模型输出包含脚本/事件属性会导致 DOM XSS。
+- **Suggestion**: 在返回前对 slideHtml 做 DSL 白名单解析/重建，或至少剥离 <script>、on* 事件、javascript:/data: URL，并限制允许的标签/属性集合。
+```
+let slideHtml = typeof candidate?.slideHtml === "string" ? candidate.slideHtml : "";
+slideHtml = ensureSectionAttr(slideHtml, "data-layout", layoutFromPageType(si.pageType));
+slideHtml = applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide, slotHintsBySlotId);
+...
+if (!looksLikeSlideHtml(slideHtml)) {
+  throw new Error("Invalid slideHtml returned by model");
+}
+return { slideIntentId, slideHtml, source: "llm" };
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] error-info-leak
+*Archived: 2026-01-19T20:46:47.605Z*
+
+- **File**: js/agents/stages/design/generators/batch-generator.js:622
+- **Description**: 失败事件 payload 包含 error.stack，若事件直达 UI/用户日志会泄露内部堆栈信息。
+- **Suggestion**: 对用户可见事件只传 message/code，将 stack 仅记录到内部日志或 debug 通道。
+```
+const errStack = lastErr instanceof Error ? lastErr.stack : undefined;
+safeEmit(emit, "design:slide.failed", "failed", {
+  slideIndex,
+  error: { message: errMsg, stack: errStack }
+});
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] prototype-pollution
+*Archived: 2026-01-19T20:46:47.545Z*
+
+- **File**: js/agents/stages/design/generators/design-system-generator.js:22
+- **Description**: mergeDesignSystemOverrides 使用 deepMerge 直接合并来自 userPreferences.designSystemOverrides 的键，未过滤 __proto__/constructor/prototype，可能导致原型污染。
+- **Suggestion**: 在合并前过滤危险键（__proto__/prototype/constructor），或使用 Object.create(null) 作为目标并显式拦截这些键。
+```
+const keys = new Set([...Object.keys(base), ...Object.keys(override)]);
+for (const k of Array.from(keys).sort()) {
+  const bv = base[k];
+  const ov = override[k];
+  if (ov === undefined) {
+    out[k] = isPlainObject(bv) ? deepMerge({}, bv) : Array.isArray(bv) ? bv.slice() : bv;
+  } else {
+    out[k] = deepMerge(bv, ov);
+  }
+}
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] jsdoc:missing

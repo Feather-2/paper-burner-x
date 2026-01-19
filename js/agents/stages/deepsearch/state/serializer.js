@@ -8,9 +8,9 @@ import { cloneValue } from "../internal/checkpoint.js";
  * @property {string=} checkpointId
  * @property {number=} iteration
  * @property {string=} timestamp
- * @property {any=} strategy
- * @property {any=} metrics
- * @property {any=} stateSnapshot
+ * @property {Record<string, unknown>=} strategy
+ * @property {Record<string, unknown>=} metrics
+ * @property {Record<string, unknown>|null=} stateSnapshot
  */
 
 /**
@@ -19,13 +19,13 @@ import { cloneValue } from "../internal/checkpoint.js";
  * @property {string=} checkpointId
  * @property {number=} iteration
  * @property {string=} timestamp
- * @property {any=} strategy
- * @property {any=} metrics
+ * @property {Record<string, unknown>=} strategy
+ * @property {Record<string, unknown>=} metrics
  */
 
 /**
  * @typedef {object} PlanningTreeLike
- * @property {() => any} [serialize]
+ * @property {() => Record<string, unknown>|null} [serialize]
  */
 
 /**
@@ -34,20 +34,20 @@ import { cloneValue } from "../internal/checkpoint.js";
  * @property {string} runId
  * @property {string} createdAt
  * @property {string} taskGoal
- * @property {any} userConfig
+ * @property {Record<string, unknown>} userConfig
  * @property {PlanningTreeLike|null|undefined} planningTree
  * @property {string=} trajectoryId
- * @property {any=} trajectoryConfig
+ * @property {Record<string, unknown>=} trajectoryConfig
  * @property {number} iteration
  * @property {number} maxIterations
- * @property {CheckpointLike[]|any} checkpoints
+ * @property {CheckpointLike[]|Record<string, unknown>[]} checkpoints
  * @property {number} writeBacktrackCount
- * @property {any[]} writeSnapshots
- * @property {any} L0
- * @property {any} L1
- * @property {any} L2
- * @property {any[]} todos
- * @property {Deque|any} timeline
+ * @property {Record<string, unknown>[]} writeSnapshots
+ * @property {Record<string, unknown>} L0
+ * @property {Record<string, unknown>} L1
+ * @property {Record<string, unknown>} L2
+ * @property {Record<string, unknown>[]} todos
+ * @property {Deque|unknown[]} timeline
  */
 
 /**

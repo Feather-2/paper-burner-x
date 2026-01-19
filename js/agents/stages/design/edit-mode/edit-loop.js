@@ -32,12 +32,75 @@ function normalizeMessage(action) {
   return "";
 }
 
+const MAX_INTENT_JSON_CHARS = 50_000;
+const MAX_INTENT_DEPTH = 8;
+const MAX_INTENT_OPERATIONS = 50;
+const ALLOWED_INTENT_KEYS = new Set([
+  "understanding",
+  "operations",
+  "response",
+  "needsClarification",
+  "clarificationQuestion",
+]);
+const ALLOWED_OPERATION_KEYS = new Set(["tool", "params"]);
+
+function exceedsDepth(value, depth = 0) {
+  if (depth > MAX_INTENT_DEPTH) return true;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (exceedsDepth(item, depth + 1)) return true;
+    }
+    return false;
+  }
+  if (isPlainObject(value)) {
+    for (const item of Object.values(value)) {
+      if (exceedsDepth(item, depth + 1)) return true;
+    }
+  }
+  return false;
+}
+
+function isValidOperation(op) {
+  if (!isPlainObject(op)) return false;
+  for (const key of Object.keys(op)) {
+    if (!ALLOWED_OPERATION_KEYS.has(key)) return false;
+  }
+  if (typeof op.tool !== "string") return false;
+  if ("params" in op && op.params !== undefined && op.params !== null && !isPlainObject(op.params)) return false;
+  return true;
+}
+
+function isValidIntentPayload(payload) {
+  if (!isPlainObject(payload)) return false;
+  for (const key of Object.keys(payload)) {
+    if (!ALLOWED_INTENT_KEYS.has(key)) return false;
+  }
+  if ("understanding" in payload && typeof payload.understanding !== "string") return false;
+  if ("response" in payload && typeof payload.response !== "string") return false;
+  if ("needsClarification" in payload && typeof payload.needsClarification !== "boolean") return false;
+  if ("clarificationQuestion" in payload && typeof payload.clarificationQuestion !== "string") return false;
+  if ("operations" in payload) {
+    if (!Array.isArray(payload.operations)) return false;
+    if (payload.operations.length > MAX_INTENT_OPERATIONS) return false;
+    for (const op of payload.operations) {
+      if (!isValidOperation(op)) return false;
+    }
+  }
+  return true;
+}
+
 function safeParseJson(value) {
-  if (value && typeof value === "object") return value;
+  if (value && typeof value === "object") {
+    if (exceedsDepth(value) || !isValidIntentPayload(value)) return null;
+    return value;
+  }
   if (typeof value !== "string") return null;
+  if (value.length > MAX_INTENT_JSON_CHARS) return null;
   try {
-    return JSON.parse(value);
-  } catch (err) {
+    const parsed = JSON.parse(value);
+    if (exceedsDepth(parsed) || !isValidIntentPayload(parsed)) return null;
+    return parsed;
+  } catch {
     return null;
   }
 }

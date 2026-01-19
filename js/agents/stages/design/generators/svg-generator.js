@@ -7,10 +7,13 @@ import { ResourceGuard } from "../../../runtime/index.js";
 
 // Optional circuit breaker - may not be available
 let getCircuitBreaker = null;
+let circuitBreakerImportError = null;
 try {
   const mod = await import("../../../shared/utils/circuit-breaker.js");
   getCircuitBreaker = mod.getCircuitBreaker;
-} catch { }
+} catch (err) {
+  circuitBreakerImportError = err;
+}
 
 import { toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-utils.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
@@ -41,6 +44,11 @@ import { classifyDesignError } from "../../../shared/index.js";
 import { safeEmit } from "../shared/safe-emit.js";
 
 const logger = createLogger("stages/design/generators/svg-generator");
+if (circuitBreakerImportError) {
+  logger.debug("[svg-generator] Optional circuit breaker unavailable", {
+    error: circuitBreakerImportError?.message || String(circuitBreakerImportError),
+  });
+}
 
 /**
  * @typedef {(name: string, event: { actor: string, status: string, payload: any }) => void} EmitFn

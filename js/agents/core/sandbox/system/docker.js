@@ -9,6 +9,7 @@
 
 import { SandboxBackend, DefaultSandboxConfig } from './constants.js';
 import { execCommand } from './detect.js';
+import { normalizeSandboxPath } from './path-utils.js';
 
 /**
  * Docker 执行选项
@@ -118,13 +119,15 @@ function buildDockerArgs(options) {
   }
 
   // 可写挂载 (跳过工作目录本身，已挂载)
+  const normalizedWorkDir = normalizeSandboxPath(workDir, workDir) || workDir;
   for (const p of allowedWritePaths) {
     // 跳过 '.' 和工作目录本身
     if (p === '.' || p === workDir) continue;
 
-    const absPath = p.startsWith('/') ? p : `${workDir}/${p}`;
+    const absPath = normalizeSandboxPath(p, workDir);
+    if (!absPath) continue;
     // 跳过已被工作目录覆盖的子路径
-    if (absPath.startsWith(workDir + '/') && !p.startsWith('/')) continue;
+    if (!p.startsWith('/') && absPath.startsWith(normalizedWorkDir + '/')) continue;
 
     const containerPath = p.startsWith('/') ? `/mnt${p}` : `/workspace/${p}`;
     args.push('-v', `${absPath}:${containerPath}`);

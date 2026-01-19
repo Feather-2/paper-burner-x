@@ -45,6 +45,64 @@ export const TOOL_REGISTRY = {
   edit: LEVEL_2_TOOLS,
 };
 
+const DEFAULT_STEP_TIMEOUT_MS = 120_000;
+
+function callModelWithTimeout(aiApiService, callOptions, baseSignal, timeoutMs) {
+  const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
+  const hasAbortController = typeof AbortController === "function";
+  let controller = null;
+  let removeListener = null;
+
+  if (hasAbortController) {
+    controller = new AbortController();
+    if (baseSignal && typeof baseSignal.addEventListener === "function") {
+      const onAbort = () => {
+        try {
+          controller.abort(baseSignal.reason);
+        } catch {
+          controller.abort();
+        }
+      };
+      if (baseSignal.aborted) {
+        onAbort();
+      } else {
+        baseSignal.addEventListener("abort", onAbort, { once: true });
+        removeListener = () => baseSignal.removeEventListener("abort", onAbort);
+      }
+    }
+  }
+
+  const signal = controller ? controller.signal : baseSignal;
+  const callPromise = aiApiService.chat({ ...callOptions, ...(signal ? { signal } : {}) });
+
+  if (!ms) {
+    return callPromise.finally(() => {
+      if (removeListener) removeListener();
+    });
+  }
+
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const err = new Error(`Timed out after ${ms}ms`);
+      /** @type {any} */ (err).timeoutMs = ms;
+      if (controller && !controller.signal.aborted) {
+        try {
+          controller.abort(err);
+        } catch {
+          controller.abort();
+        }
+      }
+      reject(err);
+    }, ms);
+  });
+
+  return Promise.race([callPromise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (removeListener) removeListener();
+  });
+}
+
 /**
  * Determines available tools based on mode.
  * @param {"generation"|"edit"} mode
@@ -272,6 +330,7 @@ function normalizeToolResultToDeck(deckPackage, toolResult) {
  * @param {"generation"|"edit"} [options.mode="generation"]
  * @param {Function} [options.onStep]
  * @param {string} [options.systemPromptOverride]
+ * @param {number} [options.timeoutMs]
  * @returns {Promise<{finalDeck: object, steps: object[], qualityScore: number, toolCalls: object[], terminationReason: string}>}
  */
 export async function runReactRefiner(deckPackage, context, options = {}) {
@@ -284,6 +343,8 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
   const toolExecutor = options.toolExecutor;
   const onStep = typeof options.onStep === "function" ? options.onStep : null;
   const mode = String(options.mode || "generation").trim().toLowerCase() === "edit" ? "edit" : "generation";
+  const timeoutMs = safeInt(options.timeoutMs);
+  const stepTimeoutMs = timeoutMs === null ? DEFAULT_STEP_TIMEOUT_MS : Math.max(0, timeoutMs);
 
   const stageApi = context.stageApi || {};
   const emit = makeStageEmitter(stageApi, "design");
@@ -317,11 +378,16 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
     const startTime = Date.now();
     let modelResp;
     try {
-      modelResp = await aiApiService.chat({
-        messages: hintedMessages,
-        temperature: 0.2,
-        maxTokens: 8000,
-      });
+      modelResp = await callModelWithTimeout(
+        aiApiService,
+        {
+          messages: hintedMessages,
+          temperature: 0.2,
+          maxTokens: 8000,
+        },
+        stageApi?.signal,
+        stepTimeoutMs
+      );
     } catch (err) {
       emit?.("design:refine.step", { stepIndex, error: String(err?.message || err), phase: "model_call" }, { status: "error" });
       throw err;
@@ -347,11 +413,16 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
     // Retry once on parse error
     if (parseError) {
       try {
-        const retryResp = await aiApiService.chat({
-          messages: [...hintedMessages, { role: "user", content: "上一次输出不是有效 JSON。只返回严格 JSON，不要输出任何多余文本。" }],
-          temperature: 0.1,
-          maxTokens: 8000,
-        });
+        const retryResp = await callModelWithTimeout(
+          aiApiService,
+          {
+            messages: [...hintedMessages, { role: "user", content: "上一次输出不是有效 JSON。只返回严格 JSON，不要输出任何多余文本。" }],
+            temperature: 0.1,
+            maxTokens: 8000,
+          },
+          stageApi?.signal,
+          stepTimeoutMs
+        );
         const retryCandidate = extractJsonCandidate(retryResp?.content || "", { prefer: "object" });
         if (retryCandidate) {
           try {

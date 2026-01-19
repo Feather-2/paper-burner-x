@@ -40,6 +40,7 @@ const PYODIDE_BUILTIN = new Set([
   "idna",
   "urllib3",
 ]);
+const WHEEL_HOST_ALLOWLIST = new Set(["files.pythonhosted.org", "pypi.org"]);
 
 /**
  * 解析包名（去掉版本约束）
@@ -200,10 +201,21 @@ export class DependencyManager {
       if (urlObj.protocol !== "https:") {
         throw new Error(`Insecure protocol: ${urlObj.protocol} - only https is allowed for wheel downloads`);
       }
+      const host = urlObj.hostname.toLowerCase();
+      if (!WHEEL_HOST_ALLOWLIST.has(host)) {
+        throw new Error(`Untrusted wheel host: ${host}`);
+      }
 
       const resp = await fetch(wheel.url);
       if (!resp.ok) {
         throw new Error(`Failed to fetch ${wheel.url}: ${resp.status}`);
+      }
+      if (resp.url) {
+        const finalUrl = new URL(resp.url);
+        const finalHost = finalUrl.hostname.toLowerCase();
+        if (!WHEEL_HOST_ALLOWLIST.has(finalHost)) {
+          throw new Error(`Untrusted wheel host: ${finalHost}`);
+        }
       }
 
       const data = new Uint8Array(await resp.arrayBuffer());
@@ -229,7 +241,11 @@ export class DependencyManager {
       return { ...wheel, localPath: cachePath, cached: true };
     } catch (err) {
       // SHA256 校验失败或安全校验失败时直接抛错，阻止安装
-      if (err.message.includes("SHA256 mismatch") || err.message.includes("Insecure protocol")) {
+      if (
+        err.message.includes("SHA256 mismatch") ||
+        err.message.includes("Insecure protocol") ||
+        err.message.includes("Untrusted wheel host")
+      ) {
         logger.error(`Security error for wheel ${wheel.url}:`, { error: err.message });
         throw err;
       }
@@ -247,8 +263,9 @@ export class DependencyManager {
     if (!this.vfs) return;
     try {
       await this.vfs.mkdir(this.cacheDir, { recursive: true });
-    } catch {
-      // 目录可能已存在
+    } catch (err) {
+      if (err && err.code === "EEXIST") return;
+      logger.debug(`Failed to ensure cache dir ${this.cacheDir}:`, { error: err?.message || String(err) });
     }
   }
 

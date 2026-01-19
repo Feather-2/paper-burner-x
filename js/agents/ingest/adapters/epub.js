@@ -12,9 +12,70 @@ function guessMimeType(filename) {
   return "application/octet-stream";
 }
 
-async function fileLikeFromPath(path) {
+function normalizeMaxBytes(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+function normalizePositiveInt(value, fallback) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+function normalizeRatio(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return n;
+}
+
+// Default EPUB limits (override via new EpubAdapter({ ... })).
+const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
+const DEFAULT_MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
+const DEFAULT_MAX_ZIP_ENTRIES = 2000;
+const DEFAULT_MAX_COMPRESSION_RATIO = 100;
+
+async function fileLikeFromPath(path, { allowPathRead = false, maxBytes } = {}) {
+  if (!allowPathRead) {
+    throw new Error("EpubAdapter: path string inputs are disabled (set allowPathRead:true to enable in Node.js)");
+  }
   const name = await basenameOfPath(path);
-  return nodeFileLikeFromPath(path, { mimeType: guessMimeType(name) });
+  return nodeFileLikeFromPath(path, { maxBytes, mimeType: guessMimeType(name) });
+}
+
+function getZipEntrySizes(entry) {
+  const data = entry?._data;
+  const uncompressed = typeof data?.uncompressedSize === "number" ? data.uncompressedSize : undefined;
+  const compressed = typeof data?.compressedSize === "number" ? data.compressedSize : undefined;
+  return { uncompressed, compressed };
+}
+
+function enforceZipLimits(zip, { maxEntries, maxUncompressedBytes, maxCompressionRatio } = {}) {
+  const entries = Object.values(zip?.files || {});
+  if (Number.isFinite(maxEntries) && maxEntries > 0 && entries.length > maxEntries) {
+    throw new Error(`EpubAdapter: zip entry count ${entries.length} exceeds max ${maxEntries}`);
+  }
+
+  let totalUncompressed = 0;
+  for (const entry of entries) {
+    if (entry?.dir) continue;
+    const { uncompressed, compressed } = getZipEntrySizes(entry);
+    if (Number.isFinite(uncompressed)) {
+      totalUncompressed += uncompressed;
+      if (Number.isFinite(maxUncompressedBytes) && maxUncompressedBytes > 0 && totalUncompressed > maxUncompressedBytes) {
+        throw new Error(`EpubAdapter: zip uncompressed bytes ${totalUncompressed} exceeds max ${maxUncompressedBytes}`);
+      }
+      if (Number.isFinite(compressed) && compressed > 0 && Number.isFinite(maxCompressionRatio) && maxCompressionRatio > 0) {
+        const ratio = uncompressed / compressed;
+        if (ratio > maxCompressionRatio) {
+          throw new Error(`EpubAdapter: zip compression ratio ${ratio.toFixed(1)} exceeds max ${maxCompressionRatio}`);
+        }
+      }
+    }
+  }
 }
 
 function resolveTurndownService(stageApi) {
@@ -213,15 +274,20 @@ function extractTitleFromXhtml(xhtml) {
 export class EpubAdapter extends BaseAdapter {
   constructor(options = {}) {
     super({ ...options, adapterName: "epub" });
+    this.maxFileSize = normalizeMaxBytes(options.maxFileSize, DEFAULT_MAX_FILE_SIZE);
+    this.maxUncompressedBytes = normalizeMaxBytes(options.maxUncompressedBytes, DEFAULT_MAX_UNCOMPRESSED_BYTES);
+    this.maxZipEntries = normalizePositiveInt(options.maxZipEntries, DEFAULT_MAX_ZIP_ENTRIES);
+    this.maxCompressionRatio = normalizeRatio(options.maxCompressionRatio, DEFAULT_MAX_COMPRESSION_RATIO);
   }
 
   /**
    * @param {string|{name?:string,filename?:string,type?:string,mimeType?:string,size?:number,arrayBuffer?:Function}} input
-   * @param {{TurndownService?:Function}=} stageApi
+   * @param {{TurndownService?:Function,allowPathRead?:boolean}=} stageApi
    * @returns {Promise<object>} ParsedDocument
    */
   async parse(input, stageApi = {}) {
     const t0 = Date.now();
+    const allowPathRead = stageApi?.allowPathRead === true;
     await loadDomParser();
 
     let file = input;
@@ -229,10 +295,12 @@ export class EpubAdapter extends BaseAdapter {
     let mimeType = "";
     let size = undefined;
 
+    const maxBytes = this.maxFileSize;
+
     if (typeof input === "string") {
       filename = await basenameOfPath(input);
       mimeType = guessMimeType(filename);
-      file = await fileLikeFromPath(input);
+      file = await fileLikeFromPath(input, { allowPathRead, maxBytes });
       size = file.size;
     } else if (input && typeof input === "object") {
       filename = toNonEmptyString(input.name) || toNonEmptyString(input.filename) || "book.epub";
@@ -243,6 +311,10 @@ export class EpubAdapter extends BaseAdapter {
       throw new TypeError("EpubAdapter.parse(input): input must be a path string or a file-like object");
     }
 
+    if (Number.isFinite(maxBytes) && maxBytes > 0 && Number.isFinite(size) && size > maxBytes) {
+      throw new Error(`EpubAdapter: file too large: ${size} bytes (max ${maxBytes})`);
+    }
+
     const TurndownService = resolveTurndownService(stageApi) || (await importTurndownService());
     if (!TurndownService) throw new Error("EpubAdapter.parse(input): TurndownService is required (stageApi.TurndownService, globalThis.TurndownService, or npm 'turndown')");
 
@@ -251,7 +323,17 @@ export class EpubAdapter extends BaseAdapter {
     if (typeof JSZip?.loadAsync !== "function") throw new Error("EpubAdapter.parse(input): JSZip is required");
 
     const arrayBuffer = await file.arrayBuffer();
+    const byteLength = arrayBuffer instanceof ArrayBuffer ? arrayBuffer.byteLength : undefined;
+    if (Number.isFinite(maxBytes) && maxBytes > 0 && Number.isFinite(byteLength) && byteLength > maxBytes) {
+      throw new Error(`EpubAdapter: file too large: ${byteLength} bytes (max ${maxBytes})`);
+    }
+
     const zip = await JSZip.loadAsync(arrayBuffer);
+    enforceZipLimits(zip, {
+      maxEntries: this.maxZipEntries,
+      maxUncompressedBytes: this.maxUncompressedBytes,
+      maxCompressionRatio: this.maxCompressionRatio,
+    });
 
     const containerXml = await readZipText(zip, "META-INF/container.xml");
     const opfPath = pickOpfPath(zip, containerXml);

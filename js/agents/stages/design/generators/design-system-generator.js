@@ -18,9 +18,10 @@ function deepMerge(base, override) {
   if (override === undefined) return base;
   if (Array.isArray(override)) return override.slice();
   if (isPlainObject(base) && isPlainObject(override)) {
-    const out = {};
+    const out = Object.create(null);
     const keys = new Set([...Object.keys(base), ...Object.keys(override)]);
     for (const k of Array.from(keys).sort()) {
+      if (k === "__proto__" || k === "prototype" || k === "constructor") continue;
       const bv = base[k];
       const ov = override[k];
       if (ov === undefined) {

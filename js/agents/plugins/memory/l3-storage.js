@@ -24,6 +24,13 @@ import {
 import { getSummary, normalizeKeywords, toNonEmptyString, validateRunId } from "./l3-storage/utils.js";
 
 const logger = createLogger("runtime/memory/l3-storage");
+const SAFE_STORAGE_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+function normalizeStorageId(value) {
+  const id = toNonEmptyString(value);
+  if (!id || !SAFE_STORAGE_ID_RE.test(id)) return null;
+  return id;
+}
 
 /**
  * @typedef {object} L3TimelineEntry
@@ -248,7 +255,7 @@ export class L3Storage extends DisposableBase {
    */
   _handleRemoteEviction(snapshotId) {
     if (this.disposed) return;
-    const id = toNonEmptyString(snapshotId);
+    const id = normalizeStorageId(snapshotId);
     if (!id) return;
 
     this._snapshotCache.delete(id);
@@ -263,7 +270,7 @@ export class L3Storage extends DisposableBase {
    */
   _handleRemoteAccess(snapshotId) {
     if (this.disposed) return;
-    const id = toNonEmptyString(snapshotId);
+    const id = normalizeStorageId(snapshotId);
     if (!id) return;
 
     updateSnapshotAccess(this._index, id, Date.now());
@@ -346,7 +353,7 @@ export class L3Storage extends DisposableBase {
     this._ensureNotDisposed();
     await this.init();
 
-    const snapId = toNonEmptyString(id);
+    const snapId = normalizeStorageId(id);
     if (!snapId) return null;
 
     // Update accessedAt in timeline for LRU tracking
@@ -376,7 +383,7 @@ export class L3Storage extends DisposableBase {
     await this.init();
 
     const base = snapshotData && typeof snapshotData === "object" ? { ...snapshotData } : { data: snapshotData };
-    const existingId = toNonEmptyString(base.id);
+    const existingId = normalizeStorageId(base.id);
 
     const id = existingId || "ckpt_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
     const ts = typeof base.ts === "number" && Number.isFinite(base.ts) ? base.ts : Date.now();
@@ -409,7 +416,7 @@ export class L3Storage extends DisposableBase {
     this._ensureNotDisposed();
     await this.init();
 
-    const ckptId = toNonEmptyString(id);
+    const ckptId = normalizeStorageId(id);
     if (!ckptId) return null;
 
     const cached = this._checkpointCache.get(ckptId);
@@ -431,7 +438,7 @@ export class L3Storage extends DisposableBase {
     await this.init();
 
     const last = Array.isArray(this._checkpointIndex) ? this._checkpointIndex[this._checkpointIndex.length - 1] : null;
-    const id = toNonEmptyString(last?.id);
+    const id = normalizeStorageId(last?.id);
     if (!id) return null;
     return await this.getCheckpoint(id);
   }
@@ -509,23 +516,24 @@ export class L3Storage extends DisposableBase {
       const currentBytes = estimateStorageBytes(this._index);
       if (currentCount <= this._maxSnapshots && currentBytes <= this._maxStorageBytes) break;
 
-      const id = entry?.id;
-      if (!id) continue;
+      const rawId = toNonEmptyString(entry?.id);
+      if (!rawId) continue;
+      const safeId = normalizeStorageId(rawId);
 
       // Remove from VFS
       try {
-        if (typeof this._vfs.unlink === "function") {
-          await this._vfs.unlink(this._io.snapshotPath(id));
+        if (safeId && typeof this._vfs.unlink === "function") {
+          await this._vfs.unlink(this._io.snapshotPath(safeId));
         }
       } catch {
         // Ignore removal errors
       }
 
       // Remove from indexes
-      this._snapshotCache.delete(id);
-      removeSnapshotFromIndex(this._index, id);
+      this._snapshotCache.delete(rawId);
+      removeSnapshotFromIndex(this._index, rawId);
 
-      evicted.push(id);
+      evicted.push(rawId);
     }
 
     if (evicted.length > 0) {
@@ -582,7 +590,7 @@ export class L3Storage extends DisposableBase {
     this._ensureNotDisposed();
     await this.init();
 
-    const id = toNonEmptyString(snapshotId);
+    const id = normalizeStorageId(snapshotId);
     if (!id) return false;
 
     const correctionText = typeof correction === "string" ? correction : String(correction ?? "");
@@ -613,8 +621,11 @@ export class L3Storage extends DisposableBase {
     const list = Array.isArray(ids) ? ids : [];
     if (list.length === 0) return 0;
 
+    const safeIds = list.map((rawId) => normalizeStorageId(rawId)).filter(Boolean);
+    if (safeIds.length === 0) return 0;
+
     const correctionText = typeof correction === "string" ? correction : String(correction ?? "");
-    const { marked, touched, updatedIds } = markSnapshotsSupersededInIndex(this._index, list, correctionText);
+    const { marked, touched, updatedIds } = markSnapshotsSupersededInIndex(this._index, safeIds, correctionText);
 
     for (const id of updatedIds) {
       const cached = this._snapshotCache.get(id);

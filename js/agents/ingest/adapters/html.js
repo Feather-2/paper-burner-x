@@ -10,8 +10,21 @@ function guessMimeType(filename) {
   return "text/html";
 }
 
-async function readTextFromPath(path) {
-  const result = await nodeReadTextFromPath(path);
+function normalizeMaxBytes(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+// Default HTML max file size (10MB). Override via new HtmlAdapter({ maxFileSize }).
+const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+async function readTextFromPath(path, { allowPathRead = false, maxBytes } = {}) {
+  if (!allowPathRead) {
+    throw new Error("HtmlAdapter: path string inputs are disabled (set allowPathRead:true to enable in Node.js)");
+  }
+  const result = await nodeReadTextFromPath(path, { maxBytes });
   return { text: result.text, size: result.size };
 }
 
@@ -27,6 +40,14 @@ function decodeUtf8(data) {
   } catch {
     return String(buf || "");
   }
+}
+
+function estimateByteLength(text) {
+  if (typeof text !== "string") return 0;
+  if (typeof TextEncoder !== "undefined") {
+    return new TextEncoder().encode(text).length;
+  }
+  return text.length;
 }
 
 function resolveTurndownService(stageApi) {
@@ -103,15 +124,18 @@ function extractEmbeddedDataUriImagesFromMarkdown(markdown, { idPrefix, startInd
 export class HtmlAdapter extends BaseAdapter {
   constructor(options = {}) {
     super({ ...options, adapterName: "html" });
+    this.maxFileSize = normalizeMaxBytes(options.maxFileSize, DEFAULT_MAX_FILE_SIZE);
   }
 
   /**
    * @param {string|{name?:string,filename?:string,type?:string,mimeType?:string,size?:number,text?:Function,arrayBuffer?:Function,content?:string}} input
-   * @param {{TurndownService?:Function}=} stageApi
+   * @param {{TurndownService?:Function,allowPathRead?:boolean}=} stageApi
    * @returns {Promise<object>} ParsedDocument
    */
   async parse(input, stageApi = {}) {
     const t0 = Date.now();
+    const allowPathRead = stageApi?.allowPathRead === true;
+    const maxBytes = this.maxFileSize;
 
     let filename = "";
     let mimeType = "";
@@ -121,13 +145,16 @@ export class HtmlAdapter extends BaseAdapter {
     if (typeof input === "string") {
       filename = await basenameOfPath(input);
       mimeType = guessMimeType(filename);
-      const res = await readTextFromPath(input);
+      const res = await readTextFromPath(input, { allowPathRead, maxBytes });
       size = res.size;
       html = res.text;
     } else if (input && typeof input === "object") {
       filename = toNonEmptyString(input.name) || toNonEmptyString(input.filename) || "document.html";
       mimeType = toNonEmptyString(input.type) || toNonEmptyString(input.mimeType) || guessMimeType(filename);
       size = Number.isFinite(input.size) ? input.size : undefined;
+      if (Number.isFinite(maxBytes) && maxBytes > 0 && Number.isFinite(size) && size > maxBytes) {
+        throw new Error(`HtmlAdapter: file too large: ${size} bytes (max ${maxBytes})`);
+      }
 
       if (typeof input.text === "function") {
         html = String(await input.text());
@@ -142,6 +169,18 @@ export class HtmlAdapter extends BaseAdapter {
       }
     } else {
       throw new TypeError("HtmlAdapter.parse(input): input must be a path string or a file-like object");
+    }
+
+    if (Number.isFinite(maxBytes) && maxBytes > 0) {
+      if (Number.isFinite(size) && size > maxBytes) {
+        throw new Error(`HtmlAdapter: file too large: ${size} bytes (max ${maxBytes})`);
+      }
+      if (!Number.isFinite(size)) {
+        const estimated = estimateByteLength(html);
+        if (Number.isFinite(estimated) && estimated > maxBytes) {
+          throw new Error(`HtmlAdapter: file too large: ${estimated} bytes (max ${maxBytes})`);
+        }
+      }
     }
 
     const TurndownService = resolveTurndownService(stageApi) || (await importTurndownService());

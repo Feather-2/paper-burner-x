@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { ProactiveCompressor } from '../../../../../js/agents/runtime/compression/proactive-compressor.js';
+import { ProactiveCompressor } from "../../../../../js/agents/plugins/compression/impl/proactive-compressor.js";
 
 describe("ProactiveCompressor", () => {
   let compressor;

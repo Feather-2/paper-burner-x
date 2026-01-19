@@ -8,6 +8,7 @@
 
 import { createPreToolUseHook } from "../hooks/hook-runner.js";
 import { normalizeToolResult } from "../../shared/index.js";
+import { validateArgs } from "../tools/schema-validator.js";
 
 // Re-export for backward compatibility
 export { normalizeToolResult };
@@ -32,7 +33,8 @@ export { normalizeToolResult };
  * @typedef {(ctx: HookBeforeContext) => (BeforeHookResult | undefined | null | Promise<BeforeHookResult | undefined | null>)} BeforeHook
  * @typedef {(ctx: HookAfterContext) => (any | undefined | Promise<any | undefined>)} AfterHook
  *
- * @typedef {Record<string, Function> | Array<[string, Function]> | Map<string, Function>} ToolDefinitions
+ * @typedef {{ name: string, fn: Function, schema?: any, paramsSchema?: any, parameters?: any, definition?: any }} ToolDefinitionEntry
+ * @typedef {Record<string, Function | { fn: Function, schema?: any, paramsSchema?: any, parameters?: any, definition?: any }> | Array<[string, Function, any?] | ToolDefinitionEntry> | Map<string, Function | { fn: Function, schema?: any, paramsSchema?: any, parameters?: any, definition?: any }>} ToolDefinitions
  *
  * @typedef {{ allowed: boolean, reason?: string }} QuotaDecision
  * @typedef {{ tryCall: (name: string) => QuotaDecision, getToolStats?: (name: string) => any, recordCall?: (name: string) => void }} ToolQuotaManagerLike
@@ -54,6 +56,42 @@ export function resolveToolExecutor(context) {
   if (typeof executor === "function") return executor;
   if (executor && typeof executor.execute === "function") return (name, params, ctx) => executor.execute(name, params, ctx);
   return null;
+}
+
+const BLOCKED_TOOL_NAMES = new Set(["__proto__", "prototype", "constructor"]);
+
+/**
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isBlockedToolName(name) {
+  return BLOCKED_TOOL_NAMES.has(name);
+}
+
+/**
+ * @param {string} name
+ * @param {any} context
+ * @param {ToolRegistry} registry
+ * @param {any} tool
+ * @returns {any}
+ */
+function resolveToolSchema(name, context, registry, tool) {
+  if (registry?._toolSchemas && registry._toolSchemas[name]) return registry._toolSchemas[name];
+  const ctx = context && typeof context === "object" ? context : null;
+  const fromContext =
+    ctx?.toolSchemas?.[name] ||
+    ctx?.toolSchema?.[name] ||
+    ctx?.stageApi?.toolSchemas?.[name] ||
+    ctx?.stageApi?.toolSchema?.[name] ||
+    null;
+  if (fromContext) return fromContext;
+  const fromTool =
+    tool?.schema ||
+    tool?.paramsSchema ||
+    tool?.parameters ||
+    tool?.definition?.parameters ||
+    null;
+  return fromTool;
 }
 
 /**
@@ -184,7 +222,8 @@ export class ToolRegistry {
    * @param {ToolRegistryOptions} [options]
    */
   constructor(options = {}) {
-    this._tools = {};
+    this._tools = Object.create(null);
+    this._toolSchemas = Object.create(null);
     /** @type {{ before: BeforeHook[], after: AfterHook[] }} */
     this._hooks = { before: [], after: [] };
     this._logger = options.logger || null;
@@ -211,19 +250,23 @@ export class ToolRegistry {
     if (!tools) return;
     if (tools instanceof Map) {
       for (const [name, fn] of tools.entries()) {
-        this.registerTool(name, fn);
+        if (fn && typeof fn === "object" && typeof fn.fn === "function") {
+          this.registerTool(name, fn.fn, fn.schema || fn.paramsSchema || fn.parameters || fn.definition?.parameters);
+        } else {
+          this.registerTool(name, fn);
+        }
       }
       return;
     }
     if (Array.isArray(tools)) {
       for (const entry of tools) {
         if (Array.isArray(entry)) {
-          const [name, fn] = entry;
-          this.registerTool(name, fn);
+          const [name, fn, schema] = entry;
+          this.registerTool(name, fn, schema);
           continue;
         }
         if (entry && typeof entry === "object") {
-          this.registerTool(entry.name, entry.fn);
+          this.registerTool(entry.name, entry.fn, entry.schema || entry.paramsSchema || entry.parameters || entry.definition?.parameters);
           continue;
         }
         throw new TypeError("ToolRegistry.registerTools: tools must be an object, array, or map");
@@ -232,22 +275,41 @@ export class ToolRegistry {
     }
     if (typeof tools === "object") {
       for (const [name, fn] of Object.entries(tools)) {
-        this.registerTool(name, fn);
+        if (fn && typeof fn === "object" && typeof fn.fn === "function") {
+          this.registerTool(name, fn.fn, fn.schema || fn.paramsSchema || fn.parameters || fn.definition?.parameters);
+        } else {
+          this.registerTool(name, fn);
+        }
       }
       return;
     }
     throw new TypeError("ToolRegistry.registerTools: tools must be an object, array, or map");
   }
 
-  /** @param {string} name @param {Function} fn */
-  registerTool(name, fn) {
+  /** @param {string} name @param {Function} fn @param {any} [schema] */
+  registerTool(name, fn, schema) {
     if (!name || typeof name !== "string") {
       throw new TypeError("ToolRegistry.registerTool: name must be a non-empty string");
+    }
+    if (isBlockedToolName(name)) {
+      throw new Error(`ToolRegistry.registerTool: disallowed tool name "${name}"`);
     }
     if (typeof fn !== "function") {
       throw new TypeError("ToolRegistry.registerTool: fn must be a function");
     }
     this._tools[name] = fn;
+    const resolvedSchema =
+      schema ||
+      fn?.schema ||
+      fn?.paramsSchema ||
+      fn?.parameters ||
+      fn?.definition?.parameters ||
+      null;
+    if (resolvedSchema && typeof resolvedSchema === "object") {
+      this._toolSchemas[name] = resolvedSchema;
+    } else if (this._toolSchemas[name]) {
+      delete this._toolSchemas[name];
+    }
   }
 
   /** @param {string} name @returns {boolean} */
@@ -335,6 +397,53 @@ export class ToolRegistry {
       }
     }
 
+    const tool = this._tools[name];
+    const schema = resolveToolSchema(name, context, this, tool);
+    if (schema) {
+      const emit = resolveEmit(context);
+      if (!finalParams || typeof finalParams !== "object" || Array.isArray(finalParams)) {
+        const errors = ["params: expected object"];
+        emit?.("tool.validation.failed", { tool: name, args: finalParams, errors });
+        let result = /** @type {ToolResult} */ ({
+          ok: false,
+          error: `Invalid tool params for ${name}`,
+          validationErrors: errors,
+        });
+        for (const hook of this._hooks.after) {
+          try {
+            const hookResult = await hook({ tool: name, params: finalParams, result, context });
+            if (hookResult !== undefined) {
+              result = normalizeToolResult(hookResult);
+            }
+          } catch (e) {
+            this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
+          }
+        }
+        return result;
+      }
+
+      const validation = validateArgs(finalParams, schema);
+      if (!validation.valid) {
+        emit?.("tool.validation.failed", { tool: name, args: finalParams, errors: validation.errors });
+        let result = /** @type {ToolResult} */ ({
+          ok: false,
+          error: `Invalid tool params for ${name}`,
+          validationErrors: validation.errors,
+        });
+        for (const hook of this._hooks.after) {
+          try {
+            const hookResult = await hook({ tool: name, params: finalParams, result, context });
+            if (hookResult !== undefined) {
+              result = normalizeToolResult(hookResult);
+            }
+          } catch (e) {
+            this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
+          }
+        }
+        return result;
+      }
+    }
+
     const quotaManager = resolveToolQuotaManager(context);
     const quotaMode = quotaManager ? resolveToolQuotaMode(context) : "off";
 
@@ -385,7 +494,6 @@ export class ToolRegistry {
     if (executor) {
       result = normalizeToolResult(await executor(name, finalParams, context));
     } else {
-      const tool = this._tools[name];
       if (!tool) {
         result = { ok: false, error: `Unknown tool: ${name}` };
       } else {

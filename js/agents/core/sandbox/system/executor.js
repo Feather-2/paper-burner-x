@@ -13,6 +13,9 @@ import { createBubblewrapExecutor } from './bubblewrap.js';
 import { createSeatbeltExecutor } from './seatbelt.js';
 import { createDockerExecutor } from './docker.js';
 import { createPermissionExecutor } from './permission.js';
+import { createLogger } from '../../../shared/index.js';
+
+const logger = createLogger('core/sandbox/system/executor');
 
 /**
  * 沙箱执行器配置
@@ -73,7 +76,7 @@ export class SystemSandboxExecutor {
       if (available) {
         return;
       }
-      console.warn(
+      logger.warn(
         `[SystemSandbox] Preferred backend '${this.config.preferredBackend}' not available, falling back...`
       );
     }

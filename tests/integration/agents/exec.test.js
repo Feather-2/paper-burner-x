@@ -77,11 +77,49 @@ describe("runtime/exec", () => {
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("stdin input");
     });
+
+    it("handles null/undefined/empty commands", async () => {
+      const results = await Promise.all([
+        exec(""),
+        exec(/** @type {*} */(null)),
+        exec(/** @type {*} */(undefined)),
+      ]);
+
+      results.forEach((result) => {
+        expect(result.success).toBe(false);
+        expect(result.error).toEqual(expect.any(String));
+      });
+    });
+
+    it("handles concurrent executions", async () => {
+      const results = await Promise.all(
+        Array.from({ length: 5 }, (_, index) => exec("echo", [`job-${index}`]))
+      );
+
+      results.forEach((result, index) => {
+        expect(result.success).toBe(true);
+        expect(result.stdout).toContain(`job-${index}`);
+      });
+    });
   });
 
   describe("execShell", () => {
+    it("rejects untrusted shell execution", async () => {
+      const result = await execShell("echo hello");
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("trusted");
+    });
+
+    it("rejects empty command string", async () => {
+      const result = await execShell("", { trusted: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("non-empty string");
+    });
+
     it("executes shell command string", async () => {
-      const result = await execShell("echo hello && echo world");
+      const result = await execShell("echo hello && echo world", { trusted: true });
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("hello");
@@ -89,7 +127,7 @@ describe("runtime/exec", () => {
     });
 
     it("handles pipes", async () => {
-      const result = await execShell("echo 'line1\nline2\nline3' | wc -l");
+      const result = await execShell("echo 'line1\nline2\nline3' | wc -l", { trusted: true });
 
       expect(result.success).toBe(true);
       expect(result.stdout.trim()).toBe("3");

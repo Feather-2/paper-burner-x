@@ -11,8 +11,10 @@
  */
 
 import { WatchdogEvents } from "../../../runtime/events/events.js";
-import { toNonEmptyString } from "../../../shared/index.js";
+import { toNonEmptyString, createLogger } from "../../../shared/index.js";
 import { BehaviorFingerprint } from "../../analysis/behavior-fingerprint.js";
+
+const logger = createLogger("runtime/watchdog");
 
 /**
  * @typedef {Object} WatchdogOptions
@@ -87,8 +89,19 @@ export class Watchdog {
       const cfg = behaviorFingerprint && typeof behaviorFingerprint === "object" && !Array.isArray(behaviorFingerprint) ? behaviorFingerprint : {};
       try {
         this._behaviorFingerprint = new BehaviorFingerprint(cfg);
-      } catch {
+      } catch (err) {
         this._behaviorFingerprint = null;
+        const reason = err instanceof Error ? err.message : String(err || "unknown error");
+        logger.warn(`Watchdog: failed to init BehaviorFingerprint: ${reason}`);
+        this._emit(WatchdogEvents.WATCHDOG_INTERVENTION || "watchdog:intervention", {
+          issues: [
+            {
+              type: "behavior_fingerprint_init_failed",
+              severity: "warning",
+              reason,
+            },
+          ],
+        });
       }
     }
   }

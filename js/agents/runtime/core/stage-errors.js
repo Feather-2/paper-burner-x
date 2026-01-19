@@ -147,7 +147,7 @@ export function cancelledErrorFromSignal(signal, stageName) {
  * @param {{ includeStack?: boolean }} [options]
  * @returns {ErrorPayload}
  */
-export function toErrorPayload(err, { includeStack = true } = {}) {
+export function toErrorPayload(err, { includeStack = false } = {}) {
   if (!err) {
     return { message: "Unknown error", name: "Error" };
   }
@@ -161,9 +161,10 @@ export function toErrorPayload(err, { includeStack = true } = {}) {
       name: toNonEmptyString(err.name) ?? "Error",
     };
 
-    // 保留堆栈信息（默认启用）
+    // 保留堆栈信息（默认关闭）
     if (includeStack && typeof err.stack === "string" && err.stack) {
-      payload.stack = err.stack;
+      const stack = err.stack;
+      payload.stack = stack.length > 4000 ? `${stack.slice(0, 4000)}...` : stack;
     }
 
     // 保留 cause 链（递归处理）

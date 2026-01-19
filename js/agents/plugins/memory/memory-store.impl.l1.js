@@ -1,6 +1,8 @@
 import { deepClone, isPlainObject, toNonEmptyString } from "../../shared/index.js";
 import { defineAccessor, defineGetter, defineMethod, estimateTokens, genId, isFiniteNumber } from "./memory-store.impl.utils.js";
 
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 export function defineL1Layer() {
   return {
     L1: defineGetter(function () {
@@ -120,9 +122,13 @@ export function defineL1Layer() {
 
     setScratchpad: defineMethod(function (key, value) {
       if (isPlainObject(key) && value === undefined) {
-        Object.assign(this._L1.scratchpad, key);
+        const entries = Object.entries(key).filter(([entryKey]) => !UNSAFE_KEYS.has(entryKey));
+        if (entries.length === 0) return;
+        Object.assign(this._L1.scratchpad, Object.fromEntries(entries));
       } else {
-        this._L1.scratchpad[key] = value;
+        const safeKey = toNonEmptyString(key);
+        if (!safeKey || UNSAFE_KEYS.has(safeKey)) return;
+        this._L1.scratchpad[safeKey] = value;
       }
       this._markDirty("L1");
       this._emitUpdate("scratchpad", { key, value });

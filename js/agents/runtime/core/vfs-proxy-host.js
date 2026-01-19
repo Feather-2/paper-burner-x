@@ -41,6 +41,23 @@ function stripLeadingSlashes(path) {
   return String(path ?? "").replace(/^\/+/, "");
 }
 
+function isAbsoluteVfsPath(path) {
+  if (/^[\\/]+/.test(path)) return true;
+  return /^[A-Za-z]:[\\/]/.test(path);
+}
+
+function normalizeVfsPath(input) {
+  const raw = String(input ?? "");
+  if (!raw) return "";
+  if (raw.includes("\0")) return null;
+  if (raw.includes("\\")) return null;
+  if (isAbsoluteVfsPath(raw)) return null;
+  const normalized = stripLeadingSlashes(raw);
+  const parts = normalized.split("/").filter((p) => p.length > 0);
+  if (parts.some((p) => p === "..")) return null;
+  return parts.filter((p) => p !== ".").join("/");
+}
+
 /**
  * Best-effort ENOENT detection across Node/DOMException/custom VFS impls.
  * @param {any} err
@@ -206,7 +223,17 @@ export class VfsProxyHost {
       return;
     }
 
-    const vfsPath = stripLeadingSlashes(path);
+    const vfsPath = normalizeVfsPath(path);
+    if (vfsPath === null) {
+      const error = "Invalid VFS path";
+      if (syncMode) {
+        writeSharedResponse(sharedBuffer, { ok: false, error });
+        safePostMessage(this.worker, { type: VFS_RESPONSE, id, ok: false, error });
+      } else {
+        safePostMessage(this.worker, { type: VFS_RESPONSE, id, ok: false, error });
+      }
+      return;
+    }
 
     /** @type {any} */
     let result;

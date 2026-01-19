@@ -9,7 +9,7 @@ import {
   PYODIDE_BUILTIN,
   parsePackageName,
   sha256,
-} from '../../../../../js/agents/runtime/deps/dependency-manager.js';
+} from '../../../../../js/agents/plugins/deps/dependency-manager.js';
 
 describe("DependencyManager", () => {
   describe("parsePackageName", () => {

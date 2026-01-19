@@ -8,12 +8,15 @@ import { createLogger } from "../../../shared/index.js";
 const logger = createLogger("runtime/compression/cicada-compressor");
 
 /**
+ * @typedef {{ call?: Function, chat?: Function }} CicadaModelRouter
+ * @typedef {{ store?: Function, set?: Function, archive?: Function, load?: Function, get?: Function, restore?: Function }} CicadaArchiveAdapter
+ * @typedef {{ emit?: Function }} CicadaEventBus
  * @typedef {Object} CicadaCompressorOptions
- * @property {any} [modelRouter]
- * @property {any} [archive]
+ * @property {CicadaModelRouter} [modelRouter]
+ * @property {CicadaArchiveAdapter} [archive]
  * @property {number} [maxTokens]
  * @property {string[]} [layers]
- * @property {any} [eventBus]
+ * @property {CicadaEventBus} [eventBus]
  * @property {number} [maxArchives]
  * @property {number|null} [archiveRetentionDays]
  */
@@ -79,6 +82,8 @@ const VERBOSE_KEYS = new Set([
   "payload",
   "debug",
 ]);
+
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 function safeStringify(value) {
   if (typeof value === "string") return value;
@@ -354,8 +359,12 @@ function compressValue(value, options, stats, depth) {
       return truncateText(text, maxChars);
     }
     const entries = Object.entries(value);
-    const result = {};
+    const result = Object.create(null);
     for (const [key, val] of entries) {
+      if (DANGEROUS_KEYS.has(key)) {
+        stats.removedFields += 1;
+        continue;
+      }
       const keep = IMPORTANT_KEYS.has(key) || VERBOSE_KEYS.has(key) || isSmallValue(val, Math.floor(maxChars / 2));
       if (!keep) {
         stats.removedFields += 1;

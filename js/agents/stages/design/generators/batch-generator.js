@@ -83,6 +83,265 @@ function looksLikeSlideHtml(html) {
   return tag.includes('data-type="freeform"') && lower.includes("data-el=");
 }
 
+const ALLOWED_TAGS = new Set([
+  "section",
+  "div",
+  "span",
+  "p",
+  "br",
+  "ul",
+  "ol",
+  "li",
+  "strong",
+  "em",
+  "b",
+  "i",
+  "u",
+  "img",
+  "svg",
+  "g",
+  "path",
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "polyline",
+  "polygon",
+  "text",
+  "tspan",
+  "defs",
+  "lineargradient",
+  "radialgradient",
+  "stop",
+  "clippath",
+  "mask",
+  "filter",
+  "fegaussianblur",
+  "feoffset",
+  "feblend",
+  "fecolormatrix",
+  "fecomponenttransfer",
+  "fefuncr",
+  "fefuncg",
+  "fefuncb",
+  "fefunca",
+  "pattern",
+  "symbol",
+  "use",
+  "title",
+  "desc",
+  "metadata",
+]);
+
+const VOID_TAGS = new Set(["img", "br"]);
+const SVG_TAGS = new Set([
+  "svg",
+  "g",
+  "path",
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "polyline",
+  "polygon",
+  "text",
+  "tspan",
+  "defs",
+  "lineargradient",
+  "radialgradient",
+  "stop",
+  "clippath",
+  "mask",
+  "filter",
+  "fegaussianblur",
+  "feoffset",
+  "feblend",
+  "fecolormatrix",
+  "fecomponenttransfer",
+  "fefuncr",
+  "fefuncg",
+  "fefuncb",
+  "fefunca",
+  "pattern",
+  "symbol",
+  "use",
+  "title",
+  "desc",
+  "metadata",
+]);
+
+const GLOBAL_ALLOWED_ATTRS = new Set(["id", "class", "role", "title"]);
+const IMG_ALLOWED_ATTRS = new Set(["src", "alt", "width", "height", "loading", "decoding"]);
+const SVG_ALLOWED_ATTRS = new Set([
+  "viewbox",
+  "width",
+  "height",
+  "x",
+  "y",
+  "x1",
+  "y1",
+  "x2",
+  "y2",
+  "cx",
+  "cy",
+  "r",
+  "rx",
+  "ry",
+  "d",
+  "points",
+  "fill",
+  "stroke",
+  "stroke-width",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "stroke-dasharray",
+  "stroke-dashoffset",
+  "stroke-miterlimit",
+  "opacity",
+  "fill-opacity",
+  "stroke-opacity",
+  "fill-rule",
+  "clip-rule",
+  "font-size",
+  "font-family",
+  "text-anchor",
+  "dominant-baseline",
+  "transform",
+  "preserveaspectratio",
+  "gradientunits",
+  "gradienttransform",
+  "offset",
+  "stop-color",
+  "stop-opacity",
+  "maskunits",
+  "maskcontentunits",
+  "clippathunits",
+  "filterunits",
+  "stddeviation",
+  "in",
+  "in2",
+  "type",
+  "values",
+  "result",
+  "href",
+  "xlink:href",
+  "xmlns",
+  "xmlns:xlink",
+  "patternunits",
+  "patterncontentunits",
+  "patterntransform",
+  "marker-start",
+  "marker-end",
+  "marker-mid",
+  "markerwidth",
+  "markerheight",
+  "orient",
+  "refx",
+  "refy",
+]);
+
+function isUrlAttr(name) {
+  if (!name) return false;
+  if (name === "src" || name === "href" || name === "xlink:href") return true;
+  if (name.endsWith("src") || name.endsWith("href") || name.endsWith("url")) return true;
+  return false;
+}
+
+function isAllowedAttr(tag, name) {
+  if (!name) return false;
+  if (name.startsWith("data-") || name.startsWith("aria-")) return true;
+  if (GLOBAL_ALLOWED_ATTRS.has(name)) return true;
+  if (tag === "img") return IMG_ALLOWED_ATTRS.has(name);
+  if (SVG_TAGS.has(tag)) return SVG_ALLOWED_ATTRS.has(name);
+  return false;
+}
+
+function sanitizeAttrValue(name, value) {
+  const raw = String(value ?? "");
+  if (!raw) return "";
+  if (isUrlAttr(name)) {
+    const lowered = raw.trim().toLowerCase();
+    if (lowered.startsWith("javascript:") || lowered.startsWith("data:") || lowered.startsWith("vbscript:")) return null;
+  }
+  return raw;
+}
+
+function escapeAttrValue(value) {
+  return String(value ?? "")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function sanitizeSlideHtml(html) {
+  if (typeof html !== "string" || !html) return "";
+  let s = html;
+  s = s.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
+  s = s.replace(/<script\b[^>]*\/>/gi, "");
+  s = s.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "");
+  s = s.replace(/<style\b[^>]*\/>/gi, "");
+  s = s.replace(/<foreignObject\b[^>]*>[\s\S]*?<\/foreignObject\s*>/gi, "");
+  s = s.replace(/<foreignObject\b[^>]*\/>/gi, "");
+
+  let out = "";
+  let pos = 0;
+  while (pos < s.length) {
+    const lt = s.indexOf("<", pos);
+    if (lt === -1) {
+      out += s.slice(pos);
+      break;
+    }
+    out += s.slice(pos, lt);
+    const gt = s.indexOf(">", lt + 1);
+    if (gt === -1) {
+      out += s.slice(lt);
+      break;
+    }
+    const rawTag = s.slice(lt, gt + 1);
+    const rawLower = rawTag.toLowerCase();
+
+    if (rawLower.startsWith("<!--") || rawLower.startsWith("<!doctype") || rawLower.startsWith("<!")) {
+      pos = gt + 1;
+      continue;
+    }
+
+    const closeMatch = rawLower.match(/^<\s*\/\s*([a-z0-9:-]+)/);
+    if (closeMatch) {
+      const tagName = closeMatch[1];
+      if (ALLOWED_TAGS.has(tagName)) out += `</${tagName}>`;
+      pos = gt + 1;
+      continue;
+    }
+
+    const openMatch = rawLower.match(/^<\s*([a-z0-9:-]+)/);
+    if (!openMatch) {
+      pos = gt + 1;
+      continue;
+    }
+    const tagName = openMatch[1];
+    if (!ALLOWED_TAGS.has(tagName)) {
+      pos = gt + 1;
+      continue;
+    }
+
+    const attrs = parseTagAttributes(rawTag);
+    const attrPairs = [];
+    for (const [name, value] of Object.entries(attrs)) {
+      if (!name || name.startsWith("on")) continue;
+      if (!isAllowedAttr(tagName, name)) continue;
+      const sanitizedValue = sanitizeAttrValue(name, value);
+      if (sanitizedValue === null) continue;
+      attrPairs.push(`${name}="${escapeAttrValue(sanitizedValue)}"`);
+    }
+
+    const isSelfClosing = rawLower.endsWith("/>") || VOID_TAGS.has(tagName);
+    out += `<${tagName}${attrPairs.length ? " " + attrPairs.join(" ") : ""}${isSelfClosing ? " />" : ">"}>`;
+    pos = gt + 1;
+  }
+
+  return out;
+}
+
 function stripHtmlFences(text) {
   let s = String(text || "").trim();
   if (!s) return "";
@@ -580,6 +839,7 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
         let slideHtml = typeof candidate?.slideHtml === "string" ? candidate.slideHtml : "";
         slideHtml = ensureSectionAttr(slideHtml, "data-layout", layoutFromPageType(si.pageType));
         slideHtml = applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide, slotHintsBySlotId);
+        slideHtml = sanitizeSlideHtml(slideHtml);
 
         // If validation fails, use LLM repair (reflection) once, then fallback.
         if (!looksLikeSlideHtml(slideHtml)) {
@@ -593,6 +853,7 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
             if (repaired) {
               slideHtml = ensureSectionAttr(repaired, "data-layout", layoutFromPageType(si.pageType));
               slideHtml = applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide, slotHintsBySlotId);
+              slideHtml = sanitizeSlideHtml(slideHtml);
             }
           }
         }
@@ -617,11 +878,10 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
     }
 
     const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr || "Unknown error");
-    const errStack = lastErr instanceof Error ? lastErr.stack : undefined;
     logger.warn("[design.batch] generateSingleSlide falling back after retries", { slideIntentId, error: errMsg });
     safeEmit(emit, "design:slide.failed", "failed", {
       slideIndex,
-      error: { message: errMsg, stack: errStack }
+      error: { message: errMsg }
     });
   }
 
@@ -735,10 +995,9 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
           return;
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e || "Unknown error");
-          const errStack = e instanceof Error ? e.stack : undefined;
           safeEmit(emit, "design:slide.failed", "failed", {
             slideIndex,
-            error: { message: errMsg, stack: errStack }
+            error: { message: errMsg }
           });
           safeEmit(emit, "design:slide.progress", "progress", { slideIndex, step: "fallback", msg: "Falling back to templates" });
 

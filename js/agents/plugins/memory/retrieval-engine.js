@@ -247,6 +247,12 @@ export class RetrievalEngine {
       return false;
     };
 
+    const emitError = (method, err, extra) => {
+      if (this.eventBus && typeof this.eventBus.emit === "function") {
+        this.eventBus.emit("retrieval:error", { method, error: String(err?.message || err), ...(extra || {}) });
+      }
+    };
+
     // Collect all un-indexed entries
     const pending = [];
     let skipped = 0;
@@ -269,7 +275,7 @@ export class RetrievalEngine {
 
     // Report initial progress
     if (typeof progressCallback === "function") {
-      try { progressCallback(indexed, total); } catch { /* ignore */ }
+      try { progressCallback(indexed, total); } catch (err) { emitError("prewarm:progressCallback", err); }
     }
 
     // Process in batches
@@ -298,8 +304,10 @@ export class RetrievalEngine {
             idx.upsert(row.id, vec, { stageKey: row.entry.stageKey, ts: row.entry.ts });
             indexed++;
             this._indexedCount++;
-          } catch {
-            // Dimension mismatch or index error - skip
+          } catch (err) {
+            if (this.eventBus && typeof this.eventBus.emit === "function") {
+              this.eventBus.emit("retrieval:indexError", { id: row.id, error: String(err?.message || err), retries: 0 });
+            }
           }
         }
 
@@ -310,10 +318,10 @@ export class RetrievalEngine {
 
         // Report progress via callback
         if (typeof progressCallback === "function") {
-          try { progressCallback(indexed, total); } catch { /* ignore */ }
+          try { progressCallback(indexed, total); } catch (err) { emitError("prewarm:progressCallback", err); }
         }
-      } catch {
-        // Embedding service error - continue with next batch
+      } catch (err) {
+        emitError("prewarm:embed", err);
       }
     }
 
@@ -436,8 +444,10 @@ export class RetrievalEngine {
           idx.upsert(row.id, vec, { stageKey: row.entry.stageKey, ts: row.entry.ts });
           indexed++;
           this._indexedCount++;
-        } catch {
-          // ignore vector dimension errors / index failures
+        } catch (err) {
+          if (this.eventBus && typeof this.eventBus.emit === "function") {
+            this.eventBus.emit("retrieval:indexError", { id: row.id, error: String(err?.message || err), retries: 0 });
+          }
         }
       }
 
@@ -469,8 +479,10 @@ export class RetrievalEngine {
             idx.upsert(row.id, vec, { stageKey: row.entry.stageKey, ts: row.entry.ts });
             indexed++;
             this._indexedCount++;
-          } catch {
-            // ignore vector dimension errors / index failures
+          } catch (err) {
+            if (this.eventBus && typeof this.eventBus.emit === "function") {
+              this.eventBus.emit("retrieval:indexError", { id: row.id, error: String(err?.message || err), retries: 0 });
+            }
           }
         }
 
@@ -478,8 +490,10 @@ export class RetrievalEngine {
         if (this.eventBus && typeof this.eventBus.emit === "function") {
           this.eventBus.emit("retrieval:indexProgress", { indexed, total, coverage: indexed / total });
         }
-      } catch {
-        // Embedding service error - continue with next batch
+      } catch (err) {
+        if (this.eventBus && typeof this.eventBus.emit === "function") {
+          this.eventBus.emit("retrieval:error", { method: "ensureIndexed:embed", error: String(err?.message || err) });
+        }
       }
     }
 

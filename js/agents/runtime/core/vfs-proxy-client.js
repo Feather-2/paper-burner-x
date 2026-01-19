@@ -35,6 +35,78 @@ function isMissingPathError(err) {
 }
 
 /**
+ * @param {any} value
+ * @returns {boolean}
+ */
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * @param {string} op
+ * @param {any} payload
+ * @returns {any}
+ */
+function validateJsonPayload(op, payload) {
+  if (!isPlainObject(payload)) {
+    throw new Error(`VfsProxyClient: invalid ${op} payload`);
+  }
+
+  if (op === VFS_OPS.STAT) {
+    if (typeof payload.exists !== "boolean") {
+      throw new Error(`VfsProxyClient: invalid ${op} payload (missing exists)`);
+    }
+    if ("size" in payload && typeof payload.size !== "number") {
+      throw new Error(`VfsProxyClient: invalid ${op} payload (size)`);
+    }
+    if ("mtimeMs" in payload && typeof payload.mtimeMs !== "number") {
+      throw new Error(`VfsProxyClient: invalid ${op} payload (mtimeMs)`);
+    }
+    if ("isFile" in payload && typeof payload.isFile !== "boolean") {
+      throw new Error(`VfsProxyClient: invalid ${op} payload (isFile)`);
+    }
+    if ("isDirectory" in payload && typeof payload.isDirectory !== "boolean") {
+      throw new Error(`VfsProxyClient: invalid ${op} payload (isDirectory)`);
+    }
+    return payload;
+  }
+
+  if (op === VFS_OPS.LIST) {
+    if (typeof payload.exists !== "boolean") {
+      throw new Error(`VfsProxyClient: invalid ${op} payload (missing exists)`);
+    }
+    if (!Array.isArray(payload.entries)) {
+      throw new Error(`VfsProxyClient: invalid ${op} payload (entries)`);
+    }
+    for (const entry of payload.entries) {
+      if (!isPlainObject(entry) || typeof entry.name !== "string") {
+        throw new Error(`VfsProxyClient: invalid ${op} payload (entry)`);
+      }
+      if ("kind" in entry && typeof entry.kind !== "string") {
+        throw new Error(`VfsProxyClient: invalid ${op} payload (entry.kind)`);
+      }
+    }
+    return payload;
+  }
+
+  if (op === VFS_OPS.EXISTS) {
+    if (typeof payload.exists !== "boolean") {
+      throw new Error(`VfsProxyClient: invalid ${op} payload (missing exists)`);
+    }
+    return payload;
+  }
+
+  if (op === VFS_OPS.WRITE || op === VFS_OPS.MKDIR || op === VFS_OPS.DELETE) {
+    if ("ok" in payload && payload.ok !== true) {
+      throw new Error(`VfsProxyClient: invalid ${op} payload (ok)`);
+    }
+    return payload;
+  }
+
+  return payload;
+}
+
+/**
  * VFS Proxy Client (Worker side)
  *
  * Exposes a VFS-like interface for runtimes that require synchronous I/O (e.g., Pyodide FS).
@@ -274,10 +346,16 @@ export class VfsProxyClient {
   _requestJsonSync(op, path, args) {
     const bytes = this._requestBytesSync(op, path, args, { payloadBytes: this.maxJsonBytes });
     const text = new TextDecoder().decode(bytes);
+    let payload;
     try {
-      return JSON.parse(text);
+      payload = JSON.parse(text);
     } catch (err) {
       throw new Error(`VfsProxyClient: invalid JSON response for ${op}(${path}): ${err?.message || String(err)}`);
+    }
+    try {
+      return validateJsonPayload(op, payload);
+    } catch (err) {
+      throw new Error(`VfsProxyClient: invalid ${op} payload for ${path}: ${err?.message || String(err)}`);
     }
   }
 

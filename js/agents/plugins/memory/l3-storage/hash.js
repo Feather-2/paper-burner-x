@@ -1,9 +1,9 @@
 /**
  * cyrb53 - fast, high-quality 53-bit hash.
  * @see https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js
- * @param {string} str
- * @param {number} [seed=0]
- * @returns {string} hex string
+ * @param {string} str - Input string to hash.
+ * @param {number} [seed=0] - Optional seed to mix into the hash.
+ * @returns {string} Hex string hash value.
  */
 export function cyrb53(str, seed = 0) {
   let h1 = 0xdeadbeef ^ seed;
@@ -23,8 +23,8 @@ export function cyrb53(str, seed = 0) {
 
 /**
  * Compute content hash for deduplication.
- * @param {any} data
- * @returns {string}
+ * @param {any} data - Data to hash (stringified when not already a string).
+ * @returns {string} Hex string content hash.
  */
 export function computeContentHash(data) {
   try {

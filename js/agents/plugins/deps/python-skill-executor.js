@@ -8,8 +8,9 @@
  * 4. 返回结果
  */
 
+import nodePath from "node:path";
 import { DependencyManager } from "../deps/dependency-manager.js";
-import { PythonRuntimeAdapter } from "../core/python-adapter.js";
+import { PythonRuntimeAdapter } from "../../runtime/core/python-adapter.js";
 import { SkillRuntime } from "../../skills/model.js";
 import { createLogger } from "../../shared/index.js";
 
@@ -26,7 +27,7 @@ const logger = createLogger("runtime/deps/python-skill-executor");
 /**
  * @typedef {Object} SkillExecutionResult
  * @property {boolean} success - 是否成功
- * @property {any} [data] - 返回数据
+ * @property {unknown} [data] - 返回数据
  * @property {string} [error] - 错误信息
  * @property {Object} [metrics] - 执行指标
  * @property {Object[]} [outputFiles] - 输出文件
@@ -113,7 +114,26 @@ export class PythonSkillExecutor {
 
       // 4. 读取 Skill 代码
       const entrypoint = metadata.entrypoint || "main.py";
-      const skillPath = `${path}/${entrypoint}`;
+      const entrypointName = String(entrypoint).trim();
+      const normalizedEntrypoint = nodePath.posix.normalize(entrypointName);
+      if (
+        !entrypointName ||
+        normalizedEntrypoint !== entrypointName ||
+        nodePath.posix.isAbsolute(normalizedEntrypoint) ||
+        normalizedEntrypoint === "." ||
+        normalizedEntrypoint === ".." ||
+        entrypointName.includes("/") ||
+        entrypointName.includes("\\")
+      ) {
+        throw new Error(`Invalid entrypoint: ${entrypointName}`);
+      }
+
+      const skillDir = nodePath.posix.normalize(path);
+      const skillPath = nodePath.posix.normalize(nodePath.posix.join(skillDir, normalizedEntrypoint));
+      const skillDirWithSep = skillDir.endsWith("/") ? skillDir : `${skillDir}/`;
+      if (!skillPath.startsWith(skillDirWithSep)) {
+        throw new Error(`Path traversal detected for entrypoint: ${entrypointName}`);
+      }
       let code;
 
       if (this.vfs) {
@@ -191,6 +211,6 @@ export async function executePythonSkill(skill, context, options = {}) {
   try {
     return await executor.execute(skill, context);
   } finally {
-    // 不终止适配器，允许复用
+    await executor.terminate();
   }
 }

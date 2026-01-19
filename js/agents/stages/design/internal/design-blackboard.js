@@ -12,7 +12,7 @@
  * - decisions → MemoryStore.recordDecision()
  */
 
-import { toNonEmptyString, isPlainObject } from "../../../shared/index.js";
+import { toNonEmptyString, isPlainObject, createLogger } from "../../../shared/index.js";
 import { DisposableBase } from "../../../shared/index.js";
 import {
   L1_ADD_SIGNAL,
@@ -22,19 +22,27 @@ import {
   L2_RECORD_DECISION,
 } from "../../../plugins/memory/index.js";
 
+const logger = createLogger("stages/design/blackboard");
 const DESIGN_PREFIX = "design.";
 
 /** 危险 key，用于防止原型污染 */
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+function logSilentError(context, err) {
+  const message = err instanceof Error ? err.message : String(err);
+  logger.debug(`[design.blackboard] ${context} failed`, { error: message });
+}
+
 function cloneValue(value) {
   if (value === null || value === undefined) return value;
   try {
     return structuredClone(value);
-  } catch {
+  } catch (err) {
+    logSilentError("cloneValue.structuredClone", err);
     try {
       return JSON.parse(JSON.stringify(value));
-    } catch {
+    } catch (innerErr) {
+      logSilentError("cloneValue.jsonFallback", innerErr);
       return value;
     }
   }
@@ -78,7 +86,9 @@ export class DesignBlackboard extends DisposableBase {
       if (this._stateEngineUnsubscribe) {
         try {
           this._stateEngineUnsubscribe();
-        } catch { /* ignore */ }
+        } catch (err) {
+          logSilentError("dispose.unsubscribe", err);
+        }
         this._stateEngineUnsubscribe = null;
       }
       this._stateEngine = null;
@@ -86,7 +96,9 @@ export class DesignBlackboard extends DisposableBase {
 
       try {
         this._summaries?.clear?.();
-      } catch { /* ignore */ }
+      } catch (err) {
+        logSilentError("dispose.clearSummaries", err);
+      }
       if (Array.isArray(this._signals)) this._signals.length = 0;
       if (Array.isArray(this._decisions)) this._decisions.length = 0;
       if (Array.isArray(this._versions)) this._versions.length = 0;
@@ -132,7 +144,9 @@ export class DesignBlackboard extends DisposableBase {
     if (this._stateEngineUnsubscribe) {
       try {
         this._stateEngineUnsubscribe();
-      } catch { /* ignore */ }
+      } catch (err) {
+        logSilentError("bindStateEngine.unsubscribe", err);
+      }
       this._stateEngineUnsubscribe = null;
     }
 
@@ -183,8 +197,8 @@ export class DesignBlackboard extends DisposableBase {
           this._syncDecisionToStateEngine(decision);
         }
       }
-    } catch {
-      // ignore seeding errors
+    } catch (err) {
+      logSilentError("bindStateEngine.seed", err);
     }
 
     // 初始同步
@@ -199,7 +213,9 @@ export class DesignBlackboard extends DisposableBase {
         for (const u of unsubs) {
           try {
             u?.();
-          } catch { /* ignore */ }
+          } catch (err) {
+            logSilentError("bindStateEngine.unsubscribeListener", err);
+          }
         }
       };
     }
@@ -217,8 +233,8 @@ export class DesignBlackboard extends DisposableBase {
         const snap = typeof engine._getStateRef === "function" ? engine._getStateRef() : engine.getState?.();
         if (!l1) l1 = snap?.L1 || null;
         if (!l2) l2 = snap?.L2 || null;
-      } catch {
-        // ignore
+      } catch (err) {
+        logSilentError("syncFromStateEngine.read", err);
       }
     }
 
@@ -284,7 +300,9 @@ export class DesignBlackboard extends DisposableBase {
         if (snap && snap.L1 && Object.prototype.hasOwnProperty.call(snap.L1, "deck")) {
           return snap.L1.deck;
         }
-      } catch { /* fallback */ }
+      } catch (err) {
+        logSilentError("getDeck.stateEngine", err);
+      }
     }
     return this._deck;
   }
@@ -317,7 +335,9 @@ export class DesignBlackboard extends DisposableBase {
         }
         this._memoryStore.L2.stageSummaries[`design.${stage}`] = summary;
       }
-    } catch { /* intentional */ }
+    } catch (err) {
+      logSilentError("syncSummaryToMemory", err);
+    }
   }
 
   getSummary(stage) {
@@ -332,7 +352,9 @@ export class DesignBlackboard extends DisposableBase {
         if (isPlainObject(summaries) && Object.prototype.hasOwnProperty.call(summaries, fullKey)) {
           return summaries[fullKey];
         }
-      } catch { /* fallback */ }
+      } catch (err) {
+        logSilentError("getSummary.stateEngine", err);
+      }
     }
 
     // 优先从 MemoryStore 读取
@@ -343,7 +365,9 @@ export class DesignBlackboard extends DisposableBase {
         if (isPlainObject(memSummaries) && Object.prototype.hasOwnProperty.call(memSummaries, fullKey)) {
           return memSummaries[fullKey];
         }
-      } catch { /* fallback */ }
+      } catch (err) {
+        logSilentError("getSummary.memoryStore", err);
+      }
     }
 
     return this._summaries.get(key) || null;
@@ -366,7 +390,9 @@ export class DesignBlackboard extends DisposableBase {
             }
           }
         }
-      } catch { /* fallback */ }
+      } catch (err) {
+        logSilentError("getAllSummaries.stateEngine", err);
+      }
     }
 
     // 合并 MemoryStore 和本地
@@ -415,7 +441,9 @@ export class DesignBlackboard extends DisposableBase {
           source: "design-blackboard",
         });
       }
-    } catch { /* intentional */ }
+    } catch (err) {
+      logSilentError("syncSignalToMemory", err);
+    }
   }
 
   popSignal() {
@@ -427,7 +455,9 @@ export class DesignBlackboard extends DisposableBase {
     if (engine && id && typeof engine.dispatchSync === "function") {
       try {
         engine.dispatchSync({ type: L1_ACKNOWLEDGE_SIGNAL, payload: { id } });
-      } catch { /* intentional */ }
+      } catch (err) {
+        logSilentError("popSignal.ack", err);
+      }
     }
 
     return signal;
@@ -456,7 +486,9 @@ export class DesignBlackboard extends DisposableBase {
         try {
           if (typeof engine.dispatchBatchSync === "function") engine.dispatchBatchSync(actions);
           else if (typeof engine.dispatchSync === "function") actions.forEach((a) => engine.dispatchSync(a));
-        } catch { /* intentional */ }
+        } catch (err) {
+          logSilentError("clearSignals.ack", err);
+        }
       }
     }
   }
@@ -490,7 +522,9 @@ export class DesignBlackboard extends DisposableBase {
           meta: decision,
         });
       }
-    } catch { /* intentional */ }
+    } catch (err) {
+      logSilentError("syncDecisionToMemory", err);
+    }
   }
 
   getRecentDecisions(count = 5) {
@@ -505,7 +539,9 @@ export class DesignBlackboard extends DisposableBase {
 
     try {
       engine.dispatchSync({ type: L1_SET_DECK, payload: { deck: cloneValue(deck) } });
-    } catch { /* intentional */ }
+    } catch (err) {
+      logSilentError("syncDeckToStateEngine", err);
+    }
   }
 
   _syncSummaryToStateEngine(stage, summary) {
@@ -517,7 +553,9 @@ export class DesignBlackboard extends DisposableBase {
         type: L2_ADD_SUMMARY,
         payload: { summary: { stage: `${DESIGN_PREFIX}${stage}`, summary: String(summary ?? "") } },
       });
-    } catch { /* intentional */ }
+    } catch (err) {
+      logSilentError("syncSummaryToStateEngine", err);
+    }
   }
 
   _syncSignalToStateEngine(signal) {
@@ -538,7 +576,9 @@ export class DesignBlackboard extends DisposableBase {
           },
         },
       });
-    } catch { /* intentional */ }
+    } catch (err) {
+      logSilentError("syncSignalToStateEngine", err);
+    }
   }
 
   _syncDecisionToStateEngine(decision) {
@@ -550,7 +590,9 @@ export class DesignBlackboard extends DisposableBase {
         type: L2_RECORD_DECISION,
         payload: { decision: { ...cloneValue(decision), action: `${DESIGN_PREFIX}${decision?.action || "unknown"}` } },
       });
-    } catch { /* intentional */ }
+    } catch (err) {
+      logSilentError("syncDecisionToStateEngine", err);
+    }
   }
 
   // ===== Versions =====

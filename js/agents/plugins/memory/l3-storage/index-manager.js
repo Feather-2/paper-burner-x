@@ -1,6 +1,11 @@
 import { BYTES_PER_CHAR, ENTRY_OVERHEAD_BYTES } from "./constants.js";
 import { toNonEmptyString } from "./utils.js";
 
+/**
+ * Create a new index state container.
+ * @returns {{timeline: Array, keywords: Map<string, Set<string>>, stages: Map<string, string>, hashIndex: Map<string, string>}}
+ *   New index state.
+ */
 export function createIndexState() {
   return {
     timeline: [],
@@ -10,6 +15,13 @@ export function createIndexState() {
   };
 }
 
+/**
+ * Serialize index state for persistence.
+ * @param {object} index - Current index state.
+ * @param {Array<string>} checkpointIndex - Ordered checkpoint ids.
+ * @param {string} runId - Run identifier to store in metadata.
+ * @returns {object} Serializable index payload.
+ */
 export function serializeIndexState(index, checkpointIndex, runId) {
   return {
     schemaVersion: "0.1",
@@ -23,6 +35,11 @@ export function serializeIndexState(index, checkpointIndex, runId) {
   };
 }
 
+/**
+ * Restore index state from persisted data.
+ * @param {object|null} raw - Parsed serialized index data.
+ * @returns {{index: object, checkpointIndex: Array<string>}|null} Restored index state.
+ */
 export function restoreIndexState(raw) {
   if (!raw || typeof raw !== "object") return null;
 
@@ -53,6 +70,12 @@ export function restoreIndexState(raw) {
   return { index, checkpointIndex };
 }
 
+/**
+ * Add snapshot metadata to the index.
+ * @param {object} index - Index state to mutate.
+ * @param {object} entry - Snapshot entry with id/keywords/stageKey/ts/summary/contentHash.
+ * @returns {void}
+ */
 export function addSnapshotToIndex(index, entry) {
   const id = toNonEmptyString(entry?.id);
   if (!id) return;
@@ -73,6 +96,13 @@ export function addSnapshotToIndex(index, entry) {
   if (contentHash) index.hashIndex.set(contentHash, id);
 }
 
+/**
+ * Update access timestamp for a snapshot.
+ * @param {object} index - Index state to mutate.
+ * @param {string} snapshotId - Snapshot id to update.
+ * @param {number} [accessedAt=Date.now()] - Access timestamp in ms.
+ * @returns {object|null} Updated timeline entry, if found.
+ */
 export function updateSnapshotAccess(index, snapshotId, accessedAt = Date.now()) {
   const id = toNonEmptyString(snapshotId);
   if (!id) return null;
@@ -82,6 +112,12 @@ export function updateSnapshotAccess(index, snapshotId, accessedAt = Date.now())
   return entry || null;
 }
 
+/**
+ * Remove snapshot metadata from the index.
+ * @param {object} index - Index state to mutate.
+ * @param {string} snapshotId - Snapshot id to remove.
+ * @returns {void}
+ */
 export function removeSnapshotFromIndex(index, snapshotId) {
   const id = toNonEmptyString(snapshotId);
   if (!id) return;
@@ -105,6 +141,13 @@ export function removeSnapshotFromIndex(index, snapshotId) {
   }
 }
 
+/**
+ * Mark a snapshot as superseded.
+ * @param {object} index - Index state to mutate.
+ * @param {string} snapshotId - Snapshot id to mark.
+ * @param {string} correctionText - Superseding info or correction text.
+ * @returns {{entry: object|null, wasSuperseded: boolean}} Result details.
+ */
 export function markSnapshotSupersededInIndex(index, snapshotId, correctionText) {
   const id = toNonEmptyString(snapshotId);
   if (!id) return { entry: null, wasSuperseded: false };
@@ -119,6 +162,13 @@ export function markSnapshotSupersededInIndex(index, snapshotId, correctionText)
   return { entry, wasSuperseded };
 }
 
+/**
+ * Mark multiple snapshots as superseded.
+ * @param {object} index - Index state to mutate.
+ * @param {Array<string>} ids - Snapshot ids to mark.
+ * @param {string} correctionText - Superseding info or correction text.
+ * @returns {{marked: number, touched: boolean, updatedIds: Array<string>}} Result details.
+ */
 export function markSnapshotsSupersededInIndex(index, ids, correctionText) {
   const list = Array.isArray(ids) ? ids : [];
   if (list.length === 0) return { marked: 0, touched: false, updatedIds: [] };
@@ -145,6 +195,11 @@ export function markSnapshotsSupersededInIndex(index, ids, correctionText) {
   return { marked, touched, updatedIds };
 }
 
+/**
+ * Count superseded snapshots.
+ * @param {object} index - Index state to inspect.
+ * @returns {number} Count of superseded snapshots.
+ */
 export function getSupersededSnapshotCount(index) {
   const timeline = Array.isArray(index.timeline) ? index.timeline : [];
   let count = 0;
@@ -156,6 +211,14 @@ export function getSupersededSnapshotCount(index) {
   return count;
 }
 
+/**
+ * Estimate storage footprint for the index.
+ * @param {object} index - Index state to inspect.
+ * @param {object} [options] - Optional tuning values.
+ * @param {number} [options.bytesPerChar] - Bytes per character multiplier.
+ * @param {number} [options.entryOverheadBytes] - Base overhead per entry.
+ * @returns {number} Estimated bytes.
+ */
 export function estimateStorageBytes(index, options = {}) {
   const bytesPerChar =
     typeof options.bytesPerChar === "number" && Number.isFinite(options.bytesPerChar) ? options.bytesPerChar : BYTES_PER_CHAR;

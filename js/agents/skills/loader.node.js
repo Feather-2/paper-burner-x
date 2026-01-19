@@ -38,6 +38,7 @@ const SKILLS_DIR_NAME = "skills";
 const CONFIG_DIR_NAME = ".paper-burner";
 const MAX_NAME_LEN = 64;
 const MAX_DESCRIPTION_LEN = 1024;
+const FORBIDDEN_METADATA_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
 // 指纹缓存：path -> { fingerprint, skill, mtime }
 const _fingerprintCache = new Map();
@@ -66,11 +67,15 @@ function extractFrontmatter(contents) {
   return frontmatterLines.join("\n");
 }
 
+function isForbiddenMetadataKey(key) {
+  return FORBIDDEN_METADATA_KEYS.has(key);
+}
+
 /**
  * 简单的 YAML 解析（支持基本字段和多行值）
  */
 function parseSimpleYaml(yaml) {
-  const result = {};
+  const result = Object.create(null);
   const lines = yaml.split("\n");
   let currentKey = null;
   let currentValue = [];
@@ -91,6 +96,12 @@ function parseSimpleYaml(yaml) {
       }
 
       const key = match[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      if (isForbiddenMetadataKey(key)) {
+        currentKey = null;
+        currentValue = [];
+        inMultiline = false;
+        continue;
+      }
       let value = match[2].trim();
 
       // 检查是否是多行字符串开始
@@ -193,11 +204,12 @@ async function parseSkillFile(filePath, scope) {
   const allowedTools = parsed.allowedTools || null;
 
   // 提取 tags（格式：key1:value1,key2:value2）
-  const tags = {};
+  const tags = Object.create(null);
   if (parsed.tags) {
     parsed.tags.split(",").forEach(pair => {
       const [k, v] = pair.split(":").map(s => s.trim());
-      if (k) tags[k] = v || "";
+      if (!k || isForbiddenMetadataKey(k)) return;
+      tags[k] = v || "";
     });
   }
 
@@ -454,6 +466,14 @@ export async function loadAllSkills({ cwd, homeDir, nexusProvider } = {}) {
  * @returns {Promise<SkillContent>}
  */
 export async function loadSkillFromPath(filePath, scope = SkillScope.USER) {
+  if (typeof filePath !== "string" || !filePath.trim()) {
+    throw new Error("loadSkillFromPath(filePath): filePath is required");
+  }
+  const resolved = path.resolve(filePath);
+  const marker = `${path.sep}${CONFIG_DIR_NAME}${path.sep}${SKILLS_DIR_NAME}${path.sep}`;
+  if (!resolved.includes(marker)) {
+    throw new Error("loadSkillFromPath(filePath): path must be within .paper-burner/skills");
+  }
   return parseSkillFile(filePath, scope);
 }
 

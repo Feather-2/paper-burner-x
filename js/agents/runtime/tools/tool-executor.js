@@ -18,11 +18,11 @@ import { isNodeLike } from "../../shared/index.js";
 import { createPreToolUseHook } from "../hooks/hook-runner.js";
 
 /**
- * @typedef {Record<string, any>} AnyRecord
+ * @typedef {Record<string, unknown>} AnyRecord
  *
- * @typedef {{ ok: boolean, success: boolean, data: any, error?: unknown, raw?: any, [key: string]: any }} ToolResult
+ * @typedef {{ ok: boolean, success: boolean, data: unknown, error?: unknown, raw?: unknown, [key: string]: unknown }} ToolResult
  *
- * @typedef {{ createWorker?: () => any | Promise<any>, maxWorkers?: number }} WorkerPoolOptions
+ * @typedef {{ createWorker?: () => unknown | Promise<unknown>, maxWorkers?: number }} WorkerPoolOptions
  *
  * @typedef {number & { unref?: () => void }} TimeoutHandle
  */
@@ -521,7 +521,7 @@ export class ToolExecutor {
     return Promise.all(promises);
   }
 
-  async _authorizeToolCall(name, args, context, /** @type {{ tool?: any, options?: AnyRecord }} */ { tool, options } = {}) {
+  async _authorizeToolCall(name, args, context, /** @type {{ tool?: unknown, options?: AnyRecord }} */ { tool, options } = {}) {
     const policy = options?.policy || this.policy;
     if (!policy || typeof policy.authorize !== "function") return { allowed: true };
 

@@ -1,5 +1,7 @@
-import { toNonEmptyString } from "../../../shared/index.js";
+import { createLogger, toNonEmptyString } from "../../../shared/index.js";
 import { L0_SET_TASK_GOAL } from "../../../plugins/memory/index.js";
+
+const logger = createLogger("stages/deepsearch/state/task-state");
 
 /**
  * @typedef {object} RootState
@@ -28,8 +30,8 @@ export class TaskState {
         const snap = typeof engine._getStateRef === "function" ? engine._getStateRef() : engine.getState?.();
         const goal = toNonEmptyString(snap?.L0?.taskGoal);
         if (goal) return goal;
-      } catch {
-        // fall back below
+      } catch (err) {
+        logger.warn("TaskState.taskGoal: state engine read failed", { error: err?.message || err });
       }
     }
 
@@ -44,8 +46,8 @@ export class TaskState {
     if (engine && typeof engine.dispatchSync === "function") {
       try {
         engine.dispatchSync({ type: L0_SET_TASK_GOAL, payload: { goal: normalized } });
-      } catch {
-        // fall back below
+      } catch (err) {
+        logger.warn("TaskState.taskGoal: state engine dispatch failed", { error: err?.message || err });
       }
     }
 

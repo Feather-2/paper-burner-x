@@ -20,7 +20,10 @@ function normalizeMaxFileSize(value, fallback) {
 // Default DOCX max file size (25MB). Override via new DocxAdapter({ maxFileSize }).
 const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
 
-async function fileLikeFromPath(path, { maxBytes } = {}) {
+async function fileLikeFromPath(path, { allowPathRead = false, maxBytes } = {}) {
+  if (!allowPathRead) {
+    throw new Error("DocxAdapter: path string inputs are disabled (set allowPathRead:true to enable in Node.js)");
+  }
   const name = await basenameOfPath(path);
   return nodeFileLikeFromPath(path, { maxBytes, mimeType: guessMimeType(name) });
 }
@@ -103,11 +106,12 @@ export class DocxAdapter extends BaseAdapter {
 
   /**
    * @param {string|{name?:string,filename?:string,type?:string,mimeType?:string,size?:number,arrayBuffer?:Function}} input
-   * @param {{mammoth?:object,TurndownService?:Function}=} stageApi
+   * @param {{mammoth?:object,TurndownService?:Function,allowPathRead?:boolean}=} stageApi
    * @returns {Promise<object>} ParsedDocument
    */
   async parse(input, stageApi = {}) {
     const t0 = Date.now();
+    const allowPathRead = stageApi?.allowPathRead === true;
 
     let file = input;
     let filename = "";
@@ -119,7 +123,7 @@ export class DocxAdapter extends BaseAdapter {
     if (typeof input === "string") {
       filename = await basenameOfPath(input);
       mimeType = guessMimeType(filename);
-      file = await fileLikeFromPath(input, { maxBytes });
+      file = await fileLikeFromPath(input, { allowPathRead, maxBytes });
       size = file.size;
     } else if (input && typeof input === "object") {
       filename = toNonEmptyString(input.name) || toNonEmptyString(input.filename) || "document.docx";

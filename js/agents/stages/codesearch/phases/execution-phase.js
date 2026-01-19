@@ -17,6 +17,31 @@ import { formatOpenTodos, isTodoOpen } from "./planning-phase.js";
 
 const logger = createLogger("stages/codesearch/phases/execution-phase");
 
+const MAX_DECISION_RESPONSE_CHARS = 12000;
+const MAX_DECISION_JSON_CHARS = 8000;
+const MAX_ACTIONS = 5;
+const MAX_ARG_STRING_CHARS = 2000;
+const MAX_NEW_TODOS = 10;
+const MAX_TODO_TEXT_CHARS = 400;
+const MAX_TODO_HINTS = 10;
+const MAX_TODO_HINT_CHARS = 80;
+const MAX_TODO_EVIDENCE_CHARS = 400;
+const ALLOWED_TODO_KEYS = new Set(["text", "priority", "queryHints", "expectedEvidence"]);
+const ALLOWED_TODO_PRIORITIES = new Set(["low", "medium", "high"]);
+const ALLOWED_TODO_STATUSES = new Set(["pending", "completed", "cancelled"]);
+const TOOL_ARG_SCHEMA = {
+  glob: { pattern: "string", path: "string" },
+  grep: { pattern: "string", path: "string", regex: "boolean", caseSensitive: "boolean" },
+  read_file: { path: "string", startLine: "number", endLine: "number" },
+  write_file: { path: "string", content: "string", checkpoint: "boolean" },
+  multi_edit: { path: "string", edits: "edits", checkpoint: "boolean" },
+  list_dir: { path: "string", showHidden: "boolean" },
+  tree: { path: "string", depth: "number", pattern: "string" },
+  index_symbols: { pattern: "string", path: "string", paths: "paths", limit: "number", force: "boolean", workspaceId: "string" },
+  find_symbol: { query: "string", pathPrefix: "string", limit: "number", workspaceId: "string" },
+};
+const TOOL_NAMES = new Set(Object.keys(TOOL_ARG_SCHEMA));
+
 /**
  * @typedef {object} WatchdogOutputArgs
  * @property {number=} step
@@ -42,6 +67,127 @@ function clampNumber(value, { min = -Infinity, max = Infinity, fallback = 0 } = 
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.min(max, Math.max(min, num));
+}
+
+function normalizeString(value, maxLen = MAX_ARG_STRING_CHARS) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLen) return null;
+  return trimmed;
+}
+
+function sanitizeTodoId(value) {
+  const s = toNonEmptyString(value);
+  if (!s) return null;
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(s)) return null;
+  return s;
+}
+
+function sanitizeTodoStatus(value) {
+  const s = toNonEmptyString(value);
+  if (!s) return null;
+  const lowered = s.toLowerCase();
+  return ALLOWED_TODO_STATUSES.has(lowered) ? lowered : null;
+}
+
+function sanitizeNewTodos(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > MAX_NEW_TODOS) return null;
+  const sanitized = [];
+
+  for (const item of value) {
+    if (!isPlainObject(item)) return null;
+    const keys = Object.keys(item);
+    if (keys.some((key) => !ALLOWED_TODO_KEYS.has(key))) return null;
+
+    const text = toNonEmptyString(item.text);
+    if (!text || text.length > MAX_TODO_TEXT_CHARS) return null;
+
+    const priority = toNonEmptyString(item.priority);
+    if (priority && !ALLOWED_TODO_PRIORITIES.has(priority)) return null;
+
+    const rawHints = Array.isArray(item.queryHints) ? item.queryHints : [];
+    const hints = [];
+    for (const hint of rawHints) {
+      if (typeof hint !== "string") return null;
+      const trimmed = hint.trim();
+      if (!trimmed) continue;
+      if (trimmed.length > MAX_TODO_HINT_CHARS) return null;
+      hints.push(trimmed);
+      if (hints.length > MAX_TODO_HINTS) return null;
+    }
+
+    const expectedEvidence = toNonEmptyString(item.expectedEvidence);
+    if (expectedEvidence && expectedEvidence.length > MAX_TODO_EVIDENCE_CHARS) return null;
+
+    const entry = { text };
+    if (priority) entry.priority = priority;
+    if (hints.length) entry.queryHints = hints;
+    if (expectedEvidence) entry.expectedEvidence = expectedEvidence;
+    sanitized.push(entry);
+  }
+
+  return sanitized;
+}
+
+function sanitizeEdits(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 50) return null;
+  const sanitized = [];
+  for (const edit of value) {
+    if (!isPlainObject(edit)) return null;
+    const keys = Object.keys(edit);
+    if (keys.some((key) => key !== "old_string" && key !== "new_string")) return null;
+    const oldString = normalizeString(edit.old_string, MAX_ARG_STRING_CHARS);
+    if (!oldString) return null;
+    const newString = typeof edit.new_string === "string" ? edit.new_string : null;
+    if (newString == null || newString.length > MAX_ARG_STRING_CHARS) return null;
+    sanitized.push({ old_string: oldString, new_string: newString });
+  }
+  return sanitized;
+}
+
+function sanitizePaths(value) {
+  if (typeof value === "string") {
+    const s = normalizeString(value, MAX_ARG_STRING_CHARS);
+    return s ? s : null;
+  }
+  if (Array.isArray(value)) {
+    const out = [];
+    for (const entry of value) {
+      const s = normalizeString(entry, MAX_ARG_STRING_CHARS);
+      if (!s) return null;
+      out.push(s);
+    }
+    return out;
+  }
+  return null;
+}
+
+function sanitizeArgs(toolName, args) {
+  const schema = TOOL_ARG_SCHEMA[toolName];
+  if (!schema) return null;
+  if (args == null) return {};
+  if (!isPlainObject(args)) return null;
+  const output = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (!Object.prototype.hasOwnProperty.call(schema, key)) return null;
+    const type = schema[key];
+    let sanitized = null;
+    if (type === "string") {
+      sanitized = normalizeString(value, MAX_ARG_STRING_CHARS);
+    } else if (type === "number") {
+      sanitized = Number.isFinite(value) ? value : null;
+    } else if (type === "boolean") {
+      sanitized = typeof value === "boolean" ? value : null;
+    } else if (type === "edits") {
+      sanitized = sanitizeEdits(value);
+    } else if (type === "paths") {
+      sanitized = sanitizePaths(value);
+    }
+    if (sanitized == null) return null;
+    output[key] = sanitized;
+  }
+  return output;
 }
 
 function summarizeToolResultForWatchdog(toolName, result) {
@@ -89,29 +235,33 @@ function buildWatchdogOutput({ step, todoId, decision, actionName, args, resultS
  * 解析 LLM 步骤决策
  */
 function parseStepDecision(text) {
-  if (!text) return null;
+  const raw = String(text ?? "");
+  if (!raw) return null;
+  if (raw.length > MAX_DECISION_RESPONSE_CHARS) return null;
 
   // 尝试提取 JSON
-  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+  const jsonMatch = raw.match(/```json\s*([\s\S]*?)\s*```/);
+  const candidates = [];
+  if (jsonMatch) candidates.push(jsonMatch[1]);
+  candidates.push(raw);
+
   let parsed = null;
-
-  if (jsonMatch) {
+  for (const candidate of candidates) {
+    const trimmed = String(candidate || "").trim();
+    if (!trimmed || trimmed.length > MAX_DECISION_JSON_CHARS) continue;
     try {
-      parsed = JSON.parse(jsonMatch[1]);
-    } catch { /* continue */ }
-  }
-
-  if (!parsed) {
-    try {
-      parsed = JSON.parse(text);
-    } catch { /* continue */ }
+      parsed = JSON.parse(trimmed);
+      break;
+    } catch {
+      // continue
+    }
   }
 
   if (!isPlainObject(parsed)) {
     // 尝试提取字段
-    const actionMatch = text.match(/"action"\s*:\s*"(\w+)"/);
-    const toolMatch = text.match(/"tool"\s*:\s*"(\w+)"/);
-    const argsMatch = text.match(/"args"\s*:\s*(\{[^}]+\})/);
+    const actionMatch = raw.match(/"action"\s*:\s*"(\w+)"/);
+    const toolMatch = raw.match(/"tool"\s*:\s*"(\w+)"/);
+    const argsMatch = raw.match(/"args"\s*:\s*(\{[^}]+\})/);
 
     if (actionMatch || toolMatch) {
       let parsedArgs = {};
@@ -127,25 +277,48 @@ function parseStepDecision(text) {
         action: actionMatch?.[1] || toolMatch?.[1],
         args: parsedArgs,
       };
-    } else if (text.includes('"done": true') || text.toLowerCase().includes("analysis complete")) {
+    } else if (raw.includes('"done": true') || raw.toLowerCase().includes("analysis complete")) {
       parsed = { done: true };
     }
   }
 
   if (!parsed) return null;
 
-  // 支持批量 actions
-  const batchActions = Array.isArray(parsed.actions) && parsed.actions.length > 0 ? parsed.actions : null;
+  const done = parsed.done === true || String(parsed.action || "").toLowerCase() === "done";
+  const action = toNonEmptyString(parsed.action || parsed.tool);
+  if (action && !TOOL_NAMES.has(action) && !done) return null;
+
+  let actions = null;
+  if (Array.isArray(parsed.actions) && parsed.actions.length > 0) {
+    if (parsed.actions.length > MAX_ACTIONS) return null;
+    actions = [];
+    for (const item of parsed.actions) {
+      if (!isPlainObject(item)) return null;
+      const toolName = toNonEmptyString(item.action || item.tool);
+      if (!toolName || !TOOL_NAMES.has(toolName)) return null;
+      const toolArgs = sanitizeArgs(toolName, item.args);
+      if (toolArgs == null) return null;
+      actions.push({ action: toolName, args: toolArgs });
+    }
+  }
+
+  if (!done && !action && !actions) return null;
+
+  const args = action ? sanitizeArgs(action, parsed.args) : {};
+  if (action && args == null) return null;
+
+  const newTodos = sanitizeNewTodos(parsed.newTodos);
+  if (parsed.newTodos && newTodos == null) return null;
 
   return {
-    action: toNonEmptyString(parsed.action || parsed.tool),
-    actions: batchActions,
-    args: isPlainObject(parsed.args) ? parsed.args : {},
-    done: parsed.done === true || String(parsed.action || "").toLowerCase() === "done",
-    todoId: toNonEmptyString(parsed.todoId || parsed.todo_id),
-    todoStatus: toNonEmptyString(parsed.todoStatus || parsed.todo_status),
+    action,
+    actions,
+    args: args || {},
+    done,
+    todoId: sanitizeTodoId(parsed.todoId || parsed.todo_id),
+    todoStatus: sanitizeTodoStatus(parsed.todoStatus || parsed.todo_status),
     completeTodo: parsed.completeTodo === true || parsed.completed === true,
-    newTodos: Array.isArray(parsed.newTodos) ? parsed.newTodos : [],
+    newTodos: Array.isArray(newTodos) ? newTodos : [],
     thought: toNonEmptyString(parsed.thought || parsed.summary),
   };
 }

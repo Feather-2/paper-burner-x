@@ -29,12 +29,31 @@ export function createBrowserTools(options = {}) {
    * @returns {string}
    */
   function normalizePath(inputPath) {
-    const path = toNonEmptyString(inputPath) || '.';
-    // 拼接 basePath
-    if (basePath && !path.startsWith('/')) {
-      return `${basePath}/${path}`.replace(/\/+/g, '/');
+    const rawPath = toNonEmptyString(inputPath) || '.';
+    const sanitized = rawPath.replace(/\\/g, '/');
+    const base = (toNonEmptyString(basePath) || '').replace(/\\/g, '/').replace(/\/+$/, '');
+
+    if (sanitized.startsWith('/')) {
+      throw new Error('Absolute paths are not allowed');
     }
-    return path;
+
+    const parts = sanitized.split('/').filter(Boolean);
+    for (const part of parts) {
+      if (part === '..') {
+        throw new Error('Path traversal detected');
+      }
+    }
+
+    const normalized = parts.filter(part => part !== '.').join('/');
+    if (base) {
+      const combined = normalized ? `${base}/${normalized}` : base;
+      if (combined !== base && !combined.startsWith(`${base}/`)) {
+        throw new Error('Path traversal detected');
+      }
+      return combined;
+    }
+
+    return normalized || '.';
   }
 
   /**
@@ -45,7 +64,12 @@ export function createBrowserTools(options = {}) {
       return { files: [], error: 'VFS not available' };
     }
 
-    const searchPath = normalizePath(path || '.');
+    let searchPath;
+    try {
+      searchPath = normalizePath(path || '.');
+    } catch (err) {
+      return { files: [], error: err.message };
+    }
 
     try {
       // 尝试使用 VFS 的 glob 方法
@@ -86,13 +110,19 @@ export function createBrowserTools(options = {}) {
           if (!entry.includes('.') && entry !== '.' && entry !== '..') {
             try {
               await walk(fullPath);
-            } catch {
-              // 不是目录，跳过
+            } catch (err) {
+              logger?.debug?.('[platform/browser] walk skip non-directory', {
+                path: fullPath,
+                error: err?.message,
+              });
             }
           }
         }
-      } catch {
-        // 目录不存在或无权访问
+      } catch (err) {
+        logger?.debug?.('[platform/browser] list failed', {
+          path: currentPath,
+          error: err?.message,
+        });
       }
     }
 
@@ -108,7 +138,12 @@ export function createBrowserTools(options = {}) {
       return { matches: [], error: 'VFS not available' };
     }
 
-    const searchPath = normalizePath(path || '.');
+    let searchPath;
+    try {
+      searchPath = normalizePath(path || '.');
+    } catch (err) {
+      return { matches: [], error: err.message };
+    }
 
     try {
       // 在 try 内构造 RegExp 以捕获非法 pattern
@@ -143,8 +178,11 @@ export function createBrowserTools(options = {}) {
           }
 
           if (matches.length >= 100) break;
-        } catch {
-          // 读取失败，跳过
+        } catch (err) {
+          logger?.debug?.('[platform/browser] grep read failed', {
+            path: file,
+            error: err?.message,
+          });
         }
       }
 
@@ -178,7 +216,12 @@ export function createBrowserTools(options = {}) {
       return { content: '', error: 'VFS not available' };
     }
 
-    const normalizedPath = normalizePath(filePath);
+    let normalizedPath;
+    try {
+      normalizedPath = normalizePath(filePath);
+    } catch (err) {
+      return { content: '', error: err.message };
+    }
 
     try {
       const content = await readText(normalizedPath);
@@ -208,7 +251,12 @@ export function createBrowserTools(options = {}) {
       return { success: false, error: 'VFS not available' };
     }
 
-    const normalizedPath = normalizePath(filePath);
+    let normalizedPath;
+    try {
+      normalizedPath = normalizePath(filePath);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
 
     try {
       if (typeof vfs.writeText === 'function') {
@@ -234,7 +282,12 @@ export function createBrowserTools(options = {}) {
       return { entries: [], error: 'VFS not available' };
     }
 
-    const normalizedPath = normalizePath(dirPath);
+    let normalizedPath;
+    try {
+      normalizedPath = normalizePath(dirPath);
+    } catch (err) {
+      return { entries: [], error: err.message };
+    }
 
     try {
       if (typeof vfs.list === 'function') {

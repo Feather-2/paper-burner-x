@@ -221,30 +221,141 @@ export function createToolExecutor(options = {}) {
     watchdog,
   } = options;
 
-  const basePathValue = String(basePath || "").trim();
-  const normalizedBasePath =
-    basePathValue && basePathValue.length > 1 && basePathValue.endsWith("/")
-      ? basePathValue.slice(0, -1)
-      : basePathValue;
+  const basePathValue = String(basePath ?? "").trim();
+  const baseRoot = normalizeBaseRoot(basePathValue);
+  const baseRootIsAbs = baseRoot.startsWith("/");
+  const baseRootForFs = baseRoot || ".";
+  const baseRootForVfs = baseRootIsAbs ? "" : baseRoot;
 
-  // 路径安全检查
+  /**
+   * @param {string} input
+   * @returns {string}
+   */
+  function normalizePathInput(input) {
+    return String(input ?? "").trim().replace(/\\/g, "/");
+  }
+
+  /**
+   * @param {string} input
+   * @returns {boolean}
+   */
+  function isWindowsAbsolutePath(input) {
+    const value = String(input || "");
+    return /^[a-zA-Z]:/.test(value) || value.startsWith("\\\\") || value.startsWith("//");
+  }
+
+  /**
+   * @param {string} input
+   * @returns {string|null}
+   */
+  function normalizePosixPath(input) {
+    const cleaned = normalizePathInput(input);
+    if (!cleaned || cleaned === ".") return "";
+    const isAbs = cleaned.startsWith("/");
+    const parts = [];
+    for (const seg of cleaned.split("/")) {
+      if (!seg || seg === ".") continue;
+      if (seg === "..") return null;
+      parts.push(seg);
+    }
+    const joined = parts.join("/");
+    if (isAbs) return joined ? `/${joined}` : "/";
+    return joined;
+  }
+
+  /**
+   * @param {string} input
+   * @returns {string}
+   */
+  function normalizeBaseRoot(input) {
+    const raw = String(input ?? "").trim();
+    if (!raw) {
+      throw new Error("basePath must not be empty");
+    }
+    const cleaned = normalizePathInput(raw);
+    if (cleaned === "/" || isWindowsAbsolutePath(raw) || isWindowsAbsolutePath(cleaned)) {
+      throw new Error(`Invalid basePath: ${raw}`);
+    }
+    const normalized = normalizePosixPath(cleaned);
+    if (normalized == null || normalized === "/") {
+      throw new Error(`Invalid basePath: ${raw}`);
+    }
+    return normalized;
+  }
+
+  /**
+   * @param {string} base
+   * @param {string} rel
+   * @returns {string}
+   */
+  function joinPaths(base, rel) {
+    const b = String(base || "").replace(/\/+$/, "");
+    const r = String(rel || "").replace(/^\/+/, "");
+    if (!b) return r;
+    if (!r) return b;
+    return `${b}/${r}`;
+  }
+
   /**
    * @param {any} inputPath
    * @returns {string}
    */
-  function safePath(inputPath) {
-    const path = String(inputPath || "").trim();
-    if (!path) return ".";
-    // 防止路径遍历
-    if (path.includes("..")) {
-      throw new Error(`Invalid path: ${path}`);
+  function safeRelativePath(inputPath) {
+    const raw = String(inputPath ?? "").trim();
+    if (!raw) return "";
+    const cleaned = normalizePathInput(raw);
+    if (isWindowsAbsolutePath(raw) || isWindowsAbsolutePath(cleaned)) {
+      throw new Error(`Invalid path: ${raw}`);
     }
-    if (path.startsWith("/")) {
-      if (!normalizedBasePath || normalizedBasePath === "/") return path;
-      if (path === normalizedBasePath || path.startsWith(`${normalizedBasePath}/`)) return path;
-      throw new Error(`Invalid path: ${path}`);
+    const normalized = normalizePosixPath(cleaned);
+    if (normalized == null || normalized === "/") {
+      throw new Error(`Invalid path: ${raw}`);
     }
-    return path;
+    if (!normalized || normalized === ".") return "";
+    if (normalized.startsWith("/")) {
+      if (!baseRootIsAbs) {
+        throw new Error(`Invalid path: ${raw}`);
+      }
+      if (normalized === baseRoot) return "";
+      if (normalized.startsWith(`${baseRoot}/`)) {
+        return normalized.slice(baseRoot.length + 1);
+      }
+      throw new Error(`Invalid path: ${raw}`);
+    }
+    if (baseRootForVfs) {
+      if (normalized === baseRootForVfs) return "";
+      if (normalized.startsWith(`${baseRootForVfs}/`)) {
+        return normalized.slice(baseRootForVfs.length + 1);
+      }
+    }
+    return normalized;
+  }
+
+  /**
+   * @param {any} inputPath
+   * @returns {{ rel: string, fsPath: string, vfsPath: string, displayPath: string }}
+   */
+  function buildPaths(inputPath) {
+    const rel = safeRelativePath(inputPath);
+    const fsPath = joinPaths(baseRootForFs, rel);
+    const vfsPath = joinPaths(baseRootForVfs, rel);
+    const displayPath = joinPaths(baseRootForVfs, rel) || ".";
+    return { rel, fsPath, vfsPath, displayPath };
+  }
+
+  /**
+   * @param {any} buffer
+   * @returns {string}
+   */
+  function bufferToText(buffer) {
+    if (typeof buffer === "string") return buffer;
+    if (buffer && typeof buffer.toString === "function") return buffer.toString("utf8");
+    if (buffer instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(buffer));
+    if (ArrayBuffer.isView(buffer)) {
+      const bytes = new Uint8Array(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+      return new TextDecoder().decode(bytes);
+    }
+    return String(buffer ?? "");
   }
 
   /**
@@ -270,18 +381,15 @@ export function createToolExecutor(options = {}) {
    * @returns {Promise<string>}
    */
   const readTextForIndexing = async (filePath) => {
-    const p = safePath(filePath);
-    if (vfs && typeof vfs.readText === "function") return vfs.readText(p);
+    const { fsPath, vfsPath } = buildPaths(filePath);
+    if (vfs && typeof vfs.readText === "function") return vfs.readText(vfsPath);
+    if (vfs && typeof vfs.readFile === "function") {
+      const buf = await vfs.readFile(vfsPath);
+      return bufferToText(buf);
+    }
     if (fs?.readFile) {
-      const buf = await fs.readFile(p);
-      if (typeof buf === "string") return buf;
-      if (buf && typeof buf.toString === "function") return buf.toString("utf8");
-      if (buf instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(buf));
-      if (ArrayBuffer.isView(buf)) {
-        const bytes = new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-        return new TextDecoder().decode(bytes);
-      }
-      return String(buf ?? "");
+      const buf = await fs.readFile(fsPath);
+      return bufferToText(buf);
     }
     throw new Error("index_symbols: vfs.readText or fs.readFile is required");
   };
@@ -304,7 +412,7 @@ export function createToolExecutor(options = {}) {
    */
   async function glob({ pattern, path }) {
     if (!pattern) throw new Error("glob: pattern is required");
-    const searchPath = safePath(path);
+    const { vfsPath } = buildPaths(path);
 
     if (!globFn) {
       const empty = [];
@@ -316,7 +424,7 @@ export function createToolExecutor(options = {}) {
     }
 
     try {
-      const files = await globFn({ pattern, path: searchPath });
+      const files = await globFn({ pattern, path: vfsPath });
       const limited = Array.isArray(files) ? files.slice(0, maxResults) : [];
       const result = limited.slice();
       result.files = result;
@@ -344,7 +452,7 @@ export function createToolExecutor(options = {}) {
     // 如果提供了 path，先 glob 找文件，再搜索
     let targetFiles = [];
     if (path) {
-      const globResult = await glob({ pattern: "**/*", path: safePath(path) });
+      const globResult = await glob({ pattern: "**/*", path });
       targetFiles = globResult.files || [];
     }
 
@@ -356,8 +464,11 @@ export function createToolExecutor(options = {}) {
         if (content.content) {
           chunks.push({ chunkId: file, text: content.content });
         }
-      } catch {
-        // 跳过无法读取的文件
+      } catch (err) {
+        logger?.warn?.("grep: failed to read file", {
+          path: file,
+          error: String(err?.message || err),
+        });
       }
     }
 
@@ -388,34 +499,30 @@ export function createToolExecutor(options = {}) {
    */
   async function read_file({ path, startLine, endLine }) {
     if (!path) throw new Error("read_file: path is required");
-    const filePath = safePath(path);
+    const { fsPath, vfsPath, displayPath } = buildPaths(path);
 
-    if (!fs?.readFile) {
-      throw new Error("fs.readFile not available");
+    if (!fs?.readFile && !(vfs && (typeof vfs.readText === "function" || typeof vfs.readFile === "function"))) {
+      throw new Error("read_file: fs.readFile or vfs.readText is required");
     }
 
     try {
       // 检查文件大小
-      if (fs.stat) {
-        const stats = await fs.stat(filePath);
+      if (fs?.stat || vfs?.stat) {
+        const stats = fs?.stat ? await fs.stat(fsPath) : await vfs.stat(vfsPath);
         if (stats.size > maxFileSize) {
           throw new Error(`File too large: ${stats.size} bytes (max ${maxFileSize})`);
         }
       }
 
-      const buffer = await fs.readFile(filePath);
       let content;
-      if (typeof buffer === "string") {
-        content = buffer;
-      } else if (buffer && typeof buffer.toString === "function") {
-        content = buffer.toString("utf8");
-      } else if (buffer instanceof ArrayBuffer) {
-        content = new TextDecoder().decode(new Uint8Array(buffer));
-      } else if (ArrayBuffer.isView(buffer)) {
-        const bytes = new Uint8Array(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
-        content = new TextDecoder().decode(bytes);
+      if (fs?.readFile) {
+        const buffer = await fs.readFile(fsPath);
+        content = bufferToText(buffer);
+      } else if (vfs && typeof vfs.readText === "function") {
+        content = await vfs.readText(vfsPath);
       } else {
-        content = String(buffer ?? "");
+        const buffer = await vfs.readFile(vfsPath);
+        content = bufferToText(buffer);
       }
       const lines = content.split("\n");
 
@@ -436,7 +543,7 @@ export function createToolExecutor(options = {}) {
 
       const output = new String(numberedContent);
       output.content = numberedContent;
-      output.path = filePath;
+      output.path = displayPath;
       output.totalLines = lines.length;
       output.range = { start, end };
       output.truncated = end < lines.length || start > 1;
@@ -457,7 +564,7 @@ export function createToolExecutor(options = {}) {
       return { error: "vfs.writeText not available (Browser-only write requires VFS)" };
     }
 
-    const filePath = safePath(path);
+    const { vfsPath } = buildPaths(path);
     const text = typeof content === "string" ? content : String(content ?? "");
     if (text.length > maxFileSize) {
       return { error: `Content too large: ${text.length} chars (max ${maxFileSize})` };
@@ -466,7 +573,7 @@ export function createToolExecutor(options = {}) {
     try {
       const res = await writeTextFileWithPolicy(/** @type {any} */ ({
         vfs,
-        path: filePath,
+        path: vfsPath,
         text,
         policy: policy || stageApi?.policy,
         runStore: runStore || stageApi?.runStore,
@@ -490,12 +597,12 @@ export function createToolExecutor(options = {}) {
       return { error: "vfs.writeText not available (Browser-only write requires VFS)" };
     }
 
-    const filePath = safePath(path);
+    const { vfsPath } = buildPaths(path);
 
     try {
       const res = await multiEditTextFileWithPolicy(/** @type {any} */ ({
         vfs,
-        path: filePath,
+        path: vfsPath,
         edits: Array.isArray(edits) ? edits : [],
         policy: policy || stageApi?.policy,
         runStore: runStore || stageApi?.runStore,
@@ -515,27 +622,42 @@ export function createToolExecutor(options = {}) {
    * @returns {Promise<any>}
    */
   async function list_dir({ path, showHidden = false }) {
-    const dirPath = safePath(path);
+    const { fsPath, vfsPath, displayPath } = buildPaths(path);
 
-    if (!fs?.readdir) {
+    if (!fs?.readdir && !vfs?.readdir && !vfs?.list) {
       const empty = [];
       empty.entries = empty;
-      empty.path = dirPath;
+      empty.path = displayPath;
       empty.total = 0;
       empty.truncated = false;
-      empty.error = "fs.readdir not available";
+      empty.error = "list_dir requires fs.readdir or vfs.readdir/list";
       return empty;
     }
 
     try {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      const entries = fs?.readdir
+        ? await fs.readdir(fsPath, { withFileTypes: true })
+        : vfs?.readdir
+          ? await vfs.readdir(vfsPath, { withFileTypes: true })
+          : await vfs.list(vfsPath);
       const normalized = (Array.isArray(entries) ? entries : [])
         .map((entry) => {
           if (typeof entry === "string") {
             return { name: entry, type: "file" };
           }
           if (entry && typeof entry.name === "string") {
-            return { name: entry.name, type: entry.isDirectory?.() ? "dir" : "file" };
+            if (typeof entry.isDirectory === "function") {
+              return { name: entry.name, type: entry.isDirectory() ? "dir" : "file" };
+            }
+            if (typeof entry.isDirectory === "boolean") {
+              return { name: entry.name, type: entry.isDirectory ? "dir" : "file" };
+            }
+            if (typeof entry.kind === "string") {
+              return { name: entry.name, type: entry.kind === "dir" || entry.kind === "directory" ? "dir" : "file" };
+            }
+            if (typeof entry.type === "string") {
+              return { name: entry.name, type: entry.type === "dir" || entry.type === "directory" ? "dir" : "file" };
+            }
           }
           return null;
         })
@@ -553,14 +675,14 @@ export function createToolExecutor(options = {}) {
 
       const output = result.slice();
       output.entries = output;
-      output.path = dirPath;
+      output.path = displayPath;
       output.total = filtered.length;
       output.truncated = filtered.length > maxResults;
       return output;
     } catch (err) {
       const empty = [];
       empty.entries = empty;
-      empty.path = dirPath;
+      empty.path = displayPath;
       empty.total = 0;
       empty.truncated = false;
       empty.error = String(err?.message || err);
@@ -574,11 +696,12 @@ export function createToolExecutor(options = {}) {
    * @returns {Promise<any>}
    */
   async function tree({ path, depth = 3, pattern } = {}) {
-    const rootPath = safePath(path || ".");
+    const { fsPath, vfsPath, displayPath } = buildPaths(path || ".");
+    const rootPath = fs?.readdir ? fsPath : vfsPath;
     const maxDepth = Math.min(depth, 5); // 限制最大深度
 
-    if (!fs?.readdir) {
-      return { error: "fs.readdir not available", tree: "" };
+    if (!fs?.readdir && !vfs?.readdir && !vfs?.list) {
+      return { error: "tree requires fs.readdir or vfs.readdir/list", tree: "" };
     }
 
     const lines = [];
@@ -586,24 +709,54 @@ export function createToolExecutor(options = {}) {
     let dirCount = 0;
     const maxFiles = 200; // 限制总文件数
 
+    const readEntries = async (dirPath) => {
+      const entries = fs?.readdir
+        ? await fs.readdir(dirPath, { withFileTypes: true })
+        : vfs?.readdir
+          ? await vfs.readdir(dirPath, { withFileTypes: true })
+          : await vfs.list(dirPath);
+      return (Array.isArray(entries) ? entries : [])
+        .map((entry) => {
+          if (typeof entry === "string") {
+            return { name: entry, isDir: false };
+          }
+          if (entry && typeof entry.name === "string") {
+            if (typeof entry.isDirectory === "function") {
+              return { name: entry.name, isDir: entry.isDirectory() };
+            }
+            if (typeof entry.isDirectory === "boolean") {
+              return { name: entry.name, isDir: entry.isDirectory };
+            }
+            if (typeof entry.kind === "string") {
+              return { name: entry.name, isDir: entry.kind === "dir" || entry.kind === "directory" };
+            }
+            if (typeof entry.type === "string") {
+              return { name: entry.name, isDir: entry.type === "dir" || entry.type === "directory" };
+            }
+          }
+          return null;
+        })
+        .filter(Boolean);
+    };
+
     async function walk(dir, prefix = "", currentDepth = 0) {
       if (currentDepth >= maxDepth || fileCount + dirCount > maxFiles) return;
 
       try {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
+        const entries = await readEntries(dir);
         const filtered = entries
           .filter(e => !e.name.startsWith("."))
           .filter(e => {
             if (!pattern) return true;
-            if (e.isDirectory()) return true;
+            if (e.isDir) return true;
             // 简单的模式匹配
             const ext = e.name.split(".").pop();
             return pattern.includes(ext) || pattern.includes("*");
           });
 
         filtered.sort((a, b) => {
-          if (a.isDirectory() !== b.isDirectory()) {
-            return a.isDirectory() ? -1 : 1;
+          if (a.isDir !== b.isDir) {
+            return a.isDir ? -1 : 1;
           }
           return a.name.localeCompare(b.name);
         });
@@ -614,14 +767,14 @@ export function createToolExecutor(options = {}) {
           const entry = filtered[i];
           const isLast = i === filtered.length - 1;
           const connector = isLast ? "└── " : "├── ";
-          const icon = entry.isDirectory() ? "📁" : "📄";
+          const icon = entry.isDir ? "📁" : "📄";
 
           lines.push(`${prefix}${connector}${icon} ${entry.name}`);
 
-          if (entry.isDirectory()) {
+          if (entry.isDir) {
             dirCount++;
             const newPrefix = prefix + (isLast ? "    " : "│   ");
-            await walk(`${dir}/${entry.name}`, newPrefix, currentDepth + 1);
+            await walk(joinPaths(dir, entry.name), newPrefix, currentDepth + 1);
           } else {
             fileCount++;
           }
@@ -631,7 +784,7 @@ export function createToolExecutor(options = {}) {
       }
     }
 
-    lines.push(`📁 ${rootPath}`);
+    lines.push(`📁 ${displayPath}`);
     await walk(rootPath);
 
     return {
@@ -654,7 +807,7 @@ export function createToolExecutor(options = {}) {
     const seen = new Set();
 
     for (const p of normalizeStringArray(paths)) {
-      const sp = safePath(p);
+      const { vfsPath: sp } = buildPaths(p);
       if (seen.has(sp)) continue;
       seen.add(sp);
       fileList.push(sp);
@@ -663,13 +816,13 @@ export function createToolExecutor(options = {}) {
     if (fileList.length === 0) {
       const pat = String(pattern || "").trim();
       if (!pat) throw new Error("index_symbols: pattern or paths is required");
-      const searchPath = safePath(path);
+      const { vfsPath: searchPath } = buildPaths(path);
       if (!globFn) {
         return { error: "glob function not available", indexed: 0, skipped: 0, failed: 0, files: [] };
       }
       const files = await globFn({ pattern: pat, path: searchPath });
       for (const f of Array.isArray(files) ? files : []) {
-        const sp = safePath(f);
+        const { vfsPath: sp } = buildPaths(f);
         if (seen.has(sp)) continue;
         seen.add(sp);
         fileList.push(sp);
@@ -686,30 +839,31 @@ export function createToolExecutor(options = {}) {
 
     for (const file of targetFiles) {
       try {
+        const { fsPath, vfsPath } = buildPaths(file);
         if (fs?.stat) {
-          const stats = await fs.stat(file);
+          const stats = await fs.stat(fsPath);
           if (stats?.size > maxFileSize) {
             failed += 1;
-            results.push({ ok: false, path: file, error: `File too large: ${stats.size} bytes (max ${maxFileSize})` });
+            results.push({ ok: false, path: vfsPath, error: `File too large: ${stats.size} bytes (max ${maxFileSize})` });
             continue;
           }
         }
 
         if (force) {
-          const text = await readTextForIndexing(file);
-          const symbols = await symbolIndexer.extractSymbolsAsync(text, file);
+          const text = await readTextForIndexing(vfsPath);
+          const symbols = await symbolIndexer.extractSymbolsAsync(text, vfsPath);
           const sha256 = await computeSha256(text);
-          await symbolIndexer.store.putSymbolRecord(ws, file, { sha256, symbols });
+          await symbolIndexer.store.putSymbolRecord(ws, vfsPath, { sha256, symbols });
           symbolIndexer.invalidateCaches?.();
           indexed += 1;
-          results.push({ ok: true, path: file, skipped: false, symbolsCount: symbols.length });
+          results.push({ ok: true, path: vfsPath, skipped: false, symbolsCount: symbols.length });
           continue;
         }
 
-        const res = await symbolIndexer.indexFile(file);
+        const res = await symbolIndexer.indexFile(vfsPath);
         if (res?.skipped) skipped += 1;
         else indexed += 1;
-        results.push({ ok: true, path: file, skipped: !!res?.skipped, symbolsCount: Array.isArray(res?.symbols) ? res.symbols.length : 0 });
+        results.push({ ok: true, path: vfsPath, skipped: !!res?.skipped, symbolsCount: Array.isArray(res?.symbols) ? res.symbols.length : 0 });
       } catch (err) {
         failed += 1;
         results.push({ ok: false, path: file, error: String(err?.message || err) });

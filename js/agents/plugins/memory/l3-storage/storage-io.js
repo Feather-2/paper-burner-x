@@ -3,11 +3,58 @@ import { isMissingPathError } from "./utils.js";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+function validateStorageId(id, label) {
+  const value = typeof id === "string" ? id.trim() : "";
+  if (!value) throw new Error(`L3Storage requires { ${label} }`);
+  if (value.includes("..") || value.includes("/") || value.includes("\\")) {
+    throw new Error(`L3Storage ${label} contains invalid characters (path traversal attempt)`);
+  }
+  return value;
+}
+
+function validateSnapshotId(snapshotId) {
+  return validateStorageId(snapshotId, "snapshotId");
+}
+
+function validateCheckpointId(checkpointId) {
+  return validateStorageId(checkpointId, "checkpointId");
+}
+
 export function createStorageIO({ vfs, basePath }) {
   const snapshotsDir = `${basePath}/snapshots`;
   const checkpointsDir = `${basePath}/checkpoints`;
   const indexPath = `${basePath}/index.json`;
   const indexTmpPath = `${basePath}/index.json.tmp`;
+
+  const isPlainObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  const isNonEmptyString = (value) => typeof value === "string" && value.trim() !== "";
+
+  function validateJson(path, value) {
+    if (path === indexPath || path === indexTmpPath) {
+      if (!isPlainObject(value)) return null;
+      if (value.timeline !== undefined && !Array.isArray(value.timeline)) return null;
+      if (
+        value.checkpointIndex !== undefined &&
+        !Array.isArray(value.checkpointIndex) &&
+        !Array.isArray(value.checkpoints)
+      ) {
+        return null;
+      }
+      return value;
+    }
+
+    if (path.startsWith(`${snapshotsDir}/`)) {
+      if (!isPlainObject(value)) return null;
+      return isNonEmptyString(value.id) ? value : null;
+    }
+
+    if (path.startsWith(`${checkpointsDir}/`)) {
+      if (!isPlainObject(value)) return null;
+      return isNonEmptyString(value.id) ? value : null;
+    }
+
+    return value;
+  }
 
   async function ensureDirs() {
     await vfs.mkdir(basePath, { recursive: true });
@@ -30,7 +77,13 @@ export function createStorageIO({ vfs, basePath }) {
     }
 
     const text = decoder.decode(bytes);
-    return JSON.parse(text);
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return null;
+    }
+    return validateJson(path, parsed);
   }
 
   async function writeJson(path, value) {
@@ -119,11 +172,13 @@ export function createStorageIO({ vfs, basePath }) {
   }
 
   function snapshotPath(id) {
-    return `${snapshotsDir}/${id}.json`;
+    const safeId = validateSnapshotId(id);
+    return `${snapshotsDir}/${safeId}.json`;
   }
 
   function checkpointPath(id) {
-    return `${checkpointsDir}/${id}.json`;
+    const safeId = validateCheckpointId(id);
+    return `${checkpointsDir}/${safeId}.json`;
   }
 
   return {

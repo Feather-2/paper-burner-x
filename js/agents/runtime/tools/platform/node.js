@@ -6,7 +6,7 @@
 
 import { toNonEmptyString } from '../../../shared/index.js';
 import { globToRegex } from '../../../shared/index.js';
-import { exec as execCommand } from '../../exec/index.js';
+import { exec as execCommand } from '../../core/exec/index.js';
 
 /**
  * @typedef {import('./index.js').PlatformToolsOptions} PlatformToolsOptions
@@ -18,11 +18,25 @@ import { exec as execCommand } from '../../exec/index.js';
  * @returns {Promise<PlatformTools>}
  */
 export async function createNodeTools(options = {}) {
-  const { basePath = process.cwd(), logger } = options;
+  const {
+    basePath = process.cwd(),
+    logger,
+    allowedCommands: configuredAllowedCommands,
+    maxTimeoutMs: configuredMaxTimeoutMs,
+  } = options;
 
   // 动态导入 Node 模块
   const fs = await import('node:fs/promises');
   const path = await import('node:path');
+  const baseRealPath = await fs.realpath(basePath).catch(() => path.resolve(basePath));
+  const basePrefix = baseRealPath.endsWith(path.sep) ? baseRealPath : `${baseRealPath}${path.sep}`;
+  const allowedCommands = Array.isArray(configuredAllowedCommands)
+    ? configuredAllowedCommands.filter(cmd => typeof cmd === 'string' && cmd.trim())
+    : [];
+  const allowedCommandSet = new Set(allowedCommands);
+  const maxTimeoutMs = Number.isFinite(configuredMaxTimeoutMs)
+    ? Math.max(1, configuredMaxTimeoutMs)
+    : 60000;
 
   /**
    * 规范化并解析路径
@@ -31,6 +45,9 @@ export async function createNodeTools(options = {}) {
    */
   function resolvePath(inputPath) {
     const p = toNonEmptyString(inputPath) || '.';
+    if (hasPathTraversal(p)) {
+      throw new Error('Path traversal detected');
+    }
     if (path.isAbsolute(p)) return p;
     return path.resolve(basePath, p);
   }
@@ -38,26 +55,141 @@ export async function createNodeTools(options = {}) {
   /**
    * 安全路径检查 (防止路径遍历)
    * @param {string} resolvedPath
+   * @param {{ allowMissing?: boolean }} [options]
+   * @returns {Promise<boolean>}
+   */
+  async function isSafePath(resolvedPath, options = {}) {
+    let targetRealPath;
+
+    try {
+      targetRealPath = await fs.realpath(resolvedPath);
+    } catch (err) {
+      if (!options.allowMissing || err.code !== 'ENOENT') {
+        return false;
+      }
+
+      try {
+        targetRealPath = await realpathExistingAncestor(path.dirname(resolvedPath));
+      } catch {
+        return false;
+      }
+    }
+
+    if (targetRealPath === baseRealPath) return true;
+    return targetRealPath.startsWith(basePrefix);
+  }
+
+  /**
+   * 检查路径是否包含父级遍历
+   * @param {string} inputPath
    * @returns {boolean}
    */
-  function isSafePath(resolvedPath) {
-    const normalized = path.normalize(resolvedPath);
-    const normalizedBase = path.normalize(basePath);
-    // 使用 relative 校验：相对路径不应以 '..' 开头或为绝对路径
-    const rel = path.relative(normalizedBase, normalized);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      return false;
+  function hasPathTraversal(inputPath) {
+    return inputPath.split(/[\\/]/).some(part => part === '..');
+  }
+
+  /**
+   * 获取已存在的父级 realpath
+   * @param {string} targetPath
+   * @returns {Promise<string>}
+   */
+  async function realpathExistingAncestor(targetPath) {
+    let current = targetPath;
+
+    while (true) {
+      try {
+        return await fs.realpath(current);
+      } catch (err) {
+        if (err.code !== 'ENOENT') {
+          throw err;
+        }
+        const parent = path.dirname(current);
+        if (parent === current) {
+          throw err;
+        }
+        current = parent;
+      }
     }
-    return true;
+  }
+
+  /**
+   * 解析命令字符串为可执行命令和参数
+   * @param {string} input
+   * @returns {{ command?: string, args?: string[], error?: string }}
+   */
+  function parseCommandInput(input) {
+    if (typeof input !== 'string' || !input.trim()) {
+      return { error: 'Command required' };
+    }
+
+    const tokens = [];
+    let current = '';
+    let quote = null;
+
+    for (let i = 0; i < input.length; i++) {
+      const char = input[i];
+      if (quote) {
+        if (char === quote) {
+          quote = null;
+        } else if (char === '\\' && quote === '"' && i + 1 < input.length) {
+          current += input[i + 1];
+          i += 1;
+        } else {
+          current += char;
+        }
+      } else if (char === '"' || char === '\'') {
+        quote = char;
+      } else if (/\s/.test(char)) {
+        if (current) {
+          tokens.push(current);
+          current = '';
+        }
+      } else {
+        current += char;
+      }
+    }
+
+    if (quote) {
+      return { error: 'Unclosed quote in command' };
+    }
+
+    if (current) {
+      tokens.push(current);
+    }
+
+    if (!tokens.length) {
+      return { error: 'Command required' };
+    }
+
+    return { command: tokens[0], args: tokens.slice(1) };
+  }
+
+  /**
+   * 判断命令是否在允许列表中
+   * @param {string} command
+   * @returns {boolean}
+   */
+  function isCommandAllowed(command) {
+    return allowedCommandSet.has(command);
   }
 
   /**
    * glob - 文件模式匹配
    */
   async function glob({ pattern, path: searchPath }) {
-    const dir = resolvePath(searchPath || '.');
+    const patternValue = toNonEmptyString(pattern) || '';
+    if (hasPathTraversal(patternValue)) {
+      return { files: [], error: 'Path traversal detected' };
+    }
 
-    if (!isSafePath(dir)) {
+    let dir;
+    try {
+      dir = resolvePath(searchPath || '.');
+    } catch (err) {
+      return { files: [], error: err.message };
+    }
+
+    if (!await isSafePath(dir, { allowMissing: true })) {
       return { files: [], error: 'Path outside allowed directory' };
     }
 
@@ -119,9 +251,14 @@ export async function createNodeTools(options = {}) {
    * grep - 内容搜索
    */
   async function grep({ pattern, path: searchPath, regex = false, caseSensitive = true }) {
-    const dir = resolvePath(searchPath || '.');
+    let dir;
+    try {
+      dir = resolvePath(searchPath || '.');
+    } catch (err) {
+      return { matches: [], error: err.message };
+    }
 
-    if (!isSafePath(dir)) {
+    if (!await isSafePath(dir, { allowMissing: true })) {
       return { matches: [], error: 'Path outside allowed directory' };
     }
 
@@ -222,9 +359,14 @@ export async function createNodeTools(options = {}) {
    * read - 读取文件
    */
   async function read({ path: filePath, startLine, endLine }) {
-    const resolvedPath = resolvePath(filePath);
+    let resolvedPath;
+    try {
+      resolvedPath = resolvePath(filePath);
+    } catch (err) {
+      return { content: '', error: err.message };
+    }
 
-    if (!isSafePath(resolvedPath)) {
+    if (!await isSafePath(resolvedPath, { allowMissing: true })) {
       return { content: '', error: 'Path outside allowed directory' };
     }
 
@@ -252,9 +394,14 @@ export async function createNodeTools(options = {}) {
    * write - 写入文件
    */
   async function write({ path: filePath, content }) {
-    const resolvedPath = resolvePath(filePath);
+    let resolvedPath;
+    try {
+      resolvedPath = resolvePath(filePath);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
 
-    if (!isSafePath(resolvedPath)) {
+    if (!await isSafePath(resolvedPath, { allowMissing: true })) {
       return { success: false, error: 'Path outside allowed directory' };
     }
 
@@ -274,9 +421,14 @@ export async function createNodeTools(options = {}) {
    * list - 列出目录
    */
   async function list({ path: dirPath }) {
-    const resolvedPath = resolvePath(dirPath);
+    let resolvedPath;
+    try {
+      resolvedPath = resolvePath(dirPath);
+    } catch (err) {
+      return { entries: [], error: err.message };
+    }
 
-    if (!isSafePath(resolvedPath)) {
+    if (!await isSafePath(resolvedPath, { allowMissing: true })) {
       return { entries: [], error: 'Path outside allowed directory' };
     }
 
@@ -295,17 +447,28 @@ export async function createNodeTools(options = {}) {
    * bash - 执行命令
    */
   async function bash({ command, timeout = 60000 }) {
-    if (!command) {
-      return { stdout: '', stderr: '', exitCode: -1, error: 'Command required' };
+    const parsed = parseCommandInput(command);
+    if (parsed.error || !parsed.command || !parsed.args) {
+      return { stdout: '', stderr: '', exitCode: -1, error: parsed.error || 'Command required' };
     }
+
+    if (!isCommandAllowed(parsed.command)) {
+      logger?.warn?.('[platform/node] bash blocked by allowlist', { command: parsed.command });
+      return { stdout: '', stderr: '', exitCode: -1, error: 'Command not allowed' };
+    }
+
+    const timeoutMs = Math.min(
+      Math.max(1, Number.isFinite(timeout) ? timeout : maxTimeoutMs),
+      maxTimeoutMs
+    );
 
     try {
       const result = await execCommand(
-        process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
-        process.platform === 'win32' ? ['/c', command] : ['-c', command],
+        parsed.command,
+        parsed.args,
         {
           cwd: basePath,
-          timeout,
+          timeout: timeoutMs,
         }
       );
 

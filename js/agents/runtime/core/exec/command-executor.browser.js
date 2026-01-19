@@ -13,9 +13,9 @@
 const UNSUPPORTED_MSG = "Command execution is not supported in browser environments";
 
 /**
- * @param {string} _command
- * @param {string[]} [_args]
- * @param {ExecOptions} [_options]
+ * @param {string} _command - 命令名
+ * @param {string[]} [_args] - 命令参数
+ * @param {ExecOptions} [_options] - 执行选项
  * @returns {Promise<ExecResult>}
  */
 export async function exec(_command, _args = [], _options = {}) {
@@ -33,8 +33,8 @@ export async function exec(_command, _args = [], _options = {}) {
 }
 
 /**
- * @param {string} _command
- * @param {ExecOptions} [_options]
+ * @param {string} _command - Shell 命令字符串
+ * @param {ExecOptions} [_options] - 执行选项
  * @returns {Promise<ExecResult>}
  */
 export async function execShell(_command, _options = {}) {
@@ -42,9 +42,9 @@ export async function execShell(_command, _options = {}) {
 }
 
 /**
- * @param {string} _command
- * @param {string[]} [_args]
- * @param {ExecOptions} [_options]
+ * @param {string} _command - 命令名
+ * @param {string[]} [_args] - 命令参数
+ * @param {ExecOptions} [_options] - 执行选项
  * @returns {Promise<string>}
  */
 export async function execSimple(_command, _args = [], _options = {}) {
@@ -52,7 +52,7 @@ export async function execSimple(_command, _args = [], _options = {}) {
 }
 
 /**
- * @param {string} _command
+ * @param {string} _command - 命令名
  * @returns {Promise<boolean>}
  */
 export async function commandExists(_command) {

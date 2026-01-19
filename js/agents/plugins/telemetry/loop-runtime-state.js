@@ -3,6 +3,9 @@ import { toNonEmptyString } from "../../shared/index.js";
 /**
  * @typedef {"idle" | "running" | "paused" | "completed" | "failed" | "cancelled"} LoopRuntimeStatus
  */
+/**
+ * @typedef {string | Array<unknown> | Record<string, unknown> | null} LoopRuntimeCursor
+ */
 
 const runtimeStateBySignal = new WeakMap();
 
@@ -112,7 +115,7 @@ export class LoopRuntimeState {
 
   /**
    * 序列化为 JSON 对象
-   * @returns {{status: LoopRuntimeStatus, cursor: any, pausedReason: string|null, lastCheckpointId: string|null, statusHistory: Array<{from: string|null, to: string|null, timestamp: string}>}}
+   * @returns {{status: LoopRuntimeStatus, cursor: LoopRuntimeCursor, pausedReason: string|null, lastCheckpointId: string|null, statusHistory: Array<{from: string|null, to: string|null, timestamp: string}>}}
    */
   toJSON() {
     return {

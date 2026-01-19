@@ -4,6 +4,42 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] input-validation
+*Archived: 2026-01-19T20:40:56.841Z*
+
+- **File**: js/agents/stages/deepsearch/report/report-postprocess.js:85
+- **Description**: getReportConfig 合并 globalConfig/stateConfig 后未验证 requiredSections/recommendedSections 类型，若配置被污染为非数组会导致校验逻辑失真或异常。
+- **Suggestion**: 对 merged.requiredSections/recommendedSections 使用 Array.isArray 校验，不符合时回退到 base；必要时深拷贝/归一化。
+```
+const merged = { ...base, ...(isPlainObject(globalConfig) ? globalConfig : {}), ...(isPlainObject(stateConfig) ? stateConfig : {}) };
+return {
+  minWords: merged.minWords ?? base.minWords,
+  minReferences: merged.minReferences ?? base.minReferences,
+  requiredSections: merged.requiredSections ?? base.requiredSections,
+  recommendedSections: merged.recommendedSections ?? base.recommendedSections,
+  sectionWordLimits: merged.sectionWordLimits || {},
+};
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] prototype-pollution
+*Archived: 2026-01-19T20:40:45.041Z*
+
+- **File**: js/agents/stages/deepsearch/report/report-postprocess.js:181
+- **Description**: reviewReportMarkdown 使用用户可控的标题字符串作为对象键写入，可能触发 __proto__/constructor 等键导致原型污染或异常计数行为。
+- **Suggestion**: 改用 Map 或 Object.create(null) 做计数，并在读取/写入时使用 get/set；或过滤危险键名。
+```
+const headingCounts = {};
+for (const h of headings) headingCounts[h] = (headingCounts[h] || 0) + 1;
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] 质量-正则状态

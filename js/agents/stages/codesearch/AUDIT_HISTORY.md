@@ -4,6 +4,113 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] 浏览器兼容性/Node-only API
+*Archived: 2026-01-19T21:03:31.540Z*
+
+- **File**: js/agents/stages/codesearch/code-tools.js:389
+- **Description**: read_file/grep/list_dir/tree 依赖 fs.readFile/readdir/stat，未提供 vfs.readText fallback，和 Browser-first 约定不一致；浏览器运行时工具会直接失败。
+- **Suggestion**: 为 read_file 等读操作加入 vfs.readText fallback，或在系统提示中禁用这些工具并标注 Node-only。
+```
+if (!fs?.readFile) {
+  throw new Error("fs.readFile not available");
+}
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] 测试反模式
+*Archived: 2026-01-19T21:03:20.874Z*
+
+- **File**: js/agents/stages/codesearch/test.js:38
+- **Description**: tests 仅打印日志无断言，属于伪测试，无法满足覆盖率与边界验证要求。
+- **Suggestion**: 添加断言（结构/数量/错误分支），并补充边界与异常输入测试。
+```
+console.log("--- Test: list_dir ---");
+const listResult = await tools.list_dir({ path: "js/agents/stages" });
+console.log("list_dir result:", JSON.stringify(listResult, null, 2));
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] 不安全反序列化
+*Archived: 2026-01-19T21:03:17.603Z*
+
+- **File**: js/agents/stages/codesearch/phases/planning-phase.js:70
+- **Description**: Todo 规划阶段直接对 LLM 输出 JSON.parse，仅做浅层数组/对象判断，缺少 schema 与长度限制，异常输出可能污染 todo 结构或导致流程异常。
+- **Suggestion**: 解析前限制文本长度，并对字段进行严格 schema 校验（字段白名单 + 类型约束）；失败时要求模型重试或返回受控错误。
+```
+const parsed = JSON.parse(jsonMatch[1]);
+if (Array.isArray(parsed)) return parsed;
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] 错误处理
+*Archived: 2026-01-19T21:02:46.213Z*
+
+- **File**: js/agents/stages/codesearch/code-tools.js:353
+- **Description**: grep 工具读文件失败时使用空 catch 吞掉异常，违反“不要吞掉异常”约定，排障困难。
+- **Suggestion**: 至少记录 warn（包含 path 和错误摘要），或把失败统计返回给调用方。
+```
+try {
+  const content = await read_file({ path: file });
+  if (content.content) {
+    chunks.push({ chunkId: file, text: content.content });
+  }
+} catch {
+  // 跳过无法读取的文件
+}
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] 不安全反序列化
+*Archived: 2026-01-19T21:02:40.004Z*
+
+- **File**: js/agents/stages/codesearch/phases/execution-phase.js:95
+- **Description**: 执行阶段对 LLM 响应 JSON.parse 并用正则 fallback 解析 args，缺少 action/args schema 校验，可能导致异常状态更新或工具参数污染。
+- **Suggestion**: 为 decision 定义严格 schema（action 枚举、args 白名单、todoId 格式），解析失败时返回可恢复错误并要求模型重试。
+```
+const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+if (jsonMatch) {
+  parsed = JSON.parse(jsonMatch[1]);
+}
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] 路径穿越
+*Archived: 2026-01-19T21:02:36.476Z*
+
+- **File**: js/agents/stages/codesearch/code-tools.js:235
+- **Description**: safePath 允许 basePath 为空或为 '/' 时接受任意绝对路径，且未阻止 Windows 盘符路径；basePath 来自 input?.basePath（可能为 UI/LLM 输入），导致 read_file/write_file/multi_edit/list_dir/tree/index_symbols 可越过项目根目录访问或写入。
+- **Suggestion**: 固定可信的 baseRoot，并使用 path.resolve(baseRoot, inputPath) 后校验前缀；拒绝 Windows 盘符/UNC 路径；不要接受用户传入 '/' 或空值作为 basePath。
+```
+function safePath(inputPath) {
+  const path = String(inputPath || "").trim();
+  if (path.startsWith("/")) {
+    if (!normalizedBasePath || normalizedBasePath === "/") return path;
+    if (path === normalizedBasePath || path.startsWith(`${normalizedBasePath}/`)) return path;
+    throw new Error(`Invalid path: ${path}`);
+  }
+  return path;
+}
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] browser-compatibility

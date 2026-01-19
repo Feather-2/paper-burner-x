@@ -12,6 +12,10 @@ import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("stages/codesearch/test");
 
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
 /**
  * @returns {Promise<void>}
  */
@@ -39,12 +43,17 @@ async function testTools() {
   console.log("--- Test: list_dir ---");
   const listResult = await tools.list_dir({ path: "js/agents/stages" });
   console.log("list_dir result:", JSON.stringify(listResult, null, 2));
+  assert(!listResult.error, "list_dir should not error");
+  assert(Array.isArray(listResult.entries), "list_dir should return entries array");
+  assert(listResult.entries.length > 0, "list_dir should return at least one entry");
 
   // 测试 2: tree
   console.log("\n--- Test: tree ---");
   const treeResult = await tools.tree({ path: "js/agents/stages/codesearch", depth: 2 });
   console.log("tree result:\n", treeResult.tree);
   console.log("stats:", treeResult.stats);
+  assert(typeof treeResult.tree === "string" && treeResult.tree.length > 0, "tree should return output");
+  assert(treeResult.stats && treeResult.stats.dirs >= 0, "tree should return stats");
 
   // 测试 3: read_file
   console.log("\n--- Test: read_file ---");
@@ -54,12 +63,27 @@ async function testTools() {
     endLine: 10,
   });
   console.log("read_file result:\n", readResult.content);
+  assert(readResult.content.includes("export"), "read_file should return file content");
+
+  // 测试 3b: read_file path traversal
+  let traversalBlocked = false;
+  try {
+    await tools.read_file({ path: "../package.json" });
+  } catch (err) {
+    traversalBlocked = true;
+  }
+  assert(traversalBlocked, "read_file should block path traversal");
+
+  // 测试 3c: list_dir missing path
+  const missingDir = await tools.list_dir({ path: "no_such_dir" });
+  assert(!!missingDir.error, "list_dir should report missing path errors");
 
   // 测试 4: 工具定义格式化
   console.log("\n--- Test: Tool Definitions ---");
   const defs = formatToolDefinitionsForLLM();
   console.log("Tool definitions length:", defs.length, "chars");
   console.log("First 500 chars:\n", defs.slice(0, 500));
+  assert(defs.includes("read_file"), "tool definitions should include read_file");
 
   console.log("\n=== All Tools Tests Passed ===");
 }
@@ -112,6 +136,7 @@ async function testMockAgentLoop() {
       console.log(`  Result: ${summary}`);
     }
 
+    assert(!result.error, `mock step ${i + 1} should not error`);
     observations.push({ step: i + 1, tool: step.tool, result });
   }
 

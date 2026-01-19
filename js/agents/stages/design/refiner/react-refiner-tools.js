@@ -1,7 +1,7 @@
 /**
  * ReactRefiner 工具适配层（Generation 阶段）
  *
- * 所有工具返回统一格式：{success: boolean, data?: any, error?: string}
+ * 所有工具返回统一格式：{success: boolean, data?: ToolResultData, error?: string}
  */
 
 import {
@@ -14,18 +14,39 @@ import {
 } from "../shared/design-utils.js";
 
 /**
- * @typedef {{ success: boolean, data?: any, error?: string }} ToolResult
+ * @typedef {Record<string, unknown> | string | number | boolean | null | Array<unknown>} ToolResultData
  */
 
 /**
- * @typedef {(toolName: string, params: any) => Promise<ToolResult>} ToolExecutor
+ * @typedef {Record<string, unknown>} ToolParams
+ */
+
+/**
+ * @typedef {{ success: boolean, data?: ToolResultData, error?: string }} ToolResult
+ */
+
+/**
+ * @typedef {(toolName: string, params: ToolParams) => Promise<ToolResult>} ToolExecutor
+ */
+
+/**
+ * @typedef {object} DeckPackage
+ * @property {string} [deckHtmlDsl]
+ * @property {Array<Record<string, unknown>>} [slidesMeta]
+ * @property {Array<Record<string, unknown>>} [imageSlots]
+ */
+
+/**
+ * @typedef {object} ContentPackage
+ * @property {Array<Record<string, unknown>>} [slideIntents]
+ * @property {Array<Record<string, unknown>>} [claims]
  */
 
 /**
  * @typedef {object} ToolContext
- * @property {{ deckHtmlDsl?: string, slidesMeta?: any[] }} [deckPackage]
- * @property {any} [contentPackage]
- * @property {{ signal?: AbortSignal, emit?: Function }} [stageApi]
+ * @property {DeckPackage} [deckPackage]
+ * @property {ContentPackage} [contentPackage]
+ * @property {{ signal?: AbortSignal, emit?: (name: string, payload: Record<string, unknown>) => void }} [stageApi]
  */
 
 /**
@@ -211,7 +232,7 @@ async function getDomPurify() {
   return _domPurifyPromise;
 }
 
-async function sanitizeHtmlFragment(html) {
+export async function sanitizeHtmlFragment(html) {
   const input = typeof html === "string" ? html : String(html ?? "");
   if (!input.trim()) return "";
 
@@ -670,7 +691,13 @@ async function editElement(context, params) {
     for (const el of nodes) {
       if (text !== null) el.textContent = text;
       if (html !== null) await setInnerHTMLSanitized(el, html);
-      if (style !== null) el.setAttribute("style", style);
+      if (style !== null) {
+        if (isDangerousStyle(style)) {
+          el.removeAttribute("style");
+        } else {
+          el.setAttribute("style", style);
+        }
+      }
       applyAttrChanges(el, changes.attrs);
 
       // Best-effort: map known shorthand keys to data-* attributes.

@@ -40,6 +40,8 @@ import {
 } from "./action-types.js";
 import { generateId, truncate } from "./state-engine.utils.js";
 
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Initial State Factory
 // ─────────────────────────────────────────────────────────────────────────────
@@ -272,9 +274,13 @@ export function reduceL1(state, action) {
     case L1_SET_SCRATCHPAD: {
       const { key, value } = payload || {};
       if (isPlainObject(key) && value === undefined) {
-        return { ...state, L1: { ...L1, scratchpad: { ...L1.scratchpad, ...key } } };
+        const entries = Object.entries(key).filter(([entryKey]) => !UNSAFE_KEYS.has(entryKey));
+        if (entries.length === 0) return state;
+        return { ...state, L1: { ...L1, scratchpad: { ...L1.scratchpad, ...Object.fromEntries(entries) } } };
       }
-      return { ...state, L1: { ...L1, scratchpad: { ...L1.scratchpad, [key]: value } } };
+      const safeKey = toNonEmptyString(key);
+      if (!safeKey || UNSAFE_KEYS.has(safeKey)) return state;
+      return { ...state, L1: { ...L1, scratchpad: { ...L1.scratchpad, [safeKey]: value } } };
     }
 
     case L1_CLEAR_SCRATCHPAD: {
@@ -291,7 +297,7 @@ export function reduceL1(state, action) {
     case L1_SYNC_DISCOVERY: {
       const { id, data } = payload || {};
       const key = toNonEmptyString(id);
-      if (!key) return state;
+      if (!key || UNSAFE_KEYS.has(key)) return state;
 
       const existing = L1.syncTable.discoveries[key] || {};
       const entry = {
@@ -319,7 +325,7 @@ export function reduceL1(state, action) {
     case L1_SYNC_SUBAGENT: {
       const { id, data } = payload || {};
       const key = toNonEmptyString(id);
-      if (!key) return state;
+      if (!key || UNSAFE_KEYS.has(key)) return state;
 
       const existing = L1.syncTable.subagents[key] || {};
       const entry = {

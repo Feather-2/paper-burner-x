@@ -21,6 +21,32 @@ const ALLOWED_CAPABILITIES = Object.freeze({
   fetch: SandboxCapability.FETCH,
 });
 
+/**
+ * @param {Iterable<string> | null | undefined} value
+ * @returns {Set<string> | null}
+ */
+function normalizeFallbackAllowlist(value) {
+  if (!value) return null;
+  if (value instanceof Set) return value;
+  if (Array.isArray(value)) {
+    const entries = value.filter(item => typeof item === 'string' && item.trim().length > 0);
+    return entries.length > 0 ? new Set(entries) : null;
+  }
+  return null;
+}
+
+/**
+ * @param {Set<string> | null} allowlist
+ * @param {any} skill
+ * @returns {boolean}
+ */
+function isAllowlistedSkill(allowlist, skill) {
+  if (!allowlist) return false;
+  const id = skill?.id || skill?.metadata?.name;
+  if (!id || typeof id !== 'string') return false;
+  return allowlist.has(id);
+}
+
 // Fallback eval 的基础防护（best-effort；不是强安全边界）
 /** @type {RegExp[]} */
 const FALLBACK_BLOCK_PATTERNS = [
@@ -268,6 +294,7 @@ export class SkillExecutor {
    * @param {Object} [options.kernel] - Kernel 实例（用于事件和状态）
    * @param {SandboxPool} [options.pool] - 沙箱池（可选，会自动创建）
    * @param {Function} [options.trustChecker] - 检查 Skill 是否可信
+   * @param {Iterable<string>} [options.fallbackAllowlist] - 允许使用 fallback eval 的 skill id/name 列表
    * @param {'eval'|'none'} [options.fallbackMode='none'] - WASM 不可用时的降级策略
    * @param {{ debug?: Function, info?: Function, warn?: Function, error?: Function }} [options.logger] - 日志实例
    */
@@ -278,6 +305,7 @@ export class SkillExecutor {
     this.pool = options.pool;
     this.logger = options.logger || createLogger('core/sandbox/skill-executor');
     this.trustChecker = options.trustChecker || this._defaultTrustChecker;
+    this.fallbackAllowlist = normalizeFallbackAllowlist(options.fallbackAllowlist);
     this._ownPool = !options.pool;
     this._poolInitPromise = null;
     this._fallbackWarned = false;
@@ -290,6 +318,19 @@ export class SkillExecutor {
   _defaultTrustChecker(skill) {
     const scope = skill?.metadata?.scope;
     return scope === 'system';
+  }
+
+  /**
+   * fallback eval 仅允许可信代码或显式 allowlist
+   * @param {Object} skill
+   * @param {Object} [context]
+   * @returns {boolean}
+   */
+  _isFallbackAllowed(skill, context = {}) {
+    if (this.trustChecker(skill)) return true;
+    if (context?.trusted === true) return true;
+    const allowlist = normalizeFallbackAllowlist(context?.fallbackAllowlist) || this.fallbackAllowlist;
+    return isAllowlistedSkill(allowlist, skill);
   }
 
   /**
@@ -315,8 +356,7 @@ export class SkillExecutor {
       const mapped = ALLOWED_CAPABILITIES[cap];
       if (!mapped) {
         // 未知能力声明仅告警，不授予
-        // eslint-disable-next-line no-console
-        console.warn?.('[SkillExecutor] Unknown capability declared by skill', {
+        this.logger.warn('[SkillExecutor] Unknown capability declared by skill', {
           skill: skill?.metadata?.name,
           capability: cap,
         });
@@ -329,8 +369,7 @@ export class SkillExecutor {
     for (const cap of approved) {
       const mapped = ALLOWED_CAPABILITIES[cap];
       if (!mapped) {
-        // eslint-disable-next-line no-console
-        console.warn?.('[SkillExecutor] Unknown capability approval ignored', {
+        this.logger.warn('[SkillExecutor] Unknown capability approval ignored', {
           skill: skill?.metadata?.name,
           capability: cap,
         });
@@ -551,6 +590,23 @@ export class SkillExecutor {
   async _executeFallback(skill, context, exec) {
     const skillId = skill?.id || skill?.metadata?.name;
     this.logger.debug('Executing skill in fallback mode', { skillId });
+
+    if (!this._isFallbackAllowed(skill, context)) {
+      try {
+        this.logger.warn('Fallback eval blocked for untrusted skill', {
+          skillId,
+          scope: skill?.metadata?.scope,
+        });
+      } catch {
+        // ignore
+      }
+      return {
+        success: false,
+        data: null,
+        error: 'Security: fallback eval blocked for untrusted skill',
+        metrics: { duration: 0, blocked: true, mode: 'eval' },
+      };
+    }
 
     const code = String(skill?.body || '');
     const timeoutMs = exec?.limits?.timeoutMs ?? ResourceLimits.STANDARD.timeoutMs;
@@ -972,6 +1028,8 @@ export class SkillExecutor {
 
 /**
  * 创建执行器
+ * @param {Object} [options] - SkillExecutor options
+ * @returns {SkillExecutor}
  */
 export function createSkillExecutor(options = {}) {
   return new SkillExecutor(options);

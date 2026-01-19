@@ -7,6 +7,14 @@
  * 构建工具应通过 package.json exports 或 browser field 选择正确版本。
  */
 
-// 默认导出 Node 版本；浏览器构建应替换为 .browser.js
-export { exec, execShell, execSimple, commandExists } from './command-executor.node.js';
-export { default } from './command-executor.node.js';
+import * as nodeImpl from './command-executor.node.js';
+import * as browserImpl from './command-executor.browser.js';
+
+const isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined";
+const impl = isBrowser ? browserImpl : nodeImpl;
+
+export const exec = impl.exec;
+export const execShell = impl.execShell;
+export const execSimple = impl.execSimple;
+export const commandExists = impl.commandExists;
+export default impl.default || impl;

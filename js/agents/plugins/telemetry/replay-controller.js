@@ -34,11 +34,15 @@ function normalizeSpeed(speed) {
   return value;
 }
 
+/**
+ * @typedef {Record<string, unknown>} ReplayEvent
+ */
+
 export class RunReplayController {
   /**
    * @param {object} [param0]
-   * @param {{ getEvents: (runId: string) => (Promise<Array<any>>|Array<any>) }} [param0.runStore]
-   * @param {{ _dispatch?: (record: any) => void, emit?: (name: string, record: any) => void }} [param0.eventBus]
+   * @param {{ getEvents: (runId: string) => (Promise<Array<ReplayEvent>>|Array<ReplayEvent>) }} [param0.runStore]
+   * @param {{ _dispatch?: (record: ReplayEvent) => void, emit?: (name: string, record: ReplayEvent) => void }} [param0.eventBus]
    * @param {number} [param0.speed]
    * @param {number} [param0.maxDelayMs]
    */
@@ -92,7 +96,7 @@ export class RunReplayController {
   /**
    * @param {string} runId
    * @param {object} [param1]
-   * @param {Array<any>=} param1.events
+   * @param {Array<ReplayEvent>=} param1.events
    * @returns {Promise<RunReplayController>}
    */
   async load(runId, { events } = {}) {

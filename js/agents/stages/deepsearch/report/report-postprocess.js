@@ -83,12 +83,14 @@ export function getReportConfig(state, mode) {
 
   const base = DEFAULT_REPORT_REQUIREMENTS[m] || DEFAULT_REPORT_REQUIREMENTS.wider;
   const merged = { ...base, ...(isPlainObject(globalConfig) ? globalConfig : {}), ...(isPlainObject(stateConfig) ? stateConfig : {}) };
+  const requiredSections = Array.isArray(merged.requiredSections) ? merged.requiredSections : base.requiredSections;
+  const recommendedSections = Array.isArray(merged.recommendedSections) ? merged.recommendedSections : base.recommendedSections;
 
   return {
     minWords: merged.minWords ?? base.minWords,
     minReferences: merged.minReferences ?? base.minReferences,
-    requiredSections: merged.requiredSections ?? base.requiredSections,
-    recommendedSections: merged.recommendedSections ?? base.recommendedSections,
+    requiredSections,
+    recommendedSections,
     sectionWordLimits: merged.sectionWordLimits || {},
   };
 }
@@ -178,9 +180,9 @@ export function reviewReportMarkdown(markdown) {
 
   const headingPattern = /^(#{1,6}\s+\d*\.?\s*.+)$/gm;
   const headings = [...src.matchAll(headingPattern)].map((m) => m[1].trim());
-  const headingCounts = {};
-  for (const h of headings) headingCounts[h] = (headingCounts[h] || 0) + 1;
-  const duplicateHeadings = Object.entries(headingCounts).filter(([, c]) => c > 1);
+  const headingCounts = new Map();
+  for (const h of headings) headingCounts.set(h, (headingCounts.get(h) || 0) + 1);
+  const duplicateHeadings = [...headingCounts.entries()].filter(([, c]) => c > 1);
 
   if (duplicateHeadings.length > 0) {
     issues.push({ type: "duplicate_heading", items: duplicateHeadings.map(([h, c]) => `${h} (${c}次)`) });

@@ -18,6 +18,16 @@ import { formatToolDefinitionsForLLM } from "../code-tools.js";
 
 const logger = createLogger("stages/codesearch/phases/planning-phase");
 
+const MAX_TODO_RESPONSE_CHARS = 12000;
+const MAX_TODO_JSON_CHARS = 8000;
+const MAX_TODO_ITEMS = 20;
+const MAX_TODO_TEXT_CHARS = 400;
+const MAX_TODO_HINTS = 10;
+const MAX_TODO_HINT_CHARS = 80;
+const MAX_TODO_EVIDENCE_CHARS = 400;
+const ALLOWED_TODO_KEYS = new Set(["text", "priority", "queryHints", "expectedEvidence"]);
+const ALLOWED_TODO_PRIORITIES = new Set(["low", "medium", "high"]);
+
 /**
  * @typedef {object} CodeSearchTodoLike
  * @property {string=} todoId
@@ -62,26 +72,76 @@ const logger = createLogger("stages/codesearch/phases/planning-phase");
  * @returns {any[]|null}
  */
 function parseTodoPlannerOutput(text) {
-  if (!text) return null;
+  const raw = String(text ?? "").trim();
+  if (!raw) return null;
+  if (raw.length > MAX_TODO_RESPONSE_CHARS) return null;
 
-  // 尝试提取 JSON
-  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-  if (jsonMatch) {
+  const candidates = [];
+  const jsonMatch = raw.match(/```json\s*([\s\S]*?)\s*```/);
+  if (jsonMatch) candidates.push(jsonMatch[1]);
+  candidates.push(raw);
+
+  for (const candidate of candidates) {
+    const trimmed = String(candidate || "").trim();
+    if (!trimmed || trimmed.length > MAX_TODO_JSON_CHARS) continue;
     try {
-      const parsed = JSON.parse(jsonMatch[1]);
-      if (Array.isArray(parsed)) return parsed;
-      if (isPlainObject(parsed) && Array.isArray(parsed.todos)) return parsed.todos;
-    } catch { /* continue */ }
+      const parsed = JSON.parse(trimmed);
+      const items = Array.isArray(parsed)
+        ? parsed
+        : isPlainObject(parsed) && Object.keys(parsed).length === 1 && Array.isArray(parsed.todos)
+          ? parsed.todos
+          : null;
+      const sanitized = sanitizeTodoItems(items);
+      if (sanitized) return sanitized;
+    } catch {
+      // continue
+    }
   }
 
-  // 尝试直接解析
-  try {
-    const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) return parsed;
-    if (isPlainObject(parsed) && Array.isArray(parsed.todos)) return parsed.todos;
-  } catch { /* continue */ }
-
   return null;
+}
+
+/**
+ * @param {any} items
+ * @returns {Array<{ text: string, priority?: string, queryHints?: string[], expectedEvidence?: string }>|null}
+ */
+function sanitizeTodoItems(items) {
+  if (!Array.isArray(items) || items.length === 0 || items.length > MAX_TODO_ITEMS) return null;
+  const sanitized = [];
+
+  for (const item of items) {
+    if (!isPlainObject(item)) return null;
+    const keys = Object.keys(item);
+    if (keys.some((key) => !ALLOWED_TODO_KEYS.has(key))) return null;
+
+    const text = toNonEmptyString(item.text);
+    if (!text || text.length > MAX_TODO_TEXT_CHARS) return null;
+
+    const priority = toNonEmptyString(item.priority);
+    if (priority && !ALLOWED_TODO_PRIORITIES.has(priority)) return null;
+
+    const rawHints = Array.isArray(item.queryHints) ? item.queryHints : [];
+    const hints = [];
+    for (const hint of rawHints) {
+      if (typeof hint !== "string") return null;
+      const trimmed = hint.trim();
+      if (!trimmed) continue;
+      if (trimmed.length > MAX_TODO_HINT_CHARS) return null;
+      hints.push(trimmed);
+      if (hints.length > MAX_TODO_HINTS) return null;
+    }
+
+    const expectedEvidence = toNonEmptyString(item.expectedEvidence);
+    if (expectedEvidence && expectedEvidence.length > MAX_TODO_EVIDENCE_CHARS) return null;
+
+    const entry = { text };
+    if (priority) entry.priority = priority;
+    if (hints.length) entry.queryHints = hints;
+    if (expectedEvidence) entry.expectedEvidence = expectedEvidence;
+    sanitized.push(entry);
+  }
+
+  return sanitized;
 }
 
 /**

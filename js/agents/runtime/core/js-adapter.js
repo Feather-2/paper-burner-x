@@ -5,7 +5,7 @@
  *
  * 安全策略（按优先级）：
  *   1. Worker 隔离执行（best-effort；不是强安全边界）
- *   2. 主线程 fallback（仅用于 trusted 执行；默认拒绝不可信代码）
+ *   2. 主线程 fallback（已禁用，避免主线程动态代码执行）
  *
  */
 
@@ -363,7 +363,7 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
     }
 
     const trusted = context?.trusted === true;
-    if (this.mainThreadFallback === "deny" || (this.mainThreadFallback !== "allow" && !trusted)) {
+    if (!trusted || this.mainThreadFallback === "deny") {
       try {
         context?.emit?.("runtime.fallback_blocked", {
           runtime: "js",
@@ -381,113 +381,22 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
     }
 
     try {
-      context?.emit?.("runtime.fallback_used", {
+      context?.emit?.("runtime.fallback_blocked", {
         runtime: "js",
         mode: "main_thread",
         policy: this.mainThreadFallback,
         trusted,
+        reason: "disabled",
       });
     } catch {
       // ignore
     }
 
-    // 安全检查
-    if (!this.skipValidation) {
-      const validation = validateCode(code);
-      if (!validation.valid) {
-        return {
-          success: false,
-          error: `Security: ${validation.reason}`,
-          metrics: { duration: Date.now() - startTime }
-        };
-      }
-    }
-
-    const audit = { blockedAccesses: new Set() };
-
-    try {
-      const base = Object.create(null);
-      const root = typeof globalThis !== "undefined" ? globalThis : undefined;
-
-      logger.debug("[JSSandbox] audit: start", {
-        mode: "main_thread",
-        timeoutMs: this.timeout,
-        codeLength: typeof code === "string" ? code.length : 0,
-        trusted,
-      });
-
-      for (const key of SANDBOX_ALLOWED_GLOBALS) {
-        if (root && key in root) base[key] = root[key];
-      }
-
-      const normalizedState = context?.state && typeof context.state === "object" ? context.state : {};
-      base.state = Object.freeze(normalizedState);
-      base.vfs = context?.vfs;
-      base.emit = typeof context?.emit === "function" ? context.emit.bind(context) : undefined;
-
-      // Prevent accidentally exposing blocked globals via injected context.
-      for (const k of Object.keys(base)) {
-        if (SANDBOX_BLOCKED_GLOBALS.has(k)) delete base[k];
-      }
-
-      const sandbox = createSandboxProxy(base, audit);
-
-      // SECURITY: Fallback sandbox via new Function/with - TRUSTED-ONLY.
-      // Only enabled when mainThreadFallback policy is 'allow' or 'trustedOnly'.
-      // Do not route untrusted input here; prefer Worker sandbox.
-      // eslint-disable-next-line no-new-func -- trusted-only fallback
-      const fn = new Function('sandbox', `
-        return (async function () {
-          with (sandbox) {
-            ${code}
-          }
-        }).call(sandbox);
-      `);
-
-      let timeoutId = null;
-      const execPromise = fn(sandbox);
-      const timeoutPromise =
-        this.timeout > 0
-          ? new Promise((_, reject) => {
-              timeoutId = setTimeout(() => reject(new Error("Execution timeout")), this.timeout);
-            })
-          : null;
-
-      let result;
-      try {
-        result = timeoutPromise ? await Promise.race([execPromise, timeoutPromise]) : await execPromise;
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-      }
-
-      return {
-        success: true,
-        data: result,
-        metrics: {
-          duration: Date.now() - startTime,
-          blockedGlobals: Array.from(audit.blockedAccesses),
-        }
-      };
-    } catch (err) {
-      return {
-        success: false,
-        error: err.message,
-        metrics: {
-          duration: Date.now() - startTime,
-          blockedGlobals: Array.from(audit.blockedAccesses),
-        }
-      };
-    } finally {
-      try {
-        logger.debug("[JSSandbox] audit: end", {
-          mode: "main_thread",
-          duration: Date.now() - startTime,
-          blockedGlobals: Array.from(audit.blockedAccesses),
-        });
-      } catch {
-        // ignore
-      }
-    }
+    return {
+      success: false,
+      error: "Main-thread fallback disabled; worker sandbox required",
+      metrics: { duration: Date.now() - startTime, blocked: true },
+    };
   }
 
   /**

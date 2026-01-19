@@ -25,6 +25,7 @@ export function decodeTabCoordinatorSession(sessionId) {
   return { runId, snapshotId };
 }
 
+/** @private */
 function callTabCoordinatorHandler(handler, sessionId, label, logger) {
   if (typeof handler !== "function") return;
   try {
@@ -34,6 +35,7 @@ function callTabCoordinatorHandler(handler, sessionId, label, logger) {
   }
 }
 
+/** @private */
 function callTabCoordinatorHandlers(handlers, sessionId, label, logger) {
   for (const handler of handlers) {
     callTabCoordinatorHandler(handler, sessionId, label, logger);

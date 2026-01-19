@@ -18,13 +18,14 @@ export function validateArgs(args, schema) {
     return { valid: true, errors: [] };
   }
 
+  const params = args && typeof args === "object" && !Array.isArray(args) ? args : {};
   const errors = [];
   const normalizedSchema = normalizeSchema(schema);
 
   // 检查必需字段
   if (normalizedSchema.required) {
     for (const field of normalizedSchema.required) {
-      if (args[field] === undefined || args[field] === null) {
+      if (params[field] === undefined || params[field] === null) {
         errors.push(`Missing required field: ${field}`);
       }
     }
@@ -33,7 +34,7 @@ export function validateArgs(args, schema) {
   // 检查类型
   if (normalizedSchema.properties) {
     for (const [key, prop] of Object.entries(normalizedSchema.properties)) {
-      const value = args[key];
+      const value = params[key];
       if (value === undefined) continue;
 
       const typeError = validateType(value, prop, key);
@@ -85,7 +86,7 @@ export function validateArgs(args, schema) {
   // 检查额外字段 (additionalProperties: false)
   if (normalizedSchema.additionalProperties === false && normalizedSchema.properties) {
     const allowed = new Set(Object.keys(normalizedSchema.properties));
-    for (const key of Object.keys(args)) {
+    for (const key of Object.keys(params)) {
       if (!allowed.has(key)) {
         errors.push(`Unknown field: ${key}`);
       }
@@ -94,6 +95,8 @@ export function validateArgs(args, schema) {
 
   return { valid: errors.length === 0, errors };
 }
+
+export const validateToolSchema = validateArgs;
 
 /**
  * 验证单个值的类型

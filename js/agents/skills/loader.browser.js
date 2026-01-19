@@ -23,6 +23,7 @@ const DEFAULT_MANIFEST_URL_FALLBACK = "public/skills/manifest.json";
 
 const DEFAULT_MAX_MANIFEST_BYTES = 512 * 1024; // 512 KiB
 const DEFAULT_MAX_SKILL_BYTES = 2 * 1024 * 1024; // 2 MiB
+const FORBIDDEN_METADATA_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
 let _manifestCache = null; // { url, data, ts, maxBytes }
 const MANIFEST_CACHE_TTL_MS = 30_000;
@@ -73,7 +74,7 @@ function extractFrontmatter(contents) {
 }
 
 function parseSimpleYaml(yaml) {
-  const result = {};
+  const result = Object.create(null);
   const lines = String(yaml || "").split("\n");
   let currentKey = null;
   let currentValue = [];
@@ -90,6 +91,12 @@ function parseSimpleYaml(yaml) {
       }
 
       const key = match[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      if (FORBIDDEN_METADATA_KEYS.has(key)) {
+        currentKey = null;
+        currentValue = [];
+        inMultiline = false;
+        continue;
+      }
       let value = match[2].trim();
 
       if (value === "|-" || value === "|" || value === ">-" || value === ">") {
@@ -151,7 +158,7 @@ function parseSkillMarkdown(contents, filePath, scope) {
   const keywordsAll = parsed.keywordsAll ? normalizeStringArray(String(parsed.keywordsAll).split(",")) : [];
   const allowedTools = toNonEmptyString(parsed.allowedTools) || null;
 
-  const tags = {};
+  const tags = Object.create(null);
   if (parsed.tags) {
     String(parsed.tags)
       .split(",")
@@ -159,7 +166,8 @@ function parseSkillMarkdown(contents, filePath, scope) {
       .filter(Boolean)
       .forEach((pair) => {
         const [k, v] = pair.split(":").map((s) => s.trim());
-        if (k) tags[k] = v || "";
+        if (!k || FORBIDDEN_METADATA_KEYS.has(k)) return;
+        tags[k] = v || "";
       });
   }
 

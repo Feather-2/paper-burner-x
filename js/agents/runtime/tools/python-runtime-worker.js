@@ -16,6 +16,8 @@ const logger = createLogger("runtime/tools/python-runtime-worker");
 // 版本锁定 - 更新时需同步修改 python-adapter.js 中的 indexUrl 默认值
 const PYODIDE_VERSION = '0.26.4';
 const PYODIDE_CDN_BASE = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full`;
+const PYODIDE_CDN_BASE_URL = `${PYODIDE_CDN_BASE}/`;
+const PYODIDE_CDN_ORIGIN = new URL(PYODIDE_CDN_BASE_URL).origin;
 const PYODIDE_MJS_SRI_BY_VERSION = Object.freeze({
   "0.26.4": "sha256-fyTGZVp56s8AYdPU5qYNwLGTiBLRXFLX/4s32eBonlE=",
 });
@@ -30,6 +32,72 @@ let vfsProxyMountError = null;
 
 function isSharedArrayBuffer(value) {
   return typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer;
+}
+
+function getWorkerOrigin() {
+  try {
+    return self?.location?.origin || null;
+  } catch {
+    return null;
+  }
+}
+
+function getWorkerBaseUrl() {
+  try {
+    return self?.location?.href || PYODIDE_CDN_BASE_URL;
+  } catch {
+    return PYODIDE_CDN_BASE_URL;
+  }
+}
+
+function ensureTrailingSlashUrl(url) {
+  if (!url.pathname.endsWith("/")) {
+    url.pathname = `${url.pathname}/`;
+  }
+  return url.toString();
+}
+
+function resolveAllowedPyodideUrl(raw, { requireCdnPrefix } = {}) {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) return null;
+
+  let url;
+  try {
+    url = new URL(value, getWorkerBaseUrl());
+  } catch {
+    throw new Error("Invalid URL");
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("URL must use http(s)");
+  }
+
+  const workerOrigin = getWorkerOrigin();
+  if (workerOrigin && url.origin === workerOrigin) return url;
+
+  if (url.origin === PYODIDE_CDN_ORIGIN) {
+    if (requireCdnPrefix && !url.href.startsWith(PYODIDE_CDN_BASE_URL)) {
+      throw new Error("URL must be within the Pyodide CDN base path");
+    }
+    return url;
+  }
+
+  throw new Error("URL origin not allowed");
+}
+
+function resolveAllowedIndexUrl(indexUrl) {
+  if (!indexUrl) return PYODIDE_CDN_BASE_URL;
+  const resolved = resolveAllowedPyodideUrl(indexUrl, { requireCdnPrefix: true });
+  return resolved ? ensureTrailingSlashUrl(resolved) : PYODIDE_CDN_BASE_URL;
+}
+
+function resolveAllowedWheelUrl(raw) {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) return null;
+  if (value.startsWith("emfs:")) return value;
+  const resolved = resolveAllowedPyodideUrl(value, { requireCdnPrefix: true });
+  if (!resolved) return null;
+  return resolved.toString();
 }
 
 function ensureDir(FS, path) {
@@ -131,8 +199,9 @@ async function ensurePyodideLoader() {
 async function initPyodide(indexUrl) {
   if (pyodide) return;
   await ensurePyodideLoader();
+  const safeIndexUrl = resolveAllowedIndexUrl(indexUrl);
   pyodide = await loadPyodide({
-    indexURL: indexUrl || PYODIDE_CDN_BASE,
+    indexURL: safeIndexUrl,
     stdout: (text) => self.postMessage({ type: 'stdout', text }),
     stderr: (text) => self.postMessage({ type: 'stderr', text }),
   });
@@ -550,7 +619,8 @@ function normalizeWheelUrls(wheels) {
       continue;
     }
     if (typeof w.url === "string" && w.url.trim()) {
-      out.push(w.url.trim());
+      const resolved = resolveAllowedWheelUrl(w.url);
+      if (resolved) out.push(resolved);
     }
   }
   return out;
@@ -613,13 +683,7 @@ self.onmessage = async (evt) => {
       if (payload.loadPlan) {
         await preloadWithPlan(payload.loadPlan);
       } else if (payload.loadScript) {
-        if (payload.allowLegacyLoadScript !== true) {
-          throw new Error("Legacy loadScript preload is disabled; use loadPlan or set allowLegacyLoadScript=true");
-        }
-        // Legacy: dependency load script (generated JS code).
-        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-        const loadFn = new AsyncFunction('pyodide', payload.loadScript);
-        await loadFn(pyodide);
+        throw new Error("Legacy loadScript preload is disabled; use loadPlan instead");
       }
 
       // 兼容旧接口: 直接传 dependencies 数组

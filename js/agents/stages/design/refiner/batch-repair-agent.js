@@ -6,7 +6,7 @@
  */
 
 import { runReactRefiner } from "./react-refiner.js";
-import { createToolExecutor } from "./react-refiner-tools.js";
+import { createToolExecutor, sanitizeHtmlFragment } from "./react-refiner-tools.js";
 import { createLogger } from "../../../shared/index.js";
 
 const logger = createLogger("stages/design/refiner/batch-repair-agent");
@@ -117,6 +117,14 @@ Rules:
             .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
             .replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, "")
             .replace(/\s+on\w+\s*=\s*[^\s>]+/gi, "");
+        try {
+            const sanitized = await sanitizeHtmlFragment(fixed);
+            const trimmed = sanitized.trim();
+            if (trimmed) fixed = trimmed;
+        } catch (err) {
+            logger.warn("[SingleSlideRepair] Sanitize failed:", { error: err?.message });
+        }
+        if (!fixed.includes("<section")) return currentHtml;
         return fixed;
     } catch (err) {
         logger.error("[SingleSlideRepair] Failed:", { error: err?.message });

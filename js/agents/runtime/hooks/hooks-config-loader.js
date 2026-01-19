@@ -12,6 +12,31 @@ const VALID_HOOK_EVENTS = new Set(Object.values(HookEvent));
 /** @type {Set<string>} */
 const VALID_HOOK_TYPES = new Set(Object.values(HookType));
 
+const MAX_HOOKS_CONFIG_BYTES = 256 * 1024;
+const MAX_HOOKS_CONFIG_DEPTH = 6;
+const MAX_HOOKS_CONFIG_HOOKS = 200;
+
+const VALID_CONFIG_ROOT_KEYS = new Set(["hooks"]);
+const VALID_HOOK_KEYS = new Set([
+  "event",
+  "eventName",
+  "event_name",
+  "type",
+  "blocking",
+  "tools",
+  "tool",
+  "toolPattern",
+  "toolPatterns",
+  "prompt",
+  "usage",
+  "model",
+  "agentType",
+  "subagent_type",
+  "subagentType",
+  "modelTier",
+  "model_tier",
+]);
+
 function isMissingPathError(err) {
   const code = String(err?.code || "");
   if (code === "ENOENT") return true;
@@ -35,6 +60,184 @@ function normalizeEventName(input) {
     if (evt.toLowerCase() === lower) return evt;
   }
   return null;
+}
+
+function byteLength(text) {
+  if (typeof Buffer !== "undefined" && typeof Buffer.byteLength === "function") {
+    return Buffer.byteLength(text, "utf8");
+  }
+  return new TextEncoder().encode(text).byteLength;
+}
+
+function maxDepth(value, depth = 0) {
+  if (!value || typeof value !== "object") return depth;
+  if (depth >= MAX_HOOKS_CONFIG_DEPTH) return depth + 1;
+
+  let max = depth;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      max = Math.max(max, maxDepth(item, depth + 1));
+      if (max > MAX_HOOKS_CONFIG_DEPTH) return max;
+    }
+    return max;
+  }
+
+  for (const key of Object.keys(value)) {
+    max = Math.max(max, maxDepth(value[key], depth + 1));
+    if (max > MAX_HOOKS_CONFIG_DEPTH) return max;
+  }
+  return max;
+}
+
+function isStringArray(value) {
+  if (!Array.isArray(value)) return false;
+  return value.every((item) => typeof item === "string");
+}
+
+function validateHookEntry(entry, index) {
+  if (!isPlainObject(entry)) {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: expected an object`);
+    return null;
+  }
+
+  const keys = Object.keys(entry);
+  for (const key of keys) {
+    if (!VALID_HOOK_KEYS.has(key)) {
+      logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: unknown field '${key}'`);
+      return null;
+    }
+  }
+
+  const eventValue = entry.event ?? entry.eventName ?? entry.event_name;
+  if (typeof eventValue !== "string" || !eventValue.trim()) {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'event' is required`);
+    return null;
+  }
+
+  if (typeof entry.type !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'type' must be a string`);
+    return null;
+  }
+
+  const typeValue = entry.type.trim().toLowerCase();
+  if (!typeValue || !VALID_HOOK_TYPES.has(typeValue)) {
+    logger.warn(
+      `[HooksConfigLoader] Skipping hooks[${index}]: invalid 'type' (expected one of: ${Array.from(VALID_HOOK_TYPES).join(", ")})`
+    );
+    return null;
+  }
+
+  if (entry.blocking !== undefined && typeof entry.blocking !== "boolean") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'blocking' must be a boolean`);
+    return null;
+  }
+
+  if (entry.tools !== undefined && !(typeof entry.tools === "string" || isStringArray(entry.tools))) {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'tools' must be a string or string[]`);
+    return null;
+  }
+
+  if (entry.tool !== undefined && typeof entry.tool !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'tool' must be a string`);
+    return null;
+  }
+
+  if (entry.toolPattern !== undefined && typeof entry.toolPattern !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'toolPattern' must be a string`);
+    return null;
+  }
+
+  if (entry.toolPatterns !== undefined && !(typeof entry.toolPatterns === "string" || isStringArray(entry.toolPatterns))) {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'toolPatterns' must be a string or string[]`);
+    return null;
+  }
+
+  if (entry.prompt !== undefined && typeof entry.prompt !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'prompt' must be a string`);
+    return null;
+  }
+
+  if (entry.usage !== undefined && typeof entry.usage !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'usage' must be a string`);
+    return null;
+  }
+
+  if (entry.model !== undefined && typeof entry.model !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'model' must be a string`);
+    return null;
+  }
+
+  if (entry.agentType !== undefined && typeof entry.agentType !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'agentType' must be a string`);
+    return null;
+  }
+
+  if (entry.subagent_type !== undefined && typeof entry.subagent_type !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'subagent_type' must be a string`);
+    return null;
+  }
+
+  if (entry.subagentType !== undefined && typeof entry.subagentType !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'subagentType' must be a string`);
+    return null;
+  }
+
+  if (entry.modelTier !== undefined && typeof entry.modelTier !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'modelTier' must be a string`);
+    return null;
+  }
+
+  if (entry.model_tier !== undefined && typeof entry.model_tier !== "string") {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'model_tier' must be a string`);
+    return null;
+  }
+
+  if (typeValue === HookType.PROMPT && !(typeof entry.prompt === "string" && entry.prompt.trim())) {
+    logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'prompt' is required for type=prompt`);
+    return null;
+  }
+
+  if (typeValue === HookType.AGENT) {
+    const agentType = entry.agentType ?? entry.subagent_type ?? entry.subagentType;
+    if (!(typeof agentType === "string" && agentType.trim())) {
+      logger.warn(`[HooksConfigLoader] Skipping hooks[${index}]: 'agentType' is required for type=agent`);
+      return null;
+    }
+  }
+
+  return entry;
+}
+
+function validateHooksConfig(config) {
+  if (!isPlainObject(config)) {
+    logger.warn("[HooksConfigLoader] hooks config must be a JSON object");
+    return null;
+  }
+
+  for (const key of Object.keys(config)) {
+    if (!VALID_CONFIG_ROOT_KEYS.has(key)) {
+      logger.warn(`[HooksConfigLoader] hooks config contains unknown field '${key}'`);
+      return null;
+    }
+  }
+
+  if (config.hooks === undefined) return config;
+  if (!Array.isArray(config.hooks)) {
+    logger.warn("[HooksConfigLoader] hooks.json: 'hooks' must be an array");
+    return null;
+  }
+  if (config.hooks.length > MAX_HOOKS_CONFIG_HOOKS) {
+    logger.warn(`[HooksConfigLoader] hooks.json: too many hooks (${config.hooks.length})`);
+    return null;
+  }
+
+  const sanitized = [];
+  for (let i = 0; i < config.hooks.length; i++) {
+    const entry = validateHookEntry(config.hooks[i], i);
+    if (entry) sanitized.push(entry);
+  }
+
+  return { hooks: sanitized };
 }
 
 async function readTextFromVfs(vfs, path) {
@@ -353,12 +556,17 @@ export class HooksConfigLoader extends DisposableBase {
     if (!text.trim()) return null;
 
     try {
-      const parsed = JSON.parse(text);
-      if (!isPlainObject(parsed)) {
-        logger.warn(`[HooksConfigLoader] hooks config must be a JSON object: ${this._configPath}`);
+      if (byteLength(text) > MAX_HOOKS_CONFIG_BYTES) {
+        logger.warn(`[HooksConfigLoader] hooks config too large: ${this._configPath}`);
         return null;
       }
-      return parsed;
+
+      const parsed = JSON.parse(text);
+      if (maxDepth(parsed) > MAX_HOOKS_CONFIG_DEPTH) {
+        logger.warn(`[HooksConfigLoader] hooks config too deep: ${this._configPath}`);
+        return null;
+      }
+      return validateHooksConfig(parsed);
     } catch (err) {
       logger.warn(`[HooksConfigLoader] Failed to parse hooks config JSON: ${this._configPath}`, err);
       return null;

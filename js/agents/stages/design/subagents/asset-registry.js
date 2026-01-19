@@ -24,6 +24,12 @@ function createAssetId() {
   return makeSecureTimestampedId("asset");
 }
 
+const RESERVED_MAPPING_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function isUnsafeMappingKey(key) {
+  return RESERVED_MAPPING_KEYS.has(key);
+}
+
 export class AssetRegistry {
   constructor(initial = {}) {
     this.uploaded = [];
@@ -131,9 +137,11 @@ export class AssetRegistry {
    * @returns {{ uploaded: any[], extracted: any[], videoFrames: any[], generated: any[], slideAssetMapping: Record<string, string[]> }}
    */
   export() {
-    const mapping = {};
+    const mapping = Object.create(null);
     for (const [slideId, assetIds] of this.slideAssetMapping.entries()) {
-      mapping[slideId] = assetIds.slice();
+      const key = String(slideId);
+      if (isUnsafeMappingKey(key)) continue;
+      mapping[key] = assetIds.slice();
     }
     return {
       uploaded: this.uploaded.slice(),

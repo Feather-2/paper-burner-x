@@ -16,6 +16,20 @@ const logger = createLogger("runtime/telemetry/trace-context");
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TRACE_VERSION = "00"; // W3C Trace Context version
+const FORBIDDEN_ATTRIBUTE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function isSafeAttributeKey(key) {
+  return typeof key === "string" && !FORBIDDEN_ATTRIBUTE_KEYS.has(key);
+}
+
+function assignSafeAttributes(target, attrs) {
+  if (!attrs || typeof attrs !== "object") return;
+  for (const [key, value] of Object.entries(attrs)) {
+    if (isSafeAttributeKey(key)) {
+      target[key] = value;
+    }
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ID Generators
@@ -111,7 +125,8 @@ export class Span {
     /** @type {SpanStatusType} */
     this.status = SpanStatus.UNSET;
     this.statusMessage = null;
-    this.attributes = { ...attributes };
+    this.attributes = Object.create(null);
+    assignSafeAttributes(this.attributes, attributes);
     this.events = [];
     this._ended = false;
   }
@@ -119,10 +134,10 @@ export class Span {
   /**
    * 设置属性
    * @param {string} key
-   * @param {any} value
+   * @param {unknown} value
    */
   setAttribute(key, value) {
-    if (!this._ended) {
+    if (!this._ended && isSafeAttributeKey(key)) {
       this.attributes[key] = value;
     }
     return this;
@@ -134,7 +149,7 @@ export class Span {
    */
   setAttributes(attrs) {
     if (!this._ended && attrs) {
-      Object.assign(this.attributes, attrs);
+      assignSafeAttributes(this.attributes, attrs);
     }
     return this;
   }

@@ -75,6 +75,59 @@ function isMissingPathError(err) {
 }
 
 /**
+ * @param {any} value
+ * @returns {boolean}
+ */
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * @param {any} payload
+ * @returns {any}
+ */
+function validateStatPayload(payload) {
+  if (!isPlainObject(payload) || typeof payload.exists !== 'boolean') {
+    throw new Error('invalid stat payload');
+  }
+  if ('size' in payload && typeof payload.size !== 'number') {
+    throw new Error('invalid stat payload (size)');
+  }
+  if ('mtimeMs' in payload && typeof payload.mtimeMs !== 'number') {
+    throw new Error('invalid stat payload (mtimeMs)');
+  }
+  if ('isFile' in payload && typeof payload.isFile !== 'boolean') {
+    throw new Error('invalid stat payload (isFile)');
+  }
+  if ('isDirectory' in payload && typeof payload.isDirectory !== 'boolean') {
+    throw new Error('invalid stat payload (isDirectory)');
+  }
+  return payload;
+}
+
+/**
+ * @param {any} payload
+ * @returns {any}
+ */
+function validateReaddirPayload(payload) {
+  if (!isPlainObject(payload) || typeof payload.exists !== 'boolean') {
+    throw new Error('invalid readdir payload');
+  }
+  if (!Array.isArray(payload.entries)) {
+    throw new Error('invalid readdir payload (entries)');
+  }
+  for (const entry of payload.entries) {
+    if (!isPlainObject(entry) || typeof entry.name !== 'string') {
+      throw new Error('invalid readdir payload (entry)');
+    }
+    if ('kind' in entry && typeof entry.kind !== 'string') {
+      throw new Error('invalid readdir payload (entry.kind)');
+    }
+  }
+  return payload;
+}
+
+/**
  * @param {SharedArrayBuffer} sharedBuffer
  * @param {VfsSharedResponse} param1
  * @returns {void}
@@ -283,20 +336,32 @@ export class VfsProxy {
   statSync(path) {
     const bytes = this._requestBytesSync('stat', path, { payloadBytes: this.maxJsonBytes });
     const text = new TextDecoder().decode(bytes);
+    let payload;
     try {
-      return JSON.parse(text);
+      payload = JSON.parse(text);
     } catch (err) {
       throw new Error(`VfsProxy.statSync: invalid JSON response (${err?.message || err})`);
+    }
+    try {
+      return validateStatPayload(payload);
+    } catch (err) {
+      throw new Error(`VfsProxy.statSync: invalid payload (${err?.message || err})`);
     }
   }
 
   readdirSync(path) {
     const bytes = this._requestBytesSync('readdir', path, { payloadBytes: this.maxJsonBytes });
     const text = new TextDecoder().decode(bytes);
+    let payload;
     try {
-      return JSON.parse(text);
+      payload = JSON.parse(text);
     } catch (err) {
       throw new Error(`VfsProxy.readdirSync: invalid JSON response (${err?.message || err})`);
+    }
+    try {
+      return validateReaddirPayload(payload);
+    } catch (err) {
+      throw new Error(`VfsProxy.readdirSync: invalid payload (${err?.message || err})`);
     }
   }
 
