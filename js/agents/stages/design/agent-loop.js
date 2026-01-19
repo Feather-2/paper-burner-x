@@ -13,7 +13,7 @@ import {
   createLifecycleEmitter,
   Watchdog,
 } from "../../runtime/index.js";
-import { getRuntimeState } from "../../plugins/telemetry/loop-runtime-state.js";
+import { getRuntimeState } from "../../plugins/telemetry/index.js";
 import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./design-tools.js";
 import { VisualHandler } from "./internal/visual-handler.js";
 import { runPreparationPhase, runGeneratingPhase, runBatchRepairPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./internal/design-phases.js";

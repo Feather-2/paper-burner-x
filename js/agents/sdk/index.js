@@ -19,8 +19,7 @@ export { AgentStatus, StepStatus, isAgentActive, isAgentTerminal } from "../runt
 export { StagePausedError, StageCancelledError } from "../runtime/core/stage-errors.js";
 
 // Context Management (Cicada + Watchdog + AlertMonitor)
-export { CicadaCompressor, CompressionLayer } from "../plugins/compression/impl/cicada-compressor.js";
-export { Watchdog } from "../plugins/compression/impl/watchdog.js";
+export { CicadaCompressor, CompressionLayer, Watchdog } from "../plugins/compression/index.js";
 export { AlertMonitor } from "./AlertMonitor.js";
 
 // Tools

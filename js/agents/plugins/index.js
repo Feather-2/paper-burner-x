@@ -21,7 +21,7 @@ const pluginRegistry = {
   'telemetry/replay': () => import('./telemetry/replay-controller.js'),
 
   // Memory
-  'memory/store': () => import('./memory/memory-store.js'),
+  'memory/store': () => import('./memory/memory-store.impl.js'),
   'memory/state-engine': () => import('./memory/state-engine.js'),
   'memory/retrieval': () => import('./memory/retrieval-engine.js'),
 

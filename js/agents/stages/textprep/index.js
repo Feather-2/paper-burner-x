@@ -6,10 +6,10 @@ import { planSlides } from "./slideplan.js";
 import { extractClaims } from "./claims.js";
 import { buildContentPackage } from "./build-content-package.js";
 import { BaseStage, getErrorBoundary } from "../../runtime/index.js";
-import { TraceContext } from "../../plugins/telemetry/trace-context.js";
-import { createStageApi } from "../../shared/utils/stage-api.js";
-import { injectSystemHint } from "../../shared/utils/message-utils.js";
-import { extractJsonCandidate } from "../../shared/utils/json-candidate.js";
+import { TraceContext } from "../../plugins/telemetry/index.js";
+import { createStageApi } from "../../shared/index.js";
+import { injectSystemHint } from "../../shared/index.js";
+import { extractJsonCandidate } from "../../shared/index.js";
 
 /** @private Maximum allowed input text length (2MB) to prevent memory exhaustion. */
 const MAX_INPUT_TEXT_LEN = 2 * 1024 * 1024;

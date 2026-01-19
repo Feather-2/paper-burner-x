@@ -7,7 +7,7 @@
  * - handoff: 生成交接文档，换脑子重来
  */
 
-import { CicadaCompressor } from "../../../../plugins/compression/impl/cicada-compressor.js";
+import { CicadaCompressor } from "../../../../plugins/compression/index.js";
 import { createTodo, validateTodo } from "../../utils/todo-utils.js";
 import { TodoStatus } from "../../states.js";
 

@@ -11,7 +11,7 @@
 import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { createLogger } from "../../shared/utils/logger.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
-import { CompressionCoordinator } from "../../plugins/compression/impl/coordinator.js";
+import { CompressionCoordinator } from "../../plugins/compression/index.js";
 import { DEFAULT_CONTEXT_CONFIG } from "./context-config.js";
 import { wrapPersistedOutput, cleanOldPersistedOutputs, KEEP_RECENT_OUTPUTS } from "./persisted-output.js";
 import { createScopedReporter, ErrorCategory } from "./errors/silent-error-reporter.js";

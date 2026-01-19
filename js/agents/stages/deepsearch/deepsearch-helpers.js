@@ -4,8 +4,8 @@
  * 从 deepsearch-agent-loop.js 提取的辅助函数，减少主文件体积。
  */
 
-import { isPlainObject, sanitizeForJson, toPositiveInt } from "../../shared/utils/value-utils.js";
-import { TraceContext } from "../../plugins/telemetry/trace-context.js";
+import { isPlainObject, sanitizeForJson, toPositiveInt } from "../../shared/index.js";
+import { TraceContext } from "../../plugins/telemetry/index.js";
 import { getErrorBoundary } from "../../runtime/index.js";
 
 // 分析模式配置（默认值）

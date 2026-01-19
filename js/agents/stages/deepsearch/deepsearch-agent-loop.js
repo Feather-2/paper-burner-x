@@ -19,8 +19,7 @@ import { classifyDeepSearchError } from "../../shared/utils/error-classifier.js"
 import { ModelResponseHandler } from "./internal/model-response-handler.js";
 import SourceManager from "./source-manager.js";
 import { loadDeepSearchCapabilities } from "./capabilities-loader.js";
-import { ConvergenceDetector } from "../../plugins/analysis/convergence-detector.js";
-import { BehaviorFingerprint } from "../../plugins/analysis/behavior-fingerprint.js";
+import { ConvergenceDetector, BehaviorFingerprint } from "../../plugins/analysis/index.js";
 import {
   addInitialDeepSearchMessages,
   createIterationConvergenceTracker,

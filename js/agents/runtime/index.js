@@ -96,13 +96,7 @@ export {
 } from "./events/events.js";
 
 // Compression - import from plugins/compression for full API
-export { Watchdog } from "../plugins/compression/impl/watchdog.js";
-export {
-  CicadaCompressor,
-  CompressionLayer,
-} from "../plugins/compression/impl/cicada-compressor.js";
-export { CompressionCoordinator } from "../plugins/compression/impl/coordinator.js";
+export { Watchdog, CicadaCompressor, CompressionLayer, CompressionCoordinator } from "../plugins/compression/index.js";
 
 // Telemetry - import from plugins/telemetry for full API
-export { TokenTracker } from "../plugins/telemetry/token-tracker.js";
-export { TraceContext } from "../plugins/telemetry/trace-context.js";
+export { TokenTracker, TraceContext } from "../plugins/telemetry/index.js";
