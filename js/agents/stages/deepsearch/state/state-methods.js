@@ -17,7 +17,7 @@ import {
   L0_UPDATE_TODO,
   L0_REMOVE_TODO,
   L0_REPLACE_TODOS,
-} from "../../../plugins/memory/action-types.js";
+} from "../../../plugins/memory/index.js";
 
 export const stateMethods = {
   addTokenUsage(usage) {

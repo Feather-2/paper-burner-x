@@ -7,8 +7,8 @@
  * - 序列化/反序列化
  */
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { L0_SET_TASK_GOAL, L0_REPLACE_TODOS, L0_ADD_TODO, L0_UPDATE_TODO } from "../../plugins/memory/action-types.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { L0_SET_TASK_GOAL, L0_REPLACE_TODOS, L0_ADD_TODO, L0_UPDATE_TODO } from "../../plugins/memory/index.js";
 import { CodeSearchPhase, TodoStatus } from "./states.js";
 
 const STATE_SCHEMA_VERSION = "0.1";

@@ -17,7 +17,7 @@ export { createBudgetManager, BudgetAction } from "./utils/budget.js";
 export { injectSystemHint } from "./utils/message-utils.js";
 export { robustParseJson } from "./utils/robust-json.js";
 export { createStageApi } from "./utils/stage-api.js";
-export { isPlainObject, toNonEmptyString, normalizeRenderType, toPositiveInt, deepClone, sanitizeForJson } from "./utils/value-utils.js";
+export { isPlainObject, toNonEmptyString, normalizeRenderType, toPositiveInt, deepClone, sanitizeForJson, safeInt, safeNumber } from "./utils/value-utils.js";
 export { createLogger, trackToolCall, logEvent } from "./utils/logger.js";
 export { safeExec, catchAndLog, makeSafe, isAbortError, isTimeoutError, wrapError } from "./utils/error-utils.js";
 export { Deque } from "./utils/deque.js";
