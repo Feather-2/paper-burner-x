@@ -58,7 +58,7 @@ export default createPlugin({
 
     const getCompressor = async () => {
       if (!compressor) {
-        const { CicadaCompressor } = await import('../../runtime/compression/cicada-compressor.js');
+        const { CicadaCompressor } = await import('./impl/cicada-compressor.js');
         compressor = new CicadaCompressor(ctx.config);
       }
       return compressor;

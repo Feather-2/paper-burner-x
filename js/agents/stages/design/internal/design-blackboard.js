@@ -20,7 +20,7 @@ import {
   L1_SET_DECK,
   L2_ADD_SUMMARY,
   L2_RECORD_DECISION,
-} from "../../../runtime/memory/action-types.js";
+} from "../../../plugins/memory/action-types.js";
 
 const DESIGN_PREFIX = "design.";
 

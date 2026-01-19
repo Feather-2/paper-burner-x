@@ -8,7 +8,7 @@
  * - 生成结果 (deckHtmlDsl, slidesMeta)
  */
 
-import { UnifiedAgentContext } from "../../../runtime/context/unified-agent-context.js";
+import { UnifiedAgentContext } from "../../../runtime/core/context/unified-agent-context.js";
 
 /**
  * @typedef {object} DesignContextOptions

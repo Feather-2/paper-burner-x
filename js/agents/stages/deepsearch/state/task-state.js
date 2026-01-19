@@ -1,5 +1,5 @@
 import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { L0_SET_TASK_GOAL } from "../../../runtime/memory/action-types.js";
+import { L0_SET_TASK_GOAL } from "../../../plugins/memory/action-types.js";
 
 /**
  * @typedef {object} RootState

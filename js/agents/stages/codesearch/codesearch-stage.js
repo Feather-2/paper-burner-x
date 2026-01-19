@@ -20,7 +20,7 @@ import { createLifecycleEmitter } from "../../runtime/core/lifecycle.js";
 import { createToolExecutor } from "./code-tools.js";
 import { CodeSearchPhase } from "./states.js";
 import { CodeSearchState } from "./state.js";
-import { Watchdog } from "../../runtime/compression/watchdog.js";
+import { Watchdog } from "../../plugins/compression/impl/watchdog.js";
 import {
   runPlanningPhase,
   buildSystemPrompt,

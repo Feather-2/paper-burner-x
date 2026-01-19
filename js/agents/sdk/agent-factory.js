@@ -5,7 +5,7 @@ import { useLogger } from "../shared/utils/logger.js";
 import { createTaskTool, TASK_TOOL_DEFINITION } from "../runtime/tools/TaskTool.js";
 import { createRecallTool, RECALL_TOOL_DEFINITION } from "../runtime/tools/RecallTool.js";
 import { createBacktrackTool, BACKTRACK_TOOL_DEFINITION } from "../runtime/tools/BacktrackTool.js";
-import { CicadaCompressor } from "../runtime/compression/cicada-compressor.js";
+import { CicadaCompressor } from "../plugins/compression/impl/cicada-compressor.js";
 import { BacktrackManager } from "./BacktrackManager.js";
 import { DiscoveryManager } from "./DiscoveryManager.js";
 import { AlertMonitor } from "./AlertMonitor.js";

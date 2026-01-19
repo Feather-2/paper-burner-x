@@ -3,7 +3,7 @@ import { ModelUsage, RouterStrategy, isValidModelUsage, normalizeRouterStrategy 
 import { TokenBucketRateLimiter } from "./rate-limit.js";
 import { safeJsonParse } from "../shared/utils/safe-json.js";
 import { CircuitBreaker, CircuitState } from "../shared/utils/circuit-breaker.js";
-import { getGlobalTokenTracker } from "../runtime/telemetry/token-tracker.js";
+import { getGlobalTokenTracker } from "../plugins/telemetry/token-tracker.js";
 import { ModelEventEmitter } from "./model-events.js";
 import { RetryStrategy } from "../runtime/core/retry-strategy.js";
 import { PerformanceRouter, estimateComplexity, ModelTier } from "../runtime/routing/performance-router.js";

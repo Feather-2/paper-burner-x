@@ -17,8 +17,8 @@ import { createLifecycleEmitter } from "../../runtime/core/lifecycle.js";
 import { ModelResponseHandler } from "./internal/model-response-handler.js";
 import SourceManager from "./source-manager.js";
 import { loadDeepSearchCapabilities } from "./capabilities-loader.js";
-import { ConvergenceDetector } from "../../runtime/analysis/convergence-detector.js";
-import { BehaviorFingerprint } from "../../runtime/analysis/behavior-fingerprint.js";
+import { ConvergenceDetector } from "../../plugins/analysis/convergence-detector.js";
+import { BehaviorFingerprint } from "../../plugins/analysis/behavior-fingerprint.js";
 import {
   addInitialDeepSearchMessages,
   createIterationConvergenceTracker,

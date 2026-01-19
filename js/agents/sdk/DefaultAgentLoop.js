@@ -1,9 +1,9 @@
 import { BaseAgentLoop, checkCancelled } from "../runtime/core/agent-loop.js";
 import { robustParseJson } from "../shared/utils/robust-json.js";
 import { isPlainObject, safeInt, toNonEmptyString } from "../shared/utils/value-utils.js";
-import { createDefaultMiddlewareChain } from "../runtime/middleware/middleware-chain.js";
-import { AgentCheckpointStore } from "../runtime/checkpoints/agent-checkpoint-store.js";
-import { ensureRuntimeState } from "../runtime/telemetry/loop-runtime-state.js";
+import { createDefaultMiddlewareChain } from "../runtime/core/middleware/middleware-chain.js";
+import { AgentCheckpointStore } from "../plugins/checkpoints/agent-checkpoint-store.js";
+import { ensureRuntimeState } from "../plugins/telemetry/loop-runtime-state.js";
 
 function truncateText(text, maxChars) {
   const s = typeof text === "string" ? text : String(text ?? "");

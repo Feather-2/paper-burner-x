@@ -14,7 +14,7 @@ import { memoryMethods } from "./state/memory-methods.js";
 import { stateMethods } from "./state/state-methods.js";
 import { checkpointMethods } from "./state/checkpoint-methods.js";
 import { deserialize, serializationMethods } from "./state/serialization-methods.js";
-import { L0_REPLACE_TODOS } from "../../runtime/memory/action-types.js";
+import { L0_REPLACE_TODOS } from "../../plugins/memory/action-types.js";
 
 export { makeStageEmitter, generateNodeId, checkCancelled };
 export { transitionGap, computeRoundHitsByGapId, validateIteration };
