@@ -3,8 +3,8 @@ import { SVGGenerator } from "../generators/svg-generator.js";
 import { AssetResolver } from "./asset-resolver.js";
 import { RenderType, EventStatus, SlotPriority, SlotPurpose, VisualHeuristics } from "../constants.js";
 import { DesignEvents } from "../../../runtime/index.js";
-import { normalizeRenderType, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
+import { normalizeRenderType, toNonEmptyString } from "../../../shared/index.js";
+import { makeSecureTimestampedId } from "../../../shared/index.js";
 import { safeEmit } from "../shared/safe-emit.js";
 
 function nowMs() {

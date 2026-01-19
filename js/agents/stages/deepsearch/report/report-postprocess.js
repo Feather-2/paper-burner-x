@@ -1,5 +1,5 @@
-import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { createSafeRegex } from "../../../shared/utils/safe-regex.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { createSafeRegex } from "../../../shared/index.js";
 
 /**
  * @typedef {"quick"|"wider"|"deeper"} ReportMode

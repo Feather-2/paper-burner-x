@@ -1,4 +1,4 @@
-import { isPlainObject, safeInt, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { isPlainObject, safeInt, toNonEmptyString } from "../../../shared/index.js";
 
 /**
  * @typedef {object} GapItem

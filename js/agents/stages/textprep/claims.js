@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
 // TP5: Extract atomic claims and align to evidence locators (charStart/charEnd on sourceTextNormalized).
 //

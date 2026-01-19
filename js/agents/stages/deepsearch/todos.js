@@ -7,9 +7,9 @@ import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter
 import { getModelCaller } from "./model.js";
 import { loadPrompt, renderPromptTemplate } from "../../prompts/prompt-loader.js";
 import { validateTodo } from "./utils/todo-utils.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 import { extractServices } from "./utils/stage-api.js";
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
 const logger = createLogger("stages/deepsearch/todos");
 

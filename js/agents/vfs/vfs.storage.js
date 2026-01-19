@@ -1,6 +1,6 @@
 import { normalizeVfsPath, dirnameVfsPath } from "./path.js";
 
-import { isPlainObject } from "../shared/utils/value-utils.js";
+import { isPlainObject } from "../shared/index.js";
 
 /** @type {any} */
 const NodeBuffer = /** @type {any} */ (globalThis).Buffer;

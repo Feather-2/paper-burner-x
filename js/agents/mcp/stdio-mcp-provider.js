@@ -9,7 +9,7 @@
 
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
 import { StdioMcpTransport } from "./stdio-mcp-transport.js";
-import { toNonEmptyString } from "../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../shared/index.js";
 
 /**
  * @typedef {object} StdioMcpProviderOptions

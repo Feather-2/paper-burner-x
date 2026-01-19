@@ -7,7 +7,7 @@
  * @module runtime/compression/context-predictor
  */
 
-import { estimateTokensCached } from "../../../shared/utils/token-cache.js";
+import { estimateTokensCached } from "../../../shared/index.js";
 
 /**
  * @typedef {Object} ContextPredictorOptions

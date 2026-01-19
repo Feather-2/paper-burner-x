@@ -4,10 +4,10 @@
  * 支持浏览器和 Node.js 环境
  */
 
-import { createLogger } from "../shared/utils/logger.js";
+import { createLogger } from "../shared/index.js";
 
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
-import { isNodeLike } from "../shared/platform.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
+import { isNodeLike } from "../shared/index.js";
 const logger = createLogger("prompts/prompt-loader");
 
 // === 跨环境缓存适配器 ===

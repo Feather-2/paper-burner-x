@@ -1,6 +1,6 @@
-import { isPlainObject, toNonEmptyString, toPositiveInt } from "../../shared/utils/value-utils.js";
-import { EmbeddingService } from "../../shared/embeddings/embedding-service.js";
-import { VectorIndex } from "../../shared/embeddings/vector-index.js";
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../../shared/index.js";
+import { EmbeddingService } from "../../shared/index.js";
+import { VectorIndex } from "../../shared/index.js";
 import { TokenBucketRateLimiter } from "../../llm/rate-limit.js";
 
 function tokenizeQuery(text) {

@@ -8,7 +8,7 @@
 
 import { AgentConfig } from "./agent-config.js";
 import { AgentFactory, AgentInstance } from "./agent-factory.js";
-import { createLogger } from "../shared/utils/logger.js";
+import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("sdk/AgentBuilder");
 

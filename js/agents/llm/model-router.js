@@ -8,7 +8,7 @@ import { ModelEventEmitter } from "./model-events.js";
 import { RetryStrategy } from "../runtime/core/retry-strategy.js";
 import { PerformanceRouter, estimateComplexity, ModelTier } from "../runtime/routing/performance-router.js";
 
-import { isPlainObject, toNonEmptyString, toPositiveInt } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../shared/index.js";
 
 /**
  * @typedef {object} LoggerLike

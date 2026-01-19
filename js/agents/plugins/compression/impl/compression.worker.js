@@ -1,4 +1,4 @@
-import { isPlainObject } from "../../../shared/utils/value-utils.js";
+import { isPlainObject } from "../../../shared/index.js";
 import { createRpcHandler } from "../../../runtime/core/worker-rpc.js";
 
 /**

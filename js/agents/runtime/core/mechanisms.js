@@ -5,7 +5,7 @@
  * 供 DeepSearch、Design、CodeSearch 等 Agent Loop 复用
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/core/mechanisms");
 

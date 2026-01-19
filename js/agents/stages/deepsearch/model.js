@@ -3,7 +3,7 @@ import { buildBaseCaller } from "./model/caller.js";
 import { emitBudgetEvents, ensureBudgetState } from "./model/budget.js";
 import { estimateCostUSDDelta, resolveModelPricing } from "./model/pricing.js";
 import { normalizeTokenUsage } from "./model/usage.js";
-import { isPlainObject, toNonEmptyString, safeInt, safeNumber } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, safeInt, safeNumber } from "../../shared/index.js";
 
 export { buildBaseCaller, emitBudgetEvents, ensureBudgetState, estimateCostUSDDelta, normalizeTokenUsage, resolveModelPricing };
 

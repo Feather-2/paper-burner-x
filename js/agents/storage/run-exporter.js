@@ -1,8 +1,8 @@
 import { RunStore, RunStoreConstants } from "./run-store.js";
 import { createManifest, SUPPORTED_ARTIFACT_TYPES } from "./artifact-manager.js";
 
-import { isPlainObject } from "../shared/utils/value-utils.js";
-import { isNodeLike } from "../shared/platform.js";
+import { isPlainObject } from "../shared/index.js";
+import { isNodeLike } from "../shared/index.js";
 
 async function getJSZip() {
   if (globalThis.JSZip) return globalThis.JSZip;

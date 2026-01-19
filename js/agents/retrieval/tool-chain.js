@@ -14,13 +14,13 @@
  */
 
 import { grepChunks, grepChunksAsync } from "./grep.js";
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 import {
   validateChunks,
   validateSearchQuery,
   ValidationErrorCode,
   createValidationError,
-} from "../shared/utils/schema-validator.js";
+} from "../shared/index.js";
 
 function stripQueryAndHash(value) {
   const s = String(value ?? "");

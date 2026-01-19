@@ -7,7 +7,7 @@
  * - 降级策略配置
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/resilience/degradation-matrix");
 

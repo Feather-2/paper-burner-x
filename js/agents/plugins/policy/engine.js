@@ -1,7 +1,7 @@
 import { matchAnyWildcard, matchAnyGlob } from "./match.js";
-import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
+import { makeSecureTimestampedId } from "../../shared/index.js";
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
 /**
  * @typedef {"allow" | "deny"} PolicyEffect

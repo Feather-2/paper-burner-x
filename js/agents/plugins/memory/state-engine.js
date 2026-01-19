@@ -16,11 +16,11 @@
  */
 
 import { nextTick, sync as syncClock, currentSeq } from "../../core/lamport-clock.js";
-import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/value-utils.js";
-import { DisposableBase } from "../../shared/base/disposable-base.js";
+import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/index.js";
+import { DisposableBase } from "../../shared/index.js";
 import { cloneJson, buildStatePatch, applyStatePatch, diffLayers } from "./state-diff.js";
-import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { cryptoRandomHex } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
 import { normalizeTodoEntry, normalizeTodoPriority, normalizeTodoStatus } from "./todo-normalize.js";
 
 const logger = createLogger("runtime/memory/state-engine");

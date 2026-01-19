@@ -2,8 +2,8 @@ import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
 import { TransportKind } from "./constants.js";
 import { consumeSseJson } from "./sse.js";
 
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
-import { createLogger } from "../shared/utils/logger.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
+import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("mcp/mcp-nexus-provider");
 

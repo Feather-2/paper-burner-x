@@ -7,7 +7,7 @@
 import { Container, SINGLETON, TRANSIENT } from "./container.js";
 import { LamportClockService } from "../../core/lamport-clock.js";
 import { CircuitBreakerRegistry } from "../../shared/index.js";
-import { createAdaptiveTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
+import { createAdaptiveTokenCounter } from "../../shared/index.js";
 import { InjectionScanner } from "../../sdk/injection-scanner.js";
 import { FileLock } from "../../vfs/file-lock.js";
 import { createDefaultErrorBoundary } from "../core/error-boundary.js";

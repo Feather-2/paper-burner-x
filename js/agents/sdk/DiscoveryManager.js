@@ -7,8 +7,8 @@
  * 3. 协调交叉验证任务。
  */
 
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
-import { makeSecureTimestampedId } from "../shared/utils/secure-id.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
+import { makeSecureTimestampedId } from "../shared/index.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord

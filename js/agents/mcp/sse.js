@@ -1,4 +1,4 @@
-import { toNonEmptyString, toPositiveInt } from "../shared/utils/value-utils.js";
+import { toNonEmptyString, toPositiveInt } from "../shared/index.js";
 
 const DEFAULT_MAX_LINE_BYTES = 256 * 1024; // 256KiB
 const DEFAULT_MAX_BUFFER_BYTES = 2 * 1024 * 1024; // 2MiB

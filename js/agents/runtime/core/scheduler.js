@@ -8,7 +8,7 @@
  * 3. 统一上下文构建
  */
 
-import { toPositiveInt } from "../../shared/utils/value-utils.js";
+import { toPositiveInt } from "../../shared/index.js";
 
 export const RuntimeHealthStatus = Object.freeze({
   HEALTHY: "healthy",

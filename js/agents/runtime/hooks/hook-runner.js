@@ -1,5 +1,5 @@
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { robustParseJson } from "../../shared/utils/robust-json.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { robustParseJson } from "../../shared/index.js";
 // 避免循环依赖：直接使用 ServiceId 常量值而非从 defaults.js 导入
 const SERVICE_ID_MODEL_ROUTER = "modelRouter";
 const SERVICE_ID_SUBAGENT_REGISTRY = "subagentRegistry";

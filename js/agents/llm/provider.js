@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 
 export const MODEL_TAGS = Object.freeze(["text", "vision", "reasoning", "long-context", "fast", "cheap"]);
 

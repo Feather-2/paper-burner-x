@@ -3,7 +3,7 @@
  * @module mcp/transport-factory
  */
 
-import { isNodeLike } from "../shared/platform.js";
+import { isNodeLike } from "../shared/index.js";
 
 /**
  * @typedef {'stdio' | 'http' | 'sse' | 'websocket' | 'auto'} TransportType

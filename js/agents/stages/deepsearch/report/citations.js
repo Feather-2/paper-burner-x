@@ -4,7 +4,7 @@
  * Supports `{{cite:<evidenceId>}}` markers in Markdown, building a citation list from the
  * evidence ledger + sources, and rewriting markers into numbered `[n]` citations.
  */
-import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../../shared/index.js";
 
 /**
  * @typedef {Object} EvidenceRow

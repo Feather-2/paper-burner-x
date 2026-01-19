@@ -5,7 +5,7 @@
  * 支持 usage-based 路由：analyst/planner/writer/reviewer/worker/designer/vision (+ reranker/shadow/think/codesearch)
  */
 
-import { safeJsonParse } from "../shared/utils/safe-json.js";
+import { safeJsonParse } from "../shared/index.js";
 
 const STORAGE_KEYS = {
   lang: 'pptModelConfigLanguage',

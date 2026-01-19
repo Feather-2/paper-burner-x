@@ -1,4 +1,4 @@
-import { toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../shared/index.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord

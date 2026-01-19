@@ -1,6 +1,6 @@
 import { extractSmartContent } from "./smart-content-extractor.js";
-import { createSafeRegex } from "../shared/utils/safe-regex.js";
-import { toNonEmptyString } from "../shared/utils/value-utils.js";
+import { createSafeRegex } from "../shared/index.js";
+import { toNonEmptyString } from "../shared/index.js";
 import { sanitizeExtractedText, stripUrls } from "./content-sanitizer.js";
 
 /**

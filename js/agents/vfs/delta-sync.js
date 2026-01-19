@@ -8,7 +8,7 @@
  * - 断点续传支持
  */
 
-import { createLogger } from "../shared/utils/logger.js";
+import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("vfs/delta-sync");
 

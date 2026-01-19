@@ -5,7 +5,7 @@
  * 支持简化参数描述和完整 JSON Schema 两种格式。
  */
 
-import { createSafeRegex } from "../../shared/utils/safe-regex.js";
+import { createSafeRegex } from "../../shared/index.js";
 
 /**
  * 验证参数是否符合 schema

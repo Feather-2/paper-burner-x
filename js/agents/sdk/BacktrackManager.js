@@ -1,4 +1,4 @@
-import { deepClone } from "../shared/utils/value-utils.js";
+import { deepClone } from "../shared/index.js";
 
 function cloneSnapshot(value) {
     if (typeof globalThis !== "undefined" && typeof globalThis.structuredClone === "function") {

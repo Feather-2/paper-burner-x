@@ -8,9 +8,9 @@
  * - 前端友好：纯浏览器调用，无需代理
  */
 
-import { safeJsonParse } from "../shared/utils/safe-json.js";
+import { safeJsonParse } from "../shared/index.js";
 
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 // ============ Provider Adapters ============
 
 /**

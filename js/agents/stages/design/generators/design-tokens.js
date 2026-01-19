@@ -1,4 +1,4 @@
-import { isPlainObject } from "../../../shared/utils/value-utils.js";
+import { isPlainObject } from "../../../shared/index.js";
 
 // Design tokens generator for Design stage.
 //

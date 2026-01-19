@@ -1,5 +1,5 @@
 import { parseCompoundCommand } from "./command-classifier.js";
-import { toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../shared/index.js";
 
 /**
  * @typedef {RegExp | string} ToolPattern

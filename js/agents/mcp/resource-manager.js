@@ -1,10 +1,10 @@
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 import { McpClient } from "./mcp-client.js";
-import { FallbackAdapter } from "../shared/archive/archive.js";
-import { isNodeLike } from "../shared/platform.js";
-import { safeJsonParse } from "../shared/utils/safe-json.js";
-import { canUseStorageEncryption, decryptString, encryptString, isEncryptedString } from "../shared/utils/storage-crypto.js";
-import { createLogger } from "../shared/utils/logger.js";
+import { FallbackAdapter } from "../shared/index.js";
+import { isNodeLike } from "../shared/index.js";
+import { safeJsonParse } from "../shared/index.js";
+import { canUseStorageEncryption, decryptString, encryptString, isEncryptedString } from "../shared/index.js";
+import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("mcp/resource-manager");
 

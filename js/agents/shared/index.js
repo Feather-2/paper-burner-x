@@ -3,7 +3,7 @@
  */
 
 // Archive
-export { Archive, MapAdapter } from "./archive/archive.js";
+export { Archive, MapAdapter, FallbackAdapter } from "./archive/archive.js";
 export { CheckpointType, createCheckpoint, migrateCheckpoint } from "./archive/checkpoint-schema.js";
 
 // Platform detection

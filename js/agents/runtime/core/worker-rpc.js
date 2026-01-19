@@ -8,8 +8,8 @@
  * - 崩溃自动重建
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
-import { validateRpcResponse } from "../../shared/contracts/index.js";
+import { createLogger } from "../../shared/index.js";
+import { validateRpcResponse } from "../../shared/index.js";
 
 const logger = createLogger("runtime/core/worker-rpc");
 

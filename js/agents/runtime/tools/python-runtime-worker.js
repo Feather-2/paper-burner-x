@@ -8,7 +8,7 @@
  * 已加固：对 pyodide.mjs 做 SHA-256 完整性校验（SRI）
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 import { VfsProxyClient } from "../core/vfs-proxy-client.js";
 
 const logger = createLogger("runtime/tools/python-runtime-worker");

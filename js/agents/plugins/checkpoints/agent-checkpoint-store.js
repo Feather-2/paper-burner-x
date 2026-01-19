@@ -1,8 +1,8 @@
 import { StorageVfs } from "../../vfs/vfs.storage.js";
-import { safeJsonParse } from "../../shared/utils/safe-json.js";
-import { createLogger } from "../../shared/utils/logger.js";
-import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
+import { safeJsonParse } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
+import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/index.js";
+import { makeSecureTimestampedId } from "../../shared/index.js";
 
 const logger = createLogger("runtime/checkpoints/agent");
 

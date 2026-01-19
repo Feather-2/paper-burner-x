@@ -1,6 +1,6 @@
-import LRUCache from "../../shared/utils/lru-cache.js";
-import DisposableBase from "../../shared/base/disposable-base.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import LRUCache from "../../shared/index.js";
+import DisposableBase from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/memory/l3-storage");
 const encoder = new TextEncoder();

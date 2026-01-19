@@ -2,7 +2,7 @@ import { BaseAdapter } from "./base.js";
 import { SourceKind } from "../constants.js";
 import { basenameOfPath, fileLikeFromPath as nodeFileLikeFromPath } from "./node-io.js";
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
 async function fileLikeFromPath(path, { filename, mimeType } = {}) {
   const file = await nodeFileLikeFromPath(path, { mimeType: mimeType || "" });

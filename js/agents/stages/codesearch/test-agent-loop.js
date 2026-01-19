@@ -8,7 +8,7 @@
  */
 
 import { CodeSearchStage } from "./codesearch-stage.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("stages/codesearch/test-agent-loop");
 

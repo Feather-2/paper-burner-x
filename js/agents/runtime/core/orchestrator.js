@@ -1,14 +1,14 @@
-import { createStageApi } from "../../shared/utils/stage-api.js";
+import { createStageApi } from "../../shared/index.js";
 import { EventBus } from "../../core/event-bus.js";
 import { ActorType, OrchestratorState, isValidActorType } from "./constants.js";
 import { ServiceId } from "../di/defaults.js";
 import { CommonSchemas, validateConfig } from "./config-validator.js";
 import { TaskGraph } from "./parallel/task-graph.js";
 import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
-import { DisposableBase } from "../../shared/base/disposable-base.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { DisposableBase } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
 const logger = createLogger("runtime/orchestrator");
 

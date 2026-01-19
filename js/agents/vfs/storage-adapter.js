@@ -11,7 +11,7 @@
  * 浏览器友好，无 Node.js 依赖。
  */
 
-import { createLogger } from "../shared/utils/logger.js";
+import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("vfs/storage-adapter");
 

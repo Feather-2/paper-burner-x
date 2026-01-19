@@ -1,5 +1,5 @@
-import { toNonEmptyString, toNonNegativeInt, toPositiveInt } from "../../shared/utils/value-utils.js";
-import { LRUCache } from "../../shared/utils/lru-cache.js";
+import { toNonEmptyString, toNonNegativeInt, toPositiveInt } from "../../shared/index.js";
+import { LRUCache } from "../../shared/index.js";
 
 /**
  * @typedef {object} SourceManagerOptions

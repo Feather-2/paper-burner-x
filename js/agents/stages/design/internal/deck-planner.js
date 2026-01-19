@@ -9,7 +9,7 @@
  * - 卖点说明 (sellingPoint) - 这页的核心价值主张
  */
 
-import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../../shared/index.js";
 
 /**
  * 页面类型到默认布局的映射

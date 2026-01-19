@@ -1,4 +1,4 @@
-import { createLogger } from "../shared/utils/logger.js";
+import { createLogger } from "../shared/index.js";
 
 import { DEFAULT_FORMATTERS, escapeTemplateDelimiters } from "./formatters/index.js";
 

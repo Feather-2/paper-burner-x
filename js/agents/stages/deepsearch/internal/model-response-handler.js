@@ -7,7 +7,7 @@
  * - 触发错误事件和用户干预
  */
 
-import { robustParseJson } from "../../../shared/utils/robust-json.js";
+import { robustParseJson } from "../../../shared/index.js";
 import { DeepSearchEvents } from "../../../runtime/events/events.js";
 
 /**

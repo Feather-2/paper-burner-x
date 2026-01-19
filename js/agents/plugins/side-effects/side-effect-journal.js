@@ -1,6 +1,6 @@
 import { restoreVfsCheckpoint } from "../../vfs/checkpoints.js";
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
 /** Maximum WAL file size in bytes (10 MB) to prevent DoS. */
 const MAX_WAL_FILE_SIZE = 10 * 1024 * 1024;

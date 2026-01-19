@@ -16,8 +16,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { toNonEmptyString } from "../shared/utils/value-utils.js";
-import { estimateTokensCached } from "../shared/utils/token-cache.js";
+import { toNonEmptyString } from "../shared/index.js";
+import { estimateTokensCached } from "../shared/index.js";
 import { executeWithOverflowRecovery } from "../llm/overflow-recovery.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

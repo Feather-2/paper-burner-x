@@ -1,4 +1,4 @@
-import { isPlainObject } from "../../shared/utils/value-utils.js";
+import { isPlainObject } from "../../shared/index.js";
 
 // TP2: Chunking + locators (char offsets; optional line numbers).
 

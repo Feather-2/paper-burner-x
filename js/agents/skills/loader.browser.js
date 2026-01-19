@@ -10,9 +10,9 @@
 
 import { SkillScope } from "./model.js";
 import { initUserSkillStore, listUserSkills, getUserSkillBody } from "./user-store.js";
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
-import { createResponseTooLargeError, normalizeMaxBytes, readJsonWithLimit, readTextWithLimit } from "../shared/utils/response-limits.js";
-import { createLogger } from "../shared/utils/logger.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
+import { createResponseTooLargeError, normalizeMaxBytes, readJsonWithLimit, readTextWithLimit } from "../shared/index.js";
+import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("skills/loader.browser");
 

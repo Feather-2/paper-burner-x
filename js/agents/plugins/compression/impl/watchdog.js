@@ -11,7 +11,7 @@
  */
 
 import { WatchdogEvents } from "../../../runtime/events/events.js";
-import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../../shared/index.js";
 import { BehaviorFingerprint } from "../../analysis/behavior-fingerprint.js";
 
 /**

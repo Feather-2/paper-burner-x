@@ -7,7 +7,7 @@
  * - 重复行为预警
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/analysis/behavior-fingerprint");
 

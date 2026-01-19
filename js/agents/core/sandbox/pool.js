@@ -7,7 +7,7 @@
 
 import { WasmSandbox } from './wasm-sandbox.js';
 import { SandboxPreset, ResourceLimits } from './constants.js';
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("core/sandbox/pool");
 

@@ -4,10 +4,10 @@
 // (page types/titles/objectives/keyPoints) based on the input chunks + constraints.
 
 import { ALLOWED_PAGE_TYPES, PageType } from "./constants.js";
-import { injectSystemHint } from "../../shared/utils/message-utils.js";
-import { extractJsonCandidate } from "../../shared/utils/json-candidate.js";
+import { injectSystemHint } from "../../shared/index.js";
+import { extractJsonCandidate } from "../../shared/index.js";
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 function clampArrayStrings(arr) {
   if (!Array.isArray(arr)) return undefined;
   const out = [];

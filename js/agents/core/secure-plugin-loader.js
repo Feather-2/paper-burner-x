@@ -2,9 +2,9 @@
  * SecurePluginLoader - load remote plugins with SRI verification.
  */
 
-import { createLogger } from '../shared/utils/logger.js';
-import { toErrorMessage } from '../shared/utils/error-utils-extended.js';
-import { isPlainObject, toNonEmptyString } from '../shared/utils/value-utils.js';
+import { createLogger } from '../shared/index.js';
+import { toErrorMessage } from '../shared/index.js';
+import { isPlainObject, toNonEmptyString } from '../shared/index.js';
 
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const DEFAULT_BLOB_TYPE = 'text/javascript';

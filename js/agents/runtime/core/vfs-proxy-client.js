@@ -1,4 +1,4 @@
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 import { VFS_REQUEST, VFS_RESPONSE, VFS_OPS } from "./vfs-proxy-protocol.js";
 
 const logger = createLogger("runtime/core/vfs-proxy-client");

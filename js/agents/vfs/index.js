@@ -1,4 +1,4 @@
-import { Platform } from "../shared/platform.js";
+import { Platform } from "../shared/index.js";
 import { createVfs as createBrowserVfs } from "./index.browser.js";
 
 export * from "./index.browser.js";

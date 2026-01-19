@@ -1,5 +1,5 @@
-import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { Deque } from "../../shared/utils/deque.js";
+import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/index.js";
+import { Deque } from "../../shared/index.js";
 import { DecisionOutcome, DecisionStage, GapStatus, TodoStatus } from "./states.js";
 import { createTodo, transitionTodoStatus } from "./utils/todo-utils.js";
 import { cloneValue } from "./internal/checkpoint.js";

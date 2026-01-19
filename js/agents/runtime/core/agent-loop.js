@@ -1,11 +1,11 @@
-import { createStageApi } from "../../shared/utils/stage-api.js";
-import { checkCancelled } from "../../shared/utils/cancellation.js";
-import { normalizeToolResult } from "../../shared/contracts/index.js";
+import { createStageApi } from "../../shared/index.js";
+import { checkCancelled } from "../../shared/index.js";
+import { normalizeToolResult } from "../../shared/index.js";
 import { StagePausedError } from "./stage-errors.js";
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "../../plugins/telemetry/index.js";
-import { estimateTokensCached } from "../../shared/utils/token-cache.js";
-import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
+import { estimateTokensCached } from "../../shared/index.js";
+import { getGlobalTokenCounter } from "../../shared/index.js";
 import { CompressionCoordinator } from "../../plugins/compression/index.js";
 import { MessageManager } from "./message-manager.js";
 import { ToolRegistry } from "./tool-registry.js";
@@ -13,7 +13,7 @@ import { StatusController } from "./status-controller.js";
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
 import { createPreAgentHook, createPostAgentHook } from "../hooks/hook-runner.js";
 import { getLimit } from "./constants/limits.js";
-import { Deque } from "../../shared/utils/deque.js";
+import { Deque } from "../../shared/index.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord

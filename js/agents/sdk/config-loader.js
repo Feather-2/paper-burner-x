@@ -11,7 +11,7 @@
  * 自定义系统指令内容...
  */
 
-import { isNodeLike } from "../shared/platform.js";
+import { isNodeLike } from "../shared/index.js";
 
 /**
  * 解析 YAML frontmatter

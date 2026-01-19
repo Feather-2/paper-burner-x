@@ -19,7 +19,7 @@
 
 import * as LamportClockModule from './lamport-clock.js';
 import { LamportClock } from './lamport-clock.js';
-import { createLogger } from '../shared/utils/logger.js';
+import { createLogger } from '../shared/index.js';
 
 /**
  * @typedef {import('./types.d.ts').EventBusOptions} CoreEventBusOptions

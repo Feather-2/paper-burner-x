@@ -11,11 +11,11 @@ import {
 } from "../../runtime/index.js";
 import { DeepSearchState } from "./state.js";
 import { getModelCaller } from "./model.js";
-import { createLogger } from "../../shared/utils/logger.js";
-import { robustParseJson } from "../../shared/utils/robust-json.js";
-import { checkCancelled } from "../../shared/utils/cancellation.js";
-import { isPlainObject, toPositiveInt } from "../../shared/utils/value-utils.js";
-import { classifyDeepSearchError } from "../../shared/utils/error-classifier.js";
+import { createLogger } from "../../shared/index.js";
+import { robustParseJson } from "../../shared/index.js";
+import { checkCancelled } from "../../shared/index.js";
+import { isPlainObject, toPositiveInt } from "../../shared/index.js";
+import { classifyDeepSearchError } from "../../shared/index.js";
 import { ModelResponseHandler } from "./internal/model-response-handler.js";
 import SourceManager from "./source-manager.js";
 import { loadDeepSearchCapabilities } from "./capabilities-loader.js";

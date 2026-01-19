@@ -8,7 +8,7 @@
  * - 错误恢复
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 import { getGlobalContainer } from "../di/global-container.js";
 
 const logger = createLogger("runtime/core/error-boundary");

@@ -4,8 +4,8 @@
  * 基于 VFS 实现文件操作，bash 不可用。
  */
 
-import { isPlainObject, toNonEmptyString } from '../../../shared/utils/value-utils.js';
-import { globToRegex } from '../../../shared/utils/safe-regex.js';
+import { isPlainObject, toNonEmptyString } from '../../../shared/index.js';
+import { globToRegex } from '../../../shared/index.js';
 
 /**
  * @typedef {import('./index.js').PlatformToolsOptions} PlatformToolsOptions

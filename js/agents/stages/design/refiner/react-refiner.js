@@ -12,9 +12,9 @@
  * - remainingIssues <= 3
  */
 
-import { robustParseJson } from "../../../shared/utils/robust-json.js";
-import { injectSystemHint } from "../../../shared/utils/message-utils.js";
-import { extractJsonCandidate } from "../../../shared/utils/json-candidate.js";
+import { robustParseJson } from "../../../shared/index.js";
+import { injectSystemHint } from "../../../shared/index.js";
+import { extractJsonCandidate } from "../../../shared/index.js";
 
 import {
   isPlainObject,

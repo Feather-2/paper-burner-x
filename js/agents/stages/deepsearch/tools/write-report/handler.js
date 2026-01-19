@@ -20,8 +20,8 @@
  */
 
 import { generateReport } from "../../report/report-generator.js";
-import { isPlainObject, toNonEmptyString } from "../../../../shared/utils/value-utils.js";
-import { createLogger } from "../../../../shared/utils/logger.js";
+import { isPlainObject, toNonEmptyString } from "../../../../shared/index.js";
+import { createLogger } from "../../../../shared/index.js";
 import { getReportProgress, prepareReportForSubmit, reviewReportMarkdown } from "../../report/report-postprocess.js";
 import SourceManager from "../../source-manager.js";
 

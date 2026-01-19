@@ -1,4 +1,4 @@
-import { toNonEmptyString } from "../../../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../../../shared/index.js";
 
 /**
  * get-artifact tool - load persisted outputs from RunStore by artifactId

@@ -7,8 +7,8 @@
  */
 
 import { globalSubagentRegistry } from "../../../../sdk/SubagentRegistry.js";
-import { DisposableBase } from "../../../../shared/base/disposable-base.js";
-import { createLogger } from "../../../../shared/utils/logger.js";
+import { DisposableBase } from "../../../../shared/index.js";
+import { createLogger } from "../../../../shared/index.js";
 
 const logger = createLogger("deepsearch/tools/task");
 
@@ -24,8 +24,8 @@ async function ensureSubagentsRegistered() {
   }
 }
 import SourceManager from "../../source-manager.js";
-import { makeSecureTimestampedId } from "../../../../shared/utils/secure-id.js";
-import { toPositiveInt } from "../../../../shared/utils/value-utils.js";
+import { makeSecureTimestampedId } from "../../../../shared/index.js";
+import { toPositiveInt } from "../../../../shared/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type Definitions (替代 any)

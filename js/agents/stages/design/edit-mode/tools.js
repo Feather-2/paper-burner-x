@@ -1,6 +1,6 @@
 import { EditOperationType } from "../constants.js";
 
-import { isPlainObject } from "../../../shared/utils/value-utils.js";
+import { isPlainObject } from "../../../shared/index.js";
 export const EditModeTools = Object.freeze({
   [EditOperationType.ADD_SLIDE]: {
     description: "在指定位置添加新页面",

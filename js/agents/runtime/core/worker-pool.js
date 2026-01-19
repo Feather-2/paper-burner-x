@@ -10,7 +10,7 @@
 
 import { WorkerRpcClient } from "./worker-rpc.js";
 import { createWorker as createDefaultWorker } from "./worker-factory.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/core/worker-pool");
 

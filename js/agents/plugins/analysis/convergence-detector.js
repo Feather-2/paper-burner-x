@@ -7,7 +7,7 @@
  * - 自动停止建议
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/analysis/convergence-detector");
 

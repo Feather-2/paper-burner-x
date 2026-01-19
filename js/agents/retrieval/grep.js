@@ -1,5 +1,5 @@
-import { isPlainObject, toPositiveInt } from "../shared/utils/value-utils.js";
-import { createSafeRegex, isPotentiallyDangerous } from "../shared/utils/safe-regex.js";
+import { isPlainObject, toPositiveInt } from "../shared/index.js";
+import { createSafeRegex, isPotentiallyDangerous } from "../shared/index.js";
 
 function compileRegex(pattern, caseSensitive) {
   if (pattern instanceof RegExp) {

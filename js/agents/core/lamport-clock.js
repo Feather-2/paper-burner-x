@@ -5,7 +5,7 @@
  * 不再依赖物理时钟的启发式排序。
  */
 
-import { cryptoRandomHex } from "../shared/utils/secure-id.js";
+import { cryptoRandomHex } from "../shared/index.js";
 
 /** @typedef {import("./types.d.ts").LamportClockState} LamportClockState */
 /** @typedef {{ _clock?: LamportClockState | null, seq?: number | null, ts?: number | null }} LogicalOrderEvent */

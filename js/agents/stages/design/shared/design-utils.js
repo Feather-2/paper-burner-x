@@ -1,5 +1,5 @@
-import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { LRUCache } from "../../../shared/utils/lru-cache.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { LRUCache } from "../../../shared/index.js";
 
 /**
  * Design Stage - Shared Utilities

@@ -8,7 +8,7 @@
  * - 死锁检测
  */
 
-import { createLogger } from "../shared/utils/logger.js";
+import { createLogger } from "../shared/index.js";
 import { getGlobalContainer } from "../runtime/di/global-container.js";
 
 const logger = createLogger("vfs/file-lock");

@@ -8,7 +8,7 @@
  */
 
 import { McpTransport } from "./mcp-transport.js";
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 
 function attachAbortSignal(parentSignal, controller) {
   if (!parentSignal || typeof parentSignal !== "object" || typeof parentSignal.aborted !== "boolean") return () => {};

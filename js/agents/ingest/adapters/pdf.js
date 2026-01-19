@@ -3,7 +3,7 @@ import { extractAssetsFromMarkdown } from "../extract-assets.js";
 import { SourceKind } from "../constants.js";
 import { basenameOfPath, fileLikeFromPath as nodeFileLikeFromPath } from "./node-io.js";
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 function guessMimeType(filename) {
   const name = String(filename || "").toLowerCase();
   if (name.endsWith(".pdf")) return "application/pdf";

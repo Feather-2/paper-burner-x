@@ -13,7 +13,7 @@ import { grepChunks } from "../../retrieval/grep.js";
 import SymbolIndexer from "./indexing/symbol-indexer.js";
 import { computeSha256 } from "../../storage/artifact-manager.js";
 import { multiEditTextFileWithPolicy, writeTextFileWithPolicy } from "../../vfs/operations.js";
-import { isPlainObject } from "../../shared/utils/value-utils.js";
+import { isPlainObject } from "../../shared/index.js";
 
 // 工具定义（供 LLM 理解）
 export const TOOL_DEFINITIONS = [

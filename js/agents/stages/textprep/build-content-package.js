@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
 // TP6: Assemble ContentPackage v0.1 (TextPrep mode) + validate Hard Gates (H1-H4).
 

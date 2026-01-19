@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
 
 const DB_NAME = "CodeSearchIndexDB";
 const DB_VERSION = 1;

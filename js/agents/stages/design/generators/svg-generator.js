@@ -1,6 +1,6 @@
 import { getDesignModelCaller } from "../model.js";
-import { robustParseJson } from "../../../shared/utils/robust-json.js";
-import { createLogger } from "../../../shared/utils/logger.js";
+import { robustParseJson } from "../../../shared/index.js";
+import { createLogger } from "../../../shared/index.js";
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
 import { VisualDataStatus } from "../constants.js";
 import { ResourceGuard } from "../../../runtime/index.js";
@@ -37,7 +37,7 @@ function sanitizeSvg(svg) {
   s = s.replace(/\s+(href|xlink:href)\s*=\s*["']?\s*data:[^"'\s>]*/gi, "");
   return s;
 }
-import { classifyDesignError } from "../../../shared/utils/error-classifier.js";
+import { classifyDesignError } from "../../../shared/index.js";
 import { safeEmit } from "../shared/safe-emit.js";
 
 const logger = createLogger("stages/design/generators/svg-generator");

@@ -1,5 +1,5 @@
-import { isPlainObject, toNonEmptyString, sanitizeForJson } from "../../../shared/utils/value-utils.js";
-import { Deque } from "../../../shared/utils/deque.js";
+import { isPlainObject, toNonEmptyString, sanitizeForJson } from "../../../shared/index.js";
+import { Deque } from "../../../shared/index.js";
 import { cloneValue } from "../internal/checkpoint.js";
 
 /**

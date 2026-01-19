@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
 /**
  * Hook 实现类型 - 定义钩子如何执行

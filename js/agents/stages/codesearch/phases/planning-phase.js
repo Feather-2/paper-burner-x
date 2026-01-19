@@ -6,9 +6,9 @@
  * - 构建系统 prompt
  */
 
-import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { createLogger } from "../../../shared/utils/logger.js";
-import { checkCancelled } from "../../../shared/utils/cancellation.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { createLogger } from "../../../shared/index.js";
+import { checkCancelled } from "../../../shared/index.js";
 import { TodoStatus } from "../states.js";
 import {
   CODESEARCH_TODO_PLANNER_PROMPT,

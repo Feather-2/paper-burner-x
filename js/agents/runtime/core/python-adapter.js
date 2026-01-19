@@ -1,5 +1,5 @@
 import { RuntimeAdapter, RuntimeType } from './runtime-adapter.js';
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 import { VfsProxyHost } from "./vfs-proxy-host.js";
 import { VFS_REQUEST } from "./vfs-proxy-protocol.js";
 

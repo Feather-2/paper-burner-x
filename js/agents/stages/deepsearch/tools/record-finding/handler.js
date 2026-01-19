@@ -5,8 +5,8 @@
  * 自动同步到 SharedContext 供子代理/主代理共享
  */
 
-import { makeSecureTimestampedId } from "../../../../shared/utils/secure-id.js";
-import { toNonNegativeInt } from "../../../../shared/utils/value-utils.js";
+import { makeSecureTimestampedId } from "../../../../shared/index.js";
+import { toNonNegativeInt } from "../../../../shared/index.js";
 
 /**
  * @typedef {'claim' | 'gap' | 'conflict'} FindingType

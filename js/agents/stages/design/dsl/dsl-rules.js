@@ -7,7 +7,7 @@
  */
 
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
-import { createLogger } from "../../../shared/utils/logger.js";
+import { createLogger } from "../../../shared/index.js";
 
 const logger = createLogger("stages/design/dsl/dsl-rules");
 

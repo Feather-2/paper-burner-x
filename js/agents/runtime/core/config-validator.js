@@ -8,8 +8,8 @@
  * - 自定义校验规则
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
-import { createSafeRegex } from "../../shared/utils/safe-regex.js";
+import { createLogger } from "../../shared/index.js";
+import { createSafeRegex } from "../../shared/index.js";
 
 const logger = createLogger("runtime/core/config-validator");
 

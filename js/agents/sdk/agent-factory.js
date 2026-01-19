@@ -1,7 +1,7 @@
 import { EventBus } from "../core/event-bus.js";
 import { BaseAgentLoop } from "../runtime/core/agent-loop.js";
-import { DisposableBase } from "../shared/base/disposable-base.js";
-import { useLogger } from "../shared/utils/logger.js";
+import { DisposableBase } from "../shared/index.js";
+import { useLogger } from "../shared/index.js";
 import { createTaskTool, TASK_TOOL_DEFINITION } from "../runtime/tools/TaskTool.js";
 import { createRecallTool, RECALL_TOOL_DEFINITION } from "../runtime/tools/RecallTool.js";
 import { createBacktrackTool, BACKTRACK_TOOL_DEFINITION } from "../runtime/tools/BacktrackTool.js";
@@ -11,7 +11,7 @@ import { DiscoveryManager } from "./DiscoveryManager.js";
 import { AlertMonitor } from "./AlertMonitor.js";
 import { ToolExecutor } from "../runtime/tools/tool-executor.js";
 import { DefaultAgentLoop } from "./DefaultAgentLoop.js";
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 
 /**
  * @typedef {object} AgentInstanceCore

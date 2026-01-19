@@ -33,8 +33,8 @@ export { BacktrackManager } from "./BacktrackManager.js";
 export { SoftBacktrackManager } from "./SoftBacktrackManager.js";
 
 // Shared 工具
-export { createLogger, trackToolCall } from "../shared/utils/logger.js";
-export { createBudgetManager, BudgetAction } from "../shared/utils/budget.js";
+export { createLogger, trackToolCall } from "../shared/index.js";
+export { createBudgetManager, BudgetAction } from "../shared/index.js";
 
 // MCP
 export { createMcpClient, McpClient, McpProvider } from "../mcp/index.js";

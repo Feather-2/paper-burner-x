@@ -1,4 +1,4 @@
-import { isNodeLike } from "../shared/platform.js";
+import { isNodeLike } from "../shared/index.js";
 import { normalizeVfsPath } from "./path.js";
 import { isScanWorkerAvailable, scanOpfsAsync } from "./vfs-scan-async.js";
 

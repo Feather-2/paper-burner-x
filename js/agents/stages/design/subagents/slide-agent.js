@@ -1,8 +1,8 @@
 import { generateSingleSlide } from "../generators/batch-generator.js";
 import { getDslRules } from "../dsl/dsl-rules.js";
 import { SlideStatus, VisualSlotStatus, slideStatusMachine } from "../states.js";
-import { normalizeRenderType, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { safeJsonParse } from "../../../shared/utils/safe-json.js";
+import { normalizeRenderType, toNonEmptyString } from "../../../shared/index.js";
+import { safeJsonParse } from "../../../shared/index.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
 
 const MAX_LINKED_FILE_CHARS = 1200;

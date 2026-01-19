@@ -10,7 +10,7 @@
  * @module mcp/mcp-transport
  */
 
-import { EventEmitter } from "../shared/utils/event-emitter.js";
+import { EventEmitter } from "../shared/index.js";
 
 /**
  * @typedef {object} McpMessage

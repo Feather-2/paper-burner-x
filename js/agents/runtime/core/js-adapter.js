@@ -10,7 +10,7 @@
  */
 
 import { RuntimeAdapter, RuntimeType } from './runtime-adapter.js';
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 /**
  * @typedef {import('./runtime-adapter.js').ExecutionContext} ExecutionContext

@@ -1,6 +1,6 @@
 import { BaseProvider, assertChatMessages, assertChatResponse } from "./provider.js";
 
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 
 /**
  * @typedef {{ role: string, content: (string | Array<Record<string, any>>) }} ChatMessage

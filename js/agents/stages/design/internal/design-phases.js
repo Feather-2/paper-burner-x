@@ -9,7 +9,7 @@ import { validateSlide } from "../refiner/qa-validator.js";
 import { getDslRules } from "../dsl/dsl-rules.js";
 import { escapeHtml } from "../shared/design-utils.js";
 import { ImagePlanner } from "../image/image-planner.js";
-import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
+import { normalizeRenderType } from "../../../shared/index.js";
 import { checkCancelled, getEmitFn } from "../../../runtime/index.js";
 import { DesignPhase } from "../states.js";
 import { planDeck, applyUserEdits, formatPlanForDialog } from "./deck-planner.js";

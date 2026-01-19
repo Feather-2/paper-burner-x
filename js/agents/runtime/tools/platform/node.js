@@ -4,8 +4,8 @@
  * 基于 node:fs 和 child_process 实现完整文件操作和命令执行。
  */
 
-import { toNonEmptyString } from '../../../shared/utils/value-utils.js';
-import { globToRegex } from '../../../shared/utils/safe-regex.js';
+import { toNonEmptyString } from '../../../shared/index.js';
+import { globToRegex } from '../../../shared/index.js';
 import { exec as execCommand } from '../../exec/index.js';
 
 /**

@@ -1,9 +1,9 @@
 import { computeSha256 } from "../storage/artifact-manager.js";
 import { normalizeVfsPath } from "./path.js";
 import { createUnifiedDiffAsync } from "./diff.js";
-import { makeSecureTimestampedId } from "../shared/utils/secure-id.js";
+import { makeSecureTimestampedId } from "../shared/index.js";
 
-import { isPlainObject } from "../shared/utils/value-utils.js";
+import { isPlainObject } from "../shared/index.js";
 
 const LOCAL_ARTIFACT_PREFIX = "pb_vfs_artifact|";
 

@@ -10,11 +10,11 @@
  * - 低开销读取：L0/L1/L2/L3 getter 返回 frozen 浅拷贝（COW）
  */
 
-import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/value-utils.js";
-import { estimateTokensCached } from "../../shared/utils/token-cache.js";
-import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
-import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
-import { Platform } from "../../shared/platform.js";
+import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/index.js";
+import { estimateTokensCached } from "../../shared/index.js";
+import { getGlobalTokenCounter } from "../../shared/index.js";
+import { makeSecureTimestampedId } from "../../shared/index.js";
+import { Platform } from "../../shared/index.js";
 
 import { diffLayers } from "./state-diff.js";
 import { RetrievalEngine } from "./retrieval-engine.js";

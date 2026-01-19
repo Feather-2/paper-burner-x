@@ -9,9 +9,9 @@
  *                     Do NOT bundle for browser targets; use conditional imports or build aliases.
  */
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { DisposableBase } from "../../shared/base/disposable-base.js";
-import { Platform } from "../../shared/platform.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { DisposableBase } from "../../shared/index.js";
+import { Platform } from "../../shared/index.js";
 
 /**
  * @typedef {"session-evicted" | "session-accessed"} ProcessCoordinatorMessageType

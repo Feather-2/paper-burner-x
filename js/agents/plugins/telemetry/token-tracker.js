@@ -1,5 +1,5 @@
-import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
-import { toNonNegativeInt } from "../../shared/utils/value-utils.js";
+import { cryptoRandomHex } from "../../shared/index.js";
+import { toNonNegativeInt } from "../../shared/index.js";
 import { getGlobalContainer } from "../../runtime/di/global-container.js";
 
 const MAX_RECORDS = 500;

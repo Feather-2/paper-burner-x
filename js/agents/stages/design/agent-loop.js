@@ -1,7 +1,7 @@
-import { Archive, FallbackAdapter, MapAdapter } from "../../shared/archive/archive.js";
-import { deepClone } from "../../shared/utils/value-utils.js";
-import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/archive/checkpoint-schema.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { Archive, FallbackAdapter, MapAdapter } from "../../shared/index.js";
+import { deepClone } from "../../shared/index.js";
+import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
 import { DesignPhase, designPhaseMachine } from "./states.js";
 import {
   AgentStatus,

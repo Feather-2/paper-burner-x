@@ -3,7 +3,7 @@ import { extractAssetsFromMarkdown } from "../extract-assets.js";
 import { SourceKind } from "../constants.js";
 import { basenameOfPath as nodeBasenameOfPath, fileLikeFromPath as nodeFileLikeFromPath, isNodeEnvironment, readFileFromPath } from "./node-io.js";
 
-import { toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../shared/index.js";
 function guessMimeType(filename) {
   const name = String(filename || "").toLowerCase();
   if (name.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";

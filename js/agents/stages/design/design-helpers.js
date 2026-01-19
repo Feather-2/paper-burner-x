@@ -6,8 +6,8 @@
 
 import { TraceContext } from "../../plugins/telemetry/index.js";
 import { getErrorBoundary } from "../../runtime/index.js";
-import { safeJsonParse } from "../../shared/utils/safe-json.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { safeJsonParse } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("stages/design/design-helpers");
 

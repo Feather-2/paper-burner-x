@@ -8,7 +8,7 @@
  */
 
 import { SubagentRegistry } from "./SubagentRegistry.js";
-import { createLogger } from "../shared/utils/logger.js";
+import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("sdk/agent-config");
 

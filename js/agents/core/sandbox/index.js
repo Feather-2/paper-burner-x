@@ -18,7 +18,7 @@
  * 浏览器环境下调用相关函数会抛出明确错误。
  */
 
-import { isNodeLike } from '../../shared/platform.js';
+import { isNodeLike } from '../../shared/index.js';
 
 // WASM Sandbox (跨平台可用)
 export { WasmSandbox, createSandbox } from './wasm-sandbox.js';

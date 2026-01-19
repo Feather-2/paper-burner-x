@@ -2,7 +2,7 @@ import { ImageGenerator } from "../generators/image-generator.js";
 import { SVGGenerator } from "../generators/svg-generator.js";
 import { VisualSlotStatus, visualSlotMachine } from "../states.js";
 import { VisualType } from "../constants.js";
-import { normalizeRenderType, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { normalizeRenderType, toNonEmptyString } from "../../../shared/index.js";
 
 /** @type {Set<string>} */
 const SVG_VISUAL_TYPES = new Set(

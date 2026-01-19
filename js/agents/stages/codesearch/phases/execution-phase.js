@@ -8,9 +8,9 @@
  * - 更新 Todo 状态
  */
 
-import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { createLogger } from "../../../shared/utils/logger.js";
-import { checkCancelled } from "../../../shared/utils/cancellation.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { createLogger } from "../../../shared/index.js";
+import { checkCancelled } from "../../../shared/index.js";
 import { TodoStatus } from "../states.js";
 import { CODESEARCH_STEP_PROMPT } from "../prompts.js";
 import { formatOpenTodos, isTodoOpen } from "./planning-phase.js";

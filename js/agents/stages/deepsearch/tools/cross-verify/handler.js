@@ -6,8 +6,8 @@
 
 import { DiscoveryStatus } from "../../../../sdk/DiscoveryManager.js";
 import { handler as taskHandler, getTaskStatus, waitForTask } from "../task/handler.js";
-import { robustParseJson } from "../../../../shared/utils/robust-json.js";
-import { isPlainObject, safeNumber, toBoolean, toNonEmptyString } from "../../../../shared/utils/value-utils.js";
+import { robustParseJson } from "../../../../shared/index.js";
+import { isPlainObject, safeNumber, toBoolean, toNonEmptyString } from "../../../../shared/index.js";
 
 export const definition = {
   name: "cross-verify",

@@ -7,7 +7,7 @@
  * 3. 自定义 wheels (URL + OPFS 缓存)
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/deps/dependency-manager");
 

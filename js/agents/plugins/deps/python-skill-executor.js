@@ -11,7 +11,7 @@
 import { DependencyManager } from "../deps/dependency-manager.js";
 import { PythonRuntimeAdapter } from "../core/python-adapter.js";
 import { SkillRuntime } from "../../skills/model.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/deps/python-skill-executor");
 

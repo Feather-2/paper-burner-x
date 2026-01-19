@@ -1,4 +1,4 @@
-import { safeJsonParse } from "../../shared/utils/safe-json.js";
+import { safeJsonParse } from "../../shared/index.js";
 
 /**
  * @typedef {object} PolicyRule

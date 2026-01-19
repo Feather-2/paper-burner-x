@@ -1,7 +1,7 @@
 import { getDesignModelCaller, isNonRetryableError } from "../model.js";
-import { robustParseJson } from "../../../shared/utils/robust-json.js";
-import { extractJsonCandidate } from "../../../shared/utils/json-candidate.js";
-import { createLogger } from "../../../shared/utils/logger.js";
+import { robustParseJson } from "../../../shared/index.js";
+import { extractJsonCandidate } from "../../../shared/index.js";
+import { createLogger } from "../../../shared/index.js";
 import { VisualDataStatus } from "../constants.js";
 import { buildSlideHtml } from "../dsl/dsl-builder.js";
 import { resolveLayoutType } from "./layout-protocol.js";
@@ -10,7 +10,7 @@ import { parseTagAttributes } from "../shared/html-parser.js";
 import { safeEmit } from "../shared/safe-emit.js";
 import { ResourceGuard } from "../../../runtime/index.js";
 
-import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../../shared/index.js";
 const logger = createLogger("stages/design/generators/batch-generator");
 
 /**

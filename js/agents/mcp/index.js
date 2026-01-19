@@ -17,7 +17,7 @@ import { createSseParser, consumeSse, consumeSseJson } from "./sse.js";
 // Transport Layer
 import { McpTransport, MCP_PROTOCOL_VERSION, MCP_SUPPORTED_VERSIONS, McpMethods } from "./mcp-transport.js";
 import { createMcpTransport, getSupportedTransports } from "./transport-factory.js";
-import { isNodeLike } from "../shared/platform.js";
+import { isNodeLike } from "../shared/index.js";
 
 // Stdio 相关模块仅 Node.js 可用，浏览器打包时需排除或使用 index.browser.js
 /** @type {typeof import('./stdio-mcp-transport.js').StdioMcpTransport | undefined} */

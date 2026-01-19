@@ -11,7 +11,7 @@
  */
 
 import { parseSseStream } from "./sse.js";
-import { normalizeMaxBytes, readJsonWithLimit } from "../shared/utils/response-limits.js";
+import { normalizeMaxBytes, readJsonWithLimit } from "../shared/index.js";
 
 /**
  * @typedef {Object} NexusSkillInfo

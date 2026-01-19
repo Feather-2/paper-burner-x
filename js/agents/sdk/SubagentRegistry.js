@@ -8,7 +8,7 @@
  * P3.4: 添加 Prompt Injection 扫描，检测潜在注入攻击。
  */
 
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 import { InjectionScanner, ScanResultCode } from "./injection-scanner.js";
 
 /**

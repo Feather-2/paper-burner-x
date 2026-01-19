@@ -1,5 +1,5 @@
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { makeSecureTimestampedId } from "../../shared/index.js";
 
 function defaultGenerateId(prefix = "id") {
   return makeSecureTimestampedId(prefix);

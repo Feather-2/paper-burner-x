@@ -10,8 +10,8 @@
 
 import { SandboxPool } from './pool.js';
 import { SandboxPreset, ResourceLimits, SandboxCapability } from './constants.js';
-import { createLogger } from '../../shared/utils/logger.js';
-import { isNodeLike } from '../../shared/platform.js';
+import { createLogger } from '../../shared/index.js';
+import { isNodeLike } from '../../shared/index.js';
 
 // Skill metadata 中允许声明的能力（白名单，声明 != 授权）
 // 注意：这里的 key 为 Skill 声明用的字符串，value 为实际沙箱能力常量。

@@ -1,7 +1,7 @@
 import {
   classifyDesignError as _classifyDesignError,
   isNonRetryableError as _isNonRetryableError,
-} from "../../../shared/utils/error-classifier.js";
+} from "../../../shared/index.js";
 
 /**
  * Classify design-stage errors into retryable / non-retryable buckets.

@@ -1,5 +1,5 @@
-import { toNonEmptyString, safeInt as _safeInt } from "../shared/utils/value-utils.js";
-import { checkCancelled } from "../shared/utils/cancellation.js";
+import { toNonEmptyString, safeInt as _safeInt } from "../shared/index.js";
+import { checkCancelled } from "../shared/index.js";
 import { inspectUrlForProxy, redactUrlForLog } from "./content-sanitizer.js";
 
 /**

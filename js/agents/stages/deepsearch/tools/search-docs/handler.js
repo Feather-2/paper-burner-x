@@ -3,11 +3,11 @@
  */
 
 import SourceManager from "../../source-manager.js";
-import { EmbeddingService } from "../../../../shared/embeddings/embedding-service.js";
-import { getGlobalCircuitBreakerRegistry } from "../../../../shared/utils/circuit-breaker.js";
+import { EmbeddingService } from "../../../../shared/index.js";
+import { getGlobalCircuitBreakerRegistry } from "../../../../shared/index.js";
 import { mmrSelect } from "../../../../retrieval/mmr.js";
 
-import { isPlainObject } from "../../../../shared/utils/value-utils.js";
+import { isPlainObject } from "../../../../shared/index.js";
 
 /**
  * @typedef {object} ApplyMmrOptions

@@ -5,7 +5,7 @@
  * - Browser: loads from a fetchable manifest (public/skills/manifest.json)
  */
 
-import { isNodeLike } from "../shared/platform.js";
+import { isNodeLike } from "../shared/index.js";
 
 /**
  * @typedef {import("./model.js").SkillMetadata} SkillMetadata

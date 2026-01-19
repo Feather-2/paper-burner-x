@@ -8,12 +8,12 @@
  * - L3: Archive (归档) - snapshots, index, checkpoints
  */
 
-import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/value-utils.js";
-import { estimateTokensCached } from "../../shared/utils/token-cache.js";
-import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
-import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
-import { Platform } from "../../shared/platform.js";
-import { DisposableBase } from "../../shared/base/disposable-base.js";
+import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/index.js";
+import { estimateTokensCached } from "../../shared/index.js";
+import { getGlobalTokenCounter } from "../../shared/index.js";
+import { makeSecureTimestampedId } from "../../shared/index.js";
+import { Platform } from "../../shared/index.js";
+import { DisposableBase } from "../../shared/index.js";
 import { RetrievalEngine } from "./retrieval-engine.js";
 import { L3Storage } from "./l3-storage.js";
 import { normalizeTodoEntry, normalizeTodoInPlace, normalizeTodoStatus } from "./todo-normalize.js";

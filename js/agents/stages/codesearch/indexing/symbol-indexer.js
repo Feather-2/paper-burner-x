@@ -1,9 +1,9 @@
 import { computeSha256 } from "../../../storage/artifact-manager.js";
-import { initTreeSitter, loadTreeSitterLanguage } from "../../../shared/parser/tree-sitter-wasm.js";
+import { initTreeSitter, loadTreeSitterLanguage } from "../../../shared/index.js";
 import CodeSearchIndexStore from "./index-store.js";
 
-import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { LRUCache } from "../../../shared/utils/lru-cache.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { LRUCache } from "../../../shared/index.js";
 
 /**
  * @typedef {object} SymbolIndexerLogger

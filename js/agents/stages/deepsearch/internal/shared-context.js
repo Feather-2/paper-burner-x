@@ -7,8 +7,8 @@
  * - L3 Store: 完整数据，按需加载
  */
 
-import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { cryptoRandomHex } from "../../../shared/utils/secure-id.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { cryptoRandomHex } from "../../../shared/index.js";
 
 /**
  * 生成内容指纹（用于去重）

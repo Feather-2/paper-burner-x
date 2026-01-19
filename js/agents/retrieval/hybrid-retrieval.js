@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString, toPositiveInt } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../shared/index.js";
 import { search as bm25Search } from "./bm25.js";
 import { searchAsync as vectorSearchAsync } from "./vector-search.js";
 

@@ -3,7 +3,7 @@
  *
  * Tracks warning/exceeded state in `state.L2.budgetState` and emits budget-related events.
  */
-import { isPlainObject, safeInt, safeNumber } from "../../../shared/utils/value-utils.js";
+import { isPlainObject, safeInt, safeNumber } from "../../../shared/index.js";
 
 /** Default threshold (0..1) at which a budget warning is emitted. */
 const DEFAULT_WARN_AT = 0.8;

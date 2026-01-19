@@ -1,6 +1,6 @@
-import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
+import { makeSecureTimestampedId } from "../../../shared/index.js";
 
-import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../../shared/index.js";
 function normalizeCategory(category) {
   const c = (toNonEmptyString(category) ?? "").toLowerCase();
   if (c === "uploaded" || c === "upload") return "uploaded";

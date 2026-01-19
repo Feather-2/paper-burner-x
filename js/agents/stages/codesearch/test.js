@@ -8,7 +8,7 @@
  */
 
 import { createToolExecutor, formatToolDefinitionsForLLM } from "./code-tools.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("stages/codesearch/test");
 

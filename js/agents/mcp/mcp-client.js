@@ -8,8 +8,8 @@
  * 业务层仅通过 tool schema + MCP 调用，不感知具体 endpoint。
  */
 
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
-import { CircuitBreaker } from "../shared/utils/circuit-breaker.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
+import { CircuitBreaker } from "../shared/index.js";
 
 /**
  * @typedef {object} McpProviderOptions

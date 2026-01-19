@@ -1,5 +1,5 @@
-import { isPlainObject, toNonEmptyString, toPositiveInt } from "../shared/utils/value-utils.js";
-import { VectorIndex } from "../shared/embeddings/vector-index.js";
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../shared/index.js";
+import { VectorIndex } from "../shared/index.js";
 
 function resolveVectorIndex(indexLike) {
   // Accept either a raw VectorIndex-like object or a { vectorIndex } wrapper.

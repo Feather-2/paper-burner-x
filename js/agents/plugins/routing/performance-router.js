@@ -7,7 +7,7 @@
  * - 自适应负载均衡
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/routing/performance-router");
 

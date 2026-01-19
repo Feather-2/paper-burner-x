@@ -1,4 +1,4 @@
-import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../../shared/index.js";
 import { CheckpointMode } from "../constants.js";
 import { ensureTokenUsage } from "../utils/state-utils.js";
 import {

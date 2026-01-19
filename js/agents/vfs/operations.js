@@ -1,8 +1,8 @@
 import { normalizeVfsPath } from "./path.js";
 import { recordVfsCheckpoint } from "./checkpoints.js";
-import { cryptoRandomHex } from "../shared/utils/secure-id.js";
+import { cryptoRandomHex } from "../shared/index.js";
 
-import { isPlainObject } from "../shared/utils/value-utils.js";
+import { isPlainObject } from "../shared/index.js";
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-path async locking (browser-safe)
 //

@@ -1,8 +1,8 @@
 import { checkCancelled, extractJsonCandidate } from "../state.js";
 import { getModelCaller } from "../model.js";
 import { finalizeCitationsInMarkdown } from "./citations.js";
-import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { safeJsonParse } from "../../../shared/utils/safe-json.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { safeJsonParse } from "../../../shared/index.js";
 import { clampInt, mapConcurrent, normalizeStringArray, resolveMaxParallelSections } from "./write-utils.js";
 
 function clampProgress(progress) {

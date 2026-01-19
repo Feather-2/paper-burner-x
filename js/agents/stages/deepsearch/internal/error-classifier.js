@@ -2,7 +2,7 @@ import {
   classifyDeepSearchError as _classifyDeepSearchError,
   isNonRecoverableDeepSearchError as _isNonRecoverableDeepSearchError,
   toDeepSearchErrorMessage as _toDeepSearchErrorMessage,
-} from "../../../shared/utils/error-classifier.js";
+} from "../../../shared/index.js";
 
 /**
  * @typedef {"config"|"system"|"auth"|"quota"|"rate_limit"|"timeout"|"server"|"network"|"invalid_request"|"unknown"} DeepSearchErrorCategory

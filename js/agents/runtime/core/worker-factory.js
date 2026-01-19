@@ -4,7 +4,7 @@
  * 自动选择 Web Worker (Browser) 或 Worker Threads (Node.js/Bun)
  */
 
-import { isNodeLike } from "../../shared/platform.js";
+import { isNodeLike } from "../../shared/index.js";
 
 /**
  * 检测 Worker 是否可用

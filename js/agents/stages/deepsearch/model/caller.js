@@ -5,7 +5,7 @@
  * (preferred) or the legacy `stageApi.aiApiService.chat`.
  */
 import { extractServices } from "../utils/stage-api.js";
-import { injectSystemHint } from "../../../shared/utils/message-utils.js";
+import { injectSystemHint } from "../../../shared/index.js";
 
 /**
  * @typedef {object} BuildBaseCallerOptions

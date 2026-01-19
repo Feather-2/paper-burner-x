@@ -8,7 +8,7 @@
  * - (Future) WorkerTransport: Web Worker / Worker Threads
  */
 
-import { Platform } from "../../shared/platform.js";
+import { Platform } from "../../shared/index.js";
 
 const impl = Platform.isNode ? await import("./index.node.js") : await import("./index.browser.js");
 

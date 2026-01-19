@@ -1,11 +1,11 @@
 import { computeSha256 } from "../../storage/artifact-manager.js";
 import { PolicyEngine } from "./engine.js";
 import { PolicyRuleStore } from "./store.js";
-import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { makeSecureTimestampedId } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
 
-import { isNodeLike } from "../../shared/platform.js";
-import { toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isNodeLike } from "../../shared/index.js";
+import { toNonEmptyString } from "../../shared/index.js";
 
 const logger = createLogger("runtime/policy/manager");
 

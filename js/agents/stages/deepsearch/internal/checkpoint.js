@@ -1,6 +1,6 @@
-import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { createCheckpoint, CheckpointType as ArchiveCheckpointType } from "../../../shared/archive/checkpoint-schema.js";
-import { createLogger } from "../../../shared/utils/logger.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { createCheckpoint, CheckpointType as ArchiveCheckpointType } from "../../../shared/index.js";
+import { createLogger } from "../../../shared/index.js";
 import { CheckpointMode } from "../constants.js";
 import { ensureTokenUsage } from "../utils/state-utils.js";
 import { migratGapToTodo } from "../utils/todo-utils.js";

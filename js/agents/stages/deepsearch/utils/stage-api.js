@@ -15,7 +15,7 @@ import {
   extractServices as _extractServices,
   mergeStageApis as _mergeStageApis,
   createChildApi as _createChildApi,
-} from "../../../shared/utils/stage-api.js";
+} from "../../../shared/index.js";
 
 export { StageApiSpec };
 

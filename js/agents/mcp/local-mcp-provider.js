@@ -11,9 +11,9 @@
  */
 
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
-import { toNonEmptyString, safeInt as _safeInt } from "../shared/utils/value-utils.js";
-import { checkCancelled } from "../shared/utils/cancellation.js";
-import { makeSecureTimestampedId } from "../shared/utils/secure-id.js";
+import { toNonEmptyString, safeInt as _safeInt } from "../shared/index.js";
+import { checkCancelled } from "../shared/index.js";
+import { makeSecureTimestampedId } from "../shared/index.js";
 import { CorsProxyHttpClient, DEFAULT_CORS_PROXIES, normalizeCorsProxies, validateFetchUrl } from "./http-proxy.js";
 import { extractPageContentFromHtml, searchDuckDuckGoHtml } from "./content-extractor.js";
 

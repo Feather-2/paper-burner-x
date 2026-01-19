@@ -1,4 +1,4 @@
-import { isNodeLike } from "../shared/platform.js";
+import { isNodeLike } from "../shared/index.js";
 
 function splitLines(text) {
   const s = typeof text === "string" ? text : String(text ?? "");

@@ -2,7 +2,7 @@ import { BaseAdapter } from "./base.js";
 import { SourceKind } from "../constants.js";
 import { basenameOfPath as nodeBasenameOfPath, readTextFromPath as nodeReadTextFromPath, isNodeEnvironment } from "./node-io.js";
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 function guessMimeType(filename) {
   const name = String(filename || "").toLowerCase();
   if (name.endsWith(".md") || name.endsWith(".markdown")) return "text/markdown";

@@ -13,8 +13,8 @@
 
 import { validateArgs } from "./schema-validator.js";
 
-import { isPlainObject, toPositiveInt } from "../../shared/utils/value-utils.js";
-import { isNodeLike } from "../../shared/platform.js";
+import { isPlainObject, toPositiveInt } from "../../shared/index.js";
+import { isNodeLike } from "../../shared/index.js";
 import { createPreToolUseHook } from "../hooks/hook-runner.js";
 
 /**

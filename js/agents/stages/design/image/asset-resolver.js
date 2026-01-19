@@ -1,7 +1,7 @@
 import { VisualDataStatus } from "../constants.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
 
-import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../../shared/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Security: Protocol whitelist for asset URIs

@@ -1,6 +1,6 @@
-import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../../shared/index.js";
 import { normalizeTokenUsage as _normalizeTokenUsage } from "../model/usage.js";
-import { stripThinkingTags as _stripThinkingTags, extractJsonCandidate as _extractJsonCandidate } from "../../../shared/utils/json-candidate.js";
+import { stripThinkingTags as _stripThinkingTags, extractJsonCandidate as _extractJsonCandidate } from "../../../shared/index.js";
 
 /**
  * Normalize token usage from various provider formats.

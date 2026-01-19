@@ -13,7 +13,7 @@ import { fillImagePlaceholders } from "../generators/image-generator.js";
 import { SVGGenerator, fillSvgPlaceholders } from "../generators/svg-generator.js";
 import { fillAssetPlaceholders } from "../image/asset-resolver.js";
 import { VisualSubAgent } from "../subagents/visual-agent.js";
-import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
+import { normalizeRenderType } from "../../../shared/index.js";
 import { checkCancelled, getEmitFn } from "../../../runtime/index.js";
 
 /**

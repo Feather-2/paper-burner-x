@@ -9,8 +9,8 @@
  * - Adds a hard timeout via AbortController (default 120s, configurable by env).
  */
 
-import { injectSystemHint } from "../../shared/utils/message-utils.js";
-import { isNonRetryableError as isNonRetryableDesignError } from "../../shared/utils/error-classifier.js";
+import { injectSystemHint } from "../../shared/index.js";
+import { isNonRetryableError as isNonRetryableDesignError } from "../../shared/index.js";
 
 /**
  * Environment adapter - reads env vars from globalThis.process.env or import.meta.env.

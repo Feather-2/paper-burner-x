@@ -7,9 +7,9 @@
  * - 前端友好：纯 fetch 调用（支持超时、常见错误码）
  */
 
-import { safeJsonParse } from "../shared/utils/safe-json.js";
+import { safeJsonParse } from "../shared/index.js";
 
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 function sanitizeBaseUrl(url, fallback) {
   const raw = toNonEmptyString(url) || toNonEmptyString(fallback) || "";
   return raw.replace(/\/+$/, "");

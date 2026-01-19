@@ -18,9 +18,9 @@ import {
   createLifecycleEmitter,
   Watchdog,
 } from "../../runtime/index.js";
-import { createBudgetManager, BudgetAction } from "../../shared/utils/budget.js";
-import { createLogger } from "../../shared/utils/logger.js";
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { createBudgetManager, BudgetAction } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 import { getModelCaller } from "../deepsearch/model.js";
 import { createToolExecutor } from "./code-tools.js";
 import { CodeSearchPhase } from "./states.js";

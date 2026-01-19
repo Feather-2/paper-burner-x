@@ -8,9 +8,9 @@
  * - 异步摘要预生成（用于主动压缩）
  */
 
-import { estimateTokensCached } from "../../shared/utils/token-cache.js";
-import { createLogger } from "../../shared/utils/logger.js";
-import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
+import { estimateTokensCached } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
+import { getGlobalTokenCounter } from "../../shared/index.js";
 import { CompressionCoordinator } from "../../plugins/compression/index.js";
 import { DEFAULT_CONTEXT_CONFIG } from "./context-config.js";
 import { wrapPersistedOutput, cleanOldPersistedOutputs, KEEP_RECENT_OUTPUTS } from "./persisted-output.js";

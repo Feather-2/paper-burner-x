@@ -1,8 +1,8 @@
-import DisposableBase from "../../shared/base/disposable-base.js";
+import DisposableBase from "../../shared/index.js";
 import HookRegistry, { HookEvent, HookType } from "./hook-registry.js";
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { FileWatcher, isNativeWatchSupported } from "../../shared/utils/file-watcher.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { FileWatcher, isNativeWatchSupported } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/hooks/config-loader");
 

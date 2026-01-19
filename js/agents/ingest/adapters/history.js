@@ -1,6 +1,6 @@
 import { BaseAdapter } from "./base.js";
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 function guessMimeTypeFromNameOrData(name, data) {
   const d = String(data || "");
   if (d.startsWith("data:")) {

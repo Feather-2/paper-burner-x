@@ -1,4 +1,4 @@
-import { isPlainObject, toPositiveInt } from "../shared/utils/value-utils.js";
+import { isPlainObject, toPositiveInt } from "../shared/index.js";
 
 function normalizeTitle(title) {
   return String(title || "")

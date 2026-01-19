@@ -12,9 +12,9 @@ import { VideoAdapter } from "./adapters/video.js";
 import { CodeAdapter } from "./adapters/code.js";
 import { understandAssets as runAssetUnderstanding } from "./asset-understanding.js";
 import { normalizeText } from "../stages/textprep/normalize.js";
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 import { validateFetchUrl } from "../mcp/http-proxy.js";
-import { createResponseTooLargeError, normalizeMaxBytes, readTextWithLimit } from "../shared/utils/response-limits.js";
+import { createResponseTooLargeError, normalizeMaxBytes, readTextWithLimit } from "../shared/index.js";
 
 /**
  * @typedef {object} IngestInput

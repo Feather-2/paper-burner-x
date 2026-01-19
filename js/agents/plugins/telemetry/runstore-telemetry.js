@@ -1,5 +1,5 @@
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/telemetry/runstore-telemetry");
 

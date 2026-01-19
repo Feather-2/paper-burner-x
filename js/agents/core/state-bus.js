@@ -8,7 +8,7 @@
  * - 自动与 EventBus 联动
  */
 
-import { createLogger } from "../shared/utils/logger.js";
+import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("core/state-bus");
 

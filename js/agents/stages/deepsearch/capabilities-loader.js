@@ -5,7 +5,7 @@
  * preloaded capabilities via constructor injection.
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("stages/deepsearch/capabilities-loader");
 

@@ -6,7 +6,7 @@
  * - Node-like: fs + child_process + native
  */
 
-import { Platform, isNodeLike } from '../../../shared/platform.js';
+import { Platform, isNodeLike } from '../../../shared/index.js';
 
 /**
  * @typedef {object} PlatformToolsOptions

@@ -8,7 +8,7 @@
  * - 配额超限回调
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
+import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("runtime/core/resource-guard");
 

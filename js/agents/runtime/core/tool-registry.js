@@ -7,7 +7,7 @@
  */
 
 import { createPreToolUseHook } from "../hooks/hook-runner.js";
-import { normalizeToolResult } from "../../shared/contracts/index.js";
+import { normalizeToolResult } from "../../shared/index.js";
 
 // Re-export for backward compatibility
 export { normalizeToolResult };

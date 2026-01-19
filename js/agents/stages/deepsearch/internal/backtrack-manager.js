@@ -7,7 +7,7 @@
  * - 发射回溯相关事件
  */
 
-import { migrateCheckpoint } from "../../../shared/archive/checkpoint-schema.js";
+import { migrateCheckpoint } from "../../../shared/index.js";
 import { DeepSearchState } from "../state.js";
 
 /**

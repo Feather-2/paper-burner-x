@@ -5,7 +5,7 @@
  * 调用 react-refiner 进行自动修复。
  */
 
-import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../../../shared/index.js";
 
 /**
  * 修复配置

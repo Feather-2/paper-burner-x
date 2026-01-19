@@ -6,7 +6,7 @@
  */
 
 import { normalizeToolRestrictions, evaluateToolRestrictions } from './tool-restrictions.js';
-import { toNonEmptyString, isPlainObject } from '../../shared/utils/value-utils.js';
+import { toNonEmptyString, isPlainObject } from '../../shared/index.js';
 
 /**
  * @typedef {'readonly' | 'standard' | 'elevated' | 'custom'} PermissionLevel

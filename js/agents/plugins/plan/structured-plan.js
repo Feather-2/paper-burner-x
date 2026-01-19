@@ -5,7 +5,7 @@
  * 参考 Claude Code Plan Agent 设计。
  */
 
-import { isPlainObject, toNonEmptyString } from '../../shared/utils/value-utils.js';
+import { isPlainObject, toNonEmptyString } from '../../shared/index.js';
 
 /**
  * @typedef {Object} Requirement
