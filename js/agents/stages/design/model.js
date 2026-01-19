@@ -10,7 +10,9 @@
  */
 
 import { injectSystemHint } from "../../shared/index.js";
-import { isNonRetryableError as isNonRetryableDesignError } from "../../shared/index.js";
+
+// Re-export for backward compatibility
+export { isNonRetryableError } from "./shared/error-classifier.js";
 
 /**
  * Environment adapter - reads env vars from globalThis.process.env or import.meta.env.
@@ -47,17 +49,6 @@ export class NonRetryableError extends Error {
     this.name = "NonRetryableError";
     this.nonRetryable = true;
   }
-}
-
-/**
- * Check if error should not be retried.
- * @param {any} err
- * @returns {boolean}
- */
-export function isNonRetryableError(err) {
-  if (!err) return false;
-  if (err.nonRetryable === true) return true;
-  return isNonRetryableDesignError(err);
 }
 
 import { toNonEmptyString } from "./shared/design-utils.js";

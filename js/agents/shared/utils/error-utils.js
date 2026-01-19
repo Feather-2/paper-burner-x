@@ -102,17 +102,3 @@ export function isTimeoutError(err) {
   const e = /** @type {any} */ (err);
   return isErrorType(err, "TimeoutError") || e?.code === "ETIMEDOUT";
 }
-
-/**
- * Wrap error with additional context while preserving original stack.
- *
- * @param {Error} err - Original error
- * @param {string} context - Additional context
- * @returns {Error} Wrapped error
- */
-export function wrapError(err, context) {
-  const wrapped = new Error(`${context}: ${err.message}`);
-  wrapped.cause = err;
-  wrapped.stack = `${wrapped.stack}\nCaused by: ${err.stack}`;
-  return wrapped;
-}

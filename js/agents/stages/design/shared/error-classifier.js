@@ -15,10 +15,14 @@ export function classifyDesignError(err) {
 
 /**
  * Check whether the given error should not be retried in the design stage.
+ * Includes design-specific check for NonRetryableError instances (err.nonRetryable === true).
  *
  * @param {unknown} err
  * @returns {boolean}
  */
 export function isNonRetryableError(err) {
+  if (!err) return false;
+  // Design-specific: NonRetryableError class instances
+  if (/** @type {any} */ (err).nonRetryable === true) return true;
   return _isNonRetryableError(err);
 }
