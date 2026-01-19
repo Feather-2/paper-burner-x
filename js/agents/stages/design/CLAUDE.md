@@ -2,17 +2,18 @@
 
 AI 驱动的幻灯片设计和生成。
 
-> **文件统计**: 57 个 JS 文件
+> **文件统计**: 58 个 JS 文件
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
 | `index.js` | 模块入口 |
-| `agent-loop.js` | DesignAgentLoop (新增 `getPhase()`/`getStatus()` 访问器) |
+| `agent-loop.js` | DesignAgentLoop |
 | `design-agent.js` | DesignStage, runDesignStage |
+| `edit-agent-loop.js` | EditAgentLoop（交互编辑主循环） |
+| `model.js` | 设计阶段模型调用封装（路由/超时） |
 | `design-tools.js` | 设计工具定义 |
-| `image-planner.js` | **新增** ImagePlanner 入口 (re-export from image/) |
 | `states.js` | 状态机定义 |
 | `constants.js` | 常量 |
 
@@ -25,9 +26,9 @@ AI 驱动的幻灯片设计和生成。
 | `refiner/` | QA 验证、React 精调 |
 | `subagents/` | 子 Agent（SlideSubAgent, VisualSubAgent） |
 | `edit-mode/` | 编辑模式 |
-| `internal/` | 内部运行时（deck-planner） |
+| `internal/` | 内部运行时（deck-planner/phase runtime） |
 | `shared/` | 共享工具 |
-| `image/` | 图像处理 |
+| `image/` | 图像处理（image-planner 等） |
 | `reviewer/` | 审核 |
 | `banana/` | 实验性功能 |
 

@@ -102,6 +102,7 @@ export class Archive {
     this._diff = normalizeDiffConfig(diff);
     this._lastCheckpointIdByRunId = new Map(); // runId -> checkpointId
     this._diffSinceFullByRunId = new Map(); // runId -> number
+    this._saveLocks = new Map(); // runId -> Promise
     this._restoreCacheMax = normalizeCacheMax(restoreCacheMax, DEFAULT_RESTORE_CACHE_MAX);
     this._restoreCache = new Map(); // checkpointId -> {schemaVersion?,nodeStates,timestamp,metadata}
   }
@@ -223,80 +224,103 @@ export class Archive {
       throw new TypeError("runId must not include ':'");
     }
 
-    const payload = isPlainObject(data) ? data : {};
-    const timestamp = toNonEmptyString(payload.timestamp) ?? String(Date.now());
-    const schemaVersion = toNonEmptyString(payload.schemaVersion);
-    let checkpointId = `${normalizedRunId}:${timestamp}`;
-    let attempts = 0;
-    let existing = await this.storage.get(checkpointId);
-    while (existing != null && attempts < 100) {
-      this._saveCounter += 1;
-      checkpointId = `${normalizedRunId}:${timestamp}-${this._saveCounter}`;
-      attempts += 1;
-      existing = await this.storage.get(checkpointId);
-    }
-    if (existing != null) {
-      throw new Error("CHECKPOINT_ID_COLLISION: too many saves in same millisecond");
-    }
-
-    const nodeStates = payload.nodeStates ?? {};
-    const metadata = payload.metadata;
-
-    const snapshotFull = {
-      ...(schemaVersion ? { schemaVersion } : {}),
-      nodeStates,
-      timestamp,
-      metadata,
-    };
-
-    const diffCfg = this._diff;
-    const diffEnabled = diffCfg?.enabled === true;
     const runKey = normalizedRunId;
-    const sinceFull = this._diffSinceFullByRunId.get(runKey) || 0;
+    // Serialize saves per runId to prevent checkpointId collisions.
+    const lockMap = this._saveLocks;
+    const prevTail = lockMap.get(runKey) || Promise.resolve();
+    /** @type {(() => void) | null} */
+    let release = null;
+    const tail = new Promise((resolve) => {
+      release = () => resolve();
+    });
+    lockMap.set(runKey, tail);
 
-    /** @type {any} */
-    let snapshotToStore = snapshotFull;
+    try {
+      await prevTail;
 
-    if (diffEnabled && sinceFull < diffCfg.fullSnapshotEvery - 1) {
-      const prevId = this._lastCheckpointIdByRunId.get(runKey) || (await this._getLatestCheckpointId(runKey));
-      if (prevId) {
-        try {
-          const prev = await this._restoreCheckpointInternal(prevId);
-          const patch = buildJsonPatch(prev?.nodeStates ?? {}, nodeStates, {
-            maxDepth: diffCfg.maxDepth,
-            maxOps: diffCfg.maxOps,
-          });
+      const payload = isPlainObject(data) ? data : {};
+      const timestamp = toNonEmptyString(payload.timestamp) ?? String(Date.now());
+      const schemaVersion = toNonEmptyString(payload.schemaVersion);
+      let checkpointId = `${normalizedRunId}:${timestamp}`;
+      let attempts = 0;
+      let existing = await this.storage.get(checkpointId);
+      while (existing != null && attempts < 100) {
+        this._saveCounter += 1;
+        checkpointId = `${normalizedRunId}:${timestamp}-${this._saveCounter}`;
+        attempts += 1;
+        existing = await this.storage.get(checkpointId);
+      }
+      if (existing != null) {
+        throw new Error("CHECKPOINT_ID_COLLISION: too many saves in same millisecond");
+      }
 
-          const diffSnapshot = {
-            ...(schemaVersion ? { schemaVersion } : {}),
-            encoding: "diff",
-            base: prevId,
-            patch,
-            timestamp,
-            metadata,
-          };
+      const nodeStates = payload.nodeStates ?? {};
+      const metadata = payload.metadata;
 
-          const fullBytes = safeJsonSize(snapshotFull);
-          const diffBytes = safeJsonSize(diffSnapshot);
-          const saved = fullBytes > 0 && diffBytes > 0 ? fullBytes - diffBytes : 0;
-          if (saved >= diffCfg.minSavingsBytes) {
-            snapshotToStore = diffSnapshot;
+      const snapshotFull = {
+        ...(schemaVersion ? { schemaVersion } : {}),
+        nodeStates,
+        timestamp,
+        metadata,
+      };
+
+      const diffCfg = this._diff;
+      const diffEnabled = diffCfg?.enabled === true;
+      const sinceFull = this._diffSinceFullByRunId.get(runKey) || 0;
+
+      /** @type {any} */
+      let snapshotToStore = snapshotFull;
+
+      if (diffEnabled && sinceFull < diffCfg.fullSnapshotEvery - 1) {
+        const prevId = this._lastCheckpointIdByRunId.get(runKey) || (await this._getLatestCheckpointId(runKey));
+        if (prevId) {
+          try {
+            const prev = await this._restoreCheckpointInternal(prevId);
+            const patch = buildJsonPatch(prev?.nodeStates ?? {}, nodeStates, {
+              maxDepth: diffCfg.maxDepth,
+              maxOps: diffCfg.maxOps,
+            });
+
+            const diffSnapshot = {
+              ...(schemaVersion ? { schemaVersion } : {}),
+              encoding: "diff",
+              base: prevId,
+              patch,
+              timestamp,
+              metadata,
+            };
+
+            const fullBytes = safeJsonSize(snapshotFull);
+            const diffBytes = safeJsonSize(diffSnapshot);
+            const saved = fullBytes > 0 && diffBytes > 0 ? fullBytes - diffBytes : 0;
+            if (saved >= diffCfg.minSavingsBytes) {
+              snapshotToStore = diffSnapshot;
+            }
+          } catch {
+            // Best-effort: if diff fails, fall back to full snapshot.
+            snapshotToStore = snapshotFull;
           }
-        } catch {
-          // Best-effort: if diff fails, fall back to full snapshot.
-          snapshotToStore = snapshotFull;
         }
       }
-    }
 
-    await this.storage.set(checkpointId, snapshotToStore);
-    this._lastCheckpointIdByRunId.set(runKey, checkpointId);
-    if (snapshotToStore === snapshotFull) {
-      this._diffSinceFullByRunId.set(runKey, 0);
-    } else {
-      this._diffSinceFullByRunId.set(runKey, sinceFull + 1);
+      await this.storage.set(checkpointId, snapshotToStore);
+      this._lastCheckpointIdByRunId.set(runKey, checkpointId);
+      if (snapshotToStore === snapshotFull) {
+        this._diffSinceFullByRunId.set(runKey, 0);
+      } else {
+        this._diffSinceFullByRunId.set(runKey, sinceFull + 1);
+      }
+      return checkpointId;
+    } finally {
+      try {
+        release?.();
+      } catch {
+        // ignore
+      }
+      if (lockMap.get(runKey) === tail) {
+        lockMap.delete(runKey);
+      }
     }
-    return checkpointId;
   }
 
   async _getLatestCheckpointId(runId) {

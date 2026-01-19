@@ -49,7 +49,8 @@ Token 监控和上下文压缩，防止溢出。
 主动压缩协调器（90% 触发，压缩到 30%）：
 
 ```javascript
-import { ProactiveCompressor, PROACTIVE_PRESETS, autoSelectProactivePreset } from 'js/agents/runtime';
+import { ProactiveCompressor } from 'js/agents/plugins/compression';
+import { autoSelectPreset } from 'js/agents/plugins/compression/impl/proactive-compressor.js';
 
 // 使用预设
 const compressor = new ProactiveCompressor({
@@ -58,7 +59,7 @@ const compressor = new ProactiveCompressor({
 });
 
 // 或自动选择预设
-const preset = autoSelectProactivePreset(contextWindow);
+const preset = autoSelectPreset(contextWindow);
 const compressor = new ProactiveCompressor({ contextWindow, preset });
 
 // 检查是否需要压缩
@@ -121,7 +122,7 @@ mm.setAsyncSummaryEnabled(false);
 回归预测剩余上下文容量：
 
 ```javascript
-import { ContextPredictor } from 'js/agents/runtime';
+import { ContextPredictor } from 'js/agents/plugins/compression';
 
 const predictor = new ContextPredictor({
   contextWindow: 128000,
@@ -141,7 +142,7 @@ const { fillRatio, zone, shouldCompress, predictedRemainingMessages } = predicto
 动态区域边界管理：
 
 ```javascript
-import { AdaptiveZoneManager } from 'js/agents/runtime';
+import { AdaptiveZoneManager } from 'js/agents/plugins/compression';
 
 const zoneManager = new AdaptiveZoneManager({
   defaultBoundaries: { archive: 0.2, condensed: 0.5, working: 0.8 },
@@ -175,7 +176,8 @@ const result = compressor.compress(context, {
 运行健康监控器：检测卡住、超时、逻辑震荡，并可记录工具调用回路。
 
 ```javascript
-import { Watchdog, WatchdogEvents } from 'js/agents/runtime';
+import { Watchdog } from 'js/agents/plugins/compression';
+import { WatchdogEvents } from 'js/agents/runtime';
 
 const watchdog = new Watchdog({
   maxRecentOutputs: 5,
@@ -202,7 +204,7 @@ const action = watchdog.recordAction({
 渐进式上下文压缩：
 
 ```javascript
-import { CicadaCompressor, CompressionLayer } from 'js/agents/runtime';
+import { CicadaCompressor, CompressionLayer } from 'js/agents/plugins/compression';
 
 const compressor = new CicadaCompressor({
   layers: [
@@ -273,7 +275,7 @@ await compressor.compress(context, { archiveKey, sharedContext });
 压缩调度器：封装阈值判断、title-only 模式、Worker 阈值等触发逻辑。
 
 ```javascript
-import { CompressionCoordinator } from 'js/agents/runtime';
+import { CompressionCoordinator } from 'js/agents/plugins/compression';
 
 const coordinator = new CompressionCoordinator({
   getContextConfig: () => ({
@@ -308,7 +310,7 @@ import {
   compressAgentLoopMessagesAsync,
   isCompressionWorkerAvailable,
   terminateCompressionWorker,
-} from 'js/agents/runtime/compression/compression-async.js';
+} from 'js/agents/plugins/compression/impl/compression-async.js';
 
 const result = await compressAgentLoopMessagesAsync(messages, {
   keepLastTurns: 6,
@@ -332,7 +334,7 @@ terminateCompressionWorker();
 压缩质量监控，评估信息保留率：
 
 ```javascript
-import { CompressionQualityMonitor } from 'js/agents/runtime';
+import { CompressionQualityMonitor } from 'js/agents/plugins/compression';
 
 const monitor = new CompressionQualityMonitor({
   minRetentionRatio: 0.7,    // 最小保留率阈值

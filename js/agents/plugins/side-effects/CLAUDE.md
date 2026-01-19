@@ -35,7 +35,7 @@ SideEffectJournal 以 WAL（write-ahead log）形式持久化可回滚副作用�
 ### 1) 初始化并监听 VFS 写入
 
 ```javascript
-import { SideEffectJournal } from 'js/agents/runtime/side-effects/side-effect-journal.js';
+import { SideEffectJournal } from 'js/agents/plugins/side-effects/side-effect-journal.js';
 
 const journal = new SideEffectJournal({
   runId,

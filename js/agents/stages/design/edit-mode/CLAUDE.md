@@ -30,6 +30,9 @@ await editAgent.run(initialState, {
 - `chat_message` (message/text)
 - `element_selected` (elementId/id)
 - `quick_action` (action/name: undo/redo/add_slide/delete_slide)
+- `exit`
+
+如果不传 `actions`，需要提供 `waitForUserAction` 回调。
 
 ## 编辑工具
 
@@ -39,9 +42,26 @@ import { EditOperationType } from 'js/agents/stages/design/constants.js';
 
 EditModeTools[EditOperationType.ADD_SLIDE];
 EditModeTools[EditOperationType.EDIT_ELEMENT];
+EditModeTools[EditOperationType.CHANGE_COLOR_SCHEME];
 EditModeTools.screenshot_current;
 EditModeTools.parse_canvas_state;
 ```
+
+支持的 EditOperationType：
+- `add_slide`
+- `delete_slide`
+- `reorder_slides`
+- `duplicate_slide`
+- `change_color_scheme`
+- `change_font`
+- `apply_theme`
+- `edit_element`
+- `delete_element`
+- `add_element`
+- `move_element`
+- `resize_element`
+- `undo`
+- `redo`
 
 ## 工具执行器
 
@@ -54,6 +74,10 @@ const toolExecutor = createEditToolExecutor({ state: initialState, historyManage
 
 await toolExecutor(EditOperationType.ADD_SLIDE, { afterIndex: 0 });
 ```
+
+## 样式锁定警告
+
+当 `state.designSystem.styleLock` 存在时，`change_color_scheme` 会校验颜色并通过 `emit('edit:style.deviation', ...)` 发送偏离警告（不阻断操作）。
 
 ## 历史管理
 

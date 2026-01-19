@@ -27,11 +27,25 @@ node js/agents/cli/test-memory.js
 
 ## 配置
 
-复制 `config.example.json` 为 `config.json`，填入 API 密钥：
+复制 `config.example.json` 为 `config.json`，并填入模型信息（完整字段见示例文件）：
 
 ```json
 {
-  "openai": { "apiKey": "sk-..." },
-  "anthropic": { "apiKey": "sk-ant-..." }
+  "models": {
+    "normal": {
+      "baseUrl": "https://api.deepseek.com/v1",
+      "model": "deepseek-chat",
+      "apiKey": "sk-..."
+    }
+  },
+  "default": "normal"
 }
 ```
+
+如需角色映射（`tiers`）、Agent/Memory/Report 等高级配置，按 `config.example.json` 扩展。
+
+也可通过环境变量覆盖（优先级更高）：
+
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `OPENAI_MODEL`

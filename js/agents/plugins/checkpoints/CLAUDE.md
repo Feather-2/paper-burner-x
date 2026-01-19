@@ -2,17 +2,18 @@
 
 Agent 运行快照的持久化与恢复，基于 VFS 保存检查点文件和索引。
 
-> **文件统计**: 1 个 JS 文件
+> **文件统计**: 2 个 JS 文件
 
 ## 模块描述
 
-`runtime/checkpoints` 负责把一次运行的消息、工具调用、结果等快照写入磁盘，并维护索引以支持按“最新 / 指定 ID / 指定步数”恢复。
+`plugins/checkpoints` 负责把一次运行的消息、工具调用、结果等快照写入磁盘，并维护索引以支持按“最新 / 指定 ID / 指定步数”恢复。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
 | `agent-checkpoint-store.js` | AgentCheckpointStore - 检查点保存/读取 + `index.json` 管理 |
+| `index.js` | 模块导出 |
 
 ## 关键概念
 
@@ -27,7 +28,7 @@ Agent 运行快照的持久化与恢复，基于 VFS 保存检查点文件和索
 ## 常见任务
 
 ```javascript
-import { AgentCheckpointStore } from 'js/agents/runtime/checkpoints';
+import { AgentCheckpointStore } from 'js/agents/plugins/checkpoints';
 
 const store = new AgentCheckpointStore({ vfs, runId: 'session_123' });
 

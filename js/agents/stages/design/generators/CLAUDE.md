@@ -1,15 +1,17 @@
 # generators (design) - 生成器
 
-幻灯片内容生成。
+幻灯片内容与视觉资产生成。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `design-tokens.js` | 设计令牌生成 |
-| `layout-generator.js` | 布局生成 |
+| `design-tokens.js` | 设计令牌生成/校验 |
+| `design-system-generator.js` | DesignSystem 生成与 overrides 合并 |
+| `layout-generator.js` | 布局原型 HTML 生成 |
+| `layout-protocol.js` | 布局类型/区域协议 |
 | `image-generator.js` | ImageGenerator - 图像生成/填充 |
-| `svg-generator.js` | SVGGenerator - SVG 生成 |
+| `svg-generator.js` | SVGGenerator - SVG 生成/填充 |
 | `batch-generator.js` | 批量生成 |
 
 ## 设计令牌
@@ -17,12 +19,34 @@
 ```javascript
 import { generateDesignTokens } from 'js/agents/stages/design/generators';
 
-const tokens = generateDesignTokens({
+const { theme, designTokens } = generateDesignTokens({
   theme: 'dark',
-  accent: '#007AFF',
   fontFamily: 'Inter',
+  safeMarginPct: 8,
 });
-// → { colors, typography, spacing, shadows }
+// → { theme, visualPreference, designTokens: { colors, typography, spacing, grid, visualPreference } }
+```
+
+## 设计系统
+
+```javascript
+import { generateDesignSystem } from 'js/agents/stages/design/generators/design-system-generator.js';
+
+const system = await generateDesignSystem(
+  { contentSummary: '...', tone: 'calm', userPreferences: { designSystemOverrides: { typography: { lineHeight: 1.3 } } } },
+  { modelRouter, aiApiService, constraints: { safeMarginPct: 8 } }
+);
+// → validated DesignSystem + legacy designTokens sync
+```
+
+## 布局协议
+
+```javascript
+import { resolveLayoutType, getRegion, regionToDslAttrs } from 'js/agents/stages/design/generators/layout-protocol.js';
+
+const layout = resolveLayoutType('agenda');
+const region = getRegion(layout, 'title');
+const attrs = regionToDslAttrs(region, { width: 960, height: 540 });
 ```
 
 ## 图像生成
@@ -30,8 +54,9 @@ const tokens = generateDesignTokens({
 ```javascript
 import { ImageGenerator, fillImagePlaceholders } from 'js/agents/stages/design/generators';
 
-const gen = new ImageGenerator(llmProvider);
-await fillImagePlaceholders(slides, gen);
+const gen = new ImageGenerator({ imageProvider });
+const { filledSlots } = await gen.generate(imageSlots, contentPackage, designSystem);
+const { deckHtmlDsl: filledHtml } = fillImagePlaceholders(deckHtmlDsl, filledSlots);
 ```
 
 ## SVG 生成
@@ -40,5 +65,6 @@ await fillImagePlaceholders(slides, gen);
 import { SVGGenerator, fillSvgPlaceholders } from 'js/agents/stages/design/generators';
 
 const svgGen = new SVGGenerator();
-await fillSvgPlaceholders(slides);
+const { results } = await svgGen.generate(svgSlots, designSystem);
+const { html: filledHtml } = fillSvgPlaceholders(deckHtmlDsl, results);
 ```

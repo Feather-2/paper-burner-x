@@ -44,26 +44,47 @@
 ### 使用示例
 
 ```javascript
-import { createSandbox, SkillExecutor } from 'js/agents/core/sandbox';
+import {
+  createSandbox,
+  SandboxPreset,
+  ResourceLimits,
+} from 'js/agents/core/sandbox';
 
 const sandbox = await createSandbox({
-  preset: 'STANDARD',
-  limits: { maxMemoryMB: 32 },
+  capabilities: SandboxPreset.SKILL,
+  limits: ResourceLimits.STANDARD,
+  state: { user: { id: 'u1' } },
 });
 
-const executor = new SkillExecutor(sandbox);
-const result = await executor.execute(skillCode, { input: data });
+const result = await sandbox.execute('state.user.id');
+console.log(result.data);
+```
+
+```javascript
+import { SkillExecutor } from 'js/agents/core/sandbox';
+
+const executor = new SkillExecutor({ fallbackMode: 'none' });
+
+const skill = {
+  metadata: { name: 'demo', scope: 'user' },
+  body: 'return args.x + 1;',
+};
+
+const result = await executor.execute(skill, { args: { x: 1 } });
+console.log(result.data);
 ```
 
 ### 降级策略
 
-- WASM 不可用时，降级到受限 JS 执行
-- 可通过 `fallbackMode: "none"` 强制要求 WASM
+- 默认 `fallbackMode: "none"`：WASM 不可用时不执行
+- `fallbackMode: "eval"`：允许降级到 Worker/主线程执行（best-effort，非强安全边界，仅限可信代码）
 - 可通过 `isWasmSupported()` 探测能力
 
 ## 2. System Sandbox (Node/Bun/Deno)
 
 系统级进程隔离，用于安全执行 Shell 命令。
+
+> 注意：System Sandbox 仅在 Node/Bun/Deno 可用，且 `js/agents/core/sandbox` 导出的系统 API 通过动态 import 提供，调用时需要 `await`。
 
 ### 核心文件
 
@@ -98,15 +119,15 @@ const result = await execInSandbox('ls', ['-la'], {
   allowNetwork: false,
 });
 
-// 方式 2: 执行器实例
-const sandbox = createSystemSandbox({
+// 方式 2: 执行器实例 (Node-only; 动态加载)
+const sandbox = await createSystemSandbox({
   workDir: '/path/to/project',
   allowNetwork: false,
   onBackendSelected: (backend) => console.log(`Using: ${backend}`),
 });
 
-const result = await sandbox.shell('npm install');
-console.log(result.stdout);
+const output = await sandbox.shell('npm install');
+console.log(output.stdout);
 ```
 
 ### 检测可用后端
@@ -133,17 +154,65 @@ import {
   createInteractivePermissionHandler,
 } from 'js/agents/core/sandbox';
 
-const executor = createPermissionExecutor({
-  permissionHandler: createInteractivePermissionHandler({
-    prompt: async (msg) => readline.question(msg),
-  }),
+const permissionHandler = await createInteractivePermissionHandler({
+  prompt: async (msg) => readline.question(msg),
 });
+
+const executor = await createPermissionExecutor({ permissionHandler });
 
 // 执行前会询问用户确认
 const result = await executor.shell('rm -rf temp/');
 ```
 
 ## 常量
+
+### SandboxCapability / SandboxPreset / ResourceLimits
+
+```javascript
+const SandboxCapability = {
+  CONSOLE: 'console',
+  STATE: 'state',
+  EMIT: 'emit',
+  FETCH: 'fetch',
+  FS_READ: 'fs:read',
+  FS_WRITE: 'fs:write',
+  EXEC: 'exec',
+};
+
+const SandboxPreset = {
+  MINIMAL: [SandboxCapability.CONSOLE],
+  SKILL: [
+    SandboxCapability.CONSOLE,
+    SandboxCapability.STATE,
+    SandboxCapability.EMIT,
+  ],
+  NETWORK: [
+    SandboxCapability.CONSOLE,
+    SandboxCapability.STATE,
+    SandboxCapability.EMIT,
+    SandboxCapability.FETCH,
+  ],
+  TRUSTED: Object.values(SandboxCapability),
+};
+
+const ResourceLimits = {
+  LIGHT: {
+    memoryLimit: 1 * 1024 * 1024,
+    timeoutMs: 1000,
+    maxStackDepth: 100,
+  },
+  STANDARD: {
+    memoryLimit: 8 * 1024 * 1024,
+    timeoutMs: 30000,
+    maxStackDepth: 500,
+  },
+  HEAVY: {
+    memoryLimit: 64 * 1024 * 1024,
+    timeoutMs: 300000,
+    maxStackDepth: 1000,
+  },
+};
+```
 
 ### SandboxBackend
 

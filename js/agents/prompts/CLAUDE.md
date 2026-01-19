@@ -23,7 +23,43 @@ prompts/
 import { loadPrompt } from 'js/agents/prompts/prompt-loader.js';
 
 const systemPrompt = await loadPrompt('deepsearch/system');
-const toolPrompt = await loadPrompt('codesearch/system');
+const toolPrompt = await loadPrompt('codesearch/system', {
+  manifestUrl: 'prompts/manifest.json'
+});
+```
+
+## PromptLoader 实例与缓存
+
+```javascript
+import {
+  PromptLoader,
+  configurePromptCache,
+  clearPromptCache,
+  getCachedPromptNames
+} from 'js/agents/prompts/prompt-loader.js';
+
+const loader = new PromptLoader({
+  basePath: '/js/agents/prompts/',
+  maxEntries: 256,
+  manifestTtlMs: 300_000,
+  maxManifestBytes: 512 * 1024,
+  maxPromptBytes: 2 * 1024 * 1024,
+  fetchImpl: fetch
+});
+
+const text = await loader.loadPrompt('design/system');
+
+configurePromptCache({ maxEntries: 256, manifestTtlMs: 300_000 });
+clearPromptCache('design/system');
+const cached = getCachedPromptNames();
+```
+
+## 同步加载（Node.js）
+
+```javascript
+import { loadPromptSync } from 'js/agents/prompts/prompt-loader.js';
+
+const prompt = loadPromptSync('dsl/ppt-html-dsl');
 ```
 
 ## 模板渲染
@@ -32,6 +68,16 @@ const toolPrompt = await loadPrompt('codesearch/system');
 import { renderPromptTemplate } from 'js/agents/prompts/prompt-template.js';
 
 const text = renderPromptTemplate('Hello {{name|upper}}', {
+  vars: { name: 'world' }
+});
+```
+
+## 轻量渲染（无 formatter 管线）
+
+```javascript
+import { renderPromptTemplate } from 'js/agents/prompts/prompt-loader.js';
+
+const text = renderPromptTemplate('Hello {{name}}', {
   vars: { name: 'world' }
 });
 ```
@@ -52,4 +98,7 @@ const rendered = registry.render('greeting', { vars: { name: 'World' } });
 - 文件名反映用途：`system.md`, `planning.md`, `summarize.md`
 - 使用 Markdown 格式，支持变量插值 `{{variable}}` 与格式化器管线 `{{var|json}}`
 - 内置格式化器：`bullets`, `code`, `json`, `lines`, `trim`, `upper`
+- 浏览器端默认读取 `prompts/manifest.json`，兜底 `public/prompts/manifest.json`
+- 轻量渲染不支持 formatter 管线，需要格式化请用 `prompt-template.js`
+- `loadPromptSync` 仅在 Node.js 环境使用
 - 保持提示词简洁，避免冗余

@@ -2,7 +2,7 @@
 
 模型路由、速率限制和多模态支持。
 
-> **文件统计**: 11 个 JS 文件
+> **文件统计**: 17 个 JS 文件
 
 ## 核心文件
 
@@ -15,6 +15,17 @@
 | `overflow-recovery.js` | Token 溢出恢复 |
 | `model-events.js` | 浏览器兼容事件发射器 |
 | `constants.js` | ModelUsage/RouterStrategy/ModelHealth/TransportKind 等常量 |
+
+## 内部模块 (internal/)
+
+| 文件 | 职责 |
+|------|------|
+| `internal/call-executor.js` | 执行模型调用、重试与 failover，记录 token/延迟 |
+| `internal/config-parser.js` | ModelRouter 配置解析、日志/策略/持久化初始化 |
+| `internal/provider-selection.js` | usage/tag 解析与候选选择、性能路由注册 |
+| `internal/health-manager.js` | 健康状态与熔断器管理 |
+| `internal/fallback.js` | 错误归类与冷却时间计算 |
+| `internal/rate-limit.js` | 每模型限流器装配与缓存 |
 
 ## 最近变更
 

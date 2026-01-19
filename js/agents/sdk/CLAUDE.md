@@ -10,7 +10,7 @@
 |------|------|
 | `AgentBuilder.js` | fluent facade，委托 AgentConfig/AgentFactory 完成配置与实例构建 |
 | `DefaultAgentLoop.js` | LLM 驱动 + 工具执行 + 中间件钩子 + checkpoint 生命周期控制 |
-| `SoftBacktrackManager.js` | **新增** D-Mail 软回溯：限制次数、标记 superseded 消息、插入纠错 |
+| `SoftBacktrackManager.js` | D-Mail 软回溯：限制次数、标记 superseded 消息、插入纠错 |
 | `SubagentRegistry.js` | 子 Agent 注册表 |
 | `AlertMonitor.js` | 告警监控 |
 | `BacktrackManager.js` | 硬回溯管理 (与 SoftBacktrackManager 互补) |
@@ -25,22 +25,27 @@
 ```javascript
 import { createAgent, AgentBuilder } from 'js/agents/sdk';
 
-// 快速创建
-const agent = await createAgent({
-  model: 'gpt-4o',
-  skills: ['search', 'code'],
-  tools: [myCustomTool],
-});
+// 快速创建 (fluent builder)
+const agent = createAgent({ actor: 'demo' })
+  .useCapability('echo', async (args) => {
+    const text = typeof args.text === 'string' ? args.text : '';
+    return { ok: true, data: { echoed: text } };
+  })
+  .useHook('before', async ({ tool, params }) => {
+    // 可在这里做审计或权限检查
+  })
+  .build();
 
 // Builder 模式
-const agent = AgentBuilder.create()
-  .withModel('claude-3')
-  .withSkills(['deepsearch'])
-  .withEventBus(eventBus)
+const agent2 = new AgentBuilder({ actor: 'demo2' })
+  .useCapability('greet', async (args) => ({
+    ok: true,
+    data: { message: `Hello, ${String(args?.name || 'World')}!` },
+  }))
   .build();
 
 // 运行
-const result = await agent.run('分析这份文档');
+const result = await agent.run({ query: '分析这份文档' });
 ```
 
 ## DefaultAgentLoop 配置
@@ -82,7 +87,7 @@ import { SoftBacktrackManager } from 'js/agents/sdk';
 
 const sbm = new SoftBacktrackManager({
   messageManager,      // 必需：MessageManager 实例
-  maxDMails: 3,        // 最大 D-Mail 次数 (默认 3)
+  maxDMails: 5,        // 最大 D-Mail 次数 (默认 5)
   l3Storage: storage,  // 可选：L3Storage 用于 snapshot 同步
 });
 
@@ -112,7 +117,7 @@ sbm.reset();
 2. DefaultAgentLoop 调用 `sbm.processDMailSignal(dmail)`
 3. SBM 标记 supersedeRange 内消息为 superseded，插入 correction
 4. 若配置 L3Storage，同步 snapshot
-5. emit `agent.dmail_processed` 事件
+5. emit `agent:dmailProcessed` 事件
 
 ## 预构建 Agents
 

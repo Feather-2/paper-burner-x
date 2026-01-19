@@ -69,7 +69,7 @@ transport:message / method:* / transport:stderr / transport:error / transport:ex
 ### 使用示例
 
 ```javascript
-import { createProcessTransport } from 'js/agents/runtime/transports';
+import { createProcessTransport } from 'js/agents/plugins/transports';
 
 // 连接 Codex CLI
 const transport = createProcessTransport({
@@ -103,7 +103,7 @@ transport.disconnect();
 
 ```javascript
 import { ToolRegistry } from 'js/agents/runtime';
-import { createProcessTransport } from 'js/agents/runtime/transports';
+import { createProcessTransport } from 'js/agents/plugins/transports';
 
 // 创建工具代理
 function createBinaryTool(name, transport) {
@@ -165,7 +165,8 @@ transport.on('transport:exit', ({ code }) => {
 ### 使用示例
 
 ```javascript
-import { createBinarySkillProvider, ToolRegistry } from 'js/agents/runtime';
+import { ToolRegistry } from 'js/agents/runtime';
+import { createBinarySkillProvider } from 'js/agents/plugins/transports';
 import { EventBus, ServiceBus } from 'js/agents/core';
 
 const eventBus = new EventBus();

@@ -9,13 +9,14 @@
 | `archive.js` | 入口导出：Archive、MapAdapter、IndexedDBAdapter、FallbackAdapter |
 | `archive-core.js` | Archive 类（差量快照/恢复缓存） |
 | `map-adapter.js` | MapAdapter（内存存储） |
+| `storage-adapter.js` | StorageAdapter 接口定义 |
 | `serialization.js` | JSON patch/diff 序列化逻辑 |
 | `checkpoint-schema.js` | Checkpoint 类型、版本、创建/校验/迁移 |
 
 ## Archive
 
 ```javascript
-import { Archive, FallbackAdapter } from 'js/agents/shared/archive/archive.js';
+import { Archive, FallbackAdapter } from 'js/agents/core/archive/archive.js';
 
 // 优先 IndexedDB，失败时自动回退到 MapAdapter
 const archive = new Archive(new FallbackAdapter(), {
@@ -65,7 +66,7 @@ import {
   createCheckpoint,
   validateCheckpoint,
   migrateCheckpoint,
-} from 'js/agents/shared/archive/checkpoint-schema.js';
+} from 'js/agents/core/archive/checkpoint-schema.js';
 
 const checkpoint = createCheckpoint(agentState, {
   type: CheckpointType.PRE_ACTION,

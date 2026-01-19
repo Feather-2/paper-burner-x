@@ -21,7 +21,7 @@ AgentLoop 横切关注点的统一中间件链，采用 Koa 风格洋葱圈模�
 ## Stage 常量
 
 ```javascript
-import { Stage } from 'js/agents/runtime/middleware/middleware-chain.js';
+import { Stage } from 'js/agents/runtime/core/middleware/middleware-chain.js';
 
 Stage.BEFORE_AGENT  // 请求入口
 Stage.BEFORE_MODEL  // 模型调用前
@@ -34,7 +34,7 @@ Stage.AFTER_AGENT   // 请求结束
 ## MiddlewareChain
 
 ```javascript
-import { MiddlewareChain } from 'js/agents/runtime/middleware/middleware-chain.js';
+import { MiddlewareChain } from 'js/agents/runtime/core/middleware/middleware-chain.js';
 
 const chain = new MiddlewareChain();
 
@@ -86,7 +86,7 @@ import {
   createCancellationMiddleware,
   createTimeoutMiddleware,
   createLoggingMiddleware,
-} from 'js/agents/runtime/middleware/middleware-chain.js';
+} from 'js/agents/runtime/core/middleware/middleware-chain.js';
 
 const chain = new MiddlewareChain();
 
@@ -102,7 +102,7 @@ await chain.execute({ stepName: 'llm-call', signal }, async (ctx) => {
 ### 预配置链
 
 ```javascript
-import { createDefaultMiddlewareChain } from 'js/agents/runtime/middleware/middleware-chain.js';
+import { createDefaultMiddlewareChain } from 'js/agents/runtime/core/middleware/middleware-chain.js';
 
 const chain = createDefaultMiddlewareChain({
   logger: console,
@@ -126,6 +126,6 @@ chain.use(async (ctx, next) => {
 ## 与 Hooks 的关系
 
 - **Hooks** (`hooks/`): 事件驱动的钩子注册/执行，基于 HookRegistry
-- **Middleware** (`middleware/`): 洋葱圈执行模型，适合横切关注点
+- **Middleware** (`core/middleware/`): 洋葱圈执行模型，适合横切关注点
 
 两者可以配合使用：Hooks 处理离散事件，Middleware 处理连续执行流。

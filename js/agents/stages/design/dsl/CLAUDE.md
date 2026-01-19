@@ -23,6 +23,17 @@ const slideIntent = {
 };
 ```
 
+## buildSlideHtml 调用与选项
+
+支持两种调用形式：
+1) buildSlideHtml(slideIntent, designSystem, contentPackage, options)
+2) buildSlideHtml(slideIntent, designSystem, claims, evidences, options)
+
+options 字段：
+- safeMode: boolean - 强制 safe 布局（layout 固定为 safe）
+- slideNo: number - 生成 slide id（如 slide-3）
+- imageSlotsForSlide: 图片占位槽数组，生成 `data-el="image-placeholder"` 元素（slotId, aspectRatio?, purpose?）
+
 ## Layout JSON 结构 (buildFromLayoutJson)
 
 ```javascript
@@ -36,6 +47,12 @@ const layoutJson = {
 };
 ```
 
+支持元素类型：text / shape / image / table / chart（chartType: bar|line|pie|doughnut|area|scatter|radar）。
+
+## buildFromLayoutJson 选项
+
+options: { slideId?, title?, safeMode? }，safeMode 为 true 或 elements 为空时返回 safe layout。
+
 ## 构建 HTML
 
 ```javascript
@@ -48,5 +65,5 @@ const htmlFromIntent = buildSlideHtml(
   { safeMode: true, slideNo: 1 }
 );
 
-const htmlFromLayout = buildFromLayoutJson(layoutJson, designSystem, { slideId: 'slide-1', title: '市场分析' });
+const htmlFromLayout = buildFromLayoutJson(layoutJson, designSystem, { slideId: 'slide-1', title: '市场分析', safeMode: false });
 ```

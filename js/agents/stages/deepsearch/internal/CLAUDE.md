@@ -16,7 +16,6 @@ DeepSearch 阶段的运行时支撑：checkpoint/回溯、共享上下文、模�
 | `model-response-handler.js` | 模型响应处理器：空响应/解析失败重试、用户选择、记录 usage |
 | `writing-phase-handler.js` | 写作阶段控制：字数不足时触发 write-report 循环，注入写作 prompt 并持久化输出 |
 | `error-classifier.js` | DeepSearch 错误分类封装（是否可恢复、类别） |
-| `logger.js` | DeepSearch logger 向后兼容层（转到 shared/utils/logger） |
 
 ## 关键概念
 
