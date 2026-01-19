@@ -1,192 +1,313 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { LRUCache, createAutoPruningCache } from '../../../../../js/agents/shared/utils/lru-cache.js';
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-describe("LRUCache", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-  });
+import {
+  LRUCache,
+  createAutoPruningCache,
+} from "../../../../../js/agents/shared/utils/lru-cache.js";
 
-  afterEach(() => {
-    try {
-      vi.clearAllTimers();
-    } catch {}
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
+describe("shared/utils/lru-cache", () => {
+  describe("LRUCache", () => {
+    /** @type {LRUCache<string, number>} */
+    let cache;
 
-  it("tracks hits/misses and evicts least-recently-used entries", () => {
-    const onEvict = vi.fn();
-    const cache = new LRUCache({ maxSize: 2, onEvict });
-
-    cache.set("a", 1);
-    cache.set("b", 2);
-
-    // Touch "a" so "b" becomes the LRU entry.
-    expect(cache.get("a")).toBe(1);
-    cache.set("c", 3);
-
-    expect(onEvict).toHaveBeenCalledTimes(1);
-    expect(onEvict).toHaveBeenCalledWith("b", 2);
-
-    expect(cache.get("b")).toBeUndefined();
-    expect(cache.keys()).toEqual(["a", "c"]);
-    expect(cache.values()).toEqual([1, 3]);
-
-    const stats = cache.getStats();
-    expect(stats.hits).toBe(1);
-    expect(stats.misses).toBe(1);
-    expect(stats.evictions).toBe(1);
-    expect(stats.sets).toBe(3);
-    expect(stats.hitRate).toBeCloseTo(0.5);
-    expect(stats.size).toBe(2);
-    expect(stats.maxSize).toBe(2);
-  });
-
-  it("set() on an existing key updates value and recency without growing the cache", () => {
-    const cache = new LRUCache({ maxSize: 2 });
-
-    cache.set("a", 1);
-    cache.set("b", 2);
-    cache.set("a", 10);
-
-    expect(cache.size).toBe(2);
-    // After updating "a", it becomes most recently used.
-    expect(cache.keys()).toEqual(["b", "a"]);
-    expect(cache.get("a")).toBe(10);
-  });
-
-  it("respects ttlMs in get()/has() and can prune expired entries", () => {
-    const cache = new LRUCache({ maxSize: 10, ttlMs: 10 });
-
-    cache.set("a", 1);
-    cache.set("b", 2);
-
-    expect(cache.has("a")).toBe(true);
-
-    vi.advanceTimersByTime(11);
-
-    // get() should delete expired entries and count as a miss.
-    expect(cache.get("a")).toBeUndefined();
-    // has() should also delete expired entries (but does not record misses).
-    expect(cache.has("b")).toBe(false);
-
-    cache.set("c", 3);
-    vi.advanceTimersByTime(11);
-    expect(cache.prune()).toBe(1);
-    expect(cache.size).toBe(0);
-  });
-
-  it("prune() is a no-op when ttl is disabled", () => {
-    const cache = new LRUCache({ ttlMs: 0 });
-    cache.set("a", 1);
-    vi.advanceTimersByTime(1000);
-    expect(cache.prune()).toBe(0);
-    expect(cache.has("a")).toBe(true);
-  });
-
-  it("swallows errors thrown by onEvict callbacks", () => {
-    const onEvict = vi.fn(() => {
-      throw new Error("onEvict boom");
-    });
-    const cache = new LRUCache({ maxSize: 1, onEvict });
-
-    cache.set("a", 1);
-    expect(() => cache.set("b", 2)).not.toThrow();
-    expect(onEvict).toHaveBeenCalledTimes(1);
-    expect(onEvict).toHaveBeenCalledWith("a", 1);
-  });
-
-  it("has() does not update the LRU order", () => {
-    const cache = new LRUCache({ maxSize: 2 });
-
-    cache.set("a", 1);
-    cache.set("b", 2);
-
-    expect(cache.has("a")).toBe(true);
-
-    // If has() updated LRU, "b" would be evicted; it should evict "a" instead.
-    cache.set("c", 3);
-    expect(cache.has("a")).toBe(false);
-    expect(cache.keys()).toEqual(["b", "c"]);
-  });
-
-  it("supports getMany()/setMany() and preserves result insertion order", () => {
-    const cache = new LRUCache({ maxSize: 3 });
-    expect(cache.setMany([["a", 1], ["b", 2], ["c", 3]])).toBe(cache);
-
-    const got = cache.getMany(["b", "missing", "a"]);
-    expect([...got.entries()]).toEqual([["b", 2], ["a", 1]]);
-
-    // LRU order after accesses: initial a,b,c -> after get(b): a,c,b -> after get(a): c,b,a
-    expect(cache.keys()).toEqual(["c", "b", "a"]);
-    expect(cache.values()).toEqual([3, 2, 1]);
-  });
-
-  it("resetStats() clears counters and hitRate handles zero-total case", () => {
-    const cache = new LRUCache({ maxSize: 2 });
-    expect(cache.getStats().hitRate).toBe(0);
-
-    cache.set("a", 1);
-    cache.get("a"); // hit
-    cache.get("missing"); // miss
-    expect(cache.getStats().hitRate).toBeCloseTo(0.5);
-
-    cache.resetStats();
-    expect(cache.getStats().hits).toBe(0);
-    expect(cache.getStats().misses).toBe(0);
-    expect(cache.getStats().evictions).toBe(0);
-    expect(cache.getStats().sets).toBe(0);
-    expect(cache.getStats().hitRate).toBe(0);
-    expect(cache.getStats().size).toBe(1);
-  });
-
-  it("supports delete() and clear()", () => {
-    const cache = new LRUCache({ maxSize: 5 });
-    cache.set("a", 1);
-    cache.set("b", 2);
-
-    expect(cache.delete("a")).toBe(true);
-    expect(cache.delete("missing")).toBe(false);
-    expect(cache.size).toBe(1);
-
-    cache.clear();
-    expect(cache.size).toBe(0);
-    expect(cache.keys()).toEqual([]);
-  });
-});
-
-describe("createAutoPruningCache", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-  });
-
-  afterEach(() => {
-    try {
-      vi.clearAllTimers();
-    } catch {}
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
-
-  it("sets up an interval to call prune() and stop() cancels it", () => {
-    const { cache, stop } = createAutoPruningCache({
-      maxSize: 10,
-      ttlMs: 10,
-      pruneIntervalMs: 5,
+    beforeEach(() => {
+      cache = new LRUCache({ maxSize: 3 });
     });
 
-    const pruneSpy = vi.spyOn(cache, "prune");
+    describe("constructor", () => {
+      it("creates with default options", () => {
+        const c = new LRUCache();
+        expect(c).toBeInstanceOf(LRUCache);
+        expect(c.size).toBe(0);
+      });
 
-    vi.advanceTimersByTime(5);
-    expect(pruneSpy).toHaveBeenCalled();
+      it("enforces minimum maxSize", () => {
+        const c = new LRUCache({ maxSize: 0 });
+        expect(c._maxSize).toBeGreaterThanOrEqual(1);
+      });
 
-    stop();
-    const calls = pruneSpy.mock.calls.length;
+      it("handles invalid maxSize", () => {
+        const c = new LRUCache({ maxSize: NaN });
+        expect(c._maxSize).toBeGreaterThanOrEqual(1);
+      });
 
-    vi.advanceTimersByTime(20);
-    expect(pruneSpy.mock.calls.length).toBe(calls);
+      it("handles negative ttlMs", () => {
+        const c = new LRUCache({ ttlMs: -100 });
+        expect(c._ttlMs).toBe(0);
+      });
+    });
+
+    describe("set/get", () => {
+      it("stores and retrieves value", () => {
+        cache.set("a", 1);
+        expect(cache.get("a")).toBe(1);
+      });
+
+      it("returns undefined for missing key", () => {
+        expect(cache.get("missing")).toBe(undefined);
+      });
+
+      it("updates existing key", () => {
+        cache.set("a", 1);
+        cache.set("a", 2);
+        expect(cache.get("a")).toBe(2);
+      });
+
+      it("evicts oldest when full", () => {
+        cache.set("a", 1);
+        cache.set("b", 2);
+        cache.set("c", 3);
+        cache.set("d", 4);
+        expect(cache.get("a")).toBe(undefined);
+        expect(cache.get("d")).toBe(4);
+      });
+
+      it("updates LRU order on get", () => {
+        cache.set("a", 1);
+        cache.set("b", 2);
+        cache.set("c", 3);
+        cache.get("a"); // Move "a" to end
+        cache.set("d", 4);
+        // "b" should be evicted, not "a"
+        expect(cache.get("a")).toBe(1);
+        expect(cache.get("b")).toBe(undefined);
+      });
+
+      it("returns this from set", () => {
+        const result = cache.set("a", 1);
+        expect(result).toBe(cache);
+      });
+    });
+
+    describe("TTL", () => {
+      it("expires entries after ttl", async () => {
+        const ttlCache = new LRUCache({ maxSize: 10, ttlMs: 50 });
+        ttlCache.set("a", 1);
+        expect(ttlCache.get("a")).toBe(1);
+        await new Promise((r) => setTimeout(r, 60));
+        expect(ttlCache.get("a")).toBe(undefined);
+      });
+
+      it("has returns false for expired entry", async () => {
+        const ttlCache = new LRUCache({ maxSize: 10, ttlMs: 50 });
+        ttlCache.set("a", 1);
+        expect(ttlCache.has("a")).toBe(true);
+        await new Promise((r) => setTimeout(r, 60));
+        expect(ttlCache.has("a")).toBe(false);
+      });
+    });
+
+    describe("has", () => {
+      it("returns true for existing key", () => {
+        cache.set("a", 1);
+        expect(cache.has("a")).toBe(true);
+      });
+
+      it("returns false for missing key", () => {
+        expect(cache.has("missing")).toBe(false);
+      });
+    });
+
+    describe("delete", () => {
+      it("removes entry", () => {
+        cache.set("a", 1);
+        cache.delete("a");
+        expect(cache.has("a")).toBe(false);
+      });
+
+      it("returns true when deleted", () => {
+        cache.set("a", 1);
+        expect(cache.delete("a")).toBe(true);
+      });
+
+      it("returns false when not found", () => {
+        expect(cache.delete("missing")).toBe(false);
+      });
+    });
+
+    describe("clear", () => {
+      it("removes all entries", () => {
+        cache.set("a", 1);
+        cache.set("b", 2);
+        cache.clear();
+        expect(cache.size).toBe(0);
+      });
+    });
+
+    describe("size", () => {
+      it("returns current size", () => {
+        expect(cache.size).toBe(0);
+        cache.set("a", 1);
+        expect(cache.size).toBe(1);
+      });
+    });
+
+    describe("getStats", () => {
+      it("returns stats", () => {
+        cache.set("a", 1);
+        cache.get("a");
+        cache.get("missing");
+        const stats = cache.getStats();
+        expect(stats.sets).toBe(1);
+        expect(stats.hits).toBe(1);
+        expect(stats.misses).toBe(1);
+        expect(stats.hitRate).toBe(0.5);
+      });
+
+      it("returns 0 hit rate when no accesses", () => {
+        const stats = cache.getStats();
+        expect(stats.hitRate).toBe(0);
+      });
+
+      it("tracks evictions", () => {
+        cache.set("a", 1);
+        cache.set("b", 2);
+        cache.set("c", 3);
+        cache.set("d", 4);
+        const stats = cache.getStats();
+        expect(stats.evictions).toBe(1);
+      });
+    });
+
+    describe("resetStats", () => {
+      it("resets all stats", () => {
+        cache.set("a", 1);
+        cache.get("a");
+        cache.resetStats();
+        const stats = cache.getStats();
+        expect(stats.hits).toBe(0);
+        expect(stats.misses).toBe(0);
+        expect(stats.sets).toBe(0);
+        expect(stats.evictions).toBe(0);
+      });
+    });
+
+    describe("prune", () => {
+      it("returns 0 when no TTL", () => {
+        cache.set("a", 1);
+        expect(cache.prune()).toBe(0);
+      });
+
+      it("removes expired entries", async () => {
+        const ttlCache = new LRUCache({ maxSize: 10, ttlMs: 50 });
+        ttlCache.set("a", 1);
+        ttlCache.set("b", 2);
+        await new Promise((r) => setTimeout(r, 60));
+        const pruned = ttlCache.prune();
+        expect(pruned).toBe(2);
+        expect(ttlCache.size).toBe(0);
+      });
+    });
+
+    describe("keys", () => {
+      it("returns all keys", () => {
+        cache.set("a", 1);
+        cache.set("b", 2);
+        const keys = cache.keys();
+        expect(keys).toContain("a");
+        expect(keys).toContain("b");
+      });
+    });
+
+    describe("values", () => {
+      it("returns all values", () => {
+        cache.set("a", 1);
+        cache.set("b", 2);
+        const values = cache.values();
+        expect(values).toContain(1);
+        expect(values).toContain(2);
+      });
+    });
+
+    describe("getMany", () => {
+      it("returns map of found values", () => {
+        cache.set("a", 1);
+        cache.set("b", 2);
+        const result = cache.getMany(["a", "b", "c"]);
+        expect(result.size).toBe(2);
+        expect(result.get("a")).toBe(1);
+        expect(result.get("b")).toBe(2);
+      });
+    });
+
+    describe("setMany", () => {
+      it("sets multiple entries", () => {
+        cache.setMany([
+          ["a", 1],
+          ["b", 2],
+        ]);
+        expect(cache.get("a")).toBe(1);
+        expect(cache.get("b")).toBe(2);
+      });
+
+      it("returns this", () => {
+        const result = cache.setMany([["a", 1]]);
+        expect(result).toBe(cache);
+      });
+    });
+
+    describe("onEvict callback", () => {
+      it("calls onEvict when evicting", () => {
+        let evicted = null;
+        const c = new LRUCache({
+          maxSize: 2,
+          onEvict: (key, value) => {
+            evicted = { key, value };
+          },
+        });
+        c.set("a", 1);
+        c.set("b", 2);
+        c.set("c", 3);
+        expect(evicted).toEqual({ key: "a", value: 1 });
+      });
+
+      it("handles onEvict error gracefully", () => {
+        const c = new LRUCache({
+          maxSize: 2,
+          onEvict: () => {
+            throw new Error("callback error");
+          },
+        });
+        c.set("a", 1);
+        c.set("b", 2);
+        c.set("c", 3); // Should not throw
+        expect(c.size).toBe(2);
+      });
+    });
+  });
+
+  describe("createAutoPruningCache", () => {
+    it("creates cache and stop function", () => {
+      const { cache, stop } = createAutoPruningCache({
+        maxSize: 10,
+        ttlMs: 1000,
+        pruneIntervalMs: 100,
+      });
+      expect(cache).toBeInstanceOf(LRUCache);
+      expect(typeof stop).toBe("function");
+      stop(); // Cleanup
+    });
+
+    it("creates with default options", () => {
+      const { cache, stop } = createAutoPruningCache();
+      expect(cache).toBeInstanceOf(LRUCache);
+      stop();
+    });
+
+    it("passes onEvict to cache", () => {
+      let called = false;
+      const { cache, stop } = createAutoPruningCache({
+        maxSize: 2,
+        onEvict: () => {
+          called = true;
+        },
+      });
+      cache.set("a", 1);
+      cache.set("b", 2);
+      cache.set("c", 3);
+      expect(called).toBe(true);
+      stop();
+    });
   });
 });

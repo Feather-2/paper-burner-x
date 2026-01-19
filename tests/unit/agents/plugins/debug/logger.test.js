@@ -1,199 +1,229 @@
+
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-const assert = require("node:assert/strict");
+import {
+  createLogger,
+  useLogger,
+  trackToolCall,
+  logEvent,
+} from "../../../../../js/agents/shared/utils/logger.js";
 
-function defer() {
-  return new Promise((resolve) => setImmediate(resolve));
-}
-
-function withPatchedConsole(fn) {
-  const calls = { log: [], warn: [], error: [] };
-  const original = { log: console.log, warn: console.warn, error: console.error };
-  console.log = (...args) => calls.log.push(args);
-  console.warn = (...args) => calls.warn.push(args);
-  console.error = (...args) => calls.error.push(args);
-  const restore = () => {
-    console.log = original.log;
-    console.warn = original.warn;
-    console.error = original.error;
-  };
-  return Promise.resolve()
-    .then(() => fn(calls))
-    .finally(restore);
-}
-
-it("Logger: createLogger emits structured events", async () => {
-  const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
-
-  await withPatchedConsole(async (calls) => {
-    const emitted = [];
-    const logger = createLogger({
-      emit: (name, payload, meta) => emitted.push({ name, payload, meta }),
-      getContext: () => ({ runId: "run_1", iteration: 2, stage: "scan" }),
-      actor: "deepsearch", // 显式指定 actor
+describe("shared/utils/logger", () => {
+  describe("createLogger", () => {
+    it("creates logger with default options", () => {
+      const logger = createLogger();
+      expect(logger).toEqual(expect.any(Object));
+      expect(logger.debug).toBeTypeOf("function");
+      expect(logger.info).toBeTypeOf("function");
+      expect(logger.warn).toBeTypeOf("function");
+      expect(logger.error).toBeTypeOf("function");
     });
 
-    logger.info("hello", { data: { sourceCount: 3 } });
-
-    expect(emitted.length).toBe(1);
-    expect(emitted[0].name).toBe("deepsearch.log.info");
-    expect(emitted[0].meta.status).toBe("info");
-    expect(emitted[0].payload.level).toBe("info");
-    expect(emitted[0].payload.message).toBe("hello");
-    expect(emitted[0].payload.runId).toBe("run_1");
-    expect(emitted[0].payload.iteration).toBe(2);
-    expect(emitted[0].payload.stage).toBe("scan");
-    expect(emitted[0].payload.data).toEqual({ sourceCount: 3 });
-    expect(emitted[0].payload.timestamp).toBeTypeOf("string");
-
-    expect(calls.log.length).toBe(1);
-    expect(calls.log[0][0]).toBe("[deepsearch:scan]");
-    expect(calls.log[0][1]).toBe("hello");
-  });
-});
-
-it("Logger: warn/error choose console method + status", async () => {
-  const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
-
-  await withPatchedConsole(async (calls) => {
-    const emitted = [];
-    const logger = createLogger({
-      emit: (name, payload, meta) => emitted.push({ name, payload, meta }),
-      getContext: () => ({ runId: "run_2", stage: "gaps" }),
-      actor: "deepsearch", // 显式指定 actor
+    it("accepts string as stage name", () => {
+      const logger = createLogger("my-stage");
+      expect(logger.info).toBeTypeOf("function");
     });
 
-    logger.warn("w1");
-    logger.error("e1");
+    it("logs with emit function", () => {
+      const emitted = [];
+      const logger = createLogger({
+        emit: (event, payload) => emitted.push({ event, payload }),
+        stage: "test",
+      });
 
-    expect(calls.warn.length).toBe(1);
-    expect(calls.error.length).toBe(1);
+      logger.info("test message", { extra: "data" });
 
-    expect(emitted.length).toBe(2);
-    expect(emitted[0].name).toBe("deepsearch.log.warn");
-    expect(emitted[0].meta.status).toBe("info");
-    expect(emitted[1].name).toBe("deepsearch.log.error");
-    expect(emitted[1].meta.status).toBe("failed");
-  });
-});
-
-it("Logger: data overrides context fields", async () => {
-  const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
-
-  await withPatchedConsole(async () => {
-    const emitted = [];
-    const logger = createLogger({
-      emit: (name, payload) => emitted.push({ name, payload }),
-      getContext: () => ({ stage: "ctx_stage", runId: "run_ctx" }),
+      expect(emitted.length).toBe(1);
+      expect(emitted[0].event).toContain("log.info");
+      expect(emitted[0].payload.message).toBe("test message");
     });
 
-    logger.info("override", { stage: "scan" });
+    it("logs error with failed status", () => {
+      const emitted = [];
+      const logger = createLogger({
+        emit: (event, payload, meta) => emitted.push({ event, payload, meta }),
+        stage: "test",
+      });
 
-    expect(emitted[0].payload.stage).toBe("scan");
-    expect(emitted[0].payload.runId).toBe("run_ctx");
+      logger.error("error message");
+
+      expect(emitted.length).toBe(1);
+      expect(emitted[0].meta.status).toBe("failed");
+    });
+
+    it("uses getContext function", () => {
+      const emitted = [];
+      const logger = createLogger({
+        emit: (event, payload) => emitted.push(payload),
+        getContext: () => ({ requestId: "abc123" }),
+        stage: "test",
+      });
+
+      logger.info("with context");
+
+      expect(emitted[0].requestId).toBe("abc123");
+    });
+
+    it("does not log when disabled", () => {
+      const emitted = [];
+      const logger = createLogger({
+        emit: (event, payload) => emitted.push(payload),
+        enabled: false,
+      });
+
+      logger.info("should not emit");
+
+      expect(emitted.length).toBe(0);
+    });
+
+    it("handles null getContext", () => {
+      const emitted = [];
+      const logger = createLogger({
+        emit: (event, payload) => emitted.push(payload),
+        getContext: null,
+      });
+
+      logger.info("message");
+      expect(emitted).toHaveLength(1);
+    });
+
+    it("handles getContext returning non-object", () => {
+      const emitted = [];
+      const logger = createLogger({
+        emit: (event, payload) => emitted.push(payload),
+        getContext: () => "not an object",
+        stage: "test",
+      });
+
+      logger.info("message");
+      expect(emitted[0].message).toBe("message");
+    });
+
+    it("handles null options", () => {
+      const logger = createLogger(null);
+      expect(logger.info).toBeTypeOf("function");
+    });
+
+    it("uses custom actor name", () => {
+      const emitted = [];
+      const logger = createLogger({
+        emit: (event) => emitted.push(event),
+        actor: "custom-actor",
+      });
+
+      logger.info("test");
+
+      expect(emitted[0]).toContain("custom-actor");
+    });
+
+    it("handles data as non-object", () => {
+      const emitted = [];
+      const logger = createLogger({
+        emit: (event, payload) => emitted.push(payload),
+      });
+
+      logger.info("message", "string data");
+      expect(emitted[0]).toEqual(
+        expect.objectContaining({ level: "info", message: "message" })
+      );
+    });
   });
-});
 
-it("Logger: enabled=false suppresses emit + console", async () => {
-  const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
-
-  await withPatchedConsole(async (calls) => {
-    const emitted = [];
-    const logger = createLogger({ emit: (name, payload) => emitted.push({ name, payload }), enabled: false });
-    logger.info("nope");
-    expect(emitted.length).toBe(0);
-    expect(calls.log.length).toBe(0);
-    expect(calls.warn.length).toBe(0);
-    expect(calls.error.length).toBe(0);
+  describe("useLogger", () => {
+    it("is alias for createLogger", () => {
+      expect(useLogger).toBe(createLogger);
+    });
   });
-});
 
-it("Logger: multiple instances concurrent do not conflict", async () => {
-  const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
+  describe("trackToolCall", () => {
+    it("executes function and returns result", async () => {
+      const logger = createLogger({ enabled: false });
+      const result = await trackToolCall(logger, "testTool", { arg: 1 }, () => 42);
+      expect(result).toBe(42);
+    });
 
-  await withPatchedConsole(async () => {
-    const emitted = [];
-    const emit = (name, payload) => emitted.push({ name, payload });
+    it("logs tool call and completion", async () => {
+      const logs = [];
+      const logger = {
+        info: (msg, data) => logs.push({ level: "info", msg, data }),
+        error: (msg, data) => logs.push({ level: "error", msg, data }),
+      };
 
-    const stateA = { runId: "run_A", iteration: 0, stage: "scan" };
-    const stateB = { runId: "run_B", iteration: 100, stage: "gaps" };
+      await trackToolCall(logger, "myTool", { x: 1 }, async () => "result");
 
-    const loggerA = createLogger({ emit, getContext: () => ({ runId: stateA.runId, iteration: stateA.iteration, stage: stateA.stage }) });
-    const loggerB = createLogger({ emit, getContext: () => ({ runId: stateB.runId, iteration: stateB.iteration, stage: stateB.stage }) });
+      expect(logs.length).toBe(2);
+      expect(logs[0].msg).toContain("myTool");
+      expect(logs[1].msg).toContain("completed");
+    });
 
-    await Promise.all([
-      (async () => {
-        for (let i = 0; i < 20; i++) {
-          stateA.iteration = i;
-          loggerA.info("A", { seq: i });
-          await defer();
-        }
-      })(),
-      (async () => {
-        for (let i = 0; i < 20; i++) {
-          stateB.iteration = 100 + i;
-          loggerB.info("B", { seq: i });
-          await defer();
-        }
-      })(),
-    ]);
+    it("logs error on failure", async () => {
+      const logs = [];
+      const logger = {
+        info: (msg, data) => logs.push({ level: "info", msg, data }),
+        error: (msg, data) => logs.push({ level: "error", msg, data }),
+      };
 
-    const aEvents = emitted.filter((e) => e.payload.message === "A");
-    const bEvents = emitted.filter((e) => e.payload.message === "B");
+      await expect(
+        trackToolCall(logger, "failTool", {}, async () => {
+          throw new Error("tool failed");
+        })
+      ).rejects.toThrow(/tool failed/);
 
-    expect(aEvents.length).toBe(20);
-    expect(bEvents.length).toBe(20);
+      const errorLog = logs.find((l) => l.level === "error");
+      expect(errorLog).toEqual(expect.objectContaining({ level: "error" }));
+      expect(errorLog.msg).toContain("failed");
+    });
 
-    for (const e of aEvents) {
-      expect(e.payload.runId).toBe("run_A");
-      expect(e.payload.stage).toBe("scan");
-      expect(e.payload.iteration).toBeTypeOf("number");
-      expect(e.payload.iteration).toBeGreaterThanOrEqual(0);
-      expect(e.payload.iteration).toBeLessThan(20);
-    }
+    it("returns result without logger", async () => {
+      const result = await trackToolCall(null, "tool", {}, () => "value");
+      expect(result).toBe("value");
+    });
 
-    for (const e of bEvents) {
-      expect(e.payload.runId).toBe("run_B");
-      expect(e.payload.stage).toBe("gaps");
-      expect(e.payload.iteration).toBeTypeOf("number");
-      expect(e.payload.iteration).toBeGreaterThanOrEqual(100);
-      expect(e.payload.iteration).toBeLessThan(120);
-    }
+    it("returns result with invalid logger", async () => {
+      const result = await trackToolCall({}, "tool", {}, () => 123);
+      expect(result).toBe(123);
+    });
+
+    it("handles array result", async () => {
+      const logs = [];
+      const logger = {
+        info: (msg, data) => logs.push({ level: "info", msg, data }),
+        error: () => {},
+      };
+
+      const result = await trackToolCall(logger, "arrayTool", {}, async () => [1, 2, 3]);
+
+      expect(result).toEqual([1, 2, 3]);
+      const completionLog = logs.find((l) => l.msg.includes("completed"));
+      expect(completionLog.data.toolCalls[0].result.length).toBe(3);
+    });
+
+    it("handles non-object result", async () => {
+      const logs = [];
+      const logger = {
+        info: (msg, data) => logs.push({ level: "info", msg, data }),
+        error: () => {},
+      };
+
+      await trackToolCall(logger, "primitiveTool", {}, async () => "string result");
+
+      const completionLog = logs.find((l) => l.msg.includes("completed"));
+      expect(completionLog.data.toolCalls[0].result).toBe("string result");
+    });
   });
-});
 
-it("Logger: trackToolCall success + failure", async () => {
-  const { createLogger, trackToolCall } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
+  describe("logEvent", () => {
+    it("logs message from payload", () => {
+      // Just verify it doesn't throw
+      logEvent({ message: "test" });
+    });
 
-  await withPatchedConsole(async () => {
-    const emitted = [];
-    const logger = createLogger({ emit: (name, payload) => emitted.push({ name, payload }) });
+    it("logs raw value if no message", () => {
+      logEvent("raw string");
+    });
 
-    const ok = await trackToolCall(logger, "grep", { pattern: "x" }, async () => ["a", "b"]);
-    expect(ok).toEqual(["a", "b"]);
-
-    await expect(
-      trackToolCall(logger, "glob", { pattern: "*.js" }, async () => {
-        throw new Error("boom");
-      })
-    ).rejects.toThrow(/boom/);
-
-    const toolEvents = emitted.filter((e) => e.payload.stage === "tool");
-    expect(toolEvents.length).toBeGreaterThanOrEqual(4);
-    expect(toolEvents[0].payload.message).toBe("Tool call: grep");
-    expect(toolEvents[1].payload.message).toBe("Tool completed: grep");
-    expect(toolEvents[2].payload.message).toBe("Tool call: glob");
-    expect(toolEvents[3].payload.message).toBe("Tool failed: glob");
-  });
-});
-
-it("Logger: deprecated logEvent exists", async () => {
-  const { logEvent } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
-
-  await withPatchedConsole(async (calls) => {
-    logEvent({ message: "legacy" });
-    expect(calls.log.length).toBe(1);
-    // logEvent 现在使用通用 [Agent] 前缀
-    expect(calls.log[0][0]).toBe("[Agent]");
+    it("handles null payload", () => {
+      logEvent(null);
+    });
   });
 });

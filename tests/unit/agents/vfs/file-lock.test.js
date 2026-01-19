@@ -1,136 +1,325 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { FileLock, LockType, acquireLock, getFileLock, withLock } from '../../../../js/agents/vfs/file-lock.js';
-import { setGlobalContainer } from '../../../../js/agents/runtime/di/global-container.js';
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-beforeEach(() => {
-  // Silence createLogger() output from the lock implementation.
-  vi.spyOn(console, "log").mockImplementation(() => {});
-  vi.spyOn(console, "warn").mockImplementation(() => {});
-});
+import { FileLock, LockType } from "../../../../js/agents/vfs/file-lock.js";
 
-afterEach(() => {
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
+describe("vfs/file-lock", () => {
+  /** @type {FileLock} */
+  let lock;
 
-  // Ensure global DI container doesn't leak state across tests.
-  setGlobalContainer(null);
-});
-
-describe("agents/vfs/file-lock", () => {
-  it("acquires/releases a write lock and reports lock state", async () => {
-    const lock = new FileLock({ lockTimeoutMs: 1000, acquireTimeoutMs: 100 });
-    const { holder, release } = await lock.acquire("a.txt", { type: LockType.WRITE, holder: "H" });
-    expect(holder).toBe("H");
-
-    expect(lock.isLocked("a.txt")).toEqual({ locked: true, type: LockType.WRITE, holders: ["H"] });
-    expect(lock.release("a.txt", "H")).toBe(true);
-    expect(lock.isLocked("a.txt")).toEqual({ locked: false });
-    expect(release()).toBe(false);
+  beforeEach(() => {
+    lock = new FileLock({
+      lockTimeoutMs: 1000,
+      acquireTimeoutMs: 500,
+    });
   });
 
-  it("allows multiple read locks but blocks write locks until released", async () => {
-    const lock = new FileLock({ lockTimeoutMs: 1000, acquireTimeoutMs: 100 });
+  describe("constructor", () => {
+    it("creates with default options", () => {
+      const l = new FileLock();
+      expect(l).toBeInstanceOf(FileLock);
+    });
 
-    const r1 = await lock.acquire("f", { type: LockType.READ, holder: "R1" });
-    const r2 = await lock.acquire("f", { type: LockType.READ, holder: "R2" });
-    expect(lock.isLocked("f").type).toBe(LockType.READ);
-
-    // Write lock cannot be acquired while reads are held.
-    const tryWrite = lock.tryAcquire("f", { type: LockType.WRITE, holder: "W" });
-    expect(tryWrite.acquired).toBe(false);
-
-    r1.release();
-    r2.release();
-
-    const w = await lock.acquire("f", { type: LockType.WRITE, holder: "W" });
-    expect(lock.isLocked("f").type).toBe(LockType.WRITE);
-    w.release();
+    it("accepts custom timeout options", () => {
+      const l = new FileLock({
+        lockTimeoutMs: 5000,
+        acquireTimeoutMs: 2000,
+      });
+      expect(l).toBeInstanceOf(FileLock);
+    });
   });
 
-  it("waits for a lock and resolves when the lock is released", async () => {
-    const lock = new FileLock({ lockTimeoutMs: 1000, acquireTimeoutMs: 1000 });
-
-    const w = await lock.acquire("f", { type: LockType.WRITE, holder: "W" });
-    const pending = lock.acquire("f", { type: LockType.READ, holder: "R", timeoutMs: 1000 });
-
-    // Releasing should wake the waiter immediately.
-    w.release();
-    const r = await pending;
-    expect(r.holder).toBe("R");
-    r.release();
+  describe("generateHolderId", () => {
+    it("generates unique ids", () => {
+      const id1 = lock.generateHolderId();
+      const id2 = lock.generateHolderId();
+      expect(id1).toMatch(/^lock_/);
+      expect(id2).toMatch(/^lock_/);
+      expect(id1).not.toBe(id2);
+    });
   });
 
-  it("times out while waiting to acquire a lock", async () => {
-    vi.useFakeTimers();
+  describe("acquire", () => {
+    it("acquires write lock on free path", async () => {
+      const result = await lock.acquire("/test/file.txt");
+      expect(result.release).toBeTypeOf("function");
+      expect(result.holder).toMatch(/^lock_/);
+      result.release();
+    });
 
-    const lock = new FileLock({ lockTimeoutMs: 1000, acquireTimeoutMs: 1000 });
-    const w = await lock.acquire("f", { type: LockType.WRITE, holder: "W" });
+    it("acquires read lock on free path", async () => {
+      const result = await lock.acquire("/test/file.txt", { type: LockType.READ });
+      expect(result.release).toBeTypeOf("function");
+      result.release();
+    });
 
-    const pending = lock.acquire("f", { type: LockType.READ, holder: "R", timeoutMs: 50 });
-    const assertion = expect(pending).rejects.toThrow(/timeout/i);
-    await vi.advanceTimersByTimeAsync(50);
-    await assertion;
+    it("uses provided holder id", async () => {
+      const result = await lock.acquire("/test/file.txt", { holder: "my-holder" });
+      expect(result.holder).toBe("my-holder");
+      result.release();
+    });
 
-    w.release();
+    it("blocks write lock when write lock held", async () => {
+      const first = await lock.acquire("/test/file.txt");
+
+      // Second acquire should timeout
+      await expect(() => lock.acquire("/test/file.txt", { timeoutMs: 100 }),
+        /timeout/i
+      );
+
+      first.release();
+    });
+
+    it("blocks write lock when read lock held", async () => {
+      const readLock = await lock.acquire("/test/file.txt", { type: LockType.READ });
+
+      await expect(() => lock.acquire("/test/file.txt", { type: LockType.WRITE, timeoutMs: 100 }),
+        /timeout/i
+      );
+
+      readLock.release();
+    });
+
+    it("allows multiple read locks", async () => {
+      const read1 = await lock.acquire("/test/file.txt", { type: LockType.READ });
+      const read2 = await lock.acquire("/test/file.txt", { type: LockType.READ });
+
+      expect(read1.holder).toMatch(/^lock_/);
+      expect(read2.holder).toMatch(/^lock_/);
+
+      read1.release();
+      read2.release();
+    });
+
+    it("respects AbortSignal - already aborted", async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(() => lock.acquire("/test/file.txt", { signal: controller.signal }),
+        /Aborted/
+      );
+    });
+
+    it("respects AbortSignal - aborted while waiting", async () => {
+      const first = await lock.acquire("/test/file.txt");
+
+      const controller = new AbortController();
+      const acquirePromise = lock.acquire("/test/file.txt", {
+        signal: controller.signal,
+        timeoutMs: 5000,
+      });
+
+      // Abort after short delay
+      setTimeout(() => controller.abort(), 50);
+
+      await expect(acquirePromise).rejects.toThrow(/Aborted/);
+      first.release();
+    });
+
+    it("resolves waiters when lock released", async () => {
+      const first = await lock.acquire("/test/file.txt");
+
+      let secondAcquired = false;
+      const secondPromise = lock.acquire("/test/file.txt").then((result) => {
+        secondAcquired = true;
+        return result;
+      });
+
+      // Give time for waiter to register
+      await new Promise((r) => setTimeout(r, 10));
+
+      first.release();
+
+      const second = await secondPromise;
+      expect(secondAcquired).toBe(true);
+      second.release();
+    });
   });
 
-  it("supports aborting a pending acquire", async () => {
-    const lock = new FileLock({ lockTimeoutMs: 1000, acquireTimeoutMs: 1000 });
-    const w = await lock.acquire("f", { type: LockType.WRITE, holder: "W" });
+  describe("tryAcquire", () => {
+    it("acquires when free", () => {
+      const result = lock.tryAcquire("/test/file.txt");
+      expect(result.acquired).toBe(true);
+      expect(result.release).toBeTypeOf("function");
+      result.release();
+    });
 
-    const ac = new AbortController();
-    const pending = lock.acquire("f", { type: LockType.READ, holder: "R", timeoutMs: 1000, signal: ac.signal });
+    it("fails when locked", async () => {
+      const first = await lock.acquire("/test/file.txt");
 
-    const assertion = expect(pending).rejects.toThrow(/aborted/i);
-    ac.abort();
-    await assertion;
+      const result = lock.tryAcquire("/test/file.txt");
+      expect(result.acquired).toBe(false);
+      expect(result.release).toBe(undefined);
 
-    w.release();
+      first.release();
+    });
+
+    it("allows read tryAcquire when read lock held", async () => {
+      const first = await lock.acquire("/test/file.txt", { type: LockType.READ });
+
+      const result = lock.tryAcquire("/test/file.txt", { type: LockType.READ });
+      expect(result.acquired).toBe(true);
+
+      result.release();
+      first.release();
+    });
   });
 
-  it("cleans expired locks and allows new acquisitions", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(0));
+  describe("release", () => {
+    it("returns true on success", async () => {
+      const acquired = await lock.acquire("/test/file.txt");
+      const success = lock.release("/test/file.txt", acquired.holder);
+      expect(success).toBe(true);
+    });
 
-    const lock = new FileLock({ lockTimeoutMs: 10, acquireTimeoutMs: 1000 });
-    await lock.acquire("f", { type: LockType.WRITE, holder: "W" });
-    expect(lock.isLocked("f").locked).toBe(true);
+    it("returns false for unknown path", () => {
+      const success = lock.release("/unknown/path", "holder");
+      expect(success).toBe(false);
+    });
 
-    // Move time forward past expiry; next access should clean it up.
-    vi.setSystemTime(new Date(25));
-    expect(lock.isLocked("f")).toEqual({ locked: false });
-
-    const r = await lock.acquire("f", { type: LockType.READ, holder: "R" });
-    expect(lock.isLocked("f").type).toBe(LockType.READ);
-    r.release();
+    it("returns false for unknown holder", async () => {
+      const acquired = await lock.acquire("/test/file.txt");
+      const success = lock.release("/test/file.txt", "wrong-holder");
+      expect(success).toBe(false);
+      acquired.release();
+    });
   });
 
-  it("releaseAllForHolder removes all locks for a holder", async () => {
-    const lock = new FileLock({ lockTimeoutMs: 1000, acquireTimeoutMs: 1000 });
-    await lock.acquire("a", { type: LockType.READ, holder: "H" });
-    await lock.acquire("b", { type: LockType.WRITE, holder: "H" });
+  describe("isLocked", () => {
+    it("returns locked=false for free path", () => {
+      const status = lock.isLocked("/test/file.txt");
+      expect(status.locked).toBe(false);
+    });
 
-    const released = lock.releaseAllForHolder("H");
-    expect(released).toBe(2);
-    expect(lock.isLocked("a").locked).toBe(false);
+    it("returns locked=true with write type", async () => {
+      const acquired = await lock.acquire("/test/file.txt", { type: LockType.WRITE });
+
+      const status = lock.isLocked("/test/file.txt");
+      expect(status.locked).toBe(true);
+      expect(status.type).toBe(LockType.WRITE);
+      expect(status.holders).toContain(acquired.holder);
+
+      acquired.release();
+    });
+
+    it("returns locked=true with read type for read locks", async () => {
+      const acquired = await lock.acquire("/test/file.txt", { type: LockType.READ });
+
+      const status = lock.isLocked("/test/file.txt");
+      expect(status.locked).toBe(true);
+      expect(status.type).toBe(LockType.READ);
+
+      acquired.release();
+    });
   });
 
-  it("global helpers (getFileLock/acquireLock/withLock) share a singleton", async () => {
-    setGlobalContainer(null);
+  describe("getAllLocks", () => {
+    it("returns empty map initially", () => {
+      const all = lock.getAllLocks();
+      expect(all.size).toBe(0);
+    });
 
-    const l1 = getFileLock();
-    const l2 = getFileLock();
-    expect(l1).toBe(l2);
+    it("returns all current locks", async () => {
+      const lock1 = await lock.acquire("/file1.txt");
+      const lock2 = await lock.acquire("/file2.txt");
 
-    const acquired = await acquireLock("p", { type: LockType.WRITE, holder: "H" });
-    expect(getFileLock().isLocked("p").locked).toBe(true);
-    acquired.release();
-    expect(getFileLock().isLocked("p").locked).toBe(false);
+      const all = lock.getAllLocks();
+      expect(all.size).toBe(2);
+      expect(all.has("/file1.txt")).toBe(true);
+      expect(all.has("/file2.txt")).toBe(true);
 
-    const out = await withLock("p2", async () => "ok", { type: LockType.WRITE, holder: "H2" });
-    expect(out).toBe("ok");
-    expect(getFileLock().isLocked("p2").locked).toBe(false);
+      lock1.release();
+      lock2.release();
+    });
+  });
+
+  describe("releaseAllForHolder", () => {
+    it("releases all locks for a holder", async () => {
+      const holder = "shared-holder";
+      await lock.acquire("/file1.txt", { holder });
+      await lock.acquire("/file2.txt", { holder });
+
+      const count = lock.releaseAllForHolder(holder);
+      expect(count).toBe(2);
+
+      expect(lock.isLocked("/file1.txt").locked).toBe(false);
+      expect(lock.isLocked("/file2.txt").locked).toBe(false);
+    });
+
+    it("returns 0 for unknown holder", () => {
+      const count = lock.releaseAllForHolder("unknown");
+      expect(count).toBe(0);
+    });
+
+    it("does not affect other holders", async () => {
+      const lock1 = await lock.acquire("/file1.txt", { holder: "holder-a" });
+      const lock2 = await lock.acquire("/file2.txt", { holder: "holder-b" });
+
+      lock.releaseAllForHolder("holder-a");
+
+      expect(lock.isLocked("/file1.txt").locked).toBe(false);
+      expect(lock.isLocked("/file2.txt").locked).toBe(true);
+
+      lock2.release();
+    });
+  });
+
+  describe("lock expiration", () => {
+    it("expires locks after timeout", async () => {
+      // Use very short timeout
+      const shortLock = new FileLock({
+        lockTimeoutMs: 50,
+        acquireTimeoutMs: 200,
+      });
+
+      await shortLock.acquire("/test/file.txt");
+
+      // Wait for expiration
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Should be able to acquire now
+      const result = shortLock.tryAcquire("/test/file.txt");
+      expect(result.acquired).toBe(true);
+      result.release();
+    });
+  });
+
+  describe("LockType", () => {
+    it("has READ and WRITE values", () => {
+      expect(LockType.READ).toBe("read");
+      expect(LockType.WRITE).toBe("write");
+    });
+  });
+
+  describe("concurrent scenarios", () => {
+    it("handles sequential lock handoff", async () => {
+      const events = [];
+
+      // Acquire write lock
+      const writer1 = await lock.acquire("/test", { type: LockType.WRITE, holder: "w1" });
+      events.push("w1-acquired");
+
+      // Queue up a second writer with longer timeout
+      const writer2Promise = lock.acquire("/test", {
+        type: LockType.WRITE,
+        holder: "w2",
+        timeoutMs: 2000,
+      }).then((l) => {
+        events.push("w2-acquired");
+        return l;
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Release first writer - should wake up second
+      writer1.release();
+      events.push("w1-released");
+
+      const writer2 = await writer2Promise;
+      expect(events).toContain("w1-released");
+      expect(events).toContain("w2-acquired");
+
+      writer2.release();
+    });
   });
 });

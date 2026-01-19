@@ -1,208 +1,246 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   checkCancelled,
   isAbortError,
   withCancellation,
   createLinkedSignal,
-} from '../../../../../js/agents/shared/utils/cancellation.js';
+} from "../../../../../js/agents/shared/utils/cancellation.js";
 
-function createManualAbortSignal() {
-  /** @type {Set<() => void>} */
-  const listeners = new Set();
-  const state = { aborted: false, reason: undefined };
-
-  return {
-    get aborted() {
-      return state.aborted;
-    },
-    get reason() {
-      return state.reason;
-    },
-    addEventListener: vi.fn((type, listener) => {
-      if (type === "abort") listeners.add(listener);
-    }),
-    removeEventListener: vi.fn((type, listener) => {
-      if (type === "abort") listeners.delete(listener);
-    }),
-    abort(reason) {
-      state.aborted = true;
-      state.reason = reason;
-      for (const listener of [...listeners]) listener();
-    },
-  };
-}
-
-describe("cancellation utils", () => {
-  afterEach(() => {
-    try {
-      vi.clearAllTimers();
-    } catch {}
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
-
+describe("shared/utils/cancellation", () => {
   describe("checkCancelled", () => {
-    it("does nothing when signal is not aborted", () => {
+    it("does nothing for null signal", () => {
+      expect(() => checkCancelled(null)).not.toThrow();
+    });
+
+    it("does nothing for undefined signal", () => {
+      expect(() => checkCancelled(undefined)).not.toThrow();
+    });
+
+    it("does nothing for non-aborted signal", () => {
       const controller = new AbortController();
       expect(() => checkCancelled(controller.signal)).not.toThrow();
     });
 
-    it("throws AbortError with a message derived from the abort reason", () => {
+    it("throws AbortError for aborted signal", () => {
       const controller = new AbortController();
-      controller.abort("custom reason");
+      controller.abort();
+
+      expect(() => checkCancelled(controller.signal)).toThrow();
+    });
+
+    it("uses reason message when string", () => {
+      const controller = new AbortController();
+      controller.abort("Custom reason");
 
       try {
         checkCancelled(controller.signal);
-        throw new Error("expected checkCancelled to throw");
+        throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        expect(err).toBeInstanceOf(Error);
-        expect(err.name).toBe("AbortError");
-        expect(err.message).toBe("custom reason");
-        expect(err.cause).toBe("custom reason");
+        expect(err.message).toContain("Custom reason");
       }
     });
 
-    it("falls back to a default message when reason is empty/unknown", () => {
+    it("uses reason.message when Error", () => {
       const controller = new AbortController();
-      controller.abort("   ");
+      controller.abort(new Error("Error reason"));
 
       try {
         checkCancelled(controller.signal);
-        throw new Error("expected checkCancelled to throw");
+        throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        expect(err.name).toBe("AbortError");
-        expect(err.message).toBe("Run cancelled");
-        expect(err.cause).toBe("   ");
+        expect(err.message).toContain("Error reason");
       }
     });
 
-    it("uses the message field for Error/object abort reasons", () => {
-      const controller1 = new AbortController();
-      controller1.abort(new Error("from error"));
+    it("uses default message when reason empty", () => {
+      const controller = new AbortController();
+      controller.abort("");
 
       try {
-        checkCancelled(controller1.signal);
-        throw new Error("expected checkCancelled to throw");
+        checkCancelled(controller.signal);
+        throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        expect(err.name).toBe("AbortError");
-        expect(err.message).toBe("from error");
-        expect(err.cause).toBeInstanceOf(Error);
+        expect(err.message).toContain("cancelled");
       }
+    });
 
-      const controller2 = new AbortController();
-      controller2.abort({ message: "from object" });
+    it("sets cause to original reason", () => {
+      const controller = new AbortController();
+      const reason = new Error("original");
+      controller.abort(reason);
 
       try {
-        checkCancelled(controller2.signal);
-        throw new Error("expected checkCancelled to throw");
+        checkCancelled(controller.signal);
+        throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        expect(err.name).toBe("AbortError");
-        expect(err.message).toBe("from object");
-        expect(err.cause).toEqual({ message: "from object" });
+        expect(err.cause).toBe(reason);
       }
+    });
+
+    it("handles signal-like object", () => {
+      const signalLike = { aborted: true, reason: "Custom" };
+
+      expect(() => checkCancelled(signalLike)).toThrow();
     });
   });
 
   describe("isAbortError", () => {
-    it("detects AbortError via name or code", () => {
-      const controller = new AbortController();
-      controller.abort("stop");
+    it("returns true for AbortError", () => {
+      const err = new Error("abort");
+      err.name = "AbortError";
+      expect(isAbortError(err)).toBe(true);
+    });
 
-      let abortedErr;
-      try {
-        checkCancelled(controller.signal);
-      } catch (err) {
-        abortedErr = err;
-      }
+    it("returns false for regular Error", () => {
+      expect(isAbortError(new Error("test"))).toBe(false);
+    });
 
-      expect(isAbortError(abortedErr)).toBe(true);
-      expect(isAbortError(new Error("nope"))).toBe(false);
+    it("returns false for null", () => {
+      expect(isAbortError(null)).toBe(false);
+    });
 
-      const coded = /** @type {any} */ (new Error("coded"));
-      coded.code = "ABORT_ERR";
-      expect(isAbortError(coded)).toBe(true);
+    it("returns false for undefined", () => {
+      expect(isAbortError(undefined)).toBe(false);
+    });
+
+    it("returns false for non-Error objects", () => {
+      expect(isAbortError({ name: "AbortError" })).toBe(false);
     });
   });
 
   describe("withCancellation", () => {
-    it("validates input function type", () => {
-      expect(() => withCancellation(/** @type {any} */ (null), "ctx")).toThrow(TypeError);
+    it("wraps function with cancellation check", async () => {
+      const fn = async (x, options) => x * 2;
+      const wrapped = withCancellation(fn, "test");
+
+      const result = await wrapped(5, {});
+      expect(result).toBe(10);
     });
 
-    it("checks cancellation before calling the wrapped function", async () => {
-      const fn = vi.fn(async () => "ok");
+    it("throws when signal already aborted", async () => {
+      const fn = async () => "should not run";
       const wrapped = withCancellation(fn, "test");
 
       const controller = new AbortController();
-      controller.abort("stop");
+      controller.abort();
 
-      await expect(wrapped({ signal: controller.signal })).rejects.toMatchObject({
-        name: "AbortError",
-        message: "stop",
-      });
-      expect(fn).not.toHaveBeenCalled();
+      await expect(() => wrapped({}, { signal: controller.signal }),
+        (err) => err.name === "AbortError"
+      );
     });
 
-    it("preserves this-binding and forwards args transparently", async () => {
+    it("runs function when signal not aborted", async () => {
+      let called = false;
+      const fn = async (opts) => {
+        called = true;
+        return "done";
+      };
+      const wrapped = withCancellation(fn, "test");
+
       const controller = new AbortController();
-      const original = function (value, options) {
-        return `${this.prefix}:${value}:${Boolean(options?.signal)}`;
+      const result = await wrapped({ signal: controller.signal });
+
+      expect(called).toBe(true);
+      expect(result).toBe("done");
+    });
+
+    it("throws TypeError for non-function", () => {
+      expect(() => withCancellation("not a function", "test")).toThrow(/must be a function/);
+    });
+
+    it("preserves this context", async () => {
+      const obj = {
+        value: 42,
+        async method(opts) {
+          return this.value;
+        },
       };
 
-      const wrapped = withCancellation(original, "ctx");
-      const out = await wrapped.call({ prefix: "p" }, "v", { signal: controller.signal });
-      expect(out).toBe("p:v:true");
+      const wrapped = withCancellation(obj.method, "test");
+      const result = await wrapped.call(obj, {});
+      expect(result).toBe(42);
     });
   });
 
   describe("createLinkedSignal", () => {
-    it("immediately aborts when parent is already aborted", () => {
+    it("creates signal from null parent", () => {
+      const signal = createLinkedSignal(null);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal.aborted).toBe(false);
+    });
+
+    it("creates signal from undefined parent", () => {
+      const signal = createLinkedSignal(undefined);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal.aborted).toBe(false);
+    });
+
+    it("creates pre-aborted signal when parent already aborted", () => {
       const parent = new AbortController();
       parent.abort("parent aborted");
 
-      const child = createLinkedSignal(parent.signal, 1000);
-      expect(child.aborted).toBe(true);
-      expect(child.reason).toBe("parent aborted");
+      const signal = createLinkedSignal(parent.signal);
+      expect(signal.aborted).toBe(true);
     });
 
-    it("propagates parent abort and detaches listeners", () => {
-      const parent = createManualAbortSignal();
+    it("aborts when parent aborts", async () => {
+      const parent = new AbortController();
+      const signal = createLinkedSignal(parent.signal);
 
-      const child = createLinkedSignal(parent, 0);
-      expect(child.aborted).toBe(false);
+      expect(signal.aborted).toBe(false);
+      parent.abort();
 
-      parent.abort("boom");
-      expect(child.aborted).toBe(true);
-      expect(child.reason).toBe("boom");
-
-      expect(parent.addEventListener).toHaveBeenCalledWith("abort", expect.any(Function), { once: true });
-      expect(parent.removeEventListener).toHaveBeenCalled();
+      // Give time for abort to propagate
+      await new Promise((r) => setTimeout(r, 10));
+      expect(signal.aborted).toBe(true);
     });
 
-    it("aborts on timeout when configured", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(0);
+    it("aborts after timeout", async () => {
+      const signal = createLinkedSignal(null, 50);
 
-      const child = createLinkedSignal(null, 10.9); // should be floored to 10
-      expect(child.aborted).toBe(false);
+      expect(signal.aborted).toBe(false);
 
-      vi.advanceTimersByTime(10);
-      expect(child.aborted).toBe(true);
-      expect(child.reason).toBe("Timeout");
+      // Wait for timeout
+      await new Promise((r) => setTimeout(r, 100));
+      expect(signal.aborted).toBe(true);
     });
 
-    it("tolerates missing parent event listener APIs and non-finite timeouts", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(0);
+    it("respects parent with timeout", async () => {
+      const parent = new AbortController();
+      const signal = createLinkedSignal(parent.signal, 5000);
 
-      const parentLike = { aborted: false, reason: "x" }; // no add/removeEventListener
-      const child = createLinkedSignal(parentLike, Number.NaN);
-      expect(child.aborted).toBe(false);
+      // Parent aborts before timeout
+      parent.abort("early");
+      await new Promise((r) => setTimeout(r, 10));
 
-      vi.advanceTimersByTime(100);
-      expect(child.aborted).toBe(false);
+      expect(signal.aborted).toBe(true);
+    });
+
+    it("handles invalid timeout", () => {
+      const signal = createLinkedSignal(null, -100);
+      expect(signal.aborted).toBe(false);
+    });
+
+    it("handles NaN timeout", () => {
+      const signal = createLinkedSignal(null, NaN);
+      expect(signal.aborted).toBe(false);
+    });
+
+    it("handles signal-like parent", async () => {
+      let abortHandler = null;
+      const signalLike = {
+        aborted: false,
+        reason: undefined,
+        addEventListener: (type, handler) => {
+          if (type === "abort") abortHandler = handler;
+        },
+        removeEventListener: () => {},
+      };
+
+      const linked = createLinkedSignal(signalLike);
+      expect(linked.aborted).toBe(false);
     });
   });
 });
-

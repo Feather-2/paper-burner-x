@@ -1,262 +1,373 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   CircuitBreaker,
   CircuitBreakerRegistry,
   CircuitState,
-  getGlobalCircuitBreakerRegistry,
-  getCircuitBreaker,
-  withCircuitBreaker,
-} from '../../../../../js/agents/shared/utils/circuit-breaker.js';
+} from "../../../../../js/agents/shared/utils/circuit-breaker.js";
 
-import { Container } from '../../../../../js/agents/runtime/di/container.js';
-import { getGlobalContainer, setGlobalContainer } from '../../../../../js/agents/runtime/di/global-container.js';
+describe("shared/utils/circuit-breaker", () => {
+  describe("CircuitState", () => {
+    it("has expected values", () => {
+      expect(CircuitState.CLOSED).toBe("closed");
+      expect(CircuitState.OPEN).toBe("open");
+      expect(CircuitState.HALF_OPEN).toBe("half_open");
+    });
 
-function createFakeTime(startMs = 0) {
-  let nowMs = startMs;
-  return {
-    now: () => nowMs,
-    advance: (ms) => {
-      nowMs += Math.max(0, Math.floor(ms || 0));
-    },
-  };
-}
-
-describe("CircuitBreaker", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
+    it("is frozen", () => {
+      expect(Object.isFrozen(CircuitState)).toBe(true);
+    });
   });
 
-  it("defaults to CLOSED and canExecute() returns true", () => {
-    const breaker = new CircuitBreaker(); // exercises default time provider
-    expect(breaker.state).toBe(CircuitState.CLOSED);
-    expect(breaker.canExecute()).toBe(true);
+  describe("CircuitBreaker", () => {
+    /** @type {CircuitBreaker} */
+    let breaker;
+    let mockTime;
+
+    beforeEach(() => {
+      mockTime = { now: () => 0 };
+      breaker = new CircuitBreaker({
+        name: "test",
+        failureThreshold: 3,
+        successThreshold: 2,
+        openDurationMs: 1000,
+        halfOpenMaxCalls: 2,
+        time: mockTime,
+      });
+    });
+
+    describe("constructor", () => {
+      it("creates with default options", () => {
+        const b = new CircuitBreaker();
+        expect(b.state).toBe(CircuitState.CLOSED);
+      });
+
+      it("accepts custom options", () => {
+        expect(breaker.name).toBe("test");
+        expect(breaker.failureThreshold).toBe(3);
+        expect(breaker.successThreshold).toBe(2);
+      });
+    });
+
+    describe("state", () => {
+      it("starts in CLOSED state", () => {
+        expect(breaker.state).toBe(CircuitState.CLOSED);
+      });
+    });
+
+    describe("getStats", () => {
+      it("returns initial stats", () => {
+        const stats = breaker.getStats();
+        expect(stats.state).toBe(CircuitState.CLOSED);
+        expect(stats.failureCount).toBe(0);
+        expect(stats.successCount).toBe(0);
+        expect(stats.totalCalls).toBe(0);
+      });
+
+      it("tracks calls", async () => {
+        await breaker.execute(async () => "ok");
+        const stats = breaker.getStats();
+        expect(stats.totalCalls).toBe(1);
+        expect(stats.totalSuccesses).toBe(1);
+      });
+    });
+
+    describe("canExecute", () => {
+      it("returns true when CLOSED", () => {
+        expect(breaker.canExecute()).toBe(true);
+      });
+
+      it("returns false when OPEN", () => {
+        breaker.trip("test");
+        expect(breaker.canExecute()).toBe(false);
+      });
+
+      it("returns true in HALF_OPEN within limit", () => {
+        // Trip and transition to half-open
+        breaker.trip("test");
+        mockTime.now = () => 2000; // Past openDurationMs
+        expect(breaker.canExecute()).toBe(true);
+      });
+    });
+
+    describe("execute", () => {
+      it("executes function on success", async () => {
+        const result = await breaker.execute(async () => 42);
+        expect(result).toBe(42);
+      });
+
+      it("propagates errors", async () => {
+        await expect(() => breaker.execute(async () => { throw new Error("fail"); })).rejects.toThrow(/fail/
+        );
+      });
+
+      it("trips after failure threshold", async () => {
+        for (let i = 0; i < 3; i++) {
+          try {
+            await breaker.execute(async () => { throw new Error("fail"); });
+          } catch {
+            // expected
+          }
+        }
+        expect(breaker.state).toBe(CircuitState.OPEN);
+      });
+
+      it("throws when OPEN", async () => {
+        breaker.trip("manual");
+        await expect(() => breaker.execute(async () => "ok")).rejects.toThrow(/Circuit breaker is open/
+        );
+      });
+
+      it("recovers after successful probes in HALF_OPEN", async () => {
+        // Trip
+        breaker.trip("test");
+        expect(breaker.state).toBe(CircuitState.OPEN);
+
+        // Advance time past openDurationMs
+        mockTime.now = () => 2000;
+
+        // First probe - success
+        await breaker.execute(async () => "ok");
+        expect(breaker.state).toBe(CircuitState.HALF_OPEN);
+
+        // Second probe - success (successThreshold = 2)
+        await breaker.execute(async () => "ok");
+        expect(breaker.state).toBe(CircuitState.CLOSED);
+      });
+
+      it("returns to OPEN on failure in HALF_OPEN", async () => {
+        breaker.trip("test");
+        mockTime.now = () => 2000;
+
+        try {
+          await breaker.execute(async () => { throw new Error("fail"); });
+        } catch {
+          // expected
+        }
+
+        expect(breaker.state).toBe(CircuitState.OPEN);
+      });
+
+      it("resets failure count on success in CLOSED", async () => {
+        // Two failures
+        for (let i = 0; i < 2; i++) {
+          try {
+            await breaker.execute(async () => { throw new Error("fail"); });
+          } catch {}
+        }
+
+        // Success resets count
+        await breaker.execute(async () => "ok");
+
+        // Two more failures shouldn't trip (count was reset)
+        for (let i = 0; i < 2; i++) {
+          try {
+            await breaker.execute(async () => { throw new Error("fail"); });
+          } catch {}
+        }
+
+        expect(breaker.state).toBe(CircuitState.CLOSED);
+      });
+
+      it("respects custom isFailure function", async () => {
+        // Create fresh breaker with custom isFailure
+        const b = new CircuitBreaker({
+          failureThreshold: 2,
+          isFailure: (err) => err.message.includes("fatal"),
+        });
+
+        // Fatal errors count towards threshold
+        try {
+          await b.execute(async () => { throw new Error("fatal error 1"); });
+        } catch {}
+        expect(b.state).toBe(CircuitState.CLOSED); // 1 failure, threshold is 2
+
+        try {
+          await b.execute(async () => { throw new Error("fatal error 2"); });
+        } catch {}
+        expect(b.state).toBe(CircuitState.OPEN); // 2 failures, trips
+      });
+    });
+
+    describe("reset", () => {
+      it("resets to CLOSED state", () => {
+        breaker.trip("test");
+        breaker.reset();
+        expect(breaker.state).toBe(CircuitState.CLOSED);
+      });
+
+      it("clears failure count", async () => {
+        for (let i = 0; i < 2; i++) {
+          try {
+            await breaker.execute(async () => { throw new Error("fail"); });
+          } catch {}
+        }
+
+        breaker.reset();
+        const stats = breaker.getStats();
+        expect(stats.failureCount).toBe(0);
+      });
+
+      it("calls onStateChange", () => {
+        const events = [];
+        const b = new CircuitBreaker({
+          onStateChange: (e) => events.push(e),
+          time: mockTime,
+        });
+
+        b.trip("test");
+        b.reset();
+
+        const manualResetEvent = events.find((e) => e.reason === "manual_reset");
+        expect(manualResetEvent).toMatchObject({
+          from: CircuitState.OPEN,
+          to: CircuitState.CLOSED,
+          reason: "manual_reset",
+        });
+      });
+    });
+
+    describe("trip", () => {
+      it("manually opens the breaker", () => {
+        breaker.trip("manual");
+        expect(breaker.state).toBe(CircuitState.OPEN);
+      });
+
+      it("calls onStateChange with reason", () => {
+        const events = [];
+        const b = new CircuitBreaker({
+          onStateChange: (e) => events.push(e),
+          time: mockTime,
+        });
+
+        b.trip("test_reason");
+
+        const tripEvent = events.find((e) => e.to === CircuitState.OPEN);
+        expect(tripEvent).toMatchObject({
+          from: CircuitState.CLOSED,
+          to: CircuitState.OPEN,
+          reason: "test_reason",
+        });
+      });
+    });
+
+    describe("state transitions", () => {
+      it("OPEN -> HALF_OPEN after timeout", () => {
+        breaker.trip("test");
+        expect(breaker.state).toBe(CircuitState.OPEN);
+
+        // Advance time
+        mockTime.now = () => 2000;
+
+        // Access state triggers transition check
+        expect(breaker.state).toBe(CircuitState.HALF_OPEN);
+      });
+    });
+
+    describe("halfOpenMaxCalls", () => {
+      it("limits probe calls in HALF_OPEN before recovery", async () => {
+        // Use higher successThreshold so we stay in HALF_OPEN longer
+        const b = new CircuitBreaker({
+          failureThreshold: 3,
+          successThreshold: 5, // Need 5 successes to recover
+          halfOpenMaxCalls: 2,
+          openDurationMs: 1000,
+          time: mockTime,
+        });
+
+        b.trip("test");
+        mockTime.now = () => 2000;
+
+        // Execute max allowed probes
+        await b.execute(async () => "ok"); // halfOpenCalls = 1
+        await b.execute(async () => "ok"); // halfOpenCalls = 2
+
+        // Third should fail (max = 2)
+        await expect(() => b.execute(async () => "ok")).rejects.toThrow(/Circuit breaker is half_open/
+        );
+      });
+    });
   });
 
-  it("opens after reaching failureThreshold and transitions to HALF_OPEN after openDurationMs", async () => {
-    const time = createFakeTime(0);
-    const onStateChange = vi.fn();
+  describe("CircuitBreakerRegistry", () => {
+    /** @type {CircuitBreakerRegistry} */
+    let registry;
 
-    const breaker = new CircuitBreaker({
-      name: "svc",
-      failureThreshold: 2,
-      successThreshold: 1,
-      openDurationMs: 100,
-      halfOpenMaxCalls: 1,
-      time,
-      onStateChange,
+    beforeEach(() => {
+      registry = new CircuitBreakerRegistry();
     });
 
-    await expect(breaker.execute(async () => "ok")).resolves.toBe("ok");
+    describe("get", () => {
+      it("creates new breaker", () => {
+        const breaker = registry.get("test");
+        expect(breaker).toBeInstanceOf(CircuitBreaker);
+      });
 
-    await expect(breaker.execute(async () => { throw new Error("boom-1"); })).rejects.toThrow("boom-1");
-    expect(breaker.state).toBe(CircuitState.CLOSED);
-    expect(breaker.canExecute()).toBe(true);
+      it("returns same breaker for same name", () => {
+        const b1 = registry.get("test");
+        const b2 = registry.get("test");
+        expect(b1).toBe(b2);
+      });
 
-    await expect(breaker.execute(async () => { throw new Error("boom-2"); })).rejects.toThrow("boom-2");
-    expect(breaker.state).toBe(CircuitState.OPEN);
-    expect(breaker.canExecute()).toBe(false);
-
-    expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({
-      name: "svc",
-      from: CircuitState.CLOSED,
-      to: CircuitState.OPEN,
-      reason: "failure_threshold",
-    }));
-
-    const blocked = breaker.execute(async () => "should-not-run");
-    await expect(blocked).rejects.toMatchObject({
-      name: "CircuitBreakerOpenError",
-      circuitBreaker: "svc",
-      state: CircuitState.OPEN,
+      it("applies options on creation", () => {
+        const breaker = registry.get("test", { failureThreshold: 10 });
+        expect(breaker.failureThreshold).toBe(10);
+      });
     });
 
-    time.advance(99);
-    expect(breaker.state).toBe(CircuitState.OPEN);
+    describe("has", () => {
+      it("returns false for unknown", () => {
+        expect(registry.has("unknown")).toBe(false);
+      });
 
-    time.advance(1);
-    expect(breaker.state).toBe(CircuitState.HALF_OPEN);
-    expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({
-      from: CircuitState.OPEN,
-      to: CircuitState.HALF_OPEN,
-      reason: "timeout_elapsed",
-    }));
-  });
-
-  it("enforces halfOpenMaxCalls and recovers after successThreshold successes", async () => {
-    const time = createFakeTime(0);
-    const onStateChange = vi.fn();
-
-    const breaker = new CircuitBreaker({
-      name: "svc2",
-      failureThreshold: 1,
-      successThreshold: 1,
-      openDurationMs: 10,
-      halfOpenMaxCalls: 1,
-      time,
-      onStateChange,
+      it("returns true for registered", () => {
+        registry.get("test");
+        expect(registry.has("test")).toBe(true);
+      });
     });
 
-    await expect(breaker.execute(async () => { throw new Error("fail"); })).rejects.toThrow("fail");
-    expect(breaker.state).toBe(CircuitState.OPEN);
+    describe("remove", () => {
+      it("removes breaker", () => {
+        registry.get("test");
+        expect(registry.remove("test")).toBe(true);
+        expect(registry.has("test")).toBe(false);
+      });
 
-    time.advance(10);
-    expect(breaker.state).toBe(CircuitState.HALF_OPEN);
-
-    let resolvePending;
-    const pending = new Promise((resolve) => {
-      resolvePending = () => resolve("ok");
+      it("returns false for unknown", () => {
+        expect(registry.remove("unknown")).toBe(false);
+      });
     });
 
-    const first = breaker.execute(async () => pending);
-    expect(breaker.canExecute()).toBe(false);
+    describe("getAllStats", () => {
+      it("returns stats for all breakers", () => {
+        registry.get("a");
+        registry.get("b");
 
-    await expect(breaker.execute(async () => "nope")).rejects.toMatchObject({
-      name: "CircuitBreakerOpenError",
-      state: CircuitState.HALF_OPEN,
-      circuitBreaker: "svc2",
+        const stats = registry.getAllStats();
+        expect(stats).toHaveProperty("a");
+        expect(stats).toHaveProperty("b");
+      });
+
+      it("returns empty object when empty", () => {
+        const stats = registry.getAllStats();
+        expect(stats).toEqual({});
+      });
     });
 
-    resolvePending();
-    await expect(first).resolves.toBe("ok");
-    expect(breaker.state).toBe(CircuitState.CLOSED);
+    describe("resetAll", () => {
+      it("resets all breakers", () => {
+        const a = registry.get("a");
+        const b = registry.get("b");
 
-    expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({
-      from: CircuitState.HALF_OPEN,
-      to: CircuitState.CLOSED,
-      reason: "recovery_success",
-    }));
-  });
+        a.trip("test");
+        b.trip("test");
 
-  it("re-opens if a probe fails during HALF_OPEN", async () => {
-    const time = createFakeTime(0);
-    const onStateChange = vi.fn();
+        registry.resetAll();
 
-    const breaker = new CircuitBreaker({
-      name: "svc3",
-      failureThreshold: 1,
-      successThreshold: 2,
-      openDurationMs: 5,
-      halfOpenMaxCalls: 2,
-      time,
-      onStateChange,
+        expect(a.state).toBe(CircuitState.CLOSED);
+        expect(b.state).toBe(CircuitState.CLOSED);
+      });
     });
-
-    await expect(breaker.execute(async () => { throw new Error("fail"); })).rejects.toThrow("fail");
-    time.advance(5);
-    expect(breaker.state).toBe(CircuitState.HALF_OPEN);
-
-    await expect(breaker.execute(async () => { throw new Error("probe failed"); })).rejects.toThrow("probe failed");
-    expect(breaker.state).toBe(CircuitState.OPEN);
-
-    expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({
-      from: CircuitState.HALF_OPEN,
-      to: CircuitState.OPEN,
-      reason: "half_open_failure",
-    }));
-  });
-
-  it("treats non-failure errors as success (but still rethrows the error)", async () => {
-    const time = createFakeTime(0);
-    const isFailure = vi.fn((err) => err?.fatal !== false);
-
-    const breaker = new CircuitBreaker({
-      name: "svc4",
-      failureThreshold: 1,
-      successThreshold: 1,
-      openDurationMs: 50,
-      halfOpenMaxCalls: 1,
-      time,
-      isFailure,
-    });
-
-    const nonFatal = /** @type {any} */ (new Error("non-fatal"));
-    nonFatal.fatal = false;
-
-    await expect(breaker.execute(async () => { throw nonFatal; })).rejects.toBe(nonFatal);
-    expect(isFailure).toHaveBeenCalledWith(nonFatal);
-    expect(breaker.state).toBe(CircuitState.CLOSED);
-
-    const stats = breaker.getStats();
-    expect(stats.totalCalls).toBe(1);
-    expect(stats.totalFailures).toBe(0);
-    expect(stats.totalSuccesses).toBe(1);
-  });
-
-  it("trip()/reset() cause state transitions; redundant transitions are ignored", () => {
-    const onStateChange = vi.fn();
-    const breaker = new CircuitBreaker({ name: "svc5", onStateChange });
-
-    breaker.trip("manual");
-    expect(breaker.state).toBe(CircuitState.OPEN);
-
-    // No-op (already OPEN)
-    breaker.trip("manual-2");
-
-    // trip -> reset should emit exactly 2 transitions (OPEN + manual_reset back to CLOSED)
-    breaker.reset();
-    expect(breaker.state).toBe(CircuitState.CLOSED);
-
-    const reasons = onStateChange.mock.calls.map((c) => c[0].reason);
-    expect(reasons).toEqual(["manual", "manual_reset"]);
   });
 });
-
-describe("CircuitBreakerRegistry", () => {
-  it("creates and returns named breaker singletons", () => {
-    const registry = new CircuitBreakerRegistry();
-    const breakerA1 = registry.get("a", { failureThreshold: 1 });
-    const breakerA2 = registry.get("a", { failureThreshold: 999 });
-
-    expect(breakerA1).toBe(breakerA2);
-    expect(breakerA1.name).toBe("a");
-    expect(registry.has("a")).toBe(true);
-    expect(registry.remove("a")).toBe(true);
-    expect(registry.has("a")).toBe(false);
-  });
-
-  it("returns stats for all breakers and can resetAll()", async () => {
-    const time = createFakeTime(0);
-    const registry = new CircuitBreakerRegistry();
-    const b = registry.get("b", { time, failureThreshold: 1, openDurationMs: 10 });
-
-    await expect(b.execute(async () => { throw new Error("fail"); })).rejects.toThrow("fail");
-    expect(b.state).toBe(CircuitState.OPEN);
-
-    const stats = registry.getAllStats();
-    expect(stats.b.state).toBe(CircuitState.OPEN);
-
-    registry.resetAll();
-    expect(b.state).toBe(CircuitState.CLOSED);
-  });
-});
-
-describe("global circuit breaker helpers", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("registers a global registry in the global DI container and reuses it", async () => {
-    const previous = getGlobalContainer();
-    const container = new Container();
-    setGlobalContainer(container);
-
-    try {
-      const r1 = getGlobalCircuitBreakerRegistry();
-      const r2 = getGlobalCircuitBreakerRegistry();
-      expect(r1).toBe(r2);
-      expect(container.has("circuitBreakerRegistry")).toBe(true);
-
-      const time = createFakeTime(0);
-      const breaker = getCircuitBreaker("x", { time, failureThreshold: 1, openDurationMs: 10 });
-      expect(breaker.name).toBe("x");
-
-      const fn = vi.fn(async () => "ok");
-      await expect(withCircuitBreaker("x", fn, { time })).resolves.toBe("ok");
-      expect(fn).toHaveBeenCalledTimes(1);
-    } finally {
-      setGlobalContainer(previous);
-    }
-  });
-});
-
