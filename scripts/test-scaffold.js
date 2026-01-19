@@ -1,25 +1,16 @@
 #!/usr/bin/env node
 /**
- * Test Scaffold Generator - AI 友好的测试脚手架
- * 
- * 生成源文件与测试文件的映射，输出适合作为 AI 上下文的提示词
+ * Test Scaffold - 生成 AI 友好的测试提示词
  * 
  * Usage:
- *   node test-scaffold.js js/agents/core           # 模块脚手架
- *   node test-scaffold.js js/agents/core --diff    # 只显示缺失/过期
- *   node test-scaffold.js js/agents/core --prompt  # 生成 AI 提示词
+ *   node scripts/test-scaffold.js js/agents/core           # 模块脚手架
+ *   node scripts/test-scaffold.js js/agents/core --diff    # 只显示缺失/过期
  */
 
 import { promises as fs } from 'fs';
 import path from 'path';
 
 const ROOT = process.cwd();
-
-const TEST_TYPES = {
-  unit: { base: 'tests/unit', suffix: '.test.js', desc: '单元测试 (1:1 源文件映射)' },
-  integration: { base: 'tests/integration', suffix: '.test.js', desc: '集成测试 (跨模块功能)' },
-  e2e: { base: 'tests/e2e', suffix: '.e2e.test.js', desc: '端到端测试 (完整流程)' }
-};
 
 async function findFiles(dir, pattern = /\.js$/) {
   const results = [];
@@ -46,185 +37,119 @@ async function getFileMtime(filePath) {
   }
 }
 
-async function readFileHead(filePath, lines = 30) {
+async function countTestCases(filePath) {
   try {
     const content = await fs.readFile(filePath, 'utf-8');
-    return content.split('\n').slice(0, lines).join('\n');
+    return (content.match(/\bit\s*\(/g) || []).length;
   } catch {
-    return null;
+    return 0;
   }
 }
 
-function sourceToTestPath(sourcePath, type = 'unit') {
-  const { base, suffix } = TEST_TYPES[type];
+function sourceToTestPath(sourcePath) {
   const relative = sourcePath.replace(/^js\//, '');
   const parsed = path.parse(relative);
-  return path.join(base, parsed.dir, `${parsed.name}${suffix}`);
+  return path.join('tests/unit', parsed.dir, `${parsed.name}.test.js`);
 }
 
 async function analyzeModule(modulePath) {
   const absoluteModulePath = path.join(ROOT, modulePath);
   
-  // 获取源文件
   const sourceFiles = await findFiles(absoluteModulePath);
   const sources = sourceFiles
     .map(f => path.relative(ROOT, f))
     .filter(f => !f.includes('.test.') && !f.includes('.spec.') && !f.endsWith('.d.ts'))
     .sort();
 
-  // 分析每种测试类型
-  const analysis = { unit: [], integration: [], e2e: [] };
+  const analysis = [];
   
-  for (const type of Object.keys(TEST_TYPES)) {
-    const testBase = path.join(ROOT, TEST_TYPES[type].base, modulePath.replace(/^js\//, ''));
-    let testFiles = [];
-    try {
-      testFiles = await findFiles(testBase, /\.test\.js$/);
-    } catch {}
-    const tests = testFiles.map(f => path.relative(ROOT, f)).sort();
-
-    for (const source of sources) {
-      const expectedTest = sourceToTestPath(source, type);
-      const sourceName = path.basename(source, '.js');
-      const actualTest = tests.find(t => path.basename(t).includes(sourceName));
-      
-      const sourceMtime = await getFileMtime(path.join(ROOT, source));
-      const testMtime = actualTest ? await getFileMtime(path.join(ROOT, actualTest)) : null;
-      
-      let status = 'missing';
-      if (actualTest) {
-        status = testMtime && sourceMtime && sourceMtime > testMtime ? 'stale' : 'covered';
-      }
-      
-      analysis[type].push({ source, expectedTest, actualTest, status, sourceMtime, testMtime });
+  for (const source of sources) {
+    const expectedTest = sourceToTestPath(source);
+    const testPath = path.join(ROOT, expectedTest);
+    
+    const sourceMtime = await getFileMtime(path.join(ROOT, source));
+    const testMtime = await getFileMtime(testPath);
+    const testCount = testMtime ? await countTestCases(testPath) : 0;
+    
+    let status = 'missing';
+    if (testMtime) {
+      if (testCount === 0) status = 'empty';
+      else if (sourceMtime > testMtime) status = 'stale';
+      else status = 'covered';
     }
+    
+    analysis.push({ source, expectedTest, status, testCount, sourceMtime, testMtime });
   }
 
   return { sources, analysis };
 }
 
-function formatPrompt(modulePath, result) {
+function formatPrompt(modulePath, result, diffOnly = false) {
   const lines = [];
   const moduleRelative = modulePath.replace(/^js\//, '');
   
-  // 统计
-  const unitMissing = result.analysis.unit.filter(a => a.status === 'missing');
-  const unitStale = result.analysis.unit.filter(a => a.status === 'stale');
-  const unitCovered = result.analysis.unit.filter(a => a.status === 'covered');
+  const missing = result.analysis.filter(a => a.status === 'missing');
+  const empty = result.analysis.filter(a => a.status === 'empty');
+  const stale = result.analysis.filter(a => a.status === 'stale');
+  const covered = result.analysis.filter(a => a.status === 'covered');
 
-  lines.push(`<test-scaffold module="${moduleRelative}">`);
+  lines.push(`<test-context module="${moduleRelative}">`);
   lines.push('');
-  lines.push('## 模块概览');
-  lines.push(`- 源文件: ${result.sources.length}`);
-  lines.push(`- 单元测试: ${unitCovered.length} 覆盖, ${unitMissing.length} 缺失, ${unitStale.length} 过期`);
+  lines.push('## 状态');
+  lines.push(`源文件: ${result.sources.length} | 覆盖: ${covered.length} | 缺失: ${missing.length} | 空骨架: ${empty.length} | 过期: ${stale.length}`);
   lines.push('');
   
-  lines.push('## 目录映射');
-  lines.push('```');
-  lines.push(`源目录: ${modulePath}/`);
-  lines.push(`单元测试: tests/unit/${moduleRelative}/`);
-  lines.push(`集成测试: tests/integration/${moduleRelative}/`);
-  lines.push('```');
+  lines.push('## 规范');
+  lines.push('- 框架: vitest');
+  lines.push('- 单元测试路径: `tests/unit/{module}/{file}.test.js`');
+  lines.push('- 集成测试路径: `tests/integration/{module}/`');
+  lines.push(`- 导入路径: 从 tests/unit/${moduleRelative}/ 到 js/${moduleRelative}/ 的相对路径`);
+  lines.push('- 测试风格: 每个导出函数/类单独 describe，边界条件独立 it');
   lines.push('');
 
-  if (unitMissing.length > 0) {
-    lines.push('## 需要创建的单元测试');
-    lines.push('');
-    for (const m of unitMissing.slice(0, 15)) {
-      const exports = '// TODO: 分析导出符号';
-      lines.push(`### ${path.basename(m.source)}`);
-      lines.push(`- 源: \`${m.source}\``);
-      lines.push(`- 测试: \`${m.expectedTest}\``);
-      lines.push('');
-    }
-    if (unitMissing.length > 15) {
-      lines.push(`... 还有 ${unitMissing.length - 15} 个文件需要测试`);
-      lines.push('');
-    }
-  }
-
-  if (unitStale.length > 0) {
-    lines.push('## 需要更新的测试 (源文件已修改)');
-    lines.push('');
-    for (const s of unitStale) {
-      lines.push(`- \`${s.source}\` → \`${s.actualTest}\``);
+  if (missing.length > 0) {
+    lines.push('## 需要创建');
+    for (const m of missing) {
+      lines.push(`- ${m.source} → ${m.expectedTest}`);
     }
     lines.push('');
   }
 
-  lines.push('## 测试模板');
-  lines.push('```javascript');
-  lines.push(`import { describe, it, expect, vi, beforeEach } from 'vitest';`);
-  lines.push(`import { /* exports */ } from '${getRelativeImport(modulePath)}';`);
-  lines.push('');
-  lines.push('describe("ModuleName", () => {');
-  lines.push('  describe("functionName", () => {');
-  lines.push('    it("should handle normal case", () => {});');
-  lines.push('    it("should handle edge case", () => {});');
-  lines.push('    it("should throw on invalid input", () => {});');
-  lines.push('  });');
-  lines.push('});');
-  lines.push('```');
-  lines.push('');
-  lines.push('</test-scaffold>');
-
-  return lines.join('\n');
-}
-
-function getRelativeImport(modulePath) {
-  // 计算从 tests/unit/X 到 js/X 的相对路径
-  const depth = modulePath.split('/').length + 1; // tests/unit 多 2 层
-  return '../'.repeat(depth) + modulePath;
-}
-
-function formatDiff(modulePath, result) {
-  const lines = [];
-  const moduleRelative = modulePath.replace(/^js\//, '');
-  
-  const unitMissing = result.analysis.unit.filter(a => a.status === 'missing');
-  const unitStale = result.analysis.unit.filter(a => a.status === 'stale');
-
-  lines.push(`## ${moduleRelative} 测试差异`);
-  lines.push('');
-  lines.push(`| 状态 | 数量 |`);
-  lines.push(`|------|------|`);
-  lines.push(`| 缺失 | ${unitMissing.length} |`);
-  lines.push(`| 过期 | ${unitStale.length} |`);
-  lines.push('');
-
-  if (unitMissing.length > 0) {
-    lines.push('### 缺失');
-    for (const m of unitMissing) {
-      lines.push(`- ${path.basename(m.source)} → ${m.expectedTest}`);
+  if (empty.length > 0) {
+    lines.push('## 空骨架 (需填充测试)');
+    for (const e of empty) {
+      lines.push(`- ${e.expectedTest}`);
     }
     lines.push('');
   }
 
-  if (unitStale.length > 0) {
-    lines.push('### 过期');
-    for (const s of unitStale) {
-      lines.push(`- ${path.basename(s.source)} (源文件更新于 ${s.sourceMtime?.toISOString().split('T')[0]})`);
+  if (stale.length > 0) {
+    lines.push('## 需要更新 (源文件已修改)');
+    for (const s of stale) {
+      lines.push(`- ${s.source} (${s.testCount} 用例)`);
     }
+    lines.push('');
   }
 
+  if (!diffOnly && covered.length > 0) {
+    lines.push('## 已覆盖');
+    for (const c of covered) {
+      lines.push(`- ${path.basename(c.source)} (${c.testCount} 用例)`);
+    }
+    lines.push('');
+  }
+
+  lines.push('</test-context>');
   return lines.join('\n');
 }
 
 async function main() {
   const args = process.argv.slice(2);
   const modulePath = args.find(a => !a.startsWith('-')) || 'js/agents';
-  const promptMode = args.includes('--prompt');
-  const diffMode = args.includes('--diff');
+  const diffOnly = args.includes('--diff');
 
   const result = await analyzeModule(modulePath);
-  
-  if (promptMode) {
-    console.log(formatPrompt(modulePath, result));
-  } else if (diffMode) {
-    console.log(formatDiff(modulePath, result));
-  } else {
-    console.log(formatPrompt(modulePath, result));
-  }
+  console.log(formatPrompt(modulePath, result, diffOnly));
 }
 
 main().catch(console.error);
