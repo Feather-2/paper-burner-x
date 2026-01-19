@@ -1,7 +1,7 @@
 {
   "$schema": "./.project-index/schemas/test-map.schema.json",
   "version": 1,
-  "generated": "2026-01-19T05:26:06.104Z",
+  "generated": "2026-01-19T06:22:40.029Z",
   "conventions": {
     "unit": {
       "pattern": "tests/{module}/**/*.test.js",
@@ -1208,7 +1208,6 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/sdk/injection-scanner.test.js",
-            "tests/unit/agents/shared/utils/circuit-breaker.test.js",
             "tests/integration/agents/runtime/di-container.test.js",
             "tests/integration/agents/runtime/di-singletons.test.js"
           ]
@@ -1229,8 +1228,6 @@
             "tests/unit/agents/runtime/telemetry/token-tracker.test.js",
             "tests/unit/agents/sdk/injection-scanner.test.js",
             "tests/unit/agents/shared/tokenizers/adaptive-token-counter.test.js",
-            "tests/unit/agents/shared/utils/circuit-breaker.test.js",
-            "tests/unit/agents/vfs/file-lock.test.js",
             "tests/integration/agents/runtime/di-singletons.test.js"
           ]
         },
@@ -1272,6 +1269,7 @@
           "path": "js/agents/runtime/hooks/hook-registry.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/runtime/hooks/hook-registry.test.js",
             "tests/unit/agents/runtime/hooks/hook-runner.test.js",
             "tests/unit/agents/runtime/hooks/hooks-config-loader.test.js",
             "tests/integration/agents/runtime/hooks/hook-event.test.js"
@@ -1855,6 +1853,7 @@
           "path": "js/agents/shared/utils/logger.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/plugins/debug/logger.test.js",
             "tests/integration/agents/shared/utils.test.js"
           ]
         },
@@ -1935,6 +1934,7 @@
           "path": "js/agents/shared/utils/token-cache.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/shared/utils/token-cache.test.js",
             "tests/integration/agents/shared/utils.test.js"
           ]
         },
