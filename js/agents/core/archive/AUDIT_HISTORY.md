@@ -4,6 +4,18 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] race-condition
+*Archived: 2026-01-20T04:20:00.000Z*
+
+- **File**: `js/agents/core/archive/archive-core.js`:229
+- **Description**: Archive.save 通过读取存储后生成 checkpointId 再写入；并发 save 在同一时间戳下可能覆盖快照并破坏 diff 追踪状态。
+- **Fix Applied**: 添加了 `_saveLocks` Map 实现 per-runId 异步互斥锁，确保同一 runId 的 save() 调用串行执行。
+- **Verification**: `Promise.all([archive.save('run1', {...}), archive.save('run1', {...})])` 现在生成唯一 ID (run1:123, run1:123-1)。
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] jsdoc
