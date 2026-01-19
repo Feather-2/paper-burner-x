@@ -1,0 +1,2682 @@
+{
+  "$schema": "./.project-index/schemas/test-map.schema.json",
+  "version": 1,
+  "generated": "2026-01-19T05:05:36.322Z",
+  "conventions": {
+    "unit": {
+      "pattern": "tests/{module}/**/*.test.js",
+      "suffix": ".test.js"
+    },
+    "integration": {
+      "pattern": "tests/integration/**/*.int.test.js",
+      "suffix": ".int.test.js"
+    },
+    "e2e": {
+      "pattern": "tests/e2e/**/*.e2e.test.js",
+      "suffix": ".e2e.test.js"
+    }
+  },
+  "framework": "vitest",
+  "coverage": {
+    "target": 90,
+    "current": 14.7
+  },
+  "modules": {
+    "js/agents/cli": {
+      "total": 4,
+      "covered": 0,
+      "stale": 0,
+      "untested": 4,
+      "coverage": "0.0%",
+      "files": {
+        "demo.js": {
+          "path": "js/agents/cli/demo.js",
+          "status": "untested",
+          "tests": []
+        },
+        "model-client.js": {
+          "path": "js/agents/cli/model-client.js",
+          "status": "untested",
+          "tests": []
+        },
+        "test-deepsearch.js": {
+          "path": "js/agents/cli/test-deepsearch.js",
+          "status": "untested",
+          "tests": []
+        },
+        "test-memory.js": {
+          "path": "js/agents/cli/test-memory.js",
+          "status": "untested",
+          "tests": []
+        }
+      }
+    },
+    "js/agents/core": {
+      "total": 34,
+      "covered": 11,
+      "stale": 5,
+      "untested": 18,
+      "coverage": "32.4%",
+      "files": {
+        "compat.js": {
+          "path": "js/agents/core/compat.js",
+          "status": "untested",
+          "tests": []
+        },
+        "counters.js": {
+          "path": "js/agents/core/crdt/counters.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/core/crdt/primitives.test.js"
+          ]
+        },
+        "document.js": {
+          "path": "js/agents/core/crdt/document.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/core/crdt/primitives.test.js",
+            "tests/agents/core/crdt/sync-manager.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/core/sandbox/system/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "lww-map.js": {
+          "path": "js/agents/core/crdt/lww-map.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/core/crdt/primitives.test.js"
+          ]
+        },
+        "lww-register.js": {
+          "path": "js/agents/core/crdt/lww-register.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/core/crdt/primitives.test.js"
+          ]
+        },
+        "or-set.js": {
+          "path": "js/agents/core/crdt/or-set.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/core/crdt/primitives.test.js"
+          ]
+        },
+        "sync-manager.js": {
+          "path": "js/agents/core/crdt/sync-manager.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/core/crdt/sync-manager.test.js"
+          ]
+        },
+        "event-bus.js": {
+          "path": "js/agents/core/event-bus.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/core/event-bus.test.js",
+            "tests/agents/core/kernel.test.js",
+            "tests/agents/core/message-bus.test.js",
+            "tests/agents/core/plugin.test.js",
+            "tests/agents/core/service-bus.test.js",
+            "tests/agents/core/state-bus.test.js",
+            "tests/agents/runtime/concurrency-isolation.test.js",
+            "tests/agents/runtime/orchestrator.test.js"
+          ]
+        },
+        "kernel-compat.js": {
+          "path": "js/agents/core/kernel-compat.js",
+          "status": "untested",
+          "tests": []
+        },
+        "kernel.js": {
+          "path": "js/agents/core/kernel.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/core/kernel.test.js",
+            "tests/agents/core/watchdog-cleanup.test.js",
+            "tests/agents/plugins/event-driven.test.js",
+            "tests/agents/plugins/services.test.js",
+            "tests/agents/plugins/stages-deepsearch.test.js"
+          ]
+        },
+        "lamport-clock.js": {
+          "path": "js/agents/core/lamport-clock.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/core/crdt/primitives.test.js",
+            "tests/agents/core/crdt/sync-manager.test.js",
+            "tests/agents/core/event-bus.test.js",
+            "tests/agents/core/lamport-clock.test.js"
+          ]
+        },
+        "message-bus.js": {
+          "path": "js/agents/core/message-bus.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/core/message-bus.test.js",
+            "tests/agents/runtime/concurrency-isolation.test.js"
+          ]
+        },
+        "plugin.js": {
+          "path": "js/agents/core/sandbox/plugin.js",
+          "status": "untested",
+          "tests": []
+        },
+        "presets.js": {
+          "path": "js/agents/core/presets.js",
+          "status": "untested",
+          "tests": []
+        },
+        "constants.js": {
+          "path": "js/agents/core/sandbox/system/constants.js",
+          "status": "untested",
+          "tests": []
+        },
+        "pool.js": {
+          "path": "js/agents/core/sandbox/pool.js",
+          "status": "untested",
+          "tests": []
+        },
+        "skill-executor.js": {
+          "path": "js/agents/core/sandbox/skill-executor.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/skills.test.js"
+          ]
+        },
+        "bubblewrap.js": {
+          "path": "js/agents/core/sandbox/system/bubblewrap.js",
+          "status": "untested",
+          "tests": []
+        },
+        "detect.js": {
+          "path": "js/agents/core/sandbox/system/detect.js",
+          "status": "untested",
+          "tests": []
+        },
+        "docker.js": {
+          "path": "js/agents/core/sandbox/system/docker.js",
+          "status": "untested",
+          "tests": []
+        },
+        "executor.js": {
+          "path": "js/agents/core/sandbox/system/executor.js",
+          "status": "untested",
+          "tests": []
+        },
+        "path-utils.js": {
+          "path": "js/agents/core/sandbox/system/path-utils.js",
+          "status": "untested",
+          "tests": []
+        },
+        "permission.js": {
+          "path": "js/agents/core/sandbox/system/permission.js",
+          "status": "untested",
+          "tests": []
+        },
+        "seatbelt.js": {
+          "path": "js/agents/core/sandbox/system/seatbelt.js",
+          "status": "untested",
+          "tests": []
+        },
+        "wasm-sandbox.js": {
+          "path": "js/agents/core/sandbox/wasm-sandbox.js",
+          "status": "untested",
+          "tests": []
+        },
+        "secure-plugin-loader.js": {
+          "path": "js/agents/core/secure-plugin-loader.js",
+          "status": "untested",
+          "tests": []
+        },
+        "service-bus.js": {
+          "path": "js/agents/core/service-bus.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/core/kernel.test.js",
+            "tests/agents/core/plugin.test.js",
+            "tests/agents/core/service-bus.test.js"
+          ]
+        },
+        "state-bus.js": {
+          "path": "js/agents/core/state-bus.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/core/kernel.test.js",
+            "tests/agents/core/plugin.test.js",
+            "tests/agents/core/state-bus.test.js",
+            "tests/agents/runtime/concurrency-isolation.test.js"
+          ]
+        }
+      }
+    },
+    "js/agents/eval": {
+      "total": 9,
+      "covered": 0,
+      "stale": 0,
+      "untested": 9,
+      "coverage": "0.0%",
+      "files": {
+        "composite.js": {
+          "path": "js/agents/eval/graders/composite.js",
+          "status": "untested",
+          "tests": []
+        },
+        "content.js": {
+          "path": "js/agents/eval/graders/content.js",
+          "status": "untested",
+          "tests": []
+        },
+        "deterministic.js": {
+          "path": "js/agents/eval/graders/deterministic.js",
+          "status": "untested",
+          "tests": []
+        },
+        "index.js": {
+          "path": "js/agents/eval/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "llm-judge.js": {
+          "path": "js/agents/eval/graders/llm-judge.js",
+          "status": "untested",
+          "tests": []
+        },
+        "harness.js": {
+          "path": "js/agents/eval/harness.js",
+          "status": "untested",
+          "tests": []
+        },
+        "metrics.js": {
+          "path": "js/agents/eval/metrics.js",
+          "status": "untested",
+          "tests": []
+        },
+        "types.js": {
+          "path": "js/agents/eval/types.js",
+          "status": "untested",
+          "tests": []
+        }
+      }
+    },
+    "js/agents/index.js": {
+      "total": 1,
+      "covered": 0,
+      "stale": 0,
+      "untested": 1,
+      "coverage": "0.0%",
+      "files": {
+        "index.js": {
+          "path": "js/agents/index.js",
+          "status": "untested",
+          "tests": []
+        }
+      }
+    },
+    "js/agents/ingest": {
+      "total": 22,
+      "covered": 0,
+      "stale": 0,
+      "untested": 22,
+      "coverage": "0.0%",
+      "files": {
+        "audio.js": {
+          "path": "js/agents/ingest/adapters/audio.js",
+          "status": "untested",
+          "tests": []
+        },
+        "base.js": {
+          "path": "js/agents/ingest/adapters/base.js",
+          "status": "untested",
+          "tests": []
+        },
+        "code.js": {
+          "path": "js/agents/ingest/adapters/code.js",
+          "status": "untested",
+          "tests": []
+        },
+        "docx.js": {
+          "path": "js/agents/ingest/adapters/docx.js",
+          "status": "untested",
+          "tests": []
+        },
+        "epub.js": {
+          "path": "js/agents/ingest/adapters/epub.js",
+          "status": "untested",
+          "tests": []
+        },
+        "history.js": {
+          "path": "js/agents/ingest/adapters/history.js",
+          "status": "untested",
+          "tests": []
+        },
+        "html.js": {
+          "path": "js/agents/ingest/adapters/html.js",
+          "status": "untested",
+          "tests": []
+        },
+        "markdown.js": {
+          "path": "js/agents/ingest/adapters/markdown.js",
+          "status": "untested",
+          "tests": []
+        },
+        "node-io.js": {
+          "path": "js/agents/ingest/adapters/node-io.js",
+          "status": "untested",
+          "tests": []
+        },
+        "pdf.js": {
+          "path": "js/agents/ingest/adapters/pdf.js",
+          "status": "untested",
+          "tests": []
+        },
+        "pptx.js": {
+          "path": "js/agents/ingest/adapters/pptx.js",
+          "status": "untested",
+          "tests": []
+        },
+        "raw-text.js": {
+          "path": "js/agents/ingest/adapters/raw-text.js",
+          "status": "untested",
+          "tests": []
+        },
+        "video.js": {
+          "path": "js/agents/ingest/adapters/video.js",
+          "status": "untested",
+          "tests": []
+        },
+        "asset-manager.js": {
+          "path": "js/agents/ingest/asset-manager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "asset-understanding.js": {
+          "path": "js/agents/ingest/asset-understanding.js",
+          "status": "untested",
+          "tests": []
+        },
+        "chunked-loader.js": {
+          "path": "js/agents/ingest/chunked-loader.js",
+          "status": "untested",
+          "tests": []
+        },
+        "constants.js": {
+          "path": "js/agents/ingest/constants.js",
+          "status": "untested",
+          "tests": []
+        },
+        "extract-assets.js": {
+          "path": "js/agents/ingest/extract-assets.js",
+          "status": "untested",
+          "tests": []
+        },
+        "index.js": {
+          "path": "js/agents/ingest/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "ingest-stage.js": {
+          "path": "js/agents/ingest/ingest-stage.js",
+          "status": "untested",
+          "tests": []
+        },
+        "byte-buffer.js": {
+          "path": "js/agents/ingest/streaming/byte-buffer.js",
+          "status": "untested",
+          "tests": []
+        },
+        "video-frames.js": {
+          "path": "js/agents/ingest/tools/video-frames.js",
+          "status": "untested",
+          "tests": []
+        }
+      }
+    },
+    "js/agents/llm": {
+      "total": 11,
+      "covered": 3,
+      "stale": 5,
+      "untested": 3,
+      "coverage": "27.3%",
+      "files": {
+        "constants.js": {
+          "path": "js/agents/llm/constants.js",
+          "status": "untested",
+          "tests": []
+        },
+        "image-provider.js": {
+          "path": "js/agents/llm/image-provider.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/llm/image-provider.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/llm/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "mock-provider.js": {
+          "path": "js/agents/llm/mock-provider.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/llm/mock-provider.test.js"
+          ]
+        },
+        "model-events.js": {
+          "path": "js/agents/llm/model-events.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/llm/model-events.test.js"
+          ]
+        },
+        "model-router.js": {
+          "path": "js/agents/llm/model-router.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/llm/model-router.test.js",
+            "tests/agents/llm/model-router.token-tracker.vitest.test.js"
+          ]
+        },
+        "overflow-recovery.js": {
+          "path": "js/agents/llm/overflow-recovery.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/llm/overflow-recovery.test.js"
+          ]
+        },
+        "ppt-model-bridge.js": {
+          "path": "js/agents/llm/ppt-model-bridge.js",
+          "status": "untested",
+          "tests": []
+        },
+        "provider.js": {
+          "path": "js/agents/llm/provider.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/llm/provider.test.js"
+          ]
+        },
+        "rate-limit.js": {
+          "path": "js/agents/llm/rate-limit.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/llm/model-router.test.js",
+            "tests/agents/llm/rate-limit.test.js",
+            "tests/agents/runtime/retrieval-engine-ratelimit.test.js"
+          ]
+        },
+        "whisper-provider.js": {
+          "path": "js/agents/llm/whisper-provider.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/llm/whisper-provider.test.js"
+          ]
+        }
+      }
+    },
+    "js/agents/mcp": {
+      "total": 20,
+      "covered": 3,
+      "stale": 1,
+      "untested": 16,
+      "coverage": "15.0%",
+      "files": {
+        "constants.js": {
+          "path": "js/agents/mcp/constants.js",
+          "status": "untested",
+          "tests": []
+        },
+        "content-extractor.js": {
+          "path": "js/agents/mcp/content-extractor.js",
+          "status": "untested",
+          "tests": []
+        },
+        "content-sanitizer.js": {
+          "path": "js/agents/mcp/content-sanitizer.js",
+          "status": "untested",
+          "tests": []
+        },
+        "http-mcp-transport.js": {
+          "path": "js/agents/mcp/http-mcp-transport.js",
+          "status": "untested",
+          "tests": []
+        },
+        "http-proxy.js": {
+          "path": "js/agents/mcp/http-proxy.js",
+          "status": "untested",
+          "tests": []
+        },
+        "index.js": {
+          "path": "js/agents/mcp/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "local-mcp-provider.js": {
+          "path": "js/agents/mcp/local-mcp-provider.js",
+          "status": "untested",
+          "tests": []
+        },
+        "mcp-client.js": {
+          "path": "js/agents/mcp/mcp-client.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/mcp/mcp-provider.test.js"
+          ]
+        },
+        "mcp-nexus-provider.js": {
+          "path": "js/agents/mcp/mcp-nexus-provider.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/mcp/mcp-nexus-provider.test.js"
+          ]
+        },
+        "mcp-shortcuts.js": {
+          "path": "js/agents/mcp/mcp-shortcuts.js",
+          "status": "untested",
+          "tests": []
+        },
+        "mcp-transport.js": {
+          "path": "js/agents/mcp/mcp-transport.js",
+          "status": "untested",
+          "tests": []
+        },
+        "nexus-skill-provider.js": {
+          "path": "js/agents/mcp/nexus-skill-provider.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/skills.test.js"
+          ]
+        },
+        "resource-manager.js": {
+          "path": "js/agents/mcp/resource-manager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "smart-content-extractor.js": {
+          "path": "js/agents/mcp/smart-content-extractor.js",
+          "status": "untested",
+          "tests": []
+        },
+        "sse-mcp-transport.js": {
+          "path": "js/agents/mcp/sse-mcp-transport.js",
+          "status": "untested",
+          "tests": []
+        },
+        "sse.js": {
+          "path": "js/agents/mcp/sse.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/mcp/sse.test.js"
+          ]
+        },
+        "stdio-mcp-provider.js": {
+          "path": "js/agents/mcp/stdio-mcp-provider.js",
+          "status": "untested",
+          "tests": []
+        },
+        "stdio-mcp-transport.js": {
+          "path": "js/agents/mcp/stdio-mcp-transport.js",
+          "status": "untested",
+          "tests": []
+        },
+        "transport-factory.js": {
+          "path": "js/agents/mcp/transport-factory.js",
+          "status": "untested",
+          "tests": []
+        },
+        "url-whitelist.js": {
+          "path": "js/agents/mcp/url-whitelist.js",
+          "status": "untested",
+          "tests": []
+        }
+      }
+    },
+    "js/agents/plugins": {
+      "total": 12,
+      "covered": 2,
+      "stale": 6,
+      "untested": 4,
+      "coverage": "16.7%",
+      "files": {
+        "fingerprint.js": {
+          "path": "js/agents/plugins/analysis/fingerprint.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/plugins/event-driven.test.js"
+          ]
+        },
+        "cicada.js": {
+          "path": "js/agents/plugins/compression/cicada.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/plugins/event-driven.test.js"
+          ]
+        },
+        "watchdog.js": {
+          "path": "js/agents/plugins/compression/watchdog.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/core/watchdog-cleanup.test.js",
+            "tests/agents/plugins/compression/watchdog.test.js",
+            "tests/agents/plugins/event-driven.test.js"
+          ]
+        },
+        "inspector.js": {
+          "path": "js/agents/plugins/debug/inspector.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/plugins/services.test.js"
+          ]
+        },
+        "logger.js": {
+          "path": "js/agents/plugins/debug/logger.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/plugins/event-driven.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/plugins/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "retry.js": {
+          "path": "js/agents/plugins/resilience/retry.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/plugins/services.test.js"
+          ]
+        },
+        "llm.js": {
+          "path": "js/agents/plugins/services/llm.js",
+          "status": "untested",
+          "tests": []
+        },
+        "mcp.js": {
+          "path": "js/agents/plugins/services/mcp.js",
+          "status": "untested",
+          "tests": []
+        },
+        "scheduler.js": {
+          "path": "js/agents/plugins/services/scheduler.js",
+          "status": "untested",
+          "tests": []
+        },
+        "vfs.js": {
+          "path": "js/agents/plugins/services/vfs.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/plugins/services.test.js"
+          ]
+        },
+        "deepsearch.js": {
+          "path": "js/agents/plugins/stages/deepsearch.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/plugins/stages-deepsearch.test.js"
+          ]
+        }
+      }
+    },
+    "js/agents/prompts": {
+      "total": 11,
+      "covered": 4,
+      "stale": 6,
+      "untested": 1,
+      "coverage": "36.4%",
+      "files": {
+        "escape-template-delimiters.js": {
+          "path": "js/agents/prompts/formatters/escape-template-delimiters.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/prompts/formatters.test.js"
+          ]
+        },
+        "format-bullets.js": {
+          "path": "js/agents/prompts/formatters/format-bullets.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/prompts/formatters.test.js"
+          ]
+        },
+        "format-code-block.js": {
+          "path": "js/agents/prompts/formatters/format-code-block.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/prompts/formatters.test.js"
+          ]
+        },
+        "format-json.js": {
+          "path": "js/agents/prompts/formatters/format-json.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/prompts/formatters.test.js"
+          ]
+        },
+        "format-lines.js": {
+          "path": "js/agents/prompts/formatters/format-lines.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/prompts/formatters.test.js"
+          ]
+        },
+        "format-trim.js": {
+          "path": "js/agents/prompts/formatters/format-trim.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/prompts/formatters.test.js"
+          ]
+        },
+        "format-upper.js": {
+          "path": "js/agents/prompts/formatters/format-upper.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/prompts/formatters.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/prompts/formatters/index.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/prompts/formatters.test.js"
+          ]
+        },
+        "prompt-loader.js": {
+          "path": "js/agents/prompts/prompt-loader.js",
+          "status": "untested",
+          "tests": []
+        },
+        "prompt-registry.js": {
+          "path": "js/agents/prompts/prompt-registry.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/prompts/prompt-registry.test.js"
+          ]
+        },
+        "prompt-template.js": {
+          "path": "js/agents/prompts/prompt-template.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/prompts/prompt-registry.test.js",
+            "tests/agents/prompts/prompt-template.test.js"
+          ]
+        }
+      }
+    },
+    "js/agents/retrieval": {
+      "total": 10,
+      "covered": 0,
+      "stale": 0,
+      "untested": 10,
+      "coverage": "0.0%",
+      "files": {
+        "bm25.js": {
+          "path": "js/agents/retrieval/bm25.js",
+          "status": "untested",
+          "tests": []
+        },
+        "grep.js": {
+          "path": "js/agents/retrieval/grep.js",
+          "status": "untested",
+          "tests": []
+        },
+        "hybrid-retrieval.js": {
+          "path": "js/agents/retrieval/hybrid-retrieval.js",
+          "status": "untested",
+          "tests": []
+        },
+        "mmr.js": {
+          "path": "js/agents/retrieval/mmr.js",
+          "status": "untested",
+          "tests": []
+        },
+        "readaround.js": {
+          "path": "js/agents/retrieval/readaround.js",
+          "status": "untested",
+          "tests": []
+        },
+        "retrieval-router.js": {
+          "path": "js/agents/retrieval/retrieval-router.js",
+          "status": "untested",
+          "tests": []
+        },
+        "scope.js": {
+          "path": "js/agents/retrieval/scope.js",
+          "status": "untested",
+          "tests": []
+        },
+        "toc-builder.js": {
+          "path": "js/agents/retrieval/toc-builder.js",
+          "status": "untested",
+          "tests": []
+        },
+        "tool-chain.js": {
+          "path": "js/agents/retrieval/tool-chain.js",
+          "status": "untested",
+          "tests": []
+        },
+        "vector-search.js": {
+          "path": "js/agents/retrieval/vector-search.js",
+          "status": "untested",
+          "tests": []
+        }
+      }
+    },
+    "js/agents/runtime": {
+      "total": 128,
+      "covered": 16,
+      "stale": 22,
+      "untested": 90,
+      "coverage": "12.5%",
+      "files": {
+        "behavior-fingerprint.js": {
+          "path": "js/agents/runtime/analysis/behavior-fingerprint.js",
+          "status": "untested",
+          "tests": []
+        },
+        "convergence-detector.js": {
+          "path": "js/agents/runtime/analysis/convergence-detector.js",
+          "status": "untested",
+          "tests": []
+        },
+        "stage-api-factory.js": {
+          "path": "js/agents/runtime/api/stage-api-factory.js",
+          "status": "untested",
+          "tests": []
+        },
+        "agent-checkpoint-store.js": {
+          "path": "js/agents/runtime/checkpoints/agent-checkpoint-store.js",
+          "status": "untested",
+          "tests": []
+        },
+        "adaptive-zone-manager.js": {
+          "path": "js/agents/runtime/compression/adaptive-zone-manager.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/compression/adaptive-zone-manager.test.js"
+          ]
+        },
+        "cicada-compressor.js": {
+          "path": "js/agents/runtime/compression/cicada-compressor.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/sdk/task-tool.test.js"
+          ]
+        },
+        "compression-async.js": {
+          "path": "js/agents/runtime/compression/compression-async.js",
+          "status": "untested",
+          "tests": []
+        },
+        "compression.worker.js": {
+          "path": "js/agents/runtime/compression/compression.worker.js",
+          "status": "untested",
+          "tests": []
+        },
+        "context-predictor.js": {
+          "path": "js/agents/runtime/compression/context-predictor.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/compression/context-predictor.test.js"
+          ]
+        },
+        "coordinator.js": {
+          "path": "js/agents/runtime/compression/coordinator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "proactive-compressor.js": {
+          "path": "js/agents/runtime/compression/proactive-compressor.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/compression/proactive-compressor.test.js"
+          ]
+        },
+        "quality-monitor.js": {
+          "path": "js/agents/runtime/compression/quality-monitor.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/compression/quality-monitor.test.js"
+          ]
+        },
+        "watchdog.js": {
+          "path": "js/agents/runtime/compression/watchdog.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/sdk/task-tool.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/runtime/transports/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "limits.js": {
+          "path": "js/agents/runtime/constants/limits.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/core/stage-manager.test.js"
+          ]
+        },
+        "thresholds.js": {
+          "path": "js/agents/runtime/constants/thresholds.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/constants/thresholds.test.js"
+          ]
+        },
+        "timeouts.js": {
+          "path": "js/agents/runtime/constants/timeouts.js",
+          "status": "untested",
+          "tests": []
+        },
+        "snapshotable.js": {
+          "path": "js/agents/runtime/context/snapshotable.js",
+          "status": "untested",
+          "tests": []
+        },
+        "subagent-budget.js": {
+          "path": "js/agents/runtime/context/subagent-budget.js",
+          "status": "untested",
+          "tests": []
+        },
+        "unified-agent-context.js": {
+          "path": "js/agents/runtime/context/unified-agent-context.js",
+          "status": "untested",
+          "tests": []
+        },
+        "process-coordinator.js": {
+          "path": "js/agents/runtime/coordination/process-coordinator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "tab-coordinator.js": {
+          "path": "js/agents/runtime/coordination/tab-coordinator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "agent-loop.js": {
+          "path": "js/agents/runtime/core/agent-loop.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/core/stage-manager.test.js",
+            "tests/agents/runtime/core.test.js"
+          ]
+        },
+        "agent-status.js": {
+          "path": "js/agents/runtime/core/agent-status.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/core/status-controller.test.js",
+            "tests/agents/runtime/core.test.js",
+            "tests/ppt/workflow/unified-state-mapping.test.js"
+          ]
+        },
+        "config-validator.js": {
+          "path": "js/agents/runtime/core/config-validator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "constants.js": {
+          "path": "js/agents/runtime/core/constants.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/orchestrator.test.js"
+          ]
+        },
+        "context-config.js": {
+          "path": "js/agents/runtime/core/context-config.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/core.test.js"
+          ]
+        },
+        "error-boundary.js": {
+          "path": "js/agents/runtime/core/error-boundary.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/core.test.js",
+            "tests/agents/stages/deepsearch/helpers.test.js"
+          ]
+        },
+        "js-adapter.js": {
+          "path": "js/agents/runtime/core/js-adapter.js",
+          "status": "untested",
+          "tests": []
+        },
+        "js-sandbox-worker.js": {
+          "path": "js/agents/runtime/core/js-sandbox-worker.js",
+          "status": "untested",
+          "tests": []
+        },
+        "js-sandbox-worker.node.js": {
+          "path": "js/agents/runtime/core/js-sandbox-worker.node.js",
+          "status": "untested",
+          "tests": []
+        },
+        "lifecycle.js": {
+          "path": "js/agents/runtime/core/lifecycle.js",
+          "status": "untested",
+          "tests": []
+        },
+        "mechanisms.js": {
+          "path": "js/agents/runtime/core/mechanisms.js",
+          "status": "untested",
+          "tests": []
+        },
+        "message-manager.js": {
+          "path": "js/agents/runtime/core/message-manager.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/core/message-manager.test.js",
+            "tests/agents/runtime/core.test.js"
+          ]
+        },
+        "persisted-output.js": {
+          "path": "js/agents/runtime/persisted-output.js",
+          "status": "untested",
+          "tests": []
+        },
+        "python-adapter.js": {
+          "path": "js/agents/runtime/core/python-adapter.js",
+          "status": "untested",
+          "tests": []
+        },
+        "resource-guard.js": {
+          "path": "js/agents/runtime/core/resource-guard.js",
+          "status": "untested",
+          "tests": []
+        },
+        "retry-strategy.js": {
+          "path": "js/agents/runtime/core/retry-strategy.js",
+          "status": "untested",
+          "tests": []
+        },
+        "runtime-adapter.js": {
+          "path": "js/agents/runtime/core/runtime-adapter.js",
+          "status": "untested",
+          "tests": []
+        },
+        "scheduler.js": {
+          "path": "js/agents/runtime/core/scheduler.js",
+          "status": "untested",
+          "tests": []
+        },
+        "shared-memory.js": {
+          "path": "js/agents/runtime/core/shared-memory.js",
+          "status": "untested",
+          "tests": []
+        },
+        "stage-errors.js": {
+          "path": "js/agents/runtime/core/stage-errors.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/core.test.js"
+          ]
+        },
+        "status-controller.js": {
+          "path": "js/agents/runtime/core/status-controller.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/core/status-controller.test.js",
+            "tests/agents/runtime/core.test.js"
+          ]
+        },
+        "tool-registry.js": {
+          "path": "js/agents/runtime/core/tool-registry.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/core/tool-registry.test.js",
+            "tests/agents/runtime/core.test.js"
+          ]
+        },
+        "vfs-proxy-client.js": {
+          "path": "js/agents/runtime/core/vfs-proxy-client.js",
+          "status": "untested",
+          "tests": []
+        },
+        "vfs-proxy-host.js": {
+          "path": "js/agents/runtime/core/vfs-proxy-host.js",
+          "status": "untested",
+          "tests": []
+        },
+        "vfs-proxy-protocol.js": {
+          "path": "js/agents/runtime/core/vfs-proxy-protocol.js",
+          "status": "untested",
+          "tests": []
+        },
+        "vfs-proxy.js": {
+          "path": "js/agents/runtime/core/vfs-proxy.js",
+          "status": "untested",
+          "tests": []
+        },
+        "worker-factory.js": {
+          "path": "js/agents/runtime/core/worker-factory.js",
+          "status": "untested",
+          "tests": []
+        },
+        "worker-pool.js": {
+          "path": "js/agents/runtime/core/worker-pool.js",
+          "status": "untested",
+          "tests": []
+        },
+        "worker-rpc.js": {
+          "path": "js/agents/runtime/core/worker-rpc.js",
+          "status": "untested",
+          "tests": []
+        },
+        "dependency-manager.js": {
+          "path": "js/agents/runtime/deps/dependency-manager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "python-skill-executor.js": {
+          "path": "js/agents/runtime/deps/python-skill-executor.js",
+          "status": "untested",
+          "tests": []
+        },
+        "container.js": {
+          "path": "js/agents/runtime/di/container.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/di-container.test.js",
+            "tests/agents/runtime/di-singletons.test.js",
+            "tests/agents/sdk/injection-scanner.test.js",
+            "tests/agents/shared/utils/circuit-breaker.test.js"
+          ]
+        },
+        "defaults.js": {
+          "path": "js/agents/runtime/di/defaults.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/di-defaults-smoke.test.js",
+            "tests/agents/runtime/di-singletons.test.js",
+            "tests/agents/runtime/task-tool-di.test.js"
+          ]
+        },
+        "global-container.js": {
+          "path": "js/agents/runtime/di/global-container.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/di-singletons.test.js",
+            "tests/agents/runtime/telemetry/token-tracker.test.js",
+            "tests/agents/sdk/injection-scanner.test.js",
+            "tests/agents/shared/utils/circuit-breaker.test.js",
+            "tests/agents/vfs/file-lock.test.js"
+          ]
+        },
+        "silent-error-reporter.js": {
+          "path": "js/agents/runtime/errors/silent-error-reporter.js",
+          "status": "untested",
+          "tests": []
+        },
+        "event-bus.js": {
+          "path": "js/agents/runtime/events/event-bus.js",
+          "status": "untested",
+          "tests": []
+        },
+        "events.js": {
+          "path": "js/agents/runtime/events/events.js",
+          "status": "untested",
+          "tests": []
+        },
+        "command-executor.browser.js": {
+          "path": "js/agents/runtime/exec/command-executor.browser.js",
+          "status": "untested",
+          "tests": []
+        },
+        "command-executor.node.js": {
+          "path": "js/agents/runtime/exec/command-executor.node.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/exec.test.js"
+          ]
+        },
+        "event-bus-hooks.js": {
+          "path": "js/agents/runtime/hooks/event-bus-hooks.js",
+          "status": "untested",
+          "tests": []
+        },
+        "hook-registry.js": {
+          "path": "js/agents/runtime/hooks/hook-registry.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/hooks/hook-event.test.js",
+            "tests/agents/runtime/hooks/hooks-config-loader.test.js"
+          ]
+        },
+        "hook-runner.js": {
+          "path": "js/agents/runtime/hooks/hook-runner.js",
+          "status": "untested",
+          "tests": []
+        },
+        "hooks-config-loader.js": {
+          "path": "js/agents/runtime/hooks/hooks-config-loader.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/hooks/hooks-config-loader.test.js"
+          ]
+        },
+        "micro-kernel.js": {
+          "path": "js/agents/runtime/kernel/micro-kernel.js",
+          "status": "untested",
+          "tests": []
+        },
+        "manifest.js": {
+          "path": "js/agents/runtime/manifest/manifest.js",
+          "status": "untested",
+          "tests": []
+        },
+        "action-types.js": {
+          "path": "js/agents/runtime/memory/action-types.js",
+          "status": "untested",
+          "tests": []
+        },
+        "l3-storage.js": {
+          "path": "js/agents/runtime/memory/l3-storage.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/memory/l3-storage.test.js"
+          ]
+        },
+        "memory-store.impl.js": {
+          "path": "js/agents/runtime/memory/memory-store.impl.js",
+          "status": "untested",
+          "tests": []
+        },
+        "memory-store.js": {
+          "path": "js/agents/runtime/memory/memory-store.js",
+          "status": "untested",
+          "tests": []
+        },
+        "retrieval-engine.js": {
+          "path": "js/agents/runtime/memory/retrieval-engine.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/memory/retrieval-engine-prewarm.test.js",
+            "tests/agents/runtime/retrieval-engine-ratelimit.test.js"
+          ]
+        },
+        "state-diff.js": {
+          "path": "js/agents/runtime/memory/state-diff.js",
+          "status": "untested",
+          "tests": []
+        },
+        "state-engine.js": {
+          "path": "js/agents/runtime/memory/state-engine.js",
+          "status": "untested",
+          "tests": []
+        },
+        "todo-normalize.js": {
+          "path": "js/agents/runtime/memory/todo-normalize.js",
+          "status": "untested",
+          "tests": []
+        },
+        "unified-memory-store.js": {
+          "path": "js/agents/runtime/memory/unified-memory-store.js",
+          "status": "untested",
+          "tests": []
+        },
+        "middleware-chain.js": {
+          "path": "js/agents/runtime/middleware/middleware-chain.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/middleware/middleware-chain.test.js"
+          ]
+        },
+        "orchestrator.js": {
+          "path": "js/agents/runtime/orchestrator.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/orchestrator.test.js"
+          ]
+        },
+        "task-graph.js": {
+          "path": "js/agents/runtime/parallel/task-graph.js",
+          "status": "untested",
+          "tests": []
+        },
+        "plan-store.js": {
+          "path": "js/agents/runtime/plan/plan-store.js",
+          "status": "untested",
+          "tests": []
+        },
+        "structured-plan.js": {
+          "path": "js/agents/runtime/plan/structured-plan.js",
+          "status": "untested",
+          "tests": []
+        },
+        "engine.js": {
+          "path": "js/agents/runtime/policy/engine.js",
+          "status": "untested",
+          "tests": []
+        },
+        "manager.js": {
+          "path": "js/agents/runtime/policy/manager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "match.js": {
+          "path": "js/agents/runtime/policy/match.js",
+          "status": "untested",
+          "tests": []
+        },
+        "store.js": {
+          "path": "js/agents/runtime/policy/store.js",
+          "status": "untested",
+          "tests": []
+        },
+        "degradation-matrix.js": {
+          "path": "js/agents/runtime/resilience/degradation-matrix.js",
+          "status": "untested",
+          "tests": []
+        },
+        "performance-router.js": {
+          "path": "js/agents/runtime/routing/performance-router.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/llm/model-router.test.js"
+          ]
+        },
+        "command-classifier.js": {
+          "path": "js/agents/runtime/safety/command-classifier.js",
+          "status": "untested",
+          "tests": []
+        },
+        "tool-permissions.js": {
+          "path": "js/agents/runtime/safety/tool-permissions.js",
+          "status": "untested",
+          "tests": []
+        },
+        "tool-restrictions.js": {
+          "path": "js/agents/runtime/safety/tool-restrictions.js",
+          "status": "untested",
+          "tests": []
+        },
+        "side-effect-journal.js": {
+          "path": "js/agents/runtime/side-effects/side-effect-journal.js",
+          "status": "untested",
+          "tests": []
+        },
+        "loop-runtime-state.js": {
+          "path": "js/agents/runtime/telemetry/loop-runtime-state.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/core/status-controller.test.js",
+            "tests/agents/runtime/core.test.js",
+            "tests/agents/runtime/telemetry.test.js"
+          ]
+        },
+        "replay-controller.js": {
+          "path": "js/agents/runtime/telemetry/replay-controller.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/telemetry.test.js"
+          ]
+        },
+        "runstore-telemetry.js": {
+          "path": "js/agents/runtime/telemetry/runstore-telemetry.js",
+          "status": "untested",
+          "tests": []
+        },
+        "token-tracker.js": {
+          "path": "js/agents/runtime/telemetry/token-tracker.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/llm/model-router.token-tracker.vitest.test.js",
+            "tests/agents/runtime/telemetry/token-tracker.test.js"
+          ]
+        },
+        "trace-context.js": {
+          "path": "js/agents/runtime/telemetry/trace-context.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/deepsearch/helpers.test.js"
+          ]
+        },
+        "BacktrackTool.js": {
+          "path": "js/agents/runtime/tools/BacktrackTool.js",
+          "status": "untested",
+          "tests": []
+        },
+        "DMailTool.js": {
+          "path": "js/agents/runtime/tools/DMailTool.js",
+          "status": "untested",
+          "tests": []
+        },
+        "RecallTool.js": {
+          "path": "js/agents/runtime/tools/RecallTool.js",
+          "status": "untested",
+          "tests": []
+        },
+        "TaskTool.js": {
+          "path": "js/agents/runtime/tools/TaskTool.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/task-tool-di.test.js",
+            "tests/agents/sdk/task-tool.test.js"
+          ]
+        },
+        "browser.js": {
+          "path": "js/agents/runtime/tools/platform/browser.js",
+          "status": "untested",
+          "tests": []
+        },
+        "node.js": {
+          "path": "js/agents/runtime/tools/platform/node.js",
+          "status": "untested",
+          "tests": []
+        },
+        "python-runtime-worker.js": {
+          "path": "js/agents/runtime/tools/python-runtime-worker.js",
+          "status": "untested",
+          "tests": []
+        },
+        "schema-validator.js": {
+          "path": "js/agents/runtime/tools/schema-validator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "tool-executor-webworker.js": {
+          "path": "js/agents/runtime/tools/tool-executor-webworker.js",
+          "status": "untested",
+          "tests": []
+        },
+        "tool-executor-worker-shared.js": {
+          "path": "js/agents/runtime/tools/tool-executor-worker-shared.js",
+          "status": "untested",
+          "tests": []
+        },
+        "tool-executor-worker.js": {
+          "path": "js/agents/runtime/tools/tool-executor-worker.js",
+          "status": "untested",
+          "tests": []
+        },
+        "tool-executor.js": {
+          "path": "js/agents/runtime/tools/tool-executor.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/core/sandbox/tool-executor.error-handling.test.js"
+          ]
+        },
+        "tool-quotas.js": {
+          "path": "js/agents/runtime/tools/tool-quotas.js",
+          "status": "untested",
+          "tests": []
+        },
+        "binary-skill-provider.js": {
+          "path": "js/agents/runtime/transports/binary-skill-provider.js",
+          "status": "untested",
+          "tests": []
+        },
+        "index.browser.js": {
+          "path": "js/agents/runtime/transports/index.browser.js",
+          "status": "untested",
+          "tests": []
+        },
+        "index.node.js": {
+          "path": "js/agents/runtime/transports/index.node.js",
+          "status": "untested",
+          "tests": []
+        },
+        "process-transport.js": {
+          "path": "js/agents/runtime/transports/process-transport.js",
+          "status": "untested",
+          "tests": []
+        }
+      }
+    },
+    "js/agents/sdk": {
+      "total": 17,
+      "covered": 0,
+      "stale": 3,
+      "untested": 14,
+      "coverage": "0.0%",
+      "files": {
+        "AgentBuilder.js": {
+          "path": "js/agents/sdk/AgentBuilder.js",
+          "status": "untested",
+          "tests": []
+        },
+        "AlertMonitor.js": {
+          "path": "js/agents/sdk/AlertMonitor.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/alert-monitor.test.js"
+          ]
+        },
+        "BacktrackManager.js": {
+          "path": "js/agents/sdk/BacktrackManager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "DefaultAgentLoop.js": {
+          "path": "js/agents/sdk/DefaultAgentLoop.js",
+          "status": "untested",
+          "tests": []
+        },
+        "DiscoveryManager.js": {
+          "path": "js/agents/sdk/DiscoveryManager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "SoftBacktrackManager.js": {
+          "path": "js/agents/sdk/SoftBacktrackManager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "SubagentRegistry.js": {
+          "path": "js/agents/sdk/SubagentRegistry.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/runtime/task-tool-di.test.js",
+            "tests/agents/sdk/task-tool.test.js",
+            "tests/agents/subagent-registry.test.js"
+          ]
+        },
+        "agent-config.js": {
+          "path": "js/agents/sdk/agent-config.js",
+          "status": "untested",
+          "tests": []
+        },
+        "agent-factory.js": {
+          "path": "js/agents/sdk/agent-factory.js",
+          "status": "untested",
+          "tests": []
+        },
+        "config-loader.js": {
+          "path": "js/agents/sdk/config-loader.js",
+          "status": "untested",
+          "tests": []
+        },
+        "backtrack-usage.js": {
+          "path": "js/agents/sdk/examples/backtrack-usage.js",
+          "status": "untested",
+          "tests": []
+        },
+        "basic-usage.js": {
+          "path": "js/agents/sdk/examples/basic-usage.js",
+          "status": "untested",
+          "tests": []
+        },
+        "memory-recall.js": {
+          "path": "js/agents/sdk/examples/memory-recall.js",
+          "status": "untested",
+          "tests": []
+        },
+        "subagent-usage.js": {
+          "path": "js/agents/sdk/examples/subagent-usage.js",
+          "status": "untested",
+          "tests": []
+        },
+        "webarranger-resilience.js": {
+          "path": "js/agents/sdk/examples/webarranger-resilience.js",
+          "status": "untested",
+          "tests": []
+        },
+        "index.js": {
+          "path": "js/agents/sdk/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "injection-scanner.js": {
+          "path": "js/agents/sdk/injection-scanner.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/sdk/injection-scanner.test.js",
+            "tests/agents/subagent-registry.test.js"
+          ]
+        }
+      }
+    },
+    "js/agents/shared": {
+      "total": 40,
+      "covered": 10,
+      "stale": 6,
+      "untested": 24,
+      "coverage": "25.0%",
+      "files": {
+        "archive.js": {
+          "path": "js/agents/shared/archive/archive.js",
+          "status": "untested",
+          "tests": []
+        },
+        "checkpoint-schema.js": {
+          "path": "js/agents/shared/archive/checkpoint-schema.js",
+          "status": "untested",
+          "tests": []
+        },
+        "disposable-base.js": {
+          "path": "js/agents/shared/base/disposable-base.js",
+          "status": "untested",
+          "tests": []
+        },
+        "disposable.js": {
+          "path": "js/agents/shared/contracts/disposable.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/contracts-disposable.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/shared/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "llm-response.js": {
+          "path": "js/agents/shared/contracts/llm-response.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/contracts-llm.test.js",
+            "tests/agents/shared/contracts.vitest.test.js"
+          ]
+        },
+        "rpc-message.js": {
+          "path": "js/agents/shared/contracts/rpc-message.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/contracts-rpc.test.js",
+            "tests/agents/shared/contracts.vitest.test.js"
+          ]
+        },
+        "tool-result.js": {
+          "path": "js/agents/shared/contracts/tool-result.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/contracts-tool.test.js"
+          ]
+        },
+        "embedding-service.js": {
+          "path": "js/agents/shared/embeddings/embedding-service.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/shared/embeddings.vitest.test.js"
+          ]
+        },
+        "hnsw-lite.js": {
+          "path": "js/agents/shared/embeddings/hnsw-lite.js",
+          "status": "untested",
+          "tests": []
+        },
+        "vector-index.js": {
+          "path": "js/agents/shared/embeddings/vector-index.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/retrieval/vector-search.test.js",
+            "tests/agents/shared/embeddings.vitest.test.js"
+          ]
+        },
+        "tree-sitter-wasm.js": {
+          "path": "js/agents/shared/parser/tree-sitter-wasm.js",
+          "status": "untested",
+          "tests": []
+        },
+        "platform.js": {
+          "path": "js/agents/shared/platform.js",
+          "status": "untested",
+          "tests": []
+        },
+        "adaptive-token-counter.js": {
+          "path": "js/agents/shared/tokenizers/adaptive-token-counter.js",
+          "status": "untested",
+          "tests": []
+        },
+        "budget.js": {
+          "path": "js/agents/shared/utils/budget.js",
+          "status": "untested",
+          "tests": []
+        },
+        "cancellation.js": {
+          "path": "js/agents/shared/utils/cancellation.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/shared/utils/cancellation.test.js",
+            "tests/agents/shared/utils.test.js"
+          ]
+        },
+        "circuit-breaker.js": {
+          "path": "js/agents/shared/utils/circuit-breaker.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/shared/utils/circuit-breaker.test.js"
+          ]
+        },
+        "deque.js": {
+          "path": "js/agents/shared/utils/deque.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/shared/utils/deque.test.js",
+            "tests/agents/shared/utils.test.js",
+            "tests/agents/stages/deepsearch/state.test.js"
+          ]
+        },
+        "error-classifier.js": {
+          "path": "js/agents/shared/utils/error-classifier.js",
+          "status": "untested",
+          "tests": []
+        },
+        "error-utils-extended.js": {
+          "path": "js/agents/shared/utils/error-utils-extended.js",
+          "status": "untested",
+          "tests": []
+        },
+        "error-utils.js": {
+          "path": "js/agents/shared/utils/error-utils.js",
+          "status": "untested",
+          "tests": []
+        },
+        "event-emitter.js": {
+          "path": "js/agents/shared/utils/event-emitter.js",
+          "status": "untested",
+          "tests": []
+        },
+        "file-watcher.js": {
+          "path": "js/agents/shared/utils/file-watcher.js",
+          "status": "untested",
+          "tests": []
+        },
+        "json-candidate.js": {
+          "path": "js/agents/shared/utils/json-candidate.js",
+          "status": "untested",
+          "tests": []
+        },
+        "logger.js": {
+          "path": "js/agents/shared/utils/logger.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/shared/utils.test.js"
+          ]
+        },
+        "lru-cache.js": {
+          "path": "js/agents/shared/utils/lru-cache.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/shared/utils/lru-cache.test.js"
+          ]
+        },
+        "message-utils.js": {
+          "path": "js/agents/shared/utils/message-utils.js",
+          "status": "untested",
+          "tests": []
+        },
+        "response-limits.js": {
+          "path": "js/agents/shared/utils/response-limits.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/skills.test.js"
+          ]
+        },
+        "robust-json.js": {
+          "path": "js/agents/shared/utils/robust-json.js",
+          "status": "untested",
+          "tests": []
+        },
+        "safe-json.js": {
+          "path": "js/agents/shared/utils/safe-json.js",
+          "status": "untested",
+          "tests": []
+        },
+        "safe-regex.js": {
+          "path": "js/agents/shared/utils/safe-regex.js",
+          "status": "untested",
+          "tests": []
+        },
+        "schema-validator.js": {
+          "path": "js/agents/shared/utils/schema-validator.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/shared/utils/schema-validator.test.js"
+          ]
+        },
+        "secure-id.js": {
+          "path": "js/agents/shared/utils/secure-id.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/shared/utils.test.js"
+          ]
+        },
+        "stage-api.js": {
+          "path": "js/agents/shared/utils/stage-api.js",
+          "status": "untested",
+          "tests": []
+        },
+        "storage-crypto.js": {
+          "path": "js/agents/shared/utils/storage-crypto.js",
+          "status": "untested",
+          "tests": []
+        },
+        "storage-quota.js": {
+          "path": "js/agents/shared/utils/storage-quota.js",
+          "status": "untested",
+          "tests": []
+        },
+        "token-cache.js": {
+          "path": "js/agents/shared/utils/token-cache.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/shared/utils.test.js"
+          ]
+        },
+        "value-utils.js": {
+          "path": "js/agents/shared/utils/value-utils.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/shared/utils.test.js",
+            "tests/agents/stages/design/design-tokens.test.js"
+          ]
+        },
+        "wasm-support.js": {
+          "path": "js/agents/shared/utils/wasm-support.js",
+          "status": "untested",
+          "tests": []
+        }
+      }
+    },
+    "js/agents/skills": {
+      "total": 9,
+      "covered": 3,
+      "stale": 1,
+      "untested": 5,
+      "coverage": "33.3%",
+      "files": {
+        "index.js": {
+          "path": "js/agents/skills/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "loader.browser.js": {
+          "path": "js/agents/skills/loader.browser.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/skills.test.js"
+          ]
+        },
+        "loader.js": {
+          "path": "js/agents/skills/loader.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/skills.test.js"
+          ]
+        },
+        "loader.node.js": {
+          "path": "js/agents/skills/loader.node.js",
+          "status": "untested",
+          "tests": []
+        },
+        "manager.js": {
+          "path": "js/agents/skills/manager.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/skills-manager.test.js",
+            "tests/agents/skills.test.js"
+          ]
+        },
+        "model.js": {
+          "path": "js/agents/skills/model.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/skill-model.test.js",
+            "tests/agents/skills.test.js"
+          ]
+        },
+        "render.js": {
+          "path": "js/agents/skills/render.js",
+          "status": "untested",
+          "tests": []
+        },
+        "sandbox-adapter.js": {
+          "path": "js/agents/skills/sandbox-adapter.js",
+          "status": "untested",
+          "tests": []
+        },
+        "user-store.js": {
+          "path": "js/agents/skills/user-store.js",
+          "status": "untested",
+          "tests": []
+        }
+      }
+    },
+    "js/agents/stages": {
+      "total": 138,
+      "covered": 15,
+      "stale": 15,
+      "untested": 108,
+      "coverage": "10.9%",
+      "files": {
+        "code-tools.js": {
+          "path": "js/agents/stages/codesearch/code-tools.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/codesearch.test.js"
+          ]
+        },
+        "codesearch-stage.js": {
+          "path": "js/agents/stages/codesearch/codesearch-stage.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/codesearch.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/stages/textprep/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "index-store.js": {
+          "path": "js/agents/stages/codesearch/indexing/index-store.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/codesearch/indexing/symbol-indexer.test.js",
+            "tests/agents/stages/codesearch.test.js"
+          ]
+        },
+        "symbol-indexer.js": {
+          "path": "js/agents/stages/codesearch/indexing/symbol-indexer.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/codesearch/indexing/symbol-indexer.test.js",
+            "tests/agents/stages/codesearch.test.js"
+          ]
+        },
+        "execution-phase.js": {
+          "path": "js/agents/stages/deepsearch/phases/execution-phase.js",
+          "status": "untested",
+          "tests": []
+        },
+        "planning-phase.js": {
+          "path": "js/agents/stages/deepsearch/phases/planning-phase.js",
+          "status": "untested",
+          "tests": []
+        },
+        "summarizing-phase.js": {
+          "path": "js/agents/stages/codesearch/phases/summarizing-phase.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/codesearch.test.js"
+          ]
+        },
+        "prompts.js": {
+          "path": "js/agents/stages/codesearch/prompts.js",
+          "status": "untested",
+          "tests": []
+        },
+        "state.js": {
+          "path": "js/agents/stages/deepsearch/state.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/stages/deepsearch/deepsearch-stage.vitest.test.js",
+            "tests/agents/stages/deepsearch/state.test.js",
+            "tests/agents/stages/deepsearch/tool-handlers.test.js"
+          ]
+        },
+        "states.js": {
+          "path": "js/agents/stages/design/states.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/stages/design/backtrack-layout.test.js",
+            "tests/agents/stages/design/edit-mode/edit-loop.test.js"
+          ]
+        },
+        "test-agent-loop.js": {
+          "path": "js/agents/stages/codesearch/test-agent-loop.js",
+          "status": "untested",
+          "tests": []
+        },
+        "test.js": {
+          "path": "js/agents/stages/codesearch/test.js",
+          "status": "untested",
+          "tests": []
+        },
+        "capabilities-loader.js": {
+          "path": "js/agents/stages/deepsearch/capabilities-loader.js",
+          "status": "untested",
+          "tests": []
+        },
+        "constants.js": {
+          "path": "js/agents/stages/textprep/constants.js",
+          "status": "untested",
+          "tests": []
+        },
+        "deepsearch-agent-loop.js": {
+          "path": "js/agents/stages/deepsearch/deepsearch-agent-loop.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/stages/deepsearch/deepsearch-stage.vitest.test.js"
+          ]
+        },
+        "deepsearch-helpers.js": {
+          "path": "js/agents/stages/deepsearch/deepsearch-helpers.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/deepsearch/helpers.test.js"
+          ]
+        },
+        "budget.js": {
+          "path": "js/agents/stages/deepsearch/model/budget.js",
+          "status": "untested",
+          "tests": []
+        },
+        "caller.js": {
+          "path": "js/agents/stages/deepsearch/model/caller.js",
+          "status": "untested",
+          "tests": []
+        },
+        "pricing.js": {
+          "path": "js/agents/stages/deepsearch/model/pricing.js",
+          "status": "untested",
+          "tests": []
+        },
+        "usage.js": {
+          "path": "js/agents/stages/deepsearch/model/usage.js",
+          "status": "untested",
+          "tests": []
+        },
+        "model.js": {
+          "path": "js/agents/stages/design/model.js",
+          "status": "untested",
+          "tests": []
+        },
+        "writing-phase.js": {
+          "path": "js/agents/stages/deepsearch/phases/writing-phase.js",
+          "status": "untested",
+          "tests": []
+        },
+        "citations.js": {
+          "path": "js/agents/stages/deepsearch/report/citations.js",
+          "status": "untested",
+          "tests": []
+        },
+        "report-generator.js": {
+          "path": "js/agents/stages/deepsearch/report/report-generator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "report-postprocess.js": {
+          "path": "js/agents/stages/deepsearch/report/report-postprocess.js",
+          "status": "untested",
+          "tests": []
+        },
+        "write-utils.js": {
+          "path": "js/agents/stages/deepsearch/report/write-utils.js",
+          "status": "untested",
+          "tests": []
+        },
+        "backtrack-manager.js": {
+          "path": "js/agents/stages/deepsearch/runtime/backtrack-manager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "checkpoint.js": {
+          "path": "js/agents/stages/deepsearch/runtime/checkpoint.js",
+          "status": "untested",
+          "tests": []
+        },
+        "error-classifier.js": {
+          "path": "js/agents/stages/design/shared/error-classifier.js",
+          "status": "untested",
+          "tests": []
+        },
+        "logger.js": {
+          "path": "js/agents/stages/deepsearch/runtime/logger.js",
+          "status": "untested",
+          "tests": []
+        },
+        "model-response-handler.js": {
+          "path": "js/agents/stages/deepsearch/runtime/model-response-handler.js",
+          "status": "untested",
+          "tests": []
+        },
+        "shared-context.js": {
+          "path": "js/agents/stages/deepsearch/runtime/shared-context.js",
+          "status": "untested",
+          "tests": []
+        },
+        "writing-phase-handler.js": {
+          "path": "js/agents/stages/deepsearch/runtime/writing-phase-handler.js",
+          "status": "untested",
+          "tests": []
+        },
+        "source-manager.js": {
+          "path": "js/agents/stages/deepsearch/source-manager.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/deepsearch/helpers.test.js",
+            "tests/agents/stages/deepsearch/tool-handlers.test.js"
+          ]
+        },
+        "stage-utils.js": {
+          "path": "js/agents/stages/deepsearch/stage-utils.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/deepsearch/helpers.test.js"
+          ]
+        },
+        "checkpoint-methods.js": {
+          "path": "js/agents/stages/deepsearch/state/checkpoint-methods.js",
+          "status": "untested",
+          "tests": []
+        },
+        "iteration-state.js": {
+          "path": "js/agents/stages/deepsearch/state/iteration-state.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/deepsearch/state.test.js"
+          ]
+        },
+        "memory-methods.js": {
+          "path": "js/agents/stages/deepsearch/state/memory-methods.js",
+          "status": "untested",
+          "tests": []
+        },
+        "planning-tree.js": {
+          "path": "js/agents/stages/deepsearch/state/planning-tree.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/stages/deepsearch/state.test.js"
+          ]
+        },
+        "report-state.js": {
+          "path": "js/agents/stages/deepsearch/state/report-state.js",
+          "status": "untested",
+          "tests": []
+        },
+        "serialization-methods.js": {
+          "path": "js/agents/stages/deepsearch/state/serialization-methods.js",
+          "status": "untested",
+          "tests": []
+        },
+        "serializer.js": {
+          "path": "js/agents/stages/deepsearch/state/serializer.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/stages/deepsearch/state.test.js"
+          ]
+        },
+        "state-methods.js": {
+          "path": "js/agents/stages/deepsearch/state/state-methods.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/stages/deepsearch/state.test.js"
+          ]
+        },
+        "task-state.js": {
+          "path": "js/agents/stages/deepsearch/state/task-state.js",
+          "status": "untested",
+          "tests": []
+        },
+        "state-logic.js": {
+          "path": "js/agents/stages/deepsearch/state-logic.js",
+          "status": "untested",
+          "tests": []
+        },
+        "subagents.js": {
+          "path": "js/agents/stages/deepsearch/subagents.js",
+          "status": "untested",
+          "tests": []
+        },
+        "todos.js": {
+          "path": "js/agents/stages/deepsearch/todos.js",
+          "status": "untested",
+          "tests": []
+        },
+        "handler.js": {
+          "path": "js/agents/stages/deepsearch/tools/write-report/handler.js",
+          "status": "untested",
+          "tests": []
+        },
+        "stage-api.js": {
+          "path": "js/agents/stages/deepsearch/utils/stage-api.js",
+          "status": "untested",
+          "tests": []
+        },
+        "state-utils.js": {
+          "path": "js/agents/stages/deepsearch/utils/state-utils.js",
+          "status": "untested",
+          "tests": []
+        },
+        "todo-utils.js": {
+          "path": "js/agents/stages/deepsearch/utils/todo-utils.js",
+          "status": "untested",
+          "tests": []
+        },
+        "agent-loop.js": {
+          "path": "js/agents/stages/design/agent-loop.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/stages/design/backtrack-layout.test.js"
+          ]
+        },
+        "banana-generator.js": {
+          "path": "js/agents/stages/design/banana/banana-generator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "batch-generator.js": {
+          "path": "js/agents/stages/design/generators/batch-generator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "design-agent.js": {
+          "path": "js/agents/stages/design/design-agent.js",
+          "status": "untested",
+          "tests": []
+        },
+        "design-helpers.js": {
+          "path": "js/agents/stages/design/design-helpers.js",
+          "status": "untested",
+          "tests": []
+        },
+        "design-system-generator.js": {
+          "path": "js/agents/stages/design/generators/design-system-generator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "design-tokens.js": {
+          "path": "js/agents/stages/design/generators/design-tokens.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/design/design-tokens.test.js"
+          ]
+        },
+        "design-tools.js": {
+          "path": "js/agents/stages/design/design-tools.js",
+          "status": "untested",
+          "tests": []
+        },
+        "dsl-builder.js": {
+          "path": "js/agents/stages/design/dsl-builder.js",
+          "status": "untested",
+          "tests": []
+        },
+        "dsl-rules.js": {
+          "path": "js/agents/stages/design/dsl/dsl-rules.js",
+          "status": "untested",
+          "tests": []
+        },
+        "edit-agent-loop.js": {
+          "path": "js/agents/stages/design/edit-agent-loop.js",
+          "status": "untested",
+          "tests": []
+        },
+        "edit-loop.js": {
+          "path": "js/agents/stages/design/edit-mode/edit-loop.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/design/edit-mode/edit-loop.test.js"
+          ]
+        },
+        "history.js": {
+          "path": "js/agents/stages/design/edit-mode/history.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/stages/design/edit-history.vitest.test.js",
+            "tests/agents/stages/design/edit-mode-history.test.js"
+          ]
+        },
+        "tools.js": {
+          "path": "js/agents/stages/design/edit-mode/tools.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/design/edit-mode-tools.vitest.test.js",
+            "tests/agents/stages/design/edit-tools.vitest.test.js"
+          ]
+        },
+        "image-generator.js": {
+          "path": "js/agents/stages/design/image-generator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "layout-generator.js": {
+          "path": "js/agents/stages/design/generators/layout-generator.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/stages/design/backtrack-layout.test.js"
+          ]
+        },
+        "layout-protocol.js": {
+          "path": "js/agents/stages/design/generators/layout-protocol.js",
+          "status": "untested",
+          "tests": []
+        },
+        "svg-generator.js": {
+          "path": "js/agents/stages/design/generators/svg-generator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "asset-resolver.js": {
+          "path": "js/agents/stages/design/image/asset-resolver.js",
+          "status": "untested",
+          "tests": []
+        },
+        "image-planner.js": {
+          "path": "js/agents/stages/design/image-planner.js",
+          "status": "untested",
+          "tests": []
+        },
+        "image-prompt-builder.js": {
+          "path": "js/agents/stages/design/image-prompt-builder.js",
+          "status": "untested",
+          "tests": []
+        },
+        "visual-renderer.js": {
+          "path": "js/agents/stages/design/image/visual-renderer.js",
+          "status": "untested",
+          "tests": []
+        },
+        "qa-validator.js": {
+          "path": "js/agents/stages/design/refiner/qa-validator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "batch-repair-agent.js": {
+          "path": "js/agents/stages/design/refiner/batch-repair-agent.js",
+          "status": "untested",
+          "tests": []
+        },
+        "design-repair.js": {
+          "path": "js/agents/stages/design/refiner/design-repair.js",
+          "status": "untested",
+          "tests": []
+        },
+        "react-refiner-tools.js": {
+          "path": "js/agents/stages/design/refiner/react-refiner-tools.js",
+          "status": "untested",
+          "tests": []
+        },
+        "react-refiner.js": {
+          "path": "js/agents/stages/design/refiner/react-refiner.js",
+          "status": "untested",
+          "tests": []
+        },
+        "auto-reviewer.js": {
+          "path": "js/agents/stages/design/reviewer/auto-reviewer.js",
+          "status": "untested",
+          "tests": []
+        },
+        "deck-analyzer.js": {
+          "path": "js/agents/stages/design/runtime/deck-analyzer.js",
+          "status": "untested",
+          "tests": []
+        },
+        "deck-editor.js": {
+          "path": "js/agents/stages/design/runtime/deck-editor.js",
+          "status": "untested",
+          "tests": []
+        },
+        "deck-planner.js": {
+          "path": "js/agents/stages/design/runtime/deck-planner.js",
+          "status": "untested",
+          "tests": []
+        },
+        "design-blackboard.js": {
+          "path": "js/agents/stages/design/runtime/design-blackboard.js",
+          "status": "untested",
+          "tests": []
+        },
+        "design-context.js": {
+          "path": "js/agents/stages/design/runtime/design-context.js",
+          "status": "untested",
+          "tests": []
+        },
+        "design-phases.js": {
+          "path": "js/agents/stages/design/runtime/design-phases.js",
+          "status": "untested",
+          "tests": []
+        },
+        "screenshot-stitcher.js": {
+          "path": "js/agents/stages/design/runtime/screenshot-stitcher.js",
+          "status": "untested",
+          "tests": []
+        },
+        "visual-handler.js": {
+          "path": "js/agents/stages/design/runtime/visual-handler.js",
+          "status": "untested",
+          "tests": []
+        },
+        "design-utils.js": {
+          "path": "js/agents/stages/design/shared/design-utils.js",
+          "status": "untested",
+          "tests": []
+        },
+        "html-parser.js": {
+          "path": "js/agents/stages/design/shared/html-parser.js",
+          "status": "untested",
+          "tests": []
+        },
+        "safe-emit.js": {
+          "path": "js/agents/stages/design/shared/safe-emit.js",
+          "status": "untested",
+          "tests": []
+        },
+        "asset-registry.js": {
+          "path": "js/agents/stages/design/subagents/asset-registry.js",
+          "status": "untested",
+          "tests": []
+        },
+        "slide-agent.js": {
+          "path": "js/agents/stages/design/subagents/slide-agent.js",
+          "status": "untested",
+          "tests": []
+        },
+        "visual-agent.js": {
+          "path": "js/agents/stages/design/subagents/visual-agent.js",
+          "status": "untested",
+          "tests": []
+        },
+        "build-content-package.js": {
+          "path": "js/agents/stages/textprep/build-content-package.js",
+          "status": "untested",
+          "tests": []
+        },
+        "chunk.js": {
+          "path": "js/agents/stages/textprep/chunk.js",
+          "status": "untested",
+          "tests": []
+        },
+        "claims.js": {
+          "path": "js/agents/stages/textprep/claims.js",
+          "status": "untested",
+          "tests": []
+        },
+        "normalize.js": {
+          "path": "js/agents/stages/textprep/normalize.js",
+          "status": "untested",
+          "tests": []
+        },
+        "slideplan.js": {
+          "path": "js/agents/stages/textprep/slideplan.js",
+          "status": "untested",
+          "tests": []
+        }
+      }
+    },
+    "js/agents/storage": {
+      "total": 3,
+      "covered": 0,
+      "stale": 1,
+      "untested": 2,
+      "coverage": "0.0%",
+      "files": {
+        "artifact-manager.js": {
+          "path": "js/agents/storage/artifact-manager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "run-exporter.js": {
+          "path": "js/agents/storage/run-exporter.js",
+          "status": "untested",
+          "tests": []
+        },
+        "run-store.js": {
+          "path": "js/agents/storage/run-store.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/storage/run-exporter.test.js",
+            "tests/agents/storage/run-store.test.js"
+          ]
+        }
+      }
+    },
+    "js/agents/testing": {
+      "total": 1,
+      "covered": 0,
+      "stale": 1,
+      "untested": 0,
+      "coverage": "0.0%",
+      "files": {
+        "mock-suite.js": {
+          "path": "js/agents/testing/mock-suite.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/stages/deepsearch/model.test.js",
+            "tests/agents/testing/mock-suite.test.js",
+            "tests/agents/testing/testing-utils.test.js"
+          ]
+        }
+      }
+    },
+    "js/agents/vfs": {
+      "total": 20,
+      "covered": 5,
+      "stale": 5,
+      "untested": 10,
+      "coverage": "25.0%",
+      "files": {
+        "checkpoints.js": {
+          "path": "js/agents/vfs/checkpoints.js",
+          "status": "untested",
+          "tests": []
+        },
+        "delta-sync.js": {
+          "path": "js/agents/vfs/delta-sync.js",
+          "status": "untested",
+          "tests": []
+        },
+        "diff.js": {
+          "path": "js/agents/vfs/diff.js",
+          "status": "untested",
+          "tests": []
+        },
+        "diff.worker.js": {
+          "path": "js/agents/vfs/diff.worker.js",
+          "status": "untested",
+          "tests": []
+        },
+        "file-lock.js": {
+          "path": "js/agents/vfs/file-lock.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/vfs/file-lock.test.js"
+          ]
+        },
+        "fs-adapter.js": {
+          "path": "js/agents/vfs/fs-adapter.js",
+          "status": "untested",
+          "tests": []
+        },
+        "glob.js": {
+          "path": "js/agents/vfs/glob.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/vfs-glob.test.js"
+          ]
+        },
+        "glob.worker.js": {
+          "path": "js/agents/vfs/glob.worker.js",
+          "status": "untested",
+          "tests": []
+        },
+        "index.browser.js": {
+          "path": "js/agents/vfs/index.browser.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/vfs/index.browser.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/vfs/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "index.node.js": {
+          "path": "js/agents/vfs/index.node.js",
+          "status": "untested",
+          "tests": []
+        },
+        "operations.js": {
+          "path": "js/agents/vfs/operations.js",
+          "status": "untested",
+          "tests": []
+        },
+        "path.js": {
+          "path": "js/agents/vfs/path.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/vfs/path.test.js",
+            "tests/agents/vfs-path.test.js"
+          ]
+        },
+        "storage-adapter.js": {
+          "path": "js/agents/vfs/storage-adapter.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/vfs/storage-adapter.test.js"
+          ]
+        },
+        "vfs-scan-async.js": {
+          "path": "js/agents/vfs/vfs-scan-async.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/vfs/vfs-scan-async.test.js"
+          ]
+        },
+        "vfs-scan.worker.js": {
+          "path": "js/agents/vfs/vfs-scan.worker.js",
+          "status": "untested",
+          "tests": []
+        },
+        "vfs.memory.js": {
+          "path": "js/agents/vfs/vfs.memory.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/runtime/memory/l3-storage.test.js",
+            "tests/agents/vfs/vfs.memory.test.js",
+            "tests/agents/vfs-memory.test.js"
+          ]
+        },
+        "vfs.node.js": {
+          "path": "js/agents/vfs/vfs.node.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/vfs-node.test.js"
+          ]
+        },
+        "vfs.opfs.js": {
+          "path": "js/agents/vfs/vfs.opfs.js",
+          "status": "covered",
+          "tests": [
+            "tests/agents/vfs/vfs.opfs.test.js"
+          ]
+        },
+        "vfs.storage.js": {
+          "path": "js/agents/vfs/vfs.storage.js",
+          "status": "stale",
+          "tests": [
+            "tests/agents/vfs/vfs.storage.test.js",
+            "tests/agents/vfs-storage.test.js"
+          ]
+        }
+      }
+    }
+  },
+  "summary": {
+    "total": 490,
+    "covered": 72,
+    "stale": 77,
+    "untested": 341,
+    "coverage": "14.7%"
+  }
+}
