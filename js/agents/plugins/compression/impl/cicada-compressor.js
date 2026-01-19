@@ -1,9 +1,9 @@
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { estimateTokensCached } from "../../shared/utils/token-cache.js";
-import { robustParseJson } from "../../shared/utils/robust-json.js";
-import { CicadaEvents } from "../events/events.js";
-import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { estimateTokensCached } from "../../../shared/utils/token-cache.js";
+import { robustParseJson } from "../../../shared/utils/robust-json.js";
+import { CicadaEvents } from "../../../runtime/events/events.js";
+import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
+import { createLogger } from "../../../shared/utils/logger.js";
 
 const logger = createLogger("runtime/compression/cicada-compressor");
 

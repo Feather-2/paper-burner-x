@@ -10,9 +10,9 @@
  * 注意：子代理启动和交接文档已移至 TaskTool 和 CicadaCompressor
  */
 
-import { WatchdogEvents } from "../events/events.js";
-import { toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { BehaviorFingerprint } from "../analysis/behavior-fingerprint.js";
+import { WatchdogEvents } from "../../../runtime/events/events.js";
+import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { BehaviorFingerprint } from "../../analysis/behavior-fingerprint.js";
 
 /**
  * @typedef {Object} WatchdogOptions

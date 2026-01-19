@@ -3,7 +3,7 @@ import { EventBus } from "../core/event-bus.js";
 import { ActorType, OrchestratorState, isValidActorType } from "./core/constants.js";
 import { ServiceId } from "./di/defaults.js";
 import { CommonSchemas, validateConfig } from "./core/config-validator.js";
-import { TaskGraph } from "./parallel/task-graph.js";
+import { TaskGraph } from "./core/parallel/task-graph.js";
 import { enhanceEventBusWithHooks } from "./hooks/event-bus-hooks.js";
 import { DisposableBase } from "../shared/base/disposable-base.js";
 import { createLogger } from "../shared/utils/logger.js";

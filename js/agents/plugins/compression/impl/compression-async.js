@@ -7,9 +7,9 @@
  * P6.2: 使用 WorkerRpcClient 替换手动 Worker 管理
  */
 
-import { createLogger } from "../../shared/utils/logger.js";
-import { isNodeLike } from "../../shared/platform.js";
-import { WorkerRpcClient } from "../core/worker-rpc.js";
+import { createLogger } from "../../../shared/utils/logger.js";
+import { isNodeLike } from "../../../shared/platform.js";
+import { WorkerRpcClient } from "../../../runtime/core/worker-rpc.js";
 
 const logger = createLogger("runtime/compression/compression-async");
 

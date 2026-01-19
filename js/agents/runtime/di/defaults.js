@@ -11,8 +11,8 @@ import { createAdaptiveTokenCounter } from "../../shared/tokenizers/adaptive-tok
 import { InjectionScanner } from "../../sdk/injection-scanner.js";
 import { FileLock } from "../../vfs/file-lock.js";
 import { createDefaultErrorBoundary } from "../core/error-boundary.js";
-import { TokenTracker } from "../telemetry/token-tracker.js";
-import { TraceContext } from "../telemetry/trace-context.js";
+import { TokenTracker } from "../../plugins/telemetry/token-tracker.js";
+import { TraceContext } from "../../plugins/telemetry/trace-context.js";
 import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
 
 /** @type {any} */

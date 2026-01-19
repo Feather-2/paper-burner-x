@@ -3,16 +3,16 @@ import { checkCancelled } from "../../shared/utils/cancellation.js";
 import { normalizeToolResult } from "../../shared/contracts/index.js";
 import { StagePausedError } from "./stage-errors.js";
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
-import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
+import { getRuntimeState } from "../../plugins/telemetry/loop-runtime-state.js";
 import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
-import { CompressionCoordinator } from "../compression/coordinator.js";
+import { CompressionCoordinator } from "../../plugins/compression/impl/coordinator.js";
 import { MessageManager } from "./message-manager.js";
 import { ToolRegistry } from "./tool-registry.js";
 import { StatusController } from "./status-controller.js";
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
 import { createPreAgentHook, createPostAgentHook } from "../hooks/hook-runner.js";
-import { getLimit } from "../constants/limits.js";
+import { getLimit } from "./constants/limits.js";
 import { Deque } from "../../shared/utils/deque.js";
 
 /**

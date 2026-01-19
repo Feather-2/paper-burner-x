@@ -85,3 +85,17 @@ export {
   AgentLifecycleEvents,
   PhaseEvents,
 } from "./events/events.js";
+
+// Compression - prefer: import { ... } from 'js/agents/runtime/compression'
+export {
+  Watchdog,
+  CicadaCompressor,
+  CompressionLayer,
+  CompressionCoordinator,
+} from "./compression.js";
+
+// Telemetry - prefer: import { ... } from 'js/agents/runtime/telemetry'
+export {
+  TokenTracker,
+  TraceContext,
+} from "./telemetry.js";

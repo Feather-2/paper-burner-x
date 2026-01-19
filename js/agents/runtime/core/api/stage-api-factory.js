@@ -7,18 +7,18 @@
  * 3. 各 stage 重复的注入逻辑
  */
 
-import { createStageApi } from "../../shared/utils/stage-api.js";
-import { createFsAdapterFromVfs } from "../../vfs/fs-adapter.js";
-import { createVfsGlobFn } from "../../vfs/glob.js";
-import { createLogger } from "../../shared/utils/logger.js";
-import { isPlainObject, toNonNegativeInt } from "../../shared/utils/value-utils.js";
-import { getGlobalTokenTracker } from "../telemetry/token-tracker.js";
-import { CircuitBreakerRegistry } from "../../shared/utils/circuit-breaker.js";
-import { TraceContext } from "../telemetry/trace-context.js";
-import { withRetry } from "../core/retry-strategy.js";
-import { getErrorBoundary } from "../core/error-boundary.js";
-import { ToolQuotaManager } from "../tools/tool-quotas.js";
-import { MessageBus } from "../../core/message-bus.js";
+import { createStageApi } from "../../../shared/utils/stage-api.js";
+import { createFsAdapterFromVfs } from "../../../vfs/fs-adapter.js";
+import { createVfsGlobFn } from "../../../vfs/glob.js";
+import { createLogger } from "../../../shared/utils/logger.js";
+import { isPlainObject, toNonNegativeInt } from "../../../shared/utils/value-utils.js";
+import { getGlobalTokenTracker } from "../../../plugins/telemetry/token-tracker.js";
+import { CircuitBreakerRegistry } from "../../../shared/utils/circuit-breaker.js";
+import { TraceContext } from "../../../plugins/telemetry/trace-context.js";
+import { withRetry } from "../retry-strategy.js";
+import { getErrorBoundary } from "../error-boundary.js";
+import { ToolQuotaManager } from "../../tools/tool-quotas.js";
+import { MessageBus } from "../../../core/message-bus.js";
 
 const logger = createLogger("runtime/api/stage-api-factory");
 

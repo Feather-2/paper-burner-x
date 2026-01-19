@@ -1,5 +1,5 @@
-import { isPlainObject } from "../../shared/utils/value-utils.js";
-import { createRpcHandler } from "../core/worker-rpc.js";
+import { isPlainObject } from "../../../shared/utils/value-utils.js";
+import { createRpcHandler } from "../../../runtime/core/worker-rpc.js";
 
 /**
  * Compression Worker - 压缩计算移出主线程

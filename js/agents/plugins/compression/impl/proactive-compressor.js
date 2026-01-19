@@ -16,8 +16,8 @@
 
 import { ContextPredictor } from "./context-predictor.js";
 import { AdaptiveZoneManager } from "./adaptive-zone-manager.js";
-import { estimateTokensCached } from "../../shared/utils/token-cache.js";
-import { createLogger } from "../../shared/utils/logger.js";
+import { estimateTokensCached } from "../../../shared/utils/token-cache.js";
+import { createLogger } from "../../../shared/utils/logger.js";
 
 const logger = createLogger("runtime/compression/proactive-compressor");
 
