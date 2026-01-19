@@ -44,8 +44,10 @@ const levels = graph.getLevels();
 
 | 方法 | 说明 |
 |------|------|
+| `clear()` | 清空任务图 |
+| `dispose()` | 释放图（`clear()` 别名） |
 | `addTask(id, deps?)` | 添加任务，可选依赖列表 |
-| `getTask(id)` | 获取任务节点 |
+| `getTask(id)` | 获取任务节点，不存在返回 `null` |
 | `getLevels(options?)` | 获取分层拓扑排序结果 |
 
 ### getLevels 选项
@@ -58,9 +60,9 @@ graph.getLevels({
 
 ## 错误处理
 
-- **循环依赖**：抛出 `Error: TaskGraph: cyclic dependency detected`
+- **循环依赖**：抛出 `Error: TaskGraph: cycle detected among tasks: a, b`
 - **缺失依赖**：抛出 `Error: TaskGraph: missing dependency "x" required by "y"`
-- **空任务 ID**：抛出 `TypeError`
+- **空任务 ID**：抛出 `TypeError: TaskGraph.addTask(taskId): taskId must be a non-empty string`
 
 ## 使用场景
 

@@ -41,25 +41,29 @@
 ## 使用示例
 
 ```javascript
-import { CodeSearchStage } from 'js/agents/stages/codesearch';
+import { CodeSearchStage } from "js/agents/stages/codesearch";
 
-const stage = new CodeSearchStage({
-  indexStore: await IndexStore.create(projectPath),
-  eventBus,
-});
+// Browser-first: 提供 vfs.readText / vfs.writeText；Node 环境可注入 fs + globFn
+const stage = new CodeSearchStage({ maxSteps: 12, timeoutMs: 120_000 });
 
-const results = await stage.search('authentication middleware implementation');
-// → [{ file, symbols, relevance, snippet }]
+const result = await stage.execute(
+  { runId: "codesearch-001" },
+  { query: "authentication middleware implementation", basePath: "." },
+  { eventBus, fs, vfs, globFn }
+);
+// → { summary, steps, todos, todoCompletionStats, ... }
 ```
 
 ## 符号索引
 
 ```javascript
-import { SymbolIndexer, IndexStore } from 'js/agents/stages/codesearch/indexing';
+import { createToolExecutor } from "js/agents/stages/codesearch";
 
-const indexer = new SymbolIndexer();
-await indexer.index(projectPath);
+const tools = createToolExecutor({ fs, vfs, basePath: "." });
 
-const store = new IndexStore(indexPath);
-const symbols = await store.query({ type: 'function', name: /auth/i });
+// 直接传 paths 列表（无需 globFn）
+await tools.index_symbols({ paths: ["src/index.js", "src/auth.js"] });
+
+const symbols = await tools.find_symbol({ query: "auth", pathPrefix: "src/" });
+// → [{ name, kind, file, startLine, ... }]
 ```

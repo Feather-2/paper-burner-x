@@ -15,6 +15,7 @@
 | `seatbelt.js` | macOS sandbox-exec (SBPL) 实现 |
 | `docker.js` | Docker 容器隔离实现与镜像保障 |
 | `permission.js` | 无沙箱降级与权限审批机制 |
+| `path-utils.js` | 路径规范化与 SBPL 安全校验 |
 | `index.js` | 模块导出与默认聚合 |
 
 ## 关键概念
@@ -23,6 +24,7 @@
 - **检测结果结构**：`{ backend, platform, available, version, path, error }`
 - **统一执行结果**：`{ code, stdout, stderr, killed, backend }`
 - **配置基线**：`workDir`、`allowedReadPaths`、`allowedWritePaths`、`allowNetwork`、`timeoutMs`、`memoryLimit` (Docker)、`env` (Bubblewrap/Docker)
+- **路径规范化**：`normalizeSandboxPath()` 约束相对路径必须位于 `workDir` 内，`isSafeForSBPL()` 拒绝控制字符注入
 - **环境变量**：Bubblewrap 会 `--clearenv` 后注入 `PATH/HOME/LANG`，再用 `env` 覆盖/追加；Docker 使用 `-e` 传入环境变量
 - **Permission-only**：通过 `permissionHandler` 交互审批，并支持 `allowPattern()` 缓存规则与 `clearPermissions()` 清理
 

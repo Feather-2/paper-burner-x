@@ -13,7 +13,7 @@
 | 文件 | 职责 |
 |------|------|
 | `inspector.js` | 运行时检查器服务：内核/事件/状态/服务/插件信息 |
-| `logger.js` | 调试日志：事件与状态变更记录、日志缓冲 |
+| `logger.js` | 调试日志：事件与状态变更记录、日志缓冲与脱敏 |
 
 ## 关键概念
 
@@ -23,8 +23,8 @@
 - **状态工具**: `state.get/set/snapshot/rollback/changeLog` 支持读写、快照与回滚。
 - **服务调用**: `services.list/call/stats` 用于列出服务、调用方法与查看统计。
 - **全局暴露**: `exposeGlobal=true` 时挂载 `globalThis.__kernelInspector`。
-- **Logger 配置**: `level/pretty/includeTimestamp/includeEventData/maxDataLength/maxBuffer` 控制输出格式与缓冲大小。
-- **缓冲与裁剪**: 默认 `maxBuffer=200`，事件数据按 `maxDataLength` 截断；缓冲条目包含 `{ level, event, data, timestamp }`。
+- **Logger 配置**: `level/pretty/includeTimestamp/includeEventData/maxDataLength/maxBuffer/sensitiveFields` 控制输出格式、缓冲大小与脱敏策略。
+- **脱敏与裁剪**: 默认敏感字段列表 + `sensitiveFields` 扩展；`includeEventData` 默认关闭；事件数据按 `maxDataLength` 截断；缓冲条目包含 `{ level, event, data, timestamp }`。
 
 ## 常见任务
 

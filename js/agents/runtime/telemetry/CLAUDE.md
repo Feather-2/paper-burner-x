@@ -15,14 +15,22 @@
 ## TokenTracker
 
 ```javascript
-import { TokenTracker } from 'js/agents/runtime/telemetry';
+import { TokenTracker } from 'js/agents/runtime';
 
-const tracker = new TokenTracker();
-tracker.add('input', 1500);
-tracker.add('output', 800);
+const tracker = new TokenTracker({ maxRecords: 500 });
 
-console.log(tracker.total);      // 2300
-console.log(tracker.breakdown);  // { input: 1500, output: 800 }
+tracker.record({
+  model: 'gpt-4o',
+  provider: 'openai',
+  usage: 'worker',
+  promptTokens: 1500,
+  completionTokens: 800,
+  latencyMs: 1200,
+  success: true,
+});
+
+const summary = tracker.getSummary();
+console.log(summary.totalTokens); // 2300
 ```
 
 ## TraceContext
@@ -30,14 +38,14 @@ console.log(tracker.breakdown);  // { input: 1500, output: 800 }
 OpenTelemetry 兼容的分布式追踪：
 
 ```javascript
-import { TraceContext, withSpan, SpanKind } from 'js/agents/runtime/telemetry';
+import { TraceContext, withSpan, SpanKind, SpanStatus } from 'js/agents/runtime';
 
-const ctx = new TraceContext({ serviceName: 'agent' });
+const ctx = new TraceContext();
 
 await withSpan(ctx, 'llm-call', async (span) => {
-  span.setAttribute('model', 'gpt-4o');
+  span?.setAttribute('model', 'gpt-4o');
   const result = await llm.complete(messages);
-  span.setStatus(SpanStatus.OK);
+  span?.setStatus(SpanStatus.OK);
   return result;
 }, { kind: SpanKind.CLIENT });
 ```
@@ -47,12 +55,41 @@ await withSpan(ctx, 'llm-call', async (span) => {
 运行记录回放：
 
 ```javascript
-import { RunReplayController } from 'js/agents/runtime/telemetry';
+import { RunReplayController } from 'js/agents/runtime';
 
-const replay = new RunReplayController(runStore);
+const replay = new RunReplayController({ runStore, eventBus, speed: 1 });
 await replay.load(runId);
 
-for await (const event of replay.events()) {
-  console.log(event.type, event.timestamp);
-}
+replay.play();
+// replay.pause();
+// replay.step();
+
+console.log(replay.state.status); // playing
+```
+
+## RunStore Telemetry
+
+将 EventBus 遥测写入 RunStore，并在内存中聚合 timeline/todos：
+
+```javascript
+import { subscribeTelemetry } from 'js/agents/runtime';
+
+const { timeline, todos, flush, snapshot, unsubscribe } =
+  subscribeTelemetry(eventBus, runStore, { maxTimelineEntries: 2000 });
+
+await flush();
+unsubscribe();
+```
+
+## LoopRuntimeState
+
+运行时状态跟踪：
+
+```javascript
+import { getRuntimeState, setRuntimeState } from 'js/agents/runtime';
+
+const state = setRuntimeState(signal, { status: 'running' });
+state.transitionTo('paused');
+
+const current = getRuntimeState(signal);
 ```

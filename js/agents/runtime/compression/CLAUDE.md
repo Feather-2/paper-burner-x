@@ -6,7 +6,7 @@ Token 监控和上下文压缩，防止溢出。
 
 | 文件 | 职责 |
 |------|------|
-| `watchdog.js` | Watchdog - Token 使用监控告警 |
+| `watchdog.js` | Watchdog - 运行健康监控/震荡检测 |
 | `cicada-compressor.js` | CicadaCompressor - 渐进式压缩 |
 | `coordinator.js` | CompressionCoordinator - 压缩协调 |
 | `compression-async.js` | 异步压缩 |
@@ -71,6 +71,8 @@ const result = await compressor.compress(messages);
 // result.archivedIds - 归档到 L3 的 ID 列表
 // result.stats - 压缩统计 { kept, summarized, archived }
 ```
+
+支持 L3 归档：传入 `memoryStore`（需实现 `archive(id, payload, keywords)`）时会写入外部存储并返回 `archivedIds`。
 
 ### 预设模式
 
@@ -170,22 +172,29 @@ const result = compressor.compress(context, {
 
 ## Watchdog
 
-监控 Token 使用，触发告警：
+运行健康监控器：检测卡住、超时、逻辑震荡，并可记录工具调用回路。
 
 ```javascript
-import { Watchdog } from 'js/agents/runtime/compression';
+import { Watchdog, WatchdogEvents } from 'js/agents/runtime';
 
 const watchdog = new Watchdog({
-  maxTokens: 100000,
-  warningThreshold: 0.8,
-  criticalThreshold: 0.95,
+  maxRecentOutputs: 5,
+  oscillationThreshold: 0.85,
 });
 
-watchdog.on('warning', ({ usage, limit }) => {
-  console.log(`Token usage at ${usage}/${limit}`);
+watchdog.observe(WatchdogEvents.WATCHDOG_INTERVENTION, ({ issues }) => {
+  console.log(issues);
 });
 
-watchdog.track(messages);
+watchdog.tick();
+watchdog.recordOutput(latestOutput);
+const health = watchdog.checkHealth({ maxIterations: 50 });
+
+const action = watchdog.recordAction({
+  type: 'tool',
+  name: 'search',
+  args: { query: '...' },
+});
 ```
 
 ## CicadaCompressor
@@ -193,7 +202,7 @@ watchdog.track(messages);
 渐进式上下文压缩：
 
 ```javascript
-import { CicadaCompressor, CompressionLayer } from 'js/agents/runtime/compression';
+import { CicadaCompressor, CompressionLayer } from 'js/agents/runtime';
 
 const compressor = new CicadaCompressor({
   layers: [
@@ -221,20 +230,101 @@ const compressed = await compressor.compress(messages, { targetTokens: 50000 });
 3. **当前时间注入**
    - Prompt 中自动包含 `Current time: ${ISO-8601}` 供 LLM 参考
 
-## CompressionCoordinator
+### Archive / Restore / listArchives
 
-协调 Watchdog + Compressor：
+CicadaCompressor 支持将全量上下文存档到 L3，并可检索：
 
 ```javascript
-import { CompressionCoordinator } from 'js/agents/runtime/compression';
-
-const coordinator = new CompressionCoordinator({
-  watchdog,
-  compressor,
-  autoCompress: true,
+const compressor = new CicadaCompressor({
+  maxArchives: 200,
+  archiveRetentionDays: 7,
+  archive: memoryStore, // 可选：外部存储适配器
 });
 
-coordinator.attach(agentLoop);
+// compress 时传入 archiveKey/stageKey 会自动归档原始上下文
+await compressor.compress(context, { archiveKey: 'stage:plan' });
+
+// 手动归档 / 还原 / 列表
+const id = await compressor.archive('stage:plan', { context, metadata });
+const entry = await compressor.restore('stage:plan');
+const list = await compressor.listArchives({ limit: 20, pattern: 'search' });
+```
+
+`listArchives` 支持简单模式匹配，已做长度限制和非法正则回退。
+
+### Handoff 交接文档
+
+```javascript
+const handoff = compressor.buildHandoff(state, sharedContext);
+// handoff.accomplished / handoff.pending / handoff.decisions / handoff.resumeGuide
+```
+
+### SharedContext 集成
+
+传入 `sharedContext` 时，压缩会同步摘要/索引并广播信号：
+
+```javascript
+await compressor.compress(context, { archiveKey, sharedContext });
+// sharedContext.setSummary / setIndex / signal 会被调用（若存在）
+```
+
+## CompressionCoordinator
+
+压缩调度器：封装阈值判断、title-only 模式、Worker 阈值等触发逻辑。
+
+```javascript
+import { CompressionCoordinator } from 'js/agents/runtime';
+
+const coordinator = new CompressionCoordinator({
+  getContextConfig: () => ({
+    contextWindow: 128000,
+    compressThreshold: 0.9,
+    keepLastTurns: 6,
+    titleOnlySummaryThreshold: 0.8,
+    titleOnlySummaryMaxWords: 10,
+    titleOnlySummaryMaxChars: 80,
+    maxKeptMessageChars: 2000,
+    useCompressionWorker: true,
+    workerThresholdMessages: 50,
+  }),
+  getTokenUsage: () => ({ total: 42000 }),
+  logger,
+});
+
+const shouldCompress = coordinator.shouldCompress();
+const { messages: compressedMessages } = await coordinator.maybeCompress(messages, { signal });
+```
+
+## 异步压缩（compression-async）
+
+Browser 优先：Worker 可用时走 `compression.worker.js`，不可用时自动回退同步逻辑。
+
+- `compressSessionHistoryAsync`：对 SESSION_HISTORY 压缩，支持 WorkerRpc。
+- `compressAgentLoopMessagesAsync`：自动处理 `[Context Summary]`，并在末尾追加最新 summary。
+- `maxKeptMessageChars`：对保留消息做截断/脱敏（移除 `persistedOutput.preview` 预览）。
+
+```javascript
+import {
+  compressAgentLoopMessagesAsync,
+  isCompressionWorkerAvailable,
+  terminateCompressionWorker,
+} from 'js/agents/runtime/compression/compression-async.js';
+
+const result = await compressAgentLoopMessagesAsync(messages, {
+  keepLastTurns: 6,
+  titleOnly: false,
+  summaryLineChars: 120,
+  maxKeptMessageChars: 2000,
+}, {
+  useWorker: true,
+  workerThresholdMessages: 50,
+});
+
+if (isCompressionWorkerAvailable()) {
+  // Worker 可用时会自动走异步
+}
+
+terminateCompressionWorker();
 ```
 
 ## CompressionQualityMonitor

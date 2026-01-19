@@ -76,6 +76,7 @@ const result = await executor.execute(skillCode, { input: data });
 | `system/seatbelt.js` | macOS Seatbelt 实现 |
 | `system/docker.js` | Docker 容器实现 |
 | `system/permission.js` | Permission-only fallback |
+| `system/path-utils.js` | 路径规范化与 SBPL 安全校验 |
 
 ### 后端优先级
 

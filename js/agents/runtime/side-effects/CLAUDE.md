@@ -19,12 +19,16 @@ SideEffectJournal 以 WAL（write-ahead log）形式持久化可回滚副作用�
 |------|------|
 | WAL 日志 | `${walDir || '.agents/wal'}/<runId>.jsonl`，按行 JSON 存储副作用记录 |
 | WAL 目录 (walDir) | 可配置 WAL 根目录，默认 `.agents/wal` |
+| WAL 安全限制 | WAL 文件最大 10MB；单行最大 100KB；超限/非法行会被跳过并告警 |
+| runId 校验 | 拒绝 `..`、绝对路径、路径分隔符、非法字符，避免路径穿越 |
+| WAL 校验 | replay 时验证 `kind`/`ts`/`reversible` 结构，非法记录跳过 |
 | 游标 (cursor) | 当前日志长度，`rollbackToCursor()` 以序号回退 |
 | vfs_checkpoint | 通过 `vfs.write.*` 事件生成的可回滚检查点记录 |
 | 去重 | `eventId` 去重，忽略 `meta.replay` 事件 |
 | 回滚依赖 | 需要 `runStore`/`storageAdapter` + `restoreVfsCheckpoint()`；VFS 需支持 `writeFile` |
 | WAL 追加 | 优先使用 `vfs.appendText`，缺失时回退为整文件重写 |
 | 回滚事件 | 回滚完成后触发 `side_effects.rolled_back` |
+| autoPersist | `record()` 默认按此选项自动写入 WAL |
 
 ## 常见任务
 

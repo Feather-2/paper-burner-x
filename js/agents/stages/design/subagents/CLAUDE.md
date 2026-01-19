@@ -13,10 +13,13 @@
 
 ## SlideSubAgent
 
-负责单页幻灯片内容生成，支持读取 linkedFiles/linkedAssets 作为补充上下文，并解析 HTML 产出 visual slots。
+负责单页幻灯片内容生成，支持读取 linkedFiles/linkedAssets 作为补充上下文，并解析 HTML 产出 visual slots。linkedFiles 在 Node 环境默认关闭（避免任意文件读取），需要显式设置允许的根目录。
 
 ```javascript
 import { SlideSubAgent } from 'js/agents/stages/design/subagents';
+import { setLinkedFilesRoot } from 'js/agents/stages/design/subagents/slide-agent.js';
+
+setLinkedFilesRoot('/abs/path/to/linked-files');
 
 const agent = new SlideSubAgent({ designSystem, assetRegistry, dslRules });
 

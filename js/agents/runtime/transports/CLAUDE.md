@@ -1,14 +1,16 @@
 # transports - 外部进程通信
 
-与外部二进制工具通信的传输层。
+与外部二进制工具通信的传输层，Node.js 实现 + Browser stub。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `process-transport.js` | Node.js stdio 通信 |
+| `process-transport.js` | Node.js stdio 通信 (JSONL/JSON-RPC) |
 | `binary-skill-provider.js` | 二进制工具作为 Skills (微架构集成) |
-| `index.js` | 入口导出 |
+| `index.js` | 运行时分发 (Node/Browser) |
+| `index.node.js` | Node.js 实现导出 |
+| `index.browser.js` | Browser stub 导出（调用即抛错） |
 
 ## 架构
 
@@ -28,6 +30,11 @@
               External Binaries (Codex, Playwright, etc.)
 ```
 
+## 运行时分发
+
+`index.js` 通过 `Platform.isNode` 动态 import `index.node.js` 或 `index.browser.js`。
+Browser 版本提供 fail-fast stub，避免打包 Node-only API。
+
 ## ProcessTransport
 
 通过 stdio 与外部二进制通信，支持 JSON-RPC 2.0 协议。
@@ -44,8 +51,20 @@ js/agents (Node.js)
 │   stderr ←  logs    ←              │
 └─────────────────────────────────────┘
     ↓ events
-message / method:* / error / exit
+transport:message / method:* / transport:stderr / transport:error / transport:exit
 ```
+
+### 事件
+
+- `transport:connected` 连接就绪
+- `transport:message` 原始消息 (JSON-RPC)
+- `transport:stderr` stderr 输出
+- `transport:error` 进程/传输错误
+- `transport:exit` 进程退出
+- `transport:parse_error` JSON 解析失败
+- `transport:buffer_overflow` 缓冲区溢出
+- `transport:disconnected` 主动断开
+- `method:<name>` 将 `message.method` 分发为事件
 
 ### 使用示例
 
@@ -72,7 +91,7 @@ transport.on('method:item.completed', (params) => {
   console.log('Item:', params);
 });
 
-transport.on('stderr', (text) => {
+transport.on('transport:stderr', (text) => {
   console.error('[CLI]', text);
 });
 
@@ -111,11 +130,11 @@ const bus = new EventBus();
 const transport = createProcessTransport({ command: 'playwright', args: ['--json'] });
 
 // 桥接 transport 事件到 EventBus
-transport.on('message', (msg) => {
+transport.on('transport:message', (msg) => {
   bus.emit(`binary:${msg.method || 'message'}`, { payload: msg });
 });
 
-transport.on('exit', ({ code }) => {
+transport.on('transport:exit', ({ code }) => {
   bus.emit('binary:exit', { payload: { code } });
 });
 ```
@@ -146,7 +165,7 @@ transport.on('exit', ({ code }) => {
 ### 使用示例
 
 ```javascript
-import { createBinarySkillProvider } from 'js/agents/runtime';
+import { createBinarySkillProvider, ToolRegistry } from 'js/agents/runtime';
 import { EventBus, ServiceBus } from 'js/agents/core';
 
 const eventBus = new EventBus();
@@ -184,7 +203,7 @@ const codexService = serviceBus.get('codex');
 await codexService.call('analyze', { file: 'src/index.js' });
 
 // 监听事件
-eventBus.subscribe('binary.codex.item.completed', (evt) => {
+eventBus.subscribe('binary:codex:item.completed', (evt) => {
   console.log('Codex item:', evt.payload);
 });
 
@@ -198,10 +217,22 @@ for (const tool of provider.getToolDefinitions()) {
 await provider.shutdown();
 ```
 
+### 事件约定
+
+- `binary:provider:ready`
+- `binary:<skill>:connected`
+- `binary:<skill>:disconnected`
+- `binary:<skill>:message`
+- `binary:<skill>:exit`
+- `binary:<skill>:error`
+- `binary:<skill>:call`
+- `binary:<skill>:result`
+- `binary:<skill>:<method>` (来自 JSON-RPC method)
+
 ### 微架构集成
 
 | 总线 | 集成方式 |
 |------|----------|
-| **EventBus** | 广播 `binary.<skill>.<event>` 事件 |
+| **EventBus** | 广播 `binary:<skill>:<event>` 事件 |
 | **ServiceBus** | 注册 `{ call, notify, isConnected }` 服务 |
 | **ToolRegistry** | 生成工具定义 `<skill>.<method>` |

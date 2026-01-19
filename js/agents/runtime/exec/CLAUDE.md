@@ -1,13 +1,14 @@
 # exec - 命令执行器
 
-Node.js 子进程命令执行封装，支持超时、流式输出和安全控制。
+Node.js 子进程命令执行封装，支持超时、流式输出和安全控制。浏览器环境使用 stub（所有函数返回失败或抛错）。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `command-executor.js` | exec, execShell, execSimple, commandExists |
-| `index.js` | 入口导出 |
+| `command-executor.node.js` | Node.js 实现：exec, execShell, execSimple, commandExists |
+| `command-executor.browser.js` | Browser stub：同名 API 返回失败或抛错 |
+| `index.js` | 入口导出（默认 Node 版本，浏览器构建需替换为 .browser.js） |
 
 ## API
 
