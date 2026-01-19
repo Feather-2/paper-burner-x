@@ -13,7 +13,7 @@
 // ============================================
 // Core Agent Loop (essential)
 // ============================================
-export { BaseAgentLoop, checkCancelled, checkPaused } from "./core/agent-loop.js";
+export { BaseAgentLoop, BaseStage, checkCancelled, checkPaused, getEmitFn } from "./core/agent-loop.js";
 export {
   AgentStatus,
   StepStatus,
@@ -23,6 +23,17 @@ export {
   isAgentTerminal,
 } from "./core/agent-status.js";
 export { StagePausedError, StageCancelledError, StageTimeoutError } from "./core/stage-errors.js";
+
+// ============================================
+// Lifecycle & Mechanisms
+// ============================================
+export { createLifecycleEmitter } from "./core/lifecycle.js";
+export { loadMechanisms, initMechanisms } from "./core/mechanisms.js";
+export { getErrorBoundary, createDefaultErrorBoundary } from "./core/error-boundary.js";
+export { ResourceGuard } from "./core/resource-guard.js";
+export { normalizeReportLength, ReportLength } from "./core/constants.js";
+export { maybePersistToolOutput, maybePersistJsonArtifact } from "./persisted-output.js";
+export { wrapPersistedOutput, isPersistedOutput, createPersistedOutputHook } from "./core/persisted-output.js";
 
 // ============================================
 // Orchestration (multi-agent)

@@ -14,7 +14,7 @@ import { SVGGenerator, fillSvgPlaceholders } from "../generators/svg-generator.j
 import { fillAssetPlaceholders } from "../image/asset-resolver.js";
 import { VisualSubAgent } from "../subagents/visual-agent.js";
 import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
-import { checkCancelled, getEmitFn } from "../../../runtime/core/agent-loop.js";
+import { checkCancelled, getEmitFn } from "../../../runtime/index.js";
 
 /**
  * @typedef {object} VisualHandlerOptions

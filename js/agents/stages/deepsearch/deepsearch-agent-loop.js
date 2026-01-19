@@ -4,7 +4,11 @@
  * 极简核心 + 可插拔（capabilities loader）+ phases（planning/execution/writing）
  */
 
-import { BaseAgentLoop } from "../../runtime/core/agent-loop.js";
+import {
+  BaseAgentLoop,
+  DeepSearchEvents,
+  createLifecycleEmitter,
+} from "../../runtime/index.js";
 import { DeepSearchState } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { createLogger } from "./internal/logger.js";
@@ -12,8 +16,6 @@ import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { checkCancelled } from "../../shared/utils/cancellation.js";
 import { isPlainObject, toPositiveInt } from "../../shared/utils/value-utils.js";
 import { classifyDeepSearchError } from "../../shared/utils/error-classifier.js";
-import { DeepSearchEvents } from "../../runtime/events/events.js";
-import { createLifecycleEmitter } from "../../runtime/core/lifecycle.js";
 import { ModelResponseHandler } from "./internal/model-response-handler.js";
 import SourceManager from "./source-manager.js";
 import { loadDeepSearchCapabilities } from "./capabilities-loader.js";

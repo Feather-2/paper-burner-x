@@ -10,7 +10,7 @@ import { getDslRules } from "../dsl/dsl-rules.js";
 import { escapeHtml } from "../shared/design-utils.js";
 import { ImagePlanner } from "../image/image-planner.js";
 import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
-import { checkCancelled, getEmitFn } from "../../../runtime/core/agent-loop.js";
+import { checkCancelled, getEmitFn } from "../../../runtime/index.js";
 import { DesignPhase } from "../states.js";
 import { planDeck, applyUserEdits, formatPlanForDialog } from "./deck-planner.js";
 import { generateLayoutBatch } from "../generators/layout-generator.js";

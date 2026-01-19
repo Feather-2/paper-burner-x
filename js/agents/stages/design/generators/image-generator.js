@@ -1,6 +1,6 @@
 import { buildPrompt } from "../image/image-prompt-builder.js";
 import { EventStatus, ImageTaskStatus, SlotSelectionStatus, VisualDataStatus } from "../constants.js";
-import { DesignEvents } from "../../../runtime/events/events.js";
+import { DesignEvents } from "../../../runtime/index.js";
 import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
 import { CircuitBreakerRegistry } from "../../../shared/utils/circuit-breaker.js";
 

@@ -11,7 +11,7 @@ import {
   isValidStepStatus,
   isAgentActive,
   isAgentTerminal,
-} from "../../runtime/core/agent-status.js";
+} from "../../runtime/index.js";
 
 /**
  * @typedef {'scan'|'gaps'|'round'|'write'|'condense'|'completed'} PhaseStatusValue

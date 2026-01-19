@@ -5,7 +5,7 @@
  */
 
 import { generateBatch } from "./generators/batch-generator.js";
-import { getEmitFn } from "../../runtime/core/agent-loop.js";
+import { getEmitFn } from "../../runtime/index.js";
 
 function normalizeToolParams(toolName, params, state) {
   const normalized = params && typeof params === "object" ? { ...params } : {};

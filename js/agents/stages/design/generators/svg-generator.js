@@ -3,7 +3,7 @@ import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { createLogger } from "../../../shared/utils/logger.js";
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
 import { VisualDataStatus } from "../constants.js";
-import { ResourceGuard } from "../../../runtime/core/resource-guard.js";
+import { ResourceGuard } from "../../../runtime/index.js";
 
 // Optional circuit breaker - may not be available
 let getCircuitBreaker = null;

@@ -8,7 +8,7 @@
  */
 
 import { executeTool } from "../tools/index.js";
-import { maybePersistToolOutput } from "../../../runtime/persisted-output.js";
+import { maybePersistToolOutput } from "../../../runtime/index.js";
 
 /** 工具调用默认超时 (ms) */
 const DEFAULT_TOOL_TIMEOUT_MS = 60_000;

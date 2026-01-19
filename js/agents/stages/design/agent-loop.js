@@ -3,16 +3,21 @@ import { deepClone } from "../../shared/utils/value-utils.js";
 import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/archive/checkpoint-schema.js";
 import { createLogger } from "../../shared/utils/logger.js";
 import { DesignPhase, designPhaseMachine } from "./states.js";
-import { AgentStatus } from "../../runtime/core/agent-status.js";
-import { BaseAgentLoop, checkCancelled, getEmitFn, resolveToolExecutor } from "../../runtime/core/agent-loop.js";
-import { StagePausedError } from "../../runtime/core/stage-errors.js";
-import { createLifecycleEmitter } from "../../runtime/core/lifecycle.js";
+import {
+  AgentStatus,
+  BaseAgentLoop,
+  checkCancelled,
+  getEmitFn,
+  resolveToolExecutor,
+  StagePausedError,
+  createLifecycleEmitter,
+  Watchdog,
+} from "../../runtime/index.js";
 import { getRuntimeState } from "../../plugins/telemetry/loop-runtime-state.js";
 import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./design-tools.js";
 import { VisualHandler } from "./internal/visual-handler.js";
 import { runPreparationPhase, runGeneratingPhase, runBatchRepairPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./internal/design-phases.js";
 import { DesignBlackboard } from "./internal/design-blackboard.js";
-import { Watchdog } from "../../plugins/compression/impl/watchdog.js";
 import {
   DESIGN_LOOP_DEFAULTS,
   resolveWatchdogSettings,

@@ -11,7 +11,7 @@ import { getToolCatalogPrompt } from "../tools/index.js";
 import { isPlainObject, toNonNegativeInt, toPositiveInt } from "../../../shared/utils/value-utils.js";
 import { createLogger } from "../../../shared/utils/logger.js";
 import { loadPrompt, renderPromptTemplate } from "../../../prompts/prompt-loader.js";
-import { DeepSearchEvents } from "../../../runtime/events/events.js";
+import { DeepSearchEvents } from "../../../runtime/index.js";
 
 const logger = createLogger("stages/deepsearch/phases/planning-phase");
 

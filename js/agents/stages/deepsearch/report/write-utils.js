@@ -1,5 +1,5 @@
 import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { normalizeReportLength, ReportLength } from "../../../runtime/core/constants.js";
+import { normalizeReportLength, ReportLength } from "../../../runtime/index.js";
 
 /**
  * @typedef {object} ReviewerConfig

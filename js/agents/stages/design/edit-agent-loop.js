@@ -9,8 +9,7 @@
  * - global: 全局指令
  */
 
-import { BaseAgentLoop, checkCancelled, getEmitFn } from "../../runtime/core/agent-loop.js";
-import { AgentStatus } from "../../runtime/core/agent-status.js";
+import { BaseAgentLoop, checkCancelled, getEmitFn, AgentStatus } from "../../runtime/index.js";
 import { createDeckAnalyzer } from "./internal/deck-analyzer.js";
 import { createDeckEditor } from "./internal/deck-editor.js";
 import { createScreenshotStitcher } from "./internal/screenshot-stitcher.js";

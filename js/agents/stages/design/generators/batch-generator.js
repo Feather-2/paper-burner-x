@@ -8,7 +8,7 @@ import { resolveLayoutType } from "./layout-protocol.js";
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
 import { safeEmit } from "../shared/safe-emit.js";
-import { ResourceGuard } from "../../../runtime/core/resource-guard.js";
+import { ResourceGuard } from "../../../runtime/index.js";
 
 import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
 const logger = createLogger("stages/design/generators/batch-generator");

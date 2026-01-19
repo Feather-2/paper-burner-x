@@ -8,19 +8,23 @@
  * - 支持 DI 容器注入依赖
  */
 
-import { AgentStatus } from "../../runtime/core/agent-status.js";
-import { BaseAgentLoop, checkCancelled } from "../../runtime/core/agent-loop.js";
-import { StagePausedError } from "../../runtime/core/stage-errors.js";
-import { loadMechanisms, initMechanisms } from "../../runtime/core/mechanisms.js";
+import {
+  AgentStatus,
+  BaseAgentLoop,
+  checkCancelled,
+  StagePausedError,
+  loadMechanisms,
+  initMechanisms,
+  createLifecycleEmitter,
+  Watchdog,
+} from "../../runtime/index.js";
 import { createBudgetManager, BudgetAction } from "../../shared/utils/budget.js";
 import { createLogger } from "../../shared/utils/logger.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 import { getModelCaller } from "../deepsearch/model.js";
-import { createLifecycleEmitter } from "../../runtime/core/lifecycle.js";
 import { createToolExecutor } from "./code-tools.js";
 import { CodeSearchPhase } from "./states.js";
 import { CodeSearchState } from "./state.js";
-import { Watchdog } from "../../plugins/compression/impl/watchdog.js";
 import {
   runPlanningPhase,
   buildSystemPrompt,

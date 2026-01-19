@@ -256,7 +256,7 @@ export async function executeTool(name, args, context) {
 }
 
 // 复用 runtime 统一的 ToolExecutor
-import { ToolExecutor as BaseToolExecutor, createToolExecutor } from "../../../runtime/tools/tool-executor.js";
+import { ToolExecutor as BaseToolExecutor, createToolExecutor } from "../../../runtime/index.js";
 export { createToolExecutor };
 export { BaseToolExecutor as ToolExecutor };
 
