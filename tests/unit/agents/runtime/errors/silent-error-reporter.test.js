@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 it("SilentErrorReporter: basic report and export", async () => {
   const { SilentErrorReporter, ErrorCategory } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const reporter = new SilentErrorReporter();
@@ -27,7 +27,7 @@ it("SilentErrorReporter: basic report and export", async () => {
 
 it("SilentErrorReporter: respects category parameter", async () => {
   const { SilentErrorReporter, ErrorCategory } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const reporter = new SilentErrorReporter();
@@ -48,7 +48,7 @@ it("SilentErrorReporter: respects category parameter", async () => {
 
 it("SilentErrorReporter: ring buffer behavior", async () => {
   const { SilentErrorReporter } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const reporter = new SilentErrorReporter({ maxSamples: 3 });
@@ -66,7 +66,7 @@ it("SilentErrorReporter: ring buffer behavior", async () => {
 
 it("SilentErrorReporter: getStats aggregates correctly", async () => {
   const { SilentErrorReporter, ErrorCategory } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const reporter = new SilentErrorReporter();
@@ -85,7 +85,7 @@ it("SilentErrorReporter: getStats aggregates correctly", async () => {
 
 it("SilentErrorReporter: onError callback", async () => {
   const { SilentErrorReporter } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const received = [];
@@ -102,7 +102,7 @@ it("SilentErrorReporter: onError callback", async () => {
 
 it("SilentErrorReporter: disabled mode", async () => {
   const { SilentErrorReporter } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const reporter = new SilentErrorReporter({ enabled: false });
@@ -117,7 +117,7 @@ it("SilentErrorReporter: disabled mode", async () => {
 
 it("SilentErrorReporter: getRecent returns newest first", async () => {
   const { SilentErrorReporter } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const reporter = new SilentErrorReporter();
@@ -133,7 +133,7 @@ it("SilentErrorReporter: getRecent returns newest first", async () => {
 
 it("SilentErrorReporter: clear removes all samples", async () => {
   const { SilentErrorReporter } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const reporter = new SilentErrorReporter();
@@ -148,7 +148,7 @@ it("SilentErrorReporter: clear removes all samples", async () => {
 
 it("SilentErrorReporter: handles non-Error objects", async () => {
   const { SilentErrorReporter } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const reporter = new SilentErrorReporter();
@@ -165,7 +165,7 @@ it("SilentErrorReporter: handles non-Error objects", async () => {
 
 it("reportSilentError: convenience function", async () => {
   const { silentErrors, reportSilentError, ErrorCategory } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   silentErrors.clear();
@@ -184,7 +184,7 @@ it("reportSilentError: convenience function", async () => {
 
 it("createScopedReporter: creates module-scoped reporter", async () => {
   const { silentErrors, createScopedReporter, ErrorCategory } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   silentErrors.clear();
@@ -204,7 +204,7 @@ it("createScopedReporter: creates module-scoped reporter", async () => {
 
 it("SilentErrorReporter: onError callback error is swallowed", async () => {
   const { SilentErrorReporter } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const reporter = new SilentErrorReporter({
@@ -220,7 +220,7 @@ it("SilentErrorReporter: onError callback error is swallowed", async () => {
 
 it("SilentErrorReporter: stack trace truncation", async () => {
   const { SilentErrorReporter } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   const reporter = new SilentErrorReporter();
@@ -234,7 +234,7 @@ it("SilentErrorReporter: stack trace truncation", async () => {
 
 it("ErrorCategory: enum values", async () => {
   const { ErrorCategory } = await import(
-    "../../../js/agents/runtime/errors/silent-error-reporter.js"
+    "../../../../../js/agents/runtime/core/errors/silent-error-reporter.js"
   );
 
   expect(ErrorCategory.RECOVERABLE).toBe("recoverable");

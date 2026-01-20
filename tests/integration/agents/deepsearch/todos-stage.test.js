@@ -3,8 +3,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("DeepSearch todos: LLM success generates todos and emits events", async () => {
-  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
-  const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
+  const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchTodosStage } = await import("../../../../js/agents/stages/deepsearch/todos.js");
 
   const events = [];
   const bus = { emit: (name, record) => events.push({ name, record }) };
@@ -43,8 +43,8 @@ it("DeepSearch todos: LLM success generates todos and emits events", async () =>
 });
 
 it("DeepSearch todos: LLM unavailable falls back to heuristic todos", async () => {
-  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
-  const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
+  const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchTodosStage } = await import("../../../../js/agents/stages/deepsearch/todos.js");
 
   const state = new DeepSearchState({ runId: "run_todos_pause", taskGoal: "Explain Beta" });
 
@@ -56,8 +56,8 @@ it("DeepSearch todos: LLM unavailable falls back to heuristic todos", async () =
 });
 
 it("DeepSearch todos: invalid LLM output falls back to heuristic todos", async () => {
-  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
-  const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
+  const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchTodosStage } = await import("../../../../js/agents/stages/deepsearch/todos.js");
 
   const modelRouter = {
     call: async () => ({ content: "not-json", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }),
@@ -71,9 +71,9 @@ it("DeepSearch todos: invalid LLM output falls back to heuristic todos", async (
 });
 
 it("DeepSearch todos: skips LLM when user todos exist", async () => {
-  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
-  const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
-  const { createTodo } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
+  const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchTodosStage } = await import("../../../../js/agents/stages/deepsearch/todos.js");
+  const { createTodo } = await import("../../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
   const events = [];
   const bus = { emit: (name, record) => events.push({ name, record }) };

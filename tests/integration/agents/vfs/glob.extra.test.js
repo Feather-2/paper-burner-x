@@ -7,7 +7,7 @@ afterEach(() => {
 
 describe("agents/vfs/glob (extra coverage cases)", () => {
   it("globToRegExp handles '**' not followed by '/' (matches across slashes)", async () => {
-    const { globToRegExp } = await import("../../../js/agents/vfs/glob.js");
+    const { globToRegExp } = await import("../../../../js/agents/vfs/glob.js");
 
     const re = globToRegExp("a/**.txt");
     expect(re.test("a/y.txt")).toBe(true);
@@ -31,7 +31,7 @@ describe("agents/vfs/glob (extra coverage cases)", () => {
       }
     );
 
-    const { createVfsGlobFn } = await import("../../../js/agents/vfs/glob.js");
+    const { createVfsGlobFn } = await import("../../../../js/agents/vfs/glob.js");
 
     const vfs = {
       listFiles: async () => ["a.md", "b.txt", "dir/c.md"],

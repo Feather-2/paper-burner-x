@@ -87,7 +87,7 @@ function makeEditState() {
 }
 
 async function makeSlideHtml(slideIntent, designSystem, contentPackage) {
-  const { buildSlideHtml } = await import("../../../js/agents/stages/design/dsl/dsl-builder.js");
+  const { buildSlideHtml } = await import("../../../../js/agents/stages/design/dsl/dsl-builder.js");
   return buildSlideHtml(slideIntent, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
 }
 
@@ -96,7 +96,7 @@ async function makeSlideHtml(slideIntent, designSystem, contentPackage) {
 // ============================================================================
 
 it("DesignPhase enum contains expected values", async () => {
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
 
   expect(DesignPhase.IDLE).toBe("idle");
   expect(DesignPhase.OUTLINE_PARSING).toBe("outline_parsing");
@@ -107,7 +107,7 @@ it("DesignPhase enum contains expected values", async () => {
 });
 
 it("SlideStatus enum contains expected values", async () => {
-  const { SlideStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { SlideStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   expect(SlideStatus.PENDING).toBe("pending");
   expect(SlideStatus.GENERATING).toBe("generating");
@@ -116,7 +116,7 @@ it("SlideStatus enum contains expected values", async () => {
 });
 
 it("EditSessionStatus enum contains expected values", async () => {
-  const { EditSessionStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { EditSessionStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   expect(EditSessionStatus.IDLE).toBe("idle");
   expect(EditSessionStatus.AWAITING_INPUT).toBe("awaiting_input");
@@ -125,7 +125,7 @@ it("EditSessionStatus enum contains expected values", async () => {
 });
 
 it("isValidDesignPhase validates correctly", async () => {
-  const { isValidDesignPhase, DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { isValidDesignPhase, DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
 
   expect(isValidDesignPhase(DesignPhase.IDLE)).toBe(true);
   expect(isValidDesignPhase(DesignPhase.GENERATING)).toBe(true);
@@ -135,7 +135,7 @@ it("isValidDesignPhase validates correctly", async () => {
 });
 
 it("isValidSlideStatus validates correctly", async () => {
-  const { isValidSlideStatus, SlideStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { isValidSlideStatus, SlideStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   expect(isValidSlideStatus(SlideStatus.PENDING)).toBe(true);
   expect(isValidSlideStatus(SlideStatus.COMPLETED)).toBe(true);
@@ -143,7 +143,7 @@ it("isValidSlideStatus validates correctly", async () => {
 });
 
 it("designPhaseMachine validates state transitions", async () => {
-  const { designPhaseMachine, DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { designPhaseMachine, DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
 
   expect(designPhaseMachine.canTransition(DesignPhase.IDLE, DesignPhase.OUTLINE_PARSING)).toBe(true);
   expect(designPhaseMachine.canTransition(DesignPhase.GENERATING, DesignPhase.COMPLETED)).toBe(true);
@@ -158,8 +158,8 @@ it("designPhaseMachine validates state transitions", async () => {
 // ============================================================================
 
 it("DesignAgentLoop runs phases, uses tools, emits events", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { DesignAgentLoop } = await import("../../../../js/agents/stages/design/agent-loop.js");
+  const { DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
 
   const contentPackage = makeContentPackage({ slideCount: 2 });
   const designSystem = makeDesignSystem();
@@ -225,9 +225,9 @@ it("DesignAgentLoop runs phases, uses tools, emits events", async () => {
 });
 
 it("DesignAgentLoop exposes getPhase and getStatus methods", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
-  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
+  const { DesignAgentLoop } = await import("../../../../js/agents/stages/design/agent-loop.js");
+  const { DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
+  const { AgentStatus } = await import("../../../../js/agents/runtime/core/agent-status.js");
 
   const loop = new DesignAgentLoop();
 
@@ -237,7 +237,7 @@ it("DesignAgentLoop exposes getPhase and getStatus methods", async () => {
 });
 
 it("DesignAgentLoop handles tool execution errors gracefully", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { DesignAgentLoop } = await import("../../../../js/agents/stages/design/agent-loop.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
 
@@ -271,7 +271,7 @@ it("DesignAgentLoop handles tool execution errors gracefully", async () => {
 // ============================================================================
 
 it("EditHistoryManager supports basic undo/redo", async () => {
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const history = new EditHistoryManager();
   const state = { value: 0 };
@@ -294,7 +294,7 @@ it("EditHistoryManager supports basic undo/redo", async () => {
 });
 
 it("EditHistoryManager respects maxHistory limit", async () => {
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const history = new EditHistoryManager(3);
   const state = { count: 0 };
@@ -312,7 +312,7 @@ it("EditHistoryManager respects maxHistory limit", async () => {
 });
 
 it("EditHistoryManager supports transactions", async () => {
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const history = new EditHistoryManager();
   const state = { count: 0 };
@@ -335,7 +335,7 @@ it("EditHistoryManager supports transactions", async () => {
 });
 
 it("EditHistoryManager rollback reverts uncommitted transaction", async () => {
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const history = new EditHistoryManager();
   const state = { count: 10 };
@@ -350,7 +350,7 @@ it("EditHistoryManager rollback reverts uncommitted transaction", async () => {
 });
 
 it("EditHistoryManager handles empty operations gracefully", async () => {
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const history = new EditHistoryManager();
 
@@ -368,8 +368,8 @@ it("EditHistoryManager handles empty operations gracefully", async () => {
 // ============================================================================
 
 it("createEditToolExecutor executes edit operations", async () => {
-  const { createEditToolExecutor } = await import("../../../js/agents/stages/design/edit-mode/tools.js");
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { createEditToolExecutor } = await import("../../../../js/agents/stages/design/edit-mode/tools.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const state = makeEditState();
   const historyManager = new EditHistoryManager();
@@ -407,8 +407,8 @@ it("createEditToolExecutor executes edit operations", async () => {
 });
 
 it("createEditToolExecutor handles move and resize operations", async () => {
-  const { createEditToolExecutor } = await import("../../../js/agents/stages/design/edit-mode/tools.js");
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { createEditToolExecutor } = await import("../../../../js/agents/stages/design/edit-mode/tools.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const state = makeEditState();
   const historyManager = new EditHistoryManager();
@@ -434,8 +434,8 @@ it("createEditToolExecutor handles move and resize operations", async () => {
 });
 
 it("createEditToolExecutor handles theme and style changes", async () => {
-  const { createEditToolExecutor } = await import("../../../js/agents/stages/design/edit-mode/tools.js");
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { createEditToolExecutor } = await import("../../../../js/agents/stages/design/edit-mode/tools.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const state = makeEditState();
   const historyManager = new EditHistoryManager();
@@ -464,8 +464,8 @@ it("createEditToolExecutor handles theme and style changes", async () => {
 });
 
 it("createEditToolExecutor returns error for invalid operations", async () => {
-  const { createEditToolExecutor } = await import("../../../js/agents/stages/design/edit-mode/tools.js");
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { createEditToolExecutor } = await import("../../../../js/agents/stages/design/edit-mode/tools.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const state = makeEditState();
   const historyManager = new EditHistoryManager();
@@ -493,7 +493,7 @@ it("createEditToolExecutor returns error for invalid operations", async () => {
 // ============================================================================
 
 it("EditModeTools exports tool definitions", async () => {
-  const { EditModeTools } = await import("../../../js/agents/stages/design/edit-mode/tools.js");
+  const { EditModeTools } = await import("../../../../js/agents/stages/design/edit-mode/tools.js");
 
   expect(EditModeTools).not.toBeNull();
   expect(EditModeTools).toBeTypeOf("object");
@@ -506,7 +506,7 @@ it("EditModeTools exports tool definitions", async () => {
 // ============================================================================
 
 it("design module exports all expected components", async () => {
-  const design = await import("../../../js/agents/stages/design/index.js");
+  const design = await import("../../../../js/agents/stages/design/index.js");
 
   // Core classes
   expect(design.DesignAgentLoop).toBeTypeOf("function");
@@ -545,7 +545,7 @@ it("design module exports all expected components", async () => {
 });
 
 it("DESIGN_AGENT_TOOL_DEFINITIONS contains expected tools", async () => {
-  const { DESIGN_AGENT_TOOL_DEFINITIONS } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { DESIGN_AGENT_TOOL_DEFINITIONS } = await import("../../../../js/agents/stages/design/agent-loop.js");
 
   expect(DESIGN_AGENT_TOOL_DEFINITIONS).toBeInstanceOf(Array);
 
@@ -560,7 +560,7 @@ it("DESIGN_AGENT_TOOL_DEFINITIONS contains expected tools", async () => {
 // ============================================================================
 
 it("generateDesignTokens creates valid design tokens", async () => {
-  const { generateDesignTokens } = await import("../../../js/agents/stages/design/generators/design-tokens.js");
+  const { generateDesignTokens } = await import("../../../../js/agents/stages/design/generators/design-tokens.js");
 
   const tokens = generateDesignTokens({
     theme: "dark",
@@ -580,7 +580,7 @@ it("generateDesignTokens creates valid design tokens", async () => {
 // ============================================================================
 
 it("buildSlideHtml generates valid HTML from slide intent", async () => {
-  const { buildSlideHtml } = await import("../../../js/agents/stages/design/dsl/dsl-builder.js");
+  const { buildSlideHtml } = await import("../../../../js/agents/stages/design/dsl/dsl-builder.js");
 
   const slideIntent = {
     slideIntentId: "s_1",
@@ -611,7 +611,7 @@ it("constants validators work correctly", async () => {
     isValidEditOperationType,
     VisualType,
     EditOperationType,
-  } = await import("../../../js/agents/stages/design/constants.js");
+  } = await import("../../../../js/agents/stages/design/constants.js");
 
   // Visual types - use actual enum values
   expect(isValidVisualType(VisualType.ILLUSTRATION)).toBe(true);
@@ -630,7 +630,7 @@ it("constants validators work correctly", async () => {
 // ============================================================================
 
 it("VisualSlotStatus enum and validator", async () => {
-  const { VisualSlotStatus, isValidVisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { VisualSlotStatus, isValidVisualSlotStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   expect(VisualSlotStatus.PENDING).toBe("pending");
   expect(VisualSlotStatus.GENERATING).toBe("generating");
@@ -642,7 +642,7 @@ it("VisualSlotStatus enum and validator", async () => {
 });
 
 it("SubAgentStatus enum and validator", async () => {
-  const { SubAgentStatus, isValidSubAgentStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { SubAgentStatus, isValidSubAgentStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   expect(SubAgentStatus.IDLE).toBe("idle");
   expect(SubAgentStatus.RUNNING).toBe("running");
@@ -654,7 +654,7 @@ it("SubAgentStatus enum and validator", async () => {
 });
 
 it("ReviewStatus enum and validator", async () => {
-  const { ReviewStatus, isValidReviewStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { ReviewStatus, isValidReviewStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   expect(ReviewStatus.PENDING).toBe("pending");
   expect(ReviewStatus.PASSED).toBe("passed");

@@ -46,7 +46,7 @@ function validateArchivePayload(payload) {
 }
 
 it("Runtime Events: exports new event groups", async () => {
-  const { ReviewEvents, CompressionEvents, ArchiveEvents } = await import("../../../js/agents/runtime/events/events.js");
+  const { ReviewEvents, CompressionEvents, ArchiveEvents } = await import("../../../../js/agents/runtime/events/events.js");
 
   expect(ReviewEvents).toEqual({
     REVIEW_STARTED: "review.started",
@@ -74,7 +74,7 @@ it("Runtime Events: exports new event groups", async () => {
 });
 
 it("Runtime Events: matchEventPattern matches archive.* and nested patterns", async () => {
-  const { ArchiveEvents, ReviewEvents, matchEventPattern } = await import("../../../js/agents/runtime/events/events.js");
+  const { ArchiveEvents, ReviewEvents, matchEventPattern } = await import("../../../../js/agents/runtime/events/events.js");
 
   expect(matchEventPattern("archive.*", ArchiveEvents.CHECKPOINT_SAVED)).toBe(true);
   expect(matchEventPattern("archive.*", ArchiveEvents.CHECKPOINT_RESTORED)).toBe(true);
@@ -89,8 +89,8 @@ it("Runtime Events: matchEventPattern matches archive.* and nested patterns", as
 });
 
 it("Runtime Events: EventBus wildcard subscription integrates with archive.*", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-  const { ArchiveEvents } = await import("../../../js/agents/runtime/events/events.js");
+  const { EventBus } = await import("../../../../js/agents/core/event-bus.js");
+  const { ArchiveEvents } = await import("../../../../js/agents/runtime/events/events.js");
 
   const bus = new EventBus({ runId: "run_events_integration" });
   const seen = [];

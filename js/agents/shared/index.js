@@ -23,7 +23,7 @@ export { extractJsonCandidate, stripThinkingTags } from "./utils/json-candidate.
 export { FileWatcher, isNativeWatchSupported } from "./utils/file-watcher.js";
 export { cryptoRandomHex, cryptoRandomUuid, makeSecureId, makeSecureTimestampedId } from "./utils/secure-id.js";
 export { checkCancelled, withCancellation, createLinkedSignal } from "./utils/cancellation.js";
-export { classifyDeepSearchError, classifyDesignError } from "./utils/error-classifier.js";
+export { classifyDeepSearchError, classifyDesignError, isNonRetryableError } from "./utils/error-classifier.js";
 export { normalizeMaxBytes, createResponseTooLargeError, readTextWithLimit, readJsonWithLimit } from "./utils/response-limits.js";
 export { estimateTokensCached, clearTokenCache, getTokenCacheStats } from "./utils/token-cache.js";
 export { isPotentiallyDangerous, createSafeRegex, safeMatch, globToRegex } from "./utils/safe-regex.js";

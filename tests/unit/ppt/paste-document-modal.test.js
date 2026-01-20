@@ -30,17 +30,17 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-await import('../../js/ppt/dashboard/ppt_dashboard_utils.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_upload.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_history.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_url_input.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_paste.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_modals.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_outline.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_core.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_utils.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_upload.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_history.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_url_input.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_paste.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_modals.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_outline.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_core.js');
 
 afterEach(() => {
   delete globalThis.VditorAdapter;
@@ -165,11 +165,11 @@ test('confirmPasteDocument(): falls back to textarea when Vditor unavailable', a
 });
 
 test('esm entrypoints: dashboard/generator/model-config/renderers import and expose APIs', async () => {
-  const dashboard = await import('../../js/ppt/dashboard/index.js');
-  const generator = await import('../../js/ppt/generator/index.js');
-  const modelConfig = await import('../../js/ppt/model-config/index.js');
-  const renderers = await import('../../js/ppt/renderers/index.js');
-  const unified = await import('../../js/ppt/index.js');
+  const dashboard = await import('../../../js/ppt/dashboard/index.js');
+  const generator = await import('../../../js/ppt/generator/index.js');
+  const modelConfig = await import('../../../js/ppt/model-config/index.js');
+  const renderers = await import('../../../js/ppt/renderers/index.js');
+  const unified = await import('../../../js/ppt/index.js');
 
   expect(dashboard.PPTDashboard).toBeTruthy();
   expect(dashboard.VditorAdapter).toBeTruthy();

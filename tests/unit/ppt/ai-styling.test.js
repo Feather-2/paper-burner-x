@@ -73,7 +73,7 @@ test.skip('AI 微调: property-panel button triggers ImagePlanner → editor.upd
   gen.syncDSL = (opts) => calls.sync.push(opts);
 
   // Force deterministic ImagePlanner output.
-  const mod = await import('../../js/agents/stages/design/image-planner.js');
+  const mod = await import('../../../js/agents/stages/design/image-planner.js');
   const original = mod.ImagePlanner.suggestElementPatch;
   mod.ImagePlanner.suggestElementPatch = () => ({
     patch: { opacity: 0.5, blend: 'multiply' },
@@ -131,7 +131,7 @@ test.skip('AI 微调: blend/opacity/mask patches applied for image elements', as
   gen.editor = editor;
   gen.syncDSL = (opts) => calls.sync.push(opts);
 
-  const mod = await import('../../js/agents/stages/design/image-planner.js');
+  const mod = await import('../../../js/agents/stages/design/image-planner.js');
   const original = mod.ImagePlanner.suggestElementPatch;
   mod.ImagePlanner.suggestElementPatch = () => ({
     patch: { opacity: 0.92, blend: 'multiply', mask: 'rounded:12' },

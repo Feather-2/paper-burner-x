@@ -14,7 +14,7 @@ const loadManager = async () => {
     globalThis.window = globalThis;
   }
 
-  const module = await import('../../js/chatbot/react/token-budget.js');
+  const module = await import('../../../js/chatbot/react/token-budget.js');
   return module.TokenBudgetManager;
 };
 

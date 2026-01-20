@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 async function loadMarkdownTextFix() {
-  await import('../../js/processing/markdown_text_fix.js');
+  await import('../../../js/processing/markdown_text_fix.js');
   return globalThis.MarkdownTextFix;
 }
 

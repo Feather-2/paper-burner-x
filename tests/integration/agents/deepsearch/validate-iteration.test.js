@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("validateIteration: skips FILLED gaps when evidence insufficient", async () => {
-  const { validateIteration } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { validateIteration } = await import("../../../../js/agents/stages/deepsearch/state.js");
 
   const state = {
     runId: "run_validate_iteration_skip_filled",
@@ -26,7 +26,7 @@ it("validateIteration: skips FILLED gaps when evidence insufficient", async () =
 });
 
 it("validateIteration: skips BLOCKED gaps when evidence insufficient", async () => {
-  const { validateIteration } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { validateIteration } = await import("../../../../js/agents/stages/deepsearch/state.js");
 
   const state = {
     runId: "run_validate_iteration_skip_blocked",

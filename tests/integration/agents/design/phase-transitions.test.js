@@ -47,7 +47,7 @@ function makeDesignSystem() {
 }
 
 it("designPhaseMachine.transition enforces DESIGN_PHASE_VALID_TRANSITIONS", async () => {
-  const { DesignPhase, designPhaseMachine } = await import("../../../js/agents/stages/design/states.js");
+  const { DesignPhase, designPhaseMachine } = await import("../../../../js/agents/stages/design/states.js");
 
   const state = { status: DesignPhase.PLAN_CONFIRMING };
 
@@ -59,7 +59,7 @@ it("designPhaseMachine.transition enforces DESIGN_PHASE_VALID_TRANSITIONS", asyn
 });
 
 it("designPhaseMachine supports pipeline chain (planning -> layout -> repair -> final-review)", async () => {
-  const { DesignPhase, designPhaseMachine } = await import("../../../js/agents/stages/design/states.js");
+  const { DesignPhase, designPhaseMachine } = await import("../../../../js/agents/stages/design/states.js");
 
   const state = { status: DesignPhase.DECK_PLANNING };
   const chain = [
@@ -81,8 +81,8 @@ it("designPhaseMachine supports pipeline chain (planning -> layout -> repair -> 
 });
 
 it("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ended", async () => {
-  const { runGeneratingPhase } = await import("../../../js/agents/stages/design/runtime/design-phases.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { runGeneratingPhase } = await import("../../../../js/agents/stages/design/runtime/design-phases.js");
+  const { DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -138,8 +138,8 @@ it("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ended"
 });
 
 it("runVisualPhase supports deferredVisuals fast-path", async () => {
-  const { runVisualPhase } = await import("../../../js/agents/stages/design/runtime/design-phases.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { runVisualPhase } = await import("../../../../js/agents/stages/design/runtime/design-phases.js");
+  const { DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -189,9 +189,9 @@ it("runVisualPhase supports deferredVisuals fast-path", async () => {
 });
 
 it("DesignAgentLoop skips final review when skipReview is true", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { DesignAgentLoop } = await import("../../../../js/agents/stages/design/agent-loop.js");
+  const { DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
+  const { EventBus } = await import("../../../../js/agents/core/event-bus.js");
 
   const contentPackage = makeContentPackage({ runId: "run_skip_review", slideCount: 1 });
   const designSystem = makeDesignSystem();
@@ -264,8 +264,8 @@ it("DesignAgentLoop skips final review when skipReview is true", async () => {
 });
 
 it("DesignAgentLoop runs repair + final review when enabled", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { DesignAgentLoop } = await import("../../../../js/agents/stages/design/agent-loop.js");
+  const { DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
 
   const contentPackage = makeContentPackage({ runId: "run_final_review", slideCount: 1 });
   const designSystem = makeDesignSystem();

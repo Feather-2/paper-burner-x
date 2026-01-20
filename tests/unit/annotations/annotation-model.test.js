@@ -7,7 +7,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 
 // 动态导入
 const loadModules = async () => {
-  const model = await import('../../js/annotations/core/annotation-model.js');
+  const model = await import(
+    new URL('../../../js/annotations/core/annotation-model.js', import.meta.url).href
+  );
   return model;
 };
 

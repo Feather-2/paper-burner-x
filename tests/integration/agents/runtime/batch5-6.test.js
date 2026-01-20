@@ -10,7 +10,7 @@ describe("PerformanceRouter: EWMA and routing", () => {
   let estimateComplexity;
 
   beforeEach(async () => {
-    const mod = await import("../../../js/agents/runtime/routing/performance-router.js");
+    const mod = await import("../../../../js/agents/runtime/routing/performance-router.js");
     PerformanceRouter = mod.PerformanceRouter;
     EwmaTracker = mod.EwmaTracker;
     ModelTier = mod.ModelTier;
@@ -154,7 +154,7 @@ describe("ToolQuotaManager: quota management", () => {
   let createToolContract;
 
   beforeEach(async () => {
-    const mod = await import("../../../js/agents/runtime/tools/tool-quotas.js");
+    const mod = await import("../../../../js/agents/runtime/tools/tool-quotas.js");
     ToolQuotaManager = mod.ToolQuotaManager;
     ContractValidator = mod.ContractValidator;
     createToolContract = mod.createToolContract;
@@ -307,7 +307,7 @@ describe("TraceContext: distributed tracing", () => {
   let generateSpanId;
 
   beforeEach(async () => {
-    const mod = await import("../../../js/agents/runtime/telemetry/trace-context.js");
+    const mod = await import("../../../../js/agents/runtime/telemetry/trace-context.js");
     TraceContext = mod.TraceContext;
     Span = mod.Span;
     SpanStatus = mod.SpanStatus;
@@ -464,7 +464,7 @@ describe("DegradationMatrix: resilience management", () => {
   let DegradationTrigger;
 
   beforeEach(async () => {
-    const mod = await import("../../../js/agents/runtime/resilience/degradation-matrix.js");
+    const mod = await import("../../../../js/agents/runtime/resilience/degradation-matrix.js");
     DegradationMatrix = mod.DegradationMatrix;
     DegradationPolicy = mod.DegradationPolicy;
     OperationLevel = mod.OperationLevel;

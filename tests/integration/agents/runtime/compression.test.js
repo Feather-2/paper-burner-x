@@ -19,14 +19,14 @@ afterEach(() => {
 
 describe("runtime/compression/coordinator.js", () => {
   it("computeFillRatio handles empty contextWindow", async () => {
-    const { computeFillRatio } = await import("../../../js/agents/runtime/compression/coordinator.js");
+    const { computeFillRatio } = await import("../../../../js/agents/runtime/compression/coordinator.js");
     expect(computeFillRatio(10, 0)).toBe(0);
     expect(computeFillRatio(10, undefined)).toBe(0);
     expect(computeFillRatio(10, 20)).toBeCloseTo(0.5);
   });
 
   it("normalizes token usage totals and shouldCompress threshold", async () => {
-    const { CompressionCoordinator } = await import("../../../js/agents/runtime/compression/coordinator.js");
+    const { CompressionCoordinator } = await import("../../../../js/agents/runtime/compression/coordinator.js");
 
     const cObj = new CompressionCoordinator({ getTokenUsage: () => ({ total: "42" }) });
     expect(cObj._resolveTokenUsageTotal()).toBe(42);
@@ -60,8 +60,8 @@ describe("runtime/compression/coordinator.js", () => {
   });
 
   it("maybeCompress forwards derived options to compression", async () => {
-    const compressionAsync = await import("../../../js/agents/runtime/compression/compression-async.js");
-    const { CompressionCoordinator } = await import("../../../js/agents/runtime/compression/coordinator.js");
+    const compressionAsync = await import("../../../../js/agents/runtime/compression/compression-async.js");
+    const { CompressionCoordinator } = await import("../../../../js/agents/runtime/compression/coordinator.js");
 
     const expected = { messages: [{ role: "assistant", content: "ok" }], sessionSummary: "s", stats: { ok: true }, afterTokens: 123 };
     compressionAsync.compressAgentLoopMessagesAsync.mockResolvedValue(expected);
@@ -100,8 +100,8 @@ describe("runtime/compression/coordinator.js", () => {
   });
 
   it("maybeCompress logs and falls back when compression throws", async () => {
-    const compressionAsync = await import("../../../js/agents/runtime/compression/compression-async.js");
-    const { CompressionCoordinator } = await import("../../../js/agents/runtime/compression/coordinator.js");
+    const compressionAsync = await import("../../../../js/agents/runtime/compression/compression-async.js");
+    const { CompressionCoordinator } = await import("../../../../js/agents/runtime/compression/coordinator.js");
 
     compressionAsync.compressAgentLoopMessagesAsync.mockRejectedValue(new Error("boom"));
     const logger = { warn: vi.fn() };

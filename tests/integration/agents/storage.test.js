@@ -34,7 +34,7 @@ async function setRunCreatedAt({ store, runStoreName, runId, createdAt }) {
 }
 
 it("RunStore: IndexedDB CRUD (runs/events/artifacts)", async () => {
-  const { RunStore } = await import("../../js/agents/storage/run-store.js");
+  const { RunStore } = await import("../../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("crud");
   await RunStore.deleteDatabase({ dbName });
@@ -82,7 +82,7 @@ it("RunStore: IndexedDB CRUD (runs/events/artifacts)", async () => {
 });
 
 it("RunStore: events.jsonl append + readback (1000+ events)", async () => {
-  const { RunStore } = await import("../../js/agents/storage/run-store.js");
+  const { RunStore } = await import("../../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("events");
   await RunStore.deleteDatabase({ dbName });
@@ -124,8 +124,8 @@ it("RunStore: events.jsonl append + readback (1000+ events)", async () => {
 });
 
 it("ArtifactManager: manifest integrity + sha256", async () => {
-  const { RunStore } = await import("../../js/agents/storage/run-store.js");
-  const { createManifest, addArtifactToManifest, generateArtifactId, computeSha256 } = await import("../../js/agents/storage/artifact-manager.js");
+  const { RunStore } = await import("../../../js/agents/storage/run-store.js");
+  const { createManifest, addArtifactToManifest, generateArtifactId, computeSha256 } = await import("../../../js/agents/storage/artifact-manager.js");
 
   const dbName = makeDbName("manifest");
   await RunStore.deleteDatabase({ dbName });
@@ -175,10 +175,10 @@ it("ArtifactManager: manifest integrity + sha256", async () => {
 });
 
 it("RunExporter: zip export/import roundtrip", async () => {
-  const { RunStore } = await import("../../js/agents/storage/run-store.js");
-  const { createManifest, addArtifactToManifest, generateArtifactId } = await import("../../js/agents/storage/artifact-manager.js");
-  const { exportRunAsZip, importRunFromZip } = await import("../../js/agents/storage/run-exporter.js");
-  const { createPlan } = await import("../../js/agents/runtime/plan/plan-store.js");
+  const { RunStore } = await import("../../../js/agents/storage/run-store.js");
+  const { createManifest, addArtifactToManifest, generateArtifactId } = await import("../../../js/agents/storage/artifact-manager.js");
+  const { exportRunAsZip, importRunFromZip } = await import("../../../js/agents/storage/run-exporter.js");
+  const { createPlan } = await import("../../../js/agents/runtime/plan/plan-store.js");
 
   const dbName1 = makeDbName("zip_src");
   await RunStore.deleteDatabase({ dbName: dbName1 });
@@ -275,7 +275,7 @@ it("RunExporter: zip export/import roundtrip", async () => {
 });
 
 it("RunStore: storage quota detection does not throw", async () => {
-  const { RunStore } = await import("../../js/agents/storage/run-store.js");
+  const { RunStore } = await import("../../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("quota");
   await RunStore.deleteDatabase({ dbName });
@@ -291,7 +291,7 @@ it("RunStore: storage quota detection does not throw", async () => {
 });
 
 it("RunStore: cleanupRuns respects maxRuns + pinned", async () => {
-  const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
+  const { RunStore, RunStoreConstants } = await import("../../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("cleanup_maxRuns");
   await RunStore.deleteDatabase({ dbName });
@@ -329,7 +329,7 @@ it("RunStore: cleanupRuns respects maxRuns + pinned", async () => {
 });
 
 it("RunStore: cleanupRuns respects maxAgeDays", async () => {
-  const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
+  const { RunStore, RunStoreConstants } = await import("../../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("cleanup_maxAgeDays");
   await RunStore.deleteDatabase({ dbName });
@@ -357,7 +357,7 @@ it("RunStore: cleanupRuns respects maxAgeDays", async () => {
 });
 
 it("RunStore: cleanupRuns respects maxTotalBytes", async () => {
-  const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
+  const { RunStore, RunStoreConstants } = await import("../../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("cleanup_maxBytes");
   await RunStore.deleteDatabase({ dbName });
@@ -396,7 +396,7 @@ it("RunStore: cleanupRuns respects maxTotalBytes", async () => {
 });
 
 it("RunStore: cleanupRuns dryRun + keepRunIds", async () => {
-  const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
+  const { RunStore, RunStoreConstants } = await import("../../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("cleanup_dryRun");
   await RunStore.deleteDatabase({ dbName });
@@ -426,7 +426,7 @@ it("RunStore: cleanupRuns dryRun + keepRunIds", async () => {
 });
 
 it("PlanStore: create/save/update plan artifacts", async () => {
-  const { RunStore } = await import("../../js/agents/storage/run-store.js");
+  const { RunStore } = await import("../../../js/agents/storage/run-store.js");
   const {
     PLAN_ARTIFACT_TYPE,
     createPlan,
@@ -434,7 +434,7 @@ it("PlanStore: create/save/update plan artifacts", async () => {
     normalizePlanStep,
     savePlan,
     setPlanStepStatus,
-  } = await import("../../js/agents/runtime/plan/plan-store.js");
+  } = await import("../../../js/agents/runtime/plan/plan-store.js");
 
   const dbName = makeDbName("plan");
   await RunStore.deleteDatabase({ dbName });

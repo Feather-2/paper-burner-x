@@ -38,9 +38,9 @@ if (!globalThis.PPTGenerator) {
 }
 
 // Ensure SlideParser is available on globalThis for runtime mixins.
-await import('../../js/ppt/core/slide-parser.js');
+await import('../../../js/ppt/core/slide-parser.js');
 
-await import('../../js/ppt/generator/ppt_generator_workflow.js');
+await import('../../../js/ppt/generator/ppt_generator_workflow.js');
 
 test.before(async () => {
   // Ensure async mixins have been installed before calling non-stubbed methods.
@@ -86,7 +86,7 @@ test('design.batch calls DesignAgentLoop and populates deckHtmlDsl + slides', as
 
   await gen._ensureRuntime({ mode: 'textprep' });
 
-  const design = await import('../../js/agents/stages/design/index.js');
+  const design = await import('../../../js/agents/stages/design/index.js');
   const originalExecute = design.DesignAgentLoop.prototype.execute;
   let runCalls = 0;
   design.DesignAgentLoop.prototype.execute = async function () {
@@ -129,7 +129,7 @@ test('design.batch falls back to mock deck when DesignAgentLoop throws', async (
 
   await gen._ensureRuntime({ mode: 'textprep' });
 
-  const design = await import('../../js/agents/stages/design/index.js');
+  const design = await import('../../../js/agents/stages/design/index.js');
   const originalExecute = design.DesignAgentLoop.prototype.execute;
   design.DesignAgentLoop.prototype.execute = async () => {
     throw new Error('boom');
@@ -165,7 +165,7 @@ test('design.batch emits design.phase.transition and persists designPhase', asyn
 
   await gen._ensureRuntime({ mode: 'textprep' });
 
-  const design = await import('../../js/agents/stages/design/index.js');
+  const design = await import('../../../js/agents/stages/design/index.js');
   const originalExecute = design.DesignAgentLoop.prototype.execute;
   design.DesignAgentLoop.prototype.execute = async function (_runContext, _contentPackage, stageApi) {
     stageApi?.emit?.('design.phase.transition', { from: 'style_confirming', to: 'generating' }, { status: 'progress' });
@@ -286,8 +286,8 @@ test('_ensureRuntime populates _runtimeDesignSubStageUi mapping', async () => {
 });
 
 test('AgentEventBridge forwards plan.* events', async () => {
-  const { EventBus } = await import('../../js/agents/core/event-bus.js');
-  const { AgentEventBridge } = await import('../../js/ppt/workflow/agent-event-bridge.js');
+  const { EventBus } = await import('../../../js/agents/core/event-bus.js');
+  const { AgentEventBridge } = await import('../../../js/ppt/workflow/agent-event-bridge.js');
 
   const source = new EventBus({ runId: 'run_test' });
   const bridge = new AgentEventBridge(source);

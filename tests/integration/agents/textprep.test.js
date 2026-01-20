@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 it("TextPrep TP1: normalizeText newline/NBSP + sha256 stability", async () => {
-  const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
+  const { normalizeText } = await import("../../../js/agents/stages/textprep/normalize.js");
 
   const a = normalizeText("A\r\nB\rC\u00A0D\n");
   const b = normalizeText("A\nB\nC D\n");
@@ -29,7 +29,7 @@ it("TextPrep TP1: normalizeText newline/NBSP + sha256 stability", async () => {
 });
 
 it("TextPrep TP2: chunkText overlap/locator boundaries + line numbers", async () => {
-  const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
+  const { chunkText } = await import("../../../js/agents/stages/textprep/chunk.js");
 
   {
     const chunks = chunkText("0123456789", { chunkSize: 4, overlap: 1, includeLineNumbers: false });
@@ -61,8 +61,8 @@ it("TextPrep TP2: chunkText overlap/locator boundaries + line numbers", async ()
 });
 
 it("TextPrep TP4: planSlides parses LLM JSON and ensures core slides", async () => {
-  const { planSlides } = await import("../../js/agents/stages/textprep/slideplan.js");
-  const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
+  const { planSlides } = await import("../../../js/agents/stages/textprep/slideplan.js");
+  const { chunkText } = await import("../../../js/agents/stages/textprep/chunk.js");
 
   const chunks = chunkText("My Topic\nShort summary.\nBody paragraph.\n", { chunkSize: 20, overlap: 0 });
   const calls = [];
@@ -93,8 +93,8 @@ it("TextPrep TP4: planSlides parses LLM JSON and ensures core slides", async () 
 });
 
 it("TextPrep TP4: planSlides falls back when LLM output invalid", async () => {
-  const { planSlides } = await import("../../js/agents/stages/textprep/slideplan.js");
-  const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
+  const { planSlides } = await import("../../../js/agents/stages/textprep/slideplan.js");
+  const { chunkText } = await import("../../../js/agents/stages/textprep/chunk.js");
 
   const chunks = chunkText("Topic\nBody.\n", { chunkSize: 20, overlap: 0 });
   const aiApiService = { chat: async () => ({ content: "not json" }) };
@@ -105,9 +105,9 @@ it("TextPrep TP4: planSlides falls back when LLM output invalid", async () => {
 });
 
 it("TextPrep TP5: extractClaims enforces evidence linkage + quote locatable", async () => {
-  const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
-  const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
-  const { extractClaims } = await import("../../js/agents/stages/textprep/claims.js");
+  const { normalizeText } = await import("../../../js/agents/stages/textprep/normalize.js");
+  const { chunkText } = await import("../../../js/agents/stages/textprep/chunk.js");
+  const { extractClaims } = await import("../../../js/agents/stages/textprep/claims.js");
 
   const raw = "Alpha is first.\nBeta is second.\nGamma is third.\n";
   const norm = normalizeText(raw);
@@ -140,7 +140,7 @@ it("TextPrep TP5: extractClaims enforces evidence linkage + quote locatable", as
 });
 
 it("TextPrep TP6: buildContentPackage validates hard gates (H1-H4)", async () => {
-  const { buildContentPackage } = await import("../../js/agents/stages/textprep/build-content-package.js");
+  const { buildContentPackage } = await import("../../../js/agents/stages/textprep/build-content-package.js");
 
   const runContext = { runId: "run_test", constraints: { pageCount: 5 } };
   const sources = [
@@ -182,9 +182,9 @@ it("TextPrep TP6: buildContentPackage validates hard gates (H1-H4)", async () =>
 // 以下测试引用了已删除的 run-context.js，已移除
 
 it("TextPrep Stage: accepts Ingest output input", async () => {
-  const { IngestStage } = await import("../../js/agents/ingest/ingest-stage.js");
-  const { TextPrepStage } = await import("../../js/agents/stages/textprep/index.js");
-  const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { TextPrepStage } = await import("../../../js/agents/stages/textprep/index.js");
+  const { normalizeText } = await import("../../../js/agents/stages/textprep/normalize.js");
 
   const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 40, overlap: 0, includeLineNumbers: true } });
   const ingestOut = await ingest.execute(
@@ -214,7 +214,7 @@ it("TextPrep Stage: accepts Ingest output input", async () => {
 });
 
 it("TextPrep Stage: cancellation via AbortSignal stops execution", async () => {
-  const { TextPrepStage } = await import("../../js/agents/stages/textprep/index.js");
+  const { TextPrepStage } = await import("../../../js/agents/stages/textprep/index.js");
 
   const stage = new TextPrepStage();
   const ac = new AbortController();

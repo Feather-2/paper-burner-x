@@ -728,7 +728,7 @@ describe("runtime/memory/memory-store.js", () => {
   });
 
   it("covers constructor/default branches without hitting the global token counter", async () => {
-    const { MemoryStore } = await import("../../../../js/agents/runtime/memory/memory-store.js");
+    const { MemoryStore } = await import("../../../../js/agents/plugins/memory/index.js");
 
     const counter = { count: vi.fn(() => 1) };
     const store = new MemoryStore({

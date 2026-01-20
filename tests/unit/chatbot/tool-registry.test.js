@@ -14,7 +14,7 @@ const loadToolRegistry = async () => {
     globalThis.window = globalThis;
   }
 
-  const module = await import('../../js/chatbot/react/tool-registry.js');
+  const module = await import('../../../js/chatbot/react/tool-registry.js');
   return module.ToolRegistry;
 };
 

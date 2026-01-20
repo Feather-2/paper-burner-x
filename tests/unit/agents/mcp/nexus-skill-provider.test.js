@@ -117,10 +117,15 @@ describe("NexusSkillProvider", () => {
   });
 
   it("throws on empty or invalid baseUrl values", () => {
-    const cases = [null, undefined, "", "   "];
-    for (const value of cases) {
+    // null, "", "   " should throw; undefined uses the default value
+    const throwCases = [null, "", "   "];
+    for (const value of throwCases) {
       expect(() => new NexusSkillProvider({ baseUrl: value })).toThrow(/baseUrl is required/i);
     }
+    // undefined uses the default ("http://localhost:3000"), doesn't throw
+    const withUndefined = new NexusSkillProvider({ baseUrl: undefined, allowPrivateNetwork: true });
+    expect(withUndefined.baseUrl).toBe("http://localhost:3000");
+
     expect(() => new NexusSkillProvider({ baseUrl: "ftp://example.com" })).toThrow(/unsupported URL protocol/i);
   });
 

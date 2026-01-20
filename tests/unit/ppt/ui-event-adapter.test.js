@@ -20,7 +20,7 @@ function createEventBus() {
 }
 
 test('UIEventAdapter: deepsearch events update state + progress', async () => {
-  const { UIEventAdapter } = await import('../../js/ppt/dashboard/ui-event-adapter.js');
+  const { UIEventAdapter } = await import('../../../js/ppt/dashboard/ui-event-adapter.js');
   const bus = createEventBus();
   const adapter = new UIEventAdapter(bus);
   adapter.start();
@@ -46,7 +46,7 @@ test('UIEventAdapter: deepsearch events update state + progress', async () => {
 });
 
 test('UIEventAdapter: wildcard patterns route design events + compute progress', async () => {
-  const { UIEventAdapter } = await import('../../js/ppt/dashboard/ui-event-adapter.js');
+  const { UIEventAdapter } = await import('../../../js/ppt/dashboard/ui-event-adapter.js');
   const bus = createEventBus();
   const adapter = new UIEventAdapter(bus);
   adapter.start();
@@ -82,7 +82,7 @@ test('UIEventAdapter: wildcard patterns route design events + compute progress',
 });
 
 test('UIEventAdapter: stop halts event forwarding', async () => {
-  const { UIEventAdapter } = await import('../../js/ppt/dashboard/ui-event-adapter.js');
+  const { UIEventAdapter } = await import('../../../js/ppt/dashboard/ui-event-adapter.js');
   const bus = createEventBus();
   const adapter = new UIEventAdapter(bus);
   adapter.start();

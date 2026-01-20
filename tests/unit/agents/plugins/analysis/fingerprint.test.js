@@ -269,7 +269,7 @@ describe("default", () => {
     await service.analyze(action);
 
     expect(ctx.events.emit).toHaveBeenCalledTimes(1);
-    expect(ctx.events.emit).toHaveBeenCalledWith("fingerprint:loopDetected", {
+    expect(ctx.events.emit).toHaveBeenCalledWith("fingerprint.loop.detected", {
       action,
       similarity: 1,
       loopLength: 0,
@@ -289,7 +289,7 @@ describe("default", () => {
 
     expect(result.isLoop).toBe(true);
     expect(result.loopLength).toBe(3);
-    expect(ctx.events.emit).toHaveBeenCalledWith("fingerprint:loopDetected", {
+    expect(ctx.events.emit).toHaveBeenCalledWith("fingerprint.loop.detected", {
       action,
       similarity: 0,
       loopLength: 3,

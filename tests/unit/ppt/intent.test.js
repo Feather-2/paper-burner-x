@@ -3,20 +3,20 @@ import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 let parseIntent, planOperations, documentToHtml, htmlToDocument;
 
 beforeEach(async () => {
-  const intentParser = await import("../../js/ppt/editor/intent/intent-parser.js");
+  const intentParser = await import("../../../js/ppt/editor/intent/intent-parser.js");
   parseIntent = intentParser.parseIntent;
-  const operationPlanner = await import("../../js/ppt/editor/intent/operation-planner.js");
+  const operationPlanner = await import("../../../js/ppt/editor/intent/operation-planner.js");
   planOperations = operationPlanner.planOperations;
-  const serialize = await import("../../js/ppt/dsl/serialize.js");
+  const serialize = await import("../../../js/ppt/dsl/serialize.js");
   documentToHtml = serialize.documentToHtml;
   htmlToDocument = serialize.htmlToDocument;
 });
 
 async function setupBrowserGlobals() {
   globalThis.window = globalThis;
-  await import("../../js/ppt/editor/event-emitter.js");
-  await import("../../js/ppt/editor/document.js");
-  await import("../../js/ppt/core/slide-parser.js");
+  await import("../../../js/ppt/editor/event-emitter.js");
+  await import("../../../js/ppt/editor/document.js");
+  await import("../../../js/ppt/core/slide-parser.js");
 }
 
 test("IntentParser: regex intents", async () => {

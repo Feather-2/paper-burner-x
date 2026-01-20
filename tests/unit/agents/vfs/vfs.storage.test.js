@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { StorageVfs } from '../../../../js/agents/vfs/vfs.storage.js';
 
+const STORAGE_VFS_URL = new URL("../../../../js/agents/vfs/vfs.storage.js", import.meta.url);
+
 function createMapAdapter() {
   const store = new Map();
   return {
@@ -263,7 +265,7 @@ describe("agents/vfs/vfs.storage (base64 fallback without Buffer)", () => {
     vi.stubGlobal("atob", atob);
 
     vi.resetModules();
-    const mod = await import("../../../js/agents/vfs/vfs.storage.js");
+    const mod = await import(STORAGE_VFS_URL.href);
     const adapter = createMapAdapter();
     const vfs = new mod.StorageVfs(adapter, { keyPrefix: "t3:" });
 
@@ -283,7 +285,7 @@ describe("agents/vfs/vfs.storage (base64 fallback without Buffer)", () => {
     vi.stubGlobal("atob", undefined);
 
     vi.resetModules();
-    const mod = await import("../../../js/agents/vfs/vfs.storage.js");
+    const mod = await import(STORAGE_VFS_URL.href);
     const adapter = createMapAdapter();
     const vfs = new mod.StorageVfs(adapter, { keyPrefix: "t4:" });
 
@@ -296,7 +298,7 @@ describe("agents/vfs/vfs.storage (base64 fallback without Buffer)", () => {
     vi.stubGlobal("btoa", () => "ignored");
 
     vi.resetModules();
-    const mod = await import("../../../js/agents/vfs/vfs.storage.js");
+    const mod = await import(STORAGE_VFS_URL.href);
     const adapter = createMapAdapter();
     const vfs = new mod.StorageVfs(adapter, { keyPrefix: "t5:" });
 

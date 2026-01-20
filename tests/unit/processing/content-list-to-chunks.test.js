@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 async function loadContentListToChunks() {
-  await import('../../js/processing/content-list-to-chunks.js');
+  await import('../../../js/processing/content-list-to-chunks.js');
   return globalThis.ContentListToChunks;
 }
 

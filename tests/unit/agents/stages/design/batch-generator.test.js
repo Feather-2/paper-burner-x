@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("batch-generator module exports generateBatch and generateSingleSlide", async () => {
-  const module = await import("../../../js/agents/stages/design/generators/batch-generator.js");
+  const module = await import("../../../../../js/agents/stages/design/generators/batch-generator.js");
   expect(module.generateBatch, "generateBatch should be exported as a function").toBeTypeOf("function");
   expect(module.generateSingleSlide, "generateSingleSlide should be exported as a function").toBeTypeOf("function");
 });
@@ -48,8 +48,8 @@ function makeContentPackage(slideIntents) {
   };
 }
 
-it("design.slide.started event payload includes complete slideIntent fields", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
+it("design:slide.started event payload includes complete slideIntent fields", async () => {
+  const { generateBatch } = await import("../../../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -71,8 +71,8 @@ it("design.slide.started event payload includes complete slideIntent fields", as
     batchSize: 2,
   });
 
-  const startedEvents = events.filter((e) => e.name === "design.slide.started");
-  expect(startedEvents.length).toBe(2, "should emit design.slide.started for each slide");
+  const startedEvents = events.filter((e) => e.name === "design:slide.started");
+  expect(startedEvents.length).toBe(2, "should emit design:slide.started for each slide");
 
   for (let i = 0; i < startedEvents.length; i++) {
     const evt = startedEvents[i];
@@ -104,8 +104,8 @@ it("design.slide.started event payload includes complete slideIntent fields", as
   expect(s2Event?.record?.payload?.slideIntent?.pageType).toBe("overview");
 });
 
-it("design.slide.failed event payload contains error object with message and stack", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
+it("design:slide.failed event payload contains error object with message and stack", async () => {
+  const { generateBatch } = await import("../../../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -130,8 +130,8 @@ it("design.slide.failed event payload contains error object with message and sta
 
   expect(callCount).toBe(2, "should retry once before falling back");
 
-  const failedEvents = events.filter((e) => e.name === "design.slide.failed");
-  expect(failedEvents.length).toBe(1, "should emit design.slide.failed once");
+  const failedEvents = events.filter((e) => e.name === "design:slide.failed");
+  expect(failedEvents.length).toBe(1, "should emit design:slide.failed once");
 
   const failedEvt = failedEvents[0];
   expect(failedEvt.record?.actor).toBe("design", "actor should be design");
@@ -151,8 +151,8 @@ it("design.slide.failed event payload contains error object with message and sta
   }
 });
 
-it("design.slide.completed event is emitted with correct payload after successful generation", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
+it("design:slide.completed event is emitted with correct payload after successful generation", async () => {
+  const { generateBatch } = await import("../../../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -171,8 +171,8 @@ it("design.slide.completed event is emitted with correct payload after successfu
     batchSize: 1,
   });
 
-  const completedEvents = events.filter((e) => e.name === "design.slide.completed");
-  expect(completedEvents.length).toBe(1, "should emit design.slide.completed once");
+  const completedEvents = events.filter((e) => e.name === "design:slide.completed");
+  expect(completedEvents.length).toBe(1, "should emit design:slide.completed once");
 
   const completedEvt = completedEvents[0];
   expect(completedEvt.record?.actor).toBe("design");
@@ -185,8 +185,8 @@ it("design.slide.completed event is emitted with correct payload after successfu
   expect(["llm", "fallback"].includes(completedEvt.record.payload.source)).toBe(true);
 });
 
-it("design.batch.started and design.batch.completed events are emitted with correct structure", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
+it("design:batch.started and design:batch.completed events are emitted with correct structure", async () => {
+  const { generateBatch } = await import("../../../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -205,11 +205,11 @@ it("design.batch.started and design.batch.completed events are emitted with corr
     batchSize: 2,
   });
 
-  const batchStartedEvents = events.filter((e) => e.name === "design.batch.started");
-  const batchCompletedEvents = events.filter((e) => e.name === "design.batch.completed");
+  const batchStartedEvents = events.filter((e) => e.name === "design:batch.started");
+  const batchCompletedEvents = events.filter((e) => e.name === "design:batch.completed");
 
-  expect(batchStartedEvents.length, "should emit at least one design.batch.started").toBeGreaterThan(0);
-  expect(batchCompletedEvents.length, "should emit at least one design.batch.completed").toBeGreaterThan(0);
+  expect(batchStartedEvents.length, "should emit at least one design:batch.started").toBeGreaterThan(0);
+  expect(batchCompletedEvents.length, "should emit at least one design:batch.completed").toBeGreaterThan(0);
 
   for (const evt of batchStartedEvents) {
     expect(evt.record?.actor).toBe("design");
@@ -228,7 +228,7 @@ it("design.batch.started and design.batch.completed events are emitted with corr
 });
 
 it("generateBatch handles image slots and applies visual slot hints", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
+  const { generateBatch } = await import("../../../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -288,7 +288,7 @@ it("generateBatch handles image slots and applies visual slot hints", async () =
 });
 
 it("fallback generation creates valid slide HTML when model fails", async () => {
-  const { generateSingleSlide } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
+  const { generateSingleSlide } = await import("../../../../../js/agents/stages/design/generators/batch-generator.js");
 
   const slideIntent = makeSlideIntent("s_fallback", "Fallback Slide", "overview");
   const designSystem = makeDesignSystem();

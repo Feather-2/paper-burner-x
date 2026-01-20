@@ -1,7 +1,7 @@
 {
   "$schema": "./.project-index/schemas/test-map.schema.json",
   "version": 1,
-  "generated": "2026-01-20T10:27:39.006Z",
+  "generated": "2026-01-20T10:30:36.232Z",
   "conventions": {
     "unit": {
       "pattern": "tests/{module}/**/*.test.js",

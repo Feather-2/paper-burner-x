@@ -35,7 +35,7 @@ function makeState() {
 }
 
 it("EditHistoryManager supports undo/redo and transactions", async () => {
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const history = new EditHistoryManager(2);
   const state = { count: 0 };
@@ -86,8 +86,8 @@ it("EditHistoryManager supports undo/redo and transactions", async () => {
 });
 
 it("edit tools execute and integrate with history", async () => {
-  const { createEditToolExecutor } = await import("../../../js/agents/stages/design/edit-mode/tools.js");
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { createEditToolExecutor } = await import("../../../../js/agents/stages/design/edit-mode/tools.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const state = makeState();
   const historyManager = new EditHistoryManager();
@@ -163,9 +163,9 @@ it("edit tools execute and integrate with history", async () => {
 });
 
 it("edit loop handles actions, intent parsing, and transitions", async () => {
-  const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
-  const { EditSessionStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { EditModeAgentLoop } = await import("../../../../js/agents/stages/design/edit-mode/edit-loop.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditSessionStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   const state = makeState();
   const historyManager = new EditHistoryManager();
@@ -225,7 +225,7 @@ it("edit loop handles actions, intent parsing, and transitions", async () => {
 });
 
 it("EditHistoryManager handles edge cases and callbacks", async () => {
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const undoCalls = [];
   const redoCalls = [];
@@ -256,7 +256,7 @@ it("EditHistoryManager handles edge cases and callbacks", async () => {
 });
 
 it("EditHistoryManager returns undefined when no undo/redo handlers exist", async () => {
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const history = new EditHistoryManager();
   expect(history._executeUndo({})).toBe(undefined);
@@ -264,8 +264,8 @@ it("EditHistoryManager returns undefined when no undo/redo handlers exist", asyn
 });
 
 it("edit tools cover edge cases and undo/redo paths", async () => {
-  const { createEditToolExecutor } = await import("../../../js/agents/stages/design/edit-mode/tools.js");
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { createEditToolExecutor } = await import("../../../../js/agents/stages/design/edit-mode/tools.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const state = {
     currentSlideIndex: 1,
@@ -357,8 +357,8 @@ it("edit tools cover edge cases and undo/redo paths", async () => {
 });
 
 it("edit loop handles clarification, quick actions, and parsing errors", async () => {
-  const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditModeAgentLoop } = await import("../../../../js/agents/stages/design/edit-mode/edit-loop.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const state = makeState();
   const historyManager = new EditHistoryManager();
@@ -386,7 +386,7 @@ it("edit loop handles clarification, quick actions, and parsing errors", async (
 });
 
 it("EditModeAgentLoop intent parsing fallback and JSON errors", async () => {
-  const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
+  const { EditModeAgentLoop } = await import("../../../../js/agents/stages/design/edit-mode/edit-loop.js");
 
   const loop = new EditModeAgentLoop();
   const fallback = await loop._interpretIntent({
@@ -412,7 +412,7 @@ it("EditModeAgentLoop intent parsing fallback and JSON errors", async () => {
 });
 
 it("EditModeAgentLoop captures canvas context from canvasBridge", async () => {
-  const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
+  const { EditModeAgentLoop } = await import("../../../../js/agents/stages/design/edit-mode/edit-loop.js");
 
   const loop = new EditModeAgentLoop();
   const state = makeState();
@@ -430,8 +430,8 @@ it("EditModeAgentLoop captures canvas context from canvasBridge", async () => {
 });
 
 it("edit loop rolls back transaction when a tool fails", async () => {
-  const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
-  const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
+  const { EditModeAgentLoop } = await import("../../../../js/agents/stages/design/edit-mode/edit-loop.js");
+  const { EditHistoryManager } = await import("../../../../js/agents/stages/design/edit-mode/history.js");
 
   const state = makeState();
   const historyManager = new EditHistoryManager();
@@ -457,7 +457,7 @@ it("edit loop rolls back transaction when a tool fails", async () => {
 });
 
 it("edit loop requires a waitForUserAction or actions queue", async () => {
-  const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
+  const { EditModeAgentLoop } = await import("../../../../js/agents/stages/design/edit-mode/edit-loop.js");
 
   const loop = new EditModeAgentLoop();
   await expect(loop.run(makeState(), {})).rejects.toThrow(/waitForUserAction/);

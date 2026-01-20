@@ -16,7 +16,7 @@ async function withTempDir(fn) {
 }
 
 it("AssetManager: dedup by hash + per-doc refs", async () => {
-  const { AssetManager } = await import("../../../js/agents/ingest/asset-manager.js");
+  const { AssetManager } = await import("../../../../js/agents/ingest/asset-manager.js");
   const m = new AssetManager();
 
   const a1 = { docId: "d1", type: "image", data: "data:image/png;base64,AAAA", mimeType: "image/png", source: "extracted", reusable: true };
@@ -43,7 +43,7 @@ it("AssetManager: dedup by hash + per-doc refs", async () => {
 });
 
 it("AssetManager: hash collision stores distinct assets", async () => {
-  const { AssetManager } = await import("../../../js/agents/ingest/asset-manager.js");
+  const { AssetManager } = await import("../../../../js/agents/ingest/asset-manager.js");
   const m = new AssetManager();
 
   // Force a sampling-hash collision by keeping the sampled slices identical and mutating
@@ -63,7 +63,7 @@ it("AssetManager: hash collision stores distinct assets", async () => {
 });
 
 it("MarkdownAdapter: parses path string + file-like object", async () => {
-  const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
+  const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
 
   await withTempDir(async (dir) => {
     const mdPath = path.join(dir, "note.md");
@@ -97,7 +97,7 @@ it("MarkdownAdapter: parses path string + file-like object", async () => {
 });
 
 it("RawTextAdapter: validates input + produces ParsedDocument", async () => {
-  const { RawTextAdapter } = await import("../../../js/agents/ingest/adapters/raw-text.js");
+  const { RawTextAdapter } = await import("../../../../js/agents/ingest/adapters/raw-text.js");
   const a = new RawTextAdapter({ defaultChunkOptions: { chunkSize: 10, overlap: 0, includeLineNumbers: false } });
 
   await expect(() => a.parse({ text: "   " })).rejects.toThrow(/input\.text is required/);
@@ -111,7 +111,7 @@ it("RawTextAdapter: validates input + produces ParsedDocument", async () => {
 });
 
 it("HistoryAdapter: loads record via injected storageAdapter + maps images to assets", async () => {
-  const { HistoryAdapter } = await import("../../../js/agents/ingest/adapters/history.js");
+  const { HistoryAdapter } = await import("../../../../js/agents/ingest/adapters/history.js");
 
   const storageAdapter = {
     async getResultFromDB(id) {
@@ -141,7 +141,7 @@ it("HistoryAdapter: loads record via injected storageAdapter + maps images to as
 });
 
 it("IngestStage: dispatches rawTexts/historyIds/files + aggregates assets/errors/events", async () => {
-  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { IngestStage } = await import("../../../../js/agents/ingest/ingest-stage.js");
 
   await withTempDir(async (dir) => {
     const mdPath = path.join(dir, "a.md");

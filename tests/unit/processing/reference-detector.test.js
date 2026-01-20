@@ -11,7 +11,7 @@ let consoleLogSpy = null;
 describe("js/processing/reference-detector.esm.js", () => {
   beforeAll(async () => {
     consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    api = await import("../../js/processing/reference-detector.esm.js");
+    api = await import("../../../js/processing/reference-detector.esm.js");
   });
 
   afterAll(() => {

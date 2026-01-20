@@ -94,7 +94,7 @@ vi.mock('../../js/core/processing/semaphore.js', () => ({
 }));
 
 async function loadProcessQueue() {
-  return await import('../../js/core/processing/process-queue.js');
+  return await import('../../../js/core/processing/process-queue.js');
 }
 
 function deferred() {

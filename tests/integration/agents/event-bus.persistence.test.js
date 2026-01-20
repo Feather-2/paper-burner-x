@@ -28,7 +28,7 @@ async function deleteDb(dbName) {
 }
 
 it("EventBus persistence: no adapter keeps behavior unchanged", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_no_adapter" });
 
@@ -42,7 +42,7 @@ it("EventBus persistence: no adapter keeps behavior unchanged", async () => {
 });
 
 it("EventBus persistence: emit() calls adapter.appendEvents asynchronously", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const calls = [];
   const adapter = {
@@ -72,7 +72,7 @@ it("EventBus persistence: emit() calls adapter.appendEvents asynchronously", asy
 });
 
 it("EventBus replay(runId): calls getEvents, marks meta.replay, does not re-persist, seq unchanged", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const persistedBatches = [];
   let getEventsRunId = null;
@@ -127,7 +127,7 @@ it("EventBus replay(runId): calls getEvents, marks meta.replay, does not re-pers
 });
 
 it("EventBus replay(runId): syncs Lamport clock to replayed seq for cross-stage ordering", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const remoteSeq = 1_000_000_000;
   const adapter = {
@@ -159,7 +159,7 @@ it("EventBus replay(runId): syncs Lamport clock to replayed seq for cross-stage 
 });
 
 it("EventBus replay(runId): missing runId throws clear error", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const adapter = {
     appendEvents() {},
@@ -173,7 +173,7 @@ it("EventBus replay(runId): missing runId throws clear error", async () => {
 });
 
 it("EventBus persistenceAdapter validation: missing methods throws", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   expect(() => new EventBus({ persistenceAdapter: {} })).toThrow(/persistenceAdapter\.appendEvents/i);
   expect(() => new EventBus({ persistenceAdapter: { appendEvents() {} } })).toThrow(/persistenceAdapter\.getEvents/i);
@@ -181,8 +181,8 @@ it("EventBus persistenceAdapter validation: missing methods throws", async () =>
 });
 
 it("RunStoreAdapter integrates with RunStore (IndexedDB via fake-indexeddb)", async () => {
-  const { EventBus, RunStoreAdapter, createEventId, createEventRecord } = await import("../../js/agents/core/event-bus.js");
-  const { RunStore } = await import("../../js/agents/storage/run-store.js");
+  const { EventBus, RunStoreAdapter, createEventId, createEventRecord } = await import("../../../js/agents/core/event-bus.js");
+  const { RunStore } = await import("../../../js/agents/storage/run-store.js");
 
   // Small extra coverage for helpers.
   expect(createEventId(null, 1)).toBe("evt_run_1");
@@ -223,7 +223,7 @@ it("RunStoreAdapter integrates with RunStore (IndexedDB via fake-indexeddb)", as
 });
 
 it("EventBus.on(): validates handler type and event name", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
   const bus = new EventBus({ runId: "run_on_validate" });
 
   expect(() => bus.on("run.started", 123)).toThrow(/handler must be a function/i);
@@ -231,7 +231,7 @@ it("EventBus.on(): validates handler type and event name", async () => {
 });
 
 it("EventBus.once()/off(): basic lifecycle", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
   const bus = new EventBus({ runId: "run_once_off" });
 
   let onceHits = 0;
@@ -257,7 +257,7 @@ it("EventBus.once()/off(): basic lifecycle", async () => {
 });
 
 it("EventBus backpressure: coalesces *.progress and keeps non-progress events", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
   const bus = new EventBus({ runId: "run_bp" });
 
   const seen = [];
@@ -281,7 +281,7 @@ it("EventBus backpressure: coalesces *.progress and keeps non-progress events", 
 });
 
 it("EventBus backpressure: disableBackpressure flushes queue and restores synchronous emit", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
   const bus = new EventBus({ runId: "run_bp_disable" });
 
   let hits = 0;
@@ -299,7 +299,7 @@ it("EventBus backpressure: disableBackpressure flushes queue and restores synchr
 });
 
 it("EventBus backpressure: option validation and re-enable flushes pending queue", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
   const bus = new EventBus({ runId: "run_bp_opts" });
 
   expect(() => bus.enableBackpressure("nope")).toThrow(/options must be an object/i);
@@ -319,7 +319,7 @@ it("EventBus backpressure: option validation and re-enable flushes pending queue
 });
 
 it("EventBus backpressure: requestAnimationFrame scheduling and cancellation", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const prevRaf = globalThis.requestAnimationFrame;
   const prevCancel = globalThis.cancelAnimationFrame;
@@ -361,7 +361,7 @@ it("EventBus backpressure: requestAnimationFrame scheduling and cancellation", a
 });
 
 it("EventBus persistence: adapter errors are best-effort (no unhandled rejection)", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   {
     const bus = new EventBus({
@@ -397,7 +397,7 @@ it("EventBus persistence: adapter errors are best-effort (no unhandled rejection
 });
 
 it("EventBus.replay(runId): argument and adapter return validation", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const busNoAdapter = new EventBus({ runId: "run_no_adapter_2" });
   await expect(busNoAdapter.replay("run_no_adapter_2")).rejects.toThrow(/persistenceAdapter is required/i);
@@ -422,7 +422,7 @@ it("EventBus.replay(runId): argument and adapter return validation", async () =>
 });
 
 it("RunStoreAdapter: supports appendEvent-only runStore and validates inputs", async () => {
-  const { RunStoreAdapter } = await import("../../js/agents/core/event-bus.js");
+  const { RunStoreAdapter } = await import("../../../js/agents/core/event-bus.js");
 
   const appended = [];
   const runStore = {
@@ -451,7 +451,7 @@ it("RunStoreAdapter: supports appendEvent-only runStore and validates inputs", a
 });
 
 it("isValidEventName allows underscores in segments", async () => {
-  const { isValidEventName } = await import("../../js/agents/core/event-bus.js");
+  const { isValidEventName } = await import("../../../js/agents/core/event-bus.js");
 
   // 带下划线的事件名应该有效
   expect(isValidEventName("deepsearch.write.react.parse_retry")).toBe(true);

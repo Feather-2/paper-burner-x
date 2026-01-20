@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("DeepSearchState.dispose: unsubscribes + disposes StateEngine and rejects further use", async () => {
-  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
 
   let unsubCalls = 0;
   let engineDisposeCalls = 0;

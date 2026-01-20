@@ -12,9 +12,9 @@ function makeTempFile(content) {
 }
 
 it("SlideSubAgent: generates HTML, extracts visual slots, uses linked context", async () => {
-  const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
-  const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
-  const { SlideStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { SlideSubAgent } = await import("../../../../js/agents/stages/design/subagents/slide-agent.js");
+  const { AssetRegistry } = await import("../../../../js/agents/stages/design/subagents/asset-registry.js");
+  const { SlideStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   const { dir, filePath } = makeTempFile("Quarterly revenue up 12%.");
 
@@ -73,8 +73,8 @@ it("SlideSubAgent: generates HTML, extracts visual slots, uses linked context", 
 });
 
 it("SlideSubAgent: completes when no visual placeholders", async () => {
-  const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
-  const { SlideStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { SlideSubAgent } = await import("../../../../js/agents/stages/design/subagents/slide-agent.js");
+  const { SlideStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   const modelCaller = async () => ({
     content: JSON.stringify([
@@ -98,8 +98,8 @@ it("SlideSubAgent: completes when no visual placeholders", async () => {
 });
 
 it("SlideSubAgent: appends supplemental content and handles missing linked files", async () => {
-  const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
-  const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
+  const { SlideSubAgent } = await import("../../../../js/agents/stages/design/subagents/slide-agent.js");
+  const { AssetRegistry } = await import("../../../../js/agents/stages/design/subagents/asset-registry.js");
 
   const registry = new AssetRegistry();
   registry.addAsset({ assetId: "asset_tagged", type: "image", source: "upload", description: "Chart", tags: ["alpha", "beta"] });
@@ -142,7 +142,7 @@ it("SlideSubAgent: appends supplemental content and handles missing linked files
 });
 
 it("SlideSubAgent: merges supplemental content into markdown objects", async () => {
-  const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
+  const { SlideSubAgent } = await import("../../../../js/agents/stages/design/subagents/slide-agent.js");
 
   let capturedMessages = null;
   const modelCaller = async (messages) => {
@@ -171,8 +171,8 @@ it("SlideSubAgent: merges supplemental content into markdown objects", async () 
 });
 
 it("SlideSubAgent: returns failed when run is cancelled", async () => {
-  const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
-  const { SlideStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { SlideSubAgent } = await import("../../../../js/agents/stages/design/subagents/slide-agent.js");
+  const { SlideStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   const controller = new AbortController();
   controller.abort("Stop");
@@ -192,14 +192,14 @@ it("SlideSubAgent: returns failed when run is cancelled", async () => {
 });
 
 it("SlideSubAgent: throws when required inputs are missing", async () => {
-  const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
+  const { SlideSubAgent } = await import("../../../../js/agents/stages/design/subagents/slide-agent.js");
 
   const agent = new SlideSubAgent({ slideIntent: { slideIntentId: "s_missing" } });
   await expect(agent.run()).rejects.toThrow(/designSystem/);
 });
 
 it("AssetRegistry normalizes categories and links assets", async () => {
-  const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
+  const { AssetRegistry } = await import("../../../../js/agents/stages/design/subagents/asset-registry.js");
 
   const registry = new AssetRegistry({
     uploaded: [{ assetId: "asset_1", source: "upload", context: "Logo" }],
@@ -221,7 +221,7 @@ it("AssetRegistry normalizes categories and links assets", async () => {
 });
 
 it("AssetRegistry generates ids and infers categories", async () => {
-  const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
+  const { AssetRegistry } = await import("../../../../js/agents/stages/design/subagents/asset-registry.js");
 
   const registry = new AssetRegistry();
   const assetId = registry.addAsset({ source: "custom_source", description: "Unknown asset" });

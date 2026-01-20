@@ -63,7 +63,7 @@ describe("runtime/analysis/behavior-fingerprint.js", () => {
   });
 
   it("findConsecutiveLoops detects adjacent repeated patterns (tight loops)", async () => {
-    const { findConsecutiveLoops } = await import("../../../js/agents/runtime/analysis/behavior-fingerprint.js");
+    const { findConsecutiveLoops } = await import("../../../../js/agents/runtime/analysis/behavior-fingerprint.js");
 
     const seq = ["x", "y", "x", "y", "x", "y", "z", "z", "z", "z"];
     const loops = findConsecutiveLoops(seq, 2, 2);

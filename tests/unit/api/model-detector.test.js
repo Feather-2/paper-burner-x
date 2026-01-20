@@ -20,7 +20,7 @@ beforeAll(async () => {
     globalThis.document.addEventListener = () => {};
   }
 
-  const module = await import('../../js/api/model-detector.js');
+  const module = await import('../../../js/api/model-detector.js');
   ({
     appendQueryParamToUrl,
     normalizeOpenAIModelsUrl,

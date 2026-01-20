@@ -32,9 +32,9 @@ function makeSvgGenerator(capture) {
 }
 
 it("VisualSubAgent: generates image/svg/asset and updates statuses", async () => {
-  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
-  const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
-  const { VisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { VisualSubAgent } = await import("../../../../js/agents/stages/design/subagents/visual-agent.js");
+  const { AssetRegistry } = await import("../../../../js/agents/stages/design/subagents/asset-registry.js");
+  const { VisualSlotStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   const registry = new AssetRegistry();
   registry.addAsset({ assetId: "asset_1", type: "image", source: "upload", data: "QUJD", mimeType: "image/png", width: 200, height: 100 });
@@ -65,9 +65,9 @@ it("VisualSubAgent: generates image/svg/asset and updates statuses", async () =>
 });
 
 it("VisualSubAgent: falls back ai-image to svg and marks missing assets failed", async () => {
-  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
-  const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
-  const { VisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { VisualSubAgent } = await import("../../../../js/agents/stages/design/subagents/visual-agent.js");
+  const { AssetRegistry } = await import("../../../../js/agents/stages/design/subagents/asset-registry.js");
+  const { VisualSlotStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   const captured = [];
   const agent = new VisualSubAgent({
@@ -90,8 +90,8 @@ it("VisualSubAgent: falls back ai-image to svg and marks missing assets failed",
 });
 
 it("VisualSubAgent: reports generator errors and marks slots failed", async () => {
-  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
-  const { VisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { VisualSubAgent } = await import("../../../../js/agents/stages/design/subagents/visual-agent.js");
+  const { VisualSlotStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   const agent = new VisualSubAgent({
     imageGenerator: {
@@ -123,9 +123,9 @@ it("VisualSubAgent: reports generator errors and marks slots failed", async () =
 });
 
 it("VisualSubAgent: resolves assets by registry when renderType is missing", async () => {
-  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
-  const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
-  const { VisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { VisualSubAgent } = await import("../../../../js/agents/stages/design/subagents/visual-agent.js");
+  const { AssetRegistry } = await import("../../../../js/agents/stages/design/subagents/asset-registry.js");
+  const { VisualSlotStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   const registry = new AssetRegistry();
   registry.addAsset({ assetId: "asset_x", source: "upload", data: "QUJD", mimeType: "image/png", width: 20, height: 10 });
@@ -141,8 +141,8 @@ it("VisualSubAgent: resolves assets by registry when renderType is missing", asy
 });
 
 it("VisualSubAgent: infers render types and aspect ratios", async () => {
-  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
-  const { VisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { VisualSubAgent } = await import("../../../../js/agents/stages/design/subagents/visual-agent.js");
+  const { VisualSlotStatus } = await import("../../../../js/agents/stages/design/states.js");
 
   const agent = new VisualSubAgent({
     imageGenerator: makeImageGenerator(),

@@ -12,7 +12,7 @@ describe("DeltaSync: hash and manifest", () => {
   let DeltaSyncSession;
 
   beforeEach(async () => {
-    const mod = await import("../../../js/agents/vfs/delta-sync.js");
+    const mod = await import("../../../../js/agents/vfs/delta-sync.js");
     computeHash = mod.computeHash;
     buildManifest = mod.buildManifest;
     computeDelta = mod.computeDelta;
@@ -178,7 +178,7 @@ describe("ConfigValidator: schema validation", () => {
   let CommonSchemas;
 
   beforeEach(async () => {
-    const mod = await import("../../../js/agents/runtime/core/config-validator.js");
+    const mod = await import("../../../../js/agents/runtime/core/config-validator.js");
     ConfigValidator = mod.ConfigValidator;
     validateConfig = mod.validateConfig;
     CommonSchemas = mod.CommonSchemas;
@@ -375,7 +375,7 @@ describe("ErrorBoundary: error handling", () => {
   let withErrorBoundary;
 
   beforeEach(async () => {
-    const mod = await import("../../../js/agents/runtime/core/error-boundary.js");
+    const mod = await import("../../../../js/agents/runtime/core/error-boundary.js");
     ErrorBoundary = mod.ErrorBoundary;
     ErrorCategory = mod.ErrorCategory;
     categorizeError = mod.categorizeError;

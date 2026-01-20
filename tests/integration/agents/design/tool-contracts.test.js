@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 it("fill_visual: normalizes visualSlots -> visualSlotsForRender", async () => {
-  const { createDesignToolHandlers } = await import("../../../js/agents/stages/design/design-tools.js");
+  const { createDesignToolHandlers } = await import("../../../../js/agents/stages/design/design-tools.js");
 
   let calledWith = null;
   const agentLoop = {
@@ -23,7 +23,7 @@ it("fill_visual: normalizes visualSlots -> visualSlotsForRender", async () => {
 });
 
 it("fill_visual: prefers visualSlotsForRender when provided", async () => {
-  const { createDesignToolHandlers } = await import("../../../js/agents/stages/design/design-tools.js");
+  const { createDesignToolHandlers } = await import("../../../../js/agents/stages/design/design-tools.js");
 
   let calledWith = null;
   const agentLoop = {
@@ -46,7 +46,7 @@ it("fill_visual: prefers visualSlotsForRender when provided", async () => {
 });
 
 it("fix_slide: enriches missing currentHtml/designSystem from agentLoop.state", async () => {
-  const { createDesignToolHandlers } = await import("../../../js/agents/stages/design/design-tools.js");
+  const { createDesignToolHandlers } = await import("../../../../js/agents/stages/design/design-tools.js");
 
   const stateDeckHtml = '<section data-type="freeform">state</section>';
   const stateDesignSystem = { brand: "acme" };
@@ -66,7 +66,7 @@ it("fix_slide: enriches missing currentHtml/designSystem from agentLoop.state", 
 });
 
 it("fix_slide: uses enriched values in LLM prompt when available", async () => {
-  const { createDesignToolHandlers } = await import("../../../js/agents/stages/design/design-tools.js");
+  const { createDesignToolHandlers } = await import("../../../../js/agents/stages/design/design-tools.js");
 
   const stateDeckHtml = '<section data-type="freeform">state</section>';
   const stateDesignSystem = { brand: "acme" };
@@ -96,7 +96,7 @@ it("fix_slide: uses enriched values in LLM prompt when available", async () => {
 });
 
 it("fix_slide: respects explicit currentHtml/designSystem over state", async () => {
-  const { createDesignToolHandlers } = await import("../../../js/agents/stages/design/design-tools.js");
+  const { createDesignToolHandlers } = await import("../../../../js/agents/stages/design/design-tools.js");
 
   const stateDeckHtml = '<section data-type="freeform">state</section>';
   const stateDesignSystem = { brand: "state" };
@@ -129,7 +129,7 @@ it("fix_slide: respects explicit currentHtml/designSystem over state", async () 
 });
 
 it("other design tools: basic handler contract sanity", async () => {
-  const { createDesignToolHandlers, getToolDefinitions } = await import("../../../js/agents/stages/design/design-tools.js");
+  const { createDesignToolHandlers, getToolDefinitions } = await import("../../../../js/agents/stages/design/design-tools.js");
 
   const agentLoop = {
     state: {},

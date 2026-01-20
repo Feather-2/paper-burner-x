@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 let createdLoggers = [];
 
 // Avoid console noise in tests and allow assertions on warnings.
-vi.mock("../../../../js/agents/shared/utils/logger.js", () => {
+vi.mock("../../../../../../js/agents/shared/utils/logger.js", () => {
   return {
     createLogger: vi.fn((stage) => {
       const logger = {
@@ -19,13 +19,13 @@ vi.mock("../../../../js/agents/shared/utils/logger.js", () => {
   };
 });
 
-vi.mock("../../../../js/agents/shared/utils/token-cache.js", () => {
+vi.mock("../../../../../../js/agents/shared/utils/token-cache.js", () => {
   return {
     estimateTokensCached: vi.fn(),
   };
 });
 
-vi.mock("../../../../js/agents/shared/utils/secure-id.js", () => {
+vi.mock("../../../../../../js/agents/shared/utils/secure-id.js", () => {
   return {
     makeSecureTimestampedId: vi.fn(() => "archive_mock"),
   };
@@ -45,10 +45,10 @@ afterEach(() => {
 
 describe("runtime/compression/cicada-compressor.js", () => {
   it("compresses tool outputs and tool role messages (truncate/remove/trim depth + arrays)", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../../js/agents/plugins/compression/impl/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ maxTokens: 50 });
     const input = {
@@ -97,10 +97,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("compresses session history: merges merge-safe, removes thinking, anchors system, keeps tool-call pairs, drops orphan tool outputs", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../../js/agents/plugins/compression/impl/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
     const input = {
@@ -146,10 +146,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("session history supports summarizeThinking strategy (including empty thinking messages) and enforces thinkingSummaryMaxChars", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../../js/agents/plugins/compression/impl/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
     const input = {
@@ -186,10 +186,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("session history threshold avoids dangling leading tool messages (no tool-call ids present)", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../../js/agents/plugins/compression/impl/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
     const input = {
@@ -209,10 +209,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("session history supports titleOnly summaries (CJK + English) and summaryLineChars <= 3 truncation", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
     const baseMessages = [
@@ -240,10 +240,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("session history start adjustment skips tool outputs when no preceding assistant tool-call exists", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
 
@@ -267,10 +267,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("compressToolOutput handles string entries + non-JSON-safe values, and keeps small arrays without trimming", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const compressor = new CicadaCompressor();
     const input = {
@@ -301,7 +301,7 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("LLM summary parses JSON, records token stats, and supports modelRouter.call fallback signature", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockImplementation((text) => (String(text).includes("Max tokens") ? 123 : 7));
 
     const modelRouter = {
@@ -322,7 +322,7 @@ describe("runtime/compression/cicada-compressor.js", () => {
       }),
     };
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor({ modelRouter, maxTokens: 99 });
 
     const llm = await compressor._compressWithLLM({ foo: "bar" }, { maxInputChars: 500 });
@@ -338,14 +338,14 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("LLM summary falls back when model returns non-JSON, and uses modelRouter.chat when call() is absent", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(5);
 
     const modelRouter = {
       chat: vi.fn(async () => "not json"),
     };
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor({ modelRouter });
 
     const llm = await compressor._compressWithLLM(
@@ -362,10 +362,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("callModel returns null when modelRouter lacks call/chat, and token stats handle empty summary boundary", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockImplementation((text) => (String(text).length ? 1 : 0));
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor({ modelRouter: {} });
 
     await expect(compressor._callModel([{ role: "user", content: "x" }])).resolves.toBe(null);
@@ -377,7 +377,7 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("LLM summary returns empty payload when context is empty string, and _callModel throws when call() has no fallback signature", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
     const modelRouter = {
@@ -386,7 +386,7 @@ describe("runtime/compression/cicada-compressor.js", () => {
       }),
     };
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor({ modelRouter });
 
     await expect(compressor._callModel([{ role: "user", content: "x" }])).rejects.toThrow(/boom/);
@@ -396,7 +396,7 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("compress() applies layers in default order, archives the original context, and emits events + sharedContext signals", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(1);
 
     const modelRouter = {
@@ -422,7 +422,7 @@ describe("runtime/compression/cicada-compressor.js", () => {
     };
 
     const { CicadaCompressor, CompressionLayer } = await import(
-      "../../../../js/agents/runtime/compression/cicada-compressor.js"
+      "../../../../../js/agents/plugins/compression/impl/cicada-compressor.js"
     );
 
     const compressor = new CicadaCompressor({
@@ -480,10 +480,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("compress() skips llm_summary when modelRouter is missing, and handles non-history contexts", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor, CompressionLayer } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor, CompressionLayer } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ layers: ["llm_summary", "session_history"] });
     const result = await compressor.compress({ value: 1 }, { layers: ["llm_summary", "session_history"] });
@@ -497,10 +497,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("archive thresholds: prunes by maxArchives, listArchives supports pattern, restore warns on unsupported schema versions", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ maxArchives: 2 });
 
@@ -529,10 +529,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("archive adapter modes: set/archive and restore uses adapter.load/get/restore when provided", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const adapterSet = { set: vi.fn() };
     const compressorSet = new CicadaCompressor({ archive: adapterSet });
@@ -559,10 +559,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("archive retention pruning and timestamp parsing handle edge cases", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     // Covers the early-return in _pruneArchiveStore when both constraints are disabled.
     const noPrune = new CicadaCompressor({ maxArchives: Infinity, archiveRetentionDays: null });
@@ -588,10 +588,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("buildHandoff summarizes state todos and sharedContext data", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
@@ -639,10 +639,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("session history summary uses non-titleOnly truncation (preserves tail) for older messages", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
 
@@ -662,10 +662,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("tool output compression keeps small plain objects, drops non-plain objects, and defaults maxToolOutputChars from maxTokens", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     // maxTokens=100 => default maxToolOutputChars = max(200, 100*4)=400
     const compressor = new CicadaCompressor({ maxTokens: 100 });
@@ -695,19 +695,19 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("LLM summary returns empty payload when value-utils.isPlainObject is forced false (normalizeSummaryPayload fallback)", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockImplementation((text) => (String(text).length ? 1 : 0));
 
     // Force normalizeSummaryPayload() to hit the `!isPlainObject(src)` early return.
-    vi.doMock("../../../../js/agents/shared/utils/value-utils.js", async () => {
-      const actual = await vi.importActual("../../../../js/agents/shared/utils/value-utils.js");
+    vi.doMock("../../../../../js/agents/shared/utils/value-utils.js", async () => {
+      const actual = await vi.importActual("../../../../../js/agents/shared/utils/value-utils.js");
       return {
         ...actual,
         isPlainObject: vi.fn(() => false),
       };
     });
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor({ modelRouter: null });
 
     const llm = await compressor._compressWithLLM("Decision: use A\nError: failed hard", { maxInputChars: 500 });
@@ -715,14 +715,14 @@ describe("runtime/compression/cicada-compressor.js", () => {
     expect(llm).toMatchObject({ summary: "", keyPoints: [], decisions: [], errors: [] });
     expect(llm.stats).toEqual({ promptTokens: 1, summaryTokens: 0 });
 
-    vi.doUnmock("../../../../js/agents/shared/utils/value-utils.js");
+    vi.doUnmock("../../../../../js/agents/shared/utils/value-utils.js");
   });
 
   it("session history filtering supports toolCalls + role=function tool messages (toolCallId), and drops orphan function outputs", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
     const { compressed } = compressor._compressSessionHistory(
@@ -745,10 +745,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("session history summarizeThinking falls back to head/tail when no explicit decisions are present", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
     const text = "This is just exploration.\n" + "x".repeat(140) + "\nStill exploring.";
@@ -773,10 +773,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("session history titleOnly uses word-based and char-based truncation for non-CJK messages (prevents merge)", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
 
     // Prevent merge of the older assistant message into the kept tail by adding metadata on the tail.
@@ -807,10 +807,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("session history normalizes string/null entries + message.text, supports history key, and summarizes unknown roles", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
 
     const { compressed } = compressor._compressSessionHistory(
@@ -834,10 +834,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("session history thinking detection supports meta.type + text fallback and summarizes short no-decision thinking without tail", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
 
     const { compressed, stats } = compressor._compressSessionHistory(
@@ -863,10 +863,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("session history kept-window adjustment treats assistant function_call/functionCall as tool-call and avoids dangling tool outputs", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor({ layers: ["session_history"] });
 
     const fnCall = compressor._compressSessionHistory(
@@ -902,10 +902,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("compress() wraps primitive contexts, archives with empty summary when llm_summary is absent, and only signals sharedContext", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor, CompressionLayer } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor, CompressionLayer } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const sharedContext = { setSummary: vi.fn(), setIndex: vi.fn(), signal: vi.fn() };
     const compressor = new CicadaCompressor({ modelRouter: null });
@@ -926,10 +926,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("compressToolOutput counts tool message content via content/output/result/empty fallbacks", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor();
 
     const { compressed, stats } = compressor._compressToolOutput(
@@ -949,7 +949,7 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("_compressWithLLM accepts resp.text + raw objects, and normalizes wrong-type keyPoints/decisions/errors to empty arrays", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(1);
 
     const modelRouterText = {
@@ -958,7 +958,7 @@ describe("runtime/compression/cicada-compressor.js", () => {
       })),
     };
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressorText = new CicadaCompressor({ modelRouter: modelRouterText });
 
     const fromText = await compressorText._compressWithLLM({ any: "ctx" }, { maxInputChars: 500 });
@@ -978,10 +978,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("archive adapter fallbacks: store()/archive() returning empty use key; listArchives pattern can match id when summary doesn't", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
 
     const adapterStore = { store: vi.fn(async () => "") };
     const compressorStore = new CicadaCompressor({ archive: adapterStore });
@@ -999,10 +999,10 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   it("buildHandoff covers fallback fields when sharedContext is missing and todos use title/text fields", async () => {
-    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    const tokenCache = await import("../../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
 
-    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const { CicadaCompressor } = await import("../../../../../js/agents/runtime/compression/cicada-compressor.js");
     const compressor = new CicadaCompressor();
 
     const handoff = compressor.buildHandoff(
@@ -1054,7 +1054,7 @@ describe("runtime/compression/cicada-compressor.js", () => {
       import("node:fs/promises"),
       import("node:url"),
     ]);
-    const cicadaUrl = new URL("../../../../js/agents/runtime/compression/cicada-compressor.js", import.meta.url);
+    const cicadaUrl = new URL("../../../../../js/agents/plugins/compression/impl/cicada-compressor.js", import.meta.url);
     const cicadaPath = fileURLToPath(cicadaUrl);
     const source = await readFile(cicadaUrl, "utf8");
     const importRe = /^import\s+\{\s*([^}]+)\}\s+from\s+["'][^"']+["'];/gm;

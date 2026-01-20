@@ -83,7 +83,7 @@ async function importUserStore({ nodeLike = true, cryptoAvailable = true, crypto
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn() }),
   }));
 
-  const mod = await import("../../../js/agents/skills/user-store.js");
+  const mod = await import("../../../../js/agents/skills/user-store.js");
   return { mod, mocks: { isNodeLikeMock, canUseStorageEncryption, encryptString, decryptString, isEncryptedString } };
 }
 

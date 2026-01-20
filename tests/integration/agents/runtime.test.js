@@ -20,7 +20,7 @@ it("Runtime Constants: report enums + quality mode normalization", async () => {
     normalizeReportLanguage,
     normalizeReportLength,
     normalizeQualityMode,
-  } = await import("../../js/agents/runtime/core/constants.js");
+  } = await import("../../../js/agents/runtime/core/constants.js");
 
   expect(normalizeReportTone("Business")).toBe(ReportTone.BUSINESS);
   expect(normalizeReportTone("ACADEMIC")).toBe(ReportTone.ACADEMIC);
@@ -44,7 +44,7 @@ it("Runtime Constants: report enums + quality mode normalization", async () => {
 });
 
 it("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () => {
-  const { EventBus, isValidEventName } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus, isValidEventName } = await import("../../../js/agents/core/event-bus.js");
 
   expect(isValidEventName("run.started")).toBe(true);
   expect(isValidEventName("textprep.chunk.completed")).toBe(true);
@@ -97,7 +97,7 @@ it("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () => {
 });
 
 it("Core: KernelBuilder applies config for string plugins", async () => {
-  const { KernelBuilder } = await import("../../js/agents/core/index.js");
+  const { KernelBuilder } = await import("../../../js/agents/core/index.js");
 
   const kernel = await KernelBuilder.create()
     .withPreset("minimal")
@@ -113,7 +113,7 @@ it("Core: KernelBuilder applies config for string plugins", async () => {
 });
 
 it("Runtime: JSRuntimeAdapter blocks main-thread fallback unless trusted", async () => {
-  const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
+  const { JSRuntimeAdapter } = await import("../../../js/agents/runtime/core/js-adapter.js");
 
   const js = new JSRuntimeAdapter({ useWorkerSandbox: false });
   const res = await js.execute("return 1 + 1;", { vfs: {}, state: {} });
@@ -123,7 +123,7 @@ it("Runtime: JSRuntimeAdapter blocks main-thread fallback unless trusted", async
 });
 
 it("Runtime: JSRuntimeAdapter allows main-thread fallback when trusted=true", async () => {
-  const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
+  const { JSRuntimeAdapter } = await import("../../../js/agents/runtime/core/js-adapter.js");
 
   const js = new JSRuntimeAdapter({ useWorkerSandbox: false });
   const res = await js.execute("return 40 + 2;", { vfs: {}, state: {}, trusted: true });
@@ -133,7 +133,7 @@ it("Runtime: JSRuntimeAdapter allows main-thread fallback when trusted=true", as
 });
 
 it("Runtime: JSRuntimeAdapter main-thread fallback can be forced allow", async () => {
-  const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
+  const { JSRuntimeAdapter } = await import("../../../js/agents/runtime/core/js-adapter.js");
 
   const js = new JSRuntimeAdapter({ useWorkerSandbox: false, mainThreadFallback: "allow" });
   const res = await js.execute("return 6 * 7;", { vfs: {}, state: {} });
@@ -143,7 +143,7 @@ it("Runtime: JSRuntimeAdapter main-thread fallback can be forced allow", async (
 });
 
 it("Runtime: JSRuntimeAdapter reports aborted when signal already aborted", async () => {
-  const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
+  const { JSRuntimeAdapter } = await import("../../../js/agents/runtime/core/js-adapter.js");
 
   const controller = new AbortController();
   controller.abort("test_abort");
@@ -157,7 +157,7 @@ it("Runtime: JSRuntimeAdapter reports aborted when signal already aborted", asyn
 });
 
 it("Runtime: WorkerRpcClient dispose rejects pending calls and detaches listeners", async () => {
-  const { WorkerRpcClient } = await import("../../js/agents/runtime/core/worker-rpc.js");
+  const { WorkerRpcClient } = await import("../../../js/agents/runtime/core/worker-rpc.js");
 
   class SpyWorker {
     constructor() {
@@ -201,7 +201,7 @@ it("Runtime: WorkerRpcClient dispose rejects pending calls and detaches listener
 });
 
 it("Runtime: WorkerRpcClient dispose clears onmessage/onerror fallback path", async () => {
-  const { WorkerRpcClient } = await import("../../js/agents/runtime/core/worker-rpc.js");
+  const { WorkerRpcClient } = await import("../../../js/agents/runtime/core/worker-rpc.js");
 
   const worker = {
     postMessage() {},
@@ -220,7 +220,7 @@ it("Runtime: WorkerRpcClient dispose clears onmessage/onerror fallback path", as
 });
 
 it("Runtime: WorkerRpcClient call rejects after dispose without creating worker", async () => {
-  const { WorkerRpcClient } = await import("../../js/agents/runtime/core/worker-rpc.js");
+  const { WorkerRpcClient } = await import("../../../js/agents/runtime/core/worker-rpc.js");
 
   let created = 0;
   const client = new WorkerRpcClient({
@@ -241,7 +241,7 @@ it("Runtime: WorkerRpcClient call rejects after dispose without creating worker"
 });
 
 it("MCP: parseSseStream enforces default size limits", async () => {
-  const { parseSseStream } = await import("../../js/agents/mcp/sse.js");
+  const { parseSseStream } = await import("../../../js/agents/mcp/sse.js");
 
   const text = `data: ${"a".repeat(300 * 1024)}\n\n`;
   const bytes = new TextEncoder().encode(text);
@@ -260,7 +260,7 @@ it("MCP: parseSseStream enforces default size limits", async () => {
 });
 
 it("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
-  const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
+  const { MemoryVfs } = await import("../../../js/agents/vfs/vfs.memory.js");
 
   const vfs = new MemoryVfs();
 
@@ -306,7 +306,7 @@ it("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
 });
 
 it("VFS: MemoryVfs mkdir recursive=false semantics", async () => {
-  const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
+  const { MemoryVfs } = await import("../../../js/agents/vfs/vfs.memory.js");
   const vfs = new MemoryVfs();
 
   await vfs.mkdir("dir");
@@ -320,8 +320,8 @@ it("VFS: MemoryVfs mkdir recursive=false semantics", async () => {
 });
 
 it("VFS glob: createVfsGlobFn uses walkFiles + static dir prefix", async () => {
-  const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
-  const { createVfsGlobFn } = await import("../../js/agents/vfs/glob.js");
+  const { MemoryVfs } = await import("../../../js/agents/vfs/vfs.memory.js");
+  const { createVfsGlobFn } = await import("../../../js/agents/vfs/glob.js");
 
   const vfs = new MemoryVfs();
   await vfs.writeText("src/a.js", "x");
@@ -342,7 +342,7 @@ it("VFS glob: createVfsGlobFn uses walkFiles + static dir prefix", async () => {
 });
 
 it("VFS operations: writeTextFileWithPolicy serializes concurrent writes", async () => {
-  const { writeTextFileWithPolicy } = await import("../../js/agents/vfs/operations.js");
+  const { writeTextFileWithPolicy } = await import("../../../js/agents/vfs/operations.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -371,8 +371,8 @@ it("VFS operations: writeTextFileWithPolicy serializes concurrent writes", async
 });
 
 it("VFS operations: multiEditTextFileWithPolicy supports indentation-normalized fallback", async () => {
-  const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
-  const { multiEditTextFileWithPolicy } = await import("../../js/agents/vfs/operations.js");
+  const { MemoryVfs } = await import("../../../js/agents/vfs/vfs.memory.js");
+  const { multiEditTextFileWithPolicy } = await import("../../../js/agents/vfs/operations.js");
 
   const vfs = new MemoryVfs();
   const before = ["function outer() {", "  if (a) {", "    return 1;", "  }", "}", ""].join("\n");
@@ -394,7 +394,7 @@ it("VFS operations: multiEditTextFileWithPolicy supports indentation-normalized 
 });
 
 it("Runtime Core: EventBus backpressure default stays synchronous", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   let hits = 0;
@@ -407,7 +407,7 @@ it("Runtime Core: EventBus backpressure default stays synchronous", async () => 
 });
 
 it("Runtime Core: EventBus backpressure batching + coalesce + order + seq", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const seqOf = (evt) => Number(String(evt.eventId).split("_").at(-1));
@@ -452,7 +452,7 @@ it("Runtime Core: EventBus backpressure batching + coalesce + order + seq", asyn
 });
 
 it("Runtime Core: EventBus backpressure custom coalescePattern + disable restores sync", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -491,7 +491,7 @@ it("Runtime Core: EventBus backpressure custom coalescePattern + disable restore
 });
 
 it("Runtime Core: EventBus backpressure batchWindowMs controls flush timing", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -512,7 +512,7 @@ it("Runtime Core: EventBus backpressure batchWindowMs controls flush timing", as
 });
 
 it("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const originalRaf = globalThis.requestAnimationFrame;
   const originalCancel = globalThis.cancelAnimationFrame;
@@ -543,7 +543,7 @@ it("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
 });
 
 it("Runtime Core: EventBus backpressure ignores stale scheduled flush callbacks", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const originalRaf = globalThis.requestAnimationFrame;
   const originalCancel = globalThis.cancelAnimationFrame;
@@ -590,7 +590,7 @@ it("Runtime Core: EventBus backpressure ignores stale scheduled flush callbacks"
 });
 
 it("Runtime Core: EventBus validation errors", async () => {
-  const { EventBus, createEventRecord } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus, createEventRecord } = await import("../../../js/agents/core/event-bus.js");
 
   expect(() => createEventRecord({ name: "Bad.Name" })).toThrow(/Invalid event name/);
 
@@ -604,7 +604,7 @@ it("Runtime Core: EventBus validation errors", async () => {
 });
 
 it("Runtime Core: EventBus backpressure re-enable flushes queued and cancels timer", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -631,7 +631,7 @@ it("Runtime Core: EventBus backpressure re-enable flushes queued and cancels tim
 });
 
 it("Runtime Core: EventBus persistence adapter best-effort appendEvents", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -677,7 +677,7 @@ it("Runtime Core: EventBus persistence adapter best-effort appendEvents", async 
 });
 
 it("Runtime Core: EventBus replay loads events and marks meta.replay", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   // No adapter -> clear error.
   await expect(() => new EventBus().replay("run_test")).rejects.toThrow(/persistenceAdapter is required/);
@@ -728,7 +728,7 @@ it("Runtime Core: EventBus replay loads events and marks meta.replay", async () 
 });
 
 it("Runtime Core: RunStoreAdapter validation + appendEvents branches", async () => {
-  const { RunStoreAdapter } = await import("../../js/agents/core/event-bus.js");
+  const { RunStoreAdapter } = await import("../../../js/agents/core/event-bus.js");
 
   expect(() => new RunStoreAdapter(null)).toThrow(/runStore.getEvents must be a function/);
   expect(() => new RunStoreAdapter({ getEvents: async () => [] }), /appendEvents\/appendEvent/);
@@ -788,7 +788,7 @@ it("Runtime Core: RunStoreAdapter validation + appendEvents branches", async () 
 // 以下测试引用了已删除的 run-context.js 和 orchestrator.js，已移除
 
 it("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const deepSearchEvents = [];
@@ -810,7 +810,7 @@ it("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
 });
 
 it("Runtime Core: EventBus subscribe returns unsubscribe function", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const events = [];
@@ -827,7 +827,7 @@ it("Runtime Core: EventBus subscribe returns unsubscribe function", async () => 
 });
 
 it("Runtime Core: EventBus subscribe with priority executes in order", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const execution = [];
@@ -845,7 +845,7 @@ it("Runtime Core: EventBus subscribe with priority executes in order", async () 
 });
 
 it("Runtime Core: EventBus subscribe with priority + wildcard", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const execution = [];
@@ -862,7 +862,7 @@ it("Runtime Core: EventBus subscribe with priority + wildcard", async () => {
 });
 
 it("Runtime Core: EventBus subscribe priority unsubscribe cleanup", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const execution = [];
@@ -882,7 +882,7 @@ it("Runtime Core: EventBus subscribe priority unsubscribe cleanup", async () => 
 });
 
 it("Runtime Core: EventBus subscribe priority validation", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
 
@@ -891,7 +891,7 @@ it("Runtime Core: EventBus subscribe priority validation", async () => {
 });
 
 it("Runtime Core: EventBus listener errors are isolated (sync + async)", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const errors = [];
   const bus = new EventBus({
@@ -924,8 +924,8 @@ it("Runtime Core: EventBus listener errors are isolated (sync + async)", async (
 });
 
 it("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { subscribeTelemetry } = await import("../../js/agents/runtime/telemetry/runstore-telemetry.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { subscribeTelemetry } = await import("../../../js/agents/runtime/telemetry/runstore-telemetry.js");
 
   const bus = new EventBus({ runId: "run_telemetry" });
   const stored = [];
@@ -948,8 +948,8 @@ it("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", asy
 });
 
 it("Runtime Telemetry: subscribeTelemetry flush surfaces appendEvent errors", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { subscribeTelemetry } = await import("../../js/agents/runtime/telemetry/runstore-telemetry.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { subscribeTelemetry } = await import("../../../js/agents/runtime/telemetry/runstore-telemetry.js");
 
   const bus = new EventBus({ runId: "run_telemetry_error" });
   const stored = [];
@@ -974,8 +974,8 @@ it("Runtime Telemetry: subscribeTelemetry flush surfaces appendEvent errors", as
 });
 
 it("Runtime Telemetry: subscribeTelemetry skips replay events", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { subscribeTelemetry } = await import("../../js/agents/runtime/telemetry/runstore-telemetry.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { subscribeTelemetry } = await import("../../../js/agents/runtime/telemetry/runstore-telemetry.js");
 
   const bus = new EventBus({ runId: "run_telemetry_replay" });
   const stored = [];
@@ -997,7 +997,7 @@ it("Runtime Telemetry: subscribeTelemetry skips replay events", async () => {
 it("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for sync work", async () => {
   const path = require("node:path");
   const { pathToFileURL } = require("node:url");
-  const { ToolExecutor } = await import("../../js/agents/runtime/tools/tool-executor.js");
+  const { ToolExecutor } = await import("../../../js/agents/runtime/tools/tool-executor.js");
 
   const fixturePath = path.join(__dirname, "../fixtures/tool-executor/busy-loop.mjs");
   const moduleUrl = pathToFileURL(fixturePath).href;
@@ -1023,7 +1023,7 @@ it("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for sync 
 });
 
 it("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
-  const { __test } = await import("../../js/agents/runtime/tools/tool-executor.js");
+  const { __test } = await import("../../../js/agents/runtime/tools/tool-executor.js");
   const WorkerPool = __test?.WorkerPool;
   expect(typeof WorkerPool).toBe("function");
 
@@ -1063,7 +1063,7 @@ it("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
 });
 
 it("Runtime Compression: anchors preserve initial system prompts across repeated compression", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   const loop = new BaseAgentLoop({
     stageName: "test",
@@ -1105,7 +1105,7 @@ it("Runtime Compression: anchors preserve initial system prompts across repeated
 });
 
 it("Runtime Compression: title-only mode trims old messages aggressively", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   const loop = new BaseAgentLoop({
     stageName: "test",
@@ -1140,7 +1140,7 @@ it("Runtime Compression: title-only mode trims old messages aggressively", async
 });
 
 it("Runtime Compression: _scheduleCompression is idempotent and flushCompression resolves", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   const loop = new BaseAgentLoop({
     stageName: "test",
@@ -1164,7 +1164,7 @@ it("Runtime Compression: _scheduleCompression is idempotent and flushCompression
 });
 
 it("AgentOrchestrator: stage timeout timer is cleaned up on success", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
+  const { AgentOrchestrator } = await import("../../../js/agents/runtime/orchestrator.js");
 
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
@@ -1212,7 +1212,7 @@ it("PromptLoader: LRU cache evicts oldest prompts", async () => {
     clearPromptCache,
     getCachedPromptNames,
     configurePromptCache,
-  } = await import("../../js/agents/prompts/prompt-loader.js");
+  } = await import("../../../js/agents/prompts/prompt-loader.js");
 
   clearPromptCache();
   const original = configurePromptCache();
@@ -1241,7 +1241,7 @@ it("PromptLoader: LRU cache evicts oldest prompts", async () => {
 });
 
 it("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async () => {
-  const { loadPrompt, clearPromptCache } = await import("../../js/agents/prompts/prompt-loader.js");
+  const { loadPrompt, clearPromptCache } = await import("../../../js/agents/prompts/prompt-loader.js");
 
   const originalProcess = globalThis.process;
   const originalFetch = globalThis.fetch;
@@ -1308,7 +1308,7 @@ it("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async ()
 });
 
 it("PromptLoader: maxPromptBytes blocks oversized prompt fetch (browser)", async () => {
-  const { PromptLoader } = await import("../../js/agents/prompts/prompt-loader.js");
+  const { PromptLoader } = await import("../../../js/agents/prompts/prompt-loader.js");
 
   const originalProcess = globalThis.process;
   globalThis.process = undefined;
@@ -1359,7 +1359,7 @@ it("PromptLoader: maxPromptBytes blocks oversized prompt fetch (browser)", async
 });
 
 it("PromptLoader: maxManifestBytes rejects oversized manifest then falls back to basePath fetch", async () => {
-  const { PromptLoader } = await import("../../js/agents/prompts/prompt-loader.js");
+  const { PromptLoader } = await import("../../../js/agents/prompts/prompt-loader.js");
 
   const originalProcess = globalThis.process;
   globalThis.process = undefined;
@@ -1409,7 +1409,7 @@ it("PromptLoader: maxManifestBytes rejects oversized manifest then falls back to
 });
 
 it("ConfigLoader: loadAgentConfig loads .agent/agent.md in Node", async () => {
-  const { loadAgentConfig } = await import("../../js/agents/sdk/config-loader.js");
+  const { loadAgentConfig } = await import("../../../js/agents/sdk/config-loader.js");
   const fs = require("node:fs/promises");
   const path = require("node:path");
   const os = require("node:os");
@@ -1445,7 +1445,7 @@ it("ConfigLoader: loadAgentConfig loads .agent/agent.md in Node", async () => {
 });
 
 it("ConfigLoader: loadAgentConfig degrades gracefully without Node APIs", async () => {
-  const { loadAgentConfig } = await import("../../js/agents/sdk/config-loader.js");
+  const { loadAgentConfig } = await import("../../../js/agents/sdk/config-loader.js");
 
   const originalProcess = globalThis.process;
   try {
@@ -1460,8 +1460,8 @@ it("ConfigLoader: loadAgentConfig degrades gracefully without Node APIs", async 
 });
 
 it("BaseAgentLoop: strict loopStatus transitions reject illegal jumps", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
-  const { AgentStatus } = await import("../../js/agents/runtime/core/agent-status.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
+  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
 
   const strictLoop = new BaseAgentLoop({ actor: "test", stageName: "test", strictLoopStatus: true });
   strictLoop.initLoopStatus({ status: AgentStatus.IDLE });
@@ -1492,7 +1492,7 @@ it("PlanStore: lifecycle transitions enforce draft→approved→in_progress", as
     createPlan,
     canTransitionPlanLifecycle,
     setPlanLifecycleStatus,
-  } = await import("../../js/agents/runtime/plan/plan-store.js");
+  } = await import("../../../js/agents/runtime/plan/plan-store.js");
 
   const plan = createPlan({ runId: "run_test", title: "T", steps: [] });
   expect(plan.lifecycleStatus).toBe(PlanLifecycleStatus.DRAFT);
@@ -1515,7 +1515,7 @@ it("PlanStore: lifecycle transitions enforce draft→approved→in_progress", as
 });
 
 it("PolicyEngine: domain suffix + all/any/not + timeRange matching", async () => {
-  const { PolicyEngine } = await import("../../js/agents/runtime/policy/engine.js");
+  const { PolicyEngine } = await import("../../../js/agents/runtime/policy/engine.js");
 
   const engine = new PolicyEngine({
     defaultEffect: "prompt",
@@ -1644,7 +1644,7 @@ function createFakeTime(startMs = 0) {
 }
 
 it("RuntimeScheduler: health status transitions (failures + latency)", async () => {
-  const { RuntimeScheduler, RuntimeHealthStatus } = await import("../../js/agents/runtime/core/scheduler.js");
+  const { RuntimeScheduler, RuntimeHealthStatus } = await import("../../../js/agents/runtime/core/scheduler.js");
 
   const time = createFakeTime(0);
   const scheduler = new RuntimeScheduler({
@@ -1711,7 +1711,7 @@ it("RuntimeScheduler: health status transitions (failures + latency)", async () 
 });
 
 it("RuntimeScheduler: isolation blocks dispatch and recoveryCheck restores runtime", async () => {
-  const { RuntimeScheduler, RuntimeHealthStatus } = await import("../../js/agents/runtime/core/scheduler.js");
+  const { RuntimeScheduler, RuntimeHealthStatus } = await import("../../../js/agents/runtime/core/scheduler.js");
 
   const time = createFakeTime(0);
   const scheduler = new RuntimeScheduler({
@@ -1768,7 +1768,7 @@ it("RuntimeScheduler: isolation blocks dispatch and recoveryCheck restores runti
 });
 
 it("Runtime: TaskGraph layered topo sort + cycle/missing detection", async () => {
-  const { TaskGraph } = await import("../../js/agents/runtime/parallel/task-graph.js");
+  const { TaskGraph } = await import("../../../js/agents/runtime/parallel/task-graph.js");
 
   const g = new TaskGraph();
   g.addTask("A");
@@ -1790,7 +1790,7 @@ it("Runtime: TaskGraph layered topo sort + cycle/missing detection", async () =>
 });
 
 it("Runtime: TaskGraph handles boundary inputs and allowMissingDependencies", async () => {
-  const { TaskGraph } = await import("../../js/agents/runtime/parallel/task-graph.js");
+  const { TaskGraph } = await import("../../../js/agents/runtime/parallel/task-graph.js");
 
   const graph = new TaskGraph();
   expect(() => graph.addTask("")).toThrow(/non-empty string/i);
@@ -1819,7 +1819,7 @@ it("Runtime: TaskGraph handles boundary inputs and allowMissingDependencies", as
 });
 
 it("Runtime: command classifier parses compound commands and flags danger", async () => {
-  const { classifyCommand, parseCompoundCommand } = await import("../../js/agents/runtime/safety/command-classifier.js");
+  const { classifyCommand, parseCompoundCommand } = await import("../../../js/agents/runtime/safety/command-classifier.js");
 
   expect(parseCompoundCommand("echo hi && ls")).toEqual([["echo", "hi"], ["ls"]]);
   expect(classifyCommand(["ls", "-la"]).level).toBe("safe");
@@ -1844,8 +1844,8 @@ it("Runtime: command classifier parses compound commands and flags danger", asyn
 });
 
 it("Runtime: AgentCheckpointStore persists and restores checkpoints", async () => {
-  const { AgentCheckpointStore } = await import("../../js/agents/runtime/checkpoints/agent-checkpoint-store.js");
-  const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
+  const { AgentCheckpointStore } = await import("../../../js/agents/runtime/checkpoints/agent-checkpoint-store.js");
+  const { MemoryVfs } = await import("../../../js/agents/vfs/vfs.memory.js");
 
   const vfs = new MemoryVfs();
   const store = new AgentCheckpointStore({ vfs, runId: "run_test" });
@@ -1876,9 +1876,9 @@ it("Runtime: AgentCheckpointStore persists and restores checkpoints", async () =
 });
 
 it("Runtime: EventBus hook registry attaches and PreToolUse hook can block", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
-  const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../../js/agents/runtime/hooks/event-bus-hooks.js");
+  const { createPreToolUseHook } = await import("../../../js/agents/runtime/hooks/hook-runner.js");
 
   const bus = new EventBus();
   enhanceEventBusWithHooks(bus);
@@ -1903,9 +1903,9 @@ it("Runtime: EventBus hook registry attaches and PreToolUse hook can block", asy
 });
 
 it("Runtime: PreToolUse prompt hook allows/denies based on model output", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
-  const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../../js/agents/runtime/hooks/event-bus-hooks.js");
+  const { createPreToolUseHook } = await import("../../../js/agents/runtime/hooks/hook-runner.js");
 
   const bus = new EventBus();
   enhanceEventBusWithHooks(bus);
@@ -1946,9 +1946,9 @@ it("Runtime: PreToolUse prompt hook allows/denies based on model output", async 
 });
 
 it("Runtime: PreToolUse prompt hook blocks on unparseable decision when blocking=true", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
-  const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../../js/agents/runtime/hooks/event-bus-hooks.js");
+  const { createPreToolUseHook } = await import("../../../js/agents/runtime/hooks/hook-runner.js");
 
   const bus = new EventBus();
   enhanceEventBusWithHooks(bus);
@@ -1975,9 +1975,9 @@ it("Runtime: PreToolUse prompt hook blocks on unparseable decision when blocking
 });
 
 it("Runtime: PreToolUse agent hook can block and can be cleared", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
-  const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../../js/agents/runtime/hooks/event-bus-hooks.js");
+  const { createPreToolUseHook } = await import("../../../js/agents/runtime/hooks/hook-runner.js");
 
   const bus = new EventBus();
   enhanceEventBusWithHooks(bus);
@@ -2011,7 +2011,7 @@ it("Runtime: PreToolUse agent hook can block and can be cleared", async () => {
 });
 
 it("LLM: parseContextOverflowError handles OpenAI-style messages", async () => {
-  const { parseContextOverflowError, computeOverflowRetryMaxTokens } = await import("../../js/agents/llm/overflow-recovery.js");
+  const { parseContextOverflowError, computeOverflowRetryMaxTokens } = await import("../../../js/agents/llm/overflow-recovery.js");
 
   const err = new Error(
     "This model's maximum context length is 8192 tokens. However, you requested 9000 tokens (8000 in the messages, 1000 in the completion)."
@@ -2026,7 +2026,7 @@ it("LLM: parseContextOverflowError handles OpenAI-style messages", async () => {
 });
 
 it("LLM: overflow recovery parses and retries with reduced max_tokens", async () => {
-  const { CliModelClient } = await import("../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -2088,7 +2088,7 @@ it("LLM: overflow recovery parses and retries with reduced max_tokens", async ()
 });
 
 it("Runtime: AgentOrchestrator.runStagesGraph executes by dependency levels", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
+  const { AgentOrchestrator } = await import("../../../js/agents/runtime/orchestrator.js");
 
   const orch = new AgentOrchestrator({ scheduling: { mode: "parallel", maxConcurrency: 10 } });
   orch.registerStage("a", async () => "A");
@@ -2107,7 +2107,7 @@ it("Runtime: AgentOrchestrator.runStagesGraph executes by dependency levels", as
 });
 
 it("Runtime: AgentOrchestrator.runStagesGraph skips dependents after failure when continueOnError=true", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
+  const { AgentOrchestrator } = await import("../../../js/agents/runtime/orchestrator.js");
 
   const orch = new AgentOrchestrator({ scheduling: { mode: "parallel", maxConcurrency: 10 } });
   orch.registerStage("a", async () => {
@@ -2130,7 +2130,7 @@ it("Runtime: AgentOrchestrator.runStagesGraph skips dependents after failure whe
 });
 
 it("Runtime: concurrent agent loops keep isolated sessions", async () => {
-  const { DefaultAgentLoop } = await import("../../js/agents/sdk/DefaultAgentLoop.js");
+  const { DefaultAgentLoop } = await import("../../../js/agents/sdk/DefaultAgentLoop.js");
 
   const makeCallModel = (label, delayMs) => async () => {
     await new Promise((resolve) => setTimeout(resolve, delayMs));

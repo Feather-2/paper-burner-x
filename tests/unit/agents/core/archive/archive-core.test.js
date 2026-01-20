@@ -183,6 +183,82 @@ describe('Archive', () => {
       expect(archive._saveLocks.size).toBe(0);
     });
 
+    it('per-runId mutex allows different runIds to save concurrently', async () => {
+      const storage = createStorageAdapter();
+      const archive = new Archive(storage);
+      const callOrder = [];
+
+      const originalSet = storage.set;
+      storage.set = vi.fn(async (key, value) => {
+        callOrder.push({ key, start: Date.now() });
+        await new Promise((r) => setTimeout(r, 10));
+        callOrder.push({ key, end: Date.now() });
+        return originalSet(key, value);
+      });
+
+      const [idA, idB] = await Promise.all([
+        archive.save('runA', { timestamp: '100', nodeStates: { a: 1 } }),
+        archive.save('runB', { timestamp: '100', nodeStates: { b: 2 } }),
+      ]);
+
+      expect(idA).toBe('runA:100');
+      expect(idB).toBe('runB:100');
+      expect(storage.set).toHaveBeenCalledTimes(2);
+
+      const startKeys = callOrder.filter((e) => e.start).map((e) => e.key);
+      expect(startKeys).toContain('runA:100');
+      expect(startKeys).toContain('runB:100');
+    });
+
+    it('throws CHECKPOINT_ID_COLLISION after 100 collision attempts', async () => {
+      const storage = createStorageAdapter();
+      const archive = new Archive(storage);
+
+      storage.get = vi.fn(async () => ({ nodeStates: {} }));
+
+      await expect(archive.save('run', { timestamp: '999', nodeStates: {} })).rejects.toThrow(
+        'CHECKPOINT_ID_COLLISION'
+      );
+      expect(storage.get).toHaveBeenCalledTimes(101);
+    });
+
+    it('preserves schemaVersion in saved snapshot', async () => {
+      const storage = createStorageAdapter();
+      const archive = new Archive(storage);
+
+      const checkpointId = await archive.save('run', {
+        timestamp: '50',
+        nodeStates: { x: 1 },
+        schemaVersion: 'v2.0',
+      });
+
+      const stored = storage.store.get(checkpointId);
+      expect(stored.schemaVersion).toBe('v2.0');
+    });
+
+    it('forces full snapshot when fullSnapshotEvery threshold is reached', async () => {
+      const storage = createStorageAdapter();
+      const archive = new Archive(storage, {
+        diff: { enabled: true, minSavingsBytes: 1, fullSnapshotEvery: 3, maxOps: 100, maxDepth: 5 },
+      });
+
+      safeJsonSize.mockImplementation((value) => (value && value.encoding === 'diff' ? 10 : 1000));
+
+      await archive.save('run', { timestamp: '1', nodeStates: { a: 1 } });
+      expect(archive._diffSinceFullByRunId.get('run')).toBe(0);
+
+      await archive.save('run', { timestamp: '2', nodeStates: { a: 2 } });
+      expect(archive._diffSinceFullByRunId.get('run')).toBe(1);
+
+      await archive.save('run', { timestamp: '3', nodeStates: { a: 3 } });
+      expect(archive._diffSinceFullByRunId.get('run')).toBe(2);
+
+      const fourthId = await archive.save('run', { timestamp: '4', nodeStates: { a: 4 } });
+      const fourthStored = storage.store.get(fourthId);
+      expect(fourthStored.encoding).toBeUndefined();
+      expect(archive._diffSinceFullByRunId.get('run')).toBe(0);
+    });
+
     it('stores diff snapshots when savings exceed threshold (large payload + deep nesting)', async () => {
       const storage = createStorageAdapter();
       const archive = new Archive(storage, {
@@ -357,6 +433,88 @@ describe('Archive', () => {
       const archive = new Archive(storage);
 
       await expect(archive.restore('run:51')).rejects.toThrow('Checkpoint restore max depth exceeded');
+    });
+
+    it('restores schemaVersion from stored snapshot', async () => {
+      const storage = createStorageAdapter({
+        'run:1': { nodeStates: { a: 1 }, timestamp: '1', schemaVersion: 'v3.0' },
+      });
+      const archive = new Archive(storage);
+
+      const result = await archive.restore('run:1');
+
+      expect(result.schemaVersion).toBe('v3.0');
+    });
+
+    it('evicts oldest entries when restore cache exceeds max', async () => {
+      const storage = createStorageAdapter({
+        'run:1': { nodeStates: { a: 1 }, timestamp: '1' },
+        'run:2': { nodeStates: { a: 2 }, timestamp: '2' },
+        'run:3': { nodeStates: { a: 3 }, timestamp: '3' },
+      });
+      const archive = new Archive(storage, { restoreCacheMax: 2 });
+
+      await archive.restore('run:1');
+      await archive.restore('run:2');
+
+      expect(archive._restoreCache.size).toBe(2);
+      expect(archive._restoreCache.has('run:1')).toBe(true);
+      expect(archive._restoreCache.has('run:2')).toBe(true);
+
+      await archive.restore('run:3');
+
+      expect(archive._restoreCache.size).toBe(2);
+      expect(archive._restoreCache.has('run:1')).toBe(false);
+      expect(archive._restoreCache.has('run:2')).toBe(true);
+      expect(archive._restoreCache.has('run:3')).toBe(true);
+    });
+
+    it('touchRestoreCache promotes recently accessed entries', async () => {
+      const storage = createStorageAdapter({
+        'run:1': { nodeStates: { a: 1 }, timestamp: '1' },
+        'run:2': { nodeStates: { a: 2 }, timestamp: '2' },
+        'run:3': { nodeStates: { a: 3 }, timestamp: '3' },
+      });
+      const archive = new Archive(storage, { restoreCacheMax: 2 });
+
+      await archive.restore('run:1');
+      await archive.restore('run:2');
+
+      await archive.restore('run:1');
+
+      await archive.restore('run:3');
+
+      expect(archive._restoreCache.has('run:1')).toBe(true);
+      expect(archive._restoreCache.has('run:2')).toBe(false);
+      expect(archive._restoreCache.has('run:3')).toBe(true);
+    });
+
+    it('skips cache operations when restoreCacheMax is 0', async () => {
+      const storage = createStorageAdapter({
+        'run:1': { nodeStates: { a: 1 }, timestamp: '1' },
+      });
+      const archive = new Archive(storage, { restoreCacheMax: 0 });
+
+      await archive.restore('run:1');
+      await archive.restore('run:1');
+
+      expect(archive._restoreCache.size).toBe(0);
+      expect(storage.get).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not evict when restoreCacheMax is Infinity', async () => {
+      const storage = createStorageAdapter({
+        'run:1': { nodeStates: { a: 1 }, timestamp: '1' },
+        'run:2': { nodeStates: { a: 2 }, timestamp: '2' },
+        'run:3': { nodeStates: { a: 3 }, timestamp: '3' },
+      });
+      const archive = new Archive(storage, { restoreCacheMax: Infinity });
+
+      await archive.restore('run:1');
+      await archive.restore('run:2');
+      await archive.restore('run:3');
+
+      expect(archive._restoreCache.size).toBe(3);
     });
   });
 

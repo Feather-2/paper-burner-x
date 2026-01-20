@@ -60,7 +60,7 @@ function createFakeSignal() {
 }
 
 it("Design model-caller: logger injection, debug gating, hard timeout, and cleanup", async () => {
-  const { NonRetryableError, isNonRetryableError, getDesignModelCaller, setLogger } = await import("../../../js/agents/stages/design/model.js");
+  const { NonRetryableError, isNonRetryableError, getDesignModelCaller, setLogger } = await import("../../../../js/agents/stages/design/model.js");
 
   // NonRetryable helpers (exported)
   expect(isNonRetryableError(null)).toBe(false);

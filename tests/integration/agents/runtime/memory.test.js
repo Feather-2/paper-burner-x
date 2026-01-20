@@ -10,7 +10,7 @@ afterEach(() => {
 
 describe("runtime/memory/state-diff.js", () => {
   it("cloneJson falls back safely for non-clonable values", async () => {
-    const { cloneJson } = await import("../../../js/agents/runtime/memory/state-diff.js");
+    const { cloneJson } = await import("../../../../js/agents/runtime/memory/state-diff.js");
 
     const fn = () => "x";
     expect(cloneJson(fn)).toBe(fn);
@@ -20,7 +20,7 @@ describe("runtime/memory/state-diff.js", () => {
   });
 
   it("applyStatePatch validates ops and unsafe paths", async () => {
-    const { applyStatePatch } = await import("../../../js/agents/runtime/memory/state-diff.js");
+    const { applyStatePatch } = await import("../../../../js/agents/runtime/memory/state-diff.js");
 
     expect(() => applyStatePatch({ a: 1 }, [{ op: "noop", path: ["a"], value: 2 }])).toThrow(
       /invalid_patch_op/
@@ -32,7 +32,7 @@ describe("runtime/memory/state-diff.js", () => {
   });
 
   it("applyStatePatch supports object/array add-remove-replace and rejects negative array indices", async () => {
-    const { applyStatePatch } = await import("../../../js/agents/runtime/memory/state-diff.js");
+    const { applyStatePatch } = await import("../../../../js/agents/runtime/memory/state-diff.js");
 
     const base = { a: { b: 1 }, arr: ["x", "y"] };
     const next = applyStatePatch(base, [
@@ -51,7 +51,7 @@ describe("runtime/memory/state-diff.js", () => {
   });
 
   it("buildStatePatch respects maxDepth/maxOps/maxArrayOps and unsafe-key abort", async () => {
-    const { buildStatePatch } = await import("../../../js/agents/runtime/memory/state-diff.js");
+    const { buildStatePatch } = await import("../../../../js/agents/runtime/memory/state-diff.js");
 
     // maxDepth: replace at current path when depth >= maxDepth.
     const base = { a: { b: { c: 1 } } };
@@ -78,7 +78,7 @@ describe("runtime/memory/state-diff.js", () => {
   });
 
   it("getPatchLayers extracts layer names from patch paths", async () => {
-    const { getPatchLayers } = await import("../../../js/agents/runtime/memory/state-diff.js");
+    const { getPatchLayers } = await import("../../../../js/agents/runtime/memory/state-diff.js");
 
     const layers = getPatchLayers([
       { op: "replace", path: ["L0", "taskGoal"], value: "x" },
@@ -108,8 +108,8 @@ function createEventBus() {
 
 describe("runtime/memory/retrieval-engine.js", () => {
   it("keywordRecall returns the most recent archives when query has no tokens", async () => {
-    const { MemoryStore } = await import("../../../js/agents/runtime/memory/memory-store.js");
-    const { RetrievalEngine } = await import("../../../js/agents/runtime/memory/retrieval-engine.js");
+    const { MemoryStore } = await import("../../../../js/agents/runtime/memory/memory-store.js");
+    const { RetrievalEngine } = await import("../../../../js/agents/runtime/memory/retrieval-engine.js");
 
     const store = new MemoryStore({ runId: "re_kw_latest", tokenCounter: null });
     const id1 = await store.archive("s1", { summary: "First summary" });
@@ -126,8 +126,8 @@ describe("runtime/memory/retrieval-engine.js", () => {
   });
 
   it("keywordRecall scores keyword overlaps via the keyword index", async () => {
-    const { MemoryStore } = await import("../../../js/agents/runtime/memory/memory-store.js");
-    const { RetrievalEngine } = await import("../../../js/agents/runtime/memory/retrieval-engine.js");
+    const { MemoryStore } = await import("../../../../js/agents/runtime/memory/memory-store.js");
+    const { RetrievalEngine } = await import("../../../../js/agents/runtime/memory/retrieval-engine.js");
 
     const store = new MemoryStore({ runId: "re_kw_score", tokenCounter: null });
     const id1 = await store.archive("stage1", { summary: "Q3 revenue analysis" }, ["q3", "revenue"]);
@@ -140,8 +140,8 @@ describe("runtime/memory/retrieval-engine.js", () => {
   });
 
   it("semanticRecall returns [] when embeddings are unavailable and fallback=false", async () => {
-    const { MemoryStore } = await import("../../../js/agents/runtime/memory/memory-store.js");
-    const { RetrievalEngine } = await import("../../../js/agents/runtime/memory/retrieval-engine.js");
+    const { MemoryStore } = await import("../../../../js/agents/runtime/memory/memory-store.js");
+    const { RetrievalEngine } = await import("../../../../js/agents/runtime/memory/retrieval-engine.js");
 
     const store = new MemoryStore({ runId: "re_sem_no_fallback", tokenCounter: null });
     await store.archive("stage1", { summary: "Q3 revenue analysis" }, ["q3", "revenue"]);
@@ -153,8 +153,8 @@ describe("runtime/memory/retrieval-engine.js", () => {
   });
 
   it("queueIndexArchive applies backpressure and drops oldest tasks when queue is full", async () => {
-    const { MemoryStore } = await import("../../../js/agents/runtime/memory/memory-store.js");
-    const { RetrievalEngine } = await import("../../../js/agents/runtime/memory/retrieval-engine.js");
+    const { MemoryStore } = await import("../../../../js/agents/runtime/memory/memory-store.js");
+    const { RetrievalEngine } = await import("../../../../js/agents/runtime/memory/retrieval-engine.js");
 
     const store = new MemoryStore({ runId: "re_queue_backpressure", tokenCounter: null });
 
@@ -187,8 +187,8 @@ describe("runtime/memory/retrieval-engine.js", () => {
   });
 
   it("subscribes to memory.archived and enqueues indexing tasks", async () => {
-    const { MemoryStore } = await import("../../../js/agents/runtime/memory/memory-store.js");
-    const { RetrievalEngine } = await import("../../../js/agents/runtime/memory/retrieval-engine.js");
+    const { MemoryStore } = await import("../../../../js/agents/runtime/memory/memory-store.js");
+    const { RetrievalEngine } = await import("../../../../js/agents/runtime/memory/retrieval-engine.js");
 
     const bus = createEventBus();
     const store = new MemoryStore({
@@ -221,7 +221,7 @@ describe("runtime/memory/retrieval-engine.js", () => {
 
 describe("runtime/memory/memory-store.impl.js", () => {
   it("creates incremental checkpoints and restores through the nearest full base", async () => {
-    const { MemoryStore } = await import("../../../js/agents/runtime/memory/memory-store.js");
+    const { MemoryStore } = await import("../../../../js/agents/runtime/memory/memory-store.js");
 
     const store = new MemoryStore({ runId: "mem_ckpt_inc", tokenCounter: null });
     store.setTaskGoal("Goal");
@@ -275,10 +275,10 @@ describe("runtime/memory/memory-store.impl.js", () => {
 
 describe("runtime/memory/index.js", () => {
   it("re-exports MemoryStore/StateEngine/action-types symbols", async () => {
-    const memory = await import("../../../js/agents/runtime/memory/index.js");
-    const { MemoryStore } = await import("../../../js/agents/runtime/memory/memory-store.js");
-    const { StateEngine } = await import("../../../js/agents/runtime/memory/state-engine.js");
-    const actions = await import("../../../js/agents/runtime/memory/action-types.js");
+    const memory = await import("../../../../js/agents/runtime/memory/index.js");
+    const { MemoryStore } = await import("../../../../js/agents/runtime/memory/memory-store.js");
+    const { StateEngine } = await import("../../../../js/agents/runtime/memory/state-engine.js");
+    const actions = await import("../../../../js/agents/runtime/memory/action-types.js");
 
     expect(memory.MemoryStore).toBe(MemoryStore);
     expect(memory.StateEngine).toBe(StateEngine);

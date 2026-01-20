@@ -21,7 +21,7 @@ describe("agents/vfs/glob (scan worker integration)", () => {
       scanOpfsAsync,
     }));
 
-    const { createVfsGlobFn } = await import("../../../js/agents/vfs/glob.js");
+    const { createVfsGlobFn } = await import("../../../../js/agents/vfs/glob.js");
 
     const allFiles = ["base/dir/a.md", "base/dir/b.txt", "base/dir/sub/nested.md", "base/other/c.md"];
     const vfs = {
@@ -67,7 +67,7 @@ describe("agents/vfs/glob (scan worker integration)", () => {
       scanOpfsAsync,
     }));
 
-    const { createVfsGlobFn } = await import("../../../js/agents/vfs/glob.js");
+    const { createVfsGlobFn } = await import("../../../../js/agents/vfs/glob.js");
 
     const seen = [];
     const vfs = {
@@ -105,7 +105,7 @@ describe("agents/vfs/glob (scan worker integration)", () => {
       scanOpfsAsync,
     }));
 
-    const { createVfsGlobFn } = await import("../../../js/agents/vfs/glob.js");
+    const { createVfsGlobFn } = await import("../../../../js/agents/vfs/glob.js");
 
     const vfs = {
       listFiles: vi.fn(async () => ["base/dir/a.md"]),

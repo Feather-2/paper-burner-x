@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // 动态导入 ESM 模块
 const loadModules = async () => {
-  const mod = await import('../../js/chatbot/utils/katex-cache.js');
+  const mod = await import('../../../js/chatbot/utils/katex-cache.js');
   return mod;
 };
 

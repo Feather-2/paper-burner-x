@@ -40,8 +40,8 @@ class MockRepository {
 
 // 动态导入
 const loadModules = async () => {
-  const service = await import('../../js/annotations/services/annotation-service.js');
-  const model = await import('../../js/annotations/core/annotation-model.js');
+  const service = await import('../../../js/annotations/services/annotation-service.js');
+  const model = await import('../../../js/annotations/core/annotation-model.js');
   return { ...service, ...model };
 };
 
@@ -400,7 +400,7 @@ describe('AnnotationService', () => {
     });
 
     it('createAnnotationService() creates an instance', async () => {
-      const { createAnnotationService, AnnotationService } = await import('../../js/annotations/services/annotation-service.js');
+      const { createAnnotationService, AnnotationService } = await import('../../../js/annotations/services/annotation-service.js');
       const created = createAnnotationService({ repository: mockRepo });
       expect(created).toBeInstanceOf(AnnotationService);
     });

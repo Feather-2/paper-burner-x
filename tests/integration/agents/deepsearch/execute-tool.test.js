@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("executeTool: returns success:false when tool handler throws", async () => {
-  const { tools, executeTool } = await import("../../../js/agents/stages/deepsearch/tools/index.js");
+  const { tools, executeTool } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
 
   const name = "__test_throw__";
   tools[name] = {
@@ -24,7 +24,7 @@ it("executeTool: returns success:false when tool handler throws", async () => {
 });
 
 it("executeTool: passes through {success:false} results from handler", async () => {
-  const { tools, executeTool } = await import("../../../js/agents/stages/deepsearch/tools/index.js");
+  const { tools, executeTool } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
 
   const name = "__test_failure_result__";
   const expected = { success: false, error: "explicit failure" };

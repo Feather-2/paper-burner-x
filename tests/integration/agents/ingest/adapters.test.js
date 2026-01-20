@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 it("BaseAdapter: constructor sets defaults", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const a = new BaseAdapter();
   expect(a.adapterName).toBe("base");
   expect(a.defaultChunkOptions).toEqual({ chunkSize: 2000, overlap: 200, includeLineNumbers: true });
@@ -17,7 +17,7 @@ it("BaseAdapter: constructor sets defaults", async () => {
 });
 
 it("BaseAdapter: parseStream yields chunks with locators", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 10, overlap: 2, includeLineNumbers: true } });
 
   async function* textSource() {
@@ -39,7 +39,7 @@ it("BaseAdapter: parseStream yields chunks with locators", async () => {
 });
 
 it("BaseAdapter: parseStream handles Uint8Array input", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 100, overlap: 0 } });
 
   const encoder = new TextEncoder();
@@ -55,7 +55,7 @@ it("BaseAdapter: parseStream handles Uint8Array input", async () => {
 });
 
 it("BaseAdapter: parseStream respects AbortSignal", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 5, overlap: 0 } });
 
   const ac = new AbortController();
@@ -76,7 +76,7 @@ it("BaseAdapter: parseStream respects AbortSignal", async () => {
 });
 
 it("BaseAdapter: parseStream rejects invalid options", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter();
 
   await expect(async () => {
@@ -90,7 +90,7 @@ it("BaseAdapter: parseStream rejects invalid options", async () => {
 });
 
 it("BaseAdapter: parseStream rejects non-iterable input", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter();
 
   await expect(async () => {
@@ -104,7 +104,7 @@ it("BaseAdapter: parseStream rejects non-iterable input", async () => {
 });
 
 it("BaseAdapter: parse collects parseStream into array", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 10, overlap: 0 } });
 
   const result = await adapter.parse(["0123456789", "abcdefghij"]);
@@ -113,7 +113,7 @@ it("BaseAdapter: parse collects parseStream into array", async () => {
 });
 
 it("BaseAdapter: buildParsedDocument produces valid structure", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ adapterName: "test" });
 
   const doc = adapter.buildParsedDocument({
@@ -134,7 +134,7 @@ it("BaseAdapter: buildParsedDocument produces valid structure", async () => {
 });
 
 it("BaseAdapter: _validateChunks detects invalid chunks", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter();
 
   expect(adapter._validateChunks([])).toEqual({ ok: true, reason: "empty" });
@@ -151,7 +151,7 @@ it("BaseAdapter: _validateChunks detects invalid chunks", async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it("PdfAdapter: uses OCR when available", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   const ocr = {
     async processFile(file, progress) {
@@ -183,7 +183,7 @@ it("PdfAdapter: uses OCR when available", async () => {
 });
 
 it("PdfAdapter: fallback extracts ASCII when OCR unavailable", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
   const adapter = new PdfAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
   const encoder = new TextEncoder();
@@ -204,7 +204,7 @@ it("PdfAdapter: fallback extracts ASCII when OCR unavailable", async () => {
 });
 
 it("PdfAdapter: rejects oversized files", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
   const adapter = new PdfAdapter({ maxFileSize: 50 });
 
   await expect(() =>
@@ -220,7 +220,7 @@ it("PdfAdapter: rejects oversized files", async () => {
 });
 
 it("PdfAdapter: rejects invalid input types", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
   const adapter = new PdfAdapter();
 
   await expect(() => adapter.parse(12345)).rejects.toThrow(/must be a path string or a file-like object/);
@@ -234,7 +234,7 @@ it("PdfAdapter: rejects invalid input types", async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it("MarkdownAdapter: parses file-like with text() method", async () => {
-  const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
+  const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
   const adapter = new MarkdownAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
   const parsed = await adapter.parse({
@@ -251,7 +251,7 @@ it("MarkdownAdapter: parses file-like with text() method", async () => {
 });
 
 it("MarkdownAdapter: parses file-like with arrayBuffer() method", async () => {
-  const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
+  const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
   const adapter = new MarkdownAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
   const encoder = new TextEncoder();
@@ -269,7 +269,7 @@ it("MarkdownAdapter: parses file-like with arrayBuffer() method", async () => {
 });
 
 it("MarkdownAdapter: parses object with content property", async () => {
-  const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
+  const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
   const adapter = new MarkdownAdapter();
 
   const parsed = await adapter.parse({
@@ -282,7 +282,7 @@ it("MarkdownAdapter: parses object with content property", async () => {
 });
 
 it("MarkdownAdapter: rejects unsupported input", async () => {
-  const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
+  const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
   const adapter = new MarkdownAdapter();
 
   await expect(() => adapter.parse(42)).rejects.toThrow(/must be a path string or a file-like object/);
@@ -291,7 +291,7 @@ it("MarkdownAdapter: rejects unsupported input", async () => {
 });
 
 it("MarkdownAdapter: uses default filename when not provided", async () => {
-  const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
+  const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
   const adapter = new MarkdownAdapter();
 
   const parsed = await adapter.parse({
@@ -306,7 +306,7 @@ it("MarkdownAdapter: uses default filename when not provided", async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it("HtmlAdapter: parses with arrayBuffer input", async () => {
-  const { HtmlAdapter } = await import("../../../js/agents/ingest/adapters/html.js");
+  const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
   const adapter = new HtmlAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
   const encoder = new TextEncoder();
@@ -324,7 +324,7 @@ it("HtmlAdapter: parses with arrayBuffer input", async () => {
 });
 
 it("HtmlAdapter: parses with content property", async () => {
-  const { HtmlAdapter } = await import("../../../js/agents/ingest/adapters/html.js");
+  const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
   const adapter = new HtmlAdapter();
 
   const parsed = await adapter.parse({
@@ -336,7 +336,7 @@ it("HtmlAdapter: parses with content property", async () => {
 });
 
 it("HtmlAdapter: rejects unsupported input", async () => {
-  const { HtmlAdapter } = await import("../../../js/agents/ingest/adapters/html.js");
+  const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
   const adapter = new HtmlAdapter();
 
   await expect(() => adapter.parse(123)).rejects.toThrow(/must be a path string or a file-like object/);
@@ -344,7 +344,7 @@ it("HtmlAdapter: rejects unsupported input", async () => {
 });
 
 it("HtmlAdapter: __internal helpers work correctly", async () => {
-  const { __internal } = await import("../../../js/agents/ingest/adapters/html.js");
+  const { __internal } = await import("../../../../js/agents/ingest/adapters/html.js");
 
   expect(__internal.guessMimeType("page.html")).toBe("text/html");
   expect(__internal.guessMimeType("page.htm")).toBe("text/html");
@@ -366,7 +366,7 @@ it("HtmlAdapter: __internal helpers work correctly", async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it("DocxAdapter: converts via mammoth + turndown and extracts images as assets", async () => {
-  const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+  const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
 
   const mammothStub = {
     images: {
@@ -415,7 +415,7 @@ it("DocxAdapter: converts via mammoth + turndown and extracts images as assets",
 });
 
 it("DocxAdapter: rejects oversized inputs before invoking mammoth", async () => {
-  const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+  const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
 
   let called = false;
   const mammothStub = {
@@ -448,7 +448,7 @@ it("DocxAdapter: rejects oversized inputs before invoking mammoth", async () => 
 });
 
 it("PptxAdapter: extracts slide text + images as assets", async () => {
-  const { PptxAdapter } = await import("../../../js/agents/ingest/adapters/pptx.js");
+  const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
 
   const pptxParser = {
     async parse() {
@@ -493,7 +493,7 @@ it("PptxAdapter: extracts slide text + images as assets", async () => {
 });
 
 it("HtmlAdapter: converts HTML to markdown and extracts base64 images", async () => {
-  const { HtmlAdapter } = await import("../../../js/agents/ingest/adapters/html.js");
+  const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
 
   const html = `<h1>Hi</h1><p>Body</p><img src="data:image/png;base64,CCCC">`;
   const adapter = new HtmlAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0, includeLineNumbers: false } });
@@ -517,7 +517,7 @@ it("HtmlAdapter: converts HTML to markdown and extracts base64 images", async ()
 
 it("EpubAdapter: parses OPF+spine, converts chapters, extracts images as assets", async () => {
   const { default: JSZip } = await import("jszip");
-  const { EpubAdapter } = await import("../../../js/agents/ingest/adapters/epub.js");
+  const { EpubAdapter } = await import("../../../../js/agents/ingest/adapters/epub.js");
 
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip");
@@ -589,7 +589,7 @@ it("EpubAdapter: parses OPF+spine, converts chapters, extracts images as assets"
 // ─────────────────────────────────────────────────────────────────────────────
 
 it("PptxAdapter: rejects invalid input types", async () => {
-  const { PptxAdapter } = await import("../../../js/agents/ingest/adapters/pptx.js");
+  const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
   const adapter = new PptxAdapter();
 
   await expect(() => adapter.parse(12345)).rejects.toThrow(/must be a path string or a file-like object/);
@@ -598,7 +598,7 @@ it("PptxAdapter: rejects invalid input types", async () => {
 });
 
 it("PptxAdapter: handles empty slides array", async () => {
-  const { PptxAdapter } = await import("../../../js/agents/ingest/adapters/pptx.js");
+  const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
 
   const pptxParser = {
     async parse() {
@@ -623,7 +623,7 @@ it("PptxAdapter: handles empty slides array", async () => {
 });
 
 it("PptxAdapter: handles slides without title", async () => {
-  const { PptxAdapter } = await import("../../../js/agents/ingest/adapters/pptx.js");
+  const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
 
   const pptxParser = {
     async parse() {
@@ -660,7 +660,7 @@ it("PptxAdapter: handles slides without title", async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it("DocxAdapter: rejects invalid input types", async () => {
-  const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+  const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
   const adapter = new DocxAdapter();
 
   await expect(() => adapter.parse(12345)).rejects.toThrow(/must be a path string or a file-like object/);
@@ -669,7 +669,7 @@ it("DocxAdapter: rejects invalid input types", async () => {
 });
 
 it("DocxAdapter: handles image read failure gracefully", async () => {
-  const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+  const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
 
   const mammothStub = {
     images: {
@@ -714,7 +714,7 @@ it("DocxAdapter: handles image read failure gracefully", async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it("BaseAdapter: parseStream handles CRLF line endings", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0, includeLineNumbers: true } });
 
   const chunks = await adapter.parse(["Line1\r\nLine2\rLine3\n"]);
@@ -726,7 +726,7 @@ it("BaseAdapter: parseStream handles CRLF line endings", async () => {
 });
 
 it("BaseAdapter: parseStream handles NBSP normalization", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
   const chunks = await adapter.parse(["Hello\u00A0World"]);
@@ -735,7 +735,7 @@ it("BaseAdapter: parseStream handles NBSP normalization", async () => {
 });
 
 it("BaseAdapter: parseStream handles empty input", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter();
 
   const chunks = await adapter.parse([]);
@@ -743,7 +743,7 @@ it("BaseAdapter: parseStream handles empty input", async () => {
 });
 
 it("BaseAdapter: buildParsedDocument with smartChunk enabled", async () => {
-  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ adapterName: "smart" });
 
   const doc = adapter.buildParsedDocument({
@@ -766,7 +766,7 @@ it("BaseAdapter: buildParsedDocument with smartChunk enabled", async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it("PdfAdapter: handles empty PDF gracefully", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
   const adapter = new PdfAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
   const parsed = await adapter.parse({
@@ -783,7 +783,7 @@ it("PdfAdapter: handles empty PDF gracefully", async () => {
 });
 
 it("PdfAdapter: calls onProgress when provided", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   const progressCalls = [];
   const ocr = {

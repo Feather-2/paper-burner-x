@@ -7,9 +7,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // 使用动态导入避免 ESM 问题
 const loadModules = async () => {
-  const { MemoryAdapter } = await import('../../js/storage/adapters/memory-adapter.js');
-  const { SettingsRepository } = await import('../../js/storage/repositories/settings-repository.js');
-  const { ApiKeysRepository } = await import('../../js/storage/repositories/api-keys-repository.js');
+  const { MemoryAdapter } = await import('../../../js/storage/adapters/memory-adapter.js');
+  const { SettingsRepository } = await import('../../../js/storage/repositories/settings-repository.js');
+  const { ApiKeysRepository } = await import('../../../js/storage/repositories/api-keys-repository.js');
   return { MemoryAdapter, SettingsRepository, ApiKeysRepository };
 };
 

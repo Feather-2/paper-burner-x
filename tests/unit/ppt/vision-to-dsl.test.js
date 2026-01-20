@@ -3,13 +3,13 @@ import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 let analyzeImage, fromInternal, layoutToDsl, toInternal, htmlToDocument;
 
 beforeEach(async () => {
-  const layoutFromImage = await import("../../js/ppt/vision/layout-from-image.js");
+  const layoutFromImage = await import("../../../js/ppt/vision/layout-from-image.js");
   analyzeImage = layoutFromImage.analyzeImage;
   fromInternal = layoutFromImage._internal;
-  const layoutToDslMod = await import("../../js/ppt/vision/layout-to-dsl.js");
+  const layoutToDslMod = await import("../../../js/ppt/vision/layout-to-dsl.js");
   layoutToDsl = layoutToDslMod.layoutToDsl;
   toInternal = layoutToDslMod._internal;
-  const serialize = await import("../../js/ppt/dsl/serialize.js");
+  const serialize = await import("../../../js/ppt/dsl/serialize.js");
   htmlToDocument = serialize.htmlToDocument;
 });
 

@@ -55,7 +55,7 @@ describe("agents/skills/loader (env router)", () => {
     vi.doMock("../../../js/agents/skills/loader.node.js", () => nodeImpl);
     vi.doMock("../../../js/agents/skills/loader.browser.js", () => browserImpl);
 
-    const mod = await import("../../../js/agents/skills/loader.js");
+    const mod = await import("../../../../js/agents/skills/loader.js");
 
     await expect(mod.loadSkills({ cwd: "/x" })).resolves.toEqual({ ok: true, from: "node", opts: { cwd: "/x" } });
     await expect(mod.loadSkillsFromNexus({ n: 1 })).resolves.toEqual({ ok: true, from: "node:nexus", p: { n: 1 } });
@@ -83,7 +83,7 @@ describe("agents/skills/loader (env router)", () => {
     vi.doMock("../../../js/agents/skills/loader.node.js", () => nodeImpl);
     vi.doMock("../../../js/agents/skills/loader.browser.js", () => browserImpl);
 
-    const mod = await import("../../../js/agents/skills/loader.js");
+    const mod = await import("../../../../js/agents/skills/loader.js");
     await expect(mod.loadSkills({ manifestUrl: "/skills/manifest.json" })).resolves.toEqual({
       from: "browser",
     });
@@ -95,13 +95,13 @@ describe("agents/skills/loader (env router)", () => {
 
 describe("agents/skills/loader.node (skill loading)", () => {
   it("returns an empty outcome when no roots are provided", async () => {
-    const { loadSkills } = await import("../../../js/agents/skills/loader.node.js");
+    const { loadSkills } = await import("../../../../js/agents/skills/loader.node.js");
     const out = await loadSkills();
     expect(out).toEqual({ skills: [], errors: [] });
   });
 
   it("ignores missing roots (no .paper-burner/skills) without errors", async () => {
-    const { loadSkills } = await import("../../../js/agents/skills/loader.node.js");
+    const { loadSkills } = await import("../../../../js/agents/skills/loader.node.js");
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-skills-missing-"));
     try {
       const out = await loadSkills({ cwd, homeDir: null });
@@ -112,8 +112,8 @@ describe("agents/skills/loader.node (skill loading)", () => {
   });
 
   it("loads skills from repo/user roots and dedups by name (repo wins)", async () => {
-    const { loadSkills } = await import("../../../js/agents/skills/loader.node.js");
-    const { SkillScope } = await import("../../../js/agents/skills/model.js");
+    const { loadSkills } = await import("../../../../js/agents/skills/loader.node.js");
+    const { SkillScope } = await import("../../../../js/agents/skills/model.js");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-skills-cwd-"));
     const home = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-skills-home-"));
@@ -142,7 +142,7 @@ describe("agents/skills/loader.node (skill loading)", () => {
   });
 
   it("records parse errors for invalid SKILL.md files", async () => {
-    const { loadSkills } = await import("../../../js/agents/skills/loader.node.js");
+    const { loadSkills } = await import("../../../../js/agents/skills/loader.node.js");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-skills-bad-"));
     try {
@@ -160,7 +160,7 @@ describe("agents/skills/loader.node (skill loading)", () => {
   });
 
   it("loadSkillFromPath caches by content fingerprint (same object instance)", async () => {
-    const { loadSkillFromPath } = await import("../../../js/agents/skills/loader.node.js");
+    const { loadSkillFromPath } = await import("../../../../js/agents/skills/loader.node.js");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-skills-fp-"));
     try {
@@ -184,8 +184,8 @@ describe("agents/skills/loader.node (skill loading)", () => {
   });
 
   it("loads skills from Nexus provider and reports per-skill errors", async () => {
-    const { loadSkillsFromNexus } = await import("../../../js/agents/skills/loader.node.js");
-    const { SkillScope } = await import("../../../js/agents/skills/model.js");
+    const { loadSkillsFromNexus } = await import("../../../../js/agents/skills/loader.node.js");
+    const { SkillScope } = await import("../../../../js/agents/skills/model.js");
 
     const provider = {
       isAvailable: vi.fn(async () => true),
@@ -215,8 +215,8 @@ describe("agents/skills/loader.node (skill loading)", () => {
   });
 
   it("loadAllSkills merges local + remote without overriding local duplicates", async () => {
-    const { loadAllSkills } = await import("../../../js/agents/skills/loader.node.js");
-    const { SkillScope } = await import("../../../js/agents/skills/model.js");
+    const { loadAllSkills } = await import("../../../../js/agents/skills/loader.node.js");
+    const { SkillScope } = await import("../../../../js/agents/skills/model.js");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-skills-merge-"));
     try {
@@ -249,7 +249,7 @@ describe("agents/skills/loader.node (skill loading)", () => {
   });
 
   it("parses multiline YAML + dash-case keys and normalizes whitespace", async () => {
-    const { loadSkillFromPath } = await import("../../../js/agents/skills/loader.node.js");
+    const { loadSkillFromPath } = await import("../../../../js/agents/skills/loader.node.js");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-skills-yaml-"));
     try {
@@ -282,7 +282,7 @@ describe("agents/skills/loader.node (skill loading)", () => {
   });
 
   it("validates required fields and size limits when loading a single skill", async () => {
-    const { loadSkillFromPath } = await import("../../../js/agents/skills/loader.node.js");
+    const { loadSkillFromPath } = await import("../../../../js/agents/skills/loader.node.js");
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-skills-validate-"));
     try {
@@ -310,7 +310,7 @@ describe("agents/skills/loader.node (skill loading)", () => {
   });
 
   it("loadSkillsFromNexus returns empty when provider is missing/unavailable, and reports connection errors", async () => {
-    const { loadSkillsFromNexus } = await import("../../../js/agents/skills/loader.node.js");
+    const { loadSkillsFromNexus } = await import("../../../../js/agents/skills/loader.node.js");
 
     await expect(loadSkillsFromNexus(null)).resolves.toEqual({ skills: [], errors: [] });
 

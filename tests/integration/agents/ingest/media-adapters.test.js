@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("AudioAdapter: transcribes via whisperApi and outputs LRC + chunkable markdown", async () => {
-  const { AudioAdapter } = await import("../../../js/agents/ingest/adapters/audio.js");
+  const { AudioAdapter } = await import("../../../../js/agents/ingest/adapters/audio.js");
 
   const whisperApi = {
     async transcribe(file, opts) {
@@ -46,7 +46,7 @@ it("AudioAdapter: transcribes via whisperApi and outputs LRC + chunkable markdow
 });
 
 it("AudioAdapter: throws if whisperApi is missing", async () => {
-  const { AudioAdapter } = await import("../../../js/agents/ingest/adapters/audio.js");
+  const { AudioAdapter } = await import("../../../../js/agents/ingest/adapters/audio.js");
   const adapter = new AudioAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0, includeLineNumbers: false } });
   await expect(() =>
       adapter.parse({
@@ -61,7 +61,7 @@ it("AudioAdapter: throws if whisperApi is missing", async () => {
 });
 
 it("VideoAdapter: transcribes and attaches extracted keyframes as assets", async () => {
-  const { VideoAdapter } = await import("../../../js/agents/ingest/adapters/video.js");
+  const { VideoAdapter } = await import("../../../../js/agents/ingest/adapters/video.js");
 
   const whisperApi = {
     async transcribe(_file, opts) {
@@ -116,7 +116,7 @@ it("VideoAdapter: transcribes and attaches extracted keyframes as assets", async
 });
 
 it("VideoAdapter: throws if whisperApi is missing", async () => {
-  const { VideoAdapter } = await import("../../../js/agents/ingest/adapters/video.js");
+  const { VideoAdapter } = await import("../../../../js/agents/ingest/adapters/video.js");
   const adapter = new VideoAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0, includeLineNumbers: false } });
   await expect(() =>
       adapter.parse({
@@ -131,7 +131,7 @@ it("VideoAdapter: throws if whisperApi is missing", async () => {
 });
 
 it("getVideoFrames: uses mediabunny if provided and samples evenly by time", async () => {
-  const { getVideoFrames } = await import("../../../js/agents/ingest/tools/video-frames.js");
+  const { getVideoFrames } = await import("../../../../js/agents/ingest/tools/video-frames.js");
 
   let openCount = 0;
   let closeCount = 0;
@@ -183,7 +183,7 @@ it("getVideoFrames: uses mediabunny if provided and samples evenly by time", asy
 });
 
 it("getVideoFrames: returns [] when disabled or unavailable", async () => {
-  const { getVideoFrames } = await import("../../../js/agents/ingest/tools/video-frames.js");
+  const { getVideoFrames } = await import("../../../../js/agents/ingest/tools/video-frames.js");
   expect(await getVideoFrames(new Blob(["x"]), 0, 1, 0)).toEqual([]);
   expect(await getVideoFrames(new Blob(["x"]), 0, 1, 2, { mediabunny: null })).toEqual([]);
 });

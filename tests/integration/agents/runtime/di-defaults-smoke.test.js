@@ -90,7 +90,7 @@ describe('DI defaults', () => {
   });
 
   it('covers EventBus backpressure branch when enableBackpressure is missing', async () => {
-    const mod = await import('../../../js/agents/core/event-bus.js');
+    const mod = await import('../../../../js/agents/core/event-bus.js');
     const EventBus = mod.EventBus;
 
     const originalEnable = EventBus.prototype.enableBackpressure;

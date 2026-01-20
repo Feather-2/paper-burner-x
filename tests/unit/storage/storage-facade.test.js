@@ -23,8 +23,8 @@ if (typeof globalThis.localStorage === "undefined") {
 }
 
 const loadModules = async () => {
-  const { MemoryAdapter } = await import("../../js/storage/adapters/memory-adapter.js");
-  const { default: StorageFacade } = await import("../../js/storage/storage-facade.js");
+  const { MemoryAdapter } = await import("../../../js/storage/adapters/memory-adapter.js");
+  const { default: StorageFacade } = await import("../../../js/storage/storage-facade.js");
   return { MemoryAdapter, StorageFacade };
 };
 

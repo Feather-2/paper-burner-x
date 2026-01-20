@@ -3,11 +3,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("cross-verify: starts subtask and writes verdict back", async () => {
-  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
-  const { SharedContext } = await import("../../../js/agents/stages/deepsearch/runtime/shared-context.js");
-  const { DiscoveryManager, DiscoveryStatus } = await import("../../../js/agents/sdk/DiscoveryManager.js");
-  const { globalSubagentRegistry } = await import("../../../js/agents/sdk/SubagentRegistry.js");
-  const { handler } = await import("../../../js/agents/stages/deepsearch/tools/cross-verify/handler.js");
+  const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
+  const { SharedContext } = await import("../../../../js/agents/stages/deepsearch/runtime/shared-context.js");
+  const { DiscoveryManager, DiscoveryStatus } = await import("../../../../js/agents/sdk/DiscoveryManager.js");
+  const { globalSubagentRegistry } = await import("../../../../js/agents/sdk/SubagentRegistry.js");
+  const { handler } = await import("../../../../js/agents/stages/deepsearch/tools/cross-verify/handler.js");
 
   const mockType = "__test_verifier__";
   globalSubagentRegistry.register(

@@ -38,8 +38,8 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-await import('../../js/ppt/dashboard/ppt_dashboard_utils.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_utils.js');
+await import('../../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
 
 Object.assign(globalThis.PPTGenerator.prototype, window.PPTDashboard.utils, window.PPTDashboard.pageLayout);
 

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("DesignStage._buildVisualSlots: maps slots correctly with imageProvider", async () => {
-  const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
+  const { DesignStage } = await import("../../../../js/agents/stages/design/design-agent.js");
 
   const stage = new DesignStage();
   const brainstormResult = {
@@ -29,7 +29,7 @@ it("DesignStage._buildVisualSlots: maps slots correctly with imageProvider", asy
 });
 
 it("DesignStage._buildVisualSlots: fallback ai-image to svg without imageProvider", async () => {
-  const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
+  const { DesignStage } = await import("../../../../js/agents/stages/design/design-agent.js");
 
   const stage = new DesignStage();
   const brainstormResult = {

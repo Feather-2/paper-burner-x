@@ -134,7 +134,7 @@ export default createPlugin({
         ctx.state.set('lastAnalysis', result);
 
         if (result.isLoop || result.similarity > ctx.config.similarityThreshold) {
-          ctx.events.emit('fingerprint:loopDetected', {
+          ctx.events.emit('fingerprint.loop.detected', {
             action,
             similarity: result.similarity,
             loopLength: result.loopLength,

@@ -170,7 +170,7 @@ test.skip('visualPreference is passed into DesignAgentLoop via runContext.userCo
 
   await gen._ensureRuntime({ mode: 'textprep' });
 
-  const design = await import('../../js/agents/stages/design/index.js');
+  const design = await import('../../../js/agents/stages/design/index.js');
   const originalExecute = design.DesignAgentLoop.prototype.execute;
   let seenUserConfig = null;
   design.DesignAgentLoop.prototype.execute = async function (runContext) {

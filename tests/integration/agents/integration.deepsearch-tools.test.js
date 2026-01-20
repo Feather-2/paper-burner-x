@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 it("Integration: DeepSearch ToolExecutor runs multiple tools end-to-end", async () => {
-  const { createDeepSearchToolExecutor } = await import("../../js/agents/stages/deepsearch/tools/index.js");
+  const { createDeepSearchToolExecutor } = await import("../../../js/agents/stages/deepsearch/tools/index.js");
 
   const executor = createDeepSearchToolExecutor({ maxRetries: 0, timeoutMs: 1000 });
 

@@ -6,7 +6,7 @@ import { promises as fs } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 it("SDK: AgentBuilder builds an agent and runs capabilities with hooks", async () => {
-  const { AgentBuilder } = await import("../../js/agents/sdk/AgentBuilder.js");
+  const { AgentBuilder } = await import("../../../js/agents/sdk/AgentBuilder.js");
 
   const builder = new AgentBuilder({ actor: "test" });
   builder.useHook("before", async ({ tool, params }) => {
@@ -27,7 +27,7 @@ it("SDK: AgentBuilder builds an agent and runs capabilities with hooks", async (
 });
 
 it("SDK: AgentBuilder lazily imports module-backed capabilities", async () => {
-  const { AgentBuilder } = await import("../../js/agents/sdk/AgentBuilder.js");
+  const { AgentBuilder } = await import("../../../js/agents/sdk/AgentBuilder.js");
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-sdk-"));
   try {
@@ -61,7 +61,7 @@ it("SDK: AgentBuilder lazily imports module-backed capabilities", async () => {
 });
 
 it("SDK: registering subagents adds the Task tool automatically", async () => {
-  const { AgentBuilder } = await import("../../js/agents/sdk/AgentBuilder.js");
+  const { AgentBuilder } = await import("../../../js/agents/sdk/AgentBuilder.js");
 
   const builder = new AgentBuilder({ actor: "test" });
   builder.useSubagent("Explore", () => ({ run: async () => ({ ok: true }) }), "desc");
@@ -71,8 +71,8 @@ it("SDK: registering subagents adds the Task tool automatically", async () => {
 });
 
 it("SDK: AgentInstance.dispose unsubscribes + rejects further use", async () => {
-  const { AgentBuilder } = await import("../../js/agents/sdk/AgentBuilder.js");
-  const { DefaultAgentLoop } = await import("../../js/agents/sdk/DefaultAgentLoop.js");
+  const { AgentBuilder } = await import("../../../js/agents/sdk/AgentBuilder.js");
+  const { DefaultAgentLoop } = await import("../../../js/agents/sdk/DefaultAgentLoop.js");
 
   let cfgHandlerCalls = 0;
   let manualHandlerCalls = 0;

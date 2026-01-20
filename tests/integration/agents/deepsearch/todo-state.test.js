@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("TodoStatus transitions update status/history and reject invalid moves", async () => {
-  const { createTodo, transitionTodoStatus } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
+  const { createTodo, transitionTodoStatus } = await import("../../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
   const todo = createTodo({
     todoId: "t1",
@@ -27,7 +27,7 @@ it("TodoStatus transitions update status/history and reject invalid moves", asyn
 });
 
 it("validateTodo enforces schema requirements", async () => {
-  const { createTodo, validateTodo } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
+  const { createTodo, validateTodo } = await import("../../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
   const validTodo = createTodo({
     todoId: "t_valid",
@@ -51,7 +51,7 @@ it("validateTodo enforces schema requirements", async () => {
 });
 
 it("L2 control flags serialize/deserialize across minimal checkpoints", async () => {
-  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
 
   const state = new DeepSearchState({
     runId: "run_l2_flags",
@@ -75,7 +75,7 @@ it("L2 control flags serialize/deserialize across minimal checkpoints", async ()
 });
 
 it("loadCheckpoint migrates gaps into todos and stamps L2 flags", async () => {
-  const { loadCheckpoint } = await import("../../../js/agents/stages/deepsearch/runtime/checkpoint.js");
+  const { loadCheckpoint } = await import("../../../../js/agents/stages/deepsearch/runtime/checkpoint.js");
 
   const checkpoint = {
     schemaVersion: "1.0",
@@ -130,8 +130,8 @@ it("states helpers validate enums", async () => {
     isValidPlanNodeType,
     isValidDecisionOutcome,
     isValidDecisionStage,
-  } = await import("../../../js/agents/stages/deepsearch/states.js");
-  const { transitionTodoStatus } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
+  } = await import("../../../../js/agents/stages/deepsearch/states.js");
+  const { transitionTodoStatus } = await import("../../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
   expect(isValidGapPriority(GapPriority.HIGH)).toBe(true);
   expect(isValidGapPriority("urgent")).toBe(false);

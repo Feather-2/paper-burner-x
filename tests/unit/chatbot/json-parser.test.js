@@ -14,7 +14,7 @@ const loadParser = async () => {
     globalThis.window = globalThis;
   }
 
-  const module = await import('../../js/chatbot/react/json-parser.js');
+  const module = await import('../../../js/chatbot/react/json-parser.js');
   return module.ReActJsonParser;
 };
 

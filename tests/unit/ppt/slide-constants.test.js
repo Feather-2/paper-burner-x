@@ -1,7 +1,7 @@
 import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 test("Slide Constants: element type validation + normalization", async () => {
-  const { SlideElementType, isValidSlideElementType, normalizeSlideElementType } = await import("../../js/ppt/core/slide-constants.js");
+  const { SlideElementType, isValidSlideElementType, normalizeSlideElementType } = await import("../../../js/ppt/core/slide-constants.js");
 
   expect(isValidSlideElementType(SlideElementType.TEXT)).toBe(true);
   expect(isValidSlideElementType(SlideElementType.BAKED_ELEMENT)).toBe(true);

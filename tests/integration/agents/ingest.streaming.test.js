@@ -17,7 +17,7 @@ function expectedChunkCount(textLen, { chunkSize, overlap }) {
 }
 
 it("Ingest streaming: ByteBuffer append/slice/indexOf/consume", async () => {
-  const { ByteBuffer } = await import("../../js/agents/ingest/streaming/byte-buffer.js");
+  const { ByteBuffer } = await import("../../../js/agents/ingest/streaming/byte-buffer.js");
 
   const buf = new ByteBuffer();
   buf.append(new Uint8Array([1, 2, 3, 4]));
@@ -49,9 +49,9 @@ it("Ingest streaming: ByteBuffer append/slice/indexOf/consume", async () => {
 });
 
 it("Ingest streaming: BaseAdapter.parseStream matches normalizeText+chunkText (string parts)", async () => {
-  const { BaseAdapter } = await import("../../js/agents/ingest/adapters/base.js");
-  const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
-  const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
+  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { normalizeText } = await import("../../../js/agents/stages/textprep/normalize.js");
+  const { chunkText } = await import("../../../js/agents/stages/textprep/chunk.js");
 
   const chunkOptions = { chunkSize: 6, overlap: 2, includeLineNumbers: true };
 
@@ -71,9 +71,9 @@ it("Ingest streaming: BaseAdapter.parseStream matches normalizeText+chunkText (s
 });
 
 it("Ingest streaming: BaseAdapter.parseStream handles UTF-8 splits (Uint8Array parts)", async () => {
-  const { BaseAdapter } = await import("../../js/agents/ingest/adapters/base.js");
-  const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
-  const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
+  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { normalizeText } = await import("../../../js/agents/stages/textprep/normalize.js");
+  const { chunkText } = await import("../../../js/agents/stages/textprep/chunk.js");
 
   const chunkOptions = { chunkSize: 5, overlap: 1, includeLineNumbers: false };
 
@@ -97,9 +97,9 @@ it("Ingest streaming: BaseAdapter.parseStream handles UTF-8 splits (Uint8Array p
 });
 
 it("Ingest streaming: buildTocStreaming matches buildToc on overlapped chunks", async () => {
-  const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
-  const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
-  const { buildToc, buildTocStreaming } = await import("../../js/agents/retrieval/toc-builder.js");
+  const { normalizeText } = await import("../../../js/agents/stages/textprep/normalize.js");
+  const { chunkText } = await import("../../../js/agents/stages/textprep/chunk.js");
+  const { buildToc, buildTocStreaming } = await import("../../../js/agents/retrieval/toc-builder.js");
 
   const raw = [
     "# Title",
@@ -128,9 +128,9 @@ it("Ingest streaming: buildTocStreaming matches buildToc on overlapped chunks", 
 });
 
 it("Ingest streaming: buildTocStreaming fallback sections when no headings", async () => {
-  const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
-  const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
-  const { buildTocStreaming } = await import("../../js/agents/retrieval/toc-builder.js");
+  const { normalizeText } = await import("../../../js/agents/stages/textprep/normalize.js");
+  const { chunkText } = await import("../../../js/agents/stages/textprep/chunk.js");
+  const { buildTocStreaming } = await import("../../../js/agents/retrieval/toc-builder.js");
 
   const raw = "plain text\nwith lines\nand no headings\n";
   const normalized = normalizeText(raw).normalized;
@@ -145,7 +145,7 @@ it("Ingest streaming: buildTocStreaming fallback sections when no headings", asy
 });
 
 it("Ingest streaming: parseStream supports abort via AbortSignal", async () => {
-  const { BaseAdapter } = await import("../../js/agents/ingest/adapters/base.js");
+  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
 
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 20, overlap: 5, includeLineNumbers: false } });
   const text = "x".repeat(10_000);
@@ -169,8 +169,8 @@ it("Ingest streaming: parseStream supports abort via AbortSignal", async () => {
 });
 
 it("Ingest streaming: parseStream processes large files without pre-loading", async () => {
-  const { BaseAdapter } = await import("../../js/agents/ingest/adapters/base.js");
-  const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
+  const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
+  const { normalizeText } = await import("../../../js/agents/stages/textprep/normalize.js");
 
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "pb-ingest-stream-"));
   const filePath = path.join(tmpDir, "large.md");

@@ -878,10 +878,11 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
     }
 
     const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr || "Unknown error");
+    const errStack = lastErr instanceof Error ? lastErr.stack : undefined;
     logger.warn("[design.batch] generateSingleSlide falling back after retries", { slideIntentId, error: errMsg });
     safeEmit(emit, "design:slide.failed", "failed", {
       slideIndex,
-      error: { message: errMsg }
+      error: { message: errMsg, stack: errStack }
     });
   }
 

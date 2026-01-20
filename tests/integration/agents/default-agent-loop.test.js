@@ -20,7 +20,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 async function createTestLoop(options = {}) {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   class TestLoop extends BaseAgentLoop {
     async run(input, context) {
@@ -36,7 +36,7 @@ async function createTestLoop(options = {}) {
 // ============================================================================
 
 it("BaseStage.execute emits started/completed events", async () => {
-  const { BaseStage } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseStage } = await import("../../../js/agents/runtime/core/agent-loop.js");
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -60,7 +60,7 @@ it("BaseStage.execute emits started/completed events", async () => {
 });
 
 it("BaseStage.execute emits failed event on error", async () => {
-  const { BaseStage } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseStage } = await import("../../../js/agents/runtime/core/agent-loop.js");
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -81,7 +81,7 @@ it("BaseStage.execute emits failed event on error", async () => {
 });
 
 it("BaseStage.execute respects cancellation before start", async () => {
-  const { BaseStage } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseStage } = await import("../../../js/agents/runtime/core/agent-loop.js");
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -103,7 +103,7 @@ it("BaseStage.execute respects cancellation before start", async () => {
 });
 
 it("BaseStage.run throws when not implemented", async () => {
-  const { BaseStage } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseStage } = await import("../../../js/agents/runtime/core/agent-loop.js");
   const stage = new BaseStage({ name: "base" });
 
   await expect(stage.run("input")).rejects.toThrow(/Subclass must implement run/);
@@ -665,9 +665,9 @@ it("_transitionPhase uses loop emit when no emit provided", async () => {
 // ============================================================================
 
 it("execute triggers PreAgent and PostAgent hooks", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/index.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../../js/agents/runtime/hooks/index.js");
 
   const eventBus = enhanceEventBusWithHooks(new EventBus({ runId: "hook" }));
   const preCalls = [];
@@ -707,9 +707,9 @@ it("execute triggers PreAgent and PostAgent hooks", async () => {
 });
 
 it("execute respects PreAgent skip and emits skipped event", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/index.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../../js/agents/runtime/hooks/index.js");
 
   const eventBus = enhanceEventBusWithHooks(new EventBus({ runId: "skip" }));
   const events = [];
@@ -739,9 +739,9 @@ it("execute respects PreAgent skip and emits skipped event", async () => {
 });
 
 it("execute calls PostAgent hook with error on failure", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/index.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../../js/agents/runtime/hooks/index.js");
 
   const eventBus = enhanceEventBusWithHooks(new EventBus({ runId: "fail" }));
   const postCalls = [];
@@ -767,9 +767,9 @@ it("execute calls PostAgent hook with error on failure", async () => {
 });
 
 it("execute swallows PostAgent hook errors and emits hook error event", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
-  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/index.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../../js/agents/runtime/hooks/index.js");
 
   const eventBus = enhanceEventBusWithHooks(new EventBus({ runId: "post-error" }));
   const hookErrors = [];
@@ -801,7 +801,7 @@ it("execute swallows PostAgent hook errors and emits hook error event", async ()
 // ============================================================================
 
 it("waitForUserAction resolves with payload", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "wait" });
   const loop = await createTestLoop({ eventBus });
@@ -814,7 +814,7 @@ it("waitForUserAction resolves with payload", async () => {
 });
 
 it("waitForUserAction rejects on timeout", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "timeout" });
   const loop = await createTestLoop({ eventBus });
@@ -825,7 +825,7 @@ it("waitForUserAction rejects on timeout", async () => {
 });
 
 it("waitForUserAction rejects on abort", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "abort" });
   const loop = await createTestLoop({ eventBus });
@@ -848,7 +848,7 @@ it("waitForUserAction requires an eventBus with subscribe", async () => {
 // ============================================================================
 
 it("execute aborts superseded run", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
   let firstSignal = null;
   let releaseFirst = null;
   const firstGate = new Promise((resolve) => {
@@ -883,7 +883,7 @@ it("execute aborts superseded run", async () => {
 // ============================================================================
 
 it("pause sets status to PAUSED and aborts active step", async () => {
-  const { AgentStatus } = await import("../../js/agents/runtime/core/agent-status.js");
+  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
   const loop = await createTestLoop({ stageName: "pausable" });
 
   loop._transitionLoopStatus(AgentStatus.RUNNING, { force: true });
@@ -960,7 +960,7 @@ it("_callTool handles tool returning null", async () => {
 // ============================================================================
 
 it("_attachUserInputListener subscribes to user.input event", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "test" });
   const loop = await createTestLoop({ stageName: "input" });
@@ -1019,7 +1019,7 @@ it("_detachEventBusListeners unsubscribes pause listener", async () => {
 });
 
 it("_detachEventBusListeners cleans up subscriptions", async () => {
-  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "test" });
   const loop = await createTestLoop({ stageName: "cleanup" });
@@ -1182,14 +1182,14 @@ it("message manager dispose marks instance as disposed", async () => {
 // ============================================================================
 
 it("BaseAgentLoop.run throws when not implemented", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
   const loop = new BaseAgentLoop();
 
   await expect(loop.run("input")).rejects.toThrow(/not implemented/);
 });
 
 it("constructor with tools as Map", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   const toolsMap = new Map([
     ["mapTool1", async () => "result1"],
@@ -1210,7 +1210,7 @@ it("constructor with tools as Map", async () => {
 });
 
 it("constructor with tools as array of tuples", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   const toolsArray = [
     ["arrayTool1", async () => "result1"],
@@ -1231,7 +1231,7 @@ it("constructor with tools as array of tuples", async () => {
 });
 
 it("constructor without options uses defaults", async () => {
-  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   class TestLoop extends BaseAgentLoop {
     async run() {

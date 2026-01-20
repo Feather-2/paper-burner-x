@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Coordinator depends on compressAgentLoopMessagesAsync. Mock it so we can test
 // trigger logic and option wiring without running the actual compression.
-vi.mock("../../../../js/agents/runtime/compression/compression-async.js", async (importOriginal) => {
+vi.mock("../../../../../js/agents/plugins/compression/impl/compression-async.js", async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
@@ -18,7 +18,7 @@ afterEach(() => {
 
 describe("runtime/compression/coordinator.js (plugins suite)", () => {
   it("falls back to default getters when options are omitted", async () => {
-    const { CompressionCoordinator } = await import("../../../../js/agents/runtime/compression/coordinator.js");
+    const { CompressionCoordinator } = await import("../../../../../js/agents/plugins/compression/impl/coordinator.js");
 
     const coordinator = new CompressionCoordinator();
 
@@ -28,8 +28,8 @@ describe("runtime/compression/coordinator.js (plugins suite)", () => {
   });
 
   it("defaults useWorker=true when cfg.useCompressionWorker is not false and forwards cfg workerThresholdMessages", async () => {
-    const compressionAsync = await import("../../../../js/agents/runtime/compression/compression-async.js");
-    const { CompressionCoordinator } = await import("../../../../js/agents/runtime/compression/coordinator.js");
+    const compressionAsync = await import("../../../../../js/agents/plugins/compression/impl/compression-async.js");
+    const { CompressionCoordinator } = await import("../../../../../js/agents/plugins/compression/impl/coordinator.js");
 
     compressionAsync.compressAgentLoopMessagesAsync.mockResolvedValue({
       messages: [],
@@ -54,8 +54,8 @@ describe("runtime/compression/coordinator.js (plugins suite)", () => {
   });
 
   it("runtime options override worker settings and forwards AbortSignal", async () => {
-    const compressionAsync = await import("../../../../js/agents/runtime/compression/compression-async.js");
-    const { CompressionCoordinator } = await import("../../../../js/agents/runtime/compression/coordinator.js");
+    const compressionAsync = await import("../../../../../js/agents/plugins/compression/impl/compression-async.js");
+    const { CompressionCoordinator } = await import("../../../../../js/agents/plugins/compression/impl/coordinator.js");
 
     compressionAsync.compressAgentLoopMessagesAsync.mockResolvedValue({
       messages: [],
@@ -94,8 +94,8 @@ describe("runtime/compression/coordinator.js (plugins suite)", () => {
   });
 
   it("falls back to the original array when compression throws and logger.warn is not a function", async () => {
-    const compressionAsync = await import("../../../../js/agents/runtime/compression/compression-async.js");
-    const { CompressionCoordinator } = await import("../../../../js/agents/runtime/compression/coordinator.js");
+    const compressionAsync = await import("../../../../../js/agents/plugins/compression/impl/compression-async.js");
+    const { CompressionCoordinator } = await import("../../../../../js/agents/plugins/compression/impl/coordinator.js");
 
     compressionAsync.compressAgentLoopMessagesAsync.mockRejectedValue(new Error("boom"));
 

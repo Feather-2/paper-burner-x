@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../../../js/agents/mcp/http-proxy.js", () => {
-  const CorsProxyHttpClient = vi.fn().mockImplementation((options) => ({
-    fetchWithCorsFallback: vi.fn(),
-    options,
-  }));
+  // Use function constructor for vi.fn() to work with `new`
+  const CorsProxyHttpClient = vi.fn(function (options) {
+    this.options = options;
+    this.fetchWithCorsFallback = vi.fn();
+  });
   return {
     CorsProxyHttpClient,
     DEFAULT_CORS_PROXIES: [""],
@@ -48,10 +49,10 @@ const makeAbortedSignal = (reason = "Aborted") => {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  httpProxy.CorsProxyHttpClient.mockImplementation((options) => ({
-    fetchWithCorsFallback: vi.fn(),
-    options,
-  }));
+  httpProxy.CorsProxyHttpClient.mockImplementation(function (options) {
+    this.options = options;
+    this.fetchWithCorsFallback = vi.fn();
+  });
   httpProxy.normalizeCorsProxies.mockImplementation((value) => (Array.isArray(value) ? value : null));
   httpProxy.validateFetchUrl.mockImplementation((url) => String(url));
   contentExtractor.searchDuckDuckGoHtml.mockResolvedValue({ results: [], pages: 0 });

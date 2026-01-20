@@ -162,7 +162,7 @@ test('dashboard: updateStyleReferenceNotes updates userNotes', () => {
 
 // Test 6: batch-generator makePrompt includes styleReference in output
 test('batch-generator: makePrompt includes styleReference lines when present', async () => {
-  const mod = await import('../../js/agents/stages/design/batch-generator.js');
+  const mod = await import('../../../js/agents/stages/design/batch-generator.js');
 
   // Access makePrompt through generateSingleSlide behavior
   // Since makePrompt is not exported, we test indirectly via the module behavior

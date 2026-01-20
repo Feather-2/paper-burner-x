@@ -7,7 +7,7 @@ describe("WorkerPool: basic lifecycle", () => {
   let TaskPriority;
 
   beforeAll(async () => {
-    const mod = await import("../../../js/agents/runtime/core/worker-pool.js");
+    const mod = await import("../../../../js/agents/runtime/core/worker-pool.js");
     WorkerPool = mod.WorkerPool;
     TaskPriority = mod.TaskPriority;
   });
@@ -76,7 +76,7 @@ describe("ResourceGuard: quota management", () => {
   let ResourceGuard;
 
   beforeAll(async () => {
-    const mod = await import("../../../js/agents/runtime/core/resource-guard.js");
+    const mod = await import("../../../../js/agents/runtime/core/resource-guard.js");
     ResourceGuard = mod.ResourceGuard;
   });
 
@@ -173,7 +173,7 @@ describe("RetryStrategy: retry behavior", () => {
   let withRetry;
 
   beforeAll(async () => {
-    const mod = await import("../../../js/agents/runtime/core/retry-strategy.js");
+    const mod = await import("../../../../js/agents/runtime/core/retry-strategy.js");
     RetryStrategy = mod.RetryStrategy;
     isRetryableError = mod.isRetryableError;
     withRetry = mod.withRetry;
@@ -307,7 +307,7 @@ describe("FileLock: read/write locking", () => {
   let withLock;
 
   beforeAll(async () => {
-    const mod = await import("../../../js/agents/vfs/file-lock.js");
+    const mod = await import("../../../../js/agents/vfs/file-lock.js");
     FileLock = mod.FileLock;
     LockType = mod.LockType;
     getFileLock = mod.getFileLock;

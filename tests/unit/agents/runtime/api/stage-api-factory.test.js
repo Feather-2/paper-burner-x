@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const assert = require("node:assert/strict");
+const stageApiFactoryUrl = pathToFileURL(
+  path.resolve(process.cwd(), "js/agents/runtime/core/api/stage-api-factory.js")
+).href;
 
 it("StageApiFactory createBaseApi merges services and overrides", async () => {
-  const { StageApiFactory } = await import("../../../js/agents/runtime/api/stage-api-factory.js");
+  const { StageApiFactory } = await import(stageApiFactoryUrl);
 
   let emitted = null;
   const eventBus = {
@@ -37,7 +42,7 @@ it("StageApiFactory createBaseApi merges services and overrides", async () => {
 });
 
 it("StageApiFactory createDeepSearchApi injects services", async () => {
-  const { StageApiFactory } = await import("../../../js/agents/runtime/api/stage-api-factory.js");
+  const { StageApiFactory } = await import(stageApiFactoryUrl);
 
   const factory = new StageApiFactory({
     localRetriever: "local",
@@ -57,7 +62,7 @@ it("StageApiFactory createDeepSearchApi injects services", async () => {
 });
 
 it("StageApiFactory createDesignApi injects services and skips warnings when complete", async () => {
-  const { StageApiFactory } = await import("../../../js/agents/runtime/api/stage-api-factory.js");
+  const { StageApiFactory } = await import(stageApiFactoryUrl);
 
   const warnings = [];
   const originalWarn = console.warn;
@@ -87,7 +92,7 @@ it("StageApiFactory createDesignApi injects services and skips warnings when com
 });
 
 it("StageApiFactory createTextPrepApi passes overrides", async () => {
-  const { StageApiFactory } = await import("../../../js/agents/runtime/api/stage-api-factory.js");
+  const { StageApiFactory } = await import(stageApiFactoryUrl);
 
   const factory = new StageApiFactory({ aiApiService: { chat() {} } });
   const api = factory.createTextPrepApi({ mode: "textprep" });
@@ -97,7 +102,7 @@ it("StageApiFactory createTextPrepApi passes overrides", async () => {
 });
 
 it("StageApiFactory validate returns boolean", async () => {
-  const { StageApiFactory } = await import("../../../js/agents/runtime/api/stage-api-factory.js");
+  const { StageApiFactory } = await import(stageApiFactoryUrl);
 
   const factory = new StageApiFactory();
 
@@ -110,7 +115,7 @@ it("StageApiFactory validate returns boolean", async () => {
 });
 
 it("StageApiFactory fromWorkflowContext maps services and exports are wired", async () => {
-  const mod = await import("../../../js/agents/runtime/api/stage-api-factory.js");
+  const mod = await import(stageApiFactoryUrl);
   const { StageApiFactory, createStageApiFactory, default: DefaultExport } = mod;
 
   const eventBus = { emit() {} };

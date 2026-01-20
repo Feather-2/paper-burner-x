@@ -20,7 +20,7 @@ describe('js/ui/components/modal.js', () => {
     document.body.innerHTML = '';
 
     vi.resetModules();
-    modalModule = await import('../../js/ui/components/modal.js');
+    modalModule = await import('../../../js/ui/components/modal.js');
   });
 
   afterEach(() => {
@@ -163,7 +163,7 @@ describe('js/ui/components/notification.js', () => {
     document.body.innerHTML = '';
 
     vi.resetModules();
-    notificationModule = await import('../../js/ui/components/notification.js');
+    notificationModule = await import('../../../js/ui/components/notification.js');
   });
 
   afterEach(() => {
@@ -226,7 +226,7 @@ describe('js/ui/components/progress-bar.js', () => {
   beforeEach(async () => {
     document.body.innerHTML = '<div id="root"></div>';
     vi.resetModules();
-    progressModule = await import('../../js/ui/components/progress-bar.js');
+    progressModule = await import('../../../js/ui/components/progress-bar.js');
   });
 
   afterEach(() => {

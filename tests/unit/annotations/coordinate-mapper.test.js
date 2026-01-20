@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 
 // 动态导入
 const loadModules = async () => {
-  const mapper = await import('../../js/annotations/core/coordinate-mapper.js');
+  const mapper = await import('../../../js/annotations/core/coordinate-mapper.js');
   return mapper;
 };
 

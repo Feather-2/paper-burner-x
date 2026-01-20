@@ -72,7 +72,7 @@ describe('agents/sdk AgentBuilder', () => {
   });
 
   it('createAgent() returns an AgentBuilder and forwards options to AgentConfig', async () => {
-    const { AgentBuilder, createAgent } = await import('../../../js/agents/sdk/AgentBuilder.js');
+    const { AgentBuilder, createAgent } = await import('../../../../js/agents/sdk/AgentBuilder.js');
 
     const builder = createAgent({ actor: 'tester', some: 'opt' });
     expect(builder).toBeInstanceOf(AgentBuilder);
@@ -84,7 +84,7 @@ describe('agents/sdk AgentBuilder', () => {
   });
 
   it('exposes a fluent API that delegates to AgentConfig and returns `this`', async () => {
-    const { AgentBuilder } = await import('../../../js/agents/sdk/AgentBuilder.js');
+    const { AgentBuilder } = await import('../../../../js/agents/sdk/AgentBuilder.js');
 
     const builder = new AgentBuilder({ actor: 'test' });
 
@@ -136,7 +136,7 @@ describe('agents/sdk AgentBuilder', () => {
   });
 
   it('build() calls AgentFactory.create(config) and returns its result', async () => {
-    const { AgentBuilder } = await import('../../../js/agents/sdk/AgentBuilder.js');
+    const { AgentBuilder } = await import('../../../../js/agents/sdk/AgentBuilder.js');
 
     const builder = new AgentBuilder({ actor: 'builder' });
 

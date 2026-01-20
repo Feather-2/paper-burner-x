@@ -7,8 +7,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // 动态导入 ESM 模块
 const loadModules = async () => {
-  const streaming = await import('../../js/chatbot/core/streaming-adapter.js');
-  const handler = await import('../../js/chatbot/core/message-handler.js');
+  const streaming = await import('../../../js/chatbot/core/streaming-adapter.js');
+  const handler = await import('../../../js/chatbot/core/message-handler.js');
   return { streaming, handler };
 };
 
@@ -285,7 +285,7 @@ describe('createMessageHandler', () => {
 
 describe('Chatbot UI exports (ESM)', () => {
   it('should export UI entry and be re-exported by chatbot/index.js', async () => {
-    const ui = await import('../../js/chatbot/ui/index.js');
+    const ui = await import('../../../js/chatbot/ui/index.js');
 
     expect(ui.ChatbotUI).toMatchObject({
       updateChatbotUI: expect.any(Function),
@@ -305,7 +305,7 @@ describe('Chatbot UI exports (ESM)', () => {
       render: expect.any(Function)
     });
 
-    const chatbot = await import('../../js/chatbot/index.js');
+    const chatbot = await import('../../../js/chatbot/index.js');
     expect(chatbot.ChatbotUI).toMatchObject({
       updateChatbotUI: expect.any(Function),
       initChatbotUI: expect.any(Function)

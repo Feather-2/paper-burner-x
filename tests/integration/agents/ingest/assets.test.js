@@ -27,7 +27,7 @@ function makePdfFile({ name = "doc.pdf", type = "application/pdf", bytes = Buffe
 }
 
 it("extractAssetsFromMarkdown(): maps placeholders to locators + image data", async () => {
-  const { extractAssetsFromMarkdown } = await import("../../../js/agents/ingest/extract-assets.js");
+  const { extractAssetsFromMarkdown } = await import("../../../../js/agents/ingest/extract-assets.js");
 
   const placeholder = "![Fig](images/img-001.png)";
   const markdown = `# T\n\nIntro.\n\n${placeholder}\n\n![Skip](images/missing.png)\n\n![External](https://example.com/a.png)\n`;
@@ -49,7 +49,7 @@ it("extractAssetsFromMarkdown(): maps placeholders to locators + image data", as
 });
 
 it("PdfAdapter: calls injected OCR + builds ParsedDocument + extracts assets", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   const file = makePdfFile({ name: "paper.pdf" });
   const placeholder = "![P](images/img-001.png)";
@@ -89,7 +89,7 @@ it("PdfAdapter: calls injected OCR + builds ParsedDocument + extracts assets", a
 });
 
 it("IngestStage: dispatches application/pdf to PdfAdapter + AssetManager dedups", async () => {
-  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { IngestStage } = await import("../../../../js/agents/ingest/ingest-stage.js");
 
   const file = makePdfFile({ name: "dup.pdf" });
   const mockOcr = {
@@ -119,7 +119,7 @@ it("IngestStage: dispatches application/pdf to PdfAdapter + AssetManager dedups"
 });
 
 it("PdfAdapter: falls back to embedded text extraction when OCR is missing", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   const prior = globalThis.OcrManager;
   try {
@@ -135,7 +135,7 @@ it("PdfAdapter: falls back to embedded text extraction when OCR is missing", asy
 });
 
 it("PdfAdapter: validates input type and file-like shape", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   const adapter = new PdfAdapter();
   const mockOcr = { async processFile() {} };
@@ -147,7 +147,7 @@ it("PdfAdapter: validates input type and file-like shape", async () => {
 });
 
 it("PdfAdapter: rejects oversized inputs before invoking OCR", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   let called = false;
   const mockOcr = {
@@ -171,7 +171,7 @@ it("PdfAdapter: rejects oversized inputs before invoking OCR", async () => {
 });
 
 it("PdfAdapter: propagates OCR failure", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   const adapter = new PdfAdapter();
   const mockOcr = {
@@ -184,7 +184,7 @@ it("PdfAdapter: propagates OCR failure", async () => {
 });
 
 it("PdfAdapter: handles empty markdown, missing images, and malformed image paths", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   const adapter = new PdfAdapter({ defaultChunkOptions: { chunkSize: 20, overlap: 0, includeLineNumbers: false } });
   const mockOcr = {
@@ -205,7 +205,7 @@ it("PdfAdapter: handles empty markdown, missing images, and malformed image path
 });
 
 it("PdfAdapter: supports string path input (reads file) and forwards onProgress", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   await withTempDir(async (dir) => {
     const pdfPath = path.join(dir, "X.PDF");
@@ -240,7 +240,7 @@ it("PdfAdapter: supports string path input (reads file) and forwards onProgress"
 });
 
 it("PdfAdapter: falls back to globalThis.OcrManager (object and class) when stageApi.ocr missing", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   const prior = globalThis.OcrManager;
   try {
@@ -276,7 +276,7 @@ it("PdfAdapter: falls back to globalThis.OcrManager (object and class) when stag
 });
 
 it("PdfAdapter: uses application/octet-stream when file-like has no type and non-pdf name", async () => {
-  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+  const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
   const adapter = new PdfAdapter();
   const mockOcr = { async processFile() { return { markdown: "", images: [] }; } };

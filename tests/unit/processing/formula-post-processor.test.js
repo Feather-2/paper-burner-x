@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 async function loadFormulaPostProcessor() {
-  return await import('../../js/processing/formula_post_processor.esm.js');
+  return await import('../../../js/processing/formula_post_processor.esm.js');
 }
 
 function stubKatex() {

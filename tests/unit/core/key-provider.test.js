@@ -30,7 +30,7 @@ function makeLocalStorage(initial = {}) {
 }
 
 async function loadKeyProviderModule() {
-  return await import('../../js/core/api/key-provider.js');
+  return await import('../../../js/core/api/key-provider.js');
 }
 
 describe('core/api/key-provider (KeyProvider)', () => {
