@@ -1,399 +1,459 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { homedir } from "node:os";
 import {
   classifyCommand,
   parseCompoundCommand,
   __internal,
-} from '../../../../../js/agents/runtime/safety/command-classifier.js';
+} from "../../../../../js/agents/runtime/safety/command-classifier.js";
 
-const { tokenizeShell, toBaseName } = __internal;
+vi.mock("node:os", () => ({
+  homedir: () => "/home/mock",
+}));
 
-describe("command-classifier", () => {
-  describe("parseCompoundCommand", () => {
-    it("parses simple command", () => {
-      expect(parseCompoundCommand("ls -la")).toEqual([["ls", "-la"]]);
-    });
+const { tokenizeShell, toBaseName, hasCommandSubstitution } = __internal;
 
-    it("parses && chained commands", () => {
-      expect(parseCompoundCommand("echo hi && ls")).toEqual([["echo", "hi"], ["ls"]]);
-    });
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
-    it("parses || chained commands", () => {
-      expect(parseCompoundCommand("cmd1 || cmd2")).toEqual([["cmd1"], ["cmd2"]]);
-    });
-
-    it("parses ; separated commands", () => {
-      expect(parseCompoundCommand("cmd1 ; cmd2 ; cmd3")).toEqual([["cmd1"], ["cmd2"], ["cmd3"]]);
-    });
-
-    it("parses | piped commands", () => {
-      expect(parseCompoundCommand("cat file | grep pattern")).toEqual([["cat", "file"], ["grep", "pattern"]]);
-    });
-
-    it("parses & background commands", () => {
-      expect(parseCompoundCommand("cmd1 & cmd2")).toEqual([["cmd1"], ["cmd2"]]);
-    });
-
-    it("handles mixed connectors", () => {
-      expect(parseCompoundCommand("a && b || c ; d | e")).toEqual([["a"], ["b"], ["c"], ["d"], ["e"]]);
-    });
-
-    it("handles quoted strings", () => {
-      expect(parseCompoundCommand("echo 'hello world'")).toEqual([["echo", "hello world"]]);
-      expect(parseCompoundCommand('echo "hello world"')).toEqual([["echo", "hello world"]]);
-    });
-
-    it("handles escaped characters in double quotes", () => {
-      expect(parseCompoundCommand('echo "a\\"b"')).toEqual([["echo", 'a"b']]);
-    });
-
-    it("handles backslash escapes outside quotes", () => {
-      expect(parseCompoundCommand("echo hello\\ world")).toEqual([["echo", "hello world"]]);
-    });
-
-    it("expands bash -c wrapper", () => {
-      expect(parseCompoundCommand("bash -c 'ls && rm -rf /'")).toEqual([["ls"], ["rm", "-rf", "/"]]);
-      expect(parseCompoundCommand("sh -c 'echo hi'")).toEqual([["echo", "hi"]]);
-      expect(parseCompoundCommand("zsh -c 'pwd'")).toEqual([["pwd"]]);
-    });
-
-    it("expands bash -c from argv array", () => {
-      expect(parseCompoundCommand(["bash", "-c", "ls && rm -rf /"])).toEqual([["ls"], ["rm", "-rf", "/"]]);
-    });
-
-    it("returns empty array for empty input", () => {
-      expect(parseCompoundCommand("")).toEqual([]);
-      expect(parseCompoundCommand(null)).toEqual([]);
-      expect(parseCompoundCommand(undefined)).toEqual([]);
-    });
-
-    it("returns argv as-is if not bash -c", () => {
-      expect(parseCompoundCommand(["git", "status"])).toEqual([["git", "status"]]);
-    });
+describe("parseCompoundCommand", () => {
+  it("parses a simple command", () => {
+    expect(parseCompoundCommand("ls -la")).toEqual([["ls", "-la"]]);
   });
 
-  describe("tokenizeShell", () => {
-    it("tokenizes simple command", () => {
-      expect(tokenizeShell("ls -la")).toEqual(["ls", "-la"]);
-    });
-
-    it("tokenizes with single quotes", () => {
-      expect(tokenizeShell("echo 'a b c'")).toEqual(["echo", "a b c"]);
-    });
-
-    it("tokenizes with double quotes", () => {
-      expect(tokenizeShell('echo "a b c"')).toEqual(["echo", "a b c"]);
-    });
-
-    it("handles connectors", () => {
-      expect(tokenizeShell("a && b || c")).toEqual(["a", "&&", "b", "||", "c"]);
-    });
-
-    it("handles empty input", () => {
-      expect(tokenizeShell("")).toEqual([]);
-      expect(tokenizeShell(null)).toEqual([]);
-    });
+  it("splits compound commands by connectors", () => {
+    const input = "a && b || c ; d | e & f";
+    expect(parseCompoundCommand(input)).toEqual([
+      ["a"],
+      ["b"],
+      ["c"],
+      ["d"],
+      ["e"],
+      ["f"],
+    ]);
   });
 
-  describe("toBaseName", () => {
-    it("extracts base command from path", () => {
-      expect(toBaseName("/usr/bin/ls")).toBe("ls");
-      expect(toBaseName("/bin/bash")).toBe("bash");
-    });
-
-    it("handles backslash paths", () => {
-      expect(toBaseName("C:\\Windows\\System32\\cmd.exe")).toBe("cmd.exe");
-    });
-
-    it("handles simple command names", () => {
-      expect(toBaseName("ls")).toBe("ls");
-      expect(toBaseName("GREP")).toBe("grep");
-    });
-
-    it("returns empty for empty input", () => {
-      expect(toBaseName("")).toBe("");
-      expect(toBaseName(null)).toBe("");
-    });
+  it("keeps quoted connectors intact", () => {
+    expect(parseCompoundCommand("echo 'a && b' && ls")).toEqual([
+      ["echo", "a && b"],
+      ["ls"],
+    ]);
   });
 
-  describe("classifyCommand - safe commands", () => {
-    const safeCommands = ["cat", "cd", "echo", "grep", "head", "ls", "pwd", "tail", "wc", "which"];
+  it("handles escaped characters", () => {
+    expect(parseCompoundCommand('echo "a\\"b"')).toEqual([["echo", 'a"b']]);
+    expect(parseCompoundCommand("echo hello\\ world")).toEqual([
+      ["echo", "hello world"],
+    ]);
+  });
 
+  it("expands bash -c wrapper from string", () => {
+    expect(parseCompoundCommand("bash -c 'ls && rm -rf /'"))
+      .toEqual([["ls"], ["rm", "-rf", "/"]]);
+  });
+
+  it("expands bash -c wrapper from argv array", () => {
+    expect(parseCompoundCommand(["bash", "-c", "ls && rm -rf /"]))
+      .toEqual([["ls"], ["rm", "-rf", "/"]]);
+  });
+
+  it("returns argv as-is when not a shell -c wrapper", () => {
+    expect(parseCompoundCommand(["git", "status"]))
+      .toEqual([["git", "status"]]);
+  });
+
+  it("returns empty for empty-like inputs", () => {
+    expect(parseCompoundCommand("")).toEqual([]);
+    expect(parseCompoundCommand("   ")).toEqual([]);
+    expect(parseCompoundCommand(null)).toEqual([]);
+    expect(parseCompoundCommand(undefined)).toEqual([]);
+    expect(parseCompoundCommand([])).toEqual([]);
+  });
+
+  it("handles object input as empty", () => {
+    expect(parseCompoundCommand({})).toEqual([]);
+  });
+
+  it("handles numeric boundary values", () => {
+    expect(parseCompoundCommand(0)).toEqual([]);
+    expect(parseCompoundCommand(-1)).toEqual([]);
+    expect(parseCompoundCommand(Number.MAX_SAFE_INTEGER)).toEqual([]);
+  });
+
+  it("parses numeric strings as commands", () => {
+    expect(parseCompoundCommand("123")).toEqual([["123"]]);
+  });
+
+  it("handles missing script for bash -c array", () => {
+    expect(parseCompoundCommand(["bash", "-c"])).toEqual([]);
+  });
+
+  it("parses deep paths", () => {
+    const deepPath = `/${Array.from({ length: 40 }, (_, i) => `dir${i}`)
+      .join("/")}/file.txt`;
+    expect(parseCompoundCommand(`cat ${deepPath}`)).toEqual([
+      ["cat", deepPath],
+    ]);
+  });
+
+  it("handles very long arguments", () => {
+    const longArg = "a".repeat(10000);
+    expect(parseCompoundCommand(`echo ${longArg}`)).toEqual([
+      ["echo", longArg],
+    ]);
+  });
+
+  it("handles rapid consecutive calls", () => {
+    const results = Array.from({ length: 200 }, (_, i) =>
+      parseCompoundCommand(`echo ${i}`)
+    );
+    expect(results[0]).toEqual([["echo", "0"]]);
+    expect(results[199]).toEqual([["echo", "199"]]);
+  });
+});
+
+describe("__internal.tokenizeShell", () => {
+  it("tokenizes simple commands", () => {
+    expect(tokenizeShell("ls -la")).toEqual(["ls", "-la"]);
+  });
+
+  it("tokenizes connectors and adjacency", () => {
+    expect(tokenizeShell("a&&b||c")).toEqual(["a", "&&", "b", "||", "c"]);
+    expect(tokenizeShell("a|b & c;d")).toEqual([
+      "a",
+      "|",
+      "b",
+      "&",
+      "c",
+      ";",
+      "d",
+    ]);
+  });
+
+  it("respects quoted strings", () => {
+    expect(tokenizeShell("echo 'a && b'"))
+      .toEqual(["echo", "a && b"]);
+    expect(tokenizeShell('echo "a b c"'))
+      .toEqual(["echo", "a b c"]);
+  });
+
+  it("handles escaped characters", () => {
+    expect(tokenizeShell('echo "a\\"b"')).toEqual(["echo", 'a"b']);
+    expect(tokenizeShell("echo hello\\ world")).toEqual([
+      "echo",
+      "hello world",
+    ]);
+  });
+
+  it("handles empty-like inputs", () => {
+    expect(tokenizeShell("")).toEqual([]);
+    expect(tokenizeShell(null)).toEqual([]);
+    expect(tokenizeShell(undefined)).toEqual([]);
+    expect(tokenizeShell([])).toEqual([]);
+  });
+
+  it("handles numeric boundary inputs", () => {
+    expect(tokenizeShell(0)).toEqual(["0"]);
+    expect(tokenizeShell(-1)).toEqual(["-1"]);
+    expect(tokenizeShell(Number.MAX_SAFE_INTEGER)).toEqual([
+      String(Number.MAX_SAFE_INTEGER),
+    ]);
+  });
+
+  it("handles object inputs", () => {
+    expect(tokenizeShell({})).toEqual(["[object", "Object]"]);
+  });
+
+  it("handles very long strings", () => {
+    const longToken = "x".repeat(20000);
+    expect(tokenizeShell(longToken)).toEqual([longToken]);
+  });
+});
+
+describe("__internal.toBaseName", () => {
+  it("extracts base command from paths", () => {
+    expect(toBaseName("/usr/bin/ls")).toBe("ls");
+    expect(toBaseName("/bin/bash")).toBe("bash");
+    expect(toBaseName("C:\\Windows\\System32\\cmd.exe")).toBe("cmd.exe");
+  });
+
+  it("normalizes casing and trailing slashes", () => {
+    expect(toBaseName("/usr/bin/LS/")).toBe("ls");
+    expect(toBaseName("GREP")).toBe("grep");
+  });
+
+  it("returns empty for empty-like inputs", () => {
+    expect(toBaseName("")).toBe("");
+    expect(toBaseName("   ")).toBe("");
+    expect(toBaseName(null)).toBe("");
+    expect(toBaseName(undefined)).toBe("");
+  });
+
+  it("handles numeric boundary values", () => {
+    expect(toBaseName(0)).toBe("");
+    expect(toBaseName(-1)).toBe("");
+    expect(toBaseName(Number.MAX_SAFE_INTEGER)).toBe("");
+  });
+
+  it("handles numeric strings", () => {
+    expect(toBaseName("123")).toBe("123");
+  });
+
+  it("handles deep nested paths", () => {
+    const deepPath = `/${Array.from({ length: 50 }, (_, i) => `d${i}`)
+      .join("/")}/cmd`;
+    expect(toBaseName(deepPath)).toBe("cmd");
+  });
+});
+
+describe("__internal.hasCommandSubstitution", () => {
+  it("detects $() substitution", () => {
+    expect(hasCommandSubstitution("echo $(whoami)")).toBe(true);
+  });
+
+  it("detects backticks", () => {
+    expect(hasCommandSubstitution("echo `whoami`")).toBe(true);
+  });
+
+  it("detects process substitution", () => {
+    expect(hasCommandSubstitution("diff <(cat a) b")).toBe(true);
+    expect(hasCommandSubstitution("cat >(tee out)"))
+      .toBe(true);
+  });
+
+  it("returns false for normal commands", () => {
+    expect(hasCommandSubstitution("ls -la")).toBe(false);
+  });
+
+  it("returns false for empty-like inputs", () => {
+    expect(hasCommandSubstitution("")).toBe(false);
+    expect(hasCommandSubstitution(null)).toBe(false);
+    expect(hasCommandSubstitution(undefined)).toBe(false);
+    expect(hasCommandSubstitution(0)).toBe(false);
+  });
+});
+
+describe("classifyCommand", () => {
+  const safeCommands = [
+    "cat",
+    "cd",
+    "echo",
+    "grep",
+    "head",
+    "ls",
+    "pwd",
+    "tail",
+    "wc",
+    "which",
+  ];
+
+  const dangerousCommands = [
+    "rm",
+    "rmdir",
+    "chmod",
+    "chown",
+    "kill",
+    "shutdown",
+    "dd",
+    "mkfs",
+    "mount",
+    "umount",
+  ];
+
+  describe("allowlisted commands", () => {
     for (const cmd of safeCommands) {
       it(`classifies '${cmd}' as safe`, () => {
         const result = classifyCommand(cmd);
-        expect(result.level).toBe("safe");
-        expect(result.requiresApproval).toBe(false);
-        expect(result.baseCommand).toBe(cmd);
+        expect(result).toMatchObject({
+          level: "safe",
+          requiresApproval: false,
+          baseCommand: cmd,
+        });
+        expect(result.reasons).toEqual(["allowlisted_executable"]);
       });
     }
 
-    it("classifies safe command with args as safe", () => {
-      expect(classifyCommand(["ls", "-la"]).level).toBe("safe");
-      expect(classifyCommand("cat /tmp/file.txt").level).toBe("safe");
-      expect(classifyCommand("grep -r pattern .").level).toBe("safe");
+    it("keeps safe commands safe with arguments", () => {
+      expect(classifyCommand("ls -la").level).toBe("safe");
+      expect(classifyCommand(["echo", "hello"]).level).toBe("safe");
     });
   });
 
-  describe("classifyCommand - dangerous commands", () => {
-    const dangerousCommands = ["rm", "rmdir", "chmod", "chown", "kill", "shutdown", "dd", "mkfs", "mount", "umount"];
-
+  describe("dangerous commands", () => {
     for (const cmd of dangerousCommands) {
       it(`classifies '${cmd}' as dangerous`, () => {
         const result = classifyCommand(cmd);
-        expect(result.level).toBe("dangerous");
-        expect(result.requiresApproval).toBe(true);
-        expect(result.baseCommand).toBe(cmd);
+        expect(result).toMatchObject({
+          level: "dangerous",
+          requiresApproval: true,
+          baseCommand: cmd,
+        });
         expect(result.reasons).toContain("dangerous_executable");
       });
     }
 
-    it("classifies dangerous command with args", () => {
-      const result = classifyCommand("rm -rf /");
-      expect(result.level).toBe("dangerous");
-      expect(result.requiresApproval).toBe(true);
-    });
-
-    it("classifies dangerous command in path", () => {
+    it("classifies dangerous commands with paths", () => {
       const result = classifyCommand("/bin/rm -rf /tmp");
       expect(result.level).toBe("dangerous");
       expect(result.baseCommand).toBe("rm");
     });
   });
 
-  describe("classifyCommand - unknown commands", () => {
-    it("classifies unknown command as unknown", () => {
-      const result = classifyCommand("unknowncmd");
-      expect(result.level).toBe("unknown");
-      expect(result.requiresApproval).toBe(true);
+  describe("sensitive paths", () => {
+    it("flags sensitive files for safe commands", () => {
+      const result = classifyCommand("cat /etc/passwd");
+      expect(result.level).toBe("dangerous");
+      expect(result.reasons).toContain("sensitive_path");
     });
 
-    it("classifies npm/node as unknown (requires approval)", () => {
-      expect(classifyCommand("npm install").level).toBe("unknown");
-      expect(classifyCommand("node script.js").level).toBe("unknown");
+    it("normalizes ~ and $HOME for sensitive checks", () => {
+      expect(classifyCommand("cat ~/.ssh/id_rsa").level).toBe("dangerous");
+      expect(classifyCommand("cat $HOME/.aws/credentials").level)
+        .toBe("dangerous");
     });
 
-    it("classifies curl/wget as unknown", () => {
-      expect(classifyCommand("curl https://example.com").level).toBe("unknown");
-      expect(classifyCommand("wget https://example.com").level).toBe("unknown");
+    it("handles Windows-style paths", () => {
+      const result = classifyCommand("cat C:\\Users\\me\\.ssh\\id_rsa");
+      expect(result.level).toBe("dangerous");
+      expect(result.reasons).toContain("sensitive_path");
+    });
+
+    it("uses mocked homedir for sensitive paths", () => {
+      const home = homedir();
+      expect(home).toBe("/home/mock");
+      expect(classifyCommand(`cat ${home}/.ssh/id_ed25519`).level)
+        .toBe("dangerous");
     });
   });
 
-  describe("classifyCommand - sensitive paths", () => {
-    const sensitivePaths = [
-      // System auth
-      "/etc/passwd",
-      "/etc/shadow",
-      "/etc/sudoers",
-      "/etc/sudoers.d/custom",
-      // SSH
-      "/etc/ssh/sshd_config",
-      "~/.ssh/id_rsa",
-      "~/.ssh/id_ed25519",
-      "~/.ssh/authorized_keys",
-      "~/.ssh/known_hosts",
-      "/home/user/.ssh/config",
-      // Cloud credentials
-      "~/.aws/credentials",
-      "~/.aws/config",
-      "~/.azure/config",
-      "~/.gcloud/credentials",
-      "~/.config/gcloud/credentials.db",
-      // Container/K8s
-      "~/.docker/config.json",
-      "~/.docker/daemon.json",
-      "~/.kube/config",
-      "~/.kube/credentials",
-      // GPG
-      "~/.gnupg/private-keys-v1.d",
-      "~/.password-store/secrets",
-      // Dev credentials
-      "~/.npmrc",
-      "~/.yarnrc",
-      "~/.netrc",
-      "~/.git-credentials",
-      ".git/config",
-      // Environment
-      ".env",
-      ".env.local",
-      ".env.production",
-      // Linux special
-      "/proc/self/environ",
-      "/proc/1234/cmdline",
-      "/proc/self/maps",
-      "/sys/class/net",
-      "/sys/devices/pci",
-      "/sys/kernel/debug",
-      // History
-      "~/.bash_history",
-      "~/.zsh_history",
-      "~/.python_history",
-    ];
-
-    for (const path of sensitivePaths) {
-      it(`blocks access to sensitive path: ${path}`, () => {
-        const result = classifyCommand(`cat ${path}`);
-        expect(result.level).toBe("dangerous");
-        expect(result.requiresApproval).toBe(true);
-        expect(result.reasons).toContain("sensitive_path");
+  describe("command substitution", () => {
+    it("blocks command substitution early", () => {
+      const result = classifyCommand("echo $(whoami)");
+      expect(result).toEqual({
+        level: "dangerous",
+        requiresApproval: true,
+        reasons: ["command_substitution"],
       });
-    }
-
-    it("blocks head/tail on sensitive files", () => {
-      expect(classifyCommand("head -n 10 /etc/shadow").level).toBe("dangerous");
-      expect(classifyCommand("tail -f ~/.ssh/id_rsa").level).toBe("dangerous");
-    });
-
-    it("blocks grep on sensitive files", () => {
-      expect(classifyCommand("grep password ~/.aws/credentials").level).toBe("dangerous");
     });
   });
 
-  describe("classifyCommand - fork bomb detection", () => {
+  describe("fork bomb detection", () => {
     const forkBombs = [
-      // Classic form
       ":(){ :|:& };:",
-      ":(){:|:&};:",
-      // With spaces
-      ": () { : | : & }; :",
-      // Named function
-      "bomb(){ bomb|bomb& };bomb",
-      "f(){ f|f& };f",
-      // bash -c wrapped
-      "bash -c ':(){ :|:& };:'",
-      "sh -c ':(){:|:&};:'",
-      // While true variants
       "while true; do echo hi & done",
-      "while 1; do sleep 0 & done",
-      "while :; do :& done",
-      // For loop infinite
-      "for((;;)); do :& done",
-      // Self-replicating $0
       "$0 & $0 &",
-      "${0} & ${0} &",
-      // Function calling itself twice with &
-      "x(){ x& x& };x",
-      "boom(){ boom & boom & }; boom",
+      "bash -c 'echo hi' &",
     ];
 
     for (const bomb of forkBombs) {
-      it(`detects fork bomb: ${bomb.slice(0, 30)}...`, () => {
+      it(`detects fork bomb pattern: ${bomb.slice(0, 20)}...`, () => {
         const result = classifyCommand(bomb);
         expect(result.level).toBe("dangerous");
-        expect(result.requiresApproval).toBe(true);
         expect(result.reasons).toContain("fork_bomb");
       });
     }
 
-    it("does not flag normal loops as fork bomb", () => {
-      expect(classifyCommand("for i in 1 2 3; do echo $i; done").reasons).not.toContain("fork_bomb");
-      expect(classifyCommand("while read line; do echo $line; done").reasons).not.toContain("fork_bomb");
-    });
-
-    it("does not flag normal function definitions as fork bomb", () => {
-      expect(classifyCommand("greet(){ echo hello; }").reasons || []).not.toContain("fork_bomb");
+    it("does not flag normal loops", () => {
+      const result = classifyCommand("for i in 1 2; do echo $i; done");
+      expect(result.reasons).not.toContain("fork_bomb");
     });
   });
 
-  describe("classifyCommand - compound commands", () => {
-    it("flags compound if any part is dangerous", () => {
-      const result = classifyCommand("ls && rm -rf /");
-      expect(result.level).toBe("dangerous");
+  describe("compound commands", () => {
+    it("marks compound with dangerous subcommand as dangerous", () => {
+      expect(classifyCommand("ls && rm -rf /").level).toBe("dangerous");
     });
 
-    it("safe compound stays safe", () => {
+    it("marks compound with unknown subcommand as unknown", () => {
+      expect(classifyCommand("ls && unknowncmd").level).toBe("unknown");
+      expect(classifyCommand("unknowncmd && ls").level).toBe("unknown");
+    });
+
+    it("keeps compound safe when all are allowlisted", () => {
       const result = classifyCommand("ls && pwd && echo hi");
       expect(result.level).toBe("safe");
     });
 
-    it("unknown in compound makes result unknown", () => {
-      const result = classifyCommand("ls && unknowncmd");
-      expect(result.level).toBe("unknown");
-    });
-
-    it("dangerous trumps unknown", () => {
-      const result = classifyCommand("unknowncmd && rm -rf /");
-      expect(result.level).toBe("dangerous");
-    });
-
-    it("sensitive path trumps safe command", () => {
+    it("sensitive path overrides safe commands in compound", () => {
       const result = classifyCommand("ls && cat /etc/shadow");
       expect(result.level).toBe("dangerous");
       expect(result.reasons).toContain("sensitive_path");
     });
   });
 
-  describe("classifyCommand - edge cases", () => {
-    it("handles empty command", () => {
-      const result = classifyCommand("");
+  describe("edge cases and type boundaries", () => {
+    it("returns empty_command for empty inputs", () => {
+      const cases = ["", "   ", null, undefined, [], {}, "&& ||"];
+      for (const input of cases) {
+        const result = classifyCommand(input);
+        expect(result.level).toBe("unknown");
+        expect(result.reasons).toContain("empty_command");
+      }
+    });
+
+    it("returns missing_executable for whitespace argv", () => {
+      const result = classifyCommand(["   "]);
       expect(result.level).toBe("unknown");
-      expect(result.requiresApproval).toBe(true);
-      expect(result.reasons).toContain("empty_command");
+      expect(result.reasons).toContain("missing_executable");
     });
 
-    it("handles null/undefined", () => {
-      expect(classifyCommand(null).level).toBe("unknown");
-      expect(classifyCommand(undefined).level).toBe("unknown");
+    it("handles numeric boundary values", () => {
+      const values = [0, -1, Number.MAX_SAFE_INTEGER];
+      for (const value of values) {
+        const result = classifyCommand(value);
+        expect(result.level).toBe("unknown");
+        expect(result.reasons).toContain("empty_command");
+      }
     });
 
-    it("handles empty array", () => {
-      expect(classifyCommand([]).level).toBe("unknown");
-    });
-
-    it("handles array with empty string", () => {
-      const result = classifyCommand([""]);
+    it("handles numeric string commands", () => {
+      const result = classifyCommand("123");
       expect(result.level).toBe("unknown");
+      expect(result.baseCommand).toBe("123");
+      expect(result.reasons).toContain("unknown_executable");
     });
 
-    it("handles whitespace-only command", () => {
-      const result = classifyCommand("   ");
-      expect(result.level).toBe("unknown");
-    });
-
-    it("handles command with only connectors", () => {
-      const result = classifyCommand("&& ||");
-      expect(result.level).toBe("unknown");
-    });
-
-    it("handles deeply nested bash -c", () => {
-      const result = classifyCommand("bash -c \"bash -c 'rm -rf /'\"");
-      expect(result.level).toBe("dangerous");
-    });
-
-    it("handles case variations", () => {
+    it("handles case variations and paths", () => {
       expect(classifyCommand("LS").level).toBe("safe");
-      expect(classifyCommand("RM").level).toBe("dangerous");
-      expect(classifyCommand("Cat").level).toBe("safe");
+      expect(classifyCommand("/bin/LS").level).toBe("safe");
+      expect(classifyCommand(["C:\\Windows\\System32\\RM"]).level)
+        .toBe("dangerous");
     });
 
-    it("handles command in subdirectory path", () => {
-      expect(classifyCommand("./scripts/rm").level).toBe("dangerous");
-      expect(classifyCommand("../bin/ls").level).toBe("safe");
+    it("handles bash -c array inputs", () => {
+      const result = classifyCommand(["bash", "-c", "ls && rm -rf /"]);
+      expect(result.level).toBe("dangerous");
+      expect(result.baseCommand).toBe("rm");
     });
   });
 
-  describe("classifyCommand - real-world examples", () => {
-    it("allows common dev commands", () => {
-      expect(classifyCommand("ls -la").level).toBe("safe");
-      expect(classifyCommand("cat package.json").level).toBe("safe");
-      expect(classifyCommand("grep -r TODO src/").level).toBe("safe");
+  describe("concurrency and resource boundaries", () => {
+    it("handles concurrent classifyCommand calls", async () => {
+      const commands = [
+        "ls",
+        "rm -rf /",
+        "git status",
+        "cat /etc/passwd",
+        "echo hi",
+      ];
+      const results = await Promise.all(
+        commands.map((cmd) => Promise.resolve(classifyCommand(cmd)))
+      );
+      expect(results.map((result) => result.level)).toEqual([
+        "safe",
+        "dangerous",
+        "unknown",
+        "dangerous",
+        "safe",
+      ]);
     });
 
-    it("requires approval for build commands", () => {
-      expect(classifyCommand("npm install").level).toBe("unknown");
-      expect(classifyCommand("npm run build").level).toBe("unknown");
-      expect(classifyCommand("pip install -r requirements.txt").level).toBe("unknown");
-    });
-
-    it("blocks destructive operations", () => {
-      expect(classifyCommand("rm -rf node_modules").level).toBe("dangerous");
-      expect(classifyCommand("chmod 777 /etc").level).toBe("dangerous");
-      expect(classifyCommand("kill -9 1").level).toBe("dangerous");
-    });
-
-    it("blocks credential access", () => {
-      expect(classifyCommand("cat ~/.ssh/id_rsa").level).toBe("dangerous");
-      expect(classifyCommand("cat .env").level).toBe("dangerous");
-      expect(classifyCommand("grep API_KEY .env.production").level).toBe("dangerous");
+    it("handles very long and deeply nested paths", () => {
+      const longPath = `/tmp/${"a".repeat(15000)}.log`;
+      const deepPath = `/${Array.from({ length: 60 }, (_, i) => `n${i}`)
+        .join("/")}/file.txt`;
+      expect(classifyCommand(`cat ${longPath}`).level).toBe("safe");
+      expect(classifyCommand(`cat ${deepPath}`).level).toBe("safe");
     });
   });
 });

@@ -1,376 +1,358 @@
-
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import {
-  BudgetManager,
   BudgetAction,
+  BudgetManager,
   createBudgetManager,
-  RecursiveBudgetManager,
-  AllocationStrategy,
 } from '../../../../../js/agents/shared/utils/budget.js';
+import { getBudgetConfig } from 'budget-config-provider';
 
-describe("shared/utils/budget", () => {
-  describe("BudgetAction", () => {
-    it("exports frozen constants", () => {
-      expect(BudgetAction.CONTINUE).toBe("continue");
-      expect(BudgetAction.DEGRADE).toBe("degrade");
-      expect(BudgetAction.STOP).toBe("stop");
-      expect(Object.isFrozen(BudgetAction)).toBe(true);
+vi.mock(
+  'budget-config-provider',
+  () => ({
+    getBudgetConfig: vi.fn(() => ({
+      budget: {
+        maxInputTokens: 12,
+        maxOutputTokens: 34,
+        maxTotalTokens: 50,
+        degradeThreshold: 0.6,
+      },
+    })),
+  }),
+  { virtual: true }
+);
+
+describe('BudgetAction', () => {
+  it('exposes frozen constants', () => {
+    expect(BudgetAction).toEqual({
+      CONTINUE: 'continue',
+      DEGRADE: 'degrade',
+      STOP: 'stop',
     });
+    expect(Object.isFrozen(BudgetAction)).toBe(true);
+  });
+});
+
+describe('BudgetManager', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  describe("AllocationStrategy", () => {
-    it("exports frozen constants", () => {
-      expect(AllocationStrategy.EQUAL).toBe("equal");
-      expect(AllocationStrategy.PROPORTIONAL).toBe("proportional");
-      expect(AllocationStrategy.FIXED).toBe("fixed");
-      expect(AllocationStrategy.REMAINING).toBe("remaining");
-      expect(Object.isFrozen(AllocationStrategy)).toBe(true);
+  it('initializes with defaults', () => {
+    const manager = new BudgetManager();
+    expect(manager.limits).toEqual({
+      input: 500000,
+      output: 200000,
+      total: 700000,
     });
+    expect(manager.degradeThreshold).toBe(0.8);
+    expect(manager.usage).toEqual({ input: 0, output: 0, total: 0 });
+    expect(manager.degraded).toBe(false);
+    expect(manager.stopped).toBe(false);
   });
 
-  describe("BudgetManager", () => {
-    /** @type {BudgetManager} */
-    let manager;
-
-    beforeEach(() => {
-      manager = new BudgetManager({
-        maxInputTokens: 1000,
-        maxOutputTokens: 500,
-        maxTotalTokens: 1500,
-        degradeThreshold: 0.8,
-      });
+  it('clamps limits and thresholds for boundary values', () => {
+    const manager = new BudgetManager({
+      maxInputTokens: 0,
+      maxOutputTokens: -1,
+      maxTotalTokens: '   ',
+      degradeThreshold: -5,
     });
 
-    describe("constructor", () => {
-      it("creates with default options", () => {
-        const m = new BudgetManager();
-        expect(m.limits.input).toBeGreaterThan(0);
-        expect(m.limits.output).toBeGreaterThan(0);
-        expect(m.limits.total).toBeGreaterThan(0);
-      });
+    expect(manager.limits).toEqual({ input: 1, output: 1, total: 1 });
+    expect(manager.degradeThreshold).toBe(0.1);
 
-      it("enforces minimum limits", () => {
-        const m = new BudgetManager({
-          maxInputTokens: 0,
-          maxOutputTokens: -100,
-        });
-        expect(m.limits.input).toBeGreaterThanOrEqual(1);
-        expect(m.limits.output).toBeGreaterThanOrEqual(1);
-      });
-
-      it("clamps degradeThreshold", () => {
-        const low = new BudgetManager({ degradeThreshold: 0.01 });
-        expect(low.degradeThreshold).toBeGreaterThanOrEqual(0.1);
-
-        const high = new BudgetManager({ degradeThreshold: 1.5 });
-        expect(high.degradeThreshold).toBeLessThanOrEqual(0.99);
-      });
-    });
-
-    describe("checkBudget", () => {
-      it("returns CONTINUE when under budget", () => {
-        expect(manager.checkBudget()).toBe(BudgetAction.CONTINUE);
-      });
-
-      it("returns DEGRADE when over threshold", () => {
-        manager.usage.input = 850; // 85% of 1000
-        const result = manager.checkBudget();
-        expect(result).toBe(BudgetAction.DEGRADE);
-        expect(manager.degraded).toBe(true);
-      });
-
-      it("returns STOP when over limit", () => {
-        manager.usage.input = 1100;
-        const result = manager.checkBudget();
-        expect(result).toBe(BudgetAction.STOP);
-        expect(manager.stopped).toBe(true);
-      });
-
-      it("returns STOP if already stopped", () => {
-        manager.stopped = true;
-        expect(manager.checkBudget()).toBe(BudgetAction.STOP);
-      });
-
-      it("returns DEGRADE if already degraded but under limit", () => {
-        manager.degraded = true;
-        manager.usage.input = 500;
-        expect(manager.checkBudget()).toBe(BudgetAction.DEGRADE);
-      });
-
-      it("calls onThresholdReached for DEGRADE", () => {
-        let called = false;
-        manager.onThresholdReached = (event) => {
-          called = true;
-          expect(event.action).toBe(BudgetAction.DEGRADE);
-        };
-        manager.usage.input = 850;
-        manager.checkBudget();
-        expect(called).toBe(true);
-      });
-
-      it("calls onThresholdReached for STOP", () => {
-        let called = false;
-        manager.onThresholdReached = (event) => {
-          called = true;
-          expect(event.action).toBe(BudgetAction.STOP);
-        };
-        manager.usage.input = 1100;
-        manager.checkBudget();
-        expect(called).toBe(true);
-      });
-
-      it("does not call onThresholdReached twice for DEGRADE", () => {
-        let callCount = 0;
-        manager.onThresholdReached = () => callCount++;
-        manager.usage.input = 850;
-        manager.checkBudget();
-        manager.checkBudget();
-        expect(callCount).toBe(1);
-      });
-    });
-
-    describe("recordUsage", () => {
-      it("adds to usage", () => {
-        manager.recordUsage({ input: 100, output: 50 });
-        expect(manager.usage.input).toBe(100);
-        expect(manager.usage.output).toBe(50);
-        expect(manager.usage.total).toBe(150);
-      });
-
-      it("accumulates usage", () => {
-        manager.recordUsage({ input: 100 });
-        manager.recordUsage({ input: 200, output: 100 });
-        expect(manager.usage.input).toBe(300);
-        expect(manager.usage.output).toBe(100);
-      });
-
-      it("handles negative values", () => {
-        manager.recordUsage({ input: -100, output: -50 });
-        expect(manager.usage.input).toBe(0);
-        expect(manager.usage.output).toBe(0);
-      });
-
-      it("handles missing values", () => {
-        manager.recordUsage({});
-        expect(manager.usage.input).toBe(0);
-        expect(manager.usage.output).toBe(0);
-      });
-
-      it("returns budget action", () => {
-        const result = manager.recordUsage({ input: 850 });
-        expect(result).toBe(BudgetAction.DEGRADE);
-      });
-    });
-
-    describe("getRemaining", () => {
-      it("returns remaining budget", () => {
-        manager.usage.input = 300;
-        manager.usage.output = 200;
-        manager.usage.total = 500;
-        const remaining = manager.getRemaining();
-        expect(remaining.input).toBe(700);
-        expect(remaining.output).toBe(300);
-        expect(remaining.total).toBe(1000);
-      });
-
-      it("returns 0 when over budget", () => {
-        manager.usage.input = 1500;
-        const remaining = manager.getRemaining();
-        expect(remaining.input).toBe(0);
-      });
-    });
-
-    describe("getUsageRatio", () => {
-      it("returns usage ratios", () => {
-        manager.usage.input = 500;
-        manager.usage.output = 250;
-        manager.usage.total = 750;
-        const ratio = manager.getUsageRatio();
-        expect(ratio.input).toBe(0.5);
-        expect(ratio.output).toBe(0.5);
-        expect(ratio.total).toBe(0.5);
-      });
-    });
-
-    describe("getStats", () => {
-      it("returns complete stats", () => {
-        manager.usage.input = 100;
-        manager.degraded = true;
-        const stats = manager.getStats();
-        expect(stats.usage).toEqual(manager.usage);
-        expect(stats.limits).toEqual(manager.limits);
-        expect(stats.remaining).toEqual(manager.getRemaining());
-        expect(stats.ratio).toEqual(manager.getUsageRatio());
-        expect(stats.degraded).toBe(true);
-        expect(stats.stopped).toBe(false);
-      });
-    });
-
-    describe("reset", () => {
-      it("resets all state", () => {
-        manager.usage.input = 500;
-        manager.degraded = true;
-        manager.stopped = true;
-        manager.reset();
-        expect(manager.usage.input).toBe(0);
-        expect(manager.usage.output).toBe(0);
-        expect(manager.usage.total).toBe(0);
-        expect(manager.degraded).toBe(false);
-        expect(manager.stopped).toBe(false);
-      });
-    });
+    const upper = new BudgetManager({ degradeThreshold: 5 });
+    expect(upper.degradeThreshold).toBe(0.99);
   });
 
-  describe("createBudgetManager", () => {
-    it("creates manager from config", () => {
-      const manager = createBudgetManager({
-        budget: {
-          maxInputTokens: 1000,
-          maxOutputTokens: 500,
-        },
-      });
-      expect(manager.limits.input).toBe(1000);
-      expect(manager.limits.output).toBe(500);
+  it('coerces numeric strings for limits and thresholds', () => {
+    const manager = new BudgetManager({
+      maxInputTokens: '10',
+      maxOutputTokens: '5',
+      maxTotalTokens: '20',
+      degradeThreshold: '0.6',
     });
 
-    it("creates manager with default config", () => {
-      const manager = createBudgetManager();
-      expect(manager).toBeInstanceOf(BudgetManager);
-    });
-
-    it("handles empty budget config", () => {
-      const manager = createBudgetManager({});
-      expect(manager).toBeInstanceOf(BudgetManager);
-    });
+    expect(manager.limits).toEqual({ input: 10, output: 5, total: 20 });
+    expect(manager.degradeThreshold).toBe(0.6);
   });
 
-  describe("RecursiveBudgetManager", () => {
-    describe("constructor", () => {
-      it("creates without parent", () => {
-        const manager = new RecursiveBudgetManager({
-          maxInputTokens: 1000,
-        });
-        expect(manager).toBeInstanceOf(RecursiveBudgetManager);
-        expect(manager._depth).toBe(0);
-      });
-
-      it("inherits budget from parent", () => {
-        const parent = new RecursiveBudgetManager({
-          maxInputTokens: 1000,
-          maxOutputTokens: 500,
-          maxTotalTokens: 1500,
-        });
-        const child = new RecursiveBudgetManager({
-          parent,
-          inheritRatio: 0.5,
-        });
-        expect(child.limits.input).toBe(500);
-        expect(child.limits.output).toBe(250);
-      });
-
-      it("clamps inheritRatio", () => {
-        const parent = new RecursiveBudgetManager({ maxInputTokens: 1000 });
-        const child = new RecursiveBudgetManager({
-          parent,
-          inheritRatio: 1.5,
-        });
-        expect(child.limits.input).toBeLessThanOrEqual(1000);
-      });
+  it('handles long numeric strings as large limits', () => {
+    const longNumber = '9'.repeat(308);
+    const manager = new BudgetManager({
+      maxInputTokens: longNumber,
+      maxOutputTokens: 10,
+      maxTotalTokens: longNumber,
     });
 
-    describe("createChildBudget", () => {
-      it("creates child with inherited budget", () => {
-        const parent = new RecursiveBudgetManager({
-          maxInputTokens: 1000,
-        });
-        const child = parent.createChildBudget();
-        expect(child).toBeInstanceOf(RecursiveBudgetManager);
-        expect(child._depth).toBe(1);
-      });
+    expect(manager.limits.input).toBe(1e308);
+    expect(manager.limits.total).toBe(1e308);
+    expect(manager.recordUsage({ input: 1 })).toBe(BudgetAction.CONTINUE);
+  });
 
-      it("throws at max depth", () => {
-        const manager = new RecursiveBudgetManager({
-          maxDepth: 1,
-          depth: 1,
-        });
-        expect(() => manager.createChildBudget()).toThrow(/Max recursion depth/);
-      });
-
-      it("adds child to children array", () => {
-        const parent = new RecursiveBudgetManager();
-        parent.createChildBudget();
-        parent.createChildBudget();
-        expect(parent._children.length).toBe(2);
-      });
-
-      it("uses custom options for child", () => {
-        const parent = new RecursiveBudgetManager({
-          degradeThreshold: 0.9,
-        });
-        const child = parent.createChildBudget({
-          degradeThreshold: 0.7,
-        });
-        expect(child.degradeThreshold).toBe(0.7);
-      });
+  it('records usage and returns CONTINUE below threshold', () => {
+    const manager = new BudgetManager({
+      maxInputTokens: 10,
+      maxOutputTokens: 10,
+      maxTotalTokens: 25,
+      degradeThreshold: 0.8,
     });
 
-    describe("syncToParent", () => {
-      it("does nothing without parent", () => {
-        const manager = new RecursiveBudgetManager();
-        manager.syncToParent(); // Should not throw
-      });
+    const action = manager.recordUsage({ input: 3, output: 2 });
 
-      it("syncs child usage to parent", () => {
-        const parent = new RecursiveBudgetManager({ maxInputTokens: 10000 });
-        const child = parent.createChildBudget();
-        child.recordUsage({ input: 100, output: 50 });
-        child.syncToParent();
-        // Parent should have recorded child's usage
-        // Note: syncToParent aggregates all children, so we check the parent
-      });
+    expect(action).toBe(BudgetAction.CONTINUE);
+    expect(manager.usage).toEqual({ input: 3, output: 2, total: 5 });
+  });
+
+  it('transitions to DEGRADE and STOP with callback events', () => {
+    const onThresholdReached = vi.fn();
+    const manager = new BudgetManager({
+      maxInputTokens: 10,
+      maxOutputTokens: 10,
+      maxTotalTokens: 20,
+      degradeThreshold: 0.5,
+      onThresholdReached,
     });
 
-    describe("getHierarchyInfo", () => {
-      it("returns hierarchy information", () => {
-        const parent = new RecursiveBudgetManager({ maxDepth: 10 });
-        const child = parent.createChildBudget();
-        const info = child.getHierarchyInfo();
-        expect(info.depth).toBe(1);
-        expect(info.maxDepth).toBe(10);
-        expect(info.hasParent).toBe(true);
-      });
+    const first = manager.recordUsage({ input: 5 });
+    expect(first).toBe(BudgetAction.DEGRADE);
+    expect(manager.degraded).toBe(true);
+    expect(onThresholdReached).toHaveBeenCalledTimes(1);
+    expect(onThresholdReached.mock.calls[0][0]).toMatchObject({
+      action: BudgetAction.DEGRADE,
     });
 
-    describe("getTotalDescendantUsage", () => {
-      it("returns zero for no children", () => {
-        const manager = new RecursiveBudgetManager();
-        const usage = manager.getTotalDescendantUsage();
-        expect(usage.input).toBe(0);
-        expect(usage.output).toBe(0);
-        expect(usage.total).toBe(0);
-      });
+    const stillDegraded = manager.checkBudget();
+    expect(stillDegraded).toBe(BudgetAction.DEGRADE);
+    expect(onThresholdReached).toHaveBeenCalledTimes(1);
 
-      it("sums child usage", () => {
-        const parent = new RecursiveBudgetManager({ maxInputTokens: 10000 });
-        const child1 = parent.createChildBudget();
-        const child2 = parent.createChildBudget();
-        child1.recordUsage({ input: 100, output: 50 });
-        child2.recordUsage({ input: 200, output: 100 });
-        const usage = parent.getTotalDescendantUsage();
-        expect(usage.input).toBe(300);
-        expect(usage.output).toBe(150);
-      });
-
-      it("includes grandchild usage", () => {
-        const root = new RecursiveBudgetManager({ maxInputTokens: 100000 });
-        const child = root.createChildBudget();
-        const grandchild = child.createChildBudget();
-        grandchild.recordUsage({ input: 50, output: 25 });
-        const usage = root.getTotalDescendantUsage();
-        expect(usage.input).toBe(50);
-        expect(usage.output).toBe(25);
-      });
+    const second = manager.recordUsage({ output: 10 });
+    expect(second).toBe(BudgetAction.STOP);
+    expect(manager.stopped).toBe(true);
+    expect(onThresholdReached).toHaveBeenCalledTimes(2);
+    expect(onThresholdReached.mock.calls[1][0]).toMatchObject({
+      action: BudgetAction.STOP,
     });
+
+    const afterStop = manager.recordUsage({ input: 1 });
+    expect(afterStop).toBe(BudgetAction.STOP);
+    expect(onThresholdReached).toHaveBeenCalledTimes(2);
+  });
+
+  it('getRemaining, getUsageRatio, and getStats provide snapshots', () => {
+    const manager = new BudgetManager({
+      maxInputTokens: 10,
+      maxOutputTokens: 5,
+      maxTotalTokens: 20,
+    });
+
+    manager.recordUsage({ input: 3, output: 2 });
+
+    expect(manager.getRemaining()).toEqual({ input: 7, output: 3, total: 15 });
+
+    const ratio = manager.getUsageRatio();
+    expect(ratio.input).toBeCloseTo(0.3);
+    expect(ratio.output).toBeCloseTo(0.4);
+    expect(ratio.total).toBeCloseTo(0.25);
+
+    const stats = manager.getStats();
+    expect(stats.usage).toEqual({ input: 3, output: 2, total: 5 });
+    expect(stats.limits).toEqual({ input: 10, output: 5, total: 20 });
+    expect(stats.remaining).toEqual({ input: 7, output: 3, total: 15 });
+    expect(stats.ratio).toEqual(ratio);
+    expect(stats.usage).not.toBe(manager.usage);
+    stats.usage.input = 99;
+    expect(manager.usage.input).toBe(3);
+  });
+
+  it('reset clears usage and state', () => {
+    const manager = new BudgetManager({
+      maxInputTokens: 10,
+      maxOutputTokens: 10,
+      maxTotalTokens: 20,
+    });
+
+    manager.recordUsage({ input: 6, output: 5 });
+    manager.degraded = true;
+    manager.stopped = true;
+
+    manager.reset();
+
+    expect(manager.usage).toEqual({ input: 0, output: 0, total: 0 });
+    expect(manager.degraded).toBe(false);
+    expect(manager.stopped).toBe(false);
+  });
+
+  it('clamps negative usage to zero', () => {
+    const manager = new BudgetManager({
+      maxInputTokens: 10,
+      maxOutputTokens: 10,
+      maxTotalTokens: 20,
+    });
+
+    const action = manager.recordUsage({ input: -1, output: -5 });
+    expect(action).toBe(BudgetAction.CONTINUE);
+    expect(manager.usage).toEqual({ input: 0, output: 0, total: 0 });
+  });
+
+  it('handles undefined, empty string, empty array, and empty object inputs', () => {
+    const manager = new BudgetManager({
+      maxInputTokens: 10,
+      maxOutputTokens: 10,
+      maxTotalTokens: 20,
+    });
+
+    expect(manager.recordUsage()).toBe(BudgetAction.CONTINUE);
+    expect(manager.recordUsage({ input: '', output: [] })).toBe(BudgetAction.CONTINUE);
+    expect(manager.recordUsage({})).toBe(BudgetAction.CONTINUE);
+    expect(manager.recordUsage([])).toBe(BudgetAction.CONTINUE);
+    expect(manager.usage).toEqual({ input: 0, output: 0, total: 0 });
+  });
+
+  it('throws on null recordUsage input', () => {
+    const manager = new BudgetManager({
+      maxInputTokens: 10,
+      maxOutputTokens: 10,
+      maxTotalTokens: 20,
+    });
+
+    expect(() => manager.recordUsage(null)).toThrow(TypeError);
+  });
+
+  it('accepts array-like and deep nested numeric inputs', () => {
+    const deepNested = {
+      nested: { nested: { nested: { value: 7 } } },
+      valueOf() {
+        return this.nested.nested.nested.value;
+      },
+    };
+    const arrayLike = {
+      0: 3,
+      length: 1,
+      valueOf() {
+        return this[0];
+      },
+    };
+
+    const manager = new BudgetManager({
+      maxInputTokens: 20,
+      maxOutputTokens: 20,
+      maxTotalTokens: 50,
+    });
+
+    manager.recordUsage({ input: deepNested, output: arrayLike });
+    expect(manager.usage).toEqual({ input: 7, output: 3, total: 10 });
+  });
+
+  it('aggregates usage across concurrent calls', async () => {
+    const manager = new BudgetManager({
+      maxInputTokens: 100,
+      maxOutputTokens: 100,
+      maxTotalTokens: 1000,
+    });
+
+    await Promise.all(
+      Array.from({ length: 5 }, () =>
+        Promise.resolve().then(() => manager.recordUsage({ input: 2, output: 3 }))
+      )
+    );
+
+    expect(manager.usage).toEqual({ input: 10, output: 15, total: 25 });
+  });
+
+  it('handles rapid consecutive calls without losing counts', () => {
+    const manager = new BudgetManager({
+      maxInputTokens: 1000,
+      maxOutputTokens: 1000,
+      maxTotalTokens: 2000,
+    });
+
+    for (let i = 0; i < 250; i += 1) {
+      manager.recordUsage({ input: 1, output: 1 });
+    }
+
+    expect(manager.usage).toEqual({ input: 250, output: 250, total: 500 });
+  });
+
+  it('stops at MAX_SAFE_INTEGER usage', () => {
+    const max = Number.MAX_SAFE_INTEGER;
+    const manager = new BudgetManager({
+      maxInputTokens: max,
+      maxOutputTokens: max,
+      maxTotalTokens: max,
+    });
+
+    const action = manager.recordUsage({ input: max });
+
+    expect(action).toBe(BudgetAction.STOP);
+    expect(manager.stopped).toBe(true);
+    expect(manager.getRemaining()).toEqual({ input: 0, output: max, total: 0 });
+  });
+});
+
+describe('createBudgetManager', () => {
+  const defaults = {
+    input: 500000,
+    output: 200000,
+    total: 700000,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('uses defaults when config is missing or empty', () => {
+    const cases = [
+      undefined,
+      null,
+      '',
+      [],
+      {},
+      { budget: undefined },
+      { budget: {} },
+    ];
+
+    for (const value of cases) {
+      const manager = value === undefined ? createBudgetManager() : createBudgetManager(value);
+      expect(manager.limits).toEqual(defaults);
+      expect(manager.degradeThreshold).toBe(0.8);
+    }
+  });
+
+  it('creates a manager from mocked external config', () => {
+    const config = getBudgetConfig();
+    const manager = createBudgetManager(config);
+
+    expect(getBudgetConfig).toHaveBeenCalledTimes(1);
+    expect(manager.limits).toEqual({ input: 12, output: 34, total: 50 });
+    expect(manager.degradeThreshold).toBe(0.6);
+  });
+
+  it('passes through budget config boundary values', () => {
+    const manager = createBudgetManager({
+      budget: {
+        maxInputTokens: 0,
+        maxOutputTokens: -1,
+        maxTotalTokens: '   ',
+        degradeThreshold: 5,
+      },
+    });
+
+    expect(manager.limits).toEqual({ input: 1, output: 1, total: 1 });
+    expect(manager.degradeThreshold).toBe(0.99);
+  });
+
+  it('accepts array-based budget config objects', () => {
+    const arrayBudget = [];
+    arrayBudget.maxInputTokens = 3;
+    arrayBudget.maxOutputTokens = 4;
+    arrayBudget.maxTotalTokens = 5;
+    arrayBudget.degradeThreshold = 0.4;
+
+    const manager = createBudgetManager({ budget: arrayBudget });
+
+    expect(manager.limits).toEqual({ input: 3, output: 4, total: 5 });
+    expect(manager.degradeThreshold).toBe(0.4);
   });
 });

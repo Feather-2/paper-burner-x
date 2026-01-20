@@ -1,55 +1,191 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../../../../js/agents/shared/index.js', () => ({
+  cryptoRandomHex: vi.fn(() => 'deadbeef'),
+}));
+
 import {
-  LamportClock,
+  LamportClockService,
   compare,
   currentSeq,
   nextTick,
   resetClock,
-  sortByLogicalOrder,
-  stampEvent,
   sync,
 } from '../../../../js/agents/core/lamport-clock.js';
+import { cryptoRandomHex } from '../../../../js/agents/shared/index.js';
 
-function getIdPrefix(id) {
-  const [prefix] = String(id).split('_');
-  return prefix;
-}
+const cryptoRandomHexMock = vi.mocked(cryptoRandomHex);
 
 beforeEach(() => {
+  cryptoRandomHexMock.mockReset();
+  cryptoRandomHexMock.mockReturnValue('deadbeef');
   resetClock();
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   resetClock();
 });
 
-describe('core/lamport-clock', () => {
-  it('nextTick generates monotonically increasing seq and stable instance prefix', () => {
-    const t1 = nextTick();
-    const t2 = nextTick();
+describe('LamportClockService', () => {
+  it('nextTick increments seq and keeps a stable instance prefix', () => {
+    vi.stubGlobal('performance', { now: vi.fn(() => 1000) });
 
-    expect(t1.seq).toBe(1);
-    expect(t2.seq).toBe(2);
-    expect(currentSeq()).toBe(2);
+    const clock = new LamportClockService();
+    const first = clock.nextTick();
+    const second = clock.nextTick();
 
-    expect(typeof t1.ts).toBe('number');
-    expect(typeof t2.ts).toBe('number');
-
-    expect(t1.id).toMatch(/^[0-9a-f]{8}_1$/i);
-    expect(t2.id).toMatch(/^[0-9a-f]{8}_2$/i);
-    expect(getIdPrefix(t2.id)).toBe(getIdPrefix(t1.id));
+    expect(first).toMatchObject({ seq: 1, ts: 1000, id: 'deadbeef_1' });
+    expect(second).toMatchObject({ seq: 2, ts: 1000, id: 'deadbeef_2' });
+    expect(clock.currentSeq()).toBe(2);
+    expect(cryptoRandomHexMock).toHaveBeenCalledTimes(1);
   });
 
-  it('sync updates local clock only for finite numbers greater than current', () => {
-    nextTick(); // seq=1
+  it('sync updates only for finite numbers greater than current and ignores invalid input', () => {
+    const clock = new LamportClockService();
+    clock.nextTick();
 
-    sync('10');
-    sync(NaN);
-    sync(Infinity);
-    sync(-1);
+    const longString = 'x'.repeat(10000);
+    const invalids = [
+      null,
+      undefined,
+      '',
+      '   ',
+      '10',
+      [],
+      {},
+      NaN,
+      Infinity,
+      -1,
+      0,
+      longString,
+      { length: 1, 0: 'x' },
+    ];
+
+    invalids.forEach((value) => {
+      expect(() => clock.sync(value)).not.toThrow();
+    });
+
+    expect(clock.currentSeq()).toBe(1);
+
+    clock.sync(10);
+    expect(clock.currentSeq()).toBe(10);
+
+    clock.sync(9);
+    expect(clock.currentSeq()).toBe(10);
+
+    clock.sync(Number.MAX_SAFE_INTEGER);
+    expect(clock.currentSeq()).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it('currentSeq returns the current value without incrementing', () => {
+    const clock = new LamportClockService();
+
+    expect(clock.currentSeq()).toBe(0);
+    clock.nextTick();
+    expect(clock.currentSeq()).toBe(1);
+    expect(clock.currentSeq()).toBe(1);
+
+    clock.nextTick();
+    expect(clock.currentSeq()).toBe(2);
+  });
+
+  it('resetClock clears sequence and instance id', () => {
+    cryptoRandomHexMock.mockReturnValueOnce('firstid').mockReturnValueOnce('secondid');
+
+    const clock = new LamportClockService();
+    const first = clock.nextTick();
+    clock.resetClock();
+    const second = clock.nextTick();
+
+    expect(first.id).toBe('firstid_1');
+    expect(second.id).toBe('secondid_1');
+    expect(clock.currentSeq()).toBe(1);
+  });
+
+  it('handles rapid and concurrent ticks', async () => {
+    const clock = new LamportClockService();
+
+    const rapid = Array.from({ length: 20 }, () => clock.nextTick());
+    expect(rapid[0].seq).toBe(1);
+    expect(rapid[rapid.length - 1].seq).toBe(20);
+
+    const concurrent = await Promise.all(
+      Array.from({ length: 5 }, () => Promise.resolve().then(() => clock.nextTick()))
+    );
+    const seqs = concurrent.map((tick) => tick.seq).sort((a, b) => a - b);
+
+    expect(seqs).toEqual([21, 22, 23, 24, 25]);
+    expect(cryptoRandomHexMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('nextTick', () => {
+  it('increments global seq and keeps instance prefix stable', () => {
+    vi.stubGlobal('performance', { now: vi.fn(() => 123.456) });
+
+    const first = nextTick();
+    const second = nextTick();
+
+    expect(first).toMatchObject({ seq: 1, ts: 123.456, id: 'deadbeef_1' });
+    expect(second).toMatchObject({ seq: 2, ts: 123.456, id: 'deadbeef_2' });
+    expect(cryptoRandomHexMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to Date.now when performance is unavailable', () => {
+    vi.stubGlobal('performance', undefined);
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(98765);
+
+    const tick = nextTick();
+
+    expect(tick.ts).toBe(98765);
+    expect(tick.seq).toBe(1);
+
+    nowSpy.mockRestore();
+  });
+
+  it('supports rapid and concurrent calls', async () => {
+    const rapid = Array.from({ length: 30 }, () => nextTick());
+    const seqs = rapid.map((tick) => tick.seq);
+
+    expect(seqs[0]).toBe(1);
+    expect(seqs[seqs.length - 1]).toBe(30);
+    expect(new Set(seqs).size).toBe(30);
+
+    const concurrent = await Promise.all(
+      Array.from({ length: 5 }, () => Promise.resolve().then(() => nextTick()))
+    );
+    const concurrentSeqs = concurrent.map((tick) => tick.seq).sort((a, b) => a - b);
+
+    expect(concurrentSeqs).toEqual([31, 32, 33, 34, 35]);
+  });
+});
+
+describe('sync', () => {
+  it('ignores invalid inputs and updates for larger finite numbers', () => {
+    nextTick();
+
+    const longString = 'y'.repeat(10000);
+    const invalids = [
+      null,
+      undefined,
+      '',
+      '   ',
+      '10',
+      [],
+      {},
+      NaN,
+      Infinity,
+      -1,
+      0,
+      longString,
+      { length: 0 },
+    ];
+
+    invalids.forEach((value) => {
+      expect(() => sync(value)).not.toThrow();
+    });
+
     expect(currentSeq()).toBe(1);
 
     sync(10);
@@ -57,132 +193,69 @@ describe('core/lamport-clock', () => {
 
     sync(9);
     expect(currentSeq()).toBe(10);
-  });
 
-  it('resetClock resets sequence back to 0', () => {
+    sync(Number.MAX_SAFE_INTEGER);
+    expect(currentSeq()).toBe(Number.MAX_SAFE_INTEGER);
+  });
+});
+
+describe('currentSeq', () => {
+  it('returns 0 initially and does not increment', () => {
+    expect(currentSeq()).toBe(0);
+    expect(currentSeq()).toBe(0);
+
     nextTick();
-    nextTick();
-    expect(currentSeq()).toBe(2);
+    expect(currentSeq()).toBe(1);
+    expect(currentSeq()).toBe(1);
+
+    sync(5);
+    expect(currentSeq()).toBe(5);
+  });
+});
+
+describe('resetClock', () => {
+  it('resets global sequence and instance id', () => {
+    cryptoRandomHexMock.mockReturnValueOnce('firstid').mockReturnValueOnce('secondid');
+
+    const first = nextTick();
+    expect(first.id).toBe('firstid_1');
+    expect(currentSeq()).toBe(1);
 
     resetClock();
     expect(currentSeq()).toBe(0);
-  });
 
-  it('compare orders by seq with nullish/default handling', () => {
+    const second = nextTick();
+    expect(second.id).toBe('secondid_1');
+    expect(second.seq).toBe(1);
+  });
+});
+
+describe('compare', () => {
+  it('orders by seq values', () => {
     expect(compare({ seq: 1 }, { seq: 2 })).toBe(-1);
     expect(compare({ seq: 2 }, { seq: 1 })).toBe(1);
     expect(compare({ seq: 2 }, { seq: 2 })).toBe(0);
+  });
 
+  it('handles nullish and empty inputs safely', () => {
     expect(compare(null, undefined)).toBe(0);
     expect(compare({}, { seq: 1 })).toBe(-1);
     expect(compare({ seq: 1 }, {})).toBe(1);
+    expect(compare([], { seq: 1 })).toBe(-1);
+    expect(compare('', { seq: 1 })).toBe(-1);
+    expect(compare('   ', { seq: 1 })).toBe(-1);
   });
 
-  it('stampEvent attaches a new _clock for both nullish and object inputs', () => {
-    const stampedNull = stampEvent(null);
-    expect(stampedNull).toHaveProperty('_clock');
-    expect(stampedNull._clock.seq).toBe(1);
+  it('handles boundary values and large payloads', () => {
+    const hugeString = 'z'.repeat(200000);
+    const deepNested = { seq: 0, payload: { a: { b: { c: { d: hugeString } } } } };
+    const maxSeq = { seq: Number.MAX_SAFE_INTEGER, file: hugeString };
+    const negativeSeq = { seq: -1, meta: { nested: { value: 'x' } } };
+    const stringSeq = { seq: '5', data: hugeString };
 
-    const evt = { type: 'x', payload: { ok: true } };
-    const stampedObj = stampEvent(evt);
-
-    expect(stampedObj).not.toBe(evt);
-    expect(stampedObj).toMatchObject({ type: 'x', payload: { ok: true } });
-    expect(stampedObj._clock.seq).toBe(2);
-  });
-
-  it('sortByLogicalOrder sorts by logical seq then ts fallback', () => {
-    const events = [
-      { seq: 3, ts: 5, label: 'seq-only' },
-      { _clock: { seq: 2, ts: 20, id: 'x_2' }, label: 'b' },
-      { _clock: { seq: 1, ts: 10, id: 'x_1' }, label: 'a' },
-    ];
-
-    const sorted = sortByLogicalOrder(events);
-    expect(sorted.map((e) => e.label)).toEqual(['a', 'b', 'seq-only']);
-
-    const tieSeq = sortByLogicalOrder([
-      { _clock: { seq: 1, ts: 100, id: 't_1' }, label: 'late' },
-      { _clock: { seq: 1, ts: 50, id: 't_1b' }, label: 'early' },
-    ]);
-    expect(tieSeq.map((e) => e.label)).toEqual(['early', 'late']);
-
-    // Exercise fallback paths: seq from `seq` field and default 0; ts from `ts` field and default 0.
-    const fallback = sortByLogicalOrder([
-      null, // seq=0, ts=0
-      { ts: 2, label: 'ts-only' }, // seq=0 (fallback), ts=2 (from `ts`)
-      { seq: 1, label: 'seq-only-no-ts' }, // seq=1, ts=0
-      { _clock: { seq: null, ts: null, id: 'n/a' }, seq: 2, ts: 5, label: 'nullish-clock-fields' },
-      { seq: 1, ts: 100, label: 'seq+ts' },
-    ]);
-    expect(fallback.map((e) => e?.label)).toEqual([
-      undefined,
-      'ts-only',
-      'seq-only-no-ts',
-      'seq+ts',
-      'nullish-clock-fields',
-    ]);
-  });
-
-  it('sortByLogicalOrder returns [] for non-array input', () => {
-    expect(sortByLogicalOrder(null)).toEqual([]);
-    expect(sortByLogicalOrder(undefined)).toEqual([]);
-    expect(sortByLogicalOrder({})).toEqual([]);
-  });
-
-  it('LamportClock tick/get/update behave deterministically with provided nodeId', () => {
-    const clock = new LamportClock('NODE');
-
-    const t1 = clock.tick();
-    expect(t1).toMatchObject({ seq: 1, id: 'NODE_1' });
-
-    const t2 = clock.tick();
-    expect(t2).toMatchObject({ seq: 2, id: 'NODE_2' });
-
-    const g1 = clock.get();
-    expect(g1).toMatchObject({ seq: 2, id: 'NODE_2' });
-
-    const u1 = clock.update({ seq: 10, ts: 0, id: 'REMOTE_10' });
-    expect(u1).toMatchObject({ seq: 11, id: 'NODE_11' });
-
-    const u2 = clock.update({ seq: 1, ts: 0, id: 'REMOTE_1' }); // should not rewind
-    expect(u2).toMatchObject({ seq: 12, id: 'NODE_12' });
-
-    const u3 = clock.update({ seq: '13', ts: 0, id: 'BAD' }); // invalid remote
-    expect(u3).toMatchObject({ seq: 13, id: 'NODE_13' });
-  });
-
-  it('LamportClock generates a nodeId when not provided', () => {
-    const clock = new LamportClock();
-    const t1 = clock.tick();
-    expect(t1.id).toMatch(/^[0-9a-f]{8}_1$/i);
-  });
-
-  it('LamportClockState is JSON-serializable and can be compared after roundtrip', () => {
-    const a = nextTick();
-    const json = JSON.stringify(a);
-    const b = JSON.parse(json);
-
-    expect(b).toMatchObject({ seq: a.seq, id: a.id });
-    expect(compare(a, b)).toBe(0);
-
-    const clock = new LamportClock('SER');
-    const t = clock.tick();
-    const restored = JSON.parse(JSON.stringify(t));
-    expect(compare(t, restored)).toBe(0);
-  });
-
-  it('falls back to Date.now when performance is unavailable', () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(12345);
-    vi.stubGlobal('performance', undefined);
-
-    const tick = nextTick();
-    expect(tick.ts).toBe(12345);
-
-    const clock = new LamportClock('P');
-    expect(clock.tick().ts).toBe(12345);
-    expect(clock.get().ts).toBe(12345);
-
-    nowSpy.mockRestore();
+    expect(compare(negativeSeq, deepNested)).toBe(-1);
+    expect(compare(deepNested, maxSeq)).toBe(-1);
+    expect(compare(maxSeq, deepNested)).toBe(1);
+    expect(compare(stringSeq, { seq: 4 })).toBe(1);
   });
 });

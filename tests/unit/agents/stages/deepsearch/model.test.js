@@ -1,498 +1,556 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { MockModelClient } from '../../../../../js/agents/testing/mock-suite.js';
+const mockMakeStageEmitter = vi.hoisted(() => vi.fn());
+const mockNormalizeBudgetConfig = vi.hoisted(() => vi.fn());
+const mockBuildBaseCaller = vi.hoisted(() => vi.fn());
+const mockEmitBudgetEvents = vi.hoisted(() => vi.fn());
+const mockEnsureBudgetState = vi.hoisted(() => vi.fn());
+const mockEstimateCostUSDDelta = vi.hoisted(() => vi.fn());
+const mockResolveModelPricing = vi.hoisted(() => vi.fn());
+const mockNormalizeTokenUsage = vi.hoisted(() => vi.fn());
+const mockIsPlainObject = vi.hoisted(() => vi.fn());
+const mockToNonEmptyString = vi.hoisted(() => vi.fn());
+const mockSafeInt = vi.hoisted(() => vi.fn());
+const mockSafeNumber = vi.hoisted(() => vi.fn());
+
+vi.mock("../../../../../js/agents/stages/deepsearch/state.js", () => ({
+  makeStageEmitter: mockMakeStageEmitter,
+  normalizeBudgetConfig: mockNormalizeBudgetConfig,
+}));
+
+vi.mock("../../../../../js/agents/stages/deepsearch/model/caller.js", () => ({
+  buildBaseCaller: mockBuildBaseCaller,
+}));
+
+vi.mock("../../../../../js/agents/stages/deepsearch/model/budget.js", () => ({
+  emitBudgetEvents: mockEmitBudgetEvents,
+  ensureBudgetState: mockEnsureBudgetState,
+}));
+
+vi.mock("../../../../../js/agents/stages/deepsearch/model/pricing.js", () => ({
+  estimateCostUSDDelta: mockEstimateCostUSDDelta,
+  resolveModelPricing: mockResolveModelPricing,
+}));
+
+vi.mock("../../../../../js/agents/stages/deepsearch/model/usage.js", () => ({
+  normalizeTokenUsage: mockNormalizeTokenUsage,
+}));
+
+vi.mock("../../../../../js/agents/shared/index.js", () => ({
+  isPlainObject: mockIsPlainObject,
+  toNonEmptyString: mockToNonEmptyString,
+  safeInt: mockSafeInt,
+  safeNumber: mockSafeNumber,
+}));
+
 import {
   buildBaseCaller,
+  emitBudgetEvents,
+  ensureBudgetState,
+  estimateCostUSDDelta,
   getModelCaller,
   normalizeTokenUsage,
   resolveModelPricing,
-  estimateCostUSDDelta,
-  emitBudgetEvents,
-  ensureBudgetState,
-} from '../../../../../js/agents/stages/deepsearch/model.js';
+} from "../../../../../js/agents/stages/deepsearch/model.js";
 
-function makeMessages() {
-  return [
-    { role: "system", content: "You are helpful." },
-    { role: "assistant", content: "Acknowledged." },
-    { role: "user", content: "What is 2+2?" },
-  ];
+function makeMessages(content = "Hello") {
+  return [{ role: "user", content }];
 }
 
-describe("deepsearch/model caller adapter", () => {
-  it("buildBaseCaller: supports legacy routerCall(messages, opts) and injects system hint", async () => {
-    const modelClient = new MockModelClient({
-      handler: async () => ({
-        content: "ok",
-        model: "mock-model",
-        provider: "mock",
-        usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
-      }),
-    });
+function makeDeepObject(depth) {
+  let node = { leaf: "value" };
+  for (let i = 0; i < depth; i += 1) {
+    node = { level: i, child: node };
+  }
+  return node;
+}
 
-    const calls = [];
-    async function legacyRouterCall(messages, opts) {
-      calls.push({ messages, opts });
-      return modelClient.chat({ messages, ...opts });
-    }
-
-    const defaultSignal = new AbortController().signal;
-    const providedSignal = new AbortController().signal;
-    const stageApi = {
-      signal: defaultSignal,
-      runtimeHints: { system: "SYSTEM_HINT" },
-      modelRouter: { call: legacyRouterCall },
-    };
-
-    const caller = buildBaseCaller(stageApi, { usage: "worker" });
-    expect(typeof caller).toBe("function");
-
-    const messages = makeMessages();
-    await caller(messages, { temperature: 0.2, max_tokens: 10, signal: providedSignal });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0].opts).toMatchObject({ usage: "worker", temperature: 0.2, max_tokens: 10, signal: providedSignal });
-
-    expect(messages).toHaveLength(3);
-    expect(calls[0].messages).toHaveLength(4);
-    expect(calls[0].messages[2]).toMatchObject({ role: "system", content: "SYSTEM_HINT" });
-    expect(calls[0].messages[3]).toMatchObject({ role: "user", content: "What is 2+2?" });
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockMakeStageEmitter.mockReturnValue(vi.fn());
+  mockNormalizeBudgetConfig.mockImplementation((budget) => (budget ? { ...budget } : undefined));
+  mockNormalizeTokenUsage.mockReturnValue(null);
+  mockEstimateCostUSDDelta.mockReturnValue(0);
+  mockEmitBudgetEvents.mockReturnValue({ warningReasons: [], exceededReasons: [] });
+  mockEnsureBudgetState.mockImplementation((state) => state);
+  mockResolveModelPricing.mockReturnValue(null);
+  mockSafeNumber.mockImplementation((value) => (typeof value === "number" && Number.isFinite(value) ? value : undefined));
+  mockSafeInt.mockImplementation((value) => {
+    const num = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(num) ? Math.trunc(num) : undefined;
   });
+});
 
-  it("buildBaseCaller: supports new routerCall(opts) signature and injects system hint", async () => {
-    const modelClient = new MockModelClient({ responses: { default: "ok" } });
+describe("buildBaseCaller", () => {
+  it("re-exports buildBaseCaller from model/caller", () => {
+    mockBuildBaseCaller.mockReturnValue("sentinel");
+    const stageApi = { id: "stage" };
+    const options = { usage: "worker" };
 
-    const calls = [];
-    async function routerCall(opts) {
-      calls.push(opts);
-      return modelClient.chat(opts);
-    }
-
-    const stageApi = {
-      signal: new AbortController().signal,
-      runtimeHints: { system: "SYSTEM_HINT" },
-      modelRouter: { call: routerCall },
-    };
-
-    const caller = buildBaseCaller(stageApi, { usage: "worker" });
-    const messages = makeMessages();
-    await caller(messages, { temperature: 0.3 });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ usage: "worker", temperature: 0.3, signal: stageApi.signal });
-    expect(calls[0].messages).toHaveLength(4);
-    expect(calls[0].messages[2]).toMatchObject({ role: "system", content: "SYSTEM_HINT" });
+    expect(buildBaseCaller).toBe(mockBuildBaseCaller);
+    expect(buildBaseCaller(stageApi, options)).toBe("sentinel");
+    expect(mockBuildBaseCaller).toHaveBeenCalledWith(stageApi, options);
   });
+});
 
-  it("buildBaseCaller: falls back to aiApiService.chat({messages, ...}) with system hint injection", async () => {
-    const modelClient = new MockModelClient({
-      handler: async () => ({ content: "ok", usage: { total_tokens: 42 } }),
-    });
+describe("emitBudgetEvents", () => {
+  it("re-exports emitBudgetEvents from model/budget", () => {
+    mockEmitBudgetEvents.mockReturnValue({ ok: true });
+    const payload = { emit: null, state: {}, budget: {}, totalTokens: 0, totalCostUSD: 0 };
 
-    const calls = [];
-    async function chat(opts) {
-      calls.push(opts);
-      return modelClient.chat(opts);
-    }
-
-    const stageApi = {
-      signal: new AbortController().signal,
-      runtimeHints: { system: "SYSTEM_HINT" },
-      aiApiService: { chat },
-    };
-
-    const caller = buildBaseCaller(stageApi, { usage: "worker" });
-    const messages = [{ role: "user", content: "Hi" }];
-    await caller(messages, { model: "mock" });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0].usage).toBe("worker");
-    expect(calls[0].messages).toEqual([
-      { role: "system", content: "SYSTEM_HINT" },
-      { role: "user", content: "Hi" },
-    ]);
+    expect(emitBudgetEvents).toBe(mockEmitBudgetEvents);
+    expect(emitBudgetEvents(payload)).toEqual({ ok: true });
+    expect(mockEmitBudgetEvents).toHaveBeenCalledWith(payload);
   });
+});
 
-  it("normalizeTokenUsage: normalizes across provider payload shapes", () => {
-    expect(normalizeTokenUsage({ prompt_tokens: 10, completion_tokens: 20, total_tokens: 40 })).toEqual({
-      input: 10,
-      output: 20,
-      total: 40,
-    });
-
-    expect(normalizeTokenUsage({ inputTokens: "5", outputTokens: 7 })).toEqual({
-      input: 5,
-      output: 7,
-      total: 12,
-    });
-
-    expect(normalizeTokenUsage({ prompt_tokens: -1, completion_tokens: 2 })).toEqual({
-      input: 0,
-      output: 2,
-      total: 2,
-    });
-
-    expect(normalizeTokenUsage(null)).toBeNull();
-    expect(normalizeTokenUsage({})).toBeNull();
-  });
-
-  it("pricing: resolves exact/prefix/* entries and estimates cost delta", () => {
-    const prices = {
-      "gpt-4o": { input: 1, output: 2 },
-      gpt: { input: 9, output: 9 },
-      "*": { input: 100, output: 100 },
-    };
-
-    expect(resolveModelPricing("gpt-4o", prices)?.modelKey).toBe("gpt-4o");
-    expect(resolveModelPricing("gpt-4o-mini", prices)?.modelKey).toBe("gpt-4o");
-    expect(resolveModelPricing("unknown-model", prices)?.modelKey).toBe("*");
-
-    expect(
-      estimateCostUSDDelta({
-        model: "gpt-4o-mini",
-        usage: { input: 2000, output: 1000 },
-        prices,
-      })
-    ).toBe(4);
-  });
-
-  it("budget: initializes budgetState and emits warning/exceeded events", () => {
+describe("ensureBudgetState", () => {
+  it("re-exports ensureBudgetState from model/budget", () => {
+    mockEnsureBudgetState.mockReturnValue({ warnedTokens: false });
     const state = {};
-    expect(ensureBudgetState(state)).toMatchObject({
-      warnedTokens: false,
-      warnedCost: false,
-      exceededTokens: false,
-      exceededCost: false,
-    });
 
-    const emit = vi.fn();
-    const budget = { maxTokens: 100, maxCostUSD: 1, warnAt: 0.8, action: "warn" };
-    const res1 = emitBudgetEvents({ emit, state, budget, totalTokens: 90, totalCostUSD: 0.9 });
-    expect(res1).toEqual({ warningReasons: ["tokens", "cost"], exceededReasons: [] });
+    expect(ensureBudgetState).toBe(mockEnsureBudgetState);
+    expect(ensureBudgetState(state)).toEqual({ warnedTokens: false });
+    expect(mockEnsureBudgetState).toHaveBeenCalledWith(state);
+  });
+});
 
-    const res2 = emitBudgetEvents({ emit, state, budget, totalTokens: 120, totalCostUSD: 1.2 });
-    expect(res2).toEqual({ warningReasons: [], exceededReasons: ["tokens", "cost"] });
+describe("estimateCostUSDDelta", () => {
+  it("re-exports estimateCostUSDDelta from model/pricing", () => {
+    mockEstimateCostUSDDelta.mockReturnValue(1.5);
+    const input = { model: "x", usage: { input: 1, output: 2 }, prices: {} };
 
-    const names = emit.mock.calls.map(([name]) => name);
-    expect(names).toContain("deepsearch.budget.warning");
-    expect(names).toContain("deepsearch.budget.exceeded");
+    expect(estimateCostUSDDelta).toBe(mockEstimateCostUSDDelta);
+    expect(estimateCostUSDDelta(input)).toBe(1.5);
+    expect(mockEstimateCostUSDDelta).toHaveBeenCalledWith(input);
+  });
+});
+
+describe("normalizeTokenUsage", () => {
+  it("re-exports normalizeTokenUsage from model/usage", () => {
+    mockNormalizeTokenUsage.mockReturnValue({ input: 0, output: 0, total: 0 });
+    const usage = { prompt_tokens: 0 };
+
+    expect(normalizeTokenUsage).toBe(mockNormalizeTokenUsage);
+    expect(normalizeTokenUsage(usage)).toEqual({ input: 0, output: 0, total: 0 });
+    expect(mockNormalizeTokenUsage).toHaveBeenCalledWith(usage);
+  });
+});
+
+describe("resolveModelPricing", () => {
+  it("re-exports resolveModelPricing from model/pricing", () => {
+    mockResolveModelPricing.mockReturnValue({ modelKey: "*" });
+    const model = "any";
+    const prices = { "*": { input: 1, output: 2 } };
+
+    expect(resolveModelPricing).toBe(mockResolveModelPricing);
+    expect(resolveModelPricing(model, prices)).toEqual({ modelKey: "*" });
+    expect(mockResolveModelPricing).toHaveBeenCalledWith(model, prices);
+  });
+});
+
+describe("getModelCaller", () => {
+  it("returns null when buildBaseCaller returns null", () => {
+    mockBuildBaseCaller.mockReturnValue(null);
+    const stageApi = { emit: vi.fn() };
+
+    const caller = getModelCaller(stageApi, { usage: "worker" });
+
+    expect(caller).toBeNull();
+    expect(mockMakeStageEmitter).toHaveBeenCalledWith(stageApi, "deepsearch");
+    expect(mockBuildBaseCaller).toHaveBeenCalledWith(stageApi, { usage: "worker" });
   });
 
-  it("getModelCaller: normalizes usage, estimates cost, and emits token/budget events (no cache)", async () => {
-    const modelClient = new MockModelClient({
-      handler: async () => ({
-        content: "ok",
-        model: "unit-test-model-v2",
-        provider: "mock",
-        usage: { prompt_tokens: 2000, completion_tokens: 1000, total_tokens: 3000 },
-      }),
+  it("uses default usage and handles null stageApi with empty messages", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok" });
+    mockBuildBaseCaller.mockReturnValue(base);
+
+    const caller = getModelCaller(null);
+    const messages = [];
+    const result = await caller(messages);
+
+    expect(result).toEqual({ content: "ok" });
+    expect(mockBuildBaseCaller).toHaveBeenCalledWith(null, { usage: "worker" });
+    expect(base).toHaveBeenCalledWith(messages, {});
+  });
+
+  it("flushes before calling base and strips cacheKeyInputs when cache is disabled", async () => {
+    const order = [];
+    const base = vi.fn(async (messages, opts) => {
+      order.push("base");
+      return { content: "ok", messages, opts };
     });
+    mockBuildBaseCaller.mockReturnValue(base);
 
-    const routerCalls = [];
-    async function routerCall(opts) {
-      routerCalls.push(opts);
-      return modelClient.chat(opts);
-    }
-
-    const emitted = [];
-    const emit = vi.fn((name, record) => emitted.push({ name, record }));
     const stageApi = {
-      signal: new AbortController().signal,
-      runtimeHints: { system: "SYSTEM_HINT" },
-      modelRouter: { call: routerCall },
-      emit,
+      flushCompression: vi.fn(async () => {
+        order.push("flush");
+      }),
+      trajectoryCache: {},
+      trajectoryCachePolicy: 123,
     };
 
-    const state = {
-      userConfig: {
-        budget: {
-          maxTokens: 100,
-          maxCostUSD: 0.1,
-          warnAt: 0.8,
-          prices: { "unit-test-model": { input: 1, output: 2 } },
-        },
-      },
-      addTokenUsage: vi.fn((delta) => ({
-        input: delta.input,
-        output: delta.output,
-        total: delta.total,
-        estimatedCostUSD: delta.estimatedCostUSD,
-      })),
-    };
-
-    const caller = getModelCaller(stageApi, { usage: "worker", state });
-    expect(typeof caller).toBe("function");
-
-    const messages = [{ role: "user", content: "Hi" }];
-    const result = await caller(messages, { temperature: 0.2, cacheKeyInputs: { ignored: true } });
+    const caller = getModelCaller(stageApi, { usage: "worker" });
+    const messages = makeMessages();
+    const opts = { cacheKeyInputs: { ignored: true }, temperature: "0", maxTokens: 0 };
+    const result = await caller(messages, opts);
 
     expect(result.content).toBe("ok");
-
-    expect(routerCalls).toHaveLength(1);
-    expect(routerCalls[0].cacheKeyInputs).toBeUndefined();
-
-    expect(state.addTokenUsage).toHaveBeenCalledTimes(1);
-    expect(state.addTokenUsage.mock.calls[0][0]).toMatchObject({
-      input: 2000,
-      output: 1000,
-      total: 3000,
-      estimatedCostUSD: 4,
-    });
-
-    const names = emitted.map((e) => e.name);
-    expect(names).toContain("deepsearch.token.usage");
-    expect(names).toContain("deepsearch.budget.warning");
-    expect(names).toContain("deepsearch.budget.exceeded");
-
-    const tokenEvt = emitted.find((e) => e.name === "deepsearch.token.usage");
-    expect(tokenEvt.record.payload.usage).toEqual({ input: 2000, output: 1000, total: 3000, estimatedCostUSD: 4 });
-    expect(tokenEvt.record.payload.total.total).toBe(3000);
-    expect(tokenEvt.record.payload.model).toBe("unit-test-model-v2");
-    expect(tokenEvt.record.payload.provider).toBe("mock");
-
-    expect(state.L2?.budgetState?.warnedTokens).toBe(true);
-    expect(state.L2?.budgetState?.exceededTokens).toBe(true);
+    expect(order).toEqual(["flush", "base"]);
+    expect(base).toHaveBeenCalledWith(messages, { temperature: "0", maxTokens: 0 });
   });
 
-  it("getModelCaller: skips token tracking when state has no addTokenUsage", async () => {
-    const modelClient = new MockModelClient({ responses: { default: "ok" } });
-
-    const routerCalls = [];
-    async function routerCall(opts) {
-      routerCalls.push(opts);
-      return modelClient.chat(opts);
-    }
-
+  it("tracks token usage, estimates cost, and emits budget events", async () => {
     const emit = vi.fn();
-    const stageApi = {
-      signal: new AbortController().signal,
-      modelRouter: { call: routerCall },
-      emit,
+    mockMakeStageEmitter.mockReturnValue(emit);
+
+    const baseResult = {
+      content: "ok",
+      model: "model-a",
+      provider: "mock",
+      usage: { prompt_tokens: 1 },
     };
+    const base = vi.fn().mockResolvedValue(baseResult);
+    mockBuildBaseCaller.mockReturnValue(base);
 
-    const state = { userConfig: { budget: { maxTokens: 10, maxCostUSD: 1 } } };
-    const caller = getModelCaller(stageApi, { usage: "worker", state });
-    await caller([{ role: "user", content: "Hi" }], { cacheKeyInputs: { ignored: true } });
-
-    expect(routerCalls).toHaveLength(1);
-    expect(routerCalls[0].cacheKeyInputs).toBeUndefined();
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it("getModelCaller: does not emit or track when usage cannot be normalized", async () => {
-    const modelClient = new MockModelClient({
-      handler: async () => ({ content: "ok", usage: {} }),
-    });
-
-    async function routerCall(opts) {
-      return modelClient.chat(opts);
-    }
-
-    const emit = vi.fn();
-    const stageApi = {
-      signal: new AbortController().signal,
-      modelRouter: { call: routerCall },
-      emit,
-    };
+    mockNormalizeTokenUsage.mockReturnValue({ input: 0, output: -1, total: Number.MAX_SAFE_INTEGER });
+    mockEstimateCostUSDDelta.mockReturnValue(4.5);
+    mockSafeNumber.mockReturnValue(0);
+    mockSafeInt.mockReturnValue(Number.MAX_SAFE_INTEGER);
 
     const state = {
-      userConfig: { budget: { prices: { "*": { input: 1, output: 1 } } } },
-      addTokenUsage: vi.fn(),
-    };
-
-    const caller = getModelCaller(stageApi, { usage: "worker", state });
-    await caller([{ role: "user", content: "Hi" }]);
-
-    expect(state.addTokenUsage).not.toHaveBeenCalled();
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it("getModelCaller: uses opts.model for pricing when result.model is not a string", async () => {
-    const modelClient = new MockModelClient({
-      handler: async () => ({
-        content: "ok",
-        model: 123,
-        provider: "mock",
-        usage: { prompt_tokens: 1000, completion_tokens: 1000, total_tokens: 2000 },
-      }),
-    });
-
-    async function routerCall(opts) {
-      return modelClient.chat(opts);
-    }
-
-    const emitted = [];
-    const emit = vi.fn((name, record) => emitted.push({ name, record }));
-    const stageApi = {
-      signal: new AbortController().signal,
-      modelRouter: { call: routerCall },
-      emit,
-    };
-
-    const state = {
-      userConfig: { budget: { prices: { "priced-model": { input: 1, output: 2 } } } },
-      addTokenUsage: vi.fn((delta) => ({
-        input: delta.input,
-        output: delta.output,
-        total: delta.total,
-        estimatedCostUSD: delta.estimatedCostUSD,
+      userConfig: { budget: {} },
+      addTokenUsage: vi.fn(() => ({
+        input: 0,
+        output: -1,
+        total: Number.MAX_SAFE_INTEGER,
+        estimatedCostUSD: 0,
       })),
     };
 
-    const caller = getModelCaller(stageApi, { usage: "worker", state });
-    await caller([{ role: "user", content: "Hi" }], { model: "priced-model-v1" });
+    const caller = getModelCaller({ emit }, { usage: "worker", state });
+    const result = await caller(makeMessages("Hi"), { model: "ignored" });
 
-    expect(state.addTokenUsage).toHaveBeenCalledTimes(1);
-    expect(state.addTokenUsage.mock.calls[0][0]).toMatchObject({ estimatedCostUSD: 3 });
-
-    const tokenEvt = emitted.find((e) => e.name === "deepsearch.token.usage");
-    expect(tokenEvt).toMatchObject({ name: "deepsearch.token.usage" });
-    expect(tokenEvt.record.payload.model).toBeUndefined();
-    expect(tokenEvt.record.payload.provider).toBe("mock");
-  });
-
-  it("getModelCaller: does not throttle deepsearch.token.usage events", async () => {
-    const modelClient = new MockModelClient({
-      handler: async () => ({
-        content: "ok",
-        model: "unit-test-model",
-        provider: "mock",
-        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-      }),
+    expect(result).toEqual(baseResult);
+    expect(mockNormalizeBudgetConfig).toHaveBeenCalledWith({});
+    expect(mockEstimateCostUSDDelta).toHaveBeenCalledWith({
+      model: "model-a",
+      usage: { input: 0, output: -1, total: Number.MAX_SAFE_INTEGER },
+      prices: undefined,
     });
-
-    async function routerCall(opts) {
-      return modelClient.chat(opts);
-    }
-
-    const emit = vi.fn();
-    const stageApi = {
-      signal: new AbortController().signal,
-      modelRouter: { call: routerCall },
+    expect(state.addTokenUsage).toHaveBeenCalledWith({
+      input: 0,
+      output: -1,
+      total: Number.MAX_SAFE_INTEGER,
+      estimatedCostUSD: 4.5,
+    });
+    expect(emit).toHaveBeenCalledWith(
+      "deepsearch.token.usage",
+      {
+        usage: { input: 0, output: -1, total: Number.MAX_SAFE_INTEGER, estimatedCostUSD: 4.5 },
+        total: {
+          input: 0,
+          output: -1,
+          total: Number.MAX_SAFE_INTEGER,
+          estimatedCostUSD: 0,
+        },
+        model: "model-a",
+        provider: "mock",
+      },
+      { throttle: false }
+    );
+    expect(mockEmitBudgetEvents).toHaveBeenCalledWith({
       emit,
-    };
+      state,
+      budget: {},
+      totalTokens: Number.MAX_SAFE_INTEGER,
+      totalCostUSD: 0,
+    });
+  });
 
-    let total = { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
+  it("uses getBudgetConfig when provided and falls back to opts.model", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok", model: 123, usage: { prompt_tokens: 1 } });
+    mockBuildBaseCaller.mockReturnValue(base);
+    mockNormalizeTokenUsage.mockReturnValue({ input: 1, output: 1, total: 2 });
+
+    const budget = { prices: { "opt-model": { input: 1, output: 1 } } };
     const state = {
-      userConfig: { budget: { prices: { "unit-test-model": { input: 1, output: 1 } } } },
-      addTokenUsage: vi.fn((delta) => {
-        total = {
-          input: total.input + delta.input,
-          output: total.output + delta.output,
-          total: total.total + delta.total,
-          estimatedCostUSD: total.estimatedCostUSD + (delta.estimatedCostUSD ?? 0),
-        };
-        return total;
+      getBudgetConfig: vi.fn(() => budget),
+      addTokenUsage: vi.fn(() => ({ input: 1, output: 1, total: 2, estimatedCostUSD: 2 })),
+    };
+
+    const caller = getModelCaller({}, { state });
+    await caller(makeMessages(), { model: "opt-model" });
+
+    expect(state.getBudgetConfig).toHaveBeenCalledTimes(1);
+    expect(mockNormalizeBudgetConfig).not.toHaveBeenCalled();
+    expect(mockEstimateCostUSDDelta).toHaveBeenCalledWith({
+      model: "opt-model",
+      usage: { input: 1, output: 1, total: 2 },
+      prices: budget.prices,
+    });
+  });
+
+  it("uses empty model string when result and opts model are not strings", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok", model: null, usage: { prompt_tokens: 1 } });
+    mockBuildBaseCaller.mockReturnValue(base);
+    mockNormalizeTokenUsage.mockReturnValue({ input: 1, output: 0, total: 1 });
+
+    const state = {
+      userConfig: { budget: { prices: { "": { input: 1, output: 2 } } } },
+      addTokenUsage: vi.fn(() => ({ input: 1, output: 0, total: 1, estimatedCostUSD: 1 })),
+    };
+
+    const caller = getModelCaller({}, { state });
+    await caller(makeMessages(), { model: null });
+
+    expect(mockEstimateCostUSDDelta).toHaveBeenCalledWith({
+      model: "",
+      usage: { input: 1, output: 0, total: 1 },
+      prices: state.userConfig.budget.prices,
+    });
+  });
+
+  it("skips token tracking when normalizeTokenUsage returns null", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok", usage: { prompt_tokens: 1 } });
+    mockBuildBaseCaller.mockReturnValue(base);
+    mockNormalizeTokenUsage.mockReturnValue(null);
+
+    const state = { addTokenUsage: vi.fn() };
+    const caller = getModelCaller({}, { state });
+    await caller(makeMessages());
+
+    expect(state.addTokenUsage).not.toHaveBeenCalled();
+    expect(mockEmitBudgetEvents).not.toHaveBeenCalled();
+    expect(mockMakeStageEmitter).toHaveBeenCalled();
+  });
+
+  it("sanitizes non-finite totals and defaults cost to 0", async () => {
+    const emit = vi.fn();
+    mockMakeStageEmitter.mockReturnValue(emit);
+
+    const base = vi.fn().mockResolvedValue({ content: "ok", usage: { prompt_tokens: 1 } });
+    mockBuildBaseCaller.mockReturnValue(base);
+    mockNormalizeTokenUsage.mockReturnValue({ input: 1, output: 2, total: 3 });
+    mockSafeNumber.mockReturnValue(undefined);
+    mockSafeInt.mockReturnValue(undefined);
+
+    const state = {
+      addTokenUsage: vi.fn(() => ({
+        input: "1",
+        output: Number.NaN,
+        total: Number.POSITIVE_INFINITY,
+        estimatedCostUSD: "bad",
+      })),
+    };
+
+    const caller = getModelCaller({}, { state });
+    await caller(makeMessages(" "));
+
+    expect(emit).toHaveBeenCalledWith(
+      "deepsearch.token.usage",
+      {
+        usage: { input: 1, output: 2, total: 3, estimatedCostUSD: 0 },
+        total: { input: 0, output: 0, total: 0, estimatedCostUSD: 0 },
+      },
+      { throttle: false }
+    );
+    expect(mockEmitBudgetEvents).toHaveBeenCalledWith({
+      emit,
+      state,
+      budget: undefined,
+      totalTokens: 0,
+      totalCostUSD: 0,
+    });
+  });
+
+  it("propagates errors from flushCompression and base caller", async () => {
+    const base = vi.fn().mockRejectedValue(new Error("base-fail"));
+    mockBuildBaseCaller.mockReturnValue(base);
+
+    const stageApi = {
+      flushCompression: vi.fn().mockRejectedValue(new Error("flush-fail")),
+    };
+    const caller = getModelCaller(stageApi);
+
+    await expect(caller(makeMessages())).rejects.toThrow("flush-fail");
+    expect(base).not.toHaveBeenCalled();
+
+    stageApi.flushCompression.mockResolvedValue(undefined);
+    await expect(caller(makeMessages())).rejects.toThrow("base-fail");
+  });
+
+  it("propagates errors from addTokenUsage", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok", usage: { prompt_tokens: 1 } });
+    mockBuildBaseCaller.mockReturnValue(base);
+    mockNormalizeTokenUsage.mockReturnValue({ input: 1, output: 0, total: 1 });
+
+    const state = {
+      addTokenUsage: vi.fn(() => {
+        throw new Error("usage-fail");
       }),
     };
 
-    const caller = getModelCaller(stageApi, { usage: "worker", state });
-    const messages = [{ role: "user", content: "Hi" }];
-    await caller(messages);
-    await caller(messages);
-
-    const tokenUsageCalls = emit.mock.calls.filter(([name]) => name === "deepsearch.token.usage");
-    expect(tokenUsageCalls).toHaveLength(2);
+    const caller = getModelCaller({}, { state });
+    await expect(caller(makeMessages())).rejects.toThrow("usage-fail");
+    expect(mockEmitBudgetEvents).not.toHaveBeenCalled();
   });
 
-  it("getModelCaller: uses trajectory cache key selection and flushCompression barrier", async () => {
-    const modelClient = new MockModelClient({ responses: { default: "ok" } });
+  it("uses cacheKeyInputs function from opts and forwards options without it", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok" });
+    mockBuildBaseCaller.mockReturnValue(base);
 
-    const order = [];
-    const routerCalls = [];
-    async function routerCall(opts) {
-      order.push("routerCall");
-      routerCalls.push(opts);
-      return modelClient.chat(opts);
-    }
-
-    const cacheStore = new Map();
-    const trajectoryCache = {
-      computeKey: vi.fn((stageName, inputs, meta) => {
-        order.push("computeKey");
-        return `${stageName}:${JSON.stringify(inputs)}:${String(meta?.model || "")}:${String(meta?.temperature ?? "")}`;
-      }),
-      getOrCompute: vi.fn(async (key, compute) => {
-        order.push("getOrCompute");
-        if (cacheStore.has(key)) return cacheStore.get(key);
-        const valuePromise = Promise.resolve().then(compute);
-        cacheStore.set(key, valuePromise);
-        return valuePromise;
-      }),
+    const cache = {
+      computeKey: vi.fn(() => "key-from-opts"),
+      getOrCompute: vi.fn((key, compute) => compute()),
     };
 
     const stageApi = {
-      signal: new AbortController().signal,
-      modelRouter: { call: routerCall },
-      trajectoryCache,
+      trajectoryCache: cache,
       trajectoryCachePolicy: "share",
       trajectoryCacheStageName: "deepsearch",
-      flushCompression: vi.fn(async () => {
-        order.push("flushCompression");
-      }),
+      trajectoryCacheKeyInputs: vi.fn(() => ({ from: "stage" })),
     };
 
-    const caller = getModelCaller(stageApi, { usage: "worker" });
-    const cacheKeyInputs = vi.fn((messages, opts) => ({ prompt: messages[0]?.content, model: opts?.model }));
+    const cacheKeyInputs = vi.fn(() => ({ from: "opts" }));
+    const caller = getModelCaller(stageApi);
+    const messages = makeMessages();
 
-    const messages = [{ role: "user", content: "Hi" }];
-    await caller(messages, { model: "gpt-4o-mini", temperature: 0.1, cacheKeyInputs, extra: 123 });
-    await caller(messages, { model: "gpt-4o-mini", temperature: 0.1, cacheKeyInputs, extra: 123 });
+    await caller(messages, { cacheKeyInputs, model: "m", temperature: "0" });
 
+    expect(cacheKeyInputs).toHaveBeenCalledWith(messages, { model: "m", temperature: "0" });
+    expect(cache.computeKey).toHaveBeenCalledWith("deepsearch", { from: "opts" }, { model: "m", temperature: "0" });
+    expect(cache.getOrCompute).toHaveBeenCalledTimes(1);
+    expect(base).toHaveBeenCalledWith(messages, { model: "m", temperature: "0" });
+  });
+
+  it("uses explicit cacheKeyInputs values including empty and whitespace strings", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok" });
+    mockBuildBaseCaller.mockReturnValue(base);
+
+    const cache = {
+      computeKey: vi.fn(() => "key"),
+      getOrCompute: vi.fn((key, compute) => compute()),
+    };
+
+    const stageApi = {
+      trajectoryCache: cache,
+      trajectoryCachePolicy: "share",
+      trajectoryCacheStageName: "deepsearch",
+      trajectoryCacheKeyInputs: { from: "stage" },
+    };
+
+    const caller = getModelCaller(stageApi);
+    const messages = makeMessages();
+
+    await caller(messages, { cacheKeyInputs: "" });
+    await caller(messages, { cacheKeyInputs: "   " });
+
+    expect(cache.computeKey).toHaveBeenNthCalledWith(1, "deepsearch", "", { model: undefined, temperature: undefined });
+    expect(cache.computeKey).toHaveBeenNthCalledWith(2, "deepsearch", "   ", { model: undefined, temperature: undefined });
+  });
+
+  it("uses stage-level cacheKeyInputs when opts are undefined", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok" });
+    mockBuildBaseCaller.mockReturnValue(base);
+
+    const cache = {
+      computeKey: vi.fn(() => "key-stage"),
+      getOrCompute: vi.fn((key, compute) => compute()),
+    };
+
+    const stageKeyInputs = vi.fn(() => ({ stage: true }));
+    const stageApi = {
+      trajectoryCache: cache,
+      trajectoryCachePolicy: "share",
+      trajectoryCacheStageName: "deepsearch",
+      trajectoryCacheKeyInputs: stageKeyInputs,
+    };
+
+    const caller = getModelCaller(stageApi);
+    const messages = makeMessages();
+
+    await caller(messages, undefined);
+
+    expect(stageKeyInputs).toHaveBeenCalledWith(messages, {});
+    expect(cache.computeKey).toHaveBeenCalledWith("deepsearch", { stage: true }, { model: undefined, temperature: undefined });
+  });
+
+  it("defaults cache inputs to messages array for non-array messages", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok" });
+    mockBuildBaseCaller.mockReturnValue(base);
+
+    const cache = {
+      computeKey: vi.fn(() => "key-default"),
+      getOrCompute: vi.fn((key, compute) => compute()),
+    };
+
+    const stageApi = {
+      trajectoryCache: cache,
+      trajectoryCachePolicy: "share",
+      trajectoryCacheStageName: "deepsearch",
+    };
+
+    const caller = getModelCaller(stageApi);
+
+    await caller({ not: "array" }, {});
+    await caller([], {});
+
+    expect(cache.computeKey).toHaveBeenNthCalledWith(1, "deepsearch", { messages: [] }, { model: undefined, temperature: undefined });
+    expect(cache.computeKey).toHaveBeenNthCalledWith(2, "deepsearch", { messages: [] }, { model: undefined, temperature: undefined });
+  });
+
+  it("accepts deep cache inputs and very long message content", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok" });
+    mockBuildBaseCaller.mockReturnValue(base);
+
+    const cache = {
+      computeKey: vi.fn(() => "key-deep"),
+      getOrCompute: vi.fn((key, compute) => compute()),
+    };
+
+    const stageApi = {
+      trajectoryCache: cache,
+      trajectoryCachePolicy: "share",
+      trajectoryCacheStageName: "deepsearch",
+    };
+
+    const caller = getModelCaller(stageApi);
+    const hugeText = "x".repeat(100000);
+    const deepInputs = makeDeepObject(50);
+    const messages = makeMessages(hugeText);
+
+    await caller(messages, { cacheKeyInputs: deepInputs });
+
+    expect(cache.computeKey).toHaveBeenCalledWith("deepsearch", deepInputs, { model: undefined, temperature: undefined });
+    expect(base).toHaveBeenCalledWith(messages, {});
+  });
+
+  it("handles concurrent calls without shared state", async () => {
+    const base = vi.fn(async (messages) => ({ content: messages?.[0]?.content }));
+    mockBuildBaseCaller.mockReturnValue(base);
+
+    const stageApi = { flushCompression: vi.fn(() => undefined) };
+    const caller = getModelCaller(stageApi);
+    const first = caller(makeMessages("first"));
+    const second = caller(makeMessages("second"));
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(base).toHaveBeenCalledTimes(2);
     expect(stageApi.flushCompression).toHaveBeenCalledTimes(2);
-    expect(cacheKeyInputs).toHaveBeenCalledTimes(2);
-    expect(trajectoryCache.computeKey).toHaveBeenCalledTimes(2);
-    expect(trajectoryCache.getOrCompute).toHaveBeenCalledTimes(2);
-    expect(routerCalls).toHaveLength(1);
-    expect(routerCalls[0].cacheKeyInputs).toBeUndefined();
-
-    const firstFlushIdx = order.indexOf("flushCompression");
-    const firstRouterIdx = order.indexOf("routerCall");
-    expect(firstFlushIdx).toBeGreaterThan(-1);
-    expect(firstRouterIdx).toBeGreaterThan(-1);
-    expect(firstFlushIdx).toBeLessThan(firstRouterIdx);
+    expect(firstResult.content).toBe("first");
+    expect(secondResult.content).toBe("second");
   });
 
-  it("getModelCaller: falls back to stageApi.trajectoryCacheKeyInputs when opts.cacheKeyInputs is absent", async () => {
-    const modelClient = new MockModelClient({ responses: { default: "ok" } });
+  it("treats non-object opts as empty options", async () => {
+    const base = vi.fn().mockResolvedValue({ content: "ok" });
+    mockBuildBaseCaller.mockReturnValue(base);
 
-    const routerCalls = [];
-    async function routerCall(opts) {
-      routerCalls.push(opts);
-      return modelClient.chat(opts);
-    }
+    const caller = getModelCaller({});
+    const messages = makeMessages();
+    await caller(messages, "not-an-object");
 
-    const cacheStore = new Map();
-    const trajectoryCache = {
-      computeKey: vi.fn((stageName, inputs, meta) => `${stageName}:${JSON.stringify(inputs)}:${String(meta?.model || "")}`),
-      getOrCompute: vi.fn(async (key, compute) => {
-        if (cacheStore.has(key)) return cacheStore.get(key);
-        const value = await compute();
-        cacheStore.set(key, value);
-        return value;
-      }),
-    };
-
-    const stageApi = {
-      signal: new AbortController().signal,
-      modelRouter: { call: routerCall },
-      trajectoryCache,
-      trajectoryCachePolicy: "share",
-      trajectoryCacheStageName: "deepsearch",
-      trajectoryCacheKeyInputs: vi.fn((messages, opts) => ({ prompt: messages[0]?.content, extra: opts?.extra })),
-    };
-
-    const caller = getModelCaller(stageApi, { usage: "worker" });
-    const messages = [{ role: "user", content: "Hi" }];
-    await caller(messages, { model: "gpt-4o-mini", extra: 123 });
-
-    expect(stageApi.trajectoryCacheKeyInputs).toHaveBeenCalledTimes(1);
-    expect(trajectoryCache.computeKey).toHaveBeenCalledWith("deepsearch", { prompt: "Hi", extra: 123 }, { model: "gpt-4o-mini", temperature: undefined });
-    expect(routerCalls).toHaveLength(1);
-  });
-
-  it("getModelCaller: returns null when stageApi provides no model service", () => {
-    const stageApi = { signal: new AbortController().signal };
-    expect(getModelCaller(stageApi)).toBeNull();
+    expect(base).toHaveBeenCalledWith(messages, {});
   });
 });

@@ -1,6 +1,88 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { ResourceLimits, SandboxCapability } from '../../../../../js/agents/core/sandbox/constants.js';
+import { ResourceLimits, SandboxCapability, SandboxPreset } from '../../../../../js/agents/core/sandbox/constants.js';
+
+const SKILL_EXECUTOR_PATH = '../../../../../js/agents/core/sandbox/skill-executor.js';
+
+const sharedMocks = vi.hoisted(() => ({
+  createLogger: vi.fn(),
+  isNodeLike: vi.fn(),
+}));
+
+const poolState = vi.hoisted(() => ({
+  instances: [],
+  withSandboxImpl: null,
+}));
+
+const workerThreadsState = vi.hoisted(() => ({
+  behavior: 'success',
+}));
+
+vi.mock('../../../../../js/agents/shared/index.js', () => ({
+  createLogger: sharedMocks.createLogger,
+  isNodeLike: sharedMocks.isNodeLike,
+}));
+
+vi.mock('../../../../../js/agents/core/sandbox/pool.js', () => {
+  class MockSandboxPool {
+    constructor(options = {}) {
+      this.options = options;
+      this.dispose = vi.fn();
+      this.withSandbox = vi.fn(async (optionsArg, fn) => {
+        if (poolState.withSandboxImpl) {
+          return await poolState.withSandboxImpl(this, optionsArg, fn);
+        }
+        if (typeof fn === 'function') {
+          return await fn({
+            executeAsync: vi.fn(async () => ({
+              success: true,
+              data: null,
+              metrics: {},
+            })),
+          });
+        }
+        return { success: true, data: null, metrics: {} };
+      });
+      poolState.instances.push(this);
+    }
+  }
+  return { SandboxPool: MockSandboxPool, default: MockSandboxPool };
+});
+
+vi.mock('node:worker_threads', () => {
+  class FakeWorker {
+    constructor() {
+      if (workerThreadsState.behavior === 'ctor-throw') {
+        throw new Error('worker ctor failed');
+      }
+      this.handlers = {};
+    }
+    on(event, handler) {
+      this.handlers[event] = handler;
+    }
+    postMessage() {
+      if (workerThreadsState.behavior === 'post-throw') {
+        throw new Error('postMessage failed');
+      }
+      if (workerThreadsState.behavior === 'error') {
+        this.handlers.error?.(new Error('worker error'));
+        return;
+      }
+      if (workerThreadsState.behavior === 'exit') {
+        this.handlers.exit?.(1);
+        return;
+      }
+      this.handlers.message?.({
+        type: 'result',
+        success: true,
+        data: 7,
+        metrics: { duration: 1 },
+      });
+    }
+    terminate() {}
+  }
+  return { Worker: FakeWorker };
+});
 
 function createSilentLogger() {
   return {
@@ -12,61 +94,131 @@ function createSilentLogger() {
 }
 
 beforeEach(() => {
-  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
   vi.resetModules();
+  poolState.instances.length = 0;
+  poolState.withSandboxImpl = null;
+  sharedMocks.isNodeLike.mockReturnValue(true);
+  sharedMocks.createLogger.mockImplementation(() => createSilentLogger());
+  workerThreadsState.behavior = 'success';
 });
 
-afterEach(() => {
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.resetModules();
-});
+describe('isWasmSupported', () => {
+  it('returns false when WebAssembly is missing', async () => {
+    vi.stubGlobal('WebAssembly', undefined);
+    const { isWasmSupported } = await import(SKILL_EXECUTOR_PATH);
 
-describe('core/sandbox/skill-executor: capability + fallback paths', () => {
-  it('returns a helpful error when the skill has no body', async () => {
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
-
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
-    executor.wasmSupported = false; // ensure we never try to create a WASM pool
-
-    const res = await executor.execute({ metadata: { name: 'no-body' } }, {});
-
-    expect(res.success).toBe(false);
-    expect(res.error).toBe('Skill has no body');
+    await expect(isWasmSupported()).resolves.toBe(false);
   });
 
-  it('grants only approved + allowlisted capabilities and warns on unknown declarations/approvals', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('returns false when WebAssembly.compile throws', async () => {
+    const { isWasmSupported } = await import(SKILL_EXECUTOR_PATH);
+    const compileSpy = vi.spyOn(WebAssembly, 'compile').mockRejectedValue(new Error('no wasm'));
 
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+    await expect(isWasmSupported()).resolves.toBe(false);
+
+    compileSpy.mockRestore();
+  });
+
+  it('returns true when WebAssembly.compile succeeds', async () => {
+    const { isWasmSupported } = await import(SKILL_EXECUTOR_PATH);
+    const compileSpy = vi.spyOn(WebAssembly, 'compile').mockResolvedValue(new Uint8Array());
+
+    await expect(isWasmSupported()).resolves.toBe(true);
+
+    compileSpy.mockRestore();
+  });
+});
+
+describe('SkillExecutor', () => {
+  it('uses default logger and normalizes fallback config', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const defaultLogger = createSilentLogger();
+    sharedMocks.createLogger.mockReturnValueOnce(defaultLogger);
 
     const executor = new SkillExecutor({
-      logger: createSilentLogger(),
-      trustChecker: () => false, // force untrusted path
+      fallbackMode: '   ',
+      fallbackAllowlist: ['  ', 'skill-a', '', 0],
     });
 
-    const skill = {
-      metadata: {
-        name: 'caps',
-        scope: 'user',
-        capabilities: 'fetch,unknown',
-      },
-      body: 'return 1;',
-    };
-
-    const caps = executor._determineCapabilities(skill, { approvedCapabilities: 'fetch,unknown2' });
-    expect(caps).toContain(SandboxCapability.FETCH);
-    expect(warnSpy).toHaveBeenCalledTimes(2);
+    expect(sharedMocks.createLogger).toHaveBeenCalledWith('core/sandbox/skill-executor');
+    expect(executor.logger).toBe(defaultLogger);
+    expect(executor.fallbackMode).toBe('eval');
+    expect(executor.fallbackAllowlist).toBeInstanceOf(Set);
+    expect(executor.fallbackAllowlist.has('skill-a')).toBe(true);
+    expect(executor.fallbackAllowlist.has('  ')).toBe(false);
   });
 
-  it('does not grant declared capabilities when they are not explicitly approved', async () => {
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+  it('trusts only system-scoped skills by default', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger() });
 
+    expect(executor._defaultTrustChecker({ metadata: { scope: 'system' } })).toBe(true);
+    expect(executor._defaultTrustChecker({ metadata: { scope: 'user' } })).toBe(false);
+    expect(executor._defaultTrustChecker({ metadata: {} })).toBe(false);
+  });
+
+  it('evaluates fallback allowlist and trust flags correctly', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const logger = createSilentLogger();
+
+    const trusted = new SkillExecutor({ logger, trustChecker: () => true });
+    expect(trusted._isFallbackAllowed({})).toBe(true);
+
+    const contextTrusted = new SkillExecutor({ logger, trustChecker: () => false });
+    expect(contextTrusted._isFallbackAllowed({ metadata: { name: 'x' } }, { trusted: true })).toBe(true);
+
+    const allowlisted = new SkillExecutor({
+      logger,
+      trustChecker: () => false,
+      fallbackAllowlist: ['allow'],
+    });
+    expect(allowlisted._isFallbackAllowed({ id: 'allow' })).toBe(true);
+    expect(allowlisted._isFallbackAllowed({ metadata: { name: 'allow' } })).toBe(true);
+
+    const contextAllowlist = new SkillExecutor({ logger, trustChecker: () => false });
+    expect(
+      contextAllowlist._isFallbackAllowed(
+        { id: 'set-allowed' },
+        { fallbackAllowlist: new Set(['set-allowed']) }
+      )
+    ).toBe(true);
+
+    const emptyAllowlist = new SkillExecutor({
+      logger,
+      trustChecker: () => false,
+      fallbackAllowlist: [],
+    });
+    expect(emptyAllowlist._isFallbackAllowed({ id: 'allow' })).toBe(false);
+
+    const invalidAllowlist = new SkillExecutor({
+      logger,
+      trustChecker: () => false,
+      fallbackAllowlist: { 0: 'allow' },
+    });
+    expect(invalidAllowlist._isFallbackAllowed({ id: 'allow' })).toBe(false);
+    expect(invalidAllowlist._isFallbackAllowed({ id: 0 })).toBe(false);
+  });
+
+  it('grants all capabilities to trusted skills', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
     const executor = new SkillExecutor({
       logger: createSilentLogger(),
+      trustChecker: () => true,
+    });
+
+    const caps = executor._determineCapabilities({ metadata: { name: 'trusted' } }, {});
+
+    expect(caps).toStrictEqual(SandboxPreset.TRUSTED);
+  });
+
+  it('grants only approved declared capabilities and warns on unknown entries', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const logger = createSilentLogger();
+    const executor = new SkillExecutor({
+      logger,
       trustChecker: () => false,
     });
 
@@ -74,185 +226,161 @@ describe('core/sandbox/skill-executor: capability + fallback paths', () => {
       metadata: {
         name: 'caps',
         scope: 'user',
-        capabilities: 'fetch',
+        capabilities: 'fetch,unknown,network',
       },
       body: 'return 1;',
     };
 
-    const caps = executor._determineCapabilities(skill, { approvedCapabilities: [] });
-    expect(caps).not.toContain(SandboxCapability.FETCH);
-  });
-
-  it('selects heavy limits for heavy skills', async () => {
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
-
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
-    const limits = executor._determineLimits({
-      metadata: { name: 'heavy-skill', weight: 'heavy' },
+    const caps = executor._determineCapabilities(skill, {
+      approvedCapabilities: 'fetch,unknown2,network',
     });
 
-    expect(limits).toStrictEqual(ResourceLimits.HEAVY);
+    expect(caps).toEqual(expect.arrayContaining(SandboxPreset.SKILL));
+    expect(caps).toContain(SandboxCapability.FETCH);
+    expect(logger.warn).toHaveBeenCalledTimes(2);
   });
 
-  it('defaults to standard limits for unknown weights', async () => {
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
-
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
-    const limits = executor._determineLimits({
-      metadata: { name: 'unknown-weight', weight: 'extra' },
+  it('ignores malformed capability lists and unapproved declarations', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const logger = createSilentLogger();
+    const executor = new SkillExecutor({
+      logger,
+      trustChecker: () => false,
     });
 
-    expect(limits).toStrictEqual(ResourceLimits.STANDARD);
-  });
-
-  it('blocks unsafe patterns in fallback mode before evaluating code', async () => {
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
-
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
-    executor.wasmSupported = false;
-
-    const res = await executor.execute(
-      {
-        metadata: { name: 'blocked', scope: 'user' },
-        body: 'return eval(\"1\")',
-      },
-      {}
+    const capsFromObject = executor._determineCapabilities(
+      { metadata: { name: 'caps', capabilities: { 0: 'fetch' } } },
+      { approvedCapabilities: { 0: 'fetch' } }
+    );
+    const capsFromEmpty = executor._determineCapabilities(
+      { metadata: { name: 'caps', capabilities: '   ' } },
+      { approvedCapabilities: 'fetch' }
     );
 
-    expect(res.success).toBe(false);
-    expect(String(res.error)).toMatch(/^Security:/);
-    expect(res.metrics?.blocked).toBe(true);
+    expect(capsFromObject).toStrictEqual(SandboxPreset.SKILL);
+    expect(capsFromObject).not.toContain(SandboxCapability.FETCH);
+    expect(capsFromEmpty).toStrictEqual(SandboxPreset.SKILL);
   });
 
-  it('reports syntax errors in fallback code (script parsing errors)', async () => {
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
-
+  it('selects limits based on weight and defaults for edge values', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
     const executor = new SkillExecutor({ logger: createSilentLogger() });
-    executor.wasmSupported = false;
 
-    const res = await executor.execute(
-      {
-        metadata: { name: 'parse-error', scope: 'user' },
-        body: 'return {',
-      },
-      {}
-    );
-
-    expect(res.success).toBe(false);
-    expect(typeof res.error).toBe('string');
-    expect(res.error.length).toBeGreaterThan(0);
+    expect(executor._determineLimits({ metadata: { weight: 'light' } })).toStrictEqual(ResourceLimits.LIGHT);
+    expect(executor._determineLimits({ metadata: { weight: 'heavy' } })).toStrictEqual(ResourceLimits.HEAVY);
+    expect(executor._determineLimits({ metadata: { weight: 'extra' } })).toStrictEqual(ResourceLimits.STANDARD);
+    expect(executor._determineLimits({ metadata: { weight: 0 } })).toStrictEqual(ResourceLimits.STANDARD);
+    expect(executor._determineLimits({ metadata: { weight: -1 } })).toStrictEqual(ResourceLimits.STANDARD);
+    expect(executor._determineLimits({})).toStrictEqual(ResourceLimits.STANDARD);
   });
 
-  it('respects timeoutMs limits during fallback execution', async () => {
-    vi.useFakeTimers();
+  it('initializes a single pool for concurrent callers', async () => {
+    const module = await import(SKILL_EXECUTOR_PATH);
+    let resolveCompile;
+    const compilePromise = new Promise(resolve => {
+      resolveCompile = resolve;
+    });
+    const compileSpy = vi.spyOn(WebAssembly, 'compile').mockReturnValue(compilePromise);
+    const executor = new module.SkillExecutor({ logger: createSilentLogger() });
 
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+    const p1 = executor._ensurePool();
+    const p2 = executor._ensurePool();
 
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
-    executor.wasmSupported = false;
+    expect(compileSpy).toHaveBeenCalledTimes(1);
+    resolveCompile({});
+    const [pool1, pool2] = await Promise.all([p1, p2]);
 
-    const p = executor.execute(
-      {
-        metadata: { name: 'timeout', scope: 'user', weight: 'light' },
-        body: 'await new Promise(() => {});',
-      },
-      {}
-    );
+    expect(pool1).toBe(pool2);
+    expect(poolState.instances).toHaveLength(1);
+    expect(poolState.instances[0].options).toMatchObject({
+      maxSize: 4,
+      defaultCapabilities: SandboxPreset.SKILL,
+    });
+    expect(executor.pool).toBe(pool1);
 
-    // ResourceLimits.LIGHT.timeoutMs is 1000ms.
-    await vi.advanceTimersByTimeAsync(1000);
-
-    const res = await p;
-    expect(res.success).toBe(false);
-    expect(res.error).toBe('Execution timeout');
+    compileSpy.mockRestore();
   });
 
-  it('captures blocked global accesses in fallback audit metrics', async () => {
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
-
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
+  it('warns once when WASM is unavailable', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const logger = createSilentLogger();
+    const executor = new SkillExecutor({ logger });
     executor.wasmSupported = false;
 
-    const res = await executor.execute(
-      {
-        metadata: { name: 'audit', scope: 'user' },
-        body: 'return typeof fetch;',
-      },
-      {}
-    );
+    const first = await executor._ensurePool();
+    const second = await executor._ensurePool();
 
-    expect(res.success).toBe(true);
-    expect(res.data).toBe('undefined');
-    expect(res.metrics?.mode).toMatch(/eval|node-worker/);
-    // blockedGlobals may not be tracked in node-worker mode
-    if (res.metrics?.blockedGlobals) {
-      expect(res.metrics.blockedGlobals).toContain('fetch');
+    expect(first).toBeNull();
+    expect(second).toBeNull();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an error when the skill has no body', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger() });
+
+    const cases = [null, undefined, {}, { metadata: { name: 'empty' }, body: '' }];
+    for (const skill of cases) {
+      const res = await executor.execute(skill, {});
+      expect(res.success).toBe(false);
+      expect(res.error).toBe('Skill has no body');
     }
   });
 
-  it('attempts worker-based fallback and continues when worker construction fails', async () => {
-    vi.stubGlobal('Worker', function Worker() {
-      throw new Error('no worker');
-    });
-
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
-
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
-    executor.wasmSupported = false;
-
-    const res = await executor.execute(
-      {
-        metadata: { name: 'worker-fallback', scope: 'user' },
-        body: 'return 2;',
-      },
-      {}
-    );
-
-    expect(res.success).toBe(true);
-    expect(res.data).toBe(2);
-    expect(res.metrics?.mode).toMatch(/eval|node-worker/);
-  });
-
-  it('falls back to main-thread eval when browser workers are unavailable', async () => {
-    vi.doMock('../../../../js/agents/shared/platform.js', () => ({
-      isNodeLike: () => false,
+  it('executes via pool and forwards logs/emits to kernel', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executeAsync = vi.fn(async (body, args) => ({
+      success: true,
+      data: { body, args },
+      metrics: { mode: 'wasm' },
     }));
+    const pool = {
+      withSandbox: vi.fn(async (options, fn) => {
+        options.onLog('info', ['hello']);
+        options.onEmit('done', { ok: true });
+        return await fn({ executeAsync });
+      }),
+      dispose: vi.fn(),
+    };
+    const kernel = { events: { emit: vi.fn() } };
+    const executor = new SkillExecutor({ logger: createSilentLogger(), pool, kernel });
 
-    const workerSpy = vi.fn(function Worker() {
-      throw new Error('no worker');
-    });
-    vi.stubGlobal('Worker', workerSpy);
+    const skill = { metadata: { name: 'pool-skill', scope: 'user' }, body: 'return 1;' };
+    const context = { args: { count: 0 }, state: { extra: 'x' } };
+    const res = await executor.execute(skill, context);
 
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+    expect(pool.withSandbox).toHaveBeenCalledTimes(1);
+    const options = pool.withSandbox.mock.calls[0][0];
+    expect(options.capabilities).toEqual(expect.arrayContaining(SandboxPreset.SKILL));
+    expect(options.limits).toStrictEqual(ResourceLimits.STANDARD);
+    expect(options.state.skill).toEqual({ name: 'pool-skill', scope: 'user' });
+    expect(options.state.args).toBe(context.args);
+    expect(options.state.extra).toBe('x');
+    expect(executeAsync).toHaveBeenCalledWith(skill.body, context.args);
 
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
-    executor.wasmSupported = false;
-
-    const res = await executor.execute(
-      {
-        metadata: { name: 'browser-fallback', scope: 'user' },
-        body: 'return 9;',
-      },
-      {}
-    );
-
-    expect(workerSpy).toHaveBeenCalledTimes(2);
     expect(res.success).toBe(true);
-    expect(res.data).toBe(9);
-    expect(res.metrics?.mode).toBe('eval');
+    expect(res.data).toEqual({ body: skill.body, args: context.args });
+    expect(res.logs).toHaveLength(1);
+    expect(res.emits).toHaveLength(1);
+    expect(res.skill).toBe('pool-skill');
+    expect(res.metrics.mode).toBe('wasm');
+    expect(kernel.events.emit).toHaveBeenCalledWith(
+      'skill:log',
+      expect.objectContaining({ skill: 'pool-skill', level: 'info' })
+    );
+    expect(kernel.events.emit).toHaveBeenCalledWith(
+      'skill:done',
+      expect.objectContaining({ skill: 'pool-skill', payload: { ok: true } })
+    );
   });
 
-  it('errors when fallbackMode is none and the WASM sandbox is unavailable', async () => {
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
-
+  it('returns an error when fallback is disabled and WASM is unavailable', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
     const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'none' });
     executor.wasmSupported = false;
 
     const res = await executor.execute(
-      {
-        metadata: { name: 'no-fallback', scope: 'user' },
-        body: 'return 1;',
-      },
+      { metadata: { name: 'no-fallback', scope: 'user' }, body: 'return 1;' },
       {}
     );
 
@@ -260,30 +388,154 @@ describe('core/sandbox/skill-executor: capability + fallback paths', () => {
     expect(String(res.error)).toMatch(/fallback disabled/i);
   });
 
-  it('returns false from isWasmSupported when WebAssembly.compile fails', async () => {
-    const { isWasmSupported } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+  it('blocks fallback for untrusted skills without allowlist', async () => {
+    sharedMocks.isNodeLike.mockReturnValue(false);
+    vi.stubGlobal('Worker', undefined);
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'eval' });
+    executor.wasmSupported = false;
 
-    const compileSpy = vi.spyOn(WebAssembly, 'compile').mockImplementation(async () => {
-      throw new Error('no wasm');
-    });
+    const res = await executor.execute(
+      { metadata: { name: 'blocked', scope: 'user' }, body: 'return 1;' },
+      {}
+    );
 
-    await expect(isWasmSupported()).resolves.toBe(false);
-
-    compileSpy.mockRestore();
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('Security: fallback eval blocked for untrusted skill');
+    expect(res.metrics?.blocked).toBe(true);
   });
-});
 
-describe('core/sandbox/skill-executor: cleanup branches', () => {
-  it('returns an error when the pool fails and fallbackMode is none', async () => {
+  it('blocks unsafe patterns before evaluating fallback code', async () => {
+    sharedMocks.isNodeLike.mockReturnValue(false);
+    vi.stubGlobal('Worker', undefined);
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'eval' });
+    executor.wasmSupported = false;
+
+    const res = await executor.execute(
+      { metadata: { name: 'blocked', scope: 'system' }, body: 'return eval(\"1\")' },
+      {}
+    );
+
+    expect(res.success).toBe(false);
+    expect(String(res.error)).toMatch(/^Security: Blocked pattern:/);
+    expect(res.metrics?.blocked).toBe(true);
+  });
+
+  it('reports runtime errors during main-thread fallback', async () => {
+    sharedMocks.isNodeLike.mockReturnValue(false);
+    vi.stubGlobal('Worker', undefined);
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'eval' });
+    executor.wasmSupported = false;
+
+    const res = await executor.execute(
+      { metadata: { name: 'boom', scope: 'system' }, body: 'throw new Error(\"boom\");' },
+      {}
+    );
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('boom');
+    expect(res.metrics?.mode).toBe('eval');
+  });
+
+  it('respects timeout limits during fallback execution', async () => {
+    vi.useFakeTimers();
+    sharedMocks.isNodeLike.mockReturnValue(false);
+    vi.stubGlobal('Worker', undefined);
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'eval' });
+    executor.wasmSupported = false;
+
+    const resPromise = executor.execute(
+      {
+        metadata: { name: 'timeout', scope: 'system', weight: 'light' },
+        body: 'await new Promise(() => {});',
+      },
+      {}
+    );
+
+    await vi.advanceTimersByTimeAsync(ResourceLimits.LIGHT.timeoutMs);
+    await Promise.resolve();
+    const res = await resPromise;
+
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('Execution timeout');
+  });
+
+  it('captures blocked globals in fallback audit metrics', async () => {
+    sharedMocks.isNodeLike.mockReturnValue(false);
+    vi.stubGlobal('Worker', undefined);
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'eval' });
+    executor.wasmSupported = false;
+
+    const res = await executor.execute(
+      { metadata: { name: 'audit', scope: 'system' }, body: 'return typeof fetch;' },
+      {}
+    );
+
+    expect(res.success).toBe(true);
+    expect(res.data).toBe('undefined');
+    expect(res.metrics?.mode).toBe('eval');
+    expect(res.metrics?.blockedGlobals).toContain('fetch');
+  });
+
+  it('handles large code, long strings, and deep nested state in fallback', async () => {
+    sharedMocks.isNodeLike.mockReturnValue(false);
+    vi.stubGlobal('Worker', undefined);
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'eval' });
+    executor.wasmSupported = false;
+
+    const bigText = 'x'.repeat(100000);
+    const deepState = {
+      deep: { level1: { level2: { level3: { value: 7 } } } },
+      bigText,
+    };
+    const padding = 'x'.repeat(50000);
+    const body = `/*${padding}*/ return state.deep.level1.level2.level3.value + state.bigText.length;`;
+
+    const res = await executor.execute(
+      { metadata: { name: 'big', scope: 'system' }, body },
+      { state: deepState }
+    );
+
+    expect(res.success).toBe(true);
+    expect(res.data).toBe(7 + bigText.length);
+  });
+
+  it('falls back to eval and disposes owned pool on sandbox failure', async () => {
+    sharedMocks.isNodeLike.mockReturnValue(false);
+    vi.stubGlobal('Worker', undefined);
+    poolState.withSandboxImpl = async () => {
+      throw new Error('pool boom');
+    };
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'eval' });
+    executor.wasmSupported = true;
+
+    const res = await executor.execute(
+      { metadata: { name: 'pool-failure', scope: 'system' }, body: 'return 2;' },
+      {}
+    );
+
+    expect(res.success).toBe(true);
+    expect(res.data).toBe(2);
+    expect(poolState.instances).toHaveLength(1);
+    expect(poolState.instances[0].dispose).toHaveBeenCalledTimes(1);
+    expect(executor.pool).toBeNull();
+    expect(executor.wasmSupported).toBe(false);
+  });
+
+  it('returns an error when pool execution fails and fallback is disabled', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
     const pool = {
       withSandbox: vi.fn(async () => {
         throw new Error('pool boom');
       }),
       dispose: vi.fn(),
     };
-
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
-
     const executor = new SkillExecutor({
       logger: createSilentLogger(),
       pool,
@@ -291,88 +543,162 @@ describe('core/sandbox/skill-executor: cleanup branches', () => {
     });
 
     const res = await executor.execute(
-      {
-        metadata: { name: 'pool-fail-no-fallback', scope: 'user' },
-        body: 'return 1;',
-      },
+      { metadata: { name: 'pool-fail', scope: 'system' }, body: 'return 1;' },
       {}
     );
 
     expect(res.success).toBe(false);
     expect(res.error).toBe('pool boom');
-    expect(pool.withSandbox).toHaveBeenCalledTimes(1);
     expect(pool.dispose).not.toHaveBeenCalled();
     expect(executor.pool).toBe(pool);
   });
 
-  it('falls back without disposing external pools when pool execution fails', async () => {
-    const pool = {
-      withSandbox: vi.fn(async () => {
-        throw new Error('pool boom');
-      }),
-      dispose: vi.fn(),
+  it('executes multiple skills concurrently and preserves order', async () => {
+    sharedMocks.isNodeLike.mockReturnValue(false);
+    vi.stubGlobal('Worker', undefined);
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'eval' });
+    executor.wasmSupported = false;
+
+    const skills = [
+      { metadata: { name: 'a', scope: 'system' }, body: 'return state.skill.name;' },
+      { metadata: { name: 'b', scope: 'system' }, body: 'return state.skill.name;' },
+    ];
+    const results = await executor.executeMany(skills, {});
+
+    expect(results).toHaveLength(2);
+    expect(results.map(result => result.data)).toEqual(['a', 'b']);
+  });
+
+  it('supports rapid consecutive execute calls without sharing logs', async () => {
+    sharedMocks.isNodeLike.mockReturnValue(false);
+    vi.stubGlobal('Worker', undefined);
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'eval' });
+    executor.wasmSupported = false;
+
+    const skill = {
+      metadata: { name: 'repeat', scope: 'system' },
+      body: 'console.log(\"hit\"); return 1;',
     };
 
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+    const res1 = await executor.execute(skill, {});
+    const res2 = await executor.execute(skill, {});
 
-    const executor = new SkillExecutor({
-      logger: createSilentLogger(),
-      pool,
+    expect(res1.logs).toHaveLength(1);
+    expect(res2.logs).toHaveLength(1);
+    expect(res1.logs).not.toBe(res2.logs);
+  });
+
+  it('handles timeout boundaries and max safe integers in main-thread fallback', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger() });
+
+    const resZero = await executor._executeFallbackInMainThread({
+      code: 'return maxValue;',
+      state: null,
+      globals: { maxValue: Number.MAX_SAFE_INTEGER },
+      timeoutMs: 0,
+      onLog: vi.fn(),
+      onEmit: vi.fn(),
     });
-    executor.wasmSupported = true;
+    const resNegative = await executor._executeFallbackInMainThread({
+      code: 'return 1;',
+      state: {},
+      globals: {},
+      timeoutMs: -1,
+      onLog: vi.fn(),
+      onEmit: vi.fn(),
+    });
+    const resString = await executor._executeFallbackInMainThread({
+      code: 'return typeof missing;',
+      state: {},
+      globals: {},
+      timeoutMs: '5',
+      onLog: vi.fn(),
+      onEmit: vi.fn(),
+    });
 
-    const res = await executor.execute(
-      {
-        metadata: { name: 'pool-fail-fallback', scope: 'user' },
-        body: 'return 7;',
-      },
-      {}
-    );
+    expect(resZero.success).toBe(true);
+    expect(resZero.data).toBe(Number.MAX_SAFE_INTEGER);
+    expect(resNegative.success).toBe(true);
+    expect(resString.success).toBe(true);
+    expect(resString.data).toBe('undefined');
+  });
+
+  it('handles worker messages during fallback execution', async () => {
+    class WorkerMock {
+      constructor() {
+        this.onmessage = null;
+        this.onerror = null;
+      }
+      postMessage() {
+        this.onmessage?.({ data: { type: 'log', level: 'info', args: ['hello'] } });
+        this.onmessage?.({ data: { type: 'emit', name: 'ping', payload: { ok: true } } });
+        this.onmessage?.({ data: { type: 'audit', event: 'blocked', payload: { id: 1 } } });
+        this.onmessage?.({ data: { type: 'result', success: true, data: 5, metrics: { duration: 12 } } });
+      }
+      terminate() {}
+    }
+    vi.stubGlobal('Worker', WorkerMock);
+
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger() });
+    const onLog = vi.fn();
+    const onEmit = vi.fn();
+
+    const res = await executor._executeFallbackInWorker('worker.js', {
+      code: 'return 1;',
+      state: {},
+      globals: {},
+      timeoutMs: 0,
+      onLog,
+      onEmit,
+    });
+
+    expect(onLog).toHaveBeenCalledWith('info', ['hello']);
+    expect(onEmit).toHaveBeenCalledWith('ping', { ok: true });
+    expect(res.success).toBe(true);
+    expect(res.data).toBe(5);
+    expect(res.metrics.mode).toBe('worker');
+  });
+
+  it('executes fallback via node worker when available', async () => {
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger() });
+
+    const res = await executor._executeFallbackInNodeWorker({
+      code: 'return 1;',
+      state: {},
+      globals: {},
+      timeoutMs: 0,
+      onLog: vi.fn(),
+      onEmit: vi.fn(),
+    });
 
     expect(res.success).toBe(true);
     expect(res.data).toBe(7);
-    expect(pool.dispose).not.toHaveBeenCalled();
-    expect(executor.pool).toBe(null);
-    expect(executor.wasmSupported).toBe(false);
+    expect(res.metrics.mode).toBe('node-worker');
   });
+});
 
-  it('falls back to eval and disposes its owned pool when pool.withSandbox throws', async () => {
-    /** @type {any[]} */
-    const poolInstances = [];
+describe('createSkillExecutor', () => {
+  it('creates a SkillExecutor instance with options', async () => {
+    const { createSkillExecutor, SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const logger = createSilentLogger();
 
-    class FakeSandboxPool {
-      constructor() {
-        this.withSandbox = vi.fn(async () => {
-          throw new Error('pool boom');
-        });
-        this.dispose = vi.fn();
-        poolInstances.push(this);
-      }
-    }
+    const executor = createSkillExecutor({ logger, fallbackMode: 'eval' });
 
-    vi.doMock('../../../../js/agents/core/sandbox/pool.js', () => ({
-      SandboxPool: FakeSandboxPool,
-      default: FakeSandboxPool,
-    }));
+    expect(executor).toBeInstanceOf(SkillExecutor);
+    expect(executor.logger).toBe(logger);
+    expect(executor.fallbackMode).toBe('eval');
+  });
+});
 
-    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+describe('default export', () => {
+  it('exports SkillExecutor as default', async () => {
+    const module = await import(SKILL_EXECUTOR_PATH);
 
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
-    executor.wasmSupported = true; // force pool creation path
-
-    const res = await executor.execute(
-      {
-        metadata: { name: 'pool-failure', scope: 'user' },
-        body: 'return 42;',
-      },
-      {}
-    );
-
-    expect(res.success).toBe(true);
-    expect(res.data).toBe(42);
-    expect(poolInstances).toHaveLength(1);
-    expect(poolInstances[0].dispose).toHaveBeenCalledTimes(1);
-    expect(executor.pool).toBe(null);
-    expect(executor.wasmSupported).toBe(false);
+    expect(module.default).toBe(module.SkillExecutor);
   });
 });

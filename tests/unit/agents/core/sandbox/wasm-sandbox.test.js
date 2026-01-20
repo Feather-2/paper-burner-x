@@ -1,17 +1,70 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SandboxCapability, ResourceLimits } from '../../../../../js/agents/core/sandbox/constants.js';
 
-function createFakeQuickJS({ onEvalCode } = {}) {
-  const errorHandle = { dispose: vi.fn() };
-  const valueHandle = { dispose: vi.fn() };
+let quickjsEmscriptenImpl = null;
+let quickjsCoreImpl = null;
+
+vi.mock(
+  'quickjs-emscripten',
+  () => ({
+    getQuickJS: (...args) => {
+      if (!quickjsEmscriptenImpl) {
+        throw new Error('quickjs-emscripten mock not set');
+      }
+      return quickjsEmscriptenImpl(...args);
+    },
+  }),
+  { virtual: true }
+);
+
+vi.mock(
+  'quickjs-emscripten-core',
+  () => ({
+    newQuickJSWASMModule: (...args) => {
+      if (!quickjsCoreImpl) {
+        throw new Error('quickjs-emscripten-core mock not set');
+      }
+      return quickjsCoreImpl(...args);
+    },
+  }),
+  { virtual: true }
+);
+
+const createHandle = (value) => ({ value, dispose: vi.fn() });
+
+const createQuickJsMock = (options = {}) => {
+  const functionHandles = {};
 
   const vm = {
     global: {},
-    evalCode: vi.fn((code) => {
-      if (typeof onEvalCode === 'function') return onEvalCode(code, { errorHandle, valueHandle });
-      return { error: null, value: valueHandle };
+    newObject: vi.fn(() => createHandle({})),
+    newFunction: vi.fn((name, fn) => {
+      const handle = createHandle({ name });
+      handle.fn = fn;
+      handle.name = name;
+      functionHandles[name] = handle;
+      return handle;
     }),
+    newString: vi.fn((value) => createHandle(String(value))),
     setProp: vi.fn(),
-    dump: vi.fn(() => 'Boom'),
+    dump: vi.fn((handle) => {
+      if (handle && Object.prototype.hasOwnProperty.call(handle, 'value')) {
+        return handle.value;
+      }
+      return handle;
+    }),
+    getString: vi.fn((handle) => {
+      if (handle && Object.prototype.hasOwnProperty.call(handle, 'value')) {
+        return String(handle.value);
+      }
+      return String(handle);
+    }),
+    evalCode: vi.fn((code) => {
+      if (typeof options.onEvalCode === 'function') {
+        return options.onEvalCode(code, { createHandle });
+      }
+      return { error: null, value: createHandle(undefined) };
+    }),
     dispose: vi.fn(),
   };
 
@@ -19,291 +72,566 @@ function createFakeQuickJS({ onEvalCode } = {}) {
     setMemoryLimit: vi.fn(),
     setMaxStackSize: vi.fn(),
     newContext: vi.fn(() => vm),
-    computeMemoryUsage: vi.fn(() => ({ malloc_size: 123 })),
+    computeMemoryUsage: vi.fn(() => ({ malloc_size: 99 })),
     setInterruptHandler: vi.fn(),
     executePendingJobs: vi.fn(() => ({ value: 0, error: null })),
     dispose: vi.fn(),
   };
 
   const quickjs = { newRuntime: vi.fn(() => runtime) };
-  return { quickjs, runtime, vm, errorHandle, valueHandle };
-}
+
+  return { quickjs, runtime, vm, functionHandles };
+};
+
+const loadWasmSandbox = async ({ quickjsMock, emscriptenImpl, coreImpl } = {}) => {
+  vi.resetModules();
+
+  if (emscriptenImpl) {
+    quickjsEmscriptenImpl = emscriptenImpl;
+  } else if (quickjsMock) {
+    quickjsEmscriptenImpl = vi.fn(async () => quickjsMock.quickjs);
+  } else {
+    quickjsEmscriptenImpl = null;
+  }
+
+  if (coreImpl) {
+    quickjsCoreImpl = coreImpl;
+  } else if (quickjsMock) {
+    quickjsCoreImpl = vi.fn(async () => quickjsMock.quickjs);
+  } else {
+    quickjsCoreImpl = null;
+  }
+
+  return import('../../../../../js/agents/core/sandbox/wasm-sandbox.js');
+};
 
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   vi.resetModules();
-  vi.unmock('quickjs-emscripten');
-  vi.unmock('quickjs-emscripten-core');
+  quickjsEmscriptenImpl = null;
+  quickjsCoreImpl = null;
 });
 
-afterEach(() => {
-  try {
-    vi.runOnlyPendingTimers();
-    vi.clearAllTimers();
-  } catch {
-    // ignore
-  }
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-  vi.resetModules();
-  vi.unmock('quickjs-emscripten');
-  vi.unmock('quickjs-emscripten-core');
-});
+describe('WasmSandbox', () => {
+  it('initializes runtime and console capability', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
 
-describe('core/sandbox/wasm-sandbox', () => {
-  it('falls back to quickjs-emscripten-core when quickjs-emscripten is unavailable', async () => {
-    const { quickjs, runtime } = createFakeQuickJS();
-
-    // Force the primary optional dependency path to fail so we deterministically
-    // exercise the quickjs-emscripten-core fallback.
-    vi.doMock(
-      'quickjs-emscripten',
-      () => {
-        throw new Error('no quickjs');
-      },
-      { virtual: true }
-    );
-
-    /** @type {any} */
-    let coreFactory = null;
-    vi.doMock(
-      'quickjs-emscripten-core',
-      () => {
-        coreFactory = vi.fn(async () => quickjs);
-        return { newQuickJSWASMModule: coreFactory };
-      },
-      { virtual: true }
-    );
-
-    const { WasmSandbox } = await import('../../../../js/agents/core/sandbox/wasm-sandbox.js');
-
+    const onLog = vi.fn();
     const sb = new WasmSandbox({
-      capabilities: [],
-      limits: { memoryLimit: 128, timeoutMs: 10, maxStackDepth: 1 },
+      capabilities: [SandboxCapability.CONSOLE],
+      limits: { memoryLimit: 256, timeoutMs: 5, maxStackDepth: 2 },
+      onLog,
     });
+
     await sb.init();
 
-    expect(coreFactory).toHaveBeenCalledTimes(1);
-    expect(runtime.setMemoryLimit).toHaveBeenCalledWith(128);
-    expect(runtime.setMaxStackSize).toHaveBeenCalledWith(1 * 1024);
+    expect(quickjsMock.runtime.setMemoryLimit).toHaveBeenCalledWith(256);
+    expect(quickjsMock.runtime.setMaxStackSize).toHaveBeenCalledWith(2 * 1024);
+
+    const keys = Object.keys(quickjsMock.functionHandles);
+    expect(keys).toEqual(expect.arrayContaining(['log', 'warn', 'error', 'info', 'debug']));
+
+    const arg1 = createHandle('hello');
+    const arg2 = createHandle(42);
+    quickjsMock.functionHandles.log.fn(arg1, arg2);
+
+    expect(onLog).toHaveBeenCalledWith('log', ['hello', 42]);
+    expect(quickjsMock.functionHandles.log.dispose).toHaveBeenCalledTimes(1);
+
+    sb.dispose();
+  });
+
+  it('falls back to quickjs-emscripten-core when primary loader fails', async () => {
+    const quickjsMock = createQuickJsMock();
+    const emscriptenImpl = vi.fn(async () => {
+      throw new Error('no quickjs');
+    });
+    const coreImpl = vi.fn(async () => quickjsMock.quickjs);
+
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock, emscriptenImpl, coreImpl });
+
+    const sb = new WasmSandbox({ capabilities: [] });
+    await sb.init();
+
+    expect(emscriptenImpl).toHaveBeenCalledTimes(1);
+    expect(coreImpl).toHaveBeenCalledTimes(1);
 
     sb.dispose();
   });
 
   it('throws a helpful error when no QuickJS WASM implementation is available', async () => {
-    // Make the failure deterministic by simulating both optional deps being present
-    // but failing at runtime. This ensures we exercise the final error branch.
-    vi.doMock(
-      'quickjs-emscripten',
-      () => ({
-        getQuickJS: vi.fn(async () => {
-          throw new Error('no quickjs');
-        }),
-      }),
-      { virtual: true }
-    );
-    vi.doMock(
-      'quickjs-emscripten-core',
-      () => ({
-        newQuickJSWASMModule: vi.fn(async () => {
-          throw new Error('no quickjs core');
-        }),
-      }),
-      { virtual: true }
-    );
+    const emscriptenImpl = vi.fn(async () => {
+      throw new Error('no quickjs');
+    });
+    const coreImpl = vi.fn(async () => {
+      throw new Error('no quickjs core');
+    });
 
-    const { WasmSandbox } = await import('../../../../js/agents/core/sandbox/wasm-sandbox.js');
+    const { WasmSandbox } = await loadWasmSandbox({ emscriptenImpl, coreImpl });
 
     const sb = new WasmSandbox({ capabilities: [] });
-    await expect(sb.init()).rejects.toThrow(/requires quickjs-emscripten/i);
+    await expect(sb.init()).rejects.toThrow(/quickjs-emscripten/i);
   });
 
-  it('reports Execution timeout when interrupted and evalCode returns an error', async () => {
-    vi.useFakeTimers();
+  it('throws on init after dispose', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
 
-    const { quickjs, runtime, errorHandle } = createFakeQuickJS({
-      onEvalCode: (code) => {
-        // Fire the host timeout callback before we return the QuickJS error.
-        // This makes `interrupted === true` in WasmSandbox.execute.
-        if (String(code).includes('trigger-timeout')) {
-          vi.runOnlyPendingTimers();
-          return { error: errorHandle, value: null };
-        }
-        return { error: null, value: { dispose: vi.fn() } };
-      },
-    });
+    const sb = new WasmSandbox({ capabilities: [] });
+    sb.dispose();
 
-    vi.doMock(
-      'quickjs-emscripten',
-      () => ({
-        getQuickJS: vi.fn(async () => quickjs),
-      }),
-      { virtual: true }
-    );
+    await expect(sb.init()).rejects.toThrow('Sandbox has been disposed');
+  });
 
-    const { WasmSandbox } = await import('../../../../js/agents/core/sandbox/wasm-sandbox.js');
+  it('injects state, emit, and fetch capabilities', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
 
+    const onEmit = vi.fn();
     const sb = new WasmSandbox({
-      capabilities: [],
-      limits: { memoryLimit: 128, timeoutMs: 5, maxStackDepth: 1 },
+      capabilities: [SandboxCapability.STATE, SandboxCapability.EMIT, SandboxCapability.FETCH],
+      state: { count: 1n, empty: '', zero: 0 },
+      onEmit,
     });
+
     await sb.init();
 
-    const res = await sb.execute('/* trigger-timeout */');
-    expect(res.success).toBe(false);
-    expect(res.error).toBe('Execution timeout');
-    expect(runtime.setInterruptHandler).toHaveBeenCalled();
+    const evalCalls = quickjsMock.vm.evalCode.mock.calls.map(([code]) => String(code));
+    expect(evalCalls.some((code) => code.includes('"count":"1"'))).toBe(true);
+    expect(evalCalls.some((code) => code.includes('globalThis.fetch'))).toBe(true);
+
+    const propCalls = quickjsMock.vm.setProp.mock.calls;
+    expect(propCalls.some(([target, prop]) => target === quickjsMock.vm.global && prop === 'state')).toBe(true);
+    expect(propCalls.some(([target, prop]) => target === quickjsMock.vm.global && prop === 'emit')).toBe(true);
+    expect(propCalls.some(([target, prop]) => target === quickjsMock.vm.global && prop === '__hostFetch')).toBe(true);
+
+    const emitHandle = quickjsMock.functionHandles.emit;
+    const nameHandle = createHandle('event:ping');
+    const payloadHandle = createHandle({ ok: true });
+    emitHandle.fn(nameHandle, payloadHandle);
+
+    expect(onEmit).toHaveBeenCalledWith('event:ping', { ok: true });
+
+    const fetchHandle = quickjsMock.functionHandles.__hostFetch;
+    const fetchResult = fetchHandle.fn(createHandle('https://example.com'), createHandle({}));
+
+    expect(fetchResult.value).toContain('"__hostCall":"fetch"');
+    expect(fetchResult.value).toContain('https://example.com');
 
     sb.dispose();
   });
 
-  it('returns dumped error when evalCode fails without interruption', async () => {
-    const { quickjs, errorHandle } = createFakeQuickJS({
-      onEvalCode: (code) => {
-        if (String(code).includes('boom')) return { error: errorHandle, value: null };
-        return { error: null, value: { dispose: vi.fn() } };
-      },
-    });
+  it('emit handles payload dump failures', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
 
-    vi.doMock(
-      'quickjs-emscripten',
-      () => ({
-        getQuickJS: vi.fn(async () => quickjs),
-      }),
-      { virtual: true }
-    );
-
-    const { WasmSandbox } = await import('../../../../js/agents/core/sandbox/wasm-sandbox.js');
-
+    const onEmit = vi.fn();
     const sb = new WasmSandbox({
-      capabilities: [],
-      limits: { memoryLimit: 128, timeoutMs: 250, maxStackDepth: 1 },
+      capabilities: [SandboxCapability.EMIT],
+      onEmit,
     });
+
     await sb.init();
 
-    const res = await sb.execute('/* boom */');
-    expect(res.success).toBe(false);
-    expect(res.error).toBe('Boom');
+    const payloadHandle = createHandle({ bad: true });
+    quickjsMock.vm.dump.mockImplementation((handle) => {
+      if (handle === payloadHandle) throw new Error('dump failed');
+      if (handle && Object.prototype.hasOwnProperty.call(handle, 'value')) return handle.value;
+      return handle;
+    });
+
+    const emitHandle = quickjsMock.functionHandles.emit;
+    emitHandle.fn(createHandle('event:fail'), payloadHandle);
+
+    expect(onEmit).toHaveBeenCalledWith('event:fail', null);
 
     sb.dispose();
   });
 
-  it('skips non-serializable context values when injecting context', async () => {
-    const { quickjs, vm } = createFakeQuickJS();
+  it('executes with boundary context values and resource sizes', async () => {
+    const quickjsMock = createQuickJsMock();
+    quickjsMock.vm.evalCode.mockImplementation((code) => ({
+      error: null,
+      value: createHandle(code),
+    }));
 
-    vi.doMock(
-      'quickjs-emscripten',
-      () => ({
-        getQuickJS: vi.fn(async () => quickjs),
-      }),
-      { virtual: true }
-    );
-
-    const { WasmSandbox } = await import('../../../../js/agents/core/sandbox/wasm-sandbox.js');
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
 
     const sb = new WasmSandbox({
       capabilities: [],
-      limits: { memoryLimit: 128, timeoutMs: 250, maxStackDepth: 1 },
+      limits: { ...ResourceLimits.LIGHT, timeoutMs: 5 },
     });
+
+    await sb.init();
+
+    const bigFile = 'F'.repeat(6000);
+    const longString = 'L'.repeat(3000);
+    const deepNested = { level1: { level2: { level3: { value: 'deep' } } } };
+    const context = {
+      nil: null,
+      undef: undefined,
+      emptyStr: '',
+      emptyArr: [],
+      emptyObj: {},
+      zero: 0,
+      negative: -1,
+      maxSafe: Number.MAX_SAFE_INTEGER,
+      whitespace: '   ',
+      numAsString: '00042',
+      arrayAsObject: { 0: 'a', length: 1 },
+      bigFile,
+      longString,
+      deepNested,
+    };
+
+    const result = await sb.execute('1', context);
+
+    expect(result.success).toBe(true);
+
+    const evalCalls = quickjsMock.vm.evalCode.mock.calls.map(([code]) => String(code));
+    expect(evalCalls.length).toBe(Object.keys(context).length + 1);
+
+    expect(evalCalls).toContain('(null)');
+    expect(evalCalls).toContain('(undefined)');
+    expect(evalCalls).toContain('([])');
+    expect(evalCalls).toContain('({})');
+    expect(evalCalls).toContain('(0)');
+    expect(evalCalls).toContain('(-1)');
+
+    expect(evalCalls.some((code) => code.includes('""'))).toBe(true);
+    expect(evalCalls.some((code) => code.includes('"   "'))).toBe(true);
+    expect(evalCalls.some((code) => code.includes(String(Number.MAX_SAFE_INTEGER)))).toBe(true);
+    expect(evalCalls.some((code) => code.includes('"00042"'))).toBe(true);
+    expect(evalCalls.some((code) => code.includes('"length":1'))).toBe(true);
+    expect(evalCalls.some((code) => code.includes('"value":"deep"'))).toBe(true);
+    expect(evalCalls.some((code) => code.includes(bigFile.slice(0, 20)))).toBe(true);
+    expect(evalCalls.some((code) => code.includes(longString.slice(0, 20)))).toBe(true);
+
+    expect(quickjsMock.vm.setProp).toHaveBeenCalledTimes(Object.keys(context).length);
+
+    sb.dispose();
+  });
+
+  it('skips non-serializable context values', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({
+      capabilities: [],
+      limits: { ...ResourceLimits.LIGHT, timeoutMs: 5 },
+    });
+
     await sb.init();
 
     const circular = {};
-    // @ts-ignore - intentional circular reference for JSON.stringify failure.
     circular.self = circular;
 
-    await sb.execute('1', { circular });
+    await sb.execute('1', { ok: 1, circular });
 
-    // Only the actual code execution should call evalCode; the context injection should be skipped.
-    expect(vm.evalCode).toHaveBeenCalledTimes(1);
+    expect(quickjsMock.vm.evalCode).toHaveBeenCalledTimes(2);
+    expect(quickjsMock.vm.setProp.mock.calls.some(([, key]) => key === 'ok')).toBe(true);
+
+    sb.dispose();
+  });
+
+  it('reports execution timeout when interrupted and evalCode returns an error', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const errorHandle = createHandle('Boom');
+      const quickjsMock = createQuickJsMock({
+        onEvalCode: (code) => {
+          if (String(code).includes('trigger-timeout')) {
+            vi.runOnlyPendingTimers();
+            return { error: errorHandle, value: null };
+          }
+          return { error: null, value: createHandle(undefined) };
+        },
+      });
+
+      const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+      const sb = new WasmSandbox({
+        capabilities: [],
+        limits: { memoryLimit: 256, timeoutMs: 1, maxStackDepth: 1 },
+      });
+
+      await sb.init();
+
+      const result = await sb.execute('/* trigger-timeout */');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Execution timeout');
+      expect(quickjsMock.runtime.setInterruptHandler).toHaveBeenCalled();
+
+      sb.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns dumped error when evalCode reports an error', async () => {
+    const errorHandle = createHandle('EvalBoom');
+    const quickjsMock = createQuickJsMock({
+      onEvalCode: (code) => {
+        if (String(code).includes('boom')) return { error: errorHandle, value: null };
+        return { error: null, value: createHandle(undefined) };
+      },
+    });
+
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({ capabilities: [] });
+    await sb.init();
+
+    const result = await sb.execute('boom');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('EvalBoom');
+    expect(errorHandle.dispose).toHaveBeenCalledTimes(1);
 
     sb.dispose();
   });
 
   it('returns undefined when dumping the return value fails', async () => {
-    const { quickjs, vm, valueHandle } = createFakeQuickJS();
-    vm.dump.mockImplementation((handle) => {
-      if (handle === valueHandle) throw new Error('cannot dump');
-      return 'Boom';
+    const valueHandle = createHandle('value');
+    const quickjsMock = createQuickJsMock({
+      onEvalCode: () => ({ error: null, value: valueHandle }),
     });
 
-    vi.doMock(
-      'quickjs-emscripten',
-      () => ({
-        getQuickJS: vi.fn(async () => quickjs),
-      }),
-      { virtual: true }
-    );
-
-    const { WasmSandbox } = await import('../../../../js/agents/core/sandbox/wasm-sandbox.js');
-
-    const sb = new WasmSandbox({
-      capabilities: [],
-      limits: { memoryLimit: 128, timeoutMs: 250, maxStackDepth: 1 },
+    quickjsMock.vm.dump.mockImplementation((handle) => {
+      if (handle === valueHandle) throw new Error('dump failed');
+      if (handle && Object.prototype.hasOwnProperty.call(handle, 'value')) return handle.value;
+      return handle;
     });
+
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({ capabilities: [] });
     await sb.init();
 
-    const res = await sb.execute('1');
-    expect(res.success).toBe(true);
-    expect(res.data).toBeUndefined();
+    const result = await sb.execute('1');
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBeUndefined();
 
     sb.dispose();
   });
 
-  it('executeAsync converts pending jobs errors into a failed result', async () => {
-    const pendingError = { dispose: vi.fn() };
-    const { quickjs, runtime, vm } = createFakeQuickJS();
-    runtime.executePendingJobs.mockReturnValueOnce({ value: 1, error: pendingError });
-    vm.dump.mockImplementation((handle) => (handle === pendingError ? 'PendingBoom' : 'Boom'));
-
-    vi.doMock(
-      'quickjs-emscripten',
-      () => ({
-        getQuickJS: vi.fn(async () => quickjs),
-      }),
-      { virtual: true }
-    );
-
-    const { WasmSandbox } = await import('../../../../js/agents/core/sandbox/wasm-sandbox.js');
-
-    const sb = new WasmSandbox({
-      capabilities: [],
-      limits: { memoryLimit: 128, timeoutMs: 250, maxStackDepth: 1 },
+  it('handles thrown eval errors', async () => {
+    const quickjsMock = createQuickJsMock();
+    quickjsMock.vm.evalCode.mockImplementation(() => {
+      throw new Error('kaboom');
     });
+
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({ capabilities: [] });
     await sb.init();
 
-    const res = await sb.executeAsync('return Promise.resolve(1);');
-    expect(res.success).toBe(false);
-    expect(res.error).toBe('PendingBoom');
+    const result = await sb.execute('1');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('kaboom');
+    expect(result.metrics.memoryUsed).toBe(0);
+
+    sb.dispose();
+  });
+
+  it('supports concurrent and rapid consecutive execute calls', async () => {
+    const quickjsMock = createQuickJsMock();
+    quickjsMock.vm.evalCode.mockImplementation((code) => {
+      const text = String(code);
+      let value = 0;
+      if (text.includes('1+1')) value = 2;
+      if (text.includes('2+2')) value = 4;
+      if (text.includes('3+3')) value = 6;
+      if (text.includes('4+4')) value = 8;
+      return { error: null, value: createHandle(value) };
+    });
+
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({ capabilities: [] });
+    await sb.init();
+
+    const [first, second] = await Promise.all([
+      sb.execute('1+1'),
+      sb.execute('2+2'),
+    ]);
+
+    expect(first.data).toBe(2);
+    expect(second.data).toBe(4);
+
+    const third = await sb.execute('3+3');
+    const fourth = await sb.execute('4+4');
+
+    expect(third.data).toBe(6);
+    expect(fourth.data).toBe(8);
+
+    sb.dispose();
+  });
+
+  it('executeAsync flushes pending jobs and surfaces pending errors', async () => {
+    const pendingError = createHandle('PendingBoom');
+    const quickjsMock = createQuickJsMock();
+    quickjsMock.runtime.executePendingJobs
+      .mockReturnValueOnce({ value: 1, error: pendingError })
+      .mockReturnValueOnce({ value: 0, error: null });
+
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({ capabilities: [] });
+    await sb.init();
+
+    const result = await sb.executeAsync('return Promise.resolve(1);');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('PendingBoom');
     expect(pendingError.dispose).toHaveBeenCalledTimes(1);
 
     sb.dispose();
   });
 
-  it('recycle resets vm/runtime for reuse and returns false when already disposed', async () => {
-    const { quickjs, vm, runtime } = createFakeQuickJS();
+  it('executeAsync stops after pending jobs drain', async () => {
+    const quickjsMock = createQuickJsMock();
+    quickjsMock.runtime.executePendingJobs
+      .mockReturnValueOnce({ value: 1, error: null })
+      .mockReturnValueOnce({ value: 0, error: null });
 
-    vi.doMock(
-      'quickjs-emscripten',
-      () => ({
-        getQuickJS: vi.fn(async () => quickjs),
-      }),
-      { virtual: true }
-    );
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
 
-    const { WasmSandbox } = await import('../../../../js/agents/core/sandbox/wasm-sandbox.js');
-
-    const sb = new WasmSandbox({
-      capabilities: [],
-      limits: { memoryLimit: 128, timeoutMs: 250, maxStackDepth: 1 },
-    });
+    const sb = new WasmSandbox({ capabilities: [] });
     await sb.init();
 
-    expect(sb.recycle({ state: { next: true } })).toBe(true);
-    expect(vm.dispose).toHaveBeenCalledTimes(1);
-    expect(runtime.dispose).toHaveBeenCalledTimes(1);
+    const result = await sb.executeAsync('return Promise.resolve(1);');
+
+    expect(result.success).toBe(true);
+    expect(quickjsMock.runtime.executePendingJobs).toHaveBeenCalled();
+
+    sb.dispose();
+  });
+
+  it('recycle resets vm/runtime and applies option overrides', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const onLog = vi.fn();
+    const onEmit = vi.fn();
+    const sb = new WasmSandbox({ capabilities: [] });
+    await sb.init();
+
+    const recycled = sb.recycle({
+      state: { next: true },
+      onLog,
+      onEmit,
+      limits: { timeoutMs: 10 },
+    });
+
+    expect(recycled).toBe(true);
+    expect(sb.state).toEqual({ next: true });
+    expect(sb.onLog).toBe(onLog);
+    expect(sb.onEmit).toBe(onEmit);
+    expect(sb.limits.timeoutMs).toBe(10);
+    expect(quickjsMock.vm.dispose).toHaveBeenCalledTimes(1);
+    expect(quickjsMock.runtime.dispose).toHaveBeenCalledTimes(1);
+    expect(sb._initialized).toBe(false);
 
     sb.dispose();
     expect(sb.recycle()).toBe(false);
+  });
+
+  it('updateState syncs state when initialized and skips on serialization failure', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({ capabilities: [SandboxCapability.STATE] });
+    await sb.init();
+
+    quickjsMock.vm.evalCode.mockClear();
+
+    sb.updateState({ count: 0, label: 'ok' });
+
+    expect(sb.state.count).toBe(0);
+    expect(sb.state.label).toBe('ok');
+    expect(quickjsMock.vm.evalCode.mock.calls[0][0]).toContain('globalThis.state');
+
+    const circular = {};
+    circular.self = circular;
+
+    quickjsMock.vm.evalCode.mockClear();
+    sb.updateState({ circular });
+
+    expect(quickjsMock.vm.evalCode).not.toHaveBeenCalled();
+
+    sb.dispose();
+  });
+
+  it('getMemoryUsage returns null without a runtime and returns usage when available', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const fresh = new WasmSandbox({ capabilities: [] });
+    expect(fresh.getMemoryUsage()).toBeNull();
+
+    const sb = new WasmSandbox({ capabilities: [] });
+    await sb.init();
+
+    const usage = sb.getMemoryUsage();
+    expect(usage).toEqual({ malloc_size: 99 });
+
+    sb.dispose();
+  });
+
+  it('dispose releases runtime and vm safely', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({ capabilities: [] });
+    await sb.init();
+
+    sb.dispose();
+
+    expect(quickjsMock.vm.dispose).toHaveBeenCalledTimes(1);
+    expect(quickjsMock.runtime.dispose).toHaveBeenCalledTimes(1);
+    expect(sb._disposed).toBe(true);
+    expect(sb._initialized).toBe(false);
+
+    sb.dispose();
+    expect(quickjsMock.vm.dispose).toHaveBeenCalledTimes(1);
+    expect(quickjsMock.runtime.dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createSandbox', () => {
+  it('creates and initializes a sandbox instance', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { createSandbox, WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = await createSandbox({
+      capabilities: [SandboxCapability.CONSOLE],
+      limits: { memoryLimit: 512, timeoutMs: 10, maxStackDepth: 2 },
+    });
+
+    expect(sb).toBeInstanceOf(WasmSandbox);
+    expect(sb._initialized).toBe(true);
+    expect(quickjsMock.runtime.setMemoryLimit).toHaveBeenCalledWith(512);
+
+    sb.dispose();
+  });
+
+  it('propagates initialization errors from WasmSandbox', async () => {
+    const emscriptenImpl = vi.fn(async () => {
+      throw new Error('no quickjs');
+    });
+    const coreImpl = vi.fn(async () => {
+      throw new Error('no quickjs core');
+    });
+
+    const { createSandbox } = await loadWasmSandbox({ emscriptenImpl, coreImpl });
+
+    await expect(createSandbox({ capabilities: [] })).rejects.toThrow(/quickjs-emscripten/i);
   });
 });

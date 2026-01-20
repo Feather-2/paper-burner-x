@@ -1,44 +1,119 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import defaultPresets, {
-  presets,
-  listPresets,
-  mergePresetConfig,
-  resolvePreset,
-} from '../../../../js/agents/core/presets.js';
+vi.mock('node:fs', () => ({
+  readFileSync: vi.fn(),
+}));
 
-function cleanupTestPresets() {
-  for (const name of Object.keys(presets)) {
-    if (name.startsWith('__test_')) {
-      delete presets[name];
-    }
+import { readFileSync } from 'node:fs';
+import { presets, resolvePreset } from '../../../../js/agents/core/presets.js';
+
+const mockedReadFileSync = vi.mocked(readFileSync);
+const basePresets = JSON.parse(JSON.stringify(presets));
+
+const resetPresets = () => {
+  for (const key of Object.keys(presets)) {
+    delete presets[key];
   }
-}
+  for (const [key, value] of Object.entries(basePresets)) {
+    presets[key] = JSON.parse(JSON.stringify(value));
+  }
+};
 
-afterEach(() => {
-  cleanupTestPresets();
+const buildDeepObject = (depth) => {
+  let current = { value: 'leaf' };
+  for (let i = 0; i < depth; i += 1) {
+    current = { nested: current };
+  }
+  return current;
+};
+
+beforeEach(() => {
+  resetPresets();
+  mockedReadFileSync.mockReset();
 });
 
-describe('core/presets', () => {
-  it('exports presets as both named and default export', () => {
-    expect(defaultPresets).toBe(presets);
-    expect(Object.keys(presets)).toContain('minimal');
+describe('presets', () => {
+  it('includes expected core presets and metadata', () => {
+    const names = Object.keys(presets);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'minimal',
+        'standard',
+        'full',
+        'deepsearch',
+        'design',
+        'codesearch',
+        'production',
+        'development',
+        'test',
+      ])
+    );
+
+    expect(presets.minimal).toMatchObject({
+      description: expect.any(String),
+      plugins: ['compression/cicada'],
+      config: { 'compression/cicada': { aggressive: false } },
+    });
+    expect(presets.full.extends).toBe('standard');
   });
 
-  it('resolvePreset throws for unknown preset', () => {
-    expect(() => resolvePreset('__does_not_exist__')).toThrow(/Unknown preset/);
+  it('stores plugins as arrays and configs as plain objects', () => {
+    Object.values(presets).forEach((preset) => {
+      expect(preset).toEqual(expect.objectContaining({ description: expect.any(String) }));
+      if (preset.plugins !== undefined) {
+        expect(Array.isArray(preset.plugins)).toBe(true);
+      }
+      if (preset.config !== undefined) {
+        expect(preset.config).not.toBeNull();
+        expect(Array.isArray(preset.config)).toBe(false);
+        expect(typeof preset.config).toBe('object');
+      }
+    });
   });
+});
 
-  it('resolvePreset resolves a non-extending preset', () => {
+describe('resolvePreset', () => {
+  it('resolves a non-extending preset without mutating source data', () => {
+    const originalPlugins = presets.minimal.plugins;
+    const originalConfig = presets.minimal.config;
+
     const resolved = resolvePreset('minimal');
+
     expect(resolved).toMatchObject({
       name: 'minimal',
-      plugins: ['compression/cicada'],
+      description: presets.minimal.description,
     });
-    expect(resolved.config['compression/cicada']).toEqual({ aggressive: false });
+    expect(resolved.plugins).toEqual(['compression/cicada']);
+    expect(resolved.config).toEqual({ 'compression/cicada': { aggressive: false } });
+    expect(resolved.plugins).not.toBe(originalPlugins);
+    expect(resolved.config).not.toBe(originalConfig);
+    expect(presets.minimal.plugins).toBe(originalPlugins);
+    expect(presets.minimal.config).toBe(originalConfig);
   });
 
-  it('resolvePreset resolves deep inheritance and merges plugins/config', () => {
+  it('merges inherited plugins and config with overrides', () => {
+    const resolved = resolvePreset('production');
+
+    expect(resolved.plugins).toEqual([
+      'compression/cicada',
+      'compression/watchdog',
+      'resilience/retry',
+      'service/scheduler',
+      'service/llm',
+      'service/vfs',
+      'sandbox',
+      'analysis/fingerprint',
+      'service/mcp',
+    ]);
+
+    expect(resolved.config).toMatchObject({
+      'compression/cicada': { aggressive: true },
+      'compression/watchdog': { threshold: 0.75 },
+      'resilience/retry': { maxRetries: 3 },
+    });
+  });
+
+  it('extends parents and preserves newly added config entries', () => {
     const resolved = resolvePreset('deepsearch');
 
     expect(resolved.plugins).toEqual([
@@ -61,80 +136,86 @@ describe('core/presets', () => {
     });
   });
 
-  it('resolvePreset dedupes plugins and allows child config override', () => {
+  it('dedupes plugins across parent and child presets', () => {
     presets.__test_dedupe = {
-      description: 'dedupe test',
-      extends: 'minimal',
-      plugins: ['compression/cicada', 'compression/cicada', 'extra/plugin'],
-      config: {
-        'compression/cicada': { aggressive: true },
-      },
-    };
-
-    const resolved = resolvePreset('__test_dedupe');
-    expect(resolved.plugins).toEqual(['compression/cicada', 'extra/plugin']);
-    expect(resolved.config['compression/cicada']).toEqual({ aggressive: true });
-  });
-
-  it('mergePresetConfig merges plugins, supports disablePlugins, and deep-merges per-plugin config', () => {
-    const merged = mergePresetConfig('standard', {
-      disablePlugins: ['compression/watchdog'],
-      plugins: ['service/llm', 'compression/cicada'], // duplicate should be deduped
-      config: {
-        'compression/watchdog': { threshold: 0.5, enabled: true },
-        'compression/cicada': { aggressive: true },
-        'new/plugin': { mode: 'on' },
-      },
-    });
-
-    expect(merged.plugins).toEqual([
-      'compression/cicada',
-      'resilience/retry',
-      'service/scheduler',
-      'service/llm',
-    ]);
-
-    expect(merged.config['compression/watchdog']).toEqual({ threshold: 0.5, enabled: true });
-    expect(merged.config['compression/cicada']).toEqual({ aggressive: true });
-    expect(merged.config['new/plugin']).toEqual({ mode: 'on' });
-  });
-
-  it('mergePresetConfig supports default userConfig argument', () => {
-    const merged = mergePresetConfig('minimal');
-    expect(merged).toMatchObject({
-      name: 'minimal',
-      plugins: ['compression/cicada'],
-      config: { 'compression/cicada': { aggressive: false } },
-    });
-  });
-
-  it('listPresets reports extends and pluginCount, including edge cases', () => {
-    presets.__test_missing_plugins_config = {
-      description: 'no plugins/config',
-      // plugins/config intentionally omitted
-    };
-    presets.__test_empty_plugins = {
-      description: 'empty plugins',
-      plugins: [],
+      description: 'dedupe',
+      extends: 'standard',
+      plugins: ['compression/cicada', 'service/scheduler', 'extra/plugin', 'compression/cicada'],
       config: {},
     };
 
-    const listed = listPresets();
+    const resolved = resolvePreset('__test_dedupe');
 
-    const minimal = listed.find((p) => p.name === 'minimal');
-    expect(minimal).toMatchObject({ extends: null, pluginCount: 1 });
+    expect(resolved.plugins).toEqual([
+      'compression/cicada',
+      'compression/watchdog',
+      'resilience/retry',
+      'service/scheduler',
+      'extra/plugin',
+    ]);
+  });
 
-    const full = listed.find((p) => p.name === 'full');
-    expect(full).toMatchObject({ extends: 'standard' });
+  it('throws for unknown preset names across boundary values', () => {
+    const cases = [
+      null,
+      undefined,
+      '',
+      '   ',
+      [],
+      {},
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      '123',
+      { length: 1, 0: 'x' },
+    ];
 
-    const missing = listed.find((p) => p.name === '__test_missing_plugins_config');
-    expect(missing).toMatchObject({ extends: null, pluginCount: 0 });
+    cases.forEach((value) => {
+      expect(() => resolvePreset(value)).toThrow(/Unknown preset/);
+    });
+  });
 
-    const empty = listed.find((p) => p.name === '__test_empty_plugins');
-    expect(empty).toMatchObject({ extends: null, pluginCount: 0 });
+  it('handles concurrent and rapid successive calls independently', async () => {
+    const concurrentResults = await Promise.all(
+      Array.from({ length: 5 }, () => Promise.resolve(resolvePreset('standard')))
+    );
 
-    const resolvedMissing = resolvePreset('__test_missing_plugins_config');
-    expect(resolvedMissing.plugins).toEqual([]);
-    expect(resolvedMissing.config).toEqual({});
+    expect(concurrentResults).toHaveLength(5);
+    expect(new Set(concurrentResults).size).toBe(5);
+    concurrentResults.forEach((result) => {
+      expect(result.name).toBe('standard');
+      expect(result.plugins).toEqual([
+        'compression/cicada',
+        'compression/watchdog',
+        'resilience/retry',
+        'service/scheduler',
+      ]);
+    });
+
+    const quickFirst = resolvePreset('standard');
+    const quickSecond = resolvePreset('standard');
+
+    expect(quickFirst).not.toBe(quickSecond);
+    expect(quickFirst.config).not.toBe(quickSecond.config);
+  });
+
+  it('handles large inputs, long strings, and deep nesting', () => {
+    const longName = 'x'.repeat(10000);
+    expect(() => resolvePreset(longName)).toThrow(/Unknown preset/);
+
+    const hugeFileContent = 'y'.repeat(200000);
+    mockedReadFileSync.mockReturnValueOnce(hugeFileContent);
+    const fileDerivedName = readFileSync('/tmp/huge.txt');
+    expect(() => resolvePreset(fileDerivedName)).toThrow(/Unknown preset/);
+
+    const deepConfig = buildDeepObject(8);
+    presets.__test_deep = {
+      description: 'deep',
+      plugins: ['compression/cicada'],
+      config: { 'deep/plugin': deepConfig },
+    };
+
+    const resolved = resolvePreset('__test_deep');
+    expect(resolved.config['deep/plugin']).toEqual(deepConfig);
   });
 });

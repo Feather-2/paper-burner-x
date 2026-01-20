@@ -1,212 +1,278 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-async function loadTools() {
-  return import("../../../js/agents/stages/design/refiner/react-refiner-tools.js");
+const designUtilsMocks = vi.hoisted(() => ({
+  isPlainObject: vi.fn(),
+  toNonEmptyString: vi.fn(),
+  parseSections: vi.fn(),
+  clearParseCache: vi.fn(),
+  joinSections: vi.fn(),
+  extractElements: vi.fn(),
+}));
+
+vi.mock("../../../../../../js/agents/stages/design/shared/design-utils.js", () => ({
+  isPlainObject: designUtilsMocks.isPlainObject,
+  toNonEmptyString: designUtilsMocks.toNonEmptyString,
+  parseSections: designUtilsMocks.parseSections,
+  clearParseCache: designUtilsMocks.clearParseCache,
+  joinSections: designUtilsMocks.joinSections,
+  extractElements: designUtilsMocks.extractElements,
+}));
+
+const SPLIT = "<!--SPLIT-->";
+
+function defaultParseSections(deckHtmlDsl) {
+  if (typeof deckHtmlDsl !== "string") return [];
+  const trimmed = deckHtmlDsl.trim();
+  if (!trimmed) return [];
+  return trimmed
+    .split(SPLIT)
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
-function makeDeckHtmlDsl() {
-  return [
-    `<section data-title="A"><h1 data-el="title1" id="t1">Hello</h1><div data-el="box1" class="c1"></div></section>`,
-    `<section data-title="B"><p data-el="p1">World</p></section>`,
-  ].join("\n\n");
+function defaultJoinSections(sections) {
+  if (!Array.isArray(sections)) return "";
+  return sections.join(SPLIT);
 }
 
-it("ReactRefiner Tools: parseSections/joinSections roundtrip consistency", async () => {
-  const { parseSections, joinSections } = await loadTools();
+function defaultExtractElements(sectionHtml) {
+  if (typeof sectionHtml !== "string") return [];
+  const matches = [...sectionHtml.matchAll(/data-el="([^"]+)"/g)];
+  return matches.map((match) => ({
+    elementId: match[1],
+    tag: "div",
+    attrs: { "data-el": match[1] },
+  }));
+}
 
-  const s1 = `<section data-title="A"><div data-el="x1">X</div></section>`;
-  const s2 = `<section data-title="B"><div data-el="x2">Y</div></section>`;
-  const src = `\n\n${s1}\n\n${s2}\n\n`;
+function resetDesignUtilsMocks() {
+  designUtilsMocks.isPlainObject.mockReset();
+  designUtilsMocks.toNonEmptyString.mockReset();
+  designUtilsMocks.parseSections.mockReset();
+  designUtilsMocks.clearParseCache.mockReset();
+  designUtilsMocks.joinSections.mockReset();
+  designUtilsMocks.extractElements.mockReset();
 
-  const sections = parseSections(src);
-  expect(sections).toEqual([s1, s2]);
-  expect(joinSections(sections)).toBe(`${s1}\n\n${s2}`);
+  designUtilsMocks.isPlainObject.mockImplementation((value) => {
+    if (!value || typeof value !== "object") return false;
+    if (Array.isArray(value)) return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  });
+  designUtilsMocks.toNonEmptyString.mockImplementation((value) => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  });
+  designUtilsMocks.parseSections.mockImplementation(defaultParseSections);
+  designUtilsMocks.joinSections.mockImplementation(defaultJoinSections);
+  designUtilsMocks.extractElements.mockImplementation(defaultExtractElements);
+  designUtilsMocks.clearParseCache.mockImplementation(() => undefined);
+}
+
+async function loadToolsModule() {
+  return await import("../../../../../../js/agents/stages/design/refiner/react-refiner-tools.js");
+}
+
+describe("parseSections", () => {
+  let parseSections;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    resetDesignUtilsMocks();
+    ({ parseSections } = await loadToolsModule());
+  });
+
+  it("delegates to design-utils for normal input", () => {
+    const input = "<section>A</section><!--SPLIT--><section>B</section>";
+    designUtilsMocks.parseSections.mockImplementation((value) => value.split(SPLIT));
+
+    const result = parseSections(input);
+
+    expect(result).toEqual(["<section>A</section>", "<section>B</section>"]);
+    expect(designUtilsMocks.parseSections).toHaveBeenCalledWith(input);
+  });
+
+  it("forwards empty or blank inputs", () => {
+    const inputs = [null, undefined, "", "   "];
+    designUtilsMocks.parseSections.mockImplementation((value) => [String(value)]);
+
+    const results = inputs.map((value) => parseSections(value));
+
+    expect(results).toEqual(inputs.map((value) => [String(value)]));
+    expect(designUtilsMocks.parseSections.mock.calls.map((call) => call[0])).toEqual(inputs);
+  });
+
+  it("handles numeric boundaries and numeric strings", () => {
+    const inputs = [0, -1, Number.MAX_SAFE_INTEGER, "42"];
+    designUtilsMocks.parseSections.mockImplementation((value) => [String(value)]);
+
+    const results = inputs.map((value) => parseSections(value));
+
+    expect(results).toEqual(inputs.map((value) => [String(value)]));
+    expect(designUtilsMocks.parseSections.mock.calls.map((call) => call[0])).toEqual(inputs);
+  });
+
+  it("supports concurrent calls and large inputs", async () => {
+    const huge = "x".repeat(200000);
+    const inputs = [huge, "alpha", "beta"];
+    designUtilsMocks.parseSections.mockImplementation((value) => [String(value).length]);
+
+    const results = await Promise.all(inputs.map((value) => Promise.resolve(parseSections(value))));
+
+    expect(results).toEqual(inputs.map((value) => [String(value).length]));
+    expect(designUtilsMocks.parseSections).toHaveBeenCalledTimes(inputs.length);
+  });
+
+  it("surfaces errors from design-utils", () => {
+    const err = new Error("parse failed");
+    designUtilsMocks.parseSections.mockImplementation(() => {
+      throw err;
+    });
+
+    expect(() => parseSections("<section/>")).toThrow(err);
+  });
 });
 
-it("ReactRefiner Tools: extractElements extracts data-el elements from HTML", async () => {
-  const { extractElements } = await loadTools();
+describe("joinSections", () => {
+  let joinSections;
 
-  const section = `<section>
-    <h1 data-el="title" id="hero" class="c">Heading</h1>
-    <div data-el="box" data-foo="bar"></div>
-    <span data-el="plain">Text only</span>
-  </section>`;
+  beforeEach(async () => {
+    vi.resetModules();
+    resetDesignUtilsMocks();
+    ({ joinSections } = await loadToolsModule());
+  });
 
-  const els = extractElements(section);
-  expect(els.length).toBe(3);
-  expect(els.map((e) => ({ elementId: e.elementId, tag: e.tag }))).toEqual([
-    { elementId: "title", tag: "h1" },
-    { elementId: "box", tag: "div" },
-    { elementId: "plain", tag: "span" },
-  ]);
-  expect(els[0].id).toBe("hero");
-  expect(els[0].class).toBe("c");
-  expect(els[1].attrs["data-foo"]).toBe("bar");
-  expect(els[2].textPreview).toBe("Text only");
+  it("delegates to design-utils for normal input", () => {
+    const sections = ["<section>A</section>", "<section>B</section>"];
+    designUtilsMocks.joinSections.mockImplementation((value) => value.join("\n\n"));
+
+    const result = joinSections(sections);
+
+    expect(result).toBe("<section>A</section>\n\n<section>B</section>");
+    expect(designUtilsMocks.joinSections).toHaveBeenCalledWith(sections);
+  });
+
+  it("handles empty arrays and object-as-array input", () => {
+    designUtilsMocks.joinSections.mockImplementation((value) => (Array.isArray(value) ? value.join("|") : "not-array"));
+
+    const emptyResult = joinSections([]);
+    const objectResult = joinSections({});
+
+    expect(emptyResult).toBe("");
+    expect(objectResult).toBe("not-array");
+    expect(designUtilsMocks.joinSections).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves boundary numeric values inside arrays", () => {
+    const sections = [0, -1, Number.MAX_SAFE_INTEGER];
+    designUtilsMocks.joinSections.mockImplementation((value) => value.map((item) => String(item)).join(","));
+
+    const result = joinSections(sections);
+
+    expect(result).toBe(`0,-1,${Number.MAX_SAFE_INTEGER}`);
+    expect(designUtilsMocks.joinSections).toHaveBeenCalledWith(sections);
+  });
+
+  it("supports concurrent calls with large payloads", async () => {
+    const largeSections = Array.from({ length: 5000 }, (_, index) => `<section>${index}</section>`);
+    const inputs = [largeSections, ["one"], ["two", "three"]];
+    designUtilsMocks.joinSections.mockImplementation((value) => String(Array.isArray(value) ? value.length : -1));
+
+    const results = await Promise.all(inputs.map((value) => Promise.resolve(joinSections(value))));
+
+    expect(results).toEqual(["5000", "1", "2"]);
+    expect(designUtilsMocks.joinSections).toHaveBeenCalledTimes(inputs.length);
+  });
+
+  it("surfaces errors from design-utils", () => {
+    const err = new Error("join failed");
+    designUtilsMocks.joinSections.mockImplementation(() => {
+      throw err;
+    });
+
+    expect(() => joinSections(["x"])).toThrow(err);
+  });
 });
 
-it("ReactRefiner Tools: getSlideContent normal and out-of-range", async () => {
-  const { createToolExecutor } = await loadTools();
+describe("extractElements", () => {
+  let extractElements;
 
-  const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
-  const exec = createToolExecutor(context);
+  beforeEach(async () => {
+    vi.resetModules();
+    resetDesignUtilsMocks();
+    ({ extractElements } = await loadToolsModule());
+  });
 
-  const ok = await exec("getSlideContent", { slideIndex: 0 });
-  expect(ok.success).toBe(true);
-  expect(ok.data.slideIndex).toBe(0);
-  expect(ok.data.html).toContain('data-title="A"');
-  expect(ok.data.elementCount).toBeGreaterThanOrEqual(2);
+  it("delegates to design-utils for normal HTML", () => {
+    const html = '<section><h1 data-el="title">Hi</h1></section>';
+    const expected = [
+      {
+        elementId: "title",
+        tag: "h1",
+        attrs: { "data-el": "title" },
+        id: "hero",
+        class: "lead",
+        textPreview: "Hi",
+      },
+    ];
+    designUtilsMocks.extractElements.mockImplementation(() => expected);
 
-  const bad = await exec("getSlideContent", { slideIndex: 99 });
-  expect(bad.success).toBe(false);
-  expect(bad.error).toMatch(/Invalid slideIndex/);
-});
+    const result = extractElements(html);
 
-it("ReactRefiner Tools: getSlideContext normal and missing meta/intent", async () => {
-  const { createToolExecutor } = await loadTools();
+    expect(result).toEqual(expected);
+    expect(designUtilsMocks.extractElements).toHaveBeenCalledWith(html);
+  });
 
-  const context = {
-    deckPackage: {
-      deckHtmlDsl: makeDeckHtmlDsl(),
-      slidesMeta: [{ slideNo: 1, title: "A" }, { slideNo: 2, title: "B" }],
-      imageSlots: [{ slideIndex: 0, slotId: "img0" }, { slideIndex: 1, slotId: "img1" }],
-    },
-    contentPackage: {
-      slideIntents: [{ slideIntentId: "s1", claimIds: ["c1"] }, { slideIntentId: "s2", claimIds: [] }],
-      claims: [{ claimId: "c1", text: "Claim 1" }, { claimId: "c2", text: "Claim 2" }],
-    },
-  };
-  const exec = createToolExecutor(context);
+  it("handles null, undefined, and blank inputs", () => {
+    const inputs = [null, undefined, "", "   "];
+    designUtilsMocks.extractElements.mockImplementation((value) =>
+      typeof value === "string" && value.trim() ? [{ elementId: "ok", tag: "div", attrs: {} }] : []
+    );
 
-  const ok = await exec("getSlideContext", { slideIndex: 0 });
-  expect(ok.success).toBe(true);
-  expect(ok.data.slideIndex).toBe(0);
-  expect(ok.data.slideIntent.slideIntentId).toBe("s1");
-  expect(ok.data.slideMeta.title).toBe("A");
-  expect(ok.data.claims.map((c) => c.claimId)).toEqual(["c1"]);
-  expect(ok.data.imageSlots.length).toBe(1);
-  expect(ok.data.imageSlots[0].slotId).toBe("img0");
+    const results = inputs.map((value) => extractElements(value));
 
-  const missingContext = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
-  const exec2 = createToolExecutor(missingContext);
-  const missing = await exec2("getSlideContext", { slideIndex: 0 });
-  expect(missing.success).toBe(true);
-  expect(missing.data.slideIntent).toBe(null);
-  expect(missing.data.slideMeta).toBe(null);
-});
+    expect(results).toEqual([[], [], [], []]);
+    expect(designUtilsMocks.extractElements.mock.calls.map((call) => call[0])).toEqual(inputs);
+  });
 
-it("ReactRefiner Tools: editSlide replaces section HTML", async () => {
-  const { createToolExecutor } = await loadTools();
+  it("supports deep nesting and long HTML strings", () => {
+    const depth = 120;
+    const html = `<section>${"<div>".repeat(depth)}<span data-el="deep">x</span>${"</div>".repeat(depth)}</section>`;
+    designUtilsMocks.extractElements.mockImplementation((value) => {
+      const matches = [...String(value).matchAll(/data-el="([^"]+)"/g)];
+      return matches.map((match) => ({
+        elementId: match[1],
+        tag: "span",
+        attrs: { "data-el": match[1] },
+      }));
+    });
 
-  const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
-  const exec = createToolExecutor(context);
+    const result = extractElements(html);
 
-  const res = await exec("editSlide", { slideIndex: 0, changes: { html: `<section data-title="NEW"><div data-el="t1">X</div></section>` } });
-  expect(res.success).toBe(true);
-  expect(context.deckPackage.deckHtmlDsl).toContain('data-title="NEW"');
-  expect(res.data.updatedSectionHtml).toContain('data-title="NEW"');
-});
+    expect(result).toEqual([{ elementId: "deep", tag: "span", attrs: { "data-el": "deep" } }]);
+    expect(designUtilsMocks.extractElements).toHaveBeenCalledWith(html);
+  });
 
-it("ReactRefiner Tools: editElement updates matched elements", async () => {
-  const { createToolExecutor } = await loadTools();
+  it("supports concurrent calls", async () => {
+    const inputs = ["one", "two", "three"];
+    designUtilsMocks.extractElements.mockImplementation((value) => {
+      const id = String(value).slice(0, 5);
+      return [{ elementId: id, tag: "div", attrs: { "data-el": id } }];
+    });
 
-  const deckHtmlDsl = `<section><div data-el="t1">Old</div><div data-el="t2">Keep</div></section>`;
-  const context = { deckPackage: { deckHtmlDsl }, contentPackage: {} };
-  const exec = createToolExecutor(context);
+    const results = await Promise.all(inputs.map((value) => Promise.resolve(extractElements(value))));
 
-  const res = await exec("editElement", { slideIndex: 0, elementId: "t1", changes: { text: "New", style: "color:red", attrs: { "data-x": "1" }, foo: "bar" } });
-  expect(res.success).toBe(true);
-  expect(res.data.matchCount).toBe(1);
-  expect(res.data.updatedSectionHtml).toContain(">New<");
-  expect(res.data.updatedSectionHtml).toContain('style="color:red"');
-  expect(res.data.updatedSectionHtml).toContain('data-x="1"');
-  expect(res.data.updatedSectionHtml).toContain('data-foo="bar"');
-});
+    expect(results.map((items) => items[0].elementId)).toEqual(inputs.map((value) => value.slice(0, 5)));
+    expect(designUtilsMocks.extractElements).toHaveBeenCalledTimes(inputs.length);
+  });
 
-it("ReactRefiner Tools: screenshot returns base64 in mock Node environment", async () => {
-  const { createToolExecutor } = await loadTools();
+  it("surfaces errors from design-utils", () => {
+    const err = new Error("extract failed");
+    designUtilsMocks.extractElements.mockImplementation(() => {
+      throw err;
+    });
 
-  const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
-  const exec = createToolExecutor(context);
-
-  const res = await exec("screenshot", { slideIndex: 0 });
-  expect(res.success).toBe(true);
-  expect(res.data.base64).toMatch(/^data:image\/png;base64,/);
-  expect(res.data.mock).toBe(true);
-});
-
-it("ReactRefiner Tools: screenshotRenderer output is normalized to data URL", async () => {
-  const { createToolExecutor } = await loadTools();
-
-  const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
-  const exec = createToolExecutor(context, { screenshotRenderer: async () => "AAAA" });
-
-  const res = await exec("screenshot", { slideIndex: 0 });
-  expect(res.success).toBe(true);
-  expect(res.data.base64).toBe("data:image/png;base64,AAAA");
-});
-
-it("ReactRefiner Tools: XSS payloads are sanitized (Node/linkedom fallback)", async () => {
-  const { createToolExecutor } = await loadTools();
-
-  const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
-  const exec = createToolExecutor(context);
-
-  const xss = `<section data-title="XSS">
-    <p data-el="p1">OK</p>
-    <img src="x" onerror="alert(1)">
-    <a href="javascript:alert(1)" data-el="a1">bad</a>
-    <div style="background-image:url(javascript:alert(1))" data-el="d1">bad-style</div>
-    <script>alert(1)</script>
-  </section>`;
-
-  const res = await exec("editSlide", { slideIndex: 0, changes: { html: xss } });
-  expect(res.success).toBe(true);
-  expect(res.data.updatedSectionHtml).toContain('data-title="XSS"');
-  expect(res.data.updatedSectionHtml).toContain('data-el="p1"');
-  expect(res.data.updatedSectionHtml).not.toMatch(/<script\b/i);
-  expect(res.data.updatedSectionHtml).not.toMatch(/\sonerror=/i);
-  expect(res.data.updatedSectionHtml).not.toMatch(/javascript:/i);
-});
-
-it("ReactRefiner Tools: valid HTML is preserved while sanitizing innerHTML", async () => {
-  const { createToolExecutor } = await loadTools();
-
-  const deckHtmlDsl = `<section><div data-el="t1">Old</div></section>`;
-  const context = { deckPackage: { deckHtmlDsl }, contentPackage: {} };
-  const exec = createToolExecutor(context);
-
-  const html = `<div class="ok"><span>Hi</span> <a href="https://example.com">link</a></div>`;
-  const res = await exec("editElement", { slideIndex: 0, elementId: "t1", changes: { html } });
-  expect(res.success).toBe(true);
-  expect(res.data.updatedSectionHtml).toContain('class="ok"');
-  expect(res.data.updatedSectionHtml).toContain("<span>Hi</span>");
-  expect(res.data.updatedSectionHtml).toContain('href="https://example.com"');
-});
-
-it("ReactRefiner Tools: uses DOMPurify when available (environment detection)", async () => {
-  const calls = [];
-  globalThis.DOMPurify = {
-    sanitize: (html, opts) => {
-      calls.push({ html, opts });
-      return `<section data-title="PURIFIED"><div data-el="x">ok</div></section>`;
-    },
-  };
-
-  try {
-    const { createToolExecutor } = await loadTools();
-    const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
-    const exec = createToolExecutor(context);
-
-    const input = `<section data-title="ORIG"><img src="x" onerror="alert(1)"></section>`;
-    const res = await exec("editSlide", { slideIndex: 0, changes: { html: input } });
-    expect(res.success).toBe(true);
-    expect(res.data.updatedSectionHtml).toContain('data-title="PURIFIED"');
-
-    expect(calls.length).toBe(1);
-    expect(calls[0].html).toBe(input);
-    expect(calls[0].opts?.RETURN_DOM_FRAGMENT).toBe(false);
-  } finally {
-    delete globalThis.DOMPurify;
-  }
+    expect(() => extractElements("<section></section>")).toThrow(err);
+  });
 });

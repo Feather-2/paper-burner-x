@@ -1,5 +1,5 @@
-
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { webcrypto } from 'node:crypto';
 
 import {
   cryptoRandomHex,
@@ -8,157 +8,268 @@ import {
   makeSecureTimestampedId,
 } from '../../../../../js/agents/shared/utils/secure-id.js';
 
-describe("shared/utils/secure-id", () => {
-  describe("cryptoRandomHex", () => {
-    it("generates 32-char hex by default (16 bytes)", () => {
+vi.mock('node:crypto', () => ({
+  webcrypto: {
+    getRandomValues: vi.fn(),
+    randomUUID: vi.fn(),
+  },
+}));
+
+const HEX_REGEX = /^[0-9a-f]+$/;
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+beforeEach(() => {
+  vi.useRealTimers();
+  vi.clearAllMocks();
+
+  let byteCounter = 0;
+  let uuidCounter = 0;
+
+  webcrypto.getRandomValues = vi.fn((buf) => {
+    for (let i = 0; i < buf.length; i += 1) {
+      buf[i] = (byteCounter + i) % 256;
+    }
+    byteCounter += buf.length;
+    return buf;
+  });
+
+  webcrypto.randomUUID = vi.fn(() => {
+    uuidCounter += 1;
+    return `00000000-0000-4000-8000-${uuidCounter.toString(16).padStart(12, '0')}`;
+  });
+
+  vi.stubGlobal('crypto', webcrypto);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+describe('shared/utils/secure-id', () => {
+  describe('cryptoRandomHex', () => {
+    it('returns lower-case hex for the default length', () => {
       const hex = cryptoRandomHex();
-      expect(hex.length).toBe(32);
-      expect(hex).toMatch(/^[0-9a-f]+$/);
+
+      expect(hex).toHaveLength(32);
+      expect(hex).toMatch(HEX_REGEX);
+      expect(webcrypto.getRandomValues).toHaveBeenCalledTimes(1);
+      const [buf] = webcrypto.getRandomValues.mock.calls[0];
+      expect(buf).toBeInstanceOf(Uint8Array);
+      expect(buf.length).toBe(16);
     });
 
-    it("generates hex of specified byte length", () => {
-      const hex = cryptoRandomHex(8);
-      expect(hex.length).toBe(16);
+    it.each([
+      ['zero', 0],
+      ['negative', -1],
+    ])('clamps byte length for %s inputs', (_label, input) => {
+      const hex = cryptoRandomHex(input);
+
+      expect(hex).toHaveLength(2);
+      expect(hex).toMatch(HEX_REGEX);
     });
 
-    it("generates different values each call", () => {
-      const hex1 = cryptoRandomHex();
-      const hex2 = cryptoRandomHex();
-      expect(hex1).not.toBe(hex2);
+    it.each([
+      ['null', null],
+      ['undefined', undefined],
+      ['empty string', ''],
+      ['whitespace string', '   '],
+      ['numeric string', '8'],
+      ['empty array', []],
+      ['empty object', {}],
+      ['array-like object', { 0: 'x', length: 1 }],
+      ['deep nested', [[[[[]]]]]],
+    ])('falls back to default length for %s', (_label, input) => {
+      const hex = cryptoRandomHex(input);
+
+      expect(hex).toHaveLength(32);
+      expect(hex).toMatch(HEX_REGEX);
     });
 
-    it("handles non-number bytes", () => {
-      const hex = cryptoRandomHex("invalid");
-      // Falls back to 16 bytes
-      expect(hex.length).toBe(32);
+    it('handles large byte counts for resource-boundary inputs', () => {
+      const size = 1024 * 1024;
+      webcrypto.getRandomValues = vi.fn((buf) => {
+        buf.fill(0xab);
+        return buf;
+      });
+      vi.stubGlobal('crypto', webcrypto);
+
+      const hex = cryptoRandomHex(size);
+
+      expect(hex.length).toBe(size * 2);
+      expect(hex.slice(0, 4)).toBe('abab');
+      expect(hex.slice(-4)).toBe('abab');
     });
 
-    it("handles zero bytes (minimum 1)", () => {
-      const hex = cryptoRandomHex(0);
-      expect(hex.length).toBe(2);
+    it('throws when globalThis.crypto is unavailable', () => {
+      vi.stubGlobal('crypto', undefined);
+
+      expect(() => cryptoRandomHex()).toThrow(
+        'secure-id: globalThis.crypto is unavailable in this environment',
+      );
     });
 
-    it("handles negative bytes", () => {
-      const hex = cryptoRandomHex(-5);
-      expect(hex.length).toBe(2);
-    });
+    it('throws when crypto.getRandomValues is unavailable', () => {
+      vi.stubGlobal('crypto', { randomUUID: webcrypto.randomUUID });
 
-    it("handles large byte count", () => {
-      const hex = cryptoRandomHex(64);
-      expect(hex.length).toBe(128);
+      expect(() => cryptoRandomHex()).toThrow(
+        'secure-id: crypto.getRandomValues is unavailable in this environment',
+      );
     });
   });
 
-  describe("cryptoRandomUuid", () => {
-    it("generates valid UUID format", () => {
+  describe('cryptoRandomUuid', () => {
+    it('uses crypto.randomUUID when available', () => {
+      webcrypto.randomUUID = vi.fn(() => 'mock-uuid');
+      vi.stubGlobal('crypto', webcrypto);
+
       const uuid = cryptoRandomUuid();
-      // UUID v4 format: xxxxxxxx-xxxx-4xxx-axxx-xxxxxxxxxxxx
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      expect(uuid).toMatch(uuidRegex);
+
+      expect(uuid).toBe('mock-uuid');
+      expect(webcrypto.randomUUID).toHaveBeenCalledTimes(1);
+      expect(webcrypto.getRandomValues).not.toHaveBeenCalled();
     });
 
-    it("generates different UUIDs each call", () => {
-      const uuid1 = cryptoRandomUuid();
-      const uuid2 = cryptoRandomUuid();
-      expect(uuid1).not.toBe(uuid2);
-    });
+    it('falls back to v4-ish format when randomUUID is unavailable', () => {
+      webcrypto.randomUUID = undefined;
+      webcrypto.getRandomValues = vi.fn((buf) => {
+        buf.fill(0);
+        return buf;
+      });
+      vi.stubGlobal('crypto', webcrypto);
 
-    it("generates 36-character string", () => {
       const uuid = cryptoRandomUuid();
-      expect(uuid.length).toBe(36);
+
+      expect(uuid).toBe('00000000-0000-4000-a000-000000000000');
+      expect(uuid).toMatch(UUID_V4_REGEX);
+      expect(webcrypto.getRandomValues).toHaveBeenCalledTimes(1);
+      const [buf] = webcrypto.getRandomValues.mock.calls[0];
+      expect(buf.length).toBe(16);
+    });
+
+    it('throws when globalThis.crypto is unavailable', () => {
+      vi.stubGlobal('crypto', undefined);
+
+      expect(() => cryptoRandomUuid()).toThrow(
+        'secure-id: globalThis.crypto is unavailable in this environment',
+      );
     });
   });
 
-  describe("makeSecureId", () => {
-    it("generates id with default prefix", () => {
-      const id = makeSecureId();
-      expect(id).toMatch(/^id_/);
+  describe('makeSecureId', () => {
+    it('uses trimmed prefix with the random UUID', () => {
+      webcrypto.randomUUID = vi.fn(() => 'mock-uuid');
+      vi.stubGlobal('crypto', webcrypto);
+
+      const id = makeSecureId('  session  ');
+
+      expect(id).toBe('session_mock-uuid');
     });
 
-    it("generates id with custom prefix", () => {
-      const id = makeSecureId("session");
-      expect(id).toMatch(/^session_/);
+    it.each([
+      ['null', null],
+      ['empty string', ''],
+      ['whitespace string', '   '],
+      ['empty array', []],
+      ['empty object', {}],
+      ['array-like object', { 0: 'x', length: 1 }],
+      ['max safe int', Number.MAX_SAFE_INTEGER],
+      ['deep nested', [[[[{}]]]]],
+    ])('uses default prefix for %s', (_label, input) => {
+      const id = makeSecureId(input);
+
+      expect(id.startsWith('id_')).toBe(true);
     });
 
-    it("trims whitespace from prefix", () => {
-      const id = makeSecureId("  user  ");
-      expect(id).toMatch(/^user_/);
+    it('handles very long prefix strings', () => {
+      const prefix = 'x'.repeat(10_000);
+      webcrypto.randomUUID = vi.fn(() => 'mock-uuid');
+      vi.stubGlobal('crypto', webcrypto);
+
+      const id = makeSecureId(prefix);
+
+      expect(id.startsWith(`${prefix}_`)).toBe(true);
+      expect(id.length).toBe(prefix.length + 1 + 'mock-uuid'.length);
     });
 
-    it("uses default prefix for empty string", () => {
-      const id = makeSecureId("");
-      expect(id).toMatch(/^id_/);
+    it('handles simultaneous calls without collisions', async () => {
+      let counter = 0;
+      webcrypto.randomUUID = vi.fn(() => {
+        counter += 1;
+        return `00000000-0000-4000-8000-${counter.toString(16).padStart(12, '0')}`;
+      });
+      vi.stubGlobal('crypto', webcrypto);
+
+      const results = await Promise.all(
+        Array.from({ length: 10 }, () => Promise.resolve().then(() => makeSecureId('job'))),
+      );
+
+      expect(new Set(results).size).toBe(results.length);
+      for (const id of results) {
+        expect(id.startsWith('job_')).toBe(true);
+      }
     });
 
-    it("uses default prefix for non-string", () => {
-      const id = makeSecureId(123);
-      expect(id).toMatch(/^id_/);
-    });
+    it('throws when globalThis.crypto is unavailable', () => {
+      vi.stubGlobal('crypto', undefined);
 
-    it("generates different ids each call", () => {
-      const id1 = makeSecureId("test");
-      const id2 = makeSecureId("test");
-      expect(id1).not.toBe(id2);
-    });
-
-    it("includes uuid after prefix", () => {
-      const id = makeSecureId("agent");
-      const uuidPart = id.slice("agent_".length);
-      // Should be UUID format
-      expect(uuidPart.length).toBe(36);
+      expect(() => makeSecureId('job')).toThrow(
+        'secure-id: globalThis.crypto is unavailable in this environment',
+      );
     });
   });
 
-  describe("makeSecureTimestampedId", () => {
-    it("generates id with default prefix", () => {
-      const id = makeSecureTimestampedId();
-      expect(id).toMatch(/^id_/);
+  describe('makeSecureTimestampedId', () => {
+    it('includes prefix, base36 timestamp, and random hex', () => {
+      const fixedTime = new Date('2024-01-02T03:04:05.000Z');
+      vi.useFakeTimers();
+      vi.setSystemTime(fixedTime);
+      webcrypto.getRandomValues = vi.fn((buf) => {
+        buf.fill(0xaa);
+        return buf;
+      });
+      vi.stubGlobal('crypto', webcrypto);
+
+      const id = makeSecureTimestampedId('run');
+      const expectedTimestamp = fixedTime.getTime().toString(36);
+
+      expect(id).toBe(`run_${expectedTimestamp}_${'aa'.repeat(8)}`);
     });
 
-    it("generates id with custom prefix", () => {
-      const id = makeSecureTimestampedId("run");
-      expect(id).toMatch(/^run_/);
+    it.each([
+      ['undefined', undefined],
+      ['whitespace string', '   '],
+    ])('uses the default prefix for %s', (_label, input) => {
+      const id = makeSecureTimestampedId(input);
+
+      expect(id.startsWith('id_')).toBe(true);
     });
 
-    it("trims whitespace from prefix", () => {
-      const id = makeSecureTimestampedId("  task  ");
-      expect(id).toMatch(/^task_/);
+    it('handles rapid sequential calls within the same millisecond', () => {
+      const fixedTime = new Date('2024-01-02T03:04:05.000Z');
+      vi.useFakeTimers();
+      vi.setSystemTime(fixedTime);
+      let seed = 1;
+      webcrypto.getRandomValues = vi.fn((buf) => {
+        buf.fill(seed);
+        seed = (seed + 1) % 256;
+        return buf;
+      });
+      vi.stubGlobal('crypto', webcrypto);
+
+      const ids = Array.from({ length: 5 }, () => makeSecureTimestampedId('seq'));
+      const timestamps = ids.map((id) => id.split('_')[1]);
+
+      expect(new Set(timestamps).size).toBe(1);
+      expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it("uses default prefix for empty string", () => {
-      const id = makeSecureTimestampedId("");
-      expect(id).toMatch(/^id_/);
-    });
+    it('throws when crypto.getRandomValues is unavailable', () => {
+      vi.stubGlobal('crypto', { randomUUID: webcrypto.randomUUID });
 
-    it("includes timestamp component", () => {
-      const before = Date.now();
-      const id = makeSecureTimestampedId("event");
-      const after = Date.now();
-
-      // Extract timestamp part (after prefix, before second underscore)
-      const parts = id.split("_");
-      expect(parts[0]).toBe("event");
-      expect(parts.length).toBeGreaterThanOrEqual(3);
-
-      // Timestamp is base36 encoded
-      const timestamp = parseInt(parts[1], 36);
-      expect(timestamp).toBeGreaterThanOrEqual(before);
-      expect(timestamp).toBeLessThanOrEqual(after);
-    });
-
-    it("includes random hex suffix", () => {
-      const id = makeSecureTimestampedId("test");
-      const parts = id.split("_");
-      const randomPart = parts[2];
-      // 8 bytes = 16 hex chars
-      expect(randomPart.length).toBe(16);
-      expect(randomPart).toMatch(/^[0-9a-f]+$/);
-    });
-
-    it("generates different ids each call", () => {
-      const id1 = makeSecureTimestampedId("test");
-      const id2 = makeSecureTimestampedId("test");
-      expect(id1).not.toBe(id2);
+      expect(() => makeSecureTimestampedId('oops')).toThrow(
+        'secure-id: crypto.getRandomValues is unavailable in this environment',
+      );
     });
   });
 });

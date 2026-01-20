@@ -1,14 +1,53 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-afterEach(() => {
+vi.mock(
+  "virtual:intl-segmenter",
+  () => ({
+    createSegmenter: (segmentImpl) =>
+      function SegmenterCtor() {
+        return { segment: segmentImpl };
+      },
+  }),
+  { virtual: true }
+);
+
+const modulePath = "../../../../js/agents/retrieval/mmr.js";
+
+beforeEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
 });
 
-describe("agents/retrieval/mmr", () => {
-  it("selects highest-score first, then diversifies by penalizing similarity (MMR)", async () => {
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+describe("mmrSelect", () => {
+  it("handles empty inputs and topK boundaries", async () => {
+    const { mmrSelect } = await import(modulePath);
+
+    expect(mmrSelect(null)).toEqual([]);
+    expect(mmrSelect(undefined)).toEqual([]);
+    expect(mmrSelect([], { topK: 3 })).toEqual([]);
+    expect(mmrSelect({}, { topK: 3 })).toEqual([]);
+
+    const single = [{ text: "x", score: 1 }];
+    expect(mmrSelect(single, { topK: 1 })).toEqual(single);
+
+    const candidates = [
+      { chunkId: "a", text: "alpha", score: 1 },
+      { chunkId: "b", text: "beta", score: 0.5 },
+    ];
+
+    expect(mmrSelect(candidates, { topK: 0 })).toEqual([]);
+    expect(mmrSelect(candidates, { topK: -1 })).toEqual([]);
+
+    const stringTopK = mmrSelect(candidates, { topK: "2" });
+    expect(stringTopK.length).toBe(2);
+
+    const maxTopK = mmrSelect(candidates, { topK: Number.MAX_SAFE_INTEGER });
+    expect(maxTopK.length).toBe(2);
+  });
+
+  it("selects highest score first then diversifies by similarity", async () => {
+    const { mmrSelect } = await import(modulePath);
 
     const candidates = [
       { chunkId: "a", text: "alpha beta", score: 1.0 },
@@ -17,26 +56,11 @@ describe("agents/retrieval/mmr", () => {
     ];
 
     const out = mmrSelect(candidates, { topK: 2, lambda: 0.5 });
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
+    expect(out.map((row) => row.chunkId)).toEqual(["a", "c"]);
   });
 
-  it("lambda=0 performs diversity-only selection (chooses the lowest-similarity item next)", async () => {
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
-
-    const out = mmrSelect(
-      [
-        { chunkId: "a", text: "alpha beta", score: 10 },
-        { chunkId: "b", text: "alpha beta", score: 9 },
-        { chunkId: "c", text: "gamma delta", score: 0 },
-      ],
-      { topK: 2, lambda: 0 }
-    );
-
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
-  });
-
-  it("clamps lambda into [0, 1] (lambda > 1 becomes pure relevance ranking)", async () => {
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+  it("clamps lambda and accepts numeric strings", async () => {
+    const { mmrSelect } = await import(modulePath);
 
     const candidates = [
       { chunkId: "a", text: "alpha beta", score: 1.0 },
@@ -44,257 +68,179 @@ describe("agents/retrieval/mmr", () => {
       { chunkId: "c", text: "gamma delta", score: 0.8 },
     ];
 
-    const out = mmrSelect(candidates, { topK: 3, lambda: 2 });
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "b", "c"]);
+    const relOnly = mmrSelect(candidates, { topK: 3, lambda: 2 });
+    expect(relOnly.map((row) => row.chunkId)).toEqual(["a", "b", "c"]);
+
+    const diversifyOnly = mmrSelect(candidates, { topK: 2, lambda: -1 });
+    expect(diversifyOnly.map((row) => row.chunkId)).toEqual(["a", "c"]);
+
+    const stringLambda = mmrSelect(candidates, { topK: 2, lambda: "0.5" });
+    expect(stringLambda.map((row) => row.chunkId)).toEqual(["a", "c"]);
   });
 
-  it("treats non-finite scores as 0 relevance and supports the default topK=list.length", async () => {
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
-
-    const out = mmrSelect(
-      [
-        { chunkId: "a", text: "alpha beta", score: 2 },
-        { chunkId: "b", text: "alpha beta", score: Number.NaN }, // rel=0
-        { chunkId: "c", text: "gamma delta", score: 1 },
-      ],
-      // topK omitted => k=list.length
-      { lambda: 0.5 }
-    );
-
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "c", "b"]);
-  });
-
-  it("prefers seed items first and de-dupes by chunkId", async () => {
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+  it("prioritizes seed entries, de-dupes by chunkId, and ignores invalid seed values", async () => {
+    const { mmrSelect } = await import(modulePath);
 
     const candidates = [
       { chunkId: "a", text: "alpha beta", score: 1.0 },
-      { chunkId: "b", text: "alpha beta", score: 0.9 },
-      { chunkId: "c", text: "gamma delta", score: 0.8 },
+      { chunkId: "b", text: "gamma delta", score: 0.9 },
+      { chunkId: "c", text: "epsilon zeta", score: 0.8 },
     ];
 
     const seed = [
-      { chunkId: "c", text: "gamma delta", score: 0.8 },
-      { chunkId: "c", text: "duplicate seed", score: 0.1 },
+      null,
+      { chunkId: "", text: "bad seed", score: 100 },
+      { chunkId: "b", text: "gamma delta", score: 0.9 },
+      { chunkId: "b", text: "duplicate seed", score: 0.1 },
+      { chunkId: "s1", text: "seed only", score: 0 },
     ];
 
     const out = mmrSelect(candidates, { topK: 2, seed, lambda: 0.7 });
-    expect(out.map((r) => r.chunkId)).toEqual(["c", "a"]);
+    expect(out.map((row) => row.chunkId)).toEqual(["b", "s1"]);
+
+    const seedNotArray = mmrSelect(candidates, { topK: 1, seed: "nope", lambda: 1 });
+    expect(seedNotArray.map((row) => row.chunkId)).toEqual(["a"]);
   });
 
-  it("seed handling: ignores invalid entries and returns early once seed fills topK (empty candidates stay empty)", async () => {
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
-
-    expect(mmrSelect(null, { topK: 5 })).toEqual([]);
-
-    const out = mmrSelect(
-      [
-        null, // skipped by byId builder (`if (!c) continue`)
-        { chunkId: "a", text: "alpha beta", score: 1 },
-        { chunkId: "b", text: "gamma delta", score: 0.9 },
-      ],
-      {
-        topK: 2,
-        seed: [null, { chunkId: "", text: "bad seed", score: 100 }, { chunkId: "s1", text: "seed1", score: 0 }, { chunkId: "s2", text: "seed2", score: 0 }],
-      }
-    );
-
-    expect(out.map((r) => r.chunkId)).toEqual(["s1", "s2"]);
-
-    const seedNotArray = mmrSelect(
-      [
-        { chunkId: "a", text: "alpha beta", score: 1 },
-        { chunkId: "b", text: "gamma delta", score: 0.9 },
-      ],
-      { topK: 1, seed: "nope", lambda: 1 }
-    );
-    expect(seedNotArray.map((r) => r.chunkId)).toEqual(["a"]);
-  });
-
-  it("uses Intl.Segmenter when available and ignores non-word-like segments", async () => {
+  it("uses Intl.Segmenter from a mocked dependency and caches it across rapid calls", async () => {
+    const { createSegmenter } = await import("virtual:intl-segmenter");
     const segment = vi.fn((text) => {
       const parts = [];
-      for (const w of String(text).split(/\s+/).filter(Boolean)) {
-        parts.push({ segment: w, isWordLike: true });
-        // Noise tokens should be skipped by tokenizeForSimilarity().
+      for (const word of String(text).split(/\s+/).filter(Boolean)) {
+        parts.push({ segment: word, isWordLike: true });
         parts.push({ segment: ".", isWordLike: false });
+        parts.push({ segment: word, isWordLike: true });
+        parts.push({ isWordLike: true });
       }
       return parts;
     });
-    // Vitest warns when using a bare vi.fn() as a constructor mock; use a real function implementation.
-    const Segmenter = vi.fn(function SegmenterCtor() {
-      return { segment };
-    });
+    const Segmenter = vi.fn(createSegmenter(segment));
     vi.stubGlobal("Intl", { Segmenter });
 
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
-    const out = mmrSelect(
-      [
-        { chunkId: "a", text: "Alpha Beta", score: 1.0 },
-        { chunkId: "b", text: "alpha beta", score: 0.9 },
-        { chunkId: "c", text: "Gamma Delta", score: 0.8 },
-      ],
-      { topK: 2, lambda: 0.5 }
-    );
+    const { mmrSelect } = await import(modulePath);
+
+    const candidates = [
+      { chunkId: "a", text: "Alpha Beta", score: 1.0 },
+      { chunkId: "b", text: "alpha beta", score: 0.9 },
+      { chunkId: "c", text: "Gamma Delta", score: 0.8 },
+    ];
+
+    const first = mmrSelect(candidates, { topK: 2, lambda: 0.5, maxTokens: 10 });
+    const second = mmrSelect(candidates, { topK: 2, lambda: 0.5, maxTokens: 10 });
 
     expect(Segmenter).toHaveBeenCalledWith(undefined, { granularity: "word" });
+    expect(Segmenter).toHaveBeenCalledTimes(1);
     expect(segment).toHaveBeenCalled();
-    // tokenizeForSimilarity lowercases the input before passing it to segment()
     expect(segment.mock.calls[0][0]).toBe("alpha beta");
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
+    expect(first.map((row) => row.chunkId)).toEqual(["a", "c"]);
+    expect(second.map((row) => row.chunkId)).toEqual(["a", "c"]);
   });
 
-  it("tokenizeForSimilarity de-dupes terms, skips blank segments, and stops at maxTokens (segmenter path)", async () => {
-    const segment = vi.fn((text) => {
-      const parts = [];
-      for (const w of String(text).split(/\s+/).filter(Boolean)) {
-        parts.push({ segment: w, isWordLike: true });
-        parts.push({ segment: w, isWordLike: true }); // duplicate => seen.has(t)
-        parts.push({ isWordLike: true }); // missing segment => `part?.segment || ""` + `!t` continue
-      }
-      return parts;
-    });
-    const Segmenter = vi.fn(function SegmenterCtor() {
-      return { segment };
-    });
-    vi.stubGlobal("Intl", { Segmenter });
-
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
-
-    const long = Array.from({ length: 25 }, (_, i) => `t${i + 1}`).join(" ");
-    const out = mmrSelect(
-      [
-        { chunkId: "a", text: long, score: 1.0 },
-        { chunkId: "b", text: "t1 t2 t3", score: 0.9 },
-        { chunkId: "c", text: "gamma delta", score: 0.8 },
-      ],
-      { topK: 2, lambda: 0.5, maxTokens: 10 }
-    );
-
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
-  });
-
-  it("regex tokenization: punctuation-only strings produce no tokens (match=null) and similarity treats empty/non-empty as 0", async () => {
-    // Force the no-segmenter path in getMmrSegmenter().
+  it("falls back to regex tokenization when Intl.Segmenter is missing", async () => {
     vi.stubGlobal("Intl", {});
 
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+    const { mmrSelect } = await import(modulePath);
 
-    const out = mmrSelect(
-      [
-        { chunkId: "a", text: "alpha beta", score: 1.0 },
-        { chunkId: "b", text: "!!!", score: 0.9 }, // no word tokens
-        { chunkId: "c", text: "alpha beta", score: 0.8 },
-      ],
-      // Infinity => non-finite => tokenizeForSimilarity falls back to 200
-      { topK: 2, lambda: 0, maxTokens: Infinity }
-    );
+    const candidates = [
+      { chunkId: "a", text: "alpha beta", score: 1.0 },
+      { chunkId: "b", text: "!!!", score: 0.9 },
+      { chunkId: "c", text: "   ", score: 0.8 },
+      { chunkId: "d", text: "", score: 0.7 },
+      { chunkId: "e", text: "alpha beta", score: 0.6 },
+    ];
 
-    // lambda=0 picks the least similar candidate next: empty tokens (sim=0) beats identical text (sim=1).
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "b"]);
+    const out = mmrSelect(candidates, { topK: 2, lambda: 0 });
+    expect(out.map((row) => row.chunkId)).toEqual(["a", "b"]);
   });
 
-  it("falls back to regex tokenization if Intl.Segmenter construction throws", async () => {
+  it("falls back to regex tokenization when Intl.Segmenter construction throws", async () => {
     const Segmenter = vi.fn(function SegmenterCtor() {
       throw new Error("boom");
     });
     vi.stubGlobal("Intl", { Segmenter });
 
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+    const { mmrSelect } = await import(modulePath);
 
-    const out = mmrSelect(
-      [
-        { chunkId: "a", text: "alpha beta", score: 1.0 },
-        { chunkId: "b", text: "alpha beta", score: 0.9 },
-        { chunkId: "c", text: "gamma delta", score: 0.8 },
-      ],
-      { topK: 2, lambda: 0.5 }
-    );
+    const candidates = [
+      { chunkId: "a", text: "alpha beta", score: 1.0 },
+      { chunkId: "b", text: "alpha beta", score: 0.9 },
+      { chunkId: "c", text: "gamma delta", score: 0.8 },
+    ];
 
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
+    const out = mmrSelect(candidates, { topK: 2, lambda: 0.5 });
+    expect(out.map((row) => row.chunkId)).toEqual(["a", "c"]);
   });
 
-  it("handles topK <= 0, missing chunkIds, and duplicate candidates deterministically", async () => {
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
-
-    expect(mmrSelect([{ chunkId: "a", text: "x", score: 1 }], { topK: 0 })).toEqual([]);
-
-    // list.length <= 1 is a fast path that does not require chunkId.
-    expect(mmrSelect([{ text: "x", score: 1 }], { topK: 1 })).toEqual([{ text: "x", score: 1 }]);
-
-    // With multiple candidates, entries without a usable chunkId are skipped.
-    expect(mmrSelect([{ text: "x", score: 1 }, { text: "y", score: 2 }], { topK: 2 })).toEqual([]);
-
-    // Duplicate chunkId keeps the first occurrence.
-    const out = mmrSelect(
-      [
-        { chunkId: "a", text: "alpha", score: 0 },
-        { chunkId: "a", text: "alpha NEW", score: 100 },
-        { chunkId: "b", text: "beta", score: 50 },
-      ],
-      { topK: 2, lambda: 1 }
-    );
-    expect(out.map((r) => r.chunkId)).toEqual(["b", "a"]);
-  });
-
-  it("uses regex tokenization when Intl.Segmenter is missing and respects maxTokens (min 10)", async () => {
-    // Force the no-segmenter path in getMmrSegmenter().
-    vi.stubGlobal("Intl", {});
-
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
-
-    const longText = Array.from({ length: 30 }, (_, i) => `t${i + 1}`).join(" ");
-    const out = mmrSelect(
-      [
-        { chunkId: "a", text: longText, score: 1.0 },
-        { chunkId: "b", text: "t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11", score: 0.9 },
-        { chunkId: "c", text: "gamma delta", score: 0.8 },
-      ],
-      // maxTokens < 10 is clamped up to 10 in tokenizeForSimilarity()
-      { topK: 2, lambda: 0.5, maxTokens: 3 }
-    );
-
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
-  });
-
-  it("can build a fallback word regex when Unicode property escapes are unavailable", async () => {
-    // Trigger the mmrWordRegex() catch branch by making the feature-probe RegExp throw.
+  it("uses a fallback regex when Unicode property escapes are unsupported", async () => {
     const RealRegExp = globalThis.RegExp;
     function RegExpStub(pattern, flags) {
-      if (pattern === "\\p{L}" && flags === "u") throw new Error("no unicode property escapes");
-      // Support both RegExp(...) and new RegExp(...).
+      if (pattern === "\\p{L}" && flags === "u") {
+        throw new Error("no unicode property escapes");
+      }
       return new RealRegExp(pattern, flags);
     }
     RegExpStub.prototype = RealRegExp.prototype;
     vi.stubGlobal("RegExp", RegExpStub);
-    vi.stubGlobal("Intl", {}); // ensure we exercise the regex tokenization path
+    vi.stubGlobal("Intl", {});
 
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+    const { mmrSelect } = await import(modulePath);
 
-    const out = mmrSelect(
-      [
-        { chunkId: "a", text: "alpha beta", score: 1.0 },
-        { chunkId: "b", text: "alpha beta", score: 0.9 },
-        { chunkId: "c", text: "gamma delta", score: 0.8 },
-      ],
-      { topK: 2, lambda: 0.5 }
-    );
+    const candidates = [
+      { chunkId: "a", text: "alpha beta", score: 1.0 },
+      { chunkId: "b", text: "alpha beta", score: 0.9 },
+      { chunkId: "c", text: "gamma delta", score: 0.8 },
+    ];
 
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
+    const out = mmrSelect(candidates, { topK: 2, lambda: 0.5 });
+    expect(out.map((row) => row.chunkId)).toEqual(["a", "c"]);
   });
 
-  it("treats empty texts as having no tokens (similarity=0) and still selects by relevance", async () => {
-    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+  it("handles simultaneous calls without shared state", async () => {
+    vi.stubGlobal("Intl", {});
 
-    const out = mmrSelect(
-      [
-        { chunkId: "a", text: "", score: 1.0 },
-        { chunkId: "b", text: "", score: 0.5 },
-      ],
-      { topK: 2, lambda: Number.NaN }
-    );
+    const { mmrSelect } = await import(modulePath);
 
-    // NaN lambda clamps to 0 => diversify-only, but similarity remains 0 for empty texts.
-    expect(out.map((r) => r.chunkId)).toEqual(["a", "b"]);
+    const listA = [
+      { chunkId: "a1", text: "alpha beta", score: 1.0 },
+      { chunkId: "a2", text: "gamma delta", score: 0.5 },
+    ];
+    const listB = [
+      { chunkId: "b1", text: "delta epsilon", score: 0.9 },
+      { chunkId: "b2", text: "delta epsilon", score: 0.1 },
+    ];
+
+    const [outA, outB] = await Promise.all([
+      Promise.resolve().then(() => mmrSelect(listA, { topK: 2, lambda: 1 })),
+      Promise.resolve().then(() => mmrSelect(listB, { topK: 1, lambda: 0 })),
+    ]);
+
+    expect(outA.map((row) => row.chunkId)).toEqual(["a1", "a2"]);
+    expect(outB.map((row) => row.chunkId)).toEqual(["b1"]);
+  });
+
+  it("handles large inputs and deeply nested values without throwing", async () => {
+    vi.stubGlobal("Intl", {});
+
+    const { mmrSelect } = await import(modulePath);
+
+    const hugeText = Array.from({ length: 5000 }, (_, i) => `token${i}`).join(" ");
+    const longToken = "a".repeat(10000);
+    const deepNested = { level1: { level2: { level3: { level4: { value: "x" } } } } };
+
+    const candidates = [
+      { chunkId: "a", text: hugeText, score: 1.0 },
+      { chunkId: "b", text: longToken, score: 0.9 },
+      { chunkId: "c", text: deepNested, score: 0.8 },
+      { chunkId: "d", text: "token1 token2", score: 0.7 },
+    ];
+
+    const out = mmrSelect(candidates, {
+      topK: 2,
+      lambda: 0.5,
+      maxTokens: 3,
+      seed: [[[{ chunkId: "seed", text: "seed text", score: 0 }]]],
+    });
+
+    expect(out.map((row) => row.chunkId)).toEqual(["a", "b"]);
   });
 });

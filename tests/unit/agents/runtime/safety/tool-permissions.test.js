@@ -1,268 +1,414 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+vi.mock('../../../../../js/agents/runtime/safety/tool-restrictions.js', async () => {
+  const actual = await vi.importActual(
+    '../../../../../js/agents/runtime/safety/tool-restrictions.js',
+  );
+  return {
+    ...actual,
+    normalizeToolRestrictions: vi.fn(actual.normalizeToolRestrictions),
+    evaluateToolRestrictions: vi.fn(actual.evaluateToolRestrictions),
+  };
+});
 
-import {
-  ToolPermissions,
+vi.mock('../../../../../js/agents/shared/index.js', async () => {
+  const actual = await vi.importActual('../../../../../js/agents/shared/index.js');
+  return {
+    ...actual,
+    toNonEmptyString: vi.fn(actual.toNonEmptyString),
+    isPlainObject: vi.fn(actual.isPlainObject),
+  };
+});
+
+import ToolPermissions, {
   PermissionLevel,
   getPresetRestrictions,
   mergeRestrictions,
 } from '../../../../../js/agents/runtime/safety/tool-permissions.js';
+import {
+  normalizeToolRestrictions,
+  evaluateToolRestrictions,
+} from '../../../../../js/agents/runtime/safety/tool-restrictions.js';
+import { toNonEmptyString, isPlainObject } from '../../../../../js/agents/shared/index.js';
 
-describe("runtime/safety/tool-permissions", () => {
-  describe("PermissionLevel enum", () => {
-    it("exports all expected levels", () => {
-      expect(PermissionLevel.READONLY).toBe("readonly");
-      expect(PermissionLevel.STANDARD).toBe("standard");
-      expect(PermissionLevel.ELEVATED).toBe("elevated");
-      expect(PermissionLevel.CUSTOM).toBe("custom");
+beforeEach(async () => {
+  vi.clearAllMocks();
+  const actualToolRestrictions = await vi.importActual(
+    '../../../../../js/agents/runtime/safety/tool-restrictions.js',
+  );
+  const actualShared = await vi.importActual('../../../../../js/agents/shared/index.js');
+
+  normalizeToolRestrictions.mockImplementation(
+    actualToolRestrictions.normalizeToolRestrictions,
+  );
+  evaluateToolRestrictions.mockImplementation(
+    actualToolRestrictions.evaluateToolRestrictions,
+  );
+  toNonEmptyString.mockImplementation(actualShared.toNonEmptyString);
+  isPlainObject.mockImplementation(actualShared.isPlainObject);
+});
+
+describe('PermissionLevel', () => {
+  it('exposes expected string values', () => {
+    expect(PermissionLevel).toEqual({
+      READONLY: 'readonly',
+      STANDARD: 'standard',
+      ELEVATED: 'elevated',
+      CUSTOM: 'custom',
+    });
+  });
+});
+
+describe('getPresetRestrictions', () => {
+  it('returns readonly restrictions for readonly aliases', () => {
+    const restrictions = getPresetRestrictions('READ-ONLY');
+
+    expect(restrictions).not.toBeNull();
+    expect(restrictions.blockedTools).toContain('write');
+    expect(restrictions.bash.allowedCommands).toContain('ls');
+    expect(restrictions.bash.toolNames).toEqual(['bash', 'shell', 'exec']);
+  });
+
+  it('returns standard restrictions for standard/default aliases', () => {
+    const restrictions = getPresetRestrictions('default');
+
+    expect(restrictions.bash.blockedCommands).toContain('rm -rf /');
+    expect(restrictions.bash.toolNames).toEqual(['bash', 'shell', 'exec']);
+  });
+
+  it('returns elevated restrictions for elevated/admin aliases', () => {
+    const restrictions = getPresetRestrictions('ADMIN');
+
+    expect(restrictions.bash.blockedCommands).toContain('mkfs.*');
+    expect(restrictions.bash.toolNames).toEqual(['bash', 'shell', 'exec']);
+  });
+
+  it('returns null for custom/none levels', () => {
+    expect(getPresetRestrictions('custom')).toBeNull();
+    expect(getPresetRestrictions('none')).toBeNull();
+  });
+
+  it('defaults to standard for empty, invalid, or numeric-like inputs', () => {
+    const standard = getPresetRestrictions('standard');
+    const longLevel = 'x'.repeat(5000);
+    const cases = [
+      null,
+      undefined,
+      '',
+      '   \n\t',
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      '0',
+      {},
+      [],
+      'unknown',
+      longLevel,
+    ];
+
+    for (const value of cases) {
+      expect(getPresetRestrictions(value)).toEqual(standard);
+    }
+  });
+});
+
+describe('mergeRestrictions', () => {
+  it('returns null when inputs normalize to empty', () => {
+    expect(mergeRestrictions(null, undefined)).toBeNull();
+    expect(mergeRestrictions({}, {})).toBeNull();
+    expect(mergeRestrictions([], [])).toBeNull();
+  });
+
+  it('merges allowedTools and blockedTools lists', () => {
+    const merged = mergeRestrictions(
+      { allowedTools: ['read'], blockedTools: ['write'] },
+      { allowedTools: ['glob'], blockedTools: ['delete'] },
+    );
+
+    expect(merged.allowedTools).toEqual(['read', 'glob']);
+    expect(merged.blockedTools).toEqual(['write', 'delete']);
+  });
+
+  it('overrides allowedCommands when override provides a non-empty list', () => {
+    const merged = mergeRestrictions(
+      { bash: { allowedCommands: ['ls'], blockedCommands: ['rm'] } },
+      { bash: { allowedCommands: ['pwd'] } },
+    );
+
+    expect(merged.bash.allowedCommands).toEqual(['pwd']);
+    expect(merged.bash.blockedCommands).toEqual(['rm']);
+  });
+
+  it('keeps base allowedCommands when override omits them', () => {
+    const merged = mergeRestrictions(
+      { bash: { allowedCommands: ['ls'] } },
+      { bash: { blockedCommands: ['rm'] } },
+    );
+
+    expect(merged.bash.allowedCommands).toEqual(['ls']);
+    expect(merged.bash.blockedCommands).toEqual(['rm']);
+  });
+
+  it('merges and de-duplicates bash toolNames', () => {
+    const merged = mergeRestrictions(
+      { bash: { blockedCommands: ['rm'], toolNames: ['bash', 'shell'] } },
+      { bash: { toolNames: ['exec', 'bash'] } },
+    );
+
+    expect(merged.bash.toolNames).toEqual(['bash', 'shell', 'exec']);
+  });
+
+  it('defaults bash toolNames to bash when commands are present', () => {
+    const merged = mergeRestrictions({ bash: { allowedCommands: ['ls'] } }, null);
+
+    expect(merged.bash.toolNames).toEqual(['bash']);
+  });
+
+  it('normalizes string lists for allowedTools', () => {
+    const merged = mergeRestrictions({ allowedTools: 'read, write' }, null);
+
+    expect(merged.allowedTools).toEqual(['read', 'write']);
+  });
+
+  it('handles large restriction lists without dropping entries', () => {
+    const list = Array.from({ length: 2000 }, (_, i) => `tool-${i}`);
+    const merged = mergeRestrictions(
+      { allowedTools: list.slice(0, 1000) },
+      { allowedTools: list.slice(1000) },
+    );
+
+    expect(merged.allowedTools.length).toBe(2000);
+    expect(merged.allowedTools[0]).toBe('tool-0');
+    expect(merged.allowedTools[1999]).toBe('tool-1999');
+  });
+});
+
+describe('ToolPermissions', () => {
+  describe('static factories', () => {
+    it('creates expected levels', () => {
+      expect(ToolPermissions.readonly().getLevel()).toBe('readonly');
+      expect(ToolPermissions.standard().getLevel()).toBe('standard');
+      expect(ToolPermissions.elevated().getLevel()).toBe('elevated');
+      expect(ToolPermissions.custom().getLevel()).toBe('custom');
     });
   });
 
-  describe("getPresetRestrictions", () => {
-    it("returns restrictions for readonly level", () => {
-      const restrictions = getPresetRestrictions("readonly");
+  describe('constructor and getters', () => {
+    it('defaults to standard for non-plain config values', () => {
+      const cases = [null, undefined, 0, 'config', [], new Date()];
 
-      expect(restrictions.blockedTools).toBeInstanceOf(Array);
-      expect(restrictions.blockedTools).toContain("write");
-      expect(restrictions.blockedTools).toContain("edit");
-      expect(restrictions.bash.allowedCommands).toBeInstanceOf(Array);
+      for (const value of cases) {
+        const perm = new ToolPermissions(value);
+        expect(perm.getLevel()).toBe('standard');
+      }
     });
 
-    it("returns restrictions for standard level", () => {
-      const restrictions = getPresetRestrictions("standard");
-
-      expect(restrictions.bash.blockedCommands).toBeInstanceOf(Array);
-      expect(restrictions.bash.blockedCommands.some(cmd => cmd.includes("rm -rf")));
+    it('normalizes level aliases', () => {
+      expect(new ToolPermissions({ level: 'READ-ONLY' }).getLevel()).toBe('readonly');
+      expect(new ToolPermissions({ level: 'Admin' }).getLevel()).toBe('elevated');
+      expect(new ToolPermissions({ level: 'none' }).getLevel()).toBe('custom');
     });
 
-    it("returns restrictions for elevated level", () => {
-      const restrictions = getPresetRestrictions("elevated");
+    it('merges preset and custom restrictions', () => {
+      const perm = new ToolPermissions({
+        level: 'readonly',
+        restrictions: { blockedTools: ['custom_tool'] },
+      });
+      const restrictions = perm.getRestrictions();
 
-      expect(restrictions.bash.blockedCommands).toBeInstanceOf(Array);
-      // Elevated has fewer restrictions
-      expect(restrictions.bash.blockedCommands.length).toBeLessThanOrEqual(5);
+      expect(restrictions.blockedTools).toContain('write');
+      expect(restrictions.blockedTools).toContain('custom_tool');
     });
 
-    it("returns null for custom level", () => {
-      const restrictions = getPresetRestrictions("custom");
-      expect(restrictions).toBe(null);
-    });
-  });
-
-  describe("mergeRestrictions", () => {
-    it("merges two restriction sets", () => {
-      const base = { blockedTools: ["tool1"] };
-      const override = { blockedTools: ["tool2"] };
-
-      const merged = mergeRestrictions(base, override);
-
-      expect(merged.blockedTools).toContain("tool1");
-      expect(merged.blockedTools).toContain("tool2");
-    });
-
-    it("override allowedCommands replaces base", () => {
-      const base = { bash: { allowedCommands: ["ls", "cat"] } };
-      const override = { bash: { allowedCommands: ["pwd"] } };
-
-      const merged = mergeRestrictions(base, override);
-
-      expect(merged.bash.allowedCommands).toEqual(["pwd"]);
+    it('treats strict as true only for boolean true', () => {
+      expect(new ToolPermissions({ strict: true }).toJSON().strict).toBe(true);
+      expect(new ToolPermissions({ strict: 'true' }).toJSON().strict).toBe(false);
     });
   });
 
-  describe("ToolPermissions class", () => {
-    describe("static factory methods", () => {
-      it("readonly() creates readonly permissions", () => {
-        const perm = ToolPermissions.readonly();
-        expect(perm.getLevel()).toBe("readonly");
+  describe('check', () => {
+    it('short-circuits when no restrictions and not strict', () => {
+      const perm = ToolPermissions.custom();
+      const result = perm.check('anything', null);
+
+      expect(result).toEqual({ allowed: true });
+      expect(evaluateToolRestrictions).not.toHaveBeenCalled();
+    });
+
+    it('blocks readonly write tools', () => {
+      const perm = ToolPermissions.readonly();
+      const result = perm.check('write', null);
+
+      expect(result.allowed).toBe(false);
+      expect(evaluateToolRestrictions).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows tools not on the readonly blocklist', () => {
+      const perm = ToolPermissions.readonly();
+      const result = perm.check('read', null);
+
+      expect(result.allowed).toBe(true);
+    });
+
+    it('blocks dangerous bash in standard mode', () => {
+      const perm = ToolPermissions.standard();
+      const result = perm.check('bash', 'rm -rf /');
+
+      expect(result.allowed).toBe(false);
+    });
+
+    it('strict mode rejects tools not in the allowlist when evaluator allows', () => {
+      evaluateToolRestrictions.mockReturnValue({ allowed: true });
+      const perm = new ToolPermissions({
+        level: 'custom',
+        restrictions: { allowedTools: ['read'] },
+        strict: true,
       });
 
-      it("standard() creates standard permissions", () => {
-        const perm = ToolPermissions.standard();
-        expect(perm.getLevel()).toBe("standard");
+      const result = perm.check('write', null);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toBe('tool_not_in_allowlist');
+    });
+
+    it('strict mode accepts wildcard allowlist patterns', () => {
+      evaluateToolRestrictions.mockReturnValue({ allowed: true });
+      const perm = new ToolPermissions({
+        level: 'custom',
+        restrictions: { allowedTools: ['re*'] },
+        strict: true,
       });
 
-      it("elevated() creates elevated permissions", () => {
-        const perm = ToolPermissions.elevated();
-        expect(perm.getLevel()).toBe("elevated");
-      });
+      const result = perm.check('read', null);
+      expect(result.allowed).toBe(true);
+    });
 
-      it("custom() creates custom permissions", () => {
-        const perm = ToolPermissions.custom({ blockedTools: ["foo"] });
-        expect(perm.getLevel()).toBe("custom");
+    it('handles rapid successive checks consistently', () => {
+      const perm = ToolPermissions.standard();
+      const results = Array.from({ length: 5 }, () => perm.check('write', null));
+
+      expect(results.every((entry) => entry.allowed)).toBe(true);
+    });
+
+    it('handles concurrent checks without shared-state issues', async () => {
+      const perm = ToolPermissions.custom();
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () => Promise.resolve(perm.check('read', null))),
+      );
+
+      expect(results.every((entry) => entry.allowed)).toBe(true);
+    });
+  });
+
+  describe('mutation helpers', () => {
+    it('allow ignores falsy values and is chainable', () => {
+      const perm = ToolPermissions.custom();
+      const chained = perm.allow(['read', '', null, undefined]);
+
+      expect(chained).toBe(perm);
+      expect(perm.getRestrictions().allowedTools).toEqual(['read']);
+    });
+
+    it('block keeps truthy numeric boundaries and drops zero', () => {
+      const perm = ToolPermissions.custom().block([0, -1, Number.MAX_SAFE_INTEGER]);
+
+      expect(perm.getRestrictions().blockedTools).toEqual([-1, Number.MAX_SAFE_INTEGER]);
+    });
+
+    it('allowBash appends commands and defaults toolNames', () => {
+      const perm = ToolPermissions.custom().allowBash('ls');
+      const restrictions = perm.getRestrictions();
+
+      expect(restrictions.bash.allowedCommands).toEqual(['ls']);
+      expect(restrictions.bash.toolNames).toEqual(['bash']);
+    });
+
+    it('blockBash supports long command strings', () => {
+      const longCommand = 'x'.repeat(10000);
+      const perm = ToolPermissions.custom().blockBash(longCommand);
+
+      expect(perm.getRestrictions().bash.blockedCommands).toEqual([longCommand]);
+    });
+
+    it('accepts object input for commands without throwing', () => {
+      const perm = ToolPermissions.custom();
+      const commandObject = { cmd: 'ls' };
+
+      expect(() => perm.allowBash(commandObject)).not.toThrow();
+      expect(perm.getRestrictions().bash.allowedCommands).toContain(commandObject);
+    });
+  });
+
+  describe('createHook', () => {
+    it('returns null when checks allow the tool', () => {
+      evaluateToolRestrictions.mockReturnValue({ allowed: true });
+      const hook = ToolPermissions.standard().createHook();
+
+      expect(hook({ tool: 'bash', params: { command: 'ls' } })).toBeNull();
+    });
+
+    it('returns skip payload when checks deny the tool', () => {
+      evaluateToolRestrictions.mockReturnValue({
+        allowed: false,
+        reason: 'blocked',
+        policy: { type: 'mock' },
+      });
+      const hook = ToolPermissions.standard().createHook();
+
+      const result = hook({ tool: 'bash', params: { command: 'rm -rf /' } });
+      expect(result).toEqual({
+        skip: true,
+        value: { ok: false, error: 'blocked', policy: { type: 'mock' } },
       });
     });
 
-    describe("check method", () => {
-      it("readonly blocks write tools", () => {
-        const perm = ToolPermissions.readonly();
-        const result = perm.check("write", null);
-
-        expect(result.allowed).toBe(false);
-        expect(result.reason).toContain("blocked");
+    it('extracts command from params.command, params.cmd, and string params', () => {
+      const seen = [];
+      evaluateToolRestrictions.mockImplementation(({ command }) => {
+        seen.push(command);
+        return { allowed: true };
       });
+      const hook = ToolPermissions.standard().createHook();
 
-      it("readonly allows read tools", () => {
-        const perm = ToolPermissions.readonly();
-        const result = perm.check("read", null);
+      hook({ tool: 'bash', params: { command: 'ls' } });
+      hook({ tool: 'bash', params: { cmd: 'pwd' } });
+      hook({ tool: 'bash', params: 'whoami' });
 
-        expect(result.allowed).toBe(true);
-      });
-
-      it("readonly allows safe bash commands", () => {
-        const perm = ToolPermissions.readonly();
-        const result = perm.check("bash", "ls -la");
-
-        expect(result.allowed).toBe(true);
-      });
-
-      it("readonly blocks write bash commands", () => {
-        const perm = ToolPermissions.readonly();
-        const result = perm.check("bash", "rm -rf /tmp/test");
-
-        expect(result.allowed).toBe(false);
-      });
-
-      it("standard allows most tools", () => {
-        const perm = ToolPermissions.standard();
-        const result = perm.check("write", null);
-
-        expect(result.allowed).toBe(true);
-      });
-
-      it("standard blocks dangerous bash", () => {
-        const perm = ToolPermissions.standard();
-        const result = perm.check("bash", "rm -rf /");
-
-        expect(result.allowed).toBe(false);
-      });
+      expect(seen).toEqual(['ls', 'pwd', 'whoami']);
     });
 
-    describe("chain methods", () => {
-      it("block() adds tools to blocklist", () => {
-        const perm = ToolPermissions.standard().block(["custom_tool"]);
-        const result = perm.check("custom_tool", null);
-
-        expect(result.allowed).toBe(false);
+    it('ignores deeply nested command values', () => {
+      let captured = 'unset';
+      evaluateToolRestrictions.mockImplementation(({ command }) => {
+        captured = command;
+        return { allowed: true };
       });
+      const hook = ToolPermissions.standard().createHook();
 
-      it("allow() adds tools to allowlist", () => {
-        const perm = ToolPermissions.custom({ allowedTools: [] }).allow(["my_tool"]);
-        const restrictions = perm.getRestrictions();
+      hook({ tool: 'bash', params: { nested: { cmd: 'rm -rf /' } } });
 
-        expect(restrictions.allowedTools).toContain("my_tool");
+      expect(captured).toBeNull();
+    });
+  });
+
+  describe('serialization', () => {
+    it('round-trips configuration through toJSON/fromJSON', () => {
+      const original = new ToolPermissions({
+        level: 'readonly',
+        restrictions: { blockedTools: ['extra_tool'] },
+        strict: true,
       });
+      const json = original.toJSON();
+      const restored = ToolPermissions.fromJSON(json);
 
-      it("blockBash() adds commands to blocklist", () => {
-        const perm = ToolPermissions.standard().blockBash(["npm publish"]);
-        const result = perm.check("bash", "npm publish");
-
-        expect(result.allowed).toBe(false);
-      });
-
-      it("allowBash() adds commands to allowlist", () => {
-        const perm = ToolPermissions.readonly().allowBash(["npm test"]);
-        const restrictions = perm.getRestrictions();
-
-        expect(restrictions.bash.allowedCommands).toContain("npm test");
-      });
-
-      it("methods are chainable", () => {
-        const perm = ToolPermissions.standard()
-          .block(["tool1", "tool2"])
-          .blockBash(["cmd1"]);
-
-        expect(perm.check("tool1", null).allowed).toBe(false);
-        expect(perm.check("tool2", null).allowed).toBe(false);
-      });
+      expect(restored.getLevel()).toBe('readonly');
+      expect(restored.toJSON().strict).toBe(true);
+      expect(restored.getRestrictions().blockedTools).toContain('extra_tool');
     });
 
-    describe("strict mode", () => {
-      it("rejects unlisted tools", () => {
-        const perm = new ToolPermissions({
-          level: "custom",
-          restrictions: { allowedTools: ["read", "glob"] },
-          strict: true,
-        });
+    it('fromJSON falls back on invalid input', () => {
+      const restored = ToolPermissions.fromJSON(0);
 
-        const result = perm.check("write", null);
-        expect(result.allowed).toBe(false);
-        // Reason can be 'tool_not_in_allowlist' (strict mode) or 'tool_not_allowed' (blocklist)
-        expect(["tool_not_in_allowlist", "tool_not_allowed"]).toContain(result.reason);
-      });
-
-      it("allows listed tools", () => {
-        const perm = new ToolPermissions({
-          level: "custom",
-          restrictions: { allowedTools: ["read", "glob"] },
-          strict: true,
-        });
-
-        const result = perm.check("read", null);
-        expect(result.allowed).toBe(true);
-      });
-    });
-
-    describe("createHook", () => {
-      it("returns a hook function", () => {
-        const perm = ToolPermissions.readonly();
-        const hook = perm.createHook();
-
-        expect(typeof hook).toBe("function");
-      });
-
-      it("hook blocks disallowed tools", () => {
-        const perm = ToolPermissions.readonly();
-        const hook = perm.createHook();
-
-        const result = hook({ tool: "write", params: {} });
-
-        expect(result.skip).toBe(true);
-        expect(result.value.ok).toBe(false);
-      });
-
-      it("hook allows permitted tools", () => {
-        const perm = ToolPermissions.readonly();
-        const hook = perm.createHook();
-
-        const result = hook({ tool: "read", params: {} });
-
-        expect(result).toBe(null);
-      });
-
-      it("hook extracts command from params", () => {
-        const perm = ToolPermissions.readonly();
-        const hook = perm.createHook();
-
-        const result = hook({ tool: "bash", params: { command: "rm -rf /" } });
-
-        expect(result.skip).toBe(true);
-      });
-    });
-
-    describe("serialization", () => {
-      it("toJSON exports config", () => {
-        const perm = ToolPermissions.standard();
-        const json = perm.toJSON();
-
-        expect(json.level).toBe("standard");
-        expect(typeof json.restrictions).toBe("object");
-        expect(json.strict).toBe(false);
-      });
-
-      it("fromJSON restores permissions", () => {
-        const original = ToolPermissions.readonly().block(["extra"]);
-        const json = original.toJSON();
-        const restored = ToolPermissions.fromJSON(json);
-
-        expect(restored.getLevel()).toBe("readonly");
-        expect(restored.check("extra").allowed).toBe(false);
-      });
-
-      it("fromJSON handles invalid input", () => {
-        const perm = ToolPermissions.fromJSON(null);
-        expect(perm.getLevel()).toBe("standard");
-      });
+      expect(restored.getLevel()).toBe('standard');
     });
   });
 });

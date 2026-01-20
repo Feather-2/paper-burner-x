@@ -1,7 +1,16 @@
+// Unit tests for DisposableBase in shared/base/disposable-base.js.
+// Covers registration paths, timer cleanup, disposal ordering, and boundary/error cases.
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+const isDisposableMock = vi.hoisted(() => vi.fn());
 
-import { DisposableBase } from '../../../../../js/agents/shared/base/disposable-base.js';
+vi.mock("../../../../../js/agents/core/contracts/disposable.js", () => ({
+  isDisposable: isDisposableMock,
+}));
+
+import DisposableBaseDefault, {
+  DisposableBase,
+} from "../../../../../js/agents/shared/base/disposable-base.js";
 
 describe("shared/base/disposable-base", () => {
   describe("DisposableBase", () => {
@@ -9,135 +18,239 @@ describe("shared/base/disposable-base", () => {
     let base;
 
     beforeEach(() => {
+      isDisposableMock.mockReset();
+      isDisposableMock.mockReturnValue(false);
       base = new DisposableBase();
     });
 
     describe("constructor", () => {
-      it("initializes disposed to false", () => {
+      it("initializes state", () => {
         expect(base.disposed).toBe(false);
-      });
-
-      it("initializes empty disposables array", () => {
-        expect(Array.isArray(base._disposables)).toBe(true);
-        expect(base._disposables.length).toBe(0);
+        expect(base._disposables).toEqual([]);
       });
     });
 
     describe("_registerDisposable", () => {
-      it("registers function", () => {
-        base._registerDisposable(() => {});
-        expect(base._disposables.length).toBe(1);
+      it("registers function cleanups without consulting isDisposable", () => {
+        isDisposableMock.mockImplementation(() => {
+          throw new Error("isDisposable should not be called");
+        });
+        const cleanup = vi.fn();
+        base._registerDisposable(cleanup);
+        expect(base._disposables).toEqual([cleanup]);
+        expect(isDisposableMock).not.toHaveBeenCalled();
       });
 
-      it("registers disposable object", () => {
-        base._registerDisposable({ dispose: () => {} });
+      it("registers disposable objects when isDisposable returns true", async () => {
+        const disposable = { dispose: vi.fn() };
+        isDisposableMock.mockReturnValue(true);
+        base._registerDisposable(disposable);
+        expect(isDisposableMock).toHaveBeenCalledWith(disposable);
         expect(base._disposables.length).toBe(1);
-      });
-
-      it("warns when registering after disposed", async () => {
         await base.dispose();
-        // Should not throw, just warn
-        base._registerDisposable(() => {});
-        expect(base._disposables.length).toBe(0);
+        expect(disposable.dispose).toHaveBeenCalledTimes(1);
       });
 
-      it("ignores non-function non-disposable", () => {
-        base._registerDisposable("string");
+      it("warns and ignores registration after disposed", async () => {
+        await base.dispose();
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        base._registerDisposable(() => {});
         expect(base._disposables.length).toBe(0);
+        expect(isDisposableMock).not.toHaveBeenCalled();
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0][0]).toContain(
+          "registering disposable after disposed"
+        );
+        warnSpy.mockRestore();
+      });
+
+      it("ignores non-function inputs including boundary and resource cases", () => {
+        const longString = "x".repeat(100000);
+        const deepNested = {
+          a: { b: { c: { d: { e: { f: { g: {} } } } } } },
+        };
+        const largeFile = {
+          name: "large.bin",
+          data: new Uint8Array(1024 * 1024),
+        };
+        const cases = [
+          null,
+          undefined,
+          "",
+          "   ",
+          [],
+          {},
+          0,
+          -1,
+          Number.MAX_SAFE_INTEGER,
+          "42",
+          { 0: "a", length: 1 },
+          deepNested,
+          longString,
+          largeFile,
+        ];
+
+        for (const value of cases) {
+          base._registerDisposable(value);
+        }
+
+        expect(base._disposables.length).toBe(0);
+        expect(isDisposableMock).toHaveBeenCalledTimes(cases.length);
       });
     });
 
     describe("_registerSubscription", () => {
-      it("registers function", () => {
-        base._registerSubscription(() => {});
+      it("registers unsubscribe functions via _registerDisposable", () => {
+        const unsubscribe = vi.fn();
+        const registerSpy = vi.spyOn(base, "_registerDisposable");
+        base._registerSubscription(unsubscribe);
+        expect(registerSpy).toHaveBeenCalledWith(unsubscribe);
         expect(base._disposables.length).toBe(1);
+        registerSpy.mockRestore();
       });
 
-      it("ignores non-function", () => {
-        base._registerSubscription("not a function");
+      it("ignores non-function unsubscribe values", () => {
+        const registerSpy = vi.spyOn(base, "_registerDisposable");
+        const cases = [
+          null,
+          undefined,
+          "",
+          "   ",
+          [],
+          {},
+          0,
+          -1,
+          Number.MAX_SAFE_INTEGER,
+          "123",
+          { 0: "a", length: 1 },
+        ];
+
+        for (const value of cases) {
+          base._registerSubscription(value);
+        }
+
         expect(base._disposables.length).toBe(0);
+        expect(registerSpy).not.toHaveBeenCalled();
+        registerSpy.mockRestore();
       });
     });
 
     describe("_registerTimer", () => {
-      it("registers interval timer", () => {
-        const timerId = setInterval(() => {}, 1000);
-        base._registerTimer(timerId, "interval");
-        expect(base._disposables.length).toBe(1);
-        clearInterval(timerId);
-      });
-
-      it("registers timeout timer", () => {
-        const timerId = setTimeout(() => {}, 1000);
-        base._registerTimer(timerId, "timeout");
-        expect(base._disposables.length).toBe(1);
-        clearTimeout(timerId);
-      });
-
-      it("defaults to interval type", () => {
-        const timerId = setInterval(() => {}, 1000);
+      it("registers interval timers by default and clears on dispose", async () => {
+        const clearIntervalSpy = vi
+          .spyOn(global, "clearInterval")
+          .mockImplementation(() => {});
+        const clearTimeoutSpy = vi
+          .spyOn(global, "clearTimeout")
+          .mockImplementation(() => {});
+        const timerId = 123;
         base._registerTimer(timerId);
-        expect(base._disposables.length).toBe(1);
-        clearInterval(timerId);
+        await base.dispose();
+        expect(clearIntervalSpy).toHaveBeenCalledWith(timerId);
+        expect(clearTimeoutSpy).not.toHaveBeenCalled();
+        clearIntervalSpy.mockRestore();
+        clearTimeoutSpy.mockRestore();
+      });
+
+      it("registers timeout timers and clears string ids", async () => {
+        const clearIntervalSpy = vi
+          .spyOn(global, "clearInterval")
+          .mockImplementation(() => {});
+        const clearTimeoutSpy = vi
+          .spyOn(global, "clearTimeout")
+          .mockImplementation(() => {});
+        const timerId = "123";
+        base._registerTimer(timerId, "timeout");
+        await base.dispose();
+        expect(clearTimeoutSpy).toHaveBeenCalledWith(timerId);
+        expect(clearIntervalSpy).not.toHaveBeenCalled();
+        clearIntervalSpy.mockRestore();
+        clearTimeoutSpy.mockRestore();
+      });
+
+      it("handles boundary timer ids for interval", async () => {
+        const clearIntervalSpy = vi
+          .spyOn(global, "clearInterval")
+          .mockImplementation(() => {});
+        const timerIds = [0, -1, Number.MAX_SAFE_INTEGER, { 0: "a", length: 1 }];
+        for (const id of timerIds) {
+          base._registerTimer(id, "interval");
+        }
+        await base.dispose();
+        const calls = clearIntervalSpy.mock.calls.map(([arg]) => arg);
+        expect(calls).toHaveLength(timerIds.length);
+        for (const id of timerIds) {
+          expect(calls).toContain(id);
+        }
+        clearIntervalSpy.mockRestore();
       });
     });
 
     describe("dispose", () => {
-      it("sets disposed to true", async () => {
+      it("marks disposed and clears registered disposables", async () => {
+        const cleanup = vi.fn();
+        base._registerDisposable(cleanup);
         await base.dispose();
         expect(base.disposed).toBe(true);
+        expect(base._disposables.length).toBe(0);
+        expect(cleanup).toHaveBeenCalledTimes(1);
       });
 
       it("calls registered disposables in reverse order", async () => {
         const order = [];
-        base._registerDisposable(() => order.push(1));
-        base._registerDisposable(() => order.push(2));
-        base._registerDisposable(() => order.push(3));
+        base._registerDisposable(() => order.push("first"));
+        base._registerDisposable(() => order.push("second"));
+        base._registerDisposable(() => order.push("third"));
         await base.dispose();
-        expect(order).toEqual([3, 2, 1]);
+        expect(order).toEqual(["third", "second", "first"]);
       });
 
-      it("handles async disposables", async () => {
-        let disposed = false;
+      it("awaits async disposables", async () => {
+        let finished = false;
         base._registerDisposable(async () => {
           await Promise.resolve();
-          disposed = true;
+          finished = true;
         });
         await base.dispose();
-        expect(disposed).toBe(true);
+        expect(finished).toBe(true);
       });
 
-      it("does not dispose twice", async () => {
-        let count = 0;
-        base._registerDisposable(() => count++);
+      it("runs _onDispose before disposables", async () => {
+        const order = [];
+        base._onDispose = async () => {
+          order.push("hook");
+          await Promise.resolve();
+        };
+        base._registerDisposable(() => order.push("cleanup"));
         await base.dispose();
-        await base.dispose();
-        expect(count).toBe(1);
+        expect(order).toEqual(["hook", "cleanup"]);
       });
 
-      it("clears disposables array", async () => {
-        base._registerDisposable(() => {});
+      it("logs and continues when a disposable throws", async () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const order = [];
+        base._registerDisposable(() => order.push("after"));
+        base._registerDisposable(() => {
+          throw new Error("boom");
+        });
         await base.dispose();
-        expect(base._disposables.length).toBe(0);
+        expect(order).toEqual(["after"]);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0][0]).toContain("dispose error");
+        warnSpy.mockRestore();
       });
 
-      it("handles error in disposable", async () => {
-        base._registerDisposable(() => { throw new Error("test"); });
-        await base.dispose(); // Should not throw
-        expect(base.disposed).toBe(true);
-      });
-
-      it("calls _onDispose hook", async () => {
-        let hookCalled = false;
-        base._onDispose = () => { hookCalled = true; };
-        await base.dispose();
-        expect(hookCalled).toBe(true);
+      it("handles concurrent dispose calls without double cleanup", async () => {
+        const cleanup = vi.fn();
+        base._registerDisposable(cleanup);
+        await Promise.all([base.dispose(), base.dispose(), base.dispose()]);
+        expect(cleanup).toHaveBeenCalledTimes(1);
       });
     });
 
     describe("_ensureNotDisposed", () => {
       it("does not throw when not disposed", () => {
-        base._ensureNotDisposed(); // Should not throw
+        expect(() => base._ensureNotDisposed()).not.toThrow();
       });
 
       it("throws when disposed", async () => {
@@ -145,20 +258,13 @@ describe("shared/base/disposable-base", () => {
         expect(() => base._ensureNotDisposed()).toThrow(/has been disposed/);
       });
     });
+  });
 
-    describe("subclass", () => {
-      it("works with subclass", async () => {
-        class MyComponent extends DisposableBase {
-          constructor() {
-            super();
-            this.cleaned = false;
-            this._registerDisposable(() => { this.cleaned = true; });
-          }
-        }
-        const component = new MyComponent();
-        await component.dispose();
-        expect(component.cleaned).toBe(true);
-      });
+  describe("default", () => {
+    it("exports DisposableBase as default", () => {
+      expect(DisposableBaseDefault).toBe(DisposableBase);
+      const instance = new DisposableBaseDefault();
+      expect(instance).toBeInstanceOf(DisposableBase);
     });
   });
 });

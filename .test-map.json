@@ -1,7 +1,7 @@
 {
   "$schema": "./.project-index/schemas/test-map.schema.json",
   "version": 1,
-  "generated": "2026-01-19T06:22:40.029Z",
+  "generated": "2026-01-20T09:43:10.646Z",
   "conventions": {
     "unit": {
       "pattern": "tests/{module}/**/*.test.js",
@@ -19,7 +19,7 @@
   "framework": "vitest",
   "coverage": {
     "target": 90,
-    "current": 39.2
+    "current": 58.6
   },
   "modules": {
     "js/agents/cli": {
@@ -52,16 +52,91 @@
       }
     },
     "js/agents/core": {
-      "total": 34,
-      "covered": 16,
-      "stale": 0,
-      "untested": 18,
-      "coverage": "47.1%",
+      "total": 52,
+      "covered": 32,
+      "stale": 6,
+      "untested": 14,
+      "coverage": "61.5%",
       "files": {
+        "archive-core.js": {
+          "path": "js/agents/core/archive/archive-core.js",
+          "status": "untested",
+          "tests": []
+        },
+        "archive.js": {
+          "path": "js/agents/core/archive/archive.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/archive/archive.test.js"
+          ]
+        },
+        "checkpoint-schema.js": {
+          "path": "js/agents/core/archive/checkpoint-schema.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/archive/checkpoint-schema.test.js",
+            "tests/unit/agents/stages/deepsearch/internal/backtrack-manager.test.js"
+          ]
+        },
+        "map-adapter.js": {
+          "path": "js/agents/core/archive/map-adapter.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/archive/map-adapter.test.js"
+          ]
+        },
+        "serialization.js": {
+          "path": "js/agents/core/archive/serialization.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/archive/serialization.test.js"
+          ]
+        },
+        "storage-adapter.js": {
+          "path": "js/agents/core/archive/storage-adapter.js",
+          "status": "untested",
+          "tests": []
+        },
         "compat.js": {
           "path": "js/agents/core/compat.js",
           "status": "untested",
           "tests": []
+        },
+        "disposable.js": {
+          "path": "js/agents/core/contracts/disposable.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/contracts/disposable.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/core/sandbox/system/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "llm-response.js": {
+          "path": "js/agents/core/contracts/llm-response.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/contracts/index.test.js",
+            "tests/unit/agents/core/contracts/llm-response.test.js"
+          ]
+        },
+        "rpc-message.js": {
+          "path": "js/agents/core/contracts/rpc-message.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/contracts/index.test.js",
+            "tests/unit/agents/core/contracts/rpc-message.test.js"
+          ]
+        },
+        "tool-result.js": {
+          "path": "js/agents/core/contracts/tool-result.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/contracts/index.test.js",
+            "tests/unit/agents/core/contracts/tool-result.test.js"
+          ]
         },
         "counters.js": {
           "path": "js/agents/core/crdt/counters.js",
@@ -78,15 +153,11 @@
             "tests/integration/agents/core/crdt/primitives.test.js"
           ]
         },
-        "index.js": {
-          "path": "js/agents/core/sandbox/system/index.js",
-          "status": "untested",
-          "tests": []
-        },
         "lww-map.js": {
           "path": "js/agents/core/crdt/lww-map.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/core/crdt/lww-map.test.js",
             "tests/integration/agents/core/crdt/primitives.test.js"
           ]
         },
@@ -101,6 +172,7 @@
           "path": "js/agents/core/crdt/or-set.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/core/crdt/or-set.test.js",
             "tests/integration/agents/core/crdt/primitives.test.js"
           ]
         },
@@ -111,9 +183,44 @@
             "tests/unit/agents/core/crdt/sync-manager.test.js"
           ]
         },
+        "container.js": {
+          "path": "js/agents/core/di/container.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/di/container.test.js",
+            "tests/unit/agents/core/di/defaults.test.js",
+            "tests/unit/agents/core/di/index.test.js"
+          ]
+        },
+        "defaults.js": {
+          "path": "js/agents/core/di/defaults.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/di/defaults.test.js",
+            "tests/unit/agents/core/di/index.test.js"
+          ]
+        },
+        "global-container.js": {
+          "path": "js/agents/core/di/global-container.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/di/global-container.test.js",
+            "tests/unit/agents/shared/utils/circuit-breaker.test.js"
+          ]
+        },
+        "event-bus-subscriptions.js": {
+          "path": "js/agents/core/event-bus-subscriptions.js",
+          "status": "untested",
+          "tests": []
+        },
+        "event-bus-utils.js": {
+          "path": "js/agents/core/event-bus-utils.js",
+          "status": "untested",
+          "tests": []
+        },
         "event-bus.js": {
           "path": "js/agents/core/event-bus.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/core/event-bus.test.js",
             "tests/unit/agents/core/kernel.test.js",
@@ -124,6 +231,11 @@
             "tests/unit/agents/runtime/orchestrator.test.js",
             "tests/integration/agents/runtime/concurrency-isolation.test.js"
           ]
+        },
+        "event-record.js": {
+          "path": "js/agents/core/event-record.js",
+          "status": "untested",
+          "tests": []
         },
         "kernel-compat.js": {
           "path": "js/agents/core/kernel-compat.js",
@@ -136,7 +248,6 @@
           "tests": [
             "tests/unit/agents/core/kernel.test.js",
             "tests/unit/agents/plugins/services/llm.test.js",
-            "tests/unit/agents/plugins/services/mcp.test.js",
             "tests/integration/agents/core/watchdog-cleanup.test.js",
             "tests/integration/agents/plugins/event-driven.test.js",
             "tests/integration/agents/plugins/services.test.js",
@@ -147,7 +258,9 @@
           "path": "js/agents/core/lamport-clock.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/core/crdt/sync-manager.test.js",
+            "tests/unit/agents/core/crdt/lww-map.test.js",
+            "tests/unit/agents/core/crdt/lww-register.test.js",
+            "tests/unit/agents/core/crdt/or-set.test.js",
             "tests/unit/agents/core/event-bus.test.js",
             "tests/unit/agents/core/lamport-clock.test.js",
             "tests/integration/agents/core/crdt/primitives.test.js"
@@ -155,7 +268,7 @@
         },
         "message-bus.js": {
           "path": "js/agents/core/message-bus.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/core/message-bus.test.js",
             "tests/integration/agents/runtime/concurrency-isolation.test.js"
@@ -173,8 +286,14 @@
         },
         "constants.js": {
           "path": "js/agents/core/sandbox/system/constants.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/sandbox/system/bubblewrap.test.js",
+            "tests/unit/agents/core/sandbox/system/detect.test.js",
+            "tests/unit/agents/core/sandbox/system/docker.test.js",
+            "tests/unit/agents/core/sandbox/system/executor.test.js",
+            "tests/unit/agents/core/sandbox/system/seatbelt.test.js"
+          ]
         },
         "pool.js": {
           "path": "js/agents/core/sandbox/pool.js",
@@ -183,50 +302,74 @@
         },
         "skill-executor.js": {
           "path": "js/agents/core/sandbox/skill-executor.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/skills.test.js"
           ]
         },
         "bubblewrap.js": {
           "path": "js/agents/core/sandbox/system/bubblewrap.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/sandbox/system/bubblewrap.test.js",
+            "tests/unit/agents/core/sandbox/system/executor.test.js"
+          ]
         },
         "detect.js": {
           "path": "js/agents/core/sandbox/system/detect.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/sandbox/system/bubblewrap.test.js",
+            "tests/unit/agents/core/sandbox/system/detect.test.js",
+            "tests/unit/agents/core/sandbox/system/docker.test.js",
+            "tests/unit/agents/core/sandbox/system/executor.test.js",
+            "tests/unit/agents/core/sandbox/system/seatbelt.test.js"
+          ]
         },
         "docker.js": {
           "path": "js/agents/core/sandbox/system/docker.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/sandbox/system/docker.test.js",
+            "tests/unit/agents/core/sandbox/system/executor.test.js"
+          ]
         },
         "executor.js": {
           "path": "js/agents/core/sandbox/system/executor.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/sandbox/system/executor.test.js"
+          ]
         },
         "path-utils.js": {
           "path": "js/agents/core/sandbox/system/path-utils.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/sandbox/system/bubblewrap.test.js",
+            "tests/unit/agents/core/sandbox/system/seatbelt.test.js"
+          ]
         },
         "permission.js": {
           "path": "js/agents/core/sandbox/system/permission.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/sandbox/system/executor.test.js"
+          ]
         },
         "seatbelt.js": {
           "path": "js/agents/core/sandbox/system/seatbelt.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/sandbox/system/executor.test.js",
+            "tests/unit/agents/core/sandbox/system/seatbelt.test.js"
+          ]
         },
         "wasm-sandbox.js": {
           "path": "js/agents/core/sandbox/wasm-sandbox.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/sandbox/pool.test.js"
+          ]
         },
         "secure-plugin-loader.js": {
           "path": "js/agents/core/secure-plugin-loader.js",
@@ -235,7 +378,7 @@
         },
         "service-bus.js": {
           "path": "js/agents/core/service-bus.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/core/kernel.test.js",
             "tests/unit/agents/core/plugin.test.js",
@@ -244,7 +387,7 @@
         },
         "state-bus.js": {
           "path": "js/agents/core/state-bus.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/core/kernel.test.js",
             "tests/unit/agents/core/plugin.test.js",
@@ -256,15 +399,17 @@
     },
     "js/agents/eval": {
       "total": 9,
-      "covered": 0,
+      "covered": 4,
       "stale": 0,
-      "untested": 9,
-      "coverage": "0.0%",
+      "untested": 5,
+      "coverage": "44.4%",
       "files": {
         "composite.js": {
           "path": "js/agents/eval/graders/composite.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/eval/graders/composite.test.js"
+          ]
         },
         "content.js": {
           "path": "js/agents/eval/graders/content.js",
@@ -273,8 +418,10 @@
         },
         "deterministic.js": {
           "path": "js/agents/eval/graders/deterministic.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/eval/graders/deterministic.test.js"
+          ]
         },
         "index.js": {
           "path": "js/agents/eval/index.js",
@@ -283,8 +430,10 @@
         },
         "llm-judge.js": {
           "path": "js/agents/eval/graders/llm-judge.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/eval/graders/llm-judge.test.js"
+          ]
         },
         "harness.js": {
           "path": "js/agents/eval/harness.js",
@@ -319,50 +468,66 @@
     },
     "js/agents/ingest": {
       "total": 22,
-      "covered": 0,
+      "covered": 13,
       "stale": 0,
-      "untested": 22,
-      "coverage": "0.0%",
+      "untested": 9,
+      "coverage": "59.1%",
       "files": {
         "audio.js": {
           "path": "js/agents/ingest/adapters/audio.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/audio.test.js"
+          ]
         },
         "base.js": {
           "path": "js/agents/ingest/adapters/base.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/base.test.js"
+          ]
         },
         "code.js": {
           "path": "js/agents/ingest/adapters/code.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/code.test.js"
+          ]
         },
         "docx.js": {
           "path": "js/agents/ingest/adapters/docx.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/docx.test.js"
+          ]
         },
         "epub.js": {
           "path": "js/agents/ingest/adapters/epub.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/epub.test.js"
+          ]
         },
         "history.js": {
           "path": "js/agents/ingest/adapters/history.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/history.test.js"
+          ]
         },
         "html.js": {
           "path": "js/agents/ingest/adapters/html.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/html.test.js"
+          ]
         },
         "markdown.js": {
           "path": "js/agents/ingest/adapters/markdown.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/markdown.test.js"
+          ]
         },
         "node-io.js": {
           "path": "js/agents/ingest/adapters/node-io.js",
@@ -381,13 +546,17 @@
         },
         "raw-text.js": {
           "path": "js/agents/ingest/adapters/raw-text.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/raw-text.test.js"
+          ]
         },
         "video.js": {
           "path": "js/agents/ingest/adapters/video.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/video.test.js"
+          ]
         },
         "asset-manager.js": {
           "path": "js/agents/ingest/asset-manager.js",
@@ -406,8 +575,15 @@
         },
         "constants.js": {
           "path": "js/agents/ingest/constants.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/adapters/audio.test.js",
+            "tests/unit/agents/ingest/adapters/epub.test.js",
+            "tests/unit/agents/ingest/adapters/html.test.js",
+            "tests/unit/agents/ingest/adapters/markdown.test.js",
+            "tests/unit/agents/ingest/adapters/raw-text.test.js",
+            "tests/unit/agents/ingest/adapters/video.test.js"
+          ]
         },
         "extract-assets.js": {
           "path": "js/agents/ingest/extract-assets.js",
@@ -426,33 +602,37 @@
         },
         "byte-buffer.js": {
           "path": "js/agents/ingest/streaming/byte-buffer.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/streaming/byte-buffer.test.js"
+          ]
         },
         "video-frames.js": {
           "path": "js/agents/ingest/tools/video-frames.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/tools/video-frames.test.js"
+          ]
         }
       }
     },
     "js/agents/llm": {
-      "total": 11,
-      "covered": 9,
-      "stale": 0,
-      "untested": 2,
-      "coverage": "81.8%",
+      "total": 17,
+      "covered": 7,
+      "stale": 5,
+      "untested": 5,
+      "coverage": "41.2%",
       "files": {
         "constants.js": {
           "path": "js/agents/llm/constants.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/core/sandbox/constants.test.js"
+            "tests/unit/agents/llm/internal/provider-selection.test.js"
           ]
         },
         "image-provider.js": {
           "path": "js/agents/llm/image-provider.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/llm/image-provider.test.js"
           ]
@@ -462,16 +642,55 @@
           "status": "untested",
           "tests": []
         },
+        "call-executor.js": {
+          "path": "js/agents/llm/internal/call-executor.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/llm/internal/call-executor.test.js"
+          ]
+        },
+        "config-parser.js": {
+          "path": "js/agents/llm/internal/config-parser.js",
+          "status": "untested",
+          "tests": []
+        },
+        "fallback.js": {
+          "path": "js/agents/llm/internal/fallback.js",
+          "status": "untested",
+          "tests": []
+        },
+        "health-manager.js": {
+          "path": "js/agents/llm/internal/health-manager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "provider-selection.js": {
+          "path": "js/agents/llm/internal/provider-selection.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/llm/internal/provider-selection.test.js"
+          ]
+        },
+        "rate-limit.js": {
+          "path": "js/agents/llm/rate-limit.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/llm/model-router.test.js",
+            "tests/unit/agents/llm/rate-limit.test.js",
+            "tests/unit/agents/plugins/memory/retrieval-engine.test.js",
+            "tests/integration/agents/runtime/retrieval-engine-ratelimit.test.js"
+          ]
+        },
         "mock-provider.js": {
           "path": "js/agents/llm/mock-provider.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/llm/mock-provider.test.js"
           ]
         },
         "model-events.js": {
           "path": "js/agents/llm/model-events.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/llm/model-events.test.js"
           ]
@@ -486,7 +705,7 @@
         },
         "overflow-recovery.js": {
           "path": "js/agents/llm/overflow-recovery.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/llm/overflow-recovery.test.js"
           ]
@@ -500,21 +719,13 @@
           "path": "js/agents/llm/provider.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/llm/internal/provider-selection.test.js",
             "tests/unit/agents/llm/provider.test.js"
-          ]
-        },
-        "rate-limit.js": {
-          "path": "js/agents/llm/rate-limit.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/llm/model-router.test.js",
-            "tests/unit/agents/llm/rate-limit.test.js",
-            "tests/integration/agents/runtime/retrieval-engine-ratelimit.test.js"
           ]
         },
         "whisper-provider.js": {
           "path": "js/agents/llm/whisper-provider.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/llm/whisper-provider.test.js"
           ]
@@ -523,10 +734,10 @@
     },
     "js/agents/mcp": {
       "total": 20,
-      "covered": 4,
-      "stale": 0,
+      "covered": 0,
+      "stale": 4,
       "untested": 16,
-      "coverage": "20.0%",
+      "coverage": "0.0%",
       "files": {
         "constants.js": {
           "path": "js/agents/mcp/constants.js",
@@ -565,14 +776,14 @@
         },
         "mcp-client.js": {
           "path": "js/agents/mcp/mcp-client.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/mcp/mcp-provider.test.js"
           ]
         },
         "mcp-nexus-provider.js": {
           "path": "js/agents/mcp/mcp-nexus-provider.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/mcp/mcp-nexus-provider.test.js"
           ]
@@ -589,7 +800,7 @@
         },
         "nexus-skill-provider.js": {
           "path": "js/agents/mcp/nexus-skill-provider.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/skills.test.js"
           ]
@@ -611,7 +822,7 @@
         },
         "sse.js": {
           "path": "js/agents/mcp/sse.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/mcp/sse.test.js"
           ]
@@ -639,24 +850,101 @@
       }
     },
     "js/agents/plugins": {
-      "total": 12,
-      "covered": 10,
+      "total": 85,
+      "covered": 63,
       "stale": 0,
-      "untested": 2,
-      "coverage": "83.3%",
+      "untested": 22,
+      "coverage": "74.1%",
       "files": {
+        "behavior-fingerprint.js": {
+          "path": "js/agents/plugins/analysis/behavior-fingerprint.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/analysis/index.test.js"
+          ]
+        },
+        "convergence-detector.js": {
+          "path": "js/agents/plugins/analysis/convergence-detector.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/analysis/index.test.js"
+          ]
+        },
         "fingerprint.js": {
           "path": "js/agents/plugins/analysis/fingerprint.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/plugins/analysis/fingerprint.test.js",
+            "tests/unit/agents/plugins/analysis/index.test.js",
             "tests/integration/agents/plugins/event-driven.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/plugins/transports/index.js",
+          "status": "untested",
+          "tests": []
+        },
+        "agent-checkpoint-store.js": {
+          "path": "js/agents/plugins/checkpoints/agent-checkpoint-store.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/checkpoints/index.test.js"
           ]
         },
         "cicada.js": {
           "path": "js/agents/plugins/compression/cicada.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/plugins/compression/cicada.test.js",
             "tests/integration/agents/plugins/event-driven.test.js"
+          ]
+        },
+        "adaptive-zone-manager.js": {
+          "path": "js/agents/plugins/compression/impl/adaptive-zone-manager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "cicada-compressor.js": {
+          "path": "js/agents/plugins/compression/impl/cicada-compressor.js",
+          "status": "untested",
+          "tests": []
+        },
+        "compression-async.js": {
+          "path": "js/agents/plugins/compression/impl/compression-async.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/compression/impl/coordinator.test.js"
+          ]
+        },
+        "compression.worker.js": {
+          "path": "js/agents/plugins/compression/impl/compression.worker.js",
+          "status": "untested",
+          "tests": []
+        },
+        "context-predictor.js": {
+          "path": "js/agents/plugins/compression/impl/context-predictor.js",
+          "status": "untested",
+          "tests": []
+        },
+        "coordinator.js": {
+          "path": "js/agents/plugins/compression/impl/coordinator.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/compression/impl/coordinator.test.js"
+          ]
+        },
+        "proactive-compressor.js": {
+          "path": "js/agents/plugins/compression/impl/proactive-compressor.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/compression/proactive-compressor.test.js"
+          ]
+        },
+        "quality-monitor.js": {
+          "path": "js/agents/plugins/compression/impl/quality-monitor.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/compression/impl/quality-monitor.test.js"
           ]
         },
         "watchdog.js": {
@@ -668,10 +956,31 @@
             "tests/integration/agents/plugins/event-driven.test.js"
           ]
         },
+        "process-coordinator.js": {
+          "path": "js/agents/plugins/coordination/process-coordinator.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/coordination/coordination.test.js"
+          ]
+        },
+        "tab-coordinator.js": {
+          "path": "js/agents/plugins/memory/l3-storage/tab-coordinator.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/l3-storage/tab-coordinator.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage.test.js"
+          ]
+        },
+        "agent-status.js": {
+          "path": "js/agents/plugins/core/agent-status.js",
+          "status": "untested",
+          "tests": []
+        },
         "inspector.js": {
           "path": "js/agents/plugins/debug/inspector.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/plugins/debug/inspector.test.js",
             "tests/integration/agents/plugins/services.test.js"
           ]
         },
@@ -679,20 +988,289 @@
           "path": "js/agents/plugins/debug/logger.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/plugins/debug/logger.test.js",
             "tests/integration/agents/plugins/event-driven.test.js"
           ]
         },
-        "index.js": {
-          "path": "js/agents/plugins/index.js",
+        "dependency-manager.js": {
+          "path": "js/agents/plugins/deps/dependency-manager.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/deps/index.test.js",
+            "tests/unit/agents/runtime/deps/dependency-manager.test.js"
+          ]
+        },
+        "python-skill-executor.js": {
+          "path": "js/agents/plugins/deps/python-skill-executor.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/deps/index.test.js"
+          ]
+        },
+        "action-types.js": {
+          "path": "js/agents/plugins/memory/action-types.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/state-engine.persistence.test.js",
+            "tests/unit/agents/plugins/memory/state-engine.reducers.test.js",
+            "tests/unit/agents/plugins/memory/unified-memory-store.write.test.js"
+          ]
+        },
+        "constants.js": {
+          "path": "js/agents/plugins/memory/l3-storage/constants.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/l3-storage/constants.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage.test.js"
+          ]
+        },
+        "hash.js": {
+          "path": "js/agents/plugins/memory/l3-storage/hash.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/l3-storage/hash.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage.test.js"
+          ]
+        },
+        "index-manager.js": {
+          "path": "js/agents/plugins/memory/l3-storage/index-manager.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/l3-storage/index-manager.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage.test.js"
+          ]
+        },
+        "query.js": {
+          "path": "js/agents/plugins/memory/l3-storage/query.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/l3-storage/query.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage.test.js"
+          ]
+        },
+        "storage-io.js": {
+          "path": "js/agents/plugins/memory/l3-storage/storage-io.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/l3-storage/storage-io.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage.test.js"
+          ]
+        },
+        "utils.js": {
+          "path": "js/agents/plugins/memory/l3-storage/utils.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/l3-storage/index-manager.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage/storage-io.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage/tab-coordinator.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage/utils.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage.test.js"
+          ]
+        },
+        "l3-storage.js": {
+          "path": "js/agents/plugins/memory/l3-storage.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/l3-storage.test.js"
+          ]
+        },
+        "memory-store.impl.core.js": {
+          "path": "js/agents/plugins/memory/memory-store.impl.core.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/memory-store.impl.core.test.js"
+          ]
+        },
+        "memory-store.impl.js": {
+          "path": "js/agents/plugins/memory/memory-store.impl.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/memory-store.impl.test.js"
+          ]
+        },
+        "memory-store.impl.l0.js": {
+          "path": "js/agents/plugins/memory/memory-store.impl.l0.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/memory-store.impl.l0.test.js"
+          ]
+        },
+        "memory-store.impl.l1.js": {
+          "path": "js/agents/plugins/memory/memory-store.impl.l1.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/memory-store.impl.l1.test.js"
+          ]
+        },
+        "memory-store.impl.l2.js": {
+          "path": "js/agents/plugins/memory/memory-store.impl.l2.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/memory-store.impl.l2.test.js"
+          ]
+        },
+        "memory-store.impl.l3.js": {
+          "path": "js/agents/plugins/memory/memory-store.impl.l3.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/memory-store.impl.l3.test.js"
+          ]
+        },
+        "memory-store.impl.utils.js": {
+          "path": "js/agents/plugins/memory/memory-store.impl.utils.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/memory-store.impl.l0.test.js",
+            "tests/unit/agents/plugins/memory/memory-store.impl.utils.test.js"
+          ]
+        },
+        "retrieval-engine.js": {
+          "path": "js/agents/plugins/memory/retrieval-engine.js",
           "status": "untested",
           "tests": []
+        },
+        "state-diff.js": {
+          "path": "js/agents/plugins/memory/state-diff.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/state-diff.test.js"
+          ]
+        },
+        "state-engine.events.js": {
+          "path": "js/agents/plugins/memory/state-engine.events.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/state-engine.events.test.js"
+          ]
+        },
+        "state-engine.js": {
+          "path": "js/agents/plugins/memory/state-engine.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/state-engine.test.js"
+          ]
+        },
+        "state-engine.persistence.js": {
+          "path": "js/agents/plugins/memory/state-engine.persistence.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/state-engine.persistence.test.js"
+          ]
+        },
+        "state-engine.reducers.js": {
+          "path": "js/agents/plugins/memory/state-engine.reducers.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/state-engine.reducers.test.js"
+          ]
+        },
+        "state-engine.utils.js": {
+          "path": "js/agents/plugins/memory/state-engine.utils.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/state-engine.utils.test.js"
+          ]
+        },
+        "todo-normalize.js": {
+          "path": "js/agents/plugins/memory/todo-normalize.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/memory-store.impl.l0.test.js"
+          ]
+        },
+        "unified-memory-store.index.js": {
+          "path": "js/agents/plugins/memory/unified-memory-store.index.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/unified-memory-store.index.test.js"
+          ]
+        },
+        "unified-memory-store.js": {
+          "path": "js/agents/plugins/memory/unified-memory-store.js",
+          "status": "untested",
+          "tests": []
+        },
+        "unified-memory-store.lifecycle.js": {
+          "path": "js/agents/plugins/memory/unified-memory-store.lifecycle.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/unified-memory-store.lifecycle.test.js"
+          ]
+        },
+        "unified-memory-store.query.js": {
+          "path": "js/agents/plugins/memory/unified-memory-store.query.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/unified-memory-store.query.test.js"
+          ]
+        },
+        "unified-memory-store.utils.js": {
+          "path": "js/agents/plugins/memory/unified-memory-store.utils.js",
+          "status": "untested",
+          "tests": []
+        },
+        "unified-memory-store.write.js": {
+          "path": "js/agents/plugins/memory/unified-memory-store.write.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/unified-memory-store.write.test.js"
+          ]
+        },
+        "plan-store.js": {
+          "path": "js/agents/plugins/plan/plan-store.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/plan/index.test.js",
+            "tests/unit/agents/plugins/plan/plan-store.test.js"
+          ]
+        },
+        "structured-plan.js": {
+          "path": "js/agents/plugins/plan/structured-plan.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/plan/index.test.js",
+            "tests/unit/agents/plugins/plan/structured-plan.test.js"
+          ]
+        },
+        "engine.js": {
+          "path": "js/agents/plugins/policy/engine.js",
+          "status": "untested",
+          "tests": []
+        },
+        "manager.js": {
+          "path": "js/agents/plugins/policy/manager.js",
+          "status": "untested",
+          "tests": []
+        },
+        "match.js": {
+          "path": "js/agents/plugins/policy/match.js",
+          "status": "untested",
+          "tests": []
+        },
+        "store.js": {
+          "path": "js/agents/plugins/policy/store.js",
+          "status": "untested",
+          "tests": []
+        },
+        "degradation-matrix.js": {
+          "path": "js/agents/plugins/resilience/degradation-matrix.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/resilience/degradation-matrix.test.js"
+          ]
         },
         "retry.js": {
           "path": "js/agents/plugins/resilience/retry.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/plugins/resilience/retry.test.js",
             "tests/integration/agents/plugins/services.test.js"
           ]
+        },
+        "performance-router.js": {
+          "path": "js/agents/plugins/routing/performance-router.js",
+          "status": "untested",
+          "tests": []
         },
         "llm.js": {
           "path": "js/agents/plugins/services/llm.js",
@@ -703,10 +1281,8 @@
         },
         "mcp.js": {
           "path": "js/agents/plugins/services/mcp.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/plugins/services/mcp.test.js"
-          ]
+          "status": "untested",
+          "tests": []
         },
         "scheduler.js": {
           "path": "js/agents/plugins/services/scheduler.js",
@@ -720,26 +1296,91 @@
             "tests/integration/agents/plugins/services.test.js"
           ]
         },
+        "side-effect-journal.js": {
+          "path": "js/agents/plugins/side-effects/side-effect-journal.js",
+          "status": "untested",
+          "tests": []
+        },
         "deepsearch.js": {
           "path": "js/agents/plugins/stages/deepsearch.js",
           "status": "covered",
           "tests": [
             "tests/integration/agents/plugins/stages-deepsearch.test.js"
           ]
+        },
+        "loop-runtime-state.js": {
+          "path": "js/agents/plugins/telemetry/loop-runtime-state.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/telemetry/loop-runtime-state.test.js"
+          ]
+        },
+        "replay-controller.js": {
+          "path": "js/agents/plugins/telemetry/replay-controller.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/telemetry/replay-controller.test.js"
+          ]
+        },
+        "runstore-telemetry.js": {
+          "path": "js/agents/plugins/telemetry/runstore-telemetry.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/telemetry/runstore-telemetry.test.js"
+          ]
+        },
+        "token-tracker.js": {
+          "path": "js/agents/plugins/telemetry/token-tracker.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/telemetry/token-tracker.test.js"
+          ]
+        },
+        "trace-context.js": {
+          "path": "js/agents/plugins/telemetry/trace-context.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/telemetry/trace-context.test.js"
+          ]
+        },
+        "binary-skill-provider.js": {
+          "path": "js/agents/plugins/transports/binary-skill-provider.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/transports/binary-skill-provider.test.js"
+          ]
+        },
+        "index.browser.js": {
+          "path": "js/agents/plugins/transports/index.browser.js",
+          "status": "untested",
+          "tests": []
+        },
+        "index.node.js": {
+          "path": "js/agents/plugins/transports/index.node.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/transports/index.node.test.js"
+          ]
+        },
+        "process-transport.js": {
+          "path": "js/agents/plugins/transports/process-transport.js",
+          "status": "untested",
+          "tests": []
         }
       }
     },
     "js/agents/prompts": {
       "total": 11,
-      "covered": 10,
-      "stale": 0,
+      "covered": 8,
+      "stale": 2,
       "untested": 1,
-      "coverage": "90.9%",
+      "coverage": "72.7%",
       "files": {
         "escape-template-delimiters.js": {
           "path": "js/agents/prompts/formatters/escape-template-delimiters.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/prompts/formatters/escape-template-delimiters.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -747,6 +1388,7 @@
           "path": "js/agents/prompts/formatters/format-bullets.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/prompts/formatters/format-bullets.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -754,6 +1396,7 @@
           "path": "js/agents/prompts/formatters/format-code-block.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/prompts/formatters/format-code-block.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -761,6 +1404,7 @@
           "path": "js/agents/prompts/formatters/format-json.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/prompts/formatters/format-json.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -768,6 +1412,7 @@
           "path": "js/agents/prompts/formatters/format-lines.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/prompts/formatters/format-lines.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -775,6 +1420,7 @@
           "path": "js/agents/prompts/formatters/format-trim.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/prompts/formatters/format-trim.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -782,6 +1428,7 @@
           "path": "js/agents/prompts/formatters/format-upper.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/prompts/formatters/format-upper.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -799,14 +1446,14 @@
         },
         "prompt-registry.js": {
           "path": "js/agents/prompts/prompt-registry.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/prompts/prompt-registry.test.js"
           ]
         },
         "prompt-template.js": {
           "path": "js/agents/prompts/prompt-template.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/prompts/prompt-registry.test.js",
             "tests/unit/agents/prompts/prompt-template.test.js"
@@ -815,17 +1462,40 @@
       }
     },
     "js/agents/retrieval": {
-      "total": 10,
+      "total": 13,
       "covered": 2,
-      "stale": 0,
-      "untested": 8,
-      "coverage": "20.0%",
+      "stale": 2,
+      "untested": 9,
+      "coverage": "15.4%",
       "files": {
         "bm25.js": {
           "path": "js/agents/retrieval/bm25.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/retrieval/bm25.test.js"
+          ]
+        },
+        "embedding-service.js": {
+          "path": "js/agents/retrieval/embeddings/embedding-service.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/index.test.js",
+            "tests/unit/agents/plugins/memory/retrieval-engine.test.js",
+            "tests/unit/agents/retrieval/embeddings/embedding-service.test.js"
+          ]
+        },
+        "hnsw-lite.js": {
+          "path": "js/agents/retrieval/embeddings/hnsw-lite.js",
+          "status": "untested",
+          "tests": []
+        },
+        "vector-index.js": {
+          "path": "js/agents/retrieval/embeddings/vector-index.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/memory/index.test.js",
+            "tests/unit/agents/plugins/memory/retrieval-engine.test.js",
+            "tests/unit/agents/retrieval/embeddings/vector-index.test.js"
           ]
         },
         "grep.js": {
@@ -835,7 +1505,7 @@
         },
         "hybrid-retrieval.js": {
           "path": "js/agents/retrieval/hybrid-retrieval.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/retrieval/hybrid-retrieval.test.js"
           ]
@@ -878,148 +1548,40 @@
       }
     },
     "js/agents/runtime": {
-      "total": 128,
-      "covered": 53,
-      "stale": 0,
-      "untested": 75,
-      "coverage": "41.4%",
+      "total": 80,
+      "covered": 57,
+      "stale": 3,
+      "untested": 20,
+      "coverage": "71.3%",
       "files": {
-        "behavior-fingerprint.js": {
-          "path": "js/agents/runtime/analysis/behavior-fingerprint.js",
-          "status": "untested",
-          "tests": []
-        },
-        "convergence-detector.js": {
-          "path": "js/agents/runtime/analysis/convergence-detector.js",
-          "status": "untested",
-          "tests": []
-        },
-        "stage-api-factory.js": {
-          "path": "js/agents/runtime/api/stage-api-factory.js",
-          "status": "untested",
-          "tests": []
-        },
-        "agent-checkpoint-store.js": {
-          "path": "js/agents/runtime/checkpoints/agent-checkpoint-store.js",
-          "status": "untested",
-          "tests": []
-        },
-        "adaptive-zone-manager.js": {
-          "path": "js/agents/runtime/compression/adaptive-zone-manager.js",
+        "agent-loop-lifecycle-hooks.js": {
+          "path": "js/agents/runtime/core/agent-loop-lifecycle-hooks.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/compression/adaptive-zone-manager.test.js"
+            "tests/unit/agents/runtime/core/agent-loop-lifecycle-hooks.test.js"
           ]
         },
-        "cicada-compressor.js": {
-          "path": "js/agents/runtime/compression/cicada-compressor.js",
+        "agent-loop-message-handling.js": {
+          "path": "js/agents/runtime/core/agent-loop-message-handling.js",
           "status": "covered",
           "tests": [
-            "tests/integration/agents/sdk/task-tool.test.js"
+            "tests/unit/agents/runtime/core/agent-loop-message-handling.test.js"
           ]
         },
-        "compression-async.js": {
-          "path": "js/agents/runtime/compression/compression-async.js",
+        "agent-loop-tool-dispatch.js": {
+          "path": "js/agents/runtime/core/agent-loop-tool-dispatch.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/compression/compression-async.test.js"
+            "tests/unit/agents/runtime/core/agent-loop-tool-dispatch.test.js"
           ]
-        },
-        "compression.worker.js": {
-          "path": "js/agents/runtime/compression/compression.worker.js",
-          "status": "untested",
-          "tests": []
-        },
-        "context-predictor.js": {
-          "path": "js/agents/runtime/compression/context-predictor.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/compression/context-predictor.test.js"
-          ]
-        },
-        "coordinator.js": {
-          "path": "js/agents/runtime/compression/coordinator.js",
-          "status": "untested",
-          "tests": []
-        },
-        "proactive-compressor.js": {
-          "path": "js/agents/runtime/compression/proactive-compressor.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/compression/proactive-compressor.test.js"
-          ]
-        },
-        "quality-monitor.js": {
-          "path": "js/agents/runtime/compression/quality-monitor.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/compression/quality-monitor.test.js"
-          ]
-        },
-        "watchdog.js": {
-          "path": "js/agents/runtime/compression/watchdog.js",
-          "status": "covered",
-          "tests": [
-            "tests/integration/agents/sdk/task-tool.test.js"
-          ]
-        },
-        "index.js": {
-          "path": "js/agents/runtime/transports/index.js",
-          "status": "untested",
-          "tests": []
-        },
-        "limits.js": {
-          "path": "js/agents/runtime/constants/limits.js",
-          "status": "covered",
-          "tests": [
-            "tests/integration/agents/runtime/core/stage-manager.test.js"
-          ]
-        },
-        "thresholds.js": {
-          "path": "js/agents/runtime/constants/thresholds.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/constants/thresholds.test.js"
-          ]
-        },
-        "timeouts.js": {
-          "path": "js/agents/runtime/constants/timeouts.js",
-          "status": "untested",
-          "tests": []
-        },
-        "snapshotable.js": {
-          "path": "js/agents/runtime/context/snapshotable.js",
-          "status": "untested",
-          "tests": []
-        },
-        "subagent-budget.js": {
-          "path": "js/agents/runtime/context/subagent-budget.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/context/subagent-budget.test.js"
-          ]
-        },
-        "unified-agent-context.js": {
-          "path": "js/agents/runtime/context/unified-agent-context.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/context/unified-agent-context.test.js"
-          ]
-        },
-        "process-coordinator.js": {
-          "path": "js/agents/runtime/coordination/process-coordinator.js",
-          "status": "untested",
-          "tests": []
-        },
-        "tab-coordinator.js": {
-          "path": "js/agents/runtime/coordination/tab-coordinator.js",
-          "status": "untested",
-          "tests": []
         },
         "agent-loop.js": {
           "path": "js/agents/runtime/core/agent-loop.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/design/internal/design-phases.test.js",
+            "tests/unit/agents/stages/design/internal/phases/layout-phase.test.js",
+            "tests/unit/agents/stages/design/internal/phases/preparation-phase.test.js",
             "tests/integration/agents/runtime/core/stage-manager.test.js",
             "tests/integration/agents/runtime/core.test.js"
           ]
@@ -1029,26 +1591,82 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/runtime/core/status-controller.test.js",
+            "tests/unit/agents/stages/codesearch/codesearch-stage.test.js",
             "tests/unit/ppt/workflow/unified-state-mapping.test.js",
             "tests/integration/agents/runtime/core.test.js"
           ]
         },
-        "config-validator.js": {
-          "path": "js/agents/runtime/core/config-validator.js",
+        "stage-api-factory.js": {
+          "path": "js/agents/runtime/core/api/stage-api-factory.js",
           "status": "untested",
           "tests": []
+        },
+        "config-validator.js": {
+          "path": "js/agents/runtime/core/config-validator.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/config-validator.test.js"
+          ]
+        },
+        "index.js": {
+          "path": "js/agents/runtime/tools/platform/index.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/tools/platform/index.test.js",
+            "tests/integration/agents/platform-tools.test.js"
+          ]
+        },
+        "limits.js": {
+          "path": "js/agents/runtime/core/constants/limits.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/constants/limits.test.js"
+          ]
+        },
+        "thresholds.js": {
+          "path": "js/agents/runtime/core/constants/thresholds.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/constants/thresholds.test.js"
+          ]
+        },
+        "timeouts.js": {
+          "path": "js/agents/runtime/core/constants/timeouts.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/constants/timeouts.test.js"
+          ]
         },
         "constants.js": {
           "path": "js/agents/runtime/core/constants.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/runtime/core/constants.test.js",
             "tests/unit/agents/runtime/orchestrator.test.js"
           ]
+        },
+        "snapshotable.js": {
+          "path": "js/agents/runtime/core/context/snapshotable.js",
+          "status": "untested",
+          "tests": []
+        },
+        "subagent-budget.js": {
+          "path": "js/agents/runtime/core/context/subagent-budget.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/context/subagent-budget.test.js"
+          ]
+        },
+        "unified-agent-context.js": {
+          "path": "js/agents/runtime/core/context/unified-agent-context.js",
+          "status": "untested",
+          "tests": []
         },
         "context-config.js": {
           "path": "js/agents/runtime/core/context-config.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/runtime/core/context-config.test.js",
             "tests/integration/agents/runtime/core.test.js"
           ]
         },
@@ -1056,14 +1674,35 @@
           "path": "js/agents/runtime/core/error-boundary.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/runtime/core/error-boundary.test.js",
             "tests/integration/agents/runtime/core.test.js",
             "tests/integration/agents/stages/deepsearch/helpers.test.js"
           ]
         },
-        "js-adapter.js": {
-          "path": "js/agents/runtime/core/js-adapter.js",
+        "silent-error-reporter.js": {
+          "path": "js/agents/runtime/core/errors/silent-error-reporter.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/errors/index.test.js",
+            "tests/unit/agents/runtime/core/errors/silent-error-reporter.test.js"
+          ]
+        },
+        "command-executor.browser.js": {
+          "path": "js/agents/runtime/core/exec/command-executor.browser.js",
           "status": "untested",
           "tests": []
+        },
+        "command-executor.node.js": {
+          "path": "js/agents/runtime/core/exec/command-executor.node.js",
+          "status": "untested",
+          "tests": []
+        },
+        "js-adapter.js": {
+          "path": "js/agents/runtime/core/js-adapter.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/js-adapter.test.js"
+          ]
         },
         "js-sandbox-worker.js": {
           "path": "js/agents/runtime/core/js-sandbox-worker.js",
@@ -1077,8 +1716,17 @@
         },
         "lifecycle.js": {
           "path": "js/agents/runtime/core/lifecycle.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/lifecycle.test.js"
+          ]
+        },
+        "manifest.js": {
+          "path": "js/agents/runtime/core/manifest/manifest.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/manifest/manifest.test.js"
+          ]
         },
         "mechanisms.js": {
           "path": "js/agents/runtime/core/mechanisms.js",
@@ -1087,16 +1735,41 @@
         },
         "message-manager.js": {
           "path": "js/agents/runtime/core/message-manager.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
-            "tests/unit/agents/runtime/core/message-manager.test.js",
             "tests/integration/agents/runtime/core.test.js"
           ]
         },
-        "persisted-output.js": {
-          "path": "js/agents/runtime/persisted-output.js",
+        "micro-kernel.js": {
+          "path": "js/agents/runtime/core/micro-kernel.js",
           "status": "untested",
           "tests": []
+        },
+        "middleware-chain.js": {
+          "path": "js/agents/runtime/core/middleware/middleware-chain.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/middleware/middleware-chain.test.js"
+          ]
+        },
+        "orchestrator.js": {
+          "path": "js/agents/runtime/core/orchestrator.js",
+          "status": "untested",
+          "tests": []
+        },
+        "task-graph.js": {
+          "path": "js/agents/runtime/core/parallel/task-graph.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/parallel/task-graph.test.js"
+          ]
+        },
+        "persisted-output.js": {
+          "path": "js/agents/runtime/core/persisted-output.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/persisted-output.test.js"
+          ]
         },
         "python-adapter.js": {
           "path": "js/agents/runtime/core/python-adapter.js",
@@ -1110,37 +1783,55 @@
         },
         "retry-strategy.js": {
           "path": "js/agents/runtime/core/retry-strategy.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/retry-strategy.test.js"
+          ]
         },
         "runtime-adapter.js": {
           "path": "js/agents/runtime/core/runtime-adapter.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/js-adapter.test.js",
+            "tests/unit/agents/runtime/core/runtime-adapter.test.js"
+          ]
         },
         "scheduler.js": {
           "path": "js/agents/runtime/core/scheduler.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/scheduler.test.js"
+          ]
         },
         "shared-memory.js": {
           "path": "js/agents/runtime/core/shared-memory.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/shared-memory.test.js"
+          ]
         },
         "stage-errors.js": {
           "path": "js/agents/runtime/core/stage-errors.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/runtime/core/stage-errors.test.js",
+            "tests/unit/agents/runtime/core/status-controller.test.js",
+            "tests/unit/agents/stages/codesearch/codesearch-stage.test.js",
             "tests/integration/agents/runtime/core.test.js"
           ]
         },
         "status-controller.js": {
           "path": "js/agents/runtime/core/status-controller.js",
+          "status": "stale",
+          "tests": [
+            "tests/integration/agents/runtime/core.test.js"
+          ]
+        },
+        "tool-output-persistence.js": {
+          "path": "js/agents/runtime/core/tool-output-persistence.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/core/status-controller.test.js",
-            "tests/integration/agents/runtime/core.test.js"
+            "tests/unit/agents/runtime/core/tool-output-persistence.test.js"
           ]
         },
         "tool-registry.js": {
@@ -1153,8 +1844,10 @@
         },
         "vfs-proxy-client.js": {
           "path": "js/agents/runtime/core/vfs-proxy-client.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/vfs-proxy-client.test.js"
+          ]
         },
         "vfs-proxy-host.js": {
           "path": "js/agents/runtime/core/vfs-proxy-host.js",
@@ -1163,23 +1856,33 @@
         },
         "vfs-proxy-protocol.js": {
           "path": "js/agents/runtime/core/vfs-proxy-protocol.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/vfs-proxy-client.test.js",
+            "tests/unit/agents/runtime/core/vfs-proxy-host.test.js"
+          ]
         },
         "vfs-proxy.js": {
           "path": "js/agents/runtime/core/vfs-proxy.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/vfs-proxy.test.js"
+          ]
         },
         "worker-factory.js": {
           "path": "js/agents/runtime/core/worker-factory.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/index.test.js",
+            "tests/unit/agents/runtime/core/worker-factory.test.js"
+          ]
         },
         "worker-pool.js": {
           "path": "js/agents/runtime/core/worker-pool.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/core/worker-pool.test.js"
+          ]
         },
         "worker-rpc.js": {
           "path": "js/agents/runtime/core/worker-rpc.js",
@@ -1188,54 +1891,6 @@
             "tests/unit/agents/runtime/core/worker-rpc.test.js"
           ]
         },
-        "dependency-manager.js": {
-          "path": "js/agents/runtime/deps/dependency-manager.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/deps/dependency-manager.test.js",
-            "tests/unit/agents/runtime/deps/python-skill-executor.test.js"
-          ]
-        },
-        "python-skill-executor.js": {
-          "path": "js/agents/runtime/deps/python-skill-executor.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/deps/python-skill-executor.test.js"
-          ]
-        },
-        "container.js": {
-          "path": "js/agents/runtime/di/container.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/sdk/injection-scanner.test.js",
-            "tests/integration/agents/runtime/di-container.test.js",
-            "tests/integration/agents/runtime/di-singletons.test.js"
-          ]
-        },
-        "defaults.js": {
-          "path": "js/agents/runtime/di/defaults.js",
-          "status": "covered",
-          "tests": [
-            "tests/integration/agents/runtime/di-defaults-smoke.test.js",
-            "tests/integration/agents/runtime/di-singletons.test.js",
-            "tests/integration/agents/runtime/task-tool-di.test.js"
-          ]
-        },
-        "global-container.js": {
-          "path": "js/agents/runtime/di/global-container.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/telemetry/token-tracker.test.js",
-            "tests/unit/agents/sdk/injection-scanner.test.js",
-            "tests/unit/agents/shared/tokenizers/adaptive-token-counter.test.js",
-            "tests/integration/agents/runtime/di-singletons.test.js"
-          ]
-        },
-        "silent-error-reporter.js": {
-          "path": "js/agents/runtime/errors/silent-error-reporter.js",
-          "status": "untested",
-          "tests": []
-        },
         "event-bus.js": {
           "path": "js/agents/runtime/events/event-bus.js",
           "status": "untested",
@@ -1243,26 +1898,19 @@
         },
         "events.js": {
           "path": "js/agents/runtime/events/events.js",
-          "status": "untested",
-          "tests": []
-        },
-        "command-executor.browser.js": {
-          "path": "js/agents/runtime/exec/command-executor.browser.js",
-          "status": "untested",
-          "tests": []
-        },
-        "command-executor.node.js": {
-          "path": "js/agents/runtime/exec/command-executor.node.js",
           "status": "covered",
           "tests": [
-            "tests/integration/agents/exec.test.js"
+            "tests/unit/agents/plugins/compression/impl/watchdog.test.js",
+            "tests/unit/agents/runtime/events/events.test.js"
           ]
         },
         "event-bus-hooks.js": {
           "path": "js/agents/runtime/hooks/event-bus-hooks.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/hooks/hook-runner.test.js"
+            "tests/unit/agents/runtime/hooks/event-bus-hooks.test.js",
+            "tests/unit/agents/runtime/hooks/hook-runner.test.js",
+            "tests/unit/agents/runtime/hooks/index.test.js"
           ]
         },
         "hook-registry.js": {
@@ -1271,7 +1919,7 @@
           "tests": [
             "tests/unit/agents/runtime/hooks/hook-registry.test.js",
             "tests/unit/agents/runtime/hooks/hook-runner.test.js",
-            "tests/unit/agents/runtime/hooks/hooks-config-loader.test.js",
+            "tests/unit/agents/runtime/hooks/index.test.js",
             "tests/integration/agents/runtime/hooks/hook-event.test.js"
           ]
         },
@@ -1279,139 +1927,18 @@
           "path": "js/agents/runtime/hooks/hook-runner.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/hooks/hook-runner.test.js"
+            "tests/unit/agents/runtime/core/tool-registry.test.js",
+            "tests/unit/agents/runtime/hooks/hook-runner.test.js",
+            "tests/unit/agents/runtime/hooks/index.test.js",
+            "tests/unit/agents/runtime/tools/tool-executor.test.js"
           ]
         },
         "hooks-config-loader.js": {
           "path": "js/agents/runtime/hooks/hooks-config-loader.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/hooks/hooks-config-loader.test.js"
+            "tests/unit/agents/runtime/hooks/index.test.js"
           ]
-        },
-        "micro-kernel.js": {
-          "path": "js/agents/runtime/kernel/micro-kernel.js",
-          "status": "untested",
-          "tests": []
-        },
-        "manifest.js": {
-          "path": "js/agents/runtime/manifest/manifest.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/manifest/manifest.test.js"
-          ]
-        },
-        "action-types.js": {
-          "path": "js/agents/runtime/memory/action-types.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/memory/state-diff.test.js",
-            "tests/unit/agents/runtime/memory/state-engine.test.js"
-          ]
-        },
-        "l3-storage.js": {
-          "path": "js/agents/runtime/memory/l3-storage.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/memory/l3-storage.test.js"
-          ]
-        },
-        "memory-store.impl.js": {
-          "path": "js/agents/runtime/memory/memory-store.impl.js",
-          "status": "untested",
-          "tests": []
-        },
-        "memory-store.js": {
-          "path": "js/agents/runtime/memory/memory-store.js",
-          "status": "untested",
-          "tests": []
-        },
-        "retrieval-engine.js": {
-          "path": "js/agents/runtime/memory/retrieval-engine.js",
-          "status": "covered",
-          "tests": [
-            "tests/integration/agents/runtime/memory/retrieval-engine-prewarm.test.js",
-            "tests/integration/agents/runtime/retrieval-engine-ratelimit.test.js"
-          ]
-        },
-        "state-diff.js": {
-          "path": "js/agents/runtime/memory/state-diff.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/memory/state-diff.test.js"
-          ]
-        },
-        "state-engine.js": {
-          "path": "js/agents/runtime/memory/state-engine.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/memory/state-diff.test.js",
-            "tests/unit/agents/runtime/memory/state-engine.test.js"
-          ]
-        },
-        "todo-normalize.js": {
-          "path": "js/agents/runtime/memory/todo-normalize.js",
-          "status": "untested",
-          "tests": []
-        },
-        "unified-memory-store.js": {
-          "path": "js/agents/runtime/memory/unified-memory-store.js",
-          "status": "untested",
-          "tests": []
-        },
-        "middleware-chain.js": {
-          "path": "js/agents/runtime/middleware/middleware-chain.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/middleware/middleware-chain.test.js"
-          ]
-        },
-        "orchestrator.js": {
-          "path": "js/agents/runtime/orchestrator.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/orchestrator.test.js"
-          ]
-        },
-        "task-graph.js": {
-          "path": "js/agents/runtime/parallel/task-graph.js",
-          "status": "untested",
-          "tests": []
-        },
-        "plan-store.js": {
-          "path": "js/agents/runtime/plan/plan-store.js",
-          "status": "untested",
-          "tests": []
-        },
-        "structured-plan.js": {
-          "path": "js/agents/runtime/plan/structured-plan.js",
-          "status": "untested",
-          "tests": []
-        },
-        "engine.js": {
-          "path": "js/agents/runtime/policy/engine.js",
-          "status": "untested",
-          "tests": []
-        },
-        "manager.js": {
-          "path": "js/agents/runtime/policy/manager.js",
-          "status": "untested",
-          "tests": []
-        },
-        "match.js": {
-          "path": "js/agents/runtime/policy/match.js",
-          "status": "untested",
-          "tests": []
-        },
-        "store.js": {
-          "path": "js/agents/runtime/policy/store.js",
-          "status": "untested",
-          "tests": []
-        },
-        "degradation-matrix.js": {
-          "path": "js/agents/runtime/resilience/degradation-matrix.js",
-          "status": "untested",
-          "tests": []
         },
         "performance-router.js": {
           "path": "js/agents/runtime/routing/performance-router.js",
@@ -1424,94 +1951,74 @@
           "path": "js/agents/runtime/safety/command-classifier.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/safety/command-classifier.test.js"
+            "tests/unit/agents/runtime/hooks/hook-runner.test.js",
+            "tests/unit/agents/runtime/hooks/index.test.js",
+            "tests/unit/agents/runtime/safety/command-classifier.test.js",
+            "tests/unit/agents/runtime/safety/index.test.js",
+            "tests/unit/agents/runtime/safety/tool-restrictions.test.js"
           ]
         },
         "tool-permissions.js": {
           "path": "js/agents/runtime/safety/tool-permissions.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/safety/tool-permissions.test.js"
+            "tests/unit/agents/runtime/safety/index.test.js"
           ]
         },
         "tool-restrictions.js": {
           "path": "js/agents/runtime/safety/tool-restrictions.js",
-          "status": "untested",
-          "tests": []
-        },
-        "side-effect-journal.js": {
-          "path": "js/agents/runtime/side-effects/side-effect-journal.js",
-          "status": "untested",
-          "tests": []
-        },
-        "loop-runtime-state.js": {
-          "path": "js/agents/runtime/telemetry/loop-runtime-state.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/core/status-controller.test.js",
-            "tests/integration/agents/runtime/core.test.js",
-            "tests/integration/agents/runtime/telemetry.test.js"
-          ]
-        },
-        "replay-controller.js": {
-          "path": "js/agents/runtime/telemetry/replay-controller.js",
-          "status": "covered",
-          "tests": [
-            "tests/integration/agents/runtime/telemetry.test.js"
-          ]
-        },
-        "runstore-telemetry.js": {
-          "path": "js/agents/runtime/telemetry/runstore-telemetry.js",
-          "status": "untested",
-          "tests": []
-        },
-        "token-tracker.js": {
-          "path": "js/agents/runtime/telemetry/token-tracker.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/runtime/telemetry/token-tracker.test.js",
-            "tests/integration/agents/llm/model-router.token-tracker.vitest.test.js"
-          ]
-        },
-        "trace-context.js": {
-          "path": "js/agents/runtime/telemetry/trace-context.js",
-          "status": "covered",
-          "tests": [
-            "tests/integration/agents/stages/deepsearch/helpers.test.js"
+            "tests/unit/agents/runtime/hooks/hook-runner.test.js",
+            "tests/unit/agents/runtime/hooks/index.test.js",
+            "tests/unit/agents/runtime/safety/index.test.js",
+            "tests/unit/agents/runtime/safety/tool-permissions.test.js",
+            "tests/unit/agents/runtime/safety/tool-restrictions.test.js"
           ]
         },
         "BacktrackTool.js": {
           "path": "js/agents/runtime/tools/BacktrackTool.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/tools/BacktrackTool.test.js"
+          ]
         },
         "DMailTool.js": {
           "path": "js/agents/runtime/tools/DMailTool.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/tools/DMailTool.test.js"
+          ]
         },
         "RecallTool.js": {
           "path": "js/agents/runtime/tools/RecallTool.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/tools/RecallTool.test.js"
+          ]
         },
         "TaskTool.js": {
           "path": "js/agents/runtime/tools/TaskTool.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/runtime/tools/TaskTool.test.js",
             "tests/integration/agents/runtime/task-tool-di.test.js",
             "tests/integration/agents/sdk/task-tool.test.js"
           ]
         },
         "browser.js": {
           "path": "js/agents/runtime/tools/platform/browser.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/tools/platform/browser.test.js"
+          ]
         },
         "node.js": {
           "path": "js/agents/runtime/tools/platform/node.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/tools/platform/node.test.js"
+          ]
         },
         "python-runtime-worker.js": {
           "path": "js/agents/runtime/tools/python-runtime-worker.js",
@@ -1522,7 +2029,9 @@
           "path": "js/agents/runtime/tools/schema-validator.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/tools/schema-validator.test.js"
+            "tests/unit/agents/runtime/core/tool-registry.test.js",
+            "tests/unit/agents/runtime/tools/schema-validator.test.js",
+            "tests/unit/agents/runtime/tools/tool-executor.test.js"
           ]
         },
         "tool-executor-webworker.js": {
@@ -1532,8 +2041,10 @@
         },
         "tool-executor-worker-shared.js": {
           "path": "js/agents/runtime/tools/tool-executor-worker-shared.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/runtime/tools/tool-executor-worker-shared.test.js"
+          ]
         },
         "tool-executor-worker.js": {
           "path": "js/agents/runtime/tools/tool-executor-worker.js",
@@ -1542,9 +2053,8 @@
         },
         "tool-executor.js": {
           "path": "js/agents/runtime/tools/tool-executor.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
-            "tests/unit/agents/runtime/tools/tool-executor.test.js",
             "tests/integration/agents/core/sandbox/tool-executor.error-handling.test.js"
           ]
         },
@@ -1552,35 +2062,15 @@
           "path": "js/agents/runtime/tools/tool-quotas.js",
           "status": "untested",
           "tests": []
-        },
-        "binary-skill-provider.js": {
-          "path": "js/agents/runtime/transports/binary-skill-provider.js",
-          "status": "untested",
-          "tests": []
-        },
-        "index.browser.js": {
-          "path": "js/agents/runtime/transports/index.browser.js",
-          "status": "untested",
-          "tests": []
-        },
-        "index.node.js": {
-          "path": "js/agents/runtime/transports/index.node.js",
-          "status": "untested",
-          "tests": []
-        },
-        "process-transport.js": {
-          "path": "js/agents/runtime/transports/process-transport.js",
-          "status": "untested",
-          "tests": []
         }
       }
     },
     "js/agents/sdk": {
       "total": 17,
-      "covered": 4,
-      "stale": 0,
-      "untested": 13,
-      "coverage": "23.5%",
+      "covered": 1,
+      "stale": 4,
+      "untested": 12,
+      "coverage": "5.9%",
       "files": {
         "AgentBuilder.js": {
           "path": "js/agents/sdk/AgentBuilder.js",
@@ -1589,14 +2079,14 @@
         },
         "AlertMonitor.js": {
           "path": "js/agents/sdk/AlertMonitor.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/alert-monitor.test.js"
           ]
         },
         "BacktrackManager.js": {
           "path": "js/agents/sdk/BacktrackManager.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/stages/deepsearch/runtime/backtrack-manager.test.js"
           ]
@@ -1608,8 +2098,10 @@
         },
         "DiscoveryManager.js": {
           "path": "js/agents/sdk/DiscoveryManager.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/tools/evaluate-gaps/handler.test.js"
+          ]
         },
         "SoftBacktrackManager.js": {
           "path": "js/agents/sdk/SoftBacktrackManager.js",
@@ -1618,7 +2110,7 @@
         },
         "SubagentRegistry.js": {
           "path": "js/agents/sdk/SubagentRegistry.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/runtime/task-tool-di.test.js",
             "tests/integration/agents/sdk/task-tool.test.js",
@@ -1672,7 +2164,7 @@
         },
         "injection-scanner.js": {
           "path": "js/agents/sdk/injection-scanner.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/sdk/injection-scanner.test.js",
             "tests/integration/agents/subagent-registry.test.js"
@@ -1681,90 +2173,51 @@
       }
     },
     "js/agents/shared": {
-      "total": 40,
-      "covered": 29,
+      "total": 30,
+      "covered": 25,
       "stale": 0,
-      "untested": 11,
-      "coverage": "72.5%",
+      "untested": 5,
+      "coverage": "83.3%",
       "files": {
-        "archive.js": {
-          "path": "js/agents/shared/archive/archive.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/shared/archive/archive.test.js"
-          ]
-        },
-        "checkpoint-schema.js": {
-          "path": "js/agents/shared/archive/checkpoint-schema.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/shared/archive/archive.test.js"
-          ]
-        },
         "disposable-base.js": {
           "path": "js/agents/shared/base/disposable-base.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/shared/base/disposable-base.test.js"
-          ]
-        },
-        "disposable.js": {
-          "path": "js/agents/shared/contracts/disposable.js",
-          "status": "covered",
-          "tests": [
-            "tests/integration/agents/contracts-disposable.test.js"
-          ]
-        },
-        "index.js": {
-          "path": "js/agents/shared/index.js",
           "status": "untested",
           "tests": []
         },
-        "llm-response.js": {
-          "path": "js/agents/shared/contracts/llm-response.js",
+        "index.js": {
+          "path": "js/agents/shared/index.js",
           "status": "covered",
           "tests": [
-            "tests/integration/agents/contracts-llm.test.js",
-            "tests/integration/agents/shared/contracts.vitest.test.js"
-          ]
-        },
-        "rpc-message.js": {
-          "path": "js/agents/shared/contracts/rpc-message.js",
-          "status": "covered",
-          "tests": [
-            "tests/integration/agents/contracts-rpc.test.js",
-            "tests/integration/agents/shared/contracts.vitest.test.js"
-          ]
-        },
-        "tool-result.js": {
-          "path": "js/agents/shared/contracts/tool-result.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/shared/contracts/tool-result.test.js",
-            "tests/integration/agents/contracts-tool.test.js"
-          ]
-        },
-        "embedding-service.js": {
-          "path": "js/agents/shared/embeddings/embedding-service.js",
-          "status": "covered",
-          "tests": [
-            "tests/integration/agents/shared/embeddings.vitest.test.js"
-          ]
-        },
-        "hnsw-lite.js": {
-          "path": "js/agents/shared/embeddings/hnsw-lite.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/shared/embeddings/hnsw-lite.test.js"
-          ]
-        },
-        "vector-index.js": {
-          "path": "js/agents/shared/embeddings/vector-index.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/retrieval/vector-search.test.js",
-            "tests/unit/agents/shared/embeddings/vector-index.test.js",
-            "tests/integration/agents/shared/embeddings.vitest.test.js"
+            "tests/unit/agents/ingest/adapters/raw-text.test.js",
+            "tests/unit/agents/plugins/checkpoints/agent-checkpoint-store.test.js",
+            "tests/unit/agents/plugins/compression/impl/context-predictor.test.js",
+            "tests/unit/agents/plugins/memory/index.test.js",
+            "tests/unit/agents/plugins/memory/l3-storage.test.js",
+            "tests/unit/agents/plugins/memory/memory-store.impl.l0.test.js",
+            "tests/unit/agents/plugins/memory/memory-store.impl.l2.test.js",
+            "tests/unit/agents/plugins/memory/retrieval-engine.test.js",
+            "tests/unit/agents/plugins/memory/state-engine.utils.test.js",
+            "tests/unit/agents/plugins/plan/structured-plan.test.js",
+            "tests/unit/agents/plugins/policy/engine.test.js",
+            "tests/unit/agents/plugins/policy/store.test.js",
+            "tests/unit/agents/runtime/core/scheduler.test.js",
+            "tests/unit/agents/runtime/core/stage-errors.test.js",
+            "tests/unit/agents/runtime/hooks/hook-registry.test.js",
+            "tests/unit/agents/runtime/safety/tool-permissions.test.js",
+            "tests/unit/agents/runtime/tools/platform/browser.test.js",
+            "tests/unit/agents/runtime/tools/platform/node.test.js",
+            "tests/unit/agents/runtime/tools/tool-executor.test.js",
+            "tests/unit/agents/stages/codesearch/indexing/symbol-indexer.test.js",
+            "tests/unit/agents/stages/deepsearch/internal/backtrack-manager.test.js",
+            "tests/unit/agents/stages/deepsearch/model/budget.test.js",
+            "tests/unit/agents/stages/deepsearch/model/pricing.test.js",
+            "tests/unit/agents/stages/deepsearch/report/report-postprocess.test.js",
+            "tests/unit/agents/stages/deepsearch/source-manager.test.js",
+            "tests/unit/agents/stages/deepsearch/state/iteration-state.test.js",
+            "tests/unit/agents/stages/deepsearch/state/serialization-methods.test.js",
+            "tests/unit/agents/stages/design/image/asset-resolver.test.js",
+            "tests/unit/agents/stages/design/internal/deck-operations.test.js",
+            "tests/unit/agents/stages/design/refiner/react-refiner.test.js"
           ]
         },
         "tree-sitter-wasm.js": {
@@ -1776,6 +2229,7 @@
           "path": "js/agents/shared/platform.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/runtime/tools/tool-executor.test.js",
             "tests/unit/agents/shared/platform.test.js"
           ]
         },
@@ -1796,6 +2250,7 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/shared/utils/cancellation.test.js",
+            "tests/unit/agents/stages/design/internal/design-phases.test.js",
             "tests/integration/agents/shared/utils.test.js"
           ]
         },
@@ -1817,13 +2272,17 @@
         },
         "error-classifier.js": {
           "path": "js/agents/shared/utils/error-classifier.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/shared/utils/error-classifier.test.js"
+          ]
         },
         "error-utils-extended.js": {
           "path": "js/agents/shared/utils/error-utils-extended.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/shared/utils/error-utils-extended.test.js"
+          ]
         },
         "error-utils.js": {
           "path": "js/agents/shared/utils/error-utils.js",
@@ -1839,21 +2298,22 @@
         },
         "file-watcher.js": {
           "path": "js/agents/shared/utils/file-watcher.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/shared/utils/file-watcher.test.js"
+          ]
         },
         "json-candidate.js": {
           "path": "js/agents/shared/utils/json-candidate.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/shared/utils/json-candidate.test.js"
+            "tests/unit/agents/stages/design/refiner/react-refiner.test.js"
           ]
         },
         "logger.js": {
           "path": "js/agents/shared/utils/logger.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/plugins/debug/logger.test.js",
             "tests/integration/agents/shared/utils.test.js"
           ]
         },
@@ -1866,8 +2326,11 @@
         },
         "message-utils.js": {
           "path": "js/agents/shared/utils/message-utils.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/shared/utils/message-utils.test.js",
+            "tests/unit/agents/stages/design/refiner/react-refiner.test.js"
+          ]
         },
         "response-limits.js": {
           "path": "js/agents/shared/utils/response-limits.js",
@@ -1881,13 +2344,15 @@
           "path": "js/agents/shared/utils/robust-json.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/shared/utils/robust-json.test.js"
+            "tests/unit/agents/shared/utils/robust-json.test.js",
+            "tests/unit/agents/stages/design/refiner/react-refiner.test.js"
           ]
         },
         "safe-json.js": {
           "path": "js/agents/shared/utils/safe-json.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/plugins/policy/store.test.js",
             "tests/unit/agents/shared/utils/safe-json.test.js"
           ]
         },
@@ -1895,7 +2360,10 @@
           "path": "js/agents/shared/utils/safe-regex.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/shared/utils/safe-regex.test.js"
+            "tests/unit/agents/runtime/tools/platform/browser.test.js",
+            "tests/unit/agents/runtime/tools/platform/node.test.js",
+            "tests/unit/agents/shared/utils/safe-regex.test.js",
+            "tests/unit/agents/stages/deepsearch/report/report-postprocess.test.js"
           ]
         },
         "schema-validator.js": {
@@ -1909,6 +2377,9 @@
           "path": "js/agents/shared/utils/secure-id.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/plugins/checkpoints/agent-checkpoint-store.test.js",
+            "tests/unit/agents/plugins/memory/state-engine.utils.test.js",
+            "tests/unit/agents/plugins/policy/engine.test.js",
             "tests/unit/agents/shared/utils/secure-id.test.js",
             "tests/integration/agents/shared/utils.test.js"
           ]
@@ -1927,13 +2398,16 @@
         },
         "storage-quota.js": {
           "path": "js/agents/shared/utils/storage-quota.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/shared/utils/storage-quota.test.js"
+          ]
         },
         "token-cache.js": {
           "path": "js/agents/shared/utils/token-cache.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/plugins/compression/impl/context-predictor.test.js",
             "tests/unit/agents/shared/utils/token-cache.test.js",
             "tests/integration/agents/shared/utils.test.js"
           ]
@@ -1942,8 +2416,28 @@
           "path": "js/agents/shared/utils/value-utils.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/ingest/adapters/raw-text.test.js",
+            "tests/unit/agents/plugins/memory/memory-store.impl.l0.test.js",
+            "tests/unit/agents/plugins/memory/memory-store.impl.l2.test.js",
+            "tests/unit/agents/plugins/plan/structured-plan.test.js",
+            "tests/unit/agents/runtime/core/scheduler.test.js",
+            "tests/unit/agents/runtime/core/stage-errors.test.js",
+            "tests/unit/agents/runtime/hooks/hook-registry.test.js",
+            "tests/unit/agents/runtime/safety/tool-permissions.test.js",
+            "tests/unit/agents/runtime/tools/platform/node.test.js",
+            "tests/unit/agents/shared/utils/circuit-breaker.test.js",
+            "tests/unit/agents/shared/utils/message-utils.test.js",
+            "tests/unit/agents/stages/deepsearch/model/budget.test.js",
+            "tests/unit/agents/stages/deepsearch/model/pricing.test.js",
+            "tests/unit/agents/stages/deepsearch/report/report-postprocess.test.js",
+            "tests/unit/agents/stages/deepsearch/source-manager.test.js",
+            "tests/unit/agents/stages/deepsearch/state/iteration-state.test.js",
+            "tests/unit/agents/stages/deepsearch/state/serialization-methods.test.js",
             "tests/unit/agents/stages/design/design-tokens.test.js",
+            "tests/unit/agents/stages/design/image/asset-resolver.test.js",
+            "tests/unit/agents/stages/design/internal/deck-operations.test.js",
             "tests/unit/agents/stages/design/runtime/deck-planner.test.js",
+            "tests/unit/agents/stages/textprep/claims.test.js",
             "tests/integration/agents/shared/utils.test.js"
           ]
         },
@@ -1958,10 +2452,10 @@
     },
     "js/agents/skills": {
       "total": 9,
-      "covered": 4,
-      "stale": 0,
+      "covered": 0,
+      "stale": 4,
       "untested": 5,
-      "coverage": "44.4%",
+      "coverage": "0.0%",
       "files": {
         "index.js": {
           "path": "js/agents/skills/index.js",
@@ -1970,14 +2464,14 @@
         },
         "loader.browser.js": {
           "path": "js/agents/skills/loader.browser.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/skills.test.js"
           ]
         },
         "loader.js": {
           "path": "js/agents/skills/loader.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/skills.test.js"
           ]
@@ -1989,7 +2483,7 @@
         },
         "manager.js": {
           "path": "js/agents/skills/manager.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/skills-manager.test.js",
             "tests/integration/agents/skills.test.js"
@@ -1997,7 +2491,7 @@
         },
         "model.js": {
           "path": "js/agents/skills/model.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/runtime/deps/python-skill-executor.test.js",
             "tests/integration/agents/skill-model.test.js",
@@ -2022,16 +2516,17 @@
       }
     },
     "js/agents/stages": {
-      "total": 138,
-      "covered": 39,
-      "stale": 0,
-      "untested": 99,
-      "coverage": "28.3%",
+      "total": 145,
+      "covered": 104,
+      "stale": 4,
+      "untested": 37,
+      "coverage": "71.7%",
       "files": {
         "code-tools.js": {
           "path": "js/agents/stages/codesearch/code-tools.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/codesearch/code-tools.test.js",
             "tests/integration/agents/stages/codesearch.test.js"
           ]
         },
@@ -2039,13 +2534,16 @@
           "path": "js/agents/stages/codesearch/codesearch-stage.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/codesearch/codesearch-stage.test.js",
             "tests/integration/agents/stages/codesearch.test.js"
           ]
         },
         "index.js": {
           "path": "js/agents/stages/textprep/index.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/textprep/index.test.js"
+          ]
         },
         "index-store.js": {
           "path": "js/agents/stages/codesearch/indexing/index-store.js",
@@ -2058,9 +2556,8 @@
         },
         "symbol-indexer.js": {
           "path": "js/agents/stages/codesearch/indexing/symbol-indexer.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
-            "tests/unit/agents/stages/codesearch/indexing/symbol-indexer.test.js",
             "tests/integration/agents/stages/codesearch.test.js"
           ]
         },
@@ -2070,14 +2567,17 @@
           "tests": []
         },
         "planning-phase.js": {
-          "path": "js/agents/stages/deepsearch/phases/planning-phase.js",
-          "status": "untested",
-          "tests": []
+          "path": "js/agents/stages/design/internal/phases/planning-phase.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/phases/index.test.js"
+          ]
         },
         "summarizing-phase.js": {
           "path": "js/agents/stages/codesearch/phases/summarizing-phase.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/codesearch/phases/index.test.js",
             "tests/unit/agents/stages/codesearch/phases/summarizing-phase.test.js",
             "tests/integration/agents/stages/codesearch.test.js"
           ]
@@ -2091,6 +2591,7 @@
           "path": "js/agents/stages/deepsearch/state.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/deepsearch/internal/backtrack-manager.test.js",
             "tests/unit/agents/stages/deepsearch/state.test.js",
             "tests/integration/agents/stages/deepsearch/deepsearch-stage.vitest.test.js",
             "tests/integration/agents/stages/deepsearch/tool-handlers.test.js"
@@ -2101,6 +2602,12 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/stages/design/edit-mode/edit-loop.test.js",
+            "tests/unit/agents/stages/design/edit-mode/index.test.js",
+            "tests/unit/agents/stages/design/index.test.js",
+            "tests/unit/agents/stages/design/internal/phases/layout-phase.test.js",
+            "tests/unit/agents/stages/design/internal/phases/preparation-phase.test.js",
+            "tests/unit/agents/stages/design/subagents/slide-agent.test.js",
+            "tests/unit/agents/stages/design/subagents/visual-agent.test.js",
             "tests/integration/agents/stages/design/backtrack-layout.test.js"
           ]
         },
@@ -2121,12 +2628,14 @@
         },
         "constants.js": {
           "path": "js/agents/stages/textprep/constants.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/textprep/constants.test.js"
+          ]
         },
         "deepsearch-agent-loop.js": {
           "path": "js/agents/stages/deepsearch/deepsearch-agent-loop.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/stages/deepsearch/deepsearch-stage.vitest.test.js"
           ]
@@ -2135,28 +2644,73 @@
           "path": "js/agents/stages/deepsearch/deepsearch-helpers.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/deepsearch/deepsearch-helpers.test.js",
             "tests/integration/agents/stages/deepsearch/helpers.test.js"
           ]
         },
-        "budget.js": {
-          "path": "js/agents/stages/deepsearch/model/budget.js",
+        "backtrack-manager.js": {
+          "path": "js/agents/stages/deepsearch/internal/backtrack-manager.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/internal/backtrack-manager.test.js"
+          ]
+        },
+        "checkpoint.js": {
+          "path": "js/agents/stages/deepsearch/internal/checkpoint.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/internal/checkpoint.test.js"
+          ]
+        },
+        "error-classifier.js": {
+          "path": "js/agents/stages/design/shared/error-classifier.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/shared/error-classifier.test.js"
+          ]
+        },
+        "model-response-handler.js": {
+          "path": "js/agents/stages/deepsearch/internal/model-response-handler.js",
           "status": "untested",
           "tests": []
+        },
+        "shared-context.js": {
+          "path": "js/agents/stages/deepsearch/internal/shared-context.js",
+          "status": "untested",
+          "tests": []
+        },
+        "writing-phase-handler.js": {
+          "path": "js/agents/stages/deepsearch/internal/writing-phase-handler.js",
+          "status": "untested",
+          "tests": []
+        },
+        "budget.js": {
+          "path": "js/agents/stages/deepsearch/model/budget.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/model/budget.test.js"
+          ]
         },
         "caller.js": {
           "path": "js/agents/stages/deepsearch/model/caller.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/model/caller.test.js"
+          ]
         },
         "pricing.js": {
           "path": "js/agents/stages/deepsearch/model/pricing.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/model/pricing.test.js"
+          ]
         },
         "usage.js": {
           "path": "js/agents/stages/deepsearch/model/usage.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/model/usage.test.js"
+          ]
         },
         "model.js": {
           "path": "js/agents/stages/design/model.js",
@@ -2170,116 +2724,99 @@
         },
         "citations.js": {
           "path": "js/agents/stages/deepsearch/report/citations.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/report/citations.test.js"
+          ]
         },
         "report-generator.js": {
           "path": "js/agents/stages/deepsearch/report/report-generator.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/report/report-generator.test.js"
+          ]
         },
         "report-postprocess.js": {
           "path": "js/agents/stages/deepsearch/report/report-postprocess.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/report/report-postprocess.test.js"
+          ]
         },
         "write-utils.js": {
           "path": "js/agents/stages/deepsearch/report/write-utils.js",
-          "status": "untested",
-          "tests": []
-        },
-        "backtrack-manager.js": {
-          "path": "js/agents/stages/deepsearch/runtime/backtrack-manager.js",
-          "status": "untested",
-          "tests": []
-        },
-        "checkpoint.js": {
-          "path": "js/agents/stages/deepsearch/runtime/checkpoint.js",
-          "status": "untested",
-          "tests": []
-        },
-        "error-classifier.js": {
-          "path": "js/agents/stages/design/shared/error-classifier.js",
-          "status": "untested",
-          "tests": []
-        },
-        "logger.js": {
-          "path": "js/agents/stages/deepsearch/runtime/logger.js",
-          "status": "untested",
-          "tests": []
-        },
-        "model-response-handler.js": {
-          "path": "js/agents/stages/deepsearch/runtime/model-response-handler.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/stages/deepsearch/runtime/model-response-handler.test.js"
-          ]
-        },
-        "shared-context.js": {
-          "path": "js/agents/stages/deepsearch/runtime/shared-context.js",
-          "status": "untested",
-          "tests": []
-        },
-        "writing-phase-handler.js": {
-          "path": "js/agents/stages/deepsearch/runtime/writing-phase-handler.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/stages/deepsearch/runtime/writing-phase-handler.test.js"
+            "tests/unit/agents/stages/deepsearch/report/write-utils.test.js"
           ]
         },
         "source-manager.js": {
           "path": "js/agents/stages/deepsearch/source-manager.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/deepsearch/tools/task/handler.test.js",
             "tests/integration/agents/stages/deepsearch/helpers.test.js",
             "tests/integration/agents/stages/deepsearch/tool-handlers.test.js"
           ]
         },
         "stage-utils.js": {
           "path": "js/agents/stages/deepsearch/stage-utils.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/stages/deepsearch/helpers.test.js"
           ]
         },
         "checkpoint-methods.js": {
           "path": "js/agents/stages/deepsearch/state/checkpoint-methods.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/state/checkpoint-methods.test.js"
+          ]
         },
         "iteration-state.js": {
           "path": "js/agents/stages/deepsearch/state/iteration-state.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/deepsearch/state/iteration-state.test.js",
             "tests/unit/agents/stages/deepsearch/state.test.js"
           ]
         },
         "memory-methods.js": {
           "path": "js/agents/stages/deepsearch/state/memory-methods.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/state/memory-methods.test.js"
+          ]
         },
         "planning-tree.js": {
           "path": "js/agents/stages/deepsearch/state/planning-tree.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/deepsearch/state/checkpoint-methods.test.js",
+            "tests/unit/agents/stages/deepsearch/state/planning-tree.test.js",
             "tests/unit/agents/stages/deepsearch/state.test.js"
           ]
         },
         "report-state.js": {
           "path": "js/agents/stages/deepsearch/state/report-state.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/state/report-state.test.js"
+          ]
         },
         "serialization-methods.js": {
           "path": "js/agents/stages/deepsearch/state/serialization-methods.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/state/serialization-methods.test.js"
+          ]
         },
         "serializer.js": {
           "path": "js/agents/stages/deepsearch/state/serializer.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/deepsearch/state/serialization-methods.test.js",
+            "tests/unit/agents/stages/deepsearch/state/serializer.test.js",
             "tests/unit/agents/stages/deepsearch/state.test.js"
           ]
         },
@@ -2287,18 +2824,23 @@
           "path": "js/agents/stages/deepsearch/state/state-methods.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/deepsearch/state/state-methods.test.js",
             "tests/unit/agents/stages/deepsearch/state.test.js"
           ]
         },
         "task-state.js": {
           "path": "js/agents/stages/deepsearch/state/task-state.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/state/task-state.test.js"
+          ]
         },
         "state-logic.js": {
           "path": "js/agents/stages/deepsearch/state-logic.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/state-logic.test.js"
+          ]
         },
         "subagents.js": {
           "path": "js/agents/stages/deepsearch/subagents.js",
@@ -2312,28 +2854,54 @@
         },
         "handler.js": {
           "path": "js/agents/stages/deepsearch/tools/write-report/handler.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/tools/write-report/handler.test.js"
+          ]
+        },
+        "report-citations.js": {
+          "path": "js/agents/stages/deepsearch/tools/write-report/report-citations.js",
+          "status": "untested",
+          "tests": []
+        },
+        "report-formatting.js": {
+          "path": "js/agents/stages/deepsearch/tools/write-report/report-formatting.js",
+          "status": "untested",
+          "tests": []
+        },
+        "report-template.js": {
+          "path": "js/agents/stages/deepsearch/tools/write-report/report-template.js",
           "status": "untested",
           "tests": []
         },
         "stage-api.js": {
           "path": "js/agents/stages/deepsearch/utils/stage-api.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/utils/stage-api.test.js"
+          ]
         },
         "state-utils.js": {
           "path": "js/agents/stages/deepsearch/utils/state-utils.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/utils/state-utils.test.js"
+          ]
         },
         "todo-utils.js": {
           "path": "js/agents/stages/deepsearch/utils/todo-utils.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/deepsearch/tools/refine-planning/handler.test.js",
+            "tests/unit/agents/stages/deepsearch/utils/todo-utils.test.js"
+          ]
         },
         "agent-loop.js": {
           "path": "js/agents/stages/design/agent-loop.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/design/agent-loop.test.js",
+            "tests/unit/agents/stages/design/index.test.js",
             "tests/integration/agents/stages/design/backtrack-layout.test.js"
           ]
         },
@@ -2344,31 +2912,23 @@
             "tests/unit/agents/stages/design/banana/banana-generator.test.js"
           ]
         },
-        "batch-generator.js": {
-          "path": "js/agents/stages/design/generators/batch-generator.js",
-          "status": "untested",
-          "tests": []
-        },
         "design-agent.js": {
           "path": "js/agents/stages/design/design-agent.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/design-agent.test.js",
+            "tests/unit/agents/stages/design/index.test.js"
+          ]
         },
         "design-helpers.js": {
           "path": "js/agents/stages/design/design-helpers.js",
-          "status": "untested",
-          "tests": []
-        },
-        "design-system-generator.js": {
-          "path": "js/agents/stages/design/generators/design-system-generator.js",
-          "status": "untested",
-          "tests": []
-        },
-        "design-tokens.js": {
-          "path": "js/agents/stages/design/generators/design-tokens.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/stages/design/design-tokens.test.js"
+            "tests/unit/agents/stages/design/design-helpers.test.js",
+            "tests/unit/agents/stages/design/internal/deck-operations.test.js",
+            "tests/unit/agents/stages/design/internal/design-phases.test.js",
+            "tests/unit/agents/stages/design/internal/phases/layout-phase.test.js",
+            "tests/unit/agents/stages/design/internal/phases/preparation-phase.test.js"
           ]
         },
         "design-tools.js": {
@@ -2377,19 +2937,27 @@
           "tests": []
         },
         "dsl-builder.js": {
-          "path": "js/agents/stages/design/dsl-builder.js",
-          "status": "untested",
-          "tests": []
+          "path": "js/agents/stages/design/dsl/dsl-builder.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/dsl/dsl-builder.test.js",
+            "tests/unit/agents/stages/design/index.test.js",
+            "tests/unit/agents/stages/design/internal/design-phases.test.js"
+          ]
         },
         "dsl-rules.js": {
           "path": "js/agents/stages/design/dsl/dsl-rules.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/design-phases.test.js"
+          ]
         },
         "edit-agent-loop.js": {
           "path": "js/agents/stages/design/edit-agent-loop.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/edit-agent-loop.test.js"
+          ]
         },
         "edit-loop.js": {
           "path": "js/agents/stages/design/edit-mode/edit-loop.js",
@@ -2402,6 +2970,7 @@
           "path": "js/agents/stages/design/edit-mode/history.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/design/edit-mode/history.test.js",
             "tests/integration/agents/stages/design/edit-history.vitest.test.js",
             "tests/integration/agents/stages/design/edit-mode-history.test.js"
           ]
@@ -2410,20 +2979,47 @@
           "path": "js/agents/stages/design/edit-mode/tools.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/stages/design/edit-mode/tools.test.js",
             "tests/integration/agents/stages/design/edit-mode-tools.vitest.test.js",
             "tests/integration/agents/stages/design/edit-tools.vitest.test.js"
           ]
         },
-        "image-generator.js": {
-          "path": "js/agents/stages/design/image-generator.js",
+        "batch-generator.js": {
+          "path": "js/agents/stages/design/generators/batch-generator.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/index.test.js"
+          ]
+        },
+        "design-system-generator.js": {
+          "path": "js/agents/stages/design/generators/design-system-generator.js",
           "status": "untested",
           "tests": []
+        },
+        "design-tokens.js": {
+          "path": "js/agents/stages/design/generators/design-tokens.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/design-tokens.test.js",
+            "tests/unit/agents/stages/design/generators/design-tokens.test.js",
+            "tests/unit/agents/stages/design/index.test.js"
+          ]
+        },
+        "image-generator.js": {
+          "path": "js/agents/stages/design/generators/image-generator.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/generators/image-generator.test.js",
+            "tests/unit/agents/stages/design/index.test.js"
+          ]
         },
         "layout-generator.js": {
           "path": "js/agents/stages/design/generators/layout-generator.js",
           "status": "covered",
           "tests": [
             "tests/unit/agents/stages/design/generators/layout-generator.test.js",
+            "tests/unit/agents/stages/design/internal/design-phases.test.js",
+            "tests/unit/agents/stages/design/internal/phases/layout-phase.test.js",
             "tests/integration/agents/stages/design/backtrack-layout.test.js"
           ]
         },
@@ -2434,38 +3030,178 @@
         },
         "svg-generator.js": {
           "path": "js/agents/stages/design/generators/svg-generator.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/index.test.js"
+          ]
         },
         "asset-resolver.js": {
           "path": "js/agents/stages/design/image/asset-resolver.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/image/asset-resolver.test.js"
+          ]
         },
         "image-planner.js": {
-          "path": "js/agents/stages/design/image-planner.js",
-          "status": "untested",
-          "tests": []
+          "path": "js/agents/stages/design/image/image-planner.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/image/image-planner.test.js",
+            "tests/unit/agents/stages/design/internal/design-phases.test.js"
+          ]
         },
         "image-prompt-builder.js": {
-          "path": "js/agents/stages/design/image-prompt-builder.js",
-          "status": "untested",
-          "tests": []
+          "path": "js/agents/stages/design/image/image-prompt-builder.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/image/image-prompt-builder.test.js"
+          ]
         },
         "visual-renderer.js": {
           "path": "js/agents/stages/design/image/visual-renderer.js",
           "status": "untested",
           "tests": []
         },
-        "qa-validator.js": {
-          "path": "js/agents/stages/design/refiner/qa-validator.js",
+        "deck-analyzer.js": {
+          "path": "js/agents/stages/design/internal/deck-analyzer.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/deck-analyzer.test.js"
+          ]
+        },
+        "deck-editor.js": {
+          "path": "js/agents/stages/design/internal/deck-editor.js",
           "status": "untested",
           "tests": []
         },
-        "batch-repair-agent.js": {
-          "path": "js/agents/stages/design/refiner/batch-repair-agent.js",
+        "deck-operations.js": {
+          "path": "js/agents/stages/design/internal/deck-operations.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/deck-operations.test.js"
+          ]
+        },
+        "deck-planner.js": {
+          "path": "js/agents/stages/design/internal/deck-planner.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/deck-planner.test.js",
+            "tests/unit/agents/stages/design/internal/design-phases.test.js"
+          ]
+        },
+        "design-blackboard.js": {
+          "path": "js/agents/stages/design/internal/design-blackboard.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/design-blackboard.test.js"
+          ]
+        },
+        "design-context.js": {
+          "path": "js/agents/stages/design/internal/design-context.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/design-context.test.js"
+          ]
+        },
+        "design-loop-types.js": {
+          "path": "js/agents/stages/design/internal/design-loop-types.js",
           "status": "untested",
           "tests": []
+        },
+        "design-phases.js": {
+          "path": "js/agents/stages/design/internal/design-phases.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/design-phases.test.js"
+          ]
+        },
+        "generating-phase.js": {
+          "path": "js/agents/stages/design/internal/phases/generating-phase.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/phases/generating-phase.test.js",
+            "tests/unit/agents/stages/design/internal/phases/index.test.js"
+          ]
+        },
+        "layout-phase.js": {
+          "path": "js/agents/stages/design/internal/phases/layout-phase.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/phases/index.test.js",
+            "tests/unit/agents/stages/design/internal/phases/layout-phase.test.js"
+          ]
+        },
+        "phase-utils.js": {
+          "path": "js/agents/stages/design/internal/phases/phase-utils.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/design-phases.test.js",
+            "tests/unit/agents/stages/design/internal/phases/layout-phase.test.js",
+            "tests/unit/agents/stages/design/internal/phases/phase-utils.test.js",
+            "tests/unit/agents/stages/design/internal/phases/preparation-phase.test.js"
+          ]
+        },
+        "preparation-phase.js": {
+          "path": "js/agents/stages/design/internal/phases/preparation-phase.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/phases/index.test.js",
+            "tests/unit/agents/stages/design/internal/phases/preparation-phase.test.js"
+          ]
+        },
+        "repair-phase.js": {
+          "path": "js/agents/stages/design/internal/phases/repair-phase.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/phases/index.test.js"
+          ]
+        },
+        "review-phase.js": {
+          "path": "js/agents/stages/design/internal/phases/review-phase.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/phases/index.test.js",
+            "tests/unit/agents/stages/design/internal/phases/review-phase.test.js"
+          ]
+        },
+        "visual-phase.js": {
+          "path": "js/agents/stages/design/internal/phases/visual-phase.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/phases/index.test.js"
+          ]
+        },
+        "screenshot-stitcher.js": {
+          "path": "js/agents/stages/design/internal/screenshot-stitcher.js",
+          "status": "untested",
+          "tests": []
+        },
+        "state-manager.js": {
+          "path": "js/agents/stages/design/internal/state-manager.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/state-manager.test.js"
+          ]
+        },
+        "tool-handler.js": {
+          "path": "js/agents/stages/design/internal/tool-handler.js",
+          "status": "untested",
+          "tests": []
+        },
+        "visual-handler.js": {
+          "path": "js/agents/stages/design/internal/visual-handler.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/internal/deck-operations.test.js",
+            "tests/unit/agents/stages/design/internal/visual-handler.test.js"
+          ]
+        },
+        "batch-repair-agent.js": {
+          "path": "js/agents/stages/design/refiner/batch-repair-agent.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/refiner/batch-repair-agent.test.js"
+          ]
         },
         "design-repair.js": {
           "path": "js/agents/stages/design/refiner/design-repair.js",
@@ -2474,65 +3210,37 @@
             "tests/unit/agents/stages/design/refiner/design-repair.test.js"
           ]
         },
+        "qa-validator.js": {
+          "path": "js/agents/stages/design/refiner/qa-validator.js",
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/index.test.js",
+            "tests/unit/agents/stages/design/internal/design-phases.test.js",
+            "tests/unit/agents/stages/design/refiner/qa-validator.test.js"
+          ]
+        },
         "react-refiner-tools.js": {
           "path": "js/agents/stages/design/refiner/react-refiner-tools.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/index.test.js",
+            "tests/unit/agents/stages/design/internal/design-phases.test.js"
+          ]
         },
         "react-refiner.js": {
           "path": "js/agents/stages/design/refiner/react-refiner.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/index.test.js",
+            "tests/unit/agents/stages/design/internal/design-phases.test.js",
+            "tests/unit/agents/stages/design/refiner/react-refiner.test.js"
+          ]
         },
         "auto-reviewer.js": {
           "path": "js/agents/stages/design/reviewer/auto-reviewer.js",
-          "status": "untested",
-          "tests": []
-        },
-        "deck-analyzer.js": {
-          "path": "js/agents/stages/design/runtime/deck-analyzer.js",
-          "status": "untested",
-          "tests": []
-        },
-        "deck-editor.js": {
-          "path": "js/agents/stages/design/runtime/deck-editor.js",
-          "status": "untested",
-          "tests": []
-        },
-        "deck-planner.js": {
-          "path": "js/agents/stages/design/runtime/deck-planner.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/stages/design/runtime/deck-planner.test.js"
-          ]
-        },
-        "design-blackboard.js": {
-          "path": "js/agents/stages/design/runtime/design-blackboard.js",
-          "status": "untested",
-          "tests": []
-        },
-        "design-context.js": {
-          "path": "js/agents/stages/design/runtime/design-context.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/stages/design/runtime/design-context.test.js"
-          ]
-        },
-        "design-phases.js": {
-          "path": "js/agents/stages/design/runtime/design-phases.js",
-          "status": "untested",
-          "tests": []
-        },
-        "screenshot-stitcher.js": {
-          "path": "js/agents/stages/design/runtime/screenshot-stitcher.js",
-          "status": "untested",
-          "tests": []
-        },
-        "visual-handler.js": {
-          "path": "js/agents/stages/design/runtime/visual-handler.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/stages/design/runtime/visual-handler.test.js"
+            "tests/unit/agents/stages/design/internal/design-phases.test.js"
           ]
         },
         "design-utils.js": {
@@ -2540,13 +3248,18 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/stages/design/dsl/dsl-builder.test.js",
-            "tests/unit/agents/stages/design/generators/layout-generator.test.js"
+            "tests/unit/agents/stages/design/generators/layout-generator.test.js",
+            "tests/unit/agents/stages/design/internal/design-phases.test.js",
+            "tests/unit/agents/stages/design/shared/design-utils.test.js"
           ]
         },
         "html-parser.js": {
           "path": "js/agents/stages/design/shared/html-parser.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/image/asset-resolver.test.js",
+            "tests/unit/agents/stages/design/shared/html-parser.test.js"
+          ]
         },
         "safe-emit.js": {
           "path": "js/agents/stages/design/shared/safe-emit.js",
@@ -2560,61 +3273,97 @@
         },
         "slide-agent.js": {
           "path": "js/agents/stages/design/subagents/slide-agent.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/subagents/slide-agent.test.js"
+          ]
         },
         "visual-agent.js": {
           "path": "js/agents/stages/design/subagents/visual-agent.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/design/subagents/visual-agent.test.js"
+          ]
         },
         "build-content-package.js": {
           "path": "js/agents/stages/textprep/build-content-package.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/textprep/build-content-package.test.js"
+          ]
         },
         "chunk.js": {
           "path": "js/agents/stages/textprep/chunk.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/textprep/chunk.test.js"
+          ]
         },
         "claims.js": {
           "path": "js/agents/stages/textprep/claims.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/textprep/claims.test.js"
+          ]
         },
         "normalize.js": {
           "path": "js/agents/stages/textprep/normalize.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/textprep/normalize.test.js"
+          ]
         },
         "slideplan.js": {
           "path": "js/agents/stages/textprep/slideplan.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/textprep/slideplan.test.js"
+          ]
         }
       }
     },
     "js/agents/storage": {
-      "total": 3,
+      "total": 7,
       "covered": 1,
-      "stale": 0,
-      "untested": 2,
-      "coverage": "33.3%",
+      "stale": 1,
+      "untested": 5,
+      "coverage": "14.3%",
       "files": {
         "artifact-manager.js": {
           "path": "js/agents/storage/artifact-manager.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/stages/codesearch/indexing/symbol-indexer.test.js"
+          ]
         },
         "run-exporter.js": {
           "path": "js/agents/storage/run-exporter.js",
           "status": "untested",
           "tests": []
         },
+        "run-store-cache.js": {
+          "path": "js/agents/storage/run-store-cache.js",
+          "status": "untested",
+          "tests": []
+        },
+        "run-store-crud.js": {
+          "path": "js/agents/storage/run-store-crud.js",
+          "status": "untested",
+          "tests": []
+        },
+        "run-store-queries.js": {
+          "path": "js/agents/storage/run-store-queries.js",
+          "status": "untested",
+          "tests": []
+        },
+        "run-store-utils.js": {
+          "path": "js/agents/storage/run-store-utils.js",
+          "status": "untested",
+          "tests": []
+        },
         "run-store.js": {
           "path": "js/agents/storage/run-store.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/storage/run-exporter.test.js",
             "tests/unit/agents/storage/run-store.test.js"
@@ -2633,7 +3382,6 @@
           "path": "js/agents/testing/mock-suite.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/stages/deepsearch/model.test.js",
             "tests/unit/agents/testing/mock-suite.test.js",
             "tests/integration/agents/testing/testing-utils.test.js"
           ]
@@ -2642,10 +3390,10 @@
     },
     "js/agents/vfs": {
       "total": 20,
-      "covered": 10,
-      "stale": 0,
+      "covered": 0,
+      "stale": 10,
       "untested": 10,
-      "coverage": "50.0%",
+      "coverage": "0.0%",
       "files": {
         "checkpoints.js": {
           "path": "js/agents/vfs/checkpoints.js",
@@ -2669,7 +3417,7 @@
         },
         "file-lock.js": {
           "path": "js/agents/vfs/file-lock.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/vfs/file-lock.test.js"
           ]
@@ -2681,7 +3429,7 @@
         },
         "glob.js": {
           "path": "js/agents/vfs/glob.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/vfs-glob.test.js"
           ]
@@ -2693,7 +3441,7 @@
         },
         "index.browser.js": {
           "path": "js/agents/vfs/index.browser.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/vfs/index.browser.test.js"
           ]
@@ -2715,7 +3463,7 @@
         },
         "path.js": {
           "path": "js/agents/vfs/path.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/plugins/services/vfs.test.js",
             "tests/unit/agents/vfs/path.test.js",
@@ -2724,14 +3472,14 @@
         },
         "storage-adapter.js": {
           "path": "js/agents/vfs/storage-adapter.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/vfs/storage-adapter.test.js"
           ]
         },
         "vfs-scan-async.js": {
           "path": "js/agents/vfs/vfs-scan-async.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/vfs/vfs-scan-async.test.js"
           ]
@@ -2743,7 +3491,7 @@
         },
         "vfs.memory.js": {
           "path": "js/agents/vfs/vfs.memory.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/plugins/services/vfs.test.js",
             "tests/unit/agents/runtime/memory/l3-storage.test.js",
@@ -2753,21 +3501,21 @@
         },
         "vfs.node.js": {
           "path": "js/agents/vfs/vfs.node.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/vfs-node.test.js"
           ]
         },
         "vfs.opfs.js": {
           "path": "js/agents/vfs/vfs.opfs.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/vfs/vfs.opfs.test.js"
           ]
         },
         "vfs.storage.js": {
           "path": "js/agents/vfs/vfs.storage.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/vfs/vfs.storage.test.js",
             "tests/integration/agents/vfs-storage.test.js"
@@ -2777,10 +3525,10 @@
     }
   },
   "summary": {
-    "total": 490,
-    "covered": 192,
-    "stale": 0,
-    "untested": 298,
-    "coverage": "39.2%"
+    "total": 543,
+    "covered": 318,
+    "stale": 45,
+    "untested": 180,
+    "coverage": "58.6%"
   }
 }

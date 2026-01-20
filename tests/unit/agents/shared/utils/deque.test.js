@@ -1,302 +1,230 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+vi.mock('node:fs', () => ({
+  readFileSync: vi.fn(),
+}));
 
-import { Deque } from "../../../../../js/agents/shared/utils/deque.js";
+import { readFileSync } from 'node:fs';
 
-describe("shared/utils/deque", () => {
-  describe("constructor", () => {
-    it("creates empty deque", () => {
-      const d = new Deque();
-      expect(d.size).toBe(0);
-      expect(d.isEmpty()).toBe(true);
-    });
+import { Deque } from '../../../../../js/agents/shared/utils/deque.js';
 
-    it("creates deque from iterable", () => {
-      const d = new Deque([1, 2, 3]);
-      expect(d.size).toBe(3);
-      expect(d.toArray()).toEqual([1, 2, 3]);
-    });
+describe('Deque', () => {
+  /** @type {Deque<unknown>} */
+  let deque;
 
-    it("creates deque from Set", () => {
-      const d = new Deque(new Set(["a", "b"]));
-      expect(d.size).toBe(2);
-    });
-
-    it("creates deque from generator", () => {
-      function* gen() {
-        yield 1;
-        yield 2;
-      }
-      const d = new Deque(gen());
-      expect(d.size).toBe(2);
-    });
+  beforeEach(() => {
+    deque = new Deque();
+    vi.clearAllMocks();
   });
 
-  describe("push", () => {
-    it("adds to back", () => {
-      const d = new Deque();
-      d.push(1);
-      d.push(2);
-      expect(d.toArray()).toEqual([1, 2]);
-    });
+  it('starts empty for default or empty iterables', () => {
+    const emptyDefault = new Deque();
+    const emptyUndefined = new Deque(undefined);
+    const emptyArray = new Deque([]);
+    const emptyString = new Deque('');
+    const emptySet = new Deque(new Set());
 
-    it("increases size", () => {
-      const d = new Deque();
-      d.push("a");
-      expect(d.size).toBe(1);
-      d.push("b");
-      expect(d.size).toBe(2);
-    });
+    expect(emptyDefault.size).toBe(0);
+    expect(emptyUndefined.isEmpty()).toBe(true);
+    expect(emptyArray.toArray()).toEqual([]);
+    expect(emptyString.size).toBe(0);
+    expect(emptySet.isEmpty()).toBe(true);
   });
 
-  describe("pop", () => {
-    it("removes from back", () => {
-      const d = new Deque([1, 2, 3]);
-      expect(d.pop()).toBe(3);
-      expect(d.pop()).toBe(2);
-      expect(d.toArray()).toEqual([1]);
-    });
+  it('constructs from iterables and preserves order', () => {
+    const fromArray = new Deque([1, 2, 3]);
+    const fromSet = new Deque(new Set(['a', 'b']));
+    const fromGenerator = new Deque(
+      (function* () {
+        yield 4;
+        yield 5;
+      })(),
+    );
 
-    it("returns undefined when empty", () => {
-      const d = new Deque();
-      expect(d.pop()).toBe(undefined);
-    });
-
-    it("decreases size", () => {
-      const d = new Deque([1, 2]);
-      d.pop();
-      expect(d.size).toBe(1);
-    });
+    expect(fromArray.toArray()).toEqual([1, 2, 3]);
+    expect(fromSet.toArray()).toEqual(['a', 'b']);
+    expect(fromGenerator.toArray()).toEqual([4, 5]);
   });
 
-  describe("shift", () => {
-    it("removes from front", () => {
-      const d = new Deque([1, 2, 3]);
-      expect(d.shift()).toBe(1);
-      expect(d.shift()).toBe(2);
-      expect(d.toArray()).toEqual([3]);
-    });
-
-    it("returns undefined when empty", () => {
-      const d = new Deque();
-      expect(d.shift()).toBe(undefined);
-    });
-
-    it("decreases size", () => {
-      const d = new Deque([1, 2]);
-      d.shift();
-      expect(d.size).toBe(1);
-    });
+  it('throws for non-iterable inputs like null or plain objects', () => {
+    expect(() => new Deque(null)).toThrow(TypeError);
+    expect(() => new Deque(123)).toThrow(TypeError);
+    expect(() => new Deque({})).toThrow(TypeError);
+    expect(() => new Deque({ 0: 'a', length: 1 })).toThrow(TypeError);
   });
 
-  describe("unshift", () => {
-    it("adds to front", () => {
-      const d = new Deque([2, 3]);
-      d.unshift(1);
-      expect(d.toArray()).toEqual([1, 2, 3]);
-    });
+  it('accepts empty, boundary, and type-edge values without coercion', () => {
+    const emptyArr = [];
+    const emptyObj = {};
 
-    it("increases size", () => {
-      const d = new Deque();
-      d.unshift("x");
-      expect(d.size).toBe(1);
-    });
+    deque.push(null);
+    deque.push(undefined);
+    deque.push('');
+    deque.push(emptyArr);
+    deque.push(emptyObj);
+    deque.push(0);
+    deque.push(-1);
+    deque.push(Number.MAX_SAFE_INTEGER);
+    deque.push('   ');
+    deque.push('1');
+    deque.push(1);
 
-    it("handles negative indices internally", () => {
-      const d = new Deque([1]);
-      d.unshift(0);
-      d.unshift(-1);
-      expect(d.toArray()).toEqual([-1, 0, 1]);
-    });
+    const values = deque.toArray();
+
+    expect(values).toEqual([
+      null,
+      undefined,
+      '',
+      emptyArr,
+      emptyObj,
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      '   ',
+      '1',
+      1,
+    ]);
+    expect(values[3]).toBe(emptyArr);
+    expect(values[4]).toBe(emptyObj);
+    expect(typeof values[9]).toBe('string');
+    expect(typeof values[10]).toBe('number');
   });
 
-  describe("peekFront", () => {
-    it("returns front element without removing", () => {
-      const d = new Deque([1, 2, 3]);
-      expect(d.peekFront()).toBe(1);
-      expect(d.size).toBe(3);
-    });
+  it('supports push/pop/unshift/shift and updates size', () => {
+    deque.push('b');
+    deque.unshift('a');
+    deque.push('c');
+    deque.unshift('z');
 
-    it("returns undefined when empty", () => {
-      const d = new Deque();
-      expect(d.peekFront()).toBe(undefined);
-    });
+    expect(deque.size).toBe(4);
+    expect(deque.peekFront()).toBe('z');
+    expect(deque.peekBack()).toBe('c');
+
+    expect(deque.shift()).toBe('z');
+    expect(deque.pop()).toBe('c');
+
+    expect(deque.toArray()).toEqual(['a', 'b']);
+    expect(deque.size).toBe(2);
   });
 
-  describe("peekBack", () => {
-    it("returns back element without removing", () => {
-      const d = new Deque([1, 2, 3]);
-      expect(d.peekBack()).toBe(3);
-      expect(d.size).toBe(3);
-    });
-
-    it("returns undefined when empty", () => {
-      const d = new Deque();
-      expect(d.peekBack()).toBe(undefined);
-    });
+  it('returns undefined for pop/shift on empty and keeps size at 0', () => {
+    expect(deque.pop()).toBe(undefined);
+    expect(deque.shift()).toBe(undefined);
+    expect(deque.size).toBe(0);
+    expect(deque.isEmpty()).toBe(true);
   });
 
-  describe("isEmpty", () => {
-    it("returns true for empty deque", () => {
-      expect(new Deque().isEmpty()).toBe(true);
-    });
+  it('peekFront/peekBack are non-destructive and undefined when empty', () => {
+    expect(deque.peekFront()).toBe(undefined);
+    expect(deque.peekBack()).toBe(undefined);
 
-    it("returns false for non-empty deque", () => {
-      expect(new Deque([1]).isEmpty()).toBe(false);
-    });
+    deque.push(1);
+    deque.push(2);
 
-    it("returns true after all elements removed", () => {
-      const d = new Deque([1]);
-      d.pop();
-      expect(d.isEmpty()).toBe(true);
-    });
+    expect(deque.peekFront()).toBe(1);
+    expect(deque.peekBack()).toBe(2);
+    expect(deque.size).toBe(2);
   });
 
-  describe("size", () => {
-    it("returns 0 for empty deque", () => {
-      expect(new Deque().size).toBe(0);
-    });
+  it('toArray returns a snapshot and clear resets state', () => {
+    deque.push(1);
+    deque.push(2);
 
-    it("returns correct count", () => {
-      expect(new Deque([1, 2, 3, 4, 5]).size).toBe(5);
-    });
+    const snapshot = deque.toArray();
+    snapshot.push(3);
 
-    it("updates after operations", () => {
-      const d = new Deque([1, 2]);
-      d.push(3);
-      expect(d.size).toBe(3);
-      d.shift();
-      expect(d.size).toBe(2);
-      d.unshift(0);
-      expect(d.size).toBe(3);
-      d.pop();
-      expect(d.size).toBe(2);
-    });
+    expect(deque.toArray()).toEqual([1, 2]);
+
+    deque.clear();
+    expect(deque.toArray()).toEqual([]);
+    expect(deque.isEmpty()).toBe(true);
+    expect(deque.peekFront()).toBe(undefined);
+    expect(deque.peekBack()).toBe(undefined);
   });
 
-  describe("toArray", () => {
-    it("returns empty array for empty deque", () => {
-      expect(new Deque().toArray()).toEqual([]);
-    });
+  it('iterates in order after mixed operations', () => {
+    deque.push('b');
+    deque.push('c');
+    deque.unshift('a');
+    deque.shift();
+    deque.unshift('z');
 
-    it("returns array copy", () => {
-      const d = new Deque([1, 2, 3]);
-      const arr = d.toArray();
-      arr[0] = 999;
-      expect(d.peekFront()).toBe(1);
-    });
+    const values = [];
+    for (const value of deque) {
+      values.push(value);
+    }
 
-    it("maintains order after mixed operations", () => {
-      const d = new Deque([2, 3]);
-      d.unshift(1);
-      d.push(4);
-      expect(d.toArray()).toEqual([1, 2, 3, 4]);
-    });
+    expect(values).toEqual(['z', 'b', 'c']);
   });
 
-  describe("clear", () => {
-    it("empties the deque", () => {
-      const d = new Deque([1, 2, 3]);
-      d.clear();
-      expect(d.size).toBe(0);
-      expect(d.isEmpty()).toBe(true);
-    });
+  it('handles rapid successive operations on both ends', () => {
+    const count = 500;
 
-    it("allows reuse after clear", () => {
-      const d = new Deque([1, 2]);
-      d.clear();
-      d.push(3);
-      expect(d.toArray()).toEqual([3]);
-    });
+    for (let i = 0; i < count; i += 1) {
+      deque.push(i);
+    }
+    for (let i = 0; i < count; i += 1) {
+      expect(deque.shift()).toBe(i);
+    }
+    expect(deque.isEmpty()).toBe(true);
+
+    for (let i = 0; i < count; i += 1) {
+      deque.unshift(i);
+    }
+    for (let i = 0; i < count; i += 1) {
+      expect(deque.pop()).toBe(i);
+    }
+    expect(deque.isEmpty()).toBe(true);
   });
 
-  describe("Symbol.iterator", () => {
-    it("iterates in order", () => {
-      const d = new Deque([1, 2, 3]);
-      const result = [];
-      for (const item of d) {
-        result.push(item);
-      }
-      expect(result).toEqual([1, 2, 3]);
-    });
+  it('handles microtask-scheduled operations without losing items', async () => {
+    const pushes = Array.from({ length: 20 }, (_, i) => i);
+    const unshifts = Array.from({ length: 20 }, (_, i) => i + 1000);
 
-    it("works with spread operator", () => {
-      const d = new Deque(["a", "b", "c"]);
-      expect([...d]).toEqual(["a", "b", "c"]);
-    });
+    await Promise.all([
+      ...pushes.map((value) => Promise.resolve().then(() => deque.push(value))),
+      ...unshifts.map((value) =>
+        Promise.resolve().then(() => deque.unshift(value)),
+      ),
+    ]);
 
-    it("works with Array.from", () => {
-      const d = new Deque([1, 2]);
-      expect(Array.from(d)).toEqual([1, 2]);
-    });
+    const result = deque.toArray();
+    const sorted = result.slice().sort((a, b) => a - b);
+    const expected = [...pushes, ...unshifts].sort((a, b) => a - b);
 
-    it("iterates empty deque", () => {
-      const d = new Deque();
-      const result = [];
-      for (const item of d) {
-        result.push(item);
-      }
-      expect(result).toEqual([]);
-    });
-
-    it("multiple iterators are independent", () => {
-      const d = new Deque([1, 2, 3]);
-      const iter1 = d[Symbol.iterator]();
-      const iter2 = d[Symbol.iterator]();
-
-      expect(iter1.next().value).toBe(1);
-      expect(iter2.next().value).toBe(1);
-      expect(iter1.next().value).toBe(2);
-      expect(iter2.next().value).toBe(2);
-    });
+    expect(result.length).toBe(expected.length);
+    expect(sorted).toEqual(expected);
   });
 
-  describe("mixed operations", () => {
-    it("handles alternating push/shift (queue behavior)", () => {
-      const d = new Deque();
-      d.push(1);
-      d.push(2);
-      expect(d.shift()).toBe(1);
-      d.push(3);
-      expect(d.shift()).toBe(2);
-      expect(d.shift()).toBe(3);
-      expect(d.isEmpty()).toBe(true);
-    });
+  it('handles large payloads, long strings, and deep nesting', () => {
+    const hugePayload = 'x'.repeat(1_000_000);
+    readFileSync.mockReturnValueOnce(hugePayload);
 
-    it("handles alternating push/pop (stack behavior)", () => {
-      const d = new Deque();
-      d.push(1);
-      d.push(2);
-      expect(d.pop()).toBe(2);
-      d.push(3);
-      expect(d.pop()).toBe(3);
-      expect(d.pop()).toBe(1);
-      expect(d.isEmpty()).toBe(true);
-    });
+    const fileData = readFileSync('/fake/huge.bin', 'utf8');
+    const longString = 'y'.repeat(100_000);
+    const deepObject = createDeepObject(60);
 
-    it("handles unshift/pop combination", () => {
-      const d = new Deque();
-      d.unshift(1);
-      d.unshift(2);
-      expect(d.pop()).toBe(1);
-      d.unshift(3);
-      expect(d.pop()).toBe(2);
-      expect(d.pop()).toBe(3);
-    });
+    const largeIterable = Array.from({ length: 10_000 }, (_, i) => i);
+    const largeDeque = new Deque(largeIterable);
 
-    it("handles large number of operations", () => {
-      const d = new Deque();
-      const n = 1000;
+    expect(largeDeque.size).toBe(largeIterable.length);
+    expect(largeDeque.peekFront()).toBe(0);
+    expect(largeDeque.peekBack()).toBe(largeIterable.length - 1);
 
-      for (let i = 0; i < n; i++) {
-        d.push(i);
-      }
-      expect(d.size).toBe(n);
+    deque.push(fileData);
+    deque.push(longString);
+    deque.push(deepObject);
 
-      for (let i = 0; i < n; i++) {
-        expect(d.shift()).toBe(i);
-      }
-      expect(d.isEmpty()).toBe(true);
-    });
+    expect(deque.shift()).toBe(hugePayload);
+    expect(deque.shift()).toBe(longString);
+    expect(deque.shift()).toBe(deepObject);
   });
 });
+
+function createDeepObject(depth) {
+  let current = { level: depth };
+  for (let i = depth - 1; i >= 0; i -= 1) {
+    current = { level: i, child: current };
+  }
+  return current;
+}

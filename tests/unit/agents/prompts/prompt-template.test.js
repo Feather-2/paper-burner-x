@@ -1,182 +1,305 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { PromptTemplate, renderPromptTemplate } from '../../../../js/agents/prompts/prompt-template.js';
+const { loggerWarn, escapeTemplateDelimitersMock, defaultFormatters } = vi.hoisted(() => {
+  const loggerWarn = vi.fn();
+  const escapeTemplateDelimitersMock = vi.fn((value) => `<<${String(value ?? "")}>>`);
+  const defaultFormatters = {
+    upper: (value) => String(value ?? "").toUpperCase(),
+    json: (value) => JSON.stringify(value),
+    bullets: (value) =>
+      Array.isArray(value) ? value.map((item) => `- ${item}`).join("\n") : `- ${value}`,
+    wrap: (value, { args } = {}) => {
+      const [prefix = "", suffix = ""] = Array.isArray(args) ? args : [];
+      return `${prefix}${value ?? ""}${suffix}`;
+    },
+  };
 
-describe("agents/prompts/prompt-template.js", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
+  return { loggerWarn, escapeTemplateDelimitersMock, defaultFormatters };
+});
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+vi.mock("../../../../js/agents/shared/index.js", () => ({
+  createLogger: vi.fn(() => ({ warn: loggerWarn })),
+}));
 
-  it("renders basic placeholders (case-insensitive)", () => {
-    const out = renderPromptTemplate("Hello {{name}}!", { vars: { NAME: "Alice" }, keepUnresolved: false });
+vi.mock("../../../../js/agents/prompts/formatters/index.js", () => ({
+  DEFAULT_FORMATTERS: defaultFormatters,
+  escapeTemplateDelimiters: escapeTemplateDelimitersMock,
+}));
+
+import { renderPromptTemplate, PromptTemplate } from "../../../../js/agents/prompts/prompt-template.js";
+
+beforeEach(() => {
+  loggerWarn.mockClear();
+  escapeTemplateDelimitersMock.mockClear();
+});
+
+describe("renderPromptTemplate", () => {
+  it("replaces placeholders case-insensitively and trims keys", () => {
+    const out = renderPromptTemplate("Hello {{ Name }}!", {
+      vars: { "  NAME  ": "Alice" },
+      keepUnresolved: false,
+      escapeVars: false,
+    });
     expect(out).toBe("Hello Alice!");
   });
 
-  it("supports non-string templates by stringifying them", () => {
-    expect(renderPromptTemplate(123, { vars: {}, keepUnresolved: true })).toBe("123");
-  });
-
-  it("supports dotted keys via object flattening", () => {
-    const out = renderPromptTemplate("min={{minWords.quick}}", { vars: { minWords: { quick: 123 } }, keepUnresolved: false });
-    expect(out).toBe("min=123");
+  it("stringifies non-string templates and handles null templates", () => {
+    expect(renderPromptTemplate(123, { vars: {}, keepUnresolved: false })).toBe("123");
+    expect(renderPromptTemplate(null, { vars: {}, keepUnresolved: false })).toBe("");
   });
 
   it("supports Map vars", () => {
     const vars = new Map([["Foo", "bar"]]);
-    expect(renderPromptTemplate("{{foo}}", { vars, keepUnresolved: false })).toBe("bar");
+    const out = renderPromptTemplate("{{foo}}", { vars, keepUnresolved: false, escapeVars: false });
+    expect(out).toBe("bar");
   });
 
-  it("handles vars passed as arrays (treated as non-keyed)", () => {
-    expect(renderPromptTemplate("{{missing}}", { vars: ["x"], keepUnresolved: true })).toBe("{{missing}}");
-  });
-
-  it("keeps unresolved placeholders by default", () => {
-    expect(renderPromptTemplate("x {{missing}} y", { vars: {} })).toBe("x {{missing}} y");
-  });
-
-  it("can remove unresolved placeholders (keepUnresolved=false)", () => {
-    expect(renderPromptTemplate("x {{missing}} y", { vars: {}, keepUnresolved: false })).toBe("x  y");
-  });
-
-  it("treats empty placeholder names as unresolved", () => {
-    expect(renderPromptTemplate("x {{   }} y", { vars: { a: 1 }, keepUnresolved: false })).toBe("x  y");
-  });
-
-  it("warns on unresolved placeholders", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    renderPromptTemplate("x {{missing}} y", { vars: {}, warnOnUnresolved: true, keepUnresolved: false });
-    expect(warn).toHaveBeenCalled();
-
-    const msg = warn.mock.calls.map((c) => String(c[1] ?? "")).join("\n");
-    expect(msg).toContain("Unresolved placeholders");
-  });
-
-  it("truncates unresolved placeholder lists to 20 items (adds ellipsis)", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const template = Array.from({ length: 25 }, (_, i) => `{{v${i}}}`).join(" ");
-    renderPromptTemplate(template, { vars: {}, warnOnUnresolved: true, keepUnresolved: false });
-    const msg = warn.mock.calls.map((c) => String(c[1] ?? "")).join("\n");
-    expect(msg).toContain(", ...");
-  });
-
-  it("calls onUnresolved with unresolved placeholder names", () => {
-    const onUnresolved = vi.fn();
-    renderPromptTemplate("x {{missing}} y", { vars: {}, onUnresolved, keepUnresolved: false });
-    expect(onUnresolved).toHaveBeenCalledTimes(1);
-    expect(onUnresolved.mock.calls[0][0]).toEqual(["missing"]);
-  });
-
-  it("throws when failOnUnresolved is enabled", () => {
-    expect(() => renderPromptTemplate("x {{missing}} y", { vars: {}, failOnUnresolved: true, keepUnresolved: false }))
-      .toThrow(/Unresolved placeholders/);
-  });
-
-  it("includes an ellipsis in the error message when there are many unresolved placeholders", () => {
-    const template = Array.from({ length: 25 }, (_, i) => `{{v${i}}}`).join(" ");
-    expect(() => renderPromptTemplate(template, { vars: {}, failOnUnresolved: true, keepUnresolved: false }))
-      .toThrow(/, \.\.\./);
-  });
-
-  it("escapes template delimiters inside values by default", () => {
-    const out = renderPromptTemplate("{{x}}", { vars: { x: "Hello {{danger}}" }, keepUnresolved: false });
-    expect(out).not.toContain("{{danger}}");
-    expect(out).toContain("\u200B");
-  });
-
-  it("can disable escaping (escapeVars=false)", () => {
-    const out = renderPromptTemplate("{{x}}", { vars: { x: "Hello {{danger}}" }, escapeVars: false, keepUnresolved: false });
-    expect(out).toBe("Hello {{danger}}");
-  });
-
-  it("supports formatter pipelines", () => {
-    const outJson = renderPromptTemplate("{{obj|json}}", { vars: { obj: { a: 1 } }, keepUnresolved: false });
-    expect(outJson).toContain('"a": 1');
-
-    const outBullets = renderPromptTemplate("{{items|bullets}}", { vars: { items: ["a", "b"] }, keepUnresolved: false });
-    expect(outBullets).toBe("- a\n- b");
-
-    const outCode = renderPromptTemplate("{{snippet|code(js)}}", { vars: { snippet: "x" }, keepUnresolved: false });
-    expect(outCode).toBe("```js\nx\n```");
-  });
-
-  it("supports default formatting for arrays and objects (without explicit formatters)", () => {
-    expect(renderPromptTemplate("{{arr}}", { vars: { arr: [1, 2] }, keepUnresolved: false })).toBe("1\n2");
-    expect(renderPromptTemplate("{{obj}}", { vars: { obj: { a: 1 } }, keepUnresolved: false })).toContain('"a": 1');
-  });
-
-  it("stops flattening beyond the max depth but still keeps the nested object at its key", () => {
+  it("supports dotted keys and stops flattening beyond the max depth", () => {
     const vars = { a: { b: { c: { d: { e: 1 } } } } };
-    const out = renderPromptTemplate("d={{a.b.c.d}} e={{a.b.c.d.e}}", { vars, keepUnresolved: false });
+    const out = renderPromptTemplate("d={{a.b.c.d}} e={{a.b.c.d.e}}", {
+      vars,
+      keepUnresolved: false,
+      escapeVars: false,
+    });
     expect(out).toContain('"e": 1');
     expect(out).toContain("e=");
     expect(out).not.toContain("e=1");
   });
 
-  it("falls back to String(value) when JSON formatting fails", () => {
-    const out = renderPromptTemplate("{{obj}}", { vars: { obj: { big: 1n } }, keepUnresolved: false });
-    expect(out).toBe("[object Object]");
+  it("ignores array vars as a non-keyed container", () => {
+    const out = renderPromptTemplate("{{missing}}", { vars: ["x"], keepUnresolved: true });
+    expect(out).toBe("{{missing}}");
   });
 
-  it("formats unsupported values as empty strings", () => {
-    const out = renderPromptTemplate("{{fn}}", { vars: { fn: () => "x" }, keepUnresolved: false });
-    expect(out).toBe("");
+  it("formats primitive boundaries and empty containers by default", () => {
+    const vars = {
+      n: null,
+      u: undefined,
+      empty: "",
+      zero: 0,
+      neg: -1,
+      max: Number.MAX_SAFE_INTEGER,
+      space: "  ",
+      emptyArr: [],
+      emptyObj: {},
+      big: 1n,
+    };
+
+    const out = renderPromptTemplate(
+      "n={{n}} u={{u}} empty='{{empty}}' zero={{zero}} neg={{neg}} max={{max}} space='{{space}}' emptyArr={{emptyArr}} emptyObj={{emptyObj}} big={{big}}",
+      { vars, keepUnresolved: false, escapeVars: false }
+    );
+
+    expect(out).toBe(
+      `n= u= empty='' zero=0 neg=-1 max=${Number.MAX_SAFE_INTEGER} space='  ' emptyArr= emptyObj={} big=1`
+    );
   });
 
-  it("treats unknown formatters as unresolved", () => {
+  it("joins arrays and falls back when JSON serialization fails", () => {
+    const out = renderPromptTemplate("arr={{arr}} obj={{obj}}", {
+      vars: { arr: [0, null, "x"], obj: { big: 1n } },
+      keepUnresolved: false,
+      escapeVars: false,
+    });
+    expect(out).toBe("arr=0\n\nx obj=[object Object]");
+  });
+
+  it("formats unsupported types as empty strings", () => {
+    const out = renderPromptTemplate("fn={{fn}} sym={{sym}}", {
+      vars: { fn: () => "x", sym: Symbol("s") },
+      keepUnresolved: false,
+      escapeVars: false,
+    });
+    expect(out).toBe("fn= sym=");
+  });
+
+  it("keeps unresolved placeholders by default and can drop them", () => {
+    expect(renderPromptTemplate("x {{missing}} y", { vars: {} })).toBe("x {{missing}} y");
+    expect(renderPromptTemplate("x {{missing}} y", { vars: {}, keepUnresolved: false })).toBe("x  y");
+  });
+
+  it("treats empty placeholder names as unresolved", () => {
+    const out = renderPromptTemplate("x {{   }} y", { vars: { a: 1 }, keepUnresolved: false });
+    expect(out).toBe("x  y");
+  });
+
+  it("applies formatter pipelines and parses args", () => {
+    const out = renderPromptTemplate("{{name|wrap( << , >> )|upper}}", {
+      vars: { name: "ai" },
+      keepUnresolved: false,
+      escapeVars: false,
+    });
+    expect(out).toBe("<<AI>>");
+  });
+
+  it("merges custom formatters and allows overrides", () => {
+    const out = renderPromptTemplate("{{name|upper|wrap(<, >)}}", {
+      vars: { name: "alice" },
+      formatters: {
+        upper: (value) => `custom:${value}`,
+      },
+      keepUnresolved: false,
+      escapeVars: false,
+    });
+    expect(out).toBe("<custom:alice>");
+  });
+
+  it("passes raw values to custom formatters without coercion", () => {
+    const out = renderPromptTemplate("num={{num|type}} obj={{obj|type}} arr={{arr|type}}", {
+      vars: { num: "42", obj: { a: 1 }, arr: [1, 2] },
+      formatters: {
+        type: (value) => (Array.isArray(value) ? "array" : typeof value),
+      },
+      keepUnresolved: false,
+      escapeVars: false,
+    });
+    expect(out).toBe("num=string obj=object arr=array");
+  });
+
+  it("treats unknown or malformed formatters as unresolved", () => {
     const onUnresolved = vi.fn();
-    const out = renderPromptTemplate("{{x|nope}}", {
-      vars: { x: "a" },
+    const out = renderPromptTemplate("{{x|missing}} {{y|wrap(}}", {
+      vars: { x: "a", y: "b" },
       keepUnresolved: true,
       onUnresolved,
     });
-    expect(out).toBe("{{x|nope}}");
-    expect(onUnresolved).toHaveBeenCalledWith(["x|nope"]);
+
+    expect(out).toBe("{{x|missing}} {{y|wrap(}}");
+    expect(onUnresolved).toHaveBeenCalledWith(["x|missing", "y|wrap("]);
   });
 
-  it("treats malformed formatter specs as unresolved", () => {
+  it("escapes template delimiters by default", () => {
+    const out = renderPromptTemplate("{{x}}", { vars: { x: "Hello {{danger}}" }, keepUnresolved: false });
+    expect(escapeTemplateDelimitersMock).toHaveBeenCalledWith("Hello {{danger}}");
+    expect(out).toBe("<<Hello {{danger}}>>");
+  });
+
+  it("can disable escaping with escapeVars=false", () => {
+    const out = renderPromptTemplate("{{x}}", {
+      vars: { x: "Hello {{danger}}" },
+      keepUnresolved: false,
+      escapeVars: false,
+    });
+    expect(escapeTemplateDelimitersMock).not.toHaveBeenCalled();
+    expect(out).toBe("Hello {{danger}}");
+  });
+
+  it("reports unresolved placeholders via logger with truncation", () => {
+    const template = Array.from({ length: 25 }, (_, i) => `{{v${i}}}`).join(" ");
+    renderPromptTemplate(template, { vars: {}, warnOnUnresolved: true, keepUnresolved: false });
+
+    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    const msg = String(loggerWarn.mock.calls[0][0] ?? "");
+    expect(msg).toContain("Unresolved placeholders");
+    expect(msg).toContain("v0");
+    expect(msg).toContain("v19");
+    expect(msg).toContain(", ...");
+  });
+
+  it("calls onUnresolved and suppresses warnings", () => {
     const onUnresolved = vi.fn();
-    const out = renderPromptTemplate("{{x|code(js}}", { vars: { x: "a" }, keepUnresolved: true, onUnresolved });
-    expect(out).toBe("{{x|code(js}}");
-    expect(onUnresolved).toHaveBeenCalledWith(["x|code(js"]);
+    renderPromptTemplate("{{A}} {{B}}", {
+      vars: {},
+      keepUnresolved: false,
+      warnOnUnresolved: true,
+      onUnresolved,
+    });
+
+    expect(onUnresolved).toHaveBeenCalledWith(["a", "b"]);
+    expect(loggerWarn).not.toHaveBeenCalled();
   });
 
-  it("swallows errors thrown by onUnresolved callbacks", () => {
+  it("swallows errors from onUnresolved callbacks", () => {
+    const out = renderPromptTemplate("x {{missing}} y", {
+      vars: {},
+      keepUnresolved: false,
+      onUnresolved: () => {
+        throw new Error("boom");
+      },
+    });
+
+    expect(out).toBe("x  y");
+  });
+
+  it("throws when failOnUnresolved is enabled and includes ellipsis", () => {
+    const template = Array.from({ length: 25 }, (_, i) => `{{v${i}}}`).join(" ");
     expect(() =>
-      renderPromptTemplate("{{missing}}", { vars: {}, keepUnresolved: false, onUnresolved: () => { throw new Error("boom"); } })
-    ).not.toThrow();
+      renderPromptTemplate(template, { vars: {}, failOnUnresolved: true, keepUnresolved: true })
+    ).toThrow(/, \.\.\./);
   });
 
-  it("appends content when appendIfMissing placeholders are not present", () => {
-    const out = renderPromptTemplate("Hi", { vars: {}, appendIfMissing: { NAME: "Extra" } });
-    expect(out).toBe("Hi\n\nExtra");
+  it("appends missing content with trimming and non-string values", () => {
+    const out = renderPromptTemplate("Hi", {
+      vars: {},
+      appendIfMissing: { " extra ": "  content  ", note: 0 },
+    });
+    expect(out).toBe("Hi\n\ncontent\n\n0");
   });
 
-  it("does not append when the placeholder exists in the template", () => {
-    const out = renderPromptTemplate("Hi {{NAME}}", { vars: { name: "Alice" }, keepUnresolved: false, appendIfMissing: { NAME: "Extra" } });
-    expect(out).toBe("Hi Alice");
+  it("does not append when the placeholder exists (case-insensitive, regex chars)", () => {
+    const out = renderPromptTemplate("Hi {{A+B}}", {
+      vars: { "a+b": "value" },
+      appendIfMissing: { "a+b": "Extra" },
+      keepUnresolved: false,
+      escapeVars: false,
+    });
+    expect(out).toBe("Hi value");
   });
 
-  it("ignores invalid appendIfMissing entries", () => {
-    const out = renderPromptTemplate("Hi", { vars: {}, appendIfMissing: { "": "x", NAME: "   " } });
+  it("ignores invalid appendIfMissing inputs", () => {
+    const out = renderPromptTemplate("Hi", {
+      vars: {},
+      appendIfMissing: { "": "x", name: "   " },
+    });
     expect(out).toBe("Hi");
+
+    const outNonObject = renderPromptTemplate("Hi", { vars: {}, appendIfMissing: "nope" });
+    expect(outNonObject).toBe("Hi");
   });
 
-  it("ignores non-object appendIfMissing inputs", () => {
-    const out = renderPromptTemplate("Hi", { vars: {}, appendIfMissing: "nope" });
-    expect(out).toBe("Hi");
+  it("renders consistently under concurrent calls", async () => {
+    const results = await Promise.all([
+      Promise.resolve(renderPromptTemplate("{{A}}", { vars: { a: "one" }, keepUnresolved: false, escapeVars: false })),
+      Promise.resolve(renderPromptTemplate("{{B}}", { vars: { b: "two" }, keepUnresolved: false, escapeVars: false })),
+      Promise.resolve(renderPromptTemplate("x {{missing}} y", { vars: {}, keepUnresolved: false, escapeVars: false })),
+    ]);
+
+    expect(results).toEqual(["one", "two", "x  y"]);
   });
 
-  it("PromptTemplate.render delegates to renderPromptTemplate", () => {
-    const tpl = new PromptTemplate("Hello {{name|upper}}");
-    expect(tpl.render({ vars: { name: "alice" }, keepUnresolved: false })).toBe("Hello ALICE");
+  it("handles rapid successive calls", () => {
+    const outputs = [];
+    for (let i = 0; i < 50; i += 1) {
+      outputs.push(renderPromptTemplate("{{v}}", { vars: { v: i }, keepUnresolved: false, escapeVars: false }));
+    }
+
+    expect(outputs[0]).toBe("0");
+    expect(outputs[49]).toBe("49");
   });
 
-  it("PromptTemplate accepts non-string templates", () => {
+  it("handles very long templates", () => {
+    const chunk = "x".repeat(10000);
+    const out = renderPromptTemplate(`${chunk}{{v}}${chunk}`, {
+      vars: { v: "y" },
+      keepUnresolved: false,
+      escapeVars: false,
+    });
+
+    expect(out.startsWith(chunk)).toBe(true);
+    expect(out.endsWith(chunk)).toBe(true);
+    expect(out.length).toBe(chunk.length * 2 + 1);
+  });
+});
+
+describe("PromptTemplate", () => {
+  it("stringifies template input", () => {
     const tpl = new PromptTemplate(123);
     expect(tpl.render({ vars: {} })).toBe("123");
+  });
+
+  it("renders using provided options", () => {
+    const tpl = new PromptTemplate("Hello {{NAME|upper}}");
+    const out = tpl.render({ vars: { name: "alice" }, keepUnresolved: false, escapeVars: false });
+    expect(out).toBe("Hello ALICE");
   });
 });

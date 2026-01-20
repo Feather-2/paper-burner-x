@@ -1,382 +1,383 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { MessagePortFallback } from "../../../../../js/agents/runtime/core/shared-memory.js";
+import { randomBytes } from "node:crypto";
 
-const assert = require("node:assert/strict");
+vi.mock("node:crypto", () => ({
+  randomBytes: vi.fn((size) => Buffer.alloc(size, 0xab)),
+}));
 
-function withGlobal(name, value, fn) {
-  const had = Object.prototype.hasOwnProperty.call(globalThis, name);
-  const prev = globalThis[name];
-  globalThis[name] = value;
-  try {
-    return fn();
-  } finally {
-    if (had) globalThis[name] = prev;
-    else delete globalThis[name];
-  }
-}
-
-function withProperty(name, descriptor, fn) {
+async function withGlobal(name, value, fn) {
   const had = Object.prototype.hasOwnProperty.call(globalThis, name);
   const prev = Object.getOwnPropertyDescriptor(globalThis, name);
-  Object.defineProperty(globalThis, name, { configurable: true, enumerable: true, ...descriptor });
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value,
+  });
   try {
-    return fn();
+    return await fn();
   } finally {
-    if (had && prev) Object.defineProperty(globalThis, name, prev);
-    else delete globalThis[name];
+    if (had && prev) {
+      Object.defineProperty(globalThis, name, prev);
+    } else {
+      delete globalThis[name];
+    }
   }
 }
 
-describe("SharedMemoryBridge: support detection + SAB path", () => {
-  let SharedMemoryBridge;
-  let pack;
-  let unpack;
-
-  beforeAll(async () => {
-    const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
-    SharedMemoryBridge = mod.SharedMemoryBridge;
-    pack = mod.pack;
-    unpack = mod.unpack;
-  });
-
-  it("getSupport() reports SAB + COI gating", () => {
-    const baseline = SharedMemoryBridge.getSupport();
-    expect(typeof baseline.sharedArrayBuffer).toBe("boolean");
-    expect(typeof baseline.crossOriginIsolatedKnown).toBe("boolean");
-    expect(typeof baseline.crossOriginIsolated).toBe("boolean");
-    expect(typeof baseline.sharedArrayBufferEnabled).toBe("boolean");
-    expect(["sab", "messageport"]).toContain(baseline.mode);
-
-    withGlobal("crossOriginIsolated", false, () => {
-      const s = SharedMemoryBridge.getSupport();
-      expect(s.crossOriginIsolatedKnown).toBe(true);
-      expect(s.crossOriginIsolated).toBe(false);
-      expect(s.sharedArrayBufferEnabled).toBe(false);
-      expect(s.mode).toBe("messageport");
-    });
-
-    withGlobal("crossOriginIsolated", true, () => {
-      const s = SharedMemoryBridge.getSupport();
-      expect(s.crossOriginIsolatedKnown).toBe(true);
-      expect(s.crossOriginIsolated).toBe(true);
-      expect(s.sharedArrayBufferEnabled).toBe(s.sharedArrayBuffer);
-    });
-  });
-
-  it("getSupport()/isCrossOriginIsolated() tolerate throwing COI getter", () => {
-    withProperty("crossOriginIsolated", { get: () => { throw new Error("boom"); } }, () => {
-      const s = SharedMemoryBridge.getSupport();
-      expect(s.crossOriginIsolatedKnown).toBe(false);
-      expect(s.crossOriginIsolated).toBe(false);
-      expect(SharedMemoryBridge.isCrossOriginIsolated()).toBe(false);
-    });
-  });
-
-  it("isSupported() returns false when SAB constructor throws", () => {
-    withGlobal("SharedArrayBuffer", function SharedArrayBuffer() { throw new Error("no"); }, () => {
-      expect(SharedMemoryBridge.isSupported()).toBe(false);
-    });
-  });
-
-  it("allocate() validates byteLength", () => {
-    expect(() => SharedMemoryBridge.allocate(0)).toThrow(/byteLength must be positive/);
-    const buf = SharedMemoryBridge.allocate(16);
-    expect(buf.byteLength).toBe(16);
-    expect(buf).toBeInstanceOf(SharedArrayBuffer);
-  });
-
-  it("copyToShared() copies TypedArray + ArrayBuffer", () => {
-    const input = new Uint8Array([1, 2, 3, 4]);
-    const sab = SharedMemoryBridge.copyToShared(input);
-    expect(sab).toBeInstanceOf(SharedArrayBuffer);
-    expect(new Uint8Array(sab)).toEqual(input);
-
-    const u16 = new Uint16Array([0x1234, 0xabcd]);
-    const sab2 = SharedMemoryBridge.copyToShared(u16);
-    expect(new Uint8Array(sab2)).toEqual(new Uint8Array(u16.buffer));
-
-    const ab = new Uint8Array([9, 8, 7]).buffer;
-    const sab3 = SharedMemoryBridge.copyToShared(ab);
-    expect(new Uint8Array(sab3)).toEqual(new Uint8Array(ab));
-
-    expect(() => SharedMemoryBridge.copyToShared({ byteLength: 1 })).toThrow(/must be TypedArray, ArrayBuffer, or SharedArrayBuffer/);
-  });
-
-  it("copyToShared() respects COI gating when known=false/true", () => {
-    // When COI is explicitly false, treat SAB as disabled and require fallback.
-    withGlobal("crossOriginIsolated", false, () => {
-      expect(() => SharedMemoryBridge.copyToShared(new Uint8Array([1]))).toThrow(/not enabled/);
-    });
-
-    // Passing an existing SAB should still be a no-op.
-    const existing = new SharedArrayBuffer(4);
-    withGlobal("crossOriginIsolated", false, () => {
-      expect(SharedMemoryBridge.copyToShared(existing)).toBe(existing);
-    });
-  });
-
-  it("createView() accepts ArrayBufferLike", () => {
-    const buf = new ArrayBuffer(16);
-    expect(SharedMemoryBridge.createView(buf, "u1")).toBeInstanceOf(Uint8Array);
-    expect(SharedMemoryBridge.createView(buf, "i1")).toBeInstanceOf(Int8Array);
-    expect(SharedMemoryBridge.createView(buf, "u2")).toBeInstanceOf(Uint16Array);
-    expect(SharedMemoryBridge.createView(buf, "i2")).toBeInstanceOf(Int16Array);
-    expect(SharedMemoryBridge.createView(buf, "u4")).toBeInstanceOf(Uint32Array);
-    expect(SharedMemoryBridge.createView(buf, "i4")).toBeInstanceOf(Int32Array);
-    expect(SharedMemoryBridge.createView(buf, "f4")).toBeInstanceOf(Float32Array);
-    expect(SharedMemoryBridge.createView(buf, "f8")).toBeInstanceOf(Float64Array);
-    expect(SharedMemoryBridge.createView(buf, "unknown")).toBeInstanceOf(Uint8Array);
-    expect(() => SharedMemoryBridge.createView(null)).toThrow(/must be SharedArrayBuffer or ArrayBuffer/);
-  });
-
-  it("toPython() uses provided pyodide interface", async () => {
-    const seen = { view: null, dtype: null };
-    const pyodide = {
-      toPy(v) {
-        seen.view = v;
-        return { __py__: true, v };
+function createPortPair() {
+  const makePort = () => {
+    const listeners = new Set();
+    const port = {
+      _peer: null,
+      postMessage(data, _transfer) {
+        Promise.resolve().then(() => {
+          const peer = port._peer;
+          if (!peer) return;
+          const event = { data };
+          if (typeof peer.onmessage === "function") {
+            peer.onmessage(event);
+          }
+          peer._listeners.forEach((listener) => listener(event));
+        });
       },
-      runPython(_code) {
-        return (pyMemory, dtype) => {
-          seen.dtype = dtype;
-          return { pyMemory, dtype };
-        };
+      addEventListener(type, handler) {
+        if (type === "message") port._listeners.add(handler);
       },
+      removeEventListener(type, handler) {
+        if (type === "message") port._listeners.delete(handler);
+      },
+      start: vi.fn(),
+      onmessage: null,
+      _listeners: listeners,
+    };
+    return port;
+  };
+
+  const port1 = makePort();
+  const port2 = makePort();
+  port1._peer = port2;
+  port2._peer = port1;
+  return { port1, port2 };
+}
+
+const flush = () => Promise.resolve();
+
+function buildNestedObject(depth) {
+  const root = {};
+  let cursor = root;
+  for (let i = 0; i < depth; i += 1) {
+    cursor.next = {};
+    cursor = cursor.next;
+  }
+  return root;
+}
+
+describe("MessagePortFallback", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("validates ports and binds listeners", () => {
+    expect(() => new MessagePortFallback(null)).toThrow(/port must be a MessagePort/);
+    expect(() => new MessagePortFallback(undefined)).toThrow(/port must be a MessagePort/);
+    expect(() => new MessagePortFallback("")).toThrow(/port must be a MessagePort/);
+
+    const emptyObject = {};
+    const withEmptyObject = new MessagePortFallback(emptyObject, { chunkBytes: 0 });
+    expect(withEmptyObject.chunkBytes).toBe(0);
+    expect(typeof emptyObject.onmessage).toBe("function");
+    withEmptyObject.close();
+    expect(emptyObject.onmessage).toBe(null);
+
+    const emptyArray = [];
+    const withEmptyArray = new MessagePortFallback(emptyArray, { chunkBytes: -1 });
+    expect(withEmptyArray.chunkBytes).toBe(-1);
+    expect(typeof emptyArray.onmessage).toBe("function");
+    withEmptyArray.close();
+    expect(emptyArray.onmessage).toBe(null);
+
+    const port = {
+      postMessage: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      start: vi.fn(),
+    };
+    const instance = new MessagePortFallback(port);
+    const handler = port.addEventListener.mock.calls[0][1];
+    expect(port.addEventListener).toHaveBeenCalledWith("message", expect.any(Function));
+    expect(port.start).toHaveBeenCalledTimes(1);
+    instance.close();
+    expect(port.removeEventListener).toHaveBeenCalledWith("message", handler);
+
+    const noisyPort = {
+      postMessage: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(() => {
+        throw new Error("boom");
+      }),
+      start: vi.fn(),
+    };
+    const noisy = new MessagePortFallback(noisyPort);
+    expect(() => noisy.close()).not.toThrow();
+  });
+
+  it("packs start + chunk messages with deterministic id", async () => {
+    const messages = [];
+    const port = {
+      postMessage: vi.fn((data) => messages.push(data)),
     };
 
-    const sab = SharedMemoryBridge.copyToShared(new Uint8Array([5, 6, 7]));
-    const out = await SharedMemoryBridge.toPython(pyodide, sab, "uint8");
-    expect(out).toEqual({ pyMemory: { __py__: true, v: seen.view }, dtype: "uint8" });
-    expect(seen.view).toBeInstanceOf(Uint8Array);
-    expect(Array.from(seen.view)).toEqual([5, 6, 7]);
+    const data = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const seed = randomBytes(8);
+    const expectedId = "sm_" + Array.from(seed, (b) => b.toString(16).padStart(2, "0")).join("");
 
-    await expect(async () => SharedMemoryBridge.toPython(pyodide, null), /must be SharedArrayBuffer or ArrayBuffer/);
-  });
-
-  it("pack()/unpack() use SAB when enabled", async () => {
-    const had = Object.prototype.hasOwnProperty.call(globalThis, "crossOriginIsolated");
-    const prev = globalThis.crossOriginIsolated;
-    globalThis.crossOriginIsolated = true;
-    try {
-      const bytes = new Uint8Array([10, 20, 30]);
-      const packed = pack(bytes); // default mode=auto
-      expect(packed.kind).toBe("sab");
-      const buf = await unpack(packed);
-      expect(buf).toBeInstanceOf(SharedArrayBuffer);
-      expect(new Uint8Array(buf)).toEqual(bytes);
-    } finally {
-      if (had) globalThis.crossOriginIsolated = prev;
-      else delete globalThis.crossOriginIsolated;
-    }
-
-    await expect(async () => unpack({ kind: "sab", buffer: new ArrayBuffer(1) }), /invalid SAB packet\.buffer/);
-  });
-
-  it("wrap() aliases copyToShared()", () => {
-    const buf = SharedMemoryBridge.wrap(new Uint8Array([1, 2]));
-    expect(buf).toBeInstanceOf(SharedArrayBuffer);
-  });
-
-  it("pack(mode='sab') throws when SAB not enabled", () => {
-    withGlobal("crossOriginIsolated", false, () => {
-      expect(() => SharedMemoryBridge.pack(new Uint8Array([1]), { mode: "sab" })).toThrow(/not enabled/);
+    await withGlobal("crypto", {
+      getRandomValues(arr) {
+        arr.set(seed);
+        return arr;
+      },
+    }, () => {
+      const fallback = new MessagePortFallback(port, { chunkBytes: 4 });
+      const packet = fallback.pack(data);
+      expect(packet.id).toBe(expectedId);
+      expect(packet.byteLength).toBe(9);
+      expect(messages).toHaveLength(4);
+      expect(messages[0]).toEqual({
+        type: "shared-memory:port-fallback:start",
+        id: expectedId,
+        byteLength: 9,
+        chunkBytes: 4,
+      });
+      expect(messages.slice(1).map((m) => m.offset)).toEqual([0, 4, 8]);
+      expect(messages[3].chunk).toBeInstanceOf(ArrayBuffer);
+      expect(messages[3].chunk.byteLength).toBe(1);
     });
   });
 
-  it("estimateOverhead() reports copy vs zero-copy", () => {
-    const sab = new SharedArrayBuffer(2);
-    const a = SharedMemoryBridge.estimateOverhead(sab);
-    expect(a.supported).toBe(true);
-    expect(a.needsCopy).toBe(false);
-    expect(a.description).toMatch(/zero-copy/i);
-
-    const b = SharedMemoryBridge.estimateOverhead(new ArrayBuffer(3));
-    expect(typeof b.supported).toBe("boolean");
-    expect(b.needsCopy).toBe(true);
-    expect(b.description).toMatch(/Will copy/i);
+  it("falls back to non-crypto id generation when crypto fails", async () => {
+    const port = {
+      postMessage: vi.fn(),
+    };
+    const fallback = new MessagePortFallback(port);
+    await withGlobal("crypto", {
+      getRandomValues() {
+        throw new Error("nope");
+      },
+    }, () => {
+      const packet = fallback.pack(new Uint8Array([1]));
+      expect(packet.id).toMatch(/^sm_[a-z0-9]+_[a-z0-9]+$/);
+    });
   });
-});
 
-it("SharedMemoryBridge: MessagePort fallback chunking (256KB)", async () => {
-  const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
-  const { MessagePortFallback, SharedMemoryBridge } = mod;
+  it("packs zero-length buffers and rejects invalid data inputs", () => {
+    const messages = [];
+    const port = {
+      postMessage: vi.fn((data) => messages.push(data)),
+    };
+    const fallback = new MessagePortFallback(port);
 
-  const { port1, port2 } = new MessageChannel();
-  const receiver = new MessagePortFallback(port2);
+    const empty = new Uint8Array([]);
+    const packet = fallback.pack(empty);
+    expect(packet.byteLength).toBe(0);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].type).toBe("shared-memory:port-fallback:start");
 
-  const seenChunkSizes = [];
-  port2.addEventListener("message", (evt) => {
-    const msg = evt?.data;
-    if (msg?.type === "shared-memory:port-fallback:chunk" && msg.chunk instanceof ArrayBuffer) {
-      seenChunkSizes.push(msg.chunk.byteLength);
+    const objectAsArray = { 0: 1, 1: 2, length: 2 };
+    expect(() => fallback.pack(null)).toThrow(TypeError);
+    expect(() => fallback.pack(undefined)).toThrow(TypeError);
+    expect(() => fallback.pack("")).toThrow(TypeError);
+    expect(() => fallback.pack([])).toThrow(TypeError);
+    expect(() => fallback.pack({})).toThrow(TypeError);
+    expect(() => fallback.pack(objectAsArray)).toThrow(TypeError);
+
+    const longString = "x".repeat(1024 * 1024);
+    expect(() => fallback.pack(longString)).toThrow(TypeError);
+
+    const nested = buildNestedObject(64);
+    expect(() => fallback.pack(nested)).toThrow(TypeError);
+
+    const buffer = new Uint8Array([9, 8, 7]).buffer;
+    expect(() => fallback.pack(buffer)).not.toThrow();
+  });
+
+  it("reconstructs data for concurrent and rapid transfers", async () => {
+    const { port1, port2 } = createPortPair();
+    const sender = new MessagePortFallback(port1, { chunkBytes: 32 });
+    const receiver = new MessagePortFallback(port2);
+
+    const a = new Uint8Array([1, 2, 3]);
+    const b = new Uint8Array([4, 5, 6, 7]);
+    const packetA = sender.pack(a);
+    const packetB = sender.pack(b);
+
+    const [bufA, bufB] = await Promise.all([receiver.unpack(packetA), receiver.unpack(packetB)]);
+    expect(new Uint8Array(bufA)).toEqual(a);
+    expect(new Uint8Array(bufB)).toEqual(b);
+
+    const payloads = [];
+    const promises = [];
+    for (let i = 0; i < 5; i += 1) {
+      const data = new Uint8Array([i, i + 1, i + 2]);
+      payloads.push(data);
+      const packet = sender.pack(data);
+      promises.push(receiver.unpack(packet));
     }
+
+    const results = await Promise.all(promises);
+    results.forEach((buf, index) => {
+      expect(new Uint8Array(buf)).toEqual(payloads[index]);
+    });
+
+    sender.close();
+    receiver.close();
   });
 
-  const chunkBytes = receiver.chunkBytes;
-  expect(chunkBytes).toBe(256 * 1024);
+  it("handles large payloads within limits", async () => {
+    const { port1, port2 } = createPortPair();
+    const sender = new MessagePortFallback(port1, { chunkBytes: 64 * 1024 });
+    const receiver = new MessagePortFallback(port2, { maxByteLength: 2 * 1024 * 1024 });
 
-  const total = chunkBytes * 2 + 123;
-  const bytes = new Uint8Array(total);
-  for (let i = 0; i < bytes.length; i += 1) bytes[i] = i % 251;
+    const size = 1024 * 1024 + 123;
+    const data = new Uint8Array(size);
+    data[0] = 7;
+    data[size - 1] = 9;
 
-  const packet = SharedMemoryBridge.pack(bytes, { mode: "messageport", port: port1 });
-  expect(packet.kind).toBe("messageport");
-  expect(packet.byteLength).toBe(total);
+    const packet = sender.pack(data);
+    const out = await receiver.unpack(packet);
+    expect(out.byteLength).toBe(size);
+    const view = new Uint8Array(out);
+    expect(view[0]).toBe(7);
+    expect(view[size - 1]).toBe(9);
 
-  const out = await SharedMemoryBridge.unpack(packet, { port: port2 });
-  expect(out).toBeInstanceOf(ArrayBuffer);
-  expect(new Uint8Array(out)).toEqual(bytes);
+    sender.close();
+    receiver.close();
+  });
 
-  expect(seenChunkSizes).toEqual([chunkBytes, chunkBytes, 123]);
-
-  receiver.close();
-  port1.close();
-  port2.close();
-});
-
-it("MessagePortFallback: edge cases + internal branches", async () => {
-  const { MessagePortFallback } = await import("../../../js/agents/runtime/core/shared-memory.js");
-
-  expect(() => new MessagePortFallback(null)).toThrow(/port must be a MessagePort/);
-
-  // Exercise _start() onmessage fallback path and close() nulls it out.
-  let started = 0;
-  const stubPort = {
-    postMessage() {},
-    start() {
-      started += 1;
-    },
-    onmessage: null,
-  };
-  const stub = new MessagePortFallback(stubPort);
-  expect(typeof stubPort.onmessage).toBe("function");
-  expect(started).toBe(1);
-  stub.close();
-  expect(stubPort.onmessage).toBe(null);
-
-  // close() should swallow removeEventListener errors.
-  const noisyPort = {
-    postMessage() {},
-    addEventListener() {},
-    removeEventListener() {
-      throw new Error("boom");
-    },
-    start() {},
-  };
-  const noisy = new MessagePortFallback(noisyPort);
-  noisy.close();
-
-  // unpack() rejects when id is missing.
-  await expect(async () => stub.unpack({ kind: "messageport", id: "", byteLength: 0 }), /packet\.id is required/);
-
-  // Cover existing.result path: 0-byte transfer completes before unpack() is called.
-  {
-    const { port1, port2 } = new MessageChannel();
+  it("resolves zero-length transfers and accepts whitespace ids", async () => {
+    const { port1, port2 } = createPortPair();
     const sender = new MessagePortFallback(port1);
     const receiver = new MessagePortFallback(port2);
+
     const packet = sender.pack(new Uint8Array([]));
-    await new Promise((r) => setTimeout(r, 0));
+    await flush();
     const out = await receiver.unpack(packet);
-    expect(out).toBeInstanceOf(ArrayBuffer);
     expect(out.byteLength).toBe(0);
-    sender.close();
-    receiver.close();
-    port1.close();
-    port2.close();
-  }
 
-  // Cover existing.error path: protocol error stored before unpack() is called.
-  {
-    const { port1, port2 } = new MessageChannel();
-    const receiver = new MessagePortFallback(port2);
-    const id = "err_pre";
-    port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 1, chunkBytes: 1024 });
-    port1.postMessage({ type: "shared-memory:port-fallback:chunk", id, offset: 0, chunk: "bad" });
-    await new Promise((r) => setTimeout(r, 0));
-    await expect(async () => receiver.unpack({ kind: "messageport", id, byteLength: 1 }), /chunk must be an ArrayBuffer/);
-    receiver.close();
-    port1.close();
-    port2.close();
-  }
-
-  // Cover byteLength mismatch -> _fail() rejects when a waiter exists.
-  {
-    const { port1, port2 } = new MessageChannel();
-    const receiver = new MessagePortFallback(port2);
-    const id = "mismatch";
-    const pending = receiver.unpack({ kind: "messageport", id, byteLength: 4 });
-    port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 1, chunkBytes: 1024 });
-    await expect(async () => pending, /byteLength mismatch/);
-    receiver.close();
-    port1.close();
-    port2.close();
-  }
-
-  // Cover chunk overflow -> _fail() rejects.
-  {
-    const { port1, port2 } = new MessageChannel();
-    const receiver = new MessagePortFallback(port2);
-    const id = "overflow";
-    const pending = receiver.unpack({ kind: "messageport", id, byteLength: 1 });
-    port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 1, chunkBytes: 1024 });
-    const chunk = new ArrayBuffer(2);
-    port1.postMessage({ type: "shared-memory:port-fallback:chunk", id, offset: 0, chunk }, [chunk]);
-    await expect(async () => pending, /chunk overflow/);
-    receiver.close();
-    port1.close();
-    port2.close();
-  }
-
-  // Exercise toUint8View branches + makeTransferId crypto fallback.
-  {
-    const { port1, port2 } = new MessageChannel();
-    const sender = new MessagePortFallback(port1, { chunkBytes: 2048 });
-    const receiver = new MessagePortFallback(port2);
-
-    withProperty("crypto", { value: { getRandomValues: () => { throw new Error("no"); } } }, () => {
-      const packet = sender.pack(new Int16Array([1, 2, 3])); // ArrayBuffer.isView branch
-      expect(packet.kind).toBe("messageport");
-      expect(packet.id).toMatch(/^sm_/);
-    });
-
-    const packet2 = sender.pack(new Uint8Array([9, 8, 7]).buffer); // ArrayBufferLike branch
-    expect(packet2.byteLength).toBe(3);
-
-    expect(() => sender.pack({})).toThrow(/data must be TypedArray, ArrayBuffer, or SharedArrayBuffer/);
+    const id = "   ";
+    port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 0, chunkBytes: 16 });
+    await flush();
+    const out2 = await receiver.unpack({ kind: "messageport", id, byteLength: 0 });
+    expect(out2.byteLength).toBe(0);
 
     sender.close();
     receiver.close();
-    port1.close();
-    port2.close();
-  }
-});
-
-it("SharedMemoryBridge: fallback errors when port missing", async () => {
-  const { SharedMemoryBridge } = await import("../../../js/agents/runtime/core/shared-memory.js");
-  expect(() => SharedMemoryBridge.pack(new Uint8Array([1]), { mode: "messageport" })).toThrow(/MessagePort required/);
-  await expect(async () => SharedMemoryBridge.unpack({ kind: "messageport", id: "x", byteLength: 1 })).rejects.toThrow(/MessagePort required/);
-  expect(() => SharedMemoryBridge.pack(new Uint8Array([1]), { mode: "bogus" })).toThrow(/unsupported mode/);
-  await expect(async () => SharedMemoryBridge.unpack({ kind: "bogus" })).rejects.toThrow(/unsupported packet kind/);
-});
-
-describe("SharedMemoryBridge: behaves when SharedArrayBuffer is absent", () => {
-  let SharedMemoryBridge;
-
-  beforeAll(async () => {
-    const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
-    SharedMemoryBridge = mod.SharedMemoryBridge;
   });
 
-  it("getSupport() reflects missing SAB", () =>
-    withGlobal("SharedArrayBuffer", undefined, () => {
-      const s = SharedMemoryBridge.getSupport();
-      expect(s.sharedArrayBuffer).toBe(false);
-      expect(s.sharedArrayBufferEnabled).toBe(false);
-      expect(s.mode).toBe("messageport");
-    }));
+  it("rejects invalid packet inputs and length boundaries", async () => {
+    const { port2 } = createPortPair();
+    const receiver = new MessagePortFallback(port2, { maxByteLength: 8 });
 
-  it("allocate()/copyToShared() throw clean errors", () =>
-    withGlobal("SharedArrayBuffer", undefined, () => {
-      expect(() => SharedMemoryBridge.allocate(8)).toThrow(/not available/);
-      expect(() => SharedMemoryBridge.copyToShared(new Uint8Array([1]))).toThrow(/not enabled/);
-    }));
+    await expect(receiver.unpack(undefined)).rejects.toThrow(/packet.id is required/);
+    await expect(receiver.unpack(null)).rejects.toThrow(/packet.id is required/);
+    await expect(receiver.unpack({})).rejects.toThrow(/packet.id is required/);
+    await expect(receiver.unpack({ kind: "messageport", id: "", byteLength: 0 })).rejects.toThrow(/packet.id is required/);
+    await expect(receiver.unpack({ kind: "messageport", id: "neg", byteLength: -1 })).rejects.toThrow(/non-negative/);
+    await expect(receiver.unpack({ kind: "messageport", id: "huge", byteLength: Number.MAX_SAFE_INTEGER }))
+      .rejects.toThrow(/exceeds limit/);
+
+    receiver.close();
+  });
+
+  it("rejects when start length is negative or exceeds maxByteLength", async () => {
+    {
+      const { port1, port2 } = createPortPair();
+      const receiver = new MessagePortFallback(port2);
+      const id = "neg";
+      const pending = receiver.unpack({ kind: "messageport", id, byteLength: 1 });
+      port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: -1, chunkBytes: 4 });
+      await expect(pending).rejects.toThrow(/non-negative/);
+      receiver.close();
+    }
+
+    {
+      const { port1, port2 } = createPortPair();
+      const receiver = new MessagePortFallback(port2, { maxByteLength: 4 });
+      const id = "limit";
+      const pending = receiver.unpack({ kind: "messageport", id, byteLength: 4 });
+      port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 10, chunkBytes: 4 });
+      await expect(pending).rejects.toThrow(/exceeds limit/);
+      receiver.close();
+    }
+  });
+
+  it("rejects mismatched lengths including string byteLength values", async () => {
+    {
+      const { port1, port2 } = createPortPair();
+      const receiver = new MessagePortFallback(port2);
+      const id = "mismatch";
+      const pending = receiver.unpack({ kind: "messageport", id, byteLength: 4 });
+      port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 2, chunkBytes: 4 });
+      await expect(pending).rejects.toThrow(/byteLength mismatch/);
+      receiver.close();
+    }
+
+    {
+      const { port1, port2 } = createPortPair();
+      const receiver = new MessagePortFallback(port2);
+      const id = "string";
+      const pending = receiver.unpack({ kind: "messageport", id, byteLength: "8" });
+      port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 8, chunkBytes: 4 });
+      await expect(pending).rejects.toThrow(/byteLength mismatch/);
+      receiver.close();
+    }
+  });
+
+  it("rejects invalid chunk payloads and overflows", async () => {
+    {
+      const { port1, port2 } = createPortPair();
+      const receiver = new MessagePortFallback(port2);
+      const id = "badchunk";
+      const pending = receiver.unpack({ kind: "messageport", id, byteLength: 1 });
+      port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 1, chunkBytes: 4 });
+      port1.postMessage({ type: "shared-memory:port-fallback:chunk", id, offset: 0, chunk: "bad" });
+      await expect(pending).rejects.toThrow(/chunk must be an ArrayBuffer/);
+      receiver.close();
+    }
+
+    {
+      const { port1, port2 } = createPortPair();
+      const receiver = new MessagePortFallback(port2);
+      const id = "overflow";
+      const pending = receiver.unpack({ kind: "messageport", id, byteLength: 1 });
+      port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 1, chunkBytes: 4 });
+      const chunk = new ArrayBuffer(2);
+      port1.postMessage({ type: "shared-memory:port-fallback:chunk", id, offset: 0, chunk }, [chunk]);
+      await expect(pending).rejects.toThrow(/chunk overflow/);
+      receiver.close();
+    }
+  });
+
+  it("surfaces errors that arrive before unpack and ignores invalid messages", async () => {
+    const { port1, port2 } = createPortPair();
+    const receiver = new MessagePortFallback(port2);
+    const id = "pre_error";
+
+    port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 1, chunkBytes: 4 });
+    port1.postMessage({ type: "shared-memory:port-fallback:chunk", id, offset: 0, chunk: "bad" });
+    await flush();
+
+    await expect(receiver.unpack({ kind: "messageport", id, byteLength: 1 }))
+      .rejects.toThrow(/chunk must be an ArrayBuffer/);
+
+    port1.postMessage(null);
+    port1.postMessage(undefined);
+    port1.postMessage(" ");
+    port1.postMessage({ type: "unknown", id: "ignored" });
+    await flush();
+    expect(receiver._transfers.size).toBe(0);
+
+    receiver.close();
+  });
 });

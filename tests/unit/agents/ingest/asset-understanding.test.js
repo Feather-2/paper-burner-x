@@ -1,170 +1,348 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const assert = require("node:assert/strict");
+vi.mock("../../../../js/agents/prompts/prompt-loader.js", () => ({
+  loadPrompt: vi.fn(),
+}));
 
-it("understandAsset(): returns null when missing requirements", async () => {
-  const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
+const modulePath = "../../../../js/agents/ingest/asset-understanding.js";
+const promptLoaderPath = "../../../../js/agents/prompts/prompt-loader.js";
 
-  expect(await understandAsset(null, {})).toBe(null);
-  expect(await understandAsset({ type: "image" }, {})).toBe(null);
-  expect(await understandAsset({ data: "x" }, {})).toBe(null);
-  expect(await understandAsset({ type: "image", data: "x" }, {})).toBe(null);
+function createDeferred() {
+  /** @type {(value: string) => void} */
+  let resolve;
+  /** @type {(reason?: Error) => void} */
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function getLoadPromptMock() {
+  const mod = await import(promptLoaderPath);
+  return vi.mocked(mod.loadPrompt);
+}
+
+async function importModule() {
+  return await import(modulePath);
+}
+
+beforeEach(() => {
+  vi.resetModules();
+  vi.clearAllMocks();
 });
 
-it("understandAsset(): generates description via modelRouter (prefers router over visionApi)", async () => {
-  const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
+describe("getBatchAnalysisPrompt", () => {
+  it("returns cached prompt on rapid successive calls", async () => {
+    const loadPrompt = await getLoadPromptMock();
+    loadPrompt.mockResolvedValue("PROMPT-A");
 
-  const routerCalls = [];
-  let visionCalls = 0;
+    const { getBatchAnalysisPrompt } = await importModule();
 
-  const modelRouter = {
-    async call(prompt, { usage, images } = {}) {
-      routerCalls.push({ prompt, usage, images });
-      // 新实现使用批量分析 prompt，返回 JSON 数组
-      return {
-        content: JSON.stringify([{
-          description: "A concise description.",
-          category: "photo",
-          topics: ["test"],
-          hasText: true,
-          textContent: "HELLO"
-        }])
-      };
-    },
-  };
-  const visionApi = {
-    async describe() {
-      visionCalls++;
-      return { content: "should-not-be-used" };
-    },
-  };
+    const first = await getBatchAnalysisPrompt();
+    const second = await getBatchAnalysisPrompt();
 
-  const asset = { type: "image", data: "data:image/png;base64,AAAA" };
-  const out = await understandAsset(asset, { modelRouter, visionApi });
+    expect(first).toBe("PROMPT-A");
+    expect(second).toBe("PROMPT-A");
+    expect(loadPrompt).toHaveBeenCalledTimes(1);
+  });
 
-  expect(out.description).toBe("A concise description.");
-  expect(out.textContent).toBe("HELLO");
-  expect(visionCalls).toBe(0);
-  expect(routerCalls).toHaveLength(1);
-  expect(routerCalls[0].usage).toBe("vision");
-  expect(routerCalls[0].images).toEqual([asset.data]);
+  it("falls back to default prompt when loadPrompt throws", async () => {
+    const loadPrompt = await getLoadPromptMock();
+    loadPrompt.mockRejectedValue(new Error("boom"));
+
+    const { getBatchAnalysisPrompt } = await importModule();
+    const result = await getBatchAnalysisPrompt();
+
+    expect(result).toContain("Analyze these images for reuse in presentation slides.");
+    expect(loadPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cache empty prompt values", async () => {
+    const loadPrompt = await getLoadPromptMock();
+    loadPrompt.mockResolvedValueOnce("").mockResolvedValueOnce("PROMPT-B");
+
+    const { getBatchAnalysisPrompt } = await importModule();
+
+    const first = await getBatchAnalysisPrompt();
+    const second = await getBatchAnalysisPrompt();
+
+    expect(first).toBe("");
+    expect(second).toBe("PROMPT-B");
+    expect(loadPrompt).toHaveBeenCalledTimes(2);
+  });
+
+  it("resolves concurrent calls consistently while prompt is pending", async () => {
+    const loadPrompt = await getLoadPromptMock();
+    const deferred = createDeferred();
+    loadPrompt.mockImplementation(() => deferred.promise);
+
+    const { getBatchAnalysisPrompt } = await importModule();
+
+    const p1 = getBatchAnalysisPrompt();
+    const p2 = getBatchAnalysisPrompt();
+
+    deferred.resolve("PROMPT-C");
+
+    const [first, second] = await Promise.all([p1, p2]);
+
+    expect(first).toBe("PROMPT-C");
+    expect(second).toBe("PROMPT-C");
+    expect(loadPrompt).toHaveBeenCalledTimes(2);
+  });
 });
 
-it("understandAsset(): extracts text via visionApi.describe", async () => {
-  const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
+describe("understandAsset", () => {
+  it("returns null for invalid assets and missing requirements", async () => {
+    const { understandAsset } = await importModule();
 
-  const visionApi = {
-    async describe(image, prompt) {
-      expect(image).toBe("img0");
-      return {
-        content: JSON.stringify([{
-          description: "Desc.",
-          hasText: true,
-          textContent: "Line1\nLine2"
-        }])
-      };
-    },
-  };
+    const cases = [
+      null,
+      undefined,
+      {},
+      [],
+      { type: "image", data: "" },
+      { type: "", data: "x" },
+      { type: "image", data: 0 },
+    ];
 
-  const out = await understandAsset({ type: "diagram", data: "img0" }, { visionApi });
-  expect(out.description).toBe("Desc.");
-  expect(out.textContent).toBe("Line1\nLine2");
+    for (const asset of cases) {
+      const result = await understandAsset(asset, {});
+      expect(result).toBe(null);
+    }
+
+    const result = await understandAsset({ type: "image", data: "img" }, {});
+    expect(result).toBe(null);
+  });
+
+  it("prefers modelRouter and normalizes response fields", async () => {
+    const { understandAsset } = await importModule();
+
+    const modelRouter = {
+      call: vi.fn(async (prompt, { usage, images } = {}) => ({
+        content: JSON.stringify([
+          {
+            description: "Desc",
+            topics: "topic",
+            suggestedUse: ["cover"],
+            dominantColors: "blue",
+            hasText: 1,
+            textContent: "TXT",
+          },
+        ]),
+      })),
+    };
+    const visionApi = {
+      describe: vi.fn(async () => ({ content: "ignored" })),
+    };
+
+    const asset = { type: "image", data: "   " };
+    const result = await understandAsset(asset, { modelRouter, visionApi });
+
+    expect(result).toEqual({
+      description: "Desc",
+      category: "other",
+      topics: [],
+      suggestedUse: ["cover"],
+      visualStyle: "",
+      dominantColors: [],
+      hasText: true,
+      textContent: "TXT",
+    });
+
+    expect(modelRouter.call).toHaveBeenCalledTimes(1);
+    const [prompt, options] = modelRouter.call.mock.calls[0];
+    expect(prompt).toContain("Analyze these images");
+    expect(options).toEqual({ usage: "vision", images: [asset.data] });
+    expect(visionApi.describe).not.toHaveBeenCalled();
+  });
+
+  it("accepts numeric string data and returns deep nested objects", async () => {
+    const { understandAsset } = await importModule();
+
+    const nested = {
+      description: "Nested",
+      meta: { level: { deep: { value: Number.MAX_SAFE_INTEGER } } },
+    };
+    const visionApi = {
+      describe: vi.fn(async (image, prompt) => {
+        expect(image).toBe("0");
+        expect(prompt).toContain("Analyze these images");
+        return { content: JSON.stringify(nested) };
+      }),
+    };
+
+    const asset = { type: "image", data: "0", size: "1024" };
+    const result = await understandAsset(asset, { visionApi });
+
+    expect(result.description).toBe("Nested");
+    expect(result.meta.level.deep.value).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("handles oversized non-JSON responses and huge asset data", async () => {
+    const { understandAsset } = await importModule();
+
+    const longText = "x".repeat(50000);
+    const hugeData = "a".repeat(700000);
+
+    const modelRouter = {
+      call: vi.fn(async (_prompt, { images } = {}) => {
+        expect(images[0].length).toBe(hugeData.length);
+        return { content: longText };
+      }),
+    };
+
+    const asset = { type: "image", data: hugeData, size: Number.MAX_SAFE_INTEGER };
+    const result = await understandAsset(asset, { modelRouter });
+
+    expect(result.description.length).toBe(longText.length);
+    expect(result.description.slice(0, 3)).toBe("xxx");
+  });
+
+  it("returns sanitized error messages when vision calls fail", async () => {
+    const { understandAsset } = await importModule();
+
+    const noisyMessage = `  boom\n${"x".repeat(300)}  `;
+    const modelRouter = {
+      call: vi.fn(async () => {
+        throw new Error(noisyMessage);
+      }),
+    };
+
+    const asset = { type: "image", data: "img" };
+    const result = await understandAsset(asset, { modelRouter });
+
+    expect(result.error).toContain("boom");
+    expect(result.error).not.toContain("\n");
+    expect(result.error.length).toBeLessThanOrEqual(200);
+    expect(result.error.endsWith("...")).toBe(true);
+  });
 });
 
-it("understandAsset(): parses category and topics", async () => {
-  const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
+describe("understandAssets", () => {
+  it("returns empty array for null/undefined/empty/object assets", async () => {
+    const { understandAssets } = await importModule();
 
-  const visionApi = {
-    async describe(image, prompt) {
-      return {
-        content: JSON.stringify([{
-          description: "A data table.",
-          category: "table",
-          topics: ["data", "statistics"],
-          hasText: true,
-          textContent: "Header A  Header B"
-        }])
-      };
-    },
-  };
+    expect(await understandAssets(null)).toEqual([]);
+    expect(await understandAssets(undefined)).toEqual([]);
+    expect(await understandAssets({})).toEqual([]);
+    expect(await understandAssets([])).toEqual([]);
+  });
 
-  const out = await understandAsset({ type: "table", data: "table_img" }, { visionApi });
-  expect(out.description).toBe("A data table.");
-  expect(out.category).toBe("table");
-  expect(out.topics).toEqual(["data", "statistics"]);
-});
+  it("filters invalid assets and returns nulls without a vision client", async () => {
+    const { understandAssets } = await importModule();
 
-it("understandAsset(): handles non-JSON response gracefully", async () => {
-  const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
+    const assets = [
+      { type: "image", data: "img0" },
+      { type: "image", data: "" },
+      { type: "", data: "img1" },
+      { type: "image", data: 0 },
+      { type: "image", data: -1, size: "1024" },
+      { type: "image", data: Number.MAX_SAFE_INTEGER },
+    ];
 
-  const modelRouter = {
-    async call(prompt) {
-      return { content: "Just a plain text description." };
-    },
-  };
+    const result = await understandAssets(assets, {});
 
-  const out = await understandAsset({ type: "formula", data: "formula_img" }, { modelRouter });
-  // 非 JSON 响应时，description 应该是原始文本
-  expect(out.description).toBe("Just a plain text description.");
-});
+    expect(result.length).toBe(3);
+    expect(result).toEqual([null, null, null]);
+  });
 
-it("understandAsset(): handles malformed JSON gracefully", async () => {
-  const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
+  it("batches calls and reports progress", async () => {
+    const { understandAssets } = await importModule();
 
-  const visionApi = {
-    async describe(_image, prompt) {
-      return { content: "[bad json" };
-    },
-  };
+    const progress = [];
+    const modelRouter = {
+      call: vi.fn(async (_prompt, { usage, images } = {}) => {
+        expect(usage).toBe("vision");
+        return {
+          content: JSON.stringify(
+            images.map((img) => ({
+              description: `desc:${img}`,
+              category: "photo",
+              topics: [],
+              hasText: false,
+              textContent: "",
+            })),
+          ),
+        };
+      }),
+    };
 
-  const out = await understandAsset({ type: "table", data: "x" }, { visionApi });
-  // 解析失败时返回原始文本作为 description
-  expect(out.description).toBe("[bad json");
-});
+    const assets = Array.from({ length: 6 }, (_, i) => ({
+      type: "image",
+      data: `img${i}`,
+    }));
 
-it("understandAssets(): processes batch and returns results", async () => {
-  const { understandAssets } = await import("../../../js/agents/ingest/asset-understanding.js");
+    const result = await understandAssets(assets, {
+      modelRouter,
+      onProgress: (update) => progress.push(update),
+    });
 
-  const progress = [];
+    expect(result.map((item) => item.description)).toEqual([
+      "desc:img0",
+      "desc:img1",
+      "desc:img2",
+      "desc:img3",
+      "desc:img4",
+      "desc:img5",
+    ]);
+    expect(modelRouter.call).toHaveBeenCalledTimes(2);
+    expect(modelRouter.call.mock.calls[0][1].images.length).toBe(5);
+    expect(modelRouter.call.mock.calls[1][1].images.length).toBe(1);
+    expect(progress).toEqual([
+      { processed: 5, total: 6 },
+      { processed: 6, total: 6 },
+    ]);
+  });
 
-  const modelRouter = {
-    async call(prompt, { usage, images } = {}) {
-      expect(usage).toBe("vision");
-      // 返回与图片数量匹配的结果数组
-      return {
-        content: JSON.stringify(images.map((img, i) => ({
-          description: `desc:${img}`,
-          category: "photo",
-          topics: [],
-          hasText: false,
-          textContent: ""
-        })))
-      };
-    },
-  };
+  it("returns sanitized errors when a batch fails", async () => {
+    const { understandAssets } = await importModule();
 
-  const assets = Array.from({ length: 5 }, (_, i) => ({ type: "image", data: `img${i}` }));
-  const out = await understandAssets(assets, { modelRouter, onProgress: (p) => progress.push(p) });
+    const modelRouter = {
+      call: vi.fn(async () => {
+        throw new Error("API error");
+      }),
+    };
 
-  expect(out.length).toBe(5);
-  expect(out.map((r) => r.description)).toEqual(["desc:img0", "desc:img1", "desc:img2", "desc:img3", "desc:img4"],
-  );
-  // 批量处理会有进度回调
-  expect(progress).toEqual([{ processed: 5, total: 5 }]);
-});
+    const assets = [
+      { type: "image", data: "img0" },
+      { type: "image", data: "img1" },
+    ];
 
-it("understandAssets(): handles errors gracefully", async () => {
-  const { understandAssets } = await import("../../../js/agents/ingest/asset-understanding.js");
+    const result = await understandAssets(assets, { modelRouter });
 
-  const modelRouter = {
-    async call() {
-      throw new Error("API error");
-    },
-  };
+    expect(result).toHaveLength(2);
+    expect(result[0].error).toBe("API error");
+    expect(result[1].error).toBe("API error");
+  });
 
-  const assets = [{ type: "image", data: "img0" }];
-  const out = await understandAssets(assets, { modelRouter });
+  it("supports concurrent calls without cross-talk", async () => {
+    const { understandAssets } = await importModule();
 
-  expect(out.length).toBe(1);
-  expect(out[0].error).toBe("API error");
+    const modelRouter = {
+      call: vi.fn(async (_prompt, { images } = {}) => ({
+        content: JSON.stringify(
+          images.map((img) => ({
+            description: `desc:${img}`,
+          })),
+        ),
+      })),
+    };
+
+    const assetsA = [{ type: "image", data: "a1" }];
+    const assetsB = [
+      { type: "image", data: "b1" },
+      { type: "image", data: "b2" },
+    ];
+
+    const [resultA, resultB] = await Promise.all([
+      understandAssets(assetsA, { modelRouter }),
+      understandAssets(assetsB, { modelRouter }),
+    ]);
+
+    expect(resultA.map((item) => item.description)).toEqual(["desc:a1"]);
+    expect(resultB.map((item) => item.description)).toEqual(["desc:b1", "desc:b2"]);
+    expect(modelRouter.call).toHaveBeenCalledTimes(2);
+  });
 });

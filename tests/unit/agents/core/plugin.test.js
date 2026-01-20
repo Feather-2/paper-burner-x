@@ -1,9 +1,131 @@
-/**
- * Plugin System Tests
- * Tests for createPlugin, PluginContext, and PluginManager
- */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../../../../js/agents/core/event-bus.js', () => {
+  class EventBus {
+    constructor() {
+      this._handlers = new Map();
+      this.emitSync = vi.fn((event, payload) => {
+        this.emit(event, payload);
+      });
+    }
+
+    on(event, callback) {
+      const handlers = this._handlers.get(event) ?? new Set();
+      handlers.add(callback);
+      this._handlers.set(event, handlers);
+      return () => handlers.delete(callback);
+    }
+
+    emit(event, payload) {
+      const handlers = this._handlers.get(event);
+      if (!handlers) return;
+      for (const handler of handlers) {
+        handler(payload);
+      }
+    }
+
+    dispose() {
+      this._handlers.clear();
+    }
+  }
+
+  return { EventBus };
+});
+
+vi.mock('../../../../js/agents/core/state-bus.js', () => {
+  class StateBus {
+    constructor() {
+      this._store = new Map();
+      this._meta = new Map();
+      this._subscriptions = new Set();
+    }
+
+    get(path) {
+      if (path === undefined || path === null) return undefined;
+      if (this._store.has(path)) return this._store.get(path);
+      const prefix = `${path}.`;
+      const result = {};
+      let found = false;
+      for (const [key, value] of this._store) {
+        if (key.startsWith(prefix)) {
+          found = true;
+          const subKey = key.slice(prefix.length);
+          result[subKey] = value;
+        }
+      }
+      return found ? result : undefined;
+    }
+
+    set(path, value, meta = {}) {
+      this._store.set(path, value);
+      this._meta.set(path, meta ?? {});
+      this._notify(path, value);
+    }
+
+    merge(path, updates, meta = {}) {
+      const current = this._store.get(path);
+      let merged;
+      if (current && typeof current === 'object' && updates && typeof updates === 'object') {
+        merged = { ...current, ...updates };
+      } else {
+        merged = updates;
+      }
+      this._store.set(path, merged);
+      this._meta.set(path, meta ?? {});
+      this._notify(path, merged);
+    }
+
+    subscribe(pattern, callback) {
+      const entry = { pattern, callback };
+      this._subscriptions.add(entry);
+      const unsub = vi.fn(() => {
+        this._subscriptions.delete(entry);
+      });
+      return unsub;
+    }
+
+    _notify(path, value) {
+      for (const entry of this._subscriptions) {
+        if (this._matches(entry.pattern, path)) {
+          entry.callback({ path, value });
+        }
+      }
+    }
+
+    _matches(pattern, path) {
+      if (pattern.endsWith('*')) {
+        return path.startsWith(pattern.slice(0, -1));
+      }
+      return pattern === path;
+    }
+  }
+
+  return { StateBus };
+});
+
+vi.mock('../../../../js/agents/core/service-bus.js', () => {
+  class ServiceBus {
+    constructor() {
+      this._services = new Map();
+      this.register = vi.fn((name, service, options = {}) => {
+        this._services.set(name, { service, options });
+      });
+      this.unregister = vi.fn((name) => {
+        this._services.delete(name);
+      });
+    }
+
+    has(name) {
+      return this._services.has(name);
+    }
+
+    get(name) {
+      return this._services.get(name);
+    }
+  }
+
+  return { ServiceBus };
+});
 
 import {
   createPlugin,
@@ -15,28 +137,64 @@ import { EventBus } from '../../../../js/agents/core/event-bus.js';
 import { StateBus } from '../../../../js/agents/core/state-bus.js';
 import { ServiceBus } from '../../../../js/agents/core/service-bus.js';
 
-/**
- * Create a minimal kernel-like object for testing
- */
-function createMockKernel() {
-  const events = new EventBus({ keepHistory: true });
-  const state = new StateBus({ events, keepLog: true });
-  const services = new ServiceBus({ events });
+const LARGE_STRING = 'x'.repeat(200000);
 
-  return { events, state, services };
+function createMockKernel() {
+  return {
+    events: new EventBus(),
+    state: new StateBus(),
+    services: new ServiceBus(),
+  };
 }
 
+function createDeepObject(depth) {
+  let current = { level: depth };
+  for (let i = depth - 1; i >= 0; i -= 1) {
+    current = { level: i, child: current };
+  }
+  return current;
+}
+
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+describe('PluginStatus', () => {
+  it('exposes expected states', () => {
+    expect(PluginStatus.PENDING).toBe('pending');
+    expect(PluginStatus.INSTALLING).toBe('installing');
+    expect(PluginStatus.ACTIVE).toBe('active');
+    expect(PluginStatus.ERROR).toBe('error');
+    expect(PluginStatus.UNINSTALLED).toBe('uninstalled');
+  });
+});
+
 describe('createPlugin', () => {
-  it('throws when name is missing', () => {
+  it('throws when config or name is invalid', () => {
+    expect(() => createPlugin()).toThrow();
+    expect(() => createPlugin(null)).toThrow();
     expect(() => createPlugin({})).toThrow(/must have a name/);
     expect(() => createPlugin({ name: '' })).toThrow(/must have a name/);
     expect(() => createPlugin({ name: 123 })).toThrow(/must have a name/);
   });
 
-  it('creates plugin with minimal config', () => {
+  it('accepts whitespace and numeric string names', () => {
+    const whitespace = createPlugin({ name: '   ' });
+    const numeric = createPlugin({ name: '123' });
+
+    expect(whitespace.name).toBe('   ');
+    expect(numeric.name).toBe('123');
+  });
+
+  it('applies defaults for optional fields', () => {
     const plugin = createPlugin({ name: 'minimal' });
 
-    expect(plugin.name).toBe('minimal');
     expect(plugin.version).toBe('1.0.0');
     expect(plugin.description).toBe('');
     expect(plugin.dependencies).toEqual([]);
@@ -51,54 +209,53 @@ describe('createPlugin', () => {
     expect(plugin._config).toBeNull();
   });
 
-  it('creates plugin with full config', () => {
+  it('preserves provided values and boundary types', () => {
+    const dependencies = { dep: 'a' };
+    const defaultConfig = {};
     const install = vi.fn();
     const uninstall = vi.fn();
-    const onStart = vi.fn();
-    const onStop = vi.fn();
-    const onError = vi.fn();
 
     const plugin = createPlugin({
-      name: 'full-plugin',
-      version: '2.0.0',
-      description: 'A full plugin',
-      dependencies: ['dep-a', 'dep-b'],
-      defaultConfig: { option: 'value' },
+      name: 'custom',
+      version: -1,
+      description: 'desc',
+      dependencies,
+      defaultConfig,
       install,
       uninstall,
-      onStart,
-      onStop,
-      onError,
+      onStart: vi.fn(),
+      onStop: vi.fn(),
+      onError: vi.fn(),
     });
 
-    expect(plugin.name).toBe('full-plugin');
-    expect(plugin.version).toBe('2.0.0');
-    expect(plugin.description).toBe('A full plugin');
-    expect(plugin.dependencies).toEqual(['dep-a', 'dep-b']);
-    expect(plugin.defaultConfig).toEqual({ option: 'value' });
+    expect(plugin.version).toBe(-1);
+    expect(plugin.dependencies).toBe(dependencies);
+    expect(plugin.defaultConfig).toBe(defaultConfig);
     expect(plugin.install).toBe(install);
     expect(plugin.uninstall).toBe(uninstall);
-    expect(plugin.onStart).toBe(onStart);
-    expect(plugin.onStop).toBe(onStop);
-    expect(plugin.onError).toBe(onError);
   });
 
-  it('install/uninstall are no-ops by default', () => {
-    const plugin = createPlugin({ name: 'no-op' });
+  it('handles version edge values and long description', () => {
+    const longDescription = 'x'.repeat(50000);
+    const zeroVersion = createPlugin({ name: 'zero', version: 0, description: longDescription });
+    const maxVersion = createPlugin({ name: 'max', version: Number.MAX_SAFE_INTEGER });
 
-    // Should not throw
-    expect(plugin.install()).toBeUndefined();
-    expect(plugin.uninstall()).toBeUndefined();
+    expect(zeroVersion.version).toBe('1.0.0');
+    expect(zeroVersion.description).toBe(longDescription);
+    expect(maxVersion.version).toBe(Number.MAX_SAFE_INTEGER);
   });
-});
 
-describe('PluginStatus', () => {
-  it('contains all expected states', () => {
-    expect(PluginStatus.PENDING).toBe('pending');
-    expect(PluginStatus.INSTALLING).toBe('installing');
-    expect(PluginStatus.ACTIVE).toBe('active');
-    expect(PluginStatus.ERROR).toBe('error');
-    expect(PluginStatus.UNINSTALLED).toBe('uninstalled');
+  it('creates independent instances under rapid calls', async () => {
+    const [first, second] = await Promise.all([
+      Promise.resolve().then(() => createPlugin({ name: 'fast-a', defaultConfig: { v: 0 } })),
+      Promise.resolve().then(() => createPlugin({ name: 'fast-b', defaultConfig: { v: -1 } })),
+    ]);
+
+    expect(first).not.toBe(second);
+    expect(first.name).toBe('fast-a');
+    expect(second.name).toBe('fast-b');
+    expect(first.defaultConfig).toEqual({ v: 0 });
+    expect(second.defaultConfig).toEqual({ v: -1 });
   });
 });
 
@@ -106,162 +263,166 @@ describe('PluginContext', () => {
   let kernel;
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     kernel = createMockKernel();
   });
 
-  afterEach(() => {
-    kernel.events.dispose();
-  });
-
-  it('merges plugin defaultConfig with provided config', () => {
+  it('merges config shallowly with deep defaults and large payloads', () => {
+    const deepDefaults = createDeepObject(12);
     const plugin = createPlugin({
-      name: 'ctx-test',
-      defaultConfig: { a: 1, b: 2 },
+      name: 'ctx',
+      defaultConfig: {
+        nested: deepDefaults,
+        file: LARGE_STRING,
+        keep: 'default',
+        emptyObj: {},
+      },
     });
 
-    const ctx = new PluginContext(kernel, plugin, { b: 20, c: 30 });
+    const ctx = new PluginContext(kernel, plugin, {
+      nested: { override: true },
+      keep: 'override',
+      extra: 0,
+    });
 
-    expect(ctx.config).toEqual({ a: 1, b: 20, c: 30 });
+    expect(ctx.config).toEqual({
+      nested: { override: true },
+      file: LARGE_STRING,
+      keep: 'override',
+      emptyObj: {},
+      extra: 0,
+    });
   });
 
-  it('exposes kernel buses', () => {
-    const plugin = createPlugin({ name: 'buses' });
+  it('uses defaults when config is undefined or empty', () => {
+    const plugin = createPlugin({
+      name: 'defaults',
+      defaultConfig: { value: 1, empty: {} },
+    });
+
+    const ctxA = new PluginContext(kernel, plugin);
+    const ctxB = new PluginContext(kernel, plugin, {});
+
+    expect(ctxA.config).toEqual({ value: 1, empty: {} });
+    expect(ctxB.config).toEqual({ value: 1, empty: {} });
+  });
+
+  it('exposes kernel APIs and logger prefix', () => {
+    const plugin = createPlugin({ name: 'logger' });
     const ctx = new PluginContext(kernel, plugin);
 
     expect(ctx.events).toBe(kernel.events);
     expect(ctx.services).toBe(kernel.services);
     expect(ctx.state).toBeDefined();
-  });
-
-  it('provides scoped state accessors', () => {
-    const plugin = createPlugin({ name: 'scoped' });
-    const ctx = new PluginContext(kernel, plugin);
-
-    // Set via scoped state
-    ctx.state.set('foo', 'bar');
-    expect(kernel.state.get('plugins.scoped.foo')).toBe('bar');
-
-    // Get via scoped state
-    expect(ctx.state.get('foo')).toBe('bar');
-
-    // Get plugin root
-    expect(ctx.state.get()).toEqual({ foo: 'bar' });
-
-    // Merge
-    ctx.state.merge('nested', { x: 1 });
-    expect(kernel.state.get('plugins.scoped.nested')).toEqual({ x: 1 });
-  });
-
-  it('provides global state read-only access', () => {
-    kernel.state.set('global.data', 'secret');
-
-    const plugin = createPlugin({ name: 'reader' });
-    const ctx = new PluginContext(kernel, plugin);
-
-    expect(ctx.state.getGlobal('global.data')).toBe('secret');
-  });
-
-  it('provides logger with plugin prefix', () => {
-    const plugin = createPlugin({ name: 'logger-test' });
-    const ctx = new PluginContext(kernel, plugin);
 
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    ctx.log.debug('debug msg');
-    ctx.log.info('info msg');
-    ctx.log.warn('warn msg');
-    ctx.log.error('error msg');
+    ctx.log.debug('debug');
+    ctx.log.info('info');
+    ctx.log.warn('warn');
+    ctx.log.error('error');
 
-    expect(debugSpy).toHaveBeenCalledWith('[logger-test]', 'debug msg');
-    expect(infoSpy).toHaveBeenCalledWith('[logger-test]', 'info msg');
-    expect(warnSpy).toHaveBeenCalledWith('[logger-test]', 'warn msg');
-    expect(errorSpy).toHaveBeenCalledWith('[logger-test]', 'error msg');
-
-    debugSpy.mockRestore();
-    infoSpy.mockRestore();
-    warnSpy.mockRestore();
-    errorSpy.mockRestore();
+    expect(debugSpy).toHaveBeenCalledWith('[logger]', 'debug');
+    expect(infoSpy).toHaveBeenCalledWith('[logger]', 'info');
+    expect(warnSpy).toHaveBeenCalledWith('[logger]', 'warn');
+    expect(errorSpy).toHaveBeenCalledWith('[logger]', 'error');
   });
 
-  it('registerService tracks services for cleanup', () => {
-    const plugin = createPlugin({ name: 'svc-reg' });
+  it('scopes state access, preserves meta, and handles boundary paths', () => {
+    const plugin = createPlugin({ name: 'scope' });
     const ctx = new PluginContext(kernel, plugin);
 
-    ctx.registerService('myService', { fn: () => 'ok' });
+    ctx.state.set(0, 'zero', { trace: 't0' });
+    ctx.state.set(-1, 'neg');
+    ctx.state.set(Number.MAX_SAFE_INTEGER, 'max');
+    ctx.state.set('   ', 'space');
+    ctx.state.set('object', { a: 1 });
+    ctx.state.merge('object', { b: 2 }, { trace: 'merge' });
 
-    expect(kernel.services.has('myService')).toBe(true);
-    expect(ctx._services).toContain('myService');
+    expect(kernel.state.get('plugins.scope.0')).toBe('zero');
+    expect(kernel.state.get('plugins.scope.-1')).toBe('neg');
+    expect(kernel.state.get(`plugins.scope.${Number.MAX_SAFE_INTEGER}`)).toBe('max');
+    expect(kernel.state.get('plugins.scope.   ')).toBe('space');
+    expect(kernel.state.get('plugins.scope.object')).toEqual({ a: 1, b: 2 });
+
+    expect(ctx.state.get(0)).toBe('zero');
+    expect(ctx.state.get('')).toEqual(ctx.state.get());
+
+    expect(kernel.state._meta.get('plugins.scope.0')).toEqual({
+      plugin: 'scope',
+      trace: 't0',
+    });
+    expect(kernel.state._meta.get('plugins.scope.object')).toEqual({
+      plugin: 'scope',
+      trace: 'merge',
+    });
   });
 
-  it('on() subscribes to events and tracks for cleanup', () => {
-    const plugin = createPlugin({ name: 'evt-sub' });
+  it('exposes global state read access', () => {
+    kernel.state.set('global.value', 'secret');
+
+    const plugin = createPlugin({ name: 'reader' });
     const ctx = new PluginContext(kernel, plugin);
 
-    const handler = vi.fn();
-    const unsub = ctx.on('test.event', handler);
-
-    expect(ctx._subscriptions).toContain(unsub);
-
-    kernel.events.emit('test.event', { data: 1 });
-    expect(handler).toHaveBeenCalledTimes(1);
+    expect(ctx.state.getGlobal('global.value')).toBe('secret');
   });
 
-  it('state.subscribe tracks subscriptions for cleanup', () => {
-    const plugin = createPlugin({ name: 'state-sub' });
+  it('tracks subscriptions/services and disposes cleanly', () => {
+    const plugin = createPlugin({ name: 'cleanup' });
     const ctx = new PluginContext(kernel, plugin);
 
-    const handler = vi.fn();
-    const unsub = ctx.state.subscribe('plugins.state-sub.*', handler);
+    ctx.registerService('svc', { run: () => 'ok' }, { scoped: true });
 
-    expect(ctx._subscriptions).toContain(unsub);
-  });
+    const eventHandler = vi.fn();
+    const eventUnsub = ctx.on('event.test', eventHandler);
 
-  it('dispose cleans up all subscriptions and services', () => {
-    const plugin = createPlugin({ name: 'disposable' });
-    const ctx = new PluginContext(kernel, plugin);
-
-    // Register service
-    ctx.registerService('dispSvc', { fn: () => {} });
-
-    // Subscribe to events
-    const evtHandler = vi.fn();
-    ctx.on('dispose.evt', evtHandler);
-
-    // Subscribe to state
     const stateHandler = vi.fn();
-    ctx.state.subscribe('plugins.disposable.*', stateHandler);
+    const stateUnsub = ctx.state.subscribe('plugins.cleanup.*', stateHandler);
 
-    expect(ctx._subscriptions.length).toBe(2);
-    expect(ctx._services.length).toBe(1);
+    expect(kernel.services.has('svc')).toBe(true);
+    expect(ctx._services).toEqual(['svc']);
+    expect(ctx._subscriptions).toContain(eventUnsub);
+    expect(ctx._subscriptions).toContain(stateUnsub);
+
+    kernel.events.emit('event.test', { value: 1 });
+    ctx.state.set('value', 'one');
+
+    expect(eventHandler).toHaveBeenCalledTimes(1);
+    expect(stateHandler).toHaveBeenCalledTimes(1);
 
     ctx.dispose();
 
+    expect(eventUnsub).toHaveBeenCalledTimes(1);
+    expect(stateUnsub).toHaveBeenCalledTimes(1);
+    expect(kernel.services.has('svc')).toBe(false);
     expect(ctx._subscriptions.length).toBe(0);
     expect(ctx._services.length).toBe(0);
-    expect(kernel.services.has('dispSvc')).toBe(false);
 
-    // Event should no longer fire
-    kernel.events.emit('dispose.evt', {});
-    expect(evtHandler).not.toHaveBeenCalled();
+    kernel.events.emit('event.test', { value: 2 });
+    ctx.state.set('value', 'two');
+
+    expect(eventHandler).toHaveBeenCalledTimes(1);
+    expect(stateHandler).toHaveBeenCalledTimes(1);
   });
 
-  it('dispose handles errors in unsub/unregister gracefully', () => {
-    const plugin = createPlugin({ name: 'err-dispose' });
+  it('dispose is resilient and idempotent', () => {
+    const plugin = createPlugin({ name: 'idempotent' });
     const ctx = new PluginContext(kernel, plugin);
 
-    // Add a broken unsubscribe
-    ctx._subscriptions.push(() => {
-      throw new Error('unsub error');
+    const brokenUnsub = vi.fn(() => {
+      throw new Error('unsubscribe failed');
     });
 
-    // Add a service that's already removed
-    ctx._services.push('nonexistent');
+    ctx._subscriptions.push(brokenUnsub);
+    ctx._services.push('missing');
 
-    // Should not throw
     expect(() => ctx.dispose()).not.toThrow();
+    expect(() => ctx.dispose()).not.toThrow();
+
+    expect(brokenUnsub).toHaveBeenCalledTimes(1);
     expect(ctx._subscriptions.length).toBe(0);
     expect(ctx._services.length).toBe(0);
   });
@@ -272,536 +433,192 @@ describe('PluginManager', () => {
   let manager;
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     kernel = createMockKernel();
     manager = new PluginManager(kernel);
   });
 
-  afterEach(() => {
-    kernel.events.dispose();
-  });
-
-  describe('register', () => {
-    it('registers a plugin', () => {
-      const plugin = createPlugin({ name: 'reg-test' });
-      const result = manager.register(plugin);
-
-      expect(result).toBe(manager); // chainable
-      expect(manager.getStatus('reg-test')).toBe(PluginStatus.PENDING);
-    });
-
-    it('throws on duplicate registration', () => {
-      const plugin = createPlugin({ name: 'dup' });
-      manager.register(plugin);
-
-      expect(() => manager.register(plugin)).toThrow(/already registered/);
-    });
-
-    it('stores config with plugin', () => {
-      const plugin = createPlugin({ name: 'with-config' });
-      manager.register(plugin, { custom: 'value' });
-
-      // Config is accessible after install
-      // (Tested in install tests)
-    });
-  });
-
-  describe('install', () => {
-    it('installs a registered plugin', async () => {
-      const install = vi.fn();
-      const plugin = createPlugin({ name: 'inst', install });
-
-      manager.register(plugin);
-      await manager.install('inst');
-
-      expect(install).toHaveBeenCalledTimes(1);
-      expect(install.mock.calls[0][0]).toBeInstanceOf(PluginContext);
-      expect(manager.getStatus('inst')).toBe(PluginStatus.ACTIVE);
-      expect(plugin._status).toBe(PluginStatus.ACTIVE);
-    });
-
-    it('throws for unknown plugin', async () => {
-      await expect(manager.install('unknown')).rejects.toThrow(/not found/);
-    });
-
-    it('skips already active plugin', async () => {
-      const install = vi.fn();
-      const plugin = createPlugin({ name: 'skip', install });
-
-      manager.register(plugin);
-      await manager.install('skip');
-      await manager.install('skip'); // second call
-
-      expect(install).toHaveBeenCalledTimes(1);
-    });
-
-    it('emits plugin.installed event', async () => {
-      const plugin = createPlugin({ name: 'evt-test' });
-      manager.register(plugin);
-
-      const handler = vi.fn();
-      kernel.events.on('plugin.installed', handler);
-
-      await manager.install('evt-test');
-
-      expect(handler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'plugin.installed',
-          payload: expect.objectContaining({ name: 'evt-test' }),
-        })
-      );
-    });
-
-    it('merges config into context', async () => {
-      let capturedCtx;
-      const plugin = createPlugin({
-        name: 'cfg-merge',
-        defaultConfig: { a: 1 },
-        install: (ctx) => {
-          capturedCtx = ctx;
-        },
-      });
-
-      manager.register(plugin, { b: 2 });
-      await manager.install('cfg-merge');
-
-      expect(capturedCtx.config).toEqual({ a: 1, b: 2 });
-      expect(plugin._config).toEqual({ b: 2 });
-    });
-
-    it('sets plugin internal state on success', async () => {
-      const plugin = createPlugin({ name: 'internal' });
-      manager.register(plugin);
-      await manager.install('internal');
-
-      expect(plugin._status).toBe(PluginStatus.ACTIVE);
-      expect(plugin._context).toBeInstanceOf(PluginContext);
-    });
-
-    it('handles install error and sets ERROR status', async () => {
-      const plugin = createPlugin({
-        name: 'fail-install',
-        install: () => {
-          throw new Error('install failed');
-        },
-      });
-
-      manager.register(plugin);
-
-      await expect(manager.install('fail-install')).rejects.toThrow(
-        /install failed/
-      );
-      expect(manager.getStatus('fail-install')).toBe(PluginStatus.ERROR);
-      expect(manager.getContext('fail-install')).toBeUndefined();
-    });
-  });
-
-  describe('dependencies', () => {
-    it('installs dependencies first', async () => {
-      const order = [];
-
-      const depA = createPlugin({
-        name: 'dep-a',
-        install: () => order.push('dep-a'),
-      });
-
-      const depB = createPlugin({
-        name: 'dep-b',
-        dependencies: ['dep-a'],
-        install: () => order.push('dep-b'),
-      });
-
-      const main = createPlugin({
-        name: 'main',
-        dependencies: ['dep-b'],
-        install: () => order.push('main'),
-      });
-
-      manager.register(depA);
-      manager.register(depB);
-      manager.register(main);
-
-      await manager.install('main');
-
-      expect(order).toEqual(['dep-a', 'dep-b', 'main']);
-    });
-
-    it('throws for missing dependency', async () => {
-      const plugin = createPlugin({
-        name: 'needs-missing',
-        dependencies: ['missing-dep'],
-      });
-
-      manager.register(plugin);
-
-      await expect(manager.install('needs-missing')).rejects.toThrow(
-        /Missing dependency.*missing-dep/
-      );
-    });
-
-    it('does not reinstall already active dependencies', async () => {
-      const depInstall = vi.fn();
-      const dep = createPlugin({ name: 'shared-dep', install: depInstall });
-
-      const pluginA = createPlugin({
-        name: 'plugin-a',
-        dependencies: ['shared-dep'],
-      });
-
-      const pluginB = createPlugin({
-        name: 'plugin-b',
-        dependencies: ['shared-dep'],
-      });
-
-      manager.register(dep);
-      manager.register(pluginA);
-      manager.register(pluginB);
-
-      await manager.install('plugin-a');
-      await manager.install('plugin-b');
-
-      expect(depInstall).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('installAll', () => {
-    it('installs all plugins in topological order', async () => {
-      const order = [];
-
-      const a = createPlugin({
-        name: 'a',
-        install: () => order.push('a'),
-      });
-
-      const b = createPlugin({
-        name: 'b',
-        dependencies: ['a'],
-        install: () => order.push('b'),
-      });
-
-      const c = createPlugin({
-        name: 'c',
-        dependencies: ['b'],
-        install: () => order.push('c'),
-      });
-
-      // Register in reverse order to test sorting
-      manager.register(c);
-      manager.register(b);
-      manager.register(a);
-
-      await manager.installAll();
-
-      expect(order).toEqual(['a', 'b', 'c']);
-    });
-
-    it('handles diamond dependencies', async () => {
-      const order = [];
-
-      const base = createPlugin({
-        name: 'base',
-        install: () => order.push('base'),
-      });
-
-      const left = createPlugin({
-        name: 'left',
-        dependencies: ['base'],
-        install: () => order.push('left'),
-      });
-
-      const right = createPlugin({
-        name: 'right',
-        dependencies: ['base'],
-        install: () => order.push('right'),
-      });
-
-      const top = createPlugin({
-        name: 'top',
-        dependencies: ['left', 'right'],
-        install: () => order.push('top'),
-      });
-
-      manager.register(top);
-      manager.register(right);
-      manager.register(left);
-      manager.register(base);
-
-      await manager.installAll();
-
-      // base should come first, top should come last
-      expect(order[0]).toBe('base');
-      expect(order[order.length - 1]).toBe('top');
-      expect(order).toContain('left');
-      expect(order).toContain('right');
-    });
-  });
-
-  describe('uninstall', () => {
-    it('uninstalls an active plugin', async () => {
-      const uninstall = vi.fn();
-      const plugin = createPlugin({ name: 'uninst', uninstall });
-
-      manager.register(plugin);
-      await manager.install('uninst');
-
-      const result = await manager.uninstall('uninst');
-
-      expect(result).toBe(true);
-      expect(uninstall).toHaveBeenCalledTimes(1);
-      expect(manager.getStatus('uninst')).toBe(PluginStatus.UNINSTALLED);
-      expect(plugin._status).toBe(PluginStatus.UNINSTALLED);
-    });
-
-    it('returns false for non-existent plugin', async () => {
-      const result = await manager.uninstall('nonexistent');
-      expect(result).toBe(false);
-    });
-
-    it('returns false for non-active plugin', async () => {
-      const plugin = createPlugin({ name: 'pending' });
-      manager.register(plugin);
-
-      const result = await manager.uninstall('pending');
-      expect(result).toBe(false);
-    });
-
-    it('emits plugin.uninstalled event', async () => {
-      const plugin = createPlugin({ name: 'evt-uninst' });
-      manager.register(plugin);
-      await manager.install('evt-uninst');
-
-      const handler = vi.fn();
-      kernel.events.on('plugin.uninstalled', handler);
-
-      await manager.uninstall('evt-uninst');
-
-      expect(handler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'plugin.uninstalled',
-          payload: expect.objectContaining({ name: 'evt-uninst' }),
-        })
-      );
-    });
-
-    it('disposes context on uninstall', async () => {
-      const plugin = createPlugin({ name: 'ctx-disp' });
-      manager.register(plugin);
-      await manager.install('ctx-disp');
-
-      const ctx = manager.getContext('ctx-disp');
-      const disposeSpy = vi.spyOn(ctx, 'dispose');
-
-      await manager.uninstall('ctx-disp');
-
-      expect(disposeSpy).toHaveBeenCalled();
-      expect(manager.getContext('ctx-disp')).toBeUndefined();
-    });
-
-    it('prevents uninstall if other plugins depend on it', async () => {
-      const dep = createPlugin({ name: 'dep' });
-      const dependent = createPlugin({
-        name: 'dependent',
-        dependencies: ['dep'],
-      });
-
-      manager.register(dep);
-      manager.register(dependent);
-      await manager.installAll();
-
-      await expect(manager.uninstall('dep')).rejects.toThrow(
-        /Cannot uninstall dep.*dependent depends on it/
-      );
-    });
-
-    it('allows uninstall after dependent is uninstalled', async () => {
-      const dep = createPlugin({ name: 'dep2' });
-      const dependent = createPlugin({
-        name: 'dependent2',
-        dependencies: ['dep2'],
-      });
-
-      manager.register(dep);
-      manager.register(dependent);
-      await manager.installAll();
-
-      await manager.uninstall('dependent2');
-      const result = await manager.uninstall('dep2');
-
-      expect(result).toBe(true);
-    });
-
-    it('disposes context even if uninstall hook throws', async () => {
-      const plugin = createPlugin({
-        name: 'throw-uninst',
-        uninstall: () => {
-          throw new Error('uninstall error');
-        },
-      });
-
-      manager.register(plugin);
-      await manager.install('throw-uninst');
-
-      const ctx = manager.getContext('throw-uninst');
-      const disposeSpy = vi.spyOn(ctx, 'dispose');
-
-      await expect(manager.uninstall('throw-uninst')).rejects.toThrow(
-        /uninstall error/
-      );
-
-      // Context should still be disposed
-      expect(disposeSpy).toHaveBeenCalled();
-      expect(manager.getContext('throw-uninst')).toBeUndefined();
-    });
-  });
-
-  describe('getStatus', () => {
-    it('returns null for unknown plugin', () => {
-      expect(manager.getStatus('unknown')).toBeNull();
-    });
-
-    it('returns correct status', async () => {
-      const plugin = createPlugin({ name: 'status-test' });
-
-      manager.register(plugin);
-      expect(manager.getStatus('status-test')).toBe(PluginStatus.PENDING);
-
-      await manager.install('status-test');
-      expect(manager.getStatus('status-test')).toBe(PluginStatus.ACTIVE);
-
-      await manager.uninstall('status-test');
-      expect(manager.getStatus('status-test')).toBe(PluginStatus.UNINSTALLED);
-    });
-  });
-
-  describe('list', () => {
-    it('returns all registered plugins with metadata', async () => {
-      const a = createPlugin({
-        name: 'list-a',
-        version: '1.0.0',
-        dependencies: [],
-      });
-
-      const b = createPlugin({
-        name: 'list-b',
-        version: '2.0.0',
-        dependencies: ['list-a'],
-      });
-
-      manager.register(a);
-      manager.register(b);
-      await manager.install('list-a');
-
-      const list = manager.list();
-
-      expect(list).toHaveLength(2);
-
-      const itemA = list.find((p) => p.name === 'list-a');
-      expect(itemA).toEqual({
-        name: 'list-a',
-        version: '1.0.0',
-        status: PluginStatus.ACTIVE,
-        dependencies: [],
-      });
-
-      const itemB = list.find((p) => p.name === 'list-b');
-      expect(itemB).toEqual({
-        name: 'list-b',
+  it('registers plugins and exposes list', () => {
+    const plugin = createPlugin({ name: 'alpha', version: '2.0.0' });
+
+    manager.register(plugin, {});
+
+    expect(manager.getStatus('alpha')).toBe(PluginStatus.PENDING);
+    expect(manager.list()).toEqual([
+      {
+        name: 'alpha',
         version: '2.0.0',
         status: PluginStatus.PENDING,
-        dependencies: ['list-a'],
-      });
-    });
+        dependencies: [],
+      },
+    ]);
   });
 
-  describe('getContext', () => {
-    it('returns context for installed plugin', async () => {
-      const plugin = createPlugin({ name: 'get-ctx' });
-      manager.register(plugin);
-      await manager.install('get-ctx');
+  it('throws on duplicate registration', () => {
+    const plugin = createPlugin({ name: 'dup' });
 
-      const ctx = manager.getContext('get-ctx');
-      expect(ctx).toBeInstanceOf(PluginContext);
-    });
+    manager.register(plugin);
 
-    it('returns undefined for non-installed plugin', () => {
-      const plugin = createPlugin({ name: 'no-ctx' });
-      manager.register(plugin);
-
-      expect(manager.getContext('no-ctx')).toBeUndefined();
-    });
-
-    it('returns undefined for unknown plugin', () => {
-      expect(manager.getContext('unknown')).toBeUndefined();
-    });
+    expect(() => manager.register(plugin)).toThrow(/already registered/);
   });
 
-  describe('topological sort', () => {
-    it('handles plugins with no dependencies', async () => {
-      const a = createPlugin({ name: 'no-dep-a' });
-      const b = createPlugin({ name: 'no-dep-b' });
-      const c = createPlugin({ name: 'no-dep-c' });
+  it('throws when installing unknown plugins', async () => {
+    await expect(manager.install('missing')).rejects.toThrow(/not found/);
+  });
 
-      manager.register(a);
-      manager.register(b);
-      manager.register(c);
+  it('fails when dependencies are missing', async () => {
+    const plugin = createPlugin({ name: 'needs', dependencies: ['missing'] });
 
-      // Should not throw
-      await manager.installAll();
+    manager.register(plugin);
 
-      expect(manager.getStatus('no-dep-a')).toBe(PluginStatus.ACTIVE);
-      expect(manager.getStatus('no-dep-b')).toBe(PluginStatus.ACTIVE);
-      expect(manager.getStatus('no-dep-c')).toBe(PluginStatus.ACTIVE);
+    await expect(manager.install('needs')).rejects.toThrow(/Missing dependency/);
+    expect(manager.getStatus('needs')).toBe(PluginStatus.PENDING);
+  });
+
+  it('installs dependencies in order and wires context/config', async () => {
+    const order = [];
+    const dep = createPlugin({
+      name: 'dep',
+      install: () => {
+        order.push('dep');
+      },
+    });
+    const main = createPlugin({
+      name: 'main',
+      dependencies: ['dep'],
+      install: () => {
+        order.push('main');
+      },
     });
 
-    it('handles complex dependency graph', async () => {
-      const order = [];
+    manager.register(main, { value: 0 });
+    manager.register(dep);
 
-      // Create a more complex graph:
-      // e -> d -> b -> a
-      //      d -> c -> a
-      const a = createPlugin({
-        name: 'g-a',
-        install: () => order.push('a'),
-      });
+    await manager.install('main');
 
-      const b = createPlugin({
-        name: 'g-b',
-        dependencies: ['g-a'],
-        install: () => order.push('b'),
-      });
+    expect(order).toEqual(['dep', 'main']);
+    expect(manager.getStatus('dep')).toBe(PluginStatus.ACTIVE);
+    expect(manager.getStatus('main')).toBe(PluginStatus.ACTIVE);
+    expect(main._context).toBeInstanceOf(PluginContext);
+    expect(main._config).toEqual({ value: 0 });
+    expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.installed', { name: 'dep' });
+    expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.installed', { name: 'main' });
+  });
 
-      const c = createPlugin({
-        name: 'g-c',
-        dependencies: ['g-a'],
-        install: () => order.push('c'),
-      });
-
-      const d = createPlugin({
-        name: 'g-d',
-        dependencies: ['g-b', 'g-c'],
-        install: () => order.push('d'),
-      });
-
-      const e = createPlugin({
-        name: 'g-e',
-        dependencies: ['g-d'],
-        install: () => order.push('e'),
-      });
-
-      // Register in random order
-      manager.register(e);
-      manager.register(c);
-      manager.register(a);
-      manager.register(d);
-      manager.register(b);
-
-      await manager.installAll();
-
-      // Verify order constraints
-      expect(order.indexOf('a')).toBeLessThan(order.indexOf('b'));
-      expect(order.indexOf('a')).toBeLessThan(order.indexOf('c'));
-      expect(order.indexOf('b')).toBeLessThan(order.indexOf('d'));
-      expect(order.indexOf('c')).toBeLessThan(order.indexOf('d'));
-      expect(order.indexOf('d')).toBeLessThan(order.indexOf('e'));
+  it('marks status error and clears context when install throws', async () => {
+    const plugin = createPlugin({
+      name: 'bad',
+      install: () => {
+        throw new Error('install failed');
+      },
     });
+
+    manager.register(plugin);
+
+    await expect(manager.install('bad')).rejects.toThrow('install failed');
+    expect(manager.getStatus('bad')).toBe(PluginStatus.ERROR);
+    expect(manager.getContext('bad')).toBeUndefined();
+    expect(kernel.events.emitSync).not.toHaveBeenCalled();
+  });
+
+  it('avoids re-installing active plugins on rapid calls', async () => {
+    const install = vi.fn();
+    const plugin = createPlugin({ name: 'once', install });
+
+    manager.register(plugin);
+
+    await manager.install('once');
+    await manager.install('once');
+
+    expect(install).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles concurrent installs without breaking state', async () => {
+    const gate = createDeferred();
+    const install = vi.fn(async () => {
+      await gate.promise;
+    });
+    const plugin = createPlugin({ name: 'race', install });
+
+    manager.register(plugin);
+
+    const first = manager.install('race');
+    const second = manager.install('race');
+
+    expect(install).toHaveBeenCalledTimes(2);
+
+    gate.resolve();
+    await Promise.all([first, second]);
+
+    expect(manager.getStatus('race')).toBe(PluginStatus.ACTIVE);
+    expect(plugin._context).toBeInstanceOf(PluginContext);
+  });
+
+  it('installAll respects dependency ordering', async () => {
+    const order = [];
+    const pluginB = createPlugin({ name: 'b', install: () => order.push('b') });
+    const pluginA = createPlugin({ name: 'a', dependencies: ['b'], install: () => order.push('a') });
+    const pluginC = createPlugin({ name: 'c', dependencies: ['a'], install: () => order.push('c') });
+
+    manager.register(pluginC);
+    manager.register(pluginA);
+    manager.register(pluginB);
+
+    await manager.installAll();
+
+    expect(order.indexOf('b')).toBeLessThan(order.indexOf('a'));
+    expect(order.indexOf('a')).toBeLessThan(order.indexOf('c'));
+  });
+
+  it('returns false when uninstalling inactive plugins', async () => {
+    const plugin = createPlugin({ name: 'inactive' });
+
+    manager.register(plugin);
+
+    await expect(manager.uninstall('inactive')).resolves.toBe(false);
+  });
+
+  it('prevents uninstall when dependents are active', async () => {
+    const base = createPlugin({ name: 'base' });
+    const dependent = createPlugin({ name: 'dependent', dependencies: ['base'] });
+
+    manager.register(dependent);
+    manager.register(base);
+
+    await manager.install('dependent');
+
+    await expect(manager.uninstall('base')).rejects.toThrow(/depends on it/);
+    expect(manager.getStatus('base')).toBe(PluginStatus.ACTIVE);
+  });
+
+  it('uninstalls active plugins and emits events', async () => {
+    const plugin = createPlugin({ name: 'active' });
+
+    manager.register(plugin);
+
+    await manager.install('active');
+    await expect(manager.uninstall('active')).resolves.toBe(true);
+
+    expect(manager.getStatus('active')).toBe(PluginStatus.UNINSTALLED);
+    expect(plugin._status).toBe(PluginStatus.UNINSTALLED);
+    expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.uninstalled', { name: 'active' });
+  });
+
+  it('cleans up even when uninstall throws', async () => {
+    const plugin = createPlugin({
+      name: 'throwing',
+      uninstall: () => {
+        throw new Error('uninstall failed');
+      },
+    });
+
+    manager.register(plugin);
+
+    await manager.install('throwing');
+    await expect(manager.uninstall('throwing')).rejects.toThrow('uninstall failed');
+
+    expect(manager.getStatus('throwing')).toBe(PluginStatus.UNINSTALLED);
+    expect(manager.getContext('throwing')).toBeUndefined();
+    expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.uninstalled', { name: 'throwing' });
   });
 });

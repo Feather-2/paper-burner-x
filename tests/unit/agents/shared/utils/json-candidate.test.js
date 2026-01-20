@@ -1,215 +1,184 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+vi.mock("node:crypto", () => ({
+  randomBytes: vi.fn((size) => Buffer.alloc(size, 0x61)),
+}));
 
+import { randomBytes } from "node:crypto";
 import {
   stripThinkingTags,
   extractJsonCandidate,
-} from '../../../../../js/agents/shared/utils/json-candidate.js';
+  default as jsonCandidateDefault,
+} from "../../../../../js/agents/shared/utils/json-candidate.js";
 
-describe("shared/utils/json-candidate", () => {
-  describe("stripThinkingTags", () => {
-    it("strips <think> tags", () => {
-      const input = "Before<think>thinking here</think>After";
-      const result = stripThinkingTags(input);
-      expect(result).toBe("BeforeAfter");
-    });
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
-    it("strips multiple <think> tags", () => {
-      const input = "<think>first</think>Middle<think>second</think>End";
-      const result = stripThinkingTags(input);
-      expect(result).toBe("MiddleEnd");
-    });
+const buildLargeNoise = (size) => randomBytes(size).toString("hex");
+const buildDeepNestedArray = (depth) => `${"[".repeat(depth)}0${"]".repeat(depth)}`;
 
-    it("handles case insensitivity", () => {
-      const input = "<THINK>content</THINK>rest";
-      const result = stripThinkingTags(input);
-      expect(result).toBe("rest");
-    });
-
-    it("handles multiline content", () => {
-      const input = "<think>\nline1\nline2\n</think>result";
-      const result = stripThinkingTags(input);
-      expect(result).toBe("result");
-    });
-
-    it("returns empty string for null", () => {
-      expect(stripThinkingTags(null)).toBe("");
-    });
-
-    it("returns empty string for undefined", () => {
-      expect(stripThinkingTags(undefined)).toBe("");
-    });
-
-    it("handles no think tags", () => {
-      const input = "no tags here";
-      expect(stripThinkingTags(input)).toBe("no tags here");
-    });
+describe("stripThinkingTags", () => {
+  it("strips think blocks and trims output", () => {
+    const input = "  start <think>secret\nline</think> end  ";
+    expect(stripThinkingTags(input)).toBe("start  end");
   });
 
-  describe("extractJsonCandidate", () => {
-    it("extracts simple object", () => {
-      const result = extractJsonCandidate('{"key": "value"}');
-      expect(result).toBe('{"key": "value"}');
-    });
+  it("removes multiple tags with mixed case", () => {
+    const input = "A<Think>1</Think>B<THINK>2</THINK>C";
+    expect(stripThinkingTags(input)).toBe("ABC");
+  });
 
-    it("extracts simple array", () => {
-      const result = extractJsonCandidate('[1, 2, 3]');
-      expect(result).toBe('[1, 2, 3]');
-    });
+  it.each([
+    [null],
+    [undefined],
+    [""],
+    ["   \n\t"],
+    [[]],
+  ])("returns empty string for %p", (input) => {
+    expect(stripThinkingTags(input)).toBe("");
+  });
 
-    it("returns null for empty string", () => {
-      expect(extractJsonCandidate("")).toBe(null);
-    });
+  it("treats numeric 0 as empty input", () => {
+    expect(stripThinkingTags(0)).toBe("");
+  });
 
-    it("returns null for only whitespace", () => {
-      expect(extractJsonCandidate("   ")).toBe(null);
-    });
+  it.each([
+    [-1, "-1"],
+    [Number.MAX_SAFE_INTEGER, String(Number.MAX_SAFE_INTEGER)],
+    [{}, "[object Object]"],
+    ["123", "123"],
+  ])("stringifies %p", (input, expected) => {
+    expect(stripThinkingTags(input)).toBe(expected);
+  });
 
-    it("extracts JSON from markdown code block", () => {
-      const input = '```json\n{"key": "value"}\n```';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "value"}');
-    });
+  it("leaves unterminated tags untouched", () => {
+    const input = "start <think>no end";
+    expect(stripThinkingTags(input)).toBe("start <think>no end");
+  });
+});
 
-    it("extracts JSON from unmarked code block", () => {
-      const input = '```\n{"key": "value"}\n```';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "value"}');
-    });
+describe("extractJsonCandidate", () => {
+  it.each([
+    [null],
+    [undefined],
+    [""],
+    ["   \n\t"],
+    [[]],
+  ])("returns null for empty input %p", (input) => {
+    expect(extractJsonCandidate(input)).toBeNull();
+  });
 
-    it("strips json: prefix", () => {
-      const input = 'json: {"key": "value"}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "value"}');
-    });
+  it("treats numeric 0 as empty input", () => {
+    expect(extractJsonCandidate(0)).toBeNull();
+  });
 
-    it("strips json prefix without colon", () => {
-      const input = 'json {"key": "value"}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "value"}');
-    });
+  it.each([
+    [-1, "-1"],
+    [Number.MAX_SAFE_INTEGER, String(Number.MAX_SAFE_INTEGER)],
+    ["123", "123"],
+  ])("returns string for primitive input %p", (input, expected) => {
+    expect(extractJsonCandidate(input)).toBe(expected);
+  });
 
-    it("handles nested objects", () => {
-      const input = '{"outer": {"inner": "value"}}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"outer": {"inner": "value"}}');
-    });
+  it("returns stringified empty object input", () => {
+    expect(extractJsonCandidate({})).toBe("[object Object]");
+  });
 
-    it("handles nested arrays", () => {
-      const input = '[[1, 2], [3, 4]]';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('[[1, 2], [3, 4]]');
-    });
+  it("extracts JSON from fenced code block", () => {
+    const input = "noise\n```json\n{\"a\":1}\n```\nmore";
+    expect(extractJsonCandidate(input)).toBe("{\"a\":1}");
+  });
 
-    it("handles mixed nesting", () => {
-      const input = '{"arr": [1, 2], "obj": {"a": 1}}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"arr": [1, 2], "obj": {"a": 1}}');
-    });
+  it.each([
+    ["json with colon", "json:\n{\"a\":1}"],
+    ["json without colon", "json {\"a\":1}"],
+  ])("strips %s prefix", (_label, input) => {
+    expect(extractJsonCandidate(input)).toBe("{\"a\":1}");
+  });
 
-    it("handles strings with escaped quotes", () => {
-      const input = '{"key": "value with \\"quotes\\""}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "value with \\"quotes\\""}');
-    });
+  it("removes think tags before extraction", () => {
+    const input = "<think>ignore me</think>\n{\"a\":1}";
+    expect(extractJsonCandidate(input)).toBe("{\"a\":1}");
+  });
 
-    it("handles strings with escaped backslash", () => {
-      const input = '{"key": "value\\\\path"}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "value\\\\path"}');
-    });
+  it("prefers earliest candidate when prefer is any", () => {
+    const input = "prefix [1,2] middle {\"a\":1} tail";
+    expect(extractJsonCandidate(input)).toBe("[1,2]");
+  });
 
-    it("handles braces inside strings", () => {
-      const input = '{"key": "{not a brace}"}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "{not a brace}"}');
-    });
+  it("prefers arrays when prefer is array", () => {
+    const input = "{\"a\":1} [1,2]";
+    expect(extractJsonCandidate(input, { prefer: "ARRAY" })).toBe("[1,2]");
+  });
 
-    it("handles brackets inside strings", () => {
-      const input = '{"key": "[not an array]"}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "[not an array]"}');
-    });
+  it("prefers objects when prefer is object", () => {
+    const input = "[1] {\"a\":1}";
+    expect(extractJsonCandidate(input, { prefer: "object" })).toBe("{\"a\":1}");
+  });
 
-    it("strips thinking tags before extraction", () => {
-      const input = '<think>reasoning</think>{"key": "value"}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "value"}');
-    });
+  it("falls back to next candidate when first is invalid", () => {
+    const input = "{'a':1} [1]";
+    expect(extractJsonCandidate(input, { prefer: "object" })).toBe("[1]");
+  });
 
-    it("extracts from text with leading noise", () => {
-      const input = 'Here is the response: {"key": "value"}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "value"}');
-    });
+  it("ignores braces inside strings", () => {
+    const input = "prefix {\"text\":\"} [ ]\"} suffix";
+    expect(extractJsonCandidate(input)).toBe("{\"text\":\"} [ ]\"}");
+  });
 
-    it("extracts from text with trailing noise", () => {
-      const input = '{"key": "value"} is the answer';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"key": "value"}');
-    });
+  it.each([
+    ["unclosed object", "{", "{"],
+    ["invalid JSON", "prefix {oops} suffix", "prefix {oops} suffix"],
+  ])("returns cleaned string when no parsable candidate (%s)", (_label, input, expected) => {
+    expect(extractJsonCandidate(input)).toBe(expected);
+  });
 
-    it("prefers array when option set", () => {
-      const input = 'obj: {"a": 1} arr: [1, 2]';
-      const result = extractJsonCandidate(input, { prefer: "array" });
-      expect(result).toBe("[1, 2]");
-    });
+  it("accepts array as options parameter", () => {
+    expect(extractJsonCandidate("{\"a\":1}", [])).toBe("{\"a\":1}");
+  });
 
-    it("prefers object when option set", () => {
-      const input = 'arr: [1, 2] obj: {"a": 1}';
-      const result = extractJsonCandidate(input, { prefer: "object" });
-      expect(result).toBe('{"a": 1}');
-    });
+  it("handles large input with embedded JSON", () => {
+    const noise = buildLargeNoise(100000);
+    const input = `${noise}\n{\"ok\":true}\n${noise}`;
+    const result = extractJsonCandidate(input);
+    expect(result).toBe("{\"ok\":true}");
+    expect(randomBytes).toHaveBeenCalledWith(100000);
+  });
 
-    it("uses any preference by default (first occurrence)", () => {
-      const input = '[1, 2] {"a": 1}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe("[1, 2]");
-    });
+  it("handles deeply nested arrays", () => {
+    const deep = buildDeepNestedArray(200);
+    const input = `prefix ${deep} suffix`;
+    expect(extractJsonCandidate(input, { prefer: "array" })).toBe(deep);
+  });
 
-    it("handles unbalanced braces gracefully", () => {
-      const input = "{ unclosed";
-      const result = extractJsonCandidate(input);
-      // Returns raw string when no valid JSON found
-      expect(result).toBe("{ unclosed");
-    });
+  it("handles concurrent calls safely", async () => {
+    const inputs = [
+      { text: "{\"a\":1}" },
+      { text: "json [1,2]", options: { prefer: "array" } },
+      { text: "<think>x</think>{\"b\":2}" },
+      { text: "  " },
+      { text: "no json here" },
+    ];
 
-    it("handles mismatched braces", () => {
-      const input = '{"key": [}]';
-      const result = extractJsonCandidate(input);
-      // Falls back to returning the string
-      expect(result).toBe(input);
-    });
+    const results = await Promise.all(
+      inputs.map((item) => Promise.resolve().then(() => extractJsonCandidate(item.text, item.options)))
+    );
 
-    it("normalizes prefer option case", () => {
-      const input = '{"a": 1} [1, 2]';
-      const result = extractJsonCandidate(input, { prefer: "ARRAY" });
-      expect(result).toBe("[1, 2]");
-    });
+    expect(results).toEqual(["{\"a\":1}", "[1,2]", "{\"b\":2}", null, "no json here"]);
+  });
 
-    it("handles prefer option with invalid value", () => {
-      const input = '{"a": 1} [1, 2]';
-      const result = extractJsonCandidate(input, { prefer: "invalid" });
-      // Falls back to "any" behavior
-      expect(result).toBe('{"a": 1}');
-    });
+  it("handles rapid sequential calls", () => {
+    const input = "prefix {\"i\":1} suffix";
+    const outputs = Array.from({ length: 50 }, () => extractJsonCandidate(input));
+    expect(new Set(outputs).size).toBe(1);
+    expect(outputs[0]).toBe("{\"i\":1}");
+  });
+});
 
-    it("strips code fence markers only", () => {
-      const input = "```json\n[]\n```";
-      const result = extractJsonCandidate(input);
-      expect(result).toBe("[]");
-    });
-
-    it("handles empty after json prefix strip", () => {
-      const input = "json:   ";
-      const result = extractJsonCandidate(input);
-      expect(result).toBe(null);
-    });
-
-    it("handles deeply nested structure", () => {
-      const input = '{"a": {"b": {"c": {"d": [1, 2, 3]}}}}';
-      const result = extractJsonCandidate(input);
-      expect(result).toBe('{"a": {"b": {"c": {"d": [1, 2, 3]}}}}');
-    });
+describe("default export", () => {
+  it("exposes the named utilities", () => {
+    expect(jsonCandidateDefault.stripThinkingTags).toBe(stripThinkingTags);
+    expect(jsonCandidateDefault.extractJsonCandidate).toBe(extractJsonCandidate);
   });
 });

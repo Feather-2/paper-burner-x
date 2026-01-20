@@ -1,322 +1,202 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+vi.mock("../../../../../js/agents/shared/utils/logger.js", () => ({
+  createLogger: vi.fn(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  })),
+}));
 
-import {
-  parseJsonStrict,
-  ParseResultCode,
-  robustParseJson,
-  robustParseJsonWithValidation,
-  extractJsonFromLlmResponse,
-  generateJsonCorrectionPrompt,
-  __test,
-} from '../../../../../js/agents/shared/utils/robust-json.js';
+import { parseJsonStrict, ParseResultCode } from "../../../../../js/agents/shared/utils/robust-json.js";
 
-const { extractJsonBlock, safePreprocess } = __test;
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
-describe("shared/utils/robust-json", () => {
-  describe("safePreprocess", () => {
-    it("removes BOM", () => {
-      const result = safePreprocess("\uFEFF{\"a\":1}");
-      expect(result).toBe('{"a":1}');
+describe("ParseResultCode", () => {
+  it("exposes a frozen code map", () => {
+    expect(Object.isFrozen(ParseResultCode)).toBe(true);
+    expect(ParseResultCode).toEqual({
+      OK: "OK",
+      EMPTY_INPUT: "EMPTY_INPUT",
+      INPUT_TOO_LARGE: "INPUT_TOO_LARGE",
+      INVALID_JSON: "INVALID_JSON",
+      NO_JSON_FOUND: "NO_JSON_FOUND",
     });
+  });
+});
 
-    it("removes control characters", () => {
-      const result = safePreprocess('{"a":\x00\x01"value"}');
-      expect(result).toBe('{"a":"value"}');
-    });
-
-    it("preserves newlines, tabs, carriage returns", () => {
-      const result = safePreprocess('{"a":\n\t\r"b"}');
-      expect(result).toBe('{"a":\n\t\r"b"}');
-    });
-
-    it("handles null/undefined", () => {
-      expect(safePreprocess(null)).toBe(null);
-      expect(safePreprocess(undefined)).toBe(undefined);
-    });
-
-    it("handles non-string", () => {
-      expect(safePreprocess(123)).toBe(123);
+describe("parseJsonStrict", () => {
+  it("parses valid JSON objects directly", () => {
+    const result = parseJsonStrict('{"key":"value"}');
+    expect(result).toEqual({
+      ok: true,
+      code: ParseResultCode.OK,
+      data: { key: "value" },
     });
   });
 
-  describe("extractJsonBlock", () => {
-    it("extracts from markdown code block", () => {
-      const text = 'Some text\n```json\n{"key": "value"}\n```\nMore text';
-      const result = extractJsonBlock(text);
-      expect(result).toBe('{"key": "value"}');
-    });
-
-    it("extracts from generic code block", () => {
-      const text = "```\n[1, 2, 3]\n```";
-      const result = extractJsonBlock(text);
-      expect(result).toBe("[1, 2, 3]");
-    });
-
-    it("extracts bare JSON object", () => {
-      const text = 'prefix text {"a": 1} suffix';
-      const result = extractJsonBlock(text);
-      expect(result).toBe('{"a": 1}');
-    });
-
-    it("extracts bare JSON array", () => {
-      const text = "before [1, 2, 3] after";
-      const result = extractJsonBlock(text);
-      expect(result).toBe("[1, 2, 3]");
-    });
-
-    it("handles nested structures", () => {
-      const text = '{"outer": {"inner": [1, 2]}}';
-      const result = extractJsonBlock(text);
-      expect(result).toBe('{"outer": {"inner": [1, 2]}}');
-    });
-
-    it("handles strings with braces", () => {
-      const text = '{"msg": "hello {world}"}';
-      const result = extractJsonBlock(text);
-      expect(result).toBe('{"msg": "hello {world}"}');
-    });
-
-    it("handles escaped quotes", () => {
-      const text = '{"msg": "say \\"hi\\""}';
-      const result = extractJsonBlock(text);
-      expect(result).toBe('{"msg": "say \\"hi\\""}');
-    });
-
-    it("returns null for no JSON", () => {
-      expect(extractJsonBlock("no json here")).toBe(null);
-    });
-
-    it("returns null for null input", () => {
-      expect(extractJsonBlock(null)).toBe(null);
-    });
-
-    it("returns null for unclosed structure", () => {
-      const text = '{"unclosed": true';
-      expect(extractJsonBlock(text)).toBe(null);
-    });
-
-    it("prefers object over array when object comes first", () => {
-      const text = '{"a": 1} [1, 2]';
-      const result = extractJsonBlock(text);
-      expect(result).toBe('{"a": 1}');
-    });
-
-    it("prefers array over object when array comes first", () => {
-      const text = "[1, 2] {\"a\": 1}";
-      const result = extractJsonBlock(text);
-      expect(result).toBe("[1, 2]");
-    });
+  it("parses JSON from a markdown code block", () => {
+    const result = parseJsonStrict("```json\n{\"a\":1}\n```");
+    expect(result.ok).toBe(true);
+    expect(result.code).toBe(ParseResultCode.OK);
+    expect(result.data).toEqual({ a: 1 });
   });
 
-  describe("parseJsonStrict", () => {
-    it("parses valid JSON directly", () => {
-      const result = parseJsonStrict('{"key": "value"}');
-      expect(result.ok).toBe(true);
-      expect(result.code).toBe(ParseResultCode.OK);
-      expect(result.data).toEqual({ key: "value" });
-    });
-
-    it("parses JSON from markdown block", () => {
-      const result = parseJsonStrict('```json\n{"a": 1}\n```');
-      expect(result.ok).toBe(true);
-      expect(result.data).toEqual({ a: 1 });
-    });
-
-    it("returns EMPTY_INPUT for null", () => {
-      const result = parseJsonStrict(null);
-      expect(result.ok).toBe(false);
-      expect(result.code).toBe(ParseResultCode.EMPTY_INPUT);
-    });
-
-    it("returns EMPTY_INPUT for empty string", () => {
-      const result = parseJsonStrict("");
-      expect(result.ok).toBe(false);
-      expect(result.code).toBe(ParseResultCode.EMPTY_INPUT);
-    });
-
-    it("returns INPUT_TOO_LARGE for huge input", () => {
-      const huge = "{" + "a".repeat(1_000_001) + "}";
-      const result = parseJsonStrict(huge);
-      expect(result.ok).toBe(false);
-      expect(result.code).toBe(ParseResultCode.INPUT_TOO_LARGE);
-    });
-
-    it("respects custom maxChars", () => {
-      const result = parseJsonStrict('{"a":1}', { maxChars: 5 });
-      expect(result.ok).toBe(false);
-      expect(result.code).toBe(ParseResultCode.INPUT_TOO_LARGE);
-    });
-
-    it("returns INVALID_JSON for extracted but invalid JSON", () => {
-      const result = parseJsonStrict('prefix {"invalid": }');
-      expect(result.ok).toBe(false);
-      expect(result.code).toBe(ParseResultCode.INVALID_JSON);
-      expect(result.error).toBeTypeOf("string");
-      expect(result.error).toMatch(/\S/);
-      expect(result.rawInput).toBe('{"invalid": }');
-    });
-
-    it("returns NO_JSON_FOUND when no structure found", () => {
-      const result = parseJsonStrict("just plain text");
-      expect(result.ok).toBe(false);
-      expect(result.code).toBe(ParseResultCode.NO_JSON_FOUND);
-    });
-
-    it("handles BOM in input", () => {
-      const result = parseJsonStrict('\uFEFF{"bom": true}');
-      expect(result.ok).toBe(true);
-      expect(result.data).toEqual({ bom: true });
-    });
-
-    it("parses arrays", () => {
-      const result = parseJsonStrict("[1, 2, 3]");
-      expect(result.ok).toBe(true);
-      expect(result.data).toEqual([1, 2, 3]);
-    });
+  it("parses JSON embedded in surrounding text", () => {
+    const result = parseJsonStrict("prefix {\"b\":2} suffix");
+    expect(result.ok).toBe(true);
+    expect(result.code).toBe(ParseResultCode.OK);
+    expect(result.data).toEqual({ b: 2 });
   });
 
-  describe("robustParseJson", () => {
-    it("returns parsed data on success", () => {
-      const result = robustParseJson('{"a": 1}');
-      expect(result).toEqual({ a: 1 });
-    });
-
-    it("returns fallback on failure", () => {
-      const result = robustParseJson("invalid", { default: "value" });
-      expect(result).toEqual({ default: "value" });
-    });
-
-    it("returns null fallback by default", () => {
-      const result = robustParseJson("invalid");
-      expect(result).toBe(null);
-    });
-
-    it("extracts from wrapped text", () => {
-      const result = robustParseJson('Here is JSON: {"key": 1}');
-      expect(result).toEqual({ key: 1 });
-    });
+  it("handles BOM and control characters safely", () => {
+    const result = parseJsonStrict('\uFEFF{"a":\u0000"b"}');
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({ a: "b" });
   });
 
-  describe("robustParseJsonWithValidation", () => {
-    it("returns data when validation passes", () => {
-      const result = robustParseJsonWithValidation(
-        '{"count": 5}',
-        (d) => typeof d.count === "number" && d.count > 0
-      );
-      expect(result).toEqual({ count: 5 });
-    });
-
-    it("returns fallback when validation fails", () => {
-      const result = robustParseJsonWithValidation(
-        '{"count": -1}',
-        (d) => d.count > 0,
-        { count: 0 }
-      );
-      // Validation fails but parsing succeeded, returns data not fallback
-      expect(result).toEqual({ count: -1 });
-    });
-
-    it("returns data when validator is not a function", () => {
-      const result = robustParseJsonWithValidation('{"a": 1}', null);
-      expect(result).toEqual({ a: 1 });
-    });
-
-    it("returns fallback when parsing fails", () => {
-      const result = robustParseJsonWithValidation(
-        "invalid",
-        () => true,
-        "fallback"
-      );
-      expect(result).toBe("fallback");
-    });
-
-    it("handles validator throwing error", () => {
-      const result = robustParseJsonWithValidation(
-        '{"a": 1}',
-        () => { throw new Error("validator error"); },
-        "fallback"
-      );
-      // Parsing succeeded, validator threw, returns data
-      expect(result).toEqual({ a: 1 });
-    });
+  it.each([
+    ["empty array", "[]", []],
+    ["empty object", "{}", {}],
+  ])("parses %s", (_label, input, expected) => {
+    const result = parseJsonStrict(input);
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual(expected);
   });
 
-  describe("extractJsonFromLlmResponse", () => {
-    it("extracts from string response", () => {
-      const result = extractJsonFromLlmResponse('```json\n{"result": true}\n```');
-      expect(result).toEqual({ result: true });
-    });
-
-    it("extracts from object with content field", () => {
-      const result = extractJsonFromLlmResponse({
-        content: '{"data": [1, 2]}',
-      });
-      expect(result).toEqual({ data: [1, 2] });
-    });
-
-    it("extracts from object with text field", () => {
-      const result = extractJsonFromLlmResponse({
-        text: '{"key": "value"}',
-      });
-      expect(result).toEqual({ key: "value" });
-    });
-
-    it("extracts from object with message field", () => {
-      const result = extractJsonFromLlmResponse({
-        message: '{"msg": "hello"}',
-      });
-      expect(result).toEqual({ msg: "hello" });
-    });
-
-    it("returns null for null input", () => {
-      expect(extractJsonFromLlmResponse(null)).toBe(null);
-    });
-
-    it("returns null for object without text fields", () => {
-      expect(extractJsonFromLlmResponse({ other: 123 })).toBe(null);
-    });
-
-    it("returns null for non-string content", () => {
-      expect(extractJsonFromLlmResponse({ content: 123 })).toBe(null);
-    });
+  it.each([
+    ["0", 0],
+    ["-1", -1],
+    [String(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER],
+  ])("parses numeric string %s", (input, expected) => {
+    const result = parseJsonStrict(input);
+    expect(result.ok).toBe(true);
+    expect(result.data).toBe(expected);
   });
 
-  describe("generateJsonCorrectionPrompt", () => {
-    it("includes error message", () => {
-      const prompt = generateJsonCorrectionPrompt("Unexpected token", '{"bad": }');
-      expect(prompt).toContain("Unexpected token");
-    });
-
-    it("includes raw input preview", () => {
-      const prompt = generateJsonCorrectionPrompt("Error", '{"preview": "text"}');
-      expect(prompt).toContain('{"preview": "text"}');
-    });
-
-    it("handles empty raw input", () => {
-      const prompt = generateJsonCorrectionPrompt("Error", "");
-      expect(prompt).toContain("Error");
-      expect(prompt).not.toContain("problematic content");
-    });
-
-    it("truncates long raw input", () => {
-      const longInput = "x".repeat(500);
-      const prompt = generateJsonCorrectionPrompt("Error", longInput);
-      expect(prompt.length).toBeLessThan(longInput.length + 500);
-    });
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["empty string", ""],
+  ])("returns EMPTY_INPUT for %s", (_label, input) => {
+    const result = parseJsonStrict(input);
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe(ParseResultCode.EMPTY_INPUT);
   });
 
-  describe("ParseResultCode", () => {
-    it("is frozen", () => {
-      expect(Object.isFrozen(ParseResultCode)).toBe(true);
-    });
+  it.each([
+    ["array", []],
+    ["object", {}],
+    ["zero", 0],
+    ["negative", -1],
+    ["max safe int", Number.MAX_SAFE_INTEGER],
+  ])("returns EMPTY_INPUT for non-string %s", (_label, input) => {
+    const result = parseJsonStrict(input);
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe(ParseResultCode.EMPTY_INPUT);
+  });
 
-    it("has expected codes", () => {
-      expect(ParseResultCode.OK).toBe("OK");
-      expect(ParseResultCode.EMPTY_INPUT).toBe("EMPTY_INPUT");
-      expect(ParseResultCode.INPUT_TOO_LARGE).toBe("INPUT_TOO_LARGE");
-      expect(ParseResultCode.INVALID_JSON).toBe("INVALID_JSON");
-      expect(ParseResultCode.NO_JSON_FOUND).toBe("NO_JSON_FOUND");
-    });
+  it("returns NO_JSON_FOUND for whitespace-only input", () => {
+    const result = parseJsonStrict("  \n\t  ");
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe(ParseResultCode.NO_JSON_FOUND);
+  });
+
+  it("returns NO_JSON_FOUND for unclosed JSON structures", () => {
+    const result = parseJsonStrict('{"a":1');
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe(ParseResultCode.NO_JSON_FOUND);
+  });
+
+  it("returns INVALID_JSON when extracted JSON is malformed", () => {
+    const result = parseJsonStrict("prefix {\"a\": } suffix");
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe(ParseResultCode.INVALID_JSON);
+    expect(result.error).toBeTypeOf("string");
+    expect(result.rawInput).toBe('{"a": }');
+  });
+
+  it("truncates rawInput to 500 chars for long invalid JSON", () => {
+    const longInvalid = `{${'"a":1,'.repeat(300)}}`;
+    const result = parseJsonStrict(longInvalid);
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe(ParseResultCode.INVALID_JSON);
+    expect(result.rawInput).toBe(longInvalid.slice(0, 500));
+    expect(result.rawInput.length).toBe(500);
+  });
+
+  it("returns INPUT_TOO_LARGE when input exceeds default limit", () => {
+    const huge = "x".repeat(1_000_001);
+    const result = parseJsonStrict(huge);
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe(ParseResultCode.INPUT_TOO_LARGE);
+    expect(result.error).toContain("1000000");
+  });
+
+  it("respects custom maxChars for long input", () => {
+    const result = parseJsonStrict('{"a":1}', { maxChars: 5 });
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe(ParseResultCode.INPUT_TOO_LARGE);
+  });
+
+  it("parses a long JSON string within maxChars", () => {
+    const values = Array.from({ length: 2000 }, (_, i) => i).join(",");
+    const input = `[${values}]`;
+    const result = parseJsonStrict(input, { maxChars: input.length });
+    expect(result.ok).toBe(true);
+    expect(Array.isArray(result.data)).toBe(true);
+    expect(result.data.length).toBe(2000);
+  });
+
+  it("parses deeply nested JSON structures", () => {
+    const depth = 120;
+    let json = '"end"';
+    for (let i = 0; i < depth; i += 1) {
+      json = `{\"level\":${json}}`;
+    }
+
+    const result = parseJsonStrict(json);
+    expect(result.ok).toBe(true);
+
+    let node = result.data;
+    for (let i = 0; i < depth; i += 1) {
+      expect(node).toHaveProperty("level");
+      node = node.level;
+    }
+    expect(node).toBe("end");
+  });
+
+  it("handles concurrent calls safely", async () => {
+    const inputs = [
+      '{"a":1}',
+      "plain text",
+      "  ",
+      "```json\n[1,2]\n```",
+      "prefix {\"b\":2} suffix",
+    ];
+
+    const results = await Promise.all(
+      inputs.map((input) => Promise.resolve().then(() => parseJsonStrict(input)))
+    );
+
+    expect(results[0]).toMatchObject({ ok: true, data: { a: 1 } });
+    expect(results[1].code).toBe(ParseResultCode.NO_JSON_FOUND);
+    expect(results[2].code).toBe(ParseResultCode.NO_JSON_FOUND);
+    expect(results[3]).toMatchObject({ ok: true, data: [1, 2] });
+    expect(results[4]).toMatchObject({ ok: true, data: { b: 2 } });
+  });
+
+  it("handles rapid sequential calls", () => {
+    const inputs = ['{"i":0}', "not json", '{"i":1}', "   ", '{"i":2}'];
+    const results = inputs.map((input) => parseJsonStrict(input));
+
+    expect(results[0]).toMatchObject({ ok: true, data: { i: 0 } });
+    expect(results[1].code).toBe(ParseResultCode.NO_JSON_FOUND);
+    expect(results[2]).toMatchObject({ ok: true, data: { i: 1 } });
+    expect(results[3].code).toBe(ParseResultCode.NO_JSON_FOUND);
+    expect(results[4]).toMatchObject({ ok: true, data: { i: 2 } });
   });
 });

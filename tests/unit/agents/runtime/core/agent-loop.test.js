@@ -1,1068 +1,489 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const assert = require("node:assert/strict");
-
-function makeContentPackage({ runId = "run_test", slideCount = 2 } = {}) {
-  const slideIntents = Array.from({ length: slideCount }, (_, idx) => ({
-    slideIntentId: `s_${idx + 1}`,
-    pageType: "overview",
-    title: `Slide ${idx + 1}`,
-    keyPoints: ["Point A", "Point B"],
-  }));
-
+vi.mock("../../../../../js/agents/shared/index.js", async () => {
+  const actual = await vi.importActual("../../../../../js/agents/shared/index.js");
+  const toText = (value) => {
+    if (typeof value === "string") return value;
+    if (value === null || value === undefined) return "";
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  };
   return {
-    schemaVersion: "0.1",
-    runId,
-    mode: "textprep",
-    constraints: { pageCount: slideCount, tone: "business" },
-    summary: "Test deck",
-    slideIntents,
-    claims: [],
-    evidenceLedger: [],
-  };
-}
-
-function makeDesignSystem() {
-  return {
-    designTokens: {
-      colors: {
-        bg: "#ffffff",
-        text: "#111827",
-        muted: "#6b7280",
-        border: "#e5e7eb",
-        panel: "#ffffff",
-      },
-      fontFamily: "Inter",
-      typography: {
-        minFont: 12,
-        titleFont: 44,
-        subtitleFont: 18,
-        smallFont: 12,
-      },
-    },
-  };
-}
-
-async function makeSlideHtml(slideIntent, designSystem, contentPackage) {
-  const { buildSlideHtml } = await import("../../../js/agents/stages/design/dsl/dsl-builder.js");
-  return buildSlideHtml(slideIntent, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
-}
-
-it("DesignAgentLoop runs phases, uses tools, emits events", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
-
-  const contentPackage = makeContentPackage({ slideCount: 2 });
-  const designSystem = makeDesignSystem();
-
-  const calls = [];
-  const toolExecutor = async (name, params) => {
-    calls.push(name);
-    if (name === "parse_outline") {
-      return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
-    }
-    if (name === "extract_style") {
-      return { ok: true, data: { designSystem } };
-    }
-    if (name === "spawn_slide_agent") {
-      const slideHtmls = await Promise.all(
-        params.slideIntents.map((intent) => makeSlideHtml(intent, designSystem, params.contentPackage))
-      );
-      return {
-        ok: true,
-        data: {
-          generated: slideHtmls.map((slideHtml) => ({ slideHtml, source: "mock" })),
-        },
-      };
-    }
-    if (name === "fill_visual") {
-      return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
-    }
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
-
-  const events = [];
-  const emit = (name, record) => events.push({ name, record });
-
-  const loop = new DesignAgentLoop({ batchSize: 2 });
-  const deck = await loop.run(contentPackage, {
-    runContext: { runId: "run_test", constraints: contentPackage.constraints },
-    toolExecutor,
-    emit,
-    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
-    skipReview: true,
-  });
-
-  expect(deck.schemaVersion).toBe("0.1");
-  expect(deck.slidesMeta.length).toBe(2);
-  expect(deck.deckHtmlDsl).toContain("<section");
-
-  expect(calls).toEqual(["parse_outline", "extract_style", "spawn_slide_agent", "fill_visual"]);
-
-  const transitions = events
-    .filter((evt) => evt.name === "design.phase.transition")
-    .map((evt) => evt.record.payload.to);
-
-  expect(transitions).toEqual([
-    DesignPhase.OUTLINE_PARSING,
-    DesignPhase.OUTLINE_CONFIRMING,
-    DesignPhase.STYLE_EXTRACTING,
-    DesignPhase.STYLE_CONFIRMING,
-    DesignPhase.DECK_PLANNING,
-    DesignPhase.PLAN_CONFIRMING,
-    DesignPhase.LAYOUT_DEVELOPING,
-    DesignPhase.LAYOUT_CONFIRMING,
-    DesignPhase.GENERATING,
-    DesignPhase.REPAIR,
-    DesignPhase.VISUAL_FILLING,
-    DesignPhase.COMPLETED,
-  ]);
-
-  expect(events.some(evt => evt.name === "design.started")).toBe(true);
-  expect(events.some(evt => evt.name === "design.tokens.ended")).toBe(true);
-  expect(events.some(evt => evt.name === "design.generate.ended")).toBe(true);
-  expect(events.some(evt => evt.name === "design.qa.ended")).toBe(true);
-  expect(events.some(evt => evt.name === "design.ended")).toBe(true);
-});
-
-it("DesignAgentLoop waits for confirmations across phases", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-
-  const contentPackage = makeContentPackage({ slideCount: 1 });
-  const designSystem = makeDesignSystem();
-  const eventBus = new EventBus({ runId: "run_interactive" });
-
-  const updatedSlides = [
-    { slideIntentId: "s_new", pageType: "summary", title: "Updated", keyPoints: ["A"] },
-  ];
-
-  const calls = [];
-  const toolExecutor = async (name, params) => {
-    calls.push(name);
-    if (name === "parse_outline") {
-      return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
-    }
-    if (name === "extract_style") {
-      return { ok: true, data: { designSystem } };
-    }
-    if (name === "spawn_slide_agent") {
-      const slideHtmls = await Promise.all(
-        params.slideIntents.map((intent, idx) => makeSlideHtml(intent, designSystem, params.contentPackage))
-      );
-      return {
-        ok: true,
-        data: {
-          generated: slideHtmls.map((slideHtml) => ({ slideHtml, source: "mock" })),
-        },
-      };
-    }
-    if (name === "fill_visual") {
-      return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
-    }
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
-
-  const events = [];
-  const emit = (name, record) => {
-    events.push({ name, record });
-    if (name === "design.phase.transition" && record.payload.to === DesignPhase.OUTLINE_CONFIRMING) {
-      setTimeout(() => eventBus.emit("user.action.confirm_outline", { slideIntents: updatedSlides }), 0);
-    }
-    if (name === "design.phase.transition" && record.payload.to === DesignPhase.STYLE_CONFIRMING) {
-      setTimeout(() => eventBus.emit("user.action.confirm_style", { ok: true }), 0);
-    }
-    if (name === "design.phase.transition" && record.payload.to === DesignPhase.PLAN_CONFIRMING) {
-      setTimeout(() => eventBus.emit("user.action.confirm_plan", { ok: true }), 0);
-    }
-    if (name === "design.phase.transition" && record.payload.to === DesignPhase.LAYOUT_CONFIRMING) {
-      setTimeout(() => eventBus.emit("user.action.confirm_layout", { ok: true }), 0);
-    }
-  };
-
-  const loop = new DesignAgentLoop();
-  const deck = await loop.run(contentPackage, {
-    runContext: { runId: "run_interactive", constraints: contentPackage.constraints },
-    toolExecutor,
-    emit,
-    eventBus,
-    interactionMode: { outlineConfirm: "confirm", styleConfirm: "confirm", planConfirm: "confirm", layoutConfirm: "confirm" },
-    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
-  });
-
-  expect(deck.slidesMeta.length).toBe(updatedSlides.length);
-  expect(events.some(evt => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.PLAN_CONFIRMING)).toBe(true);
-  expect(events.some(evt => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.LAYOUT_CONFIRMING)).toBe(true);
-  expect(calls).toContain("spawn_slide_agent");
-});
-
-it("DesignAgentLoop reports QA failures and keeps degraded count", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const contentPackage = makeContentPackage({ slideCount: 1 });
-  const designSystem = makeDesignSystem();
-
-  const invalidSlide =
-    '<section data-type="freeform" data-bg="#ffffff">' +
-    '<div data-el="text" data-font="8" data-x="0%" data-y="0%" data-w="20%" data-h="20%"></div>' +
-    "</section>";
-
-  const toolExecutor = async (name) => {
-    if (name === "parse_outline") {
-      return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
-    }
-    if (name === "extract_style") {
-      return { ok: true, data: { designSystem } };
-    }
-    if (name === "spawn_slide_agent") {
-      return { ok: true, data: { generated: [{ slideHtml: invalidSlide, source: "mock" }] } };
-    }
-    if (name === "fill_visual") {
-      return { ok: true, data: { deckHtmlDsl: invalidSlide, pendingImages: [] } };
-    }
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
-
-  const events = [];
-  const emit = (name, record) => events.push({ name, record });
-
-  const loop = new DesignAgentLoop();
-  const deck = await loop.run(contentPackage, {
-    runContext: { runId: "run_degraded", constraints: contentPackage.constraints },
-    toolExecutor,
-    emit,
-    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
-  });
-
-  expect(deck.editHints.degradedCount).toBe(1);
-  // After safeMode fallback, qa reflects the fixed HTML (passes), but degraded=true marks it
-  expect(deck.slidesMeta[0].qa.pass).toBe(true);
-  expect(deck.slidesMeta[0].degraded).toBe(true);
-  expect(events.some(evt => evt.name === "design.qa.ended" && evt.record.payload?.degradedCount === 1)).toBe(true);
-  // design.degraded event is emitted when safeMode fallback occurs
-  expect(events.some(evt => evt.name === "design.degraded")).toBe(true);
-});
-
-it("DesignAgentLoop._renderVisuals fills placeholders", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
-
-  const loop = new DesignAgentLoop();
-  const originalRun = VisualSubAgent.prototype.run;
-
-  VisualSubAgent.prototype.run = async () => ({
-    report: { errors: [], hasFatalError: false, svgReport: null },
-    imageResults: {
-      filledSlots: [{ slotId: "img1", candidates: [{ url: "https://example.com/i.png" }] }],
-      report: { schemaVersion: "0.1" },
-    },
-    svgResults: [{ slotId: "svg1", svgContent: "<svg></svg>" }],
-    assetResults: [{ slotId: "asset1", assetUri: "https://example.com/a.png", width: 10, height: 10 }],
-  });
-
-  try {
-    const slideHtml =
-      '<section data-type="freeform" data-bg="#ffffff">' +
-      '<div data-el="image-placeholder" data-slot-id="img1"></div>' +
-      '<div data-el="image-placeholder" data-slot-id="svg1" data-render-type="svg"></div>' +
-      '<div data-el="image-placeholder" data-slot-id="asset1" data-render-type="asset"></div>' +
-      "</section>";
-
-    const result = await loop._renderVisuals(
-      [
-        { slotId: "img1", renderType: "ai-image", slideIndex: 0 },
-        { slotId: "svg1", renderType: "svg", slideIndex: 0 },
-        { slotId: "asset1", renderType: "asset", slideIndex: 0 },
-      ],
-      makeContentPackage({ slideCount: 1 }),
-      makeDesignSystem(),
-      [slideHtml],
-      { emit: () => {} },
-      { runId: "run_visuals" },
-      { imagePolicy: "balanced" },
-      [
-        { slotId: "img1" },
-        { slotId: "svg1" },
-        { slotId: "asset1" },
-      ],
-      ["img1"]
-    );
-
-    expect(result.deckHtmlDsl).toContain('data-el="image"');
-    expect(result.deckHtmlDsl).toContain('data-el="svg"');
-    expect(result.deckHtmlDsl).toContain('data-render-type="asset"');
-    expect(result.pendingImages).toEqual([]);
-  } finally {
-    VisualSubAgent.prototype.run = originalRun;
-  }
-});
-
-it("DesignAgentLoop._renderVisuals handles renderer errors", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
-
-  const loop = new DesignAgentLoop();
-  const originalRun = VisualSubAgent.prototype.run;
-
-  VisualSubAgent.prototype.run = async () => {
-    throw new Error("Render exploded");
-  };
-
-  try {
-    const result = await loop._renderVisuals(
-      [{ slotId: "img1", renderType: "ai-image", slideIndex: 0 }],
-      makeContentPackage({ slideCount: 1 }),
-      makeDesignSystem(),
-      ['<section data-type="freeform" data-bg="#ffffff"></section>'],
-      { emit: () => {} },
-      { runId: "run_error" },
-      { imagePolicy: "balanced" },
-      [{ slotId: "img1" }],
-      ["img1"]
-    );
-
-    expect(result.visualReport.hasFatalError).toBe(true);
-    expect(result.imageReport.error).toContain("Render exploded");
-    expect(result.pendingImages).toEqual(["img1"]);
-  } finally {
-    VisualSubAgent.prototype.run = originalRun;
-  }
-});
-
-it("DesignAgentLoop._toolChatAsk waits for user action", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-
-  const loop = new DesignAgentLoop();
-  const eventBus = new EventBus({ runId: "run_chat" });
-  const events = [];
-  const emit = (name, record) => events.push({ name, record });
-
-  const promise = loop._toolChatAsk({ message: "Hello", actionName: "chat_reply" }, { eventBus, emit });
-  eventBus.emit("user.action.chat_reply", { reply: "ok" });
-
-  const result = await promise;
-
-  expect(result.actionName).toBe("chat_reply");
-  expect(result.payload).toEqual({ reply: "ok" });
-  expect(events.some(evt => evt.name === "design.chat.ask")).toBe(true);
-});
-
-it("DesignAgentLoop._callTool resolves executors and reports errors", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-
-  const errorResult = await loop._callTool("parse_outline", {}, { toolExecutor: async () => ({ error: "nope" }) });
-  expect(errorResult.ok).toBe(false);
-  expect(errorResult.error).toBe("nope");
-
-  const rawResult = await loop._callTool("parse_outline", {}, { tools: { execute: async () => "raw" } });
-  expect(rawResult.ok).toBe(true);
-  expect(rawResult.data).toBe("raw");
-
-  loop._tools.thrower = async () => {
-    throw new Error("boom");
-  };
-  const thrown = await loop._callTool("thrower", {}, {});
-  expect(thrown.ok).toBe(false);
-  expect(thrown.error).toBe("boom");
-
-  const missing = await loop._callTool("unknown_tool", {}, {});
-  expect(missing.ok).toBe(false);
-  expect(missing.error).toContain("Unknown tool");
-});
-
-it("DesignAgentLoop.waitForUserAction requires an event bus", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-  await expect(loop.waitForUserAction("confirm_outline")).rejects.toThrow(/eventBus/);
-});
-
-it("DesignAgentLoop._buildVisualSlots falls back to svg without image provider", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-  const slots = loop._buildVisualSlots(
-    {
-      candidatesBySlide: [
-        {
-          selectedCandidate: {
-            visualSlots: [
-              {
-                slotId: "slot_1",
-                slideIndex: 0,
-                renderType: "ai-image",
-                purpose: "chart_fallback",
-                imageSpec: { prompt: "Use bars" },
-              },
-            ],
-          },
-        },
-      ],
-    },
-    [],
-    null
-  );
-
-  expect(slots.length).toBe(1);
-  expect(slots[0].renderType).toBe("svg");
-  expect(slots[0].svgSpec.type).toBe("chart");
-  expect(slots[0].svgSpec.description).toBe("Use bars");
-});
-
-it("DesignAgentLoop._buildVisualSlots falls back to image slots when brainstorm empty", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-  const slots = loop._buildVisualSlots(
-    { candidatesBySlide: [] },
-    [
-      {
-        slotId: "img_1",
-        slideIntentId: "s1",
-        slideIndex: 0,
-        renderType: "ai-image",
-        priority: 1,
-        aspectRatio: "16:9",
-        purpose: "hero",
-        promptHint: "Mountain view",
-        style: "photo",
-        effects: { blur: 2 },
-        assetId: "asset_1",
-      },
-    ],
-    {}
-  );
-
-  expect(slots.length).toBe(1);
-  expect(slots[0].renderType).toBe("ai-image");
-  expect(slots[0].imageSpec.prompt).toBe("Mountain view");
-  expect(slots[0].imageSpec.style).toBe("photo");
-  expect(slots[0].assetSpec.assetId).toBe("asset_1");
-  expect(slots[0].effects).toEqual({ blur: 2 });
-});
-
-it("DesignAgentLoop._renderVisuals returns defaults when no visual slots", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-  const slideHtmls = ["<section data-type=\"freeform\"></section>"];
-  const result = await loop._renderVisuals(
-    [],
-    makeContentPackage({ slideCount: 1 }),
-    makeDesignSystem(),
-    slideHtmls,
-    { emit: () => {} },
-    { runId: "run_empty" },
-    {},
-    [],
-    []
-  );
-
-  expect(result.visualReport).toBe(null);
-  expect(result.imageReport).toBe(null);
-  expect(result.finalImageSlots).toEqual([]);
-  expect(result.deckHtmlDsl).toBe(slideHtmls.join("\n\n"));
-});
-
-it("DesignAgentLoop emits image planning events when configured", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const contentPackage = makeContentPackage({ slideCount: 1 });
-  const designSystem = makeDesignSystem();
-  const calls = [];
-  const toolExecutor = async (name, params) => {
-    calls.push(name);
-    if (name === "parse_outline") {
-      return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
-    }
-    if (name === "extract_style") {
-      return { ok: true, data: { designSystem } };
-    }
-    if (name === "spawn_slide_agent") {
-      const slideHtmls = await Promise.all(
-        params.slideIntents.map((intent) => makeSlideHtml(intent, designSystem, params.contentPackage))
-      );
-      return { ok: true, data: { generated: slideHtmls.map((slideHtml) => ({ slideHtml })) } };
-    }
-    if (name === "fill_visual") {
-      return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
-    }
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
-
-  const events = [];
-  const emit = (name, record) => events.push({ name, record });
-
-  const loop = new DesignAgentLoop();
-  await loop.run(contentPackage, {
-    runContext: { runId: "run_planning", constraints: { imagePolicy: "balanced", imageBudget: 1 } },
-    toolExecutor,
-    emit,
-    brainstormResult: {
-      ideaPool: [],
-      selectedIdeas: [],
-      imageSlots: [
-        { slotId: "img_1", style: "photo", renderType: "ai-image" },
-        { slotId: "img_2", style: "photo", renderType: "ai-image" },
-      ],
-      candidatesBySlide: [],
-    },
-  });
-
-  const planning = events.find((evt) => evt.name === "design.image.planning.completed");
-  expect(planning, "planning event should be emitted").toBeDefined();
-  expect(planning.record.payload.planned).toBe(2);
-  expect(planning.record.payload.estimatedCostUSD).toBe(0.08);
-  expect(calls).toContain("spawn_slide_agent");
-});
-
-it("DesignAgentLoop.getToolDefinitions returns a copy", async () => {
-  const { DesignAgentLoop, DESIGN_AGENT_TOOL_DEFINITIONS } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-  const defs = loop.getToolDefinitions();
-  defs.push({ name: "fake_tool" });
-
-  const next = loop.getToolDefinitions();
-  expect(next.some((def) => def.name === "fake_tool")).toBe(false);
-  expect(defs).not.toBe(DESIGN_AGENT_TOOL_DEFINITIONS);
-});
-
-it("DesignAgentLoop.waitForUserAction handles aborts and timeouts", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-
-  const loop = new DesignAgentLoop();
-  const eventBus = new EventBus({ runId: "run_wait" });
-  const controller = new AbortController();
-
-  const aborted = loop.waitForUserAction("confirm_outline", { eventBus, signal: controller.signal });
-  controller.abort({ code: "stop" });
-  await expect(aborted).rejects.toThrow(/Run cancelled/);
-
-  const timed = loop.waitForUserAction("confirm_outline", { eventBus, timeout: 5 });
-  await expect(timed).rejects.toThrow(/Timeout waiting for user action/);
-});
-
-it("DesignAgentLoop rejects when cancelled", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-  const contentPackage = makeContentPackage({ slideCount: 1 });
-  const controller = new AbortController();
-  controller.abort({ code: "stop" });
-
-  await expect(loop.run(contentPackage, { runContext: { runId: "run_cancel", constraints: contentPackage.constraints }, signal: controller.signal })).rejects.toThrow(/Run cancelled/);
-});
-
-it("DesignAgentLoop._transitionPhase rejects invalid states", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-  expect(() => loop._transitionPhase({ status: "idle" }, "invalid_state", { emit: () => {} }),
-    /Invalid state transition/
-  );
-});
-
-it("DesignAgentLoop loop status records history", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
-
-  const loop = new DesignAgentLoop();
-  expect(loop.loopStatus).toBe(AgentStatus.IDLE);
-  expect(loop.statusHistory.length).toBe(0);
-
-  await loop._transitionTo(AgentStatus.RUNNING, { runId: "run_loop" });
-
-  expect(loop.loopStatus).toBe(AgentStatus.RUNNING);
-  expect(loop.statusHistory.length).toBe(1);
-  expect(loop.statusHistory.map((entry) => entry.to)).toEqual([AgentStatus.RUNNING]
-  );
-  expect(loop.statusHistory[0].from).toBe(AgentStatus.IDLE);
-  expect(loop.statusHistory[0].runId).toBe("run_loop");
-  expect(typeof loop.statusHistory[0].timestamp).toBe("number");
-});
-
-it("DesignAgentLoop loop status rejects invalid transitions", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
-
-  const loop = new DesignAgentLoop();
-
-  // IDLE -> COMPLETED is invalid (must go through RUNNING first)
-  await expect(loop._transitionTo(AgentStatus.COMPLETED)).rejects.toThrow(/Invalid DesignLoop state transition/);
-
-  expect(loop.statusHistory.length).toBe(0);
-  expect(loop.loopStatus).toBe(AgentStatus.IDLE);
-});
-
-it("DesignAgentLoop.pause sets pause flag and isPaused getter", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-  expect(loop.isPaused).toBe(false);
-
-  loop.pause();
-
-  expect(loop.isPaused).toBe(true);
-});
-
-it("DesignAgentLoop._transitionTo throws StagePausedError when pause requested", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
-  const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
-
-  const loop = new DesignAgentLoop();
-
-  loop.pause("manual_pause");
-
-  // Pause is checked when transitioning to RUNNING
-  let pauseError = null;
-  try {
-    await loop._transitionTo(AgentStatus.RUNNING, { runId: "run_pause", checkpointId: "cp_pause" });
-  } catch (err) {
-    pauseError = err;
-  }
-
-  expect(pauseError).toBeInstanceOf(StagePausedError);
-  expect(pauseError.reason).toBe("manual_pause");
-
-  expect(loop.loopStatus).toBe(AgentStatus.PAUSED);
-});
-
-it("DesignAgentLoop run pauses before executing and persists checkpoint", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
-  const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
-  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive/archive.js");
-
-  const archive = new Archive(new MapAdapter());
-  const loop = new DesignAgentLoop({ archive });
-  const contentPackage = makeContentPackage({ slideCount: 1 });
-  const calls = [];
-
-  const toolExecutor = async (name) => {
-    calls.push(name);
-    if (name === "parse_outline") return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
-    if (name === "extract_style") return { ok: true, data: { designSystem: makeDesignSystem() } };
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
-
-  loop.pause("manual_pause");
-
-  let pauseError = null;
-  try {
-    await loop.run(contentPackage, {
-      runContext: { runId: "run_pause", constraints: contentPackage.constraints },
-      toolExecutor,
-    });
-  } catch (err) {
-    pauseError = err;
-  }
-
-  expect(pauseError).toBeInstanceOf(StagePausedError);
-  expect(pauseError.reason).toBe("manual_pause");
-
-  expect(loop.loopStatus).toBe(AgentStatus.PAUSED);
-});
-
-it("DesignAgentLoop._toolTakeScreenshot and _toolFixSlide return defaults", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-  const shot = await loop._toolTakeScreenshot();
-  const fix = await loop._toolFixSlide();
-
-  expect(shot).toEqual({ screenshots: [] });
-  expect(typeof fix.fixedHtml).toBe("string");
-});
-
-it("DesignAgentLoop.execute proxies to run", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const contentPackage = makeContentPackage({ slideCount: 1 });
-  const designSystem = makeDesignSystem();
-
-  const toolExecutor = async (name, params) => {
-    if (name === "parse_outline") return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
-    if (name === "extract_style") return { ok: true, data: { designSystem } };
-    if (name === "spawn_slide_agent") {
-      const slideHtml = await makeSlideHtml(contentPackage.slideIntents[0], designSystem, contentPackage);
-      return { ok: true, data: { generated: [{ slideHtml, source: "mock" }] } };
-    }
-    if (name === "fill_visual") return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
-
-  const loop = new DesignAgentLoop();
-  const deck = await loop.execute({ runId: "run_execute", constraints: contentPackage.constraints }, contentPackage, { toolExecutor });
-  expect(deck.runId).toBe("run_execute");
-});
-
-it("DesignAgentLoop falls back when design system overrides are invalid", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const loop = new DesignAgentLoop();
-  const style = await loop._toolExtractStyle(
-    { contentPackage: makeContentPackage({ slideCount: 1 }), constraints: { theme: "light" }, userConfig: { designSystemOverrides: { colors: null } } },
-    {}
-  );
-
-  expect(style.designSystem?.designTokens, "fallback design tokens should be present").toEqual(expect.any(Object));
-});
-
-it("DesignAgentLoop._renderVisuals emits visual error events", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
-
-  const loop = new DesignAgentLoop();
-  const originalRun = VisualSubAgent.prototype.run;
-  const events = [];
-
-  VisualSubAgent.prototype.run = async () => ({
-    report: { errors: [{ type: "svg", message: "bad svg" }], hasFatalError: false, svgReport: { errors: ["bad svg"] } },
-    imageResults: { filledSlots: [], report: { schemaVersion: "0.1" } },
-    svgResults: [],
-    assetResults: [],
-  });
-
-  try {
-    await loop._renderVisuals(
-      [{ slotId: "svg1", renderType: "svg", slideIndex: 0 }],
-      makeContentPackage({ slideCount: 1 }),
-      makeDesignSystem(),
-      ['<section data-type="freeform" data-bg="#ffffff"></section>'],
-      { emit: (name, record) => events.push({ name, record }) },
-      { runId: "run_visual_warn" },
-      {},
-      [{ slotId: "svg1" }],
-      []
-    );
-  } finally {
-    VisualSubAgent.prototype.run = originalRun;
-  }
-
-  expect(events.some(evt => evt.name === "design.visual.errors")).toBe(true);
-});
-
-it("DesignAgentLoop serializes and hydrates node states", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const contentPackage = makeContentPackage({ runId: "run_state", slideCount: 1 });
-  const designSystem = makeDesignSystem();
-  const slideHtml = "<section data-type=\"freeform\" data-bg=\"#ffffff\"></section>";
-  const imageSlots = [{ slotId: "img_1", renderType: "ai-image" }];
-  const visualSlots = [{ slotId: "img_1", slideIndex: 0, renderType: "ai-image" }];
-
-  const loop = new DesignAgentLoop();
-  loop.state.contentPackage = contentPackage;
-  loop.state.slideIntents = contentPackage.slideIntents;
-  loop.state.designSystem = designSystem;
-  loop.state.slideHtmls = [slideHtml];
-  loop.state.deckHtmlDsl = slideHtml;
-  loop.state.imageSlots = imageSlots;
-  loop.state.visualSlots = visualSlots;
-
-  const serialized = loop.serializeNodeStates();
-  loop.state.contentPackage.runId = "mutated";
-
-  expect(serialized.contentPackage.runId).toBe("run_state");
-  expect(serialized.imageSlots).toEqual(imageSlots);
-  expect(serialized.visualSlots).toEqual(visualSlots);
-
-  const restored = new DesignAgentLoop();
-  restored.hydrateFromNodeStates(serialized);
-
-  expect(restored.state.contentPackage.runId).toBe("run_state");
-  expect(restored.state.slideIntents).toEqual(contentPackage.slideIntents);
-  expect(restored.state.slideHtmls).toEqual([slideHtml]);
-  expect(restored.state.imageSlots).toEqual(imageSlots);
-  expect(restored.state.visualSlots).toEqual(visualSlots);
-});
-
-it("DesignAgentLoop.backtrackTo restores blackboard version", async () => {
-  const { DesignAgentLoop, BacktrackError } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
-
-  const loop = new DesignAgentLoop();
-  loop.phase = { status: DesignPhase.GENERATING };
-  loop.state.contentPackage = makeContentPackage({ runId: "run_backtrack", slideCount: 1 });
-  loop.saveVersion("v1");
-
-  try {
-    loop.backtrackTo("v1", "test");
-    throw new Error("Expected backtrackTo to throw BacktrackError" || 'Test failed');
-  } catch (err) {
-    expect(err).toBeInstanceOf(BacktrackError);
-    expect(err.targetPhase).toBe(DesignPhase.GENERATING);
-    expect(loop.blackboard._currentVersion).toBe("v1");
-  }
-});
-
-it("DesignAgentLoop runs refine when enabled", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-
-  const contentPackage = makeContentPackage({ slideCount: 1 });
-  const designSystem = makeDesignSystem();
-  const toolExecutor = async (name, params) => {
-    if (name === "parse_outline") return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
-    if (name === "extract_style") return { ok: true, data: { designSystem } };
-    if (name === "spawn_slide_agent") {
-      const slideHtml = await makeSlideHtml(contentPackage.slideIntents[0], designSystem, contentPackage);
-      return { ok: true, data: { generated: [{ slideHtml, source: "mock" }] } };
-    }
-    if (name === "fill_visual") return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
-
-  const aiApiService = {
-    chat: async () => ({
-      content: "```json\n" + JSON.stringify({ thought: "done", finish: { qualityScore: 9, remainingIssues: 0, refinements: [] } }) + "\n```",
+    ...actual,
+    estimateTokensCached: vi.fn((text, tokenCounter) => {
+      const raw = toText(text);
+      if (tokenCounter && typeof tokenCounter.count === "function") {
+        return tokenCounter.count(raw);
+      }
+      return Math.ceil(raw.length / 4);
     }),
+    getGlobalTokenCounter: vi.fn(() => ({
+      count: (input) => Math.ceil(String(input ?? "").length / 4),
+    })),
+    createLogger: vi.fn(() => ({
+      warn: vi.fn(),
+      info: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    })),
+    createStageApi: vi.fn((options = {}) => ({
+      ...options,
+      emit: options.emit,
+      eventBus: options.eventBus,
+      signal: options.signal,
+      checkCancelled: options.checkCancelled || (() => {}),
+    })),
+    checkCancelled: vi.fn(),
   };
-
-  const loop = new DesignAgentLoop();
-  const deck = await loop.run(contentPackage, {
-    runContext: { runId: "run_refine", constraints: contentPackage.constraints, userConfig: { refine: { enabled: true } } },
-    toolExecutor,
-    aiApiService,
-    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
-  });
-
-  expect(deck.refineReport, "refine report should be present when enabled").toEqual(expect.any(Object));
 });
 
-it("resumeDesignAgentLoop skips outline/style tools at deck planning checkpoint", async () => {
-  const { resumeDesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
-  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive/archive.js");
-
-  const archive = new Archive(new MapAdapter());
-  const contentPackage = makeContentPackage({ runId: "run_resume_planning", slideCount: 1 });
-  const designSystem = makeDesignSystem();
-
-  const checkpointId = await archive.save(contentPackage.runId, {
-    nodeStates: {
-      phase: DesignPhase.DECK_PLANNING,
-      loopStatus: "running",
-      statusHistory: [],
-      contentPackage,
-      slideIntents: contentPackage.slideIntents,
-      designSystem,
-    },
-    timestamp: Date.now(),
-    metadata: { runId: contentPackage.runId, iteration: 1, type: "pre-action" },
-  });
-
-  const calls = [];
-  const toolExecutor = async (name, params) => {
-    calls.push(name);
-    if (name === "spawn_slide_agent") {
-      const slideHtml = await makeSlideHtml(params.slideIntents[0], designSystem, params.contentPackage);
-      return { ok: true, data: { generated: [{ slideHtml, source: "mock" }] } };
+vi.mock("../../../../../js/agents/plugins/compression/index.js", () => ({
+  CompressionCoordinator: class {
+    constructor(options) {
+      this.options = options;
+      this.shouldCompress = vi.fn(() => false);
+      this.maybeCompress = vi.fn(async (messages) => ({ messages }));
     }
-    if (name === "fill_visual") return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
+  },
+}));
 
-  const deck = await resumeDesignAgentLoop(checkpointId, {
-    archive,
-    toolExecutor,
-    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
-  });
+vi.mock("../../../../../js/agents/plugins/telemetry/index.js", () => ({
+  getRuntimeState: vi.fn(() => null),
+}));
 
-  expect(deck.deckHtmlDsl).toContain("<section");
-  expect(calls).toEqual(["spawn_slide_agent", "fill_visual"]);
+vi.mock("../../../../../js/agents/runtime/hooks/hook-runner.js", () => ({
+  createPreToolUseHook: vi.fn(() => async () => null),
+  createPreAgentHook: vi.fn(() => async () => null),
+  createPostAgentHook: vi.fn(() => async () => null),
+}));
+
+vi.mock("../../../../../js/agents/runtime/tools/schema-validator.js", () => ({
+  validateArgs: vi.fn(() => ({ valid: true, errors: [] })),
+  validateToolSchema: vi.fn(() => ({ valid: true, errors: [] })),
+}));
+
+let MessageManager;
+let ToolRegistry;
+let StatusController;
+let DEFAULT_CONTEXT_CONFIG;
+let mergeContextConfig;
+let AgentStatus;
+let StagePausedError;
+let persistedOutput;
+let validateArgs;
+let createPreToolUseHook;
+let getRuntimeState;
+
+beforeEach(async () => {
+  vi.resetAllMocks();
+  vi.resetModules();
+  ({
+    MessageManager,
+    ToolRegistry,
+    StatusController,
+    DEFAULT_CONTEXT_CONFIG,
+    mergeContextConfig,
+  } = await import("../../../../../js/agents/runtime/core/agent-loop.js"));
+  ({ AgentStatus } = await import("../../../../../js/agents/runtime/core/agent-status.js"));
+  ({ StagePausedError } = await import("../../../../../js/agents/runtime/core/stage-errors.js"));
+  persistedOutput = await import("../../../../../js/agents/runtime/core/persisted-output.js");
+  ({ validateArgs } = await import("../../../../../js/agents/runtime/tools/schema-validator.js"));
+  ({ createPreToolUseHook } = await import("../../../../../js/agents/runtime/hooks/hook-runner.js"));
+  ({ getRuntimeState } = await import("../../../../../js/agents/plugins/telemetry/index.js"));
 });
 
-it("DesignAgentLoop saves pre-action checkpoint before executing", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
-  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive/archive.js");
-
-  const archive = new Archive(new MapAdapter());
-  const loop = new DesignAgentLoop({ archive });
-  const runId = "run_checkpoint";
-  const contentPackage = makeContentPackage({ runId, slideCount: 1 });
-  const designSystem = makeDesignSystem();
-
-  loop.state.contentPackage = contentPackage;
-  loop.state.slideIntents = contentPackage.slideIntents;
-  loop.state.designSystem = designSystem;
-  loop.state.slideHtmls = ["<section data-type=\"freeform\"></section>"];
-  loop.state.deckHtmlDsl = loop.state.slideHtmls[0];
-  loop.state.imageSlots = [{ slotId: "img_state" }];
-  loop.state.visualSlots = [{ slotId: "vis_state" }];
-
-  const nodeStates = { slidesMeta: [{ slideNo: 1 }], imageSlots: [{ slotId: "img_override" }] };
-
-  loop.phase = { status: DesignPhase.REVIEWING };
-
-  const checkpointId = await loop._transitionTo(AgentStatus.RUNNING, { runId, iteration: 1, nodeStates });
-
-  expect(checkpointId).toBeTypeOf("string");
-  expect(checkpointId).toContain(":");
-  const snapshot = await archive.restore(checkpointId);
-  expect(snapshot.schemaVersion).toBe("1.0");
-  expect(snapshot.metadata.type).toBe("pre-action");
-  expect(snapshot.metadata.runId).toBe(runId);
-  expect(snapshot.nodeStates.phase).toBe(DesignPhase.REVIEWING);
-  expect(snapshot.nodeStates.loopStatus).toBe(AgentStatus.IDLE);
-  expect(snapshot.nodeStates.slidesMeta).toEqual(nodeStates.slidesMeta);
-  // nodeStates override serialized values for conflicts
-  expect(snapshot.nodeStates.imageSlots).toEqual(nodeStates.imageSlots);
-  expect(snapshot.nodeStates.contentPackage).toEqual(contentPackage);
-  expect(snapshot.nodeStates.slideIntents).toEqual(contentPackage.slideIntents);
-  expect(snapshot.nodeStates.designSystem).toEqual(designSystem);
-  expect(snapshot.nodeStates.slideHtmls).toEqual(loop.state.slideHtmls);
-  expect(snapshot.nodeStates.deckHtmlDsl).toBe(loop.state.deckHtmlDsl);
-  expect(snapshot.nodeStates.visualSlots).toEqual(loop.state.visualSlots);
-  expect(snapshot.nodeStates.statusHistory).toBeInstanceOf(Array);
-});
-
-it("resumeDesignAgentLoop returns DeckPackage", async () => {
-  const { resumeDesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
-  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
-  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive/archive.js");
-
-  const archive = new Archive(new MapAdapter());
-  const contentPackage = makeContentPackage({ runId: "run_resume_pkg", slideCount: 1 });
-  const designSystem = makeDesignSystem();
-  const slideHtml = await makeSlideHtml(contentPackage.slideIntents[0], designSystem, contentPackage);
-  const generated = [{ slideHtml, source: "resume" }];
-
-  const checkpointId = await archive.save(contentPackage.runId, {
-    nodeStates: {
-      phase: DesignPhase.VISUAL_FILLING,
-      loopStatus: AgentStatus.RUNNING,
-      statusHistory: [],
-      contentPackage,
-      slideIntents: contentPackage.slideIntents,
-      designSystem,
-      generated,
-      slideHtmls: [slideHtml],
-      deckHtmlDsl: slideHtml,
-      slidesMeta: [
-        {
-          slideNo: 1,
-          slideIntentId: contentPackage.slideIntents[0].slideIntentId,
-          pageType: contentPackage.slideIntents[0].pageType,
-          title: contentPackage.slideIntents[0].title,
-          degraded: false,
-          source: "resume",
-          qa: { pass: true },
-        },
-      ],
-      imageSlots: [],
-    },
-    timestamp: Date.now(),
-    metadata: { runId: contentPackage.runId, iteration: 1, type: "pre-action" },
+describe("DEFAULT_CONTEXT_CONFIG", () => {
+  it("is frozen with expected defaults", () => {
+    expect(Object.isFrozen(DEFAULT_CONTEXT_CONFIG)).toBe(true);
+    expect(DEFAULT_CONTEXT_CONFIG.contextWindow).toBe(128000);
+    expect(DEFAULT_CONTEXT_CONFIG.maxOutputTokens).toBe(4096);
+    expect(DEFAULT_CONTEXT_CONFIG.compressThreshold).toBe(0.9);
   });
 
-  const calls = [];
-  const toolExecutor = async (name, params) => {
-    calls.push(name);
-    if (name === "fill_visual") {
-      return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
+  it("does not allow mutation", () => {
+    const original = DEFAULT_CONTEXT_CONFIG.contextWindow;
+    try {
+      DEFAULT_CONTEXT_CONFIG.contextWindow = 1;
+    } catch {
+      // ignore
     }
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
-
-  const deck = await resumeDesignAgentLoop(checkpointId, {
-    archive,
-    toolExecutor,
-    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
+    expect(DEFAULT_CONTEXT_CONFIG.contextWindow).toBe(original);
   });
-
-  expect(deck).toEqual(expect.any(Object));
-  expect(deck.runId).toBe(contentPackage.runId);
-  expect(deck.designSystem).toEqual(expect.any(Object));
-  expect(deck.deckHtmlDsl).toContain("<section");
-  expect(deck.slidesMeta.length).toBe(1);
-  expect(calls).toEqual(["fill_visual"]);
 });
 
-it("resumeDesignAgentLoop continues after pause checkpoint", async () => {
-  const { DesignAgentLoop, resumeDesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
-  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive/archive.js");
+describe("mergeContextConfig", () => {
+  it("returns defaults for nullish or non-object inputs", () => {
+    expect(mergeContextConfig(null)).toBe(DEFAULT_CONTEXT_CONFIG);
+    expect(mergeContextConfig(undefined)).toBe(DEFAULT_CONTEXT_CONFIG);
+    expect(mergeContextConfig("")).toBe(DEFAULT_CONTEXT_CONFIG);
+    expect(mergeContextConfig("   ")).toBe(DEFAULT_CONTEXT_CONFIG);
+  });
 
-  const archive = new Archive(new MapAdapter());
-  const loop = new DesignAgentLoop({ archive });
-  const contentPackage = makeContentPackage({ runId: "run_resume_pause", slideCount: 1 });
-  const designSystem = makeDesignSystem();
-
-  const toolExecutor = async (name, params) => {
-    if (name === "parse_outline") return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
-    if (name === "extract_style") return { ok: true, data: { designSystem } };
-    if (name === "spawn_slide_agent") {
-      const slideHtml = await makeSlideHtml(contentPackage.slideIntents[0], designSystem, contentPackage);
-      return { ok: true, data: { generated: [{ slideHtml, source: "mock" }] } };
-    }
-    if (name === "fill_visual") return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
-
-  loop.pause("manual_pause");
-
-  let checkpointId;
-  try {
-    await loop.run(contentPackage, {
-      runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints },
-      toolExecutor,
+  it("merges overrides and freezes result", () => {
+    const cfg = mergeContextConfig({
+      contextWindow: 0,
+      compressCooldownMs: -1,
+      keepLastTurns: Number.MAX_SAFE_INTEGER,
     });
-  } catch (err) {
-    expect(err).toBeInstanceOf(StagePausedError);
-    checkpointId = err.checkpointId;
-    expect(checkpointId).toBeTypeOf("string");
-    expect(checkpointId).toContain(":");
-  }
-
-  const calls = [];
-  const resumedExecutor = async (name, params) => {
-    calls.push(name);
-    return toolExecutor(name, params);
-  };
-
-  const deck = await resumeDesignAgentLoop(checkpointId, {
-    archive,
-    toolExecutor: resumedExecutor,
-    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
-    contentPackage, // 提供 contentPackage 作为 fallback
+    expect(cfg.contextWindow).toBe(0);
+    expect(cfg.compressCooldownMs).toBe(-1);
+    expect(cfg.keepLastTurns).toBe(Number.MAX_SAFE_INTEGER);
+    expect(Object.isFrozen(cfg)).toBe(true);
   });
 
-  expect(deck).toEqual(expect.any(Object));
-  expect(deck.runId).toBe(contentPackage.runId);
-  expect(deck.slidesMeta.length).toBe(1);
-  expect(deck.designSystem).toEqual(expect.any(Object));
-  // 由于暂停发生在 IDLE 阶段，resume 会重新执行所有步骤
-  expect(calls.length).toBeGreaterThan(0);
+  it("accepts string overrides and empty object", () => {
+    const cfg = mergeContextConfig({ contextWindow: "1024", userMessageBuffer: "0" });
+    expect(cfg.contextWindow).toBe("1024");
+    expect(cfg.userMessageBuffer).toBe("0");
+    const empty = mergeContextConfig({});
+    expect(empty).not.toBe(DEFAULT_CONTEXT_CONFIG);
+    expect(empty.contextWindow).toBe(DEFAULT_CONTEXT_CONFIG.contextWindow);
+  });
 });
 
-it("DesignAgentLoop checkpoint snapshot is JSON serializable", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
-  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive/archive.js");
-
-  const archive = new Archive(new MapAdapter());
-  const loop = new DesignAgentLoop({ archive });
-  const runId = "run_serial";
-
-  const checkpointId = await loop._transitionTo(AgentStatus.RUNNING, {
-    runId,
-    nodeStates: { slidesMeta: [{ slideNo: 1 }], imageSlots: [] },
+describe("StatusController", () => {
+  it("transitions and emits status changes", () => {
+    const emit = vi.fn();
+    const controller = new StatusController({
+      status: AgentStatus.IDLE,
+      emit,
+      stageName: "stage",
+      actor: "actor",
+    });
+    const entry = controller.transition(AgentStatus.RUNNING);
+    expect(entry.from).toBe(AgentStatus.IDLE);
+    expect(entry.to).toBe(AgentStatus.RUNNING);
+    expect(typeof entry.timestamp).toBe("number");
+    expect(controller.status).toBe(AgentStatus.RUNNING);
+    expect(controller.statusHistory.length).toBe(1);
+    expect(emit).toHaveBeenCalledWith(
+      "stage.agent.status.changed",
+      expect.objectContaining({
+        actor: "actor",
+        status: "info",
+        payload: expect.objectContaining({ from: AgentStatus.IDLE, to: AgentStatus.RUNNING }),
+      })
+    );
   });
 
-  const snapshot = await archive.restore(checkpointId);
-  const serialized = JSON.stringify(snapshot);
-  const roundtrip = JSON.parse(serialized);
+  it("throws on invalid transitions when strict", () => {
+    const controller = new StatusController({ status: AgentStatus.IDLE, strict: true, stageName: "stage" });
+    expect(() => controller.transition(AgentStatus.PAUSED)).toThrow(/transition rejected/);
+  });
 
-  expect(roundtrip.nodeStates.loopStatus).toBe(AgentStatus.IDLE);
-  expect(roundtrip.nodeStates.statusHistory).toBeInstanceOf(Array);
+  it("records invalid transitions when strict is false", () => {
+    const logger = { warn: vi.fn() };
+    const controller = new StatusController({
+      status: AgentStatus.IDLE,
+      strict: false,
+      logger,
+      stageName: "stage",
+    });
+    const entry = controller.transition(AgentStatus.PAUSED);
+    expect(entry.invalid).toBe(true);
+    expect(controller.status).toBe(AgentStatus.PAUSED);
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("pause and resume update flags", () => {
+    const controller = new StatusController();
+    controller.pause("reason");
+    expect(controller.isPaused).toBe(true);
+    expect(controller.pauseReason).toBe("reason");
+    controller.resume();
+    expect(controller.isPaused).toBe(false);
+    expect(controller.pauseReason).toBe(null);
+  });
+
+  it("checkPaused throws when runtime state is paused", () => {
+    getRuntimeState.mockReturnValue({
+      status: "paused",
+      lastCheckpointId: "cp_1",
+      pausedReason: "manual",
+    });
+    const controller = new StatusController();
+    let caught;
+    try {
+      controller.checkPaused(null);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(StagePausedError);
+    expect(caught.checkpointId).toBe("cp_1");
+    expect(caught.reason).toBe("manual");
+  });
+
+  it("createPauseError uses runtime state and runId", () => {
+    getRuntimeState.mockReturnValue({
+      status: "paused",
+      lastCheckpointId: "cp_2",
+      pausedReason: "hold",
+    });
+    const controller = new StatusController();
+    const err = controller.createPauseError({ runId: "run_1" });
+    expect(err).toBeInstanceOf(StagePausedError);
+    expect(err.checkpointId).toBe("cp_2");
+    expect(err.reason).toBe("hold");
+    expect(err.runId).toBe("run_1");
+  });
+
+  it("shouldPauseFromError respects abort and pause signals", () => {
+    const controller = new StatusController();
+    const abortController = new AbortController();
+    abortController.abort("stop");
+    controller.pause("user");
+    expect(controller.shouldPauseFromError(new Error("aborted"), abortController.signal)).toBe(true);
+
+    const controller2 = new StatusController();
+    expect(controller2.shouldPauseFromError(new Error("aborted"), abortController.signal)).toBe(false);
+  });
+
+  it("allows empty string transitions in non-strict mode", () => {
+    const controller = new StatusController({ status: AgentStatus.IDLE, strict: false });
+    const entry = controller.transition("");
+    expect(entry.to).toBe("");
+    expect(controller.status).toBe("");
+  });
+});
+
+describe("ToolRegistry", () => {
+  it("validates tool registration inputs", () => {
+    const registry = new ToolRegistry();
+    expect(() => registry.registerTool("", () => {})).toThrow(TypeError);
+    expect(() => registry.registerTool("__proto__", () => {})).toThrow(Error);
+    expect(() => registry.registerTool("ok", null)).toThrow(TypeError);
+  });
+
+  it("registers tools from object, array, and map", () => {
+    const registry = new ToolRegistry();
+    const toolA = vi.fn();
+    const toolB = vi.fn();
+    const toolC = vi.fn();
+    registry.registerTools({ a: toolA });
+    registry.registerTools([["b", toolB]]);
+    registry.registerTools(new Map([["c", toolC]]));
+    expect(registry.hasTool("a")).toBe(true);
+    expect(registry.getTool("b")).toBe(toolB);
+    expect(registry.getToolNames()).toEqual(expect.arrayContaining(["a", "b", "c"]));
+  });
+
+  it("installs the pre-tool hook on construction", () => {
+    const registry = new ToolRegistry();
+    expect(createPreToolUseHook).toHaveBeenCalledTimes(1);
+    expect(registry).toBeTruthy();
+  });
+
+  it("runs before/after hooks and executes tool", async () => {
+    const registry = new ToolRegistry({
+      tools: {
+        sum: ({ a, b }) => a + b,
+      },
+    });
+    const before = vi.fn(({ params }) => ({ params: { a: params.a + 1, b: params.b + 1 } }));
+    const after = vi.fn(({ result }) => ({ ok: true, data: result.data * 2 }));
+    registry.useHook("before", before);
+    registry.useHook("after", after);
+
+    const result = await registry.callTool("sum", { a: 1, b: 2 }, {});
+    expect(result.ok).toBe(true);
+    expect(result.data).toBe(10);
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(after).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses executor when provided and handles unknown tools", async () => {
+    const registry = new ToolRegistry();
+    const executor = vi.fn(async (name, params) => ({ ok: true, data: { name, params } }));
+    const result = await registry.callTool("any", { foo: "bar" }, { toolExecutor: executor });
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({ name: "any", params: { foo: "bar" } });
+
+    const missing = await registry.callTool("missing", {}, {});
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toContain("Unknown tool");
+  });
+
+  it("returns validation errors for non-object params and schema failures", async () => {
+    const registry = new ToolRegistry({ tools: { t: () => "ok" } });
+    registry.registerTool("t", () => "ok", { type: "object" });
+    const emit = vi.fn();
+
+    const arrayResult = await registry.callTool("t", [], { emit });
+    expect(arrayResult.ok).toBe(false);
+    expect(arrayResult.validationErrors).toEqual(["params: expected object"]);
+    expect(emit).toHaveBeenCalledWith(
+      "tool.validation.failed",
+      expect.objectContaining({ tool: "t", errors: ["params: expected object"] })
+    );
+
+    validateArgs.mockReturnValueOnce({ valid: false, errors: ["bad"] });
+    const invalidResult = await registry.callTool("t", { x: 1 }, { emit });
+    expect(invalidResult.ok).toBe(false);
+    expect(invalidResult.validationErrors).toEqual(["bad"]);
+  });
+
+  it("enforces quota policies in block and warn modes", async () => {
+    const registry = new ToolRegistry({ tools: { t: () => "ok" } });
+    const emit = vi.fn();
+    const quotaManager = {
+      tryCall: vi.fn(() => ({ allowed: false, reason: "quota" })),
+      getToolStats: vi.fn(() => ({ limit: 1 })),
+      recordCall: vi.fn(),
+    };
+    const after = vi.fn();
+    registry.useHook("after", after);
+
+    const blocked = await registry.callTool("t", { x: 1 }, {
+      toolQuotaManager: quotaManager,
+      toolQuotaConfig: { mode: "block" },
+      emit,
+    });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toContain("quota");
+    expect(emit).toHaveBeenCalledWith(
+      "tool.quota.exceeded",
+      expect.objectContaining({ payload: expect.objectContaining({ tool: "t" }) })
+    );
+    expect(after).toHaveBeenCalled();
+
+    const warnRegistry = new ToolRegistry({ tools: { t: () => "ok" } });
+    const warnQuotaManager = {
+      tryCall: vi.fn(() => ({ allowed: false, reason: "quota" })),
+      recordCall: vi.fn(),
+    };
+    const warned = await warnRegistry.callTool("t", { x: 1 }, {
+      toolQuotaManager: warnQuotaManager,
+      toolQuotaConfig: { mode: "warn" },
+    });
+    expect(warned.ok).toBe(true);
+    expect(warnQuotaManager.recordCall).toHaveBeenCalledWith("t");
+  });
+
+  it("handles tool errors and concurrent calls", async () => {
+    const registry = new ToolRegistry({
+      tools: {
+        boom: () => {
+          throw new Error("fail");
+        },
+        echo: async ({ value }) => {
+          await Promise.resolve();
+          return value;
+        },
+      },
+    });
+
+    const failed = await registry.callTool("boom", {}, {});
+    expect(failed.ok).toBe(false);
+    expect(failed.error).toBe("fail");
+
+    const [first, second] = await Promise.all([
+      registry.callTool("echo", { value: 1 }, {}),
+      registry.callTool("echo", { value: 2 }, {}),
+    ]);
+    expect(first.data).toBe(1);
+    expect(second.data).toBe(2);
+  });
+});
+
+describe("MessageManager", () => {
+  it("adds messages, counts tokens, and tracks superseded", () => {
+    const tokenCounter = { count: vi.fn((text) => String(text).length) };
+    const manager = new MessageManager({ tokenCounter, asyncSummaryEnabled: false });
+    manager.addMessage({ role: "user", content: "hi" });
+    manager.addMessage({ role: "assistant", content: "ok", _superseded: true });
+
+    expect(manager.messages.length).toBe(2);
+    expect(manager.supersededCount).toBe(1);
+    expect(manager.tokenUsage).toEqual({ input: 4, output: 0, total: 4 });
+  });
+
+  it("handles nullish and empty content with empty batches", () => {
+    const tokenCounter = { count: vi.fn((text) => String(text).length) };
+    const manager = new MessageManager({ tokenCounter, asyncSummaryEnabled: false });
+    manager.addMessage({ role: "user", content: null });
+    manager.addMessage({ role: "user", content: undefined });
+    manager.addMessage({ role: "user", content: "" });
+    manager.addMessages([]);
+
+    expect(manager.messages.length).toBe(3);
+    expect(manager.tokenUsage.total).toBe(0);
+    expect(tokenCounter.count).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks superseded ranges with boundary handling", () => {
+    const logger = { warn: vi.fn() };
+    const manager = new MessageManager({ logger, asyncSummaryEnabled: false });
+    manager.addMessages([{ content: "a" }, { content: "b" }, { content: "c" }]);
+
+    const emptyCorrection = manager.markAsSuperseded(0, 1, "   ");
+    expect(emptyCorrection).toBe(0);
+    expect(logger.warn).toHaveBeenCalled();
+
+    const stringIndex = manager.markAsSuperseded("1", "2", "fix");
+    expect(stringIndex).toBe(0);
+
+    const marked = manager.markAsSuperseded(-1, Number.MAX_SAFE_INTEGER, "fix");
+    expect(marked).toBe(3);
+    expect(manager.supersededCount).toBe(3);
+  });
+
+  it("filters active messages by superseded flag", () => {
+    const manager = new MessageManager({ asyncSummaryEnabled: false });
+    manager.addMessages([{ content: "a" }, { content: "b" }, { content: "c" }]);
+    manager.markAsSuperseded(1, 1, "fix");
+
+    const active = manager.getActiveMessages();
+    expect(active.map((msg) => msg.content)).toEqual(["a", "c"]);
+    const all = manager.getActiveMessages({ includeSuperseded: true });
+    expect(all.length).toBe(3);
+  });
+
+  it("resets state and clears token usage", async () => {
+    const manager = new MessageManager({ asyncSummaryEnabled: false });
+    manager.addMessages([{ content: "a" }, { content: "b" }]);
+    await manager.reset();
+
+    expect(manager.messages.length).toBe(0);
+    expect(manager.supersededCount).toBe(0);
+    expect(manager.tokenUsage.total).toBe(0);
+  });
+
+  it("wraps large output and cleans old persisted outputs", () => {
+    const manager = new MessageManager({ asyncSummaryEnabled: false });
+    const large = "a".repeat(persistedOutput.OUTPUT_THRESHOLD + 10);
+    const wrapped = manager.wrapToolOutput(large);
+    expect(wrapped).toContain(persistedOutput.PERSISTED_OUTPUT_START);
+
+    manager.addMessages([
+      { role: "assistant", content: wrapped },
+      { role: "assistant", content: wrapped },
+      { role: "assistant", content: wrapped },
+    ]);
+    manager.cleanOldOutputs(1);
+    expect(manager.messages[0].content).toBe("[Old large output cleared to save context space]");
+    expect(manager.messages[2].content).toContain(persistedOutput.PERSISTED_OUTPUT_START);
+  });
+
+  it("handles deep nested content and rapid successive calls", () => {
+    const tokenCounter = { count: vi.fn((text) => String(text).length) };
+    const manager = new MessageManager({ tokenCounter, asyncSummaryEnabled: false });
+
+    const deep = {};
+    let cursor = deep;
+    for (let i = 0; i < 30; i += 1) {
+      cursor.next = { index: i };
+      cursor = cursor.next;
+    }
+
+    manager.addMessage({ role: "user", content: deep });
+    for (let i = 0; i < 5; i += 1) {
+      manager.addMessage({ role: "user", content: "x" });
+    }
+
+    expect(manager.messages.length).toBe(6);
+    expect(manager.tokenUsage.total).toBeGreaterThan(0);
+  });
 });

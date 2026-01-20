@@ -1,29 +1,34 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Unit-scope: mock external deps so we only test the DSL builder logic.
-vi.mock("../../../../js/agents/stages/design/constants.js", () => {
-  return {
-    VisualDataStatus: {
-      PENDING: "PENDING",
-    },
-  };
-});
+vi.mock("../../../../../../js/agents/stages/design/constants.js", () => ({
+  VisualDataStatus: {
+    PENDING: "PENDING",
+  },
+}));
 
-vi.mock("../../../../js/agents/stages/design/shared/design-utils.js", () => {
-  return {
-    escapeHtml: vi.fn((value) => `ESC(${String(value)})`),
-  };
-});
+vi.mock("../../../../../../js/agents/stages/design/shared/design-utils.js", () => ({
+  escapeHtml: vi.fn((value) => `ESC(${String(value)})`),
+}));
 
-import { escapeHtml } from '../../../../../../js/agents/stages/design/shared/design-utils.js';
-import { buildSlideHtml, buildFromLayoutJson } from '../../../../../../js/agents/stages/design/dsl/dsl-builder.js';
+import { escapeHtml } from "../../../../../../js/agents/stages/design/shared/design-utils.js";
+import { buildSlideHtml, buildFromLayoutJson } from "../../../../../../js/agents/stages/design/dsl/dsl-builder.js";
 
-describe("design/dsl/dsl-builder", () => {
+const makeDeepObject = (depth) => {
+  const root = { level: 0 };
+  let node = root;
+  for (let i = 1; i <= depth; i += 1) {
+    node.child = { level: i };
+    node = node.child;
+  }
+  return root;
+};
+
+describe("buildSlideHtml", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("buildSlideHtml supports ContentPackage + options call form and builds cover slide w/ image placeholders", () => {
+  it("builds cover slide with content package call form and image placeholders", () => {
     const slideIntent = {
       slideIntentId: "s1",
       pageType: "cover",
@@ -43,25 +48,24 @@ describe("design/dsl/dsl-builder", () => {
       imageSlotsForSlide: [{ slotId: "img1", purpose: "hero", aspectRatio: "1:1" }],
     });
 
-    expect(html).toContain(`data-layout="ESC(cover)"`);
-    expect(html).toContain(`id="ESC(slide-2)"`);
-    expect(html).toContain(`data-title="ESC(My Title)"`);
-    expect(html).toContain(`data-bg="#fafafa"`);
-    expect(html).toContain(`data-el="image-placeholder"`);
-    expect(html).toContain(`data-slot-id="ESC(img1)"`);
-    expect(html).toContain(`data-status="PENDING"`);
-    expect(html).toContain(`data-aspect-ratio="ESC(1:1)"`);
-    expect(html).toContain(`data-x="0%"`);
-    expect(html).toContain(`data-y="0%"`);
-    expect(html).toContain(`data-w="100%"`);
-    expect(html).toContain(`data-h="100%"`);
-    expect(html).toContain(`ESC(Objective line)`);
+    expect(html).toContain('data-layout="ESC(cover)"');
+    expect(html).toContain('id="ESC(slide-2)"');
+    expect(html).toContain('data-title="ESC(My Title)"');
+    expect(html).toContain('data-bg="#fafafa"');
+    expect(html).toContain('data-el="image-placeholder"');
+    expect(html).toContain('data-slot-id="ESC(img1)"');
+    expect(html).toContain('data-status="PENDING"');
+    expect(html).toContain('data-aspect-ratio="1:1"');
+    expect(html).toContain('data-x="0%"');
+    expect(html).toContain('data-y="0%"');
+    expect(html).toContain('data-w="100%"');
+    expect(html).toContain('data-h="100%"');
+    expect(html).toContain("ESC(Objective line)");
 
-    // Escaping should be applied consistently to ids/titles/etc.
     expect(escapeHtml).toHaveBeenCalled();
   });
 
-  it("buildSlideHtml extracts content.markdown and does not append claims when markdown is present", () => {
+  it("prefers content.markdown and does not append claims", () => {
     const markdown = ["# Heading", "", "- Point A", "- Point B", "", "```js", "console.log(1)", "```"].join("\n");
 
     const html = buildSlideHtml(
@@ -71,13 +75,27 @@ describe("design/dsl/dsl-builder", () => {
       []
     );
 
-    // content.markdown branch should be used, and claims should NOT be appended.
     expect(html).toContain("• ESC(Point A)");
     expect(html).toContain("• ESC(Point B)");
     expect(html).not.toContain("SHOULD_NOT_RENDER");
   });
 
-  it("buildSlideHtml cover without objective joins content lines with middle dots (markdown cleanup branch)", () => {
+  it("appends claims when content is empty and claimIds match", () => {
+    const html = buildSlideHtml(
+      { pageType: "content", title: "Claims", content: "", claimIds: ["c1", "c2"] },
+      {},
+      [
+        { claimId: "c1", text: "Claim 1" },
+        { claimId: "c2", text: "Claim 2" },
+      ],
+      []
+    );
+
+    expect(html).toContain("• ESC(Claim 1)");
+    expect(html).toContain("• ESC(Claim 2)");
+  });
+
+  it("cover without objective joins lines and falls back to a blank space", () => {
     buildSlideHtml(
       {
         pageType: "cover",
@@ -89,57 +107,41 @@ describe("design/dsl/dsl-builder", () => {
       []
     );
 
-    // For cover without objective: toDisplayLines(...) -> join(" · ") path.
     expect(escapeHtml).toHaveBeenCalledWith("Alpha · Beta");
-  });
 
-  it("buildSlideHtml cover without objective falls back to a blank space when content is empty/null", () => {
     buildSlideHtml({ pageType: "cover", title: "Cover", content: null }, {}, [], []);
-
-    // Join result is empty => " " fallback.
     expect(escapeHtml).toHaveBeenCalledWith(" ");
   });
 
-  it("buildSlideHtml uses safeMode layout when requested and formats agenda bullets", () => {
-    const slideIntent = {
-      slideIntentId: "s2",
-      pageType: "agenda",
-      title: "Agenda",
-      content: "First\nSecond",
-    };
-
-    const html = buildSlideHtml(slideIntent, {}, { claims: [], evidenceLedger: [] }, { safeMode: true, slideNo: 1 });
-
-    expect(html).toContain(`data-layout="ESC(safe)"`);
-    expect(html).toContain(`01  ESC(First)`);
-    expect(html).toContain(`02  ESC(Second)`);
-  });
-
-  it("buildSlideHtml uses agenda layout when safeMode is off", () => {
+  it("formats agenda with numbering and respects safeMode layout override", () => {
     const html = buildSlideHtml(
-      { pageType: "agenda", title: "Agenda", content: "First\nSecond" },
+      { slideIntentId: "s2", pageType: "agenda", title: "Agenda", content: "First\nSecond" },
       {},
-      [],
-      []
+      { claims: [], evidenceLedger: [] },
+      { safeMode: true, slideNo: 1 }
     );
 
-    expect(html).toContain(`data-layout="ESC(agenda)"`);
-    expect(html).toContain(`01  ESC(First)`);
-    expect(html).toContain(`02  ESC(Second)`);
+    expect(html).toContain('data-layout="ESC(safe)"');
+    expect(html).toContain("01  ESC(First)");
+    expect(html).toContain("02  ESC(Second)");
   });
 
-  it("buildSlideHtml handles appendix evidences and comparison layout formatting", () => {
+  it("renders appendix evidences and uses blank fallback when empty", () => {
     const appendix = buildSlideHtml(
       { pageType: "appendix", title: "Refs" },
       {},
       [],
       [{ evidenceId: "e1", quote: "Q1" }]
     );
+    expect(appendix).toContain("• [ESC(e1)] ESC(Q1)");
 
-    expect(appendix).toContain(`• [ESC(e1)] ESC(Q1)`);
+    const empty = buildSlideHtml({ pageType: "appendix", title: "Refs" }, {}, [], []);
+    expect(empty).toContain("ESC( )");
+  });
 
+  it("splits comparison hints into two columns and handles empty content", () => {
     const comparison = buildSlideHtml(
-      { pageType: "comparison", title: "Compare", content: "A\nB\nC\nD" },
+      { pageType: "comparison", title: "Compare", content: "A\nB\nC" },
       {},
       [],
       []
@@ -148,431 +150,342 @@ describe("design/dsl/dsl-builder", () => {
     expect(comparison).toContain("Option A");
     expect(comparison).toContain("Option B");
     expect(comparison).toContain("• ESC(A)");
+    expect(comparison).toContain("• ESC(C)");
     expect(comparison).toContain("• ESC(B)");
+
+    const empty = buildSlideHtml({ pageType: "comparison", title: "Compare", content: "   " }, {}, [], []);
+    expect(empty).toContain("Option A");
+    expect(empty).toContain("Option B");
   });
 
-  it("buildSlideHtml falls back to claims when slideIntent content is empty (edge case)", () => {
-    const html = buildSlideHtml(
-      { pageType: "content", title: "T", claimIds: ["c1"] },
-      {},
-      [{ claimId: "c1", text: "Claim text" }],
-      []
-    );
-    expect(html).toContain("• ESC(Claim text)");
-  });
-
-  it("buildSlideHtml builds image placeholders for multiple purposes and filters invalid slots", () => {
+  it("filters invalid image slots and defaults aspect ratio and placeholder box", () => {
     const html = buildSlideHtml(
       { pageType: "content", title: "Slots", content: "Body" },
       {},
       [],
       [],
       {
-        slideNo: 1,
         imageSlotsForSlide: [
-          { slotId: "hero1", purpose: "hero", aspectRatio: " " }, // aspectRatio whitespace => default 16:9
-          { slotId: "ill1", purpose: "illustration", aspectRatio: "4:3" },
-          { slotId: "icon1", purpose: "icon", aspectRatio: "1:1" },
-          { slotId: "bg1", purpose: "background", aspectRatio: "16:9" },
-          { slotId: " ", purpose: "icon" }, // invalid slotId => filtered out
+          { slotId: "slot1", purpose: "photo", aspectRatio: " " },
+          { slotId: "slot2", purpose: "icon", aspectRatio: "bad" },
+          { slotId: " ", purpose: "hero", aspectRatio: "1:1" },
         ],
       }
     );
 
-    // slotId filtering
-    expect(html).toContain(`data-slot-id="ESC(hero1)"`);
-    expect(html).toContain(`data-slot-id="ESC(ill1)"`);
-    expect(html).toContain(`data-slot-id="ESC(icon1)"`);
-    expect(html).toContain(`data-slot-id="ESC(bg1)"`);
-    expect(html).not.toContain(`data-slot-id="ESC()"`);
-
-    // Placeholder boxes vary by purpose.
-    expect(html).toContain(`data-x="0%"`); // hero/background
-    expect(html).toContain(`data-w="100%"`);
-    expect(html).toContain(`data-x="58%"`); // illustration
-    expect(html).toContain(`data-y="26%"`);
-    expect(html).toContain(`data-x="82%"`); // icon
-    expect(html).toContain(`data-y="12%"`);
-
-    // aspectRatio whitespace => defaults to 16:9
-    expect(html).toContain(`data-aspect-ratio="ESC(16:9)"`);
+    expect(html).toContain('data-slot-id="ESC(slot1)"');
+    expect(html).toContain('data-slot-id="ESC(slot2)"');
+    expect(html).not.toContain('data-slot-id="ESC()"');
+    expect(html).toContain('data-aspect-ratio="16:9"');
+    expect(html).toContain('data-y="22%"');
+    expect(html).toContain('data-h="60%"');
+    expect(html).toContain('data-x="82%"');
+    expect(html).toContain('data-y="12%"');
   });
 
-  it("buildSlideHtml uses default placeholder box when purpose is unknown", () => {
+  it("uses default titles for missing title values", () => {
+    const cover = buildSlideHtml({ pageType: "cover" }, {}, [], []);
+    expect(cover).toContain('data-title="ESC(Presentation)"');
+
+    const content = buildSlideHtml({ pageType: "content" }, {}, [], []);
+    expect(content).toContain('data-title="ESC(Untitled)"');
+  });
+
+  it("sanitizes invalid colors and clamps fonts to safe ranges", () => {
     const html = buildSlideHtml(
-      { pageType: "content", title: "Slots", content: "Body" },
-      {},
+      { pageType: "cover", title: "Clamp", objective: "Obj" },
+      {
+        designTokens: {
+          colors: { bg: "javascript:alert(1)", text: "<bad>", muted: "rgb(0,0,0)", panel: "#fff", border: "#ccc" },
+          typography: { minFont: Number.MAX_SAFE_INTEGER },
+        },
+      },
       [],
-      [],
-      { imageSlotsForSlide: [{ slotId: "u1", purpose: "photo" }] }
+      []
     );
 
-    expect(html).toContain(`data-slot-id="ESC(u1)"`);
-    expect(html).toContain(`data-x="8%"`);
-    expect(html).toContain(`data-y="22%"`);
-    expect(html).toContain(`data-w="84%"`);
-    expect(html).toContain(`data-h="60%"`);
+    expect(html).toContain('data-bg="#ffffff"');
+    expect(html).toContain('data-color="#000000"');
+    expect(html).toContain('data-font="200"');
   });
 
-  it("buildFromLayoutJson returns safe layout when safeMode=true or elements missing", () => {
-    const safe = buildFromLayoutJson({ elements: [] }, {}, { slideId: "s", title: "T", safeMode: true });
-    expect(safe).toContain(`data-layout="safe"`);
-    expect(safe).toContain(`id="ESC(s)"`);
-    expect(safe).toContain(`data-title="ESC(T)"`);
+  it("handles slideNo boundary values and string slideNo", () => {
+    const baseIntent = { slideIntentId: "s1", pageType: "content", title: "T", content: "Body" };
 
-    const emptyEls = buildFromLayoutJson({ elements: [] }, {}, { slideId: "s2", title: "T2" });
-    expect(emptyEls).toContain(`data-layout="safe"`);
-    expect(emptyEls).toContain(`data-title="ESC(T2)"`);
+    const zero = buildSlideHtml(baseIntent, {}, [], [], { slideNo: 0 });
+    expect(zero).toContain('id="ESC(slide-s1)"');
+
+    const negative = buildSlideHtml(baseIntent, {}, [], [], { slideNo: -1 });
+    expect(negative).toContain('id="ESC(slide--1)"');
+
+    const max = buildSlideHtml(baseIntent, {}, [], [], { slideNo: Number.MAX_SAFE_INTEGER });
+    expect(max).toContain(`id="ESC(slide-${Number.MAX_SAFE_INTEGER})"`);
+
+    const stringNo = buildSlideHtml({ ...baseIntent, slideIntentId: "s2" }, {}, [], [], { slideNo: "3" });
+    expect(stringNo).toContain('id="ESC(slide-s2)"');
   });
 
-  it("buildFromLayoutJson builds supported element types with bounds coercion/clamping", () => {
+  it("handles null/undefined inputs, empty objects, and non-array claims/evidences", () => {
+    const html = buildSlideHtml(null, undefined, { not: "array" }, { not: "array" });
+
+    expect(html).toContain('data-layout="ESC(content)"');
+    expect(html).toContain('data-title="ESC(Untitled)"');
+  });
+
+  it("limits keyPoints to 8 non-empty lines and ignores blanks", () => {
+    const keyPoints = [
+      "Point 1",
+      "",
+      "Point 2",
+      "Point 3",
+      "",
+      "Point 4",
+      "Point 5",
+      "Point 6",
+      "Point 7",
+      "Point 8",
+      "Point 9",
+      "Point 10",
+    ];
+    const html = buildSlideHtml({ pageType: "content", title: "KP", keyPoints }, {}, [], []);
+
+    expect(html).toContain("• ESC(Point 1)");
+    expect(html).toContain("• ESC(Point 8)");
+    expect(html).not.toContain("Point 9");
+  });
+
+  it("handles a large markdown input without errors", () => {
+    const longMarkdown = Array.from({ length: 500 }, (_, i) => `- Item ${i + 1}`).join("\n");
+    const html = buildSlideHtml({ pageType: "content", title: "Big", content: { markdown: longMarkdown } }, {}, [], []);
+
+    expect(html).toContain("• ESC(Item 1)");
+  });
+
+  it("handles a very long single-line content string", () => {
+    const longLine = "L".repeat(2000);
+    const html = buildSlideHtml({ pageType: "content", title: "Long", content: longLine }, {}, [], []);
+
+    expect(html).toContain(longLine.slice(0, 50));
+  });
+
+  it("supports concurrent calls without shared state", async () => {
+    const intents = Array.from({ length: 5 }, (_, i) => ({
+      slideIntentId: `s${i + 1}`,
+      pageType: "content",
+      title: `T${i + 1}`,
+      content: `Body ${i + 1}`,
+    }));
+
+    const outputs = await Promise.all(
+      intents.map((intent, i) => Promise.resolve(buildSlideHtml(intent, {}, [], [], { slideNo: i + 1 })))
+    );
+
+    outputs.forEach((html, i) => {
+      expect(html).toContain(`id="ESC(slide-${i + 1})"`);
+      expect(html).toContain(`ESC(Body ${i + 1})`);
+    });
+  });
+});
+
+describe("buildFromLayoutJson", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns safe layout when safeMode is true", () => {
+    const html = buildFromLayoutJson(
+      { elements: [{ type: "text", content: "Ignored", bounds: { x: 10, y: 10, w: 80, h: 10 } }] },
+      {},
+      { slideId: "s-safe", title: "Safe", safeMode: true }
+    );
+
+    expect(html).toContain('data-layout="safe"');
+    expect(html).toContain('id="ESC(s-safe)"');
+    expect(html).toContain('data-title="ESC(Safe)"');
+  });
+
+  it("returns safe layout when elements are missing or invalid", () => {
+    const fromNull = buildFromLayoutJson(null, {}, {});
+    expect(fromNull).toContain('data-layout="safe"');
+    expect(fromNull).toContain('id="ESC(slide-vision)"');
+    expect(fromNull).toContain('data-title="ESC(Untitled)"');
+
+    const fromObject = buildFromLayoutJson({ elements: {} }, {}, {});
+    expect(fromObject).toContain('data-layout="safe"');
+  });
+
+  it("uses first text element as title and maps suggested layout", () => {
     const html = buildFromLayoutJson(
       {
         suggestedLayout: "comparison",
-        extractedPalette: ["#111111", "#222222"],
+        elements: [{ type: "text", content: "Title From Text", bounds: { x: 0, y: 0, w: 100, h: 20 } }],
+      },
+      {},
+      { slideId: "s-title" }
+    );
+
+    expect(html).toContain('data-layout="ESC(two_column)"');
+    expect(html).toContain('id="ESC(s-title)"');
+    expect(html).toContain('data-title="ESC(Title From Text)"');
+  });
+
+  it("builds text element with coerced bounds and numeric string font values", () => {
+    const html = buildFromLayoutJson(
+      {
         elements: [
           {
             type: "text",
             content: "Hello",
-            bounds: { x: 10, y: "20", w: 30, h: 40 },
-            style: { fontSize: 14, color: "#333333", fontWeight: 700 },
+            bounds: { x: -1, y: "20", w: 30, h: 40 },
+            style: { fontSize: "72", color: "#333333", fontWeight: "700" },
           },
-          {
-            type: "shape",
-            bounds: { x: "5%", y: "6%", w: "7%", h: "8%" },
-            style: { fill: "#ffffff", stroke: "#000000", radius: 100 },
-          },
-          { type: "image", content: " ", bounds: { x: 0, y: 0, w: 100, h: 50 } },
-          { type: "table", content: { rows: [1] }, bounds: { x: 1, y: 2, w: 3, h: 4 } },
-          { type: "chart", chartType: "pie", content: { a: 1 }, bounds: { x: "9", y: "10", w: "11", h: "12" } },
-          { type: "unknown" },
         ],
       },
-      { designTokens: { colors: { bg: "#fff", primary: "#0ea5e9", accent: "#22c55e", text: "#111", panel: "#fff", border: "#eee" } } },
-      { slideId: "slide-x", title: "My" }
+      {},
+      { slideId: "s-text" }
     );
 
-    // suggestedLayout "comparison" -> layoutFromPageType => "two_column"
-    expect(html).toContain(`data-layout="ESC(two_column)"`);
-    expect(html).toContain(`id="ESC(slide-x)"`);
-    expect(html).toContain(`data-title="ESC(My)"`);
-
-    // Text element bounds coerced to percent and bold detected.
-    expect(html).toContain(`data-el="text"`);
-    expect(html).toContain(`data-x="10%"`);
-    expect(html).toContain(`data-y="20%"`);
-    expect(html).toContain(`data-w="30%"`);
-    expect(html).toContain(`data-h="auto"`);
-    expect(html).toContain(`data-bold="true"`);
-    expect(html).toContain(`ESC(Hello)`);
-
-    // Shape radius clamped to max=64.
-    expect(html).toContain(`data-el="shape"`);
-    expect(html).toContain(`data-radius="64"`);
-
-    // Image empty content => about:blank.
-    expect(html).toContain(`data-el="image"`);
-    expect(html).toContain(`data-src="ESC(about:blank)"`);
-
-    // Table content object => JSON stringified + escaped.
-    expect(html).toContain(`data-el="table"`);
-    expect(html).toContain(`data-data='ESC({"rows":[1]})'`);
-
-    // Chart colors come from extractedPalette.
-    expect(html).toContain(`data-el="chart"`);
-    expect(html).toContain(`data-chart-type="ESC(pie)"`);
-    expect(html).toContain(`data-colors='ESC(["#111111","#222222"])'`);
+    expect(html).toContain('data-el="text"');
+    expect(html).toContain('data-x="-1%"');
+    expect(html).toContain('data-y="20%"');
+    expect(html).toContain('data-w="30%"');
+    expect(html).toContain('data-h="auto"');
+    expect(html).toContain('data-font="72"');
+    expect(html).toContain('data-color="#333333"');
+    expect(html).toContain('data-bold="true"');
+    expect(html).toContain("ESC(Hello)");
   });
 
-  it("buildFromLayoutJson parses text styles (bold string, invalid fontSize) and handles null/blank bounds", () => {
+  it("sanitizes invalid bounds, colors, and font size", () => {
     const html = buildFromLayoutJson(
       {
         elements: [
           {
             type: "text",
-            content: "Styled",
-            bounds: { x: null, y: "", w: " ", h: null },
-            style: { fontSize: "not-a-number", fontWeight: "bold", color: "" },
+            content: "Bad",
+            bounds: { x: "bad", y: " ", w: null, h: undefined },
+            style: { fontSize: -1, fontWeight: "bold", color: "<bad>" },
           },
         ],
       },
-      {
-        designTokens: {
-          colors: { bg: "#fff", text: "#123456" },
-          typography: { minFont: 12, bodyFont: 18 },
-        },
-      },
-      { slideId: "s-style", title: "Style" }
+      { designTokens: { typography: { bodyFont: 18 } } },
+      { slideId: "s-bad" }
     );
 
-    // Null/blank bounds => coercePct(...) returns undefined => defaults applied.
-    expect(html).toContain(`data-x="8%"`);
-    expect(html).toContain(`data-y="8%"`);
-    expect(html).toContain(`data-w="84%"`);
-
-    // fontSize invalid => clampNum(...) fallback to typography.bodyFont.
-    expect(html).toContain(`data-font="18"`);
-    // fontWeight "bold" => bold=true; style.color "" => fallback to colors.text.
-    expect(html).toContain(`data-bold="true"`);
-    expect(html).toContain(`data-color="#123456"`);
+    expect(html).toContain('data-x="0%"');
+    expect(html).toContain('data-y="8%"');
+    expect(html).toContain('data-w="84%"');
+    expect(html).toContain('data-font="12"');
+    expect(html).toContain('data-bold="true"');
+    expect(html).toContain('data-color="#000000"');
   });
 
-  it("buildFromLayoutJson uses shape style.color when fill is missing and omits radius attribute when radius=0", () => {
+  it("builds shape element with color fallback and omits radius when zero", () => {
     const html = buildFromLayoutJson(
       {
         elements: [
           {
             type: "shape",
             bounds: { x: 0, y: 0, w: 20, h: 20 },
-            style: { color: "#abcabc", radius: 0 },
+            style: { color: "<bad>", radius: 0 },
           },
         ],
       },
-      { designTokens: { colors: { bg: "#fff", border: "#BORDER", panel: "#PANEL" } } },
-      { slideId: "s-shape2", title: "Shape2" }
+      { designTokens: { colors: { border: "<border>", panel: "#eeeeee" } } },
+      { slideId: "s-shape" }
     );
 
-    expect(html).toContain(`data-el="shape"`);
-    expect(html).toContain(`data-fill="#abcabc"`);
-    expect(html).toContain(`data-stroke="#BORDER"`);
-    // radius=0 => makeShapeEl(...) should not add data-radius at all.
-    expect(html).not.toContain(`data-radius="`);
+    expect(html).toContain('data-el="shape"');
+    expect(html).toContain('data-fill="#ffffff"');
+    expect(html).toContain('data-stroke="#000000"');
+    expect(html).not.toContain('data-radius="');
   });
 
-  it("buildFromLayoutJson handles string table/chart content and applies chart defaults/colors when palette is missing", () => {
-    const html = buildFromLayoutJson(
-      {
-        elements: [
-          { type: "table", content: " [1, 2] ", bounds: { x: 0, y: 0, w: 50, h: 50 } },
-          { type: "chart", content: " ", bounds: { x: 0, y: 50, w: 50, h: 50 } },
-        ],
-      },
-      // Pass raw tokens (not nested under designTokens) to cover resolveDesignTokens(...) branch.
-      { colors: { bg: "#fff", primary: "#P", accent: "#A", text: "#T" } },
-      { slideId: "s-data", title: "Data" }
-    );
-
-    expect(html).toContain(`data-el="table"`);
-    expect(html).toContain(`data-data='ESC([1, 2])'`);
-
-    // chartType defaults to "bar"; empty/blank string content => "{}" default.
-    expect(html).toContain(`data-el="chart"`);
-    expect(html).toContain(`data-chart-type="ESC(bar)"`);
-    expect(html).toContain(`data-chart-data="ESC({})"`);
-
-    // With no extractedPalette, chart colors fall back to primary/accent/text.
-    expect(html).toContain(`data-colors='ESC(["#P","#A","#T"])'`);
-  });
-
-  it("buildFromLayoutJson handles non-empty image src and table/chart defaults when content is missing", () => {
-    const html = buildFromLayoutJson(
-      {
-        elements: [
-          { type: "image", content: "https://example.com/a.png", bounds: { x: 0, y: 0, w: 10, h: 10 } },
-          { type: "table", content: null, bounds: { x: 10, y: 0, w: 40, h: 20 } }, // content falsy => "[]"
-          { type: "chart", content: null, bounds: { x: 0, y: 20, w: 50, h: 30 } }, // content falsy => "{}"
-          { type: "chart", content: "foo", bounds: { x: 50, y: 20, w: 50, h: 30 } }, // non-empty string => "foo"
-        ],
-      },
-      {},
-      { slideId: "s-misc", title: "Misc" }
-    );
-
-    // Image src passes through when non-empty (no about:blank fallback).
-    expect(html).toContain(`data-el="image"`);
-    expect(html).toContain(`data-src="ESC(https://example.com/a.png)"`);
-
-    // Table content falsy => default "[]".
-    expect(html).toContain(`data-el="table"`);
-    expect(html).toContain(`data-data='ESC([])'`);
-
-    // Chart content falsy => default "{}", otherwise use trimmed string.
-    expect(html).toContain(`data-chart-data="ESC({})"`);
-    expect(html).toContain(`data-chart-data="ESC(foo)"`);
-  });
-
-  it("buildFromLayoutJson applies fallbacks when element content/style values are falsy (empty string, 0)", () => {
+  it("builds image element with about:blank and sanitizes invalid bounds", () => {
     const html = buildFromLayoutJson(
       {
         elements: [
           {
-            type: "text",
-            content: "",
-            bounds: { x: 0, y: 0, w: 50, h: 10 },
-            style: { fontSize: "NaN", fontWeight: 500 },
+            type: "image",
+            content: " ",
+            bounds: { x: "bad", y: 0, w: " ", h: 20 },
           },
-          { type: "image", content: "", bounds: { x: 50, y: 0, w: 50, h: 10 } },
-          { type: "table", content: null, bounds: { x: 0, y: 10, w: 100, h: 40 } },
         ],
       },
-      {
-        designTokens: {
-          typography: { minFont: 10, bodyFont: 0, smallFont: 0 },
-        },
-      },
-      { slideId: "s-falsy", title: "Falsy" }
-    );
-
-    // text: invalid fontSize + bodyFont=0 => fallback parameter uses 16.
-    expect(html).toContain(`data-font="16"`);
-    // text: empty string content => " " fallback.
-    expect(html).toContain(`ESC( )`);
-
-    // image: empty string content => about:blank fallback.
-    expect(html).toContain(`data-src="ESC(about:blank)"`);
-
-    // table: smallFont=0 + minFont=10 => font-size falls back to 12 (via `smallFont || 12`).
-    expect(html).toContain(`data-font-size="12"`);
-  });
-
-  it("buildSlideHtml handles summary pageType with bullet content", () => {
-    const html = buildSlideHtml(
-      { pageType: "summary", title: "Key Takeaways", content: "Point A\nPoint B\nPoint C" },
       {},
-      [],
-      []
+      { slideId: "s-img" }
     );
-    expect(html).toContain(`data-layout="ESC(summary)"`);
-    expect(html).toContain("• ESC(Point A)");
-    expect(html).toContain("• ESC(Point B)");
+
+    expect(html).toContain('data-el="image"');
+    expect(html).toContain('data-src="ESC(about:blank)"');
+    expect(html).toContain('data-x="0%"');
+    expect(html).toContain('data-y="0%"');
+    expect(html).toContain('data-w="84%"');
   });
 
-  it("buildSlideHtml handles process pageType with numbered steps", () => {
-    const html = buildSlideHtml(
-      { pageType: "process", title: "Steps", content: "Step1\nStep2\nStep3" },
-      {},
-      [],
-      []
-    );
-    expect(html).toContain(`data-layout="ESC(process)"`);
-  });
-
-  it("buildSlideHtml uses default title when title is missing", () => {
-    const html = buildSlideHtml(
-      { pageType: "content" },
-      {},
-      [],
-      []
-    );
-    expect(html).toContain("data-title=");
-  });
-
-  it("buildSlideHtml handles array content by joining elements", () => {
-    const html = buildSlideHtml(
-      { pageType: "content", title: "List", content: "Item 1\nItem 2" },
-      {},
-      [],
-      []
-    );
-    expect(html).toContain("ESC(Item 1)");
-    expect(html).toContain("ESC(Item 2)");
-  });
-
-  it("buildSlideHtml handles empty content gracefully", () => {
-    const html = buildSlideHtml(
-      { pageType: "content", title: "Empty", content: "" },
-      {},
-      [],
-      []
-    );
-    expect(html).toContain(`data-layout="ESC(content)"`);
-  });
-
-  it("buildFromLayoutJson filters out unsupported element types", () => {
+  it("serializes deep table content and clamps font size", () => {
+    const deep = makeDeepObject(30);
     const html = buildFromLayoutJson(
       {
         elements: [
-          { type: "line", bounds: { x: 0, y: 50, w: 100, h: 1 } },
-          { type: "svg", content: "<svg></svg>", bounds: { x: 10, y: 10, w: 50, h: 50 } },
-          { type: "icon", content: "check", bounds: { x: 5, y: 5, w: 10, h: 10 } },
-          { type: "text", content: "Supported", bounds: { x: 0, y: 0, w: 100, h: 20 } },
+          {
+            type: "table",
+            content: deep,
+            bounds: { x: 1, y: 2, w: 3, h: 4 },
+          },
         ],
       },
-      {},
-      { slideId: "s-mixed", title: "Mixed" }
+      { designTokens: { typography: { minFont: 1000, smallFont: 500 } } },
+      { slideId: "s-table" }
     );
-    // Unsupported types are filtered out
-    expect(html).not.toContain(`data-el="line"`);
-    expect(html).not.toContain(`data-el="svg"`);
-    expect(html).not.toContain(`data-el="icon"`);
-    // Supported type remains
-    expect(html).toContain(`data-el="text"`);
-    expect(html).toContain("ESC(Supported)");
+
+    expect(html).toContain('data-el="table"');
+    expect(html).toContain('data-font-size="72"');
+    expect(html).toContain('data-data=\'ESC({');
+    expect(html).toContain('"level":0');
   });
 
-  it("buildFromLayoutJson applies default bounds when missing", () => {
+  it("handles chart defaults, circular content fallback, and palette fallbacks", () => {
+    const circular = {};
+    circular.self = circular;
+
     const html = buildFromLayoutJson(
       {
+        extractedPalette: ["", " "],
         elements: [
-          { type: "text", content: "No bounds" },
+          {
+            type: "chart",
+            chartType: "unknown",
+            content: circular,
+            bounds: { x: 0, y: 0, w: 50, h: 50 },
+          },
         ],
       },
-      {},
-      { slideId: "s-def", title: "Defaults" }
+      { designTokens: { colors: { primary: "#P", accent: "#A", text: "#T" } } },
+      { slideId: "s-chart" }
     );
-    expect(html).toContain(`data-el="text"`);
-    expect(html).toContain("ESC(No bounds)");
+
+    expect(html).toContain('data-el="chart"');
+    expect(html).toContain('data-chart-type="bar"');
+    expect(html).toContain('data-chart-data="ESC({})"');
+    expect(html).toContain('data-colors=\'ESC(["#P","#A","#T"])\'');
   });
 
-  it("buildFromLayoutJson handles missing extractedPalette for chart", () => {
-    const html = buildFromLayoutJson(
-      {
-        elements: [
-          { type: "chart", chartType: "bar", content: { values: [1, 2] }, bounds: { x: 0, y: 0, w: 50, h: 50 } },
-        ],
-      },
-      { designTokens: { colors: { primary: "#blue", accent: "#green" } } },
-      { slideId: "s-chart", title: "Chart" }
-    );
-    expect(html).toContain(`data-el="chart"`);
-    expect(html).toContain(`data-chart-type="ESC(bar)"`);
-  });
+  it("supports rapid sequential calls without shared state", () => {
+    const outputs = [];
+    for (let i = 0; i < 10; i += 1) {
+      outputs.push(
+        buildFromLayoutJson(
+          { elements: [{ type: "text", content: `Title ${i}`, bounds: { x: 0, y: 0, w: 100, h: 10 } }] },
+          {},
+          { slideId: `slide-${i}` }
+        )
+      );
+    }
 
-  it("buildFromLayoutJson handles text element without style", () => {
-    const html = buildFromLayoutJson(
-      {
-        elements: [
-          { type: "text", content: "Plain text", bounds: { x: 0, y: 0, w: 100, h: 20 } },
-        ],
-      },
-      {},
-      { slideId: "s-plain", title: "Plain" }
-    );
-    expect(html).toContain(`data-el="text"`);
-    expect(html).not.toContain(`data-bold="true"`);
-  });
-
-  it("buildFromLayoutJson handles shape with default style", () => {
-    const html = buildFromLayoutJson(
-      {
-        elements: [
-          { type: "shape", bounds: { x: 0, y: 0, w: 20, h: 20 } },
-        ],
-      },
-      {},
-      { slideId: "s-shape", title: "Shape" }
-    );
-    expect(html).toContain(`data-el="shape"`);
-  });
-
-  it("buildSlideHtml handles divider pageType", () => {
-    const html = buildSlideHtml(
-      { pageType: "divider", title: "Section Break" },
-      {},
-      [],
-      []
-    );
-    expect(html).toContain("data-layout=");
-    expect(html).toContain("ESC(Section Break)");
-  });
-
-  it("buildSlideHtml handles quote pageType", () => {
-    const html = buildSlideHtml(
-      { pageType: "quote", title: "Quote", content: "To be or not to be" },
-      {},
-      [],
-      []
-    );
-    expect(html).toContain("ESC(To be or not to be)");
+    outputs.forEach((html, i) => {
+      expect(html).toContain(`id="ESC(slide-${i})"`);
+      expect(html).toContain(`ESC(Title ${i})`);
+    });
   });
 });

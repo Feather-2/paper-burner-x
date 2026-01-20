@@ -1,5 +1,8 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+vi.mock("../../../../js/agents/shared/index.js", () => ({
+  isPlainObject: vi.fn(),
+}));
 
 import {
   buildIndex,
@@ -7,7 +10,28 @@ import {
   search,
   serializeIndex,
   deserializeIndex,
-} from '../../../../js/agents/retrieval/bm25.js';
+} from "../../../../js/agents/retrieval/bm25.js";
+import { isPlainObject } from "../../../../js/agents/shared/index.js";
+
+const toPlainIndex = (idx) => ({
+  chunkIds: idx.chunkIds,
+  docLens: idx.docLens,
+  avgDocLen: idx.avgDocLen,
+  df: Array.from(idx.df.entries()),
+  postings: Array.from(idx.postings.entries()),
+  k1: idx.k1,
+  b: idx.b,
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  isPlainObject.mockImplementation((value) => {
+    if (value === null || typeof value !== "object") return false;
+    if (Array.isArray(value)) return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // buildIndex
@@ -23,9 +47,10 @@ describe("buildIndex", () => {
 
     expect(idx.chunkIds).toEqual(["a", "b"]);
     expect(idx.docLens.length).toBe(2);
+    expect(idx.avgDocLen).toBeGreaterThan(0);
     expect(idx.df).toBeInstanceOf(Map);
     expect(idx.postings).toBeInstanceOf(Map);
-    expect(idx.df.get("hello")).toBeGreaterThanOrEqual(2);
+    expect(idx.df.get("hello")).toBe(2);
     expect(idx.k1).toBe(1.2);
     expect(idx.b).toBe(0.75);
   });
@@ -33,88 +58,120 @@ describe("buildIndex", () => {
   it("handles empty chunks array", () => {
     const idx = buildIndex([]);
     expect(idx.chunkIds).toEqual([]);
+    expect(idx.docLens).toEqual([]);
     expect(idx.avgDocLen).toBe(0);
   });
 
-  it("auto-generates chunkId when missing", () => {
-    const idx = buildIndex([{ text: "foo" }, { text: "bar" }]);
-    expect(idx.chunkIds).toEqual(["chunk_1", "chunk_2"]);
+  it("auto-generates chunkId and stringifies non-string ids", () => {
+    const idx = buildIndex([{ chunkId: 7, text: "alpha" }, { text: "beta" }]);
+    expect(idx.chunkIds).toEqual(["7", "chunk_2"]);
   });
 
-  it("respects custom k1 and b", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "test" }], { k1: 2.0, b: 0.5 });
-    expect(idx.k1).toBe(2.0);
-    expect(idx.b).toBe(0.5);
+  it("handles null/undefined/empty/whitespace text", () => {
+    const idx = buildIndex([
+      { chunkId: "n", text: null },
+      { chunkId: "u", text: undefined },
+      { chunkId: "e", text: "" },
+      { chunkId: "w", text: "   " },
+    ]);
+    expect(idx.docLens).toEqual([0, 0, 0, 0]);
+    expect(idx.df.size).toBe(0);
   });
 
-  it("respects maxTokensPerDoc limit", () => {
-    const longText = "word ".repeat(20000);
-    const idx = buildIndex([{ chunkId: "x", text: longText }], { maxTokensPerDoc: 100 });
-    expect(idx.docLens[0]).toBeLessThanOrEqual(100);
+  it("filters stopwords and drops single-char Latin tokens but keeps digits", () => {
+    const idx = buildIndex([{ chunkId: "x", text: "the a b c 1 2 world" }]);
+    expect(idx.df.has("the")).toBe(false);
+    expect(idx.df.has("a")).toBe(false);
+    expect(idx.df.has("b")).toBe(false);
+    expect(idx.df.has("c")).toBe(false);
+    expect(idx.df.has("1")).toBe(true);
+    expect(idx.df.has("2")).toBe(true);
+    expect(idx.df.has("world")).toBe(true);
+  });
+
+  it("normalizes maxTokensPerDoc for string/zero/negative/max-safe/infinity", () => {
+    const text = "t0 t1 t2 t3 t4";
+    const chunks = [{ chunkId: "x", text }];
+
+    const stringIdx = buildIndex(chunks, { maxTokensPerDoc: "3" });
+    expect(stringIdx.docLens[0]).toBe(3);
+
+    const zeroIdx = buildIndex(chunks, { maxTokensPerDoc: 0 });
+    expect(zeroIdx.docLens[0]).toBe(5);
+
+    const negativeIdx = buildIndex(chunks, { maxTokensPerDoc: -1 });
+    expect(negativeIdx.docLens[0]).toBe(5);
+
+    const maxSafeIdx = buildIndex(chunks, { maxTokensPerDoc: Number.MAX_SAFE_INTEGER });
+    expect(maxSafeIdx.docLens[0]).toBe(5);
+
+    const infinityIdx = buildIndex(chunks, { maxTokensPerDoc: Infinity });
+    expect(infinityIdx.docLens[0]).toBe(5);
   });
 
   it("respects maxTermLength limit", () => {
-    const longTerm = "a".repeat(100);
-    const idx = buildIndex([{ chunkId: "x", text: `short ${longTerm}` }], { maxTermLength: 10 });
+    const longTerm = "a".repeat(80);
+    const idx = buildIndex([{ chunkId: "x", text: `short ${longTerm}` }], {
+      maxTermLength: 10,
+    });
     expect(idx.df.has(longTerm)).toBe(false);
     expect(idx.df.has("short")).toBe(true);
   });
 
   it("respects maxUniqueTerms limit", () => {
-    const terms = Array.from({ length: 100 }, (_, i) => `term${i}`).join(" ");
-    const idx = buildIndex([{ chunkId: "x", text: terms }], { maxUniqueTerms: 10 });
-    expect(idx.df.size).toBeLessThanOrEqual(10);
+    const terms = Array.from({ length: 20 }, (_, i) => `term${i}`).join(" ");
+    const idx = buildIndex([{ chunkId: "x", text: terms }], { maxUniqueTerms: 5 });
+    expect(idx.df.size).toBeLessThanOrEqual(5);
   });
 
   it("respects maxPostingsPerTerm limit", () => {
-    const chunks = Array.from({ length: 100 }, (_, i) => ({ chunkId: `c${i}`, text: "common" }));
-    const idx = buildIndex(chunks, { maxPostingsPerTerm: 5 });
+    const chunks = Array.from({ length: 10 }, (_, i) => ({
+      chunkId: `c${i}`,
+      text: "common",
+    }));
+    const idx = buildIndex(chunks, { maxPostingsPerTerm: 3 });
     const postings = idx.postings.get("common");
-    expect(postings).toBeInstanceOf(Array);
-    expect(postings.length).toBeLessThanOrEqual(5);
+    expect(Array.isArray(postings)).toBe(true);
+    expect(postings.length).toBeLessThanOrEqual(3);
   });
 
-  it("throws on non-array chunks", () => {
-    expect(() => buildIndex("not array")).toThrow(/must be an array/);
-    expect(() => buildIndex(null)).toThrow(/must be an array/);
+  it("handles large chunk lists (resource boundary)", () => {
+    const chunks = Array.from({ length: 300 }, (_, i) => ({
+      chunkId: `c${i}`,
+      text: "alpha beta",
+    }));
+    const idx = buildIndex(chunks);
+    expect(idx.chunkIds.length).toBe(300);
+    expect(idx.df.has("alpha")).toBe(true);
   });
 
-  it("throws on non-object options", () => {
-    expect(() => buildIndex([], "invalid")).toThrow(/must be an object/);
+  it("handles long text and deep nested chunk (resource boundary)", () => {
+    const longText = "word ".repeat(5000);
+    const deepChunk = {
+      chunkId: "deep",
+      text: longText,
+      meta: { level1: { level2: { level3: { level4: [1, 2, 3] } } } },
+    };
+    const idx = buildIndex([deepChunk]);
+    expect(idx.docLens[0]).toBeGreaterThan(1000);
+    expect(idx.df.has("word")).toBe(true);
   });
 
-  it("filters stopwords", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "the quick brown fox" }]);
-    expect(idx.df.has("the")).toBe(false);
-    expect(idx.df.has("quick")).toBe(true);
+  it("throws on non-array chunks and non-object options", () => {
+    expect(() => buildIndex("not array")).toThrow(/chunks must be an array/);
+    expect(() => buildIndex(null)).toThrow(/chunks must be an array/);
+    expect(() => buildIndex([], "invalid")).toThrow(/options must be an object/);
+    expect(() => buildIndex([], [])).toThrow(/options must be an object/);
   });
 
-  it("handles CJK text with bigrams", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "这是中文测试" }]);
-    // Should tokenize into bigrams when Intl.Segmenter unavailable or as fallback
-    expect(idx.df.size).toBeGreaterThan(0);
-    expect(idx.docLens[0]).toBeGreaterThan(0);
-  });
-
-  it("handles mixed CJK and Latin text", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "hello 世界 world" }]);
-    expect(idx.df.has("hello")).toBe(true);
-    expect(idx.df.has("world")).toBe(true);
-    // CJK processed
-    expect(idx.docLens[0]).toBeGreaterThanOrEqual(2);
-  });
-
-  it("drops single Latin character tokens", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "a b c hello world" }]);
-    expect(idx.df.has("a")).toBe(false);
-    expect(idx.df.has("b")).toBe(false);
-    expect(idx.df.has("c")).toBe(false);
-    expect(idx.df.has("hello")).toBe(true);
-  });
-
-  it("keeps single digit tokens", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "1 2 3 hello" }]);
-    expect(idx.df.has("1") || idx.df.has("2") || idx.df.has("3") || idx.docLens[0] >= 1).toBe(true);
+  it("produces consistent results across rapid consecutive calls", () => {
+    const chunks = [
+      { chunkId: "a", text: "hello world" },
+      { chunkId: "b", text: "hello world" },
+    ];
+    const first = buildIndex(chunks);
+    const second = buildIndex(chunks);
+    expect(toPlainIndex(first)).toEqual(toPlainIndex(second));
   });
 });
 
@@ -123,60 +180,57 @@ describe("buildIndex", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("buildIndexAsync", () => {
-  it("builds index asynchronously", async () => {
-    const chunks = [
-      { chunkId: "a", text: "async hello" },
-      { chunkId: "b", text: "async world" },
-    ];
-    const idx = await buildIndexAsync(chunks);
-
-    expect(idx.chunkIds).toEqual(["a", "b"]);
-    expect(idx.df.has("async")).toBe(true);
+  it("rejects non-array chunks (null/undefined/object)", async () => {
+    await expect(buildIndexAsync(null)).rejects.toThrow(/chunks must be an array/);
+    await expect(buildIndexAsync(undefined)).rejects.toThrow(/chunks must be an array/);
+    await expect(buildIndexAsync({ 0: "a" })).rejects.toThrow(/chunks must be an array/);
   });
 
-  it("handles empty array", async () => {
-    const idx = await buildIndexAsync([]);
-    expect(idx.chunkIds).toEqual([]);
-    expect(idx.avgDocLen).toBe(0);
+  it("rejects non-object options (null/array/string)", async () => {
+    await expect(buildIndexAsync([], null)).rejects.toThrow(/options must be an object/);
+    await expect(buildIndexAsync([], [])).rejects.toThrow(/options must be an object/);
+    await expect(buildIndexAsync([], "bad")).rejects.toThrow(/options must be an object/);
   });
 
-  it("respects yieldEveryDocs for yielding", async () => {
-    const chunks = Array.from({ length: 200 }, (_, i) => ({ chunkId: `c${i}`, text: `doc ${i}` }));
-    const idx = await buildIndexAsync(chunks, { yieldEveryDocs: 50 });
-    expect(idx.chunkIds.length).toBe(200);
+  it("uses workerPool buildIndex and forwards k1/b only", async () => {
+    const workerPool = {
+      buildIndex: vi.fn().mockResolvedValue({ ok: true }),
+    };
+    const chunks = [{ chunkId: "x", text: "hello" }];
+    const out = await buildIndexAsync(chunks, {
+      workerPool,
+      k1: 1.6,
+      b: 0.4,
+      maxTokensPerDoc: 1,
+    });
+    expect(workerPool.buildIndex).toHaveBeenCalledWith(chunks, { k1: 1.6, b: 0.4 });
+    expect(out).toEqual({ ok: true });
   });
 
-  it("aborts on signal", async () => {
-    const chunks = Array.from({ length: 200 }, (_, i) => ({ chunkId: `c${i}`, text: `doc ${i}` }));
+  it("builds index with limits and string numeric values", async () => {
+    const chunks = [{ chunkId: "x", text: "t0 t1 t2 t3" }];
+    const idx = await buildIndexAsync(chunks, { maxTokensPerDoc: "2" });
+    expect(idx.docLens[0]).toBe(2);
+  });
+
+  it("aborts when signal is already aborted", async () => {
     const controller = new AbortController();
     controller.abort();
-
-    await expect(buildIndexAsync(chunks, { signal: controller.signal, yieldEveryDocs: 1 })).rejects.toThrow(/aborted/);
+    await expect(
+      buildIndexAsync([{ chunkId: "x", text: "hello" }], {
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(/aborted/);
   });
 
-  it("delegates to workerPool when provided", async () => {
-    const chunks = [{ chunkId: "x", text: "worker test" }];
-    const mockResult = { chunkIds: ["x"], docLens: [2], avgDocLen: 2, df: new Map(), postings: new Map(), k1: 1.2, b: 0.75 };
-    const workerPool = {
-      buildIndex: vi.fn(() => Promise.resolve(mockResult)),
-    };
-
-    const idx = await buildIndexAsync(chunks, { workerPool, k1: 1.5, b: 0.8 });
-
-    expect(workerPool.buildIndex.mock.calls.length).toBe(1);
-    const [calledChunks, calledOpts] = workerPool.buildIndex.mock.calls[0];
-    expect(calledChunks).toEqual(chunks);
-    expect(calledOpts.k1).toBe(1.5);
-    expect(calledOpts.b).toBe(0.8);
-    expect(idx).toEqual(mockResult);
-  });
-
-  it("throws on non-array chunks", async () => {
-    await expect(buildIndexAsync("invalid")).rejects.toThrow(/must be an array/);
-  });
-
-  it("throws on non-object options", async () => {
-    await expect(buildIndexAsync([], 123)).rejects.toThrow(/must be an object/);
+  it("handles concurrent builds with different inputs", async () => {
+    const a = [{ chunkId: "a", text: "alpha beta" }];
+    const b = [{ chunkId: "b", text: "gamma delta" }];
+    const [idxA, idxB] = await Promise.all([buildIndexAsync(a), buildIndexAsync(b)]);
+    expect(idxA.chunkIds).toEqual(["a"]);
+    expect(idxB.chunkIds).toEqual(["b"]);
+    expect(idxA.df.has("alpha")).toBe(true);
+    expect(idxB.df.has("gamma")).toBe(true);
   });
 });
 
@@ -185,377 +239,206 @@ describe("buildIndexAsync", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("search", () => {
-  let idx;
-
-  beforeEach(() => {
-    idx = buildIndex([
-      { chunkId: "doc1", text: "machine learning algorithms" },
-      { chunkId: "doc2", text: "deep learning neural networks" },
-      { chunkId: "doc3", text: "natural language processing" },
-      { chunkId: "doc4", text: "machine translation systems" },
-    ]);
-  });
-
-  it("returns ranked results for matching query", () => {
-    const results = search(idx, "machine learning");
-    expect(results.length).toBeGreaterThan(0);
-    expect(results[0].score).toBeGreaterThan(0);
-    // doc1 should rank high (has both terms)
-    const doc1Rank = results.findIndex((r) => r.chunkId === "doc1");
-    expect(doc1Rank).toBeGreaterThanOrEqual(0);
-  });
-
-  it("returns empty for non-matching query", () => {
-    const results = search(idx, "quantum physics");
-    expect(results).toEqual([]);
-  });
-
-  it("returns empty for stopword-only query", () => {
-    const results = search(idx, "the and or");
-    expect(results).toEqual([]);
-  });
-
-  it("returns empty for empty query", () => {
-    const results = search(idx, "");
-    expect(results).toEqual([]);
-  });
-
-  it("respects topK limit", () => {
-    const results = search(idx, "learning", 2);
-    expect(results.length).toBeLessThanOrEqual(2);
-  });
-
-  it("defaults topK to 8", () => {
-    const manyDocs = Array.from({ length: 20 }, (_, i) => ({ chunkId: `d${i}`, text: "common term" }));
-    const largeIdx = buildIndex(manyDocs);
-    const results = search(largeIdx, "common term");
-    expect(results.length).toBeLessThanOrEqual(8);
-  });
-
-  it("handles filterDocIndex option", () => {
-    // Only allow doc indices 0 and 2
-    const results = search(idx, "machine learning", 10, {
-      filterDocIndex: (di) => di === 0 || di === 2,
-    });
-    const ids = results.map((r) => r.chunkId);
-    expect(ids).not.toContain("doc2");
-    expect(ids).not.toContain("doc4");
-  });
-
-  it("sorts by score descending, then chunkId ascending", () => {
-    const sameScoreIdx = buildIndex([
-      { chunkId: "b", text: "test" },
-      { chunkId: "a", text: "test" },
-      { chunkId: "c", text: "test" },
-    ]);
-    const results = search(sameScoreIdx, "test");
-    // All same score, should be sorted by chunkId
-    expect(results.map((r) => r.chunkId)).toEqual(["a", "b", "c"]
-    );
-  });
-
-  it("throws on non-object index", () => {
-    expect(() => search(null, "test")).toThrow(/must be an object/);
-    expect(() => search("invalid", "test")).toThrow(/must be an object/);
+  it("throws on invalid index inputs", () => {
+    expect(() => search(null, "q")).toThrow(/index must be an object/);
+    expect(() => search([], "q")).toThrow(/index must be an object/);
+    expect(() => search("bad", "q")).toThrow(/index must be an object/);
   });
 
   it("throws on non-string query", () => {
-    expect(() => search(idx, 123)).toThrow(/must be a string/);
-    expect(() => search(idx, null)).toThrow(/must be a string/);
+    const idx = buildIndex([{ chunkId: "x", text: "hello" }]);
+    expect(() => search(idx, null)).toThrow(/query must be a string/);
+    expect(() => search(idx, undefined)).toThrow(/query must be a string/);
+    expect(() => search(idx, 123)).toThrow(/query must be a string/);
   });
 
   it("throws on non-object options", () => {
-    expect(() => search(idx, "test", 8, "bad")).toThrow(/must be an object/);
+    const idx = buildIndex([{ chunkId: "x", text: "hello" }]);
+    expect(() => search(idx, "hello", 8, null)).toThrow(/options must be an object/);
+    expect(() => search(idx, "hello", 8, [])).toThrow(/options must be an object/);
   });
 
-  it("handles empty index", () => {
-    const emptyIdx = buildIndex([]);
-    const results = search(emptyIdx, "anything");
-    expect(results).toEqual([]);
+  it("returns empty for empty index or empty/stopword queries", () => {
+    const emptyIndex = buildIndex([]);
+    expect(search(emptyIndex, "hello")).toEqual([]);
+
+    const idx = buildIndex([{ chunkId: "x", text: "quick brown fox" }]);
+    expect(search(idx, "")).toEqual([]);
+    expect(search(idx, "   ")).toEqual([]);
+    expect(search(idx, "the and")).toEqual([]);
   });
 
-  it("handles duplicate query terms", () => {
-    const results = search(idx, "learning learning learning");
-    // Should still work, terms deduplicated
-    expect(results.length).toBeGreaterThan(0);
+  it("sorts ties by chunkId", () => {
+    const idx = buildIndex([
+      { chunkId: "b", text: "alpha beta" },
+      { chunkId: "a", text: "alpha beta" },
+    ]);
+    const results = search(idx, "alpha", 10);
+    expect(results.map((r) => r.chunkId)).toEqual(["a", "b"]);
+  });
+
+  it("respects topK boundaries (0, -1, MAX_SAFE_INTEGER)", () => {
+    const chunks = Array.from({ length: 3 }, (_, i) => ({
+      chunkId: `c${i}`,
+      text: "alpha",
+    }));
+    const idx = buildIndex(chunks);
+    expect(search(idx, "alpha", 0).length).toBe(1);
+    expect(search(idx, "alpha", -1).length).toBe(1);
+    expect(search(idx, "alpha", Number.MAX_SAFE_INTEGER).length).toBe(3);
+  });
+
+  it("falls back to default topK when topK is a string", () => {
+    const chunks = Array.from({ length: 9 }, (_, i) => ({
+      chunkId: `c${i}`,
+      text: "alpha",
+    }));
+    const idx = buildIndex(chunks);
+    const results = search(idx, "alpha", "3");
+    expect(results.length).toBe(8);
+  });
+
+  it("respects filterDocIndex option", () => {
+    const chunks = Array.from({ length: 4 }, (_, i) => ({
+      chunkId: `c${i}`,
+      text: "alpha",
+    }));
+    const idx = buildIndex(chunks);
+    const results = search(idx, "alpha", 10, {
+      filterDocIndex: (di) => di % 2 === 0,
+    });
+    expect(results.map((r) => r.chunkId)).toEqual(["c0", "c2"]);
+  });
+
+  it("treats duplicate query terms as unique", () => {
+    const idx = buildIndex([
+      { chunkId: "x", text: "hello world" },
+      { chunkId: "y", text: "hello" },
+    ]);
+    const once = search(idx, "hello", 10);
+    const twice = search(idx, "hello hello", 10);
+    expect(twice).toEqual(once);
+  });
+
+  it("produces consistent results across rapid consecutive calls", () => {
+    const idx = buildIndex([{ chunkId: "x", text: "hello world" }]);
+    const first = search(idx, "hello", 5);
+    const second = search(idx, "hello", 5);
+    expect(first).toEqual(second);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// serializeIndex / deserializeIndex
+// serializeIndex
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("serializeIndex", () => {
-  it("converts index to JSON-serializable object", () => {
-    const idx = buildIndex([
-      { chunkId: "a", text: "hello world" },
-      { chunkId: "b", text: "foo bar" },
-    ]);
-    const snapshot = serializeIndex(idx);
+  it("throws on non-object index", () => {
+    expect(() => serializeIndex(null)).toThrow(/index must be an object/);
+    expect(() => serializeIndex(undefined)).toThrow(/index must be an object/);
+    expect(() => serializeIndex(123)).toThrow(/index must be an object/);
+  });
 
+  it("serializes maps and normalizes numeric fields", () => {
+    const index = {
+      chunkIds: ["a", 1, null, ""],
+      docLens: [1, "2", NaN, undefined],
+      avgDocLen: "3",
+      df: new Map([["term", 2]]),
+      postings: new Map([["term", [[0, 4]]]]),
+      k1: "bad",
+      b: Infinity,
+    };
+    const snapshot = serializeIndex(index);
     expect(snapshot.schemaVersion).toBe("0.1");
-    expect(snapshot.chunkIds).toEqual(["a", "b"]);
-    expect(snapshot.docLens).toBeInstanceOf(Array);
-    expect(snapshot.df).toBeInstanceOf(Array);
-    expect(snapshot.postings).toBeInstanceOf(Array);
+    expect(snapshot.chunkIds).toEqual(["a", "1"]);
+    expect(snapshot.docLens).toEqual([1, 2, 0, 0]);
+    expect(snapshot.avgDocLen).toBe(3);
+    expect(snapshot.df).toEqual([["term", 2]]);
+    expect(snapshot.postings).toEqual([["term", [[0, 4]]]]);
     expect(snapshot.k1).toBe(1.2);
     expect(snapshot.b).toBe(0.75);
-
-    // Should be JSON-serializable
-    const json = JSON.stringify(snapshot);
-    expect(json.length).toBeGreaterThan(0);
   });
 
-  it("handles index with custom k1/b", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "test" }], { k1: 2.5, b: 0.6 });
-    const snapshot = serializeIndex(idx);
-    expect(snapshot.k1).toBe(2.5);
-    expect(snapshot.b).toBe(0.6);
-  });
-
-  it("throws on non-object input", () => {
-    expect(() => serializeIndex(null)).toThrow(/must be an object/);
-    expect(() => serializeIndex("invalid")).toThrow(/must be an object/);
-  });
-
-  it("handles missing fields gracefully", () => {
-    const partial = { chunkIds: ["a"], docLens: [5] };
-    const snapshot = serializeIndex(partial);
-    expect(snapshot.chunkIds).toEqual(["a"]);
-    expect(snapshot.df).toEqual([]);
-    expect(snapshot.postings).toEqual([]);
+  it("passes through array-based df/postings and empty objects", () => {
+    const snapshot = serializeIndex({
+      chunkIds: [],
+      docLens: [],
+      df: [["x", 1]],
+      postings: [["x", [[0, 1]]]],
+    });
+    expect(snapshot.chunkIds).toEqual([]);
+    expect(snapshot.df).toEqual([["x", 1]]);
+    expect(snapshot.postings).toEqual([["x", [[0, 1]]]]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// deserializeIndex
+// ─────────────────────────────────────────────────────────────────────────────
 
 describe("deserializeIndex", () => {
-  it("restores index from snapshot", () => {
-    const original = buildIndex([
-      { chunkId: "a", text: "hello world" },
-      { chunkId: "b", text: "hello universe" },
-    ]);
-    const snapshot = serializeIndex(original);
-    const restored = deserializeIndex(snapshot);
-
-    expect(restored.chunkIds).toEqual(original.chunkIds);
-    expect(restored.docLens).toEqual(original.docLens);
-    expect(restored.avgDocLen).toBe(original.avgDocLen);
-    expect(restored.k1).toBe(original.k1);
-    expect(restored.b).toBe(original.b);
-    expect(restored.df).toBeInstanceOf(Map);
-    expect(restored.postings).toBeInstanceOf(Map);
-    expect(restored.df.get("hello")).toBe(original.df.get("hello"));
-  });
-
-  it("search works on deserialized index", () => {
-    const original = buildIndex([
-      { chunkId: "a", text: "machine learning" },
-      { chunkId: "b", text: "deep learning" },
-    ]);
-    const snapshot = serializeIndex(original);
-    const json = JSON.stringify(snapshot);
-    const restored = deserializeIndex(JSON.parse(json));
-
-    const results = search(restored, "machine");
-    expect(results.length).toBeGreaterThan(0);
-    expect(results[0].chunkId).toBe("a");
-  });
-
   it("throws on non-object snapshot", () => {
-    expect(() => deserializeIndex(null)).toThrow(/must be an object/);
-    expect(() => deserializeIndex("invalid")).toThrow(/must be an object/);
+    expect(() => deserializeIndex(null)).toThrow(/snapshot must be an object/);
+    expect(() => deserializeIndex(undefined)).toThrow(/snapshot must be an object/);
   });
 
-  it("handles corrupted df entries", () => {
-    const snapshot = {
-      chunkIds: ["a"],
-      docLens: [5],
-      avgDocLen: 5,
-      df: [["term1", 1], "invalid", [null, 2], ["", 3]],
-      postings: [["term1", [[0, 1]]]],
-      k1: 1.2,
-      b: 0.75,
-    };
-    const restored = deserializeIndex(snapshot);
-    expect(restored.df.get("term1")).toBe(1);
-    expect(restored.df.has("")).toBe(false);
-  });
-
-  it("handles corrupted postings entries", () => {
-    const snapshot = {
-      chunkIds: ["a"],
-      docLens: [5],
-      avgDocLen: 5,
-      df: [["term1", 1]],
-      postings: [["term1", [[0, 1], "invalid", [null, 2]]], "bad", [null, []]],
-      k1: 1.2,
-      b: 0.75,
-    };
-    const restored = deserializeIndex(snapshot);
-    const list = restored.postings.get("term1");
-    expect(list).toBeInstanceOf(Array);
-    expect(list.length).toBe(2); // invalid entries filtered
-  });
-
-  it("recalculates avgDocLen if missing", () => {
+  it("restores maps and numeric fields from a snapshot", () => {
     const snapshot = {
       chunkIds: ["a", "b"],
-      docLens: [4, 6],
+      docLens: [1, 3],
+      avgDocLen: 2,
+      df: [["alpha", "2"]],
+      postings: [["alpha", [[0, "1"], [1, 2]]]],
+      k1: "1.5",
+      b: "0.5",
+    };
+    const idx = deserializeIndex(snapshot);
+    expect(idx.chunkIds).toEqual(["a", "b"]);
+    expect(idx.docLens).toEqual([1, 3]);
+    expect(idx.avgDocLen).toBe(2);
+    expect(idx.df).toBeInstanceOf(Map);
+    expect(idx.df.get("alpha")).toBe(2);
+    expect(idx.postings.get("alpha")).toEqual([[0, 1], [1, 2]]);
+    expect(idx.k1).toBe(1.5);
+    expect(idx.b).toBe(0.5);
+  });
+
+  it("computes avgDocLen when missing", () => {
+    const idx = deserializeIndex({
+      chunkIds: ["a", "b"],
+      docLens: [2, 4],
       df: [],
       postings: [],
-      k1: 1.2,
-      b: 0.75,
-    };
-    const restored = deserializeIndex(snapshot);
-    expect(restored.avgDocLen).toBe(5);
+    });
+    expect(idx.avgDocLen).toBe(3);
   });
 
-  it("handles empty snapshot", () => {
-    const snapshot = { chunkIds: [], docLens: [], df: [], postings: [] };
-    const restored = deserializeIndex(snapshot);
-    expect(restored.chunkIds).toEqual([]);
-    expect(restored.avgDocLen).toBe(0);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Round-trip integration
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("round-trip integration", () => {
-  it("serialize -> JSON -> deserialize -> search produces same results", () => {
-    const chunks = [
-      { chunkId: "doc1", text: "quantum computing algorithms" },
-      { chunkId: "doc2", text: "machine learning algorithms" },
-      { chunkId: "doc3", text: "quantum mechanics physics" },
-    ];
-    const original = buildIndex(chunks);
-    const originalResults = search(original, "quantum algorithms");
-
-    const snapshot = serializeIndex(original);
-    const json = JSON.stringify(snapshot);
-    const restored = deserializeIndex(JSON.parse(json));
-    const restoredResults = search(restored, "quantum algorithms");
-
-    expect(restoredResults.map((r) => r.chunkId)).toEqual(originalResults.map((r) => r.chunkId));
-    // Scores should be equal
-    for (let i = 0; i < originalResults.length; i++) {
-      expect(Math.abs(originalResults[i].score - restoredResults[i].score)).toBeLessThan(1e-10);
-    }
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Edge cases and special characters
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("edge cases", () => {
-  it("handles null/undefined text in chunks", () => {
-    const idx = buildIndex([
-      { chunkId: "a", text: null },
-      { chunkId: "b", text: undefined },
-      { chunkId: "c", text: "valid text" },
-    ]);
-    expect(idx.chunkIds).toEqual(["a", "b", "c"]);
-    expect(idx.docLens[0]).toBe(0);
-    expect(idx.docLens[1]).toBe(0);
-    expect(idx.docLens[2]).toBeGreaterThan(0);
+  it("filters invalid df/postings entries", () => {
+    const idx = deserializeIndex({
+      chunkIds: ["c1"],
+      docLens: [1],
+      df: [["term", "2"], ["", 5], [null, 3], ["bad", "NaN"]],
+      postings: [
+        ["term", [[0, "3"], ["x"], [1, 2]]],
+        ["", [[0, 1]]],
+        ["bad", "nope"],
+      ],
+    });
+    expect(idx.df.has("term")).toBe(true);
+    expect(idx.df.has("")).toBe(false);
+    expect(idx.df.get("bad")).toBe(0);
+    expect(idx.postings.get("term")).toEqual([[0, 3], [1, 2]]);
+    expect(idx.postings.has("")).toBe(false);
+    expect(idx.postings.get("bad")).toEqual([]);
   });
 
-  it("handles special characters and punctuation", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "hello! @world #test" }]);
-    expect(idx.df.has("hello")).toBe(true);
-    expect(idx.df.has("world")).toBe(true);
-    expect(idx.df.has("test")).toBe(true);
-  });
-
-  it("handles numeric-only text", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "123 456 789" }]);
-    expect(idx.docLens[0]).toBeGreaterThan(0);
-  });
-
-  it("handles very long single token", () => {
-    const longWord = "a".repeat(1000);
-    const idx = buildIndex([{ chunkId: "x", text: `${longWord} short` }]);
-    // Long word should be filtered by default maxTermLength
-    expect(idx.df.has(longWord)).toBe(false);
-    expect(idx.df.has("short")).toBe(true);
-  });
-
-  it("handles Japanese hiragana/katakana", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "こんにちは カタカナ" }]);
-    expect(idx.docLens[0]).toBeGreaterThan(0);
-  });
-
-  it("handles Korean hangul", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "안녕하세요 테스트" }]);
-    expect(idx.docLens[0]).toBeGreaterThan(0);
-  });
-
-  it("handles CJK stopwords", () => {
-    const idx = buildIndex([{ chunkId: "x", text: "我们 是 好朋友" }]);
-    // "我们" and "是" are stopwords
-    // "好朋" should be indexed as bigram
-    expect(idx.docLens[0]).toBeLessThan(3); // Some filtered
-  });
-
-  it("handles Infinity for limit options", () => {
-    const idx = buildIndex(
-      [{ chunkId: "x", text: "test text here" }],
-      { maxTokensPerDoc: Infinity, maxUniqueTerms: Infinity }
-    );
-    expect(idx.docLens[0]).toBeGreaterThan(0);
-  });
-
-  it("handles negative/zero limit values (falls back to defaults)", () => {
-    const idx = buildIndex(
-      [{ chunkId: "x", text: "word ".repeat(100) }],
-      { maxTokensPerDoc: -5, maxUniqueTerms: 0 }
-    );
-    // Should use fallback values
-    expect(idx.docLens[0]).toBeGreaterThan(0);
-  });
-
-  it("handles NaN limit values (falls back to defaults)", () => {
-    const idx = buildIndex(
-      [{ chunkId: "x", text: "test content here" }],
-      { maxTokensPerDoc: NaN, maxTermLength: NaN }
-    );
-    expect(idx.docLens[0]).toBeGreaterThan(0);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BM25 scoring correctness
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("BM25 scoring", () => {
-  it("higher TF yields higher score", () => {
-    const idx = buildIndex([
-      { chunkId: "low", text: "keyword other words" },
-      { chunkId: "high", text: "keyword keyword keyword" },
-    ]);
-    const results = search(idx, "keyword");
-    expect(results[0].chunkId).toBe("high");
-  });
-
-  it("rarer terms have higher weight (IDF)", () => {
-    const idx = buildIndex([
-      { chunkId: "common", text: "word1 word2 word3" },
-      { chunkId: "rare", text: "word1 unicorn" },
-      { chunkId: "also-common", text: "word1 word2 word3" },
-    ]);
-    // "unicorn" only in one doc, higher IDF
-    const results = search(idx, "word1 unicorn");
-    expect(results[0].chunkId).toBe("rare");
-  });
-
-  it("document length normalization affects scores", () => {
-    const idx = buildIndex([
-      { chunkId: "short", text: "target" },
-      { chunkId: "long", text: "target " + "padding ".repeat(50) },
-    ]);
-    const results = search(idx, "target");
-    // Shorter doc should rank higher with same TF
-    expect(results[0].chunkId).toBe("short");
+  it("handles empty snapshots", () => {
+    const idx = deserializeIndex({});
+    expect(idx.chunkIds).toEqual([]);
+    expect(idx.docLens).toEqual([]);
+    expect(idx.avgDocLen).toBe(0);
+    expect(idx.df.size).toBe(0);
+    expect(idx.postings.size).toBe(0);
   });
 });

@@ -1,701 +1,537 @@
-/**
- * StateBus 测试
- * 使用 node:test + node:assert/strict
- */
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+const mockedLogger = vi.hoisted(() => ({
+  warn: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
 
-import { StateBus, EventBus } from '../../../../js/agents/core/index.js';
+vi.mock("../../../../js/agents/shared/index.js", () => ({
+  createLogger: vi.fn(() => mockedLogger),
+}));
 
-describe('StateBus', () => {
+import { StateBus } from "../../../../js/agents/core/state-bus.js";
+
+describe("StateBus", () => {
   /** @type {StateBus} */
   let state;
-  /** @type {EventBus} */
   let events;
 
   beforeEach(() => {
-    events = new EventBus();
-    state = new StateBus({ events, keepLog: true });
+    vi.clearAllMocks();
+    events = { emitSync: vi.fn() };
+    state = new StateBus({ events, keepLog: true, maxSnapshots: 3, maxLog: 5 });
   });
 
-  afterEach(() => {
-    events.dispose();
-  });
-
-  describe('get/set', () => {
-    it('should return full state when no path provided', () => {
+  describe("get", () => {
+    it("returns root state for empty path", () => {
       const root = state.get();
       expect(root.meta).toBeDefined();
       expect(root.runtime).toBeDefined();
+      expect(state.get("")).toBe(root);
     });
 
-    it('should set and get values', () => {
-      state.set('user.name', 'Alice');
-      expect(state.get('user.name')).toBe('Alice');
+    it("returns undefined for missing or unsafe paths", () => {
+      expect(state.get("missing.path")).toBeUndefined();
+
+      const value = state.get("safe.__proto__.polluted");
+      expect(value).toBeUndefined();
+      expect(mockedLogger.warn).toHaveBeenCalledTimes(1);
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        "StateBus blocked unsafe path segment",
+        expect.objectContaining({ path: "safe.__proto__.polluted", segment: "__proto__" })
+      );
     });
 
-    it('should support nested paths', () => {
-      state.set('deep.nested.value', 42);
-      expect(state.get('deep.nested.value')).toBe(42);
-      expect(state.get('deep.nested')).toEqual({ value: 42 });
-      expect(state.get('deep')).toEqual({ nested: { value: 42 } });
+    it("returns undefined when traversing non-object values", () => {
+      state.set("primitive", 42);
+      expect(state.get("primitive.child")).toBeUndefined();
     });
 
-    it('should return undefined for missing paths', () => {
-      expect(state.get('nonexistent.path')).toBe(undefined);
-    });
-
-    it('should overwrite existing values', () => {
-      state.set('counter', 1);
-      state.set('counter', 2);
-      expect(state.get('counter')).toBe(2);
-    });
-
-    it('should not notify or update timestamp when value unchanged', () => {
-      let callCount = 0;
-      state.subscribe('same', () => { callCount += 1; });
-
-      state.set('same', 1);
-      const updatedAt1 = state.get('meta.updatedAt');
-
-      state.set('same', 1);
-      const updatedAt2 = state.get('meta.updatedAt');
-
-      expect(callCount).toBe(1);
-      expect(updatedAt1).toBe(updatedAt2);
-    });
-
-    it('should ignore empty paths', () => {
-      state.set('', 123);
-      const result = state.get('');
-      expect(result.meta).toBeDefined(); // still root state
-    });
-
-    it('should return undefined when traversing through non-object', () => {
-      state.set('primitive', 42);
-      expect(state.get('primitive.nested')).toBe(undefined);
+    it("reads nested values from deep paths", () => {
+      state.set("deep.nested.value", 42);
+      expect(state.get("deep.nested.value")).toBe(42);
+      expect(state.get("deep.nested")).toEqual({ value: 42 });
     });
   });
 
-  describe('merge', () => {
-    it('should merge objects', () => {
-      state.set('config', { a: 1, b: 2 });
-      state.merge('config', { b: 3, c: 4 });
-      expect(state.get('config')).toEqual({ a: 1, b: 3, c: 4 });
+  describe("set", () => {
+    it("stores boundary values without coercion", () => {
+      const cases = [
+        ["values.zero", 0],
+        ["values.negative", -1],
+        ["values.max", Number.MAX_SAFE_INTEGER],
+        ["values.emptyString", ""],
+        ["values.whitespace", "   "],
+        ["values.null", null],
+        ["values.emptyArray", []],
+        ["values.emptyObject", {}],
+        ["values.numericString", "123"],
+      ];
+
+      for (const [path, value] of cases) {
+        state.set(path, value);
+        expect(state.get(path)).toEqual(value);
+      }
+
+      state.set("values.numericString", 123);
+      expect(state.get("values.numericString")).toBe(123);
     });
 
-    it('should create path if not exists', () => {
-      state.merge('new.path', { x: 1 });
-      expect(state.get('new.path')).toEqual({ x: 1 });
+    it("allows setting undefined when value changes", () => {
+      state.set("maybe.value", "temp");
+      state.set("maybe.value", undefined);
+
+      const parent = state.get("maybe");
+      expect(Object.prototype.hasOwnProperty.call(parent, "value")).toBe(true);
+      expect(state.get("maybe.value")).toBeUndefined();
     });
 
-    it('should replace non-object values', () => {
-      state.set('config', 123);
-      state.merge('config', { ok: true });
-      expect(state.get('config')).toEqual({ ok: true });
+    it("does not update timestamp or notify when value unchanged", () => {
+      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1000);
+      const subscriber = vi.fn();
+
+      state.subscribe("same", subscriber);
+
+      state.set("same", 1);
+      const updatedAt = state.get("meta.updatedAt");
+
+      expect(nowSpy).toHaveBeenCalledTimes(2);
+
+      state.set("same", 1);
+
+      expect(nowSpy).toHaveBeenCalledTimes(2);
+      expect(state.get("meta.updatedAt")).toBe(updatedAt);
+      expect(subscriber).toHaveBeenCalledTimes(1);
+      expect(events.emitSync).toHaveBeenCalledTimes(2);
+
+      nowSpy.mockRestore();
     });
 
-    it('should set non-object updates directly', () => {
-      state.merge('config', null);
-      expect(state.get('config')).toBe(null);
+    it("ignores empty or unsafe paths", () => {
+      state.set("", 123);
+      expect(state.get("meta.updatedAt")).toBeNull();
+      expect(events.emitSync).not.toHaveBeenCalled();
+
+      state.set("unsafe.__proto__.polluted", "yes");
+      expect(state.get("unsafe")).toBeUndefined();
+      expect(mockedLogger.warn).toHaveBeenCalledTimes(1);
+      expect({}.polluted).toBeUndefined();
+      expect(events.emitSync).not.toHaveBeenCalled();
     });
 
-    it('should pass meta to set', () => {
-      let received = null;
-      state.subscribe('merged', (change) => { received = change; });
-      state.merge('merged', { x: 1 }, { source: 'merge' });
-      expect(received.meta.source).toBe('merge');
-    });
-  });
+    it("emits change events with meta", () => {
+      state.set("meta.status", "running", { source: "unit" });
 
-  describe('delete', () => {
-    it('should delete values', () => {
-      state.set('toDelete', 'value');
-      expect(state.get('toDelete')).toBe('value');
-
-      const result = state.delete('toDelete');
-      expect(result).toBe(true);
-      expect(state.get('toDelete')).toBe(undefined);
-    });
-
-    it('should return false for non-existent paths', () => {
-      const result = state.delete('nonexistent');
-      expect(result).toBe(false);
-    });
-
-    it('should delete nested values', () => {
-      state.set('deep.nested.value', 42);
-      expect(state.delete('deep.nested.value')).toBe(true);
-      expect(state.get('deep.nested.value')).toBe(undefined);
-    });
-
-    it('should return false when deleting with an empty path', () => {
-      expect(state.delete('')).toBe(false);
-    });
-
-    it('should not delete inherited properties', () => {
-      state._state.protoTest = Object.create({ value: 123 });
-
-      expect(state.get('protoTest.value')).toBe(123);
-      expect(state.delete('protoTest.value')).toBe(false);
-      expect(state.get('protoTest.value')).toBe(123);
-    });
-
-    it('should notify change on delete with op:delete meta', () => {
-      state.set('toNotify', 'value');
-      let received = null;
-      state.subscribe('toNotify', (change) => { received = change; });
-      state.delete('toNotify');
-      expect(received.meta.op).toBe('delete');
-      expect(received.oldValue).toBe('value');
-      expect(received.newValue).toBe(undefined);
-    });
-
-    it('should return false when parent path is non-object', () => {
-      state.set('primitive', 42);
-      expect(state.delete('primitive.nested')).toBe(false);
-    });
-  });
-
-  describe('push', () => {
-    it('should create array when missing', () => {
-      state.push('items', 'a');
-      expect(state.get('items')).toEqual(['a']);
-    });
-
-    it('should append to existing array', () => {
-      state.set('items', ['a']);
-      state.push('items', 'b');
-      expect(state.get('items')).toEqual(['a', 'b']);
-    });
-
-    it('should pass meta to set', () => {
-      let received = null;
-      state.subscribe('pushed', (change) => { received = change; });
-      state.push('pushed', 'item', { source: 'push' });
-      expect(received.meta.source).toBe('push');
-    });
-
-    it('should replace non-array with new array', () => {
-      state.set('notArray', 'string');
-      state.push('notArray', 'item');
-      expect(state.get('notArray')).toEqual(['item']);
+      expect(events.emitSync).toHaveBeenCalledWith(
+        "state.changed",
+        expect.objectContaining({
+          path: "meta.status",
+          oldValue: "idle",
+          newValue: "running",
+          meta: { source: "unit" },
+        })
+      );
+      expect(events.emitSync).toHaveBeenCalledWith(
+        "state.change",
+        expect.objectContaining({
+          path: "meta.status",
+          oldValue: "idle",
+          newValue: "running",
+          source: "unit",
+        })
+      );
     });
   });
 
-  describe('subscribe', () => {
-    it('should notify on value change', () => {
-      let received = null;
-      state.subscribe('watched.value', (change) => { received = change; });
-
-      state.set('watched.value', 'new');
-
-      expect(received.path).toBe('watched.value');
-      expect(received.newValue).toBe('new');
+  describe("merge", () => {
+    it("merges objects and preserves existing keys", () => {
+      state.set("config", { a: 1, b: 2 });
+      state.merge("config", { b: 3, c: 4 });
+      expect(state.get("config")).toEqual({ a: 1, b: 3, c: 4 });
     });
 
-    it('should support wildcard subscriptions', () => {
-      let callCount = 0;
-      state.subscribe('user.*', () => { callCount += 1; });
-
-      state.set('user.name', 'Bob');
-      state.set('user.age', 30);
-      state.set('system.status', 'ok'); // should not trigger
-
-      expect(callCount).toBe(2);
+    it("creates path when missing and handles empty updates", () => {
+      state.merge("new.path", {});
+      expect(state.get("new.path")).toEqual({});
     });
 
-    it('should unsubscribe correctly', () => {
-      let callCount = 0;
-      const unsub = state.subscribe('path', () => { callCount += 1; });
+    it("replaces when current or updates are non-objects", () => {
+      state.set("config", 123);
+      state.merge("config", { ok: true });
+      expect(state.get("config")).toEqual({ ok: true });
 
-      state.set('path', 1);
-      expect(callCount).toBe(1);
+      state.set("config", { ok: true });
+      state.merge("config", null);
+      expect(state.get("config")).toBeNull();
 
-      unsub();
-      state.set('path', 2);
-      expect(callCount).toBe(1); // still 1
+      state.merge("config", "text");
+      expect(state.get("config")).toBe("text");
     });
 
-    it('should include old and new values', () => {
-      state.set('value', 'old');
+    it("forwards meta to change record", () => {
+      const cb = vi.fn();
+      state.subscribe("merged", cb);
+      state.merge("merged", { a: 1 }, { source: "merge" });
 
-      let received = null;
-      state.subscribe('value', (change) => { received = change; });
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb.mock.calls[0][0].meta).toEqual({ source: "merge" });
+    });
+  });
 
-      state.set('value', 'new');
+  describe("delete", () => {
+    it("deletes existing values and reports op meta", () => {
+      state.set("toDelete", "value");
+      const cb = vi.fn();
+      state.subscribe("toDelete", cb);
 
-      expect(received.oldValue).toBe('old');
-      expect(received.newValue).toBe('new');
+      expect(state.delete("toDelete")).toBe(true);
+      expect(state.get("toDelete")).toBeUndefined();
+
+      expect(cb).toHaveBeenCalledTimes(1);
+      const change = cb.mock.calls[0][0];
+      expect(change.meta.op).toBe("delete");
+      expect(change.oldValue).toBe("value");
+      expect(change.newValue).toBeUndefined();
     });
 
-    it('should support legacy subscriber signature (newValue, oldValue, path)', () => {
-      state.set('legacy', 'old');
-      const calls = [];
-      const legacy = (newValue, oldValue, path) => {
-        calls.push({ newValue, oldValue, path });
+    it("returns false for missing, empty, or unsafe paths", () => {
+      expect(state.delete("missing.path")).toBe(false);
+      expect(state.delete("")).toBe(false);
+      expect(state.delete("safe.__proto__.x")).toBe(false);
+      expect(mockedLogger.warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns false when parent path is non-object", () => {
+      state.set("primitive", 42);
+      expect(state.delete("primitive.child")).toBe(false);
+    });
+
+    it("does not delete inherited properties", () => {
+      state._state.inherited = Object.create({ value: 123 });
+      expect(state.get("inherited.value")).toBe(123);
+      expect(state.delete("inherited.value")).toBe(false);
+    });
+  });
+
+  describe("push", () => {
+    it("creates array when missing or when current value is non-array", () => {
+      state.push("items", "a");
+      expect(state.get("items")).toEqual(["a"]);
+
+      state.set("items", { not: "array" });
+      state.push("items", "b");
+      expect(state.get("items")).toEqual(["b"]);
+    });
+
+    it("appends to existing array", () => {
+      state.set("items", ["a"]);
+      state.push("items", "b");
+      expect(state.get("items")).toEqual(["a", "b"]);
+    });
+
+    it("forwards meta to change record", () => {
+      const cb = vi.fn();
+      state.subscribe("pushed", cb);
+      state.push("pushed", "item", { source: "push" });
+
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb.mock.calls[0][0].meta).toEqual({ source: "push" });
+    });
+  });
+
+  describe("subscribe", () => {
+    it("notifies exact path changes with change record", () => {
+      const cb = vi.fn();
+      state.subscribe("user.name", cb);
+
+      state.set("user.name", "Alice");
+
+      expect(cb).toHaveBeenCalledTimes(1);
+      const change = cb.mock.calls[0][0];
+      expect(change.path).toBe("user.name");
+      expect(change.newValue).toBe("Alice");
+      expect(change.oldValue).toBeUndefined();
+      expect(typeof change.timestamp).toBe("number");
+    });
+
+    it("supports legacy subscriber signatures", () => {
+      const legacy = vi.fn((newValue, oldValue, path) => ({ newValue, oldValue, path }));
+      state.subscribe("legacy.path", legacy);
+
+      state.set("legacy.path", "value");
+
+      expect(legacy).toHaveBeenCalledWith("value", undefined, "legacy.path");
+    });
+
+    it("matches prefix wildcards for parent and descendant paths", () => {
+      const cb = vi.fn();
+      state.subscribe("custom.*", cb);
+
+      state.set("custom", { level: 1 });
+      state.set("custom.deep.value", 2);
+
+      expect(cb).toHaveBeenCalledTimes(2);
+      const paths = cb.mock.calls.map(([change]) => change.path);
+      expect(paths).toEqual(expect.arrayContaining(["custom", "custom.deep.value"]));
+    });
+
+    it("matches segment wildcards with *", () => {
+      const cb = vi.fn();
+      state.subscribe("stages.*.status", cb);
+
+      state.set("stages.alpha.status", "ok");
+
+      expect(cb).toHaveBeenCalledTimes(1);
+    });
+
+    it("matches segment wildcards with ?", () => {
+      const cb = vi.fn();
+      state.subscribe("stages.?eta.status", cb);
+
+      state.set("stages.beta.status", "ok");
+
+      expect(cb).toHaveBeenCalledTimes(1);
+    });
+
+    it("matches wildcard prefixes that include segment wildcards", () => {
+      const cb = vi.fn();
+      state.subscribe("a.*.*", cb);
+
+      state.set("a.b.c.d", "value");
+
+      expect(cb).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not match when segment count differs for non-prefix patterns", () => {
+      const cb = vi.fn();
+      state.subscribe("runtime.*.input", cb);
+
+      state.set("runtime.input", 1);
+
+      expect(cb).not.toHaveBeenCalled();
+    });
+
+    it("unsubscribe stops notifications", () => {
+      const cb = vi.fn();
+      const unsubscribe = state.subscribe("temp", cb);
+
+      unsubscribe();
+      state.set("temp", 1);
+
+      expect(cb).not.toHaveBeenCalled();
+    });
+
+    it("logs subscriber errors without blocking others", () => {
+      const bad = vi.fn(() => {
+        throw new Error("boom");
+      });
+      const good = vi.fn();
+
+      state.subscribe("boom.path", bad);
+      state.subscribe("boom.path", good);
+
+      expect(() => state.set("boom.path", 1)).not.toThrow();
+
+      expect(good).toHaveBeenCalledTimes(1);
+      expect(mockedLogger.error).toHaveBeenCalledTimes(1);
+      expect(mockedLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Subscriber error for "boom.path":'),
+        expect.any(Error)
+      );
+    });
+  });
+
+  describe("snapshot/rollback", () => {
+    it("creates snapshots, emits events, and restores on rollback", () => {
+      state.set("snapshot.value", { deep: { n: 1 } });
+      const snapshotId = state.snapshot("snap1");
+      state.set("snapshot.value.deep.n", 2);
+
+      const cb = vi.fn();
+      state.subscribe("*", cb);
+
+      expect(state.rollback(snapshotId)).toBe(true);
+      expect(state.get("snapshot.value.deep.n")).toBe(1);
+
+      expect(cb).toHaveBeenCalledTimes(1);
+      const change = cb.mock.calls[0][0];
+      expect(change.path).toBe("*");
+      expect(change.meta.rollback).toBe(true);
+
+      expect(events.emitSync).toHaveBeenCalledWith("state.snapshot", { id: "snap1" });
+      expect(events.emitSync).toHaveBeenCalledWith(
+        "state.rollback",
+        expect.objectContaining({ id: "snap1" })
+      );
+      expect(state.listSnapshots()).toContain("snap1");
+    });
+
+    it("evicts oldest snapshots using LRU semantics", () => {
+      const bus = new StateBus({ maxSnapshots: 2 });
+
+      bus.snapshot("one");
+      bus.snapshot("two");
+      bus.snapshot("three");
+
+      expect(bus.listSnapshots()).toEqual(["two", "three"]);
+
+      bus.snapshot("two");
+      expect(bus.listSnapshots()).toEqual(["three", "two"]);
+    });
+
+    it("throws when rollback snapshot does not exist", () => {
+      const bus = new StateBus();
+      expect(() => bus.rollback("missing")).toThrow("Snapshot not found");
+    });
+
+    it("deletes snapshots by id", () => {
+      const bus = new StateBus();
+      bus.snapshot("toDelete");
+      expect(bus.deleteSnapshot("toDelete")).toBe(true);
+      expect(bus.deleteSnapshot("toDelete")).toBe(false);
+    });
+  });
+
+  describe("serialization", () => {
+    it("returns deep clones from toJSON", () => {
+      state.set("context.data", { items: [1, 2, 3] });
+
+      const data = state.toJSON();
+      data.context.data.items.push(4);
+
+      expect(state.get("context.data.items")).toEqual([1, 2, 3]);
+    });
+
+    it("imports state via fromJSON and emits events", () => {
+      const data = {
+        meta: { status: "imported", updatedAt: 123 },
+        input: { value: "x" },
       };
 
-      state.subscribe('legacy', legacy);
-      state.set('legacy', 'new');
+      state.fromJSON(data);
 
-      expect(calls.length).toBe(1);
-      expect(calls[0].path).toBe('legacy');
-      expect(calls[0].oldValue).toBe('old');
-      expect(calls[0].newValue).toBe('new');
+      expect(state.get("meta.status")).toBe("imported");
+      expect(state.get("input.value")).toBe("x");
+
+      data.input.value = "mutated";
+      expect(state.get("input.value")).toBe("x");
+
+      expect(events.emitSync).toHaveBeenCalledWith(
+        "state.imported",
+        expect.objectContaining({ state: expect.any(Object) })
+      );
     });
 
-    it('should isolate scopes via prefix matching', () => {
-      let callCount = 0;
-      state.subscribe('runtime.*', () => { callCount += 1; });
+    it("ignores invalid data in fromJSON", () => {
+      state.set("flag", true);
 
-      state.set('runtime.tokens.input', 1);
-      state.set('runtime', { iteration: 1 });
-      state.set('runtimeX.tokens.input', 2);
-
-      expect(callCount).toBe(2);
-    });
-
-    it('should support global wildcard *', () => {
-      let callCount = 0;
-      state.subscribe('*', () => { callCount += 1; });
-
-      state.set('a.b', 1);
-      state.set('c', 2);
-
-      expect(callCount).toBe(2);
-    });
-
-    it('should support wildcard matching within a pattern', () => {
-      const calls = [];
-      state.subscribe('plugins.*.enabled', (change) => { calls.push(change.path); });
-
-      state.set('plugins.alpha.enabled', true);
-      state.set('plugins.alpha.disabled', true);
-      state.set('plugins.alpha.beta.enabled', true);
-
-      expect(calls.length).toBe(1);
-      expect(calls[0]).toBe('plugins.alpha.enabled');
-    });
-
-    it('should continue notifying other subscribers when one throws', () => {
-      const originalError = console.error;
-      let errorCalls = 0;
-      console.error = () => { errorCalls += 1; };
-
-      let okCalls = 0;
-      state.subscribe('boom', () => { throw new Error('subscriber failed'); });
-      state.subscribe('boom', () => { okCalls += 1; });
-
-      state.set('boom', 1);
-
-      console.error = originalError;
-
-      expect(okCalls).toBe(1);
-      expect(errorCalls).toBe(1);
-    });
-
-    it('should support single-character wildcard ?', () => {
-      const calls = [];
-      state.subscribe('item.a?', (change) => { calls.push(change.path); });
-
-      state.set('item.a1', 1);
-      state.set('item.ab', 2);
-      state.set('item.abc', 3); // should not match
-      state.set('item.a', 4);   // should not match
-
-      expect(calls.length).toBe(2);
-      expect(calls).toContain('item.a1');
-      expect(calls).toContain('item.ab');
-    });
-
-    it('should match prefix itself when pattern ends with .*', () => {
-      let callCount = 0;
-      state.subscribe('config.*', () => { callCount += 1; });
-
-      state.set('config', { key: 'value' });
-
-      expect(callCount).toBe(1);
-    });
-  });
-
-  describe('change log', () => {
-    it('should keep change log when enabled', () => {
-      state.set('a', 1);
-      state.set('b', 2);
-      state.set('a', 3);
-
-      const log = state.getChangeLog();
-      expect(log.length).toBe(3);
-      expect(log[0].path).toBe('a');
-      expect(log[2].path).toBe('a');
-    });
-
-    it('should respect maxLog trimming', () => {
-      const limited = new StateBus({ events, keepLog: true, maxLog: 2 });
-      limited.set('a', 1);
-      limited.set('b', 2);
-      limited.set('c', 3);
-
-      const log = limited.getChangeLog();
-      expect(log.length).toBe(2);
-      expect(log[0].path).toBe('b');
-      expect(log[1].path).toBe('c');
-    });
-
-    it('should return last N changes', () => {
-      state.set('a', 1);
-      state.set('b', 2);
-      state.set('c', 3);
-
-      const log = state.getChangeLog(2);
-      expect(log.length).toBe(2);
-      expect(log[0].path).toBe('b');
-      expect(log[1].path).toBe('c');
-    });
-
-    it('should return empty log when disabled', () => {
-      const noLogState = new StateBus({ events, keepLog: false });
-      noLogState.set('a', 1);
-      expect(noLogState.getChangeLog()).toEqual([]);
-    });
-
-    it('should include timestamp in change record', () => {
-      state.set('timed', 1);
-      const log = state.getChangeLog();
-      expect(typeof log[0].timestamp).toBe('number');
-      expect(log[0].timestamp).toBeGreaterThan(0);
-    });
-
-    it('should include meta when provided', () => {
-      state.set('withMeta', 1, { source: 'test' });
-      const log = state.getChangeLog();
-      expect(log[0].meta.source).toBe('test');
-    });
-
-    it('should not include meta when empty', () => {
-      state.set('noMeta', 1);
-      const log = state.getChangeLog();
-      expect(log[0].meta).toBe(undefined);
-    });
-  });
-
-  describe('toJSON', () => {
-    it('should export state as JSON', () => {
-      state.set('user.name', 'Alice');
-      state.set('user.age', 25);
-      state.set('config.theme', 'dark');
-
-      const json = state.toJSON();
-
-      expect(json.user).toEqual({ name: 'Alice', age: 25 });
-      expect(json.config).toEqual({ theme: 'dark' });
-    });
-
-    it('should export a deep clone (mutating export does not affect state)', () => {
-      state.set('user', { name: 'Alice', nested: { a: 1 } });
-
-      const json = state.toJSON();
-      json.user.name = 'Bob';
-      json.user.nested.a = 2;
-
-      expect(state.get('user.name')).toBe('Alice');
-      expect(state.get('user.nested.a')).toBe(1);
-    });
-  });
-
-  describe('fromJSON', () => {
-    it('should import state via fromJSON and deep clone', () => {
-      const imported = { meta: { updatedAt: 1 }, nested: { a: 1 } };
-      let emitted = false;
-      events.on('state.imported', () => { emitted = true; });
-
-      state.fromJSON(imported);
-      expect(state.get('nested.a')).toBe(1);
-
-      imported.nested.a = 2;
-      expect(state.get('nested.a')).toBe(1);
-      expect(emitted).toBe(true);
-    });
-
-    it('should ignore non-object imports', () => {
-      let emitted = false;
-      events.on('state.imported', () => { emitted = true; });
-
-      state.set('value', 1);
-      state.fromJSON(null);
-
-      expect(state.get('value')).toBe(1);
-      expect(emitted).toBe(false);
-    });
-
-    it('should ignore undefined imports', () => {
-      state.set('value', 1);
-      state.fromJSON(undefined);
-      expect(state.get('value')).toBe(1);
-    });
-  });
-
-  describe('deepClone fallback', () => {
-    it('should fall back to JSON clone when structuredClone throws', () => {
-      const originalClone = globalThis.structuredClone;
-      globalThis.structuredClone = () => { throw new Error('DataCloneError'); };
-
-      try {
-        state.set('when', new Date('2020-01-01T00:00:00.000Z'));
-        const json = state.toJSON();
-        expect(json.when).toBe('2020-01-01T00:00:00.000Z');
-      } finally {
-        globalThis.structuredClone = originalClone;
+      const invalids = [null, undefined, 0, -1, "text"];
+      for (const value of invalids) {
+        state.fromJSON(value);
       }
+
+      expect(state.get("flag")).toBe(true);
     });
 
-    it('should fall back to JSON clone when structuredClone is missing', () => {
-      const originalClone = globalThis.structuredClone;
-      globalThis.structuredClone = undefined;
+    it("resets to defaults and emits reset events", () => {
+      state.set("meta.status", "running");
+      state.set("runtime.iteration", 5);
 
-      try {
-        state.set('when', new Date('2020-01-01T00:00:00.000Z'));
-        const json = state.toJSON();
-        expect(json.when).toBe('2020-01-01T00:00:00.000Z');
-      } finally {
-        globalThis.structuredClone = originalClone;
-      }
-    });
-  });
-
-  describe('snapshot/rollback', () => {
-    it('should generate snapshot id when not provided', () => {
-      const id = state.snapshot();
-      expect(id).toMatch(/^snap_/);
-      expect(state.listSnapshots()).toContain(id);
-    });
-
-    it('should snapshot and rollback state', () => {
-      const changes = [];
-      state.subscribe('*', (change) => changes.push(change));
-
-      state.set('value', 1);
-      const snapId = state.snapshot('mySnap');
-      expect(snapId).toBe('mySnap');
-      expect(state.listSnapshots()).toEqual(['mySnap']);
-
-      state.set('value', 2);
-      expect(state.get('value')).toBe(2);
-
-      const ok = state.rollback('mySnap');
-      expect(ok).toBe(true);
-      expect(state.get('value')).toBe(1);
-
-      const rollbackChange = changes.find(c => c.meta?.rollback);
-      expect(rollbackChange.path).toBe('*');
-    });
-
-    it('should throw when rolling back missing snapshot', () => {
-      expect(() => state.rollback('missing')).toThrow(/snapshot not found/i);
-    });
-
-    it('should delete snapshot', () => {
-      state.snapshot('toDelete');
-      expect(state.deleteSnapshot('toDelete')).toBe(true);
-      expect(state.deleteSnapshot('toDelete')).toBe(false);
-    });
-
-    it('should evict oldest snapshots when maxSnapshots exceeded (LRU)', () => {
-      const limitedState = new StateBus({ maxSnapshots: 3 });
-
-      limitedState.set('v', 1);
-      limitedState.snapshot('snap1');
-      limitedState.set('v', 2);
-      limitedState.snapshot('snap2');
-      limitedState.set('v', 3);
-      limitedState.snapshot('snap3');
-
-      expect(limitedState.listSnapshots()).toEqual(['snap1', 'snap2', 'snap3']);
-
-      // Adding 4th should evict oldest (snap1)
-      limitedState.set('v', 4);
-      limitedState.snapshot('snap4');
-
-      expect(limitedState.listSnapshots()).toEqual(['snap2', 'snap3', 'snap4']);
-      expect(limitedState.listSnapshots().includes('snap1')).toBe(false);
-
-      // Reusing existing id should not evict (updates in place)
-      limitedState.set('v', 5);
-      limitedState.snapshot('snap2');
-      expect(limitedState.listSnapshots()).toEqual(['snap3', 'snap4', 'snap2']); // snap2 moved to end
-    });
-
-    it('should emit state.snapshot event', () => {
-      let emitted = null;
-      events.on('state.snapshot', (e) => { emitted = e.payload; });
-      state.snapshot('testSnap');
-      expect(emitted.id).toBe('testSnap');
-    });
-
-    it('should emit state.rollback event', () => {
-      state.set('value', 1);
-      state.snapshot('rollbackTest');
-      state.set('value', 2);
-
-      let emitted = null;
-      events.on('state.rollback', (e) => { emitted = e.payload; });
-      state.rollback('rollbackTest');
-
-      expect(emitted.id).toBe('rollbackTest');
-      expect(emitted.oldState).toBeDefined();
-    });
-
-    it('should deep clone snapshot data', () => {
-      state.set('nested', { a: 1 });
-      state.snapshot('cloneTest');
-      state.set('nested.a', 2);
-
-      state.rollback('cloneTest');
-      expect(state.get('nested.a')).toBe(1);
-    });
-  });
-
-  describe('reset', () => {
-    it('should reset state to defaults', () => {
-      let emitted = false;
-      events.on('state.reset', () => { emitted = true; });
-
-      state.set('user.name', 'Alice');
       state.reset();
 
-      expect(state.get('user')).toBe(undefined);
-      expect(state.get('runtime.iteration')).toBe(0);
-      expect(emitted).toBe(true);
-    });
-
-    it('should preserve default structure after reset', () => {
-      state.reset();
-      const root = state.get();
-      expect(root.meta).toBeDefined();
-      expect(root.runtime).toBeDefined();
-      expect(root.input).toBeDefined();
-      expect(root.context).toBeDefined();
-      expect(root.stages).toBeDefined();
-      expect(root.plugins).toBeDefined();
+      expect(state.get("meta.status")).toBe("idle");
+      expect(state.get("runtime.iteration")).toBe(0);
+      expect(state.get("meta.updatedAt")).toBeNull();
+      expect(events.emitSync).toHaveBeenCalledWith(
+        "state.reset",
+        expect.objectContaining({ oldState: expect.any(Object) })
+      );
     });
   });
 
-  describe('without EventBus', () => {
-    it('should work without EventBus', () => {
-      const noEvents = new StateBus({ keepLog: true });
-      noEvents.set('value', 1);
-      expect(noEvents.get('value')).toBe(1);
+  describe("change log", () => {
+    it("records changes and enforces maxLog", () => {
+      const bus = new StateBus({ keepLog: true, maxLog: 2 });
+      bus.set("a", 1);
+      bus.set("b", 2);
+      bus.set("c", 3);
+
+      const log = bus.getChangeLog();
+      expect(log).toHaveLength(2);
+      expect(log[0].path).toBe("b");
+      expect(log[1].path).toBe("c");
     });
 
-    it('should not throw when emitting without EventBus', () => {
-      expect(() => {
-        const noEvents = new StateBus();
-        noEvents.set('value', 1);
-        noEvents.snapshot('test');
-        noEvents.rollback('test');
-        noEvents.reset();
-      }).not.toThrow();
-    });
-  });
-
-  describe('integration with EventBus', () => {
-    it('should emit state.changed event', () => {
-      let received = null;
-      events.on('state.changed', (e) => { received = e.payload; });
-
-      state.set('tracked', 'value');
-
-      expect(received.path).toBe('tracked');
-      expect(received.newValue).toBe('value');
-    });
-
-    it('should emit legacy alias state.change with meta spread', () => {
-      let received = null;
-      events.on('state.change', (e) => { received = e.payload; });
-
-      state.set('tracked', 'value', { source: 'test' });
-
-      expect(received.path).toBe('tracked');
-      expect(received.source).toBe('test');
-    });
-
-    it('should emit state.change even when meta is not provided', () => {
-      let received = null;
-      events.on('state.change', (e) => { received = e.payload; });
-
-      state._notifyChange('manual', 1, 0);
-
-      expect(received).toEqual({
-        path: 'manual',
-        newValue: 1,
-        oldValue: 0,
-      });
-    });
-  });
-
-  describe('path matching edge cases', () => {
-    it('should not match different segment counts', () => {
-      let callCount = 0;
-      state.subscribe('a.*.c', () => { callCount += 1; });
-
-      state.set('a.b.c', 1);     // 3 segments - matches
-      state.set('a.b.c.d', 2);   // 4 segments - no match
-      state.set('a.c', 3);       // 2 segments - no match
-
-      expect(callCount).toBe(1);
-    });
-
-    it('should match complex wildcards in prefix', () => {
-      let callCount = 0;
-      state.subscribe('a.b*.*', () => { callCount += 1; });
-
-      state.set('a.bx.c', 1);
-      state.set('a.by.d.e', 2);  // 4 segments, prefix matches 2 segments
-
-      expect(callCount).toBe(2);
-    });
-
-    it('should handle patterns without wildcards', () => {
-      let callCount = 0;
-      state.subscribe('exact.path', () => { callCount += 1; });
-
-      state.set('exact.path', 1);
-      state.set('exact.path.nested', 2);
-      state.set('exact', 3);
-
-      expect(callCount).toBe(1);
-    });
-
-    it('should handle asterisk in middle segment', () => {
-      let callCount = 0;
-      state.subscribe('a.*.c', () => { callCount += 1; });
-
-      state.set('a.x.c', 1);
-      state.set('a.y.c', 2);
-      state.set('a.z.d', 3);
-
-      expect(callCount).toBe(2);
-    });
-  });
-
-  describe('constructor options', () => {
-    it('should use default maxSnapshots when not provided', () => {
+    it("returns empty log when keepLog is false", () => {
       const bus = new StateBus();
-      // Create more than default (50) snapshots
-      for (let i = 0; i < 55; i++) {
-        bus.snapshot(`snap${i}`);
-      }
-      expect(bus.listSnapshots().length).toBe(50);
+      bus.set("a", 1);
+      expect(bus.getChangeLog()).toEqual([]);
     });
 
-    it('should use default maxLog when not provided', () => {
+    it("includes meta only when provided", () => {
       const bus = new StateBus({ keepLog: true });
-      // Default maxLog is 500
-      for (let i = 0; i < 510; i++) {
-        bus.set('counter', i);
+      bus.set("a", 1);
+      bus.set("b", 2, { source: "test" });
+
+      const log = bus.getChangeLog(2);
+      expect(log[0].meta).toBeUndefined();
+      expect(log[1].meta).toEqual({ source: "test" });
+    });
+  });
+
+  describe("boundaries", () => {
+    it("handles rapid consecutive updates on the same path", () => {
+      const bus = new StateBus({ keepLog: true, maxLog: 3 });
+
+      for (let i = 0; i < 10; i += 1) {
+        bus.set("counter", i);
       }
-      expect(bus.getChangeLog(1000).length).toBe(500);
+
+      expect(bus.get("counter")).toBe(9);
+      expect(bus.getChangeLog()).toHaveLength(3);
+    });
+
+    it("handles concurrent updates to multiple paths", async () => {
+      const bus = new StateBus();
+
+      const updates = Array.from({ length: 25 }, (_, i) =>
+        Promise.resolve().then(() => bus.set(`bulk.${i}`, i))
+      );
+
+      await Promise.all(updates);
+
+      for (let i = 0; i < 25; i += 1) {
+        expect(bus.get(`bulk.${i}`)).toBe(i);
+      }
+    });
+
+    it("handles large data, long strings, and deep nesting", () => {
+      const bus = new StateBus();
+      const hugeString = "x".repeat(1_000_000);
+      const longString = "y".repeat(10_000);
+      const deepPath = Array.from({ length: 60 }, (_, i) => `lvl${i}`).join(".");
+
+      bus.set("files.large", hugeString);
+      bus.set("text.long", longString);
+      bus.set(deepPath, "deep");
+
+      expect(bus.get("files.large").length).toBe(1_000_000);
+      expect(bus.get("text.long")).toBe(longString);
+      expect(bus.get(deepPath)).toBe("deep");
+    });
+  });
+
+  describe("events integration", () => {
+    it("works without an EventBus", () => {
+      const bus = new StateBus();
+
+      expect(() => {
+        bus.set("value", 1);
+        bus.snapshot("no-events");
+        bus.reset();
+      }).not.toThrow();
     });
   });
 });

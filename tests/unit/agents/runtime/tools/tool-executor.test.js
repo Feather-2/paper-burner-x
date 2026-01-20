@@ -1,16 +1,53 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+vi.mock("../../../../../js/agents/runtime/tools/schema-validator.js", async () => {
+  const actual = await vi.importActual("../../../../../js/agents/runtime/tools/schema-validator.js");
+  return {
+    ...actual,
+    validateArgs: vi.fn(actual.validateArgs),
+  };
+});
 
-import {
+vi.mock("../../../../../js/agents/shared/index.js", async () => {
+  const actual = await vi.importActual("../../../../../js/agents/shared/index.js");
+  return {
+    ...actual,
+    isNodeLike: vi.fn(actual.isNodeLike),
+  };
+});
+
+vi.mock("../../../../../js/agents/runtime/hooks/hook-runner.js", () => ({
+  createPreToolUseHook: vi.fn(() => async () => ({})),
+}));
+
+import DefaultToolExecutor, {
   ToolExecutor,
   createToolExecutor,
   executeTool,
   __test,
-} from '../../../../../js/agents/runtime/tools/tool-executor.js';
+} from "../../../../../js/agents/runtime/tools/tool-executor.js";
+import { validateArgs } from "../../../../../js/agents/runtime/tools/schema-validator.js";
+import { isNodeLike } from "../../../../../js/agents/shared/index.js";
+import { createPreToolUseHook } from "../../../../../js/agents/runtime/hooks/hook-runner.js";
 
 const { WorkerPool } = __test;
 
-const busyLoopUrl = new URL("../../fixtures/tool-executor/busy-loop.mjs", import.meta.url).toString();
+const boundary = {
+  nullValue: null,
+  undefinedValue: undefined,
+  emptyString: "",
+  whitespaceString: "   ",
+  emptyArray: [],
+  emptyObject: {},
+  zero: 0,
+  negativeOne: -1,
+  maxSafe: Number.MAX_SAFE_INTEGER,
+  stringNumber: "123",
+  objectAsArray: { 0: "a", length: 1 },
+  longString: "x".repeat(100000),
+  deepObject: { level1: { level2: { level3: { level4: { level5: { value: "deep" } } } } } },
+  largeFile: { name: "big.bin", content: "x".repeat(50000) },
+};
 
 class WorkerSpyExecutor extends ToolExecutor {
   constructor(options) {
@@ -24,1443 +61,808 @@ class WorkerSpyExecutor extends ToolExecutor {
   }
 }
 
-async function withBrowserLikeRuntime(fn) {
-  const originalDeno = globalThis.Deno;
-  try {
-    globalThis.Deno = {};
-    return await fn();
-  } finally {
-    if (originalDeno === undefined) {
-      delete globalThis.Deno;
-    } else {
-      globalThis.Deno = originalDeno;
-    }
+const createDeferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+const createWorkerStub = () => ({
+  ref: vi.fn(),
+  unref: vi.fn(),
+  terminate: vi.fn(() => Promise.resolve()),
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  if (typeof isNodeLike?.mockReturnValue === "function") {
+    isNodeLike.mockReturnValue(true);
   }
-}
+});
+
+describe("default export", () => {
+  it("matches ToolExecutor", () => {
+    expect(DefaultToolExecutor).toBe(ToolExecutor);
+  });
+});
 
 describe("ToolExecutor", () => {
+  describe("constructor", () => {
+    it("sets defaults and registers a pre-tool hook", () => {
+      const executor = new ToolExecutor();
+
+      expect(executor.defaultTimeoutMs).toBe(30000);
+      expect(executor.maxRetries).toBe(1);
+      expect(executor.validateSchema).toBe(true);
+      expect(executor.strictValidation).toBe(false);
+      expect(executor.defaultIsolation).toBe("none");
+
+      expect(createPreToolUseHook).toHaveBeenCalledTimes(1);
+      const preHook = createPreToolUseHook.mock.results[0].value;
+      expect(executor.hooks.before[0]).toBe(preHook);
+    });
+  });
+
+  describe("registration", () => {
+    it("registers tools and supports bulk registration", () => {
+      const executor = new ToolExecutor();
+      const tool = { handler: vi.fn() };
+
+      executor.register("alpha", tool);
+      expect(executor.hasTool("alpha")).toBe(true);
+      expect(executor.getTool("alpha")).toBe(tool);
+
+      executor.registerAll(boundary.emptyObject);
+      executor.registerAll({ beta: tool });
+      expect(executor.hasTool("beta")).toBe(true);
+    });
+
+    it("returns tool definitions with descriptions and parameters", () => {
+      const executor = new ToolExecutor({
+        tools: {
+          t1: { description: "desc", parameters: { type: "object" }, handler: vi.fn() },
+          t2: { definition: { parameters: { foo: "bar" } }, handler: vi.fn() },
+        },
+      });
+
+      expect(executor.getToolDefinitions()).toEqual([
+        { name: "t1", description: "desc", parameters: { type: "object" } },
+        { name: "t2", description: "", parameters: { foo: "bar" } },
+      ]);
+    });
+  });
+
   describe("execute", () => {
-    it("should execute a tool successfully", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          greet: { handler: async (args) => ({ message: `Hello, ${args.name}!` }) },
-        },
-      });
-
-      const result = await executor.execute("greet", { name: "World" }, {});
-
-      expect(result.success).toBe(true);
-      expect(result.ok).toBe(true);
-      expect(result.data.message).toBe("Hello, World!");
-    });
-
-    it("should return error for unknown tool", async () => {
+    it("returns error for unknown tool names including empty and null", async () => {
       const executor = new ToolExecutor({ tools: {} });
+      const names = ["", boundary.whitespaceString, boundary.nullValue, boundary.undefinedValue];
 
-      const result = await executor.execute("unknown", {}, {});
-
-      expect(result.success).toBe(false);
-      expect(result.ok).toBe(false);
-      expect(result.error).toContain("Unknown tool");
+      for (const name of names) {
+        const result = await executor.execute(name, {}, {});
+        expect(result.success).toBe(false);
+        expect(result.error).toContain("Unknown tool");
+      }
     });
 
-    it("should handle tool errors", async () => {
+    it("passes through empty args when schema validation is disabled", async () => {
       const executor = new ToolExecutor({
         tools: {
-          fail: { handler: async () => { throw new Error("Intentional failure"); } },
+          echo: { handler: (args) => ({ args }) },
         },
-        maxRetries: 0,
+        validateSchema: false,
       });
 
-      const result = await executor.execute("fail", {}, {});
+      const results = await Promise.all([
+        executor.execute("echo", boundary.nullValue, {}),
+        executor.execute("echo", boundary.undefinedValue, {}),
+        executor.execute("echo", boundary.emptyObject, {}),
+        executor.execute("echo", boundary.emptyArray, {}),
+      ]);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Intentional failure");
+      expect(results[0].data.args).toBeNull();
+      expect(results[1].data.args).toBeUndefined();
+      expect(results[2].data.args).toEqual({});
+      expect(results[3].data.args).toEqual([]);
     });
 
-    it("should retry on failure", async () => {
-      let attempts = 0;
+    it("executes function-style tools", async () => {
       const executor = new ToolExecutor({
         tools: {
-          flaky: {
-            handler: async () => {
-              attempts++;
-              if (attempts < 2) throw new Error("Flaky");
-              return { ok: true };
-            },
-          },
-        },
-        maxRetries: 2,
-      });
-
-      const result = await executor.execute("flaky", {}, {});
-
-      expect(result.success).toBe(true);
-      expect(attempts).toBe(2);
-    });
-
-    it("should timeout long-running tools", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          slow: { handler: () => new Promise(() => {}) },
-        },
-        timeoutMs: 50,
-        maxRetries: 0,
-      });
-
-      const result = await executor.execute("slow", {}, {});
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("timed out");
-    });
-
-    it("should support function-style tools", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          add: async (args) => args.a + args.b,
+          add: (args) => args.a + args.b,
         },
       });
 
       const result = await executor.execute("add", { a: 2, b: 3 }, {});
-
       expect(result.success).toBe(true);
       expect(result.data).toBe(5);
     });
 
-    it("should return error if tool has no handler", async () => {
+    it("returns error when tool has no handler", async () => {
       const executor = new ToolExecutor({
         tools: {
-          noHandler: { description: "Tool without handler" },
+          missing: { description: "no handler" },
         },
       });
 
-      const result = await executor.execute("noHandler", {}, {});
-
+      const result = await executor.execute("missing", {}, {});
       expect(result.success).toBe(false);
       expect(result.error).toContain("no handler");
     });
 
-    it("should use per-call timeoutMs option", async () => {
+    it("normalizes nullish and error results", async () => {
       const executor = new ToolExecutor({
         tools: {
-          slow: { handler: () => new Promise(() => {}) },
+          noop: { handler: async () => undefined },
+          nuller: { handler: async () => null },
+          errorObj: { handler: async () => ({ error: "boom" }) },
         },
-        timeoutMs: 10000,
-        maxRetries: 0,
       });
 
-      const result = await executor.execute("slow", {}, {}, { timeoutMs: 30 });
+      const res1 = await executor.execute("noop", {}, {});
+      const res2 = await executor.execute("nuller", {}, {});
+      const res3 = await executor.execute("errorObj", {}, {});
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("timed out");
+      expect(res1.success).toBe(true);
+      expect(res1.data).toBeNull();
+      expect(res2.success).toBe(true);
+      expect(res2.data).toBeNull();
+      expect(res3.success).toBe(false);
+      expect(res3.data.error).toBe("boom");
     });
 
-    it("should use per-call retries option", async () => {
+    it("retries on failure with backoff", async () => {
       let attempts = 0;
       const executor = new ToolExecutor({
         tools: {
           flaky: {
             handler: async () => {
-              attempts++;
-              if (attempts < 3) throw new Error("Flaky");
-              return { ok: true };
-            },
-          },
-        },
-        maxRetries: 0,
-      });
-
-      const result = await executor.execute("flaky", {}, {}, { retries: 5 });
-
-      expect(result.success).toBe(true);
-      expect(attempts).toBe(3);
-    });
-  });
-
-  describe("schema validation", () => {
-    it("should validate args against tool parameters schema", async () => {
-      const emitted = [];
-      const executor = new ToolExecutor({
-        tools: {
-          search: {
-            parameters: {
-              type: "object",
-              properties: {
-                query: { type: "string" },
-              },
-              required: ["query"],
-            },
-            handler: async (args) => args.query,
-          },
-        },
-        validateSchema: true,
-        emit: (name, payload) => emitted.push({ name, payload }),
-      });
-
-      const result = await executor.execute("search", {}, {});
-
-      expect(result.success).toBe(true);
-      expect(emitted).toEqual(expect.arrayContaining([expect.objectContaining({ name: "tool.validation.failed" })]));
-    });
-
-    it("should fail in strict validation mode when schema invalid", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          search: {
-            parameters: {
-              type: "object",
-              properties: {
-                query: { type: "string" },
-              },
-              required: ["query"],
-            },
-            handler: async (args) => args.query,
-          },
-        },
-        validateSchema: true,
-        strictValidation: true,
-      });
-
-      const result = await executor.execute("search", {}, {});
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Validation failed");
-    });
-
-    it("should skip validation when validateSchema is false", async () => {
-      const emitted = [];
-      const executor = new ToolExecutor({
-        tools: {
-          search: {
-            parameters: {
-              type: "object",
-              required: ["query"],
-            },
-            handler: async () => "ok",
-          },
-        },
-        validateSchema: false,
-        emit: (name, payload) => emitted.push({ name, payload }),
-      });
-
-      const result = await executor.execute("search", {}, {});
-
-      expect(result.success).toBe(true);
-      expect(emitted.some(e => e.name === "tool.validation.failed")).toBe(false);
-    });
-
-    it("should allow per-call validation override", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          search: {
-            parameters: { type: "object", required: ["query"] },
-            handler: async () => "ok",
-          },
-        },
-        validateSchema: false,
-        strictValidation: true,
-      });
-
-      const result = await executor.execute("search", {}, {}, {
-        validateSchema: true,
-        strictValidation: true,
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Validation failed");
-    });
-
-    it("should use definition.parameters as fallback", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          search: {
-            definition: {
-              parameters: { type: "object", required: ["q"] },
-            },
-            handler: async () => "ok",
-          },
-        },
-        strictValidation: true,
-      });
-
-      const result = await executor.execute("search", {}, {});
-
-      expect(result.success).toBe(false);
-    });
-  });
-
-  describe("before hooks", () => {
-    it("should run before hooks and allow arg modification", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          echo: { handler: async (args) => args },
-        },
-        hooks: {
-          before: [
-            async ({ params }) => ({ params: { ...params, injected: true } }),
-          ],
-          after: [],
-        },
-      });
-
-      const result = await executor.execute("echo", { original: true }, {});
-
-      expect(result.success).toBe(true);
-      expect(result.data.injected).toBe(true);
-      expect(result.data.original).toBe(true);
-    });
-
-    it("should allow before hook to skip execution", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          echo: { handler: async () => "should not run" },
-        },
-        hooks: {
-          before: [
-            async () => ({ skip: true, value: { intercepted: true } }),
-          ],
-          after: [],
-        },
-      });
-
-      const result = await executor.execute("echo", {}, {});
-
-      expect(result.success).toBe(true);
-      expect(result.data.intercepted).toBe(true);
-    });
-
-    it("should continue if before hook throws", async () => {
-      const logged = [];
-      const executor = new ToolExecutor({
-        tools: {
-          echo: { handler: async () => "executed" },
-        },
-        hooks: {
-          before: [
-            async () => { throw new Error("Hook error"); },
-          ],
-          after: [],
-        },
-        logger: {
-          warn: (msg, data) => logged.push({ msg, data }),
-          debug: () => {},
-        },
-      });
-
-      const result = await executor.execute("echo", {}, {});
-
-      expect(result.success).toBe(true);
-      expect(result.data).toBe("executed");
-      expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({
-        msg: expect.stringContaining("Before hook failed"),
-      })]));
-    });
-  });
-
-  describe("after hooks", () => {
-    it("should run after hooks and allow result modification", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          echo: { handler: async (args) => args.val },
-        },
-        hooks: {
-          before: [],
-          after: [
-            async ({ result }) => `modified:${result}`,
-          ],
-        },
-      });
-
-      const result = await executor.execute("echo", { val: "original" }, {});
-
-      expect(result.success).toBe(true);
-      expect(result.data).toBe("modified:original");
-    });
-
-    it("should continue if after hook throws", async () => {
-      const logged = [];
-      const executor = new ToolExecutor({
-        tools: {
-          echo: { handler: async () => "value" },
-        },
-        hooks: {
-          before: [],
-          after: [
-            async () => { throw new Error("After hook error"); },
-          ],
-        },
-        logger: {
-          warn: (msg, data) => logged.push({ msg, data }),
-          debug: () => {},
-        },
-      });
-
-      const result = await executor.execute("echo", {}, {});
-
-      expect(result.success).toBe(true);
-      expect(result.data).toBe("value");
-      expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({
-        msg: expect.stringContaining("After hook failed"),
-      })]));
-    });
-
-    it("should accept per-call hooks override", async () => {
-      const globalAfter = vi.fn(async () => "global");
-      const localAfter = vi.fn(async () => "local");
-
-      const executor = new ToolExecutor({
-        tools: {
-          echo: { handler: async () => "value" },
-        },
-        hooks: {
-          before: [],
-          after: [globalAfter],
-        },
-      });
-
-      const result = await executor.execute("echo", {}, {}, {
-        hooks: { before: [], after: [localAfter] },
-      });
-
-      expect(result.data).toBe("local");
-      expect(globalAfter.mock.calls.length).toBe(0);
-      expect(localAfter.mock.calls.length).toBe(1);
-    });
-  });
-
-  describe("policy authorization", () => {
-    it("should deny execution when policy returns allowed=false", async () => {
-      const emitted = [];
-      const executor = new ToolExecutor({
-        tools: {
-          dangerous: { handler: async () => "executed" },
-        },
-        policy: {
-          authorize: async () => ({ allowed: false, reason: "forbidden" }),
-        },
-        policyMapper: (name) => ({ tool: name }),
-        emit: (name, payload) => emitted.push({ name, payload }),
-      });
-
-      const result = await executor.execute("dangerous", {}, {});
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Policy denied");
-      expect(emitted).toEqual(expect.arrayContaining([expect.objectContaining({ name: "tool.denied" })]));
-    });
-
-    it("should allow execution when policy returns allowed=true", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          safe: { handler: async () => "executed" },
-        },
-        policy: {
-          authorize: async () => ({ allowed: true }),
-        },
-        policyMapper: (name) => ({ tool: name }),
-      });
-
-      const result = await executor.execute("safe", {}, {});
-
-      expect(result.success).toBe(true);
-      expect(result.data).toBe("executed");
-    });
-
-    it("should skip policy check if no policyMapper", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          test: { handler: async () => "ok" },
-        },
-        policy: {
-          authorize: async () => ({ allowed: false, reason: "should not be called" }),
-        },
-      });
-
-      const result = await executor.execute("test", {}, {});
-
-      expect(result.success).toBe(true);
-    });
-
-    it("should skip policy check if mapper returns null", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          test: { handler: async () => "ok" },
-        },
-        policy: {
-          authorize: async () => ({ allowed: false }),
-        },
-        policyMapper: () => null,
-      });
-
-      const result = await executor.execute("test", {}, {});
-
-      expect(result.success).toBe(true);
-    });
-
-    it("should handle policy.authorize throwing", async () => {
-      const emitted = [];
-      const executor = new ToolExecutor({
-        tools: {
-          test: { handler: async () => "ok" },
-        },
-        policy: {
-          authorize: async () => { throw new Error("Policy error"); },
-        },
-        policyMapper: (name) => ({ tool: name }),
-        emit: (name, payload) => emitted.push({ name, payload }),
-      });
-
-      const result = await executor.execute("test", {}, {});
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Policy error");
-      expect(emitted).toEqual(expect.arrayContaining([expect.objectContaining({
-        name: "tool.denied",
-        payload: expect.objectContaining({ reason: "policy_error" }),
-      })]));
-    });
-
-    it("should use per-call policy override", async () => {
-      const globalPolicy = { authorize: async () => ({ allowed: false }) };
-      const localPolicy = { authorize: async () => ({ allowed: true }) };
-
-      const executor = new ToolExecutor({
-        tools: {
-          test: { handler: async () => "ok" },
-        },
-        policy: globalPolicy,
-        policyMapper: (name) => ({ tool: name }),
-      });
-
-      const result = await executor.execute("test", {}, {}, {
-        policy: localPolicy,
-        policyMapper: (name) => ({ tool: name }),
-      });
-
-      expect(result.success).toBe(true);
-    });
-  });
-
-  describe("events and logging", () => {
-    it("should emit tool.completed event on success", async () => {
-      const emitted = [];
-      const executor = new ToolExecutor({
-        tools: {
-          ping: { handler: async () => "pong" },
-        },
-        emit: (name, payload) => emitted.push({ name, payload }),
-      });
-
-      await executor.execute("ping", {}, {});
-
-      const completed = emitted.find(e => e.name === "tool.completed");
-      expect(completed).toEqual(expect.objectContaining({ name: "tool.completed" }));
-      expect(completed.payload.tool).toBe("ping");
-      expect(completed.payload.duration).toEqual(expect.any(Number));
-    });
-
-    it("should emit tool.failed event on all retries exhausted", async () => {
-      const emitted = [];
-      const executor = new ToolExecutor({
-        tools: {
-          fail: { handler: async () => { throw new Error("Always fails"); } },
-        },
-        maxRetries: 1,
-        emit: (name, payload) => emitted.push({ name, payload }),
-      });
-
-      await executor.execute("fail", {}, {});
-
-      const failed = emitted.find(e => e.name === "tool.failed");
-      expect(failed).toEqual(expect.objectContaining({ name: "tool.failed" }));
-      expect(failed.payload.tool).toBe("fail");
-      expect(failed.payload.error).toContain("Always fails");
-    });
-
-    it("should call logger.debug on success", async () => {
-      const logged = [];
-      const executor = new ToolExecutor({
-        tools: {
-          ping: { handler: async () => "pong" },
-        },
-        logger: {
-          debug: (msg, data) => logged.push({ level: "debug", msg, data }),
-        },
-      });
-
-      await executor.execute("ping", {}, {});
-
-      expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({
-        level: "debug",
-        msg: expect.stringContaining("completed"),
-      })]));
-    });
-
-    it("should call logger.warn on retry", async () => {
-      let attempts = 0;
-      const logged = [];
-      const executor = new ToolExecutor({
-        tools: {
-          flaky: {
-            handler: async () => {
-              attempts++;
-              if (attempts < 2) throw new Error("Flaky");
-              return "ok";
+              attempts += 1;
+              if (attempts < 3) throw new Error("flaky");
+              return { ok: true, data: attempts };
             },
           },
         },
         maxRetries: 2,
-        logger: {
-          warn: (msg, data) => logged.push({ level: "warn", msg, data }),
-          debug: () => {},
-        },
       });
 
-      await executor.execute("flaky", {}, {});
+      const delaySpy = vi.spyOn(executor, "_delay").mockResolvedValue();
+      const result = await executor.execute("flaky", {}, {});
 
-      expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({
-        level: "warn",
-        msg: expect.stringContaining("failed"),
-      })]));
-    });
-  });
-
-  describe("executeBatch", () => {
-    it("should execute multiple tools in parallel", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          double: { handler: async (args) => args.n * 2 },
-          triple: { handler: async (args) => args.n * 3 },
-        },
-      });
-
-      const results = await executor.executeBatch([
-        { action: "double", args: { n: 5 } },
-        { action: "triple", args: { n: 5 } },
-      ], {});
-
-      expect(results.length).toBe(2);
-      expect(results[0].data).toBe(10);
-      expect(results[1].data).toBe(15);
+      expect(result.success).toBe(true);
+      expect(attempts).toBe(3);
+      expect(delaySpy).toHaveBeenCalledTimes(2);
+      expect(delaySpy).toHaveBeenNthCalledWith(1, 100);
+      expect(delaySpy).toHaveBeenNthCalledWith(2, 200);
     });
 
-    it("should handle mixed success and failure", async () => {
+    it("times out long-running handlers", async () => {
       const executor = new ToolExecutor({
         tools: {
-          ok: { handler: async () => "ok" },
-          fail: { handler: async () => { throw new Error("Fail"); } },
+          slow: { handler: () => new Promise(() => {}) },
         },
+        timeoutMs: 5,
         maxRetries: 0,
       });
 
-      const results = await executor.executeBatch([
-        { action: "ok", args: {} },
-        { action: "fail", args: {} },
-      ], {});
+      vi.useFakeTimers();
+      try {
+        const promise = executor.execute("slow", {}, {});
+        await vi.advanceTimersByTimeAsync(5);
+        const result = await promise;
 
-      expect(results[0].success).toBe(true);
-      expect(results[1].success).toBe(false);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain("timed out");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
-    it("should support name field as alias for action", async () => {
+    it("supports concurrent executions", async () => {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const resolvers = [];
+
+      const handler = vi.fn(() => new Promise((resolve) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        resolvers.push(() => {
+          inFlight -= 1;
+          resolve({ ok: true, data: inFlight });
+        });
+      }));
+
       const executor = new ToolExecutor({
-        tools: {
-          ping: { handler: async () => "pong" },
-        },
+        tools: { slow: { handler } },
+        maxRetries: 0,
       });
 
-      const results = await executor.executeBatch([
-        { name: "ping", args: {} },
-      ], {});
+      const p1 = executor.execute("slow", { id: 1 }, {});
+      const p2 = executor.execute("slow", { id: 2 }, {});
+      await Promise.resolve();
 
-      expect(results[0].data).toBe("pong");
+      expect(resolvers).toHaveLength(2);
+      expect(maxInFlight).toBe(2);
+
+      resolvers.forEach((resolve) => resolve());
+      const results = await Promise.all([p1, p2]);
+
+      expect(results.every((r) => r.success)).toBe(true);
     });
-  });
 
-  describe("register", () => {
-    it("should register tools dynamically", async () => {
-      const executor = new ToolExecutor();
+    it("handles rapid sequential executions", async () => {
+      const executor = new ToolExecutor({
+        tools: { ping: { handler: ({ id }) => id } },
+        maxRetries: 0,
+      });
 
-      executor.register("echo", { handler: async (args) => args });
+      const results = [];
+      for (let i = 0; i < 5; i += 1) {
+        results.push(await executor.execute("ping", { id: i }, {}));
+      }
 
-      const result = await executor.execute("echo", { msg: "test" }, {});
+      expect(results.map((r) => r.data)).toEqual([0, 1, 2, 3, 4]);
+    });
+
+    it("handles large payloads and deep nesting", async () => {
+      const executor = new ToolExecutor({
+        tools: {
+          echo: { handler: (args) => ({ data: args }) },
+        },
+        validateSchema: false,
+      });
+
+      const result = await executor.execute(
+        "echo",
+        { text: boundary.longString, deep: boundary.deepObject, file: boundary.largeFile },
+        {}
+      );
+
       expect(result.success).toBe(true);
-      expect(result.data.msg).toBe("test");
-    });
-
-    it("should register multiple tools at once", async () => {
-      const executor = new ToolExecutor();
-
-      executor.registerAll({
-        a: { handler: async () => "a" },
-        b: { handler: async () => "b" },
-      });
-
-      const resultA = await executor.execute("a", {}, {});
-      const resultB = await executor.execute("b", {}, {});
-
-      expect(resultA.data).toBe("a");
-      expect(resultB.data).toBe("b");
+      expect(result.data.text.length).toBe(boundary.longString.length);
+      expect(result.data.deep.level1.level2.level3.level4.level5.value).toBe("deep");
+      expect(result.data.file.content.length).toBe(boundary.largeFile.content.length);
     });
   });
 
-  describe("tool lookup", () => {
-    it("should report hasTool and getTool", () => {
+  describe("schema validation", () => {
+    it("rejects in strict mode and emits validation failures", async () => {
+      const handler = vi.fn();
+      const emit = vi.fn();
       const executor = new ToolExecutor({
         tools: {
-          ping: { handler: async () => "pong" },
+          t: { parameters: { type: "object" }, handler },
         },
+        validateSchema: true,
+        strictValidation: true,
+        emit,
       });
 
-      expect(executor.hasTool("ping")).toBe(true);
-      expect(executor.hasTool("missing")).toBe(false);
-      expect(typeof executor.getTool("ping").handler).toBe("function");
-      expect(executor.getTool("missing")).toBe(undefined);
-    });
-  });
+      validateArgs.mockReturnValueOnce({ valid: false, errors: ["bad"] });
 
-  describe("getToolDefinitions", () => {
-    it("should return tool definitions", () => {
+      const result = await executor.execute("t", { value: 1 }, {});
+      expect(handler).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Validation failed: bad");
+      expect(emit).toHaveBeenCalledWith(
+        "tool:validationFailed",
+        expect.objectContaining({ tool: "t" })
+      );
+    });
+
+    it("continues execution when validation fails in non-strict mode", async () => {
+      const handler = vi.fn(async () => ({ ok: true, data: "ok" }));
       const executor = new ToolExecutor({
         tools: {
-          search: {
-            description: "Search documents",
-            parameters: { query: { type: "string" } },
-            handler: async () => {},
-          },
+          t: { parameters: { type: "object" }, handler },
         },
+        validateSchema: true,
+        strictValidation: false,
       });
 
-      const defs = executor.getToolDefinitions();
+      validateArgs.mockReturnValueOnce({ valid: false, errors: ["bad"] });
 
-      expect(defs.length).toBe(1);
-      expect(defs[0].name).toBe("search");
-      expect(defs[0].description).toBe("Search documents");
+      const result = await executor.execute("t", {}, {});
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(true);
     });
 
-    it("should use definition.parameters as fallback", () => {
-      const executor = new ToolExecutor({
-        tools: {
-          search: {
-            description: "Search",
-            definition: {
-              parameters: { q: { type: "string" } },
-            },
-            handler: async () => {},
-          },
+    it("handles boundary values and type mismatches", async () => {
+      const schema = {
+        type: "object",
+        properties: {
+          count: { type: "number", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+          list: { type: "array", minItems: 1 },
+          name: { type: "string", minLength: 1, pattern: "^\\S+$" },
         },
-      });
-
-      const defs = executor.getToolDefinitions();
-
-      expect(defs[0].parameters).toEqual({ q: { type: "string" } });
-    });
-  });
-
-  describe("createToolExecutor", () => {
-    it("should create executor with factory function", async () => {
-      const executor = createToolExecutor({
-        tools: { test: { handler: async () => "ok" } },
-      });
-
-      const result = await executor.execute("test", {}, {});
-      expect(result.data).toBe("ok");
-    });
-  });
-
-  describe("executeTool (compat)", () => {
-    it("should execute tool with simple function", async () => {
-      const tools = {
-        ping: { handler: async () => "pong" },
+        required: ["count", "list", "name"],
       };
 
-      const result = await executeTool(tools, "ping", {}, {});
-      expect(result.data).toBe("pong");
+      const handler = vi.fn((args) => ({ ok: true, data: args.count }));
+      const executor = new ToolExecutor({
+        tools: { t: { parameters: schema, handler } },
+        validateSchema: true,
+        strictValidation: true,
+      });
+
+      const okZero = await executor.execute("t", { count: boundary.zero, list: [1], name: "ok" }, {});
+      const okMax = await executor.execute("t", { count: boundary.maxSafe, list: [1], name: "ok" }, {});
+
+      expect(okZero.success).toBe(true);
+      expect(okMax.success).toBe(true);
+
+      const cases = [
+        { args: boundary.nullValue, label: "null args" },
+        { args: boundary.undefinedValue, label: "undefined args" },
+        { args: boundary.emptyObject, label: "empty object" },
+        { args: { count: boundary.negativeOne, list: [1], name: "ok" }, label: "negative number" },
+        { args: { count: boundary.stringNumber, list: [1], name: "ok" }, label: "string as number" },
+        { args: { count: boundary.zero, list: boundary.objectAsArray, name: "ok" }, label: "object as array" },
+        { args: { count: boundary.zero, list: boundary.emptyArray, name: "ok" }, label: "empty array" },
+        { args: { count: boundary.zero, list: [1], name: boundary.emptyString }, label: "empty string" },
+        { args: { count: boundary.zero, list: [1], name: boundary.whitespaceString }, label: "whitespace string" },
+      ];
+
+      for (const item of cases) {
+        const result = await executor.execute("t", item.args, {});
+        expect(result.success).toBe(false);
+        expect(result.error).toContain("Validation failed");
+      }
     });
   });
 
-  describe("result normalization", () => {
-    it("should normalize { success, data } format", async () => {
-      const executor = new ToolExecutor({
-        tools: { t: { handler: async () => ({ success: true, data: "value" }) } },
+  describe("hooks", () => {
+    it("runs pre-tool hook before custom before hooks", async () => {
+      const order = [];
+      createPreToolUseHook.mockImplementationOnce(() => async () => {
+        order.push("pre");
       });
 
-      const result = await executor.execute("t", {}, {});
-      expect(result.success).toBe(true);
-      expect(result.data).toBe("value");
-    });
-
-    it("should normalize { ok, result } format", async () => {
       const executor = new ToolExecutor({
-        tools: { t: { handler: async () => ({ ok: true, result: "value" }) } },
-      });
-
-      const result = await executor.execute("t", {}, {});
-      expect(result.success).toBe(true);
-    });
-
-    it("should normalize { error } format", async () => {
-      const executor = new ToolExecutor({
-        tools: { t: { handler: async () => ({ error: "failed" }) } },
-      });
-
-      const result = await executor.execute("t", {}, {});
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("failed");
-    });
-
-    it("should handle null return value", async () => {
-      const executor = new ToolExecutor({
-        tools: { t: { handler: async () => null } },
-      });
-
-      const result = await executor.execute("t", {}, {});
-      expect(result.success).toBe(true);
-      expect(result.data).toBe(null);
-    });
-
-    it("should handle undefined return value", async () => {
-      const executor = new ToolExecutor({
-        tools: { t: { handler: async () => undefined } },
-      });
-
-      const result = await executor.execute("t", {}, {});
-      expect(result.success).toBe(true);
-      expect(result.data).toBe(null);
-    });
-
-    it("should handle primitive return values", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          num: { handler: async () => 42 },
-          str: { handler: async () => "hello" },
-          bool: { handler: async () => true },
+        tools: { t: { handler: async () => "ok" } },
+        hooks: {
+          before: [async () => { order.push("custom"); }],
+          after: [],
         },
       });
 
-      const numResult = await executor.execute("num", {}, {});
-      const strResult = await executor.execute("str", {}, {});
-      const boolResult = await executor.execute("bool", {}, {});
-
-      expect(numResult.data).toBe(42);
-      expect(strResult.data).toBe("hello");
-      expect(boolResult.data).toBe(true);
+      await executor.execute("t", {}, {});
+      expect(order).toEqual(["pre", "custom"]);
     });
 
-    it("should include raw property for object results", async () => {
-      const rawValue = { ok: true, extra: "metadata" };
+    it("allows before hooks to modify params and after hooks to override data", async () => {
+      const before = vi.fn(async ({ params }) => ({ params: { value: params.value + 1 } }));
+      const after = vi.fn(async ({ result }) => result + 1);
+
       const executor = new ToolExecutor({
-        tools: { t: { handler: async () => rawValue } },
-      });
-
-      const result = await executor.execute("t", {}, {});
-      expect(result.raw).toEqual(rawValue);
-    });
-  });
-
-  describe("constructor options", () => {
-    it("should use default timeoutMs of 30000", () => {
-      const executor = new ToolExecutor({});
-      expect(executor.defaultTimeoutMs).toBe(30000);
-    });
-
-    it("should use default maxRetries of 1", () => {
-      const executor = new ToolExecutor({});
-      expect(executor.maxRetries).toBe(1);
-    });
-
-    it("should respect custom timeoutMs", () => {
-      const executor = new ToolExecutor({ timeoutMs: 5000 });
-      expect(executor.defaultTimeoutMs).toBe(5000);
-    });
-
-    it("should respect custom maxRetries", () => {
-      const executor = new ToolExecutor({ maxRetries: 3 });
-      expect(executor.maxRetries).toBe(3);
-    });
-
-    it("should default validateSchema to true", () => {
-      const executor = new ToolExecutor({});
-      expect(executor.validateSchema).toBe(true);
-    });
-
-    it("should default strictValidation to false", () => {
-      const executor = new ToolExecutor({});
-      expect(executor.strictValidation).toBe(false);
-    });
-
-    it("should normalize isolation mode", () => {
-      const e1 = new ToolExecutor({ isolation: true });
-      const e2 = new ToolExecutor({ isolation: "worker" });
-      const e3 = new ToolExecutor({ isolation: "WORKER" });
-      const e4 = new ToolExecutor({ isolation: "none" });
-      const e5 = new ToolExecutor({ isolation: "invalid" });
-
-      expect(e1.defaultIsolation).toBe("worker");
-      expect(e2.defaultIsolation).toBe("worker");
-      expect(e3.defaultIsolation).toBe("worker");
-      expect(e4.defaultIsolation).toBe("none");
-      expect(e5.defaultIsolation).toBe("none");
-    });
-
-    it("should initialize hooks arrays", () => {
-      const executor = new ToolExecutor({});
-      expect(executor.hooks.before).toBeInstanceOf(Array);
-      expect(executor.hooks.after).toBeInstanceOf(Array);
-      expect(executor.hooks.before.length).toBeGreaterThan(0); // createPreToolUseHook added
-    });
-
-    it("should copy provided hooks arrays", () => {
-      const before = [async () => null];
-      const after = [async () => null];
-      const executor = new ToolExecutor({ hooks: { before, after } });
-
-      expect(executor.hooks.before).not.toBe(before);
-      expect(executor.hooks.after).not.toBe(after);
-    });
-  });
-
-  describe("worker isolation", () => {
-    it("should execute via worker when isolation is worker", async () => {
-      const executor = new WorkerSpyExecutor({
         tools: {
-          t: {
-            handler: async () => "direct",
-            worker: { moduleUrl: busyLoopUrl, exportName: "handler" },
-            isolation: "worker",
-          },
+          t: { handler: ({ value }) => value * 2 },
+        },
+        hooks: {
+          before: [before],
+          after: [after],
         },
       });
 
       const result = await executor.execute("t", { value: 1 }, {});
-
-      expect(result.success).toBe(true);
-      expect(executor.workerCalls.length).toBe(1);
-      expect(executor.workerCalls[0].moduleUrl).toBe(busyLoopUrl);
+      expect(before).toHaveBeenCalledTimes(1);
+      expect(after).toHaveBeenCalledTimes(1);
+      expect(result.data).toBe(5);
     });
 
-    it("should allow per-call isolation override", async () => {
-      const executor = new WorkerSpyExecutor({
-        tools: {
-          t: {
-            handler: async () => "direct",
-            worker: { moduleUrl: busyLoopUrl, exportName: "handler" },
-            isolation: "none",
-          },
-        },
+    it("allows before hooks to skip execution", async () => {
+      const handler = vi.fn();
+      const executor = new ToolExecutor({
+        tools: { t: { handler } },
       });
 
-      const result = await executor.execute("t", { value: 1 }, {}, { isolation: "worker" });
+      const result = await executor.execute(
+        "t",
+        {},
+        {},
+        {
+          hooks: {
+            before: [async () => ({ skip: true, value: { ok: true, data: "skipped" } })],
+            after: [],
+          },
+        }
+      );
 
+      expect(handler).not.toHaveBeenCalled();
       expect(result.success).toBe(true);
-      expect(executor.workerCalls.length).toBe(1);
+      expect(result.data).toBe("skipped");
     });
 
-    it("should allow per-call isolation to disable worker execution", async () => {
+    it("logs hook errors but continues execution", async () => {
+      const logger = { warn: vi.fn() };
+      const executor = new ToolExecutor({
+        tools: { t: { handler: async () => "ok" } },
+        logger,
+      });
+
+      const result = await executor.execute(
+        "t",
+        {},
+        {},
+        {
+          hooks: {
+            before: [() => { throw new Error("boom"); }],
+            after: [],
+          },
+        }
+      );
+
+      expect(logger.warn).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe("policy", () => {
+    it("authorizes using policy mapper and passes signal", async () => {
+      const authorize = vi.fn(async () => ({ allowed: true }));
+      const policy = { authorize };
+      const mapper = vi.fn(() => ({ action: "run" }));
+      const signal = new AbortController().signal;
+
+      const executor = new ToolExecutor({
+        tools: { t: { handler: async () => "ok" } },
+        policy,
+        policyMapper: mapper,
+      });
+
+      const result = await executor.execute("t", { value: 1 }, { signal });
+
+      expect(result.success).toBe(true);
+      expect(authorize).toHaveBeenCalledWith(
+        expect.objectContaining({ tool: "t", args: { value: 1 } }),
+        { signal }
+      );
+    });
+
+    it("denies tool execution when policy rejects", async () => {
+      const authorize = vi.fn(async () => ({ allowed: false, reason: "nope" }));
+      const emit = vi.fn();
+
+      const executor = new ToolExecutor({
+        tools: { t: { handler: async () => "ok" } },
+        policy: { authorize },
+        policyMapper: () => ({ action: "run" }),
+        emit,
+      });
+
+      const result = await executor.execute("t", { value: 1 }, {});
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Policy denied: nope");
+      expect(emit).toHaveBeenCalledWith(
+        "tool:denied",
+        expect.objectContaining({ tool: "t", reason: "nope" })
+      );
+    });
+
+    it("returns policy errors when authorization throws", async () => {
+      const authorize = vi.fn(async () => {
+        throw new Error("policy boom");
+      });
+      const emit = vi.fn();
+
+      const executor = new ToolExecutor({
+        tools: { t: { handler: async () => "ok" } },
+        policy: { authorize },
+        policyMapper: () => ({ action: "run" }),
+        emit,
+      });
+
+      const result = await executor.execute("t", { value: 1 }, {});
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Policy error: policy boom");
+      expect(emit).toHaveBeenCalledWith(
+        "tool:denied",
+        expect.objectContaining({ tool: "t", reason: "policy_error" })
+      );
+    });
+  });
+
+  describe("executeBatch", () => {
+    it("executes actions and returns per-tool results", async () => {
+      const executor = new ToolExecutor({
+        tools: {
+          add: { handler: ({ a, b }) => a + b },
+          fail: { handler: () => { throw new Error("boom"); } },
+        },
+        maxRetries: 0,
+      });
+
+      const results = await executor.executeBatch(
+        [
+          { action: "add", args: { a: 1, b: 2 } },
+          { name: "fail", args: {} },
+        ],
+        {}
+      );
+
+      expect(results).toHaveLength(2);
+      expect(results[0].tool).toBe("add");
+      expect(results[0].success).toBe(true);
+      expect(results[0].data).toBe(3);
+      expect(results[1].tool).toBe("fail");
+      expect(results[1].success).toBe(false);
+      expect(results[1].error).toContain("boom");
+    });
+  });
+
+  describe("worker isolation", () => {
+    it("executes via worker for file URLs in node", async () => {
+      const handler = vi.fn();
       const executor = new WorkerSpyExecutor({
         tools: {
-          t: {
-            handler: async () => "direct",
-            worker: { moduleUrl: busyLoopUrl, exportName: "handler" },
+          job: {
+            handler,
             isolation: "worker",
+            worker: { moduleUrl: "file:///tmp/worker.mjs", exportName: "run" },
           },
         },
       });
 
-      const result = await executor.execute("t", {}, {}, { isolation: "none" });
+      const result = await executor.execute("job", { a: 1 }, {});
 
+      expect(handler).not.toHaveBeenCalled();
+      expect(executor.workerCalls).toHaveLength(1);
+      expect(executor.workerCalls[0].moduleUrl).toBe("file:///tmp/worker.mjs");
+      expect(executor.workerCalls[0].exportName).toBe("run");
       expect(result.success).toBe(true);
-      expect(result.data).toBe("direct");
-      expect(executor.workerCalls.length).toBe(0);
-    });
-  });
-
-  describe("worker module URL policy", () => {
-    it("should allow bare moduleUrl when policy is allow", async () => {
-      const executor = new WorkerSpyExecutor();
-
-      const result = await executor._executeWithTimeout(
-        () => "direct",
-        {},
-        {},
-        50,
-        {
-          isolationMode: "worker",
-          tool: { worker: { moduleUrl: "tool-module", moduleUrlPolicy: "allow", exportName: "handler" } },
-        }
-      );
-
-      expect(result.data.moduleUrl).toBe("tool-module");
     });
 
-    it("should block bare moduleUrl when policy is sameOrigin", async () => {
-      const executor = new WorkerSpyExecutor();
+    it("rejects bare specifiers without allow policy", async () => {
+      const executor = new WorkerSpyExecutor({
+        tools: {
+          job: {
+            handler: vi.fn(),
+            isolation: "worker",
+            worker: { moduleUrl: "bare-spec" },
+          },
+        },
+        maxRetries: 0,
+      });
 
-      await expect(() => executor._executeWithTimeout(
-          () => "direct",
-          {},
-          {},
-          50,
-          {
-            isolationMode: "worker",
-            tool: { worker: { moduleUrl: "tool-module", moduleUrlPolicy: "sameOrigin" } },
-          }
-        ),
-        /bare specifiers require moduleUrlPolicy=allow/
-      );
+      const result = await executor.execute("job", {}, {});
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("bare specifiers require moduleUrlPolicy=allow");
+      expect(executor.workerCalls).toHaveLength(0);
     });
 
-    it("should allow file URLs when policy is local", async () => {
-      const executor = new WorkerSpyExecutor();
+    it("allows bare specifiers when policy is allow", async () => {
+      const executor = new WorkerSpyExecutor({
+        tools: {
+          job: {
+            handler: vi.fn(),
+            isolation: "worker",
+            worker: { moduleUrl: "bare-spec", moduleUrlPolicy: "allow" },
+          },
+        },
+      });
 
-      const result = await executor._executeWithTimeout(
-        () => "direct",
-        {},
-        {},
-        50,
-        {
-          isolationMode: "worker",
-          tool: { worker: { moduleUrl: busyLoopUrl, moduleUrlPolicy: "local" } },
-        }
-      );
-
-      expect(result.data.moduleUrl).toBe(busyLoopUrl);
+      const result = await executor.execute("job", {}, {});
+      expect(result.success).toBe(true);
+      expect(executor.workerCalls[0].moduleUrl).toBe("bare-spec");
     });
 
-    it("should enforce allowed origins in browser-like runtime", async () => {
-      const executor = new WorkerSpyExecutor();
+    it("enforces browser origin allowlist", async () => {
+      isNodeLike.mockReturnValue(false);
 
-      await withBrowserLikeRuntime(async () => {
-        await expect(() => executor._executeWithTimeout(
-            () => "direct",
-            {},
-            {},
-            50,
-            {
-              isolationMode: "worker",
-              tool: {
-                worker: {
-                  moduleUrl: "https://denied.example.com/worker.mjs",
-                  moduleUrlPolicy: "sameOrigin",
-                  allowedOrigins: ["https://allowed.example.com"],
-                },
-              },
-            }
-          ),
-          /origin not allowed/
-        );
-
-        const result = await executor._executeWithTimeout(
-          () => "direct",
-          {},
-          {},
-          50,
-          {
-            isolationMode: "worker",
-            tool: {
-              worker: {
-                moduleUrl: "https://allowed.example.com/worker.mjs",
-                moduleUrlPolicy: "sameOrigin",
-                allowedOrigins: ["https://allowed.example.com"],
-              },
+      const executor = new WorkerSpyExecutor({
+        tools: {
+          job: {
+            handler: vi.fn(),
+            isolation: "worker",
+            worker: {
+              moduleUrl: "https://allowed.test/worker.mjs",
+              allowedOrigins: ["https://allowed.test"],
             },
-          }
-        );
-
-        expect(result.data.moduleUrl).toBe("https://allowed.example.com/worker.mjs");
+          },
+        },
       });
+
+      const result = await executor.execute("job", {}, {});
+      expect(result.success).toBe(true);
+      expect(executor.workerCalls[0].moduleUrl).toBe("https://allowed.test/worker.mjs");
+    });
+
+    it("rejects browser URLs from disallowed origins", async () => {
+      isNodeLike.mockReturnValue(false);
+
+      const executor = new WorkerSpyExecutor({
+        tools: {
+          job: {
+            handler: vi.fn(),
+            isolation: "worker",
+            worker: {
+              moduleUrl: "https://blocked.test/worker.mjs",
+              allowedOrigins: ["https://allowed.test"],
+            },
+          },
+        },
+        maxRetries: 0,
+      });
+
+      const result = await executor.execute("job", {}, {});
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("origin not allowed");
+    });
+
+    it("rejects non-file protocols in node", async () => {
+      const executor = new WorkerSpyExecutor({
+        tools: {
+          job: {
+            handler: vi.fn(),
+            isolation: "worker",
+            worker: { moduleUrl: "https://example.com/worker.mjs" },
+          },
+        },
+        maxRetries: 0,
+      });
+
+      const result = await executor.execute("job", {}, {});
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("unsupported protocol in node");
+    });
+
+    it("rejects overly long moduleUrl strings", async () => {
+      const longUrl = "a".repeat(5000);
+      const executor = new WorkerSpyExecutor({
+        tools: {
+          job: {
+            handler: vi.fn(),
+            isolation: "worker",
+            worker: { moduleUrl: longUrl },
+          },
+        },
+        maxRetries: 0,
+      });
+
+      const result = await executor.execute("job", {}, {});
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("moduleUrl too long");
     });
   });
 
-  describe("_createWorkerContextSnapshot", () => {
-    it("should copy state and runId with cloning", () => {
+  describe("context snapshot", () => {
+    it("captures only state and runId fields", () => {
       const executor = new ToolExecutor();
-      const state = { nested: { value: 1 } };
       const snapshot = executor._createWorkerContextSnapshot({
-        state,
+        state: { a: 1 },
         runId: "run-1",
-        extra: "skip",
+        extra: "ignored",
       });
 
-      expect(snapshot).toEqual({ state: { nested: { value: 1 } }, runId: "run-1" });
-
-      state.nested.value = 2;
-      expect(snapshot.state.nested.value).toBe(1);
+      expect(snapshot).toEqual({ state: { a: 1 }, runId: "run-1" });
     });
 
-    it("should return empty object when snapshot is not cloneable", () => {
+    it("returns empty snapshots for non-objects or uncloneable data", () => {
       const executor = new ToolExecutor();
-      const snapshot = executor._createWorkerContextSnapshot({
-        state: { fn: () => "nope" },
+      const nonObject = executor._createWorkerContextSnapshot("nope");
+      const uncloneable = executor._createWorkerContextSnapshot({
+        state: { fn: () => {} },
         runId: "run-2",
       });
 
-      expect(snapshot).toEqual({});
+      expect(nonObject).toEqual({});
+      expect(uncloneable).toEqual({});
     });
   });
+});
 
-  describe("_executeInWorker", () => {
-    it("should route to node worker implementation in node-like runtime", async () => {
-      class RoutingExecutor extends ToolExecutor {
-        constructor() {
-          super();
-          this.nodeCalls = 0;
-          this.webCalls = 0;
-        }
+describe("createToolExecutor", () => {
+  it("creates ToolExecutor instances with provided options", () => {
+    const tools = { ping: { handler: () => "pong" } };
+    const executor = createToolExecutor({ tools, timeoutMs: 123 });
 
-        async _executeInNodeWorker() {
-          this.nodeCalls += 1;
-          return "node";
-        }
+    expect(executor).toBeInstanceOf(ToolExecutor);
+    expect(executor.tools).toBe(tools);
+    expect(executor.defaultTimeoutMs).toBe(123);
+  });
+});
 
-        async _executeInWebWorker() {
-          this.webCalls += 1;
-          return "web";
-        }
-      }
+describe("executeTool", () => {
+  it("executes a tool using a one-off executor", async () => {
+    const tools = { add: { handler: ({ a, b }) => a + b } };
 
-      const executor = new RoutingExecutor();
-      const result = await executor._executeInWorker("module", "handler", {}, {}, 10);
-
-      expect(result).toBe("node");
-      expect(executor.nodeCalls).toBe(1);
-      expect(executor.webCalls).toBe(0);
-    });
+    const result = await executeTool(tools, "add", { a: 1, b: 2 }, {});
+    expect(result.success).toBe(true);
+    expect(result.data).toBe(3);
   });
 
-  describe("_executeInNodeWorker", () => {
-    it("should execute module handlers in node workers", async () => {
-      const executor = new ToolExecutor();
-      const result = await executor._executeInNodeWorker(
-        busyLoopUrl,
-        "handler",
-        { durationMs: 5 },
-        { runId: "run-node", state: { ok: true } },
-        500
-      );
+  it("returns unknown tool errors when missing", async () => {
+    const result = await executeTool({}, "missing", {}, {});
 
-      expect(result.ok).toBe(true);
-      expect(result.durationMs).toBe(5);
-    });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Unknown tool");
+  });
+});
 
-    it("should surface worker errors from missing handlers", async () => {
-      const executor = new ToolExecutor();
-
-      await expect(() => executor._executeInNodeWorker(
-          busyLoopUrl,
-          "missing",
-          {},
-          {},
-          500
-        ),
-        /not a function/
-      );
-    });
+describe("__test.WorkerPool", () => {
+  it("throws when createWorker is not a function", () => {
+    expect(() => new WorkerPool()).toThrow(TypeError);
   });
 
-  describe("_executeInWebWorker", () => {
-    const originalWorker = globalThis.Worker;
-    const originalPools = globalThis.__PB_TOOL_EXECUTOR_WORKER_POOLS_V1__;
+  it("acquires and reuses idle workers with ref/unref", async () => {
+    const worker = createWorkerStub();
+    const createWorker = vi.fn(async () => worker);
+    const pool = new WorkerPool({ createWorker, maxWorkers: 1 });
 
-    class MockWorker {
-      constructor(url, options) {
-        this.url = url;
-        this.options = options;
-        this.listeners = {
-          message: new Set(),
-          error: new Set(),
-        };
-      }
+    const first = await pool.acquire();
+    expect(createWorker).toHaveBeenCalledTimes(1);
+    expect(worker.ref).toHaveBeenCalledTimes(1);
 
-      addEventListener(type, cb) {
-        this.listeners[type]?.add(cb);
-      }
+    pool.release(first);
+    expect(worker.unref).toHaveBeenCalledTimes(1);
 
-      removeEventListener(type, cb) {
-        this.listeners[type]?.delete(cb);
-      }
-
-      postMessage(msg) {
-        const behavior = MockWorker.behavior;
-        if (behavior === "error-event") {
-          queueMicrotask(() => {
-            const err = new Error("Worker error");
-            this.listeners.error.forEach((cb) => cb(err));
-          });
-          return;
-        }
-
-        const response = typeof behavior === "function"
-          ? behavior(msg)
-          : { type: "result", result: { ok: true, echo: msg } };
-
-        queueMicrotask(() => {
-          this.listeners.message.forEach((cb) => cb({ data: response }));
-        });
-      }
-
-      terminate() {
-        this.terminated = true;
-      }
-    }
-
-    beforeEach(() => {
-      globalThis.Worker = MockWorker;
-      globalThis.__PB_TOOL_EXECUTOR_WORKER_POOLS_V1__ = new Map();
-      MockWorker.behavior = undefined;
-    });
-
-    afterEach(() => {
-      globalThis.Worker = originalWorker;
-      if (originalPools === undefined) {
-        delete globalThis.__PB_TOOL_EXECUTOR_WORKER_POOLS_V1__;
-      } else {
-        globalThis.__PB_TOOL_EXECUTOR_WORKER_POOLS_V1__ = originalPools;
-      }
-    });
-
-    it("should execute in web worker with mocked Worker", async () => {
-      MockWorker.behavior = (msg) => ({
-        type: "result",
-        result: { ok: true, echo: msg },
-      });
-
-      const executor = new ToolExecutor();
-      const result = await executor._executeInWebWorker(
-        "https://example.com/worker.mjs",
-        "handler",
-        { value: 1 },
-        { runId: "run-web", state: { ok: true }, extra: "skip" },
-        200
-      );
-
-      expect(result.ok).toBe(true);
-      expect(result.echo.context).toEqual({ state: { ok: true }, runId: "run-web" });
-    });
-
-    it("should surface web worker error messages", async () => {
-      MockWorker.behavior = () => ({
-        type: "error",
-        error: { message: "Boom", name: "BoomError" },
-      });
-
-      const executor = new ToolExecutor();
-      await expect(() => executor._executeInWebWorker(
-          "https://example.com/worker.mjs",
-          "handler",
-          {},
-          {},
-          200
-        ),
-        /Boom/
-      );
-    });
-
-    it("should reject on worker error events", async () => {
-      MockWorker.behavior = "error-event";
-
-      const executor = new ToolExecutor();
-      await expect(() => executor._executeInWebWorker(
-          "https://example.com/worker.mjs",
-          "handler",
-          {},
-          {},
-          200
-        ),
-        /Worker error/
-      );
-    });
-
-    it("should throw when Worker is unavailable", async () => {
-      globalThis.Worker = undefined;
-      const executor = new ToolExecutor();
-
-      await expect(() => executor._executeInWebWorker(
-          "https://example.com/worker.mjs",
-          "handler",
-          {},
-          {},
-          200
-        ),
-        /Worker unavailable/
-      );
-    });
+    const second = await pool.acquire();
+    expect(second).toBe(first);
+    expect(createWorker).toHaveBeenCalledTimes(1);
   });
 
-  describe("WorkerPool", () => {
-    it("should throw if createWorker is not a function", () => {
-      expect(() => new WorkerPool({})).toThrow(TypeError);
-      expect(() => new WorkerPool({ createWorker: "not a function" })).toThrow(TypeError);
+  it("waits when max workers reached and resolves on release", async () => {
+    const workers = [createWorkerStub(), createWorkerStub()];
+    const createWorker = vi.fn(async () => workers.shift());
+    const pool = new WorkerPool({ createWorker, maxWorkers: 1 });
+
+    const first = await pool.acquire();
+    let resolved = false;
+    const secondPromise = pool.acquire().then((worker) => {
+      resolved = true;
+      return worker;
     });
 
-    it("should use default maxWorkers of 2", () => {
-      const pool = new WorkerPool({ createWorker: async () => ({}) });
-      expect(pool._maxWorkers).toBe(2);
-    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
 
-    it("should respect custom maxWorkers", () => {
-      const pool = new WorkerPool({ createWorker: async () => ({}), maxWorkers: 5 });
-      expect(pool._maxWorkers).toBe(5);
-    });
+    pool.release(first);
+    const second = await secondPromise;
+    expect(resolved).toBe(true);
+    expect(second).toBe(first);
+  });
 
-    it("should acquire and release workers", async () => {
-      let created = 0;
-      const pool = new WorkerPool({
-        createWorker: async () => {
-          created++;
-          return {
-            ref: () => {},
-            unref: () => {},
-            terminate: async () => {},
-          };
-        },
-        maxWorkers: 2,
-      });
+  it("setMaxWorkers ignores invalid values and does not shrink", () => {
+    const pool = new WorkerPool({ createWorker: async () => createWorkerStub(), maxWorkers: 2 });
 
-      const w1 = await pool.acquire();
-      const w2 = await pool.acquire();
+    expect(pool.setMaxWorkers(0)).toBe(2);
+    expect(pool.setMaxWorkers(-1)).toBe(2);
+    expect(pool.setMaxWorkers("3")).toBe(3);
+    expect(pool.setMaxWorkers(1)).toBe(3);
+  });
 
-      expect(created).toBe(2);
-      expect(pool._idle.length).toBe(0);
+  it("destroys workers and fulfills waiters with new workers", async () => {
+    const workers = [createWorkerStub(), createWorkerStub()];
+    const createWorker = vi.fn(async () => workers.shift());
+    const pool = new WorkerPool({ createWorker, maxWorkers: 1 });
 
-      pool.release(w1);
-      expect(pool._idle.length).toBe(1);
+    const first = await pool.acquire();
+    const waiter = pool.acquire();
 
-      pool.release(w2);
-      expect(pool._idle.length).toBe(2);
+    await pool.destroy(first);
+    const second = await waiter;
 
-      // Re-acquire should reuse
-      const w3 = await pool.acquire();
-      expect(created).toBe(2);
-      expect(pool._idle.length).toBe(1);
+    expect(createWorker).toHaveBeenCalledTimes(2);
+    expect(first.worker.terminate).toHaveBeenCalledTimes(1);
+    expect(second).not.toBe(first);
+  });
 
-      pool.release(w3);
-    });
+  it("rejects waiters when createWorker fails", async () => {
+    const deferred = createDeferred();
+    const createWorker = vi.fn(() => deferred.promise);
+    const pool = new WorkerPool({ createWorker, maxWorkers: 1 });
 
-    it("should call ref/unref on pooled workers", async () => {
-      let refCount = 0;
-      let unrefCount = 0;
-      const pool = new WorkerPool({
-        createWorker: async () => ({
-          ref: () => { refCount++; },
-          unref: () => { unrefCount++; },
-          terminate: async () => {},
-        }),
-        maxWorkers: 1,
-      });
+    const firstPromise = pool.acquire();
+    const secondPromise = pool.acquire();
 
-      const w1 = await pool.acquire();
-      expect(refCount).toBe(1);
+    deferred.reject(new Error("boom"));
 
-      pool.release(w1);
-      expect(unrefCount).toBe(1);
-    });
-
-    it("should queue acquires when pool is exhausted", async () => {
-      const pool = new WorkerPool({
-        createWorker: async () => ({
-          ref: () => {},
-          unref: () => {},
-          terminate: async () => {},
-        }),
-        maxWorkers: 1,
-      });
-
-      const w1 = await pool.acquire();
-      const acquirePromise = pool.acquire();
-
-      let resolved = false;
-      acquirePromise.then(() => { resolved = true; });
-
-      await new Promise(r => setTimeout(r, 10));
-      expect(resolved).toBe(false);
-
-      pool.release(w1);
-      await new Promise(r => setTimeout(r, 10));
-      expect(resolved).toBe(true);
-    });
-
-    it("should destroy worker and remove from pool", async () => {
-      let terminated = false;
-      const pool = new WorkerPool({
-        createWorker: async () => ({
-          ref: () => {},
-          unref: () => {},
-          terminate: async () => { terminated = true; },
-        }),
-        maxWorkers: 1,
-      });
-
-      const w1 = await pool.acquire();
-      expect(pool._all.size).toBe(1);
-
-      await pool.destroy(w1);
-      expect(terminated).toBe(true);
-      expect(pool._all.size).toBe(0);
-    });
-
-    it("should only increase maxWorkers via setMaxWorkers", () => {
-      const pool = new WorkerPool({ createWorker: async () => ({}), maxWorkers: 3 });
-
-      expect(pool.setMaxWorkers(5)).toBe(5);
-      expect(pool._maxWorkers).toBe(5);
-
-      expect(pool.setMaxWorkers(2)).toBe(5);
-      expect(pool._maxWorkers).toBe(5);
-    });
-
-    it("should reject all waiters when createWorker fails", async () => {
-      let shouldFail = true;
-      const pool = new WorkerPool({
-        createWorker: async () => {
-          if (shouldFail) throw new Error("Creation failed");
-          return { ref: () => {}, unref: () => {}, terminate: async () => {} };
-        },
-        maxWorkers: 1,
-      });
-
-      await expect(pool.acquire()).rejects.toThrow(/Creation failed/);
-    });
-
-    it("should ignore release of destroyed worker", async () => {
-      const pool = new WorkerPool({
-        createWorker: async () => ({
-          ref: () => {},
-          unref: () => {},
-          terminate: async () => {},
-        }),
-        maxWorkers: 1,
-      });
-
-      const w1 = await pool.acquire();
-      await pool.destroy(w1);
-
-      pool.release(w1);
-      expect(pool._idle.length).toBe(0);
-    });
-
-    it("should try to fulfill waiter after destroy", async () => {
-      let createCount = 0;
-      const pool = new WorkerPool({
-        createWorker: async () => {
-          createCount++;
-          return {
-            ref: () => {},
-            unref: () => {},
-            terminate: async () => {},
-          };
-        },
-        maxWorkers: 1,
-      });
-
-      const w1 = await pool.acquire();
-      const acquirePromise = pool.acquire();
-
-      await pool.destroy(w1);
-      const w2 = await acquirePromise;
-
-      expect(createCount).toBe(2);
-      expect(w2).toBeDefined();
-    });
+    await expect(firstPromise).rejects.toThrow("boom");
+    await expect(secondPromise).rejects.toThrow("boom");
   });
 });

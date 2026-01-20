@@ -1,1438 +1,850 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+const sharedMocks = vi.hoisted(() => {
+  const globalTokenCounter = { count: vi.fn((text) => String(text).length) };
+  const estimateTokensCached = vi.fn((text, tokenCounter) => {
+    if (tokenCounter && typeof tokenCounter.count === "function") {
+      return tokenCounter.count(text);
+    }
+    return typeof text === "string" ? text.length : String(text).length;
+  });
+  const createLogger = vi.fn(() => ({
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }));
+  const getGlobalTokenCounter = vi.fn(() => globalTokenCounter);
+  return { estimateTokensCached, createLogger, getGlobalTokenCounter, globalTokenCounter };
+});
 
-import MessageManager from '../../../../../js/agents/runtime/core/message-manager.js';
+const compressionMocks = vi.hoisted(() => {
+  const instances = [];
+  const shouldCompress = vi.fn(() => false);
+  const maybeCompress = vi.fn(async (messages) => ({ messages }));
+  class CompressionCoordinator {
+    constructor(options) {
+      this.options = options;
+      instances.push(this);
+    }
+    shouldCompress() {
+      return shouldCompress();
+    }
+    maybeCompress(messages, options) {
+      return maybeCompress(messages, options);
+    }
+  }
+  return { instances, shouldCompress, maybeCompress, CompressionCoordinator };
+});
 
-describe("runtime/core/message-manager", () => {
-  describe("constructor", () => {
-    it("initializes with default values", () => {
-      const m = new MessageManager();
-      expect(m.messages).toEqual([]);
-      expect(m.tokenUsage).toEqual({ input: 0, output: 0, total: 0 });
-      expect(m.contextConfig.contextWindow).toBeGreaterThan(0);
-    });
+const contextMocks = vi.hoisted(() => ({
+  DEFAULT_CONTEXT_CONFIG: {
+    contextWindow: 1000,
+    compressThreshold: 0.8,
+    compressCooldownMs: 0,
+  },
+}));
 
-    it("accepts custom contextConfig", () => {
-      const m = new MessageManager({
-        contextConfig: { contextWindow: 50000 },
-      });
-      expect(m.contextConfig.contextWindow).toBe(50000);
-    });
+const persistedMocks = vi.hoisted(() => {
+  const wrapPersistedOutput = vi.fn((content, options) => {
+    if (options && typeof options.threshold === "number") {
+      return `wrapped:${content}:${options.threshold}`;
+    }
+    return `wrapped:${content}`;
+  });
+  const cleanOldPersistedOutputs = vi.fn((messages, keepRecent) => messages.slice(-keepRecent));
+  const KEEP_RECENT_OUTPUTS = 3;
+  return { wrapPersistedOutput, cleanOldPersistedOutputs, KEEP_RECENT_OUTPUTS };
+});
 
-    it("accepts null tokenCounter", () => {
-      const m = new MessageManager({ tokenCounter: null });
-      expect(m.messages).toEqual([]);
-    });
+const errorReporterMocks = vi.hoisted(() => {
+  const report = vi.fn();
+  const createScopedReporter = vi.fn(() => ({ report }));
+  const ErrorCategory = { Internal: "internal" };
+  return { report, createScopedReporter, ErrorCategory };
+});
 
-    it("sets asyncSummaryEnabled based on option", () => {
-      const m1 = new MessageManager({ asyncSummaryEnabled: false });
-      expect(m1._asyncSummaryEnabled).toBe(false);
+vi.mock("../../../../../js/agents/shared/index.js", () => ({
+  estimateTokensCached: sharedMocks.estimateTokensCached,
+  createLogger: sharedMocks.createLogger,
+  getGlobalTokenCounter: sharedMocks.getGlobalTokenCounter,
+}));
 
-      const m2 = new MessageManager({ asyncSummaryEnabled: true });
-      expect(m2._asyncSummaryEnabled).toBe(true);
+vi.mock("../../../../../js/agents/plugins/compression/index.js", () => ({
+  CompressionCoordinator: compressionMocks.CompressionCoordinator,
+}));
 
-      // default is true when not explicitly set to false
-      const m3 = new MessageManager({});
-      expect(m3._asyncSummaryEnabled).toBe(true);
-    });
+vi.mock("../../../../../js/agents/runtime/core/context-config.js", () => contextMocks);
+
+vi.mock("../../../../../js/agents/runtime/core/persisted-output.js", () => ({
+  wrapPersistedOutput: persistedMocks.wrapPersistedOutput,
+  cleanOldPersistedOutputs: persistedMocks.cleanOldPersistedOutputs,
+  KEEP_RECENT_OUTPUTS: persistedMocks.KEEP_RECENT_OUTPUTS,
+}));
+
+vi.mock("../../../../../js/agents/runtime/core/errors/silent-error-reporter.js", () => ({
+  createScopedReporter: errorReporterMocks.createScopedReporter,
+  ErrorCategory: errorReporterMocks.ErrorCategory,
+}));
+
+let MessageManager;
+let MessageManagerDefault;
+let fallbackLogger;
+
+const flushMicrotasks = async (times = 2) => {
+  for (let i = 0; i < times; i += 1) {
+    await new Promise((resolve) => queueMicrotask(resolve));
+  }
+};
+
+const createDeferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+const createDeepNested = (depth) => {
+  const root = { depth: 0 };
+  let node = root;
+  for (let i = 1; i <= depth; i += 1) {
+    node.next = { depth: i };
+    node = node.next;
+  }
+  return root;
+};
+
+const createManager = (options = {}) => new MessageManager(options);
+
+beforeEach(async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  compressionMocks.instances.length = 0;
+  compressionMocks.shouldCompress.mockReturnValue(false);
+  compressionMocks.maybeCompress.mockImplementation(async (messages) => ({ messages }));
+  sharedMocks.globalTokenCounter.count.mockImplementation((text) => String(text).length);
+  sharedMocks.estimateTokensCached.mockImplementation((text, tokenCounter) => {
+    if (tokenCounter && typeof tokenCounter.count === "function") {
+      return tokenCounter.count(text);
+    }
+    return typeof text === "string" ? text.length : String(text).length;
+  });
+  persistedMocks.wrapPersistedOutput.mockImplementation((content, options) => {
+    if (options && typeof options.threshold === "number") {
+      return `wrapped:${content}:${options.threshold}`;
+    }
+    return `wrapped:${content}`;
+  });
+  persistedMocks.cleanOldPersistedOutputs.mockImplementation((messages, keepRecent) => messages.slice(-keepRecent));
+  const module = await import("../../../../../js/agents/runtime/core/message-manager.js");
+  MessageManager = module.MessageManager;
+  MessageManagerDefault = module.default;
+  fallbackLogger = sharedMocks.createLogger.mock.results[0]?.value;
+  if (fallbackLogger?.warn?.mockClear) {
+    fallbackLogger.warn.mockClear();
+  }
+});
+
+describe("MessageManager", () => {
+  it("exposes default export as the named class", () => {
+    expect(MessageManagerDefault).toBe(MessageManager);
   });
 
-  describe("addMessage", () => {
-    it("adds message to messages array", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
+  it("initializes defaults and uses the global token counter", () => {
+    const manager = createManager();
 
-      const msg = { role: "user", content: "Hello" };
-      const returned = manager.addMessage(msg);
-
-      expect(manager.messages.length).toBe(1);
-      expect(manager.messages[0]).toBe(msg);
-      expect(returned).toBe(msg);
-    });
-
-    it("updates token usage", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      manager.addMessage({ role: "user", content: "Hello world" });
-
-      const usage = manager.tokenUsage;
-      expect(usage.input).toBeGreaterThan(0);
-      expect(usage.total).toBeGreaterThan(0);
-      expect(usage.input).toBe(11); // "Hello world".length
-    });
-
-    it("caches token count on message", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      const msg = { role: "user", content: "Test message" };
-      manager.addMessage(msg);
-
-      expect(msg._tokens).toBeTypeOf("number");
-      expect(msg._tokens).toBeGreaterThan(0);
-      expect(msg._contentHash).toBeTypeOf("number");
-    });
-
-    it("handles null content gracefully", () => {
-      const tokenCounter = { count: (text) => (text ? text.length : 0) };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      const msg = { role: "user", content: null };
-      manager.addMessage(msg);
-
-      expect(manager.messages.length).toBe(1);
-      expect(msg._tokens).toBe(0);
-    });
-
-    it("handles object content", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      const msg = { role: "user", content: { key: "value", nested: { a: 1 } } };
-      manager.addMessage(msg);
-
-      expect(msg._tokens).toBeGreaterThan(0);
-    });
+    expect(manager.messages).toEqual([]);
+    expect(manager.tokenUsage).toEqual({ input: 0, output: 0, total: 0 });
+    expect(manager.contextConfig.contextWindow).toBe(1000);
+    expect(sharedMocks.getGlobalTokenCounter).toHaveBeenCalledTimes(1);
+    expect(compressionMocks.instances).toHaveLength(1);
+    expect(typeof compressionMocks.instances[0].options.getContextConfig).toBe("function");
   });
 
-  describe("addMessages", () => {
-    it("adds multiple messages", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      const msgs = [
-        { role: "user", content: "First" },
-        { role: "assistant", content: "Second" },
-      ];
-      manager.addMessages(msgs);
-
-      expect(manager.messages.length).toBe(2);
+  it("merges contextConfig and applies stage/actor and async summary flags", () => {
+    const manager = createManager({
+      contextConfig: { contextWindow: 5000, compressThreshold: 0.9 },
+      stageName: "stage",
+      actor: "tester",
+      asyncSummaryEnabled: false,
     });
 
-    it("updates token usage for all messages", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      manager.addMessages([
-        { role: "user", content: "Hello" },
-        { role: "assistant", content: "World" },
-      ]);
-
-      const usage = manager.tokenUsage;
-      expect(usage.input).toBe(10); // "Hello".length + "World".length
-    });
-
-    it("does nothing when disposed", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.1, compressCooldownMs: 0 },
-      });
-
-      manager.dispose();
-      manager.addMessages([{ role: "user", content: "Test" }]);
-
-      expect(manager.messages.length).toBe(0);
-    });
+    expect(manager.contextConfig.contextWindow).toBe(5000);
+    expect(manager.contextConfig.compressThreshold).toBe(0.9);
+    expect(manager._stageName).toBe("stage");
+    expect(manager._actor).toBe("tester");
+    expect(manager._asyncSummaryEnabled).toBe(false);
   });
 
-  describe("dispose", () => {
-    it("ignores message additions after dispose()", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.1, compressCooldownMs: 0 },
-      });
+  it("returns copies for tokenUsage and contextConfig getters", () => {
+    const manager = createManager();
 
-      manager.dispose();
+    const usage = manager.tokenUsage;
+    usage.input = 99;
+    expect(manager.tokenUsage.input).toBe(0);
 
-      manager.addMessage({ role: "user", content: "hello" });
-      manager.addMessages([{ role: "user", content: "world" }]);
-
-      expect(manager.messages).toEqual([]);
-      expect(manager.tokenUsage).toEqual({ input: 0, output: 0, total: 0 });
-    });
-
-    it("is idempotent", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      manager.dispose();
-      manager.dispose();
-
-      expect(manager._disposed).toBe(true);
-    });
+    const config = manager.contextConfig;
+    config.contextWindow = 42;
+    expect(manager.contextConfig.contextWindow).toBe(1000);
   });
 
-  describe("reset", () => {
-    it("reset() clears compression history by default", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
+  it("setContextConfig merges values and handles tokenCounter updates", () => {
+    const tokenCounter = { count: vi.fn((text) => String(text).length) };
+    const nextCounter = { count: vi.fn(() => 1) };
+    const manager = createManager({ tokenCounter });
 
-      // Seed internal history to validate default clear semantics.
-      manager._compressionHistory.push({
-        timestamp: 1,
-        beforeCount: 1,
-        afterCount: 1,
-        beforeTokens: 10,
-        afterTokens: 10,
-      });
-      manager.addMessage({ role: "user", content: "hello" });
-      expect(manager.getStatus().compressionCount).toBe(1);
+    manager.setContextConfig({ contextWindow: 2000, tokenCounter: nextCounter });
+    expect(manager.contextConfig.contextWindow).toBe(2000);
+    expect(manager._tokenCounter).toBe(nextCounter);
 
-      await manager.reset();
-      expect(manager.messages).toEqual([]);
-      expect(manager.tokenUsage).toEqual({ input: 0, output: 0, total: 0 });
-      expect(manager.getStatus().compressionCount).toBe(0);
-    });
+    manager.setContextConfig({ tokenCounter: null });
+    expect(manager._tokenCounter).toBeNull();
 
-    it("preserves compression history when requested", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
+    manager.setContextConfig({ tokenCounter: undefined, compressThreshold: 0.1 });
+    expect(manager._tokenCounter).toBeNull();
 
-      manager._compressionHistory.push({ timestamp: Date.now() });
-      await manager.reset({ clearCompressionHistory: false });
-
-      expect(manager.getStatus().compressionCount).toBe(1);
-    });
-
-    it("reset() clears pending summary tracking", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        asyncSummaryEnabled: true,
-        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      // 添加长消息触发摘要
-      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
-      manager.addMessage(msg);
-
-      expect(manager._pendingSummaryPromises.size).toBeGreaterThan(0);
-
-      await manager.reset();
-
-      expect(manager._pendingSummaryPromises.size).toBe(0);
-      expect(manager._summaryAbortController).toBe(null);
-    });
+    expect(() => manager.setContextConfig(null)).not.toThrow();
+    expect(() => manager.setContextConfig(undefined)).not.toThrow();
   });
 
-  describe("_shouldCompress", () => {
-    it("_shouldCompress() falls back to config threshold when coordinator is missing", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 10, compressThreshold: 0.5, compressCooldownMs: 0 },
-      });
+  it("adds messages, caches tokens, and updates usage and superseded count", () => {
+    const tokenCounter = { count: vi.fn((text) => String(text).length) };
+    const manager = createManager({ tokenCounter, asyncSummaryEnabled: false });
 
-      // Force fallback path (no coordinator / shouldCompress method).
-      manager._compressionCoordinator = null;
-      manager._tokenUsage.total = 4;
-      expect(manager._shouldCompress()).toBe(false);
-      manager._tokenUsage.total = 5;
-      expect(manager._shouldCompress()).toBe(true);
-    });
+    const message = { role: "user", content: "Hello" };
+    manager.addMessage(message);
 
-    it("returns true when threshold exceeded", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.5, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
+    expect(manager.messages).toHaveLength(1);
+    expect(message._tokens).toBe(5);
+    expect(typeof message._contentHash).toBe("number");
+    expect(manager.tokenUsage).toEqual({ input: 5, output: 0, total: 5 });
 
-      manager._compressionCoordinator = null;
-      manager.addMessage({ role: "user", content: "x".repeat(60) });
-
-      expect(manager._shouldCompress()).toBe(true);
-    });
-
-    it("returns false below threshold", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      manager._compressionCoordinator = null;
-      manager.addMessage({ role: "user", content: "short" });
-
-      expect(manager._shouldCompress()).toBe(false);
-    });
+    const superseded = { role: "assistant", content: "Old", _superseded: true };
+    manager.addMessage(superseded);
+    expect(manager.supersededCount).toBe(1);
   });
 
-  describe("contextConfig", () => {
-    it("exposes contextConfig defensively (getter returns copy)", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 10, compressThreshold: 0.1, compressCooldownMs: 0 },
-      });
+  it("handles nullish, empty, and object content when adding messages", () => {
+    const tokenCounter = { count: vi.fn((text) => String(text).length) };
+    const manager = createManager({ tokenCounter, asyncSummaryEnabled: false });
 
-      // Getter returns a copy (defensive).
-      const cfg = manager.contextConfig;
-      cfg.contextWindow = 999;
-      expect(manager.contextConfig.contextWindow).toBe(10);
-    });
+    manager.addMessage({ role: "user", content: null });
+    manager.addMessage({ role: "user", content: undefined });
+    manager.addMessage({ role: "user", content: "" });
+    manager.addMessage({ role: "user" });
+    manager.addMessage({});
 
-    it("setContextConfig merges with existing config", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.8 },
-      });
-
-      const original = manager.contextConfig.compressThreshold;
-      manager.setContextConfig({ contextWindow: 200000 });
-
-      expect(manager.contextConfig.contextWindow).toBe(200000);
-      expect(manager.contextConfig.compressThreshold).toBe(original);
-    });
-
-    it("setContextConfig(tokenCounter: null) disables custom token counting", () => {
-      const tokenCounter = { count: () => 999 };
-      const manager = new MessageManager({ tokenCounter });
-
-      manager.setContextConfig({ tokenCounter: null });
-      expect(manager._tokenCounter).toBe(null);
-
-      // Unrelated updates should not re-enable tokenCounter implicitly.
-      manager.setContextConfig({ contextWindow: 42 });
-      expect(manager._tokenCounter).toBe(null);
-    });
+    expect(manager.messages).toHaveLength(5);
+    expect(manager.messages[0]._tokens).toBe(0);
+    expect(manager.messages[1]._tokens).toBe(0);
+    expect(manager.messages[2]._tokens).toBe(0);
+    expect(manager.messages[3]._tokens).toBe(0);
+    expect(manager.messages[4]._tokens).toBe(0);
   });
 
-  describe("getStatus", () => {
-    it("returns comprehensive status object", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9 },
-        asyncSummaryEnabled: false,
-      });
+  it("supports large strings and deep/circular objects", () => {
+    const tokenCounter = { count: vi.fn((text) => String(text).length) };
+    const manager = createManager({ tokenCounter, asyncSummaryEnabled: false });
 
-      manager.addMessage({ role: "user", content: "Hello" });
-      const status = manager.getStatus();
+    const large = "x".repeat(100000);
+    manager.addMessage({ role: "user", content: large });
+    expect(manager.tokenUsage.total).toBe(100000);
 
-      expect(status).toHaveProperty("messageCount");
-      expect(status).toHaveProperty("tokenUsage");
-      expect(status).toHaveProperty("contextWindow");
-      expect(status).toHaveProperty("fillRatio");
-      expect(status).toHaveProperty("compressThreshold");
-      expect(status).toHaveProperty("needsCompression");
-      expect(status).toHaveProperty("compressionPending");
-      expect(status).toHaveProperty("compressionCount");
-    });
+    const deep = createDeepNested(50);
+    manager.addMessage({ role: "user", content: deep });
+    expect(manager.tokenUsage.total).toBeGreaterThan(100000);
 
-    it("calculates fillRatio correctly", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9 },
-        asyncSummaryEnabled: false,
-      });
-
-      manager.addMessage({ role: "user", content: "x".repeat(100) });
-      const status = manager.getStatus();
-
-      expect(status.fillRatio).toBe(0.1); // 100/1000
-    });
+    const circular = {};
+    circular.self = circular;
+    sharedMocks.estimateTokensCached.mockClear();
+    manager.addMessage({ role: "user", content: circular });
+    expect(sharedMocks.estimateTokensCached).toHaveBeenCalledWith("[object Object]", tokenCounter);
   });
 
-  describe("abort handling", () => {
-    it("_abortActiveCompression() tolerates abort() failures and always clears controller", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
+  it("schedules async summaries when enabled and conditions are met", async () => {
+    const summaryGenerator = vi.fn().mockResolvedValue("summary");
+    const manager = createManager({ summaryGenerator });
 
-      let callCount = 0;
-      const controller = {
-        abort: () => {
-          callCount++;
-          throw new Error("abort blocked");
-        },
-      };
-      manager._compressionAbortController = controller;
+    const message = { role: "user", content: "x".repeat(210) };
+    manager.addMessage(message);
+    await manager._waitForPendingSummaries();
 
-      expect(() => manager._abortActiveCompression("why")).not.toThrow();
-      expect(callCount).toBe(2);
-      expect(manager._compressionAbortController).toBe(null);
-    });
-
-    it("_isAbortError detects various abort patterns", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      expect(manager._isAbortError({ name: "AbortError" })).toBe(true);
-      expect(manager._isAbortError({ name: "CanceledError" })).toBe(true);
-      expect(manager._isAbortError({ name: "CancelledError" })).toBe(true);
-      expect(manager._isAbortError(new Error("operation was aborted"))).toBe(true);
-      expect(manager._isAbortError(new Error("request canceled"))).toBe(true);
-      expect(manager._isAbortError(new Error("was cancelled"))).toBe(true);
-      expect(manager._isAbortError(new Error("network error"))).toBe(false);
-      expect(manager._isAbortError(null)).toBe(false);
-      expect(manager._isAbortError(undefined)).toBe(false);
-    });
+    expect(summaryGenerator).toHaveBeenCalledTimes(1);
+    expect(message._summary).toBe("summary");
+    expect(message._summaryTokens).toBe("summary".length);
   });
 
-  describe("cooldown timer", () => {
-    it("_clearCooldownTimer() tolerates clearTimeout errors", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
+  it("does not add messages after dispose", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.dispose();
 
-      const original = globalThis.clearTimeout;
-      globalThis.clearTimeout = () => {
-        throw new Error("clearTimeout failed");
-      };
+    const message = { role: "user", content: "Hello" };
+    manager.addMessage(message);
 
-      try {
-        manager._compressionCooldownTimer = 123;
-        expect(() => manager._clearCooldownTimer()).not.toThrow();
-        expect(manager._compressionCooldownTimer).toBe(null);
-      } finally {
-        globalThis.clearTimeout = original;
-      }
-    });
-
-    it("_clearCooldownTimer handles null timer", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      manager._compressionCooldownTimer = null;
-      expect(() => manager._clearCooldownTimer()).not.toThrow();
-    });
+    expect(manager.messages).toHaveLength(0);
   });
 
-  describe("compression scheduling", () => {
-    it("_scheduleCompression() logs non-abort errors from _compress()", async () => {
-      const warnCalls = [];
-      const logger = { warn: (...args) => warnCalls.push(args) };
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        logger,
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.1, compressCooldownMs: 0 },
-      });
+  it("adds multiple messages, updates usage, and leaves tokens uncached", () => {
+    const tokenCounter = { count: vi.fn((text) => String(text).length) };
+    const manager = createManager({ tokenCounter, asyncSummaryEnabled: false });
 
-      const originalCompress = manager._compress;
-      manager._compress = async () => {
-        throw new Error("boom");
-      };
+    const messages = [
+      { role: "user", content: "One" },
+      { role: "assistant", content: "Two", _superseded: true },
+    ];
 
-      manager._compressionCoordinator.shouldCompress = () => true;
-      manager._scheduleCompression({ force: true });
+    manager.addMessages(messages);
 
-      const pending = manager._compressionPromise;
-      expect(pending).not.toBe(null);
-      await pending;
-
-      expect(warnCalls.length).toBe(1);
-      expect(warnCalls[0][0]).toBe("Message compression error");
-      expect(warnCalls[0][1].error).toBe("boom");
-
-      manager._compress = originalCompress;
-    });
-
-    it("_scheduleCompression returns early when disposed", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.1, compressCooldownMs: 0 },
-      });
-
-      manager.dispose();
-      manager._scheduleCompression({ force: true });
-
-      expect(manager._compressionPending).toBe(false);
-    });
-
-    it("_scheduleCompression returns early when already pending", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.1, compressCooldownMs: 0 },
-      });
-
-      manager._compressionPending = true;
-      manager._scheduleCompression({ force: true });
-
-      // Should not create new promise
-      expect(manager._compressionPromise).toBe(null);
-    });
-
-    it("_scheduleCompression honors compressCooldownMs and defers compression", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.1, compressCooldownMs: 25 },
-      });
-
-      let compressCalls = 0;
-      manager._compress = async () => {
-        compressCalls += 1;
-      };
-      manager._compressionCoordinator.shouldCompress = () => true;
-
-      manager._lastCompressionAtMs = Date.now();
-      manager._scheduleCompression();
-
-      expect(manager._compressionPending).toBe(false);
-      expect(manager._compressionCooldownTimer).not.toBeNull();
-      expect(manager._compressionCooldownTimer).toBeDefined();
-
-      await new Promise((resolve) => setTimeout(resolve, 40));
-      if (manager._compressionPromise) {
-        await manager._compressionPromise;
-      }
-
-      expect(compressCalls).toBe(1);
-      expect(manager._compressionCooldownTimer).toBe(null);
-    });
+    expect(manager.messages).toHaveLength(2);
+    expect(manager.tokenUsage.total).toBe(6);
+    expect(manager.supersededCount).toBe(1);
+    expect(messages[0]._tokens).toBeUndefined();
+    expect(messages[1]._tokens).toBeUndefined();
   });
 
-  describe("_compress flow", () => {
-    it("_compress() replaces messages, recalculates tokens, and records compression", async () => {
-      const emitCalls = [];
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        emit: (name, payload) => emitCalls.push({ name, payload }),
-        stageName: "demo",
-        actor: "tester",
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
+  it("handles empty arrays and schedules compression on addMessages", async () => {
+    compressionMocks.shouldCompress.mockReturnValue(true);
+    const manager = createManager({ asyncSummaryEnabled: false });
 
-      manager.addMessages([
-        { role: "user", content: "hello" },
-        { role: "assistant", content: "world" },
-        { role: "assistant", content: "!!!" },
-      ]);
+    manager.addMessages([]);
+    expect(manager.messages).toHaveLength(0);
 
-      const beforeTokens = manager.tokenUsage.total;
-      const beforeCount = manager.messages.length;
-
-      let capturedSignal = null;
-      manager._compressionCoordinator.maybeCompress = async (messages, { signal }) => {
-        capturedSignal = signal;
-        return {
-          messages: [messages[0], { role: "assistant", content: "summary" }],
-        };
-      };
-
-      await manager._compress();
-
-      expect(manager.messages.length).toBe(2);
-      expect(manager.messages[1].content).toBe("summary");
-      expect(manager.tokenUsage.total).toBeLessThan(beforeTokens);
-      expect(manager._compressionHistory.length).toBe(1);
-      const record = manager._compressionHistory[0];
-      expect(record.beforeCount).toBe(beforeCount);
-      expect(record.afterCount).toBe(2);
-      expect(record.beforeTokens).toBe(beforeTokens);
-      expect(record.afterTokens).toBe(manager.tokenUsage.total);
-      expect(capturedSignal).not.toBeNull();
-      expect(capturedSignal).toBeDefined();
-      expect(capturedSignal.aborted).toBeTypeOf("boolean");
-      expect(manager._compressionAbortController).toBe(null);
-      expect(emitCalls.length).toBe(1);
-      expect(emitCalls[0].name).toBe("demo.context.compressed");
-    });
-
-    it("_compress() keeps messages when maybeCompress returns null", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      manager.addMessages([
-        { role: "user", content: "hello" },
-        { role: "assistant", content: "world" },
-      ]);
-
-      const beforeMessages = manager.messages.slice();
-      const beforeTokens = manager.tokenUsage.total;
-
-      manager._compressionCoordinator.maybeCompress = async () => null;
-
-      await manager._compress();
-
-      expect(manager.messages).toEqual(beforeMessages);
-      expect(manager.tokenUsage.total).toBe(beforeTokens);
-      expect(manager._compressionHistory.length).toBe(1);
-      const record = manager._compressionHistory[0];
-      expect(record.beforeCount).toBe(beforeMessages.length);
-      expect(record.afterCount).toBe(beforeMessages.length);
-    });
-
-    it("_compress() aborts without recording when compression is canceled", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      manager.addMessages([
-        { role: "user", content: "hello" },
-        { role: "assistant", content: "world" },
-        { role: "assistant", content: "again" },
-      ]);
-
-      const beforeMessages = manager.messages.slice();
-      const beforeTokens = manager.tokenUsage.total;
-      let sawAbort = false;
-
-      manager._compressionCoordinator.maybeCompress = async (messages, { signal }) => {
-        manager._abortActiveCompression("manual");
-        sawAbort = signal.aborted;
-        return { messages: messages.slice(1) };
-      };
-
-      await manager._compress();
-
-      expect(sawAbort).toBe(true);
-      expect(manager.messages).toEqual(beforeMessages);
-      expect(manager.tokenUsage.total).toBe(beforeTokens);
-      expect(manager._compressionHistory.length).toBe(0);
-      expect(manager._compressionAbortController).toBe(null);
-    });
+    const compressSpy = vi.spyOn(manager, "_compress").mockResolvedValue();
+    manager.addMessages([{ content: "payload" }]);
+    await flushMicrotasks();
+    expect(compressSpy).toHaveBeenCalledTimes(1);
   });
 
-  describe("_recordCompression", () => {
-    it("records compression metrics and emits an event", () => {
-      const emitCalls = [];
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        emit: (name, payload) => emitCalls.push({ name, payload }),
-        stageName: "demo",
-        actor: "tester",
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      manager.addMessages([
-        { role: "user", content: "hi" },
-        { role: "assistant", content: "yo" },
-      ]);
-
-      manager._recordCompression(3, 9);
-
-      expect(manager._compressionHistory.length).toBe(1);
-      const record = manager._compressionHistory[0];
-      expect(record.beforeCount).toBe(3);
-      expect(record.afterCount).toBe(2);
-      expect(record.beforeTokens).toBe(9);
-      expect(record.afterTokens).toBe(manager.tokenUsage.total);
-      expect(record.timestamp).toBeTypeOf("number");
-      expect(emitCalls.length).toBe(1);
-      expect(emitCalls[0].name).toBe("demo.context.compressed");
-      expect(emitCalls[0].payload.actor).toBe("tester");
-      expect(emitCalls[0].payload.status).toBe("info");
-      expect(emitCalls[0].payload.payload).toBe(record);
-    });
+  it("throws when addMessages receives a non-iterable object", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    expect(() => manager.addMessages({})).toThrow();
   });
 
-  describe("flushCompression", () => {
-    it("flushCompression() runs bounded rounds and records compressions", async () => {
-      const emitCalls = [];
-      const emit = (name, payload) => emitCalls.push({ name, payload });
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        emit,
-        stageName: "demo",
-        actor: "bob",
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.1, compressCooldownMs: 0 },
-      });
+  it("marks superseded messages with clamped inclusive ranges", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.addMessages([{ content: "a" }, { content: "b" }, { content: "c" }]);
 
-      manager._compressionCoordinator.shouldCompress = () => manager._messages.length > 1;
-      manager._compressionCoordinator.maybeCompress = async (messages) => ({ messages: messages.slice(1) });
-
-      manager.addMessages([
-        { role: "user", content: "a" },
-        { role: "assistant", content: "b" },
-        { role: "assistant", content: "c" },
-      ]);
-
-      await manager.flushCompression({ maxRounds: 2 });
-      expect(manager.messages.length).toBe(1);
-      expect(manager.getStatus().compressionCount).toBe(2);
-      expect(emitCalls.map(e => e.name)).toContain("demo.context.compressed");
-    });
-
-    it("flushCompression() logs non-abort errors and suppresses abort-like errors", async () => {
-      const warnCalls = [];
-      const logger = { warn: (...args) => warnCalls.push(args) };
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        logger,
-        tokenCounter,
-        contextConfig: { contextWindow: 10, compressThreshold: 0.1, compressCooldownMs: 0 },
-      });
-
-      manager._compressionCoordinator.shouldCompress = () => true;
-      manager._compressionCoordinator.maybeCompress = async () => {
-        throw new Error("boom");
-      };
-
-      await manager.flushCompression({ maxRounds: 1 });
-      expect(warnCalls.length).toBe(1);
-      expect(warnCalls[0][1].error).toBe("boom");
-
-      warnCalls.length = 0;
-      manager._compressionCoordinator.maybeCompress = async () => {
-        const err = new Error("aborted");
-        err.name = "AbortError";
-        throw err;
-      };
-      await manager.flushCompression({ maxRounds: 1 });
-      expect(warnCalls.length).toBe(0);
-    });
-
-    it("_compress() no-ops when maybeCompress is missing, and flushCompression() tolerates previous failures", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.1, compressCooldownMs: 0 },
-      });
-
-      // Previous async compression failure should not break flushCompression.
-      manager._compressionPromise = Promise.reject(new Error("previous"));
-      await manager.flushCompression({ maxRounds: 0 });
-
-      // No maybeCompress => _compress returns early.
-      manager._compressionCoordinator.maybeCompress = null;
-      manager.addMessages([{ role: "user", content: "hello" }]);
-      await manager._compress();
-      expect(manager._compressionAbortController).toBe(null);
-    });
-
-    it("flushCompression does nothing when disposed", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      manager.dispose();
-      await manager.flushCompression();
-      // No exception means pass
-    });
-
-    it("flushCompression respects maxRounds even when still compressible", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.1, compressCooldownMs: 0 },
-      });
-
-      manager._compressionCoordinator.shouldCompress = () => false;
-      manager.addMessages([
-        { role: "user", content: "one" },
-        { role: "assistant", content: "two" },
-        { role: "assistant", content: "three" },
-        { role: "assistant", content: "four" },
-      ]);
-
-      manager._compressionCoordinator.shouldCompress = () => manager.messages.length > 1;
-      let compressCalls = 0;
-      manager._compressionCoordinator.maybeCompress = async (messages) => {
-        compressCalls += 1;
-        return { messages: messages.slice(1) };
-      };
-
-      await manager.flushCompression({ maxRounds: 2 });
-
-      expect(compressCalls).toBe(2);
-      expect(manager.messages.length).toBe(2);
-      expect(manager.getStatus().compressionCount).toBe(2);
-    });
+    const count = manager.markAsSuperseded(-1, Number.MAX_SAFE_INTEGER, "fix");
+    expect(count).toBe(3);
+    expect(manager.supersededCount).toBe(3);
+    expect(manager.messages[0]._supersededBy).toBe("fix");
   });
 
-  describe("wrapToolOutput and cleanOldOutputs", () => {
-    it("wrapToolOutput() and cleanOldOutputs() integrate persisted-output helpers", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 10_000, compressThreshold: 1, compressCooldownMs: 0 },
-      });
+  it("warns and returns 0 when correction is empty or whitespace", () => {
+    const logger = { warn: vi.fn() };
+    const manager = createManager({ logger, asyncSummaryEnabled: false });
+    manager.addMessages([{ content: "a" }]);
 
-      const small = manager.wrapToolOutput("small", { threshold: 1000 });
-      expect(small).toBe("small");
-
-      const large = manager.wrapToolOutput("x".repeat(50), { threshold: 10, previewSize: 5 });
-      expect(large).toContain("<persisted-output>");
-      expect(large).toContain("</persisted-output>");
-      expect(large).toContain("xxxxx");
-
-      const p1 = "<persisted-output>one</persisted-output>";
-      const p2 = "<persisted-output>two</persisted-output>";
-      const p3 = "<persisted-output>three</persisted-output>";
-      manager.addMessages([
-        { role: "assistant", content: p1 },
-        { role: "assistant", content: p2 },
-        { role: "assistant", content: p3 },
-        { role: "assistant", content: "hi" },
-      ]);
-
-      const before = manager.tokenUsage.total;
-      manager.cleanOldOutputs(1);
-      expect(manager.messages[0].content).toBe("[Old large output cleared to save context space]");
-      expect(manager.messages[1].content).toBe("[Old large output cleared to save context space]");
-      expect(manager.messages[2].content).toBe(p3);
-      expect(manager.messages[3].content).toBe("hi");
-
-      const clearedLen = "[Old large output cleared to save context space]".length;
-      const expected = clearedLen + clearedLen + p3.length + "hi".length;
-      expect(manager.tokenUsage.total).toBe(expected);
-      expect(manager.tokenUsage.total).not.toBe(before);
-    });
+    const count = manager.markAsSuperseded(0, 0, "   ");
+    expect(count).toBe(0);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
   });
 
-  // ==========================================================================
-  // 异步摘要竞态条件修复测试
-  // ==========================================================================
+  it("ignores invalid indices and empty history when marking superseded", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.addMessages([{ content: "a" }]);
+    expect(manager.markAsSuperseded("1", "2", "fix")).toBe(0);
+    expect(manager.markAsSuperseded(5, 6, "fix")).toBe(0);
 
-  describe("async summary race condition fixes", () => {
-    it("_compress() waits for pending summaries before compression", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      let summaryResolve;
-      const summaryPromise = new Promise((resolve) => {
-        summaryResolve = resolve;
-      });
-
-      const manager = new MessageManager({
-        tokenCounter,
-        asyncSummaryEnabled: true,
-        summaryGenerator: async (msg) => {
-          await summaryPromise;
-          return `Summary of: ${msg.content}`;
-        },
-        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      // 添加一条长消息触发异步摘要
-      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
-      manager.addMessage(msg);
-
-      // 此时摘要尚未完成
-      expect(msg._summary).toBe(undefined);
-      expect(manager._pendingSummaryPromises.size).toBe(1);
-
-      // 启动压缩（会等待摘要）
-      const compressPromise = manager._compress();
-
-      // 摘要仍未完成
-      expect(msg._summary).toBe(undefined);
-
-      // 完成摘要生成
-      summaryResolve();
-
-      // 等待压缩完成
-      await compressPromise;
-
-      // 摘要应该已生成
-      expect(msg._summary).toBe("Summary of: " + "x".repeat(300));
-    });
-
-    it("dispose() cancels pending summaries via AbortController", async () => {
-      const tokenCounter = { count: (text) => text.length };
-
-      const manager = new MessageManager({
-        tokenCounter,
-        asyncSummaryEnabled: true,
-        summaryGenerator: async () => {
-          // 模拟长时间操作
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          return "summary";
-        },
-        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      // 添加长消息触发摘要
-      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
-      manager.addMessage(msg);
-
-      // 等待摘要开始
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      // dispose 应该取消摘要
-      manager.dispose();
-
-      expect(manager._summaryAbortController).toBe(null);
-      expect(manager._pendingSummaryPromises.size).toBe(0);
-    });
-
-    it("_abortPendingSummaries() tolerates abort() failures", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      let callCount = 0;
-      const controller = {
-        abort: () => {
-          callCount++;
-          throw new Error("abort blocked");
-        },
-      };
-      manager._summaryAbortController = controller;
-      manager._pendingSummaryPromises.set("test", Promise.resolve());
-
-      expect(() => manager._abortPendingSummaries("test")).not.toThrow();
-      expect(callCount).toBe(2);
-      expect(manager._summaryAbortController).toBe(null);
-      expect(manager._pendingSummaryPromises.size).toBe(0);
-    });
-
-    it("_generateSummaryAsync respects abort signal", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      let generatorCalled = false;
-
-      const manager = new MessageManager({
-        tokenCounter,
-        asyncSummaryEnabled: true,
-        summaryGenerator: async () => {
-          generatorCalled = true;
-          return "summary";
-        },
-        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
-      const abortController = new AbortController();
-      abortController.abort();
-
-      await manager._generateSummaryAsync(msg, abortController.signal);
-
-      // 因为 signal 已经 aborted，不应该调用生成器
-      expect(generatorCalled).toBe(false);
-      expect(msg._summary).toBe(undefined);
-    });
-
-    it("_waitForPendingSummaries resolves immediately when no pending summaries", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      const start = Date.now();
-      await manager._waitForPendingSummaries();
-      const elapsed = Date.now() - start;
-
-      expect(elapsed).toBeLessThan(50);
-    });
-
-    it("_waitForPendingSummaries waits for all pending summaries", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      let resolved1 = false;
-      let resolved2 = false;
-
-      manager._pendingSummaryPromises.set("1", new Promise((resolve) => {
-        setTimeout(() => {
-          resolved1 = true;
-          resolve();
-        }, 20);
-      }));
-      manager._pendingSummaryPromises.set("2", new Promise((resolve) => {
-        setTimeout(() => {
-          resolved2 = true;
-          resolve();
-        }, 30);
-      }));
-
-      await manager._waitForPendingSummaries();
-
-      expect(resolved1).toBe(true);
-      expect(resolved2).toBe(true);
-    });
-
-    it("_waitForPendingSummaries tolerates errors in pending summaries", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      manager._pendingSummaryPromises.set("1", Promise.reject(new Error("boom")));
-      manager._pendingSummaryPromises.set("2", Promise.resolve());
-
-      // Should not throw
-      await manager._waitForPendingSummaries();
-    });
-
-    it("summary promise is removed from map after completion", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      let summaryResolve;
-      const summaryPromise = new Promise((resolve) => {
-        summaryResolve = resolve;
-      });
-
-      const manager = new MessageManager({
-        tokenCounter,
-        asyncSummaryEnabled: true,
-        summaryGenerator: async () => {
-          await summaryPromise;
-          return "summary";
-        },
-        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
-      manager.addMessage(msg);
-
-      expect(manager._pendingSummaryPromises.size).toBe(1);
-
-      summaryResolve();
-      // 等待摘要完成
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      expect(manager._pendingSummaryPromises.size).toBe(0);
-    });
+    const emptyManager = createManager({ asyncSummaryEnabled: false });
+    expect(emptyManager.markAsSuperseded(0, 0, "fix")).toBe(0);
   });
 
-  // ==========================================================================
-  // Token 缓存失效机制测试
-  // ==========================================================================
+  it("preserves existing superseded markers without double counting", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const message = { content: "a", _superseded: true };
+    manager.addMessages([message]);
 
-  describe("token cache invalidation", () => {
-    it("_computeContentHash() returns consistent hash for same content", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const content = "hello world";
-      const hash1 = manager._computeContentHash(content);
-      const hash2 = manager._computeContentHash(content);
-
-      expect(hash1).toBe(hash2);
-      expect(typeof hash1).toBe("number");
-    });
-
-    it("_computeContentHash() returns different hash for different content", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const hash1 = manager._computeContentHash("hello");
-      const hash2 = manager._computeContentHash("world");
-
-      expect(hash1).not.toBe(hash2);
-    });
-
-    it("_computeContentHash() handles null, undefined, and objects", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      expect(manager._computeContentHash(null)).toBe(0);
-      expect(manager._computeContentHash(undefined)).toBe(0);
-
-      const objHash = manager._computeContentHash({ key: "value" });
-      expect(typeof objHash).toBe("number");
-      expect(objHash).not.toBe(0);
-    });
-
-    it("_cacheTokenCount() stores token count with content hash", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { role: "user", content: "hello" };
-      manager._cacheTokenCount(msg, 5);
-
-      expect(msg._tokens).toBe(5);
-      expect(msg._contentHash).toBe(manager._computeContentHash("hello"));
-    });
-
-    it("_getCachedTokenCount() returns cached value when content unchanged", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { role: "user", content: "hello" };
-      manager._cacheTokenCount(msg, 5);
-
-      const cached = manager._getCachedTokenCount(msg);
-      expect(cached).toBe(5);
-    });
-
-    it("_getCachedTokenCount() returns undefined when content changed", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { role: "user", content: "hello" };
-      manager._cacheTokenCount(msg, 5);
-
-      // 修改消息内容
-      msg.content = "hello world";
-
-      const cached = manager._getCachedTokenCount(msg);
-      expect(cached).toBe(undefined);
-    });
-
-    it("_getCachedTokenCount() returns undefined when hash is missing", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { role: "user", content: "hello", _tokens: 5 };
-      // 没有 _contentHash
-
-      const cached = manager._getCachedTokenCount(msg);
-      expect(cached).toBe(undefined);
-    });
-
-    it("addMessage() caches token count with hash", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      const msg = { role: "user", content: "hello" };
-      manager.addMessage(msg);
-
-      expect(msg._tokens).toBe(5);
-      expect(msg._contentHash).toBe(manager._computeContentHash("hello"));
-    });
-
-    it("_recalculateTokenUsage() uses cached tokens when content unchanged", () => {
-      let callCount = 0;
-      const tokenCounter = { count: (text) => { callCount++; return text.length; } };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      const msg = { role: "user", content: "hello" };
-      manager.addMessage(msg);
-
-      const callsAfterAdd = callCount;
-
-      // 重算应使用缓存，不再调用 count
-      manager._recalculateTokenUsage();
-
-      expect(callCount).toBe(callsAfterAdd);
-      expect(manager.tokenUsage.total).toBe(5);
-    });
-
-    it("_recalculateTokenUsage() recounts tokens when content changed", () => {
-      let callCount = 0;
-      const tokenCounter = { count: (text) => { callCount++; return text.length; } };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      const msg = { role: "user", content: "hello" };
-      manager.addMessage(msg);
-
-      expect(manager.tokenUsage.total).toBe(5);
-
-      const callsAfterAdd = callCount;
-
-      // 修改消息内容
-      msg.content = "hello world";
-
-      // 重算应检测到 hash 不匹配，重新计数
-      manager._recalculateTokenUsage();
-
-      expect(callCount).toBeGreaterThan(callsAfterAdd);
-      expect(manager.tokenUsage.total).toBe(11); // "hello world".length
-      expect(msg._tokens).toBe(11);
-      expect(msg._contentHash).toBe(manager._computeContentHash("hello world"));
-    });
-
-    it("token cache correctly handles object content modification", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
-        asyncSummaryEnabled: false,
-      });
-
-      const originalContent = { text: "hello" };
-      const msg = { role: "user", content: originalContent };
-      manager.addMessage(msg);
-
-      const originalTokens = msg._tokens;
-      const originalHash = msg._contentHash;
-
-      // 修改对象内容
-      msg.content.text = "hello world updated";
-
-      // 缓存应失效
-      const cached = manager._getCachedTokenCount(msg);
-      expect(cached).toBe(undefined);
-
-      // 重算应更新
-      manager._recalculateTokenUsage();
-      expect(msg._tokens).not.toBe(originalTokens);
-      expect(msg._contentHash).not.toBe(originalHash);
-    });
+    const count = manager.markAsSuperseded(0, 0, "fix");
+    expect(count).toBe(0);
+    expect(message._supersededBy).toBe("fix");
   });
 
-  // ==========================================================================
-  // 异步摘要功能测试
-  // ==========================================================================
+  it("inserts correction messages with system role", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const signal = { correction: 123, severity: "minor", supersedeRange: null, timestamp: 1 };
 
-  describe("async summary features", () => {
-    it("_isThinkingMessage detects thinking messages", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      expect(manager._isThinkingMessage({ thinking: true })).toBe(true);
-      expect(manager._isThinkingMessage({ internal: true })).toBe(true);
-      expect(manager._isThinkingMessage({ type: "thinking" })).toBe(true);
-      expect(manager._isThinkingMessage({ content: "<think>foo</think>" })).toBe(true);
-      expect(manager._isThinkingMessage({ content: "<analysis>bar</analysis>" })).toBe(true);
-      expect(manager._isThinkingMessage({ content: "thoughts: something" })).toBe(true);
-      expect(manager._isThinkingMessage({ content: "internal: note" })).toBe(true);
-      expect(manager._isThinkingMessage({ content: "normal message" })).toBe(false);
-      expect(manager._isThinkingMessage(null)).toBe(false);
-      expect(manager._isThinkingMessage({})).toBe(false);
-    });
-
-    it("_shouldGenerateSummary returns false for short messages", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { role: "assistant", content: "short", _tokens: 10 };
-      expect(manager._shouldGenerateSummary(msg)).toBe(false);
-    });
-
-    it("_shouldGenerateSummary returns true for long messages", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { role: "assistant", content: "x".repeat(500), _tokens: 250 };
-      expect(manager._shouldGenerateSummary(msg)).toBe(true);
-    });
-
-    it("_shouldGenerateSummary returns false for messages with existing summary", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { role: "assistant", content: "x".repeat(500), _tokens: 250, _summary: "existing" };
-      expect(manager._shouldGenerateSummary(msg)).toBe(false);
-    });
-
-    it("_shouldGenerateSummary returns false for null/invalid messages", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      expect(manager._shouldGenerateSummary(null)).toBe(false);
-      expect(manager._shouldGenerateSummary(undefined)).toBe(false);
-      expect(manager._shouldGenerateSummary("string")).toBe(false);
-    });
-
-    it("_shouldGenerateSummary returns false for messages without content", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { role: "assistant", _tokens: 250 };
-      expect(manager._shouldGenerateSummary(msg)).toBe(false);
-    });
-
-    it("_generateBuiltinSummary generates summary for thinking messages with decisions", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = {
-        thinking: true,
-        content: "决定使用方案A\n分析完成\n确定采用这个方法",
-      };
-      const summary = manager._generateBuiltinSummary(msg);
-      expect(summary).toContain("[决策]");
-    });
-
-    it("_generateBuiltinSummary generates summary for thinking messages without decisions", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = {
-        thinking: true,
-        content: "This is a thinking message without clear decisions",
-      };
-      const summary = manager._generateBuiltinSummary(msg);
-      expect(summary).toContain("[Thinking]");
-    });
-
-    it("_generateBuiltinSummary generates summary for long content", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { content: "x".repeat(300) };
-      const summary = manager._generateBuiltinSummary(msg);
-      expect(summary).toContain("...");
-      expect(summary.length).toBeLessThan(200);
-    });
-
-    it("_generateBuiltinSummary returns null for short content", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { content: "short" };
-      const summary = manager._generateBuiltinSummary(msg);
-      expect(summary).toBe(null);
-    });
-
-    it("_generateBuiltinSummary returns null for empty content", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const msg = { content: "" };
-      const summary = manager._generateBuiltinSummary(msg);
-      expect(summary).toBe(null);
-    });
-
-    it("setSummaryGenerator updates custom generator", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      const generator = async (msg) => "custom summary";
-      manager.setSummaryGenerator(generator);
-      expect(manager._summaryGenerator).toBe(generator);
-    });
-
-    it("setAsyncSummaryEnabled toggles async summary", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter });
-
-      manager.setAsyncSummaryEnabled(true);
-      expect(manager._asyncSummaryEnabled).toBe(true);
-
-      manager.setAsyncSummaryEnabled(false);
-      expect(manager._asyncSummaryEnabled).toBe(false);
-    });
-
-    it("_generateSummaryAsync swallows summaryGenerator errors", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        asyncSummaryEnabled: true,
-        summaryGenerator: async () => {
-          throw new Error("summary failed");
-        },
-        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
-      await manager._generateSummaryAsync(msg);
-
-      expect(msg._summary).toBe(undefined);
-      expect(msg._summaryTokens).toBe(undefined);
-    });
-
-    it("_scheduleAsyncSummary cleans up after summaryGenerator rejection", async () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({
-        tokenCounter,
-        asyncSummaryEnabled: true,
-        summaryGenerator: async () => {
-          throw new Error("boom");
-        },
-        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
-      });
-
-      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
-      manager.addMessage(msg);
-      expect(manager._pendingSummaryPromises.size).toBe(1);
-
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      expect(manager._pendingSummaryPromises.size).toBe(0);
-      expect(msg._summary).toBe(undefined);
-    });
+    const message = manager.insertCorrectionMessage(signal);
+    expect(message.role).toBe("system");
+    expect(message.type).toBe("dmail_correction");
+    expect(message.content).toBe("123");
+    expect(message._dmail).toBe(signal);
+    expect(manager.messages[0]).toBe(message);
   });
 
-  // ==========================================================================
-  // 边缘情况测试
-  // ==========================================================================
+  it("returns active messages with optional superseded inclusion", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.addMessages([
+      { content: "a", _superseded: true },
+      { content: "b" },
+    ]);
 
-  describe("edge cases", () => {
-    it("handles empty messages array in addMessages", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter, asyncSummaryEnabled: false });
+    expect(manager.getActiveMessages()).toEqual([manager.messages[1]]);
 
-      manager.addMessages([]);
-      expect(manager.messages.length).toBe(0);
+    const all = manager.getActiveMessages({ includeSuperseded: true });
+    expect(all).toHaveLength(2);
+    all.pop();
+    expect(manager.messages).toHaveLength(2);
+
+    const filtered = manager.getActiveMessages({ includeSuperseded: "true" });
+    expect(filtered).toHaveLength(1);
+  });
+
+  it("resets state and preserves history when requested", async () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.addMessages([{ content: "a" }, { content: "b", _superseded: true }]);
+    manager._compressionHistory.push({ timestamp: 1, beforeCount: 2, afterCount: 1, beforeTokens: 2, afterTokens: 1 });
+    manager._pendingSummaryPromises.set("1", Promise.resolve());
+    manager._summaryAbortController = new AbortController();
+
+    await manager.reset({ clearCompressionHistory: false });
+
+    expect(manager.messages).toEqual([]);
+    expect(manager.tokenUsage).toEqual({ input: 0, output: 0, total: 0 });
+    expect(manager.supersededCount).toBe(0);
+    expect(manager._compressionHistory).toHaveLength(1);
+    expect(manager._pendingSummaryPromises.size).toBe(0);
+    expect(manager._summaryAbortController).toBeNull();
+  });
+
+  it("reports errors thrown during reset compression flush", async () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.flushCompression = vi.fn(async () => {
+      throw new Error("flush failed");
     });
 
-    it("handles message without content property", () => {
-      const tokenCounter = { count: (text) => (text ? text.length : 0) };
-      const manager = new MessageManager({ tokenCounter, asyncSummaryEnabled: false });
+    await manager.reset();
+    expect(errorReporterMocks.report).toHaveBeenCalled();
+  });
 
-      const msg = { role: "user" };
-      manager.addMessage(msg);
-      expect(manager.messages.length).toBe(1);
+  it("recalculates token usage using cached and updated content", () => {
+    const tokenCounter = { count: vi.fn((text) => String(text).length) };
+    const manager = createManager({ tokenCounter, asyncSummaryEnabled: false });
+    const message = { content: "hello" };
+    manager.addMessage(message);
+
+    manager._tokenUsage = { input: 0, output: 0, total: 0 };
+    sharedMocks.estimateTokensCached.mockClear();
+    manager._recalculateTokenUsage();
+    expect(manager.tokenUsage.total).toBe(5);
+    expect(sharedMocks.estimateTokensCached).not.toHaveBeenCalled();
+
+    message.content = "changed";
+    manager._recalculateTokenUsage();
+    expect(message._tokens).toBe("changed".length);
+  });
+
+  it("recalculates superseded count", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.addMessages([
+      { content: "a", _superseded: true },
+      { content: "b" },
+      { content: "c", _superseded: true },
+    ]);
+
+    manager._supersededCount = 0;
+    manager._recalculateSupersededCount();
+    expect(manager.supersededCount).toBe(2);
+  });
+
+  it("computes content hashes for null, empty, deep, and circular values", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    expect(manager._computeContentHash(null)).toBe(0);
+    expect(manager._computeContentHash("")).toBe(0);
+
+    const deep = createDeepNested(20);
+    expect(typeof manager._computeContentHash(deep)).toBe("number");
+
+    const circular = {};
+    circular.self = circular;
+    expect(typeof manager._computeContentHash(circular)).toBe("number");
+  });
+
+  it("caches token counts and validates cache by content hash", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const message = { content: "abc" };
+
+    manager._cacheTokenCount(message, 3);
+    expect(manager._getCachedTokenCount(message)).toBe(3);
+
+    message.content = "abcd";
+    expect(manager._getCachedTokenCount(message)).toBeUndefined();
+  });
+
+  it("uses compression coordinator when available and falls back to thresholds", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    compressionMocks.shouldCompress.mockReturnValue(true);
+    expect(manager._shouldCompress()).toBe(true);
+
+    manager._compressionCoordinator = null;
+    manager._contextConfig = { contextWindow: 10, compressThreshold: 0.5 };
+    manager._tokenUsage.total = 5;
+    expect(manager._shouldCompress()).toBe(true);
+    manager._tokenUsage.total = 4;
+    expect(manager._shouldCompress()).toBe(false);
+  });
+
+  it("clears cooldown timers safely", async () => {
+    vi.useFakeTimers();
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const fn = vi.fn();
+    manager._compressionCooldownTimer = setTimeout(fn, 50);
+
+    manager._clearCooldownTimer();
+    vi.advanceTimersByTime(50);
+    expect(fn).not.toHaveBeenCalled();
+    expect(manager._compressionCooldownTimer).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("aborts active compression controllers", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const controller = new AbortController();
+    manager._compressionAbortController = controller;
+
+    manager._abortActiveCompression("stop");
+    expect(controller.signal.aborted).toBe(true);
+    expect(manager._compressionAbortController).toBeNull();
+  });
+
+  it("handles abort detection for common error shapes", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+
+    const abortError = new Error("aborted");
+    abortError.name = "AbortError";
+    expect(manager._isAbortError(abortError)).toBe(true);
+
+    const cancelError = { code: "CanceledError", message: "canceled" };
+    expect(manager._isAbortError(cancelError)).toBe(true);
+
+    expect(manager._isAbortError(new Error("Operation aborted"))).toBe(true);
+    expect(manager._isAbortError(new Error("boom"))).toBe(false);
+    expect(manager._isAbortError(null)).toBe(false);
+  });
+
+  it("schedules compression once for rapid consecutive calls", async () => {
+    compressionMocks.shouldCompress.mockReturnValue(true);
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const compressSpy = vi.spyOn(manager, "_compress").mockResolvedValue();
+
+    manager._scheduleCompression();
+    manager._scheduleCompression();
+    await flushMicrotasks();
+
+    expect(compressSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("respects compression cooldown delays", async () => {
+    vi.useFakeTimers();
+    compressionMocks.shouldCompress.mockReturnValue(true);
+    const manager = createManager({
+      asyncSummaryEnabled: false,
+      contextConfig: { compressCooldownMs: 20 },
+    });
+    const compressSpy = vi.spyOn(manager, "_compress").mockResolvedValue();
+
+    vi.setSystemTime(1000);
+    manager._lastCompressionAtMs = 990;
+    manager._scheduleCompression();
+
+    expect(manager._compressionPending).toBe(false);
+    expect(manager._compressionCooldownTimer).not.toBeNull();
+
+    vi.advanceTimersByTime(20);
+    await flushMicrotasks();
+
+    expect(compressSpy).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("flushes compression rounds up to maxRounds and logs errors", async () => {
+    const logger = { warn: vi.fn() };
+    const manager = createManager({ logger, asyncSummaryEnabled: false });
+
+    let calls = 0;
+    compressionMocks.shouldCompress.mockImplementation(() => {
+      calls += 1;
+      return calls <= 2;
     });
 
-    it("handles message with undefined content", () => {
-      const tokenCounter = { count: (text) => (text ? text.length : 0) };
-      const manager = new MessageManager({ tokenCounter, asyncSummaryEnabled: false });
+    const compressSpy = vi.spyOn(manager, "_compress").mockResolvedValue();
+    await manager.flushCompression({ maxRounds: 5 });
+    expect(compressSpy).toHaveBeenCalledTimes(2);
 
-      const msg = { role: "user", content: undefined };
-      manager.addMessage(msg);
-      expect(manager.messages.length).toBe(1);
-      expect(msg._tokens).toBe(0);
+    compressionMocks.shouldCompress.mockReturnValue(true);
+    compressSpy.mockRejectedValue(new Error("boom"));
+    await manager.flushCompression({ maxRounds: 1 });
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("waits for pending summaries and records compression updates", async () => {
+    const emit = vi.fn();
+    const manager = createManager({ asyncSummaryEnabled: false, emit });
+    manager.addMessages([{ content: "hello" }, { content: "bye", _superseded: true }]);
+
+    const deferred = createDeferred();
+    manager._pendingSummaryPromises.set("1", deferred.promise);
+
+    const compressPromise = manager._compress();
+    expect(compressionMocks.maybeCompress).not.toHaveBeenCalled();
+
+    deferred.resolve();
+    await compressPromise;
+
+    expect(compressionMocks.maybeCompress).toHaveBeenCalledTimes(1);
+    expect(manager._compressionHistory).toHaveLength(1);
+    expect(emit).toHaveBeenCalled();
+  });
+
+  it("skips compression updates when aborted", async () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.addMessages([{ content: "hello" }]);
+
+    compressionMocks.maybeCompress.mockImplementation(async () => {
+      manager._compressionAbortController.abort("stop");
+      return { messages: [{ content: "new" }] };
     });
 
-    it("tokenUsage getter returns a copy", () => {
-      const tokenCounter = { count: (text) => text.length };
-      const manager = new MessageManager({ tokenCounter, asyncSummaryEnabled: false });
+    await manager._compress();
+    expect(manager.messages[0].content).toBe("hello");
+    expect(manager._compressionHistory).toHaveLength(0);
+  });
 
-      manager.addMessage({ role: "user", content: "hello" });
-      const usage = manager.tokenUsage;
-      usage.total = 9999;
+  it("reports errors when waiting for pending summaries", async () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const err = new Error("fail");
+    manager._pendingSummaryPromises.set("1", Promise.reject(err));
 
-      expect(manager.tokenUsage.total).not.toBe(9999);
+    await manager._waitForPendingSummaries();
+    expect(errorReporterMocks.report).toHaveBeenCalledWith(err, "_waitForPendingSummaries");
+  });
+
+  it("records compression metadata and emits events", () => {
+    const emit = vi.fn();
+    const manager = createManager({ emit, asyncSummaryEnabled: false });
+    manager._tokenUsage.total = 7;
+    manager._recordCompression(2, 5);
+
+    expect(manager._compressionHistory).toHaveLength(1);
+    const record = manager._compressionHistory[0];
+    expect(record.beforeCount).toBe(2);
+    expect(record.afterTokens).toBe(7);
+    expect(typeof record.timestamp).toBe("number");
+    expect(emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns status snapshots", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.addMessage({ content: "hello" });
+    const status = manager.getStatus();
+
+    expect(status.messageCount).toBe(1);
+    expect(status.tokenUsage.total).toBe(5);
+    expect(status.contextWindow).toBe(1000);
+    expect(status.fillRatio).toBeCloseTo(0.005);
+  });
+
+  it("wraps tool output using persisted output helpers", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const output = manager.wrapToolOutput("data", { threshold: 5 });
+
+    expect(output).toBe("wrapped:data:5");
+    expect(persistedMocks.wrapPersistedOutput).toHaveBeenCalledWith("data", { threshold: 5 });
+  });
+
+  it("cleans old outputs and recomputes counts", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.addMessages([
+      { content: "first", _superseded: true },
+      { content: "second" },
+      { content: "third" },
+    ]);
+
+    persistedMocks.cleanOldPersistedOutputs.mockImplementation((messages) => messages.slice(-1));
+    manager.cleanOldOutputs();
+
+    expect(manager.messages).toHaveLength(1);
+    expect(manager.supersededCount).toBe(0);
+    expect(persistedMocks.cleanOldPersistedOutputs).toHaveBeenCalledWith(
+      expect.any(Array),
+      persistedMocks.KEEP_RECENT_OUTPUTS,
+    );
+  });
+
+  it("decides whether to generate summaries based on content and tokens", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+
+    const msg = { content: "short", _tokens: 99 };
+    expect(manager._shouldGenerateSummary(msg)).toBe(false);
+
+    const thinking = { content: "think", _tokens: 100, thinking: true };
+    expect(manager._shouldGenerateSummary(thinking)).toBe(true);
+
+    const long = { content: "long", _tokens: 201 };
+    expect(manager._shouldGenerateSummary(long)).toBe(true);
+
+    manager._pendingSummaries.add(long);
+    expect(manager._shouldGenerateSummary(long)).toBe(false);
+  });
+
+  it("detects thinking messages from flags and content patterns", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+
+    expect(manager._isThinkingMessage({ thinking: true, content: "x" })).toBe(true);
+    expect(manager._isThinkingMessage({ internal: true, content: "x" })).toBe(true);
+    expect(manager._isThinkingMessage({ type: "thinking", content: "x" })).toBe(true);
+    expect(manager._isThinkingMessage({ content: "<think>plan" })).toBe(true);
+    expect(manager._isThinkingMessage({ content: "analysis: plan" })).toBe(true);
+    expect(manager._isThinkingMessage({ content: "   " })).toBe(false);
+    expect(manager._isThinkingMessage(null)).toBe(false);
+  });
+
+  it("tracks concurrent async summaries and sets tokens", async () => {
+    const deferred1 = createDeferred();
+    const deferred2 = createDeferred();
+    const summaryGenerator = vi.fn()
+      .mockReturnValueOnce(deferred1.promise)
+      .mockReturnValueOnce(deferred2.promise);
+
+    const manager = createManager({ summaryGenerator });
+    const msg1 = { content: "one", _tokens: 200 };
+    const msg2 = { content: "two", _tokens: 200 };
+
+    manager._scheduleAsyncSummary(msg1);
+    manager._scheduleAsyncSummary(msg2);
+    expect(manager._pendingSummaryPromises.size).toBe(2);
+
+    deferred1.resolve("sum1");
+    deferred2.resolve("sum2");
+    await manager._waitForPendingSummaries();
+
+    expect(msg1._summary).toBe("sum1");
+    expect(msg2._summary).toBe("sum2");
+    expect(msg1._summaryTokens).toBe(4);
+    expect(manager._pendingSummaryPromises.size).toBe(0);
+  });
+
+  it("generates summaries asynchronously and handles aborts/errors", async () => {
+    const summaryGenerator = vi.fn().mockResolvedValue("generated");
+    const manager = createManager({ summaryGenerator });
+    const message = { content: "content" };
+
+    await manager._generateSummaryAsync(message);
+    expect(message._summary).toBe("generated");
+
+    const controller = new AbortController();
+    controller.abort();
+    const blockedMessage = { content: "blocked" };
+    await manager._generateSummaryAsync(blockedMessage, controller.signal);
+    expect(blockedMessage._summary).toBeUndefined();
+
+    summaryGenerator.mockRejectedValue(new Error("bad"));
+    await manager._generateSummaryAsync({ content: "error" });
+    expect(errorReporterMocks.report).toHaveBeenCalled();
+  });
+
+  it("uses builtin summary generation when no custom generator is set", async () => {
+    const manager = createManager({ summaryGenerator: null });
+    const message = { content: "x".repeat(250) };
+
+    await manager._generateSummaryAsync(message);
+    expect(typeof message._summary).toBe("string");
+  });
+
+  it("creates builtin summaries for thinking and long messages", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+
+    const thinkingMessage = {
+      thinking: true,
+      content: "Decide to ship\nConclusion: done",
+    };
+    const decisionSummary = manager._generateBuiltinSummary(thinkingMessage);
+    expect(decisionSummary.startsWith("[决策]"))
+      .toBe(true);
+
+    const thinkingFallback = manager._generateBuiltinSummary({
+      type: "thinking",
+      content: "random thoughts",
     });
+    expect(thinkingFallback.startsWith("[Thinking]"))
+      .toBe(true);
+
+    const longContent = "a".repeat(250);
+    const longSummary = manager._generateBuiltinSummary({ content: longContent });
+    expect(longSummary).toContain(" ... ");
+
+    const shortSummary = manager._generateBuiltinSummary({ content: "short" });
+    expect(shortSummary).toBeNull();
+  });
+
+  it("updates summary generator and async summary enabled flags", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const generator = vi.fn();
+
+    manager.setSummaryGenerator(generator);
+    manager.setAsyncSummaryEnabled(true);
+
+    expect(manager._summaryGenerator).toBe(generator);
+    expect(manager._asyncSummaryEnabled).toBe(true);
+  });
+
+  it("disposes timers, compression, and summaries", () => {
+    vi.useFakeTimers();
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const timerSpy = vi.fn();
+    manager._compressionCooldownTimer = setTimeout(timerSpy, 50);
+    const compressionController = new AbortController();
+    manager._compressionAbortController = compressionController;
+    manager._summaryAbortController = new AbortController();
+    manager._pendingSummaryPromises.set("1", Promise.resolve());
+    manager._compressionPending = true;
+
+    manager.dispose();
+
+    expect(manager._disposed).toBe(true);
+    expect(manager._compressionAbortController).toBeNull();
+    expect(compressionController.signal.aborted).toBe(true);
+    expect(manager._summaryAbortController).toBeNull();
+    expect(manager._pendingSummaryPromises.size).toBe(0);
+    expect(manager._compressionPending).toBe(false);
+
+    vi.advanceTimersByTime(50);
+    expect(timerSpy).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("aborts pending summaries and clears tracking", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    const controller = new AbortController();
+    manager._summaryAbortController = controller;
+    manager._pendingSummaryPromises.set("1", Promise.resolve());
+
+    manager._abortPendingSummaries("reset");
+    expect(controller.signal.aborted).toBe(true);
+    expect(manager._summaryAbortController).toBeNull();
+    expect(manager._pendingSummaryPromises.size).toBe(0);
+  });
+
+  it("falls back to fallback logger for empty correction when no logger provided", () => {
+    const manager = createManager({ asyncSummaryEnabled: false });
+    manager.addMessages([{ content: "a" }]);
+
+    const count = manager.markAsSuperseded(0, 0, "");
+    expect(count).toBe(0);
+    expect(fallbackLogger.warn).toHaveBeenCalled();
+  });
+
+  it("runs compression immediately when cooldown is negative", async () => {
+    compressionMocks.shouldCompress.mockReturnValue(true);
+    const manager = createManager({ asyncSummaryEnabled: false, contextConfig: { compressCooldownMs: -1 } });
+    const compressSpy = vi.spyOn(manager, "_compress").mockResolvedValue();
+
+    manager._scheduleCompression();
+    await flushMicrotasks();
+
+    expect(compressSpy).toHaveBeenCalledTimes(1);
   });
 });

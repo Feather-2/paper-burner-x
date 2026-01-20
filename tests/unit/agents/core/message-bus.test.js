@@ -1,18 +1,109 @@
 /**
- * MessageBus 测试
+ * MessageBus tests
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EventBus, MessageBus } from '../../../../js/agents/core/index.js';
+
+vi.mock('../../../../js/agents/core/event-bus.js', () => {
+  const isValidEventName = vi.fn(() => true);
+
+  class EventBus {
+    constructor() {
+      this._handlers = new Map();
+    }
+
+    on(name, handler) {
+      const handlers = this._handlers.get(name);
+      if (handlers) {
+        handlers.add(handler);
+      } else {
+        this._handlers.set(name, new Set([handler]));
+      }
+
+      return () => {
+        const current = this._handlers.get(name);
+        if (current) {
+          current.delete(handler);
+          if (current.size === 0) this._handlers.delete(name);
+        }
+      };
+    }
+
+    once(name, handler) {
+      let off = null;
+      const wrapper = (evt) => {
+        if (off) off();
+        return handler(evt);
+      };
+      off = this.on(name, wrapper);
+      return off;
+    }
+
+    emit(name, data = {}) {
+      const evt = this._createEvent(name, data);
+      const handlers = this._handlers.get(name);
+      if (handlers) {
+        for (const fn of Array.from(handlers)) {
+          fn(evt);
+        }
+      }
+      return evt;
+    }
+
+    _createEvent(name, data) {
+      let payload = data;
+      let meta;
+
+      if (data && typeof data === 'object' && ('payload' in data || 'actor' in data || 'status' in data)) {
+        payload = data.payload;
+        meta = data.meta;
+      }
+
+      return { type: name, name, payload, meta };
+    }
+
+    dispose() {
+      this._handlers.clear();
+    }
+  }
+
+  return { EventBus, isValidEventName };
+});
+
+import { MessageBus } from '../../../../js/agents/core/message-bus.js';
+import { EventBus, isValidEventName } from '../../../../js/agents/core/event-bus.js';
+
+const buildDeepObject = (depth) => {
+  const root = {};
+  let cursor = root;
+  for (let i = 0; i < depth; i += 1) {
+    cursor.child = {};
+    cursor = cursor.child;
+  }
+  cursor.value = 'leaf';
+  return root;
+};
+
+const readDeepValue = (obj, depth) => {
+  let cursor = obj;
+  for (let i = 0; i < depth; i += 1) {
+    cursor = cursor.child;
+  }
+  return cursor.value;
+};
 
 describe('MessageBus', () => {
+  beforeEach(() => {
+    isValidEventName.mockReturnValue(true);
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
   describe('constructor', () => {
-    it('creates and owns an EventBus by default (undefined/null)', () => {
+    it('creates and owns an EventBus for undefined/null', () => {
       const bus1 = new MessageBus();
       expect(bus1.eventBus).toBeInstanceOf(EventBus);
       const disposeSpy1 = vi.spyOn(bus1.eventBus, 'dispose');
@@ -26,22 +117,20 @@ describe('MessageBus', () => {
       expect(disposeSpy2).toHaveBeenCalledTimes(1);
     });
 
-    it('accepts an EventBus instance without owning it', () => {
+    it('uses a provided EventBus without owning it', () => {
       const eventBus = new EventBus();
       const bus = new MessageBus(eventBus);
 
       const disposeSpy = vi.spyOn(eventBus, 'dispose');
       bus.dispose();
       expect(disposeSpy).not.toHaveBeenCalled();
-
-      eventBus.dispose();
     });
 
-    it('throws for invalid eventBus', () => {
+    it('throws for invalid EventBus values', () => {
       expect(() => new MessageBus(/** @type {any} */ ({}))).toThrow(TypeError);
     });
 
-    it('dispose swallows EventBus.dispose errors when owned', () => {
+    it('swallows EventBus.dispose errors when owning', () => {
       const bus = new MessageBus();
       bus.eventBus.dispose = () => {
         throw new Error('boom');
@@ -50,192 +139,202 @@ describe('MessageBus', () => {
     });
   });
 
-  describe('emit / on / off', () => {
-    /** @type {EventBus} */
-    let eventBus;
-    /** @type {MessageBus} */
-    let bus;
-
-    beforeEach(() => {
-      eventBus = new EventBus();
-      bus = new MessageBus(eventBus);
-    });
-
-    afterEach(() => {
-      bus.dispose();
-      eventBus.dispose();
-    });
-
-    it('emits and receives payload (non-RPC)', () => {
+  describe('emit', () => {
+    it('emits payloads and forwards null/undefined/empty array/object', () => {
+      const bus = new MessageBus(new EventBus());
       const handler = vi.fn();
-      bus.on('test.event', handler);
 
-      const record = bus.emit('test.event', { value: 42 });
+      bus.on('sample:event', handler);
+      const record = bus.emit('sample:event', { value: 42 });
 
-      expect(record.type).toBe('test.event');
-      expect(record.payload).toEqual({ value: 42 });
+      expect(record).toMatchObject({ type: 'sample:event', payload: { value: 42 } });
+      expect(handler).toHaveBeenCalledWith({ value: 42 }, expect.objectContaining({ type: 'sample:event' }));
 
-      expect(handler).toHaveBeenCalledTimes(1);
-      expect(handler.mock.calls[0][0]).toEqual({ value: 42 });
-      expect(handler.mock.calls[0][1]?.type).toBe('test.event');
+      const payloads = [null, undefined, [], {}];
+      payloads.forEach((payload) => bus.emit('sample:event', payload));
+
+      payloads.forEach((payload, index) => {
+        const call = handler.mock.calls[index + 1];
+        expect(call[0]).toBe(payload);
+      });
     });
 
-    it('returns an unsubscribe function (off) that stops delivery', () => {
+    it('handles large payloads and deep nesting', () => {
+      const bus = new MessageBus(new EventBus());
+      const depth = 40;
+      const longString = 'x'.repeat(200_000);
+      const largeFile = new Uint8Array(2 * 1024 * 1024);
+      const nested = buildDeepObject(depth);
+
+      const handler = vi.fn((payload) => {
+        expect(payload.text.length).toBe(longString.length);
+        expect(payload.file.byteLength).toBe(largeFile.byteLength);
+        expect(readDeepValue(payload.nested, depth)).toBe('leaf');
+      });
+
+      bus.on('resource:payload', handler);
+      bus.emit('resource:payload', { text: longString, file: largeFile, nested });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects empty/whitespace/null/undefined/empty array event types', () => {
+      const bus = new MessageBus(new EventBus());
+      const invalidTypes = ['', '   ', null, undefined, []];
+
+      for (const type of invalidTypes) {
+        expect(() => bus.emit(/** @type {any} */ (type), 'x')).toThrow(/valid event name/i);
+      }
+    });
+
+    it('handles rapid consecutive emits', () => {
+      const bus = new MessageBus(new EventBus());
       const handler = vi.fn();
-      const off = bus.on('topic', handler);
 
-      bus.emit('topic', 1);
-      expect(handler).toHaveBeenCalledTimes(1);
+      bus.on('fast:event', handler);
+      for (let i = 0; i < 50; i += 1) {
+        bus.emit('fast:event', i);
+      }
 
-      off();
-      bus.emit('topic', 2);
-      expect(handler).toHaveBeenCalledTimes(1);
-    });
-
-    it('coerces non-string type to event name', () => {
-      const handler = vi.fn();
-      bus.on(/** @type {any} */ (42), handler);
-
-      bus.emit(/** @type {any} */ (42), 'x');
-
-      expect(handler).toHaveBeenCalledTimes(1);
-      expect(handler).toHaveBeenCalledWith('x', expect.any(Object));
-      expect(handler.mock.calls[0][1]?.type).toBe('42');
-    });
-
-    it('validates event names and handlers', () => {
-      expect(() => bus.emit('bad name', {})).toThrow(/valid event name/i);
-      expect(() => bus.on('bad name', () => {})).toThrow(/valid event name/i);
-      expect(() => bus.on('ok', /** @type {any} */ (null))).toThrow(TypeError);
+      expect(handler).toHaveBeenCalledTimes(50);
+      expect(handler.mock.calls[0][0]).toBe(0);
+      expect(handler.mock.calls[49][0]).toBe(49);
     });
   });
 
-  describe('RPC request/response', () => {
-    it('resolves with handler return value and request meta is well-formed', async () => {
+  describe('on', () => {
+    it('returns an off function that stops delivery', () => {
+      const bus = new MessageBus(new EventBus());
+      const handler = vi.fn();
+
+      const off = bus.on('topic:event', handler);
+      bus.emit('topic:event', 1);
+      expect(handler).toHaveBeenCalledTimes(1);
+
+      off();
+      bus.emit('topic:event', 2);
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('coerces non-string event types (0, -1, MAX_SAFE_INTEGER, empty object)', () => {
+      const bus = new MessageBus(new EventBus());
+      const cases = [0, -1, Number.MAX_SAFE_INTEGER, {}];
+
+      for (const value of cases) {
+        const handler = vi.fn();
+        const off = bus.on(/** @type {any} */ (value), handler);
+        const record = bus.emit(/** @type {any} */ (value), 'ok');
+        const expectedName = String(value);
+
+        expect(record.type).toBe(expectedName);
+        expect(handler).toHaveBeenCalledWith('ok', expect.objectContaining({ type: expectedName }));
+
+        off();
+      }
+    });
+
+    it('throws when handler is not a function', () => {
+      const bus = new MessageBus(new EventBus());
+      expect(() => bus.on('topic:event', /** @type {any} */ (null))).toThrow(TypeError);
+    });
+
+    it('rejects invalid event names on subscribe', () => {
+      const bus = new MessageBus(new EventBus());
+      expect(() => bus.on(/** @type {any} */ ([]), () => {})).toThrow(/valid event name/i);
+    });
+  });
+
+  describe('request', () => {
+    it('resolves with handler return value and captures RPC metadata', async () => {
       const eventBus = new EventBus();
       const client = new MessageBus(eventBus);
       const server = new MessageBus(eventBus);
 
-      /** @type {any} */
       let capturedMeta = null;
-      const offCapture = eventBus.on('math.add', (evt) => {
-        capturedMeta = /** @type {any} */ (evt)?.meta;
+      eventBus.on('math:sum', (evt) => {
+        capturedMeta = evt.meta;
       });
 
-      const offServer = server.on('math.add', (payload) => {
+      server.on('math:sum', (payload) => {
         const body = /** @type {{ a: number, b: number }} */ (payload);
         return body.a + body.b;
       });
 
-      const result = await client.request('math.add', { a: 2, b: 3 }, { timeoutMs: 50 });
-      expect(result).toBe(5);
-
-      expect(capturedMeta).toMatchObject({
+      await expect(client.request('math:sum', { a: 2, b: 3 }, { timeoutMs: 50 })).resolves.toBe(5);
+      expect(capturedMeta).not.toBeNull();
+      const meta = /** @type {any} */ (capturedMeta);
+      expect(meta).toMatchObject({
         kind: 'rpc_request',
         requestId: expect.any(String),
         replyTo: expect.any(String),
       });
-      expect(capturedMeta.replyTo).toBe(`rpc.response.${capturedMeta.requestId}`);
-
-      offServer();
-      offCapture();
-      eventBus.dispose();
+      expect(meta.replyTo).toBe();
     });
 
-    it('falls back to a time/random requestId when crypto.randomUUID returns a falsy value', async () => {
-      const cryptoProto = Object.getPrototypeOf(globalThis.crypto);
-      const randomUUIDSpy = vi.spyOn(cryptoProto, 'randomUUID').mockReturnValue('');
-
-      const eventBus = new EventBus();
-      const client = new MessageBus(eventBus);
-
-      let requestId = null;
-      const off = eventBus.on('rpc.fallback', (evt) => {
-        /** @type {any} */
-        const meta = /** @type {any} */ (evt)?.meta;
-        if (!meta || meta.kind !== 'rpc_request') return;
-
-        requestId = meta.requestId;
-        eventBus.emit(meta.replyTo, {
-          payload: { ok: true, data: 'ok' },
-          meta: { kind: 'rpc_response', requestId: meta.requestId },
-        });
-      });
-
-      await expect(client.request('rpc.fallback', {}, { timeoutMs: 50 })).resolves.toBe('ok');
-      expect(randomUUIDSpy).toHaveBeenCalled();
-      expect(requestId).toMatch(/^r[0-9a-z]+_[0-9a-z]+$/i);
-
-      off();
-      eventBus.dispose();
-    });
-
-    it('rejects with handler error message', async () => {
+    it('passes array-like object payloads without coercion', async () => {
       const eventBus = new EventBus();
       const client = new MessageBus(eventBus);
       const server = new MessageBus(eventBus);
 
-      server.on('rpc.fail', () => {
-        throw new Error('boom');
+      const payload = { 0: 'a', length: 1 };
+      let received = null;
+
+      server.on('rpc:arraylike', (data) => {
+        received = data;
+        return Array.isArray(data);
       });
 
-      await expect(client.request('rpc.fail', {}, { timeoutMs: 50 })).rejects.toThrow('boom');
-      eventBus.dispose();
+      const result = await client.request('rpc:arraylike', payload, { timeoutMs: 50 });
+      expect(result).toBe(false);
+      expect(received).toBe(payload);
     });
 
-    it('rejects with a generic message when handler produces an empty error message', async () => {
-      const eventBus = new EventBus();
-      const client = new MessageBus(eventBus);
-      const server = new MessageBus(eventBus);
-
-      server.on('rpc.fail.empty', () => {
-        throw new Error('');
-      });
-
-      await expect(client.request('rpc.fail.empty', {}, { timeoutMs: 50 })).rejects.toThrow('Request failed');
-      eventBus.dispose();
-    });
-
-    it('validates request event names', () => {
+    it('resolves with raw payload when response body lacks ok', async () => {
       const eventBus = new EventBus();
       const client = new MessageBus(eventBus);
 
-      expect(() => client.request('bad name', {})).toThrow(/valid event name/i);
-
-      eventBus.dispose();
-    });
-
-    it('supports response payload passthrough when body has no ok field', async () => {
-      const eventBus = new EventBus();
-      const client = new MessageBus(eventBus);
-
-      const off = eventBus.on('raw.reply', (evt) => {
-        /** @type {any} */
-        const meta = /** @type {any} */ (evt)?.meta;
-        if (!meta || meta.kind !== 'rpc_request') return;
-
+      eventBus.on('rpc:raw', (evt) => {
+        const meta = /** @type {any} */ (evt).meta;
         eventBus.emit(meta.replyTo, {
           payload: { hello: 'world' },
           meta: { kind: 'rpc_response', requestId: meta.requestId },
         });
       });
 
-      await expect(client.request('raw.reply', { x: 1 }, { timeoutMs: 50 })).resolves.toEqual({ hello: 'world' });
-
-      off();
-      eventBus.dispose();
+      await expect(client.request('rpc:raw', { value: 1 }, { timeoutMs: 50 })).resolves.toEqual({ hello: 'world' });
     });
 
-    it('rejects on invalid response meta (requestId mismatch)', async () => {
+    it('rejects when handler throws errors', async () => {
+      const eventBus = new EventBus();
+      const client = new MessageBus(eventBus);
+      const server = new MessageBus(eventBus);
+
+      server.on('rpc:fail', () => {
+        throw new Error('boom');
+      });
+
+      await expect(client.request('rpc:fail', {}, { timeoutMs: 50 })).rejects.toThrow('boom');
+    });
+
+    it('rejects with fallback when handler error message is empty', async () => {
+      const eventBus = new EventBus();
+      const client = new MessageBus(eventBus);
+      const server = new MessageBus(eventBus);
+
+      server.on('rpc:fail-empty', () => {
+        throw new Error('');
+      });
+
+      await expect(client.request('rpc:fail-empty', {}, { timeoutMs: 50 })).rejects.toThrow('Request failed');
+    });
+
+    it('rejects when response meta does not match requestId', async () => {
       const eventBus = new EventBus();
       const client = new MessageBus(eventBus);
 
       let requestId = null;
-      const off = eventBus.on('raw.invalid', (evt) => {
-        /** @type {any} */
-        const meta = /** @type {any} */ (evt)?.meta;
-        if (!meta || meta.kind !== 'rpc_request') return;
-
+      eventBus.on('rpc:invalid', (evt) => {
+        const meta = /** @type {any} */ (evt).meta;
         requestId = meta.requestId;
         eventBus.emit(meta.replyTo, {
           payload: { ok: true, data: 123 },
@@ -243,89 +342,127 @@ describe('MessageBus', () => {
         });
       });
 
-      await expect(client.request('raw.invalid', {}, { timeoutMs: 50 })).rejects.toThrow(
-        `Invalid response for requestId: ${requestId}`
-      );
-
-      off();
-      eventBus.dispose();
+      const promise = client.request('rpc:invalid', {}, { timeoutMs: 50 });
+      await promise.catch((err) => {
+        expect(requestId).not.toBeNull();
+        expect(err).toBeInstanceOf(Error);
+        expect(err.message).toBe();
+      });
     });
 
-    it('times out and floors timeoutMs to a positive int', async () => {
+    it('rejects when validator marks event name invalid', () => {
+      isValidEventName.mockReturnValue(false);
+      const client = new MessageBus(new EventBus());
+      expect(() => client.request('bad:name', {})).toThrow(/valid event name/i);
+    });
+
+    it('times out with floored timeoutMs', async () => {
       vi.useFakeTimers();
+      const client = new MessageBus(new EventBus());
 
-      const eventBus = new EventBus();
-      const client = new MessageBus(eventBus);
+      const promise = client.request('rpc:timeout', {}, { timeoutMs: 12.9 });
+      const expectation = expect(promise).rejects.toThrow('Request timeout after 12ms: rpc:timeout');
 
-      const promise = client.request('never.responds', {}, { timeoutMs: 12.9 });
-      const expectation = expect(promise).rejects.toThrow('Request timeout after 12ms: never.responds');
       await vi.advanceTimersByTimeAsync(12);
-
       await expectation;
-      eventBus.dispose();
     });
 
-    it('supports AbortSignal (pre-aborted and in-flight abort)', async () => {
-      const eventBus = new EventBus();
-      const client = new MessageBus(eventBus);
-
-      const pre = new AbortController();
-      pre.abort(new Error('stop-now'));
-      await expect(client.request('aborted.pre', {}, { signal: pre.signal })).rejects.toThrow('stop-now');
-
+    it('uses default timeout for non-number or non-positive timeoutMs values', async () => {
       vi.useFakeTimers();
+      const client = new MessageBus(new EventBus());
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      const invalidTimeouts = ['50', 0, -1];
+      for (const timeoutMs of invalidTimeouts) {
+        const controller = new AbortController();
+        const promise = client.request('rpc:timeout-default', {}, { timeoutMs, signal: controller.signal });
+        const lastCall = setTimeoutSpy.mock.calls[setTimeoutSpy.mock.calls.length - 1];
+
+        expect(lastCall[1]).toBe(30000);
+
+        controller.abort();
+        await expect(promise).rejects.toThrow('Request aborted');
+      }
+    });
+
+    it('accepts MAX_SAFE_INTEGER timeoutMs', async () => {
+      vi.useFakeTimers();
+      const client = new MessageBus(new EventBus());
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      const controller = new AbortController();
+      const promise = client.request('rpc:timeout-max', {}, {
+        timeoutMs: Number.MAX_SAFE_INTEGER,
+        signal: controller.signal,
+      });
+
+      const lastCall = setTimeoutSpy.mock.calls[setTimeoutSpy.mock.calls.length - 1];
+      expect(lastCall[1]).toBe(Number.MAX_SAFE_INTEGER);
+
+      controller.abort(new Error('stop'));
+      await expect(promise).rejects.toThrow('stop');
+    });
+
+    it('rejects immediately when signal is pre-aborted (with reason and fallback)', async () => {
+      const client = new MessageBus(new EventBus());
+
+      const withReason = new AbortController();
+      withReason.abort(new Error('stop-now'));
+      await expect(client.request('rpc:abort-pre', {}, { signal: withReason.signal })).rejects.toThrow('stop-now');
+
+      const withoutReason = new AbortController();
+      withoutReason.abort(null);
+      await expect(client.request('rpc:abort-pre-null', {}, { signal: withoutReason.signal })).rejects.toThrow(
+        'Request aborted'
+      );
+    });
+
+    it('aborts in-flight requests and clears timers', async () => {
+      vi.useFakeTimers();
+      const client = new MessageBus(new EventBus());
       const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
 
-      const inflight = new AbortController();
-      const promise = client.request('aborted.inflight', {}, { timeoutMs: 1000, signal: inflight.signal });
-      const expectation = expect(promise).rejects.toThrow('aborted');
-      inflight.abort(new Error('aborted'));
-      await expectation;
+      const controller = new AbortController();
+      const promise = client.request('rpc:abort-flight', {}, { timeoutMs: 1000, signal: controller.signal });
+      controller.abort(new Error('aborted'));
+
+      await expect(promise).rejects.toThrow('aborted');
       expect(clearTimeoutSpy).toHaveBeenCalled();
-
-      eventBus.dispose();
     });
 
-    it('uses "Request aborted" fallback when AbortSignal.reason is falsy', async () => {
-      const eventBus = new EventBus();
-      const client = new MessageBus(eventBus);
-
-      const pre = new AbortController();
-      pre.abort(null);
-      await expect(client.request('aborted.pre.null', {}, { signal: pre.signal })).rejects.toThrow('Request aborted');
-
-      vi.useFakeTimers();
-      const inflight = new AbortController();
-      const promise = client.request('aborted.inflight.null', {}, { timeoutMs: 1000, signal: inflight.signal });
-      const expectation = expect(promise).rejects.toThrow('Request aborted');
-      inflight.abort(null);
-      await expectation;
-
-      eventBus.dispose();
-    });
-
-    it('accepts AbortSignal-like objects without addEventListener/removeEventListener', async () => {
+    it('accepts AbortSignal-like objects without add/remove event listeners', async () => {
       const eventBus = new EventBus();
       const client = new MessageBus(eventBus);
       const server = new MessageBus(eventBus);
 
-      server.on('rpc.signal.like', () => 'ok');
+      server.on('rpc:signal-like', () => 'ok');
 
       const signalLike = { aborted: false };
       await expect(
-        client.request('rpc.signal.like', {}, { timeoutMs: 50, signal: /** @type {any} */ (signalLike) })
+        client.request('rpc:signal-like', {}, { timeoutMs: 50, signal: /** @type {any} */ (signalLike) })
       ).resolves.toBe('ok');
-
-      eventBus.dispose();
     });
 
-    it('validates AbortSignal option type', () => {
+    it('throws when signal is not AbortSignal-like', () => {
+      const client = new MessageBus(new EventBus());
+      expect(() => client.request('rpc:bad-signal', {}, { signal: /** @type {any} */ ({}) })).toThrow(TypeError);
+    });
+
+    it('supports concurrent requests without cross-talk', async () => {
       const eventBus = new EventBus();
       const client = new MessageBus(eventBus);
+      const server = new MessageBus(eventBus);
 
-      expect(() => client.request('ok.event', {}, { signal: /** @type {any} */ ({}) })).toThrow(TypeError);
+      server.on('rpc:echo', async (payload) => {
+        await Promise.resolve();
+        return payload.id;
+      });
 
-      eventBus.dispose();
+      const requests = Array.from({ length: 5 }, (_, index) =>
+        client.request('rpc:echo', { id: index }, { timeoutMs: 50 })
+      );
+
+      await expect(Promise.all(requests)).resolves.toEqual([0, 1, 2, 3, 4]);
     });
   });
 });

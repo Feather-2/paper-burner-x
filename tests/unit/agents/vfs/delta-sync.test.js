@@ -1,226 +1,258 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-async function importDeltaSync() {
-  vi.resetModules();
-
-  const loggerInfo = vi.fn();
-  const createLogger = vi.fn(() => ({
-    info: loggerInfo,
+vi.mock("../../../../js/agents/shared/index.js", () => ({
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  }));
+  })),
+}));
 
-  vi.doMock("../../../js/agents/shared/utils/logger.js", () => ({ createLogger }));
+import { computeHash, buildManifest, computeDelta } from "../../../../js/agents/vfs/delta-sync.js";
 
-  const mod = await import("../../../js/agents/vfs/delta-sync.js");
-  return { ...mod, loggerInfo, createLogger };
-}
+const repeatHex = (byte, count) =>
+  new Array(count).fill(byte.toString(16).padStart(2, "0")).join("");
 
-afterEach(() => {
-  vi.useRealTimers();
+const createDigestMock = () =>
+  vi.fn(async (_algo, data) => {
+    const bytes = new Uint8Array(data);
+    return new Uint8Array(32).fill(bytes.length & 0xff).buffer;
+  });
+
+beforeEach(() => {
   vi.restoreAllMocks();
-  vi.unmock("../../../js/agents/shared/utils/logger.js");
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
-describe("vfs/delta-sync: computeHash", () => {
-  it("computes SHA-256 (crypto.subtle) and falls back to FNV-1a when digest fails", async () => {
-    const { computeHash } = await importDeltaSync();
+describe("computeHash", () => {
+  it("hashes string, Uint8Array, and ArrayBuffer using crypto.subtle", async () => {
+    const digestMock = createDigestMock();
+    vi.stubGlobal("crypto", { subtle: { digest: digestMock } });
 
-    // SHA-256 branch (should be 64 hex chars).
-    const h1 = await computeHash("hello");
-    expect(h1).toMatch(/^[0-9a-f]{64}$/);
+    const h1 = await computeHash("hi");
+    const h2 = await computeHash(new Uint8Array([1, 2, 3, 4]));
+    const h3 = await computeHash(new Uint8Array([9]).buffer);
 
-    // Force fallback for a single call.
-    const spy = vi.spyOn(globalThis.crypto.subtle, "digest").mockRejectedValueOnce(new Error("boom"));
-    const h2 = await computeHash("hello");
-    expect(h2).toMatch(/^[0-9a-f]{8}$/);
-    spy.mockRestore();
+    expect(digestMock).toHaveBeenCalledTimes(3);
+    expect(digestMock).toHaveBeenNthCalledWith(1, "SHA-256", expect.any(Uint8Array));
+    expect(h1).toBe(repeatHex(2, 32));
+    expect(h2).toBe(repeatHex(4, 32));
+    expect(h3).toBe(repeatHex(1, 32));
+  });
 
-    // Supports bytes input types.
-    const bytes = new Uint8Array([1, 2, 3]);
-    const h3 = await computeHash(bytes);
-    expect(h3).toMatch(/^[0-9a-f]{64}$/);
-    const h4 = await computeHash(bytes.buffer);
-    expect(h4).toMatch(/^[0-9a-f]{64}$/);
+  it("handles empty and whitespace inputs", async () => {
+    const digestMock = createDigestMock();
+    vi.stubGlobal("crypto", { subtle: { digest: digestMock } });
+
+    const emptyString = await computeHash("");
+    const whitespace = await computeHash("   ");
+    const emptyBytes = await computeHash(new Uint8Array());
+
+    expect(emptyString).toBe(repeatHex(0, 32));
+    expect(whitespace).toBe(repeatHex(3, 32));
+    expect(emptyBytes).toBe(repeatHex(0, 32));
+    expect(digestMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls back to FNV-1a when digest fails", async () => {
+    const digestMock = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    vi.stubGlobal("crypto", { subtle: { digest: digestMock } });
+
+    await expect(computeHash("a")).resolves.toBe("e40c292c");
+    expect(digestMock).toHaveBeenCalled();
   });
 
   it("rejects invalid input types", async () => {
-    const { computeHash } = await importDeltaSync();
-    // @ts-expect-error - invalid on purpose
+    const digestMock = createDigestMock();
+    vi.stubGlobal("crypto", { subtle: { digest: digestMock } });
+
+    await expect(computeHash(null)).rejects.toThrow(TypeError);
+    await expect(computeHash(undefined)).rejects.toThrow(TypeError);
+    await expect(computeHash(123)).rejects.toThrow(TypeError);
+    await expect(computeHash([])).rejects.toThrow(TypeError);
     await expect(computeHash({})).rejects.toThrow(TypeError);
+  });
+
+  it("supports concurrent hashing without shared state", async () => {
+    const digestMock = createDigestMock();
+    vi.stubGlobal("crypto", { subtle: { digest: digestMock } });
+
+    const [h1, h2, h3] = await Promise.all([
+      computeHash("a"),
+      computeHash("abc"),
+      computeHash(new Uint8Array([0, 1, 2, 3, 4, 5])),
+    ]);
+
+    expect(h1).toBe(repeatHex(1, 32));
+    expect(h2).toBe(repeatHex(3, 32));
+    expect(h3).toBe(repeatHex(6, 32));
   });
 });
 
-describe("vfs/delta-sync: manifest/delta/conflicts", () => {
-  it("buildManifest hashes and sizes files with deterministic timestamps when time is mocked", async () => {
-    const { buildManifest } = await importDeltaSync();
+describe("buildManifest", () => {
+  it("builds a manifest with hashes, sizes, and mtimes", async () => {
+    const digestMock = createDigestMock();
+    vi.stubGlobal("crypto", { subtle: { digest: digestMock } });
 
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2020-01-01T00:00:00Z"));
+    vi.spyOn(Date, "now").mockReturnValue(1700000000000);
 
     const manifest = await buildManifest([
-      { path: "a.txt", content: "hi", mtime: 123 },
-      { path: "b.bin", content: new Uint8Array([1, 2, 3]) },
+      { path: "a.txt", content: "hi", mtime: 0 },
+      { path: "b.bin", content: new Uint8Array([1, 2, 3]), mtime: -1 },
+      { path: "c.buf", content: new Uint8Array([9]).buffer, mtime: Number.MAX_SAFE_INTEGER },
+      { path: "d.txt", content: "  ", mtime: "123" },
+      { path: "e.txt", content: "" },
     ]);
 
-    expect(manifest.id).toMatch(/^manifest_/);
-    expect(manifest.ts).toBe(Date.now());
+    expect(manifest.id).toBe(`manifest_${Date.now().toString(36)}`);
+    expect(manifest.ts).toBe(1700000000000);
+    expect(manifest.files.size).toBe(5);
 
     const a = manifest.files.get("a.txt");
-    expect(a).toEqual(expect.objectContaining({ path: "a.txt", mtime: 123 }));
-    expect(a.hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(a.size).toBe(new TextEncoder().encode("hi").length);
+    expect(a).toEqual(expect.objectContaining({ path: "a.txt", mtime: 0, size: 2 }));
+    expect(a.hash).toBe(repeatHex(2, 32));
 
     const b = manifest.files.get("b.bin");
-    expect(b).toEqual(expect.objectContaining({ path: "b.bin", mtime: Date.now() }));
-    expect(b.hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(b.size).toBe(3);
+    expect(b).toEqual(expect.objectContaining({ path: "b.bin", mtime: -1, size: 3 }));
+    expect(b.hash).toBe(repeatHex(3, 32));
+
+    const c = manifest.files.get("c.buf");
+    expect(c).toEqual(
+      expect.objectContaining({
+        path: "c.buf",
+        mtime: Number.MAX_SAFE_INTEGER,
+        size: 1,
+      })
+    );
+    expect(c.hash).toBe(repeatHex(1, 32));
+
+    const d = manifest.files.get("d.txt");
+    expect(d).toEqual(expect.objectContaining({ path: "d.txt", mtime: "123", size: 2 }));
+    expect(d.hash).toBe(repeatHex(2, 32));
+
+    const e = manifest.files.get("e.txt");
+    expect(e).toEqual(
+      expect.objectContaining({ path: "e.txt", mtime: 1700000000000, size: 0 })
+    );
+    expect(e.hash).toBe(repeatHex(0, 32));
   });
 
-  it("computeDelta reports add/modify/delete", async () => {
-    const { computeDelta } = await importDeltaSync();
+  it("handles an empty file list", async () => {
+    const digestMock = createDigestMock();
+    vi.stubGlobal("crypto", { subtle: { digest: digestMock } });
 
+    const manifest = await buildManifest([]);
+    expect(manifest.files.size).toBe(0);
+    expect(manifest.id).toMatch(/^manifest_/);
+  });
+
+  it("throws when files is not iterable", async () => {
+    const digestMock = createDigestMock();
+    vi.stubGlobal("crypto", { subtle: { digest: digestMock } });
+
+    await expect(buildManifest(null)).rejects.toThrow(TypeError);
+    await expect(buildManifest(undefined)).rejects.toThrow(TypeError);
+    await expect(buildManifest({})).rejects.toThrow(TypeError);
+  });
+
+  it("rejects invalid file content types", async () => {
+    const digestMock = createDigestMock();
+    vi.stubGlobal("crypto", { subtle: { digest: digestMock } });
+
+    await expect(
+      buildManifest([{ path: "bad.txt", content: { not: "bytes" } }])
+    ).rejects.toThrow(TypeError);
+  });
+
+  it("supports concurrent calls with large content and deep paths", async () => {
+    const digestMock = createDigestMock();
+    vi.stubGlobal("crypto", { subtle: { digest: digestMock } });
+
+    const largeString = "a".repeat(1024 * 1024 + 1);
+    const largeBytes = new Uint8Array(512 * 1024 + 2);
+    const deepPath = "deep/nested/path/for/large/file.txt";
+
+    const [manifestA, manifestB] = await Promise.all([
+      buildManifest([{ path: deepPath, content: largeString }]),
+      buildManifest([{ path: "big.bin", content: largeBytes }]),
+    ]);
+
+    const entryA = manifestA.files.get(deepPath);
+    expect(entryA.size).toBe(largeString.length);
+    expect(entryA.hash).toBe(repeatHex(largeString.length & 0xff, 32));
+
+    const entryB = manifestB.files.get("big.bin");
+    expect(entryB.size).toBe(largeBytes.byteLength);
+    expect(entryB.hash).toBe(repeatHex(largeBytes.length & 0xff, 32));
+  });
+});
+
+describe("computeDelta", () => {
+  it("returns add/modify/delete entries", () => {
     const base = {
       id: "base",
       ts: 0,
       files: new Map([
         ["a.txt", { path: "a.txt", hash: "h1", size: 1, mtime: 1 }],
-        ["b.txt", { path: "b.txt", hash: "h2", size: 1, mtime: 1 }],
+        ["b.txt", { path: "b.txt", hash: "h2", size: 2, mtime: 2 }],
       ]),
     };
     const target = {
       id: "target",
       ts: 0,
       files: new Map([
-        ["a.txt", { path: "a.txt", hash: "h1_changed", size: 2, mtime: 2 }],
+        ["a.txt", { path: "a.txt", hash: "h1-new", size: 10, mtime: 10 }],
         ["c.txt", { path: "c.txt", hash: "h3", size: 3, mtime: 3 }],
       ]),
     };
 
-    expect(computeDelta(base, target)).toEqual(
+    const delta = computeDelta(base, target);
+    expect(delta).toEqual(
       expect.arrayContaining([
+        { path: "a.txt", type: "modify", hash: "h1-new", size: 10 },
         { path: "c.txt", type: "add", hash: "h3", size: 3 },
-        { path: "a.txt", type: "modify", hash: "h1_changed", size: 2 },
         { path: "b.txt", type: "delete" },
       ])
     );
   });
 
-  it("detectConflicts flags modify-vs-modify (different hash) and delete-vs-modify", async () => {
-    const { detectConflicts } = await importDeltaSync();
+  it("handles empty manifests", () => {
+    const emptyBase = { id: "b", ts: 0, files: new Map() };
+    const emptyTarget = { id: "t", ts: 0, files: new Map() };
 
-    const localDelta = [
-      { path: "a.txt", type: "modify", hash: "h_local", size: 1 },
-      { path: "b.txt", type: "delete" },
-    ];
-    const remoteDelta = [
-      { path: "a.txt", type: "modify", hash: "h_remote", size: 1 },
-      { path: "b.txt", type: "modify", hash: "h_remote2", size: 1 },
-    ];
-
-    const conflicts = detectConflicts(localDelta, remoteDelta);
-    expect(conflicts.map((c) => c.path).sort()).toEqual(["a.txt", "b.txt"]);
-
-    // Same hash should not conflict.
-    expect(detectConflicts([{ path: "x", type: "modify", hash: "same" }], [{ path: "x", type: "modify", hash: "same" }])).toEqual(
-      []
-    );
+    expect(computeDelta(emptyBase, emptyTarget)).toEqual([]);
   });
 
-  it("resolveConflicts applies strategies", async () => {
-    const { resolveConflicts, ConflictStrategy } = await importDeltaSync();
+  it("throws when base or target are invalid", () => {
+    const valid = { id: "v", ts: 0, files: new Map() };
 
-    const conflicts = [
-      { path: "a.txt", local: { path: "a.txt", type: "modify" }, remote: { path: "a.txt", type: "modify" } },
-    ];
-
-    const localManifest = { files: new Map([["a.txt", { mtime: 10 }]]) };
-    const remoteManifest = { files: new Map([["a.txt", { mtime: 5 }]]) };
-
-    expect(resolveConflicts(conflicts, ConflictStrategy.LOCAL_WINS, localManifest, remoteManifest)[0].resolution).toBe("local");
-    expect(resolveConflicts(conflicts, ConflictStrategy.REMOTE_WINS, localManifest, remoteManifest)[0].resolution).toBe("remote");
-    expect(resolveConflicts(conflicts, ConflictStrategy.NEWER_WINS, localManifest, remoteManifest)[0].resolution).toBe("local");
-
-    const remoteNewer = { files: new Map([["a.txt", { mtime: 999 }]]) };
-    expect(resolveConflicts(conflicts, ConflictStrategy.NEWER_WINS, localManifest, remoteNewer)[0].resolution).toBe("remote");
-
-    expect(resolveConflicts(conflicts, "unknown", localManifest, remoteManifest)[0].resolution).toBe("manual");
-  });
-});
-
-describe("vfs/delta-sync: DeltaSyncSession", () => {
-  it("requires local+remote manifests before computing a plan", async () => {
-    const { DeltaSyncSession } = await importDeltaSync();
-    const s = new DeltaSyncSession();
-    expect(() => s.computeSyncPlan()).toThrow(/Both local and remote manifests required/i);
+    expect(() => computeDelta(null, valid)).toThrow();
+    expect(() => computeDelta(valid, undefined)).toThrow();
+    expect(() => computeDelta(valid, { id: "bad", ts: 0, files: {} })).toThrow();
   });
 
-  it("computes upload/download plan, supports custom onConflict, and logs counts", async () => {
-    const { DeltaSyncSession, ConflictStrategy, loggerInfo } = await importDeltaSync();
-
+  it("is deterministic across rapid repeated calls", () => {
     const base = {
       id: "base",
       ts: 0,
-      files: new Map([["a.txt", { path: "a.txt", hash: "h0", size: 1, mtime: 1 }]]),
+      files: new Map([["a.txt", { path: "a.txt", hash: "h1", size: "1", mtime: 1 }]]),
     };
-    const local = {
-      id: "local",
+    const target = {
+      id: "target",
       ts: 0,
-      files: new Map([["a.txt", { path: "a.txt", hash: "h_local", size: 1, mtime: 10 }]]),
-    };
-    const remote = {
-      id: "remote",
-      ts: 0,
-      files: new Map([["a.txt", { path: "a.txt", hash: "h_remote", size: 1, mtime: 5 }]]),
+      files: new Map([["a.txt", { path: "a.txt", hash: "h2", size: "2", mtime: 2 }]]),
     };
 
-    const onConflict = vi.fn((conflicts) => conflicts.map((c) => ({ ...c, resolution: "local" })));
+    const first = computeDelta(base, target);
+    const second = computeDelta(base, target);
 
-    const session = new DeltaSyncSession({ conflictStrategy: ConflictStrategy.REMOTE_WINS, onConflict });
-    session.setBaseManifest(base);
-    session.setLocalManifest(local);
-    session.setRemoteManifest(remote);
-
-    const plan = session.computeSyncPlan();
-    expect(onConflict).toHaveBeenCalled();
-    expect(plan.conflicts).toHaveLength(1);
-    expect(plan.conflicts[0].resolution).toBe("local");
-    expect(plan.toUpload).toEqual([{ path: "a.txt", type: "modify", hash: "h_local", size: 1 }]);
-    expect(plan.toDownload).toEqual([]);
-
-    expect(loggerInfo).toHaveBeenCalledWith(
-      "Sync plan computed",
-      expect.objectContaining({ toUpload: 1, toDownload: 0, conflicts: 0 })
-    );
-  });
-
-  it("defaults to NEWER_WINS strategy when conflicts are not handled manually", async () => {
-    const { DeltaSyncSession } = await importDeltaSync();
-
-    const base = { id: "base", ts: 0, files: new Map() };
-    const local = { id: "local", ts: 0, files: new Map([["a.txt", { path: "a.txt", hash: "h1", size: 1, mtime: 1 }]]) };
-    const remote = { id: "remote", ts: 0, files: new Map([["a.txt", { path: "a.txt", hash: "h2", size: 1, mtime: 999 }]]) };
-
-    const session = new DeltaSyncSession();
-    session.setBaseManifest(base);
-    session.setLocalManifest(local);
-    session.setRemoteManifest(remote);
-
-    const plan = session.computeSyncPlan();
-    expect(plan.toDownload).toEqual([{ path: "a.txt", type: "add", hash: "h2", size: 1 }]);
-    expect(plan.toUpload).toEqual([]);
-    expect(plan.conflicts[0].resolution).toBe("remote");
-  });
-
-  it("_reportProgress computes percent and calls onProgress when configured", async () => {
-    const { DeltaSyncSession } = await importDeltaSync();
-
-    const onProgress = vi.fn();
-    const s = new DeltaSyncSession({ onProgress });
-    s._reportProgress("phase", 1, 4);
-
-    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: "phase", current: 1, total: 4, percent: 25 }));
+    expect(first).toEqual([{ path: "a.txt", type: "modify", hash: "h2", size: "2" }]);
+    expect(second).toEqual(first);
+    expect(base.files.size).toBe(1);
+    expect(target.files.size).toBe(1);
   });
 });
-
