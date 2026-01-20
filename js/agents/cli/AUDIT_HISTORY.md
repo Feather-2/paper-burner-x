@@ -6,6 +6,20 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] jsdoc
+*Archived: 2026-01-20T04:34:19.049Z*
+
+- **File**: js/agents/cli/model-client.js:451
+- **Description**: createAiApiServiceAdapter 为导出 API，但 JSDoc 缺少参数/返回值描述，未满足 public API 注释规范。
+- **Suggestion**: 补充 @param 的描述，并添加 @returns 说明返回对象结构。
+```
+* @param {CliModelRouter} router
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] prototype-pollution
 *Archived: 2026-01-20T04:20:06.429Z*
 

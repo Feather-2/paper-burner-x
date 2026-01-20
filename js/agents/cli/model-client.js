@@ -450,7 +450,8 @@ export class CliModelClient {
 
 /**
  * 创建 aiApiService 兼容适配器
- * @param {CliModelRouter} router
+ * @param {CliModelRouter} router - CLI 模型路由实例
+ * @returns {{ chat: (options: Object) => Promise<{content: string, model: string, usage: Object}>, getAvailableModels: () => Array<{id: string, name: string, type: string}> }} aiApiService 适配器
  */
 export function createAiApiServiceAdapter(router) {
     return {
