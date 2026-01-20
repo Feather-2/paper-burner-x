@@ -4,6 +4,62 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] browser-compatibility
+*Archived: 2026-01-19T23:42:04.251Z*
+
+- **File**: js/agents/shared/utils/file-watcher.js:68
+- **Description**: 动态导入 node:fs 属于 Node-only API，若被浏览器打包引用可能导致构建/运行失败。
+- **Suggestion**: 在显式 Node 环境下才导入，或拆分为 Node 专用入口以保持浏览器构建纯净。
+```
+const mod = await import(/* @vite-ignore */ fsSpecifier);
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] unsafe-deserialization
+*Archived: 2026-01-19T23:41:59.907Z*
+
+- **File**: js/agents/shared/utils/response-limits.js:140
+- **Description**: readJsonWithLimit 对外部响应文本直接 JSON.parse，未验证结构，可能引入意外对象形态。
+- **Suggestion**: 在返回前进行 schema/shape 校验，或明确仅用于可信响应并在调用处做强校验。
+```
+return JSON.parse(text);
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] input-validation
+*Archived: 2026-01-19T23:41:45.655Z*
+
+- **File**: js/agents/shared/utils/robust-json.js:177
+- **Description**: robustParseJsonWithValidation 在验证失败/抛错时仍返回解析结果，名义上的验证未生效。
+- **Suggestion**: 验证失败时返回 fallback/抛错，或重命名函数以避免误导调用方。
+```
+if (validator(result.data)) return result.data; ... return result.ok ? result.data : fallback;
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] unsafe-deserialization
+*Archived: 2026-01-19T23:41:41.252Z*
+
+- **File**: js/agents/shared/utils/stage-api.js:259
+- **Description**: LLM/tool 输出直接 JSON.parse，缺少结构验证/大小约束，异常或意外结构可能进入下游逻辑。
+- **Suggestion**: 对解析结果做 schema/shape 校验（如 schema-validator 或显式字段检查），并考虑在解析前设置大小限制。
+```
+return JSON.parse(content);
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] browser-compat

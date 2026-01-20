@@ -4,6 +4,36 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] JSDoc 使用 any
+*Archived: 2026-01-19T23:40:38.816Z*
+
+- **File**: js/agents/runtime/safety/tool-permissions.js:215
+- **Description**: ToolPermissions 中多处 JSDoc 使用 {any}，违反“禁止 any 类型”的项目约定，降低类型清晰度与可维护性。
+- **Suggestion**: 将 {any} 替换为更具体的类型（如 `string | null | undefined`、`PermissionLevel | string | null`、`Record<string, unknown>`），并在其他同类位置同步修正。
+```
+* @param {any} level
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] 命令替换绕过
+*Archived: 2026-01-19T23:40:19.762Z*
+
+- **File**: js/agents/runtime/safety/tool-restrictions.js:145
+- **Description**: evaluateToolRestrictions 仅依赖 parseCompoundCommand + 字符串匹配，未检测 $() / 反引号 / <() 等命令替换。在 allowlist 场景下，`ls $(rm -rf /)` 会被当作允许命令通过，从而绕过 blockedCommands 并在子 shell 执行高危命令。
+- **Suggestion**: 在 evaluateToolRestrictions 中先检测命令替换（复用 command-classifier 的 hasCommandSubstitution），发现即拒绝；或在 ToolPermissions.check 对 bash 工具前置调用 classifyCommand/hasCommandSubstitution，避免 allowlist 被绕过。
+```
+const parsed = parseCompoundCommand(command);
+...
+const cmd = argv.join(" ");
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] quality

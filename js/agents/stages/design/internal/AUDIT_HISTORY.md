@@ -4,6 +4,77 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] ErrorHandling
+*Archived: 2026-01-19T23:50:50.487Z*
+
+- **File**: js/agents/stages/design/internal/deck-planner.js:428
+- **Description**: parseFeedbackWithLLM 捕获所有异常后静默降级，未记录错误或透传，违反错误处理规范且不利于排查 LLM 输出异常。
+- **Suggestion**: 至少记录告警/埋点（含 runId/反馈摘要），或将错误包装后返回给调用方。
+```
+} catch { return parseSimpleFeedback(feedback, plans); }
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] StateRollback
+*Archived: 2026-01-19T23:50:46.332Z*
+
+- **File**: js/agents/stages/design/internal/deck-editor.js:406
+- **Description**: direct 编辑路径在变更后调用 _pushHistory，导致 prevDeckHtmlDsl 记录为新状态，undo 无法回滚；redo 依赖的 nextDeckHtmlDsl 从未设置，回放不完整。
+- **Suggestion**: 在修改前捕获 prev 状态并传入 _pushHistory，修改后保存 next 状态；或让 _pushHistory 接收 { prev, next }。
+```
+this._deckPackage.deckHtmlDsl = joinSections(sections);
+this._pushHistory("editSlide", { slideIndex, changes });
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] XSS
+*Archived: 2026-01-19T23:50:37.405Z*
+
+- **File**: js/agents/stages/design/internal/deck-editor.js:396
+- **Description**: direct editSlide/replaceSlideHtml 接受并写入任意 HTML，仅做长度校验；若输入来自 UI/LLM，可插入 <script> 或事件处理器导致 XSS。
+- **Suggestion**: 对 HTML 做白名单清洗（如 DOMPurify）或仅允许受控模板；在 API 上区分可信/不可信输入。
+```
+sections[slideIndex] = changes.html;
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] SSRF
+*Archived: 2026-01-19T23:50:17.026Z*
+
+- **File**: js/agents/stages/design/internal/screenshot-stitcher.js:103
+- **Description**: loadImageCrossEnv 在 Node 环境把 base64DataUrl 直接交给 canvas.loadImage；若截图列表可被用户控制，可能加载远程 URL 或本地文件，触发 SSRF/本地文件读取。
+- **Suggestion**: 校验仅允许 data:image/*;base64, 前缀并限制长度；拒绝 http(s)/file/相对路径。
+```
+return nc.loadImage(base64DataUrl);
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] XSS
+*Archived: 2026-01-19T23:50:12.582Z*
+
+- **File**: js/agents/stages/design/internal/deck-editor.js:368
+- **Description**: DeckEditor 在 direct edit 路径将 changes.style 原样插入 style 属性，未做转义/白名单；若来自 UI/LLM 输入，可能通过引号或 url() 注入导致脚本执行。
+- **Suggestion**: 对 style 做白名单过滤并转义引号；或用 CSS 解析器构建安全 style 串，拒绝 url()/expression 等危险值。
+```
+sectionHtml = sectionHtml.replace(regex, `$1${changes.style}"`);
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] jsdoc-incomplete

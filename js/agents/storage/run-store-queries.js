@@ -5,9 +5,33 @@ import {
   STORE_ARTIFACTS,
   STORE_EVENTS,
   getLastByCompoundIndex,
+  logger,
   promisifyRequest,
   promisifyTransaction,
 } from "./run-store-utils.js";
+
+const MAX_MANIFEST_CHARS = 1_000_000;
+const MAX_MANIFEST_ARTIFACTS = 5000;
+const MAX_MANIFEST_FIELDS = 20000;
+
+function isValidManifest(manifest) {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return false;
+  const runId = typeof manifest.runId === "string" ? manifest.runId.trim() : "";
+  if (!runId) return false;
+
+  if (manifest.artifacts === undefined) return true;
+  if (!Array.isArray(manifest.artifacts)) return false;
+  if (manifest.artifacts.length > MAX_MANIFEST_ARTIFACTS) return false;
+
+  let fieldCount = Object.keys(manifest).length;
+  for (const item of manifest.artifacts) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    fieldCount += Object.keys(item).length;
+    if (fieldCount > MAX_MANIFEST_FIELDS) return false;
+  }
+
+  return fieldCount <= MAX_MANIFEST_FIELDS;
+}
 
 /**
  * Load a task object from the store.
@@ -281,7 +305,13 @@ export async function getLatestArtifactSummary(runId, type) {
 export async function getManifest(runId) {
   if (this.storage?.get) {
     const data = await this.storage.get(this._keyForManifest(runId));
-    return data ? JSON.parse(data) : null;
+    if (!data) return null;
+    const manifest = safeJsonParse(data, { maxChars: MAX_MANIFEST_CHARS });
+    if (!isValidManifest(manifest)) {
+      logger.warn("[RunStore] Invalid manifest in storage adapter", { runId });
+      return null;
+    }
+    return manifest;
   }
 
   const db = await this.open();

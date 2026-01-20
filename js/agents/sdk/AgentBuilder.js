@@ -15,6 +15,11 @@ const logger = createLogger("sdk/AgentBuilder");
 /**
  * @typedef {import("./agent-config.js").AgentConfigOptions} AgentBuilderOptions
  */
+/**
+ * @typedef {import("./CapabilityInterface").CapabilityDefinition} CapabilityDefinition
+ * @typedef {import("./CapabilityInterface").CapabilityHandler} CapabilityHandler
+ * @typedef {CapabilityHandler | { definition: CapabilityDefinition, handler?: CapabilityHandler, module?: string, _module?: string }} CapabilityConfig
+ */
 
 /**
  * Fluent builder for creating {@link AgentInstance}.
@@ -31,8 +36,9 @@ export class AgentBuilder {
   }
 
   /**
-   * @param {string} name
-   * @param {any} config
+   * Register a capability (tool).
+   * @param {string} name - Capability name.
+   * @param {CapabilityConfig} config - Capability handler or config object.
    * @returns {AgentBuilder}
    */
   useCapability(name, config) {
@@ -41,7 +47,7 @@ export class AgentBuilder {
   }
 
   /**
-   * @param {Object<string, any>} capabilitiesMap
+   * @param {Object<string, CapabilityConfig>} capabilitiesMap
    * @returns {AgentBuilder}
    */
   useCapabilities(capabilitiesMap) {

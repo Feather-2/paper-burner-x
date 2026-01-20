@@ -3,6 +3,58 @@ import { DesignPhase } from "../../states.js";
 import { emitStage } from "../../design-helpers.js";
 import { runWithPhaseSpan } from "./phase-utils.js";
 
+const ALLOWED_THEMES = new Set(["light", "dark", "colorful", "auto"]);
+const MAX_FONT_FAMILY_LENGTH = 100;
+const MAX_COLOR_SCHEME_LENGTH = 40;
+
+function normalizeTheme(theme, fallback) {
+  const t = typeof theme === "string" ? theme.toLowerCase().trim() : "";
+  return ALLOWED_THEMES.has(t) ? t : fallback;
+}
+
+function isHexColor(s) {
+  return typeof s === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(s.trim());
+}
+
+function isRgbaColor(s) {
+  if (typeof s !== "string") return false;
+  const t = s.trim();
+  const m = t.match(/^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|1|0?\.\d+)\s*\)$/i);
+  if (!m) return false;
+  const r = Number(m[1]);
+  const g = Number(m[2]);
+  const b = Number(m[3]);
+  const a = Number(m[4]);
+  return r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255 && a >= 0 && a <= 1;
+}
+
+function isColorToken(s) {
+  return isHexColor(s) || isRgbaColor(s);
+}
+
+function normalizeColorScheme(value, fallback) {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim().slice(0, MAX_COLOR_SCHEME_LENGTH);
+  if (!trimmed) return fallback;
+  if (isColorToken(trimmed)) return trimmed;
+  if (/^[a-z0-9\- ]+$/i.test(trimmed)) return trimmed;
+  return fallback;
+}
+
+function normalizeAccentColor(value, fallback) {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return isColorToken(trimmed) ? trimmed : fallback;
+}
+
+function normalizeFontFamily(value, fallback) {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim().slice(0, MAX_FONT_FAMILY_LENGTH);
+  if (!trimmed) return fallback;
+  return /^[a-z0-9 ,"'\\-]+$/i.test(trimmed) ? trimmed : fallback;
+}
+
 /**
  * @typedef {(name: string, event: any) => void} EmitFn
  */
@@ -112,13 +164,33 @@ export async function runPreparationPhase(loop, {
 
       // Apply user overrides if provided
       if (styleConfirmResult && typeof styleConfirmResult === "object") {
-        if (styleConfirmResult.colorScheme) designSystem.colorScheme = styleConfirmResult.colorScheme;
-        if (styleConfirmResult.fontFamily) designSystem.fontFamily = styleConfirmResult.fontFamily;
-        if (styleConfirmResult.accentColor) designSystem.accentColor = styleConfirmResult.accentColor;
-        if (styleConfirmResult.theme) designSystem.theme = styleConfirmResult.theme;
+        const overrides = {};
+        const nextTheme = normalizeTheme(styleConfirmResult.theme, designSystem.theme);
+        const nextColorScheme = normalizeColorScheme(styleConfirmResult.colorScheme, designSystem.colorScheme);
+        const nextFontFamily = normalizeFontFamily(styleConfirmResult.fontFamily, designSystem.fontFamily);
+        const nextAccentColor = normalizeAccentColor(styleConfirmResult.accentColor, designSystem.accentColor);
+
+        if (nextColorScheme && nextColorScheme !== designSystem.colorScheme) {
+          designSystem.colorScheme = nextColorScheme;
+          overrides.colorScheme = nextColorScheme;
+        }
+        if (nextFontFamily && nextFontFamily !== designSystem.fontFamily) {
+          designSystem.fontFamily = nextFontFamily;
+          overrides.fontFamily = nextFontFamily;
+        }
+        if (nextAccentColor && nextAccentColor !== designSystem.accentColor) {
+          designSystem.accentColor = nextAccentColor;
+          overrides.accentColor = nextAccentColor;
+        }
+        if (nextTheme && nextTheme !== designSystem.theme) {
+          designSystem.theme = nextTheme;
+          overrides.theme = nextTheme;
+        }
 
         // Log override to blackboard
-        loop._blackboard?.logDecision("style_override", "User modified design tokens", { overrides: styleConfirmResult });
+        if (Object.keys(overrides).length > 0) {
+          loop._blackboard?.logDecision("style_override", "User modified design tokens", { overrides });
+        }
       }
     }
 

@@ -339,8 +339,15 @@ export async function cleanupRuns(options = {}) {
     try {
       await this.deleteRun(runId);
       deletedRunIds.push(runId);
-    } catch {
-      // ignore individual delete errors
+    } catch (err) {
+      try {
+        logger.warn("[RunStore] Failed to delete run during cleanup", {
+          runId,
+          error: err?.message || String(err),
+        });
+      } catch {
+        // ignore
+      }
     }
   }
 

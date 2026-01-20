@@ -6,13 +6,74 @@ import { toNonEmptyString } from "../../shared/index.js";
 import { isPermanentAuthError, toErrorInfo } from "./fallback.js";
 
 /**
- * @param {{
- *   router: any,
- *   usage?: string,
- *   messages?: any[],
- *   images?: any[],
- *   waitRetryCount?: number,
- * }} input
+ * @typedef {import("../model-router.js").ModelRouter} ModelRouter
+ */
+
+/**
+ * @typedef {object} CallExecutorInput
+ * @property {ModelRouter} router - ModelRouter instance.
+ * @property {string=} usage - Usage label for routing.
+ * @property {Array<unknown>=} messages - Chat messages for the provider call.
+ * @property {Array<unknown>=} images - Optional image payloads.
+ * @property {number=} waitRetryCount - Retry count for cooldown waits.
+ */
+
+/**
+ * @typedef {object} RoutingInput
+ * @property {ModelRouter} router - ModelRouter instance.
+ * @property {string} usage - Usage label for routing.
+ * @property {Array<unknown>} messages - Chat messages for the provider call.
+ * @property {Array<unknown>=} images - Optional image payloads.
+ * @property {Set<string>} requiredTags - Required model tags.
+ * @property {string[]} orderedCandidates - Ordered candidate model ids.
+ * @property {number} waitRetryCount - Retry count for cooldown waits.
+ */
+
+/**
+ * @typedef {RoutingInput & { taskComplexity: import("../../plugins/routing/performance-router.js").TaskComplexityType }} PerformanceRoutingInput
+ */
+
+const REDACTED = "[REDACTED]";
+const MAX_ERROR_MESSAGE_CHARS = 500;
+
+/**
+ * @param {unknown} err - Raw error to sanitize.
+ * @returns {string} Redacted error message.
+ */
+function redactErrorMessage(err) {
+  const raw = err instanceof Error ? err.message : String(err ?? "");
+  const normalized = raw.replace(/\s+/g, " ").trim();
+  if (!normalized) return "Unknown error";
+
+  let msg = normalized;
+  msg = msg.replace(/(authorization\s*:\s*)(bearer|token)\s+([^\s"']+)/gi, (_m, prefix, scheme) => `${prefix}${scheme} ${REDACTED}`);
+  msg = msg.replace(/\b((?:access|refresh|id)?_?token|api[_-]?key|password|passwd|pwd|secret|authorization|auth)=([^\s&]+)/gi, (_m, key) => `${key}=${REDACTED}`);
+  msg = msg.replace(/\B--(token|password|passwd|pwd|secret|api[_-]?key)=([^\s]+)/gi, (_m, key) => `--${key}=${REDACTED}`);
+  msg = msg.replace(/\B--(token|password|passwd|pwd|secret|api[_-]?key)\s+([^\s]+)/gi, (_m, key) => `--${key} ${REDACTED}`);
+  msg = msg.replace(/(\b--user\s+)([^\s:]+):([^\s]+)/gi, (_m, prefix, user) => `${prefix}${user}:${REDACTED}`);
+  msg = msg.replace(/(\B-u\s+)([^\s:]+):([^\s]+)/g, (_m, prefix, user) => `${prefix}${user}:${REDACTED}`);
+  msg = msg.replace(/(\/\/[^/\s:@]+:)([^@\s]+)(@)/g, (_m, prefix, _pw, suffix) => `${prefix}${REDACTED}${suffix}`);
+  msg = msg.replace(/\bsk-[A-Za-z0-9]{16,}\b/g, `sk-${REDACTED}`);
+  msg = msg.replace(/\bghp_[A-Za-z0-9]{20,}\b/g, `ghp_${REDACTED}`);
+  msg = msg.replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, `github_pat_${REDACTED}`);
+  msg = msg.replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, `xox-...-${REDACTED}`);
+  msg = msg.replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\b/g, REDACTED);
+
+  if (msg.length <= MAX_ERROR_MESSAGE_CHARS) return msg;
+  return msg.slice(0, Math.max(0, MAX_ERROR_MESSAGE_CHARS - 3)) + "...";
+}
+
+/**
+ * @param {unknown} err - Raw error to sanitize.
+ * @returns {{ name: string, message: string }} Redacted error info.
+ */
+function toSafeErrorInfo(err) {
+  const info = toErrorInfo(err);
+  return { name: info.name, message: redactErrorMessage(info.message) };
+}
+
+/**
+ * @param {CallExecutorInput} [input] - Call execution inputs.
  * @returns {Promise<{content: string, model: string, provider: string}>}
  */
 export async function executeCall({ router, usage, messages, images, waitRetryCount } = {}) {
@@ -64,16 +125,7 @@ export async function executeCall({ router, usage, messages, images, waitRetryCo
 }
 
 /**
- * @param {{
- *   router: any,
- *   usage: string,
- *   messages: any[],
- *   images?: any,
- *   requiredTags: Set<string>,
- *   orderedCandidates: string[],
- *   taskComplexity: any,
- *   waitRetryCount: number,
- * }} input
+ * @param {PerformanceRoutingInput} input - Performance routing inputs.
  * @returns {Promise<{content: string, model: string, provider: string, latencyMs: number}>}
  */
 export async function callWithPerformanceRouting({
@@ -185,15 +237,15 @@ export async function callWithPerformanceRouting({
           latencyMs,
           success: true,
         });
-      } catch {
-        // ignore tracker errors
+      } catch (err) {
+        router._logger.debug(`[ModelRouter] token tracker failed for ${entry.id}: ${redactErrorMessage(err)}`);
       }
 
       // PerfRouter: record success.
       try {
         router._performanceRouter.recordResult(modelId, { success: true, latencyMs });
-      } catch {
-        // ignore
+      } catch (err) {
+        router._logger.debug(`[ModelRouter] perf router record failed for ${modelId}: ${redactErrorMessage(err)}`);
       }
 
       router.markHealthy(modelId);
@@ -201,6 +253,8 @@ export async function callWithPerformanceRouting({
       return { ...resp, model: entry.id, provider: entry.provider, latencyMs };
     } catch (err) {
       lastError = err;
+      const errorInfo = toSafeErrorInfo(err);
+      const errorMessage = errorInfo.message;
 
       const callEndMs = router._time.now();
       const latencyMs = callEndMs - callStartMs;
@@ -210,10 +264,10 @@ export async function callWithPerformanceRouting({
         router._performanceRouter.recordResult(modelId, {
           success: false,
           latencyMs,
-          error: toErrorInfo(err).message,
+          error: errorMessage,
         });
-      } catch {
-        // ignore
+      } catch (recordErr) {
+        router._logger.debug(`[ModelRouter] perf router record failed for ${modelId}: ${redactErrorMessage(recordErr)}`);
       }
 
       const retryAfterMs =
@@ -223,14 +277,14 @@ export async function callWithPerformanceRouting({
       if (retryAfterMs && limiter && typeof limiter.blockFor === "function") {
         limiter.blockFor(retryAfterMs);
       }
-      router._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${toErrorInfo(err).message}`);
+      router._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${errorMessage}`);
       const permanent = isPermanentAuthError(err);
       const health = permanent ? router.disableModel(modelId, err, { reason: "auth" }) : router.markUnhealthy(modelId, err);
       router.emit("model:unhealthy", {
         usage,
         modelId,
         provider: entry.provider,
-        error: toErrorInfo(err),
+        error: errorInfo,
         cooldownMs: health?.cooldownMs ?? router._cooldownMs,
         backoffLevel: health?.backoffLevel,
         unhealthyUntilMs: health?.unhealthyUntilMs,
@@ -250,7 +304,7 @@ export async function callWithPerformanceRouting({
           usage,
           fromModelId: modelId,
           toModelId: next,
-          error: toErrorInfo(err),
+          error: errorInfo,
         });
         router._logger.info(`[ModelRouter] failover ${modelId} -> ${next}`);
       }
@@ -277,15 +331,7 @@ export async function callWithPerformanceRouting({
 }
 
 /**
- * @param {{
- *   router: any,
- *   usage: string,
- *   messages: any[],
- *   images?: any,
- *   requiredTags: Set<string>,
- *   orderedCandidates: string[],
- *   waitRetryCount: number,
- * }} input
+ * @param {RoutingInput} input - Standard routing inputs.
  * @returns {Promise<{content: string, model: string, provider: string, latencyMs: number}>}
  */
 export async function callWithStandardRouting({
@@ -373,15 +419,15 @@ export async function callWithStandardRouting({
           latencyMs,
           success: true,
         });
-      } catch {
-        // ignore tracker errors
+      } catch (err) {
+        router._logger.debug(`[ModelRouter] token tracker failed for ${entry.id}: ${redactErrorMessage(err)}`);
       }
 
       // PerfRouter: record success.
       try {
         router._performanceRouter.recordResult(modelId, { success: true, latencyMs });
-      } catch {
-        // ignore
+      } catch (err) {
+        router._logger.debug(`[ModelRouter] perf router record failed for ${modelId}: ${redactErrorMessage(err)}`);
       }
 
       router.markHealthy(modelId);
@@ -389,6 +435,8 @@ export async function callWithStandardRouting({
       return { ...resp, model: entry.id, provider: entry.provider, latencyMs };
     } catch (err) {
       lastError = err;
+      const errorInfo = toSafeErrorInfo(err);
+      const errorMessage = errorInfo.message;
 
       const callEndMs = router._time.now();
       const latencyMs = typeof callStartMs === "number" ? callEndMs - callStartMs : 0;
@@ -398,10 +446,10 @@ export async function callWithStandardRouting({
         router._performanceRouter.recordResult(modelId, {
           success: false,
           latencyMs,
-          error: toErrorInfo(err).message,
+          error: errorMessage,
         });
-      } catch {
-        // ignore
+      } catch (recordErr) {
+        router._logger.debug(`[ModelRouter] perf router record failed for ${modelId}: ${redactErrorMessage(recordErr)}`);
       }
 
       const retryAfterMs =
@@ -411,14 +459,14 @@ export async function callWithStandardRouting({
       if (retryAfterMs && limiter && typeof limiter.blockFor === "function") {
         limiter.blockFor(retryAfterMs);
       }
-      router._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${toErrorInfo(err).message}`);
+      router._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${errorMessage}`);
       const permanent = isPermanentAuthError(err);
       const health = permanent ? router.disableModel(modelId, err, { reason: "auth" }) : router.markUnhealthy(modelId, err);
       router.emit("model:unhealthy", {
         usage,
         modelId,
         provider: entry.provider,
-        error: toErrorInfo(err),
+        error: errorInfo,
         cooldownMs: health?.cooldownMs ?? router._cooldownMs,
         backoffLevel: health?.backoffLevel,
         unhealthyUntilMs: health?.unhealthyUntilMs,
@@ -431,7 +479,7 @@ export async function callWithStandardRouting({
           usage,
           fromModelId: modelId,
           toModelId: nextModelId,
-          error: toErrorInfo(err),
+          error: errorInfo,
         });
         router._logger.info(`[ModelRouter] failover ${modelId} -> ${nextModelId}`);
       }

@@ -98,8 +98,14 @@ export function createAgentContainer(overrides = {}) {
           deferNonCoalesced: false,
           maxQueueSize: 10000,
         });
-      } catch {
-        // ignore
+      } catch (error) {
+        if (typeof console !== "undefined" && typeof console.warn === "function") {
+          console.warn("[EventBus] Failed to enable backpressure", error);
+        }
+        const nodeEnv = typeof process?.env?.NODE_ENV === "string" ? process.env.NODE_ENV : "";
+        if (nodeEnv && nodeEnv !== "production") {
+          throw error;
+        }
       }
     }
     return eventBus;

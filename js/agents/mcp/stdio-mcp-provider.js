@@ -22,6 +22,8 @@ import { toNonEmptyString } from "../shared/index.js";
  * @property {number} [timeout] - 请求超时 (ms)
  * @property {boolean} [autoConnect] - 自动连接 (default: true)
  * @property {boolean} [lazyConnect] - 延迟连接，首次调用时连接 (default: false)
+ * @property {boolean} [allowUnsafeCommand=false] - 显式允许执行未在 allowlist 中的命令
+ * @property {string[]} [allowedCommands] - 允许执行的命令白名单
  */
 
 /**
@@ -61,11 +63,27 @@ export class StdioMcpProvider extends McpProvider {
 
     super({ id, name, endpoint: "stdio" });
 
-    if (!options.command) {
+    const command = toNonEmptyString(options.command);
+    if (!command) {
       throw new Error("StdioMcpProvider: command is required");
     }
 
-    this.command = options.command;
+    const allowUnsafeCommand = options.allowUnsafeCommand === true || options.allowUnsafeCommands === true;
+    const allowlist = new Set(
+      Array.isArray(options.allowedCommands)
+        ? options.allowedCommands.map((item) => toNonEmptyString(item)).filter(Boolean)
+        : []
+    );
+    if (!allowUnsafeCommand) {
+      if (allowlist.size === 0) {
+        throw new Error("StdioMcpProvider: command not allowed without allowlist or allowUnsafeCommand");
+      }
+      if (!allowlist.has(command)) {
+        throw new Error("StdioMcpProvider: command is not in allowedCommands");
+      }
+    }
+
+    this.command = command;
     this.args = options.args || [];
     this.env = options.env || {};
     this.cwd = options.cwd;

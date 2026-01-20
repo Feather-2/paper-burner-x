@@ -740,6 +740,28 @@ it("McpTransport: _handleMessage emits generic message event", async () => {
   expect(received[0].method).toBe("some/notification");
 });
 
+it("McpTransport: rejects invalid JSON-RPC messages", async () => {
+  const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
+
+  class MockTransport extends McpTransport {
+    constructor() {
+      super({ timeout: 1000 });
+      this._connected = true;
+    }
+    async send() {}
+  }
+
+  const transport = new MockTransport();
+  const errors = [];
+  transport.on("error", (err) => errors.push(err));
+
+  const pending = transport.request("test.method", {});
+  transport._handleMessage({ jsonrpc: "1.0", id: 1, result: { ok: true } });
+
+  await expect(pending).rejects.toThrow(/Invalid MCP message/i);
+  expect(errors.length).toBe(1);
+});
+
 // ============================================================================
 // MCP Protocol Constants Tests
 // ============================================================================
@@ -790,6 +812,37 @@ it("TransportKind constants and validators", async () => {
   expect(normalizeTransportKind("TOOLAPI")).toBe("toolapi");
   expect(normalizeTransportKind("unknown")).toBe(undefined);
   expect(normalizeTransportKind(123)).toBe(undefined);
+});
+
+// ============================================================================
+// Endpoint Validation Tests
+// ============================================================================
+
+it("McpNexusProvider: blocks private endpoints unless explicitly allowed", async () => {
+  const { McpNexusProvider } = await import("../../../js/agents/mcp/mcp-nexus-provider.js");
+
+  expect(() => new McpNexusProvider({ endpoint: "http://127.0.0.1:3000", fetchImpl: async () => {} })).toThrow(/private network/i);
+  expect(
+    () => new McpNexusProvider({ endpoint: "http://127.0.0.1:3000", fetchImpl: async () => {}, allowPrivateNetwork: true })
+  ).not.toThrow();
+  expect(
+    () =>
+      new McpNexusProvider({
+        endpoint: "http://127.0.0.1:3000",
+        fetchImpl: async () => {},
+        allowedHosts: ["127.0.0.1"],
+      })
+  ).not.toThrow();
+});
+
+it("NexusSkillProvider: validates baseUrl allowlist and private blocking", async () => {
+  const { NexusSkillProvider } = await import("../../../js/agents/mcp/nexus-skill-provider.js");
+
+  expect(() => new NexusSkillProvider()).not.toThrow();
+  expect(() => new NexusSkillProvider({ baseUrl: "http://127.0.0.1:3000" })).toThrow(/private network/i);
+  expect(() => new NexusSkillProvider({ baseUrl: "http://127.0.0.1:3000", allowPrivateNetwork: true })).not.toThrow();
+  expect(() => new NexusSkillProvider({ baseUrl: "https://public.example", allowedHosts: ["public.example"] })).not.toThrow();
+  expect(() => new NexusSkillProvider({ baseUrl: "https://public.example", allowedHosts: ["other.example"] })).toThrow(/allowlist/i);
 });
 
 // ============================================================================

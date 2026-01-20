@@ -49,7 +49,12 @@ const ALLOWED_TODO_PRIORITIES = new Set(["low", "medium", "high"]);
  * @typedef {object} BudgetManagerLike
  * @property {(usage: { input: number, output: number }) => void=} recordUsage
  *
- * @typedef {(eventName: string, payload: any) => void} EmitFn
+ * @typedef {object} PlanningEventPayload
+ * @property {string=} query
+ * @property {string=} error
+ * @property {number=} todoCount
+ *
+ * @typedef {(eventName: string, payload: PlanningEventPayload) => void} EmitFn
  *
  * @typedef {(messages: Array<{ role: string, content: string }>, options?: any) => Promise<any>} CallModelFn
  *
@@ -83,22 +88,33 @@ function parseTodoPlannerOutput(text) {
 
   for (const candidate of candidates) {
     const trimmed = String(candidate || "").trim();
-    if (!trimmed || trimmed.length > MAX_TODO_JSON_CHARS) continue;
-    try {
-      const parsed = JSON.parse(trimmed);
-      const items = Array.isArray(parsed)
-        ? parsed
-        : isPlainObject(parsed) && Object.keys(parsed).length === 1 && Array.isArray(parsed.todos)
-          ? parsed.todos
-          : null;
-      const sanitized = sanitizeTodoItems(items);
-      if (sanitized) return sanitized;
-    } catch {
-      // continue
-    }
+    if (!trimmed) continue;
+    const sanitized = parseTodoPlannerJson(trimmed);
+    if (sanitized) return sanitized;
   }
 
   return null;
+}
+
+/**
+ * @param {string} rawJson
+ * @returns {Array<{ text: string, priority?: string, queryHints?: string[], expectedEvidence?: string }>|null}
+ */
+function parseTodoPlannerJson(rawJson) {
+  if (rawJson.length > MAX_TODO_JSON_CHARS) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    return null;
+  }
+
+  const items = Array.isArray(parsed)
+    ? parsed
+    : isPlainObject(parsed) && Object.keys(parsed).length === 1 && Array.isArray(parsed.todos)
+      ? parsed.todos
+      : null;
+  return sanitizeTodoItems(items);
 }
 
 /**

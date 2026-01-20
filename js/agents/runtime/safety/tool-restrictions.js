@@ -1,4 +1,4 @@
-import { parseCompoundCommand } from "./command-classifier.js";
+import { parseCompoundCommand, __internal } from "./command-classifier.js";
 import { toNonEmptyString } from "../../shared/index.js";
 
 /**
@@ -142,6 +142,10 @@ export function evaluateToolRestrictions({ toolName, command, restrictions }) {
   if (normalized.bash && Array.isArray(normalized.bash.toolNames)) {
     const toolNames = normalized.bash.toolNames;
     if (toolNames.includes(name)) {
+      const rawCommand = Array.isArray(command) ? command.join(" ") : toNonEmptyString(command) || "";
+      if (rawCommand && __internal.hasCommandSubstitution(rawCommand)) {
+        return { allowed: false, reason: "command_substitution", policy: { type: "bash", tool: name } };
+      }
       const parsed = parseCompoundCommand(command);
       if (!parsed.length) {
         if (normalized.bash.allowedCommands?.length) {

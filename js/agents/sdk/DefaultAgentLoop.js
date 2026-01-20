@@ -281,13 +281,7 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       .join("\n");
   }
 
-  /**
-   * Run the agent loop with the given input.
-   * @param {any} input - Query string, tool request, or run config object
-   * @param {StageApiLike} [stageApi] - Stage API context (model caller, signal, emit, etc.)
-   * @returns {Promise<{ success: boolean, mode: string, output?: string, error?: string, toolCalls?: any[], iterations?: number, parsed?: boolean }>}
-   */
-  async run(input, stageApi = {}) {
+  _resolveRunContext(input, stageApi) {
     /** @type {StageApiLike} */
     const api = stageApi && typeof stageApi === "object" ? stageApi : {};
     const signal = api.signal;
@@ -362,51 +356,61 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       return handler(ctx);
     };
 
-    // Direct tool invocation mode (no LLM required).
     const requestedTool = toNonEmptyString(input?.tool || input?.capability || input?.action);
-    if (requestedTool && toolExecutor) {
-      const args = isPlainObject(input?.args) ? input.args : isPlainObject(input?.params) ? input.params : {};
-      const result = await runWithMiddleware(`tool:${requestedTool}`, (ctx) => toolExecutor(requestedTool, args, ctx), {
-        tool: requestedTool,
-        args,
-      });
-      return { success: true, mode: "tool", tool: requestedTool, result };
-    }
+    const query =
+      typeof input === "string"
+        ? input
+        : toNonEmptyString(input?.query || input?.prompt || input?.message || input?.text) || "";
 
-    const query = typeof input === "string" ? input : toNonEmptyString(input?.query || input?.prompt || input?.message || input?.text) || "";
-    if (!query) {
-      return {
-        success: true,
-        mode: "idle",
-        capabilities: this.capabilities instanceof Map ? Array.from(this.capabilities.keys()) : [],
-        message: "No query provided. Pass {query} or a tool request {tool,args}.",
-      };
-    }
+    return {
+      api,
+      signal,
+      toolExecutor,
+      callModel,
+      middlewareChain,
+      emit,
+      baseCtx,
+      inputObj,
+      mergedCheckpointOptions,
+      restoreRequest,
+      runId,
+      checkpointStore,
+      shouldPersist,
+      checkpointInterval,
+      runWithMiddleware,
+      requestedTool,
+      query,
+    };
+  }
 
-    if (!callModel) {
-      return {
-        success: false,
-        mode: "no_model",
-        error: "No model caller configured. Provide { modelRouter } or { aiApiService } in run context, or call a tool directly via {tool,args}.",
-      };
-    }
+  async _maybeRunDirectTool(input, ctx) {
+    const { requestedTool, toolExecutor, runWithMiddleware } = ctx;
+    if (!requestedTool || !toolExecutor) return null;
+    const args = isPlainObject(input?.args) ? input.args : isPlainObject(input?.params) ? input.params : {};
+    const result = await runWithMiddleware(`tool:${requestedTool}`, (nextCtx) => toolExecutor(requestedTool, args, nextCtx), {
+      tool: requestedTool,
+      args,
+    });
+    return { success: true, mode: "tool", tool: requestedTool, result };
+  }
 
-    // LLM-driven loop.
+  async _restoreCheckpointState(ctx) {
+    const { api, checkpointStore, restoreRequest } = ctx;
     let toolCalls = [];
     let results = [];
     let startIteration = 0;
+    let seededMessages = null;
 
     let restored = null;
-    if (checkpointStore && restoreRequest && runId) {
+    if (checkpointStore && restoreRequest && ctx.runId) {
       try {
-        restored = await checkpointStore.loadCheckpoint({ runId, ...restoreRequest });
+        restored = await checkpointStore.loadCheckpoint({ runId: ctx.runId, ...restoreRequest });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err ?? "");
         (api.logger ?? this.logger)?.warn?.(`[DefaultAgentLoop] Restore checkpoint failed: ${msg}`);
       }
     }
 
-    let seededMessages = null;
     if (restored && typeof restored === "object") {
       seededMessages = Array.isArray(restored.messages) ? restored.messages : null;
       toolCalls = Array.isArray(restored.toolCalls) ? restored.toolCalls.slice() : [];
@@ -415,25 +419,35 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       const restoredIteration = safeInt(restored.iteration) ?? safeInt(restored.metadata?.iteration) ?? 0;
       startIteration = Math.max(0, restoredIteration);
 
-      if (!runId) {
-        runId = toNonEmptyString(restored.runId) || runId;
+      if (!ctx.runId) {
+        ctx.runId = toNonEmptyString(restored.runId) || ctx.runId;
       }
-      if (runId && checkpointStore && "runId" in checkpointStore) {
-        checkpointStore.runId = runId;
+      if (ctx.runId && checkpointStore && "runId" in checkpointStore) {
+        checkpointStore.runId = ctx.runId;
       }
     }
 
+    return { toolCalls, results, startIteration, seededMessages };
+  }
+
+  async _seedInitialMessages(seededMessages, query) {
     if (seededMessages) {
       await this.resetMessages();
       this.addMessages(seededMessages);
-    } else {
-      await this.resetMessages();
-      this.addMessage({ role: "system", content: this._buildSystemPrompt() });
-      this.addMessage({ role: "user", content: query });
+      return;
     }
 
-    const saveCheckpoint = async ({ iteration, status, output, force = false } = {}) => {
-      if (!shouldPersist || !checkpointStore || !runId) return null;
+    await this.resetMessages();
+    this.addMessage({ role: "system", content: this._buildSystemPrompt() });
+    this.addMessage({ role: "user", content: query });
+  }
+
+  _createCheckpointSaver(ctx, state) {
+    const { shouldPersist, checkpointStore, checkpointInterval, mergedCheckpointOptions, emit, signal } = ctx;
+    const { toolCalls, results } = state;
+
+    return async ({ iteration, status, output, force = false } = {}) => {
+      if (!shouldPersist || !checkpointStore || !ctx.runId) return null;
       if (!force && iteration && iteration % checkpointInterval !== 0) return null;
 
       const metadata = {
@@ -446,7 +460,7 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       };
 
       const saved = await checkpointStore.saveCheckpoint({
-        runId,
+        runId: ctx.runId,
         messages: this.messages,
         toolCalls,
         results,
@@ -461,13 +475,77 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       }
 
       emit?.("archive:checkpointSaved", {
-        runId,
+        runId: ctx.runId,
         checkpointId: saved?.checkpointId,
         iteration: iteration ?? undefined,
       });
 
       return saved?.checkpointId || null;
     };
+  }
+
+  async _executeToolActions({ toolActions, toolExecutor, runWithMiddleware, baseCtx, emit, iteration }) {
+    const executeAction = async (step) => {
+      const action = toNonEmptyString(step.action) || "complete";
+      const args = isPlainObject(step.args) ? step.args : {};
+      let result;
+      try {
+        result = await runWithMiddleware(`tool:${action}`, (ctx) => toolExecutor(action, args, ctx), { tool: action, args });
+      } catch (toolError) {
+        const errorMsg = toolError instanceof Error ? toolError.message : String(toolError ?? "");
+        (baseCtx.logger ?? this.logger)?.error?.(`[DefaultAgentLoop] Tool ${action} failed: ${errorMsg}`);
+        emit?.("agent:toolError", { tool: action, args, error: errorMsg, iteration });
+        return { action, args, result: { ok: false, error: errorMsg } };
+      }
+      if (result?.ok && result?.dmail) {
+        const logger = baseCtx.logger ?? this.logger;
+        const manager = this.softBacktrackManager;
+        let dmailResult = null;
+        if (manager && typeof manager.processDMailSignal === "function") {
+          try {
+            dmailResult = await manager.processDMailSignal(result.dmail);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            dmailResult = { success: false, reason: msg };
+            logger?.warn?.(`[DefaultAgentLoop] D-Mail processing failed: ${msg}`);
+          }
+        } else {
+          dmailResult = { success: false, reason: "soft_backtrack_manager_unavailable" };
+          logger?.warn?.("[DefaultAgentLoop] D-Mail signal received without softBacktrackManager", { action, dmail: result.dmail });
+        }
+        if (typeof emit === "function") {
+          emit("agent:dmailProcessed", { action, dmail: result.dmail, result: dmailResult });
+        }
+        if (!dmailResult || dmailResult.success !== false) {
+          logger?.info?.("[DefaultAgentLoop] D-Mail processed", { action, dmail: result.dmail, result: dmailResult });
+        }
+      }
+      return { action, args, result };
+    };
+
+    let actionResults;
+    if (this.actionExecution === 'parallel' && toolActions.length > 1) {
+      const limit = this.maxParallelActions;
+      const pending = [...toolActions];
+      actionResults = [];
+      while (pending.length > 0) {
+        const batch = pending.splice(0, limit);
+        const batchResults = await Promise.all(batch.map(executeAction));
+        actionResults.push(...batchResults);
+      }
+    } else {
+      actionResults = [];
+      for (const step of toolActions) {
+        actionResults.push(await executeAction(step));
+      }
+    }
+
+    return actionResults;
+  }
+
+  async _runLoop(ctx, state, saveCheckpoint) {
+    const { api, signal, toolExecutor, callModel, runWithMiddleware, emit, baseCtx } = ctx;
+    const { toolCalls, results, startIteration } = state;
 
     for (let i = startIteration; i < this.maxIterations; i++) {
       checkCancelled(signal);
@@ -501,7 +579,7 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       let didTool = false;
 
       // Check for 'complete' action first (must be handled immediately)
-      const completeAction = actions.find(a => (toNonEmptyString(a.action) || "complete") === "complete");
+      const completeAction = actions.find((action) => (toNonEmptyString(action.action) || "complete") === "complete");
       if (completeAction) {
         results.push({ kind: "final", iteration: i + 1, output: completeAction.final || "" });
         await saveCheckpoint({ iteration: i + 1, status: "completed", output: completeAction.final || "", force: true });
@@ -516,7 +594,7 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       }
 
       // Filter tool actions (exclude 'complete')
-      const toolActions = actions.filter(a => (toNonEmptyString(a.action) || "complete") !== "complete");
+      const toolActions = actions.filter((action) => (toNonEmptyString(action.action) || "complete") !== "complete");
 
       if (toolActions.length > 0 && !toolExecutor) {
         const action = toNonEmptyString(toolActions[0].action);
@@ -532,63 +610,14 @@ export class DefaultAgentLoop extends BaseAgentLoop {
 
       // Execute tool actions (sequential or parallel based on config)
       if (toolActions.length > 0) {
-        const executeAction = async (step) => {
-          const action = toNonEmptyString(step.action) || "complete";
-          const args = isPlainObject(step.args) ? step.args : {};
-          let result;
-          try {
-            result = await runWithMiddleware(`tool:${action}`, (ctx) => toolExecutor(action, args, ctx), { tool: action, args });
-          } catch (toolError) {
-            const errorMsg = toolError instanceof Error ? toolError.message : String(toolError ?? "");
-            (baseCtx.logger ?? this.logger)?.error?.(`[DefaultAgentLoop] Tool ${action} failed: ${errorMsg}`);
-            emit?.("agent:toolError", { tool: action, args, error: errorMsg, iteration: i + 1 });
-            // Return error result instead of throwing to allow loop to continue/checkpoint
-            return { action, args, result: { ok: false, error: errorMsg } };
-          }
-          if (result?.ok && result?.dmail) {
-            const logger = baseCtx.logger ?? this.logger;
-            const manager = this.softBacktrackManager;
-            let dmailResult = null;
-            if (manager && typeof manager.processDMailSignal === "function") {
-              try {
-                dmailResult = await manager.processDMailSignal(result.dmail);
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                dmailResult = { success: false, reason: msg };
-                logger?.warn?.(`[DefaultAgentLoop] D-Mail processing failed: ${msg}`);
-              }
-            } else {
-              dmailResult = { success: false, reason: "soft_backtrack_manager_unavailable" };
-              logger?.warn?.("[DefaultAgentLoop] D-Mail signal received without softBacktrackManager", { action, dmail: result.dmail });
-            }
-            if (typeof emit === "function") {
-              emit("agent:dmailProcessed", { action, dmail: result.dmail, result: dmailResult });
-            }
-            if (!dmailResult || dmailResult.success !== false) {
-              logger?.info?.("[DefaultAgentLoop] D-Mail processed", { action, dmail: result.dmail, result: dmailResult });
-            }
-          }
-          return { action, args, result };
-        };
-
-        let actionResults;
-        if (this.actionExecution === 'parallel' && toolActions.length > 1) {
-          // Parallel execution with concurrency limit
-          const limit = this.maxParallelActions;
-          const pending = [...toolActions];
-          actionResults = [];
-          while (pending.length > 0) {
-            const batch = pending.splice(0, limit);
-            const batchResults = await Promise.all(batch.map(executeAction));
-            actionResults.push(...batchResults);
-          }
-        } else {
-          // Sequential execution (default)
-          actionResults = [];
-          for (const step of toolActions) {
-            actionResults.push(await executeAction(step));
-          }
-        }
+        const actionResults = await this._executeToolActions({
+          toolActions,
+          toolExecutor,
+          runWithMiddleware,
+          baseCtx,
+          emit,
+          iteration: i + 1,
+        });
 
         // Record results
         for (const { action, args, result } of actionResults) {
@@ -599,7 +628,10 @@ export class DefaultAgentLoop extends BaseAgentLoop {
 
         // Add combined results to message
         const resultsText = actionResults
-          .map(({ action, result }) => `[${action}]: ${safeStringify(result, { maxChars: Math.floor(this.maxToolResultChars / actionResults.length) })}`)
+          .map(
+            ({ action, result }) =>
+              `[${action}]: ${safeStringify(result, { maxChars: Math.floor(this.maxToolResultChars / actionResults.length) })}`
+          )
           .join("\n\n");
         this.addMessage({
           role: "user",
@@ -619,6 +651,47 @@ export class DefaultAgentLoop extends BaseAgentLoop {
     await saveCheckpoint({ iteration: this.maxIterations, status: "max_iterations", force: true });
     return { success: false, mode: "llm", error: `Max iterations reached (${this.maxIterations})`, toolCalls, iterations: this.maxIterations };
   }
+
+  /**
+   * Run the agent loop with the given input.
+   * @param {any} input - Query string, tool request, or run config object
+   * @param {StageApiLike} [stageApi] - Stage API context (model caller, signal, emit, etc.)
+   * @returns {Promise<{ success: boolean, mode: string, output?: string, error?: string, toolCalls?: any[], iterations?: number, parsed?: boolean }>}
+   */
+  async run(input, stageApi = {}) {
+    const ctx = this._resolveRunContext(input, stageApi);
+
+    const directResult = await this._maybeRunDirectTool(input, ctx);
+    if (directResult) {
+      return directResult;
+    }
+
+    if (!ctx.query) {
+      return {
+        success: true,
+        mode: "idle",
+        capabilities: this.capabilities instanceof Map ? Array.from(this.capabilities.keys()) : [],
+        message: "No query provided. Pass {query} or a tool request {tool,args}.",
+      };
+    }
+
+    if (!ctx.callModel) {
+      return {
+        success: false,
+        mode: "no_model",
+        error: "No model caller configured. Provide { modelRouter } or { aiApiService } in run context, or call a tool directly via {tool,args}.",
+      };
+    }
+
+    const state = await this._restoreCheckpointState(ctx);
+
+    await this._seedInitialMessages(state.seededMessages, ctx.query);
+
+    const saveCheckpoint = this._createCheckpointSaver(ctx, state);
+
+    return this._runLoop(ctx, state, saveCheckpoint);
+  }
+
 }
 
 export default DefaultAgentLoop;

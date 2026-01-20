@@ -1,5 +1,84 @@
 import { isPlainObject, toNonEmptyString, toNonNegativeInt, toPositiveInt } from "../../shared/utils/value-utils.js";
 
+function isIpv4Host(hostname) {
+  const h = String(hostname || "").trim();
+  const parts = h.split(".");
+  if (parts.length !== 4) return false;
+  for (const p of parts) {
+    if (!/^\d{1,3}$/.test(p)) return false;
+    const n = Number(p);
+    if (!Number.isFinite(n) || n < 0 || n > 255) return false;
+  }
+  return true;
+}
+
+function isPrivateIpv4(hostname) {
+  if (!isIpv4Host(hostname)) return false;
+  const [a, b] = hostname.split(".").map((x) => Number(x));
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 0) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+}
+
+function isPrivateIpv6(hostname) {
+  const h = String(hostname || "").trim().toLowerCase();
+  if (!h || !h.includes(":")) return false;
+  if (h.includes("%")) return true;
+  if (h === "::1" || h === "::" || h === "0:0:0:0:0:0:0:1") return true;
+  if (h.startsWith("fe80:")) return true;
+  if (h.startsWith("fc") || h.startsWith("fd")) return true;
+  const mapped = (() => {
+    const tail = h.slice(h.lastIndexOf(":") + 1);
+    if (tail && tail.includes(".") && isIpv4Host(tail)) return tail;
+    const m = h.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (!m) return null;
+    const hi = parseInt(m[1], 16);
+    const lo = parseInt(m[2], 16);
+    if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
+    const a = (hi >> 8) & 0xff;
+    const b = hi & 0xff;
+    const c = (lo >> 8) & 0xff;
+    const d = lo & 0xff;
+    const ipv4 = `${a}.${b}.${c}.${d}`;
+    return isIpv4Host(ipv4) ? ipv4 : null;
+  })();
+  if (mapped && isPrivateIpv4(mapped)) return true;
+  return false;
+}
+
+function isPrivateHostname(hostname) {
+  let h = String(hostname || "").trim().toLowerCase();
+  if (!h) return false;
+  if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (h.endsWith(".local")) return true;
+  if (isPrivateIpv4(h)) return true;
+  if (isPrivateIpv6(h)) return true;
+  return false;
+}
+
+function normalizeEmbeddingEndpoint(raw) {
+  const endpoint = toNonEmptyString(raw);
+  if (!endpoint) return null;
+
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== "https:") return null;
+  const hostname = toNonEmptyString(url.hostname);
+  if (!hostname) return null;
+  if (isPrivateHostname(hostname)) return null;
+  return url.toString();
+}
+
 /**
  * @typedef {object} EmbeddingConfig
  * @property {string} endpoint
@@ -143,7 +222,7 @@ export function normalizeEmbeddingConfig(raw) {
   const cfg = isPlainObject(raw) ? raw : null;
   if (!cfg) return null;
 
-  const endpoint = toNonEmptyString(cfg.endpoint || cfg.url || cfg.baseUrl);
+  const endpoint = normalizeEmbeddingEndpoint(cfg.endpoint || cfg.url || cfg.baseUrl);
   if (!endpoint) return null;
 
   const enabled = cfg.enabled === undefined ? true : !!cfg.enabled;
@@ -193,6 +272,7 @@ export class EmbeddingService {
     this._available = normalized ? null : false; // null=unknown, false=disabled/unavailable, true=ok
     this._failures = 0;
     this._nextRetryAt = 0;
+    this._lastError = null;
   }
 
   get enabled() {
@@ -200,7 +280,7 @@ export class EmbeddingService {
   }
 
   /**
-   * @returns {{ enabled: boolean, available: boolean|null, failures: number, nextRetryAt: number, endpoint: string|null, model: string|null }}
+   * @returns {{ enabled: boolean, available: boolean|null, failures: number, nextRetryAt: number, endpoint: string|null, model: string|null, lastError: string|null }}
    */
   getStatus() {
     return {
@@ -210,6 +290,7 @@ export class EmbeddingService {
       nextRetryAt: this._nextRetryAt,
       endpoint: this._cfg?.endpoint || null,
       model: this._cfg?.model || null,
+      lastError: this._lastError,
     };
   }
 
@@ -221,9 +302,13 @@ export class EmbeddingService {
     return now >= (this._nextRetryAt || 0);
   }
 
-  _markFailure() {
+  _markFailure(error) {
     this._failures += 1;
     this._available = false;
+    if (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this._lastError = message || "EmbeddingService error";
+    }
     const cooldown = this._cfg?.cooldownMs || 300_000;
     const now = Date.now();
     this._nextRetryAt = now + cooldown;
@@ -267,28 +352,30 @@ export class EmbeddingService {
       });
 
       if (!res || !res.ok) {
-        this._markFailure();
+        const status = res ? `${res.status}${res.statusText ? ` ${res.statusText}` : ""}` : "no response";
+        this._markFailure(new Error(`EmbeddingService request failed (${status})`));
         return null;
       }
 
       let json = null;
       try {
         json = await res.json();
-      } catch {
-        this._markFailure();
+      } catch (err) {
+        this._markFailure(err);
         return null;
       }
 
       const vectors = normalizeEmbeddingResponse(json, inputs.length);
       if (!vectors) {
-        this._markFailure();
+        this._markFailure(new Error("EmbeddingService response format invalid"));
         return null;
       }
 
       this._available = true;
+      this._lastError = null;
       return vectors;
-    } catch {
-      this._markFailure();
+    } catch (err) {
+      this._markFailure(err);
       return null;
     } finally {
       cleanup();

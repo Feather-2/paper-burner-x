@@ -87,15 +87,18 @@ export const memoryMethods = {
    * @returns {void}
    */
   setScratchpad(key, value) {
-    if (this._memoryStore?.setScratchpad) this._memoryStore.setScratchpad(key, value);
     if (!isPlainObject(this.L2)) this.L2 = {};
     if (!isPlainObject(this.L2.scratchpad)) this.L2.scratchpad = Object.create(null);
     if (isPlainObject(key) && value === undefined) {
-      copyScratchpadEntries(this.L2.scratchpad, key);
+      const safePatch = Object.create(null);
+      copyScratchpadEntries(safePatch, key);
+      if (this._memoryStore?.setScratchpad) this._memoryStore.setScratchpad(safePatch);
+      copyScratchpadEntries(this.L2.scratchpad, safePatch);
       return;
     }
     const keyName = typeof key === "string" ? key : key != null ? String(key) : "";
     if (!keyName || BLOCKED_SCRATCHPAD_KEYS.has(keyName)) return;
+    if (this._memoryStore?.setScratchpad) this._memoryStore.setScratchpad(keyName, value);
     this.L2.scratchpad[keyName] = value;
   },
 

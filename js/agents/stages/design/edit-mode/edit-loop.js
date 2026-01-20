@@ -35,14 +35,58 @@ function normalizeMessage(action) {
 const MAX_INTENT_JSON_CHARS = 50_000;
 const MAX_INTENT_DEPTH = 8;
 const MAX_INTENT_OPERATIONS = 50;
-const ALLOWED_INTENT_KEYS = new Set([
-  "understanding",
-  "operations",
-  "response",
-  "needsClarification",
-  "clarificationQuestion",
-]);
-const ALLOWED_OPERATION_KEYS = new Set(["tool", "params"]);
+const MODEL_TIMEOUT_MS = 120_000;
+const TOOL_TIMEOUT_MS = 30_000;
+const CANVAS_TIMEOUT_MS = 30_000;
+
+function getJsonLength(value) {
+  try {
+    return JSON.stringify(value).length;
+  } catch {
+    return null;
+  }
+}
+
+function buildTimeoutError(label, timeoutMs) {
+  const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
+  const err = new Error(`${label} timed out after ${ms}ms`);
+  err.name = "TimeoutError";
+  /** @type {any} */ (err).code = "ETIMEDOUT";
+  /** @type {any} */ (err).timeoutMs = ms;
+  return err;
+}
+
+function runWithTimeout(promiseFactory, timeoutMs, label) {
+  const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
+  if (!ms) {
+    return typeof promiseFactory === "function" ? promiseFactory() : Promise.resolve(promiseFactory);
+  }
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      if (controller) {
+        try {
+          controller.abort();
+        } catch {
+          controller.abort();
+        }
+      }
+      reject(buildTimeoutError(label, ms));
+    }, ms);
+  });
+  const taskPromise =
+    typeof promiseFactory === "function"
+      ? Promise.resolve().then(() => promiseFactory(controller ? controller.signal : undefined))
+      : Promise.resolve(promiseFactory);
+  return Promise.race([taskPromise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
+function isTimeoutError(error) {
+  return error?.name === "TimeoutError" || error?.name === "AbortError" || error?.code === "ETIMEDOUT";
+}
 
 function exceedsDepth(value, depth = 0) {
   if (depth > MAX_INTENT_DEPTH) return true;
@@ -62,9 +106,6 @@ function exceedsDepth(value, depth = 0) {
 
 function isValidOperation(op) {
   if (!isPlainObject(op)) return false;
-  for (const key of Object.keys(op)) {
-    if (!ALLOWED_OPERATION_KEYS.has(key)) return false;
-  }
   if (typeof op.tool !== "string") return false;
   if ("params" in op && op.params !== undefined && op.params !== null && !isPlainObject(op.params)) return false;
   return true;
@@ -72,9 +113,6 @@ function isValidOperation(op) {
 
 function isValidIntentPayload(payload) {
   if (!isPlainObject(payload)) return false;
-  for (const key of Object.keys(payload)) {
-    if (!ALLOWED_INTENT_KEYS.has(key)) return false;
-  }
   if ("understanding" in payload && typeof payload.understanding !== "string") return false;
   if ("response" in payload && typeof payload.response !== "string") return false;
   if ("needsClarification" in payload && typeof payload.needsClarification !== "boolean") return false;
@@ -89,8 +127,80 @@ function isValidIntentPayload(payload) {
   return true;
 }
 
+function isValidParamValue(value, typeSpec) {
+  if (typeof typeSpec !== "string" || !typeSpec) return true;
+  const optional = typeSpec.endsWith("?");
+  const baseType = optional ? typeSpec.slice(0, -1) : typeSpec;
+  if (value === undefined || value === null) return optional;
+  if (baseType === "number") return typeof value === "number" && Number.isFinite(value);
+  if (baseType === "string") return typeof value === "string";
+  if (baseType === "object") return isPlainObject(value);
+  if (baseType === "array") return Array.isArray(value);
+  if (baseType === "boolean") return typeof value === "boolean";
+  return true;
+}
+
+function sanitizeParams(params, toolSchema) {
+  const schema = isPlainObject(toolSchema?.params) ? toolSchema.params : null;
+  if (!schema) return isPlainObject(params) ? {} : {};
+  if (params === undefined || params === null) return {};
+  if (!isPlainObject(params)) return null;
+  const cleaned = {};
+  for (const [key, typeSpec] of Object.entries(schema)) {
+    if (!(key in params)) continue;
+    if (!isValidParamValue(params[key], typeSpec)) return null;
+    cleaned[key] = params[key];
+  }
+  return cleaned;
+}
+
+function sanitizeOperation(op, tools) {
+  if (!isPlainObject(op)) return null;
+  const tool = typeof op.tool === "string" ? op.tool : "";
+  if (!tool || !tools || !tools[tool]) return null;
+  const cleanedParams = sanitizeParams(op.params, tools[tool]);
+  if (cleanedParams === null) return null;
+  return { tool, params: cleanedParams };
+}
+
+function sanitizeIntent(intent, tools) {
+  if (!isPlainObject(intent)) return null;
+  if (exceedsDepth(intent)) return null;
+  const cleaned = {};
+  if ("understanding" in intent) {
+    if (typeof intent.understanding !== "string") return null;
+    cleaned.understanding = intent.understanding;
+  }
+  if ("response" in intent) {
+    if (typeof intent.response !== "string") return null;
+    cleaned.response = intent.response;
+  }
+  if ("needsClarification" in intent) {
+    if (typeof intent.needsClarification !== "boolean") return null;
+    cleaned.needsClarification = intent.needsClarification;
+  }
+  if ("clarificationQuestion" in intent) {
+    if (typeof intent.clarificationQuestion !== "string") return null;
+    cleaned.clarificationQuestion = intent.clarificationQuestion;
+  }
+  if ("operations" in intent) {
+    if (!Array.isArray(intent.operations)) return null;
+    if (intent.operations.length > MAX_INTENT_OPERATIONS) return null;
+    const cleanedOps = [];
+    for (const op of intent.operations) {
+      const cleanedOp = sanitizeOperation(op, tools);
+      if (!cleanedOp) return null;
+      cleanedOps.push(cleanedOp);
+    }
+    cleaned.operations = cleanedOps;
+  }
+  return cleaned;
+}
+
 function safeParseJson(value) {
   if (value && typeof value === "object") {
+    const length = getJsonLength(value);
+    if (length === null || length > MAX_INTENT_JSON_CHARS) return null;
     if (exceedsDepth(value) || !isValidIntentPayload(value)) return null;
     return value;
   }
@@ -98,6 +208,8 @@ function safeParseJson(value) {
   if (value.length > MAX_INTENT_JSON_CHARS) return null;
   try {
     const parsed = JSON.parse(value);
+    const length = getJsonLength(parsed);
+    if (length === null || length > MAX_INTENT_JSON_CHARS) return null;
     if (exceedsDepth(parsed) || !isValidIntentPayload(parsed)) return null;
     return parsed;
   } catch {
@@ -284,13 +396,29 @@ export class EditModeAgentLoop {
     let screenshot = null;
 
     if (toolExecutor) {
-      const dslResult = await toolExecutor("parse_canvas_state", {});
+      const dslResult = await runWithTimeout(
+        () => toolExecutor("parse_canvas_state", {}),
+        TOOL_TIMEOUT_MS,
+        "Tool \"parse_canvas_state\""
+      );
       if (dslResult?.success && dslResult?.data?.dsl) currentDsl = dslResult.data.dsl;
-      const screenshotResult = await toolExecutor("screenshot_current", {});
+      const screenshotResult = await runWithTimeout(
+        () => toolExecutor("screenshot_current", {}),
+        TOOL_TIMEOUT_MS,
+        "Tool \"screenshot_current\""
+      );
       if (screenshotResult?.success && screenshotResult?.data?.image) screenshot = screenshotResult.data.image;
     } else if (canvasBridge) {
-      if (typeof canvasBridge.canvasToDsl === "function") currentDsl = await canvasBridge.canvasToDsl(state);
-      if (typeof canvasBridge.screenshot === "function") screenshot = await canvasBridge.screenshot(state);
+      if (typeof canvasBridge.canvasToDsl === "function") {
+        currentDsl = await runWithTimeout(() => canvasBridge.canvasToDsl(state), CANVAS_TIMEOUT_MS, "Canvas DSL");
+      }
+      if (typeof canvasBridge.screenshot === "function") {
+        screenshot = await runWithTimeout(
+          () => canvasBridge.screenshot(state),
+          CANVAS_TIMEOUT_MS,
+          "Canvas screenshot"
+        );
+      }
     }
 
     if (!currentDsl) {
@@ -372,7 +500,15 @@ ${toolList}
     /** @type {Array<{ type: string, text?: string, source?: any }>} */
     const content = [{ type: "text", text: prompt }];
     if (screenshot) content.push({ type: "image", source: screenshot });
-    const aiResponse = await modelRouter.chat([{ role: "user", content }], { vision: Boolean(screenshot) });
+    const aiResponse = await runWithTimeout(
+      (signal) =>
+        modelRouter.chat(
+          [{ role: "user", content }],
+          signal ? { vision: Boolean(screenshot), signal } : { vision: Boolean(screenshot) }
+        ),
+      MODEL_TIMEOUT_MS,
+      "Model response"
+    );
     const parsed = safeParseJson(aiResponse);
     if (!parsed) {
       throw new Error("Model response is not valid JSON");
@@ -416,9 +552,17 @@ ${toolList}
         modelRouter,
         intentParser,
       });
+      const sanitizedIntent = sanitizeIntent(intent, this.tools);
+      if (!sanitizedIntent) {
+        throw new Error("Intent schema validation failed");
+      }
+      intent = sanitizedIntent;
     } catch (captureError) {
       if (chat?.send) {
-        await chat.send({ message: `解析失败: ${captureError.message || String(captureError)}` });
+        const message = isTimeoutError(captureError)
+          ? "解析超时，请稍后重试。"
+          : `解析失败: ${captureError.message || String(captureError)}`;
+        await chat.send({ message });
       }
       this._transitionSession(session, EditSessionStatus.AWAITING_INPUT, { state, emit, onSessionTransition });
       return;
@@ -435,7 +579,11 @@ ${toolList}
     try {
       const operations = Array.isArray(intent?.operations) ? intent.operations : [];
       for (const op of operations) {
-        const result = await toolExecutor(op.tool, op.params || {});
+        const result = await runWithTimeout(
+          () => toolExecutor(op.tool, op.params || {}),
+          TOOL_TIMEOUT_MS,
+          `Tool "${op.tool}"`
+        );
         if (!result?.success) {
           throw new Error(result?.error || `Tool failed: ${op.tool}`);
         }
@@ -444,11 +592,16 @@ ${toolList}
 
       const idx = Number.isFinite(state.currentSlideIndex) ? state.currentSlideIndex : 0;
       const dsl = state.slides[idx]?.htmlDsl || state.currentDsl || "";
-      if (canvasBridge?.dslToCanvas) await canvasBridge.dslToCanvas(dsl, state);
+      if (canvasBridge?.dslToCanvas) {
+        await runWithTimeout(() => canvasBridge.dslToCanvas(dsl, state), CANVAS_TIMEOUT_MS, "Canvas render");
+      }
       if (chat?.send) await chat.send({ message: intent?.response || "已完成修改。还有别的需要吗？" });
     } catch (error) {
       historyManager.rollback();
-      if (chat?.send) await chat.send({ message: `操作失败: ${error.message}` });
+      if (chat?.send) {
+        const message = isTimeoutError(error) ? "操作超时，请稍后重试。" : `操作失败: ${error.message}`;
+        await chat.send({ message });
+      }
     }
     this._transitionSession(session, EditSessionStatus.AWAITING_INPUT, { state, emit, onSessionTransition });
   }

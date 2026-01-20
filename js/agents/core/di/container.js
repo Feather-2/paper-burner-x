@@ -12,6 +12,29 @@ export const SINGLETON = Symbol("singleton");
 export const TRANSIENT = Symbol("transient");
 
 /**
+ * @returns {boolean}
+ */
+function shouldWarnOnTryGetFailure() {
+  try {
+    /** @type {any} */
+    const g = typeof globalThis !== "undefined" ? globalThis : {};
+    const env = g?.process?.env ?? null;
+    if (env && typeof env.NODE_ENV === "string") return env.NODE_ENV !== "production";
+  } catch {
+    // ignore
+  }
+  try {
+    /** @type {any} */
+    const meta = import.meta;
+    const mode = meta?.env?.MODE;
+    if (typeof mode === "string") return mode !== "production";
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
+/**
  * @typedef {Object} ServiceEntry
  * @property {Function} factory - Factory function (container) => instance or Promise<instance>
  * @property {Symbol} scope - SINGLETON or TRANSIENT
@@ -21,7 +44,7 @@ export class Container {
   /** @type {Map<string, ServiceEntry>} */
   #factories = new Map();
 
-  /** @type {Map<string, any>} */
+  /** @type {Map<string, unknown>} */
   #singletons = new Map();
 
   /** @type {Container|null} */
@@ -119,14 +142,25 @@ export class Container {
    */
   tryGet(id) {
     if (!this.has(id)) return undefined;
+    const shouldWarn = shouldWarnOnTryGetFailure();
+    const reportError = (error) => {
+      if (!shouldWarn) return;
+      if (typeof console !== "undefined" && typeof console.warn === "function") {
+        console.warn(`[Container] tryGet("${id}") failed`, error);
+      }
+    };
     try {
       const result = this.get(id);
       // Handle async factory rejection
       if (result && typeof result.then === "function") {
-        return result.catch(() => undefined);
+        return result.catch((error) => {
+          reportError(error);
+          return undefined;
+        });
       }
       return result;
-    } catch {
+    } catch (error) {
+      reportError(error);
       return undefined;
     }
   }

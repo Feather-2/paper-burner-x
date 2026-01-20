@@ -39,24 +39,153 @@ import { normalizeMaxBytes, readJsonWithLimit } from "../shared/index.js";
  * @property {number} [cacheTTL=300000] - Cache TTL in ms (5 min default)
  * @property {number} [maxResponseBytes] - Max JSON response size (bytes), Infinity to disable
  * @property {number} [maxSkillContentBytes] - Max skill content size (bytes), defaults to maxResponseBytes
+ * @property {boolean} [allowPrivateNetwork=false] - Allow private/loopback baseUrl when explicitly enabled
+ * @property {string[]} [allowedHosts] - Explicit hostname allowlist (overrides private-network blocking)
  */
 
 const DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024; // 4 MiB
+const DEFAULT_ALLOWED_HOSTS = ["localhost"];
+
+function normalizeBaseUrl(endpoint) {
+  const raw = typeof endpoint === "string" ? endpoint.trim() : String(endpoint ?? "").trim();
+  if (!raw) return null;
+  return raw.replace(/\/+$/, "");
+}
+
+function normalizeAllowedHosts(raw) {
+  if (!Array.isArray(raw)) return new Set();
+  const out = new Set();
+  for (const host of raw) {
+    const h = typeof host === "string" ? host.trim() : String(host ?? "").trim();
+    if (!h) continue;
+    const normalized = normalizeHostname(h);
+    if (normalized) out.add(normalized);
+  }
+  return out;
+}
+
+function normalizeHostname(raw) {
+  let h = typeof raw === "string" ? raw.trim() : String(raw ?? "").trim();
+  if (!h) return null;
+  h = h.toLowerCase();
+  if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
+  if (h.includes("/") || h.includes("?")) h = h.split(/[/?]/)[0];
+  const colonCount = (h.match(/:/g) || []).length;
+  if (colonCount === 1 && !h.includes("::")) h = h.split(":")[0];
+  return h || null;
+}
+
+function isIpv4Host(hostname) {
+  const h = String(hostname || "").trim();
+  const parts = h.split(".");
+  if (parts.length !== 4) return false;
+  for (const p of parts) {
+    if (!/^\d{1,3}$/.test(p)) return false;
+    const n = Number(p);
+    if (!Number.isFinite(n) || n < 0 || n > 255) return false;
+  }
+  return true;
+}
+
+function isPrivateIpv4(hostname) {
+  if (!isIpv4Host(hostname)) return false;
+  const [a, b] = hostname.split(".").map((x) => Number(x));
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 0) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+}
+
+function isPrivateIpv6(hostname) {
+  const h = String(hostname || "").trim().toLowerCase();
+  if (!h || !h.includes(":")) return false;
+  if (h === "::1") return true;
+  if (h.startsWith("fe80:")) return true;
+  if (h.startsWith("fc") || h.startsWith("fd")) return true;
+  const mapped = (() => {
+    const tail = h.slice(h.lastIndexOf(":") + 1);
+    if (tail && tail.includes(".") && isIpv4Host(tail)) return tail;
+    const m = h.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (!m) return null;
+    const hi = parseInt(m[1], 16);
+    const lo = parseInt(m[2], 16);
+    if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
+    const a = (hi >> 8) & 0xff;
+    const b = hi & 0xff;
+    const c = (lo >> 8) & 0xff;
+    const d = lo & 0xff;
+    const ipv4 = `${a}.${b}.${c}.${d}`;
+    return isIpv4Host(ipv4) ? ipv4 : null;
+  })();
+  if (mapped && isPrivateIpv4(mapped)) return true;
+  return false;
+}
+
+function isPrivateHostname(hostname) {
+  const h = normalizeHostname(hostname);
+  if (!h) return false;
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (isPrivateIpv4(h)) return true;
+  if (isPrivateIpv6(h)) return true;
+  return false;
+}
+
+function validateBaseUrl(raw, { allowPrivateNetwork = false, allowedHosts, enforceAllowlist = false } = {}) {
+  const normalized = normalizeBaseUrl(raw);
+  if (!normalized) throw new Error("NexusSkillProvider: baseUrl is required");
+
+  let url;
+  try {
+    url = new URL(normalized);
+  } catch {
+    throw new Error("NexusSkillProvider: invalid baseUrl");
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`NexusSkillProvider: unsupported URL protocol: ${url.protocol || "(empty)"}`);
+  }
+
+  const hostname = normalizeHostname(url.hostname);
+  if (!hostname) throw new Error("NexusSkillProvider: invalid URL hostname");
+
+  const allowlist = allowedHosts instanceof Set ? allowedHosts : normalizeAllowedHosts(allowedHosts);
+  const inAllowlist = allowlist.size > 0 && allowlist.has(hostname);
+
+  if (isPrivateHostname(hostname)) {
+    if (allowPrivateNetwork === true || inAllowlist) return url.toString().replace(/\/+$/, "");
+    throw new Error("NexusSkillProvider: blocked URL hostname (private network)");
+  }
+
+  if (enforceAllowlist && allowlist.size > 0 && !inAllowlist) {
+    throw new Error("NexusSkillProvider: blocked URL hostname (not in allowlist)");
+  }
+
+  return url.toString().replace(/\/+$/, "");
+}
 
 export class NexusSkillProvider {
   /**
    * @param {ProviderOptions} options
    */
-  constructor({
-    baseUrl = "http://localhost:3000",
-    authToken = null,
-    timeout = 30000,
-    cacheEnabled = true,
-    cacheTTL = 300000,
-    maxResponseBytes,
-    maxSkillContentBytes,
-  } = {}) {
-    this.baseUrl = baseUrl.replace(/\/$/, "");
+  constructor(options = {}) {
+    const {
+      baseUrl = "http://localhost:3000",
+      authToken = null,
+      timeout = 30000,
+      cacheEnabled = true,
+      cacheTTL = 300000,
+      maxResponseBytes,
+      maxSkillContentBytes,
+      allowPrivateNetwork = false,
+      allowedHosts,
+    } = options;
+    const allowlistInput = Array.isArray(allowedHosts) ? allowedHosts : DEFAULT_ALLOWED_HOSTS;
+    const allowlist = normalizeAllowedHosts(allowlistInput);
+    const enforceAllowlist = Object.prototype.hasOwnProperty.call(options, "allowedHosts");
+    this.baseUrl = validateBaseUrl(baseUrl, { allowPrivateNetwork, allowedHosts: allowlist, enforceAllowlist });
     this.authToken = authToken;
     this.timeout = timeout;
     this.cacheEnabled = cacheEnabled;

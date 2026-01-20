@@ -1,7 +1,7 @@
 import { RunStore, RunStoreConstants } from "./run-store.js";
 import { createManifest, SUPPORTED_ARTIFACT_TYPES } from "./artifact-manager.js";
 
-import { isPlainObject } from "../shared/index.js";
+import { isPlainObject, safeJsonParse } from "../shared/index.js";
 import { isNodeLike } from "../shared/index.js";
 
 async function getJSZip() {
@@ -409,6 +409,9 @@ export async function importRunFromZip(file, options = {}) {
 
   // Default max size: 256 MB to prevent zip bomb / resource exhaustion
   const MAX_ZIP_SIZE = 256 * 1024 * 1024;
+  const MAX_MANIFEST_CHARS = 1_000_000;
+  const MAX_MANIFEST_ARTIFACTS = 5000;
+  const MAX_MANIFEST_FIELDS = 20000;
 
   let zipInput = file;
   let inputSize = 0;
@@ -443,7 +446,26 @@ export async function importRunFromZip(file, options = {}) {
   const manifestText = await zip.file("manifest.json")?.async("string");
   if (!manifestText) throw new Error("importRunFromZip(file): missing manifest.json");
 
-  const manifest = JSON.parse(manifestText);
+  const manifest = safeJsonParse(manifestText, { maxChars: MAX_MANIFEST_CHARS });
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new Error("importRunFromZip(file): invalid or oversized manifest.json");
+  }
+
+  const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts : [];
+  if (artifacts.length > MAX_MANIFEST_ARTIFACTS) {
+    throw new Error(`importRunFromZip(file): manifest has too many artifacts (${artifacts.length})`);
+  }
+
+  let fieldCount = Object.keys(manifest).length;
+  for (const item of artifacts) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    fieldCount += Object.keys(item).length;
+    if (fieldCount > MAX_MANIFEST_FIELDS) break;
+  }
+  if (fieldCount > MAX_MANIFEST_FIELDS) {
+    throw new Error("importRunFromZip(file): manifest has too many fields");
+  }
+
   const runId = ensureNonEmptyString(manifest?.runId, "manifest.runId");
 
   const baseRunContext = manifest?.runContext && typeof manifest.runContext === "object" && !Array.isArray(manifest.runContext)
@@ -467,7 +489,6 @@ export async function importRunFromZip(file, options = {}) {
       startedAt: manifest.createdAt || new Date().toISOString(),
     };
 
-  const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts : [];
   const normalizedArtifacts = artifacts.map(normalizeArtifactItem).filter(Boolean);
 
   if (validate) {

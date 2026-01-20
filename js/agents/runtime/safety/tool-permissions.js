@@ -212,7 +212,7 @@ export class ToolPermissions {
 
   /**
    * @private
-   * @param {any} level
+   * @param {PermissionLevel | string | null | undefined} level
    * @returns {PermissionLevel}
    */
   _normalizeLevel(level) {
@@ -244,7 +244,7 @@ export class ToolPermissions {
    *
    * @param {string} toolName - 工具名称
    * @param {string | string[] | null} [command] - Bash 命令 (可选)
-   * @returns {{ allowed: boolean, reason?: string, policy?: any }}
+   * @returns {{ allowed: boolean, reason?: string, policy?: Record<string, unknown> }}
    */
   check(toolName, command) {
     if (!this._mergedRestrictions && !this._strict) {
@@ -387,7 +387,7 @@ export class ToolPermissions {
   /**
    * 创建 ToolRegistry before hook
    *
-   * @returns {(ctx: { tool: string, params: any, context: any }) => { skip?: boolean, value?: any } | null}
+   * @returns {(ctx: { tool: string, params: Record<string, unknown> | string | null | undefined, context: Record<string, unknown> | null | undefined }) => { skip?: boolean, value?: { ok: boolean, error: string, policy?: Record<string, unknown> } } | null}
    */
   createHook() {
     return ({ tool, params }) => {
@@ -411,7 +411,7 @@ export class ToolPermissions {
 
   /**
    * @private
-   * @param {any} params
+   * @param {Record<string, unknown> | string | null | undefined} params
    * @returns {string | null}
    */
   _extractCommand(params) {
@@ -436,7 +436,7 @@ export class ToolPermissions {
   /**
    * 从配置创建实例
    *
-   * @param {any} json
+   * @param {Record<string, unknown> | null | undefined} json
    * @returns {ToolPermissions}
    */
   static fromJSON(json) {

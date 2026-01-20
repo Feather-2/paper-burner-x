@@ -4,6 +4,54 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] 未验证的输入
+*Archived: 2026-01-19T23:49:01.659Z*
+
+- **File**: js/agents/stages/design/edit-mode/edit-loop.js:373
+- **Description**: 模型返回的 operations 未经 schema 校验直接驱动工具执行，params 仍可能包含异常字段或越界值，影响业务状态一致性。
+- **Suggestion**: 为 intent/operations 建立明确 schema（工具名白名单 + params 字段与范围），执行前校验并过滤未知字段，必要时拒绝非法操作。
+```
+const operations = Array.isArray(intent?.operations) ? intent.operations : [];
+for (const op of operations) {
+  const result = await toolExecutor(op.tool, op.params || {});
+  if (!result?.success) {
+    throw new Error(result?.error || `Tool failed: ${op.tool}`);
+  }
+}
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] 超时处理缺失
+*Archived: 2026-01-19T23:48:44.113Z*
+
+- **File**: js/agents/stages/design/edit-mode/edit-loop.js:312
+- **Description**: modelRouter.chat 与后续工具调用缺少超时/取消机制，长时间阻塞会卡住 edit loop（特别关注项）。
+- **Suggestion**: 为模型调用与 toolExecutor/CanvasBridge 包装超时与 AbortController，超时后回滚并返回友好提示。
+```
+const aiResponse = await modelRouter.chat([{ role: "user", content }], { vision: Boolean(screenshot) });
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] 不安全的反序列化
+*Archived: 2026-01-19T23:48:39.418Z*
+
+- **File**: js/agents/stages/design/edit-mode/edit-loop.js:39
+- **Description**: 模型返回内容被直接 JSON.parse，未做 schema/长度校验，属于外部数据反序列化风险（可能导致异常或资源消耗）。
+- **Suggestion**: 对模型响应先做长度限制与结构校验（JSON Schema/手写校验），拒绝非对象或超长输入；必要时采用流式解析与超时保护。
+```
+return JSON.parse(value);
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] async-error-handling

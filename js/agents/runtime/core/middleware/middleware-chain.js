@@ -48,7 +48,7 @@ export class MiddlewareChain {
 
   /**
    * 批量添加中间件
-   * @param {Function[]} middlewares
+   * @param {Function[]} middlewares - 中间件函数列表
    * @returns {MiddlewareChain}
    */
   useAll(middlewares) {
@@ -60,8 +60,8 @@ export class MiddlewareChain {
 
   /**
    * 在指定位置插入中间件
-   * @param {number} index
-   * @param {Function} middleware
+   * @param {number} index - 插入位置
+   * @param {Function} middleware - 中间件函数
    * @returns {MiddlewareChain}
    */
   insertAt(index, middleware) {
@@ -74,7 +74,7 @@ export class MiddlewareChain {
 
   /**
    * 移除中间件
-   * @param {Function} middleware
+   * @param {Function} middleware - 中间件函数
    * @returns {boolean}
    */
   remove(middleware) {
@@ -90,7 +90,7 @@ export class MiddlewareChain {
    * 执行中间件链
    * @param {Object} ctx - 上下文对象
    * @param {Function} [finalHandler] - 最终处理函数
-   * @returns {Promise<any>}
+   * @returns {Promise<unknown>}
    */
   async execute(ctx, finalHandler) {
     const middlewares = this._middlewares;
@@ -135,8 +135,8 @@ export class MiddlewareChain {
 
 /**
  * 日志中间件 - 记录执行时间和状态
- * @param {LoggingMiddlewareOptions} [options]
- * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
+ * @param {LoggingMiddlewareOptions} [options] - 日志中间件配置
+ * @returns {(ctx: Object, next: () => Promise<unknown>) => Promise<unknown>} 中间件函数
  */
 export function createLoggingMiddleware(options = {}) {
   const { logger, prefix = "[AgentLoop]" } = options;
@@ -169,8 +169,8 @@ export function createLoggingMiddleware(options = {}) {
 
 /**
  * Telemetry 中间件 - 发射事件用于监控
- * @param {TelemetryMiddlewareOptions} [options]
- * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
+ * @param {TelemetryMiddlewareOptions} [options] - Telemetry 中间件配置
+ * @returns {(ctx: Object, next: () => Promise<unknown>) => Promise<unknown>} 中间件函数
  */
 export function createTelemetryMiddleware(options = {}) {
   const { emit, actor = "agent", stageName = "agent" } = options;
@@ -213,7 +213,7 @@ export function createTelemetryMiddleware(options = {}) {
 
 /**
  * 取消检查中间件 - 在每个步骤前检查 signal
- * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
+ * @returns {(ctx: Object, next: () => Promise<unknown>) => Promise<unknown>} 中间件函数
  */
 export function createCancellationMiddleware() {
   return async (ctx, next) => {
@@ -234,14 +234,22 @@ export function createCancellationMiddleware() {
 
 /**
  * 超时中间件 - 为步骤添加超时保护
- * @param {TimeoutMiddlewareOptions} [options]
- * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
+ * @param {TimeoutMiddlewareOptions} [options] - 超时中间件配置
+ * @returns {(ctx: Object, next: () => Promise<unknown>) => Promise<unknown>} 中间件函数
  */
 export function createTimeoutMiddleware(options = {}) {
   const { timeout = 30000, onTimeout } = options;
+  const MIN_STEP_TIMEOUT_MS = 1;
+  const MAX_STEP_TIMEOUT_MS = 5 * 60 * 1000;
+  const baseTimeout = Number.isFinite(timeout) && timeout > 0
+    ? Math.min(Math.max(timeout, MIN_STEP_TIMEOUT_MS), MAX_STEP_TIMEOUT_MS)
+    : 30000;
 
   return async (ctx, next) => {
-    const stepTimeout = ctx.timeout || timeout;
+    const rawTimeout = ctx.timeout || baseTimeout;
+    const stepTimeout = Number.isFinite(rawTimeout) && rawTimeout > 0
+      ? Math.min(Math.max(rawTimeout, MIN_STEP_TIMEOUT_MS), MAX_STEP_TIMEOUT_MS)
+      : baseTimeout;
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -279,8 +287,8 @@ export function createTimeoutMiddleware(options = {}) {
 /**
  * 重试中间件 - 失败时自动重试
  * 注意：重试会重新执行整个后续中间件链
- * @param {RetryMiddlewareOptions} [options]
- * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
+ * @param {RetryMiddlewareOptions} [options] - 重试中间件配置
+ * @returns {(ctx: Object, next: () => Promise<unknown>) => Promise<unknown>} 中间件函数
  */
 export function createRetryMiddleware(options = {}) {
   const { maxRetries = 2, retryDelay = 100, shouldRetry } = options;
@@ -317,14 +325,14 @@ export function createRetryMiddleware(options = {}) {
 
 /**
  * @typedef {Object} SnapshotMiddlewareOptions
- * @property {(ctx: Object) => Promise<any>} [onBeforeSnapshot] - 执行前快照回调
- * @property {(ctx: Object, result: any) => Promise<any>} [onAfterSnapshot] - 执行后快照回调
+ * @property {(ctx: Object) => Promise<unknown>} [onBeforeSnapshot] - 执行前快照回调
+ * @property {(ctx: Object, result: unknown) => Promise<unknown>} [onAfterSnapshot] - 执行后快照回调
  */
 
 /**
  * 状态快照中间件 - 在关键步骤前后保存状态
- * @param {SnapshotMiddlewareOptions} [options]
- * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
+ * @param {SnapshotMiddlewareOptions} [options] - 快照中间件配置
+ * @returns {(ctx: Object, next: () => Promise<unknown>) => Promise<unknown>} 中间件函数
  */
 export function createSnapshotMiddleware(options = {}) {
   const { onBeforeSnapshot, onAfterSnapshot } = options;
@@ -332,14 +340,24 @@ export function createSnapshotMiddleware(options = {}) {
   return async (ctx, next) => {
     // 执行前快照
     if (typeof onBeforeSnapshot === "function") {
-      ctx._beforeSnapshot = await onBeforeSnapshot(ctx);
+      try {
+        ctx._beforeSnapshot = await onBeforeSnapshot(ctx);
+      } catch (err) {
+        ctx._beforeSnapshotError = err;
+        ctx.logger?.error?.(`[Snapshot] onBeforeSnapshot failed: ${err?.message || String(err)}`);
+      }
     }
 
     const result = await next();
 
     // 执行后快照
     if (typeof onAfterSnapshot === "function") {
-      ctx._afterSnapshot = await onAfterSnapshot(ctx, result);
+      try {
+        ctx._afterSnapshot = await onAfterSnapshot(ctx, result);
+      } catch (err) {
+        ctx._afterSnapshotError = err;
+        ctx.logger?.error?.(`[Snapshot] onAfterSnapshot failed: ${err?.message || String(err)}`);
+      }
     }
 
     return result;
@@ -353,52 +371,57 @@ export function createSnapshotMiddleware(options = {}) {
 
 /**
  * 影子系统注入中间件 - 注入潜意识提示
- * @param {ShadowSystemMiddlewareOptions} [options]
- * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
+ * @param {ShadowSystemMiddlewareOptions} [options] - 影子系统配置
+ * @returns {(ctx: Object, next: () => Promise<unknown>) => Promise<unknown>} 中间件函数
  */
 export function createShadowSystemMiddleware(options = {}) {
   const { getShadowHints } = options;
 
   return async (ctx, next) => {
     if (typeof getShadowHints === "function") {
-      const hints = await getShadowHints(ctx);
-      if (hints) {
-        ctx.shadowHints = hints;
-        // 如果有 messages，注入到系统消息
-        if (Array.isArray(ctx.messages) && hints.system) {
-          const shadowText = String(hints.system || "").trim();
-          if (shadowText) {
-            // Cache-friendly: do not mutate the historical system[0] prefix in-place.
-            // Instead, inject an extra system message near the end (before the last user/tool turn).
-            const list = ctx.messages.map((m) => (m && typeof m === "object" ? { ...m } : m));
-            const block = `[Shadow System]\n${shadowText}`;
+      try {
+        const hints = await getShadowHints(ctx);
+        if (hints) {
+          ctx.shadowHints = hints;
+          // 如果有 messages，注入到系统消息
+          if (Array.isArray(ctx.messages) && hints.system) {
+            const shadowText = String(hints.system || "").trim();
+            if (shadowText) {
+              // Cache-friendly: do not mutate the historical system[0] prefix in-place.
+              // Instead, inject an extra system message near the end (before the last user/tool turn).
+              const list = ctx.messages.map((m) => (m && typeof m === "object" ? { ...m } : m));
+              const block = `[Shadow System]\n${shadowText}`;
 
-            let alreadyInjected = false;
-            for (const msg of list) {
-              if (!msg || typeof msg !== "object" || msg.role !== "system") continue;
-              const content = typeof msg.content === "string" ? msg.content : String(msg.content ?? "");
-              if (content.includes(block)) {
-                alreadyInjected = true;
-                break;
-              }
-            }
-
-            if (!alreadyInjected) {
-              let insertAt = list.length;
-              for (let i = list.length - 1; i >= 0; i--) {
-                const msg = list[i];
-                if (!msg || typeof msg !== "object") continue;
-                if (msg.role === "user" || msg.role === "tool") {
-                  insertAt = i;
+              let alreadyInjected = false;
+              for (const msg of list) {
+                if (!msg || typeof msg !== "object" || msg.role !== "system") continue;
+                const content = typeof msg.content === "string" ? msg.content : String(msg.content ?? "");
+                if (content.includes(block)) {
+                  alreadyInjected = true;
                   break;
                 }
               }
-              list.splice(insertAt, 0, { role: "system", content: block });
-            }
 
-            ctx.messages = list;
+              if (!alreadyInjected) {
+                let insertAt = list.length;
+                for (let i = list.length - 1; i >= 0; i--) {
+                  const msg = list[i];
+                  if (!msg || typeof msg !== "object") continue;
+                  if (msg.role === "user" || msg.role === "tool") {
+                    insertAt = i;
+                    break;
+                  }
+                }
+                list.splice(insertAt, 0, { role: "system", content: block });
+              }
+
+              ctx.messages = list;
+            }
           }
         }
+      } catch (err) {
+        ctx._shadowHintsError = err;
+        ctx.logger?.error?.(`[ShadowHints] getShadowHints failed: ${err?.message || String(err)}`);
       }
     }
     return next();
@@ -407,14 +430,14 @@ export function createShadowSystemMiddleware(options = {}) {
 
 /**
  * @typedef {Object} BlackboardMiddlewareOptions
- * @property {{ set: (key: string, value: any) => void }} [blackboard] - 黑板对象
+ * @property {{ set: (key: string, value: unknown) => void }} [blackboard] - 黑板对象
  * @property {string[]} [syncKeys=[]] - 需要同步的 key 列表
  */
 
 /**
  * 黑板更新中间件 - 同步状态到黑板
- * @param {BlackboardMiddlewareOptions} [options]
- * @returns {(ctx: Object, next: () => Promise<any>) => Promise<any>} 中间件函数
+ * @param {BlackboardMiddlewareOptions} [options] - 黑板中间件配置
+ * @returns {(ctx: Object, next: () => Promise<unknown>) => Promise<unknown>} 中间件函数
  */
 export function createBlackboardMiddleware(options = {}) {
   const { blackboard, syncKeys = [] } = options;
@@ -451,7 +474,7 @@ export function createBlackboardMiddleware(options = {}) {
 
 /**
  * 创建预配置的中间件链
- * @param {DefaultMiddlewareChainOptions} [options]
+ * @param {DefaultMiddlewareChainOptions} [options] - 默认链路配置
  * @returns {MiddlewareChain}
  */
 export function createDefaultMiddlewareChain(options = {}) {

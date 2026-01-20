@@ -1,6 +1,7 @@
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
 import { TransportKind } from "./constants.js";
 import { consumeSseJson } from "./sse.js";
+import { validateMcpMessage } from "./mcp-transport.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 import { createLogger } from "../shared/index.js";
@@ -20,6 +21,8 @@ const logger = createLogger("mcp/mcp-nexus-provider");
  * @property {number=} sseConnectTimeoutMs
  * @property {number=} sseReconnectBaseMs
  * @property {number=} sseReconnectMaxMs
+ * @property {boolean=} allowPrivateNetwork - Allow private/loopback endpoints when explicitly enabled.
+ * @property {string[]=} allowedHosts - Explicit hostname allowlist (overrides private-network blocking).
  * @property {(input: RequestInfo, init?: RequestInit) => Promise<Response>=} fetchImpl
  */
 
@@ -90,6 +93,121 @@ function normalizeBaseUrl(endpoint) {
   const raw = toNonEmptyString(endpoint);
   if (!raw) return null;
   return raw.replace(/\/+$/, "");
+}
+
+function normalizeAllowedHosts(raw) {
+  if (!Array.isArray(raw)) return new Set();
+  const out = new Set();
+  for (const host of raw) {
+    const h = toNonEmptyString(host);
+    if (!h) continue;
+    const normalized = normalizeHostname(h);
+    if (normalized) out.add(normalized);
+  }
+  return out;
+}
+
+function normalizeHostname(raw) {
+  let h = toNonEmptyString(raw);
+  if (!h) return null;
+  h = h.trim().toLowerCase();
+  if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
+  if (h.includes("/") || h.includes("?")) h = h.split(/[/?]/)[0];
+  const colonCount = (h.match(/:/g) || []).length;
+  if (colonCount === 1 && !h.includes("::")) h = h.split(":")[0];
+  return h || null;
+}
+
+function isIpv4Host(hostname) {
+  const h = String(hostname || "").trim();
+  const parts = h.split(".");
+  if (parts.length !== 4) return false;
+  for (const p of parts) {
+    if (!/^\d{1,3}$/.test(p)) return false;
+    const n = Number(p);
+    if (!Number.isFinite(n) || n < 0 || n > 255) return false;
+  }
+  return true;
+}
+
+function isPrivateIpv4(hostname) {
+  if (!isIpv4Host(hostname)) return false;
+  const [a, b] = hostname.split(".").map((x) => Number(x));
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 0) return true;
+  if (a === 169 && b === 254) return true; // link-local
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+}
+
+function isPrivateIpv6(hostname) {
+  const h = String(hostname || "").trim().toLowerCase();
+  if (!h || !h.includes(":")) return false;
+  if (h === "::1") return true;
+  if (h.startsWith("fe80:")) return true; // link-local
+  if (h.startsWith("fc") || h.startsWith("fd")) return true; // unique local
+  // IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1 or ::ffff:7f00:1)
+  const mapped = (() => {
+    const tail = h.slice(h.lastIndexOf(":") + 1);
+    if (tail && tail.includes(".") && isIpv4Host(tail)) return tail;
+    const m = h.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (!m) return null;
+    const hi = parseInt(m[1], 16);
+    const lo = parseInt(m[2], 16);
+    if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
+    const a = (hi >> 8) & 0xff;
+    const b = hi & 0xff;
+    const c = (lo >> 8) & 0xff;
+    const d = lo & 0xff;
+    const ipv4 = `${a}.${b}.${c}.${d}`;
+    return isIpv4Host(ipv4) ? ipv4 : null;
+  })();
+  if (mapped && isPrivateIpv4(mapped)) return true;
+  return false;
+}
+
+function isPrivateHostname(hostname) {
+  const h = normalizeHostname(hostname);
+  if (!h) return false;
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (isPrivateIpv4(h)) return true;
+  if (isPrivateIpv6(h)) return true;
+  return false;
+}
+
+function validateEndpointUrl(raw, { allowPrivateNetwork = false, allowedHosts = new Set() } = {}) {
+  const normalized = normalizeBaseUrl(raw);
+  if (!normalized) return null;
+
+  let url;
+  try {
+    url = new URL(normalized);
+  } catch {
+    throw new Error("Invalid endpoint URL");
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`Unsupported URL protocol: ${url.protocol || "(empty)"}`);
+  }
+
+  const hostname = normalizeHostname(url.hostname);
+  if (!hostname) throw new Error("Invalid URL hostname");
+
+  const allowlist = allowedHosts instanceof Set ? allowedHosts : normalizeAllowedHosts(allowedHosts);
+  const inAllowlist = allowlist.size > 0 && allowlist.has(hostname);
+
+  if (isPrivateHostname(hostname)) {
+    if (allowPrivateNetwork === true || inAllowlist) return url.toString().replace(/\/+$/, "");
+    throw new Error("Blocked URL hostname (private network)");
+  }
+
+  if (allowlist.size > 0 && !inAllowlist) {
+    throw new Error("Blocked URL hostname (not in allowlist)");
+  }
+
+  return url.toString().replace(/\/+$/, "");
 }
 
 function withTimeout(ms, fn) {
@@ -306,10 +424,13 @@ export class McpNexusProvider extends McpProvider {
     sseConnectTimeoutMs = 10_000,
     sseReconnectBaseMs = 1_000,
     sseReconnectMaxMs = 30_000,
+    allowPrivateNetwork = false,
+    allowedHosts,
     fetchImpl,
   } = {}) {
     super({ id, name, endpoint });
-    this.baseUrl = normalizeBaseUrl(endpoint);
+    const allowlist = normalizeAllowedHosts(allowedHosts);
+    this.baseUrl = validateEndpointUrl(endpoint, { allowPrivateNetwork, allowedHosts: allowlist });
     if (!this.baseUrl) throw new Error("McpNexusProvider requires endpoint");
 
     const authHeaders = toNonEmptyString(authToken) ? { Authorization: `Bearer ${String(authToken).trim()}` } : null;
@@ -334,6 +455,7 @@ export class McpNexusProvider extends McpProvider {
     this._sseReconnectMaxMs =
       typeof sseReconnectMaxMs === "number" && Number.isFinite(sseReconnectMaxMs) ? Math.max(200, Math.floor(sseReconnectMaxMs)) : 30_000;
 
+    this._urlPolicy = { allowPrivateNetwork: allowPrivateNetwork === true, allowedHosts: allowlist };
     this._notificationState = null; // { subscribers:Set<fn>, controller, promise }
   }
 
@@ -546,11 +668,19 @@ export class McpNexusProvider extends McpProvider {
     };
 
     const candidates = this._getSseUrlCandidates();
+    const safeCandidates = candidates.filter((candidate) => {
+      try {
+        return Boolean(validateEndpointUrl(candidate, this._urlPolicy));
+      } catch (err) {
+        logger.warn("Skipping unsafe SSE endpoint", { url: candidate, error: err?.message || err });
+        return false;
+      }
+    });
     state.promise = (async () => {
       let attempt = 0;
       while (!controller.signal.aborted) {
         let connected = false;
-        for (const url of candidates) {
+        for (const url of safeCandidates) {
           if (controller.signal.aborted) break;
           try {
             await consumeSseJson({
@@ -559,6 +689,7 @@ export class McpNexusProvider extends McpProvider {
               headers: this.headers,
               signal: controller.signal,
               connectTimeoutMs: this._sseConnectTimeoutMs,
+              validateMessage: validateMcpMessage,
               onJson: (msg) => this._handleNotificationMessage(msg),
             });
             connected = true;

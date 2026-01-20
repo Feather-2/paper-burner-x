@@ -68,13 +68,19 @@ export async function handler(args, context) {
   /** @type {any} */
   const nodeProcess = /** @type {any} */ (globalThis).process;
   const cwd =
-    stageApi.cwd ||
-    (typeof nodeProcess?.cwd === "function" ? nodeProcess.cwd() : ".");
+    stageApi?.cwd ||
+    (typeof nodeProcess?.cwd === "function" ? nodeProcess.cwd() : "");
 
   if (!name) {
     return {
       success: false,
       error: "缺少参数: name",
+    };
+  }
+  if (!cwd) {
+    return {
+      success: false,
+      error: "当前环境无法加载 Skill（缺少 cwd）。请在 Node 环境中提供 stageApi.cwd。",
     };
   }
 

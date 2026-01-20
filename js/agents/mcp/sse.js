@@ -1,8 +1,10 @@
-import { toNonEmptyString, toPositiveInt } from "../shared/index.js";
+import { createLogger, toNonEmptyString, toPositiveInt } from "../shared/index.js";
 
 const DEFAULT_MAX_LINE_BYTES = 256 * 1024; // 256KiB
 const DEFAULT_MAX_BUFFER_BYTES = 2 * 1024 * 1024; // 2MiB
 const DEFAULT_MAX_EVENT_CHARS = 1 * 1024 * 1024; // 1M chars
+
+const logger = createLogger("mcp/sse");
 
 function isTextDecoderAvailable() {
   return typeof TextDecoder !== "undefined";
@@ -510,8 +512,19 @@ export async function consumeSseJson({
   signal,
   connectTimeoutMs = 10_000,
   onJson,
+  maxJsonChars = 0,
+  validateMessage,
+  onError,
 } = {}) {
   const onData = typeof onJson === "function" ? onJson : () => {};
+  const onFailure =
+    typeof onError === "function"
+      ? onError
+      : (err, context) => {
+          logger.warn("SSE JSON payload rejected", { error: err?.message || String(err), ...context });
+        };
+  const jsonLimit = normalizeSseLimit(maxJsonChars, DEFAULT_MAX_EVENT_CHARS);
+  const validate = typeof validateMessage === "function" ? validateMessage : null;
   return consumeSse({
     fetchImpl,
     url,
@@ -521,11 +534,23 @@ export async function consumeSseJson({
     onEvent: (evt) => {
       const data = toNonEmptyString(evt?.data);
       if (!data) return;
+      if (jsonLimit !== Infinity && data.length > jsonLimit) {
+        const err = makeSizeLimitError(`SSE: JSON payload exceeds maxJsonChars (${jsonLimit})`, "SSE_JSON_LIMIT");
+        onFailure(err, { size: data.length, limit: jsonLimit });
+        return;
+      }
       try {
         const parsed = JSON.parse(data);
+        if (validate) {
+          const validationError = validate(parsed);
+          if (validationError) {
+            onFailure(new Error(`Invalid SSE JSON payload: ${validationError}`), { reason: "schema" });
+            return;
+          }
+        }
         onData(parsed, evt);
-      } catch {
-        // ignore invalid JSON payloads
+      } catch (err) {
+        onFailure(err, { reason: "invalid_json" });
       }
     },
   });

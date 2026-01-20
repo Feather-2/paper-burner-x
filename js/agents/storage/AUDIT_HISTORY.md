@@ -4,6 +4,48 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] unsafe-deserialization
+*Archived: 2026-01-19T23:43:13.289Z*
+
+- **File**: js/agents/storage/run-store-queries.js:284
+- **Description**: storageAdapter 模式下的 manifest 读取后直接 JSON.parse，遇到被篡改/损坏数据会抛异常或产生非预期结构。
+- **Suggestion**: 改用 safeJsonParse 并验证 manifest 结构；解析失败记录告警并返回 null 或受控错误。
+```
+return data ? JSON.parse(data) : null;
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] error-handling
+*Archived: 2026-01-19T23:42:55.733Z*
+
+- **File**: js/agents/storage/run-store-cache.js:339
+- **Description**: cleanupRuns 在删除失败时吞掉异常，违反错误处理约定，可能导致清理失败但结果显示成功。
+- **Suggestion**: 记录警告（含 runId 与错误信息）或累计错误并返回给调用方，避免静默失败。
+```
+try { await this.deleteRun(runId); deletedRunIds.push(runId); } catch { // ignore individual delete errors }
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] unsafe-deserialization
+*Archived: 2026-01-19T23:42:51.964Z*
+
+- **File**: js/agents/storage/run-exporter.js:446
+- **Description**: importRunFromZip 对来自 zip 的 manifest.json 直接 JSON.parse，缺少结构校验与失败兜底；恶意或损坏的压缩包可能触发崩溃或生成异常的运行数据。
+- **Suggestion**: 使用 safeJsonParse 并做 schema 校验（runId、artifacts 数量/字段）；解析失败返回友好错误，同时限制 manifest 大小/字段数量。
+```
+const manifest = JSON.parse(manifestText);
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] compatibility

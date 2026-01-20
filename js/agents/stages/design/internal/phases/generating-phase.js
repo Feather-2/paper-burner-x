@@ -6,6 +6,7 @@ import { escapeHtml } from "../../shared/design-utils.js";
 import { DesignPhase } from "../../states.js";
 import { emitStage } from "../../design-helpers.js";
 import { checkCancelled } from "../../../../runtime/index.js";
+import { createLinkedSignal } from "../../../../shared/utils/cancellation.js";
 import { DESIGN_PHASE_DEFAULTS, runWithPhaseSpan } from "./phase-utils.js";
 
 /**
@@ -45,6 +46,8 @@ function estimateSlotCostUSD(slot) {
   }
   return DESIGN_PHASE_DEFAULTS.costPerBasicSlot;
 }
+
+const DEFAULT_SPAWN_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * 生成阶段处理
@@ -134,6 +137,14 @@ export async function runGeneratingPhase(loop, {
     const dslRules = await getDslRules();
     checkCancelled(generatingContext.signal);
 
+    const timeoutCandidate = Number.isFinite(runContext?.timeoutMs)
+      ? runContext.timeoutMs
+      : Number.isFinite(context?.timeoutMs)
+        ? context.timeoutMs
+        : DEFAULT_SPAWN_TIMEOUT_MS;
+    const timeoutMs = Math.max(0, Math.floor(timeoutCandidate));
+    const spawnSignal = timeoutMs > 0 ? createLinkedSignal(generatingContext.signal, timeoutMs) : generatingContext.signal;
+
     const genResult = await loop._callTool(
       "spawn_slide_agent",
       {
@@ -147,7 +158,7 @@ export async function runGeneratingPhase(loop, {
         imageSlots,
         selectedIdeas: selectedIdeasForPrompt,
         emit,
-        signal: generatingContext.signal,
+        signal: spawnSignal,
         dslRules,
       },
       generatingContext

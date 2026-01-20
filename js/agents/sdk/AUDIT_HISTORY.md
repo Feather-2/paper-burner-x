@@ -4,6 +4,85 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] error-handling
+*Archived: 2026-01-19T23:50:05.069Z*
+
+- **File**: js/agents/sdk/agent-factory.js:407
+- **Description**: 异常被吞掉（空 catch），失败原因不可见，排障困难。
+- **Suggestion**: 至少记录 warn 日志或在调试模式下抛出，以便定位配置问题。
+```
+try {
+  eventBus.enableBackpressure({ deferNonCoalesced: opts.deferNonCoalesced ?? false, ...opts });
+} catch {
+  // ignore
+}
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] jsdoc-type-safety
+*Archived: 2026-01-19T23:50:00.764Z*
+
+- **File**: js/agents/sdk/AgentBuilder.js:34
+- **Description**: 公共 API 的 JSDoc 使用 any 且缺少参数描述，违反类型安全与文档规范，降低 IDE 校验和维护性。
+- **Suggestion**: 为公开方法补齐参数描述，并使用具体 typedef 替换 any。
+```
+/**
+ * @param {string} name
+ * @param {any} config
+ * @returns {AgentBuilder}
+ */
+useCapability(name, config) {
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] maintainability
+*Archived: 2026-01-19T23:49:46.953Z*
+
+- **File**: js/agents/sdk/DefaultAgentLoop.js:290
+- **Description**: DefaultAgentLoop.run 过长且嵌套层级深，违反单一职责和 50 行限制，增加回归与维护成本。
+- **Suggestion**: 拆分为输入解析、checkpoint、模型调用、工具执行等私有函数，降低嵌套层级。
+```
+/**
+ * Run the agent loop with the given input.
+ * @param {any} input - Query string, tool request, or run config object
+ * @param {StageApiLike} [stageApi] - Stage API context (model caller, signal, emit, etc.)
+ */
+async run(input, stageApi = {}) {
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] sandbox-escape
+*Archived: 2026-01-19T23:49:46.904Z*
+
+- **File**: js/agents/sdk/agent-factory.js:470
+- **Description**: 能力/工具执行直接在主进程运行，并允许从 capability._module 动态导入未校验模块；若能力配置来源不可信，存在任意代码执行/沙箱逃逸风险。
+- **Suggestion**: 对不可信能力引入隔离执行环境（Worker/iframe/vm），为 module 路径加 allowlist/签名校验，或明确仅支持可信插件来源。
+```
+const toolExecutor = async (name, params, context) => {
+  const capability = capabilities.get(name);
+  if (capability?._module && !capability.handler) {
+    const mod = await import(capability._module);
+    capability.handler = mod.default?.handler || mod.handler;
+    executor.register(name, capability);
+  }
+
+  return executor.execute(name, params, capabilityContext);
+};
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] 事件命名规范

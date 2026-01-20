@@ -75,6 +75,37 @@ function normalizeAgentInstanceConfig(input) {
   };
 }
 
+function normalizeCapabilityModuleAllowlist(input) {
+  if (input instanceof Set) {
+    const out = new Set();
+    for (const value of input) {
+      const id = toNonEmptyString(value);
+      if (id) out.add(id);
+    }
+    return out.size ? out : null;
+  }
+  if (Array.isArray(input)) {
+    const out = new Set();
+    for (const value of input) {
+      const id = toNonEmptyString(value);
+      if (id) out.add(id);
+    }
+    return out.size ? out : null;
+  }
+  if (typeof input === "string") {
+    const id = toNonEmptyString(input);
+    return id ? new Set([id]) : null;
+  }
+  return null;
+}
+
+function isAllowlistedCapabilityModule(allowlist, moduleId) {
+  if (!allowlist) return false;
+  const id = toNonEmptyString(moduleId);
+  if (!id) return false;
+  return allowlist.has(id);
+}
+
 /**
  * Agent 实例 - 由 AgentFactory 创建
  */
@@ -406,8 +437,9 @@ export class AgentFactory {
         const opts = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg : {};
         try {
           eventBus.enableBackpressure({ deferNonCoalesced: opts.deferNonCoalesced ?? false, ...opts });
-        } catch {
-          // ignore
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err ?? "");
+          logger?.warn?.("[AgentFactory] Failed to enable event bus backpressure", { error: msg });
         }
       }
     }
@@ -467,9 +499,17 @@ export class AgentFactory {
       emit: (e, p) => eventBus.emit(e, p),
     });
 
+    const moduleAllowlist = normalizeCapabilityModuleAllowlist(config.options?.capabilityModuleAllowlist);
+    const allowUnsafeModules = config.options?.allowUnsafeCapabilityModules === true;
+
     const toolExecutor = async (name, params, context) => {
       const capability = capabilities.get(name);
       if (capability?._module && !capability.handler) {
+        if (!allowUnsafeModules && !isAllowlistedCapabilityModule(moduleAllowlist, capability._module)) {
+          const msg = `Capability module blocked: "${capability._module}". Configure options.capabilityModuleAllowlist to allow it.`;
+          logger?.warn?.(`[AgentFactory] ${msg}`);
+          throw new Error(msg);
+        }
         const mod = await import(capability._module);
         capability.handler = mod.default?.handler || mod.handler;
         executor.register(name, capability);

@@ -30,6 +30,25 @@ function isNodeEnv() {
   );
 }
 
+const MAX_DATA_URL_LENGTH = 10 * 1024 * 1024;
+const IMAGE_DATA_URL_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
+
+function assertSafeImageDataUrl(value) {
+  const input = typeof value === "string" ? value.trim() : "";
+  if (!input) throw new Error("Screenshot data URL is empty");
+  if (input.length > MAX_DATA_URL_LENGTH) {
+    throw new Error("Screenshot data URL exceeds max length");
+  }
+  if (!IMAGE_DATA_URL_RE.test(input)) {
+    throw new Error("Screenshot data URL must be base64-encoded data:image/*");
+  }
+  const base64 = input.slice(input.indexOf(",") + 1);
+  if (!base64 || /[^A-Za-z0-9+/=]/.test(base64)) {
+    throw new Error("Screenshot data URL contains invalid base64");
+  }
+  return input;
+}
+
 /**
  * Node.js canvas 适配器
  * 尝试动态加载 canvas 包，失败则返回 null。
@@ -89,19 +108,20 @@ async function createCanvas(width, height) {
  * 加载图片（跨环境）
  */
 async function loadImageCrossEnv(base64DataUrl) {
+  const safeDataUrl = assertSafeImageDataUrl(base64DataUrl);
   if (isBrowserEnv()) {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
       img.onerror = (e) => reject(new Error(`Failed to load image: ${e}`));
-      img.src = base64DataUrl;
+      img.src = safeDataUrl;
     });
   }
 
   const nc = await getNodeCanvas();
   if (nc?.loadImage) {
     // canvas 包的 loadImage 支持 data URL
-    return nc.loadImage(base64DataUrl);
+    return nc.loadImage(safeDataUrl);
   }
   throw new Error("No image loader available in Node.js environment");
 }

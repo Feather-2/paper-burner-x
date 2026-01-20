@@ -7,6 +7,9 @@ import { mmrSelect } from "./mmr.js";
 
 import { isPlainObject } from "../shared/index.js";
 import { checkCancelled } from "../shared/index.js";
+
+const MAX_BM25_SNAPSHOT_CHARS = 2 * 1024 * 1024;
+
 function getGapId(gap) {
   if (!gap || !isPlainObject(gap)) return null;
   const id = gap.gapId || gap.id || null;
@@ -112,12 +115,30 @@ function isCompatibleBm25Index(index, chunks) {
   return true;
 }
 
-async function loadBm25IndexFromStore(store, key) {
+async function loadBm25IndexFromStore(store, key, { logger } = {}) {
   if (!store || typeof store.get !== "function") return null;
   try {
     const raw = await store.get(key);
     if (!raw) return null;
-    const snapshot = typeof raw === "string" ? JSON.parse(raw) : raw;
+    let snapshot = raw;
+    if (typeof raw === "string") {
+      if (raw.length > MAX_BM25_SNAPSHOT_CHARS) {
+        logger?.warn?.("[retrieval] bm25 snapshot too large; ignoring", { size: raw.length, max: MAX_BM25_SNAPSHOT_CHARS });
+        return null;
+      }
+      try {
+        snapshot = JSON.parse(raw);
+      } catch (err) {
+        logger?.warn?.("[retrieval] bm25 snapshot parse failed; ignoring", { error: err?.message || String(err) });
+        return null;
+      }
+    }
+    if (!snapshot || typeof snapshot !== "object") return null;
+    const schemaVersion = typeof snapshot.schemaVersion === "string" ? snapshot.schemaVersion : "";
+    if (schemaVersion !== "0.1") {
+      logger?.warn?.("[retrieval] bm25 snapshot schema mismatch; ignoring", { schemaVersion });
+      return null;
+    }
     return deserializeBm25Index(snapshot);
   } catch {
     return null;
@@ -178,6 +199,12 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
   if (!isPlainObject(config)) throw new TypeError("retrieve(sourceIndex, gaps, config): config must be an object");
 
   const signal = config.signal;
+  const logger =
+    config.logger && typeof config.logger.warn === "function"
+      ? config.logger
+      : typeof console !== "undefined" && typeof console.warn === "function"
+        ? console
+        : null;
   checkCancelled(signal);
 
   const sourceId = String(sourceIndex.sourceId || "source_1");
@@ -207,7 +234,7 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
     }
 
     if (!bm25Index && store && persistKey) {
-      const loaded = await loadBm25IndexFromStore(store, persistKey);
+      const loaded = await loadBm25IndexFromStore(store, persistKey, { logger });
       if (loaded && isCompatibleBm25Index(loaded, allChunks)) {
         bm25Index = loaded;
       }

@@ -176,14 +176,13 @@ export function robustParseJson(text, fallback = null) {
  */
 export function robustParseJsonWithValidation(text, validator, fallback = null) {
   const result = parseJsonStrict(text);
-  if (result.ok && typeof validator === "function") {
-    try {
-      if (validator(result.data)) return result.data;
-    } catch {
-      // validation failed
-    }
+  if (!result.ok) return fallback;
+  if (typeof validator !== "function") return result.data;
+  try {
+    return validator(result.data) ? result.data : fallback;
+  } catch {
+    return fallback;
   }
-  return result.ok ? result.data : fallback;
 }
 
 /**

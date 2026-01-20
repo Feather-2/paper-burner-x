@@ -41,6 +41,8 @@ const TOOL_ARG_SCHEMA = {
   find_symbol: { query: "string", pathPrefix: "string", limit: "number", workspaceId: "string" },
 };
 const TOOL_NAMES = new Set(Object.keys(TOOL_ARG_SCHEMA));
+const DEFAULT_CALL_TIMEOUT_MS = 30000;
+const DEFAULT_TOOL_TIMEOUT_MS = 30000;
 
 /**
  * @typedef {object} WatchdogOutputArgs
@@ -52,6 +54,7 @@ const TOOL_NAMES = new Set(Object.keys(TOOL_ARG_SCHEMA));
  * @property {string=} resultSummary
  */
 
+/** @private */
 function safeJsonStringify(value, maxChars = 600) {
   try {
     const text = JSON.stringify(value);
@@ -61,6 +64,19 @@ function safeJsonStringify(value, maxChars = 600) {
     const text = String(value ?? "");
     return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
   }
+}
+
+function withTimeout(promise, timeoutMs, label) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error(`${label} timed out after ${timeoutMs}ms`);
+      error.code = "timeout";
+      reject(error);
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
 }
 
 function clampNumber(value, { min = -Infinity, max = Infinity, fallback = 0 } = {}) {
@@ -231,13 +247,42 @@ function buildWatchdogOutput({ step, todoId, decision, actionName, args, resultS
   return parts.join(" | ");
 }
 
+function buildInvalidDecision() {
+  return {
+    action: null,
+    actions: null,
+    args: {},
+    done: false,
+    newTodos: [],
+    invalid: true,
+  };
+}
+
+function safeParseJsonObject(text, maxChars) {
+  if (typeof text !== "string") return null;
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > maxChars) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return isPlainObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 解析 LLM 步骤决策
  */
 function parseStepDecision(text) {
   const raw = String(text ?? "");
-  if (!raw) return null;
-  if (raw.length > MAX_DECISION_RESPONSE_CHARS) return null;
+  if (!raw) {
+    logger.warn("Empty step decision response");
+    return buildInvalidDecision();
+  }
+  if (raw.length > MAX_DECISION_RESPONSE_CHARS) {
+    logger.warn("Step decision response too long", { length: raw.length });
+    return buildInvalidDecision();
+  }
 
   // 尝试提取 JSON
   const jsonMatch = raw.match(/```json\s*([\s\S]*?)\s*```/);
@@ -248,16 +293,12 @@ function parseStepDecision(text) {
   let parsed = null;
   for (const candidate of candidates) {
     const trimmed = String(candidate || "").trim();
-    if (!trimmed || trimmed.length > MAX_DECISION_JSON_CHARS) continue;
-    try {
-      parsed = JSON.parse(trimmed);
-      break;
-    } catch {
-      // continue
-    }
+    if (!trimmed) continue;
+    parsed = safeParseJsonObject(trimmed, MAX_DECISION_JSON_CHARS);
+    if (parsed) break;
   }
 
-  if (!isPlainObject(parsed)) {
+  if (!parsed) {
     // 尝试提取字段
     const actionMatch = raw.match(/"action"\s*:\s*"(\w+)"/);
     const toolMatch = raw.match(/"tool"\s*:\s*"(\w+)"/);
@@ -266,11 +307,12 @@ function parseStepDecision(text) {
     if (actionMatch || toolMatch) {
       let parsedArgs = {};
       if (argsMatch) {
-        try {
-          parsedArgs = JSON.parse(argsMatch[1]);
-        } catch {
-          // JSON.parse 失败，使用空对象
-          logger.warn("Failed to parse args JSON in LLM response", { argsText: argsMatch[1]?.slice(0, 200) });
+        const argsText = String(argsMatch[1] || "");
+        const safeArgs = safeParseJsonObject(argsText, MAX_DECISION_JSON_CHARS);
+        if (safeArgs) {
+          parsedArgs = safeArgs;
+        } else {
+          logger.warn("Failed to parse args JSON in LLM response", { argsText: argsText.slice(0, 200) });
         }
       }
       parsed = {
@@ -282,33 +324,38 @@ function parseStepDecision(text) {
     }
   }
 
-  if (!parsed) return null;
+  if (!parsed) {
+    logger.warn("Failed to parse step decision", { responsePreview: raw.slice(0, 200) });
+    return buildInvalidDecision();
+  }
 
   const done = parsed.done === true || String(parsed.action || "").toLowerCase() === "done";
   const action = toNonEmptyString(parsed.action || parsed.tool);
-  if (action && !TOOL_NAMES.has(action) && !done) return null;
+  if (action && !TOOL_NAMES.has(action) && !done) return buildInvalidDecision();
 
   let actions = null;
   if (Array.isArray(parsed.actions) && parsed.actions.length > 0) {
-    if (parsed.actions.length > MAX_ACTIONS) return null;
+    if (parsed.actions.length > MAX_ACTIONS) return buildInvalidDecision();
     actions = [];
     for (const item of parsed.actions) {
-      if (!isPlainObject(item)) return null;
+      if (!isPlainObject(item)) return buildInvalidDecision();
       const toolName = toNonEmptyString(item.action || item.tool);
-      if (!toolName || !TOOL_NAMES.has(toolName)) return null;
+      if (!toolName || !TOOL_NAMES.has(toolName)) return buildInvalidDecision();
       const toolArgs = sanitizeArgs(toolName, item.args);
-      if (toolArgs == null) return null;
+      if (toolArgs == null) return buildInvalidDecision();
       actions.push({ action: toolName, args: toolArgs });
     }
+  } else if (parsed.actions != null) {
+    return buildInvalidDecision();
   }
 
-  if (!done && !action && !actions) return null;
+  if (!done && !action && !actions) return buildInvalidDecision();
 
   const args = action ? sanitizeArgs(action, parsed.args) : {};
-  if (action && args == null) return null;
+  if (action && args == null) return buildInvalidDecision();
 
   const newTodos = sanitizeNewTodos(parsed.newTodos);
-  if (parsed.newTodos && newTodos == null) return null;
+  if (parsed.newTodos && newTodos == null) return buildInvalidDecision();
 
   return {
     action,
@@ -438,17 +485,26 @@ export async function runExecutionStep({
   // 调用 LLM
   let response;
   try {
-    response = await callModel(messages, {
-      model: "auto",
-      temperature: 0.3,
-      maxTokens: 1000,
-      signal,
-    });
+    response = await withTimeout(
+      callModel(messages, {
+        model: "auto",
+        temperature: 0.3,
+        maxTokens: 1000,
+        signal,
+      }),
+      DEFAULT_CALL_TIMEOUT_MS,
+      "callModel"
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.warn("Execution step failed: model error", { step, error: message });
+    const errorCode = err && typeof err === "object" && err.code === "timeout" ? "model_timeout" : "model_error";
+    logger.warn("Execution step failed: model error", { step, error: message, code: errorCode });
     state.addObservation(`[Step ${step}] Model error: ${message}`);
-    return { done: false, error: "model_error", watchdogOutput: `step=${step} | model_error | ${message.slice(0, 120)}` };
+    return {
+      done: false,
+      error: errorCode,
+      watchdogOutput: `step=${step} | ${errorCode} | ${message.slice(0, 120)}`,
+    };
   }
 
   if (response?.usage && budgetManager) {
@@ -461,7 +517,7 @@ export async function runExecutionStep({
   const responseText = response?.content || response?.text || "";
   const decision = parseStepDecision(responseText);
 
-  if (!decision) {
+  if (!decision || decision.invalid) {
     logger.warn("Failed to parse step decision");
     state.addObservation(`[Step ${step}] Failed to parse LLM response`);
     return { done: false, error: "parse_failed", watchdogOutput: `step=${step} | parse_failed | response_len=${responseText.length}` };
@@ -497,23 +553,31 @@ export async function runExecutionStep({
 
   const selectedTodo = resolveTodoSelection(decision, openTodos);
 
-  // 将选中的 todo 标记为 pending（正在处理）
-  if (selectedTodo && selectedTodo.status === TodoStatus.OPEN) {
-    state.updateTodo(selectedTodo.todoId, { status: TodoStatus.PENDING });
-  }
-
   // 批量执行工具
   if (decision.actions) {
+    if (selectedTodo && selectedTodo.status === TodoStatus.OPEN) {
+      state.updateTodo(selectedTodo.todoId, { status: TodoStatus.PENDING });
+    }
     const batchResults = await Promise.all(
       decision.actions.map(async (item) => {
         const toolName = toNonEmptyString(item.action || item.tool);
-        const toolArgs = isPlainObject(item.args) ? item.args : {};
-        if (!toolName) return { tool: "unknown", error: "missing tool name" };
+        if (!toolName || !TOOL_NAMES.has(toolName)) {
+          return { tool: toolName || "unknown", success: false, error: "tool_not_allowed" };
+        }
+        const toolArgs = sanitizeArgs(toolName, item.args);
+        if (toolArgs == null) {
+          return { tool: toolName, success: false, error: "invalid_tool_args" };
+        }
         try {
-          const result = await tools.execute(toolName, toolArgs);
+          const result = await withTimeout(
+            tools.execute(toolName, toolArgs),
+            DEFAULT_TOOL_TIMEOUT_MS,
+            `tool:${toolName}`
+          );
           return { tool: toolName, args: toolArgs, success: true, result };
         } catch (err) {
-          return { tool: toolName, args: toolArgs, success: false, error: err.message };
+          const message = err instanceof Error ? err.message : String(err);
+          return { tool: toolName, args: toolArgs, success: false, error: message };
         }
       })
     );
@@ -548,18 +612,37 @@ export async function runExecutionStep({
     };
   }
 
+  if (actionName && !TOOL_NAMES.has(actionName)) {
+    state.addObservation(`[Step ${step}] Tool not allowed: ${actionName}`);
+    return { done: false, error: "tool_not_allowed" };
+  }
+  const sanitizedArgs = actionName ? sanitizeArgs(actionName, decision.args) : null;
+  if (actionName && sanitizedArgs == null) {
+    state.addObservation(`[Step ${step}] Invalid tool args for ${actionName}`);
+    return { done: false, error: "invalid_tool_args" };
+  }
+
+  if (selectedTodo && selectedTodo.status === TodoStatus.OPEN) {
+    state.updateTodo(selectedTodo.todoId, { status: TodoStatus.PENDING });
+  }
+
   // 单个工具执行
   let result;
   try {
-    result = await tools.execute(actionName, decision.args);
+    result = await withTimeout(
+      tools.execute(actionName, sanitizedArgs || {}),
+      DEFAULT_TOOL_TIMEOUT_MS,
+      `tool:${actionName}`
+    );
   } catch (err) {
-    result = { error: err.message };
+    const message = err instanceof Error ? err.message : String(err);
+    result = { error: message };
   }
 
   const formattedResult = formatToolResult(actionName, result);
   const todoLabel = selectedTodo ? `[todo ${selectedTodo.todoId}]` : "[todo none]";
   state.addObservation(`[Step ${step}] ${todoLabel} ${formattedResult}`);
-  state.addStep({ step, tool: actionName, args: decision.args, result, todoId: selectedTodo?.todoId });
+  state.addStep({ step, tool: actionName, args: sanitizedArgs || {}, result, todoId: selectedTodo?.todoId });
 
   // 处理 todo 状态更新
   if (selectedTodo && (decision.completeTodo || decision.todoStatus === "completed")) {
@@ -576,7 +659,7 @@ export async function runExecutionStep({
       todoId: selectedTodo?.todoId,
       decision,
       actionName,
-      args: decision.args,
+      args: sanitizedArgs || {},
       resultSummary: summarizeToolResultForWatchdog(actionName, result),
     }),
   };

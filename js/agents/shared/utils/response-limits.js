@@ -37,6 +37,14 @@ function tryGetHeader(response, name) {
 }
 
 /**
+ * @param {any} value
+ * @returns {boolean}
+ */
+function isJsonContainer(value) {
+  return value !== null && typeof value === "object";
+}
+
+/**
  * @param {string} context
  * @param {number} maxBytes
  * @param {number} observedBytes
@@ -130,14 +138,29 @@ export async function readTextWithLimit(response, { maxBytes = Infinity, context
 
 /**
  * @param {any} response
- * @param {{ maxBytes?: number, context?: string, signal?: AbortSignal, code?: string }=} options
+ * @param {{ maxBytes?: number, context?: string, signal?: AbortSignal, code?: string, validate?: (data: any) => boolean }=} options
  * @returns {Promise<any>}
  */
-export async function readJsonWithLimit(response, { maxBytes, context, signal, code } = {}) {
+export async function readJsonWithLimit(response, { maxBytes, context, signal, code, validate } = {}) {
   const label = toNonEmptyString(context) || "JSON response body";
   const text = await readTextWithLimit(response, { maxBytes, context: label, signal, code });
   if (text === null) throw new Error(`${label} is empty`);
-  return JSON.parse(text);
+  const data = JSON.parse(text);
+  if (!isJsonContainer(data)) {
+    throw new Error(`${label} must be a JSON object or array`);
+  }
+  if (typeof validate === "function") {
+    let ok = false;
+    try {
+      ok = validate(data);
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      throw new Error(`${label} failed validation`);
+    }
+  }
+  return data;
 }
 
 export default {
@@ -146,4 +169,3 @@ export default {
   readJsonWithLimit,
   createResponseTooLargeError,
 };
-

@@ -3,6 +3,15 @@ import { DesignPhase } from "../../states.js";
 import { emitStage } from "../../design-helpers.js";
 import { DESIGN_PHASE_DEFAULTS, runWithPhaseSpan } from "./phase-utils.js";
 
+function clampInt(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const rounded = Math.floor(n);
+  if (rounded < min) return min;
+  if (rounded > max) return max;
+  return rounded;
+}
+
 /**
  * @typedef {(name: string, event: any) => void} EmitFn
  */
@@ -226,12 +235,26 @@ async function runRefine(deckPackage, contentPackage, runContext, context, userC
   };
   const toolExecutor = createToolExecutor(toolContext);
 
+  const refineConfig = userConfig?.refine || {};
+  const recommendedSteps = clampInt(
+    refineConfig.recommendedSteps,
+    1,
+    10,
+    DESIGN_PHASE_DEFAULTS.refineRecommendedSteps
+  );
+  const hardLimit = clampInt(
+    refineConfig.hardLimit,
+    1,
+    30,
+    DESIGN_PHASE_DEFAULTS.refineHardLimit
+  );
+
   const refineResult = await runReactRefiner(
     toolContext.deckPackage,
     { contentPackage, runContext, stageApi: context },
     {
-      recommendedSteps: userConfig.refine.recommendedSteps || DESIGN_PHASE_DEFAULTS.refineRecommendedSteps,
-      hardLimit: userConfig.refine.hardLimit || DESIGN_PHASE_DEFAULTS.refineHardLimit,
+      recommendedSteps,
+      hardLimit,
       toolExecutor,
       mode: "generation",
       onStep: (step) => emit?.("design.refine.step", { actor: "design", status: "step", payload: step }),

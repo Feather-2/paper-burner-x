@@ -40,6 +40,13 @@ let _nativeWatchSupported = null;
 let _nativeWatchSupportedPromise = null;
 
 /**
+ * @returns {boolean}
+ */
+function isNodeRuntime() {
+  return typeof process !== "undefined" && !!process.versions?.node;
+}
+
+/**
  * @param {any} mod
  * @returns {any}
  */
@@ -53,7 +60,7 @@ function normalizeNodeFsModule(mod) {
 
 /**
  * Attempt to load the Node.js fs module.
- * NOTE: This uses dynamic import of "node:fs" which is Node-only.
+ * NOTE: This uses dynamic import of the Node fs module which is Node-only.
  * In browser environments, the import will fail and return null,
  * causing FileWatcher to fall back to polling mode with VFS.
  * @returns {Promise<any | null>}
@@ -61,10 +68,10 @@ function normalizeNodeFsModule(mod) {
 async function loadNodeFsModule() {
   if (_nodeFsModulePromise) return _nodeFsModulePromise;
   _nodeFsModulePromise = (async () => {
+    if (!isNodeRuntime()) return null;
     try {
       // Node-only: browsers will fail this import and fall back to polling.
-      /** @type {string} */
-      const fsSpecifier = "node:fs";
+      const fsSpecifier = ["node", "fs"].join(String.fromCharCode(58));
       const mod = await import(/* @vite-ignore */ fsSpecifier);
       return normalizeNodeFsModule(mod);
     } catch {

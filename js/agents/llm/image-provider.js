@@ -10,9 +10,27 @@
 import { safeJsonParse } from "../shared/index.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/index.js";
-function sanitizeBaseUrl(url, fallback) {
+
+const ALLOWED_OPENAI_HOSTS = ["api.openai.com"];
+const ALLOWED_GEMINI_HOSTS = ["generativelanguage.googleapis.com"];
+
+function sanitizeBaseUrl(url, fallback, { allowedHosts } = {}) {
   const raw = toNonEmptyString(url) || toNonEmptyString(fallback) || "";
-  return raw.replace(/\/+$/, "");
+  if (!raw) return "";
+  const trimmed = raw.replace(/\/+$/, "");
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== "https:") throw new Error("protocol");
+    if (Array.isArray(allowedHosts) && allowedHosts.length > 0 && !allowedHosts.includes(host)) {
+      throw new Error("host");
+    }
+    const path = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname.replace(/\/+$/, "") : "";
+    return `${parsed.origin}${path}`;
+  } catch {
+    const safeFallback = toNonEmptyString(fallback) || "";
+    return safeFallback.replace(/\/+$/, "");
+  }
 }
 
 function normalizeEnumValue(value, allowed, fallback) {
@@ -161,7 +179,9 @@ export async function GeminiImageAdapter(request, apiKey, opts = {}) {
   if (!toNonEmptyString(apiKey)) throw new Error("GeminiImageAdapter: API key is required");
 
   const modelId = toNonEmptyString(request.model) || toNonEmptyString(opts.model) || "gemini-2.5-flash-image";
-  const baseUrl = sanitizeBaseUrl(opts.baseUrl, "https://generativelanguage.googleapis.com");
+  const baseUrl = sanitizeBaseUrl(opts.baseUrl, "https://generativelanguage.googleapis.com", {
+    allowedHosts: opts.baseUrlTrusted === false ? ALLOWED_GEMINI_HOSTS : null,
+  });
   const endpoint = `${baseUrl}/v1beta/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   // Gemini's API only supports a known set of values; tolerate unknown input by falling back.
@@ -242,7 +262,9 @@ export async function OpenAIImageAdapter(request, apiKey, opts = {}) {
   if (!toNonEmptyString(apiKey)) throw new Error("OpenAIImageAdapter: API key is required");
 
   const modelId = toNonEmptyString(request.model) || toNonEmptyString(opts.model) || "gpt-image-1";
-  const baseUrl = sanitizeBaseUrl(opts.baseUrl, "https://api.openai.com");
+  const baseUrl = sanitizeBaseUrl(opts.baseUrl, "https://api.openai.com", {
+    allowedHosts: opts.baseUrlTrusted === false ? ALLOWED_OPENAI_HOSTS : null,
+  });
   const endpoint = `${baseUrl}/v1/images/generations`;
 
   const size = assertEnumValue(request.size ?? opts.size, OPENAI_SIZES, { name: "size", fallback: "1024x1024" });
@@ -314,6 +336,7 @@ export class ImageProvider {
     this.apiKey = toNonEmptyString(opts.apiKey) || "";
     this.model = toNonEmptyString(opts.model);
     this.baseUrl = toNonEmptyString(opts.baseUrl);
+    this.baseUrlTrusted = opts.baseUrlTrusted !== false;
     this.id = `image_${this.provider}`;
     this.name = opts.name || `Image (${this.provider})`;
     this.capabilities = ["generate"];
@@ -334,6 +357,7 @@ export class ImageProvider {
     const mergedOpts = {
       model: this.model,
       baseUrl: this.baseUrl,
+      baseUrlTrusted: this.baseUrlTrusted,
       ...opts,
     };
     return adapter(request, this.apiKey, mergedOpts);
@@ -364,13 +388,17 @@ export class ImageProvider {
 
     try {
       if (this.provider === "gemini-image" || this.provider === "gemini") {
-        const baseUrl = sanitizeBaseUrl(this.baseUrl, "https://generativelanguage.googleapis.com");
+        const baseUrl = sanitizeBaseUrl(this.baseUrl, "https://generativelanguage.googleapis.com", {
+          allowedHosts: this.baseUrlTrusted === false ? ALLOWED_GEMINI_HOSTS : null,
+        });
         const endpoint = `${baseUrl}/v1beta/models?key=${encodeURIComponent(this.apiKey)}`;
         const resp = await fetchWithTimeout(endpoint, { method: "GET" }, { timeoutMs: 10_000 });
         return resp.ok;
       }
       if (this.provider === "openai-image" || this.provider === "openai") {
-        const baseUrl = sanitizeBaseUrl(this.baseUrl, "https://api.openai.com");
+        const baseUrl = sanitizeBaseUrl(this.baseUrl, "https://api.openai.com", {
+          allowedHosts: this.baseUrlTrusted === false ? ALLOWED_OPENAI_HOSTS : null,
+        });
         const endpoint = `${baseUrl}/v1/models`;
         const resp = await fetchWithTimeout(
           endpoint,
@@ -424,6 +452,7 @@ export function createImageProviderFromConfig({ storage, keyLoader, storageKey =
 
   if (!isPlainObject(config)) config = { provider: "gemini-image" };
   if (!toNonEmptyString(config.provider)) config.provider = "gemini-image";
+  if (toNonEmptyString(config.baseUrl)) config.baseUrlTrusted = false;
 
   const loader = typeof keyLoader === "function" ? keyLoader : typeof loadModelKeys === "function" ? loadModelKeys : null;
   if (!toNonEmptyString(config.apiKey) && loader) {

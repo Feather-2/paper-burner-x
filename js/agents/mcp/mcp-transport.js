@@ -10,7 +10,60 @@
  * @module mcp/mcp-transport
  */
 
-import { EventEmitter } from "../shared/index.js";
+import { EventEmitter, createLogger, isPlainObject, toNonEmptyString } from "../shared/index.js";
+
+const logger = createLogger("mcp/mcp-transport");
+
+function isValidMessageId(id) {
+  return typeof id === "string" || (typeof id === "number" && Number.isFinite(id));
+}
+
+function isValidParams(params) {
+  if (params === null) return true;
+  return typeof params === "object";
+}
+
+function isValidErrorShape(err) {
+  if (!isPlainObject(err)) return false;
+  if (typeof err.code !== "number" || !Number.isFinite(err.code)) return false;
+  const message = toNonEmptyString(err.message);
+  if (!message) return false;
+  return true;
+}
+
+/**
+ * Validate MCP/JSON-RPC message structure.
+ * @param {any} message
+ * @returns {string|null}
+ */
+export function validateMcpMessage(message) {
+  if (!isPlainObject(message)) return "message must be an object";
+  if (message.jsonrpc !== "2.0") return "jsonrpc must be '2.0'";
+
+  if (Object.prototype.hasOwnProperty.call(message, "id") && !isValidMessageId(message.id)) {
+    return "id must be a string or number";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(message, "method")) {
+    const method = toNonEmptyString(message.method);
+    if (!method) return "method must be a non-empty string";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(message, "params") && !isValidParams(message.params)) {
+    return "params must be an object or array";
+  }
+
+  const hasMethod = Object.prototype.hasOwnProperty.call(message, "method");
+  const hasResult = Object.prototype.hasOwnProperty.call(message, "result");
+  const hasError = Object.prototype.hasOwnProperty.call(message, "error");
+  if (!hasMethod && !hasResult && !hasError) return "message must include method, result, or error";
+
+  if (hasError && !isValidErrorShape(message.error)) {
+    return "error must include numeric code and string message";
+  }
+
+  return null;
+}
 
 /**
  * @typedef {object} McpMessage
@@ -141,6 +194,20 @@ export class McpTransport extends EventEmitter {
    * @protected
    */
   _handleMessage(message) {
+    const validationError = validateMcpMessage(message);
+    if (validationError) {
+      const err = new Error(`Invalid MCP message: ${validationError}`);
+      logger.warn("Rejected MCP message", { error: err.message });
+      this.emit("error", err);
+      if (isPlainObject(message) && message.id !== undefined && this._pending.has(message.id)) {
+        const { reject, timer } = this._pending.get(message.id);
+        this._pending.delete(message.id);
+        clearTimeout(timer);
+        reject(err);
+      }
+      return;
+    }
+
     // 响应消息 (有 id 且在 pending 中)
     if (message.id !== undefined && this._pending.has(message.id)) {
       const { resolve, reject, timer } = this._pending.get(message.id);

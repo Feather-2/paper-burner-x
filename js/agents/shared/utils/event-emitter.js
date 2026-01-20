@@ -3,6 +3,10 @@
  * @module shared/utils/event-emitter
  */
 
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("shared/utils/event-emitter");
+
 /**
  * @callback EventListener
  * @param {...any} args
@@ -94,8 +98,8 @@ export class EventEmitter {
         listener(...args);
       } catch (err) {
         // Best-effort: don't let one bad listener break others.
-        // eslint-disable-next-line no-console
-        console.error(`[EventEmitter] Error in listener for "${key}":`, err);
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error(`EventEmitter listener error: ${key}`, { event: key, error: message });
       }
     }
 

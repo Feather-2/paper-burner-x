@@ -1,5 +1,16 @@
 import { isPlainObject, toNonEmptyString, toPositiveInt } from "../../shared/utils/value-utils.js";
 
+export class DimensionMismatchError extends Error {
+  /**
+   * @param {number} expected
+   * @param {number} actual
+   */
+  constructor(expected, actual) {
+    super(`VectorIndex dimension mismatch: expected ${expected}, got ${actual}`);
+    this.name = "DimensionMismatchError";
+  }
+}
+
 // Partition configuration for time-based bucketing
 const PARTITION_CONFIG = Object.freeze({
   HOT_MS: 60 * 60 * 1000,        // Last 1 hour
@@ -125,6 +136,7 @@ export class VectorIndex {
    * @param {Float32Array|number[]|ArrayBufferView} vector - The vector to store.
    * @param {*} [meta] - Optional metadata to associate with the vector.
    * @returns {boolean} True if the operation succeeded.
+   * @throws {DimensionMismatchError} If the vector dimension does not match the index.
    */
   upsert(id, vector, meta) {
     const key = toNonEmptyString(id);
@@ -135,7 +147,7 @@ export class VectorIndex {
 
     if (this._dim === null) this._dim = normalized.length;
     if (this._dim !== normalized.length) {
-      throw new Error(`VectorIndex dimension mismatch: expected ${this._dim}, got ${normalized.length}`);
+      throw new DimensionMismatchError(this._dim, normalized.length);
     }
 
     // LRU-ish behavior: refresh insertion order on overwrite.

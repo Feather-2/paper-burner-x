@@ -18,6 +18,8 @@ const DEFAULT_PROMPT =
   "You are a DeepSearch todo planner. Return ONLY a JSON array of todos " +
   "with fields: text, priority, queryHints, expectedEvidence. " +
   "priority must be high|medium|low. queryHints should be 3-6 short keywords.";
+const MAX_TODO_JSON_LENGTH = 12000;
+const TODO_ALLOWED_FIELDS = new Set(["text", "priority", "queryHints", "expectedEvidence"]);
 
 /**
  * @param {any} _runContext
@@ -89,6 +91,22 @@ function uniqueStrings(values) {
     out.push(s);
   }
   return out;
+}
+
+function sanitizeTodoCandidates(raw) {
+  const list = Array.isArray(raw) ? raw : isPlainObject(raw) && Array.isArray(raw.todos) ? raw.todos : null;
+  if (!Array.isArray(list)) return null;
+  const sanitized = [];
+  for (const item of list) {
+    if (!isPlainObject(item)) return null;
+    const safe = Object.create(null);
+    for (const [key, value] of Object.entries(item)) {
+      if (!TODO_ALLOWED_FIELDS.has(key)) continue;
+      safe[key] = value;
+    }
+    sanitized.push(safe);
+  }
+  return sanitized;
 }
 
 function buildFallbackTodos(state, scanSummary) {
@@ -179,11 +197,19 @@ async function tryLLMTodos(state, scanSummary, stageApi) {
     const result = await callModel(messages, { model: "auto", temperature: 0.3, maxTokens: 900, cacheKeyInputs });
     const candidate = extractJsonCandidate(result?.content);
     if (!candidate) return null;
+    if (candidate.length > MAX_TODO_JSON_LENGTH) {
+      logger.warn("[DeepSearch] todos: LLM output too large", { length: candidate.length, max: MAX_TODO_JSON_LENGTH });
+      return null;
+    }
     const parsed = JSON.parse(candidate);
-    if (Array.isArray(parsed)) return parsed;
-    if (isPlainObject(parsed) && Array.isArray(parsed.todos)) return parsed.todos;
-    return null;
-  } catch {
+    const sanitized = sanitizeTodoCandidates(parsed);
+    if (!sanitized) {
+      logger.warn("[DeepSearch] todos: invalid JSON structure");
+      return null;
+    }
+    return sanitized;
+  } catch (err) {
+    logger.warn("[DeepSearch] todos: failed to parse JSON", { error: err?.message || err });
     return null;
   }
 }

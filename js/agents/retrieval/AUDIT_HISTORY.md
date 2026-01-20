@@ -4,6 +4,52 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-19
+
+### [RESOLVED] Unsafe deserialization
+*Archived: 2026-01-19T23:43:42.470Z*
+
+- **File**: js/agents/retrieval/retrieval-router.js:120
+- **Description**: 从持久化 store 读取的字符串未经大小/结构校验即 JSON.parse；若存储可被外部篡改，可能引发 DoS 或异常数据进入流程。
+- **Suggestion**: 在解析前限制长度并校验 schema/version；解析失败时记录日志或返回诊断信息。
+```
+const snapshot = typeof raw === "string" ? JSON.parse(raw) : raw;
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] Error handling
+*Archived: 2026-01-19T23:43:11.504Z*
+
+- **File**: js/agents/retrieval/hybrid-retrieval.js:122
+- **Description**: hybridSearch 在 fallback=true 时吞掉检索异常，缺少日志/诊断信息，不利于排查检索质量问题。
+- **Suggestion**: 在 fallback 分支记录错误（可注入 logger）或返回可选的诊断字段。
+```
+} catch {
+  if (!fallback) throw new Error("hybridSearch: bm25 failed");
+}
+```
+
+---
+
+## Archived: 2026-01-19
+
+### [RESOLVED] SSRF
+*Archived: 2026-01-19T23:42:37.948Z*
+
+- **File**: js/agents/retrieval/embeddings/embedding-service.js:262
+- **Description**: EmbeddingService 直接对配置中的 endpoint 发起 fetch；若配置可被用户输入影响，在 Node 环境可能被用于访问内网/本机地址。
+- **Suggestion**: 对 endpoint 做协议/主机 allowlist 校验或仅允许预配置服务；在 Node 环境拒绝内网/本地地址。
+```
+const endpoint = cfg.endpoint;
+const res = await this._fetch(endpoint, {
+  method: "POST",
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] security

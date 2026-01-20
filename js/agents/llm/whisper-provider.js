@@ -11,6 +11,29 @@
 import { safeJsonParse } from "../shared/index.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/index.js";
+
+/**
+ * Sanitize baseUrl - only clean up URL format, no host allowlist restriction.
+ * The host allowlist was removed because users need to use OpenAI-compatible
+ * endpoints (LocalAI, ollama, oneapi, etc.) which would be blocked.
+ */
+function sanitizeBaseUrl(url, fallback) {
+  const raw = toNonEmptyString(url) || toNonEmptyString(fallback) || "";
+  if (!raw) return "";
+  const trimmed = raw.replace(/\/+$/, "");
+  try {
+    const parsed = new URL(trimmed);
+    // Only allow http/https protocols
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("protocol");
+    }
+    const path = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname.replace(/\/+$/, "") : "";
+    return `${parsed.origin}${path}`;
+  } catch {
+    const safeFallback = toNonEmptyString(fallback) || "";
+    return safeFallback.replace(/\/+$/, "");
+  }
+}
 // ============ Provider Adapters ============
 
 /**
@@ -138,8 +161,8 @@ async function groqWhisperAdapter(file, apiKey, opts = {}) {
  * OpenAI Whisper 适配器
  */
 async function openaiWhisperAdapter(file, apiKey, opts = {}) {
-  const baseUrl = opts.baseUrl || "https://api.openai.com";
-  const endpoint = `${baseUrl.replace(/\/+$/, "")}/v1/audio/transcriptions`;
+  const baseUrl = sanitizeBaseUrl(opts.baseUrl, "https://api.openai.com");
+  const endpoint = `${baseUrl}/v1/audio/transcriptions`;
   const modelId = opts.model || "whisper-1";
 
   const formData = new FormData();
@@ -214,6 +237,7 @@ export class WhisperProvider {
     this.apiKey = toNonEmptyString(opts.apiKey) || "";
     this.model = toNonEmptyString(opts.model);
     this.baseUrl = toNonEmptyString(opts.baseUrl);
+    this.baseUrlTrusted = opts.baseUrlTrusted !== false;
     this.id = `whisper_${this.provider}`;
     this.name = opts.name || `Whisper (${this.provider})`;
     this.capabilities = ["transcribe"];
@@ -241,6 +265,7 @@ export class WhisperProvider {
     const mergedOpts = {
       model: this.model,
       baseUrl: this.baseUrl,
+      baseUrlTrusted: this.baseUrlTrusted,
       ...opts,
     };
 
@@ -330,6 +355,7 @@ export function createWhisperProviderFromConfig({ storage, keyLoader, storageKey
   if (!config) {
     config = { provider: "elevenlabs" };
   }
+  if (toNonEmptyString(config.baseUrl)) config.baseUrlTrusted = false;
 
   // 尝试从模型管理获取 API key
   const loader = typeof keyLoader === "function" ? keyLoader : typeof loadModelKeys === "function" ? loadModelKeys : null;

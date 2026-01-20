@@ -14,6 +14,37 @@
 
 import { isPlainObject, toNonEmptyString, toPositiveInt } from "../../shared/utils/value-utils.js";
 
+export class HnswLiteIndexError extends Error {
+  /**
+   * @param {string} message
+   */
+  constructor(message) {
+    super(message);
+    this.name = "HnswLiteIndexError";
+  }
+}
+
+export class DimensionMismatchError extends HnswLiteIndexError {
+  /**
+   * @param {number} expected
+   * @param {number} actual
+   */
+  constructor(expected, actual) {
+    super(`HnswLiteIndex dimension mismatch: expected ${expected}, got ${actual}`);
+    this.name = "DimensionMismatchError";
+  }
+}
+
+export class InvalidIndexError extends HnswLiteIndexError {
+  /**
+   * @param {string} message
+   */
+  constructor(message) {
+    super(message);
+    this.name = "InvalidIndexError";
+  }
+}
+
 // 分区配置（与 VectorIndex 保持一致）
 const PARTITION_CONFIG = Object.freeze({
   HOT_MS: 60 * 60 * 1000,
@@ -311,6 +342,7 @@ export class HnswLiteIndex {
    * @param {Float32Array|number[]|ArrayBufferView} vector - The vector to store.
    * @param {*} [meta] - Optional metadata to associate with the vector.
    * @returns {boolean} True if the operation succeeded.
+   * @throws {DimensionMismatchError} If the vector dimension does not match the index.
    */
   upsert(id, vector, meta) {
     const key = toNonEmptyString(id);
@@ -326,7 +358,7 @@ export class HnswLiteIndex {
     }
 
     if (this._dim !== normalized.length) {
-      throw new Error(`HnswLiteIndex dimension mismatch: expected ${this._dim}, got ${normalized.length}`);
+      throw new DimensionMismatchError(this._dim, normalized.length);
     }
 
     // 如果已存在，先删除
@@ -568,11 +600,11 @@ export class HnswLiteIndex {
    * Restore an index from a serialized JSON object.
    * @param {{ version: number, dim: number|null, numHashBits: number, numProbes: number, seed: number, rows: Array<{ id: string, vec: number[], meta: *, hash: number }> }} json - Serialized index data.
    * @returns {HnswLiteIndex} Restored index instance.
-   * @throws {Error} If the JSON is invalid or has an unsupported version.
+   * @throws {InvalidIndexError} If the JSON is invalid or has an unsupported version.
    */
   static fromJSON(json) {
     if (!json || json.version !== 1) {
-      throw new Error("Invalid HnswLiteIndex JSON");
+      throw new InvalidIndexError("Invalid HnswLiteIndex JSON");
     }
 
     const index = new HnswLiteIndex({

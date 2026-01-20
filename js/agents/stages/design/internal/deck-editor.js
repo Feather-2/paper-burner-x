@@ -55,6 +55,146 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+const MAX_STYLE_LENGTH = 4000;
+const SAFE_STYLE_PROPERTIES = new Set([
+  "color",
+  "background",
+  "background-color",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "font-family",
+  "text-align",
+  "text-decoration",
+  "text-transform",
+  "letter-spacing",
+  "line-height",
+  "opacity",
+  "border",
+  "border-color",
+  "border-width",
+  "border-style",
+  "border-radius",
+  "padding",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "width",
+  "height",
+  "max-width",
+  "max-height",
+  "min-width",
+  "min-height",
+  "display",
+  "flex",
+  "flex-direction",
+  "flex-wrap",
+  "flex-grow",
+  "flex-shrink",
+  "flex-basis",
+  "justify-content",
+  "align-items",
+  "align-self",
+  "justify-self",
+  "gap",
+  "position",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "overflow",
+  "overflow-x",
+  "overflow-y",
+  "white-space",
+  "text-overflow",
+  "box-shadow",
+  "text-shadow",
+  "transform",
+  "transform-origin",
+  "z-index",
+]);
+
+function isDangerousStyleValue(value) {
+  const s = String(value ?? "").replace(/\u0000/g, "").toLowerCase();
+  if (!s) return false;
+  if (s.includes("expression(")) return true;
+  if (s.includes("javascript:")) return true;
+  if (s.includes("vbscript:")) return true;
+  if (s.includes("url(")) return true;
+  if (s.includes("@import")) return true;
+  return false;
+}
+
+function sanitizeInlineStyle(style) {
+  const raw = typeof style === "string" ? style : String(style ?? "");
+  if (!raw) return "";
+  const declarations = raw.slice(0, MAX_STYLE_LENGTH).split(";");
+  const safe = [];
+  for (const decl of declarations) {
+    const idx = decl.indexOf(":");
+    if (idx <= 0) continue;
+    const prop = decl.slice(0, idx).trim().toLowerCase();
+    if (!SAFE_STYLE_PROPERTIES.has(prop)) continue;
+    const value = decl.slice(idx + 1).trim();
+    if (!value) continue;
+    if (isDangerousStyleValue(value)) continue;
+    safe.push(`${prop}: ${value}`);
+  }
+  return safe.join("; ");
+}
+
+function isDangerousUrl(value) {
+  const raw = String(value ?? "").replace(/\u0000/g, "").trim();
+  if (!raw) return false;
+  const s = raw.toLowerCase();
+  if (s.startsWith("javascript:") || s.startsWith("vbscript:")) return true;
+  if (s.startsWith("data:") && !s.startsWith("data:image/")) return true;
+  return false;
+}
+
+function hasDangerousUrlList(value) {
+  const raw = String(value ?? "");
+  if (!raw) return false;
+  const parts = raw.split(",");
+  for (const part of parts) {
+    const candidate = part.trim().split(/\s+/)[0];
+    if (isDangerousUrl(candidate)) return true;
+  }
+  return false;
+}
+
+const DANGEROUS_TAG_RE = /<\/?(script|iframe|object|embed|link|meta|base)[^>]*>/gi;
+const EVENT_HANDLER_ATTR_RE = /\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+const URL_ATTR_RE =
+  /\s(?:href|src|xlink:href|formaction|action|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+const STYLE_ATTR_RE = /\sstyle\s*=\s*("([^"]*)"|'([^']*)')/gi;
+
+function sanitizeHtmlFragmentSync(html) {
+  const input = typeof html === "string" ? html : String(html ?? "");
+  if (!input.trim()) return "";
+  let out = input;
+  out = out.replace(DANGEROUS_TAG_RE, "");
+  out = out.replace(EVENT_HANDLER_ATTR_RE, "");
+  out = out.replace(URL_ATTR_RE, (match, d1, d2, d3) => {
+    const value = d1 ?? d2 ?? d3 ?? "";
+    if (hasDangerousUrlList(value)) return "";
+    return match;
+  });
+  out = out.replace(STYLE_ATTR_RE, (_match, _quoted, d1, d2) => {
+    const rawStyle = d1 ?? d2 ?? "";
+    const sanitized = sanitizeInlineStyle(rawStyle);
+    if (!sanitized && String(rawStyle).trim() !== "") return "";
+    return sanitized ? ` style="${escapeHtml(sanitized)}"` : ` style=""`;
+  });
+  return out;
+}
+
 /**
  * DeckEditor 类
  */
@@ -101,8 +241,12 @@ export class DeckEditor {
     if (this._toolExecutor) {
       const result = await this._toolExecutor("editElement", { slideIndex, elementId, changes });
       if (result.success) {
-        this._pushHistory("editElement", { slideIndex, elementId, changes });
+        const prevDeckHtmlDsl = this._deckPackage.deckHtmlDsl;
         this._deckPackage.deckHtmlDsl = result.data?.deckPackage?.deckHtmlDsl || this._deckPackage.deckHtmlDsl;
+        this._pushHistory("editElement", { slideIndex, elementId, changes }, {
+          prevDeckHtmlDsl,
+          nextDeckHtmlDsl: this._deckPackage.deckHtmlDsl,
+        });
       }
       return result;
     }
@@ -122,8 +266,12 @@ export class DeckEditor {
     if (this._toolExecutor) {
       const result = await this._toolExecutor("editSlide", { slideIndex, changes });
       if (result.success) {
-        this._pushHistory("editSlide", { slideIndex, changes });
+        const prevDeckHtmlDsl = this._deckPackage.deckHtmlDsl;
         this._deckPackage.deckHtmlDsl = result.data?.deckPackage?.deckHtmlDsl || this._deckPackage.deckHtmlDsl;
+        this._pushHistory("editSlide", { slideIndex, changes }, {
+          prevDeckHtmlDsl,
+          nextDeckHtmlDsl: this._deckPackage.deckHtmlDsl,
+        });
       }
       return result;
     }
@@ -259,12 +407,17 @@ export class DeckEditor {
       return { success: false, error: `Invalid slideIndex: ${slideIndex}` };
     }
 
+    const prevDeckHtmlDsl = this._deckPackage.deckHtmlDsl;
     const prevHtml = sections[slideIndex];
-    sections[slideIndex] = newHtml;
+    const sanitizedHtml = sanitizeHtmlFragmentSync(newHtml);
+    sections[slideIndex] = sanitizedHtml;
     this._deckPackage.deckHtmlDsl = joinSections(sections);
-    this._pushHistory("replaceSlideHtml", { slideIndex, prevHtml, newHtml });
+    this._pushHistory("replaceSlideHtml", { slideIndex, prevHtml, newHtml: sanitizedHtml }, {
+      prevDeckHtmlDsl,
+      nextDeckHtmlDsl: this._deckPackage.deckHtmlDsl,
+    });
 
-    return { success: true, data: { slideIndex, newHtml } };
+    return { success: true, data: { slideIndex, newHtml: sanitizedHtml } };
   }
 
   /**
@@ -325,13 +478,20 @@ export class DeckEditor {
 
   // 私有方法
 
-  _pushHistory(action, params) {
+  _pushHistory(action, params, historyState = null) {
     const entry = {
       action,
       params,
       timestamp: Date.now(),
       prevDeckHtmlDsl: this._deckPackage.deckHtmlDsl,
     };
+
+    if (historyState && Object.prototype.hasOwnProperty.call(historyState, "prevDeckHtmlDsl")) {
+      entry.prevDeckHtmlDsl = historyState.prevDeckHtmlDsl;
+    }
+    if (historyState && Object.prototype.hasOwnProperty.call(historyState, "nextDeckHtmlDsl")) {
+      entry.nextDeckHtmlDsl = historyState.nextDeckHtmlDsl;
+    }
 
     // 截断 redo 历史
     this._history = this._history.slice(0, this._historyIndex + 1);
@@ -346,6 +506,7 @@ export class DeckEditor {
   }
 
   async _directEditElement(slideIndex, elementId, changes) {
+    const prevDeckHtmlDsl = this._deckPackage.deckHtmlDsl;
     const sections = parseSections(this._deckPackage.deckHtmlDsl);
     if (slideIndex < 0 || slideIndex >= sections.length) {
       return { success: false, error: `Invalid slideIndex: ${slideIndex}` };
@@ -358,32 +519,47 @@ export class DeckEditor {
       return { success: false, error: `Element not found: ${elementId}` };
     }
 
+    let appliedChanges = changes;
+
     // 简单的文本替换（转义防 XSS）
     if (changes.text !== undefined) {
       const safeText = escapeHtml(String(changes.text).slice(0, 10000));
       const regex = new RegExp(`(data-el="${elementId}"[^>]*>)[^<]*(<)`, "g");
       sectionHtml = sectionHtml.replace(regex, `$1${safeText}$2`);
+      appliedChanges = { ...appliedChanges, text: safeText };
     }
 
     if (changes.style !== undefined) {
       const regex = new RegExp(`(data-el="${elementId}"[^>]*style=")[^"]*"`, "g");
       if (sectionHtml.match(regex)) {
-        sectionHtml = sectionHtml.replace(regex, `$1${changes.style}"`);
+        const rawStyle = String(changes.style ?? "");
+        const sanitizedStyle = sanitizeInlineStyle(rawStyle);
+        if (sanitizedStyle || rawStyle.trim() === "") {
+          const safeStyle = escapeHtml(sanitizedStyle);
+          sectionHtml = sectionHtml.replace(regex, `$1${safeStyle}"`);
+          appliedChanges = { ...appliedChanges, style: sanitizedStyle };
+        }
       }
     }
 
     sections[slideIndex] = sectionHtml;
     this._deckPackage.deckHtmlDsl = joinSections(sections);
-    this._pushHistory("editElement", { slideIndex, elementId, changes });
+    this._pushHistory("editElement", { slideIndex, elementId, changes: appliedChanges }, {
+      prevDeckHtmlDsl,
+      nextDeckHtmlDsl: this._deckPackage.deckHtmlDsl,
+    });
 
     return { success: true, data: { slideIndex, elementId } };
   }
 
   async _directEditSlide(slideIndex, changes) {
+    const prevDeckHtmlDsl = this._deckPackage.deckHtmlDsl;
     const sections = parseSections(this._deckPackage.deckHtmlDsl);
     if (slideIndex < 0 || slideIndex >= sections.length) {
       return { success: false, error: `Invalid slideIndex: ${slideIndex}` };
     }
+
+    let appliedChanges = changes;
 
     // HTML 替换：限制长度，仅接受字符串
     if (changes.html) {
@@ -393,7 +569,9 @@ export class DeckEditor {
       if (changes.html.length > 500000) {
         return { success: false, error: "changes.html exceeds max length (500KB)" };
       }
-      sections[slideIndex] = changes.html;
+      const sanitizedHtml = sanitizeHtmlFragmentSync(changes.html);
+      sections[slideIndex] = sanitizedHtml;
+      appliedChanges = { ...appliedChanges, html: sanitizedHtml };
     }
 
     // 布局替换：白名单验证
@@ -403,7 +581,10 @@ export class DeckEditor {
     }
 
     this._deckPackage.deckHtmlDsl = joinSections(sections);
-    this._pushHistory("editSlide", { slideIndex, changes });
+    this._pushHistory("editSlide", { slideIndex, changes: appliedChanges }, {
+      prevDeckHtmlDsl,
+      nextDeckHtmlDsl: this._deckPackage.deckHtmlDsl,
+    });
 
     return { success: true, data: { slideIndex } };
   }

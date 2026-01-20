@@ -10,6 +10,29 @@ import { Container } from "./container.js";
 const GLOBAL_CONTAINER_KEY = Symbol.for("pb.agents.di.globalContainer");
 
 /**
+ * @returns {boolean}
+ */
+function isTestEnvironment() {
+  try {
+    /** @type {any} */
+    const g = typeof globalThis !== "undefined" ? globalThis : {};
+    const env = g?.process?.env ?? null;
+    if (env && typeof env.NODE_ENV === "string") return env.NODE_ENV === "test";
+  } catch {
+    // ignore
+  }
+  try {
+    /** @type {any} */
+    const meta = import.meta;
+    const mode = meta?.env?.MODE;
+    if (typeof mode === "string") return mode === "test";
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+/**
  * Get (or create) the global DI container.
  *
  * @returns {Container}
@@ -31,6 +54,9 @@ export function getGlobalContainer() {
  * @returns {void}
  */
 export function setGlobalContainer(container) {
+  if (!isTestEnvironment()) {
+    throw new Error("setGlobalContainer is only allowed in test environments");
+  }
   const root = /** @type {any} */ (globalThis);
   if (!container) {
     Reflect.deleteProperty(root, GLOBAL_CONTAINER_KEY);
@@ -38,4 +64,3 @@ export function setGlobalContainer(container) {
   }
   root[GLOBAL_CONTAINER_KEY] = container;
 }
-

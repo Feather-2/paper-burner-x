@@ -11,6 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import path from "node:path";
 
 const MAX_MESSAGE_LENGTH = 256 * 1024; // 256KB per JSON line
 const MAX_JSON_DEPTH = 8;
@@ -18,6 +19,134 @@ const MAX_COLLECTION_ENTRIES = 2000;
 const MAX_STRING_LENGTH = 10000;
 const MAX_METHOD_LENGTH = 200;
 const MAX_ID_LENGTH = 200;
+const MAX_ARG_LENGTH = 4096;
+const MAX_ENV_KEY_LENGTH = 200;
+const MAX_ENV_VALUE_LENGTH = 10000;
+const SAFE_COMMAND_RE = /^[a-zA-Z0-9._-]+$/;
+const SAFE_METHOD_RE = /^[a-zA-Z0-9_.:-]+$/;
+const SAFE_ENV_KEY_RE = /^[A-Z0-9_]+$/;
+const BLOCKED_ENV_KEYS = new Set(["LD_PRELOAD", "DYLD_INSERT_LIBRARIES"]);
+const ALLOWED_JSONRPC_KEYS = new Set(["jsonrpc", "id", "method", "params", "result", "error"]);
+
+function normalizeAllowlist(values) {
+  if (!Array.isArray(values)) return new Set();
+  const allowed = new Set();
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) allowed.add(trimmed);
+  }
+  return allowed;
+}
+
+function normalizeRoots(roots) {
+  if (!Array.isArray(roots)) return [];
+  return roots
+    .filter((root) => typeof root === "string" && root.trim())
+    .map((root) => path.resolve(root.trim()));
+}
+
+function isPathWithinRoots(targetPath, roots) {
+  if (!roots.length) return true;
+  return roots.some((root) => {
+    const relative = path.relative(root, targetPath);
+    return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+  });
+}
+
+function hasPathTraversal(value) {
+  return value.split(/[\\/]+/).includes("..");
+}
+
+function normalizeCwd(cwd, allowedRoots) {
+  if (cwd === undefined || cwd === null || cwd === "") {
+    return process.cwd();
+  }
+  if (typeof cwd !== "string") {
+    throw new Error("ProcessTransport cwd must be a string");
+  }
+  const trimmed = cwd.trim();
+  if (!trimmed) {
+    throw new Error("ProcessTransport cwd is required");
+  }
+  if (trimmed.includes("\u0000")) {
+    throw new Error("ProcessTransport cwd contains invalid characters");
+  }
+  if (hasPathTraversal(trimmed)) {
+    throw new Error("ProcessTransport cwd contains path traversal");
+  }
+  const resolved = path.resolve(trimmed);
+  if (allowedRoots.length && !isPathWithinRoots(resolved, allowedRoots)) {
+    throw new Error("ProcessTransport cwd not in allowlist");
+  }
+  return resolved;
+}
+
+function normalizeCommand(command, cwd, allowedCommands, allowedRoots) {
+  if (typeof command !== "string") {
+    throw new Error("ProcessTransport command must be a string");
+  }
+  const trimmed = command.trim();
+  if (!trimmed) {
+    throw new Error("ProcessTransport command is required");
+  }
+  if (trimmed.includes("\u0000")) {
+    throw new Error("ProcessTransport command contains invalid characters");
+  }
+  const hasSeparator = trimmed.includes("/") || trimmed.includes(path.sep);
+  if (hasSeparator) {
+    if (hasPathTraversal(trimmed)) {
+      throw new Error("ProcessTransport command contains path traversal");
+    }
+    const resolved = path.resolve(cwd, trimmed);
+    if (allowedRoots.length && !isPathWithinRoots(resolved, allowedRoots)) {
+      throw new Error("ProcessTransport command path not in allowlist");
+    }
+    if (
+      allowedCommands.size &&
+      !allowedCommands.has(path.basename(resolved)) &&
+      !allowedCommands.has(resolved)
+    ) {
+      throw new Error(`ProcessTransport command not allowlisted: ${path.basename(resolved)}`);
+    }
+    return resolved;
+  }
+  if (!SAFE_COMMAND_RE.test(trimmed)) {
+    throw new Error("ProcessTransport command contains invalid characters");
+  }
+  if (allowedCommands.size && !allowedCommands.has(trimmed)) {
+    throw new Error(`ProcessTransport command not allowlisted: ${trimmed}`);
+  }
+  return trimmed;
+}
+
+function normalizeArgs(args) {
+  if (!Array.isArray(args)) return [];
+  return args.map((arg) => {
+    if (typeof arg !== "string") {
+      throw new Error("ProcessTransport args must be strings");
+    }
+    if (arg.includes("\u0000") || arg.length > MAX_ARG_LENGTH) {
+      throw new Error("ProcessTransport arg contains invalid characters");
+    }
+    return arg;
+  });
+}
+
+function sanitizeEnv(overrides, allowedEnvKeys) {
+  if (!overrides || typeof overrides !== "object") return { ...process.env };
+  const allowlist = normalizeAllowlist(allowedEnvKeys);
+  const env = { ...process.env };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (!SAFE_ENV_KEY_RE.test(key) || key.length > MAX_ENV_KEY_LENGTH) continue;
+    if (BLOCKED_ENV_KEYS.has(key) && !allowlist.has(key)) continue;
+    if (allowlist.size && !allowlist.has(key)) continue;
+    if (typeof value !== "string") continue;
+    if (value.length > MAX_ENV_VALUE_LENGTH || value.includes("\u0000")) continue;
+    env[key] = value;
+  }
+  return env;
+}
 
 function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -71,6 +200,11 @@ function validateJsonRpcMessage(message) {
   if (keys.length === 0 || keys.length > MAX_COLLECTION_ENTRIES) {
     return { ok: false, reason: "invalid_keys" };
   }
+  for (const key of keys) {
+    if (!ALLOWED_JSONRPC_KEYS.has(key)) {
+      return { ok: false, reason: "unknown_field" };
+    }
+  }
   if (message.jsonrpc !== undefined && message.jsonrpc !== "2.0") {
     return { ok: false, reason: "invalid_jsonrpc" };
   }
@@ -85,6 +219,9 @@ function validateJsonRpcMessage(message) {
   if (message.method !== undefined) {
     if (typeof message.method !== "string" || !message.method.trim()) {
       return { ok: false, reason: "invalid_method" };
+    }
+    if (!SAFE_METHOD_RE.test(message.method)) {
+      return { ok: false, reason: "invalid_method_chars" };
     }
     if (message.method.length > MAX_METHOD_LENGTH) {
       return { ok: false, reason: "method_too_long" };
@@ -132,6 +269,9 @@ function validateJsonRpcMessage(message) {
  * @property {string} [cwd] - 工作目录
  * @property {number} [timeout] - 超时 (ms)
  * @property {AbortSignal} [signal] - 取消信号
+ * @property {string[]} [allowedCommands] - 命令白名单 (命令名或绝对路径)
+ * @property {string[]} [allowedCwdRoots] - 工作目录允许的根路径
+ * @property {string[]} [allowedEnvKeys] - 可覆盖的环境变量键名
  */
 
 /**
@@ -146,14 +286,22 @@ function validateJsonRpcMessage(message) {
 
 export class ProcessTransport extends EventEmitter {
   /**
-   * @param {ProcessTransportOptions} options
+   * @param {ProcessTransportOptions} options - 传输配置
    */
   constructor(options) {
     super();
-    this.command = options.command;
-    this.args = options.args || [];
-    this.env = { ...process.env, ...options.env };
-    this.cwd = options.cwd || process.cwd();
+    const allowedCommands = normalizeAllowlist([
+      ...(Array.isArray(options.allowedCommands) ? options.allowedCommands : []),
+      ...(typeof process.env.PROCESS_TRANSPORT_ALLOWED_COMMANDS === "string"
+        ? process.env.PROCESS_TRANSPORT_ALLOWED_COMMANDS.split(",")
+        : []),
+    ]);
+    const allowedRoots = normalizeRoots(options.allowedCwdRoots);
+
+    this.cwd = normalizeCwd(options.cwd, allowedRoots);
+    this.command = normalizeCommand(options.command, this.cwd, allowedCommands, allowedRoots);
+    this.args = normalizeArgs(options.args);
+    this.env = sanitizeEnv(options.env, options.allowedEnvKeys);
     this.timeout = options.timeout || 30000;
     this.signal = options.signal || null;
 
@@ -382,8 +530,8 @@ export class ProcessTransport extends EventEmitter {
     try {
       this.process.stdin?.end();
       this.process.kill("SIGTERM");
-    } catch {
-      // ignore
+    } catch (err) {
+      this.emit("transport:error", err);
     }
 
     this.process = null;
@@ -401,7 +549,7 @@ export class ProcessTransport extends EventEmitter {
 
 /**
  * 创建 ProcessTransport 实例
- * @param {ProcessTransportOptions} options
+ * @param {ProcessTransportOptions} options - 传输配置
  * @returns {ProcessTransport}
  */
 export function createProcessTransport(options) {

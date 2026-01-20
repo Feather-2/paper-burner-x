@@ -425,7 +425,13 @@ ${feedback}
       if (Object.keys(edit).length > 1) validEdits.push(edit);
     }
     return validEdits;
-  } catch {
+  } catch (err) {
+    const preview = typeof feedback === "string" ? feedback.slice(0, 160) : "";
+    console.warn("parseFeedbackWithLLM failed, falling back to simple parser", {
+      error: err?.message || String(err),
+      planCount: Array.isArray(plans) ? plans.length : 0,
+      feedbackPreview: preview,
+    });
     return parseSimpleFeedback(feedback, plans);
   }
 }

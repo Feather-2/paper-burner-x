@@ -10,8 +10,72 @@
 import { isPlainObject } from "./value-utils.js";
 import { createLogger } from "./logger.js";
 import { checkCancelled } from "./cancellation.js";
+import { parseJsonStrict } from "./robust-json.js";
 
 const logger = createLogger("shared/utils/stage-api");
+const TOOL_OUTPUT_MAX_CHARS = 100_000;
+const TOOL_OUTPUT_MAX_ERRORS = 8;
+
+function isExpectedType(value, expectedType) {
+  if (expectedType === "array") return Array.isArray(value);
+  if (expectedType === "object") return isPlainObject(value);
+  if (expectedType === "number") return typeof value === "number" && Number.isFinite(value);
+  return typeof value === expectedType;
+}
+
+function addValidationError(errors, message) {
+  if (errors.length < TOOL_OUTPUT_MAX_ERRORS) {
+    errors.push(message);
+  }
+}
+
+function validateSchemaNode(value, schema, path, errors) {
+  if (!schema || typeof schema !== "object") return;
+
+  const expectedTypes = Array.isArray(schema.type)
+    ? schema.type
+    : schema.type
+      ? [schema.type]
+      : [];
+
+  if (expectedTypes.length > 0 && !expectedTypes.some((type) => isExpectedType(value, type))) {
+    addValidationError(errors, `${path}: expected ${expectedTypes.join("|")}`);
+    return;
+  }
+
+  if (schema.type === "object" && isPlainObject(value)) {
+    if (Array.isArray(schema.required)) {
+      for (const field of schema.required) {
+        if (!(field in value)) {
+          addValidationError(errors, `${path}.${field}: required`);
+        }
+      }
+    }
+
+    if (schema.properties && typeof schema.properties === "object") {
+      for (const [key, propSchema] of Object.entries(schema.properties)) {
+        if (errors.length >= TOOL_OUTPUT_MAX_ERRORS) return;
+        if (value[key] === undefined) continue;
+        validateSchemaNode(value[key], propSchema, `${path}.${key}`, errors);
+      }
+    }
+    return;
+  }
+
+  if (schema.type === "array" && Array.isArray(value)) {
+    if (!schema.items) return;
+    for (let i = 0; i < value.length; i++) {
+      if (errors.length >= TOOL_OUTPUT_MAX_ERRORS) return;
+      validateSchemaNode(value[i], schema.items, `${path}[${i}]`, errors);
+    }
+  }
+}
+
+function validateToolOutput(schema, value) {
+  const errors = [];
+  validateSchemaNode(value, schema, "output", errors);
+  return { ok: errors.length === 0, errors };
+}
 
 /**
  * stageApi 接口规范
@@ -207,6 +271,25 @@ export function createRunTool({ modelRouter, signal, logger } = {}) {
         },
         required: ["claims"],
       },
+      outputSchema: {
+        type: "object",
+        properties: {
+          mergedClaims: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                text: { type: "string" },
+                importance: { type: "string" },
+                sourceIds: { type: "array", items: { type: "string" } },
+              },
+              required: ["id", "text", "importance", "sourceIds"],
+            },
+          },
+        },
+        required: ["mergedClaims"],
+      },
     },
     analyze_conflicts: {
       name: "analyze_conflicts",
@@ -226,6 +309,25 @@ export function createRunTool({ modelRouter, signal, logger } = {}) {
           },
         },
         required: ["pairs"],
+      },
+      outputSchema: {
+        type: "object",
+        properties: {
+          conflicts: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                claimId1: { type: "string" },
+                claimId2: { type: "string" },
+                reason: { type: "string" },
+                resolutionTask: { type: "string" },
+              },
+              required: ["claimId1", "claimId2", "reason", "resolutionTask"],
+            },
+          },
+        },
+        required: ["conflicts"],
       },
     },
   };
@@ -255,10 +357,26 @@ export function createRunTool({ modelRouter, signal, logger } = {}) {
       });
 
       const content = result?.choices?.[0]?.message?.content || result?.content;
+      let parsed = content;
       if (typeof content === "string") {
-        return JSON.parse(content);
+        const parsedResult = parseJsonStrict(content, { maxChars: TOOL_OUTPUT_MAX_CHARS });
+        if (!parsedResult.ok) {
+          const err = new Error(`runTool(${toolName}) invalid JSON: ${parsedResult.code}`);
+          err.cause = parsedResult.error;
+          throw err;
+        }
+        parsed = parsedResult.data;
       }
-      return content;
+
+      const outputSchema = schema.outputSchema || schema.parameters;
+      const validation = validateToolOutput(outputSchema, parsed);
+      if (!validation.ok) {
+        const err = new Error(`runTool(${toolName}) invalid output: ${validation.errors.join("; ")}`);
+        err.cause = validation.errors;
+        throw err;
+      }
+
+      return parsed;
     } catch (err) {
       logger?.warn?.(`runTool(${toolName}) failed:`, err?.message);
       throw err;

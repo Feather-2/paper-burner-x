@@ -280,8 +280,12 @@ async function buildSkillsPrompt({ agent, stageApi, SkillsManager }) {
     /** @type {any} */
     const nodeProcess = /** @type {any} */ (globalThis).process;
     const cwd =
-      stageApi.cwd ||
-      (typeof nodeProcess?.cwd === "function" ? nodeProcess.cwd() : ".");
+      stageApi?.cwd ||
+      (typeof nodeProcess?.cwd === "function" ? nodeProcess.cwd() : "");
+    if (!cwd) {
+      agent._logger?.info?.("[Skills] Skipping skills catalog: cwd unavailable");
+      return "";
+    }
     if (typeof skillsManager.getCatalogPrompt === "function") {
       const prompt = await skillsManager.getCatalogPrompt(cwd);
       if (prompt) {

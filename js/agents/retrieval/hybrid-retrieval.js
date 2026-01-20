@@ -109,6 +109,12 @@ export async function hybridSearch(indexes, query, options = {}) {
   const limit = normalizeLimit(options.limit, 8);
   const fetchK = limit === Infinity ? Infinity : Math.max(limit * 2, 10);
   const fallback = options.fallback === undefined ? true : !!options.fallback;
+  const logger =
+    options.logger && typeof options.logger.warn === "function"
+      ? options.logger
+      : typeof console !== "undefined" && typeof console.warn === "function"
+        ? console
+        : null;
 
   const bm25Fn = typeof options.bm25SearchFn === "function" ? options.bm25SearchFn : bm25Search;
   const vectorFn = typeof options.vectorSearchFn === "function" ? options.vectorSearchFn : vectorSearchAsync;
@@ -119,7 +125,8 @@ export async function hybridSearch(indexes, query, options = {}) {
     try {
       bm25Results = bm25Fn(indexes.bm25Index, q, fetchK === Infinity ? 10_000 : fetchK, isPlainObject(options.bm25Options) ? options.bm25Options : {});
       if (!Array.isArray(bm25Results)) bm25Results = [];
-    } catch {
+    } catch (err) {
+      logger?.warn?.("hybridSearch: bm25 failed", { error: err?.message || String(err) });
       if (!fallback) throw new Error("hybridSearch: bm25 failed");
     }
   }
@@ -133,7 +140,8 @@ export async function hybridSearch(indexes, query, options = {}) {
         ...(options.embeddingService ? { embeddingService: options.embeddingService } : {}),
       });
       if (!Array.isArray(vectorResults)) vectorResults = [];
-    } catch {
+    } catch (err) {
+      logger?.warn?.("hybridSearch: vector search failed", { error: err?.message || String(err) });
       if (!fallback) throw new Error("hybridSearch: vector search failed");
     }
   }
