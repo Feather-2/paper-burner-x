@@ -1,7 +1,7 @@
 {
   "$schema": "./.project-index/schemas/test-map.schema.json",
   "version": 1,
-  "generated": "2026-01-20T09:43:10.646Z",
+  "generated": "2026-01-20T10:27:39.006Z",
   "conventions": {
     "unit": {
       "pattern": "tests/{module}/**/*.test.js",
@@ -19,7 +19,7 @@
   "framework": "vitest",
   "coverage": {
     "target": 90,
-    "current": 58.6
+    "current": 73.8
   },
   "modules": {
     "js/agents/cli": {
@@ -53,10 +53,10 @@
     },
     "js/agents/core": {
       "total": 52,
-      "covered": 32,
-      "stale": 6,
-      "untested": 14,
-      "coverage": "61.5%",
+      "covered": 43,
+      "stale": 0,
+      "untested": 9,
+      "coverage": "82.7%",
       "files": {
         "archive-core.js": {
           "path": "js/agents/core/archive/archive-core.js",
@@ -99,8 +99,10 @@
         },
         "compat.js": {
           "path": "js/agents/core/compat.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/compat.test.js"
+          ]
         },
         "disposable.js": {
           "path": "js/agents/core/contracts/disposable.js",
@@ -210,32 +212,38 @@
         },
         "event-bus-subscriptions.js": {
           "path": "js/agents/core/event-bus-subscriptions.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/event-bus-subscriptions.test.js"
+          ]
         },
         "event-bus-utils.js": {
           "path": "js/agents/core/event-bus-utils.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/event-bus-subscriptions.test.js",
+            "tests/unit/agents/core/event-record.test.js"
+          ]
         },
         "event-bus.js": {
           "path": "js/agents/core/event-bus.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/core/event-bus.test.js",
             "tests/unit/agents/core/kernel.test.js",
             "tests/unit/agents/core/message-bus.test.js",
             "tests/unit/agents/core/plugin.test.js",
             "tests/unit/agents/core/service-bus.test.js",
-            "tests/unit/agents/core/state-bus.test.js",
             "tests/unit/agents/runtime/orchestrator.test.js",
             "tests/integration/agents/runtime/concurrency-isolation.test.js"
           ]
         },
         "event-record.js": {
           "path": "js/agents/core/event-record.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/event-record.test.js"
+          ]
         },
         "kernel-compat.js": {
           "path": "js/agents/core/kernel-compat.js",
@@ -248,6 +256,7 @@
           "tests": [
             "tests/unit/agents/core/kernel.test.js",
             "tests/unit/agents/plugins/services/llm.test.js",
+            "tests/unit/agents/plugins/services/mcp.test.js",
             "tests/integration/agents/core/watchdog-cleanup.test.js",
             "tests/integration/agents/plugins/event-driven.test.js",
             "tests/integration/agents/plugins/services.test.js",
@@ -261,14 +270,14 @@
             "tests/unit/agents/core/crdt/lww-map.test.js",
             "tests/unit/agents/core/crdt/lww-register.test.js",
             "tests/unit/agents/core/crdt/or-set.test.js",
-            "tests/unit/agents/core/event-bus.test.js",
+            "tests/unit/agents/core/event-record.test.js",
             "tests/unit/agents/core/lamport-clock.test.js",
             "tests/integration/agents/core/crdt/primitives.test.js"
           ]
         },
         "message-bus.js": {
           "path": "js/agents/core/message-bus.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/core/message-bus.test.js",
             "tests/integration/agents/runtime/concurrency-isolation.test.js"
@@ -281,8 +290,10 @@
         },
         "presets.js": {
           "path": "js/agents/core/presets.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/core/presets.test.js"
+          ]
         },
         "constants.js": {
           "path": "js/agents/core/sandbox/system/constants.js",
@@ -302,7 +313,7 @@
         },
         "skill-executor.js": {
           "path": "js/agents/core/sandbox/skill-executor.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/skills.test.js"
           ]
@@ -378,7 +389,7 @@
         },
         "service-bus.js": {
           "path": "js/agents/core/service-bus.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/core/kernel.test.js",
             "tests/unit/agents/core/plugin.test.js",
@@ -387,7 +398,7 @@
         },
         "state-bus.js": {
           "path": "js/agents/core/state-bus.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/core/kernel.test.js",
             "tests/unit/agents/core/plugin.test.js",
@@ -399,10 +410,10 @@
     },
     "js/agents/eval": {
       "total": 9,
-      "covered": 4,
+      "covered": 6,
       "stale": 0,
-      "untested": 5,
-      "coverage": "44.4%",
+      "untested": 3,
+      "coverage": "66.7%",
       "files": {
         "composite.js": {
           "path": "js/agents/eval/graders/composite.js",
@@ -437,13 +448,17 @@
         },
         "harness.js": {
           "path": "js/agents/eval/harness.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/eval/harness.test.js"
+          ]
         },
         "metrics.js": {
           "path": "js/agents/eval/metrics.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/eval/metrics.test.js"
+          ]
         },
         "types.js": {
           "path": "js/agents/eval/types.js",
@@ -468,65 +483,73 @@
     },
     "js/agents/ingest": {
       "total": 22,
-      "covered": 13,
+      "covered": 20,
       "stale": 0,
-      "untested": 9,
-      "coverage": "59.1%",
+      "untested": 2,
+      "coverage": "90.9%",
       "files": {
         "audio.js": {
           "path": "js/agents/ingest/adapters/audio.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/ingest/adapters/audio.test.js"
+            "tests/unit/agents/ingest/adapters/audio.test.js",
+            "tests/unit/agents/ingest/index.test.js"
           ]
         },
         "base.js": {
           "path": "js/agents/ingest/adapters/base.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/ingest/adapters/base.test.js"
+            "tests/unit/agents/ingest/adapters/base.test.js",
+            "tests/unit/agents/ingest/index.test.js"
           ]
         },
         "code.js": {
           "path": "js/agents/ingest/adapters/code.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/ingest/adapters/code.test.js"
+            "tests/unit/agents/ingest/adapters/code.test.js",
+            "tests/unit/agents/ingest/index.test.js"
           ]
         },
         "docx.js": {
           "path": "js/agents/ingest/adapters/docx.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/ingest/adapters/docx.test.js"
+            "tests/unit/agents/ingest/adapters/docx.test.js",
+            "tests/unit/agents/ingest/index.test.js"
           ]
         },
         "epub.js": {
           "path": "js/agents/ingest/adapters/epub.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/ingest/adapters/epub.test.js"
+            "tests/unit/agents/ingest/adapters/epub.test.js",
+            "tests/unit/agents/ingest/index.test.js"
           ]
         },
         "history.js": {
           "path": "js/agents/ingest/adapters/history.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/ingest/adapters/history.test.js"
+            "tests/unit/agents/ingest/adapters/history.test.js",
+            "tests/unit/agents/ingest/index.test.js"
           ]
         },
         "html.js": {
           "path": "js/agents/ingest/adapters/html.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/ingest/adapters/html.test.js"
+            "tests/unit/agents/ingest/adapters/html.test.js",
+            "tests/unit/agents/ingest/index.test.js"
           ]
         },
         "markdown.js": {
           "path": "js/agents/ingest/adapters/markdown.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/ingest/adapters/markdown.test.js"
+            "tests/unit/agents/ingest/adapters/markdown.test.js",
+            "tests/unit/agents/ingest/index.test.js"
           ]
         },
         "node-io.js": {
@@ -536,32 +559,41 @@
         },
         "pdf.js": {
           "path": "js/agents/ingest/adapters/pdf.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/index.test.js"
+          ]
         },
         "pptx.js": {
           "path": "js/agents/ingest/adapters/pptx.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/index.test.js"
+          ]
         },
         "raw-text.js": {
           "path": "js/agents/ingest/adapters/raw-text.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/ingest/adapters/raw-text.test.js"
+            "tests/unit/agents/ingest/adapters/raw-text.test.js",
+            "tests/unit/agents/ingest/index.test.js"
           ]
         },
         "video.js": {
           "path": "js/agents/ingest/adapters/video.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/ingest/adapters/video.test.js"
+            "tests/unit/agents/ingest/adapters/video.test.js",
+            "tests/unit/agents/ingest/index.test.js"
           ]
         },
         "asset-manager.js": {
           "path": "js/agents/ingest/asset-manager.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/asset-manager.test.js",
+            "tests/unit/agents/ingest/index.test.js"
+          ]
         },
         "asset-understanding.js": {
           "path": "js/agents/ingest/asset-understanding.js",
@@ -570,8 +602,10 @@
         },
         "chunked-loader.js": {
           "path": "js/agents/ingest/chunked-loader.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/chunked-loader.test.js"
+          ]
         },
         "constants.js": {
           "path": "js/agents/ingest/constants.js",
@@ -582,23 +616,33 @@
             "tests/unit/agents/ingest/adapters/html.test.js",
             "tests/unit/agents/ingest/adapters/markdown.test.js",
             "tests/unit/agents/ingest/adapters/raw-text.test.js",
-            "tests/unit/agents/ingest/adapters/video.test.js"
+            "tests/unit/agents/ingest/adapters/video.test.js",
+            "tests/unit/agents/ingest/asset-manager.test.js",
+            "tests/unit/agents/ingest/constants.test.js"
           ]
         },
         "extract-assets.js": {
           "path": "js/agents/ingest/extract-assets.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/extract-assets.test.js",
+            "tests/unit/agents/ingest/index.test.js"
+          ]
         },
         "index.js": {
           "path": "js/agents/ingest/index.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/index.test.js"
+          ]
         },
         "ingest-stage.js": {
           "path": "js/agents/ingest/ingest-stage.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/ingest/index.test.js",
+            "tests/unit/agents/ingest/ingest-stage.test.js"
+          ]
         },
         "byte-buffer.js": {
           "path": "js/agents/ingest/streaming/byte-buffer.js",
@@ -618,29 +662,34 @@
     },
     "js/agents/llm": {
       "total": 17,
-      "covered": 7,
-      "stale": 5,
-      "untested": 5,
-      "coverage": "41.2%",
+      "covered": 14,
+      "stale": 0,
+      "untested": 3,
+      "coverage": "82.4%",
       "files": {
         "constants.js": {
           "path": "js/agents/llm/constants.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/llm/constants.test.js",
+            "tests/unit/agents/llm/index.test.js",
             "tests/unit/agents/llm/internal/provider-selection.test.js"
           ]
         },
         "image-provider.js": {
           "path": "js/agents/llm/image-provider.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
-            "tests/unit/agents/llm/image-provider.test.js"
+            "tests/unit/agents/llm/image-provider.test.js",
+            "tests/unit/agents/llm/index.test.js"
           ]
         },
         "index.js": {
           "path": "js/agents/llm/index.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/llm/index.test.js"
+          ]
         },
         "call-executor.js": {
           "path": "js/agents/llm/internal/call-executor.js",
@@ -675,23 +724,25 @@
           "path": "js/agents/llm/rate-limit.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/llm/index.test.js",
             "tests/unit/agents/llm/model-router.test.js",
-            "tests/unit/agents/llm/rate-limit.test.js",
             "tests/unit/agents/plugins/memory/retrieval-engine.test.js",
             "tests/integration/agents/runtime/retrieval-engine-ratelimit.test.js"
           ]
         },
         "mock-provider.js": {
           "path": "js/agents/llm/mock-provider.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
+            "tests/unit/agents/llm/index.test.js",
             "tests/unit/agents/llm/mock-provider.test.js"
           ]
         },
         "model-events.js": {
           "path": "js/agents/llm/model-events.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
+            "tests/unit/agents/llm/index.test.js",
             "tests/unit/agents/llm/model-events.test.js"
           ]
         },
@@ -699,34 +750,40 @@
           "path": "js/agents/llm/model-router.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/llm/index.test.js",
             "tests/unit/agents/llm/model-router.test.js",
             "tests/integration/agents/llm/model-router.token-tracker.vitest.test.js"
           ]
         },
         "overflow-recovery.js": {
           "path": "js/agents/llm/overflow-recovery.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
+            "tests/unit/agents/llm/index.test.js",
             "tests/unit/agents/llm/overflow-recovery.test.js"
           ]
         },
         "ppt-model-bridge.js": {
           "path": "js/agents/llm/ppt-model-bridge.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/llm/index.test.js"
+          ]
         },
         "provider.js": {
           "path": "js/agents/llm/provider.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/llm/index.test.js",
             "tests/unit/agents/llm/internal/provider-selection.test.js",
             "tests/unit/agents/llm/provider.test.js"
           ]
         },
         "whisper-provider.js": {
           "path": "js/agents/llm/whisper-provider.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
+            "tests/unit/agents/llm/index.test.js",
             "tests/unit/agents/llm/whisper-provider.test.js"
           ]
         }
@@ -734,25 +791,31 @@
     },
     "js/agents/mcp": {
       "total": 20,
-      "covered": 0,
-      "stale": 4,
-      "untested": 16,
-      "coverage": "0.0%",
+      "covered": 11,
+      "stale": 0,
+      "untested": 9,
+      "coverage": "55.0%",
       "files": {
         "constants.js": {
           "path": "js/agents/mcp/constants.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/mcp/constants.test.js"
+          ]
         },
         "content-extractor.js": {
           "path": "js/agents/mcp/content-extractor.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/mcp/content-extractor.test.js"
+          ]
         },
         "content-sanitizer.js": {
           "path": "js/agents/mcp/content-sanitizer.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/mcp/content-sanitizer.test.js"
+          ]
         },
         "http-mcp-transport.js": {
           "path": "js/agents/mcp/http-mcp-transport.js",
@@ -771,36 +834,46 @@
         },
         "local-mcp-provider.js": {
           "path": "js/agents/mcp/local-mcp-provider.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/mcp/local-mcp-provider.test.js"
+          ]
         },
         "mcp-client.js": {
           "path": "js/agents/mcp/mcp-client.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
+            "tests/unit/agents/mcp/local-mcp-provider.test.js",
+            "tests/unit/agents/mcp/mcp-client.test.js",
+            "tests/unit/agents/mcp/mcp-nexus-provider.test.js",
             "tests/integration/agents/mcp/mcp-provider.test.js"
           ]
         },
         "mcp-nexus-provider.js": {
           "path": "js/agents/mcp/mcp-nexus-provider.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/mcp/mcp-nexus-provider.test.js"
           ]
         },
         "mcp-shortcuts.js": {
           "path": "js/agents/mcp/mcp-shortcuts.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/mcp/mcp-shortcuts.test.js"
+          ]
         },
         "mcp-transport.js": {
           "path": "js/agents/mcp/mcp-transport.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/mcp/mcp-transport.test.js",
+            "tests/unit/agents/mcp/stdio-mcp-transport.test.js"
+          ]
         },
         "nexus-skill-provider.js": {
           "path": "js/agents/mcp/nexus-skill-provider.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/skills.test.js"
           ]
@@ -822,10 +895,8 @@
         },
         "sse.js": {
           "path": "js/agents/mcp/sse.js",
-          "status": "stale",
-          "tests": [
-            "tests/unit/agents/mcp/sse.test.js"
-          ]
+          "status": "untested",
+          "tests": []
         },
         "stdio-mcp-provider.js": {
           "path": "js/agents/mcp/stdio-mcp-provider.js",
@@ -839,22 +910,26 @@
         },
         "transport-factory.js": {
           "path": "js/agents/mcp/transport-factory.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/mcp/transport-factory.test.js"
+          ]
         },
         "url-whitelist.js": {
           "path": "js/agents/mcp/url-whitelist.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/mcp/url-whitelist.test.js"
+          ]
         }
       }
     },
     "js/agents/plugins": {
       "total": 85,
-      "covered": 63,
+      "covered": 65,
       "stale": 0,
-      "untested": 22,
-      "coverage": "74.1%",
+      "untested": 20,
+      "coverage": "76.5%",
       "files": {
         "behavior-fingerprint.js": {
           "path": "js/agents/plugins/analysis/behavior-fingerprint.js",
@@ -888,7 +963,8 @@
           "path": "js/agents/plugins/checkpoints/agent-checkpoint-store.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/plugins/checkpoints/index.test.js"
+            "tests/unit/agents/plugins/checkpoints/index.test.js",
+            "tests/unit/agents/sdk/DefaultAgentLoop.test.js"
           ]
         },
         "cicada.js": {
@@ -1281,8 +1357,10 @@
         },
         "mcp.js": {
           "path": "js/agents/plugins/services/mcp.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/services/mcp.test.js"
+          ]
         },
         "scheduler.js": {
           "path": "js/agents/plugins/services/scheduler.js",
@@ -1293,6 +1371,7 @@
           "path": "js/agents/plugins/services/vfs.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/plugins/services/vfs.test.js",
             "tests/integration/agents/plugins/services.test.js"
           ]
         },
@@ -1312,7 +1391,8 @@
           "path": "js/agents/plugins/telemetry/loop-runtime-state.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/plugins/telemetry/loop-runtime-state.test.js"
+            "tests/unit/agents/plugins/telemetry/loop-runtime-state.test.js",
+            "tests/unit/agents/sdk/DefaultAgentLoop.test.js"
           ]
         },
         "replay-controller.js": {
@@ -1371,16 +1451,17 @@
     },
     "js/agents/prompts": {
       "total": 11,
-      "covered": 8,
-      "stale": 2,
+      "covered": 10,
+      "stale": 0,
       "untested": 1,
-      "coverage": "72.7%",
+      "coverage": "90.9%",
       "files": {
         "escape-template-delimiters.js": {
           "path": "js/agents/prompts/formatters/escape-template-delimiters.js",
           "status": "covered",
           "tests": [
             "tests/unit/agents/prompts/formatters/escape-template-delimiters.test.js",
+            "tests/unit/agents/prompts/formatters/index.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -1389,6 +1470,7 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/prompts/formatters/format-bullets.test.js",
+            "tests/unit/agents/prompts/formatters/index.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -1397,6 +1479,7 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/prompts/formatters/format-code-block.test.js",
+            "tests/unit/agents/prompts/formatters/index.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -1405,6 +1488,7 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/prompts/formatters/format-json.test.js",
+            "tests/unit/agents/prompts/formatters/index.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -1413,6 +1497,7 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/prompts/formatters/format-lines.test.js",
+            "tests/unit/agents/prompts/formatters/index.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -1421,6 +1506,7 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/prompts/formatters/format-trim.test.js",
+            "tests/unit/agents/prompts/formatters/index.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -1429,6 +1515,7 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/prompts/formatters/format-upper.test.js",
+            "tests/unit/agents/prompts/formatters/index.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -1436,6 +1523,7 @@
           "path": "js/agents/prompts/formatters/index.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/prompts/formatters/index.test.js",
             "tests/integration/agents/prompts/formatters.test.js"
           ]
         },
@@ -1446,14 +1534,14 @@
         },
         "prompt-registry.js": {
           "path": "js/agents/prompts/prompt-registry.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/prompts/prompt-registry.test.js"
           ]
         },
         "prompt-template.js": {
           "path": "js/agents/prompts/prompt-template.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/prompts/prompt-registry.test.js",
             "tests/unit/agents/prompts/prompt-template.test.js"
@@ -1463,16 +1551,17 @@
     },
     "js/agents/retrieval": {
       "total": 13,
-      "covered": 2,
-      "stale": 2,
-      "untested": 9,
-      "coverage": "15.4%",
+      "covered": 9,
+      "stale": 0,
+      "untested": 4,
+      "coverage": "69.2%",
       "files": {
         "bm25.js": {
           "path": "js/agents/retrieval/bm25.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
-            "tests/unit/agents/retrieval/bm25.test.js"
+            "tests/unit/agents/retrieval/bm25.test.js",
+            "tests/unit/agents/retrieval/hybrid-retrieval.test.js"
           ]
         },
         "embedding-service.js": {
@@ -1500,12 +1589,14 @@
         },
         "grep.js": {
           "path": "js/agents/retrieval/grep.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/retrieval/grep.test.js"
+          ]
         },
         "hybrid-retrieval.js": {
           "path": "js/agents/retrieval/hybrid-retrieval.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/retrieval/hybrid-retrieval.test.js"
           ]
@@ -1522,13 +1613,17 @@
         },
         "retrieval-router.js": {
           "path": "js/agents/retrieval/retrieval-router.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/retrieval/retrieval-router.test.js"
+          ]
         },
         "scope.js": {
           "path": "js/agents/retrieval/scope.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/retrieval/scope.test.js"
+          ]
         },
         "toc-builder.js": {
           "path": "js/agents/retrieval/toc-builder.js",
@@ -1537,22 +1632,26 @@
         },
         "tool-chain.js": {
           "path": "js/agents/retrieval/tool-chain.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/retrieval/tool-chain.test.js"
+          ]
         },
         "vector-search.js": {
           "path": "js/agents/retrieval/vector-search.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/retrieval/hybrid-retrieval.test.js"
+          ]
         }
       }
     },
     "js/agents/runtime": {
       "total": 80,
-      "covered": 57,
-      "stale": 3,
+      "covered": 60,
+      "stale": 0,
       "untested": 20,
-      "coverage": "71.3%",
+      "coverage": "75.0%",
       "files": {
         "agent-loop-lifecycle-hooks.js": {
           "path": "js/agents/runtime/core/agent-loop-lifecycle-hooks.js",
@@ -1735,7 +1834,7 @@
         },
         "message-manager.js": {
           "path": "js/agents/runtime/core/message-manager.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/runtime/core.test.js"
           ]
@@ -1749,7 +1848,8 @@
           "path": "js/agents/runtime/core/middleware/middleware-chain.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/runtime/core/middleware/middleware-chain.test.js"
+            "tests/unit/agents/runtime/core/middleware/middleware-chain.test.js",
+            "tests/unit/agents/sdk/DefaultAgentLoop.test.js"
           ]
         },
         "orchestrator.js": {
@@ -1822,7 +1922,7 @@
         },
         "status-controller.js": {
           "path": "js/agents/runtime/core/status-controller.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/runtime/core.test.js"
           ]
@@ -1944,7 +2044,8 @@
           "path": "js/agents/runtime/routing/performance-router.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/llm/model-router.test.js"
+            "tests/unit/agents/llm/model-router.test.js",
+            "tests/unit/agents/runtime/routing/performance-router.test.js"
           ]
         },
         "command-classifier.js": {
@@ -2053,7 +2154,7 @@
         },
         "tool-executor.js": {
           "path": "js/agents/runtime/tools/tool-executor.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/core/sandbox/tool-executor.error-handling.test.js"
           ]
@@ -2067,10 +2168,10 @@
     },
     "js/agents/sdk": {
       "total": 17,
-      "covered": 1,
-      "stale": 4,
+      "covered": 5,
+      "stale": 0,
       "untested": 12,
-      "coverage": "5.9%",
+      "coverage": "29.4%",
       "files": {
         "AgentBuilder.js": {
           "path": "js/agents/sdk/AgentBuilder.js",
@@ -2079,14 +2180,15 @@
         },
         "AlertMonitor.js": {
           "path": "js/agents/sdk/AlertMonitor.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
+            "tests/unit/agents/sdk/AlertMonitor.test.js",
             "tests/integration/agents/alert-monitor.test.js"
           ]
         },
         "BacktrackManager.js": {
           "path": "js/agents/sdk/BacktrackManager.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/stages/deepsearch/runtime/backtrack-manager.test.js"
           ]
@@ -2100,6 +2202,7 @@
           "path": "js/agents/sdk/DiscoveryManager.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/sdk/DiscoveryManager.test.js",
             "tests/unit/agents/stages/deepsearch/tools/evaluate-gaps/handler.test.js"
           ]
         },
@@ -2110,7 +2213,7 @@
         },
         "SubagentRegistry.js": {
           "path": "js/agents/sdk/SubagentRegistry.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/runtime/task-tool-di.test.js",
             "tests/integration/agents/sdk/task-tool.test.js",
@@ -2164,8 +2267,9 @@
         },
         "injection-scanner.js": {
           "path": "js/agents/sdk/injection-scanner.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
+            "tests/unit/agents/sdk/SubagentRegistry.test.js",
             "tests/unit/agents/sdk/injection-scanner.test.js",
             "tests/integration/agents/subagent-registry.test.js"
           ]
@@ -2174,10 +2278,10 @@
     },
     "js/agents/shared": {
       "total": 30,
-      "covered": 25,
+      "covered": 22,
       "stale": 0,
-      "untested": 5,
-      "coverage": "83.3%",
+      "untested": 8,
+      "coverage": "73.3%",
       "files": {
         "disposable-base.js": {
           "path": "js/agents/shared/base/disposable-base.js",
@@ -2188,7 +2292,10 @@
           "path": "js/agents/shared/index.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/core/lamport-clock.test.js",
             "tests/unit/agents/ingest/adapters/raw-text.test.js",
+            "tests/unit/agents/llm/overflow-recovery.test.js",
+            "tests/unit/agents/llm/whisper-provider.test.js",
             "tests/unit/agents/plugins/checkpoints/agent-checkpoint-store.test.js",
             "tests/unit/agents/plugins/compression/impl/context-predictor.test.js",
             "tests/unit/agents/plugins/memory/index.test.js",
@@ -2200,6 +2307,8 @@
             "tests/unit/agents/plugins/plan/structured-plan.test.js",
             "tests/unit/agents/plugins/policy/engine.test.js",
             "tests/unit/agents/plugins/policy/store.test.js",
+            "tests/unit/agents/retrieval/bm25.test.js",
+            "tests/unit/agents/retrieval/grep.test.js",
             "tests/unit/agents/runtime/core/scheduler.test.js",
             "tests/unit/agents/runtime/core/stage-errors.test.js",
             "tests/unit/agents/runtime/hooks/hook-registry.test.js",
@@ -2207,6 +2316,9 @@
             "tests/unit/agents/runtime/tools/platform/browser.test.js",
             "tests/unit/agents/runtime/tools/platform/node.test.js",
             "tests/unit/agents/runtime/tools/tool-executor.test.js",
+            "tests/unit/agents/sdk/DefaultAgentLoop.test.js",
+            "tests/unit/agents/sdk/DiscoveryManager.test.js",
+            "tests/unit/agents/skills/render.test.js",
             "tests/unit/agents/stages/codesearch/indexing/symbol-indexer.test.js",
             "tests/unit/agents/stages/deepsearch/internal/backtrack-manager.test.js",
             "tests/unit/agents/stages/deepsearch/model/budget.test.js",
@@ -2217,7 +2329,8 @@
             "tests/unit/agents/stages/deepsearch/state/serialization-methods.test.js",
             "tests/unit/agents/stages/design/image/asset-resolver.test.js",
             "tests/unit/agents/stages/design/internal/deck-operations.test.js",
-            "tests/unit/agents/stages/design/refiner/react-refiner.test.js"
+            "tests/unit/agents/stages/design/refiner/react-refiner.test.js",
+            "tests/unit/agents/storage/artifact-manager.test.js"
           ]
         },
         "tree-sitter-wasm.js": {
@@ -2298,15 +2411,14 @@
         },
         "file-watcher.js": {
           "path": "js/agents/shared/utils/file-watcher.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/shared/utils/file-watcher.test.js"
-          ]
+          "status": "untested",
+          "tests": []
         },
         "json-candidate.js": {
           "path": "js/agents/shared/utils/json-candidate.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/shared/utils/json-candidate.test.js",
             "tests/unit/agents/stages/design/refiner/react-refiner.test.js"
           ]
         },
@@ -2314,15 +2426,14 @@
           "path": "js/agents/shared/utils/logger.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/shared/utils/logger.test.js",
             "tests/integration/agents/shared/utils.test.js"
           ]
         },
         "lru-cache.js": {
           "path": "js/agents/shared/utils/lru-cache.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/shared/utils/lru-cache.test.js"
-          ]
+          "status": "untested",
+          "tests": []
         },
         "message-utils.js": {
           "path": "js/agents/shared/utils/message-utils.js",
@@ -2344,6 +2455,7 @@
           "path": "js/agents/shared/utils/robust-json.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/sdk/DefaultAgentLoop.test.js",
             "tests/unit/agents/shared/utils/robust-json.test.js",
             "tests/unit/agents/stages/design/refiner/react-refiner.test.js"
           ]
@@ -2352,14 +2464,15 @@
           "path": "js/agents/shared/utils/safe-json.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/plugins/policy/store.test.js",
-            "tests/unit/agents/shared/utils/safe-json.test.js"
+            "tests/unit/agents/llm/whisper-provider.test.js",
+            "tests/unit/agents/plugins/policy/store.test.js"
           ]
         },
         "safe-regex.js": {
           "path": "js/agents/shared/utils/safe-regex.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/retrieval/grep.test.js",
             "tests/unit/agents/runtime/tools/platform/browser.test.js",
             "tests/unit/agents/runtime/tools/platform/node.test.js",
             "tests/unit/agents/shared/utils/safe-regex.test.js",
@@ -2377,9 +2490,11 @@
           "path": "js/agents/shared/utils/secure-id.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/core/lamport-clock.test.js",
             "tests/unit/agents/plugins/checkpoints/agent-checkpoint-store.test.js",
             "tests/unit/agents/plugins/memory/state-engine.utils.test.js",
             "tests/unit/agents/plugins/policy/engine.test.js",
+            "tests/unit/agents/sdk/DiscoveryManager.test.js",
             "tests/unit/agents/shared/utils/secure-id.test.js",
             "tests/integration/agents/shared/utils.test.js"
           ]
@@ -2417,9 +2532,12 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/ingest/adapters/raw-text.test.js",
+            "tests/unit/agents/llm/overflow-recovery.test.js",
             "tests/unit/agents/plugins/memory/memory-store.impl.l0.test.js",
             "tests/unit/agents/plugins/memory/memory-store.impl.l2.test.js",
             "tests/unit/agents/plugins/plan/structured-plan.test.js",
+            "tests/unit/agents/retrieval/bm25.test.js",
+            "tests/unit/agents/retrieval/grep.test.js",
             "tests/unit/agents/runtime/core/scheduler.test.js",
             "tests/unit/agents/runtime/core/stage-errors.test.js",
             "tests/unit/agents/runtime/hooks/hook-registry.test.js",
@@ -2427,6 +2545,9 @@
             "tests/unit/agents/runtime/tools/platform/node.test.js",
             "tests/unit/agents/shared/utils/circuit-breaker.test.js",
             "tests/unit/agents/shared/utils/message-utils.test.js",
+            "tests/unit/agents/shared/utils/storage-crypto.test.js",
+            "tests/unit/agents/shared/utils/value-utils.test.js",
+            "tests/unit/agents/skills/render.test.js",
             "tests/unit/agents/stages/deepsearch/model/budget.test.js",
             "tests/unit/agents/stages/deepsearch/model/pricing.test.js",
             "tests/unit/agents/stages/deepsearch/report/report-postprocess.test.js",
@@ -2438,24 +2559,23 @@
             "tests/unit/agents/stages/design/internal/deck-operations.test.js",
             "tests/unit/agents/stages/design/runtime/deck-planner.test.js",
             "tests/unit/agents/stages/textprep/claims.test.js",
+            "tests/unit/agents/storage/artifact-manager.test.js",
             "tests/integration/agents/shared/utils.test.js"
           ]
         },
         "wasm-support.js": {
           "path": "js/agents/shared/utils/wasm-support.js",
-          "status": "covered",
-          "tests": [
-            "tests/unit/agents/shared/utils/wasm-support.test.js"
-          ]
+          "status": "untested",
+          "tests": []
         }
       }
     },
     "js/agents/skills": {
       "total": 9,
-      "covered": 0,
-      "stale": 4,
-      "untested": 5,
-      "coverage": "0.0%",
+      "covered": 7,
+      "stale": 0,
+      "untested": 2,
+      "coverage": "77.8%",
       "files": {
         "index.js": {
           "path": "js/agents/skills/index.js",
@@ -2464,15 +2584,16 @@
         },
         "loader.browser.js": {
           "path": "js/agents/skills/loader.browser.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/skills.test.js"
           ]
         },
         "loader.js": {
           "path": "js/agents/skills/loader.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
+            "tests/unit/agents/skills/manager.test.js",
             "tests/integration/agents/skills.test.js"
           ]
         },
@@ -2483,44 +2604,53 @@
         },
         "manager.js": {
           "path": "js/agents/skills/manager.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
+            "tests/unit/agents/skills/manager.test.js",
             "tests/integration/agents/skills-manager.test.js",
             "tests/integration/agents/skills.test.js"
           ]
         },
         "model.js": {
           "path": "js/agents/skills/model.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/runtime/deps/python-skill-executor.test.js",
+            "tests/unit/agents/skills/loader.node.test.js",
             "tests/integration/agents/skill-model.test.js",
             "tests/integration/agents/skills.test.js"
           ]
         },
         "render.js": {
           "path": "js/agents/skills/render.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/skills/manager.test.js",
+            "tests/unit/agents/skills/render.test.js"
+          ]
         },
         "sandbox-adapter.js": {
           "path": "js/agents/skills/sandbox-adapter.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/skills/sandbox-adapter.test.js"
+          ]
         },
         "user-store.js": {
           "path": "js/agents/skills/user-store.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/skills/user-store.test.js"
+          ]
         }
       }
     },
     "js/agents/stages": {
       "total": 145,
-      "covered": 104,
-      "stale": 4,
+      "covered": 108,
+      "stale": 0,
       "untested": 37,
-      "coverage": "71.7%",
+      "coverage": "74.5%",
       "files": {
         "code-tools.js": {
           "path": "js/agents/stages/codesearch/code-tools.js",
@@ -2556,7 +2686,7 @@
         },
         "symbol-indexer.js": {
           "path": "js/agents/stages/codesearch/indexing/symbol-indexer.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/stages/codesearch.test.js"
           ]
@@ -2635,7 +2765,7 @@
         },
         "deepsearch-agent-loop.js": {
           "path": "js/agents/stages/deepsearch/deepsearch-agent-loop.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/stages/deepsearch/deepsearch-stage.vitest.test.js"
           ]
@@ -2761,7 +2891,7 @@
         },
         "stage-utils.js": {
           "path": "js/agents/stages/deepsearch/stage-utils.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/stages/deepsearch/helpers.test.js"
           ]
@@ -2777,8 +2907,7 @@
           "path": "js/agents/stages/deepsearch/state/iteration-state.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/stages/deepsearch/state/iteration-state.test.js",
-            "tests/unit/agents/stages/deepsearch/state.test.js"
+            "tests/unit/agents/stages/deepsearch/state/iteration-state.test.js"
           ]
         },
         "memory-methods.js": {
@@ -2816,16 +2945,14 @@
           "status": "covered",
           "tests": [
             "tests/unit/agents/stages/deepsearch/state/serialization-methods.test.js",
-            "tests/unit/agents/stages/deepsearch/state/serializer.test.js",
-            "tests/unit/agents/stages/deepsearch/state.test.js"
+            "tests/unit/agents/stages/deepsearch/state/serializer.test.js"
           ]
         },
         "state-methods.js": {
           "path": "js/agents/stages/deepsearch/state/state-methods.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/stages/deepsearch/state/state-methods.test.js",
-            "tests/unit/agents/stages/deepsearch/state.test.js"
+            "tests/unit/agents/stages/deepsearch/state/state-methods.test.js"
           ]
         },
         "task-state.js": {
@@ -3310,6 +3437,7 @@
           "path": "js/agents/stages/textprep/normalize.js",
           "status": "covered",
           "tests": [
+            "tests/unit/agents/ingest/asset-manager.test.js",
             "tests/unit/agents/stages/textprep/normalize.test.js"
           ]
         },
@@ -3324,27 +3452,32 @@
     },
     "js/agents/storage": {
       "total": 7,
-      "covered": 1,
-      "stale": 1,
-      "untested": 5,
-      "coverage": "14.3%",
+      "covered": 6,
+      "stale": 0,
+      "untested": 1,
+      "coverage": "85.7%",
       "files": {
         "artifact-manager.js": {
           "path": "js/agents/storage/artifact-manager.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/stages/codesearch/indexing/symbol-indexer.test.js"
+            "tests/unit/agents/stages/codesearch/indexing/symbol-indexer.test.js",
+            "tests/unit/agents/storage/artifact-manager.test.js"
           ]
         },
         "run-exporter.js": {
           "path": "js/agents/storage/run-exporter.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/storage/run-exporter.test.js"
+          ]
         },
         "run-store-cache.js": {
           "path": "js/agents/storage/run-store-cache.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/storage/run-store-cache.test.js"
+          ]
         },
         "run-store-crud.js": {
           "path": "js/agents/storage/run-store-crud.js",
@@ -3353,19 +3486,22 @@
         },
         "run-store-queries.js": {
           "path": "js/agents/storage/run-store-queries.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/storage/run-store-queries.test.js"
+          ]
         },
         "run-store-utils.js": {
           "path": "js/agents/storage/run-store-utils.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/storage/run-store-utils.test.js"
+          ]
         },
         "run-store.js": {
           "path": "js/agents/storage/run-store.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
-            "tests/unit/agents/storage/run-exporter.test.js",
             "tests/unit/agents/storage/run-store.test.js"
           ]
         }
@@ -3382,7 +3518,6 @@
           "path": "js/agents/testing/mock-suite.js",
           "status": "covered",
           "tests": [
-            "tests/unit/agents/testing/mock-suite.test.js",
             "tests/integration/agents/testing/testing-utils.test.js"
           ]
         }
@@ -3390,25 +3525,31 @@
     },
     "js/agents/vfs": {
       "total": 20,
-      "covered": 0,
-      "stale": 10,
-      "untested": 10,
-      "coverage": "0.0%",
+      "covered": 14,
+      "stale": 0,
+      "untested": 6,
+      "coverage": "70.0%",
       "files": {
         "checkpoints.js": {
           "path": "js/agents/vfs/checkpoints.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/plugins/side-effects/side-effect-journal.test.js"
+          ]
         },
         "delta-sync.js": {
           "path": "js/agents/vfs/delta-sync.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/vfs/delta-sync.test.js"
+          ]
         },
         "diff.js": {
           "path": "js/agents/vfs/diff.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/vfs/diff.test.js"
+          ]
         },
         "diff.worker.js": {
           "path": "js/agents/vfs/diff.worker.js",
@@ -3417,7 +3558,7 @@
         },
         "file-lock.js": {
           "path": "js/agents/vfs/file-lock.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/vfs/file-lock.test.js"
           ]
@@ -3429,8 +3570,9 @@
         },
         "glob.js": {
           "path": "js/agents/vfs/glob.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
+            "tests/unit/agents/vfs/glob.test.js",
             "tests/integration/agents/vfs-glob.test.js"
           ]
         },
@@ -3441,7 +3583,7 @@
         },
         "index.browser.js": {
           "path": "js/agents/vfs/index.browser.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/vfs/index.browser.test.js"
           ]
@@ -3453,8 +3595,10 @@
         },
         "index.node.js": {
           "path": "js/agents/vfs/index.node.js",
-          "status": "untested",
-          "tests": []
+          "status": "covered",
+          "tests": [
+            "tests/unit/agents/vfs/index.node.test.js"
+          ]
         },
         "operations.js": {
           "path": "js/agents/vfs/operations.js",
@@ -3463,23 +3607,22 @@
         },
         "path.js": {
           "path": "js/agents/vfs/path.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
-            "tests/unit/agents/plugins/services/vfs.test.js",
-            "tests/unit/agents/vfs/path.test.js",
+            "tests/unit/agents/vfs/vfs.opfs.test.js",
             "tests/integration/agents/vfs-path.test.js"
           ]
         },
         "storage-adapter.js": {
           "path": "js/agents/vfs/storage-adapter.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/vfs/storage-adapter.test.js"
           ]
         },
         "vfs-scan-async.js": {
           "path": "js/agents/vfs/vfs-scan-async.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/vfs/vfs-scan-async.test.js"
           ]
@@ -3491,31 +3634,29 @@
         },
         "vfs.memory.js": {
           "path": "js/agents/vfs/vfs.memory.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
-            "tests/unit/agents/plugins/services/vfs.test.js",
             "tests/unit/agents/runtime/memory/l3-storage.test.js",
-            "tests/unit/agents/vfs/vfs.memory.test.js",
             "tests/integration/agents/vfs-memory.test.js"
           ]
         },
         "vfs.node.js": {
           "path": "js/agents/vfs/vfs.node.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/integration/agents/vfs-node.test.js"
           ]
         },
         "vfs.opfs.js": {
           "path": "js/agents/vfs/vfs.opfs.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/vfs/vfs.opfs.test.js"
           ]
         },
         "vfs.storage.js": {
           "path": "js/agents/vfs/vfs.storage.js",
-          "status": "stale",
+          "status": "covered",
           "tests": [
             "tests/unit/agents/vfs/vfs.storage.test.js",
             "tests/integration/agents/vfs-storage.test.js"
@@ -3526,9 +3667,9 @@
   },
   "summary": {
     "total": 543,
-    "covered": 318,
-    "stale": 45,
-    "untested": 180,
-    "coverage": "58.6%"
+    "covered": 401,
+    "stale": 0,
+    "untested": 142,
+    "coverage": "73.8%"
   }
 }
