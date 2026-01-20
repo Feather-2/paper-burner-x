@@ -6,6 +6,20 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] testing-coverage
+*Archived: 2026-01-20T04:50:44.803Z*
+
+- **File**: tests/integration/agents/cli/cli.test.js:4
+- **Description**: CLI 脚本（demo/test-deepsearch/test-memory）缺少自动化测试，覆盖率目标 90% 与边界条件（空值/大文件/并发）无法验证。
+- **Suggestion**: 为 CLI 脚本补充集成测试，覆盖空输入、大文件、并发调用、环境变量缺失等边界场景。
+```
+* 测试 js/agents/cli/ 目录下的模块: * - model-client.js: ...
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] jsdoc
 *Archived: 2026-01-20T04:34:19.049Z*
 

@@ -7,14 +7,85 @@
  * @module tests/agents/cli
  */
 
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+const DEMO_PATH = new URL("../../../../js/agents/cli/demo.js", import.meta.url);
+
+const loadRedactSensitive = () => {
+  const source = readFileSync(DEMO_PATH, "utf-8");
+  const start = source.indexOf("const redactSensitive");
+  const end = source.indexOf("const safeStringify", start);
+
+  if (start === -1 || end === -1) {
+    throw new Error("redactSensitive not found in demo.js");
+  }
+
+  const snippet = source.slice(start, end);
+  const context = {};
+  vm.runInNewContext(`${snippet}\nthis.__redactSensitive = redactSensitive;`, context);
+
+  if (typeof context.__redactSensitive !== "function") {
+    throw new Error("Failed to load redactSensitive from demo.js");
+  }
+
+  return context.__redactSensitive;
+};
+
+// ============================================================================
+// demo.js Tests
+// ============================================================================
+
+describe("demo.js redactSensitive", () => {
+  it("redactSensitive: handles empty values", () => {
+    const redactSensitive = loadRedactSensitive();
+
+    expect(redactSensitive(null)).toBe(null);
+    expect(redactSensitive(undefined)).toBe(undefined);
+    expect(redactSensitive("")).toBe("");
+  });
+
+  it("redactSensitive: redacts nested objects and sensitive keys", () => {
+    const redactSensitive = loadRedactSensitive();
+    const input = {
+      apiKey: "sk-1234567890abcdef",
+      nested: {
+        token: "token-value",
+        auth: "Bearer abcdefghijklmnop",
+        list: [
+          { password: "supersecret" },
+          { info: "sk-aaaaaaaaaaaaaaaa" },
+          { deep: { authorization: "Bearer xyzxyzxyzxyzxyz" } },
+        ],
+        details: {
+          ok: "safe",
+        },
+      },
+      keep: "normal",
+      __proto__: { shouldNot: "appear" },
+    };
+
+    const output = redactSensitive(input);
+
+    expect(output.apiKey).toBe("REDACTED");
+    expect(output.nested.token).toBe("REDACTED");
+    expect(output.nested.auth).toBe("REDACTED");
+    expect(output.nested.list[0].password).toBe("REDACTED");
+    expect(output.nested.list[1].info).toBe("sk-REDACTED");
+    expect(output.nested.list[2].deep.authorization).toBe("REDACTED");
+    expect(output.nested.details.ok).toBe("safe");
+    expect(output.keep).toBe("normal");
+    expect(Object.prototype.hasOwnProperty.call(output, "__proto__")).toBe(false);
+  });
+});
+
 // ============================================================================
 // CliModelClient Tests
 // ============================================================================
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-
 it("CliModelClient: constructor sets default values", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const client = new CliModelClient();
   expect(client.apiKey).toBe("");
@@ -26,7 +97,7 @@ it("CliModelClient: constructor sets default values", async () => {
 });
 
 it("CliModelClient: constructor accepts custom options", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const client = new CliModelClient({
     apiKey: "test-key",
@@ -46,14 +117,14 @@ it("CliModelClient: constructor accepts custom options", async () => {
 });
 
 it("CliModelClient: baseUrl trailing slash is stripped", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const client = new CliModelClient({ baseUrl: "https://api.example.com/v1/" });
   expect(client.baseUrl).toBe("https://api.example.com/v1");
 });
 
 it("CliModelClient: chat throws without API key", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const client = new CliModelClient({ apiKey: "" });
 
@@ -63,7 +134,7 @@ it("CliModelClient: chat throws without API key", async () => {
 });
 
 it("CliModelClient: chat constructs correct request", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   let capturedRequest = null;
   const mockFetch = async (url, init) => {
@@ -113,7 +184,7 @@ it("CliModelClient: chat constructs correct request", async () => {
 });
 
 it("CliModelClient: chat uses default maxTokens from options", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   let capturedBody = null;
   const mockFetch = async (url, init) => {
@@ -145,7 +216,7 @@ it("CliModelClient: chat uses default maxTokens from options", async () => {
 });
 
 it("CliModelClient: chat handles HTTP error", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const mockFetch = async () => ({
     ok: false,
@@ -171,7 +242,7 @@ it("CliModelClient: chat handles HTTP error", async () => {
 });
 
 it("CliModelClient: chat handles non-JSON error response", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const mockFetch = async () => ({
     ok: false,
@@ -195,7 +266,7 @@ it("CliModelClient: chat handles non-JSON error response", async () => {
 });
 
 it("CliModelClient: ask builds messages correctly", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   let capturedMessages = null;
   const mockFetch = async (url, init) => {
@@ -229,7 +300,7 @@ it("CliModelClient: ask builds messages correctly", async () => {
 });
 
 it("CliModelClient: ask without system prompt", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   let capturedMessages = null;
   const mockFetch = async (url, init) => {
@@ -263,7 +334,7 @@ it("CliModelClient: ask without system prompt", async () => {
 // ============================================================================
 
 it("CliModelRouter: constructor without config or env warns", async () => {
-  const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelRouter } = await import("../../../../js/agents/cli/model-client.js");
 
   const originalEnv = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
@@ -283,7 +354,7 @@ it("CliModelRouter: constructor without config or env warns", async () => {
 });
 
 it("CliModelRouter: getClient with env var returns env client", async () => {
-  const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelRouter } = await import("../../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
   const originalUrl = process.env.OPENAI_BASE_URL;
@@ -311,7 +382,7 @@ it("CliModelRouter: getClient with env var returns env client", async () => {
 });
 
 it("CliModelRouter: getClient caches env client", async () => {
-  const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelRouter } = await import("../../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = "sk-cache-test";
@@ -329,7 +400,7 @@ it("CliModelRouter: getClient caches env client", async () => {
 });
 
 it("CliModelRouter: getClient throws without config or env", async () => {
-  const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelRouter } = await import("../../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
@@ -349,7 +420,7 @@ it("CliModelRouter: getClient throws without config or env", async () => {
 });
 
 it("CliModelRouter: getAvailableModels with env returns env model", async () => {
-  const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelRouter } = await import("../../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
   const originalModel = process.env.OPENAI_MODEL;
@@ -371,7 +442,7 @@ it("CliModelRouter: getAvailableModels with env returns env model", async () => 
 });
 
 it("CliModelRouter: getAvailableModels without config returns empty", async () => {
-  const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelRouter } = await import("../../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
@@ -391,7 +462,7 @@ it("CliModelRouter: getAvailableModels without config returns empty", async () =
 });
 
 it("CliModelRouter: getTierMapping returns empty without config", async () => {
-  const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelRouter } = await import("../../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
@@ -410,13 +481,72 @@ it("CliModelRouter: getTierMapping returns empty without config", async () => {
   }
 });
 
+it("CliModelRouter: uses config and caches tier client", async () => {
+  const { CliModelRouter, CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
+
+  const originalKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+
+  const originalWarn = console.warn;
+  console.warn = () => {};
+
+  try {
+    const router = new CliModelRouter();
+    router.config = {
+      models: {
+        normal: {
+          apiKey: "sk-config",
+          baseUrl: "https://config.api/v1/",
+          model: "config-model",
+        },
+      },
+      tiers: { normal: ["worker"] },
+      default: "normal",
+    };
+
+    const client1 = router.getClient("worker");
+    const client2 = router.getClient("worker");
+
+    expect(client1).toBeInstanceOf(CliModelClient);
+    expect(client1).toBe(client2);
+    expect(client1.baseUrl).toBe("https://config.api/v1");
+    expect(client1.model).toBe("config-model");
+    expect(router.getAvailableModels()).toEqual(["normal"]);
+  } finally {
+    if (originalKey) process.env.OPENAI_API_KEY = originalKey;
+    console.warn = originalWarn;
+  }
+});
+
+it("CliModelRouter: empty OPENAI_API_KEY treated as missing", async () => {
+  const { CliModelRouter } = await import("../../../../js/agents/cli/model-client.js");
+
+  const originalKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "";
+
+  const originalWarn = console.warn;
+  console.warn = () => {};
+
+  try {
+    const router = new CliModelRouter();
+    router.config = null;
+
+    expect(router.getAvailableModels()).toEqual([]);
+    expect(() => router.getClient("worker")).toThrow(/未配置模型/);
+  } finally {
+    if (originalKey) process.env.OPENAI_API_KEY = originalKey;
+    else delete process.env.OPENAI_API_KEY;
+    console.warn = originalWarn;
+  }
+});
+
 // ============================================================================
 // createAiApiServiceAdapter Tests
 // ============================================================================
 
 it("createAiApiServiceAdapter: chat delegates to router", async () => {
   const { CliModelRouter, createAiApiServiceAdapter, CliModelClient } = await import(
-    "../../../js/agents/cli/model-client.js"
+    "../../../../js/agents/cli/model-client.js"
   );
 
   const originalKey = process.env.OPENAI_API_KEY;
@@ -453,7 +583,7 @@ it("createAiApiServiceAdapter: chat delegates to router", async () => {
 
 it("createAiApiServiceAdapter: getAvailableModels returns formatted models", async () => {
   const { CliModelRouter, createAiApiServiceAdapter } = await import(
-    "../../../js/agents/cli/model-client.js"
+    "../../../../js/agents/cli/model-client.js"
   );
 
   const originalKey = process.env.OPENAI_API_KEY;
@@ -480,12 +610,76 @@ it("createAiApiServiceAdapter: getAvailableModels returns formatted models", asy
   }
 });
 
+it("createAiApiServiceAdapter: defaults usage to worker when empty", async () => {
+  const { CliModelRouter, createAiApiServiceAdapter } = await import(
+    "../../../../js/agents/cli/model-client.js"
+  );
+
+  const originalKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "sk-usage-test";
+
+  const mockFetch = async () => ({
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: "ok" } }],
+      model: "m",
+      usage: {},
+    }),
+  });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mockFetch;
+
+  try {
+    const router = new CliModelRouter();
+    const roles = [];
+    const originalGetClient = router.getClient.bind(router);
+    router.getClient = (role) => {
+      roles.push(role);
+      return originalGetClient(role);
+    };
+
+    const adapter = createAiApiServiceAdapter(router);
+    await adapter.chat({ messages: [{ role: "user", content: "hi" }], usage: "" });
+
+    expect(roles[0]).toBe("worker");
+  } finally {
+    if (originalKey) process.env.OPENAI_API_KEY = originalKey;
+    else delete process.env.OPENAI_API_KEY;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it("createAiApiServiceAdapter: throws without env or config", async () => {
+  const { CliModelRouter, createAiApiServiceAdapter } = await import(
+    "../../../../js/agents/cli/model-client.js"
+  );
+
+  const originalKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+
+  const originalWarn = console.warn;
+  console.warn = () => {};
+
+  try {
+    const router = new CliModelRouter();
+    router.config = null;
+    const adapter = createAiApiServiceAdapter(router);
+
+    await expect(adapter.chat({ messages: [] })).rejects.toThrow(/未配置模型/);
+  } finally {
+    if (originalKey) process.env.OPENAI_API_KEY = originalKey;
+    else delete process.env.OPENAI_API_KEY;
+    console.warn = originalWarn;
+  }
+});
+
 // ============================================================================
 // Default Export Tests
 // ============================================================================
 
 it("default export includes all expected exports", async () => {
-  const defaultExport = await import("../../../js/agents/cli/model-client.js");
+  const defaultExport = await import("../../../../js/agents/cli/model-client.js");
 
   expect(defaultExport.CliModelClient).toBeTypeOf("function");
   expect(defaultExport.CliModelRouter).toBeTypeOf("function");
@@ -506,7 +700,7 @@ it("default export includes all expected exports", async () => {
 // ============================================================================
 
 it("CliModelClient: handles empty response choice", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const mockFetch = async () => ({
     ok: true,
@@ -531,7 +725,7 @@ it("CliModelClient: handles empty response choice", async () => {
 });
 
 it("CliModelClient: handles missing message content", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const mockFetch = async () => ({
     ok: true,
@@ -556,7 +750,7 @@ it("CliModelClient: handles missing message content", async () => {
 });
 
 it("CliModelClient: respects abort signal", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const mockFetch = async (url, init) => {
     // Check if signal is passed
@@ -593,7 +787,7 @@ it("CliModelClient: respects abort signal", async () => {
 });
 
 it("CliModelClient: chat handles retry-after header", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const mockFetch = async () => ({
     ok: false,
@@ -623,7 +817,7 @@ it("CliModelClient: chat handles retry-after header", async () => {
 });
 
 it("CliModelClient: handles timeout", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   const mockFetch = async (url, init) => {
     // Simulate slow response - must respect abort signal from timeout
@@ -665,7 +859,7 @@ it("CliModelClient: handles timeout", async () => {
 });
 
 it("CliModelClient: contextWindow truncation is applied", async () => {
-  const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
+  const { CliModelClient } = await import("../../../../js/agents/cli/model-client.js");
 
   let capturedMessages = null;
   const mockFetch = async (url, init) => {
@@ -714,7 +908,7 @@ it("CliModelClient: contextWindow truncation is applied", async () => {
 
 it("CliModelRouter + CliModelClient integration", async () => {
   const { CliModelRouter, CliModelClient } = await import(
-    "../../../js/agents/cli/model-client.js"
+    "../../../../js/agents/cli/model-client.js"
   );
 
   const originalKey = process.env.OPENAI_API_KEY;
