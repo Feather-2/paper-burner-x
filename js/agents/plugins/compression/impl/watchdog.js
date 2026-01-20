@@ -315,8 +315,9 @@ export class Watchdog {
             suggestion: suggestion?.suggestion,
           });
         }
-      } catch {
-        // ignore behavior analysis failures
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err || "unknown error");
+        logger.warn(`Watchdog: BehaviorFingerprint analysis failed: ${reason}`);
       }
     }
 

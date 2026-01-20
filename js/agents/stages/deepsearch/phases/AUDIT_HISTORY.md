@@ -4,6 +4,40 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] input-validation
+*Archived: 2026-01-20T00:15:40.422Z*
+
+- **File**: js/agents/stages/deepsearch/phases/planning-phase.js:317
+- **Description**: UI 输入（taskGoal/modeDescription）直接拼入提示词，缺少类型与长度校验，可能触发 prompt injection 或导致上下文膨胀。
+- **Suggestion**: 对 taskGoal/modeDescription 做类型检查、长度上限与模式白名单，必要时截断/转义。
+```
+content: `目标: ${agent.state.taskGoal || "分析文档"}`
+```
+
+### [RESOLVED] timeout
+*Archived: 2026-01-20T00:15:40.422Z*
+
+- **File**: js/agents/stages/deepsearch/phases/planning-phase.js:720
+- **Description**: 规划阶段模型调用仅依赖外部 signal；若未配置 AbortSignal，单轮可能无限等待，违反长任务超时要求。
+- **Suggestion**: 为 callModel 包裹超时（AbortController + setTimeout）或在 stageApi 中提供强制超时兜底。
+```
+const response = await callModel(transientMessages, { temperature: 0.3, maxTokens: 1000, signal: stageApi?.signal });
+```
+
+### [RESOLVED] serialization
+*Archived: 2026-01-20T00:15:40.422Z*
+
+- **File**: js/agents/stages/deepsearch/phases/execution-phase.js:221
+- **Description**: 对工具输出直接 JSON.stringify，若结果包含循环引用/BigInt 会抛错导致执行阶段崩溃。
+- **Suggestion**: 使用安全序列化（try/catch + fallback 或 safe-stable-stringify）并在失败时返回占位符。
+```
+`${i + 1}. ${r.tool}: ${JSON.stringify(r.inline)}`
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] input-validation

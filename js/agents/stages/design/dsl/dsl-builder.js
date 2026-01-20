@@ -61,6 +61,22 @@ function sanitizeNumber(val, min, max, fallback) {
   return Math.max(min, Math.min(max, n));
 }
 
+/**
+ * Safely JSON.stringify value and fall back on invalid/circular inputs.
+ * @param {unknown} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function safeJsonStringify(value, fallback) {
+  if (value === undefined) return fallback;
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === "string" ? serialized : fallback;
+  } catch (err) {
+    return fallback;
+  }
+}
+
 // --- End Security ---
 
 function normalizePageType(pageType) {
@@ -464,7 +480,7 @@ export function buildSlideHtml(slideIntent, designSystem, arg3, arg4, arg5) {
   const imageLayer = imagePlaceholders ? `  ${imagePlaceholders}\n` : "";
 
   return `
-<section data-type="freeform" data-layout="${escapeHtml(layout)}" id="${escapeHtml(rawId)}" data-title="${escapeHtml(title)}" data-bg="${colors.bg}">
+<section data-type="freeform" data-layout="${escapeHtml(layout)}" id="${escapeHtml(rawId)}" data-title="${escapeHtml(title)}" data-bg="${sanitizeColor(colors.bg, "#ffffff")}">
 ${imageLayer}  ${makeTextEl({ x: "8%", y: titleY, w: "84%", font: titleFont, color: colors.text, bold: true, content: escapeHtml(title) })}
   ${panel}
   ${subtitle}
@@ -506,7 +522,7 @@ export function buildFromLayoutJson(layoutJson, designSystem, options = {}) {
   if (options?.safeMode || !els.length) {
     const titleFont = Math.max(typography.minFont, typography.titleFont || 44);
     return `
-<section data-type="freeform" data-layout="safe" id="${escapeHtml(slideId)}" data-title="${escapeHtml(titleText)}" data-bg="${colors.bg}">
+<section data-type="freeform" data-layout="safe" id="${escapeHtml(slideId)}" data-title="${escapeHtml(titleText)}" data-bg="${sanitizeColor(colors.bg, "#ffffff")}">
   ${makeTextEl({ x: "8%", y: "10%", w: "84%", font: titleFont, color: colors.text, bold: true, content: escapeHtml(titleText) })}
 </section>`.trim();
   }
@@ -544,14 +560,18 @@ export function buildFromLayoutJson(layoutJson, designSystem, options = {}) {
 
       if (e.type === "table") {
         const data =
-          e.content && typeof e.content !== "string" ? JSON.stringify(e.content) : String(e.content || "").trim() || "[]";
+          e.content && typeof e.content !== "string"
+            ? safeJsonStringify(e.content, "[]")
+            : String(e.content || "").trim() || "[]";
         return makeTableEl({ x, y, w, h, data, colors, fontSize: Math.max(typography.minFont, typography.smallFont || 12) });
       }
 
       if (e.type === "chart") {
         const chartType = String(e?.chartType || "bar");
         const chartData =
-          e.content && typeof e.content !== "string" ? JSON.stringify(e.content) : String(e.content || "").trim() || "{}";
+          e.content && typeof e.content !== "string"
+            ? safeJsonStringify(e.content, "{}")
+            : String(e.content || "").trim() || "{}";
         return makeChartEl({ x, y, w, h, chartType, chartData, colors: chartColors });
       }
 
@@ -561,7 +581,7 @@ export function buildFromLayoutJson(layoutJson, designSystem, options = {}) {
     .join("\n  ");
 
   return `
-<section data-type="freeform" data-layout="${escapeHtml(layoutFromPageType(layoutJson?.suggestedLayout))}" id="${escapeHtml(slideId)}" data-title="${escapeHtml(titleText)}" data-bg="${colors.bg}">
+<section data-type="freeform" data-layout="${escapeHtml(layoutFromPageType(layoutJson?.suggestedLayout))}" id="${escapeHtml(slideId)}" data-title="${escapeHtml(titleText)}" data-bg="${sanitizeColor(colors.bg, "#ffffff")}">
   ${built}
 </section>`.trim();
 }

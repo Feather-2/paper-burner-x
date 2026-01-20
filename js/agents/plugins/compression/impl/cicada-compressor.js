@@ -8,9 +8,20 @@ import { createLogger } from "../../../shared/index.js";
 const logger = createLogger("runtime/compression/cicada-compressor");
 
 /**
- * @typedef {{ call?: Function, chat?: Function }} CicadaModelRouter
- * @typedef {{ store?: Function, set?: Function, archive?: Function, load?: Function, get?: Function, restore?: Function }} CicadaArchiveAdapter
- * @typedef {{ emit?: Function }} CicadaEventBus
+ * @typedef {{ role?: string, content?: unknown }} CicadaMessage
+ * @typedef {Record<string, unknown>} CicadaArchiveEntry
+ * @typedef {Object} CicadaModelRouter
+ * @property {(payload: { usage?: string, messages: Array<CicadaMessage> }) => Promise<unknown>} [call]
+ * @property {(messages: Array<CicadaMessage>) => Promise<unknown>} [chat]
+ * @typedef {Object} CicadaArchiveAdapter
+ * @property {(key: string, entry: CicadaArchiveEntry) => Promise<unknown>} [store]
+ * @property {(key: string, entry: CicadaArchiveEntry) => void} [set]
+ * @property {(key: string, entry: CicadaArchiveEntry) => Promise<unknown>} [archive]
+ * @property {(key: string) => Promise<CicadaArchiveEntry|null>} [load]
+ * @property {(key: string) => CicadaArchiveEntry|null} [get]
+ * @property {(key: string) => Promise<CicadaArchiveEntry|null>} [restore]
+ * @typedef {Object} CicadaEventBus
+ * @property {(eventName: string, payload: Record<string, unknown>) => void} [emit]
  * @typedef {Object} CicadaCompressorOptions
  * @property {CicadaModelRouter} [modelRouter]
  * @property {CicadaArchiveAdapter} [archive]
@@ -431,7 +442,7 @@ export class CicadaCompressor {
 
   /**
    * @param {string} name
-   * @param {any} payload
+   * @param {unknown} payload
    * @returns {void}
    */
   _emit(name, payload) {
@@ -441,7 +452,7 @@ export class CicadaCompressor {
   }
 
   /**
-   * @param {any} value
+   * @param {unknown} value
    * @returns {number|null}
    */
   _toTimestampMs(value) {
@@ -488,9 +499,9 @@ export class CicadaCompressor {
   }
 
   /**
-   * @param {any} context
-   * @param {Record<string, any>} [options]
-   * @returns {Promise<{ context: any, metadata: any }>}
+   * @param {unknown} context
+   * @param {Record<string, unknown>} [options]
+   * @returns {Promise<{ context: Record<string, unknown>, metadata: Record<string, unknown> }>}
    */
   async compress(context, options = {}) {
     const base = isPlainObject(context) ? { ...context } : { value: context };
@@ -564,9 +575,9 @@ export class CicadaCompressor {
   }
 
   /**
-   * @param {Record<string, any>} context
-   * @param {Record<string, any>} [options]
-   * @returns {{ compressed: any, stats: any }}
+   * @param {Record<string, unknown>} context
+   * @param {Record<string, unknown>} [options]
+   * @returns {{ compressed: Record<string, unknown>, stats: Record<string, number> }}
    */
   _compressToolOutput(context, options = {}) {
     const maxChars = Number.isFinite(options.maxToolOutputChars)
@@ -621,9 +632,9 @@ export class CicadaCompressor {
   }
 
   /**
-   * @param {Record<string, any>} context
-   * @param {Record<string, any>} [options]
-   * @returns {{ compressed: any, stats: any }}
+   * @param {Record<string, unknown>} context
+   * @param {Record<string, unknown>} [options]
+   * @returns {{ compressed: Record<string, unknown>, stats: Record<string, number> }}
    */
   _compressSessionHistory(context, options = {}) {
     const keepLastTurns = Number.isFinite(options.keepLastTurns) ? options.keepLastTurns : 6;
@@ -720,9 +731,9 @@ export class CicadaCompressor {
   }
 
   /**
-   * @param {Record<string, any>} context
-   * @param {Record<string, any>} [options]
-   * @returns {Promise<any>}
+   * @param {Record<string, unknown>} context
+   * @param {Record<string, unknown>} [options]
+   * @returns {Promise<Record<string, unknown>>}
    */
   async _compressWithLLM(context, options = {}) {
     const maxInputChars = Number.isFinite(options.maxInputChars)
@@ -768,8 +779,8 @@ export class CicadaCompressor {
   }
 
   /**
-   * @param {Array<{ role?: string, content?: any }>} messages
-   * @returns {Promise<any>}
+   * @param {Array<CicadaMessage>} messages
+   * @returns {Promise<unknown>}
    */
   async _callModel(messages) {
     if (this.modelRouter && typeof this.modelRouter.call === "function") {
@@ -793,7 +804,7 @@ export class CicadaCompressor {
 
   /**
    * @param {string} stageKey
-   * @param {Record<string, any>} data
+   * @param {CicadaArchiveEntry} data
    * @returns {Promise<string>}
    */
   async archive(stageKey, data) {
@@ -840,7 +851,7 @@ export class CicadaCompressor {
 
   /**
    * @param {string} stageKey
-   * @returns {Promise<any|null>}
+   * @returns {Promise<CicadaArchiveEntry|null>}
    */
   async restore(stageKey) {
     const key = toNonEmptyString(stageKey);
@@ -870,7 +881,7 @@ export class CicadaCompressor {
   /**
    * 列出所有存档（支持过滤）
    * @param {{ limit?: number, pattern?: string } | undefined} [options]
-   * @returns {Promise<Array<{ id: string, timestamp: any, summary: string, stageKey: string }>>}
+   * @returns {Promise<Array<{ id: string, timestamp: unknown, summary: string, stageKey: string }>>}
    */
   async listArchives(options = {}) {
     const { limit = 10, pattern = "" } = options;
@@ -908,9 +919,9 @@ export class CicadaCompressor {
 
   /**
    * 构建 Handoff 交接文档
-   * @param {any} state - agent 状态
-   * @param {any} sharedContext - 共享上下文
-   * @returns {any} handoff 文档
+   * @param {unknown} state - agent 状态
+   * @param {unknown} sharedContext - 共享上下文
+   * @returns {Record<string, unknown>} handoff 文档
    */
   buildHandoff(state, sharedContext) {
     const todos = Array.isArray(state?.todos) ? state.todos : [];

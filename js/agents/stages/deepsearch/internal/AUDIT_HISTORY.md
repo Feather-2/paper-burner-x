@@ -4,6 +4,40 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] logic
+*Archived: 2026-01-20T00:12:43.191Z*
+
+- **File**: js/agents/stages/deepsearch/internal/writing-phase-handler.js:117
+- **Description**: minWords 使用 `||` 导致显式配置为 0 时被忽略，无法通过配置禁用字数门槛，可能触发不必要的写作阶段（getStats 也有同样逻辑）。
+- **Suggestion**: 改用空值合并（??）或显式数值判断，让 0 生效；同样调整 getStats 的 minWords 计算。
+```
+const minWords = reportConfig.minWords || { quick: 4000, wider: 6000, deeper: 10000 }[mode] || 4000;
+```
+
+### [RESOLVED] robustness
+*Archived: 2026-01-20T00:12:43.191Z*
+
+- **File**: js/agents/stages/deepsearch/internal/shared-context.js:336
+- **Description**: buildBlackboardPrompt 直接 JSON.stringify signal payload，若 payload 含循环引用/BigInt 会抛错，导致黑板构建失败。
+- **Suggestion**: 为 JSON.stringify 添加 try-catch 或使用安全序列化函数并提供降级文本。
+```
+const msg = payload.message || payload.reason || payload.value || JSON.stringify(payload);
+```
+
+### [RESOLVED] robustness
+*Archived: 2026-01-20T00:12:43.191Z*
+
+- **File**: js/agents/stages/deepsearch/internal/writing-phase-handler.js:280
+- **Description**: 写作阶段将工具输出直接 JSON.stringify 写入提示；若结果含循环引用/BigInt 会抛错并中断写作循环。
+- **Suggestion**: 使用安全序列化或捕获 stringify 异常并回退为简短摘要。
+```
+JSON.stringify(payloadForPrompt, null, 2)
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] error-info-leak

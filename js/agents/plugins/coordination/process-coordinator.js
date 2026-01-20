@@ -37,8 +37,12 @@ import { Platform } from "../../shared/index.js";
  */
 
 /**
+ * @typedef {(...args: unknown[]) => void} EventListenerLike
+ */
+
+/**
  * @typedef {object} ClusterWorkerLike
- * @property {(message: any) => void} [send]
+ * @property {(message: unknown) => void} [send]
  * @property {() => boolean} [isConnected]
  */
 
@@ -47,18 +51,18 @@ import { Platform } from "../../shared/index.js";
  * @property {boolean} isPrimary
  * @property {boolean} isWorker
  * @property {Record<string, ClusterWorkerLike>} workers
- * @property {(event: string, listener: (...args: any[]) => void) => void} on
- * @property {(event: string, listener: (...args: any[]) => void) => void} off
- * @property {(event: string, listener: (...args: any[]) => void) => void} removeListener
+ * @property {(event: string, listener: EventListenerLike) => void} on
+ * @property {(event: string, listener: EventListenerLike) => void} off
+ * @property {(event: string, listener: EventListenerLike) => void} removeListener
  */
 
 /**
  * @typedef {object} ProcessLike
  * @property {number} pid
- * @property {(message: any) => void} [send]
- * @property {(event: string, listener: (...args: any[]) => void) => void} on
- * @property {(event: string, listener: (...args: any[]) => void) => void} off
- * @property {(event: string, listener: (...args: any[]) => void) => void} removeListener
+ * @property {(message: unknown) => void} [send]
+ * @property {(event: string, listener: EventListenerLike) => void} on
+ * @property {(event: string, listener: EventListenerLike) => void} off
+ * @property {(event: string, listener: EventListenerLike) => void} removeListener
  */
 
 const MESSAGE_TYPES = new Set(["session-evicted", "session-accessed"]);
@@ -69,7 +73,7 @@ let clusterModulePromise = null;
 let clusterModule = null;
 
 /**
- * @param {any} mod
+ * @param {unknown} mod
  * @returns {ClusterModuleLike | null}
  */
 function normalizeClusterModule(mod) {
@@ -85,7 +89,7 @@ function normalizeClusterModule(mod) {
  * @returns {ProcessLike | null}
  */
 function getProcessRef() {
-  const g = /** @type {any} */ (globalThis);
+  const g = /** @type {{ process?: ProcessLike }} */ (globalThis);
   const p = g.process;
   if (!p || typeof p !== "object") return null;
   return /** @type {ProcessLike} */ (p);
@@ -102,7 +106,7 @@ function getProcessId(proc) {
 }
 
 /**
- * @param {any} value
+ * @param {unknown} value
  * @returns {number | null}
  */
 function toProcessId(value) {
@@ -144,9 +148,12 @@ async function loadClusterModule() {
 }
 
 /**
- * @param {any} emitter
+ * @param {{
+ *   off?: (event: string, handler: EventListenerLike) => void,
+ *   removeListener?: (event: string, handler: EventListenerLike) => void
+ * } | null} emitter
  * @param {string} event
- * @param {(...args: any[]) => void} handler
+ * @param {EventListenerLike} handler
  * @returns {void}
  */
 function removeListener(emitter, event, handler) {
@@ -180,7 +187,7 @@ export class ProcessCoordinator extends DisposableBase {
     this._onEviction = typeof opts.onEviction === "function" ? opts.onEviction : null;
     /** @type {(sessionId: string) => void | null} */
     this._onAccess = typeof opts.onAccess === "function" ? opts.onAccess : null;
-    /** @type {any} */
+    /** @type {LoggerLike | null} */
     this._logger = opts.logger || null;
 
     /** @type {boolean} */
@@ -349,8 +356,8 @@ export class ProcessCoordinator extends DisposableBase {
   }
 
   /**
-   * @param {any} _worker
-   * @param {any} message
+   * @param {unknown} _worker
+   * @param {unknown} message
    * @returns {void}
    */
   _handleClusterMessage(_worker, message) {
@@ -361,7 +368,7 @@ export class ProcessCoordinator extends DisposableBase {
   }
 
   /**
-   * @param {any} message
+   * @param {unknown} message
    * @returns {void}
    */
   _handleProcessMessage(message) {
@@ -370,7 +377,7 @@ export class ProcessCoordinator extends DisposableBase {
   }
 
   /**
-   * @param {any} raw
+   * @param {unknown} raw
    * @returns {ProcessCoordinatorMessage | null}
    */
   _handleIncomingMessage(raw) {
@@ -392,7 +399,7 @@ export class ProcessCoordinator extends DisposableBase {
   }
 
   /**
-   * @param {any} raw
+   * @param {unknown} raw
    * @returns {ProcessCoordinatorMessage | null}
    */
   _parseMessage(raw) {
@@ -435,7 +442,7 @@ export class ProcessCoordinator extends DisposableBase {
   }
 
   /**
-   * @param {...any} args
+   * @param {...unknown} args
    * @returns {void}
    */
   _logWarn(...args) {

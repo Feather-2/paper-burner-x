@@ -4,6 +4,37 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] input-validation
+*Archived: 2026-01-20T00:11:38.634Z*
+
+- **File**: js/agents/stages/deepsearch/tools/write-report/handler.js:795
+- **Description**: 未识别的 action 会落到默认的 full 路径，可能在参数拼写错误时触发昂贵的报告生成并修改状态。
+- **Suggestion**: 对 action 做白名单校验；未知 action 直接返回 success:false 的错误，避免默认执行 full。
+```
+if (action === "section") {
+  return handleSection(args, report, emit);
+}
+
+return handleFull(report, mode, state, emit);
+```
+
+### [RESOLVED] runtime-error
+*Archived: 2026-01-20T00:11:38.634Z*
+
+- **File**: js/agents/stages/deepsearch/tools/write-report/handler.js:449
+- **Description**: update 分支在旧内容为空或非字符串时调用 slice，会抛出 TypeError，导致处理器异常退出。
+- **Suggestion**: 对 oldContent 做类型兜底（例如默认空字符串）再 slice，或使用 toNonEmptyString 归一化。
+```
+const oldContent = report.sections[sectionIndex].content;
+report.sections[sectionIndex].content = content;
+report.sections[sectionIndex].updatedAt = Date.now();
+recordHistory(report, "update", { sectionId, old: oldContent.slice(0, 50), new: content.slice(0, 50) });
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] 未验证的输入

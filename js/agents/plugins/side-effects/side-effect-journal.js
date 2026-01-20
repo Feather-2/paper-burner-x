@@ -8,9 +8,6 @@ const MAX_WAL_FILE_SIZE = 10 * 1024 * 1024;
 /** Maximum single WAL line size in bytes (100 KB) to prevent memory issues. */
 const MAX_WAL_LINE_SIZE = 100 * 1024;
 
-/** Valid entry kinds for WAL structure validation. */
-const VALID_ENTRY_KINDS = new Set(["vfs_checkpoint", "unknown"]);
-
 /**
  * @typedef {object} SideEffectJournalCheckpointRef
  * @property {string} artifactId
@@ -29,6 +26,32 @@ const VALID_ENTRY_KINDS = new Set(["vfs_checkpoint", "unknown"]);
  * @property {string=} op
  * @property {string=} eventId
  * @property {Record<string, unknown>=} meta
+ */
+
+/**
+ * @typedef {object} SideEffectJournalRecordInput
+ * @property {string=} kind
+ * @property {string|number=} ts
+ * @property {boolean=} reversible
+ * @property {SideEffectJournalCheckpointRef=} checkpoint
+ * @property {string=} path
+ * @property {string=} op
+ * @property {string=} eventId
+ * @property {Record<string, unknown>=} meta
+ */
+
+/**
+ * @typedef {object} SideEffectJournalRollbackFailure
+ * @property {number} seq
+ * @property {string} kind
+ * @property {string} error
+ */
+
+/**
+ * @typedef {object} SideEffectJournalEventPayload
+ * @property {string=} op
+ * @property {string=} path
+ * @property {SideEffectJournalCheckpointRef=} checkpoint
  */
 
 /**
@@ -129,7 +152,7 @@ const VALID_ENTRY_KINDS = new Set(["vfs_checkpoint", "unknown"]);
  * @typedef {object} SideEffectJournalEvent
  * @property {string=} eventId
  * @property {string|number=} ts
- * @property {any=} payload
+ * @property {SideEffectJournalEventPayload=} payload
  * @property {{ replay?: boolean }=} meta
  */
 
@@ -351,6 +374,111 @@ function buildJournalEntry(entry, seq) {
 }
 
 /**
+ * Check WAL text size against the allowed limit.
+ * @param {string} text - WAL text content
+ * @param {LoggerLike | null | undefined} logger - Logger instance
+ * @returns {boolean} True if WAL text exceeds max size
+ */
+function isWalTextTooLarge(text, logger) {
+  const textSize = new TextEncoder().encode(text).length;
+  if (textSize > MAX_WAL_FILE_SIZE) {
+    logger?.warn?.(`[SideEffectJournal] WAL file too large: ${textSize} bytes (max ${MAX_WAL_FILE_SIZE})`);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Parse WAL text into journal entries and seen event IDs.
+ * @param {string} text - WAL text content
+ * @param {LoggerLike | null | undefined} logger - Logger instance
+ * @returns {{ entries: SideEffectJournalEntry[], seen: Set<string>, skippedLines: number }} Parsed result
+ */
+function parseWalEntries(text, logger) {
+  const nextEntries = [];
+  const nextSeen = new Set();
+  const lines = String(text).split(/\r?\n/);
+  let skippedLines = 0;
+
+  for (const rawLine of lines) {
+    const line = typeof rawLine === "string" ? rawLine.trim() : "";
+    if (!line) continue;
+
+    if (line.length > MAX_WAL_LINE_SIZE) {
+      logger?.warn?.(`[SideEffectJournal] WAL line too large: ${line.length} chars (max ${MAX_WAL_LINE_SIZE})`);
+      skippedLines += 1;
+      continue;
+    }
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(line);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger?.warn?.(`[SideEffectJournal] WAL parse error: ${msg}`);
+      skippedLines += 1;
+      continue;
+    }
+
+    const validation = validateWalEntry(parsed);
+    if (!validation.valid) {
+      logger?.warn?.(`[SideEffectJournal] WAL entry validation failed: ${validation.reason}`);
+      skippedLines += 1;
+      continue;
+    }
+
+    const entry = buildJournalEntry(parsed, nextEntries.length + 1);
+    nextEntries.push(entry);
+
+    const eventId = toNonEmptyString(entry.eventId);
+    if (eventId) nextSeen.add(eventId);
+  }
+
+  return { entries: nextEntries, seen: nextSeen, skippedLines };
+}
+
+/**
+ * Roll back journal entries from the end down to the target cursor.
+ * @param {SideEffectJournalEntry[]} entries - Journal entries
+ * @param {number} target - Target cursor
+ * @param {{ vfs: VfsLike, runStore: RunStoreLike | null, storageAdapter: StorageAdapterLike | null, logger: LoggerLike | null }} deps - Dependencies
+ * @returns {Promise<{ rolledBack: number, failures: SideEffectJournalRollbackFailure[] }>} Rollback result
+ */
+async function rollbackEntries(entries, target, { vfs, runStore, storageAdapter, logger }) {
+  /** @type {SideEffectJournalRollbackFailure[]} */
+  const failures = [];
+  let rolledBack = 0;
+
+  for (let i = entries.length - 1; i >= target; i--) {
+    const entry = entries[i];
+    if (!entry) continue;
+
+    if (entry.kind === "vfs_checkpoint" && entry.checkpoint?.artifactId) {
+      try {
+        await restoreVfsCheckpoint({
+          vfs,
+          runStore,
+          storageAdapter,
+          artifactId: entry.checkpoint.artifactId,
+        });
+        rolledBack += 1;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        failures.push({ seq: entry.seq, kind: entry.kind, error: msg });
+        logger?.warn?.(`[SideEffectJournal] rollback failed for checkpoint ${entry.checkpoint.artifactId}: ${msg}`);
+      }
+      continue;
+    }
+
+    if (entry.reversible) {
+      failures.push({ seq: entry.seq, kind: entry.kind, error: "unknown_reversible_effect" });
+    }
+  }
+
+  return { rolledBack, failures };
+}
+
+/**
  * SideEffectJournal (Browser-first)
  *
  * Tracks "physical" side effects (e.g. VFS writes) so Backtrack/undo can revert them.
@@ -386,7 +514,7 @@ export class SideEffectJournal {
 
   /**
    * Attach an EventBus to listen for VFS write events.
-   * @param {any} eventBus - The EventBus instance
+   * @param {EventBusLike | null | undefined} eventBus - The EventBus instance
    * @returns {void}
    */
   attachEventBus(eventBus) {
@@ -444,7 +572,7 @@ export class SideEffectJournal {
   }
 
   /**
-   * @param {any} entry
+   * @param {SideEffectJournalRecordInput} entry
    * @param {{ persist?: boolean } | undefined} [options]
    * @returns {SideEffectJournalEntry}
    */
@@ -544,55 +672,12 @@ export class SideEffectJournal {
       const text = await readTextFromVfs(vfs, walPath);
       if (text === null) return { ok: false, reason: "missing_wal", cursor: this.getCursor(), recovered: 0 };
 
-      // Check WAL file size limit to prevent DoS
-      const textSize = new TextEncoder().encode(text).length;
-      if (textSize > MAX_WAL_FILE_SIZE) {
-        this.logger?.warn?.(`[SideEffectJournal] WAL file too large: ${textSize} bytes (max ${MAX_WAL_FILE_SIZE})`);
+      if (isWalTextTooLarge(text, this.logger)) {
         return { ok: false, reason: "wal_too_large", cursor: this.getCursor(), recovered: 0 };
       }
 
-      const nextEntries = [];
-      const nextSeen = new Set();
-      const lines = String(text).split(/\r?\n/);
-      let skippedLines = 0;
-
-      for (const rawLine of lines) {
-        const line = typeof rawLine === "string" ? rawLine.trim() : "";
-        if (!line) continue;
-
-        // Check single line size limit
-        if (line.length > MAX_WAL_LINE_SIZE) {
-          this.logger?.warn?.(`[SideEffectJournal] WAL line too large: ${line.length} chars (max ${MAX_WAL_LINE_SIZE})`);
-          skippedLines += 1;
-          continue;
-        }
-
-        let parsed = null;
-        try {
-          parsed = JSON.parse(line);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger?.warn?.(`[SideEffectJournal] WAL parse error: ${msg}`);
-          skippedLines += 1;
-          continue;
-        }
-
-        // Validate entry structure
-        const validation = validateWalEntry(parsed);
-        if (!validation.valid) {
-          this.logger?.warn?.(`[SideEffectJournal] WAL entry validation failed: ${validation.reason}`);
-          skippedLines += 1;
-          continue;
-        }
-
-        const entry = buildJournalEntry(parsed, nextEntries.length + 1);
-        nextEntries.push(entry);
-
-        const eventId = toNonEmptyString(entry.eventId);
-        if (eventId) nextSeen.add(eventId);
-      }
-
-      if (skippedLines > 0) {
+      const { entries: nextEntries, seen: nextSeen, skippedLines } = parseWalEntries(text, this.logger);
+      if (skippedLines) {
         this.logger?.warn?.(`[SideEffectJournal] Skipped ${skippedLines} invalid WAL lines`);
       }
 
@@ -655,7 +740,7 @@ export class SideEffectJournal {
   /**
    * @param {unknown} cursor
    * @param {RollbackOptions | undefined} [options]
-   * @returns {Promise<{ ok: boolean, reason?: string, rolledBack?: number, failures?: any[], cursor?: number, error?: string }>}
+   * @returns {Promise<{ ok: boolean, reason?: string, rolledBack?: number, failures?: SideEffectJournalRollbackFailure[], cursor?: number, error?: string }>}
    */
   async rollbackToCursor(cursor, { reason } = {}) {
     const target = normalizeCursor(cursor);
@@ -675,35 +760,12 @@ export class SideEffectJournal {
       return { ok: false, reason: "missing_runStore" };
     }
 
-    const failures = [];
-    let rolledBack = 0;
-
-    for (let i = current - 1; i >= target; i--) {
-      const entry = this._entries[i];
-      if (!entry) continue;
-
-      if (entry.kind === "vfs_checkpoint" && entry.checkpoint?.artifactId) {
-        try {
-          await restoreVfsCheckpoint({
-            vfs,
-            runStore,
-            storageAdapter,
-            artifactId: entry.checkpoint.artifactId,
-          });
-          rolledBack += 1;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          failures.push({ seq: entry.seq, kind: entry.kind, error: msg });
-          this.logger?.warn?.(`[SideEffectJournal] rollback failed for checkpoint ${entry.checkpoint.artifactId}: ${msg}`);
-        }
-        continue;
-      }
-
-      // Unknown/irreversible effect: keep it but note inability to rollback.
-      if (entry.reversible) {
-        failures.push({ seq: entry.seq, kind: entry.kind, error: "unknown_reversible_effect" });
-      }
-    }
+    const { rolledBack, failures } = await rollbackEntries(this._entries, target, {
+      vfs,
+      runStore,
+      storageAdapter,
+      logger: this.logger,
+    });
 
     // Trim journal to target cursor.
     this._entries = this._entries.slice(0, target);
@@ -875,3 +937,159 @@ export class SideEffectJournal {
 }
 
 export default SideEffectJournal;
+
+const SHOULD_RUN_INLINE_TESTS =
+  typeof process !== "undefined" &&
+  Array.isArray(process.execArgv) &&
+  process.execArgv.includes("--test");
+
+if (SHOULD_RUN_INLINE_TESTS) {
+  (async () => {
+    const { test } = await import("node:test");
+    const { default: assert } = await import("node:assert/strict");
+
+    const createMemoryVfs = () => {
+      const files = new Map();
+      return {
+        exists: async (path) => files.has(path),
+        readText: async (path) => (files.has(path) ? files.get(path) : null),
+        read: async (path) => (files.has(path) ? textToBytes(files.get(path)) : null),
+        write: async (path, data) => {
+          files.set(path, bytesToText(data));
+        },
+        writeText: async (path, text) => {
+          files.set(path, String(text ?? ""));
+        },
+        writeFile: async (path, data) => {
+          files.set(path, typeof data === "string" ? data : bytesToText(data));
+        },
+        appendText: async (path, text) => {
+          files.set(path, `${files.get(path) ?? ""}${String(text ?? "")}`);
+        },
+        mkdir: async () => undefined,
+      };
+    };
+
+    const createStorageAdapter = (seed = {}) => {
+      const store = new Map(Object.entries(seed));
+      return {
+        get: async (key) => store.get(key),
+        set: async (key, value) => {
+          store.set(key, value);
+        },
+        delete: async (key) => {
+          store.delete(key);
+        },
+        keys: async () => Array.from(store.keys()),
+      };
+    };
+
+    test("SideEffectJournal.replayFromStorage returns missing_wal when empty", async () => {
+      const vfs = createMemoryVfs();
+      const journal = new SideEffectJournal({ runId: "run-empty", vfs, walDir: ".wal" });
+
+      const res = await journal.replayFromStorage();
+      assert.equal(res.ok, false);
+      assert.equal(res.reason, "missing_wal");
+    });
+
+    test("SideEffectJournal.replayFromStorage skips invalid WAL lines", async () => {
+      const vfs = createMemoryVfs();
+      const journal = new SideEffectJournal({ runId: "run-replay", vfs, walDir: ".wal" });
+      const walPath = ".wal/run-replay.jsonl";
+
+      const lines = [
+        JSON.stringify({ kind: "vfs_checkpoint", ts: 1, reversible: true, checkpoint: { artifactId: "ck-1" } }),
+        "{invalid",
+      ].join("\n");
+      await vfs.writeText(walPath, `${lines}\n`);
+
+      const res = await journal.replayFromStorage();
+      assert.equal(res.ok, true);
+      assert.equal(res.recovered, 1);
+      assert.equal(journal.getCursor(), 1);
+    });
+
+    test("SideEffectJournal.persist appends new WAL entries", async () => {
+      const vfs = createMemoryVfs();
+      const journal = new SideEffectJournal({ runId: "run-persist", vfs, walDir: ".wal" });
+
+      journal.record({ kind: "unknown", ts: 1, reversible: false });
+      journal.record({ kind: "unknown", ts: 2, reversible: false });
+
+      const res = await journal.persist();
+      assert.equal(res.ok, true);
+      assert.equal(res.persisted, 2);
+
+      const wal = await vfs.readText(".wal/run-persist.jsonl");
+      assert.equal(wal.trim().split(/\r?\n/).length, 2);
+    });
+
+    test("SideEffectJournal.compact rewrites WAL to current entries", async () => {
+      const vfs = createMemoryVfs();
+      const journal = new SideEffectJournal({ runId: "run-compact", vfs, walDir: ".wal" });
+      const walPath = ".wal/run-compact.jsonl";
+
+      journal.record({ kind: "unknown", ts: 1, reversible: false });
+      journal.record({ kind: "unknown", ts: 2, reversible: false });
+      await journal.persist();
+
+      await vfs.appendText(walPath, `${JSON.stringify({ kind: "unknown", ts: 3 })}\n`);
+
+      const res = await journal.compact();
+      assert.equal(res.ok, true);
+      assert.equal(res.before, 3);
+      assert.equal(res.after, 2);
+      assert.equal(res.saved, 1);
+
+      const wal = await vfs.readText(walPath);
+      assert.equal(wal.trim().split(/\r?\n/).length, 2);
+    });
+
+    test("SideEffectJournal.rollbackToCursor restores checkpoints and reports failures", async () => {
+      const vfs = createMemoryVfs();
+      const storageAdapter = createStorageAdapter();
+      const checkpointId = "ck-restore";
+
+      await storageAdapter.set(checkpointId, {
+        path: "restored.txt",
+        encoding: "utf8",
+        before: { text: "restored" },
+      });
+
+      const events = [];
+      const eventBus = {
+        emit: (name, payload) => {
+          events.push({ name, payload });
+        },
+      };
+
+      const journal = new SideEffectJournal({
+        runId: "run-rollback",
+        vfs,
+        storageAdapter,
+        eventBus,
+        walDir: ".wal",
+      });
+
+      journal.record({
+        kind: "vfs_checkpoint",
+        ts: 1,
+        reversible: true,
+        checkpoint: { artifactId: checkpointId },
+      });
+      journal.record({ kind: "custom", ts: 2, reversible: true });
+
+      const res = await journal.rollbackToCursor(0, { reason: "test" });
+      assert.equal(res.ok, false);
+      assert.equal(res.rolledBack, 1);
+      assert.equal(res.failures?.length, 1);
+      assert.equal(journal.getCursor(), 0);
+      assert.equal(await vfs.readText("restored.txt"), "restored");
+      assert.equal(events.length, 1);
+      assert.equal(events[0].name, "side_effects.rolled_back");
+    });
+  })().catch((err) => {
+    console.error("[SideEffectJournal] inline tests failed:", err);
+  });
+}

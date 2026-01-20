@@ -72,6 +72,7 @@ import { createScreenshotStitcher } from "../internal/screenshot-stitcher.js";
  * @property {DesignSystem} designSystem - Design system
  * @property {number} slideCount - Number of slides
  * @property {ReviewOptions} options - Review options
+ * @property {typeof REVIEW_CONFIG} config - Effective review config
  */
 
 /**
@@ -204,6 +205,56 @@ export const REVIEW_CONFIG = {
 };
 
 /**
+ * Resolve effective review config from overrides.
+ *
+ * @param {ReviewOptions & { config?: Partial<typeof REVIEW_CONFIG> }} [options={}]
+ * @returns {typeof REVIEW_CONFIG}
+ */
+function resolveReviewConfig(options = {}) {
+  const safeOptions = options && typeof options === "object" ? options : {};
+  const configOverrides = safeOptions.config && typeof safeOptions.config === "object" ? safeOptions.config : {};
+
+  const optionScoring = safeOptions.scoring && typeof safeOptions.scoring === "object" ? safeOptions.scoring : {};
+  const optionThresholds = safeOptions.thresholds && typeof safeOptions.thresholds === "object" ? safeOptions.thresholds : {};
+  const optionStatusThresholds = safeOptions.statusThresholds && typeof safeOptions.statusThresholds === "object"
+    ? safeOptions.statusThresholds
+    : {};
+
+  const overrideScoring = configOverrides.scoring && typeof configOverrides.scoring === "object" ? configOverrides.scoring : {};
+  const overrideThresholds = configOverrides.thresholds && typeof configOverrides.thresholds === "object"
+    ? configOverrides.thresholds
+    : {};
+  const overrideStatusThresholds = configOverrides.statusThresholds && typeof configOverrides.statusThresholds === "object"
+    ? configOverrides.statusThresholds
+    : {};
+
+  const merged = { ...REVIEW_CONFIG, ...configOverrides };
+  for (const key of Object.keys(REVIEW_CONFIG)) {
+    if (Object.prototype.hasOwnProperty.call(safeOptions, key)) {
+      merged[key] = safeOptions[key];
+    }
+  }
+
+  merged.scoring = {
+    ...REVIEW_CONFIG.scoring,
+    ...overrideScoring,
+    ...optionScoring,
+  };
+  merged.thresholds = {
+    ...REVIEW_CONFIG.thresholds,
+    ...overrideThresholds,
+    ...optionThresholds,
+  };
+  merged.statusThresholds = {
+    ...REVIEW_CONFIG.statusThresholds,
+    ...overrideStatusThresholds,
+    ...optionStatusThresholds,
+  };
+
+  return merged;
+}
+
+/**
  * 审查问题类型枚举
  *
  * @type {{
@@ -297,7 +348,7 @@ export function buildReviewContext(deckPackage, designSystem, options = {}) {
  */
 function checkColorConsistency(context) {
   const issues = [];
-  const { allDsl, designSystem } = context;
+  const { allDsl, designSystem, config } = context;
 
   const colorUsage = new Map();
   const expectedColors = new Set();
@@ -324,14 +375,14 @@ function checkColorConsistency(context) {
   }
 
   // 检查颜色数量
-  if (colorUsage.size > REVIEW_CONFIG.maxColorVariants) {
+  if (colorUsage.size > config.maxColorVariants) {
     issues.push({
       type: IssueType.COLOR_INCONSISTENCY,
       severity: IssueSeverity.WARNING,
-      message: `使用了 ${colorUsage.size} 种颜色，超过建议的 ${REVIEW_CONFIG.maxColorVariants} 种`,
+      message: `使用了 ${colorUsage.size} 种颜色，超过建议的 ${config.maxColorVariants} 种`,
       details: {
         colorCount: colorUsage.size,
-        topColors: [...colorUsage.entries()].sort((a, b) => b[1] - a[1]).slice(0, REVIEW_CONFIG.thresholds.topColorsToShow),
+        topColors: [...colorUsage.entries()].sort((a, b) => b[1] - a[1]).slice(0, config.thresholds.topColorsToShow),
       },
     });
   }
@@ -339,12 +390,12 @@ function checkColorConsistency(context) {
   // 检查是否有偏离设计系统的颜色
   if (expectedColors.size > 0) {
     const unexpectedColors = [...colorUsage.keys()].filter((c) => !expectedColors.has(c));
-    if (unexpectedColors.length > REVIEW_CONFIG.thresholds.unexpectedColorWarning) {
+    if (unexpectedColors.length > config.thresholds.unexpectedColorWarning) {
       issues.push({
         type: IssueType.STYLE_DEVIATION,
         severity: IssueSeverity.INFO,
         message: `发现 ${unexpectedColors.length} 种未在设计系统中定义的颜色`,
-        details: { unexpectedColors: unexpectedColors.slice(0, REVIEW_CONFIG.thresholds.unexpectedColorsToShow) },
+        details: { unexpectedColors: unexpectedColors.slice(0, config.thresholds.unexpectedColorsToShow) },
       });
     }
   }
@@ -357,7 +408,7 @@ function checkColorConsistency(context) {
  */
 function checkFontConsistency(context) {
   const issues = [];
-  const { allDsl, designSystem } = context;
+  const { allDsl, designSystem, config } = context;
 
   const fontUsage = new Map();
   const tokens = designSystem?.designTokens || designSystem?.tokens || designSystem || {};
@@ -385,11 +436,11 @@ function checkFontConsistency(context) {
     }
   }
 
-  if (fontUsage.size > REVIEW_CONFIG.maxFontVariants) {
+  if (fontUsage.size > config.maxFontVariants) {
     issues.push({
       type: IssueType.FONT_INCONSISTENCY,
       severity: IssueSeverity.WARNING,
-      message: `使用了 ${fontUsage.size} 种字体，超过建议的 ${REVIEW_CONFIG.maxFontVariants} 种`,
+      message: `使用了 ${fontUsage.size} 种字体，超过建议的 ${config.maxFontVariants} 种`,
       details: {
         fontCount: fontUsage.size,
         fonts: [...fontUsage.entries()],
@@ -405,7 +456,7 @@ function checkFontConsistency(context) {
  */
 function checkLayoutConsistency(context) {
   const issues = [];
-  const { allDsl } = context;
+  const { allDsl, config } = context;
 
   const layoutUsage = new Map();
 
@@ -416,7 +467,7 @@ function checkLayoutConsistency(context) {
   }
 
   // 检查是否有过多的布局类型
-  if (layoutUsage.size > REVIEW_CONFIG.maxLayoutVariants && allDsl.length > REVIEW_CONFIG.minSlidesForLayoutCheck) {
+  if (layoutUsage.size > config.maxLayoutVariants && allDsl.length > config.minSlidesForLayoutCheck) {
     issues.push({
       type: IssueType.LAYOUT_MISMATCH,
       severity: IssueSeverity.INFO,
@@ -433,11 +484,12 @@ function checkLayoutConsistency(context) {
  */
 function generateFixes(issues, context) {
   const fixes = [];
+  const { config } = context;
 
   for (const issue of issues) {
     if (issue.type === IssueType.COLOR_INCONSISTENCY && issue.details?.topColors) {
       // 建议统一到最常用的颜色
-      const topColors = issue.details.topColors.slice(0, REVIEW_CONFIG.thresholds.topColorsForFix);
+      const topColors = issue.details.topColors.slice(0, config.thresholds.topColorsForFix);
       fixes.push({
         issueType: issue.type,
         description: `建议将颜色统一到主要的 ${topColors.length} 种`,
@@ -499,7 +551,8 @@ export async function runAutoReview(deckPackage, designSystem, options = {}) {
     };
   }
 
-  const context = buildReviewContext(deckPackage, designSystem, options);
+  const config = resolveReviewConfig(options);
+  const context = { ...buildReviewContext(deckPackage, designSystem, options), config };
 
   if (context.slideCount === 0) {
     return {
@@ -544,10 +597,10 @@ export async function runAutoReview(deckPackage, designSystem, options = {}) {
   const fixes = generateFixes(issues, context);
 
   // 计算一致性分数
-  const score = calculateConsistencyScore(issues);
+  const score = calculateConsistencyScore(issues, config);
 
   // 生成摘要
-  const summary = buildReviewSummary(issues, score, context);
+  const summary = buildReviewSummary(issues, score, context, config);
 
   return {
     success: true,
@@ -556,7 +609,7 @@ export async function runAutoReview(deckPackage, designSystem, options = {}) {
     score,
     summary,
     slideCount: context.slideCount,
-    pass: score >= REVIEW_CONFIG.minConsistencyScore,
+    pass: score >= config.minConsistencyScore,
   };
 }
 

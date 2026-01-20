@@ -79,8 +79,14 @@ function findMdFiles(dir, files = []) {
         files.push(fullPath);
       }
     }
-    // Directory read may fail (permissions, symlinks) - silently skip
-  } catch { /* intentional: skip unreadable directories */ }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+    console.warn(`无法读取目录 ${dir}: ${message}`);
+    if (code !== "EACCES" && code !== "EPERM") {
+      throw err;
+    }
+  }
   return files;
 }
 

@@ -4,6 +4,66 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] 竞态条件
+*Archived: 2026-01-20T00:16:21.799Z*
+
+- **File**: js/agents/shared/tokenizers/adaptive-token-counter.js:220
+- **Description**: dispose() 仅清理状态但未防护进行中的 initPromise 或延迟 warmup；pending init 可能在 dispose 后完成并重新设置 encoder/ready，导致生命周期不一致。
+- **Suggestion**: 引入 disposed 标记并在 init 结果落地前检查；记录 warmup 的定时器 id 并在 dispose 中清理，或使用 generation token 进行状态门控。
+```
+  const dispose = () => {
+    try {
+      if (encoder && typeof encoder.free === "function") encoder.free();
+    } catch {
+      // ignore
+    } finally {
+      encoder = null;
+      ready = false;
+      mode = "heuristic";
+      failed = false;
+      initPromise = null;
+    }
+  };
+```
+
+### [RESOLVED] 错误处理
+*Archived: 2026-01-20T00:16:21.799Z*
+
+- **File**: js/agents/shared/tokenizers/adaptive-token-counter.js:9
+- **Description**: 多处 catch 吞掉异常（JSON.stringify、encoding 查找、console 调用、encoder.free），可能掩盖异常并违背错误处理规范。
+- **Suggestion**: 对非预期异常进行 onLog/console 记录，或明确注释为何可忽略；尽量缩小 catch 范围。
+```
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+```
+
+### [RESOLVED] 可维护性
+*Archived: 2026-01-20T00:16:21.799Z*
+
+- **File**: js/agents/shared/tokenizers/adaptive-token-counter.js:155
+- **Description**: createAdaptiveTokenCounter 超过 50 行，混合初始化、warmup、计数与状态管理，违反单一职责/长度约束。
+- **Suggestion**: 拆分 init 处理、warmup 调度、计数逻辑为独立私有函数，以控制单函数长度与职责。
+```
+export function createAdaptiveTokenCounter(options = {}) {
+```
+
+### [RESOLVED] JSDoc
+*Archived: 2026-01-20T00:16:21.799Z*
+
+- **File**: js/agents/shared/tokenizers/adaptive-token-counter.js:6
+- **Description**: 内部辅助函数缺少 /** @private */ 标记（如 toText、pickEncoding、loadTiktoken、scheduleWarmup、parseWarmupOptions）。
+- **Suggestion**: 为内部函数补充 /** @private */ 注解以符合项目 JSDoc 规范。
+```
+function toText(value) {
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] JSDoc

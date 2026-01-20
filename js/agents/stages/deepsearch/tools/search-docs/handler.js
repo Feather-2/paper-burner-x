@@ -9,6 +9,24 @@ import { mmrSelect } from "../../../../retrieval/mmr.js";
 
 import { isPlainObject } from "../../../../shared/index.js";
 
+const MAX_QUERY_LENGTH = 2048;
+const MAX_SOURCE_COUNT = 100;
+const DEFAULT_RETRIEVER_TIMEOUT_MS = 15_000;
+const MAX_RETRIEVER_TIMEOUT_MS = 60_000;
+
+function withTimeout(promise, timeoutMs, label = "operation") {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(`${label} timed out`);
+      err.code = "TIMEOUT";
+      reject(err);
+    }, timeoutMs);
+  });
+  return Promise.race([Promise.resolve(promise).finally(() => clearTimeout(timer)), timeout]);
+}
+
 /**
  * @typedef {object} ApplyMmrOptions
  * @property {number=} topK
@@ -146,13 +164,14 @@ export const definition = {
  * @param {number} [args.limit=10] - 返回数量限制（1-100）
  * @param {string} [args.gapId] - 关联的缺口 ID
  * @param {number} [args.semanticTimeoutMs] - 语义检索超时（ms，上限 60000）
+ * @param {number} [args.retrieverTimeoutMs] - 外部检索超时（ms，上限 60000）
  * @param {boolean|object} [args.mmr] - MMR 配置
  * @param {Object} context - { state, emit, retriever, discoveryManager, logger }
  * @returns {Promise<SearchDocsResult>} 搜索结果，包含 success/results/error/mmr 等字段
  */
 export async function handler(args, context) {
   const { state, emit, retriever, discoveryManager } = context;
-  const { query, sources, gapId } = args;
+  const { sources, gapId } = args;
 
   // 校验 limit：必须是有限数值，范围 1-100，无效时回退默认值 10
   const rawLimit = args.limit;
@@ -166,9 +185,16 @@ export async function handler(args, context) {
     ? Math.min(60000, Math.floor(rawTimeout))
     : undefined;
 
-  if (!query || typeof query !== "string") {
+  const rawQuery = typeof args?.query === "string" ? args.query.trim() : "";
+  if (!rawQuery) {
     return { success: false, error: "query is required" };
   }
+  const query = rawQuery.length > MAX_QUERY_LENGTH ? rawQuery.slice(0, MAX_QUERY_LENGTH) : rawQuery;
+
+  const rawRetrieverTimeout = args.retrieverTimeoutMs;
+  const retrieverTimeoutMs = Number.isFinite(rawRetrieverTimeout) && rawRetrieverTimeout > 0
+    ? Math.min(MAX_RETRIEVER_TIMEOUT_MS, Math.floor(rawRetrieverTimeout))
+    : (semanticTimeoutMs ?? DEFAULT_RETRIEVER_TIMEOUT_MS);
 
   const mmr = resolveMmrSettings(args, limit);
   const effectiveLimit = mmr.enabled ? mmr.poolLimit : limit;
@@ -177,8 +203,15 @@ export async function handler(args, context) {
   manager.syncSources(state?.L0?.sources);
 
   const requested = Array.isArray(sources) ? sources : [];
-  const targetSources = requested.length
-    ? requested.map((id) => manager.getSource(id)).filter(Boolean)
+  const normalizedSources = requested
+    .filter((id) => typeof id === "string")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const limitedSources = normalizedSources.length > MAX_SOURCE_COUNT
+    ? normalizedSources.slice(0, MAX_SOURCE_COUNT)
+    : normalizedSources;
+  const targetSources = limitedSources.length
+    ? limitedSources.map((id) => manager.getSource(id)).filter(Boolean)
     : Array.isArray(state?.L0?.sources)
       ? state.L0.sources
       : [];
@@ -251,7 +284,14 @@ export async function handler(args, context) {
         return await runLocalSearch();
       }
 
-      const raw = await breaker.execute(async () => retriever.search(query, { sources: targetSources, limit: effectiveLimit }));
+      const raw = await breaker.execute(async () => {
+        const searchPromise = Promise.resolve().then(() => retriever.search(query, {
+          sources: targetSources,
+          limit: effectiveLimit,
+          ...(retrieverTimeoutMs ? { timeoutMs: retrieverTimeoutMs } : {}),
+        }));
+        return withTimeout(searchPromise, retrieverTimeoutMs, "retriever.search");
+      });
       const results = Array.isArray(raw)
         ? raw
         : raw && typeof raw === "object" && Array.isArray(raw.results)

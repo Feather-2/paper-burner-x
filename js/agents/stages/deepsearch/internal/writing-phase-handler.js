@@ -114,7 +114,7 @@ export class WritingPhaseHandler {
     const reportContent = report?.markdown || "";
     const wordCount = reportContent.replace(/\s+/g, "").length;
     const reportConfig = globalConfig?.report?.[mode] || {};
-    const minWords = reportConfig.minWords || { quick: 4000, wider: 6000, deeper: 10000 }[mode] || 4000;
+    const minWords = reportConfig.minWords ?? { quick: 4000, wider: 6000, deeper: 10000 }[mode] ?? 4000;
 
     const reachedLimit = iteration >= maxIterations || toolCallCount >= maxToolCalls;
     return wordCount < minWords && reachedLimit;
@@ -130,7 +130,7 @@ export class WritingPhaseHandler {
     const reportContent = report?.markdown || "";
     const wordCount = reportContent.replace(/\s+/g, "").length;
     const reportConfig = globalConfig?.report?.[mode] || {};
-    const minWords = reportConfig.minWords || { quick: 4000, wider: 6000, deeper: 10000 }[mode] || 4000;
+    const minWords = reportConfig.minWords ?? { quick: 4000, wider: 6000, deeper: 10000 }[mode] ?? 4000;
     const todos = state?.todos || [];
     const doneTodos = todos.filter(t => t.status === "done" || t.status === "completed").length;
 
@@ -275,9 +275,19 @@ export class WritingPhaseHandler {
             } catch {
               // ignore persistence failures
             }
+            let serializedResult = "[unserializable payload]";
+            try {
+              serializedResult = JSON.stringify(payloadForPrompt, null, 2);
+            } catch {
+              try {
+                serializedResult = String(payloadForPrompt);
+              } catch {
+                // keep fallback
+              }
+            }
             addMessage({
               role: "user",
-              content: `结果: ${JSON.stringify(payloadForPrompt, null, 2)}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。`,
+              content: `结果: ${serializedResult}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。`,
             });
 
             if (item.args?.action === "submit" && result.success) {

@@ -188,11 +188,12 @@ export class BehaviorFingerprint {
    * @returns {{ loopDetected: boolean, loopInfo: object|null }}
    */
   recordAction(action) {
-    const signature = createActionSignature(action);
+    const safeAction = action && typeof action === "object" ? action : {};
+    const signature = createActionSignature(safeAction);
 
     this._history.push({
       signature,
-      action,
+      action: safeAction,
       ts: Date.now(),
     });
 

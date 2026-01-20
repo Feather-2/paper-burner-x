@@ -4,6 +4,20 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] error-handling/empty-catch
+*Archived: 2026-01-20T00:10:18.441Z*
+
+- **File**: js/agents/cli/test-deepsearch.js:83
+- **Description**: findMdFiles 吞掉目录读取异常，违反错误处理规范，可能导致文档被静默跳过。
+- **Suggestion**: 记录失败目录和错误信息，或在非权限错误时重新抛出，避免静默遗漏。
+```
+} catch { /* intentional: skip unreadable directories */ }
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] compatibility

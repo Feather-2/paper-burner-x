@@ -30,6 +30,15 @@ import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
  */
 
 /**
+ * @typedef {'draft' | 'approved' | 'in_progress' | 'completed' | 'failed' | 'cancelled'} PlanLifecycleStatusValue
+ */
+
+/**
+ * @typedef {Object} PlanArtifactStore
+ * @property {(runId: string, type: string, payload: Record<string, unknown>, options?: { artifactId?: string, mime?: string }) => Promise<unknown>} saveArtifact - Persist plan artifacts.
+ */
+
+/**
  * 将时间戳转换为 ISO 8601 字符串。
  * @private
  * @param {string | number | Date | null} [timestamp] - 输入时间戳，支持字符串/毫秒/Date 对象
@@ -63,8 +72,9 @@ export const PlanLifecycleStatus = Object.freeze({
 });
 
 /**
- * @param {any} value
- * @returns {boolean}
+ * Check whether a value is a valid plan lifecycle status.
+ * @param {PlanLifecycleStatusValue | string} value - Candidate lifecycle status.
+ * @returns {boolean} True when the value matches a known lifecycle status.
  */
 export function isValidPlanLifecycleStatus(value) {
   return Object.values(PlanLifecycleStatus).includes(value);
@@ -80,9 +90,10 @@ const PLAN_LIFECYCLE_TRANSITIONS = Object.freeze({
 });
 
 /**
- * @param {any} value
- * @param {{ fallback?: string } | undefined} [options]
- * @returns {string}
+ * Normalize a lifecycle status value.
+ * @param {PlanLifecycleStatusValue | string | null | undefined} value - Raw lifecycle status.
+ * @param {{ fallback?: PlanLifecycleStatusValue | string } | undefined} [options] - Fallback status.
+ * @returns {string} Normalized lifecycle status.
  */
 function normalizePlanLifecycleStatus(value, { fallback = PlanLifecycleStatus.DRAFT } = {}) {
   const raw = toNonEmptyString(value);
@@ -91,9 +102,10 @@ function normalizePlanLifecycleStatus(value, { fallback = PlanLifecycleStatus.DR
 }
 
 /**
- * @param {any} from
- * @param {any} to
- * @returns {boolean}
+ * Check whether a plan can transition between lifecycle states.
+ * @param {PlanLifecycleStatusValue | string} from - Current lifecycle status.
+ * @param {PlanLifecycleStatusValue | string} to - Target lifecycle status.
+ * @returns {boolean} True when the transition is allowed.
  */
 export function canTransitionPlanLifecycle(from, to) {
   const src = normalizePlanLifecycleStatus(from);
@@ -105,10 +117,11 @@ export function canTransitionPlanLifecycle(from, to) {
 }
 
 /**
- * @param {Plan} plan
- * @param {any} status
- * @param {{ updatedAt?: string | number | Date | null, force?: boolean } | undefined} [options]
- * @returns {Plan}
+ * Update a plan lifecycle status.
+ * @param {Plan} plan - Plan to update.
+ * @param {PlanLifecycleStatusValue | string} status - Desired lifecycle status.
+ * @param {{ updatedAt?: string | number | Date | null, force?: boolean } | undefined} [options] - Update options.
+ * @returns {Plan} Updated plan.
  */
 export function setPlanLifecycleStatus(plan, status, { updatedAt, force = false } = {}) {
   if (!plan || typeof plan !== "object") throw new TypeError("setPlanLifecycleStatus(plan,...): plan must be an object");
@@ -129,17 +142,18 @@ export function setPlanLifecycleStatus(plan, status, { updatedAt, force = false 
 }
 
 /**
+ * Create a normalized plan object.
  * @param {{
  *   runId?: string,
  *   planId?: string,
  *   title?: string,
  *   kind?: string,
- *   steps?: any[],
+ *   steps?: Array<Partial<PlanStep>>,
  *   selectedStepIndex?: number,
- *   meta?: Record<string, any>,
- *   lifecycleStatus?: string
- * } | undefined} [input]
- * @returns {Plan}
+ *   meta?: Record<string, unknown>,
+ *   lifecycleStatus?: PlanLifecycleStatusValue | string
+ * } | undefined} [input] - Plan creation input.
+ * @returns {Plan} Normalized plan.
  */
 export function createPlan({ runId, planId, title, kind, steps, selectedStepIndex, meta, lifecycleStatus } = {}) {
   const now = toIso();
@@ -167,9 +181,10 @@ export function createPlan({ runId, planId, title, kind, steps, selectedStepInde
 }
 
 /**
- * @param {any} step
- * @param {{ fallbackIndex?: number } | undefined} [options]
- * @returns {PlanStep}
+ * Normalize a plan step input.
+ * @param {Partial<PlanStep> | Record<string, unknown> | null | undefined} step - Raw step input.
+ * @param {{ fallbackIndex?: number } | undefined} [options] - Fallback options.
+ * @returns {PlanStep} Normalized plan step.
  */
 export function normalizePlanStep(step, { fallbackIndex = 0 } = {}) {
   const s = isPlainObject(step) ? step : {};
@@ -189,9 +204,10 @@ export function normalizePlanStep(step, { fallbackIndex = 0 } = {}) {
 }
 
 /**
- * @param {Plan | any} plan
- * @param {string | number} stepIdOrIndex
- * @returns {number}
+ * Find the index of a step by ID or index.
+ * @param {Plan | Record<string, unknown> | null | undefined} plan - Plan to search.
+ * @param {string | number} stepIdOrIndex - Step ID or numeric index.
+ * @returns {number} Step index, or -1 when not found.
  */
 export function findPlanStepIndex(plan, stepIdOrIndex) {
   if (!plan || typeof plan !== "object") return -1;
@@ -244,14 +260,15 @@ export function setPlanStepStatus(plan, stepIdOrIndex, status, { updatedAt, sele
 }
 
 /**
+ * Save a plan artifact to the run store.
  * @param {{
- *   runStore?: any,
+ *   runStore?: PlanArtifactStore,
  *   runId?: string,
- *   plan?: Plan | any,
+ *   plan?: Plan | Record<string, unknown>,
  *   type?: string,
  *   artifactId?: string
- * } | undefined} [input]
- * @returns {Promise<any>}
+ * } | undefined} [input] - Save plan input.
+ * @returns {Promise<unknown>} Result from runStore.saveArtifact.
  */
 export async function savePlan({ runStore, runId, plan, type = PLAN_ARTIFACT_TYPE, artifactId } = {}) {
   if (!runStore || typeof runStore.saveArtifact !== "function") {

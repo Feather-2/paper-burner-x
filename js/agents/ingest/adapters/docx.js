@@ -10,15 +10,31 @@ function guessMimeType(filename) {
   return "application/octet-stream";
 }
 
-function normalizeMaxFileSize(value, fallback) {
+function normalizeMaxBytes(value, fallback) {
   if (value === Infinity) return Infinity;
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.floor(n);
 }
 
-// Default DOCX max file size (25MB). Override via new DocxAdapter({ maxFileSize }).
+function normalizePositiveInt(value, fallback) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+function normalizeRatio(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return n;
+}
+
+// Default DOCX limits (override via new DocxAdapter({ ... })).
 const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
+const DEFAULT_MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
+const DEFAULT_MAX_ZIP_ENTRIES = 2000;
+const DEFAULT_MAX_COMPRESSION_RATIO = 100;
 
 async function fileLikeFromPath(path, { allowPathRead = false, maxBytes } = {}) {
   if (!allowPathRead) {
@@ -26,6 +42,38 @@ async function fileLikeFromPath(path, { allowPathRead = false, maxBytes } = {}) 
   }
   const name = await basenameOfPath(path);
   return nodeFileLikeFromPath(path, { maxBytes, mimeType: guessMimeType(name) });
+}
+
+function getZipEntrySizes(entry) {
+  const data = entry?._data;
+  const uncompressed = typeof data?.uncompressedSize === "number" ? data.uncompressedSize : undefined;
+  const compressed = typeof data?.compressedSize === "number" ? data.compressedSize : undefined;
+  return { uncompressed, compressed };
+}
+
+function enforceZipLimits(zip, { maxEntries, maxUncompressedBytes, maxCompressionRatio } = {}) {
+  const entries = Object.values(zip?.files || {});
+  if (Number.isFinite(maxEntries) && maxEntries > 0 && entries.length > maxEntries) {
+    throw new Error(`DocxAdapter: zip entry count ${entries.length} exceeds max ${maxEntries}`);
+  }
+
+  let totalUncompressed = 0;
+  for (const entry of entries) {
+    if (entry?.dir) continue;
+    const { uncompressed, compressed } = getZipEntrySizes(entry);
+    if (Number.isFinite(uncompressed)) {
+      totalUncompressed += uncompressed;
+      if (Number.isFinite(maxUncompressedBytes) && maxUncompressedBytes > 0 && totalUncompressed > maxUncompressedBytes) {
+        throw new Error(`DocxAdapter: zip uncompressed bytes ${totalUncompressed} exceeds max ${maxUncompressedBytes}`);
+      }
+      if (Number.isFinite(compressed) && compressed > 0 && Number.isFinite(maxCompressionRatio) && maxCompressionRatio > 0) {
+        const ratio = uncompressed / compressed;
+        if (ratio > maxCompressionRatio) {
+          throw new Error(`DocxAdapter: zip compression ratio ${ratio.toFixed(1)} exceeds max ${maxCompressionRatio}`);
+        }
+      }
+    }
+  }
 }
 
 function resolveMammoth(stageApi) {
@@ -101,7 +149,10 @@ function extractEmbeddedDataUriImagesFromMarkdown(markdown, { idPrefix, startInd
 export class DocxAdapter extends BaseAdapter {
   constructor(options = {}) {
     super({ ...options, adapterName: "docx" });
-    this.maxFileSize = normalizeMaxFileSize(options.maxFileSize, DEFAULT_MAX_FILE_SIZE);
+    this.maxFileSize = normalizeMaxBytes(options.maxFileSize, DEFAULT_MAX_FILE_SIZE);
+    this.maxUncompressedBytes = normalizeMaxBytes(options.maxUncompressedBytes, DEFAULT_MAX_UNCOMPRESSED_BYTES);
+    this.maxZipEntries = normalizePositiveInt(options.maxZipEntries, DEFAULT_MAX_ZIP_ENTRIES);
+    this.maxCompressionRatio = normalizeRatio(options.maxCompressionRatio, DEFAULT_MAX_COMPRESSION_RATIO);
   }
 
   /**
@@ -145,6 +196,21 @@ export class DocxAdapter extends BaseAdapter {
     if (!TurndownService) throw new Error("DocxAdapter.parse(input): TurndownService is required (stageApi.TurndownService, globalThis.TurndownService, or npm 'turndown')");
 
     const arrayBuffer = await file.arrayBuffer();
+    const byteLength = arrayBuffer instanceof ArrayBuffer ? arrayBuffer.byteLength : undefined;
+    if (Number.isFinite(maxBytes) && maxBytes > 0 && Number.isFinite(byteLength) && byteLength > maxBytes) {
+      throw new Error(`DocxAdapter: file too large: ${byteLength} bytes (max ${maxBytes})`);
+    }
+
+    const jszipMod = await import("jszip");
+    const JSZip = jszipMod?.default || jszipMod;
+    if (typeof JSZip?.loadAsync !== "function") throw new Error("DocxAdapter.parse(input): JSZip is required");
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    enforceZipLimits(zip, {
+      maxEntries: this.maxZipEntries,
+      maxUncompressedBytes: this.maxUncompressedBytes,
+      maxCompressionRatio: this.maxCompressionRatio,
+    });
+
     const docxImages = [];
     const warnings = [];
     const MAX_WARNINGS = 50;

@@ -16,6 +16,35 @@ function safeNumber(v, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function normalizeTimeoutMs(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function makeTimeoutError(timeoutMs) {
+  const err = new Error(`Timed out after ${timeoutMs}ms`);
+  err.name = "TimeoutError";
+  return err;
+}
+
+async function withTimeout(promise, timeoutMs, controller) {
+  if (!timeoutMs) return promise;
+  let timer = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          if (controller && !controller.signal.aborted) controller.abort();
+          reject(makeTimeoutError(timeoutMs));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function parsePercent(v) {
   const s = String(v || "").trim();
   if (!s) return null;
@@ -157,20 +186,41 @@ export class VisualRenderer {
     const imageBudget = options?.budget || options?.imageBudget || contentPackage?.constraints?.imageBudget || null;
     const imagePolicy = options?.policy || options?.imagePolicy || contentPackage?.constraints?.imagePolicy || null;
     const concurrency = Math.max(1, safeNumber(options?.concurrency, 2));
+    const imageTimeoutMs = normalizeTimeoutMs(options?.imageTimeoutMs ?? options?.timeoutMs);
+    const imageSignal = options?.signal || null;
+    const hasAbortController = typeof AbortController === "function";
 
     const aiImageSlotsForGenerator = aiImageSlots.map(visualSlotToImageSlot).filter(Boolean);
+    const imageAbortController = hasAbortController && (imageTimeoutMs || imageSignal) ? new AbortController() : null;
+    let cleanupImageSignalListener = null;
+
+    if (imageAbortController && imageSignal) {
+      if (imageSignal.aborted) {
+        imageAbortController.abort();
+      } else {
+        const onAbort = () => imageAbortController.abort();
+        imageSignal.addEventListener("abort", onAbort, { once: true });
+        cleanupImageSignalListener = () => imageSignal.removeEventListener("abort", onAbort);
+      }
+    }
 
     const settled = await Promise.allSettled([
       aiImageSlotsForGenerator.length && imageGenerator
-        ? imageGenerator.generate(aiImageSlotsForGenerator, contentPackage, designSystem, {
-            emit,
-            runId,
-            policy: imagePolicy,
-            budget: imageBudget,
-            concurrency,
-            circuitBreakerRegistry: options?.circuitBreakerRegistry,
-            imageProvider: options?.imageProvider,
-          })
+        ? withTimeout(
+            imageGenerator.generate(aiImageSlotsForGenerator, contentPackage, designSystem, {
+              emit,
+              runId,
+              policy: imagePolicy,
+              budget: imageBudget,
+              concurrency,
+              circuitBreakerRegistry: options?.circuitBreakerRegistry,
+              imageProvider: options?.imageProvider,
+              ...(imageAbortController ? { signal: imageAbortController.signal } : imageSignal ? { signal: imageSignal } : {}),
+              ...(imageTimeoutMs ? { timeoutMs: imageTimeoutMs } : {}),
+            }),
+            imageTimeoutMs,
+            imageAbortController
+          )
         : Promise.resolve({ filledSlots: [], report: null }),
       svgSlots.length && svgGenerator
         ? svgGenerator.generate(svgSlots, designSystem, {
@@ -184,6 +234,8 @@ export class VisualRenderer {
         : Promise.resolve({ results: [], report: null }),
       assetSlots.length && assetResolver ? Promise.resolve(assetResolver.resolve(assetSlots)) : Promise.resolve([]),
     ]);
+
+    if (cleanupImageSignalListener) cleanupImageSignalListener();
 
     const errors = [];
     const imageResults = settled[0].status === "fulfilled" ? settled[0].value : (errors.push({ renderer: "ai-image", error: String(settled[0].reason) }), { filledSlots: [], report: null });

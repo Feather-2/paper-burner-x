@@ -57,7 +57,7 @@ export default createPlugin({
       });
 
       if (usage > ctx.config.threshold && ctx.config.autoCompress) {
-        ctx.events.emit('watchdog.threshold.exceeded', { usage, threshold: ctx.config.threshold });
+        ctx.events.emit('watchdog:threshold.exceeded', { usage, threshold: ctx.config.threshold });
 
         // 触发压缩
         const messages = ctx.state.getGlobal('runtime.messages') || [];
@@ -80,7 +80,11 @@ export default createPlugin({
         intervalId = null;
       }
       if (unsubscribe) {
-        try { unsubscribe(); } catch {}
+        try {
+          unsubscribe();
+        } catch (err) {
+          ctx.log?.warn?.('Watchdog unsubscribe failed:', err);
+        }
         unsubscribe = null;
       }
       ctx._watchdogInterval = null;

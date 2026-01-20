@@ -102,6 +102,23 @@ async function safeReadText(vfs, path) {
   }
 }
 
+async function removeVfsPath(vfs, path) {
+  if (!vfs || typeof vfs !== "object") return false;
+  if (typeof vfs.delete === "function") {
+    await vfs.delete(path);
+    return true;
+  }
+  if (typeof vfs.unlink === "function") {
+    await vfs.unlink(path);
+    return true;
+  }
+  if (typeof vfs.rm === "function") {
+    await vfs.rm(path);
+    return true;
+  }
+  return false;
+}
+
 function getEmitFn(stageApi) {
   const emit = stageApi?.emit || stageApi?.eventBus?.emit;
   return typeof emit === "function" ? emit : null;
@@ -601,18 +618,14 @@ async function atomicWriteText(vfs, path, content, { verify = true, signal } = {
           // 降级：删除旧文件 + 写入新内容（非原子但尽量安全）
           try {
             const exists = typeof vfs.exists === "function" ? await vfs.exists(normalizedPath) : true;
-            if (exists && typeof vfs.delete === "function") {
-              await vfs.delete(normalizedPath);
-            }
+            if (exists) await removeVfsPath(vfs, normalizedPath);
           } catch {
             // 忽略删除错误
           }
           await vfs.writeText(normalizedPath, content);
           // 清理临时文件
           try {
-            if (typeof vfs.delete === "function") {
-              await vfs.delete(tempPath);
-            }
+            await removeVfsPath(vfs, tempPath);
           } catch {
             // 忽略清理错误
           }
@@ -623,9 +636,7 @@ async function atomicWriteText(vfs, path, content, { verify = true, signal } = {
         // 清理临时文件
         if (tempWritten) {
           try {
-            if (typeof vfs.delete === "function") {
-              await vfs.delete(tempPath);
-            }
+            await removeVfsPath(vfs, tempPath);
           } catch {
             // 忽略清理错误
           }
@@ -713,17 +724,13 @@ async function atomicWriteFile(vfs, path, data, { verify = true, signal } = {}) 
         } else {
           try {
             const exists = typeof vfs.exists === "function" ? await vfs.exists(normalizedPath) : true;
-            if (exists && typeof vfs.delete === "function") {
-              await vfs.delete(normalizedPath);
-            }
+            if (exists) await removeVfsPath(vfs, normalizedPath);
           } catch {
             // 忽略删除错误
           }
           await vfs.writeFile(normalizedPath, bytes);
           try {
-            if (typeof vfs.delete === "function") {
-              await vfs.delete(tempPath);
-            }
+            await removeVfsPath(vfs, tempPath);
           } catch {
             // 忽略清理错误
           }
@@ -733,9 +740,7 @@ async function atomicWriteFile(vfs, path, data, { verify = true, signal } = {}) 
       } catch (err) {
         if (tempWritten) {
           try {
-            if (typeof vfs.delete === "function") {
-              await vfs.delete(tempPath);
-            }
+            await removeVfsPath(vfs, tempPath);
           } catch {
             // 忽略清理错误
           }

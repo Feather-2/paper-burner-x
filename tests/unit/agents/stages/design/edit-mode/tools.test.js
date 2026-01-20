@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("DeepSearch tools: export definitions + catalog prompt", async () => {
-  const { tools, getToolDefinitions, getToolCatalogPrompt } = await import("../../../js/agents/stages/deepsearch/tools/index.js");
+  const { tools, getToolDefinitions, getToolCatalogPrompt } = await import("../../../../../../js/agents/stages/deepsearch/tools/index.js");
 
   expect(tools).toBeTypeOf("object");
   expect(tools).not.toBeNull();
@@ -27,7 +27,7 @@ it("DeepSearch tools: export definitions + catalog prompt", async () => {
 });
 
 it("DeepSearch tool: manage-todos create/list happy path", async () => {
-  const { handler } = await import("../../../js/agents/stages/deepsearch/tools/manage-todos/handler.js");
+  const { handler } = await import("../../../../../../js/agents/stages/deepsearch/tools/manage-todos/handler.js");
 
   const state = { todos: [] };
   const out1 = await handler({ action: "create", text: "Do thing" }, { state, emit: () => {} });
@@ -42,7 +42,7 @@ it("DeepSearch tool: manage-todos create/list happy path", async () => {
 });
 
 it("DeepSearch tool: record-finding batches and formats refs", async () => {
-  const { handler } = await import("../../../js/agents/stages/deepsearch/tools/record-finding/handler.js");
+  const { handler } = await import("../../../../../../js/agents/stages/deepsearch/tools/record-finding/handler.js");
 
   const seen = new Set();
   const commits = [];
@@ -68,4 +68,68 @@ it("DeepSearch tool: record-finding batches and formats refs", async () => {
   expect(out.recorded).toBe(2);
   expect(out.findings[0].ref).toContain("[doc1:L10-L12]");
   expect(commits.length).toBeGreaterThanOrEqual(2);
+});
+
+it("DeepSearch tool: record-finding handles invalid items and duplicates", async () => {
+  const { handler } = await import("../../../../../../js/agents/stages/deepsearch/tools/record-finding/handler.js");
+
+  const seen = new Set(["Dup"]);
+  const sharedContext = {
+    hasSeen: (t) => seen.has(t),
+    search: () => [],
+  };
+
+  const state = { L1: {} };
+  const out = await handler(
+    {
+      findings: [
+        null,
+        { type: "claim", content: "Dup" },
+        { type: "claim", content: "Valid" },
+      ],
+    },
+    { state, emit: () => {}, sharedContext }
+  );
+
+  expect(out.success).toBe(true);
+  expect(out.recorded).toBe(1);
+  expect(out.skipped).toBe(2);
+  expect(out.errors.map(e => e.error)).toEqual(["invalid_item", "duplicate"]);
+});
+
+it("DeepSearch tool: record-finding enforces gap budgets per call", async () => {
+  const { handler } = await import("../../../../../../js/agents/stages/deepsearch/tools/record-finding/handler.js");
+
+  const sharedContext = { search: () => [] };
+  const state = { L1: {}, userConfig: { gaps: { maxNewGapsPerCall: 1 } } };
+
+  const out = await handler(
+    {
+      findings: [
+        { type: "gap", content: "Gap A" },
+        { type: "gap", content: "Gap B" },
+      ],
+    },
+    { state, emit: () => {}, sharedContext }
+  );
+
+  expect(out.success).toBe(true);
+  expect(out.recorded).toBe(1);
+  expect(out.skipped).toBe(1);
+  expect(out.errors[0].error).toBe("gap_budget_exceeded");
+});
+
+it("DeepSearch tool: record-finding normalizes reversed line ranges", async () => {
+  const { handler } = await import("../../../../../../js/agents/stages/deepsearch/tools/record-finding/handler.js");
+
+  const state = { L1: {} };
+  const out = await handler(
+    { type: "claim", content: "Swap lines", source: "doc1", lineStart: 20, lineEnd: 10 },
+    { state, emit: () => {} }
+  );
+
+  expect(out.success).toBe(true);
+  expect(out.finding.lineStart).toBe(10);
+  expect(out.finding.lineEnd).toBe(20);
+  expect(out.finding.ref).toBe("[doc1:L10-L20]");
 });

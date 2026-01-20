@@ -4,6 +4,30 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] timeout-handling
+*Archived: 2026-01-20T00:13:20.403Z*
+
+- **File**: js/agents/stages/deepsearch/tools/search-docs/handler.js:254
+- **Description**: 外部 retriever 搜索路径没有强制超时控制，retriever.search 若卡住会导致整个 handler 挂起，熔断器不会主动中止执行。
+- **Suggestion**: 为外部检索增加超时/中止机制（如 AbortSignal.timeout 或 Promise.race），并将 timeoutMs 透传给 retriever；必要时新增 retrieverTimeoutMs 参数。
+```
+const raw = await breaker.execute(async () => retriever.search(query, { sources: targetSources, limit: effectiveLimit }));
+```
+
+### [RESOLVED] input-validation
+*Archived: 2026-01-20T00:13:20.403Z*
+
+- **File**: js/agents/stages/deepsearch/tools/search-docs/handler.js:169
+- **Description**: query 仅做类型/真值校验，未限制长度或空白内容；sources 数组元素也未校验为非空字符串，输入验证不够严格，可能导致异常查询或资源消耗。
+- **Suggestion**: 对 query 做 trim/长度上限校验，对 sources 做元素类型校验与数量限制，必要时过滤非字符串或空字符串。
+```
+if (!query || typeof query !== "string") { return { success: false, error: "query is required" }; }
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] 未验证的输入

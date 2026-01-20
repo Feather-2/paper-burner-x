@@ -4,6 +4,30 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] XSS/attribute injection
+*Archived: 2026-01-20T00:11:33.379Z*
+
+- **File**: js/agents/stages/design/dsl/dsl-builder.js:467
+- **Description**: data-bg 直接使用 designSystem 的 colors.bg，未做转义或颜色校验；若该值来自用户输入，可能造成属性注入/XSS。该问题在 buildSlideHtml 与 buildFromLayoutJson 两处出现。
+- **Suggestion**: 对 colors.bg 进行 sanitizeColor 或至少 escapeHtml；并在设计系统入口处校验 token 只允许合法颜色格式。
+```
+<section data-type="freeform" data-layout="${escapeHtml(layout)}" id="${escapeHtml(rawId)}" data-title="${escapeHtml(title)}" data-bg="${colors.bg}">
+```
+
+### [RESOLVED] Input validation/robustness
+*Archived: 2026-01-20T00:11:33.379Z*
+
+- **File**: js/agents/stages/design/dsl/dsl-builder.js:546
+- **Description**: table/chart 分支直接 JSON.stringify(e.content)，遇到循环引用或不可序列化对象会抛异常并中断构建。
+- **Suggestion**: 在 stringify 处加 try/catch 并提供安全兜底值（如 "[]"/"{}"），或预先验证数据为可序列化纯对象。
+```
+e.content && typeof e.content !== "string" ? JSON.stringify(e.content) : String(e.content || "").trim() || "[]";
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] security

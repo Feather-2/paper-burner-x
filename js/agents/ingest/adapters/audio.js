@@ -4,8 +4,18 @@ import { basenameOfPath, fileLikeFromPath as nodeFileLikeFromPath } from "./node
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
-async function fileLikeFromPath(path, { filename, mimeType } = {}) {
-  const file = await nodeFileLikeFromPath(path, { mimeType: mimeType || "" });
+function normalizeMaxBytes(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+// Default audio max file size (50MB). Override via new AudioAdapter({ maxFileSize }).
+const DEFAULT_MAX_FILE_SIZE = 50 * 1024 * 1024;
+
+async function fileLikeFromPath(path, { filename, mimeType, maxBytes } = {}) {
+  const file = await nodeFileLikeFromPath(path, { maxBytes, mimeType: mimeType || "" });
   if (filename) file.name = filename;
   return file;
 }
@@ -103,6 +113,7 @@ export class AudioAdapter extends BaseAdapter {
   constructor(opts = {}) {
     super({ ...opts, adapterName: "audio" });
     this.whisperApi = opts.whisperApi || null;
+    this.maxFileSize = normalizeMaxBytes(opts.maxFileSize, DEFAULT_MAX_FILE_SIZE);
   }
 
   /**
@@ -118,10 +129,12 @@ export class AudioAdapter extends BaseAdapter {
     let mimeType = "";
     let size = undefined;
 
+    const maxBytes = this.maxFileSize;
+
     if (typeof input === "string") {
       filename = await basenameOfPath(input);
       mimeType = guessMimeType(filename);
-      file = await fileLikeFromPath(input, { filename, mimeType });
+      file = await fileLikeFromPath(input, { filename, mimeType, maxBytes });
       size = file.size;
     } else if (input && typeof input === "object") {
       filename = toNonEmptyString(input.name) || toNonEmptyString(input.filename) || "audio";
@@ -130,6 +143,10 @@ export class AudioAdapter extends BaseAdapter {
       if (typeof input.arrayBuffer !== "function") throw new Error("AudioAdapter.parse(input): unsupported file-like input (missing arrayBuffer())");
     } else {
       throw new TypeError("AudioAdapter.parse(input): input must be a path string or a file-like object");
+    }
+
+    if (Number.isFinite(maxBytes) && maxBytes > 0 && Number.isFinite(size) && size > maxBytes) {
+      throw new Error(`AudioAdapter: file too large: ${size} bytes (max ${maxBytes})`);
     }
 
     const whisperApi = resolveWhisperApi(stageApi, this.whisperApi);
@@ -162,4 +179,3 @@ export class AudioAdapter extends BaseAdapter {
     return { ...parsed, lrc };
   }
 }
-

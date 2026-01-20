@@ -6,6 +6,44 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] race-condition ✅ FIXED (2026-01-20)
+*Archived: 2026-01-20T00:11:30.825Z*
+
+- **File**: js/agents/core/archive/archive-core.js:229
+- **Description**: Archive.save 通过读取存储后生成 checkpointId 再写入；并发 save 在同一时间戳下可能覆盖快照并破坏 diff 追踪状态。
+- **Fix Applied**: 添加了 `_saveLocks` Map 实现 per-runId 异步互斥锁，确保同一 runId 的 save() 调用串行执行。
+- **Verification**: `Promise.all([archive.save('run1', {...}), archive.save('run1', {...})])` 现在生成唯一 ID (run1:123, run1:123-1)。
+
+### [RESOLVED] error-handling
+*Archived: 2026-01-20T00:11:30.825Z*
+
+- **File**: js/agents/core/archive/archive.js:62
+- **Description**: IndexedDBAdapter 在 onblocked/onversionchange 中使用空 catch 块吞掉异常，违反错误处理规范并可能掩盖实际问题。
+- **Suggestion**: 至少记录错误或将异常向上传播；若仅为防止日志失败，可在 catch 中记录到备用 logger。
+```
+request.onblocked = () => {
+  try {
+    logger.warn(`[IndexedDBAdapter] open blocked for ${this.dbName}@v1`);
+  } catch {
+    // ignore
+  }
+};
+```
+
+### [RESOLVED] jsdoc-any
+*Archived: 2026-01-20T00:11:30.825Z*
+
+- **File**: js/agents/core/archive/checkpoint-schema.js:2
+- **Description**: JSDoc 使用 `any`（AnyRecord/NodeStates），与“禁止 any 类型”规则冲突，类型约束过宽。
+- **Suggestion**: 改为 `Record<string, unknown>` 并在使用处做类型收窄，或定义更具体的字段类型。
+```
+* @typedef {Record<string, any>} AnyRecord
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] race-condition
 *Archived: 2026-01-20T04:20:00.000Z*
 

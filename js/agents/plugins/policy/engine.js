@@ -57,9 +57,11 @@ import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
  */
 
 function normalizeEffect(effect) {
-  const e = toNonEmptyString(effect).toLowerCase();
-  if (e === "deny") return "deny";
-  return "allow";
+  const raw = toNonEmptyString(effect);
+  if (!raw) return null;
+  const e = raw.toLowerCase();
+  if (e === "allow" || e === "deny") return e;
+  return null;
 }
 
 function normalizeTypeList(type) {

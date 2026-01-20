@@ -37,6 +37,18 @@ function normalizeLimit(value) {
   return Math.floor(n);
 }
 
+function safeJsonStringify(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return "[unserializable payload]";
+    }
+  }
+}
+
 export class SharedContext {
   /**
    * @param {{ runId?: string, limits?: any, maxL1Entries?: number, maxL2Entries?: number }=} options
@@ -333,7 +345,7 @@ export class SharedContext {
     if (recentSignals.length > 0) {
       const signalLines = recentSignals.map(s => {
         const payload = s.payload || {};
-        const msg = payload.message || payload.reason || payload.value || JSON.stringify(payload);
+        const msg = payload.message || payload.reason || payload.value || safeJsonStringify(payload);
         return `- [${s.type}] ${msg}`;
       });
       sections.push(`## 待处理信号\n${signalLines.join("\n")}`);

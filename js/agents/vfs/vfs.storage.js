@@ -69,6 +69,29 @@ function base64ToBytes(base64) {
   throw new Error("StorageVfs: base64 decoding is unavailable");
 }
 
+function isQuotaExceededError(err) {
+  const name = typeof err?.name === "string" ? err.name : "";
+  if (name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED") return true;
+  const code = typeof err?.code === "string" ? err.code : "";
+  if (code === "ENOSPC" || code === "EQUOTA" || code === "QuotaExceededError") return true;
+  const message = typeof err?.message === "string" ? err.message : String(err ?? "");
+  const lower = message.toLowerCase();
+  return lower.includes("quota") || lower.includes("no space") || lower.includes("insufficient storage");
+}
+
+function buildQuotaError(path, usage) {
+  const suffix = usage && typeof usage === "object" && Number.isFinite(usage.used) && Number.isFinite(usage.quota)
+    ? ` (used ${usage.used}/${usage.quota})`
+    : "";
+  const err = new Error(`ENOSPC: storage quota exceeded for ${path}${suffix}; consider clearing space`);
+  err.code = "ENOSPC";
+  err.name = "QuotaExceededError";
+  if (usage && typeof usage === "object") {
+    err.quota = usage;
+  }
+  return err;
+}
+
 function ensureStorageAdapter(adapter) {
   const a = adapter && typeof adapter === "object" ? adapter : null;
   if (!a || typeof a.get !== "function" || typeof a.set !== "function" || typeof a.delete !== "function" || typeof a.keys !== "function") {
@@ -169,14 +192,29 @@ export class StorageVfs {
         ? new Uint8Array(await data.arrayBuffer())
         : dataToBytes(data);
     const key = this._fileKey(p);
-    await this._store.set(key, {
-      kind: "file",
-      path: p,
-      encoding: "base64",
-      data: bytesToBase64(bytes),
-      size: bytes.byteLength,
-      mtimeMs: Date.now(),
-    });
+    try {
+      await this._store.set(key, {
+        kind: "file",
+        path: p,
+        encoding: "base64",
+        data: bytesToBase64(bytes),
+        size: bytes.byteLength,
+        mtimeMs: Date.now(),
+      });
+    } catch (err) {
+      if (isQuotaExceededError(err)) {
+        let usage = null;
+        if (typeof this._store.getUsage === "function") {
+          try {
+            usage = await this._store.getUsage();
+          } catch {
+            usage = null;
+          }
+        }
+        throw buildQuotaError(p, usage);
+      }
+      throw err;
+    }
     return true;
   }
 

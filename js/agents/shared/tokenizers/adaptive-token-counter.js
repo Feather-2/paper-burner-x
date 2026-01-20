@@ -3,23 +3,36 @@ import { estimateTokensCached } from "../utils/token-cache.js";
 import { isWasmSupported } from "../utils/wasm-support.js";
 import { getGlobalContainer } from "../../core/di/global-container.js";
 
-function toText(value) {
+/**
+ * @private
+ * @param {unknown} value
+ * @param {(info: TokenCounterLogInfo) => void} onLog
+ * @returns {string}
+ */
+function toText(value, onLog) {
   if (typeof value === "string") return value;
   if (value === null || value === undefined) return "";
   try {
     return JSON.stringify(value);
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    onLog({ level: "warn", message: "[token-counter] JSON.stringify failed; coercing to String()", error: message });
     return String(value);
   }
 }
 
+/**
+ * @private
+ * @param {{ model: string | null, encoding: string | null, tiktoken: { get_encoding: Function, encoding_for_model: Function } }} options
+ * @returns {unknown}
+ */
 function pickEncoding({ model, encoding, tiktoken }) {
   const encName = typeof encoding === "string" && encoding.trim() ? encoding.trim() : null;
   if (encName) {
     try {
       return tiktoken.get_encoding(encName);
     } catch {
-      // ignore invalid encoding names
+      // Invalid encoding names are expected; fall back to model/default.
     }
   }
 
@@ -28,7 +41,7 @@ function pickEncoding({ model, encoding, tiktoken }) {
     try {
       return tiktoken.encoding_for_model(modelName);
     } catch {
-      // ignore unknown model ids
+      // Unknown model ids are expected; fall back to default.
     }
   }
 
@@ -40,6 +53,10 @@ function pickEncoding({ model, encoding, tiktoken }) {
   }
 }
 
+/**
+ * @private
+ * @returns {Promise<{ get_encoding: Function, encoding_for_model: Function, default?: { get_encoding?: Function, encoding_for_model?: Function } }>}
+ */
 async function loadTiktoken() {
   // Prefer the canonical package name ("tiktoken"); allow legacy alias if present.
   try {
@@ -50,6 +67,7 @@ async function loadTiktoken() {
 }
 
 /**
+ * @private
  * Creates a log handler from options, falling back to console.warn/error.
  * @param {((info: TokenCounterLogInfo) => void) | undefined} onLogOption - User-provided log callback.
  * @returns {(info: TokenCounterLogInfo) => void} Resolved log handler.
@@ -62,27 +80,30 @@ function createLogHandler(onLogOption) {
       const fn = level === "error" ? c?.error : c?.warn;
       if (typeof fn === "function") fn.call(c, message, error ? { error } : undefined);
     } catch {
-      // ignore
+      // Ignore console failures to avoid recursive logging in constrained environments.
     }
   };
 }
 
 /**
+ * @private
  * Schedules warmup init based on options.
  * @param {boolean} warmup - Whether to warmup.
  * @param {number} warmupIdleMs - Delay in milliseconds.
  * @param {() => void} triggerInit - Function to trigger init.
+ * @returns {ReturnType<typeof setTimeout> | null} Timer id if scheduled.
  */
 function scheduleWarmup(warmup, warmupIdleMs, triggerInit) {
-  if (!warmup) return;
+  if (!warmup) return null;
   if (warmupIdleMs > 0 && typeof setTimeout === "function") {
-    setTimeout(triggerInit, warmupIdleMs);
-  } else {
-    triggerInit();
+    return setTimeout(triggerInit, warmupIdleMs);
   }
+  triggerInit();
+  return null;
 }
 
 /**
+ * @private
  * Parses warmup options from raw config.
  * @param {boolean | undefined} warmupRaw - Raw warmup option.
  * @param {number | undefined} warmupIdleMsRaw - Raw warmupIdleMs option.
@@ -93,6 +114,20 @@ function parseWarmupOptions(warmupRaw, warmupIdleMsRaw) {
   const warmupIdleMs = Number.isFinite(Number(warmupIdleMsRaw)) ? Math.max(0, Math.floor(Number(warmupIdleMsRaw))) : 0;
   return { warmup, warmupIdleMs };
 }
+
+/**
+ * @private
+ * @typedef {object} TokenCounterState
+ * @property {unknown} encoder
+ * @property {"heuristic" | "tiktoken"} mode
+ * @property {boolean} ready
+ * @property {boolean} failed
+ * @property {Promise<boolean> | null} initPromise
+ * @property {string | null} lastModel
+ * @property {string | null} lastEncoding
+ * @property {number} generation
+ * @property {ReturnType<typeof setTimeout> | null} warmupTimer
+ */
 
 /**
  * Input value accepted by TokenCounter.count().
@@ -144,6 +179,131 @@ function parseWarmupOptions(warmupRaw, warmupIdleMsRaw) {
  */
 
 /**
+ * @private
+ * @param {TokenCounterState} state
+ * @param {(info: TokenCounterLogInfo) => void} onLog
+ * @returns {(options?: TokenCounterInitOptions) => Promise<boolean>}
+ */
+function createInitHandler(state, onLog) {
+  return async ({ model, encoding } = {}) => {
+    if (state.failed) return false;
+    if (state.ready && state.encoder) return true;
+    if (!isWasmSupported()) {
+      state.failed = true;
+      return false;
+    }
+
+    const nextModel = typeof model === "string" && model.trim() ? model : state.lastModel;
+    const nextEncoding = typeof encoding === "string" && encoding.trim() ? encoding : state.lastEncoding;
+    state.lastModel = nextModel || state.lastModel;
+    state.lastEncoding = nextEncoding || state.lastEncoding;
+
+    if (state.initPromise) return state.initPromise;
+
+    const initGeneration = state.generation;
+    const promise = Promise.resolve()
+      .then(async () => {
+        const mod = await loadTiktoken();
+        const tiktoken = {
+          get_encoding: mod.get_encoding || mod.default?.get_encoding,
+          encoding_for_model: mod.encoding_for_model || mod.default?.encoding_for_model,
+        };
+        if (typeof tiktoken.get_encoding !== "function" || typeof tiktoken.encoding_for_model !== "function") {
+          throw new Error("tiktoken: missing get_encoding/encoding_for_model exports");
+        }
+
+        const enc = pickEncoding({ model: nextModel, encoding: nextEncoding, tiktoken });
+        if (initGeneration !== state.generation) {
+          try {
+            if (enc && typeof enc.free === "function") enc.free();
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            onLog({ level: "warn", message: "[token-counter] encoder.free failed after stale init", error: message });
+          }
+          return false;
+        }
+
+        state.encoder = enc;
+        state.mode = "tiktoken";
+        state.ready = true;
+        return true;
+      })
+      .catch((err) => {
+        if (initGeneration !== state.generation) return false;
+        state.failed = true;
+        state.encoder = null;
+        state.mode = "heuristic";
+        const message = err instanceof Error ? err.message : String(err);
+        onLog({ level: "warn", message: "[token-counter] tiktoken init failed; falling back to heuristic", error: message });
+        return false;
+      })
+      .finally(() => {
+        if (state.initPromise === promise) state.initPromise = null;
+      });
+
+    state.initPromise = promise;
+    return promise;
+  };
+}
+
+/**
+ * @private
+ * @param {TokenCounterState} state
+ * @param {(info: TokenCounterLogInfo) => void} onLog
+ * @returns {() => void}
+ */
+function createDisposeHandler(state, onLog) {
+  return () => {
+    state.generation += 1;
+    if (state.warmupTimer && typeof clearTimeout === "function") {
+      clearTimeout(state.warmupTimer);
+    }
+    state.warmupTimer = null;
+
+    try {
+      if (state.encoder && typeof state.encoder.free === "function") state.encoder.free();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      onLog({ level: "warn", message: "[token-counter] encoder.free failed during dispose", error: message });
+    } finally {
+      state.encoder = null;
+      state.ready = false;
+      state.mode = "heuristic";
+      state.failed = false;
+      state.initPromise = null;
+    }
+  };
+}
+
+/**
+ * @private
+ * @param {TokenCounterState} state
+ * @param {(options?: TokenCounterInitOptions) => Promise<boolean>} init
+ * @param {(info: TokenCounterLogInfo) => void} onLog
+ * @returns {(value: TokenCounterInput) => number}
+ */
+function createCountHandler(state, init, onLog) {
+  return (value) => {
+    const text = toText(value, onLog);
+    if (!text) return 0;
+
+    if (state.ready && state.encoder) {
+      try {
+        const tokens = state.encoder.encode(text);
+        return Array.isArray(tokens) ? tokens.length : typeof tokens?.length === "number" ? tokens.length : estimateTokensCached(text);
+      } catch {
+        // If encoding fails (should be rare), fall back safely.
+        return estimateTokensCached(text);
+      }
+    }
+
+    // Kick off WASM init best-effort (no await).
+    void init({ model: state.lastModel || undefined, encoding: state.lastEncoding || undefined });
+    return estimateTokensCached(text);
+  };
+}
+
+/**
  * Creates an adaptive token counter that uses heuristic estimation immediately
  * and lazily upgrades to tiktoken (WASM) when supported. Falls back permanently
  * if tiktoken initialization fails.
@@ -157,103 +317,30 @@ export function createAdaptiveTokenCounter(options = {}) {
 
   const onLog = createLogHandler(options.onLog);
 
-  let encoder = null;
-  /** @type {"heuristic"|"tiktoken"} */
-  let mode = "heuristic";
-  let ready = false;
-  let failed = false;
-  let initPromise = null;
-  let lastModel = typeof options.model === "string" ? options.model : null;
-  let lastEncoding = typeof options.encoding === "string" ? options.encoding : null;
-
-  /**
-   * @param {{ model?: string, encoding?: string }} [options]
-   * @returns {Promise<boolean>}
-   */
-  const init = async ({ model, encoding } = {}) => {
-    if (failed) return false;
-    if (ready && encoder) return true;
-    if (!isWasmSupported()) {
-      failed = true;
-      return false;
-    }
-
-    const nextModel = typeof model === "string" && model.trim() ? model : lastModel;
-    const nextEncoding = typeof encoding === "string" && encoding.trim() ? encoding : lastEncoding;
-    lastModel = nextModel || lastModel;
-    lastEncoding = nextEncoding || lastEncoding;
-
-    if (initPromise) return initPromise;
-
-    initPromise = Promise.resolve()
-      .then(async () => {
-        const mod = await loadTiktoken();
-        const tiktoken = {
-          get_encoding: mod.get_encoding || mod.default?.get_encoding,
-          encoding_for_model: mod.encoding_for_model || mod.default?.encoding_for_model,
-        };
-        if (typeof tiktoken.get_encoding !== "function" || typeof tiktoken.encoding_for_model !== "function") {
-          throw new Error("tiktoken: missing get_encoding/encoding_for_model exports");
-        }
-
-        const enc = pickEncoding({ model: nextModel, encoding: nextEncoding, tiktoken });
-        encoder = enc;
-        mode = "tiktoken";
-        ready = true;
-        return true;
-      })
-      .catch((err) => {
-        failed = true;
-        encoder = null;
-        mode = "heuristic";
-        const message = err instanceof Error ? err.message : String(err);
-        onLog({ level: "warn", message: "[token-counter] tiktoken init failed; falling back to heuristic", error: message });
-        return false;
-      })
-      .finally(() => {
-        initPromise = null;
-      });
-
-    return initPromise;
+  /** @type {TokenCounterState} */
+  const state = {
+    encoder: null,
+    mode: "heuristic",
+    ready: false,
+    failed: false,
+    initPromise: null,
+    lastModel: typeof options.model === "string" ? options.model : null,
+    lastEncoding: typeof options.encoding === "string" ? options.encoding : null,
+    generation: 0,
+    warmupTimer: null,
   };
 
-  const dispose = () => {
-    try {
-      if (encoder && typeof encoder.free === "function") encoder.free();
-    } catch {
-      // ignore
-    } finally {
-      encoder = null;
-      ready = false;
-      mode = "heuristic";
-      failed = false;
-      initPromise = null;
-    }
-  };
-
-  const count = (value) => {
-    const text = toText(value);
-    if (!text) return 0;
-
-    if (ready && encoder) {
-      try {
-        const tokens = encoder.encode(text);
-        return Array.isArray(tokens) ? tokens.length : typeof tokens?.length === "number" ? tokens.length : estimateTokensCached(text);
-      } catch {
-        // If encoding fails (should be rare), fall back safely.
-        return estimateTokensCached(text);
-      }
-    }
-
-    // Kick off WASM init best-effort (no await).
-    void init({ model: lastModel || undefined, encoding: lastEncoding || undefined });
-    return estimateTokensCached(text);
-  };
-
-  const getStatus = () => ({ mode, ready, failed });
+  const init = createInitHandler(state, onLog);
+  const dispose = createDisposeHandler(state, onLog);
+  const count = createCountHandler(state, init, onLog);
+  const getStatus = () => ({ mode: state.mode, ready: state.ready, failed: state.failed });
 
   const { warmup, warmupIdleMs } = parseWarmupOptions(options.warmup, options.warmupIdleMs);
-  scheduleWarmup(warmup, warmupIdleMs, () => void init({ model: lastModel || undefined, encoding: lastEncoding || undefined }));
+  state.warmupTimer = scheduleWarmup(
+    warmup,
+    warmupIdleMs,
+    () => void init({ model: state.lastModel || undefined, encoding: state.lastEncoding || undefined })
+  );
 
   return { count, init, dispose, getStatus };
 }

@@ -17,7 +17,6 @@ const ALLOWED_IMAGE_MIMES = new Set([
   "image/jpg",
   "image/gif",
   "image/webp",
-  "image/svg+xml",
   "image/bmp",
   "image/avif",
 ]);

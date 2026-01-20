@@ -137,6 +137,9 @@ export class SilentErrorReporter {
           operation: 'callback',
           ts: Date.now(),
         });
+        if (this._samples.length > this._maxSamples) {
+          this._samples.shift();
+        }
       }
     }
   }

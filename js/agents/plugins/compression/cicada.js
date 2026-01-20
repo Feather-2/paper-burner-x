@@ -83,7 +83,7 @@ export default createPlugin({
           timestamp: Date.now(),
         });
 
-        ctx.events.emit('compression.done', {
+        ctx.events.emit('compression:done', {
           originalCount: messages.length,
           compressedCount: result.messages?.length,
           ratio: result.ratio,
@@ -115,7 +115,7 @@ export default createPlugin({
     ctx.on('runtime.tokens.updated', (evt) => {
       const data = evt?.payload;
       if (data?.total > ctx.config.maxContextTokens * WARNING_RATIO) {
-        ctx.events.emit('compression.warning', {
+        ctx.events.emit('compression:warning', {
           current: data.total,
           threshold: ctx.config.maxContextTokens,
         });

@@ -61,7 +61,7 @@ export default createPlugin({
 
     const getFingerprinter = async () => {
       if (!fingerprinter) {
-        const { BehaviorFingerprint } = await import('../../runtime/analysis/behavior-fingerprint.js');
+        const { BehaviorFingerprint } = await import('./behavior-fingerprint.js');
         fingerprinter = new BehaviorFingerprint({
           historySize: ctx.config.maxHistory,
           maxPatternLength: ctx.config.windowSize,

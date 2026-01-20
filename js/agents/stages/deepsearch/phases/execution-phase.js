@@ -33,6 +33,32 @@ function withTimeout(promise, timeoutMs, toolName) {
   });
 }
 
+function safeStringify(value, { space = 0 } = {}) {
+  const seen = new WeakSet();
+  try {
+    const json = JSON.stringify(
+      value,
+      (key, val) => {
+        if (typeof val === "bigint") return val.toString();
+        if (typeof val === "object" && val !== null) {
+          if (seen.has(val)) return "[Circular]";
+          seen.add(val);
+        }
+        return val;
+      },
+      space
+    );
+    if (typeof json === "string") return json;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return JSON.stringify(`[Unserializable: ${msg}]`);
+  }
+
+  if (value === undefined) return "undefined";
+  if (typeof value === "function") return "[Function]";
+  return JSON.stringify(String(value));
+}
+
 /**
  * @typedef {object} DeepSearchToolAction
  * @property {string} action
@@ -219,7 +245,7 @@ export async function executeDeepSearchDecision({
     agent.addMessage({
       role: "user",
       content: `批量执行结果:\n${formatted
-        .map((r, i) => `${i + 1}. ${r.tool}: ${JSON.stringify(r.inline)}`)
+        .map((r, i) => `${i + 1}. ${r.tool}: ${safeStringify(r.inline)}`)
         .join("\n")}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。${loopGuardNote}\n\n请继续。`,
     });
 
@@ -252,7 +278,7 @@ export async function executeDeepSearchDecision({
   const resultMeta = {
     success: typeof toolResult?.success === "boolean" ? toolResult.success : true,
     hasMode: !!toolResult?.mode,
-    byteSize: JSON.stringify(toolResult)?.length ?? 0,
+    byteSize: safeStringify(toolResult).length,
   };
   agent._logger?.debug?.(`Tool result meta: ${JSON.stringify(resultMeta)}`);
   const loopGuard = agent._recordToolCall?.(singleToolName, singleToolArgs);
@@ -298,7 +324,7 @@ export async function executeDeepSearchDecision({
 
   agent.addMessage({
     role: "user",
-    content: `结果: ${JSON.stringify(toolPayloadForPrompt, null, 2)}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。${buildLoopGuardNote(loopGuard)}\n\n请继续。`,
+    content: `结果: ${safeStringify(toolPayloadForPrompt, { space: 2 })}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。${buildLoopGuardNote(loopGuard)}\n\n请继续。`,
   });
 
   return { toolCalls: 1 };

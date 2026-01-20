@@ -125,6 +125,10 @@ function resolveGapFindingBudget(state) {
  * @returns {FindingRecordResult}
  */
 function processSingleFinding(item, context) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return { success: false, error: "invalid_item", reason: "not_object" };
+  }
+
   const { state, emit, sharedContext } = context;
   const { type, content, source, sources, confidence, priority, tags, lineStart, lineEnd } = item;
 
@@ -195,14 +199,12 @@ function processSingleFinding(item, context) {
     ...(finding.source ? [finding.source] : []),
   ];
 
-  if (sharedContext) {
-    sharedContext.markSeen(trimmedContent);
-    sharedContext.commit(`finding_${type}`, {
-      full: finding,
-      summary: `[${type}${finding.confidence ? `:${(finding.confidence * 100).toFixed(0)}%` : ""}] ${trimmedContent.slice(0, 60)}`,
-      keywords,
-    });
-  }
+  sharedContext?.markSeen?.(trimmedContent);
+  sharedContext?.commit?.(`finding_${type}`, {
+    full: finding,
+    summary: `[${type}${finding.confidence ? `:${(finding.confidence * 100).toFixed(0)}%` : ""}] ${trimmedContent.slice(0, 60)}`,
+    keywords,
+  });
 
   if (!state.L1) state.L1 = {};
   if (!state.L1.findingIds) state.L1.findingIds = { claim: [], gap: [], conflict: [] };

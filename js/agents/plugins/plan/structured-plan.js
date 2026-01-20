@@ -224,8 +224,9 @@ export function createStructuredPlan(input = {}) {
 
 /**
  * 规范化需求分析
- * @param {any} input
- * @returns {RequirementsAnalysis}
+ * @private
+ * @param {Record<string, unknown> | null | undefined} input - Raw requirements analysis input.
+ * @returns {RequirementsAnalysis} Normalized requirements analysis.
  */
 function normalizeRequirementsAnalysis(input) {
   const i = isPlainObject(input) ? input : {};
@@ -303,8 +304,8 @@ function escapeMarkdown(text) {
  */
 function escapeTableCell(text) {
   if (typeof text !== 'string') return '';
-  // 表格中需要转义 | 和换行
-  return text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  // Escape Markdown control characters and normalize newlines.
+  return escapeMarkdown(text).replace(/\r?\n/g, ' ');
 }
 
 /**

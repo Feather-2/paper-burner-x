@@ -30,7 +30,8 @@ function getCompressionRpc() {
       timeoutMs: 60000, // 压缩操作最多 60s
     });
     return _compressionRpc;
-  } catch {
+  } catch (err) {
+    logger.warn("[compression-async] Failed to init WorkerRpcClient:", { error: err?.message || String(err) });
     return null;
   }
 }
@@ -43,8 +44,8 @@ export function terminateCompressionWorker() {
   if (!_compressionRpc) return;
   try {
     _compressionRpc.terminate("cleanup");
-  } catch {
-    // ignore
+  } catch (err) {
+    logger.warn("[compression-async] Failed to terminate worker:", { error: err?.message || String(err) });
   } finally {
     _compressionRpc = null;
   }
@@ -260,6 +261,9 @@ function compressSessionHistorySync(messages, options = {}) {
 export async function compressSessionHistoryAsync(messages, options = {}, runtime = {}) {
   const signal = runtime?.signal;
   if (signal?.aborted) throw new Error("compressSessionHistoryAsync: aborted");
+  if (!Array.isArray(messages)) {
+    throw new TypeError("compressSessionHistoryAsync: messages must be an array");
+  }
 
   const threshold =
     typeof runtime?.workerThresholdMessages === "number" &&

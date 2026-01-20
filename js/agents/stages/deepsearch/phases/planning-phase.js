@@ -30,10 +30,15 @@ const DEFAULT_MIN_FINDINGS_BY_MODE = Object.freeze({
   default: 5,
 });
 
+const ALLOWED_MODES = new Set(Object.keys(DEFAULT_MIN_FINDINGS_BY_MODE).filter((mode) => mode !== "default"));
+
 const WRITE_PHASE_CUTOFF_RATIO = 0.6;
 const REMINDER_AFTER_ITERATION = 3;
 const REMINDER_MAX_TODOS = 3;
 const REMINDER_TAIL = "请优先处理以上问题，不要跳过待办直接写报告。";
+const MAX_TASK_GOAL_LEN = 200;
+const MAX_MODE_DESC_LEN = 80;
+const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
 
 /**
  * @typedef {"system"|"user"|"assistant"} DeepSearchChatRole
@@ -149,6 +154,64 @@ export function getGapConvergencePolicy(state) {
     gapOnlyStreakLimit: toPositiveInt(cfg.gapOnlyStreakLimit ?? cfg.maxGapOnlyIterations ?? cfg.gapOnlyLimit, 2),
     noProgressStreakLimit: toPositiveInt(cfg.noProgressStreakLimit ?? cfg.maxNoProgressIterations ?? cfg.stagnationLimit, 3),
   };
+}
+
+function sanitizePromptInput(value, fallback, maxLen) {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (!trimmed) return fallback;
+  if (!Number.isFinite(maxLen) || maxLen <= 0 || trimmed.length <= maxLen) return trimmed;
+  const sliceLen = Math.max(0, maxLen - 3);
+  return sliceLen > 0 ? `${trimmed.slice(0, sliceLen)}...` : trimmed.slice(0, maxLen);
+}
+
+function resolveModeDescription(modeDescription, fallbackMode) {
+  const candidate = sanitizePromptInput(modeDescription, "", MAX_MODE_DESC_LEN);
+  if (candidate && ALLOWED_MODES.has(candidate)) return candidate;
+  const fallback = sanitizePromptInput(fallbackMode, "wider", MAX_MODE_DESC_LEN);
+  return ALLOWED_MODES.has(fallback) ? fallback : "wider";
+}
+
+function createModelSignal(stageApi, timeoutMs) {
+  const parentSignal = stageApi?.signal;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || typeof AbortController === "undefined") {
+    return { signal: parentSignal, cleanup: () => {} };
+  }
+
+  const controller = new AbortController();
+  const onAbort = () => {
+    try {
+      controller.abort(parentSignal?.reason);
+    } catch {
+      controller.abort();
+    }
+  };
+
+  let timeoutId = setTimeout(() => {
+    try {
+      controller.abort(new Error(`Planning phase timed out after ${timeoutMs}ms`));
+    } catch {
+      controller.abort();
+    }
+  }, timeoutMs);
+
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      onAbort();
+    } else if (typeof parentSignal.addEventListener === "function") {
+      parentSignal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  const cleanup = () => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = null;
+    if (parentSignal && typeof parentSignal.removeEventListener === "function") {
+      parentSignal.removeEventListener("abort", onAbort);
+    }
+  };
+
+  return { signal: controller.signal, cleanup };
 }
 
 function fingerprintText(text, maxLen = 200) {
@@ -315,10 +378,11 @@ export async function addInitialDeepSearchMessages({
   agent.addMessage({ role: "system", content: systemPrompt });
 
   const sources = agent.state.L0?.sources || [];
-  const modeDesc = modeDescription || agent.mode;
+  const taskGoal = sanitizePromptInput(agent.state?.taskGoal, "分析文档", MAX_TASK_GOAL_LEN);
+  const modeDesc = resolveModeDescription(modeDescription, agent.mode);
   agent.addMessage({
     role: "user",
-    content: `目标: ${agent.state.taskGoal || "分析文档"}
+    content: `目标: ${taskGoal}
 文档: ${sources.length} 个
 模式: ${modeDesc}
 
@@ -721,11 +785,21 @@ export async function runPlanningPhaseIteration({
 
   const transientMessages = ephemeralMessages.length > 0 ? [...baseMessages, ...ephemeralMessages] : baseMessages;
 
-  const response = await callModel(transientMessages, {
-    temperature: 0.3,
-    maxTokens: 1000,
-    signal: stageApi?.signal,
-  });
+  const modelTimeoutMs = toPositiveInt(
+    stageApi?.modelTimeoutMs ?? stageApi?.env?.DEEPSEARCH_MODEL_TIMEOUT_MS,
+    DEFAULT_MODEL_TIMEOUT_MS
+  );
+  const { signal: modelSignal, cleanup: cleanupModelSignal } = createModelSignal(stageApi, modelTimeoutMs);
+  let response;
+  try {
+    response = await callModel(transientMessages, {
+      temperature: 0.3,
+      maxTokens: 1000,
+      signal: modelSignal,
+    });
+  } finally {
+    cleanupModelSignal();
+  }
 
   const result = await responseHandler.handleResponse(response, {
     stageApi,

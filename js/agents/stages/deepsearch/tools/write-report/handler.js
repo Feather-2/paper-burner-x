@@ -443,7 +443,7 @@ function handleUpdate(args, report, emit) {
   );
 
   if (sectionIndex >= 0) {
-    const oldContent = report.sections[sectionIndex].content;
+    const oldContent = toNonEmptyString(report.sections[sectionIndex].content) || "";
     report.sections[sectionIndex].content = content;
     report.sections[sectionIndex].updatedAt = Date.now();
     recordHistory(report, "update", { sectionId, old: oldContent.slice(0, 50), new: content.slice(0, 50) });
@@ -792,7 +792,11 @@ export async function handler(args, context) {
     return handleSection(args, report, emit);
   }
 
-  return handleFull(report, mode, state, emit);
+  if (action === "full") {
+    return handleFull(report, mode, state, emit);
+  }
+
+  return { success: false, error: `Unknown action: ${action || "unknown"}` };
 
 }
 

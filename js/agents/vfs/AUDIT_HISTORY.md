@@ -4,6 +4,69 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] atomic-write
+*Archived: 2026-01-20T00:14:50.691Z*
+
+- **File**: js/agents/vfs/operations.js:601
+- **Description**: atomicWriteText/atomicWriteFile 的回退路径依赖 vfs.delete，但 MemoryVfs/OpfsVfs/NodeFsVfs 均未实现 delete；在无 rename 的后端会跳过清理，临时文件残留且不满足原子写入要求。
+- **Suggestion**: 为 VFS 统一提供 delete/unlink/rename 适配层（或在此处兼容 unlink/rm），保证临时文件清理并尽可能提供原子性语义。
+```
+        if (typeof vfs.rename === "function") {
+          await vfs.rename(tempPath, normalizedPath);
+        } else {
+          try {
+            const exists = typeof vfs.exists === "function" ? await vfs.exists(normalizedPath) : true;
+            if (exists && typeof vfs.delete === "function") {
+              await vfs.delete(normalizedPath);
+            }
+          } catch {
+            // 忽略删除错误
+          }
+          await vfs.writeText(normalizedPath, content);
+          // 清理临时文件
+          try {
+            if (typeof vfs.delete === "function") {
+              await vfs.delete(tempPath);
+            }
+          } catch {
+            // 忽略清理错误
+          }
+        }
+```
+
+### [RESOLVED] quota-management
+*Archived: 2026-01-20T00:14:50.691Z*
+
+- **File**: js/agents/vfs/vfs.storage.js:162
+- **Description**: StorageVfs 写入未捕获 QuotaExceededError，也没有降级/提示逻辑；存储满时会直接抛错，不满足“配额不足时优雅降级”的要求。
+- **Suggestion**: 捕获配额异常并返回可识别的错误/提示，必要时回退到 MemoryVfs 或引导用户清理空间；可结合 storageAdapter.getUsage() 做预检查。
+```
+  async writeFile(path, data) {
+    const p = normalizeVfsPath(path);
+    if (!p) throw new Error("EISDIR: /");
+    await this._ensureDir(dirnameVfsPath(p));
+
+    const bytes =
+      typeof Blob !== "undefined" && data instanceof Blob
+        ? new Uint8Array(await data.arrayBuffer())
+        : dataToBytes(data);
+    const key = this._fileKey(p);
+    await this._store.set(key, {
+      kind: "file",
+      path: p,
+      encoding: "base64",
+      data: bytesToBase64(bytes),
+      size: bytes.byteLength,
+      mtimeMs: Date.now(),
+    });
+    return true;
+  }
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] data-encoding

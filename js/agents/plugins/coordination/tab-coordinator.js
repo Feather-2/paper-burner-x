@@ -32,7 +32,7 @@ const STALE_MULTIPLIER = 3;
 const MESSAGE_TYPES = new Set(["session-evicted", "session-accessed", "leader-election", "heartbeat"]);
 
 /**
- * @param {any} value
+ * @param {unknown} value
  * @param {number} fallback
  * @returns {number}
  */
@@ -247,7 +247,7 @@ export class TabCoordinator {
   }
 
   /**
-   * @param {any} raw
+   * @param {unknown} raw
    * @returns {TabCoordinatorMessage | null}
    */
   _parseMessage(raw) {
@@ -336,7 +336,7 @@ export class TabCoordinator {
   }
 
   /**
-   * @param {...any} args
+   * @param {...unknown} args
    */
   _logWarn(...args) {
     if (this._logger && typeof this._logger.warn === "function") {

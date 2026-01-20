@@ -4,6 +4,28 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] 错误信息泄露
+*Archived: 2026-01-20T00:10:39.457Z*
+
+- **File**: js/agents/core/contracts/tool-result.js:95
+- **Description**: normalizeToolResult 在处理 Error 时把 stack 放入 meta，若 ToolResult 直接返回给用户会泄露内部路径/调用栈信息。
+- **Suggestion**: 仅在内部日志保留 stack，或通过 debug 标志控制；对外返回只保留友好消息/错误码。
+```
+if (raw instanceof Error) {
+  return {
+    ok: false,
+    success: false,
+    error: raw.message,
+    data: undefined,
+    meta: { stack: raw.stack },
+  };
+}
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] error-handling

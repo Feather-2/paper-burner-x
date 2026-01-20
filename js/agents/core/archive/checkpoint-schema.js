@@ -1,5 +1,5 @@
 /**
- * @typedef {Record<string, any>} AnyRecord
+ * @typedef {Record<string, unknown>} AnyRecord
  *
  * @typedef {"pre-action" | "pause" | "compress" | "archive"} CheckpointTypeValue
  *
@@ -52,7 +52,7 @@ export function createCheckpoint(nodeStates, metadata = {}) {
  */
 export function validateCheckpoint(checkpoint) {
   if (!checkpoint || typeof checkpoint !== "object") return false;
-  const cp = /** @type {any} */ (checkpoint);
+  const cp = /** @type {Record<string, unknown>} */ (checkpoint);
   if (!cp.schemaVersion) return false;
   if (!cp.nodeStates) return false;
   return true;
@@ -60,7 +60,7 @@ export function validateCheckpoint(checkpoint) {
 
 /**
  * Migrate legacy checkpoint format.
- * @param {any} checkpoint
+ * @param {unknown} checkpoint
  * @returns {Checkpoint | null}
  */
 export function migrateCheckpoint(checkpoint) {

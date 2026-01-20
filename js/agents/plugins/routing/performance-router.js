@@ -343,7 +343,9 @@ export class PerformanceRouter {
   setWeight(endpointId, weight) {
     const stats = this._endpoints.get(endpointId);
     if (stats) {
-      stats.weight = Math.max(0, Math.min(10, weight));
+      if (typeof weight === "number" && Number.isFinite(weight)) {
+        stats.weight = Math.max(0, Math.min(10, weight));
+      }
     }
   }
 

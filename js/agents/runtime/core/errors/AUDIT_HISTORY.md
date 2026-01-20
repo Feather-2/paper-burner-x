@@ -4,6 +4,24 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] resource-leak
+*Archived: 2026-01-20T00:10:22.820Z*
+
+- **File**: js/agents/runtime/core/errors/silent-error-reporter.js:132
+- **Description**: onError 回调抛错时会追加一条错误样本，但未再次执行 ring buffer 截断，导致在回调持续失败时样本数量持续增长（也与测试中 size 预期不一致）。
+- **Suggestion**: 在记录回调异常样本后，同样执行 maxSamples 截断（或抽取统一的 append+trim 辅助方法）。
+```
+this._samples.push({
+  message: callbackError instanceof Error ? callbackError.message : String(callbackError),
+  location: 'SilentErrorReporter.onError',
+  category: ErrorCategory.DEGRADED,
+});
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] 未验证的输入
