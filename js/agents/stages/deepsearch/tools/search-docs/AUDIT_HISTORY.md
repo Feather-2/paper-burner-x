@@ -6,6 +6,30 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] error-message-leak
+*Archived: 2026-01-20T04:24:52.137Z*
+
+- **File**: js/agents/stages/deepsearch/tools/search-docs/handler.js:228
+- **Description**: 本地搜索异常会直接将 err.message 返回给调用方，若底层错误包含内部细节，可能泄露给用户。
+- **Suggestion**: 保留详细错误在日志中，向上返回更友好的错误消息/错误码，避免暴露内部细节。
+```
+const error = err instanceof Error ? err.message : String(err); return { success: false, error, fallback: "local" };
+```
+
+### [RESOLVED] test-coverage
+*Archived: 2026-01-20T04:24:52.137Z*
+
+- **File**: tests/unit/agents/stages/deepsearch/utils/state-utils.test.js:637
+- **Description**: 现有 search-docs 仅覆盖基础查询与来源过滤，未覆盖外部检索回退、语义检索超时、MMR 重排、gap 证据写入等关键路径，难以满足 90% 覆盖目标。
+- **Suggestion**: 补充外部 retriever 失败/熔断回退、semanticTimeoutMs、MMR 参数、gapId 写入等测试用例，并加入边界输入与异常恢复场景。
+```
+it("read-doc/search-docs tools: share SourceManager and keep outputs stable", async () => {
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] timeout-handling
 *Archived: 2026-01-20T00:13:20.403Z*
 

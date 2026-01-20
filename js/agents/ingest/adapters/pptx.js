@@ -127,7 +127,9 @@ async function loadPptxSlideParserFromScript() {
   }
 
   const code = await readFileFromPath(new URL("../../../ppt/core/slide-parser-pptx.js", import.meta.url), "utf8");
-  const vm = await import("node:vm");
+  // Avoid bundlers statically including node:vm in browser builds.
+  const nodeVmSpecifier = ["node", "vm"].join(":");
+  const vm = await import(nodeVmSpecifier);
 
   const { DOMParser } = await import("linkedom");
   const jszipMod = await import("jszip");

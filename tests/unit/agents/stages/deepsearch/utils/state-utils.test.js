@@ -692,6 +692,118 @@ it("read-doc/search-docs tools: share SourceManager and keep outputs stable", as
   expect(restricted.results.length).toBe(0);
 });
 
+it("search-docs: falls back to local search when retriever fails", async () => {
+  const { default: SourceManager } = await import("../../../js/agents/stages/deepsearch/source-manager.js");
+  const { handler: searchDocs } = await import("../../../js/agents/stages/deepsearch/tools/search-docs/handler.js");
+
+  const state = {
+    L0: { sources: [{ sourceId: "s1", name: "S1", sourceText: "alpha\nbeta\n" }] },
+    L1: {},
+    L2: {},
+    todos: [],
+  };
+
+  const manager = new SourceManager(state.L0.sources);
+  const retriever = { search: async () => { throw new Error("boom"); } };
+  const circuitBreakerRegistry = {
+    get: () => ({
+      canExecute: () => true,
+      execute: async (fn) => fn(),
+    }),
+  };
+
+  const result = await searchDocs(
+    { query: "alpha", limit: 5 },
+    {
+      state,
+      sourceManager: manager,
+      retriever,
+      circuitBreakerRegistry,
+      emit: () => {},
+    }
+  );
+
+  expect(result.success).toBe(true);
+  expect(result.fallback).toBe("local");
+  expect(result.results.some((r) => r.sourceId === "s1")).toBe(true);
+});
+
+it("search-docs: forwards semantic timeout to semanticSearch", async () => {
+  const { default: SourceManager } = await import("../../../js/agents/stages/deepsearch/source-manager.js");
+  const { handler: searchDocs } = await import("../../../js/agents/stages/deepsearch/tools/search-docs/handler.js");
+
+  const state = {
+    L0: { sources: [{ sourceId: "s1", name: "S1", sourceText: "alpha\nbeta\n" }] },
+    L1: {},
+    L2: {},
+    todos: [],
+  };
+
+  const manager = new SourceManager(state.L0.sources);
+  let receivedTimeout;
+  manager.semanticSearch = async (query, options) => {
+    receivedTimeout = options?.timeoutMs;
+    return [{ sourceId: "s1", snippet: "alpha", score: 0.9 }];
+  };
+
+  const result = await searchDocs(
+    { query: "alpha", limit: 2, semanticTimeoutMs: 1234 },
+    {
+      state,
+      sourceManager: manager,
+      embeddingService: { embed: async () => [] },
+      emit: () => {},
+    }
+  );
+
+  expect(receivedTimeout).toBe(1234);
+  expect(result.success).toBe(true);
+  expect(result.results.length).toBe(1);
+});
+
+it("search-docs: applies MMR and records gap evidence", async () => {
+  const { default: SourceManager } = await import("../../../js/agents/stages/deepsearch/source-manager.js");
+  const { handler: searchDocs } = await import("../../../js/agents/stages/deepsearch/tools/search-docs/handler.js");
+
+  const state = {
+    L0: {
+      sources: [
+        { sourceId: "s1", name: "S1", sourceText: "alpha one\nalpha two\nalpha three\nalpha four\n" },
+      ],
+    },
+    L1: {},
+    L2: {},
+    todos: [],
+  };
+
+  const manager = new SourceManager(state.L0.sources);
+  const evidence = [];
+  const discoveryManager = {
+    addEvidence: (gapId, payload) => evidence.push({ gapId, payload }),
+  };
+
+  const result = await searchDocs(
+    { query: "alpha", limit: 1, gapId: "gap-1", mmr: { lambda: 0.2, maxTokens: 50 } },
+    {
+      state,
+      sourceManager: manager,
+      discoveryManager,
+      emit: () => {},
+    }
+  );
+
+  expect(result.success).toBe(true);
+  expect(result.mmr?.applied).toBe(true);
+  expect(result.mmr?.lambda).toBe(0.2);
+  expect(result.mmr?.pool).toBeGreaterThan(1);
+  expect(result.results.length).toBe(1);
+  expect(evidence.length).toBe(1);
+  expect(evidence[0].gapId).toBe("gap-1");
+  expect(evidence[0].payload.query).toBe("alpha");
+  expect(evidence[0].payload.sourceId).toBe("s1");
+  expect(typeof evidence[0].payload.snippet).toBe("string");
+});
+
 it("report-postprocess: review/reorder/validate share a single implementation", async () => {
   const {
     reviewReportMarkdown,

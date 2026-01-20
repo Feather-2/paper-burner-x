@@ -111,7 +111,7 @@ export class OpfsVfs {
 
   /**
    * @param {string} path
-   * @returns {Promise<Uint8Array | null>}
+   * @returns {Promise<Uint8Array>}
    */
   async readFile(path) {
     const p = normalizeVfsPath(path);
@@ -122,7 +122,7 @@ export class OpfsVfs {
       const buf = await file.arrayBuffer();
       return new Uint8Array(buf);
     } catch (err) {
-      if (err?.name === "NotFoundError") return null;
+      if (err?.name === "NotFoundError") throw new Error(`ENOENT: ${p}`);
       if (err?.name === "TypeMismatchError") throw new Error(`EISDIR: ${p}`);
       throw err;
     }
@@ -134,7 +134,6 @@ export class OpfsVfs {
    */
   async readText(path) {
     const bytes = await this.readFile(path);
-    if (bytes == null) throw new Error(`ENOENT: ${normalizeVfsPath(path)}`);
     return new TextDecoder().decode(bytes);
   }
 

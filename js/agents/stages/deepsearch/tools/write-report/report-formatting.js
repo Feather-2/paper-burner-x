@@ -3,6 +3,14 @@
  */
 
 /**
+ * @typedef {object} ReportConfig
+ * @property {Object<string, number>=} sectionWordLimits
+ *
+ * @typedef {object} WriteReportState
+ * @property {ReportConfig=} reportConfig
+ */
+
+/**
  * Count non-whitespace characters in content.
  * @param {string} content
  * @returns {number}
@@ -36,7 +44,7 @@ export function renderSectionsMarkdown(sections, options = {}) {
 /**
  * Build report outline details from sections.
  * @param {Array<{sectionId?:string,title?:string,content?:string}>} sections
- * @param {any} state
+ * @param {WriteReportState} state
  * @returns {{outline:Array<object>,totalSections:number,filledSections:number,emptySections:number}}
  */
 export function buildReportOutline(sections, state) {

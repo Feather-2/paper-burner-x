@@ -17,6 +17,9 @@ const logger = createLogger("runtime/routing/performance-router");
 
 const DEFAULT_EWMA_ALPHA = 0.3; // EWMA 衰减因子
 const DEFAULT_ERROR_PENALTY_MS = 5000; // 错误惩罚延迟
+const TOKEN_CHARS_PER_TOKEN = 4; // Rough token size heuristic
+const SIMPLE_TOKEN_THRESHOLD = 100;
+const MODERATE_TOKEN_THRESHOLD = 500;
 
 /**
  * 模型分层
@@ -67,7 +70,7 @@ export class EwmaTracker {
 
   /**
    * 记录新样本
-   * @param {number} sample
+   * @param {number} sample - New latency sample in ms
    * @returns {number} - 更新后的 EWMA 值
    */
   record(sample) {
@@ -402,11 +405,13 @@ export function estimateComplexity(task) {
   if (!task) return TaskComplexity.SIMPLE;
 
   const text = task.prompt || task.content || task.message || "";
-  const tokenEstimate = Math.ceil(text.length / 4);
+  const tokenEstimate = Math.ceil(text.length / TOKEN_CHARS_PER_TOKEN);
 
   // 简单启发式
-  if (tokenEstimate < 100) return TaskComplexity.SIMPLE;
-  if (tokenEstimate < 500) return TaskComplexity.MODERATE;
+  if (tokenEstimate < SIMPLE_TOKEN_THRESHOLD) return TaskComplexity.SIMPLE;
+  if (tokenEstimate < MODERATE_TOKEN_THRESHOLD) {
+    return TaskComplexity.MODERATE;
+  }
   return TaskComplexity.COMPLEX;
 }
 

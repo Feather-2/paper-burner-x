@@ -67,9 +67,12 @@ function buildDemoAgent(router) {
         }
         if (Array.isArray(value)) return value.map((v, i) => redactSensitive(v, [...keyPath, String(i)]));
         if (typeof value === "object") {
-            const out = {};
+            const out = Object.create(null);
             for (const [k, v] of Object.entries(value)) {
                 const lower = String(k).toLowerCase();
+                if (lower === "__proto__" || lower === "constructor" || lower === "prototype") {
+                    continue;
+                }
                 if (/(api[_-]?key|token|secret|authorization|auth|password|passwd|pwd)/i.test(lower)) {
                     out[k] = "REDACTED";
                     continue;

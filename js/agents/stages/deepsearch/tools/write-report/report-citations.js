@@ -2,10 +2,18 @@ import { toNonEmptyString } from "../../../../shared/index.js";
 import SourceManager from "../../source-manager.js";
 
 /**
+ * @typedef {object} WriteReportL0State
+ * @property {Array<object|string>=} sources
+ *
+ * @typedef {object} WriteReportState
+ * @property {WriteReportL0State=} L0
+ */
+
+/**
  * Handle get-source action for citation checks.
  * @param {object} args
  * @param {object} context
- * @param {any} state
+ * @param {WriteReportState} state
  * @returns {object}
  */
 export function handleGetSource(args, context, state) {

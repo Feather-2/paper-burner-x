@@ -51,7 +51,7 @@ export const ErrorCategory = {
  */
 export class SilentErrorReporter {
   /**
-   * @param {SilentErrorReporterOptions} [options]
+   * @param {SilentErrorReporterOptions} [options] - Configuration options.
    */
   constructor(options = {}) {
     /** @type {boolean} */
@@ -71,7 +71,7 @@ export class SilentErrorReporter {
 
   /**
    * Enable or disable reporting
-   * @param {boolean} enabled
+   * @param {boolean} enabled - True to enable reporting.
    */
   setEnabled(enabled) {
     this._enabled = enabled;
@@ -79,7 +79,7 @@ export class SilentErrorReporter {
 
   /**
    * Check if reporting is enabled
-   * @returns {boolean}
+   * @returns {boolean} True when reporting is enabled.
    */
   isEnabled() {
     return this._enabled;
@@ -166,7 +166,7 @@ export class SilentErrorReporter {
 
   /**
    * Get error statistics
-   * @returns {ErrorStats}
+   * @returns {ErrorStats} Aggregated error statistics.
    */
   getStats() {
     return {
@@ -178,7 +178,7 @@ export class SilentErrorReporter {
 
   /**
    * Export all sampled errors
-   * @returns {ErrorEntry[]}
+   * @returns {ErrorEntry[]} Shallow copy of sampled errors.
    */
   export() {
     return [...this._samples];
@@ -187,7 +187,7 @@ export class SilentErrorReporter {
   /**
    * Get recent errors (most recent first)
    * @param {number} [limit=10] - Maximum entries to return
-   * @returns {ErrorEntry[]}
+   * @returns {ErrorEntry[]} Recent errors, most recent first.
    */
   getRecent(limit = 10) {
     return this._samples.slice(-limit).reverse();
@@ -202,7 +202,7 @@ export class SilentErrorReporter {
 
   /**
    * Get sample count
-   * @returns {number}
+   * @returns {number} Current sample count.
    */
   get size() {
     return this._samples.length;
@@ -225,7 +225,7 @@ export function reportSilentError(error, location, category = ErrorCategory.RECO
 /**
  * Create a scoped reporter for a specific module
  * @param {string} moduleName - Module name prefix
- * @returns {{ report: (error: unknown, method: string, category?: string) => void }}
+ * @returns {{ report: (error: unknown, method: string, category?: string) => void }} Scoped reporter API.
  */
 export function createScopedReporter(moduleName) {
   return {

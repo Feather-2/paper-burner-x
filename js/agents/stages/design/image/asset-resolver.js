@@ -434,3 +434,44 @@ export function fillAssetPlaceholders(html, resolvedAssets) {
     skippedSlotIds: [...new Set(skippedSlotIds)],
   };
 }
+
+if (import.meta.vitest) {
+  const { describe, it, expect } = import.meta.vitest;
+
+  describe("fillAssetPlaceholders", () => {
+    it("keeps data URI assets and fills placeholders", () => {
+      const dataUri = "data:image/png;base64,AA==";
+      const input = '<section><div data-el="image-placeholder" data-slot-id="slot1" data-render-type="asset"></div></section>';
+      const result = fillAssetPlaceholders(input, [{ slotId: "slot1", assetUri: dataUri }]);
+
+      expect(result.html).toContain('data-el="image"');
+      expect(result.html).toContain(`data-src="${dataUri}"`);
+      expect(result.html).toContain(`src="${dataUri}"`);
+      expect(result.filledSlotIds).toEqual(["slot1"]);
+    });
+
+    it("filters on* attributes and style/srcset", () => {
+      const input =
+        '<div data-el="image-placeholder" data-slot-id="slot2" onerror="alert(1)" style="color:red" srcset="bad"></div>';
+      const result = fillAssetPlaceholders(input, [
+        { slotId: "slot2", assetUri: "https://example.com/a.png" },
+      ]);
+
+      expect(result.html).toContain('data-el="image"');
+      expect(result.html).not.toContain("onerror=");
+      expect(result.html).not.toContain("style=");
+      expect(result.html).not.toContain("srcset=");
+    });
+
+    it("fills placeholders when data-render-type is missing", () => {
+      const input = '<div data-el="image-placeholder" data-slot-id="slot3"></div>';
+      const result = fillAssetPlaceholders(input, [
+        { slotId: "slot3", assetUri: "https://example.com/b.png" },
+      ]);
+
+      expect(result.html).toContain('data-el="image"');
+      expect(result.html).toContain('data-render-type="asset"');
+      expect(result.filledSlotIds).toEqual(["slot3"]);
+    });
+  });
+}

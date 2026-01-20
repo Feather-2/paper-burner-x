@@ -438,6 +438,48 @@ function parseWalEntries(text, logger) {
 }
 
 /**
+ * Build a missing WAL result for replay.
+ * @param {number} cursor
+ * @returns {ReplayResult}
+ */
+function missingWalResult(cursor) {
+  return { ok: false, reason: "missing_wal", cursor, recovered: 0 };
+}
+
+/**
+ * Read and parse WAL replay state from storage.
+ * @param {{ vfs: VfsLike, walPath: string, logger: LoggerLike | null | undefined, cursor: number }} input
+ * @returns {Promise<{ ok: true, entries: SideEffectJournalEntry[], seen: Set<string>, skippedLines: number } | { ok: false, result: ReplayResult }>}
+ */
+async function readWalReplayState({ vfs, walPath, logger, cursor }) {
+  const exists = await vfsExists(vfs, walPath, logger);
+  if (!exists) return { ok: false, result: missingWalResult(cursor) };
+
+  const text = await readTextFromVfs(vfs, walPath);
+  if (text === null) return { ok: false, result: missingWalResult(cursor) };
+
+  if (isWalTextTooLarge(text, logger)) {
+    return { ok: false, result: { ok: false, reason: "wal_too_large", cursor, recovered: 0 } };
+  }
+
+  const { entries, seen, skippedLines } = parseWalEntries(text, logger);
+  return { ok: true, entries, seen, skippedLines };
+}
+
+/**
+ * Apply WAL entries and state to a journal instance.
+ * @param {SideEffectJournal} journal
+ * @param {SideEffectJournalEntry[]} entries
+ * @param {Set<string>} seen
+ * @returns {void}
+ */
+function applyWalReplayState(journal, entries, seen) {
+  journal._entries = entries;
+  journal._seenEventIds = seen;
+  journal._persistedCursor = entries.length;
+}
+
+/**
  * Roll back journal entries from the end down to the target cursor.
  * @param {SideEffectJournalEntry[]} entries - Journal entries
  * @param {number} target - Target cursor
@@ -476,6 +518,47 @@ async function rollbackEntries(entries, target, { vfs, runStore, storageAdapter,
   }
 
   return { rolledBack, failures };
+}
+
+/**
+ * Resolve rollback dependencies for a journal instance.
+ * @param {SideEffectJournal} journal
+ * @returns {{ ok: true, vfs: VfsLike, runStore: RunStoreLike | null, storageAdapter: StorageAdapterLike | null } | { ok: false, reason: string }}
+ */
+function resolveRollbackDeps(journal) {
+  const vfs = journal.vfs;
+  const runStore = journal.runStore && typeof journal.runStore.getArtifactById === "function" ? journal.runStore : null;
+  const storageAdapter = journal.storageAdapter;
+  if (!vfs || typeof vfs.writeFile !== "function") {
+    return { ok: false, reason: "missing_vfs" };
+  }
+  if (!runStore && !storageAdapter) {
+    return { ok: false, reason: "missing_runStore" };
+  }
+  return { ok: true, vfs, runStore, storageAdapter };
+}
+
+/**
+ * Apply rollback results and emit event notifications.
+ * @param {SideEffectJournal} journal
+ * @param {{ target: number, current: number, rolledBack: number, failures: SideEffectJournalRollbackFailure[], reason?: string }} info
+ * @returns {void}
+ */
+function applyRollbackResult(journal, { target, current, rolledBack, failures, reason }) {
+  journal._entries = journal._entries.slice(0, target);
+  journal._persistedCursor = Math.min(journal._persistedCursor, journal._entries.length);
+
+  try {
+    journal.eventBus?.emit?.("side_effects.rolled_back", {
+      cursorBefore: current,
+      cursorAfter: target,
+      rolledBack,
+      failures,
+      reason: toNonEmptyString(reason) || null,
+    });
+  } catch (e) {
+    journal.logger?.warn?.(`[SideEffectJournal] Failed to emit rolled_back event: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 /**
@@ -665,27 +748,17 @@ export class SideEffectJournal {
     const walPath = this._getWalPath(id);
     if (!walPath) return { ok: false, reason: "missing_wal_path" };
 
+    const cursor = this.getCursor();
     try {
-      const exists = await vfsExists(vfs, walPath, this.logger);
-      if (!exists) return { ok: false, reason: "missing_wal", cursor: this.getCursor(), recovered: 0 };
+      const replay = await readWalReplayState({ vfs, walPath, logger: this.logger, cursor });
+      if (!replay.ok) return replay.result;
 
-      const text = await readTextFromVfs(vfs, walPath);
-      if (text === null) return { ok: false, reason: "missing_wal", cursor: this.getCursor(), recovered: 0 };
-
-      if (isWalTextTooLarge(text, this.logger)) {
-        return { ok: false, reason: "wal_too_large", cursor: this.getCursor(), recovered: 0 };
+      if (replay.skippedLines) {
+        this.logger?.warn?.(`[SideEffectJournal] Skipped ${replay.skippedLines} invalid WAL lines`);
       }
 
-      const { entries: nextEntries, seen: nextSeen, skippedLines } = parseWalEntries(text, this.logger);
-      if (skippedLines) {
-        this.logger?.warn?.(`[SideEffectJournal] Skipped ${skippedLines} invalid WAL lines`);
-      }
-
-      this._entries = nextEntries;
-      this._seenEventIds = nextSeen;
-      this._persistedCursor = this._entries.length;
-
-      return { ok: true, cursor: this.getCursor(), recovered: nextEntries.length };
+      applyWalReplayState(this, replay.entries, replay.seen);
+      return { ok: true, cursor: this.getCursor(), recovered: replay.entries.length };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger?.warn?.(`[SideEffectJournal] WAL replay failed: ${msg}`);
@@ -749,39 +822,17 @@ export class SideEffectJournal {
     const current = this.getCursor();
     if (target >= current) return { ok: true, rolledBack: 0, cursor: current };
 
-    const vfs = this.vfs;
-    const runStore = this.runStore && typeof this.runStore.getArtifactById === "function" ? this.runStore : null;
-    const storageAdapter = this.storageAdapter;
-    if (!vfs || typeof vfs.writeFile !== "function") {
-      return { ok: false, reason: "missing_vfs" };
-    }
-    if (!runStore && !storageAdapter) {
-      // Backward-compat: previous versions required RunStore to rollback checkpoints.
-      return { ok: false, reason: "missing_runStore" };
-    }
+    const deps = resolveRollbackDeps(this);
+    if (!deps.ok) return { ok: false, reason: deps.reason };
 
     const { rolledBack, failures } = await rollbackEntries(this._entries, target, {
-      vfs,
-      runStore,
-      storageAdapter,
+      vfs: deps.vfs,
+      runStore: deps.runStore,
+      storageAdapter: deps.storageAdapter,
       logger: this.logger,
     });
 
-    // Trim journal to target cursor.
-    this._entries = this._entries.slice(0, target);
-    this._persistedCursor = Math.min(this._persistedCursor, this._entries.length);
-
-    try {
-      this.eventBus?.emit?.("side_effects.rolled_back", {
-        cursorBefore: current,
-        cursorAfter: target,
-        rolledBack,
-        failures,
-        reason: toNonEmptyString(reason) || null,
-      });
-    } catch (e) {
-      this.logger?.warn?.(`[SideEffectJournal] Failed to emit rolled_back event: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    applyRollbackResult(this, { target, current, rolledBack, failures, reason });
 
     return { ok: failures.length === 0, rolledBack, failures, cursor: this.getCursor() };
   }

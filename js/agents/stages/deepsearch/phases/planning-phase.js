@@ -451,8 +451,8 @@ export function createIterationConvergenceTracker({ agent, convergencePolicy }) 
       convergence.lastGapFindingCount = gapIds.length;
       convergence.lastOpenTodoCount = m.openTodoCount;
       convergence.lastCompletedTodoCount = m.completedTodoCount;
-    } catch {
-      // ignore
+    } catch (err) {
+      logSuppressedError(agent, "initBaselines", err);
     }
   };
 
@@ -496,76 +496,179 @@ export function createIterationConvergenceTracker({ agent, convergencePolicy }) 
   return { convergencePolicy, convergence, initBaselines, emitIterationCompleted };
 }
 
-/**
- * 运行单轮规划阶段：注入临时上下文、调用模型、并通过 responseHandler 解析决策。
- * @param {RunPlanningPhaseIterationParams} params
- * @returns {Promise<PlanningIterationResult>}
- */
-export async function runPlanningPhaseIteration({
+function logSuppressedError(agent, context, err) {
+  const logTarget = agent?._logger || logger;
+  const payload = { error: err?.message || err };
+  if (logTarget?.debug) {
+    logTarget.debug(`[deepsearch] Suppressed error in ${context}`, payload);
+    return;
+  }
+  logTarget?.warn?.(`[deepsearch] Suppressed error in ${context}`, payload);
+}
+
+function emitAgentEvent(agent, event, payload, options, contextLabel = event) {
+  try {
+    agent._emit?.(event, payload, options);
+  } catch (err) {
+    logSuppressedError(agent, `emit ${contextLabel}`, err);
+  }
+}
+
+function buildBudgetEphemeralMessage({ agent, plannedIteration, toolCallCount }) {
+  const writeStartIteration = agent.maxIterations - agent.writeIterations + 1;
+  const phase =
+    plannedIteration < writeStartIteration * WRITE_PHASE_CUTOFF_RATIO
+      ? "收集"
+      : plannedIteration < writeStartIteration
+        ? "验证"
+        : "写作";
+  const budgetStatus = `[预算] 迭代 ${plannedIteration}/${agent.maxIterations} | 工具 ${toolCallCount}/${agent.maxToolCalls} | 阶段: ${phase}`;
+  return {
+    role: "system",
+    content: `<${EPHEMERAL_TAG.BUDGET}>${budgetStatus}</${EPHEMERAL_TAG.BUDGET}>`,
+  };
+}
+
+function getFindingStats(agent) {
+  let findingCount = 0;
+  let findingClaims = 0;
+  let findingGaps = 0;
+  if (agent.sharedContext) {
+    const claims = agent.sharedContext.search?.("finding_claim") || [];
+    const gaps = agent.sharedContext.search?.("finding_gap") || [];
+    findingClaims = claims.length;
+    findingGaps = gaps.length;
+    findingCount = findingClaims + findingGaps;
+  }
+  const minFindings = DEFAULT_MIN_FINDINGS_BY_MODE[agent.mode] || DEFAULT_MIN_FINDINGS_BY_MODE.default;
+  return { findingCount, findingClaims, findingGaps, minFindings };
+}
+
+function buildConvergenceEphemeralMessages({ agent, plannedIteration, convergencePolicy, convergence, findingStats }) {
+  const convergenceNotes = [];
+  const { findingClaims, findingGaps, minFindings } = findingStats;
+  if (convergencePolicy.maxFindingGaps > 0 && findingGaps >= convergencePolicy.maxFindingGaps) {
+    convergenceNotes.push(
+      `⚠️ Gap 预算已达上限：${findingGaps}/${convergencePolicy.maxFindingGaps}。本轮请停止新增 gaps，优先合并/去重并填补最重要的 3 个。`
+    );
+  }
+  if (convergence.gapOnlyStreak >= convergencePolicy.gapOnlyStreakLimit && findingGaps > 0) {
+    convergenceNotes.push(
+      `⚠️ 连续 ${convergence.gapOnlyStreak} 轮只新增 gaps 且无新增 claims/完成 todo（边际收益低）。本轮请先把 gaps 变成可验证 claims，或将无法填补的 gap 标记为 blocked/cancelled。`
+    );
+  }
+  if (convergence.noProgressStreak >= convergencePolicy.noProgressStreakLimit && findingClaims >= minFindings) {
+    convergenceNotes.push(
+      `⚠️ 连续 ${convergence.noProgressStreak} 轮无有效进展（claims/todos）。已达到最小发现门槛 ${findingClaims}/${minFindings}，请收敛范围并进入写作/总结。`
+    );
+  }
+  if (convergenceNotes.length === 0) return [];
+
+  emitAgentEvent(
+    agent,
+    "prompt.convergence.injected",
+    {
+      runId: agent.state?.runId,
+      iteration: plannedIteration,
+      noteCount: convergenceNotes.length,
+      findingClaims,
+      findingGaps,
+    },
+    { status: "injected", actor: "system" },
+    "prompt.convergence.injected"
+  );
+
+  return [
+    {
+      role: "system",
+      content: `<${EPHEMERAL_TAG.CONVERGENCE}>\n${convergenceNotes.join("\n")}\n</${EPHEMERAL_TAG.CONVERGENCE}>`,
+    },
+  ];
+}
+
+function buildReminderEphemeralMessages({ agent, plannedIteration, iteration, findingStats }) {
+  const todos = agent.state?.todos || [];
+  const totalTodos = todos.length;
+  const doneTodos = todos.filter((t) => t.status === "done" || t.status === "completed").length;
+  const pendingTodos = todos.filter((t) => t.status !== "done" && t.status !== "completed");
+  const { findingCount, minFindings } = findingStats;
+
+  if ((pendingTodos.length > 0 && iteration > REMINDER_AFTER_ITERATION) || findingCount < minFindings) {
+    const reminders = [];
+    if (pendingTodos.length > 0) {
+      reminders.push(
+        `⚠️ 待办未完成 (${doneTodos}/${totalTodos})：\n${pendingTodos
+          .slice(0, REMINDER_MAX_TODOS)
+          .map((t) => `  - ${t.text || t.content}`)
+          .join("\n")}`
+      );
+    }
+    if (findingCount < minFindings) {
+      reminders.push(`⚠️ 发现记录不足：当前 ${findingCount} 条，需要至少 ${minFindings} 条`);
+    }
+    if (reminders.length === 0) return [];
+
+    emitAgentEvent(
+      agent,
+      "prompt.reminder.injected",
+      {
+        runId: agent.state?.runId,
+        iteration: plannedIteration,
+        reason: [
+          pendingTodos.length > 0 ? "pending_todos" : null,
+          findingCount < minFindings ? "low_findings" : null,
+        ].filter(Boolean),
+        pendingTodos: pendingTodos.length,
+        doneTodos,
+        totalTodos,
+        findingCount,
+        minFindings,
+      },
+      { status: "injected", actor: "system" },
+      "prompt.reminder.injected"
+    );
+
+    return [
+      {
+        role: "system",
+        content: `<${EPHEMERAL_TAG.REMINDER}>\n${reminders.join("\n\n")}\n\n${REMINDER_TAIL}\n</${EPHEMERAL_TAG.REMINDER}>`,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function buildEphemeralMessages({
   agent,
   stageApi,
   context,
-  callModel,
-  responseHandler,
+  plannedIteration,
   iteration,
   toolCallCount,
-  systemRetryCount,
-  maxSystemRetriesPerIteration,
   convergencePolicy,
   convergence,
 }) {
-  const plannedIteration = iteration + 1;
-
-  const contextStatus = agent.getContextStatus?.() || {};
-  const totalTokens = contextStatus.tokenUsage?.total || 0;
-  const tokenPct = contextStatus.contextWindow
-    ? Math.round((totalTokens / contextStatus.contextWindow) * 100)
-    : 0;
-  const compressFlag = contextStatus.needsCompression ? " [COMPRESS]" : "";
-  const retryInfo =
-    responseHandler.retryCount > 0 ? ` (retry ${responseHandler.retryCount}/${responseHandler.maxRetries})` : "";
-  const systemRetryInfo =
-    systemRetryCount > 0 ? ` (sys-retry ${systemRetryCount}/${maxSystemRetriesPerIteration})` : "";
-  agent._logger?.debug?.(
-    `Iteration ${plannedIteration}/${agent.maxIterations}${retryInfo}${systemRetryInfo} | Tokens: ${totalTokens} (${tokenPct}%)${compressFlag} | Messages: ${agent.messages.length}`
-  );
-
-  // 预算检查
-  if (agent.budget?.isExhausted?.()) {
-    agent._logger?.warn?.("Budget exhausted");
-    return { status: "stop", reason: "budget_exhausted" };
-  }
-
-  agent._emit?.(DeepSearchEvents.AGENT_ITERATION, {
-    iteration: plannedIteration,
-    retry: responseHandler.retryCount,
-    systemRetry: systemRetryCount,
-  });
-
-  // Fail-safe: ensure any scheduled compression has applied before the model call.
-  await agent.flushCompression?.();
-
-  const shadow = stageApi.agent?.shadow || context.agent?.shadow;
   const baseMessages = agent.messages;
   const ephemeralMessages = [];
+
+  const shadow = stageApi.agent?.shadow || context.agent?.shadow;
   if (shadow) {
     const subconsciousAlert = shadow.getInjectedPrompt(baseMessages);
     if (subconsciousAlert) {
       agent._logger?.info?.("[Shadow] Injecting subconscious alert (ephemeral)");
-      try {
-        agent._emit?.(
-          "prompt.shadow.injected",
-          {
-            runId: agent.state?.runId,
-            iteration: plannedIteration,
-            chars: String(subconsciousAlert).length,
-            fingerprint: fingerprintText(subconsciousAlert),
-          },
-          { status: "injected", actor: "system" }
-        );
-      } catch {
-        // ignore
-      }
+      emitAgentEvent(
+        agent,
+        "prompt.shadow.injected",
+        {
+          runId: agent.state?.runId,
+          iteration: plannedIteration,
+          chars: String(subconsciousAlert).length,
+          fingerprint: fingerprintText(subconsciousAlert),
+        },
+        { status: "injected", actor: "system" },
+        "prompt.shadow.injected"
+      );
       ephemeralMessages.push({ role: "user", content: subconsciousAlert });
     }
   }
@@ -580,22 +683,20 @@ export async function runPlanningPhaseIteration({
       if (claimIds.length > 0 || gapIds.length > 0) {
         agent._logger?.debug?.(`Blackboard: Claims=${claimIds.length}, Gaps=${gapIds.length}`);
       }
-      try {
-        agent._emit?.(
-          "prompt.blackboard.injected",
-          {
-            runId: agent.state?.runId,
-            iteration: plannedIteration,
-            claimCount: claimIds.length,
-            gapCount: gapIds.length,
-            chars: String(blackboardPrompt).length,
-            fingerprint: fingerprintText(blackboardPrompt),
-          },
-          { status: "injected", actor: "system" }
-        );
-      } catch {
-        // ignore
-      }
+      emitAgentEvent(
+        agent,
+        "prompt.blackboard.injected",
+        {
+          runId: agent.state?.runId,
+          iteration: plannedIteration,
+          claimCount: claimIds.length,
+          gapCount: gapIds.length,
+          chars: String(blackboardPrompt).length,
+          fingerprint: fingerprintText(blackboardPrompt),
+        },
+        { status: "injected", actor: "system" },
+        "prompt.blackboard.injected"
+      );
       ephemeralMessages.push({
         role: "system",
         content: `<${EPHEMERAL_TAG.BLACKBOARD}>\n${blackboardPrompt}\n</${EPHEMERAL_TAG.BLACKBOARD}>`,
@@ -647,20 +748,18 @@ export async function runPlanningPhaseIteration({
     const memoryContext = agent.memory.buildPromptContext();
     if (memoryContext) {
       agent._logger?.info?.("[Memory] Injecting unified context (ephemeral)");
-      try {
-        agent._emit?.(
-          "prompt.memory.injected",
-          {
-            runId: agent.state?.runId,
-            iteration: plannedIteration,
-            chars: String(memoryContext).length,
-            fingerprint: fingerprintText(memoryContext),
-          },
-          { status: "injected", actor: "system" }
-        );
-      } catch {
-        // ignore
-      }
+      emitAgentEvent(
+        agent,
+        "prompt.memory.injected",
+        {
+          runId: agent.state?.runId,
+          iteration: plannedIteration,
+          chars: String(memoryContext).length,
+          fingerprint: fingerprintText(memoryContext),
+        },
+        { status: "injected", actor: "system" },
+        "prompt.memory.injected"
+      );
       ephemeralMessages.push({
         role: "system",
         content: `<${EPHEMERAL_TAG.MEMORY}>\n${memoryContext}\n</${EPHEMERAL_TAG.MEMORY}>`,
@@ -669,119 +768,78 @@ export async function runPlanningPhaseIteration({
   }
 
   // ===== 预算进度提示 =====
-  const writeStartIteration = agent.maxIterations - agent.writeIterations + 1;
-  const phase =
-    plannedIteration < writeStartIteration * WRITE_PHASE_CUTOFF_RATIO
-      ? "收集"
-      : plannedIteration < writeStartIteration
-        ? "验证"
-        : "写作";
-  const budgetStatus = `[预算] 迭代 ${plannedIteration}/${agent.maxIterations} | 工具 ${toolCallCount}/${agent.maxToolCalls} | 阶段: ${phase}`;
-  ephemeralMessages.push({
-    role: "system",
-    content: `<${EPHEMERAL_TAG.BUDGET}>${budgetStatus}</${EPHEMERAL_TAG.BUDGET}>`,
+  ephemeralMessages.push(buildBudgetEphemeralMessage({ agent, plannedIteration, toolCallCount }));
+
+  const findingStats = getFindingStats(agent);
+  // ===== Gap 收敛策略（防“调研黑洞”） =====
+  ephemeralMessages.push(
+    ...buildConvergenceEphemeralMessages({ agent, plannedIteration, convergencePolicy, convergence, findingStats })
+  );
+  // ===== 待办状态检查提醒 =====
+  ephemeralMessages.push(...buildReminderEphemeralMessages({ agent, plannedIteration, iteration, findingStats }));
+
+  return { baseMessages, ephemeralMessages };
+}
+
+/**
+ * 运行单轮规划阶段：注入临时上下文、调用模型、并通过 responseHandler 解析决策。
+ * @param {RunPlanningPhaseIterationParams} params
+ * @returns {Promise<PlanningIterationResult>}
+ */
+export async function runPlanningPhaseIteration({
+  agent,
+  stageApi,
+  context,
+  callModel,
+  responseHandler,
+  iteration,
+  toolCallCount,
+  systemRetryCount,
+  maxSystemRetriesPerIteration,
+  convergencePolicy,
+  convergence,
+}) {
+  const plannedIteration = iteration + 1;
+
+  const contextStatus = agent.getContextStatus?.() || {};
+  const totalTokens = contextStatus.tokenUsage?.total || 0;
+  const tokenPct = contextStatus.contextWindow
+    ? Math.round((totalTokens / contextStatus.contextWindow) * 100)
+    : 0;
+  const compressFlag = contextStatus.needsCompression ? " [COMPRESS]" : "";
+  const retryInfo =
+    responseHandler.retryCount > 0 ? ` (retry ${responseHandler.retryCount}/${responseHandler.maxRetries})` : "";
+  const systemRetryInfo =
+    systemRetryCount > 0 ? ` (sys-retry ${systemRetryCount}/${maxSystemRetriesPerIteration})` : "";
+  agent._logger?.debug?.(
+    `Iteration ${plannedIteration}/${agent.maxIterations}${retryInfo}${systemRetryInfo} | Tokens: ${totalTokens} (${tokenPct}%)${compressFlag} | Messages: ${agent.messages.length}`
+  );
+
+  // 预算检查
+  if (agent.budget?.isExhausted?.()) {
+    agent._logger?.warn?.("Budget exhausted");
+    return { status: "stop", reason: "budget_exhausted" };
+  }
+
+  agent._emit?.(DeepSearchEvents.AGENT_ITERATION, {
+    iteration: plannedIteration,
+    retry: responseHandler.retryCount,
+    systemRetry: systemRetryCount,
   });
 
-  // ===== 待办状态检查提醒 =====
-  const todos = agent.state?.todos || [];
-  const totalTodos = todos.length;
-  const doneTodos = todos.filter((t) => t.status === "done" || t.status === "completed").length;
-  const pendingTodos = todos.filter((t) => t.status !== "done" && t.status !== "completed");
+  // Fail-safe: ensure any scheduled compression has applied before the model call.
+  await agent.flushCompression?.();
 
-  // 发现记录数量检查
-  let findingCount = 0;
-  let findingClaims = 0;
-  let findingGaps = 0;
-  if (agent.sharedContext) {
-    const claims = agent.sharedContext.search?.("finding_claim") || [];
-    const gaps = agent.sharedContext.search?.("finding_gap") || [];
-    findingClaims = claims.length;
-    findingGaps = gaps.length;
-    findingCount = findingClaims + findingGaps;
-  }
-  const minFindings = DEFAULT_MIN_FINDINGS_BY_MODE[agent.mode] || DEFAULT_MIN_FINDINGS_BY_MODE.default;
-
-  // ===== Gap 收敛策略（防“调研黑洞”） =====
-  const convergenceNotes = [];
-  if (convergencePolicy.maxFindingGaps > 0 && findingGaps >= convergencePolicy.maxFindingGaps) {
-    convergenceNotes.push(
-      `⚠️ Gap 预算已达上限：${findingGaps}/${convergencePolicy.maxFindingGaps}。本轮请停止新增 gaps，优先合并/去重并填补最重要的 3 个。`
-    );
-  }
-  if (convergence.gapOnlyStreak >= convergencePolicy.gapOnlyStreakLimit && findingGaps > 0) {
-    convergenceNotes.push(
-      `⚠️ 连续 ${convergence.gapOnlyStreak} 轮只新增 gaps 且无新增 claims/完成 todo（边际收益低）。本轮请先把 gaps 变成可验证 claims，或将无法填补的 gap 标记为 blocked/cancelled。`
-    );
-  }
-  if (convergence.noProgressStreak >= convergencePolicy.noProgressStreakLimit && findingClaims >= minFindings) {
-    convergenceNotes.push(
-      `⚠️ 连续 ${convergence.noProgressStreak} 轮无有效进展（claims/todos）。已达到最小发现门槛 ${findingClaims}/${minFindings}，请收敛范围并进入写作/总结。`
-    );
-  }
-  if (convergenceNotes.length > 0) {
-    try {
-      agent._emit?.(
-        "prompt.convergence.injected",
-        {
-          runId: agent.state?.runId,
-          iteration: plannedIteration,
-          noteCount: convergenceNotes.length,
-          findingClaims,
-          findingGaps,
-        },
-        { status: "injected", actor: "system" }
-      );
-    } catch {
-      // ignore
-    }
-    ephemeralMessages.push({
-      role: "system",
-      content: `<${EPHEMERAL_TAG.CONVERGENCE}>\n${convergenceNotes.join("\n")}\n</${EPHEMERAL_TAG.CONVERGENCE}>`,
-    });
-  }
-
-  // 如果待办未完成或发现不足，注入强提醒
-  if ((pendingTodos.length > 0 && iteration > REMINDER_AFTER_ITERATION) || findingCount < minFindings) {
-    const reminders = [];
-    if (pendingTodos.length > 0) {
-      reminders.push(
-        `⚠️ 待办未完成 (${doneTodos}/${totalTodos})：\n${pendingTodos
-          .slice(0, REMINDER_MAX_TODOS)
-          .map((t) => `  - ${t.text || t.content}`)
-          .join("\n")}`
-      );
-    }
-    if (findingCount < minFindings) {
-      reminders.push(`⚠️ 发现记录不足：当前 ${findingCount} 条，需要至少 ${minFindings} 条`);
-    }
-    if (reminders.length > 0) {
-      try {
-        agent._emit?.(
-          "prompt.reminder.injected",
-          {
-            runId: agent.state?.runId,
-            iteration: plannedIteration,
-            reason: [
-              pendingTodos.length > 0 ? "pending_todos" : null,
-              findingCount < minFindings ? "low_findings" : null,
-            ].filter(Boolean),
-            pendingTodos: pendingTodos.length,
-            doneTodos,
-            totalTodos,
-            findingCount,
-            minFindings,
-          },
-          { status: "injected", actor: "system" }
-        );
-      } catch {
-        // ignore
-      }
-      ephemeralMessages.push({
-        role: "system",
-        content: `<${EPHEMERAL_TAG.REMINDER}>\n${reminders.join("\n\n")}\n\n${REMINDER_TAIL}\n</${EPHEMERAL_TAG.REMINDER}>`,
-      });
-    }
-  }
+  const { baseMessages, ephemeralMessages } = buildEphemeralMessages({
+    agent,
+    stageApi,
+    context,
+    plannedIteration,
+    iteration,
+    toolCallCount,
+    convergencePolicy,
+    convergence,
+  });
 
   const transientMessages = ephemeralMessages.length > 0 ? [...baseMessages, ...ephemeralMessages] : baseMessages;
 

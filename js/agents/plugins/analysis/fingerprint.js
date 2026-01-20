@@ -11,15 +11,35 @@ import { createPlugin } from '../../core/plugin.js';
 /**
  * @typedef {{ action: string, fingerprint: string, timestamp: number }} FingerprintHistoryEntry
  *
+ * @typedef {{ type?: string, name?: string, params?: Record<string, unknown>, args?: Record<string, unknown> }} FingerprintAction
+ *
+ * @typedef {{ pattern: string[], count: number, startPosition: number, totalLoopsDetected: number }} FingerprintLoopInfo
+ * @typedef {{ pattern: string[], count: number, positions: number[] }} FingerprintRepeatingPattern
+ * @typedef {{ pattern: string[], consecutiveCount: number, startPos: number }} FingerprintConsecutiveLoop
+ *
+ * @typedef {{
+ *   totalActions: number,
+ *   uniqueActions: number,
+ *   diversityScore: number,
+ *   actionFrequency: Record<string, number>,
+ *   repeatingPatterns: FingerprintRepeatingPattern[],
+ *   consecutiveLoops: FingerprintConsecutiveLoop[],
+ *   loopCount: number,
+ *   lastLoopPattern: FingerprintConsecutiveLoop | null,
+ * }} FingerprintAnalysis
+ *
+ * @typedef {{ action: string, severity: string, reason: string, suggestion: string | null }} FingerprintSuggestion
+ * @typedef {{ historySize: number, maxHistorySize: number, loopCount: number, hasActiveLoop: boolean }} FingerprintStats
+ *
  * @typedef {{
  *   fingerprint: string,
  *   similarity: number,
  *   isLoop: boolean,
  *   loopLength: number,
- *   loopInfo: any,
- *   analysis: any,
- *   suggestion: any,
- *   stats: any,
+ *   loopInfo: FingerprintLoopInfo | null,
+ *   analysis: FingerprintAnalysis | null,
+ *   suggestion: FingerprintSuggestion | null,
+ *   stats: FingerprintStats | null,
  *   timestamp: number,
  * }} FingerprintAnalysisResult
  */
@@ -75,7 +95,7 @@ export default createPlugin({
     // 注册服务
     ctx.registerService('fingerprint', {
       /**
-       * @param {any} action
+       * @param {FingerprintAction} [action] - Action payload to analyze.
        * @returns {Promise<FingerprintAnalysisResult>}
        */
       async analyze(action) {
@@ -114,7 +134,7 @@ export default createPlugin({
         ctx.state.set('lastAnalysis', result);
 
         if (result.isLoop || result.similarity > ctx.config.similarityThreshold) {
-          ctx.events.emit('fingerprint.loop.detected', {
+          ctx.events.emit('fingerprint:loopDetected', {
             action,
             similarity: result.similarity,
             loopLength: result.loopLength,

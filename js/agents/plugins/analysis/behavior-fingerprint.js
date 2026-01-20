@@ -39,7 +39,7 @@ function hashString(str) {
 
 /**
  * 创建行为签名
- * @param {object} action
+ * @param {object} action - Action payload to fingerprint.
  * @returns {string}
  */
 function createActionSignature(action) {
@@ -54,9 +54,9 @@ function createActionSignature(action) {
 
 /**
  * 检测重复子序列
- * @param {string[]} sequence
- * @param {number} minLength
- * @param {number} maxLength
+ * @param {string[]} sequence - Sequence of action signatures.
+ * @param {number} minLength - Minimum pattern length.
+ * @param {number} maxLength - Maximum pattern length.
  * @returns {Array<{ pattern: string[], count: number, positions: number[] }>}
  */
 function findRepeatingPatterns(sequence, minLength, maxLength) {

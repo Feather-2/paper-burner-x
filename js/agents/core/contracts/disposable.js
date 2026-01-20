@@ -11,7 +11,7 @@
 
 /**
  * 检查对象是否实现 Disposable 接口
- * @param {any} obj
+ * @param {unknown} obj
  * @returns {obj is Disposable}
  */
 export function isDisposable(obj) {
@@ -25,7 +25,7 @@ export function isDisposable(obj) {
 
 /**
  * 安全调用 dispose（已释放则跳过，异常不抛出）
- * @param {any} obj
+ * @param {unknown} obj
  * @param {Object} [options]
  * @param {(error: Error) => void} [options.onError] - 错误回调
  * @returns {Promise<boolean>} 是否成功释放
@@ -42,8 +42,13 @@ export async function safeDispose(obj, options = {}) {
     if (typeof options.onError === "function") {
       try {
         options.onError(error);
-      } catch {
-        // 吞掉 onError 回调异常，保持 safeDispose 永不抛错
+      } catch (onErrorError) {
+        console.warn(
+          "[safeDispose] onError callback failed:",
+          onErrorError instanceof Error
+            ? onErrorError.message
+            : String(onErrorError)
+        );
       }
     } else {
       console.warn("[safeDispose] error:", error.message);
@@ -54,9 +59,9 @@ export async function safeDispose(obj, options = {}) {
 
 /**
  * 批量 dispose（并行执行，全部完成后返回）
- * @param {Iterable<any>} items
+ * @param {Iterable<unknown>} items
  * @param {Object} [options]
- * @param {(error: Error, item: any) => void} [options.onError]
+ * @param {(error: Error, item: unknown) => void} [options.onError]
  * @returns {Promise<{total: number, success: number, failed: number}>}
  */
 export async function disposeAll(items, options = {}) {
@@ -83,8 +88,8 @@ export async function disposeAll(items, options = {}) {
  * 使用资源后自动释放（类似 Python with 语句）
  * @template T
  * @param {T & Disposable} resource
- * @param {(resource: T) => Promise<any>} fn
- * @returns {Promise<any>}
+ * @param {(resource: T) => Promise<unknown>} fn
+ * @returns {Promise<unknown>}
  */
 export async function using(resource, fn) {
   try {

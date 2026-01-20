@@ -6,6 +6,30 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] error-handling
+*Archived: 2026-01-20T04:28:10.409Z*
+
+- **File**: js/agents/stages/deepsearch/phases/planning-phase.js:498
+- **Description**: 多处空 catch 块直接忽略异常，不符合“异常需记录或重新抛出”的规范，会隐藏监控问题。
+- **Suggestion**: 至少记录 debug/warn 日志或附带上下文重抛；若需忽略，注明原因并收敛到统一辅助函数。
+```
+} catch { // ignore }
+```
+
+### [RESOLVED] complexity
+*Archived: 2026-01-20T04:28:10.409Z*
+
+- **File**: js/agents/stages/deepsearch/phases/planning-phase.js:436
+- **Description**: runPlanningPhaseIteration 过长且职责混杂（注入/预算/提醒/模型调用），超过 50 行与嵌套≤3 的约定，维护成本高。
+- **Suggestion**: 拆分为独立 helper（如 buildEphemeralMessages、injectBudget 提示、injectReminder）以降低复杂度。
+```
+export async function runPlanningPhaseIteration({ ... }) {
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] input-validation
 *Archived: 2026-01-20T00:15:40.422Z*
 

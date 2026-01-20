@@ -116,6 +116,12 @@ import { createScreenshotStitcher } from "../internal/screenshot-stitcher.js";
  */
 
 /**
+ * @typedef {object} AppliedFix
+ * @property {ReviewFix} fix - Applied fix
+ * @property {{ success: boolean }} result - Batch edit result
+ */
+
+/**
  * @typedef {object} ReviewSummary
  * @property {string} status - Status string (优秀/良好/一般/需要改进)
  * @property {number} score - Score as percentage (0-100)
@@ -653,21 +659,23 @@ export class AutoReviewer {
   /**
    * 运行审查
    *
-   * @param {DeckPackage} deckPackage
-   * @param {any} designSystem
-   * @param {any} [options={}]
-   * @returns {Promise<AutoReviewResult>}
+   * @param {DeckPackage} deckPackage - Deck package to review
+   * @param {DesignSystem} designSystem - Design system for consistency check
+   * @param {ReviewOptions & { config?: Partial<typeof REVIEW_CONFIG> }} [options={}] - Review options
+   * @returns {Promise<AutoReviewResult>} Review result
    */
   async review(deckPackage, designSystem, options = {}) {
-    return runAutoReview(deckPackage, designSystem, { ...this._config, ...options });
+    const optionConfig = options?.config && typeof options.config === "object" ? options.config : {};
+    const mergedConfig = { ...this._config, ...optionConfig };
+    return runAutoReview(deckPackage, designSystem, { ...options, config: mergedConfig });
   }
 
   /**
    * 应用修复
    *
-   * @param {DeckPackage} deckPackage
-   * @param {ReviewFix[]} fixes
-   * @returns {Promise<{ fixedDeckHtmlDsl: string, appliedFixes: Array<any> }>}
+   * @param {DeckPackage} deckPackage - Deck package to update
+   * @param {ReviewFix[]} fixes - Fixes to apply
+   * @returns {Promise<{ fixedDeckHtmlDsl: string, appliedFixes: AppliedFix[] }>} Updated deck and applied fixes
    */
   async applyFixes(deckPackage, fixes) {
     this._editor.setDeckPackage(deckPackage);
@@ -689,7 +697,7 @@ export class AutoReviewer {
   /**
    * 获取配置
    *
-   * @returns {any}
+   * @returns {typeof REVIEW_CONFIG} Effective review config
    */
   getConfig() {
     return { ...this._config };

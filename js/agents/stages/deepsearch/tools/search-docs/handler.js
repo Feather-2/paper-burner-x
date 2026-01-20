@@ -260,7 +260,7 @@ export async function handler(args, context) {
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       emit?.("deepsearch:search_failed", { query, gapId, error, fallback: "local" });
-      return { success: false, error, fallback: "local" };
+      return { success: false, error: "Local search failed", fallback: "local" };
     }
   };
 

@@ -6,6 +6,20 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] prototype-pollution
+*Archived: 2026-01-20T04:20:06.429Z*
+
+- **File**: js/agents/cli/demo.js:70
+- **Description**: redactSensitive 把任意键复制到普通对象上，未过滤 __proto__/constructor/prototype，存在原型污染风险。
+- **Suggestion**: 改用 Object.create(null) 并过滤 __proto__/constructor/prototype 键，或使用安全的拷贝工具。
+```
+const out = {}; ... out[k] = redactSensitive(v, [...keyPath, k]);
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] error-handling/empty-catch
 *Archived: 2026-01-20T00:10:18.441Z*
 

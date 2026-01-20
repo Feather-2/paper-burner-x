@@ -6,6 +6,30 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] jsdoc-type
+*Archived: 2026-01-20T04:21:00.096Z*
+
+- **File**: js/agents/stages/deepsearch/tools/write-report/report-citations.js:8
+- **Description**: JSDoc 使用了 any 类型，违反项目“禁止 any”约定，降低类型可读性。
+- **Suggestion**: 为 state 定义明确的 @typedef（例如包含 L0.sources 结构），并在此处引用具体类型。
+```
+ * @param {any} state
+```
+
+### [RESOLVED] jsdoc-type
+*Archived: 2026-01-20T04:21:00.096Z*
+
+- **File**: js/agents/stages/deepsearch/tools/write-report/report-formatting.js:39
+- **Description**: JSDoc 使用了 any 类型，违反项目“禁止 any”约定。
+- **Suggestion**: 用包含 reportConfig.sectionWordLimits 的具体结构替代 any，并在文件顶部补充 @typedef。
+```
+ * @param {any} state
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] input-validation
 *Archived: 2026-01-20T00:11:38.634Z*
 

@@ -6,6 +6,29 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] cross-backend-consistency
+*Archived: 2026-01-20T04:20:26.064Z*
+
+- **File**: js/agents/vfs/vfs.opfs.js:125
+- **Description**: OpfsVfs.readFile 在文件不存在时返回 null，而 Memory/Storage/Node VFS 抛 ENOENT，跨后端行为不一致，影响调用方的错误分支处理。
+- **Suggestion**: 统一 readFile 缺失文件的语义（全部抛 ENOENT 或全部返回 null），并同步更新文档/调用方逻辑。
+```
+    try {
+      const handle = await getFileHandle(this._root, p, { create: false });
+      const file = await handle.getFile();
+      const buf = await file.arrayBuffer();
+      return new Uint8Array(buf);
+    } catch (err) {
+      if (err?.name === "NotFoundError") return null;
+      if (err?.name === "TypeMismatchError") throw new Error(`EISDIR: ${p}`);
+      throw err;
+    }
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] atomic-write
 *Archived: 2026-01-20T00:14:50.691Z*
 

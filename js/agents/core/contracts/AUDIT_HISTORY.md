@@ -6,6 +6,44 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] JSDoc 类型违规
+*Archived: 2026-01-20T04:21:30.135Z*
+
+- **File**: js/agents/core/contracts/disposable.js:14
+- **Description**: JSDoc 使用 {any}（Disposable 相关函数），违反“禁止 any”约定，降低类型约束与可读性。
+- **Suggestion**: 改为 {unknown} 或更具体的联合类型（如 Disposable | null | undefined），并补充必要的 typedef。
+```
+@param {any} obj
+```
+
+### [RESOLVED] 异常吞掉
+*Archived: 2026-01-20T04:21:30.135Z*
+
+- **File**: js/agents/core/contracts/disposable.js:43
+- **Description**: safeDispose 的 onError 回调异常被空 catch 吞掉，违反“不要吞掉异常”规范，可能隐藏二次故障。
+- **Suggestion**: 至少记录日志或包装后上抛；若必须吞掉，记录 debug 日志并说明原因。
+```
+try {
+  options.onError(error);
+} catch {
+  // 吞掉 onError 回调异常，保持 safeDispose 永不抛错
+}
+```
+
+### [RESOLVED] JSDoc 描述缺失
+*Archived: 2026-01-20T04:21:30.135Z*
+
+- **File**: js/agents/core/contracts/rpc-message.js:36
+- **Description**: 导出函数的 @param/@returns 缺少描述（示例见 validateRpcRequest），不符合 JSDoc 规范要求。
+- **Suggestion**: 为每个 @param/@returns 添加简短描述，例如“待验证的 RPC 请求”。
+```
+* @param {unknown} msg
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] 错误信息泄露
 *Archived: 2026-01-20T00:10:39.457Z*
 

@@ -6,6 +6,20 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] browser_compatibility
+*Archived: 2026-01-20T04:21:47.600Z*
+
+- **File**: js/agents/ingest/adapters/pptx.js:72
+- **Description**: PptxAdapter 的 Node-only fallback 依赖 `node:vm`；若打包到浏览器环境可能触发 bundler polyfill 或运行时崩溃。
+- **Suggestion**: 将 Node-only 逻辑拆到独立入口或条件导入，确保浏览器构建不包含 `node:` 模块。
+```
+const vm = await import("node:vm");
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] zip_bomb
 *Archived: 2026-01-20T00:14:57.690Z*
 

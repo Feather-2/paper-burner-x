@@ -4,6 +4,30 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] logic/config-override
+*Archived: 2026-01-20T04:25:50.507Z*
+
+- **File**: js/agents/stages/design/reviewer/auto-reviewer.js:327
+- **Description**: Config overrides passed via createAutoReviewer({ config }) or ReviewOptions are not applied; the checks/scoring read REVIEW_CONFIG directly, so customized thresholds are ignored.
+- **Suggestion**: Thread an effective config into runAutoReview and the check/score/summary helpers (e.g., context.config) and replace REVIEW_CONFIG usages so overrides affect thresholds and pass/fail decisions.
+```
+if (colorUsage.size > REVIEW_CONFIG.maxColorVariants) {
+```
+
+### [RESOLVED] jsdoc/typing
+*Archived: 2026-01-20T04:25:50.507Z*
+
+- **File**: js/agents/stages/design/reviewer/auto-reviewer.js:604
+- **Description**: Public API JSDoc uses `any` and omits required parameter descriptions, which violates the project’s JSDoc rules and hides concrete types.
+- **Suggestion**: Replace `any` with `DesignSystem`/`ReviewOptions` (and a typedef for appliedFixes), and add `- 描述` to @param/@returns entries for public APIs.
+```
+* @param {any} designSystem
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] JSDoc-any-usage

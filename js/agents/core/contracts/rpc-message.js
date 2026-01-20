@@ -33,8 +33,8 @@
 
 /**
  * 验证 RPC 请求
- * @param {unknown} msg
- * @returns {ValidationResult<RpcRequest>}
+ * @param {unknown} msg - Incoming RPC request message.
+ * @returns {ValidationResult<RpcRequest>} Validation result with normalized request.
  */
 export function validateRpcRequest(msg) {
   if (!msg || typeof msg !== "object") {
@@ -67,8 +67,8 @@ export function validateRpcRequest(msg) {
 
 /**
  * 验证 RPC 响应
- * @param {unknown} msg
- * @returns {ValidationResult<RpcResponse>}
+ * @param {unknown} msg - Incoming RPC response message.
+ * @returns {ValidationResult<RpcResponse>} Validation result with normalized response.
  */
 export function validateRpcResponse(msg) {
   if (!msg || typeof msg !== "object") {

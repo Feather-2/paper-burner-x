@@ -6,6 +6,23 @@ Archived issues from security audits.
 
 ## Archived: 2026-01-20
 
+### [RESOLVED] jsdoc
+*Archived: 2026-01-20T04:19:43.989Z*
+
+- **File**: js/agents/runtime/core/errors/silent-error-reporter.js:72
+- **Description**: 公共 API 的 JSDoc @param/@returns 缺少描述（如 constructor、setEnabled、isEnabled、getStats、export、getRecent），不符合项目 JSDoc 规范。
+- **Suggestion**: 为所有 public 方法的 @param/@returns 补充简要描述，确保符合 JSDoc 规范。
+```
+/**
+ * Enable or disable reporting
+ * @param {boolean} enabled
+ */
+```
+
+---
+
+## Archived: 2026-01-20
+
 ### [RESOLVED] resource-leak
 *Archived: 2026-01-20T00:10:22.820Z*
 
