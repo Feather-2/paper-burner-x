@@ -3,8 +3,9 @@ const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 /**
  * Check if a character is whitespace.
+ * @private
  * @param {string} c - Single character.
- * @returns {boolean}
+ * @returns {boolean} True if the character is whitespace.
  */
 function isWs(c) {
   return c === " " || c === "\n" || c === "\r" || c === "\t" || c === "\f";
@@ -12,8 +13,9 @@ function isWs(c) {
 
 /**
  * Check if a character is valid in an attribute name.
+ * @private
  * @param {string} c - Single character.
- * @returns {boolean}
+ * @returns {boolean} True if the character is valid in a name.
  */
 function isNameChar(c) {
   const code = c.charCodeAt(0);
@@ -29,9 +31,10 @@ function isNameChar(c) {
 
 /**
  * Scan and extract an attribute name starting at position i.
+ * @private
  * @param {string} tag - Full tag string.
  * @param {number} i - Start index.
- * @returns {{ name: string, end: number }} Lowercased name and new cursor position.
+ * @returns {{ name: string, end: number }} Parsed lowercased name and end index.
  */
 function scanAttrName(tag, i) {
   const start = i;
@@ -41,9 +44,10 @@ function scanAttrName(tag, i) {
 
 /**
  * Scan and extract an attribute value starting at position i (after '=').
+ * @private
  * @param {string} tag - Full tag string.
  * @param {number} i - Start index (should point at quote or first value char).
- * @returns {{ value: string, end: number }} Value and new cursor position.
+ * @returns {{ value: string, end: number }} Parsed value and end index.
  */
 function scanAttrValue(tag, i) {
   const quote = tag[i] === '"' || tag[i] === "'" ? tag[i] : null;

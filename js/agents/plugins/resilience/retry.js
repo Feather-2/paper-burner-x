@@ -17,7 +17,6 @@ export default createPlugin({
   defaultConfig: {
     maxRetries: 3,
     baseDelay: 1000,
-    maxDelay: 30000,
     retryableErrors: ['ETIMEDOUT', 'ECONNRESET', 'RATE_LIMIT'],
   },
 
@@ -59,7 +58,7 @@ export default createPlugin({
       const wrappedNext = async () => {
         attempts++;
         if (attempts > 1) {
-          ctx.events.emit('resilience.retry', {
+          ctx.events.emit('resilience:retry', {
             service: context.service,
             method: context.method,
             attempt: attempts,
@@ -74,7 +73,7 @@ export default createPlugin({
       try {
         return await originalInvoke(context, wrappedNext);
       } catch (error) {
-        ctx.events.emit('resilience.exhausted', {
+        ctx.events.emit('resilience:exhausted', {
           service: context.service,
           method: context.method,
           attempts,

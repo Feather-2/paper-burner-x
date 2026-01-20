@@ -5,6 +5,49 @@
  */
 import { isPlainObject, safeInt, safeNumber } from "../../../shared/index.js";
 
+const TOKENS_PER_1K = 1000;
+
+/**
+ * @typedef {object} PricingEntry
+ * @property {number} [input] - Input USD per 1K tokens
+ * @property {number} [inputPer1K] - Input USD per 1K tokens
+ * @property {number} [inputUsdPer1K] - Input USD per 1K tokens
+ * @property {number} [inputUSDPer1K] - Input USD per 1K tokens
+ * @property {number} [output] - Output USD per 1K tokens
+ * @property {number} [outputPer1K] - Output USD per 1K tokens
+ * @property {number} [outputUsdPer1K] - Output USD per 1K tokens
+ * @property {number} [outputUSDPer1K] - Output USD per 1K tokens
+ */
+
+/**
+ * @typedef {Record<string, PricingEntry>} PricingTable
+ */
+
+/**
+ * @typedef {object} ResolveModelPricingResult
+ * @property {string} modelKey - Resolved pricing key
+ * @property {PricingEntry} entry - Pricing entry for the model
+ */
+
+/**
+ * @typedef {object} UsageTotals
+ * @property {number} [input] - Input token count
+ * @property {number} [output] - Output token count
+ */
+
+/**
+ * @typedef {object} EstimateCostParams
+ * @property {string} [model] - Model identifier
+ * @property {UsageTotals} [usage] - Normalized token usage
+ * @property {PricingTable} [prices] - Pricing table keyed by model/prefix
+ */
+
+/**
+ * Resolve a pricing entry for a model id.
+ * @param {string} modelId - Model identifier to resolve
+ * @param {PricingTable} prices - Pricing table keyed by model id or prefix
+ * @returns {ResolveModelPricingResult|null} Resolved pricing info or null if not found
+ */
 export function resolveModelPricing(modelId, prices) {
   if (!isPlainObject(prices)) return null;
   const id = typeof modelId === "string" ? modelId : "";
@@ -27,8 +70,8 @@ export function resolveModelPricing(modelId, prices) {
 
 /**
  * Estimates cost delta in USD for a single model call.
- * @param {{model?:string, usage?:{input?:number,output?:number}, prices?:object}=} params
- * @returns {number}
+ * @param {EstimateCostParams} [params] - Pricing resolution inputs
+ * @returns {number} Estimated USD cost delta
  */
 export function estimateCostUSDDelta({ model, usage, prices } = {}) {
   const resolved = resolveModelPricing(model, prices);
@@ -42,8 +85,8 @@ export function estimateCostUSDDelta({ model, usage, prices } = {}) {
   const outputTokens = safeInt(usage?.output) ?? 0;
 
   const cost =
-    (inputPer1K !== null ? (Math.max(0, inputTokens) / 1000) * Math.max(0, inputPer1K) : 0) +
-    (outputPer1K !== null ? (Math.max(0, outputTokens) / 1000) * Math.max(0, outputPer1K) : 0);
+    (inputPer1K !== null ? (Math.max(0, inputTokens) / TOKENS_PER_1K) * Math.max(0, inputPer1K) : 0) +
+    (outputPer1K !== null ? (Math.max(0, outputTokens) / TOKENS_PER_1K) * Math.max(0, outputPer1K) : 0);
 
   return Number.isFinite(cost) ? cost : 0;
 }

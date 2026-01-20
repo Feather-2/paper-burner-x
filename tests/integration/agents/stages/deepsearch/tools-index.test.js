@@ -1,5 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+const subagentRuns = vi.hoisted(() => ({
+  researcher: vi.fn(),
+  analyzer: vi.fn(),
+}));
+
 const hoisted = vi.hoisted(() => {
   const makeTool = (name, { description = `${name} desc`, priority, handlerImpl } = {}) => {
     const handler = handlerImpl || vi.fn(async () => ({ success: true }));
@@ -61,22 +66,35 @@ function mockToolModule(tool) {
   };
 }
 
-vi.mock("../../../../js/agents/stages/deepsearch/tools/list-docs/handler.js", () => mockToolModule(hoisted.listDocs));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/read-doc/handler.js", () => mockToolModule(hoisted.readDoc));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/manage-todos/handler.js", () => mockToolModule(hoisted.manageTodos));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/search-docs/handler.js", () => mockToolModule(hoisted.searchDocs));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/write-report/handler.js", () => mockToolModule(hoisted.writeReport));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/watchdog/handler.js", () => mockToolModule(hoisted.watchdog));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/evaluate-gaps/handler.js", () => mockToolModule(hoisted.evaluateGaps));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/cross-verify/handler.js", () => mockToolModule(hoisted.crossVerify));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/refine-planning/handler.js", () => mockToolModule(hoisted.refinePlanning));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/task/handler.js", () => mockToolModule(hoisted.task));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/ask-user/handler.js", () => mockToolModule(hoisted.askUser));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/get-task-result/handler.js", () => mockToolModule(hoisted.getTaskResult));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/advise-task/handler.js", () => mockToolModule(hoisted.adviseTask));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/skill/handler.js", () => mockToolModule(hoisted.skill));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/record-finding/handler.js", () => mockToolModule(hoisted.recordFinding));
-vi.mock("../../../../js/agents/stages/deepsearch/tools/get-artifact/handler.js", () => mockToolModule(hoisted.getArtifact));
+vi.mock("../../../../../js/agents/stages/deepsearch/subagents.js", async () => {
+  const { globalSubagentRegistry } = await import("../../../../../js/agents/sdk/SubagentRegistry.js");
+
+  const makeFactory = (type) => async () => ({
+    run: (input, ctx) => subagentRuns[type](input, ctx),
+  });
+
+  globalSubagentRegistry.register("researcher", makeFactory("researcher"), "mock researcher");
+  globalSubagentRegistry.register("analyzer", makeFactory("analyzer"), "mock analyzer");
+
+  return {};
+});
+
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/list-docs/handler.js", () => mockToolModule(hoisted.listDocs));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/read-doc/handler.js", () => mockToolModule(hoisted.readDoc));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/manage-todos/handler.js", () => mockToolModule(hoisted.manageTodos));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/search-docs/handler.js", () => mockToolModule(hoisted.searchDocs));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/write-report/handler.js", () => mockToolModule(hoisted.writeReport));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/watchdog/handler.js", () => mockToolModule(hoisted.watchdog));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/evaluate-gaps/handler.js", () => mockToolModule(hoisted.evaluateGaps));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/cross-verify/handler.js", () => mockToolModule(hoisted.crossVerify));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/refine-planning/handler.js", () => mockToolModule(hoisted.refinePlanning));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/task/handler.js", () => mockToolModule(hoisted.task));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/ask-user/handler.js", () => mockToolModule(hoisted.askUser));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/get-task-result/handler.js", () => mockToolModule(hoisted.getTaskResult));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/advise-task/handler.js", () => mockToolModule(hoisted.adviseTask));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/skill/handler.js", () => mockToolModule(hoisted.skill));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/record-finding/handler.js", () => mockToolModule(hoisted.recordFinding));
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/get-artifact/handler.js", () => mockToolModule(hoisted.getArtifact));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -85,7 +103,7 @@ beforeEach(() => {
 describe("deepsearch/tools index", () => {
   it("exports tool definitions and renders catalog grouped by priority", async () => {
     const { tools, getToolDefinitions, getToolCatalogPrompt } = await import(
-      "../../../../js/agents/stages/deepsearch/tools/index.js"
+      "../../../../../js/agents/stages/deepsearch/tools/index.js"
     );
 
     expect(Object.keys(tools).length).toBeGreaterThan(5);
@@ -99,28 +117,28 @@ describe("deepsearch/tools index", () => {
   });
 
   it("getToolCatalogPrompt({showPriority:false}) omits priority group headings", async () => {
-    const { getToolCatalogPrompt } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
+    const { getToolCatalogPrompt } = await import("../../../../../js/agents/stages/deepsearch/tools/index.js");
     const prompt = getToolCatalogPrompt({ showPriority: false });
     expect(prompt).toContain("## 可用工具");
     expect(prompt).not.toContain("### 🔴");
   });
 
   it("executeTool(): returns unknown-tool error", async () => {
-    const { executeTool } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
+    const { executeTool } = await import("../../../../../js/agents/stages/deepsearch/tools/index.js");
     const out = await executeTool("missing-tool", {}, {});
     expect(out.success).toBe(false);
     expect(out.error).toContain("Unknown tool");
   });
 
   it("executeTool(): runs tool without traceContext/quota manager", async () => {
-    const { executeTool } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
+    const { executeTool } = await import("../../../../../js/agents/stages/deepsearch/tools/index.js");
     const out = await executeTool("list-docs", {}, {});
     expect(out.success).toBe(true);
     expect(hoisted.listDocs.handler).toHaveBeenCalledTimes(1);
   });
 
   it("executeTool(): sets span status when tool returns success:false", async () => {
-    const { executeTool } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
+    const { executeTool } = await import("../../../../../js/agents/stages/deepsearch/tools/index.js");
     const span = { setAttributes: vi.fn(), setStatus: vi.fn(), recordException: vi.fn() };
     const traceContext = { withSpan: vi.fn(async (_name, fn) => await fn(span)) };
 
@@ -131,7 +149,7 @@ describe("deepsearch/tools index", () => {
   });
 
   it("executeTool(): resolves quota manager via container and respects disabled quotas", async () => {
-    const { executeTool } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
+    const { executeTool } = await import("../../../../../js/agents/stages/deepsearch/tools/index.js");
 
     const quotaManager = {
       tryCall: vi.fn(() => ({ allowed: false, reason: "should-not-run" })),
@@ -147,7 +165,7 @@ describe("deepsearch/tools index", () => {
   });
 
   it("executeTool(): resolves quota manager from context.stageApi and honors mode=off/disabled", async () => {
-    const { executeTool } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
+    const { executeTool } = await import("../../../../../js/agents/stages/deepsearch/tools/index.js");
 
     const quotaManager = { tryCall: vi.fn(() => ({ allowed: false, reason: "should-not-run" })) };
     const stageApi = { toolQuotaManager: quotaManager };
@@ -158,7 +176,7 @@ describe("deepsearch/tools index", () => {
   });
 
   it("executeTool(): supports quota enforce=true (block mode) and swallows recordCall errors in warn mode", async () => {
-    const { executeTool } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
+    const { executeTool } = await import("../../../../../js/agents/stages/deepsearch/tools/index.js");
 
     const quotaManager = {
       tryCall: vi.fn(() => ({ allowed: false, reason: "nope" })),
@@ -178,7 +196,7 @@ describe("deepsearch/tools index", () => {
 
   it("createDeepSearchToolExecutor(): constructs a ToolExecutor instance", async () => {
     const { createDeepSearchToolExecutor, ToolExecutor } = await import(
-      "../../../../js/agents/stages/deepsearch/tools/index.js"
+      "../../../../../js/agents/stages/deepsearch/tools/index.js"
     );
     const exec = createDeepSearchToolExecutor();
     expect(exec).toBeInstanceOf(ToolExecutor);
@@ -186,7 +204,7 @@ describe("deepsearch/tools index", () => {
   });
 
   it("executeTool(): wraps handler with traceContext span, sets error status on success:false, and handles quota blocking", async () => {
-    const { executeTool } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
+    const { executeTool } = await import("../../../../../js/agents/stages/deepsearch/tools/index.js");
 
     const span = { setAttributes: vi.fn(), setStatus: vi.fn(), recordException: vi.fn() };
     const traceContext = {
@@ -215,7 +233,7 @@ describe("deepsearch/tools index", () => {
   });
 
   it("executeTool(): warn-mode quota continues execution and surfaces thrown tool errors", async () => {
-    const { executeTool } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
+    const { executeTool } = await import("../../../../../js/agents/stages/deepsearch/tools/index.js");
 
     const span = { setAttributes: vi.fn(), setStatus: vi.fn(), recordException: vi.fn() };
     const traceContext = { withSpan: vi.fn(async (_name, fn) => await fn(span)) };
@@ -234,5 +252,114 @@ describe("deepsearch/tools index", () => {
     expect(out.errorName).toBe("Error");
     expect(quotaManager.recordCall).toHaveBeenCalledTimes(1);
     expect(span.recordException).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("deepsearch/tools task handler", () => {
+  const buildContext = (overrides = {}) => ({
+    state: { L0: { sources: [] } },
+    emit: vi.fn(),
+    sharedContext: { store: vi.fn(), setSummary: vi.fn() },
+    stageApi: { env: {} },
+    ...overrides,
+  });
+
+  beforeEach(async () => {
+    const { resetTaskManager } = await vi.importActual(
+      "../../../../../js/agents/stages/deepsearch/tools/task/handler.js"
+    );
+    await resetTaskManager();
+    subagentRuns.researcher.mockReset();
+    subagentRuns.analyzer.mockReset();
+  });
+
+  it("handler(): completes sync task and returns summary", async () => {
+    const { handler } = await vi.importActual("../../../../../js/agents/stages/deepsearch/tools/task/handler.js");
+    subagentRuns.researcher.mockImplementation(async () => ({ ok: true, summary: "All good", report: "Report" }));
+
+    const out = await handler({ prompt: "do it", async: false }, buildContext());
+
+    expect(out.success).toBe(true);
+    expect(out.status).toBe("completed");
+    expect(out.summary).toBe("All good");
+  });
+
+  it("handler(): rejects empty prompt input", async () => {
+    const { handler } = await vi.importActual("../../../../../js/agents/stages/deepsearch/tools/task/handler.js");
+
+    const out = await handler({ prompt: "   " }, buildContext());
+
+    expect(out.success).toBe(false);
+    expect(out.error).toContain("non-empty");
+  });
+
+  it("handler(): maps execution timeout to friendly error", async () => {
+    const { handler } = await vi.importActual("../../../../../js/agents/stages/deepsearch/tools/task/handler.js");
+    subagentRuns.researcher.mockImplementation(
+      (_input, ctx) => new Promise((_, reject) => {
+        const signal = ctx?.signal;
+        if (!signal) return reject(new Error("missing signal"));
+        if (signal.aborted) return reject(signal.reason || new Error("aborted"));
+        signal.addEventListener("abort", () => reject(signal.reason || new Error("aborted")), { once: true });
+      })
+    );
+
+    const out = await handler(
+      { prompt: "wait", async: false },
+      buildContext({ stageApi: { env: { DEEPSEARCH_TASK_TIMEOUT_MS: 10 } } })
+    );
+
+    expect(out.success).toBe(false);
+    expect(out.status).toBe("failed");
+    expect(out.error).toBe("Task timed out. Please retry.");
+  });
+
+  it("handler(): honors parent abort signal", async () => {
+    const { handler } = await vi.importActual("../../../../../js/agents/stages/deepsearch/tools/task/handler.js");
+    subagentRuns.researcher.mockImplementation(
+      (_input, ctx) => new Promise((_, reject) => {
+        const signal = ctx?.signal;
+        if (!signal) return reject(new Error("missing signal"));
+        if (signal.aborted) return reject(signal.reason || new Error("aborted"));
+        signal.addEventListener("abort", () => reject(signal.reason || new Error("aborted")), { once: true });
+      })
+    );
+
+    const controller = new AbortController();
+    const abortError = new Error("user cancelled");
+    abortError.name = "AbortError";
+    setTimeout(() => controller.abort(abortError), 0);
+
+    const out = await handler(
+      { prompt: "stop", async: false },
+      buildContext({ stageApi: { env: {}, signal: controller.signal } })
+    );
+
+    expect(out.success).toBe(false);
+    expect(out.status).toBe("failed");
+    expect(out.error).toBe("Task was aborted.");
+  });
+
+  it("handler(): enforces max running tasks", async () => {
+    const { handler, waitForTask } = await vi.importActual("../../../../../js/agents/stages/deepsearch/tools/task/handler.js");
+    subagentRuns.researcher.mockImplementation(
+      (_input, ctx) => new Promise((_, reject) => {
+        const signal = ctx?.signal;
+        if (!signal) return reject(new Error("missing signal"));
+        if (signal.aborted) return reject(signal.reason || new Error("aborted"));
+        signal.addEventListener("abort", () => reject(signal.reason || new Error("aborted")), { once: true });
+      })
+    );
+
+    const stageApi = { env: { DEEPSEARCH_MAX_RUNNING_TASKS: 1, DEEPSEARCH_TASK_TIMEOUT_MS: 20 } };
+    const first = await handler({ prompt: "t1" }, buildContext({ stageApi }));
+    const second = await handler({ prompt: "t2" }, buildContext({ stageApi }));
+
+    expect(first.success).toBe(true);
+    expect(first.status).toBe("running");
+    expect(second.success).toBe(false);
+    expect(second.error).toContain("Too many running tasks");
+
+    await waitForTask(first.taskId, 200);
   });
 });

@@ -23,50 +23,119 @@ const logger = createLogger("runtime/api/stage-api-factory");
 
 /**
  * @typedef {Object} ServiceContainerLike
- * @property {(key: string) => any} [get]
- * @property {(key: string) => any} [tryGet]
+ * @property {(key: string) => unknown} [get]
+ * @property {(key: string) => unknown} [tryGet]
+ */
+
+/**
+ * @typedef {Object} EventBusBackpressureConfig
+ * @property {RegExp} [coalescePattern]
+ * @property {boolean} [deferNonCoalesced]
+ * @property {number} [maxQueueSize]
+ */
+
+/**
+ * @typedef {Object} EventBusLike
+ * @property {(name: string, record: Record<string, unknown>) => void} emit
+ * @property {(config: EventBusBackpressureConfig) => void} [enableBackpressure]
+ * @property {{ enabled?: boolean }} [_backpressure]
+ */
+
+/**
+ * @typedef {Object} TraceContextLike
+ * @property {(name: string, attrs?: Record<string, unknown>) => unknown} startSpan
+ * @property {(span: unknown) => void} endSpan
+ * @property {(name: string, fn: (...args: unknown[]) => unknown) => unknown} withSpan
+ * @property {() => string} getTraceparent
+ */
+
+/**
+ * @typedef {Object} RetryStrategyLike
+ * @property {(fn: () => Promise<unknown>, options?: { signal?: AbortSignal }) => Promise<unknown>} execute
+ */
+
+/**
+ * @typedef {Object} ErrorBoundaryLike
+ * @property {(fn: (...args: unknown[]) => unknown) => unknown} wrap
+ */
+
+/**
+ * @typedef {Object} ToolQuotaManagerLike
+ * @property {(toolName: string, fn: () => Promise<unknown>) => Promise<unknown>} tryCall
+ */
+
+/**
+ * @typedef {Object} MessageBusLike
+ * @property {(name: string, payload: unknown) => Promise<unknown>} request
+ * @property {(name: string, handler: (payload: unknown) => Promise<unknown>) => void} handle
+ */
+
+/**
+ * @typedef {Object} CircuitBreakerRegistryLike
+ * @property {(key: string, options?: Record<string, unknown>) => { execute: (fn: () => Promise<unknown>) => Promise<unknown> } | null} get
+ */
+
+/**
+ * @typedef {Object} AiApiServiceLike
+ * @property {(opts?: Record<string, unknown>) => Promise<unknown>} chat
+ * @property {CircuitBreakerRegistryLike} [circuitBreakerRegistry]
+ */
+
+/**
+ * @typedef {Object} McpClientLike
+ * @property {(toolName: string, args?: Record<string, unknown>, options?: { signal?: AbortSignal }) => Promise<unknown>} callTool
+ */
+
+/**
+ * @typedef {Object} LoggerLike
+ * @property {(message: string, err?: unknown) => void} debug
+ * @property {(message: string, err?: unknown) => void} warn
+ */
+
+/**
+ * @typedef {unknown} UnknownService
  */
 
 /**
  * @typedef {Object} StageApiFactoryServices
  * @property {AbortSignal|null} [signal]
- * @property {any} [eventBus]
- * @property {(name: string, record: any) => void} [emit]
- * @property {any} [traceContext]
+ * @property {EventBusLike} [eventBus]
+ * @property {(name: string, record: Record<string, unknown>) => void} [emit]
+ * @property {TraceContextLike} [traceContext]
  * @property {string} [traceparent]
  * @property {ServiceContainerLike} [container]
- * @property {any} [aiApiService]
- * @property {any} [modelRouter]
- * @property {any} [localRetriever]
- * @property {any} [externalSearchProvider]
- * @property {any} [mcpClient]
- * @property {any} [mcpResources]
- * @property {any} [circuitBreakerRegistry]
- * @property {any} [retryStrategy]
- * @property {any} [errorBoundary]
- * @property {any} [toolQuotaManager]
- * @property {any} [messageBus]
- * @property {any} [eventBusBackpressure]
- * @property {any} [backpressure]
- * @property {any} [storageAdapter]
- * @property {any} [ocr]
- * @property {any} [imageProvider]
- * @property {any} [svgGenerator]
- * @property {any} [archive]
- * @property {any} [logger]
- * @property {any} [vfs]
- * @property {any} [policy]
- * @property {any} [runtimeScheduler]
- * @property {any} [pythonSkillExecutor]
- * @property {any} [jsAdapter]
- * @property {any} [hnswIndex]
- * @property {any} [schemaValidator]
- * @property {any} [deltaSyncSession]
- * @property {any} [fileLock]
- * @property {any} [tocBuilder]
- * @property {any} [policyManager]
- * @property {any} [replayController]
- * @property {any} [sharedMemoryBridge]
+ * @property {AiApiServiceLike} [aiApiService]
+ * @property {UnknownService} [modelRouter]
+ * @property {UnknownService} [localRetriever]
+ * @property {McpClientLike} [externalSearchProvider]
+ * @property {McpClientLike} [mcpClient]
+ * @property {UnknownService} [mcpResources]
+ * @property {CircuitBreakerRegistryLike} [circuitBreakerRegistry]
+ * @property {RetryStrategyLike} [retryStrategy]
+ * @property {ErrorBoundaryLike} [errorBoundary]
+ * @property {ToolQuotaManagerLike} [toolQuotaManager]
+ * @property {MessageBusLike} [messageBus]
+ * @property {EventBusBackpressureConfig | false} [eventBusBackpressure]
+ * @property {EventBusBackpressureConfig | false} [backpressure]
+ * @property {UnknownService} [storageAdapter]
+ * @property {UnknownService} [ocr]
+ * @property {UnknownService} [imageProvider]
+ * @property {UnknownService} [svgGenerator]
+ * @property {UnknownService} [archive]
+ * @property {LoggerLike} [logger]
+ * @property {UnknownService} [vfs]
+ * @property {UnknownService} [policy]
+ * @property {UnknownService} [runtimeScheduler]
+ * @property {UnknownService} [pythonSkillExecutor]
+ * @property {UnknownService} [jsAdapter]
+ * @property {UnknownService} [hnswIndex]
+ * @property {UnknownService} [schemaValidator]
+ * @property {UnknownService} [deltaSyncSession]
+ * @property {UnknownService} [fileLock]
+ * @property {UnknownService} [tocBuilder]
+ * @property {UnknownService} [policyManager]
+ * @property {UnknownService} [replayController]
+ * @property {UnknownService} [sharedMemoryBridge]
  */
 
 // 必需字段验证
@@ -460,8 +529,9 @@ function recordTokenTrackingSuccess(resp, opts, latencyMs) {
       latencyMs,
       success: true,
     });
-  } catch {
+  } catch (err) {
     // Ignore tracker errors
+    logger.debug("[recordTokenTrackingSuccess] token tracker failed", err);
   }
 }
 
@@ -484,8 +554,9 @@ function recordTokenTrackingFailure(opts, latencyMs, err) {
       success: false,
       error: err instanceof Error ? err.message : String(err),
     });
-  } catch {
+  } catch (err) {
     // Ignore tracker errors
+    logger.debug("[recordTokenTrackingFailure] token tracker failed", err);
   }
 }
 

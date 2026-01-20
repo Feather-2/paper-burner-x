@@ -396,6 +396,9 @@ export function extractManifestFromSkill(metadata) {
 
 /**
  * 推断 Tool 所需权限
+ * @private
+ * @param {Object} definition - Tool definition
+ * @returns {PermissionValue[]} 权限列表
  */
 function inferPermissions(definition) {
   const permissions = [];
@@ -423,6 +426,9 @@ function inferPermissions(definition) {
 
 /**
  * 推断 Skill 所需权限
+ * @private
+ * @param {Object} metadata - Skill metadata
+ * @returns {PermissionValue[]} 权限列表
  */
 function inferSkillPermissions(metadata) {
   const permissions = [];
@@ -452,6 +458,9 @@ export class ManifestRegistry {
 
   /**
    * 注册 Manifest
+   * @param {ManifestSchema} manifest - Manifest 数据
+   * @returns {ManifestRegistry} 当前 registry
+   * @throws {Error} Manifest 校验失败时抛出
    */
   register(manifest) {
     const { valid, errors } = validateManifest(manifest);
@@ -464,6 +473,8 @@ export class ManifestRegistry {
 
   /**
    * 批量注册
+   * @param {ManifestSchema[]} manifests - Manifest 列表
+   * @returns {ManifestRegistry} 当前 registry
    */
   registerAll(manifests) {
     for (const m of manifests) {
@@ -474,6 +485,8 @@ export class ManifestRegistry {
 
   /**
    * 获取 Manifest
+   * @param {string} name - Manifest 名称
+   * @returns {ManifestSchema|null} 找到的 Manifest
    */
   get(name) {
     return this._manifests.get(name) || null;
@@ -481,6 +494,8 @@ export class ManifestRegistry {
 
   /**
    * 按类型获取
+   * @param {PluginTypeValue} type - 插件类型
+   * @returns {ManifestSchema[]} 匹配的 Manifest 列表
    */
   getByType(type) {
     return Array.from(this._manifests.values()).filter(m => m.type === type);
@@ -488,6 +503,8 @@ export class ManifestRegistry {
 
   /**
    * 按权限过滤
+   * @param {PermissionValue} permission - 权限
+   * @returns {ManifestSchema[]} 匹配的 Manifest 列表
    */
   filterByPermission(permission) {
     return Array.from(this._manifests.values()).filter(
@@ -497,6 +514,7 @@ export class ManifestRegistry {
 
   /**
    * 获取所有 Manifest
+   * @returns {ManifestSchema[]} 所有已注册的 Manifest
    */
   getAll() {
     return Array.from(this._manifests.values());
@@ -504,6 +522,7 @@ export class ManifestRegistry {
 
   /**
    * 导出为 JSON
+   * @returns {{ version: string, manifests: ManifestSchema[] }} 序列化数据
    */
   toJSON() {
     return {
@@ -514,6 +533,8 @@ export class ManifestRegistry {
 
   /**
    * 从 JSON 导入
+   * @param {{ version?: string, manifests?: ManifestSchema[] }} json - 序列化数据
+   * @returns {ManifestRegistry} registry 实例
    */
   static fromJSON(json) {
     const registry = new ManifestRegistry();
@@ -525,6 +546,7 @@ export class ManifestRegistry {
 
   /**
    * 清空
+   * @returns {void}
    */
   clear() {
     this._manifests.clear();
@@ -532,6 +554,7 @@ export class ManifestRegistry {
 
   /**
    * 数量
+   * @returns {number} 已注册数量
    */
   get size() {
     return this._manifests.size;

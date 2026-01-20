@@ -4,7 +4,7 @@ import { stripThinkingTags as _stripThinkingTags, extractJsonCandidate as _extra
 
 /**
  * Normalize token usage from various provider formats.
- * @param {any} usage
+ * @param {unknown} usage - Raw usage payload from providers.
  * @returns {import("../model/usage.js").NormalizedTokenUsage|null}
  */
 export const normalizeTokenUsage = _normalizeTokenUsage;
@@ -51,7 +51,7 @@ const DEFAULT_MODEL_PRICES_USD_PER_1K = Object.freeze({
 
 /**
  * Ensure a stable token-usage shape `{input, output, total, estimatedCostUSD}`.
- * @param {any} v
+ * @param {unknown} v - Raw usage payload with optional cost fields.
  * @returns {TokenUsageWithCost}
  */
 export function ensureTokenUsage(v) {
@@ -68,6 +68,7 @@ export function ensureTokenUsage(v) {
   return { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
 }
 
+/** @private */
 function normalizeBudgetAction(v) {
   const s = toNonEmptyString(v);
   if (s === "warn" || s === "degrade" || s === "stop") return s;
@@ -76,6 +77,7 @@ function normalizeBudgetAction(v) {
 
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+/** @private */
 function normalizeModelPrices(raw) {
   const prices = isPlainObject(raw) ? raw : {};
   const out = Object.create(null);
@@ -114,7 +116,7 @@ function normalizeModelPrices(raw) {
 
 /**
  * Normalize and merge the budget configuration with defaults.
- * @param {any} raw
+ * @param {unknown} raw - User-supplied budget configuration.
  * @returns {BudgetConfig}
  */
 export function normalizeBudgetConfig(raw) {
@@ -139,7 +141,7 @@ export function normalizeBudgetConfig(raw) {
 
 /**
  * Strip DeepSeek-R1 style `<think>...</think>` blocks from output.
- * @param {any} text
+ * @param {string} text - Model output text.
  * @returns {string}
  */
 export const stripThinkingTags = _stripThinkingTags;

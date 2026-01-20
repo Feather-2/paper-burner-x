@@ -198,5 +198,8 @@ export async function planSlides(chunks, constraints = {}) {
   return heuristicPlan(chunks, constraints);
 }
 
-// Back-compat alias (older tests/code may call generateSlideIntents).
+/**
+ * Back-compat alias (older tests/code may call generateSlideIntents).
+ * @deprecated Use planSlides instead.
+ */
 export const generateSlideIntents = planSlides;

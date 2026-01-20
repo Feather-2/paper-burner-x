@@ -4,6 +4,70 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] JSDoc type safety
+*Archived: 2026-01-20T00:26:53.779Z*
+
+- **File**: `js/agents/stages/deepsearch/utils/stage-api.js`:55
+- **Description**: Public API JSDoc 使用 `any`/`Record<string, any>` 且缺少参数描述，违反规范并削弱类型约束。
+- **Suggestion**: 将 `any` 替换为 `unknown`/明确类型，并补全 `@param ... - 描述`。
+```
+@param {any} api
+```
+
+### [RESOLVED] JSDoc type safety
+*Archived: 2026-01-20T00:26:53.779Z*
+
+- **File**: `js/agents/stages/deepsearch/utils/state-utils.js`:7
+- **Description**: 公共导出的 JSDoc 参数类型为 `any` 且缺少描述，不符合 JSDoc 规范要求。
+- **Suggestion**: 为 `normalizeTokenUsage`/`ensureTokenUsage`/`normalizeBudgetConfig`/`stripThinkingTags` 标注具体类型并补全描述。
+```
+@param {any} usage
+```
+
+### [RESOLVED] JSDoc type safety
+*Archived: 2026-01-20T00:26:53.779Z*
+
+- **File**: `js/agents/stages/deepsearch/utils/todo-utils.js`:109
+- **Description**: 公共 API 仍使用 `any`，且参数说明缺失，降低类型可读性与约束。
+- **Suggestion**: 将 `any` 替换为具体类型/`unknown`，并补全 public API 的参数描述。
+```
+@param {Partial<DeepSearchTodo> & Record<string, any>} [params]
+```
+
+### [RESOLVED] JSDoc @private missing
+*Archived: 2026-01-20T00:26:53.779Z*
+
+- **File**: `js/agents/stages/deepsearch/utils/state-utils.js`:71
+- **Description**: 内部 helper 未标记 `/** @private */`，不符合私有函数标注要求。
+- **Suggestion**: 在 `normalizeBudgetAction`、`normalizeModelPrices` 前添加 `/** @private */`。
+```
+function normalizeBudgetAction(v) {
+```
+
+### [RESOLVED] JSDoc @private missing
+*Archived: 2026-01-20T00:26:53.779Z*
+
+- **File**: `js/agents/stages/deepsearch/utils/todo-utils.js`:47
+- **Description**: 多个内部 helper 未标记 `/** @private */`。
+- **Suggestion**: 为 `normalizeStringArray`/`normalizePriority`/`normalizeSource`/`normalizeStatus`/`isIsoString`/`deriveTodoIdFromGapId` 添加 `/** @private */`。
+```
+function normalizeStringArray(value) {
+```
+
+### [RESOLVED] Function size
+*Archived: 2026-01-20T00:26:53.779Z*
+
+- **File**: `js/agents/stages/deepsearch/utils/todo-utils.js`:107
+- **Description**: `createTodo` 超过 50 行且涵盖多个职责，违反函数长度与单一职责要求。
+- **Suggestion**: 拆分为若干私有 helper（如 buildTodoId/buildHistory/normalizeFields），保持每个函数 <= 50 行。
+```
+export function createTodo(params = {}) {
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] jsdoc-any

@@ -4,6 +4,50 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] error-handling
+*Archived: 2026-01-20T00:33:37.306Z*
+
+- **File**: js/agents/stages/textprep/index.js:133
+- **Description**: 存在空 catch 块吞掉异常（resolveErrorBoundary / run），违反错误处理规范，排障困难。
+- **Suggestion**: 至少记录错误上下文并说明可忽略原因，或捕获特定异常后重新抛出。
+```
+} catch {
+```
+
+### [RESOLVED] jsdoc
+*Archived: 2026-01-20T00:33:37.306Z*
+
+- **File**: js/agents/stages/textprep/index.js:246
+- **Description**: 导出的 TextPrepStage 与 runTextPrepStage 缺少完整 JSDoc（@param/@returns/@throws）。
+- **Suggestion**: 为类与导出函数补充完整 JSDoc，明确参数、返回值与可能抛出的异常。
+```
+export class TextPrepStage extends BaseStage {
+```
+
+### [RESOLVED] jsdoc
+*Archived: 2026-01-20T00:33:37.306Z*
+
+- **File**: js/agents/stages/textprep/slideplan.js:202
+- **Description**: 兼容导出 generateSlideIntents 缺少 JSDoc / @deprecated 说明，API 可见性不清晰。
+- **Suggestion**: 为该导出添加 JSDoc 或 @deprecated 注记，说明用途与替代方式。
+```
+export const generateSlideIntents = planSlides;
+```
+
+### [RESOLVED] style
+*Archived: 2026-01-20T00:33:37.306Z*
+
+- **File**: js/agents/stages/textprep/index.js:252
+- **Description**: TextPrepStage.run 体积过大且嵌套层级较深，违反函数长度与嵌套约束，维护成本高。
+- **Suggestion**: 拆分为若干独立 helper（normalize/chunk/slideplan/align/build），降低嵌套与函数长度。
+```
+  async run(input, context = {}) {
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] error-handling

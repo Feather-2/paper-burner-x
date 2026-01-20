@@ -410,8 +410,8 @@ export class PromptLoader {
         const manifest = { url, ts: now, byName };
         this._manifestCacheByUrl.set(url, manifest);
         return manifest;
-      } catch {
-        // continue
+      } catch (err) {
+        logger.debug(`[prompt-loader] Failed to load prompt manifest from "${url}": ${err?.message || String(err)}`);
       }
     }
 

@@ -150,6 +150,11 @@ class HealthMetrics {
     this._cleanup(now);
   }
 
+  /**
+   * 清理窗口外的数据
+   * @private
+   * @param {number} now - 当前时间戳
+   */
   _cleanup(now) {
     const cutoff = now - this._windowMs;
     this._requests = this._requests.filter((ts) => ts >= cutoff);
@@ -362,7 +367,8 @@ export class DegradationMatrix {
 
   /**
    * 检查功能是否可用
-   * @param {string} feature
+   * @param {string} feature - 功能名称
+   * @returns {boolean} 功能是否可用
    */
   isFeatureEnabled(feature) {
     return this._policy.isFeatureEnabled(this._currentLevel, feature);

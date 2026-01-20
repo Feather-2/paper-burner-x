@@ -4,6 +4,70 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] jsdoc
+*Archived: 2026-01-20T00:25:20.598Z*
+
+- **File**: js/agents/stages/design/shared/error-classifier.js:9
+- **Description**: Public API JSDoc 缺少 @param/@returns 描述（classifyDesignError/isNonRetryableError）。
+- **Suggestion**: 为 @param/@returns 增加描述文本，例如 @param {unknown} err - Error to classify.
+```
+@param {unknown} err
+```
+
+### [RESOLVED] jsdoc
+*Archived: 2026-01-20T00:25:20.598Z*
+
+- **File**: js/agents/stages/design/shared/safe-emit.js:12
+- **Description**: Public API JSDoc 缺少 @param/@returns 描述（safeEmit）。
+- **Suggestion**: 为 @param/@returns 补齐描述，例如 @param {EmitFn|undefined|null} emit - Optional emit function.
+```
+@param {EmitFn|undefined|null} emit
+```
+
+### [RESOLVED] jsdoc-type
+*Archived: 2026-01-20T00:25:20.598Z*
+
+- **File**: js/agents/stages/design/shared/error-classifier.js:26
+- **Description**: 使用 @type {any} 进行类型断言，违反“禁止 any”约定并弱化类型约束。
+- **Suggestion**: 改用具体类型断言或类型守卫，例如 @type {{ nonRetryable?: boolean }} 并检查 typeof err === 'object'.
+```
+if (/** @type {any} */ (err).nonRetryable === true) return true;
+```
+
+### [RESOLVED] style/private
+*Archived: 2026-01-20T00:25:20.598Z*
+
+- **File**: js/agents/stages/design/shared/html-parser.js:9
+- **Description**: html-parser.js 中的私有辅助函数未标记 /** @private */，且 @returns 缺少描述。
+- **Suggestion**: 为 isWs/isNameChar/scanAttrName/scanAttrValue 添加 /** @private */ 并补齐 @returns 描述。
+```
+function isWs(c) {
+```
+
+### [RESOLVED] style/magic-number
+*Archived: 2026-01-20T00:25:20.598Z*
+
+- **File**: js/agents/stages/design/shared/design-utils.js:170
+- **Description**: textPreview 截断长度使用魔法数字 160，违反命名常量约定。
+- **Suggestion**: 提取为常量（如 TEXT_PREVIEW_LIMIT = 160）并复用。
+```
+textPreview = inner.trim().slice(0, 160);
+```
+
+### [RESOLVED] test/coverage
+*Archived: 2026-01-20T00:25:20.598Z*
+
+- **File**: js/agents/stages/design/shared/html-parser.js:76
+- **Description**: parseTagAttributes 缺少直接单元测试，未覆盖空值、危险键、超长输入等边界。
+- **Suggestion**: 新增针对 null/空串/超长/危险键(__proto__)以及无引号属性的测试用例。
+```
+export function parseTagAttributes(tag) {
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] jsdoc-any

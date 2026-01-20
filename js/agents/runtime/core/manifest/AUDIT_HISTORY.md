@@ -4,6 +4,36 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] JSDoc incomplete
+*Archived: 2026-01-20T00:23:05.131Z*
+
+- **File**: `js/agents/runtime/core/manifest/manifest.js`:456
+- **Description**: ManifestRegistry 的公开方法缺少 @param/@returns 等完整 JSDoc，违反 public API 规范。
+- **Suggestion**: 为 ManifestRegistry 的公开方法补充完整 JSDoc（@param/@returns/@throws），并为 getter 说明返回类型。
+```
+/**
+ * 注册 Manifest
+ */
+  register(manifest) {
+```
+
+### [RESOLVED] JSDoc private tag missing
+*Archived: 2026-01-20T00:23:05.131Z*
+
+- **File**: `js/agents/runtime/core/manifest/manifest.js`:400
+- **Description**: inferPermissions / inferSkillPermissions 为内部函数但未标记 @private，违反私有函数标注规范。
+- **Suggestion**: 在这两个函数的注释中补充 `@private` 标记，或新增独立的 `/** @private */` 说明。
+```
+/**
+ * 推断 Tool 所需权限
+ */
+function inferPermissions(definition) {
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] prototype_pollution

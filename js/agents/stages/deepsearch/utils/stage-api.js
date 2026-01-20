@@ -52,7 +52,7 @@ export { StageApiSpec };
 
 /**
  * 验证 stageApi 是否符合规范
- * @param {any} api
+ * @param {unknown} api - Stage API candidate to validate.
  * @returns {{ valid: boolean, missing: string[], warnings: string[] }}
  */
 export function validateStageApi(api) {
@@ -61,8 +61,8 @@ export function validateStageApi(api) {
 
 /**
  * 创建带默认值的 stageApi
- * @param {Partial<StageApi> & Record<string, any>} [partial]
- * @param {{strict?: boolean}=} [options]
+ * @param {Partial<StageApi> & Record<string, unknown>} [partial] - Partial stage API overrides.
+ * @param {{strict?: boolean}=} [options] - Validation options.
  * @returns {StageApi}
  */
 export function createStageApi(partial = {}, options = {}) {
@@ -71,17 +71,17 @@ export function createStageApi(partial = {}, options = {}) {
 
 /**
  * 从 stageApi 提取常用服务（提供安全的默认值）
- * @param {any} stageApi
+ * @param {unknown} stageApi - Stage API input to normalize.
  * @returns {{
  *   signal: AbortSignal|null,
- *   emit: (eventName:string, payload:any)=>void,
- *   eventBus: any,
- *   modelRouter: any,
- *   aiApiService: any,
- *   localRetriever: any,
- *   externalSearchProvider: any,
- *   logger: any,
- *   runTool: ((toolName:string, args:any)=>Promise<any>)|null,
+ *   emit: (eventName:string, payload:EventPayload)=>void,
+ *   eventBus: unknown,
+ *   modelRouter: unknown,
+ *   aiApiService: unknown,
+ *   localRetriever: unknown,
+ *   externalSearchProvider: unknown,
+ *   logger: unknown,
+ *   runTool: ((toolName:string, args:Record<string, unknown>)=>Promise<unknown>)|null,
  *   checkCancelled: () => void
  * }}
  */
@@ -100,8 +100,8 @@ export function mergeStageApis(...apis) {
 
 /**
  * 创建子阶段的 stageApi（继承父级，可覆盖部分）
- * @param {StageApi} parentApi
- * @param {Partial<StageApi> & Record<string, any>} [overrides]
+ * @param {StageApi} parentApi - Parent stage API to inherit from.
+ * @param {Partial<StageApi> & Record<string, unknown>} [overrides] - Overrides for the child stage.
  * @returns {StageApi}
  */
 export function createChildApi(parentApi, overrides = {}) {

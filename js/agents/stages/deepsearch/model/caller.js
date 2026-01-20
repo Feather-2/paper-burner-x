@@ -30,10 +30,10 @@ import { injectSystemHint } from "../../../shared/index.js";
  */
 
 /**
- * Build a base model caller from stage API
- * @param {StageApiLike} stageApi
- * @param {BuildBaseCallerOptions} [options]
- * @returns {Function|null}
+ * Build a base model caller from stage API.
+ * @param {StageApiLike} stageApi - Stage API container with model services
+ * @param {BuildBaseCallerOptions} [options] - Optional caller configuration
+ * @returns {Function|null} Model caller function or null if no backend is available
  */
 export function buildBaseCaller(stageApi, { usage = "worker" } = {}) {
   const { signal: defaultSignal, modelRouter, aiApiService } = extractServices(stageApi);

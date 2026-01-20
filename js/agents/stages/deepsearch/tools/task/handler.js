@@ -14,6 +14,7 @@ const logger = createLogger("deepsearch/tools/task");
 
 // 延迟注册子代理，避免循环依赖
 let _subagentsRegistered = false;
+/** @private */
 async function ensureSubagentsRegistered() {
   if (_subagentsRegistered) return;
   _subagentsRegistered = true;
@@ -40,6 +41,10 @@ import { toPositiveInt } from "../../../../shared/index.js";
  */
 
 /**
+ * @typedef {ReturnType<typeof setInterval> & { unref?: () => void }} IntervalHandle
+ */
+
+/**
  * @typedef {Object} TaskRecord
  * @property {string} taskId - 任务唯一标识
  * @property {SubagentType} type - 子代理类型
@@ -53,6 +58,15 @@ import { toPositiveInt } from "../../../../shared/index.js";
  * @property {Promise<TaskRecord>} [promise] - 任务 Promise（仅运行中）
  * @property {TaskResult} [result] - 压缩后的结果预览
  * @property {boolean} [compacted] - 是否已压缩
+ */
+
+/**
+ * @typedef {Object} TaskExecutionResult
+ * @property {boolean} [ok] - 是否成功
+ * @property {string} [summary] - 摘要
+ * @property {string} [report] - 报告正文
+ * @property {string} [analysis] - 分析正文
+ * @property {string | Array<unknown>} [findings] - 发现列表或文本
  */
 
 /**
@@ -83,12 +97,15 @@ const DEFAULT_MAX_RUNNING_TASKS = 50;
 const DEFAULT_COMPLETED_TASK_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_RESULT_PREVIEW_CHARS = 2000;
+const DEFAULT_SUMMARY_PREVIEW_CHARS = 300;
+const DEFAULT_WAIT_TIMEOUT_MS = 60 * 1000;
 
 /**
  * Resolve task configuration from stageApi or use defaults.
  * Supports browser environments without Node.js process.env.
  * @param {object} [stageApi]
  * @returns {{ maxRunningTasks: number, completedTaskTtlMs: number, cleanupIntervalMs: number, resultPreviewChars: number }}
+ * @private
  */
 function resolveTaskConfig(stageApi) {
   const env = stageApi?.env || {};
@@ -116,7 +133,7 @@ class TaskManager extends DisposableBase {
     super();
     /** @type {Map<string, TaskRecord>} */
     this._runningTasks = new Map();
-    /** @type {ReturnType<typeof setInterval> | null} */
+    /** @type {IntervalHandle | null} */
     this._timer = null;
     this._maxRunningTasks = toPositiveInt(config.maxRunningTasks, DEFAULT_MAX_RUNNING_TASKS);
     const cleanupInterval = toPositiveInt(config.cleanupIntervalMs, DEFAULT_CLEANUP_INTERVAL_MS);
@@ -124,7 +141,9 @@ class TaskManager extends DisposableBase {
     // 启动定时清理
     if (typeof setInterval === "function" && cleanupInterval > 0) {
       this._timer = setInterval(() => this._prune(), cleanupInterval);
-      /** @type {any} */ (this._timer).unref?.();
+      if (this._timer && typeof this._timer === "object" && "unref" in this._timer) {
+        this._timer.unref?.();
+      }
       this._registerDisposable(() => {
         if (this._timer) clearInterval(this._timer);
       });
@@ -215,12 +234,14 @@ export async function resetTaskManager() {
 // Legacy pruneRunningTasks - 委托给 TaskManager
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** @private */
 function pruneRunningTasks(options) {
   getTaskManager().prune(options);
 }
 
 /**
  * @param {{ maxRunningTasks?: number }} [config]
+ * @private
  */
 function canAcceptNewTask(config = {}) {
   const mgr = getTaskManager();
@@ -236,6 +257,7 @@ function canAcceptNewTask(config = {}) {
 
 /**
  * @param {{ maxRunningTasks?: number }} [config]
+ * @private
  */
 function reserveRunningTaskSlot(config = {}) {
   pruneRunningTasks();
@@ -243,8 +265,9 @@ function reserveRunningTaskSlot(config = {}) {
 }
 
 /**
- * @param {any} result
+ * @param {TaskExecutionResult | null | undefined} result
  * @param {{ resultPreviewChars?: number }} [config]
+ * @private
  */
 function compactResult(result, config = {}) {
   if (!result || typeof result !== "object") return result;
@@ -271,8 +294,9 @@ function compactResult(result, config = {}) {
 }
 
 /**
- * @param {any} task
+ * @param {TaskRecord} task
  * @param {{ resultPreviewChars?: number }} [config]
+ * @private
  */
 function compactTaskRecord(task, config = {}) {
   return {
@@ -443,7 +467,7 @@ export async function handler(args, context) {
         prompt,
         status: "completed",
         result,
-        summary: result?.summary || result?.report?.slice(0, 300) || "Completed",
+        summary: result?.summary || result?.report?.slice(0, DEFAULT_SUMMARY_PREVIEW_CHARS) || "Completed",
         startedAt,
         completedAt,
         expiresAt: completedAt + taskConfig.completedTaskTtlMs,
@@ -463,14 +487,25 @@ export async function handler(args, context) {
 
       return taskResult;
     } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      logger.error("deepsearch task failed", {
+        taskId,
+        type: subagent_type,
+        error: errorObj.message,
+        stack: errorObj.stack,
+      });
+      const errorMessage = errorObj.name === "AbortError" || /abort/i.test(errorObj.message)
+        ? "Task was aborted."
+        : /timeout/i.test(errorObj.message)
+          ? "Task timed out. Please retry."
+          : "Task failed. Please retry.";
       const completedAt = Date.now();
       const taskResult = {
         taskId,
         type: subagent_type,
         prompt,
         status: "failed",
-        error,
+        error: errorMessage,
         startedAt,
         completedAt,
         expiresAt: completedAt + taskConfig.completedTaskTtlMs,
@@ -482,7 +517,7 @@ export async function handler(args, context) {
         sharedContext.store(taskId, taskResult);
       }
 
-      emit?.("deepsearch:subagent.failed", { taskId, type: subagent_type, error });
+      emit?.("deepsearch:subagent.failed", { taskId, type: subagent_type, error: errorObj.message });
 
       return taskResult;
     } finally {
@@ -539,11 +574,11 @@ export function getTaskStatus(taskId) {
 /**
  * 等待任务完成
  * @param {string} taskId - 任务唯一标识符
- * @param {number} [timeout=60000] - 超时时间（毫秒），默认 60 秒
+ * @param {number} [timeout=DEFAULT_WAIT_TIMEOUT_MS] - 超时时间（毫秒），默认 60 秒
  * @returns {Promise<TaskRecord | null>} 任务记录，若不存在返回 null，超时返回带 timeout 状态的记录
  * @throws {never} 不抛出异常，超时通过返回值体现
  */
-export async function waitForTask(taskId, timeout = 60000) {
+export async function waitForTask(taskId, timeout = DEFAULT_WAIT_TIMEOUT_MS) {
   pruneRunningTasks();
   const task = getTaskManager().get(taskId);
   if (!task) return null;

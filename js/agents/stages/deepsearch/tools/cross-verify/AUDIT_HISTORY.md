@@ -4,6 +4,40 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] JSDoc
+*Archived: 2026-01-20T00:24:55.862Z*
+
+- **File**: js/agents/stages/deepsearch/tools/cross-verify/handler.js:43
+- **Description**: 多个私有辅助函数未按规范标注 @private 且缺少 @param/@returns 说明
+- **Suggestion**: 为私有 helper 添加 /** @private */ 与完整 JSDoc，或合并到公共 API 注释中
+```
+function normalizeStringArray(value) {
+```
+
+### [RESOLVED] CodeStyle
+*Archived: 2026-01-20T00:24:55.862Z*
+
+- **File**: js/agents/stages/deepsearch/tools/cross-verify/handler.js:305
+- **Description**: handler 函数超过 50 行且承担输入校验、证据收集、任务启动、异步回写等多职责，违反单一职责/长度约束
+- **Suggestion**: 拆分为输入验证、启动任务、异步回写、同步等待等小函数
+```
+export async function handler(args, context) {
+```
+
+### [RESOLVED] MagicNumber
+*Archived: 2026-01-20T00:24:55.862Z*
+
+- **File**: js/agents/stages/deepsearch/tools/cross-verify/handler.js:135
+- **Description**: 证据行数与片段长度使用硬编码数值（如 12、400），不符合避免魔法数字规范
+- **Suggestion**: 提取为命名常量（如 MAX_EVIDENCE_LINES/MAX_SNIPPET_LENGTH）
+```
+const evidenceLines = (Array.isArray(evidences) ? evidences : []).slice(0, 12)
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] prototype-pollution

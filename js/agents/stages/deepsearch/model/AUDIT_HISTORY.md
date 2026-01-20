@@ -4,6 +4,80 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] JSDoc incomplete
+*Archived: 2026-01-20T00:27:10.733Z*
+
+- **File**: js/agents/stages/deepsearch/model/caller.js:33
+- **Description**: 公开 API `buildBaseCaller` 的 JSDoc 缺少参数/返回值描述，违反 JSDoc 规范要求。
+- **Suggestion**: 为 @param/@returns 补充描述，必要时补充 @throws。
+```
+* @param {StageApiLike} stageApi
+```
+
+### [RESOLVED] JSDoc any type
+*Archived: 2026-01-20T00:27:10.733Z*
+
+- **File**: js/agents/stages/deepsearch/model/usage.js:17
+- **Description**: 使用 @param {any} 违反“禁止 any 类型”的约定，导致输入约束不清晰。
+- **Suggestion**: 定义 `@typedef TokenUsagePayload` 并用具体类型替代 any。
+```
+* @param {any} usage - Raw usage object from model provider
+```
+
+### [RESOLVED] Missing JSDoc
+*Archived: 2026-01-20T00:27:10.733Z*
+
+- **File**: js/agents/stages/deepsearch/model/pricing.js:8
+- **Description**: 导出函数 `resolveModelPricing` 缺少完整 JSDoc，公共 API 未被文档化。
+- **Suggestion**: 补充 JSDoc，明确 modelId/prices/返回值及错误条件。
+```
+export function resolveModelPricing(modelId, prices) {
+```
+
+### [RESOLVED] JSDoc incomplete
+*Archived: 2026-01-20T00:27:10.733Z*
+
+- **File**: js/agents/stages/deepsearch/model/pricing.js:30
+- **Description**: `estimateCostUSDDelta` 的 @param 使用内联 object 且缺少描述，`prices?:object` 类型过于宽泛。
+- **Suggestion**: 抽出 @typedef（如 EstimateCostParams/PricingTable），并为 @param/@returns 添加描述。
+```
+* @param {{model?:string, usage?:{input?:number,output?:number}, prices?:object}=} params
+```
+
+### [RESOLVED] Magic number
+*Archived: 2026-01-20T00:27:10.733Z*
+
+- **File**: js/agents/stages/deepsearch/model/pricing.js:45
+- **Description**: 成本计算中直接使用 `1000`，与“避免魔法数字”约定冲突。
+- **Suggestion**: 引入常量（如 TOKENS_PER_1K = 1000）并替换。
+```
+(Math.max(0, inputTokens) / 1000) * Math.max(0, inputPer1K)
+```
+
+### [RESOLVED] Event naming
+*Archived: 2026-01-20T00:27:10.733Z*
+
+- **File**: js/agents/stages/deepsearch/model/budget.js:109
+- **Description**: 预算事件名使用点号格式，不符合约定的 `domain:action` 格式。
+- **Suggestion**: 如无兼容性约束，改为 domain:action 风格；否则在文档中声明例外。
+```
+emit?.("deepsearch.budget.warning", {
+```
+
+### [RESOLVED] Function length
+*Archived: 2026-01-20T00:27:10.733Z*
+
+- **File**: js/agents/stages/deepsearch/model/budget.js:76
+- **Description**: `emitBudgetEvents` 超过 50 行，违反单一职责/长度约定，后续维护风险增加。
+- **Suggestion**: 拆分预算解析/阈值判断/事件发送为多个小函数。
+```
+export function emitBudgetEvents({ emit, state, budget, totalTokens, totalCostUSD } = {}) {
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] input-validation

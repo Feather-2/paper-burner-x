@@ -13,8 +13,29 @@ import { isPlainObject, safeInt } from "../../../shared/index.js";
  */
 
 /**
+ * @typedef {object} TokenUsagePayload
+ * @property {number} [prompt_tokens] - Prompt tokens (snake_case)
+ * @property {number} [promptTokens] - Prompt tokens (camelCase)
+ * @property {number} [input_tokens] - Input tokens (snake_case)
+ * @property {number} [inputTokens] - Input tokens (camelCase)
+ * @property {number} [input] - Input tokens (generic)
+ * @property {number} [prompt] - Prompt tokens (legacy)
+ * @property {number} [promptTokensUsed] - Prompt tokens (legacy)
+ * @property {number} [completion_tokens] - Completion tokens (snake_case)
+ * @property {number} [completionTokens] - Completion tokens (camelCase)
+ * @property {number} [output_tokens] - Output tokens (snake_case)
+ * @property {number} [outputTokens] - Output tokens (camelCase)
+ * @property {number} [output] - Output tokens (generic)
+ * @property {number} [completion] - Completion tokens (legacy)
+ * @property {number} [completionTokensUsed] - Completion tokens (legacy)
+ * @property {number} [total_tokens] - Total tokens (snake_case)
+ * @property {number} [totalTokens] - Total tokens (camelCase)
+ * @property {number} [total] - Total tokens (generic)
+ */
+
+/**
  * Normalize token usage from various provider formats
- * @param {any} usage - Raw usage object from model provider
+ * @param {TokenUsagePayload} usage - Raw usage object from model provider
  * @returns {NormalizedTokenUsage|null}
  */
 export function normalizeTokenUsage(usage) {

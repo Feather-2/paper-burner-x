@@ -1789,6 +1789,35 @@ it("Runtime: TaskGraph layered topo sort + cycle/missing detection", async () =>
   expect(() => missing.getLevels()).toThrow(/missing dependency/i);
 });
 
+it("Runtime: TaskGraph handles boundary inputs and allowMissingDependencies", async () => {
+  const { TaskGraph } = await import("../../js/agents/runtime/parallel/task-graph.js");
+
+  const graph = new TaskGraph();
+  expect(() => graph.addTask("")).toThrow(/non-empty string/i);
+
+  graph.addTask("A", "not-array");
+  graph.addTask("B", ["A", "A", "A"]);
+  graph.addTask("C", ["B", "B", "A", "A"]);
+
+  const taskA = graph.getTask("A");
+  const taskB = graph.getTask("B");
+  const taskC = graph.getTask("C");
+
+  expect(taskA?.dependencies).toEqual([]);
+  expect(taskB?.dependencies).toEqual(["A"]);
+  expect(taskC?.dependencies).toEqual(["B", "A"]);
+  expect(graph.getTask("")).toBe(null);
+
+  const levels = graph.getLevels();
+  expect(levels).toEqual([["A"], ["B"], ["C"]]);
+
+  const allowMissing = new TaskGraph();
+  allowMissing.addTask("A", ["NOPE"]);
+  allowMissing.addTask("B");
+  const allowLevels = allowMissing.getLevels({ allowMissingDependencies: true });
+  expect(allowLevels).toEqual([["A", "B"]]);
+});
+
 it("Runtime: command classifier parses compound commands and flags danger", async () => {
   const { classifyCommand, parseCompoundCommand } = await import("../../js/agents/runtime/safety/command-classifier.js");
 

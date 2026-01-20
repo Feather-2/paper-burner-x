@@ -119,6 +119,7 @@ export function joinSections(sections) {
 
 /** @type {Set<string>} Keys that must never be written to attrs to prevent prototype pollution. */
 const FORBIDDEN_ATTR_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const TEXT_PREVIEW_LIMIT = 160;
 
 /**
  * @typedef {Object} ExtractedElement
@@ -167,7 +168,7 @@ export function extractElements(sectionHtml) {
         if (closeIdx >= 0) {
             const inner = rest.slice(0, closeIdx);
             if (inner && !inner.includes("<")) {
-                textPreview = inner.trim().slice(0, 160);
+                textPreview = inner.trim().slice(0, TEXT_PREVIEW_LIMIT);
             }
         }
 

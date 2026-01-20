@@ -44,12 +44,14 @@ export const TodoSchema = Object.freeze({
 const TODO_PRIORITIES = new Set(["high", "medium", "low"]);
 const TODO_SOURCES = new Set(["user", "llm", "system"]);
 
+/** @private */
 function normalizeStringArray(value) {
   const raw = Array.isArray(value) ? value : value ? [value] : [];
   return raw.map((item) => String(item || "").trim()).filter(Boolean);
 }
 
 /**
+ * @private
  * @param {any} value
  * @returns {TodoPriorityValue}
  */
@@ -59,6 +61,7 @@ function normalizePriority(value) {
 }
 
 /**
+ * @private
  * @param {any} value
  * @returns {TodoSourceValue}
  */
@@ -68,6 +71,7 @@ function normalizeSource(value) {
 }
 
 /**
+ * @private
  * @param {any} value
  * @param {any} raw
  * @returns {TodoStatusValue}
@@ -91,12 +95,14 @@ function normalizeStatus(value, raw) {
   return isValidTodoStatus(v) ? /** @type {TodoStatusValue} */ (v) : TodoStatus.OPEN;
 }
 
+/** @private */
 function isIsoString(value) {
   if (typeof value !== "string" || !value.trim()) return false;
   const ts = Date.parse(value);
   return Number.isFinite(ts);
 }
 
+/** @private */
 function deriveTodoIdFromGapId(gapId) {
   if (!gapId) return `todo_${Date.now().toString(36)}`;
   const m = String(gapId).match(/^gap_(\d+)$/);
@@ -104,15 +110,13 @@ function deriveTodoIdFromGapId(gapId) {
   return `todo_${String(gapId)}`;
 }
 
-/**
- * Create a normalized todo record (best-effort, tolerant of legacy field names).
- * @param {Partial<DeepSearchTodo> & Record<string, any>} [params]
- * @returns {DeepSearchTodo}
- */
-export function createTodo(params = {}) {
-  const raw = isPlainObject(params) ? params : {};
-  const now = new Date().toISOString();
-  const todoId = toNonEmptyString(raw.todoId) || toNonEmptyString(raw.id) || `todo_${Date.now().toString(36)}`;
+/** @private */
+function resolveTodoId(raw) {
+  return toNonEmptyString(raw.todoId) || toNonEmptyString(raw.id) || `todo_${Date.now().toString(36)}`;
+}
+
+/** @private */
+function resolveTodoText(raw, todoId) {
   const text = toNonEmptyString(raw.text) || toNonEmptyString(raw.content) || toNonEmptyString(raw.title) || "";
 
   // 如果 text 为空，记录警告（仅记录元数据，不记录原始输入）
@@ -125,18 +129,43 @@ export function createTodo(params = {}) {
     });
   }
 
+  return text;
+}
+
+/** @private */
+function resolveTodoTimestamps(raw, now) {
+  const createdAt = isIsoString(raw.createdAt) ? raw.createdAt : now;
+  const updatedAt = isIsoString(raw.updatedAt) ? raw.updatedAt : createdAt;
+  return { createdAt, updatedAt };
+}
+
+/** @private */
+function resolveTodoHistory(raw, status, createdAt) {
+  const history = Array.isArray(raw.history) ? [...raw.history] : [];
+  if (!history.length) {
+    history.push({ from: null, to: status, ts: createdAt });
+  }
+  return history;
+}
+
+/**
+ * Create a normalized todo record (best-effort, tolerant of legacy field names).
+ * @param {Partial<DeepSearchTodo> & Record<string, unknown>} [params] - Partial todo fields with legacy aliases.
+ * @returns {DeepSearchTodo}
+ */
+export function createTodo(params = {}) {
+  const raw = isPlainObject(params) ? params : {};
+  const now = new Date().toISOString();
+  const todoId = resolveTodoId(raw);
+  const text = resolveTodoText(raw, todoId);
+
   const priority = normalizePriority(raw.priority);
   const status = normalizeStatus(raw.status, raw);
   const queryHints = normalizeStringArray(raw.queryHints);
   const expectedEvidence = toNonEmptyString(raw.expectedEvidence) || "";
   const source = normalizeSource(raw.source);
-  const createdAt = isIsoString(raw.createdAt) ? raw.createdAt : now;
-  const updatedAt = isIsoString(raw.updatedAt) ? raw.updatedAt : createdAt;
-  const history = Array.isArray(raw.history) ? [...raw.history] : [];
-
-  if (!history.length) {
-    history.push({ from: null, to: status, ts: createdAt });
-  }
+  const { createdAt, updatedAt } = resolveTodoTimestamps(raw, now);
+  const history = resolveTodoHistory(raw, status, createdAt);
 
   const todo = {
     todoId,

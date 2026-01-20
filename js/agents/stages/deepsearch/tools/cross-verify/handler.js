@@ -39,7 +39,15 @@ const MAX_FACT_ID_LENGTH = 256;
 const MAX_CONTRADICTION_LENGTH = 2000;
 const MAX_SOURCE_IDS_COUNT = 50;
 const MAX_SOURCE_ID_LENGTH = 256;
+const MAX_EVIDENCE_LINES = 12;
+const MAX_SNIPPET_LENGTH = 400;
 
+/**
+ * Normalize mixed input into a de-duplicated string array.
+ * @private
+ * @param {unknown} value
+ * @returns {string[]}
+ */
 function normalizeStringArray(value) {
   const arr = Array.isArray(value) ? value : value ? [value] : [];
   const out = [];
@@ -54,6 +62,12 @@ function normalizeStringArray(value) {
   return out;
 }
 
+/**
+ * Normalize timeout value to a positive integer in milliseconds.
+ * @private
+ * @param {unknown} value
+ * @returns {number}
+ */
 function normalizeTimeoutMs(value) {
   const n = safeNumber(value);
   if (n === null) return DEFAULT_TIMEOUT_MS;
@@ -62,6 +76,12 @@ function normalizeTimeoutMs(value) {
   return ms;
 }
 
+/**
+ * Get or initialize cross-verify scratchpad map.
+ * @private
+ * @param {Object|null|undefined} state
+ * @returns {Object}
+ */
 function getOrInitCrossVerifyMap(state) {
   if (state && typeof state.getScratchpad === "function" && typeof state.setScratchpad === "function") {
     const existing = state.getScratchpad("crossVerify");
@@ -78,6 +98,14 @@ function getOrInitCrossVerifyMap(state) {
   return state.L2.scratchpad.crossVerify;
 }
 
+/**
+ * Upsert a cross-verify entry in scratchpad.
+ * @private
+ * @param {Object|null|undefined} state
+ * @param {string} factId
+ * @param {Object} patch
+ * @returns {Object|null}
+ */
 function upsertCrossVerifyEntry(state, factId, patch) {
   // 原型污染防护：拒绝危险 key
   if (FORBIDDEN_KEYS.has(factId)) {
@@ -93,6 +121,16 @@ function upsertCrossVerifyEntry(state, factId, patch) {
   return map[factId];
 }
 
+/**
+ * Collect evidences from sharedContext/DiscoveryManager.
+ * @private
+ * @param {Object} params
+ * @param {Object} params.sharedContext
+ * @param {Object} params.discoveryManager
+ * @param {string} params.factId
+ * @param {string[]|undefined} params.sourceIds
+ * @returns {{ evidenceIds: string[], evidences: Object[], inferredSourceIds: string[] }}
+ */
 function collectEvidence({ sharedContext, discoveryManager, factId, sourceIds }) {
   const targetSources = normalizeStringArray(sourceIds);
   const evidenceIds = sharedContext?.search?.(`evidence:${factId}`) || [];
@@ -129,18 +167,28 @@ function collectEvidence({ sharedContext, discoveryManager, factId, sourceIds })
   return { evidenceIds: evidences.map((e) => e?.evidenceId).filter(Boolean), evidences, inferredSourceIds };
 }
 
+/**
+ * Build a verification task prompt.
+ * @private
+ * @param {Object} params
+ * @param {string} params.factId
+ * @param {string} params.contradiction
+ * @param {string[]} params.sourceIds
+ * @param {Object[]} params.evidences
+ * @returns {string}
+ */
 function buildVerifyTaskPrompt({ factId, contradiction, sourceIds, evidences }) {
   const sourcesText = sourceIds?.length ? sourceIds.join(", ") : "（未限定，可使用所有相关文档）";
 
   const evidenceLines = (Array.isArray(evidences) ? evidences : [])
-    .slice(0, 12)
+    .slice(0, MAX_EVIDENCE_LINES)
     .map((e, i) => {
       const src = toNonEmptyString(e?.sourceId) || "unknown_source";
       const eid = toNonEmptyString(e?.evidenceId);
       const conf = e?.confidence;
       const confText = typeof conf === "number" ? `, confidence=${conf.toFixed(2)}` : "";
       const snippet = toNonEmptyString(e?.snippet) || toNonEmptyString(e?.quote) || toNonEmptyString(e?.text) || "";
-      const snippetShort = snippet ? snippet.slice(0, 400) : "(no snippet)";
+      const snippetShort = snippet ? snippet.slice(0, MAX_SNIPPET_LENGTH) : "(no snippet)";
       return `- (${i + 1}) [${src}]${eid ? ` evidenceId=${eid}` : ""}${confText}: ${snippetShort}`;
     });
 
@@ -170,6 +218,12 @@ ${evidenceLines.length ? evidenceLines.join("\n") : "- （暂无证据片段，�
 `.trim();
 }
 
+/**
+ * Map verdict status to DiscoveryStatus.
+ * @private
+ * @param {string|undefined|null} value
+ * @returns {string|null}
+ */
 function mapVerdictStatusToDiscoveryStatus(value) {
   const raw = toNonEmptyString(value)?.toLowerCase();
   if (!raw) return null;
@@ -180,6 +234,12 @@ function mapVerdictStatusToDiscoveryStatus(value) {
   return null;
 }
 
+/**
+ * Extract JSON verdict from report text.
+ * @private
+ * @param {string|undefined|null} report
+ * @returns {Object|null}
+ */
 function extractVerdictFromReport(report) {
   const text = typeof report === "string" ? report : "";
   if (!text.trim()) return null;
@@ -188,6 +248,16 @@ function extractVerdictFromReport(report) {
   return parsed;
 }
 
+/**
+ * Build a short summary from verdict.
+ * @private
+ * @param {Object} params
+ * @param {string} params.factId
+ * @param {string} params.contradiction
+ * @param {Object|null} params.verdict
+ * @param {string} params.fallbackTaskId
+ * @returns {string}
+ */
 function buildSummaryFromVerdict({ factId, contradiction, verdict, fallbackTaskId }) {
   const status = toNonEmptyString(verdict?.status) || "unknown";
   const conclusion = toNonEmptyString(verdict?.conclusion);
@@ -197,6 +267,19 @@ function buildSummaryFromVerdict({ factId, contradiction, verdict, fallbackTaskI
   return `[cross-verify] ${factId}: ${String(contradiction || "").slice(0, 60)}… (${status}, task=${fallbackTaskId})`;
 }
 
+/**
+ * Finalize verification and write results to stores.
+ * @private
+ * @param {Object} params
+ * @param {string} params.factId
+ * @param {string} params.contradiction
+ * @param {string[]} params.sourceIds
+ * @param {string[]} params.evidenceIds
+ * @param {string} params.taskId
+ * @param {Object|string|null} params.taskResult
+ * @param {Object} params.context
+ * @returns {Promise<Object>}
+ */
 async function finalizeVerification({ factId, contradiction, sourceIds, evidenceIds, taskId, taskResult, context }) {
   const { state, emit, discoveryManager, sharedContext } = context;
 
@@ -289,26 +372,16 @@ async function finalizeVerification({ factId, contradiction, sourceIds, evidence
 }
 
 /**
+ * Normalize and validate handler arguments.
+ * @private
  * @param {Object} args
- * @param {string} args.factId - 合并后的事实 ID 或 Gap ID
- * @param {string} args.contradiction - 描述冲突的具体点
- * @param {string[]} [args.sourceIds] - 涉及冲突的信源 ID 列表
- * @param {string[]|string} [args.sources] - 兼容字段：sourceIds
- * @param {string} [args.sourceId] - 兼容字段：单个 sourceId
- * @param {string} [args.subagent_type] - 子代理类型 (researcher | analyzer)
- * @param {string} [args.subagentType] - 兼容字段：subagent_type
- * @param {boolean} [args.async=true] - 是否异步执行
- * @param {number} [args.timeout=600000] - 同步等待超时
- * @param {boolean} [args.force=false] - 是否强制重新验证
- * @param {Object} context - { state, emit, discoveryManager, executeSkill }
+ * @returns {{factId: string, contradiction: string, requestedSourceIds: string[], force: boolean, isAsync: boolean, timeoutMs: number, subagentType: string}|{error: string}}
  */
-export async function handler(args, context) {
-  const { state, emit, discoveryManager, stageApi, sharedContext } = context;
-
+function normalizeCrossVerifyArgs(args) {
   let factId = toNonEmptyString(args?.factId);
   let contradiction = toNonEmptyString(args?.contradiction);
   if (!factId || !contradiction) {
-    return { success: false, error: "factId and contradiction are required" };
+    return { error: "factId and contradiction are required" };
   }
 
   // 输入边界校验：防止过长输入造成性能/滥用问题
@@ -321,7 +394,7 @@ export async function handler(args, context) {
 
   // 原型污染防护：拒绝危险 factId
   if (FORBIDDEN_KEYS.has(factId)) {
-    return { success: false, error: "Invalid factId: reserved key" };
+    return { error: "Invalid factId: reserved key" };
   }
 
   const force = toBoolean(args?.force);
@@ -339,8 +412,18 @@ export async function handler(args, context) {
     toNonEmptyString(args?.subagentType) ||
     DEFAULT_SUBAGENT_TYPE;
 
-  // 0) 去重：若已有运行中的验证任务，直接返回
-  const existing = getOrInitCrossVerifyMap(state)?.[factId];
+  return { factId, contradiction, requestedSourceIds, force, isAsync, timeoutMs, subagentType };
+}
+
+/**
+ * Build a running-task response when a task is already in progress.
+ * @private
+ * @param {Object|null|undefined} existing
+ * @param {boolean} force
+ * @param {string} factId
+ * @returns {Object|null}
+ */
+function getRunningTaskResponse(existing, force, factId) {
   if (!force && isPlainObject(existing) && existing.taskId && existing.status === "running") {
     return {
       success: true,
@@ -351,16 +434,41 @@ export async function handler(args, context) {
       hint: "使用 get-task-result 获取结果",
     };
   }
+  return null;
+}
 
-  // 1) 标记状态为 VERIFYING
+/**
+ * Mark verification as started in discovery state and emit event.
+ * @private
+ * @param {Object} params
+ * @param {Object} params.discoveryManager
+ * @param {Function} params.emit
+ * @param {string} params.factId
+ * @param {string} params.contradiction
+ * @param {string[]} params.requestedSourceIds
+ * @returns {void}
+ */
+function markVerificationStarted({ discoveryManager, emit, factId, contradiction, requestedSourceIds }) {
   discoveryManager?.upsertDiscovery?.(factId, {
     status: DiscoveryStatus.VERIFYING,
     reason: contradiction,
     keywords: ["cross-verify", factId, ...requestedSourceIds].slice(0, 5),
   });
   emit?.("deepsearch.verify.started", { factId, contradiction, sourceIds: requestedSourceIds });
+}
 
-  // 2) 收集证据（黑板）并构造专项子任务 prompt
+/**
+ * Build task payload for verification.
+ * @private
+ * @param {Object} params
+ * @param {string} params.factId
+ * @param {string} params.contradiction
+ * @param {string[]} params.requestedSourceIds
+ * @param {Object} params.discoveryManager
+ * @param {Object} params.sharedContext
+ * @returns {{ evidenceIds: string[], taskSourceIds: string[], verifyTaskPrompt: string }}
+ */
+function buildVerificationTaskPayload({ factId, contradiction, requestedSourceIds, discoveryManager, sharedContext }) {
   const { evidenceIds, evidences, inferredSourceIds } = collectEvidence({
     sharedContext,
     discoveryManager,
@@ -376,26 +484,35 @@ export async function handler(args, context) {
     evidences,
   });
 
-  // 3) 启动子任务（使用 Task tool）
-  const startedAt = Date.now();
-  const taskStart = await taskHandler(
-    { subagent_type: subagentType, prompt: verifyTaskPrompt, sourceIds: taskSourceIds, async: true },
-    { state, emit, stageApi, sharedContext }
-  );
+  return { evidenceIds, taskSourceIds, verifyTaskPrompt };
+}
 
-  if (!taskStart?.success || !taskStart.taskId) {
-    discoveryManager?.upsertDiscovery?.(factId, {
-      status: DiscoveryStatus.BLOCKED,
-      reason: taskStart?.error || "Failed to start verification task",
-      keywords: ["cross-verify", factId].slice(0, 5),
-    });
-    emit?.("deepsearch.verify.failed", { factId, error: taskStart?.error || "Failed to start verification task" });
-    return { success: false, error: taskStart?.error || "Failed to start verification task" };
-  }
-
-  const taskId = taskStart.taskId;
-
-  // 4) 写回指针（state / blackboard）
+/**
+ * Store running verification pointers in state and sharedContext.
+ * @private
+ * @param {Object} params
+ * @param {Object} params.state
+ * @param {Object} params.sharedContext
+ * @param {string} params.factId
+ * @param {string} params.contradiction
+ * @param {string[]} params.taskSourceIds
+ * @param {string[]} params.evidenceIds
+ * @param {string} params.taskId
+ * @param {number} params.startedAt
+ * @param {string} params.subagentType
+ * @returns {void}
+ */
+function storeRunningVerification({
+  state,
+  sharedContext,
+  factId,
+  contradiction,
+  taskSourceIds,
+  evidenceIds,
+  taskId,
+  startedAt,
+  subagentType,
+}) {
   upsertCrossVerifyEntry(state, factId, {
     status: "running",
     taskId,
@@ -420,54 +537,161 @@ export async function handler(args, context) {
     sharedContext.addToIndex?.("cross_verify", pointerKey);
     sharedContext.addToIndex?.(`cross_verify:${factId}`, pointerKey);
   }
+}
+
+/**
+ * Register async task completion callbacks.
+ * @private
+ * @param {Object} params
+ * @param {boolean} params.isAsync
+ * @param {string} params.factId
+ * @param {string} params.contradiction
+ * @param {string[]} params.taskSourceIds
+ * @param {string[]} params.evidenceIds
+ * @param {string} params.taskId
+ * @param {Object} params.context
+ * @returns {void}
+ */
+function registerAsyncFinalization({
+  isAsync,
+  factId,
+  contradiction,
+  taskSourceIds,
+  evidenceIds,
+  taskId,
+  context,
+}) {
+  if (!isAsync) return;
+  const { state, emit, discoveryManager, sharedContext } = context;
+
+  const running = getTaskStatus(taskId);
+  const promise = running?.promise;
+  if (promise && typeof promise.then === "function") {
+    promise
+      .then((taskResult) =>
+        finalizeVerification({
+          factId,
+          contradiction,
+          sourceIds: taskSourceIds,
+          evidenceIds,
+          taskId,
+          taskResult,
+          context: { state, emit, discoveryManager, sharedContext },
+        })
+      )
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        discoveryManager?.upsertDiscovery?.(factId, { status: DiscoveryStatus.BLOCKED, reason: message });
+        upsertCrossVerifyEntry(state, factId, { status: "failed", error: message, completedAt: Date.now() });
+        emit?.("deepsearch.verify.failed", { factId, taskId, error: message });
+      });
+  }
+  // 竞态兜底：如果任务极快完成，runningTasks 可能已被压缩记录替换，导致拿不到 promise
+  if (!promise && running && running.status && running.status !== "running") {
+    Promise.resolve()
+      .then(() =>
+        finalizeVerification({
+          factId,
+          contradiction,
+          sourceIds: taskSourceIds,
+          evidenceIds,
+          taskId,
+          taskResult: sharedContext?.getDetail?.(taskId) || running,
+          context: { state, emit, discoveryManager, sharedContext },
+        })
+      )
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        discoveryManager?.upsertDiscovery?.(factId, { status: DiscoveryStatus.BLOCKED, reason: message });
+        upsertCrossVerifyEntry(state, factId, { status: "failed", error: message, completedAt: Date.now() });
+        emit?.("deepsearch.verify.failed", { factId, taskId, error: message });
+      });
+  }
+}
+
+/**
+ * @param {Object} args
+ * @param {string} args.factId - 合并后的事实 ID 或 Gap ID
+ * @param {string} args.contradiction - 描述冲突的具体点
+ * @param {string[]} [args.sourceIds] - 涉及冲突的信源 ID 列表
+ * @param {string[]|string} [args.sources] - 兼容字段：sourceIds
+ * @param {string} [args.sourceId] - 兼容字段：单个 sourceId
+ * @param {string} [args.subagent_type] - 子代理类型 (researcher | analyzer)
+ * @param {string} [args.subagentType] - 兼容字段：subagent_type
+ * @param {boolean} [args.async=true] - 是否异步执行
+ * @param {number} [args.timeout=600000] - 同步等待超时
+ * @param {boolean} [args.force=false] - 是否强制重新验证
+ * @param {Object} context - { state, emit, discoveryManager, executeSkill }
+ */
+export async function handler(args, context) {
+  const { state, emit, discoveryManager, stageApi, sharedContext } = context;
+
+  const normalized = normalizeCrossVerifyArgs(args);
+  if (normalized.error) {
+    return { success: false, error: normalized.error };
+  }
+  const { factId, contradiction, requestedSourceIds, force, isAsync, timeoutMs, subagentType } = normalized;
+
+  // 0) 去重：若已有运行中的验证任务，直接返回
+  const existing = getOrInitCrossVerifyMap(state)?.[factId];
+  const runningResponse = getRunningTaskResponse(existing, force, factId);
+  if (runningResponse) return runningResponse;
+
+  // 1) 标记状态为 VERIFYING
+  markVerificationStarted({ discoveryManager, emit, factId, contradiction, requestedSourceIds });
+
+  // 2) 收集证据（黑板）并构造专项子任务 prompt
+  const { evidenceIds, taskSourceIds, verifyTaskPrompt } = buildVerificationTaskPayload({
+    factId,
+    contradiction,
+    requestedSourceIds,
+    discoveryManager,
+    sharedContext,
+  });
+
+  // 3) 启动子任务（使用 Task tool）
+  const startedAt = Date.now();
+  const taskStart = await taskHandler(
+    { subagent_type: subagentType, prompt: verifyTaskPrompt, sourceIds: taskSourceIds, async: true },
+    { state, emit, stageApi, sharedContext }
+  );
+
+  if (!taskStart?.success || !taskStart.taskId) {
+    discoveryManager?.upsertDiscovery?.(factId, {
+      status: DiscoveryStatus.BLOCKED,
+      reason: taskStart?.error || "Failed to start verification task",
+      keywords: ["cross-verify", factId].slice(0, 5),
+    });
+    emit?.("deepsearch.verify.failed", { factId, error: taskStart?.error || "Failed to start verification task" });
+    return { success: false, error: taskStart?.error || "Failed to start verification task" };
+  }
+
+  const taskId = taskStart.taskId;
+
+  // 4) 写回指针（state / blackboard）
+  storeRunningVerification({
+    state,
+    sharedContext,
+    factId,
+    contradiction,
+    taskSourceIds,
+    evidenceIds,
+    taskId,
+    startedAt,
+    subagentType,
+  });
 
   // 5) 注册完成回调：任务完成后自动回写结果（仅异步模式）
   // 同步模式下跳过回调注册，避免重复 finalize
-  if (isAsync) {
-    const running = getTaskStatus(taskId);
-    const promise = running?.promise;
-    if (promise && typeof promise.then === "function") {
-      promise
-        .then((taskResult) =>
-          finalizeVerification({
-            factId,
-            contradiction,
-            sourceIds: taskSourceIds,
-            evidenceIds,
-            taskId,
-            taskResult,
-            context: { state, emit, discoveryManager, sharedContext },
-          })
-        )
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          discoveryManager?.upsertDiscovery?.(factId, { status: DiscoveryStatus.BLOCKED, reason: message });
-          upsertCrossVerifyEntry(state, factId, { status: "failed", error: message, completedAt: Date.now() });
-          emit?.("deepsearch.verify.failed", { factId, taskId, error: message });
-        });
-    }
-    // 竞态兜底：如果任务极快完成，runningTasks 可能已被压缩记录替换，导致拿不到 promise
-    if (!promise && running && running.status && running.status !== "running") {
-      Promise.resolve()
-        .then(() =>
-          finalizeVerification({
-            factId,
-            contradiction,
-            sourceIds: taskSourceIds,
-            evidenceIds,
-            taskId,
-            taskResult: sharedContext?.getDetail?.(taskId) || running,
-            context: { state, emit, discoveryManager, sharedContext },
-          })
-        )
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          discoveryManager?.upsertDiscovery?.(factId, { status: DiscoveryStatus.BLOCKED, reason: message });
-          upsertCrossVerifyEntry(state, factId, { status: "failed", error: message, completedAt: Date.now() });
-          emit?.("deepsearch.verify.failed", { factId, taskId, error: message });
-        });
-    }
-  }
+  registerAsyncFinalization({
+    isAsync,
+    factId,
+    contradiction,
+    taskSourceIds,
+    evidenceIds,
+    taskId,
+    context: { state, emit, discoveryManager, sharedContext },
+  });
 
   if (!isAsync) {
     const taskResult = await waitForTask(taskId, timeoutMs);

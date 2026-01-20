@@ -10,6 +10,8 @@ const CHECKPOINT_SCHEMA_VERSION = "0.1";
 const CHECKPOINT_KIND = "agent_checkpoint";
 const INDEX_KIND = "agent_checkpoint_index";
 const INDEX_FILE = "index.json";
+const INDEX_JSON_MAX_CHARS = 2_000_000;
+const CHECKPOINT_JSON_MAX_CHARS = 5_000_000;
 
 /** @type {Map<string, Promise<void>>} */
 const indexLocks = new Map();
@@ -62,20 +64,32 @@ function safeSegment(value, fallback) {
   return sanitized;
 }
 
+/**
+ * @private
+ */
 function buildCheckpointDir(runId) {
   const safeRunId = safeSegment(runId, "run");
   return `.agents/runs/${safeRunId}/checkpoints`;
 }
 
+/**
+ * @private
+ */
 function buildCheckpointPath(runId, checkpointId) {
   const safeId = safeSegment(checkpointId, "ckpt");
   return `${buildCheckpointDir(runId)}/${safeId}.json`;
 }
 
+/**
+ * @private
+ */
 function buildIndexPath(runId) {
   return `${buildCheckpointDir(runId)}/${INDEX_FILE}`;
 }
 
+/**
+ * @private
+ */
 function ensureVfs({ vfs, storageAdapter } = {}) {
   if (vfs && typeof vfs.writeFile === "function") return vfs;
   if (storageAdapter && typeof storageAdapter.get === "function") {
@@ -89,16 +103,24 @@ function ensureVfs({ vfs, storageAdapter } = {}) {
   return null;
 }
 
+/**
+ * @private
+ */
 function makeCheckpointId() {
   try {
     return makeSecureTimestampedId("ckpt");
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err ?? "");
+    logger.warn(`[checkpoint-store] Failed to generate secure checkpoint id: ${msg}`);
     const ts = Date.now().toString(36);
     const rand = Math.random().toString(16).slice(2, 10);
     return `ckpt_${ts}_${rand}`;
   }
 }
 
+/**
+ * @private
+ */
 function safeJsonStringify(value) {
   try {
     return JSON.stringify(value, null, 2);
@@ -108,11 +130,17 @@ function safeJsonStringify(value) {
   }
 }
 
+/**
+ * @private
+ */
 function bytesToText(bytes) {
   const view = bytes instanceof Uint8Array ? bytes : bytes ? new Uint8Array(bytes) : new Uint8Array(0);
   return new TextDecoder().decode(view);
 }
 
+/**
+ * @private
+ */
 async function readText(vfs, path) {
   if (typeof vfs.readText === "function") return await vfs.readText(path);
   if (typeof vfs.readFile === "function") {
@@ -123,17 +151,23 @@ async function readText(vfs, path) {
   throw new Error("CheckpointStore: vfs.readText/readFile not available");
 }
 
+/**
+ * @private
+ */
 async function writeText(vfs, path, text) {
   if (typeof vfs.writeText === "function") return await vfs.writeText(path, text);
   if (typeof vfs.writeFile === "function") return await vfs.writeFile(path, text);
   throw new Error("CheckpointStore: vfs.writeText/writeFile not available");
 }
 
+/**
+ * @private
+ */
 async function loadIndex(vfs, runId) {
   const path = buildIndexPath(runId);
   try {
     const raw = await readText(vfs, path);
-    const parsed = safeJsonParse(raw, { maxChars: 2_000_000 });
+    const parsed = safeJsonParse(raw, { maxChars: INDEX_JSON_MAX_CHARS });
     if (Array.isArray(parsed)) return parsed;
     if (parsed && typeof parsed === "object" && Array.isArray(parsed.checkpoints)) {
       return parsed.checkpoints;
@@ -148,6 +182,9 @@ async function loadIndex(vfs, runId) {
   }
 }
 
+/**
+ * @private
+ */
 async function saveIndex(vfs, runId, checkpoints) {
   const payload = {
     schemaVersion: CHECKPOINT_SCHEMA_VERSION,
@@ -178,6 +215,9 @@ function validateCheckpoint(data) {
   return data;
 }
 
+/**
+ * @private
+ */
 function normalizeRestoreMode(mode, { checkpointId, step } = {}) {
   const normalized = toNonEmptyString(mode)?.toLowerCase();
   if (normalized === "last" || normalized === "latest") return "last";
@@ -188,6 +228,9 @@ function normalizeRestoreMode(mode, { checkpointId, step } = {}) {
   return normalized || "last";
 }
 
+/**
+ * @private
+ */
 function normalizeIndexEntry(entry) {
   const e = entry && typeof entry === "object" ? entry : {};
   const checkpointId = toNonEmptyString(e.checkpointId);
@@ -251,7 +294,7 @@ export class AgentCheckpointStore {
    * 列出指定运行的所有检查点
    * @param {object} [options] - 选项
    * @param {string} [options.runId] - 运行 ID (可选，默认使用实例 runId)
-   * @returns {Promise<Array<{checkpointId: string, ts: string, step?: number, iteration?: number, metadata?: object}>>}
+   * @returns {Promise<Array<{checkpointId: string, ts: string, step?: number, iteration?: number, metadata?: object}>>} 返回检查点元数据列表
    */
   async listCheckpoints({ runId } = {}) {
     const id = toNonEmptyString(runId) || this._runId;
@@ -271,7 +314,7 @@ export class AgentCheckpointStore {
    * @param {object} [options.metadata] - 元数据
    * @param {number} [options.step] - 步数
    * @param {number} [options.iteration] - 迭代次数
-   * @returns {Promise<{checkpointId: string, checkpoint: object}>}
+   * @returns {Promise<{checkpointId: string, checkpoint: object}>} 返回 checkpointId 与保存的检查点数据
    * @throws {Error} 如果 runId 未指定
    */
   async saveCheckpoint({
@@ -349,7 +392,7 @@ export class AgentCheckpointStore {
 
     try {
       const raw = await readText(vfs, buildCheckpointPath(id, resolved));
-      const parsed = safeJsonParse(raw, { maxChars: 5_000_000 });
+      const parsed = safeJsonParse(raw, { maxChars: CHECKPOINT_JSON_MAX_CHARS });
       const validated = validateCheckpoint(parsed);
       if (!validated) {
         this._logger?.warn?.(`[checkpoint-store] Invalid checkpoint schema for ${resolved}`);

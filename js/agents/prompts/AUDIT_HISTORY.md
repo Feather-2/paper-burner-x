@@ -4,6 +4,22 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] error-handling
+*Archived: 2026-01-20T00:22:28.990Z*
+
+- **File**: js/agents/prompts/prompt-loader.js:413
+- **Description**: 加载 manifest 时的异常被静默忽略，失败原因不可见，违反“不要吞掉异常”的约定，可能导致提示词加载异常难以排查。
+- **Suggestion**: 记录日志或通过回调/返回值暴露失败原因；如需降级，可用 debug 级别日志。
+```
+      } catch {
+        // continue
+      }
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] JSDoc

@@ -4,6 +4,38 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-01-20
+
+### [RESOLVED] JSDoc:any
+*Archived: 2026-01-20T00:24:29.556Z*
+
+- **File**: js/agents/runtime/core/api/stage-api-factory.js:31
+- **Description**: StageApiFactoryServices 等 typedef 使用大量 `any`，违反“禁止 any 类型”的约定，降低类型可读性与审计精度。
+- **Suggestion**: 为核心服务定义具体 @typedef（如 EventBus、AiApiService、RetryStrategy 等），逐步替换 `any`。
+```
+/**
+ * @typedef {Object} StageApiFactoryServices
+ * @property {AbortSignal|null} [signal]
+ * @property {any} [eventBus]
+ * @property {(name: string, record: any) => void} [emit]
+ * @property {any} [traceContext]
+ */
+```
+
+### [RESOLVED] error-handling:swallowed
+*Archived: 2026-01-20T00:24:29.556Z*
+
+- **File**: js/agents/runtime/core/api/stage-api-factory.js:463
+- **Description**: recordTokenTrackingSuccess/Failure 中的 catch 块直接忽略异常，未记录或上抛，违反错误处理规范，可能隐藏遥测故障。
+- **Suggestion**: 至少使用 logger.debug/warn 记录异常，或以带 cause 的错误上抛以保留上下文。
+```
+  } catch {
+    // Ignore tracker errors
+  }
+```
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] 错误处理
