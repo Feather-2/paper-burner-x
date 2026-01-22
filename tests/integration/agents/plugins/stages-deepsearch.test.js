@@ -63,13 +63,13 @@ describe('stage/deepsearch plugin', () => {
     vi.useRealTimers();
   });
 
-  it('install registers stage:deepsearch service and getStatus returns idle before run', async () => {
+  it('install registers deepsearchStage service and getStatus returns idle before run', async () => {
     kernel = await createKernel();
     await kernel.use(deepsearchStagePlugin, { mode: 'cfg-mode', maxIterations: 9 });
     await kernel.start();
 
-    expect(kernel.services.has('stage:deepsearch')).toBe(true);
-    await expect(kernel.services.call('stage:deepsearch', 'getStatus', [])).resolves.toEqual({ status: 'idle' });
+    expect(kernel.services.has('deepsearchStage')).toBe(true);
+    await expect(kernel.services.call('deepsearchStage', 'getStatus', [])).resolves.toEqual({ status: 'idle' });
 
     // install() logs a message via ctx.log.info
     expect(console.info).toHaveBeenCalled();
@@ -88,10 +88,10 @@ describe('stage/deepsearch plugin', () => {
       return { output: ['a', 'b'] };
     });
 
-    const startPromise = kernel.events.waitFor('stage.deepsearch.start', 500);
-    const completePromise = kernel.events.waitFor('stage.deepsearch.complete', 500);
+    const startPromise = kernel.events.waitFor('deepsearch:start', 500);
+    const completePromise = kernel.events.waitFor('deepsearch:complete', 500);
 
-    const result1 = await kernel.services.call('stage:deepsearch', 'run', [
+    const result1 = await kernel.services.call('deepsearchStage', 'run', [
       { question: 'Q1' },
       { runContext: { extra: 1 }, stageApi: { extra: true } },
     ]);
@@ -103,9 +103,9 @@ describe('stage/deepsearch plugin', () => {
 
     const started = await startPromise;
     const completed = await completePromise;
-    expect(started.event).toBe('stage.deepsearch.start');
+    expect(started.event).toBe('deepsearch:start');
     expect(started.data).toEqual({ input: { question: 'Q1' } });
-    expect(completed.event).toBe('stage.deepsearch.complete');
+    expect(completed.event).toBe('deepsearch:complete');
     expect(completed.data).toEqual({ result: { output: ['a', 'b'] } });
 
     expect(kernel.state.get('plugins.stage/deepsearch.status')).toBe('completed');
@@ -114,13 +114,13 @@ describe('stage/deepsearch plugin', () => {
     expect(kernel.state.get('plugins.stage/deepsearch.result')).toEqual({ success: true, outputCount: 2 });
 
     // getStatus reads scoped state after run (no fallback)
-    await expect(kernel.services.call('stage:deepsearch', 'getStatus', [])).resolves.toEqual(
+    await expect(kernel.services.call('deepsearchStage', 'getStatus', [])).resolves.toEqual(
       expect.objectContaining({ status: 'completed' })
     );
 
     // Second run should hit the AgentLoop cache branch and allow per-call overrides.
     runImpl = vi.fn(async () => ({ output: [] }));
-    const result2 = await kernel.services.call('stage:deepsearch', 'run', [
+    const result2 = await kernel.services.call('deepsearchStage', 'run', [
       { question: 'Q2' },
       { mode: 'override-mode', maxIterations: 3 },
     ]);
@@ -140,29 +140,28 @@ describe('stage/deepsearch plugin', () => {
       throw new Error('boom');
     });
 
-    const errorPromise = kernel.events.waitFor('stage.deepsearch.error', 500);
+    const errorPromise = kernel.events.waitFor('deepsearch:error', 500);
 
-    await expect(kernel.services.call('stage:deepsearch', 'run', [{ question: 'fail' }])).rejects.toThrow(/boom/);
+    await expect(kernel.services.call('deepsearchStage', 'run', [{ question: 'fail' }])).rejects.toThrow(/boom/);
 
     const evt = await errorPromise;
-    expect(evt.event).toBe('stage.deepsearch.error');
+    expect(evt.event).toBe('deepsearch:error');
     expect(evt.data).toEqual(expect.objectContaining({ error: expect.any(Error) }));
 
     expect(kernel.state.get('plugins.stage/deepsearch.status')).toBe('failed');
     expect(kernel.state.get('plugins.stage/deepsearch.error')).toBe('boom');
   });
 
-  it('uninstall removes stage:deepsearch service (via kernel.stop)', async () => {
+  it('uninstall removes deepsearchStage service (via kernel.stop)', async () => {
     kernel = await createKernel();
     await kernel.use(deepsearchStagePlugin);
     await kernel.start();
 
-    expect(kernel.services.has('stage:deepsearch')).toBe(true);
+    expect(kernel.services.has('deepsearchStage')).toBe(true);
 
     await kernel.stop();
 
-    expect(kernel.services.has('stage:deepsearch')).toBe(false);
+    expect(kernel.services.has('deepsearchStage')).toBe(false);
     kernel = null;
   });
 });
-

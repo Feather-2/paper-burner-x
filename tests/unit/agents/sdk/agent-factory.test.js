@@ -244,7 +244,7 @@ describe("AgentInstance", () => {
 
     const output = await instance.run({ query: "q" }, { runId: "", state: { ok: true }, signal: null });
     expect(output.ok).toBe(true);
-    expect(eventBus.emit).toHaveBeenCalledWith("runner:agentStarted", { runId: "123" });
+    expect(eventBus.emit).toHaveBeenCalledWith("runner:agent.started", { runId: "123" });
 
     const loop = mockedDefaultAgentLoop.instances[0];
     expect(loop.options.permissionLevel).toBe("42");
@@ -272,8 +272,8 @@ describe("AgentInstance", () => {
     const runId = Number.MAX_SAFE_INTEGER;
     await expect(instance.run({ query: "x" }, { runId, state: {}, signal: null })).rejects.toThrow("boom");
 
-    expect(eventBus.emit).toHaveBeenCalledWith("runner2:agentStarted", { runId });
-    expect(eventBus.emit).toHaveBeenCalledWith("Runner2:agentFailed", { error: "boom" });
+    expect(eventBus.emit).toHaveBeenCalledWith("runner2:agent.started", { runId });
+    expect(eventBus.emit).toHaveBeenCalledWith("runner2:agent.failed", { error: "boom" });
 
     const loop = mockedDefaultAgentLoop.instances[0];
     expect(loop.options.permissionLevel).toBe("0");

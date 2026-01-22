@@ -122,24 +122,27 @@ it("Runtime: JSRuntimeAdapter blocks main-thread fallback unless trusted", async
   expect(String(res.error || "")).toMatch(/Main-thread fallback blocked/);
 });
 
-it("Runtime: JSRuntimeAdapter allows main-thread fallback when trusted=true", async () => {
+it("Runtime: JSRuntimeAdapter blocks main-thread fallback even when trusted=true", async () => {
   const { JSRuntimeAdapter } = await import("../../../js/agents/runtime/core/js-adapter.js");
 
   const js = new JSRuntimeAdapter({ useWorkerSandbox: false });
   const res = await js.execute("return 40 + 2;", { vfs: {}, state: {}, trusted: true });
 
-  expect(res.success).toBe(true);
-  expect(res.data).toBe(42);
+  expect(res.success).toBe(false);
+  expect(String(res.error || "")).toMatch(/Main-thread fallback disabled/);
+  expect(res.metrics?.blocked).toBe(true);
 });
 
-it("Runtime: JSRuntimeAdapter main-thread fallback can be forced allow", async () => {
+it("Runtime: JSRuntimeAdapter main-thread fallback cannot be forced allow", async () => {
   const { JSRuntimeAdapter } = await import("../../../js/agents/runtime/core/js-adapter.js");
 
   const js = new JSRuntimeAdapter({ useWorkerSandbox: false, mainThreadFallback: "allow" });
   const res = await js.execute("return 6 * 7;", { vfs: {}, state: {} });
 
-  expect(res.success).toBe(true);
-  expect(res.data).toBe(42);
+  expect(res.success).toBe(false);
+  expect(String(res.error || "")).toMatch(/Main-thread fallback blocked/);
+  expect(String(res.error || "")).toMatch(/policy=allow/);
+  expect(res.metrics?.blocked).toBe(true);
 });
 
 it("Runtime: JSRuntimeAdapter reports aborted when signal already aborted", async () => {

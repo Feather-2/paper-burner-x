@@ -1,4 +1,4 @@
-import { StepStatus, isValidStepStatus } from "../core/agent-status.js";
+import { StepStatus, isValidStepStatus } from "../../runtime/core/agent-status.js";
 import { makeSecureTimestampedId } from "../../shared/index.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
