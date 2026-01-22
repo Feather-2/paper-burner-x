@@ -220,16 +220,16 @@ async function handleExecute(data) {
     const sandbox = createRestrictedGlobals(state, globals, audit);
 
     const wrappedCode = `
-      return (async function () {
-        with (sandbox) {
+      with (sandbox) {
+        return (async function () {
           ${code}
-        }
-      }).call(sandbox);
+        }).call(this);
+      }
     `;
 
     // eslint-disable-next-line no-new-func
     const fn = new UnsafeFunction('sandbox', wrappedCode);
-    const execPromise = fn(sandbox);
+    const execPromise = fn.call(sandbox, sandbox);
 
     const result = await Promise.race([execPromise, timeoutPromise]);
 

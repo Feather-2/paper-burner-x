@@ -324,7 +324,8 @@ export class AgentInstance extends DisposableBase {
 
       return await this._loop.run(input, context);
     } catch (error) {
-      this.eventBus.emit(`${this.actor}:agentFailed`, { error: error.message });
+      const message = error instanceof Error ? error.message : String(error ?? "");
+      this.eventBus.emit(`${this.actor}:agentFailed`, { error: message });
       throw error;
     }
   }

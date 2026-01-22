@@ -77,12 +77,6 @@ export function enhanceWithSandbox(manager, options = {}) {
     return executor;
   };
 
-  // 清理方法
-  const originalClearCache = manager.clearCache.bind(manager);
-  manager.clearCache = function(cwd = null) {
-    originalClearCache(cwd);
-  };
-
   // 添加销毁方法
   manager.dispose = function() {
     executor.dispose();

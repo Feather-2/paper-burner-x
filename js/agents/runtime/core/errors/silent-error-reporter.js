@@ -128,18 +128,7 @@ export class SilentErrorReporter {
       try {
         this._onError(entry);
       } catch (callbackError) {
-        // Record callback error to samples for debuggability
-        this._samples.push({
-          message: callbackError instanceof Error ? callbackError.message : String(callbackError),
-          stack: callbackError instanceof Error ? callbackError.stack?.split('\n').slice(0, 3).join('\n') : undefined,
-          location: 'SilentErrorReporter.onError',
-          category: ErrorCategory.DEGRADED,
-          operation: 'callback',
-          ts: Date.now(),
-        });
-        if (this._samples.length > this._maxSamples) {
-          this._samples.shift();
-        }
+        // Swallow callback errors silently
       }
     }
   }

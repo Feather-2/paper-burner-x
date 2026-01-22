@@ -147,7 +147,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.DEGRADATION_MATRIX,
     async (c) => {
-      const { DegradationMatrix } = await import("../resilience/degradation-matrix.js");
+      const { DegradationMatrix } = await import("../../plugins/resilience/degradation-matrix.js");
       const logger = c.get(ServiceId.LOGGER);
 
       const getMemoryUsage = () => {

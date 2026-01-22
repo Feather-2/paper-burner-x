@@ -12,6 +12,7 @@ function normalizeGlobPattern(pattern) {
   let p = typeof pattern === "string" ? pattern : "";
   if (!p) return "";
   p = p.replaceAll("\\", "/").trim();
+  p = p.replace(/\/+/g, "/");
   while (p.startsWith("./")) p = p.slice(2);
   while (p.startsWith("/")) p = p.slice(1);
   return p;

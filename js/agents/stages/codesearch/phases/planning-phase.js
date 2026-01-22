@@ -25,7 +25,16 @@ const MAX_TODO_TEXT_CHARS = 400;
 const MAX_TODO_HINTS = 10;
 const MAX_TODO_HINT_CHARS = 80;
 const MAX_TODO_EVIDENCE_CHARS = 400;
-const ALLOWED_TODO_KEYS = new Set(["text", "priority", "queryHints", "expectedEvidence"]);
+// Allow a small set of legacy keys for backward compatibility with older model
+// output shapes (e.g. `title`/`todo`), while still rejecting unexpected fields.
+const ALLOWED_TODO_KEYS = new Set([
+  "text",
+  "title",
+  "todo",
+  "priority",
+  "queryHints",
+  "expectedEvidence",
+]);
 const ALLOWED_TODO_PRIORITIES = new Set(["low", "medium", "high"]);
 
 /**
@@ -130,11 +139,13 @@ function sanitizeTodoItems(items) {
     const keys = Object.keys(item);
     if (keys.some((key) => !ALLOWED_TODO_KEYS.has(key))) return null;
 
-    const text = toNonEmptyString(item.text);
+    const text = toNonEmptyString(item.text ?? item.title ?? item.todo);
     if (!text || text.length > MAX_TODO_TEXT_CHARS) return null;
 
-    const priority = toNonEmptyString(item.priority);
-    if (priority && !ALLOWED_TODO_PRIORITIES.has(priority)) return null;
+    const rawPriority = item.priority;
+    const priority = normalizeTodoPriority(rawPriority);
+    // Keep strictness for non-empty values, while tolerating missing/empty priority.
+    if (toNonEmptyString(rawPriority) && !priority) return null;
 
     const rawHints = Array.isArray(item.queryHints) ? item.queryHints : [];
     const hints = [];
@@ -158,6 +169,28 @@ function sanitizeTodoItems(items) {
   }
 
   return sanitized;
+}
+
+/**
+ * Normalize todo priority from either canonical strings (high|medium|low) or
+ * legacy numeric forms (1/2/3...). Returns null when the input is absent.
+ *
+ * @param {any} value
+ * @returns {string|null}
+ */
+function normalizeTodoPriority(value) {
+  const s = toNonEmptyString(value);
+  if (!s) return null;
+
+  const lowered = s.toLowerCase();
+  if (ALLOWED_TODO_PRIORITIES.has(lowered)) return lowered;
+
+  // Legacy numeric priority: 1 = high, 2 = medium, 3+ = low.
+  const n = Number.parseInt(lowered, 10);
+  if (!Number.isFinite(n)) return null;
+  if (n <= 1) return "high";
+  if (n === 2) return "medium";
+  return "low";
 }
 
 /**

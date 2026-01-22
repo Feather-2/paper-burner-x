@@ -387,7 +387,7 @@ export class AgentOrchestrator extends DisposableBase {
 
     // Best-effort fallback: create an isolated matrix for this orchestrator.
     try {
-      const { DegradationMatrix } = await import("./resilience/degradation-matrix.js");
+      const { DegradationMatrix } = await import("../../plugins/resilience/degradation-matrix.js");
       this._degradationMatrix = new DegradationMatrix({ getMemoryUsage: defaultMemoryUsageRatio });
       return this._degradationMatrix;
     } catch {

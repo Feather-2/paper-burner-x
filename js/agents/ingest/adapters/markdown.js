@@ -54,6 +54,7 @@ function decodeUtf8(data) {
 export class MarkdownAdapter extends BaseAdapter {
   constructor(options = {}) {
     super({ ...options, adapterName: "markdown" });
+    this.allowPathRead = options?.allowPathRead === true;
   }
 
   /**
@@ -63,7 +64,7 @@ export class MarkdownAdapter extends BaseAdapter {
    */
   async parse(input, stageApi = {}) {
     const t0 = Date.now();
-    const allowPathRead = stageApi?.allowPathRead === true;
+    const allowPathRead = stageApi?.allowPathRead !== undefined ? stageApi.allowPathRead === true : this.allowPathRead === true;
 
     let filename = "";
     let mimeType = "";

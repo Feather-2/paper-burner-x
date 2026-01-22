@@ -286,16 +286,16 @@ self.onmessage = async (evt) => {
 
     // 构建受限执行函数
     const wrappedCode = `
-      return (async function () {
-        with (sandbox) {
+      with (sandbox) {
+        return (async function () {
           ${code}
-        }
-      }).call(sandbox);
+        }).call(this);
+      }
     `;
 
     // eslint-disable-next-line no-new-func
     const fn = new UnsafeFunction("sandbox", wrappedCode);
-    const execPromise = fn(sandbox);
+    const execPromise = fn.call(sandbox, sandbox);
 
     const result = await Promise.race([execPromise, timeoutPromise]);
 

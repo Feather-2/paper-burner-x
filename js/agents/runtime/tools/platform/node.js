@@ -170,6 +170,8 @@ export async function createNodeTools(options = {}) {
    * @returns {boolean}
    */
   function isCommandAllowed(command) {
+    // Empty allowlist means all commands are allowed
+    if (allowedCommandSet.size === 0) return true;
     return allowedCommandSet.has(command);
   }
 

@@ -329,8 +329,12 @@ export class SkillExecutor {
   _isFallbackAllowed(skill, context = {}) {
     if (this.trustChecker(skill)) return true;
     if (context?.trusted === true) return true;
+
     const allowlist = normalizeFallbackAllowlist(context?.fallbackAllowlist) || this.fallbackAllowlist;
-    return isAllowlistedSkill(allowlist, skill);
+    if (allowlist) return isAllowlistedSkill(allowlist, skill);
+
+    // No explicit allowlist: do not allow fallback eval for untrusted skills.
+    return false;
   }
 
   /**
@@ -945,11 +949,11 @@ export class SkillExecutor {
       // This path is only reached when WASM sandbox is unavailable.
       // Do not route untrusted input here; prefer WASM/Worker sandbox.
       const wrappedCode = `
-        return (async function () {
-          with (sandbox) {
+        with (sandbox) {
+          return (async function () {
             ${options.code}
-          }
-        }).call(sandbox);
+          }).call(this);
+        }
       `;
 
       // eslint-disable-next-line no-new-func -- trusted-only fallback
@@ -957,7 +961,7 @@ export class SkillExecutor {
 
       /** @type {ReturnType<typeof setTimeout> | null} */
       let timeoutId = null;
-      const execPromise = fn(sandbox);
+      const execPromise = fn.call(sandbox, sandbox);
       const timeoutPromise =
         timeoutMs > 0
           ? new Promise((_, reject) => {

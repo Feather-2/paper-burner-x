@@ -11,7 +11,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { createLogger } from '../../shared/index.js';
+import { createLogger } from '../../../shared/index.js';
 
 const logger = createLogger('runtime/exec');
 
