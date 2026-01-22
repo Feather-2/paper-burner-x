@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// Coordinator depends on compressAgentLoopMessagesAsync. Mock it so we can test
-// trigger logic and error handling without running the actual compression.
-vi.mock("../../../js/agents/runtime/compression/compression-async.js", async (importOriginal) => {
+// Mock only what's needed for coordinator tests, but keep real implementations
+// for direct compression-async tests that use vi.importActual().
+const mockCompressAgentLoopMessagesAsync = vi.fn();
+vi.mock("../../../../js/agents/plugins/compression/impl/compression-async.js", async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    compressAgentLoopMessagesAsync: vi.fn(),
+    // Only override when accessed through the mock (coordinator tests)
+    // vi.importActual() will bypass this and get the real function
   };
 });
 
@@ -17,16 +19,16 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe("runtime/compression/coordinator.js", () => {
+describe("plugins/compression/impl/coordinator.js", () => {
   it("computeFillRatio handles empty contextWindow", async () => {
-    const { computeFillRatio } = await import("../../../../js/agents/runtime/compression/coordinator.js");
+    const { computeFillRatio } = await import("../../../../js/agents/plugins/compression/impl/coordinator.js");
     expect(computeFillRatio(10, 0)).toBe(0);
     expect(computeFillRatio(10, undefined)).toBe(0);
     expect(computeFillRatio(10, 20)).toBeCloseTo(0.5);
   });
 
   it("normalizes token usage totals and shouldCompress threshold", async () => {
-    const { CompressionCoordinator } = await import("../../../../js/agents/runtime/compression/coordinator.js");
+    const { CompressionCoordinator } = await import("../../../../js/agents/plugins/compression/impl/coordinator.js");
 
     const cObj = new CompressionCoordinator({ getTokenUsage: () => ({ total: "42" }) });
     expect(cObj._resolveTokenUsageTotal()).toBe(42);
@@ -60,8 +62,9 @@ describe("runtime/compression/coordinator.js", () => {
   });
 
   it("maybeCompress forwards derived options to compression", async () => {
-    const compressionAsync = await import("../../../../js/agents/runtime/compression/compression-async.js");
-    const { CompressionCoordinator } = await import("../../../../js/agents/runtime/compression/coordinator.js");
+    const compressionAsync = await import("../../../../js/agents/plugins/compression/impl/compression-async.js");
+    compressionAsync.compressAgentLoopMessagesAsync = mockCompressAgentLoopMessagesAsync;
+    const { CompressionCoordinator } = await import("../../../../js/agents/plugins/compression/impl/coordinator.js");
 
     const expected = { messages: [{ role: "assistant", content: "ok" }], sessionSummary: "s", stats: { ok: true }, afterTokens: 123 };
     compressionAsync.compressAgentLoopMessagesAsync.mockResolvedValue(expected);
@@ -100,8 +103,9 @@ describe("runtime/compression/coordinator.js", () => {
   });
 
   it("maybeCompress logs and falls back when compression throws", async () => {
-    const compressionAsync = await import("../../../../js/agents/runtime/compression/compression-async.js");
-    const { CompressionCoordinator } = await import("../../../../js/agents/runtime/compression/coordinator.js");
+    const compressionAsync = await import("../../../../js/agents/plugins/compression/impl/compression-async.js");
+    compressionAsync.compressAgentLoopMessagesAsync = mockCompressAgentLoopMessagesAsync;
+    const { CompressionCoordinator } = await import("../../../../js/agents/plugins/compression/impl/coordinator.js");
 
     compressionAsync.compressAgentLoopMessagesAsync.mockRejectedValue(new Error("boom"));
     const logger = { warn: vi.fn() };
@@ -124,17 +128,17 @@ describe("runtime/compression/coordinator.js", () => {
   });
 });
 
-describe("runtime/compression/compression-async.js", () => {
+describe("plugins/compression/impl/compression-async.js", () => {
   it("isCompressionWorkerAvailable is false in Node-like runtimes", async () => {
     const { isCompressionWorkerAvailable } = await vi.importActual(
-      "../../../js/agents/runtime/compression/compression-async.js"
+      "../../../../js/agents/plugins/compression/impl/compression-async.js"
     );
     expect(isCompressionWorkerAvailable()).toBe(false);
   });
 
   it("compressSessionHistoryAsync throws when aborted", async () => {
     const { compressSessionHistoryAsync } = await vi.importActual(
-      "../../../js/agents/runtime/compression/compression-async.js"
+      "../../../../js/agents/plugins/compression/impl/compression-async.js"
     );
 
     const controller = new AbortController();
@@ -147,7 +151,7 @@ describe("runtime/compression/compression-async.js", () => {
 
   it("compressSessionHistorySync merges, filters thinking, anchors system, and summarizes older", async () => {
     const { compressSessionHistorySync } = await vi.importActual(
-      "../../../js/agents/runtime/compression/compression-async.js"
+      "../../../../js/agents/plugins/compression/impl/compression-async.js"
     );
 
     const messages = [
@@ -183,7 +187,7 @@ describe("runtime/compression/compression-async.js", () => {
 
   it("compressSessionHistorySync truncates without ellipsis when summaryLineChars <= 3", async () => {
     const { compressSessionHistorySync } = await vi.importActual(
-      "../../../js/agents/runtime/compression/compression-async.js"
+      "../../../../js/agents/plugins/compression/impl/compression-async.js"
     );
 
     const result = compressSessionHistorySync(
@@ -200,7 +204,7 @@ describe("runtime/compression/compression-async.js", () => {
 
   it("compressSessionHistorySync supports titleOnly mode with CJK + English", async () => {
     const { compressSessionHistorySync } = await vi.importActual(
-      "../../../js/agents/runtime/compression/compression-async.js"
+      "../../../../js/agents/plugins/compression/impl/compression-async.js"
     );
 
     const result = compressSessionHistorySync(
@@ -217,9 +221,10 @@ describe("runtime/compression/compression-async.js", () => {
   });
 
   it("compressAgentLoopMessagesAsync moves prior summary to the end and sanitizes kept messages", async () => {
-    const { compressAgentLoopMessagesAsync } = await vi.importActual(
-      "../../../js/agents/runtime/compression/compression-async.js"
+    const compressionModule = await vi.importActual(
+      "../../../../js/agents/plugins/compression/impl/compression-async.js"
     );
+    const { compressAgentLoopMessagesAsync } = compressionModule;
 
     const priorSummaryMsg = { role: "system", content: "[Context Summary]\nPrior summary text" };
     const longSystemAnchor = `System anchor ${"z".repeat(200)}`;
@@ -258,7 +263,7 @@ describe("runtime/compression/compression-async.js", () => {
 
   it("compressAgentLoopMessagesAsync does not sanitize when maxKeptMessageChars is 0", async () => {
     const { compressAgentLoopMessagesAsync } = await vi.importActual(
-      "../../../js/agents/runtime/compression/compression-async.js"
+      "../../../../js/agents/plugins/compression/impl/compression-async.js"
     );
 
     const prettyJson = JSON.stringify({ persistedOutput: { preview: "x".repeat(20) } }, null, 2);
@@ -274,7 +279,7 @@ describe("runtime/compression/compression-async.js", () => {
 
   it("compressAgentLoopMessagesAsync treats non-array input as empty list", async () => {
     const { compressAgentLoopMessagesAsync } = await vi.importActual(
-      "../../../js/agents/runtime/compression/compression-async.js"
+      "../../../../js/agents/plugins/compression/impl/compression-async.js"
     );
 
     const result = await compressAgentLoopMessagesAsync(null, { keepLastTurns: 10 }, { useWorker: false });

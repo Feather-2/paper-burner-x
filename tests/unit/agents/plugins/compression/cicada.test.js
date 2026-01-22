@@ -9,7 +9,7 @@ const { compressMock, CicadaCompressorMock } = vi.hoisted(() => {
   return { compressMock, CicadaCompressorMock };
 });
 
-vi.mock("../../../../../js/agents/plugins/compression/impl/cicada-compressor.js", () => ({
+vi.mock("../../../../../js/agents/runtime/compression/cicada-compressor.js", () => ({
   CicadaCompressor: CicadaCompressorMock,
 }));
 
@@ -104,7 +104,7 @@ describe("plugins/compression/cicada.js default export", () => {
       after: 1,
       timestamp: 1234,
     });
-    expect(ctx.events.emit).toHaveBeenCalledWith("compression:done", {
+    expect(ctx.events.emit).toHaveBeenCalledWith("compression.done", {
       originalCount: 2,
       compressedCount: 1,
       ratio: 0.5,
@@ -127,7 +127,7 @@ describe("plugins/compression/cicada.js default export", () => {
       after: 0,
       timestamp: expect.any(Number),
     });
-    expect(ctx.events.emit).toHaveBeenCalledWith("compression:done", {
+    expect(ctx.events.emit).toHaveBeenCalledWith("compression.done", {
       originalCount: 0,
       compressedCount: undefined,
       ratio: 1,
@@ -187,7 +187,7 @@ describe("plugins/compression/cicada.js default export", () => {
     handler({ payload: { total: 91 } });
 
     expect(ctx.events.emit).toHaveBeenCalledTimes(1);
-    expect(ctx.events.emit).toHaveBeenCalledWith("compression:warning", {
+    expect(ctx.events.emit).toHaveBeenCalledWith("compression.warning", {
       current: 91,
       threshold: 100,
     });

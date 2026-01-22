@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 async function createStore(options = {}) {
-  const { MemoryStore } = await import("../../../../js/agents/runtime/memory/memory-store.js");
+  const { MemoryStore } = await import("../../../../../js/agents/runtime/memory/memory-store.js");
   return new MemoryStore({
     runId: "ms_test",
     tokenCounter: null,
@@ -19,7 +19,7 @@ async function createStore(options = {}) {
 
 describe("runtime/memory/memory-store.js", () => {
   it("re-exports MemoryStore as named + default export", async () => {
-    const mod = await import("../../../../js/agents/runtime/memory/memory-store.js");
+    const mod = await import("../../../../../js/agents/runtime/memory/memory-store.js");
     expect(mod.MemoryStore).toBeTypeOf("function");
     expect(mod.default).toBe(mod.MemoryStore);
   });
@@ -463,7 +463,7 @@ describe("runtime/memory/memory-store.js", () => {
   });
 
   it("lazily creates L3Storage from vfs and delegates archive/getSnapshot", async () => {
-    const { MemoryVfs } = await import("../../../../js/agents/vfs/vfs.memory.js");
+    const { MemoryVfs } = await import("../../../../../js/agents/vfs/vfs.memory.js");
     const vfs = new MemoryVfs();
     const eventBus = { emit: vi.fn() };
 
@@ -769,7 +769,7 @@ describe("runtime/memory/memory-store.js", () => {
   });
 
   it("covers estimateBytes primitive branches and the _getL3Storage inFlight fast path", async () => {
-    const { MemoryVfs } = await import("../../../../js/agents/vfs/vfs.memory.js");
+    const { MemoryVfs } = await import("../../../../../js/agents/vfs/vfs.memory.js");
     const store = await createStore({ runId: "ms_bytes", vfs: new MemoryVfs() });
 
     // Force the in-flight branch by providing a pending promise and leaving `_l3Storage` unset.
@@ -793,7 +793,7 @@ describe("runtime/memory/memory-store.js", () => {
 
   it("extends DisposableBase and cleans up resources on dispose", async () => {
     const eventBus = { emit: vi.fn(), on: vi.fn(() => vi.fn()) };
-    const { MemoryVfs } = await import("../../../../js/agents/vfs/vfs.memory.js");
+    const { MemoryVfs } = await import("../../../../../js/agents/vfs/vfs.memory.js");
     const vfs = new MemoryVfs();
 
     const store = await createStore({ eventBus, vfs });

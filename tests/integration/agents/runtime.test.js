@@ -925,7 +925,7 @@ it("Runtime Core: EventBus listener errors are isolated (sync + async)", async (
 
 it("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", async () => {
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-  const { subscribeTelemetry } = await import("../../../js/agents/runtime/telemetry/runstore-telemetry.js");
+  const { subscribeTelemetry } = await import("../../../js/agents/plugins/telemetry/runstore-telemetry.js");
 
   const bus = new EventBus({ runId: "run_telemetry" });
   const stored = [];
@@ -949,7 +949,7 @@ it("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", asy
 
 it("Runtime Telemetry: subscribeTelemetry flush surfaces appendEvent errors", async () => {
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-  const { subscribeTelemetry } = await import("../../../js/agents/runtime/telemetry/runstore-telemetry.js");
+  const { subscribeTelemetry } = await import("../../../js/agents/plugins/telemetry/runstore-telemetry.js");
 
   const bus = new EventBus({ runId: "run_telemetry_error" });
   const stored = [];
@@ -975,7 +975,7 @@ it("Runtime Telemetry: subscribeTelemetry flush surfaces appendEvent errors", as
 
 it("Runtime Telemetry: subscribeTelemetry skips replay events", async () => {
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-  const { subscribeTelemetry } = await import("../../../js/agents/runtime/telemetry/runstore-telemetry.js");
+  const { subscribeTelemetry } = await import("../../../js/agents/plugins/telemetry/runstore-telemetry.js");
 
   const bus = new EventBus({ runId: "run_telemetry_replay" });
   const stored = [];
@@ -1164,7 +1164,7 @@ it("Runtime Compression: _scheduleCompression is idempotent and flushCompression
 });
 
 it("AgentOrchestrator: stage timeout timer is cleaned up on success", async () => {
-  const { AgentOrchestrator } = await import("../../../js/agents/runtime/orchestrator.js");
+  const { AgentOrchestrator } = await import("../../../js/agents/runtime/core/orchestrator.js");
 
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
@@ -1492,7 +1492,7 @@ it("PlanStore: lifecycle transitions enforce draft→approved→in_progress", as
     createPlan,
     canTransitionPlanLifecycle,
     setPlanLifecycleStatus,
-  } = await import("../../../js/agents/runtime/plan/plan-store.js");
+  } = await import("../../../js/agents/plugins/plan/plan-store.js");
 
   const plan = createPlan({ runId: "run_test", title: "T", steps: [] });
   expect(plan.lifecycleStatus).toBe(PlanLifecycleStatus.DRAFT);
@@ -1515,7 +1515,7 @@ it("PlanStore: lifecycle transitions enforce draft→approved→in_progress", as
 });
 
 it("PolicyEngine: domain suffix + all/any/not + timeRange matching", async () => {
-  const { PolicyEngine } = await import("../../../js/agents/runtime/policy/engine.js");
+  const { PolicyEngine } = await import("../../../js/agents/plugins/policy/engine.js");
 
   const engine = new PolicyEngine({
     defaultEffect: "prompt",
@@ -1768,7 +1768,7 @@ it("RuntimeScheduler: isolation blocks dispatch and recoveryCheck restores runti
 });
 
 it("Runtime: TaskGraph layered topo sort + cycle/missing detection", async () => {
-  const { TaskGraph } = await import("../../../js/agents/runtime/parallel/task-graph.js");
+  const { TaskGraph } = await import("../../../js/agents/runtime/core/parallel/task-graph.js");
 
   const g = new TaskGraph();
   g.addTask("A");
@@ -1790,7 +1790,7 @@ it("Runtime: TaskGraph layered topo sort + cycle/missing detection", async () =>
 });
 
 it("Runtime: TaskGraph handles boundary inputs and allowMissingDependencies", async () => {
-  const { TaskGraph } = await import("../../../js/agents/runtime/parallel/task-graph.js");
+  const { TaskGraph } = await import("../../../js/agents/runtime/core/parallel/task-graph.js");
 
   const graph = new TaskGraph();
   expect(() => graph.addTask("")).toThrow(/non-empty string/i);
@@ -1844,7 +1844,7 @@ it("Runtime: command classifier parses compound commands and flags danger", asyn
 });
 
 it("Runtime: AgentCheckpointStore persists and restores checkpoints", async () => {
-  const { AgentCheckpointStore } = await import("../../../js/agents/runtime/checkpoints/agent-checkpoint-store.js");
+  const { AgentCheckpointStore } = await import("../../../js/agents/plugins/checkpoints/agent-checkpoint-store.js");
   const { MemoryVfs } = await import("../../../js/agents/vfs/vfs.memory.js");
 
   const vfs = new MemoryVfs();
@@ -2088,7 +2088,7 @@ it("LLM: overflow recovery parses and retries with reduced max_tokens", async ()
 });
 
 it("Runtime: AgentOrchestrator.runStagesGraph executes by dependency levels", async () => {
-  const { AgentOrchestrator } = await import("../../../js/agents/runtime/orchestrator.js");
+  const { AgentOrchestrator } = await import("../../../js/agents/runtime/core/orchestrator.js");
 
   const orch = new AgentOrchestrator({ scheduling: { mode: "parallel", maxConcurrency: 10 } });
   orch.registerStage("a", async () => "A");
@@ -2107,7 +2107,7 @@ it("Runtime: AgentOrchestrator.runStagesGraph executes by dependency levels", as
 });
 
 it("Runtime: AgentOrchestrator.runStagesGraph skips dependents after failure when continueOnError=true", async () => {
-  const { AgentOrchestrator } = await import("../../../js/agents/runtime/orchestrator.js");
+  const { AgentOrchestrator } = await import("../../../js/agents/runtime/core/orchestrator.js");
 
   const orch = new AgentOrchestrator({ scheduling: { mode: "parallel", maxConcurrency: 10 } });
   orch.registerStage("a", async () => {

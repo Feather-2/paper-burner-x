@@ -5,7 +5,7 @@ import { SourceManager } from '../../../../../js/agents/stages/deepsearch/source
 
 describe("deepsearch/tools handlers (unit)", () => {
   it("manage-todos: create/update/list/complete/cancel", async () => {
-    const { handler } = await import("../../../../js/agents/stages/deepsearch/tools/manage-todos/handler.js");
+    const { handler } = await import("../../../../../js/agents/stages/deepsearch/tools/manage-todos/handler.js");
 
     const emit = vi.fn();
     const state = { todos: [] };
@@ -37,7 +37,7 @@ describe("deepsearch/tools handlers (unit)", () => {
   });
 
   it("ask-user: errors when interactive mode missing, succeeds when waitForUserInput is available", async () => {
-    const { handler } = await import("../../../../js/agents/stages/deepsearch/tools/ask-user/handler.js");
+    const { handler } = await import("../../../../../js/agents/stages/deepsearch/tools/ask-user/handler.js");
     const emit = vi.fn();
 
     const missing = await handler({ question: "q" }, { emit, stageApi: {} });
@@ -53,7 +53,7 @@ describe("deepsearch/tools handlers (unit)", () => {
   });
 
   it("list-docs: lists documents from SourceManager (supports injected sourceManager)", async () => {
-    const { handler } = await import("../../../../js/agents/stages/deepsearch/tools/list-docs/handler.js");
+    const { handler } = await import("../../../../../js/agents/stages/deepsearch/tools/list-docs/handler.js");
     const emit = vi.fn();
 
     const state = {
@@ -73,7 +73,7 @@ describe("deepsearch/tools handlers (unit)", () => {
   });
 
   it("read-doc: reads content and records readDocIds in state", async () => {
-    const { handler } = await import("../../../../js/agents/stages/deepsearch/tools/read-doc/handler.js");
+    const { handler } = await import("../../../../../js/agents/stages/deepsearch/tools/read-doc/handler.js");
     const emit = vi.fn();
 
     const state = {
@@ -92,9 +92,9 @@ describe("deepsearch/tools handlers (unit)", () => {
   });
 
   it("evaluate-gaps: maps DiscoveryStatus -> GapStatus, syncs todo completion, and upserts discovery", async () => {
-    const { handler } = await import("../../../../js/agents/stages/deepsearch/tools/evaluate-gaps/handler.js");
-    const { DiscoveryStatus } = await import("../../../../js/agents/sdk/DiscoveryManager.js");
-    const { GapStatus } = await import("../../../../js/agents/stages/deepsearch/states.js");
+    const { handler } = await import("../../../../../js/agents/stages/deepsearch/tools/evaluate-gaps/handler.js");
+    const { DiscoveryStatus } = await import("../../../../../js/agents/sdk/DiscoveryManager.js");
+    const { GapStatus } = await import("../../../../../js/agents/stages/deepsearch/states.js");
 
     const emit = vi.fn();
     const discoveryManager = {

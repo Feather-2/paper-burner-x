@@ -78,12 +78,12 @@ it("Design: DesignStage generates design tokens + emits design.* events", async 
   expect(typeof deck.deckHtmlDsl).toBe("string");
   expect(deck.deckHtmlDsl).toContain('data-type="freeform"');
 
-  expect(events.some(e => e.name === "design.started")).toBe(true);
-  expect(events.some(e => e.name === "design.tokens.ended")).toBe(true);
-  expect(events.some(e => e.name === "design.generate.ended")).toBe(true);
-  expect(events.some(e => e.name === "design.qa.ended")).toBe(true);
-  expect(events.some(e => e.name === "design.ended")).toBe(true);
-  expect(events.every(e => e.name !== "design.image.planning.completed")).toBe(true);
+  expect(events.some(e => e.name === "design:started")).toBe(true);
+  expect(events.some(e => e.name === "design:tokens:completed")).toBe(true);
+  expect(events.some(e => e.name === "design:generate:completed")).toBe(true);
+  expect(events.some(e => e.name === "design:qa:completed")).toBe(true);
+  expect(events.some(e => e.name === "design:completed")).toBe(true);
+  expect(events.every(e => e.name !== "design:image:planning:completed")).toBe(true);
 });
 
 it("Design: ReactRefiner tool executor sanitizes injected HTML (no javascript: urls)", async () => {
@@ -109,8 +109,8 @@ it("Design: ReactRefiner tool executor sanitizes injected HTML (no javascript: u
 });
 
 it("Design: dsl-builder supports core page types and passes QA in safe mode", async () => {
-  const { buildSlideHtml } = await import("../../../js/agents/stages/design/dsl-builder.js");
-  const { validateSlide } = await import("../../../js/agents/stages/design/qa-validator.js");
+  const { buildSlideHtml } = await import("../../../js/agents/stages/design/dsl/dsl-builder.js");
+  const { validateSlide } = await import("../../../js/agents/stages/design/refiner/qa-validator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 6 });
   const designSystem = {
@@ -132,7 +132,7 @@ it("Design: dsl-builder supports core page types and passes QA in safe mode", as
 });
 
 it("Design: dsl-builder prefers slideIntent.content (string) over keyPoints/objective", async () => {
-  const { buildSlideHtml } = await import("../../../js/agents/stages/design/dsl-builder.js");
+  const { buildSlideHtml } = await import("../../../js/agents/stages/design/dsl/dsl-builder.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
   const designSystem = {
@@ -158,7 +158,7 @@ it("Design: dsl-builder prefers slideIntent.content (string) over keyPoints/obje
 });
 
 it("Design: dsl-builder supports slideIntent.content.markdown (object) and falls back when missing", async () => {
-  const { buildSlideHtml } = await import("../../../js/agents/stages/design/dsl-builder.js");
+  const { buildSlideHtml } = await import("../../../js/agents/stages/design/dsl/dsl-builder.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
   const designSystem = {
@@ -198,7 +198,7 @@ it("Design: dsl-builder supports slideIntent.content.markdown (object) and falls
 });
 
 it("Design: generateSingleSlide returns valid HTML", async () => {
-  const { generateSingleSlide } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateSingleSlide } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
   const slideIntent = { slideIntentId: "s1", pageType: "overview", title: "Hello", keyPoints: ["A", "B"] };
@@ -211,7 +211,7 @@ it("Design: generateSingleSlide returns valid HTML", async () => {
 });
 
 it("Design: generateSingleSlide repairs invalid DSL via reflection before falling back", async () => {
-  const { generateSingleSlide } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateSingleSlide } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
   const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
@@ -247,7 +247,7 @@ it("Design: generateSingleSlide repairs invalid DSL via reflection before fallin
 });
 
 it("Design: batch-generator respects concurrency, emits events, and retries once on failure", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
   const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
@@ -366,7 +366,7 @@ it("Design: DesignStage calls ImagePlanner between tokens and batch, emits plann
 });
 
 it("Design: batch-generator makePrompt includes image slot placeholder instructions when provided", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
   const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
@@ -403,7 +403,7 @@ it("Design: batch-generator makePrompt includes image slot placeholder instructi
 });
 
 it("Design: generateBatch injects brainstorm outputs and patches placeholder data-* attrs", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
   const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
@@ -461,7 +461,7 @@ it("Design: generateBatch injects brainstorm outputs and patches placeholder dat
 });
 
 it("Design: batch-generator prompt serializes content and exposes contentMarkdown", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
   const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
@@ -553,9 +553,9 @@ it("Design: DesignStage calls ImageGenerator when provider exists and fills plac
   const stage = new DesignStage({ batchSize: 2 });
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit, imageService });
 
-  expect(events.some(e => e.name === "design.image.generate.started")).toBe(true);
-  expect(events.some(e => e.name === "design.image.generate.succeeded")).toBe(true);
-  expect(events.some(e => e.name === "design.image.fill.completed")).toBe(true);
+  expect(events.some(e => e.name === "design:image:generate:started")).toBe(true);
+  expect(events.some(e => e.name === "design:image:generate:succeeded")).toBe(true);
+  expect(events.some(e => e.name === "design:image:fill:completed")).toBe(true);
 
   expect(typeof deck.deckHtmlDsl).toBe("string");
   expect(deck.deckHtmlDsl).toContain('data-el="image"');
@@ -566,7 +566,7 @@ it("Design: DesignStage calls ImageGenerator when provider exists and fills plac
 });
 
 it("Design: qa-validator catches min font, overflow, and low contrast", async () => {
-  const { validateSlide } = await import("../../../js/agents/stages/design/qa-validator.js");
+  const { validateSlide } = await import("../../../js/agents/stages/design/refiner/qa-validator.js");
 
   const bad = `
   <section data-type="freeform" id="slide-1" data-bg="#ffffff">
@@ -630,7 +630,7 @@ it("Design: DesignStage triggers last-resort downgrade and deckHtmlDsl is parsea
 });
 
 it("Design: image-prompt-builder exports buildPrompt and includes no-text guidance", async () => {
-  const { buildPrompt } = await import("../../../js/agents/stages/design/image-prompt-builder.js");
+  const { buildPrompt } = await import("../../../js/agents/stages/design/image/image-prompt-builder.js");
   const prompt = buildPrompt(
     { slotId: "img_s0_hero", purpose: "hero", promptHint: "A demo", style: "flat", aspectRatio: "16:9" },
     { theme: "modern", designTokens: { colors: { primary: "#0ea5e9", bg: "#ffffff" } } },
@@ -651,8 +651,8 @@ it("Design: design/index.js re-exports stage surface", async () => {
 });
 
 it("Design: validateDesignSystem passes for fallback generator output", async () => {
-  const { generateDesignSystem } = await import("../../../js/agents/stages/design/design-system-generator.js");
-  const { validateDesignSystem } = await import("../../../js/agents/stages/design/design-tokens.js");
+  const { generateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-system-generator.js");
+  const { validateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-tokens.js");
 
   const system = await generateDesignSystem(
     { contentSummary: "x", tone: "business", extractedPalette: null, userPreferences: {} },
@@ -665,8 +665,8 @@ it("Design: validateDesignSystem passes for fallback generator output", async ()
 });
 
 it("Design: design-system-generator uses aiApiService and returns validated DesignSystem", async () => {
-  const { generateDesignSystem } = await import("../../../js/agents/stages/design/design-system-generator.js");
-  const { validateDesignSystem } = await import("../../../js/agents/stages/design/design-tokens.js");
+  const { generateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-system-generator.js");
+  const { validateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-tokens.js");
 
   const calls = [];
   const aiApiService = {
@@ -706,8 +706,8 @@ it("Design: design-system-generator uses aiApiService and returns validated Desi
 });
 
 it("Design: design-system-generator falls back on invalid AI output", async () => {
-  const { generateDesignSystem } = await import("../../../js/agents/stages/design/design-system-generator.js");
-  const { validateDesignSystem } = await import("../../../js/agents/stages/design/design-tokens.js");
+  const { generateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-system-generator.js");
+  const { validateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-tokens.js");
 
   const aiApiService = { chat: async () => ({ content: JSON.stringify({ nope: true }) }) };
   const out = await generateDesignSystem({ contentSummary: "Demo" }, { aiApiService, constraints: { theme: "dark" } });
@@ -739,7 +739,7 @@ function makeValidDynamicDesignSystem() {
 }
 
 it("Design: generateDesignSystem applies no overrides (explicit empty overrides)", async () => {
-  const { generateDesignSystem } = await import("../../../js/agents/stages/design/design-system-generator.js");
+  const { generateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-system-generator.js");
 
   const aiApiService = {
     chat: async () => ({ content: JSON.stringify(makeValidDynamicDesignSystem()) }),
@@ -755,7 +755,7 @@ it("Design: generateDesignSystem applies no overrides (explicit empty overrides)
 });
 
 it("Design: generateDesignSystem applies partial overrides and re-syncs legacy designTokens", async () => {
-  const { generateDesignSystem } = await import("../../../js/agents/stages/design/design-system-generator.js");
+  const { generateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-system-generator.js");
 
   const aiApiService = {
     chat: async () => ({ content: JSON.stringify(makeValidDynamicDesignSystem()) }),
@@ -786,7 +786,7 @@ it("Design: generateDesignSystem applies partial overrides and re-syncs legacy d
 });
 
 it("Design: generateDesignSystem applies complete overrides (colors/typography/spacing/effects)", async () => {
-  const { generateDesignSystem } = await import("../../../js/agents/stages/design/design-system-generator.js");
+  const { generateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-system-generator.js");
 
   const aiApiService = {
     chat: async () => ({ content: JSON.stringify(makeValidDynamicDesignSystem()) }),
@@ -820,7 +820,7 @@ it("Design: generateDesignSystem applies complete overrides (colors/typography/s
 });
 
 it("Design: generateDesignSystem applies visualPreference override and syncs to legacy designTokens", async () => {
-  const { generateDesignSystem } = await import("../../../js/agents/stages/design/design-system-generator.js");
+  const { generateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-system-generator.js");
 
   const aiApiService = {
     chat: async () => ({ content: JSON.stringify(makeValidDynamicDesignSystem()) }),
@@ -836,7 +836,7 @@ it("Design: generateDesignSystem applies visualPreference override and syncs to 
 });
 
 it("Design: validateDesignSystem fails on broken schema + DSL violations", async () => {
-  const { validateDesignSystem } = await import("../../../js/agents/stages/design/design-tokens.js");
+  const { validateDesignSystem } = await import("../../../js/agents/stages/design/generators/design-tokens.js");
 
   const bad = {
     colors: { background: { slide: "white", gradient: "#0ea5e9", panel: "#fff" } },

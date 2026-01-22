@@ -1,7 +1,7 @@
 {
   "$schema": "./.project-index/schemas/test-map.schema.json",
   "version": 1,
-  "generated": "2026-01-20T10:30:36.232Z",
+  "generated": "2026-01-20T19:19:11.271Z",
   "conventions": {
     "unit": {
       "pattern": "tests/{module}/**/*.test.js",
@@ -19,7 +19,7 @@
   "framework": "vitest",
   "coverage": {
     "target": 90,
-    "current": 73.8
+    "current": 72.8
   },
   "modules": {
     "js/agents/cli": {
@@ -1647,12 +1647,17 @@
       }
     },
     "js/agents/runtime": {
-      "total": 80,
-      "covered": 60,
-      "stale": 0,
-      "untested": 20,
-      "coverage": "75.0%",
+      "total": 81,
+      "covered": 58,
+      "stale": 2,
+      "untested": 21,
+      "coverage": "71.6%",
       "files": {
+        "stage-api-factory.js": {
+          "path": "js/agents/runtime/core/api/stage-api-factory.js",
+          "status": "untested",
+          "tests": []
+        },
         "agent-loop-lifecycle-hooks.js": {
           "path": "js/agents/runtime/core/agent-loop-lifecycle-hooks.js",
           "status": "covered",
@@ -1694,11 +1699,6 @@
             "tests/unit/ppt/workflow/unified-state-mapping.test.js",
             "tests/integration/agents/runtime/core.test.js"
           ]
-        },
-        "stage-api-factory.js": {
-          "path": "js/agents/runtime/core/api/stage-api-factory.js",
-          "status": "untested",
-          "tests": []
         },
         "config-validator.js": {
           "path": "js/agents/runtime/core/config-validator.js",
@@ -2025,7 +2025,7 @@
         },
         "hook-runner.js": {
           "path": "js/agents/runtime/hooks/hook-runner.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/runtime/core/tool-registry.test.js",
             "tests/unit/agents/runtime/hooks/hook-runner.test.js",
@@ -2154,7 +2154,7 @@
         },
         "tool-executor.js": {
           "path": "js/agents/runtime/tools/tool-executor.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/integration/agents/core/sandbox/tool-executor.error-handling.test.js"
           ]
@@ -2168,10 +2168,10 @@
     },
     "js/agents/sdk": {
       "total": 17,
-      "covered": 5,
-      "stale": 0,
+      "covered": 4,
+      "stale": 1,
       "untested": 12,
-      "coverage": "29.4%",
+      "coverage": "23.5%",
       "files": {
         "AgentBuilder.js": {
           "path": "js/agents/sdk/AgentBuilder.js",
@@ -2180,7 +2180,7 @@
         },
         "AlertMonitor.js": {
           "path": "js/agents/sdk/AlertMonitor.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/sdk/AlertMonitor.test.js",
             "tests/integration/agents/alert-monitor.test.js"
@@ -2278,10 +2278,10 @@
     },
     "js/agents/shared": {
       "total": 30,
-      "covered": 22,
-      "stale": 0,
+      "covered": 21,
+      "stale": 1,
       "untested": 8,
-      "coverage": "73.3%",
+      "coverage": "70.0%",
       "files": {
         "disposable-base.js": {
           "path": "js/agents/shared/base/disposable-base.js",
@@ -2290,7 +2290,7 @@
         },
         "index.js": {
           "path": "js/agents/shared/index.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/core/lamport-clock.test.js",
             "tests/unit/agents/ingest/adapters/raw-text.test.js",
@@ -2647,10 +2647,10 @@
     },
     "js/agents/stages": {
       "total": 145,
-      "covered": 108,
-      "stale": 0,
+      "covered": 107,
+      "stale": 1,
       "untested": 37,
-      "coverage": "74.5%",
+      "coverage": "73.8%",
       "files": {
         "code-tools.js": {
           "path": "js/agents/stages/codesearch/code-tools.js",
@@ -3113,7 +3113,7 @@
         },
         "batch-generator.js": {
           "path": "js/agents/stages/design/generators/batch-generator.js",
-          "status": "covered",
+          "status": "stale",
           "tests": [
             "tests/unit/agents/stages/design/index.test.js"
           ]
@@ -3666,10 +3666,10 @@
     }
   },
   "summary": {
-    "total": 543,
-    "covered": 401,
-    "stale": 0,
-    "untested": 142,
-    "coverage": "73.8%"
+    "total": 544,
+    "covered": 396,
+    "stale": 5,
+    "untested": 143,
+    "coverage": "72.8%"
   }
 }

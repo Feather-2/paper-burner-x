@@ -16,14 +16,13 @@ function teardownDom() {
 }
 
 async function loadSerialize() {
-  await import('../../../js/ppt/dsl/serialize.js');
+  await import('../../../../js/ppt/dsl/serialize.js');
   return globalThis.PPTDSLSerialize;
 }
 
 async function loadSlideParser() {
-  const mod = await import('../../../js/ppt/core/slide-parser.js');
-  globalThis.SlideParser = mod.SlideParser;
-  return mod.SlideParser;
+  await import('../../../../js/ppt/core/slide-parser.js');
+  return globalThis.SlideParser;
 }
 
 describe('PPT DSL serialize', () => {
@@ -39,7 +38,6 @@ describe('PPT DSL serialize', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await loadSlideParser();
     await loadSerialize();
   });
 
@@ -52,6 +50,7 @@ describe('PPT DSL serialize', () => {
   });
 
   it('documentToHtml() serializes slides + escapes text HTML', async () => {
+    await loadSlideParser();
     const { documentToHtml } = globalThis.PPTDSLSerialize;
 
     const doc = {
@@ -191,6 +190,7 @@ describe('PPT DSL serialize', () => {
   });
 
   it('htmlToDocument() parses HTML DSL and preserves ids / content', async () => {
+    await loadSlideParser();
     const { documentToHtml, htmlToDocument } = globalThis.PPTDSLSerialize;
 
     const doc = {
@@ -230,6 +230,7 @@ describe('PPT DSL serialize', () => {
   });
 
   it('htmlToDocument() returns SlideDocument instance when available', async () => {
+    await loadSlideParser();
     const { documentToHtml, htmlToDocument } = globalThis.PPTDSLSerialize;
 
     class DummySlideDocument {

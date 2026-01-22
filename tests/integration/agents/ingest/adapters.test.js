@@ -366,7 +366,14 @@ it("HtmlAdapter: __internal helpers work correctly", async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it("DocxAdapter: converts via mammoth + turndown and extracts images as assets", async () => {
+  const { default: JSZip } = await import("jszip");
   const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+
+  // Create a minimal valid DOCX (ZIP) structure
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>');
+  zip.file("_rels/.rels", '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>');
+  const docxArrayBuffer = await zip.generateAsync({ type: "arraybuffer" });
 
   const mammothStub = {
     images: {
@@ -395,9 +402,9 @@ it("DocxAdapter: converts via mammoth + turndown and extracts images as assets",
     {
       name: "a.docx",
       type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      size: 1,
+      size: docxArrayBuffer.byteLength,
       async arrayBuffer() {
-        return new ArrayBuffer(1);
+        return docxArrayBuffer;
       },
     },
     { mammoth: mammothStub }
@@ -415,7 +422,13 @@ it("DocxAdapter: converts via mammoth + turndown and extracts images as assets",
 });
 
 it("DocxAdapter: rejects oversized inputs before invoking mammoth", async () => {
+  const { default: JSZip } = await import("jszip");
   const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+
+  // Create a minimal valid DOCX (ZIP) structure
+  const zip = new JSZip();
+  zip.file("test.txt", "content");
+  const docxArrayBuffer = await zip.generateAsync({ type: "arraybuffer" });
 
   let called = false;
   const mammothStub = {
@@ -435,9 +448,9 @@ it("DocxAdapter: rejects oversized inputs before invoking mammoth", async () => 
       adapter.parse(
         {
           name: "big.docx",
-          size: 2,
+          size: docxArrayBuffer.byteLength,
           async arrayBuffer() {
-            return new ArrayBuffer(2);
+            return docxArrayBuffer;
           },
         },
         { mammoth: mammothStub }
@@ -448,7 +461,14 @@ it("DocxAdapter: rejects oversized inputs before invoking mammoth", async () => 
 });
 
 it("PptxAdapter: extracts slide text + images as assets", async () => {
+  const { default: JSZip } = await import("jszip");
   const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+
+  // Create a minimal valid PPTX (ZIP) structure
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>');
+  zip.file("_rels/.rels", '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>');
+  const pptxArrayBuffer = await zip.generateAsync({ type: "arraybuffer" });
 
   const pptxParser = {
     async parse() {
@@ -473,9 +493,9 @@ it("PptxAdapter: extracts slide text + images as assets", async () => {
     {
       name: "slides.pptx",
       type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      size: 1,
+      size: pptxArrayBuffer.byteLength,
       async arrayBuffer() {
-        return new ArrayBuffer(1);
+        return pptxArrayBuffer;
       },
     },
     { pptxParser }
@@ -598,7 +618,13 @@ it("PptxAdapter: rejects invalid input types", async () => {
 });
 
 it("PptxAdapter: handles empty slides array", async () => {
+  const { default: JSZip } = await import("jszip");
   const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+
+  // Create a minimal valid PPTX (ZIP) structure
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>');
+  const pptxArrayBuffer = await zip.generateAsync({ type: "arraybuffer" });
 
   const pptxParser = {
     async parse() {
@@ -611,7 +637,7 @@ it("PptxAdapter: handles empty slides array", async () => {
     {
       name: "empty.pptx",
       async arrayBuffer() {
-        return new ArrayBuffer(1);
+        return pptxArrayBuffer;
       },
     },
     { pptxParser }
@@ -623,7 +649,13 @@ it("PptxAdapter: handles empty slides array", async () => {
 });
 
 it("PptxAdapter: handles slides without title", async () => {
+  const { default: JSZip } = await import("jszip");
   const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+
+  // Create a minimal valid PPTX (ZIP) structure
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>');
+  const pptxArrayBuffer = await zip.generateAsync({ type: "arraybuffer" });
 
   const pptxParser = {
     async parse() {
@@ -644,7 +676,7 @@ it("PptxAdapter: handles slides without title", async () => {
     {
       name: "notitle.pptx",
       async arrayBuffer() {
-        return new ArrayBuffer(1);
+        return pptxArrayBuffer;
       },
     },
     { pptxParser }
@@ -669,7 +701,13 @@ it("DocxAdapter: rejects invalid input types", async () => {
 });
 
 it("DocxAdapter: handles image read failure gracefully", async () => {
+  const { default: JSZip } = await import("jszip");
   const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+
+  // Create a minimal valid DOCX (ZIP) structure
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>');
+  const docxArrayBuffer = await zip.generateAsync({ type: "arraybuffer" });
 
   const mammothStub = {
     images: {
@@ -697,7 +735,7 @@ it("DocxAdapter: handles image read failure gracefully", async () => {
     {
       name: "fail-img.docx",
       async arrayBuffer() {
-        return new ArrayBuffer(1);
+        return docxArrayBuffer;
       },
     },
     { mammoth: mammothStub }

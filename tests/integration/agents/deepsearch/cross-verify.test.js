@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 
 it("cross-verify: starts subtask and writes verdict back", async () => {
   const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
-  const { SharedContext } = await import("../../../../js/agents/stages/deepsearch/runtime/shared-context.js");
+  const { SharedContext } = await import("../../../../js/agents/stages/deepsearch/shared-context.js");
   const { DiscoveryManager, DiscoveryStatus } = await import("../../../../js/agents/sdk/DiscoveryManager.js");
   const { globalSubagentRegistry } = await import("../../../../js/agents/sdk/SubagentRegistry.js");
   const { handler } = await import("../../../../js/agents/stages/deepsearch/tools/cross-verify/handler.js");

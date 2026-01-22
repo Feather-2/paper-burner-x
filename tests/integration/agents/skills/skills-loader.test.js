@@ -12,7 +12,7 @@ import path from "node:path";
 import os from "node:os";
 
 // Direct import of loader.node.js for Node-specific tests
-const loaderNodePath = "../../../js/agents/skills/loader.node.js";
+const loaderNodePath = "../../../../js/agents/skills/loader.node.js";
 
 /**
  * Helper to write a SKILL.md file in the standard structure

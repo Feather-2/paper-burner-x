@@ -1,8 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { setLinkedFilesRoot } from "../../../../js/agents/stages/design/subagents/slide-agent.js";
 
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
+
+beforeEach(() => {
+  setLinkedFilesRoot(os.tmpdir());
+});
+
+afterEach(() => {
+  setLinkedFilesRoot(null);
+});
 
 function makeTempFile(content) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "slide-subagent-"));

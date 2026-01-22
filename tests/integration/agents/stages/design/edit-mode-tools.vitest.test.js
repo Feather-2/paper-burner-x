@@ -340,7 +340,7 @@ describe("edit-mode/tools", () => {
       executeEditTool = createEditToolExecutor(context);
 
       await executeEditTool("change_color_scheme", { primary: "#FF0000" });
-      expect(emit).toHaveBeenCalledWith("edit.style.deviation", expect.any(Object));
+      expect(emit).toHaveBeenCalledWith("edit:style.deviation", expect.any(Object));
     });
 
     it("should not emit warning when color matches locked style", async () => {

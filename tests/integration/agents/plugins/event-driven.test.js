@@ -16,7 +16,7 @@ import watchdogPlugin from '../../../../js/agents/plugins/compression/watchdog.j
 import fingerprintPlugin from '../../../../js/agents/plugins/analysis/fingerprint.js';
 import loggerPlugin from '../../../../js/agents/plugins/debug/logger.js';
 
-vi.mock('../../../js/agents/runtime/compression/cicada-compressor.js', () => {
+vi.mock('../../../../js/agents/runtime/compression/cicada-compressor.js', () => {
   return {
     CicadaCompressor: class CicadaCompressor {
       constructor(config) {
@@ -126,14 +126,14 @@ describe('Event-driven plugins', () => {
     kernel.state.set('runtime.tokens', { input: 60, output: 0 });
     kernel.state.set('runtime.messages', [{ role: 'user', content: 'hello' }]);
 
-    const exceededPromise = kernel.events.waitFor('watchdog.threshold.exceeded', 500);
+    const exceededPromise = kernel.events.waitFor('watchdog:threshold.exceeded', 500);
     const compressionDonePromise = kernel.events.waitFor('compression.done', 500);
 
     // Event reaction: watchdog listens to runtime.tokens.* and reads global state
     kernel.events.emitSync('runtime.tokens.updated', { total: 60 });
 
     const exceeded = await exceededPromise;
-    expect(exceeded.event).toBe('watchdog.threshold.exceeded');
+    expect(exceeded.event).toBe('watchdog:threshold.exceeded');
     expect(exceeded.data.usage).toBeCloseTo(0.6);
 
     const done = await compressionDonePromise;

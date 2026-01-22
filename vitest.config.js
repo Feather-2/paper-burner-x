@@ -1,11 +1,15 @@
 import { defineConfig } from 'vitest/config';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = path.dirname(fileURLToPath(import.meta.url));
+const JS_ROOT = path.resolve(REPO_ROOT, 'js');
 
 // Workaround: @vitest/coverage-v8 may assume `coverage/.tmp` exists.
 // Create it unconditionally (best-effort) to avoid racey ENOENT failures.
 try {
-  fs.mkdirSync(path.join(process.cwd(), 'coverage', '.tmp'), { recursive: true });
+  fs.mkdirSync(path.join(REPO_ROOT, 'coverage', '.tmp'), { recursive: true });
 } catch {
   // Best-effort: tests can still run without coverage output.
 }
@@ -13,6 +17,13 @@ try {
 // Repo has been fully migrated to vitest for tests/agents.
 // All tests under tests/agents now use vitest syntax.
 export default defineConfig({
+  root: REPO_ROOT,
+  resolve: {
+    alias: [
+      // Allow browser-style absolute imports like `/js/agents/...` in Vitest.
+      { find: /^\/js\//, replacement: `${JS_ROOT}/` },
+    ],
+  },
   test: {
     testTimeout: 30000,
     include: [

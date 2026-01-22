@@ -19,12 +19,14 @@ function teardownDom() {
 
 afterEach(() => {
   teardownDom();
-  delete require.cache[require.resolve('../../js/ppt/generator/ppt_generator_workflow.js')];
+  // `require.cache` does not reliably clear Vite/Vitest module cache for ESM modules.
+  // Reset the module graph so workflow mixins re-install onto the per-test PPTGenerator class.
+  vi.resetModules();
 });
 
 test('import PPTX as deck: parsed → slideIntents set → design.batch template branch populates deckHtmlDsl', async () => {
   setupDom('<!doctype html><html><body></body></html>');
-  globalThis.SlideParser = require('../../js/ppt/core/slide-parser.js').SlideParser;
+  globalThis.SlideParser = (await import('../../../js/ppt/core/slide-parser.js')).SlideParser;
 
   globalThis.PPTGenerator = class PPTGenerator {
     constructor() {
@@ -40,7 +42,7 @@ test('import PPTX as deck: parsed → slideIntents set → design.batch template
     }
   };
 
-  require('../../js/ppt/generator/ppt_generator_workflow.js');
+  await import('../../../js/ppt/generator/ppt_generator_workflow.js');
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};
@@ -112,6 +114,7 @@ test('import PPTX as deck: parsed → slideIntents set → design.batch template
 
 test('import PPTX as deck: parse failure falls back to manual flow', async () => {
   setupDom('<!doctype html><html><body></body></html>');
+  globalThis.SlideParser = (await import('../../../js/ppt/core/slide-parser.js')).SlideParser;
 
   globalThis.PPTGenerator = class PPTGenerator {
     constructor() {
@@ -126,7 +129,7 @@ test('import PPTX as deck: parse failure falls back to manual flow', async () =>
     }
   };
 
-  require('../../js/ppt/generator/ppt_generator_workflow.js');
+  await import('../../../js/ppt/generator/ppt_generator_workflow.js');
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};
@@ -160,4 +163,3 @@ test('import PPTX as deck: parse failure falls back to manual flow', async () =>
   expect(opened).toBe(1);
   expect(messages.some((m) => m.role === 'ai' && m.content.includes('PPTX 导入失败'))).toBeTruthy();
 });
-

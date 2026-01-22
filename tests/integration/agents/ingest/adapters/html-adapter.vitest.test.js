@@ -68,7 +68,7 @@ describe("HtmlAdapter (vitest)", () => {
   it("parses a path input via mocked fs.readFile(), imports turndown, and extracts data URI images", async () => {
     delete globalThis.TurndownService;
 
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     const htmlPath = "/virtual/page.html";
     const html = [
@@ -101,7 +101,7 @@ describe("HtmlAdapter (vitest)", () => {
     });
 
     const adapter = new HtmlAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
-    const parsed = await adapter.parse(htmlPath);
+    const parsed = await adapter.parse(htmlPath, { allowPathRead: true });
 
     expect(fsMocks.readFile).toHaveBeenCalledTimes(1);
     expect(fsMocks.readFile).toHaveBeenCalledWith(htmlPath);
@@ -133,7 +133,7 @@ describe("HtmlAdapter (vitest)", () => {
   });
 
   it("prefers injected TurndownService and supports input.text()", async () => {
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     const text = vi.fn(async () => "<p>Hello</p>");
     const ctor = vi.fn();
@@ -160,7 +160,7 @@ describe("HtmlAdapter (vitest)", () => {
   });
 
   it("decodes input.arrayBuffer() and infers size; falls back when TextDecoder is unavailable", async () => {
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     globalThis.TextDecoder = class TextDecoder {
       constructor() {
@@ -186,7 +186,7 @@ describe("HtmlAdapter (vitest)", () => {
   });
 
   it("accepts { content: string } and rejects unsupported file-like inputs", async () => {
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     class TurndownServiceStub {
       turndown() {
@@ -206,7 +206,7 @@ describe("HtmlAdapter (vitest)", () => {
   });
 
   it("covers extFromMime() branches (gif/webp/svg/default), globalThis.TurndownService, and guessMimeType() fallback", async () => {
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     class TurndownServiceStub {
       turndown(inputHtml) {
@@ -259,7 +259,7 @@ describe("HtmlAdapter (vitest)", () => {
   });
 
   it("covers filename fallbacks, explicit size branch, and UTF-8 ArrayBuffer decoding (special chars)", async () => {
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     const html = "<p>Hi\u00A0你好 &amp; &lt;tag&gt; ©</p>";
     const buf = Buffer.from(html, "utf8");
@@ -302,7 +302,7 @@ describe("HtmlAdapter (vitest)", () => {
   });
 
   it("infers size from ArrayBuffer when input.size is missing (ArrayBuffer branch)", async () => {
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     const html = "<p>abc</p>";
     const buf = Buffer.from(html, "utf8");
@@ -324,7 +324,7 @@ describe("HtmlAdapter (vitest)", () => {
   });
 
   it("handles non-ArrayBuffer arrayBuffer() results: empty HTML + undefined size + empty markdown", async () => {
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     const arrayBuffer = vi.fn(async () => "not-bytes");
 
@@ -346,7 +346,7 @@ describe("HtmlAdapter (vitest)", () => {
   });
 
   it("parses data URIs without `;` and skips malformed URIs with no payload (HTML extraction boundaries)", async () => {
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     const html = [
       // No `;base64,` segment -> semi=-1, comma>5 -> still extracts.
@@ -375,14 +375,14 @@ describe("HtmlAdapter (vitest)", () => {
     delete globalThis.TurndownService;
     turndownMockControl.defaultExportMode = "undefined";
 
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
     const adapter = new HtmlAdapter();
 
     await expect(adapter.parse({ name: "x.html", content: "<p>x</p>" })).rejects.toThrow(/TurndownService is required/i);
   });
 
   it("falls back to document.html when neither name nor filename is provided (file-like boundary)", async () => {
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     class TurndownServiceStub {
       turndown() {
@@ -396,7 +396,7 @@ describe("HtmlAdapter (vitest)", () => {
   });
 
   it("exposes internal helpers for unit testing (parseDataUri/extFromMime/idPrefix fallback)", async () => {
-    const { __internal } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { __internal } = await import("../../../../../js/agents/ingest/adapters/html.js");
 
     // guessMimeType(): `filename || ""` falsy branch.
     expect(__internal.guessMimeType(undefined)).toBe("text/html");
@@ -418,7 +418,7 @@ describe("HtmlAdapter (vitest)", () => {
     delete globalThis.TurndownService;
     turndownMockControl.throwOnDefaultAccess = true;
 
-    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const { HtmlAdapter } = await import("../../../../../js/agents/ingest/adapters/html.js");
     const adapter = new HtmlAdapter();
 
     await expect(adapter.parse({ name: "x.html", content: "<p>x</p>" })).rejects.toThrow(/TurndownService is required/i);

@@ -2,15 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const warnSpy = vi.fn();
 
-vi.mock("../../../js/agents/shared/utils/logger.js", () => {
+vi.mock("../../../../js/agents/shared/utils/logger.js", () => {
+  const createLogger = () => ({
+    log: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: warnSpy,
+    error: vi.fn(),
+  });
+
   return {
-    createLogger: () => ({
-      log: vi.fn(),
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: warnSpy,
-      error: vi.fn(),
-    }),
+    createLogger,
+    useLogger: createLogger,
+    trackToolCall: vi.fn(),
+    logEvent: vi.fn(),
   };
 });
 
@@ -26,11 +31,11 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe("runtime/analysis/behavior-fingerprint.js", () => {
-  it("createActionSignature builds a stable fingerprint from action type + sorted param keys", async () => {
-    const { createActionSignature } = await import(
-      "../../../js/agents/runtime/analysis/behavior-fingerprint.js"
-    );
+	describe("plugins/analysis/behavior-fingerprint.js", () => {
+	  it("createActionSignature builds a stable fingerprint from action type + sorted param keys", async () => {
+	    const { createActionSignature } = await import(
+	      "../../../../js/agents/plugins/analysis/behavior-fingerprint.js"
+	    );
 
     expect(createActionSignature({ type: "tool", params: { b: 1, a: 2 } })).toBe("tool:a,b");
     expect(createActionSignature({ name: "search", args: { q: "hi", limit: 10 } })).toBe(
@@ -44,10 +49,10 @@ describe("runtime/analysis/behavior-fingerprint.js", () => {
     );
   });
 
-  it("findRepeatingPatterns detects and sorts repeated subsequences", async () => {
-    const { findRepeatingPatterns } = await import(
-      "../../../js/agents/runtime/analysis/behavior-fingerprint.js"
-    );
+	  it("findRepeatingPatterns detects and sorts repeated subsequences", async () => {
+	    const { findRepeatingPatterns } = await import(
+	      "../../../../js/agents/plugins/analysis/behavior-fingerprint.js"
+	    );
 
     const seq = ["a", "b", "c", "a", "b", "c", "a", "b", "c", "d"];
     const patterns = findRepeatingPatterns(seq, 2, 3);
@@ -62,8 +67,8 @@ describe("runtime/analysis/behavior-fingerprint.js", () => {
     expect(findRepeatingPatterns(["a", "b", "c"], 2, 10)).toEqual([]);
   });
 
-  it("findConsecutiveLoops detects adjacent repeated patterns (tight loops)", async () => {
-    const { findConsecutiveLoops } = await import("../../../../js/agents/runtime/analysis/behavior-fingerprint.js");
+	  it("findConsecutiveLoops detects adjacent repeated patterns (tight loops)", async () => {
+	    const { findConsecutiveLoops } = await import("../../../../js/agents/plugins/analysis/behavior-fingerprint.js");
 
     const seq = ["x", "y", "x", "y", "x", "y", "z", "z", "z", "z"];
     const loops = findConsecutiveLoops(seq, 2, 2);
@@ -73,13 +78,13 @@ describe("runtime/analysis/behavior-fingerprint.js", () => {
     expect(findConsecutiveLoops(["a", "b", "c"], 2, 10)).toEqual([]);
   });
 
-  it("BehaviorFingerprint detects loops at threshold and triggers callback", async () => {
+	  it("BehaviorFingerprint detects loops at threshold and triggers callback", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 
-    const { BehaviorFingerprint } = await import(
-      "../../../js/agents/runtime/analysis/behavior-fingerprint.js"
-    );
+	    const { BehaviorFingerprint } = await import(
+	      "../../../../js/agents/plugins/analysis/behavior-fingerprint.js"
+	    );
 
     const detected = [];
     const fp = new BehaviorFingerprint({
@@ -128,7 +133,7 @@ describe("runtime/analysis/behavior-fingerprint.js", () => {
 
   it("BehaviorFingerprint enforces history size and supports reset/stats", async () => {
     const { BehaviorFingerprint } = await import(
-      "../../../js/agents/runtime/analysis/behavior-fingerprint.js"
+      "../../../../js/agents/plugins/analysis/behavior-fingerprint.js"
     );
 
     const fp = new BehaviorFingerprint({ historySize: 10, minPatternLength: 2, maxPatternLength: 2 });
@@ -148,10 +153,10 @@ describe("runtime/analysis/behavior-fingerprint.js", () => {
     });
   });
 
-  it("BehaviorFingerprint getSuggestion covers break_loop / diversify / review / continue", async () => {
-    const { BehaviorFingerprint } = await import(
-      "../../../js/agents/runtime/analysis/behavior-fingerprint.js"
-    );
+	  it("BehaviorFingerprint getSuggestion covers break_loop / diversify / review / continue", async () => {
+	    const { BehaviorFingerprint } = await import(
+	      "../../../../js/agents/plugins/analysis/behavior-fingerprint.js"
+	    );
 
     // break_loop: consecutive loop meets threshold
     const breakFp = new BehaviorFingerprint({ loopThreshold: 3, minPatternLength: 2, maxPatternLength: 2 });
@@ -174,13 +179,13 @@ describe("runtime/analysis/behavior-fingerprint.js", () => {
     expect(okFp.getSuggestion()).toMatchObject({ action: "continue", severity: "none" });
   });
 
-  it("ContextDistiller distills parent context by relevance and truncates long fields", async () => {
+	  it("ContextDistiller distills parent context by relevance and truncates long fields", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 
-    const { ContextDistiller } = await import(
-      "../../../js/agents/runtime/analysis/behavior-fingerprint.js"
-    );
+	    const { ContextDistiller } = await import(
+	      "../../../../js/agents/plugins/analysis/behavior-fingerprint.js"
+	    );
 
     const distiller = new ContextDistiller({ relevanceThreshold: 0.2 });
 
@@ -229,4 +234,3 @@ describe("runtime/analysis/behavior-fingerprint.js", () => {
     expect(distilledNonString.keyDecisions).toEqual([]);
   });
 });
-

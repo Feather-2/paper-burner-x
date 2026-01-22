@@ -56,9 +56,9 @@ const mockedAgentFactory = vi.hoisted(() => {
   return { AgentFactory, AgentInstance, instances };
 });
 
-vi.mock('../../../js/agents/shared/utils/logger.js', () => mockedLogger);
-vi.mock('../../../js/agents/sdk/agent-config.js', () => ({ AgentConfig: mockedAgentConfig.AgentConfig }));
-vi.mock('../../../js/agents/sdk/agent-factory.js', () => ({
+vi.mock('../../../../js/agents/shared/utils/logger.js', () => mockedLogger);
+vi.mock('../../../../js/agents/sdk/agent-config.js', () => ({ AgentConfig: mockedAgentConfig.AgentConfig }));
+vi.mock('../../../../js/agents/sdk/agent-factory.js', () => ({
   AgentFactory: mockedAgentFactory.AgentFactory,
   AgentInstance: mockedAgentFactory.AgentInstance,
 }));

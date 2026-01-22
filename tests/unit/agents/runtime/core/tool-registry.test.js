@@ -464,6 +464,9 @@ describe("ToolRegistry", () => {
     const second = registry.callTool("echo", { id: 1 }, {});
     const third = registry.callTool("echo", { id: 2 }, {});
 
+    // Wait for all tool functions to be invoked and deferreds to be created
+    await vi.waitFor(() => expect(deferreds.length).toBe(3));
+
     deferreds[1].resolve("second");
     deferreds[0].resolve("first");
     deferreds[2].resolve("third");

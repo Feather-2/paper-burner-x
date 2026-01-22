@@ -34,7 +34,7 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-await import('../../../js/ppt/generator/ppt_generator_workflow.js');
+await import('../../../js/ppt/workflow-paste-text.js');
 
 afterEach(() => {
   teardownDom();

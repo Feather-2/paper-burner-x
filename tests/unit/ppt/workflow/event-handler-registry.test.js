@@ -1,18 +1,13 @@
 import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
-
-async function loadRegistryModule() {
-  return await import("../../../js/ppt/workflow/event-handler-registry.js");
-}
+import { EventHandlerRegistry, createWorkflowEventRegistry } from '../../../js/ppt/workflow/event-handler-registry.js';
 
 test("EventHandlerRegistry.register validates handler", async () => {
-  const { EventHandlerRegistry } = await loadRegistryModule();
   const registry = new EventHandlerRegistry();
 
   expect(() => registry.register("run.started", null)).toThrow("handler must be a function");
 });
 
 test("EventHandlerRegistry dispatches exact + wildcard handlers", async () => {
-  const { EventHandlerRegistry } = await loadRegistryModule();
   const context = { count: 0 };
   const registry = new EventHandlerRegistry(context);
 
@@ -52,7 +47,6 @@ test("EventHandlerRegistry dispatches exact + wildcard handlers", async () => {
 });
 
 test("EventHandlerRegistry catches handler errors", async () => {
-  const { EventHandlerRegistry } = await loadRegistryModule();
   const registry = new EventHandlerRegistry();
   let okCalls = 0;
 
@@ -85,7 +79,6 @@ test("EventHandlerRegistry catches handler errors", async () => {
 });
 
 test("EventHandlerRegistry unregisters handlers and clears", async () => {
-  const { EventHandlerRegistry } = await loadRegistryModule();
   const registry = new EventHandlerRegistry();
   const handlerA = () => {};
   const handlerB = () => {};
@@ -112,7 +105,6 @@ test("EventHandlerRegistry unregisters handlers and clears", async () => {
 });
 
 test("createWorkflowEventRegistry wires predefined handlers", async () => {
-  const { createWorkflowEventRegistry } = await loadRegistryModule();
   const updates = [];
   const logs = [];
   const phaseChanges = [];

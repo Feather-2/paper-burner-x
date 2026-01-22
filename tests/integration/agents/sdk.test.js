@@ -44,7 +44,10 @@ it("SDK: AgentBuilder lazily imports module-backed capabilities", async () => {
       "utf8"
     );
 
-    const builder = new AgentBuilder({ actor: "test" });
+    const builder = new AgentBuilder({ 
+      actor: "test",
+      capabilityModuleAllowlist: [pathToFileURL(modPath).href]
+    });
     builder.useCapability("Lazy", {
       definition: { name: "Lazy", description: "lazy", lazy: true },
       module: pathToFileURL(modPath).href,

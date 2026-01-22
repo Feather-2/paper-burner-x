@@ -16,8 +16,8 @@ vi.mock('../../../../../js/agents/shared/index.js', () => ({
   },
 }));
 
-vi.mock('../../../../../js/agents/plugins/transports/index.node.js', () => mockState.nodeImpl);
-vi.mock('../../../../../js/agents/plugins/transports/index.browser.js', () => mockState.browserImpl);
+vi.mock('../../../../../js/agents/plugins/transports/index.node.js', async () => mockState.nodeImpl);
+vi.mock('../../../../../js/agents/plugins/transports/index.browser.js', async () => mockState.browserImpl);
 
 const expectedError = (name) => `${name} is not available in browser runtimes.`;
 
@@ -43,15 +43,17 @@ const createNodeImpl = () => {
     }
   }
 
-  const createProcessTransport = vi.fn((...args) => {
+  const createProcessTransport = (...args) => {
     state.createProcessArgs.push(args);
     return { kind: 'process', args };
-  });
+  };
+  createProcessTransport.mock = { calls: state.createProcessArgs };
 
-  const createBinarySkillProvider = vi.fn((...args) => {
+  const createBinarySkillProvider = (...args) => {
     state.createBinaryArgs.push(args);
     return { kind: 'binary', args, id: state.createBinaryArgs.length };
-  });
+  };
+  createBinarySkillProvider.mock = { calls: state.createBinaryArgs };
 
   return {
     impl: {

@@ -17,12 +17,12 @@ function teardownDom() {
 
 afterEach(() => {
   teardownDom();
-  delete require.cache[require.resolve('../../../js/ppt/core/slide-parser.js')];
+  vi.resetModules();
 });
 
-test('SlideParser.parseStyleString(): basic parsing + kebab→camel + values with ":"', () => {
+test('SlideParser.parseStyleString(): basic parsing + kebab→camel + values with ":"', async () => {
   setupDom();
-  const { SlideParser } = require('../../../js/ppt/core/slide-parser.js');
+  const { SlideParser } = await import('../../../../js/ppt/core/slide-parser.js');
 
   expect(
     SlideParser.parseStyleString('color: red; font-size: 16px;')).toEqual({ color: 'red', fontSize: '16px' }
@@ -36,9 +36,9 @@ test('SlideParser.parseStyleString(): basic parsing + kebab→camel + values wit
   expect(SlideParser.parseStyleString(null)).toEqual({});
 });
 
-test('SlideParser.parseCSSNumber(): boundary cases', () => {
+test('SlideParser.parseCSSNumber(): boundary cases', async () => {
   setupDom();
-  const { SlideParser } = require('../../../js/ppt/core/slide-parser.js');
+  const { SlideParser } = await import('../../../../js/ppt/core/slide-parser.js');
 
   expect(SlideParser.parseCSSNumber(undefined, 7)).toBe(7);
   expect(SlideParser.parseCSSNumber(null, 7)).toBe(7);
@@ -51,9 +51,9 @@ test('SlideParser.parseCSSNumber(): boundary cases', () => {
   expect(SlideParser.parseCSSNumber(0)).toBe(0);
 });
 
-test('SlideParser.parseRotateFromTransform(): extracts rotate() degrees', () => {
+test('SlideParser.parseRotateFromTransform(): extracts rotate() degrees', async () => {
   setupDom();
-  const { SlideParser } = require('../../../js/ppt/core/slide-parser.js');
+  const { SlideParser } = await import('../../../../js/ppt/core/slide-parser.js');
 
   expect(SlideParser.parseRotateFromTransform(null)).toBe(null);
   expect(SlideParser.parseRotateFromTransform('scale(2)')).toBe(null);
@@ -62,9 +62,9 @@ test('SlideParser.parseRotateFromTransform(): extracts rotate() degrees', () => 
   expect(SlideParser.parseRotateFromTransform('rotate(bad)')).toBe(0);
 });
 
-test('SlideParser.parseBorderColor()/parseBorderWidth(): parses typical border strings', () => {
+test('SlideParser.parseBorderColor()/parseBorderWidth(): parses typical border strings', async () => {
   setupDom();
-  const { SlideParser } = require('../../../js/ppt/core/slide-parser.js');
+  const { SlideParser } = await import('../../../../js/ppt/core/slide-parser.js');
 
   expect(SlideParser.parseBorderColor('1px solid #333')).toBe('#333');
   expect(SlideParser.parseBorderWidth('1px solid #333')).toBe(1);
@@ -76,9 +76,9 @@ test('SlideParser.parseBorderColor()/parseBorderWidth(): parses typical border s
   expect(SlideParser.parseBorderWidth('thin solid #000')).toBe(0);
 });
 
-test('SlideParser.parse(): parses sections + elements (linkedom DOM)', () => {
+test('SlideParser.parse(): parses sections + elements (linkedom DOM)', async () => {
   setupDom();
-  const { SlideParser } = require('../../../js/ppt/core/slide-parser.js');
+  const { SlideParser } = await import('../../../../js/ppt/core/slide-parser.js');
 
   const prevLog = console.log;
   console.log = () => {};
@@ -147,9 +147,9 @@ test('SlideParser.parse(): parses sections + elements (linkedom DOM)', () => {
   }
 });
 
-test('SlideParser.parse(): XSS payloads are not executed and event handlers are not preserved', () => {
+test('SlideParser.parse(): XSS payloads are not executed and event handlers are not preserved', async () => {
   setupDom();
-  const { SlideParser } = require('../../../js/ppt/core/slide-parser.js');
+  const { SlideParser } = await import('../../../../js/ppt/core/slide-parser.js');
 
   delete globalThis.__xss;
 

@@ -25,8 +25,10 @@ test('SlideDocument.load(): deep copies input and ensures ids', () => {
   doc.load(input);
 
   expect(doc.getSlideCount()).toBe(1);
-  expect(typeof doc.getSlide(0).toBeTruthy().id === 'string' && doc.getSlide(0).id);
-  expect(typeof doc.getSlide(0).toBeTruthy().elements[0].id === 'string' && doc.getSlide(0).elements[0].id);
+  expect(doc.getSlide(0).id).toBeTruthy();
+  expect(typeof doc.getSlide(0).id).toBe('string');
+  expect(doc.getSlide(0).elements[0].id).toBeTruthy();
+  expect(typeof doc.getSlide(0).elements[0].id).toBe('string');
 
   input[0].background = '#000';
   input[0].elements[0].content = 'HACK';

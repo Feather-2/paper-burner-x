@@ -413,8 +413,8 @@
 	                const fallback = document.getElementById('pasteDocumentFallback');
 	                const textarea = document.getElementById('pasteDocumentTextarea');
 
-	                if (typeof VditorAdapter !== 'undefined' && VditorAdapter.isAvailable()) {
-	                    const mounted = VditorAdapter.mount({
+	                if (typeof globalThis.VditorAdapter !== 'undefined' && globalThis.VditorAdapter.isAvailable()) {
+	                    const mounted = globalThis.VditorAdapter.mount({
 	                        container: 'pasteDocumentEditor',
 	                        value: '',
 	                        onInput: () => {},
@@ -528,9 +528,9 @@
             this._pasteDocumentModalKeyHandler = null;
         }
 
-        if (typeof VditorAdapter !== 'undefined') {
+        if (typeof globalThis.VditorAdapter !== 'undefined') {
             try {
-                VditorAdapter.destroy();
+                globalThis.VditorAdapter.destroy();
             } catch (e) {
                 // ignore
             }
@@ -547,8 +547,8 @@
     confirmPasteDocument() {
         let content = '';
 
-        if (typeof VditorAdapter !== 'undefined' && VditorAdapter.isAvailable()) {
-            content = VditorAdapter.getValue();
+        if (typeof globalThis.VditorAdapter !== 'undefined' && globalThis.VditorAdapter.isAvailable()) {
+            content = globalThis.VditorAdapter.getValue();
         } else {
             content = document.getElementById('pasteDocumentTextarea')?.value || '';
         }

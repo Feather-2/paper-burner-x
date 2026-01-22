@@ -5,8 +5,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: [
-      "tests/agents/shared/**/*.vitest.test.js",
-      "tests/agents/shared/utils/**/*.test.js",
+      "tests/integration/agents/shared/**/*.vitest.test.js",
+      "tests/unit/agents/shared/utils/**/*.test.js",
     ],
     coverage: {
       provider: "v8",

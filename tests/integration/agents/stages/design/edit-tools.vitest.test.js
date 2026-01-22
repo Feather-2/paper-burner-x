@@ -140,7 +140,7 @@ describe("design/edit-mode/tools", () => {
       }),
     ]);
     expect(emit).toHaveBeenCalledWith(
-      "edit.style.deviation",
+      "edit:style.deviation",
       expect.objectContaining({ status: "warning", payload: expect.objectContaining({ deviations: expect.any(Array) }) })
     );
   });

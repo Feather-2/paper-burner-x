@@ -30,7 +30,7 @@ describe("MarkdownAdapter (vitest)", () => {
   });
 
   it("reads markdown from a path via mocked fs.readFile()", async () => {
-    const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
+    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
 
     const mdPath = "/virtual/notes.MARKDOWN";
     const body = "# Title\n\nHello\n";
@@ -50,7 +50,7 @@ describe("MarkdownAdapter (vitest)", () => {
   });
 
   it("prefers input.text() when present", async () => {
-    const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
+    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
 
     const text = vi.fn(async () => "hello");
     const adapter = new MarkdownAdapter();
@@ -62,7 +62,7 @@ describe("MarkdownAdapter (vitest)", () => {
   });
 
   it("guesses text/plain for .txt inputs when type is missing", async () => {
-    const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
+    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
 
     const text = vi.fn(async () => "hi");
     const adapter = new MarkdownAdapter();
@@ -73,7 +73,7 @@ describe("MarkdownAdapter (vitest)", () => {
   });
 
   it("defaults unknown extensions to text/plain", async () => {
-    const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
+    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
 
     const adapter = new MarkdownAdapter();
     const parsed = await adapter.parse({ name: "README", content: "x" });
@@ -83,7 +83,7 @@ describe("MarkdownAdapter (vitest)", () => {
   });
 
   it("decodes input.arrayBuffer() as UTF-8 and infers size when missing", async () => {
-    const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
+    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
 
     const bytes = new TextEncoder().encode("abc");
     const arrayBuffer = vi.fn(async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
@@ -97,7 +97,7 @@ describe("MarkdownAdapter (vitest)", () => {
   });
 
   it("handles input.arrayBuffer() returning a Uint8Array view", async () => {
-    const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
+    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
 
     const bytes = new Uint8Array([97, 98, 99]); // "abc"
     const arrayBuffer = vi.fn(async () => bytes);
@@ -110,7 +110,7 @@ describe("MarkdownAdapter (vitest)", () => {
   });
 
   it("accepts plain objects with { content: string }", async () => {
-    const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
+    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
 
     const adapter = new MarkdownAdapter();
     const parsed = await adapter.parse({ name: "in-memory.md", content: "from content" });
@@ -120,7 +120,7 @@ describe("MarkdownAdapter (vitest)", () => {
   });
 
   it("falls back when TextDecoder is unavailable/throws", async () => {
-    const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
+    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
 
     globalThis.TextDecoder = class TextDecoder {
       constructor() {
@@ -138,7 +138,7 @@ describe("MarkdownAdapter (vitest)", () => {
   });
 
   it("throws on unsupported file-like inputs", async () => {
-    const { MarkdownAdapter } = await import("../../../../js/agents/ingest/adapters/markdown.js");
+    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
 
     const adapter = new MarkdownAdapter();
     await expect(adapter.parse({ name: "bad.md" })).rejects.toThrow(/unsupported file-like input/i);

@@ -81,7 +81,7 @@ it("designPhaseMachine supports pipeline chain (planning -> layout -> repair -> 
 });
 
 it("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ended", async () => {
-  const { runGeneratingPhase } = await import("../../../../js/agents/stages/design/runtime/design-phases.js");
+  const { runGeneratingPhase } = await import("../../../../js/agents/stages/design/internal/design-phases.js");
   const { DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
 
   const events = [];
@@ -138,7 +138,7 @@ it("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ended"
 });
 
 it("runVisualPhase supports deferredVisuals fast-path", async () => {
-  const { runVisualPhase } = await import("../../../../js/agents/stages/design/runtime/design-phases.js");
+  const { runVisualPhase } = await import("../../../../js/agents/stages/design/internal/design-phases.js");
   const { DesignPhase } = await import("../../../../js/agents/stages/design/states.js");
 
   const events = [];
@@ -260,7 +260,7 @@ it("DesignAgentLoop skips final review when skipReview is true", async () => {
   expect(transitions).toContain(DesignPhase.VISUAL_FILLING);
   expect(transitions).toContain(DesignPhase.COMPLETED);
   expect(transitions).not.toContain(DesignPhase.REVIEWING);
-  expect(!events.some(evt => evt.name === "design.review.started"), "Expected no review events when skipReview is true");
+  expect(events.some(evt => evt.name === "design.review.started"), "Expected no review events when skipReview is true").toBe(false);
 });
 
 it("DesignAgentLoop runs repair + final review when enabled", async () => {

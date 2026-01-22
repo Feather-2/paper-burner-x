@@ -61,7 +61,7 @@ vi.mock("../../../../../js/agents/plugins/analysis/behavior-fingerprint.js", () 
 });
 
 const indexPath = "../../../../../js/agents/plugins/compression/index.js";
-const cicadaImplPath = "../../../../../js/agents/plugins/compression/impl/cicada-compressor.js";
+const cicadaImplPath = "../../../../../js/agents/runtime/compression/cicada-compressor.js";
 const compressionAsyncPath = "../../../../../js/agents/plugins/compression/impl/compression-async.js";
 const sharedPath = "../../../../../js/agents/shared/index.js";
 
@@ -69,7 +69,7 @@ beforeEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
   vi.resetModules();
-  vi.unmock("../../../../../js/agents/plugins/compression/impl/cicada-compressor.js");
+  vi.unmock("../../../../../js/agents/runtime/compression/cicada-compressor.js");
   vi.unmock("../../../../../js/agents/plugins/compression/impl/compression-async.js");
   loggerInstances = [];
   behaviorFingerprintInstances = [];
@@ -195,7 +195,7 @@ describe("cicadaPlugin", () => {
           timestamp: expect.any(Number),
         }),
       );
-      expect(ctx.events.emit).toHaveBeenCalledWith("compression:done", {
+      expect(ctx.events.emit).toHaveBeenCalledWith("compression.done", {
         originalCount: 2,
         compressedCount: 1,
         ratio: 0.5,
@@ -223,7 +223,7 @@ describe("cicadaPlugin", () => {
     const handler = ctx._listeners.get("runtime.tokens.updated");
     handler?.({ payload: { total: 95 } });
 
-    expect(ctx.events.emit).toHaveBeenCalledWith("compression:warning", {
+    expect(ctx.events.emit).toHaveBeenCalledWith("compression.warning", {
       current: 95,
       threshold: 100,
     });

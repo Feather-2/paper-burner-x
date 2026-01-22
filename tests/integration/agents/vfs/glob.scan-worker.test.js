@@ -16,7 +16,7 @@ describe("agents/vfs/glob (scan worker integration)", () => {
     });
     const isScanWorkerAvailable = vi.fn(() => true);
 
-    vi.doMock("../../../js/agents/vfs/vfs-scan-async.js", () => ({
+    vi.doMock("../../../../js/agents/vfs/vfs-scan-async.js", () => ({
       isScanWorkerAvailable,
       scanOpfsAsync,
     }));
@@ -62,7 +62,7 @@ describe("agents/vfs/glob (scan worker integration)", () => {
     });
     const isScanWorkerAvailable = vi.fn(() => true);
 
-    vi.doMock("../../../js/agents/vfs/vfs-scan-async.js", () => ({
+    vi.doMock("../../../../js/agents/vfs/vfs-scan-async.js", () => ({
       isScanWorkerAvailable,
       scanOpfsAsync,
     }));
@@ -100,7 +100,7 @@ describe("agents/vfs/glob (scan worker integration)", () => {
     });
     const isScanWorkerAvailable = vi.fn(() => true);
 
-    vi.doMock("../../../js/agents/vfs/vfs-scan-async.js", () => ({
+    vi.doMock("../../../../js/agents/vfs/vfs-scan-async.js", () => ({
       isScanWorkerAvailable,
       scanOpfsAsync,
     }));

@@ -81,16 +81,48 @@ const mockedSemaphore = vi.hoisted(() => {
   return { instances, Semaphore };
 });
 
-vi.mock('../../js/core/api/key-provider.js', () => ({
-  KeyProvider: mockedKeyProvider.KeyProvider,
+const mockedStorageFacade = vi.hoisted(() => {
+  class StorageFacade {
+    constructor() {}
+    get() { return Promise.resolve(null); }
+    set() { return Promise.resolve(); }
+    delete() { return Promise.resolve(); }
+    clear() { return Promise.resolve(); }
+  }
+
+  return {
+    default: StorageFacade,
+    getStorageFacade: vi.fn(() => ({
+      get: vi.fn(() => Promise.resolve(null)),
+      set: vi.fn(() => Promise.resolve()),
+      delete: vi.fn(() => Promise.resolve()),
+      clear: vi.fn(() => Promise.resolve()),
+    })),
+  };
+});
+
+vi.mock('../../../js/storage/storage-facade.js', () => mockedStorageFacade);
+
+vi.mock('../../../js/storage/adapters/local-storage-adapter.js', () => ({
+  LocalStorageAdapter: class LocalStorageAdapter {
+    constructor() {}
+    get() { return Promise.resolve(null); }
+    set() { return Promise.resolve(); }
+    delete() { return Promise.resolve(); }
+    clear() { return Promise.resolve(); }
+  },
 }));
 
-vi.mock('../../js/core/file/file-utils.js', () => ({
+vi.mock('../../../js/core/file/file-utils.js', () => ({
   getFileIdentifier: mockedFileUtils.getFileIdentifier,
 }));
 
-vi.mock('../../js/core/processing/semaphore.js', () => ({
+vi.mock('../../../js/core/processing/semaphore.js', () => ({
   Semaphore: mockedSemaphore.Semaphore,
+}));
+
+vi.mock('../../../js/core/api/key-provider.js', () => ({
+  KeyProvider: mockedKeyProvider.KeyProvider,
 }));
 
 async function loadProcessQueue() {

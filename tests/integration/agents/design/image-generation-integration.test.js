@@ -264,7 +264,7 @@ it("ImageGeneration E2E: async fill emits per-task events + design.image.fill.co
   await gen.generate([makeSlot({ slotId: "img_evt", slideIndex: 0, priority: "critical" })], makeContentPackage(), { imageStyle: "x" }, { runId: "run_evt", emit });
 
   const names = events.map((e) => e.name);
-  expect(names).toEqual(["design.image.generate.started", "design.image.generate.succeeded", "design.image.fill.completed"]);
+  expect(names).toEqual(["design:image:generate:started", "design:image:generate:succeeded", "design:image:fill:completed"]);
 });
 
 it("ImageGeneration E2E: provider failure retries then succeeds (retryCount=1) and fills placeholder", async () => {
@@ -330,8 +330,8 @@ it("ImageGeneration E2E: exceeds maxRetries leaves placeholder (degraded) and re
 
   expect(report.tasks[0].status).toBe("failed");
   const eventNames = events.map((e) => e.name);
-  expect(eventNames).toContain("design.image.generate.failed");
-  expect(eventNames).toContain("design.image.fill.completed");
+  expect(eventNames).toContain("design:image:generate:failed");
+  expect(eventNames).toContain("design:image:fill:completed");
 
   const patched = fillImagePlaceholders(deck.deckHtmlDsl, filledSlots);
   expect(patched.deckHtmlDsl).toContain(`data-el="image-placeholder" id="${slotId}"`);

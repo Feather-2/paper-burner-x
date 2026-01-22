@@ -6,6 +6,7 @@ const fingerprintMock = vi.hoisted(() => ({
 
 const loggerMock = vi.hoisted(() => ({
   default: undefined,
+  name: "logger",
   LoggerPlugin: { id: "logger-plugin" },
 }));
 
@@ -179,7 +180,7 @@ describe("registerPlugin", () => {
     const plugin = await plugins.loadPlugin("custom/plugin");
 
     expect(loader).toHaveBeenCalledTimes(1);
-    expect(plugin).toEqual({ name: "custom" });
+    expect(plugin).toEqual({ name: "custom/plugin" });
     expect(plugins.hasPlugin("custom/plugin")).toBe(true);
     expect(plugins.listAvailablePlugins()).toContain("custom/plugin");
   });

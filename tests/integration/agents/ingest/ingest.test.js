@@ -69,7 +69,7 @@ it("MarkdownAdapter: parses path string + file-like object", async () => {
     const mdPath = path.join(dir, "note.md");
     await fs.writeFile(mdPath, "# Title\n\nHello world.\n", "utf8");
 
-    const adapter = new MarkdownAdapter({ defaultChunkOptions: { chunkSize: 8, overlap: 0, includeLineNumbers: true } });
+    const adapter = new MarkdownAdapter({ allowPathRead: true, defaultChunkOptions: { chunkSize: 8, overlap: 0, includeLineNumbers: true } });
     const parsed = await adapter.parse(mdPath);
 
     expect(parsed.sourceType).toBe("markdown");
@@ -185,9 +185,9 @@ it("IngestStage: dispatches rawTexts/historyIds/files + aggregates assets/errors
     expect(historySource.assetIds).toHaveLength(1);
 
     const names = events.map((e) => e.name);
-    expect(names).toContain("ingest.started");
-    expect(names).toContain("ingest.completed");
-    expect(names.filter((n) => n === "ingest.doc.completed").length).toBe(3);
-    expect(names.filter((n) => n === "ingest.doc.failed").length).toBe(2);
+    expect(names).toContain("ingest:started");
+    expect(names).toContain("ingest:completed");
+    expect(names.filter((n) => n === "ingest:doc:completed").length).toBe(3);
+    expect(names.filter((n) => n === "ingest:doc:failed").length).toBe(2);
   });
 });

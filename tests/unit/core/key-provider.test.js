@@ -9,8 +9,13 @@ const mockedStorageFacade = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../../js/storage/storage-facade.js', () => ({
+vi.mock('../../../js/storage/storage-facade.js', () => ({
+  default: mockedStorageFacade.storage,
   storage: mockedStorageFacade.storage,
+}));
+
+vi.mock('../../../js/storage/adapters/idb-adapter.js', () => ({
+  IdbAdapter: vi.fn(),
 }));
 
 function makeLocalStorage(initial = {}) {

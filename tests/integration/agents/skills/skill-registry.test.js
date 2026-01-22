@@ -70,8 +70,8 @@ async function importUserStore({ nodeLike = true, cryptoAvailable = true, crypto
     return raw.startsWith(cryptoPrefix) ? raw.slice(cryptoPrefix.length) : raw;
   });
 
-  vi.doMock("../../../js/agents/shared/platform.js", () => ({ isNodeLike: isNodeLikeMock }));
-  vi.doMock("../../../js/agents/shared/utils/storage-crypto.js", () => ({
+  vi.doMock("../../../../js/agents/shared/platform.js", () => ({ isNodeLike: isNodeLikeMock }));
+  vi.doMock("../../../../js/agents/shared/utils/storage-crypto.js", () => ({
     canUseStorageEncryption,
     decryptString,
     encryptString,
@@ -79,7 +79,7 @@ async function importUserStore({ nodeLike = true, cryptoAvailable = true, crypto
   }));
 
   // Keep tests quiet (user-store logs are best-effort anyway).
-  vi.doMock("../../../js/agents/shared/utils/logger.js", () => ({
+  vi.doMock("../../../../js/agents/shared/utils/logger.js", () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn() }),
   }));
 

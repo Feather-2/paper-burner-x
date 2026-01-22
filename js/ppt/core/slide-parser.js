@@ -1,4 +1,10 @@
-class SlideParser {
+// NOTE: This file may be evaluated more than once in some test/bundler setups.
+// Using a `var` + global reuse avoids "Identifier has already been declared".
+var SlideParser = (typeof globalThis !== 'undefined' &&
+    globalThis.SlideParser &&
+    typeof globalThis.SlideParser.parse === 'function')
+    ? globalThis.SlideParser
+    : class SlideParser {
     /**
      * 解析 CSS style 字符串为对象
      * "color: red; font-size: 16px;" => { color: "red", fontSize: "16px" }
@@ -409,7 +415,7 @@ class SlideParser {
                 return base;
         }
     }
-}
+};
 
 // 兼容：浏览器全局 + Node.js 单测
 if (typeof globalThis !== 'undefined') {

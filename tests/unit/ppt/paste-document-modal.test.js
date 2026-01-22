@@ -72,7 +72,7 @@ test('openPasteDocumentModal(): creates modal and mounts Vditor when available',
   gen.elements.overlay = document.getElementById('pptGeneratorOverlay');
 
   gen.openPasteDocumentModal();
-  expect(document.getElementById('pptPasteDocumentModal').toBeTruthy());
+  expect(document.getElementById('pptPasteDocumentModal')).toBeTruthy();
 
   await sleep(130);
   expect(mountCalls.length).toBe(1);

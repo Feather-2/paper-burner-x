@@ -40,7 +40,7 @@ describe("PptxAdapter (vitest)", () => {
   it("parses a file-like input via injected stageApi.pptxParser and extracts data URI images", async () => {
     delete globalThis.PPTXSlideParser;
 
-    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx-adapter.vitest.js");
 
     const pptxParser = {
       parse: vi.fn(async (arrayBuffer) => {
@@ -99,7 +99,7 @@ describe("PptxAdapter (vitest)", () => {
   it("covers guessMimeType() fallback and extFromMime() branches (gif/webp/svg/bmp/default)", async () => {
     delete globalThis.PPTXSlideParser;
 
-    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx-adapter.vitest.js");
 
     const pptxParser = {
       parse: vi.fn(async () => ({
@@ -164,7 +164,7 @@ describe("PptxAdapter (vitest)", () => {
     }
     globalThis.PPTXSlideParser = PPTXSlideParser;
 
-    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
     const adapter = new PptxAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
 
     const parsed = await adapter.parse("/virtual/Slides.PPTX");
@@ -203,7 +203,7 @@ describe("PptxAdapter (vitest)", () => {
       return Buffer.from("FAKEPPTX", "utf8");
     });
 
-    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
     const adapter = new PptxAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
 
     const parsed = await adapter.parse("/virtual/scripted.pptx");
@@ -216,7 +216,7 @@ describe("PptxAdapter (vitest)", () => {
   });
 
   it("rejects unsupported file-like inputs and non-object/non-string inputs", async () => {
-    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
 
     const adapter = new PptxAdapter();
     await expect(adapter.parse({ name: "bad.pptx" })).rejects.toThrow(/missing arrayBuffer/i);
@@ -228,7 +228,7 @@ describe("PptxAdapter (vitest)", () => {
   it("mimeFromDataUri handles edge cases (no semicolon, no comma, invalid format)", async () => {
     delete globalThis.PPTXSlideParser;
 
-    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
 
     const pptxParser = {
       parse: vi.fn(async () => ({
@@ -265,7 +265,7 @@ describe("PptxAdapter (vitest)", () => {
   it("slideTitle returns empty string when no title role element exists", async () => {
     delete globalThis.PPTXSlideParser;
 
-    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
 
     const pptxParser = {
       parse: vi.fn(async () => ({
@@ -295,7 +295,7 @@ describe("PptxAdapter (vitest)", () => {
   it("handles slides with null/undefined elements array", async () => {
     delete globalThis.PPTXSlideParser;
 
-    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
 
     const pptxParser = {
       parse: vi.fn(async () => ({
@@ -324,7 +324,7 @@ describe("PptxAdapter (vitest)", () => {
   it("uses input.filename when input.name is missing", async () => {
     delete globalThis.PPTXSlideParser;
 
-    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
 
     const pptxParser = {
       parse: vi.fn(async () => ({
@@ -345,7 +345,7 @@ describe("PptxAdapter (vitest)", () => {
   it("uses input.mimeType when input.type is missing", async () => {
     delete globalThis.PPTXSlideParser;
 
-    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
 
     const pptxParser = {
       parse: vi.fn(async () => ({

@@ -111,7 +111,7 @@ describe("ConvergenceDetector: semantic convergence", () => {
   let jaccardSimilarity;
 
   beforeEach(async () => {
-    const mod = await import("../../../../js/agents/runtime/analysis/convergence-detector.js");
+    const mod = await import("../../../../js/agents/plugins/analysis/convergence-detector.js");
     ConvergenceDetector = mod.ConvergenceDetector;
     tokenize = mod.tokenize;
     entropy = mod.entropy;
@@ -233,7 +233,7 @@ describe("BehaviorFingerprint: loop detection", () => {
   let findConsecutiveLoops;
 
   beforeEach(async () => {
-    const mod = await import("../../../../js/agents/runtime/analysis/behavior-fingerprint.js");
+    const mod = await import("../../../../js/agents/plugins/analysis/behavior-fingerprint.js");
     BehaviorFingerprint = mod.BehaviorFingerprint;
     ContextDistiller = mod.ContextDistiller;
     createActionSignature = mod.createActionSignature;
@@ -355,7 +355,7 @@ describe("ContextDistiller: context extraction", () => {
   let ContextDistiller;
 
   beforeEach(async () => {
-    const mod = await import("../../../../js/agents/runtime/analysis/behavior-fingerprint.js");
+    const mod = await import("../../../../js/agents/plugins/analysis/behavior-fingerprint.js");
     ContextDistiller = mod.ContextDistiller;
   });
 

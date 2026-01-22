@@ -17,7 +17,7 @@ describe("agents/vfs/glob (extra coverage cases)", () => {
 
   it("falls back to main-thread filtering when Worker construction fails", async () => {
     vi.resetModules();
-    vi.doMock("../../../js/agents/shared/platform.js", () => ({
+    vi.doMock("../../../../js/agents/shared/platform.js", () => ({
       isNodeLike: () => false,
     }));
 

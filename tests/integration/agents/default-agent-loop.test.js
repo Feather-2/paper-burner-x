@@ -774,7 +774,7 @@ it("execute swallows PostAgent hook errors and emits hook error event", async ()
   const eventBus = enhanceEventBusWithHooks(new EventBus({ runId: "post-error" }));
   const hookErrors = [];
 
-  eventBus.subscribe("agent.hook.error", (evt) => hookErrors.push(evt));
+  eventBus.subscribe("agent:hook-error", (evt) => hookErrors.push(evt));
   eventBus.registerHook("PostAgent", {
     type: "command",
     handler: async () => {

@@ -75,7 +75,7 @@ it("L2 control flags serialize/deserialize across minimal checkpoints", async ()
 });
 
 it("loadCheckpoint migrates gaps into todos and stamps L2 flags", async () => {
-  const { loadCheckpoint } = await import("../../../../js/agents/stages/deepsearch/runtime/checkpoint.js");
+  const { loadCheckpoint } = await import("../../../../js/agents/stages/deepsearch/internal/checkpoint.js");
 
   const checkpoint = {
     schemaVersion: "1.0",

@@ -95,6 +95,8 @@ export default defineConfig({
   // 路径别名
   resolve: {
     alias: {
+      // Allow browser-style absolute imports like `/js/...` in both Vite and Vitest.
+      '/js': resolve(__dirname, 'js'),
       '@': resolve(__dirname, 'js'),
       '@shared': resolve(__dirname, 'js/shared'),
       '@storage': resolve(__dirname, 'js/storage'),

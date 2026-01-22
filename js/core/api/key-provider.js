@@ -3,7 +3,14 @@
  * @description API 密钥提供者，支持密钥轮询、失效标记、优先使用上次成功的密钥
  */
 
-import { storage } from '../../storage/storage-facade.js';
+let storage;
+async function getStorage() {
+  if (!storage) {
+    const module = await import('../../storage/storage-facade.js');
+    storage = module.storage;
+  }
+  return storage;
+}
 
 const LAST_SUCCESSFUL_KEYS_KEY = 'paperBurnerLastSuccessfulKeys';
 
@@ -61,6 +68,7 @@ export class KeyProvider {
   async _loadKeys() {
     // 优先使用新的 Repository
     try {
+      const storage = await getStorage();
       const keys = await storage.apiKeys.getKeysForModel(this.modelName);
       if (keys && keys.length > 0) {
         return keys;
@@ -118,6 +126,7 @@ export class KeyProvider {
 
     // 保存到存储
     try {
+      const storage = await getStorage();
       await storage.apiKeys.markKeyInvalid(this.modelName, keyId);
     } catch (e) {
       // 兼容旧版

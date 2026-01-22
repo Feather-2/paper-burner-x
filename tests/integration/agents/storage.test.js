@@ -178,7 +178,7 @@ it("RunExporter: zip export/import roundtrip", async () => {
   const { RunStore } = await import("../../../js/agents/storage/run-store.js");
   const { createManifest, addArtifactToManifest, generateArtifactId } = await import("../../../js/agents/storage/artifact-manager.js");
   const { exportRunAsZip, importRunFromZip } = await import("../../../js/agents/storage/run-exporter.js");
-  const { createPlan } = await import("../../../js/agents/runtime/plan/plan-store.js");
+  const { createPlan } = await import("../../../js/agents/plugins/plan/plan-store.js");
 
   const dbName1 = makeDbName("zip_src");
   await RunStore.deleteDatabase({ dbName: dbName1 });
@@ -434,7 +434,7 @@ it("PlanStore: create/save/update plan artifacts", async () => {
     normalizePlanStep,
     savePlan,
     setPlanStepStatus,
-  } = await import("../../../js/agents/runtime/plan/plan-store.js");
+  } = await import("../../../js/agents/plugins/plan/plan-store.js");
 
   const dbName = makeDbName("plan");
   await RunStore.deleteDatabase({ dbName });

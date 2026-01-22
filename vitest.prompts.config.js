@@ -6,9 +6,9 @@ export default defineConfig({
   test: {
     // Exclude prompts.test.js which uses node:test format, not vitest
     include: [
-      "tests/agents/prompts/formatters.test.js",
-      "tests/agents/prompts/prompt-registry.test.js",
-      "tests/agents/prompts/prompt-template.test.js",
+      "tests/integration/agents/prompts/formatters.test.js",
+      "tests/unit/agents/prompts/prompt-registry.test.js",
+      "tests/unit/agents/prompts/prompt-template.test.js",
     ],
     coverage: {
       provider: "v8",

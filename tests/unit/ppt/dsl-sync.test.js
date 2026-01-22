@@ -52,7 +52,7 @@ test('editor mutation triggers documentToHtml() and updates deckHtmlDsl + sample
   };
   window.PPTGenerator = gen;
 
-  await importFresh('../../js/ppt/generator/ppt_generator_editor.js');
+  await importFresh('../../../js/ppt/generator/ppt_generator_editor.js');
 
   const doc = new Emitter();
   const history = new Emitter();
@@ -90,7 +90,7 @@ test('structural editor mutation triggers full DSL sync (no onlySlideIndexes)', 
   };
   window.PPTGenerator = gen;
 
-  await importFresh('../../js/ppt/generator/ppt_generator_editor.js');
+  await importFresh('../../../js/ppt/generator/ppt_generator_editor.js');
 
   const doc = new Emitter();
   const editor = new Emitter();

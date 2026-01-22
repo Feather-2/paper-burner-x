@@ -49,10 +49,10 @@ test('chatbot: "把标题改成xxx" routes to edit (OperationPlanner via execute
     }
   };
 
-  await reload('../../js/ppt/generator/ppt_generator_utilities.js');
+  await reload('../../../js/ppt/generator/ppt_generator_utilities.js');
 
   // Real IntentParser (with parse alias)
-  await reload('../../js/ppt/editor/intent/intent-parser.js');
+  await reload('../../../js/ppt/editor/intent/intent-parser.js');
 
   const planCalls = [];
   window.OperationPlanner = {
@@ -95,8 +95,8 @@ test('chatbot: "重新设计第3页" routes to generation (Design Agent)', async
     }
   };
 
-  await reload('../../js/ppt/generator/ppt_generator_utilities.js');
-  await reload('../../js/ppt/editor/intent/intent-parser.js');
+  await reload('../../../js/ppt/generator/ppt_generator_utilities.js');
+  await reload('../../../js/ppt/editor/intent/intent-parser.js');
 
   const gen = new globalThis.PPTGenerator();
   gen.addChatMessage = () => {};
@@ -130,7 +130,7 @@ test('chatbot: IntentParser failure returns friendly message', async () => {
     }
   };
 
-  await reload('../../js/ppt/generator/ppt_generator_utilities.js');
+  await reload('../../../js/ppt/generator/ppt_generator_utilities.js');
 
   window.IntentParser = {
     parse: async () => {
@@ -157,8 +157,8 @@ test('chatbot: concurrent intents are queued (no overlap)', async () => {
     }
   };
 
-  await reload('../../js/ppt/generator/ppt_generator_utilities.js');
-  await reload('../../js/ppt/editor/intent/intent-parser.js');
+  await reload('../../../js/ppt/generator/ppt_generator_utilities.js');
+  await reload('../../../js/ppt/editor/intent/intent-parser.js');
 
   const gen = new globalThis.PPTGenerator();
   gen.addChatMessage = () => {};

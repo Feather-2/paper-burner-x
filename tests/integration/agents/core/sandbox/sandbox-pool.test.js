@@ -46,11 +46,11 @@ describe('core/sandbox/pool', () => {
     const { FakeWasmSandbox } = createFakeWasmSandboxClass();
 
     vi.doMock(
-      '../../../../js/agents/core/sandbox/wasm-sandbox.js',
+      '../../../../../js/agents/core/sandbox/wasm-sandbox.js',
       () => ({ WasmSandbox: FakeWasmSandbox, default: FakeWasmSandbox })
     );
 
-    const { SandboxPool } = await import('../../../../js/agents/core/sandbox/pool.js');
+    const { SandboxPool } = await import('../../../../../js/agents/core/sandbox/pool.js');
 
     const pool = new SandboxPool({
       maxSize: 2,
@@ -73,11 +73,11 @@ describe('core/sandbox/pool', () => {
     const { FakeWasmSandbox } = createFakeWasmSandboxClass();
 
     vi.doMock(
-      '../../../../js/agents/core/sandbox/wasm-sandbox.js',
+      '../../../../../js/agents/core/sandbox/wasm-sandbox.js',
       () => ({ WasmSandbox: FakeWasmSandbox, default: FakeWasmSandbox })
     );
 
-    const { SandboxPool } = await import('../../../../js/agents/core/sandbox/pool.js');
+    const { SandboxPool } = await import('../../../../../js/agents/core/sandbox/pool.js');
 
     const pool = new SandboxPool({
       maxSize: 2,
@@ -102,11 +102,11 @@ describe('core/sandbox/pool', () => {
     const { FakeWasmSandbox } = createFakeWasmSandboxClass();
 
     vi.doMock(
-      '../../../../js/agents/core/sandbox/wasm-sandbox.js',
+      '../../../../../js/agents/core/sandbox/wasm-sandbox.js',
       () => ({ WasmSandbox: FakeWasmSandbox, default: FakeWasmSandbox })
     );
 
-    const { SandboxPool } = await import('../../../../js/agents/core/sandbox/pool.js');
+    const { SandboxPool } = await import('../../../../../js/agents/core/sandbox/pool.js');
 
     const pool = new SandboxPool({
       maxSize: 1,
@@ -133,11 +133,11 @@ describe('core/sandbox/pool', () => {
     const { FakeWasmSandbox } = createFakeWasmSandboxClass();
 
     vi.doMock(
-      '../../../../js/agents/core/sandbox/wasm-sandbox.js',
+      '../../../../../js/agents/core/sandbox/wasm-sandbox.js',
       () => ({ WasmSandbox: FakeWasmSandbox, default: FakeWasmSandbox })
     );
 
-    const { SandboxPool } = await import('../../../../js/agents/core/sandbox/pool.js');
+    const { SandboxPool } = await import('../../../../../js/agents/core/sandbox/pool.js');
 
     const pool = new SandboxPool({
       maxSize: 1,
@@ -159,11 +159,11 @@ describe('core/sandbox/pool', () => {
     const { FakeWasmSandbox } = createFakeWasmSandboxClass();
 
     vi.doMock(
-      '../../../../js/agents/core/sandbox/wasm-sandbox.js',
+      '../../../../../js/agents/core/sandbox/wasm-sandbox.js',
       () => ({ WasmSandbox: FakeWasmSandbox, default: FakeWasmSandbox })
     );
 
-    const { SandboxPool } = await import('../../../../js/agents/core/sandbox/pool.js');
+    const { SandboxPool } = await import('../../../../../js/agents/core/sandbox/pool.js');
 
     const pool = new SandboxPool({
       maxSize: 2,

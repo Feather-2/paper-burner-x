@@ -8,8 +8,8 @@ import { WorkflowTodoStatus } from '../../agents/runtime/core/constants.js';
 import { StagePausedError } from '../../agents/runtime/core/stage-errors.js';
 import { StepStatus } from '../../agents/runtime/core/agent-status.js';
 import { RunStoreAdapter } from '../../agents/core/event-bus.js';
-import { subscribeTelemetry } from '../../agents/runtime/telemetry/runstore-telemetry.js';
-import { RunReplayController } from '../../agents/runtime/telemetry/replay-controller.js';
+import { subscribeTelemetry } from '../../agents/plugins/telemetry/runstore-telemetry.js';
+import { RunReplayController } from '../../agents/plugins/telemetry/replay-controller.js';
 import { StageApiFactory } from '../../agents/runtime/api/stage-api-factory.js';
 import { RunStore } from '../../agents/storage/run-store.js';
 import { exportRunAsZip, importRunFromZip } from '../../agents/storage/run-exporter.js';
@@ -17,7 +17,7 @@ import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesig
 import { AgentEventBridge } from './agent-event-bridge.js';
 import { EventHandlerRegistry, createWorkflowEventRegistry } from './event-handler-registry.js';
 import { StateSynchronizer, inferWorkflowStateFromEvent } from './unified-state-mapping.js';
-import { PLAN_ARTIFACT_TYPE, PlanLifecycleStatus, createPlan, savePlan, setPlanLifecycleStatus, setPlanStepStatus } from '../../agents/runtime/plan/plan-store.js';
+import { PLAN_ARTIFACT_TYPE, PlanLifecycleStatus, createPlan, savePlan, setPlanLifecycleStatus, setPlanStepStatus } from '../../agents/plugins/plan/plan-store.js';
 import { getUIEventBus } from '../ui-v2/core/event-bus.js';
 
 let _TextPrepStage = null;
@@ -555,7 +555,7 @@ export const runtimeMixin = {
             throw new Error(`_ensureRuntime({ runId }): cannot switch runId while running (current=${activeRunId}, requested=${requestedRunId})`);
         }
 
-        const mod = await import('../../agents/runtime/orchestrator.js');
+        const mod = await import('../../agents/runtime/core/orchestrator.js');
         const { AgentOrchestrator } = mod;
 
 	        const baseAiApiService = typeof window !== 'undefined' && window.aiApiService ? window.aiApiService : null;

@@ -128,7 +128,7 @@ describe("runtime/tools/platform", () => {
     });
 
     it("bash respects timeout", async () => {
-      const tools = await createPlatformTools({ basePath: testDir });
+      const tools = await createPlatformTools({ basePath: testDir, allowedCommands: ['sleep'] });
       const result = await tools.bash({ command: "sleep 10", timeout: 100 });
 
       expect(result.exitCode).toBe(-1);

@@ -1,6 +1,6 @@
 import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
-let analyzeImage, fromInternal, layoutToDsl, toInternal, htmlToDocument;
+let analyzeImage, fromInternal, layoutToDsl, toInternal, htmlToDocument, loadSlideParser;
 
 beforeEach(async () => {
   const layoutFromImage = await import("../../../js/ppt/vision/layout-from-image.js");
@@ -11,6 +11,8 @@ beforeEach(async () => {
   toInternal = layoutToDslMod._internal;
   const serialize = await import("../../../js/ppt/dsl/serialize.js");
   htmlToDocument = serialize.htmlToDocument;
+  loadSlideParser = serialize.loadSlideParser;
+  await loadSlideParser();
 });
 
 function muteConsole(fn) {

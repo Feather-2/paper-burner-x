@@ -16,7 +16,7 @@ describe("ReDoS Safety", () => {
   describe("batch-generator.js", () => {
     it("looksLikeSlideHtml should handle malicious input quickly", async () => {
       // 动态导入以获取内部函数
-      const module = await import("../../../../js/agents/stages/design/generators/batch-generator.js");
+      const module = await import("../../../../../js/agents/stages/design/generators/batch-generator.js");
       // looksLikeSlideHtml 是内部函数，通过 generateSlideHtmlBatch 间接测试
       const payload = generateReDoSPayload();
       const start = Date.now();
@@ -52,7 +52,7 @@ describe("ReDoS Safety", () => {
 
   describe("slide-agent.js", () => {
     it("extractVisualSlotsFromHtml should handle malicious input quickly", async () => {
-      const { SlideSubAgent } = await import("../../../../js/agents/stages/design/subagents/slide-agent.js");
+      const { SlideSubAgent } = await import("../../../../../js/agents/stages/design/subagents/slide-agent.js");
       const agent = new SlideSubAgent({
         slideIntent: { slideIntentId: "test", title: "Test" },
         designSystem: {},

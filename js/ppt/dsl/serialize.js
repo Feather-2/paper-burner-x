@@ -60,6 +60,14 @@
 	      .replace(/'/g, "&#39;");
 	  }
 
+	  function decodeHtmlEntities(str) {
+	    if (str == null) return "";
+	    const { document: domDoc } = ensureDom();
+	    const textarea = domDoc.createElement("textarea");
+	    textarea.innerHTML = String(str);
+	    return textarea.value;
+	  }
+
 	  function attrsToString(attrs) {
 	    return Object.entries(attrs)
 	      .map(([k, v]) => ` ${k}="${escapeAttr(v)}"`)
@@ -295,14 +303,57 @@
   }
 
   function getSlideParser() {
-    if (global.SlideParser && typeof global.SlideParser.parse === "function") return global.SlideParser;
+    const candidate = typeof globalThis !== "undefined" ? globalThis.SlideParser : global.SlideParser;
+    if (candidate && typeof candidate.parse === "function") return candidate;
+    return null;
+  }
+
+  function normalizeParsedSlides(slides) {
+    const normalizeElements = (elements) => {
+      if (!Array.isArray(elements)) return;
+      for (const el of elements) {
+        if (!el || typeof el !== "object") continue;
+        if (el.type === "text" && typeof el.content === "string") {
+          el.content = escapeHtml(decodeHtmlEntities(el.content));
+        }
+        if (el.type === "group" && Array.isArray(el.children)) normalizeElements(el.children);
+      }
+    };
+
+    if (!Array.isArray(slides)) return slides;
+    for (const slide of slides) {
+      if (!slide || typeof slide !== "object") continue;
+      normalizeElements(slide.elements);
+    }
+    return slides;
+  }
+
+  async function loadSlideParser() {
+    const existing = getSlideParser();
+    if (existing) return existing;
+
     try {
-      // eslint-disable-next-line global-require
-      const m = require("../slide-parser.js");
-      if (m?.SlideParser) return m.SlideParser;
+      if (typeof require === "function") {
+        // eslint-disable-next-line global-require
+        const m = require("../core/slide-parser.js");
+        const SlideParserMod = m?.SlideParser ?? m?.default?.SlideParser ?? m?.default;
+        if (SlideParserMod && typeof SlideParserMod.parse === "function") {
+          globalThis.SlideParser = SlideParserMod;
+          global.SlideParser = SlideParserMod;
+          return SlideParserMod;
+        }
+      }
     } catch {
       // ignore
     }
+
+    try {
+      await import("../core/slide-parser.js");
+      return getSlideParser();
+    } catch {
+      // ignore
+    }
+
     return null;
   }
 
@@ -326,31 +377,41 @@
       try {
         global.window = domWin;
         global.document = domDoc;
-        const slides = parser.parse(input);
-        if (global.SlideDocument) {
-          const d = new global.SlideDocument();
+        const slides = normalizeParsedSlides(deepCopy(parser.parse(input)));
+        const SlideDocumentCtor = (typeof globalThis !== "undefined" && globalThis.SlideDocument) || global.SlideDocument;
+        if (SlideDocumentCtor) {
+          const d = new SlideDocumentCtor();
           d.load(slides);
           return d;
         }
-        return { slides: deepCopy(slides) };
+        return { slides };
       } finally {
         global.document = prevDoc;
         global.window = prevWin;
       }
     }
 
-    const slides = parser.parse(input);
-    if (global.SlideDocument) {
-      const d = new global.SlideDocument();
+    const slides = normalizeParsedSlides(deepCopy(parser.parse(input)));
+    const SlideDocumentCtor = (typeof globalThis !== "undefined" && globalThis.SlideDocument) || global.SlideDocument;
+    if (SlideDocumentCtor) {
+      const d = new SlideDocumentCtor();
       d.load(slides);
       return d;
     }
-    return { slides: deepCopy(slides) };
+    return { slides };
   }
 
-  global.PPTDSLSerialize = { documentToHtml, htmlToDocument };
+  global.PPTDSLSerialize = { documentToHtml, htmlToDocument, loadSlideParser };
+  if (typeof globalThis !== "undefined") globalThis.PPTDSLSerialize = global.PPTDSLSerialize;
 
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { documentToHtml, htmlToDocument, _internal: { elementToHtml, slideToHtml } };
+    module.exports = { documentToHtml, htmlToDocument, loadSlideParser, _internal: { elementToHtml, slideToHtml } };
   }
 })(typeof window !== "undefined" ? window : globalThis);
+
+// Best-effort preload for tests/Node environments.
+try {
+  await globalThis?.PPTDSLSerialize?.loadSlideParser?.();
+} catch {
+  // ignore
+}

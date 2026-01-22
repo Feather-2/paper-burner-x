@@ -56,7 +56,7 @@ describe("shared/utils/logger.js", () => {
     expect(useLogger).toBe(createLogger);
 
     expect(emitted).toHaveLength(1);
-    expect(emitted[0].name).toBe("shared.log.info");
+    expect(emitted[0].name).toBe("shared:log");
     expect(emitted[0].meta).toEqual({ status: "info" });
     expect(emitted[0].payload).toMatchObject({
       level: "info",

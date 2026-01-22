@@ -12,12 +12,12 @@ const mockedEventBus = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../../js/ppt/ui-v2/core/event-bus.js', () => ({
+vi.mock('../../../../js/shared/core/event-bus.js', () => ({
   getUIEventBus: mockedEventBus.getUIEventBus,
 }));
 
 async function loadStateStore() {
-  return await import('../../../js/ppt/ui-v2/core/state-store.js');
+  return await import('../../../../js/ppt/ui-v2/core/state-store.js');
 }
 
 describe('StateStore', () => {

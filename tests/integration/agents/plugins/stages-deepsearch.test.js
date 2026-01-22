@@ -9,7 +9,7 @@ const constructedOptions = [];
 /** @type {any[]} */
 const runCalls = [];
 
-vi.mock('../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js', () => {
+vi.mock('../../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js', () => {
   class MockDeepSearchAgentLoop {
     constructor(options = {}) {
       this._options = options;

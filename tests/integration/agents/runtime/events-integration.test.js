@@ -46,7 +46,7 @@ function validateArchivePayload(payload) {
 }
 
 it("Runtime Events: exports new event groups", async () => {
-  const { ReviewEvents, CompressionEvents, ArchiveEvents } = await import("../../../../js/agents/runtime/events/events.js");
+  const { ReviewEvents, CompressionEvents, ArchiveEvents, EventBus } = await import("../../../../js/agents/runtime/events/events.js");
 
   expect(ReviewEvents).toEqual({
     REVIEW_STARTED: "review.started",

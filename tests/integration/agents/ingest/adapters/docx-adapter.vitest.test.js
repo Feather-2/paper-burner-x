@@ -44,6 +44,16 @@ vi.mock("turndown", () => ({
   default: turndownMocks.TurndownService,
 }));
 
+const jszipMocks = vi.hoisted(() => ({
+  loadAsync: vi.fn(),
+}));
+
+vi.mock("jszip", () => ({
+  default: {
+    loadAsync: jszipMocks.loadAsync,
+  },
+}));
+
 describe("DocxAdapter (vitest)", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -53,6 +63,7 @@ describe("DocxAdapter (vitest)", () => {
     mammothMocks.imgElement.mockReset().mockImplementation((fn) => fn);
     turndownMocks.ctor.mockReset();
     turndownMocks.turndown.mockReset();
+    jszipMocks.loadAsync.mockReset().mockResolvedValue({ files: {} });
   });
 
   afterEach(() => {
@@ -60,7 +71,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("parses a path input, extracts images (including placeholder on read error), and strips data URIs", async () => {
-    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../../js/agents/ingest/adapters/docx.js");
 
     const docxPath = "/virtual/doc.docx";
     const bytes = Buffer.from("PK\x03\x04fake-docx", "utf8");
@@ -121,7 +132,7 @@ describe("DocxAdapter (vitest)", () => {
     }
 
     const adapter = new DocxAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
-    const parsed = await adapter.parse(docxPath, { mammoth, TurndownService: TurndownServiceStub });
+    const parsed = await adapter.parse(docxPath, { mammoth, TurndownService: TurndownServiceStub, allowPathRead: true });
 
     expect(fsMocks.stat).toHaveBeenCalledWith(docxPath);
     expect(fsMocks.readFile).toHaveBeenCalledWith(docxPath);
@@ -155,7 +166,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("falls back to mocked dynamic imports when stageApi does not inject mammoth/TurndownService", async () => {
-    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../../js/agents/ingest/adapters/docx.js");
 
     mammothMocks.convertToHtml.mockResolvedValue({ value: "<p>From imported mammoth</p>", messages: [] });
     turndownMocks.turndown.mockReturnValue("# From imported TurndownService\n");
@@ -175,7 +186,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("rejects unsupported file-like inputs and oversized files before converting", async () => {
-    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../../js/agents/ingest/adapters/docx.js");
 
     const convertToHtml = vi.fn(async () => ({ value: "", messages: [] }));
     class TurndownServiceStub {
@@ -208,7 +219,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("uses application/octet-stream when input name is not .docx and type is missing", async () => {
-    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../../js/agents/ingest/adapters/docx.js");
 
     const adapter = new DocxAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
     const parsed = await adapter.parse(
@@ -230,19 +241,19 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("rejects oversized path inputs before readFile()", async () => {
-    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../../js/agents/ingest/adapters/docx.js");
 
     const docxPath = "/virtual/big.docx";
     fsMocks.stat.mockResolvedValue({ size: 2 });
     fsMocks.readFile.mockResolvedValue(Buffer.alloc(2));
 
     const adapter = new DocxAdapter({ maxFileSize: 1 });
-    await expect(adapter.parse(docxPath)).rejects.toThrow(/file too large/i);
+    await expect(adapter.parse(docxPath, { allowPathRead: true })).rejects.toThrow(/file too large/i);
     expect(fsMocks.readFile).not.toHaveBeenCalled();
   });
 
   it("defaults unknown image contentType to .png via extFromMime()", async () => {
-    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../../js/agents/ingest/adapters/docx.js");
 
     const mammoth = {
       // No `images.imgElement` -> exercise the direct convertImageImpl branch.
@@ -273,7 +284,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("normalizeMaxFileSize handles Infinity and invalid values", async () => {
-    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../../js/agents/ingest/adapters/docx.js");
 
     // Infinity should pass through (no size limit)
     const adapterInf = new DocxAdapter({ maxFileSize: Infinity });
@@ -307,7 +318,7 @@ describe("DocxAdapter (vitest)", () => {
 
     // Reset modules to clear cached dynamic imports
     vi.resetModules();
-    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../../js/agents/ingest/adapters/docx.js");
 
     const adapter = new DocxAdapter();
     const parsed = await adapter.parse({
@@ -324,7 +335,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("extFromMime handles jpg variant", async () => {
-    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../../js/agents/ingest/adapters/docx.js");
 
     const mammoth = {
       convertToHtml: vi.fn(async ({ convertImage }) => {
@@ -350,7 +361,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("warning limit is respected (MAX_WARNINGS)", async () => {
-    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../../js/agents/ingest/adapters/docx.js");
 
     const manyWarnings = Array.from({ length: 100 }, (_, i) => ({ message: `warn${i}` }));
     const mammoth = {

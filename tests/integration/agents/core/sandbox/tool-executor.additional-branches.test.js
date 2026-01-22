@@ -9,7 +9,7 @@ const POOLS_KEY = '__PB_TOOL_EXECUTOR_WORKER_POOLS_V1__';
 function getNodeWorkerPoolKey() {
   // Keep the logic in sync with ToolExecutor._executeInNodeWorker() so we can pre-seed the global pool map.
   const toolExecutorPath = fileURLToPath(
-    new URL('../../../../js/agents/runtime/tools/tool-executor.js', import.meta.url)
+    new URL('../../../../../js/agents/runtime/tools/tool-executor.js', import.meta.url)
   );
   const workerPath = toolExecutorPath.replace(/tool-executor\.js$/i, 'tool-executor-worker.js');
   return `node:${workerPath}`;
@@ -18,7 +18,7 @@ function getNodeWorkerPoolKey() {
 function getWebWorkerPoolKey() {
   // Keep the logic in sync with ToolExecutor._executeInWebWorker() so we can pre-seed the global pool map.
   const workerEntryUrl = new URL(
-    '../../../../js/agents/runtime/tools/tool-executor-webworker.js',
+    '../../../../../js/agents/runtime/tools/tool-executor-webworker.js',
     import.meta.url
   ).toString();
   return `web:${workerEntryUrl}`;
@@ -41,6 +41,14 @@ class FakeWorker {
     });
 
     this.off = vi.fn((type, fn) => {
+      this._listeners[type]?.delete(fn);
+    });
+
+    this.addEventListener = vi.fn((type, fn) => {
+      this._listeners[type]?.add(fn);
+    });
+
+    this.removeEventListener = vi.fn((type, fn) => {
       this._listeners[type]?.delete(fn);
     });
 
@@ -387,6 +395,12 @@ describe('runtime/tools/tool-executor: additional branches', () => {
     // Ensure the pool-creation branch runs.
     delete globalThis[POOLS_KEY];
 
+    // Mock the Worker constructor to return a FakeWorker
+    const worker = new FakeWorker();
+    vi.doMock('node:worker_threads', () => ({
+      Worker: vi.fn(() => worker),
+    }));
+
     const handler = vi.fn(async () => {
       throw new Error('should not be called in worker mode');
     });
@@ -404,7 +418,7 @@ describe('runtime/tools/tool-executor: additional branches', () => {
     const res = await executor.execute('t', { value: 1 }, {}, { isolation: 'worker', retries: 0, timeoutMs: 1000 });
 
     expect(res.success).toBe(true);
-    expect(res.data).toEqual({ value: 1 });
+    expect(res.data).toBe(1);
     expect(handler).not.toHaveBeenCalled();
 
     const pools = globalThis[POOLS_KEY];

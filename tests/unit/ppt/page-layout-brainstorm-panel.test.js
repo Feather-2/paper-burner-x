@@ -118,7 +118,7 @@ test('_getEditableContentPackage initializes workflowData.contentPackage and sli
   gen.workflowData = {};
   const pkg = gen._getEditableContentPackage();
   expect(pkg && typeof pkg === 'object').toBeTruthy();
-  expect(Array.isArray(pkg.slideIntents).toBeTruthy());
+  expect(Array.isArray(pkg.slideIntents)).toBeTruthy();
 });
 
 test('slide intent CRUD: add, duplicate, delete', () => {
@@ -204,7 +204,7 @@ test('_renderPageDetailTab renders empty state when no selection and form when s
   gen.workflowData.contentPackage = makeContentPackage(2);
 
   gen._selectedSlideIntentId = '';
-  expect(gen._renderPageDetailTab().toBeTruthy().includes('未选择页面'));
+  expect(gen._renderPageDetailTab().includes('未选择页面')).toBeTruthy();
 
   gen._selectedSlideIntentId = 'si_1';
   const html = gen._renderPageDetailTab();

@@ -156,6 +156,14 @@ beforeEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
+  // Some tests mock these modules; ensure later tests can import the real implementations.
+  vi.doUnmock("../../../../js/agents/skills/loader.js");
+  vi.doUnmock("../../../../js/agents/skills/loader.node.js");
+  vi.doUnmock("../../../../js/agents/skills/loader.browser.js");
+  vi.doUnmock("../../../../js/agents/skills/manager.js");
+  vi.doUnmock("../../../../js/agents/skills/render.js");
+  vi.doUnmock("../../../../js/agents/shared/index.js");
+  vi.doUnmock("../../../../js/agents/core/sandbox/skill-executor.js");
 });
 
 describe("SkillScope", () => {
@@ -529,7 +537,7 @@ describe("renderSkillsSection", () => {
 
 describe("renderSkillsList", () => {
   it("renders ordered list with descriptions (normal)", async () => {
-    const { renderSkillsList } = await importIndex();
+    const { renderSkillsList } = await vi.importActual("../../../../js/agents/skills/render.js");
     const skills = [
       {
         metadata: {
@@ -567,7 +575,7 @@ describe("renderSkillsList", () => {
   });
 
   it("returns empty string for empty or wrong inputs (boundary)", async () => {
-    const { renderSkillsList } = await importIndex();
+    const { renderSkillsList } = await vi.importActual("../../../../js/agents/skills/render.js");
 
     expect(renderSkillsList(null)).toBe("");
     expect(renderSkillsList(undefined)).toBe("");
@@ -576,7 +584,7 @@ describe("renderSkillsList", () => {
   });
 
   it("throws when skill accessors fail (error)", async () => {
-    const { renderSkillsList } = await importIndex();
+    const { renderSkillsList } = await vi.importActual("../../../../js/agents/skills/render.js");
     const badSkill = {
       get metadata() {
         throw new Error("boom");
@@ -798,8 +806,11 @@ describe("default", () => {
   });
 
   it("rejects when loading skills fails (error)", async () => {
-    const { mod, mocks } = await importIndexWithManagerMocks();
-    mocks.loadSkills.mockRejectedValue(new Error("boom"));
+    const { mod } = await importIndexWithManagerMocks({
+      loadSkillsImpl: async () => {
+        throw new Error("boom");
+      },
+    });
 
     const manager = new mod.default({ homeDir: "/home" });
 

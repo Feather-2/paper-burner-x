@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-const assert = require("node:assert/strict");
-
 describe("PerformanceRouter: EWMA and routing", () => {
   let PerformanceRouter;
   let EwmaTracker;
@@ -307,7 +305,7 @@ describe("TraceContext: distributed tracing", () => {
   let generateSpanId;
 
   beforeEach(async () => {
-    const mod = await import("../../../../js/agents/runtime/telemetry/trace-context.js");
+    const mod = await import("../../../../js/agents/plugins/telemetry/trace-context.js");
     TraceContext = mod.TraceContext;
     Span = mod.Span;
     SpanStatus = mod.SpanStatus;
@@ -464,7 +462,7 @@ describe("DegradationMatrix: resilience management", () => {
   let DegradationTrigger;
 
   beforeEach(async () => {
-    const mod = await import("../../../../js/agents/runtime/resilience/degradation-matrix.js");
+    const mod = await import("../../../../js/agents/plugins/resilience/degradation-matrix.js");
     DegradationMatrix = mod.DegradationMatrix;
     DegradationPolicy = mod.DegradationPolicy;
     OperationLevel = mod.OperationLevel;

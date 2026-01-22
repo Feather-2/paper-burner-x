@@ -25,9 +25,9 @@ beforeEach(() => {
   vi.unstubAllGlobals();
   vi.resetModules();
   // Router tests mock these modules; ensure later tests can import the real implementations.
-  vi.doUnmock("../../../js/agents/shared/platform.js");
-  vi.doUnmock("../../../js/agents/skills/loader.node.js");
-  vi.doUnmock("../../../js/agents/skills/loader.browser.js");
+  vi.doUnmock("../../../../js/agents/shared/platform.js");
+  vi.doUnmock("../../../../js/agents/skills/loader.node.js");
+  vi.doUnmock("../../../../js/agents/skills/loader.browser.js");
 });
 
 afterEach(() => {
@@ -51,9 +51,9 @@ describe("agents/skills/loader (env router)", () => {
       loadSkillFromPath: vi.fn(async () => ({ ok: true, from: "browser:path" })),
     };
 
-    vi.doMock("../../../js/agents/shared/platform.js", () => ({ isNodeLike: isNodeLikeMock }));
-    vi.doMock("../../../js/agents/skills/loader.node.js", () => nodeImpl);
-    vi.doMock("../../../js/agents/skills/loader.browser.js", () => browserImpl);
+    vi.doMock("../../../../js/agents/shared/platform.js", () => ({ isNodeLike: isNodeLikeMock }));
+    vi.doMock("../../../../js/agents/skills/loader.node.js", () => nodeImpl);
+    vi.doMock("../../../../js/agents/skills/loader.browser.js", () => browserImpl);
 
     const mod = await import("../../../../js/agents/skills/loader.js");
 
@@ -79,9 +79,9 @@ describe("agents/skills/loader (env router)", () => {
     const nodeImpl = { loadSkills: vi.fn(async () => ({ from: "node" })) };
     const browserImpl = { loadSkills: vi.fn(async () => ({ from: "browser" })) };
 
-    vi.doMock("../../../js/agents/shared/platform.js", () => ({ isNodeLike: isNodeLikeMock }));
-    vi.doMock("../../../js/agents/skills/loader.node.js", () => nodeImpl);
-    vi.doMock("../../../js/agents/skills/loader.browser.js", () => browserImpl);
+    vi.doMock("../../../../js/agents/shared/platform.js", () => ({ isNodeLike: isNodeLikeMock }));
+    vi.doMock("../../../../js/agents/skills/loader.node.js", () => nodeImpl);
+    vi.doMock("../../../../js/agents/skills/loader.browser.js", () => browserImpl);
 
     const mod = await import("../../../../js/agents/skills/loader.js");
     await expect(mod.loadSkills({ manifestUrl: "/skills/manifest.json" })).resolves.toEqual({

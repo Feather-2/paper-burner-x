@@ -28,7 +28,7 @@ import inspectorPlugin from '../../../../js/agents/plugins/debug/inspector.js';
 
 let createVfsOverride = null;
 
-vi.mock('../../../js/agents/vfs/index.js', async (importOriginal) => {
+vi.mock('../../../../js/agents/vfs/index.js', async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
@@ -156,9 +156,9 @@ describe('Service/proxy plugins (PLUG-02)', () => {
     });
 
     const retryEvents = [];
-    kernel.events.on('resilience.retry', (evt) => retryEvents.push(evt.payload));
+    kernel.events.on('resilience:retry', (evt) => retryEvents.push(evt.payload));
     const exhaustedSpy = vi.fn();
-    kernel.events.on('resilience.exhausted', exhaustedSpy);
+    kernel.events.on('resilience:exhausted', exhaustedSpy);
 
     await kernel.start();
 
@@ -193,8 +193,8 @@ describe('Service/proxy plugins (PLUG-02)', () => {
 
     const retrySpy = vi.fn();
     const exhaustedSpy = vi.fn();
-    kernel.events.on('resilience.retry', retrySpy);
-    kernel.events.on('resilience.exhausted', exhaustedSpy);
+    kernel.events.on('resilience:retry', retrySpy);
+    kernel.events.on('resilience:exhausted', exhaustedSpy);
 
     await kernel.start();
 
