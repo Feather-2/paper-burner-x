@@ -51,7 +51,7 @@ vi.mock("../../../../../js/agents/shared/index.js", () => ({
 }));
 
 vi.mock(
-  "../../../../../js/agents/plugins/core/agent-status.js",
+  "../../../../../js/agents/runtime/core/agent-status.js",
   () => ({
     StepStatus: statusMocks.StepStatus,
     isValidStepStatus: statusMocks.isValidStepStatus,

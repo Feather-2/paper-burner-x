@@ -505,7 +505,7 @@ export class ToolExecutor {
     }
 
     const duration = Date.now() - startTime;
-    this._emit("tool.failed", { tool: name, args, error: lastError?.message, duration });
+    this._emit("tool:failed", { tool: name, args, error: lastError?.message, duration });
     return this._buildResult(false, null, lastError?.message || "Unknown error");
   }
 

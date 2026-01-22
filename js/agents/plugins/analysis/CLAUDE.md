@@ -87,5 +87,5 @@ const result = await kernel.services.call('fingerprint', 'analyze', [{
   args: { q: 'foo' },
 }]);
 
-kernel.events.waitFor('fingerprint.loop.detected', 500);
+kernel.events.waitFor('fingerprint:loopDetected', 500);
 ```
