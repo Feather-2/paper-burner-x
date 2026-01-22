@@ -1,5 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { VFS_REQUEST, VFS_RESPONSE, VFS_OPS } from "../../../../../js/agents/runtime/core/vfs-proxy-protocol.js";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  VFS_REQUEST,
+  VFS_RESPONSE,
+  VFS_OPS,
+} from '../../../../../js/agents/runtime/core/vfs-proxy-protocol.js';
 
 const mockedLogger = vi.hoisted(() => {
   const warn = vi.fn();
@@ -7,11 +11,11 @@ const mockedLogger = vi.hoisted(() => {
   return { warn, createLogger };
 });
 
-vi.mock("../../../../../js/agents/shared/index.js", () => ({
+vi.mock('../../../../../js/agents/shared/index.js', () => ({
   createLogger: mockedLogger.createLogger,
 }));
 
-const MODULE_PATH = "../../../../../js/agents/runtime/core/vfs-proxy-host.js";
+const MODULE_PATH = '../../../../../js/agents/runtime/core/vfs-proxy-host.js';
 const textDecoder = new TextDecoder();
 
 function readSharedResponse(sharedBuffer) {
@@ -112,10 +116,13 @@ describe("VfsProxyHost", () => {
 
     expect(spy).not.toHaveBeenCalled();
 
-    const msg = buildRequest({ id: 3, op: VFS_OPS.EXISTS, path: "a" });
-    host.handleMessage({ data: msg });
+    const messages = Array.from({ length: 25 }, (_, i) =>
+      buildRequest({ id: i, op: VFS_OPS.EXISTS, path: "a" })
+    );
+    messages.forEach((msg) => host.handleMessage({ data: msg }));
 
-    expect(spy).toHaveBeenCalledWith(msg);
+    expect(spy).toHaveBeenCalledTimes(25);
+    expect(new Set(spy.mock.calls.map(([call]) => call))).toEqual(new Set(messages));
   });
 
   it("dispose removes listener and prevents further handling", async () => {
@@ -190,13 +197,20 @@ describe("VfsProxyHost", () => {
     const vfs = { exists: vi.fn(async () => true) };
     const host = new VfsProxyHost(vfs, worker);
 
-    await host._handleRequest(
-      buildRequest({ id: 2, op: VFS_OPS.EXISTS, path: "C:\\temp\\file" })
-    );
+    await host._handleRequest(buildRequest({ id: 2, op: VFS_OPS.EXISTS, path: "C:\\temp\\file" }));
+    await host._handleRequest(buildRequest({ id: 3, op: VFS_OPS.EXISTS, path: "../secret" }));
+    await host._handleRequest(buildRequest({ id: 4, op: VFS_OPS.EXISTS, path: "/absolute" }));
+    await host._handleRequest(buildRequest({ id: 5, op: VFS_OPS.EXISTS, path: "nul\0byte" }));
 
     expect(vfs.exists).not.toHaveBeenCalled();
-    expect(worker.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ ok: false, error: "Invalid VFS path" })
+    expect(worker.postMessage).toHaveBeenCalledTimes(4);
+    expect(getPostedMessages(worker)).toEqual(
+      expect.arrayContaining([
+        { type: VFS_RESPONSE, id: 2, ok: false, error: "Invalid VFS path" },
+        { type: VFS_RESPONSE, id: 3, ok: false, error: "Invalid VFS path" },
+        { type: VFS_RESPONSE, id: 4, ok: false, error: "Invalid VFS path" },
+        { type: VFS_RESPONSE, id: 5, ok: false, error: "Invalid VFS path" },
+      ])
     );
   });
 
@@ -530,6 +544,82 @@ describe("VfsProxyHost", () => {
       ok: true,
       data: { exists: false },
     });
+  });
+
+  it("writes JSON payloads into shared buffers for non-READ ops in sync mode", async () => {
+    const worker = createWorker();
+    const vfs = { exists: vi.fn(async () => "truthy") };
+    const host = new VfsProxyHost(vfs, worker);
+    const buffer = new SharedArrayBuffer(128);
+
+    await host._handleRequest(
+      buildRequest({ id: "7", op: VFS_OPS.EXISTS, path: "ok", buffer })
+    );
+
+    const response = readSharedResponse(buffer);
+    expect(response.status).toBe(1);
+    expect(response.requiredBytes).toBe(0);
+    expect(JSON.parse(response.text)).toEqual({ exists: true });
+
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      type: VFS_RESPONSE,
+      id: 7,
+      ok: true,
+    });
+  });
+
+  it("rejects invalid VFS paths in sync mode", async () => {
+    const worker = createWorker();
+    const vfs = { exists: vi.fn(async () => true) };
+    const host = new VfsProxyHost(vfs, worker);
+    const buffer = new SharedArrayBuffer(96);
+
+    await host._handleRequest(
+      buildRequest({ id: 8, op: VFS_OPS.EXISTS, path: "a/..", buffer })
+    );
+
+    const response = readSharedResponse(buffer);
+    expect(response.status).toBe(-1);
+    expect(response.text).toContain("Invalid VFS path");
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      type: VFS_RESPONSE,
+      id: 8,
+      ok: false,
+      error: "Invalid VFS path",
+    });
+  });
+
+  it("propagates non-missing list errors as failures", async () => {
+    const worker = createWorker();
+    const err = new Error("No access");
+    err.code = "EACCES";
+    const vfs = { readdir: vi.fn(async () => { throw err; }) };
+    const host = new VfsProxyHost(vfs, worker);
+
+    await host._handleRequest(buildRequest({ op: VFS_OPS.LIST, path: "root" }));
+
+    expect(worker.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, error: "EACCES: No access" })
+    );
+    expect(mockedLogger.warn).toHaveBeenCalledWith(
+      "[VfsProxyHost] request failed",
+      expect.objectContaining({ op: VFS_OPS.LIST, error: "EACCES: No access" })
+    );
+  });
+
+  it("writes sync-mode errors into shared buffers for unsupported ops", async () => {
+    const worker = createWorker();
+    const host = new VfsProxyHost({ exists: vi.fn() }, worker);
+    const buffer = new SharedArrayBuffer(128);
+
+    await host._handleRequest(buildRequest({ id: 9, op: "nope", path: "file", buffer }));
+
+    const response = readSharedResponse(buffer);
+    expect(response.status).toBe(-1);
+    expect(response.text).toContain("Unsupported VFS op");
+    expect(worker.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: VFS_RESPONSE, id: 9, ok: false })
+    );
   });
 
   it("returns error for unsupported ops and logs warning", async () => {

@@ -1,13 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const externalMock = vi.hoisted(() => ({
-  getPayload: vi.fn(() => "external payload"),
-}));
+const externalMock = vi.hoisted(() => {
+  const hugeFile = "line\n".repeat(20000);
+  const longString = "x".repeat(200000);
+
+  const deepNested = {};
+  let cursor = deepNested;
+  for (let i = 0; i < 200; i += 1) {
+    cursor.next = {};
+    cursor = cursor.next;
+  }
+
+  return {
+    hugeFile,
+    longString,
+    deepNested,
+    dangerousCallback: vi.fn(() => {
+      throw new Error("dangerous callback should not be executed");
+    }),
+  };
+});
 
 vi.mock(
   "virtual:report-template-dependency",
   () => ({
-    getPayload: externalMock.getPayload,
+    hugeFile: externalMock.hugeFile,
+    longString: externalMock.longString,
+    deepNested: externalMock.deepNested,
+    dangerousCallback: externalMock.dangerousCallback,
   }),
   { virtual: true }
 );
@@ -19,13 +39,12 @@ import reportTemplateDefault, {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  externalMock.getPayload.mockReturnValue("external payload");
 });
 
-function expectTemplateReturn(value) {
+function expectTemplateReturn(...args) {
   let result;
   expect(() => {
-    result = renderReportTemplate(value);
+    result = renderReportTemplate(...args);
   }).not.toThrow();
   expect(result).toBe(REPORT_TEMPLATE);
 }
@@ -38,6 +57,9 @@ describe("REPORT_TEMPLATE", () => {
     expect(REPORT_TEMPLATE).toContain("### 必需章节");
     expect(REPORT_TEMPLATE).toContain("### 学术规范");
     expect(REPORT_TEMPLATE).toContain("[来源:页码]");
+    expect(REPORT_TEMPLATE).toContain("🟢高");
+    expect(REPORT_TEMPLATE).toContain("🟡中");
+    expect(REPORT_TEMPLATE).toContain("🔴低");
   });
 
   it("includes the numbered sections and confidence label", () => {
@@ -70,32 +92,32 @@ describe("renderReportTemplate", () => {
     });
   });
 
-  it("handles resource-heavy inputs, including mocked external payloads", async () => {
-    const { getPayload } = await import("virtual:report-template-dependency");
-    const hugeFile = "line\n".repeat(20000);
-    const longString = "x".repeat(200000);
+  it("does not execute function arguments (error-handling safety)", async () => {
+    const { dangerousCallback } = await import(
+      "virtual:report-template-dependency"
+    );
 
-    const deepNested = {};
-    let cursor = deepNested;
-    for (let i = 0; i < 200; i += 1) {
-      cursor.next = {};
-      cursor = cursor.next;
-    }
+    expectTemplateReturn(dangerousCallback);
+    expect(dangerousCallback).not.toHaveBeenCalled();
+  });
 
-    externalMock.getPayload.mockReturnValueOnce(hugeFile);
-    const externalPayload = getPayload();
+  it("handles resource-heavy inputs", async () => {
+    const { hugeFile, longString, deepNested } = await import(
+      "virtual:report-template-dependency"
+    );
 
-    expectTemplateReturn(externalPayload);
+    expectTemplateReturn(hugeFile);
     expectTemplateReturn(longString);
     expectTemplateReturn(deepNested);
-    expect(getPayload).toHaveBeenCalledTimes(1);
   });
 
   it("supports concurrent calls", async () => {
     const results = await Promise.all(
       Array.from({ length: 25 }, () => Promise.resolve(renderReportTemplate()))
     );
-    expect(results.every((value) => value === REPORT_TEMPLATE)).toBe(true);
+    results.forEach((value) => {
+      expect(value).toBe(REPORT_TEMPLATE);
+    });
   });
 
   it("supports rapid consecutive calls", () => {
@@ -113,6 +135,11 @@ describe("default export", () => {
         renderReportTemplate,
       })
     );
+    expect(reportTemplateDefault.REPORT_TEMPLATE).toBe(REPORT_TEMPLATE);
+    expect(reportTemplateDefault.renderReportTemplate).toBe(renderReportTemplate);
+  });
+
+  it("returns REPORT_TEMPLATE via default.renderReportTemplate()", () => {
     expect(reportTemplateDefault.renderReportTemplate()).toBe(REPORT_TEMPLATE);
   });
 });

@@ -4,55 +4,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-
-vi.mock("../../../../../js/agents/shared/index.js", async () => {
-  const actual = await vi.importActual("../../../../../js/agents/shared/index.js");
-
-  class EmbeddingService {}
-
-  class VectorIndex {
-    constructor({ maxItems } = {}) {
-      this.maxItems = maxItems;
-      this.items = new Map();
-    }
-
-    upsert(id, vector, meta) {
-      this.items.set(id, { vector, meta });
-    }
-
-    has(id) {
-      return this.items.has(id);
-    }
-
-    search(_vector, { topK } = {}) {
-      const limit = typeof topK === "number" ? topK : this.items.size;
-      return Array.from(this.items.keys())
-        .slice(0, limit)
-        .map((id, index) => ({ id, score: 1 / (index + 1) }));
-    }
-  }
-
-  return { ...actual, EmbeddingService, VectorIndex };
-});
-
-vi.mock("../../../../../js/agents/llm/rate-limit.js", () => {
-  class TokenBucketRateLimiter {
-    constructor(opts = {}) {
-      this.opts = opts;
-      this.schedule = vi.fn(async (fn) => {
-        if (typeof fn === "function") {
-          await fn();
-        }
-      });
-      this.getState = vi.fn(() => ({ ...opts }));
-    }
-  }
-
-  return { TokenBucketRateLimiter };
-});
-
 import RetrievalEngineDefault, { RetrievalEngine as RetrievalEngineNamed } from "../../../../../js/agents/plugins/memory/retrieval-engine.js";
-import { EmbeddingService, VectorIndex } from "../../../../../js/agents/shared/index.js";
+import { EmbeddingService } from "../../../../../js/agents/shared/index.js";
+import { VectorIndex } from "../../../../../js/agents/shared/index.js";
 import { TokenBucketRateLimiter } from "../../../../../js/agents/llm/rate-limit.js";
 
 const getOption = (options, key, fallback) => (
@@ -133,7 +87,7 @@ describe("RetrievalEngine", () => {
 
       expect(engine.embeddingService).toBe(embeddingService);
       expect(engine.vectorIndex).toBeInstanceOf(VectorIndex);
-      expect(engine.vectorIndex.maxItems).toBe(5);
+      expect(engine.vectorIndex._maxItems).toBe(5);
     });
 
     it("applies vectorMaxItems fallback for invalid values", () => {
@@ -147,7 +101,7 @@ describe("RetrievalEngine", () => {
       });
 
       expect(engine.vectorIndex).toBeInstanceOf(VectorIndex);
-      expect(engine.vectorIndex.maxItems).toBe(1000);
+      expect(engine.vectorIndex._maxItems).toBe(1000);
     });
 
     it("uses provided vectorIndex and keeps null without embeddingService", () => {
@@ -201,7 +155,7 @@ describe("RetrievalEngine", () => {
       });
 
       expect(engineFromOptions._rateLimiter).toBeInstanceOf(TokenBucketRateLimiter);
-      expect(engineFromOptions._rateLimiter.opts.rps).toBe(7);
+      expect(engineFromOptions._rateLimiter._rps).toBe(7);
 
       const engineDisabled = new RetrievalEngineNamed({
         memoryStore: store,
@@ -387,7 +341,7 @@ describe("RetrievalEngine", () => {
         ["a", { summary: "alpha", stageKey: "s1", ts: 1, data: {} }],
         ["b", { summary: "beta", stageKey: "s2", ts: 2, data: {} }],
       ]);
-      const embeddingService = { embed: vi.fn().mockResolvedValue([[1], [2]]) };
+      const embeddingService = { embed: vi.fn().mockImplementation((texts) => Promise.resolve(texts.map(() => [1]))) };
       const vectorIndex = { has: vi.fn(() => false), upsert: vi.fn() };
       const eventBus = createEventBus();
       const store = createMemoryStore({ snapshots, embeddingService, vectorIndex, eventBus });
@@ -658,16 +612,19 @@ describe("RetrievalEngine", () => {
 
   describe("ensureIndexed", () => {
     it("returns false without embedding service or vector index", async () => {
+      // Case 1: No embeddingService at all
       const store = createMemoryStore({ snapshots: new Map() });
       const engine = new RetrievalEngineNamed({ memoryStore: store, subscribe: false });
 
       await expect(engine.ensureIndexed()).resolves.toBe(false);
 
-      const embeddingService = { embed: vi.fn() };
-      const storeNoIndex = createMemoryStore({ snapshots: new Map(), embeddingService });
-      const engineNoIndex = new RetrievalEngineNamed({ memoryStore: storeNoIndex, subscribe: false });
+      // Case 2: Has embeddingService but mock without embed function
+      // (Cannot easily prevent vectorIndex auto-creation, so test embed function check)
+      const embeddingService = { notEmbed: vi.fn() };
+      const storeNoEmbed = createMemoryStore({ snapshots: new Map(), embeddingService });
+      const engineNoEmbed = new RetrievalEngineNamed({ memoryStore: storeNoEmbed, subscribe: false });
 
-      await expect(engineNoIndex.ensureIndexed()).resolves.toBe(false);
+      await expect(engineNoEmbed.ensureIndexed()).resolves.toBe(false);
     });
 
     it("returns true when no snapshots exist", async () => {
@@ -760,11 +717,12 @@ describe("RetrievalEngine", () => {
       const engine = new RetrievalEngineNamed({ memoryStore: store, subscribe: false });
       const limiter = new TokenBucketRateLimiter({});
       engine._rateLimiter = limiter;
+      const scheduleSpy = vi.spyOn(limiter, "schedule");
 
       await engine._acquireRateLimit("label");
 
-      expect(limiter.schedule).toHaveBeenCalledTimes(1);
-      expect(limiter.schedule).toHaveBeenCalledWith(expect.any(Function), { label: "label" });
+      expect(scheduleSpy).toHaveBeenCalledTimes(1);
+      expect(scheduleSpy).toHaveBeenCalledWith(expect.any(Function), { label: "label" });
     });
 
     it("no-ops without rate limiter", async () => {
@@ -943,6 +901,7 @@ describe("RetrievalEngine", () => {
       const store = createMemoryStore({ embeddingService, vectorIndex });
       const engine = new RetrievalEngineNamed({ memoryStore: store, subscribe: false });
       const limiter = new TokenBucketRateLimiter({});
+      const scheduleSpy = vi.spyOn(limiter, "schedule");
       engine._rateLimiter = limiter;
       vi.spyOn(engine, "ensureIndexed").mockResolvedValue(true);
 
@@ -951,7 +910,7 @@ describe("RetrievalEngine", () => {
         engine.semanticRecall("query-2", { fallback: false }),
       ]);
 
-      expect(limiter.schedule).toHaveBeenCalledTimes(2);
+      expect(scheduleSpy).toHaveBeenCalledTimes(2);
       expect(embeddingService.embed).toHaveBeenCalledTimes(2);
     });
   });

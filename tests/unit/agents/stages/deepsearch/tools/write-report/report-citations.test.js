@@ -140,6 +140,26 @@ describe("handleGetSource", () => {
     expect(toNonEmptyString).toHaveBeenCalledWith(sourceId);
   });
 
+  it("ignores non-SourceManager context.sourceManager instances", () => {
+    const sources = [
+      makeSource({ sourceId: "real", name: "Real", text: "abc" }),
+    ];
+    const state = { L0: { sources } };
+    const fakeManager = {
+      syncSources: vi.fn(),
+      listSources: vi.fn(() => [{ sourceId: "fake", name: "Fake", size: 999 }]),
+      getSourceInfo: vi.fn(() => ({ sourceId: "fake", name: "Fake", text: "zzz" })),
+    };
+
+    const result = handleGetSource({ sourceId: "" }, { sourceManager: fakeManager }, state);
+
+    expect(result.available).toEqual([{ sourceId: "real", name: "Real", length: 3 }]);
+    expect(fakeManager.syncSources).not.toHaveBeenCalled();
+    expect(fakeManager.listSources).not.toHaveBeenCalled();
+    expect(fakeManager.getSourceInfo).not.toHaveBeenCalled();
+    expect(sourceManagerState.instances).toHaveLength(1);
+  });
+
   it("uses context sourceManager and syncs updated sources across calls", () => {
     const manager = new SourceManager([makeSource({ sourceId: "s0", text: "init" })]);
     const stateA = { L0: { sources: [makeSource({ sourceId: "s2", name: "State A", text: "bbb" })] } };
@@ -158,6 +178,13 @@ describe("handleGetSource", () => {
     expect(resultB.available).toEqual([{ sourceId: "deep", name: "Deep", length: 3 }]);
     expect(sourceManagerState.instances).toHaveLength(1);
     expect(manager.syncSources).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+  ])("throws when args is %s", (_label, args) => {
+    expect(() => handleGetSource(args, {}, {})).toThrow();
   });
 
   it("returns error when source is not found", () => {
@@ -277,6 +304,13 @@ describe("syncReportCitations", () => {
     expect(Array.isArray(result)).toBe(true);
     expect(result).toHaveLength(0);
     expect(report.citations).toBe(result);
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+  ])("throws when report is %s", (_label, report) => {
+    expect(() => syncReportCitations(report, [])).toThrow();
   });
 
   it("preserves empty array reference", () => {

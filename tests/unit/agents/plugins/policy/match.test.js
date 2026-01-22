@@ -12,6 +12,10 @@ import matchDefault, {
     matchAnyGlob,
 } from '../../../../../js/agents/plugins/policy/match.js';
 
+beforeEach(() => {
+    vi.clearAllMocks();
+});
+
 describe('matchWildcard', () => {
     it('matches exact strings when no wildcard is present', () => {
         expect(matchWildcard('alpha', 'alpha')).toBe(true);
@@ -40,6 +44,8 @@ describe('matchWildcard', () => {
         expect(matchWildcard(Number.MAX_SAFE_INTEGER, String(Number.MAX_SAFE_INTEGER))).toBe(false);
         expect(matchWildcard({}, 'a')).toBe(false);
         expect(matchWildcard('a', {})).toBe(false);
+        expect(matchWildcard([], 'a')).toBe(false);
+        expect(matchWildcard('*', {})).toBe(true);
     });
 
     it('handles long strings and concurrent/rapid calls', async () => {
@@ -82,6 +88,29 @@ describe('matchAnyWildcard', () => {
         expect(matchAnyWildcard({}, 'x')).toBe(false);
         expect(matchAnyWildcard({ 0: 'x*', length: 1 }, 'x')).toBe(false);
     });
+
+    it('handles long strings, deep nested patterns, and large lists', () => {
+        const longValue = `a${'x'.repeat(50000)}b`;
+        const largeList = Array.from({ length: 200 }, (_, i) => `miss${i}*`);
+        largeList.push('a*b');
+        expect(matchAnyWildcard(largeList, longValue)).toBe(true);
+
+        const deepNested = [[[[['a*']]]]];
+        expect(matchAnyWildcard(deepNested, 'a')).toBe(false);
+    });
+
+    it('supports concurrent and rapid calls without shared state', async () => {
+        const results = await Promise.all([
+            Promise.resolve(matchAnyWildcard(['a*b', 'no*'], 'axxb')),
+            Promise.resolve(matchAnyWildcard(['no*', 'x*'], 'x')),
+            Promise.resolve(matchAnyWildcard(['miss*'], 'value')),
+        ]);
+        expect(results).toEqual([true, true, false]);
+
+        for (let i = 0; i < 20; i += 1) {
+            expect(matchAnyWildcard('*', `tick${i}`)).toBe(true);
+        }
+    });
 });
 
 describe('matchAnyGlob', () => {
@@ -98,11 +127,12 @@ describe('matchAnyGlob', () => {
     });
 
     it('normalizes patterns before calling matchGlob', () => {
-        matchGlobMock.mockImplementation((pattern, path) => pattern === 'foo/bar' && path === 'dir/file.txt');
-        const result = matchAnyGlob('  ./\\\\foo\\\\bar  ', 'dir/file.txt');
+        matchGlobMock.mockImplementation((pattern, path) => pattern === 'bar/baz' && path === 'dir/file.txt');
+        const result = matchAnyGlob(['///foo////bar', '  ./\\\\bar//baz  '], 'dir/file.txt');
         expect(result).toBe(true);
-        expect(matchGlobMock).toHaveBeenCalledTimes(1);
-        expect(matchGlobMock).toHaveBeenCalledWith('foo/bar', 'dir/file.txt');
+        expect(matchGlobMock).toHaveBeenCalledTimes(2);
+        expect(matchGlobMock.mock.calls[0]).toEqual(['foo/bar', 'dir/file.txt']);
+        expect(matchGlobMock.mock.calls[1]).toEqual(['bar/baz', 'dir/file.txt']);
     });
 
     it('skips empty, whitespace, and non-string patterns', () => {
@@ -121,6 +151,13 @@ describe('matchAnyGlob', () => {
         expect(result).toBe(true);
         expect(matchGlobMock).toHaveBeenCalledTimes(2);
         expect(matchGlobMock.mock.calls[1][0]).toBe('level0/**/file.txt');
+    });
+
+    it('propagates matchGlob errors', () => {
+        matchGlobMock.mockImplementation(() => {
+            throw new Error('boom');
+        });
+        expect(() => matchAnyGlob('ok', 'path')).toThrow('boom');
     });
 
     it('supports concurrent and rapid calls without shared state', async () => {

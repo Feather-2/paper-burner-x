@@ -86,6 +86,7 @@ function createContext(overrides = {}) {
 }
 
 beforeEach(() => {
+  vi.resetModules();
   vi.clearAllMocks();
   hoisted.taskHandler.mockResolvedValue({ success: true, taskId: "task_1" });
   hoisted.getTaskStatus.mockReturnValue({ status: "running" });
@@ -112,6 +113,13 @@ describe("definition", () => {
       })
     );
     expect(definition.activation?.keywords).toContain("cross-verify");
+  });
+});
+
+describe("default export", () => {
+  it("exports { definition, handler }", async () => {
+    const mod = await import(handlerPath);
+    expect(mod.default).toEqual({ definition: mod.definition, handler: mod.handler });
   });
 });
 
@@ -217,7 +225,8 @@ describe("handler", () => {
   it("infers sourceIds and limits evidence lines/snippet size", async () => {
     const { handler } = await import(handlerPath);
     const snippet = "a".repeat(500);
-    const evidence = Array.from({ length: 15 }, (_, i) => ({
+    // Resource boundary: many evidences should still render <= MAX_EVIDENCE_LINES in prompt.
+    const evidence = Array.from({ length: 200 }, (_, i) => ({
       id: `ev${i}`,
       factId: "fact-2",
       detail: { sourceId: i % 2 === 0 ? "s1" : "s2", snippet },
@@ -273,6 +282,61 @@ describe("handler", () => {
     expect(taskArgs.prompt).not.toContain("TAIL");
   });
 
+  it("supports compatible source fields and deduplicates/filters blanks", async () => {
+    const { handler } = await import(handlerPath);
+
+    await handler(
+      {
+        factId: "fact-sources",
+        contradiction: "c",
+        sources: [" s1 ", "", "s1", null, "s2"],
+      },
+      createContext()
+    );
+    const firstCall = hoisted.taskHandler.mock.calls[0][0];
+    expect(firstCall.sourceIds).toEqual(["s1", "s2"]);
+
+    hoisted.taskHandler.mockClear();
+
+    await handler(
+      { factId: "fact-sourceId", contradiction: "c", sourceId: " single " },
+      createContext()
+    );
+    const secondCall = hoisted.taskHandler.mock.calls[0][0];
+    expect(secondCall.sourceIds).toEqual(["single"]);
+
+    hoisted.taskHandler.mockClear();
+
+    // sourceIds takes precedence over sources/sourceId (type boundary: mixed inputs)
+    await handler(
+      {
+        factId: "fact-precedence",
+        contradiction: "c",
+        sourceIds: ["p1"],
+        sources: ["ignored"],
+        sourceId: "ignored2",
+      },
+      createContext()
+    );
+    const thirdCall = hoisted.taskHandler.mock.calls[0][0];
+    expect(thirdCall.sourceIds).toEqual(["p1"]);
+  });
+
+  it("defaults to researcher subagent type and accepts subagentType alias", async () => {
+    const { handler } = await import(handlerPath);
+
+    await handler({ factId: "fact-default-type", contradiction: "c" }, createContext());
+    expect(hoisted.taskHandler.mock.calls[0][0].subagent_type).toBe("researcher");
+
+    hoisted.taskHandler.mockClear();
+
+    await handler(
+      { factId: "fact-alias-type", contradiction: "c", subagentType: "analyzer" },
+      createContext()
+    );
+    expect(hoisted.taskHandler.mock.calls[0][0].subagent_type).toBe("analyzer");
+  });
+
   it("normalizes non-array and deep nested sourceIds", async () => {
     const { handler } = await import(handlerPath);
 
@@ -291,6 +355,22 @@ describe("handler", () => {
     );
     const secondCall = hoisted.taskHandler.mock.calls[0][0];
     expect(secondCall.sourceIds).toEqual(["deep"]);
+  });
+
+  it("treats null async as sync and defaults invalid timeout types", async () => {
+    const { handler } = await import(handlerPath);
+    const report = "```json\n{\"status\":\"partial\"}\n```";
+
+    hoisted.taskHandler.mockResolvedValueOnce({ success: true, taskId: "task-sync-null-async" });
+    hoisted.waitForTask.mockResolvedValueOnce({ status: "completed", result: { report } });
+
+    const result = await handler(
+      { factId: "fact-null-async", contradiction: "c", async: null, timeout: { ms: 1 } },
+      createContext()
+    );
+
+    expect(result.taskId).toBe("task-sync-null-async");
+    expect(hoisted.waitForTask).toHaveBeenCalledWith("task-sync-null-async", 600000);
   });
 
   it("waits in sync mode and maps verdict to discovery status", async () => {
@@ -332,6 +412,47 @@ ${JSON.stringify({
     );
   });
 
+  it("returns blocked in sync mode when task status is timeout/failed regardless of verdict", async () => {
+    const { handler } = await import(handlerPath);
+
+    const report = "```json\n{\"status\":\"satisfied\",\"conclusion\":\"ok\",\"confidence\":1}\n```";
+    hoisted.taskHandler.mockResolvedValueOnce({ success: true, taskId: "task-timeout" });
+    hoisted.waitForTask.mockResolvedValueOnce({ status: "timeout", result: { report } });
+
+    const discoveryManager = createDiscoveryManager();
+    const result = await handler(
+      { factId: "fact-timeout", contradiction: "c", async: false },
+      createContext({ discoveryManager })
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.discoveryStatus).toBe("blocked");
+    expect(discoveryManager.upsertDiscovery).toHaveBeenCalledWith(
+      "fact-timeout",
+      expect.objectContaining({ status: "blocked" })
+    );
+  });
+
+  it("falls back to partial when verdict JSON is missing/invalid (type boundary: findings array)", async () => {
+    const { handler } = await import(handlerPath);
+
+    hoisted.taskHandler.mockResolvedValueOnce({ success: true, taskId: "task-invalid-json" });
+    hoisted.waitForTask.mockResolvedValueOnce({
+      status: "completed",
+      // findings as array should not throw; verdict should remain null.
+      result: { findings: [{ a: 1 }, { b: 2 }] },
+    });
+
+    const result = await handler(
+      { factId: "fact-invalid-json", contradiction: "c", async: false },
+      createContext()
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.discoveryStatus).toBe("partial");
+    expect(result.verification.verdict).toBeNull();
+  });
+
   it("normalizes timeout boundaries", async () => {
     const { handler } = await import(handlerPath);
     const report = "```json\n{\"status\":\"partial\"}\n```";
@@ -352,6 +473,23 @@ ${JSON.stringify({
       const callIndex = hoisted.waitForTask.mock.calls.length - 1;
       expect(hoisted.waitForTask.mock.calls[callIndex][1]).toBe(expected);
     }
+  });
+
+  it("floors numeric-string timeout values in sync mode", async () => {
+    const { handler } = await import(handlerPath);
+
+    hoisted.taskHandler.mockResolvedValueOnce({ success: true, taskId: "task-timeout-floor" });
+    hoisted.waitForTask.mockResolvedValueOnce({
+      status: "completed",
+      result: { report: "```json\n{\"status\":\"partial\"}\n```" },
+    });
+
+    await handler(
+      { factId: "fact-timeout-floor", contradiction: "c", async: false, timeout: "123.9" },
+      createContext()
+    );
+
+    expect(hoisted.waitForTask).toHaveBeenCalledWith("task-timeout-floor", 123);
   });
 
   it("handles task start failure", async () => {
@@ -377,6 +515,29 @@ ${JSON.stringify({
     );
   });
 
+  it("treats missing taskId as start failure", async () => {
+    const { handler } = await import(handlerPath);
+    const discoveryManager = createDiscoveryManager();
+    const emit = vi.fn();
+
+    hoisted.taskHandler.mockResolvedValueOnce({ success: true });
+
+    const result = await handler(
+      { factId: "fact-no-taskid", contradiction: "c" },
+      createContext({ discoveryManager, emit })
+    );
+
+    expect(result).toEqual({ success: false, error: "Failed to start verification task" });
+    expect(discoveryManager.upsertDiscovery).toHaveBeenCalledWith(
+      "fact-no-taskid",
+      expect.objectContaining({ status: "blocked", reason: "Failed to start verification task" })
+    );
+    expect(emit).toHaveBeenCalledWith(
+      "deepsearch.verify.failed",
+      expect.objectContaining({ factId: "fact-no-taskid" })
+    );
+  });
+
   it("returns running response for rapid consecutive calls", async () => {
     const { handler } = await import(handlerPath);
     const state = createScratchpadState({
@@ -391,6 +552,41 @@ ${JSON.stringify({
     expect(first.status).toBe("running");
     expect(second.status).toBe("running");
     expect(hoisted.taskHandler).not.toHaveBeenCalled();
+  });
+
+  it("can start multiple tasks for simultaneous calls when not yet marked running (concurrency boundary)", async () => {
+    const { handler } = await import(handlerPath);
+    const state = createScratchpadState();
+    const context = createContext({ state });
+
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+
+    let seq = 0;
+    hoisted.taskHandler.mockImplementation(() =>
+      gate.then(() => ({ success: true, taskId: `task-${++seq}` }))
+    );
+
+    const args = { factId: "fact-race", contradiction: "c" };
+    const p1 = handler(args, context);
+    const p2 = handler(args, context);
+
+    // Both calls should proceed to start a task before state is marked running.
+    expect(hoisted.taskHandler).toHaveBeenCalledTimes(2);
+
+    release();
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(r1.success).toBe(true);
+    expect(r2.success).toBe(true);
+    expect(r1.taskId).not.toBe(r2.taskId);
+
+    const map = state._scratchpad.get("crossVerify");
+    // Last writer wins (implementation detail), but entry must remain valid.
+    expect(map["fact-race"]).toEqual(expect.objectContaining({ status: "running", taskId: r2.taskId }));
   });
 
   it("force bypasses existing running entry", async () => {
@@ -408,6 +604,45 @@ ${JSON.stringify({
 
     expect(result.taskId).toBe("task-new");
     expect(hoisted.taskHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("finalizes immediately in async mode when task status is already completed (race fallback)", async () => {
+    const { handler } = await import(handlerPath);
+    const state = createScratchpadState();
+    const discoveryManager = createDiscoveryManager();
+    const emit = vi.fn();
+    const sharedContext = createSharedContext({
+      stored: {
+        "task-fast": {
+          status: "completed",
+          result: {
+            report: "```json\n{\"status\":\"contradicted\",\"conclusion\":\"Nope\",\"confidence\":0.6}\n```",
+          },
+        },
+      },
+    });
+
+    hoisted.taskHandler.mockResolvedValueOnce({ success: true, taskId: "task-fast" });
+    hoisted.getTaskStatus.mockReturnValue({ status: "completed" });
+
+    const result = await handler(
+      { factId: "fact-fast", contradiction: "c", async: true },
+      createContext({ state, discoveryManager, emit, sharedContext })
+    );
+
+    expect(result.status).toBe("running");
+
+    // Wait for microtask finalization.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const map = state._scratchpad.get("crossVerify");
+    expect(map["fact-fast"]).toEqual(expect.objectContaining({ status: "completed", discoveryStatus: "contradicted" }));
+    expect(sharedContext.setSummary).toHaveBeenCalledWith("verification", expect.stringContaining("Nope"));
+    expect(emit).toHaveBeenCalledWith(
+      "deepsearch.verify.completed",
+      expect.objectContaining({ factId: "fact-fast", discoveryStatus: "contradicted", taskStatus: "completed" })
+    );
   });
 
   it("marks failure when async task promise rejects", async () => {
@@ -443,6 +678,16 @@ ${JSON.stringify({
     );
   });
 
+  it("does not pollute Object.prototype for reserved factId (security boundary)", async () => {
+    const { handler } = await import(handlerPath);
+
+    await handler({ factId: "__proto__", contradiction: "c" }, createContext());
+
+    // Ensure prototype is not polluted by defensive checks.
+    expect({}.polluted).toBeUndefined();
+    expect(Object.prototype.polluted).toBeUndefined();
+  });
+
   it("falls back to discoveryManager evidences when sharedContext is empty", async () => {
     const { handler } = await import(handlerPath);
     const discoveryManager = createDiscoveryManager({
@@ -457,6 +702,32 @@ ${JSON.stringify({
     const taskArgs = hoisted.taskHandler.mock.calls[0][0];
     expect(taskArgs.prompt).toContain("[dm1]");
     expect(taskArgs.prompt).toContain("dm-snippet");
+  });
+
+  it("uses discoveryManager evidences when sharedContext evidence is filtered out by requested sources", async () => {
+    const { handler } = await import(handlerPath);
+    const sharedContext = createSharedContext({
+      evidence: [
+        {
+          id: "ev-ignore",
+          factId: "fact-filter-fallback",
+          detail: { sourceId: "other", snippet: "ignored" },
+        },
+      ],
+    });
+    const discoveryManager = createDiscoveryManager({
+      getEvidences: vi.fn(() => [{ sourceId: "wanted", snippet: "used" }]),
+    });
+
+    await handler(
+      { factId: "fact-filter-fallback", contradiction: "c", sourceIds: ["wanted"] },
+      createContext({ sharedContext, discoveryManager })
+    );
+
+    const taskArgs = hoisted.taskHandler.mock.calls[0][0];
+    expect(taskArgs.prompt).toContain("[wanted]");
+    expect(taskArgs.prompt).toContain("used");
+    expect(taskArgs.prompt).not.toContain("ignored");
   });
 
   it("returns running response for simultaneous calls when already running", async () => {

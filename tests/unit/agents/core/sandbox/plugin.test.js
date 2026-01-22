@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const pluginMock = vi.hoisted(() => ({
   createPlugin: vi.fn((config) => config),
@@ -64,7 +64,15 @@ function createContext(configOverrides = {}) {
 
 function getRegisteredService(ctx) {
   expect(ctx.registerService).toHaveBeenCalledTimes(1);
-  return ctx.registerService.mock.calls[0][1];
+  const [name, service] = ctx.registerService.mock.calls[0];
+  expect(name).toBe('sandbox');
+  expect(service).toMatchObject({
+    execute: expect.any(Function),
+    executeSkill: expect.any(Function),
+    getStats: expect.any(Function),
+    clear: expect.any(Function),
+  });
+  return service;
 }
 
 async function setupService(configOverrides = {}) {
@@ -85,10 +93,6 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   sandboxPoolMock.instances.length = 0;
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
 });
 
 describe('createSandboxPlugin', () => {
@@ -152,6 +156,16 @@ describe('createSandboxPlugin', () => {
       defaultCapabilities: ['cap'],
       defaultLimits: { memoryLimit: Number.MAX_SAFE_INTEGER },
     });
+  });
+
+  it('propagates errors from createPlugin', async () => {
+    const { createSandboxPlugin } = await loadSandboxPluginModule();
+    pluginMock.createPlugin.mockClear();
+    pluginMock.createPlugin.mockImplementationOnce(() => {
+      throw new Error('createPlugin failed');
+    });
+
+    expect(() => createSandboxPlugin()).toThrow('createPlugin failed');
   });
 
   it('treats null options as empty input', async () => {
@@ -258,18 +272,25 @@ describe('createSandboxPlugin', () => {
       context: [],
     });
 
-    expect(pool.withSandbox).toHaveBeenCalledTimes(2);
+    await service.execute(undefined, undefined);
+
+    expect(pool.withSandbox).toHaveBeenCalledTimes(3);
     expect(sandbox.execute).toHaveBeenNthCalledWith(1, '', {});
     expect(sandbox.execute).toHaveBeenNthCalledWith(2, '   ', []);
+    expect(sandbox.execute).toHaveBeenNthCalledWith(3, undefined, undefined);
 
     const firstOptions = pool.withSandbox.mock.calls[0][0];
     const secondOptions = pool.withSandbox.mock.calls[1][0];
+    const thirdOptions = pool.withSandbox.mock.calls[2][0];
     expect(firstOptions.capabilities).toEqual([]);
     expect(firstOptions.limits).toEqual({});
     expect(firstOptions.state).toBeNull();
     expect(secondOptions.capabilities).toEqual({ not: 'array' });
     expect(secondOptions.limits).toEqual([]);
     expect(secondOptions.state).toBeUndefined();
+    expect(thirdOptions.capabilities).toBeUndefined();
+    expect(thirdOptions.limits).toBeUndefined();
+    expect(thirdOptions.state).toBeUndefined();
   });
 
   it('handles large payloads and deep nested state in execute', async () => {
@@ -314,6 +335,19 @@ describe('createSandboxPlugin', () => {
     pool.withSandbox.mockRejectedValue(new Error('boom'));
 
     await expect(service.execute('return 3')).rejects.toThrow('boom');
+  });
+
+  it('propagates sandbox execution errors', async () => {
+    const { pool, service } = await setupService();
+
+    const sandbox = {
+      execute: vi.fn().mockRejectedValue(new Error('sandbox-fail')),
+      executeAsync: vi.fn(),
+    };
+
+    pool.withSandbox.mockImplementation(async (options, cb) => cb(sandbox));
+
+    await expect(service.execute('return 3')).rejects.toThrow('sandbox-fail');
   });
 
   it('rejects when execOptions is null', async () => {
@@ -419,6 +453,12 @@ describe('createSandboxPlugin', () => {
       context: undefined,
       async: true,
     });
+  });
+
+  it('rejects when executeSkill context is null', async () => {
+    const { service } = await setupService();
+
+    await expect(service.executeSkill('return 7', null)).rejects.toThrow(TypeError);
   });
 
   it('exposes getStats and clear from the pool', async () => {

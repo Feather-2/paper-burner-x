@@ -1,34 +1,88 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../../../js/agents/core/crdt/lww-register.js', () => {
-  class LWWRegisterMock {}
+  class LWWRegisterMock {
+    constructor(...args) {
+      if (args[0] === '__throw__') {
+        throw new Error('LWWRegisterMock constructor error');
+      }
+      this.args = args;
+    }
+  }
   return { LWWRegister: LWWRegisterMock };
 });
 
 vi.mock('../../../../../js/agents/core/crdt/counters.js', () => {
-  class GCounterMock {}
-  class PNCounterMock {}
+  class GCounterMock {
+    constructor(...args) {
+      if (args[0] === '__throw__') {
+        throw new Error('GCounterMock constructor error');
+      }
+      this.args = args;
+    }
+  }
+  class PNCounterMock {
+    constructor(...args) {
+      if (args[0] === '__throw__') {
+        throw new Error('PNCounterMock constructor error');
+      }
+      this.args = args;
+    }
+  }
   return { GCounter: GCounterMock, PNCounter: PNCounterMock };
 });
 
 vi.mock('../../../../../js/agents/core/crdt/lww-map.js', () => {
-  class LWWMapMock {}
+  class LWWMapMock {
+    constructor(...args) {
+      if (args[0] === '__throw__') {
+        throw new Error('LWWMapMock constructor error');
+      }
+      this.args = args;
+    }
+  }
   return { LWWMap: LWWMapMock };
 });
 
 vi.mock('../../../../../js/agents/core/crdt/or-set.js', () => {
-  class ORSetMock {}
+  class ORSetMock {
+    constructor(...args) {
+      if (args[0] === '__throw__') {
+        throw new Error('ORSetMock constructor error');
+      }
+      this.args = args;
+    }
+  }
   return { ORSet: ORSetMock };
 });
 
 vi.mock('../../../../../js/agents/core/crdt/document.js', () => {
-  class CRDTDocumentMock {}
+  class CRDTDocumentMock {
+    constructor(...args) {
+      if (args[0] === '__throw__') {
+        throw new Error('CRDTDocumentMock constructor error');
+      }
+      this.args = args;
+    }
+  }
   return { CRDTDocument: CRDTDocumentMock };
 });
 
 vi.mock('../../../../../js/agents/core/crdt/sync-manager.js', () => {
-  class CRDTSyncManagerMock {}
-  const createMemoryTransport = vi.fn(() => ({ type: 'memory' }));
+  class CRDTSyncManagerMock {
+    constructor(...args) {
+      if (args[0] === '__throw__') {
+        throw new Error('CRDTSyncManagerMock constructor error');
+      }
+      this.args = args;
+    }
+  }
+  const createMemoryTransport = vi.fn((...args) => {
+    if (args[0] === '__throw__') {
+      throw new Error('createMemoryTransportMock error');
+    }
+    return { type: 'memory', args };
+  });
   return { CRDTSyncManager: CRDTSyncManagerMock, createMemoryTransport };
 });
 
@@ -43,6 +97,8 @@ let syncManagerModule;
 beforeEach(async () => {
   vi.resetModules();
   vi.restoreAllMocks();
+  vi.clearAllMocks();
+  vi.useRealTimers();
 
   [
     lwwRegisterModule,
@@ -73,6 +129,23 @@ describe('OpType', () => {
       ADD: 'add',
       REMOVE: 'remove',
     });
+  });
+
+  it('handles unknown keys without throwing (error handling)', () => {
+    expect(crdtIndex.OpType.UNKNOWN).toBeUndefined();
+    expect(crdtIndex.OpType['']).toBeUndefined();
+    expect(crdtIndex.OpType['   ']).toBeUndefined();
+    expect(crdtIndex.OpType[/** @type {any} */ (null)]).toBeUndefined();
+    expect(crdtIndex.OpType[/** @type {any} */ (undefined)]).toBeUndefined();
+  });
+
+  it('exposes only non-empty string values (boundary)', () => {
+    const values = Object.values(crdtIndex.OpType);
+    expect(values.length).toBeGreaterThan(0);
+    for (const value of values) {
+      expect(typeof value).toBe('string');
+      expect(value.length).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -143,6 +216,14 @@ describe('createOp', () => {
     expect(op.nodeId).toBe('nodeB');
   });
 
+  it('preserves numeric strings when values are expected to be numbers (type boundary)', () => {
+    const clock = { seq: 5, ts: 5, id: 'nodeD_1' };
+    const op = crdtIndex.createOp('increment', 'count', '1', clock);
+
+    expect(op.value).toBe('1');
+    expect(op.nodeId).toBe('nodeD');
+  });
+
   it('supports large payloads and deep nesting', () => {
     const largeString = 'x'.repeat(100000);
     const largeArray = new Array(50000).fill('data');
@@ -161,6 +242,18 @@ describe('createOp', () => {
     expect(op.value).toBe(value);
     expect(op.value.largeArray).toBe(largeArray);
     expect(op.value.deepObject).toBe(deepObject);
+  });
+
+  it('accepts empty object/array clocks and keeps references (boundary)', () => {
+    const emptyObjectClock = {};
+    const opObjectClock = crdtIndex.createOp('set', 'k', 'v', emptyObjectClock);
+    expect(opObjectClock.clock).toBe(emptyObjectClock);
+    expect(opObjectClock.nodeId).toBe('unknown');
+
+    const emptyArrayClock = [];
+    const opArrayClock = crdtIndex.createOp('set', 'k', 'v', emptyArrayClock);
+    expect(opArrayClock.clock).toBe(emptyArrayClock);
+    expect(opArrayClock.nodeId).toBe('unknown');
   });
 
   it('creates independent default clocks for rapid consecutive calls', () => {
@@ -210,11 +303,59 @@ describe('LWWRegister', () => {
   it('re-exports LWWRegister from the lww-register module', () => {
     expect(crdtIndex.LWWRegister).toBe(lwwRegisterModule.LWWRegister);
   });
+
+  it('constructs with boundary inputs (boundary)', () => {
+    const emptyArray = [];
+    const emptyObject = {};
+    const longString = 'x'.repeat(10000);
+    const deepObject = { a: { b: { c: { d: { e: [] } } } } };
+
+    const instance = new crdtIndex.LWWRegister(
+      null,
+      undefined,
+      '',
+      '   ',
+      emptyArray,
+      emptyObject,
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      longString,
+      deepObject,
+    );
+
+    expect(instance).toBeInstanceOf(crdtIndex.LWWRegister);
+    expect(instance.args[0]).toBeNull();
+    expect(instance.args[1]).toBeUndefined();
+    expect(instance.args[2]).toBe('');
+    expect(instance.args[3]).toBe('   ');
+    expect(instance.args[4]).toBe(emptyArray);
+    expect(instance.args[5]).toBe(emptyObject);
+    expect(instance.args[6]).toBe(0);
+    expect(instance.args[7]).toBe(-1);
+    expect(instance.args[8]).toBe(Number.MAX_SAFE_INTEGER);
+    expect(instance.args[9]).toBe(longString);
+    expect(instance.args[10]).toBe(deepObject);
+  });
+
+  it('propagates constructor errors (error handling)', () => {
+    expect(() => new crdtIndex.LWWRegister('__throw__')).toThrow('LWWRegisterMock constructor error');
+  });
 });
 
 describe('GCounter', () => {
   it('re-exports GCounter from the counters module', () => {
     expect(crdtIndex.GCounter).toBe(countersModule.GCounter);
+  });
+
+  it('constructs with boundary inputs (boundary)', () => {
+    const instance = new crdtIndex.GCounter(null, undefined, '', [], {}, 0, -1, Number.MAX_SAFE_INTEGER, '   ');
+    expect(instance).toBeInstanceOf(crdtIndex.GCounter);
+    expect(instance.args[0]).toBeNull();
+  });
+
+  it('propagates constructor errors (error handling)', () => {
+    expect(() => new crdtIndex.GCounter('__throw__')).toThrow('GCounterMock constructor error');
   });
 });
 
@@ -222,11 +363,31 @@ describe('PNCounter', () => {
   it('re-exports PNCounter from the counters module', () => {
     expect(crdtIndex.PNCounter).toBe(countersModule.PNCounter);
   });
+
+  it('constructs with boundary inputs (boundary)', () => {
+    const instance = new crdtIndex.PNCounter(undefined, [], {}, 'x'.repeat(10000));
+    expect(instance).toBeInstanceOf(crdtIndex.PNCounter);
+    expect(instance.args[0]).toBeUndefined();
+  });
+
+  it('propagates constructor errors (error handling)', () => {
+    expect(() => new crdtIndex.PNCounter('__throw__')).toThrow('PNCounterMock constructor error');
+  });
 });
 
 describe('LWWMap', () => {
   it('re-exports LWWMap from the lww-map module', () => {
     expect(crdtIndex.LWWMap).toBe(lwwMapModule.LWWMap);
+  });
+
+  it('constructs with boundary inputs (boundary)', () => {
+    const instance = new crdtIndex.LWWMap('', '   ', [], {}, 0, -1, Number.MAX_SAFE_INTEGER);
+    expect(instance).toBeInstanceOf(crdtIndex.LWWMap);
+    expect(instance.args[0]).toBe('');
+  });
+
+  it('propagates constructor errors (error handling)', () => {
+    expect(() => new crdtIndex.LWWMap('__throw__')).toThrow('LWWMapMock constructor error');
   });
 });
 
@@ -234,11 +395,34 @@ describe('ORSet', () => {
   it('re-exports ORSet from the or-set module', () => {
     expect(crdtIndex.ORSet).toBe(orSetModule.ORSet);
   });
+
+  it('constructs with boundary inputs (boundary)', () => {
+    const deep = { a: { b: { c: { d: { e: [] } } } } };
+    const instance = new crdtIndex.ORSet(null, deep);
+    expect(instance).toBeInstanceOf(crdtIndex.ORSet);
+    expect(instance.args[0]).toBeNull();
+    expect(instance.args[1]).toBe(deep);
+  });
+
+  it('propagates constructor errors (error handling)', () => {
+    expect(() => new crdtIndex.ORSet('__throw__')).toThrow('ORSetMock constructor error');
+  });
 });
 
 describe('CRDTDocument', () => {
   it('re-exports CRDTDocument from the document module', () => {
     expect(crdtIndex.CRDTDocument).toBe(documentModule.CRDTDocument);
+  });
+
+  it('constructs with boundary inputs (boundary)', () => {
+    const largeString = 'x'.repeat(100000);
+    const instance = new crdtIndex.CRDTDocument(largeString, [], {});
+    expect(instance).toBeInstanceOf(crdtIndex.CRDTDocument);
+    expect(instance.args[0]).toBe(largeString);
+  });
+
+  it('propagates constructor errors (error handling)', () => {
+    expect(() => new crdtIndex.CRDTDocument('__throw__')).toThrow('CRDTDocumentMock constructor error');
   });
 });
 
@@ -246,11 +430,35 @@ describe('CRDTSyncManager', () => {
   it('re-exports CRDTSyncManager from the sync-manager module', () => {
     expect(crdtIndex.CRDTSyncManager).toBe(syncManagerModule.CRDTSyncManager);
   });
+
+  it('constructs with boundary inputs (boundary)', () => {
+    const instance = new crdtIndex.CRDTSyncManager({ nodeId: '   ' });
+    expect(instance).toBeInstanceOf(crdtIndex.CRDTSyncManager);
+    expect(instance.args[0]).toEqual({ nodeId: '   ' });
+  });
+
+  it('propagates constructor errors (error handling)', () => {
+    expect(() => new crdtIndex.CRDTSyncManager('__throw__')).toThrow(
+      'CRDTSyncManagerMock constructor error',
+    );
+  });
 });
 
 describe('createMemoryTransport', () => {
   it('re-exports createMemoryTransport from the sync-manager module', () => {
     expect(crdtIndex.createMemoryTransport).toBe(syncManagerModule.createMemoryTransport);
+  });
+
+  it('passes through boundary arguments and returns transport (boundary)', () => {
+    const emptyObject = {};
+    const transport = crdtIndex.createMemoryTransport(null, undefined, '', [], emptyObject, '   ');
+
+    expect(transport).toEqual({ type: 'memory', args: [null, undefined, '', [], emptyObject, '   '] });
+    expect(syncManagerModule.createMemoryTransport).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates errors from the underlying transport factory (error handling)', () => {
+    expect(() => crdtIndex.createMemoryTransport('__throw__')).toThrow('createMemoryTransportMock error');
   });
 });
 
@@ -258,5 +466,16 @@ describe('default', () => {
   it('exposes OpType and createOp on the default export', () => {
     expect(crdtIndex.default.OpType).toBe(crdtIndex.OpType);
     expect(crdtIndex.default.createOp).toBe(crdtIndex.createOp);
+  });
+
+  it('handles unknown properties without throwing (boundary)', () => {
+    expect(crdtIndex.default.NOPE).toBeUndefined();
+    expect(crdtIndex.default['']).toBeUndefined();
+    expect(crdtIndex.default['   ']).toBeUndefined();
+  });
+
+  it('surfaces createOp errors via default export (error handling)', () => {
+    const badClock = { seq: 1, ts: 1, id: 123 };
+    expect(() => crdtIndex.default.createOp('set', 'k', 'v', badClock)).toThrow(TypeError);
   });
 });

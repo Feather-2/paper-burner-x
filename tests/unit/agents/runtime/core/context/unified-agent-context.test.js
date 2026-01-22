@@ -61,6 +61,16 @@ describe("UnifiedAgentContext", () => {
     const dateSpy = vi.spyOn(Date, "now").mockReturnValue(12345);
     const ctxEmpty = new UnifiedAgentContext({ runId: "   " });
     expect(ctxEmpty.runId).toBe("ctx_12345");
+    expect(ctxEmpty.eventBus).toBeNull();
+
+    const ctxNull = new UnifiedAgentContext({ runId: null });
+    expect(ctxNull.runId).toBe("ctx_12345");
+
+    const ctxUndefined = new UnifiedAgentContext({ runId: undefined });
+    expect(ctxUndefined.runId).toBe("ctx_12345");
+
+    const ctxZero = new UnifiedAgentContext({ runId: 0 });
+    expect(ctxZero.runId).toBe("0");
     dateSpy.mockRestore();
   });
 
@@ -78,6 +88,28 @@ describe("UnifiedAgentContext", () => {
     expect(ctx._state).toBe(state);
     expect(ctx._memory).toBe(memory);
     expect(ctx._sharedContext).toBe(sharedContext);
+  });
+
+  it("bind skips state.bindMemoryStore when memory is absent", () => {
+    const state = { bindMemoryStore: vi.fn() };
+    const ctx = new UnifiedAgentContext({ state });
+
+    const result = ctx.bind({});
+
+    expect(result).toEqual({ success: true, errors: [] });
+    expect(state.bindMemoryStore).not.toHaveBeenCalled();
+  });
+
+  it("bind skips memory.bind when sharedContext is absent", () => {
+    const state = { bindMemoryStore: vi.fn() };
+    const memory = { bind: vi.fn() };
+    const ctx = new UnifiedAgentContext({ state, memory });
+
+    const result = ctx.bind({});
+
+    expect(result).toEqual({ success: true, errors: [] });
+    expect(state.bindMemoryStore).toHaveBeenCalledWith(memory);
+    expect(memory.bind).not.toHaveBeenCalled();
   });
 
   it("bind captures errors and logs warnings", () => {
@@ -116,6 +148,15 @@ describe("UnifiedAgentContext", () => {
     expect(ctx.taskGoal).toBe("state-goal");
   });
 
+  it("taskGoal returns empty string when memory/state are nullish or whitespace, and does not write", () => {
+    const state = { taskGoal: "   " };
+    const memory = { L0: { taskGoal: null }, setTaskGoal: vi.fn() };
+    const ctx = new UnifiedAgentContext({ state, memory });
+
+    expect(ctx.taskGoal).toBe("");
+    expect(memory.setTaskGoal).not.toHaveBeenCalled();
+  });
+
   it("setTaskGoal normalizes input and writes to state and memory", () => {
     const state = {};
     const memory = { setTaskGoal: vi.fn() };
@@ -151,6 +192,14 @@ describe("UnifiedAgentContext", () => {
     expect(ctx.todos).toBe(state.todos);
   });
 
+  it("todos returns empty array when both memory and state todos are invalid", () => {
+    const memory = { L0: { todos: null } };
+    const state = { todos: { not: "array" } };
+    const ctx = new UnifiedAgentContext({ state, memory });
+
+    expect(ctx.todos).toEqual([]);
+  });
+
   it("addTodo prefers state implementation", () => {
     const state = { addTodo: vi.fn().mockReturnValue({ from: "state" }) };
     const memory = { addTodo: vi.fn().mockReturnValue({ from: "memory" }) };
@@ -161,6 +210,17 @@ describe("UnifiedAgentContext", () => {
     expect(result).toEqual({ from: "state" });
     expect(state.addTodo).toHaveBeenCalledTimes(1);
     expect(memory.addTodo).not.toHaveBeenCalled();
+  });
+
+  it("addTodo falls back to memory and returns null when unavailable", () => {
+    const memory = { addTodo: vi.fn().mockReturnValue({ from: "memory" }) };
+    const ctxWithMemory = new UnifiedAgentContext({ memory });
+
+    expect(ctxWithMemory.addTodo({ id: "t2" })).toEqual({ from: "memory" });
+    expect(memory.addTodo).toHaveBeenCalledWith({ id: "t2" });
+
+    const ctxNoStores = new UnifiedAgentContext();
+    expect(ctxNoStores.addTodo({ id: "t3" })).toBeNull();
   });
 
   it("updateTodo avoids double updates when todos are shared", () => {
@@ -180,6 +240,34 @@ describe("UnifiedAgentContext", () => {
     expect(result).toEqual({ from: "state" });
     expect(state.updateTodo).toHaveBeenCalledWith("id-1", { done: true });
     expect(memory.updateTodo).not.toHaveBeenCalled();
+  });
+
+  it("updateTodo returns state result when memory is missing", () => {
+    const state = {
+      todos: [],
+      updateTodo: vi.fn().mockReturnValue({ from: "state" }),
+    };
+    const ctx = new UnifiedAgentContext({ state });
+
+    const result = ctx.updateTodo("id-only-state", { done: true });
+
+    expect(result).toEqual({ from: "state" });
+    expect(state.updateTodo).toHaveBeenCalledWith("id-only-state", { done: true });
+  });
+
+  it("updateTodo uses memory when state lacks implementation even if todos are shared", () => {
+    const sharedTodos = [];
+    const state = { todos: sharedTodos };
+    const memory = {
+      L0: { todos: sharedTodos },
+      updateTodo: vi.fn().mockReturnValue({ from: "memory" }),
+    };
+    const ctx = new UnifiedAgentContext({ state, memory });
+
+    const result = ctx.updateTodo(0, "updates");
+
+    expect(result).toEqual({ from: "memory" });
+    expect(memory.updateTodo).toHaveBeenCalledWith(0, "updates");
   });
 
   it("updateTodo calls both when not shared and returns memory result", () => {
@@ -222,6 +310,20 @@ describe("UnifiedAgentContext", () => {
     expect(ctxNoMemory.messages).toEqual([]);
   });
 
+  it("addMessage forwards nullish messages and is a no-op without memory", () => {
+    const memory = { addMessage: vi.fn() };
+    const ctx = new UnifiedAgentContext({ memory });
+
+    ctx.addMessage(null);
+    ctx.addMessage(undefined);
+
+    expect(memory.addMessage).toHaveBeenCalledTimes(2);
+    expect(memory.addMessage).toHaveBeenNthCalledWith(1, null);
+    expect(memory.addMessage).toHaveBeenNthCalledWith(2, undefined);
+
+    expect(() => new UnifiedAgentContext().addMessage({ id: 1 })).not.toThrow();
+  });
+
   it("addMessage handles rapid consecutive calls", async () => {
     const memory = { addMessage: vi.fn() };
     const ctx = new UnifiedAgentContext({ memory });
@@ -244,6 +346,11 @@ describe("UnifiedAgentContext", () => {
     expect(ctxStateOnly.claims).toBe(state.L1.claims);
   });
 
+  it("claims returns empty array when both sources are missing", () => {
+    const ctx = new UnifiedAgentContext();
+    expect(ctx.claims).toEqual([]);
+  });
+
   it("addClaim warns on invalid input", () => {
     const ctx = new UnifiedAgentContext();
 
@@ -251,6 +358,27 @@ describe("UnifiedAgentContext", () => {
     ctx.addClaim(123);
 
     expect(warnSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("addClaim maps claim.content when text is missing", () => {
+    const memory = { addClaim: vi.fn() };
+    const sharedContext = { addFinding: vi.fn() };
+    const ctx = new UnifiedAgentContext({ memory, sharedContext });
+
+    ctx.addClaim({ content: "content-only", source: "source-b" });
+
+    expect(memory.addClaim).toHaveBeenCalledWith({
+      content: "content-only",
+      source: "source-b",
+      confidence: undefined,
+      verified: undefined,
+    });
+    expect(sharedContext.addFinding).toHaveBeenCalledWith({
+      type: "claim",
+      content: "content-only",
+      source: "source-b",
+      confidence: undefined,
+    });
   });
 
   it("addClaim records to state, memory, and sharedContext", () => {
@@ -348,6 +476,9 @@ describe("UnifiedAgentContext", () => {
     ctxWithMemory.clearScratchpad();
     expect(memory.setScratchpad).toHaveBeenCalledWith("k", "v");
     expect(memory.clearScratchpad).toHaveBeenCalledTimes(1);
+
+    memory.getScratchpad.mockReturnValueOnce(null);
+    expect(ctxWithMemory.scratchpad).toEqual({});
   });
 
   it("feedbackFlags uses memory getFlags or defaults", () => {
@@ -357,6 +488,12 @@ describe("UnifiedAgentContext", () => {
 
     expect(ctxWithMemory.feedbackFlags).toEqual({ a: true });
     expect(ctxNoMemory.feedbackFlags).toEqual({
+      awaitUserFeedback: false,
+      taskImpossible: false,
+    });
+
+    const ctxNullFlags = new UnifiedAgentContext({ memory: { getFlags: vi.fn().mockReturnValue(null) } });
+    expect(ctxNullFlags.feedbackFlags).toEqual({
       awaitUserFeedback: false,
       taskImpossible: false,
     });
@@ -399,6 +536,9 @@ describe("UnifiedAgentContext", () => {
   });
 
   it("iteration getter/setter supports boundary values", () => {
+    const ctxNoState = new UnifiedAgentContext();
+    expect(ctxNoState.iteration).toBe(0);
+
     const state = { iteration: 1 };
     const ctx = new UnifiedAgentContext({ state });
 
@@ -415,6 +555,42 @@ describe("UnifiedAgentContext", () => {
 
     ctx.iteration = "3";
     expect(state.iteration).toBe("3");
+  });
+
+  it("saveCheckpoint uses raw state checkpoint when saveCheckpoint returns state directly", async () => {
+    let savedArgs;
+    const state = {
+      saveCheckpoint: vi.fn((args) => {
+        savedArgs = args;
+        return { ok: true };
+      }),
+    };
+    const ctx = new UnifiedAgentContext({ runId: "run-raw", state });
+
+    const checkpoint = await ctx.saveCheckpoint({ strategy: "raw" });
+
+    expect(state.saveCheckpoint).toHaveBeenCalledTimes(1);
+    expect(Number.isNaN(Date.parse(savedArgs.timestamp))).toBe(false);
+    expect(savedArgs.strategy).toBe("raw");
+    expect(savedArgs.record).toBe(false);
+    expect(checkpoint.runId).toBe("run-raw");
+    expect(checkpoint.state).toEqual({ ok: true });
+    expect(checkpoint.memory).toBeNull();
+  });
+
+  it("saveCheckpoint falls back to state.toSnapshot when stateSnapshot is null", async () => {
+    const state = {
+      saveCheckpoint: vi.fn(() => ({ stateSnapshot: null })),
+      toSnapshot: vi.fn().mockReturnValue({ snap: true }),
+    };
+    const ctx = new UnifiedAgentContext({ state });
+
+    const checkpoint = await ctx.saveCheckpoint();
+
+    expect(state.saveCheckpoint).toHaveBeenCalledTimes(1);
+    expect(state.toSnapshot).toHaveBeenCalledWith({ includeCheckpoints: false });
+    expect(checkpoint.state).toEqual({ snap: true });
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it("saveCheckpoint uses state.saveCheckpoint and memory.toSnapshot", async () => {
@@ -453,9 +629,14 @@ describe("UnifiedAgentContext", () => {
   });
 
   it("saveCheckpoint falls back to state and legacy memory snapshot on errors", async () => {
-    const largeText = "x".repeat(10000);
-    const deepNested = { a: { b: { c: { d: { e: "ok" } } } } };
-    const scratchpadNested = { layer1: { layer2: { layer3: "deep" } } };
+    const largeText = "x".repeat(1024 * 1024);
+    const deepNested = {};
+    let cursor = deepNested;
+    for (let i = 0; i < 32; i += 1) {
+      cursor.child = { index: i };
+      cursor = cursor.child;
+    }
+    const scratchpadNested = { layer1: { layer2: { layer3: { layer4: "deep" } } } };
 
     const state = {
       name: "state",
@@ -477,6 +658,9 @@ describe("UnifiedAgentContext", () => {
       },
       L2: { claims: [{ id: "c" }] },
     });
+    memory.L1.syncTable.discoveries.set("disc-1", { id: 1 });
+    memory.L1.syncTable.subagents.set("sub-1", { id: 2 });
+    memory.L2.stageSummaries.set("stage-1", { summary: "ok" });
 
     const ctx = new UnifiedAgentContext({ runId: "run-legacy", state, memory });
     const checkpoint = await ctx.saveCheckpoint();
@@ -488,14 +672,22 @@ describe("UnifiedAgentContext", () => {
     expect(checkpoint.memory.L0.fileContent).toBe(largeText);
     expect(checkpoint.memory.L0.nested).toEqual(deepNested);
     expect(checkpoint.memory.L0).not.toBe(memory.L0);
+    expect(checkpoint.memory.L1.messages).not.toBe(memory.L1.messages);
+    expect(checkpoint.memory.L1.decisions).not.toBe(memory.L1.decisions);
+    expect(checkpoint.memory.L1.signals).not.toBe(memory.L1.signals);
+    expect(checkpoint.memory.L1.syncTable).toEqual({
+      discoveries: [["disc-1", { id: 1 }]],
+      subagents: [["sub-1", { id: 2 }]],
+    });
     expect(checkpoint.memory.L1.scratchpad).toEqual(scratchpadNested);
     expect(checkpoint.memory.L1.scratchpad).not.toBe(memory.L1.scratchpad);
+    expect(checkpoint.memory.L2.stageSummaries).toEqual([["stage-1", { summary: "ok" }]]);
   });
 
-  it("restoreCheckpoint returns false on empty input", async () => {
+  it("restoreCheckpoint returns false on nullish input", async () => {
     const ctx = new UnifiedAgentContext();
-    const result = await ctx.restoreCheckpoint(null);
-    expect(result).toBe(false);
+    expect(await ctx.restoreCheckpoint(null)).toBe(false);
+    expect(await ctx.restoreCheckpoint(undefined)).toBe(false);
   });
 
   it("restoreCheckpoint delegates to state, memory, and sharedContext", async () => {
@@ -515,6 +707,25 @@ describe("UnifiedAgentContext", () => {
     expect(result).toBe(true);
     expect(state.fromSnapshot).toHaveBeenCalledWith({ s: 1 });
     expect(memory.fromSnapshot).toHaveBeenCalledWith({ m: 1 });
+    expect(sharedContext.deserialize).toHaveBeenCalledWith({ sc: 1 });
+  });
+
+  it("restoreCheckpoint tolerates missing memory.fromSnapshot", async () => {
+    const state = { fromSnapshot: vi.fn() };
+    const memory = {};
+    const sharedContext = { deserialize: vi.fn() };
+    const ctx = new UnifiedAgentContext({ state, memory, sharedContext });
+
+    const checkpoint = {
+      state: { s: 1 },
+      memory: { m: 1 },
+      sharedContext: { sc: 1 },
+    };
+
+    const result = await ctx.restoreCheckpoint(checkpoint);
+
+    expect(result).toBe(true);
+    expect(state.fromSnapshot).toHaveBeenCalledWith({ s: 1 });
     expect(sharedContext.deserialize).toHaveBeenCalledWith({ sc: 1 });
   });
 

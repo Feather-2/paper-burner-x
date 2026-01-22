@@ -567,4 +567,12 @@ describe('getShortestCooldown', () => {
 
     expect(result).toEqual({ modelId: 'm1', remainingMs: 300 });
   });
+
+  it('throws when candidates is a non-iterable object (type boundary)', () => {
+    const healthMap = new Map([['m1', { unhealthyUntilMs: 1300 }]]);
+    const time = makeTime(1000);
+    const candidates = { 0: 'm1', length: 1 };
+
+    expect(() => getShortestCooldown({ healthMap, time, candidates })).toThrow(TypeError);
+  });
 });

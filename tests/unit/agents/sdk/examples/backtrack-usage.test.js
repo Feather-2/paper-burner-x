@@ -1,26 +1,53 @@
-// Adds unit tests for backtrack-usage, covering happy path, edge cases, concurrency, and errors.
-// Mocks sdk index to isolate agent construction and validate logging/archive interactions.
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockedSdk = vi.hoisted(() => {
-  const logger = { error: vi.fn() };
-  const builder = {
-    useCicada: vi.fn(() => builder),
-    useBacktrack: vi.fn(() => builder),
-    build: vi.fn(),
-  };
-  const createAgent = vi.fn(() => builder);
-  const createLogger = vi.fn(() => logger);
-  const setAgent = (agent) => {
-    builder.build.mockImplementation(() => agent);
-  };
+  let nextAgent = null;
+  let lastCreateAgentOptions = null;
+  let lastUseCicadaOptions = null;
+  let lastUseBacktrackOptions = null;
+
+  const createAgent = vi.fn((options) => {
+    lastCreateAgentOptions = options;
+
+    const builder = {
+      useCicada: vi.fn((opts) => {
+        lastUseCicadaOptions = opts;
+        return builder;
+      }),
+      useBacktrack: vi.fn((opts) => {
+        lastUseBacktrackOptions = opts;
+        return builder;
+      }),
+      build: vi.fn(() => nextAgent),
+    };
+
+    return builder;
+  });
+
+  const createLogger = vi.fn(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  }));
 
   return {
-    logger,
-    builder,
     createAgent,
     createLogger,
-    setAgent,
+    setNextAgent: (agent) => {
+      nextAgent = agent;
+    },
+    getLastCreateAgentOptions: () => lastCreateAgentOptions,
+    getLastUseCicadaOptions: () => lastUseCicadaOptions,
+    getLastUseBacktrackOptions: () => lastUseBacktrackOptions,
+    reset: () => {
+      nextAgent = null;
+      lastCreateAgentOptions = null;
+      lastUseCicadaOptions = null;
+      lastUseBacktrackOptions = null;
+      createAgent.mockClear();
+      createLogger.mockClear();
+    },
   };
 });
 
@@ -31,68 +58,59 @@ vi.mock("../../../../../js/agents/sdk/index.js", () => ({
 
 const MODULE_PATH = "../../../../../js/agents/sdk/examples/backtrack-usage.js";
 
-async function loadModule() {
-  return await import(MODULE_PATH);
-}
-
-function createMockAgent(overrides = {}) {
-  const defaultToolExecutor = vi.fn(async (name) => {
-    if (name === "Backtrack") {
-      return {
-        backtrack: {
-          checkpointId: "step_1_start",
-          state: { location: "起点" },
-          hint: "forest",
-        },
-      };
-    }
-    if (name === "Recall") {
-      return { data: [] };
-    }
-    return {};
-  });
-
-  return {
-    memory: overrides.memory ?? { archive: vi.fn(async () => {}) },
-    backtrack: overrides.backtrack ?? { remaining: 3 },
-    toolExecutor: overrides.toolExecutor ?? defaultToolExecutor,
-    getSkillCatalogPrompt: overrides.getSkillCatalogPrompt ?? vi.fn(() => "catalog"),
-    ...overrides,
+const buildAgent = (overrides = {}) => {
+  const base = {
+    getSkillCatalogPrompt: vi.fn(() => "catalog"),
+    memory: { archive: vi.fn(async () => {}) },
+    backtrack: { remaining: 3 },
+    toolExecutor: vi.fn(async (toolName) => {
+      if (toolName === "Backtrack") {
+        return {
+          backtrack: { checkpointId: "step_1_start", state: { location: "起点" }, hint: "hint" },
+        };
+      }
+      if (toolName === "Recall") return { data: [] };
+      return {};
+    }),
   };
-}
 
-async function setup(agentOverrides = {}) {
-  const agent = createMockAgent(agentOverrides);
-  mockedSdk.setAgent(agent);
-  const mod = await loadModule();
-  return { agent, mod };
-}
+  const memory = { ...base.memory, ...(overrides.memory || {}) };
+  const backtrack = { ...base.backtrack, ...(overrides.backtrack || {}) };
+  return { ...base, ...overrides, memory, backtrack };
+};
 
-let consoleSpy;
+const loadModuleWithAgent = async (agentOverrides = {}) => {
+  const agent = buildAgent(agentOverrides);
+  mockedSdk.setNextAgent(agent);
+  const mod = await import(MODULE_PATH);
+  return { mod, agent, moduleAgent: mod.agent };
+};
 
 beforeEach(() => {
   vi.resetModules();
-  vi.clearAllMocks();
-  consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-});
-
-afterEach(() => {
-  consoleSpy?.mockRestore();
+  vi.restoreAllMocks();
+  mockedSdk.reset();
+  vi.spyOn(console, "log").mockImplementation(() => {});
 });
 
 describe("agent", () => {
   it("builds the agent with cicada/backtrack support", async () => {
-    const agent = createMockAgent();
-    mockedSdk.setAgent(agent);
+    const { agent, moduleAgent } = await loadModuleWithAgent();
 
-    const mod = await loadModule();
-
-    expect(mod.agent).toBe(agent);
+    expect(moduleAgent).toBe(agent);
     expect(mockedSdk.createLogger).toHaveBeenCalledWith("sdk/examples/backtrack-usage");
-    expect(mockedSdk.createAgent).toHaveBeenCalledWith({ actor: "traveler" });
-    expect(mockedSdk.builder.useCicada).toHaveBeenCalledWith({ maxTokens: 2000 });
-    expect(mockedSdk.builder.useBacktrack).toHaveBeenCalledWith({ maxBacktracks: 5 });
-    expect(mockedSdk.builder.build).toHaveBeenCalledTimes(1);
+    expect(mockedSdk.createAgent).toHaveBeenCalledTimes(1);
+    expect(mockedSdk.getLastCreateAgentOptions()).toEqual({ actor: "traveler" });
+    expect(mockedSdk.getLastUseCicadaOptions()).toEqual({ maxTokens: 2000 });
+    expect(mockedSdk.getLastUseBacktrackOptions()).toEqual({ maxBacktracks: 5 });
+  });
+
+  it("throws when the agent builder chain is broken", async () => {
+    mockedSdk.createAgent.mockImplementationOnce(() => ({
+      useCicada: vi.fn(() => null),
+    }));
+
+    await expect(import(MODULE_PATH)).rejects.toBeInstanceOf(TypeError);
   });
 });
 
@@ -118,7 +136,7 @@ describe("runDemo", () => {
     });
     const getSkillCatalogPrompt = vi.fn(() => "catalog");
 
-    const { mod } = await setup({ memory, backtrack, toolExecutor, getSkillCatalogPrompt });
+    const { mod } = await loadModuleWithAgent({ memory, backtrack, toolExecutor, getSkillCatalogPrompt });
 
     await mod.runDemo();
 
@@ -147,7 +165,12 @@ describe("runDemo", () => {
       hint: "不要选雪山，选那条长满蘑菇的森林小径。",
     });
     expect(backtrackContext.state).toEqual({});
-    expect(backtrackContext.signal).toBeInstanceOf(AbortSignal);
+    expect(backtrackContext).toEqual(
+      expect.objectContaining({
+        state: {},
+        signal: expect.any(AbortSignal),
+      })
+    );
 
     const recallCall = toolExecutor.mock.calls.find(([name]) => name === "Recall");
     expect(recallCall).toEqual(["Recall", { action: "list" }, { state: {} }]);
@@ -159,21 +182,39 @@ describe("runDemo", () => {
     expect(console.log).toHaveBeenCalledWith(listData);
   });
 
-  it("skips backtrack logging when result is null/undefined and handles empty strings", async () => {
-    const backtrackResults = [{ backtrack: null }, { backtrack: undefined }];
-    const recallResults = [{ data: "" }, { data: "   " }];
+  it("handles nullish/empty results and type mismatches from tools", async () => {
+    const backtrackResults = [
+      { backtrack: null },
+      { backtrack: undefined },
+      { backtrack: "" },
+      { backtrack: 0 },
+    ];
+    const recallResults = [
+      { data: null },
+      { data: undefined },
+      { data: "" },
+      { data: "   " },
+      { data: [] },
+      { data: {} },
+      { data: { 0: "item", length: 1 } },
+    ];
     const toolExecutor = vi.fn(async (name) => {
       if (name === "Backtrack") {
-        return backtrackResults.shift();
+        return backtrackResults.shift() ?? { backtrack: undefined };
       }
       if (name === "Recall") {
-        return recallResults.shift();
+        return recallResults.shift() ?? { data: undefined };
       }
       return {};
     });
 
-    const { mod } = await setup({ toolExecutor });
+    const { mod } = await loadModuleWithAgent({ toolExecutor });
 
+    await mod.runDemo();
+    await mod.runDemo();
+    await mod.runDemo();
+    await mod.runDemo();
+    await mod.runDemo();
     await mod.runDemo();
     await mod.runDemo();
 
@@ -183,32 +224,27 @@ describe("runDemo", () => {
     expect(
       logMessages.find((msg) => typeof msg === "string" && msg.includes("成功回滚到存档"))
     ).toBeUndefined();
-    expect(toolExecutor).toHaveBeenCalledTimes(4);
+    expect(logMessages).toContain(null);
+    expect(logMessages).toContain(undefined);
+    expect(console.log).toHaveBeenCalledWith([]);
+    expect(console.log).toHaveBeenCalledWith({});
+    expect(console.log).toHaveBeenCalledWith({ 0: "item", length: 1 });
+    expect(toolExecutor).toHaveBeenCalledTimes(14);
   });
 
-  it("handles boundary values, type edges, and large payloads", async () => {
+  it("handles boundary values and resource-sized payloads", async () => {
     const longString = "x".repeat(12000);
-    const deepNested = {
-      level1: {
-        level2: {
-          level3: {
-            level4: {
-              value: "deep",
-            },
-          },
-        },
-      },
-    };
-    const arrayLike = { 0: "zero", length: 1 };
-    const bigFile = { ...arrayLike, file: longString };
+    let deepNested = { leaf: true };
+    for (let i = 0; i < 35; i += 1) deepNested = { level: i, child: deepNested };
+    const hugeFile = { name: "huge.bin", size: Number.MAX_SAFE_INTEGER, contents: longString };
 
     const backtrackResults = [
-      { backtrack: { checkpointId: "", state: { location: null }, hint: "" } },
-      { backtrack: { checkpointId: "neg", state: { location: undefined }, hint: "   " } },
-      { backtrack: { checkpointId: "max", state: { location: "deep" }, hint: longString } },
-      { backtrack: { checkpointId: "string", state: { location: "0" }, hint: "hint" } },
+      { backtrack: { checkpointId: 0, state: [], hint: "" } },
+      { backtrack: { checkpointId: -1, state: { location: undefined }, hint: "   " } },
+      { backtrack: { checkpointId: Number.MAX_SAFE_INTEGER, state: { location: "deep" }, hint: longString } },
+      { backtrack: { checkpointId: "0", state: { location: "0" }, hint: { text: "hint" } } },
     ];
-    const recallResults = [{ data: [] }, { data: {} }, { data: bigFile }, { data: deepNested }];
+    const recallResults = [{ data: hugeFile }, { data: deepNested }, { data: longString }, { data: [] }];
     const toolExecutor = vi.fn(async (name) => {
       if (name === "Backtrack") {
         return backtrackResults.shift();
@@ -220,7 +256,7 @@ describe("runDemo", () => {
     });
     const backtrack = { remaining: 0 };
 
-    const { mod, agent } = await setup({ toolExecutor, backtrack });
+    const { mod, agent } = await loadModuleWithAgent({ toolExecutor, backtrack });
 
     const remainingValues = [0, -1, Number.MAX_SAFE_INTEGER, "0"];
     for (const value of remainingValues) {
@@ -229,10 +265,10 @@ describe("runDemo", () => {
     }
 
     const logMessages = console.log.mock.calls.map(([value]) => value);
-    expect(logMessages).toContain("成功回滚到存档: ");
-    expect(logMessages).toContain("当时的地点: null");
+    expect(logMessages).toContain("成功回滚到存档: 0");
+    expect(logMessages).toContain("成功回滚到存档: -1");
+    expect(logMessages).toContain(`成功回滚到存档: ${Number.MAX_SAFE_INTEGER}`);
     expect(logMessages).toContain("当时的地点: undefined");
-    expect(logMessages).toContain("给未来的提示: \"   \"");
     expect(logMessages).toContain("剩余回溯次数: -1");
     expect(logMessages).toContain(`剩余回溯次数: ${Number.MAX_SAFE_INTEGER}`);
     expect(logMessages).toContain("剩余回溯次数: 0");
@@ -241,10 +277,10 @@ describe("runDemo", () => {
         (msg) => typeof msg === "string" && msg.includes(longString.slice(0, 120))
       )
     ).toBe(true);
-    expect(console.log).toHaveBeenCalledWith([]);
-    expect(console.log).toHaveBeenCalledWith({});
-    expect(console.log).toHaveBeenCalledWith(bigFile);
+    expect(console.log).toHaveBeenCalledWith(hugeFile);
     expect(console.log).toHaveBeenCalledWith(deepNested);
+    expect(console.log).toHaveBeenCalledWith(longString);
+    expect(console.log).toHaveBeenCalledWith([]);
     expect(agent.backtrack.remaining).toBe("0");
   });
 
@@ -266,7 +302,7 @@ describe("runDemo", () => {
       return {};
     });
 
-    const { mod, agent } = await setup({ memory, toolExecutor });
+    const { mod, agent } = await loadModuleWithAgent({ memory, toolExecutor });
 
     await Promise.all([mod.runDemo(), mod.runDemo()]);
     await mod.runDemo();
@@ -281,9 +317,30 @@ describe("runDemo", () => {
     const memory = { archive: vi.fn().mockRejectedValueOnce(error) };
     const toolExecutor = vi.fn();
 
-    const { mod } = await setup({ memory, toolExecutor });
+    const { mod } = await loadModuleWithAgent({ memory, toolExecutor });
 
     await expect(mod.runDemo()).rejects.toThrow("archive failed");
     expect(toolExecutor).not.toHaveBeenCalled();
+  });
+
+  it("propagates tool executor errors and invalid backtrack payloads", async () => {
+    const failingExecutor = vi.fn(async (toolName) => {
+      if (toolName === "Backtrack") throw new Error("tool failed");
+      return { data: [] };
+    });
+    const { mod: modA } = await loadModuleWithAgent({ toolExecutor: failingExecutor });
+    await expect(modA.runDemo()).rejects.toThrow("tool failed");
+
+    vi.resetModules();
+    mockedSdk.reset();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const invalidPayloadExecutor = vi.fn(async (toolName) => {
+      if (toolName === "Backtrack") return { backtrack: { checkpointId: "x", state: undefined, hint: "h" } };
+      if (toolName === "Recall") return { data: [] };
+      return {};
+    });
+    const { mod: modB } = await loadModuleWithAgent({ toolExecutor: invalidPayloadExecutor });
+    await expect(modB.runDemo()).rejects.toBeInstanceOf(TypeError);
   });
 });

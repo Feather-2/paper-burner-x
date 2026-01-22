@@ -60,7 +60,7 @@ beforeEach(() => {
   });
 });
 
-describe("execution-phase/executeDeepSearchDecision", () => {
+describe("executeDeepSearchDecision", () => {
   it("returns { toolCalls: 0 } for null/undefined decisions", async () => {
     const { executeDeepSearchDecision } = await loadModule();
     const resultNull = await executeDeepSearchDecision({
@@ -128,6 +128,27 @@ describe("execution-phase/executeDeepSearchDecision", () => {
       agent,
       stageApi: makeStageApi(),
       decision: { action: "read-doc", args: [] },
+      plannedIteration: 3,
+    });
+
+    expect(agent._logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid tool args")
+    );
+    expect(hoisted.executeTool).toHaveBeenCalledWith(
+      "ask-user",
+      { reason: "invalid_tool_args" },
+      expect.any(Object)
+    );
+  });
+
+  it("falls back to ask-user when args is not an object (type boundary)", async () => {
+    const { executeDeepSearchDecision } = await loadModule();
+    const agent = makeAgent();
+
+    await executeDeepSearchDecision({
+      agent,
+      stageApi: makeStageApi(),
+      decision: { action: "read-doc", args: "not-an-object" },
       plannedIteration: 3,
     });
 
@@ -372,6 +393,77 @@ describe("execution-phase/executeDeepSearchDecision", () => {
     expect(agent._logger.warn).toHaveBeenCalledWith(
       expect.stringContaining("getSideEffectsCursor failed")
     );
+  });
+
+  it("warns when checkpoint save fails but continues", async () => {
+    const { executeDeepSearchDecision } = await loadModule();
+    const agent = makeAgent({
+      checkpoint: { save: vi.fn().mockRejectedValue(new Error("save-fail")) },
+    });
+
+    const result = await executeDeepSearchDecision({
+      agent,
+      stageApi: makeStageApi(),
+      decision: { action: "list-docs", args: {} },
+      plannedIteration: 11,
+    });
+
+    expect(result).toEqual({ toolCalls: 1 });
+    expect(agent._logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("Checkpoint save failed")
+    );
+    expect(hoisted.maybePersistToolOutput).toHaveBeenCalledTimes(1);
+    expect(agent.addMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes detailed loop-guard note when loop is detected", async () => {
+    const { executeDeepSearchDecision } = await loadModule();
+    const agent = makeAgent({
+      _recordToolCall: vi.fn(() => ({
+        behavior: {
+          loopDetected: true,
+          loopInfo: { pattern: ["a", "b", "c", "d", "e", "f", "g"] },
+          suggestion: {
+            action: "ask-user",
+            suggestion: "clarify",
+            reason: "no_progress",
+          },
+        },
+      })),
+    });
+
+    await executeDeepSearchDecision({
+      agent,
+      stageApi: makeStageApi(),
+      decision: { action: "list-docs", args: {} },
+      plannedIteration: 12,
+    });
+
+    const content = agent.addMessage.mock.calls[0][0].content;
+    expect(content).toContain("[LoopGuard]");
+    expect(content).toContain("建议 ask-user");
+    expect(content).toContain("pattern: a -> b -> c -> d -> e -> f");
+    expect(content).toContain("hint: clarify");
+    expect(content).toContain("reason: no_progress");
+  });
+
+  it("propagates single-tool execution errors (no swallow)", async () => {
+    const { executeDeepSearchDecision } = await loadModule();
+    const agent = makeAgent();
+
+    hoisted.executeTool.mockRejectedValue(new Error("boom"));
+
+    await expect(
+      executeDeepSearchDecision({
+        agent,
+        stageApi: makeStageApi(),
+        decision: { action: "tool-crash", args: {} },
+        plannedIteration: 13,
+      })
+    ).rejects.toThrow("boom");
+
+    expect(agent.addMessage).not.toHaveBeenCalled();
+    expect(hoisted.maybePersistToolOutput).not.toHaveBeenCalled();
   });
 
   it("handles watchdog handoff and backtrack", async () => {

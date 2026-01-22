@@ -1,14 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const modulePath = "../../../../../../js/agents/stages/design/internal/design-loop-types.js";
+const modulePath =
+  '../../../../../../js/agents/stages/design/internal/design-loop-types.js';
 
 const sharedModuleFactory = vi.hoisted(() =>
   vi.fn(() => {
-    throw new Error("shared index should not be loaded at runtime");
+    throw new Error('shared index should not be loaded at runtime');
   })
 );
 
-vi.mock("../../../../../../js/agents/shared/index.js", sharedModuleFactory);
+vi.mock('../../../../../../js/agents/shared/index.js', sharedModuleFactory);
 
 const importModule = () => import(modulePath);
 
@@ -22,22 +23,23 @@ const buildDeepObject = (depth) => {
   return root;
 };
 
-describe("design-loop-types module", () => {
+describe('design-loop-types module', () => {
   beforeEach(() => {
     vi.resetModules();
     sharedModuleFactory.mockClear();
   });
 
-  it("imports without loading shared index and exports no runtime members", async () => {
+  it('imports without loading shared index and exports no runtime members', async () => {
     const mod = await importModule();
 
     expect(sharedModuleFactory).not.toHaveBeenCalled();
     expect(Object.keys(mod)).toEqual([]);
+    expect(Object.getOwnPropertyNames(mod)).toEqual([]);
     expect(mod.default).toBeUndefined();
     expect(mod.DesignLoopConstructorOptions).toBeUndefined();
   });
 
-  it("returns undefined for empty or nullish export keys", async () => {
+  it('returns undefined for empty, nullish, and whitespace export keys', async () => {
     const mod = await importModule();
 
     const keys = [null, undefined, "", " ", "\t", [], {}];
@@ -47,7 +49,7 @@ describe("design-loop-types module", () => {
     });
   });
 
-  it("returns undefined for numeric boundary keys", async () => {
+  it('returns undefined for numeric boundary keys', async () => {
     const mod = await importModule();
 
     expect(mod[0]).toBeUndefined();
@@ -55,10 +57,10 @@ describe("design-loop-types module", () => {
     expect(mod[Number.MAX_SAFE_INTEGER]).toBeUndefined();
   });
 
-  it("returns undefined for type boundary keys", async () => {
+  it('returns undefined for type boundary keys', async () => {
     const mod = await importModule();
 
-    const arrayLike = { 0: "x", length: 1 };
+    const arrayLike = { 0: 'x', length: 1 };
 
     expect(mod["1"]).toBeUndefined();
     expect(mod[1]).toBeUndefined();
@@ -66,7 +68,7 @@ describe("design-loop-types module", () => {
     expect(mod[arrayLike]).toBeUndefined();
   });
 
-  it("throws when calling a missing export", async () => {
+  it('throws when calling a missing export', async () => {
     const mod = await importModule();
 
     expect(() => {
@@ -74,7 +76,7 @@ describe("design-loop-types module", () => {
     }).toThrow(TypeError);
   });
 
-  it("supports concurrent imports without changing the namespace", async () => {
+  it('supports concurrent imports without changing the namespace', async () => {
     const [first, second, third] = await Promise.all([
       importModule(),
       importModule(),
@@ -86,7 +88,7 @@ describe("design-loop-types module", () => {
     expect(Object.keys(first)).toEqual([]);
   });
 
-  it("handles rapid consecutive imports without exposing members", async () => {
+  it('handles rapid consecutive imports without exposing members', async () => {
     const modules = [];
     for (let i = 0; i < 5; i += 1) {
       modules.push(await importModule());
@@ -94,11 +96,10 @@ describe("design-loop-types module", () => {
 
     modules.forEach((mod) => {
       expect(Object.keys(mod)).toEqual([]);
-      expect(mod.default).toBeUndefined();
     });
   });
 
-  it("returns undefined for long, huge, and deep-nested keys", async () => {
+  it('returns undefined for long, huge, and deep-nested keys', async () => {
     const mod = await importModule();
 
     const longKey = "x".repeat(100_000);

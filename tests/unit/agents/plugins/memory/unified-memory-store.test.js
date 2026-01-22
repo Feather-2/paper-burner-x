@@ -239,12 +239,16 @@ describe('UnifiedMemoryStore', () => {
     });
   });
 
-  it('handles null and empty inputs with boundary values', () => {
+  it.each([
+    ['empty string', ''],
+    ['whitespace string', '   \t\n '],
+    ['null', null],
+  ])('handles null and empty inputs with boundary values (%s)', (_label, runIdValue) => {
     const vfs = { root: 'mem' };
     utilsMocks.genId.mockReturnValueOnce('run-empty');
 
     const store = new UnifiedMemoryStore({
-      runId: '',
+      runId: runIdValue,
       initialState: null,
       tokenCounter: null,
       config: {},
@@ -263,6 +267,7 @@ describe('UnifiedMemoryStore', () => {
     const engine = stateEngineState.instances[0];
 
     expect(store.runId).toBe('run-empty');
+    expect(sharedMocks.toNonEmptyString).toHaveBeenCalledWith(runIdValue);
     expect(store.config).toEqual(utilsMocks.DEFAULT_CONFIG);
     expect(store._tokenCounter).toBe(null);
     expect(sharedMocks.getGlobalTokenCounter).not.toHaveBeenCalled();

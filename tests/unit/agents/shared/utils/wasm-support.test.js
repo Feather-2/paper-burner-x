@@ -1,5 +1,5 @@
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock(
   "virtual:wasm-env",

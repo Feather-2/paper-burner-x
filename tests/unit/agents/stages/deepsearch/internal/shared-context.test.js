@@ -45,6 +45,11 @@ describe('SharedContext', () => {
     expect(ctx.getStats().summaryCount).toBe(0);
   });
 
+  it('constructs with invalid limits input', () => {
+    const ctx = new SharedContext({ limits: 'not-an-object' });
+    expect(ctx.limits).toEqual(expect.objectContaining({ storeMax: 50, signalsMax: 200 }));
+  });
+
   it('manages summaries and prunes with limits', () => {
     const ctx = new SharedContext({ maxL1Entries: 2 });
 
@@ -98,6 +103,11 @@ describe('SharedContext', () => {
     expect(prompt).toContain('approve: ok');
   });
 
+  it('builds blackboard prompt empty when there is no data', () => {
+    const ctx = new SharedContext();
+    expect(ctx.buildBlackboardPrompt()).toBe('');
+  });
+
   it('indexes keywords and supports search/searchAll with type boundaries', () => {
     const ctx = new SharedContext();
 
@@ -120,6 +130,17 @@ describe('SharedContext', () => {
     expect(ctx.searchAll(['alpha', 'beta'])).toEqual(['id1']);
     expect(ctx.searchAll([])).toEqual([]);
     expect(ctx.searchAll({})).toEqual([]);
+  });
+
+  it('records a single action for indexMany and does not record nested addToIndex', () => {
+    const ctx = new SharedContext();
+
+    ctx.indexMany(['alpha', 'beta'], 'id1');
+    expect(ctx.search('alpha')).toEqual(['id1']);
+    expect(ctx.search('beta')).toEqual(['id1']);
+    expect(ctx.getActions()).toEqual([
+      expect.objectContaining({ kind: 'indexMany' }),
+    ]);
   });
 
   it('prunes index keywords and ids based on limits', () => {
@@ -160,6 +181,9 @@ describe('SharedContext', () => {
 
     ctx.setIndex('stage2', 'raw');
     expect(ctx.getIndex('stage2')).toEqual({ value: 'raw' });
+
+    const actions = ctx.getActions();
+    expect(actions.map((a) => a.kind)).toEqual(['setIndex', 'setIndex']);
   });
 
   it('stores items, prunes store, and retrieves details', () => {
@@ -215,6 +239,18 @@ describe('SharedContext', () => {
     expect(ctx.getDetail(commitNoFull)).toBeNull();
   });
 
+  it('commit uses provided id and sanitizes long stage prefixes', () => {
+    const ctx = new SharedContext();
+
+    const explicit = ctx.commit('stage', { id: 'commit-1', full: { v: 1 } });
+    expect(explicit).toBe('commit-1');
+    expect(ctx.getDetail('commit-1')).toEqual({ v: 1 });
+
+    const longStage = 'a'.repeat(200);
+    const generated = ctx.commit(longStage, { summary: 's' });
+    expect(generated.startsWith(`${'a'.repeat(80)}_deadbeef_`)).toBe(true);
+  });
+
   it('commit handles invalid stage, empty summary, and non-array keywords', () => {
     const ctx = new SharedContext();
 
@@ -225,6 +261,21 @@ describe('SharedContext', () => {
     expect(ctx.getSummary('stage')).toBeNull();
     expect(ctx.search('not')).toEqual([]);
     expect(ctx.getDetail(id)).toBeNull();
+  });
+
+  it('generates unique ids even when Date.now collides', async () => {
+    const ctx = new SharedContext();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(123);
+    try {
+      const ids = await Promise.all(
+        Array.from({ length: 25 }, (_, i) =>
+          Promise.resolve().then(() => ctx.signal('note', { message: `m${i}` }).id)
+        )
+      );
+      expect(new Set(ids).size).toBe(ids.length);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('signals with defaults, prunes, and creates unique ids under rapid calls', async () => {
@@ -286,6 +337,26 @@ describe('SharedContext', () => {
 
     ctx.clearSignals();
     expect(ctx.getSignals()).toEqual([]);
+  });
+
+  it('getSignals supports string and function filters and getLatestSignal handles empty state', () => {
+    const ctx = new SharedContext();
+
+    expect(ctx.getLatestSignal()).toBeNull();
+    expect(ctx.getLatestSignal('info')).toBeNull();
+
+    ctx.signal('note', { message: 'm1' });
+    ctx.signal('note2', { message: 'm2' });
+    ctx.signal('note', { stage: 'stage2', message: 'm3' });
+    ctx.upsertSignal({ type: 'job', id: '1', status: 'open' });
+
+    expect(ctx.getSignals('info').length).toBe(2);
+    expect(ctx.getSignals('stage2').length).toBe(1);
+    expect(ctx.getSignals((s) => s.payload?.message === 'm1').length).toBe(1);
+
+    const syncTable = ctx.getSyncTable();
+    expect(syncTable.length).toBe(1);
+    expect(syncTable[0]).toEqual(expect.objectContaining({ type: 'job', id: '1' }));
   });
 
   it('records decisions and prunes history', () => {
@@ -398,6 +469,14 @@ describe('SharedContext', () => {
     expect(sinceMax).toEqual([]);
   });
 
+  it('respects actionsMax=0 while still advancing version', () => {
+    const ctx = new SharedContext({ limits: { actionsMax: 0 } });
+    ctx.setSummary('s', 'x');
+    ctx.store('k', { v: 1 });
+    expect(ctx.getVersion()).toBe(2);
+    expect(ctx.getActions()).toEqual([]);
+  });
+
   it('applies action streams without double-recording', () => {
     const ctx = new SharedContext();
 
@@ -452,8 +531,45 @@ describe('SharedContext', () => {
     expect(actionLog.map((a) => a.id)).toEqual(expect.arrayContaining(['a1', 'a6']));
   });
 
-  it('exposes default export as SharedContext', () => {
-    expect(SharedContextDefault).toBe(SharedContext);
+  it('applies setIndex/indexMany/upsertSignal actions and dedupes by id', () => {
+    const ctx = new SharedContext();
+
+    const actions = [
+      {
+        id: 'b1',
+        version: 1,
+        kind: 'setIndex',
+        payload: { stage: 'st', index: { keywords: ['k1'], ids: ['i1'], paths: ['p1'] } },
+      },
+      { id: 'b2', version: 2, kind: 'indexMany', payload: { keywords: ['k2', 'k3'], id: 'doc' } },
+      {
+        id: 'b3',
+        version: 3,
+        kind: 'upsertSignal',
+        payload: { signal: { type: 'sync', payload: { _syncKey: 'job:1', status: 'open' } } },
+      },
+      {
+        id: 'b4',
+        version: 4,
+        kind: 'upsertSignal',
+        payload: { signal: { type: 'sync', payload: { _syncKey: 'job:1', status: 'done' } } },
+      },
+    ];
+
+    ctx.applyActions(actions);
+
+    expect(ctx.getVersion()).toBe(4);
+    expect(ctx.getIndex('st')).toEqual({ keywords: ['k1'], ids: ['i1'], paths: ['p1'] });
+    expect(ctx.search('k1')).toEqual(['st']);
+    expect(ctx.search('k2')).toEqual(['doc']);
+    expect(ctx.search('k3')).toEqual(['doc']);
+
+    const syncSignals = ctx.getSignals({ type: 'sync' });
+    expect(syncSignals.length).toBe(1);
+    expect(syncSignals[0].payload.status).toBe('done');
+
+    ctx.applyActions(actions);
+    expect(ctx.getActions().length).toBe(4);
   });
 });
 
@@ -466,5 +582,11 @@ describe('createSharedContext', () => {
     expect(ctx.runId).toBe('run-1');
     expect(ctx.limits.summariesMax).toBe(1);
     expect(ctxDefault).toBeInstanceOf(SharedContext);
+  });
+});
+
+describe('default export', () => {
+  it('exposes SharedContext as default export', () => {
+    expect(SharedContextDefault).toBe(SharedContext);
   });
 });

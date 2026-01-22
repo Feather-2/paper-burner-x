@@ -121,6 +121,25 @@ describe("SideEffectJournal", () => {
       expect(entry.meta).toEqual(meta);
     });
 
+    it("treats empty strings as missing fields", () => {
+      const journal = new SideEffectJournal({ runId: "run-1" });
+      const entry = journal.record({
+        kind: "",
+        ts: "",
+        path: "",
+        op: "",
+        eventId: "",
+        meta: {},
+      });
+
+      expect(entry.kind).toBe("unknown");
+      expect(entry.path).toBeUndefined();
+      expect(entry.op).toBeUndefined();
+      expect(entry.eventId).toBeUndefined();
+      expect(entry.meta).toEqual({});
+      expect(entry.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    });
+
     it("respects persist override and logs append failures", async () => {
       const journal = new SideEffectJournal({ runId: "run-1", autoPersist: true, logger });
       const appendSpy = vi.spyOn(journal, "_appendToStorage").mockResolvedValue({ ok: true });
@@ -313,6 +332,23 @@ describe("SideEffectJournal", () => {
       const res = await journal.replayFromStorage();
       expect(res.ok).toBe(false);
       expect(res.reason).toBe("missing_wal");
+    });
+
+    it("returns replay_failed when WAL read throws", async () => {
+      const { vfs } = createMemoryVfs();
+      const journal = new SideEffectJournal({ runId: "run-1", vfs, walDir: ".wal", logger });
+      const walPath = ".wal/run-1.jsonl";
+
+      await vfs.writeText(walPath, `${JSON.stringify({ kind: "custom", ts: 1 })}\n`);
+      vfs.readText.mockImplementationOnce(async () => {
+        throw new Error("read-failed");
+      });
+
+      const res = await journal.replayFromStorage();
+      expect(res.ok).toBe(false);
+      expect(res.reason).toBe("replay_failed");
+      expect(res.error).toContain("read-failed");
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("WAL replay failed"));
     });
 
     it("rejects oversized WAL content", async () => {
@@ -525,6 +561,27 @@ describe("SideEffectJournal", () => {
       );
     });
 
+    it("captures checkpoint restore failures during rollback", async () => {
+      const { vfs } = createMemoryVfs();
+      const journal = new SideEffectJournal({ runId: "run-1", vfs, storageAdapter: {}, logger });
+
+      restoreVfsCheckpoint.mockRejectedValueOnce(new Error("restore-failed"));
+      journal.record({
+        kind: "vfs_checkpoint",
+        ts: 1,
+        reversible: true,
+        checkpoint: { artifactId: "ck-1" },
+      });
+
+      const res = await journal.rollbackToCursor(0);
+      expect(res.ok).toBe(false);
+      expect(res.rolledBack).toBe(0);
+      expect(res.failures?.length).toBe(1);
+      expect(res.failures?.[0]).toEqual({ seq: 1, kind: "vfs_checkpoint", error: "restore-failed" });
+      expect(res.cursor).toBe(0);
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("rollback failed for checkpoint ck-1"));
+    });
+
     it("supports string and array cursor coercion", async () => {
       const { vfs } = createMemoryVfs();
       const journal = new SideEffectJournal({ runId: "run-1", vfs, storageAdapter: {}, logger });
@@ -650,6 +707,17 @@ describe("SideEffectJournal", () => {
       expect(res2.ok).toBe(true);
       expect(logger.warn).toHaveBeenCalledTimes(1);
       expect(files.get(".wal/run-1.jsonl").trim().split(/\r?\n/).length).toBe(2);
+    });
+
+    it("returns wal_write_failed when append throws", async () => {
+      const { vfs } = createMemoryVfs();
+      const journal = new SideEffectJournal({ runId: "run-1", vfs, walDir: ".wal" });
+      vfs.appendText.mockRejectedValueOnce(new Error("append-failed"));
+
+      const res = await journal._appendToStorageNow({ seq: 1, kind: "custom", ts: "t", reversible: false });
+      expect(res.ok).toBe(false);
+      expect(res.reason).toBe("wal_write_failed");
+      expect(res.error).toContain("append-failed");
     });
 
     it("queues concurrent appends in order", async () => {

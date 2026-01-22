@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const hoisted = vi.hoisted(() => {
   const executeTool = vi.fn();
@@ -83,6 +83,7 @@ describe("ensureReportOnComplete", () => {
     ["null state", { state: null }],
     ["undefined state", { state: undefined }],
     ["missing report", { state: { L1: {} } }],
+    ["null report", { state: { L1: { report: null } } }],
     ["empty string report", { state: { L1: { report: "" } } }],
     ["zero report", { state: { L1: { report: 0 } } }],
   ])("writes report when %s", async (_label, agentOverrides) => {
@@ -92,6 +93,16 @@ describe("ensureReportOnComplete", () => {
     await ensureReportOnComplete({ agent, stageApi: {} });
 
     expect(hoisted.executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+  ])("throws when agent is %s", async (_label, badAgent) => {
+    const { ensureReportOnComplete } = await loadModule();
+    await expect(
+      ensureReportOnComplete({ agent: badAgent, stageApi: {} })
+    ).rejects.toThrow();
   });
 
   it("passes state, stageApi, and emit wrapper to executeTool", async () => {
@@ -298,6 +309,106 @@ describe("runWritingPhaseIfNeeded", () => {
     const syncOrder = agent.sourceManager.syncSources.mock.invocationCallOrder[0];
     const execOrder = hoisted.executeTool.mock.invocationCallOrder[0];
     expect(syncOrder).toBeLessThan(execOrder);
+  });
+
+  it("handles concurrent calls with separate handler instances", async () => {
+    const { runWritingPhaseIfNeeded } = await loadModule();
+    const deferred = (() => {
+      /** @type {(v?: any) => void} */
+      let resolve;
+      const promise = new Promise((r) => {
+        resolve = r;
+      });
+      return { promise, resolve };
+    })();
+
+    let started = 0;
+    hoisted.WritingPhaseHandler.mockImplementation(function (options) {
+      const instance = {
+        options,
+        shouldEnter: vi.fn(() => true),
+        run: vi.fn(async () => {
+          started += 1;
+          await deferred.promise;
+          return { ok: true };
+        }),
+      };
+      hoisted.WritingPhaseHandler.instances.push(instance);
+      return instance;
+    });
+
+    const agent = makeAgent();
+    const p1 = runWritingPhaseIfNeeded({
+      agent,
+      stageApi: {},
+      callModel: vi.fn(),
+      iteration: -1,
+      toolCallCount: "2",
+      signal: undefined,
+    });
+    const p2 = runWritingPhaseIfNeeded({
+      agent,
+      stageApi: {},
+      callModel: vi.fn(),
+      iteration: 0,
+      toolCallCount: {},
+      signal: undefined,
+    });
+
+    expect(hoisted.WritingPhaseHandler).toHaveBeenCalledTimes(2);
+    expect(started).toBe(2);
+    deferred.resolve();
+    await Promise.all([p1, p2]);
+    expect(hoisted.WritingPhaseHandler.instances).toHaveLength(2);
+    expect(hoisted.WritingPhaseHandler.instances[0].run).toHaveBeenCalledTimes(1);
+    expect(hoisted.WritingPhaseHandler.instances[1].run).toHaveBeenCalledTimes(1);
+  });
+
+  it("executes tools even when sourceManager is null/undefined", async () => {
+    const { runWritingPhaseIfNeeded } = await loadModule();
+    const handler = {
+      options: null,
+      shouldEnter: vi.fn(() => true),
+      run: vi.fn(async (params) => {
+        await handler.options.executeTool(
+          "collect",
+          { payload: "ok" },
+          { state: params.state, emit: handler.options.emit, stageApi: params.stageApi }
+        );
+      }),
+    };
+    hoisted.WritingPhaseHandler.mockImplementationOnce(function (options) {
+      handler.options = options;
+      hoisted.WritingPhaseHandler.instances.push(handler);
+      return handler;
+    });
+
+    const agent = makeAgent({
+      sourceManager: null,
+      state: { L0: { sources: undefined }, L1: { report: {} } },
+    });
+    const stageApi = {};
+
+    await expect(
+      runWritingPhaseIfNeeded({
+        agent,
+        stageApi,
+        callModel: vi.fn(),
+        iteration: 1,
+        toolCallCount: 1,
+        signal: undefined,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(hoisted.executeTool).toHaveBeenCalledWith(
+      "collect",
+      { payload: "ok" },
+      expect.objectContaining({
+        state: agent.state,
+        stageApi,
+        sourceManager: null,
+      })
+    );
   });
 
   it("propagates shouldEnter errors", async () => {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockedCreatePlugin = vi.hoisted(() => vi.fn((config) => config));
 
@@ -28,12 +28,12 @@ const setAtPath = (store, path, value) => {
     const key = keys[i];
     if (i === keys.length - 1) {
       current[key] = value;
-    } else {
-      if (!current[key] || typeof current[key] !== 'object') {
-        current[key] = {};
-      }
-      current = current[key];
+      return;
     }
+    if (!current[key] || typeof current[key] !== 'object' || Array.isArray(current[key])) {
+      current[key] = {};
+    }
+    current = current[key];
   }
 };
 
@@ -54,40 +54,10 @@ const createState = () => {
   };
 };
 
-const createSchedulerHarness = (configOverrides = {}, emitHook = null) => {
-  const state = createState();
-  const events = {
-    emit: vi.fn((event, payload) => {
-      if (emitHook) {
-        emitHook(event, payload);
-      }
-    }),
-  };
-  const log = { info: vi.fn() };
-  let service = null;
-  const ctx = {
-    config: { maxConcurrent: 2, defaultTimeout: 50, ...configOverrides },
-    state,
-    events,
-    log,
-    registerService: vi.fn((name, svc) => {
-      if (name === 'scheduler') {
-        service = svc;
-      }
-    }),
-  };
-  schedulerPlugin.install(ctx);
-  return { ctx, service, state, events, log };
-};
-
-const flushImmediate = () =>
-  new Promise((resolve) => {
-    const immediate = globalThis.setImmediate || ((callback) => setTimeout(callback, 0));
-    immediate(resolve);
-  });
-
 const createDeferred = () => {
+  /** @type {(value: any) => void} */
   let resolve;
+  /** @type {(reason?: any) => void} */
   let reject;
   const promise = new Promise((res, rej) => {
     resolve = res;
@@ -96,22 +66,75 @@ const createDeferred = () => {
   return { promise, resolve, reject };
 };
 
+const flushMicrotasks = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+const drainImmediates = async (queue, maxRounds = 50) => {
+  for (let round = 0; round < maxRounds; round += 1) {
+    if (queue.length === 0) {
+      await flushMicrotasks();
+      if (queue.length === 0) return;
+    }
+    const batch = queue.splice(0);
+    for (const fn of batch) fn();
+    await flushMicrotasks();
+  }
+  if (queue.length > 0) {
+    throw new Error('Immediate queue did not drain');
+  }
+};
+
+const createSchedulerHarness = (configOverrides = {}, onEmit = null) => {
+  const immediateQueue = [];
+  vi.stubGlobal('setImmediate', (callback, ...args) => {
+    immediateQueue.push(() => callback(...args));
+    return immediateQueue.length;
+  });
+
+  const state = createState();
+  const events = {
+    emit: vi.fn((event, payload) => {
+      if (onEmit) onEmit(event, payload);
+    }),
+  };
+  const log = { info: vi.fn() };
+
+  /** @type {any} */
+  const ctx = {
+    config: { maxConcurrent: 2, defaultTimeout: 50, ...configOverrides },
+    state,
+    events,
+    log,
+    registerService: vi.fn(),
+  };
+
+  /** @type {any} */
+  let service;
+  ctx.registerService.mockImplementation((name, svc) => {
+    if (name === 'scheduler') service = svc;
+  });
+
+  schedulerPlugin.install(ctx);
+
+  if (!service) throw new Error('Scheduler service not registered');
+
+  return { ctx, service, state, events, log, immediateQueue };
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
-});
-
-afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('TaskPriority', () => {
-  it('defines the expected priority levels', () => {
-    expect(TaskPriority).toEqual({
-      LOW: 0,
-      NORMAL: 1,
-      HIGH: 2,
-      CRITICAL: 3,
-    });
+  it('defines expected priority numeric values', () => {
+    expect(TaskPriority).toEqual({ LOW: 0, NORMAL: 1, HIGH: 2, CRITICAL: 3 });
+    expect(TaskPriority.LOW).toBeLessThan(TaskPriority.NORMAL);
+    expect(TaskPriority.NORMAL).toBeLessThan(TaskPriority.HIGH);
+    expect(TaskPriority.HIGH).toBeLessThan(TaskPriority.CRITICAL);
   });
 });
 
@@ -119,8 +142,7 @@ describe('default', () => {
   it('exposes plugin metadata and defaults', () => {
     expect(schedulerPlugin.name).toBe('service/scheduler');
     expect(schedulerPlugin.version).toBe('1.0.0');
-    expect(typeof schedulerPlugin.description).toBe('string');
-    expect(schedulerPlugin.description.length).toBeGreaterThan(0);
+    expect(schedulerPlugin.description).toBe('任务调度器');
     expect(schedulerPlugin.defaultConfig).toEqual({
       maxConcurrent: 5,
       defaultTimeout: 60000,
@@ -140,19 +162,20 @@ describe('default', () => {
     expect(log.info).toHaveBeenCalledWith('Scheduler plugin installed');
   });
 
-  it('resolves boundary and resource values', async () => {
-    const { service, state } = createSchedulerHarness({ defaultTimeout: 1000 });
-    const longString = 'x'.repeat(100000);
-    const largeBuffer = new Uint8Array(1024 * 1024);
+  it('schedule() resolves boundary/resource values and increments stats', async () => {
+    const { service, state, immediateQueue } = createSchedulerHarness({ defaultTimeout: 1000 });
 
-    const deepNested = { level: 0 };
+    const longString = 'x'.repeat(200_000);
+    const largeBytes = new Uint8Array(1024 * 1024);
+
+    const deepNested = {};
     let cursor = deepNested;
-    for (let i = 1; i <= 10; i += 1) {
-      cursor.next = { level: i };
+    for (let depth = 0; depth < 200; depth += 1) {
+      cursor.next = { depth };
       cursor = cursor.next;
     }
 
-    const cases = [
+    const values = [
       null,
       undefined,
       '',
@@ -162,211 +185,220 @@ describe('default', () => {
       0,
       -1,
       Number.MAX_SAFE_INTEGER,
+      { 0: 'a', length: 1 },
       longString,
-      largeBuffer,
+      largeBytes,
       deepNested,
     ];
 
-    for (const value of cases) {
-      const result = await service.schedule(value);
-      expect(result).toBe(value);
+    const promises = values.map((value) => service.schedule(value));
+    await drainImmediates(immediateQueue);
+
+    const results = await Promise.all(promises);
+    for (let i = 0; i < values.length; i += 1) {
+      expect(results[i]).toBe(values[i]);
     }
-
-    expect(state.get('stats.queued')).toBe(cases.length);
+    expect(state.get('stats.queued')).toBe(values.length);
   });
 
-  it('accepts numeric string priorities', async () => {
-    const { service } = createSchedulerHarness();
-    const promise = service.schedule(() => 'ok', '1');
+  it('schedule() emits queued/start/complete events for successful tasks', async () => {
+    const emitted = [];
+    const { service, events, immediateQueue } = createSchedulerHarness({}, (event, payload) => {
+      emitted.push([event, payload]);
+    });
 
-    expect(service.getQueueLength('1')).toBe(1);
-    await expect(promise).resolves.toBe('ok');
+    const promise = service.schedule(() => 'done', TaskPriority.HIGH);
+    await drainImmediates(immediateQueue);
+
+    await expect(promise).resolves.toBe('done');
+
+    const queued = emitted.find(([event]) => event === 'scheduler.task.queued');
+    const started = emitted.find(([event]) => event === 'scheduler.task.start');
+    const completed = emitted.find(([event]) => event === 'scheduler.task.complete');
+
+    expect(queued).toBeTruthy();
+    expect(started).toBeTruthy();
+    expect(completed).toBeTruthy();
+    expect(queued[1]).toMatchObject({ priority: TaskPriority.HIGH, id: expect.any(Number) });
+    expect(started[1]).toMatchObject({ priority: TaskPriority.HIGH, id: queued[1].id });
+    expect(completed[1]).toEqual({ id: queued[1].id });
+    expect(events.emit).toHaveBeenCalled();
   });
 
-  it('rejects invalid priority values', async () => {
-    const { service } = createSchedulerHarness();
+  it('schedule() respects priority ordering with maxConcurrent=1', async () => {
+    const startedPriorities = [];
+    const { service, immediateQueue } = createSchedulerHarness({ maxConcurrent: 1 }, (event, payload) => {
+      if (event === 'scheduler.task.start') startedPriorities.push(payload.priority);
+    });
+
+    const low = createDeferred();
+    const normal = createDeferred();
+    const high = createDeferred();
+    const critical = createDeferred();
+
+    const lowPromise = service.schedule(() => low.promise, TaskPriority.LOW);
+    const normalPromise = service.schedule(() => normal.promise, TaskPriority.NORMAL);
+    const highPromise = service.schedule(() => high.promise, TaskPriority.HIGH);
+    const criticalPromise = service.schedule(() => critical.promise, TaskPriority.CRITICAL);
+
+    await drainImmediates(immediateQueue);
+    expect(startedPriorities).toEqual([TaskPriority.CRITICAL]);
+
+    critical.resolve('critical');
+    await flushMicrotasks();
+    await drainImmediates(immediateQueue);
+    expect(startedPriorities).toEqual([TaskPriority.CRITICAL, TaskPriority.HIGH]);
+
+    high.resolve('high');
+    await flushMicrotasks();
+    await drainImmediates(immediateQueue);
+    expect(startedPriorities).toEqual([TaskPriority.CRITICAL, TaskPriority.HIGH, TaskPriority.NORMAL]);
+
+    normal.resolve('normal');
+    await flushMicrotasks();
+    await drainImmediates(immediateQueue);
+    expect(startedPriorities).toEqual([TaskPriority.CRITICAL, TaskPriority.HIGH, TaskPriority.NORMAL, TaskPriority.LOW]);
+
+    low.resolve('low');
+    await expect(Promise.all([lowPromise, normalPromise, highPromise, criticalPromise])).resolves.toEqual([
+      'low',
+      'normal',
+      'high',
+      'critical',
+    ]);
+  });
+
+  it('schedule() enforces maxConcurrent under concurrent calls', async () => {
+    const started = [];
+    const completed = [];
+
+    const { service, immediateQueue } = createSchedulerHarness({ maxConcurrent: 2, defaultTimeout: 1000 }, (event, payload) => {
+      if (event === 'scheduler.task.start') started.push(payload.id);
+      if (event === 'scheduler.task.complete') completed.push(payload.id);
+    });
+
+    const first = createDeferred();
+    const second = createDeferred();
+    const third = createDeferred();
+
+    const p1 = service.schedule(() => first.promise);
+    const p2 = service.schedule(() => second.promise);
+    const p3 = service.schedule(() => third.promise);
+
+    await drainImmediates(immediateQueue);
+    expect(started.length).toBe(2);
+    expect(service.getStatus()).toEqual({ running: 2, queued: 1, maxConcurrent: 2 });
+
+    first.resolve('a');
+    await flushMicrotasks();
+    await drainImmediates(immediateQueue);
+    expect(started.length).toBe(3);
+    expect(service.getStatus()).toEqual({ running: 2, queued: 0, maxConcurrent: 2 });
+
+    second.resolve('b');
+    third.resolve('c');
+    await flushMicrotasks();
+    await drainImmediates(immediateQueue);
+
+    await expect(Promise.all([p1, p2, p3])).resolves.toEqual(['a', 'b', 'c']);
+    expect(completed.length).toBe(3);
+    expect(service.getStatus()).toEqual({ running: 0, queued: 0, maxConcurrent: 2 });
+  });
+
+  it('schedule() handles priority type boundaries', async () => {
+    const { service, immediateQueue } = createSchedulerHarness();
+
+    const ok = service.schedule(() => 'ok', '1');
+    await drainImmediates(immediateQueue);
+    await expect(ok).resolves.toBe('ok');
 
     await expect(service.schedule('bad', -1)).rejects.toThrow(TypeError);
     await expect(service.schedule('bad', Number.MAX_SAFE_INTEGER)).rejects.toThrow(TypeError);
+    await expect(service.schedule('bad', null)).rejects.toThrow(TypeError);
     await expect(service.schedule('bad', {})).rejects.toThrow(TypeError);
+    await expect(service.schedule('bad', { 0: 'a', length: 1 })).rejects.toThrow(TypeError);
+    await expect(service.schedule('bad', [])).rejects.toThrow(TypeError);
+    await expect(service.schedule('bad', '   ')).rejects.toThrow(TypeError);
+    await expect(service.schedule('bad', 'not-a-priority')).rejects.toThrow(TypeError);
   });
 
-  it('emits lifecycle events for successful tasks', async () => {
-    let queuedId = null;
-    const { service, events } = createSchedulerHarness({}, (event, payload) => {
-      if (event === 'scheduler.task.queued') {
-        queuedId = payload.id;
-      }
-    });
+  it('cancel() cancels queued tasks, cannot cancel running tasks, and rejects invalid ids', async () => {
+    const { service, events, immediateQueue } = createSchedulerHarness({ maxConcurrent: 0 });
+    const queuedPromise = service.schedule(() => 'value', TaskPriority.HIGH);
+    const queuedPayload = events.emit.mock.calls.find(([event]) => event === 'scheduler.task.queued')?.[1];
 
-    const result = await service.schedule(() => 'done', TaskPriority.HIGH);
-
-    expect(result).toBe('done');
-
-    const queuedCall = events.emit.mock.calls.find(([event]) => event === 'scheduler.task.queued');
-    const startCall = events.emit.mock.calls.find(([event]) => event === 'scheduler.task.start');
-    const completeCall = events.emit.mock.calls.find(([event]) => event === 'scheduler.task.complete');
-
-    expect(queuedCall).toBeTruthy();
-    expect(startCall).toBeTruthy();
-    expect(completeCall).toBeTruthy();
-    expect(queuedCall[1]).toMatchObject({ id: queuedId, priority: TaskPriority.HIGH });
-    expect(startCall[1]).toMatchObject({ id: queuedId, priority: TaskPriority.HIGH });
-    expect(completeCall[1]).toMatchObject({ id: queuedId });
-  });
-
-  it('executes higher priority tasks first', async () => {
-    const { service } = createSchedulerHarness({ maxConcurrent: 1 });
-    const order = [];
-
-    const lowTask = () => {
-      order.push('low');
-      return 'low';
-    };
-    const criticalTask = () => {
-      order.push('critical');
-      return 'critical';
-    };
-
-    const lowPromise = service.schedule(lowTask, TaskPriority.LOW);
-    const criticalPromise = service.schedule(criticalTask, TaskPriority.CRITICAL);
-
-    await Promise.all([lowPromise, criticalPromise]);
-
-    expect(order[0]).toBe('critical');
-    expect(order[1]).toBe('low');
-  });
-
-  it('limits concurrency during rapid consecutive scheduling', async () => {
-    const deferreds = [createDeferred(), createDeferred(), createDeferred()];
-    let running = 0;
-    let maxRunning = 0;
-    const started = [];
-
-    const { service } = createSchedulerHarness(
-      { maxConcurrent: 2, defaultTimeout: 1000 },
-      (event, payload) => {
-        if (event === 'scheduler.task.start') {
-          running += 1;
-          maxRunning = Math.max(maxRunning, running);
-          started.push(payload.id);
-        }
-        if (event === 'scheduler.task.complete' || event === 'scheduler.task.error') {
-          running -= 1;
-        }
-      }
-    );
-
-    const promises = deferreds.map((deferred) => service.schedule(() => deferred.promise));
-
-    await flushImmediate();
-    expect(maxRunning).toBe(2);
-    expect(started.length).toBe(2);
-
-    deferreds[0].resolve('a');
-    deferreds[1].resolve('b');
-    await flushImmediate();
-    await flushImmediate();
-    expect(started.length).toBe(3);
-    expect(maxRunning).toBe(2);
-
-    deferreds[2].resolve('c');
-    await Promise.all(promises);
-    expect(maxRunning).toBe(2);
-  });
-
-  it('reports queue lengths by priority and handles type boundaries', async () => {
-    const { service } = createSchedulerHarness({ maxConcurrent: 2 });
-
-    const lowPromise = service.schedule(() => 'low', TaskPriority.LOW);
-    const highPromise = service.schedule(() => 'high', TaskPriority.HIGH);
-    const normalPromise = service.schedule(() => 'normal', '1');
-
-    expect(service.getQueueLength()).toBe(3);
-    expect(service.getQueueLength(TaskPriority.LOW)).toBe(1);
+    expect(queuedPayload).toEqual({ id: expect.any(Number), priority: TaskPriority.HIGH });
     expect(service.getQueueLength(TaskPriority.HIGH)).toBe(1);
-    expect(service.getQueueLength('1')).toBe(1);
-    expect(service.getQueueLength({})).toBe(0);
+    expect(service.getQueueLength()).toBe(1);
+    expect(service.getStatus()).toEqual({ running: 0, queued: 1, maxConcurrent: 0 });
 
-    await Promise.all([lowPromise, highPromise, normalPromise]);
+    expect(service.cancel(queuedPayload.id)).toBe(true);
+    expect(service.getQueueLength()).toBe(0);
+    expect(events.emit).toHaveBeenCalledWith('scheduler.task.cancelled', { id: queuedPayload.id });
+    await expect(queuedPromise).rejects.toThrow('Task cancelled');
+
+    const boundaryIds = [null, undefined, '', '   ', [], {}, 0, -1, Number.MAX_SAFE_INTEGER, '123', { 0: 'a', length: 1 }];
+    for (const value of boundaryIds) {
+      expect(service.cancel(value)).toBe(false);
+    }
+
+    const runningTask = createDeferred();
+    const runningHarness = createSchedulerHarness({ maxConcurrent: 1, defaultTimeout: 1000 });
+    const runningPromise = runningHarness.service.schedule(() => runningTask.promise);
+    const runningId = runningHarness.events.emit.mock.calls.find(([event]) => event === 'scheduler.task.queued')?.[1]?.id;
+
+    await drainImmediates(runningHarness.immediateQueue);
+    expect(runningHarness.service.getStatus()).toEqual({ running: 1, queued: 0, maxConcurrent: 1 });
+    expect(runningHarness.service.cancel(runningId)).toBe(false);
+
+    runningTask.resolve('ok');
+    await flushMicrotasks();
+    await drainImmediates(runningHarness.immediateQueue);
+    await expect(runningPromise).resolves.toBe('ok');
+
+    await drainImmediates(immediateQueue);
   });
 
-  it('reports running and queued counts accurately', async () => {
-    const first = createDeferred();
-    const second = createDeferred();
-    const { service } = createSchedulerHarness({ maxConcurrent: 1, defaultTimeout: 1000 });
-
-    const firstPromise = service.schedule(() => first.promise);
-    const secondPromise = service.schedule(() => second.promise);
-
-    await flushImmediate();
-    expect(service.getStatus()).toEqual({ running: 1, queued: 1, maxConcurrent: 1 });
-
-    first.resolve('one');
-    await flushImmediate();
-    expect(service.getStatus()).toEqual({ running: 1, queued: 0, maxConcurrent: 1 });
-
-    second.resolve('two');
-    await Promise.all([firstPromise, secondPromise]);
-    await flushImmediate();
-    expect(service.getStatus()).toEqual({ running: 0, queued: 0, maxConcurrent: 1 });
-  });
-
-  it('cancels queued tasks and returns false for missing/running tasks', async () => {
-    let queuedId = null;
-    const { service, events } = createSchedulerHarness({ maxConcurrent: 1 }, (event, payload) => {
-      if (event === 'scheduler.task.queued') {
-        queuedId = payload.id;
-      }
+  it('rejects and emits errors when tasks throw or reject', async () => {
+    const errors = [];
+    const { service, state, immediateQueue } = createSchedulerHarness({ defaultTimeout: 1000 }, (event, payload) => {
+      if (event === 'scheduler.task.error') errors.push(payload.error);
     });
 
-    const promise = service.schedule(() => 'value');
-    expect(service.cancel(queuedId)).toBe(true);
-    await expect(promise).rejects.toThrow('Task cancelled');
-
-    const cancelCall = events.emit.mock.calls.find(([event]) => event === 'scheduler.task.cancelled');
-    expect(cancelCall).toBeTruthy();
-    expect(cancelCall[1]).toEqual({ id: queuedId });
-    expect(service.getQueueLength()).toBe(0);
-
-    const runningDeferred = createDeferred();
-    const runningPromise = service.schedule(() => runningDeferred.promise);
-
-    await flushImmediate();
-    expect(service.cancel(queuedId)).toBe(false);
-    expect(service.cancel(12345)).toBe(false);
-
-    runningDeferred.resolve('ok');
-    await expect(runningPromise).resolves.toBe('ok');
-  });
-
-  it('rejects and emits errors when tasks throw', async () => {
-    const { service, events, state } = createSchedulerHarness();
-
-    const promise = service.schedule(() => {
+    const syncThrow = service.schedule(() => {
       throw new Error('boom');
     });
+    await drainImmediates(immediateQueue);
+    await expect(syncThrow).rejects.toThrow('boom');
 
-    await expect(promise).rejects.toThrow('boom');
+    const asyncReject = service.schedule(() => Promise.reject(new Error('nope')));
+    await drainImmediates(immediateQueue);
+    await expect(asyncReject).rejects.toThrow('nope');
 
-    const errorCall = events.emit.mock.calls.find(([event]) => event === 'scheduler.task.error');
-    expect(errorCall).toBeTruthy();
-    expect(errorCall[1]).toMatchObject({ error: 'boom' });
+    expect(errors).toContain('boom');
+    expect(errors).toContain('nope');
     expect(state.get('running')).toBe(0);
   });
 
-  it('times out long-running tasks and emits errors', async () => {
+  it('times out long-running tasks and emits scheduler.task.error', async () => {
     vi.useFakeTimers();
-    const { service, events, state } = createSchedulerHarness({ defaultTimeout: 10 });
+    const errors = [];
+    const { service, state, immediateQueue } = createSchedulerHarness({ defaultTimeout: 10 }, (event, payload) => {
+      if (event === 'scheduler.task.error') errors.push(payload.error);
+    });
 
     const promise = service.schedule(() => new Promise(() => {}));
+    const rejection = expect(promise).rejects.toThrow('Task timeout');
+    await drainImmediates(immediateQueue);
 
-    await vi.runAllTimersAsync();
-    await expect(promise).rejects.toThrow('Task timeout');
+    await vi.advanceTimersByTimeAsync(11);
+    await flushMicrotasks();
+    await drainImmediates(immediateQueue);
 
-    const errorCall = events.emit.mock.calls.find(([event]) => event === 'scheduler.task.error');
-    expect(errorCall).toBeTruthy();
-    expect(errorCall[1]).toMatchObject({ error: 'Task timeout' });
+    await rejection;
+    expect(errors).toContain('Task timeout');
     expect(state.get('running')).toBe(0);
+
+    vi.useRealTimers();
   });
 });

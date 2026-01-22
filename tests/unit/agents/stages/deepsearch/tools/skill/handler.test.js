@@ -2,7 +2,7 @@
  * @file tests/unit/agents/stages/deepsearch/tools/skill/handler.test.js
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const loadSkills = vi.fn();
 const loadSkillFromPath = vi.fn();
@@ -20,14 +20,10 @@ const ORIGINAL_PROCESS = globalThis.process;
 const loadModule = async () => import(MODULE_PATH);
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   vi.resetModules();
   loadSkills.mockReset();
   loadSkillFromPath.mockReset();
-  globalThis.process = ORIGINAL_PROCESS;
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
   globalThis.process = ORIGINAL_PROCESS;
 });
 
@@ -35,26 +31,28 @@ describe("definition", () => {
   it("exposes the expected metadata", async () => {
     const { definition } = await loadModule();
 
-    expect(definition.name).toBe("skill");
+    expect(definition).toMatchObject({
+      name: "skill",
+      description: expect.any(String),
+    });
     expect(definition.description).toContain("执行一个 Skill");
+    expect(definition.description).toContain("SKILL.md");
   });
 });
 
 describe("handler", () => {
-  it.each([
-    ["undefined", undefined],
-    ["null", null],
-    ["empty string", ""],
-    ["zero", 0],
-  ])("returns error when name is %s", async (_label, name) => {
+  it("returns error when name is missing (undefined/null/empty/0)", async () => {
     const { handler } = await loadModule();
+    const cases = [undefined, null, "", 0];
 
-    const result = await handler({ name }, { stageApi: { cwd: "/tmp" } });
+    for (const name of cases) {
+      const result = await handler({ name }, { stageApi: { cwd: "/tmp" } });
 
-    expect(result).toEqual({
-      success: false,
-      error: "缺少参数: name",
-    });
+      expect(result).toEqual({
+        success: false,
+        error: "缺少参数: name",
+      });
+    }
   });
 
   it("returns error when args is an empty object", async () => {
@@ -66,6 +64,31 @@ describe("handler", () => {
       success: false,
       error: "缺少参数: name",
     });
+  });
+
+  it("returns error when args is an empty array (type boundary)", async () => {
+    const { handler } = await loadModule();
+
+    const result = await handler([], { stageApi: { cwd: "/tmp" } });
+
+    expect(result).toEqual({
+      success: false,
+      error: "缺少参数: name",
+    });
+  });
+
+  it("throws when args is null or undefined (type boundary)", async () => {
+    const { handler } = await loadModule();
+
+    await expect(handler(null, { stageApi: { cwd: "/tmp" } })).rejects.toBeInstanceOf(TypeError);
+    await expect(handler(undefined, { stageApi: { cwd: "/tmp" } })).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it("throws when context is null or undefined (type boundary)", async () => {
+    const { handler } = await loadModule();
+
+    await expect(handler({ name: "Alpha" }, null)).rejects.toBeInstanceOf(TypeError);
+    await expect(handler({ name: "Alpha" }, undefined)).rejects.toBeInstanceOf(TypeError);
   });
 
   it("returns error when cwd is missing", async () => {
@@ -82,6 +105,49 @@ describe("handler", () => {
       error:
         "当前环境无法加载 Skill（缺少 cwd）。请在 Node 环境中提供 stageApi.cwd。",
     });
+  });
+
+  it("returns error when process.cwd returns an empty string", async () => {
+    const { handler } = await loadModule();
+    globalThis.process = { cwd: () => "" };
+
+    const result = await handler({ name: "Alpha" }, {});
+
+    expect(result).toEqual({
+      success: false,
+      error:
+        "当前环境无法加载 Skill（缺少 cwd）。请在 Node 环境中提供 stageApi.cwd。",
+    });
+  });
+
+  it("uses process.cwd when stageApi.cwd is missing (null/undefined)", async () => {
+    loadSkills.mockResolvedValue({
+      skills: [{ body: "Body", metadata: { name: "Alpha" } }],
+    });
+    const cwdSpy = vi.spyOn(globalThis.process, "cwd").mockReturnValue("/process-cwd");
+    const { handler } = await loadModule();
+
+    const resultUndefined = await handler({ name: "Alpha" }, {});
+    const resultNull = await handler({ name: "Alpha" }, { stageApi: null });
+
+    expect(cwdSpy).toHaveBeenCalledTimes(2);
+    expect(loadSkills).toHaveBeenCalledWith({ cwd: "/process-cwd" });
+    expect(resultUndefined.success).toBe(true);
+    expect(resultNull.success).toBe(true);
+  });
+
+  it("prefers stageApi.cwd over process.cwd", async () => {
+    loadSkills.mockResolvedValue({
+      skills: [{ body: "Body", metadata: { name: "Alpha" } }],
+    });
+    const cwdSpy = vi.spyOn(globalThis.process, "cwd").mockReturnValue("/process-cwd");
+    const { handler } = await loadModule();
+
+    const result = await handler({ name: "Alpha" }, { stageApi: { cwd: "/stage-cwd" } });
+
+    expect(cwdSpy).not.toHaveBeenCalled();
+    expect(loadSkills).toHaveBeenCalledWith({ cwd: "/stage-cwd" });
+    expect(result.success).toBe(true);
   });
 
   it("returns available list when skill is not found (whitespace name)", async () => {
@@ -146,6 +212,24 @@ describe("handler", () => {
     });
   });
 
+  it("does not call loadSkillFromPath when cached body is present", async () => {
+    loadSkills.mockResolvedValue({
+      skills: [
+        {
+          body: "Body",
+          metadata: { name: "Alpha", path: "/path", scope: "global" },
+        },
+      ],
+    });
+    const { handler } = await loadModule();
+
+    const result = await handler({ name: "Alpha" }, { stageApi: { cwd: "/tmp" } });
+
+    expect(loadSkillFromPath).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.body).toBe("Body");
+  });
+
   it("loads body from path when missing and preserves deep metadata", async () => {
     const longBody = "A".repeat(100000);
     const deepKeywords = {
@@ -186,9 +270,28 @@ describe("handler", () => {
 
     expect(loadSkillFromPath).toHaveBeenCalledWith("/skills/deep", "local");
     expect(result.success).toBe(true);
+    expect(result.skill).toBe("DeepSkill");
     expect(result.body).toBe(longBody);
     expect(result.allowedTools).toEqual([]);
     expect(result.metadata.keywords).toEqual(deepKeywords);
+  });
+
+  it("returns error when loadSkillFromPath returns a non-string body (type boundary)", async () => {
+    loadSkills.mockResolvedValue({
+      skills: [
+        {
+          body: "",
+          metadata: { name: "Alpha", path: "/path", scope: "global" },
+        },
+      ],
+    });
+    loadSkillFromPath.mockResolvedValue({ body: { not: "a string" } });
+    const { handler } = await loadModule();
+
+    const result = await handler({ name: "Alpha" }, { stageApi: { cwd: "/tmp" } });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Skill "Alpha" loaded but body is empty');
   });
 
   it("returns error when loadSkillFromPath fails and body is empty", async () => {
@@ -250,6 +353,8 @@ describe("handler", () => {
   it.each([
     ["-1", -1],
     ["max safe integer", Number.MAX_SAFE_INTEGER],
+    ["empty array", []],
+    ["empty object", {}],
   ])("returns error for non-string name %s", async (_label, name) => {
     loadSkills.mockResolvedValue({
       skills: [{ body: "Body", metadata: { name: "Alpha" } }],
@@ -270,6 +375,18 @@ describe("handler", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("find is not a function");
+  });
+
+  it("returns error when a skill entry is missing metadata.name (type boundary)", async () => {
+    loadSkills.mockResolvedValue({
+      skills: [{ body: "Body", metadata: {} }],
+    });
+    const { handler } = await loadModule();
+
+    const result = await handler({ name: "Alpha" }, { stageApi: { cwd: "/tmp" } });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("toLowerCase");
   });
 
   it("handles concurrent calls", async () => {
@@ -306,6 +423,21 @@ describe("handler", () => {
     const second = await handler({ name: "Alpha" }, { stageApi: { cwd: "/tmp" } });
 
     expect(loadSkills).toHaveBeenCalledTimes(1);
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+  });
+
+  it("refreshes cached skills after TTL expiry", async () => {
+    vi.spyOn(Date, "now").mockReturnValueOnce(0).mockReturnValueOnce(60001);
+    loadSkills.mockResolvedValue({
+      skills: [{ body: "Body", metadata: { name: "Alpha" } }],
+    });
+    const { handler } = await loadModule();
+
+    const first = await handler({ name: "Alpha" }, { stageApi: { cwd: "/tmp" } });
+    const second = await handler({ name: "Alpha" }, { stageApi: { cwd: "/tmp" } });
+
+    expect(loadSkills).toHaveBeenCalledTimes(2);
     expect(first.success).toBe(true);
     expect(second.success).toBe(true);
   });

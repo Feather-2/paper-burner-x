@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let createdLoggers = [];
 
-vi.mock("../../../../../../js/agents/shared/index.js", () => {
+vi.mock('../../../../../../js/agents/shared/index.js', () => {
   return {
     isPlainObject: vi.fn((value) => {
       if (!value || typeof value !== "object") return false;
@@ -38,7 +38,7 @@ vi.mock("../../../../../../js/agents/shared/index.js", () => {
   };
 });
 
-vi.mock("../../../../../../js/agents/runtime/events/events.js", () => {
+vi.mock('../../../../../../js/agents/runtime/events/events.js', () => {
   return {
     CicadaEvents: {
       LAYER_COMPLETED: "cicada.layer.completed",
@@ -47,17 +47,14 @@ vi.mock("../../../../../../js/agents/runtime/events/events.js", () => {
   };
 });
 
-const modulePath = "../../../../../../js/agents/plugins/compression/impl/cicada-compressor.js";
-const sharedPath = "../../../../../../js/agents/shared/index.js";
+const modulePath = '../../../../../../js/agents/plugins/compression/impl/cicada-compressor.js';
+const sharedPath = '../../../../../../js/agents/shared/index.js';
 
 beforeEach(() => {
   createdLoggers = [];
+  vi.useRealTimers();
   vi.clearAllMocks();
   vi.resetModules();
-});
-
-afterEach(() => {
-  vi.useRealTimers();
 });
 
 describe("CompressionLayer", () => {
@@ -70,6 +67,21 @@ describe("CompressionLayer", () => {
       LLM_SUMMARY: "llm_summary",
     });
     expect(Object.isFrozen(CompressionLayer)).toBe(true);
+
+    // Mutation attempts should not change the frozen object
+    // (avoid relying on strict-mode throw behavior).
+    try {
+      CompressionLayer.TOOL_OUTPUT = "mutated";
+      // eslint-disable-next-line no-empty
+    } catch {}
+    expect(CompressionLayer.TOOL_OUTPUT).toBe("tool_output");
+  });
+});
+
+describe("default export", () => {
+  it("exports default as CicadaCompressor", async () => {
+    const module = await import(modulePath);
+    expect(module.default).toBe(module.CicadaCompressor);
   });
 });
 
@@ -95,11 +107,10 @@ describe("CicadaCompressor", () => {
 
     const negative = new CicadaCompressor({ maxTokens: -1 });
     expect(negative.maxTokens).toBe(-1);
-  });
 
-  it("exports default as CicadaCompressor", async () => {
-    const module = await import(modulePath);
-    expect(module.default).toBe(module.CicadaCompressor);
+    const stringTokens = new CicadaCompressor({ maxTokens: "42" });
+    const defaultTokens = new CicadaCompressor();
+    expect(stringTokens.maxTokens).toBe(defaultTokens.maxTokens);
   });
 
   it("compresses tool outputs with long strings, deep nesting, trimming, and dangerous keys", async () => {
@@ -156,6 +167,45 @@ describe("CicadaCompressor", () => {
     expect(stats.removedFields).toBeGreaterThan(0);
     expect(stats.trimmedArrays).toBeGreaterThan(0);
     expect(stats.trimmedObjects).toBeGreaterThan(0);
+  });
+
+  it("compressToolOutput removes __proto__/prototype and prevents prototype pollution", async () => {
+    const { CicadaCompressor } = await import(modulePath);
+    const compressor = new CicadaCompressor();
+
+    const payload = Object.create(null);
+    payload.tool = "t";
+    payload.output = "ok";
+    payload.__proto__ = { polluted: true };
+    payload.prototype = { polluted: true };
+
+    const { compressed } = compressor._compressToolOutput(
+      { toolOutputs: [payload] },
+      { maxToolOutputChars: 50, maxToolOutputDepth: 5, maxToolOutputItems: 5 }
+    );
+
+    expect(compressed.toolOutputs).toHaveLength(1);
+    expect(Object.prototype.polluted).toBeUndefined();
+    expect("__proto__" in compressed.toolOutputs[0]).toBe(false);
+    expect("prototype" in compressed.toolOutputs[0]).toBe(false);
+  });
+
+  it("compressToolOutput prefers the first available tool key variant", async () => {
+    const { CicadaCompressor } = await import(modulePath);
+    const compressor = new CicadaCompressor();
+
+    const { compressed } = compressor._compressToolOutput(
+      {
+        toolOutputs: {},
+        tool_outputs: [{ output: "abcdef" }],
+        toolOutput: [{ output: "should not be used" }],
+      },
+      { maxToolOutputChars: 3 }
+    );
+
+    expect(compressed.toolOutputs).toEqual({});
+    expect(compressed.tool_outputs).toEqual([{ output: "abc" }]);
+    expect(compressed.toolOutput).toEqual([{ output: "should not be used" }]);
   });
 
   it("compressToolOutput handles null/undefined/empty inputs and non-array shapes", async () => {
@@ -242,6 +292,26 @@ describe("CicadaCompressor", () => {
     expect(compressed.sessionSummary).toContain("Prior summary");
     expect(compressed.sessionSummary).toContain("assistant: Hello World");
     expect(compressed.sessionSummary).toContain("system: [Context Summary]");
+  });
+
+  it("does not merge messages carrying extra fields (to avoid metadata loss)", async () => {
+    const { CicadaCompressor } = await import(modulePath);
+    const compressor = new CicadaCompressor({ layers: ["session_history"] });
+
+    const { compressed, stats } = compressor._compressSessionHistory(
+      {
+        messages: [
+          { role: "assistant", content: "a1" },
+          { role: "assistant", content: "a2", meta: { keep: true } },
+          { role: "assistant", content: "a3" },
+        ],
+      },
+      { keepLastTurns: 10 }
+    );
+
+    expect(stats.mergedMessages).toBe(0);
+    expect(compressed.messages).toHaveLength(3);
+    expect(compressed.messages[1]).toMatchObject({ meta: { keep: true } });
   });
 
   it("summarizes thinking messages with decisions and enforces max chars", async () => {
@@ -533,6 +603,16 @@ describe("CicadaCompressor", () => {
     expect(eventBus.emit).toHaveBeenCalledTimes(4);
   });
 
+  it("compress() does not archive when stageKey/archiveKey is empty or whitespace", async () => {
+    const { CicadaCompressor, CompressionLayer } = await import(modulePath);
+    const compressor = new CicadaCompressor({ modelRouter: null });
+
+    const result = await compressor.compress({ messages: [] }, { stageKey: "   " });
+
+    expect(result.metadata.layersApplied).toEqual([CompressionLayer.TOOL_OUTPUT, CompressionLayer.SESSION_HISTORY]);
+    expect(result.metadata.archiveId).toBe(null);
+  });
+
   it("compress() skips llm_summary without router, wraps primitive context, and archives with empty summary", async () => {
     const shared = await import(sharedPath);
     shared.estimateTokensCached.mockReturnValue(0);
@@ -660,6 +740,31 @@ describe("CicadaCompressor", () => {
     const zeroLimit = new CicadaCompressor({ maxArchives: 0 });
     await zeroLimit.archive("k0", { timestamp: 1, summary: "x", metadata: {} });
     expect(await zeroLimit.restore("k0")).toMatchObject({ stageKey: "k0", summary: "x", timestamp: 1 });
+  });
+
+  it("listArchives respects limit=0 and preserves deterministic sorting by timestamp", async () => {
+    const { CicadaCompressor } = await import(modulePath);
+    const compressor = new CicadaCompressor({ maxArchives: Infinity });
+
+    await compressor.archive("t1", { timestamp: 2, summary: "two", metadata: {} });
+    await compressor.archive("t0", { timestamp: 1, summary: "one", metadata: {} });
+
+    const none = await compressor.listArchives({ limit: 0 });
+    expect(none).toEqual([]);
+
+    const list = await compressor.listArchives({ limit: 10 });
+    expect(list.map((e) => e.id)).toEqual(["t1", "t0"]);
+  });
+
+  it("_toTimestampMs handles null/undefined/whitespace and boundary numbers", async () => {
+    const { CicadaCompressor } = await import(modulePath);
+    const compressor = new CicadaCompressor();
+
+    expect(compressor._toTimestampMs(null)).toBe(null);
+    expect(compressor._toTimestampMs(undefined)).toBe(null);
+    expect(compressor._toTimestampMs("   ")).toBe(null);
+    expect(compressor._toTimestampMs(0)).toBe(0);
+    expect(compressor._toTimestampMs(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it("buildHandoff summarizes state todos and sharedContext data", async () => {

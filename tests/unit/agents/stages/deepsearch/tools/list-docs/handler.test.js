@@ -2,18 +2,19 @@
  * @file tests/unit/agents/stages/deepsearch/tools/list-docs/handler.test.js
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { SourceManagerMock, instances } = vi.hoisted(() => {
+const { SourceManagerMock, instances, defaultCtorImpl } = vi.hoisted(() => {
   const instances = [];
-  const SourceManagerMock = vi.fn().mockImplementation(function (sources) {
+  const defaultCtorImpl = function (sources) {
     this.initialSources = sources;
     this.syncSources = vi.fn();
     this.listSources = vi.fn(() => []);
     instances.push(this);
-  });
+  };
+  const SourceManagerMock = vi.fn().mockImplementation(defaultCtorImpl);
 
-  return { SourceManagerMock, instances };
+  return { SourceManagerMock, instances, defaultCtorImpl };
 });
 
 vi.mock("../../../../../../../js/agents/stages/deepsearch/source-manager.js", () => ({
@@ -73,7 +74,8 @@ const LONG_NAME = "x".repeat(10000);
 
 beforeEach(() => {
   instances.length = 0;
-  SourceManagerMock.mockClear();
+  SourceManagerMock.mockReset();
+  SourceManagerMock.mockImplementation(defaultCtorImpl);
 });
 
 describe("definition", () => {
@@ -94,6 +96,13 @@ describe("definition", () => {
 });
 
 describe("handler", () => {
+  it.each([
+    { label: "undefined", context: undefined },
+    { label: "null", context: null },
+  ])("rejects when context is $label", async ({ context }) => {
+    await expect(handler({}, context)).rejects.toThrow(TypeError);
+  });
+
   it("lists documents and emits event", async () => {
     const sources = [{ id: "raw-1" }];
     const docs = [
@@ -183,6 +192,26 @@ describe("handler", () => {
     });
   });
 
+  it("creates a new manager when provided sourceManager is not an instance", async () => {
+    const docs = [{ sourceId: "s1", name: "From Mock", size: 1 }];
+    setupNextInstance({ listSources: docs });
+
+    const fakeManager = {
+      syncSources: vi.fn(),
+      listSources: vi.fn(() => [{ sourceId: "ignored", name: "ignored", size: 999 }]),
+    };
+
+    const emit = vi.fn();
+    const sources = [{ id: "state-source" }];
+    const result = await handler({}, { state: { L0: { sources } }, emit, sourceManager: fakeManager });
+
+    expect(SourceManagerMock).toHaveBeenCalledTimes(1);
+    expect(fakeManager.syncSources).not.toHaveBeenCalled();
+    expect(fakeManager.listSources).not.toHaveBeenCalled();
+    expect(emit).toHaveBeenCalledWith("deepsearch.docs.listed", { count: 1 });
+    expect(result).toEqual({ success: true, count: 1, docs });
+  });
+
   it("uses provided sourceManager instance", async () => {
     const docs = [{ sourceId: "s1", name: "Doc A", size: 5 }];
     const manager = createManager({ listSources: docs });
@@ -200,6 +229,41 @@ describe("handler", () => {
     expect(manager.syncSources).toHaveBeenCalledWith(sources);
     expect(manager.listSources).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ success: true, count: 1, docs });
+  });
+
+  it("propagates SourceManager constructor errors", async () => {
+    const error = new Error("ctor failure");
+    SourceManagerMock.mockImplementationOnce(function () {
+      throw error;
+    });
+
+    const emit = vi.fn();
+    await expect(handler({}, { state: { L0: { sources: [] } }, emit })).rejects.toThrow("ctor failure");
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("rejects when emit is non-callable but defined", async () => {
+    setupNextInstance({ listSources: [] });
+
+    const emit = {};
+    await expect(handler({}, { state: { L0: { sources: [] } }, emit })).rejects.toThrow(TypeError);
+    expect(instances[0].listSources).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects when listSources returns a non-array value", async () => {
+    setupNextInstance({ listSources: {} });
+
+    const emit = vi.fn();
+    await expect(handler({}, { state: { L0: { sources: [] } }, emit })).rejects.toThrow(TypeError);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("rejects when listSources contains a null entry", async () => {
+    setupNextInstance({ listSources: [null] });
+
+    const emit = vi.fn();
+    await expect(handler({}, { state: { L0: { sources: [] } }, emit })).rejects.toThrow(TypeError);
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it("handles concurrent calls", async () => {

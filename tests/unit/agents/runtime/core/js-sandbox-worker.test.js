@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const fixtures = vi.hoisted(() => ({
-  getLargeString: vi.fn(() => 'X'.repeat(20000)),
+  getLargeString: vi.fn((length = 100000) => 'X'.repeat(length)),
   getDeepState: vi.fn((depth = 40) => {
     let node = { value: 'leaf' };
     for (let i = 0; i < depth; i += 1) {
@@ -19,15 +19,18 @@ const MODULE_PATH = '../../../../../js/agents/runtime/core/js-sandbox-worker.js'
 
 let restoreSelf = null;
 
-async function setupWorker({ postMessageImpl } = {}) {
+async function setupWorker(options = {}) {
+  const { postMessageImpl, selfOverrides } = options;
   if (restoreSelf) {
     restoreSelf();
     restoreSelf = null;
   }
 
   const originalSelf = globalThis.self;
-  const postMessage = postMessageImpl ?? vi.fn();
-  const selfStub = { postMessage };
+  const postMessage = Object.prototype.hasOwnProperty.call(options, 'postMessageImpl')
+    ? postMessageImpl
+    : vi.fn();
+  const selfStub = { ...(selfOverrides ?? {}), postMessage };
   globalThis.self = selfStub;
 
   vi.resetModules();
@@ -70,6 +73,39 @@ afterEach(() => {
 });
 
 describe('self.onmessage', () => {
+  it('best-effort hardens high-risk Worker globals but still communicates with host', async () => {
+    const fetchMock = vi.fn();
+    const xhrMock = vi.fn();
+    const webSocketMock = vi.fn();
+    const importScriptsMock = vi.fn();
+
+    const { self, postMessage } = await setupWorker({
+      selfOverrides: {
+        fetch: fetchMock,
+        XMLHttpRequest: xhrMock,
+        WebSocket: webSocketMock,
+        importScripts: importScriptsMock,
+      },
+    });
+
+    expect(self.fetch).toBeUndefined();
+    expect(self.XMLHttpRequest).toBeUndefined();
+    expect(self.WebSocket).toBeUndefined();
+    expect(self.importScripts).toBeUndefined();
+    expect(self.postMessage).toBeUndefined();
+
+    await self.onmessage({
+      data: {
+        type: 'execute',
+        id: 'hardening',
+        code: 'return 1',
+      },
+    });
+
+    const messages = collectMessages(postMessage);
+    expect(findResult(messages, 'hardening')).toMatchObject({ success: true, data: 1 });
+  });
+
   it('ignores non-execute messages', async () => {
     const { self, postMessage } = await setupWorker();
 
@@ -145,34 +181,69 @@ describe('self.onmessage', () => {
     expect(result).toMatchObject({ success: true, data: 'done' });
   });
 
-  it('blocks unsafe patterns before execution', async () => {
+  it('provides sandboxed globalThis/self references without exposing host globals', async () => {
     const { self, postMessage } = await setupWorker();
 
     await self.onmessage({
       data: {
         type: 'execute',
-        id: 'blocked',
+        id: 'sandbox-global',
+        code: 'return globalThis === self && typeof globalThis.setTimeout === "undefined";',
+      },
+    });
+
+    const messages = collectMessages(postMessage);
+    expect(findResult(messages, 'sandbox-global')).toMatchObject({ success: true, data: true });
+  });
+
+  it('blocks unsafe patterns before execution (dynamic import)', async () => {
+    const { self, postMessage } = await setupWorker();
+
+    await self.onmessage({
+      data: {
+        type: 'execute',
+        id: 'blocked-import',
         code: 'return import("x")',
       },
     });
 
     const messages = collectMessages(postMessage);
-    const blocked = findAudit(messages, 'blocked', 'blocked');
+    const blocked = findAudit(messages, 'blocked-import', 'blocked');
     expect(blocked).toMatchObject({
       type: 'audit',
-      id: 'blocked',
+      id: 'blocked-import',
       event: 'blocked',
     });
     expect(blocked.payload.reason).toMatch(/Blocked pattern/);
 
-    const result = findResult(messages, 'blocked');
+    const result = findResult(messages, 'blocked-import');
     expect(result).toMatchObject({
       type: 'result',
-      id: 'blocked',
+      id: 'blocked-import',
       success: false,
     });
     expect(result.error).toMatch(/Security: Blocked pattern/);
     expect(result.metrics.blocked).toBe(true);
+  });
+
+  it('blocks unsafe patterns before execution (constructor.constructor)', async () => {
+    const { self, postMessage } = await setupWorker();
+
+    await self.onmessage({
+      data: {
+        type: 'execute',
+        id: 'blocked-ctor-chain',
+        code: 'return constructor.constructor("return 1")()',
+      },
+    });
+
+    const messages = collectMessages(postMessage);
+    const result = findResult(messages, 'blocked-ctor-chain');
+    expect(result).toMatchObject({ success: false });
+    expect(result.error).toMatch(/Security: Blocked pattern/);
+
+    const blocked = findAudit(messages, 'blocked-ctor-chain', 'blocked');
+    expect(blocked.payload.reason).toMatch(/constructor/);
   });
 
   it('hides blocked globals and records accesses', async () => {
@@ -200,6 +271,48 @@ describe('self.onmessage', () => {
     expect(end.payload.blockedGlobals).not.toContain('notReal');
   });
 
+  it('prevents setting blocked globals (set trap) and records audit data', async () => {
+    const { self, postMessage } = await setupWorker();
+
+    await self.onmessage({
+      data: {
+        type: 'execute',
+        id: 'blocked-set',
+        code: 'fetch = 123; return typeof fetch;',
+      },
+    });
+
+    const messages = collectMessages(postMessage);
+    expect(findResult(messages, 'blocked-set')).toMatchObject({ success: true, data: 'undefined' });
+
+    const end = findAudit(messages, 'blocked-set', 'end');
+    expect(end.payload.blockedGlobals).toEqual(expect.arrayContaining(['fetch']));
+  });
+
+  it('prevents defining blocked globals (defineProperty trap) and reports errors', async () => {
+    const { self, postMessage } = await setupWorker();
+
+    await self.onmessage({
+      data: {
+        type: 'execute',
+        id: 'blocked-define',
+        code: `
+          "use strict";
+          Object.defineProperty(self, "fetch", { value: 1 });
+          return "unreachable";
+        `,
+      },
+    });
+
+    const messages = collectMessages(postMessage);
+    const result = findResult(messages, 'blocked-define');
+    expect(result).toMatchObject({ success: false });
+    expect(result.error).toMatch(/fetch|defineProperty/i);
+
+    const end = findAudit(messages, 'blocked-define', 'end');
+    expect(end.payload.blockedGlobals).toEqual(expect.arrayContaining(['fetch']));
+  });
+
   it('reports runtime errors', async () => {
     const { self, postMessage } = await setupWorker();
 
@@ -217,6 +330,24 @@ describe('self.onmessage', () => {
 
     const end = findAudit(messages, 'boom', 'end');
     expect(end).toBeTruthy();
+  });
+
+  it('does not crash if host postMessage throws', async () => {
+    const throwingPostMessage = vi.fn(() => {
+      throw new Error('postMessage failed');
+    });
+
+    const { self } = await setupWorker({ postMessageImpl: throwingPostMessage });
+
+    await expect(
+      self.onmessage({
+        data: {
+          type: 'execute',
+          id: 'postMessage-throws',
+          code: 'return 1',
+        },
+      })
+    ).resolves.toBeUndefined();
   });
 
   it('times out long-running code', async () => {
@@ -278,6 +409,13 @@ describe('self.onmessage', () => {
       { id: 'empty-code', code: '', state: {}, globals: null, expected: undefined },
       { id: 'whitespace-code', code: '   ', state: {}, globals: [], expected: undefined },
       {
+        id: 'primitive-state',
+        code: 'return Object.keys(state).length',
+        state: 0,
+        globals: {},
+        expected: 0,
+      },
+      {
         id: 'array-state',
         code: 'return Array.isArray(state) && state.length === 0',
         state: [],
@@ -297,6 +435,13 @@ describe('self.onmessage', () => {
         state: { 0: 'x', length: 1 },
         globals: {},
         expected: false,
+      },
+      {
+        id: 'object-as-array',
+        code: 'return Array.isArray(items) ? items.length : -1',
+        state: {},
+        globals: { items: {} },
+        expected: -1,
       },
     ];
 
@@ -322,7 +467,7 @@ describe('self.onmessage', () => {
   it('handles large code, long strings, and deep nested state', async () => {
     const { self, postMessage } = await setupWorker();
 
-    const large = getLargeString();
+    const large = getLargeString(100000);
     const depth = 60;
     const deep = getDeepState(depth);
     const code = `/*${large}*/

@@ -5,6 +5,15 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const makeSecureTimestampedIdMock = vi.hoisted(() => {
+    let seq = 0;
+    const fn = vi.fn((prefix = 'id') => `${prefix}_fixed_${seq++}`);
+    fn.__reset = () => {
+        seq = 0;
+    };
+    return fn;
+});
+
 vi.mock('../../../../../js/agents/plugins/policy/match.js', async () => {
     const actual = await vi.importActual('../../../../../js/agents/plugins/policy/match.js');
     return {
@@ -18,7 +27,9 @@ vi.mock('../../../../../js/agents/shared/index.js', async () => {
     const actual = await vi.importActual('../../../../../js/agents/shared/index.js');
     return {
         ...actual,
-        makeSecureTimestampedId: vi.fn((prefix = 'id') => `${prefix}_fixed`),
+        makeSecureTimestampedId: makeSecureTimestampedIdMock,
+        isPlainObject: vi.fn(actual.isPlainObject),
+        toNonEmptyString: vi.fn(actual.toNonEmptyString),
     };
 });
 
@@ -26,7 +37,9 @@ import PolicyEngineDefault, { PolicyEngine as PolicyEngineNamed } from '../../..
 import { makeSecureTimestampedId } from '../../../../../js/agents/shared/index.js';
 
 beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
+    makeSecureTimestampedIdMock.__reset();
 });
 
 describe('default export', () => {
@@ -37,6 +50,12 @@ describe('default export', () => {
 
 describe('PolicyEngine', () => {
     describe('constructor', () => {
+        it('defaults to prompt and empty rules', () => {
+            const engine = new PolicyEngineNamed();
+            expect(engine.defaultEffect).toBe('prompt');
+            expect(engine.getRules()).toEqual([]);
+        });
+
         it('normalizes rules, defaults, and uses generated ids', () => {
             const engine = new PolicyEngineNamed({
                 defaultEffect: 'deny',
@@ -73,7 +92,7 @@ describe('PolicyEngine', () => {
             expect(makeSecureTimestampedId).toHaveBeenCalledWith('rule');
 
             const [first, second] = rules;
-            expect(first.ruleId).toBe('rule_fixed');
+            expect(first.ruleId).toBe('rule_fixed_0');
             expect(first.effect).toBe('allow');
             expect(first.types).toEqual(['read']);
             expect(first.domainSuffixes).toEqual(['example.com']);
@@ -124,6 +143,22 @@ describe('PolicyEngine', () => {
             engine.setRules({});
             expect(engine.getRules()).toEqual([]);
         });
+
+        it('accepts invalid rule entries without throwing', () => {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date('2024-01-01T00:00:00.000Z'));
+
+            const engine = new PolicyEngineNamed();
+            expect(() => {
+                engine.setRules([null, undefined, 'rule', 0, Number.MAX_SAFE_INTEGER, [], {}]);
+            }).not.toThrow();
+
+            const rules = engine.getRules();
+            expect(rules).toHaveLength(7);
+            // Invalid entries normalize into rules with generated ids.
+            expect(rules.some((r) => r.ruleId === 'rule_fixed_0')).toBe(true);
+            expect(rules.some((r) => r.ruleId === 'rule_fixed_1')).toBe(true);
+        });
     });
 
     describe('getRules', () => {
@@ -155,6 +190,31 @@ describe('PolicyEngine', () => {
             }
         });
 
+        it('ignores disabled rules even if they match', () => {
+            const engine = new PolicyEngineNamed({
+                defaultEffect: 'deny',
+                rules: [{ id: 'disabled', effect: 'allow', type: 'read', enabled: false }],
+            });
+
+            const result = engine.evaluate({ type: 'read' });
+            expect(result).toEqual({
+                allowed: false,
+                requiresApproval: false,
+                effect: 'deny',
+                reason: 'default_deny',
+            });
+        });
+
+        it('ignores rules with invalid effects', () => {
+            const engine = new PolicyEngineNamed({
+                defaultEffect: 'deny',
+                rules: [{ id: 'bad-effect', effect: 'prompt', type: 'read' }],
+            });
+
+            const result = engine.evaluate({ type: 'read' });
+            expect(result.reason).toBe('default_deny');
+        });
+
         it('gives deny rules precedence over allow rules', () => {
             const engine = new PolicyEngineNamed({
                 rules: [
@@ -175,6 +235,15 @@ describe('PolicyEngine', () => {
                 effect: 'deny',
                 ruleId: 'deny',
                 reason: 'matched_deny_rule',
+            });
+        });
+
+        it('treats defaultEffect as case-sensitive', () => {
+            const engine = new PolicyEngineNamed({ defaultEffect: 'ALLOW' });
+            expect(engine.evaluate({ type: '0' })).toEqual({
+                allowed: false,
+                requiresApproval: true,
+                reason: 'no_matching_rule',
             });
         });
 
@@ -203,6 +272,72 @@ describe('PolicyEngine', () => {
                 requiresApproval: true,
                 reason: 'no_matching_rule',
             });
+        });
+
+        it('matches path patterns against resource when path is missing', () => {
+            const engine = new PolicyEngineNamed({
+                rules: [{ id: 'path-fallback', effect: 'allow', type: 'file', path: 'data/**' }],
+            });
+
+            const result = engine.evaluate({
+                type: 'file',
+                resource: 'data/nested/file.txt',
+            });
+            expect(result.allowed).toBe(true);
+            expect(result.ruleId).toBe('path-fallback');
+        });
+
+        it('supports toolPattern/resourcePattern/paths aliases', () => {
+            const engine = new PolicyEngineNamed({
+                rules: [
+                    {
+                        id: 'aliases',
+                        effect: 'allow',
+                        type: 'net',
+                        toolPattern: 'f*',
+                        resourcePattern: 'https://example.com/*',
+                        paths: ['data/**'],
+                    },
+                ],
+            });
+
+            const result = engine.evaluate({
+                type: 'net',
+                tool: 'fetch',
+                resource: 'https://example.com/data',
+                path: 'data/file.txt',
+            });
+
+            expect(result.allowed).toBe(true);
+            expect(result.ruleId).toBe('aliases');
+        });
+
+        it('matches host suffixes and URL heuristics without scheme', () => {
+            const engine = new PolicyEngineNamed({
+                defaultEffect: 'deny',
+                rules: [
+                    {
+                        id: 'host-suffix',
+                        effect: 'allow',
+                        type: 'net',
+                        hostSuffixes: ['example.com'],
+                        resource: '*',
+                    },
+                ],
+            });
+
+            const ok = engine.evaluate({
+                type: 'net',
+                resource: 'sub.example.com/path',
+            });
+            expect(ok.allowed).toBe(true);
+            expect(ok.ruleId).toBe('host-suffix');
+
+            const bad = engine.evaluate({
+                type: 'net',
+                resource: 'sub.example.com path',
+            });
+            expect(bad.reason).toBe('default_deny');
         });
 
         it('matches rules even when the type list is empty', () => {
@@ -253,9 +388,9 @@ describe('PolicyEngine', () => {
                         effect: 'allow',
                         type: 'network',
                         match: {
-                            all: [{ tool: 'fetch' }],
-                            any: ['https://example.com/*', { resource: 'https://example.org/*' }],
-                            not: [{ resource: 'https://example.com/private/*' }],
+                            allOf: [{ tool: 'fetch' }],
+                            anyOf: ['https://example.com/*', { resource: 'https://example.org/*' }],
+                            none: [{ resource: 'https://example.com/private/*' }],
                         },
                     },
                 ],
@@ -277,6 +412,43 @@ describe('PolicyEngine', () => {
             expect(blocked.allowed).toBe(false);
             expect(blocked.requiresApproval).toBe(true);
             expect(blocked.reason).toBe('no_matching_rule');
+        });
+
+        it('applies leaf semantics (AND) before nested match clauses', () => {
+            const engine = new PolicyEngineNamed({
+                defaultEffect: 'deny',
+                rules: [
+                    {
+                        id: 'leaf-and',
+                        effect: 'allow',
+                        type: 'network',
+                        match: {
+                            resource: 'https://example.com/*',
+                            anyOf: ['https://example.org/*'],
+                        },
+                    },
+                ],
+            });
+
+            const result = engine.evaluate({
+                type: 'network',
+                resource: 'https://example.org/data',
+            });
+            expect(result.reason).toBe('default_deny');
+        });
+
+        it('treats non-object match conditions as non-matches', () => {
+            const engine = new PolicyEngineNamed({
+                defaultEffect: 'deny',
+                rules: [{ id: 'bad-match', effect: 'allow', type: 'network', match: [] }],
+            });
+
+            const result = engine.evaluate({
+                type: 'network',
+                resource: 'https://example.com/data',
+            });
+
+            expect(result.reason).toBe('default_deny');
         });
 
         it('rejects empty any-lists in match conditions', () => {
@@ -325,6 +497,49 @@ describe('PolicyEngine', () => {
 
             expect(result.allowed).toBe(true);
             expect(result.ruleId).toBe('midnight');
+        });
+
+        it('supports wrap-around time ranges and numeric start/end minutes', () => {
+            const engine = new PolicyEngineNamed({
+                defaultEffect: 'deny',
+                rules: [
+                    {
+                        id: 'wrap',
+                        effect: 'allow',
+                        type: 'time',
+                        timeRange: { startMin: 22 * 60, endMin: 6 * 60, timezone: 'UTC' },
+                    },
+                ],
+            });
+
+            expect(engine.evaluate({ type: 'time', ts: '2024-01-01T23:00:00Z' }).allowed).toBe(true);
+            expect(engine.evaluate({ type: 'time', ts: '2024-01-02T05:00:00Z' }).allowed).toBe(true);
+            expect(engine.evaluate({ type: 'time', ts: '2024-01-01T12:00:00Z' }).reason).toBe('default_deny');
+        });
+
+        it('falls back to Date.now() when request.ts is invalid', () => {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date('2024-01-01T00:05:00.000Z'));
+
+            const engine = new PolicyEngineNamed({
+                defaultEffect: 'deny',
+                rules: [
+                    {
+                        id: 'now',
+                        effect: 'allow',
+                        type: 'time',
+                        timeRange: { start: '00:00', end: '00:10', timezone: 'UTC' },
+                    },
+                ],
+            });
+
+            const result = engine.evaluate({
+                type: 'time',
+                ts: 'not-a-date',
+            });
+
+            expect(result.allowed).toBe(true);
+            expect(result.ruleId).toBe('now');
         });
 
         it('treats invalid time ranges in match conditions as non-matches', () => {

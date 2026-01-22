@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const warnMock = vi.hoisted(() => vi.fn());
 const createLoggerMock = vi.hoisted(() =>
@@ -68,9 +68,31 @@ beforeEach(() => {
   createSafeRegexMock.mockImplementation((pattern, flags) => new RegExp(pattern, flags));
 });
 
+afterEach(() => {
+  // Ensure Date.now spies (and any future spies) don't leak across tests.
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
 describe("ToolQuotaManager", () => {
   it("exports default as the named class", () => {
     expect(ToolQuotaManager).toBe(NamedToolQuotaManager);
+  });
+
+  it("returns itself from setQuota for chaining and getAllStats returns a plain object snapshot", () => {
+    const manager = new ToolQuotaManager({ defaultMaxCalls: 2, defaultWindowMs: 1000 });
+
+    const returned = manager.setQuota("a", { maxCalls: 1, windowMs: 100 });
+    expect(returned).toBe(manager);
+
+    manager.setQuota("b", { maxCalls: 2, windowMs: 200 });
+    manager.tryCall("a");
+    manager.tryCall("b");
+
+    const all = manager.getAllStats();
+    expect(Object.keys(all).sort()).toEqual(["a", "b"]);
+    expect(all.a).toMatchObject({ toolName: "a", maxCalls: 1, windowMs: 100, current: 1 });
+    expect(all.b).toMatchObject({ toolName: "b", maxCalls: 2, windowMs: 200, current: 1 });
   });
 
   it("initializes quotas and uses defaults for missing config", () => {
@@ -145,6 +167,29 @@ describe("ToolQuotaManager", () => {
     clock.restore();
   });
 
+  it("triggers warning callback at exactly 80% usage but getHighUsageTools requires > 80%", () => {
+    const clock = makeNowController(0);
+    const onQuotaWarning = vi.fn();
+    const manager = new ToolQuotaManager({
+      defaultMaxCalls: 5,
+      defaultWindowMs: 1000,
+      onQuotaWarning,
+    });
+
+    // 4/5 == 0.8
+    for (let i = 0; i < 4; i += 1) manager.tryCall("edge");
+
+    expect(onQuotaWarning).toHaveBeenCalledTimes(1);
+    expect(onQuotaWarning.mock.calls[0][0]).toMatchObject({ toolName: "edge", usageRatio: 0.8 });
+    expect(manager.getHighUsageTools().map((t) => t.toolName)).toEqual([]);
+
+    manager.tryCall("edge"); // 5/5 == 1.0
+    expect(onQuotaWarning).toHaveBeenCalledTimes(2);
+    expect(manager.getHighUsageTools().map((t) => t.toolName)).toEqual(["edge"]);
+
+    clock.restore();
+  });
+
   it("cleans sliding window records once the window passes", () => {
     const clock = makeNowController(0);
     const manager = new ToolQuotaManager({ defaultMaxCalls: 1, defaultWindowMs: 1000 });
@@ -173,6 +218,28 @@ describe("ToolQuotaManager", () => {
     expect(stats.totalCalls).toBe(2);
     expect(stats.blockedCount).toBe(0);
     expect(stats.lastBlocked).toBe(null);
+
+    clock.restore();
+  });
+
+  it("recordCall returns updated stats and does not trigger warn/exceeded callbacks", () => {
+    const clock = makeNowController(0);
+    const onQuotaExceeded = vi.fn();
+    const manager = new ToolQuotaManager({
+      defaultMaxCalls: 1,
+      defaultWindowMs: 1000,
+      onQuotaExceeded,
+    });
+
+    const stats1 = manager.recordCall("tool");
+    expect(stats1).toMatchObject({ toolName: "tool", current: 1, totalCalls: 1, blockedCount: 0 });
+
+    clock.advance(1);
+    const stats2 = manager.recordCall("tool");
+    expect(stats2).toMatchObject({ toolName: "tool", current: 2, totalCalls: 2, blockedCount: 0 });
+
+    expect(warnMock).not.toHaveBeenCalled();
+    expect(onQuotaExceeded).not.toHaveBeenCalled();
 
     clock.restore();
   });
@@ -208,6 +275,19 @@ describe("ToolQuotaManager", () => {
     clock.restore();
   });
 
+  it("supports windowMs=0 edge case (records expire as soon as time advances)", () => {
+    const clock = makeNowController(100);
+    const manager = new ToolQuotaManager({ defaultMaxCalls: 1, defaultWindowMs: 0 });
+
+    expect(manager.tryCall("tool")).toEqual({ allowed: true, remaining: 0 });
+    expect(manager.tryCall("tool").allowed).toBe(false);
+
+    clock.advance(1);
+    expect(manager.tryCall("tool")).toEqual({ allowed: true, remaining: 0 });
+
+    clock.restore();
+  });
+
   it("resets and removes quotas", () => {
     const manager = new ToolQuotaManager({ defaultMaxCalls: 2, defaultWindowMs: 1000 });
 
@@ -232,6 +312,17 @@ describe("ToolQuotaManager", () => {
     manager.removeQuota("beta");
     expect(manager.getToolStats("beta")).toBeNull();
     expect(manager.canCall("beta")).toBe(true);
+  });
+
+  it("summary is zeroed for an empty manager", () => {
+    const manager = new ToolQuotaManager();
+    expect(manager.summary).toEqual({
+      totalTools: 0,
+      blockedTools: 0,
+      highUsageTools: 0,
+      totalCalls: 0,
+      totalBlocked: 0,
+    });
   });
 
   it.each([
@@ -275,11 +366,14 @@ describe("ToolQuotaManager", () => {
     const manager = new ToolQuotaManager({ defaultMaxCalls: 3, defaultWindowMs: 1000 });
 
     const results = await Promise.all(
-      Array.from({ length: 3 }, () => Promise.resolve(manager.tryCall("fast"))),
+      Array.from({ length: 5 }, () => Promise.resolve().then(() => manager.tryCall("fast"))),
     );
 
-    expect(results.every((res) => res.allowed)).toBe(true);
-    expect(manager.tryCall("fast").allowed).toBe(false);
+    const allowedCount = results.filter((r) => r.allowed).length;
+    const blockedCount = results.filter((r) => !r.allowed).length;
+    expect(allowedCount).toBe(3);
+    expect(blockedCount).toBe(2);
+    expect(manager.getToolStats("fast")).toMatchObject({ totalCalls: 3, blockedCount: 2 });
 
     clock.restore();
   });
@@ -287,17 +381,27 @@ describe("ToolQuotaManager", () => {
 
 describe("ContractValidator", () => {
   it("validates deep nested objects and reports deep errors", () => {
-    const schema = makeDeepSchema(8);
+    const schema = makeDeepSchema(64);
     const validator = new ContractValidator(schema);
 
-    const ok = validator.validate(makeDeepValue(8, "ok"));
+    const ok = validator.validate(makeDeepValue(64, "ok"));
     expect(ok.valid).toBe(true);
     expect(ok.errors).toEqual([]);
 
-    const bad = validator.validate(makeDeepValue(8, ""));
+    const bad = validator.validate(makeDeepValue(64, ""));
     expect(bad.valid).toBe(false);
     expect(bad.errors[0]).toContain("length must be >=");
     expect(bad.errors[0]).toContain("leaf");
+  });
+
+  it("treats null/undefined as missing unless required=true", () => {
+    const optionalString = new ContractValidator({ type: "string" });
+    expect(optionalString.validate(null)).toEqual({ valid: true, errors: [] });
+    expect(optionalString.validate(undefined)).toEqual({ valid: true, errors: [] });
+
+    const requiredString = new ContractValidator({ type: "string", required: true });
+    expect(requiredString.validate(null).valid).toBe(false);
+    expect(requiredString.validate(undefined).valid).toBe(false);
   });
 
   it("handles null/undefined/empty strings with required rules", () => {
@@ -319,12 +423,33 @@ describe("ContractValidator", () => {
     expect(whitespaceResult.valid).toBe(true);
   });
 
+  it("validates required object properties (schema.required as array) and reports missing/invalid fields", () => {
+    const validator = new ContractValidator({
+      type: "object",
+      required: ["name"],
+      properties: { name: { type: "string", minLength: 1 } },
+    });
+
+    const missing = validator.validate({});
+    expect(missing.valid).toBe(false);
+    expect(missing.errors).toContain(".name: required property missing");
+
+    const empty = validator.validate({ name: "" });
+    expect(empty.valid).toBe(false);
+    expect(empty.errors[0]).toContain(".name: length must be >=");
+
+    const ok = validator.validate({ name: "x" });
+    expect(ok).toEqual({ valid: true, errors: [] });
+  });
+
   it("accepts empty arrays/objects and large arrays", () => {
     const arrayValidator = new ContractValidator({ type: "array", items: { type: "number" } });
     expect(arrayValidator.validate([]).valid).toBe(true);
 
-    const largeArray = Array.from({ length: 1000 }, (_, i) => i);
-    expect(arrayValidator.validate(largeArray).valid).toBe(true);
+    // Resource boundary: simulate "large file" sized payload.
+    const largeArray = Array.from({ length: 50_000 }, (_, i) => i);
+    const largeResult = arrayValidator.validate(largeArray);
+    expect(largeResult).toEqual({ valid: true, errors: [] });
 
     const objectValidator = new ContractValidator({
       type: "object",
@@ -395,6 +520,17 @@ describe("ContractValidator", () => {
     expect(createSafeRegexMock).toHaveBeenCalledWith("^a+$", "u");
   });
 
+  it("handles very long strings (resource boundary) without throwing", () => {
+    const validator = new ContractValidator({ type: "string", maxLength: 10 });
+
+    // "super large file" analog: 1MB string
+    const huge = makeLargeString(1_000_000);
+    const result = validator.validate(huge);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual([expect.stringContaining("length must be <=")]);
+  });
+
   it("reports invalid regex patterns as errors", () => {
     createSafeRegexMock.mockImplementationOnce(() => {
       throw new Error("bad pattern");
@@ -425,6 +561,14 @@ describe("createToolContract", () => {
     expect(combined.valid).toBe(false);
     expect(combined.inputErrors[0]).toContain("length must be >=");
     expect(combined.outputErrors[0]).toContain("must be >= 0");
+  });
+
+  it("propagates required errors through validateOutput", () => {
+    const contract = createToolContract(null, { type: "number", required: true });
+
+    const result = contract.validateOutput(undefined);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(["root: required but missing"]);
   });
 
   it("treats missing schemas as permissive for empty values", () => {

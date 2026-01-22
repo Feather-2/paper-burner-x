@@ -48,6 +48,7 @@ describe('LAYOUT_REGIONS', () => {
         for (const layout of Object.values(LAYOUT_REGIONS)) {
             const regions = layout?.regions;
             expect(regions && typeof regions).toBe('object');
+            expect(Object.keys(regions).length).toBeGreaterThan(0);
             for (const region of Object.values(regions)) {
                 expect(region).toMatchObject({
                     x: expect.any(Number),
@@ -75,6 +76,7 @@ describe('resolveLayoutType', () => {
         expect(resolveLayoutType('Comparison')).toBe('two_column');
         expect(resolveLayoutType('roadmap')).toBe('process');
         expect(resolveLayoutType('overview')).toBe('content');
+        expect(resolveLayoutType('APPENDIX')).toBe('appendix');
     });
 
     it('returns content for unknown or empty values', () => {
@@ -93,14 +95,18 @@ describe('resolveLayoutType', () => {
         expect(resolveLayoutType(Number.MAX_SAFE_INTEGER)).toBe('content');
     });
 
-    it('handles large file content inputs from external sources', () => {
-        const largeContent = 'x'.repeat(50000);
+    it('handles large file content inputs (resource boundary: huge file)', () => {
+        const largeContent = 'x'.repeat(50000); // ~50KB
         mockedReadFileSync.mockReturnValueOnce(largeContent);
         const fileContent = readFileSync('/fake/large.txt', 'utf-8');
 
         expect(fileContent.length).toBe(50000);
         expect(resolveLayoutType(fileContent)).toBe('content');
-        expect(mockedReadFileSync).toHaveBeenCalledWith('/fake/large.txt', 'utf-8');
+    });
+
+    it('handles deep nested inputs that stringify to known page types (resource boundary: deep nesting)', () => {
+        const deepNested = [[[[['COVER']]]]];
+        expect(resolveLayoutType(deepNested)).toBe('cover');
     });
 
     it('handles concurrent calls without shared state', async () => {
@@ -117,12 +123,15 @@ describe('layoutTypeFromCss', () => {
     it('maps known CSS classes to layout types', () => {
         expect(layoutTypeFromCss('layout-hero')).toBe('cover');
         expect(layoutTypeFromCss('layout-two-column')).toBe('two_column');
+        expect(layoutTypeFromCss('layout-list')).toBe('content');
         expect(layoutTypeFromCss('layout-standard')).toBe('content');
     });
 
     it('falls back to layout keys defined in LAYOUT_REGIONS', () => {
         expect(layoutTypeFromCss('layout-timeline')).toBe('timeline');
         expect(layoutTypeFromCss('prefix layout-chart suffix')).toBe('chart');
+        expect(layoutTypeFromCss('prefix layout-image suffix')).toBe('image');
+        expect(layoutTypeFromCss('layout-two_column')).toBe('two_column');
     });
 
     it('returns content for invalid or unknown inputs', () => {
@@ -145,7 +154,7 @@ describe('layoutTypeFromCss', () => {
         expect(layoutTypeFromCss(deepNested)).toBe('chart');
     });
 
-    it('handles long strings and array-like objects', () => {
+    it('handles long strings and array-like objects (resource boundary: long string)', () => {
         const longCss = `${'x'.repeat(10000)}layout-chart`;
         expect(layoutTypeFromCss(longCss)).toBe('chart');
 
@@ -174,6 +183,7 @@ describe('getRegion', () => {
         expect(getRegion('cover', 'missing')).toBeNull();
         expect(getRegion('missing', 'title')).toBeNull();
         expect(getRegion('', '')).toBeNull();
+        expect(getRegion('cover', '   ')).toBeNull();
     });
 
     it('handles invalid layout or region types', () => {
@@ -185,6 +195,9 @@ describe('getRegion', () => {
         expect(getRegion('cover', undefined)).toBeNull();
         expect(getRegion('cover', [])).toBeNull();
         expect(getRegion('cover', {})).toBeNull();
+        expect(getRegion('cover', 0)).toBeNull();
+        expect(getRegion('cover', -1)).toBeNull();
+        expect(getRegion('cover', Number.MAX_SAFE_INTEGER)).toBeNull();
     });
 
     it('handles concurrent access', async () => {
@@ -235,6 +248,12 @@ describe('regionToDslAttrs', () => {
         );
         expect(negativeAttrs).toBe('data-x="0" data-y="-1" data-w="100" data-h="0"');
 
+        const zeroSizeAttrs = regionToDslAttrs(
+            { x: 50, y: 50, w: 50, h: 50 },
+            { width: 0, height: 0 }
+        );
+        expect(zeroSizeAttrs).toBe('data-x="0" data-y="0" data-w="0" data-h="0"');
+
         const maxSafe = Math.round(Number.MAX_SAFE_INTEGER / 100);
         const maxAttrs = regionToDslAttrs(
             { x: 1, y: 1, w: 1, h: 1 },
@@ -248,9 +267,18 @@ describe('regionToDslAttrs', () => {
         expect(emptySizeAttrs).toBe('data-x="NaN" data-y="NaN" data-w="NaN" data-h="NaN"');
     });
 
+    it('handles empty region objects without throwing (boundary: empty object)', () => {
+        const attrs = regionToDslAttrs({}, { width: 100, height: 100 });
+        expect(attrs).toBe('data-x="NaN" data-y="NaN" data-w="NaN" data-h="NaN"');
+    });
+
     it('throws for null or undefined region inputs', () => {
         expect(() => regionToDslAttrs(null)).toThrow(TypeError);
         expect(() => regionToDslAttrs(undefined)).toThrow(TypeError);
+    });
+
+    it('throws for null slideSize input', () => {
+        expect(() => regionToDslAttrs({ x: 1, y: 1, w: 1, h: 1 }, null)).toThrow(TypeError);
     });
 
     it('handles rapid consecutive calls', () => {
@@ -264,6 +292,21 @@ describe('regionToDslAttrs', () => {
 
         expect(new Set(results).size).toBe(1);
         expect(results[0]).toBe('data-x="10" data-y="20" data-w="30" data-h="40"');
+    });
+
+    it('handles concurrent calls with different slide sizes', async () => {
+        const region = { x: 50, y: 50, w: 50, h: 50 };
+        const results = await Promise.all([
+            Promise.resolve().then(() => regionToDslAttrs(region, { width: 100, height: 100 })),
+            Promise.resolve().then(() => regionToDslAttrs(region, { width: 101, height: 99 })),
+            Promise.resolve().then(() => regionToDslAttrs(region, { width: '100', height: '100' }))
+        ]);
+
+        expect(results).toEqual([
+            'data-x="50" data-y="50" data-w="50" data-h="50"',
+            'data-x="51" data-y="50" data-w="51" data-h="50"',
+            'data-x="50" data-y="50" data-w="50" data-h="50"'
+        ]);
     });
 });
 
@@ -283,5 +326,13 @@ describe('default', () => {
             ['LAYOUT_REGIONS', 'resolveLayoutType', 'layoutTypeFromCss', 'getRegion', 'regionToDslAttrs']
                 .sort()
         );
+    });
+
+    it('uses the same function references as the named exports', () => {
+        expect(layoutProtocol.LAYOUT_REGIONS).toBe(LAYOUT_REGIONS);
+        expect(layoutProtocol.resolveLayoutType).toBe(resolveLayoutType);
+        expect(layoutProtocol.layoutTypeFromCss).toBe(layoutTypeFromCss);
+        expect(layoutProtocol.getRegion).toBe(getRegion);
+        expect(layoutProtocol.regionToDslAttrs).toBe(regionToDslAttrs);
     });
 });

@@ -309,6 +309,22 @@ describe('StageApiFactory', () => {
     expect(isPlainObjectMock).toHaveBeenCalledWith({ maxQueueSize: 5 });
   });
 
+  it('falls back to default backpressure config for invalid config', () => {
+    const eventBus = { emit: vi.fn(), enableBackpressure: vi.fn() };
+    const factory = new StageApiFactory({ eventBus, eventBusBackpressure: 'not-an-object' });
+
+    factory.createBaseApi();
+
+    expect(isPlainObjectMock).toHaveBeenCalledWith('not-an-object');
+    expect(eventBus.enableBackpressure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxQueueSize: 10000,
+        deferNonCoalesced: false,
+        coalescePattern: expect.any(RegExp),
+      })
+    );
+  });
+
   it('handles null and empty-array overrides', () => {
     const eventBus = { emit: vi.fn() };
     const factory = new StageApiFactory({ eventBus });
@@ -317,6 +333,20 @@ describe('StageApiFactory', () => {
     factory.createBaseApi([]);
 
     expect(createStageApiMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores non-object override types (string) without throwing', () => {
+    const eventBus = { emit: vi.fn() };
+    const factory = new StageApiFactory({ eventBus });
+
+    expect(() => factory.createBaseApi('oops')).not.toThrow();
+    expect(createStageApiMock).toHaveBeenCalledTimes(1);
+    expect(createStageApiMock.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        eventBus,
+        emit: eventBus.emit,
+      })
+    );
   });
 
   it('skips backpressure when disabled', () => {
@@ -335,6 +365,22 @@ describe('StageApiFactory', () => {
     factory.createBaseApi();
 
     expect(eventBus.enableBackpressure).not.toHaveBeenCalled();
+  });
+
+  it('logs and continues when enableBackpressure throws', () => {
+    const eventBus = {
+      emit: vi.fn(),
+      enableBackpressure: vi.fn(() => {
+        throw new Error('bp-failure');
+      }),
+    };
+    const factory = new StageApiFactory({ eventBus, eventBusBackpressure: { maxQueueSize: 1 } });
+
+    expect(() => factory.createBaseApi()).not.toThrow();
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('ensureEventBusBackpressure'),
+      expect.any(Error)
+    );
   });
 
   it('derives fs and globFn from vfs when missing', () => {
@@ -435,6 +481,38 @@ describe('StageApiFactory', () => {
 
     expect(mockTokenTracker.record).toHaveBeenCalledWith(
       expect.objectContaining({ success: false, error: 'boom' })
+    );
+  });
+
+  it('does not fail when token tracker throws (success + failure)', async () => {
+    mockTokenTracker.record.mockImplementationOnce(() => {
+      throw new Error('tracker-down');
+    });
+
+    const aiApiServiceOk = { chat: vi.fn().mockResolvedValue({ usage: { promptTokens: '7', completionTokens: 0 } }) };
+    const factoryOk = new StageApiFactory({ aiApiService: aiApiServiceOk, eventBus: { emit: vi.fn() } });
+    const apiOk = factoryOk.createBaseApi();
+
+    await expect(apiOk.aiApiService.chat({ usage: 'u', model: 'm' })).resolves.toEqual(
+      expect.objectContaining({ usage: expect.any(Object) })
+    );
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('recordTokenTrackingSuccess'),
+      expect.any(Error)
+    );
+
+    mockTokenTracker.record.mockImplementationOnce(() => {
+      throw new Error('tracker-still-down');
+    });
+    const error = new Error('boom');
+    const aiApiServiceFail = { chat: vi.fn().mockRejectedValue(error) };
+    const factoryFail = new StageApiFactory({ aiApiService: aiApiServiceFail, eventBus: { emit: vi.fn() } });
+    const apiFail = factoryFail.createBaseApi();
+
+    await expect(apiFail.aiApiService.chat({ usage: 'u', model: 'm' })).rejects.toThrow('boom');
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('recordTokenTrackingFailure'),
+      expect.any(Error)
     );
   });
 
@@ -612,16 +690,16 @@ describe('StageApiFactory', () => {
   });
 });
 
+describe('default export', () => {
+  it('exports StageApiFactory as default', () => {
+    expect(StageApiFactoryDefault).toBe(StageApiFactory);
+  });
+});
+
 describe('createStageApiFactory', () => {
   it('creates a StageApiFactory instance', () => {
     const factory = createStageApiFactory({ eventBus: { emit: vi.fn() } });
 
     expect(factory).toBeInstanceOf(StageApiFactory);
-  });
-});
-
-describe('default export', () => {
-  it('exports StageApiFactory as default', () => {
-    expect(StageApiFactoryDefault).toBe(StageApiFactory);
   });
 });

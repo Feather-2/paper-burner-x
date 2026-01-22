@@ -1,30 +1,33 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 
 const spawnMock = vi.hoisted(() => vi.fn());
 const loggerWarnMock = vi.hoisted(() => vi.fn());
 const createLoggerMock = vi.hoisted(() => vi.fn(() => ({ warn: loggerWarnMock })));
 
-vi.mock('node:child_process', () => ({
-  spawn: spawnMock,
-}));
+vi.mock('node:child_process', () => ({ spawn: spawnMock }));
+vi.mock('../../../../../../js/agents/shared/index.js', () => ({ createLogger: createLoggerMock }));
 
-vi.mock(
-  '../../shared/index.js',
-  () => ({
-    createLogger: createLoggerMock,
-  }),
-  { virtual: true }
-);
-
-import commandExecutor, {
+import executor, {
   exec,
   execShell,
   execSimple,
   commandExists,
 } from '../../../../../../js/agents/runtime/core/exec/command-executor.node.js';
 
-function createMockChild({ keepAlive = false } = {}) {
+const deepNested = {
+  level1: {
+    level2: {
+      level3: {
+        level4: {
+          value: 'deep',
+        },
+      },
+    },
+  },
+};
+
+function createMockChild({ killMode = 'normal' } = {}) {
   const child = new EventEmitter();
   const stdout = new EventEmitter();
   const stderr = new EventEmitter();
@@ -35,14 +38,20 @@ function createMockChild({ keepAlive = false } = {}) {
     write: vi.fn(),
     end: vi.fn(),
   };
+
   child.killed = false;
   child.exitCode = null;
   child.signalCode = null;
   child.kill = vi.fn((signal) => {
-    if (!keepAlive) {
-      child.killed = true;
-      child.signalCode = signal;
+    if (killMode === 'throw') {
+      throw new Error('kill failed');
     }
+    if (killMode === 'noEffect') {
+      return true;
+    }
+    child.killed = true;
+    child.signalCode = signal;
+    return true;
   });
 
   return { child, stdout, stderr, stdin: child.stdin };
@@ -55,30 +64,29 @@ function emitClose(child, code = 0, signal = null) {
 }
 
 beforeEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
+
   spawnMock.mockReset();
   loggerWarnMock.mockReset();
   createLoggerMock.mockClear();
 });
 
-afterEach(() => {
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
-
 describe('exec', () => {
-  it('executes command and collects stdout/stderr with streaming callbacks', async () => {
+  it('executes a command and collects stdout/stderr (with streaming + stdin)', async () => {
     const { child, stdout, stderr, stdin } = createMockChild();
     spawnMock.mockReturnValue(child);
 
     const onStdout = vi.fn();
     const onStderr = vi.fn();
-    const deepEnv = { NESTED: { level: { depth: 'value' } } };
 
     const promise = exec('tool', ['--arg'], {
-      env: deepEnv,
+      env: { CUSTOM: '1' },
       stdin: 'payload',
       onStdout,
       onStderr,
+      extraDeep: deepNested,
     });
 
     stdout.emit('data', Buffer.from('hello'));
@@ -92,11 +100,16 @@ describe('exec', () => {
       ['--arg'],
       expect.objectContaining({
         cwd: process.cwd(),
-        env: expect.objectContaining(deepEnv),
+        env: expect.objectContaining({ CUSTOM: '1' }),
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
-      })
+      }),
     );
+    expect(onStdout).toHaveBeenCalledWith('hello');
+    expect(onStderr).toHaveBeenCalledWith('oops');
+    expect(stdin.write).toHaveBeenCalledWith('payload');
+    expect(stdin.end).toHaveBeenCalled();
+
     expect(result).toMatchObject({
       success: true,
       exitCode: 0,
@@ -107,57 +120,13 @@ describe('exec', () => {
       truncated: false,
     });
     expect(typeof result.duration).toBe('number');
-    expect(onStdout).toHaveBeenCalledWith('hello');
-    expect(onStderr).toHaveBeenCalledWith('oops');
-    expect(stdin.write).toHaveBeenCalledWith('payload');
-    expect(stdin.end).toHaveBeenCalled();
   });
 
-  it('logs and continues when stdout callback throws', async () => {
-    const { child, stdout } = createMockChild();
-    spawnMock.mockReturnValue(child);
-
-    const onStdout = vi.fn(() => {
-      throw new Error('boom');
-    });
-
-    const promise = exec('cmd', [], { onStdout });
-
-    stdout.emit('data', Buffer.from('data'));
-    emitClose(child, 0, null);
-
-    const result = await promise;
-
-    expect(result.stdout).toBe('data');
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      expect.stringContaining('stdout callback failed'),
-      expect.objectContaining({ error: 'boom' })
-    );
-  });
-
-  it('accepts non-array args and ends stdin even when empty', async () => {
-    const { child, stdin } = createMockChild();
-    spawnMock.mockReturnValue(child);
-
-    const args = { not: 'array' };
-    const promise = exec('cmd', args, { stdin: '' });
-
-    emitClose(child, 0, null);
-
-    const result = await promise;
-
-    expect(spawnMock).toHaveBeenCalledWith('cmd', args, expect.any(Object));
-    expect(stdin.write).not.toHaveBeenCalled();
-    expect(stdin.end).toHaveBeenCalled();
-    expect(result.success).toBe(true);
-  });
-
-  it('normalizes null/undefined options to defaults', async () => {
+  it.each([null, undefined])('normalizes nullish options: %s', async (value) => {
     const { child } = createMockChild();
     spawnMock.mockReturnValue(child);
 
-    const promise = exec('cmd', undefined, null);
-
+    const promise = exec('cmd', undefined, value);
     emitClose(child, 0, null);
 
     const result = await promise;
@@ -165,53 +134,106 @@ describe('exec', () => {
     expect(spawnMock).toHaveBeenCalledWith(
       'cmd',
       [],
-      expect.objectContaining({ cwd: process.cwd() })
+      expect.objectContaining({ cwd: process.cwd(), shell: false }),
     );
     expect(result.success).toBe(true);
   });
 
-  it('falls back to default timeout/maxOutputBytes when given non-numeric values', async () => {
-    vi.useFakeTimers();
-    const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
+  it('returns a failure result for empty/invalid commands (spawn throws)', async () => {
+    spawnMock.mockImplementation((command) => {
+      if (typeof command !== 'string' || command.trim() === '') {
+        throw new Error('bad command');
+      }
+      return createMockChild().child;
+    });
 
+    const results = await Promise.all([
+      exec('', [], {}),
+      exec('   ', [], {}),
+      exec(null, [], {}),
+      exec(undefined, [], {}),
+    ]);
+
+    results.forEach((result) => {
+      expect(result.success).toBe(false);
+      expect(result.exitCode).toBe(-1);
+      expect(result.error).toBe('bad command');
+    });
+  });
+
+  it('handles type boundary: args-as-object causes spawn error and returns failure', async () => {
+    spawnMock.mockImplementation((command, args) => {
+      if (!Array.isArray(args)) {
+        throw new TypeError('args must be an array');
+      }
+      return createMockChild().child;
+    });
+
+    const result = await exec('cmd', { not: 'array' }, {});
+
+    expect(result.success).toBe(false);
+    expect(result.exitCode).toBe(-1);
+    expect(result.error).toBe('args must be an array');
+  });
+
+  it('handles type boundary: numeric strings for timeout fall back to defaults', async () => {
+    vi.useFakeTimers();
+    const { child } = createMockChild();
+    child.killed = true;
+    spawnMock.mockReturnValue(child);
+
+    let settled = false;
+    const promise = exec('cmd', [], { timeout: '1000' }).then((result) => {
+      settled = true;
+      return result;
+    });
+
+    await vi.advanceTimersByTimeAsync(59999);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await promise;
+
+    expect(result.timedOut).toBe(true);
+    expect(result.error).toBe('Command timed out after 60000ms');
+  });
+
+  it('truncates output when maxOutputBytes is exceeded (including MAX_SAFE_INTEGER edge)', async () => {
+    const hugeOutput = 'x'.repeat(1024 * 1024);
     const { child, stdout } = createMockChild();
     spawnMock.mockReturnValue(child);
 
-    const promise = exec('cmd', [], { timeout: '1000', maxOutputBytes: '5' });
-
-    stdout.emit('data', Buffer.from('0123456789'));
+    const promise = exec('cmd', [], { maxOutputBytes: 1024 });
+    stdout.emit('data', Buffer.from(hugeOutput));
     emitClose(child, 0, null);
 
     const result = await promise;
 
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60000);
-    expect(result.truncated).toBe(false);
+    expect(result.stdout.length).toBe(1024);
+    expect(result.truncated).toBe(true);
   });
 
-  it('truncates stdout when output exceeds limit and keeps stderr within limit', async () => {
-    const { child, stdout, stderr } = createMockChild();
+  it.each([0, -1])('does not start a timeout when timeout is %s', async (timeout) => {
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const { child } = createMockChild();
+    spawnMock.mockReturnValue(child);
+
+    const promise = exec('cmd', [], { timeout });
+    emitClose(child, 0, null);
+
+    const result = await promise;
+
+    expect(result.timedOut).toBe(false);
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1])('treats maxOutputBytes=%s as immediate truncation', async (maxOutputBytes) => {
+    const { child, stdout } = createMockChild();
     spawnMock.mockReturnValue(child);
 
     const onStdout = vi.fn();
-    const promise = exec('cmd', [], { maxOutputBytes: 5, onStdout });
-
-    stdout.emit('data', Buffer.from('1234567'));
-    stderr.emit('data', Buffer.from('err'));
-    emitClose(child, 0, null);
-
-    const result = await promise;
-
-    expect(result.stdout).toBe('12345');
-    expect(result.stderr).toBe('err');
-    expect(result.truncated).toBe(true);
-    expect(onStdout).toHaveBeenCalledWith('1234567');
-  });
-
-  it('truncates immediately when maxOutputBytes is 0', async () => {
-    const { child, stdout } = createMockChild();
-    spawnMock.mockReturnValue(child);
-
-    const promise = exec('cmd', [], { maxOutputBytes: 0 });
+    const promise = exec('cmd', [], { maxOutputBytes, onStdout });
 
     stdout.emit('data', Buffer.from('data'));
     emitClose(child, 0, null);
@@ -220,48 +242,56 @@ describe('exec', () => {
 
     expect(result.stdout).toBe('');
     expect(result.truncated).toBe(true);
+    expect(onStdout).toHaveBeenCalledWith('data');
   });
 
-  it('handles very large maxOutputBytes without truncation', async () => {
-    const { child, stdout } = createMockChild();
+  it('logs and continues when streaming callbacks throw', async () => {
+    const { child, stdout, stderr } = createMockChild();
     spawnMock.mockReturnValue(child);
 
-    const longOutput = 'x'.repeat(20000);
-    const promise = exec('cmd', [], { maxOutputBytes: Number.MAX_SAFE_INTEGER });
+    const onStdout = vi.fn(() => {
+      throw new Error('stdout boom');
+    });
+    const onStderr = vi.fn(() => {
+      throw new Error('stderr boom');
+    });
 
-    stdout.emit('data', Buffer.from(longOutput));
+    const promise = exec('cmd', [], { onStdout, onStderr });
+
+    stdout.emit('data', Buffer.from('a'));
+    stderr.emit('data', Buffer.from('b'));
     emitClose(child, 0, null);
 
     const result = await promise;
 
-    expect(result.stdout.length).toBe(longOutput.length);
-    expect(result.truncated).toBe(false);
+    expect(result.stdout).toBe('a');
+    expect(result.stderr).toBe('b');
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.stringContaining('stdout callback failed'),
+      expect.objectContaining({ error: 'stdout boom' }),
+    );
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.stringContaining('stderr callback failed'),
+      expect.objectContaining({ error: 'stderr boom' }),
+    );
   });
 
-  it('does not start timeouts when timeout is 0 or negative', async () => {
-    vi.useFakeTimers();
-    const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
+  it('handles child error events without throwing', async () => {
+    const { child } = createMockChild();
+    spawnMock.mockReturnValue(child);
 
-    const first = createMockChild();
-    const second = createMockChild();
-    spawnMock.mockImplementationOnce(() => first.child).mockImplementationOnce(() => second.child);
+    const promise = exec('cmd', []);
+    child.emit('error', new Error('child error'));
 
-    const p1 = exec('cmd', [], { timeout: 0 });
-    emitClose(first.child, 0, null);
-
-    const p2 = exec('cmd', [], { timeout: -1 });
-    emitClose(second.child, 0, null);
-
-    await Promise.all([p1, p2]);
-
-    expect(setTimeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 0);
-    expect(setTimeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), -1);
+    const result = await promise;
+    expect(result.success).toBe(false);
+    expect(result.exitCode).toBe(-1);
+    expect(result.error).toBe('child error');
   });
 
-  it('times out and attempts to terminate the child process', async () => {
+  it('times out, and escalates SIGTERM -> SIGKILL when kill has no effect', async () => {
     vi.useFakeTimers();
-
-    const { child } = createMockChild({ keepAlive: true });
+    const { child } = createMockChild({ killMode: 'noEffect' });
     spawnMock.mockReturnValue(child);
 
     const promise = exec('cmd', [], { timeout: 10 });
@@ -277,47 +307,30 @@ describe('exec', () => {
     expect(child.kill).toHaveBeenCalledWith('SIGKILL');
   });
 
-  it('handles abort signals and reports an aborted error', async () => {
-    const { child } = createMockChild();
+  it('handles AbortSignal cancellation (and safeKill failures are logged)', async () => {
+    vi.useFakeTimers();
+    const { child } = createMockChild({ killMode: 'throw' });
     spawnMock.mockReturnValue(child);
 
     const controller = new AbortController();
     const promise = exec('cmd', [], { signal: controller.signal });
 
     controller.abort();
-
     const result = await promise;
 
     expect(result.success).toBe(false);
     expect(result.timedOut).toBe(false);
     expect(result.error).toBe('Command aborted');
-    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
-  });
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      '[exec] Failed to terminate child process',
+      expect.objectContaining({ signal: 'SIGTERM', error: 'kill failed' }),
+    );
 
-  it('returns a failure result when spawn throws synchronously', async () => {
-    spawnMock.mockImplementation(() => {
-      throw new Error('spawn failed');
-    });
-
-    const result = await exec('cmd', []);
-
-    expect(result.success).toBe(false);
-    expect(result.exitCode).toBe(-1);
-    expect(result.error).toBe('spawn failed');
-  });
-
-  it('returns a failure result when child emits an error', async () => {
-    const { child } = createMockChild();
-    spawnMock.mockReturnValue(child);
-
-    const promise = exec('cmd', []);
-
-    child.emit('error', new Error('child error'));
-
-    const result = await promise;
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBe('child error');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      '[exec] Failed to terminate child process',
+      expect.objectContaining({ signal: 'SIGKILL', error: 'kill failed' }),
+    );
   });
 
   it('supports concurrent executions without cross-talk', async () => {
@@ -325,8 +338,8 @@ describe('exec', () => {
     const second = createMockChild();
     spawnMock.mockImplementationOnce(() => first.child).mockImplementationOnce(() => second.child);
 
-    const firstPromise = exec('cmd1', ['a']);
-    const secondPromise = exec('cmd2', ['b']);
+    const firstPromise = exec('cmd1', ['a'], { stdin: '' });
+    const secondPromise = exec('cmd2', ['b'], {});
 
     first.stdout.emit('data', Buffer.from('one'));
     second.stdout.emit('data', Buffer.from('two'));
@@ -341,7 +354,17 @@ describe('exec', () => {
 });
 
 describe('execShell', () => {
-  it.each([null, undefined, '', '   '])('rejects invalid command: %s', async (value) => {
+  it.each([
+    null,
+    undefined,
+    '',
+    '   ',
+    0,
+    -1,
+    Number.MAX_SAFE_INTEGER,
+    [],
+    {},
+  ])('rejects invalid command values: %s', async (value) => {
     const result = await execShell(value, { trusted: true });
 
     expect(result.success).toBe(false);
@@ -349,8 +372,8 @@ describe('execShell', () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  it('requires trusted option to execute shell commands', async () => {
-    const result = await execShell('echo ok', { trusted: false });
+  it.each([null, undefined, '', [], {}])('requires trusted option (options=%s)', async (options) => {
+    const result = await execShell('echo ok', options);
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('execShell: trusted option required');
@@ -362,22 +385,34 @@ describe('execShell', () => {
     spawnMock.mockReturnValue(child);
 
     const command = 'echo ok';
-    const promise = execShell(command, { trusted: true, shell: true, env: {} });
+    const promise = execShell(command, { trusted: true, shell: true, env: {}, timeout: 0 });
 
     emitClose(child, 0, null);
-
     const result = await promise;
-    const isWindows = process.platform === 'win32';
 
+    const isWindows = process.platform === 'win32';
     expect(spawnMock).toHaveBeenCalledWith(
       isWindows ? 'cmd.exe' : '/bin/sh',
       isWindows ? ['/c', command] : ['-c', command],
-      expect.objectContaining({
-        shell: false,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
+      expect.objectContaining({ shell: false, stdio: ['pipe', 'pipe', 'pipe'] }),
     );
     expect(result.success).toBe(true);
+  });
+
+  it('supports rapid successive calls', async () => {
+    const first = createMockChild();
+    const second = createMockChild();
+    spawnMock.mockImplementationOnce(() => first.child).mockImplementationOnce(() => second.child);
+
+    const p1 = execShell('echo 1', { trusted: true });
+    const p2 = execShell('echo 2', { trusted: true });
+
+    emitClose(first.child, 0, null);
+    emitClose(second.child, 0, null);
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1.success).toBe(true);
+    expect(r2.success).toBe(true);
   });
 });
 
@@ -394,7 +429,7 @@ describe('execSimple', () => {
     await expect(promise).resolves.toBe('ok');
   });
 
-  it('throws with exitCode/stderr/stdout when command fails', async () => {
+  it('throws ExecError with exitCode/stderr/stdout on non-zero exit', async () => {
     const { child, stdout, stderr } = createMockChild();
     spawnMock.mockReturnValue(child);
 
@@ -411,37 +446,140 @@ describe('execSimple', () => {
       message: 'Command failed: cmd (exit code: 1)',
     });
   });
+
+  it('throws ExecError using the underlying error message when spawn fails', async () => {
+    spawnMock.mockImplementation(() => {
+      throw new Error('spawn failed');
+    });
+
+    await expect(execSimple('cmd', [])).rejects.toMatchObject({
+      exitCode: -1,
+      message: 'spawn failed',
+      stdout: '',
+      stderr: '',
+    });
+  });
+
+  it('handles args type boundary (object-as-array) without leaking rejections', async () => {
+    spawnMock.mockImplementation((_command, args) => {
+      if (!Array.isArray(args)) {
+        throw new TypeError('args must be an array');
+      }
+      return createMockChild().child;
+    });
+
+    await expect(execSimple('cmd', { not: 'array' }, {})).rejects.toMatchObject({
+      exitCode: -1,
+      message: 'args must be an array',
+    });
+  });
+
+  it('supports concurrent calls', async () => {
+    const first = createMockChild();
+    const second = createMockChild();
+    spawnMock.mockImplementationOnce(() => first.child).mockImplementationOnce(() => second.child);
+
+    const p1 = execSimple('cmd1', []);
+    const p2 = execSimple('cmd2', []);
+
+    first.stdout.emit('data', Buffer.from('one'));
+    second.stdout.emit('data', Buffer.from('two'));
+    emitClose(first.child, 0, null);
+    emitClose(second.child, 0, null);
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1).toBe('one');
+    expect(r2).toBe('two');
+  });
 });
 
 describe('commandExists', () => {
-  it('returns true when the check command succeeds', async () => {
+  it('returns true/false based on the check command exit code', async () => {
+    const ok = createMockChild();
+    const bad = createMockChild();
+    spawnMock.mockImplementationOnce(() => ok.child).mockImplementationOnce(() => bad.child);
+
+    const p1 = commandExists('node');
+    const p2 = commandExists('missing-cmd');
+
+    emitClose(ok.child, 0, null);
+    emitClose(bad.child, 1, null);
+
+    const [exists, missing] = await Promise.all([p1, p2]);
+    expect(exists).toBe(true);
+    expect(missing).toBe(false);
+  });
+
+  it('handles nullish/empty/whitespace/type-edge command names without throwing', async () => {
+    spawnMock.mockImplementation((_command, args) => {
+      const [name] = Array.isArray(args) ? args : [];
+      if (typeof name !== 'string' || name.trim() === '') {
+        throw new Error('bad command name');
+      }
+      return createMockChild().child;
+    });
+
+    const results = await Promise.all([
+      commandExists(null),
+      commandExists(undefined),
+      commandExists(''),
+      commandExists('   '),
+      commandExists(0),
+      commandExists(-1),
+      commandExists(Number.MAX_SAFE_INTEGER),
+      commandExists({}),
+      commandExists([]),
+    ]);
+
+    results.forEach((value) => {
+      expect(value).toBe(false);
+    });
+  });
+
+  it('uses a 5000ms timeout for the check command', async () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
     const { child } = createMockChild();
     spawnMock.mockReturnValue(child);
 
     const promise = commandExists('node');
-
     emitClose(child, 0, null);
-
     await expect(promise).resolves.toBe(true);
+
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
   });
 
-  it('returns false when the check command fails', async () => {
-    const { child } = createMockChild();
-    spawnMock.mockReturnValue(child);
+  it('logs and returns false when an unexpected error is thrown', async () => {
+    const cwdSpy = vi.spyOn(process, 'cwd').mockImplementation(() => {
+      throw new Error('cwd boom');
+    });
 
-    const promise = commandExists('missing-cmd');
+    const result = await commandExists('node');
 
-    emitClose(child, 1, null);
+    expect(result).toBe(false);
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      '[exec] commandExists failed',
+      expect.objectContaining({ command: 'node', error: 'cwd boom' }),
+    );
 
-    await expect(promise).resolves.toBe(false);
+    cwdSpy.mockRestore();
   });
 });
 
-describe('default export', () => {
-  it('exposes exec helpers', () => {
-    expect(commandExecutor.exec).toBe(exec);
-    expect(commandExecutor.execShell).toBe(execShell);
-    expect(commandExecutor.execSimple).toBe(execSimple);
-    expect(commandExecutor.commandExists).toBe(commandExists);
+describe('default', () => {
+  it('exposes the named executors on the default export', () => {
+    expect(executor).toMatchObject({
+      exec,
+      execShell,
+      execSimple,
+      commandExists,
+    });
+
+    expect(executor.exec).toBe(exec);
+    expect(executor.execShell).toBe(execShell);
+    expect(executor.execSimple).toBe(execSimple);
+    expect(executor.commandExists).toBe(commandExists);
   });
 });

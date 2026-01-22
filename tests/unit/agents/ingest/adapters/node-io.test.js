@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const pathMocks = vi.hoisted(() => ({
   basename: vi.fn(),
@@ -23,9 +23,28 @@ const ORIGINAL_PROCESS = globalThis.process;
 
 const loadModule = async () => await import(MODULE_PATH);
 
-function formatBasename(value) {
-  const kind = Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
-  return `base:${kind}:${String(value)}`;
+async function withStubbedProcess(stub, fn) {
+  const previousProcess = globalThis.process;
+  globalThis.process = stub;
+  try {
+    return await fn();
+  } finally {
+    globalThis.process = previousProcess;
+  }
+}
+
+async function withTempDir(fn) {
+  const fsActual = await vi.importActual("node:fs/promises");
+  const pathActual = await vi.importActual("node:path");
+  const os = await import("node:os");
+
+  const tmpRoot = os.tmpdir();
+  const dir = await fsActual.mkdtemp(pathActual.join(tmpRoot, "node-io-test-"));
+  try {
+    return await fn({ dir, fsActual, pathActual });
+  } finally {
+    await fsActual.rm(dir, { recursive: true, force: true });
+  }
 }
 
 beforeEach(() => {
@@ -36,17 +55,13 @@ beforeEach(() => {
   globalThis.process = ORIGINAL_PROCESS;
 });
 
-afterEach(() => {
-  globalThis.process = ORIGINAL_PROCESS;
-});
-
 describe("js/agents/ingest/adapters/node-io.js", () => {
   describe("isNodeEnvironment", () => {
     it("returns true when process.versions.node is available", async () => {
       const { isNodeEnvironment } = await loadModule();
-      globalThis.process = { versions: { node: "20.0.0" } };
-
-      expect(isNodeEnvironment()).toBe(true);
+      await withStubbedProcess({ versions: { node: "20.0.0" } }, async () => {
+        expect(isNodeEnvironment()).toBe(true);
+      });
     });
 
     it.each([
@@ -56,9 +71,16 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
       ["missing node version", { versions: {} }],
     ])("returns false when %s", async (_label, proc) => {
       const { isNodeEnvironment } = await loadModule();
-      globalThis.process = proc;
+      await withStubbedProcess(proc, async () => {
+        expect(isNodeEnvironment()).toBe(false);
+      });
+    });
 
-      expect(isNodeEnvironment()).toBe(false);
+    it("is stable across rapid consecutive calls", async () => {
+      const { isNodeEnvironment } = await loadModule();
+      await withStubbedProcess({ versions: { node: "22.0.0" } }, async () => {
+        expect([isNodeEnvironment(), isNodeEnvironment(), isNodeEnvironment()]).toEqual([true, true, true]);
+      });
     });
   });
 
@@ -85,23 +107,24 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
       ["max safe integer", Number.MAX_SAFE_INTEGER],
       ["array-like object", { 0: "x", length: 1 }],
     ])("passes through boundary input: %s", async (_label, input) => {
-      pathMocks.basename.mockImplementation((value) => formatBasename(value));
+      pathMocks.basename.mockImplementation((value) => `base:${typeof value}:${String(value)}`);
       const { basenameOfPath } = await loadModule();
 
       const result = await basenameOfPath(input);
 
-      expect(result).toBe(formatBasename(input));
+      expect(result).toBe(`base:${typeof input}:${String(input)}`);
       expect(pathMocks.basename).toHaveBeenCalledWith(input);
     });
 
     it("throws when not in a Node environment", async () => {
       pathMocks.basename.mockReturnValue("ignored");
       const { basenameOfPath } = await loadModule();
-      globalThis.process = {};
 
-      await expect(basenameOfPath("/tmp/file.txt")).rejects.toThrow(
-        "basenameOfPath() requires Node.js."
-      );
+      await withStubbedProcess({}, async () => {
+        await expect(basenameOfPath("/tmp/file.txt")).rejects.toThrow(
+          "basenameOfPath() requires Node.js."
+        );
+      });
       expect(pathMocks.basename).not.toHaveBeenCalled();
     });
 
@@ -117,6 +140,23 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
 
       expect(results).toEqual(inputs.map((input) => `base:${input}`));
       expect(pathMocks.basename).toHaveBeenCalledTimes(inputs.length);
+    });
+
+    it("supports concurrent calls", async () => {
+      const pathActual = await vi.importActual("node:path");
+      pathMocks.basename.mockImplementation((value) => pathActual.basename(String(value)));
+      const { basenameOfPath } = await loadModule();
+
+      await basenameOfPath("warmup.txt");
+      pathMocks.basename.mockClear();
+
+      const results = await Promise.all([
+        basenameOfPath("a.txt"),
+        basenameOfPath("b.txt"),
+        basenameOfPath("c.txt"),
+      ]);
+
+      expect(results).toEqual(["a.txt", "b.txt", "c.txt"]);
     });
   });
 
@@ -152,6 +192,36 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
       expect(fsMocks.readFile).toHaveBeenCalledWith("   ");
     });
 
+    it("treats whitespace encoding as present", async () => {
+      fsMocks.readFile.mockResolvedValue("ok");
+      const { readFileFromPath } = await loadModule();
+
+      const result = await readFileFromPath("/tmp/data.txt", "   ");
+
+      expect(result).toBe("ok");
+      expect(fsMocks.readFile).toHaveBeenCalledWith("/tmp/data.txt", "   ");
+    });
+
+    it.each([
+      ["empty string path", ""],
+      ["whitespace path", "   "],
+      ["null path", null],
+      ["undefined path", undefined],
+      ["empty array path", []],
+      ["empty object path", {}],
+      ["zero path", 0],
+      ["negative one path", -1],
+      ["max safe integer path", Number.MAX_SAFE_INTEGER],
+    ])("passes through boundary path input: %s", async (_label, input) => {
+      fsMocks.readFile.mockResolvedValue("data");
+      const { readFileFromPath } = await loadModule();
+
+      const result = await readFileFromPath(input, "utf8");
+
+      expect(result).toBe("data");
+      expect(fsMocks.readFile).toHaveBeenCalledWith(input, "utf8");
+    });
+
     it("propagates readFile errors", async () => {
       fsMocks.readFile.mockRejectedValue(new Error("boom"));
       const { readFileFromPath } = await loadModule();
@@ -162,14 +232,39 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
     it("throws when not in a Node environment", async () => {
       fsMocks.readFile.mockResolvedValue("ignored");
       const { readFileFromPath } = await loadModule();
-      globalThis.process = {};
 
-      await expect(readFileFromPath("/tmp/data.bin")).rejects.toThrow(
-        "readFileFromPath() requires Node.js."
-      );
+      await withStubbedProcess({}, async () => {
+        await expect(readFileFromPath("/tmp/data.bin")).rejects.toThrow(
+          "readFileFromPath() requires Node.js."
+        );
+      });
       expect(fsMocks.readFile).not.toHaveBeenCalled();
     });
 
+    it("supports concurrent calls with mixed encodings", async () => {
+      await withTempDir(async ({ dir, fsActual, pathActual }) => {
+        const binPath = pathActual.join(dir, "a.bin");
+        const utf8Path = pathActual.join(dir, "a.txt");
+        const utf16Path = pathActual.join(dir, "b.txt");
+
+        await fsActual.writeFile(binPath, Buffer.from([1, 2, 3]));
+        await fsActual.writeFile(utf8Path, "hello", "utf8");
+        await fsActual.writeFile(utf16Path, Buffer.from("world", "utf16le"));
+
+        fsMocks.readFile.mockImplementation((...args) => fsActual.readFile(...args));
+        const { readFileFromPath } = await loadModule();
+
+        const [bin, textA, textB] = await Promise.all([
+          readFileFromPath(binPath),
+          readFileFromPath(utf8Path, "utf8"),
+          readFileFromPath(utf16Path, "utf16le"),
+        ]);
+
+        expect(Array.from(bin)).toEqual([1, 2, 3]);
+        expect(textA).toBe("hello");
+        expect(textB).toBe("world");
+      });
+    });
   });
 
   describe("statFile", () => {
@@ -188,6 +283,9 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
       ["empty string", ""],
       ["whitespace", "   "],
       ["empty object", {}],
+      ["null", null],
+      ["undefined", undefined],
+      ["zero", 0],
     ])("passes through boundary input: %s", async (_label, input) => {
       const stats = { size: 0, mtime: new Date("2024-01-02T00:00:00Z") };
       fsMocks.stat.mockResolvedValue(stats);
@@ -209,12 +307,36 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
     it("throws when not in a Node environment", async () => {
       fsMocks.stat.mockResolvedValue({ size: 1, mtime: new Date() });
       const { statFile } = await loadModule();
-      globalThis.process = {};
 
-      await expect(statFile("/tmp/file.txt")).rejects.toThrow(
-        "statFile() requires Node.js."
-      );
+      await withStubbedProcess({}, async () => {
+        await expect(statFile("/tmp/file.txt")).rejects.toThrow(
+          "statFile() requires Node.js."
+        );
+      });
       expect(fsMocks.stat).not.toHaveBeenCalled();
+    });
+
+    it("supports concurrent calls", async () => {
+      await withTempDir(async ({ dir, fsActual, pathActual }) => {
+        const aPath = pathActual.join(dir, "a.txt");
+        const bbPath = pathActual.join(dir, "bb.txt");
+        const cccPath = pathActual.join(dir, "ccc.txt");
+
+        await fsActual.writeFile(aPath, "a", "utf8");
+        await fsActual.writeFile(bbPath, "bb", "utf8");
+        await fsActual.writeFile(cccPath, "ccc", "utf8");
+
+        fsMocks.stat.mockImplementation((...args) => fsActual.stat(...args));
+        const { statFile } = await loadModule();
+
+        const results = await Promise.all([
+          statFile(aPath),
+          statFile(bbPath),
+          statFile(cccPath),
+        ]);
+
+        expect(results.map((stats) => stats.size)).toEqual([1, 2, 3]);
+      });
     });
   });
 
@@ -273,10 +395,25 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
     it.each([
       ["array-like object", { 0: 1, length: 1 }],
       ["empty array", []],
+      ["empty object", {}],
+      ["string", "x"],
+      ["number", 123],
     ])("throws for invalid buffer input: %s", async (_label, input) => {
       const { bufferToArrayBuffer } = await loadModule();
 
       expect(() => bufferToArrayBuffer(input)).toThrow(TypeError);
+    });
+
+    it("handles very large buffers", async () => {
+      const { bufferToArrayBuffer } = await loadModule();
+      const buf = Buffer.alloc(1024 * 1024, 7);
+
+      const result = bufferToArrayBuffer(buf);
+
+      const view = new Uint8Array(result);
+      expect(view.byteLength).toBe(1024 * 1024);
+      expect(view[0]).toBe(7);
+      expect(view[view.length - 1]).toBe(7);
     });
   });
 
@@ -296,6 +433,9 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
 
       const arrayBuffer = await fileLike.arrayBuffer();
       expect(Array.from(new Uint8Array(arrayBuffer))).toEqual(Array.from(buf));
+      expect(fsMocks.stat).toHaveBeenCalledWith("/tmp/hello.txt");
+      expect(fsMocks.readFile).toHaveBeenCalledWith("/tmp/hello.txt");
+      expect(pathMocks.basename).toHaveBeenCalledWith("/tmp/hello.txt");
     });
 
     it("respects mimeType and deep nested options", async () => {
@@ -318,6 +458,8 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
       ["maxBytes 0", 0],
       ["maxBytes -1", -1],
       ["maxBytes string", "10"],
+      ["maxBytes NaN", Number.NaN],
+      ["maxBytes Infinity", Number.POSITIVE_INFINITY],
       ["options array", []],
     ])("ignores non-positive or non-numeric maxBytes: %s", async (_label, maxBytes) => {
       const buf = Buffer.from("x");
@@ -334,6 +476,23 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
       if (Array.isArray(maxBytes)) {
         expect(fileLike.type).toBe("application/octet-stream");
       }
+    });
+
+    it.each([
+      ["mimeType undefined", undefined, "application/octet-stream"],
+      ["mimeType null", null, null],
+      ["mimeType empty string", "", ""],
+      ["mimeType whitespace", "   ", "   "],
+    ])("passes through boundary mimeType: %s", async (_label, mimeType, expected) => {
+      const buf = Buffer.from("m");
+      fsMocks.stat.mockResolvedValue({ size: buf.length, mtime: new Date() });
+      fsMocks.readFile.mockResolvedValue(buf);
+      pathMocks.basename.mockReturnValue("m.bin");
+      const { fileLikeFromPath } = await loadModule();
+
+      const fileLike = await fileLikeFromPath("/tmp/m.bin", { mimeType });
+
+      expect(fileLike.type).toBe(expected);
     });
 
     it("throws when file exceeds maxBytes", async () => {
@@ -356,15 +515,60 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
       expect(pathMocks.basename).not.toHaveBeenCalled();
     });
 
+    it("propagates stat errors", async () => {
+      fsMocks.stat.mockRejectedValue(new Error("stat-failed"));
+      const { fileLikeFromPath } = await loadModule();
+
+      await expect(fileLikeFromPath("/tmp/file.bin")).rejects.toThrow("stat-failed");
+      expect(fsMocks.readFile).not.toHaveBeenCalled();
+    });
+
+    it("propagates readFile errors", async () => {
+      fsMocks.stat.mockResolvedValue({ size: 1, mtime: new Date() });
+      fsMocks.readFile.mockRejectedValue(new Error("read-failed"));
+      pathMocks.basename.mockReturnValue("file.bin");
+      const { fileLikeFromPath } = await loadModule();
+
+      await expect(fileLikeFromPath("/tmp/file.bin")).rejects.toThrow("read-failed");
+      expect(pathMocks.basename).not.toHaveBeenCalled();
+    });
+
     it("throws when not in a Node environment", async () => {
       fsMocks.stat.mockResolvedValue({ size: 1, mtime: new Date() });
       const { fileLikeFromPath } = await loadModule();
-      globalThis.process = {};
 
-      await expect(fileLikeFromPath("/tmp/hello.txt")).rejects.toThrow(
-        "fileLikeFromPath() requires Node.js."
-      );
+      await withStubbedProcess({}, async () => {
+        await expect(fileLikeFromPath("/tmp/hello.txt")).rejects.toThrow(
+          "fileLikeFromPath() requires Node.js."
+        );
+      });
       expect(fsMocks.stat).not.toHaveBeenCalled();
+    });
+
+    it("supports concurrent calls", async () => {
+      await withTempDir(async ({ dir, fsActual, pathActual }) => {
+        const aPath = pathActual.join(dir, "a.txt");
+        const bPath = pathActual.join(dir, "big.bin");
+
+        await fsActual.writeFile(aPath, "aaa", "utf8");
+        await fsActual.writeFile(bPath, Buffer.from([9, 8, 7, 6]));
+
+        fsMocks.stat.mockImplementation((...args) => fsActual.stat(...args));
+        fsMocks.readFile.mockImplementation((...args) => fsActual.readFile(...args));
+        pathMocks.basename.mockImplementation((value) => pathActual.basename(String(value)));
+        const { fileLikeFromPath } = await loadModule();
+
+        const [a, b] = await Promise.all([
+          fileLikeFromPath(aPath, { mimeType: "text/plain" }),
+          fileLikeFromPath(bPath, { maxBytes: 10 }),
+        ]);
+
+        expect(a.name).toBe("a.txt");
+        expect(a.type).toBe("text/plain");
+        expect(a.size).toBe(3);
+        expect(b.name).toBe("big.bin");
+        expect(b.size).toBe(4);
+      });
     });
   });
 
@@ -427,6 +631,14 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
       expect(fsMocks.readFile).not.toHaveBeenCalled();
     });
 
+    it("propagates stat errors", async () => {
+      fsMocks.stat.mockRejectedValue(new Error("stat-failed"));
+      const { readTextFromPath } = await loadModule();
+
+      await expect(readTextFromPath("/tmp/bad.txt")).rejects.toThrow("stat-failed");
+      expect(fsMocks.readFile).not.toHaveBeenCalled();
+    });
+
     it("propagates readFile errors", async () => {
       fsMocks.stat.mockResolvedValue({ size: 2, mtime: new Date() });
       fsMocks.readFile.mockRejectedValue(new Error("read-failed"));
@@ -438,12 +650,35 @@ describe("js/agents/ingest/adapters/node-io.js", () => {
     it("throws when not in a Node environment", async () => {
       fsMocks.stat.mockResolvedValue({ size: 1, mtime: new Date() });
       const { readTextFromPath } = await loadModule();
-      globalThis.process = {};
 
-      await expect(readTextFromPath("/tmp/data.txt")).rejects.toThrow(
-        "readTextFromPath() requires Node.js."
-      );
+      await withStubbedProcess({}, async () => {
+        await expect(readTextFromPath("/tmp/data.txt")).rejects.toThrow(
+          "readTextFromPath() requires Node.js."
+        );
+      });
       expect(fsMocks.stat).not.toHaveBeenCalled();
+    });
+
+    it("supports concurrent calls", async () => {
+      await withTempDir(async ({ dir, fsActual, pathActual }) => {
+        const aPath = pathActual.join(dir, "a.txt");
+        const bbPath = pathActual.join(dir, "bb.txt");
+
+        await fsActual.writeFile(aPath, "A", "utf8");
+        await fsActual.writeFile(bbPath, "BB", "utf8");
+
+        fsMocks.stat.mockImplementation((...args) => fsActual.stat(...args));
+        fsMocks.readFile.mockImplementation((...args) => fsActual.readFile(...args));
+        const { readTextFromPath } = await loadModule();
+
+        const [a, b] = await Promise.all([
+          readTextFromPath(aPath),
+          readTextFromPath(bbPath),
+        ]);
+
+        expect(a).toEqual({ text: "A", size: 1 });
+        expect(b).toEqual({ text: "BB", size: 2 });
+      });
     });
   });
 });

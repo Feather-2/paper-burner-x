@@ -1,41 +1,72 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { parseSectionsMock, joinSectionsMock, isPlainObjectMock } = vi.hoisted(() => ({
-  parseSectionsMock: vi.fn(),
-  joinSectionsMock: vi.fn(),
-  isPlainObjectMock: vi.fn(),
+const mockedRefinerTools = vi.hoisted(() => ({
+  parseSections: vi.fn(),
+  joinSections: vi.fn(),
 }));
 
-vi.mock("../../../../../../js/agents/stages/design/refiner/react-refiner-tools.js", () => ({
-  parseSections: parseSectionsMock,
-  joinSections: joinSectionsMock,
+const mockedDesignUtils = vi.hoisted(() => ({
+  isPlainObject: vi.fn(),
 }));
 
-vi.mock("../../../../../../js/agents/stages/design/shared/design-utils.js", () => ({
-  isPlainObject: isPlainObjectMock,
+vi.mock('../../../../../../js/agents/stages/design/refiner/react-refiner-tools.js', () => ({
+  parseSections: mockedRefinerTools.parseSections,
+  joinSections: mockedRefinerTools.joinSections,
 }));
 
-const modulePath = "../../../../../../js/agents/stages/design/internal/deck-editor.js";
+vi.mock('../../../../../../js/agents/stages/design/shared/design-utils.js', () => ({
+  isPlainObject: mockedDesignUtils.isPlainObject,
+}));
+
+const modulePath = '../../../../../../js/agents/stages/design/internal/deck-editor.js';
+
+function parseSectionsImpl(deckHtmlDsl) {
+  const html = typeof deckHtmlDsl === 'string' ? deckHtmlDsl : '';
+  if (!html) return [];
+
+  const lower = html.toLowerCase();
+  const sections = [];
+  let cursor = 0;
+  while (cursor < html.length) {
+    const start = lower.indexOf('<section', cursor);
+    if (start < 0) break;
+    const endTag = lower.indexOf('</section>', start);
+    if (endTag < 0) break;
+    const end = endTag + '</section>'.length;
+    const sectionHtml = html.slice(start, end).trim();
+    if (sectionHtml) sections.push(sectionHtml);
+    cursor = end;
+  }
+  return sections;
+}
+
+function joinSectionsImpl(sections) {
+  const parts = Array.isArray(sections) ? sections : [];
+  return parts
+    .map((section) => (typeof section === 'string' ? section.trim() : ''))
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function isPlainObjectImpl(value) {
+  return value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype;
+}
 
 async function loadModule() {
-  vi.resetModules();
-  return import(modulePath);
+  return await import(modulePath);
 }
 
 beforeEach(() => {
+  vi.resetModules();
   vi.clearAllMocks();
-  parseSectionsMock.mockImplementation((dsl) => {
-    if (typeof dsl !== "string" || dsl.length === 0) return [];
-    return dsl.split("||");
-  });
-  joinSectionsMock.mockImplementation((sections) => sections.join("||"));
-  isPlainObjectMock.mockImplementation(
-    (value) => value !== null && typeof value === "object" && !Array.isArray(value),
-  );
+
+  mockedRefinerTools.parseSections.mockImplementation(parseSectionsImpl);
+  mockedRefinerTools.joinSections.mockImplementation(joinSectionsImpl);
+  mockedDesignUtils.isPlainObject.mockImplementation(isPlainObjectImpl);
 });
 
 describe("EDITOR_CONFIG", () => {
-  it("exposes the default maxHistoryLength", async () => {
+  it('exposes the default maxHistoryLength', async () => {
     const { EDITOR_CONFIG } = await loadModule();
     expect(EDITOR_CONFIG).toEqual({ maxHistoryLength: 50 });
     expect(EDITOR_CONFIG.maxHistoryLength).toBe(50);
@@ -43,11 +74,11 @@ describe("EDITOR_CONFIG", () => {
 });
 
 describe("DeckEditor", () => {
-  it("initializes with defaults and empty history", async () => {
+  it('initializes with defaults and empty history snapshot', async () => {
     const { DeckEditor } = await loadModule();
     const editor = new DeckEditor();
 
-    expect(editor.getDeckHtmlDsl()).toBe("");
+    expect(editor.getDeckHtmlDsl()).toBe('');
 
     const history = editor.getHistory();
     expect(history.entries).toEqual([]);
@@ -56,126 +87,203 @@ describe("DeckEditor", () => {
     expect(history.canRedo).toBe(false);
   });
 
-  it("setDeckPackage accepts null and getDeckHtmlDsl falls back to empty string", async () => {
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['empty object', {}],
+  ])('setDeckPackage accepts %s and getDeckHtmlDsl falls back to empty string', async (_label, deckPackage) => {
     const { DeckEditor } = await loadModule();
-    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: "<section>one</section>" } });
-
-    editor.setDeckPackage(null);
-
-    expect(editor.getDeckHtmlDsl()).toBe("");
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: '<section>one</section>' } });
+    editor.setDeckPackage(deckPackage);
+    expect(editor.getDeckHtmlDsl()).toBe('');
   });
 
-  it("editElement uses toolExecutor and records history on success", async () => {
+  it('getDeckHtmlDsl preserves whitespace strings', async () => {
+    const { DeckEditor } = await loadModule();
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: '   ' } });
+    expect(editor.getDeckHtmlDsl()).toBe('   ');
+  });
+
+  it('editElement delegates to toolExecutor and records history on success', async () => {
     const { DeckEditor } = await loadModule();
     const toolExecutor = vi.fn().mockResolvedValue({
       success: true,
-      data: { deckPackage: { deckHtmlDsl: "<section>updated</section>" } },
+      data: { deckPackage: { deckHtmlDsl: '<section>updated</section>' } },
     });
     const editor = new DeckEditor({
-      deckPackage: { deckHtmlDsl: "<section>old</section>" },
+      deckPackage: { deckHtmlDsl: '<section>old</section>' },
       toolExecutor,
     });
 
-    const result = await editor.editElement(0, "el1", { text: "ok" });
+    const result = await editor.editElement(0, 'el1', { text: 'ok' });
 
     expect(result.success).toBe(true);
-    expect(toolExecutor).toHaveBeenCalledWith("editElement", {
+    expect(toolExecutor).toHaveBeenCalledWith('editElement', {
       slideIndex: 0,
-      elementId: "el1",
-      changes: { text: "ok" },
+      elementId: 'el1',
+      changes: { text: 'ok' },
     });
-    expect(editor.getDeckHtmlDsl()).toBe("<section>updated</section>");
+    expect(editor.getDeckHtmlDsl()).toBe('<section>updated</section>');
+    expect(mockedRefinerTools.parseSections).not.toHaveBeenCalled();
+    expect(mockedRefinerTools.joinSections).not.toHaveBeenCalled();
 
     const history = editor.getHistory();
     expect(history.entries).toHaveLength(1);
-    expect(history.entries[0].action).toBe("editElement");
+    expect(history.entries[0].action).toBe('editElement');
     expect(history.entries[0].params).toEqual({
       slideIndex: 0,
-      elementId: "el1",
-      changes: { text: "ok" },
+      elementId: 'el1',
+      changes: { text: 'ok' },
     });
-    expect(history.entries[0].prevDeckHtmlDsl).toBe("<section>old</section>");
-    expect(history.entries[0].nextDeckHtmlDsl).toBe("<section>updated</section>");
+    expect(history.entries[0].prevDeckHtmlDsl).toBe('<section>old</section>');
+    expect(history.entries[0].nextDeckHtmlDsl).toBe('<section>updated</section>');
+    expect(typeof history.entries[0].timestamp).toBe('number');
   });
 
-  it("editElement with toolExecutor does not mutate state on failure", async () => {
+  it('editSlide delegates to toolExecutor and records history on success', async () => {
     const { DeckEditor } = await loadModule();
-    const toolExecutor = vi.fn().mockResolvedValue({ success: false, error: "nope" });
+    const toolExecutor = vi.fn().mockResolvedValue({
+      success: true,
+      data: { deckPackage: { deckHtmlDsl: '<section>slide-updated</section>' } },
+    });
     const editor = new DeckEditor({
-      deckPackage: { deckHtmlDsl: "<section>old</section>" },
+      deckPackage: { deckHtmlDsl: '<section>slide-old</section>' },
       toolExecutor,
     });
 
-    const result = await editor.editElement(0, "el1", { text: "x" });
+    const result = await editor.editSlide(0, { html: '<section>ignored-in-executor</section>' });
 
-    expect(result.success).toBe(false);
-    expect(editor.getDeckHtmlDsl()).toBe("<section>old</section>");
+    expect(result.success).toBe(true);
+    expect(toolExecutor).toHaveBeenCalledWith('editSlide', {
+      slideIndex: 0,
+      changes: { html: '<section>ignored-in-executor</section>' },
+    });
+    expect(editor.getDeckHtmlDsl()).toBe('<section>slide-updated</section>');
+    expect(editor.getHistory().entries).toHaveLength(1);
+    expect(editor.getHistory().entries[0].action).toBe('editSlide');
+  });
+
+  it('does not mutate state or history when toolExecutor returns failure', async () => {
+    const { DeckEditor } = await loadModule();
+    const toolExecutor = vi.fn().mockResolvedValue({ success: false, error: 'nope' });
+    const editor = new DeckEditor({
+      deckPackage: { deckHtmlDsl: '<section>old</section>' },
+      toolExecutor,
+    });
+
+    const elementResult = await editor.editElement(0, 'el1', { text: 'x' });
+    const slideResult = await editor.editSlide(0, { html: '<section>x</section>' });
+
+    expect(elementResult.success).toBe(false);
+    expect(slideResult.success).toBe(false);
+    expect(editor.getDeckHtmlDsl()).toBe('<section>old</section>');
     expect(editor.getHistory().entries).toHaveLength(0);
   });
 
-  it("direct editElement rejects invalid slideIndex", async () => {
+  it('handles concurrent toolExecutor edits with out-of-order resolution', async () => {
     const { DeckEditor } = await loadModule();
-    const deckHtmlDsl = '<section><div data-el="el1">Hello</div></section>';
-    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
 
-    const result = await editor.editElement(-1, "el1", { text: "x" });
+    const deferred = [];
+    const toolExecutor = vi.fn(() => {
+      let resolve;
+      const promise = new Promise((innerResolve) => {
+        resolve = innerResolve;
+      });
+      deferred.push(resolve);
+      return promise;
+    });
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid slideIndex");
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: '<section>start</section>' }, toolExecutor });
+
+    const first = editor.editElement(0, 'el1', { text: 'first' });
+    const second = editor.editElement(0, 'el2', { text: 'second' });
+
+    // Resolve second first to simulate race conditions.
+    deferred[1]({ success: true, data: { deckPackage: { deckHtmlDsl: '<section>second</section>' } } });
+    const secondResult = await second;
+    expect(secondResult.success).toBe(true);
+    expect(editor.getDeckHtmlDsl()).toBe('<section>second</section>');
+
+    deferred[0]({ success: true, data: { deckPackage: { deckHtmlDsl: '<section>first</section>' } } });
+    const firstResult = await first;
+    expect(firstResult.success).toBe(true);
+
+    // Last resolved wins (even if it was called first).
+    expect(editor.getDeckHtmlDsl()).toBe('<section>first</section>');
+
+    const history = editor.getHistory();
+    expect(history.entries).toHaveLength(2);
+    expect(history.entries[0].params.elementId).toBe('el2');
+    expect(history.entries[1].params.elementId).toBe('el1');
   });
 
-  it("direct editElement rejects missing element id", async () => {
+  it('direct editElement rejects invalid slideIndex boundaries', async () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
 
-    const result = await editor.editElement(0, "missing", { text: "x" });
+    const negative = await editor.editElement(-1, 'el1', { text: 'x' });
+    expect(negative.success).toBe(false);
+    expect(negative.error).toContain('Invalid slideIndex');
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Element not found");
+    const huge = await editor.editElement(Number.MAX_SAFE_INTEGER, 'el1', { text: 'x' });
+    expect(huge.success).toBe(false);
+    expect(huge.error).toContain('Invalid slideIndex');
   });
 
-  it("direct editElement escapes text content", async () => {
+  it('direct editElement rejects missing element id', async () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
 
-    const result = await editor.editElement(0, "el1", { text: '<script>alert("x")</script>' });
+    const result = await editor.editElement(0, 'missing', { text: 'x' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Element not found');
+  });
+
+  it('direct editElement escapes text content', async () => {
+    const { DeckEditor } = await loadModule();
+    const deckHtmlDsl = '<section><div data-el="el1">Hello</div></section>';
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+
+    const result = await editor.editElement(0, 'el1', { text: '<script>alert("x")</script>&' });
 
     expect(result.success).toBe(true);
     const updated = editor.getDeckHtmlDsl();
     expect(updated).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
+    expect(updated).toContain('&amp;');
     expect(updated).not.toContain("<script>");
 
     const history = editor.getHistory();
     expect(history.entries[0].params.changes.text).toBe(
-      "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;",
+      '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;&amp;',
     );
   });
 
-  it("direct editElement truncates long text to 10000 chars", async () => {
+  it('direct editElement truncates long text to 10000 chars', async () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
-    const longText = "a".repeat(10005);
 
-    const result = await editor.editElement(0, "el1", { text: longText });
+    const longText = 'a'.repeat(10005);
+    const result = await editor.editElement(0, 'el1', { text: longText });
 
     expect(result.success).toBe(true);
     const updated = editor.getDeckHtmlDsl();
     const match = updated.match(/data-el="el1"[^>]*>([^<]*)</);
     expect(match).not.toBeNull();
-    expect(match[1].length).toBe(10000);
+    expect(match[1]).toBe('a'.repeat(10000));
   });
 
-  it("direct editElement sanitizes inline styles and keeps safe properties", async () => {
+  it('direct editElement sanitizes inline styles and keeps safe properties', async () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
 
     const rawStyle =
       "color: red; background: url(javascript:alert(1)); position: absolute; cursor: pointer;";
-    const result = await editor.editElement(0, "el1", { style: rawStyle });
+    const result = await editor.editElement(0, 'el1', { style: rawStyle });
 
     expect(result.success).toBe(true);
     const updated = editor.getDeckHtmlDsl();
@@ -187,22 +295,64 @@ describe("DeckEditor", () => {
     expect(history.entries[0].params.changes.style).toBe("color: red; position: absolute");
   });
 
-  it("direct editElement allows clearing style with whitespace input", async () => {
+  it('direct editElement allows clearing style with whitespace input', async () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
 
-    const result = await editor.editElement(0, "el1", { style: "   " });
+    const result = await editor.editElement(0, 'el1', { style: '   ' });
 
     expect(result.success).toBe(true);
     const updated = editor.getDeckHtmlDsl();
     expect(updated).toContain('style=""');
 
     const history = editor.getHistory();
-    expect(history.entries[0].params.changes.style).toBe("");
+    expect(history.entries[0].params.changes.style).toBe('');
   });
 
-  it("direct editSlide sanitizes html and layout while accepting string slideIndex", async () => {
+  it('direct editElement does not apply style updates when sanitization yields empty result', async () => {
+    const { DeckEditor } = await loadModule();
+    const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+
+    const result = await editor.editElement(0, 'el1', { style: 'background: url(javascript:alert(1))' });
+
+    expect(result.success).toBe(true);
+    expect(editor.getDeckHtmlDsl()).toContain('style="color: blue"');
+
+    const history = editor.getHistory();
+    expect(history.entries).toHaveLength(1);
+    expect(history.entries[0].params.changes.style).toBe('background: url(javascript:alert(1))');
+  });
+
+  it('direct editElement ignores safe declarations beyond the max style length budget', async () => {
+    const { DeckEditor } = await loadModule();
+    const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+
+    const longStyle = 'color: red;'.repeat(500) + 'font-size: 12px;';
+    const result = await editor.editElement(0, 'el1', { style: longStyle });
+
+    expect(result.success).toBe(true);
+    const updated = editor.getDeckHtmlDsl();
+    expect(updated).toContain('style="');
+    expect(updated).toContain('color: red');
+    expect(updated).not.toContain('font-size: 12px');
+  });
+
+  it('direct editElement does not inject a style attribute when missing on the element', async () => {
+    const { DeckEditor } = await loadModule();
+    const deckHtmlDsl = '<section><div data-el="el1">Hello</div></section>';
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+
+    const result = await editor.editElement(0, 'el1', { style: 'color: red' });
+
+    expect(result.success).toBe(true);
+    expect(editor.getDeckHtmlDsl()).toContain('<div data-el="el1">');
+    expect(editor.getDeckHtmlDsl()).not.toContain('style="color: red"');
+  });
+
+  it('direct editSlide sanitizes html and layout while accepting string slideIndex', async () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section data-layout="old"><div>Old</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
@@ -234,7 +384,7 @@ describe("DeckEditor", () => {
     expect(result.error).toBe("changes.html must be a string");
   });
 
-  it("direct editSlide rejects oversized html payloads", async () => {
+  it('direct editSlide rejects oversized html payloads', async () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section data-layout="old"><div>Old</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
@@ -246,20 +396,52 @@ describe("DeckEditor", () => {
     expect(result.error).toBe("changes.html exceeds max length (500KB)");
   });
 
-  it("direct editSlide ignores empty html string without changing content", async () => {
+  it('direct editSlide accepts the max html size boundary (500KB) and ignores falsy non-string html', async () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section data-layout="old"><div>Keep</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
 
-    const result = await editor.editSlide(0, { html: "" });
+    const maxHtml = `<section>${'a'.repeat(500000 - '<section></section>'.length)}</section>`;
+    expect(maxHtml).toHaveLength(500000);
+
+    const atLimit = await editor.editSlide(0, { html: maxHtml });
+    expect(atLimit.success).toBe(true);
+    expect(editor.getDeckHtmlDsl()).toBe(maxHtml);
+
+    // Falsy non-string html values are ignored (because the implementation checks `if (changes.html)`).
+    const ignored = await editor.editSlide(0, { html: 0 });
+    expect(ignored.success).toBe(true);
+    expect(editor.getDeckHtmlDsl()).toBe(maxHtml);
+  });
+
+  it('direct editSlide does not inject data-layout when missing on the section', async () => {
+    const { DeckEditor } = await loadModule();
+    const deckHtmlDsl = '<section><div>Old</div></section>';
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+
+    const result = await editor.editSlide(0, { layout: 'grid' });
 
     expect(result.success).toBe(true);
     expect(editor.getDeckHtmlDsl()).toBe(deckHtmlDsl);
   });
 
+  it('direct editSlide sanitizes and truncates layout to 50 safe characters', async () => {
+    const { DeckEditor } = await loadModule();
+    const deckHtmlDsl = '<section data-layout="old"><div>Old</div></section>';
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+
+    const layout = `${'a'.repeat(100)}!!!`;
+    const result = await editor.editSlide(0, { layout });
+
+    expect(result.success).toBe(true);
+    expect(editor.getDeckHtmlDsl()).toContain(`data-layout="${'a'.repeat(50)}"`);
+  });
+
   it.each([
     ["null", null],
     ["undefined", undefined],
+    ["empty string", ""],
+    ["zero", 0],
     ["object", {}],
     ["empty array", []],
   ])("batchEdit rejects invalid edits input (%s)", async (_label, value) => {
@@ -272,7 +454,7 @@ describe("DeckEditor", () => {
     expect(result.error).toBe("edits must be a non-empty array");
   });
 
-  it("batchEdit aggregates mixed results and unknown edit types", async () => {
+  it('batchEdit aggregates mixed results and unknown edit types', async () => {
     const { DeckEditor } = await loadModule();
     const toolExecutor = vi
       .fn()
@@ -301,29 +483,72 @@ describe("DeckEditor", () => {
     expect(toolExecutor).toHaveBeenCalledTimes(2);
   });
 
-  it("applyStyleFix rejects non-object inputs", async () => {
+  it('batchEdit returns success=false when all edits fail', async () => {
     const { DeckEditor } = await loadModule();
-    const editor = new DeckEditor();
-    isPlainObjectMock.mockReturnValueOnce(false);
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: '<section>one</section>' } });
 
-    const result = await editor.applyStyleFix(null);
+    const result = await editor.batchEdit([
+      { type: 'unknown', slideIndex: 0, changes: {} },
+      { type: 'unknown', slideIndex: 1, changes: {} },
+    ]);
 
-    expect(isPlainObjectMock).toHaveBeenCalledWith(null);
     expect(result.success).toBe(false);
-    expect(result.error).toBe("fix must be an object");
+    expect(result.data.success).toBe(0);
+    expect(result.data.failed).toBe(2);
   });
 
-  it("applyStyleFix returns no-op result when no fixes provided", async () => {
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['empty string', ''],
+    ['whitespace', '   '],
+    ['zero', 0],
+    ['array', []],
+  ])('applyStyleFix rejects non-object inputs (%s)', async (_label, value) => {
+    const { DeckEditor } = await loadModule();
+    const editor = new DeckEditor();
+    const result = await editor.applyStyleFix(value);
+    expect(mockedDesignUtils.isPlainObject).toHaveBeenCalledWith(value);
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('fix must be an object');
+  });
+
+  it('applyStyleFix returns no-op result for empty or deep nested objects', async () => {
     const { DeckEditor } = await loadModule();
     const editor = new DeckEditor();
 
-    const result = await editor.applyStyleFix({});
+    const root = {};
+    let node = root;
+    for (let i = 0; i < 200; i += 1) {
+      node.next = {};
+      node = node.next;
+    }
+
+    const empty = await editor.applyStyleFix({});
+    expect(empty.success).toBe(true);
+    expect(empty.data).toEqual({ message: 'No fixes to apply' });
+
+    const deep = await editor.applyStyleFix(root);
+    expect(deep.success).toBe(true);
+    expect(deep.data).toEqual({ message: 'No fixes to apply' });
+  });
+
+  it('applyStyleFix ignores non-array fix lists', async () => {
+    const { DeckEditor } = await loadModule();
+    const editor = new DeckEditor();
+
+    const result = await editor.applyStyleFix({
+      colorFixes: {},
+      fontFixes: null,
+      layoutFixes: 'nope',
+      htmlReplacements: 123,
+    });
 
     expect(result.success).toBe(true);
-    expect(result.data).toEqual({ message: "No fixes to apply" });
+    expect(result.data).toEqual({ message: 'No fixes to apply' });
   });
 
-  it("applyStyleFix builds edits from fix arrays and delegates to batchEdit", async () => {
+  it('applyStyleFix builds edits from fix arrays and delegates to batchEdit', async () => {
     const { DeckEditor } = await loadModule();
     const editor = new DeckEditor();
     const batchEditSpy = vi
@@ -386,7 +611,7 @@ describe("DeckEditor", () => {
     expect(result.error).toBe("newHtml must be a string");
   });
 
-  it("replaceSlideHtml rejects oversized html payloads", async () => {
+  it('replaceSlideHtml rejects oversized html payloads and accepts the max length boundary', async () => {
     const { DeckEditor } = await loadModule();
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: "<section>old</section>" } });
     const bigHtml = "a".repeat(500001);
@@ -395,22 +620,34 @@ describe("DeckEditor", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("newHtml exceeds max length (500KB)");
+
+    const maxHtml = `<section>${'a'.repeat(500000 - '<section></section>'.length)}</section>`;
+    expect(maxHtml).toHaveLength(500000);
+
+    const atLimit = editor.replaceSlideHtml(0, maxHtml);
+    expect(atLimit.success).toBe(true);
+    expect(editor.getDeckHtmlDsl()).toBe(maxHtml);
   });
 
-  it("replaceSlideHtml rejects invalid slideIndex boundaries", async () => {
+  it('replaceSlideHtml rejects invalid slideIndex boundaries', async () => {
     const { DeckEditor } = await loadModule();
-    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: "<section>old</section>" } });
+    const deckHtmlDsl = joinSectionsImpl(['<section>one</section>', '<section>two</section>']);
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
 
     const resultNegative = editor.replaceSlideHtml(-1, "<section>new</section>");
     expect(resultNegative.success).toBe(false);
     expect(resultNegative.error).toContain("Invalid slideIndex");
+
+    const resultEqualLength = editor.replaceSlideHtml(2, "<section>new</section>");
+    expect(resultEqualLength.success).toBe(false);
+    expect(resultEqualLength.error).toContain("Invalid slideIndex");
 
     const resultHuge = editor.replaceSlideHtml(Number.MAX_SAFE_INTEGER, "<section>new</section>");
     expect(resultHuge.success).toBe(false);
     expect(resultHuge.error).toContain("Invalid slideIndex");
   });
 
-  it("replaceSlideHtml sanitizes dangerous tags, urls, and styles", async () => {
+  it('replaceSlideHtml sanitizes dangerous tags, urls, and styles', async () => {
     const { DeckEditor } = await loadModule();
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: "<section>old</section>" } });
     const newHtml =
@@ -428,7 +665,21 @@ describe("DeckEditor", () => {
     expect(updated).not.toContain("src=");
   });
 
-  it("replaceSlideHtml accepts empty and whitespace html strings", async () => {
+  it('replaceSlideHtml drops the style attribute when sanitization yields empty style', async () => {
+    const { DeckEditor } = await loadModule();
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: '<section>old</section>' } });
+
+    const newHtml =
+      '<section style="cursor: pointer; background: url(javascript:alert(1))" onclick="alert(1)">Hi</section>';
+    const result = editor.replaceSlideHtml(0, newHtml);
+
+    expect(result.success).toBe(true);
+    const updated = editor.getDeckHtmlDsl();
+    expect(updated).not.toContain('style=');
+    expect(updated).not.toContain('onclick=');
+  });
+
+  it('replaceSlideHtml accepts empty and whitespace html strings', async () => {
     const { DeckEditor } = await loadModule();
     const editorEmpty = new DeckEditor({ deckPackage: { deckHtmlDsl: "<section>old</section>" } });
     const editorWhitespace = new DeckEditor({ deckPackage: { deckHtmlDsl: "<section>old</section>" } });
@@ -443,7 +694,27 @@ describe("DeckEditor", () => {
     expect(editorWhitespace.getDeckHtmlDsl()).toBe("");
   });
 
-  it("undo/redo restore history state and enforce bounds", async () => {
+  it('replaceSlideHtml records timestamps via Date.now', async () => {
+    const { DeckEditor } = await loadModule();
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: '<section>one</section>' } });
+
+    vi.useFakeTimers();
+    try {
+      const fixed = new Date('2026-01-01T00:00:00.000Z');
+      vi.setSystemTime(fixed);
+
+      const result = editor.replaceSlideHtml(0, '<section>two</section>');
+      expect(result.success).toBe(true);
+
+      const history = editor.getHistory();
+      expect(history.entries).toHaveLength(1);
+      expect(history.entries[0].timestamp).toBe(fixed.getTime());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('undo/redo restore history state and enforce bounds', async () => {
     const { DeckEditor } = await loadModule();
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: "<section>one</section>" } });
 
@@ -463,16 +734,27 @@ describe("DeckEditor", () => {
     expect(editor.getDeckHtmlDsl()).toBe("<section>two</section>");
   });
 
-  it("limits history length and truncates redo after new edits", async () => {
+  it('limits history length, including the boundary value maxHistoryLength=0', async () => {
     const { DeckEditor } = await loadModule();
+    const editorZero = new DeckEditor({
+      deckPackage: { deckHtmlDsl: '<section>start</section>' },
+      config: { maxHistoryLength: 0 },
+    });
+
+    const changed = editorZero.replaceSlideHtml(0, '<section>one</section>');
+    expect(changed.success).toBe(true);
+    expect(editorZero.getDeckHtmlDsl()).toBe('<section>one</section>');
+    expect(editorZero.getHistory().entries).toHaveLength(0);
+    expect(editorZero.undo().success).toBe(false);
+
     const editor = new DeckEditor({
-      deckPackage: { deckHtmlDsl: "<section>start</section>" },
+      deckPackage: { deckHtmlDsl: '<section>start</section>' },
       config: { maxHistoryLength: 2 },
     });
 
-    editor.replaceSlideHtml(0, "<section>one</section>");
-    editor.replaceSlideHtml(0, "<section>two</section>");
-    editor.replaceSlideHtml(0, "<section>three</section>");
+    editor.replaceSlideHtml(0, '<section>one</section>');
+    editor.replaceSlideHtml(0, '<section>two</section>');
+    editor.replaceSlideHtml(0, '<section>three</section>');
 
     const history = editor.getHistory();
     expect(history.entries).toHaveLength(2);
@@ -491,7 +773,7 @@ describe("DeckEditor", () => {
     expect(afterNewEdit.entries).toHaveLength(2);
   });
 
-  it("getHistory returns a copy of the entries array", async () => {
+  it('getHistory returns a copy of the entries array', async () => {
     const { DeckEditor } = await loadModule();
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: "<section>one</section>" } });
 
@@ -504,30 +786,7 @@ describe("DeckEditor", () => {
     expect(nextHistory.entries).toHaveLength(1);
   });
 
-  it("handles concurrent edits and deep nested changes", async () => {
-    const { DeckEditor } = await loadModule();
-    const toolExecutor = vi.fn(async (toolName, params) => ({
-      success: true,
-      data: { deckPackage: { deckHtmlDsl: `${toolName}-${params.slideIndex}` } },
-    }));
-    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl: "<section>start</section>" }, toolExecutor });
-    const deepChanges = { level1: { level2: { level3: { level4: { value: "x" } } } } };
-
-    await Promise.all([
-      editor.editElement(0, "el1", deepChanges),
-      editor.editSlide(1, { html: "<section>two</section>" }),
-    ]);
-
-    expect(toolExecutor).toHaveBeenCalledTimes(2);
-    expect(toolExecutor).toHaveBeenCalledWith("editElement", {
-      slideIndex: 0,
-      elementId: "el1",
-      changes: deepChanges,
-    });
-    expect(editor.getHistory().entries).toHaveLength(2);
-  });
-
-  it("handles rapid sequential edits", async () => {
+  it('handles rapid sequential edits', async () => {
     const { DeckEditor } = await loadModule();
     const toolExecutor = vi
       .fn()
@@ -551,7 +810,7 @@ describe("DeckEditor", () => {
 });
 
 describe("createDeckEditor", () => {
-  it("creates a DeckEditor instance with provided options", async () => {
+  it('creates a DeckEditor instance with provided options', async () => {
     const { createDeckEditor, DeckEditor } = await loadModule();
     const editor = createDeckEditor({ deckPackage: { deckHtmlDsl: "<section>hi</section>" } });
 
@@ -559,14 +818,14 @@ describe("createDeckEditor", () => {
     expect(editor.getDeckHtmlDsl()).toBe("<section>hi</section>");
   });
 
-  it("uses defaults when options are undefined", async () => {
+  it('uses defaults when options are undefined', async () => {
     const { createDeckEditor } = await loadModule();
     const editor = createDeckEditor(undefined);
 
     expect(editor.getDeckHtmlDsl()).toBe("");
   });
 
-  it("throws when options are null", async () => {
+  it('throws when options are null', async () => {
     const { createDeckEditor } = await loadModule();
 
     expect(() => createDeckEditor(null)).toThrow();

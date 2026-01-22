@@ -2,6 +2,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const modulePath = "../../../../../js/agents/llm/internal/config-parser.js";
 
+function makeDeepNested(depth = 50) {
+  let root = {};
+  let cursor = root;
+  for (let i = 0; i < depth; i += 1) {
+    cursor.next = { level: i };
+    cursor = cursor.next;
+  }
+  return root;
+}
+
 const mocks = vi.hoisted(() => {
   const isPlainObjectValue = (value) => !!value && typeof value === "object" && !Array.isArray(value);
 
@@ -191,6 +201,15 @@ describe("resolveEndpointTier", () => {
     expect(result).toBe(mocks.ModelTier.FAST);
   });
 
+  it("ignores whitespace-only tier and falls back to tags", () => {
+    const result = resolveEndpointTier({
+      tierResolver: undefined,
+      modelId: "model-1",
+      modelEntry: { tier: "   ", tags: ["fallback"] },
+    });
+    expect(result).toBe(mocks.ModelTier.FALLBACK);
+  });
+
   it("falls back to tags when explicit tier is invalid", () => {
     const result = resolveEndpointTier({
       tierResolver: null,
@@ -208,6 +227,15 @@ describe("resolveEndpointTier", () => {
       modelEntry: { tags: { not: "array" } },
     });
     expect(result).toBe(mocks.ModelTier.FAST);
+  });
+
+  it("handles mixed-type tags and recognizes cheap/fast/fallback case-insensitively", () => {
+    const result = resolveEndpointTier({
+      tierResolver: undefined,
+      modelId: "model-1",
+      modelEntry: { tags: ["CHEAP", 0, null, undefined, { toString: () => "FAST" }, "fallback"] },
+    });
+    expect(result).toBe(mocks.ModelTier.FALLBACK);
   });
 
   it("handles null/undefined and empty inputs", () => {
@@ -272,6 +300,21 @@ describe("shouldUsePerformanceRouting", () => {
     ).toBe(false);
   });
 
+  it("treats non-boolean performanceRouting values as absent", () => {
+    expect(
+      shouldUsePerformanceRouting({
+        strategy: mocks.RouterStrategy.LATENCY_OPTIMIZED,
+        performanceRouting: "true",
+      })
+    ).toBe(true);
+    expect(
+      shouldUsePerformanceRouting({
+        strategy: mocks.RouterStrategy.ROUND_ROBIN,
+        performanceRouting: 1,
+      })
+    ).toBe(false);
+  });
+
   it("handles type boundaries and concurrent calls", async () => {
     const [a, b, c] = await Promise.all([
       Promise.resolve(shouldUsePerformanceRouting({ strategy: {}, performanceRouting: null })),
@@ -323,6 +366,12 @@ describe("applyModelRouterConfig", () => {
     expect(mocks.assertUsageConfig).toHaveBeenCalledWith({});
   });
 
+  it("throws on invalid model/provider/usage config shapes", () => {
+    expect(() => applyModelRouterConfig({}, { models: [{}] })).toThrow(/Invalid model entry/);
+    expect(() => applyModelRouterConfig({}, { providers: { p1: null } })).toThrow(/Invalid provider/);
+    expect(() => applyModelRouterConfig({}, { usageConfig: "nope" })).toThrow(/Invalid usage config/);
+  });
+
   it("uses debug logger and emits performance routing diagnostics", () => {
     const router = {};
     const logger = {
@@ -350,6 +399,13 @@ describe("applyModelRouterConfig", () => {
     expect(() =>
       applyModelRouterConfig({}, { debug: true, logger: { debug: () => {}, info: () => {}, warn: () => {} } })
     ).toThrow(/logger\.error/);
+  });
+
+  it("coerces non-boolean performanceRouting to null and non-function tierResolver to null", () => {
+    const router = {};
+    applyModelRouterConfig(router, { performanceRouting: "yes", tierResolver: {} });
+    expect(router._performanceRouting).toBe(null);
+    expect(router._tierResolver).toBe(null);
   });
 
   it("honors performance router, tier resolver, and storage key fallback", () => {
@@ -421,7 +477,7 @@ describe("applyModelRouterConfig", () => {
       "   ": ["ignore2"],
       doc: { nested: true },
     };
-    const usageConfig = { chat: { limits: { tokens: { max: 1 } } } };
+    const usageConfig = { chat: { limits: { tokens: { max: 1 } }, deep: makeDeepNested(80) } };
     applyModelRouterConfig(router, { models, providers, usageTags, usageConfig });
     expect(router._models.get("m1").tags).toEqual(["fast", "alpha"]);
     expect(router._models.get("m2").tags).toEqual([]);
@@ -514,6 +570,14 @@ describe("applyModelRouterConfig", () => {
     const storage = { getItem: () => huge, setItem: () => {} };
     applyModelRouterConfig(routerB, { persistRoundRobin: true, storage });
     expect(routerB._rrNextIndexByUsage.size).toBe(0);
+  });
+
+  it("handles null storage values without throwing", () => {
+    const router = {};
+    const storage = { getItem: vi.fn(() => null), setItem: vi.fn() };
+    applyModelRouterConfig(router, { persistRoundRobin: true, storage });
+    expect(mocks.safeJsonParse).toHaveBeenCalledWith(null, { maxChars: 200000 });
+    expect(router._rrNextIndexByUsage.size).toBe(0);
   });
 
   it("swallows safeJsonParse errors during round robin restore", () => {

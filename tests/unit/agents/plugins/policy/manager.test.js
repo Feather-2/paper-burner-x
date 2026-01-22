@@ -158,6 +158,22 @@ beforeEach(() => {
 });
 
 describe("PolicyManager", () => {
+  it("accepts injected ruleStore/engine without instantiating defaults", () => {
+    const ruleStore = { load: vi.fn(() => []), save: vi.fn(() => true) };
+    const engine = {
+      setRules: vi.fn(),
+      getRules: vi.fn(() => []),
+      evaluate: vi.fn(() => ({ allowed: true, requiresApproval: false, reason: "ok" })),
+    };
+
+    const manager = new PolicyManager({ ruleStore, engine });
+
+    expect(manager.ruleStore).toBe(ruleStore);
+    expect(manager.engine).toBe(engine);
+    expect(policyMocks.engineInstances).toHaveLength(0);
+    expect(policyMocks.storeInstances).toHaveLength(0);
+  });
+
   it("uses runtime defaults and clamps approvalTimeoutMs", () => {
     sharedMocks.isNodeLike.mockImplementation(() => true);
     const nodeManager = new PolicyManager({
@@ -236,6 +252,21 @@ describe("PolicyManager", () => {
     expect(lastSaved).toEqual([{ ruleId: "base" }, rule]);
   });
 
+  it("authorize keeps caller-provided requestId/ts (trimmed) and does not mutate the input request object", async () => {
+    const manager = new PolicyManager();
+    const engine = policyMocks.engineInstances[0];
+    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
+
+    const input = { type: "run", requestId: "  req_custom  ", ts: "  2020-01-01T00:00:00.000Z  " };
+    const result = await manager.authorize(input);
+
+    expect(result.request.requestId).toBe("req_custom");
+    expect(result.request.ts).toBe("2020-01-01T00:00:00.000Z");
+    expect(sharedMocks.makeSecureTimestampedId).not.toHaveBeenCalled();
+
+    expect(input).toEqual({ type: "run", requestId: "  req_custom  ", ts: "  2020-01-01T00:00:00.000Z  " });
+  });
+
   it("authorize enriches request, hashes args, and emits decision", async () => {
     const eventBus = createEventBus();
     const manager = new PolicyManager({ eventBus, runId: "run_1" });
@@ -288,6 +319,59 @@ describe("PolicyManager", () => {
     expect(artifactMocks.computeSha256).toHaveBeenCalledWith("[]");
     expect(artifactMocks.computeSha256).toHaveBeenCalledWith("{}");
     expect(artifactMocks.computeSha256).toHaveBeenCalledWith(JSON.stringify(arrayLike));
+  });
+
+  it("authorize hashes/summarizes primitive args (including boundary values)", async () => {
+    const manager = new PolicyManager();
+    const engine = policyMocks.engineInstances[0];
+    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
+
+    const negativeResult = await manager.authorize({ type: "run", args: -1 });
+    const maxResult = await manager.authorize({ type: "run", args: Number.MAX_SAFE_INTEGER });
+    const whitespaceStringResult = await manager.authorize({ type: "run", args: "   " });
+
+    expect(negativeResult.request.argsHash).toBe("hash:-1");
+    expect(negativeResult.request.argsSummary).toEqual({ kind: "number", value: "-1" });
+
+    expect(maxResult.request.argsHash).toBe(`hash:${String(Number.MAX_SAFE_INTEGER)}`);
+    expect(maxResult.request.argsSummary).toEqual({ kind: "number", value: String(Number.MAX_SAFE_INTEGER) });
+
+    expect(whitespaceStringResult.request.argsHash).toBe("hash:\"   \"");
+    expect(whitespaceStringResult.request.argsSummary).toEqual({ kind: "string", value: "   " });
+  });
+
+  it("authorize uses precomputed argsHash/argsSummary and skips hashing", async () => {
+    const manager = new PolicyManager();
+    const engine = policyMocks.engineInstances[0];
+    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
+
+    const argsSummary = { kind: "precomputed", keys: ["a"] };
+    const result = await manager.authorize({
+      type: "run",
+      args: { a: 1 },
+      argsHash: "prehash",
+      argsSummary,
+    });
+
+    expect(result.request.argsHash).toBe("prehash");
+    expect(result.request.argsSummary).toBe(argsSummary);
+    expect(artifactMocks.computeSha256).not.toHaveBeenCalled();
+  });
+
+  it("authorize omits argsHash when computeSha256 returns undefined and does not emit argsHash in policy.requested", async () => {
+    const eventBus = createEventBus();
+    const manager = new PolicyManager({ eventBus });
+    const engine = policyMocks.engineInstances[0];
+    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
+
+    artifactMocks.computeSha256.mockResolvedValue(undefined);
+
+    const result = await manager.authorize({ type: "run", args: { a: 1 } });
+    expect(result.request.argsHash).toBeUndefined();
+
+    const requested = eventBus.events.find((evt) => evt.name === "policy.requested");
+    expect(requested).toBeTruthy();
+    expect(requested.payload).not.toHaveProperty("argsHash");
   });
 
   it("authorize skips hashing for falsy args and undefined requests", async () => {
@@ -355,6 +439,19 @@ describe("PolicyManager", () => {
     expect(denyResult.reason).toBe("non_interactive_deny");
   });
 
+  it("authorize throws when interactive approvals are required but no approval provider exists", async () => {
+    const eventBus = { emit: vi.fn() };
+    const manager = new PolicyManager({ eventBus, interactive: true });
+    const engine = policyMocks.engineInstances[0];
+    engine.evaluate.mockReturnValue({ allowed: false, requiresApproval: true, reason: "approval_needed" });
+
+    await expect(manager.authorize({ type: "run", requestId: "req_missing_provider" })).rejects.toThrow(TypeError);
+
+    const emittedNames = eventBus.emit.mock.calls.map(([name]) => name);
+    expect(emittedNames).toEqual(expect.arrayContaining(["policy.requested", "policy.approval.requested"]));
+    expect(emittedNames).not.toEqual(expect.arrayContaining(["policy.approval.responded", "policy.decided"]));
+  });
+
   it("authorize handles approval flow and stores remember=always rules", async () => {
     const eventBus = createEventBus();
     const manager = new PolicyManager({ eventBus, interactive: true });
@@ -405,6 +502,75 @@ describe("PolicyManager", () => {
         "policy.decided",
       ]),
     );
+  });
+
+  it("authorize derives and stores rules via the default deriveRule implementation", async () => {
+    vi.useFakeTimers();
+    try {
+      const eventBus = createEventBus();
+      const manager = new PolicyManager({ eventBus, interactive: true });
+      const engine = policyMocks.engineInstances[0];
+      engine.evaluate.mockReturnValue({ allowed: false, requiresApproval: true, reason: "approval_needed" });
+
+      vi.setSystemTime(new Date("2025-01-01T00:00:00.000Z"));
+
+      const authorizePromise = manager.authorize({
+        type: "deploy",
+        tool: "tool",
+        resource: "res",
+        requestId: "req_default_rule",
+      });
+
+      eventBus.emit("policy.approval.response", { requestId: "req_default_rule", decision: "allow", remember: "always" });
+
+      const result = await authorizePromise;
+      expect(result.allowed).toBe(true);
+      expect(result.reason).toBe("approved");
+
+      const store = policyMocks.storeInstances[0];
+      expect(store.save).toHaveBeenCalledTimes(1);
+      const savedRules = store.save.mock.calls[0][0];
+      expect(savedRules).toHaveLength(1);
+      expect(savedRules[0]).toMatchObject({
+        effect: "allow",
+        type: "deploy",
+        tool: "tool",
+        resource: "res",
+        enabled: true,
+        priority: 0,
+        createdAt: "2025-01-01T00:00:00.000Z",
+        updatedAt: "2025-01-01T00:00:00.000Z",
+      });
+      expect(savedRules[0].ruleId).toMatch(/^rule_/);
+
+      const ruleAdded = eventBus.events.find((evt) => evt.name === "policy.rule.added");
+      expect(ruleAdded).toBeTruthy();
+      expect(ruleAdded.payload).toMatchObject({ requestId: "req_default_rule", ruleId: savedRules[0].ruleId });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("authorize does not persist a rule when default deriveRule refuses overly-broad rules", async () => {
+    const eventBus = createEventBus();
+    const manager = new PolicyManager({ eventBus, interactive: true });
+    const engine = policyMocks.engineInstances[0];
+    engine.evaluate.mockReturnValue({ allowed: false, requiresApproval: true, reason: "approval_needed" });
+
+    const authorizePromise = manager.authorize({ type: "   ", tool: "", resource: undefined, requestId: "req_no_rule" });
+
+    eventBus.emit("policy.approval.response", { requestId: "req_no_rule", decision: "allow", remember: "always" });
+    const result = await authorizePromise;
+
+    expect(result.allowed).toBe(true);
+    expect(result.reason).toBe("approved");
+    expect(sharedMocks.mockLogger.warn).toHaveBeenCalledWith(
+      "defaultDeriveRuleFromRequest: missing type/tool/resource, refusing to generate rule",
+    );
+
+    const store = policyMocks.storeInstances[0];
+    expect(store.save).not.toHaveBeenCalled();
+    expect(eventBus.events.map((evt) => evt.name)).not.toEqual(expect.arrayContaining(["policy.rule.added"]));
   });
 
   it("authorize times out when approval responses never arrive", async () => {

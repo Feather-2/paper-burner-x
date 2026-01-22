@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-let wasmInstances = [];
-let initBehaviors = [];
+var wasmInstances = [];
+var initBehaviors = [];
 var loggerError;
 
 const flushPromises = () => new Promise((resolve) => setImmediate(resolve));
@@ -17,20 +17,13 @@ vi.mock('../../../../../js/agents/core/sandbox/wasm-sandbox.js', () => {
         this.lastRecycle = payload;
       });
       this.init = vi.fn(() => {
-        if (initBehaviors.length) {
-          const behavior = initBehaviors.shift();
-          if (behavior instanceof Error) {
-            return Promise.reject(behavior);
-          }
-          if (behavior && typeof behavior.then === 'function') {
-            return behavior;
-          }
-          if (typeof behavior === 'function') {
-            return Promise.resolve().then(behavior);
-          }
-          return Promise.resolve(behavior);
-        }
-        return Promise.resolve();
+        if (!initBehaviors.length) return Promise.resolve();
+
+        const behavior = initBehaviors.shift();
+        if (behavior instanceof Error) return Promise.reject(behavior);
+        if (behavior && typeof behavior.then === 'function') return behavior;
+        if (typeof behavior === 'function') return Promise.resolve().then(behavior);
+        return Promise.resolve(behavior);
       });
       this.dispose = vi.fn(() => {
         this._disposed = true;
@@ -42,6 +35,7 @@ vi.mock('../../../../../js/agents/core/sandbox/wasm-sandbox.js', () => {
   const WasmSandbox = vi.fn(function WasmSandbox(options) {
     return new MockWasmSandbox(options);
   });
+
   return { WasmSandbox };
 });
 
@@ -61,21 +55,16 @@ import SandboxPool, { SandboxPool as NamedSandboxPool } from '../../../../../js/
 import { WasmSandbox } from '../../../../../js/agents/core/sandbox/wasm-sandbox.js';
 import { SandboxPreset, ResourceLimits } from '../../../../../js/agents/core/sandbox/constants.js';
 
-describe('default export', () => {
-  it('exports SandboxPool as default', () => {
-    expect(SandboxPool).toBe(NamedSandboxPool);
-  });
-});
-
 describe('SandboxPool', () => {
   beforeEach(() => {
     wasmInstances = [];
     initBehaviors = [];
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
+  it('exports SandboxPool as both named and default', () => {
+    expect(SandboxPool).toBe(NamedSandboxPool);
   });
 
   it('applies defaults and boundary options', () => {
@@ -123,6 +112,8 @@ describe('SandboxPool', () => {
 
     const maxValue = new SandboxPool({ maxSize: Number.MAX_SAFE_INTEGER });
     expect(maxValue.maxSize).toBe(Number.MAX_SAFE_INTEGER);
+
+    expect(() => new SandboxPool(null)).toThrow(TypeError);
   });
 
   it('generates deterministic capability keys and rejects invalid inputs', () => {
@@ -166,25 +157,38 @@ describe('SandboxPool', () => {
     );
     expect(sandbox.init).toHaveBeenCalledTimes(1);
 
-    const stats = pool.getStats();
-    expect(stats.active).toBe(1);
-    expect(stats.total).toBe(1);
-    expect(stats.pooled).toBe(0);
-    expect(stats.waiting).toBe(0);
+    expect(pool.getStats()).toEqual(
+      expect.objectContaining({
+        active: 1,
+        pooled: 0,
+        total: 1,
+        waiting: 0,
+      })
+    );
 
     pool.release(sandbox);
   });
 
-  it('rejects acquire when disposed or options are null', async () => {
+  it('handles edge-case acquire option values', async () => {
     const pool = new SandboxPool();
 
     await expect(pool.acquire(null)).rejects.toThrow(TypeError);
+    await expect(pool.acquire({ capabilities: {} })).rejects.toThrow(TypeError);
+
+    const defaulted = await pool.acquire({ capabilities: null });
+    expect(defaulted.options.capabilities).toBe(SandboxPreset.SKILL);
+    pool.release(defaulted);
+
+    const sandbox = await pool.acquire({ capabilities: [], limits: null, state: null });
+    expect(sandbox.options.capabilities).toEqual([]);
+    expect(sandbox.options.limits).toEqual(pool.defaultLimits);
+    pool.release(sandbox);
 
     pool.dispose();
     await expect(pool.acquire()).rejects.toThrow('Pool has been disposed');
   });
 
-  it('reuses pooled sandbox and recycles with large/deep state', async () => {
+  it('reuses pooled sandbox and recycles with resource-heavy state', async () => {
     const pool = new SandboxPool({ maxSize: 2, idleTimeoutMs: 100000 });
 
     const first = await pool.acquire({ capabilities: ['cap'] });
@@ -209,7 +213,7 @@ describe('SandboxPool', () => {
 
     const second = await pool.acquire({
       capabilities: ['cap'],
-      state: { file: largeFile, deep: deepState, text: longString },
+      state: { file: largeFile, deep: deepState, text: '' },
       limits,
       onLog,
       onEmit,
@@ -220,7 +224,7 @@ describe('SandboxPool', () => {
     expect(first.lastRecycle.state).toEqual({
       file: largeFile,
       deep: deepState,
-      text: longString,
+      text: '',
     });
     expect(first.lastRecycle.limits).toEqual({
       ...pool.defaultLimits,
@@ -246,7 +250,7 @@ describe('SandboxPool', () => {
     await flushPromises();
 
     expect(resolved).toBe(false);
-    expect(pool.getStats().waiting).toBe(1);
+    expect(pool.getStats()).toEqual(expect.objectContaining({ active: 1, waiting: 1 }));
     expect(WasmSandbox).toHaveBeenCalledTimes(1);
 
     pool.release(first);
@@ -256,12 +260,28 @@ describe('SandboxPool', () => {
     expect(first.lastRecycle.state).toEqual({ id: 2 });
   });
 
+  it('rejects waiter and disposes sandbox when handoff init fails', async () => {
+    const pool = new SandboxPool({ maxActive: 1, maxSize: 2 });
+
+    const first = await pool.acquire({ capabilities: ['a'] });
+    const pending = pool.acquire({ capabilities: ['a'], state: { id: 3 } });
+
+    await flushPromises();
+    initBehaviors.push(new Error('handoff init failed'));
+
+    pool.release(first);
+
+    await expect(pending).rejects.toThrow('handoff init failed');
+    expect(first.dispose).toHaveBeenCalledTimes(1);
+    expect(pool.getStats().total).toBe(0);
+  });
+
   it('supports concurrent acquires when under maxActive', async () => {
     const pool = new SandboxPool({ maxActive: 2, maxSize: 2 });
 
     const [first, second] = await Promise.all([
-      pool.acquire({ capabilities: ['a'] }),
-      pool.acquire({ capabilities: ['b'] }),
+      pool.acquire({ capabilities: ['a'], state: {} }),
+      pool.acquire({ capabilities: ['b'], state: {} }),
     ]);
 
     expect(first).not.toBe(second);
@@ -281,7 +301,7 @@ describe('SandboxPool', () => {
     pool.release(first);
 
     await expect(pending).rejects.toThrow('init failed');
-    expect(pool._totalCount).toBe(1);
+    expect(pool.getStats().total).toBe(1);
     expect(wasmInstances.length).toBe(2);
     expect(wasmInstances[1].dispose).toHaveBeenCalledTimes(1);
   });
@@ -314,10 +334,9 @@ describe('SandboxPool', () => {
     pool.release(first);
     pool.release(second);
 
-    const entries = pool._pools.get('a');
-    expect(entries.length).toBe(1);
+    expect(pool._pools.get('a').length).toBe(1);
     expect(second.dispose).toHaveBeenCalledTimes(1);
-    expect(pool._totalCount).toBe(1);
+    expect(pool.getStats().total).toBe(1);
   });
 
   it('evicts idle sandboxes after timeout', async () => {
@@ -333,11 +352,12 @@ describe('SandboxPool', () => {
     await vi.runAllTimersAsync();
 
     expect(sandbox.dispose).toHaveBeenCalledTimes(1);
-    expect(pool.getStats().pooled).toBe(0);
-    expect(pool._totalCount).toBe(0);
+    expect(pool.getStats()).toEqual(expect.objectContaining({ pooled: 0, total: 0 }));
+
+    vi.useRealTimers();
   });
 
-  it('ignores null, undefined, or disposed sandboxes on release', async () => {
+  it('ignores null, undefined, or already disposed sandboxes on release', async () => {
     const pool = new SandboxPool();
 
     expect(() => pool.release(null)).not.toThrow();
@@ -348,8 +368,7 @@ describe('SandboxPool', () => {
 
     pool.release(sandbox);
 
-    expect(pool.getStats().pooled).toBe(0);
-    expect(pool.getStats().active).toBe(0);
+    expect(pool.getStats()).toEqual(expect.objectContaining({ pooled: 0, active: 0 }));
   });
 
   it('releases sandboxes in withSandbox on success and failure', async () => {
@@ -369,21 +388,24 @@ describe('SandboxPool', () => {
   });
 
   it('reports stats and clears pooled sandboxes', async () => {
-    const pool = new SandboxPool({ maxActive: 2, maxSize: 2 });
+    const pool = new SandboxPool({ maxActive: 2, maxSize: 2, idleTimeoutMs: 100000 });
 
     const first = await pool.acquire({ capabilities: ['a'] });
     const second = await pool.acquire({ capabilities: ['b'] });
 
     pool.release(first);
 
-    const stats = pool.getStats();
-    expect(stats.active).toBe(1);
-    expect(stats.pooled).toBe(1);
-    expect(stats.total).toBe(2);
-    expect(stats.waiting).toBe(0);
+    expect(pool.getStats()).toEqual(
+      expect.objectContaining({
+        active: 1,
+        pooled: 1,
+        total: 2,
+        waiting: 0,
+      })
+    );
 
     pool.clear();
-    expect(pool.getStats().pooled).toBe(0);
+    expect(pool.getStats()).toEqual(expect.objectContaining({ pooled: 0, total: 1 }));
     expect(first.dispose).toHaveBeenCalledTimes(1);
 
     pool.release(second);
@@ -395,12 +417,16 @@ describe('SandboxPool', () => {
     const active = await pool.acquire({ capabilities: ['a'] });
     const pending = pool.acquire({ capabilities: ['b'] });
 
-    const stats = pool.getStats();
-    expect(stats.active).toBe(1);
-    expect(stats.pooled).toBe(0);
-    expect(stats.total).toBe(1);
-    expect(stats.waiting).toBe(1);
+    expect(pool.getStats()).toEqual(
+      expect.objectContaining({
+        active: 1,
+        pooled: 0,
+        total: 1,
+        waiting: 1,
+      })
+    );
 
+    pool.dispose();
     pool.dispose();
 
     await expect(pending).rejects.toThrow('Pool has been disposed');

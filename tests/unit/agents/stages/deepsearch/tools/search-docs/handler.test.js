@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
   mockMmrSelect,
@@ -26,11 +26,11 @@ const {
   },
 }));
 
-vi.mock("../../../../../../../js/retrieval/mmr.js", () => ({
+vi.mock("../../../../../../../js/agents/retrieval/mmr.js", () => ({
   mmrSelect: (...args) => mockMmrSelect(...args),
 }));
 
-vi.mock("../../../../../../../js/shared/index.js", () => {
+vi.mock("../../../../../../../js/agents/shared/index.js", () => {
   class EmbeddingServiceMock {
     constructor(cfg, opts) {
       this.cfg = cfg;
@@ -110,6 +110,7 @@ const getLastManager = () => sourceManagerState.instances[sourceManagerState.ins
 
 beforeEach(() => {
   vi.resetModules();
+  vi.useRealTimers();
   mockMmrSelect.mockReset();
   mockIsPlainObject.mockReset();
   mockGetGlobalCircuitBreakerRegistry.mockReset();
@@ -140,10 +141,6 @@ beforeEach(() => {
   mockGetGlobalCircuitBreakerRegistry.mockReturnValue(registry);
 });
 
-afterEach(() => {
-  vi.useRealTimers();
-});
-
 describe("definition", () => {
   it("exposes tool metadata", async () => {
     const { definition } = await importModule();
@@ -170,6 +167,22 @@ describe("default export", () => {
 });
 
 describe("handler", () => {
+  it("throws when args is not an object", async () => {
+    const { handler } = await importModule();
+    const context = createContext();
+
+    await expect(handler(undefined, context)).rejects.toBeInstanceOf(TypeError);
+    await expect(handler(null, context)).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it("returns error when args is an empty object", async () => {
+    const { handler } = await importModule();
+
+    const result = await handler({}, createContext());
+
+    expect(result).toEqual({ success: false, error: "query is required" });
+  });
+
   it("returns error for missing or blank query values", async () => {
     const { handler } = await importModule();
     const context = createContext();
@@ -189,6 +202,16 @@ describe("handler", () => {
     expect(result).toEqual({ success: true, results: [], message: "No sources available" });
   });
 
+  it("floors limit values within range", async () => {
+    const { handler } = await importModule();
+    const context = createContext();
+
+    await handler({ query: "q", limit: 9.9, mmr: false }, context);
+
+    const manager = getLastManager();
+    expect(manager.search).toHaveBeenCalledWith("q", expect.objectContaining({ limit: 9 }));
+  });
+
   it("defaults invalid limits to 10 and skips MMR when disabled", async () => {
     const { handler } = await importModule();
     const context = createContext();
@@ -202,6 +225,36 @@ describe("handler", () => {
     }
 
     expect(mockMmrSelect).not.toHaveBeenCalled();
+  });
+
+  it("clamps semanticTimeoutMs to 60000 and passes it to semantic search", async () => {
+    const { handler } = await importModule();
+    sourceManagerState.semanticSearchResults = [];
+
+    const embeddingService = { embed: vi.fn() };
+    const context = createContext({ embeddingService });
+
+    await handler({ query: "q", semanticTimeoutMs: 999999, mmr: false }, context);
+
+    const manager = getLastManager();
+    expect(manager.semanticSearch).toHaveBeenCalledTimes(1);
+    const [, options] = manager.semanticSearch.mock.calls[0];
+    expect(options.timeoutMs).toBe(60000);
+  });
+
+  it("omits semantic timeout when semanticTimeoutMs is invalid", async () => {
+    const { handler } = await importModule();
+    sourceManagerState.semanticSearchResults = [];
+
+    const embeddingService = { embed: vi.fn() };
+    const context = createContext({ embeddingService });
+
+    await handler({ query: "q", semanticTimeoutMs: "5000", mmr: false }, context);
+
+    const manager = getLastManager();
+    expect(manager.semanticSearch).toHaveBeenCalledTimes(1);
+    const [, options] = manager.semanticSearch.mock.calls[0];
+    expect("timeoutMs" in options).toBe(false);
   });
 
   it("truncates long query strings and uses state sources when sources is not an array", async () => {
@@ -242,6 +295,38 @@ describe("handler", () => {
 
     const [, options] = manager.search.mock.calls[0];
     expect(options.sources).toHaveLength(100);
+  });
+
+  it("filters non-string and blank source IDs before lookup", async () => {
+    const { handler } = await importModule();
+    sourceManagerState.searchResults = [];
+    sourceManagerState.getSourceImpl = (id) => ({ id });
+
+    const context = createContext({ state: { L0: { sources: [{ id: "fallback" }] } } });
+    const result = await handler(
+      { query: "q", sources: ["", "   ", null, undefined, 1, {}, " s1 "], mmr: false },
+      context,
+    );
+
+    expect(result.success).toBe(true);
+    const manager = getLastManager();
+    expect(manager.getSource).toHaveBeenCalledTimes(1);
+    expect(manager.getSource).toHaveBeenCalledWith("s1");
+    expect(manager.search).toHaveBeenCalledWith("q", expect.objectContaining({ sources: [{ id: "s1" }] }));
+  });
+
+  it("creates a new embedding service when cached endpoint does not match new config", async () => {
+    const { handler } = await importModule();
+    sourceManagerState.semanticSearchResults = [];
+
+    const context = createContext({ embedding: { endpoint: "http://embed-a" } });
+    await handler({ query: "first", mmr: false }, context);
+
+    context.embedding = { endpoint: "http://embed-b" };
+    await handler({ query: "second", mmr: false }, context);
+
+    expect(embeddingState.instances).toHaveLength(2);
+    expect(context._pbEmbeddingService).toBe(embeddingState.instances[1]);
   });
 
   it("uses semantic search when embedding service is provided and records gap evidence", async () => {
@@ -285,6 +370,60 @@ describe("handler", () => {
         fallback: "local",
       }),
     );
+  });
+
+  it("uses keyword search when embedding config is invalid", async () => {
+    const { handler } = await importModule();
+    sourceManagerState.searchResults = [{ sourceId: "k1" }];
+    sourceManagerState.semanticSearchResults = [{ sourceId: "s1" }];
+
+    const context = createContext({ embedding: "not-an-object" });
+    const result = await handler({ query: "term", mmr: false }, context);
+
+    expect(result).toMatchObject({ success: true, fallback: "local", results: [{ sourceId: "k1" }] });
+    const manager = getLastManager();
+    expect(manager.search).toHaveBeenCalledTimes(1);
+    expect(manager.semanticSearch).not.toHaveBeenCalled();
+    expect(embeddingState.instances).toHaveLength(0);
+  });
+
+  it("passes fetchImpl to EmbeddingService", async () => {
+    const { handler } = await importModule();
+    sourceManagerState.semanticSearchResults = [];
+
+    const fetchImpl = vi.fn();
+    const context = createContext({ embedding: { endpoint: "http://embed" }, fetchImpl });
+
+    await handler({ query: "q", mmr: false }, context);
+
+    expect(embeddingState.instances).toHaveLength(1);
+    expect(embeddingState.instances[0].opts).toMatchObject({ fetchImpl });
+  });
+
+  it("disables MMR when mmr is not a boolean or plain object", async () => {
+    const { handler } = await importModule();
+
+    sourceManagerState.searchResults = [{ sourceId: "a" }, { sourceId: "b" }];
+
+    const result = await handler({ query: "q", limit: 1, mmr: [] }, createContext());
+
+    expect(result).toMatchObject({ success: true, fallback: "local" });
+    expect(result.mmr).toBeUndefined();
+    expect(mockMmrSelect).not.toHaveBeenCalled();
+  });
+
+  it("enables MMR with default settings when mmr is true and expands the pool", async () => {
+    const { handler } = await importModule();
+
+    sourceManagerState.searchResults = Array.from({ length: 12 }, (_, i) => ({ sourceId: `s${i}` }));
+
+    const result = await handler({ query: "q", limit: 4, mmr: true }, createContext());
+
+    const manager = getLastManager();
+    expect(manager.search).toHaveBeenCalledWith("q", expect.objectContaining({ limit: 12 }));
+    expect(mockMmrSelect).toHaveBeenCalledTimes(1);
+    expect(result.results).toEqual(sourceManagerState.searchResults.slice(0, 4));
+    expect(result.mmr).toEqual({ applied: true, pool: 12, lambda: 0.7 });
   });
 
   it("applies MMR reordering with pool limit and metadata", async () => {
@@ -335,6 +474,37 @@ describe("handler", () => {
     );
   });
 
+  it("does not call MMR selector when pool size is 1", async () => {
+    const { handler } = await importModule();
+    sourceManagerState.searchResults = [{ sourceId: "only", text: "one", score: 0.9 }];
+
+    const result = await handler({ query: "mmr", limit: 1 }, createContext());
+
+    expect(result).toMatchObject({
+      success: true,
+      results: [{ sourceId: "only", text: "one", score: 0.9 }],
+      mmr: { applied: true, pool: 1, lambda: 0.7 },
+    });
+    expect(mockMmrSelect).not.toHaveBeenCalled();
+  });
+
+  it("falls back to top-k when MMR selection lacks original rows", async () => {
+    const { handler } = await importModule();
+
+    sourceManagerState.searchResults = [
+      { sourceId: "a", text: "first", score: 0.2 },
+      { sourceId: "b", text: "second", score: 0.1 },
+      { sourceId: "c", text: "third", score: 0.3 },
+    ];
+
+    mockMmrSelect.mockImplementation(() => [{ chunkId: "x", text: "y", score: 0 }]);
+
+    const result = await handler({ query: "mmr", limit: 2 }, createContext());
+
+    expect(mockMmrSelect).toHaveBeenCalledTimes(1);
+    expect(result.results).toEqual(sourceManagerState.searchResults.slice(0, 2));
+  });
+
   it("falls back to top-k when MMR selection is empty", async () => {
     const { handler } = await importModule();
 
@@ -350,6 +520,52 @@ describe("handler", () => {
 
     expect(mockMmrSelect).toHaveBeenCalledTimes(1);
     expect(result.results).toEqual(sourceManagerState.searchResults.slice(0, 2));
+  });
+
+  it("propagates TIMEOUT code from retriever timeout through breaker.execute", async () => {
+    const { handler } = await importModule();
+    vi.useFakeTimers();
+
+    const retriever = { search: vi.fn(() => new Promise(() => {})) };
+    sourceManagerState.searchResults = [];
+
+    /** @type {any[]} */
+    const captured = [];
+    const breaker = createBreaker({
+      executeImpl: async (fn) => {
+        try {
+          return await fn();
+        } catch (e) {
+          captured.push(e);
+          throw e;
+        }
+      },
+    });
+    const registry = createRegistry(breaker);
+
+    const context = createContext({ retriever, circuitBreakerRegistry: registry });
+    const promise = handler({ query: "timeout", retrieverTimeoutMs: 5, mmr: false }, context);
+
+    await vi.advanceTimersByTimeAsync(5);
+    await promise;
+
+    expect(captured[0]).toMatchObject({ code: "TIMEOUT" });
+  });
+
+  it("uses default retriever timeout when semanticTimeoutMs is invalid", async () => {
+    const { handler } = await importModule();
+
+    const retriever = { search: vi.fn().mockResolvedValue([{ sourceId: "r1" }]) };
+    const breaker = createBreaker();
+    const registry = createRegistry(breaker);
+    const context = createContext({ retriever, circuitBreakerRegistry: registry });
+
+    await handler({ query: "remote", semanticTimeoutMs: 0, mmr: false }, context);
+
+    expect(retriever.search).toHaveBeenCalledWith(
+      "remote",
+      expect.objectContaining({ timeoutMs: 15000 }),
+    );
   });
 
   it("uses retriever results when circuit breaker allows execution", async () => {
@@ -379,6 +595,74 @@ describe("handler", () => {
     expect(payload.fallback).toBeUndefined();
   });
 
+  it("applies MMR to retriever results and emits metadata", async () => {
+    const { handler } = await importModule();
+
+    const retrieverResults = [
+      { sourceId: "a", snippet: "a", score: 0.1 },
+      { sourceId: "b", snippet: "b", score: 0.9 },
+      { sourceId: "c", snippet: "c", score: 0.2 },
+    ];
+    const retriever = { search: vi.fn().mockResolvedValue({ results: retrieverResults }) };
+
+    mockMmrSelect.mockImplementation((candidates) => [candidates[1], candidates[0]]);
+
+    const emit = vi.fn();
+    const breaker = createBreaker();
+    const registry = createRegistry(breaker);
+    const context = createContext({ retriever, circuitBreakerRegistry: registry, emit });
+
+    const result = await handler({ query: "q", limit: 2 }, context);
+
+    expect(mockMmrSelect).toHaveBeenCalledTimes(1);
+    expect(result.results).toEqual([retrieverResults[1], retrieverResults[0]]);
+    expect(result.mmr).toEqual({ applied: true, pool: 3, lambda: 0.7 });
+    expect(emit).toHaveBeenCalledWith(
+      "deepsearch:search_completed",
+      expect.objectContaining({ mmr: { applied: true, pool: 3, lambda: 0.7 } }),
+    );
+  });
+
+  it("uses stageApi circuit breaker registry when provided", async () => {
+    const { handler } = await importModule();
+    const retriever = {
+      search: vi.fn().mockResolvedValue([{ sourceId: "r1" }]),
+    };
+    const breaker = createBreaker();
+    const registry = createRegistry(breaker);
+    const stageApi = { circuitBreakerRegistry: registry };
+
+    const context = createContext({ retriever, stageApi });
+    const result = await handler({ query: "remote", mmr: false }, context);
+
+    expect(result).toMatchObject({ success: true, results: [{ sourceId: "r1" }] });
+    expect(registry.get).toHaveBeenCalled();
+    expect(mockGetGlobalCircuitBreakerRegistry).not.toHaveBeenCalled();
+  });
+
+  it("derives retriever timeout from semanticTimeoutMs and clamps to max", async () => {
+    const { handler } = await importModule();
+    const retriever = {
+      search: vi.fn().mockResolvedValue([{ sourceId: "r1" }]),
+    };
+    const breaker = createBreaker();
+    const registry = createRegistry(breaker);
+    const context = createContext({ retriever, circuitBreakerRegistry: registry });
+
+    await handler({ query: "remote", semanticTimeoutMs: 1234, retrieverTimeoutMs: 999999, mmr: false }, context);
+    expect(retriever.search).toHaveBeenCalledWith(
+      "remote",
+      expect.objectContaining({ timeoutMs: 60000 }),
+    );
+
+    retriever.search.mockClear();
+    await handler({ query: "remote", semanticTimeoutMs: 4321, mmr: false }, context);
+    expect(retriever.search).toHaveBeenCalledWith(
+      "remote",
+      expect.objectContaining({ timeoutMs: 4321 }),
+    );
+  });
+
   it("falls back to local search when retriever returns invalid data", async () => {
     const { handler } = await importModule();
     const retriever = {
@@ -397,6 +681,37 @@ describe("handler", () => {
       fallback: "local",
       results: [{ sourceId: "l1" }],
     });
+  });
+
+  it("falls back to local search when retriever.search rejects", async () => {
+    const { handler } = await importModule();
+    const retriever = { search: vi.fn().mockRejectedValue(new Error("network")) };
+
+    sourceManagerState.searchResults = [{ sourceId: "local" }];
+
+    const context = createContext({ retriever });
+    const result = await handler({ query: "q", mmr: false }, context);
+
+    expect(result).toMatchObject({ success: true, fallback: "local", results: [{ sourceId: "local" }] });
+  });
+
+  it("falls back to local search when circuit breaker execute throws", async () => {
+    const { handler } = await importModule();
+    const retriever = { search: vi.fn().mockResolvedValue([{ sourceId: "remote" }]) };
+    const breaker = createBreaker({
+      executeImpl: async () => {
+        throw new Error("breaker failed");
+      },
+    });
+    const registry = createRegistry(breaker);
+
+    sourceManagerState.searchResults = [{ sourceId: "local" }];
+
+    const context = createContext({ retriever, circuitBreakerRegistry: registry });
+    const result = await handler({ query: "q", mmr: false }, context);
+
+    expect(result).toMatchObject({ success: true, fallback: "local", results: [{ sourceId: "local" }] });
+    expect(retriever.search).not.toHaveBeenCalled();
   });
 
   it("skips retriever when circuit breaker cannot execute", async () => {
@@ -475,5 +790,56 @@ describe("handler", () => {
 
     expect(embeddingState.instances).toHaveLength(1);
     expect(context._pbEmbeddingService).toBe(embeddingState.instances[0]);
+  });
+
+  it("creates a new embedding service when cached status check fails", async () => {
+    const { handler } = await importModule();
+    sourceManagerState.semanticSearchResults = [];
+
+    const logger = { warn: vi.fn() };
+    const context = createContext({ embedding: { endpoint: "http://embed" }, logger });
+
+    await handler({ query: "first", mmr: false }, context);
+    embeddingState.throwStatus = true;
+    await handler({ query: "second", mmr: false }, context);
+
+    expect(embeddingState.instances).toHaveLength(2);
+    expect(context._pbEmbeddingService).toBe(embeddingState.instances[1]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "[search-docs] cached embedding service status check failed",
+      expect.objectContaining({ error: "status check failed" }),
+    );
+  });
+
+  it("does not cache embedding service when context is not extensible", async () => {
+    const { handler } = await importModule();
+    sourceManagerState.semanticSearchResults = [];
+
+    const logger = { debug: vi.fn() };
+    const context = Object.preventExtensions(createContext({ embedding: { endpoint: "http://embed" }, logger }));
+
+    await handler({ query: "q", mmr: false }, context);
+
+    expect(embeddingState.instances).toHaveLength(1);
+    expect(context._pbEmbeddingService).toBeUndefined();
+    expect(logger.debug).toHaveBeenCalledWith(
+      "[search-docs] cannot cache embedding service on context",
+      expect.objectContaining({ error: expect.any(String) }),
+    );
+  });
+
+  it("uses provided sourceManager instance when available", async () => {
+    const { handler } = await importModule();
+    const { default: SourceManager } = await import("../../../../../../../js/agents/stages/deepsearch/source-manager.js");
+
+    const existingManager = new SourceManager([{ id: "s1" }, { id: "s2" }]);
+    sourceManagerState.searchResults = [{ sourceId: "hit" }];
+
+    const context = createContext({ sourceManager: existingManager });
+    const result = await handler({ query: "q", mmr: false }, context);
+
+    expect(result.success).toBe(true);
+    expect(sourceManagerState.instances).toHaveLength(1);
+    expect(sourceManagerState.instances[0]).toBe(existingManager);
   });
 });

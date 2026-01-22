@@ -151,6 +151,35 @@ describe('initDesignTooling', () => {
 
     expect(() => initDesignTooling({})).toThrow();
   });
+
+  it('treats whitespace string tools as truthy and registers them', async () => {
+    const { initDesignTooling } = await loadToolHandler();
+    const designTools = makeDesignTools();
+    mockedDesignTools.createDesignToolHandlers.mockReturnValue(designTools);
+
+    const loop = { registerTools: vi.fn() };
+    const whitespaceTools = '   ';
+
+    initDesignTooling(loop, whitespaceTools);
+
+    expect(loop.registerTools).toHaveBeenCalledTimes(2);
+    expect(loop.registerTools).toHaveBeenNthCalledWith(1, designTools);
+    expect(loop.registerTools).toHaveBeenNthCalledWith(2, whitespaceTools);
+  });
+
+  it('propagates errors thrown by registerTools', async () => {
+    const { initDesignTooling } = await loadToolHandler();
+    const designTools = makeDesignTools();
+    mockedDesignTools.createDesignToolHandlers.mockReturnValue(designTools);
+
+    const loop = {
+      registerTools: vi.fn(() => {
+        throw new Error('registerTools failed');
+      }),
+    };
+
+    expect(() => initDesignTooling(loop, {})).toThrow('registerTools failed');
+  });
 });
 
 describe('getDesignToolDefinitions', () => {
@@ -169,6 +198,30 @@ describe('getDesignToolDefinitions', () => {
     mockedDesignTools.DESIGN_AGENT_TOOL_DEFINITIONS.length = 0;
     const { getDesignToolDefinitions } = await loadToolHandler();
     expect(getDesignToolDefinitions()).toEqual([]);
+  });
+
+  it('supports mixed/empty values in definitions and still returns a new array', async () => {
+    mockedDesignTools.DESIGN_AGENT_TOOL_DEFINITIONS.length = 0;
+    mockedDesignTools.DESIGN_AGENT_TOOL_DEFINITIONS.push(null, undefined, '', 0, { name: 'x' });
+
+    const { getDesignToolDefinitions } = await loadToolHandler();
+    const definitions = getDesignToolDefinitions();
+
+    expect(definitions).toEqual([null, undefined, '', 0, { name: 'x' }]);
+    expect(definitions).not.toBe(mockedDesignTools.DESIGN_AGENT_TOOL_DEFINITIONS);
+  });
+
+  it('is only a shallow copy (nested object references are shared)', async () => {
+    const shared = { deep: { value: 1 } };
+    mockedDesignTools.DESIGN_AGENT_TOOL_DEFINITIONS.length = 0;
+    mockedDesignTools.DESIGN_AGENT_TOOL_DEFINITIONS.push(shared);
+
+    const { getDesignToolDefinitions } = await loadToolHandler();
+    const definitions = getDesignToolDefinitions();
+
+    // Mutating nested structures affects the original because slice() is shallow.
+    definitions[0].deep.value = 2;
+    expect(mockedDesignTools.DESIGN_AGENT_TOOL_DEFINITIONS[0].deep.value).toBe(2);
   });
 });
 
@@ -196,7 +249,26 @@ describe('installToolHandler', () => {
 
   it('throws for invalid constructors', async () => {
     const { installToolHandler } = await loadToolHandler();
-    expect(() => installToolHandler(null)).toThrow();
+    const invalidCtors = [null, undefined, 0, '', {}, () => {}];
+    for (const ctor of invalidCtors) {
+      expect(() => installToolHandler(ctor)).toThrow();
+    }
+  });
+
+  it('does not remove existing prototype methods', async () => {
+    const { installToolHandler } = await loadToolHandler();
+
+    class ToolHandler {
+      ping(value) {
+        return value;
+      }
+    }
+
+    installToolHandler(ToolHandler);
+    const handler = new ToolHandler();
+
+    expect(handler.ping('ok')).toBe('ok');
+    expect(handler.getToolDefinitions()).toEqual(mockedDesignTools.DESIGN_AGENT_TOOL_DEFINITIONS);
   });
 });
 
@@ -265,6 +337,24 @@ describe('createResumeToolExecutor', () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it('does not use cached outline when phase is too early (rank gating)', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    const baseExecutor = vi.fn().mockResolvedValue({ ok: true, from: 'base' });
+    mockedRuntime.resolveToolExecutor.mockReturnValue(baseExecutor);
+
+    const resumeState = {
+      phase: DesignPhase.IDLE,
+      slideIntents: ['cached'],
+      parsedContentPackage: { slideIntents: ['cached'], id: 'pkg' },
+    };
+
+    const executor = createResumeToolExecutor({ resumeState, stageApi: {} });
+    const result = await executor('parse_outline', { n: 1 }, { c: 2 });
+
+    expect(baseExecutor).toHaveBeenCalledWith('parse_outline', { n: 1 }, { c: 2 });
+    expect(result).toEqual({ ok: true, from: 'base' });
+  });
+
   it('returns designSystem when phase allows and designSystem provided', async () => {
     const { createResumeToolExecutor } = await loadToolHandler();
     const baseExecutor = vi.fn();
@@ -311,6 +401,138 @@ describe('createResumeToolExecutor', () => {
       { slideHtml: '<a>', source: 'meta' },
       { slideHtml: '<b>', source: 'resume' },
     ]);
+  });
+
+  it('returns cached outline even when slideIntents is an empty array', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    const baseExecutor = vi.fn();
+    mockedRuntime.resolveToolExecutor.mockReturnValue(baseExecutor);
+
+    const resumeState = {
+      phase: DesignPhase.STYLE_EXTRACTING,
+      slideIntents: [],
+      parsedContentPackage: { slideIntents: ['ignored'], id: 'pkg' },
+    };
+    const executor = createResumeToolExecutor({ resumeState, stageApi: {} });
+
+    const result = await executor('parse_outline');
+
+    expect(result).toEqual({ contentPackage: resumeState.parsedContentPackage, slideIntents: [] });
+    expect(baseExecutor).not.toHaveBeenCalled();
+  });
+
+  it('falls back when contentPackage.slideIntents is an array-like object (not an array)', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    const baseExecutor = vi.fn().mockResolvedValue({ ok: true, from: 'base' });
+    mockedRuntime.resolveToolExecutor.mockReturnValue(baseExecutor);
+
+    const resumeState = { phase: DesignPhase.STYLE_EXTRACTING, slideIntents: null };
+    const contentPackage = { slideIntents: { 0: 'x', length: 1 } };
+    const executor = createResumeToolExecutor({ resumeState, contentPackage, stageApi: {} });
+
+    const result = await executor('parse_outline');
+
+    expect(baseExecutor).toHaveBeenCalledWith('parse_outline', undefined, undefined);
+    expect(result).toEqual({ ok: true, from: 'base' });
+  });
+
+  it('does not use cached designSystem when phase is too early or designSystem is falsy', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    const baseExecutor = vi.fn().mockResolvedValue({ ok: true, from: 'base' });
+    mockedRuntime.resolveToolExecutor.mockReturnValue(baseExecutor);
+
+    const executorEarly = createResumeToolExecutor({
+      resumeState: { phase: DesignPhase.STYLE_EXTRACTING, designSystem: { theme: 'x' } },
+      stageApi: {},
+    });
+
+    await executorEarly('extract_style');
+    expect(baseExecutor).toHaveBeenLastCalledWith('extract_style', undefined, undefined);
+
+    const executorFalsy = createResumeToolExecutor({
+      resumeState: { phase: DesignPhase.STYLE_CONFIRMING, designSystem: '' },
+      stageApi: {},
+    });
+
+    await executorFalsy('extract_style', { a: 1 }, { b: 2 });
+    expect(baseExecutor).toHaveBeenLastCalledWith('extract_style', { a: 1 }, { b: 2 });
+  });
+
+  it('does not use cached generated when phase is too early, even if generated exists', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    const baseExecutor = vi.fn().mockResolvedValue({ ok: true, from: 'base' });
+    mockedRuntime.resolveToolExecutor.mockReturnValue(baseExecutor);
+
+    const resumeState = {
+      phase: DesignPhase.GENERATING,
+      generated: [{ slideHtml: '<x>' }],
+    };
+
+    const executor = createResumeToolExecutor({ resumeState, stageApi: {} });
+    const result = await executor('spawn_slide_agent', { p: 1 }, { q: 2 });
+
+    expect(baseExecutor).toHaveBeenCalledWith('spawn_slide_agent', { p: 1 }, { q: 2 });
+    expect(result).toEqual({ ok: true, from: 'base' });
+  });
+
+  it('returns cached generated even when generated is an empty array', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    const baseExecutor = vi.fn();
+    mockedRuntime.resolveToolExecutor.mockReturnValue(baseExecutor);
+
+    const resumeState = { phase: DesignPhase.VISUAL_FILLING, generated: [] };
+    const executor = createResumeToolExecutor({ resumeState, stageApi: {} });
+
+    const result = await executor('spawn_slide_agent');
+
+    expect(result).toEqual({ generated: [] });
+    expect(baseExecutor).not.toHaveBeenCalled();
+  });
+
+  it('derives generated with default sources when slidesMeta is not an array', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    mockedRuntime.resolveToolExecutor.mockReturnValue(undefined);
+
+    const resumeState = {
+      phase: DesignPhase.VISUAL_FILLING,
+      slideHtmls: ['<a>', '<b>'],
+      slidesMeta: { 0: { source: 'x' }, length: 1 },
+    };
+    const executor = createResumeToolExecutor({ resumeState, stageApi: {} });
+
+    const result = await executor('spawn_slide_agent');
+
+    expect(result.generated).toEqual([
+      { slideHtml: '<a>', source: 'resume' },
+      { slideHtml: '<b>', source: 'resume' },
+    ]);
+  });
+
+  it('treats unknown phases as rank 0 (no cached tools allowed)', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    const baseExecutor = vi.fn().mockResolvedValue({ ok: true, from: 'base' });
+    mockedRuntime.resolveToolExecutor.mockReturnValue(baseExecutor);
+
+    const resumeState = {
+      phase: 'unknown_phase',
+      slideIntents: ['cached'],
+      parsedContentPackage: { slideIntents: ['cached'] },
+      designSystem: { theme: 't' },
+      generated: [{ slideHtml: '<x>' }],
+    };
+
+    const executor = createResumeToolExecutor({ resumeState, stageApi: {} });
+
+    const [outline, style, generated] = await Promise.all([
+      executor('parse_outline'),
+      executor('extract_style'),
+      executor('spawn_slide_agent'),
+    ]);
+
+    expect(outline).toEqual({ ok: true, from: 'base' });
+    expect(style).toEqual({ ok: true, from: 'base' });
+    expect(generated).toEqual({ ok: true, from: 'base' });
+    expect(baseExecutor).toHaveBeenCalledTimes(3);
   });
 
   it('falls back to base executor with boundary values when cached tools are unavailable', async () => {
@@ -362,6 +584,29 @@ describe('createResumeToolExecutor', () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it('propagates errors from the base executor', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    const baseExecutor = vi.fn().mockRejectedValue(new Error('base failed'));
+    mockedRuntime.resolveToolExecutor.mockReturnValue(baseExecutor);
+
+    const executor = createResumeToolExecutor({ stageApi: {}, resumeState: null });
+
+    await expect(executor('any', { a: 1 }, { b: 2 })).rejects.toThrow('base failed');
+    expect(baseExecutor).toHaveBeenCalledWith('any', { a: 1 }, { b: 2 });
+  });
+
+  it('propagates errors from agentLoop tool handlers', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    mockedRuntime.resolveToolExecutor.mockReturnValue(null);
+
+    const tool = vi.fn().mockRejectedValue(new Error('tool failed'));
+    const agentLoop = { _tools: { custom: tool } };
+    const executor = createResumeToolExecutor({ agentLoop, stageApi: {}, resumeState: null });
+
+    await expect(executor('custom', { a: 1 }, { b: 2 })).rejects.toThrow('tool failed');
+    expect(tool).toHaveBeenCalledWith({ a: 1 }, { b: 2 });
+  });
+
   it('returns an error object for unknown tools', async () => {
     const { createResumeToolExecutor } = await loadToolHandler();
     mockedRuntime.resolveToolExecutor.mockReturnValue(undefined);
@@ -375,6 +620,42 @@ describe('createResumeToolExecutor', () => {
     const result = await executor(0);
 
     expect(result).toEqual({ ok: false, error: 'Unknown tool: 0' });
+  });
+
+  it('returns an error object for whitespace tool names when no fallback exists', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    mockedRuntime.resolveToolExecutor.mockReturnValue(undefined);
+
+    const executor = createResumeToolExecutor({ agentLoop: {}, stageApi: {}, resumeState: null });
+
+    const name = '   ';
+    const result = await executor(name);
+
+    expect(result).toEqual({ ok: false, error: `Unknown tool: ${name}` });
+  });
+
+  it('handles resource boundaries without transforming references', async () => {
+    const { createResumeToolExecutor } = await loadToolHandler();
+    mockedRuntime.resolveToolExecutor.mockReturnValue(undefined);
+
+    const hugeText = 'x'.repeat(1_000_000);
+    const deep = makeDeepObject(2048);
+    const slideIntents = Array.from({ length: 5000 }, (_, index) => ({ index }));
+
+    const parsedContentPackage = { slideIntents: ['ignored'], raw: hugeText, deep };
+    const resumeState = {
+      phase: DesignPhase.STYLE_EXTRACTING,
+      slideIntents,
+      parsedContentPackage,
+    };
+
+    const executor = createResumeToolExecutor({ resumeState, stageApi: {} });
+    const result = await executor('parse_outline');
+
+    expect(result.contentPackage).toBe(parsedContentPackage);
+    expect(result.slideIntents).toBe(slideIntents);
+    expect(result.contentPackage.raw.length).toBe(hugeText.length);
+    expect(result.contentPackage.deep).toBe(deep);
   });
 
   it('supports concurrent and rapid consecutive calls', async () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../../../js/agents/shared/utils/value-utils.js', async (importOriginal) => {
   const actual = await importOriginal();
@@ -51,6 +51,18 @@ function createDeepObject(depth) {
     current = { level: current };
   }
   return current;
+}
+
+function createDeferred() {
+  /** @type {(value?: any) => void} */
+  let resolve;
+  /** @type {(reason?: any) => void} */
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('Archive', () => {
@@ -186,28 +198,35 @@ describe('Archive', () => {
     it('per-runId mutex allows different runIds to save concurrently', async () => {
       const storage = createStorageAdapter();
       const archive = new Archive(storage);
-      const callOrder = [];
-
       const originalSet = storage.set;
+      const blockRunA = createDeferred();
+      const runASetStarted = createDeferred();
+      const runBSetStarted = createDeferred();
+
       storage.set = vi.fn(async (key, value) => {
-        callOrder.push({ key, start: Date.now() });
-        await new Promise((r) => setTimeout(r, 10));
-        callOrder.push({ key, end: Date.now() });
+        if (String(key).startsWith('runA:')) {
+          runASetStarted.resolve();
+          await blockRunA.promise;
+        }
+        if (String(key).startsWith('runB:')) {
+          runBSetStarted.resolve();
+        }
         return originalSet(key, value);
       });
 
-      const [idA, idB] = await Promise.all([
-        archive.save('runA', { timestamp: '100', nodeStates: { a: 1 } }),
-        archive.save('runB', { timestamp: '100', nodeStates: { b: 2 } }),
-      ]);
+      const saveA = archive.save('runA', { timestamp: '100', nodeStates: { a: 1 } });
+      await runASetStarted.promise;
+
+      const saveB = archive.save('runB', { timestamp: '100', nodeStates: { b: 2 } });
+      await runBSetStarted.promise;
+
+      blockRunA.resolve();
+
+      const [idA, idB] = await Promise.all([saveA, saveB]);
 
       expect(idA).toBe('runA:100');
       expect(idB).toBe('runB:100');
       expect(storage.set).toHaveBeenCalledTimes(2);
-
-      const startKeys = callOrder.filter((e) => e.start).map((e) => e.key);
-      expect(startKeys).toContain('runA:100');
-      expect(startKeys).toContain('runB:100');
     });
 
     it('throws CHECKPOINT_ID_COLLISION after 100 collision attempts', async () => {
@@ -304,6 +323,23 @@ describe('Archive', () => {
       expect(stored.encoding).toBeUndefined();
       expect(safeJsonSize).not.toHaveBeenCalled();
     });
+
+    it('uses latest checkpoint from storage when in-memory last checkpoint is missing', async () => {
+      const storage = createStorageAdapter({
+        'run:1': { nodeStates: { a: 1 }, timestamp: '1' },
+      });
+      const archive = new Archive(storage, {
+        diff: { enabled: true, minSavingsBytes: 1, fullSnapshotEvery: 10, maxOps: 100, maxDepth: 5 },
+      });
+
+      safeJsonSize.mockImplementation((value) => (value && value.encoding === 'diff' ? 1 : 1000));
+
+      const nextId = await archive.save('run', { timestamp: '2', nodeStates: { a: 2 } });
+
+      const stored = storage.store.get(nextId);
+      expect(stored.encoding).toBe('diff');
+      expect(stored.base).toBe('run:1');
+    });
   });
 
   describe('load', () => {
@@ -324,6 +360,13 @@ describe('Archive', () => {
 
       expect(result.nodeStates).toEqual({ a: 1 });
       expect(result.timestamp).toBe('10');
+    });
+
+    it('returns null when checkpointId is not found', async () => {
+      const storage = createStorageAdapter();
+      const archive = new Archive(storage);
+
+      await expect(archive.load('run:missing')).resolves.toBeNull();
     });
 
     it('loads latest checkpoint for runId using timestamp and counter ordering', async () => {

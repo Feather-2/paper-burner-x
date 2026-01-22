@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 
@@ -16,7 +16,10 @@ const MAX_MESSAGE_LENGTH = 256 * 1024;
 const MAX_STRING_LENGTH = 10000;
 const MAX_JSON_DEPTH = 8;
 const MAX_COLLECTION_ENTRIES = 2000;
+const MAX_METHOD_LENGTH = 200;
+const MAX_ID_LENGTH = 200;
 const MAX_ARG_LENGTH = 4096;
+const MAX_ENV_KEY_LENGTH = 200;
 const MAX_ENV_VALUE_LENGTH = 10000;
 
 const ORIGINAL_ENV = { ...process.env };
@@ -53,13 +56,11 @@ function restoreEnv() {
 }
 
 beforeEach(() => {
-  spawn.mockReset();
-});
-
-afterEach(() => {
-  vi.clearAllMocks();
-  vi.useRealTimers();
   restoreEnv();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
+  spawn.mockReset();
 });
 
 describe('ProcessTransport', () => {
@@ -111,6 +112,10 @@ describe('ProcessTransport', () => {
   });
 
   it('rejects invalid commands and allowlist mismatches', () => {
+    expect(() => new ProcessTransport({ command: null }))
+      .toThrow('ProcessTransport command must be a string');
+    expect(() => new ProcessTransport({ command: undefined }))
+      .toThrow('ProcessTransport command must be a string');
     expect(() => new ProcessTransport({ command: 123 }))
       .toThrow('ProcessTransport command must be a string');
     expect(() => new ProcessTransport({ command: '' }))
@@ -149,6 +154,19 @@ describe('ProcessTransport', () => {
     })).toThrow('ProcessTransport command path not in allowlist');
   });
 
+  it('accepts allowlisted absolute command paths when provided as allowlist entries', () => {
+    const cwd = path.join(process.cwd(), 'root');
+    const commandPath = path.resolve(cwd, './bin/tool');
+    const transport = new ProcessTransport({
+      command: commandPath,
+      cwd,
+      allowedCwdRoots: [cwd],
+      allowedCommands: [commandPath],
+    });
+
+    expect(transport.command).toBe(commandPath);
+  });
+
   it('normalizes args and enforces limits', () => {
     const emptyArgs = new ProcessTransport({ command: 'echo', args: [] });
     expect(emptyArgs.args).toEqual([]);
@@ -166,12 +184,15 @@ describe('ProcessTransport', () => {
       .toThrow('ProcessTransport arg contains invalid characters');
   });
 
-  it('applies timeout boundaries', () => {
+  it('applies timeout boundaries and type edges', () => {
     const transportZero = new ProcessTransport({ command: 'echo', timeout: 0 });
     expect(transportZero.timeout).toBe(30000);
 
     const transportNegative = new ProcessTransport({ command: 'echo', timeout: -1 });
     expect(transportNegative.timeout).toBe(-1);
+
+    const transportString = new ProcessTransport({ command: 'echo', timeout: '1' });
+    expect(transportString.timeout).toBe('1');
 
     const transportMax = new ProcessTransport({
       command: 'echo',
@@ -234,6 +255,23 @@ describe('ProcessTransport', () => {
     expect(t3.env.TEST_BASE).toBe('base');
   });
 
+  it('ignores invalid env keys and values at boundary limits', () => {
+    const longKey = 'A'.repeat(MAX_ENV_KEY_LENGTH + 1);
+    const transport = new ProcessTransport({
+      command: 'echo',
+      env: {
+        [longKey]: 'skip',
+        GOOD: 'ok',
+        BAD_NULL: 'x\u0000',
+      },
+      allowedEnvKeys: ['GOOD', longKey, 'BAD_NULL'],
+    });
+
+    expect(Object.prototype.hasOwnProperty.call(transport.env, longKey)).toBe(false);
+    expect(transport.env.GOOD).toBe('ok');
+    expect(Object.prototype.hasOwnProperty.call(transport.env, 'BAD_NULL')).toBe(false);
+  });
+
   it('applies PROCESS_TRANSPORT_ALLOWED_COMMANDS env allowlist', () => {
     process.env.PROCESS_TRANSPORT_ALLOWED_COMMANDS = 'echo,tool';
 
@@ -273,18 +311,32 @@ describe('ProcessTransport', () => {
     );
   });
 
+  it('connect rejects when spawn throws', async () => {
+    spawn.mockImplementation(() => {
+      throw new Error('spawn failed');
+    });
+
+    const transport = makeTransport();
+    await expect(transport.connect()).rejects.toThrow('spawn failed');
+    expect(transport.connected).toBe(false);
+    expect(transport.process).toBe(null);
+  });
+
   it('connect resolves after timeout when no stdout arrives', async () => {
     vi.useFakeTimers();
     const proc = createMockProcess();
     spawn.mockReturnValue(proc);
 
     const transport = makeTransport();
+    const connectedSpy = vi.fn();
+    transport.on('transport:connected', connectedSpy);
     const connectPromise = transport.connect();
 
     vi.advanceTimersByTime(100);
 
     await expect(connectPromise).resolves.toBeUndefined();
     expect(transport.connected).toBe(true);
+    expect(connectedSpy).toHaveBeenCalledTimes(1);
   });
 
   it('connect rejects on process error and emits transport:error', async () => {
@@ -319,6 +371,22 @@ describe('ProcessTransport', () => {
     );
     expect(exitSpy).toHaveBeenCalledWith({ code: 1, signal: 'SIGTERM' });
     expect(transport.connected).toBe(false);
+  });
+
+  it('connect forwards stderr output', async () => {
+    const proc = createMockProcess();
+    spawn.mockReturnValue(proc);
+
+    const transport = makeTransport();
+    const stderrSpy = vi.fn();
+    transport.on('transport:stderr', stderrSpy);
+
+    const connectPromise = transport.connect();
+    proc.stdout.emit('data', Buffer.from('ready\n'));
+    await connectPromise;
+
+    proc.stderr.emit('data', Buffer.from('warn\n'));
+    expect(stderrSpy).toHaveBeenCalledWith('warn\n');
   });
 
   it('connect is a no-op when already connected', async () => {
@@ -366,6 +434,19 @@ describe('ProcessTransport', () => {
     expect(transport._pending.size).toBe(0);
   });
 
+  it('supports MAX_SAFE_INTEGER request ids', async () => {
+    const transport = makeTransport();
+    transport.connected = true;
+    transport.process = createMockProcess();
+    transport._requestId = Number.MAX_SAFE_INTEGER - 1;
+
+    const promise = transport.request('max', { value: 1 });
+    expect(transport._pending.has(Number.MAX_SAFE_INTEGER)).toBe(true);
+
+    transport._handleMessage({ id: Number.MAX_SAFE_INTEGER, result: 'ok' });
+    await expect(promise).resolves.toBe('ok');
+  });
+
   it('request rejects on timeout and cleans up pending state', async () => {
     vi.useFakeTimers();
     const transport = makeTransport();
@@ -380,6 +461,19 @@ describe('ProcessTransport', () => {
     expect(transport._pending.size).toBe(0);
   });
 
+  it('request timeout works when timeout is a string', async () => {
+    vi.useFakeTimers();
+    const transport = makeTransport({ timeout: '1' });
+    transport.connected = true;
+    transport.process = createMockProcess();
+
+    const promise = transport.request('slow', { value: 1 });
+    vi.runAllTimers();
+
+    await expect(promise).rejects.toThrow('Request timeout: slow');
+    expect(transport._pending.size).toBe(0);
+  });
+
   it('request rejects when response contains error', async () => {
     const transport = makeTransport();
     transport.connected = true;
@@ -389,6 +483,17 @@ describe('ProcessTransport', () => {
     transport._handleMessage({ id: 1, error: { message: 'boom' } });
 
     await expect(promise).rejects.toThrow('boom');
+  });
+
+  it('request rejects with Unknown error when error message is missing', async () => {
+    const transport = makeTransport();
+    transport.connected = true;
+    transport.process = createMockProcess();
+
+    const promise = transport.request('fail', {});
+    transport._handleMessage({ id: 1, error: { code: 1 } });
+
+    await expect(promise).rejects.toThrow('Unknown error');
   });
 
   it('handles rapid consecutive requests independently', async () => {
@@ -406,6 +511,26 @@ describe('ProcessTransport', () => {
 
     await expect(p1).resolves.toBe('first');
     await expect(p2).resolves.toBe('second');
+    expect(transport._pending.size).toBe(0);
+  });
+
+  it('handles many concurrent requests and out-of-order responses', async () => {
+    const transport = makeTransport();
+    transport.connected = true;
+    transport.process = createMockProcess();
+
+    const requests = Array.from({ length: 10 }, (_, index) =>
+      transport.request(`m${index}`, { value: index }),
+    );
+
+    // Respond in reverse order.
+    for (let id = 10; id >= 1; id -= 1) {
+      transport._handleMessage({ id, result: `r${id}` });
+    }
+
+    await expect(Promise.all(requests)).resolves.toEqual(
+      Array.from({ length: 10 }, (_, index) => `r${index + 1}`),
+    );
     expect(transport._pending.size).toBe(0);
   });
 
@@ -451,6 +576,23 @@ describe('ProcessTransport', () => {
     });
   });
 
+  it('processBuffer buffers partial lines across calls', () => {
+    const transport = makeTransport();
+    const messageSpy = vi.fn();
+    transport.on('transport:message', messageSpy);
+
+    const line = JSON.stringify({ jsonrpc: '2.0', method: 'ping', params: { ok: true } });
+
+    transport.buffer = line;
+    transport._processBuffer();
+    expect(messageSpy).not.toHaveBeenCalled();
+    expect(transport.buffer).toBe(line);
+
+    transport.buffer += '\n';
+    transport._processBuffer();
+    expect(messageSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('processBuffer emits parse_error for invalid JSON', () => {
     const transport = makeTransport();
     const parseSpy = vi.fn();
@@ -473,6 +615,51 @@ describe('ProcessTransport', () => {
     transport._processBuffer();
 
     expect(reasons).toEqual(['invalid_keys', 'unknown_field']);
+  });
+
+  it('processBuffer emits invalid_message for various validation failures', () => {
+    const transport = makeTransport();
+    const reasons = [];
+    transport.on('transport:invalid_message', ({ reason }) => reasons.push(reason));
+
+    const cases = [
+      { line: JSON.stringify([1, 2, 3]), reason: 'not_object' },
+      { line: JSON.stringify({ jsonrpc: '1.0', method: 'm' }), reason: 'invalid_jsonrpc' },
+      { line: JSON.stringify({ jsonrpc: '2.0', id: {}, result: 'x' }), reason: 'invalid_id' },
+      { line: JSON.stringify({ jsonrpc: '2.0', id: 'a'.repeat(MAX_ID_LENGTH + 1), result: 'x' }), reason: 'id_too_long' },
+      { line: JSON.stringify({ jsonrpc: '2.0', method: '' }), reason: 'invalid_method' },
+      { line: JSON.stringify({ jsonrpc: '2.0', method: 'bad method' }), reason: 'invalid_method_chars' },
+      { line: JSON.stringify({ jsonrpc: '2.0', method: 'a'.repeat(MAX_METHOD_LENGTH + 1) }), reason: 'method_too_long' },
+      { line: JSON.stringify({ jsonrpc: '2.0', error: 'nope' }), reason: 'invalid_error' },
+      { line: JSON.stringify({ jsonrpc: '2.0', error: { code: '1', message: 'oops' } }), reason: 'invalid_error_code' },
+      { line: JSON.stringify({ jsonrpc: '2.0', error: { code: 1, message: '' } }), reason: 'invalid_error_message' },
+      { line: JSON.stringify({ jsonrpc: '2.0', error: { code: 1, message: 'a'.repeat(MAX_STRING_LENGTH + 1) } }), reason: 'error_message_too_long' },
+      // Use a JSON number that parses to Infinity (JSON.stringify(Infinity) would become null).
+      { line: '{"jsonrpc":"2.0","error":{"code":1,"message":"oops","data":1e309}}', reason: 'invalid_error_data' },
+      { line: '{"jsonrpc":"2.0","id":1,"result":1e309}', reason: 'invalid_result' },
+      { line: JSON.stringify({ jsonrpc: '2.0' }), reason: 'missing_fields' },
+    ];
+
+    transport.buffer = `${cases.map((entry) => entry.line).join('\n')}\n`;
+    transport._processBuffer();
+
+    expect(reasons).toEqual(cases.map((entry) => entry.reason));
+  });
+
+  it('processBuffer accepts boundary-length ids and methods', () => {
+    const transport = makeTransport();
+    const methodSpy = vi.fn();
+    transport.on(`method:${'a'.repeat(MAX_METHOD_LENGTH)}`, methodSpy);
+
+    const payloads = [
+      { jsonrpc: '2.0', id: 'a'.repeat(MAX_ID_LENGTH), result: 'ok' },
+      { jsonrpc: '2.0', method: 'a'.repeat(MAX_METHOD_LENGTH), params: { ok: true } },
+    ];
+
+    transport.buffer = `${payloads.map((p) => JSON.stringify(p)).join('\n')}\n`;
+    transport._processBuffer();
+
+    expect(methodSpy).toHaveBeenCalledWith({ ok: true });
   });
 
   it('processBuffer rejects long strings, deep nesting, and large collections', () => {
@@ -541,6 +728,27 @@ describe('ProcessTransport', () => {
     expect(receivedIds).toEqual([0, -1, Number.MAX_SAFE_INTEGER, '1']);
   });
 
+  it('rejects pending requests and emits exit when process exits after connected', async () => {
+    const proc = createMockProcess();
+    spawn.mockReturnValue(proc);
+
+    vi.useFakeTimers();
+    const transport = makeTransport({ timeout: 1000 });
+    const exitSpy = vi.fn();
+    transport.on('transport:exit', exitSpy);
+
+    const connectPromise = transport.connect();
+    proc.stdout.emit('data', Buffer.from('ready\n'));
+    await connectPromise;
+
+    const pendingPromise = transport.request('later', {});
+    proc.emit('exit', 9, 'SIGKILL');
+
+    await expect(pendingPromise).rejects.toThrow('Process exited: code=9, signal=SIGKILL');
+    expect(exitSpy).toHaveBeenCalledWith({ code: 9, signal: 'SIGKILL' });
+    expect(transport.connected).toBe(false);
+  });
+
   it('disconnect rejects pending requests and closes the process', () => {
     const transport = makeTransport();
     const proc = createMockProcess();
@@ -602,6 +810,12 @@ describe('createProcessTransport', () => {
   it('creates a ProcessTransport instance', () => {
     const transport = createProcessTransport({ command: 'echo' });
     expect(transport).toBeInstanceOf(ProcessTransport);
+  });
+
+  it('throws when options are invalid', () => {
+    expect(() => createProcessTransport({ command: '' })).toThrow(
+      'ProcessTransport command is required',
+    );
   });
 });
 

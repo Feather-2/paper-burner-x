@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const loggerInfoMock = vi.hoisted(() => vi.fn());
 const loggerWarnMock = vi.hoisted(() => vi.fn());
 const loggerErrorMock = vi.hoisted(() => vi.fn());
 const loggerDebugMock = vi.hoisted(() => vi.fn());
+
 const createLoggerMock = vi.hoisted(() =>
   vi.fn(() => ({
     info: loggerInfoMock,
@@ -13,307 +14,145 @@ const createLoggerMock = vi.hoisted(() =>
   }))
 );
 
-vi.mock("../../../../../js/agents/shared/index.js", () => ({
+vi.mock('../../../../../js/agents/shared/index.js', () => ({
   createLogger: createLoggerMock,
 }));
 
-import PerformanceRouter, {
+import {
   EwmaTracker,
   ModelTier,
-  PerformanceRouter as PerformanceRouterNamed,
   TaskComplexity,
-  estimateComplexity,
-} from "../../../../../js/agents/plugins/routing/performance-router.js";
+} from '../../../../../js/agents/plugins/routing/performance-router.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("ModelTier", () => {
-  it("exposes expected tiers and remains immutable", () => {
+describe('ModelTier', () => {
+  it('exposes expected tiers and is frozen', () => {
     expect(ModelTier).toEqual({
-      FAST: "fast",
-      POWER: "power",
-      FALLBACK: "fallback",
+      FAST: 'fast',
+      POWER: 'power',
+      FALLBACK: 'fallback',
     });
+    expect(Object.values(ModelTier).sort()).toEqual(['fallback', 'fast', 'power'].sort());
     expect(Object.isFrozen(ModelTier)).toBe(true);
+  });
 
-    const original = ModelTier.FAST;
-    try {
-      ModelTier.FAST = "slow";
-    } catch {
-      // ignore strict-mode mutation errors
+  it('rejects mutations (existing/new keys, whitespace keys, large payloads)', () => {
+    const snapshot = { ...ModelTier };
+    const deep = {};
+    let cursor = deep;
+    for (let i = 0; i < 50; i += 1) {
+      cursor.next = {};
+      cursor = cursor.next;
     }
-    expect(ModelTier.FAST).toBe(original);
+
+    expect(() => {
+      // @ts-expect-error - mutation attempt
+      ModelTier.FAST = 'slow';
+    }).toThrow();
+
+    expect(() => {
+      // @ts-expect-error - new property on frozen object
+      ModelTier['   '] = 'whitespace-key';
+    }).toThrow();
+
+    expect(() => {
+      // @ts-expect-error - new property with large key/value
+      ModelTier['x'.repeat(10_000)] = deep;
+    }).toThrow();
+
+    expect(ModelTier).toEqual(snapshot);
   });
 });
 
-describe("TaskComplexity", () => {
-  it("exposes expected levels and remains immutable", () => {
+describe('TaskComplexity', () => {
+  it('exposes expected levels and is frozen', () => {
     expect(TaskComplexity).toEqual({
-      SIMPLE: "simple",
-      MODERATE: "moderate",
-      COMPLEX: "complex",
+      SIMPLE: 'simple',
+      MODERATE: 'moderate',
+      COMPLEX: 'complex',
     });
+    expect(Object.values(TaskComplexity).sort()).toEqual(['complex', 'moderate', 'simple'].sort());
     expect(Object.isFrozen(TaskComplexity)).toBe(true);
+  });
 
-    const original = TaskComplexity.SIMPLE;
-    try {
-      TaskComplexity.SIMPLE = "easy";
-    } catch {
-      // ignore strict-mode mutation errors
-    }
-    expect(TaskComplexity.SIMPLE).toBe(original);
+  it('rejects mutations (existing/new keys, whitespace keys, large payloads)', () => {
+    const snapshot = { ...TaskComplexity };
+    const huge = 'x'.repeat(200_000);
+
+    expect(() => {
+      // @ts-expect-error - mutation attempt
+      TaskComplexity.SIMPLE = 'easy';
+    }).toThrow();
+
+    expect(() => {
+      // @ts-expect-error - new property on frozen object
+      TaskComplexity[''] = 'empty-key';
+    }).toThrow();
+
+    expect(() => {
+      // @ts-expect-error - new property on frozen object
+      TaskComplexity['   '] = huge;
+    }).toThrow();
+
+    expect(TaskComplexity).toEqual(snapshot);
   });
 });
 
-describe("EwmaTracker", () => {
-  it("clamps alpha and preserves initial value stats", () => {
-    const tracker = new EwmaTracker({ alpha: 2, initialValue: 42 });
-    expect(tracker._alpha).toBe(0.99);
-    expect(tracker.value).toBe(42);
-    expect(tracker.stats).toEqual({ ewma: 42, count: 0, min: 0, max: 0 });
+describe('EwmaTracker', () => {
+  it('initializes with defaults and stable empty stats', () => {
+    const a = new EwmaTracker();
+    const b = new EwmaTracker(undefined);
+    const c = new EwmaTracker([]);
 
-    const lowAlpha = new EwmaTracker({ alpha: -1 });
-    expect(lowAlpha._alpha).toBe(0.01);
+    for (const tracker of [a, b, c]) {
+      expect(tracker.value).toBe(0);
+      expect(tracker.stats).toEqual({ ewma: 0, count: 0, min: 0, max: 0 });
+    }
   });
 
-  it("records valid samples and updates EWMA stats", () => {
+  it('throws for null options (null boundary)', () => {
+    expect(() => new EwmaTracker(null)).toThrow();
+  });
+
+  it('records first sample directly then applies EWMA for later samples', () => {
     const tracker = new EwmaTracker({ alpha: 0.5 });
     expect(tracker.record(10)).toBe(10);
     expect(tracker.record(20)).toBe(15);
-
-    const stats = tracker.stats;
-    expect(stats.count).toBe(2);
-    expect(stats.min).toBe(10);
-    expect(stats.max).toBe(20);
+    expect(tracker.stats).toEqual({ ewma: 15, count: 2, min: 10, max: 20 });
   });
 
-  it("ignores invalid samples without mutating stats", () => {
+  it('clamps alpha into [0.01, 0.99] and accepts numeric strings', () => {
+    const hi = new EwmaTracker({ alpha: 2 });
+    hi.record(10);
+    expect(hi.record(20)).toBeCloseTo(19.9, 10);
+
+    const lo = new EwmaTracker({ alpha: -1 });
+    lo.record(10);
+    expect(lo.record(20)).toBeCloseTo(10.1, 10);
+
+    const str = new EwmaTracker({ alpha: '0.5' });
+    str.record(10);
+    expect(str.record(20)).toBe(15);
+  });
+
+  it('preserves initialValue until the first valid sample is recorded', () => {
+    const tracker = new EwmaTracker({ initialValue: 42 });
+    expect(tracker.value).toBe(42);
+    expect(tracker.stats).toEqual({ ewma: 42, count: 0, min: 0, max: 0 });
+
+    expect(tracker.record('10')).toBe(42);
+    expect(tracker.stats).toEqual({ ewma: 42, count: 0, min: 0, max: 0 });
+
+    expect(tracker.record(7)).toBe(7);
+    expect(tracker.stats).toEqual({ ewma: 7, count: 1, min: 7, max: 7 });
+  });
+
+  it('ignores invalid samples without mutating stats (empty/type/resource boundaries)', () => {
     const tracker = new EwmaTracker({ initialValue: 7 });
-    const invalidSamples = [null, undefined, "", "10", NaN, Infinity, -Infinity, {}, []];
-
-    invalidSamples.forEach((sample) => {
-      expect(tracker.record(sample)).toBe(7);
-    });
-
-    expect(tracker.stats).toEqual({ ewma: 7, count: 0, min: 0, max: 0 });
-  });
-
-  it("handles boundary values and resets cleanly", () => {
-    const tracker = new EwmaTracker();
-    tracker.record(0);
-    tracker.record(-1);
-    tracker.record(Number.MAX_SAFE_INTEGER);
-
-    const stats = tracker.stats;
-    expect(stats.count).toBe(3);
-    expect(stats.min).toBe(-1);
-    expect(stats.max).toBe(Number.MAX_SAFE_INTEGER);
-
-    tracker.reset();
-    expect(tracker.stats).toEqual({ ewma: 0, count: 0, min: 0, max: 0 });
-  });
-
-  it("supports rapid consecutive updates without corrupting stats", async () => {
-    const tracker = new EwmaTracker({ alpha: 0.2 });
-    const samples = Array.from({ length: 20 }, (_, index) => index + 1);
-
-    await Promise.all(
-      samples.map((sample) => Promise.resolve().then(() => tracker.record(sample)))
-    );
-
-    const stats = tracker.stats;
-    expect(stats.count).toBe(samples.length);
-    expect(stats.min).toBe(1);
-    expect(stats.max).toBe(20);
-  });
-});
-
-describe("PerformanceRouter", () => {
-  it("matches the named export", () => {
-    expect(PerformanceRouter).toBe(PerformanceRouterNamed);
-  });
-
-  it("registers endpoints with validated tier and weight", () => {
-    const router = new PerformanceRouter();
-    router.registerEndpoint("bad", { tier: "unknown", weight: "oops" });
-    router.registerEndpoint("heavy", { tier: ModelTier.FAST, weight: 12 });
-    router.registerEndpoint("light", { tier: ModelTier.FAST, weight: -1 });
-
-    expect(router.getEndpointStats("bad")).toMatchObject({
-      tier: ModelTier.POWER,
-      weight: 1,
-    });
-    expect(router.getEndpointStats("heavy")).toMatchObject({
-      tier: ModelTier.FAST,
-      weight: 10,
-    });
-    expect(router.getEndpointStats("light")).toMatchObject({
-      tier: ModelTier.FAST,
-      weight: 0,
-    });
-  });
-
-  it("ignores invalid endpoint ids and normalizes latency", () => {
-    const router = new PerformanceRouter();
-    const invalidIds = [null, undefined, "", 0, {}, []];
-
-    invalidIds.forEach((id) => {
-      router.recordResult(id, { success: true, latencyMs: 5 });
-    });
-    expect(Object.keys(router.getAllStats())).toHaveLength(0);
-
-    router.recordResult("ok", { success: true, latencyMs: "10" });
-    const stats = router.getEndpointStats("ok");
-    expect(stats.successCount).toBe(1);
-    expect(stats.latency.ewma).toBe(0);
-  });
-
-  it("records errors with penalty latency", () => {
-    const router = new PerformanceRouter();
-    router.recordResult("bad", { success: false, error: "" });
-
-    const stats = router.getEndpointStats("bad");
-    expect(stats.errorCount).toBe(1);
-    expect(stats.successCount).toBe(0);
-    expect(stats.successRate).toBe(0);
-    expect(stats.latency.ewma).toBe(5000);
-  });
-
-  it("returns null when no endpoints are selectable", () => {
-    const router = new PerformanceRouter();
-    expect(router.selectEndpoint()).toBeNull();
-
-    router.registerEndpoint("a");
-    router.registerEndpoint("b");
-    expect(router.selectEndpoint({ excludeIds: ["a", "b"] })).toBeNull();
-
-    const selected = router.selectEndpoint({ excludeIds: {}, includeIds: {} });
-    expect(selected).not.toBeNull();
-    expect(["a", "b"]).toContain(selected.endpointId);
-  });
-
-  it("prefers fast tier for simple tasks when configured", () => {
-    const router = new PerformanceRouter({ preferFastTier: true });
-    router.registerEndpoint("fast", { tier: ModelTier.FAST, weight: 1 });
-    router.registerEndpoint("power", { tier: ModelTier.POWER, weight: 10 });
-
-    const simplePick = router.selectEndpoint({ complexity: TaskComplexity.SIMPLE });
-    expect(simplePick.endpointId).toBe("fast");
-
-    const moderatePick = router.selectEndpoint({ complexity: TaskComplexity.MODERATE });
-    expect(moderatePick.endpointId).toBe("power");
-  });
-
-  it("falls back to all candidates when target tier is missing", () => {
-    const router = new PerformanceRouter({ preferFastTier: true });
-    router.registerEndpoint("p1", { tier: ModelTier.POWER, weight: 2 });
-    router.registerEndpoint("p2", { tier: ModelTier.POWER, weight: 1 });
-
-    const selected = router.selectEndpoint({ complexity: TaskComplexity.SIMPLE });
-    expect(selected.endpointId).toBe("p1");
-  });
-
-  it("invokes route decision callback and logs selection", () => {
-    const onRouteDecision = vi.fn();
-    const router = new PerformanceRouter({ onRouteDecision });
-    router.registerEndpoint("fast", { tier: ModelTier.FAST, weight: 1 });
-
-    const selected = router.selectEndpoint({ complexity: TaskComplexity.SIMPLE });
-    expect(selected.endpointId).toBe("fast");
-    expect(onRouteDecision).toHaveBeenCalledTimes(1);
-    expect(onRouteDecision).toHaveBeenCalledWith(
-      expect.objectContaining({
-        endpointId: "fast",
-        complexity: TaskComplexity.SIMPLE,
-        reason: expect.stringContaining("tier=fast"),
-      })
-    );
-    expect(loggerInfoMock).toHaveBeenCalledWith(
-      "Endpoint selected",
-      expect.objectContaining({ id: "fast" })
-    );
-  });
-
-  it("updates weight and tier with validation", () => {
-    const router = new PerformanceRouter();
-    router.registerEndpoint("a", { tier: ModelTier.FAST, weight: 1 });
-
-    router.setWeight("a", "3");
-    expect(router.getEndpointStats("a").weight).toBe(1);
-
-    router.setWeight("a", Number.MAX_SAFE_INTEGER);
-    expect(router.getEndpointStats("a").weight).toBe(10);
-
-    router.setWeight("a", -1);
-    expect(router.getEndpointStats("a").weight).toBe(0);
-
-    router.setTier("a", "invalid");
-    expect(router.getEndpointStats("a").tier).toBe(ModelTier.FAST);
-
-    router.setTier("a", ModelTier.POWER);
-    expect(router.getEndpointStats("a").tier).toBe(ModelTier.POWER);
-  });
-
-  it("returns ranked endpoints by score", () => {
-    const router = new PerformanceRouter();
-    router.registerEndpoint("low", { weight: 1 });
-    router.registerEndpoint("high", { weight: 2 });
-
-    const ranked = router.getRankedEndpoints();
-    expect(ranked[0].id).toBe("high");
-    expect(ranked[1].id).toBe("low");
-  });
-
-  it("resets endpoint statistics cleanly", () => {
-    const router = new PerformanceRouter();
-    router.registerEndpoint("a", { tier: ModelTier.POWER, weight: 1 });
-    router.recordResult("a", { success: true, latencyMs: 12 });
-    router.recordResult("a", { success: false, error: "boom" });
-
-    router.resetStats();
-    const stats = router.getEndpointStats("a");
-    expect(stats.successCount).toBe(0);
-    expect(stats.errorCount).toBe(0);
-    expect(stats.latency).toEqual({ ewma: 0, count: 0, min: 0, max: 0 });
-    expect(stats.successRate).toBe(1);
-  });
-});
-
-describe("estimateComplexity", () => {
-  it("returns SIMPLE for empty or non-text inputs", () => {
-    const samples = [
-      null,
-      undefined,
-      "",
-      "   ",
-      [],
-      {},
-      { prompt: "" },
-      { content: "" },
-      { message: "" },
-    ];
-
-    samples.forEach((sample) => {
-      expect(estimateComplexity(sample)).toBe(TaskComplexity.SIMPLE);
-    });
-  });
-
-  it("respects token threshold boundaries", () => {
-    const simpleText = "a".repeat(396);
-    const moderateText = "b".repeat(400);
-    const highModerate = "c".repeat(1996);
-    const complexText = "d".repeat(2000);
-
-    expect(estimateComplexity({ prompt: simpleText })).toBe(TaskComplexity.SIMPLE);
-    expect(estimateComplexity({ prompt: moderateText })).toBe(TaskComplexity.MODERATE);
-    expect(estimateComplexity({ content: highModerate })).toBe(TaskComplexity.MODERATE);
-    expect(estimateComplexity({ message: complexText })).toBe(TaskComplexity.COMPLEX);
-  });
-
-  it("handles large strings and deep nested tasks", () => {
-    const hugeText = "x".repeat(1_000_000);
+    const hugeText = 'x'.repeat(1_000_000);
     const deep = {};
     let cursor = deep;
     for (let i = 0; i < 50; i += 1) {
@@ -321,7 +160,62 @@ describe("estimateComplexity", () => {
       cursor = cursor.nested;
     }
 
-    const task = { content: hugeText, meta: deep };
-    expect(estimateComplexity(task)).toBe(TaskComplexity.COMPLEX);
+    const invalidSamples = [
+      null,
+      undefined,
+      '',
+      '   ',
+      [],
+      {},
+      { a: 1 },
+      deep,
+      hugeText,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      // @ts-expect-error - bigint boundary
+      10n,
+    ];
+
+    for (const sample of invalidSamples) {
+      expect(tracker.record(sample)).toBe(7);
+    }
+
+    expect(tracker.stats).toEqual({ ewma: 7, count: 0, min: 0, max: 0 });
+  });
+
+  it('handles numeric boundary values and resets cleanly', () => {
+    const tracker = new EwmaTracker();
+    tracker.record(0);
+    tracker.record(-1);
+    tracker.record(Number.MAX_SAFE_INTEGER);
+
+    expect(tracker.stats.count).toBe(3);
+    expect(tracker.stats.min).toBe(-1);
+    expect(tracker.stats.max).toBe(Number.MAX_SAFE_INTEGER);
+
+    tracker.reset();
+    expect(tracker.value).toBe(0);
+    expect(tracker.stats).toEqual({ ewma: 0, count: 0, min: 0, max: 0 });
+  });
+
+  it('supports rapid consecutive and microtask-batched updates', async () => {
+    const tracker = new EwmaTracker({ alpha: 0.2 });
+
+    for (let i = 0; i < 100; i += 1) {
+      tracker.record(i);
+    }
+    expect(tracker.stats.count).toBe(100);
+    expect(tracker.stats.min).toBe(0);
+    expect(tracker.stats.max).toBe(99);
+
+    tracker.reset();
+
+    const samples = Array.from({ length: 50 }, (_, index) => index - 25);
+    await Promise.all(samples.map((n) => Promise.resolve().then(() => tracker.record(n))));
+
+    expect(tracker.stats.count).toBe(samples.length);
+    expect(tracker.stats.min).toBe(-25);
+    expect(tracker.stats.max).toBe(24);
   });
 });

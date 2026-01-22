@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const MODULE_PATH = "../../../../../../js/agents/stages/design/internal/screenshot-stitcher.js";
-const VALID_DATA_URL = "data:image/png;base64,AAAA";
-const INVALID_BASE64_URL = "data:image/png;base64,@@@";
+const MODULE_PATH =
+  '../../../../../../js/agents/stages/design/internal/screenshot-stitcher.js';
+const VALID_DATA_URL = 'data:image/png;base64,AAAA';
+const INVALID_BASE64_URL = 'data:image/png;base64,@@@';
 
 let createCanvasImpl;
 let loadImageImpl;
@@ -14,7 +15,7 @@ const loadImageMock = vi.fn((...args) =>
   typeof loadImageImpl === "function" ? loadImageImpl(...args) : undefined
 );
 
-vi.mock("canvas", () => ({
+vi.mock('canvas', () => ({
   createCanvas: (...args) => createCanvasMock(...args),
   loadImage: (...args) => loadImageMock(...args),
 }));
@@ -99,6 +100,15 @@ describe("stitchScreenshots", () => {
     await expect(stitchScreenshots()).rejects.toThrow(TypeError);
     await expect(stitchScreenshots(null)).rejects.toThrow(TypeError);
     await expect(stitchScreenshots({})).rejects.toThrow(TypeError);
+    await expect(stitchScreenshots("not-an-array")).rejects.toThrow(TypeError);
+  });
+
+  it("treats null options as empty options (empty value boundary)", async () => {
+    setupCanvasMocks();
+    const { stitchScreenshots } = await importModule();
+    await expect(stitchScreenshots([VALID_DATA_URL], null)).resolves.toBe(
+      "data:image/png;base64,output"
+    );
   });
 
   it("stitches valid screenshots into a grid and draws at expected positions", async () => {
@@ -125,6 +135,28 @@ describe("stitchScreenshots", () => {
         [expect.anything(), firstX, firstY, STITCHER_CONFIG.slideWidth, STITCHER_CONFIG.slideHeight],
         [expect.anything(), secondX, firstY, STITCHER_CONFIG.slideWidth, STITCHER_CONFIG.slideHeight],
       ])
+    );
+  });
+
+  it("draws at most cols*rows slides (truncates extras)", async () => {
+    setupCanvasMocks();
+    const { stitchScreenshots, STITCHER_CONFIG } = await importModule();
+
+    const screenshots = [
+      "data:image/png;base64,AAA1",
+      "data:image/png;base64,AAA2",
+      "data:image/png;base64,AAA3",
+      "data:image/png;base64,AAA4",
+      "data:image/png;base64,AAA5",
+      "data:image/png;base64,AAA6",
+    ];
+
+    await stitchScreenshots(screenshots);
+
+    const maxSlides = STITCHER_CONFIG.cols * STITCHER_CONFIG.rows;
+    expect(loadImageMock).toHaveBeenCalledTimes(maxSlides);
+    expect(loadImageMock.mock.calls.map((c) => c[0])).toEqual(
+      screenshots.slice(0, maxSlides)
     );
   });
 
@@ -157,6 +189,90 @@ describe("stitchScreenshots", () => {
       screenshots: [VALID_DATA_URL],
       grid: { cols: 2, rows: 2 },
     });
+  });
+
+  it("uses browser Canvas/Image APIs when window+document are present", async () => {
+    const { STITCHER_CONFIG } = await importModule();
+    const ctx = createMockContext();
+
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => ctx),
+      toDataURL: vi.fn(() => "data:image/png;base64,browser"),
+    };
+    const createElement = vi.fn(() => canvas);
+    vi.stubGlobal("document", { createElement });
+    vi.stubGlobal("window", { document: { createElement } });
+
+    let assignedSrc = null;
+    class FakeImage {
+      constructor() {
+        /** @type {any} */
+        this.onload = null;
+        /** @type {any} */
+        this.onerror = null;
+      }
+      set src(value) {
+        assignedSrc = value;
+        Promise.resolve().then(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal("Image", FakeImage);
+
+    const { stitchScreenshots } = await importModule();
+    const res = await stitchScreenshots([`  ${VALID_DATA_URL}  `]);
+
+    const width =
+      STITCHER_CONFIG.cols * STITCHER_CONFIG.slideWidth +
+      (STITCHER_CONFIG.cols + 1) * STITCHER_CONFIG.padding;
+    const height =
+      STITCHER_CONFIG.rows * STITCHER_CONFIG.slideHeight +
+      (STITCHER_CONFIG.rows + 1) * STITCHER_CONFIG.padding;
+
+    expect(res).toBe("data:image/png;base64,browser");
+    expect(createElement).toHaveBeenCalledWith("canvas");
+    expect(canvas.width).toBe(width);
+    expect(canvas.height).toBe(height);
+    expect(assignedSrc).toBe(VALID_DATA_URL);
+    expect(createCanvasMock).not.toHaveBeenCalled();
+    expect(loadImageMock).not.toHaveBeenCalled();
+  });
+
+  it("draws placeholder when browser image loading fails", async () => {
+    const ctx = createMockContext();
+
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => ctx),
+      toDataURL: vi.fn(() => "data:image/png;base64,browser"),
+    };
+    const createElement = vi.fn(() => canvas);
+    vi.stubGlobal("document", { createElement });
+    vi.stubGlobal("window", { document: { createElement } });
+
+    class FakeImage {
+      constructor() {
+        /** @type {any} */
+        this.onload = null;
+        /** @type {any} */
+        this.onerror = null;
+      }
+      set src(_value) {
+        Promise.resolve().then(() => this.onerror?.("boom"));
+      }
+    }
+    vi.stubGlobal("Image", FakeImage);
+
+    const { stitchScreenshots } = await importModule();
+    const res = await stitchScreenshots([VALID_DATA_URL]);
+
+    expect(res).toBe("data:image/png;base64,browser");
+    expect(ctx.drawImage).not.toHaveBeenCalled();
+    expect(ctx.fillText.mock.calls.map((call) => call[0])).toContain(
+      "Slide 1 (failed)"
+    );
   });
 
   it.each([
@@ -236,6 +352,14 @@ describe("createDeckOverview", () => {
     const { createDeckOverview } = await importModule();
     await expect(createDeckOverview(null)).rejects.toThrow(TypeError);
     await expect(createDeckOverview({})).rejects.toThrow(TypeError);
+    await expect(createDeckOverview("not-an-array")).rejects.toThrow(TypeError);
+  });
+
+  it("treats null options as empty options (empty value boundary)", async () => {
+    const { createDeckOverview } = await importModule();
+    await expect(createDeckOverview([VALID_DATA_URL], null)).resolves.toHaveLength(
+      1
+    );
   });
 
   it("batches screenshots into grids with metadata", async () => {
@@ -260,12 +384,47 @@ describe("createDeckOverview", () => {
     expect(grids[1].image).toBe("data:image/png;base64,grid2");
   });
 
+  it("honors custom grid dimensions via options", async () => {
+    setupCanvasMocks();
+    const { createDeckOverview } = await importModule();
+
+    const options = {
+      cols: 3,
+      rows: 1,
+      padding: 1,
+      slideWidth: 10,
+      slideHeight: 5,
+    };
+    const screenshots = Array.from({ length: 4 }, () => VALID_DATA_URL);
+    const grids = await createDeckOverview(screenshots, options);
+
+    expect(grids).toHaveLength(2);
+    expect(grids[0]).toMatchObject({ gridIndex: 0, startSlide: 0, endSlide: 2 });
+    expect(grids[1]).toMatchObject({ gridIndex: 1, startSlide: 3, endSlide: 3 });
+
+    expect(createCanvasMock).toHaveBeenCalledTimes(2);
+    expect(createCanvasMock).toHaveBeenCalledWith(34, 7);
+  });
+
   it("skips grids when stitching returns null", async () => {
     setupCanvasMocks({ includeToDataURL: false });
     const { createDeckOverview } = await importModule();
 
     const grids = await createDeckOverview([VALID_DATA_URL]);
     expect(grids).toEqual([]);
+  });
+
+  it("handles large inputs (resource boundary: large array)", async () => {
+    setupCanvasMocks();
+    const { createDeckOverview, STITCHER_CONFIG } = await importModule();
+
+    const count = 100;
+    const screenshots = Array.from({ length: count }, () => VALID_DATA_URL);
+    const grids = await createDeckOverview(screenshots);
+
+    const perGrid = STITCHER_CONFIG.cols * STITCHER_CONFIG.rows;
+    expect(grids).toHaveLength(Math.ceil(count / perGrid));
+    expect(loadImageMock).toHaveBeenCalledTimes(count);
   });
 
   it("handles rapid consecutive calls", async () => {
@@ -285,6 +444,11 @@ describe("createDeckOverview", () => {
 });
 
 describe("ScreenshotStitcher", () => {
+  it("accepts null options in constructor (empty value boundary)", async () => {
+    const { ScreenshotStitcher } = await importModule();
+    expect(() => new ScreenshotStitcher(null)).not.toThrow();
+  });
+
   it("getConfig returns a merged copy", async () => {
     const { ScreenshotStitcher, STITCHER_CONFIG } = await importModule();
     const stitcher = new ScreenshotStitcher({ cols: 1 });
@@ -329,6 +493,11 @@ describe("ScreenshotStitcher", () => {
 });
 
 describe("createScreenshotStitcher", () => {
+  it("accepts null options (empty value boundary)", async () => {
+    const { createScreenshotStitcher } = await importModule();
+    expect(() => createScreenshotStitcher(null)).not.toThrow();
+  });
+
   it("returns a ScreenshotStitcher instance with merged options", async () => {
     const { createScreenshotStitcher, ScreenshotStitcher } = await importModule();
     const stitcher = createScreenshotStitcher({ rows: 1 });

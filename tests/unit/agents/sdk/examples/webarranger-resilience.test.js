@@ -1,174 +1,221 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const MODULE_PATH = "../../../../../js/agents/sdk/examples/webarranger-resilience.js";
+const MODULE_PATH = '../../../../../js/agents/sdk/examples/webarranger-resilience.js';
 
 const hoisted = vi.hoisted(() => ({
-  createAgent: vi.fn(),
-  createLogger: vi.fn(),
-  loggerError: vi.fn(),
-  discoveryStatus: { CONTRADICTED: "contradicted" }
+    createAgent: vi.fn(),
+    createLogger: vi.fn(),
+    loggerError: vi.fn(),
+    discoveryStatus: { CONTRADICTED: 'contradicted' }
 }));
 
-vi.mock("../../../../../js/agents/sdk/index.js", () => ({
-  createAgent: hoisted.createAgent,
-  createLogger: hoisted.createLogger
+vi.mock('../../../../../js/agents/sdk/index.js', () => ({
+    createAgent: hoisted.createAgent,
+    createLogger: hoisted.createLogger
 }));
 
-vi.mock("../../../../../js/agents/sdk/DiscoveryManager.js", () => ({
-  DiscoveryStatus: hoisted.discoveryStatus
+vi.mock('../../../../../js/agents/sdk/DiscoveryManager.js', () => ({
+    DiscoveryStatus: hoisted.discoveryStatus
 }));
 
 const flushMicrotasks = () => new Promise((resolve) => queueMicrotask(resolve));
 
 const makeBuilder = () => {
-  const builder = {
-    useCicada: vi.fn(),
-    useBacktrack: vi.fn(),
-    build: vi.fn()
-  };
+    const builder = {
+        useCicada: vi.fn(() => builder),
+        useBacktrack: vi.fn(() => builder),
+        build: vi.fn(() => ({ id: 'arranger' }))
+    };
 
-  builder.useCicada.mockReturnValue(builder);
-  builder.useBacktrack.mockReturnValue(builder);
-  builder.build.mockReturnValue({ id: "arranger" });
-
-  return builder;
+    return builder;
 };
 
-const runModule = async () => {
-  const mod = await import(MODULE_PATH);
-  await flushMicrotasks();
-  return mod;
+const importWorkflowModule = async (query = '') => {
+    const mod = await import(`${MODULE_PATH}${query}`);
+    await flushMicrotasks();
+    return mod;
 };
 
 beforeEach(() => {
-  vi.resetModules();
-  vi.restoreAllMocks();
+    vi.resetModules();
+    vi.restoreAllMocks();
 
-  hoisted.createAgent.mockReset();
-  hoisted.createLogger.mockReset();
-  hoisted.loggerError.mockReset();
-  hoisted.discoveryStatus.CONTRADICTED = "contradicted";
+    hoisted.createAgent.mockReset();
+    hoisted.createLogger.mockReset();
+    hoisted.loggerError.mockReset();
+    hoisted.discoveryStatus.CONTRADICTED = 'contradicted';
 
-  hoisted.createLogger.mockReturnValue({ error: hoisted.loggerError });
-  vi.spyOn(console, "log").mockImplementation(() => {});
+    hoisted.createLogger.mockReturnValue({ error: hoisted.loggerError });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
 });
 
-describe("sdk/examples/webarranger-resilience.js", () => {
-  it("executes the workflow and logs key steps", async () => {
-    const builder = makeBuilder();
-    hoisted.createAgent.mockReturnValue(builder);
+describe('sdk/examples/webarranger-resilience (module side effects)', () => {
+    it('runs the happy path and builds the arranger with resilience options', async () => {
+        const builder = makeBuilder();
+        hoisted.createAgent.mockReturnValue(builder);
 
-    await runModule();
+        await importWorkflowModule();
 
-    expect(hoisted.createLogger).toHaveBeenCalledWith("sdk/examples/webarranger-resilience");
-    expect(hoisted.createAgent).toHaveBeenCalledTimes(1);
-    expect(builder.useCicada).toHaveBeenCalledWith({ maxTokens: 4000 });
-    expect(builder.useBacktrack).toHaveBeenCalledWith({ maxBacktracks: 3 });
-    expect(builder.build).toHaveBeenCalledTimes(1);
+        expect(hoisted.createLogger).toHaveBeenCalledWith(
+            'sdk/examples/webarranger-resilience'
+        );
+        expect(hoisted.createAgent).toHaveBeenCalledTimes(1);
 
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining("Starting Resilient WebArranger Workflow")
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining("Arranger Evaluation:")
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining("Resilience demonstration completed")
-    );
-    expect(hoisted.loggerError).not.toHaveBeenCalled();
-  });
+        expect(builder.useCicada).toHaveBeenCalledWith({ maxTokens: 4000 });
+        const cicadaOptions = builder.useCicada.mock.calls[0][0];
+        expect(typeof cicadaOptions.maxTokens).toBe('number');
+        expect(Number.isFinite(cicadaOptions.maxTokens)).toBe(true);
+        expect(Array.isArray(cicadaOptions)).toBe(false);
 
-  it("has no public exports (side-effect only module)", async () => {
-    hoisted.createAgent.mockReturnValue(makeBuilder());
+        expect(builder.useBacktrack).toHaveBeenCalledWith({ maxBacktracks: 3 });
+        const backtrackOptions = builder.useBacktrack.mock.calls[0][0];
+        expect(typeof backtrackOptions.maxBacktracks).toBe('number');
+        expect(Number.isFinite(backtrackOptions.maxBacktracks)).toBe(true);
+        expect(Array.isArray(backtrackOptions)).toBe(false);
 
-    const mod = await runModule();
+        expect(builder.build).toHaveBeenCalledTimes(1);
+        expect(hoisted.loggerError).not.toHaveBeenCalled();
 
-    expect(Object.keys(mod)).toHaveLength(0);
-  });
-
-  it("logs errors when the workflow fails", async () => {
-    const error = new Error("boom");
-    hoisted.createAgent.mockImplementation(() => {
-      throw error;
+        const logArgs = console.log.mock.calls.flat().filter((x) => typeof x === 'string');
+        expect(logArgs.some((line) => line.includes('Starting Resilient WebArranger Workflow'))).toBe(true);
+        expect(logArgs.some((line) => line.includes('Arranger Evaluation:'))).toBe(true);
+        expect(logArgs.some((line) => line.includes('Resilience demonstration completed'))).toBe(true);
     });
 
-    await runModule();
+    it('exports nothing (script/example module)', async () => {
+        hoisted.createAgent.mockReturnValue(makeBuilder());
 
-    expect(hoisted.loggerError).toHaveBeenCalledTimes(1);
-    expect(hoisted.loggerError).toHaveBeenCalledWith("main failed", { error });
-  });
+        const mod = await importWorkflowModule();
 
-  const boundaryCases = [
-    { label: "null", value: null },
-    { label: "undefined", value: undefined },
-    { label: "empty string", value: "" },
-    { label: "whitespace string", value: "   " },
-    { label: "empty array", value: [] },
-    { label: "empty object", value: {} },
-    { label: "zero", value: 0 },
-    { label: "negative one", value: -1 },
-    { label: "max safe integer", value: Number.MAX_SAFE_INTEGER },
-    { label: "string as number", value: "4000" },
-    { label: "object as array", value: { 0: "item", length: 1 } }
-  ];
-
-  it.each(boundaryCases)("logs boundary error values: $label", async ({ value }) => {
-    hoisted.createAgent.mockImplementation(() => {
-      throw value;
+        expect(Object.keys(mod)).toEqual([]);
     });
 
-    await runModule();
+    it('logs a thrown Error via logger.error', async () => {
+        const error = new Error('boom');
+        hoisted.createAgent.mockImplementation(() => {
+            throw error;
+        });
 
-    expect(hoisted.loggerError).toHaveBeenCalledWith("main failed", { error: value });
-  });
+        await importWorkflowModule();
 
-  it("logs resource-sized error payloads", async () => {
-    const longString = "x".repeat(200000);
-    const deepNested = (() => {
-      const root = {};
-      let cursor = root;
-      for (let i = 0; i < 25; i += 1) {
-        cursor.level = {};
-        cursor = cursor.level;
-      }
-      return root;
-    })();
-    const hugeFile = {
-      name: "huge.pdf",
-      size: Number.MAX_SAFE_INTEGER,
-      contents: longString
-    };
-    const payload = { file: hugeFile, message: longString, nested: deepNested };
+        expect(hoisted.loggerError).toHaveBeenCalledTimes(1);
+        expect(hoisted.loggerError).toHaveBeenCalledWith('main failed', { error });
 
-    hoisted.createAgent.mockImplementation(() => {
-      throw payload;
+        const logArgs = console.log.mock.calls.flat().filter((x) => typeof x === 'string');
+        expect(logArgs.some((line) => line.includes('Starting Resilient WebArranger Workflow'))).toBe(true);
     });
 
-    await runModule();
+    it.each([
+        // Empty values
+        ['null', null],
+        ['undefined', undefined],
+        ['empty string', ''],
+        ['empty array', []],
+        ['empty object', {}],
+        // Boundary values
+        ['zero', 0],
+        ['negative one', -1],
+        ['max safe integer', Number.MAX_SAFE_INTEGER],
+        ['whitespace string', '   '],
+        // Type boundaries
+        ['string as number', '4000'],
+        ['object as array', { 0: 'item', length: 1 }]
+    ])('logs boundary error value (%s)', async (_label, value) => {
+        hoisted.createAgent.mockImplementation(() => {
+            throw value;
+        });
 
-    expect(hoisted.loggerError).toHaveBeenCalledWith("main failed", { error: payload });
-  });
+        await importWorkflowModule();
 
-  it("handles simultaneous imports", async () => {
-    hoisted.createAgent.mockReturnValue(makeBuilder());
+        expect(hoisted.loggerError).toHaveBeenCalledTimes(1);
+        expect(hoisted.loggerError).toHaveBeenCalledWith('main failed', { error: value });
+    });
 
-    const [modA, modB] = await Promise.all([runModule(), runModule()]);
+    it('logs when the agent builder chain breaks mid-flight', async () => {
+        const builder = makeBuilder();
+        builder.useCicada.mockReturnValueOnce(null);
+        hoisted.createAgent.mockReturnValue(builder);
 
-    expect(modA).toBe(modB);
-    expect(hoisted.createAgent).toHaveBeenCalledTimes(1);
-  });
+        await importWorkflowModule();
 
-  it("handles rapid sequential imports", async () => {
-    const builder = makeBuilder();
-    hoisted.createAgent.mockReturnValue(builder);
+        expect(hoisted.loggerError).toHaveBeenCalledTimes(1);
+        expect(hoisted.loggerError.mock.calls[0][0]).toBe('main failed');
+        expect(hoisted.loggerError.mock.calls[0][1]).toEqual({
+            error: expect.any(TypeError)
+        });
+    });
 
-    for (let i = 0; i < 3; i += 1) {
-      await runModule();
-      vi.resetModules();
-    }
+    it('handles concurrent executions (cache-busting imports)', async () => {
+        const builders = [];
+        hoisted.createAgent.mockImplementation(() => {
+            const builder = makeBuilder();
+            builders.push(builder);
+            return builder;
+        });
 
-    expect(hoisted.createAgent).toHaveBeenCalledTimes(3);
-    expect(builder.useCicada).toHaveBeenCalledTimes(3);
-    expect(builder.useBacktrack).toHaveBeenCalledTimes(3);
-  });
+        await Promise.all([
+            importWorkflowModule('?v=0'),
+            importWorkflowModule('?v=1'),
+            importWorkflowModule('?v=2')
+        ]);
+
+        expect(hoisted.createLogger).toHaveBeenCalledTimes(3);
+        expect(hoisted.createAgent).toHaveBeenCalledTimes(3);
+        expect(builders).toHaveLength(3);
+        for (const builder of builders) {
+            expect(builder.useCicada).toHaveBeenCalledTimes(1);
+            expect(builder.useBacktrack).toHaveBeenCalledTimes(1);
+            expect(builder.build).toHaveBeenCalledTimes(1);
+        }
+        expect(hoisted.loggerError).not.toHaveBeenCalled();
+    });
+
+    it('handles rapid sequential executions (cache-busting imports)', async () => {
+        const builders = [];
+        hoisted.createAgent.mockImplementation(() => {
+            const builder = makeBuilder();
+            builders.push(builder);
+            return builder;
+        });
+
+        for (let i = 0; i < 5; i += 1) {
+            // Keep each import isolated without relying on module cache resets.
+            await importWorkflowModule(`?seq=${i}`);
+        }
+
+        expect(hoisted.createLogger).toHaveBeenCalledTimes(5);
+        expect(hoisted.createAgent).toHaveBeenCalledTimes(5);
+        expect(builders).toHaveLength(5);
+        expect(hoisted.loggerError).not.toHaveBeenCalled();
+    });
+
+    it('logs resource-sized error payloads (huge file + long string + deep nesting)', async () => {
+        const longString = 'x'.repeat(200000);
+        const deepNested = (() => {
+            const root = {};
+            let cursor = root;
+            for (let i = 0; i < 50; i += 1) {
+                cursor.level = {};
+                cursor = cursor.level;
+            }
+            return root;
+        })();
+        const hugeFile = {
+            name: 'huge.pdf',
+            size: Number.MAX_SAFE_INTEGER,
+            contents: longString
+        };
+        const payload = { file: hugeFile, message: longString, nested: deepNested };
+
+        hoisted.createAgent.mockImplementation(() => {
+            throw payload;
+        });
+
+        await importWorkflowModule();
+
+        expect(hoisted.loggerError).toHaveBeenCalledTimes(1);
+        expect(hoisted.loggerError).toHaveBeenCalledWith('main failed', {
+            error: payload
+        });
+    });
 });

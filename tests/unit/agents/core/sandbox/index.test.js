@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const nodeLikeState = vi.hoisted(() => ({ value: true }));
 
@@ -16,8 +16,8 @@ const systemMocks = vi.hoisted(() => ({
   createInteractivePermissionHandler: vi.fn(),
 }));
 
-vi.mock("../../../../../js/agents/shared/index.js", async () => {
-  const actual = await vi.importActual("../../../../../js/agents/shared/index.js");
+vi.mock('../../../../../js/agents/shared/index.js', async () => {
+  const actual = await vi.importActual('../../../../../js/agents/shared/index.js');
   return {
     ...actual,
     isNodeLike: () => nodeLikeState.value,
@@ -48,8 +48,8 @@ beforeEach(() => {
 const loadSandboxModule = async (nodeLike) => {
   nodeLikeState.value = nodeLike;
   vi.resetModules();
-  vi.doMock("../../../../../js/agents/core/sandbox/system/index.js", () => systemMocks);
-  return await import("../../../../../js/agents/core/sandbox/index.js");
+  vi.doMock('../../../../../js/agents/core/sandbox/system/index.js', () => systemMocks);
+  return await import('../../../../../js/agents/core/sandbox/index.js');
 };
 
 const describeNodeFunction = ({
@@ -61,19 +61,19 @@ const describeNodeFunction = ({
   extraTests,
 }) => {
   describe(name, () => {
-    it("resolves the underlying value for normal input", async () => {
+    it('resolves the underlying value for normal input', async () => {
       const sandbox = await loadSandboxModule(true);
-      mock.mockResolvedValueOnce("ok");
+      mock.mockResolvedValueOnce('ok');
 
       const result = ignoreArgs
         ? await sandbox[exportName]()
-        : await sandbox[exportName]("input");
+        : await sandbox[exportName]('input');
 
-      expect(result).toBe("ok");
+      expect(result).toBe('ok');
       if (ignoreArgs) {
         expect(mock).toHaveBeenCalledWith();
       } else {
-        expect(mock).toHaveBeenCalledWith("input");
+        expect(mock).toHaveBeenCalledWith('input');
       }
     });
 
@@ -81,10 +81,10 @@ const describeNodeFunction = ({
       boundaryArgs.forEach((value, index) => {
         it(`forwards boundary input #${index + 1}`, async () => {
           const sandbox = await loadSandboxModule(true);
-          mock.mockResolvedValueOnce("ok");
+          mock.mockResolvedValueOnce('ok');
 
           const result = await sandbox[exportName](value);
-          expect(result).toBe("ok");
+          expect(result).toBe('ok');
 
           if (ignoreArgs) {
             expect(mock).toHaveBeenCalledWith();
@@ -95,18 +95,18 @@ const describeNodeFunction = ({
       });
     }
 
-    it("propagates errors from the underlying implementation", async () => {
+    it('propagates errors from the underlying implementation', async () => {
       const sandbox = await loadSandboxModule(true);
       mock.mockImplementationOnce(() => {
-        throw new Error("boom");
+        throw new Error('boom');
       });
 
-      await expect(sandbox[exportName]("bad")).rejects.toThrow("boom");
+      await expect(sandbox[exportName]('bad')).rejects.toThrow('boom');
     });
 
-    it("throws in browser-like environments", async () => {
+    it('throws in browser-like environments', async () => {
       const sandbox = await loadSandboxModule(false);
-      expect(() => sandbox[exportName]("input")).toThrow(/only available/i);
+      expect(() => sandbox[exportName]('input')).toThrow(/only available/i);
     });
 
     if (extraTests) {
@@ -116,8 +116,8 @@ const describeNodeFunction = ({
 };
 
 describeNodeFunction({
-  name: "detectAllBackends",
-  exportName: "detectAllBackends",
+  name: 'detectAllBackends',
+  exportName: 'detectAllBackends',
   mock: systemMocks.detectAllBackends,
   boundaryArgs: [
     boundary.nullValue,
@@ -128,41 +128,41 @@ describeNodeFunction({
 });
 
 describeNodeFunction({
-  name: "detectBestBackend",
-  exportName: "detectBestBackend",
+  name: 'detectBestBackend',
+  exportName: 'detectBestBackend',
   mock: systemMocks.detectBestBackend,
   boundaryArgs: [boundary.zero, boundary.negativeOne, boundary.maxSafe],
 });
 
 describeNodeFunction({
-  name: "getPlatform",
-  exportName: "getPlatform",
+  name: 'getPlatform',
+  exportName: 'getPlatform',
   mock: systemMocks.getPlatform,
   boundaryArgs: [boundary.longString, boundary.emptyArray],
   ignoreArgs: true,
 });
 
 describeNodeFunction({
-  name: "createSystemSandbox",
-  exportName: "createSystemSandbox",
+  name: 'createSystemSandbox',
+  exportName: 'createSystemSandbox',
   mock: systemMocks.createSystemSandbox,
   boundaryArgs: [boundary.longString, boundary.emptyObject],
 });
 
 describeNodeFunction({
-  name: "execInSandbox",
-  exportName: "execInSandbox",
+  name: 'execInSandbox',
+  exportName: 'execInSandbox',
   mock: systemMocks.execInSandbox,
   boundaryArgs: [boundary.largeFile, boundary.deepObject],
   extraTests: () => {
-    it("handles concurrent calls", async () => {
+    it('handles concurrent calls', async () => {
       const sandbox = await loadSandboxModule(false);
       const results = await Promise.allSettled([
-        Promise.resolve().then(() => sandbox.execInSandbox("alpha")),
-        Promise.resolve().then(() => sandbox.execInSandbox("beta")),
+        Promise.resolve().then(() => sandbox.execInSandbox('alpha')),
+        Promise.resolve().then(() => sandbox.execInSandbox('beta')),
       ]);
 
-      expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+      expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected']);
       results.forEach((result) => {
         if (result.status === "rejected") {
           expect(String(result.reason)).toMatch(/only available/i);
@@ -170,9 +170,9 @@ describeNodeFunction({
       });
     });
 
-    it("handles rapid consecutive calls", async () => {
+    it('handles rapid consecutive calls', async () => {
       const sandbox = await loadSandboxModule(true);
-      const values = ["v1", "v2", "v3", "v4", "v5"];
+      const values = ['v1', 'v2', 'v3', 'v4', 'v5'];
       systemMocks.execInSandbox.mockImplementation((value) => `ok:${value}`);
 
       const results = [];
@@ -188,61 +188,61 @@ describeNodeFunction({
 });
 
 describeNodeFunction({
-  name: "shellInSandbox",
-  exportName: "shellInSandbox",
+  name: 'shellInSandbox',
+  exportName: 'shellInSandbox',
   mock: systemMocks.shellInSandbox,
   boundaryArgs: [boundary.deepObject],
 });
 
 describeNodeFunction({
-  name: "createBubblewrapExecutor",
-  exportName: "createBubblewrapExecutor",
+  name: 'createBubblewrapExecutor',
+  exportName: 'createBubblewrapExecutor',
   mock: systemMocks.createBubblewrapExecutor,
   boundaryArgs: [boundary.emptyArray, boundary.objectAsArray],
 });
 
 describeNodeFunction({
-  name: "createSeatbeltExecutor",
-  exportName: "createSeatbeltExecutor",
+  name: 'createSeatbeltExecutor',
+  exportName: 'createSeatbeltExecutor',
   mock: systemMocks.createSeatbeltExecutor,
   boundaryArgs: [boundary.whitespaceString],
 });
 
 describeNodeFunction({
-  name: "createDockerExecutor",
-  exportName: "createDockerExecutor",
+  name: 'createDockerExecutor',
+  exportName: 'createDockerExecutor',
   mock: systemMocks.createDockerExecutor,
   boundaryArgs: [boundary.stringNumber],
 });
 
 describeNodeFunction({
-  name: "createPermissionExecutor",
-  exportName: "createPermissionExecutor",
+  name: 'createPermissionExecutor',
+  exportName: 'createPermissionExecutor',
   mock: systemMocks.createPermissionExecutor,
   boundaryArgs: [boundary.emptyObject],
 });
 
 describeNodeFunction({
-  name: "createInteractivePermissionHandler",
-  exportName: "createInteractivePermissionHandler",
+  name: 'createInteractivePermissionHandler',
+  exportName: 'createInteractivePermissionHandler',
   mock: systemMocks.createInteractivePermissionHandler,
   boundaryArgs: [boundary.nullValue],
 });
 
-describe("SystemSandboxExecutor", () => {
-  it("throws a dynamic import error in node-like environments", async () => {
+describe('SystemSandboxExecutor', () => {
+  it('throws a dynamic import error in node-like environments', async () => {
     const sandbox = await loadSandboxModule(true);
-    expect(() => new sandbox.SystemSandboxExecutor("config"))
+    expect(() => new sandbox.SystemSandboxExecutor('config'))
       .toThrow(/SystemSandboxExecutor must be imported dynamically/i);
   });
 
-  it("throws a node-only error in browser-like environments", async () => {
+  it('throws a node-only error in browser-like environments', async () => {
     const sandbox = await loadSandboxModule(false);
-    expect(() => new sandbox.SystemSandboxExecutor("config"))
+    expect(() => new sandbox.SystemSandboxExecutor('config'))
       .toThrow(/SystemSandboxExecutor\(\) is only available/i);
   });
 
-  it("handles boundary constructor inputs", async () => {
+  it('handles boundary constructor inputs', async () => {
     const sandbox = await loadSandboxModule(true);
     const values = [boundary.undefinedValue, boundary.emptyArray];
 
@@ -253,120 +253,120 @@ describe("SystemSandboxExecutor", () => {
   });
 });
 
-describe("WasmSandbox", () => {
-  it("re-exports the wasm sandbox class", async () => {
+describe('WasmSandbox', () => {
+  it('re-exports the wasm sandbox class', async () => {
     const sandbox = await loadSandboxModule(false);
-    const wasm = await import("../../../../../js/agents/core/sandbox/wasm-sandbox.js");
+    const wasm = await import('../../../../../js/agents/core/sandbox/wasm-sandbox.js');
     expect(sandbox.WasmSandbox).toBe(wasm.WasmSandbox);
   });
 });
 
-describe("createSandbox", () => {
-  it("re-exports the createSandbox function", async () => {
+describe('createSandbox', () => {
+  it('re-exports the createSandbox function', async () => {
     const sandbox = await loadSandboxModule(false);
-    const wasm = await import("../../../../../js/agents/core/sandbox/wasm-sandbox.js");
+    const wasm = await import('../../../../../js/agents/core/sandbox/wasm-sandbox.js');
     expect(sandbox.createSandbox).toBe(wasm.createSandbox);
   });
 });
 
-describe("SandboxPool", () => {
-  it("re-exports the pool class", async () => {
+describe('SandboxPool', () => {
+  it('re-exports the pool class', async () => {
     const sandbox = await loadSandboxModule(false);
-    const pool = await import("../../../../../js/agents/core/sandbox/pool.js");
+    const pool = await import('../../../../../js/agents/core/sandbox/pool.js');
     expect(sandbox.SandboxPool).toBe(pool.SandboxPool);
   });
 });
 
-describe("createSandboxPlugin", () => {
-  it("re-exports the plugin factory", async () => {
+describe('createSandboxPlugin', () => {
+  it('re-exports the plugin factory', async () => {
     const sandbox = await loadSandboxModule(false);
-    const plugin = await import("../../../../../js/agents/core/sandbox/plugin.js");
+    const plugin = await import('../../../../../js/agents/core/sandbox/plugin.js');
     expect(sandbox.createSandboxPlugin).toBe(plugin.createSandboxPlugin);
   });
 });
 
-describe("SkillExecutor", () => {
-  it("re-exports the skill executor class", async () => {
+describe('SkillExecutor', () => {
+  it('re-exports the skill executor class', async () => {
     const sandbox = await loadSandboxModule(false);
-    const executor = await import("../../../../../js/agents/core/sandbox/skill-executor.js");
+    const executor = await import('../../../../../js/agents/core/sandbox/skill-executor.js');
     expect(sandbox.SkillExecutor).toBe(executor.SkillExecutor);
   });
 });
 
-describe("createSkillExecutor", () => {
-  it("re-exports the skill executor factory", async () => {
+describe('createSkillExecutor', () => {
+  it('re-exports the skill executor factory', async () => {
     const sandbox = await loadSandboxModule(false);
-    const executor = await import("../../../../../js/agents/core/sandbox/skill-executor.js");
+    const executor = await import('../../../../../js/agents/core/sandbox/skill-executor.js');
     expect(sandbox.createSkillExecutor).toBe(executor.createSkillExecutor);
   });
 });
 
-describe("isWasmSupported", () => {
-  it("re-exports the wasm support check", async () => {
+describe('isWasmSupported', () => {
+  it('re-exports the wasm support check', async () => {
     const sandbox = await loadSandboxModule(false);
-    const executor = await import("../../../../../js/agents/core/sandbox/skill-executor.js");
+    const executor = await import('../../../../../js/agents/core/sandbox/skill-executor.js');
     expect(sandbox.isWasmSupported).toBe(executor.isWasmSupported);
   });
 });
 
-describe("SandboxCapability", () => {
-  it("re-exports the sandbox capability constants", async () => {
+describe('SandboxCapability', () => {
+  it('re-exports the sandbox capability constants', async () => {
     const sandbox = await loadSandboxModule(false);
-    const constants = await import("../../../../../js/agents/core/sandbox/constants.js");
+    const constants = await import('../../../../../js/agents/core/sandbox/constants.js');
     expect(sandbox.SandboxCapability).toBe(constants.SandboxCapability);
   });
 });
 
-describe("SandboxPreset", () => {
-  it("re-exports the sandbox preset constants", async () => {
+describe('SandboxPreset', () => {
+  it('re-exports the sandbox preset constants', async () => {
     const sandbox = await loadSandboxModule(false);
-    const constants = await import("../../../../../js/agents/core/sandbox/constants.js");
+    const constants = await import('../../../../../js/agents/core/sandbox/constants.js');
     expect(sandbox.SandboxPreset).toBe(constants.SandboxPreset);
   });
 });
 
-describe("ResourceLimits", () => {
-  it("re-exports the resource limits constants", async () => {
+describe('ResourceLimits', () => {
+  it('re-exports the resource limits constants', async () => {
     const sandbox = await loadSandboxModule(false);
-    const constants = await import("../../../../../js/agents/core/sandbox/constants.js");
+    const constants = await import('../../../../../js/agents/core/sandbox/constants.js');
     expect(sandbox.ResourceLimits).toBe(constants.ResourceLimits);
   });
 });
 
-describe("SandboxBackend", () => {
-  it("re-exports the system backend constants", async () => {
+describe('SandboxBackend', () => {
+  it('re-exports the system backend constants', async () => {
     const sandbox = await loadSandboxModule(false);
-    const constants = await import("../../../../../js/agents/core/sandbox/system/constants.js");
+    const constants = await import('../../../../../js/agents/core/sandbox/system/constants.js');
     expect(sandbox.SandboxBackend).toBe(constants.SandboxBackend);
   });
 });
 
-describe("SandboxPolicy", () => {
-  it("re-exports the system policy constants", async () => {
+describe('SandboxPolicy', () => {
+  it('re-exports the system policy constants', async () => {
     const sandbox = await loadSandboxModule(false);
-    const constants = await import("../../../../../js/agents/core/sandbox/system/constants.js");
+    const constants = await import('../../../../../js/agents/core/sandbox/system/constants.js');
     expect(sandbox.SandboxPolicy).toBe(constants.SandboxPolicy);
   });
 });
 
-describe("DefaultSandboxConfig", () => {
-  it("re-exports the default system config", async () => {
+describe('DefaultSandboxConfig', () => {
+  it('re-exports the default system config', async () => {
     const sandbox = await loadSandboxModule(false);
-    const constants = await import("../../../../../js/agents/core/sandbox/system/constants.js");
+    const constants = await import('../../../../../js/agents/core/sandbox/system/constants.js');
     expect(sandbox.DefaultSandboxConfig).toBe(constants.DefaultSandboxConfig);
   });
 });
 
-describe("Platform", () => {
-  it("re-exports the platform constants", async () => {
+describe('Platform', () => {
+  it('re-exports the platform constants', async () => {
     const sandbox = await loadSandboxModule(false);
-    const constants = await import("../../../../../js/agents/core/sandbox/system/constants.js");
+    const constants = await import('../../../../../js/agents/core/sandbox/system/constants.js');
     expect(sandbox.Platform).toBe(constants.Platform);
   });
 });
 
-describe("default", () => {
-  it("exposes the expected surface in node-like environments", async () => {
+describe('default', () => {
+  it('exposes the expected surface in node-like environments', async () => {
     const sandbox = await loadSandboxModule(true);
     expect(sandbox.default).toEqual({
       SandboxCapability: sandbox.SandboxCapability,
@@ -377,14 +377,14 @@ describe("default", () => {
     });
   });
 
-  it("does not include unexpected keys", async () => {
+  it('does not include unexpected keys', async () => {
     const sandbox = await loadSandboxModule(true);
     expect(Object.keys(sandbox.default).sort()).toEqual([
-      "ResourceLimits",
-      "SandboxBackend",
-      "SandboxCapability",
-      "SandboxPreset",
-      "createSystemSandbox",
+      'ResourceLimits',
+      'SandboxBackend',
+      'SandboxCapability',
+      'SandboxPreset',
+      'createSystemSandbox',
     ].sort());
   });
 });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import EvaluateStageDefault, { EvaluateStage, contentGrader } from "../../../../../js/agents/eval/graders/content.js";
 
@@ -7,6 +7,7 @@ vi.mock("node:crypto", () => ({
 }));
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
@@ -40,6 +41,11 @@ describe("eval/graders/content.js", () => {
 
       stage.unregisterEvaluator("custom");
       expect(stage.getEvaluatorNames()).not.toContain("custom");
+    });
+
+    it("throws when registerEvaluator receives null config", () => {
+      const stage = new EvaluateStage();
+      expect(() => stage.registerEvaluator("custom", () => ({ score: 1 }), null)).toThrow();
     });
 
     it("returns error for missing or invalid content values", async () => {
@@ -103,6 +109,18 @@ describe("eval/graders/content.js", () => {
       expect(result.issues.some((issue) => issue.severity === "error")).toBe(true);
     });
 
+    it("passes in non-strict mode even when error issues exist (score-based)", async () => {
+      const stage = new EvaluateStage({ strict: false, dimensions: ["custom"], passThreshold: 0.6 });
+      stage.registerEvaluator("custom", () => ({
+        score: 1,
+        issues: [{ type: "bad", severity: "error", message: "boom" }],
+      }));
+
+      const result = await stage.run(null, { content: "x".repeat(80) });
+      expect(result.passed).toBe(true);
+      expect(result.issues.some((issue) => issue.severity === "error")).toBe(true);
+    });
+
     it("adds evaluator_error issue when evaluator throws", async () => {
       const stage = new EvaluateStage({ dimensions: ["custom"] });
       stage.registerEvaluator("custom", () => {
@@ -139,9 +157,30 @@ describe("eval/graders/content.js", () => {
       expect(result.passed).toBe(false);
     });
 
-    it("handles long content and deep metadata", async () => {
+    it("treats non-numeric passThreshold as NaN and fails comparisons", async () => {
+      const stage = new EvaluateStage({ passThreshold: "nope", dimensions: ["custom"] });
+      stage.registerEvaluator("custom", () => ({ score: 1, issues: [] }));
+
+      const result = await stage.run(null, { content: "x".repeat(80) });
+      expect(result.passed).toBe(false);
+    });
+
+    it("returns score 0 when all weights are 0", async () => {
+      const stage = new EvaluateStage({
+        dimensions: ["a", "b"],
+        dimensionConfig: { a: { weight: 0 }, b: { weight: 0 } },
+      });
+      stage.registerEvaluator("a", () => ({ score: 1, issues: [] }));
+      stage.registerEvaluator("b", () => ({ score: 1, issues: [] }));
+
+      const result = await stage.run(null, { content: "x".repeat(80) });
+      expect(result.score).toBe(0);
+      expect(result.passed).toBe(false);
+    });
+
+    it("handles huge content and deep metadata", async () => {
       const stage = new EvaluateStage();
-      const longContent = "word ".repeat(20000);
+      const longContent = "word ".repeat(250000);
       const deepMetadata = { level: { index: 0 } };
       let cursor = deepMetadata.level;
       for (let i = 1; i < 12; i += 1) {
@@ -236,6 +275,20 @@ describe("eval/graders/content.js", () => {
       }
     });
 
+    it("handles non-object configs and object outputs", async () => {
+      const cases = [
+        { output: { a: 1 }, config: null },
+        { output: { a: 1 }, config: { options: "nope" } },
+        { output: { a: 1 }, config: { options: { stage: "nope", input: "nope" } } },
+      ];
+
+      for (const testCase of cases) {
+        const result = await contentGrader.grade(testCase.output, testCase.config);
+        expect(result.passed).toBe(true);
+        expect(result.issues.some((issue) => issue.type === "missing_content")).toBe(false);
+      }
+    });
+
     it("supports simultaneous grade calls", async () => {
       const config = { options: { stage: { dimensions: ["accuracy"] } } };
       const longBase = "This sentence is long enough to avoid short content warnings.";
@@ -259,6 +312,16 @@ describe("eval/graders/content.js", () => {
       }
 
       expect(results.every((result) => result.passed)).toBe(true);
+    });
+
+    it("rejects when output cannot be stringified", async () => {
+      const badOutput = {
+        toString() {
+          throw new Error("nope");
+        },
+      };
+
+      await expect(contentGrader.grade(badOutput, {})).rejects.toThrow("nope");
     });
 
     it("normalizes non-finite scores and non-array issues from stage", async () => {

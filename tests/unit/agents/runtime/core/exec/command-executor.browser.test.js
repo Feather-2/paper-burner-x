@@ -116,6 +116,10 @@ describe('execShell', () => {
       execShell('   ', {}),
       execShell(null, { timeout: '0' }),
       execShell(undefined, undefined),
+      execShell(0, {}),
+      execShell(-1, {}),
+      execShell(Number.MAX_SAFE_INTEGER, {}),
+      execShell('cmd', null),
     ]);
 
     results.forEach(expectUnsupportedResult);
@@ -136,6 +140,27 @@ describe('execShell', () => {
     }
 
     sequentialResults.forEach(expectUnsupportedResult);
+  });
+
+  it('handles resource-heavy inputs', async () => {
+    const hugeCommand = 'x'.repeat(1024 * 1024);
+    const deepOptions = {
+      level1: {
+        level2: {
+          level3: {
+            level4: {
+              level5: {
+                level6: 'value',
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const result = await execShell(hugeCommand, deepOptions);
+
+    expectUnsupportedResult(result);
   });
 });
 
@@ -213,16 +238,35 @@ describe('commandExists', () => {
   });
 
   it('returns false for edge values and type boundaries', async () => {
+    const hugePayload = 'x'.repeat(1024 * 1024);
+    const longWhitespace = ' '.repeat(10000);
+    const deepNested = {
+      level1: {
+        level2: {
+          level3: {
+            level4: {
+              level5: {
+                level6: 'value',
+              },
+            },
+          },
+        },
+      },
+    };
+
     const cases = [
       null,
       undefined,
       '',
       '   ',
+      longWhitespace,
       0,
       -1,
       Number.MAX_SAFE_INTEGER,
+      hugePayload,
       {},
       [],
+      deepNested,
       { cmd: 'ls' },
       '123',
     ];

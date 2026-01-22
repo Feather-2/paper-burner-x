@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const circuitBreakerCtorMock = vi.hoisted(() => vi.fn());
 const toNonEmptyStringMock = vi.hoisted(() => vi.fn());

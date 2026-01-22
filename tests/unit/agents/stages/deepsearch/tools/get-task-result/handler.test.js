@@ -102,7 +102,13 @@ describe("handler", () => {
     });
   });
 
-  it("waits for running tasks when wait is true", async () => {
+  it.each([
+    ["timeout 0", 0],
+    ["timeout -1", -1],
+    ["timeout MAX_SAFE_INTEGER", Number.MAX_SAFE_INTEGER],
+    ["timeout as string", "60000"],
+    ["timeout null (does not default)", null],
+  ])("waits for running tasks when wait is true (%s)", async (_label, timeout) => {
     const { handler } = await loadModule();
     const taskId = "task_wait";
 
@@ -112,12 +118,54 @@ describe("handler", () => {
       summary: "done",
     });
 
-    const result = await handler({ taskId, wait: true, timeout: 123 }, makeContext());
+    const result = await handler({ taskId, wait: true, timeout }, makeContext());
 
-    expect(mockedTaskHandler.waitForTask).toHaveBeenCalledWith(taskId, 123);
+    expect(mockedTaskHandler.waitForTask).toHaveBeenCalledWith(taskId, timeout);
     expect(result.success).toBe(true);
     expect(result.status).toBe("completed");
     expect(result.summary).toBe("done");
+  });
+
+  it("uses default timeout when timeout is omitted", async () => {
+    const { handler } = await loadModule();
+    const taskId = "task_wait_default_timeout";
+
+    mockedTaskHandler.getTaskStatus.mockReturnValue({ status: "running" });
+    mockedTaskHandler.waitForTask.mockResolvedValue({ status: "completed" });
+
+    await handler({ taskId, wait: true }, makeContext());
+
+    expect(mockedTaskHandler.waitForTask).toHaveBeenCalledWith(taskId, 60000);
+  });
+
+  it("treats truthy non-boolean wait as enabled", async () => {
+    const { handler } = await loadModule();
+    const taskId = "task_wait_truthy";
+
+    mockedTaskHandler.getTaskStatus.mockReturnValue({ status: "running" });
+    mockedTaskHandler.waitForTask.mockResolvedValue({ status: "completed" });
+
+    const result = await handler(
+      { taskId, wait: "true", timeout: 0 },
+      makeContext()
+    );
+
+    expect(mockedTaskHandler.waitForTask).toHaveBeenCalledWith(taskId, 0);
+    expect(result.success).toBe(true);
+    expect(result.status).toBe("completed");
+  });
+
+  it("propagates waitForTask errors (error handling)", async () => {
+    const { handler } = await loadModule();
+    const taskId = "task_wait_error";
+
+    mockedTaskHandler.getTaskStatus.mockReturnValue({ status: "running" });
+    mockedTaskHandler.waitForTask.mockRejectedValue(new Error("boom"));
+
+    await expect(handler({ taskId, wait: true }, makeContext())).rejects.toThrow(
+      "boom"
+    );
+    expect(mockedTaskHandler.waitForTask).toHaveBeenCalledTimes(1);
   });
 
   it("does not wait when task is not running", async () => {
@@ -134,6 +182,19 @@ describe("handler", () => {
     expect(mockedTaskHandler.waitForTask).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     expect(result.status).toBe("completed");
+  });
+
+  it("does not wait when task registry has no entry", async () => {
+    const { handler } = await loadModule();
+    const taskId = "task_missing_wait";
+
+    mockedTaskHandler.getTaskStatus.mockReturnValue(undefined);
+
+    const result = await handler({ taskId, wait: true }, makeContext());
+
+    expect(mockedTaskHandler.waitForTask).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.error).toBe(`Task not found: ${taskId}`);
   });
 
   it("does not wait when wait is false even if task is running", async () => {
@@ -185,6 +246,30 @@ describe("handler", () => {
       result: { value: "detail" },
       startedAt: 10,
       completedAt: 20,
+    });
+  });
+
+  it("ignores non-object sharedContext detail when merging", async () => {
+    const { handler } = await loadModule();
+    const taskId = "task_merge_non_object";
+
+    mockedTaskHandler.getTaskStatus.mockReturnValue({
+      status: "completed",
+      summary: "base",
+      result: { value: "base" },
+    });
+
+    const sharedContext = { getDetail: vi.fn(() => "not-an-object") };
+
+    const result = await handler({ taskId }, makeContext(sharedContext));
+
+    expect(sharedContext.getDetail).toHaveBeenCalledWith(taskId);
+    expect(result).toMatchObject({
+      success: true,
+      taskId,
+      status: "completed",
+      summary: "base",
+      result: { value: "base" },
     });
   });
 

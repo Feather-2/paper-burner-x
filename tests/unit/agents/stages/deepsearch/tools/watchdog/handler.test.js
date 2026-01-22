@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockedCompressor = vi.hoisted(() => {
   const buildHandoff = vi.fn();
@@ -103,6 +103,16 @@ describe("definition", () => {
 });
 
 describe("handler", () => {
+  it("rejects when args is nullish", async () => {
+    await expect(handler(undefined, { state: {}, sharedContext: {}, emit: vi.fn() })).rejects.toThrow();
+    await expect(handler(null, { state: {}, sharedContext: {}, emit: vi.fn() })).rejects.toThrow();
+  });
+
+  it("rejects when context is nullish", async () => {
+    await expect(handler({}, undefined)).rejects.toThrow();
+    await expect(handler({}, null)).rejects.toThrow();
+  });
+
   it("returns handoff response and emits event", async () => {
     const emit = vi.fn();
     const recordDecision = vi.fn();
@@ -240,6 +250,26 @@ describe("handler", () => {
     expect(res2.thinkPrompt).not.toContain("### 待完成");
     expect(mockedTodoUtils.createTodo).not.toHaveBeenCalled();
     expect(mockedTodoUtils.validateTodo).not.toHaveBeenCalled();
+
+    const res3 = await handler({}, {});
+
+    expect(res3.mode).toBe("think");
+    expect(res3.thinkPrompt).toContain("## 深度思考");
+    expect(res3.thinkPrompt).toContain("### 请思考");
+  });
+
+  it("skips non-object todo entries without calling todo-utils", async () => {
+    const todos = [null, undefined, "x", 1, { text: "todo-ok", status: mockedStates.TodoStatus.OPEN }];
+
+    const res = await handler({}, { state: { todos }, sharedContext: {}, emit: undefined });
+
+    expect(res.mode).toBe("think");
+    expect(res.thinkPrompt).toContain("### 待完成");
+    expect(res.thinkPrompt).toContain("- todo-ok");
+
+    expect(mockedTodoUtils.createTodo).toHaveBeenCalledTimes(1);
+    expect(mockedTodoUtils.createTodo).toHaveBeenCalledWith(todos[4]);
+    expect(mockedTodoUtils.validateTodo).toHaveBeenCalledTimes(1);
   });
 
   it("records boundary iteration values including string values", async () => {
@@ -329,6 +359,19 @@ describe("handler", () => {
     expect(emit.mock.calls[1][1]).toEqual({ mode: "think", reason: "second" });
   });
 
+  it("propagates todo-utils errors in think mode", async () => {
+    mockedTodoUtils.createTodo.mockImplementationOnce(() => {
+      throw new Error("todo-boom");
+    });
+
+    await expect(
+      handler(
+        {},
+        { state: { todos: [{ text: "t", status: mockedStates.TodoStatus.OPEN }] }, sharedContext: {}, emit: vi.fn() }
+      )
+    ).rejects.toThrow("todo-boom");
+  });
+
   it("propagates compressor errors in handoff mode", async () => {
     mockedCompressor.buildHandoff.mockImplementation(() => {
       throw new Error("boom");
@@ -340,7 +383,7 @@ describe("handler", () => {
   });
 });
 
-describe("default export", () => {
+describe("default", () => {
   it("exposes definition and handler", () => {
     expect(defaultExport.definition).toBe(definition);
     expect(defaultExport.handler).toBe(handler);
