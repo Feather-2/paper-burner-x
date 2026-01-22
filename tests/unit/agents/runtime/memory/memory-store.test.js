@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 async function createStore(options = {}) {
-  const { MemoryStore } = await import("../../../../../js/agents/runtime/memory/memory-store.js");
+  const { MemoryStore } = await import("../../../../../js/agents/plugins/memory/memory-store.impl.js");
   return new MemoryStore({
     runId: "ms_test",
     tokenCounter: null,
@@ -19,7 +19,7 @@ async function createStore(options = {}) {
 
 describe("runtime/memory/memory-store.js", () => {
   it("re-exports MemoryStore as named + default export", async () => {
-    const mod = await import("../../../../../js/agents/runtime/memory/memory-store.js");
+    const mod = await import("../../../../../js/agents/plugins/memory/memory-store.impl.js");
     expect(mod.MemoryStore).toBeTypeOf("function");
     expect(mod.default).toBe(mod.MemoryStore);
   });
@@ -122,7 +122,7 @@ describe("runtime/memory/memory-store.js", () => {
     expect(store.getDecisions(1)).toEqual([d3]);
   });
 
-  it("emits memory.updated events for scratchpad/flags and supports delete via clearScratchpad", async () => {
+  it("emits memory:updated events for scratchpad/flags and supports delete via clearScratchpad", async () => {
     const eventBus = { emit: vi.fn() };
     const store = await createStore({ eventBus });
 
@@ -146,10 +146,10 @@ describe("runtime/memory/memory-store.js", () => {
     store.setFlag("unknown_flag", true);
     expect(eventBus.emit).not.toHaveBeenCalled();
 
-    // setFlag emits memory.updated
+    // setFlag emits memory:updated
     store.setFlag("awaitUserFeedback", false);
     expect(eventBus.emit).toHaveBeenCalledWith(
-      "memory.updated",
+      "memory:updated",
       expect.objectContaining({
         actor: "memory",
         payload: expect.objectContaining({
@@ -251,9 +251,9 @@ describe("runtime/memory/memory-store.js", () => {
     expect(list).toHaveLength(1);
     expect(list[0].id).toBe(id2);
 
-    // Emits memory.archived at least once.
+    // Emits memory:archived at least once.
     expect(eventBus.emit).toHaveBeenCalledWith(
-      "memory.archived",
+      "memory:archived",
       expect.objectContaining({
         actor: "memory",
         payload: expect.objectContaining({ id: expect.any(String) }),
@@ -440,7 +440,7 @@ describe("runtime/memory/memory-store.js", () => {
     expect(ctx).toContain("...");
 
     expect(eventBus.emit).toHaveBeenCalledWith(
-      "memory.compressed",
+      "memory:compressed",
       expect.objectContaining({
         actor: "memory",
         payload: expect.objectContaining({
@@ -482,7 +482,7 @@ describe("runtime/memory/memory-store.js", () => {
     expect(snap?.summary).toContain("vfs");
 
     expect(eventBus.emit).toHaveBeenCalledWith(
-      "memory.archived",
+      "memory:archived",
       expect.objectContaining({
         actor: "memory",
         payload: expect.objectContaining({ id, stageKey: "vfs_stage" }),
@@ -519,7 +519,7 @@ describe("runtime/memory/memory-store.js", () => {
     const archivedId = await store.archive("stageX", { summary: "x" }, ["kw"]);
     expect(archivedId).toBe("snap_missing_entry");
     expect(eventBus.emit).toHaveBeenCalledWith(
-      "memory.archived",
+      "memory:archived",
       expect.objectContaining({
         actor: "memory",
         payload: expect.objectContaining({ id: "snap_missing_entry", stageKey: "stageX" }),
@@ -728,7 +728,7 @@ describe("runtime/memory/memory-store.js", () => {
   });
 
   it("covers constructor/default branches without hitting the global token counter", async () => {
-    const { MemoryStore } = await import("../../../../js/agents/plugins/memory/index.js");
+    const { MemoryStore } = await import("../../../../../js/agents/plugins/memory/index.js");
 
     const counter = { count: vi.fn(() => 1) };
     const store = new MemoryStore({

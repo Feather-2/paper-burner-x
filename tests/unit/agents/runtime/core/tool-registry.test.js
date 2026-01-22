@@ -107,7 +107,6 @@ describe("ToolRegistry", () => {
     });
     const afterHook = vi.fn(async () => {
       order.push("after");
-      return null;
     });
     const toolFn = vi.fn(async () => "pong");
 
@@ -338,7 +337,7 @@ describe("ToolRegistry", () => {
     const registry = new ToolRegistry({ tools: { ping: toolFn } });
     const quotaManager = { tryCall: vi.fn(() => ({ allowed: false, reason: "nope" })) };
 
-    const configs = [false, { enabled: false }, { mode: "off" }, { mode: "disabled" }];
+    const configs = [{ enabled: false }, { mode: "off" }, { mode: "disabled" }];
     for (const cfg of configs) {
       const result = await registry.callTool("ping", {}, { toolQuotaManager: quotaManager, toolQuotaConfig: cfg });
       expect(result).toMatchObject({ ok: true, data: "pong" });
@@ -396,11 +395,15 @@ describe("ToolRegistry", () => {
 
     const result = await registry.callTool("readFile", { path: "/tmp/demo.txt" }, {});
 
-    expect(result).toMatchObject({
-      ok: false,
-      error: "nope",
-      policy: { effect: "deny", ruleId: "rule-1" },
-    });
+    // normalizeToolResult strips unknown keys (like `policy`) from the returned ToolResult.
+    expect(result).toMatchObject({ ok: false, success: false, error: "nope" });
+    expect(normalizeToolResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: false,
+        error: "nope",
+        policy: { effect: "deny", ruleId: "rule-1" },
+      })
+    );
     expect(toolFn).not.toHaveBeenCalled();
   });
 

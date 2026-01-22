@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 let importToken = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
-function importLocal(specifier) {
+function importLocal(specifier, { cacheBust = true } = {}) {
   const url = new URL(specifier, import.meta.url);
-  url.searchParams.set("t", importToken);
+  if (cacheBust) url.searchParams.set("t", importToken);
   return import(url.href);
 }
 
@@ -136,7 +136,7 @@ describe("runtime/memory/retrieval-engine.js", () => {
 
   it("keywordRecall scores keyword overlaps via the keyword index", async () => {
     const { MemoryStore } = await importLocal("../../../../js/agents/plugins/memory/index.js");
-    const { RetrievalEngine } = await importLocal("../../../../js/agents/runtime/memory/retrieval-engine.js");
+    const { RetrievalEngine } = await importLocal("../../../../js/agents/plugins/memory/retrieval-engine.js");
 
     const store = new MemoryStore({ runId: "re_kw_score", tokenCounter: null });
     const id1 = await store.archive("stage1", { summary: "Q3 revenue analysis" }, ["q3", "revenue"]);
@@ -149,8 +149,8 @@ describe("runtime/memory/retrieval-engine.js", () => {
   });
 
   it("semanticRecall returns [] when embeddings are unavailable and fallback=false", async () => {
-    const { MemoryStore } = await importLocal("../../../../js/agents/runtime/memory/memory-store.js");
-    const { RetrievalEngine } = await importLocal("../../../../js/agents/runtime/memory/retrieval-engine.js");
+    const { MemoryStore } = await importLocal("../../../../js/agents/plugins/memory/memory-store.impl.js");
+    const { RetrievalEngine } = await importLocal("../../../../js/agents/plugins/memory/retrieval-engine.js");
 
     const store = new MemoryStore({ runId: "re_sem_no_fallback", tokenCounter: null });
     await store.archive("stage1", { summary: "Q3 revenue analysis" }, ["q3", "revenue"]);
@@ -162,8 +162,8 @@ describe("runtime/memory/retrieval-engine.js", () => {
   });
 
   it("queueIndexArchive applies backpressure and drops oldest tasks when queue is full", async () => {
-    const { MemoryStore } = await importLocal("../../../../js/agents/runtime/memory/memory-store.js");
-    const { RetrievalEngine } = await importLocal("../../../../js/agents/runtime/memory/retrieval-engine.js");
+    const { MemoryStore } = await importLocal("../../../../js/agents/plugins/memory/memory-store.impl.js");
+    const { RetrievalEngine } = await importLocal("../../../../js/agents/plugins/memory/retrieval-engine.js");
 
     const store = new MemoryStore({ runId: "re_queue_backpressure", tokenCounter: null });
 
@@ -196,8 +196,8 @@ describe("runtime/memory/retrieval-engine.js", () => {
   });
 
   it("subscribes to memory.archived and enqueues indexing tasks", async () => {
-    const { MemoryStore } = await importLocal("../../../../js/agents/runtime/memory/memory-store.js");
-    const { RetrievalEngine } = await importLocal("../../../../js/agents/runtime/memory/retrieval-engine.js");
+    const { MemoryStore } = await importLocal("../../../../js/agents/plugins/memory/memory-store.impl.js");
+    const { RetrievalEngine } = await importLocal("../../../../js/agents/plugins/memory/retrieval-engine.js");
 
     const bus = createEventBus();
     const store = new MemoryStore({
@@ -211,6 +211,8 @@ describe("runtime/memory/retrieval-engine.js", () => {
 
     const engine = new RetrievalEngine({ memoryStore: store, embeddingService, vectorIndex, eventBus: bus });
     const id = await store.archive("stage", { summary: "hello world" });
+
+    bus.emit("memory.archived", { actor: "memory", payload: { id } });
 
     // Wait a tick for async index task to run.
     await Promise.resolve();
@@ -230,7 +232,7 @@ describe("runtime/memory/retrieval-engine.js", () => {
 
 describe("runtime/memory/memory-store.impl.js", () => {
   it("creates incremental checkpoints and restores through the nearest full base", async () => {
-    const { MemoryStore } = await importLocal("../../../../js/agents/runtime/memory/memory-store.js");
+    const { MemoryStore } = await importLocal("../../../../js/agents/plugins/memory/memory-store.impl.js");
 
     const store = new MemoryStore({ runId: "mem_ckpt_inc", tokenCounter: null });
     store.setTaskGoal("Goal");
@@ -284,10 +286,14 @@ describe("runtime/memory/memory-store.impl.js", () => {
 
 describe("runtime/memory/index.js", () => {
   it("re-exports MemoryStore/StateEngine/action-types symbols", async () => {
-    const memory = await importLocal("../../../../js/agents/plugins/memory/index.js");
-    const { MemoryStore } = await importLocal("../../../../js/agents/runtime/memory/memory-store.js");
-    const { StateEngine } = await importLocal("../../../../js/agents/plugins/memory/index.js");
-    const actions = await importLocal("../../../../js/agents/plugins/memory/index.js");
+    const memory = await importLocal("../../../../js/agents/plugins/memory/index.js", { cacheBust: false });
+    const { MemoryStore } = await importLocal("../../../../js/agents/plugins/memory/memory-store.impl.js", {
+      cacheBust: false,
+    });
+    const { StateEngine } = await importLocal("../../../../js/agents/plugins/memory/state-engine.js", {
+      cacheBust: false,
+    });
+    const actions = await importLocal("../../../../js/agents/plugins/memory/action-types.js", { cacheBust: false });
 
     expect(memory.MemoryStore).toBe(MemoryStore);
     expect(memory.StateEngine).toBe(StateEngine);

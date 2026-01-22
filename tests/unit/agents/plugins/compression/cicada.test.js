@@ -9,7 +9,7 @@ const { compressMock, CicadaCompressorMock } = vi.hoisted(() => {
   return { compressMock, CicadaCompressorMock };
 });
 
-vi.mock("../../../../../js/agents/runtime/compression/cicada-compressor.js", () => ({
+vi.mock("../../../../../js/agents/plugins/compression/impl/cicada-compressor.js", () => ({
   CicadaCompressor: CicadaCompressorMock,
 }));
 
@@ -52,10 +52,16 @@ function createMockCtx({ config = {}, initialState = {} } = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  compressMock.mockImplementation(async (messages) => ({
-    messages: Array.isArray(messages) ? messages.slice(0, 1) : [],
-    ratio: Array.isArray(messages) && messages.length ? 1 / messages.length : 1,
-  }));
+  compressMock.mockImplementation(async (messages) => {
+    if (messages == null) {
+      throw new Error("Invalid messages");
+    }
+
+    return {
+      messages: Array.isArray(messages) ? messages.slice(0, 1) : [],
+      ratio: Array.isArray(messages) && messages.length ? 1 / messages.length : 1,
+    };
+  });
 });
 
 describe("plugins/compression/cicada.js default export", () => {
@@ -104,7 +110,7 @@ describe("plugins/compression/cicada.js default export", () => {
       after: 1,
       timestamp: 1234,
     });
-    expect(ctx.events.emit).toHaveBeenCalledWith("compression.done", {
+    expect(ctx.events.emit).toHaveBeenCalledWith("compression:done", {
       originalCount: 2,
       compressedCount: 1,
       ratio: 0.5,
@@ -127,7 +133,7 @@ describe("plugins/compression/cicada.js default export", () => {
       after: 0,
       timestamp: expect.any(Number),
     });
-    expect(ctx.events.emit).toHaveBeenCalledWith("compression.done", {
+    expect(ctx.events.emit).toHaveBeenCalledWith("compression:done", {
       originalCount: 0,
       compressedCount: undefined,
       ratio: 1,
@@ -187,7 +193,7 @@ describe("plugins/compression/cicada.js default export", () => {
     handler({ payload: { total: 91 } });
 
     expect(ctx.events.emit).toHaveBeenCalledTimes(1);
-    expect(ctx.events.emit).toHaveBeenCalledWith("compression.warning", {
+    expect(ctx.events.emit).toHaveBeenCalledWith("compression:warning", {
       current: 91,
       threshold: 100,
     });

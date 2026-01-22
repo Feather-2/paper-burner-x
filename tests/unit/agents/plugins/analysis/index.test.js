@@ -357,7 +357,7 @@ describe('fingerprintPlugin', () => {
     await service.analyze(action);
 
     expect(ctx.events.emit).toHaveBeenCalledWith(
-      'fingerprint.loop.detected',
+      'fingerprint:loopDetected',
       expect.objectContaining({
         action,
         similarity: expect.any(Number),
