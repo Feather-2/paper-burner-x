@@ -42,18 +42,18 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-require('../../js/ppt/dashboard/ppt_dashboard_utils.js');
-require('../../js/ppt/dashboard/ppt_dashboard_upload.js');
-require('../../js/ppt/dashboard/ppt_dashboard_history.js');
-require('../../js/ppt/dashboard/ppt_dashboard_url_input.js');
-require('../../js/ppt/dashboard/ppt_dashboard_paste.js');
-require('../../js/ppt/dashboard/ppt_dashboard_modals.js');
-require('../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
-require('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
-require('../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
-require('../../js/ppt/dashboard/ppt_dashboard_outline.js');
-require('../../js/ppt/dashboard/ppt_dashboard_core.js');
-require('../../js/ppt/generator/ppt_generator_workflow.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_utils.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_upload.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_history.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_url_input.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_paste.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_modals.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_outline.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_core.js');
+require('../../../js/ppt/generator/ppt_generator_workflow.js');
 
 afterEach(() => {
   teardownDom();

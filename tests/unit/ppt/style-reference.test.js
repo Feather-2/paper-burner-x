@@ -17,27 +17,27 @@ function teardownDom() {
 
 afterEach(() => {
   teardownDom();
-  delete require.cache[require.resolve('../../js/ppt/vision/layout-from-image.js')];
+  delete require.cache[require.resolve('../../../js/ppt/vision/layout-from-image.js')];
 });
 
 // Load the split dashboard modules once and reuse the mixin across tests.
 setupDom();
-require('../../js/ppt/dashboard/ppt_dashboard_utils.js');
-require('../../js/ppt/dashboard/ppt_dashboard_upload.js');
-require('../../js/ppt/dashboard/ppt_dashboard_history.js');
-require('../../js/ppt/dashboard/ppt_dashboard_url_input.js');
-require('../../js/ppt/dashboard/ppt_dashboard_paste.js');
-require('../../js/ppt/dashboard/ppt_dashboard_modals.js');
-require('../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
-require('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
-require('../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
-require('../../js/ppt/dashboard/ppt_dashboard_outline.js');
-require('../../js/ppt/dashboard/ppt_dashboard_core.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_utils.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_upload.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_history.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_url_input.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_paste.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_modals.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_outline.js');
+require('../../../js/ppt/dashboard/ppt_dashboard_core.js');
 const DASHBOARD_MIXIN = globalThis.window?.PPTDashboard?.PPTGeneratorAgentDashboard || {};
 
 // Test 1: VLM prompt includes styleDescription schema for style_reference intent
 test('layout-from-image: buildPrompt includes styleDescription schema for style_reference intent', () => {
-  const { _internal } = require('../../js/ppt/vision/layout-from-image.js');
+  const { _internal } = require('../../../js/ppt/vision/layout-from-image.js');
   // Access buildPrompt through module if exported, or test normalizeLayoutJson
   // Since buildPrompt is not exported, we test the normalization instead
   const input = {
@@ -68,7 +68,7 @@ test('layout-from-image: buildPrompt includes styleDescription schema for style_
 
 // Test 2: normalizeLayoutJson handles missing styleDescription gracefully
 test('layout-from-image: normalizeLayoutJson handles missing styleDescription', () => {
-  const { _internal } = require('../../js/ppt/vision/layout-from-image.js');
+  const { _internal } = require('../../../js/ppt/vision/layout-from-image.js');
   const input = {
     intent: 'style_reference',
     analysis: 'test',
@@ -162,7 +162,7 @@ test('dashboard: updateStyleReferenceNotes updates userNotes', () => {
 
 // Test 6: batch-generator makePrompt includes styleReference in output
 test('batch-generator: makePrompt includes styleReference lines when present', async () => {
-  const mod = await import('../../../js/agents/stages/design/batch-generator.js');
+  const mod = await import('../../../js/agents/stages/design/generators/batch-generator.js');
 
   // Access makePrompt through generateSingleSlide behavior
   // Since makePrompt is not exported, we test indirectly via the module behavior

@@ -66,11 +66,12 @@ export class L3Storage extends DisposableBase {
 
     const o = options && typeof options === "object" ? options : {};
     const vfs = o.vfs;
-    const runId = validateRunId(o.runId);
     if (!vfs || typeof vfs !== "object") throw new Error("L3Storage requires { vfs }");
     if (typeof vfs.readFile !== "function") throw new Error("L3Storage requires vfs.readFile(path)");
     if (typeof vfs.writeFile !== "function") throw new Error("L3Storage requires vfs.writeFile(path, data)");
     if (typeof vfs.mkdir !== "function") throw new Error("L3Storage requires vfs.mkdir(path, { recursive })");
+
+    const runId = validateRunId(o.runId);
 
     const cacheSizeRaw = o.cacheSize;
     const checkpointCacheSizeRaw = o.checkpointCacheSize;

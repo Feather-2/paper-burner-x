@@ -8,7 +8,7 @@ const hookMocks = vi.hoisted(() => ({
 }));
 
 vi.mock(
-  "../../../../js/agents/runtime/hooks/hook-runner.js",
+  "../../../../../js/agents/runtime/hooks/hook-runner.js",
   async (importOriginal) => {
     const actual = await importOriginal();
     return {
@@ -20,7 +20,7 @@ vi.mock(
 );
 
 import { BaseAgentLoop, BaseStage } from '../../../../../js/agents/runtime/core/agent-loop.js';
-import { getLimit } from '../../../../../js/agents/runtime/constants/limits.js';
+import { getLimit } from '../../../../../js/agents/runtime/core/constants/limits.js';
 
 function createTestEventBus() {
   /** @type {Map<string, Set<Function>>} */

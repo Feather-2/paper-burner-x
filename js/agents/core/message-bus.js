@@ -22,6 +22,7 @@ import { EventBus, isValidEventName } from './event-bus.js';
 const RPC_KIND_REQUEST = 'rpc_request';
 const RPC_KIND_RESPONSE = 'rpc_response';
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_ABORT_MESSAGE = 'Request aborted';
 
 /**
  * @param {unknown} value
@@ -60,6 +61,31 @@ function createRpcId() {
  */
 function isAbortSignal(signal) {
   return !!signal && typeof signal === 'object' && typeof /** @type {any} */ (signal).aborted === 'boolean';
+}
+
+/**
+ * Normalize AbortSignal abort reasons to a stable Error instance/message.
+ * Node's AbortController.abort() (no reason) uses a DOMException with a
+ * platform-specific message ("This operation was aborted"), which we
+ * intentionally map to a consistent message for callers/tests.
+ *
+ * @param {unknown} reason
+ * @returns {Error}
+ */
+function toAbortError(reason) {
+  if (reason instanceof Error) {
+    if (reason.name === 'AbortError') {
+      const msg = String(reason.message || '').toLowerCase();
+      if (!msg || msg.includes('aborted')) return new Error(DEFAULT_ABORT_MESSAGE);
+    }
+    if (!reason.message) return new Error(DEFAULT_ABORT_MESSAGE);
+    return reason;
+  }
+
+  if (reason === undefined || reason === null) return new Error(DEFAULT_ABORT_MESSAGE);
+
+  const text = String(reason);
+  return new Error(text.trim().length ? text : DEFAULT_ABORT_MESSAGE);
 }
 
 /**
@@ -109,7 +135,9 @@ export class MessageBus {
     if (!name || !isValidEventName(name)) {
       throw new Error('MessageBus.emit(type, payload): type must be a valid event name');
     }
-    return this.eventBus.emit(name, payload);
+    // Always wrap as EventRecord-like to preserve `undefined` payloads and avoid
+    // EventBus heuristics that would treat `{ payload: ... }` objects specially.
+    return this.eventBus.emit(name, { payload });
   }
 
   /**
@@ -192,7 +220,7 @@ export class MessageBus {
 
     return new Promise((resolve, reject) => {
       if (signal?.aborted) {
-        reject(signal.reason || new Error('Request aborted'));
+        reject(toAbortError(/** @type {any} */ (signal).reason));
         return;
       }
 
@@ -246,7 +274,7 @@ export class MessageBus {
         reject(error);
       };
 
-      onAbort = () => finishReject(/** @type {Error} */ (signal?.reason) || new Error('Request aborted'));
+      onAbort = () => finishReject(toAbortError(/** @type {any} */ (signal).reason));
       if (signal && typeof signal.addEventListener === 'function') {
         try {
           signal.addEventListener('abort', onAbort, { once: true });

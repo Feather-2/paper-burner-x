@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { StateEngine, createInitialState, rootReducer } from '../../../../../js/agents/runtime/memory/state-engine.js';
+import { StateEngine, createInitialState, rootReducer } from '../../../../../js/agents/plugins/memory/state-engine.js';
 import {
   setTaskGoal,
   addTodo,
@@ -27,7 +27,7 @@ import {
   batch,
   L0_SET_TASK_GOAL,
   L0_ADD_TODO,
-} from '../../../../../js/agents/runtime/memory/action-types.js';
+} from '../../../../../js/agents/plugins/memory/action-types.js';
 
 describe("StateEngine", () => {
   let engine;

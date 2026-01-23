@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createAgentContainer, ServiceId } from '../../../../js/agents/runtime/di/index.js';
-import { Container } from '../../../../js/agents/runtime/di/container.js';
-import { getGlobalContainer, setGlobalContainer } from '../../../../js/agents/runtime/di/global-container.js';
+import { createAgentContainer, ServiceId } from '../../../../js/agents/core/di/index.js';
+import { Container } from '../../../../js/agents/core/di/container.js';
+import { getGlobalContainer, setGlobalContainer } from '../../../../js/agents/core/di/global-container.js';
 
 afterEach(() => {
   setGlobalContainer(null);
@@ -77,4 +77,3 @@ describe("runtime/di singletons", () => {
     expect(leftLocks).not.toBe(rightLocks);
   });
 });
-

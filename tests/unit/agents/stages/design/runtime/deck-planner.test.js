@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../../../js/agents/shared/utils/value-utils.js", () => {
+vi.mock("../../../../../../js/agents/shared/index.js", () => {
   return {
     toNonEmptyString: vi.fn((v) => (typeof v === "string" && v.trim() ? v.trim() : "")),
   };
 });
 
-import { toNonEmptyString } from '../../../../../../js/agents/shared/utils/value-utils.js';
+import { toNonEmptyString } from '../../../../../../js/agents/shared/index.js';
 import {
   DeckPlanner,
   planDeck,
@@ -15,7 +15,7 @@ import {
   formatPlanForDialog,
   parseSimpleFeedback,
   parseFeedbackWithLLM,
-} from '../../../../../../js/agents/stages/design/runtime/deck-planner.js';
+} from '../../../../../../js/agents/stages/design/internal/deck-planner.js';
 
 describe("design/runtime/deck-planner", () => {
   const sampleSlideIntents = [

@@ -6,7 +6,7 @@ import {
   createSubagentBudgetManager,
   MODE_ALLOCATION_RATIOS,
   MODE_PRIORITY,
-} from '../../../../../js/agents/runtime/context/subagent-budget.js';
+} from '../../../../../js/agents/runtime/core/context/subagent-budget.js';
 
 describe("SubagentBudgetManager", () => {
   describe("constructor", () => {

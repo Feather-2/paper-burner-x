@@ -83,9 +83,29 @@ export class PluginContext {
 
     return {
       // 插件私有状态
-      get: (path) => stateBus.get(path ? `${prefix}.${path}` : prefix),
-      set: (path, value, meta) => stateBus.set(`${prefix}.${path}`, value, { plugin: pluginName, ...meta }),
-      merge: (path, updates, meta) => stateBus.merge(`${prefix}.${path}`, updates, { plugin: pluginName, ...meta }),
+      get: (path) => {
+        const isRoot = path === undefined || path === null || path === '';
+        const key = isRoot ? prefix : `${prefix}.${String(path)}`;
+        return stateBus.get(key);
+      },
+      set: (path, value, meta) => {
+        const isRoot = path === undefined || path === null || path === '';
+        const key = isRoot ? prefix : `${prefix}.${String(path)}`;
+        const extraMeta =
+          meta && typeof meta === 'object' && !Array.isArray(meta)
+            ? /** @type {Record<string, unknown>} */ (meta)
+            : {};
+        stateBus.set(key, value, { ...extraMeta, plugin: pluginName });
+      },
+      merge: (path, updates, meta) => {
+        const isRoot = path === undefined || path === null || path === '';
+        const key = isRoot ? prefix : `${prefix}.${String(path)}`;
+        const extraMeta =
+          meta && typeof meta === 'object' && !Array.isArray(meta)
+            ? /** @type {Record<string, unknown>} */ (meta)
+            : {};
+        stateBus.merge(key, updates, { ...extraMeta, plugin: pluginName });
+      },
 
       // 全局状态只读访问
       getGlobal: (path) => stateBus.get(path),

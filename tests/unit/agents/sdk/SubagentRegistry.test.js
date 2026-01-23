@@ -1,33 +1,32 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-vi.mock("../../../../js/agents/shared/index.js", () => {
-  const isPlainObject = (value) => {
+const sharedMock = vi.hoisted(() => ({
+  isPlainObject: (value) => {
     if (value === null || typeof value !== "object") return false;
     if (Array.isArray(value)) return false;
     const proto = Object.getPrototypeOf(value);
     return proto === Object.prototype || proto === null;
-  };
-
-  const toNonEmptyString = (value) => {
+  },
+  toNonEmptyString: (value) => {
     if (typeof value !== "string") return null;
     return value.trim().length > 0 ? value : null;
-  };
+  },
+}));
 
-  return { isPlainObject, toNonEmptyString };
-});
-
-vi.mock("../../../../js/agents/sdk/injection-scanner.js", () => {
-  class InjectionScanner {
-    constructor() {
-      this.scan = (text) => ({ clean: true, code: "CLEAN", detections: [] });
-      this.sanitize = (text) => text;
-    }
+const injectionScannerMock = vi.hoisted(() => {
+  function InjectionScanner() {
+    this.scan = (text) => ({ clean: true, code: "CLEAN", detections: [] });
+    this.sanitize = (text) => text;
   }
 
   const ScanResultCode = { CLEAN: "CLEAN", INJECTION: "INJECTION" };
 
   return { InjectionScanner, ScanResultCode };
 });
+
+vi.mock("../../../../js/agents/shared/index.js", () => sharedMock);
+vi.mock("../../../../js/agents/sdk/injection-scanner.js", () => injectionScannerMock);
 
 import SubagentRegistryDefault, {
   SubagentRegistry,

@@ -1,46 +1,56 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const loaderPath = "../../../../js/agents/skills/loader.js";
-const sharedPath = "../../../../js/agents/shared/index.js";
-const nodePath = "../../../../js/agents/skills/loader.node.js";
-const browserPath = "../../../../js/agents/skills/loader.browser.js";
 
-let isNodeLikeMock = vi.fn();
-let nodeImpl = {};
-let browserImpl = {};
-
-vi.mock(sharedPath, () => ({
-  isNodeLike: (...args) => isNodeLikeMock(...args),
+const hoisted = vi.hoisted(() => ({
+  isNodeLikeMock: vi.fn(),
+  nodeImpl: {},
+  browserImpl: {},
 }));
 
-vi.mock(nodePath, () => nodeImpl);
-vi.mock(browserPath, () => browserImpl);
+vi.mock("../../../../js/agents/shared/index.js", () => ({
+  isNodeLike: (...args) => hoisted.isNodeLikeMock(...args),
+}));
+
+vi.mock("../../../../js/agents/skills/loader.node.js", () => hoisted.nodeImpl);
+vi.mock("../../../../js/agents/skills/loader.browser.js", () => hoisted.browserImpl);
 
 const defaultOutcome = { skills: [], errors: [] };
 const defaultSkill = { metadata: { name: "skill", description: "desc" }, body: null };
 
 async function setup({ isNodeLikeReturn = true, nodeOverrides = {}, browserOverrides = {} } = {}) {
   vi.resetModules();
-  isNodeLikeMock = vi.fn(() => isNodeLikeReturn);
+  hoisted.isNodeLikeMock.mockImplementation(() => isNodeLikeReturn);
 
-  nodeImpl = {
+  Object.keys(hoisted.nodeImpl).forEach((key) => {
+    delete hoisted.nodeImpl[key];
+  });
+  Object.assign(hoisted.nodeImpl, {
     loadSkills: vi.fn().mockResolvedValue(defaultOutcome),
     loadSkillsFromNexus: vi.fn().mockResolvedValue(defaultOutcome),
     loadAllSkills: vi.fn().mockResolvedValue(defaultOutcome),
     loadSkillFromPath: vi.fn().mockResolvedValue(defaultSkill),
     ...nodeOverrides,
-  };
+  });
 
-  browserImpl = {
+  Object.keys(hoisted.browserImpl).forEach((key) => {
+    delete hoisted.browserImpl[key];
+  });
+  Object.assign(hoisted.browserImpl, {
     loadSkills: vi.fn().mockResolvedValue(defaultOutcome),
     loadSkillsFromNexus: vi.fn().mockResolvedValue(defaultOutcome),
     loadAllSkills: vi.fn().mockResolvedValue(defaultOutcome),
     loadSkillFromPath: vi.fn().mockResolvedValue(defaultSkill),
     ...browserOverrides,
-  };
+  });
 
   const mod = await import(loaderPath);
-  return { mod, nodeImpl, browserImpl, isNodeLikeMock };
+  return {
+    mod,
+    nodeImpl: hoisted.nodeImpl,
+    browserImpl: hoisted.browserImpl,
+    isNodeLikeMock: hoisted.isNodeLikeMock,
+  };
 }
 
 beforeEach(() => {

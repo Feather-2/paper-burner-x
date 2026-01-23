@@ -8,8 +8,8 @@ import {
   getTokenUsageSummary,
   exportTokenUsageJson,
   exportTokenUsageCsv,
-} from '../../../../../js/agents/runtime/telemetry/token-tracker.js';
-import { setGlobalContainer } from '../../../../../js/agents/runtime/di/global-container.js';
+} from '../../../../../js/agents/plugins/telemetry/token-tracker.js';
+import { setGlobalContainer } from '../../../../../js/agents/core/di/global-container.js';
 
 /**
  * Helper to create a sample record params object.

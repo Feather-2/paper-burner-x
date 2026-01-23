@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { VectorIndex } from '../../../../../js/agents/shared/embeddings/vector-index.js';
+import { VectorIndex } from '../../../../../js/agents/shared/index.js';
 
 describe("shared/embeddings/vector-index", () => {
   /** @type {VectorIndex} */

@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { WritingPhaseHandler } from '../../../../../../js/agents/stages/deepsearch/runtime/writing-phase-handler.js';
+import { WritingPhaseHandler } from '../../../../../../js/agents/stages/deepsearch/internal/writing-phase-handler.js';
 
 describe("WritingPhaseHandler", () => {
   const createHandler = (overrides = {}) => {

@@ -1,4 +1,4 @@
-import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, test, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { parseHTML } from 'linkedom';
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
@@ -42,7 +42,7 @@ await import('../../../js/ppt/core/slide-parser.js');
 
 await import('../../../js/ppt/generator/ppt_generator_workflow.js');
 
-test.before(async () => {
+beforeAll(async () => {
   // Ensure async mixins have been installed before calling non-stubbed methods.
   const ready = globalThis.PPTGenerator?.prototype?.__pptWorkflowMixinsReady;
   if (ready && typeof ready.then === 'function') await ready;
@@ -107,7 +107,7 @@ test('design.batch calls DesignAgentLoop and populates deckHtmlDsl + slides', as
     expect(deckPackage && typeof deckPackage === 'object').toBeTruthy();
     expect(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section')).toBeTruthy();
     expect(typeof gen.sampleHTML === 'string' && gen.sampleHTML.includes('<section')).toBeTruthy();
-    expect(Array.isArray(gen.slides).toBeTruthy() && gen.slides.length > 0);
+    expect(Array.isArray(gen.slides) && gen.slides.length > 0).toBeTruthy();
     expect(gen.workflowData.deckHtmlDsl.includes('data-type="freeform"')).toBeTruthy();
   } finally {
     design.DesignAgentLoop.prototype.execute = originalExecute;
@@ -144,7 +144,7 @@ test('design.batch falls back to mock deck when DesignAgentLoop throws', async (
     expect(typeof deckPackage.degradedAt).toBe('number');
     expect(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section')).toBeTruthy();
     expect(gen.workflowData.deckHtmlDsl.includes('mock-slide-')).toBeTruthy();
-    expect(Array.isArray(gen.slides).toBeTruthy() && gen.slides.length > 0);
+    expect(Array.isArray(gen.slides) && gen.slides.length > 0).toBeTruthy();
   } finally {
     design.DesignAgentLoop.prototype.execute = originalExecute;
   }

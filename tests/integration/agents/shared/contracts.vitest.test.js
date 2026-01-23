@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 
-import { validateRpcRequest, validateRpcResponse } from '../../../../js/agents/shared/contracts/rpc-message.js';
-import { validateToolCall, validateLlmResponse } from '../../../../js/agents/shared/contracts/llm-response.js';
+import { validateRpcRequest, validateRpcResponse } from '../../../../js/agents/core/contracts/rpc-message.js';
+import { validateToolCall, validateLlmResponse } from '../../../../js/agents/core/contracts/llm-response.js';
 
 describe("shared/contracts/rpc-message", () => {
   it("validateRpcRequest: rejects non-object and missing/blank type", () => {
@@ -16,15 +16,15 @@ describe("shared/contracts/rpc-message", () => {
   });
 
   it("validateRpcRequest: trims type and preserves payload + optional requestId", () => {
-    const out = validateRpcRequest({ type: " ping ", payload: { ok: true }, requestId: "req_1" });
+    const out = validateRpcRequest({ type: " ping:check ", payload: { ok: true }, requestId: "req_1" });
     expect(out.ok).toBe(true);
     expect(out).toEqual({
       ok: true,
-      value: { type: "ping", payload: { ok: true }, requestId: "req_1" },
+      value: { type: "ping:check", payload: { ok: true }, requestId: "req_1" },
     });
 
     // Non-string requestId is ignored.
-    const out2 = validateRpcRequest({ type: "pong", payload: 123, requestId: 42 });
+    const out2 = validateRpcRequest({ type: "core:pong", payload: 123, requestId: 42 });
     expect(out2.ok).toBe(true);
     expect(out2.value.requestId).toBeUndefined();
   });

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { AdaptiveZoneManager } from '../../../../../js/agents/runtime/compression/adaptive-zone-manager.js';
+import { AdaptiveZoneManager } from '../../../../../js/agents/plugins/compression/index.js';
 
 describe("AdaptiveZoneManager", () => {
   let manager;

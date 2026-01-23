@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { L3Storage } from '../../../../../js/agents/runtime/memory/l3-storage.js';
+import { L3Storage } from '../../../../../js/agents/plugins/memory/l3-storage.js';
 import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
 
 function getPaths(runId) {

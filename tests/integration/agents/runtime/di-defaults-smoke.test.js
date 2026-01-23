@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { createAgentContainer, createTestContainer, ServiceId } from '../../../../js/agents/runtime/di/index.js';
+import { createAgentContainer, createTestContainer, ServiceId } from '../../../../js/agents/core/di/index.js';
 
 describe('DI defaults', () => {
   it('can attempt to resolve all registered default services', async () => {

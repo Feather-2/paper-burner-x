@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   compressSessionHistoryAsync,
-  compressSessionHistorySync,
   isCompressionWorkerAvailable,
   terminateCompressionWorker,
-} from '../../../../../js/agents/runtime/compression/compression-async.js';
+} from '../../../../../js/agents/plugins/compression/index.js';
+import { compressSessionHistorySync } from '../../../../../js/agents/plugins/compression/impl/compression-async.js';
 
 describe("compression-async", () => {
   describe("isCompressionWorkerAvailable", () => {

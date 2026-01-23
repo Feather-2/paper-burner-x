@@ -35,7 +35,7 @@ import {
 import MessageManager from '../../../../js/agents/runtime/core/message-manager.js';
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from '../../../../js/agents/runtime/core/context-config.js';
 import WorkerRpcClient, { createRpcHandler } from '../../../../js/agents/runtime/core/worker-rpc.js';
-import { setRuntimeState, LoopRuntimeStatuses } from '../../../../js/agents/runtime/telemetry/loop-runtime-state.js';
+import { setRuntimeState, LoopRuntimeStatuses } from '../../../../js/agents/plugins/telemetry/loop-runtime-state.js';
 import { BaseAgentLoop, BaseStage } from '../../../../js/agents/runtime/core/agent-loop.js';
 
 function createTestEventBus() {

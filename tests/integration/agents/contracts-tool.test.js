@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   validateToolResult,
   normalizeToolResult,
-} from '../../../js/agents/shared/contracts/tool-result.js';
+} from '../../../js/agents/core/contracts/tool-result.js';
 
 describe("shared/contracts/tool-result", () => {
   describe("validateToolResult", () => {
@@ -108,14 +108,14 @@ describe("shared/contracts/tool-result", () => {
       expect(result.success).toBe(true);
     });
 
-    it("converts Error to failed result", () => {
-      const error = new Error("Test error");
-      const result = normalizeToolResult(error);
-      expect(result.ok).toBe(false);
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("Test error");
-      expect(result.meta?.stack).toEqual(expect.any(String));
-    });
+	    it("converts Error to failed result", () => {
+	      const error = new Error("Test error");
+	      const result = normalizeToolResult(error);
+	      expect(result.ok).toBe(false);
+	      expect(result.success).toBe(false);
+	      expect(result.error).toBe("Test error");
+	      expect(result.meta).toEqual({ stack: error.stack });
+	    });
 
     it("handles null", () => {
       const result = normalizeToolResult(null);

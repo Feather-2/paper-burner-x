@@ -1,5 +1,5 @@
 import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { EventHandlerRegistry, createWorkflowEventRegistry } from '../../../js/ppt/workflow/event-handler-registry.js';
+import { EventHandlerRegistry, createWorkflowEventRegistry } from '../../../../js/ppt/workflow/event-handler-registry.js';
 
 test("EventHandlerRegistry.register validates handler", async () => {
   const registry = new EventHandlerRegistry();

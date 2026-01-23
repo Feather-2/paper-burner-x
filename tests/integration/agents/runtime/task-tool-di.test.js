@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import { createTaskTool } from '../../../../js/agents/runtime/tools/TaskTool.js';
-import { createAgentContainer, createTestContainer, ServiceId } from '../../../../js/agents/runtime/di/index.js';
+import { createAgentContainer, createTestContainer, ServiceId } from '../../../../js/agents/core/di/index.js';
 import { SubagentRegistry, globalSubagentRegistry } from '../../../../js/agents/sdk/SubagentRegistry.js';
 
 describe('TaskTool DI', () => {
@@ -290,7 +290,7 @@ describe('TaskTool behavior', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe('explode');
-    expect(emit).toHaveBeenCalledWith('subagent.failed', expect.any(Object));
+    expect(emit).toHaveBeenCalledWith('subagent:failed', expect.any(Object));
     expect(logger.error).toHaveBeenCalled();
   });
 

@@ -1,28 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-let isNodeLikeMock;
-let normalizeVfsPathMock;
-let isScanWorkerAvailableMock;
-let scanOpfsAsyncMock;
+const { isNodeLikeMock, normalizeVfsPathMock, isScanWorkerAvailableMock, scanOpfsAsyncMock } = vi.hoisted(() => ({
+  isNodeLikeMock: vi.fn(() => true),
+  normalizeVfsPathMock: vi.fn((value) => String(value ?? "").replaceAll("\\", "/").trim()),
+  isScanWorkerAvailableMock: vi.fn(() => false),
+  scanOpfsAsyncMock: vi.fn(async () => []),
+}));
 
-vi.mock("../../../../js/agents/shared/index.js", () => {
-  isNodeLikeMock = vi.fn(() => true);
-  return { isNodeLike: isNodeLikeMock };
-});
+vi.mock("../../../../js/agents/shared/index.js", () => ({ isNodeLike: isNodeLikeMock }));
 
-vi.mock("../../../../js/agents/vfs/path.js", () => {
-  normalizeVfsPathMock = vi.fn((value) => String(value ?? "").replaceAll("\\", "/").trim());
-  return { normalizeVfsPath: normalizeVfsPathMock };
-});
+vi.mock("../../../../js/agents/vfs/path.js", () => ({ normalizeVfsPath: normalizeVfsPathMock }));
 
-vi.mock("../../../../js/agents/vfs/vfs-scan-async.js", () => {
-  isScanWorkerAvailableMock = vi.fn(() => false);
-  scanOpfsAsyncMock = vi.fn(async () => []);
-  return {
-    isScanWorkerAvailable: isScanWorkerAvailableMock,
-    scanOpfsAsync: scanOpfsAsyncMock,
-  };
-});
+vi.mock("../../../../js/agents/vfs/vfs-scan-async.js", () => ({
+  isScanWorkerAvailable: isScanWorkerAvailableMock,
+  scanOpfsAsync: scanOpfsAsyncMock,
+}));
 
 import { expandBraces, globToRegExp, matchGlob } from "../../../../js/agents/vfs/glob.js";
 

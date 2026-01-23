@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   validateToolCall,
   validateLlmResponse,
-} from '../../../js/agents/shared/contracts/llm-response.js';
+} from '../../../js/agents/core/contracts/llm-response.js';
 
 describe("shared/contracts/llm-response", () => {
   describe("validateToolCall", () => {

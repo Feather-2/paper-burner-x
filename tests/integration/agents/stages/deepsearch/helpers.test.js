@@ -17,7 +17,7 @@ import {
 } from '../../../../../js/agents/stages/deepsearch/deepsearch-helpers.js';
 import { checkCancelled, generateNodeId, makeStageEmitter } from '../../../../../js/agents/stages/deepsearch/stage-utils.js';
 import { SourceManager } from '../../../../../js/agents/stages/deepsearch/source-manager.js';
-import { TraceContext } from '../../../../../js/agents/runtime/telemetry/trace-context.js';
+import { TraceContext } from '../../../../../js/agents/plugins/telemetry/trace-context.js';
 import { ErrorBoundary, getErrorBoundary } from '../../../../../js/agents/runtime/core/error-boundary.js';
 
 describe("deepsearch/deepsearch-helpers", () => {
@@ -383,4 +383,3 @@ describe("deepsearch/source-manager", () => {
     expect(noVectors.map((r) => r.line)).toEqual([1, 2]);
   });
 });
-

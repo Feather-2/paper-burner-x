@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { THRESHOLDS, getThreshold } from '../../../../../js/agents/runtime/constants/thresholds.js';
+import { THRESHOLDS, getThreshold } from '../../../../../js/agents/runtime/core/constants/thresholds.js';
 
 describe("THRESHOLDS", () => {
   it("should be frozen", () => {

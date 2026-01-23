@@ -180,7 +180,7 @@ export function createTelemetryMiddleware(options = {}) {
     const stepName = ctx.stepName || ctx.phase || "step";
     const startTime = Date.now();
 
-    emitFn?.(`${stageName}:middleware.${stepName}.started`, {
+    emitFn?.(`${stageName}.middleware.${stepName}.started`, {
       actor,
       status: "progress",
       payload: { timestamp: startTime },
@@ -190,7 +190,7 @@ export function createTelemetryMiddleware(options = {}) {
       const result = await next();
       const duration = Date.now() - startTime;
 
-      emitFn?.(`${stageName}:middleware.${stepName}.completed`, {
+      emitFn?.(`${stageName}.middleware.${stepName}.completed`, {
         actor,
         status: "success",
         payload: { duration, timestamp: Date.now() },
@@ -200,7 +200,7 @@ export function createTelemetryMiddleware(options = {}) {
     } catch (err) {
       const duration = Date.now() - startTime;
 
-      emitFn?.(`${stageName}:middleware.${stepName}.failed`, {
+      emitFn?.(`${stageName}.middleware.${stepName}.failed`, {
         actor,
         status: "error",
         payload: { duration, error: err.message, timestamp: Date.now() },

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js", () => {
+vi.mock("../../../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js", () => {
   let lastCtorOptions = null;
   let lastRunArgs = null;
   let runImpl = null;
@@ -33,15 +33,15 @@ vi.mock("../../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js", () =
   };
 });
 
-vi.mock("../../../../js/agents/stages/deepsearch/tools/index.js", () => ({
+vi.mock("../../../../../js/agents/stages/deepsearch/tools/index.js", () => ({
   tools: {},
   executeTool: vi.fn(),
   getToolCatalogPrompt: vi.fn(() => "tools"),
 }));
 
-import { DeepSearchState } from '../../../../js/agents/stages/deepsearch/state.js';
-import { ensureState, runDeepSearchStage } from '../../../../js/agents/stages/deepsearch/index.js';
-import * as mockModule from '../../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js';
+import { DeepSearchState } from '../../../../../js/agents/stages/deepsearch/state.js';
+import { ensureState, runDeepSearchStage } from '../../../../../js/agents/stages/deepsearch/index.js';
+import * as mockModule from '../../../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js';
 
 const { __getLastCtorOptions, __getLastRunArgs, __reset, __setRunImpl } = mockModule;
 

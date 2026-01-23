@@ -4,8 +4,8 @@ import {
   EmbeddingService,
   createEmbeddingService,
   normalizeEmbeddingConfig,
-} from '../../../../js/agents/shared/embeddings/embedding-service.js';
-import { VectorIndex } from '../../../../js/agents/shared/embeddings/vector-index.js';
+} from '../../../../js/agents/retrieval/embeddings/embedding-service.js';
+import { VectorIndex } from '../../../../js/agents/retrieval/embeddings/vector-index.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -688,13 +688,13 @@ describe("normalizeEmbeddingConfig", () => {
 
   it("should return null when disabled", () => {
     expect(
-      normalizeEmbeddingConfig({ endpoint: "http://test", enabled: false })
+      normalizeEmbeddingConfig({ endpoint: "https://example.test/v1/embeddings", enabled: false })
     ).toBe(null);
   });
 
   it("should normalize valid config with defaults", () => {
-    const cfg = normalizeEmbeddingConfig({ endpoint: "http://test" });
-    expect(cfg.endpoint).toBe("http://test");
+    const cfg = normalizeEmbeddingConfig({ endpoint: "https://example.test/v1/embeddings" });
+    expect(cfg.endpoint).toBe("https://example.test/v1/embeddings");
     expect(cfg.model).toBe(null);
     expect(cfg.apiKey).toBe(null);
     expect(cfg.headers).toStrictEqual({});
@@ -706,15 +706,15 @@ describe("normalizeEmbeddingConfig", () => {
   });
 
   it("should accept url or baseUrl as endpoint", () => {
-    const cfg1 = normalizeEmbeddingConfig({ url: "http://a" });
-    const cfg2 = normalizeEmbeddingConfig({ baseUrl: "http://b" });
-    expect(cfg1.endpoint).toBe("http://a");
-    expect(cfg2.endpoint).toBe("http://b");
+    const cfg1 = normalizeEmbeddingConfig({ url: "https://a.example.test/v1/embeddings" });
+    const cfg2 = normalizeEmbeddingConfig({ baseUrl: "https://b.example.test/v1/embeddings" });
+    expect(cfg1.endpoint).toBe("https://a.example.test/v1/embeddings");
+    expect(cfg2.endpoint).toBe("https://b.example.test/v1/embeddings");
   });
 
   it("should normalize model and apiKey", () => {
     const cfg = normalizeEmbeddingConfig({
-      endpoint: "http://test",
+      endpoint: "https://example.test/v1/embeddings",
       model: "text-embedding-3",
       key: "sk-123",
     });
@@ -724,7 +724,7 @@ describe("normalizeEmbeddingConfig", () => {
 
   it("should accept apiKey field", () => {
     const cfg = normalizeEmbeddingConfig({
-      endpoint: "http://test",
+      endpoint: "https://example.test/v1/embeddings",
       apiKey: "sk-456",
     });
     expect(cfg.apiKey).toBe("sk-456");
@@ -732,7 +732,7 @@ describe("normalizeEmbeddingConfig", () => {
 
   it("should parse custom headers", () => {
     const cfg = normalizeEmbeddingConfig({
-      endpoint: "http://test",
+      endpoint: "https://example.test/v1/embeddings",
       headers: { "X-Custom": "value", invalid: null },
     });
     expect(cfg.headers["X-Custom"]).toBe("value");
@@ -741,7 +741,7 @@ describe("normalizeEmbeddingConfig", () => {
 
   it("should ignore non-object headers", () => {
     const cfg = normalizeEmbeddingConfig({
-      endpoint: "http://test",
+      endpoint: "https://example.test/v1/embeddings",
       headers: "not-an-object",
     });
     expect(cfg.headers).toStrictEqual({});
@@ -761,7 +761,7 @@ describe("EmbeddingService", () => {
 
     it("should be disabled without fetch", () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         { fetchImpl: null }
       );
       expect(svc.enabled).toBe(false);
@@ -769,7 +769,7 @@ describe("EmbeddingService", () => {
 
     it("should be enabled with valid config and fetch", () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         { fetchImpl: () => Promise.resolve({ ok: true, json: () => ({}) }) }
       );
       expect(svc.enabled).toBe(true);
@@ -779,14 +779,14 @@ describe("EmbeddingService", () => {
   describe("getStatus", () => {
     it("should return status object", () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test", model: "text-3" },
+        { endpoint: "https://example.test/v1/embeddings", model: "text-3" },
         { fetchImpl: () => {} }
       );
       const status = svc.getStatus();
       expect(status.enabled).toBe(true);
       expect(status.available).toBe(null);
       expect(status.failures).toBe(0);
-      expect(status.endpoint).toBe("http://test");
+      expect(status.endpoint).toBe("https://example.test/v1/embeddings");
       expect(status.model).toBe("text-3");
     });
 
@@ -821,7 +821,7 @@ describe("EmbeddingService", () => {
 
     it("should return empty array for empty input", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         {
           fetchImpl: createMockFetch({
             ok: true,
@@ -836,7 +836,7 @@ describe("EmbeddingService", () => {
 
     it("should filter out empty/whitespace strings", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         {
           fetchImpl: createMockFetch({
             ok: true,
@@ -852,7 +852,7 @@ describe("EmbeddingService", () => {
 
     it("should call API and return embeddings (OpenAI format)", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test", model: "text-3", apiKey: "sk-test" },
+        { endpoint: "https://example.test/v1/embeddings", model: "text-3", apiKey: "sk-test" },
         {
           fetchImpl: createMockFetch({
             ok: true,
@@ -883,7 +883,7 @@ describe("EmbeddingService", () => {
 
     it("should handle unordered index in response", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         {
           fetchImpl: createMockFetch({
             ok: true,
@@ -904,7 +904,7 @@ describe("EmbeddingService", () => {
 
     it("should handle embeddings array format", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         {
           fetchImpl: createMockFetch({
             ok: true,
@@ -919,7 +919,7 @@ describe("EmbeddingService", () => {
 
     it("should handle single embedding format", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         {
           fetchImpl: createMockFetch({
             ok: true,
@@ -934,7 +934,7 @@ describe("EmbeddingService", () => {
 
     it("should handle vector format", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         {
           fetchImpl: createMockFetch({
             ok: true,
@@ -949,7 +949,7 @@ describe("EmbeddingService", () => {
 
     it("should handle nested array format in data", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         {
           fetchImpl: createMockFetch({
             ok: true,
@@ -964,7 +964,7 @@ describe("EmbeddingService", () => {
 
     it("should mark failure on non-ok response", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test", cooldownMs: 1000 },
+        { endpoint: "https://example.test/v1/embeddings", cooldownMs: 1000 },
         { fetchImpl: createMockFetch({ ok: false, status: 500 }) }
       );
 
@@ -976,7 +976,7 @@ describe("EmbeddingService", () => {
 
     it("should mark failure on json parse error", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test", cooldownMs: 1000 },
+        { endpoint: "https://example.test/v1/embeddings", cooldownMs: 1000 },
         {
           fetchImpl: createMockFetch({
             ok: true,
@@ -994,7 +994,7 @@ describe("EmbeddingService", () => {
 
     it("should mark failure on invalid response format", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test", cooldownMs: 1000 },
+        { endpoint: "https://example.test/v1/embeddings", cooldownMs: 1000 },
         {
           fetchImpl: createMockFetch({
             ok: true,
@@ -1010,7 +1010,7 @@ describe("EmbeddingService", () => {
 
     it("should mark failure on fetch exception", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test", cooldownMs: 1000 },
+        { endpoint: "https://example.test/v1/embeddings", cooldownMs: 1000 },
         {
           fetchImpl: async () => {
             throw new Error("network error");
@@ -1026,7 +1026,7 @@ describe("EmbeddingService", () => {
     it("should respect cooldown after failure", async () => {
       let callCount = 0;
       const svc = new EmbeddingService(
-        { endpoint: "http://test", cooldownMs: 60000 },
+        { endpoint: "https://example.test/v1/embeddings", cooldownMs: 60000 },
         {
           fetchImpl: async () => {
             callCount++;
@@ -1045,7 +1045,7 @@ describe("EmbeddingService", () => {
     it("should not skip existing authorization header", async () => {
       const svc = new EmbeddingService(
         {
-          endpoint: "http://test",
+          endpoint: "https://example.test/v1/embeddings",
           apiKey: "sk-test",
           headers: { Authorization: "Custom auth" },
         },
@@ -1066,7 +1066,7 @@ describe("EmbeddingService", () => {
     it("should batch multiple enqueue calls", async () => {
       let batchSizes = [];
       const svc = new EmbeddingService(
-        { endpoint: "http://test", batchSize: 10, flushIntervalMs: 5 },
+        { endpoint: "https://example.test/v1/embeddings", batchSize: 10, flushIntervalMs: 5 },
         {
           fetchImpl: async (url, opts) => {
             const body = JSON.parse(opts.body);
@@ -1094,7 +1094,7 @@ describe("EmbeddingService", () => {
 
     it("should respect maxQueue limit", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test", maxQueue: 5, flushIntervalMs: 1000 },
+        { endpoint: "https://example.test/v1/embeddings", maxQueue: 5, flushIntervalMs: 1000 },
         {
           fetchImpl: async () => ({
             ok: true,
@@ -1120,7 +1120,7 @@ describe("EmbeddingService", () => {
     it("should handle immediate flush", async () => {
       let flushCount = 0;
       const svc = new EmbeddingService(
-        { endpoint: "http://test", flushIntervalMs: 10000 },
+        { endpoint: "https://example.test/v1/embeddings", flushIntervalMs: 10000 },
         {
           fetchImpl: async (url, opts) => {
             flushCount++;
@@ -1148,7 +1148,7 @@ describe("EmbeddingService", () => {
 
     it("should return empty array for empty enqueue", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         { fetchImpl: async () => ({ ok: true, json: () => ({}) }) }
       );
       const result = await svc.enqueue([]);
@@ -1165,7 +1165,7 @@ describe("EmbeddingService", () => {
 
     it("should return true when queue is empty", async () => {
       const svc = new EmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         { fetchImpl: async () => ({ ok: true, json: () => ({}) }) }
       );
       const result = await svc.flush();
@@ -1176,7 +1176,7 @@ describe("EmbeddingService", () => {
   describe("createEmbeddingService factory", () => {
     it("should create service instance", () => {
       const svc = createEmbeddingService(
-        { endpoint: "http://test" },
+        { endpoint: "https://example.test/v1/embeddings" },
         { fetchImpl: () => {} }
       );
       expect(svc).toBeInstanceOf(EmbeddingService);
@@ -1556,7 +1556,7 @@ describe("Multi-provider embedding support", () => {
 
   it("should work with Ollama response format", async () => {
     const svc = new EmbeddingService(
-      { endpoint: "http://localhost:11434/api/embeddings" },
+      { endpoint: "https://ollama.example.test/api/embeddings" },
       {
         fetchImpl: async () => ({
           ok: true,
@@ -1574,7 +1574,7 @@ describe("Multi-provider embedding support", () => {
 
   it("should work with batch array format", async () => {
     const svc = new EmbeddingService(
-      { endpoint: "http://custom-api/embed" },
+      { endpoint: "https://api.example.test/embed" },
       {
         fetchImpl: async () => ({
           ok: true,
@@ -1593,7 +1593,7 @@ describe("Multi-provider embedding support", () => {
     let capturedHeaders;
     const svc = new EmbeddingService(
       {
-        endpoint: "http://test",
+        endpoint: "https://example.test/v1/embeddings",
         headers: { "X-Api-Version": "2024-01" },
         apiKey: "test-key",
       },
@@ -1616,7 +1616,7 @@ describe("Multi-provider embedding support", () => {
   it("should omit model when not provided", async () => {
     let capturedBody;
     const svc = new EmbeddingService(
-      { endpoint: "http://test" },
+      { endpoint: "https://example.test/v1/embeddings" },
       {
         fetchImpl: async (url, opts) => {
           capturedBody = JSON.parse(opts.body);
@@ -1652,7 +1652,7 @@ describe("EmbeddingService integration", () => {
     };
 
     const svc = new EmbeddingService(
-      { endpoint: "http://test", flushIntervalMs: 0 },
+      { endpoint: "https://example.test/v1/embeddings", flushIntervalMs: 0 },
       { fetchImpl }
     );
 

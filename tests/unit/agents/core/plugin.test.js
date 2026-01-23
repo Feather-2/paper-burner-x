@@ -1,131 +1,121 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../../js/agents/core/event-bus.js', () => {
-  class EventBus {
-    constructor() {
-      this._handlers = new Map();
-      this.emitSync = vi.fn((event, payload) => {
-        this.emit(event, payload);
-      });
-    }
-
-    on(event, callback) {
-      const handlers = this._handlers.get(event) ?? new Set();
-      handlers.add(callback);
-      this._handlers.set(event, handlers);
-      return () => handlers.delete(callback);
-    }
-
-    emit(event, payload) {
-      const handlers = this._handlers.get(event);
-      if (!handlers) return;
-      for (const handler of handlers) {
-        handler(payload);
-      }
-    }
-
-    dispose() {
-      this._handlers.clear();
-    }
+const { EventBusMock, StateBusMock, ServiceBusMock } = vi.hoisted(() => {
+  function EventBus() {
+    this._handlers = new Map();
+    this.emitSync = vi.fn((event, payload) => {
+      this.emit(event, payload);
+    });
   }
 
-  return { EventBus };
-});
+  EventBus.prototype.on = function on(event, callback) {
+    const handlers = this._handlers.get(event) ?? new Set();
+    handlers.add(callback);
+    this._handlers.set(event, handlers);
+    return vi.fn(() => handlers.delete(callback));
+  };
 
-vi.mock('../../../../js/agents/core/state-bus.js', () => {
-  class StateBus {
-    constructor() {
-      this._store = new Map();
-      this._meta = new Map();
-      this._subscriptions = new Set();
+  EventBus.prototype.emit = function emit(event, payload) {
+    const handlers = this._handlers.get(event);
+    if (!handlers) return;
+    for (const handler of handlers) {
+      handler(payload);
     }
+  };
 
-    get(path) {
-      if (path === undefined || path === null) return undefined;
-      if (this._store.has(path)) return this._store.get(path);
-      const prefix = `${path}.`;
-      const result = {};
-      let found = false;
-      for (const [key, value] of this._store) {
-        if (key.startsWith(prefix)) {
-          found = true;
-          const subKey = key.slice(prefix.length);
-          result[subKey] = value;
-        }
-      }
-      return found ? result : undefined;
-    }
+  EventBus.prototype.dispose = function dispose() {
+    this._handlers.clear();
+  };
 
-    set(path, value, meta = {}) {
-      this._store.set(path, value);
-      this._meta.set(path, meta ?? {});
-      this._notify(path, value);
-    }
-
-    merge(path, updates, meta = {}) {
-      const current = this._store.get(path);
-      let merged;
-      if (current && typeof current === 'object' && updates && typeof updates === 'object') {
-        merged = { ...current, ...updates };
-      } else {
-        merged = updates;
-      }
-      this._store.set(path, merged);
-      this._meta.set(path, meta ?? {});
-      this._notify(path, merged);
-    }
-
-    subscribe(pattern, callback) {
-      const entry = { pattern, callback };
-      this._subscriptions.add(entry);
-      const unsub = vi.fn(() => {
-        this._subscriptions.delete(entry);
-      });
-      return unsub;
-    }
-
-    _notify(path, value) {
-      for (const entry of this._subscriptions) {
-        if (this._matches(entry.pattern, path)) {
-          entry.callback({ path, value });
-        }
-      }
-    }
-
-    _matches(pattern, path) {
-      if (pattern.endsWith('*')) {
-        return path.startsWith(pattern.slice(0, -1));
-      }
-      return pattern === path;
-    }
+  function StateBus() {
+    this._store = new Map();
+    this._meta = new Map();
+    this._subscriptions = new Set();
   }
 
-  return { StateBus };
-});
-
-vi.mock('../../../../js/agents/core/service-bus.js', () => {
-  class ServiceBus {
-    constructor() {
-      this._services = new Map();
-      this.register = vi.fn((name, service, options = {}) => {
-        this._services.set(name, { service, options });
-      });
-      this.unregister = vi.fn((name) => {
-        this._services.delete(name);
-      });
+  StateBus.prototype.get = function get(path) {
+    if (path === undefined || path === null) return undefined;
+    if (this._store.has(path)) return this._store.get(path);
+    const prefix = `${path}.`;
+    const result = {};
+    let found = false;
+    for (const [key, value] of this._store) {
+      if (key.startsWith(prefix)) {
+        found = true;
+        const subKey = key.slice(prefix.length);
+        result[subKey] = value;
+      }
     }
+    return found ? result : undefined;
+  };
 
-    has(name) {
-      return this._services.has(name);
-    }
+  StateBus.prototype.set = function set(path, value, meta = {}) {
+    this._store.set(path, value);
+    this._meta.set(path, meta ?? {});
+    this._notify(path, value);
+  };
 
-    get(name) {
-      return this._services.get(name);
+  StateBus.prototype.merge = function merge(path, updates, meta = {}) {
+    const current = this._store.get(path);
+    let merged;
+    if (current && typeof current === 'object' && updates && typeof updates === 'object') {
+      merged = { ...current, ...updates };
+    } else {
+      merged = updates;
     }
+    this._store.set(path, merged);
+    this._meta.set(path, meta ?? {});
+    this._notify(path, merged);
+  };
+
+  StateBus.prototype.subscribe = function subscribe(pattern, callback) {
+    const entry = { pattern, callback };
+    this._subscriptions.add(entry);
+    const unsub = vi.fn(() => {
+      this._subscriptions.delete(entry);
+    });
+    return unsub;
+  };
+
+  StateBus.prototype._notify = function _notify(path, value) {
+    for (const entry of this._subscriptions) {
+      if (this._matches(entry.pattern, path)) {
+        entry.callback({ path, value });
+      }
+    }
+  };
+
+  StateBus.prototype._matches = function _matches(pattern, path) {
+    if (pattern.endsWith('*')) {
+      return path.startsWith(pattern.slice(0, -1));
+    }
+    return pattern === path;
+  };
+
+  function ServiceBus() {
+    this._services = new Map();
+    this.register = vi.fn((name, service, options = {}) => {
+      this._services.set(name, { service, options });
+    });
+    this.unregister = vi.fn((name) => {
+      this._services.delete(name);
+    });
   }
 
-  return { ServiceBus };
+  ServiceBus.prototype.has = function has(name) {
+    return this._services.has(name);
+  };
+
+  ServiceBus.prototype.get = function get(name) {
+    return this._services.get(name);
+  };
+
+  return { EventBusMock: EventBus, StateBusMock: StateBus, ServiceBusMock: ServiceBus };
 });
+
+vi.mock('../../../../js/agents/core/event-bus.js', () => ({ EventBus: EventBusMock }));
+vi.mock('../../../../js/agents/core/state-bus.js', () => ({ StateBus: StateBusMock }));
+vi.mock('../../../../js/agents/core/service-bus.js', () => ({ ServiceBus: ServiceBusMock }));
 
 import {
   createPlugin,

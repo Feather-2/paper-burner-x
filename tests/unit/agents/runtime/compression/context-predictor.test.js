@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { ContextPredictor } from '../../../../../js/agents/runtime/compression/context-predictor.js';
+import { ContextPredictor } from '../../../../../js/agents/plugins/compression/index.js';
 
 describe("ContextPredictor", () => {
   let predictor;

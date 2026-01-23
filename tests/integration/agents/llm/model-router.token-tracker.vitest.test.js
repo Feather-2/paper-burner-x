@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ModelRouter } from '../../../../js/agents/llm/model-router.js';
-import { getGlobalTokenTracker } from '../../../../js/agents/runtime/telemetry/token-tracker.js';
+import { getGlobalTokenTracker } from '../../../../js/agents/plugins/telemetry/index.js';
 
-import { createFakeTime, createMockProvider } from "./vitest-utils.js";
+import { createFakeTime, createMockProvider } from "../../../unit/agents/llm/vitest-utils.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -78,4 +78,3 @@ describe("agents/llm/model-router token tracking", () => {
     expect(recordSpy).toHaveBeenCalled();
   });
 });
-

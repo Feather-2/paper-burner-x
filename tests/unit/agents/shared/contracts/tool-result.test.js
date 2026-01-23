@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeToolResult, validateToolResult } from '../../../../../js/agents/shared/contracts/tool-result.js';
+import { normalizeToolResult, validateToolResult } from '../../../../../js/agents/shared/index.js';
 
 describe("shared/contracts/tool-result", () => {
   describe("validateToolResult", () => {
@@ -61,4 +61,3 @@ describe("shared/contracts/tool-result", () => {
     });
   });
 });
-

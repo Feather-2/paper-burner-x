@@ -12,7 +12,7 @@ import {
   createSnapshotMiddleware,
   createTelemetryMiddleware,
   createTimeoutMiddleware,
-} from '../../../../../js/agents/runtime/middleware/middleware-chain.js';
+} from '../../../../../js/agents/runtime/core/middleware/middleware-chain.js';
 
 afterEach(() => {
   vi.useRealTimers();

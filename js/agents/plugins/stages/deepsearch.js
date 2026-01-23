@@ -25,11 +25,23 @@ export default createPlugin({
   async install(ctx) {
     // 懒加载 DeepSearchAgentLoop
     let AgentLoop = null;
+    /** @type {Promise<any>|null} */
+    let AgentLoopPromise = null;
 
     const getAgentLoop = async () => {
       if (!AgentLoop) {
-        const mod = await import('../../stages/deepsearch/deepsearch-agent-loop.js');
-        AgentLoop = mod.default;
+        if (!AgentLoopPromise) {
+          AgentLoopPromise = (async () => {
+            const mod = await import('../../stages/deepsearch/deepsearch-agent-loop.js');
+            AgentLoop = mod.default;
+            return AgentLoop;
+          })();
+          AgentLoopPromise.catch(() => {
+            // Allow retries on transient import failures.
+            AgentLoopPromise = null;
+          });
+        }
+        return AgentLoopPromise;
       }
       return AgentLoop;
     };

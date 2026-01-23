@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { HnswLiteIndex } from '../../../../../js/agents/shared/embeddings/hnsw-lite.js';
+import { HnswLiteIndex } from '../../../../../js/agents/shared/index.js';
 
 describe("HnswLiteIndex", () => {
   let index;

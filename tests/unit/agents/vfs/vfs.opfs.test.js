@@ -153,6 +153,6 @@ describe("OpfsVfs", () => {
     expect(dirStat.isDirectory()).toBe(true);
     expect(dirStat.isFile()).toBe(false);
 
-    await expect(vfs.stat("missing" कायम )).rejects.toThrow(/ENOENT/); // Actually we must not include non-ascii. Oops.
+    await expect(vfs.stat("missing")).rejects.toThrow(/ENOENT/);
   });
 });

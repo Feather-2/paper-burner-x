@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 
-import { CompressionQualityMonitor } from '../../../../../js/agents/runtime/compression/quality-monitor.js';
+import { CompressionQualityMonitor } from '../../../../../js/agents/plugins/compression/index.js';
 
 describe("runtime/compression/quality-monitor", () => {
   let monitor;

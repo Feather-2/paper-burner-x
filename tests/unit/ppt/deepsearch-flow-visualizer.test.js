@@ -2,7 +2,7 @@
 import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Import FlowBuilder class
-const { FlowBuilder } = require('../../js/ppt/dashboard/deepsearch-flow-visualizer.js');
+const { FlowBuilder } = require('../../../js/ppt/dashboard/deepsearch-flow-visualizer.js');
 
 test('FlowBuilder initializes with empty state', () => {
   const builder = new FlowBuilder();

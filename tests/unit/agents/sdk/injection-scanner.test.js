@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Container } from '../../../../js/agents/runtime/di/container.js';
-import { setGlobalContainer } from '../../../../js/agents/runtime/di/global-container.js';
+import { Container } from '../../../../js/agents/core/di/container.js';
+import { setGlobalContainer } from '../../../../js/agents/core/di/global-container.js';
 import {
   InjectionScanner,
   ScanResultCode,

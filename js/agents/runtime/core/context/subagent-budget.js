@@ -215,6 +215,9 @@ export class SubagentBudgetManager {
     if (!record) {
       return { ok: false, error: `No allocation found for ${subagentId}` };
     }
+    if (record.status !== "active") {
+      return { ok: false, error: `Allocation for ${subagentId} is not active` };
+    }
 
     // 更新使用量
     if (actualUsed !== undefined && actualUsed >= 0) {
@@ -227,10 +230,9 @@ export class SubagentBudgetManager {
     const refunded = Math.max(0, record.allocated - record.used);
     this._totalAllocated -= refunded;
 
-    // 更新状态并删除记录（避免内存泄漏）
+    // 更新状态并保留记录（用于统计/调试）
     record.status = "completed";
     record.endTime = Date.now();
-    this._allocations.delete(subagentId);
 
     return { ok: true, refunded };
   }
@@ -245,6 +247,9 @@ export class SubagentBudgetManager {
     if (!record) {
       return { ok: false, error: `No allocation found for ${subagentId}` };
     }
+    if (record.status !== "active") {
+      return { ok: false, error: `Allocation for ${subagentId} is not active` };
+    }
 
     // 释放全部未使用的预算
     const unused = Math.max(0, record.allocated - record.used);
@@ -252,7 +257,6 @@ export class SubagentBudgetManager {
 
     record.status = "aborted";
     record.endTime = Date.now();
-    this._allocations.delete(subagentId);
 
     return { ok: true };
   }

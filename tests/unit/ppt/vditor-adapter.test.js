@@ -1,7 +1,7 @@
 import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { parseHTML } from 'linkedom';
 
-import '../../js/ppt/dashboard/vditor_adapter.js';
+import '../../../js/ppt/dashboard/vditor_adapter.js';
 
 const VditorAdapter = globalThis.VditorAdapter;
 

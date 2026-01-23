@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { VisualHandler, createVisualHandler } from '../../../../../../js/agents/stages/design/runtime/visual-handler.js';
+import { VisualHandler, createVisualHandler } from '../../../../../../js/agents/stages/design/internal/visual-handler.js';
 
 describe("VisualHandler", () => {
   let handler;

@@ -16,7 +16,7 @@ import {
   extractManifestFromTool,
   extractManifestFromSkill,
   ManifestRegistry,
-} from '../../../../../js/agents/runtime/manifest/manifest.js';
+} from '../../../../../js/agents/runtime/core/manifest/manifest.js';
 
 describe("manifest", () => {
   describe("createToolManifest", () => {

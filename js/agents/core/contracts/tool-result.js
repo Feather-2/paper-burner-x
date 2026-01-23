@@ -99,6 +99,7 @@ export function normalizeToolResult(raw) {
       success: false,
       error: raw.message,
       data: undefined,
+      meta: { stack: raw.stack },
     };
   }
 

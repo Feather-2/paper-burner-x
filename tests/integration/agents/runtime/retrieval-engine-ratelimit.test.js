@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { RetrievalEngine } from '../../../../js/agents/runtime/memory/retrieval-engine.js';
+import { RetrievalEngine } from '../../../../js/agents/plugins/memory/retrieval-engine.js';
 import { TokenBucketRateLimiter } from '../../../../js/agents/llm/rate-limit.js';
 
 /**

@@ -4,27 +4,27 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   validateRpcRequest,
   validateRpcResponse,
-} from '../../../js/agents/shared/contracts/rpc-message.js';
+} from '../../../js/agents/core/contracts/rpc-message.js';
 
 describe("shared/contracts/rpc-message", () => {
   describe("validateRpcRequest", () => {
-    it("validates valid request", () => {
-      const result = validateRpcRequest({
-        type: "test",
-        payload: { data: 1 },
-        requestId: "abc123",
-      });
-      expect(result.ok).toBe(true);
-      expect(result.value.type).toBe("test");
-      expect(result.value.payload).toEqual({ data: 1 });
-      expect(result.value.requestId).toBe("abc123");
-    });
+	    it("validates valid request", () => {
+	      const result = validateRpcRequest({
+	        type: "test:ping",
+	        payload: { data: 1 },
+	        requestId: "abc123",
+	      });
+	      expect(result.ok).toBe(true);
+	      expect(result.value.type).toBe("test:ping");
+	      expect(result.value.payload).toEqual({ data: 1 });
+	      expect(result.value.requestId).toBe("abc123");
+	    });
 
-    it("trims type", () => {
-      const result = validateRpcRequest({ type: "  test  ", payload: null });
-      expect(result.ok).toBe(true);
-      expect(result.value.type).toBe("test");
-    });
+	    it("trims type", () => {
+	      const result = validateRpcRequest({ type: "  test:ping  ", payload: null });
+	      expect(result.ok).toBe(true);
+	      expect(result.value.type).toBe("test:ping");
+	    });
 
     it("rejects null", () => {
       const result = validateRpcRequest(null);
@@ -54,17 +54,17 @@ describe("shared/contracts/rpc-message", () => {
       expect(result.ok).toBe(false);
     });
 
-    it("handles undefined requestId", () => {
-      const result = validateRpcRequest({ type: "test", payload: {} });
-      expect(result.ok).toBe(true);
-      expect(result.value.requestId).toBeUndefined();
-    });
+	    it("handles undefined requestId", () => {
+	      const result = validateRpcRequest({ type: "test:ping", payload: {} });
+	      expect(result.ok).toBe(true);
+	      expect(result.value.requestId).toBeUndefined();
+	    });
 
-    it("handles non-string requestId", () => {
-      const result = validateRpcRequest({ type: "test", payload: {}, requestId: 123 });
-      expect(result.ok).toBe(true);
-      expect(result.value.requestId).toBeUndefined();
-    });
+	    it("handles non-string requestId", () => {
+	      const result = validateRpcRequest({ type: "test:ping", payload: {}, requestId: 123 });
+	      expect(result.ok).toBe(true);
+	      expect(result.value.requestId).toBeUndefined();
+	    });
   });
 
   describe("validateRpcResponse", () => {

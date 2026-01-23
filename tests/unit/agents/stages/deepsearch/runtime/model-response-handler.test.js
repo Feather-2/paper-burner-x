@@ -1,7 +1,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { ModelResponseHandler } from '../../../../../../js/agents/stages/deepsearch/runtime/model-response-handler.js';
+import { ModelResponseHandler } from '../../../../../../js/agents/stages/deepsearch/internal/model-response-handler.js';
+import { DeepSearchEvents } from '../../../../../../js/agents/runtime/events/events.js';
 
 describe("ModelResponseHandler", () => {
   const createHandler = (overrides = {}) => {
@@ -137,7 +138,7 @@ describe("ModelResponseHandler", () => {
       { stageApi: {}, addMessage: () => {}, budget: null }
     );
 
-    expect(events.map((event) => event.name)).toContain("deepsearch.model.responded");
+    expect(events.map((event) => event.name)).toContain(DeepSearchEvents.MODEL_RESPONDED);
   });
 
   it("should reset retry count", () => {

@@ -1,7 +1,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { UnifiedAgentContext } from '../../../../../js/agents/runtime/context/unified-agent-context.js';
+import { UnifiedAgentContext } from '../../../../../js/agents/runtime/core/context/unified-agent-context.js';
 
 describe("UnifiedAgentContext", () => {
   describe("constructor", () => {

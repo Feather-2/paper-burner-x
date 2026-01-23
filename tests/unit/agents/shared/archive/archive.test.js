@@ -1,13 +1,13 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 
-import { Archive, FallbackAdapter, IndexedDBAdapter, MapAdapter } from '../../../../../js/agents/shared/archive/archive.js';
+import { Archive, FallbackAdapter, IndexedDBAdapter, MapAdapter } from '../../../../../js/agents/core/archive/archive.js';
 import {
   CHECKPOINT_SCHEMA_VERSION,
   CheckpointType,
   createCheckpoint,
   migrateCheckpoint,
   validateCheckpoint,
-} from '../../../../../js/agents/shared/archive/checkpoint-schema.js';
+} from '../../../../../js/agents/core/archive/checkpoint-schema.js';
 import { indexedDB as fakeIndexedDB } from 'fake-indexeddb';
 
 afterEach(() => {

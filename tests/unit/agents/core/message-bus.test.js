@@ -4,70 +4,70 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { isValidEventNameMock } = vi.hoisted(() => ({
+  isValidEventNameMock: vi.fn(() => true),
+}));
+
 vi.mock('../../../../js/agents/core/event-bus.js', () => {
-  const isValidEventName = vi.fn(() => true);
-
-  class EventBus {
-    constructor() {
-      this._handlers = new Map();
-    }
-
-    on(name, handler) {
-      const handlers = this._handlers.get(name);
-      if (handlers) {
-        handlers.add(handler);
-      } else {
-        this._handlers.set(name, new Set([handler]));
-      }
-
-      return () => {
-        const current = this._handlers.get(name);
-        if (current) {
-          current.delete(handler);
-          if (current.size === 0) this._handlers.delete(name);
-        }
-      };
-    }
-
-    once(name, handler) {
-      let off = null;
-      const wrapper = (evt) => {
-        if (off) off();
-        return handler(evt);
-      };
-      off = this.on(name, wrapper);
-      return off;
-    }
-
-    emit(name, data = {}) {
-      const evt = this._createEvent(name, data);
-      const handlers = this._handlers.get(name);
-      if (handlers) {
-        for (const fn of Array.from(handlers)) {
-          fn(evt);
-        }
-      }
-      return evt;
-    }
-
-    _createEvent(name, data) {
-      let payload = data;
-      let meta;
-
-      if (data && typeof data === 'object' && ('payload' in data || 'actor' in data || 'status' in data)) {
-        payload = data.payload;
-        meta = data.meta;
-      }
-
-      return { type: name, name, payload, meta };
-    }
-
-    dispose() {
-      this._handlers.clear();
-    }
+  function EventBus() {
+    this._handlers = new Map();
   }
 
-  return { EventBus, isValidEventName };
+  EventBus.prototype.on = function on(name, handler) {
+    const handlers = this._handlers.get(name);
+    if (handlers) {
+      handlers.add(handler);
+    } else {
+      this._handlers.set(name, new Set([handler]));
+    }
+
+    return () => {
+      const current = this._handlers.get(name);
+      if (current) {
+        current.delete(handler);
+        if (current.size === 0) this._handlers.delete(name);
+      }
+    };
+  };
+
+  EventBus.prototype.once = function once(name, handler) {
+    let off = null;
+    const wrapper = (evt) => {
+      if (off) off();
+      return handler(evt);
+    };
+    off = this.on(name, wrapper);
+    return off;
+  };
+
+  EventBus.prototype.emit = function emit(name, data = {}) {
+    const evt = this._createEvent(name, data);
+    const handlers = this._handlers.get(name);
+    if (handlers) {
+      for (const fn of Array.from(handlers)) {
+        fn(evt);
+      }
+    }
+    return evt;
+  };
+
+  EventBus.prototype._createEvent = function _createEvent(name, data) {
+    let payload = data;
+    let meta;
+
+    if (data && typeof data === 'object' && ('payload' in data || 'actor' in data || 'status' in data)) {
+      payload = data.payload;
+      meta = data.meta;
+    }
+
+    return { type: name, name, payload, meta };
+  };
+
+  EventBus.prototype.dispose = function dispose() {
+    this._handlers.clear();
+  };
+
+  return { EventBus, isValidEventName: isValidEventNameMock };
 });
 
 import { MessageBus } from '../../../../js/agents/core/message-bus.js';
@@ -268,7 +268,7 @@ describe('MessageBus', () => {
         requestId: expect.any(String),
         replyTo: expect.any(String),
       });
-      expect(meta.replyTo).toBe();
+      expect(meta.replyTo).toBe(`rpc.response.${meta.requestId}`);
     });
 
     it('passes array-like object payloads without coercion', async () => {
@@ -346,7 +346,7 @@ describe('MessageBus', () => {
       await promise.catch((err) => {
         expect(requestId).not.toBeNull();
         expect(err).toBeInstanceOf(Error);
-        expect(err.message).toBe();
+        expect(err.message).toBe(`Invalid response for requestId: ${requestId}`);
       });
     });
 

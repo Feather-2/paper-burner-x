@@ -148,7 +148,7 @@ describe("AlertMonitor", () => {
 
             expect(agent.eventBus.emit.mock.calls.length).toBe(1);
             const [eventName, payload] = agent.eventBus.emit.mock.calls[0];
-            expect(eventName).toBe("alertmonitor.force_backtrack");
+            expect(eventName).toBe("alertmonitor:forceBacktrack");
             expect(payload.reason).toBe("critical issue");
         });
     });
@@ -485,7 +485,7 @@ describe("AlertMonitor", () => {
             new AlertMonitor({ agent, logger });
 
             // 触发 tool.completed 事件
-            agent.emit("*.tool.completed", { tool: "search", params: {}, result: {} });
+            agent.emit("*:toolCompleted", { tool: "search", params: {}, result: {} });
 
             // 第一次调用不会触发告警（需要3次重复）
             // 只是验证监听器已注册
@@ -497,7 +497,7 @@ describe("AlertMonitor", () => {
 
             const monitor = new AlertMonitor({ agent, logger });
 
-            agent.emit("deepsearch.gap.evaluated", {
+            agent.emit("deepsearch:gapEvaluated", {
                 gapId: "test-gap",
                 status: "contradicted",
             });
@@ -523,7 +523,7 @@ describe("AlertMonitor", () => {
 
             expect(agent.eventBus.emit.mock.calls.length).toBe(1);
             const [eventName, payload] = agent.eventBus.emit.mock.calls[0];
-            expect(eventName).toBe("alertmonitor.force_backtrack");
+            expect(eventName).toBe("alertmonitor:forceBacktrack");
             expect(payload.reason).toBe("test reason");
         });
 

@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { DesignContext, createDesignContext } from '../../../../../../js/agents/stages/design/runtime/design-context.js';
+import { DesignContext, createDesignContext } from '../../../../../../js/agents/stages/design/internal/design-context.js';
 
 describe("DesignContext", () => {
   let ctx;

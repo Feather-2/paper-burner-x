@@ -20,15 +20,18 @@ const agentLoopMock = vi.hoisted(() => {
   return { state, instances, MockAgentLoop };
 });
 
-const agentLoopPath = "../../../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js";
-vi.mock(agentLoopPath, () => ({
+const paths = vi.hoisted(() => ({
+  agentLoopPath: "../../../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js",
+  modulePath: "../../../../../js/agents/plugins/stages/deepsearch.js",
+}));
+
+vi.mock(paths.agentLoopPath, () => ({
   default: agentLoopMock.MockAgentLoop,
 }));
 
-const modulePath = "../../../../../js/agents/plugins/stages/deepsearch.js";
 const loadPlugin = async () => {
-  vi.doMock(agentLoopPath, () => ({ default: agentLoopMock.MockAgentLoop }));
-  return (await import(modulePath)).default;
+  vi.doMock(paths.agentLoopPath, () => ({ default: agentLoopMock.MockAgentLoop }));
+  return (await import(paths.modulePath)).default;
 };
 
 const hasOwn = Object.prototype.hasOwnProperty;

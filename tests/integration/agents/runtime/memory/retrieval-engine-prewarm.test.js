@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { RetrievalEngine } from '../../../../../js/agents/runtime/memory/retrieval-engine.js';
+import { RetrievalEngine } from '../../../../../js/agents/plugins/memory/retrieval-engine.js';
 
 /**
  * Creates a mock memory store with L3 snapshots.

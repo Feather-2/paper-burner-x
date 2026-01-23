@@ -10,8 +10,8 @@ import {
   PythonSkillExecutor,
   createPythonSkillExecutor,
   executePythonSkill,
-} from '../../../../../js/agents/runtime/deps/python-skill-executor.js';
-import { DependencyManager } from '../../../../../js/agents/runtime/deps/dependency-manager.js';
+} from '../../../../../js/agents/plugins/deps/python-skill-executor.js';
+import { DependencyManager } from '../../../../../js/agents/plugins/deps/dependency-manager.js';
 import { SkillRuntime } from '../../../../../js/agents/skills/model.js';
 
 describe("PythonSkillExecutor", () => {

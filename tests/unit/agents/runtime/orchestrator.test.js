@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { AgentOrchestrator, SchedulingMode } from '../../../../js/agents/runtime/orchestrator.js';
+import { AgentOrchestrator, SchedulingMode } from '../../../../js/agents/runtime/core/orchestrator.js';
 import { EventBus } from '../../../../js/agents/core/event-bus.js';
 import { OrchestratorState } from '../../../../js/agents/runtime/core/constants.js';
 

@@ -9,10 +9,10 @@ import {
   getAtPath,
   getPatchLayers,
   updateAtPath,
-} from '../../../../../js/agents/runtime/memory/state-diff.js';
+} from '../../../../../js/agents/plugins/memory/state-diff.js';
 
-import { StateEngine } from '../../../../../js/agents/runtime/memory/state-engine.js';
-import { addMessage, addTodo, setTaskGoal } from '../../../../../js/agents/runtime/memory/action-types.js';
+import { StateEngine } from '../../../../../js/agents/plugins/memory/state-engine.js';
+import { addMessage, addTodo, setTaskGoal } from '../../../../../js/agents/plugins/memory/action-types.js';
 
 describe("state-diff", () => {
   describe("cloneJson", () => {
