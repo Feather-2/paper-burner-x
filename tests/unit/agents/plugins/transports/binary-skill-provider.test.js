@@ -179,6 +179,34 @@ describe('BinarySkillProvider', () => {
     expect(logger.info).toHaveBeenCalledWith('Binary skill connected: alpha');
   });
 
+  it('passes allowlist options through to ProcessTransport', async () => {
+    const provider = new BinarySkillProvider({ eventBus, serviceBus, logger });
+    const config = {
+      name: 'alpha',
+      command: 'cmd',
+      args: ['--flag'],
+      env: { FOO: 'bar' },
+      cwd: '/tmp',
+      timeout: 0,
+      allowedCommands: ['cmd'],
+      allowedCwdRoots: ['/tmp'],
+      allowedEnvKeys: ['FOO'],
+    };
+
+    await provider._initSkill(config);
+
+    expect(ProcessTransportMock).toHaveBeenCalledWith({
+      command: 'cmd',
+      args: ['--flag'],
+      env: { FOO: 'bar' },
+      cwd: '/tmp',
+      timeout: 30000,
+      allowedCommands: ['cmd'],
+      allowedCwdRoots: ['/tmp'],
+      allowedEnvKeys: ['FOO'],
+    });
+  });
+
   it('logs and rethrows connection errors during initSkill', async () => {
     ProcessTransportMock.mockImplementationOnce(function ProcessTransportMockOnce(options) {
       const instance = buildTransportInstance(options);

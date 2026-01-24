@@ -63,8 +63,30 @@ transport:message / method:* / transport:stderr / transport:error / transport:ex
 - `transport:exit` 进程退出
 - `transport:parse_error` JSON 解析失败
 - `transport:buffer_overflow` 缓冲区溢出
+- `transport:message_too_large` 单条消息超过大小限制
+- `transport:invalid_message` 消息结构校验失败（字段/长度/字符集）
 - `transport:disconnected` 主动断开
 - `method:<name>` 将 `message.method` 分发为事件
+
+### 安全与限制
+
+> 该模块的职责是**与外部进程通信**，因此天然具备“执行外部命令”的能力；若 `command/args/cwd/env` 来自不可信输入，可能导致任意命令执行或沙箱逃逸。建议始终启用白名单与路径约束。
+
+#### 防护要点
+
+- **命令白名单**：通过 `allowedCommands`（或环境变量 `PROCESS_TRANSPORT_ALLOWED_COMMANDS`）限制可执行命令。
+- **工作目录白名单**：通过 `allowedCwdRoots` 限制 `cwd` 只能落在允许的根路径内。
+- **环境变量收敛**：通过 `allowedEnvKeys` 限制可覆盖的 env key；默认阻止 `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES`（除非显式 allowlist）。
+- **输入校验**：对 stdout 的 JSON-RPC 进行字段白名单与大小/深度校验，非法消息会丢弃并触发 `transport:invalid_message`。
+- **DoS 限制**：限制缓冲区和单行消息大小；超过阈值会触发 `transport:buffer_overflow` / `transport:message_too_large`。
+
+#### 配置字段
+
+| 字段 | 类型 | 作用 |
+|------|------|------|
+| `allowedCommands` | `string[]` | 命令白名单（命令名或绝对路径） |
+| `allowedCwdRoots` | `string[]` | `cwd` 允许的根路径列表 |
+| `allowedEnvKeys` | `string[]` | 允许覆盖的环境变量键名 |
 
 ### 使用示例
 
@@ -77,6 +99,8 @@ const transport = createProcessTransport({
   args: ['exec', '--experimental-json'],
   cwd: '/path/to/project',
   timeout: 60000,
+  allowedCommands: ['codex'],
+  allowedCwdRoots: ['/path/to/project'],
 });
 
 await transport.connect();
@@ -182,12 +206,15 @@ const provider = createBinarySkillProvider({
       args: ['exec', '--experimental-json'],
       methods: ['run', 'analyze'],
       autoReconnect: true,
+      allowedCommands: ['codex'],
+      allowedCwdRoots: ['/path/to/project'],
     },
     {
       name: 'playwright',
       command: 'npx',
       args: ['playwright', 'test', '--reporter=json'],
       methods: ['test', 'screenshot'],
+      allowedCommands: ['npx'],
     },
   ],
 });

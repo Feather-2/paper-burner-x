@@ -28,6 +28,17 @@ const SAFE_ENV_KEY_RE = /^[A-Z0-9_]+$/;
 const BLOCKED_ENV_KEYS = new Set(["LD_PRELOAD", "DYLD_INSERT_LIBRARIES"]);
 const ALLOWED_JSONRPC_KEYS = new Set(["jsonrpc", "id", "method", "params", "result", "error"]);
 
+/**
+ * @typedef {ReturnType<typeof setTimeout>} TimeoutHandle
+ */
+
+/**
+ * @typedef {object} PendingRequest
+ * @property {(value: unknown) => void} resolve - 处理成功响应
+ * @property {(reason?: unknown) => void} reject - 处理失败响应
+ * @property {TimeoutHandle} timer - 超时计时器
+ */
+
 function normalizeAllowlist(values) {
   if (!Array.isArray(values)) return new Set();
   const allowed = new Set();
@@ -279,9 +290,9 @@ function validateJsonRpcMessage(message) {
  * @property {string} [jsonrpc] - JSON-RPC 版本
  * @property {string|number} [id] - 请求 ID
  * @property {string} [method] - 方法名
- * @property {any} [params] - 参数
- * @property {any} [result] - 结果
- * @property {{ code: number, message: string }} [error] - 错误
+ * @property {unknown} [params] - 参数
+ * @property {unknown} [result] - 结果
+ * @property {{ code: number, message: string, data?: unknown }} [error] - 错误
  */
 
 export class ProcessTransport extends EventEmitter {
@@ -314,13 +325,13 @@ export class ProcessTransport extends EventEmitter {
     this._maxBufferSize = 1024 * 1024; // 1MB
     this._maxMessageSize = MAX_MESSAGE_LENGTH;
     this._requestId = 0;
-    /** @type {Map<string|number, { resolve: Function, reject: Function, timer: any }>} */
+    /** @type {Map<string|number, PendingRequest>} */
     this._pending = new Map();
   }
 
   /**
    * 启动进程并建立连接
-   * @returns {Promise<void>}
+   * @returns {Promise<void>} 连接成功时 resolve
    */
   async connect() {
     if (this.connected) return;
@@ -394,7 +405,7 @@ export class ProcessTransport extends EventEmitter {
 
   /**
    * 发送消息 (fire-and-forget)
-   * @param {ProcessMessage} message
+   * @param {ProcessMessage} message - JSON-RPC 消息
    */
   send(message) {
     if (!this.connected || !this.process?.stdin) {
@@ -406,9 +417,9 @@ export class ProcessTransport extends EventEmitter {
 
   /**
    * 发送请求并等待响应
-   * @param {string} method
-   * @param {any} params
-   * @returns {Promise<any>}
+   * @param {string} method - JSON-RPC method
+   * @param {unknown} params - JSON-RPC params
+   * @returns {Promise<unknown>} 响应 result
    */
   async request(method, params) {
     const id = ++this._requestId;
@@ -427,8 +438,8 @@ export class ProcessTransport extends EventEmitter {
 
   /**
    * 发送通知 (无响应)
-   * @param {string} method
-   * @param {any} params
+   * @param {string} method - JSON-RPC method
+   * @param {unknown} params - JSON-RPC params
    */
   notify(method, params) {
     this.send({ jsonrpc: "2.0", method, params });
@@ -478,7 +489,7 @@ export class ProcessTransport extends EventEmitter {
 
   /**
    * 处理收到的消息
-   * @param {ProcessMessage} message
+   * @param {ProcessMessage} message - 已校验的 JSON-RPC 消息
    * @private
    */
   _handleMessage(message) {
@@ -507,7 +518,7 @@ export class ProcessTransport extends EventEmitter {
 
   /**
    * 拒绝所有挂起的请求
-   * @param {Error} error
+   * @param {Error} error - 拒绝原因
    * @private
    */
   _rejectAllPending(error) {
@@ -540,7 +551,7 @@ export class ProcessTransport extends EventEmitter {
 
   /**
    * 是否已连接
-   * @returns {boolean}
+   * @returns {boolean} 当前连接状态
    */
   isConnected() {
     return this.connected && this.process !== null && !this.process.killed;
@@ -550,7 +561,7 @@ export class ProcessTransport extends EventEmitter {
 /**
  * 创建 ProcessTransport 实例
  * @param {ProcessTransportOptions} options - 传输配置
- * @returns {ProcessTransport}
+ * @returns {ProcessTransport} ProcessTransport 实例
  */
 export function createProcessTransport(options) {
   return new ProcessTransport(options);
