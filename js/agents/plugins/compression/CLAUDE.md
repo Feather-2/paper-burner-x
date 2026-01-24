@@ -1,6 +1,6 @@
 # compression - 压缩插件
 
-上下文压缩与监控插件集合，提供 Cicada 压缩服务和 Watchdog 自动触发。
+上下文压缩与监控插件集合，提供 Cicada 压缩服务和 Watchdog 自动触发，并通过 `index.js` 导出可复用的压缩实现与异步工具。
 
 ## 模块描述
 
@@ -11,13 +11,20 @@
 
 | 文件 | 职责 |
 |------|------|
+| `index.js` | 模块出口：导出插件与核心实现（`impl/*`），以及异步压缩工具 |
 | `cicada.js` | 注册 compression 服务；触发压缩事件；记录 lastCompression |
 | `watchdog.js` | 监控 token 使用；阈值告警与自动压缩；暴露 watchdog 服务 |
+| `impl/cicada-compressor.js` | CicadaCompressor 与 CompressionLayer 等核心压缩实现 |
+| `impl/watchdog.js` | Watchdog 核心实现（被插件封装） |
+| `impl/compression-async.js` | 异步压缩 worker：compressSessionHistoryAsync/terminate/isAvailable |
+| `impl/*` | 协调器/质量监控/预测器/自适应区间等高级能力 |
 
 ## 关键概念
 
 - 服务接口：`compression.compress/shouldCompress/getStats`，`watchdog.check/getHealth`
-- 事件：`compression.done`、`compression.warning`、`watchdog.threshold.exceeded`（仅 autoCompress=true 时触发）
+- 事件（建议统一采用 `domain:action` 形式）：
+  - `compression:done`、`compression:warning`
+  - `watchdog:threshold.exceeded`（仅 autoCompress=true 时触发）
 - 运行时数据：读取 `runtime.tokens` 与 `runtime.messages`，写入 `state.health` 与 `state.lastCompression`
 - 监控触发：`checkInterval` 定时检查 + `runtime.tokens.*` 事件触发（约 1s 节流）
 - 依赖关系：`compression/watchdog` 依赖 `compression/cicada`
@@ -50,10 +57,10 @@ const health = await kernel.call('watchdog', 'getHealth');
 监听压缩/告警事件：
 
 ```javascript
-kernel.events.on('compression.done', ({ originalCount, compressedCount, ratio }) => {
+kernel.events.on('compression:done', ({ originalCount, compressedCount, ratio }) => {
   console.log({ originalCount, compressedCount, ratio });
 });
-kernel.events.on('watchdog.threshold.exceeded', ({ usage, threshold }) => {
+kernel.events.on('watchdog:threshold.exceeded', ({ usage, threshold }) => {
   console.log({ usage, threshold });
 });
 ```

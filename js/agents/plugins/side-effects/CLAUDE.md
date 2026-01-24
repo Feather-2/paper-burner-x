@@ -30,6 +30,48 @@ SideEffectJournal 以 WAL（write-ahead log）形式持久化可回滚副作用�
 | 回滚事件 | 回滚完成后触发 `side_effects.rolled_back` |
 | autoPersist | `record()` 默认按此选项自动写入 WAL |
 
+## 数据结构（JSDoc typedef）
+
+这些类型位于 `side-effect-journal.js` 顶部，便于调用方对接与做输入校验。
+
+### SideEffectJournalCheckpointRef
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| artifactId | string | checkpoint artifact 标识 |
+| type | string? | checkpoint 类型（可选） |
+| path | string? | checkpoint 路径（可选） |
+
+### SideEffectJournalEntry（WAL 中的单条记录）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| seq | number | 序号（递增） |
+| kind | string | 记录类型（如 `vfs_checkpoint`） |
+| ts | string | 序列化后的时间戳 |
+| reversible | boolean | 是否可回滚 |
+| checkpoint | SideEffectJournalCheckpointRef? | checkpoint 引用（可选） |
+| path | string? | 目标路径（可选） |
+| op | string? | 操作类型（可选） |
+| eventId | string? | 事件唯一 ID（可选） |
+| meta | Record<string, unknown>? | 附加元数据（可选，建议为 plain object） |
+
+### SideEffectJournalRecordInput（record() 入参）
+
+与 `SideEffectJournalEntry` 类似，但 `ts` 允许 `string|number`，实现会在写入 WAL 前进行归一化。
+
+### SideEffectJournalRollbackFailure
+
+当回滚过程中某条记录失败时，用于描述失败信息：`{ seq, kind, error }`。
+
+### SideEffectJournalEventPayload
+
+`attachEventBus()` 监听的 `vfs.write.*` 事件 payload 形状：`{ op?, path?, checkpoint? }`。
+
+### RunStoreLike（DI contract）
+
+用于 `loadFromRunStore()` 等能力的依赖契约；至少需要提供 runId 对应事件的读取能力（如 `getEvents(runId)`）。
+
 ## 常见任务
 
 ### 1) 初始化并监听 VFS 写入

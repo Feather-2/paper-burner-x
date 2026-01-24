@@ -20,6 +20,8 @@
 └─────────────────────┴───────────────────────────────────────┘
 ```
 
+> `index.js` 作为统一入口：浏览器环境可安全导入 WASM 相关导出与 system 常量；System Sandbox 的函数在浏览器会抛出明确错误。
+
 ## 子模块
 
 | 子模块 | 路径 | 职责 |
@@ -35,11 +37,45 @@
 
 | 文件 | 职责 |
 |------|------|
+| `index.js` | 统一入口（浏览器/Node 兼容） |
 | `wasm-sandbox.js` | WasmSandbox 主类 |
 | `pool.js` | SandboxPool 沙箱池 |
 | `plugin.js` | createSandboxPlugin |
 | `skill-executor.js` | SkillExecutor 技能执行器 |
 | `constants.js` | 能力/预设/资源限制常量 |
+
+### 能力模型 (SandboxCapability)
+
+能力用于描述“授予 Skill 的权限集合”。
+
+注意：这些常量导出为普通对象/数组；请将其视为只读配置，不要在运行时修改。
+
+| 能力 | 值 | 风险 | 说明 |
+|------|----|------|------|
+| CONSOLE | `console` | low | 允许 `console.log/warn/error` |
+| STATE | `state` | low | 只读 state 访问 |
+| EMIT | `emit` | medium | 允许发射事件（需避免越权事件） |
+| FETCH | `fetch` | medium | 受限 HTTP 请求（需配合域名白名单/SSRF 防护） |
+| FS_READ | `fs:read` | medium | 只读文件访问（通常仅 Node-like 环境才可能生效） |
+| FS_WRITE | `fs:write` | high | 文件写入（高危，仅可信 Skill） |
+| EXEC | `exec` | critical | 子进程执行（极高危，仅可信 Skill） |
+
+### 预设能力 (SandboxPreset)
+
+- `MINIMAL`: 仅 `CONSOLE`
+- `SKILL`: `CONSOLE` + `STATE` + `EMIT`
+- `NETWORK`: `SKILL` + `FETCH`
+- `TRUSTED`: `SandboxCapability` 全量（包含 `FS_WRITE`/`EXEC` 等高危能力）
+
+### 资源限制 (ResourceLimits)
+
+资源限制用于控制单次执行的配额：内存上限、执行时间、最大栈深度。
+
+| 预设 | memoryLimit | timeoutMs | maxStackDepth | 适用 |
+|------|-------------|-----------|---------------|------|
+| LIGHT | 1MB | 1s | 100 | 轻量表达式/小任务 |
+| STANDARD | 8MB | 30s | 500 | 默认（推荐） |
+| HEAVY | 64MB | 5min | 1000 | 重计算（谨慎） |
 
 ### 使用示例
 
@@ -74,173 +110,18 @@ const result = await executor.execute(skill, { args: { x: 1 } });
 console.log(result.data);
 ```
 
-### 降级策略
+## 2. System Sandbox (Node / Bun / Deno)
 
-- 默认 `fallbackMode: "none"`：WASM 不可用时不执行
-- `fallbackMode: "eval"`：允许降级到 Worker/主线程执行（best-effort，非强安全边界，仅限可信代码）
-- 可通过 `isWasmSupported()` 探测能力
+系统级隔离后端（namespace / sandbox-exec / Docker 等），仅在 Node-like 环境可用。
 
-## 2. System Sandbox (Node/Bun/Deno)
+- 浏览器环境下：System Sandbox 的函数导出会抛出明确错误（请使用 WASM Sandbox：`createSandbox`/`SkillExecutor`）。
+- Node-like 环境下：System Sandbox 的真实实现通过动态 `import('./system/index.js')` 加载。
 
-系统级进程隔离，用于安全执行 Shell 命令。
+### 浏览器安全导出
 
-> 注意：System Sandbox 仅在 Node/Bun/Deno 可用，且 `js/agents/core/sandbox` 导出的系统 API 通过动态 import 提供，调用时需要 `await`。
+以下常量不依赖 Node API，可在浏览器安全导入（来自 `./system/constants.js`）：
 
-### 核心文件
-
-| 文件 | 职责 |
-|------|------|
-| `system/constants.js` | 后端类型、策略、默认配置 |
-| `system/detect.js` | 检测可用后端 |
-| `system/executor.js` | 统一执行器 |
-| `system/bubblewrap.js` | Linux Bubblewrap 实现 |
-| `system/seatbelt.js` | macOS Seatbelt 实现 |
-| `system/docker.js` | Docker 容器实现 |
-| `system/permission.js` | Permission-only fallback |
-| `system/path-utils.js` | 路径规范化与 SBPL 安全校验 |
-
-### 后端优先级
-
-| 优先级 | 后端 | 平台 | 隔离强度 |
-|--------|------|------|----------|
-| 1 | Bubblewrap | Linux | 强 (namespace) |
-| 2 | Seatbelt | macOS | 强 (sandbox-exec) |
-| 3 | Docker | 全平台 | 强 (container) |
-| 4 | Permission-only | 全平台 | 弱 (用户审批) |
-
-### 使用示例
-
-```javascript
-import { createSystemSandbox, execInSandbox } from 'js/agents/core/sandbox';
-
-// 方式 1: 快捷函数
-const result = await execInSandbox('ls', ['-la'], {
-  workDir: '/path/to/project',
-  allowNetwork: false,
-});
-
-// 方式 2: 执行器实例 (Node-only; 动态加载)
-const sandbox = await createSystemSandbox({
-  workDir: '/path/to/project',
-  allowNetwork: false,
-  onBackendSelected: (backend) => console.log(`Using: ${backend}`),
-});
-
-const output = await sandbox.shell('npm install');
-console.log(output.stdout);
-```
-
-### 检测可用后端
-
-```javascript
-import { detectAllBackends, detectBestBackend } from 'js/agents/core/sandbox';
-
-// 检测所有后端
-const all = await detectAllBackends();
-// [{ backend: 'bubblewrap', available: true, version: '...' }, ...]
-
-// 检测最佳后端
-const best = await detectBestBackend();
-// { backend: 'bubblewrap', available: true, ... }
-```
-
-### Permission-only 模式
-
-当没有系统级沙箱可用时，使用权限审批作为安全屏障：
-
-```javascript
-import {
-  createPermissionExecutor,
-  createInteractivePermissionHandler,
-} from 'js/agents/core/sandbox';
-
-const permissionHandler = await createInteractivePermissionHandler({
-  prompt: async (msg) => readline.question(msg),
-});
-
-const executor = await createPermissionExecutor({ permissionHandler });
-
-// 执行前会询问用户确认
-const result = await executor.shell('rm -rf temp/');
-```
-
-## 常量
-
-### SandboxCapability / SandboxPreset / ResourceLimits
-
-```javascript
-const SandboxCapability = {
-  CONSOLE: 'console',
-  STATE: 'state',
-  EMIT: 'emit',
-  FETCH: 'fetch',
-  FS_READ: 'fs:read',
-  FS_WRITE: 'fs:write',
-  EXEC: 'exec',
-};
-
-const SandboxPreset = {
-  MINIMAL: [SandboxCapability.CONSOLE],
-  SKILL: [
-    SandboxCapability.CONSOLE,
-    SandboxCapability.STATE,
-    SandboxCapability.EMIT,
-  ],
-  NETWORK: [
-    SandboxCapability.CONSOLE,
-    SandboxCapability.STATE,
-    SandboxCapability.EMIT,
-    SandboxCapability.FETCH,
-  ],
-  TRUSTED: Object.values(SandboxCapability),
-};
-
-const ResourceLimits = {
-  LIGHT: {
-    memoryLimit: 1 * 1024 * 1024,
-    timeoutMs: 1000,
-    maxStackDepth: 100,
-  },
-  STANDARD: {
-    memoryLimit: 8 * 1024 * 1024,
-    timeoutMs: 30000,
-    maxStackDepth: 500,
-  },
-  HEAVY: {
-    memoryLimit: 64 * 1024 * 1024,
-    timeoutMs: 300000,
-    maxStackDepth: 1000,
-  },
-};
-```
-
-### SandboxBackend
-
-```javascript
-const SandboxBackend = {
-  BUBBLEWRAP: 'bubblewrap',    // Linux namespace
-  SEATBELT: 'seatbelt',        // macOS sandbox-exec
-  DOCKER: 'docker',            // Docker 容器
-  PERMISSION_ONLY: 'permission-only',  // 仅权限审批
-  NONE: 'none',                // 无保护
-};
-```
-
-### DefaultSandboxConfig
-
-```javascript
-const DefaultSandboxConfig = {
-  allowedWritePaths: ['.', './output', './temp'],
-  allowedReadPaths: ['.', '/usr', '/lib', '/lib64', '/bin', '/etc'],
-  allowNetwork: false,
-  timeoutMs: 60000,
-  memoryLimit: 512 * 1024 * 1024,
-};
-```
-
-## Windows 支持
-
-Windows 没有原生系统级沙箱，选项：
-1. **Docker Desktop** - 推荐，提供容器隔离
-2. **WSL2** - 在 Linux 子系统中运行 Bubblewrap
-3. **Permission-only** - Fallback，仅用户审批
+- `SandboxBackend`
+- `SandboxPolicy`
+- `DefaultSandboxConfig`
+- `Platform`

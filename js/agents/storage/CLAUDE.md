@@ -7,8 +7,9 @@
 | 文件 | 职责 |
 |------|------|
 | `run-store.js` | RunStore - 运行记录/事件/附件持久化 |
+| `run-store-cache.js` | RunStoreCache - RunStore 缓存封装（可选） |
 | `run-exporter.js` | 运行数据导出/导入（zip） |
-| `artifact-manager.js` | Artifact manifest/序列化工具 |
+| `artifact-manager.js` | Artifact manifest/序列化/类型工具 |
 
 ## RunStore
 
@@ -33,7 +34,11 @@ const artifacts = await store.listArtifactSummaries('run_1');
 ## Artifact 管理
 
 ```javascript
-import { createManifest, addArtifactToManifest, generateArtifactId } from 'js/agents/storage/artifact-manager.js';
+import {
+  createManifest,
+  addArtifactToManifest,
+  generateArtifactId,
+} from 'js/agents/storage/artifact-manager.js';
 
 const manifest = createManifest('run_1');
 const artifactId = generateArtifactId('run_1', 'tool_output.json', 1);
@@ -43,6 +48,22 @@ addArtifactToManifest(manifest, {
   type: 'tool_output.json',
   storageKey: 'runs/run_1/tool_output.json',
 });
+```
+
+## Artifact 类型
+
+`artifact-manager.js` 导出 `SUPPORTED_ARTIFACT_TYPES`（允许写入 manifest/导出/导入的类型）。建议在写入与导出前先做类型归一化与校验：
+
+```javascript
+import {
+  canonicalArtifactType,
+  SUPPORTED_ARTIFACT_TYPES,
+} from 'js/agents/storage/artifact-manager.js';
+
+const type = canonicalArtifactType('deepsearch_state'); // -> 'deepsearch_state.json'
+if (!SUPPORTED_ARTIFACT_TYPES.includes(type)) {
+  throw new Error(`Unsupported artifact type: ${type}`);
+}
 ```
 
 ## 导出 / 导入
@@ -60,6 +81,12 @@ const importedRunId = await importRunFromZip(zipBlob, {
 });
 ```
 
+导出/导入依赖 JSZip：优先使用 `globalThis.JSZip`，否则会动态 `import('jszip')`。在纯浏览器环境（无打包器）需要提前引入 JSZip，使 `globalThis.JSZip` 可用。
+
+## RunStoreCache（可选）
+
+`run-store-cache.js` 提供对 RunStore 的缓存封装，用于减少频繁读取带来的开销（缓存策略以实现为准）。
+
 ## storageAdapter 模式
 
 storageAdapter 适用于 key/value 存储（saveTask/loadTask/saveState/loadState/saveArtifact/getArtifact 等）。依赖 runs/events 索引的接口需使用 IndexedDB。
@@ -69,8 +96,5 @@ import { RunStore } from 'js/agents/storage/run-store.js';
 import { createStorageAdapter } from 'js/agents/vfs/storage-adapter.js';
 
 const storageAdapter = await createStorageAdapter();
-const store = new RunStore({ storageAdapter, prefix: 'deepsearch:run:' });
-
-await store.saveTask({ taskId: 'task_1', status: 'queued' });
-const task = await store.loadTask('task_1');
+const store = new RunStore({ storageAdapter });
 ```

@@ -13,18 +13,18 @@
 | 文件 | 职责 |
 |------|------|
 | `unified-agent-context.js` | UnifiedAgentContext：统一状态门面、读写入口、checkpoint save/restore |
-| `subagent-budget.js` | SubagentBudgetManager：子 Agent 预算分配、使用记录与回收 |
-| `snapshotable.js` | Snapshotable 协议 + `isSnapshotable`/`assertSnapshotable` 运行时守卫 |
+| `subagent-budget.js` | SubagentBudgetManager：子 Agent 预算分配、使用记录与回收（支持并发、优先级与模式比例） |
+| `snapshotable.js` | Snapshotable 协议 + `isSnapshotable`/`assertSnapshotable` 运行时守卫（支持 SnapshotOptions） |
 
 ## 关键概念
 
 - **UnifiedAgentContext**: 纯只读 getter + 显式 set/add，避免 getter 触发写入副作用。
 - **SSOT 绑定**: `bind({ state, memory, sharedContext })` 尝试让 DeepSearchState 与 MemoryStore 共享 todos，并同步 SharedContext。
 - **Checkpoint**: `saveCheckpoint()` 优先走 state.saveCheckpoint/toSnapshot；memory 支持 `incremental/includeMemoryL3`；sharedContext 使用 serialize/deserialize。
+- **Snapshotable**: 组件快照协议（`toSnapshot(options?)`/`fromSnapshot(snapshot)`）用于稳定序列化与恢复；`SnapshotOptions` 目前包含 `includeCheckpoints`/`incremental` 标志，具体语义由实现方解释并由调用方透传。
 - **Signals/Decisions**: 通过 SharedContext 记录跨阶段信号与决策。
 - **Memory 2.0**: scratchpad 与反馈标志（`awaitUserFeedback`/`taskImpossible`）作为轻量上下文状态。
-- **SubagentBudgetManager**: 基于 `isolated/shared/handoff` 模式分配预算，支持并发上限、预留比例与使用量追踪。
-- **Snapshotable**: 组件快照协议（`toSnapshot`/`fromSnapshot`）用于稳定序列化与恢复。
+- **SubagentBudgetManager**: 基于 `isolated/shared/handoff` 模式分配预算，支持并发上限、预留比例与使用量追踪；内置模式默认比例与优先级（可自定义），预算耗尽可通过回调上报。
 
 ## 常见任务示例
 
@@ -56,22 +56,14 @@ await context.restoreCheckpoint(checkpoint);
 ### 3) 子 Agent 预算分配与回收
 
 ```javascript
-import { createSubagentBudgetManager } from 'js/agents/runtime';
+import { SubagentBudgetManager } from 'js/agents/runtime';
 
-const budget = createSubagentBudgetManager({ parentBudget: 200_000, maxConcurrent: 2 });
-const allocation = budget.allocate('subagent_1', { mode: 'shared' });
+const budgetManager = new SubagentBudgetManager({
+  parentBudget: 200_000,
+  reserveRatio: 0.2,
+  maxConcurrent: 2,
+});
 
-if (!allocation.error) {
-  budget.recordUsage('subagent_1', 1200);
-  budget.release('subagent_1', 1500);
-}
-```
-
-### 4) Snapshotable 断言
-
-```javascript
-import { assertSnapshotable } from 'js/agents/runtime/context/snapshotable.js';
-
-const snapshotable = assertSnapshotable(memoryStore, 'memoryStore');
-const snapshot = snapshotable.toSnapshot();
+// 具体分配/回收 API 以 SubagentBudgetManager 实现为准
+// 建议：分配时携带 mode/priority；结束时回收并记录 used
 ```

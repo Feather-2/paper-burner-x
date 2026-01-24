@@ -30,7 +30,7 @@
 | 文件 | 类/函数 | 用途 |
 |------|---------|------|
 | `circuit-breaker.js` | CircuitBreaker | 熔断器 |
-| `cancellation.js` | CancellationToken | 取消令牌 |
+| `cancellation.js` | CancellationToken, checkCancelled, withCancellation, isAbortError | 取消令牌与 AbortSignal 取消支持 |
 
 ## 存储
 
@@ -65,7 +65,7 @@
 
 | 文件 | 用途 |
 |------|------|
-| `budget.js` | 预算管理 |
+| `budget.js` | 预算管理（BudgetManager, BudgetAction） |
 | `logger.js` | 日志 |
 | `message-utils.js` | 消息处理 |
 | `stage-api.js` | Stage API 创建 |

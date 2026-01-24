@@ -14,7 +14,7 @@
 | `rate-limit.js` | TokenBucketRateLimiter 与限流配置读取 |
 | `overflow-recovery.js` | Token 溢出恢复 |
 | `model-events.js` | 浏览器兼容事件发射器 |
-| `constants.js` | ModelUsage/RouterStrategy/ModelHealth/TransportKind 等常量 |
+| `constants.js` | ModelUsage/MessageRole/RouterStrategy/ModelHealth/TransportKind 等常量，以及规范化/校验函数 |
 
 ## 内部模块 (internal/)
 
@@ -30,12 +30,14 @@
 ## 最近变更
 
 - **TokenBucketRateLimiter**: `maxQueue=0` 语义调整 - 队列为空时允许新任务入队（即使有 in-flight），仅当队列已有 1 个待执行任务时拒绝
+- **constants.js**: 新增 `MessageRole`，并提供 `isValidModelUsage` / `isValidMessageRole` 校验函数；`index.js` 增加导出 `isValidModelUsage`
+- **image-provider.js**: 增加 baseUrl 规范化与 Host allowlist（降低误配/越权请求风险）
 
 ## 特殊提供者
 
 | 文件 | 职责 |
 |------|------|
-| `image-provider.js` | 图像生成 |
+| `image-provider.js` | 图像生成（OpenAI / Gemini），fetch 调用与错误处理，baseUrl 规范化与 allowlist |
 | `whisper-provider.js` | 语音转文字 |
 | `mock-provider.js` | 测试用 Mock |
 | `ppt-model-bridge.js` | PPT 生成桥接 |
@@ -63,6 +65,16 @@ const resp = await router.call({
   usage: 'worker',
   messages,
 });
+```
+
+## 枚举校验
+
+```javascript
+import { isValidModelUsage } from 'js/agents/llm/index.js';
+
+if (!isValidModelUsage(usage)) {
+  throw new Error('Invalid model usage');
+}
 ```
 
 ## 速率限制

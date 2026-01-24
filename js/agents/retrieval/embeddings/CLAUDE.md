@@ -6,9 +6,9 @@
 
 | 文件 | 职责 |
 |------|------|
-| `embedding-service.js` | EmbeddingService - 嵌入生成 |
-| `vector-index.js` | VectorIndex - 向量存储 |
-| `hnsw-lite.js` | HnswLiteIndex - 近似最近邻 |
+| `embedding-service.js` | EmbeddingService - 嵌入生成（含 endpoint 校验/SSRF 防护） |
+| `vector-index.js` | VectorIndex - 向量存储与检索 |
+| `hnsw-lite.js` | HnswLiteIndex - 近似最近邻（分层图 + LSH） |
 
 ## EmbeddingService
 
@@ -41,6 +41,12 @@ await service.flush();
 const vectors = await pending;
 ```
 
+### 安全与网络限制
+
+- `endpoint` 会做基础的 URL/参数校验。
+- 内部会识别并拒绝明显的本机/内网目标（如 `localhost`、`.localhost`、`.local`、`127.0.0.1`、`10.x.x.x`、`192.168.x.x`、`172.16-31.x.x`、`::1`、`fc00::/7`、`fe80::/10` 及 IPv4-mapped IPv6 等），用于降低 SSRF 风险。
+- 若你的场景需要访问本地/内网 embeddings 服务，请在上层做显式 allowlist 与风险隔离。
+
 ## VectorIndex
 
 ```javascript
@@ -58,9 +64,11 @@ const results = index.search(queryEmbedding, {
 // → [{ id: 'doc-1', score: 0.95, meta: { ... } }, ...]
 ```
 
+备注：维度不一致时会抛出 `DimensionMismatchError`（建议调用方捕获并给出可读错误）。
+
 ## HnswLiteIndex
 
-高效近似最近邻（LSH + 分桶）：
+高效近似最近邻（LSH + 分桶 + 分层图导航），并支持与 `VectorIndex` 一致的分区策略（`meta.ts` → `hot/warm/cold`）。
 
 ```javascript
 import { HnswLiteIndex } from 'js/agents/shared/embeddings';
@@ -74,8 +82,19 @@ const hnsw = new HnswLiteIndex({
 });
 
 hnsw.upsert('doc-1', embedding1, { ts: Date.now() });
-const neighbors = hnsw.search(queryEmbedding, { topK: 10, efSearch: 16 });
+
+const neighbors = hnsw.search(queryEmbedding, {
+  topK: 10,
+  efSearch: 16,
+  partitions: ['hot', 'warm'],
+});
 
 const snapshot = hnsw.toJSON();
 const restored = HnswLiteIndex.fromJSON(snapshot);
 ```
+
+### 错误类型
+
+- `HnswLiteIndexError`: HnswLiteIndex 的基础错误类型
+- `DimensionMismatchError`: 向量维度不一致
+- `InvalidIndexError`: 索引快照/数据不合法

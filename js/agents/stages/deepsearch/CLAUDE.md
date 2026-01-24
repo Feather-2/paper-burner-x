@@ -7,14 +7,16 @@
 | 文件 | 职责 |
 |------|------|
 | `index.js` | 入口：runDeepSearchAgent / runDeepSearchTodosStage |
-| `deepsearch-agent-loop.js` | 主循环：planning -> execution -> writing |
+| `deepsearch-agent-loop.js` | 主循环：planning -> execution -> writing（含收敛检测、取消与错误分类） |
+| `constants.js` | 常量与枚举：chunk/gap/并发/检索策略、校验函数 |
 | `phases/planning-phase.js` | 规划阶段：system prompt 构建与收敛策略 |
 | `phases/execution-phase.js` | 工具调用、超时与 checkpoint |
 | `phases/writing-phase.js` | 写作阶段与回溯 |
 | `state.js` | DeepSearchState 与序列化 |
 | `source-manager.js` | 文档读取/检索与语义搜索 |
+| `internal/model-response-handler.js` | 模型输出解析与结构化处理 |
 | `tools/index.js` | 工具注册与执行 |
-| `capabilities-loader.js` | 动态能力加载 |
+| `capabilities-loader.js` | 动态能力加载：可选模块集中 import 与 DI |
 
 ## 子目录
 
@@ -66,48 +68,7 @@ DeepSearchState {
   writeSnapshots: [],
   L0: { sources: [], assets: [], sourceIndex?: object|null },
   L1: {
-    scanSummary: object|null,
-    deepDivePlan: object|null,
-    gaps: [],
-    retrieved: [],
-    claims: [],
-    evidenceLedger: [],
-    dataTables: [],
-    slideIntents: [],
-    outlineCandidates: [],
-    report: object|null,
-    conflicts: [],
-    openQuestions: [],
-    condensedMemory: object|null,
-  },
-  L2: {
-    retrievedChunks: [],
-    scratchpad: object,
-    thoughtHistory: [],
-    logs: [],
-    tokenUsage: { input: number, output: number, total: number, estimatedCostUSD: number },
-    awaitUserFeedback: boolean,
-    taskImpossible: boolean,
-    reason: string,
-  },
-  todos: [],
-  timeline: [],
+    ...
+  }
 }
-```
-
-## 使用示例
-
-```javascript
-import { runDeepSearchAgent, DeepSearchState } from 'js/agents/stages/deepsearch';
-
-const result = await runDeepSearchAgent(runContext, {
-  sources: [pdfDoc, webPage],
-  taskGoal: '分析 2024 年市场趋势',
-  userConfig: {
-    maxIterations: 15,
-    language: 'zh-CN',
-  },
-});
-
-console.log(result.report);
 ```

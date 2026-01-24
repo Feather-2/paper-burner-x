@@ -11,26 +11,41 @@
 | 文件 | 职责 |
 |------|------|
 | `engine.js` | PolicyEngine：规则归一化、条件匹配与决策排序 |
-| `manager.js` | PolicyManager：审批流程、事件通知、规则派生与落盘 |
+| `manager.js` | PolicyManager：审批流程、事件通知、请求摘要/哈希与落盘策略 |
 | `match.js` | 通配符/Glob 匹配工具，避免动态正则 ReDoS |
 | `store.js` | PolicyRuleStore：localStorage + 内存缓存持久化 |
 
 ## 关键概念
 
-- **PolicyRule / NormalizedPolicyRule**：规则含 `ruleId/effect/enabled/priority/updatedAt`，`type` 可为字符串或数组（`type/types`），`tool/resource/path` 支持通配符与 glob；归一化时补齐 `createdAt/updatedAt` 并排序。
-- **PolicyRequest / PolicyDecision**：请求字段包含 `schemaVersion/requestId/type/tool/resource/path/ts/args/argsHash/argsSummary/runId`，决策包含 `allowed/requiresApproval` 与原因。
-- **匹配维度**：`type/tool/resource/path(glob)/domainSuffixes/timeRange/match(all|any|not)`；`timeRange` 支持 `start/end` 或 `startMin/endMin`，`timezone(local|utc)`，可选 `daysOfWeek`。
+- **PolicyEffect / PolicyDefaultEffect**：`effect` 仅允许 `allow|deny`；`defaultEffect` 为 `prompt|allow|deny`。
+- **PolicyRuleInput / NormalizedPolicyRule**：规则支持多组字段别名：
+  - 标识：`ruleId` / `id`
+  - 类型：`type` / `types`
+  - 工具：`tool` / `toolPattern`
+  - 资源：`resource` / `resourcePattern`
+  - 路径：`path` / `paths`
+  - 域后缀：`domainSuffixes` / `domainSuffix`
+  - 主机后缀：`hostSuffixes` / `hostSuffix`
+  - 时间条件：`timeRange` / `window` / `timeWindow` / `when`
+  归一化时补齐/修正 `enabled/priority/createdAt/updatedAt` 并排序。
+- **PolicyRequest / PolicyDecision**：请求字段包含 `schemaVersion/requestId/type/tool/resource/path/ts/args/argsHash/argsSummary/runId`；决策包含 `allowed/requiresApproval`，可携带命中的 `effect/ruleId` 与 `reason`。
+- **匹配维度**：
+  - `type/tool/resource/path` 支持通配符与 glob（`match.js` 负责模式归一化与匹配）。
+  - 域名支持 `domainSuffixes/hostSuffixes`（用于对 URL/host 的后缀匹配）。
+  - 时间条件支持 `timeRange/timeWindow`（如 `timezone`、`daysOfWeek`、`start/end` 或 `startMin/endMin`）。
+  - 复杂组合通过 `match` 表达（如 `all|any|not`）。
 - **决策顺序**：先匹配 `deny`，再匹配 `allow`；无命中按 `defaultEffect`；缺少 `type` 直接 `requiresApproval`。
 - **优先级**：`priority` 高者优先，`updatedAt` 作为同级 tie-breaker。
 - **事件流**：`policy.requested` → `policy.approval.requested` →（外部发送 `policy.approval.response`）→ `policy.approval.responded` → `policy.decided`，必要时触发 `policy.rule.added`。
 - **非交互回退**：`interactive=false` 时按 `onMissingApprovalProvider` 回退（Node 默认 allow，Browser 默认 deny），原因 `non_interactive_allow/deny`。
+- **ID 与摘要**：`requestId` 使用安全随机的时间戳 ID（`makeSecureTimestampedId`）；`argsHash` 可对 `args` 做 SHA-256 摘要（`computeSha256`）。
 
 ## 常见任务
 
 ### 1) 直接评估规则
 
 ```javascript
-import { PolicyEngine } from 'js/agents/runtime/policy';
+import { PolicyEngine } from 'js/agents/plugins/policy/engine.js';
 
 const engine = new PolicyEngine({
   defaultEffect: 'prompt',
@@ -44,7 +59,7 @@ const decision = engine.evaluate({ type: 'tool', tool: 'bash' });
 ### 2) 走审批流程 (EventBus)
 
 ```javascript
-import { PolicyManager } from 'js/agents/runtime/policy';
+import { PolicyManager } from 'js/agents/plugins/policy/manager.js';
 
 const manager = new PolicyManager({ eventBus, interactive: true });
 const result = await manager.authorize({
@@ -52,50 +67,4 @@ const result = await manager.authorize({
   tool: 'read',
   args: { path: 'docs/readme.md' },
 });
-// 需要审批时会触发 policy.approval.requested（包含 argsSummary）
-```
-
-```javascript
-eventBus.emit('policy.approval.response', {
-  requestId: result.request.requestId,
-  decision: 'allow',
-  remember: 'always',
-  reason: 'approved by user',
-});
-```
-
-### 3) 持久化规则
-
-```javascript
-import { PolicyRuleStore } from 'js/agents/runtime/policy';
-
-const store = new PolicyRuleStore();
-store.save([
-  {
-    ruleId: 'rule_1',
-    effect: 'allow',
-    type: 'tool',
-    tool: 'read',
-    enabled: true,
-    priority: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-]);
-
-const rules = store.load();
-```
-
-### 4) 复杂条件示例
-
-```javascript
-const rule = {
-  effect: 'allow',
-  type: ['tool', 'resource'],
-  tool: 'read*',
-  path: ['**/*.md'],
-  domainSuffixes: ['example.com'],
-  timeRange: { start: '09:00', end: '18:00', timezone: 'local', daysOfWeek: [1, 2, 3, 4, 5] },
-  match: { any: [{ resource: 'https://example.com/*' }, { tool: 'glob' }] },
-};
 ```

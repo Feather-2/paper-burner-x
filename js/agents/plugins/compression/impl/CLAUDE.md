@@ -7,12 +7,12 @@ Token 监控和上下文压缩，防止溢出。
 | 文件 | 职责 |
 |------|------|
 | `watchdog.js` | Watchdog - 运行健康监控/震荡检测 |
-| `cicada-compressor.js` | CicadaCompressor - 渐进式压缩 |
+| `cicada-compressor.js` | CicadaCompressor - 渐进式压缩（分层 + 结构化摘要/归档 + schema 版本兼容） |
 | `coordinator.js` | CompressionCoordinator - 压缩协调 |
 | `compression-async.js` | 异步压缩 |
 | `compression.worker.js` | Web Worker 压缩 |
 | `context-predictor.js` | ContextPredictor - 回归预测剩余容量 |
-| `adaptive-zone-manager.js` | AdaptiveZoneManager - 动态区域边界 |
+| `adaptive-zone-manager.js` | AdaptiveZoneManager - 密度感知的动态区域边界（远模糊、近精确） |
 | `proactive-compressor.js` | ProactiveCompressor - 主动压缩协调器 |
 | `quality-monitor.js` | CompressionQualityMonitor - 压缩质量监控 |
 
@@ -44,6 +44,22 @@ Token 监控和上下文压缩，防止溢出。
 [新活跃消息...]              ← 变化部分
 ```
 
+### AdaptiveZoneManager（动态分区）
+
+自适应区域管理器按 fill ratio 将上下文分为四个 zone，并可根据“消息密度（tokens/message）”动态调整区域边界：
+
+- Archive (默认 0-20%): 重度压缩，仅保留结论
+- Condensed (默认 20-50%): 中度压缩，thinking → 决策点
+- Working (默认 50-80%): 轻度压缩，保留 thinking
+- Active (默认 80-100%): 无压缩，完整保留
+
+关键配置：
+
+- `defaultBoundaries`: `{ archive, condensed, working }`（0-1，单调递增）
+- `densityWeight`: 密度调整权重（0-1）
+
+`ProactiveCompressor` / `CompressionCoordinator` 通常基于 zone 来决定每一段消息采用“保留/摘要/归档”的强度。
+
 ### ProactiveCompressor
 
 主动压缩协调器（90% 触发，压缩到 30%）：
@@ -60,7 +76,7 @@ const compressor = new ProactiveCompressor({
 
 // 或自动选择预设
 const preset = autoSelectPreset(contextWindow);
-const compressor = new ProactiveCompressor({ contextWindow, preset });
+const compressor2 = new ProactiveCompressor({ contextWindow, preset });
 
 // 检查是否需要压缩
 const { shouldCompress, fillRatio, zone } = compressor.shouldCompress(currentTokens);
@@ -70,292 +86,22 @@ const result = await compressor.compress(messages);
 // result.messages - 压缩后的消息
 // result.sessionSummary - 累积的会话摘要（只追加）
 // result.archivedIds - 归档到 L3 的 ID 列表
-// result.stats - 压缩统计 { kept, summarized, archived }
+// result.stats - 压缩统计（计数/比例等）
 ```
 
-支持 L3 归档：传入 `memoryStore`（需实现 `archive(id, payload, keywords)`）时会写入外部存储并返回 `archivedIds`。
+### CicadaCompressor（渐进式压缩）
 
-### 预设模式
+`CicadaCompressor` 以“分层（layers）”方式逐步降低上下文体积，典型层级：
 
-| 预设 | targetFillRatio | keepLastTurns | compressThreshold | 适用场景 |
-|------|-----------------|---------------|-------------------|----------|
-| `aggressive` | 0.20 | 4 | 0.85 | 小窗口或紧急情况 |
-| `balanced` | 0.30 | 6 | 0.90 | 默认推荐 |
-| `conservative` | 0.50 | 10 | 0.92 | 大窗口或重要对话 |
+- `tool_output`
+- `session_history`
+- `llm_summary`
 
-### 预算分配算法
+并支持结构化摘要的 schema version（用于前向兼容/灰度演进）。
 
-从最老消息开始，依次决定每条的策略：
+常见配置点（见 Options typedef）：
 
-```
-budget >= 原文 tokens → keep（保留原文）
-budget >= 摘要 tokens → summarize（用预生成摘要）
-否则                  → archive（归档到 L3）
-```
-
-### 异步摘要预生成
-
-MessageManager 自动为较长消息预生成摘要：
-
-```javascript
-import { MessageManager } from 'js/agents/runtime';
-
-const mm = new MessageManager({
-  asyncSummaryEnabled: true,  // 默认开启
-  summaryGenerator: async (msg) => {
-    // 自定义摘要生成器（可选，可使用 LLM）
-    return await llm.summarize(msg.content);
-  },
-});
-
-// 添加消息时自动触发异步摘要
-mm.addMessage({ role: 'assistant', content: longContent });
-// msg._summary 和 msg._summaryTokens 会被异步填充
-
-// 动态配置
-mm.setSummaryGenerator(customGenerator);
-mm.setAsyncSummaryEnabled(false);
-```
-
-### ContextPredictor
-
-回归预测剩余上下文容量：
-
-```javascript
-import { ContextPredictor } from 'js/agents/plugins/compression';
-
-const predictor = new ContextPredictor({
-  contextWindow: 128000,
-  windowSize: 20,      // 滑动窗口大小
-  decayFactor: 0.9,    // 权重衰减因子
-});
-
-// 记录消息
-predictor.record(message);
-
-// 预测
-const { fillRatio, zone, shouldCompress, predictedRemainingMessages } = predictor.predict();
-```
-
-### AdaptiveZoneManager
-
-动态区域边界管理：
-
-```javascript
-import { AdaptiveZoneManager } from 'js/agents/plugins/compression';
-
-const zoneManager = new AdaptiveZoneManager({
-  defaultBoundaries: { archive: 0.2, condensed: 0.5, working: 0.8 },
-  densityWeight: 0.3,
-});
-
-// 获取消息的压缩策略
-const { zone, config } = zoneManager.getCompressionStrategy(messageIndex, totalMessages, fillRatio);
-// config.preserveThinking, config.summarizeThinking, config.compressionLevel
-```
-
-### Thinking 消息处理
-
-CicadaCompressor 现支持 thinking 消息渐进摘要：
-
-```javascript
-const compressor = new CicadaCompressor({ ... });
-
-// 启用 thinking 摘要（而非完全删除）
-const result = compressor.compress(context, {
-  summarizeThinking: true,           // 启用渐进摘要
-  thinkingSummaryMaxChars: 150,      // 摘要最大字符数
-});
-
-// result.stats.summarizedThinking - 摘要的 thinking 消息数
-// result.stats.removedThinking - 删除的 thinking 消息数（当 summarizeThinking=false）
-```
-
-## Watchdog
-
-运行健康监控器：检测卡住、超时、逻辑震荡，并可记录工具调用回路。
-
-```javascript
-import { Watchdog } from 'js/agents/plugins/compression';
-import { WatchdogEvents } from 'js/agents/runtime';
-
-const watchdog = new Watchdog({
-  maxRecentOutputs: 5,
-  oscillationThreshold: 0.85,
-});
-
-watchdog.observe(WatchdogEvents.WATCHDOG_INTERVENTION, ({ issues }) => {
-  console.log(issues);
-});
-
-watchdog.tick();
-watchdog.recordOutput(latestOutput);
-const health = watchdog.checkHealth({ maxIterations: 50 });
-
-const action = watchdog.recordAction({
-  type: 'tool',
-  name: 'search',
-  args: { query: '...' },
-});
-```
-
-## CicadaCompressor
-
-渐进式上下文压缩：
-
-```javascript
-import { CicadaCompressor, CompressionLayer } from 'js/agents/plugins/compression';
-
-const compressor = new CicadaCompressor({
-  layers: [
-    CompressionLayer.TOOL_OUTPUT,
-    CompressionLayer.SESSION_HISTORY,
-    CompressionLayer.LLM_SUMMARY,
-  ],
-});
-
-const compressed = await compressor.compress(messages, { targetTokens: 50000 });
-```
-
-### 原子化规则 (Atomization)
-
-`_compressWithLLM()` 内置 SimpleMem 论文的原子化策略，确保每条记忆独立可理解：
-
-1. **指代消解 (Coreference Resolution)**
-   - 代词 → 具体实体："他/她/它" → 实际名称
-   - 指示词 → 具体对象："那个文件" → 实际文件名
-
-2. **时间归一化 (Temporal Normalization)**
-   - 相对时间 → ISO-8601："明天" → "2025-01-20"
-   - 模糊时间 → 精确时间戳："刚才" → "2025-01-19T14:30:00Z"
-
-3. **当前时间注入**
-   - Prompt 中自动包含 `Current time: ${ISO-8601}` 供 LLM 参考
-
-### Archive / Restore / listArchives
-
-CicadaCompressor 支持将全量上下文存档到 L3，并可检索：
-
-```javascript
-const compressor = new CicadaCompressor({
-  maxArchives: 200,
-  archiveRetentionDays: 7,
-  archive: memoryStore, // 可选：外部存储适配器
-});
-
-// compress 时传入 archiveKey/stageKey 会自动归档原始上下文
-await compressor.compress(context, { archiveKey: 'stage:plan' });
-
-// 手动归档 / 还原 / 列表
-const id = await compressor.archive('stage:plan', { context, metadata });
-const entry = await compressor.restore('stage:plan');
-const list = await compressor.listArchives({ limit: 20, pattern: 'search' });
-```
-
-`listArchives` 支持简单模式匹配，已做长度限制和非法正则回退。
-
-### Handoff 交接文档
-
-```javascript
-const handoff = compressor.buildHandoff(state, sharedContext);
-// handoff.accomplished / handoff.pending / handoff.decisions / handoff.resumeGuide
-```
-
-### SharedContext 集成
-
-传入 `sharedContext` 时，压缩会同步摘要/索引并广播信号：
-
-```javascript
-await compressor.compress(context, { archiveKey, sharedContext });
-// sharedContext.setSummary / setIndex / signal 会被调用（若存在）
-```
-
-## CompressionCoordinator
-
-压缩调度器：封装阈值判断、title-only 模式、Worker 阈值等触发逻辑。
-
-```javascript
-import { CompressionCoordinator } from 'js/agents/plugins/compression';
-
-const coordinator = new CompressionCoordinator({
-  getContextConfig: () => ({
-    contextWindow: 128000,
-    compressThreshold: 0.9,
-    keepLastTurns: 6,
-    titleOnlySummaryThreshold: 0.8,
-    titleOnlySummaryMaxWords: 10,
-    titleOnlySummaryMaxChars: 80,
-    maxKeptMessageChars: 2000,
-    useCompressionWorker: true,
-    workerThresholdMessages: 50,
-  }),
-  getTokenUsage: () => ({ total: 42000 }),
-  logger,
-});
-
-const shouldCompress = coordinator.shouldCompress();
-const { messages: compressedMessages } = await coordinator.maybeCompress(messages, { signal });
-```
-
-## 异步压缩（compression-async）
-
-Browser 优先：Worker 可用时走 `compression.worker.js`，不可用时自动回退同步逻辑。
-
-- `compressSessionHistoryAsync`：对 SESSION_HISTORY 压缩，支持 WorkerRpc。
-- `compressAgentLoopMessagesAsync`：自动处理 `[Context Summary]`，并在末尾追加最新 summary。
-- `maxKeptMessageChars`：对保留消息做截断/脱敏（移除 `persistedOutput.preview` 预览）。
-
-```javascript
-import {
-  compressAgentLoopMessagesAsync,
-  isCompressionWorkerAvailable,
-  terminateCompressionWorker,
-} from 'js/agents/plugins/compression/impl/compression-async.js';
-
-const result = await compressAgentLoopMessagesAsync(messages, {
-  keepLastTurns: 6,
-  titleOnly: false,
-  summaryLineChars: 120,
-  maxKeptMessageChars: 2000,
-}, {
-  useWorker: true,
-  workerThresholdMessages: 50,
-});
-
-if (isCompressionWorkerAvailable()) {
-  // Worker 可用时会自动走异步
-}
-
-terminateCompressionWorker();
-```
-
-## CompressionQualityMonitor
-
-压缩质量监控，评估信息保留率：
-
-```javascript
-import { CompressionQualityMonitor } from 'js/agents/plugins/compression';
-
-const monitor = new CompressionQualityMonitor({
-  minRetentionRatio: 0.7,    // 最小保留率阈值
-  maxSamples: 100,           // 最大样本数
-  trendWindowSize: 10,       // 趋势分析窗口
-});
-
-// 记录压缩结果
-const { retention, belowThreshold } = monitor.record({
-  beforeTokens: 10000,
-  afterTokens: 8000,
-  keptMessages: 5,
-  summarizedMessages: 2,
-  archivedMessages: 3,
-});
-
-// 获取质量评估
-const assessment = monitor.getAssessment();
-// { avgRetention, belowThresholdCount, trend: 'improving'|'stable'|'degrading', sampleCount }
-
-// 健康检查
-const health = monitor.checkHealth();
-// { needsAdjustment, recommendation, status: 'healthy'|'warning'|'critical' }
-```
+- `maxTokens`: 压缩目标 token 上限
+- `layers`: 启用的压缩层
+- `archive`/`maxArchives`/`archiveRetentionDays`: 归档适配器与保留策略
+- `eventBus`: 事件上报（用于质量监控/可观测性）

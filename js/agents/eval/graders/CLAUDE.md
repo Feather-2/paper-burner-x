@@ -22,9 +22,16 @@ EvalHarness 的评分器实现集合，涵盖确定性规则、LLM-as-judge、�
 - **输入类型**：确定性 grader 多接收 output 或 transcript；composite 接收 `GraderResult[]`
 - **LLM-as-judge**：需提供 `llmClient`，默认要求返回严格 JSON；优先使用 deterministic
 - **Pairwise 对比**：`llm_pairwise` 需要 `options.outputB/baseline/compareTo`
-- **Composite 子集**：`all_pass`/`weighted`/`threshold` 支持 `options.types` 过滤指定 graderType
+- **Composite 子集过滤**：
+  - `options.types` 支持 `string | string[]`（内部会归一化为 string[]）
+  - 当 `types` 过滤后没有任何可评结果时：
+    - `all_pass`：`passed=true`，`score=1`
 - **Threshold 聚合**：`options.threshold` 默认 0.6；`options.use` 支持 `avg|min|max`
 - **EvaluateStage 配置**：`stage` 支持 `strict`/`dimensions`/`dimensionConfig` 控制维度与阈值
+- **Content 评估类型**（`content.js`）
+  - `EvaluationInput`：`{ content, original?, context? }`
+  - `EvaluationIssue`：`{ type, severity, message, location? }`
+  - `Evaluator`：单维度评估器（可 sync/async），返回 `{ score, issues? }`
 - **自定义评估器**：`registerEvaluator/unregisterEvaluator` 扩展维度，并通过 `dimensionConfig` 注入权重/参数
 
 ## 常见任务
@@ -74,23 +81,15 @@ const task = {
       type: "content",
       options: {
         stage: {
-          passThreshold: 0.7,
           strict: true,
-          dimensions: ["completeness", "accuracy"],
+          dimensions: ["completeness", "accuracy", "clarity", "relevance"],
+          dimensionConfig: {
+            completeness: { weight: 1 },
+            accuracy: { weight: 2 },
+          },
         },
       },
     },
-  ],
-};
-```
-
-### 6) 使用 threshold 聚合
-
-```js
-const task = {
-  graders: [
-    { type: "regex", options: { pattern: "pass" } },
-    { type: "threshold", options: { threshold: 0.7, use: "min", types: ["regex"] } },
   ],
 };
 ```

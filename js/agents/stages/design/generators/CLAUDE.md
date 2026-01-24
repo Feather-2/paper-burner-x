@@ -12,7 +12,7 @@
 | `layout-protocol.js` | 布局类型/区域协议 |
 | `image-generator.js` | ImageGenerator - 图像生成/填充 |
 | `svg-generator.js` | SVGGenerator - SVG 生成/填充 |
-| `batch-generator.js` | 批量生成 |
+| `batch-generator.js` | 批量生成（system prompt 外置加载/缓存） |
 
 ## 设计令牌
 
@@ -33,11 +33,25 @@ const { theme, designTokens } = generateDesignTokens({
 import { generateDesignSystem } from 'js/agents/stages/design/generators/design-system-generator.js';
 
 const system = await generateDesignSystem(
-  { contentSummary: '...', tone: 'calm', userPreferences: { designSystemOverrides: { typography: { lineHeight: 1.3 } } } },
+  {
+    contentSummary: '...',
+    tone: 'calm',
+    userPreferences: { designSystemOverrides: { typography: { lineHeight: 1.3 } } },
+  },
   { modelRouter, aiApiService, constraints: { safeMarginPct: 8 } }
 );
 // → validated DesignSystem + legacy designTokens sync
 ```
+
+说明：
+- `designSystemOverrides` 使用深度合并（overrides 优先），并过滤 `__proto__`/`prototype`/`constructor` 键以避免原型污染。
+- `visualPreference` 支持 string（如 `'dark'`）或对象（如 `{ mode: 'dark' }`），内部会将 `mode` 规范化为小写。
+
+## 批量生成
+
+- system prompt 通过 `loadPrompt('design/batch-generator-system')` 外置加载；加载失败时回退到内置 fallback。
+- prompt 结果会缓存，避免重复加载。
+- 模型输出为 JSON 数组（形如 `[{ slideIntentId, slideHtml }]`）；在进入 HTML/DSL 拼装与渲染前，务必对结构与长度做校验，并对可渲染 HTML 做安全处理（避免 XSS）。
 
 ## 布局协议
 
@@ -66,5 +80,5 @@ import { SVGGenerator, fillSvgPlaceholders } from 'js/agents/stages/design/gener
 
 const svgGen = new SVGGenerator();
 const { results } = await svgGen.generate(svgSlots, designSystem);
-const { html: filledHtml } = fillSvgPlaceholders(deckHtmlDsl, results);
+const { deckHtmlDsl: filledHtml } = fillSvgPlaceholders(deckHtmlDsl, results);
 ```

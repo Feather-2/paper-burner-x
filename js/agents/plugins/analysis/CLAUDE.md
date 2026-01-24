@@ -1,14 +1,14 @@
 # analysis - 行为分析
 
-Agent 行为指纹、上下文蒸馏和语义收敛检测（含指纹插件）。
+Agent 行为指纹 / 循环检测 与语义收敛检测（含指纹插件）。内部会使用 `createLogger` 输出诊断日志（`runtime/analysis/*`）。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `behavior-fingerprint.js` | 行为指纹检测、上下文蒸馏 |
-| `convergence-detector.js` | 语义收敛检测 (检测收敛/卡住) |
-| `fingerprint.js` | 行为指纹插件（服务 + 事件） |
+| `behavior-fingerprint.js` | 行为签名与循环/重复序列检测（BehaviorFingerprint） |
+| `convergence-detector.js` | 语义收敛检测（ConvergenceDetector：熵/相似度） |
+| `fingerprint.js` | BehaviorFingerprint 的插件封装（kernel.use） |
 | `index.js` | 模块导出 |
 
 ## 行为指纹
@@ -18,12 +18,14 @@ import { BehaviorFingerprint } from 'js/agents/plugins/analysis';
 
 const fingerprint = new BehaviorFingerprint({
   historySize: 100,
+  minPatternLength: 2,
+  maxPatternLength: 10,
   loopThreshold: 3,
 });
 
 const { loopDetected, loopInfo } = fingerprint.recordAction({
   type: 'tool:call',
-  params: { query: 'foo' },
+  params: { query: 'foo', limit: 10 },
 });
 
 if (loopDetected) {
@@ -32,6 +34,9 @@ if (loopDetected) {
 
 const suggestion = fingerprint.getSuggestion();
 ```
+
+说明：
+- 指纹签名默认只使用 `type/name` 与 `params/args` 的键结构（不包含具体值），用于降低敏感信息泄露风险并提高泛化能力。
 
 ## 上下文蒸馏
 
@@ -46,9 +51,11 @@ const distiller = new ContextDistiller({
 const distilled = distiller.distill(parentContext, 'Summarize user intent');
 ```
 
+如果当前模块未导出 `ContextDistiller`，请以 `index.js` 的实际导出为准。
+
 ## 收敛检测
 
-检测输出是否语义收敛：
+检测输出是否语义收敛（内部会自动对旧浏览器降级分词/正则能力）：
 
 ```javascript
 import { ConvergenceDetector } from 'js/agents/plugins/analysis';
@@ -78,14 +85,5 @@ await kernel.use(fingerprintPlugin, {
   similarityThreshold: 0.5,
   maxHistory: 50,
 });
-
-await kernel.start();
-
-const result = await kernel.services.call('fingerprint', 'analyze', [{
-  type: 'tool_call',
-  name: 'search',
-  args: { q: 'foo' },
-}]);
-
-kernel.events.waitFor('fingerprint:loopDetected', 500);
+... (12 more lines)
 ```

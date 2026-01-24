@@ -1,13 +1,13 @@
 # coordination - 跨环境协调
 
-在浏览器 Tab 或 Node cluster 间同步 session 的访问/驱逐事件，用于缓存/LRU 一致性。
+在浏览器 Tab 或 Node.js cluster 间同步 session 的访问/驱逐事件，用于缓存/LRU 一致性。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
 | `tab-coordinator.js` | TabCoordinator - BroadcastChannel 跨 Tab 协调 + 心跳/选主 |
-| `process-coordinator.js` | ProcessCoordinator - cluster IPC 跨进程协调 |
+| `process-coordinator.js` | ProcessCoordinator - cluster IPC 跨进程协调（Node-only） |
 
 ## TabCoordinator (Browser)
 
@@ -41,7 +41,11 @@ coordinator.dispose();
 
 使用 cluster IPC 协调进程：worker → primary → 广播给所有 worker。
 
+注意：`process-coordinator.js` 依赖 Node.js-only API（`globalThis.process`、`node:cluster`）。
+不要打进浏览器 bundle；在 Node 入口文件中使用，或通过 conditional imports / build aliases 隔离。
+
 ```javascript
+// Node-only entry file (do not bundle for browser)
 import { ProcessCoordinator, isClusterSupported } from 'js/agents/runtime';
 
 if (isClusterSupported()) {
@@ -71,5 +75,6 @@ if (isClusterSupported()) {
 
 - BroadcastChannel 不可用时 TabCoordinator 自动降级为 no-op。
 - ProcessCoordinator 仅在 Node + cluster 环境生效；可先调用 `isClusterSupported()`。
+- 浏览器构建时避免静态引入 ProcessCoordinator（`node:cluster`）；用 conditional imports / build aliases。
 - `broadcastAccess/broadcastEviction` 会忽略空 sessionId。
 - 可选传入 `logger`（需实现 `warn`）用于输出内部警告。

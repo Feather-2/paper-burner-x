@@ -2,13 +2,18 @@
 
 Python Skill 的依赖解析、缓存与执行（Pyodide）。
 
+该模块负责：
+- 解析 Skill `metadata.dependencies`（builtin/micropip/wheels）
+- 生成并执行 Pyodide 依赖加载脚本（含基础安全校验：URL allowlist、文件名清洗、可选哈希校验）
+- 通过 `PythonSkillExecutor` 统一执行 Python Skill（支持 AbortSignal、输入/输出文件、指标）
+
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
 | `index.js` | 入口与导出 |
-| `dependency-manager.js` | DependencyManager - 解析/缓存 Pyodide 依赖 |
-| `python-skill-executor.js` | PythonSkillExecutor - 执行 Python Skill |
+| `dependency-manager.js` | `DependencyManager` - 解析/缓存 Pyodide 依赖（builtin/micropip/wheels） |
+| `python-skill-executor.js` | `PythonSkillExecutor` - 执行 Python Skill（依赖预加载 + 运行 + 结果封装） |
 
 ## 导出
 
@@ -18,9 +23,32 @@ Python Skill 的依赖解析、缓存与执行（Pyodide）。
 | `PythonSkillExecutor` | 执行 Python Skill |
 | `createPythonSkillExecutor` | 构建执行器（同步） |
 | `executePythonSkill` | 便捷执行单个 Skill |
-| `PYODIDE_BUILTIN` | Pyodide 内置包集合 |
-| `parsePackageName` | 解析包名 |
-| `sha256` | 计算 SHA-256 |
+| `PYODIDE_BUILTIN` | Pyodide 0.26.x 内置包集合（用于快速判断/分流） |
+| `parsePackageName` | 解析包名（去掉版本约束，返回小写） |
+| `sha256` | 计算 SHA-256（用于 wheel/缓存校验） |
+
+## 依赖规格（Skill metadata.dependencies）
+
+支持三类依赖：
+
+- `builtin`: 由 `pyodide.loadPackage()` 加载的内置包名数组
+- `micropip`: 交给 `micropip.install()` 的 PyPI 规格数组（建议固定版本）
+- `wheels`: 自定义 wheel 列表（URL + 可选 sha256，用于下载后校验与缓存）
+
+```javascript
+{
+  builtin: ['numpy'],
+  micropip: ['tabulate>=0.9'],
+  wheels: [{ url: 'https://files.pythonhosted.org/.../pkg.whl', sha256: '...' }],
+}
+```
+
+## 安全与限制
+
+- Wheels URL：仅应允许 `https:`，并对 host 做 allowlist 校验（默认偏向 PyPI 官方域名）；不要接受用户任意 URL。
+- 完整性：建议对 wheel 强制提供 `sha256` 并在下载后验证，避免供应链污染。
+- 缓存：wheel 文件名会从 URL 派生并做清洗，避免路径穿越；但仍应限制下载大小/数量。
+- 不信任 Skill：若 Skill 代码来源不可信，需要在运行时隔离（Worker/iframe/进程级隔离），避免通过 Pyodide ↔ JS 桥接访问宿主敏感能力。
 
 ## Python Skill 执行
 
@@ -31,22 +59,28 @@ import { executePythonSkill } from 'js/agents/plugins/deps';
 
 const skill = {
   metadata: {
-    name: "stats",
-    runtime: "python",
+    name: 'stats',
+    runtime: 'python',
     dependencies: {
-      builtin: ["pandas"],
-      micropip: ["tabulate>=0.9"],
-      wheels: [{ url: "https://example.com/pkg.whl", sha256: "..." }],
+      builtin: ['pandas'],
+      micropip: ['tabulate>=0.9'],
+      wheels: [{ url: 'https://files.pythonhosted.org/.../pkg.whl', sha256: '...' }],
     },
-    entrypoint: "main.py",
+    entrypoint: 'main.py',
   },
-  path: "/skills/stats",
+  path: '/skills/stats',
 };
+
+const abort = new AbortController();
 
 const result = await executePythonSkill(skill, {
   state: { data: inputData },
   vfs,
+  signal: abort.signal,
+  inputFiles: { 'input.json': JSON.stringify(inputData) },
 });
+
+// result: { success, data?, error?, metrics?, outputFiles? }
 ```
 
 ## DependencyManager
@@ -57,8 +91,9 @@ import { DependencyManager } from 'js/agents/plugins/deps';
 const manager = new DependencyManager({ vfs });
 
 const plan = await manager.resolve({
-  builtin: ["numpy"],
-  micropip: ["pyyaml>=6.0"],
+  builtin: ['numpy'],
+  micropip: ['pyyaml>=6.0'],
+  wheels: [{ url: 'https://files.pythonhosted.org/.../pkg.whl', sha256: '...' }],
 });
 
 const loadScript = manager.generateLoadScript(plan);

@@ -7,7 +7,7 @@
 | 文件 | 职责 |
 |------|------|
 | `archive.js` | 入口导出：Archive、MapAdapter、IndexedDBAdapter、FallbackAdapter |
-| `archive-core.js` | Archive 类（差量快照/恢复缓存） |
+| `archive-core.js` | Archive 类（差量快照/恢复缓存/输入校验） |
 | `map-adapter.js` | MapAdapter（内存存储） |
 | `storage-adapter.js` | StorageAdapter 接口定义 |
 | `serialization.js` | JSON patch/diff 序列化逻辑 |
@@ -27,10 +27,11 @@ const archive = new Archive(new FallbackAdapter(), {
     maxOps: 5000,
     maxDepth: 12,
   },
+  // 恢复结果缓存（0=禁用，Infinity=不设上限）
   restoreCacheMax: 200,
 });
 
-// 保存
+// 保存 -> 返回 checkpointId（格式见下方）
 const checkpointId = await archive.save('run-123', {
   nodeStates: state,
   metadata: { runId: 'run-123', iteration: 1 },
@@ -49,10 +50,17 @@ const list = await archive.listCheckpoints('run-123');
 await archive.deleteOlderThan(7);
 ```
 
+### CheckpointId 约定
+
+- `runId`：非空字符串，且不应包含 `:`（用于分隔）
+- `checkpointId`：`${runId}:${timestamp}`，必要时 `${runId}:${timestamp}-${seq}`
+  - `timestamp` 为数字字符串（通常是毫秒时间戳）
+  - `seq` 为数字字符串，用于同毫秒内生成多个 checkpoint 时去重
+
 ## 适配器
 
 - `MapAdapter`: 内存存储，适合 Node/测试
-- `IndexedDBAdapter`: 浏览器持久化，可用 `clear()`/`close()`
+- `IndexedDBAdapter`: 浏览器持久化，可用 `clear()`/`close()`；IndexedDB 不可用会抛错
 - `FallbackAdapter`: IndexedDB 不可用时自动回退 MapAdapter
 - 自定义适配器需实现 `StorageAdapter`：`get/set/delete/keys` (Promise)
 

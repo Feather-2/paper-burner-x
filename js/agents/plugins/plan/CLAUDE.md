@@ -15,11 +15,14 @@
 ## 关键概念
 
 - **Plan (schema v0.1)**: `schemaVersion/kind/planId/runId/title/createdAt/updatedAt/steps/selectedStepIndex/lifecycleStatus` 组成的运行计划对象，兼容 `status` 旧字段。
-- **PlanStep**: `stepId/title/status/createdAt/updatedAt/meta`，状态来自 `StepStatus`（`core/agent-status`）。
+- **PlanStep (runtime)**: `stepId/title/status/createdAt/updatedAt/meta`，其中 `status` 来自 `StepStatus`（`runtime/core/agent-status`）。
+- **计划 ID 生成**: `makeSecureTimestampedId('plan')` 生成带 `plan_` 前缀的唯一 ID（用于 `planId` 等）。
+- **时间字段标准化**: `toIso()` 将时间输入（字符串/毫秒/Date）标准化为 ISO 8601 字符串，用于 `createdAt/updatedAt`。
 - **生命周期**: `draft → approved → in_progress → completed/failed/cancelled`，通过 `canTransitionPlanLifecycle` 校验。
-- **StructuredPlan (schema v1.0)**: `schemaVersion/planId/title/summary/createdAt/requirements/decisions/steps/risks/criticalFiles/meta`。
-- **结构化子项构建器**: `createRequirementsAnalysis/createRequirement/createArchitecturalDecision/createPlanStep/createRisk/createCriticalFile` 用于拼装计划子项。
-- **计划工件**: `PLAN_ARTIFACT_TYPE = plan.json`，`savePlan` 依赖 `runStore.saveArtifact`。
+- **StructuredPlan (schema v1.0)**: `schemaVersion/planId/title/summary/createdAt/requirements/decisions/steps/risks/criticalFiles/meta`，用于可解析的规划输出。
+- **StructuredPlan.Step**: 结构化步骤包含 `title/description/status/dependencies`，用于描述执行内容与依赖关系（与运行时 PlanStep 区分）。
+- **结构化子项构建器**: `createRequirementsAnalysis/createRequirement/createArchitecturalDecision/createPlanStep/createRisk/createCriticalFile` 用于拼装结构化子项。
+- **计划工件**: `PLAN_ARTIFACT_TYPE = 'plan.json'`，`savePlan` 依赖 `runStore.saveArtifact(runId, type, payload, options)` 持久化。
 
 ## 常见任务
 
@@ -55,7 +58,11 @@ await savePlan({ runStore, plan: inProgress });
 生成结构化计划并输出 Markdown：
 
 ```javascript
-import { createStructuredPlan, validateStructuredPlan, structuredPlanToMarkdown } from 'js/agents/plugins/plan';
+import {
+  createStructuredPlan,
+  validateStructuredPlan,
+  structuredPlanToMarkdown,
+} from 'js/agents/plugins/plan';
 
 const structured = createStructuredPlan({
   title: 'Implementation Plan',
@@ -63,30 +70,9 @@ const structured = createStructuredPlan({
 });
 
 const { valid, errors } = validateStructuredPlan(structured);
-if (valid) console.log(structuredPlanToMarkdown(structured));
-else console.error(errors);
-```
-
-使用子项构建器组装结构化计划：
-
-```javascript
-import {
-  createRequirement,
-  createArchitecturalDecision,
-  createPlanStep,
-  createStructuredPlan,
-} from 'js/agents/plugins/plan';
-
-const structured = createStructuredPlan({
-  title: 'Implementation Plan',
-  requirements: {
-    functional: [
-      createRequirement({ description: '支持导出结构化计划', priority: 'must_have' }),
-    ],
-  },
-  decisions: [
-    createArchitecturalDecision({ title: 'Markdown 输出', decision: '使用 structuredPlanToMarkdown' }),
-  ],
-  steps: [createPlanStep({ title: '实现 API', description: '补齐校验与测试' })],
-});
+if (valid) {
+  console.log(structuredPlanToMarkdown(structured));
+} else {
+  console.error(errors);
+}
 ```

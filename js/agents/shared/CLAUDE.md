@@ -45,24 +45,4 @@
 | `utils/safe-regex.js` | ReDoS 规避与 glob→regex |
 | `utils/value-utils.js` | 值转换与 token 估算 |
 | `utils/token-cache.js` | token 估算缓存 |
-| `utils/logger.js` | 统一日志与 trackToolCall |
-| `utils/message-utils.js` | 注入 system hint（缓存友好） |
-| `utils/stage-api.js` | stageApi 校验/合并/派生/工具调用 |
-| `utils/event-emitter.js` | 跨平台 EventEmitter |
-| `utils/file-watcher.js` | FileWatcher（Node 原生/浏览器轮询） |
-| `utils/storage-quota.js` | localStorage/IndexedDB 配额检测与安全写入 |
-| `utils/storage-crypto.js` | WebCrypto AES-GCM 加解密 |
-| `utils/secure-id.js` | 密码学随机 ID/UUID |
-| `utils/wasm-support.js` | WASM/线程支持检测 |
-| `utils/deque.js` | 双端队列 |
-| `utils/lru-cache.js` | LRU 缓存 |
-
-## 子模块索引
-
-- `archive/` 归档与检查点 → `js/agents/shared/archive/CLAUDE.md`
-- `contracts/` 运行时契约/Disposable → `js/agents/shared/contracts/CLAUDE.md`
-- `embeddings/` 向量嵌入与索引 → `js/agents/shared/embeddings/CLAUDE.md`
-- `utils/` 通用工具集合 → `js/agents/shared/utils/CLAUDE.md`
-- `tokenizers/` Token 计数器（自适应 + tiktoken/WASM）
-- `base/` DisposableBase 基类（资源释放、订阅/定时器注册）
-- `parser/` Tree-sitter WASM 封装（浏览器初始化与语言加载）
+| `utils/logger.js` | 统一日志封装（分级/标签），避免散落的 console 调用 |

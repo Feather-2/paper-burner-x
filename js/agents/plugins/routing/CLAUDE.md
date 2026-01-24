@@ -2,13 +2,13 @@
 
 ## 模块描述
 
-基于历史延迟与成功率的自适应路由器，按任务复杂度在 Fast/Power 层之间选择端点，并支持端点权重、过滤与统计查询。
+基于历史延迟与成功率的自适应路由器，按任务复杂度在 Fast/Power/Fallback 分层之间选择端点，并支持端点权重、过滤与统计查询。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `performance-router.js` | PerformanceRouter 路由器、EwmaTracker、任务复杂度估算 |
+| `performance-router.js` | PerformanceRouter 路由器、EwmaTracker、任务复杂度估算与端点统计 |
 
 ## 关键概念
 
@@ -19,11 +19,15 @@
 | `TaskComplexity` | `SIMPLE` / `MODERATE` / `COMPLEX` 任务复杂度 |
 | `EndpointStats` | 每端点延迟、成功率、权重与评分 |
 | `score` | `(1 / (1 + latency/1000)) * successRate * weight` |
-| `error penalty` | 失败时按 5000ms 惩罚延迟记入统计 |
+| `DEFAULT_EWMA_ALPHA` | 默认 EWMA 衰减因子 `0.3` |
+| `DEFAULT_ERROR_PENALTY_MS` | 失败时按 `5000ms` 惩罚延迟记入统计 |
+| `TOKEN_CHARS_PER_TOKEN` | token 估算：以字符数 / `4` 近似 token 数量 |
+| `SIMPLE_TOKEN_THRESHOLD` | 复杂度阈值：基于 token 估算，`≤100` 视为 `SIMPLE` |
+| `MODERATE_TOKEN_THRESHOLD` | 复杂度阈值：基于 token 估算，`≤500` 视为 `MODERATE`，否则为 `COMPLEX` |
 | `preferFastTier` | SIMPLE 任务优先 FAST 层的开关 |
 | `includeIds/excludeIds` | 路由选择的白/黑名单过滤 |
 | `auto-register` | `recordResult` 在未知端点时自动创建统计项 |
-| `onRouteDecision` | 路由决策回调，用于日志/遥测 |
+| `onRouteDecision` | 路由决策回调，用于日志/遥测（实现中也可接入 logger） |
 
 ## 常见任务
 

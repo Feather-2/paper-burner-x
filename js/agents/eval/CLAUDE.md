@@ -23,7 +23,7 @@ js/agents/eval/
 ### 1) 运行一个 task（多次 trial）
 
 ```js
-import { EvalHarness } from "js/agents/eval";
+import { EvalHarness } from 'js/agents/eval';
 
 const harness = new EvalHarness({
   // 你提供一个创建 Agent 的函数（每次 trial 都应返回全新实例）
@@ -39,29 +39,44 @@ const harness = new EvalHarness({
 });
 
 const task = {
-  id: "t1",
-  description: "Echo task",
-  input: "hello",
-  graders: [
-    { type: "regex", options: { pattern: "^echo:hello$" } },
-  ],
+  id: 't1',
+  description: 'Echo task',
+  input: 'hello',
+  graders: [{ type: 'regex', options: { pattern: '^echo:hello$' } }],
 };
 
 const result = await harness.runTask(task);
-// result: { taskId, trials, passRate, passAtK, passExpK }
+// result: { taskId, trials, passRate, passAtK, passExpK, ... }
 ```
 
 ### 2) 运行 suite（并发）
 
 ```js
-const suite = { suiteId: "demo", tasks: [task] };
+const suite = { suiteId: 'demo', tasks: [task] };
 const suiteResult = await harness.runSuite(suite, { concurrency: 4 });
-// suiteResult: { suiteId, tasks, aggregated }
+// suiteResult: { suiteId, tasks, aggregated, ... }
 ```
 
 ## 核心数据结构（JSDoc）
 
-- `js/agents/eval/types.js`: `EvalTask`, `Trial`, `Transcript`, `GraderConfig`, `GraderResult`, `EvalSuiteResult` 等。
+- `js/agents/eval/types.js`: `EvalTask`, `EvalSuite`, `Trial`, `Transcript`, `TranscriptEntry`, `GraderConfig`, `GraderResult`, `TaskResult`, `EvalSuiteResult`, `TrialMetrics` 等。
+
+### Transcript & TrialMetrics
+
+- `Transcript.entries` 是一个按时间顺序的数组，常见 `entry.type` 包括：
+  - `output`：模型/Agent 的输出（turn 统计基于该类型）
+  - `tool_call`：工具调用（toolCalls 统计基于该类型）
+  - 其他类型以实现为准（例如 input/error 等）
+- 每条 entry 可带 `entry.metadata`，用于记录 token 统计/计时等附加信息。
+  - harness 会尝试从以下字段提取 token 计数并汇总到 `TrialMetrics.totalTokens`：
+    - `metadata.totalTokens` / `metadata.tokens` / `metadata.tokenCount`
+    - `metadata.usage.total_tokens`（兼容部分 LLM client 的 usage 结构）
+- `TrialMetrics` 当前实现会至少包含：`turns`, `toolCalls`, `totalTokens`（若无 metadata 则为 0）。
+
+### Error 记录
+
+- trial 失败时，harness 会把异常序列化为对象（`message`, `name`, `stack`）。
+- 若 transcript / 结果对外暴露，建议在上层做 redaction（例如去掉 `stack`）。
 
 ## 内置 Graders
 
@@ -70,7 +85,17 @@ const suiteResult = await harness.runSuite(suite, { concurrency: 4 });
 - `regex`：输出文本正则匹配（`options.pattern/patterns`, `match:any|all`, `invert`, `minMatches`）
 - `state_check`：检查 outcome（支持 `options.path` 与 subset match）
 - `tool_calls`：校验 transcript 中的工具调用（required/forbidden/sequence/match）
-- `transcript`：对 turns/tokens/latency 等做约束
+- `transcript`：对 turns/tokens/latency 等做约束（其中 tokens 可来自 `TranscriptEntry.metadata`）
+
+### Composite
+
+- `composite`：把多个 grader 组合为一个评分器（组合语义以实现为准）
+
+### Content / Back-compat
+
+- `js/agents/eval/graders/content.js`:
+  - `EvaluateStage`：旧接口兼容层
+  - 默认导出：content grader（`js/agents/eval/index.js` 也 re-export 了 default）
 
 ### LLM-as-Judge（需要 llmClient）
 
@@ -78,38 +103,18 @@ const suiteResult = await harness.runSuite(suite, { concurrency: 4 });
 
 - `llm_rubric`：基于 rubric 评分（`options.rubric`）
 - `llm_assertion`：自然语言断言（`options.assertions`）
-- `llm_pairwise`：A/B 对比（trial 输出 vs `options.baseline/outputB`）
 
-与 `testing/mock-suite.js` 集成示例：
+## Metrics（指标与聚合）
 
-```js
-import { createMockTestEnv } from "js/agents/testing/mock-suite.js";
-import { EvalHarness } from "js/agents/eval";
+- `passAtK(trials, k)`：用经验 passRate 估计 `pass@k`（IID 假设）
+- `passExpK(trials, k)`：用经验 passRate 估计 `pass^k`（IID 假设）
+- `aggregateResults(...)`：聚合单任务/整套 suite 的统计结果（字段以实现为准）
 
-const env = createMockTestEnv({ model: { responses: { default: "{\"passed\":true,\"score\":1,\"reason\":\"ok\",\"issues\":[]}" } } });
-const harness = new EvalHarness({ agentFactory: async () => ({ run: async () => "answer" }), llmClient: env.modelClient });
-```
+## 入口导出
 
-### Composite（组合评分）
-
-将多个 grader 的结果组合成一个新的 `GraderResult`：
-
-- `all_pass`：全部通过才通过（score 取最小值）
-- `weighted`：加权平均（可用 `options.weights` 覆盖权重）
-- `threshold`：基于阈值判定通过（`options.threshold`, `use: avg|min|max`）
-
-提示：把 composite grader 放在 `task.graders` 的最后，可以作为 trial 的最终 `passed/score`（也可用 `options.final: true` 显式指定）。
-
-## Backward compatibility：EvaluateStage
-
-原 `EvaluateStage` 已移动到 `js/agents/eval/graders/content.js`，依然可以从 `js/agents/eval` 导入：
-
-```js
-import EvaluateStage, { EvaluateStage as Named } from "js/agents/eval";
-```
-
-同时提供 `content` grader（包装 EvaluateStage）用于 harness：
-
-```js
-{ type: "content", options: { stage: { passThreshold: 0.6 }, input: { context: { type: "report" } } } }
-```
+- `js/agents/eval/index.js` 导出：
+  - `EvalHarness`
+  - 所有 `types.js` 类型
+  - graders registry 与 graders
+  - metrics utilities
+  - back-compat: `EvaluateStage` 与 content 默认导出

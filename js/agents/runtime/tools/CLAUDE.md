@@ -57,7 +57,18 @@ const result = await executor.execute('Task', {
 });
 ```
 
-### Worker 隔离执行
+## Handler Context 约定
+
+工具 handler 的统一签名：`async (args, context) => result`。
+
+常见 `context` 字段（具体以 ToolExecutor 传入为准）：
+
+- `context.logger`：用于记录工具执行日志（建议支持 `info/warn/error`）。
+- `context.emit(event, payload)`：用于发布运行时事件（事件名格式：`domain:action`，例如 `agent:step`）。
+
+注意：handler 不应假设 `logger/emit` 永远存在；建议对缺失情况做容错或让错误明确向上传播。
+
+## Worker 隔离执行
 
 ```javascript
 const tool = {
@@ -74,131 +85,66 @@ const tool = {
 
 ## 内置工具
 
-### TaskTool
-
-```javascript
-import { createTaskTool } from 'js/agents/runtime/tools';
-
-const taskTool = createTaskTool({ registry });
-
-// 定义
-TASK_TOOL_DEFINITION = {
-  name: 'Task',
-  description: 'Launch a specialized agent to handle a complex task.',
-  parameters: {
-    subagent_type: 'string',
-    prompt: 'string',
-    context_mode: 'string',
-    model_tier: 'string',
-  },
-};
-```
-
-### RecallTool
-
-```javascript
-import { createRecallTool } from 'js/agents/runtime/tools';
-
-const recallTool = createRecallTool({ compressor });
-
-// 定义
-RECALL_TOOL_DEFINITION = {
-  name: 'Recall',
-  description: 'Recall relevant memories',
-  parameters: { action: 'string', query: 'string', archive_id: 'string', limit: 'number' },
-};
-```
-
 ### BacktrackTool
 
+用途：允许模型在发现错误、死胡同或需要尝试不同路径时，请求回溯到之前的 checkpoint。
+
+Handler 工厂：`createBacktrackTool({ backtrackManager })`
+
+参数（args）：
+
+- `reason` (string, required)：为什么要回溯
+- `checkpoint_id` (string, optional)：指定回溯点 ID
+- `hint` (string, optional)：给“未来的自己”的修正提示
+
+返回：一个“回溯信号”对象，由 AgentLoop 捕获并执行真正的状态还原：
+
 ```javascript
-import { createBacktrackTool } from 'js/agents/runtime/tools';
-
-const backtrackTool = createBacktrackTool({ backtrackManager });
-
-// 定义
-BACKTRACK_TOOL_DEFINITION = {
-  name: 'Backtrack',
-  description: 'Revert to a previous state',
-  parameters: { reason: 'string', checkpoint_id: 'string', hint: 'string' },
-};
+{
+  ok: true,
+  backtrack: {
+    checkpointId,
+    state,
+    reason,
+    hint,
+  }
+}
 ```
+
+失败时返回：
+
+```javascript
+{ ok: false, error: '...' }
+```
+
+事件：
+
+- `agent:backtrackRequested`：当回溯信号准备完成并请求执行
+- `agent:backtrackFailed`：当准备回溯失败
 
 ### DMailTool
 
-```javascript
-import { createDMailTool, DMAIL_TOOL_DEFINITION } from 'js/agents/runtime/tools';
+用途：软回溯（soft backtrack），标记一段 turn 范围为“已被修正/覆盖”，但不删除历史。
 
-const dmailTool = createDMailTool();
+Handler 工厂：`createDMailTool(options?)`
 
-// 调用 (发送 D-Mail 软回溯)
-const result = await dmailTool(
-  { correction: '前面的 API 调用应该用 POST 而不是 GET', severity: 'major' },
-  { emit: (event, payload) => eventBus.emit(event, payload) }
-);
+- `options.now?: () => number`：可注入时间戳提供器（ms since epoch）
 
-// 定义
-DMAIL_TOOL_DEFINITION = {
-  name: 'DMail',
-  description: 'Soft backtrack: send correction to past self without deleting history',
-  parameters: { correction: 'string', supersede_from: 'number?', supersede_to: 'number?', severity: 'minor|major|critical' },
-};
-```
+参数（args）：
 
-## Schema Validator
+- `correction` (string, required)：发送给过去自己的修正信息
+- `supersede_from` (number, optional)：起始 turn（>= 0 的整数）
+- `supersede_to` (number, optional)：结束 turn（>= 0 的整数，含）
+- `severity` ("minor"|"major"|"critical", optional)：严重程度（默认 "minor"）
 
-提供工具参数验证与验证 hook：
-
-- `validateArgs(args, schema)`
-- `normalizeSchema(schema)`
-- `createValidationHook(options)`
-
-## Python Runtime Worker
-
-`python-runtime-worker.js` 在独立 Worker 中运行 Pyodide，支持：
-
-- SRI 校验加载 `pyodide.mjs`
-- preload 计划：builtin/micropip/wheels
-- 可选 VFS Proxy 挂载 (/vfs + aliases)
-
-## Platform Tools
-
-跨平台工具适配器，根据运行环境自动选择正确的实现。
+建议返回结构：
 
 ```javascript
-import { createPlatformTools, hasCapability } from 'js/agents/runtime/tools';
-
-// 自动检测平台并创建适配器
-const tools = await createPlatformTools({
-  vfs,        // Browser: 必需
-  basePath,   // 工作目录
-});
-
-// 文件操作 (两端可用)
-const { files } = await tools.glob({ pattern: '**/*.js' });
-const { matches } = await tools.grep({ pattern: 'TODO', path: 'src/' });
-const { content } = await tools.read({ path: 'package.json' });
-await tools.write({ path: 'notes.md', content: '# Notes' });
-const { entries } = await tools.list({ path: 'src/' });
-
-// 命令执行 (仅 Node)
-if (tools.bash) {
-  const { stdout, exitCode } = await tools.bash({ command: 'npm test' });
-}
-
-// 能力检测
-if (hasCapability('bash')) {
-  // Node 端才有
-}
+{ ok: true, dmail: { correction, supersedeRange, severity, timestamp } }
 ```
 
-### 能力矩阵
+失败时返回：
 
-| Tool | Browser | Node-like |
-|------|---------|-----------|
-| `glob` | VFS.glob / 内存遍历 | fast-glob / fs.readdir |
-| `grep` | 内存搜索 | ripgrep / 手动搜索 |
-| `read` | VFS.readText | fs.readFile |
-| `write` | VFS.writeText | fs.writeFile |
-| `list` | VFS.list | fs.readdir |
-| `bash` | ❌ null | child_process |
+```javascript
+{ ok: false, error: '...' }
+```

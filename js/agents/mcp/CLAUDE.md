@@ -4,7 +4,7 @@
 
 ## 架构
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                         McpClient                               │
 │  - 统一调用接口                                                  │
@@ -25,13 +25,20 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## 协议与传输
+
+- 传输层（Transport）：stdio / HTTP / SSE，决定消息如何到达对端。
+- 协议类型（TransportKind）：`jsonrpc` / `toolapi` / `rest`，决定消息体的语义与封装方式。
+- 约定：所有外部 URL 在出网前必须通过 `auditUrl()` 校验与净化，并使用 `safeUrl` 参与日志/错误信息。
+
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
 | `mcp-client.js` | McpClient, McpProvider 接口 |
+| `constants.js` | TransportKind、isValidTransportKind、normalizeTransportKind 等基础枚举/工具 |
 | `local-mcp-provider.js` | 本地内置 MCP (HTTP/fetch) |
-| `mcp-nexus-provider.js` | MCP-Nexus 远程端点 |
+| `mcp-nexus-provider.js` | MCP-Nexus 远程端点（注意 URL 白名单与超时） |
 | `stdio-mcp-provider.js` | Stdio 进程通信 Provider |
 | `mcp-transport.js` | Transport 抽象接口 |
 | `stdio-mcp-transport.js` | Stdio Transport 实现 |
@@ -45,170 +52,20 @@
 
 | 文件 | 职责 |
 |------|------|
-| `content-extractor.js` | 内容提取 |
-| `smart-content-extractor.js` | 智能内容提取 |
-| `content-sanitizer.js` | 内容消毒 |
-| `url-whitelist.js` | URL 白名单 |
-| `http-proxy.js` | HTTP 代理 |
+| `content-extractor.js` | 页面内容提取（包含大输入安全边界） |
+| `smart-content-extractor.js` | 智能内容提取（结构化结果） |
+| `content-sanitizer.js` | 提取结果净化、URL 去敏（stripUrls / sanitizeExtractedText） |
+| `url-whitelist.js` | URL 审计与白名单（auditUrl / filterUrlParams） |
 
-## 使用示例
+## 安全约定（必须遵守）
 
-### 基础用法
+- 协议安全：对 MCP 请求/响应做 schema 校验（拒绝未知字段/类型不匹配）。
+- SSRF 防护：所有用户可控 URL 必须经过 allowlist/denylist；阻断 localhost/私网 IP、metadata 地址、非 http(s) 协议。
+- 认证安全：禁止在日志中输出 token/apiKey/Authorization；URL 需剥离敏感 query/hash/credentials。
+- 超时与重试：所有网络请求必须设置 `timeoutMs` 并支持 Abort；重试需有上限与退避策略。
 
-```javascript
-import { createMcpClient } from 'js/agents/mcp';
+## 测试重点
 
-// 使用本地 MCP
-const client = createMcpClient({ useLocal: true });
-
-// 调用工具
-const result = await client.callTool('search.query', { query: 'AI news' });
-```
-
-### Transport Factory
-
-```javascript
-import { createMcpTransport, getSupportedTransports } from 'js/agents/mcp';
-
-// 自动选择传输方式
-const transport = await createMcpTransport({ 
-  type: 'auto',  // 'stdio' | 'http' | 'sse' | 'auto'
-  url: 'http://localhost:3000/mcp',
-});
-
-// 查看支持的传输类型
-console.log(getSupportedTransports()); // ['http', 'sse'] or ['stdio', 'http', 'sse']
-```
-
-### 添加 Stdio Provider
-
-```javascript
-import { createMcpClient } from 'js/agents/mcp';
-
-const client = createMcpClient({
-  useLocal: true,
-  stdioProviders: [
-    {
-      id: 'codex',
-      name: 'Codex Shell MCP',
-      command: 'codex-shell-tool-mcp',
-    },
-    {
-      id: 'playwright',
-      name: 'Playwright MCP',
-      command: 'npx',
-      args: ['-y', '@anthropic-ai/mcp-server-playwright'],
-    },
-  ],
-});
-
-// 通过 Codex 执行 shell 命令
-const result = await client.callTool('bash', { command: 'ls -la' }, { providerId: 'codex' });
-```
-
-### 直接使用 StdioMcpProvider
-
-```javascript
-import { StdioMcpProvider, McpClient } from 'js/agents/mcp';
-
-const provider = new StdioMcpProvider({
-  id: 'codex',
-  command: 'codex-shell-tool-mcp',
-});
-
-await provider.connect();
-
-const client = new McpClient();
-client.addProvider(provider);
-
-const tools = await client.listAllTools();
-console.log('Available tools:', tools);
-```
-
-### 直接使用 StdioMcpTransport
-
-```javascript
-import { StdioMcpTransport } from 'js/agents/mcp';
-
-const transport = new StdioMcpTransport({
-  command: 'npx',
-  args: ['-y', '@anthropic-ai/claude-code-mcp'],
-});
-
-await transport.connect();
-
-// 列出工具
-const tools = await transport.listTools();
-
-// 调用工具
-const result = await transport.callTool('read_file', { path: '/path/to/file' });
-
-await transport.disconnect();
-```
-
-## Transport 矩阵
-
-| Transport | Runtime | 协议 | 说明 |
-|-----------|---------|------|------|
-| `StdioMcpTransport` | Node.js | JSON-RPC 2.0 / JSONL | ✅ 已实现 |
-| `HttpMcpTransport` | Browser/Node | HTTP (fetch) | ✅ 已实现 |
-| `SseMcpTransport` | Browser/Node | Server-Sent Events (EventSource) | ✅ 已实现 |
-| WebSocket | Browser/Node | WebSocket | 未来扩展 |
-
-## MCP 协议版本
-
-```javascript
-import { MCP_PROTOCOL_VERSION, MCP_SUPPORTED_VERSIONS } from 'js/agents/mcp';
-
-console.log(MCP_PROTOCOL_VERSION);    // "2024-11-05"
-console.log(MCP_SUPPORTED_VERSIONS);  // ["2024-11-05", "2024-10-07"]
-```
-
-## 标准方法名
-
-```javascript
-import { McpMethods } from 'js/agents/mcp';
-
-McpMethods.INITIALIZE        // "initialize"
-McpMethods.INITIALIZED       // "notifications/initialized"
-McpMethods.TOOLS_LIST        // "tools/list"
-McpMethods.TOOLS_CALL        // "tools/call"
-McpMethods.RESOURCES_LIST    // "resources/list"
-McpMethods.RESOURCES_READ    // "resources/read"
-McpMethods.PROMPTS_LIST      // "prompts/list"
-McpMethods.PROMPTS_GET       // "prompts/get"
-```
-
-## 与 Skills 集成
-
-```javascript
-import { createMcpClient } from 'js/agents/mcp';
-import { ToolRegistry } from 'js/agents/runtime';
-
-const client = createMcpClient({
-  stdioProviders: [
-    { id: 'codex', command: 'codex-shell-tool-mcp' },
-  ],
-});
-
-// 将 MCP 工具注册到 ToolRegistry
-const registry = new ToolRegistry();
-
-const tools = await client.listAllTools();
-for (const tool of tools) {
-  registry.registerTool(tool.name, async (params) => {
-    const result = await client.callTool(tool.name, params, { providerId: tool.providerId });
-    return { ok: result.success, data: result };
-  });
-}
-```
-
-## 与 BinarySkillProvider 对比
-
-| 特性 | StdioMcpProvider | BinarySkillProvider |
-|------|------------------|---------------------|
-| 协议 | MCP (JSON-RPC 2.0) | 自定义 JSONL |
-| 初始化 | 自动握手 (initialize) | 无 |
-| 工具发现 | tools/list | 预定义 methods |
-| EventBus 集成 | 手动 | 自动 |
-| 适用场景 | 标准 MCP 服务器 | 自定义二进制工具 |
+- 协议兼容性：jsonrpc/toolapi/rest 的请求/响应一致性。
+- 网络异常：超时、DNS 失败、SSE 断流、重试与熔断行为。
+- 认证流程：敏感参数剥离、日志脱敏、错误信息分级。

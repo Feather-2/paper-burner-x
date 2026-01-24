@@ -6,6 +6,8 @@
 
 为运行时各模块提供稳定的默认配置，并通过轻量访问器支持覆盖值。
 
+- 模块路径：`js/agents/runtime/core/constants`
+
 ## 核心文件
 
 | 文件 | 职责 |
@@ -18,6 +20,7 @@
 ## 关键概念
 
 - **三类常量**: TIMEOUTS（ms）、LIMITS（数量/大小）、THRESHOLDS（比例/评分）
+- **按域分组**: 通过分组注释覆盖消息/Token/并发/重试/缓存/订阅/历史日志等运行时配置
 - **只读保护**: 使用 `Object.freeze` 固化常量对象
 - **访问器策略**:
   - `getTimeout`/`getLimit` 仅接受正数覆盖值
@@ -32,7 +35,7 @@
 获取默认超时或覆盖超时：
 
 ```javascript
-import { getTimeout, TIMEOUTS } from 'js/agents/runtime/constants';
+import { getTimeout, TIMEOUTS } from 'js/agents/runtime/core/constants';
 
 const timeout = getTimeout('LLM_CALL');
 const custom = getTimeout('LLM_CALL', 150_000);
@@ -42,7 +45,7 @@ console.log(TIMEOUTS.LLM_CALL);
 使用限制与阈值常量：
 
 ```javascript
-import { getLimit, getThreshold } from 'js/agents/runtime/constants';
+import { getLimit, getThreshold } from 'js/agents/runtime/core/constants';
 
 const maxParallel = getLimit('MAX_PARALLEL_TOOLS');
 const compressRatio = getThreshold('COMPRESS_TOKEN_RATIO');

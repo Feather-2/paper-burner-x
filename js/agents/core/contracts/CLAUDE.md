@@ -6,47 +6,71 @@ Agent 边界的轻量级结构验证，防止类型欺骗。
 
 - **边界验证，非全量验证** - 只在 Agent 边界检查
 - **宽进严出** - 入口容错解析，出口严格格式化
-- **fail-fast 但不 crash** - 返回结构化错误，不抛异常
+- **fail-fast 但不 crash** - 返回结构化错误（`{ ok, value?, error? }`），不抛异常
 
 ## 文件索引
 
 | 文件 | 职责 |
 |------|------|
-| `rpc-message.js` | 跨 Agent RPC 消息契约 |
-| `llm-response.js` | LLM 响应结构契约 |
-| `tool-result.js` | 工具执行结果契约 |
-| `disposable.js` | 资源生命周期 Disposable 契约 |
+| `index.js` | Contracts 聚合导出（推荐入口） |
+| `rpc-message.js` | 跨 Agent RPC request/response 消息契约 |
+| `llm-response.js` | LLM 响应与 Tool Call 契约 |
+| `tool-result.js` | 工具执行结果契约（validate + normalize） |
+| `disposable.js` | 资源生命周期 Disposable 契约与释放辅助 |
 
 ## 使用示例
 
 ```javascript
 import {
   validateRpcRequest,
+  validateRpcResponse,
   validateLlmResponse,
+  validateToolCall,
+  validateToolResult,
   normalizeToolResult,
-} from 'js/agents/shared/contracts';
+} from 'js/agents/core/contracts';
 
 // 验证 RPC 请求
-const result = validateRpcRequest(incomingMessage);
-if (!result.ok) {
-  console.warn('Invalid RPC:', result.error);
+const req = validateRpcRequest(incomingMessage);
+if (!req.ok) {
+  console.warn('Invalid RPC request:', req.error);
   return;
 }
-const { type, payload } = result.value;
 
-// 验证 LLM 响应
-const llmResult = validateLlmResponse(response);
-if (!llmResult.ok) {
-  // 降级处理
+// ... 处理 req.value
+
+// 验证 RPC 响应（发送前）
+const res = validateRpcResponse(outgoingMessage);
+if (!res.ok) {
+  console.warn('Invalid RPC response:', res.error);
 }
 
-// 标准化工具结果
+// 验证 LLM 响应
+const llm = validateLlmResponse(response);
+if (!llm.ok) {
+  // 降级处理
+  return;
+}
+
+// 验证单个 Tool Call（可选：逐个校验更精确的错误位置）
+const call0 = validateToolCall(llm.value.toolCalls?.[0], 0);
+if (!call0.ok) {
+  console.warn('Invalid tool call:', call0.error);
+}
+
+// 严格验证工具结果（出站）
+const toolResult = validateToolResult(rawResult);
+if (!toolResult.ok) {
+  console.warn('Invalid tool result:', toolResult.error);
+}
+
+// 或：宽进严出的标准化（入站/兼容旧格式）
 const normalized = normalizeToolResult(rawResult);
 // 保证有 { ok, success, data, error?, meta? }
 ```
 
 ```javascript
-import { disposeAll, safeDispose, using } from 'js/agents/shared/contracts/disposable.js';
+import { disposeAll, safeDispose, using } from 'js/agents/core/contracts/disposable.js';
 
 // 安全释放单个资源
 await safeDispose(resource, {
@@ -65,31 +89,30 @@ const value = await using(resource, async (r) => r.read());
 ```
 ┌─────────────────────────────────────────┐
 │  Agent A                                │
-│  ┌──────────┐    ┌──────────┐           │
-│  │ LLM 响应 │ ←─ │validateLlmResponse   │
-│  └──────────┘    └──────────┘           │
+│                                         │
+│  ┌──────────┐    ┌───────────────────┐  │
+│  │ LLM 响应 │ ←─ │ validateLlmResponse│  │
+│  └──────────┘    └───────────────────┘  │
 │       ↓                                 │
-│  ┌──────────┐    ┌──────────┐           │
-│  │ Tool结果 │ ←─ │normalizeToolResult   │
-│  └──────────┘    └──────────┘           │
+│  ┌──────────┐    ┌───────────────────┐  │
+│  │ ToolCalls│ ←─ │ validateToolCall   │  │
+│  └──────────┘    └───────────────────┘  │
+│       ↓                                 │
+│  ┌──────────┐    ┌───────────────────┐  │
+│  │ Tool结果 │ ←─ │ normalizeToolResult│  │
+│  └──────────┘    └───────────────────┘  │
 └─────────────────────────────────────────┘
         ↑
-        │ MessageBus
+        │ MessageBus / RPC
         │
 ┌───────┴─────────────────────────────────┐
-│  ┌──────────┐    ┌──────────┐           │
-│  │ RPC 消息 │ ←─ │validateRpcRequest    │
-│  └──────────┘    └──────────┘           │
 │  Agent B                                │
+│  ┌──────────┐    ┌───────────────────┐  │
+│  │ RPC 请求 │ ←─ │ validateRpcRequest │  │
+│  └──────────┘    └───────────────────┘  │
+│       ↓                                 │
+│  ┌──────────┐    ┌───────────────────┐  │
+│  │ RPC 响应 │ →─ │ validateRpcResponse│  │
+│  └──────────┘    └───────────────────┘  │
 └─────────────────────────────────────────┘
-```
-
-## 返回格式
-
-所有验证函数返回统一格式：
-
-```typescript
-type ValidationResult<T> =
-  | { ok: true, value: T }
-  | { ok: false, error: string }
 ```

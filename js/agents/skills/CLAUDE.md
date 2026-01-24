@@ -1,52 +1,64 @@
 # skills - 技能系统
 
-Markdown 定义的指令包，支持多路径加载和沙箱执行。
+Markdown 定义的指令包（SKILL.md），支持多路径加载、Catalog 展示与可选沙箱执行。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `manager.js` | SkillsManager 主类 |
-| `loader.js` | 技能加载器（repo > user > system） |
-| `model.js` | SkillScope 枚举 |
-| `render.js` | 渲染技能列表/区块 |
-| `sandbox-adapter.js` | 沙箱执行适配器 |
+| `index.js` | 统一导出（含默认导出 SkillsManager） |
+| `manager.js` | SkillsManager 主类：注册/查询/执行入口 |
+| `loader.js` | 加载路由：Node 扫描目录 / Browser 读取 manifest |
+| `loader.browser.js` | Browser 加载实现：fetch manifest + 体积限制 |
+| `user-store.js` | Browser 用户技能存储适配（user scope） |
+| `model.js` | SkillScope 枚举与类型定义 |
+| `render.js` | 渲染 Skills Catalog（列表/区块） |
+| `sandbox-adapter.js` | 沙箱执行适配器（风险分析/限权执行） |
 
 ## Skills vs Tools
 
 | 维度 | Skills | Tools |
 |------|--------|-------|
 | 定义 | SKILL.md (Markdown) | JSON Schema |
-| 调用 | 上层显式加载/展示 | 模型直接调用 |
-| 本质 | 策略/知识包 | 原子执行单元 |
+| 调用 | 上层显式加载/展示/选择 | 模型直接调用 |
+| 本质 | 策略/知识包（可被审计与隔离执行） | 原子执行单元 |
 
 ## 使用示例
 
 ```javascript
-import { SkillsManager, loadAllSkills } from 'js/agents/skills';
+import SkillsManager, { loadAllSkills, renderSkillsSection } from 'js/agents/skills';
 
 const manager = new SkillsManager();
-const skills = await loadAllSkills();
+
+// Node：扫描 repo/user 目录；Browser：从 manifest + user-store 加载
+const { skills, errors } = await loadAllSkills();
 manager.register(skills);
 
-// 渲染给用户
+// 渲染给用户（Catalog）
 const section = renderSkillsSection(manager.list());
 ```
 
 ## 沙箱执行
 
 ```javascript
-import { createSandboxedSkillsManager, analyzeSkillRisk } from 'js/agents/skills';
+import { analyzeSkillRisk, createSandboxedSkillsManager } from 'js/agents/skills';
 
 const risk = analyzeSkillRisk(skillContent);
-if (risk.level === 'high') {
-  const sandboxed = createSandboxedSkillsManager(manager);
-  await sandboxed.execute(skillName);
-}
+const runner = risk.level === 'high' ? createSandboxedSkillsManager(manager) : manager;
+
+await runner.execute(skillName);
 ```
 
 ## 加载路径优先级
 
-1. `repo/.claude/skills/` - 仓库级
-2. `~/.claude/skills/` - 用户级
+### Node
+
+1. `repo/.paper-burner/skills/` - 仓库级
+2. `~/.paper-burner/skills/` - 用户级
+3. 系统内置 - 框架级
+
+### Browser
+
+1. `public/skills/manifest.json` - 仓库级（默认 URL 常见为 `/skills/manifest.json`；实现中也可能以相对路径 `skills/manifest.json` 解析）
+2. `user-store` - 用户级（浏览器侧持久化）
 3. 系统内置 - 框架级
