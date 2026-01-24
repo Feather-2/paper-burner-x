@@ -8,7 +8,13 @@
 
 | 文件 | 职责 |
 |------|------|
-| `performance-router.js` | PerformanceRouter 路由器、EwmaTracker、任务复杂度估算与端点统计 |
+| `performance-router.js` | PerformanceRouter 路由器、EwmaTracker、任务复杂度估算与端点统计；内置日志记录 |
+
+## 外部依赖
+
+| 依赖 | 用途 |
+|------|------|
+| `../../shared/index.js` | `createLogger`：创建模块内部 logger（用于路由/统计相关日志） |
 
 ## 关键概念
 
@@ -27,7 +33,8 @@
 | `preferFastTier` | SIMPLE 任务优先 FAST 层的开关 |
 | `includeIds/excludeIds` | 路由选择的白/黑名单过滤 |
 | `auto-register` | `recordResult` 在未知端点时自动创建统计项 |
-| `onRouteDecision` | 路由决策回调，用于日志/遥测（实现中也可接入 logger） |
+| `onRouteDecision` | 路由决策回调，用于日志/遥测 |
+| `logger` | 由 `createLogger("runtime/routing/performance-router")` 创建的内部 logger（避免记录敏感内容） |
 
 ## 常见任务
 

@@ -4,7 +4,7 @@
 
 ## 目录结构
 
-```
+```text
 js/agents/eval/
 ├── index.js
 ├── types.js
@@ -13,10 +13,20 @@ js/agents/eval/
 │   ├── deterministic.js
 │   ├── llm-judge.js
 │   ├── composite.js
-│   └── content.js          # EvaluateStage (back-compat) + contentGrader
+│   └── content.js          # EvaluateStage (back-compat) + contentGrader (default)
 ├── harness.js
 └── metrics.js
 ```
+
+## 模块出口（index.js）
+
+- Types: `export * from './types.js'`
+- Graders: `export * from './graders/index.js'`
+- Harness: `export { EvalHarness } from './harness.js'`
+- Metrics: `export * from './metrics.js'`
+- Back-compat:
+  - `export { EvaluateStage } from './graders/content.js'`
+  - `export { default } from './graders/content.js'`（根模块默认导出 contentGrader）
 
 ## 快速开始
 
@@ -61,7 +71,7 @@ const suiteResult = await harness.runSuite(suite, { concurrency: 4 });
 
 - `js/agents/eval/types.js`: `EvalTask`, `EvalSuite`, `Trial`, `Transcript`, `TranscriptEntry`, `GraderConfig`, `GraderResult`, `TaskResult`, `EvalSuiteResult`, `TrialMetrics` 等。
 
-### Transcript & TrialMetrics
+## Transcript & TrialMetrics
 
 - `Transcript.entries` 是一个按时间顺序的数组，常见 `entry.type` 包括：
   - `output`：模型/Agent 的输出（turn 统计基于该类型）
@@ -73,48 +83,16 @@ const suiteResult = await harness.runSuite(suite, { concurrency: 4 });
     - `metadata.usage.total_tokens`（兼容部分 LLM client 的 usage 结构）
 - `TrialMetrics` 当前实现会至少包含：`turns`, `toolCalls`, `totalTokens`（若无 metadata 则为 0）。
 
-### Error 记录
+## Metrics（pass@k / pass^k）
 
-- trial 失败时，harness 会把异常序列化为对象（`message`, `name`, `stack`）。
-- 若 transcript / 结果对外暴露，建议在上层做 redaction（例如去掉 `stack`）。
+- `passAtK(trials, k)`: 经验 passRate 估计下的 `pass@k = 1 - (1 - passRate)^k`
+- `passExpK(trials, k)`: 经验 passRate 估计下的 `pass^k = (passRate)^k`（语义：k 次全部成功）
 
-## 内置 Graders
+## Error 记录
 
-### Deterministic（推荐优先使用）
-
-- `regex`：输出文本正则匹配（`options.pattern/patterns`, `match:any|all`, `invert`, `minMatches`）
-- `state_check`：检查 outcome（支持 `options.path` 与 subset match）
-- `tool_calls`：校验 transcript 中的工具调用（required/forbidden/sequence/match）
-- `transcript`：对 turns/tokens/latency 等做约束（其中 tokens 可来自 `TranscriptEntry.metadata`）
-
-### Composite
-
-- `composite`：把多个 grader 组合为一个评分器（组合语义以实现为准）
-
-### Content / Back-compat
-
-- `js/agents/eval/graders/content.js`:
-  - `EvaluateStage`：旧接口兼容层
-  - 默认导出：content grader（`js/agents/eval/index.js` 也 re-export 了 default）
-
-### LLM-as-Judge（需要 llmClient）
-
-需要在 `runTask/runSuite` 传入 `llmClient`（或在 `new EvalHarness({ llmClient })` 注入）。支持 `MockModelClient` 的 `.chat()` 形态。
-
-- `llm_rubric`：基于 rubric 评分（`options.rubric`）
-- `llm_assertion`：自然语言断言（`options.assertions`）
-
-## Metrics（指标与聚合）
-
-- `passAtK(trials, k)`：用经验 passRate 估计 `pass@k`（IID 假设）
-- `passExpK(trials, k)`：用经验 passRate 估计 `pass^k`（IID 假设）
-- `aggregateResults(...)`：聚合单任务/整套 suite 的统计结果（字段以实现为准）
-
-## 入口导出
-
-- `js/agents/eval/index.js` 导出：
-  - `EvalHarness`
-  - 所有 `types.js` 类型
-  - graders registry 与 graders
-  - metrics utilities
-  - back-compat: `EvaluateStage` 与 content 默认导出
+- trial 执行/grader 过程中抛出的异常会被 harness 记录并序列化为 plain object，便于存档与 JSON 序列化。
+- 当前序列化字段：
+  - `message`: 错误消息
+  - `name`: 错误类型（若可用）
+  - `stack`: 堆栈（若可用）
+- 如果评估结果会被展示给终端用户或写入外部系统，建议在输出层对 `stack` 做剥离或脱敏，避免泄露内部路径/实现细节。

@@ -15,9 +15,10 @@
 ## 关键概念
 
 - 自适应计数：`count()` 立即返回估算，后台尝试初始化 tiktoken。
+- 启发式缓存：估算路径使用 `estimateTokensCached` 复用重复输入的结果，以降低热路径开销（实现见 `js/agents/shared/utils/token-cache.js`）。
 - 输入转换：`count()` 接受任意值，`null/undefined` 计 0；其余值优先 `JSON.stringify`，失败回退 `String()`，并通过 `onLog` 输出 `warn`（包含错误 message）。
 - WASM 初始化：`init()` 为 best-effort；不支持 WASM 或加载失败会永久回退。
-- 加载策略：优先 `import("tiktoken")`，失败回退 `@dqbd/tiktoken`。
+- 加载策略：优先 `import('tiktoken')`，失败回退 `@dqbd/tiktoken`；并兼容模块导出形态（named exports vs default export）。
 - 编码选择：优先 `encoding`（trim 后），其次 `model`（trim 后），最后默认 `o200k_base` → `cl100k_base`；无效 encoding/未知 model 会静默回退到后续策略。
 - 日志钩子：可提供 `onLog` 处理 init 失败、输入 stringify 回退等告警；默认使用 `console.warn/error`。
 - 预热策略：`warmup` 默认 true；`warmupIdleMs` 可延迟 warmup 以避开关键路径。

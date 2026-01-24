@@ -64,29 +64,40 @@ await vfs.write('/data/config.json', new TextEncoder().encode(json));
 const data = await vfs.read('/data/config.json');
 ```
 
+## 路径安全
+
+- 所有对外暴露的 path 必须先经过 `normalizeVfsPath`，拒绝 `..`、反斜杠、空路径等非法形式。
+- 不要把用户传入的 path 直接拼接到底层 key/handle（尤其是 Storage/IndexedDB key、OPFS 目录句柄名）。
+
 ## Checkpoint / Diff
 
 `checkpoints.js` 用于把一次 VFS 读写的“前/后”状态结构化记录下来（用于审计、回放、调试或对外展示）。
 常见信息包括：bytes、sha256、preview/text/base64（小内容内联）、payload 引用（大内容外置）、以及 unified diff（纯文本）。
 
+artifact 约定：
+- 本地 artifact key 使用固定前缀（例如 `pb_vfs_artifact|`）做命名空间隔离，避免与业务 key 冲突。
+- 大 payload 建议使用 RunStore/Artifact Store 保存，并在 checkpoint 中只存引用（`artifactId`、`bytes`、`sha256`、`encoding`）。
+
 安全约定：
-- diff/preview 必须作为纯文本渲染（`textContent`），不要拼接到 `innerHTML`。
+- diff/preview/text/base64 必须作为纯文本渲染（`textContent`），不要拼接到 `innerHTML`。
+- 不要在日志里输出完整 `text/base64`（可能含敏感信息）；只输出 bytes/sha256/前 N 字符摘要。
+
+兼容性约定：
+- Node 环境可用 `globalThis.Buffer` 做编码/解码；浏览器端必须提供无 Buffer 的实现，并在使用前显式检测（Buffer 不存在时不要访问其方法）。
 
 ## Delta Sync（增量同步）
 
 `delta-sync.js` 提供基于 chunk 的增量同步能力，用于减少传输与写入量。
-- 默认 chunk size 为 64KiB（建议作为常量/配置项统一管理）
-- 用哈希做变更检测与冲突识别时，需明确哈希算法与输出格式（避免弱哈希降级导致的碰撞风险）
+- 默认 chunk size 为 64KiB（应集中在 `DEFAULT_CHUNK_SIZE` 常量/配置项中管理）
+- 用哈希做变更检测与冲突识别时，需明确哈希算法与输出格式（推荐 SHA-256 + hex，小写固定长度）
 
-## 目录约定（高优先级）
+安全约定：
+- 不要把弱哈希（如 FNV-1a）用于冲突判定或完整性校验；只能用于启发式/非安全场景，并且最终仍需用 SHA-256 校验。
 
-- 路径安全：所有外部输入的 `path` 必须先 `normalizeVfsPath`，并拒绝 `..`、反斜杠、空路径等非法形式。
-- 原子操作：需要“写入要么成功要么不产生半成品”的场景，优先用临时对象/两阶段提交实现。
-- 配额管理：Storage/OPFS 可能抛 `QuotaExceededError`（或类似错误），调用方需捕获并优雅降级（例如回退到 MemoryVfs）。
+## 测试要点
 
-## 平台检测
-
-跨端 `createVfs()` 的运行时判断由统一的 `shared/platform.js` 提供：
-- `index.js` 基于 `Platform.isNode` 分发到 `index.browser.js` / `index.node.js`
-- Browser：优先 OPFS，失败时降级到 Storage/Memory
-- Node.js：默认 MemoryVfs，可通过 `kind: 'nodefs'` 使用 NodeFsVfs
+- 各后端一致性：Memory/OPFS/Storage 在 `read/write/exists/list/mkdir/delete` 的边界行为一致
+- 并发读写：同一路径并发写入/读取的冲突与可见性
+- 边界路径：`/`、重复斜杠、超长路径、Unicode、`.`/`..` 等
+- 原子写入：避免半写入（尤其是 OPFS/Storage 后端）
+- 配额管理：存储满额时的可恢复错误与优雅降级

@@ -9,7 +9,7 @@
 | `index.js` | Telemetry 模块公共导出入口 |
 | `token-tracker.js` | TokenTracker - Token 使用统计 |
 | `trace-context.js` | TraceContext - 分布式追踪 (OpenTelemetry 兼容) |
-| `loop-runtime-state.js` | 运行时状态管理 |
+| `loop-runtime-state.js` | LoopRuntimeState - 运行时状态管理 |
 | `replay-controller.js` | RunReplayController - 运行回放 |
 | `runstore-telemetry.js` | RunStore 遥测订阅 |
 
@@ -52,19 +52,19 @@ console.log(summary.totalTokens); // 2300
 
 ## TraceContext
 
-OpenTelemetry 兼容的分布式追踪：
+OpenTelemetry 兼容的分布式追踪与 W3C `traceparent` 解析：
 
 ```javascript
-import { TraceContext, withSpan, SpanKind, SpanStatus } from 'js/agents/runtime';
+import { TraceContext, SpanKind, SpanStatus, parseTraceparent } from 'js/agents/runtime';
 
 const ctx = new TraceContext();
 
-await withSpan(ctx, 'llm-call', async (span) => {
-  span?.setAttribute('model', 'gpt-4o');
-  const result = await llm.complete(messages);
-  span?.setStatus(SpanStatus.OK);
-  return result;
-}, { kind: SpanKind.CLIENT });
+// 解析 W3C traceparent（例如来自 HTTP 头部）
+const parsed = parseTraceparent('00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01');
+console.log(parsed);
+
+// Span 的创建/结束与属性设置 API 以 `trace-context.js` 的实现与 JSDoc 为准；
+// 这里通常会结合 `SpanKind` / `SpanStatus` 来标记客户端/服务端调用与状态。
 ```
 
 还提供：
@@ -74,46 +74,53 @@ await withSpan(ctx, 'llm-call', async (span) => {
 
 ## LoopRuntimeState
 
-运行时状态常量与状态机迁移表：
+运行时状态常量与状态机迁移表（按 signal/context 维护）：
 
 ```javascript
-import { LoopRuntimeStatuses, LOOP_RUNTIME_TRANSITIONS } from 'js/agents/runtime';
+import {
+  LoopRuntimeStatuses,
+  LOOP_RUNTIME_TRANSITIONS,
+  ensureRuntimeState,
+  getRuntimeState,
+  setRuntimeState,
+  clearRuntimeState,
+} from 'js/agents/runtime';
 
-const canPause = LOOP_RUNTIME_TRANSITIONS[LoopRuntimeStatuses.RUNNING]
-  .includes(LoopRuntimeStatuses.PAUSED);
+const signal = new AbortController().signal;
 
-console.log(canPause); // true
+// 确保该 signal 对应的状态存在（默认 idle）
+ensureRuntimeState(signal);
+
+// 更新状态（cursor 支持 string/array/object，详见实现）
+setRuntimeState(signal, { status: LoopRuntimeStatuses.RUNNING, cursor: 'step:1' });
+
+const state = getRuntimeState(signal);
+console.log(state?.status); // 'running'
+
+// 查看允许的状态迁移
+console.log(LOOP_RUNTIME_TRANSITIONS[LoopRuntimeStatuses.RUNNING]);
+// => ['paused', 'completed', 'failed', 'cancelled']
+
+clearRuntimeState(signal);
 ```
-
-状态存取相关方法同样从本模块导出：`getRuntimeState`, `setRuntimeState`, `ensureRuntimeState`, `clearRuntimeState`。
 
 ## RunReplayController
 
-运行记录回放：
+运行回放控制器：从 `runStore.getEvents(runId)` 拉取事件并按序回放/定位（具体方法以类的 JSDoc 为准）。
 
 ```javascript
 import { RunReplayController } from 'js/agents/runtime';
 
-const replay = new RunReplayController({ runStore, eventBus, speed: 1 });
-await replay.load(runId);
-
-replay.play();
-// replay.pause();
-// replay.step();
-
-console.log(replay.state.status); // playing
+const replay = new RunReplayController({
+  runStore: {
+    async getEvents(runId) {
+      // ReplayEvent = Record<string, unknown>
+      return [{ seq: 1, type: 'agent:step', ts: Date.now() }];
+    },
+  },
+});
 ```
 
-## RunStore Telemetry
+## subscribeTelemetry
 
-将 EventBus 遥测写入 RunStore，并在内存中聚合 timeline/todos：
-
-```javascript
-import { subscribeTelemetry } from 'js/agents/runtime';
-
-const { timeline, todos, flush, snapshot, unsubscribe } =
-  subscribeTelemetry(eventBus, runStore, { maxTimelineEntries: 2000 });
-
-await flush();
-... (16 more lines)
-```
+RunStore 遥测订阅入口（签名与回调数据结构以 `runstore-telemetry.js` 的实现与 JSDoc 为准）。

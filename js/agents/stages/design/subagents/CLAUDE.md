@@ -6,7 +6,7 @@
 
 | 文件 | 职责 |
 |------|------|
-| `index.js` | 入口 |
+| `index.js` | 入口（导出 SlideSubAgent / VisualSubAgent / AssetRegistry） |
 | `slide-agent.js` | SlideSubAgent - 单页生成 |
 | `visual-agent.js` | VisualSubAgent - 视觉元素生成 |
 | `asset-registry.js` | AssetRegistry - 资产注册与映射 |
@@ -15,7 +15,7 @@
 
 负责单页幻灯片内容生成，支持读取 linkedFiles/linkedAssets 作为补充上下文，并解析 HTML 产出 visual slots。
 
-linkedFiles 在 Node 环境默认关闭（避免任意文件读取），需要显式设置允许的根目录；启用后会对路径进行受控校验（仅允许根目录范围内），并对读取内容做长度上限控制（防止将大文件直接灌入上下文）。
+linkedFiles 在 Browser 环境始终关闭；在 Node 环境默认关闭（避免任意文件读取），需要显式设置允许的根目录；启用后会对路径进行受控校验（仅允许根目录范围内），并对读取内容做长度上限控制（例如 `MAX_LINKED_FILE_CHARS = 1200`，防止将大文件直接灌入上下文）。
 
 ```javascript
 import { SlideSubAgent } from 'js/agents/stages/design/subagents';
@@ -79,16 +79,16 @@ import { AssetRegistry } from 'js/agents/stages/design/subagents';
 
 const registry = new AssetRegistry();
 
-// 1) 通过 source 推断分类
-const assetId = registry.addAsset({ data: logoBase64, mimeType: 'image/png', source: 'upload' });
-const asset = registry.getAsset(assetId);
+// 添加资产（可显式指定 category；未指定时会尝试从 asset.source 推断）
+const assetId = registry.addAsset(
+  { source: 'upload', name: 'logo.png', mime: 'image/png' },
+  { category: 'uploaded' }
+);
 
-// 2) 显式指定分类（可选）
-registry.addAsset({ data: logoBase64, mimeType: 'image/png' }, { category: 'uploaded' });
+// 关联到某页 slide
+registry.linkToSlide('slide:1', [assetId]);
 
-registry.linkToSlide('slide-1', [assetId]);
-const slideAssets = registry.getAssetsForSlide('slide-1');
-
-const snapshot = registry.export();
-const restored = AssetRegistry.fromJSON(snapshot);
+// 导出/恢复快照（用于回滚/重放）
+const snapshot = registry.snapshot();
+const restored = new AssetRegistry(snapshot);
 ```

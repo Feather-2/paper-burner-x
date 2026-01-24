@@ -4,6 +4,8 @@
 
 提供跨平台的系统级进程隔离，用于在 Node/Bun/Deno 环境中安全执行外部命令（推荐使用 `command + args` 模式，避免 shell 字符串拼接）。模块会自动检测可用后端，并按隔离强度选择最佳方案：Linux Bubblewrap、macOS Seatbelt、Docker，最终退化到 Permission-only。`SandboxBackend.NONE` 仅作为开发环境标记（执行器不会自动选择）。
 
+> 注意：浏览器运行时不支持系统级进程隔离与子进程执行；请仅在支持 spawn/exec 的运行时使用本模块。
+
 ## 核心文件
 
 | 文件 | 职责 |
@@ -24,11 +26,12 @@
 - **检测结果结构**：`{ backend, platform, available, version, path, error }`
 - **统一执行结果**：`{ code, stdout, stderr, killed, backend }`
 - **SandboxPolicy**：`no-network` / `read-only-fs` / `restrict-write` / `no-spawn`（用于表达常见策略；具体映射由执行器/后端实现）
-- **默认配置**：`DefaultSandboxConfig` 提供安全默认值（`allowNetwork=false`、`timeoutMs=60000`、`memoryLimit=512MB`，并包含默认读写路径白名单）
+- **默认配置**：`DefaultSandboxConfig` 提供默认值（`allowNetwork=false`、`timeoutMs=60000`、`memoryLimit=512MB`，并包含默认读写路径白名单）
 - **配置基线**：`workDir`、`allowedReadPaths`、`allowedWritePaths`、`allowNetwork`、`timeoutMs`、`memoryLimit` (Docker)、`env` (Bubblewrap/Docker)
 - **路径规范化**：`normalizeSandboxPath()` 约束相对路径必须位于 `workDir` 内；`isSafeForSBPL()` 拒绝控制字符注入
 - **环境变量**：Bubblewrap 会 `--clearenv` 后注入 `PATH/HOME/LANG`，再用 `env` 覆盖/追加；Docker 使用 `-e` 传入环境变量
 - **Permission-only**：通过 `permissionHandler` 交互审批，并支持 `allowPattern()` 缓存规则与 `clearPermissions()` 清理
+- **安全建议**：不要在运行期修改 `DefaultSandboxConfig`；需要自定义时通过调用参数覆盖，避免影响其他调用方的安全边界
 
 ## 常见任务
 
@@ -56,24 +59,15 @@ const info = await sandbox.getInfo();
 **3) Permission-only 模式交互授权**
 
 ```javascript
-import {
-  createPermissionExecutor,
-  createInteractivePermissionHandler,
-} from 'js/agents/core/sandbox/system';
+import { execInSandbox } from 'js/agents/core/sandbox/system';
 
-import { createInterface } from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
-
-const rl = createInterface({ input, output });
-
-const permissionHandler = createInteractivePermissionHandler({
-  prompt: async (msg) => rl.question(msg),
+const result = await execInSandbox('ls', ['-la'], {
+  workDir: '/path/to/project',
+  // 无系统级隔离时，通过回调决定是否允许执行
+  permissionHandler: async (request) => {
+    // request 至少包含：{ command, args, config }
+    // 返回 true 允许 / false 拒绝（或按实现返回 { allow, reason }）
+    return request.command === 'ls';
+  },
 });
-
-const executor = createPermissionExecutor({ permissionHandler });
-
-// 具体执行方法以 executor 暴露的 API 为准（例如 exec/execFile/execInSandbox）
-// const result = await executor.exec('ls', ['-la'], { workDir: '/path/to/project' });
-
-await rl.close();
 ```

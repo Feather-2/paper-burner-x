@@ -15,10 +15,11 @@
 
 | 概念 | 说明 |
 |------|------|
-| 引用标记 | 草稿中使用 `{{cite:<evidenceId>}}`，最终统一替换为编号引用 `[n]`；编号与 evidence/source 的映射在 `## 参考文献` 中给出 |
-| 参考文献条目 | 自动追加 `## 参考文献`；条目格式为 `- [n] label — "quote"`（quote 会截断并对表格显示占位） |
+| 引用标记 | 草稿中使用 `{{cite:<evidenceId>}}`（允许空白；`<evidenceId>` 仅支持字符 `[A-Za-z0-9._:-]+`），最终统一替换为编号引用 `[n]`；编号与 evidence/source 的映射在 `## 参考文献` 中给出 |
+| 参考文献条目 | 自动追加 `## 参考文献`；条目格式为 `- [n] label — "quote"`（quote 默认截断 200 字符；如检测到 Markdown 表格行则使用占位 `[表格数据]`） |
 | evidence / sources | `evidenceLedger` 与 `sources` 共同构建引用索引与来源元信息；如存在行号/locator 信息，通常体现在参考文献条目中（而不是内联引用） |
-| todo / gap 映射 | 兼容 `gap_*` 与 `todo_*` 两种 ID：`gap_123` <-> `todo_123`；非数字 ID 通过前缀追加/移除保持可逆。gap 状态会映射为 todo 状态（filled->completed, blocked->cancelled，其余->open） |
+| todo / gap 映射 | 兼容 `gap_*` 与 `todo_*` 两种 ID：`gap_123` <-> `todo_123`；其余情况使用“前缀追加/移除”保持可逆：`todoId = "todo_${gapId}"`；反向若为 `todo_<digits>` 则还原为 `gap_<digits>`，否则去掉 `todo_` 前缀还原原始 `gapId`（可能是 `gap_xxx`，也可能是无前缀的自定义 ID） |
+| gap 状态映射 | gap 状态映射为 todo 状态：`filled->completed`、`blocked->cancelled`、其余（含 open/searching/understanding/空值/未知）->`open` |
 | 报告策略 | `single`（一次生成）与 `toc-based`（先目录后分章） |
 | 模式校验 | `quick/wider/deeper` 模式控制字数、引用数量与必需章节 |
 
@@ -33,4 +34,4 @@
 - 长度与并发配置：`resolveReportLengthConfig(...)`、`resolveMaxParallelSections(...)`
 - 报告进度与质量检查：`getReportProgress(...)`、`reviewReportMarkdown(...)`
 - 仅提取引用 evidenceId：`extractEvidenceIdsFromMarkdownCitations(...)`
-- 引用 quote 格式化（截断/表格占位）：`formatQuoteForCitation(...)`
+- 引用 quote 格式化（截断/表格占位）：`formatQuoteForCitation(quote, { maxLen })`

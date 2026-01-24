@@ -4,7 +4,7 @@
 
 ## 模块描述
 
-cross-verify 会基于 factId 和 contradiction 组织核查上下文（证据摘要/信源范围/校验后的参数），调用 task 工具启动子代理进行对质验证；随后解析子任务报告（首段 JSON），将 verification 的状态、摘要与详情写入 sharedContext/state，并触发事件通知上层。
+cross-verify 会基于 factId 和 contradiction 组织核查上下文（证据摘要/信源范围/校验后的参数），通过 task 工具启动子代理进行对质验证；随后解析子任务报告（首段 JSON），将 verification 的状态、摘要与详情写入 sharedContext/state，并触发事件通知上层。
 
 ## 核心文件
 
@@ -15,7 +15,10 @@ cross-verify 会基于 factId 和 contradiction 组织核查上下文（证据�
 ## 关键概念
 
 - 事实与冲突：`factId` 与 `contradiction` 为必填；`sourceIds` 可选，用于限定信源范围。
-- 输入兼容：`sources`/`sourceId` 作为 `sourceIds` 别名；`subagentType` 作为 `subagent_type` 别名；`sourceIds` 支持传入单个 string 或 string[]，并会去重。
+- 输入兼容：
+  - `sources`/`sourceId` 作为 `sourceIds` 别名；
+  - `subagentType` 作为 `subagent_type` 别名；
+  - `sourceIds` 支持传入单个 string 或 string[]，并会去重。
 - 输入校验：
   - `factId`/`contradiction` 会被截断到 256/2000；
   - `sourceIds` 最多 50 个且单项 256；
@@ -24,7 +27,10 @@ cross-verify 会基于 factId 和 contradiction 组织核查上下文（证据�
 - 证据收集：优先从 `sharedContext.search('evidence:${factId}')` 获取证据，再用 `sharedContext.getDetail` 拉详情；无结果时回退到 `DiscoveryManager.getEvidences`。
 - 证据裁剪：为控制上下文长度，证据摘要最多取 12 行；单段 snippet 最多 400 字符。
 - 信源推断：未提供 `sourceIds` 时，从证据中推断 `sourceIds` 供子任务使用。
-- 子任务核查：使用 `task` 工具创建专项子任务，`subagent_type` 默认 `researcher`；支持值为 `researcher | analyzer`；始终异步启动；当 `async=false` 时等待任务完成（默认超时 600000ms）。
+- 子任务核查：
+  - 使用 `task` 工具创建专项子任务，`subagent_type` 默认 `researcher`；
+  - 支持值为 `researcher | analyzer`；
+  - 始终异步创建任务；当 `async=false` 时等待任务完成（默认超时 600000ms）。
 - 结论解析：要求子任务报告首段包含 JSON；`status` 映射到 `DiscoveryStatus`（SATISFIED/CONTRADICTED/PARTIAL/BLOCKED）。
 - 状态与黑板：运行中与完成后的记录写入 `state` scratchpad 的 `crossVerify`，并写入 `sharedContext` 的 `cross_verify:${factId}` 指针与索引；完成后写入 `sharedContext.setSummary('verification', ...)` 并发送 `sharedContext.signal('verification', ...)`；同时按 `sourceIds` 建索引便于检索。
 - 去重与强制：若同一 `factId` 已在运行且未 `force`，直接返回已有任务。
@@ -51,17 +57,35 @@ await executeTool('cross-verify', {
 });
 ```
 
-指定子代理类型（兼容字段）：
+指定子代理类型（推荐字段 / 兼容字段均可）：
 ```javascript
 await executeTool('cross-verify', {
   factId: 'fact-123',
-  contradiction: '数据口径不一致',
-  sources: 'doc-a',
+  contradiction: '同一指标在不同报表口径不一致',
+  subagent_type: 'analyzer',
+});
+
+// 兼容字段：subagentType
+await executeTool('cross-verify', {
+  factId: 'fact-123',
+  contradiction: '同一指标在不同报表口径不一致',
   subagentType: 'analyzer',
 });
 ```
 
-获取结果与摘要：
-- `get-task-result { taskId, wait: true }`
-- `sharedContext.getDetail('cross_verify:${factId}')`
-- `state` 的 `scratchpad.crossVerify[factId]`
+兼容信源字段：
+```javascript
+// sources -> sourceIds
+await executeTool('cross-verify', {
+  factId: 'fact-123',
+  contradiction: '信源互相矛盾',
+  sources: ['doc-a', 'doc-b'],
+});
+
+// sourceId -> sourceIds（单个）
+await executeTool('cross-verify', {
+  factId: 'fact-123',
+  contradiction: '信源互相矛盾',
+  sourceId: 'doc-a',
+});
+```

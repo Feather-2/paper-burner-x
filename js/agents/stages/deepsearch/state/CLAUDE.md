@@ -11,12 +11,12 @@ DeepSearch 的状态访问器、序列化、检查点与内存同步。
 | 文件 | 职责 |
 |------|------|
 | `state-methods.js` | todo、token usage、timeline 与 gap 操作的主方法集合 |
-| `checkpoint-methods.js` | 保存/恢复 checkpoint；兼容 FULL/MINIMAL/LITE；从 checkpoint/stateSnapshot 推断策略；LITE 恢复时对 L2 做 fixup |
+| `checkpoint-methods.js` | 保存/恢复 checkpoint；兼容 FULL/MINIMAL/LITE；包含策略推断与 LITE restore fixup；必要时做一致性修复，并使用最大迭代次数上限避免坏数据导致死循环 |
 | `serializer.js` | 构建快照、序列化 JSON、处理 checkpoint 引用 |
 | `serialization-methods.js` | toSnapshot/serialize/clone/deserialize 的通用方法 |
 | `memory-methods.js` | 绑定 MemoryStore、scratchpad 同步、共享信号上报 |
 | `task-state.js` | taskGoal 与 awaitUserFeedback/taskImpossible 访问器 |
-| `iteration-state.js` | 迭代级别 phase/gaps/retrievedChunks 访问器，自动初始化 L1/L2 容器 |
+| `iteration-state.js` | 迭代级别 phase/gaps/retrievedChunks 访问器，自动初始化 L1/L2 容器，并对输入做基础规范化 |
 | `report-state.js` | 报告草稿与提纲访问器 |
 | `planning-tree.js` | 轻量 PlanningTree 骨架与序列化 |
 
@@ -35,20 +35,17 @@ DeepSearch 的状态访问器、序列化、检查点与内存同步。
 | Snapshot | buildStateSnapshot/toSnapshot/toJSON 输出持久化数据 |
 | Scratchpad | L2.scratchpad 的轻量临时存储 |
 | PlanningTree | 仅保存 rootGoal/runId 的最小规划树 |
+| Iteration upper bound | 恢复/修复过程中如存在循环推断或回填，必须使用最大迭代次数上限（例如 `DEFAULT_MAX_ITERATIONS`）避免坏数据导致卡死 |
 
 ## 常见任务
 
 | 任务 | 入口 |
 |------|------|
-| 保存/恢复 checkpoint（含策略推断与 metrics） | `checkpoint-methods.js` 中的 saveCheckpoint/restoreCheckpoint |
+| 保存/恢复 checkpoint（含策略推断与 metrics） | `checkpoint-methods.js` 的 saveCheckpoint/restoreCheckpoint |
 | 序列化/克隆状态 | `serialization-methods.js` 与 `serializer.js` |
-| 管理 todo | `state-methods.js` 中 add/update/remove/replaceTodos |
-| 绑定 MemoryStore | `memory-methods.js` 中 bindMemoryStore |
+| 管理 todo | `state-methods.js` 的 add/update/remove/replaceTodos |
+| 绑定 MemoryStore | `memory-methods.js` 的 bindMemoryStore |
+| 读写 taskGoal 与用户反馈状态 | `task-state.js` 的 taskGoal/awaitUserFeedback/taskImpossible |
+| 读写 iteration phase/gaps/retrievedChunks | `iteration-state.js` 的 IterationState 访问器 |
 | 更新 report 草稿/提纲 | `report-state.js` 的 reportDraft/outline |
-| 读写 taskGoal 与状态标志 | `task-state.js` 的 taskGoal/awaitUserFeedback/taskImpossible |
-| 迭代内读写 phase/gaps/chunks | `iteration-state.js` |
-
-## 注意事项
-
-- LITE 恢复后的状态可能处于 `incomplete`：不要假设 `L2.retrievedChunks` 已包含内容；优先使用 `retrievedChunkIds` 作为引用再重新获取。
-- 策略推断依赖 `snapshotStrategy` 与 LITE markers：新增/修改 snapshot schema 时同步更新推断逻辑与相关测试。
+| PlanningTree 最小序列化 | `planning-tree.js` |

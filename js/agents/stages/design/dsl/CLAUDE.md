@@ -1,12 +1,12 @@
 # dsl (design) - 幻灯片 DSL
 
-幻灯片定义语言和构建器，负责将 slideIntent 或 Layout JSON 转换为 HTML DSL（供 SlideParser.parse() 解析）。构建过程中会对文本做 escape，对部分样式/属性值做白名单化 sanitize，以降低注入风险。
+幻灯片定义语言和构建器，负责将 slideIntent 或 Layout JSON 转换为 HTML DSL（供 SlideParser.parse() 解析）。构建过程中会对文本做 escape，并对进入 HTML attribute / style 的值做白名单化 sanitize，以降低注入风险。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `dsl-builder.js` | buildSlideHtml / buildFromLayoutJson - 生成 HTML DSL（文本 escape + 属性/样式值 sanitize） |
+| `dsl-builder.js` | buildSlideHtml / buildFromLayoutJson - 生成 HTML DSL（文本 escape + attribute/style sanitize） |
 | `dsl-rules.js` | DSL 规则动态加载与缓存（getDslRules / initDslRules / getDslRulesSync；读取失败会使用 fallback） |
 
 ## SlideIntent 结构 (buildSlideHtml)
@@ -51,9 +51,10 @@ const layoutJson = {
 
 ### 坐标与样式值 sanitize 约定
 
-- bounds.x/y/w/h: 允许 number 或 string；内部会规范化为百分比字符串（如 10 -> '10%'），非法值会回退到默认值。
-- style.color: 允许 hex / rgb(a) / hsl(a) / 颜色名；非法值会回退到默认值。
-- 其他可能进入 HTML attribute 的字段建议上游做白名单校验（尤其是 URL 类字段）。
+- bounds.x/y/w/h: 仅允许 number、数字字符串、数字% 字符串或 `'auto'`；number/数字字符串会规范化为百分比字符串（如 10 -> '10%'），非法值会回退到默认值。
+- style.color: 仅允许 `#` + 3~8 位 hex（CSS 常见为 3/4/6/8）、rgb(a)/hsl(a) 形式或命名色；非法值会回退到默认值。
+- 其他数字型样式/属性值：使用范围约束 sanitize（sanitizeNumber(min/max)），非法值回退到默认值。
+- 其他可能进入 HTML attribute 的字段建议上游做白名单校验（尤其是 URL 类字段，建议限制协议为 http/https/blob 并做长度上限）。
 
 ## buildFromLayoutJson 选项
 
@@ -61,32 +62,11 @@ options: { slideId?, title?, safeMode? }，safeMode 为 true 或 elements 为空
 
 ## DSL Rules 加载 (dsl-rules)
 
-- 推荐：`await getDslRules()`（内部缓存；读取失败会降级为最小 fallback，并记录 warn）
-- 预初始化：`await initDslRules()`（等价于 getDslRules）
-- 同步读取：`getDslRulesSync()`（需先 init；未初始化返回 null）
+dsl-rules 通过 `loadPrompt('dsl/ppt-html-dsl')` 动态加载规则内容。
 
-```javascript
-import {
-  buildSlideHtml,
-  buildFromLayoutJson,
-  getDslRules,
-  initDslRules,
-  getDslRulesSync
-} from 'js/agents/stages/design/dsl';
-
-await initDslRules();
-const rules = getDslRulesSync() ?? (await getDslRules());
-
-const htmlFromIntent = buildSlideHtml(
-  slideIntent,
-  designSystem,
-  { claims: [...], evidenceLedger: [...] },
-  { safeMode: true, slideNo: 1 }
-);
-
-const htmlFromLayout = buildFromLayoutJson(
-  layoutJson,
-  designSystem,
-  { slideId: 'slide-1', title: '市场分析', safeMode: false }
-);
-```
+- 推荐：`await getDslRules()`
+  - 内部缓存，且会合并并发加载（同一时间只发起一次 loadPrompt）
+  - 读取失败：记录 warn，并降级为最小 `FALLBACK_DSL_RULES`（不会 throw）
+- 同步：`getDslRulesSync()`
+  - 仅返回缓存值；未初始化时为 null
+- 预初始化：`await initDslRules()`（通常在 stage 启动时调用）

@@ -18,7 +18,14 @@
 - `isValidEventName(name)`：事件名合法性校验
 - `matchPattern(pattern, eventName)`：事件名模式匹配
 
+### 类型提示（JSDoc，仅用于编辑器/类型检查）
+
+- `CreateEventRecordOptions`：`createEventRecord` 的 options 入参类型（来自 core 定义推导）
+- `EventRecord`：`createEventRecord` 的返回值类型（来自 core 定义推导）
+
 ## 事件类型
+
+注意：`events.js` 是事件名的**单一真源**；本节仅展示常用/顶部节选，新增或变更事件请以源码为准。
 
 ```javascript
 // 事件状态
@@ -69,24 +76,5 @@ export const ArchiveEvents = Object.freeze({
   CHECKPOINT_DELETED: 'archive:checkpoint:deleted',
 });
 
-// RouterAgent
-export const RouterEvents = Object.freeze({
-  ROUTER_PLAN_START: 'router:plan:start',
-  ROUTER_COMPLEXITY_ASSESSED: 'router:complexity:assessed',
-  ROUTER_PIPELINE_ASSEMBLED: 'router:pipeline:assembled',
-  ROUTER_BLOCK_SELECTED: 'router:block:selected',
-});
-
-// Watchdog
-export const WatchdogEvents = Object.freeze({
-  WATCHDOG_DELEGATED: 'watchdog:delegated',
-  WATCHDOG_DECISION: 'watchdog:decision',
-  WATCHDOG_COMPRESSED: 'watchdog:compressed',
-  WATCHDOG_INTERVENTION: 'watchdog:intervention',
-});
-
-// CicadaCompressor
-export const CicadaEvents = Object.freeze({
-  ... (更多事件，见 events.js)
-});
+// ... 其他 *Events 参见 events.js
 ```

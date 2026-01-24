@@ -12,7 +12,7 @@
 |------|------|
 | `engine.js` | PolicyEngine：规则归一化、条件匹配与决策排序 |
 | `manager.js` | PolicyManager：审批流程、事件通知、请求摘要/哈希与落盘策略 |
-| `match.js` | 通配符/Glob 匹配工具，避免动态正则 ReDoS |
+| `match.js` | 通配符/Glob 匹配工具，避免动态正则 ReDoS（并做基础 pattern 归一化） |
 | `store.js` | PolicyRuleStore：localStorage + 内存缓存持久化 |
 
 ## 关键概念
@@ -30,7 +30,7 @@
   归一化时补齐/修正 `enabled/priority/createdAt/updatedAt` 并排序。
 - **PolicyRequest / PolicyDecision**：请求字段包含 `schemaVersion/requestId/type/tool/resource/path/ts/args/argsHash/argsSummary/runId`；决策包含 `allowed/requiresApproval`，可携带命中的 `effect/ruleId` 与 `reason`。
 - **匹配维度**：
-  - `type/tool/resource/path` 支持通配符与 glob（`match.js` 负责模式归一化与匹配）。
+  - `type/tool/resource/path` 支持通配符与 glob（`match.js` 负责 pattern 归一化与匹配；例如将 `\\` 统一为 `/` 以兼容不同平台路径输入）。
   - 域名支持 `domainSuffixes/hostSuffixes`（用于对 URL/host 的后缀匹配）。
   - 时间条件支持 `timeRange/timeWindow`（如 `timezone`、`daysOfWeek`、`start/end` 或 `startMin/endMin`）。
   - 复杂组合通过 `match` 表达（如 `all|any|not`）。
@@ -46,25 +46,10 @@
 
 ```javascript
 import { PolicyEngine } from 'js/agents/plugins/policy/engine.js';
-
-const engine = new PolicyEngine({
-  defaultEffect: 'prompt',
-  rules: [{ effect: 'deny', type: 'tool', tool: 'bash', enabled: true }],
-});
-
-const decision = engine.evaluate({ type: 'tool', tool: 'bash' });
-// → { allowed: false, requiresApproval: false, reason: 'matched_deny_rule' }
 ```
 
-### 2) 走审批流程 (EventBus)
+### 2) 通过审批流获取决策（事件总线驱动）
 
 ```javascript
 import { PolicyManager } from 'js/agents/plugins/policy/manager.js';
-
-const manager = new PolicyManager({ eventBus, interactive: true });
-const result = await manager.authorize({
-  type: 'tool',
-  tool: 'read',
-  args: { path: 'docs/readme.md' },
-});
 ```

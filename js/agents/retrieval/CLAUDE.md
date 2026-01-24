@@ -6,8 +6,8 @@
 
 ## 最近变更
 
-- **bm25**: 新增索引规模限额归一化（maxTokensPerDoc / maxUniqueTerms / maxPostingsPerTerm / maxTermLength），默认启用安全上限
-- **grepChunks**: 引入安全正则编译（复杂度限制以降低 ReDoS 风险）并支持 maxMatchesPerChunk
+- **bm25**: 新增索引规模限额归一化（maxTokensPerDoc / maxUniqueTerms / maxPostingsPerTerm / maxTermLength），默认启用安全上限；支持 Infinity 表示不设上限（仅建议可信配置）
+- **grepChunks**: 引入安全正则编译（复杂度限制以降低 ReDoS 风险）并支持 maxMatchesPerChunk；支持 Infinity 表示不限制
 - **hybrid-retrieval**: 数值参数统一做 finite/非负归一化，避免 NaN/负值影响融合排序
 
 ## 核心文件
@@ -32,9 +32,12 @@
   - maxUniqueTerms = 50_000
   - maxPostingsPerTerm = 10_000
   - maxTermLength = 64
-  - 传入非正数/非有限数会回退到默认值
+  - 传入 Infinity 会保留为 Infinity（表示不设上限；仅建议可信配置）
+  - 其余非正数/非有限数（NaN、-Infinity 等）会回退到默认值
+  - 输入会做 `Number()` 归一化并 `Math.floor()` 取整
 - **Grep 匹配限额**（见 `grep.js`）：
   - maxMatchesPerChunk 默认 50
+  - 传入 Infinity 表示不限制（仅建议可信配置）
   - 当 pattern 为 RegExp 时会对 pattern.source 做复杂度校验并可能抛错
 
 ## 检索策略
@@ -79,36 +82,6 @@ const results = await router.retrieve(sourceIndex, gaps, {
   useGrep: true,
   mmr: { lambda: 0.7 },
 });
-```
 
-```javascript
-import { buildIndex } from './bm25.js';
-import { grepChunks } from './grep.js';
-
-const bm25Index = buildIndex(chunks, {
-  maxTokensPerDoc: 10_000,
-  maxUniqueTerms: 50_000,
-  maxPostingsPerTerm: 10_000,
-  maxTermLength: 64,
-});
-
-const grepHits = grepChunks(chunks, 'TODO', {
-  regex: false,
-  caseSensitive: false,
-  maxMatchesPerChunk: 50,
-});
-```
-
-```javascript
-import { hybridSearch } from './hybrid-retrieval.js';
-import { buildIndex } from './bm25.js';
-import { buildIndexAsync as buildVectorIndexAsync } from './vector-search.js';
-
-const bm25Index = buildIndex(chunks);
-const { vectorIndex } = await buildVectorIndexAsync(chunks, { embeddingService });
-
-const fused = await hybridSearch({ bm25Index, vectorIndex }, 'query', {
-  embeddingService,
-  limit: 10,
-});
+console.log(results);
 ```

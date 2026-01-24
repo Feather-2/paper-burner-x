@@ -16,13 +16,15 @@
 
 `enhanceEventBusWithHooks(eventBus)` 会把一个 `HookRegistry` 挂载到 EventBus-like 对象上（内部使用 `Symbol.for('paperburner.hookRegistry.v1')`，属性为非枚举），并在缺失时注入以下方法：
 
-- `registerHook(eventName, hookDef)`：注册钩子定义
-- `getHooks(eventName)`：列出某事件的钩子
-- `clearHooks(eventName?)`：清空某事件（或全部）钩子
+- `registerHook(eventName, hookDef)`：注册钩子定义（委托给 `registry.register`）
+- `getHooks(eventName)`：列出某事件的钩子（委托给 `registry.list`）
+- `clearHooks(eventName?)`：清空某事件（或全部）钩子（委托给 `registry.clear`）
 
 `getHookRegistry(eventBus)` 用于安全地拿到内部 registry（不存在或类型不匹配时返回 `null`）。
 
-注意：增强函数是幂等的；重复调用不会重复挂载。
+注意：
+- 增强函数是幂等的；重复调用不会重复挂载。
+- `Symbol.for(...)` 不是权限边界：如果把 eventBus 暴露给不受信任代码，对方仍可通过同名 Symbol 访问 registry。
 
 ## HookDefinition（钩子定义）
 
@@ -30,7 +32,7 @@ HookRegistry 以 `HookDefinition` 作为统一配置输入，常用字段：
 
 - `type`：`command` / `prompt` / `agent`
 - `blocking`：是否允许阻断主流程（默认 true）
-- `tools` / `toolPatterns`（以及 `tool` / `toolPattern` 别名）：限定匹配的工具名（支持 `*` 通配符）；省略则匹配所有工具
+- `tools`（以及 `tool` / `toolPattern` / `toolPatterns` 别名）：限定匹配的工具名（支持 `*` 通配符）；省略则匹配所有工具
 - `handler`：command hook 的自定义处理函数
 - `prompt` / `usage` / `agentType` / `modelTier`：prompt/agent hook 的配置
 
@@ -63,66 +65,17 @@ await createPostAgentHook()({ sessionId, runId, result, duration, context });
 ```javascript
 const HookEvent = {
   // Agent 级别 - 每次 execute() 只执行一次
-  PRE_AGENT: 'PreAgent',   // 请求入口：鉴权、限流、审计初始化
-  POST_AGENT: 'PostAgent', // 请求结束：用量上报、持久化、清理
+  PRE_AGENT: 'PreAgent',        // 请求入口：鉴权、限流、审计初始化
+  POST_AGENT: 'PostAgent',      // 请求结束：用量上报、持久化、清理
 
   // LLM 级别 - 每次 LLM 调用
-  PRE_LLM_CALL: 'PreLLMCall',
-  POST_LLM_CALL: 'PostLLMCall',
+  PRE_LLM_CALL: 'PreLLMCall',   // LLM 调用前：请求改写、参数检查
+  POST_LLM_CALL: 'PostLLMCall', // LLM 调用后：结果审计、统计
 
   // Tool 级别 - 每次工具调用
-  PRE_TOOL_USE: 'PreToolUse',
-  POST_TOOL_USE: 'PostToolUse',
-};
+  PRE_TOOL_USE: 'PreToolUse',   // 工具调用前：权限/参数检查、审计
+  POST_TOOL_USE: 'PostToolUse', // 工具调用后：结果过滤、审计、清理
+}
 ```
 
-## 钩子实现类型 (HookType)
-
-```javascript
-const HookType = {
-  COMMAND: 'command',  // 命令分类器/自定义函数
-  PROMPT: 'prompt',    // LLM 审批
-  AGENT: 'agent',      // Subagent 审批
-};
-```
-
-## 使用示例
-
-### Agent 级别钩子
-
-```javascript
-import {
-  enhanceEventBusWithHooks,
-  getHookRegistry,
-  HookEvent,
-} from 'js/agents/runtime/hooks';
-
-// 增强 EventBus
-const eventBus = enhanceEventBusWithHooks(rawEventBus);
-
-// 注册 PreAgent 钩子 - 速率限制/鉴权等
-eventBus.registerHook(HookEvent.PRE_AGENT, {
-  type: 'command',
-  blocking: true,
-  handler: async (ctx) => {
-    // ctx 由 hook-runner 组装，建议只读取必要字段
-    // return { skip: true, reason: '...' } 可阻断主流程
-  },
-});
-
-// 需要调试/测试时可直接获取 registry
-const registry = getHookRegistry(eventBus);
-registry?.list?.(HookEvent.PRE_AGENT);
-```
-
-### Tool 级别钩子（按工具名通配符匹配）
-
-```javascript
-eventBus.registerHook(HookEvent.PRE_TOOL_USE, {
-  type: 'command',
-  tools: ['fs:*', 'http:*'],
-  handler: async (ctx) => {
-    // 针对特定工具族做权限/审计
-  },
-});
-```
+建议：在代码中统一使用 `HookEvent.*` 常量作为 eventName，避免拼写错误导致钩子不生效。

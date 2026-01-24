@@ -80,34 +80,42 @@ const text = renderPromptTemplate('Hello {{name|upper}}', {
 });
 ```
 
-## 轻量渲染（无 formatter 管线）
+### 变量名规范化（大小写不敏感）
 
-当你只需要最基础的 `{{var}}` 替换、且不希望启用 formatter 管线时：
+渲染时 `vars` 的 key 会被规范化为 `trim().toLowerCase()`：
+
+- 建议在模板里统一使用小写变量名（如 `{{name}}`）。
+- 若同时传入 `Name` 与 `name` 这类仅大小写不同的 key，可能发生覆盖（以实现顺序为准）。
 
 ```javascript
-import { renderPromptTemplate } from 'js/agents/prompts/prompt-loader.js';
+import { renderPromptTemplate } from 'js/agents/prompts/prompt-template.js';
 
 const text = renderPromptTemplate('Hello {{name}}', {
-  vars: { name: 'world' }
+  vars: { Name: 'world' } // ✅ 可用
 });
 ```
 
-## PromptRegistry（内存注册表）
+## 提示词注册表（PromptRegistry）
 
-适用于把常用模板注册到内存中，按名称取用；支持单个注册与批量注册。
+`prompt-registry.js` 提供简单的内存注册表，用于集中管理 `PromptTemplate`。
+
+- `register(name, template)`：注册单条模板（`name` 为空会抛 `TypeError`）。
+- `registerMany(templates)`：批量注册，支持：
+  - `Map<string, string|PromptTemplate>`
+  - `Array<[string, string|PromptTemplate]>`
+  - `Record<string, string|PromptTemplate>`
+- `get(name)`：获取模板，返回 `PromptTemplate | null`。
+- `has(name)`：判断模板是否存在。
 
 ```javascript
 import { PromptRegistry } from 'js/agents/prompts/prompt-registry.js';
-import { PromptTemplate } from 'js/agents/prompts/prompt-template.js';
 
 const registry = new PromptRegistry();
 
-registry.register('greeting', 'Hello {{name}}');
-
+registry.register('deepsearch/system', '# System prompt...\n');
 registry.registerMany({
-  farewell: 'Bye {{name}}',
-  loud: new PromptTemplate('HELLO {{name|upper}}')
+  'codesearch/system': '# Tool prompt...\n'
 });
 
-const tpl = registry.get('greeting');
+const tpl = registry.get('deepsearch/system');
 ```

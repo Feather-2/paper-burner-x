@@ -7,10 +7,10 @@
 | 文件 | 职责 |
 |------|------|
 | `archive.js` | 入口导出：Archive、MapAdapter、IndexedDBAdapter、FallbackAdapter |
-| `archive-core.js` | Archive 类（差量快照/恢复缓存/输入校验） |
+| `archive-core.js` | Archive 类（差量快照/恢复缓存/输入校验/安全限制） |
 | `map-adapter.js` | MapAdapter（内存存储） |
 | `storage-adapter.js` | StorageAdapter 接口定义 |
-| `serialization.js` | JSON patch/diff 序列化逻辑 |
+| `serialization.js` | JSON patch/diff 构建与应用（含大小估算/安全限制） |
 | `checkpoint-schema.js` | Checkpoint 类型、版本、创建/校验/迁移 |
 
 ## Archive
@@ -22,13 +22,20 @@ import { Archive, FallbackAdapter } from 'js/agents/core/archive/archive.js';
 const archive = new Archive(new FallbackAdapter(), {
   diff: {
     enabled: true,
+    // 每 N 次 checkpoint best-effort 存一份全量（按 Archive 实例计数，不保证跨实例）
     fullSnapshotEvery: 10,
+    // 只有当预计节省 >= minSavingsBytes 才会采用 diff（粗略估算）
     minSavingsBytes: 1024,
+    // 安全限制：避免病态 diff
     maxOps: 5000,
     maxDepth: 12,
   },
+
   // 恢复结果缓存（0=禁用，Infinity=不设上限）
   restoreCacheMax: 200,
+
+  // restore 时允许的 diff 链最大深度（默认 50）
+  restoreMaxDepth: 50,
 });
 
 // 保存 -> 返回 checkpointId（格式见下方）
@@ -76,12 +83,12 @@ import {
   migrateCheckpoint,
 } from 'js/agents/core/archive/checkpoint-schema.js';
 
+// 创建（字段以 schema 为准）
 const checkpoint = createCheckpoint(agentState, {
   type: CheckpointType.PRE_ACTION,
-  runId: 'run-123',
-  iteration: 2,
 });
 
-const ok = validateCheckpoint(checkpoint);
-const migrated = migrateCheckpoint(legacyCheckpoint);
+// 运行时校验（读取旧数据/外部数据时必须校验 + 必要时迁移）
+validateCheckpoint(checkpoint);
+// const upgraded = migrateCheckpoint(checkpoint);
 ```

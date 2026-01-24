@@ -12,8 +12,8 @@
 
 | 文件 | 插件 | 职责 |
 |------|------|------|
-| `llm.js` | `service/llm` | 注册 LLM Provider 服务（chat/stream/getConfig/getStats，支持 tools/tool_choice） |
-| `mcp.js` | `service/mcp` | MCP 客户端连接、工具调用、自动连接与断开（server name/url 校验） |
+| `llm.js` | `service/llm` | 注册 LLM Provider 服务（`chat`/`stream`/`getConfig`/`getStats`，支持 `tools`/`tool_choice`） |
+| `mcp.js` | `service/mcp` | MCP 客户端连接、工具调用、自动连接与断开（server `name`/`url` 校验） |
 | `scheduler.js` | `service/scheduler` | 优先级队列（`TaskPriority`）、并发/超时控制、取消/状态查询 |
 | `vfs.js` | `service/vfs` | 统一 VFS 读写/目录/Glob 能力并暴露实例信息 |
 
@@ -23,6 +23,16 @@
 - 事件流：`llm.response`、`mcp.connected`、`mcp.tool.call`/`mcp.tool.result`、`scheduler.task.start/complete/error/cancelled`、`vfs.write`/`vfs.delete`
 - 作用域状态：`ctx.state` 自动带 `plugins.service/*` 前缀，LLM token 统计在 `tokens`，调度统计在 `stats`/`running`
 - 任务优先级：`TaskPriority.LOW|NORMAL|HIGH|CRITICAL`（数值越大优先级越高）
+
+## LLM 数据结构（约定）
+> 字段形状会随 provider 不同略有差异；这里是本模块对外的最小约定。
+
+- `LlmMessage`：`{ role, content, name?, tool_call_id? }`
+  - `role`：`'user' | 'assistant' | 'system' | 'tool'`
+  - `content`：文本内容
+  - `name`：可选，通常用于 `tool` 角色标识工具名
+  - `tool_call_id`：可选，用于串联工具调用
+- `ChatOptions`：`{ model?, maxTokens?, temperature?, system?, tools?, tool_choice? }`
 
 ## 常见任务
 
@@ -61,37 +71,40 @@ const res = await kernel.services.call('llm', 'chat', [messages, { temperature: 
 > `tools`/`tool_choice` 结构通常会透传给具体 provider（字段形状以 provider 为准）。
 
 ```javascript
-const messages = [{ role: 'user', content: 'Use the tool if needed.' }];
+const messages = [{ role: 'user', content: 'List 3 colors.' }];
+
+const tools = [
+  {
+    name: 'pick_color',
+    description: 'Pick a color',
+    input_schema: {
+      type: 'object',
+      properties: { color: { type: 'string', description: 'color name' } },
+      required: ['color'],
+    },
+  },
+];
+
 const res = await kernel.services.call('llm', 'chat', [
   messages,
   {
-    tools: [/* provider-specific tool definitions */],
+    tools,
     tool_choice: 'auto',
   },
 ]);
 ```
 
-### 查询 LLM 配置/统计
+### 调用 MCP 工具
 ```javascript
-const llm = kernel.services.get('llm');
-const config = llm.getConfig();
-const stats = llm.getStats();
+const result = await kernel.services.call('mcp', 'callTool', ['local', 'toolName', { foo: 'bar' }]);
 ```
 
-### MCP 连接与工具调用
+### 提交调度任务
 ```javascript
-await kernel.services.call('mcp', 'connect', [{ name: 'local', url: 'http://127.0.0.1:8787' }]);
-const tools = await kernel.services.call('mcp', 'listTools', ['local']);
-const result = await kernel.services.call('mcp', 'callTool', ['local', tools[0].name, { foo: 'bar' }]);
+const id = await kernel.services.call('scheduler', 'enqueue', [
+  async () => {
+    // do work
+  },
+  { priority: TaskPriority.NORMAL, timeout: 30000 },
+]);
 ```
-
-### MCP 断开所有连接
-```javascript
-await kernel.services.call('mcp', 'disconnectAll', []);
-```
-
-### 调度任务（优先级/超时/取消）
-> 具体公开方法名以 `scheduler.js` 注册到 service 对象为准。
-
-- 优先级常量：`TaskPriority.LOW|NORMAL|HIGH|CRITICAL`
-- 典型能力：提交任务（返回 `taskId`）、取消任务、查询状态、并发/超时控制

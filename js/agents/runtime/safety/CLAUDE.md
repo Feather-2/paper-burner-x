@@ -17,12 +17,22 @@
 import {
   ToolPermissions,
   PermissionLevel,
+  getPresetRestrictions,
+  mergeRestrictions,
   normalizeToolRestrictions,
   evaluateToolRestrictions,
   classifyCommand,
   parseCompoundCommand,
 } from 'js/agents/runtime/safety';
 ```
+
+### 本次变更涉及的导出更新
+
+| 导出 | 说明 |
+|------|------|
+| `PermissionLevel` | 权限级别枚举对象（`PermissionLevel.READONLY` 等；值为 `'readonly'/'standard'/'elevated'/'custom'`） |
+| `getPresetRestrictions` | 获取某个权限级别对应的底层 restrictions（用于自定义叠加/调试） |
+| `mergeRestrictions` | 合并 restrictions（用于在预置基础上叠加 allow/block 规则） |
 
 ## ToolPermissions API
 
@@ -56,6 +66,8 @@ standard.check('bash', 'rm -rf /');
 | `elevated` | 提升模式，仅阻止极端危险命令 |
 | `custom` | 自定义模式，无预设限制（由 restrictions/strict 决定） |
 
+也可使用枚举：`PermissionLevel.READONLY / STANDARD / ELEVATED / CUSTOM`。
+
 ### 链式配置
 
 ```javascript
@@ -66,7 +78,25 @@ const permissions = ToolPermissions.standard()
   .allowBash(['git log', 'git status']);   // 额外允许命令（按 base command 匹配）
 ```
 
-### 与 ToolRegistry 集成
+### strict（严格模式）
+
+当 `strict: true` 时，未知工具默认拒绝；用于保持“默认拒绝”的安全姿态。
+
+## 低层 API
+
+当你希望直接操作 restrictions（例如做策略拼装、调试或复用）时：
+
+- `normalizeToolRestrictions(...)`：归一化输入（字符串/数组/RegExp 等）。
+- `evaluateToolRestrictions(...)`：评估某次工具调用是否允许（包含 Bash 命令评估）。
+- `getPresetRestrictions(level)`：获取预置级别对应的底层 restrictions。
+- `mergeRestrictions(a, b)`：合并两份 restrictions（推荐用于“预置 + 叠加”）。
+
+## 命令分类
+
+- `classifyCommand(commandString)`：返回命令安全级别（`safe | unknown | dangerous`）及原因。
+- `parseCompoundCommand(commandString)`：用于拆分复合命令并逐段评估。
+
+## 与 ToolRegistry 集成
 
 ```javascript
 import { ToolRegistry } from 'js/agents/runtime/core';
@@ -77,61 +107,4 @@ const registry = new ToolRegistry({ tools });
 
 // 方式 1: 使用 createHook()
 registry.useHook('before', permissions.createHook());
-
-// 方式 2: 通过 context 传递（由 createPreToolUseHook 自动使用）
-await registry.callTool('write', params, {
-  toolRestrictions: permissions.getRestrictions(),
-  permissionLevel: permissions.getLevel(),
-});
 ```
-
-### 严格模式
-
-严格模式下：未明确允许的工具默认拒绝（更适合“默认拒绝”的运行环境）。
-
-```javascript
-import { ToolPermissions } from 'js/agents/runtime/safety';
-
-const strict = new ToolPermissions({
-  level: 'custom',
-  strict: true,
-  restrictions: {
-    allowedTools: ['read', 'glob', 'grep'],
-    // 也可同时配置 bash.allowedCommands / bash.blockedCommands
-  },
-});
-```
-
-## ToolRestrictions 结构
-
-底层限制对象由 `normalizeToolRestrictions()` 归一化，并由 `evaluateToolRestrictions()` 执行评估。
-
-```javascript
-/**
- * @typedef {object} ToolRestrictions
- * @property {(RegExp|string)[]} [allowedTools]
- * @property {(RegExp|string)[]} [blockedTools]
- * @property {object} [bash]
- * @property {(RegExp|string)[]} [bash.allowedCommands]
- * @property {(RegExp|string)[]} [bash.blockedCommands]
- */
-```
-
-## Command Classifier（Bash 命令分类）
-
-`classifyCommand()` 用于对单条命令进行风险分类；`parseCompoundCommand()` 用于拆分复合命令（如 `&&` / `;` / `|` 等），供策略逐段评估。
-
-- 输出级别：`safe | unknown | dangerous`
-- 关键字段：`requiresApproval`（是否需要审批）、`baseCommand`（归一化后的命令名/子命令）
-- 内置敏感路径规则：对读取/访问常见凭证与系统敏感文件的命令进行升级处理（避免泄露密钥/凭证）
-
-## 设计边界
-
-- 本模块只做“策略判定”，不负责执行命令或调用工具。
-- Browser-first：避免依赖 `fs/path/child_process` 等 Node-only API；需要执行时由上层运行时决定。
-
-## 测试建议（高优先）
-
-- 复合命令拆分：引号、转义、嵌套子命令、重定向、管道与多分隔符组合。
-- 只读模式绕过：`find -delete`、`find -exec ...`、`echo hi > file`、`cat file | sh` 等。
-- 敏感路径命中：`/etc/passwd`、`~/.ssh/*`、云凭证文件等（含大小写与相对路径变体）。

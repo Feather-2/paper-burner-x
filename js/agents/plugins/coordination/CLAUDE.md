@@ -17,6 +17,7 @@ BroadcastChannel 同步消息，心跳检测活跃 Tab 并选出 leader。
 import { TabCoordinator } from 'js/agents/runtime';
 
 const coordinator = new TabCoordinator({
+  // 建议在同一 origin 下为不同应用/环境设置唯一的 channelName，避免冲突
   channelName: 'agent-sessions',
   heartbeatMs: 5000,
   onEviction: (sessionId) => evictLocal(sessionId),
@@ -71,10 +72,14 @@ if (isClusterSupported()) {
 | TabCoordinator | `session-evicted` / `session-accessed` / `leader-election` / `heartbeat` |
 | ProcessCoordinator | `session-evicted` / `session-accessed` |
 
+## 消息结构（概要）
+
+- TabCoordinator: `{ type, tabId, ts, sessionId? }`
+- ProcessCoordinator: `{ type, sessionId, source }`（source 用于标识消息来源，避免自回环）
+
 ## 注意事项
 
 - BroadcastChannel 不可用时 TabCoordinator 自动降级为 no-op。
+- BroadcastChannel 消息是同源内“广播”且不带鉴权；在同一 origin 多应用场景建议自定义 `channelName` 做隔离。
 - ProcessCoordinator 仅在 Node + cluster 环境生效；可先调用 `isClusterSupported()`。
-- 浏览器构建时避免静态引入 ProcessCoordinator（`node:cluster`）；用 conditional imports / build aliases。
-- `broadcastAccess/broadcastEviction` 会忽略空 sessionId。
-- 可选传入 `logger`（需实现 `warn`）用于输出内部警告。
+- 浏览器构建时避免静态引入 `process-coordinator.js`；确保通过 Node-only 入口、conditional imports 或构建别名隔离。

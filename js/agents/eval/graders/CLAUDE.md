@@ -18,14 +18,16 @@ EvalHarness 的评分器实现集合，涵盖确定性规则、LLM-as-judge、�
 
 ## 关键概念
 
-- **Grader 合约**：`{ type, grade }`，返回 `GraderResult { passed, score, reason, issues }`
+- **Grader 合约**：`{ type, grade }`，返回 `GraderResult { graderType, passed, score, reason, issues }`
 - **输入类型**：确定性 grader 多接收 output 或 transcript；composite 接收 `GraderResult[]`
 - **LLM-as-judge**：需提供 `llmClient`，默认要求返回严格 JSON；优先使用 deterministic
 - **Pairwise 对比**：`llm_pairwise` 需要 `options.outputB/baseline/compareTo`
 - **Composite 子集过滤**：
   - `options.types` 支持 `string | string[]`（内部会归一化为 string[]）
+  - 过滤依据为子结果的 `GraderResult.graderType`
   - 当 `types` 过滤后没有任何可评结果时：
     - `all_pass`：`passed=true`，`score=1`
+- **All-pass 评分语义**：当存在可评结果时，`all_pass.score` 取被考虑结果的最小 `score`（非有限值按 `0` 处理）
 - **Threshold 聚合**：`options.threshold` 默认 0.6；`options.use` 支持 `avg|min|max`
 - **EvaluateStage 配置**：`stage` 支持 `strict`/`dimensions`/`dimensionConfig` 控制维度与阈值
 - **Content 评估类型**（`content.js`）
@@ -58,38 +60,5 @@ const task = {
 const task = {
   graders: [{ type: "llm_rubric", options: { rubric: "必须回答且准确" } }],
 };
-// runTask/runSuite 需传入 llmClient
-```
-
-### 4) 聚合评分（weighted + types 子集）
-
-```js
-const task = {
-  graders: [
-    { type: "regex", options: { pattern: "pass" } },
-    { type: "weighted", options: { weights: { regex: 1 }, types: ["regex"] } },
-  ],
-};
-```
-
-### 5) 使用 content grader（EvaluateStage 兼容）
-
-```js
-const task = {
-  graders: [
-    {
-      type: "content",
-      options: {
-        stage: {
-          strict: true,
-          dimensions: ["completeness", "accuracy", "clarity", "relevance"],
-          dimensionConfig: {
-            completeness: { weight: 1 },
-            accuracy: { weight: 2 },
-          },
-        },
-      },
-    },
-  ],
-};
+// runTask/runSuit
 ```

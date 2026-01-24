@@ -8,7 +8,7 @@
 |------|------|
 | `index.js` | 入口：runDeepSearchAgent / runDeepSearchTodosStage |
 | `deepsearch-agent-loop.js` | 主循环：planning -> execution -> writing（含收敛检测、取消与错误分类） |
-| `constants.js` | 常量与枚举：chunk/gap/并发/检索策略、校验函数 |
+| `constants.js` | 常量与枚举：chunk/gap/并发/检索策略、校验函数（含 SMALL_DOC_TOKEN_THRESHOLD 与兼容别名） |
 | `phases/planning-phase.js` | 规划阶段：system prompt 构建与收敛策略 |
 | `phases/execution-phase.js` | 工具调用、超时与 checkpoint |
 | `phases/writing-phase.js` | 写作阶段与回溯 |
@@ -16,7 +16,7 @@
 | `source-manager.js` | 文档读取/检索与语义搜索 |
 | `internal/model-response-handler.js` | 模型输出解析与结构化处理 |
 | `tools/index.js` | 工具注册与执行 |
-| `capabilities-loader.js` | 动态能力加载：可选模块集中 import 与 DI |
+| `capabilities-loader.js` | 动态能力加载：集中 optional/dynamic import + 缓存（_cached/_loading），通过 DI 注入可选能力 |
 
 ## 子目录
 
@@ -51,6 +51,19 @@
 | watchdog | `watchdog/handler.js` | 资源监控/回溯触发 |
 | write-report | `write-report/handler.js` | 报告生成与引用 |
 
+## 可选能力 (capabilities-loader.js)
+
+`loadDeepSearchCapabilities()` 以 best-effort 方式加载可选能力；加载失败时仅记录 warn 日志并继续（返回值字段为 `null`）。并发调用会复用同一个加载中的 Promise。
+
+- SkillsManager
+- BudgetManager
+- CheckpointManager
+- SharedContext
+- BacktrackManager
+- DiscoveryManager
+- MemoryStore
+- UnifiedAgentContext
+
 ## 状态结构
 
 ```javascript
@@ -64,11 +77,5 @@ DeepSearchState {
   checkpoints: [],
   trajectoryId?: string,
   trajectoryConfig?: object,
-  writeBacktrackCount: number,
-  writeSnapshots: [],
-  L0: { sources: [], assets: [], sourceIndex?: object|null },
-  L1: {
-    ...
-  }
 }
 ```

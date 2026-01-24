@@ -32,11 +32,17 @@ Agent 状态是结构化的键值/计数器/集合，LWW 语义足够；Yjs 的�
 
 ## 设计原则
 
-- Lamport Clock 保证因果序
+- Lamport Clock 保证因果序（op 携带 clock；合并时使用 `syncClock`）
 - 操作幂等，可安全重放
 - 支持离线操作 + 在线合并
 - 与三总线原生集成
 - 可选限制 op log 大小（`maxOpLogSize`）避免内存无限增长
+
+## 与 Lamport Clock 的关系
+
+- `lamport-clock.js` 的 `nextTick()` 用于为本地操作生成递增时钟，并可用于默认推导 `nodeId`
+- 接收远端 op 时，`CRDTDocument` 通过 `syncClock(remoteClock)` 合并对端时钟，避免因果倒退（实现见 `document.js`）
+- 多副本同步场景强烈建议显式传入稳定的 `nodeId`（避免默认推导导致的碰撞/漂移）
 
 ## 配置项（CRDTDocument）
 
@@ -45,6 +51,32 @@ Agent 状态是结构化的键值/计数器/集合，LWW 语义足够；Yjs 的�
 - `docId?: string` - 文档 ID；多副本同步时必须一致
 - `nodeId?: string` - 当前副本节点 ID；建议显式传入稳定值（避免默认推导带来的碰撞/漂移）
 - `maxOpLogSize?: number` - 操作日志上限（限制内存占用；超过上限时实现应裁剪旧记录/配合快照，以 `document.js` 实现为准）
+
+## 操作格式（Op）
+
+所有可同步的变更都以「op」表示，并要求：
+
+- 可序列化（JSON safe）
+- 幂等重放（同一 op 重放不会破坏状态）
+- 尽量携带 `clock`（Lamport）用于因果排序与去重
+
+### Counter ops（counters.js）
+
+- `GCounterIncrementOp`: `{ type: 'increment', nodeId, value, clock }`
+- `PNCounterOp`: `{ type: 'pn-increment' | 'pn-decrement', op: GCounterIncrementOp }`
+
+### Document op envelope（document.js）
+
+`CRDTDocumentOp` 是跨 primitive 的统一封装，固定字段：
+
+- `field`: 字段名（文档内的命名空间）
+- `fieldType`: `'register' | 'map' | 'set' | 'counter'`
+- `version`: 文档版本（单调递增）
+- `docId`: 文档 ID
+- `clock?`: 文档级时钟
+- `op?`: 子 CRDT 的具体操作（可包含 `op.clock`）
+
+说明：由于不同 primitive 的 op 结构不同，`CRDTDocumentOp` 在类型上保持宽松；实现侧必须对 `field/fieldType/op` 做运行时校验。
 
 ## 适用场景
 
@@ -64,42 +96,24 @@ Agent 状态是结构化的键值/计数器/集合，LWW 语义足够；Yjs 的�
 | `GCounter` | `counters.js` | 只增计数器（每节点独立计数，合并求和） |
 | `PNCounter` | `counters.js` | 正负计数器（positive - negative） |
 | `LWWMap` | `lww-map.js` | LWW 键值对，状态管理 |
-| `ORSet` | `or-set.js` | Observed-Remove 集合，TODO 列表 |
+| `ORSet` | `or-set.js` | Observed-Remove 集合，TODO 列表/并发增删 |
 | `CRDTDocument` | `document.js` | 复合文档，维护 op log/快照/序列化 |
 | `CRDTDocumentOp` | `document.js` | 文档级 op 元数据（field/fieldType/version/docId/clock），同步传输单位 |
-| `CRDTDocumentSnapshot` | `document.js` | 文档快照（register/map/set/counter 的可读值结构） |
-| `CRDTSyncManager` | `sync-manager.js` | 同步管理器，广播/同步文档 op |
-| `createMemoryTransport` | `sync-manager.js` | 内存传输层（测试/演示） |
-| `OpType` / `createOp` | `index.js` | 低层 op 构造器（兼容旧接口） |
+| `CRDTDocumentSnapshot` | `document.js` | UI/存储快照（registers/maps/sets/counters 的可读视图） |
 
-## 操作结构（关键字段）
+## 入口文件（index.js）
 
-- 字段类型 `CRDTFieldType`：`'register' | 'map' | 'set' | 'counter'`
-- 文档级 op（`CRDTDocumentOp`）固定包含：
-  - `docId`：文档 ID
-  - `field`：字段名
-  - `fieldType`：字段类型
-  - `version`：文档版本（单调递增）
-  - 可选 `clock`：LamportClockState（用于因果/排序/幂等辅助）
-  - 可选 `op`：子 op payload（不同 CRDT primitive 的具体字段，例如 map 的 `key`、set 的 `element`、counter 的 `op` 等）
+`index.js` 作为 public API 入口，按需导出核心类型（LWWRegister/LWWMap/ORSet/GCounter/PNCounter/CRDTDocument 等）。上层优先从入口导入，避免依赖内部文件结构。
 
-计数器 op 形状（见 `counters.js`）：
+## 安全注意
 
-```js
-// GCounterIncrementOp
-{ type: 'increment', nodeId, value, clock }
+- 字段名/键名/元素值在多副本同步时可能来自外部输入；实现中避免使用普通对象直接 `obj[userKey] = ...` 写入
+- 推荐内部使用 `Map`/`Set` 存储；对外导出 JSON/快照时使用 `Object.create(null)` 或显式过滤 `__proto__`/`constructor`/`prototype`
+- 解析外部 JSON（如 `fromJSON`/`applyRemoteOp`）时必须做结构校验，遇到未知 `type`/`fieldType` 应拒绝（抛错或返回失败），避免静默分叉
 
-// PNCounterOp
-{ type: 'pn-increment', op: { type: 'increment', nodeId, value, clock } }
-{ type: 'pn-decrement', op: { type: 'increment', nodeId, value, clock } }
-```
+## 测试建议
 
-快照形状（`CRDTDocumentSnapshot`）：
-
-- `registers/maps/sets/counters` 是面向 UI/存储的可读结构；其中 `counters` 存储聚合后的数值。
-
-## 同步模型
-
-- `CRDTDocument` 负责聚合多个 CRDT 字段（register/map/set/counter），写入时记录 op log 和版本；产生的同步单位为 `CRDTDocumentOp`（必须带 `field` 和 `fieldType`，并包含 `docId/version` 等元数据）。
-- `CRDTSyncManager` 只同步 **CRDTDocument 产生的 op**，不会自动监听文档变更；业务层需要在写入后调用 `broadcastOp`。
-- `createMemoryTransport` 是内存 hub，通过 `register(nodeId)` 生成每个节点的 transport。
+- 幂等：同一 op 重放 N 次结果不变
+- 收敛：不同顺序合并同一批 op 得到相同最终状态
+- 并发：多个 nodeId 同时更新同一 field 的冲突处理
+- 裁剪：达到 `maxOpLogSize` 后仍能正确同步（必要时依赖快照/压缩）

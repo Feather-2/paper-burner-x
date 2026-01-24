@@ -6,10 +6,10 @@ Markdown 定义的指令包（SKILL.md），支持多路径加载、Catalog 展�
 
 | 文件 | 职责 |
 |------|------|
-| `index.js` | 统一导出（含默认导出 SkillsManager） |
+| `index.js` | 统一导出（默认导出 SkillsManager；并导出 loader/render/sandbox API） |
 | `manager.js` | SkillsManager 主类：注册/查询/执行入口 |
-| `loader.js` | 加载路由：Node 扫描目录 / Browser 读取 manifest |
-| `loader.browser.js` | Browser 加载实现：fetch manifest + 体积限制 |
+| `loader.js` | 加载路由（Env Router）：Node 扫描目录 / Browser 读取 manifest；对外暴露 `loadSkills`/`loadSkillFromPath`/`loadSkillsFromNexus`/`loadAllSkills` |
+| `loader.browser.js` | Browser 加载实现：fetch manifest（默认 `skills/manifest.json`，fallback `public/skills/manifest.json`）+ 体积限制（manifest/skill）+ manifest 缓存（in-memory, TTL 30s）+ 元数据 key 防护 |
 | `user-store.js` | Browser 用户技能存储适配（user scope） |
 | `model.js` | SkillScope 枚举与类型定义 |
 | `render.js` | 渲染 Skills Catalog（列表/区块） |
@@ -49,6 +49,12 @@ const runner = risk.level === 'high' ? createSandboxedSkillsManager(manager) : m
 await runner.execute(skillName);
 ```
 
+## Browser 默认限制
+
+- manifest 最大: 512 KiB
+- 单个 skill 最大: 2 MiB
+- manifest 缓存: in-memory（TTL 30s，降低重复 fetch）
+
 ## 加载路径优先级
 
 ### Node
@@ -59,6 +65,6 @@ await runner.execute(skillName);
 
 ### Browser
 
-1. `public/skills/manifest.json` - 仓库级（默认 URL 常见为 `/skills/manifest.json`；实现中也可能以相对路径 `skills/manifest.json` 解析）
+1. manifest（默认 `skills/manifest.json`；fallback `public/skills/manifest.json`）
 2. `user-store` - 用户级（浏览器侧持久化）
 3. 系统内置 - 框架级

@@ -17,7 +17,7 @@
 
 ## 关键概念
 
-- **OperationLevel**: `normal/degraded/critical/offline` 四级运行状态。
+- **OperationLevel**: `normal/degraded/critical/offline` 四级运行状态（`offline` 通常用于手动/极端降级或完全停用外部能力）。
 - **DegradationTrigger**: `error_rate/latency/memory/quota/timeout/manual` 触发源（启用哪些触发器取决于具体评估实现）。
 - **默认阈值 (DEFAULT_THRESHOLDS)**:
   - `errorRateDegraded`: `0.1`
@@ -61,18 +61,15 @@ matrix.setManualOverride(OperationLevel.DEGRADED);
 ```
 
 ```javascript
-import { Kernel } from 'js/agents/core';
+// Retry 插件的集成方式取决于项目的 Plugin/Kernel 框架；下面示例仅展示配置形状。
+import retryPlugin from 'js/agents/plugins/resilience/retry.js';
 
-const kernel = new Kernel();
-await kernel.use('resilience/retry', { maxRetries: 5, baseDelay: 500 });
+const config = {
+  maxRetries: 5,
+  baseDelay: 500,
+  retryableErrors: ['ETIMEDOUT', 'ECONNRESET', 'RATE_LIMIT'],
+};
 
-const retryStats = await kernel.services.get('retry').getStats();
+// 伪代码：按项目实际插件系统替换
+// kernel.use(retryPlugin, config);
 ```
-
-## 事件与统计
-
-- `resilience.retry`: 每次重试时发射，payload 包含 `service/method/attempt`。
-- `resilience.exhausted`: 重试耗尽时发射，payload 包含 `service/method/attempts/error`。
-- `retry` 服务：`getStats()` 返回 `{ total }`，`resetStats()` 清零统计。
-
-> 事件名当前使用 `.` 分隔（如 `resilience.retry`）。如需统一为 `domain:action`（如 `resilience:retry`），请在实现与消费方同步迁移并做好兼容。

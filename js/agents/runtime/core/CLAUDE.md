@@ -21,6 +21,22 @@ Agent Loop 的核心组件。
 
 `agent-loop-lifecycle-hooks.js` 提供 `runWithAgentLifecycleHooks()`，用于在一次 `loop.run()` 前后统一执行 pre/post hooks，并统一计算耗时（ms）。
 
+### 函数签名
+
+```javascript
+runWithAgentLifecycleHooks({
+  loop,
+  runId,
+  sessionId,  // string | null
+  input,
+  context,
+  stageApi,
+  startTime,  // 可选：用于对齐外层计时
+})
+```
+
+- `startTime`：若传入 number，则作为 `startedAt` 使用；否则使用 `Date.now()`。
+
 ### 数据流
 
 ```
@@ -29,7 +45,7 @@ runWithAgentLifecycleHooks()
 [Pre Hook] createPreAgentHook()
     ↓
 preResult.skip?
-  ├─ yes → emit `${stageName}.agent.skipped` → return preResult.value / { ok: false, error: reason }
+  ├─ yes → emit `${loop.stageName}.agent.skipped` → return preResult.value / { ok: false, error: reason }
   └─ no  → loop.run(input, context)
               ↓
           [Post Hook] createPostAgentHook() (success/error)
@@ -48,8 +64,11 @@ preResult.skip?
 
 ### 事件
 
-- skip 事件：`${stageName}.agent.skipped`
-- payload：`{ runId, reason, duration }`（并携带 `actor` / `status: "skipped"`）
+- skip 事件：`${loop.stageName}.agent.skipped`
+- emit 选择：`loop.emit || loop.eventBus.emit`（若存在）
+- payload：
+  - 外层：`{ actor, status: \"skipped\", payload }`
+  - 内层 payload：`{ runId, reason, duration }`
 
 ## 消息与用户输入 (Message Handling)
 
@@ -69,85 +88,22 @@ initMessageHandling(loop, {
 });
 ```
 
-- `_userInputs`: `Deque<{ payload, ts }>`
-- `_userInputEvent`: 默认 `"user.input"`
-- `_maxUserInputs`: `getLimit("MAX_USER_INPUTS", maxUserInputs)`
+- `_messageManager`：`new MessageManager({ contextConfig, tokenCounter, logger, emit, stageName, actor })`
+- `_userInputs`：`Deque<{ payload, ts }>`
+- `_userInputEvent`：默认 `\"user.input\"`
+- `_maxUserInputs`：`getLimit(\"MAX_USER_INPUTS\", maxUserInputs)`
+- `_userInputBus` / `_userInputUnsub`：事件总线与取消订阅句柄（用于挂载/卸载监听）
+- `_pauseListenerUnsub`：暂停监听的取消订阅句柄（用于实现 pause/resume 语义）
 
-### EventBus 集成
+### EventBus 约定
 
-`EventBusLike` 预期能力：
-- `subscribe(eventName, handler, { signal? }) -> unsubscribe()`
-- `emit(eventName, payload)`（可选）
+当接入事件总线时，推荐形态：
 
-注意在 loop dispose / 重新绑定监听时正确调用 `unsubscribe()`，避免监听器与相关资源泄漏。
+- `subscribe(eventName, handler, { signal? }) => () => void`
+- `emit(eventName, payload)`
+
+（具体能力以 loop 注入的 eventBus 实现为准）
 
 ## 工具调度 (Tool Dispatch)
 
-`agent-loop-tool-dispatch.js` 基于 `ToolRegistry` 进行工具查找与执行，并统一返回 `ToolResult`：
-
-```js
-{ ok: boolean, data?: any, error?: any, ... }
-```
-
-## 持久化输出 (Persisted Output)
-
-防止工具返回的大输出撑爆 token 窗口。
-
-### 数据流
-
-```
-Tool.execute()
-    ↓
-[After Hook] createPersistedOutputHook()
-    ↓
-result.data > 400KB? → wrapPersistedOutput() → <persisted-output>预览</persisted-output>
-    ↓
-MessageManager.addMessage()
-    ↓
-压缩触发时 → cleanOldOutputs(3) → 保留最近 3 个大输出
-```
-
-### 使用方式
-
-```javascript
-import {
-  ToolRegistry,
-  createPersistedOutputHook,
-  MessageManager,
-} from 'js/agents/runtime';
-
-// 方式 1: ToolRegistry after hook (推荐)
-const registry = new ToolRegistry({ tools });
-registry.useHook('after', createPersistedOutputHook());
-
-// 方式 2: ToolExecutor hooks
-const executor = new ToolExecutor({
-  tools,
-  hooks: { after: [createPersistedOutputHook()] },
-});
-
-// 方式 3: MessageManager 手动包装
-const mm = new MessageManager();
-const wrapped = mm.wrapToolOutput(largeContent);
-mm.cleanOldOutputs(3);  // 清理旧大输出
-mm.dispose();           // 不再使用时清理定时器/压缩任务
-```
-
-### 常量
-
-| 常量 | 默认值 | 说明 |
-|------|--------|------|
-| `OUTPUT_THRESHOLD` | 400000 | 触发包装的字节阈值 |
-| `PREVIEW_SIZE` | 2000 | 预览字符数 |
-| `KEEP_RECENT_OUTPUTS` | 3 | 保留的大输出数量 |
-
-## 运行时适配
-
-| 文件 | 职责 |
-|------|------|
-| `runtime-adapter.js` | RuntimeAdapter 基类 |
-| `js-adapter.js` | JSRuntimeAdapter |
-| `python-adapter.js` | PythonRuntimeAdapter |
-| `scheduler.js` | RuntimeScheduler |
-| `worker-pool.js` | Worker 池 |
-... (39 more lines)
+`agent-loop-tool-dispatch.js` 封装工具注册与派发，统一工具调用返回结构（`ToolResult`）并通过 `ToolRegistry` 完成查找/执行。

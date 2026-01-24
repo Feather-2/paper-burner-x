@@ -49,6 +49,21 @@ await editAgent.run(initialState, {
 { action: 'redo' }
 ```
 
+### 超时与安全限制（默认值）
+
+`edit-loop.js` 对 LLM 意图解析与工具执行提供了默认的安全限制（避免超长/过深 JSON 与长时间挂起）：
+
+- Intent JSON 最大长度：`50_000` 字符（`MAX_INTENT_JSON_CHARS`）
+- Intent 最大深度：`8`（`MAX_INTENT_DEPTH`）
+- Intent 最大操作数：`50`（`MAX_INTENT_OPERATIONS`）
+- Model 超时：`120_000ms`（`MODEL_TIMEOUT_MS`）
+- Tool 超时：`30_000ms`（`TOOL_TIMEOUT_MS`）
+- Canvas 超时：`30_000ms`（`CANVAS_TIMEOUT_MS`）
+
+超时会抛出 `TimeoutError`（`name: 'TimeoutError'`, `code: 'ETIMEDOUT'`, `timeoutMs`）。
+
+建议调用方：捕获并转换为用户友好提示（不要把详细堆栈直接暴露到 UI）。
+
 ## 编辑工具
 
 ```javascript
@@ -78,57 +93,27 @@ EditModeTools.parse_canvas_state;
 - `undo`
 - `redo`
 
-## 工具执行器
-
-```javascript
-import { createEditToolExecutor, EditHistoryManager } from 'js/agents/stages/design/edit-mode';
-import { EditOperationType } from 'js/agents/stages/design/constants.js';
-
-const history = new EditHistoryManager();
-const toolExecutor = createEditToolExecutor({ state: initialState, historyManager: history, canvasBridge });
-
-await toolExecutor(EditOperationType.ADD_SLIDE, { afterIndex: 0 });
-```
-
-### 超时与错误
-
-编辑循环包含超时保护（模型调用 / 工具执行 / 画布调用）。超时会抛出 `TimeoutError`：
-
-- `err.name === 'TimeoutError'`
-- `err.code === 'ETIMEDOUT'`
-- `err.timeoutMs` 为本次超时阈值
-
-上层（UI / chat）应捕获并向用户展示友好消息（不要直接展示 stack）。
-
-### 安全限制（防止模型输出失控）
-
-实现中对“模型意图/操作序列”设置了硬限制（用于避免超大 JSON、过深嵌套或过多操作导致卡死）：
-
-- intent JSON 最大长度：50,000 chars
-- 最大嵌套深度：8
-- 最大操作数：50
-- 默认超时：模型 120,000ms；工具 30,000ms；画布 30,000ms
-
 ## EditHistoryManager
 
-`EditHistoryManager` 提供撤销/重做，并支持事务批处理（transaction batching）以便将多步编辑合并成一次历史记录。
+撤销/重做栈与事务批处理（transaction batching）。
 
 ```javascript
 import { EditHistoryManager } from 'js/agents/stages/design/edit-mode';
 
 const history = new EditHistoryManager(50, {
-  onUndo(op) {
-    // 可选：在 undo 时同步 UI/指标
-  },
-  onRedo(op) {
-    // 可选：在 redo 时同步 UI/指标
-  },
+  onUndo(op) {},
+  onRedo(op) {},
 });
+
+history.push({
+  undo() {},
+  redo() {},
+});
+
+history.beginTransaction();
+// 在事务中 push 的多个 operation 会被合并成一个 entry
 ```
 
-- `push(operation)`：写入一条操作（需要 plain object；否则返回 `false`）。
-- `beginTransaction()`：开启事务；事务期间 `push()` 会累积到同一个历史条目中（事务结束/提交方式以 `history.js` 实现为准）。
-
-## 样式锁定警告
-
-当 `state.designSystem.styleLock` 存在时，`change_color_scheme` 会校验颜色并通过 `emit('edit:style.deviation', ...)` 发送偏离警告（不阻断操作）。
+说明：
+- `maxHistory` 会被归一化为正整数（默认 `50`）。
+- `onUndo`/`onRedo` 为可选回调（用于埋点或外部同步）。

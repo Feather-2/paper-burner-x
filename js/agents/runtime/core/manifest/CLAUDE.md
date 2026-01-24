@@ -5,9 +5,10 @@ Skill/Tool/Stage/Middleware 的元数据声明、权限推断与校验。
 ## 模块描述
 
 - 定义统一 `ManifestSchema`，用于 UI 发现、权限预审、运行时注册
-- 提供 `create*Manifest` 工厂函数与 Schema 归一化（过滤危险键，防原型污染）
-- 提供 `ManifestRegistry` 完成注册、查询、导入/导出
-- 导出 `PermissionType`/`PermissionValue` 与 `PluginType`/`PluginTypeValue` 作为统一枚举与类型
+- 导出 `MANIFEST_VERSION`、`PermissionType`/`PluginType` 及其值类型（`PermissionValue`/`PluginTypeValue`）
+- 提供 `create*Manifest` 工厂函数与 Schema 归一化（过滤危险键，降低原型污染风险）
+- 提供 `validateManifest` 进行结构校验；不合法时返回 `errors` 或抛出 `ManifestValidationError`
+- 提供 `ManifestRegistry` 完成注册、查询、导入/导出清单
 
 ## 核心文件
 
@@ -68,20 +69,24 @@ const manifest = createStageManifest({
   description: '深度搜索阶段',
   permissions: [PermissionType.NETWORK, PermissionType.LLM],
   dependencies: { 'mcp-client': '^1.0.0' },
-  input: { type: 'object', properties: { query: { type: 'string' } } },
-  output: { type: 'object', properties: { results: { type: 'array' } } },
+  input: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: '检索关键词' },
+    },
+    required: ['query'],
+  },
+  output: {
+    type: 'object',
+    properties: {
+      results: { type: 'array', description: '结果列表' },
+    },
+    required: ['results'],
+  },
 });
 ```
 
-### 创建 Middleware Manifest
+## 安全注意事项
 
-```javascript
-import { createMiddlewareManifest, PermissionType } from 'js/agents/runtime/core/manifest/manifest.js';
-
-const manifest = createMiddlewareManifest({
-  name: 'sanitize-input',
-  description: '在执行前清理并校验输入',
-  permissions: [PermissionType.USER_INPUT],
-  metadata: { hooks: ['pre'] },
-});
-```
+- 将 Manifest 视为不可信输入：导入/合并时需过滤 `__proto__`/`constructor`/`prototype` 等危险键（含嵌套）
+- 权限字段用于声明/预审，不应直接等价于授权；执行层应默认拒绝并显式批准（尤其是 `execute`/`network`）

@@ -7,7 +7,7 @@ L3Storage 的索引、持久化、去重与跨标签页协调工具。供 `js/ag
 | 文件 | 职责 |
 |------|------|
 | `constants.js` | 默认容量阈值与字节估算常量（snapshot 数量/总字节上限、摘要字节估算、条目开销估算） |
-| `hash.js` | cyrb53 哈希与内容去重哈希计算（非加密） |
+| `hash.js` | cyrb53 哈希与内容去重哈希计算（非加密；输出 hex 字符串） |
 | `index-manager.js` | index state 创建/序列化/恢复、时间线与索引维护（含 checkpointIndex 兼容） |
 | `query.js` | 时间线查询、关键词检索、去重判断 |
 | `storage-io.js` | VFS 读写、index 持久化、临时文件恢复 |
@@ -36,7 +36,7 @@ L3Storage 的索引、持久化、去重与跨标签页协调工具。供 `js/ag
 
 ## 存储布局
 
-```
+```text
 .agents/runs/<runId>/l3/
   snapshots/<id>.json
   checkpoints/<id>.json
@@ -50,7 +50,7 @@ L3Storage 的索引、持久化、去重与跨标签页协调工具。供 `js/ag
 
 - `DEFAULT_MAX_SNAPSHOTS` 默认 `1000`，控制 snapshot 数量上限（逐出触发条件之一）。
 - `DEFAULT_MAX_STORAGE_BYTES` 默认 `100MB`，控制估算的总存储上限。
-- `BYTES_PER_CHAR` 默认 `2`，用于摘要等字符串的粗略字节估算。
+- `BYTES_PER_CHAR` 默认 `2`，用于摘要等字符串的粗略字节估算（按 JS 字符串 UTF-16 code unit 近似；属于“估算值”）。
 - `ENTRY_OVERHEAD_BYTES` 默认 `200`，用于每条 timeline/snapshot 元数据的固定开销估算。
 
 这些估算用于降低频繁读取真实文件大小的成本，因此是“近似值”，应配合实际逐出策略使用。
@@ -67,5 +67,8 @@ L3Storage 的索引、持久化、去重与跨标签页协调工具。供 `js/ag
 
 ## 使用约定
 
-- `runId` 必须通过 `validateRunId` 校验，避免路径穿越。
-- `snapshotId`/`checkpointId` 应为安全文件名片段（推荐 `snap_...` / `ckpt_...`）。
+- `runId` / `snapshotId` / `checkpointId` 必须是非空字符串；作为文件名使用时不得包含 `/`、`\`、`..` 等路径片段（避免路径穿越）。
+- `stageKey` 建议使用稳定的业务 key（如 `memory:stage`），不要直接使用用户输入。
+- `timeline` 的 `ts/accessedAt` 使用 `Date.now()`（毫秒）；`accessedAt` 仅用于 LRU 逐出。
+- 本模块的 hash（cyrb53/contentHash）仅用于去重与索引，不可用于安全/加密用途。
+- 外部传入或持久化恢复的载荷应有尺寸限制（timeline/keywords 等项数上限、summary 长度上限），避免大对象导致 stringify/parse 的性能问题。

@@ -20,11 +20,11 @@
 
 ## 类型定义（JSDoc）
 
-- ChatOptions: `{ messages, usage? }`
-- ChatResponse: `{ content, model, usage, finish_reason, system_fingerprint, logprobs }`
+- ChatOptions: `{ messages: Array<{ role, content }>, usage? }`
+- ChatResponse: `{ content, model, usage: { total_tokens }, finish_reason, system_fingerprint, logprobs }`
 - ScenarioStep: `{ input?, expectedOutput?, toolCall?, args?, expectedResult?, assertEvent?, eventCount? }`
 - Scenario: `{ name, steps, setup?, teardown? }`
-- ScenarioResult: `{ name, passed, steps, errors }`
+- ScenarioResult: `{ name, passed, steps: Array<{ index, passed, output?, error? }>, errors }`
 - MockTestEnvOptions: `{ model?, mcp? }`
 
 ## ScenarioRunner 场景格式
@@ -49,7 +49,8 @@ import {
 const modelClient = new MockModelClient({ responses: { default: 'OK' } });
 const mcpProvider = new MockMcpProvider({
   tools: {
-    search: (query) => ({ success: true, results: [{ title: `Result: ${query}` }] }),
+    // 建议工具函数签名以 args 对象为入参，避免位置参数扩展困难
+    search: ({ query }) => ({ success: true, results: [{ title: `Result: ${query}` }] }),
   },
 });
 const eventBus = new MockEventBus();
@@ -66,12 +67,7 @@ await runner.run({
   ],
 });
 
-// Mock fetch
-const server = new MockServer().setJsonResponse('/health', { ok: true });
-await server.fetch('http://mock.local/health');
-
-// 一键环境（可用 options 覆盖默认 mock 行为）
-const env = createMockTestEnv({ model: { responses: { default: 'OK' } } });
-const stageApi = env.createStageApi();
-stageApi.emit('agent:step', { ok: true });
+// Mock fetch（路由与响应配置以 mock-suite.js 的 MockServer API 为准）
+const server = new MockServer();
+// e.g. 将 server 作为 fetch 替身注入到被测代码中（或使用 createMockTestEnv 组合注入）
 ```

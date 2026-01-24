@@ -9,22 +9,22 @@ AI 驱动的幻灯片设计和生成。
 | 文件 | 职责 |
 |------|------|
 | `index.js` | 模块入口 |
-| `agent-loop.js` | DesignAgentLoop（主编排器：阶段推进、并发、暂停/恢复、回滚） |
+| `agent-loop.js` | DesignAgentLoop（主编排器：阶段推进、并发、暂停/恢复、回滚；支持 DI 容器注入） |
 | `design-agent.js` | DesignStage, runDesignStage |
 | `edit-agent-loop.js` | EditAgentLoop（交互编辑主循环） |
 | `model.js` | 设计阶段模型调用封装（路由/超时） |
 | `design-tools.js` | 设计工具定义（tool definitions） |
-| `design-helpers.js` | 设计阶段辅助：trace 上下文、错误边界、并发配置、回滚错误等 |
+| `design-helpers.js` | 设计阶段辅助：trace 上下文、错误边界、并发配置加载、回滚错误等 |
 | `states.js` | 状态机定义 |
-| `constants.js` | 常量与枚举（ImageTaskStatus/RenderType/VisualType 等） |
+| `constants.js` | 常量与枚举（ImageTaskStatus/RenderType/VisualType 等，含 JSDoc typedef） |
 
 ## 关键内部模块
 
 | 文件 | 职责 |
 |------|------|
 | `internal/phases/index.js` | 阶段编排入口（preparation/planning/layout/generating/visual/review 等） |
-| `internal/state-manager.js` | Loop 状态持久化、暂停/恢复（resume）与 schema 版本管理 |
-| `internal/deck-operations.js` | Deck 读写与增量更新发射、最终收敛（finalize）、watchdog/超时管理 |
+| `internal/state-manager.js` | Loop 状态持久化、暂停/恢复（resume）与 schema 版本管理（含 `SCHEMA_VERSION` 概念） |
+| `internal/deck-operations.js` | Deck 读写与增量更新发射、最终收敛（finalize）、watchdog/超时管理；按 `imageConcurrency` 控制图像相关并发 |
 | `internal/tool-handler.js` | Tooling 初始化与工具调用处理 |
 | `internal/design-blackboard.js` | 设计黑板/共享上下文（跨阶段共享） |
 | `internal/design-loop-types.js` | DesignLoop 公共类型定义（JSDoc typedef） |
@@ -65,63 +65,27 @@ ImageTaskStatus: PENDING → RUNNING → SUCCESS / FAILED / SKIPPED
 - `batchConcurrency`: 批处理并发（最小 1）
 - `imageConcurrency`: 图片生成并发（最小 1）
 
-建议在浏览器环境下为这些参数设置合理上限，避免 UI 卡死或触发 API 限流。
+实现要点（以 `agent-loop.js` 为准）：
 
-## 暂停/恢复与回滚
+- `batchSize` 优先使用构造参数，其次回退到配置/默认值
+- `batchConcurrency`、`imageConcurrency` 当前由配置/默认值决定
+- `DeckOperations` 初始化时会显式接收 `{ imageConcurrency }`
 
-- 暂停：通过 `StagePausedError` 作为控制流信号返回上层。
-- 恢复：`internal/state-manager.js` 提供 `resumeDesignAgentLoop` 相关能力。
-- 回滚：`BacktrackError` 用于触发回滚/重试策略（对外导出，供调用方区分错误类型）。
-- 状态 schema：`SCHEMA_VERSION` 用于持久化状态的版本标识，变更需同步迁移策略与测试。
+建议（Browser-first）：
 
-## 使用示例
+- 为并发与批大小设置“合理上限”（避免配置被误设导致卡死/资源耗尽）
+- 将并发参数限制为有限整数（避免 `Infinity`/小数等异常值）
 
-```javascript
-import {
-  DesignAgentLoop,
-  runDesignStage,
-  BacktrackError,
-  DESIGN_AGENT_TOOL_DEFINITIONS,
-} from 'js/agents/stages/design';
+## 构造参数与 DI
 
-// 方式 1: Agent Loop
-const agent = new DesignAgentLoop({ eventBus, batchSize: 5 });
-try {
-  const deck = await agent.run({
-    topic: '2024 年度报告',
-    style: 'corporate',
-    slideCount: 10,
-  });
-} catch (err) {
-  if (err instanceof BacktrackError) {
-    // 可选：提示用户重试或执行回滚后的恢复逻辑
-  }
-  throw err;
-}
+`DesignAgentLoop` 构造参数（见 `internal/design-loop-types.js` 的 `DesignLoopConstructorOptions`）：
 
-// 方式 2: Stage API
-const result = await runDesignStage(runContext, {
-  outline: [...],
-  assets: [...],
-});
+- `eventBus`: 事件总线
+- `tools`: 工具集合（供 tooling 初始化）
+- `memoryStore` / `stateEngine`: 状态持久化与运行时依赖
+- `container`: 可选 DI 容器（用于注入/复用运行时服务；不建议直接暴露给不可信 UI 输入）
 
-// 工具定义（用于宿主侧安装/展示工具能力）
-console.log(DESIGN_AGENT_TOOL_DEFINITIONS);
-```
+## 错误与回滚
 
-## 生成器
-
-```javascript
-import { generateDesignTokens, ImageGenerator, SVGGenerator } from 'js/agents/stages/design';
-
-// 设计令牌
-const tokens = generateDesignTokens({ theme: 'dark', accent: '#007AFF' });
-
-// 图像填充
-const imageGen = new ImageGenerator(llmProvider);
-await imageGen.fillImagePlaceholders(slides);
-
-// SVG 生成
-const svgGen = new SVGGenerator();
-await svgGen.fillSvgPlaceholders(slides);
-```
+- 回滚/回溯相关错误类型通过 `BacktrackError` 暴露（来源：`design-helpers.js`）
+- 设计阶段应避免吞掉异常：要么向上传播，要么记录后重新抛出

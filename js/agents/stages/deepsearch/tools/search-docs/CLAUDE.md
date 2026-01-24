@@ -20,13 +20,24 @@
   - `retrieverTimeoutMs` 默认 15000，上限 60000（用于外部检索器 `retriever.search`）。
 - 语义检索：优先使用 `context.embeddingService`；否则读取 `embedding`/`globalConfig.embedding` 配置并缓存到 `context._pbEmbeddingService`，可透传 `fetchImpl`。
 - 外部检索器：`retriever.search` 由熔断器包裹（registry 优先取 `context`/`stageApi`，无则使用全局），并受 `retrieverTimeoutMs` 约束；失败/熔断/超时时降级为本地检索。
+- 超时：内部使用超时包装器对外部检索与语义检索做时间上限控制；超时错误会标记 `code: 'TIMEOUT'`（供上层区分）。
 - MMR 重排：默认开启；`mmr: false` 关闭；`mmr` 支持 `{ topK, lambda, maxTokens }`。
 - 证据写入：带 `gapId` 时通过 `discoveryManager.addEvidence` 记录证据。
 - 事件上报：成功触发 `emit('deepsearch:search_completed')`（本地检索包含 `fallback: 'local'`）；本地检索失败触发 `emit('deepsearch:search_failed')`。
 
+## 返回值（SearchDocsResult）
+
+`handler` 返回结构化结果对象，而不是直接返回数组：
+
+- `success: boolean`：是否成功
+- `results?: SearchHit[]`：命中列表（成功时）
+- `fallback?: string`：降级模式标识（如本地检索）
+- `mmr?: { applied?: boolean, pool?: number }`：MMR 重排元数据
+- `error?: string` / `message?: string`：失败原因与用户可读提示
+
 ## 常见任务
 
-- 基本搜索：传入 `query` 与 `limit`，返回匹配结果列表。
+- 基本搜索：传入 `query` 与 `limit`，返回 `SearchDocsResult`（命中在 `results`）。
 - 限定来源：使用 `sources` 指定文档 ID 列表，只在目标文档内检索。
 - 语义检索：提供 `embedding` 配置或 `embeddingService`，启用向量相似度搜索（可用 `semanticTimeoutMs` 控制超时）。
 - 控制外部检索器超时：使用 `retrieverTimeoutMs` 控制 `retriever.search` 超时与降级行为。
@@ -46,4 +57,11 @@ const res = await handler(
   },
   context
 );
+
+if (res.success) {
+  console.log(res.results);
+} else {
+  // res.error / res.message
+  console.warn(res);
+}
 ```

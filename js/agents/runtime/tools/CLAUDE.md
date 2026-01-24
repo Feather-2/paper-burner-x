@@ -66,7 +66,60 @@ const result = await executor.execute('Task', {
 - `context.logger`：用于记录工具执行日志（建议支持 `info/warn/error`）。
 - `context.emit(event, payload)`：用于发布运行时事件（事件名格式：`domain:action`，例如 `agent:step`）。
 
-注意：handler 不应假设 `logger/emit` 永远存在；建议对缺失情况做容错或让错误明确向上传播。
+注意：
+
+- 内置工具可能会直接调用 `context.logger.*` / `context.emit`；ToolExecutor 应保证注入最小实现。
+- 如果你在测试/独立调用 handler，请传入最小 `context`（例如提供 no-op 的 `logger/emit`），或让缺失时抛出明确的配置错误。
+
+## 内置工具信号 (AgentLoop 约定)
+
+部分工具会返回控制流信号（signal），由上层 AgentLoop 捕获并执行对应动作，而不是把结果当成普通工具输出继续对话。
+
+目前约定的信号形态：
+
+- Backtrack：`{ ok: true, backtrack: { checkpointId, state, reason, hint } }`
+- DMail：`{ ok: true, dmail: { correction, supersedeRange, severity, timestamp } }`
+
+失败时通常返回：`{ ok: false, error: '...' }`。
+
+## BacktrackTool
+
+用途：硬回溯到某个 Checkpoint（由 AgentLoop 执行真正的状态还原）。
+
+参数：
+
+- `reason`：为什么要回溯（必填）。
+- `checkpoint_id`：可选的特定回溯点 ID。
+- `hint`：给未来的自己/后续步骤的修正提示（可选）。
+
+事件：
+
+- `agent:backtrackRequested`：回溯请求已生成（payload 为 `backtrack` 对象）。
+- `agent:backtrackFailed`：回溯准备失败（payload 包含 `checkpoint_id` 与失败原因）。
+
+返回：
+
+- 成功：`{ ok: true, backtrack: { checkpointId, state, reason, hint } }`
+- 失败：`{ ok: false, error: 'Backtrack failed: ...' }`
+
+## DMailTool
+
+用途：软回溯（不删除历史），把一段 turn 标记为已被更正/作废（superseded）。
+
+参数：
+
+- `correction`：更正信息（必填）。
+- `supersede_from` / `supersede_to`：要标记为 superseded 的 turn 区间（可选，非负整数；闭区间）。
+- `severity`：严重级别（可选：`minor` / `major` / `critical`，默认 `minor`）。
+
+可选创建参数：
+
+- `now()`：注入时间戳提供器（返回 ms since epoch），便于测试。
+
+返回：
+
+- 成功：`{ ok: true, dmail: { correction, supersedeRange, severity, timestamp } }`
+- 失败：`{ ok: false, error: '...' }`
 
 ## Worker 隔离执行
 
@@ -77,74 +130,7 @@ const tool = {
   worker: {
     moduleUrl: './tools/some-tool.js',
     exportName: 'handler',
-    moduleUrlPolicy: 'sameOrigin', // allow | sameOrigin | local
-    allowedOrigins: ['https://example.com'],
+    // ... 其他 worker 配置
   },
 };
-```
-
-## 内置工具
-
-### BacktrackTool
-
-用途：允许模型在发现错误、死胡同或需要尝试不同路径时，请求回溯到之前的 checkpoint。
-
-Handler 工厂：`createBacktrackTool({ backtrackManager })`
-
-参数（args）：
-
-- `reason` (string, required)：为什么要回溯
-- `checkpoint_id` (string, optional)：指定回溯点 ID
-- `hint` (string, optional)：给“未来的自己”的修正提示
-
-返回：一个“回溯信号”对象，由 AgentLoop 捕获并执行真正的状态还原：
-
-```javascript
-{
-  ok: true,
-  backtrack: {
-    checkpointId,
-    state,
-    reason,
-    hint,
-  }
-}
-```
-
-失败时返回：
-
-```javascript
-{ ok: false, error: '...' }
-```
-
-事件：
-
-- `agent:backtrackRequested`：当回溯信号准备完成并请求执行
-- `agent:backtrackFailed`：当准备回溯失败
-
-### DMailTool
-
-用途：软回溯（soft backtrack），标记一段 turn 范围为“已被修正/覆盖”，但不删除历史。
-
-Handler 工厂：`createDMailTool(options?)`
-
-- `options.now?: () => number`：可注入时间戳提供器（ms since epoch）
-
-参数（args）：
-
-- `correction` (string, required)：发送给过去自己的修正信息
-- `supersede_from` (number, optional)：起始 turn（>= 0 的整数）
-- `supersede_to` (number, optional)：结束 turn（>= 0 的整数，含）
-- `severity` ("minor"|"major"|"critical", optional)：严重程度（默认 "minor"）
-
-建议返回结构：
-
-```javascript
-{ ok: true, dmail: { correction, supersedeRange, severity, timestamp } }
-```
-
-失败时返回：
-
-```javascript
-{ ok: false, error: '...' }
 ```

@@ -9,9 +9,9 @@
 |------|------|
 | `index.js` | 导出格式化器并定义 `DEFAULT_FORMATTERS` 映射 |
 | `escape-template-delimiters.js` | 在输出中打断 `{{`/`}}`（零宽字符），防止二次模板解析 |
-| `format-bullets.js` | 列表/多行文本转为 Markdown bullet（支持 `bullet`/`indent` 选项） |
-| `format-code-block.js` | 生成 fenced code block（支持 `lang` 选项） |
-| `format-json.js` | JSON 美化输出（`space` 缩进；可选 `onError` 回调） |
+| `format-bullets.js` | 列表/多行文本转为 Markdown bullet（支持 `bullet`/`indent`；忽略空行/空项） |
+| `format-code-block.js` | 生成 fenced code block（支持 `lang`；`lang` 会 trim） |
+| `format-json.js` | JSON 美化输出（`space` 缩进；可选 `onError` 回调；对 `space` 做数值归一化） |
 | `format-lines.js` | 数组/字符串转行文本 |
 | `format-trim.js` | 去除首尾空白 |
 | `format-upper.js` | 转大写 |
@@ -19,9 +19,10 @@
 ## 关键概念
 
 - **格式化器签名**：`(value, options?) => string`，`options` 为可选配置对象（通常由模板调用参数解析而来）。
+- **空值策略**：多数 formatter 将 `null`/`undefined` 视为“无内容”，直接返回空字符串 `""`。
 - **格式化管道**：占位符可串联多个 formatter，顺序执行（如 `json` → `code`）。
 - **默认表**：`DEFAULT_FORMATTERS` 提供 `bullets`/`code`/`json`/`lines`/`trim`/`upper`。
-- **安全转义**：`escapeTemplateDelimiters` 在输出中插入零宽字符阻断 `{{`/`}}`（实现避免依赖 `replaceAll` 以兼容较老浏览器）。
+- **安全转义**：`escapeTemplateDelimiters` 在输出中插入零宽字符 `\u200B` 阻断 `{{`/`}}`（实现避免依赖 `replaceAll` 以兼容较老浏览器）。
 
 ## 常见任务
 
@@ -40,8 +41,12 @@
 
 - 内置 formatter 的 options 约定（用于实现/测试；`name(...)` 如何映射为 options 由上层渲染器决定）
   - `bullets`: `{ bullet, indent }`
-  - `code`: `{ lang }`
-  - `json`: `{ space, onError? }`（`onError` 通常仅用于运行时注入/调用）
+    - 数组：`null`/空白项会被过滤
+    - 字符串：按换行拆分；空行会被过滤；每行会 `trimEnd()`
+  - `code`: `{ lang }`（`lang` 会被 `trim()`；不会过滤换行/反引号等特殊字符）
+  - `json`: `{ space, onError? }`
+    - `space` 会被归一化为 `>= 0` 的整数；建议上层限制合理上限（如 0-10）
+    - `onError` 通常仅用于运行时注入/调用
 
 - 新增 formatter：新增 `format-xxx.js` 并导出函数（建议采用 `(value, options)` 签名），然后在 `index.js` 中导出并加入 `DEFAULT_FORMATTERS`。
 - 运行时注入自定义 formatter
@@ -53,4 +58,7 @@ renderPromptTemplate(tpl, {
 });
 ```
 
-- 安全提示：`code` formatter 仅负责包裹 fenced code block；如果输入可能包含 fence（3 个反引号）或 `lang` 含换行/特殊字符，需要在上层做额外处理以避免“跳出”代码块。
+- 安全提示：
+  - `code` formatter 仅负责包裹 fenced code block；如果输入可能包含 fence（3 个反引号），需要在上层做额外处理（例如替换/转义反引号，或选择更长的 fence）以避免“跳出”代码块。
+  - 若 `lang` 来自不可信输入，必须在上层做白名单校验/清洗（避免换行、反引号等导致破坏 fence 结构）。
+  - 确保在最终插值输出阶段统一调用 `escapeTemplateDelimiters`（通常应在所有 formatter 之后执行），防止用户内容注入新的 `{{...}}` 占位符。

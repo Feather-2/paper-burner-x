@@ -7,8 +7,8 @@
 | 文件 | 职责 |
 |------|------|
 | `embedding-service.js` | EmbeddingService - 嵌入生成（含 endpoint 校验/SSRF 防护） |
-| `vector-index.js` | VectorIndex - 向量存储与检索 |
-| `hnsw-lite.js` | HnswLiteIndex - 近似最近邻（分层图 + LSH） |
+| `vector-index.js` | VectorIndex - 向量存储与检索（含维度校验/错误类型） |
+| `hnsw-lite.js` | HnswLiteIndex - 近似最近邻（分层图 + LSH），并导出索引错误类型 |
 
 ## EmbeddingService
 
@@ -44,8 +44,11 @@ const vectors = await pending;
 ### 安全与网络限制
 
 - `endpoint` 会做基础的 URL/参数校验。
-- 内部会识别并拒绝明显的本机/内网目标（如 `localhost`、`.localhost`、`.local`、`127.0.0.1`、`10.x.x.x`、`192.168.x.x`、`172.16-31.x.x`、`::1`、`fc00::/7`、`fe80::/10` 及 IPv4-mapped IPv6 等），用于降低 SSRF 风险。
-- 若你的场景需要访问本地/内网 embeddings 服务，请在上层做显式 allowlist 与风险隔离。
+- 内部会识别并拒绝明显的本机/内网目标（降低 SSRF 风险），例如：
+  - 主机名：`localhost`、`.localhost`、`.local`
+  - IPv4：`0.x.x.x`、`127.x.x.x`、`10.x.x.x`、`169.254.x.x`、`192.168.x.x`、`172.16-31.x.x`
+  - IPv6：`::1`、`::`、`fe80:`（link-local 前缀）、`fc00::/7`（ULA，含 `fc*`/`fd*`）、以及 IPv4-mapped IPv6（如 `::ffff:192.168.0.1`）
+- 该策略是“明显内网/本机目标”拦截，并不能覆盖所有形式的网络风险（例如 DNS rebinding）；生产场景建议在上层做显式 allowlist 与风险隔离。
 
 ## VectorIndex
 
@@ -64,11 +67,11 @@ const results = index.search(queryEmbedding, {
 // → [{ id: 'doc-1', score: 0.95, meta: { ... } }, ...]
 ```
 
-备注：维度不一致时会抛出 `DimensionMismatchError`（建议调用方捕获并给出可读错误）。
+备注：维度不一致时会抛出 `vector-index.js` 导出的 `DimensionMismatchError`（建议调用方捕获并给出可读错误）。
 
 ## HnswLiteIndex
 
-高效近似最近邻（LSH + 分桶 + 分层图导航），并支持与 `VectorIndex` 一致的分区策略（`meta.ts` → `hot/warm/cold`）。
+高效近似最近邻（LSH + 分层图导航），并支持与 `VectorIndex` 一致的分区策略（`meta.ts` → `hot/warm/cold`）。
 
 ```javascript
 import { HnswLiteIndex } from 'js/agents/shared/embeddings';
@@ -78,23 +81,12 @@ const hnsw = new HnswLiteIndex({
   numHashBits: 8,
   numProbes: 8,
   seed: 42,
-  rebuildThreshold: 0.3,
 });
-
-hnsw.upsert('doc-1', embedding1, { ts: Date.now() });
-
-const neighbors = hnsw.search(queryEmbedding, {
-  topK: 10,
-  efSearch: 16,
-  partitions: ['hot', 'warm'],
-});
-
-const snapshot = hnsw.toJSON();
-const restored = HnswLiteIndex.fromJSON(snapshot);
 ```
 
 ### 错误类型
 
-- `HnswLiteIndexError`: HnswLiteIndex 的基础错误类型
-- `DimensionMismatchError`: 向量维度不一致
-- `InvalidIndexError`: 索引快照/数据不合法
+- `hnsw-lite.js`：`HnswLiteIndexError`（基类）、`DimensionMismatchError`、`InvalidIndexError`
+- `vector-index.js`：`DimensionMismatchError`
+
+提示：如果公共入口同时 re-export 两个同名 `DimensionMismatchError`，建议在入口处使用别名导出或在文档/API 中明确区分来源模块。

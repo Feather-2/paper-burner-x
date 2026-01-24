@@ -16,9 +16,20 @@ Token 监控和上下文压缩，防止溢出。
 | `proactive-compressor.js` | ProactiveCompressor - 主动压缩协调器 |
 | `quality-monitor.js` | CompressionQualityMonitor - 压缩质量监控 |
 
+## 关键默认值（impl）
+
+- `AdaptiveZoneManager`
+  - `defaultBoundaries`: `{ archive: 0.2, condensed: 0.5, working: 0.8 }`
+  - `densityWeight`: `0.3`（会 clamp 到 0-1）
+- `CicadaCompressor`
+  - `maxTokens`: `2000`
+  - `maxInputChars`: `12000`
+  - `schemaVersion`: `1.0`（支持：`1.0` / `0.1` / legacy）
+  - `layers`: `tool_output` / `session_history` / `llm_summary`
+
 ## 主动上下文管理（Proactive Context Management）
 
-基于"远模糊、近精确"和"在 Cache 内跳舞"策略的自适应上下文管理。
+基于“远模糊、近精确”和“在 Cache 内跳舞”策略的自适应上下文管理。
 
 ### 核心原则
 
@@ -53,12 +64,40 @@ Token 监控和上下文压缩，防止溢出。
 - Working (默认 50-80%): 轻度压缩，保留 thinking
 - Active (默认 80-100%): 无压缩，完整保留
 
-关键配置：
+#### 关键配置
 
-- `defaultBoundaries`: `{ archive, condensed, working }`（0-1，单调递增）
-- `densityWeight`: 密度调整权重（0-1）
+- `defaultBoundaries`: `{ archive, condensed, working }`（0-1，单调递增；缺省字段回退到默认值）
+- `densityWeight`: 密度调整权重（0-1，默认 `0.3`，会 clamp 到 0-1）
+
+#### ZoneConfig（压缩决策载体）
+
+`AdaptiveZoneManager` 内部以 `ZoneConfig` 作为“当前 fill ratio 应该怎么压”的结构化结果，典型字段：
+
+- `name`: `archive|condensed|working|active`
+- `start` / `end`: 区间范围（fill ratio）
+- `compressionLevel`: 压缩级别描述
+- `preserveThinking`: 是否保留 thinking
+- `summarizeThinking`: 是否摘要 thinking
 
 `ProactiveCompressor` / `CompressionCoordinator` 通常基于 zone 来决定每一段消息采用“保留/摘要/归档”的强度。
+
+### CicadaCompressor（渐进式分层压缩）
+
+`CicadaCompressor` 以 layer 为单位逐层压缩（如 tool 输出、会话历史、LLM 摘要），并支持结构化摘要/归档及 schema 版本兼容：
+
+- `CompressionLayer`: `tool_output` / `session_history` / `llm_summary`
+- 默认 `layers`: `tool_output` → `session_history` → `llm_summary`
+- 默认 `maxTokens`: `2000`
+- 默认 `maxInputChars`: `12000`（用于保护输入规模；具体策略以实现为准）
+- `CICADA_SCHEMA_VERSION`: `1.0`
+- `SUPPORTED_SCHEMA_VERSIONS`: `1.0` / `0.1` / legacy（无 version）
+
+可选依赖（注入式）：
+
+- `modelRouter`: `{ call?, chat? }`
+- `archive`: `{ store?/set?/archive?/load?/get?/restore? }`
+- `eventBus`: `{ emit? }`
+- `maxArchives` / `archiveRetentionDays`: 控制归档数量与保留策略
 
 ### ProactiveCompressor
 
@@ -68,40 +107,12 @@ Token 监控和上下文压缩，防止溢出。
 import { ProactiveCompressor } from 'js/agents/plugins/compression';
 import { autoSelectPreset } from 'js/agents/plugins/compression/impl/proactive-compressor.js';
 
-// 使用预设
+// 使用固定预设
 const compressor = new ProactiveCompressor({
   contextWindow: 128000,
-  preset: 'balanced',  // aggressive | balanced | conservative
+  preset: 'balanced',
 });
 
-// 或自动选择预设
-const preset = autoSelectPreset(contextWindow);
-const compressor2 = new ProactiveCompressor({ contextWindow, preset });
-
-// 检查是否需要压缩
-const { shouldCompress, fillRatio, zone } = compressor.shouldCompress(currentTokens);
-
-// 执行主动压缩
-const result = await compressor.compress(messages);
-// result.messages - 压缩后的消息
-// result.sessionSummary - 累积的会话摘要（只追加）
-// result.archivedIds - 归档到 L3 的 ID 列表
-// result.stats - 压缩统计（计数/比例等）
+// 或：按上下文窗口自动选择预设（具体签名以实现为准）
+const preset = autoSelectPreset({ contextWindow: 128000 });
 ```
-
-### CicadaCompressor（渐进式压缩）
-
-`CicadaCompressor` 以“分层（layers）”方式逐步降低上下文体积，典型层级：
-
-- `tool_output`
-- `session_history`
-- `llm_summary`
-
-并支持结构化摘要的 schema version（用于前向兼容/灰度演进）。
-
-常见配置点（见 Options typedef）：
-
-- `maxTokens`: 压缩目标 token 上限
-- `layers`: 启用的压缩层
-- `archive`/`maxArchives`/`archiveRetentionDays`: 归档适配器与保留策略
-- `eventBus`: 事件上报（用于质量监控/可观测性）

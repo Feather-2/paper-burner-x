@@ -19,9 +19,9 @@ SideEffectJournal 以 WAL（write-ahead log）形式持久化可回滚副作用�
 |------|------|
 | WAL 日志 | `${walDir || '.agents/wal'}/<runId>.jsonl`，按行 JSON 存储副作用记录 |
 | WAL 目录 (walDir) | 可配置 WAL 根目录，默认 `.agents/wal` |
-| WAL 安全限制 | WAL 文件最大 10MB；单行最大 100KB；超限/非法行会被跳过并告警 |
+| WAL 安全限制 | WAL 文件最大 10MB；单行最大 100KB；超限/非法行会被跳过并告警（对应 `MAX_WAL_FILE_SIZE` / `MAX_WAL_LINE_SIZE`） |
 | runId 校验 | 拒绝 `..`、绝对路径、路径分隔符、非法字符，避免路径穿越 |
-| WAL 校验 | replay 时验证 `kind`/`ts`/`reversible` 结构，非法记录跳过 |
+| WAL 校验 | replay 时验证 `kind`/`ts`/`reversible` 等结构，非法记录跳过 |
 | 游标 (cursor) | 当前日志长度，`rollbackToCursor()` 以序号回退 |
 | vfs_checkpoint | 通过 `vfs.write.*` 事件生成的可回滚检查点记录 |
 | 去重 | `eventId` 去重，忽略 `meta.replay` 事件 |
@@ -66,54 +66,19 @@ SideEffectJournal 以 WAL（write-ahead log）形式持久化可回滚副作用�
 
 ### SideEffectJournalEventPayload
 
-`attachEventBus()` 监听的 `vfs.write.*` 事件 payload 形状：`{ op?, path?, checkpoint? }`。
+`attachEventBus()` 监听的 `vfs.write.*` 事件 payload（由上游 VFS/EventBus 约定）。
+SideEffectJournal 只关心以下字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| op | string? | 操作类型（如 write/append 等） |
+| path | string? | 目标路径 |
+| checkpoint | SideEffectJournalCheckpointRef? | 可回滚检查点引用（如有） |
 
 ### RunStoreLike（DI contract）
 
-用于 `loadFromRunStore()` 等能力的依赖契约；至少需要提供 runId 对应事件的读取能力（如 `getEvents(runId)`）。
+用于描述注入的 runStore（若提供）：
 
-## 常见任务
-
-### 1) 初始化并监听 VFS 写入
-
-```javascript
-import { SideEffectJournal } from 'js/agents/plugins/side-effects/side-effect-journal.js';
-
-const journal = new SideEffectJournal({
-  runId,
-  vfs,
-  runStore,
-  storageAdapter,
-  eventBus,
-  logger: console,
-  autoPersist: true,
-  walDir: '.agents/wal', // 可选：自定义 WAL 根目录
-});
-
-journal.attachEventBus(eventBus); // 监听 vfs.write.*
-```
-
-### 2) 手动记录副作用并持久化
-
-```javascript
-journal.record({
-  kind: 'vfs_checkpoint',
-  reversible: true,
-  path: 'output.txt',
-  checkpoint: { artifactId: 'abc123', type: 'vfs_checkpoint.json' },
-}, { persist: true });
-```
-
-### 3) 崩溃恢复与回滚
-
-```javascript
-await journal.replayFromStorage(runId);     // 读取 WAL 恢复内存日志
-await journal.rollbackToCursor(3);          // 回滚到第 3 条之前
-await journal.compact();                    // 压缩 WAL（可选）
-```
-
-### 4) 从 RunStore 还原历史事件
-
-```javascript
-await journal.loadFromRunStore({ runId });  // 读取历史 vfs.write.* 事件
-```
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| getEvents | (runId: string) => Promise<unknown[]> ? | 可选：按 runId 获取事件列表（用于回放/去重/回滚相关逻辑） |

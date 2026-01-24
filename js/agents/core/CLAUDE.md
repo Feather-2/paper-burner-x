@@ -1,6 +1,6 @@
 # core - 微内核核心
 
-提供 Kernel、三大总线、插件系统、CRDT 共识层和沙箱执行环境。
+提供 Kernel、三大总线、插件系统、CRDT 共识层和沙箱执行环境，并提供旧 ServiceProvider → 新 Plugin 的兼容层。
 
 ## API 层次
 
@@ -25,7 +25,7 @@
 | `message-bus.js` | 跨 Agent 消息传递 |
 | `plugin.js` | `createPlugin`, PluginManager, PluginContext |
 | `presets.js` | 预设配置 (minimal/standard/deepsearch/production) |
-| `compat.js` | 旧 API 兼容层：旧 ServiceProvider → 新 Plugin (`adaptProvider`) |
+| `compat.js` | 旧 API 兼容层：旧 ServiceProvider → 新 Plugin (`isServiceProvider`, `adaptProvider`) |
 | `secure-plugin-loader.js` | SecurePluginLoader - 远程插件 SRI 验证加载 |
 
 ## 子模块索引
@@ -61,62 +61,51 @@ const robustService = createRetryProxy(
 );
 ```
 
+## 旧 Provider 兼容（ServiceProvider → Plugin）
+
+- 旧接口：`provider.register(kernel)`
+- 可选生命周期：`provider.start(kernel)`, `provider.stop(kernel)`
+- 适配规则：
+  - `register()` 在新 Plugin 的 `install()` 阶段执行
+  - `start()/stop()` 映射到新 Plugin 的 `onStart()/onStop()`
+- 命名：`adaptProvider()` 生成 `compat/<name>` 的插件名；建议旧 provider 显式提供稳定的 `provider.name`
+
+```javascript
+import { isServiceProvider, adaptProvider, KernelBuilder } from 'js/agents/core';
+
+const legacyProvider = createLegacyProvider();
+
+const builder = new KernelBuilder();
+
+if (isServiceProvider(legacyProvider)) {
+  builder.use(adaptProvider(legacyProvider));
+} else {
+  throw new TypeError('Expected legacy ServiceProvider');
+}
+
+const kernel = builder.build();
+await kernel.start();
+```
+
 ## 事件命名与模式匹配
 
 - 推荐事件名格式：`domain:action`（例如 `agent:step`）。
 - 兼容格式：`domain.action`（历史/兼容用途；新代码仍建议用 `:`）。
-- 支持通配符：
+- 支持通配符（用于订阅 pattern）：
   - `*`：多字符通配
   - `?`：单字符通配
 
 ```javascript
-// 模式匹配
-eventBus.on('agent:*', handler);       // 通配符
-eventBus.on('llm:complete', handler);  // 精确匹配
-eventBus.on('*', handler);             // 监听所有事件（谨慎使用，注意性能与泄漏）
+// 精确订阅
+eventBus.on('agent:step', handler);
 
-// 兼容命名
+// 通配订阅
+eventBus.on('agent:*', handler);
+eventBus.on('agent:st?p', handler);
+
+// 订阅所有事件（谨慎使用）
+eventBus.on('*', handler);
+
+// 兼容的 '.' 分隔
 eventBus.on('agent.step', handler);
-```
-
-## 旧 ServiceProvider 兼容（compat）
-
-当你有历史的 `ServiceProvider`（旧接口）需要在新 Kernel 中使用：
-
-```javascript
-import { isServiceProvider, adaptProvider } from 'js/agents/core';
-
-if (isServiceProvider(legacyProvider)) {
-  const plugin = adaptProvider(legacyProvider);
-  kernel.use(plugin); // 具体挂载方式以 Kernel API 为准
-}
-```
-
-约定（最低要求）：
-- `provider.register(kernelCompat)` 必须存在
-- 可选：`provider.start(kernelCompat)` / `provider.stop(kernelCompat)`
-- 建议提供稳定的 `provider.name`，用于生成插件名 `compat/<name>`
-
-## 安全插件加载
-
-```javascript
-import { SecurePluginLoader } from 'js/agents/core';
-
-const loader = new SecurePluginLoader({ baseUrl: 'https://cdn.example.com' });
-
-// 加载远程插件（SRI 验证）
-const plugin = await loader.loadPlugin('/plugins/analytics.js', {
-  integrity: 'sha256-abc123...',
-});
-
-// 批量加载
-const { loaded, failed } = await loader.loadPlugins({
-  plugins: [
-    { url: '/plugins/a.js', integrity: 'sha256-...' },
-    { url: '/plugins/b.js', integrity: 'sha256-...' },
-  ],
-});
-
-for (const p of loaded) kernel.use(p);
-if (failed.length) console.warn('Some plugins failed:', failed);
 ```
