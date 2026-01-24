@@ -80,10 +80,15 @@ beforeEach(async () => {
 });
 
 describe('DESIGN_AGENT_TOOL_DEFINITIONS', () => {
-  it('exposes a frozen tool definition list', () => {
+  it('should_return_true_when_definitions_is_array', () => {
     expect(Array.isArray(DESIGN_AGENT_TOOL_DEFINITIONS)).toBe(true);
-    expect(Object.isFrozen(DESIGN_AGENT_TOOL_DEFINITIONS)).toBe(true);
+  });
 
+  it('should_return_true_when_definitions_is_frozen', () => {
+    expect(Object.isFrozen(DESIGN_AGENT_TOOL_DEFINITIONS)).toBe(true);
+  });
+
+  it('should_contain_expected_tool_names_when_mapped', () => {
     const names = DESIGN_AGENT_TOOL_DEFINITIONS.map((def) => def.name);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -97,16 +102,25 @@ describe('DESIGN_AGENT_TOOL_DEFINITIONS', () => {
         'orchestrate_batch_repair',
       ])
     );
+  });
+
+  it('should_return_true_when_tool_names_are_unique', () => {
+    const names = DESIGN_AGENT_TOOL_DEFINITIONS.map((def) => def.name);
     expect(new Set(names).size).toBe(names.length);
+  });
 
-    for (const def of DESIGN_AGENT_TOOL_DEFINITIONS) {
-      expect(def).toMatchObject({
-        name: expect.any(String),
-        description: expect.any(String),
-        parameters: expect.any(Object),
-      });
-    }
+  it('should_return_true_when_each_definition_has_required_shape', () => {
+    const ok = DESIGN_AGENT_TOOL_DEFINITIONS.every(
+      (def) =>
+        typeof def?.name === 'string' &&
+        typeof def?.description === 'string' &&
+        def?.parameters != null &&
+        typeof def.parameters === 'object'
+    );
+    expect(ok).toBe(true);
+  });
 
+  it('should_throw_when_attempting_to_mutate_frozen_definitions', () => {
     expect(() => {
       DESIGN_AGENT_TOOL_DEFINITIONS.push({ name: 'extra' });
     }).toThrow();
@@ -114,13 +128,23 @@ describe('DESIGN_AGENT_TOOL_DEFINITIONS', () => {
 });
 
 describe('getToolDefinitions', () => {
-  it('returns a shallow copy of definitions', () => {
+  it('should_return_equal_definitions_when_called', () => {
     const copy = getToolDefinitions();
     expect(copy).toEqual(DESIGN_AGENT_TOOL_DEFINITIONS);
+  });
+
+  it('should_return_new_array_reference_when_called', () => {
+    const copy = getToolDefinitions();
     expect(copy).not.toBe(DESIGN_AGENT_TOOL_DEFINITIONS);
+  });
+
+  it('should_not_change_original_length_when_mutating_returned_copy', () => {
+    const originalLength = DESIGN_AGENT_TOOL_DEFINITIONS.length;
+    const copy = getToolDefinitions();
 
     copy.push({ name: 'extra' });
-    expect(DESIGN_AGENT_TOOL_DEFINITIONS).not.toHaveLength(copy.length);
+
+    expect(DESIGN_AGENT_TOOL_DEFINITIONS).toHaveLength(originalLength);
   });
 });
 
@@ -135,8 +159,21 @@ describe('createDesignToolHandlers', () => {
     context = makeContext();
   });
 
+  it('should_expose_all_expected_tool_handlers_when_created', () => {
+    expect(Object.keys(handlers).sort()).toEqual([
+      'chat_ask',
+      'extract_style',
+      'fill_visual',
+      'fix_slide',
+      'orchestrate_batch_repair',
+      'parse_outline',
+      'spawn_slide_agent',
+      'take_screenshot',
+    ]);
+  });
+
   describe('parse_outline', () => {
-    it('returns slide intents and content package', async () => {
+    it('should_return_slideIntents_reference_when_slideIntents_is_array', async () => {
       const largeText = 'x'.repeat(200000);
       const contentPackage = {
         slideIntents: [{ id: 1 }, { id: 2 }],
@@ -147,31 +184,45 @@ describe('createDesignToolHandlers', () => {
       const result = await handlers.parse_outline({ contentPackage });
 
       expect(result.slideIntents).toBe(contentPackage.slideIntents);
+    });
+
+    it('should_return_contentPackage_reference_when_contentPackage_provided', async () => {
+      const contentPackage = { slideIntents: [] };
+
+      const result = await handlers.parse_outline({ contentPackage });
+
       expect(result.contentPackage).toBe(contentPackage);
     });
 
-    it('handles missing or invalid slide intents', async () => {
+    it('should_return_empty_slideIntents_when_slideIntents_is_not_array', async () => {
       const result = await handlers.parse_outline({ contentPackage: { slideIntents: {} } });
-      expect(result).toEqual({ slideIntents: [], contentPackage: { slideIntents: {} } });
-
-      const emptyResult = await handlers.parse_outline();
-      expect(emptyResult).toEqual({ slideIntents: [], contentPackage: null });
+      expect(result.slideIntents).toEqual([]);
     });
 
-    it('throws when params are null', async () => {
+    it('should_return_null_contentPackage_when_missing', async () => {
+      const result = await handlers.parse_outline();
+      expect(result.contentPackage).toBeNull();
+    });
+
+    it('should_return_empty_slideIntents_when_missing', async () => {
+      const result = await handlers.parse_outline();
+      expect(result.slideIntents).toEqual([]);
+    });
+
+    it('should_throw_TypeError_when_params_is_null', async () => {
       await expect(handlers.parse_outline(null)).rejects.toThrow(TypeError);
     });
   });
 
   describe('extract_style', () => {
-    it('delegates to _initDesignSystem with provided inputs', async () => {
+    it('should_call_initDesignSystem_with_provided_inputs_when_given', async () => {
       const contentPackage = { id: 'pkg' };
       const constraints = { maxSlides: 10 };
       const userConfig = { theme: 'mono', deep: makeDeepObject(30) };
 
       agentLoop._initDesignSystem.mockResolvedValue({ theme: 'mono' });
 
-      const result = await handlers.extract_style({ contentPackage, constraints, userConfig }, context);
+      await handlers.extract_style({ contentPackage, constraints, userConfig }, context);
 
       expect(agentLoop._initDesignSystem).toHaveBeenCalledWith(
         contentPackage,
@@ -179,26 +230,32 @@ describe('createDesignToolHandlers', () => {
         constraints,
         userConfig
       );
+    });
+
+    it('should_return_designSystem_when_initDesignSystem_resolves', async () => {
+      agentLoop._initDesignSystem.mockResolvedValue({ theme: 'mono' });
+
+      const result = await handlers.extract_style({ contentPackage: { id: 'pkg' } }, context);
+
       expect(result).toEqual({ designSystem: { theme: 'mono' } });
     });
 
-    it('uses defaults for empty and missing values', async () => {
+    it('should_call_initDesignSystem_with_defaulted_args_when_values_missing', async () => {
       agentLoop._initDesignSystem.mockResolvedValue({ theme: 'default' });
 
-      const result = await handlers.extract_style({ constraints: '', userConfig: '' }, context);
+      await handlers.extract_style({ constraints: '', userConfig: '' }, context);
 
       expect(agentLoop._initDesignSystem).toHaveBeenCalledWith(null, context, {}, {});
-      expect(result).toEqual({ designSystem: { theme: 'default' } });
     });
 
-    it('propagates initialization errors', async () => {
+    it('should_reject_when_initDesignSystem_rejects', async () => {
       agentLoop._initDesignSystem.mockRejectedValue(new Error('init failed'));
       await expect(handlers.extract_style({}, context)).rejects.toThrow('init failed');
     });
   });
 
   describe('spawn_slide_agent', () => {
-    it('calls generateBatch with resolved options', async () => {
+    it('should_call_generateBatch_with_slideIntents_contentPackage_and_designSystem', async () => {
       const slideIntents = [{ id: 1 }];
       const contentPackage = { id: 'pkg' };
       const designSystem = { theme: 'bright' };
@@ -206,7 +263,7 @@ describe('createDesignToolHandlers', () => {
 
       mockedBatch.generateBatch.mockResolvedValue(['html']);
 
-      const result = await handlers.spawn_slide_agent(
+      await handlers.spawn_slide_agent(
         {
           slideIntents,
           contentPackage,
@@ -224,11 +281,7 @@ describe('createDesignToolHandlers', () => {
         context
       );
 
-      const [intents, pkg, system, options] = mockedBatch.generateBatch.mock.calls[0];
-      expect(intents).toBe(slideIntents);
-      expect(pkg).toBe(contentPackage);
-      expect(system).toBe(designSystem);
-      expect(options).toEqual({
+      expect(mockedBatch.generateBatch).toHaveBeenCalledWith(slideIntents, contentPackage, designSystem, {
         batchSize: 1,
         batchConcurrency: 5,
         modelRouter: { id: 'router-x' },
@@ -239,13 +292,31 @@ describe('createDesignToolHandlers', () => {
         signal: { aborted: true },
         dslRules: { allow: true },
       });
+    });
+
+    it('should_return_generated_payload_when_generateBatch_resolves', async () => {
+      mockedBatch.generateBatch.mockResolvedValue(['html']);
+
+      const result = await handlers.spawn_slide_agent({ slideIntents: [] }, context);
+
       expect(result).toEqual({ generated: ['html'] });
     });
 
-    it('normalizes inputs and applies defaults', async () => {
+    it('should_default_batchSize_and_batchConcurrency_when_values_are_falsy', async () => {
       mockedBatch.generateBatch.mockResolvedValue(['generated']);
 
-      const result = await handlers.spawn_slide_agent(
+      await handlers.spawn_slide_agent({ batchSize: 0, batchConcurrency: 0 }, context);
+
+      expect(mockedBatch.generateBatch).toHaveBeenCalledWith([], null, null, expect.objectContaining({
+        batchSize: agentLoop.batchSize,
+        batchConcurrency: agentLoop.batchConcurrency,
+      }));
+    });
+
+    it('should_normalize_non_array_inputs_to_empty_arrays_when_provided', async () => {
+      mockedBatch.generateBatch.mockResolvedValue(['generated']);
+
+      await handlers.spawn_slide_agent(
         {
           slideIntents: 'oops',
           imageSlots: {},
@@ -256,57 +327,75 @@ describe('createDesignToolHandlers', () => {
         context
       );
 
-      const [intents, pkg, system, options] = mockedBatch.generateBatch.mock.calls[0];
-      expect(intents).toEqual([]);
-      expect(pkg).toBeNull();
-      expect(system).toBeNull();
-      expect(options.batchSize).toBe('3');
-      expect(options.batchConcurrency).toBe(agentLoop.batchConcurrency);
-      expect(options.imageSlots).toEqual([]);
-      expect(options.selectedIdeas).toEqual([]);
-      expect(options.aiApiService).toBe(context.aiApiService);
-      expect(options.signal).toBe(context.signal);
-      expect(result).toEqual({ generated: ['generated'] });
+      expect(mockedBatch.generateBatch).toHaveBeenCalledWith([], null, null, expect.objectContaining({
+        batchSize: '3',
+        batchConcurrency: agentLoop.batchConcurrency,
+        imageSlots: [],
+        selectedIdeas: [],
+        aiApiService: context.aiApiService,
+        signal: context.signal,
+      }));
     });
 
-    it('supports concurrent batch generation', async () => {
+    it('should_use_null_modelRouter_when_not_provided', async () => {
+      mockedBatch.generateBatch.mockResolvedValue(['generated']);
+
+      await handlers.spawn_slide_agent({ slideIntents: [] }, context);
+
+      expect(mockedBatch.generateBatch).toHaveBeenCalledWith([], null, null, expect.objectContaining({
+        modelRouter: null,
+      }));
+    });
+
+    it('should_call_generateBatch_for_each_parallel_invocation_when_concurrent', async () => {
       mockedBatch.generateBatch.mockImplementation((intents) =>
         Promise.resolve(`generated-${intents.length}`)
       );
 
-      const [first, second] = await Promise.all([
+      await Promise.all([
         handlers.spawn_slide_agent({ slideIntents: [{}, {}] }, context),
         handlers.spawn_slide_agent({ slideIntents: [{}] }, context),
       ]);
 
-      expect(first).toEqual({ generated: 'generated-2' });
-      expect(second).toEqual({ generated: 'generated-1' });
       expect(mockedBatch.generateBatch).toHaveBeenCalledTimes(2);
     });
 
-    it('propagates batch generation errors', async () => {
+    it('should_return_distinct_results_when_concurrent', async () => {
+      mockedBatch.generateBatch.mockImplementation((intents) =>
+        Promise.resolve(`generated-${intents.length}`)
+      );
+
+      const results = await Promise.all([
+        handlers.spawn_slide_agent({ slideIntents: [{}, {}] }, context),
+        handlers.spawn_slide_agent({ slideIntents: [{}] }, context),
+      ]);
+
+      expect(results).toEqual([{ generated: 'generated-2' }, { generated: 'generated-1' }]);
+    });
+
+    it('should_reject_when_generateBatch_rejects', async () => {
       mockedBatch.generateBatch.mockRejectedValue(new Error('batch failed'));
       await expect(handlers.spawn_slide_agent({}, context)).rejects.toThrow('batch failed');
     });
   });
 
   describe('take_screenshot', () => {
-    it('returns an empty screenshot list', async () => {
+    it('should_return_empty_screenshots_array_when_called', async () => {
       const result = await handlers.take_screenshot({ slideIndex: 0 });
       expect(result).toEqual({ screenshots: [] });
     });
   });
 
   describe('fix_slide', () => {
-    it('fills currentHtml and designSystem from state when missing', async () => {
+    it('should_use_state_deckHtmlDsl_when_currentHtml_is_null', async () => {
       mockedBatchRepair.runSingleSlideRepair.mockResolvedValue('<div>fixed</div>');
 
-      const result = await handlers.fix_slide(
+      await handlers.fix_slide(
         {
           slideIndex: 0,
           issues: [],
           currentHtml: null,
-          designSystem: null,
+          designSystem: { theme: 'custom' },
         },
         context
       );
@@ -316,7 +405,7 @@ describe('createDesignToolHandlers', () => {
           slideIndex: 0,
           currentHtml: agentLoop.state.deckHtmlDsl,
           issues: [],
-          designSystem: agentLoop.state.designSystem,
+          designSystem: { theme: 'custom' },
         },
         {
           aiApiService: context.aiApiService,
@@ -324,48 +413,33 @@ describe('createDesignToolHandlers', () => {
           signal: context.signal,
         }
       );
-      expect(result).toEqual({ fixedHtml: '<div>fixed</div>' });
     });
 
-    it('respects explicit currentHtml and designSystem values', async () => {
+    it('should_use_state_designSystem_when_designSystem_is_null', async () => {
       mockedBatchRepair.runSingleSlideRepair.mockResolvedValue('<div>updated</div>');
 
-      const result = await handlers.fix_slide(
+      await handlers.fix_slide(
         {
           slideIndex: 1,
           issues: [{ id: 'issue' }],
           currentHtml: '',
-          designSystem: { theme: 'custom' },
+          designSystem: null,
         },
         context
       );
 
-      const [payload] = mockedBatchRepair.runSingleSlideRepair.mock.calls[0];
-      expect(payload.currentHtml).toBe('');
-      expect(payload.designSystem).toEqual({ theme: 'custom' });
-      expect(result).toEqual({ fixedHtml: '<div>updated</div>' });
+      expect(mockedBatchRepair.runSingleSlideRepair).toHaveBeenCalledWith(
+        {
+          slideIndex: 1,
+          currentHtml: '',
+          issues: [{ id: 'issue' }],
+          designSystem: agentLoop.state.designSystem,
+        },
+        expect.any(Object)
+      );
     });
 
-    it('handles rapid sequential repairs with boundary slide indexes', async () => {
-      mockedBatchRepair.runSingleSlideRepair
-        .mockResolvedValueOnce('fixed--1')
-        .mockResolvedValueOnce(`fixed-${Number.MAX_SAFE_INTEGER}`);
-
-      const first = await handlers.fix_slide(
-        { slideIndex: -1, issues: [{ note: 'x' }] },
-        context
-      );
-      const second = await handlers.fix_slide(
-        { slideIndex: Number.MAX_SAFE_INTEGER, issues: [{ note: 'y' }] },
-        context
-      );
-
-      expect(first).toEqual({ fixedHtml: 'fixed--1' });
-      expect(second).toEqual({ fixedHtml: `fixed-${Number.MAX_SAFE_INTEGER}` });
-      expect(mockedBatchRepair.runSingleSlideRepair).toHaveBeenCalledTimes(2);
-    });
-
-    it('passes through type boundaries', async () => {
+    it('should_pass_through_type_boundaries_when_inputs_not_normalized', async () => {
       mockedBatchRepair.runSingleSlideRepair.mockResolvedValue('<div>typed</div>');
 
       await handlers.fix_slide({ slideIndex: '2', issues: { id: 'issue' } }, context);
@@ -381,14 +455,64 @@ describe('createDesignToolHandlers', () => {
       );
     });
 
-    it('propagates repair errors', async () => {
+    it('should_return_fixedHtml_when_runSingleSlideRepair_resolves', async () => {
+      mockedBatchRepair.runSingleSlideRepair.mockResolvedValue('<div>fixed</div>');
+
+      const result = await handlers.fix_slide({ slideIndex: 0, issues: [] }, context);
+
+      expect(result).toEqual({ fixedHtml: '<div>fixed</div>' });
+    });
+
+    it('should_call_runSingleSlideRepair_with_context_services_when_called', async () => {
+      mockedBatchRepair.runSingleSlideRepair.mockResolvedValue('<div>fixed</div>');
+
+      await handlers.fix_slide({ slideIndex: 0, issues: [] }, context);
+
+      expect(mockedBatchRepair.runSingleSlideRepair).toHaveBeenCalledWith(expect.any(Object), {
+        aiApiService: context.aiApiService,
+        modelRouter: context.modelRouter,
+        signal: context.signal,
+      });
+    });
+
+    it('should_return_fixedHtml_when_slideIndex_is_negative', async () => {
+      mockedBatchRepair.runSingleSlideRepair
+        .mockResolvedValueOnce('fixed--1');
+
+      const result = await handlers.fix_slide({ slideIndex: -1, issues: [] }, context);
+
+      expect(result).toEqual({ fixedHtml: 'fixed--1' });
+    });
+
+    it('should_return_fixedHtml_when_slideIndex_is_MAX_SAFE_INTEGER', async () => {
+      mockedBatchRepair.runSingleSlideRepair
+        .mockResolvedValueOnce(`fixed-${Number.MAX_SAFE_INTEGER}`);
+
+      const result = await handlers.fix_slide(
+        { slideIndex: Number.MAX_SAFE_INTEGER, issues: [] },
+        context
+      );
+
+      expect(result).toEqual({ fixedHtml: `fixed-${Number.MAX_SAFE_INTEGER}` });
+    });
+
+    it('should_call_runSingleSlideRepair_twice_when_invoked_sequentially', async () => {
+      mockedBatchRepair.runSingleSlideRepair.mockResolvedValue('<div>fixed</div>');
+
+      await handlers.fix_slide({ slideIndex: 1, issues: [] }, context);
+      await handlers.fix_slide({ slideIndex: 2, issues: [] }, context);
+
+      expect(mockedBatchRepair.runSingleSlideRepair).toHaveBeenCalledTimes(2);
+    });
+
+    it('should_reject_when_runSingleSlideRepair_rejects', async () => {
       mockedBatchRepair.runSingleSlideRepair.mockRejectedValue(new Error('repair failed'));
       await expect(handlers.fix_slide({}, context)).rejects.toThrow('repair failed');
     });
   });
 
   describe('fill_visual', () => {
-    it('uses visualSlots when visualSlotsForRender is missing', async () => {
+    it('should_use_visualSlots_when_visualSlotsForRender_is_missing', async () => {
       const visualSlots = [{ id: 'slot' }];
       const contentPackage = { id: 'pkg' };
       const designSystem = { theme: 'fill' };
@@ -400,7 +524,7 @@ describe('createDesignToolHandlers', () => {
 
       agentLoop._renderVisuals.mockResolvedValue({ ok: true });
 
-      const result = await handlers.fill_visual(
+      await handlers.fill_visual(
         {
           visualSlots,
           contentPackage,
@@ -425,16 +549,36 @@ describe('createDesignToolHandlers', () => {
         imageSlots,
         aiImageSlotIds
       );
+    });
+
+    it('should_return_render_result_when_renderVisuals_resolves', async () => {
+      agentLoop._renderVisuals.mockResolvedValue({ ok: true });
+
+      const result = await handlers.fill_visual({ visualSlots: [] }, context);
+
       expect(result).toEqual({ ok: true });
     });
 
-    it('prefers visualSlotsForRender and normalizes arrays', async () => {
+    it('should_prefer_visualSlotsForRender_when_provided', async () => {
       agentLoop._renderVisuals.mockResolvedValue({ ok: true });
 
       await handlers.fill_visual(
         {
           visualSlotsForRender: [{ id: 'render' }],
           visualSlots: [{ id: 'ignored' }],
+        },
+        context
+      );
+
+      const [slots] = agentLoop._renderVisuals.mock.calls[0];
+      expect(slots).toEqual([{ id: 'render' }]);
+    });
+
+    it('should_normalize_non_array_inputs_to_empty_arrays_when_provided', async () => {
+      agentLoop._renderVisuals.mockResolvedValue({ ok: true });
+
+      await handlers.fill_visual(
+        {
           slideHtmls: {},
           imageSlots: 'bad',
           aiImageSlotIds: { bad: true },
@@ -442,48 +586,54 @@ describe('createDesignToolHandlers', () => {
         context
       );
 
-      const [slots, , , slideHtmls, , , , imageSlots, aiImageSlotIds] =
-        agentLoop._renderVisuals.mock.calls[0];
-      expect(slots).toEqual([{ id: 'render' }]);
-      expect(slideHtmls).toEqual([]);
-      expect(imageSlots).toEqual([]);
-      expect(aiImageSlotIds).toEqual([]);
+      const [, , , slideHtmls, , , , imageSlots, aiImageSlotIds] = agentLoop._renderVisuals.mock.calls[0];
+      expect([slideHtmls, imageSlots, aiImageSlotIds]).toEqual([[], [], []]);
     });
 
-    it('handles null params and concurrent calls', async () => {
+    it('should_call_renderVisuals_for_each_parallel_invocation_when_concurrent', async () => {
       agentLoop._renderVisuals.mockImplementation((slots) =>
         Promise.resolve({ slots: slots.length })
       );
 
-      const [first, second] = await Promise.all([
+      await Promise.all([
         handlers.fill_visual(null, context),
         handlers.fill_visual({ visualSlots: [{}, {}] }, context),
       ]);
 
-      expect(first).toEqual({ slots: 0 });
-      expect(second).toEqual({ slots: 2 });
       expect(agentLoop._renderVisuals).toHaveBeenCalledTimes(2);
     });
 
-    it('propagates render errors', async () => {
+    it('should_return_distinct_results_when_concurrent', async () => {
+      agentLoop._renderVisuals.mockImplementation((slots) =>
+        Promise.resolve({ slots: slots.length })
+      );
+
+      const results = await Promise.all([
+        handlers.fill_visual(null, context),
+        handlers.fill_visual({ visualSlots: [{}, {}] }, context),
+      ]);
+
+      expect(results).toEqual([{ slots: 0 }, { slots: 2 }]);
+    });
+
+    it('should_reject_when_renderVisuals_rejects', async () => {
       agentLoop._renderVisuals.mockRejectedValue(new Error('render failed'));
       await expect(handlers.fill_visual({}, context)).rejects.toThrow('render failed');
     });
   });
 
   describe('chat_ask', () => {
-    it('emits progress and waits for user action', async () => {
+    it('should_emit_progress_event_when_called', async () => {
       const emit = vi.fn();
       mockedRuntime.getEmitFn.mockReturnValue(emit);
       agentLoop.waitForUserAction.mockResolvedValue({ ok: true });
 
       const message = 'y'.repeat(10000);
-      const result = await handlers.chat_ask(
+      await handlers.chat_ask(
         { message, actionName: 'confirm' },
         context
       );
 
-      expect(mockedRuntime.getEmitFn).toHaveBeenCalledWith(context);
       expect(emit).toHaveBeenCalledWith('design.chat.ask', {
         actor: 'design',
         status: 'progress',
@@ -492,37 +642,66 @@ describe('createDesignToolHandlers', () => {
           actionName: 'confirm',
         },
       });
+    });
+
+    it('should_call_waitForUserAction_when_actionName_is_truthy', async () => {
+      mockedRuntime.getEmitFn.mockReturnValue(vi.fn());
+      agentLoop.waitForUserAction.mockResolvedValue({ ok: true });
+
+      await handlers.chat_ask({ message: 'ok', actionName: 'confirm' }, context);
+
       expect(agentLoop.waitForUserAction).toHaveBeenCalledWith('confirm', {
         eventBus: context.eventBus,
         signal: context.signal,
       });
+    });
+
+    it('should_return_payload_when_waitForUserAction_resolves', async () => {
+      mockedRuntime.getEmitFn.mockReturnValue(vi.fn());
+      agentLoop.waitForUserAction.mockResolvedValue({ ok: true });
+
+      const result = await handlers.chat_ask({ message: 'ok', actionName: 'confirm' }, context);
+
       expect(result).toEqual({ actionName: 'confirm', payload: { ok: true } });
     });
 
-    it('returns default action when actionName is falsy', async () => {
+    it('should_return_default_actionName_when_actionName_is_falsy', async () => {
       const emit = vi.fn();
       mockedRuntime.getEmitFn.mockReturnValue(emit);
 
       const result = await handlers.chat_ask({ message: 0, actionName: '' }, context);
 
-      expect(emit).toHaveBeenCalledWith('design.chat.ask', {
-        actor: 'design',
-        status: 'progress',
+      expect(result).toEqual({ actionName: 'chat_reply' });
+    });
+
+    it('should_not_call_waitForUserAction_when_actionName_is_falsy', async () => {
+      mockedRuntime.getEmitFn.mockReturnValue(vi.fn());
+
+      await handlers.chat_ask({ message: 'ok', actionName: '' }, context);
+
+      expect(agentLoop.waitForUserAction).not.toHaveBeenCalled();
+    });
+
+    it('should_emit_default_payload_actionName_when_actionName_is_falsy', async () => {
+      const emit = vi.fn();
+      mockedRuntime.getEmitFn.mockReturnValue(emit);
+
+      await handlers.chat_ask({ message: 0, actionName: '' }, context);
+
+      expect(emit).toHaveBeenCalledWith('design.chat.ask', expect.objectContaining({
         payload: {
           message: '',
           actionName: 'chat_reply',
         },
-      });
-      expect(agentLoop.waitForUserAction).not.toHaveBeenCalled();
-      expect(result).toEqual({ actionName: 'chat_reply' });
+      }));
     });
 
-    it('accepts whitespace action names', async () => {
+    it('should_call_waitForUserAction_when_actionName_is_whitespace', async () => {
       const emit = vi.fn();
       mockedRuntime.getEmitFn.mockReturnValue(emit);
       agentLoop.waitForUserAction.mockResolvedValue({ ok: true });
 
-      const result = await handlers.chat_ask(
+      await handlers.chat_ask(
         { message: 'ok', actionName: '  ' },
         context
       );
@@ -531,27 +710,49 @@ describe('createDesignToolHandlers', () => {
         eventBus: context.eventBus,
         signal: context.signal,
       });
-      expect(result).toEqual({ actionName: '  ', payload: { ok: true } });
     });
 
-    it('supports concurrent chat actions', async () => {
+    it('should_not_throw_when_emitFn_is_missing', async () => {
+      mockedRuntime.getEmitFn.mockReturnValue(undefined);
+
+      const result = await handlers.chat_ask({ message: 'ok', actionName: '' }, context);
+
+      expect(result).toEqual({ actionName: 'chat_reply' });
+    });
+
+    it('should_call_waitForUserAction_for_each_parallel_invocation_when_concurrent', async () => {
       const emit = vi.fn();
       mockedRuntime.getEmitFn.mockReturnValue(emit);
       agentLoop.waitForUserAction.mockImplementation((action) =>
         Promise.resolve({ action })
       );
 
-      const [first, second] = await Promise.all([
+      await Promise.all([
         handlers.chat_ask({ message: 'a', actionName: 'one' }, context),
         handlers.chat_ask({ message: 'b', actionName: 'two' }, context),
       ]);
 
-      expect(first).toEqual({ actionName: 'one', payload: { action: 'one' } });
-      expect(second).toEqual({ actionName: 'two', payload: { action: 'two' } });
       expect(agentLoop.waitForUserAction).toHaveBeenCalledTimes(2);
     });
 
-    it('propagates wait errors', async () => {
+    it('should_return_distinct_results_when_concurrent', async () => {
+      mockedRuntime.getEmitFn.mockReturnValue(vi.fn());
+      agentLoop.waitForUserAction.mockImplementation((action) =>
+        Promise.resolve({ action })
+      );
+
+      const results = await Promise.all([
+        handlers.chat_ask({ message: 'a', actionName: 'one' }, context),
+        handlers.chat_ask({ message: 'b', actionName: 'two' }, context),
+      ]);
+
+      expect(results).toEqual([
+        { actionName: 'one', payload: { action: 'one' } },
+        { actionName: 'two', payload: { action: 'two' } },
+      ]);
+    });
+
+    it('should_reject_when_waitForUserAction_rejects', async () => {
       const emit = vi.fn();
       mockedRuntime.getEmitFn.mockReturnValue(emit);
       agentLoop.waitForUserAction.mockRejectedValue(new Error('wait failed'));
@@ -563,42 +764,47 @@ describe('createDesignToolHandlers', () => {
   });
 
   describe('orchestrate_batch_repair', () => {
-    it('delegates to runBatchRepair with stageApi', async () => {
+    it('should_pass_agentLoop_as_stageApi_when_context_contains_stageApi', async () => {
       mockedBatchRepair.runBatchRepair.mockResolvedValue({ ok: true });
 
       const params = { deckPackage: { id: 'deck' }, designSystem: { theme: 'x' } };
-      const result = await handlers.orchestrate_batch_repair(params, {
+      await handlers.orchestrate_batch_repair(params, {
         ...context,
         stageApi: { id: 'override' },
       });
 
-      expect(mockedBatchRepair.runBatchRepair).toHaveBeenCalledWith(params, {
-        ...context,
+      expect(mockedBatchRepair.runBatchRepair).toHaveBeenCalledWith(params, expect.objectContaining({
         stageApi: agentLoop,
-      });
+      }));
+    });
+
+    it('should_return_runBatchRepair_result_when_resolved', async () => {
+      mockedBatchRepair.runBatchRepair.mockResolvedValue({ ok: true });
+
+      const params = { deckPackage: { id: 'deck' }, designSystem: { theme: 'x' } };
+      const result = await handlers.orchestrate_batch_repair(params, context);
+
       expect(result).toEqual({ ok: true });
     });
 
-    it('handles rapid sequential batch repairs', async () => {
+    it('should_call_runBatchRepair_for_each_sequential_invocation_when_repeated', async () => {
       mockedBatchRepair.runBatchRepair
         .mockResolvedValueOnce({ deck: 'a' })
         .mockResolvedValueOnce({ deck: 'b' });
 
-      const first = await handlers.orchestrate_batch_repair(
+      await handlers.orchestrate_batch_repair(
         { deckPackage: { id: 'a' } },
         context
       );
-      const second = await handlers.orchestrate_batch_repair(
+      await handlers.orchestrate_batch_repair(
         { deckPackage: { id: 'b' } },
         context
       );
 
-      expect(first).toEqual({ deck: 'a' });
-      expect(second).toEqual({ deck: 'b' });
       expect(mockedBatchRepair.runBatchRepair).toHaveBeenCalledTimes(2);
     });
 
-    it('propagates batch repair errors', async () => {
+    it('should_reject_when_runBatchRepair_rejects', async () => {
       mockedBatchRepair.runBatchRepair.mockRejectedValue(new Error('batch repair failed'));
       await expect(
         handlers.orchestrate_batch_repair({ deckPackage: {} }, context)

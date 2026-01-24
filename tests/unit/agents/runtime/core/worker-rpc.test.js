@@ -12,7 +12,10 @@ vi.mock("../../../../../js/agents/shared/index.js", () => ({
   validateRpcResponse: validateRpcResponseMock,
 }));
 
-import { WorkerRpcClient, createRpcHandler } from "../../../../../js/agents/runtime/core/worker-rpc.js";
+import WorkerRpcClientDefault, {
+  WorkerRpcClient,
+  createRpcHandler,
+} from "../../../../../js/agents/runtime/core/worker-rpc.js";
 
 const flushMicrotasks = async () => {
   await Promise.resolve();
@@ -211,8 +214,14 @@ beforeEach(() => {
   validateRpcResponseMock.mockReturnValue({ ok: true });
 });
 
+describe("worker-rpc exports", () => {
+  it("should_export_default_as_WorkerRpcClient", () => {
+    expect(WorkerRpcClientDefault).toBe(WorkerRpcClient);
+  });
+});
+
 describe("WorkerRpcClient", () => {
-  it("resolves call using EventTarget listeners", async () => {
+  it("should_resolve_with_handler_result_when_worker_responds_ok_true", async () => {
     const worker = new FakeWorker({
       mode: "eventTarget",
       handlers: {
@@ -224,44 +233,76 @@ describe("WorkerRpcClient", () => {
     const result = await client.call("sum", { a: 1, b: 2 });
 
     expect(result).toBe(3);
-    expect(worker.postMessageCalls).toHaveLength(1);
-    expect(worker.postMessageCalls[0][0].type).toBe("rpc:request");
-    expect(worker.postMessageCalls[0][1]).toBeUndefined();
-    expect(validateRpcResponseMock).toHaveBeenCalled();
   });
 
-  it("falls back to onmessage when addEventListener/on are missing", async () => {
+  it("should_send_rpc_request_message_when_call_invoked", async () => {
+    const worker = new FakeWorker({
+      mode: "eventTarget",
+      handlers: {
+        sum: ({ a, b }) => a + b,
+      },
+    });
+
+    const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
+    await client.call("sum", { a: 1, b: 2 });
+
+    expect(worker.postMessageCalls[0][0]).toMatchObject({
+      type: "rpc:request",
+      id: expect.any(String),
+      method: "sum",
+      params: { a: 1, b: 2 },
+    });
+  });
+
+  it("should_resolve_when_worker_uses_eventEmitter_listeners", async () => {
+    const worker = new FakeWorker({
+      mode: "eventEmitter",
+      handlers: { echo: (value) => value },
+    });
+    const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
+
+    const result = await client.call("echo", { ok: true });
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("should_set_onmessage_listener_when_worker_has_no_addEventListener_or_on", () => {
+    const worker = new FakeWorker({
+      mode: "fallback",
+      handlers: { echo: (value) => value },
+    });
+
+    new WorkerRpcClient({ worker, timeoutMs: 200 });
+
+    expect(typeof worker.onmessage).toBe("function");
+  });
+
+  it("should_clear_onmessage_listener_when_dispose_called_in_fallback_mode", () => {
     const worker = new FakeWorker({
       mode: "fallback",
       handlers: { echo: (value) => value },
     });
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
 
-    expect(typeof worker.onmessage).toBe("function");
-
-    const result = await client.call("echo", { ok: true });
-    expect(result).toEqual({ ok: true });
-
     client.dispose();
+
     expect(worker.onmessage).toBeNull();
   });
 
-  it("rejects when method is missing", async () => {
+  it.each([[null], [undefined], [""]])("should_reject_when_method_is_%s", async (method) => {
     const worker = new FakeWorker({ handlers: {} });
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
 
-    const invalidMethods = [null, undefined, ""];
-    for (const method of invalidMethods) {
-      await expect(client.call(method, {})).rejects.toThrow(/method is required/i);
-    }
+    await expect(client.call(method, {})).rejects.toThrow(/method is required/i);
   });
 
-  it("throws when no worker available and no factory", () => {
+  it("should_throw_when_no_worker_available_and_no_factory", () => {
     const client = new WorkerRpcClient();
+
     expect(() => client.call("echo", null)).toThrow(/no worker available/i);
   });
 
-  it("handles empty/edge/type boundary params with concurrent calls", async () => {
+  it("should_resolve_with_boundary_values_when_called_concurrently", async () => {
     const worker = new FakeWorker({ handlers: { echo: (value) => value } });
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
 
@@ -270,7 +311,7 @@ describe("WorkerRpcClient", () => {
     const whitespace = "   ";
     const arrayLike = { 0: "a", length: 1 };
 
-    const promises = [
+    const results = await Promise.all([
       client.call("echo", null),
       client.call("echo", undefined),
       client.call("echo", ""),
@@ -283,27 +324,46 @@ describe("WorkerRpcClient", () => {
       client.call("echo", "123"),
       client.call("echo", arrayLike),
       client.call("echo", "empty-transfer", { transferables: [] }),
-    ];
+    ]);
 
-    const results = await Promise.all(promises);
-
-    expect(results[0]).toBeNull();
-    expect(results[1]).toBeUndefined();
-    expect(results[2]).toBe("");
-    expect(results[3]).toBe(whitespace);
-    expect(results[4]).toEqual([]);
-    expect(results[5]).toEqual({});
-    expect(results[6]).toBe(0);
-    expect(results[7]).toBe(-1);
-    expect(results[8]).toBe(Number.MAX_SAFE_INTEGER);
-    expect(results[9]).toBe("123");
-    expect(results[10]).toEqual(arrayLike);
-    expect(results[11]).toBe("empty-transfer");
-
-    expect(worker.postMessageCalls.at(-1)[1]).toBeUndefined();
+    expect(results).toEqual([
+      null,
+      undefined,
+      "",
+      whitespace,
+      emptyArray,
+      emptyObject,
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      "123",
+      arrayLike,
+      "empty-transfer",
+    ]);
   });
 
-  it("handles large payloads and deep nesting", async () => {
+  it("should_not_pass_transferables_argument_when_transferables_is_empty", async () => {
+    const worker = new FakeWorker({ handlers: { echo: (value) => value } });
+    const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
+
+    await client.call("echo", "x", { transferables: [] });
+
+    expect(worker.postMessageCalls[0][1]).toBeUndefined();
+  });
+
+  it("should_pass_transferables_argument_when_transferables_has_items", async () => {
+    const buffer = new ArrayBuffer(8);
+    const worker = new FakeWorker({
+      handlers: { byteLength: (buf) => buf.byteLength },
+    });
+    const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
+
+    await client.call("byteLength", buffer, { transferables: [buffer] });
+
+    expect(worker.postMessageCalls[0][1]).toEqual([buffer]);
+  });
+
+  it("should_handle_large_payloads_and_deep_nesting", async () => {
     const largeBuffer = new ArrayBuffer(1024 * 1024);
     const longString = "x".repeat(100000);
     const deepObject = makeDeepObject(25);
@@ -321,19 +381,16 @@ describe("WorkerRpcClient", () => {
     });
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
 
-    const [bufferLength, stringLength, deepValue] = await Promise.all([
+    const results = await Promise.all([
       client.call("byteLength", largeBuffer, { transferables: [largeBuffer] }),
       client.call("length", longString),
       client.call("readDeep", deepObject),
     ]);
 
-    expect(bufferLength).toBe(largeBuffer.byteLength);
-    expect(stringLength).toBe(longString.length);
-    expect(deepValue).toBe("leaf");
-    expect(worker.postMessageCalls[0][1][0]).toBe(largeBuffer);
+    expect(results).toEqual([largeBuffer.byteLength, longString.length, "leaf"]);
   });
 
-  it("matches out-of-order responses to the correct calls", async () => {
+  it("should_match_out_of_order_responses_to_the_correct_calls", async () => {
     const worker = new FakeWorker({ autoRespond: false });
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
 
@@ -346,11 +403,10 @@ describe("WorkerRpcClient", () => {
     worker.respond(secondId, { ok: true, result: "two" });
     worker.respond(firstId, { ok: true, result: "one" });
 
-    await expect(second).resolves.toBe("two");
-    await expect(first).resolves.toBe("one");
+    await expect(Promise.all([first, second])).resolves.toEqual(["one", "two"]);
   });
 
-  it("times out and sends cancel message", async () => {
+  it("should_reject_with_timeout_error_when_call_exceeds_timeout", async () => {
     vi.useFakeTimers();
 
     const worker = new FakeWorker({
@@ -361,31 +417,63 @@ describe("WorkerRpcClient", () => {
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
 
     const promise = client.call("hang", null, { timeoutMs: 20 });
-    const rejection = expect(promise).rejects.toMatchObject({ name: "TimeoutError" });
+    const errorPromise = promise.catch((err) => err);
 
     await vi.advanceTimersByTimeAsync(20);
     await flushMicrotasks();
 
-    await rejection;
-    expect(worker.cancelCalls).toHaveLength(1);
-    expect(worker.cancelCalls[0].reason).toBe("timeout");
-    expect(worker.cancelCalls[0].id).toBe(worker.lastRequestId);
+    const error = await errorPromise;
+    expect(error).toMatchObject({ name: "TimeoutError" });
   });
 
-  it("rejects immediately when signal already aborted and does not create worker", async () => {
+  it("should_send_cancel_message_with_timeout_reason_when_timed_out", async () => {
+    vi.useFakeTimers();
+
+    const worker = new FakeWorker({
+      handlers: {
+        hang: () => new Promise(() => {}),
+      },
+    });
+    const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
+
+    const promise = client.call("hang", null, { timeoutMs: 20 });
+    const settled = promise.catch(() => {});
+
+    await vi.advanceTimersByTimeAsync(20);
+    await flushMicrotasks();
+    await settled;
+
+    expect(worker.cancelCalls[0]).toMatchObject({
+      type: "rpc:cancel",
+      id: worker.lastRequestId,
+      reason: "timeout",
+    });
+  });
+
+  it("should_not_create_worker_and_should_reject_with_AbortError_when_signal_already_aborted", async () => {
     const createWorker = vi.fn(() => new FakeWorker({ handlers: { echo: (v) => v } }));
     const client = new WorkerRpcClient({ createWorker, timeoutMs: 200 });
 
     const controller = new AbortController();
     controller.abort("nope");
 
-    await expect(client.call("echo", "x", { signal: controller.signal })).rejects.toMatchObject({
+    let error;
+    try {
+      await client.call("echo", "x", { signal: controller.signal });
+    } catch (err) {
+      error = err;
+    }
+
+    expect({
+      name: error?.name,
+      createWorkerCalls: createWorker.mock.calls.length,
+    }).toEqual({
       name: "AbortError",
+      createWorkerCalls: 0,
     });
-    expect(createWorker).not.toHaveBeenCalled();
   });
 
-  it("aborts after send and sends cancel message", async () => {
+  it("should_send_cancel_message_when_aborted_after_request_is_sent", async () => {
     const worker = new FakeWorker({
       handlers: {
         hang: () => new Promise(() => {}),
@@ -395,19 +483,30 @@ describe("WorkerRpcClient", () => {
 
     const controller = new AbortController();
     const promise = client.call("hang", null, { signal: controller.signal });
+
     controller.abort("stop");
 
-    await expect(promise).rejects.toMatchObject({
-      name: "AbortError",
-      message: expect.stringMatching(/stop|aborted/i),
-    });
+    let error;
+    try {
+      await promise;
+    } catch (err) {
+      error = err;
+    }
 
-    expect(worker.cancelCalls).toHaveLength(1);
-    expect(worker.cancelCalls[0].reason).toBe("aborted");
-    expect(worker.cancelCalls[0].id).toBe(worker.lastRequestId);
+    expect({
+      name: error?.name,
+      cancel: worker.cancelCalls[0],
+    }).toMatchObject({
+      name: "AbortError",
+      cancel: {
+        type: "rpc:cancel",
+        id: worker.lastRequestId,
+        reason: "aborted",
+      },
+    });
   });
 
-  it("rejects invalid response payloads and logs warning", async () => {
+  it("should_reject_when_validateRpcResponse_returns_not_ok", async () => {
     validateRpcResponseMock.mockReturnValue({ ok: false, error: "bad response" });
 
     const worker = new FakeWorker({
@@ -417,18 +516,27 @@ describe("WorkerRpcClient", () => {
     });
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
 
-    await expect(client.call("ok", null)).rejects.toThrow(/bad response/i);
-    expect(loggerMock.warn).toHaveBeenCalled();
+    let error;
+    try {
+      await client.call("ok", null);
+    } catch (err) {
+      error = err;
+    }
+
+    expect({
+      message: error?.message,
+      warnCalls: loggerMock.warn.mock.calls.length,
+    }).toEqual({
+      message: "bad response",
+      warnCalls: 1,
+    });
   });
 
-  it("normalizes remote errors from string and object", async () => {
+  it("should_normalize_remote_error_objects", async () => {
     const worker = new FakeWorker({
       handlers: {
         failObject: () => {
           throw { message: "nope", name: "RemoteError", code: "E_NOPE" };
-        },
-        failString: () => {
-          throw "bad";
         },
       },
     });
@@ -439,10 +547,34 @@ describe("WorkerRpcClient", () => {
       name: "RemoteError",
       code: "E_NOPE",
     });
+  });
+
+  it("should_normalize_remote_error_strings", async () => {
+    const worker = new FakeWorker({
+      handlers: {
+        failString: () => {
+          throw "bad";
+        },
+      },
+    });
+    const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
+
     await expect(client.call("failString", null)).rejects.toThrow(/bad/);
   });
 
-  it("rejects pending calls on worker error and clears instance", async () => {
+  it("should_convert_falsy_remote_error_payloads_to_unknown_error", async () => {
+    const worker = new FakeWorker({ autoRespond: false });
+    const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
+
+    const promise = client.call("x", null);
+    const id = worker.requests[0].id;
+
+    worker.respond(id, { ok: false, error: null });
+
+    await expect(promise).rejects.toThrow(/unknown error/i);
+  });
+
+  it("should_reject_pending_calls_and_clear_worker_when_worker_emits_error", async () => {
     const worker = new FakeWorker({
       handlers: {
         hang: () => new Promise(() => {}),
@@ -453,11 +585,20 @@ describe("WorkerRpcClient", () => {
     const promise = client.call("hang", null);
     worker.crash(new Error("boom"));
 
-    await expect(promise).rejects.toThrow(/boom/);
-    expect(client.worker).toBeNull();
+    let error;
+    try {
+      await promise;
+    } catch (err) {
+      error = err;
+    }
+
+    expect({ message: error?.message, worker: client.worker }).toEqual({
+      message: "boom",
+      worker: null,
+    });
   });
 
-  it("rejects pending calls on worker exit and clears instance", async () => {
+  it("should_reject_pending_calls_and_clear_worker_when_worker_exits", async () => {
     const worker = new FakeWorker({
       mode: "eventEmitter",
       handlers: {
@@ -469,11 +610,20 @@ describe("WorkerRpcClient", () => {
     const promise = client.call("hang", null);
     worker.exit(2);
 
-    await expect(promise).rejects.toThrow(/code 2/i);
-    expect(client.worker).toBeNull();
+    let error;
+    try {
+      await promise;
+    } catch (err) {
+      error = err;
+    }
+
+    expect({ message: error?.message, worker: client.worker }).toEqual({
+      message: "Worker exited with code 2",
+      worker: null,
+    });
   });
 
-  it("creates worker once for concurrent calls", async () => {
+  it("should_create_worker_once_for_concurrent_calls", async () => {
     const worker = new FakeWorker({ handlers: { echo: (value) => value } });
     let resolveWorker;
     const createWorker = vi.fn(
@@ -488,22 +638,34 @@ describe("WorkerRpcClient", () => {
     const p2 = client.call("echo", "b");
 
     await flushMicrotasks();
-    expect(createWorker).toHaveBeenCalledTimes(1);
-
     resolveWorker(worker);
 
-    await expect(Promise.all([p1, p2])).resolves.toEqual(["a", "b"]);
+    const results = await Promise.all([p1, p2]);
+
+    expect({ createCalls: createWorker.mock.calls.length, results }).toEqual({
+      createCalls: 1,
+      results: ["a", "b"],
+    });
   });
 
-  it("rejects when createWorker returns no worker", async () => {
+  it("should_reject_when_createWorker_returns_no_worker", async () => {
     const createWorker = vi.fn(() => null);
     const client = new WorkerRpcClient({ createWorker, timeoutMs: 200 });
 
-    await expect(client.call("echo", "x")).rejects.toThrow(/returned no worker/i);
-    expect(createWorker).toHaveBeenCalledTimes(1);
+    let error;
+    try {
+      await client.call("echo", "x");
+    } catch (err) {
+      error = err;
+    }
+
+    expect({ message: error?.message, createCalls: createWorker.mock.calls.length }).toEqual({
+      message: "createWorker returned no worker",
+      createCalls: 1,
+    });
   });
 
-  it("dispose rejects pending calls and prevents reuse", async () => {
+  it("should_reject_pending_calls_terminate_worker_and_prevent_reuse_when_disposed", async () => {
     const worker = new FakeWorker({
       handlers: {
         hang: () => new Promise(() => {}),
@@ -515,12 +677,32 @@ describe("WorkerRpcClient", () => {
     const pending = client.call("hang", null);
     client.dispose();
 
-    await expect(pending).rejects.toThrow(/disposed/i);
-    await expect(client.call("echo", "x")).rejects.toThrow(/disposed/i);
-    expect(worker.terminated).toBe(true);
+    let pendingMessage;
+    try {
+      await pending;
+    } catch (err) {
+      pendingMessage = err?.message;
+    }
+
+    let reuseMessage;
+    try {
+      await client.call("echo", "x");
+    } catch (err) {
+      reuseMessage = err?.message;
+    }
+
+    expect({
+      pendingMessage,
+      reuseMessage,
+      terminated: worker.terminated,
+    }).toMatchObject({
+      pendingMessage: expect.stringMatching(/disposed/i),
+      reuseMessage: expect.stringMatching(/disposed/i),
+      terminated: true,
+    });
   });
 
-  it("dispose during creation terminates worker and rejects call", async () => {
+  it("should_terminate_worker_and_reject_call_when_disposed_during_worker_creation", async () => {
     const worker = new FakeWorker({ handlers: { echo: (v) => v } });
     let resolveWorker;
     const createWorker = vi.fn(
@@ -535,32 +717,96 @@ describe("WorkerRpcClient", () => {
 
     await flushMicrotasks();
     client.dispose();
-
     resolveWorker(worker);
+    await flushMicrotasks();
 
-    await expect(pending).rejects.toThrow(/disposed/i);
-    expect(worker.terminated).toBe(true);
+    let error;
+    try {
+      await pending;
+    } catch (err) {
+      error = err;
+    }
+
+    expect({ message: error?.message, terminated: worker.terminated }).toEqual({
+      message: "WorkerRpcClient is disposed",
+      terminated: true,
+    });
   });
 
-  it("rejects if postMessage throws", async () => {
+  it("should_reject_when_worker_postMessage_throws", async () => {
     const worker = new FakeWorker({ handlers: {} });
     worker.throwOnPostMessage = true;
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
 
     await expect(client.call("boom", null)).rejects.toThrow(/postMessage boom/i);
   });
+
+  it("should_reject_pending_calls_and_clear_worker_when_terminate_called", async () => {
+    const worker = new FakeWorker({
+      handlers: {
+        hang: () => new Promise(() => {}),
+      },
+    });
+    const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
+
+    const pending = client.call("hang", null);
+    client.terminate("bye");
+
+    let error;
+    try {
+      await pending;
+    } catch (err) {
+      error = err;
+    }
+
+    expect({ message: error?.message, worker: client.worker }).toEqual({
+      message: "bye",
+      worker: null,
+    });
+  });
+
+  it("should_throw_when_call_invoked_after_terminate_without_factory", () => {
+    const worker = new FakeWorker({ handlers: { echo: (v) => v } });
+    const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
+
+    client.terminate("bye");
+
+    expect(() => client.call("echo", "x")).toThrow(/no worker available/i);
+  });
 });
 
 describe("createRpcHandler", () => {
-  it("handles requests and posts successful responses", async () => {
+  it("should_ignore_when_event_data_is_missing", async () => {
     const { postMessage, restore } = setupWorkerGlobal();
     try {
-      let receivedContext;
+      const handler = createRpcHandler({});
+
+      await handler({ data: null });
+
+      expect(postMessage).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it("should_ignore_when_message_type_is_not_rpc_request_or_cancel", async () => {
+    const { postMessage, restore } = setupWorkerGlobal();
+    try {
+      const handler = createRpcHandler({});
+
+      await handler({ data: { type: "other", id: "x" } });
+
+      expect(postMessage).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it("should_call_method_with_params_and_context_when_request_received", async () => {
+    const { restore } = setupWorkerGlobal();
+    try {
       const methods = {
-        sum: vi.fn((params, ctx) => {
-          receivedContext = ctx;
-          return params.a + params.b;
-        }),
+        sum: vi.fn((params) => params.a + params.b),
       };
 
       const handler = createRpcHandler(methods);
@@ -573,9 +819,35 @@ describe("createRpcHandler", () => {
         },
       });
 
-      expect(methods.sum).toHaveBeenCalledWith({ a: 2, b: 3 }, expect.any(Object));
-      expect(receivedContext).toMatchObject({ id: "req_1", method: "sum" });
-      expect(receivedContext.signal).toBeInstanceOf(AbortSignal);
+      expect(methods.sum).toHaveBeenCalledWith(
+        { a: 2, b: 3 },
+        expect.objectContaining({
+          id: "req_1",
+          method: "sum",
+          signal: expect.any(AbortSignal),
+        })
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("should_post_success_response_when_method_resolves", async () => {
+    const { postMessage, restore } = setupWorkerGlobal();
+    try {
+      const handler = createRpcHandler({
+        sum: (params) => params.a + params.b,
+      });
+
+      await handler({
+        data: {
+          type: "rpc:request",
+          id: "req_1",
+          method: "sum",
+          params: { a: 2, b: 3 },
+        },
+      });
+
       expect(postMessage).toHaveBeenCalledWith({
         type: "rpc:response",
         id: "req_1",
@@ -587,10 +859,11 @@ describe("createRpcHandler", () => {
     }
   });
 
-  it("returns errors for unknown methods", async () => {
+  it("should_post_error_response_when_method_is_unknown", async () => {
     const { postMessage, restore } = setupWorkerGlobal();
     try {
       const handler = createRpcHandler({});
+
       await handler({
         data: {
           type: "rpc:request",
@@ -611,7 +884,7 @@ describe("createRpcHandler", () => {
     }
   });
 
-  it("posts error responses when handler throws", async () => {
+  it("should_post_error_response_when_method_throws", async () => {
     const { postMessage, restore } = setupWorkerGlobal();
     try {
       const handler = createRpcHandler({
@@ -640,15 +913,15 @@ describe("createRpcHandler", () => {
     }
   });
 
-  it("aborts in-flight calls on cancel messages", async () => {
+  it("should_abort_in_flight_request_and_not_post_response_when_cancel_received", async () => {
     const { postMessage, restore } = setupWorkerGlobal();
     try {
-      const abortStates = [];
+      let abortedAtResolve = false;
       const handler = createRpcHandler({
         wait: (_params, { signal }) =>
           new Promise((resolve) => {
             signal.addEventListener("abort", () => {
-              abortStates.push(signal.aborted);
+              abortedAtResolve = signal.aborted;
               resolve("done");
             });
           }),
@@ -675,8 +948,10 @@ describe("createRpcHandler", () => {
 
       await pending;
 
-      expect(abortStates).toEqual([true]);
-      expect(postMessage).not.toHaveBeenCalled();
+      expect({ abortedAtResolve, postMessageCalls: postMessage.mock.calls.length }).toEqual({
+        abortedAtResolve: true,
+        postMessageCalls: 0,
+      });
     } finally {
       restore();
     }

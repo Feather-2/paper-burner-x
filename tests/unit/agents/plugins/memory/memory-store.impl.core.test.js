@@ -1,5 +1,64 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const sharedMocks = vi.hoisted(() => {
+  const deepClone = vi.fn((value) => {
+    if (typeof globalThis.structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+  });
+
+  const isPlainObject = vi.fn((value) => {
+    if (!value || typeof value !== 'object') return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  });
+
+  const toNonEmptyString = vi.fn((value) => {
+    if (value === null || value === undefined) return '';
+    return String(value).trim();
+  });
+
+  const getGlobalTokenCounter = vi.fn(() => ({ count: vi.fn() }));
+
+  const Platform = Object.freeze({ isBrowser: false });
+
+  class DisposableBase {
+    constructor() {
+      this._disposed = false;
+    }
+
+    async dispose() {
+      if (this._disposed) return;
+      this._disposed = true;
+      if (typeof this._onDispose === 'function') {
+        await this._onDispose();
+      }
+    }
+  }
+
+  return {
+    deepClone,
+    isPlainObject,
+    toNonEmptyString,
+    getGlobalTokenCounter,
+    Platform,
+    DisposableBase,
+  };
+});
+
+const todoNormalizeMocks = vi.hoisted(() => {
+  const normalizeTodoStatus = vi.fn((status) => {
+    const raw = status === null || status === undefined ? '' : String(status);
+    const s = raw.trim().toLowerCase();
+    if (!s) return 'pending';
+    if (s === 'complete') return 'completed';
+    if (s === 'canceled') return 'cancelled';
+    if (s === 'in progress' || s === 'inprogress') return 'in_progress';
+    return s;
+  });
+
+  return { normalizeTodoStatus };
+});
+
 const utilsMocks = vi.hoisted(() => {
   let idCounter = 0;
   const defineMethod = (fn) => ({ value: fn, writable: true, configurable: true });
@@ -43,9 +102,80 @@ const utilsMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../../../../js/agents/plugins/memory/memory-store.impl.utils.js', () => utilsMocks);
+const layersMocks = vi.hoisted(() => {
+  const defineMethod = (fn) => ({ value: fn, writable: true, configurable: true });
+  const estimateBytes = (obj) => {
+    if (obj === null || obj === undefined) return 0;
+    if (typeof obj === 'string') return obj.length * 2;
+    try {
+      return JSON.stringify(obj).length * 2;
+    } catch {
+      return 1024;
+    }
+  };
 
-import { MemoryStore } from '../../../../../js/agents/plugins/memory/memory-store.impl.core.js';
+  const defineL0Layer = vi.fn(() => ({}));
+
+  const defineL1Layer = vi.fn(() => ({
+    getSignals: defineMethod(function (filter) {
+      const signals = Array.isArray(this?._L1?.signals) ? this._L1.signals : [];
+      if (typeof filter === 'function') return signals.filter(filter);
+      if (filter === 'pending') return signals.filter((s) => !s.acknowledged);
+      return [...signals];
+    }),
+
+    getDecisions: defineMethod(function (limit = 10) {
+      const decisions = Array.isArray(this?._L1?.decisions) ? this._L1.decisions : [];
+      return decisions.slice(-limit);
+    }),
+
+    getAllDiscoveries: defineMethod(function () {
+      const discoveries = this?._L1?.syncTable?.discoveries;
+      if (!(discoveries instanceof Map)) return [];
+      return Array.from(discoveries.values());
+    }),
+
+    getAllSubagents: defineMethod(function () {
+      const subagents = this?._L1?.syncTable?.subagents;
+      if (!(subagents instanceof Map)) return [];
+      return Array.from(subagents.values());
+    }),
+  }));
+
+  const defineL2Layer = vi.fn(() => ({
+    getAllStageSummaries: defineMethod(function () {
+      const map = this?._L2?.stageSummaries;
+      if (!(map instanceof Map)) return {};
+      return Object.fromEntries(map);
+    }),
+  }));
+
+  const defineL3Layer = vi.fn(() => ({
+    _recalculateL3Bytes: defineMethod(function () {
+      let total = 0;
+      if (this?._L3?.snapshots instanceof Map) {
+        for (const entry of this._L3.snapshots.values()) total += estimateBytes(entry);
+      }
+      if (Array.isArray(this?._L3?.checkpoints)) {
+        for (const ckpt of this._L3.checkpoints) total += estimateBytes(ckpt);
+      }
+      this._l3BytesUsed = total;
+      return total;
+    }),
+  }));
+
+  return { defineL0Layer, defineL1Layer, defineL2Layer, defineL3Layer };
+});
+
+vi.mock('../../../../../js/agents/shared/index.js', () => sharedMocks);
+vi.mock('../../../../../js/agents/plugins/memory/todo-normalize.js', () => todoNormalizeMocks);
+vi.mock('../../../../../js/agents/plugins/memory/memory-store.impl.utils.js', () => utilsMocks);
+vi.mock('../../../../../js/agents/plugins/memory/memory-store.impl.l0.js', () => ({ defineL0Layer: layersMocks.defineL0Layer }));
+vi.mock('../../../../../js/agents/plugins/memory/memory-store.impl.l1.js', () => ({ defineL1Layer: layersMocks.defineL1Layer }));
+vi.mock('../../../../../js/agents/plugins/memory/memory-store.impl.l2.js', () => ({ defineL2Layer: layersMocks.defineL2Layer }));
+vi.mock('../../../../../js/agents/plugins/memory/memory-store.impl.l3.js', () => ({ defineL3Layer: layersMocks.defineL3Layer }));
+
+import MemoryStoreDefault, { MemoryStore } from '../../../../../js/agents/plugins/memory/memory-store.impl.core.js';
 
 const tokenLen = (value) => (value === null || value === undefined ? 0 : String(value).length);
 
@@ -69,6 +199,12 @@ const createStore = (options = {}) => new MemoryStore(options);
 beforeEach(() => {
   vi.clearAllMocks();
   if (typeof utilsMocks.__reset === 'function') utilsMocks.__reset();
+});
+
+describe('MemoryStore exports', () => {
+  it('should_export_default_as_MemoryStore', () => {
+    expect(MemoryStoreDefault).toBe(MemoryStore);
+  });
 });
 
 describe('MemoryStore', () => {

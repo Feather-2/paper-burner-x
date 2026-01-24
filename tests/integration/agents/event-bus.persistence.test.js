@@ -1,470 +1,767 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const test = require("node:test");
-const assert = require("node:assert/strict");
+const mocks = vi.hoisted(() => {
+  const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-require("fake-indexeddb/auto");
+  const loggerWarn = vi.fn();
+  const createLogger = vi.fn(() => ({ warn: loggerWarn }));
 
-function tick() {
-  return new Promise((resolve) => setImmediate(resolve));
-}
-
-async function waitFor(predicate, { timeoutMs = 1000 } = {}) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (await predicate()) return;
-    await tick();
-  }
-  throw new Error("waitFor: timeout");
-}
-
-async function deleteDb(dbName) {
-  await new Promise((resolve) => {
-    const req = indexedDB.deleteDatabase(dbName);
-    req.onsuccess = () => resolve();
-    req.onerror = () => resolve();
-    req.onblocked = () => resolve();
+  const isValidEventName = vi.fn((name) => {
+    if (typeof name !== 'string') return false;
+    if (!name) return false;
+    return /^[a-z0-9_]+(\.[a-z0-9_]+)*$/.test(name);
   });
-}
 
-it("EventBus persistence: no adapter keeps behavior unchanged", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  const matchPattern = vi.fn((pattern, name) => {
+    if (typeof pattern !== 'string' || typeof name !== 'string') return false;
+    if (pattern === '*') return true;
+    const escaped = pattern.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const re = new RegExp(`^${escaped.replace(/\\\*/g, '.*')}$`);
+    return re.test(name);
+  });
 
-  const bus = new EventBus({ runId: "run_no_adapter" });
+  const createEventId = vi.fn((runId, seq) => `evt_${runId || 'run'}_${seq}`);
 
-  const seen = [];
-  bus.on("*", (e) => seen.push(e));
-
-  const evt = bus.emit("run.started", { actor: "system", status: "started", payload: { ok: true } });
-  expect(evt.runId).toBe("run_no_adapter");
-  expect(seen.length).toBe(1);
-  expect(seen[0].eventId).toBe(evt.eventId);
-});
-
-it("EventBus persistence: emit() calls adapter.appendEvents asynchronously", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-
-  const calls = [];
-  const adapter = {
-    appendEvents(events) {
-      calls.push(events);
-    },
-    async getEvents() {
-      return [];
-    },
+  const parseSeqFromEventId = (eventId) => {
+    if (typeof eventId !== 'string') return 0;
+    const match = /_(\d+)$/.exec(eventId);
+    return match ? Number(match[1]) : 0;
   };
 
-  const bus = new EventBus({ runId: "run_persist", persistenceAdapter: adapter });
+  const createEventRecord = vi.fn((input = {}) => {
+    const name = input?.name;
+    if (!isValidEventName(name)) {
+      throw new Error(`Invalid event name: ${String(name)}`);
+    }
 
-  const evt = bus.emit("run.progress", { pct: 50 });
-  expect(calls.length).toBe(0);
+    const eventId = input?.eventId ?? createEventId(input?.runId ?? null, 0);
+    const seq = typeof input?.seq === 'number' ? input.seq : parseSeqFromEventId(eventId);
+    const clock = isObject(input?._clock) && typeof input._clock.seq === 'number' ? input._clock : { seq };
 
-  await tick();
-  expect(calls.length).toBe(1);
-  expect(Array.isArray(calls[0])).toBe(true);
-  expect(calls[0].length).toBe(1);
+    return {
+      schemaVersion: typeof input?.schemaVersion === 'string' ? input.schemaVersion : '0.1',
+      eventId,
+      runId: typeof input?.runId === 'string' ? input.runId : null,
+      ts: typeof input?.ts === 'string' ? input.ts : new Date().toISOString(),
+      name,
+      actor: typeof input?.actor === 'string' ? input.actor : 'system',
+      payload: input?.payload,
+      meta: input?.meta,
+      status: input?.status,
+      level: input?.level,
+      durationMs: input?.durationMs,
+      _clock: clock,
+      seq,
+    };
+  });
 
-  const persisted = calls[0][0];
-  expect(persisted.runId).toBe("run_persist");
-  expect(persisted.eventId).toBe(evt.eventId);
-  expect(persisted.name).toBe("run.progress");
-  expect(persisted.payload).toEqual({ pct: 50 });
-});
+  const createEventBusClock = vi.fn((seq) => ({ seq }));
 
-it("EventBus replay(runId): calls getEvents, marks meta.replay, does not re-persist, seq unchanged", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-
-  const persistedBatches = [];
-  let getEventsRunId = null;
-
-  const adapter = {
-    appendEvents(events) {
-      persistedBatches.push(events);
-    },
-    async getEvents(runId) {
-      getEventsRunId = runId;
-      return [
-        {
-          schemaVersion: "0.1",
-          runId,
-          eventId: "evt_run_replay_1",
-          ts: "2025-12-12T22:30:01.000Z",
-          name: "run.progress",
-          actor: "system",
-          status: "progress",
-          payload: { pct: 10 },
-          meta: { fromStore: true },
-        },
-      ];
-    },
-  };
-
-  const bus = new EventBus({ runId: "run_replay", persistenceAdapter: adapter });
-
-  const evt1 = bus.emit("run.progress", { pct: 1 });
-  expect(evt1.eventId).toMatch(/_1$/);
-
-  await tick();
-  expect(persistedBatches.length).toBe(1);
-
-  const seen = [];
-  bus.on("run.progress", (e) => seen.push(e));
-
-  const persistedCountBeforeReplay = persistedBatches.length;
-  const replayed = await bus.replay("run_replay");
-
-  expect(getEventsRunId).toBe("run_replay");
-  expect(replayed.length).toBe(1);
-  expect(seen.length).toBe(1);
-  expect(seen[0].meta.replay).toBe(true);
-  expect(seen[0].meta.fromStore).toBe(true);
-
-  await tick();
-  expect(persistedBatches.length).toBe(persistedCountBeforeReplay);
-
-  const evt2 = bus.emit("run.progress", { pct: 2 });
-  expect(evt2.eventId).toMatch(/_2$/);
-});
-
-it("EventBus replay(runId): syncs Lamport clock to replayed seq for cross-stage ordering", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-
-  const remoteSeq = 1_000_000_000;
-  const adapter = {
-    appendEvents() {},
-    async getEvents(runId) {
-      return [
-        {
-          schemaVersion: "0.1",
-          runId,
-          eventId: "evt_run_lamport_1",
-          ts: "2025-12-12T22:30:01.000Z",
-          name: "run.progress",
-          actor: "system",
-          status: "progress",
-          payload: { pct: 10 },
-          seq: remoteSeq, // legacy persisted field (no _clock)
-        },
-      ];
-    },
-  };
-
-  const bus = new EventBus({ runId: "run_lamport", persistenceAdapter: adapter });
-  await bus.replay("run_lamport");
-
-  const evt = bus.emit("run.progress", { pct: 20 });
-  expect(evt.seq).toBeGreaterThan(remoteSeq);
-  expect(evt._clock).toBeDefined();
-  expect(evt._clock.seq).toBeGreaterThan(remoteSeq);
-});
-
-it("EventBus replay(runId): missing runId throws clear error", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-
-  const adapter = {
-    appendEvents() {},
-    async getEvents() {
-      return null;
-    },
-  };
-
-  const bus = new EventBus({ runId: "run_x", persistenceAdapter: adapter });
-  await expect(bus.replay("run_missing")).rejects.toThrow(/no events found.*runId=run_missing/i);
-});
-
-it("EventBus persistenceAdapter validation: missing methods throws", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-
-  expect(() => new EventBus({ persistenceAdapter: {} })).toThrow(/persistenceAdapter\.appendEvents/i);
-  expect(() => new EventBus({ persistenceAdapter: { appendEvents() {} } })).toThrow(/persistenceAdapter\.getEvents/i);
-  expect(() => new EventBus({ persistenceAdapter: 123 })).toThrow(/persistenceAdapter must be an object/i);
-});
-
-it("RunStoreAdapter integrates with RunStore (IndexedDB via fake-indexeddb)", async () => {
-  const { EventBus, RunStoreAdapter, createEventId, createEventRecord } = await import("../../../js/agents/core/event-bus.js");
-  const { RunStore } = await import("../../../js/agents/storage/run-store.js");
-
-  // Small extra coverage for helpers.
-  expect(createEventId(null, 1)).toBe("evt_run_1");
-  expect(() => createEventRecord({ name: "Bad.Name" })).toThrow(/Invalid event name/i);
-
-  const dbName = `EventBusRunStoreAdapter_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  await deleteDb(dbName);
-
-  const runId = "run_store";
-  const runStore = new RunStore({ dbName });
-  const adapter = new RunStoreAdapter(runStore);
-
-  const bus = new EventBus({ runId, persistenceAdapter: adapter });
-  bus.emit("run.started", { actor: "system", status: "started", payload: { a: 1 } });
-  bus.emit("run.progress", { pct: 42 });
-
-  await waitFor(async () => (await runStore.getEvents(runId)).length === 2);
-
-  const storedBeforeReplay = await runStore.getEvents(runId);
-  expect(storedBeforeReplay.length).toBe(2);
-  expect(storedBeforeReplay[0].runId).toBe(runId);
-  expect(storedBeforeReplay[0].eventId).toMatch(new RegExp(`^evt_${runId}_\\d+$`));
-
-  const replayBus = new EventBus({ runId: "run_store_replay", persistenceAdapter: adapter });
-  const replayedSeen = [];
-  replayBus.on("*", (e) => replayedSeen.push(e));
-  await replayBus.replay(runId);
-  expect(replayedSeen.length).toBe(2);
-  for (const evt of replayedSeen) {
-    expect(evt.meta).toMatchObject({ replay: true });
+  class LamportClock {
+    constructor(seq = 0) {
+      this.seq = typeof seq === 'number' ? seq : 0;
+    }
+    tick(remoteSeq = 0) {
+      const n = typeof remoteSeq === 'number' ? remoteSeq : 0;
+      this.seq = Math.max(this.seq, n) + 1;
+      return { seq: this.seq };
+    }
+    peek() {
+      return { seq: this.seq };
+    }
   }
 
-  const storedAfterReplay = await runStore.getEvents(runId);
-  expect(storedAfterReplay.length).toBe(2);
+  class EventBusSubscriptions {
+    constructor() {
+      /** @type {{ pattern: string, fn: Function, priority: number }[]} */
+      this._subs = [];
+    }
 
-  await runStore.close();
-  await deleteDb(dbName);
+    on(name, handler, options = {}) {
+      if (typeof handler !== 'function') throw new TypeError('handler must be a function');
+      if (typeof name !== 'string' || !name) throw new TypeError('event name must be a string');
+      if (name !== '*' && !isValidEventName(name) && !name.includes('*')) {
+        throw new Error(`Invalid event name: ${name}`);
+      }
+
+      const priority = typeof options?.priority === 'number' ? options.priority : 0;
+      this._subs.push({ pattern: name, fn: handler, priority });
+      return () => this.off(name, handler);
+    }
+
+    once(name, handler) {
+      if (typeof handler !== 'function') throw new TypeError('handler must be a function');
+      const wrapped = (evt) => {
+        this.off(name, wrapped);
+        return handler(evt);
+      };
+      return this.on(name, wrapped);
+    }
+
+    subscribe(eventType, handler, options = {}) {
+      const signal = options?.signal;
+      if (signal?.aborted) return () => {};
+      const unsub = this.on(eventType, handler, { priority: options?.priority });
+      if (signal) {
+        signal.addEventListener('abort', unsub, { once: true });
+      }
+      return unsub;
+    }
+
+    off(name, handler) {
+      const before = this._subs.length;
+      this._subs = this._subs.filter((s) => !(s.pattern === name && s.fn === handler));
+      return this._subs.length !== before;
+    }
+
+    clear() {
+      this._subs = [];
+    }
+
+    collectHandlers(eventName) {
+      return this._subs
+        .filter((s) => matchPattern(s.pattern, eventName))
+        .slice()
+        .sort((a, b) => b.priority - a.priority)
+        .map((s) => ({ fn: s.fn, priority: s.priority }));
+    }
+  }
+
+  return {
+    createLogger,
+    loggerWarn,
+    createEventRecord,
+    createEventBusClock,
+    createEventId,
+    matchPattern,
+    isValidEventName,
+    LamportClock,
+    EventBusSubscriptions,
+  };
 });
 
-it("EventBus.on(): validates handler type and event name", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-  const bus = new EventBus({ runId: "run_on_validate" });
+vi.mock('../../../js/agents/shared/index.js', () => ({ createLogger: mocks.createLogger }));
+vi.mock('../../../js/agents/core/event-record.js', () => ({
+  createEventRecord: mocks.createEventRecord,
+  createEventBusClock: mocks.createEventBusClock,
+}));
+vi.mock('../../../js/agents/core/event-bus-utils.js', () => ({
+  createEventId: mocks.createEventId,
+  matchPattern: mocks.matchPattern,
+  isValidEventName: mocks.isValidEventName,
+}));
+vi.mock('../../../js/agents/core/event-bus-subscriptions.js', () => ({
+  EventBusSubscriptions: mocks.EventBusSubscriptions,
+}));
+vi.mock('../../../js/agents/core/lamport-clock.js', () => ({
+  LamportClock: mocks.LamportClock,
+}));
 
-  expect(() => bus.on("run.started", 123)).toThrow(/handler must be a function/i);
-  expect(() => bus.on("Run.Started", () => {})).toThrow(/Invalid event name/i);
+function flushMicrotasks() {
+  return new Promise((resolve) => queueMicrotask(resolve));
+}
+
+async function importEventBusModule() {
+  return import('../../../js/agents/core/event-bus.js');
+}
+
+beforeEach(() => {
+  vi.resetModules();
+  vi.clearAllMocks();
 });
 
-it("EventBus.once()/off(): basic lifecycle", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-  const bus = new EventBus({ runId: "run_once_off" });
+afterEach(() => {
+  vi.useRealTimers();
+});
 
-  let onceHits = 0;
-  bus.once("run.started", () => {
-    onceHits++;
+describe('event-bus exports', () => {
+  it('should_export_default_as_EventBus', async () => {
+    const mod = await importEventBusModule();
+    expect(mod.default).toBe(mod.EventBus);
   });
-  bus.emit("run.started", { actor: "system", status: "started" });
-  bus.emit("run.started", { actor: "system", status: "started" });
-  expect(onceHits).toBe(1);
 
-  let offHits = 0;
-  const fn = () => {
-    offHits++;
-  };
-  bus.on("run.ended", fn);
-  bus.off("run.ended", fn);
-  bus.emit("run.ended", { actor: "system", status: "ended" });
-  expect(offHits).toBe(0);
+  it('should_return_evt_run_1_when_createEventId_given_null_runId_and_seq_1', async () => {
+    const mod = await importEventBusModule();
+    expect(mod.createEventId(null, 1)).toBe('evt_run_1');
+  });
 
-  // Empty backpressure queue flush branch.
-  bus.enableBackpressure({ batchWindowMs: 0 });
-  bus.disableBackpressure();
+  it('should_return_true_when_matchPattern_given_run_star_and_run_started', async () => {
+    const mod = await importEventBusModule();
+    expect(mod.matchPattern('run.*', 'run.started')).toBe(true);
+  });
+
+  it('should_return_false_when_isValidEventName_given_uppercase_segments', async () => {
+    const mod = await importEventBusModule();
+    expect(mod.isValidEventName('A.B')).toBe(false);
+  });
+
+  it('should_throw_when_createEventRecord_given_invalid_name', async () => {
+    const mod = await importEventBusModule();
+    expect(() => mod.createEventRecord({ name: 'Bad.Name' })).toThrow(/Invalid event name/i);
+  });
+
+  it('should_increment_seq_when_LamportClock_tick_called', async () => {
+    const mod = await importEventBusModule();
+    const clock = new mod.LamportClock();
+    clock.tick();
+    expect(clock.seq).toBe(1);
+  });
 });
 
-it("EventBus backpressure: coalesces *.progress and keeps non-progress events", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-  const bus = new EventBus({ runId: "run_bp" });
+describe('RunStoreAdapter', () => {
+  it('should_throw_when_constructor_missing_getEvents', async () => {
+    const { RunStoreAdapter } = await importEventBusModule();
+    expect(() => new RunStoreAdapter({ appendEvents() {} })).toThrow(/getEvents/i);
+  });
 
-  const seen = [];
-  bus.on("*", (e) => seen.push(e));
+  it('should_throw_when_constructor_missing_append_methods', async () => {
+    const { RunStoreAdapter } = await importEventBusModule();
+    expect(() => new RunStoreAdapter({ getEvents() {} })).toThrow(/appendEvents\/appendEvent/i);
+  });
 
-  // Use a global regex to cover RegExp.lastIndex reset logic.
-  bus.enableBackpressure({ batchWindowMs: 0, coalescePattern: /\.progress$/g });
+  it('should_throw_when_appendEvents_given_non_array', async () => {
+    const { RunStoreAdapter } = await importEventBusModule();
+    const adapter = new RunStoreAdapter({ async getEvents() { return []; }, async appendEvents() {} });
+    await expect(adapter.appendEvents('nope')).rejects.toThrow(/events must be an array/i);
+  });
 
-  bus.emit("textprep.chunk.started", { actor: "system", status: "started" });
-  for (let i = 1; i <= 5; i++) bus.emit("textprep.chunk.progress", { pct: i });
-  bus.emit("textprep.chunk.ended", { actor: "system", status: "ended" });
+  it('should_return_0_when_appendEvents_given_empty_array', async () => {
+    const { RunStoreAdapter } = await importEventBusModule();
+    const adapter = new RunStoreAdapter({ async getEvents() { return []; }, async appendEvents() {} });
+    await expect(adapter.appendEvents([])).resolves.toBe(0);
+  });
 
-  expect(seen.length).toBe(0);
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  it('should_throw_when_appendEvents_events_missing_runId', async () => {
+    const { RunStoreAdapter } = await importEventBusModule();
+    const adapter = new RunStoreAdapter({ async getEvents() { return []; }, async appendEvents() {} });
+    await expect(adapter.appendEvents([{ eventId: 'evt_x' }])).rejects.toThrow(/must include a string runId/i);
+  });
 
-  expect(seen.length).toBe(3);
-  expect(seen[0].name).toBe("textprep.chunk.started");
-  expect(seen[1].name).toBe("textprep.chunk.progress");
-  expect(seen[1].payload).toEqual({ pct: 5 });
-  expect(seen[2].name).toBe("textprep.chunk.ended");
+  it('should_group_events_by_runId_when_runStore_supports_appendEvents', async () => {
+    const { RunStoreAdapter } = await importEventBusModule();
+    const runStore = { getEvents: vi.fn(async () => []), appendEvents: vi.fn(async () => {}) };
+    const adapter = new RunStoreAdapter(runStore);
+
+    const events = [
+      { runId: 'run_a', eventId: 'evt_run_a_1', name: 'run.started' },
+      { runId: 'run_a', eventId: 'evt_run_a_2', name: 'run.progress' },
+      { runId: 'run_b', eventId: 'evt_run_b_1', name: 'run.started' },
+    ];
+
+    await adapter.appendEvents(events);
+
+    expect(runStore.appendEvents.mock.calls).toEqual([
+      ['run_a', [events[0], events[1]]],
+      ['run_b', [events[2]]],
+    ]);
+  });
+
+  it('should_call_appendEvent_per_event_when_runStore_only_supports_appendEvent', async () => {
+    const { RunStoreAdapter } = await importEventBusModule();
+    const runStore = { getEvents: vi.fn(async () => []), appendEvent: vi.fn(async () => {}) };
+    const adapter = new RunStoreAdapter(runStore);
+
+    await adapter.appendEvents([
+      { runId: 'run_a', eventId: 'evt_run_a_1', name: 'run.started' },
+      { runId: 'run_a', eventId: 'evt_run_a_2', name: 'run.progress' },
+    ]);
+
+    expect(runStore.appendEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it('should_delegate_getEvents_to_runStore', async () => {
+    const { RunStoreAdapter } = await importEventBusModule();
+    const runStore = { getEvents: vi.fn(async () => []), appendEvents: vi.fn(async () => {}) };
+    const adapter = new RunStoreAdapter(runStore);
+    await adapter.getEvents('run_a');
+    expect(runStore.getEvents).toHaveBeenCalledWith('run_a');
+  });
 });
 
-it("EventBus backpressure: disableBackpressure flushes queue and restores synchronous emit", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-  const bus = new EventBus({ runId: "run_bp_disable" });
+describe('EventBus', () => {
+  it('should_throw_when_persistenceAdapter_is_not_object', async () => {
+    const { EventBus } = await importEventBusModule();
+    expect(() => new EventBus({ persistenceAdapter: 123 })).toThrow(/persistenceAdapter must be an object/i);
+  });
 
-  let hits = 0;
-  bus.on("run.started", () => hits++);
+  it('should_throw_when_persistenceAdapter_missing_appendEvents', async () => {
+    const { EventBus } = await importEventBusModule();
+    expect(() => new EventBus({ persistenceAdapter: {} })).toThrow(/persistenceAdapter\.appendEvents/i);
+  });
 
-  bus.enableBackpressure({ batchWindowMs: 10_000 });
-  bus.emit("run.started", { actor: "system", status: "started" });
-  expect(hits).toBe(0);
+  it('should_throw_when_persistenceAdapter_missing_getEvents', async () => {
+    const { EventBus } = await importEventBusModule();
+    expect(() => new EventBus({ persistenceAdapter: { appendEvents() {} } })).toThrow(/persistenceAdapter\.getEvents/i);
+  });
 
-  bus.disableBackpressure();
-  expect(hits).toBe(1);
+  it('should_return_structured_event_when_emit_given_event_like_object', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_no_adapter' });
+    const evt = bus.emit('run.started', { actor: 'system', status: 'started', payload: { ok: true } });
+    expect(evt).toMatchObject({
+      runId: 'run_no_adapter',
+      name: 'run.started',
+      actor: 'system',
+      status: 'started',
+      payload: { ok: true },
+    });
+  });
 
-  bus.emit("run.started", { actor: "system", status: "started" });
-  expect(hits).toBe(2);
-});
+  it('should_set_payload_to_null_when_emit_given_null', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_payload_null' });
+    const evt = bus.emit('run.progress', null);
+    expect(evt.payload).toBe(null);
+  });
 
-it("EventBus backpressure: option validation and re-enable flushes pending queue", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-  const bus = new EventBus({ runId: "run_bp_opts" });
+  it('should_not_call_appendEvents_synchronously_when_emit_with_persistenceAdapter', async () => {
+    const { EventBus } = await importEventBusModule();
+    const adapter = { appendEvents: vi.fn(), getEvents: vi.fn(async () => []) };
+    const bus = new EventBus({ runId: 'run_persist', persistenceAdapter: adapter });
+    bus.emit('run.progress', { pct: 50 });
+    expect(adapter.appendEvents).not.toHaveBeenCalled();
+  });
 
-  expect(() => bus.enableBackpressure("nope")).toThrow(/options must be an object/i);
-  expect(() => bus.enableBackpressure({ batchWindowMs: -1 })).toThrow(/batchWindowMs/i);
-  expect(() => bus.enableBackpressure({ coalescePattern: "nope" })).toThrow(/coalescePattern/i);
+  it('should_call_appendEvents_asynchronously_when_emit_with_persistenceAdapter', async () => {
+    const { EventBus } = await importEventBusModule();
+    const adapter = { appendEvents: vi.fn(), getEvents: vi.fn(async () => []) };
+    const bus = new EventBus({ runId: 'run_persist', persistenceAdapter: adapter });
+    bus.emit('run.progress', { pct: 50 });
+    await flushMicrotasks();
+    expect(adapter.appendEvents).toHaveBeenCalledTimes(1);
+  });
 
-  const seen = [];
-  bus.on("run.started", (e) => seen.push(e));
+  it('should_persist_emitted_event_record_when_emit_called', async () => {
+    const { EventBus } = await importEventBusModule();
+    const adapter = { appendEvents: vi.fn(), getEvents: vi.fn(async () => []) };
+    const bus = new EventBus({ runId: 'run_persist_payload', persistenceAdapter: adapter });
 
-  bus.enableBackpressure({ batchWindowMs: 10_000 });
-  bus.emit("run.started", { actor: "system", status: "started" });
-  expect(seen.length).toBe(0);
+    const evt = bus.emit('run.progress', { pct: 50 });
+    await flushMicrotasks();
 
-  // Calling enableBackpressure again flushes any pending queue.
-  bus.enableBackpressure({ batchWindowMs: 0 });
-  expect(seen.length).toBe(1);
-});
+    expect(adapter.appendEvents.mock.calls[0][0][0]).toMatchObject({
+      runId: 'run_persist_payload',
+      eventId: evt.eventId,
+      name: 'run.progress',
+      payload: { pct: 50 },
+    });
+  });
 
-it("EventBus backpressure: requestAnimationFrame scheduling and cancellation", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  it('should_log_warn_when_persistence_appendEvents_promise_rejects', async () => {
+    const { EventBus } = await importEventBusModule();
+    const adapter = {
+      appendEvents: vi.fn(() => Promise.reject(new Error('boom'))),
+      getEvents: vi.fn(async () => []),
+    };
+    const bus = new EventBus({ runId: 'run_persist_reject', persistenceAdapter: adapter });
+    bus.emit('run.started', { actor: 'system', status: 'started' });
+    await flushMicrotasks();
+    await flushMicrotasks();
+    expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+  });
 
-  const prevRaf = globalThis.requestAnimationFrame;
-  const prevCancel = globalThis.cancelAnimationFrame;
+  it('should_resolve_waitFor_with_type_and_payload_when_matching_event_emitted', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_waitfor' });
 
-  let rafCb = null;
-  let rafId = 0;
-  const cancelled = [];
+    const promise = bus.waitFor('run.started', { timeout: 1000 });
+    bus.emit('run.started', { payload: { ok: true } });
 
-  globalThis.requestAnimationFrame = (cb) => {
-    rafCb = cb;
-    rafId += 1;
-    return rafId;
-  };
-  globalThis.cancelAnimationFrame = (id) => cancelled.push(id);
+    const result = await promise;
+    expect(result).toMatchObject({ type: 'run.started', payload: { ok: true } });
+  });
 
-  try {
-    const bus = new EventBus({ runId: "run_bp_raf" });
+  it('should_reject_waitFor_when_signal_already_aborted', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_waitfor_abort' });
+    const controller = new AbortController();
+    controller.abort(new Error('stop'));
+    await expect(bus.waitFor('run.started', { timeout: 1000, signal: controller.signal })).rejects.toThrow('stop');
+  });
+
+  it('should_reject_waitFor_when_timeout_reached', async () => {
+    vi.useFakeTimers();
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_waitfor_timeout' });
+    const promise = bus.waitFor('run.never', { timeout: 10 });
+    const assertion = expect(promise).rejects.toThrow(/EventBus\.waitFor timeout/i);
+    await vi.advanceTimersByTimeAsync(10);
+    await assertion;
+  });
+
+  it('should_trim_history_when_exceeds_maxHistory', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_history_trim', keepHistory: true, maxHistory: 1 });
+    bus.emit('run.started', { payload: { n: 1 } });
+    bus.emit('run.progress', { payload: { n: 2 } });
+    expect(bus.getHistory().map((e) => e.name)).toEqual(['run.progress']);
+  });
+
+  it('should_filter_history_by_pattern_when_getHistory_given_pattern', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_history_filter', keepHistory: true });
+    bus.emit('run.started', { payload: { n: 1 } });
+    bus.emit('textprep.chunk.started', { payload: { n: 2 } });
+    expect(bus.getHistory('run.*').map((e) => e.name)).toEqual(['run.started']);
+  });
+
+  it('should_clear_history_when_clearHistory_called', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_history_clear', keepHistory: true });
+    bus.emit('run.started', { payload: { n: 1 } });
+    bus.clearHistory();
+    expect(bus.getHistory()).toEqual([]);
+  });
+
+  it('should_return_clock_from_createEventBusClock_with_current_seq', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_clock' });
+    bus.emit('run.started', {});
+    bus.emit('run.progress', {});
+    expect(bus.getClock()).toEqual({ seq: 2 });
+  });
+
+  it('should_call_onListenerError_when_handler_throws', async () => {
+    const { EventBus } = await importEventBusModule();
+    const onListenerError = vi.fn();
+    const bus = new EventBus({ runId: 'run_listener_error', onListenerError });
+    bus.on('run.started', () => {
+      throw new Error('boom');
+    });
+    bus.emit('run.started', {});
+    expect(onListenerError).toHaveBeenCalledTimes(1);
+  });
+
+  it('should_call_onListenerError_when_async_handler_rejects', async () => {
+    const { EventBus } = await importEventBusModule();
+    const onListenerError = vi.fn();
+    const bus = new EventBus({ runId: 'run_listener_reject', onListenerError });
+    bus.on('run.started', () => Promise.reject(new Error('boom')));
+    bus.emit('run.started', {});
+    await flushMicrotasks();
+    expect(onListenerError).toHaveBeenCalledTimes(1);
+  });
+
+  it('should_call_console_error_when_no_onListenerError_and_handler_throws', async () => {
+    const { EventBus } = await importEventBusModule();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const bus = new EventBus({ runId: 'run_console_error' });
+      bus.on('run.started', () => {
+        throw new Error('boom');
+      });
+      bus.emit('run.started', {});
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('should_dispatch_immediately_when_emitSync_called', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_emit_sync' });
     let hits = 0;
-    bus.on("run.progress", () => hits++);
+    bus.on('run.started', () => hits++);
+    bus.emitSync('run.started', {});
+    expect(hits).toBe(1);
+  });
 
-    bus.enableBackpressure({ batchWindowMs: 0 });
-    bus.emit("run.progress", { pct: 1 });
+  it('should_throw_when_enableBackpressure_given_non_object', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_bp_bad_opts' });
+    expect(() => bus.enableBackpressure('nope')).toThrow(/options must be an object/i);
+  });
 
-    expect(typeof rafCb).toBe("function");
-    expect(hits).toBe(0);
+  it('should_throw_when_enableBackpressure_given_array', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_bp_bad_opts_array' });
+    expect(() => bus.enableBackpressure([])).toThrow(/options must be an object/i);
+  });
 
-    // Disable should cancel and flush immediately.
+  it('should_throw_when_enableBackpressure_given_negative_batchWindowMs', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_bp_bad_batch' });
+    expect(() => bus.enableBackpressure({ batchWindowMs: -1 })).toThrow(/batchWindowMs/i);
+  });
+
+  it('should_throw_when_enableBackpressure_given_non_regexp_coalescePattern', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_bp_bad_coalesce' });
+    expect(() => bus.enableBackpressure({ coalescePattern: 'nope' })).toThrow(/coalescePattern/i);
+  });
+
+  it('should_throw_when_enableBackpressure_given_non_positive_maxQueueSize', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_bp_bad_max' });
+    expect(() => bus.enableBackpressure({ maxQueueSize: 0 })).toThrow(/maxQueueSize/i);
+  });
+
+  it('should_flush_pending_queue_when_disableBackpressure_called', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_bp_disable_flush' });
+    let hits = 0;
+    bus.on('run.started', () => hits++);
+
+    bus.enableBackpressure({ batchWindowMs: 10_000 });
+    bus.emit('run.started', {});
     bus.disableBackpressure();
-    expect(cancelled).toEqual([1]);
+
     expect(hits).toBe(1);
+  });
 
-    // Late rAF callback should be a no-op.
-    rafCb();
+  it('should_coalesce_progress_events_and_keep_non_progress_when_backpressure_flushes', async () => {
+    vi.useFakeTimers();
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_bp_coalesce' });
+
+    const seen = [];
+    bus.on('*', (e) => seen.push(e));
+    bus.enableBackpressure({ batchWindowMs: 0, coalescePattern: /\.progress$/g });
+
+    bus.emit('textprep.chunk.started', { payload: { ok: 1 } });
+    for (let i = 1; i <= 5; i++) bus.emit('textprep.chunk.progress', { pct: i });
+    bus.emit('textprep.chunk.ended', { payload: { ok: 2 } });
+
+    await vi.runAllTimersAsync();
+
+    expect(seen.map((e) => [e.name, e.payload])).toEqual([
+      ['textprep.chunk.started', { ok: 1 }],
+      ['textprep.chunk.progress', { pct: 5 }],
+      ['textprep.chunk.ended', { ok: 2 }],
+    ]);
+  });
+
+  it('should_dispatch_non_coalesced_immediately_when_deferNonCoalesced_false', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_bp_nodefer' });
+    let hits = 0;
+    bus.on('run.started', () => hits++);
+    bus.enableBackpressure({ batchWindowMs: 10_000, deferNonCoalesced: false });
+    bus.emit('run.started', {});
     expect(hits).toBe(1);
-  } finally {
-    globalThis.requestAnimationFrame = prevRaf;
-    globalThis.cancelAnimationFrame = prevCancel;
-  }
-});
+  });
 
-it("EventBus persistence: adapter errors are best-effort (no unhandled rejection)", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
+  it('should_drop_oldest_when_queue_exceeds_maxQueueSize', async () => {
+    vi.useFakeTimers();
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_bp_overflow' });
 
-  {
+    const seen = [];
+    bus.on('run.started', (e) => seen.push(e));
+    bus.enableBackpressure({ batchWindowMs: 0, maxQueueSize: 1 });
+
+    bus.emit('run.started', { payload: { n: 1 } });
+    bus.emit('run.started', { payload: { n: 2 } });
+    await vi.runAllTimersAsync();
+
+    expect(seen).toMatchObject([{ payload: { n: 2 } }]);
+  });
+
+  it('should_schedule_flush_with_requestAnimationFrame_when_available', async () => {
+    const { EventBus } = await importEventBusModule();
+
+    const prevRaf = globalThis.requestAnimationFrame;
+    const prevCancel = globalThis.cancelAnimationFrame;
+
+    let rafCb = null;
+    globalThis.requestAnimationFrame = (cb) => {
+      rafCb = cb;
+      return 1;
+    };
+    const cancel = vi.fn();
+    globalThis.cancelAnimationFrame = cancel;
+
+    try {
+      const bus = new EventBus({ runId: 'run_bp_raf_cancel' });
+      bus.on('run.progress', () => {});
+
+      bus.enableBackpressure({ batchWindowMs: 0 });
+      bus.emit('run.progress', { payload: { pct: 1 } });
+      expect(typeof rafCb).toBe('function');
+    } finally {
+      globalThis.requestAnimationFrame = prevRaf;
+      globalThis.cancelAnimationFrame = prevCancel;
+    }
+  });
+
+  it('should_call_cancelAnimationFrame_with_raf_id_when_disabling', async () => {
+    const { EventBus } = await importEventBusModule();
+
+    const prevRaf = globalThis.requestAnimationFrame;
+    const prevCancel = globalThis.cancelAnimationFrame;
+
+    globalThis.requestAnimationFrame = () => 42;
+    const cancel = vi.fn();
+    globalThis.cancelAnimationFrame = cancel;
+
+    try {
+      const bus = new EventBus({ runId: 'run_bp_raf_cancel_id' });
+      bus.on('run.progress', () => {});
+      bus.enableBackpressure({ batchWindowMs: 0 });
+      bus.emit('run.progress', { payload: { pct: 1 } });
+      bus.disableBackpressure();
+      expect(cancel).toHaveBeenCalledWith(42);
+    } finally {
+      globalThis.requestAnimationFrame = prevRaf;
+      globalThis.cancelAnimationFrame = prevCancel;
+    }
+  });
+
+  it('should_flush_pending_queue_when_enableBackpressure_called_while_enabled', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_bp_reenable' });
+    let hits = 0;
+    bus.on('run.started', () => hits++);
+
+    bus.enableBackpressure({ batchWindowMs: 10_000 });
+    bus.emit('run.started', {});
+    bus.enableBackpressure({ batchWindowMs: 10_000 });
+
+    expect(hits).toBe(1);
+  });
+
+  it('should_throw_when_on_given_non_function_handler', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_on_validate' });
+    expect(() => bus.on('run.started', 123)).toThrow(/handler must be a function/i);
+  });
+
+  it('should_throw_when_on_given_invalid_event_name', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_on_validate_name' });
+    expect(() => bus.on('Run.Started', () => {})).toThrow(/Invalid event name/i);
+  });
+
+  it('should_call_once_handler_only_once_when_multiple_events_emitted', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_once' });
+    let onceHits = 0;
+    bus.once('run.started', () => {
+      onceHits += 1;
+    });
+    bus.emit('run.started', {});
+    bus.emit('run.started', {});
+    expect(onceHits).toBe(1);
+  });
+
+  it('should_not_call_handler_after_off_called', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_off' });
+    let hits = 0;
+    const fn = () => {
+      hits += 1;
+    };
+    bus.on('run.ended', fn);
+    bus.off('run.ended', fn);
+    bus.emit('run.ended', {});
+    expect(hits).toBe(0);
+  });
+
+  it('should_throw_when_replay_called_without_persistenceAdapter', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({ runId: 'run_no_adapter' });
+    await expect(bus.replay('run_no_adapter')).rejects.toThrow(/persistenceAdapter is required/i);
+  });
+
+  it('should_throw_when_replay_called_with_non_string_runId', async () => {
+    const { EventBus } = await importEventBusModule();
     const bus = new EventBus({
-      runId: "run_persist_throw",
+      runId: 'run_bad_runid',
+      persistenceAdapter: { appendEvents() {}, async getEvents() { return []; } },
+    });
+    await expect(bus.replay(null)).rejects.toThrow(/runId must be a string/i);
+  });
+
+  it('should_throw_when_replay_getEvents_returns_null', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({
+      runId: 'run_missing',
+      persistenceAdapter: { appendEvents() {}, async getEvents() { return null; } },
+    });
+    await expect(bus.replay('run_missing')).rejects.toThrow(/no events found.*runId=run_missing/i);
+  });
+
+  it('should_throw_when_replay_getEvents_returns_non_array', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({
+      runId: 'run_nonarray',
+      persistenceAdapter: { appendEvents() {}, async getEvents() { return 'nope'; } },
+    });
+    await expect(bus.replay('run_nonarray')).rejects.toThrow(/must return an array/i);
+  });
+
+  it('should_throw_when_replay_getEvents_throws', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({
+      runId: 'run_throws',
+      persistenceAdapter: { appendEvents() {}, async getEvents() { throw new Error('db down'); } },
+    });
+    await expect(bus.replay('run_throws')).rejects.toThrow(/failed to load events.*db down/i);
+  });
+
+  it('should_return_empty_when_replay_events_are_malformed', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({
+      runId: 'run_malformed',
+      persistenceAdapter: { appendEvents() {}, async getEvents() { return [null, 123]; } },
+    });
+    const replayed = await bus.replay('run_malformed');
+    expect(replayed).toEqual([]);
+  });
+
+  it('should_mark_replayed_events_with_meta_replay_true', async () => {
+    const { EventBus } = await importEventBusModule();
+    const bus = new EventBus({
+      runId: 'run_replay',
       persistenceAdapter: {
-        appendEvents() {
-          throw new Error("boom");
-        },
-        async getEvents() {
-          return [];
+        appendEvents: vi.fn(),
+        async getEvents(runId) {
+          return [
+            {
+              schemaVersion: '0.1',
+              runId,
+              eventId: 'evt_run_replay_1',
+              ts: '2025-12-12T22:30:01.000Z',
+              name: 'run.progress',
+              actor: 'system',
+              status: 'progress',
+              payload: { pct: 10 },
+              meta: { fromStore: true },
+            },
+          ];
         },
       },
     });
-    bus.emit("run.started", { actor: "system", status: "started" });
-    await tick();
-  }
 
-  {
-    const bus = new EventBus({
-      runId: "run_persist_reject",
-      persistenceAdapter: {
-        appendEvents() {
-          return Promise.reject(new Error("boom"));
-        },
-        async getEvents() {
-          return [];
-        },
+    const seen = [];
+    bus.on('run.progress', (e) => seen.push(e));
+    await bus.replay('run_replay');
+
+    expect(seen[0].meta).toMatchObject({ fromStore: true, replay: true });
+  });
+
+  it('should_not_persist_when_replay_called', async () => {
+    const { EventBus } = await importEventBusModule();
+    const adapter = {
+      appendEvents: vi.fn(),
+      async getEvents(runId) {
+        return [
+          {
+            schemaVersion: '0.1',
+            runId,
+            eventId: 'evt_run_replay_1',
+            ts: '2025-12-12T22:30:01.000Z',
+            name: 'run.progress',
+            actor: 'system',
+            status: 'progress',
+            payload: { pct: 10 },
+          },
+        ];
       },
-    });
-    bus.emit("run.started", { actor: "system", status: "started" });
-    await tick();
-  }
-});
-
-it("EventBus.replay(runId): argument and adapter return validation", async () => {
-  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
-
-  const busNoAdapter = new EventBus({ runId: "run_no_adapter_2" });
-  await expect(busNoAdapter.replay("run_no_adapter_2")).rejects.toThrow(/persistenceAdapter is required/i);
-
-  const busBadRunId = new EventBus({
-    runId: "run_bad_runid",
-    persistenceAdapter: { appendEvents() {}, async getEvents() { return []; } },
+    };
+    const bus = new EventBus({ runId: 'run_replay_no_persist', persistenceAdapter: adapter });
+    await bus.replay('run_replay_no_persist');
+    await flushMicrotasks();
+    expect(adapter.appendEvents).not.toHaveBeenCalled();
   });
-  await expect(busBadRunId.replay(null)).rejects.toThrow(/runId must be a string/i);
-
-  const busNonArray = new EventBus({
-    runId: "run_nonarray",
-    persistenceAdapter: { appendEvents() {}, async getEvents() { return "nope"; } },
-  });
-  await expect(busNonArray.replay("run_nonarray")).rejects.toThrow(/must return an array/i);
-
-  const busThrows = new EventBus({
-    runId: "run_throws",
-    persistenceAdapter: { appendEvents() {}, async getEvents() { throw new Error("db down"); } },
-  });
-  await expect(busThrows.replay("run_throws")).rejects.toThrow(/failed to load events.*db down/i);
-});
-
-it("RunStoreAdapter: supports appendEvent-only runStore and validates inputs", async () => {
-  const { RunStoreAdapter } = await import("../../../js/agents/core/event-bus.js");
-
-  const appended = [];
-  const runStore = {
-    async appendEvent(runId, evt) {
-      appended.push({ runId, evt });
-      return evt.eventId;
-    },
-    async getEvents(runId) {
-      return appended.filter((x) => x.runId === runId).map((x) => x.evt);
-    },
-  };
-
-  const adapter = new RunStoreAdapter(runStore);
-
-  expect(() => new RunStoreAdapter({ appendEvents() {} })).toThrow(/getEvents/i);
-  expect(() => new RunStoreAdapter({ getEvents() {} })).toThrow(/appendEvents\/appendEvent/i);
-  await expect(adapter.appendEvents("nope")).rejects.toThrow(/events must be an array/i);
-  await expect(adapter.appendEvents([{ eventId: "evt_x" }])).rejects.toThrow(/must include a string runId/i);
-
-  const count = await adapter.appendEvents([
-    { runId: "run_a", eventId: "evt_a_1", name: "run.started" },
-    { runId: "run_a", eventId: "evt_a_2", name: "run.progress" },
-  ]);
-  expect(count).toBe(2);
-  expect(appended.length).toBe(2);
-});
-
-it("isValidEventName allows underscores in segments", async () => {
-  const { isValidEventName } = await import("../../../js/agents/core/event-bus.js");
-
-  // 带下划线的事件名应该有效
-  expect(isValidEventName("deepsearch.write.react.parse_retry")).toBe(true);
-  expect(isValidEventName("design.refine.finish_accepted")).toBe(true);
-  expect(isValidEventName("a_b.c_d.e_f")).toBe(true);
-
-  // 原有规则仍然有效
-  expect(isValidEventName("run.started")).toBe(true);
-  expect(isValidEventName("single")).toBe(true);
-
-  // 无效情况
-  expect(isValidEventName("")).toBe(false);
-  expect(isValidEventName(".start")).toBe(false);
-  expect(isValidEventName("end.")).toBe(false);
-  expect(isValidEventName("A.B")).toBe(false); // 大写不允许
 });

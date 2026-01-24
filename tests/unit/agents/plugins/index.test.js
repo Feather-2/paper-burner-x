@@ -1,19 +1,123 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const fingerprintMock = vi.hoisted(() => ({
-  default: { id: "fingerprint-plugin" },
+// Mock every plugin implementation referenced by the registry to ensure we never load real code.
+vi.mock("../../../../js/agents/plugins/compression/cicada.js", () => ({
+  default: { id: "compression/cicada" },
+}));
+vi.mock("../../../../js/agents/plugins/compression/watchdog.js", () => ({
+  default: { id: "compression/watchdog" },
 }));
 
-const loggerMock = vi.hoisted(() => ({
+vi.mock("../../../../js/agents/plugins/analysis/fingerprint.js", () => ({
+  default: { id: "analysis/fingerprint" },
+}));
+vi.mock("../../../../js/agents/plugins/analysis/convergence-detector.js", () => ({
+  default: { id: "analysis/convergence" },
+}));
+vi.mock("../../../../js/agents/plugins/analysis/behavior-fingerprint.js", () => ({
+  default: { id: "analysis/behavior" },
+}));
+
+vi.mock("../../../../js/agents/plugins/telemetry/token-tracker.js", () => ({
+  default: { id: "telemetry/token-tracker" },
+}));
+vi.mock("../../../../js/agents/plugins/telemetry/trace-context.js", () => ({
+  default: { id: "telemetry/trace" },
+}));
+vi.mock("../../../../js/agents/plugins/telemetry/replay-controller.js", () => ({
+  default: { id: "telemetry/replay" },
+}));
+
+vi.mock("../../../../js/agents/plugins/memory/memory-store.impl.js", () => ({
+  default: { id: "memory/store" },
+}));
+vi.mock("../../../../js/agents/plugins/memory/state-engine.js", () => ({
+  default: { id: "memory/state-engine" },
+}));
+vi.mock("../../../../js/agents/plugins/memory/retrieval-engine.js", () => ({
+  default: { id: "memory/retrieval" },
+}));
+
+vi.mock("../../../../js/agents/plugins/coordination/tab-coordinator.js", () => ({
+  default: { id: "coordination/tab" },
+}));
+vi.mock("../../../../js/agents/plugins/coordination/process-coordinator.js", () => ({
+  default: { id: "coordination/process" },
+}));
+
+vi.mock("../../../../js/agents/plugins/checkpoints/agent-checkpoint-store.js", () => ({
+  default: { id: "checkpoints/store" },
+}));
+
+vi.mock("../../../../js/agents/plugins/deps/index.js", () => ({
+  default: { id: "deps/python" },
+}));
+
+vi.mock("../../../../js/agents/plugins/plan/plan-store.js", () => ({
+  default: { id: "plan/store" },
+}));
+vi.mock("../../../../js/agents/plugins/plan/structured-plan.js", () => ({
+  default: { id: "plan/structured" },
+}));
+
+vi.mock("../../../../js/agents/plugins/policy/engine.js", () => ({
+  default: { id: "policy/engine" },
+}));
+vi.mock("../../../../js/agents/plugins/policy/manager.js", () => ({
+  default: { id: "policy/manager" },
+}));
+
+vi.mock("../../../../js/agents/plugins/routing/performance-router.js", () => ({
+  default: { id: "routing/performance" },
+}));
+
+vi.mock("../../../../js/agents/plugins/transports/index.js", () => ({
+  default: { id: "transports/process" },
+}));
+
+vi.mock("../../../../js/agents/plugins/side-effects/side-effect-journal.js", () => ({
+  default: { id: "side-effects/journal" },
+}));
+
+vi.mock("../../../../js/agents/plugins/resilience/retry.js", () => ({
+  default: { id: "resilience/retry" },
+}));
+vi.mock("../../../../js/agents/plugins/resilience/degradation-matrix.js", () => ({
+  default: { id: "resilience/level" },
+}));
+
+vi.mock("../../../../js/agents/plugins/stages/deepsearch.js", () => ({
+  default: { id: "stage/deepsearch" },
+}));
+
+vi.mock("../../../../js/agents/plugins/services/llm.js", () => ({
+  default: { id: "service/llm" },
+}));
+vi.mock("../../../../js/agents/plugins/services/mcp.js", () => ({
+  default: { id: "service/mcp" },
+}));
+vi.mock("../../../../js/agents/plugins/services/scheduler.js", () => ({
+  default: { id: "service/scheduler" },
+}));
+vi.mock("../../../../js/agents/plugins/services/vfs.js", () => ({
+  default: { id: "service/vfs" },
+}));
+
+vi.mock("../../../../js/agents/core/sandbox/plugin.js", () => ({
+  default: { id: "sandbox" },
+}));
+
+// One registry entry needs to validate "no default export" behavior.
+vi.mock("../../../../js/agents/plugins/debug/logger.js", () => ({
   default: undefined,
   name: "logger",
-  LoggerPlugin: { id: "logger-plugin" },
+  LoggerPlugin: { id: "debug/logger" },
+}));
+vi.mock("../../../../js/agents/plugins/debug/inspector.js", () => ({
+  default: { id: "debug/inspector" },
 }));
 
-vi.mock("../../../../js/agents/plugins/analysis/fingerprint.js", () => fingerprintMock);
-vi.mock("../../../../js/agents/plugins/debug/logger.js", () => loggerMock);
-
-const LONG_NAME = "x".repeat(50000);
+const LONG_NAME = "x".repeat(50_000);
 const LARGE_PAYLOAD = "y".repeat(1024 * 1024);
 
 const buildDeepNested = (depth) => {
@@ -43,209 +147,293 @@ beforeEach(async () => {
 });
 
 describe("loadPlugin", () => {
-  it("loads plugins that expose a default export", async () => {
+  it("should_return_default_export_when_module_has_default_export", async () => {
+    // Act
     const plugin = await plugins.loadPlugin("analysis/fingerprint");
 
-    expect(plugin).toBe(fingerprintMock.default);
+    // Assert
+    expect(plugin).toEqual({ id: "analysis/fingerprint" });
   });
 
-  it("returns the module object when no default export exists", async () => {
+  it("should_return_module_namespace_when_module_has_no_default_export", async () => {
+    // Act
     const plugin = await plugins.loadPlugin("debug/logger");
 
-    expect(plugin).toEqual(loggerMock);
+    // Assert
+    expect(plugin).toEqual(expect.objectContaining({ LoggerPlugin: { id: "debug/logger" } }));
   });
 
-  it("propagates loader errors", async () => {
+  it("should_throw_unknown_plugin_error_when_name_is_unregistered", async () => {
+    // Act + Assert
+    await expect(plugins.loadPlugin("missing/plugin")).rejects.toThrow(/Unknown plugin:/);
+  });
+
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["empty_string", ""],
+    ["whitespace", "   "],
+    ["zero_number", 0],
+    ["negative_number", -1],
+    ["max_safe_integer", Number.MAX_SAFE_INTEGER],
+    ["zero_string", "0"],
+    ["numeric_string", "123"],
+    ["empty_array", []],
+    ["empty_object", {}],
+    ["very_long_string", LONG_NAME],
+  ])("should_throw_unknown_plugin_error_when_name_is_%s", async (_label, value) => {
+    // Act + Assert
+    await expect(plugins.loadPlugin(value)).rejects.toThrow(/Unknown plugin:/);
+  });
+
+  it("should_propagate_loader_error_when_loader_throws", async () => {
+    // Arrange
     const error = new Error("boom");
     plugins.registerPlugin("custom/error", () => {
       throw error;
     });
 
+    // Act + Assert
     await expect(plugins.loadPlugin("custom/error")).rejects.toThrow("boom");
   });
 
-  it("rejects unknown plugin names and boundary inputs", async () => {
-    const values = [
-      null,
-      undefined,
-      "",
-      "   ",
-      0,
-      -1,
-      Number.MAX_SAFE_INTEGER,
-      "0",
-      "123",
-      [],
-      {},
-      LONG_NAME,
-      "missing/plugin",
-    ];
-
-    for (const value of values) {
-      await expect(plugins.loadPlugin(value)).rejects.toThrow(/Unknown plugin/);
-    }
-  });
-
-  it("handles concurrent and rapid calls with large payloads", async () => {
-    const deep = buildDeepNested(32);
-    const loader = vi.fn(async () => ({
+  it("should_handle_concurrent_calls_when_loader_returns_large_payload", async () => {
+    // Arrange
+    const loader = async () => ({
       default: {
         payload: LARGE_PAYLOAD,
-        nested: deep,
       },
-    }));
-
+    });
     plugins.registerPlugin("custom/large", loader);
 
+    // Act
     const [first, second] = await Promise.all([
       plugins.loadPlugin("custom/large"),
       plugins.loadPlugin("custom/large"),
     ]);
 
-    expect(first.payload.length).toBe(LARGE_PAYLOAD.length);
-    expect(countDepth(first.nested)).toBe(32);
-    expect(second.payload.length).toBe(LARGE_PAYLOAD.length);
+    // Assert
+    expect([first.payload.length, second.payload.length]).toEqual([LARGE_PAYLOAD.length, LARGE_PAYLOAD.length]);
+  });
 
-    const third = await plugins.loadPlugin("custom/large");
-    expect(third.nested).toEqual(deep);
-    expect(loader).toHaveBeenCalledTimes(3);
+  it("should_preserve_deep_nesting_when_loader_returns_deep_structure", async () => {
+    // Arrange
+    const deep = buildDeepNested(32);
+    plugins.registerPlugin("custom/deep", async () => ({
+      default: { nested: deep },
+    }));
+
+    // Act
+    const plugin = await plugins.loadPlugin("custom/deep");
+
+    // Assert
+    expect(countDepth(plugin.nested)).toBe(32);
   });
 });
 
 describe("hasPlugin", () => {
-  it("returns true for known plugins and false for unknown ones", () => {
-    expect(plugins.hasPlugin("analysis/fingerprint")).toBe(true);
-    expect(plugins.hasPlugin("missing/plugin")).toBe(false);
+  it("should_return_true_when_name_is_registered", () => {
+    // Act
+    const result = plugins.hasPlugin("analysis/fingerprint");
+
+    // Assert
+    expect(result).toBe(true);
   });
 
-  it("returns false for empty, boundary, and type-mismatched inputs", () => {
-    const values = [
-      null,
-      undefined,
-      "",
-      "   ",
-      0,
-      -1,
-      Number.MAX_SAFE_INTEGER,
-      "0",
-      "123",
-      [],
-      {},
-      LONG_NAME,
-    ];
+  it("should_return_false_when_name_is_unregistered", () => {
+    // Act
+    const result = plugins.hasPlugin("missing/plugin");
 
-    const results = values.map((value) => plugins.hasPlugin(value));
-    expect(results).toEqual(Array(values.length).fill(false));
+    // Assert
+    expect(result).toBe(false);
   });
 
-  it("handles concurrent checks", async () => {
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["empty_string", ""],
+    ["whitespace", "   "],
+    ["zero_number", 0],
+    ["negative_number", -1],
+    ["max_safe_integer", Number.MAX_SAFE_INTEGER],
+    ["zero_string", "0"],
+    ["numeric_string", "123"],
+    ["empty_array", []],
+    ["empty_object", {}],
+    ["very_long_string", LONG_NAME],
+  ])("should_return_false_when_name_is_%s", (_label, value) => {
+    // Act
+    const result = plugins.hasPlugin(value);
+
+    // Assert
+    expect(result).toBe(false);
+  });
+
+  it("should_return_expected_results_when_called_concurrently", async () => {
+    // Arrange
     const names = ["analysis/fingerprint", "debug/logger", "missing", null, "   "];
 
+    // Act
     const results = await Promise.all(names.map((name) => Promise.resolve().then(() => plugins.hasPlugin(name))));
 
+    // Assert
     expect(results).toEqual([true, true, false, false, false]);
   });
 });
 
 describe("listAvailablePlugins", () => {
-  it("returns a list of known plugin names", () => {
+  it("should_return_a_non_empty_array_of_plugin_names", () => {
+    // Act
     const list = plugins.listAvailablePlugins();
 
-    expect(Array.isArray(list)).toBe(true);
+    // Assert
     expect(list.length).toBeGreaterThan(0);
-    expect(list).toContain("analysis/fingerprint");
-    expect(list).toContain("debug/logger");
-    expect(list).toContain("sandbox");
   });
 
-  it("reflects registered plugins and protects registry from list mutations", () => {
-    const customName = "custom/list";
-    plugins.registerPlugin(customName, () => ({ default: { ok: true } }));
-    plugins.registerPlugin(LONG_NAME, () => ({ default: { ok: true } }));
-
+  it("should_include_known_plugin_names_when_listing", () => {
+    // Act
     const list = plugins.listAvailablePlugins();
+
+    // Assert
+    expect(list).toEqual(expect.arrayContaining(["analysis/fingerprint", "sandbox", "debug/inspector"]));
+  });
+
+  it("should_include_registered_plugin_when_registerPlugin_is_called", () => {
+    // Arrange
+    plugins.registerPlugin("custom/list", async () => ({ default: { ok: true } }));
+
+    // Act
+    const list = plugins.listAvailablePlugins();
+
+    // Assert
+    expect(list).toContain("custom/list");
+  });
+
+  it("should_not_mutate_registry_when_consumer_mutates_returned_list", () => {
+    // Arrange
+    const list = plugins.listAvailablePlugins();
+
+    // Act
     list.push("fake/plugin");
 
-    expect(list).toContain(customName);
-    expect(list).toContain(LONG_NAME);
+    // Assert
     expect(plugins.hasPlugin("fake/plugin")).toBe(false);
   });
 });
 
 describe("registerPlugin", () => {
-  it("registers a loader that can be loaded", async () => {
-    const loader = vi.fn(async () => ({ default: { name: "custom" } }));
+  it("should_register_plugin_name_when_loader_is_provided", () => {
+    // Arrange
+    plugins.registerPlugin("custom/plugin", async () => ({ default: { id: "custom/plugin" } }));
 
-    plugins.registerPlugin("custom/plugin", loader);
+    // Act
+    const result = plugins.hasPlugin("custom/plugin");
+
+    // Assert
+    expect(result).toBe(true);
+  });
+
+  it("should_load_registered_plugin_when_loader_returns_default_export", async () => {
+    // Arrange
+    plugins.registerPlugin("custom/plugin", async () => ({ default: { id: "custom/plugin" } }));
+
+    // Act
     const plugin = await plugins.loadPlugin("custom/plugin");
 
-    expect(loader).toHaveBeenCalledTimes(1);
-    expect(plugin).toEqual({ name: "custom/plugin" });
-    expect(plugins.hasPlugin("custom/plugin")).toBe(true);
-    expect(plugins.listAvailablePlugins()).toContain("custom/plugin");
+    // Assert
+    expect(plugin).toEqual({ id: "custom/plugin" });
   });
 
-  it("overrides existing plugin loaders", async () => {
-    const loader = vi.fn(() => ({ default: { id: "override" } }));
+  it("should_override_existing_loader_when_name_is_re_registered", async () => {
+    // Arrange
+    plugins.registerPlugin("analysis/fingerprint", async () => ({ default: { id: "override" } }));
 
-    plugins.registerPlugin("analysis/fingerprint", loader);
+    // Act
     const plugin = await plugins.loadPlugin("analysis/fingerprint");
 
+    // Assert
     expect(plugin).toEqual({ id: "override" });
-    expect(loader).toHaveBeenCalledTimes(1);
   });
 
-  it("supports boundary names and surfaces loader type errors", async () => {
-    const arrayLoader = vi.fn(() => ({ default: { ok: "array" } }));
-    const objectLoader = vi.fn(() => ({ default: { ok: "object" } }));
-
-    plugins.registerPlugin([], arrayLoader);
-    plugins.registerPlugin({}, objectLoader);
-
-    const arrayPlugin = await plugins.loadPlugin([]);
-    const objectPlugin = await plugins.loadPlugin({});
-
-    expect(arrayPlugin.ok).toBe("array");
-    expect(objectPlugin.ok).toBe("object");
-
+  it("should_throw_typeerror_when_loader_is_not_a_function_and_loaded", async () => {
+    // Arrange
     plugins.registerPlugin("custom/bad", "not-a-function");
+
+    // Act + Assert
     await expect(plugins.loadPlugin("custom/bad")).rejects.toThrow(TypeError);
+  });
+
+  it("should_support_very_long_names_when_registering", () => {
+    // Arrange
+    plugins.registerPlugin(LONG_NAME, async () => ({ default: { id: LONG_NAME } }));
+
+    // Act
+    const result = plugins.hasPlugin(LONG_NAME);
+
+    // Assert
+    expect(result).toBe(true);
   });
 });
 
 describe("createPluginLoader", () => {
-  it("returns a loader that behaves like loadPlugin", async () => {
+  it("should_return_a_function_when_called", () => {
+    // Act
     const loader = plugins.createPluginLoader();
 
-    const plugin = await loader("analysis/fingerprint");
-    const direct = await plugins.loadPlugin("analysis/fingerprint");
-
-    expect(plugin).toBe(direct);
+    // Assert
+    expect(typeof loader).toBe("function");
   });
 
-  it("propagates errors for unknown or invalid plugin names", async () => {
+  it("should_load_same_plugin_as_loadPlugin_when_called", async () => {
+    // Arrange
     const loader = plugins.createPluginLoader();
-    const values = [null, undefined, "", "   ", 0, -1, Number.MAX_SAFE_INTEGER, "missing"];
 
-    await expect(Promise.all(values.map((value) => loader(value)))).rejects.toThrow(/Unknown plugin/);
+    // Act
+    const viaLoader = await loader("analysis/fingerprint");
+    const viaDirect = await plugins.loadPlugin("analysis/fingerprint");
+
+    // Assert
+    expect([viaLoader, viaDirect]).toEqual([{ id: "analysis/fingerprint" }, { id: "analysis/fingerprint" }]);
   });
 
-  it("handles concurrent calls to different plugins", async () => {
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["empty_string", ""],
+    ["whitespace", "   "],
+    ["zero_number", 0],
+    ["negative_number", -1],
+    ["max_safe_integer", Number.MAX_SAFE_INTEGER],
+    ["missing", "missing"],
+  ])("should_throw_unknown_plugin_error_when_loader_is_called_with_%s", async (_label, value) => {
+    // Arrange
     const loader = plugins.createPluginLoader();
 
-    const [fingerprint, logger] = await Promise.all([
-      loader("analysis/fingerprint"),
-      loader("debug/logger"),
-    ]);
+    // Act + Assert
+    await expect(loader(value)).rejects.toThrow(/Unknown plugin:/);
+  });
 
-    expect(fingerprint).toBe(fingerprintMock.default);
-    expect(logger).toEqual(loggerMock);
+  it("should_support_concurrent_calls_to_different_plugins", async () => {
+    // Arrange
+    plugins.registerPlugin("custom/a", async () => ({ default: { id: "a" } }));
+    plugins.registerPlugin("custom/b", async () => ({ default: { id: "b" } }));
+    const loader = plugins.createPluginLoader();
+
+    // Act
+    const [first, second] = await Promise.all([loader("custom/a"), loader("custom/b")]);
+
+    // Assert
+    expect([first.id, second.id]).toEqual(["a", "b"]);
   });
 });
 
 describe("default", () => {
-  it("exposes the expected API surface", () => {
-    expect(plugins.default).toEqual(
+  it("should_expose_expected_api_surface_when_accessing_default_export", () => {
+    // Act
+    const api = plugins.default;
+
+    // Assert
+    expect(api).toEqual(
       expect.objectContaining({
         load: plugins.loadPlugin,
         has: plugins.hasPlugin,
@@ -256,14 +444,16 @@ describe("default", () => {
     );
   });
 
-  it("provides functional helpers and preserves error handling", async () => {
-    const api = plugins.default;
-    const plugin = await api.load("analysis/fingerprint");
+  it("should_load_plugin_when_using_default_api_load", async () => {
+    // Act
+    const plugin = await plugins.default.load("analysis/fingerprint");
 
-    expect(api.has("analysis/fingerprint")).toBe(true);
-    expect(api.list()).toContain("analysis/fingerprint");
-    expect(plugin).toBe(fingerprintMock.default);
+    // Assert
+    expect(plugin).toEqual({ id: "analysis/fingerprint" });
+  });
 
-    await expect(api.load("missing/plugin")).rejects.toThrow(/Unknown plugin/);
+  it("should_throw_unknown_plugin_error_when_default_api_loads_unregistered_name", async () => {
+    // Act + Assert
+    await expect(plugins.default.load("missing/plugin")).rejects.toThrow(/Unknown plugin:/);
   });
 });

@@ -7,6 +7,20 @@ const loggerMocks = vi.hoisted(() => ({
   error: vi.fn(),
 }));
 
+vi.mock("../../../../../js/agents/runtime/core/runtime-adapter.js", () => ({
+  RuntimeType: {
+    JS: "js",
+    PYTHON: "python",
+    R: "r",
+  },
+  RuntimeAdapter: class RuntimeAdapter {
+    constructor(options = {}) {
+      this.type = options.type || "js";
+      this.id = options.id || `${this.type}_${Date.now()}`;
+    }
+  },
+}));
+
 vi.mock("../../../../../js/agents/shared/index.js", () => ({
   createLogger: vi.fn(() => ({
     debug: loggerMocks.debug,
@@ -16,8 +30,8 @@ vi.mock("../../../../../js/agents/shared/index.js", () => ({
   })),
 }));
 
-import { JSRuntimeAdapter } from "../../../../../js/agents/runtime/core/js-adapter.js";
-import { RuntimeType } from "../../../../../js/agents/runtime/core/runtime-adapter.js";
+import * as JSAdapterModule from "../../../../../js/agents/runtime/core/js-adapter.js";
+const { JSRuntimeAdapter } = JSAdapterModule;
 
 const originalWorker = globalThis.Worker;
 
@@ -116,7 +130,7 @@ describe("JSRuntimeAdapter", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(12345);
     const adapter = new JSRuntimeAdapter();
 
-    expect(adapter.type).toBe(RuntimeType.JS);
+    expect(adapter.type).toBe("js");
     expect(adapter.id).toBe("js_12345");
     expect(adapter.skipValidation).toBe(false);
     expect(adapter.useWorkerSandbox).toBe(true);

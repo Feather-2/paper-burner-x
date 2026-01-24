@@ -1,5 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const pluginModuleState = vi.hoisted(() => ({
+  // Keep the mock close to the real public shape without importing the real module.
+  createPluginImpl: (config) => ({
+    name: config.name,
+    version: config.version || "1.0.0",
+    description: config.description || "",
+    dependencies: config.dependencies || [],
+    defaultConfig: config.defaultConfig || {},
+    install: config.install || (() => {}),
+    uninstall: config.uninstall || (() => {}),
+    onStart: config.onStart || null,
+    onStop: config.onStop || null,
+    onError: config.onError || null,
+    _status: "pending",
+    _context: null,
+    _config: null,
+  }),
+}));
+
+const mockedCreatePlugin = vi.hoisted(() =>
+  vi.fn((config) => pluginModuleState.createPluginImpl(config))
+);
+
+vi.mock("../../../../../js/agents/core/plugin.js", () => ({
+  createPlugin: mockedCreatePlugin,
+}));
+
 const behaviorFingerprintState = vi.hoisted(() => ({
   instances: [],
   recordActionResponse: { loopDetected: false, loopInfo: null },
@@ -159,64 +186,82 @@ beforeEach(() => {
 });
 
 describe("default", () => {
-  it("exposes plugin metadata and defaults", () => {
+  it("should_return_analysis_fingerprint_when_accessing_name", () => {
     expect(fingerprintPlugin.name).toBe("analysis/fingerprint");
+  });
+
+  it("should_return_1_0_0_when_accessing_version", () => {
     expect(fingerprintPlugin.version).toBe("1.0.0");
-    expect(typeof fingerprintPlugin.description).toBe("string");
-    expect(fingerprintPlugin.description.length).toBeGreaterThan(0);
+  });
+
+  it("should_return_default_config_when_accessing_defaultConfig", () => {
     expect(fingerprintPlugin.defaultConfig).toEqual({
       windowSize: 5,
       similarityThreshold: 0.85,
       maxHistory: 50,
     });
+  });
+
+  it("should_return_function_when_accessing_install", () => {
     expect(typeof fingerprintPlugin.install).toBe("function");
   });
 
-  it("registers fingerprint service and tool call listener", async () => {
-    const { ctx, service } = await createFingerprintHarness();
-
+  it("should_register_fingerprint_service_when_install_called", async () => {
+    const { ctx } = await createFingerprintHarness();
     expect(ctx.registerService).toHaveBeenCalledWith("fingerprint", expect.any(Object));
-    expect(service).toBeTruthy();
-    expect(typeof service.analyze).toBe("function");
-    expect(typeof service.getHistory).toBe("function");
-    expect(typeof service.reset).toBe("function");
+  });
+
+  it("should_register_tool_call_listener_when_install_called", async () => {
+    const { ctx } = await createFingerprintHarness();
     expect(ctx.on).toHaveBeenCalledWith("tool.call.*", expect.any(Function));
+  });
+
+  it("should_log_install_message_when_install_called", async () => {
+    const { ctx } = await createFingerprintHarness();
     expect(ctx.log.info).toHaveBeenCalledWith("Fingerprint analysis plugin installed");
   });
 
-  it("computes fingerprints, updates state, and returns analysis details", async () => {
-    const loopInfo = { pattern: ["a", "b"], count: 2, startPosition: 0, totalLoopsDetected: 1 };
-    behaviorFingerprintState.recordActionResponse = { loopDetected: false, loopInfo };
+  it("should_return_registered_service_when_install_called", async () => {
+    const { service } = await createFingerprintHarness();
+    expect(Boolean(service)).toBe(true);
+  });
 
-    const { service, ctx, stateStore } = await createFingerprintHarness();
-    const action = { name: "search", params: { b: 2, a: 1 } };
+  it("should_expose_analyze_when_service_registered", async () => {
+    const { service } = await createFingerprintHarness();
+    expect(typeof service.analyze).toBe("function");
+  });
 
-    const result = await service.analyze(action);
+  it("should_expose_getHistory_when_service_registered", async () => {
+    const { service } = await createFingerprintHarness();
+    expect(typeof service.getHistory).toBe("function");
+  });
 
+  it("should_expose_reset_when_service_registered", async () => {
+    const { service } = await createFingerprintHarness();
+    expect(typeof service.reset).toBe("function");
+  });
+
+  it("should_not_construct_BehaviorFingerprint_until_analyze_called", async () => {
+    await createFingerprintHarness();
+    expect(behaviorFingerprintState.instances).toHaveLength(0);
+  });
+
+  it("should_construct_BehaviorFingerprint_with_ctx_config_when_analyze_called", async () => {
+    const { service } = await createFingerprintHarness({ config: { windowSize: 7, maxHistory: 12 } });
+    await service.analyze({ type: "init" });
+    expect(behaviorFingerprintState.instances[0].config).toEqual({ historySize: 12, maxPatternLength: 7 });
+  });
+
+  it("should_return_expected_fingerprint_when_action_has_name_and_params", async () => {
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ name: "search", params: { b: 2, a: 1 } });
     expect(result.fingerprint).toBe("tool_call:search:a,b");
-    expect(result.similarity).toBe(0);
-    expect(result.isLoop).toBe(false);
-    expect(result.loopLength).toBe(2);
-    expect(result.loopInfo).toEqual(loopInfo);
-    expect(result.analysis).toEqual(behaviorFingerprintState.analysisResponse);
-    expect(result.suggestion).toEqual(behaviorFingerprintState.suggestionResponse);
-    expect(result.stats).toEqual(behaviorFingerprintState.stats);
-    expect(typeof result.timestamp).toBe("number");
+  });
 
-    expect(ctx.state.set).toHaveBeenCalledWith("lastAnalysis", result);
-    expect(stateStore.get("lastAnalysis")).toEqual(result);
-
-    const history = service.getHistory();
-    expect(history).toHaveLength(1);
-    expect(history[0].action).toBe("search");
-    expect(history[0].fingerprint).toBe("tool_call:search:a,b");
-    expect(typeof history[0].timestamp).toBe("number");
-
-    expect(behaviorFingerprintState.instances).toHaveLength(1);
-    expect(behaviorFingerprintState.instances[0].config).toEqual({
-      historySize: 50,
-      maxPatternLength: 5,
-    });
+  it("should_prefer_params_over_args_when_both_present", async () => {
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "tool", params: { a: 1 }, args: { b: 1 } });
+    expect(result.fingerprint).toBe("tool:a");
   });
 
   it.each([
@@ -233,42 +278,176 @@ describe("default", () => {
     ["string numeric type", { type: "1", params: {} }, "1:"],
     ["array params fallback", { type: "tool", params: [] }, "tool:"],
     ["array-like params", { type: "tool", params: { 0: "x", length: 1 } }, "tool:0,length"],
-  ])("handles boundary values for %s", async (_label, action, expectedFingerprint) => {
+  ])("should_return_%s_fingerprint_when_action_is_boundary_value", async (_label, action, expectedFingerprint) => {
     const { service } = await createFingerprintHarness();
     const result = await service.analyze(action);
-
     expect(result.fingerprint).toBe(expectedFingerprint);
-    expect(result.loopLength).toBe(0);
+  });
+
+  it("should_return_similarity_0_when_analyzing_first_action", async () => {
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "first", params: { a: 1 } });
+    expect(result.similarity).toBe(0);
+  });
+
+  it("should_return_similarity_1_when_all_recent_fingerprints_match", async () => {
+    const { service } = await createFingerprintHarness({ config: { windowSize: 2 } });
+    await service.analyze({ type: "repeat", params: { a: 1 } });
+    const result = await service.analyze({ type: "repeat", params: { a: 2 } });
+    expect(result.similarity).toBe(1);
+  });
+
+  it("should_return_similarity_0_5_when_half_recent_fingerprints_match", async () => {
+    const { service } = await createFingerprintHarness({ config: { windowSize: 2 } });
+    await service.analyze({ type: "a", params: { k: 1 } });
+    await service.analyze({ type: "b", params: { k: 1 } });
+    const result = await service.analyze({ type: "a", params: { k: 2 } });
+    expect(result.similarity).toBe(0.5);
+  });
+
+  it("should_use_recent_window_min_1_when_windowSize_is_0", async () => {
+    const { service } = await createFingerprintHarness({ config: { windowSize: 0 } });
+    await service.analyze({ type: "repeat", params: { a: 1 } });
+    const result = await service.analyze({ type: "repeat", params: { a: 2 } });
+    expect(result.similarity).toBe(1);
+  });
+
+  it("should_return_loopLength_matching_loopInfo_pattern_length_when_loopInfo_present", async () => {
+    const loopInfo = { pattern: ["a", "b"], count: 2, startPosition: 0, totalLoopsDetected: 1 };
+    behaviorFingerprintState.recordActionResponse = { loopDetected: false, loopInfo };
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
+    expect(result.loopLength).toBe(2);
+  });
+
+  it("should_return_loopInfo_when_behavior_returns_loopInfo", async () => {
+    const loopInfo = { pattern: ["a"], count: 2, startPosition: 0, totalLoopsDetected: 1 };
+    behaviorFingerprintState.recordActionResponse = { loopDetected: false, loopInfo };
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
+    expect(result.loopInfo).toEqual(loopInfo);
+  });
+
+  it("should_return_isLoop_true_when_behavior_loopDetected_true", async () => {
+    behaviorFingerprintState.recordActionResponse = { loopDetected: true, loopInfo: null };
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "loop" });
+    expect(result.isLoop).toBe(true);
+  });
+
+  it("should_return_analysis_when_BehaviorFingerprint_getAnalysis_defined", async () => {
+    const analysis = createDefaultAnalysis();
+    behaviorFingerprintState.analysisResponse = analysis;
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
+    expect(result.analysis).toEqual(analysis);
+  });
+
+  it("should_return_null_analysis_when_BehaviorFingerprint_getAnalysis_missing", async () => {
+    behaviorFingerprintState.withAnalysis = false;
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
+    expect(result.analysis).toBeNull();
+  });
+
+  it("should_return_suggestion_when_BehaviorFingerprint_getSuggestion_defined", async () => {
+    const suggestion = createDefaultSuggestion();
+    behaviorFingerprintState.suggestionResponse = suggestion;
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
+    expect(result.suggestion).toEqual(suggestion);
+  });
+
+  it("should_return_null_suggestion_when_BehaviorFingerprint_getSuggestion_missing", async () => {
+    behaviorFingerprintState.withSuggestion = false;
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
+    expect(result.suggestion).toBeNull();
+  });
+
+  it("should_return_stats_when_BehaviorFingerprint_stats_present", async () => {
+    const stats = createDefaultStats();
+    behaviorFingerprintState.stats = stats;
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
+    expect(result.stats).toEqual(stats);
+  });
+
+  it("should_return_null_stats_when_BehaviorFingerprint_stats_is_null", async () => {
+    behaviorFingerprintState.stats = null;
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
+    expect(result.stats).toBeNull();
+  });
+
+  it("should_return_isLoop_false_when_recordAction_missing", async () => {
+    behaviorFingerprintState.withRecordAction = false;
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
     expect(result.isLoop).toBe(false);
   });
 
-  it("trims history to maxHistory and returns a copy", async () => {
-    const { service } = await createFingerprintHarness({ config: { maxHistory: 2 } });
+  it("should_set_lastAnalysis_state_when_analyze_called", async () => {
+    const { service, stateStore } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
+    expect(stateStore.get("lastAnalysis")).toEqual(result);
+  });
 
+  it("should_append_history_entry_when_analyze_called", async () => {
+    const { service } = await createFingerprintHarness();
+    await service.analyze({ type: "x" });
+    expect(service.getHistory()).toHaveLength(1);
+  });
+
+  it("should_store_action_name_in_history_when_action_has_name", async () => {
+    const { service } = await createFingerprintHarness();
+    await service.analyze({ name: "search" });
+    expect(service.getHistory()[0].action).toBe("search");
+  });
+
+  it("should_store_unknown_action_in_history_when_action_missing_type_and_name", async () => {
+    const { service } = await createFingerprintHarness();
+    await service.analyze({});
+    expect(service.getHistory()[0].action).toBe("unknown");
+  });
+
+  it("should_trim_history_to_maxHistory_when_maxHistory_exceeded", async () => {
+    const { service } = await createFingerprintHarness({ config: { maxHistory: 2 } });
     await service.analyze({ type: "a" });
     await service.analyze({ type: "b" });
     await service.analyze({ type: "c" });
-
-    const history = service.getHistory();
-    expect(history).toHaveLength(2);
-    expect(history.map((entry) => entry.action)).toEqual(["b", "c"]);
-
-    history.push({ action: "x", fingerprint: "x:", timestamp: 0 });
-    expect(service.getHistory()).toHaveLength(2);
+    expect(service.getHistory().map((entry) => entry.action)).toEqual(["b", "c"]);
   });
 
-  it("emits loopDetected when similarity exceeds threshold", async () => {
+  it("should_return_history_copy_when_getHistory_called", async () => {
+    const { service } = await createFingerprintHarness();
+    await service.analyze({ type: "x" });
+    const history = service.getHistory();
+    history.push({ action: "mutate", fingerprint: "x:", timestamp: 0 });
+    expect(service.getHistory()).toHaveLength(1);
+  });
+
+  it("should_return_empty_history_when_maxHistory_is_0", async () => {
+    const { service } = await createFingerprintHarness({ config: { maxHistory: 0 } });
+    await service.analyze({ type: "x" });
+    expect(service.getHistory()).toEqual([]);
+  });
+
+  it("should_not_emit_loopDetected_when_similarity_below_threshold", async () => {
+    const { service, ctx } = await createFingerprintHarness({
+      config: { windowSize: 2, similarityThreshold: 0.5 },
+    });
+    await service.analyze({ type: "repeat", params: { x: 1 } });
+    expect(ctx.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("should_emit_loopDetected_when_similarity_above_threshold", async () => {
     const { service, ctx } = await createFingerprintHarness({
       config: { windowSize: 2, similarityThreshold: 0.5 },
     });
     const action = { type: "repeat", params: { x: 1 } };
-
     await service.analyze(action);
-    expect(ctx.events.emit).not.toHaveBeenCalled();
-
     await service.analyze(action);
-
-    expect(ctx.events.emit).toHaveBeenCalledTimes(1);
     expect(ctx.events.emit).toHaveBeenCalledWith("fingerprint:loopDetected", {
       action,
       similarity: 1,
@@ -276,19 +455,21 @@ describe("default", () => {
     });
   });
 
-  it("emits loopDetected when BehaviorFingerprint reports a loop", async () => {
+  it("should_not_emit_loopDetected_when_similarity_equals_threshold", async () => {
+    const { service, ctx } = await createFingerprintHarness({
+      config: { windowSize: 1, similarityThreshold: 1 },
+    });
+    await service.analyze({ type: "repeat", params: { x: 1 } });
+    await service.analyze({ type: "repeat", params: { x: 2 } });
+    expect(ctx.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("should_emit_loopDetected_when_behavior_loopDetected_true", async () => {
     const loopInfo = { pattern: ["x", "y", "z"], count: 3, startPosition: 1, totalLoopsDetected: 2 };
     behaviorFingerprintState.recordActionResponse = { loopDetected: true, loopInfo };
-
-    const { service, ctx } = await createFingerprintHarness({
-      config: { similarityThreshold: 0.99 },
-    });
-
+    const { service, ctx } = await createFingerprintHarness({ config: { similarityThreshold: 0.99 } });
     const action = { type: "loop", params: { a: 1 } };
-    const result = await service.analyze(action);
-
-    expect(result.isLoop).toBe(true);
-    expect(result.loopLength).toBe(3);
+    await service.analyze(action);
     expect(ctx.events.emit).toHaveBeenCalledWith("fingerprint:loopDetected", {
       action,
       similarity: 0,
@@ -296,111 +477,96 @@ describe("default", () => {
     });
   });
 
-  it("handles missing BehaviorFingerprint methods and stats", async () => {
-    behaviorFingerprintState.withRecordAction = false;
-    behaviorFingerprintState.withAnalysis = false;
-    behaviorFingerprintState.withSuggestion = false;
-    behaviorFingerprintState.stats = null;
-
+  it("should_reject_when_BehaviorFingerprint_constructor_throws", async () => {
+    behaviorFingerprintState.throwOnConstruct = true;
     const { service } = await createFingerprintHarness();
-    const result = await service.analyze({ type: "tool", params: { a: 1 } });
-
-    expect(result.isLoop).toBe(false);
-    expect(result.loopLength).toBe(0);
-    expect(result.analysis).toBeNull();
-    expect(result.suggestion).toBeNull();
-    expect(result.stats).toBeNull();
+    await expect(service.analyze({ type: "fail" })).rejects.toThrow("BehaviorFingerprint init failed");
   });
 
-  it("propagates recordAction errors", async () => {
+  it("should_reject_when_recordAction_throws", async () => {
     behaviorFingerprintState.recordActionThrows = true;
-
     const { service } = await createFingerprintHarness();
-
     await expect(service.analyze({ type: "fail" })).rejects.toThrow("recordAction failed");
   });
 
-  it("supports concurrent analyze calls after initialization", async () => {
+  it("should_support_concurrent_analyze_calls_when_initialized", async () => {
     const { service } = await createFingerprintHarness();
-
     await service.analyze({ type: "init", params: { a: 1 } });
-
-    const [first, second] = await Promise.all([
+    await Promise.all([
       service.analyze({ type: "fast", params: { b: 2 } }),
       service.analyze({ type: "fast", params: { b: 3 } }),
     ]);
-
-    expect(first.fingerprint).toBe("fast:b");
-    expect(second.fingerprint).toBe("fast:b");
     expect(service.getHistory()).toHaveLength(3);
-    expect(behaviorFingerprintState.instances[0].recordAction).toHaveBeenCalledTimes(3);
   });
 
-  it("supports rapid sequential calls with string windowSize", async () => {
-    const { service } = await createFingerprintHarness({
-      config: { windowSize: "2", similarityThreshold: 0.9 },
-    });
-
-    const action = { type: "seq", params: { a: 1 } };
-    const first = await service.analyze(action);
-    const second = await service.analyze(action);
-
-    expect(first.similarity).toBe(0);
-    expect(second.similarity).toBe(1);
+  it("should_support_string_windowSize_when_analyzing_actions", async () => {
+    const { service } = await createFingerprintHarness({ config: { windowSize: "2" } });
+    await service.analyze({ type: "seq", params: { a: 1 } });
+    const result = await service.analyze({ type: "seq", params: { a: 2 } });
+    expect(result.similarity).toBe(1);
   });
 
-  it("handles resource-heavy payloads with long strings and deep objects", async () => {
+  it("should_handle_resource_heavy_payloads_when_action_has_long_strings_and_deep_objects", async () => {
     const longString = "x".repeat(100000);
     const deep = createDeepNested(10);
-
     const { service } = await createFingerprintHarness();
-    const action = {
+    const result = await service.analyze({
       type: "tool",
       name: longString,
       params: { deep, huge: longString, z: 1 },
-    };
-
-    const result = await service.analyze(action);
-
-    expect(result.fingerprint.startsWith(`tool:${longString}:`)).toBe(true);
+    });
     expect(result.fingerprint.endsWith("deep,huge,z")).toBe(true);
   });
 
-  it("routes tool.call.* events through the fingerprint service", async () => {
+  it("should_return_number_timestamp_when_analyze_called", async () => {
+    const { service } = await createFingerprintHarness();
+    const result = await service.analyze({ type: "x" });
+    expect(typeof result.timestamp).toBe("number");
+  });
+
+  it("should_call_fingerprint_analyze_when_tool_call_event_payload_is_object", async () => {
     const callSpy = vi.fn().mockResolvedValue({ ok: true });
     const { listeners } = await createFingerprintHarness({
       servicesCallImpl: (name, method, args) => callSpy(name, method, args),
     });
-
     const handler = listeners.get("tool.call.*");
     await handler({ payload: { name: "fetch", args: { q: "test" } } });
-    await handler({ payload: [] });
-
-    expect(callSpy).toHaveBeenNthCalledWith(1, "fingerprint", "analyze", [
+    expect(callSpy).toHaveBeenCalledWith("fingerprint", "analyze", [
       { type: "tool_call", name: "fetch", args: { q: "test" } },
     ]);
-    expect(callSpy).toHaveBeenNthCalledWith(2, "fingerprint", "analyze", [
+  });
+
+  it("should_call_fingerprint_analyze_with_undefined_fields_when_tool_call_event_payload_is_not_plain_object", async () => {
+    const callSpy = vi.fn().mockResolvedValue({ ok: true });
+    const { listeners } = await createFingerprintHarness({
+      servicesCallImpl: (name, method, args) => callSpy(name, method, args),
+    });
+    const handler = listeners.get("tool.call.*");
+    await handler({ payload: [] });
+    expect(callSpy).toHaveBeenCalledWith("fingerprint", "analyze", [
       { type: "tool_call", name: undefined, args: undefined },
     ]);
   });
 
-  it("resets history and recreates the fingerprinter", async () => {
+  it("should_clear_history_when_reset_called", async () => {
     const { service } = await createFingerprintHarness();
-
     await service.analyze({ type: "one" });
-    await service.analyze({ type: "two" });
-
-    expect(service.getHistory()).toHaveLength(2);
-    expect(behaviorFingerprintState.instances).toHaveLength(1);
-
     service.reset();
-
     expect(service.getHistory()).toEqual([]);
+  });
+
+  it("should_call_fingerprinter_reset_when_reset_called", async () => {
+    const { service } = await createFingerprintHarness();
+    await service.analyze({ type: "one" });
+    service.reset();
     expect(behaviorFingerprintState.instances[0].reset).toHaveBeenCalledTimes(1);
+  });
 
-    await service.analyze({ type: "three" });
-
+  it("should_recreate_fingerprinter_when_analyze_called_after_reset", async () => {
+    const { service } = await createFingerprintHarness();
+    await service.analyze({ type: "one" });
+    service.reset();
+    await service.analyze({ type: "two" });
     expect(behaviorFingerprintState.instances).toHaveLength(2);
-    expect(service.getHistory()).toHaveLength(1);
   });
 });

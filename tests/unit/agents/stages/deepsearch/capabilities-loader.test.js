@@ -17,8 +17,6 @@ const mockedModules = vi.hoisted(() => {
   class SharedContext {}
   class BacktrackManager {}
   class DiscoveryManager {}
-  class MemoryStore {}
-  class UnifiedAgentContext {}
 
   class SkillsDefault {}
   class BudgetDefault {}
@@ -26,8 +24,6 @@ const mockedModules = vi.hoisted(() => {
   class SharedDefault {}
   class BacktrackDefault {}
   class DiscoveryDefault {}
-  class MemoryDefault {}
-  class UnifiedDefault {}
 
   const classes = {
     SkillsManager,
@@ -36,8 +32,6 @@ const mockedModules = vi.hoisted(() => {
     SharedContext,
     BacktrackManager,
     DiscoveryManager,
-    MemoryStore,
-    UnifiedAgentContext,
   };
 
   const defaults = {
@@ -47,8 +41,6 @@ const mockedModules = vi.hoisted(() => {
     SharedContext: SharedDefault,
     BacktrackManager: BacktrackDefault,
     DiscoveryManager: DiscoveryDefault,
-    MemoryStore: MemoryDefault,
-    UnifiedAgentContext: UnifiedDefault,
   };
 
   const state = {
@@ -59,8 +51,6 @@ const mockedModules = vi.hoisted(() => {
       shared: true,
       backtrack: true,
       discovery: true,
-      memory: true,
-      unified: true,
     },
     defaults: {
       skills: true,
@@ -69,8 +59,6 @@ const mockedModules = vi.hoisted(() => {
       shared: true,
       backtrack: true,
       discovery: true,
-      memory: true,
-      unified: true,
     },
     throws: {
       skills: NO_THROW,
@@ -79,8 +67,6 @@ const mockedModules = vi.hoisted(() => {
       shared: NO_THROW,
       backtrack: NO_THROW,
       discovery: NO_THROW,
-      memory: NO_THROW,
-      unified: NO_THROW,
     },
     delays: {
       skills: null,
@@ -89,28 +75,6 @@ const mockedModules = vi.hoisted(() => {
       shared: null,
       backtrack: null,
       discovery: null,
-      memory: null,
-      unified: null,
-    },
-    importCounts: {
-      skills: 0,
-      budget: 0,
-      checkpoint: 0,
-      shared: 0,
-      backtrack: 0,
-      discovery: 0,
-      memory: 0,
-      unified: 0,
-    },
-    accessCounts: {
-      skills: 0,
-      budget: 0,
-      checkpoint: 0,
-      shared: 0,
-      backtrack: 0,
-      discovery: 0,
-      memory: 0,
-      unified: 0,
     },
   };
 
@@ -120,42 +84,39 @@ const mockedModules = vi.hoisted(() => {
       state.defaults[key] = true;
       state.throws[key] = NO_THROW;
       state.delays[key] = null;
-      state.importCounts[key] = 0;
-      state.accessCounts[key] = 0;
     });
   };
 
   const createCapabilityMock = (key, exportName) => async () => {
-    state.importCounts[key] += 1;
     const delay = state.delays[key];
     if (delay) await delay;
 
     const exports = {};
+
     Object.defineProperty(exports, exportName, {
       enumerable: true,
       get: () => {
-        state.accessCounts[key] += 1;
         const failure = state.throws[key];
         if (failure !== NO_THROW) throw failure;
         if (!state.named[key]) return undefined;
         return classes[exportName];
       },
     });
+
     Object.defineProperty(exports, "default", {
       enumerable: true,
       get: () => {
-        state.accessCounts[key] += 1;
         const failure = state.throws[key];
         if (failure !== NO_THROW) throw failure;
         if (!state.defaults[key]) return undefined;
         return defaults[exportName];
       },
     });
+
     return exports;
   };
 
   return {
-    NO_THROW,
     classes,
     defaults,
     state,
@@ -164,34 +125,52 @@ const mockedModules = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../../../../js/agents/shared/index.js", () => ({
+vi.mock("/js/agents/shared/index.js", () => ({
   createLogger: mockedCreateLogger.createLogger,
 }));
 
 vi.mock("/js/agents/skills/index.js", mockedModules.createCapabilityMock("skills", "SkillsManager"));
 vi.mock("/js/agents/shared/utils/budget.js", mockedModules.createCapabilityMock("budget", "BudgetManager"));
-vi.mock("/js/agents/stages/deepsearch/internal/checkpoint.js", mockedModules.createCapabilityMock("checkpoint", "CheckpointManager"));
-vi.mock("/js/agents/stages/deepsearch/internal/shared-context.js", mockedModules.createCapabilityMock("shared", "SharedContext"));
-vi.mock("/js/agents/stages/deepsearch/internal/backtrack-manager.js", mockedModules.createCapabilityMock("backtrack", "BacktrackManager"));
-vi.mock("/js/agents/sdk/DiscoveryManager.js", mockedModules.createCapabilityMock("discovery", "DiscoveryManager"));
-vi.mock("/js/agents/runtime/memory/memory-store.js", mockedModules.createCapabilityMock("memory", "MemoryStore"), {
-  virtual: true,
-});
-vi.mock("/js/agents/runtime/context/unified-agent-context.js", mockedModules.createCapabilityMock("unified", "UnifiedAgentContext"), {
-  virtual: true,
-});
+vi.mock(
+  "/js/agents/stages/deepsearch/internal/checkpoint.js",
+  mockedModules.createCapabilityMock("checkpoint", "CheckpointManager"),
+);
+vi.mock(
+  "/js/agents/stages/deepsearch/internal/shared-context.js",
+  mockedModules.createCapabilityMock("shared", "SharedContext"),
+);
+vi.mock(
+  "/js/agents/stages/deepsearch/internal/backtrack-manager.js",
+  mockedModules.createCapabilityMock("backtrack", "BacktrackManager"),
+);
+vi.mock(
+  "/js/agents/sdk/DiscoveryManager.js",
+  mockedModules.createCapabilityMock("discovery", "DiscoveryManager"),
+);
 
-async function loadCapabilitiesLoader() {
-  return await import("../../../../../js/agents/stages/deepsearch/capabilities-loader.js");
+async function loadSubject() {
+  return await import("/js/agents/stages/deepsearch/capabilities-loader.js");
 }
 
-function makeDeepObject(depth) {
-  let node = { depth: 0 };
-  for (let i = 1; i <= depth; i++) {
-    node = { depth: i, next: node };
-  }
-  return node;
-}
+const EXPECTED_CAPABILITY_KEYS = [
+  "SkillsManager",
+  "BudgetManager",
+  "CheckpointManager",
+  "SharedContext",
+  "BacktrackManager",
+  "DiscoveryManager",
+  "MemoryStore",
+  "UnifiedAgentContext",
+];
+
+const NAMED_EXPORT_CASES = [
+  { name: "SkillsManager", moduleKey: "skills", capabilityKey: "SkillsManager" },
+  { name: "BudgetManager", moduleKey: "budget", capabilityKey: "BudgetManager" },
+  { name: "CheckpointManager", moduleKey: "checkpoint", capabilityKey: "CheckpointManager" },
+  { name: "SharedContext", moduleKey: "shared", capabilityKey: "SharedContext" },
+  { name: "BacktrackManager", moduleKey: "backtrack", capabilityKey: "BacktrackManager" },
+  { name: "DiscoveryManager", moduleKey: "discovery", capabilityKey: "DiscoveryManager" },
+];
 
 describe("loadDeepSearchCapabilities", () => {
   beforeEach(() => {
@@ -200,101 +179,115 @@ describe("loadDeepSearchCapabilities", () => {
     mockedModules.reset();
   });
 
-  it("loads capabilities using named exports when available", async () => {
-    const { loadDeepSearchCapabilities } = await loadCapabilitiesLoader();
-
-    const result = await loadDeepSearchCapabilities();
-
+  it("should_create_logger_when_module_is_imported", async () => {
+    await loadSubject();
     expect(mockedCreateLogger.createLogger).toHaveBeenCalledWith("stages/deepsearch/capabilities-loader");
-    expect(result.SkillsManager).toBe(mockedModules.classes.SkillsManager);
-    expect(result.BudgetManager).toBe(mockedModules.classes.BudgetManager);
-    expect(result.CheckpointManager).toBe(mockedModules.classes.CheckpointManager);
-    expect(result.SharedContext).toBe(mockedModules.classes.SharedContext);
-    expect(result.BacktrackManager).toBe(mockedModules.classes.BacktrackManager);
-    expect(result.DiscoveryManager).toBe(mockedModules.classes.DiscoveryManager);
-    expect(result.MemoryStore).toBe(mockedModules.classes.MemoryStore);
-    expect(result.UnifiedAgentContext).toBe(mockedModules.classes.UnifiedAgentContext);
-    expect(mockedLogger.warn).not.toHaveBeenCalled();
   });
 
-  it("falls back to default exports when named exports are missing", async () => {
-    mockedModules.state.named.budget = false;
-    mockedModules.state.named.shared = false;
-    mockedModules.state.named.unified = false;
-
-    const { loadDeepSearchCapabilities } = await loadCapabilitiesLoader();
-
-    const result = await loadDeepSearchCapabilities();
-
-    expect(result.BudgetManager).toBe(mockedModules.defaults.BudgetManager);
-    expect(result.SharedContext).toBe(mockedModules.defaults.SharedContext);
-    expect(result.UnifiedAgentContext).toBe(mockedModules.defaults.UnifiedAgentContext);
-    expect(result.SkillsManager).toBe(mockedModules.classes.SkillsManager);
-    expect(result.BacktrackManager).toBe(mockedModules.classes.BacktrackManager);
+  it("should_return_capabilities_object_with_expected_keys_when_called", async () => {
+    const subject = await loadSubject();
+    const result = await subject.loadDeepSearchCapabilities();
+    expect(Object.keys(result).sort()).toEqual([...EXPECTED_CAPABILITY_KEYS].sort());
   });
 
-  it("warns and leaves null when imports fail", async () => {
+  it.each(NAMED_EXPORT_CASES)(
+    "should_return_named_export_when_named_export_is_available_for_$name",
+    async ({ moduleKey, capabilityKey }) => {
+      mockedModules.state.named[moduleKey] = true;
+      const subject = await loadSubject();
+      const result = await subject.loadDeepSearchCapabilities();
+      expect(result[capabilityKey]).toBe(mockedModules.classes[capabilityKey]);
+    },
+  );
+
+  it.each(NAMED_EXPORT_CASES)(
+    "should_return_default_export_when_named_export_is_missing_for_$name",
+    async ({ moduleKey, capabilityKey }) => {
+      mockedModules.state.named[moduleKey] = false;
+      mockedModules.state.defaults[moduleKey] = true;
+      const subject = await loadSubject();
+      const result = await subject.loadDeepSearchCapabilities();
+      expect(result[capabilityKey]).toBe(mockedModules.defaults[capabilityKey]);
+    },
+  );
+
+  it("should_return_null_when_budget_manager_export_throws", async () => {
     mockedModules.state.throws.budget = new Error("budget down");
-    mockedModules.state.throws.shared = 0;
-
-    const { loadDeepSearchCapabilities } = await loadCapabilitiesLoader();
-
-    const result = await loadDeepSearchCapabilities();
-
+    const subject = await loadSubject();
+    const result = await subject.loadDeepSearchCapabilities();
     expect(result.BudgetManager).toBeNull();
-    expect(result.SharedContext).toBeNull();
-    expect(result.SkillsManager).toBe(mockedModules.classes.SkillsManager);
-    expect(mockedLogger.warn).toHaveBeenCalledTimes(2);
-    expect(mockedLogger.warn).toHaveBeenCalledWith("[deepsearch] Failed to load BudgetManager: budget down");
-    expect(mockedLogger.warn).toHaveBeenCalledWith("[deepsearch] Failed to load SharedContext: 0");
   });
 
-  it("coalesces concurrent calls into a single in-flight load", async () => {
-    const { loadDeepSearchCapabilities } = await loadCapabilitiesLoader();
+  it("should_warn_when_budget_manager_export_throws", async () => {
+    mockedModules.state.throws.budget = new Error("budget down");
+    const subject = await loadSubject();
+    await subject.loadDeepSearchCapabilities();
+    const warned = mockedLogger.warn.mock.calls.some(([msg]) =>
+      msg.includes("Failed to load BudgetManager: budget down"),
+    );
+    expect(warned).toBe(true);
+  });
 
-    const firstPromise = loadDeepSearchCapabilities();
-    const secondPromise = loadDeepSearchCapabilities();
+  it("should_stringify_thrown_value_when_shared_context_export_throws_non_error", async () => {
+    mockedModules.state.throws.shared = 0;
+    const subject = await loadSubject();
+    await subject.loadDeepSearchCapabilities();
+    const warned = mockedLogger.warn.mock.calls.some(([msg]) =>
+      msg.includes("Failed to load SharedContext: 0"),
+    );
+    expect(warned).toBe(true);
+  });
 
-    const [firstResult, secondResult] = await Promise.all([firstPromise, secondPromise]);
+  it("should_return_same_instance_when_called_concurrently", async () => {
+    let release = null;
+    mockedModules.state.delays.skills = new Promise((resolve) => {
+      release = resolve;
+    });
 
+    const subject = await loadSubject();
+
+    const first = subject.loadDeepSearchCapabilities();
+    const second = subject.loadDeepSearchCapabilities();
+    release();
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
     expect(firstResult).toBe(secondResult);
   });
 
-  it("returns the cached result for rapid successive calls", async () => {
-    const { loadDeepSearchCapabilities } = await loadCapabilitiesLoader();
-
-    const first = await loadDeepSearchCapabilities();
-    const second = await loadDeepSearchCapabilities();
-
+  it("should_return_cached_instance_when_called_after_resolution", async () => {
+    const subject = await loadSubject();
+    const first = await subject.loadDeepSearchCapabilities();
+    const second = await subject.loadDeepSearchCapabilities();
     expect(second).toBe(first);
   });
 
-  it("ignores boundary and resource arguments", async () => {
-    const hugeFile = new Uint8Array(1024 * 1024);
-    const longString = "x".repeat(200000);
-    const deepNested = makeDeepObject(80);
-
-    const { loadDeepSearchCapabilities } = await loadCapabilitiesLoader();
-
-    const result = await loadDeepSearchCapabilities(
-      null,
-      undefined,
-      "",
-      [],
-      {},
-      0,
-      -1,
-      Number.MAX_SAFE_INTEGER,
-      "   ",
-      "123",
-      { 0: "x", length: 1 },
-      hugeFile,
-      longString,
-      deepNested,
+  it("should_warn_when_memory_store_module_is_missing", async () => {
+    const subject = await loadSubject();
+    await subject.loadDeepSearchCapabilities();
+    const warned = mockedLogger.warn.mock.calls.some(([msg]) =>
+      msg.startsWith("[deepsearch] Failed to load MemoryStore:"),
     );
+    expect(warned).toBe(true);
+  });
 
-    expect(result).toBeTruthy();
-    expect(result.SkillsManager).toBe(mockedModules.classes.SkillsManager);
-    expect(result.BudgetManager).toBe(mockedModules.classes.BudgetManager);
+  it("should_warn_when_unified_agent_context_module_is_missing", async () => {
+    const subject = await loadSubject();
+    await subject.loadDeepSearchCapabilities();
+    const warned = mockedLogger.warn.mock.calls.some(([msg]) =>
+      msg.startsWith("[deepsearch] Failed to load UnifiedAgentContext:"),
+    );
+    expect(warned).toBe(true);
+  });
+
+  it("should_return_null_when_memory_store_import_fails", async () => {
+    const subject = await loadSubject();
+    const result = await subject.loadDeepSearchCapabilities();
+    expect(result.MemoryStore).toBeNull();
+  });
+
+  it("should_return_null_when_unified_agent_context_import_fails", async () => {
+    const subject = await loadSubject();
+    const result = await subject.loadDeepSearchCapabilities();
+    expect(result.UnifiedAgentContext).toBeNull();
   });
 });

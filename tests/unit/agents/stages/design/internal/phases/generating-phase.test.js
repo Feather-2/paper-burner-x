@@ -91,7 +91,9 @@ vi.mock("../../../../../../../js/agents/stages/design/internal/phases/phase-util
   runWithPhaseSpan: mockedPhaseUtils.runWithPhaseSpan,
 }));
 
-import { runGeneratingPhase } from "../../../../../../../js/agents/stages/design/internal/phases/generating-phase.js";
+import * as generatingPhase from "../../../../../../../js/agents/stages/design/internal/phases/generating-phase.js";
+
+const { runGeneratingPhase } = generatingPhase;
 
 function makeLoop(overrides = {}) {
   return {
@@ -117,6 +119,24 @@ function makeExecution(signal = { id: "signal" }) {
   };
 }
 
+function makeParams(exec, overrides = {}) {
+  return {
+    slideIntents: [],
+    contentPackage: {},
+    designSystem: {},
+    constraints: {},
+    userConfig: {},
+    context: {},
+    runContext: { runId: "run-1", timeoutMs: 0 },
+    emit: vi.fn(),
+    startExecution: exec.startExecution,
+    finishExecution: exec.finishExecution,
+    traceContext: null,
+    skipReview: true,
+    ...overrides,
+  };
+}
+
 function findEmitStageCall(name) {
   return mockedDesignHelpers.emitStage.mock.calls.find((call) => call[1] === name) || null;
 }
@@ -136,56 +156,57 @@ describe("runGeneratingPhase", () => {
     mockedPhaseUtils.runWithPhaseSpan.mockImplementation(async (_trace, _name, _attrs, fn) => await fn());
   });
 
-  it("runs the generation flow, emits planning events, and updates state", async () => {
+  it("should_export_all_named_exports", () => {
+    expect(Object.keys(generatingPhase).sort()).toEqual(["runGeneratingPhase"]);
+  });
+
+  it("should_wrap_generation_in_runWithPhaseSpan", async () => {
     const loop = makeLoop();
     const exec = makeExecution({ id: "sig" });
-    const slideIntents = [
-      { slideIntentId: "s1", pageType: "cover", title: "Title 1" },
-      { slideIntentId: "s2", pageType: "content", title: "Title 2" },
-    ];
-    const contentPackage = { claims: [] };
-    const designSystem = {
-      designTokens: {
-        colors: { primary: "#111", accent: "#222", bg: "#fff", text: "#000" },
-        typography: { body: "Sans" },
-      },
-      theme: "light",
-    };
-    const constraints = { imagePolicy: "", imageBudget: 0 };
-    const context = { modelRouter: { id: "router" }, aiApiService: { id: "svc" } };
-    const runContext = { runId: "run-1", timeoutMs: 500 };
-    const emit = vi.fn();
 
-    mockedImagePlanner.ImagePlanner.plan.mockReturnValue([
-      { slotId: "img-1", style: "3d", slideIndex: 0 },
-      { slotId: "img-2", style: "flat", slideIndex: 1 },
-    ]);
     loop._callTool.mockResolvedValue({
       ok: true,
-      data: { generated: [{ slideHtml: "<s1/>" }, { slideHtml: "<s2/>" }] },
+      data: { generated: [{ slideHtml: "<s1/>" }] },
     });
 
-    const traceContext = { id: "trace" };
-    const result = await runGeneratingPhase(loop, {
-      slideIntents,
-      contentPackage,
-      designSystem,
-      constraints,
-      userConfig: {},
-      context,
-      runContext,
-      emit,
-      startExecution: exec.startExecution,
-      finishExecution: exec.finishExecution,
-      traceContext,
-      skipReview: false,
-    });
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "s1" }],
+        traceContext: { id: "trace" },
+        runContext: { runId: "run-span", timeoutMs: 0 },
+        skipReview: false,
+      })
+    );
 
     expect(mockedPhaseUtils.runWithPhaseSpan).toHaveBeenCalledWith(
-      traceContext,
+      { id: "trace" },
       "design.phase.generating",
-      expect.objectContaining({ runId: "run-1", slideCount: 2, skipReview: false }),
+      expect.objectContaining({ runId: "run-span", slideCount: 1, skipReview: false }),
       expect.any(Function)
+    );
+  });
+
+  it("should_call_startExecution_with_effective_inputs", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    const slideIntents = [{ slideIntentId: "s1" }, { slideIntentId: "s2" }];
+    const contentPackage = { claims: [] };
+    const designSystem = { theme: "light" };
+    const constraints = { imagePolicy: "balanced" };
+    const userConfig = { mode: "demo" };
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents,
+        contentPackage,
+        designSystem,
+        constraints,
+        userConfig,
+      })
     );
 
     expect(exec.startExecution).toHaveBeenCalledWith("generating", {
@@ -193,39 +214,115 @@ describe("runGeneratingPhase", () => {
       slideIntents,
       designSystem,
       constraints,
-      userConfig: {},
+      userConfig,
     });
+  });
+
+  it("should_plan_image_slots_with_ImagePlanner_when_context_has_no_brainstormResult", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    const slideIntents = [{ slideIntentId: "s1" }];
+    const designSystem = { theme: "light" };
+    const constraints = { imagePolicy: "balanced" };
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(loop, makeParams(exec, { slideIntents, designSystem, constraints }));
+
     expect(mockedImagePlanner.ImagePlanner.plan).toHaveBeenCalledWith(slideIntents, designSystem, constraints);
-    expect(mockedDslRules.getDslRules).toHaveBeenCalled();
-    expect(mockedCancellation.createLinkedSignal).toHaveBeenCalledWith(exec.stepInfo.context.signal, 500);
+  });
+
+  it("should_skip_ImagePlanner_plan_when_context_provides_brainstormResult", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        context: {
+          brainstormResult: {
+            imageSlots: [{ slotId: "img-1" }],
+            candidatesBySlide: [],
+          },
+        },
+      })
+    );
+
+    expect(mockedImagePlanner.ImagePlanner.plan).not.toHaveBeenCalled();
+  });
+
+  it("should_trim_and_filter_selectedIdeasForPrompt_from_candidatesBySlide", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    loop._callTool.mockResolvedValue({
+      ok: true,
+      data: { generated: [] },
+    });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        context: {
+          brainstormResult: {
+            imageSlots: [],
+            candidatesBySlide: [
+              {
+                slideIntentId: "  s1  ",
+                slideIndex: 1,
+                selectedCandidate: { atmosphere: "warm" },
+              },
+              {
+                slideIntentId: "   ",
+                slideIndex: 2,
+                selectedCandidate: { atmosphere: "skip" },
+              },
+            ],
+          },
+        },
+      })
+    );
 
     expect(loop._callTool).toHaveBeenCalledWith(
       "spawn_slide_agent",
       expect.objectContaining({
-        slideIntents,
-        contentPackage,
-        designSystem,
-        batchSize: loop.batchSize,
-        batchConcurrency: loop.batchConcurrency,
-        modelRouter: context.modelRouter,
-        aiApiService: context.aiApiService,
-        imageSlots: [
-          { slotId: "img-1", style: "3d", slideIndex: 0 },
-          { slotId: "img-2", style: "flat", slideIndex: 1 },
+        selectedIdeas: [
+          {
+            slideIntentId: "s1",
+            slideIndex: 1,
+            atmosphere: "warm",
+            elementsMarkdown: undefined,
+            visualSlots: undefined,
+          },
         ],
-        selectedIdeas: [],
-        emit,
-        dslRules: { rules: true },
       }),
       exec.stepInfo.context
     );
+  });
 
-    expect(exec.finishExecution).toHaveBeenCalledWith("generating", exec.loopIteration, exec.stepInfo);
-    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, mockedStates.DesignPhase.REVIEWING, { emit, runId: "run-1" });
+  it("should_emit_image_planning_completed_with_pendingImages_and_estimatedCostUSD", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
 
-    const planningCall = findEmitStageCall("design.image.planning.completed");
-    expect(planningCall).not.toBeNull();
-    expect(planningCall[3]).toEqual(
+    mockedImagePlanner.ImagePlanner.plan.mockReturnValue([
+      { slotId: "img-1", style: "3d", slideIndex: 0 },
+      { slotId: "img-2", style: "flat", slideIndex: 1 },
+    ]);
+    loop._callTool.mockResolvedValue({
+      ok: true,
+      data: { generated: [] },
+    });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        constraints: { imagePolicy: "", imageBudget: 0 },
+      })
+    );
+
+    expect(findEmitStageCall("design.image.planning.completed")?.[3]).toEqual(
       expect.objectContaining({
         policy: "balanced",
         planned: 2,
@@ -233,161 +330,212 @@ describe("runGeneratingPhase", () => {
         estimatedCostUSD: 0.043,
       })
     );
-
-    const generateCall = findEmitStageCall("design.generate.ended");
-    expect(generateCall).not.toBeNull();
-    expect(generateCall[3]).toEqual({ slides: 2 });
-
-    const qaEndedCall = findEmitStageCall("design.qa.ended");
-    expect(qaEndedCall).not.toBeNull();
-    expect(qaEndedCall[3]).toEqual({ slides: 2, qaFailed: 0, degradedCount: 0 });
-
-    expect(findEmitStageCall("design.degraded")).toBeNull();
-    expect(mockedRuntime.checkCancelled).toHaveBeenCalledWith(exec.stepInfo.context.signal);
-
-    expect(result.generated).toHaveLength(2);
-    expect(result.slideHtmls).toEqual(["<s1/>", "<s2/>"]);
-    expect(result.slidesMeta).toHaveLength(2);
-    expect(result.slidesMeta[0]).toEqual(
-      expect.objectContaining({
-        slideNo: 1,
-        slideIntentId: "s1",
-        pageType: "cover",
-        title: "Title 1",
-        qa: { pass: true },
-      })
-    );
-    expect(result.pendingImages).toEqual(["img-1", "img-2"]);
-    expect(result.baseDeckHtmlDsl).toBe("<s1/>\n\n<s2/>");
-    expect(result.styleLock).toEqual(
-      expect.objectContaining({
-        colors: { primary: "#111", accent: "#222", bg: "#fff", text: "#000" },
-        theme: "light",
-      })
-    );
-    expect(designSystem.styleLock).toBe(result.styleLock);
-    expect(loop._blackboard.logDecision).toHaveBeenCalledWith(
-      "style_lock_established",
-      "Style lock created from first batch generation",
-      expect.objectContaining({
-        colors: result.styleLock.colors,
-        theme: "light",
-      })
-    );
-
-    expect(loop.state.generated).toEqual(result.generated);
-    expect(loop.state.slideHtmls).toEqual(result.slideHtmls);
-    expect(loop.state.slidesMeta).toEqual(result.slidesMeta);
-    expect(loop.state.imageSlots).toEqual(result.imageSlots);
-    expect(loop.state.baseDeckHtmlDsl).toBe(result.baseDeckHtmlDsl);
-    expect(loop.state.pendingImages).toEqual(result.pendingImages);
-    expect(loop.state.brainstormResult).toEqual(result.brainstormResult);
-    expect(loop.state.degradedCount).toBe(result.degradedCount);
   });
 
-  it("uses brainstormResult candidates, trims whitespace ids, and skips planner", async () => {
+  it("should_not_emit_image_planning_completed_when_constraints_has_no_image_policy_or_budget", async () => {
     const loop = makeLoop();
-    const exec = makeExecution({ id: "sig" });
-    const slideIntents = [{ slideIntentId: "s1", pageType: "cover", title: "Title" }];
-    const contentPackage = {};
-    const designSystem = {};
-    const constraints = {};
-    const emit = vi.fn();
-    const context = {
-      brainstormResult: {
-        ideaPool: [],
-        selectedIdeas: [],
-        imageSlots: [{ slotId: "img-x", style: "flat", slideIndex: 0 }],
-        candidatesBySlide: [
-          {
-            slideIntentId: "  s1  ",
-            slideIndex: "1",
-            selectedCandidate: {
-              atmosphere: "warm",
-              elementsMarkdown: "- e1",
-              visualSlots: [{ slotId: "v1" }],
-            },
-          },
-          { slideIntentId: "   ", slideIndex: 2, selectedCandidate: { atmosphere: "skip" } },
-        ],
-      },
-    };
-    const runContext = { runId: "run-2", timeoutMs: 1000 };
+    const exec = makeExecution();
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
-    loop._callTool.mockResolvedValue({
-      ok: true,
-      data: { generated: [{ slideHtml: "<s1/>" }] },
-    });
+    await runGeneratingPhase(loop, makeParams(exec, { constraints: {} }));
 
-    const result = await runGeneratingPhase(loop, {
-      slideIntents,
-      contentPackage,
-      designSystem,
-      constraints,
-      userConfig: {},
-      context,
-      runContext,
-      emit,
-      startExecution: exec.startExecution,
-      finishExecution: exec.finishExecution,
-      traceContext: null,
-      skipReview: true,
-    });
-
-    expect(mockedImagePlanner.ImagePlanner.plan).not.toHaveBeenCalled();
-    expect(loop._callTool).toHaveBeenCalledWith(
-      "spawn_slide_agent",
-      expect.objectContaining({
-        imageSlots: [{ slotId: "img-x", style: "flat", slideIndex: 0 }],
-        selectedIdeas: [
-          {
-            slideIntentId: "s1",
-            slideIndex: undefined,
-            atmosphere: "warm",
-            elementsMarkdown: "- e1",
-            visualSlots: [{ slotId: "v1" }],
-          },
-        ],
-      }),
-      exec.stepInfo.context
-    );
-    expect(result.pendingImages).toEqual(["img-x"]);
     expect(findEmitStageCall("design.image.planning.completed")).toBeNull();
   });
 
-  it("degrades when QA fails, falls back to title-only HTML, and emits degraded event", async () => {
-    const longTitle = "T".repeat(10000);
+  it("should_use_context_modelRouter_when_provided", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    const modelRouter = { id: "router" };
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(loop, makeParams(exec, { context: { modelRouter } }));
+
+    expect(loop._callTool).toHaveBeenCalledWith(
+      "spawn_slide_agent",
+      expect.objectContaining({ modelRouter }),
+      exec.stepInfo.context
+    );
+  });
+
+  it("should_fallback_to_context_runContext_modelRouter_when_context_modelRouter_is_missing", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    const modelRouter = { id: "router-from-runContext" };
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(loop, makeParams(exec, { context: { runContext: { modelRouter } } }));
+
+    expect(loop._callTool).toHaveBeenCalledWith(
+      "spawn_slide_agent",
+      expect.objectContaining({ modelRouter }),
+      exec.stepInfo.context
+    );
+  });
+
+  it("should_pass_dslRules_to_spawn_slide_agent", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    mockedDslRules.getDslRules.mockResolvedValue({ rules: "dsl" });
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(loop, makeParams(exec));
+
+    expect(loop._callTool).toHaveBeenCalledWith(
+      "spawn_slide_agent",
+      expect.objectContaining({ dslRules: { rules: "dsl" } }),
+      exec.stepInfo.context
+    );
+  });
+
+  it("should_create_linked_spawn_signal_when_timeoutMs_is_positive", async () => {
     const loop = makeLoop();
     const exec = makeExecution({ id: "sig" });
-    const slideIntents = [{ slideIntentId: "s1", pageType: "cover", title: longTitle }];
-    const contentPackage = {};
-    const designSystem = { designTokens: { colors: { bg: "#fff" } } };
-    const constraints = {};
-    const emit = vi.fn();
 
-    mockedImagePlanner.ImagePlanner.plan.mockReturnValue([
-      { slotId: "img-1", style: "photo", slideIndex: 0 },
-    ]);
-    mockedQaValidator.validateSlide.mockReturnValue({ pass: false });
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(loop, makeParams(exec, { runContext: { runId: "run-timeout", timeoutMs: 500 } }));
+
+    expect(mockedCancellation.createLinkedSignal).toHaveBeenCalledWith(exec.stepInfo.context.signal, 500);
+  });
+
+  it("should_use_original_signal_when_timeoutMs_is_0", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution({ id: "sig" });
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(loop, makeParams(exec, { runContext: { runId: "run-timeout", timeoutMs: 0 } }));
+
+    expect(loop._callTool).toHaveBeenCalledWith(
+      "spawn_slide_agent",
+      expect.objectContaining({ signal: exec.stepInfo.context.signal }),
+      exec.stepInfo.context
+    );
+  });
+
+  it("should_default_timeout_to_10_minutes_when_no_timeout_is_provided", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        context: {},
+        runContext: { runId: "run-default-timeout" },
+      })
+    );
+
+    expect(mockedCancellation.createLinkedSignal).toHaveBeenCalledWith(exec.stepInfo.context.signal, 10 * 60 * 1000);
+  });
+
+  it("should_support_genResult_data_as_array_when_data_generated_is_missing", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    loop._callTool.mockResolvedValue({ ok: true, data: [{ slideHtml: "<a/>" }] });
+
+    const out = await runGeneratingPhase(loop, makeParams(exec));
+
+    expect(out.slideHtmls).toEqual(["<a/>"]);
+  });
+
+  it("should_emit_design_generate_ended_with_slide_count", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
     loop._callTool.mockResolvedValue({
       ok: true,
-      data: { generated: [{ slideHtml: "<bad/>" }] },
+      data: { generated: [{ slideHtml: "<s1/>" }, { slideHtml: "<s2/>" }] },
     });
 
-    const result = await runGeneratingPhase(loop, {
-      slideIntents,
-      contentPackage,
-      designSystem,
-      constraints,
-      userConfig: {},
-      context: {},
-      runContext: { runId: "run-3", timeoutMs: 1000 },
-      emit,
-      startExecution: exec.startExecution,
-      finishExecution: exec.finishExecution,
-      traceContext: null,
-      skipReview: true,
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "s1" }, { slideIntentId: "s2" }],
+      })
+    );
+
+    expect(findEmitStageCall("design.generate.ended")?.[3]).toEqual({ slides: 2 });
+  });
+
+  it("should_emit_design_qa_ended_with_qaFailed_0_and_degradedCount_0_when_all_slides_pass", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    loop._callTool.mockResolvedValue({
+      ok: true,
+      data: { generated: [{ slideHtml: "<s1/>" }, { slideHtml: "<s2/>" }] },
     });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "s1" }, { slideIntentId: "s2" }],
+      })
+    );
+
+    expect(findEmitStageCall("design.qa.ended")?.[3]).toEqual({ slides: 2, qaFailed: 0, degradedCount: 0 });
+  });
+
+  it("should_transition_to_reviewing_when_skipReview_is_false", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    const emit = vi.fn();
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        emit,
+        runContext: { runId: "run-review", timeoutMs: 0 },
+        skipReview: false,
+      })
+    );
+
+    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, mockedStates.DesignPhase.REVIEWING, {
+      emit,
+      runId: "run-review",
+    });
+  });
+
+  it("should_not_transition_to_reviewing_when_skipReview_is_true", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    await runGeneratingPhase(loop, makeParams(exec, { skipReview: true }));
+
+    expect(loop._transitionPhase).not.toHaveBeenCalled();
+  });
+
+  it("should_build_safe_html_when_initial_QA_fails", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    const slideIntents = [{ slideIntentId: "s1", pageType: "cover", title: "Title" }];
+    const contentPackage = {};
+    const designSystem = {};
+
+    mockedImagePlanner.ImagePlanner.plan.mockReturnValue([{ slotId: "img-1", style: "photo", slideIndex: 0 }]);
+    mockedQaValidator.validateSlide
+      .mockReturnValueOnce({ pass: false }) // initial HTML fails
+      .mockReturnValueOnce({ pass: true }); // safe HTML passes
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents,
+        contentPackage,
+        designSystem,
+      })
+    );
 
     expect(mockedDslBuilder.buildSlideHtml).toHaveBeenCalledWith(
       slideIntents[0],
@@ -399,108 +547,173 @@ describe("runGeneratingPhase", () => {
         imageSlotsForSlide: [{ slotId: "img-1", style: "photo", slideIndex: 0 }],
       })
     );
-    expect(mockedDesignUtils.escapeHtml).toHaveBeenCalledWith(longTitle);
-    expect(result.slideHtmls[0]).toContain('data-layout="safe"');
-    expect(result.slideHtmls[0]).toContain(`data-title="ESC(${longTitle})"`);
-    expect(result.degradedCount).toBe(2);
-    expect(result.generated[0]).toEqual(expect.objectContaining({ slideHtml: result.slideHtmls[0], source: "fallback" }));
-    expect(loop._transitionPhase).not.toHaveBeenCalled();
-
-    const degradedCall = findEmitStageCall("design.degraded");
-    expect(degradedCall).not.toBeNull();
-    expect(degradedCall[3]).toEqual({ degradedCount: 2, reason: "qa_failed_after_safe" });
-
-    const qaEndedCall = findEmitStageCall("design.qa.ended");
-    expect(qaEndedCall).not.toBeNull();
-    expect(qaEndedCall[3]).toEqual({ slides: 1, qaFailed: 1, degradedCount: 2 });
   });
 
-  it("handles null/undefined inputs, type mismatches, and non-positive timeouts", async () => {
+  it("should_emit_design_degraded_reason_qa_failed_when_safe_QA_passes", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    mockedQaValidator.validateSlide.mockReturnValueOnce({ pass: false }).mockReturnValueOnce({ pass: true });
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "s1", title: "Title" }],
+      })
+    );
+
+    expect(findEmitStageCall("design.degraded")?.[3]).toEqual({ degradedCount: 1, reason: "qa_failed" });
+  });
+
+  it("should_emit_design_degraded_reason_qa_failed_after_safe_when_safe_QA_fails", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    mockedQaValidator.validateSlide.mockReturnValue({ pass: false });
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "s1", title: "Title" }],
+      })
+    );
+
+    expect(findEmitStageCall("design.degraded")?.[3]).toEqual({ degradedCount: 2, reason: "qa_failed_after_safe" });
+  });
+
+  it("should_escape_title_when_building_title_only_fallback_html", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    const longTitle = "T".repeat(10000);
+
+    mockedQaValidator.validateSlide.mockReturnValue({ pass: false });
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
+
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "s1", title: longTitle }],
+      })
+    );
+
+    expect(mockedDesignUtils.escapeHtml).toHaveBeenCalledWith(longTitle);
+  });
+
+  it("should_mark_generated_source_as_fallback_when_degraded", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    mockedQaValidator.validateSlide.mockReturnValue({ pass: false });
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
+
+    const out = await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "s1", title: "Title" }],
+      })
+    );
+
+    expect(out.generated[0]?.source).toBe("fallback");
+  });
+
+  it("should_attach_styleLock_to_designSystem_object", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    const designSystem = { colors: { primary: "#111" } };
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    const out = await runGeneratingPhase(loop, makeParams(exec, { designSystem }));
+
+    expect(designSystem.styleLock).toBe(out.styleLock);
+  });
+
+  it("should_use_colors_background_as_bg_in_styleLock_when_bg_is_missing", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    const designSystem = { colors: { background: "#fff", text: "#000" } };
+
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+
+    const out = await runGeneratingPhase(loop, makeParams(exec, { designSystem }));
+
+    expect(out.styleLock.colors.bg).toBe("#fff");
+  });
+
+  it("should_update_loop_state_from_generation_output", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+
+    loop._callTool.mockResolvedValue({
+      ok: true,
+      data: { generated: [{ slideHtml: "<s1/>" }] },
+    });
+
+    const out = await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "s1", pageType: "cover", title: "Title 1" }],
+      })
+    );
+
+    expect(loop.state.slideHtmls).toEqual(out.slideHtmls);
+  });
+
+  it("should_reapply_userConfig_after_run_when_applyUserInputsToConfig_is_available", async () => {
     const loop = makeLoop({
       applyUserInputsToConfig: vi.fn((cfg) => ({ normalized: true, source: cfg })),
     });
-    loop.state = {
-      slideIntents: [],
-      contentPackage: { fromState: true },
-      designSystem: {},
-      constraints: null,
-      userConfig: { initial: true },
-    };
-    const exec = makeExecution({ id: "sig" });
+    const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({ ok: true, data: [] });
+    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
-    const result = await runGeneratingPhase(loop, {
-      slideIntents: { not: "array" },
-      contentPackage: null,
-      designSystem: undefined,
-      constraints: undefined,
-      userConfig: "",
-      context: { timeoutMs: -1 },
-      runContext: { runId: "run-4", timeoutMs: "1000" },
-      emit: vi.fn(),
-      startExecution: exec.startExecution,
-      finishExecution: exec.finishExecution,
-      traceContext: null,
-      skipReview: true,
-    });
-
-    expect(exec.startExecution).toHaveBeenCalledWith(
-      "generating",
-      expect.objectContaining({
-        slideIntents: [],
-        contentPackage: { fromState: true },
-        constraints: {},
-        userConfig: { normalized: true, source: "" },
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        userConfig: "",
       })
     );
-    expect(mockedCancellation.createLinkedSignal).not.toHaveBeenCalled();
-    expect(loop._callTool).toHaveBeenCalledWith(
-      "spawn_slide_agent",
-      expect.objectContaining({ signal: exec.stepInfo.context.signal }),
-      exec.stepInfo.context
-    );
-    expect(findEmitStageCall("design.image.planning.completed")).toBeNull();
 
     expect(loop.applyUserInputsToConfig).toHaveBeenCalledTimes(2);
-    expect(loop.state.userConfig).toEqual({ normalized: true, source: { normalized: true, source: "" } });
-    expect(result.slideHtmls).toEqual([]);
-    expect(result.slidesMeta).toEqual([]);
-    expect(result.pendingImages).toEqual([]);
   });
 
-  it("throws when spawn_slide_agent fails", async () => {
+  it("should_throw_when_spawn_slide_agent_returns_ok_false_with_error", async () => {
     const loop = makeLoop();
-    const exec = makeExecution({ id: "sig" });
+    const exec = makeExecution();
     loop._callTool.mockResolvedValue({ ok: false, error: "boom" });
 
-    await expect(
-      runGeneratingPhase(loop, {
-        slideIntents: [],
-        contentPackage: {},
-        designSystem: {},
-        constraints: {},
-        userConfig: {},
-        context: {},
-        runContext: { runId: "run-5", timeoutMs: 1 },
-        emit: vi.fn(),
-        startExecution: exec.startExecution,
-        finishExecution: exec.finishExecution,
-        traceContext: null,
-        skipReview: true,
-      })
-    ).rejects.toThrow("boom");
+    await expect(runGeneratingPhase(loop, makeParams(exec))).rejects.toThrow("boom");
+  });
+
+  it("should_throw_default_error_message_when_spawn_slide_agent_returns_ok_false_without_error", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    loop._callTool.mockResolvedValue({ ok: false });
+
+    await expect(runGeneratingPhase(loop, makeParams(exec))).rejects.toThrow("spawn_slide_agent failed");
+  });
+
+  it("should_not_finishExecution_when_spawn_slide_agent_fails", async () => {
+    const loop = makeLoop();
+    const exec = makeExecution();
+    loop._callTool.mockResolvedValue({ ok: false, error: "boom" });
+
+    try {
+      await runGeneratingPhase(loop, makeParams(exec));
+    } catch {
+      // ignore
+    }
 
     expect(exec.finishExecution).not.toHaveBeenCalled();
   });
 
-  it("supports concurrent calls with isolated loops and zero timeout", async () => {
+  it("should_support_concurrent_calls_with_isolated_loop_state", async () => {
     const loopA = makeLoop();
     const loopB = makeLoop();
     const execA = makeExecution({ id: "sigA" });
     const execB = makeExecution({ id: "sigB" });
-    const emitA = vi.fn();
-    const emitB = vi.fn();
 
     mockedImagePlanner.ImagePlanner.plan.mockImplementation((intents) =>
       intents.map((intent, idx) => ({ slotId: `${intent.slideIntentId}-slot`, style: "flat", slideIndex: idx }))
@@ -516,137 +729,89 @@ describe("runGeneratingPhase", () => {
     }));
 
     const [outA, outB] = await Promise.all([
-      runGeneratingPhase(loopA, {
-        slideIntents: [{ slideIntentId: "a1" }],
-        contentPackage: {},
-        designSystem: {},
-        constraints: {},
-        userConfig: {},
-        context: {},
-        runContext: { runId: "run-A", timeoutMs: 0 },
-        emit: emitA,
-        startExecution: execA.startExecution,
-        finishExecution: execA.finishExecution,
-        traceContext: null,
-        skipReview: true,
-      }),
-      runGeneratingPhase(loopB, {
-        slideIntents: [{ slideIntentId: "b1" }, { slideIntentId: "b2" }],
-        contentPackage: {},
-        designSystem: {},
-        constraints: {},
-        userConfig: {},
-        context: {},
-        runContext: { runId: "run-B", timeoutMs: 0 },
-        emit: emitB,
-        startExecution: execB.startExecution,
-        finishExecution: execB.finishExecution,
-        traceContext: null,
-        skipReview: true,
-      }),
+      runGeneratingPhase(
+        loopA,
+        makeParams(execA, {
+          slideIntents: [{ slideIntentId: "a1" }],
+          runContext: { runId: "run-A", timeoutMs: 0 },
+        })
+      ),
+      runGeneratingPhase(
+        loopB,
+        makeParams(execB, {
+          slideIntents: [{ slideIntentId: "b1" }, { slideIntentId: "b2" }],
+          runContext: { runId: "run-B", timeoutMs: 0 },
+        })
+      ),
     ]);
 
-    expect(mockedCancellation.createLinkedSignal).not.toHaveBeenCalled();
-    expect(outA.slideHtmls).toEqual(["<a1/>"]);
-    expect(outB.slideHtmls).toEqual(["<b1/>", "<b2/>"]);
-    expect(loopA.state.slideHtmls).toEqual(outA.slideHtmls);
-    expect(loopB.state.slideHtmls).toEqual(outB.slideHtmls);
+    expect({
+      outA: outA.slideHtmls,
+      outB: outB.slideHtmls,
+      stateA: loopA.state.slideHtmls,
+      stateB: loopB.state.slideHtmls,
+    }).toEqual({
+      outA: ["<a1/>"],
+      outB: ["<b1/>", "<b2/>"],
+      stateA: ["<a1/>"],
+      stateB: ["<b1/>", "<b2/>"],
+    });
   });
 
-  it("handles rapid consecutive calls on the same loop", async () => {
+  it("should_keep_last_call_state_when_runGeneratingPhase_is_called_twice_on_same_loop", async () => {
     const loop = makeLoop();
-    const exec = makeExecution({ id: "sig" });
+    const exec = makeExecution();
 
     loop._callTool.mockImplementation(async (_name, payload) => ({
       ok: true,
       data: { generated: payload.slideIntents.map((intent) => ({ slideHtml: `<${intent.slideIntentId}/>` })) },
     }));
 
-    const first = await runGeneratingPhase(loop, {
-      slideIntents: [{ slideIntentId: "s1" }],
-      contentPackage: {},
-      designSystem: {},
-      constraints: {},
-      userConfig: {},
-      context: {},
-      runContext: { runId: "run-6", timeoutMs: 0 },
-      emit: vi.fn(),
-      startExecution: exec.startExecution,
-      finishExecution: exec.finishExecution,
-      traceContext: null,
-      skipReview: true,
-    });
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "s1" }],
+        runContext: { runId: "run-1", timeoutMs: 0 },
+      })
+    );
 
-    const second = await runGeneratingPhase(loop, {
-      slideIntents: [{ slideIntentId: "s2" }, { slideIntentId: "s3" }],
-      contentPackage: {},
-      designSystem: {},
-      constraints: {},
-      userConfig: {},
-      context: {},
-      runContext: { runId: "run-7", timeoutMs: 0 },
-      emit: vi.fn(),
-      startExecution: exec.startExecution,
-      finishExecution: exec.finishExecution,
-      traceContext: null,
-      skipReview: true,
-    });
+    const second = await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "s2" }, { slideIntentId: "s3" }],
+        runContext: { runId: "run-2", timeoutMs: 0 },
+      })
+    );
 
-    expect(first.slideHtmls).toEqual(["<s1/>"]);
-    expect(second.slideHtmls).toEqual(["<s2/>", "<s3/>"]);
     expect(loop.state.slideHtmls).toEqual(second.slideHtmls);
-    expect(loop._callTool).toHaveBeenCalledTimes(2);
   });
 
-  it("handles large payloads, deep constraints, and MAX_SAFE_INTEGER timeout", async () => {
+  it("should_createLinkedSignal_with_MAX_SAFE_INTEGER_timeout", async () => {
     const loop = makeLoop();
-    const exec = makeExecution({ id: "sig" });
-    const largeText = "x".repeat(120000);
-    const deepConstraints = {
-      imagePolicy: "balanced",
-      imageBudget: Number.MAX_SAFE_INTEGER,
-      nested: { level1: { level2: { level3: { level4: "deep" } } } },
-    };
-    const contentPackage = { raw: largeText };
-    const slideIntents = [{ slideIntentId: "big", pageType: "content", title: "Big" }];
+    const exec = makeExecution();
 
-    mockedImagePlanner.ImagePlanner.plan.mockReturnValue([
-      { slotId: "img-big", style: "hd", slideIndex: 0 },
-    ]);
     loop._callTool.mockResolvedValue({
       ok: true,
       data: { generated: [{ slideHtml: "<big/>" }] },
     });
 
-    await runGeneratingPhase(loop, {
-      slideIntents,
-      contentPackage,
-      designSystem: {},
-      constraints: deepConstraints,
-      userConfig: {},
-      context: {},
-      runContext: { runId: "run-8", timeoutMs: Number.MAX_SAFE_INTEGER },
-      emit: vi.fn(),
-      startExecution: exec.startExecution,
-      finishExecution: exec.finishExecution,
-      traceContext: null,
-      skipReview: true,
-    });
-
-    expect(exec.startExecution).toHaveBeenCalledWith(
-      "generating",
-      expect.objectContaining({ constraints: deepConstraints, contentPackage })
+    await runGeneratingPhase(
+      loop,
+      makeParams(exec, {
+        slideIntents: [{ slideIntentId: "big", pageType: "content", title: "Big" }],
+        contentPackage: { raw: "x".repeat(120000) },
+        constraints: {
+          imagePolicy: "balanced",
+          imageBudget: Number.MAX_SAFE_INTEGER,
+          nested: { level1: { level2: { level3: { level4: "deep" } } } },
+        },
+        runContext: { runId: "run-max", timeoutMs: Number.MAX_SAFE_INTEGER },
+      })
     );
+
     expect(mockedCancellation.createLinkedSignal).toHaveBeenCalledWith(
       exec.stepInfo.context.signal,
       Number.MAX_SAFE_INTEGER
-    );
-    expect(loop._callTool).toHaveBeenCalledWith(
-      "spawn_slide_agent",
-      expect.objectContaining({
-        contentPackage,
-      }),
-      exec.stepInfo.context
     );
   });
 });

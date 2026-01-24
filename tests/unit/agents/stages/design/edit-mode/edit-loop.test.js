@@ -56,7 +56,9 @@ vi.mock("../../../../../../js/agents/stages/design/shared/design-utils.js", () =
 
 import { EditSessionStatus } from "../../../../../../js/agents/stages/design/states.js";
 import { EditOperationType } from "../../../../../../js/agents/stages/design/constants.js";
-import { EditModeAgentLoop } from "../../../../../../js/agents/stages/design/edit-mode/edit-loop.js";
+import * as editLoopModule from "../../../../../../js/agents/stages/design/edit-mode/edit-loop.js";
+
+const { EditModeAgentLoop } = editLoopModule;
 
 const LONG_STRING = "x".repeat(50_001);
 

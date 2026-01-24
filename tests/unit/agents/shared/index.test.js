@@ -1,147 +1,146 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockData = vi.hoisted(() => {
-  const ERROR = Symbol("error");
-  const makeFn = (label) =>
-    vi.fn((...args) => {
-      if (args[0] === ERROR) {
-        throw new Error(`${label} error`);
-      }
-      return { label, args };
-    });
+const SHARED_INDEX_PATH = "../../../../../js/agents/shared/index.js";
 
-  const makeClass = (label) =>
-    class {
-      constructor(...args) {
-        if (args[0] === ERROR) {
-          throw new Error(`${label} error`);
-        }
-        this.label = label;
-        this.args = args;
-      }
-    };
+const hoisted = vi.hoisted(() => {
+  const THROW = Symbol("THROW");
+  const EDGE_ARGS = [undefined, null, "", 0, -1, Number.MAX_SAFE_INTEGER, { a: 1 }, []];
 
-  const makeValue = (label, type = "object") => {
-    if (type === "string") {
-      return `${label}-value`;
-    }
-    return { label };
-  };
-
-  const functionNames = [
-    "isNodeLike",
-    "createBudgetManager",
-    "injectSystemHint",
-    "robustParseJson",
-    "createStageApi",
-    "validateStageApi",
-    "extractServices",
-    "mergeStageApis",
-    "createChildApi",
-    "createRunTool",
-    "isPlainObject",
-    "toNonEmptyString",
-    "toNumber",
-    "toBoolean",
-    "normalizeKey",
-    "normalizeRenderType",
-    "toPositiveInt",
-    "toNonNegativeInt",
-    "deepClone",
-    "sanitizeForJson",
-    "safeInt",
-    "safeNumber",
-    "estimateTokenCount",
-    "estimateTokens",
-    "estimateTokenCountFast",
-    "createLogger",
-    "useLogger",
-    "trackToolCall",
-    "logEvent",
-    "safeExec",
+  const ALL_EXPORTS = [
+    "Archive",
+    "BudgetAction",
+    "CheckpointType",
+    "CircuitBreaker",
+    "CircuitBreakerRegistry",
+    "CircuitState",
+    "Deque",
+    "DisposableBase",
+    "EmbeddingService",
+    "EventEmitter",
+    "FallbackAdapter",
+    "FileWatcher",
+    "HnswLiteIndex",
+    "LRUCache",
+    "MapAdapter",
+    "PB_ENCRYPTED_PREFIX",
+    "Platform",
+    "StageApiSpec",
+    "ValidationErrorCode",
+    "VectorIndex",
+    "canUseStorageEncryption",
     "catchAndLog",
-    "makeSafe",
-    "isAbortError",
-    "isTimeoutError",
-    "wrapError",
-    "toErrorMessage",
-    "safeJsonParse",
-    "extractJsonCandidate",
-    "stripThinkingTags",
-    "isNativeWatchSupported",
-    "cryptoRandomHex",
-    "cryptoRandomUuid",
-    "makeSecureId",
-    "makeSecureTimestampedId",
     "checkCancelled",
-    "withCancellation",
-    "createLinkedSignal",
     "classifyDeepSearchError",
     "classifyDesignError",
-    "normalizeMaxBytes",
-    "createResponseTooLargeError",
-    "readTextWithLimit",
-    "readJsonWithLimit",
-    "estimateTokensCached",
+    "cleanupLocalStorage",
     "clearTokenCache",
-    "getTokenCacheStats",
-    "isPotentiallyDangerous",
-    "createSafeRegex",
-    "safeMatch",
-    "globToRegex",
+    "createAdaptiveTokenCounter",
     "createAutoPruningCache",
-    "isEncryptedString",
-    "canUseStorageEncryption",
-    "encryptString",
+    "createBudgetManager",
+    "createCheckpoint",
+    "createChildApi",
+    "createEmbeddingService",
+    "createLinkedSignal",
+    "createLogger",
+    "createResponseTooLargeError",
+    "createRunTool",
+    "createSafeRegex",
+    "createStageApi",
+    "createValidationError",
+    "cryptoRandomHex",
+    "cryptoRandomUuid",
     "decryptString",
+    "deepClone",
+    "encryptString",
+    "estimateLocalStorageQuota",
+    "estimateLocalStorageUsage",
+    "estimateTokenCount",
+    "estimateTokenCountFast",
+    "estimateTokens",
+    "estimateTokensCached",
+    "extractJsonCandidate",
+    "extractServices",
+    "getCircuitBreaker",
+    "getGlobalCircuitBreakerRegistry",
+    "getGlobalTokenCounter",
+    "getIndexedDBQuotaStatus",
+    "getLocalStorageQuotaStatus",
+    "getTokenCacheStats",
+    "globToRegex",
+    "hasLocalStorage",
+    "injectSystemHint",
+    "isAbortError",
+    "isEncryptedString",
+    "isNativeWatchSupported",
+    "isNodeLike",
+    "isNonRetryableError",
+    "isPlainObject",
+    "isPotentiallyDangerous",
+    "isTimeoutError",
+    "logEvent",
+    "makeSafe",
+    "makeSecureId",
+    "makeSecureTimestampedId",
+    "mergeStageApis",
+    "migrateCheckpoint",
+    "normalizeEmbeddingConfig",
+    "normalizeKey",
+    "normalizeMaxBytes",
+    "normalizeRenderType",
+    "normalizeToolResult",
+    "readJsonWithLimit",
+    "readTextWithLimit",
+    "robustParseJson",
+    "safeExec",
+    "safeInt",
+    "safeJsonParse",
+    "safeLocalStorageSet",
+    "safeMatch",
+    "safeNumber",
+    "sanitizeForJson",
+    "stripThinkingTags",
+    "toBoolean",
+    "toErrorMessage",
+    "toNonEmptyString",
+    "toNonNegativeInt",
+    "toNumber",
+    "toPositiveInt",
+    "trackToolCall",
+    "useLogger",
     "validateChunk",
     "validateChunks",
     "validateGlobResult",
     "validateGrepMatch",
     "validateGrepResults",
-    "validateSearchQuery",
-    "createValidationError",
-    "hasLocalStorage",
-    "estimateLocalStorageUsage",
-    "estimateLocalStorageQuota",
-    "getLocalStorageQuotaStatus",
-    "safeLocalStorageSet",
-    "cleanupLocalStorage",
-    "getIndexedDBQuotaStatus",
-    "getGlobalCircuitBreakerRegistry",
-    "getCircuitBreaker",
-    "withCircuitBreaker",
-    "createCheckpoint",
-    "migrateCheckpoint",
+    "validateLlmResponse",
     "validateRpcRequest",
     "validateRpcResponse",
-    "validateLlmResponse",
+    "validateSearchQuery",
+    "validateStageApi",
     "validateToolCall",
     "validateToolResult",
-    "normalizeToolResult",
-    "createEmbeddingService",
-    "normalizeEmbeddingConfig",
-    "createAdaptiveTokenCounter",
-    "getGlobalTokenCounter",
+    "withCancellation",
+    "withCircuitBreaker",
+    "wrapError",
   ];
 
-  const classNames = [
-    "DisposableBase",
-    "Deque",
-    "FileWatcher",
-    "EventEmitter",
-    "LRUCache",
+  const CLASS_EXPORTS = [
+    "Archive",
     "CircuitBreaker",
     "CircuitBreakerRegistry",
-    "Archive",
-    "MapAdapter",
-    "FallbackAdapter",
+    "Deque",
+    "DisposableBase",
     "EmbeddingService",
-    "VectorIndex",
+    "EventEmitter",
+    "FallbackAdapter",
+    "FileWatcher",
     "HnswLiteIndex",
+    "LRUCache",
+    "MapAdapter",
+    "VectorIndex",
   ];
 
-  const valueNames = [
+  const VALUE_EXPORTS = [
     "Platform",
     "BudgetAction",
     "StageApiSpec",
@@ -151,377 +150,282 @@ const mockData = vi.hoisted(() => {
     "CheckpointType",
   ];
 
-  const valueTypeOverrides = {
-    PB_ENCRYPTED_PREFIX: "string",
+  const makeFn = (name) =>
+    vi.fn((...args) => {
+      if (args[0] === THROW) {
+        throw new Error(`${name}_boom`);
+      }
+      return { name, args };
+    });
+
+  const makeClass = (name) =>
+    class {
+      constructor(...args) {
+        if (args[0] === THROW) {
+          throw new Error(`${name}_boom`);
+        }
+        this.args = args;
+      }
+    };
+
+  const classes = Object.fromEntries(CLASS_EXPORTS.map((name) => [name, makeClass(name)]));
+
+  const values = {
+    Platform: Object.freeze({ __type: "Platform", node: "node", browser: "browser" }),
+    BudgetAction: Object.freeze({ __type: "BudgetAction", ALLOCATE: "ALLOCATE", RELEASE: "RELEASE" }),
+    StageApiSpec: Object.freeze({ __type: "StageApiSpec" }),
+    PB_ENCRYPTED_PREFIX: "PB_ENCRYPTED:",
+    ValidationErrorCode: Object.freeze({ __type: "ValidationErrorCode", INVALID: "INVALID", TOO_LARGE: "TOO_LARGE" }),
+    CircuitState: Object.freeze({ __type: "CircuitState", OPEN: "OPEN", CLOSED: "CLOSED", HALF_OPEN: "HALF_OPEN" }),
+    CheckpointType: Object.freeze({ __type: "CheckpointType", V1: "V1", V2: "V2" }),
   };
 
-  const mockExports = {};
-  functionNames.forEach((name) => {
-    mockExports[name] = makeFn(name);
-  });
-  classNames.forEach((name) => {
-    mockExports[name] = makeClass(name);
-  });
-  valueNames.forEach((name) => {
-    mockExports[name] = makeValue(name, valueTypeOverrides[name]);
-  });
+  const functionNames = ALL_EXPORTS.filter((name) => !CLASS_EXPORTS.includes(name) && !VALUE_EXPORTS.includes(name));
+  const fns = Object.fromEntries(functionNames.map((name) => [name, makeFn(name)]));
 
-  return { ERROR, exports: mockExports, functionNames, classNames, valueNames };
+  return {
+    ALL_EXPORTS,
+    CLASS_EXPORTS,
+    VALUE_EXPORTS,
+    EDGE_ARGS,
+    THROW,
+    functionNames,
+    ...classes,
+    ...values,
+    ...fns,
+  };
 });
 
-vi.mock("../../../../js/agents/shared/platform.js", () => ({
-  Platform: mockData.exports.Platform,
-  isNodeLike: mockData.exports.isNodeLike,
+// Required mocks: do not import real implementations.
+vi.mock("../../../../../js/agents/shared/platform.js", () => ({
+  Platform: hoisted.Platform,
+  isNodeLike: hoisted.isNodeLike,
+}));
+vi.mock("../../../../../js/agents/shared/base/disposable-base.js", () => ({
+  DisposableBase: hoisted.DisposableBase,
+}));
+vi.mock("../../../../../js/agents/shared/utils/budget.js", () => ({
+  createBudgetManager: hoisted.createBudgetManager,
+  BudgetAction: hoisted.BudgetAction,
+}));
+vi.mock("../../../../../js/agents/shared/utils/message-utils.js", () => ({
+  injectSystemHint: hoisted.injectSystemHint,
+}));
+vi.mock("../../../../../js/agents/shared/utils/robust-json.js", () => ({
+  robustParseJson: hoisted.robustParseJson,
+}));
+vi.mock("../../../../../js/agents/shared/utils/stage-api.js", () => ({
+  createStageApi: hoisted.createStageApi,
+  StageApiSpec: hoisted.StageApiSpec,
+  validateStageApi: hoisted.validateStageApi,
+  extractServices: hoisted.extractServices,
+  mergeStageApis: hoisted.mergeStageApis,
+  createChildApi: hoisted.createChildApi,
+  createRunTool: hoisted.createRunTool,
+}));
+vi.mock("../../../../../js/agents/shared/utils/value-utils.js", () => ({
+  isPlainObject: hoisted.isPlainObject,
+  toNonEmptyString: hoisted.toNonEmptyString,
+  toNumber: hoisted.toNumber,
+  toBoolean: hoisted.toBoolean,
+  normalizeKey: hoisted.normalizeKey,
+  normalizeRenderType: hoisted.normalizeRenderType,
+  toPositiveInt: hoisted.toPositiveInt,
+  toNonNegativeInt: hoisted.toNonNegativeInt,
+  deepClone: hoisted.deepClone,
+  sanitizeForJson: hoisted.sanitizeForJson,
+  safeInt: hoisted.safeInt,
+  safeNumber: hoisted.safeNumber,
+  estimateTokenCount: hoisted.estimateTokenCount,
+  estimateTokens: hoisted.estimateTokens,
+  estimateTokenCountFast: hoisted.estimateTokenCountFast,
+}));
+vi.mock("../../../../../js/agents/shared/utils/logger.js", () => ({
+  createLogger: hoisted.createLogger,
+  useLogger: hoisted.useLogger,
+  trackToolCall: hoisted.trackToolCall,
+  logEvent: hoisted.logEvent,
+}));
+vi.mock("../../../../../js/agents/shared/utils/error-utils.js", () => ({
+  safeExec: hoisted.safeExec,
+  catchAndLog: hoisted.catchAndLog,
+  makeSafe: hoisted.makeSafe,
+  isAbortError: hoisted.isAbortError,
+  isTimeoutError: hoisted.isTimeoutError,
+}));
+vi.mock("../../../../../js/agents/shared/utils/error-utils-extended.js", () => ({
+  wrapError: hoisted.wrapError,
+  toErrorMessage: hoisted.toErrorMessage,
+}));
+vi.mock("../../../../../js/agents/shared/utils/deque.js", () => ({
+  Deque: hoisted.Deque,
+}));
+vi.mock("../../../../../js/agents/shared/utils/safe-json.js", () => ({
+  safeJsonParse: hoisted.safeJsonParse,
+}));
+vi.mock("../../../../../js/agents/shared/utils/json-candidate.js", () => ({
+  extractJsonCandidate: hoisted.extractJsonCandidate,
+  stripThinkingTags: hoisted.stripThinkingTags,
+}));
+vi.mock("../../../../../js/agents/shared/utils/file-watcher.js", () => ({
+  FileWatcher: hoisted.FileWatcher,
+  isNativeWatchSupported: hoisted.isNativeWatchSupported,
+}));
+vi.mock("../../../../../js/agents/shared/utils/secure-id.js", () => ({
+  cryptoRandomHex: hoisted.cryptoRandomHex,
+  cryptoRandomUuid: hoisted.cryptoRandomUuid,
+  makeSecureId: hoisted.makeSecureId,
+  makeSecureTimestampedId: hoisted.makeSecureTimestampedId,
+}));
+vi.mock("../../../../../js/agents/shared/utils/cancellation.js", () => ({
+  checkCancelled: hoisted.checkCancelled,
+  withCancellation: hoisted.withCancellation,
+  createLinkedSignal: hoisted.createLinkedSignal,
+}));
+vi.mock("../../../../../js/agents/shared/utils/error-classifier.js", () => ({
+  classifyDeepSearchError: hoisted.classifyDeepSearchError,
+  classifyDesignError: hoisted.classifyDesignError,
+  isNonRetryableError: hoisted.isNonRetryableError,
+}));
+vi.mock("../../../../../js/agents/shared/utils/response-limits.js", () => ({
+  normalizeMaxBytes: hoisted.normalizeMaxBytes,
+  createResponseTooLargeError: hoisted.createResponseTooLargeError,
+  readTextWithLimit: hoisted.readTextWithLimit,
+  readJsonWithLimit: hoisted.readJsonWithLimit,
+}));
+vi.mock("../../../../../js/agents/shared/utils/token-cache.js", () => ({
+  estimateTokensCached: hoisted.estimateTokensCached,
+  clearTokenCache: hoisted.clearTokenCache,
+  getTokenCacheStats: hoisted.getTokenCacheStats,
+}));
+vi.mock("../../../../../js/agents/shared/utils/safe-regex.js", () => ({
+  isPotentiallyDangerous: hoisted.isPotentiallyDangerous,
+  createSafeRegex: hoisted.createSafeRegex,
+  safeMatch: hoisted.safeMatch,
+  globToRegex: hoisted.globToRegex,
+}));
+vi.mock("../../../../../js/agents/shared/utils/event-emitter.js", () => ({
+  EventEmitter: hoisted.EventEmitter,
+}));
+vi.mock("../../../../../js/agents/shared/utils/lru-cache.js", () => ({
+  LRUCache: hoisted.LRUCache,
+  createAutoPruningCache: hoisted.createAutoPruningCache,
+}));
+vi.mock("../../../../../js/agents/shared/utils/storage-crypto.js", () => ({
+  PB_ENCRYPTED_PREFIX: hoisted.PB_ENCRYPTED_PREFIX,
+  isEncryptedString: hoisted.isEncryptedString,
+  canUseStorageEncryption: hoisted.canUseStorageEncryption,
+  encryptString: hoisted.encryptString,
+  decryptString: hoisted.decryptString,
+}));
+vi.mock("../../../../../js/agents/shared/utils/schema-validator.js", () => ({
+  validateChunk: hoisted.validateChunk,
+  validateChunks: hoisted.validateChunks,
+  validateGlobResult: hoisted.validateGlobResult,
+  validateGrepMatch: hoisted.validateGrepMatch,
+  validateGrepResults: hoisted.validateGrepResults,
+  validateSearchQuery: hoisted.validateSearchQuery,
+  ValidationErrorCode: hoisted.ValidationErrorCode,
+  createValidationError: hoisted.createValidationError,
+}));
+vi.mock("../../../../../js/agents/shared/utils/storage-quota.js", () => ({
+  hasLocalStorage: hoisted.hasLocalStorage,
+  estimateLocalStorageUsage: hoisted.estimateLocalStorageUsage,
+  estimateLocalStorageQuota: hoisted.estimateLocalStorageQuota,
+  getLocalStorageQuotaStatus: hoisted.getLocalStorageQuotaStatus,
+  safeLocalStorageSet: hoisted.safeLocalStorageSet,
+  cleanupLocalStorage: hoisted.cleanupLocalStorage,
+  getIndexedDBQuotaStatus: hoisted.getIndexedDBQuotaStatus,
+}));
+vi.mock("../../../../../js/agents/shared/utils/circuit-breaker.js", () => ({
+  CircuitState: hoisted.CircuitState,
+  CircuitBreaker: hoisted.CircuitBreaker,
+  CircuitBreakerRegistry: hoisted.CircuitBreakerRegistry,
+  getGlobalCircuitBreakerRegistry: hoisted.getGlobalCircuitBreakerRegistry,
+  getCircuitBreaker: hoisted.getCircuitBreaker,
+  withCircuitBreaker: hoisted.withCircuitBreaker,
 }));
 
-vi.mock("../../../../js/agents/shared/base/disposable-base.js", () => ({
-  DisposableBase: mockData.exports.DisposableBase,
+vi.mock("../../../../../js/agents/core/archive/archive.js", () => ({
+  Archive: hoisted.Archive,
+  MapAdapter: hoisted.MapAdapter,
+  FallbackAdapter: hoisted.FallbackAdapter,
 }));
-
-vi.mock("../../../../js/agents/shared/utils/budget.js", () => ({
-  createBudgetManager: mockData.exports.createBudgetManager,
-  BudgetAction: mockData.exports.BudgetAction,
+vi.mock("../../../../../js/agents/core/archive/checkpoint-schema.js", () => ({
+  CheckpointType: hoisted.CheckpointType,
+  createCheckpoint: hoisted.createCheckpoint,
+  migrateCheckpoint: hoisted.migrateCheckpoint,
 }));
-
-vi.mock("../../../../js/agents/shared/utils/message-utils.js", () => ({
-  injectSystemHint: mockData.exports.injectSystemHint,
+vi.mock("../../../../../js/agents/core/contracts/index.js", () => ({
+  validateRpcRequest: hoisted.validateRpcRequest,
+  validateRpcResponse: hoisted.validateRpcResponse,
+  validateLlmResponse: hoisted.validateLlmResponse,
+  validateToolCall: hoisted.validateToolCall,
+  validateToolResult: hoisted.validateToolResult,
+  normalizeToolResult: hoisted.normalizeToolResult,
 }));
-
-vi.mock("../../../../js/agents/shared/utils/robust-json.js", () => ({
-  robustParseJson: mockData.exports.robustParseJson,
+vi.mock("../../../../../js/agents/retrieval/embeddings/embedding-service.js", () => ({
+  EmbeddingService: hoisted.EmbeddingService,
+  createEmbeddingService: hoisted.createEmbeddingService,
+  normalizeEmbeddingConfig: hoisted.normalizeEmbeddingConfig,
 }));
-
-vi.mock("../../../../js/agents/shared/utils/stage-api.js", () => ({
-  createStageApi: mockData.exports.createStageApi,
-  StageApiSpec: mockData.exports.StageApiSpec,
-  validateStageApi: mockData.exports.validateStageApi,
-  extractServices: mockData.exports.extractServices,
-  mergeStageApis: mockData.exports.mergeStageApis,
-  createChildApi: mockData.exports.createChildApi,
-  createRunTool: mockData.exports.createRunTool,
+vi.mock("../../../../../js/agents/retrieval/embeddings/vector-index.js", () => ({
+  VectorIndex: hoisted.VectorIndex,
 }));
-
-vi.mock("../../../../js/agents/shared/utils/value-utils.js", () => ({
-  isPlainObject: mockData.exports.isPlainObject,
-  toNonEmptyString: mockData.exports.toNonEmptyString,
-  toNumber: mockData.exports.toNumber,
-  toBoolean: mockData.exports.toBoolean,
-  normalizeKey: mockData.exports.normalizeKey,
-  normalizeRenderType: mockData.exports.normalizeRenderType,
-  toPositiveInt: mockData.exports.toPositiveInt,
-  toNonNegativeInt: mockData.exports.toNonNegativeInt,
-  deepClone: mockData.exports.deepClone,
-  sanitizeForJson: mockData.exports.sanitizeForJson,
-  safeInt: mockData.exports.safeInt,
-  safeNumber: mockData.exports.safeNumber,
-  estimateTokenCount: mockData.exports.estimateTokenCount,
-  estimateTokens: mockData.exports.estimateTokens,
-  estimateTokenCountFast: mockData.exports.estimateTokenCountFast,
+vi.mock("../../../../../js/agents/retrieval/embeddings/hnsw-lite.js", () => ({
+  HnswLiteIndex: hoisted.HnswLiteIndex,
 }));
-
-vi.mock("../../../../js/agents/shared/utils/logger.js", () => ({
-  createLogger: mockData.exports.createLogger,
-  useLogger: mockData.exports.useLogger,
-  trackToolCall: mockData.exports.trackToolCall,
-  logEvent: mockData.exports.logEvent,
+vi.mock("../../../../../js/agents/shared/tokenizers/adaptive-token-counter.js", () => ({
+  createAdaptiveTokenCounter: hoisted.createAdaptiveTokenCounter,
+  getGlobalTokenCounter: hoisted.getGlobalTokenCounter,
 }));
-
-vi.mock("../../../../js/agents/shared/utils/error-utils.js", () => ({
-  safeExec: mockData.exports.safeExec,
-  catchAndLog: mockData.exports.catchAndLog,
-  makeSafe: mockData.exports.makeSafe,
-  isAbortError: mockData.exports.isAbortError,
-  isTimeoutError: mockData.exports.isTimeoutError,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/error-utils-extended.js", () => ({
-  wrapError: mockData.exports.wrapError,
-  toErrorMessage: mockData.exports.toErrorMessage,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/deque.js", () => ({
-  Deque: mockData.exports.Deque,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/safe-json.js", () => ({
-  safeJsonParse: mockData.exports.safeJsonParse,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/json-candidate.js", () => ({
-  extractJsonCandidate: mockData.exports.extractJsonCandidate,
-  stripThinkingTags: mockData.exports.stripThinkingTags,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/file-watcher.js", () => ({
-  FileWatcher: mockData.exports.FileWatcher,
-  isNativeWatchSupported: mockData.exports.isNativeWatchSupported,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/secure-id.js", () => ({
-  cryptoRandomHex: mockData.exports.cryptoRandomHex,
-  cryptoRandomUuid: mockData.exports.cryptoRandomUuid,
-  makeSecureId: mockData.exports.makeSecureId,
-  makeSecureTimestampedId: mockData.exports.makeSecureTimestampedId,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/cancellation.js", () => ({
-  checkCancelled: mockData.exports.checkCancelled,
-  withCancellation: mockData.exports.withCancellation,
-  createLinkedSignal: mockData.exports.createLinkedSignal,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/error-classifier.js", () => ({
-  classifyDeepSearchError: mockData.exports.classifyDeepSearchError,
-  classifyDesignError: mockData.exports.classifyDesignError,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/response-limits.js", () => ({
-  normalizeMaxBytes: mockData.exports.normalizeMaxBytes,
-  createResponseTooLargeError: mockData.exports.createResponseTooLargeError,
-  readTextWithLimit: mockData.exports.readTextWithLimit,
-  readJsonWithLimit: mockData.exports.readJsonWithLimit,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/token-cache.js", () => ({
-  estimateTokensCached: mockData.exports.estimateTokensCached,
-  clearTokenCache: mockData.exports.clearTokenCache,
-  getTokenCacheStats: mockData.exports.getTokenCacheStats,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/safe-regex.js", () => ({
-  isPotentiallyDangerous: mockData.exports.isPotentiallyDangerous,
-  createSafeRegex: mockData.exports.createSafeRegex,
-  safeMatch: mockData.exports.safeMatch,
-  globToRegex: mockData.exports.globToRegex,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/event-emitter.js", () => ({
-  EventEmitter: mockData.exports.EventEmitter,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/lru-cache.js", () => ({
-  LRUCache: mockData.exports.LRUCache,
-  createAutoPruningCache: mockData.exports.createAutoPruningCache,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/storage-crypto.js", () => ({
-  PB_ENCRYPTED_PREFIX: mockData.exports.PB_ENCRYPTED_PREFIX,
-  isEncryptedString: mockData.exports.isEncryptedString,
-  canUseStorageEncryption: mockData.exports.canUseStorageEncryption,
-  encryptString: mockData.exports.encryptString,
-  decryptString: mockData.exports.decryptString,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/schema-validator.js", () => ({
-  validateChunk: mockData.exports.validateChunk,
-  validateChunks: mockData.exports.validateChunks,
-  validateGlobResult: mockData.exports.validateGlobResult,
-  validateGrepMatch: mockData.exports.validateGrepMatch,
-  validateGrepResults: mockData.exports.validateGrepResults,
-  validateSearchQuery: mockData.exports.validateSearchQuery,
-  ValidationErrorCode: mockData.exports.ValidationErrorCode,
-  createValidationError: mockData.exports.createValidationError,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/storage-quota.js", () => ({
-  hasLocalStorage: mockData.exports.hasLocalStorage,
-  estimateLocalStorageUsage: mockData.exports.estimateLocalStorageUsage,
-  estimateLocalStorageQuota: mockData.exports.estimateLocalStorageQuota,
-  getLocalStorageQuotaStatus: mockData.exports.getLocalStorageQuotaStatus,
-  safeLocalStorageSet: mockData.exports.safeLocalStorageSet,
-  cleanupLocalStorage: mockData.exports.cleanupLocalStorage,
-  getIndexedDBQuotaStatus: mockData.exports.getIndexedDBQuotaStatus,
-}));
-
-vi.mock("../../../../js/agents/shared/utils/circuit-breaker.js", () => ({
-  CircuitState: mockData.exports.CircuitState,
-  CircuitBreaker: mockData.exports.CircuitBreaker,
-  CircuitBreakerRegistry: mockData.exports.CircuitBreakerRegistry,
-  getGlobalCircuitBreakerRegistry: mockData.exports.getGlobalCircuitBreakerRegistry,
-  getCircuitBreaker: mockData.exports.getCircuitBreaker,
-  withCircuitBreaker: mockData.exports.withCircuitBreaker,
-}));
-
-vi.mock("../../../../js/agents/core/archive/archive.js", () => ({
-  Archive: mockData.exports.Archive,
-  MapAdapter: mockData.exports.MapAdapter,
-  FallbackAdapter: mockData.exports.FallbackAdapter,
-}));
-
-vi.mock("../../../../js/agents/core/archive/checkpoint-schema.js", () => ({
-  CheckpointType: mockData.exports.CheckpointType,
-  createCheckpoint: mockData.exports.createCheckpoint,
-  migrateCheckpoint: mockData.exports.migrateCheckpoint,
-}));
-
-vi.mock("../../../../js/agents/core/contracts/index.js", () => ({
-  validateRpcRequest: mockData.exports.validateRpcRequest,
-  validateRpcResponse: mockData.exports.validateRpcResponse,
-  validateLlmResponse: mockData.exports.validateLlmResponse,
-  validateToolCall: mockData.exports.validateToolCall,
-  validateToolResult: mockData.exports.validateToolResult,
-  normalizeToolResult: mockData.exports.normalizeToolResult,
-}));
-
-vi.mock("../../../../js/agents/retrieval/embeddings/embedding-service.js", () => ({
-  EmbeddingService: mockData.exports.EmbeddingService,
-  createEmbeddingService: mockData.exports.createEmbeddingService,
-  normalizeEmbeddingConfig: mockData.exports.normalizeEmbeddingConfig,
-}));
-
-vi.mock("../../../../js/agents/retrieval/embeddings/vector-index.js", () => ({
-  VectorIndex: mockData.exports.VectorIndex,
-}));
-
-vi.mock("../../../../js/agents/retrieval/embeddings/hnsw-lite.js", () => ({
-  HnswLiteIndex: mockData.exports.HnswLiteIndex,
-}));
-
-vi.mock("../../../../js/agents/shared/tokenizers/adaptive-token-counter.js", () => ({
-  createAdaptiveTokenCounter: mockData.exports.createAdaptiveTokenCounter,
-  getGlobalTokenCounter: mockData.exports.getGlobalTokenCounter,
-}));
-
-import * as shared from "../../../../js/agents/shared/index.js";
-
-const createDeepNested = (depth) => {
-  const root = {};
-  let current = root;
-  for (let i = 0; i < depth; i += 1) {
-    current.next = {};
-    current = current.next;
-  }
-  return root;
-};
-
-const longString = "y".repeat(20000);
-const hugeString = "x".repeat(100000);
-const deepNested = createDeepNested(25);
-const hugeArray = Array.from({ length: 10000 }, (_, index) => index);
-
-const boundaryValues = [
-  null,
-  undefined,
-  "",
-  "   ",
-  [],
-  {},
-  0,
-  -1,
-  Number.MAX_SAFE_INTEGER,
-  "123",
-  { 0: "a", length: 1 },
-  longString,
-  hugeString,
-  deepNested,
-  hugeArray,
-];
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-const runFunctionTests = (name) => {
-  describe(name, () => {
-    it("forwards normal inputs", () => {
-      expect(shared[name]).toBe(mockData.exports[name]);
-      const result = shared[name]("ok", 123);
-      expect(result.label).toBe(name);
-      expect(result.args).toEqual(["ok", 123]);
-      expect(mockData.exports[name]).toHaveBeenCalledTimes(1);
-    });
-
-    it("handles boundary values", async () => {
-      boundaryValues.forEach((value) => {
-        const result = shared[name](value, "edge");
-        expect(result.label).toBe(name);
-        expect(result.args[0]).toBe(value);
-        expect(result.args[1]).toBe("edge");
-      });
-
-      const concurrentInputs = ["c1", "c2", "c3"];
-      const results = await Promise.all(
-        concurrentInputs.map((input) => Promise.resolve(shared[name](input)))
-      );
-
-      results.forEach((result, index) => {
-        expect(result.args[0]).toBe(concurrentInputs[index]);
-      });
-
-      expect(mockData.exports[name]).toHaveBeenCalledTimes(
-        boundaryValues.length + concurrentInputs.length
-      );
-    });
-
-    it("propagates errors", () => {
-      expect(() => shared[name](mockData.ERROR)).toThrow(`${name} error`);
-    });
-  });
-};
-
-const runClassTests = (name) => {
-  describe(name, () => {
-    it("constructs with normal args", () => {
-      expect(shared[name]).toBe(mockData.exports[name]);
-      const instance = new shared[name]("ok", 123);
-      expect(instance.label).toBe(name);
-      expect(instance.args).toEqual(["ok", 123]);
-    });
-
-    it("handles boundary values", async () => {
-      const instances = boundaryValues.map((value) => new shared[name](value, "edge"));
-      instances.forEach((instance, index) => {
-        expect(instance.label).toBe(name);
-        expect(instance.args[0]).toBe(boundaryValues[index]);
-      });
-
-      const concurrentInputs = ["c1", "c2", "c3"];
-      const concurrentInstances = await Promise.all(
-        concurrentInputs.map((value) => Promise.resolve(new shared[name](value)))
-      );
-
-      concurrentInstances.forEach((instance, index) => {
-        expect(instance.args[0]).toBe(concurrentInputs[index]);
-      });
-    });
-
-    it("throws on error sentinel", () => {
-      expect(() => new shared[name](mockData.ERROR)).toThrow(`${name} error`);
-    });
-  });
-};
-
-const runValueTests = (name) => {
-  describe(name, () => {
-    it("exposes mocked value", () => {
-      expect(shared[name]).toBe(mockData.exports[name]);
-    });
-
-    it("handles boundary usage", () => {
-      const value = shared[name];
-      boundaryValues.forEach((boundary) => {
-        const map = new Map();
-        map.set(value, boundary);
-        expect(map.get(value)).toBe(boundary);
-      });
-    });
-
-    it("throws when used as a function", () => {
-      expect(() => shared[name]()).toThrow();
-    });
-  });
-};
-
-describe("shared/index", () => {
-  mockData.valueNames.forEach((name) => {
-    runValueTests(name);
+describe("shared/index exports", () => {
+  it("should_export_all_expected_symbols_when_importing_shared_index", async () => {
+    const shared = await import(SHARED_INDEX_PATH);
+    expect(Object.keys(shared).sort()).toEqual(hoisted.ALL_EXPORTS.slice().sort());
   });
 
-  mockData.classNames.forEach((name) => {
-    runClassTests(name);
-  });
+  it.each(hoisted.VALUE_EXPORTS)(
+    "should_reexport_constant_%s_when_importing_shared_index",
+    async (exportName) => {
+      const shared = await import(SHARED_INDEX_PATH);
+      expect(shared[exportName]).toBe(hoisted[exportName]);
+    }
+  );
 
-  mockData.functionNames.forEach((name) => {
-    runFunctionTests(name);
+  it.each(hoisted.CLASS_EXPORTS)(
+    "should_construct_%s_when_instantiated_with_arguments",
+    async (exportName) => {
+      const shared = await import(SHARED_INDEX_PATH);
+      const instance = new shared[exportName]("arg");
+      expect(instance).toBeInstanceOf(hoisted[exportName]);
+    }
+  );
+
+  it.each(hoisted.CLASS_EXPORTS)(
+    "should_throw_%s_boom_when_constructor_receives_throw_sentinel",
+    async (exportName) => {
+      const shared = await import(SHARED_INDEX_PATH);
+      expect(() => new shared[exportName](hoisted.THROW)).toThrow(`${exportName}_boom`);
+    }
+  );
+
+  it.each(hoisted.functionNames)(
+    "should_forward_arguments_to_%s_when_called_with_edge_values",
+    async (exportName) => {
+      const shared = await import(SHARED_INDEX_PATH);
+      shared[exportName](...hoisted.EDGE_ARGS);
+      expect(hoisted[exportName]).toHaveBeenCalledWith(...hoisted.EDGE_ARGS);
+    }
+  );
+
+  it.each(hoisted.functionNames)("should_throw_%s_boom_when_dependency_throws", async (exportName) => {
+    const shared = await import(SHARED_INDEX_PATH);
+    expect(() => shared[exportName](hoisted.THROW)).toThrow(`${exportName}_boom`);
   });
 });

@@ -1,0 +1,21 @@
+{
+  "name": "paper-burner",
+  "language": "javascript",
+  "cache": ".project-index",
+  "src": {
+    "dirs": ["js"],
+    "pattern": "**/*.js",
+    "ignore": ["**/node_modules/**", "**/dist/**", "**/lib/**"]
+  },
+  "test": {
+    "dirs": ["tests"],
+    "pattern": "**/*.test.js",
+    "cmd": "npx vitest run",
+    "unitDir": "tests/unit",
+    "integrationDir": "tests/integration"
+  },
+  "llm": {
+    "provider": "codex",
+    "timeout": 2700000
+  }
+}

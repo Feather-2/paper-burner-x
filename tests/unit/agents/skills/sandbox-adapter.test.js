@@ -45,20 +45,17 @@ vi.mock('../../../../js/agents/skills/manager.js', () => {
   return { SkillsManager };
 });
 
-import { analyzeSkillRisk, createSandboxedSkillsManager, enhanceWithSandbox } from '../../../../js/agents/skills/sandbox-adapter.js';
+import sandboxAdapterDefault, {
+  analyzeSkillRisk,
+  createSandboxedSkillsManager,
+  enhanceWithSandbox,
+} from '../../../../js/agents/skills/sandbox-adapter.js';
 
 const createManager = (overrides = {}) => {
-  const manager = {
+  return {
     getSkillsForCwd: vi.fn(async () => ({ skills: [] })),
-    clearCache: vi.fn(),
     ...overrides,
   };
-
-  if (!manager.__clearCacheMock) {
-    manager.__clearCacheMock = manager.clearCache;
-  }
-
-  return manager;
 };
 
 beforeEach(() => {
@@ -71,92 +68,293 @@ beforeEach(() => {
   skillsManagerState.shouldThrow = false;
 });
 
+describe('default export', () => {
+  it('should_export_all_functions_on_default_export', () => {
+    // Arrange
+    const expected = {
+      enhanceWithSandbox,
+      createSandboxedSkillsManager,
+      analyzeSkillRisk,
+    };
+
+    // Act
+    const result = sandboxAdapterDefault;
+
+    // Assert
+    expect(result).toEqual(expected);
+  });
+});
+
 describe('enhanceWithSandbox', () => {
-  it('adds executor helpers and wires clearCache/dispose', () => {
+  it('should_return_same_manager_when_enhancing', () => {
+    // Arrange
+    const manager = createManager();
+
+    // Act
+    const result = enhanceWithSandbox(manager);
+
+    // Assert
+    expect(result).toBe(manager);
+  });
+
+  it('should_construct_SkillExecutor_with_kernel_and_trustChecker_when_provided', () => {
+    // Arrange
     const manager = createManager();
     const kernel = { id: 'kernel' };
     const trustChecker = vi.fn();
 
-    const enhanced = enhanceWithSandbox(manager, { kernel, trustChecker });
+    // Act
+    enhanceWithSandbox(manager, { kernel, trustChecker });
 
-    expect(enhanced).toBe(manager);
-    expect(typeof manager.executeSkill).toBe('function');
-    expect(typeof manager.executeSkills).toBe('function');
-    expect(typeof manager.getExecutor).toBe('function');
-    expect(typeof manager.dispose).toBe('function');
-
+    // Assert
     expect(skillExecutorState.constructorMock).toHaveBeenCalledWith({ kernel, trustChecker });
-    expect(manager.getExecutor()).toBe(skillExecutorState.instances[0]);
+  });
 
-    manager.clearCache('/tmp/cache');
-    expect(manager.__clearCacheMock).toHaveBeenCalledWith('/tmp/cache');
+  it('should_add_executeSkill_when_enhancing', () => {
+    // Arrange
+    const manager = createManager();
 
-    manager.dispose();
+    // Act
+    enhanceWithSandbox(manager);
+
+    // Assert
+    expect(typeof manager.executeSkill).toBe('function');
+  });
+
+  it('should_add_executeSkills_when_enhancing', () => {
+    // Arrange
+    const manager = createManager();
+
+    // Act
+    enhanceWithSandbox(manager);
+
+    // Assert
+    expect(typeof manager.executeSkills).toBe('function');
+  });
+
+  it('should_add_getExecutor_when_enhancing', () => {
+    // Arrange
+    const manager = createManager();
+
+    // Act
+    enhanceWithSandbox(manager);
+
+    // Assert
+    expect(typeof manager.getExecutor).toBe('function');
+  });
+
+  it('should_add_dispose_when_enhancing', () => {
+    // Arrange
+    const manager = createManager();
+
+    // Act
+    enhanceWithSandbox(manager);
+
+    // Assert
+    expect(typeof manager.dispose).toBe('function');
+  });
+
+  it('should_return_executor_instance_when_getExecutor_is_called', () => {
+    // Arrange
+    const manager = createManager();
+    const enhanced = enhanceWithSandbox(manager);
+
+    // Act
+    const executor = enhanced.getExecutor();
+
+    // Assert
+    expect(executor).toBe(skillExecutorState.instances[0]);
+  });
+
+  it('should_call_executor_dispose_when_dispose_is_called', () => {
+    // Arrange
+    const manager = createManager();
+    const enhanced = enhanceWithSandbox(manager);
+
+    // Act
+    enhanced.dispose();
+
+    // Assert
     expect(skillExecutorState.disposeMock).toHaveBeenCalledTimes(1);
   });
 
-  it('executes named skill and passes nested context', async () => {
-    const skill = { metadata: { name: 'alpha', scope: 'local' }, body: 'code' };
-    const deepContext = {
+  it('should_return_executor_result_when_skill_object_is_provided', async () => {
+    // Arrange
+    const largeBody = 'x'.repeat(200000);
+    const skill = { metadata: { name: 'big', scope: 'local' }, body: largeBody };
+    const context = {
       cwd: '/root',
       meta: { a: { b: { c: { d: { e: 'value' } } } } },
       list: [{ x: [1, 2, 3] }],
     };
+    const manager = createManager();
+    const enhanced = enhanceWithSandbox(manager);
+    const expected = { success: true, size: largeBody.length };
+
+    skillExecutorState.executeMock.mockImplementation(async (skillArg, contextArg) => {
+      if (skillArg !== skill) throw new Error('unexpected skill');
+      if (contextArg !== context) throw new Error('unexpected context');
+      return expected;
+    });
+
+    // Act
+    const result = await enhanced.executeSkill(skill, context);
+
+    // Assert
+    expect(result).toBe(expected);
+  });
+
+  it('should_return_executor_result_when_named_skill_is_found', async () => {
+    // Arrange
+    const skill = { metadata: { name: 'alpha', scope: 'local' }, body: 'code' };
+    const context = { cwd: '/root', meta: { a: { b: 1 } } };
     const manager = createManager({
       getSkillsForCwd: vi.fn(async (cwd) => {
-        expect(cwd).toBe('/root');
+        if (cwd !== '/root') throw new Error('unexpected cwd');
         return { skills: [skill] };
       }),
     });
-
     const enhanced = enhanceWithSandbox(manager);
-    skillExecutorState.executeMock.mockResolvedValue({ success: true, value: 42 });
+    const expected = { success: true, value: 42 };
 
-    const result = await enhanced.executeSkill('alpha', deepContext);
+    skillExecutorState.executeMock.mockImplementation(async (skillArg, contextArg) => {
+      if (skillArg !== skill) throw new Error('unexpected skill');
+      if (contextArg !== context) throw new Error('unexpected context');
+      return expected;
+    });
 
-    expect(skillExecutorState.executeMock).toHaveBeenCalledWith(skill, deepContext);
-    expect(result).toEqual({ success: true, value: 42 });
+    // Act
+    const result = await enhanced.executeSkill('alpha', context);
+
+    // Assert
+    expect(result).toBe(expected);
   });
 
-  it('returns error for missing or whitespace skill names', async () => {
+  it('should_return_executor_result_when_context_is_omitted_for_named_skill', async () => {
+    // Arrange
+    const skill = { metadata: { name: 'alpha', scope: 'local' }, body: 'code' };
+    const manager = createManager({
+      getSkillsForCwd: vi.fn(async (cwd) => {
+        if (cwd !== undefined) throw new Error('unexpected cwd');
+        return { skills: [skill] };
+      }),
+    });
+    const enhanced = enhanceWithSandbox(manager);
+    const expected = { success: true };
+
+    skillExecutorState.executeMock.mockImplementation(async (skillArg, contextArg) => {
+      if (skillArg !== skill) throw new Error('unexpected skill');
+      if (!contextArg || Object.keys(contextArg).length !== 0) throw new Error('unexpected context');
+      return expected;
+    });
+
+    // Act
+    const result = await enhanced.executeSkill('alpha');
+
+    // Assert
+    expect(result).toBe(expected);
+  });
+
+  it('should_return_error_when_skill_name_is_not_found', async () => {
+    // Arrange
     const manager = createManager({
       getSkillsForCwd: vi.fn(async () => ({ skills: [] })),
     });
-
     const enhanced = enhanceWithSandbox(manager);
-    const result = await enhanced.executeSkill('   ', { cwd: '/none' });
+    const context = { cwd: '/none' };
 
+    skillExecutorState.executeMock.mockImplementation(() => {
+      throw new Error('execute should not be called');
+    });
+
+    // Act
+    const result = await enhanced.executeSkill('missing', context);
+
+    // Assert
+    expect(result).toEqual({
+      success: false,
+      error: 'Skill not found: missing',
+      data: null,
+      metrics: {},
+    });
+  });
+
+  it('should_return_error_when_skill_name_is_whitespace_and_not_found', async () => {
+    // Arrange
+    const manager = createManager({
+      getSkillsForCwd: vi.fn(async () => ({ skills: [] })),
+    });
+    const enhanced = enhanceWithSandbox(manager);
+    const context = { cwd: '/none' };
+
+    skillExecutorState.executeMock.mockImplementation(() => {
+      throw new Error('execute should not be called');
+    });
+
+    // Act
+    const result = await enhanced.executeSkill('   ', context);
+
+    // Assert
     expect(result).toEqual({
       success: false,
       error: 'Skill not found:    ',
       data: null,
       metrics: {},
     });
-    expect(skillExecutorState.executeMock).not.toHaveBeenCalled();
   });
 
-  it('loads remote skill body before executing', async () => {
+  it('should_return_executor_result_when_remote_skill_body_is_loaded', async () => {
+    // Arrange
     const skill = { metadata: { name: 'remote', scope: 'remote' }, body: null };
     const remoteProvider = {
-      loadSkillBody: vi.fn(async () => 'remote body'),
+      loadSkillBody: vi.fn(async (name) => {
+        if (name !== 'remote') throw new Error('unexpected skill name');
+        return 'remote body';
+      }),
     };
     const manager = createManager({
       remoteProvider,
       getSkillsForCwd: vi.fn(async () => ({ skills: [skill] })),
     });
-
     const enhanced = enhanceWithSandbox(manager);
-    skillExecutorState.executeMock.mockResolvedValue({ success: true });
+    const expected = { success: true };
 
+    skillExecutorState.executeMock.mockImplementation(async (skillArg) => {
+      if (skillArg.body !== 'remote body') throw new Error('remote body not loaded');
+      return expected;
+    });
+
+    // Act
     const result = await enhanced.executeSkill('remote', { cwd: '/remote' });
 
-    expect(remoteProvider.loadSkillBody).toHaveBeenCalledWith('remote');
-    expect(skill.body).toBe('remote body');
-    expect(skillExecutorState.executeMock).toHaveBeenCalledWith(skill, { cwd: '/remote' });
-    expect(result).toEqual({ success: true });
+    // Assert
+    expect(result).toBe(expected);
   });
 
-  it('returns error when remote skill body fails to load', async () => {
+  it('should_return_executor_result_when_remote_skill_has_null_body_and_no_loader', async () => {
+    // Arrange
+    const skill = { metadata: { name: 'remote', scope: 'remote' }, body: null };
+    const manager = createManager({
+      remoteProvider: {},
+      getSkillsForCwd: vi.fn(async () => ({ skills: [skill] })),
+    });
+    const enhanced = enhanceWithSandbox(manager);
+    const expected = { success: true };
+
+    skillExecutorState.executeMock.mockImplementation(async (skillArg) => {
+      if (skillArg.body !== null) throw new Error('expected null body');
+      return expected;
+    });
+
+    // Act
+    const result = await enhanced.executeSkill('remote', { cwd: '/remote' });
+
+    // Assert
+    expect(result).toBe(expected);
+  });
+
+  it('should_return_error_when_remote_skill_body_load_fails', async () => {
+    // Arrange
     const skill = { metadata: { name: 'remote', scope: 'remote' }, body: null };
     const remoteProvider = {
       loadSkillBody: vi.fn(async () => {
@@ -167,118 +365,148 @@ describe('enhanceWithSandbox', () => {
       remoteProvider,
       getSkillsForCwd: vi.fn(async () => ({ skills: [skill] })),
     });
-
     const enhanced = enhanceWithSandbox(manager);
+
+    skillExecutorState.executeMock.mockImplementation(() => {
+      throw new Error('execute should not be called');
+    });
+
+    // Act
     const result = await enhanced.executeSkill('remote', { cwd: '/remote' });
 
+    // Assert
     expect(result).toEqual({
       success: false,
       error: 'Failed to load remote skill: boom',
       data: null,
       metrics: {},
     });
-    expect(skillExecutorState.executeMock).not.toHaveBeenCalled();
   });
 
-  it('executes provided skill objects with large bodies and empty context', async () => {
-    const largeBody = 'x'.repeat(200000);
-    const skill = { metadata: { name: 'big', scope: 'local' }, body: largeBody };
-    const manager = createManager();
-
-    const enhanced = enhanceWithSandbox(manager);
-    skillExecutorState.executeMock.mockResolvedValue({ success: true, size: largeBody.length });
-
-    const result = await enhanced.executeSkill(skill, {});
-
-    expect(skillExecutorState.executeMock).toHaveBeenCalledWith(skill, {});
-    expect(result).toEqual({ success: true, size: largeBody.length });
-  });
-
-  it('executes batches and ignores missing skills', async () => {
+  it('should_return_executor_executeMany_result_when_batch_includes_missing_names', async () => {
+    // Arrange
     const skillA = { metadata: { name: 'alpha' }, body: 'a' };
     const skillB = { metadata: { name: 'beta' }, body: 'b' };
+    const context = { cwd: '/batch' };
     const manager = createManager({
       getSkillsForCwd: vi.fn(async (cwd) => {
-        expect(cwd).toBe('/batch');
+        if (cwd !== '/batch') throw new Error('unexpected cwd');
         return { skills: [skillA, skillB] };
       }),
     });
-
     const enhanced = enhanceWithSandbox(manager);
-    skillExecutorState.executeManyMock.mockResolvedValue([{ success: true }]);
+    const expected = [{ success: true }];
 
-    const result = await enhanced.executeSkills(['alpha', 'missing', 'beta'], { cwd: '/batch' });
+    skillExecutorState.executeManyMock.mockImplementation(async (skillsArg, contextArg) => {
+      if (skillsArg.length !== 2 || skillsArg[0] !== skillA || skillsArg[1] !== skillB) {
+        throw new Error('unexpected skills');
+      }
+      if (contextArg !== context) throw new Error('unexpected context');
+      return expected;
+    });
 
-    expect(skillExecutorState.executeManyMock).toHaveBeenCalledWith([skillA, skillB], { cwd: '/batch' });
-    expect(result).toEqual([{ success: true }]);
+    // Act
+    const result = await enhanced.executeSkills(['alpha', 'missing', 'beta'], context);
+
+    // Assert
+    expect(result).toBe(expected);
   });
 
-  it('handles empty skill list in batch execution', async () => {
+  it('should_return_executor_executeMany_result_when_skillNames_is_empty_array', async () => {
+    // Arrange
     const manager = createManager({
       getSkillsForCwd: vi.fn(async () => ({ skills: [] })),
     });
-
     const enhanced = enhanceWithSandbox(manager);
-    skillExecutorState.executeManyMock.mockResolvedValue([]);
+    const expected = [];
 
+    skillExecutorState.executeManyMock.mockImplementation(async (skillsArg) => {
+      if (!Array.isArray(skillsArg) || skillsArg.length !== 0) throw new Error('unexpected skills');
+      return expected;
+    });
+
+    // Act
     const result = await enhanced.executeSkills([], { cwd: '/empty' });
 
-    expect(skillExecutorState.executeManyMock).toHaveBeenCalledWith([], { cwd: '/empty' });
-    expect(result).toEqual([]);
+    // Assert
+    expect(result).toBe(expected);
   });
 
-  it('rejects when skillNames is not an array', async () => {
+  it('should_throw_TypeError_when_skillNames_is_not_an_array', async () => {
+    // Arrange
     const manager = createManager();
     const enhanced = enhanceWithSandbox(manager);
 
-    await expect(enhanced.executeSkills({})).rejects.toThrow(TypeError);
+    // Act
+    const promise = enhanced.executeSkills({});
+
+    // Assert
+    await expect(promise).rejects.toThrow(TypeError);
   });
 
-  it('supports concurrent and rapid consecutive executeSkill calls', async () => {
+  it('should_support_concurrent_executeSkill_calls_when_called_in_parallel', async () => {
+    // Arrange
     const skillA = { metadata: { name: 'alpha' }, body: 'a' };
     const skillB = { metadata: { name: 'beta' }, body: 'b' };
     const manager = createManager({
       getSkillsForCwd: vi.fn(async () => ({ skills: [skillA, skillB] })),
     });
-
     const enhanced = enhanceWithSandbox(manager);
+
     skillExecutorState.executeMock.mockImplementation(async (skill, context) => ({
       success: true,
       name: skill.metadata.name,
       cwd: context.cwd ?? null,
     }));
 
-    const [resultA, resultB] = await Promise.all([
+    // Act
+    const results = await Promise.all([
       enhanced.executeSkill('alpha', { cwd: '/a' }),
       enhanced.executeSkill('beta', { cwd: '/b' }),
     ]);
 
-    expect(resultA).toEqual({ success: true, name: 'alpha', cwd: '/a' });
-    expect(resultB).toEqual({ success: true, name: 'beta', cwd: '/b' });
+    // Assert
+    expect(results).toEqual([
+      { success: true, name: 'alpha', cwd: '/a' },
+      { success: true, name: 'beta', cwd: '/b' },
+    ]);
+  });
 
+  it('should_support_rapid_consecutive_executeSkill_calls', async () => {
+    // Arrange
+    const skillA = { metadata: { name: 'alpha' }, body: 'a' };
+    const skillB = { metadata: { name: 'beta' }, body: 'b' };
+    const manager = createManager({
+      getSkillsForCwd: vi.fn(async () => ({ skills: [skillA, skillB] })),
+    });
+    const enhanced = enhanceWithSandbox(manager);
+
+    skillExecutorState.executeMock.mockResolvedValue({ success: true });
+
+    // Act
     await enhanced.executeSkill('alpha', { cwd: '/fast' });
     await enhanced.executeSkill('beta', { cwd: '/fast2' });
 
-    expect(skillExecutorState.executeMock).toHaveBeenCalledTimes(4);
+    // Assert
+    expect(skillExecutorState.executeMock).toHaveBeenCalledTimes(2);
   });
 });
 
 describe('createSandboxedSkillsManager', () => {
-  it('constructs manager with options and enhances it', async () => {
+  it('should_construct_SkillsManager_with_selected_options_when_called', async () => {
+    // Arrange
     const remoteProvider = { id: 'remote' };
-    const kernel = { id: 'kernel' };
-    const trustChecker = vi.fn();
 
-    const manager = await createSandboxedSkillsManager({
+    // Act
+    await createSandboxedSkillsManager({
       homeDir: '/home/user',
       manifestUrl: 'https://example.com/manifest',
       remoteProvider,
       cacheTtlMs: 0,
       cacheMaxEntries: Number.MAX_SAFE_INTEGER,
-      kernel,
-      trustChecker,
     });
 
+    // Assert
     expect(skillsManagerState.constructorMock).toHaveBeenCalledWith({
       homeDir: '/home/user',
       manifestUrl: 'https://example.com/manifest',
@@ -286,17 +514,40 @@ describe('createSandboxedSkillsManager', () => {
       cacheTtlMs: 0,
       cacheMaxEntries: Number.MAX_SAFE_INTEGER,
     });
+  });
+
+  it('should_add_executeSkill_when_createSandboxedSkillsManager_resolves', async () => {
+    // Arrange
+
+    // Act
+    const manager = await createSandboxedSkillsManager({});
+
+    // Assert
     expect(typeof manager.executeSkill).toBe('function');
-    expect(typeof manager.executeSkills).toBe('function');
+  });
+
+  it('should_construct_SkillExecutor_with_kernel_and_trustChecker_when_createSandboxedSkillsManager_called', async () => {
+    // Arrange
+    const kernel = { id: 'kernel' };
+    const trustChecker = vi.fn();
+
+    // Act
+    await createSandboxedSkillsManager({ kernel, trustChecker });
+
+    // Assert
     expect(skillExecutorState.constructorMock).toHaveBeenCalledWith({ kernel, trustChecker });
   });
 
-  it('passes string numeric options through to the manager', async () => {
+  it('should_pass_through_string_cache_options_when_values_are_strings', async () => {
+    // Arrange
+
+    // Act
     await createSandboxedSkillsManager({
       cacheTtlMs: '123',
       cacheMaxEntries: '-1',
     });
 
+    // Assert
     expect(skillsManagerState.constructorMock).toHaveBeenCalledWith({
       homeDir: undefined,
       manifestUrl: undefined,
@@ -306,59 +557,184 @@ describe('createSandboxedSkillsManager', () => {
     });
   });
 
-  it('rejects when options is null', async () => {
-    await expect(createSandboxedSkillsManager(null)).rejects.toThrow(TypeError);
+  it('should_reject_when_options_is_null', async () => {
+    // Arrange
+
+    // Act
+    const promise = createSandboxedSkillsManager(null);
+
+    // Assert
+    await expect(promise).rejects.toThrow(TypeError);
   });
 
-  it('propagates constructor failures from SkillsManager', async () => {
+  it('should_propagate_constructor_failures_from_SkillsManager', async () => {
+    // Arrange
     skillsManagerState.shouldThrow = true;
 
-    await expect(createSandboxedSkillsManager({})).rejects.toThrow('manager boom');
+    // Act
+    const promise = createSandboxedSkillsManager({});
+
+    // Assert
+    await expect(promise).rejects.toThrow('manager boom');
   });
 });
 
 describe('analyzeSkillRisk', () => {
-  it('returns safe for empty or nullish input', () => {
-    const inputs = ['', '   ', null, undefined];
-    for (const input of inputs) {
-      const result = analyzeSkillRisk(input);
-      expect(result).toEqual({ overallRisk: 'safe', risks: [], safe: true });
-    }
-  });
+  it('should_return_safe_result_when_skillBody_has_no_dangerous_patterns', () => {
+    // Arrange
+    const body = 'const x = 1; function ok() { return x + 1; }';
 
-  it('detects risks and reports the highest severity', () => {
-    const body = 'const a = eval(\"1\"); const b = fetch(\"/api\"); const c = child_process.exec(\"ls\");';
+    // Act
     const result = analyzeSkillRisk(body);
 
-    expect(result.overallRisk).toBe('critical');
-    expect(result.safe).toBe(false);
-
-    const evalRisk = result.risks.find((risk) => risk.desc === 'Uses eval()');
-    const childProcessRisk = result.risks.find((risk) => risk.desc === 'Uses child_process');
-
-    expect(evalRisk).toMatchObject({ risk: 'high', pattern: 'eval\\s*\\(' });
-    expect(childProcessRisk).toMatchObject({ risk: 'critical', pattern: 'child_process' });
+    // Assert
+    expect(result).toEqual({ overallRisk: 'safe', risks: [], safe: true });
   });
 
-  it('handles long strings and flags low-risk patterns', () => {
-    const longBody = 'a'.repeat(200000) + ' XMLHttpRequest ';
-    const result = analyzeSkillRisk(longBody);
+  it('should_return_safe_result_when_skillBody_is_empty_string', () => {
+    // Arrange
+    const body = '';
 
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result).toEqual({ overallRisk: 'safe', risks: [], safe: true });
+  });
+
+  it('should_return_safe_result_when_skillBody_is_whitespace_string', () => {
+    // Arrange
+    const body = '   ';
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result).toEqual({ overallRisk: 'safe', risks: [], safe: true });
+  });
+
+  it('should_return_safe_result_when_skillBody_is_null', () => {
+    // Arrange
+    const body = null;
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result).toEqual({ overallRisk: 'safe', risks: [], safe: true });
+  });
+
+  it('should_return_safe_result_when_skillBody_is_undefined', () => {
+    // Arrange
+    const body = undefined;
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result).toEqual({ overallRisk: 'safe', risks: [], safe: true });
+  });
+
+  it('should_return_safe_result_when_skillBody_is_number_zero', () => {
+    // Arrange
+    const body = 0;
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result).toEqual({ overallRisk: 'safe', risks: [], safe: true });
+  });
+
+  it('should_return_low_when_skillBody_contains_fetch', () => {
+    // Arrange
+    const body = 'fetch(\"/api\")';
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
     expect(result.overallRisk).toBe('low');
-    expect(result.safe).toBe(false);
-    expect(result.risks).toHaveLength(1);
-    expect(result.risks[0]).toMatchObject({ risk: 'low', pattern: 'XMLHttpRequest' });
   });
 
-  it('treats numeric boundary values as safe', () => {
-    const results = [
-      analyzeSkillRisk(0),
-      analyzeSkillRisk(-1),
-      analyzeSkillRisk(Number.MAX_SAFE_INTEGER),
-    ];
+  it('should_return_medium_when_skillBody_contains_dynamic_import', () => {
+    // Arrange
+    const body = 'await import(\"fs\")';
 
-    for (const result of results) {
-      expect(result).toEqual({ overallRisk: 'safe', risks: [], safe: true });
-    }
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result.overallRisk).toBe('medium');
+  });
+
+  it('should_return_high_when_skillBody_contains_eval', () => {
+    // Arrange
+    const body = 'eval(\"1+1\")';
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result.overallRisk).toBe('high');
+  });
+
+  it('should_return_critical_when_skillBody_contains_child_process', () => {
+    // Arrange
+    const body = 'child_process.exec(\"ls\")';
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result.overallRisk).toBe('critical');
+  });
+
+  it('should_return_high_when_skillBody_contains_prototype_manipulation', () => {
+    // Arrange
+    const body = 'obj.__proto__ = { polluted: true }';
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result.overallRisk).toBe('high');
+  });
+
+  it('should_include_risk_metadata_when_pattern_matches', () => {
+    // Arrange
+    const body = 'eval(\"1\")';
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result).toEqual({
+      overallRisk: 'high',
+      risks: [{ risk: 'high', desc: 'Uses eval()', pattern: 'eval\\s*\\(' }],
+      safe: false,
+    });
+  });
+
+  it('should_return_critical_when_multiple_patterns_include_child_process', () => {
+    // Arrange
+    const body = 'fetch(\"/api\"); child_process.exec(\"ls\");';
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result.overallRisk).toBe('critical');
+  });
+
+  it('should_handle_long_strings_without_throwing', () => {
+    // Arrange
+    const body = 'a'.repeat(200000) + ' XMLHttpRequest ';
+
+    // Act
+    const result = analyzeSkillRisk(body);
+
+    // Assert
+    expect(result.overallRisk).toBe('low');
   });
 });

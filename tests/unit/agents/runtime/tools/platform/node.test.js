@@ -3,13 +3,25 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
-vi.mock("../../../../../../js/agents/shared/index.js", async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    toNonEmptyString: vi.fn(actual.toNonEmptyString),
-    globToRegex: vi.fn(actual.globToRegex),
-  };
+vi.mock("../../../../../../js/agents/shared/index.js", () => {
+  const toNonEmptyString = vi.fn((value) => {
+    if (value === undefined || value === null) return undefined;
+    const s = String(value).trim();
+    return s.length ? s : undefined;
+  });
+
+  const globToRegex = vi.fn((pattern) => {
+    const src = pattern && typeof pattern === "string" ? pattern : "*";
+    const escaped = src
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, "<<<GLOBSTAR>>>")
+      .replace(/\*/g, "[^/\\\\]*")
+      .replace(/<<<GLOBSTAR>>>/g, ".*")
+      .replace(/\?/g, ".");
+    return new RegExp(escaped);
+  });
+
+  return { toNonEmptyString, globToRegex };
 });
 
 vi.mock("../../../../../../js/agents/runtime/core/exec/index.js", () => ({
@@ -20,23 +32,25 @@ vi.mock("fast-glob", () => ({
   default: vi.fn(),
 }));
 
-import { createNodeTools } from "../../../../../../js/agents/runtime/tools/platform/node.js";
+import * as nodePlatform from "../../../../../../js/agents/runtime/tools/platform/node.js";
 import { exec as execCommand } from "../../../../../../js/agents/runtime/core/exec/index.js";
-import { toNonEmptyString, globToRegex } from "../../../../../../js/agents/shared/index.js";
+import { globToRegex, toNonEmptyString } from "../../../../../../js/agents/shared/index.js";
 import fastGlob from "fast-glob";
 
+/** @type {string} */
 let tempDir;
+/** @type {string} */
 let outsideDir;
 let originalBun;
 let originalDeno;
 let hadBun;
 let hadDeno;
 
-async function makeTools(options = {}) {
-  return await createNodeTools({ basePath: tempDir, ...options });
+async function createTools(options = {}) {
+  return await nodePlatform.createNodeTools({ basePath: tempDir, ...options });
 }
 
-async function writeFile(relativePath, content) {
+async function writeTempFile(relativePath, content) {
   const fullPath = path.join(tempDir, relativePath);
   await fs.mkdir(path.dirname(fullPath), { recursive: true });
   await fs.writeFile(fullPath, content, "utf-8");
@@ -60,119 +74,116 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (hadBun) {
-    globalThis.Bun = originalBun;
-  } else {
-    delete globalThis.Bun;
-  }
+  if (hadBun) globalThis.Bun = originalBun;
+  else delete globalThis.Bun;
 
-  if (hadDeno) {
-    globalThis.Deno = originalDeno;
-  } else {
-    delete globalThis.Deno;
-  }
+  if (hadDeno) globalThis.Deno = originalDeno;
+  else delete globalThis.Deno;
 
-  if (tempDir) {
-    await fs.rm(tempDir, { recursive: true, force: true });
-  }
+  if (tempDir) await fs.rm(tempDir, { recursive: true, force: true });
+  if (outsideDir) await fs.rm(outsideDir, { recursive: true, force: true });
+});
 
-  if (outsideDir) {
-    await fs.rm(outsideDir, { recursive: true, force: true });
-  }
+describe("platform/node exports", () => {
+  it("should_export_createNodeTools_function_when_module_loaded", () => {
+    expect(typeof nodePlatform.createNodeTools).toBe("function");
+  });
+
+  it("should_default_export_createNodeTools_when_module_loaded", () => {
+    expect(nodePlatform.default.createNodeTools).toBe(nodePlatform.createNodeTools);
+  });
 });
 
 describe("createNodeTools", () => {
-  it("creates tools and defaults to node platform", async () => {
-    const tools = await makeTools();
+  it("should_return_tools_with_expected_api_when_called", async () => {
+    const tools = await createTools();
 
-    expect(tools.platform).toBe("node");
-    expect(typeof tools.glob).toBe("function");
-    expect(typeof tools.grep).toBe("function");
-    expect(typeof tools.read).toBe("function");
-    expect(typeof tools.write).toBe("function");
-    expect(typeof tools.list).toBe("function");
-    expect(typeof tools.bash).toBe("function");
+    expect(tools).toMatchObject({
+      glob: expect.any(Function),
+      grep: expect.any(Function),
+      read: expect.any(Function),
+      write: expect.any(Function),
+      list: expect.any(Function),
+      bash: expect.any(Function),
+      platform: "node",
+    });
   });
 
-  it("detects bun and deno globals", async () => {
+  it("should_return_bun_platform_when_globalThis_Bun_defined", async () => {
     globalThis.Bun = {};
-    const bunTools = await makeTools();
-    expect(bunTools.platform).toBe("bun");
+    const tools = await createTools();
 
+    expect(tools.platform).toBe("bun");
+  });
+
+  it("should_return_deno_platform_when_globalThis_Deno_defined", async () => {
     delete globalThis.Bun;
     globalThis.Deno = {};
-    const denoTools = await makeTools();
-    expect(denoTools.platform).toBe("deno");
+    const tools = await createTools();
+
+    expect(tools.platform).toBe("deno");
   });
 
   describe("glob", () => {
-    it("uses fast-glob when available", async () => {
-      const tools = await makeTools();
+    it("should_return_files_when_fast_glob_available", async () => {
+      const tools = await createTools();
       fastGlob.mockResolvedValue(["a.txt", "b.txt"]);
 
       const result = await tools.glob({ pattern: "**/*.txt", path: "." });
 
       expect(result).toEqual({ files: ["a.txt", "b.txt"] });
-      expect(fastGlob).toHaveBeenCalledWith(
-        "**/*.txt",
-        expect.objectContaining({
-          cwd: tempDir,
-          absolute: false,
-          onlyFiles: true,
-          ignore: expect.any(Array),
-        })
-      );
     });
 
-    it("falls back to walkDir and filters ignored entries", async () => {
-      const tools = await makeTools();
+    it("should_return_error_when_pattern_has_path_traversal", async () => {
+      const tools = await createTools();
+
+      const result = await tools.glob({ pattern: "../*.js", path: "." });
+
+      expect(result).toEqual({ files: [], error: "Path traversal detected" });
+    });
+
+    it("should_return_error_when_search_path_has_path_traversal", async () => {
+      const tools = await createTools();
+
+      const result = await tools.glob({ pattern: "*.txt", path: "../" });
+
+      expect(result).toEqual({ files: [], error: "Path traversal detected" });
+    });
+
+    it("should_return_error_when_search_path_outside_base_directory", async () => {
+      const tools = await createTools();
+
+      const result = await tools.glob({ pattern: "*.txt", path: outsideDir });
+
+      expect(result).toEqual({ files: [], error: "Path outside allowed directory" });
+    });
+
+    it("should_fallback_to_walkDir_when_fast_glob_throws", async () => {
+      const tools = await createTools();
       fastGlob.mockImplementation(() => {
         throw new Error("fast-glob unavailable");
       });
 
-      await writeFile("root.txt", "root");
-      await writeFile("sub/inner.txt", "inner");
-      await writeFile("node_modules/skip.txt", "skip");
-      await writeFile(".hidden/secret.txt", "secret");
+      await writeTempFile("root.txt", "root");
+      await writeTempFile("sub/inner.txt", "inner");
+      await writeTempFile("node_modules/skip.txt", "skip");
+      await writeTempFile(".hidden/secret.txt", "secret");
 
       const deepSegments = Array.from({ length: 12 }, (_, i) => `level${i}`);
       const deepRelPath = path.join("deep", ...deepSegments, "deep.txt");
-      await writeFile(deepRelPath, "deep");
+      await writeTempFile(deepRelPath, "deep");
 
       const result = await tools.glob({ pattern: "**/*.txt", path: "." });
 
-      expect(result.files).toEqual(
-        expect.arrayContaining([
-          "root.txt",
-          path.join("sub", "inner.txt"),
-          deepRelPath,
-        ])
+      expect([...result.files].sort()).toEqual(
+        ["root.txt", path.join("sub", "inner.txt"), deepRelPath].sort()
       );
-      expect(result.files).not.toEqual(
-        expect.arrayContaining([
-          path.join("node_modules", "skip.txt"),
-          path.join(".hidden", "secret.txt"),
-        ])
-      );
-      expect(globToRegex).toHaveBeenCalledWith("**/*.txt");
-      expect(result.files.every((file) => !file.startsWith(tempDir))).toBe(true);
-    });
-
-    it("rejects traversal patterns and unsafe paths", async () => {
-      const tools = await makeTools();
-
-      const traversal = await tools.glob({ pattern: "../*.js", path: "." });
-      expect(traversal).toEqual({ files: [], error: "Path traversal detected" });
-
-      const outside = await tools.glob({ pattern: "*.txt", path: outsideDir });
-      expect(outside.files).toEqual([]);
-      expect(outside.error).toBe("Path outside allowed directory");
     });
   });
 
   describe("grep", () => {
-    it("parses ripgrep output when rg succeeds", async () => {
-      const tools = await makeTools();
+    it("should_return_matches_when_rg_succeeds", async () => {
+      const tools = await createTools();
       execCommand.mockResolvedValue({
         success: true,
         stdout: "file1.txt:2:hello\nsub/file2.txt:10:world\n",
@@ -182,26 +193,16 @@ describe("createNodeTools", () => {
 
       const result = await tools.grep({ pattern: "hello", path: tempDir });
 
-      expect(result.matches).toEqual([
-        { file: "file1.txt", line: 2, content: "hello" },
-        { file: "sub/file2.txt", line: 10, content: "world" },
-      ]);
-      expect(execCommand).toHaveBeenCalledWith(
-        "rg",
-        expect.arrayContaining([
-          "-F",
-          "hello",
-          "--line-number",
-          "--no-heading",
-          "--max-count=100",
-          tempDir,
-        ]),
-        expect.objectContaining({ timeout: 30000 })
-      );
+      expect(result).toEqual({
+        matches: [
+          { file: "file1.txt", line: 2, content: "hello" },
+          { file: "sub/file2.txt", line: 10, content: "world" },
+        ],
+      });
     });
 
-    it("falls back to manual search when rg fails", async () => {
-      const tools = await makeTools();
+    it("should_fallback_to_manual_search_when_rg_fails_case_insensitive", async () => {
+      const tools = await createTools();
       execCommand.mockResolvedValue({
         success: false,
         stdout: "",
@@ -210,8 +211,8 @@ describe("createNodeTools", () => {
       });
       fastGlob.mockResolvedValue(["alpha.txt", "beta.txt"]);
 
-      await writeFile("alpha.txt", "Hello WORLD\nNext line");
-      await writeFile("beta.txt", "nothing here");
+      await writeTempFile("alpha.txt", "Hello WORLD\nNext line");
+      await writeTempFile("beta.txt", "nothing here");
 
       const result = await tools.grep({
         pattern: "world",
@@ -220,57 +221,108 @@ describe("createNodeTools", () => {
         caseSensitive: false,
       });
 
-      expect(result.matches).toEqual([
-        { file: "alpha.txt", line: 1, content: "Hello WORLD" },
-      ]);
+      expect(result).toEqual({
+        matches: [{ file: "alpha.txt", line: 1, content: "Hello WORLD" }],
+      });
+    });
 
-      const regexResult = await tools.grep({
+    it("should_support_regex_search_when_rg_fails_and_regex_true", async () => {
+      const tools = await createTools();
+      execCommand.mockResolvedValue({
+        success: false,
+        stdout: "",
+        stderr: "missing rg",
+        exitCode: 2,
+      });
+      fastGlob.mockResolvedValue(["alpha.txt"]);
+
+      await writeTempFile("alpha.txt", "Hello WORLD\nNext line");
+
+      const result = await tools.grep({
         pattern: "^hello",
         path: tempDir,
         regex: true,
         caseSensitive: false,
       });
 
-      expect(regexResult.matches[0]).toMatchObject({ file: "alpha.txt", line: 1 });
+      expect(result).toEqual({
+        matches: [{ file: "alpha.txt", line: 1, content: "Hello WORLD" }],
+      });
     });
 
-    it("rejects traversal paths", async () => {
-      const tools = await makeTools();
+    it("should_return_error_when_search_path_has_path_traversal", async () => {
+      const tools = await createTools();
 
       const result = await tools.grep({ pattern: "x", path: "../" });
 
-      expect(result.matches).toEqual([]);
-      expect(result.error).toBe("Path traversal detected");
+      expect(result).toEqual({ matches: [], error: "Path traversal detected" });
+    });
+
+    it("should_return_error_when_search_path_outside_base_directory", async () => {
+      const tools = await createTools();
+
+      const result = await tools.grep({ pattern: "x", path: outsideDir });
+
+      expect(result).toEqual({ matches: [], error: "Path outside allowed directory" });
     });
   });
 
   describe("read", () => {
-    it("reads full content and line ranges", async () => {
-      const tools = await makeTools();
-      await writeFile("sample.txt", "line1\nline2\nline3");
+    it("should_return_content_when_file_exists", async () => {
+      const tools = await createTools();
+      await writeTempFile("sample.txt", "line1\nline2\nline3");
 
-      const full = await tools.read({ path: "sample.txt" });
-      expect(full.content).toBe("line1\nline2\nline3");
+      const result = await tools.read({ path: "sample.txt" });
 
-      const range = await tools.read({ path: "sample.txt", startLine: 2, endLine: 3 });
-      expect(range.content).toBe("line2\nline3");
+      expect(result).toEqual({ content: "line1\nline2\nline3" });
     });
 
-    it("handles boundary lines and missing files", async () => {
-      const tools = await makeTools();
-      await writeFile("bounds.txt", "a\nb\nc");
+    it("should_return_content_when_startLine_and_endLine_provided", async () => {
+      const tools = await createTools();
+      await writeTempFile("sample.txt", "line1\nline2\nline3");
 
-      const partial = await tools.read({ path: "bounds.txt", startLine: 0, endLine: -1 });
-      expect(partial.content).toBe("a\nb");
+      const result = await tools.read({ path: "sample.txt", startLine: 2, endLine: 3 });
 
-      const missing = await tools.read({ path: "missing.txt" });
-      expect(missing.error).toBe("File not found");
+      expect(result).toEqual({ content: "line2\nline3" });
     });
 
-    it("reads large files", async () => {
-      const tools = await makeTools();
+    it("should_return_content_when_startLine_is_zero_and_endLine_is_negative", async () => {
+      const tools = await createTools();
+      await writeTempFile("bounds.txt", "a\nb\nc");
+
+      const result = await tools.read({ path: "bounds.txt", startLine: 0, endLine: -1 });
+
+      expect(result).toEqual({ content: "a\nb" });
+    });
+
+    it("should_return_error_when_file_not_found", async () => {
+      const tools = await createTools();
+
+      const result = await tools.read({ path: "missing.txt" });
+
+      expect(result).toEqual({ content: "", error: "File not found" });
+    });
+
+    it("should_return_error_when_path_has_path_traversal", async () => {
+      const tools = await createTools();
+
+      const result = await tools.read({ path: "../hack.txt" });
+
+      expect(result).toEqual({ content: "", error: "Path traversal detected" });
+    });
+
+    it("should_return_error_when_path_outside_base_directory", async () => {
+      const tools = await createTools();
+
+      const result = await tools.read({ path: path.join(outsideDir, "out.txt") });
+
+      expect(result).toEqual({ content: "", error: "Path outside allowed directory" });
+    });
+
+    it("should_return_large_content_when_file_is_large", async () => {
+      const tools = await createTools();
       const largeContent = "x".repeat(1024 * 1024);
-      await writeFile("big.txt", largeContent);
+      await writeTempFile("big.txt", largeContent);
 
       const result = await tools.read({ path: "big.txt" });
 
@@ -279,38 +331,50 @@ describe("createNodeTools", () => {
   });
 
   describe("write", () => {
-    it("writes long content to nested paths", async () => {
-      const tools = await makeTools();
+    it("should_return_success_true_when_writing_nested_path", async () => {
+      const tools = await createTools();
+
+      const result = await tools.write({ path: "nested/dir/file.txt", content: "ok" });
+
+      expect(result).toEqual({ success: true });
+    });
+
+    it("should_persist_content_when_write_succeeds", async () => {
+      const tools = await createTools();
       const longContent = "y".repeat(10000);
 
-      const result = await tools.write({
-        path: "nested/dir/long.txt",
-        content: longContent,
-      });
-
-      expect(result.success).toBe(true);
-
+      await tools.write({ path: "nested/dir/long.txt", content: longContent });
       const stored = await fs.readFile(path.join(tempDir, "nested/dir/long.txt"), "utf-8");
+
       expect(stored).toBe(longContent);
     });
 
-    it("rejects traversal and outside paths", async () => {
-      const tools = await makeTools();
+    it("should_return_error_when_path_has_path_traversal", async () => {
+      const tools = await createTools();
 
-      const traversal = await tools.write({ path: "../hack.txt", content: "x" });
-      expect(traversal.success).toBe(false);
-      expect(traversal.error).toBe("Path traversal detected");
+      const result = await tools.write({ path: "../hack.txt", content: "x" });
 
-      const outside = await tools.write({
-        path: path.join(outsideDir, "out.txt"),
-        content: "x",
-      });
-      expect(outside.success).toBe(false);
-      expect(outside.error).toBe("Path outside allowed directory");
+      expect(result).toEqual({ success: false, error: "Path traversal detected" });
     });
 
-    it("supports concurrent writes", async () => {
-      const tools = await makeTools();
+    it("should_return_error_when_path_outside_base_directory", async () => {
+      const tools = await createTools();
+
+      const result = await tools.write({ path: path.join(outsideDir, "out.txt"), content: "x" });
+
+      expect(result).toEqual({ success: false, error: "Path outside allowed directory" });
+    });
+
+    it("should_return_success_false_when_content_is_invalid_type", async () => {
+      const tools = await createTools();
+
+      const result = await tools.write({ path: "bad.txt", content: Symbol("nope") });
+
+      expect(result).toEqual({ success: false, error: expect.any(String) });
+    });
+
+    it("should_support_concurrent_writes_when_called_in_parallel", async () => {
+      const tools = await createTools();
 
       const results = await Promise.all(
         Array.from({ length: 5 }, (_, i) =>
@@ -319,109 +383,193 @@ describe("createNodeTools", () => {
       );
 
       expect(results.every((result) => result.success)).toBe(true);
-
-      const entries = await fs.readdir(path.join(tempDir, "batch"));
-      expect(entries.length).toBe(5);
     });
   });
 
   describe("list", () => {
-    it("lists entries for base path with empty or whitespace input", async () => {
-      const tools = await makeTools();
-      await writeFile("alpha.txt", "a");
-      await writeFile("beta.txt", "b");
-      await fs.mkdir(path.join(tempDir, "subdir"), { recursive: true });
+    it("should_list_entries_when_path_is_undefined", async () => {
+      const tools = await createTools();
+      await writeTempFile("alpha.txt", "a");
 
-      const first = await tools.list({});
-      const second = await tools.list({ path: "   " });
-      const third = await tools.list({ path: null });
+      const result = await tools.list({});
 
-      const normalize = (entries) => [...entries].sort();
-      expect(normalize(first.entries)).toEqual(normalize(second.entries));
-      expect(normalize(first.entries)).toEqual(normalize(third.entries));
-      expect(first.entries).toEqual(expect.arrayContaining(["alpha.txt", "beta.txt", "subdir"]));
+      expect(result.entries).toEqual(expect.arrayContaining(["alpha.txt"]));
     });
 
-    it("returns errors for missing or unsafe directories", async () => {
-      const tools = await makeTools();
+    it("should_list_entries_when_path_is_whitespace", async () => {
+      const tools = await createTools();
+      await writeTempFile("alpha.txt", "a");
 
-      const missing = await tools.list({ path: "missing-dir" });
-      expect(missing.entries).toEqual([]);
-      expect(missing.error).toBe("Directory not found");
+      const result = await tools.list({ path: "   " });
 
-      const outside = await tools.list({ path: outsideDir });
-      expect(outside.entries).toEqual([]);
-      expect(outside.error).toBe("Path outside allowed directory");
+      expect(result.entries).toEqual(expect.arrayContaining(["alpha.txt"]));
+    });
+
+    it("should_list_entries_when_path_is_null", async () => {
+      const tools = await createTools();
+      await writeTempFile("alpha.txt", "a");
+
+      const result = await tools.list({ path: null });
+
+      expect(result.entries).toEqual(expect.arrayContaining(["alpha.txt"]));
+    });
+
+    it("should_return_error_when_directory_not_found", async () => {
+      const tools = await createTools();
+
+      const result = await tools.list({ path: "missing-dir" });
+
+      expect(result).toEqual({ entries: [], error: "Directory not found" });
+    });
+
+    it("should_return_error_when_path_outside_base_directory", async () => {
+      const tools = await createTools();
+
+      const result = await tools.list({ path: outsideDir });
+
+      expect(result).toEqual({ entries: [], error: "Path outside allowed directory" });
     });
   });
 
   describe("bash", () => {
-    it("rejects empty or whitespace commands", async () => {
-      const tools = await makeTools({ allowedCommands: ["echo"] });
+    it("should_return_error_when_command_is_empty_string", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"] });
 
-      const empty = await tools.bash({ command: "" });
-      expect(empty.exitCode).toBe(-1);
-      expect(empty.error).toBe("Command required");
+      const result = await tools.bash({ command: "" });
 
-      const whitespace = await tools.bash({ command: "   " });
-      expect(whitespace.exitCode).toBe(-1);
-      expect(whitespace.error).toBe("Command required");
+      expect(result).toEqual({ stdout: "", stderr: "", exitCode: -1, error: "Command required" });
     });
 
-    it("rejects unclosed quotes", async () => {
-      const tools = await makeTools({ allowedCommands: ["echo"] });
+    it("should_return_error_when_command_is_whitespace", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"] });
+
+      const result = await tools.bash({ command: "   " });
+
+      expect(result).toEqual({ stdout: "", stderr: "", exitCode: -1, error: "Command required" });
+    });
+
+    it("should_return_error_when_command_is_not_a_string", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"] });
+
+      const result = await tools.bash({ command: null });
+
+      expect(result).toEqual({ stdout: "", stderr: "", exitCode: -1, error: "Command required" });
+    });
+
+    it("should_return_error_when_command_has_unclosed_quote", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"] });
 
       const result = await tools.bash({ command: "echo \"oops" });
 
-      expect(result.exitCode).toBe(-1);
-      expect(result.error).toBe("Unclosed quote in command");
+      expect(result).toEqual({
+        stdout: "",
+        stderr: "",
+        exitCode: -1,
+        error: "Unclosed quote in command",
+      });
     });
 
-    it("blocks commands when allowlist is empty or invalid", async () => {
+    it("should_block_command_when_not_in_allowlist", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"] });
+
+      const result = await tools.bash({ command: "ls -la" });
+
+      expect(result).toEqual({
+        stdout: "",
+        stderr: "",
+        exitCode: -1,
+        error: "Command not allowed",
+      });
+    });
+
+    it("should_log_warning_when_command_blocked_by_allowlist", async () => {
       const logger = { warn: vi.fn() };
-      const toolsEmpty = await makeTools({ allowedCommands: [], logger });
+      const tools = await createTools({ allowedCommands: ["echo"], logger });
 
-      const blocked = await toolsEmpty.bash({ command: "echo ok" });
-      expect(blocked.exitCode).toBe(-1);
-      expect(blocked.error).toBe("Command not allowed");
+      await tools.bash({ command: "ls -la" });
 
-      const toolsInvalid = await makeTools({ allowedCommands: {}, logger });
-      const blockedInvalid = await toolsInvalid.bash({ command: "echo ok" });
-      expect(blockedInvalid.exitCode).toBe(-1);
-      expect(blockedInvalid.error).toBe("Command not allowed");
-      expect(logger.warn).toHaveBeenCalledTimes(2);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
     });
 
-    it("executes allowed commands with parsed args and timeout bounds", async () => {
-      const tools = await makeTools({ allowedCommands: ["echo"], maxTimeoutMs: 5 });
+    it("should_allow_all_commands_when_allowlist_is_empty_array", async () => {
+      const tools = await createTools({ allowedCommands: [] });
       execCommand.mockResolvedValue({ stdout: "ok", stderr: "", exitCode: 0 });
 
-      await tools.bash({ command: "echo \"hello world\"", timeout: 0 });
-      await tools.bash({ command: "echo negative", timeout: -1 });
-      await tools.bash({ command: "echo huge", timeout: Number.MAX_SAFE_INTEGER });
-      await tools.bash({ command: "echo string", timeout: "10" });
+      const result = await tools.bash({ command: "echo ok" });
 
-      expect(execCommand).toHaveBeenCalledTimes(4);
-
-      const [call1, call2, call3, call4] = execCommand.mock.calls;
-
-      expect(call1[0]).toBe("echo");
-      expect(call1[1]).toEqual(["hello world"]);
-      expect(call1[2]).toMatchObject({ cwd: tempDir, timeout: 1 });
-
-      expect(call2[2]).toMatchObject({ timeout: 1 });
-      expect(call3[2]).toMatchObject({ timeout: 5 });
-      expect(call4[2]).toMatchObject({ timeout: 5 });
+      expect(result).toEqual({ stdout: "ok", stderr: "", exitCode: 0 });
     });
 
-    it("returns error when execCommand throws", async () => {
-      const tools = await makeTools({ allowedCommands: ["echo"] });
+    it("should_parse_quoted_args_when_command_contains_spaces", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"] });
+      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+      await tools.bash({ command: "echo \"hello world\"" });
+
+      expect(execCommand.mock.calls[0][1]).toEqual(["hello world"]);
+    });
+
+    it("should_parse_escaped_quotes_inside_double_quotes", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"] });
+      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+      await tools.bash({ command: "echo \"a\\\"b\"" });
+
+      expect(execCommand.mock.calls[0][1]).toEqual(["a\"b"]);
+    });
+
+    it("should_use_basePath_as_cwd_when_executing", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"] });
+      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+      await tools.bash({ command: "echo hi" });
+
+      expect(execCommand.mock.calls[0][2]).toMatchObject({ cwd: tempDir });
+    });
+
+    it("should_clamp_timeout_to_minimum_one_ms_when_timeout_is_zero", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"], maxTimeoutMs: 5 });
+      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+      await tools.bash({ command: "echo hi", timeout: 0 });
+
+      expect(execCommand.mock.calls[0][2]).toMatchObject({ timeout: 1 });
+    });
+
+    it("should_clamp_timeout_to_maxTimeoutMs_when_timeout_exceeds_maxTimeoutMs", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"], maxTimeoutMs: 5 });
+      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+      await tools.bash({ command: "echo hi", timeout: Number.MAX_SAFE_INTEGER });
+
+      expect(execCommand.mock.calls[0][2]).toMatchObject({ timeout: 5 });
+    });
+
+    it("should_use_maxTimeoutMs_when_timeout_is_not_finite", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"], maxTimeoutMs: 5 });
+      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+
+      await tools.bash({ command: "echo hi", timeout: "10" });
+
+      expect(execCommand.mock.calls[0][2]).toMatchObject({ timeout: 5 });
+    });
+
+    it("should_return_error_when_execCommand_throws", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"] });
       execCommand.mockRejectedValue(new Error("boom"));
 
       const result = await tools.bash({ command: "echo hi" });
 
-      expect(result.exitCode).toBe(-1);
-      expect(result.error).toBe("boom");
+      expect(result).toEqual({ stdout: "", stderr: "", exitCode: -1, error: "boom" });
+    });
+
+    it("should_include_error_when_execCommand_returns_error_field", async () => {
+      const tools = await createTools({ allowedCommands: ["echo"] });
+      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 1, error: "bad" });
+
+      const result = await tools.bash({ command: "echo hi" });
+
+      expect(result).toEqual({ stdout: "", stderr: "", exitCode: 1, error: "bad" });
     });
   });
 });

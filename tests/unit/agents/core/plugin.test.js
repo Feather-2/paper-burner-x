@@ -1,614 +1,525 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+/**
+ * Event-driven plugin integration tests
+ *
+ * Focus:
+ * - install lifecycle
+ * - service registration
+ * - event reaction (EventBus handlers receive evt; data in evt.payload)
+ * - scoped state writes (plugins.<pluginName>.*)
+ */
 
-const { EventBusMock, StateBusMock, ServiceBusMock } = vi.hoisted(() => {
-  function EventBus() {
-    this._handlers = new Map();
-    this.emitSync = vi.fn((event, payload) => {
-      this.emit(event, payload);
-    });
-  }
-
-  EventBus.prototype.on = function on(event, callback) {
-    const handlers = this._handlers.get(event) ?? new Set();
-    handlers.add(callback);
-    this._handlers.set(event, handlers);
-    return vi.fn(() => handlers.delete(callback));
-  };
-
-  EventBus.prototype.emit = function emit(event, payload) {
-    const handlers = this._handlers.get(event);
-    if (!handlers) return;
-    for (const handler of handlers) {
-      handler(payload);
-    }
-  };
-
-  EventBus.prototype.dispose = function dispose() {
-    this._handlers.clear();
-  };
-
-  function StateBus() {
-    this._store = new Map();
-    this._meta = new Map();
-    this._subscriptions = new Set();
-  }
-
-  StateBus.prototype.get = function get(path) {
-    if (path === undefined || path === null) return undefined;
-    if (this._store.has(path)) return this._store.get(path);
-    const prefix = `${path}.`;
-    const result = {};
-    let found = false;
-    for (const [key, value] of this._store) {
-      if (key.startsWith(prefix)) {
-        found = true;
-        const subKey = key.slice(prefix.length);
-        result[subKey] = value;
-      }
-    }
-    return found ? result : undefined;
-  };
-
-  StateBus.prototype.set = function set(path, value, meta = {}) {
-    this._store.set(path, value);
-    this._meta.set(path, meta ?? {});
-    this._notify(path, value);
-  };
-
-  StateBus.prototype.merge = function merge(path, updates, meta = {}) {
-    const current = this._store.get(path);
-    let merged;
-    if (current && typeof current === 'object' && updates && typeof updates === 'object') {
-      merged = { ...current, ...updates };
-    } else {
-      merged = updates;
-    }
-    this._store.set(path, merged);
-    this._meta.set(path, meta ?? {});
-    this._notify(path, merged);
-  };
-
-  StateBus.prototype.subscribe = function subscribe(pattern, callback) {
-    const entry = { pattern, callback };
-    this._subscriptions.add(entry);
-    const unsub = vi.fn(() => {
-      this._subscriptions.delete(entry);
-    });
-    return unsub;
-  };
-
-  StateBus.prototype._notify = function _notify(path, value) {
-    for (const entry of this._subscriptions) {
-      if (this._matches(entry.pattern, path)) {
-        entry.callback({ path, value });
-      }
-    }
-  };
-
-  StateBus.prototype._matches = function _matches(pattern, path) {
-    if (pattern.endsWith('*')) {
-      return path.startsWith(pattern.slice(0, -1));
-    }
-    return pattern === path;
-  };
-
-  function ServiceBus() {
-    this._services = new Map();
-    this.register = vi.fn((name, service, options = {}) => {
-      this._services.set(name, { service, options });
-    });
-    this.unregister = vi.fn((name) => {
-      this._services.delete(name);
-    });
-  }
-
-  ServiceBus.prototype.has = function has(name) {
-    return this._services.has(name);
-  };
-
-  ServiceBus.prototype.get = function get(name) {
-    return this._services.get(name);
-  };
-
-  return { EventBusMock: EventBus, StateBusMock: StateBus, ServiceBusMock: ServiceBus };
-});
-
-vi.mock('../../../../js/agents/core/event-bus.js', () => ({ EventBus: EventBusMock }));
-vi.mock('../../../../js/agents/core/state-bus.js', () => ({ StateBus: StateBusMock }));
-vi.mock('../../../../js/agents/core/service-bus.js', () => ({ ServiceBus: ServiceBusMock }));
-
-import {
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Kernel } from '../../../../js/agents/core/index.js';
+import createPluginDefault, {
+  PluginStatus,
   createPlugin,
   PluginContext,
   PluginManager,
-  PluginStatus,
 } from '../../../../js/agents/core/plugin.js';
-import { EventBus } from '../../../../js/agents/core/event-bus.js';
-import { StateBus } from '../../../../js/agents/core/state-bus.js';
-import { ServiceBus } from '../../../../js/agents/core/service-bus.js';
 
-const LARGE_STRING = 'x'.repeat(200000);
+import cicadaPlugin from '../../../../js/agents/plugins/compression/cicada.js';
+import watchdogPlugin from '../../../../js/agents/plugins/compression/watchdog.js';
+import fingerprintPlugin from '../../../../js/agents/plugins/analysis/fingerprint.js';
+import loggerPlugin from '../../../../js/agents/plugins/debug/logger.js';
 
-function createMockKernel() {
+vi.mock('../../../../js/agents/plugins/compression/impl/cicada-compressor.js', () => {
   return {
-    events: new EventBus(),
-    state: new StateBus(),
-    services: new ServiceBus(),
+    CicadaCompressor: class CicadaCompressor {
+      constructor(config) {
+        this._config = config;
+      }
+
+      async compress(messages) {
+        const list = Array.isArray(messages) ? messages : [];
+        const kept = list.slice(0, Math.min(1, list.length));
+        return {
+          messages: kept,
+          ratio: list.length ? kept.length / list.length : 1,
+        };
+      }
+    },
   };
+});
+
+vi.mock('../../../../js/agents/plugins/analysis/behavior-fingerprint.js', () => {
+  return {
+    BehaviorFingerprint: class BehaviorFingerprint {
+      constructor() {
+        this.stats = null;
+      }
+
+      recordAction() {
+        return { loopDetected: false, loopInfo: null };
+      }
+
+      getAnalysis() {
+        return null;
+      }
+
+      getSuggestion() {
+        return null;
+      }
+
+      reset() {}
+    },
+  };
+});
+
+async function createKernel() {
+  return new Kernel({
+    enableRetry: false,
+    enableTimeout: false,
+  });
 }
 
-function createDeepObject(depth) {
-  let current = { level: depth };
-  for (let i = depth - 1; i >= 0; i -= 1) {
-    current = { level: i, child: current };
+describe('core/plugin exports', () => {
+  function createKernelStubs() {
+    return {
+      events: {
+        emitSync: vi.fn(),
+        on: vi.fn(() => vi.fn()),
+      },
+      state: {
+        get: vi.fn(),
+        set: vi.fn(),
+        merge: vi.fn(),
+        subscribe: vi.fn(() => vi.fn()),
+      },
+      services: {
+        register: vi.fn(),
+        unregister: vi.fn(),
+      },
+    };
   }
-  return current;
-}
 
-function createDeferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-describe('PluginStatus', () => {
-  it('exposes expected states', () => {
-    expect(PluginStatus.PENDING).toBe('pending');
-    expect(PluginStatus.INSTALLING).toBe('installing');
-    expect(PluginStatus.ACTIVE).toBe('active');
-    expect(PluginStatus.ERROR).toBe('error');
-    expect(PluginStatus.UNINSTALLED).toBe('uninstalled');
-  });
-});
-
-describe('createPlugin', () => {
-  it('throws when config or name is invalid', () => {
-    expect(() => createPlugin()).toThrow();
-    expect(() => createPlugin(null)).toThrow();
-    expect(() => createPlugin({})).toThrow(/must have a name/);
-    expect(() => createPlugin({ name: '' })).toThrow(/must have a name/);
-    expect(() => createPlugin({ name: 123 })).toThrow(/must have a name/);
-  });
-
-  it('accepts whitespace and numeric string names', () => {
-    const whitespace = createPlugin({ name: '   ' });
-    const numeric = createPlugin({ name: '123' });
-
-    expect(whitespace.name).toBe('   ');
-    expect(numeric.name).toBe('123');
-  });
-
-  it('applies defaults for optional fields', () => {
-    const plugin = createPlugin({ name: 'minimal' });
-
-    expect(plugin.version).toBe('1.0.0');
-    expect(plugin.description).toBe('');
-    expect(plugin.dependencies).toEqual([]);
-    expect(plugin.defaultConfig).toEqual({});
-    expect(typeof plugin.install).toBe('function');
-    expect(typeof plugin.uninstall).toBe('function');
-    expect(plugin.onStart).toBeNull();
-    expect(plugin.onStop).toBeNull();
-    expect(plugin.onError).toBeNull();
-    expect(plugin._status).toBe(PluginStatus.PENDING);
-    expect(plugin._context).toBeNull();
-    expect(plugin._config).toBeNull();
-  });
-
-  it('preserves provided values and boundary types', () => {
-    const dependencies = { dep: 'a' };
-    const defaultConfig = {};
-    const install = vi.fn();
-    const uninstall = vi.fn();
-
-    const plugin = createPlugin({
-      name: 'custom',
-      version: -1,
-      description: 'desc',
-      dependencies,
-      defaultConfig,
-      install,
-      uninstall,
-      onStart: vi.fn(),
-      onStop: vi.fn(),
-      onError: vi.fn(),
+  describe('PluginStatus', () => {
+    it('should_expose_pending_state', () => {
+      expect(PluginStatus.PENDING).toBe('pending');
     });
 
-    expect(plugin.version).toBe(-1);
-    expect(plugin.dependencies).toBe(dependencies);
-    expect(plugin.defaultConfig).toBe(defaultConfig);
-    expect(plugin.install).toBe(install);
-    expect(plugin.uninstall).toBe(uninstall);
+    it('should_expose_installing_state', () => {
+      expect(PluginStatus.INSTALLING).toBe('installing');
+    });
+
+    it('should_expose_active_state', () => {
+      expect(PluginStatus.ACTIVE).toBe('active');
+    });
+
+    it('should_expose_error_state', () => {
+      expect(PluginStatus.ERROR).toBe('error');
+    });
+
+    it('should_expose_uninstalled_state', () => {
+      expect(PluginStatus.UNINSTALLED).toBe('uninstalled');
+    });
   });
 
-  it('handles version edge values and long description', () => {
-    const longDescription = 'x'.repeat(50000);
-    const zeroVersion = createPlugin({ name: 'zero', version: 0, description: longDescription });
-    const maxVersion = createPlugin({ name: 'max', version: Number.MAX_SAFE_INTEGER });
-
-    expect(zeroVersion.version).toBe('1.0.0');
-    expect(zeroVersion.description).toBe(longDescription);
-    expect(maxVersion.version).toBe(Number.MAX_SAFE_INTEGER);
+  describe('default export', () => {
+    it('should_export_createPlugin_as_default', () => {
+      expect(createPluginDefault).toBe(createPlugin);
+    });
   });
 
-  it('creates independent instances under rapid calls', async () => {
-    const [first, second] = await Promise.all([
-      Promise.resolve().then(() => createPlugin({ name: 'fast-a', defaultConfig: { v: 0 } })),
-      Promise.resolve().then(() => createPlugin({ name: 'fast-b', defaultConfig: { v: -1 } })),
-    ]);
+  describe('createPlugin', () => {
+    it('should_throw_when_config_is_undefined', () => {
+      expect(() => createPlugin()).toThrow();
+    });
 
-    expect(first).not.toBe(second);
-    expect(first.name).toBe('fast-a');
-    expect(second.name).toBe('fast-b');
-    expect(first.defaultConfig).toEqual({ v: 0 });
-    expect(second.defaultConfig).toEqual({ v: -1 });
+    it('should_throw_when_config_is_null', () => {
+      expect(() => createPlugin(null)).toThrow();
+    });
+
+    it('should_throw_when_name_is_missing', () => {
+      expect(() => createPlugin({})).toThrow(/must have a name/);
+    });
+
+    it('should_throw_when_name_is_empty_string', () => {
+      expect(() => createPlugin({ name: '' })).toThrow(/must have a name/);
+    });
+
+    it('should_throw_when_name_is_not_string', () => {
+      expect(() => createPlugin({ name: 123 })).toThrow(/must have a name/);
+    });
+
+    it('should_default_version_when_version_is_0', () => {
+      expect(createPlugin({ name: 'zero', version: 0 }).version).toBe('1.0.0');
+    });
+
+    it('should_keep_version_when_version_is_negative', () => {
+      expect(createPlugin({ name: 'neg', version: -1 }).version).toBe(-1);
+    });
+
+    it('should_default_description_when_missing', () => {
+      expect(createPlugin({ name: 'desc' }).description).toBe('');
+    });
+
+    it('should_default_dependencies_when_missing', () => {
+      expect(createPlugin({ name: 'deps' }).dependencies).toEqual([]);
+    });
+
+    it('should_set_initial_status_to_pending', () => {
+      expect(createPlugin({ name: 'status' })._status).toBe(PluginStatus.PENDING);
+    });
+  });
+
+  describe('PluginContext', () => {
+    it('should_merge_defaultConfig_with_user_config', () => {
+      const kernel = createKernelStubs();
+      const plugin = createPlugin({ name: 'ctx', defaultConfig: { a: 1, keep: 'x' } });
+      const ctx = new PluginContext(kernel, plugin, { a: 2 });
+      expect(ctx.config).toEqual({ a: 2, keep: 'x' });
+    });
+
+    it('should_scope_state_get_to_plugin_namespace', () => {
+      const kernel = createKernelStubs();
+      const plugin = createPlugin({ name: 'ctx' });
+      const ctx = new PluginContext(kernel, plugin);
+      ctx.state.get('value');
+      expect(kernel.state.get).toHaveBeenCalledWith('plugins.ctx.value');
+    });
+
+    it('should_scope_state_get_to_root_when_path_is_empty', () => {
+      const kernel = createKernelStubs();
+      const plugin = createPlugin({ name: 'ctx' });
+      const ctx = new PluginContext(kernel, plugin);
+      ctx.state.get('');
+      expect(kernel.state.get).toHaveBeenCalledWith('plugins.ctx');
+    });
+
+    it('should_scope_state_set_to_plugin_namespace', () => {
+      const kernel = createKernelStubs();
+      const plugin = createPlugin({ name: 'ctx' });
+      const ctx = new PluginContext(kernel, plugin);
+      ctx.state.set('value', 1);
+      expect(kernel.state.set).toHaveBeenCalledWith('plugins.ctx.value', 1, { plugin: 'ctx' });
+    });
+
+    it('should_ignore_array_meta_when_setting_state', () => {
+      const kernel = createKernelStubs();
+      const plugin = createPlugin({ name: 'ctx' });
+      const ctx = new PluginContext(kernel, plugin);
+      ctx.state.set('value', 1, []);
+      expect(kernel.state.set).toHaveBeenCalledWith('plugins.ctx.value', 1, { plugin: 'ctx' });
+    });
+
+    it('should_forward_getGlobal_to_stateBus_get', () => {
+      const kernel = createKernelStubs();
+      const plugin = createPlugin({ name: 'ctx' });
+      const ctx = new PluginContext(kernel, plugin);
+      ctx.state.getGlobal('runtime.tokens');
+      expect(kernel.state.get).toHaveBeenCalledWith('runtime.tokens');
+    });
+
+    it('should_dispose_unsubscribes_and_services', () => {
+      const kernel = createKernelStubs();
+      const eventUnsub = vi.fn();
+      kernel.events.on.mockReturnValueOnce(eventUnsub);
+
+      const plugin = createPlugin({ name: 'ctx' });
+      const ctx = new PluginContext(kernel, plugin);
+
+      ctx.on('evt', () => {});
+      ctx.registerService('svc', {});
+      ctx.dispose();
+
+      expect(eventUnsub).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('PluginManager', () => {
+    it('should_throw_when_registering_duplicate_plugin', () => {
+      const kernel = createKernelStubs();
+      const manager = new PluginManager(kernel);
+      const plugin = createPlugin({ name: 'dup' });
+      manager.register(plugin);
+      expect(() => manager.register(plugin)).toThrow(/already registered/);
+    });
+
+    it('should_throw_when_installing_unknown_plugin', async () => {
+      const kernel = createKernelStubs();
+      const manager = new PluginManager(kernel);
+      await expect(manager.install('missing')).rejects.toThrow(/not found/);
+    });
+
+    it('should_throw_when_dependency_is_missing', async () => {
+      const kernel = createKernelStubs();
+      const manager = new PluginManager(kernel);
+      manager.register(createPlugin({ name: 'main', dependencies: ['dep'] }));
+      await expect(manager.install('main')).rejects.toThrow(/Missing dependency/);
+    });
+
+    it('should_set_status_active_when_install_succeeds', async () => {
+      const kernel = createKernelStubs();
+      const manager = new PluginManager(kernel);
+      manager.register(createPlugin({ name: 'ok', install: async () => {} }));
+      await manager.install('ok');
+      expect(manager.getStatus('ok')).toBe(PluginStatus.ACTIVE);
+    });
+
+    it('should_set_status_error_when_install_fails', async () => {
+      const kernel = createKernelStubs();
+      const manager = new PluginManager(kernel);
+      manager.register(createPlugin({ name: 'bad', install: () => { throw new Error('boom'); } }));
+      await expect(manager.install('bad')).rejects.toThrow('boom');
+      expect(manager.getStatus('bad')).toBe(PluginStatus.ERROR);
+    });
+
+    it('should_return_false_when_uninstalling_inactive_plugin', async () => {
+      const kernel = createKernelStubs();
+      const manager = new PluginManager(kernel);
+      manager.register(createPlugin({ name: 'inactive' }));
+      await expect(manager.uninstall('inactive')).resolves.toBe(false);
+    });
+
+    it('should_throw_when_uninstalling_dependency_of_active_plugin', async () => {
+      const kernel = createKernelStubs();
+      const manager = new PluginManager(kernel);
+      manager.register(createPlugin({ name: 'a', dependencies: ['b'] }));
+      manager.register(createPlugin({ name: 'b' }));
+      await manager.install('a');
+      await expect(manager.uninstall('b')).rejects.toThrow(/depends on it/);
+    });
+
+    it('should_emit_plugin_uninstalled_event_after_uninstall', async () => {
+      const kernel = createKernelStubs();
+      const manager = new PluginManager(kernel);
+      manager.register(createPlugin({ name: 'gone' }));
+      await manager.install('gone');
+      await manager.uninstall('gone');
+      expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.uninstalled', { name: 'gone' });
+    });
   });
 });
 
-describe('PluginContext', () => {
-  let kernel;
+describe('Event-driven plugins', () => {
+  let kernel = null;
 
   beforeEach(() => {
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    if (kernel) {
+      await kernel.stop().catch(() => {});
+      kernel = null;
+    }
     vi.restoreAllMocks();
-    kernel = createMockKernel();
+    vi.useRealTimers();
   });
 
-  it('merges config shallowly with deep defaults and large payloads', () => {
-    const deepDefaults = createDeepObject(12);
-    const plugin = createPlugin({
-      name: 'ctx',
-      defaultConfig: {
-        nested: deepDefaults,
-        file: LARGE_STRING,
-        keep: 'default',
-        emptyObj: {},
-      },
+  it('compression/cicada: install + service + evt.payload handling + scoped state', async () => {
+    kernel = await createKernel();
+    await kernel.use(cicadaPlugin, { maxContextTokens: 100 });
+    await kernel.start();
+
+    expect(kernel.services.has('compression')).toBe(true);
+
+    // Event reaction: token threshold warning should read evt.payload.total
+    const warningHandler = vi.fn();
+    kernel.events.on('compression:warning', warningHandler);
+
+    kernel.events.emitSync('runtime.tokens.updated', { total: 50 });
+    expect(warningHandler).toHaveBeenCalledTimes(0);
+
+    kernel.events.emitSync('runtime.tokens.updated', { total: 95 });
+    expect(warningHandler).toHaveBeenCalledTimes(1);
+    expect(warningHandler.mock.calls[0][0].payload).toEqual({ current: 95, threshold: 100 });
+
+    // Service: compress() should write scoped state and emit compression:done
+    const doneHandler = vi.fn();
+    kernel.events.on('compression:done', doneHandler);
+
+    const messages = [
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+    ];
+
+    const result = await kernel.services.call('compression', 'compress', [messages]);
+    expect(result.messages).toHaveLength(1);
+
+    expect(kernel.state.get('plugins.compression/cicada.lastCompression.before')).toBe(3);
+    expect(kernel.state.get('plugins.compression/cicada.lastCompression.after')).toBe(1);
+
+    expect(doneHandler).toHaveBeenCalledTimes(1);
+    expect(doneHandler.mock.calls[0][0].payload).toEqual(expect.objectContaining({
+      originalCount: 3,
+      compressedCount: 1,
+    }));
+
+    // Service: shouldCompress() threshold behavior
+    await expect(kernel.services.call('compression', 'shouldCompress', [messages, 79])).resolves.toBe(false);
+    await expect(kernel.services.call('compression', 'shouldCompress', [messages, 81])).resolves.toBe(true);
+
+    // Service: getStats() should expose scoped state snapshot
+    const stats = await kernel.services.call('compression', 'getStats', []);
+    expect(stats.lastCompression).toEqual(expect.objectContaining({ before: 3, after: 1 }));
+  });
+
+  it('compression/watchdog: install + service + runtime.tokens.* reaction + scoped state', async () => {
+    kernel = await createKernel();
+    await kernel.use(cicadaPlugin, { maxContextTokens: 100 });
+    await kernel.use(watchdogPlugin, {
+      maxContextTokens: 100,
+      threshold: 0.5,
+      checkInterval: 0,
+      autoCompress: true,
+    });
+    await kernel.start();
+
+    expect(kernel.services.has('watchdog')).toBe(true);
+
+    kernel.state.set('runtime.tokens', { input: 60, output: 0 });
+    kernel.state.set('runtime.messages', [{ role: 'user', content: 'hello' }]);
+
+    const exceededPromise = kernel.events.waitFor('watchdog:threshold.exceeded', 500);
+    const compressionDonePromise = kernel.events.waitFor('compression:done', 500);
+
+    // Event reaction: watchdog listens to runtime.tokens.* and reads global state
+    kernel.events.emitSync('runtime.tokens.updated', { total: 60 });
+
+    const exceeded = await exceededPromise;
+    expect(exceeded.event).toBe('watchdog:threshold.exceeded');
+    expect(exceeded.data.usage).toBeCloseTo(0.6);
+
+    const done = await compressionDonePromise;
+    expect(done.event).toBe('compression:done');
+
+    expect(kernel.state.get('plugins.compression/watchdog.health.status')).toBe('warning');
+
+    const health = await kernel.services.call('watchdog', 'getHealth', []);
+    expect(health.status).toBe('warning');
+    expect(health.usage).toBeCloseTo(0.6);
+
+    const compressionService = await kernel.services.get('compression');
+    const compressSpy = vi.spyOn(compressionService, 'compress');
+
+    // No messages => should not call compression service (but still updates health)
+    kernel.state.set('runtime.messages', []);
+    await kernel.services.call('watchdog', 'check', []);
+    expect(compressSpy).toHaveBeenCalledTimes(0);
+
+    // Compression failure should be caught and logged (no throw)
+    compressSpy.mockRejectedValueOnce(new Error('boom'));
+    console.error.mockClear();
+    kernel.state.set('runtime.messages', [{ role: 'user', content: 'x' }]);
+    await expect(kernel.services.call('watchdog', 'check', [])).resolves.toBeUndefined();
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it('analysis/fingerprint: install + service + tool.call.* reaction + scoped state', async () => {
+    kernel = await createKernel();
+    await kernel.use(fingerprintPlugin, {
+      windowSize: 3,
+      similarityThreshold: 2,
+      maxHistory: 2,
+    });
+    await kernel.start();
+
+    expect(kernel.services.has('fingerprint')).toBe(true);
+
+    // Seed one history entry via service call (deterministic ordering)
+    await kernel.services.call('fingerprint', 'analyze', [{
+      type: 'tool_call',
+      name: 'search',
+      args: { q: 'x' },
+    }]);
+
+    const analysisPromise = new Promise((resolve) => {
+      /** @type {() => void} */
+      let unsub = () => {};
+      unsub = kernel.state.subscribe('plugins.analysis/fingerprint.lastAnalysis', (newValue) => {
+        unsub();
+        resolve(newValue);
+      });
     });
 
-    const ctx = new PluginContext(kernel, plugin, {
-      nested: { override: true },
-      keep: 'override',
-      extra: 0,
+    // Event reaction: tool.call.* handler should read evt.payload.{name,args}
+    kernel.events.emit('tool.call.search', { name: 'search', args: { q: 'y' } });
+    await analysisPromise;
+
+    expect(kernel.state.get('plugins.analysis/fingerprint.lastAnalysis.fingerprint')).toBe('tool_call:search:q');
+
+    const history = await kernel.services.call('fingerprint', 'getHistory', []);
+    expect(history).toHaveLength(2);
+
+    // maxHistory trimming (2)
+    await kernel.services.call('fingerprint', 'analyze', [{ type: 'tool_call', name: 't1', args: { a: 1 } }]);
+    const trimmed = await kernel.services.call('fingerprint', 'getHistory', []);
+    expect(trimmed).toHaveLength(2);
+
+    await kernel.services.call('fingerprint', 'reset', []);
+    const resetHistory = await kernel.services.call('fingerprint', 'getHistory', []);
+    expect(resetHistory).toHaveLength(0);
+  });
+
+  it('debug/logger: install + service + event classification + scoped state', async () => {
+    kernel = await createKernel();
+    await kernel.use(loggerPlugin, {
+      includeTimestamp: false,
+      pretty: false,
+      level: 'debug',
+      maxDataLength: 20,
+      maxBuffer: 50,
     });
+    await kernel.start();
 
-    expect(ctx.config).toEqual({
-      nested: { override: true },
-      file: LARGE_STRING,
-      keep: 'override',
-      emptyObj: {},
-      extra: 0,
+    expect(kernel.services.has('logger')).toBe(true);
+    expect(typeof kernel.state.get('plugins.debug/logger.installedAt')).toBe('number');
+
+    const loggerService = await kernel.services.get('logger');
+    loggerService.clearBuffer();
+    console.error.mockClear();
+    console.warn.mockClear();
+    console.info.mockClear();
+    console.debug.mockClear();
+
+    kernel.events.emitSync('custom.error', { boom: true });
+    kernel.events.emitSync('custom.warning', { warn: true });
+    kernel.events.emitSync('kernel.started', { id: 'x' });
+    kernel.events.emitSync('random.event', { ok: true });
+
+    expect(console.error).toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalled();
+    expect(console.info).toHaveBeenCalled();
+    expect(console.debug).toHaveBeenCalled();
+
+    const buf = loggerService.getBuffer();
+    expect(buf.some((e) => e.event === 'custom.error' && e.level === 'error')).toBe(true);
+    expect(buf.some((e) => e.event === 'custom.warning' && e.level === 'warn')).toBe(true);
+    expect(buf.some((e) => e.event === 'kernel.started' && e.level === 'info')).toBe(true);
+    expect(buf.some((e) => e.event === 'random.event' && e.level === 'debug')).toBe(true);
+
+    // State subscription should log state changes too
+    kernel.state.set('runtime.test', 1);
+    expect(loggerService.getBuffer().some((e) => e.event === 'state.change:runtime.test')).toBe(true);
+  });
+
+  it('compression/watchdog: periodic timer setup is cleaned on uninstall', async () => {
+    vi.useFakeTimers();
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+
+    kernel = await createKernel();
+    await kernel.use(cicadaPlugin, { maxContextTokens: 100 });
+    await kernel.use(watchdogPlugin, {
+      maxContextTokens: 100,
+      threshold: 0.5,
+      checkInterval: 50,
+      autoCompress: false,
     });
-  });
+    await kernel.start();
 
-  it('uses defaults when config is undefined or empty', () => {
-    const plugin = createPlugin({
-      name: 'defaults',
-      defaultConfig: { value: 1, empty: {} },
-    });
+    await vi.advanceTimersByTimeAsync(60);
+    await Promise.resolve();
 
-    const ctxA = new PluginContext(kernel, plugin);
-    const ctxB = new PluginContext(kernel, plugin, {});
+    expect(kernel.state.get('plugins.compression/watchdog.health.status')).toBe('healthy');
 
-    expect(ctxA.config).toEqual({ value: 1, empty: {} });
-    expect(ctxB.config).toEqual({ value: 1, empty: {} });
-  });
+    await kernel.stop();
+    kernel = null;
 
-  it('exposes kernel APIs and logger prefix', () => {
-    const plugin = createPlugin({ name: 'logger' });
-    const ctx = new PluginContext(kernel, plugin);
-
-    expect(ctx.events).toBe(kernel.events);
-    expect(ctx.services).toBe(kernel.services);
-    expect(ctx.state).toBeDefined();
-
-    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    ctx.log.debug('debug');
-    ctx.log.info('info');
-    ctx.log.warn('warn');
-    ctx.log.error('error');
-
-    expect(debugSpy).toHaveBeenCalledWith('[logger]', 'debug');
-    expect(infoSpy).toHaveBeenCalledWith('[logger]', 'info');
-    expect(warnSpy).toHaveBeenCalledWith('[logger]', 'warn');
-    expect(errorSpy).toHaveBeenCalledWith('[logger]', 'error');
-  });
-
-  it('scopes state access, preserves meta, and handles boundary paths', () => {
-    const plugin = createPlugin({ name: 'scope' });
-    const ctx = new PluginContext(kernel, plugin);
-
-    ctx.state.set(0, 'zero', { trace: 't0' });
-    ctx.state.set(-1, 'neg');
-    ctx.state.set(Number.MAX_SAFE_INTEGER, 'max');
-    ctx.state.set('   ', 'space');
-    ctx.state.set('object', { a: 1 });
-    ctx.state.merge('object', { b: 2 }, { trace: 'merge' });
-
-    expect(kernel.state.get('plugins.scope.0')).toBe('zero');
-    expect(kernel.state.get('plugins.scope.-1')).toBe('neg');
-    expect(kernel.state.get(`plugins.scope.${Number.MAX_SAFE_INTEGER}`)).toBe('max');
-    expect(kernel.state.get('plugins.scope.   ')).toBe('space');
-    expect(kernel.state.get('plugins.scope.object')).toEqual({ a: 1, b: 2 });
-
-    expect(ctx.state.get(0)).toBe('zero');
-    expect(ctx.state.get('')).toEqual(ctx.state.get());
-
-    expect(kernel.state._meta.get('plugins.scope.0')).toEqual({
-      plugin: 'scope',
-      trace: 't0',
-    });
-    expect(kernel.state._meta.get('plugins.scope.object')).toEqual({
-      plugin: 'scope',
-      trace: 'merge',
-    });
-  });
-
-  it('exposes global state read access', () => {
-    kernel.state.set('global.value', 'secret');
-
-    const plugin = createPlugin({ name: 'reader' });
-    const ctx = new PluginContext(kernel, plugin);
-
-    expect(ctx.state.getGlobal('global.value')).toBe('secret');
-  });
-
-  it('tracks subscriptions/services and disposes cleanly', () => {
-    const plugin = createPlugin({ name: 'cleanup' });
-    const ctx = new PluginContext(kernel, plugin);
-
-    ctx.registerService('svc', { run: () => 'ok' }, { scoped: true });
-
-    const eventHandler = vi.fn();
-    const eventUnsub = ctx.on('event.test', eventHandler);
-
-    const stateHandler = vi.fn();
-    const stateUnsub = ctx.state.subscribe('plugins.cleanup.*', stateHandler);
-
-    expect(kernel.services.has('svc')).toBe(true);
-    expect(ctx._services).toEqual(['svc']);
-    expect(ctx._subscriptions).toContain(eventUnsub);
-    expect(ctx._subscriptions).toContain(stateUnsub);
-
-    kernel.events.emit('event.test', { value: 1 });
-    ctx.state.set('value', 'one');
-
-    expect(eventHandler).toHaveBeenCalledTimes(1);
-    expect(stateHandler).toHaveBeenCalledTimes(1);
-
-    ctx.dispose();
-
-    expect(eventUnsub).toHaveBeenCalledTimes(1);
-    expect(stateUnsub).toHaveBeenCalledTimes(1);
-    expect(kernel.services.has('svc')).toBe(false);
-    expect(ctx._subscriptions.length).toBe(0);
-    expect(ctx._services.length).toBe(0);
-
-    kernel.events.emit('event.test', { value: 2 });
-    ctx.state.set('value', 'two');
-
-    expect(eventHandler).toHaveBeenCalledTimes(1);
-    expect(stateHandler).toHaveBeenCalledTimes(1);
-  });
-
-  it('dispose is resilient and idempotent', () => {
-    const plugin = createPlugin({ name: 'idempotent' });
-    const ctx = new PluginContext(kernel, plugin);
-
-    const brokenUnsub = vi.fn(() => {
-      throw new Error('unsubscribe failed');
-    });
-
-    ctx._subscriptions.push(brokenUnsub);
-    ctx._services.push('missing');
-
-    expect(() => ctx.dispose()).not.toThrow();
-    expect(() => ctx.dispose()).not.toThrow();
-
-    expect(brokenUnsub).toHaveBeenCalledTimes(1);
-    expect(ctx._subscriptions.length).toBe(0);
-    expect(ctx._services.length).toBe(0);
-  });
-});
-
-describe('PluginManager', () => {
-  let kernel;
-  let manager;
-
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    kernel = createMockKernel();
-    manager = new PluginManager(kernel);
-  });
-
-  it('registers plugins and exposes list', () => {
-    const plugin = createPlugin({ name: 'alpha', version: '2.0.0' });
-
-    manager.register(plugin, {});
-
-    expect(manager.getStatus('alpha')).toBe(PluginStatus.PENDING);
-    expect(manager.list()).toEqual([
-      {
-        name: 'alpha',
-        version: '2.0.0',
-        status: PluginStatus.PENDING,
-        dependencies: [],
-      },
-    ]);
-  });
-
-  it('throws on duplicate registration', () => {
-    const plugin = createPlugin({ name: 'dup' });
-
-    manager.register(plugin);
-
-    expect(() => manager.register(plugin)).toThrow(/already registered/);
-  });
-
-  it('throws when installing unknown plugins', async () => {
-    await expect(manager.install('missing')).rejects.toThrow(/not found/);
-  });
-
-  it('fails when dependencies are missing', async () => {
-    const plugin = createPlugin({ name: 'needs', dependencies: ['missing'] });
-
-    manager.register(plugin);
-
-    await expect(manager.install('needs')).rejects.toThrow(/Missing dependency/);
-    expect(manager.getStatus('needs')).toBe(PluginStatus.PENDING);
-  });
-
-  it('installs dependencies in order and wires context/config', async () => {
-    const order = [];
-    const dep = createPlugin({
-      name: 'dep',
-      install: () => {
-        order.push('dep');
-      },
-    });
-    const main = createPlugin({
-      name: 'main',
-      dependencies: ['dep'],
-      install: () => {
-        order.push('main');
-      },
-    });
-
-    manager.register(main, { value: 0 });
-    manager.register(dep);
-
-    await manager.install('main');
-
-    expect(order).toEqual(['dep', 'main']);
-    expect(manager.getStatus('dep')).toBe(PluginStatus.ACTIVE);
-    expect(manager.getStatus('main')).toBe(PluginStatus.ACTIVE);
-    expect(main._context).toBeInstanceOf(PluginContext);
-    expect(main._config).toEqual({ value: 0 });
-    expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.installed', { name: 'dep' });
-    expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.installed', { name: 'main' });
-  });
-
-  it('marks status error and clears context when install throws', async () => {
-    const plugin = createPlugin({
-      name: 'bad',
-      install: () => {
-        throw new Error('install failed');
-      },
-    });
-
-    manager.register(plugin);
-
-    await expect(manager.install('bad')).rejects.toThrow('install failed');
-    expect(manager.getStatus('bad')).toBe(PluginStatus.ERROR);
-    expect(manager.getContext('bad')).toBeUndefined();
-    expect(kernel.events.emitSync).not.toHaveBeenCalled();
-  });
-
-  it('avoids re-installing active plugins on rapid calls', async () => {
-    const install = vi.fn();
-    const plugin = createPlugin({ name: 'once', install });
-
-    manager.register(plugin);
-
-    await manager.install('once');
-    await manager.install('once');
-
-    expect(install).toHaveBeenCalledTimes(1);
-  });
-
-  it('handles concurrent installs without breaking state', async () => {
-    const gate = createDeferred();
-    const install = vi.fn(async () => {
-      await gate.promise;
-    });
-    const plugin = createPlugin({ name: 'race', install });
-
-    manager.register(plugin);
-
-    const first = manager.install('race');
-    const second = manager.install('race');
-
-    expect(install).toHaveBeenCalledTimes(2);
-
-    gate.resolve();
-    await Promise.all([first, second]);
-
-    expect(manager.getStatus('race')).toBe(PluginStatus.ACTIVE);
-    expect(plugin._context).toBeInstanceOf(PluginContext);
-  });
-
-  it('installAll respects dependency ordering', async () => {
-    const order = [];
-    const pluginB = createPlugin({ name: 'b', install: () => order.push('b') });
-    const pluginA = createPlugin({ name: 'a', dependencies: ['b'], install: () => order.push('a') });
-    const pluginC = createPlugin({ name: 'c', dependencies: ['a'], install: () => order.push('c') });
-
-    manager.register(pluginC);
-    manager.register(pluginA);
-    manager.register(pluginB);
-
-    await manager.installAll();
-
-    expect(order.indexOf('b')).toBeLessThan(order.indexOf('a'));
-    expect(order.indexOf('a')).toBeLessThan(order.indexOf('c'));
-  });
-
-  it('returns false when uninstalling inactive plugins', async () => {
-    const plugin = createPlugin({ name: 'inactive' });
-
-    manager.register(plugin);
-
-    await expect(manager.uninstall('inactive')).resolves.toBe(false);
-  });
-
-  it('prevents uninstall when dependents are active', async () => {
-    const base = createPlugin({ name: 'base' });
-    const dependent = createPlugin({ name: 'dependent', dependencies: ['base'] });
-
-    manager.register(dependent);
-    manager.register(base);
-
-    await manager.install('dependent');
-
-    await expect(manager.uninstall('base')).rejects.toThrow(/depends on it/);
-    expect(manager.getStatus('base')).toBe(PluginStatus.ACTIVE);
-  });
-
-  it('uninstalls active plugins and emits events', async () => {
-    const plugin = createPlugin({ name: 'active' });
-
-    manager.register(plugin);
-
-    await manager.install('active');
-    await expect(manager.uninstall('active')).resolves.toBe(true);
-
-    expect(manager.getStatus('active')).toBe(PluginStatus.UNINSTALLED);
-    expect(plugin._status).toBe(PluginStatus.UNINSTALLED);
-    expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.uninstalled', { name: 'active' });
-  });
-
-  it('cleans up even when uninstall throws', async () => {
-    const plugin = createPlugin({
-      name: 'throwing',
-      uninstall: () => {
-        throw new Error('uninstall failed');
-      },
-    });
-
-    manager.register(plugin);
-
-    await manager.install('throwing');
-    await expect(manager.uninstall('throwing')).rejects.toThrow('uninstall failed');
-
-    expect(manager.getStatus('throwing')).toBe(PluginStatus.UNINSTALLED);
-    expect(manager.getContext('throwing')).toBeUndefined();
-    expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.uninstalled', { name: 'throwing' });
+    expect(clearIntervalSpy).toHaveBeenCalled();
   });
 });

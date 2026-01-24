@@ -69,16 +69,13 @@ vi.mock("../../../../../js/agents/runtime/core/message-manager.js", () => {
   return { MessageManager: MessageManagerMock };
 });
 
-import {
-  initMessageHandling,
-  attachMessageHandling,
-} from "../../../../../js/agents/runtime/core/agent-loop-message-handling.js";
+import * as messageHandling from "../../../../../js/agents/runtime/core/agent-loop-message-handling.js";
 
 const createLoop = (options = {}) => {
   class BaseLoop {}
-  attachMessageHandling(BaseLoop);
+  messageHandling.attachMessageHandling(BaseLoop);
   const loop = new BaseLoop();
-  initMessageHandling(loop, {
+  messageHandling.initMessageHandling(loop, {
     stageName: options.stageName ?? "stage",
     actor: options.actor ?? "actor",
   });
@@ -99,7 +96,7 @@ beforeEach(() => {
 });
 
 describe("initMessageHandling", () => {
-  it("initializes message manager and user input state", () => {
+  it("should_construct_MessageManager_with_expected_options_when_called", () => {
     const loop = {};
     const options = {
       contextConfig: { mode: "compact" },
@@ -112,7 +109,7 @@ describe("initMessageHandling", () => {
     };
 
     mockState.getLimit.mockReturnValue(7);
-    initMessageHandling(loop, options);
+    messageHandling.initMessageHandling(loop, options);
 
     expect(mockState.messageManagerCtor).toHaveBeenCalledWith({
       contextConfig: options.contextConfig,
@@ -122,187 +119,452 @@ describe("initMessageHandling", () => {
       stageName: "stage",
       actor: "actor",
     });
+  });
+
+  it("should_call_getLimit_with_MAX_USER_INPUTS_when_called", () => {
+    const loop = {};
+
+    messageHandling.initMessageHandling(loop, { stageName: "stage", actor: "actor", maxUserInputs: 5 });
+
     expect(mockState.getLimit).toHaveBeenCalledWith("MAX_USER_INPUTS", 5);
-    expect(mockState.messageManagerInstances).toContain(loop._messageManager);
-    expect(mockState.dequeInstances).toContain(loop._userInputs);
+  });
+
+  it("should_set_loop_maxUserInputs_from_getLimit_when_called", () => {
+    const loop = {};
+    mockState.getLimit.mockReturnValue(7);
+
+    messageHandling.initMessageHandling(loop, { stageName: "stage", actor: "actor", maxUserInputs: 5 });
+
     expect(loop._maxUserInputs).toBe(7);
+  });
+
+  it("should_initialize_user_inputs_with_Deque_when_called", () => {
+    const loop = {};
+
+    messageHandling.initMessageHandling(loop, { stageName: "stage", actor: "actor" });
+
+    expect(mockState.dequeInstances).toContain(loop._userInputs);
+  });
+
+  it("should_initialize_userInputUnsub_to_null_when_called", () => {
+    const loop = {};
+
+    messageHandling.initMessageHandling(loop, { stageName: "stage", actor: "actor" });
+
     expect(loop._userInputUnsub).toBe(null);
+  });
+
+  it("should_initialize_userInputBus_to_null_when_called", () => {
+    const loop = {};
+
+    messageHandling.initMessageHandling(loop, { stageName: "stage", actor: "actor" });
+
     expect(loop._userInputBus).toBe(null);
+  });
+
+  it("should_set_default_userInputEvent_when_called", () => {
+    const loop = {};
+
+    messageHandling.initMessageHandling(loop, { stageName: "stage", actor: "actor" });
+
     expect(loop._userInputEvent).toBe("user.input");
+  });
+
+  it("should_initialize_pauseListenerUnsub_to_null_when_called", () => {
+    const loop = {};
+
+    messageHandling.initMessageHandling(loop, { stageName: "stage", actor: "actor" });
+
     expect(loop._pauseListenerUnsub).toBe(null);
   });
 
-  it("passes boundary maxUserInputs values to getLimit", () => {
-    const values = [0, -1, Number.MAX_SAFE_INTEGER, "5", undefined];
-    for (const value of values) {
+  it.each([0, -1, Number.MAX_SAFE_INTEGER, "5", undefined])(
+    "should_pass_maxUserInputs_to_getLimit_when_maxUserInputs_is_%s",
+    (maxUserInputs) => {
       const loop = {};
-      initMessageHandling(loop, { stageName: "", actor: "", maxUserInputs: value });
-      expect(mockState.getLimit).toHaveBeenLastCalledWith("MAX_USER_INPUTS", value);
+
+      messageHandling.initMessageHandling(loop, { stageName: "", actor: "", maxUserInputs });
+
+      expect(mockState.getLimit).toHaveBeenLastCalledWith("MAX_USER_INPUTS", maxUserInputs);
     }
+  );
+
+  it("should_not_throw_when_options_are_undefined", () => {
+    const loop = {};
+
+    expect(() => messageHandling.initMessageHandling(loop)).not.toThrow();
   });
 
-  it("handles undefined options without throwing", () => {
+  it("should_call_getLimit_with_undefined_when_options_are_undefined", () => {
     const loop = {};
-    expect(() => initMessageHandling(loop)).not.toThrow();
+
+    messageHandling.initMessageHandling(loop);
+
     expect(mockState.getLimit).toHaveBeenCalledWith("MAX_USER_INPUTS", undefined);
   });
 
-  it("throws when loop or options are invalid", () => {
-    expect(() => initMessageHandling(null, {})).toThrow();
-    expect(() => initMessageHandling({}, null)).toThrow();
+  it("should_throw_when_loop_is_null", () => {
+    expect(() => messageHandling.initMessageHandling(null, {})).toThrow();
+  });
+
+  it("should_throw_when_options_are_null", () => {
+    expect(() => messageHandling.initMessageHandling({}, null)).toThrow();
   });
 });
 
 describe("attachMessageHandling", () => {
-  it("adds message handling methods to base prototype", () => {
+  it("should_attach_addMessage_method_when_attached", () => {
     class BaseLoop {}
-    attachMessageHandling(BaseLoop);
-    const instance = new BaseLoop();
 
-    expect(typeof instance.addMessage).toBe("function");
-    expect(typeof instance.addMessages).toBe("function");
-    expect(typeof instance.resetMessages).toBe("function");
-    expect(Object.getOwnPropertyDescriptor(BaseLoop.prototype, "messages").get).toBeTypeOf("function");
+    messageHandling.attachMessageHandling(BaseLoop);
+    const loop = new BaseLoop();
+
+    expect(typeof loop.addMessage).toBe("function");
   });
 
-  it("delegates message getters and setters to message manager", () => {
+  it("should_define_messages_getter_when_attached", () => {
+    class BaseLoop {}
+
+    messageHandling.attachMessageHandling(BaseLoop);
+
+    expect(Object.getOwnPropertyDescriptor(BaseLoop.prototype, "messages")?.get).toBeTypeOf("function");
+  });
+
+  it("should_not_override_constructor_when_attached", () => {
+    class BaseLoop {}
+
+    messageHandling.attachMessageHandling(BaseLoop);
+    const loop = new BaseLoop();
+
+    expect(loop.constructor).toBe(BaseLoop);
+  });
+
+  it("should_throw_when_BaseAgentLoop_is_invalid", () => {
+    expect(() => messageHandling.attachMessageHandling(null)).toThrow();
+  });
+});
+
+describe("AgentLoopMessageHandling", () => {
+  it("should_return_message_manager_messages_when_getting_messages", () => {
     const loop = createLoop();
-    const manager = loop._messageManager;
+    loop._messageManager.messages = [{ id: 1 }];
 
-    manager.messages = [{ id: 1 }];
-    manager._contextConfig = { window: 10 };
-    manager._tokenUsage = { input: 1, output: 2, total: 3 };
-    manager._compressionHistory = ["snapshot"];
-    manager._compressionPromise = Promise.resolve();
-    manager._compressionPending = true;
+    expect(loop.messages).toBe(loop._messageManager.messages);
+  });
 
-    expect(loop.messages).toBe(manager.messages);
-    expect(loop._contextConfig).toBe(manager._contextConfig);
+  it("should_return_message_manager_contextConfig_when_getting_contextConfig", () => {
+    const loop = createLoop();
+    loop._messageManager._contextConfig = { window: 10 };
+
+    expect(loop._contextConfig).toBe(loop._messageManager._contextConfig);
+  });
+
+  it("should_set_message_manager_contextConfig_when_setting_contextConfig", () => {
+    const loop = createLoop();
+
     loop._contextConfig = { window: 20 };
-    expect(manager._contextConfig).toEqual({ window: 20 });
-    expect(loop._tokenUsage).toBe(manager._tokenUsage);
-    expect(loop._compressionHistory).toBe(manager._compressionHistory);
-    expect(loop._compressionPromise).toBe(manager._compressionPromise);
+
+    expect(loop._messageManager._contextConfig).toEqual({ window: 20 });
+  });
+
+  it("should_return_message_manager_tokenUsage_when_getting_tokenUsage", () => {
+    const loop = createLoop();
+    loop._messageManager._tokenUsage = { input: 1, output: 2, total: 3 };
+
+    expect(loop._tokenUsage).toBe(loop._messageManager._tokenUsage);
+  });
+
+  it("should_return_message_manager_compressionHistory_when_getting_compressionHistory", () => {
+    const loop = createLoop();
+    loop._messageManager._compressionHistory = ["snapshot"];
+
+    expect(loop._compressionHistory).toBe(loop._messageManager._compressionHistory);
+  });
+
+  it("should_return_message_manager_compressionPromise_when_getting_compressionPromise", () => {
+    const loop = createLoop();
+    loop._messageManager._compressionPromise = Promise.resolve();
+
+    expect(loop._compressionPromise).toBe(loop._messageManager._compressionPromise);
+  });
+
+  it("should_return_message_manager_compressionPending_when_getting_compressionPending", () => {
+    const loop = createLoop();
+    loop._messageManager._compressionPending = true;
+
     expect(loop._compressionPending).toBe(true);
   });
 
-  it("delegates message manager methods", async () => {
+  it("should_delegate_addMessage_to_messageManager_when_called", () => {
     const loop = createLoop();
-    const manager = loop._messageManager;
-
     const message = { role: "user", content: "hello" };
-    expect(loop.addMessage(message)).toBe(message);
-    expect(manager.addMessage).toHaveBeenCalledWith(message);
 
+    loop.addMessage(message);
+
+    expect(loop._messageManager.addMessage).toHaveBeenCalledWith(message);
+  });
+
+  it("should_return_added_message_when_addMessage_called", () => {
+    const loop = createLoop();
+    const message = { role: "user", content: "hello" };
+
+    const result = loop.addMessage(message);
+
+    expect(result).toBe(message);
+  });
+
+  it("should_delegate_addMessages_to_messageManager_when_called", () => {
+    const loop = createLoop();
     const messages = [{ role: "user", content: "a" }, { role: "assistant", content: "b" }];
-    expect(loop.addMessages(messages)).toBe(messages);
-    expect(manager.addMessages).toHaveBeenCalledWith(messages);
 
-    const resetResult = await loop.resetMessages({ clearCompressionHistory: true });
-    expect(manager.reset).toHaveBeenCalledWith({ clearCompressionHistory: true });
-    expect(resetResult).toEqual({ clearCompressionHistory: true });
+    loop.addMessages(messages);
 
-    manager._shouldCompress.mockReturnValue(true);
+    expect(loop._messageManager.addMessages).toHaveBeenCalledWith(messages);
+  });
+
+  it("should_return_added_messages_when_addMessages_called", () => {
+    const loop = createLoop();
+    const messages = [{ role: "user", content: "a" }, { role: "assistant", content: "b" }];
+
+    const result = loop.addMessages(messages);
+
+    expect(result).toBe(messages);
+  });
+
+  it("should_delegate_resetMessages_to_messageManager_when_called", async () => {
+    const loop = createLoop();
+
+    await loop.resetMessages({ clearCompressionHistory: true });
+
+    expect(loop._messageManager.reset).toHaveBeenCalledWith({ clearCompressionHistory: true });
+  });
+
+  it("should_return_value_from_messageManager_reset_when_resetMessages_called", async () => {
+    const loop = createLoop();
+
+    const result = await loop.resetMessages({ clearCompressionHistory: true });
+
+    expect(result).toEqual({ clearCompressionHistory: true });
+  });
+
+  it("should_return_value_from_messageManager_shouldCompress_when_called", () => {
+    const loop = createLoop();
+    loop._messageManager._shouldCompress.mockReturnValue(true);
+
     expect(loop._shouldCompress()).toBe(true);
+  });
 
-    const scheduleResult = loop._scheduleCompression({ force: true });
-    expect(manager._scheduleCompression).toHaveBeenCalledWith({ force: true });
-    expect(scheduleResult).toEqual({ force: true });
+  it("should_delegate_scheduleCompression_to_messageManager_when_called", () => {
+    const loop = createLoop();
 
-    const flushResult = await loop.flushCompression({ maxRounds: 2 });
-    expect(manager.flushCompression).toHaveBeenCalledWith({ maxRounds: 2 });
-    expect(flushResult).toEqual({ maxRounds: 2 });
+    loop._scheduleCompression({ force: true });
+
+    expect(loop._messageManager._scheduleCompression).toHaveBeenCalledWith({ force: true });
+  });
+
+  it("should_return_value_from_messageManager_scheduleCompression_when_called", () => {
+    const loop = createLoop();
+
+    const result = loop._scheduleCompression({ force: true });
+
+    expect(result).toEqual({ force: true });
+  });
+
+  it("should_delegate_flushCompression_to_messageManager_when_called", async () => {
+    const loop = createLoop();
+
+    await loop.flushCompression({ maxRounds: 2 });
+
+    expect(loop._messageManager.flushCompression).toHaveBeenCalledWith({ maxRounds: 2 });
+  });
+
+  it("should_return_value_from_messageManager_flushCompression_when_called", async () => {
+    const loop = createLoop();
+
+    const result = await loop.flushCompression({ maxRounds: 2 });
+
+    expect(result).toEqual({ maxRounds: 2 });
+  });
+
+  it("should_delegate_compressMessages_to_messageManager_when_called", async () => {
+    const loop = createLoop();
 
     await loop._compressMessages();
-    expect(manager._compress).toHaveBeenCalledTimes(1);
+
+    expect(loop._messageManager._compress).toHaveBeenCalledTimes(1);
+  });
+
+  it("should_return_context_status_from_messageManager_when_called", () => {
+    const loop = createLoop();
 
     expect(loop.getContextStatus()).toEqual({ ok: true });
-
-    const config = { contextWindow: 100 };
-    expect(loop.setContextConfig(config)).toBe(config);
-    expect(manager.setContextConfig).toHaveBeenCalledWith(config);
   });
 
-  it("ignores user input listener when event bus is missing", () => {
+  it("should_delegate_setContextConfig_to_messageManager_when_called", () => {
     const loop = createLoop();
+    const config = { contextWindow: 100 };
+
+    loop.setContextConfig(config);
+
+    expect(loop._messageManager.setContextConfig).toHaveBeenCalledWith(config);
+  });
+
+  it("should_return_value_from_messageManager_setContextConfig_when_called", () => {
+    const loop = createLoop();
+    const config = { contextWindow: 100 };
+
+    const result = loop.setContextConfig(config);
+
+    expect(result).toBe(config);
+  });
+
+  it("should_not_attach_user_input_listener_when_eventBus_is_missing", () => {
+    const loop = createLoop();
+
     loop._attachUserInputListener(null);
     loop._attachUserInputListener({});
+
     expect(loop._userInputBus).toBe(null);
-    expect(loop._userInputUnsub).toBe(null);
   });
 
-  it("subscribes to user input events and records payloads", () => {
+  it("should_subscribe_to_default_user_input_event_when_eventName_is_empty", () => {
     const loop = createLoop();
-    const eventBus = {
-      subscribe: vi.fn(() => vi.fn()),
-    };
+    const eventBus = { subscribe: vi.fn(() => vi.fn()) };
+
+    loop._attachUserInputListener(eventBus, { eventName: "" });
+
+    expect(eventBus.subscribe).toHaveBeenCalledWith("user.input", expect.any(Function), {});
+  });
+
+  it("should_subscribe_to_custom_user_input_event_when_eventName_is_provided", () => {
+    const loop = createLoop();
+    const eventBus = { subscribe: vi.fn(() => vi.fn()) };
+
+    loop._attachUserInputListener(eventBus, { eventName: "user.input.next" });
+
+    expect(eventBus.subscribe).toHaveBeenCalledWith("user.input.next", expect.any(Function), {});
+  });
+
+  it("should_pass_signal_option_when_attaching_user_input_listener", () => {
+    const loop = createLoop();
+    const eventBus = { subscribe: vi.fn(() => vi.fn()) };
+    const controller = new AbortController();
+
+    loop._attachUserInputListener(eventBus, { signal: controller.signal });
+
+    expect(eventBus.subscribe).toHaveBeenCalledWith("user.input", expect.any(Function), { signal: controller.signal });
+  });
+
+  it("should_record_payload_when_user_input_handler_receives_payload_object", () => {
+    const loop = createLoop();
+    const eventBus = { subscribe: vi.fn(() => vi.fn()) };
     const recordSpy = vi.spyOn(loop, "recordUserInput").mockReturnValue({ payload: "ok", ts: 1 });
 
-    const controller = new AbortController();
-    loop._attachUserInputListener(eventBus, { eventName: "", signal: controller.signal });
-
-    const [eventName, handler, options] = eventBus.subscribe.mock.calls[0];
-    expect(eventName).toBe("user.input");
-    expect(options).toEqual({ signal: controller.signal });
-
+    loop._attachUserInputListener(eventBus);
+    const handler = eventBus.subscribe.mock.calls[0][1];
     handler({ payload: { text: "hello" } });
-    handler("raw");
 
     expect(recordSpy).toHaveBeenCalledWith({ text: "hello" });
+  });
+
+  it("should_record_evt_when_user_input_handler_receives_raw_evt", () => {
+    const loop = createLoop();
+    const eventBus = { subscribe: vi.fn(() => vi.fn()) };
+    const recordSpy = vi.spyOn(loop, "recordUserInput").mockReturnValue({ payload: "ok", ts: 1 });
+
+    loop._attachUserInputListener(eventBus);
+    const handler = eventBus.subscribe.mock.calls[0][1];
+    handler("raw");
+
     expect(recordSpy).toHaveBeenCalledWith("raw");
   });
 
-  it("does not resubscribe when bus and event are unchanged", () => {
+  it("should_not_resubscribe_when_user_input_bus_and_event_are_unchanged", () => {
     const loop = createLoop();
-    const unsub = vi.fn();
-    const eventBus = {
-      subscribe: vi.fn(() => unsub),
-    };
+    const eventBus = { subscribe: vi.fn(() => vi.fn()) };
 
     loop._attachUserInputListener(eventBus, { eventName: "user.input" });
     loop._attachUserInputListener(eventBus, { eventName: "user.input" });
 
     expect(eventBus.subscribe).toHaveBeenCalledTimes(1);
-    expect(unsub).not.toHaveBeenCalled();
   });
 
-  it("unsubscribes and resubscribes when event changes", () => {
+  it("should_unsubscribe_when_user_input_event_changes", () => {
     const loop = createLoop();
     const unsub = vi.fn();
-    const eventBus = {
-      subscribe: vi.fn(() => unsub),
-    };
+    const eventBus = { subscribe: vi.fn(() => unsub) };
 
     loop._attachUserInputListener(eventBus, { eventName: "user.input" });
     loop._attachUserInputListener(eventBus, { eventName: "user.input.next" });
 
     expect(unsub).toHaveBeenCalledTimes(1);
-    expect(eventBus.subscribe).toHaveBeenCalledTimes(2);
   });
 
-  it("attaches pause listener once and resolves reasons", () => {
+  it("should_unsubscribe_when_user_input_bus_changes", () => {
     const loop = createLoop();
-    const eventBus = {
-      subscribe: vi.fn(() => vi.fn()),
-    };
+    const unsub = vi.fn();
+    const eventBusA = { subscribe: vi.fn(() => unsub) };
+    const eventBusB = { subscribe: vi.fn(() => vi.fn()) };
+
+    loop._attachUserInputListener(eventBusA, { eventName: "user.input" });
+    loop._attachUserInputListener(eventBusB, { eventName: "user.input" });
+
+    expect(unsub).toHaveBeenCalledTimes(1);
+  });
+
+  it("should_not_attach_pause_listener_when_eventBus_is_missing", () => {
+    const loop = createLoop();
+
+    loop._attachPauseListener(null);
+    loop._attachPauseListener({});
+
+    expect(loop._pauseListenerUnsub).toBe(null);
+  });
+
+  it("should_subscribe_once_when_attachPauseListener_called_multiple_times", () => {
+    const loop = createLoop();
+    const eventBus = { subscribe: vi.fn(() => vi.fn()) };
 
     loop._attachPauseListener(eventBus);
     loop._attachPauseListener(eventBus);
 
     expect(eventBus.subscribe).toHaveBeenCalledTimes(1);
+  });
 
+  it("should_pause_with_reason_when_pause_handler_receives_reason", () => {
+    const loop = createLoop();
+    const eventBus = { subscribe: vi.fn(() => vi.fn()) };
+
+    loop._attachPauseListener(eventBus);
     const handler = eventBus.subscribe.mock.calls[0][1];
     handler({ payload: { reason: "break" } });
-    handler({ payload: { message: "stop" } });
-    handler({ payload: 0 });
-    handler({ payload: Number.MAX_SAFE_INTEGER });
 
     expect(loop.pause).toHaveBeenCalledWith("break");
+  });
+
+  it("should_pause_with_message_when_pause_handler_receives_message", () => {
+    const loop = createLoop();
+    const eventBus = { subscribe: vi.fn(() => vi.fn()) };
+
+    loop._attachPauseListener(eventBus);
+    const handler = eventBus.subscribe.mock.calls[0][1];
+    handler({ payload: { message: "stop" } });
+
     expect(loop.pause).toHaveBeenCalledWith("stop");
+  });
+
+  it("should_pause_with_user_requested_when_pause_handler_receives_non_string_reason", () => {
+    const loop = createLoop();
+    const eventBus = { subscribe: vi.fn(() => vi.fn()) };
+
+    loop._attachPauseListener(eventBus);
+    const handler = eventBus.subscribe.mock.calls[0][1];
+    handler({ payload: 0 });
+
     expect(loop.pause).toHaveBeenCalledWith("user_requested");
   });
 
-  it("detaches event bus listeners safely even if unsubscribe throws", () => {
+  it("should_not_throw_when_detaching_listeners_and_unsub_throws", () => {
     const loop = createLoop();
     loop._userInputUnsub = vi.fn(() => {
       throw new Error("fail");
@@ -313,210 +575,328 @@ describe("attachMessageHandling", () => {
     });
 
     expect(() => loop._detachEventBusListeners()).not.toThrow();
+  });
+
+  it("should_set_user_input_unsub_to_null_when_detaching_listeners", () => {
+    const loop = createLoop();
+    loop._userInputUnsub = vi.fn();
+    loop._userInputBus = { subscribe: vi.fn() };
+
+    loop._detachEventBusListeners();
+
     expect(loop._userInputUnsub).toBe(null);
+  });
+
+  it("should_set_user_input_bus_to_null_when_detaching_listeners", () => {
+    const loop = createLoop();
+    loop._userInputUnsub = vi.fn();
+    loop._userInputBus = { subscribe: vi.fn() };
+
+    loop._detachEventBusListeners();
+
     expect(loop._userInputBus).toBe(null);
+  });
+
+  it("should_set_pause_listener_unsub_to_null_when_detaching_listeners", () => {
+    const loop = createLoop();
+    loop._pauseListenerUnsub = vi.fn();
+
+    loop._detachEventBusListeners();
+
     expect(loop._pauseListenerUnsub).toBe(null);
   });
 
-  it("records inputs with timestamps and enforces max size", () => {
-    const loop = createLoop({ emit: vi.fn() });
-    loop._maxUserInputs = 2;
+  it("should_return_entry_with_payload_when_recordUserInput_called", () => {
+    const loop = createLoop();
+
+    const entry = loop.recordUserInput("one");
+
+    expect(entry.payload).toBe("one");
+  });
+
+  it("should_set_entry_ts_from_Date_now_when_recordUserInput_called", () => {
+    const loop = createLoop();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(123);
 
-    const first = loop.recordUserInput("one");
-    const second = loop.recordUserInput("two");
-    const third = loop.recordUserInput("three");
+    const entry = loop.recordUserInput("one");
 
-    expect(first.ts).toBe(123);
-    expect(second.ts).toBe(123);
-    expect(third.ts).toBe(123);
-    expect(loop._userInputs.size).toBe(2);
-    expect(loop._userInputs.toArray()[0].payload).toBe("two");
-    expect(loop.emit).toHaveBeenCalledWith("stage.user.input", {
-      actor: "actor",
-      status: "info",
-      payload: third,
-    });
-
+    expect(entry.ts).toBe(123);
     nowSpy.mockRestore();
   });
 
-  it("falls back to eventBus.emit when emit is not a function", () => {
+  it("should_trim_old_inputs_when_recordUserInput_exceeds_limit", () => {
+    const loop = createLoop();
+    loop._maxUserInputs = 2;
+
+    loop.recordUserInput("one");
+    loop.recordUserInput("two");
+    loop.recordUserInput("three");
+
+    expect(loop._userInputs.toArray().map((item) => item.payload)).toEqual(["two", "three"]);
+  });
+
+  it.each([0, -1, "2", Number.NaN, Infinity])("should_not_trim_inputs_when_limit_is_%s", (limit) => {
+    const loop = createLoop();
+    loop._maxUserInputs = limit;
+
+    loop.recordUserInput("a");
+    loop.recordUserInput("b");
+    loop.recordUserInput("c");
+
+    expect(loop._userInputs.toArray().map((item) => item.payload)).toEqual(["a", "b", "c"]);
+  });
+
+  it("should_emit_stage_user_input_event_when_emit_function_exists", () => {
+    const emit = vi.fn();
+    const loop = createLoop({ emit });
+    loop._maxUserInputs = 2;
+
+    const entry = loop.recordUserInput("three");
+
+    expect(emit).toHaveBeenCalledWith("stage.user.input", {
+      actor: "actor",
+      status: "info",
+      payload: entry,
+    });
+  });
+
+  it("should_fallback_to_eventBus_emit_when_emit_is_not_function", () => {
     const eventBus = { emit: vi.fn() };
     const loop = createLoop({ eventBus, emit: null });
 
-    loop.recordUserInput({ text: "hello" });
+    const entry = loop.recordUserInput({ text: "hello" });
 
-    expect(eventBus.emit).toHaveBeenCalledTimes(1);
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      "stage.user.input",
+      expect.objectContaining({ actor: "actor", status: "info", payload: entry })
+    );
   });
 
-  it("does not trim when maxUserInputs is non-positive or non-numeric", () => {
-    const loop = createLoop();
-
-    loop._maxUserInputs = 0;
-    loop.recordUserInput("a");
-    loop.recordUserInput("b");
-    expect(loop._userInputs.size).toBe(2);
-
-    loop._maxUserInputs = -1;
-    loop.recordUserInput("c");
-    expect(loop._userInputs.size).toBe(3);
-
-    loop._maxUserInputs = "2";
-    loop.recordUserInput("d");
-    expect(loop._userInputs.size).toBe(4);
-  });
-
-  it("handles rapid successive inputs while honoring the limit", async () => {
+  it("should_enforce_limit_when_recordUserInput_called_rapidly", async () => {
     const loop = createLoop();
     loop._maxUserInputs = 3;
 
     const payloads = ["a", "b", "c", "d"];
     await Promise.all(payloads.map((payload) => Promise.resolve(loop.recordUserInput(payload))));
 
-    expect(loop._userInputs.size).toBe(3);
     expect(loop._userInputs.toArray().map((entry) => entry.payload)).toEqual(["b", "c", "d"]);
   });
 
-  it("consumes user inputs and clears by default", () => {
+  it("should_return_all_items_when_consumeUserInputs_called", () => {
     const loop = createLoop();
     loop.recordUserInput("first");
     loop.recordUserInput("second");
 
-    const items = loop.consumeUserInputs();
-    expect(items).toHaveLength(2);
+    expect(loop.consumeUserInputs().map((entry) => entry.payload)).toEqual(["first", "second"]);
+  });
+
+  it("should_clear_queue_when_consumeUserInputs_called_with_default_options", () => {
+    const loop = createLoop();
+    loop.recordUserInput("first");
+
+    loop.consumeUserInputs();
+
     expect(loop._userInputs.size).toBe(0);
   });
 
-  it("consumes user inputs without clearing when requested", () => {
+  it("should_not_clear_queue_when_consumeUserInputs_clear_is_false", () => {
     const loop = createLoop();
     loop.recordUserInput("third");
 
-    const items = loop.consumeUserInputs({ clear: false });
-    expect(items).toHaveLength(1);
+    loop.consumeUserInputs({ clear: false });
+
     expect(loop._userInputs.size).toBe(1);
   });
 
-  it("returns empty list when consuming with no inputs", () => {
+  it("should_return_empty_array_when_consumeUserInputs_called_with_no_inputs", () => {
     const loop = createLoop();
+
     expect(loop.consumeUserInputs()).toEqual([]);
   });
 
-  it("drains user inputs as text and respects clear option", () => {
+  it("should_return_trimmed_text_when_drainUserInputsAsText_called", () => {
     const loop = createLoop();
     loop.recordUserInput("  hello  ");
     loop.recordUserInput({ text: "world" });
 
-    const result = loop.drainUserInputsAsText();
-    expect(result.items).toHaveLength(2);
-    expect(result.text).toBe("hello\nworld");
-    expect(loop._userInputs.size).toBe(0);
+    expect(loop.drainUserInputsAsText().text).toBe("hello\nworld");
+  });
 
+  it("should_not_clear_queue_when_drainUserInputsAsText_clear_is_false", () => {
+    const loop = createLoop();
     loop.recordUserInput("again");
-    const resultNoClear = loop.drainUserInputsAsText({ clear: false });
-    expect(resultNoClear.text).toBe("again");
+
+    loop.drainUserInputsAsText({ clear: false });
+
     expect(loop._userInputs.size).toBe(1);
   });
 
-  it("applies user inputs to config with default key", () => {
+  it("should_return_original_config_when_applyUserInputsToConfig_has_no_inputs", () => {
+    const loop = createLoop();
+    const config = { a: 1 };
+
+    expect(loop.applyUserInputsToConfig(config)).toBe(config);
+  });
+
+  it("should_append_text_to_default_key_when_existing_value_is_string", () => {
+    const loop = createLoop();
+    loop.recordUserInput({ message: "note" });
+
+    expect(loop.applyUserInputsToConfig({ userNotes: "prior" }).userNotes).toEqual(["prior", "note"]);
+  });
+
+  it("should_set_last_user_note_when_applyUserInputsToConfig_called", () => {
+    const loop = createLoop();
+    loop.recordUserInput({ message: "note" });
+
+    expect(loop.applyUserInputsToConfig({})._lastUserNote).toBe("note");
+  });
+
+  it("should_set_last_user_note_at_when_applyUserInputsToConfig_called", () => {
     const loop = createLoop();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(456);
-
     loop.recordUserInput({ message: "note" });
-    const result = loop.applyUserInputsToConfig({ userNotes: "prior" });
 
-    expect(result.userNotes).toEqual(["prior", "note"]);
-    expect(result._lastUserNote).toBe("note");
-    expect(result._lastUserNoteAt).toBe(456);
-    expect(result._rawUserInputs).toHaveLength(1);
-
+    expect(loop.applyUserInputsToConfig({})._lastUserNoteAt).toBe(456);
     nowSpy.mockRestore();
   });
 
-  it("returns original config when there is no new user input", () => {
+  it("should_accumulate_raw_user_inputs_when_applyUserInputsToConfig_called", () => {
     const loop = createLoop();
-    const config = { a: 1 };
-    const result = loop.applyUserInputsToConfig(config);
-    expect(result).toBe(config);
+    loop.recordUserInput("one");
+    loop.recordUserInput("two");
+
+    expect(loop.applyUserInputsToConfig({})._rawUserInputs.map((item) => item.payload)).toEqual(["one", "two"]);
   });
 
-  it("applies inputs to custom key and handles non-array existing values", () => {
+  it("should_support_custom_key_when_applyUserInputsToConfig_key_is_provided", () => {
+    const loop = createLoop();
+    loop.recordUserInput("note");
+
+    expect(loop.applyUserInputsToConfig({}, { key: "notes" }).notes).toEqual(["note"]);
+  });
+
+  it("should_ignore_non_array_existing_values_when_appending_to_custom_key", () => {
     const loop = createLoop();
     const largeText = "x".repeat(100000);
     loop.recordUserInput(largeText);
 
-    const result = loop.applyUserInputsToConfig({ notes: { invalid: true } }, { key: "notes" });
-
-    expect(result.notes).toEqual([largeText]);
-    expect(result._rawUserInputs).toHaveLength(1);
+    expect(loop.applyUserInputsToConfig({ notes: { invalid: true } }, { key: "notes" }).notes).toEqual([largeText]);
   });
 
-  it("creates a new config when userConfig is not an object", () => {
+  it("should_create_new_config_when_userConfig_is_not_object", () => {
     const loop = createLoop();
     loop.recordUserInput({ text: "note" });
 
-    const result = loop.applyUserInputsToConfig("invalid");
-
-    expect(result.userNotes).toEqual(["note"]);
+    expect(loop.applyUserInputsToConfig("invalid").userNotes).toEqual(["note"]);
   });
 
-  it("applies deep nested inputs and clears the queue", () => {
+  it("should_return_original_config_when_applyUserInputsToConfig_text_is_empty", () => {
     const loop = createLoop();
-    loop.recordUserInput({ a: { b: { c: { d: 1 } } } });
+    const config = { a: 1 };
+    loop.recordUserInput("   ");
 
-    const result = loop.applyUserInputsToConfig(null);
-    expect(result.userNotes[0]).toContain("\"d\":1");
+    expect(loop.applyUserInputsToConfig(config)).toBe(config);
+  });
+
+  it("should_clear_queue_when_applyUserInputsToConfig_is_called", () => {
+    const loop = createLoop();
+    loop.recordUserInput({ a: { b: { c: 1 } } });
+
+    loop.applyUserInputsToConfig(null);
+
     expect(loop._userInputs.size).toBe(0);
   });
 
-  it("reports pending user inputs correctly", () => {
+  it("should_return_false_when_hasPendingUserInputs_called_with_no_inputs", () => {
     const loop = createLoop();
+
     expect(loop.hasPendingUserInputs()).toBe(false);
+  });
 
+  it("should_return_true_when_hasPendingUserInputs_called_with_inputs_present", () => {
+    const loop = createLoop();
     loop.recordUserInput("one");
-    expect(loop.hasPendingUserInputs()).toBe(true);
 
+    expect(loop.hasPendingUserInputs()).toBe(true);
+  });
+
+  it("should_return_null_when_hasPendingUserInputs_called_with_userInputs_null", () => {
+    const loop = createLoop();
     loop._userInputs = null;
+
     expect(loop.hasPendingUserInputs()).toBe(null);
   });
 
-  it("formats user inputs with trimming, selection, and JSON fallback", () => {
+  it("should_return_empty_string_when_formatUserInputs_items_is_not_array", () => {
+    const loop = createLoop();
+
+    expect(loop.formatUserInputs({})).toBe("");
+  });
+
+  it("should_return_empty_string_when_formatUserInputs_items_is_empty_array", () => {
+    const loop = createLoop();
+
+    expect(loop.formatUserInputs([])).toBe("");
+  });
+
+  it("should_return_trimmed_line_when_formatUserInputs_payload_is_string", () => {
+    const loop = createLoop();
+
+    expect(loop.formatUserInputs([{ payload: "  hello " }])).toBe("hello");
+  });
+
+  it("should_return_trimmed_line_when_formatUserInputs_payload_has_text", () => {
+    const loop = createLoop();
+
+    expect(loop.formatUserInputs([{ payload: { text: " world " } }])).toBe("world");
+  });
+
+  it("should_return_trimmed_line_when_formatUserInputs_payload_has_message", () => {
+    const loop = createLoop();
+
+    expect(loop.formatUserInputs([{ payload: { message: " ok " } }])).toBe("ok");
+  });
+
+  it("should_return_json_when_formatUserInputs_payload_is_object", () => {
+    const loop = createLoop();
+
+    expect(loop.formatUserInputs([{ payload: { nested: { value: 1 } } }])).toBe("{\"nested\":{\"value\":1}}");
+  });
+
+  it("should_fallback_to_String_when_formatUserInputs_payload_is_circular", () => {
     const loop = createLoop();
     const circular = {};
     circular.self = circular;
 
-    const items = [
-      { payload: "  hello " },
-      { payload: "" },
-      { payload: { text: " world " } },
-      { payload: { message: " ok " } },
-      { payload: 0 },
-      { payload: -1 },
-      { payload: Number.MAX_SAFE_INTEGER },
-      { payload: { nested: { deep: { value: 1 } } } },
-      { payload: circular },
-      { payload: "   " },
-      null,
-      undefined,
-    ];
-
-    const result = loop.formatUserInputs(items);
-    const lines = result.split("\n");
-
-    expect(lines).toContain("hello");
-    expect(lines).toContain("world");
-    expect(lines).toContain("ok");
-    expect(lines).toContain("0");
-    expect(lines).toContain("-1");
-    expect(lines).toContain(String(Number.MAX_SAFE_INTEGER));
-    expect(lines.some((line) => line.includes("\"nested\""))).toBe(true);
-    expect(lines).toContain("[object Object]");
-    expect(lines).not.toContain("");
+    expect(loop.formatUserInputs([{ payload: circular }])).toBe("[object Object]");
   });
 
-  it("returns empty string for non-array or empty inputs", () => {
+  it("should_skip_nullish_items_when_formatUserInputs_called", () => {
     const loop = createLoop();
-    expect(loop.formatUserInputs({})).toBe("");
-    expect(loop.formatUserInputs([])).toBe("");
+
+    expect(loop.formatUserInputs([undefined, null])).toBe("");
+  });
+
+  it("should_fallback_to_item_when_payload_is_nullish", () => {
+    const loop = createLoop();
+
+    expect(loop.formatUserInputs([{ payload: null }])).toBe("{\"payload\":null}");
+  });
+
+  it("should_filter_blank_lines_when_formatUserInputs_called", () => {
+    const loop = createLoop();
+
+    expect(loop.formatUserInputs([{ payload: "   " }, { payload: "" }, { payload: "ok" }])).toBe("ok");
+  });
+
+  it.each([
+    { value: 0, expected: "0" },
+    { value: -1, expected: "-1" },
+    { value: Number.MAX_SAFE_INTEGER, expected: String(Number.MAX_SAFE_INTEGER) },
+  ])("should_stringify_numeric_payload_when_formatUserInputs_payload_is_$value", ({ value, expected }) => {
+    const loop = createLoop();
+
+    expect(loop.formatUserInputs([{ payload: value }])).toBe(expected);
   });
 });

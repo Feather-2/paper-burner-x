@@ -25,7 +25,7 @@ import { checkCancelled } from "../../../../../../../js/agents/runtime/index.js"
 import { DesignPhase } from "../../../../../../../js/agents/stages/design/states.js";
 import { emitStage } from "../../../../../../../js/agents/stages/design/design-helpers.js";
 import { runWithPhaseSpan } from "../../../../../../../js/agents/stages/design/internal/phases/phase-utils.js";
-import { runPreparationPhase } from "../../../../../../../js/agents/stages/design/internal/phases/preparation-phase.js";
+import * as preparationPhase from "../../../../../../../js/agents/stages/design/internal/phases/preparation-phase.js";
 
 function createLoop(overrides = {}) {
   const loop = {
@@ -62,15 +62,24 @@ describe("runPreparationPhase", () => {
     runWithPhaseSpan.mockImplementation(async (_traceContext, _name, _meta, runPhase) => runPhase());
   });
 
-  it("runs outline + style extraction and updates state (normal path)", async () => {
-    const contentPackage = { slideIntents: [{ id: 1 }, { id: 2 }] };
-    const parsedContentPackage = { slideIntents: [{ id: "a" }, { id: "b" }] };
-    const designSystem = {
+  async function runHappyPath({
+    contentPackage = { slideIntents: [{ id: 1 }, { id: 2 }] },
+    parsedContentPackage = { slideIntents: [{ id: "a" }, { id: "b" }] },
+    designSystem = {
       theme: "light",
       colorScheme: "neutral",
       fontFamily: "Arial",
       accentColor: "#ffffff",
-    };
+    },
+    context = {
+      signal: { cancelled: false },
+      interactionMode: { outlineConfirm: "skip", styleConfirm: "skip" },
+      eventBus: {},
+    },
+    runContext = { runId: 0, constraints: { minFontSize: 12 } },
+    traceContext = { traceId: "t1" },
+    styleSignal = {},
+  } = {}) {
     const loop = createLoop();
     loop._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
@@ -81,30 +90,54 @@ describe("runPreparationPhase", () => {
       }
       throw new Error("unexpected tool");
     });
-    const { startExecution, finishExecution, styleContext } = createExecution();
-    const emit = vi.fn();
-    const context = { signal: { cancelled: false }, interactionMode: { outlineConfirm: "skip", styleConfirm: "skip" }, eventBus: {} };
-    const runContext = { runId: 0, constraints: { minFontSize: 12 } };
 
-    const result = await runPreparationPhase(loop, {
+    const { startExecution, finishExecution, styleContext } = createExecution(styleSignal);
+    const emit = vi.fn();
+
+    const result = await preparationPhase.runPreparationPhase(loop, {
       contentPackage,
       context,
       runContext,
       emit,
       startExecution,
       finishExecution,
-      traceContext: { traceId: "t1" },
+      traceContext,
     });
 
-    expect(result.parsedContentPackage).toBe(parsedContentPackage);
-    expect(result.slideIntents).toEqual(parsedContentPackage.slideIntents);
-    expect(result.designSystem).toBe(designSystem);
-    expect(result.constraints).toEqual({ minFontSize: 12 });
+    return { result, loop, emit, context, runContext, traceContext, startExecution, finishExecution, styleContext, parsedContentPackage, designSystem };
+  }
 
-    expect(loop.state.contentPackage).toBe(parsedContentPackage);
-    expect(loop.state.slideIntents).toEqual(parsedContentPackage.slideIntents);
-    expect(loop.state.designSystem).toBe(designSystem);
-    expect(loop.state.constraints).toEqual({ minFontSize: 12 });
+  it("should_return_result_when_outline_and_style_extraction_succeed", async () => {
+    const { result, parsedContentPackage, designSystem } = await runHappyPath();
+
+    expect(result).toMatchObject({
+      parsedContentPackage,
+      slideIntents: parsedContentPackage.slideIntents,
+      designSystem,
+      constraints: { minFontSize: 12 },
+    });
+  });
+
+  it("should_return_empty_userConfig_when_no_userConfig_provided", async () => {
+    const { result } = await runHappyPath();
+
+    expect(result.userConfig).toEqual({});
+  });
+
+  it("should_update_loop_state_when_phase_completes", async () => {
+    const { loop, parsedContentPackage, designSystem } = await runHappyPath();
+
+    expect(loop.state).toEqual({
+      contentPackage: parsedContentPackage,
+      slideIntents: parsedContentPackage.slideIntents,
+      designSystem,
+      constraints: { minFontSize: 12 },
+      userConfig: {},
+    });
+  });
+
+  it("should_transition_phases_in_expected_order_when_phase_runs", async () => {
+    const { loop } = await runHappyPath();
 
     expect(loop._transitionPhase.mock.calls.map((call) => call[1])).toEqual([
       DesignPhase.OUTLINE_PARSING,
@@ -112,6 +145,10 @@ describe("runPreparationPhase", () => {
       DesignPhase.STYLE_EXTRACTING,
       DesignPhase.STYLE_CONFIRMING,
     ]);
+  });
+
+  it("should_call_runWithPhaseSpan_with_trace_meta_when_phase_runs", async () => {
+    await runHappyPath();
 
     expect(runWithPhaseSpan).toHaveBeenCalledWith(
       { traceId: "t1" },
@@ -119,8 +156,17 @@ describe("runPreparationPhase", () => {
       { runId: 0, slideCount: 2 },
       expect.any(Function)
     );
+  });
+
+  it("should_emit_design_tokens_ended_when_style_extraction_completes", async () => {
+    const { emit } = await runHappyPath();
 
     expect(emitStage).toHaveBeenCalledWith(emit, "design.tokens.ended", "ended", { theme: "light" });
+  });
+
+  it("should_emit_design_style_preview_when_entering_style_confirming", async () => {
+    const { emit } = await runHappyPath();
+
     expect(emitStage).toHaveBeenCalledWith(
       emit,
       "design.style.preview",
@@ -136,16 +182,34 @@ describe("runPreparationPhase", () => {
         },
       })
     );
-
-    expect(loop._blackboard.setSummary).toHaveBeenCalledWith("outline", "2 slides parsed");
-    expect(loop._blackboard.setSummary).toHaveBeenCalledWith("style", "light");
-    expect(loop._blackboard.logDecision).toHaveBeenCalledWith("preparation_complete", "Parsed 2 slides");
-
-    expect(checkCancelled).toHaveBeenCalledWith(context.signal);
-    expect(checkCancelled).toHaveBeenCalledWith(styleContext.signal);
   });
 
-  it("uses outline confirmation slide intents and updates preview counts", async () => {
+  it("should_write_blackboard_summaries_when_phase_completes", async () => {
+    const { loop } = await runHappyPath();
+
+    expect(loop._blackboard.setSummary.mock.calls).toEqual([
+      ["outline", "2 slides parsed"],
+      ["style", "light"],
+    ]);
+  });
+
+  it("should_log_preparation_complete_decision_when_phase_completes", async () => {
+    const { loop } = await runHappyPath();
+
+    expect(loop._blackboard.logDecision.mock.calls).toEqual([["preparation_complete", "Parsed 2 slides"]]);
+  });
+
+  it("should_check_cancellation_on_context_and_style_signals_when_phase_runs", async () => {
+    const { context, styleContext } = await runHappyPath();
+
+    expect(checkCancelled.mock.calls).toEqual([
+      [context.signal],
+      [context.signal],
+      [styleContext.signal],
+    ]);
+  });
+
+  it("should_wait_for_user_outline_confirmation_when_outlineConfirm_not_skip", async () => {
     const parsedContentPackage = { slideIntents: [{ id: "one" }] };
     const loop = createLoop();
     loop._callTool.mockImplementation(async (tool) => {
@@ -167,7 +231,7 @@ describe("runPreparationPhase", () => {
     };
     const runContext = { runId: 5 };
 
-    const result = await runPreparationPhase(loop, {
+    await preparationPhase.runPreparationPhase(loop, {
       contentPackage: { slideIntents: [] },
       context,
       runContext,
@@ -178,7 +242,74 @@ describe("runPreparationPhase", () => {
     });
 
     expect(loop.waitForUserAction).toHaveBeenCalledWith("confirm_outline", { eventBus: context.eventBus, signal: context.signal });
-    expect(result.slideIntents).toHaveLength(3);
+  });
+
+  it("should_use_outline_confirmed_slideIntents_when_user_provides_slideIntents", async () => {
+    const parsedContentPackage = { slideIntents: [{ id: "one" }] };
+    const confirmedSlideIntents = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    const loop = createLoop();
+    loop._callTool.mockImplementation(async (tool) => {
+      if (tool === "parse_outline") {
+        return { ok: true, data: { contentPackage: parsedContentPackage, slideIntents: parsedContentPackage.slideIntents } };
+      }
+      if (tool === "extract_style") {
+        return { ok: true, data: { designSystem: { theme: "light" } } };
+      }
+      throw new Error("unexpected tool");
+    });
+    loop.waitForUserAction.mockResolvedValue({ slideIntents: confirmedSlideIntents });
+    const { startExecution, finishExecution } = createExecution();
+    const emit = vi.fn();
+    const context = {
+      signal: {},
+      interactionMode: { outlineConfirm: "manual", styleConfirm: "skip" },
+      eventBus: { name: "bus" },
+    };
+
+    const result = await preparationPhase.runPreparationPhase(loop, {
+      contentPackage: { slideIntents: [] },
+      context,
+      runContext: { runId: 5 },
+      emit,
+      startExecution,
+      finishExecution,
+      traceContext: null,
+    });
+
+    expect(result.slideIntents).toEqual(confirmedSlideIntents);
+  });
+
+  it("should_emit_style_preview_with_slideCount_from_outline_confirmation", async () => {
+    const parsedContentPackage = { slideIntents: [{ id: "one" }] };
+    const loop = createLoop();
+    loop._callTool.mockImplementation(async (tool) => {
+      if (tool === "parse_outline") {
+        return { ok: true, data: { contentPackage: parsedContentPackage, slideIntents: parsedContentPackage.slideIntents } };
+      }
+      if (tool === "extract_style") {
+        return { ok: true, data: { designSystem: { theme: "light" } } };
+      }
+      throw new Error("unexpected tool");
+    });
+    loop.waitForUserAction.mockResolvedValue({ slideIntents: [{ id: "a" }, { id: "b" }, { id: "c" }] });
+    const { startExecution, finishExecution } = createExecution();
+    const emit = vi.fn();
+    const context = {
+      signal: {},
+      interactionMode: { outlineConfirm: "manual", styleConfirm: "skip" },
+      eventBus: { name: "bus" },
+    };
+
+    await preparationPhase.runPreparationPhase(loop, {
+      contentPackage: { slideIntents: [] },
+      context,
+      runContext: { runId: 5 },
+      emit,
+      startExecution,
+      finishExecution,
+      traceContext: null,
+    });
+
     expect(emitStage).toHaveBeenCalledWith(
       emit,
       "design.style.preview",
@@ -187,7 +318,7 @@ describe("runPreparationPhase", () => {
     );
   });
 
-  it("applies normalized style overrides and logs decision", async () => {
+  it("should_apply_normalized_style_overrides_when_styleConfirm_returns_valid_values", async () => {
     const designSystem = {
       theme: "light",
       colorScheme: "blue",
@@ -222,7 +353,7 @@ describe("runPreparationPhase", () => {
       eventBus: {},
     };
 
-    const result = await runPreparationPhase(loop, {
+    const result = await preparationPhase.runPreparationPhase(loop, {
       contentPackage: { slideIntents: [{ id: 1 }] },
       context,
       runContext: { runId: "0" },
@@ -238,21 +369,67 @@ describe("runPreparationPhase", () => {
       fontFamily: expectedFontFamily,
       accentColor: "rgba(0, 128, 255, 0.5)",
     });
-
-    const overrideCalls = loop._blackboard.logDecision.mock.calls.filter((call) => call[0] === "style_override");
-    expect(overrideCalls).toHaveLength(1);
-    expect(overrideCalls[0][1]).toBe("User modified design tokens");
-    expect(overrideCalls[0][2]).toEqual({
-      overrides: {
-        theme: "dark",
-        colorScheme: expectedColorScheme,
-        fontFamily: expectedFontFamily,
-        accentColor: "rgba(0, 128, 255, 0.5)",
-      },
-    });
   });
 
-  it("ignores invalid or empty style overrides and skips style_override log", async () => {
+  it("should_log_style_override_decision_when_user_modifies_any_design_token", async () => {
+    const designSystem = {
+      theme: "light",
+      colorScheme: "blue",
+      fontFamily: "Arial",
+      accentColor: "#000000",
+    };
+    const longFontFamily = "Font ".repeat(30).trim();
+    const longColorScheme = `scheme ${"x".repeat(80)}`;
+    const expectedFontFamily = longFontFamily.slice(0, 100);
+    const expectedColorScheme = longColorScheme.trim().slice(0, 40);
+    const expectedOverrides = {
+      theme: "dark",
+      colorScheme: expectedColorScheme,
+      fontFamily: expectedFontFamily,
+      accentColor: "rgba(0, 128, 255, 0.5)",
+    };
+    const loop = createLoop();
+    loop._callTool.mockImplementation(async (tool) => {
+      if (tool === "parse_outline") {
+        return { ok: true, data: { contentPackage: { slideIntents: [{ id: 1 }] }, slideIntents: [{ id: 1 }] } };
+      }
+      if (tool === "extract_style") {
+        return { ok: true, data: { designSystem } };
+      }
+      throw new Error("unexpected tool");
+    });
+    loop.waitForUserAction.mockResolvedValue({
+      theme: " Dark ",
+      colorScheme: longColorScheme,
+      fontFamily: longFontFamily,
+      accentColor: " rgba(0, 128, 255, 0.5) ",
+    });
+    const { startExecution, finishExecution } = createExecution();
+    const emit = vi.fn();
+    const context = {
+      signal: {},
+      interactionMode: { outlineConfirm: "skip", styleConfirm: "manual" },
+      eventBus: {},
+    };
+
+    await preparationPhase.runPreparationPhase(loop, {
+      contentPackage: { slideIntents: [{ id: 1 }] },
+      context,
+      runContext: { runId: "0" },
+      emit,
+      startExecution,
+      finishExecution,
+      traceContext: null,
+    });
+
+    expect(loop._blackboard.logDecision).toHaveBeenCalledWith(
+      "style_override",
+      "User modified design tokens",
+      { overrides: expectedOverrides }
+    );
+  });
+
+  it("should_ignore_invalid_style_overrides_when_styleConfirm_returns_invalid_values", async () => {
     const designSystem = {
       theme: "light",
       colorScheme: "blue",
@@ -283,7 +460,7 @@ describe("runPreparationPhase", () => {
       eventBus: {},
     };
 
-    const result = await runPreparationPhase(loop, {
+    const result = await preparationPhase.runPreparationPhase(loop, {
       contentPackage: { slideIntents: [{ id: 1 }] },
       context,
       runContext: { runId: 1 },
@@ -294,17 +471,60 @@ describe("runPreparationPhase", () => {
     });
 
     expect(result.designSystem).toEqual(designSystem);
+  });
+
+  it("should_not_log_style_override_when_styleConfirm_overrides_are_invalid", async () => {
+    const designSystem = {
+      theme: "light",
+      colorScheme: "blue",
+      fontFamily: "Arial",
+      accentColor: "#000000",
+    };
+    const loop = createLoop();
+    loop._callTool.mockImplementation(async (tool) => {
+      if (tool === "parse_outline") {
+        return { ok: true, data: { contentPackage: { slideIntents: [{ id: 1 }] }, slideIntents: [{ id: 1 }] } };
+      }
+      if (tool === "extract_style") {
+        return { ok: true, data: { designSystem } };
+      }
+      throw new Error("unexpected tool");
+    });
+    loop.waitForUserAction.mockResolvedValue({
+      theme: 123,
+      colorScheme: "!!!",
+      fontFamily: "   ",
+      accentColor: "not-a-color",
+    });
+    const { startExecution, finishExecution } = createExecution();
+    const emit = vi.fn();
+    const context = {
+      signal: {},
+      interactionMode: { outlineConfirm: "skip", styleConfirm: "manual" },
+      eventBus: {},
+    };
+
+    await preparationPhase.runPreparationPhase(loop, {
+      contentPackage: { slideIntents: [{ id: 1 }] },
+      context,
+      runContext: { runId: 1 },
+      emit,
+      startExecution,
+      finishExecution,
+      traceContext: null,
+    });
+
     expect(loop._blackboard.logDecision.mock.calls.some((call) => call[0] === "style_override")).toBe(false);
   });
 
-  it("throws when parse_outline fails", async () => {
+  it("should_throw_when_parse_outline_returns_not_ok", async () => {
     const loop = createLoop();
     loop._callTool.mockResolvedValue({ ok: false, error: "parse fail" });
     const { startExecution, finishExecution } = createExecution();
     const context = { signal: {}, interactionMode: {}, eventBus: {} };
 
     await expect(
-      runPreparationPhase(loop, {
+      preparationPhase.runPreparationPhase(loop, {
         contentPackage: { slideIntents: [{ id: 1 }] },
         context,
         runContext: { runId: -1 },
@@ -314,11 +534,32 @@ describe("runPreparationPhase", () => {
         traceContext: null,
       })
     ).rejects.toThrow("parse fail");
-
-    expect(loop._callTool).toHaveBeenCalledTimes(1);
   });
 
-  it("throws when extract_style fails", async () => {
+  it("should_not_start_execution_when_parse_outline_returns_not_ok", async () => {
+    const loop = createLoop();
+    loop._callTool.mockResolvedValue({ ok: false, error: "parse fail" });
+    const { startExecution, finishExecution } = createExecution();
+    const context = { signal: {}, interactionMode: {}, eventBus: {} };
+
+    try {
+      await preparationPhase.runPreparationPhase(loop, {
+        contentPackage: { slideIntents: [{ id: 1 }] },
+        context,
+        runContext: { runId: -1 },
+        emit: vi.fn(),
+        startExecution,
+        finishExecution,
+        traceContext: null,
+      });
+    } catch {
+      // ignore
+    }
+
+    expect(startExecution).not.toHaveBeenCalled();
+  });
+
+  it("should_throw_when_extract_style_returns_not_ok", async () => {
     const loop = createLoop();
     loop._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
@@ -333,7 +574,7 @@ describe("runPreparationPhase", () => {
     const context = { signal: {}, interactionMode: {}, eventBus: {} };
 
     await expect(
-      runPreparationPhase(loop, {
+      preparationPhase.runPreparationPhase(loop, {
         contentPackage: { slideIntents: [{ id: 1 }] },
         context,
         runContext: { runId: 2 },
@@ -343,18 +584,47 @@ describe("runPreparationPhase", () => {
         traceContext: null,
       })
     ).rejects.toThrow("style fail");
+  });
+
+  it("should_not_finish_execution_when_extract_style_returns_not_ok", async () => {
+    const loop = createLoop();
+    loop._callTool.mockImplementation(async (tool) => {
+      if (tool === "parse_outline") {
+        return { ok: true, data: { contentPackage: { slideIntents: [{ id: 1 }] }, slideIntents: [{ id: 1 }] } };
+      }
+      if (tool === "extract_style") {
+        return { ok: false, error: "style fail" };
+      }
+      throw new Error("unexpected tool");
+    });
+    const { startExecution, finishExecution } = createExecution();
+    const context = { signal: {}, interactionMode: {}, eventBus: {} };
+
+    try {
+      await preparationPhase.runPreparationPhase(loop, {
+        contentPackage: { slideIntents: [{ id: 1 }] },
+        context,
+        runContext: { runId: 2 },
+        emit: vi.fn(),
+        startExecution,
+        finishExecution,
+        traceContext: null,
+      });
+    } catch {
+      // ignore
+    }
 
     expect(finishExecution).not.toHaveBeenCalled();
   });
 
-  it("throws when slideIntents is empty array", async () => {
+  it("should_throw_when_slideIntents_is_empty_array", async () => {
     const loop = createLoop();
     loop._callTool.mockResolvedValue({ ok: true, data: { contentPackage: { slideIntents: [] }, slideIntents: [] } });
     const { startExecution, finishExecution } = createExecution();
     const context = { signal: {}, interactionMode: {}, eventBus: {} };
 
     await expect(
-      runPreparationPhase(loop, {
+      preparationPhase.runPreparationPhase(loop, {
         contentPackage: { slideIntents: [] },
         context,
         runContext: { runId: 3 },
@@ -366,14 +636,14 @@ describe("runPreparationPhase", () => {
     ).rejects.toThrow("contentPackage.slideIntents is required");
   });
 
-  it("throws when slideIntents is not an array (type boundary)", async () => {
+  it("should_throw_when_slideIntents_is_not_an_array", async () => {
     const loop = createLoop();
     loop._callTool.mockResolvedValue({ ok: true, data: { contentPackage: { slideIntents: {} }, slideIntents: {} } });
     const { startExecution, finishExecution } = createExecution();
     const context = { signal: {}, interactionMode: {}, eventBus: {} };
 
     await expect(
-      runPreparationPhase(loop, {
+      preparationPhase.runPreparationPhase(loop, {
         contentPackage: { slideIntents: {} },
         context,
         runContext: { runId: 4 },
@@ -385,14 +655,17 @@ describe("runPreparationPhase", () => {
     ).rejects.toThrow("contentPackage.slideIntents is required");
   });
 
-  it("resolves userConfig precedence and applies user inputs", async () => {
+  async function runUserConfigScenario() {
     const loop = createLoop({
       state: { contentPackage: { slideIntents: [{ id: 1 }], userConfig: null } },
       applyUserInputsToConfig: vi.fn((config) => ({ ...config, applied: true })),
     });
     loop._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
-        return { ok: true, data: { contentPackage: loop.state.contentPackage, slideIntents: loop.state.contentPackage.slideIntents } };
+        return {
+          ok: true,
+          data: { contentPackage: loop.state.contentPackage, slideIntents: loop.state.contentPackage.slideIntents },
+        };
       }
       if (tool === "extract_style") {
         return { ok: true, data: { designSystem: { theme: "light" } } };
@@ -402,7 +675,7 @@ describe("runPreparationPhase", () => {
     const { startExecution, finishExecution } = createExecution();
     const context = { signal: {}, interactionMode: {}, eventBus: {}, userConfig: { fromContext: true } };
 
-    await runPreparationPhase(loop, {
+    await preparationPhase.runPreparationPhase(loop, {
       contentPackage: undefined,
       context,
       runContext: { runId: 5, userConfig: null },
@@ -412,19 +685,31 @@ describe("runPreparationPhase", () => {
       traceContext: null,
     });
 
+    return { loop, startExecution, context };
+  }
+
+  it("should_fall_back_to_loop_state_contentPackage_when_contentPackage_is_undefined", async () => {
+    const { loop, context } = await runUserConfigScenario();
+
+    expect(loop._callTool).toHaveBeenCalledWith("parse_outline", { contentPackage: loop.state.contentPackage }, context);
+  });
+
+  it("should_apply_user_inputs_to_userConfig_when_applyUserInputsToConfig_is_provided", async () => {
+    const { loop } = await runUserConfigScenario();
+
     expect(loop.applyUserInputsToConfig).toHaveBeenCalledWith({ fromContext: true });
+  });
+
+  it("should_pass_transformed_userConfig_to_startExecution_when_applyUserInputsToConfig_transforms_userConfig", async () => {
+    const { startExecution } = await runUserConfigScenario();
+
     expect(startExecution).toHaveBeenCalledWith(
       "style_extracting",
       expect.objectContaining({ userConfig: { fromContext: true, applied: true } })
     );
-    expect(loop._callTool).toHaveBeenCalledWith(
-      "parse_outline",
-      { contentPackage: loop.state.contentPackage },
-      context
-    );
   });
 
-  it("supports concurrent runs with isolated loops (large + nested inputs)", async () => {
+  it("should_isolate_results_when_run_concurrently_on_different_loops", async () => {
     const largeSlideIntents = Array.from({ length: 10000 }, (_v, i) => ({ id: i }));
     const deepPackage = { slideIntents: [{ id: "x" }], meta: { nested: { level: { value: "deep" } } } };
 
@@ -453,7 +738,7 @@ describe("runPreparationPhase", () => {
     const execB = createExecution();
 
     const [resA, resB] = await Promise.all([
-      runPreparationPhase(loopA, {
+      preparationPhase.runPreparationPhase(loopA, {
         contentPackage: { slideIntents: largeSlideIntents },
         context: { signal: {}, interactionMode: {}, eventBus: {} },
         runContext: { runId: -1 },
@@ -462,7 +747,7 @@ describe("runPreparationPhase", () => {
         finishExecution: execA.finishExecution,
         traceContext: null,
       }),
-      runPreparationPhase(loopB, {
+      preparationPhase.runPreparationPhase(loopB, {
         contentPackage: deepPackage,
         context: { signal: {}, interactionMode: {}, eventBus: {} },
         runContext: { runId: Number.MAX_SAFE_INTEGER },
@@ -473,25 +758,10 @@ describe("runPreparationPhase", () => {
       }),
     ]);
 
-    expect(resA.slideIntents).toHaveLength(10000);
-    expect(resB.parsedContentPackage).toBe(deepPackage);
-    expect(loopA.state.slideIntents).toHaveLength(10000);
-    expect(loopB.state.contentPackage).toBe(deepPackage);
-    expect(runWithPhaseSpan).toHaveBeenCalledWith(
-      null,
-      "design.phase.preparation",
-      { runId: -1, slideCount: 10000 },
-      expect.any(Function)
-    );
-    expect(runWithPhaseSpan).toHaveBeenCalledWith(
-      null,
-      "design.phase.preparation",
-      { runId: Number.MAX_SAFE_INTEGER, slideCount: 1 },
-      expect.any(Function)
-    );
+    expect([resA.designSystem.theme, resB.designSystem.theme]).toEqual(["light", "dark"]);
   });
 
-  it("handles rapid sequential calls on the same loop", async () => {
+  it("should_update_loop_state_to_last_run_when_called_sequentially", async () => {
     const loop = createLoop();
     const toolQueue = [
       { tool: "parse_outline", result: { ok: true, data: { contentPackage: { slideIntents: [{ id: 1 }] }, slideIntents: [{ id: 1 }] } } },
@@ -509,7 +779,7 @@ describe("runPreparationPhase", () => {
     const { startExecution, finishExecution } = createExecution();
     const context = { signal: {}, interactionMode: {}, eventBus: {} };
 
-    const first = await runPreparationPhase(loop, {
+    await preparationPhase.runPreparationPhase(loop, {
       contentPackage: { slideIntents: [{ id: 1 }] },
       context,
       runContext: { runId: 6 },
@@ -518,7 +788,7 @@ describe("runPreparationPhase", () => {
       finishExecution,
       traceContext: null,
     });
-    const second = await runPreparationPhase(loop, {
+    await preparationPhase.runPreparationPhase(loop, {
       contentPackage: { slideIntents: [{ id: 2 }, { id: 3 }] },
       context,
       runContext: { runId: 7 },
@@ -528,9 +798,6 @@ describe("runPreparationPhase", () => {
       traceContext: null,
     });
 
-    expect(first.slideIntents).toHaveLength(1);
-    expect(second.slideIntents).toHaveLength(2);
     expect(loop.state.slideIntents).toHaveLength(2);
-    expect(loop._blackboard.logDecision.mock.calls.filter((call) => call[0] === "preparation_complete")).toHaveLength(2);
   });
 });

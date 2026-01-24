@@ -1,22 +1,49 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../../js/agents/shared/index.js", async () => {
-  const actual = await vi.importActual("../../../../js/agents/shared/index.js");
-  return {
-    ...actual,
-    safeJsonParse: vi.fn(actual.safeJsonParse),
-    isPlainObject: vi.fn(actual.isPlainObject),
-    toNonEmptyString: vi.fn(actual.toNonEmptyString),
-  };
+vi.mock("../../../../js/agents/shared/index.js", () => {
+  const isPlainObject = vi.fn((v) => {
+    if (v === null || typeof v !== "object") return false;
+    if (Array.isArray(v)) return false;
+    const proto = Object.getPrototypeOf(v);
+    return proto === Object.prototype || proto === null;
+  });
+
+  const toNonEmptyString = vi.fn((v) => {
+    if (v === undefined || v === null) return undefined;
+    const s = String(v).trim();
+    return s.length ? s : undefined;
+  });
+
+  const safeJsonParse = vi.fn((value, options) => {
+    const opts = options && typeof options === "object" ? options : {};
+    const maxChars = Number.isFinite(opts.maxChars) && opts.maxChars > 0 ? Math.floor(opts.maxChars) : 1_000_000;
+    if (value === null || value === undefined) return null;
+    if (typeof value === "object") return value;
+    const raw = typeof value === "string" ? value : String(value);
+    const s = raw.trim();
+    if (!s) return null;
+    if (maxChars !== Infinity && s.length > maxChars) return null;
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  });
+
+  return { safeJsonParse, isPlainObject, toNonEmptyString };
 });
 
 import * as shared from "../../../../js/agents/shared/index.js";
 
 import {
+  GEMINI_ASPECT_RATIOS,
+  GEMINI_IMAGE_SIZES,
   GeminiImageAdapter,
   ImageProvider,
   OpenAIImageAdapter,
   IMAGE_PROVIDER_STORAGE_KEY,
+  OPENAI_QUALITIES,
+  OPENAI_SIZES,
   createImageProvider,
   createImageProviderFromConfig,
 } from "../../../../js/agents/llm/image-provider.js";
@@ -78,6 +105,32 @@ beforeEach(() => {
 
   vi.useRealTimers();
   vi.clearAllMocks();
+});
+
+describe("exports", () => {
+  it("should_export_expected_storage_key", () => {
+    expect(IMAGE_PROVIDER_STORAGE_KEY).toBe("imageProviderConfig");
+  });
+
+  it("should_export_frozen_gemini_aspect_ratios", () => {
+    expect(Object.isFrozen(GEMINI_ASPECT_RATIOS)).toBe(true);
+    expect(GEMINI_ASPECT_RATIOS).toEqual(["16:9", "1:1", "4:3"]);
+  });
+
+  it("should_export_frozen_gemini_image_sizes", () => {
+    expect(Object.isFrozen(GEMINI_IMAGE_SIZES)).toBe(true);
+    expect(GEMINI_IMAGE_SIZES).toEqual(["1K", "2K"]);
+  });
+
+  it("should_export_frozen_openai_sizes", () => {
+    expect(Object.isFrozen(OPENAI_SIZES)).toBe(true);
+    expect(OPENAI_SIZES).toEqual(["1024x1024", "1792x1024", "1024x1792"]);
+  });
+
+  it("should_export_frozen_openai_qualities", () => {
+    expect(Object.isFrozen(OPENAI_QUALITIES)).toBe(true);
+    expect(OPENAI_QUALITIES).toEqual(["standard", "hd"]);
+  });
 });
 
 describe("GeminiImageAdapter", () => {

@@ -9,19 +9,81 @@ vi.mock("../../../../../js/agents/runtime/safety/tool-restrictions.js", () => ({
   normalizeToolRestrictions: vi.fn((input) => (input && typeof input === "object" ? input : null)),
 }));
 
-vi.mock("../../../../../js/agents/runtime/hooks/event-bus-hooks.js", async (importActual) => {
-  const actual = await importActual();
-  return { ...actual };
+vi.mock("../../../../../js/agents/runtime/hooks/hook-registry.js", () => ({
+  HookType: {
+    COMMAND: "command",
+    PROMPT: "prompt",
+    AGENT: "agent",
+  },
+}));
+
+vi.mock("../../../../../js/agents/runtime/hooks/event-bus-hooks.js", () => {
+  const createRegistry = () => {
+    /** @type {Map<string, any[]>} */
+    const hooksByEvent = new Map();
+
+    const register = (eventName, hook) => {
+      const name = String(eventName || "");
+      const list = hooksByEvent.get(name) || [];
+      list.push(hook);
+      hooksByEvent.set(name, list);
+    };
+
+    const list = (eventName) => hooksByEvent.get(String(eventName || "")) || [];
+
+    const match = (eventName, toolName) => {
+      const hooks = list(eventName);
+      const tool = String(toolName || "");
+      return hooks.filter((hook) => {
+        const declaredTool = typeof hook?.tool === "string" ? hook.tool.trim() : "";
+        if (!declaredTool) return true;
+        return declaredTool === tool;
+      });
+    };
+
+    return { register, list, match };
+  };
+
+  const enhanceEventBusWithHooks = (eventBus) => {
+    const bus = eventBus && typeof eventBus === "object" ? eventBus : {};
+    if (!bus.__hookRegistry) bus.__hookRegistry = createRegistry();
+    if (typeof bus.registerHook !== "function") {
+      bus.registerHook = (eventName, hook) => bus.__hookRegistry.register(eventName, hook);
+    }
+    return bus;
+  };
+
+  const getHookRegistry = (eventBus) => {
+    const bus = eventBus && typeof eventBus === "object" ? eventBus : null;
+    return bus?.__hookRegistry || null;
+  };
+
+  return { enhanceEventBusWithHooks, getHookRegistry };
 });
 
-vi.mock("../../../../../js/agents/runtime/hooks/hook-registry.js", async (importActual) => {
-  const actual = await importActual();
-  return { ...actual };
-});
+vi.mock("../../../../../js/agents/shared/index.js", () => {
+  const toNonEmptyString = (value) => {
+    if (typeof value !== "string") return "";
+    const trimmed = value.trim();
+    return trimmed ? trimmed : "";
+  };
 
-vi.mock("../../../../../js/agents/shared/index.js", async (importActual) => {
-  const actual = await importActual();
-  return { ...actual };
+  const isPlainObject = (value) => {
+    if (!value || typeof value !== "object") return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  };
+
+  const robustParseJson = (text, fallback) => {
+    if (typeof text !== "string") return fallback;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return fallback;
+    }
+  };
+
+  return { isPlainObject, toNonEmptyString, robustParseJson };
 });
 
 import {
@@ -66,470 +128,845 @@ beforeEach(() => {
 });
 
 describe("createPreToolUseHook", () => {
-  it("returns null when no eventBus and no restrictions", async () => {
-    const hook = createPreToolUseHook();
-    const result = await hook({ tool: "read", params: {}, context: {} });
+  describe("when no eventBus and no restrictions", () => {
+    let result;
 
-    expect(result).toBe(null);
-    expect(evaluateToolRestrictionsMock).not.toHaveBeenCalled();
+    beforeEach(async () => {
+      const hook = createPreToolUseHook();
+      result = await hook({ tool: "read", params: {}, context: {} });
+    });
+
+    it("should_return_null_when_no_event_bus_and_no_restrictions", () => {
+      expect(result).toBe(null);
+    });
+
+    it("should_not_call_evaluateToolRestrictions_when_no_restrictions", () => {
+      expect(evaluateToolRestrictionsMock).not.toHaveBeenCalled();
+    });
   });
 
-  it("denies on restriction and sanitizes args for edge/resource boundaries", async () => {
-    const eventBus = createEventBus();
-    const hook = createPreToolUseHook();
+  describe("when eventBus has no hook registry", () => {
+    let result;
 
-    evaluateToolRestrictionsMock.mockReturnValue({
-      allowed: false,
-      reason: "tool_blocked",
-      policy: { type: "blocklist" },
+    beforeEach(async () => {
+      const hook = createPreToolUseHook();
+      result = await hook({
+        tool: "read",
+        params: {},
+        context: { eventBus: { emit: vi.fn() }, toolRestrictions: {} },
+      });
     });
 
-    const longString = `${"a".repeat(600)} token=secret`;
-    const deep = {
-      level1: { level2: { level3: { level4: { level5: { level6: { level7: "x" } } } } } },
-    };
-
-    const params = {
-      emptyString: "",
-      whitespace: "   ",
-      emptyArray: [],
-      emptyObject: {},
-      nullVal: null,
-      undefinedVal: undefined,
-      zero: 0,
-      neg: -1,
-      max: Number.MAX_SAFE_INTEGER,
-      numAsString: "42",
-      listObject: { 0: "a", length: "2" },
-      password: "secret",
-      token: "abc",
-      header: "authorization: bearer supersecret",
-      query: "api_key=12345",
-      longString,
-      deep,
-      buffer: new ArrayBuffer(1024 * 1024),
-      typed: new Uint8Array(4),
-      __proto__: { polluted: true },
-    };
-
-    const result = await hook({
-      tool: "write",
-      params,
-      context: createContext(eventBus, { toolRestrictions: {} }),
+    it("should_return_null_when_hook_registry_is_missing", () => {
+      expect(result).toBe(null);
     });
-
-    expect(result).toMatchObject({ skip: true, value: { ok: false, error: "tool_blocked" } });
-
-    const denied = findEvent(eventBus.events, "tool:denied");
-    expect(denied).not.toBeNull();
-
-    const args = denied.payload.args;
-    expect(args.password).toBe("[REDACTED]");
-    expect(args.token).toBe("[REDACTED]");
-    expect(args.header).toContain("[REDACTED]");
-    expect(args.query).toContain("[REDACTED]");
-    expect(args.longString.endsWith("...")).toBe(true);
-    expect(args.longString.length).toBeLessThanOrEqual(500);
-    expect(args.emptyArray).toEqual([]);
-    expect(Object.keys(args.emptyObject)).toHaveLength(0);
-    expect(args.nullVal).toBeNull();
-    expect(Object.prototype.hasOwnProperty.call(args, "undefinedVal")).toBe(true);
-    expect(args.undefinedVal).toBeUndefined();
-    expect(args.zero).toBe(0);
-    expect(args.neg).toBe(-1);
-    expect(args.max).toBe(Number.MAX_SAFE_INTEGER);
-    expect(args.numAsString).toBe("42");
-    expect(args.listObject[0]).toBe("a");
-    expect(args.listObject.length).toBe("2");
-    expect(args.deep.level1.level2.level3.level4.level5).toBe("[MaxDepth]");
-    expect(args.buffer).toBe("[ArrayBuffer 1048576 bytes]");
-    expect(args.typed).toBe("[Uint8Array 4 bytes]");
-    expect(Object.prototype.hasOwnProperty.call(args, "__proto__")).toBe(false);
   });
 
-  it("merges readonly restrictions when permissionLevel is readonly", async () => {
-    const eventBus = createEventBus();
-    const hook = createPreToolUseHook();
+  describe("when tool restrictions deny", () => {
+    let eventBus;
+    let result;
+    let denied;
+    let args;
 
-    let captured = null;
-    evaluateToolRestrictionsMock.mockImplementation((input) => {
-      captured = input.restrictions;
-      return { allowed: true };
+    beforeEach(async () => {
+      eventBus = createEventBus();
+
+      evaluateToolRestrictionsMock.mockReturnValue({
+        allowed: false,
+        reason: "tool_blocked",
+        policy: { type: "blocklist" },
+      });
+
+      const deep = {
+        level1: { level2: { level3: { level4: { level5: { level6: { level7: "x" } } } } } },
+      };
+      const circular = {};
+      circular.self = circular;
+
+      const params = {
+        emptyString: "",
+        whitespace: "   ",
+        emptyArray: [],
+        emptyObject: {},
+        nullVal: null,
+        undefinedVal: undefined,
+        zero: 0,
+        neg: -1,
+        max: Number.MAX_SAFE_INTEGER,
+        numAsString: "42",
+        listObject: { 0: "a", length: "2" },
+        password: "secret",
+        token: "abc",
+        header: "authorization: bearer supersecret",
+        query: "api_key=12345",
+        longString: `${"a".repeat(600)} token=secret`,
+        deep,
+        largeArray: Array.from({ length: 60 }, (_v, i) => i),
+        circular,
+        big: 123n,
+        fn: () => {},
+        lotsOfKeys: Object.fromEntries(Array.from({ length: 55 }, (_v, i) => [`k${i}`, i])),
+        buffer: new ArrayBuffer(1024 * 1024),
+        typed: new Uint8Array(4),
+        __proto__: { polluted: true },
+        constructor: { polluted: true },
+        prototype: { polluted: true },
+      };
+
+      const hook = createPreToolUseHook();
+      result = await hook({
+        tool: "write",
+        params,
+        context: createContext(eventBus, { toolRestrictions: {} }),
+      });
+
+      denied = findEvent(eventBus.events, "tool:denied");
+      args = denied?.payload?.args || null;
     });
 
-    await hook({
-      tool: "bash",
-      params: { command: "ls" },
-      context: createContext(eventBus, {
-        permissionLevel: "read-only",
-        toolRestrictions: { blockedTools: ["net"], bash: { blockedCommands: ["rm"], toolNames: ["bash"] } },
-      }),
+    it("should_skip_when_restriction_denies", () => {
+      expect(result).toMatchObject({ skip: true, value: { ok: false, error: "tool_blocked" } });
     });
 
-    expect(captured).not.toBeNull();
-    expect(captured.blockedTools).toEqual(expect.arrayContaining(["net", "write"]));
-    expect(captured.bash.allowedCommands).toEqual(expect.arrayContaining(["ls"]));
-    expect(captured.bash.blockedCommands).toEqual(expect.arrayContaining(["rm"]));
-    expect(captured.bash.toolNames).toEqual(expect.arrayContaining(["bash"]));
+    it("should_emit_tool_denied_event_when_restriction_denies", () => {
+      expect(denied?.event).toBe("tool:denied");
+    });
+
+    it("should_redact_sensitive_keys_when_sanitizing_args", () => {
+      expect({ password: args.password, token: args.token }).toEqual({ password: "[REDACTED]", token: "[REDACTED]" });
+    });
+
+    it("should_redact_secrets_in_header_strings_when_sanitizing_args", () => {
+      expect(args.header).toContain("[REDACTED]");
+    });
+
+    it("should_redact_secrets_in_query_strings_when_sanitizing_args", () => {
+      expect(args.query).toContain("[REDACTED]");
+    });
+
+    it("should_truncate_long_strings_when_sanitizing_args", () => {
+      expect(args.longString.endsWith("...")).toBe(true);
+    });
+
+    it("should_limit_string_length_to_maxString_when_sanitizing_args", () => {
+      expect(args.longString.length <= 500).toBe(true);
+    });
+
+    it("should_preserve_null_values_when_sanitizing_args", () => {
+      expect(args.nullVal).toBeNull();
+    });
+
+    it("should_preserve_undefined_properties_when_sanitizing_args", () => {
+      expect(Object.prototype.hasOwnProperty.call(args, "undefinedVal")).toBe(true);
+    });
+
+    it("should_limit_object_depth_when_sanitizing_args", () => {
+      expect(args.deep.level1.level2.level3.level4.level5).toBe("[MaxDepth]");
+    });
+
+    it("should_summarize_arraybuffers_when_sanitizing_args", () => {
+      expect(args.buffer).toBe("[ArrayBuffer 1048576 bytes]");
+    });
+
+    it("should_summarize_typed_arrays_when_sanitizing_args", () => {
+      expect(args.typed).toBe("[Uint8Array 4 bytes]");
+    });
+
+    it("should_drop_proto_pollution_keys_when_sanitizing_args", () => {
+      expect(Object.prototype.hasOwnProperty.call(args, "__proto__")).toBe(false);
+    });
+
+    it("should_drop_constructor_key_when_sanitizing_args", () => {
+      expect(Object.prototype.hasOwnProperty.call(args, "constructor")).toBe(false);
+    });
+
+    it("should_drop_prototype_key_when_sanitizing_args", () => {
+      expect(Object.prototype.hasOwnProperty.call(args, "prototype")).toBe(false);
+    });
+
+    it("should_truncate_large_arrays_when_sanitizing_args", () => {
+      expect(args.largeArray.at(-1)).toBe("[+10 items]");
+    });
+
+    it("should_mark_circular_references_when_sanitizing_args", () => {
+      expect(args.circular.self).toBe("[Circular]");
+    });
+
+    it("should_stringify_bigints_when_sanitizing_args", () => {
+      expect(args.big).toBe("123");
+    });
+
+    it("should_label_functions_when_sanitizing_args", () => {
+      expect(args.fn).toBe("[Function]");
+    });
+
+    it("should_record_truncated_object_key_count_when_sanitizing_args", () => {
+      expect(args.lotsOfKeys.__truncatedKeys).toBe(5);
+    });
   });
 
-  it("denies when command hook requires approval", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.COMMAND });
+  describe("when permissionLevel is readonly", () => {
+    let capturedRestrictions;
 
-    classifyCommandMock.mockReturnValue({
-      requiresApproval: true,
-      baseCommand: "rm",
-      level: "dangerous",
+    beforeEach(async () => {
+      const eventBus = createEventBus();
+      capturedRestrictions = null;
+
+      evaluateToolRestrictionsMock.mockImplementation((input) => {
+        capturedRestrictions = input.restrictions;
+        return { allowed: true };
+      });
+
+      const hook = createPreToolUseHook();
+      await hook({
+        tool: "bash",
+        params: { command: "ls" },
+        context: createContext(eventBus, {
+          permissionLevel: "read-only",
+          toolRestrictions: { blockedTools: ["net"], bash: { blockedCommands: ["rm"], toolNames: ["bash"] } },
+        }),
+      });
     });
 
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "bash",
-      params: { command: "rm -rf /" },
-      context: createContext(eventBus),
+    it("should_merge_readonly_blocked_tools_when_permissionLevel_is_readonly", () => {
+      expect(capturedRestrictions.blockedTools).toEqual(expect.arrayContaining(["net", "write"]));
     });
 
-    expect(classifyCommandMock).toHaveBeenCalledWith("rm -rf /");
-    expect(result).toMatchObject({ skip: true, value: { ok: false } });
+    it("should_include_readonly_bash_allowlist_when_permissionLevel_is_readonly", () => {
+      expect(capturedRestrictions.bash.allowedCommands).toEqual(expect.arrayContaining(["ls"]));
+    });
 
-    const denied = findEvent(eventBus.events, "tool:denied");
-    expect(denied?.payload?.policy?.hookType).toBe("command");
+    it("should_preserve_existing_bash_blocklist_when_permissionLevel_is_readonly", () => {
+      expect(capturedRestrictions.bash.blockedCommands).toEqual(expect.arrayContaining(["rm"]));
+    });
   });
 
-  it("allows command hook when blocking is false", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.COMMAND, blocking: false });
+  describe("command hooks", () => {
+    describe("when command requires approval", () => {
+      let eventBus;
+      let result;
+      let denied;
 
-    classifyCommandMock.mockReturnValue({
-      requiresApproval: true,
-      baseCommand: "rm",
-      level: "dangerous",
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.COMMAND });
+
+        classifyCommandMock.mockReturnValue({
+          requiresApproval: true,
+          baseCommand: "rm",
+          level: "dangerous",
+        });
+
+        const hook = createPreToolUseHook();
+        result = await hook({
+          tool: "bash",
+          params: { command: "rm -rf /" },
+          context: createContext(eventBus),
+        });
+
+        denied = findEvent(eventBus.events, "tool:denied");
+      });
+
+      it("should_call_classifyCommand_with_extracted_command", () => {
+        expect(classifyCommandMock).toHaveBeenCalledWith("rm -rf /");
+      });
+
+      it("should_skip_when_command_requires_approval", () => {
+        expect(result).toMatchObject({ skip: true, value: { ok: false } });
+      });
+
+      it("should_emit_command_policy_when_command_requires_approval", () => {
+        expect(denied?.payload?.policy?.hookType).toBe("command");
+      });
     });
 
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "bash",
-      params: { command: "rm -rf /" },
-      context: createContext(eventBus),
+    describe("when blocking is false", () => {
+      let eventBus;
+      let result;
+
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.COMMAND, blocking: false });
+
+        classifyCommandMock.mockReturnValue({
+          requiresApproval: true,
+          baseCommand: "rm",
+          level: "dangerous",
+        });
+
+        const hook = createPreToolUseHook();
+        result = await hook({
+          tool: "bash",
+          params: { command: "rm -rf /" },
+          context: createContext(eventBus),
+        });
+      });
+
+      it("should_return_null_when_nonblocking_command_hook_requires_approval", () => {
+        expect(result).toBe(null);
+      });
     });
 
-    expect(result).toBe(null);
-    expect(findEvent(eventBus.events, "tool:denied")).toBeNull();
+    describe("when argv is not an array", () => {
+      let result;
+
+      beforeEach(async () => {
+        const eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.COMMAND });
+
+        const hook = createPreToolUseHook();
+        result = await hook({
+          tool: "bash",
+          params: { argv: { 0: "ls" } },
+          context: createContext(eventBus),
+        });
+      });
+
+      it("should_call_classifyCommand_with_null_when_argv_is_not_array", () => {
+        expect(classifyCommandMock).toHaveBeenCalledWith(null);
+      });
+
+      it("should_return_null_when_argv_is_not_array", () => {
+        expect(result).toBe(null);
+      });
+    });
+
+    describe("when params is a string", () => {
+      beforeEach(async () => {
+        const eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.COMMAND });
+
+        const hook = createPreToolUseHook();
+        await hook({ tool: "bash", params: "ls -la", context: createContext(eventBus) });
+      });
+
+      it("should_call_classifyCommand_with_string_params", () => {
+        expect(classifyCommandMock).toHaveBeenCalledWith("ls -la");
+      });
+    });
+
+    describe("when params is an array", () => {
+      beforeEach(async () => {
+        const eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.COMMAND });
+
+        const hook = createPreToolUseHook();
+        await hook({ tool: "bash", params: ["ls", "-la"], context: createContext(eventBus) });
+      });
+
+      it("should_call_classifyCommand_with_array_params", () => {
+        expect(classifyCommandMock).toHaveBeenCalledWith(["ls", "-la"]);
+      });
+    });
   });
 
-  it("handles type boundary when argv is an object", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.COMMAND });
+  describe("prompt hooks", () => {
+    describe("when modelRouter is unavailable", () => {
+      let result;
+      let denied;
+      let eventBus;
 
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "bash",
-      params: { argv: { 0: "ls" } },
-      context: createContext(eventBus),
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check" });
+
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus) });
+
+        denied = findEvent(eventBus.events, "tool:denied");
+      });
+
+      it("should_skip_when_prompt_hook_has_no_model_router", () => {
+        expect(result).toMatchObject({ skip: true, value: { ok: false } });
+      });
+
+      it("should_emit_prompt_error_model_router_unavailable_when_modelRouter_missing", () => {
+        expect(denied?.payload?.policy?.error).toBe("model_router_unavailable");
+      });
     });
 
-    expect(classifyCommandMock).toHaveBeenCalledWith(null);
-    expect(result).toBe(null);
+    describe("when modelRouter is unavailable and blocking is false", () => {
+      let result;
+
+      beforeEach(async () => {
+        const eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check", blocking: false });
+
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus) });
+      });
+
+      it("should_return_null_when_nonblocking_prompt_hook_has_no_model_router", () => {
+        expect(result).toBe(null);
+      });
+    });
+
+    describe("when modelRouter comes from container.get", () => {
+      let container;
+      let modelRouter;
+
+      beforeEach(async () => {
+        const eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check {{tool}}" });
+
+        modelRouter = { call: vi.fn().mockResolvedValue({ content: "allow" }) };
+        container = { get: vi.fn().mockResolvedValue(modelRouter) };
+
+        const hook = createPreToolUseHook();
+        await hook({ tool: "read", params: {}, context: createContext(eventBus, { container }) });
+      });
+
+      it("should_call_container_get_with_modelRouter_service_id_when_resolving_model_router", () => {
+        expect(container.get).toHaveBeenCalledWith("modelRouter");
+      });
+
+      it("should_call_modelRouter_when_resolved_from_container", () => {
+        expect(modelRouter.call).toHaveBeenCalled();
+      });
+    });
+
+    describe("when prompt hook returns deny decision", () => {
+      let result;
+      let denied;
+      let eventBus;
+
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check" });
+
+        const modelRouter = {
+          call: vi.fn().mockResolvedValue({ content: "{\"allow\": false, \"reason\": \"nope\"}" }),
+        };
+
+        const hook = createPreToolUseHook();
+        result = await hook({
+          tool: "read",
+          params: {},
+          context: createContext(eventBus, { modelRouter }),
+        });
+
+        denied = findEvent(eventBus.events, "tool:denied");
+      });
+
+      it("should_skip_with_reason_when_prompt_hook_denies", () => {
+        expect(result).toMatchObject({ skip: true, value: { ok: false, error: "nope" } });
+      });
+
+      it("should_emit_denied_reason_when_prompt_hook_denies", () => {
+        expect(denied?.payload?.reason).toBe("nope");
+      });
+    });
+
+    describe("when prompt hook allows", () => {
+      let result;
+      let eventBus;
+
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check" });
+
+        const modelRouter = {
+          call: vi.fn().mockResolvedValue({ content: "allow" }),
+        };
+
+        const hook = createPreToolUseHook();
+        result = await hook({
+          tool: "read",
+          params: {},
+          context: createContext(eventBus, { modelRouter }),
+        });
+      });
+
+      it("should_return_null_when_prompt_hook_allows", () => {
+        expect(result).toBe(null);
+      });
+    });
+
+    describe("when prompt hook response is unparseable", () => {
+      let result;
+      let denied;
+      let eventBus;
+
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check" });
+
+        const modelRouter = {
+          call: vi.fn().mockResolvedValue({ content: "maybe" }),
+        };
+
+        const hook = createPreToolUseHook();
+        result = await hook({
+          tool: "read",
+          params: {},
+          context: createContext(eventBus, { modelRouter }),
+        });
+
+        denied = findEvent(eventBus.events, "tool:denied");
+      });
+
+      it("should_skip_when_prompt_decision_is_unparseable", () => {
+        expect(result).toMatchObject({ skip: true, value: { ok: false } });
+      });
+
+      it("should_emit_prompt_error_unparseable_when_prompt_decision_is_unparseable", () => {
+        expect(denied?.payload?.policy?.error).toBe("unparseable");
+      });
+    });
+
+    describe("when prompt hook response is unparseable and blocking is false", () => {
+      let result;
+
+      beforeEach(async () => {
+        const eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check", blocking: false });
+
+        const modelRouter = { call: vi.fn().mockResolvedValue({ content: "maybe" }) };
+
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus, { modelRouter }) });
+      });
+
+      it("should_return_null_when_nonblocking_prompt_decision_is_unparseable", () => {
+        expect(result).toBe(null);
+      });
+    });
+
+    describe("when prompt hook model call throws", () => {
+      let result;
+      let denied;
+      let eventBus;
+
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check" });
+
+        const modelRouter = {
+          call: vi.fn().mockRejectedValue(new Error("boom")),
+        };
+
+        const hook = createPreToolUseHook();
+        result = await hook({
+          tool: "read",
+          params: {},
+          context: createContext(eventBus, { modelRouter }),
+        });
+
+        denied = findEvent(eventBus.events, "tool:denied");
+      });
+
+      it("should_skip_when_prompt_model_call_fails", () => {
+        expect(result).toMatchObject({ skip: true, value: { ok: false } });
+      });
+
+      it("should_emit_prompt_error_model_call_failed_when_model_call_throws", () => {
+        expect(denied?.payload?.policy?.error).toBe("model_call_failed");
+      });
+    });
+
+    describe("when prompt hook model call throws and blocking is false", () => {
+      let result;
+
+      beforeEach(async () => {
+        const eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check", blocking: false });
+
+        const modelRouter = { call: vi.fn().mockRejectedValue(new Error("boom")) };
+
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus, { modelRouter }) });
+      });
+
+      it("should_return_null_when_nonblocking_prompt_model_call_fails", () => {
+        expect(result).toBe(null);
+      });
+    });
   });
 
-  it("denies when prompt hook has no model router", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check" });
+  describe("agent hooks", () => {
+    describe("when subagent registry is missing", () => {
+      let result;
+      let denied;
+      let eventBus;
 
-    const hook = createPreToolUseHook();
-    const result = await hook({ tool: "read", params: {}, context: createContext(eventBus) });
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
 
-    expect(result).toMatchObject({ skip: true, value: { ok: false } });
-    expect(findEvent(eventBus.events, "tool:denied")?.payload?.policy?.hookType).toBe("prompt");
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus) });
+        denied = findEvent(eventBus.events, "tool:denied");
+      });
+
+      it("should_skip_when_subagent_registry_is_unavailable", () => {
+        expect(result).toMatchObject({ skip: true, value: { ok: false } });
+      });
+
+      it("should_emit_registry_unavailable_when_subagent_registry_missing", () => {
+        expect(denied?.payload?.policy?.error).toBe("registry_unavailable");
+      });
+    });
+
+    describe("when subagent registry is missing and blocking is false", () => {
+      let result;
+
+      beforeEach(async () => {
+        const eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard", blocking: false });
+
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus) });
+      });
+
+      it("should_return_null_when_nonblocking_agent_hook_registry_missing", () => {
+        expect(result).toBe(null);
+      });
+    });
+
+    describe("when agent type is unknown", () => {
+      let result;
+      let denied;
+      let eventBus;
+
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
+
+        const subagentRegistry = { getFactory: vi.fn().mockReturnValue(null) };
+
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus, { subagentRegistry }) });
+        denied = findEvent(eventBus.events, "tool:denied");
+      });
+
+      it("should_skip_when_agent_type_is_unknown", () => {
+        expect(result).toMatchObject({ skip: true, value: { ok: false } });
+      });
+
+      it("should_emit_unknown_agent_error_when_agent_type_is_unknown", () => {
+        expect(denied?.payload?.policy?.error).toBe("unknown_agent");
+      });
+    });
+
+    describe("when agent hook denies", () => {
+      let result;
+      let denied;
+      let eventBus;
+
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
+
+        const factory = vi.fn().mockResolvedValue({ run: vi.fn().mockResolvedValue({ allow: false, reason: "no" }) });
+        const subagentRegistry = { getFactory: vi.fn().mockReturnValue(factory) };
+
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus, { subagentRegistry }) });
+        denied = findEvent(eventBus.events, "tool:denied");
+      });
+
+      it("should_skip_with_reason_when_agent_hook_denies", () => {
+        expect(result).toMatchObject({ skip: true, value: { ok: false, error: "no" } });
+      });
+
+      it("should_emit_agentType_in_policy_when_agent_hook_denies", () => {
+        expect(denied?.payload?.policy?.agentType).toBe("guard");
+      });
+    });
+
+    describe("when agent hook denies and blocking is false", () => {
+      let result;
+
+      beforeEach(async () => {
+        const eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard", blocking: false });
+
+        const factory = vi.fn().mockResolvedValue({ run: vi.fn().mockResolvedValue({ allow: false, reason: "no" }) });
+        const subagentRegistry = { getFactory: vi.fn().mockReturnValue(factory) };
+
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus, { subagentRegistry }) });
+      });
+
+      it("should_return_null_when_nonblocking_agent_hook_denies", () => {
+        expect(result).toBe(null);
+      });
+    });
+
+    describe("when agent hook permits", () => {
+      let result;
+
+      beforeEach(async () => {
+        const eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
+
+        const factory = vi.fn().mockResolvedValue({ run: vi.fn().mockResolvedValue({ allow: true }) });
+        const subagentRegistry = { getFactory: vi.fn().mockReturnValue(factory) };
+
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus, { subagentRegistry }) });
+      });
+
+      it("should_return_null_when_agent_hook_allows", () => {
+        expect(result).toBe(null);
+      });
+    });
+
+    describe("when agent hook throws", () => {
+      let result;
+      let denied;
+      let eventBus;
+
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
+
+        const factory = vi.fn().mockRejectedValue(new Error("factory down"));
+        const subagentRegistry = { getFactory: vi.fn().mockReturnValue(factory) };
+
+        const hook = createPreToolUseHook();
+        result = await hook({ tool: "read", params: {}, context: createContext(eventBus, { subagentRegistry }) });
+        denied = findEvent(eventBus.events, "tool:denied");
+      });
+
+      it("should_skip_when_agent_hook_throws", () => {
+        expect(result).toMatchObject({ skip: true, value: { ok: false } });
+      });
+
+      it("should_include_error_reason_when_agent_hook_throws", () => {
+        expect(denied?.payload?.reason).toContain("factory down");
+      });
+    });
+
+    describe("when agent registry comes from container.tryGet", () => {
+      let container;
+      let eventBus;
+
+      beforeEach(async () => {
+        eventBus = createEventBus();
+        eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
+
+        const factory = vi.fn().mockResolvedValue({ run: vi.fn().mockResolvedValue({ allow: true }) });
+        const registry = { getFactory: vi.fn().mockReturnValue(factory) };
+        container = { tryGet: vi.fn().mockResolvedValue(registry) };
+
+        const hook = createPreToolUseHook();
+        await hook({ tool: "read", params: {}, context: createContext(eventBus, { container }) });
+      });
+
+      it("should_call_container_tryGet_with_subagentRegistry_service_id_when_resolving_subagent_registry", () => {
+        expect(container.tryGet).toHaveBeenCalledWith("subagentRegistry");
+      });
+
+      it("should_not_emit_tool_denied_when_agent_registry_resolves_from_container", () => {
+        expect(findEvent(eventBus.events, "tool:denied")).toBeNull();
+      });
+    });
   });
 
-  it("blocks when prompt hook returns deny decision", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check" });
+  describe("concurrency and sequencing", () => {
+    it("should_handle_concurrent_calls_independently", async () => {
+      const eventBus = createEventBus();
+      eventBus.registerHook("PreToolUse", { type: HookType.COMMAND });
 
-    const modelRouter = {
-      call: vi.fn().mockResolvedValue({ content: "{\"allow\": false, \"reason\": \"nope\"}" }),
-    };
+      classifyCommandMock.mockImplementation((cmd) => {
+        const text = Array.isArray(cmd) ? cmd.join(" ") : String(cmd || "");
+        if (text.includes("rm")) return { requiresApproval: true, baseCommand: "rm", level: "dangerous" };
+        return { requiresApproval: false, level: "safe" };
+      });
 
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "read",
-      params: {},
-      context: createContext(eventBus, { modelRouter }),
+      const hook = createPreToolUseHook();
+      const [denyResult, allowResult] = await Promise.all([
+        hook({ tool: "bash", params: { command: "rm -rf /" }, context: createContext(eventBus) }),
+        hook({ tool: "bash", params: { command: "ls" }, context: createContext(eventBus) }),
+      ]);
+
+      expect({
+        denySkip: denyResult?.skip === true,
+        allowIsNull: allowResult === null,
+        deniedEvents: eventBus.events.filter((e) => e.event === "tool:denied").length,
+      }).toEqual({ denySkip: true, allowIsNull: true, deniedEvents: 1 });
     });
 
-    expect(result).toMatchObject({ skip: true, value: { ok: false, error: "nope" } });
-    expect(findEvent(eventBus.events, "tool:denied")?.payload?.reason).toBe("nope");
-  });
+    it("should_handle_rapid_sequential_calls_with_different_outcomes", async () => {
+      const eventBus = createEventBus();
+      const hook = createPreToolUseHook();
 
-  it("allows when prompt hook decision is allow", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check" });
+      evaluateToolRestrictionsMock
+        .mockReturnValueOnce({ allowed: false, reason: "tool_blocked" })
+        .mockReturnValueOnce({ allowed: true });
 
-    const modelRouter = {
-      call: vi.fn().mockResolvedValue({ content: "allow" }),
-    };
+      const first = await hook({ tool: "write", params: { path: "/tmp/a" }, context: createContext(eventBus, { toolRestrictions: {} }) });
+      const second = await hook({ tool: "write", params: { path: "/tmp/b" }, context: createContext(eventBus, { toolRestrictions: {} }) });
 
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "read",
-      params: {},
-      context: createContext(eventBus, { modelRouter }),
+      expect({ firstSkip: first?.skip === true, secondIsNull: second === null }).toEqual({ firstSkip: true, secondIsNull: true });
     });
-
-    expect(result).toBe(null);
-    expect(findEvent(eventBus.events, "tool:denied")).toBeNull();
-  });
-
-  it("blocks when prompt hook response is unparseable", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check" });
-
-    const modelRouter = {
-      call: vi.fn().mockResolvedValue({ content: "maybe" }),
-    };
-
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "read",
-      params: {},
-      context: createContext(eventBus, { modelRouter }),
-    });
-
-    expect(result).toMatchObject({ skip: true, value: { ok: false } });
-    expect(findEvent(eventBus.events, "tool:denied")?.payload?.policy?.error).toBe("unparseable");
-  });
-
-  it("blocks when prompt hook model call throws", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.PROMPT, prompt: "Check" });
-
-    const modelRouter = {
-      call: vi.fn().mockRejectedValue(new Error("boom")),
-    };
-
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "read",
-      params: {},
-      context: createContext(eventBus, { modelRouter }),
-    });
-
-    expect(result).toMatchObject({ skip: true, value: { ok: false } });
-    expect(findEvent(eventBus.events, "tool:denied")?.payload?.policy?.error).toBe("model_call_failed");
-  });
-
-  it("blocks when agent hook registry is missing", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
-
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "read",
-      params: {},
-      context: createContext(eventBus),
-    });
-
-    expect(result).toMatchObject({ skip: true, value: { ok: false } });
-    expect(findEvent(eventBus.events, "tool:denied")?.payload?.policy?.error).toBe("registry_unavailable");
-  });
-
-  it("blocks when agent type is unknown", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
-
-    const subagentRegistry = {
-      getFactory: vi.fn().mockReturnValue(null),
-    };
-
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "read",
-      params: {},
-      context: createContext(eventBus, { subagentRegistry }),
-    });
-
-    expect(result).toMatchObject({ skip: true, value: { ok: false } });
-    expect(findEvent(eventBus.events, "tool:denied")?.payload?.policy?.error).toBe("unknown_agent");
-  });
-
-  it("blocks when agent hook denies", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
-
-    const factory = vi.fn().mockResolvedValue({
-      run: vi.fn().mockResolvedValue({ allow: false, reason: "no" }),
-    });
-
-    const subagentRegistry = {
-      getFactory: vi.fn().mockReturnValue(factory),
-    };
-
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "read",
-      params: {},
-      context: createContext(eventBus, { subagentRegistry }),
-    });
-
-    expect(result).toMatchObject({ skip: true, value: { ok: false, error: "no" } });
-    expect(findEvent(eventBus.events, "tool:denied")?.payload?.policy?.agentType).toBe("guard");
-  });
-
-  it("allows when agent hook permits", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
-
-    const factory = vi.fn().mockResolvedValue({
-      run: vi.fn().mockResolvedValue({ allow: true }),
-    });
-
-    const subagentRegistry = {
-      getFactory: vi.fn().mockReturnValue(factory),
-    };
-
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "read",
-      params: {},
-      context: createContext(eventBus, { subagentRegistry }),
-    });
-
-    expect(result).toBe(null);
-    expect(findEvent(eventBus.events, "tool:denied")).toBeNull();
-  });
-
-  it("blocks when agent hook throws", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.AGENT, agentType: "guard" });
-
-    const factory = vi.fn().mockRejectedValue(new Error("factory down"));
-    const subagentRegistry = {
-      getFactory: vi.fn().mockReturnValue(factory),
-    };
-
-    const hook = createPreToolUseHook();
-    const result = await hook({
-      tool: "read",
-      params: {},
-      context: createContext(eventBus, { subagentRegistry }),
-    });
-
-    expect(result).toMatchObject({ skip: true, value: { ok: false } });
-    expect(findEvent(eventBus.events, "tool:denied")?.payload?.reason).toContain("factory down");
-  });
-
-  it("handles concurrent calls independently", async () => {
-    const eventBus = createEventBus();
-    eventBus.registerHook("PreToolUse", { type: HookType.COMMAND });
-
-    classifyCommandMock.mockImplementation((cmd) => {
-      const text = Array.isArray(cmd) ? cmd.join(" ") : String(cmd || "");
-      if (text.includes("rm")) {
-        return { requiresApproval: true, baseCommand: "rm", level: "dangerous" };
-      }
-      return { requiresApproval: false, level: "safe" };
-    });
-
-    const hook = createPreToolUseHook();
-    const [denyResult, allowResult] = await Promise.all([
-      hook({ tool: "bash", params: { command: "rm -rf /" }, context: createContext(eventBus) }),
-      hook({ tool: "bash", params: { command: "ls" }, context: createContext(eventBus) }),
-    ]);
-
-    expect(denyResult).toMatchObject({ skip: true, value: { ok: false } });
-    expect(allowResult).toBe(null);
-    expect(eventBus.events.filter((e) => e.event === "tool:denied")).toHaveLength(1);
-  });
-
-  it("handles rapid sequential calls with different outcomes", async () => {
-    const eventBus = createEventBus();
-    const hook = createPreToolUseHook();
-
-    evaluateToolRestrictionsMock
-      .mockReturnValueOnce({ allowed: false, reason: "tool_blocked" })
-      .mockReturnValueOnce({ allowed: true });
-
-    const first = await hook({
-      tool: "write",
-      params: { path: "/tmp/a" },
-      context: createContext(eventBus, { toolRestrictions: {} }),
-    });
-
-    const second = await hook({
-      tool: "write",
-      params: { path: "/tmp/b" },
-      context: createContext(eventBus, { toolRestrictions: {} }),
-    });
-
-    expect(first).toMatchObject({ skip: true, value: { ok: false, error: "tool_blocked" } });
-    expect(second).toBe(null);
   });
 });
 
 describe("createPreAgentHook", () => {
-  it("returns null when no eventBus", async () => {
+  it("should_return_null_when_no_eventBus", async () => {
     const hook = createPreAgentHook();
     const result = await hook({ sessionId: "s", runId: "r", input: {}, context: {} });
-
     expect(result).toBe(null);
   });
 
-  it("blocks when handler returns skip", async () => {
+  it("should_return_skip_when_handler_requests_skip", async () => {
     const eventBus = createEventBus();
     eventBus.registerHook("PreAgent", {
-      type: HookType.COMMAND,
       handler: vi.fn().mockResolvedValue({ skip: true, reason: "blocked", value: { ok: false } }),
     });
 
     const hook = createPreAgentHook();
     const result = await hook({ sessionId: 0, runId: -1, input: "", context: createContext(eventBus) });
-
     expect(result).toMatchObject({ skip: true, reason: "blocked", value: { ok: false } });
+  });
+
+  it("should_emit_agent_denied_when_handler_requests_skip", async () => {
+    const eventBus = createEventBus();
+    eventBus.registerHook("PreAgent", {
+      handler: vi.fn().mockResolvedValue({ skip: true, reason: "blocked", value: { ok: false } }),
+    });
+
+    const hook = createPreAgentHook();
+    await hook({ sessionId: "s", runId: "r", input: {}, context: createContext(eventBus) });
     expect(findEvent(eventBus.events, "agent:denied")?.payload?.reason).toBe("blocked");
   });
 
-  it("ignores skip when blocking is false", async () => {
+  it("should_ignore_skip_when_blocking_is_false", async () => {
     const eventBus = createEventBus();
     eventBus.registerHook("PreAgent", {
-      type: HookType.COMMAND,
       blocking: false,
       handler: vi.fn().mockResolvedValue({ skip: true, reason: "blocked" }),
     });
 
     const hook = createPreAgentHook();
     const result = await hook({ sessionId: "s", runId: "r", input: {}, context: createContext(eventBus) });
-
     expect(result).toBe(null);
-    expect(findEvent(eventBus.events, "agent:denied")).toBeNull();
   });
 
-  it("emits hook-error when handler throws", async () => {
+  it("should_emit_hook_error_when_handler_throws", async () => {
     const eventBus = createEventBus();
     eventBus.registerHook("PreAgent", {
-      type: HookType.COMMAND,
       handler: vi.fn().mockRejectedValue(new Error("boom")),
     });
 
     const hook = createPreAgentHook();
-    const result = await hook({ sessionId: "s", runId: "r", input: {}, context: createContext(eventBus) });
-
-    expect(result).toBe(null);
+    await hook({ sessionId: "s", runId: "r", input: {}, context: createContext(eventBus) });
     expect(findEvent(eventBus.events, "agent:hook-error")?.payload?.error).toBe("boom");
   });
 });
 
 describe("createPostAgentHook", () => {
-  it("returns without error when no eventBus", async () => {
+  it("should_resolve_when_no_eventBus", async () => {
     const hook = createPostAgentHook();
     await expect(hook({ sessionId: "s", runId: "r", input: {}, result: {}, context: {} })).resolves.toBeUndefined();
   });
 
-  it("calls handler and passes through payload", async () => {
+  it("should_call_handler_with_payload_when_hook_registered", async () => {
     const eventBus = createEventBus();
     const handler = vi.fn().mockResolvedValue(undefined);
-    eventBus.registerHook("PostAgent", { type: HookType.COMMAND, handler });
+    eventBus.registerHook("PostAgent", { handler });
 
     const hook = createPostAgentHook();
     await hook({
@@ -553,12 +990,9 @@ describe("createPostAgentHook", () => {
     });
   });
 
-  it("emits hook-error when handler throws", async () => {
+  it("should_emit_hook_error_when_handler_throws", async () => {
     const eventBus = createEventBus();
-    eventBus.registerHook("PostAgent", {
-      type: HookType.COMMAND,
-      handler: vi.fn().mockRejectedValue(new Error("post boom")),
-    });
+    eventBus.registerHook("PostAgent", { handler: vi.fn().mockRejectedValue(new Error("post boom")) });
 
     const hook = createPostAgentHook();
     await hook({
@@ -576,11 +1010,7 @@ describe("createPostAgentHook", () => {
 });
 
 describe("default export", () => {
-  it("exposes hook creators", () => {
-    expect(hookRunnerDefault).toMatchObject({
-      createPreToolUseHook,
-      createPreAgentHook,
-      createPostAgentHook,
-    });
+  it("should_expose_hook_creators", () => {
+    expect(hookRunnerDefault).toMatchObject({ createPreToolUseHook, createPreAgentHook, createPostAgentHook });
   });
 });

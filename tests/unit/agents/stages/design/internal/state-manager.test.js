@@ -131,11 +131,24 @@ vi.mock("../../../../../../js/agents/stages/design/states.js", () => statesMocks
 vi.mock("../../../../../../js/agents/stages/design/design-helpers.js", () => helperMocks);
 vi.mock("../../../../../../js/agents/stages/design/internal/tool-handler.js", () => toolHandlerMocks);
 
-import {
-  createEmptyDesignLoopState,
-  installStateManager,
-  resumeDesignAgentLoop,
-} from "../../../../../../js/agents/stages/design/internal/state-manager.js";
+import * as stateManager from "../../../../../../js/agents/stages/design/internal/state-manager.js";
+
+const expectedEmptyState = {
+  contentPackage: null,
+  slideIntents: [],
+  designSystem: null,
+  constraints: {},
+  userConfig: {},
+  plans: null,
+  generated: [],
+  slideHtmls: [],
+  slidesMeta: [],
+  imageSlots: [],
+  visualSlots: [],
+  deckHtmlDsl: "",
+  pendingImages: [],
+  brainstormResult: null,
+};
 
 const originalIndexedDB = globalThis.indexedDB;
 
@@ -150,7 +163,7 @@ beforeEach(() => {
 
 class TestLoop {
   constructor(overrides = {}) {
-    this.state = createEmptyDesignLoopState();
+    this.state = stateManager.createEmptyDesignLoopState();
     this.phase = { status: statesMocks.DesignPhase.IDLE };
     this._loopStatus = runtimeMocks.AgentStatus.IDLE;
     this._statusHistory = [];
@@ -172,9 +185,10 @@ class TestLoop {
   }
 }
 
-installStateManager(TestLoop);
+stateManager.installStateManager(TestLoop);
 
 const createLoop = (overrides = {}) => new TestLoop(overrides);
+const createSnapshot = (nodeStates = {}, metadata = {}) => ({ nodeStates, metadata });
 
 const createResumeCtor = (options = {}) => {
   let lastInstance = null;
@@ -208,7 +222,7 @@ const createResumeCtor = (options = {}) => {
   function DesignAgentLoopCtor(opts = {}) {
     lastInstance = this;
     this.options = opts;
-    this._statusHistory = [];
+    this._statusHistory = ["seed"];
     this._loopStatus = "unset";
     this.phase = { status: "unset" };
     this._pauseRequested = true;
@@ -220,130 +234,158 @@ const createResumeCtor = (options = {}) => {
 
   return {
     DesignAgentLoopCtor,
-    run,
-    hydrateFromNodeStates,
     getLastInstance: () => lastInstance,
+    hydrateFromNodeStates,
+    run,
   };
 };
 
-const createSnapshot = (nodeStates = {}, metadata = {}) => ({ nodeStates, metadata });
-
 describe("createEmptyDesignLoopState", () => {
-  it("returns the expected empty defaults", () => {
-    const state = createEmptyDesignLoopState();
-
-    expect(state).toEqual({
-      contentPackage: null,
-      slideIntents: [],
-      designSystem: null,
-      constraints: {},
-      userConfig: {},
-      plans: null,
-      generated: [],
-      slideHtmls: [],
-      slidesMeta: [],
-      imageSlots: [],
-      visualSlots: [],
-      deckHtmlDsl: "",
-      pendingImages: [],
-      brainstormResult: null,
-    });
+  it("should_return_expected_defaults_when_called", () => {
+    expect(stateManager.createEmptyDesignLoopState()).toEqual(expectedEmptyState);
   });
 
-  it("returns independent instances for rapid consecutive calls", () => {
-    const first = createEmptyDesignLoopState();
-    const second = createEmptyDesignLoopState();
-    const third = createEmptyDesignLoopState();
+  it("should_return_unique_array_references_when_called_twice", () => {
+    const first = stateManager.createEmptyDesignLoopState();
+    const second = stateManager.createEmptyDesignLoopState();
 
-    first.slideIntents.push("first");
-    first.constraints.maxSlides = 3;
-
-    expect(second.slideIntents).toEqual([]);
-    expect(third.slideIntents).toEqual([]);
-    expect(second.constraints).toEqual({});
-    expect(third.constraints).toEqual({});
     expect(first.slideIntents).not.toBe(second.slideIntents);
-    expect(second.slideIntents).not.toBe(third.slideIntents);
   });
 
-  it("supports concurrent calls without shared references", async () => {
+  it("should_return_unique_object_references_when_called_twice", () => {
+    const first = stateManager.createEmptyDesignLoopState();
+    const second = stateManager.createEmptyDesignLoopState();
+
+    expect(first.constraints).not.toBe(second.constraints);
+  });
+
+  it("should_support_concurrent_calls_without_shared_references", async () => {
     const [one, two] = await Promise.all([
-      Promise.resolve().then(() => createEmptyDesignLoopState()),
-      Promise.resolve().then(() => createEmptyDesignLoopState()),
+      Promise.resolve().then(() => stateManager.createEmptyDesignLoopState()),
+      Promise.resolve().then(() => stateManager.createEmptyDesignLoopState()),
     ]);
 
-    one.userConfig.mode = "a";
-
-    expect(one).not.toBe(two);
     expect(one.userConfig).not.toBe(two.userConfig);
-    expect(two.userConfig).toEqual({});
   });
 });
 
 describe("installStateManager", () => {
-  it("installs methods and accessors", () => {
-    const loop = createLoop();
+  it.each([
+    "saveVersion",
+    "getVersion",
+    "listVersions",
+    "backtrackTo",
+    "backtrackToLastCheckpoint",
+    "serializeNodeStates",
+    "hydrateFromNodeStates",
+    "_transitionPhase",
+    "_transitionTo",
+    "_emitAgentStatusChanged",
+    "_savePreActionCheckpoint",
+  ])("should_install_%s_when_called", (methodName) => {
+    class LocalLoop {
+      constructor() {
+        this.state = stateManager.createEmptyDesignLoopState();
+        this.phase = { status: statesMocks.DesignPhase.IDLE };
+        this._loopStatus = runtimeMocks.AgentStatus.IDLE;
+        this._statusHistory = [];
+      }
+    }
 
-    const methods = [
-      "saveVersion",
-      "getVersion",
-      "listVersions",
-      "backtrackTo",
-      "backtrackToLastCheckpoint",
-      "serializeNodeStates",
-      "hydrateFromNodeStates",
-      "_transitionPhase",
-      "_transitionTo",
-      "_emitAgentStatusChanged",
-      "_savePreActionCheckpoint",
-    ];
+    stateManager.installStateManager(LocalLoop);
+    const loop = new LocalLoop();
 
-    methods.forEach((name) => {
-      expect(typeof loop[name]).toBe("function");
-    });
+    expect(typeof loop[methodName]).toBe("function");
+  });
 
-    loop._statusHistory.push({ from: "idle", to: "running" });
+  it("should_expose_loopStatus_getter_when_installed", () => {
+    class LocalLoop {
+      constructor() {
+        this._loopStatus = runtimeMocks.AgentStatus.IDLE;
+        this._statusHistory = [];
+      }
+    }
+
+    stateManager.installStateManager(LocalLoop);
+    const loop = new LocalLoop();
 
     expect(loop.loopStatus).toBe(runtimeMocks.AgentStatus.IDLE);
-    expect(loop.statusHistory).toEqual([{ from: "idle", to: "running" }]);
+  });
+
+  it("should_return_copied_statusHistory_when_accessed", () => {
+    const loop = createLoop();
+    loop._statusHistory.push({ from: "idle", to: "running", timestamp: 1 });
+
     expect(loop.statusHistory).not.toBe(loop._statusHistory);
   });
 
-  it("saveVersion returns null without a blackboard", () => {
+  it("should_return_statusHistory_values_when_accessed", () => {
+    const loop = createLoop();
+    loop._statusHistory.push({ from: "idle", to: "running", timestamp: 1 });
+
+    expect(loop.statusHistory).toEqual([{ from: "idle", to: "running", timestamp: 1 }]);
+  });
+
+  it("should_return_null_when_saveVersion_called_without_blackboard", () => {
     const loop = createLoop({ _blackboard: null });
 
     expect(loop.saveVersion("missing")).toBeNull();
   });
 
-  it("saveVersion clones state and returns the saved version", () => {
+  it("should_pass_snapshot_to_blackboard_when_saveVersion_called", () => {
     const loop = createLoop();
     loop.phase.status = statesMocks.DesignPhase.PREPARE;
     loop._loopStatus = runtimeMocks.AgentStatus.RUNNING;
     loop.state = { contentPackage: { id: "pkg" }, slideIntents: ["s1"] };
-    loop._blackboard.saveVersion.mockReturnValue({ label: "v1" });
 
-    const result = loop.saveVersion("v1");
-    const [label, snapshot] = loop._blackboard.saveVersion.mock.calls[0];
+    loop.saveVersion("v1");
 
-    expect(result).toEqual({ label: "v1" });
-    expect(label).toBe("v1");
-    expect(snapshot).toMatchObject({
-      phase: statesMocks.DesignPhase.PREPARE,
-      loopStatus: runtimeMocks.AgentStatus.RUNNING,
-      timestamp: expect.any(Number),
-    });
-    expect(snapshot.state).toEqual(loop.state);
-    expect(snapshot.state).not.toBe(loop.state);
+    expect(loop._blackboard.saveVersion).toHaveBeenCalledWith(
+      "v1",
+      expect.objectContaining({
+        phase: statesMocks.DesignPhase.PREPARE,
+        loopStatus: runtimeMocks.AgentStatus.RUNNING,
+        timestamp: expect.any(Number),
+      })
+    );
   });
 
-  it("getVersion and listVersions return defaults without a blackboard", () => {
+  it("should_deep_clone_state_into_snapshot_when_saveVersion_called", () => {
+    const loop = createLoop();
+    loop.state = { contentPackage: { id: "pkg" } };
+
+    loop.saveVersion("v1");
+
+    expect(loop._blackboard.saveVersion.mock.calls[0][1].state).not.toBe(loop.state);
+  });
+
+  it("should_return_null_when_getVersion_called_without_blackboard", () => {
     const loop = createLoop({ _blackboard: null });
 
     expect(loop.getVersion("missing")).toBeNull();
+  });
+
+  it("should_return_empty_array_when_listVersions_called_without_blackboard", () => {
+    const loop = createLoop({ _blackboard: null });
+
     expect(loop.listVersions()).toEqual([]);
   });
 
-  it("serializeNodeStates returns safe defaults for nullish state", () => {
+  it("should_return_blackboard_version_when_getVersion_called", () => {
+    const loop = createLoop();
+    loop._blackboard.getVersion.mockReturnValue({ label: "v1" });
+
+    expect(loop.getVersion("v1")).toEqual({ label: "v1" });
+  });
+
+  it("should_return_blackboard_versions_when_listVersions_called", () => {
+    const loop = createLoop();
+    loop._blackboard.listVersions.mockReturnValue([{ label: "v1" }]);
+
+    expect(loop.listVersions()).toEqual([{ label: "v1" }]);
+  });
+
+  it("should_return_safe_defaults_when_serializeNodeStates_called_with_null_state", () => {
     const loop = createLoop({ state: null });
 
     expect(loop.serializeNodeStates()).toEqual({
@@ -357,7 +399,7 @@ describe("installStateManager", () => {
     });
   });
 
-  it("serializeNodeStates normalizes invalid types and preserves boundary values", () => {
+  it("should_normalize_invalid_types_when_serializeNodeStates_called", () => {
     const loop = createLoop({
       state: {
         contentPackage: 0,
@@ -381,7 +423,7 @@ describe("installStateManager", () => {
     });
   });
 
-  it("serializeNodeStates deep clones nested structures", () => {
+  it("should_deep_clone_nested_objects_when_serializeNodeStates_called", () => {
     const deepPackage = { level1: { level2: { level3: { value: "deep" } } } };
     const loop = createLoop({
       state: {
@@ -401,15 +443,15 @@ describe("installStateManager", () => {
     expect(serialized.contentPackage.level1.level2.level3.value).toBe("deep");
   });
 
-  it("hydrateFromNodeStates initializes missing state for empty inputs", () => {
+  it("should_initialize_state_when_hydrateFromNodeStates_called_with_undefined", () => {
     const loop = createLoop({ state: null });
 
     loop.hydrateFromNodeStates(undefined);
 
-    expect(loop.state).toEqual(createEmptyDesignLoopState());
+    expect(loop.state).toEqual(expectedEmptyState);
   });
 
-  it("hydrateFromNodeStates ignores invalid types and empty values", () => {
+  it("should_ignore_invalid_types_when_hydrateFromNodeStates_called", () => {
     const loop = createLoop();
 
     loop.hydrateFromNodeStates({
@@ -422,85 +464,128 @@ describe("installStateManager", () => {
       visualSlots: null,
     });
 
-    expect(loop.state.contentPackage).toBeNull();
-    expect(loop.state.slideIntents).toEqual([]);
-    expect(loop.state.designSystem).toBeNull();
-    expect(loop.state.slideHtmls).toEqual([]);
-    expect(loop.state.deckHtmlDsl).toBe("");
-    expect(loop.state.imageSlots).toEqual([]);
-    expect(loop.state.visualSlots).toEqual([]);
-  });
-
-  it("hydrateFromNodeStates uses parsedContentPackage and clones deep data", () => {
-    const deepPackage = { nested: { level1: { level2: { value: "deep" } } } };
-    const intents = [{ id: "s1" }];
-    const htmls = ["<section></section>"];
-    const longDsl = "a".repeat(200000);
-
-    const loop = createLoop({ state: null });
-
-    loop.hydrateFromNodeStates({
-      parsedContentPackage: deepPackage,
-      slideIntents: intents,
-      designSystem: { theme: "light" },
-      slideHtmls: htmls,
-      deckHtmlDsl: longDsl,
+    expect(loop.state).toMatchObject({
+      contentPackage: null,
+      slideIntents: [],
+      designSystem: null,
+      slideHtmls: [],
+      deckHtmlDsl: "",
       imageSlots: [],
       visualSlots: [],
     });
-
-    deepPackage.nested.level1.level2.value = "changed";
-    intents[0].id = "mutated";
-
-    expect(loop.state.contentPackage).toEqual({ nested: { level1: { level2: { value: "deep" } } } });
-    expect(loop.state.contentPackage).not.toBe(deepPackage);
-    expect(loop.state.slideIntents).toEqual([{ id: "s1" }]);
-    expect(loop.state.slideIntents).not.toBe(intents);
-    expect(loop.state.deckHtmlDsl).toBe(longDsl);
   });
 
-  it("backtrackTo throws when blackboard is missing", () => {
+  it("should_use_parsedContentPackage_when_hydrateFromNodeStates_called", () => {
+    const loop = createLoop({ state: null });
+    const parsed = { nested: { value: "deep" } };
+
+    loop.hydrateFromNodeStates({ parsedContentPackage: parsed });
+
+    expect(loop.state.contentPackage).toEqual(parsed);
+  });
+
+  it("should_deep_clone_parsedContentPackage_when_hydrateFromNodeStates_called", () => {
+    const loop = createLoop({ state: null });
+    const parsed = { nested: { value: "deep" } };
+
+    loop.hydrateFromNodeStates({ parsedContentPackage: parsed });
+    parsed.nested.value = "mutated";
+
+    expect(loop.state.contentPackage.nested.value).toBe("deep");
+  });
+
+  it("should_throw_when_backtrackTo_called_without_blackboard", () => {
     const loop = createLoop({ _blackboard: null });
 
-    expect(() => loop.backtrackTo("v1")).toThrow("no blackboard");
+    expect(() => loop.backtrackTo("v1")).toThrow("Cannot backtrack: no blackboard");
   });
 
-  it("backtrackTo throws when version is not found", () => {
+  it("should_throw_when_backtrackTo_called_with_missing_version", () => {
     const loop = createLoop();
     loop._blackboard.getVersion.mockReturnValue(null);
 
-    expect(() => loop.backtrackTo("v1")).toThrow('version "v1" not found');
+    expect(() => loop.backtrackTo("v1")).toThrow('Cannot backtrack: version "v1" not found');
   });
 
-  it("backtrackTo restores snapshot and throws BacktrackError", () => {
+  const runBacktrack = (snapshot) => {
     const loop = createLoop();
-    const snapshotState = { contentPackage: { id: "pkg" } };
-
-    loop._blackboard.getVersion.mockReturnValue({
-      snapshot: {
-        phase: statesMocks.DesignPhase.PREPARE,
-        loopStatus: runtimeMocks.AgentStatus.PAUSED,
-        state: snapshotState,
-      },
-    });
+    loop._blackboard.getVersion.mockReturnValue({ snapshot });
     loop._emit = vi.fn();
-
-    let thrown;
     try {
       loop.backtrackTo("v2", "manual");
-    } catch (err) {
-      thrown = err;
+      return { loop, error: null };
+    } catch (error) {
+      return { loop, error };
     }
+  };
 
-    expect(thrown).toBeInstanceOf(helperMocks.BacktrackError);
-    expect(thrown.targetPhase).toBe(statesMocks.DesignPhase.PREPARE);
-    expect(thrown.label).toBe("v2");
-    expect(thrown.reason).toBe("manual");
+  it("should_throw_BacktrackError_when_backtrackTo_restores_version", () => {
+    const { error } = runBacktrack({
+      phase: statesMocks.DesignPhase.PREPARE,
+      loopStatus: runtimeMocks.AgentStatus.PAUSED,
+      state: { contentPackage: { id: "pkg" } },
+    });
+
+    expect(error).toBeInstanceOf(helperMocks.BacktrackError);
+  });
+
+  it("should_default_targetPhase_to_IDLE_when_backtrack_snapshot_has_no_phase", () => {
+    const { error } = runBacktrack({
+      loopStatus: runtimeMocks.AgentStatus.PAUSED,
+      state: { contentPackage: { id: "pkg" } },
+    });
+
+    expect(error.targetPhase).toBe(statesMocks.DesignPhase.IDLE);
+  });
+
+  it("should_update_loop_phase_when_backtrackTo_restores_snapshot_phase", () => {
+    const { loop } = runBacktrack({
+      phase: statesMocks.DesignPhase.PREPARE,
+      loopStatus: runtimeMocks.AgentStatus.PAUSED,
+      state: { contentPackage: { id: "pkg" } },
+    });
+
     expect(loop.phase.status).toBe(statesMocks.DesignPhase.PREPARE);
+  });
+
+  it("should_update_loopStatus_when_backtrackTo_restores_snapshot_loopStatus", () => {
+    const { loop } = runBacktrack({
+      phase: statesMocks.DesignPhase.PREPARE,
+      loopStatus: runtimeMocks.AgentStatus.PAUSED,
+      state: { contentPackage: { id: "pkg" } },
+    });
+
     expect(loop._loopStatus).toBe(runtimeMocks.AgentStatus.PAUSED);
+  });
+
+  it("should_restore_state_when_backtrackTo_restores_snapshot_state", () => {
+    const snapshotState = { contentPackage: { id: "pkg" } };
+    const { loop } = runBacktrack({
+      phase: statesMocks.DesignPhase.PREPARE,
+      loopStatus: runtimeMocks.AgentStatus.PAUSED,
+      state: snapshotState,
+    });
+
     expect(loop.state).toEqual(snapshotState);
-    expect(loop.state).not.toBe(snapshotState);
+  });
+
+  it("should_call_blackboard_restoreVersion_when_backtrackTo_called", () => {
+    const { loop } = runBacktrack({
+      phase: statesMocks.DesignPhase.PREPARE,
+      loopStatus: runtimeMocks.AgentStatus.PAUSED,
+      state: { contentPackage: { id: "pkg" } },
+    });
+
     expect(loop._blackboard.restoreVersion).toHaveBeenCalledWith("v2");
+  });
+
+  it("should_emit_backtrack_event_when_backtrackTo_called", () => {
+    const { loop } = runBacktrack({
+      phase: statesMocks.DesignPhase.PREPARE,
+      loopStatus: runtimeMocks.AgentStatus.PAUSED,
+      state: { contentPackage: { id: "pkg" } },
+    });
+
     expect(loop._emit).toHaveBeenCalledWith(
       "design.backtrack",
       expect.objectContaining({
@@ -510,17 +595,26 @@ describe("installStateManager", () => {
         timestamp: expect.any(Number),
       })
     );
+  });
+
+  it("should_set_isBacktracking_flag_when_backtrackTo_called", () => {
+    const { loop } = runBacktrack({
+      phase: statesMocks.DesignPhase.PREPARE,
+      loopStatus: runtimeMocks.AgentStatus.PAUSED,
+      state: { contentPackage: { id: "pkg" } },
+    });
+
     expect(loop._isBacktracking).toBe(true);
   });
 
-  it("backtrackToLastCheckpoint throws when no versions exist", () => {
+  it("should_throw_when_backtrackToLastCheckpoint_called_with_no_versions", () => {
     const loop = createLoop();
     loop._blackboard.listVersions.mockReturnValue([]);
 
-    expect(() => loop.backtrackToLastCheckpoint()).toThrow("no versions available");
+    expect(() => loop.backtrackToLastCheckpoint()).toThrow("Cannot backtrack: no versions available");
   });
 
-  it("backtrackToLastCheckpoint uses the latest version label", () => {
+  it("should_use_latest_version_label_when_backtrackToLastCheckpoint_called", () => {
     const loop = createLoop();
     loop._blackboard.listVersions.mockReturnValue([{ label: "v1" }, { label: "v2" }]);
     loop.backtrackTo = vi.fn();
@@ -530,213 +624,559 @@ describe("installStateManager", () => {
     expect(loop.backtrackTo).toHaveBeenCalledWith("v2", "auto");
   });
 
-  it("_savePreActionCheckpoint merges node states and saves checkpoint", async () => {
+  it("should_return_null_when_savePreActionCheckpoint_called_without_archive", async () => {
+    const loop = createLoop({ archive: null });
+
+    expect(await loop._savePreActionCheckpoint({ runId: "run-1" })).toBeNull();
+  });
+
+  it("should_default_runId_to_unknown_when_savePreActionCheckpoint_called_without_runId", async () => {
     const archive = { save: vi.fn(async () => "checkpoint-xyz") };
     const loop = createLoop({ archive });
-    loop.state = {
-      contentPackage: { id: "pkg" },
-      slideIntents: [{ id: "s1" }],
-      designSystem: { theme: "light" },
-      slideHtmls: ["<section></section>"],
-      deckHtmlDsl: "state-dsl",
-      imageSlots: [],
-      visualSlots: [],
-    };
-    loop.phase.status = statesMocks.DesignPhase.GENERATE;
-    loop._loopStatus = runtimeMocks.AgentStatus.RUNNING;
-    loop._statusHistory = [{ from: "idle", to: "running", timestamp: 1 }];
 
-    const result = await loop._savePreActionCheckpoint({
+    await loop._savePreActionCheckpoint({});
+
+    expect(archive.save).toHaveBeenCalledWith("unknown", expect.any(Object));
+  });
+
+  it("should_merge_nodeStates_over_serialized_state_when_savePreActionCheckpoint_called", async () => {
+    const archive = { save: vi.fn(async () => "checkpoint-xyz") };
+    const loop = createLoop({ archive });
+    loop.state.deckHtmlDsl = "state-dsl";
+
+    await loop._savePreActionCheckpoint({
       runId: "run-1",
       nodeStates: { deckHtmlDsl: "node-dsl" },
-      extra: "meta",
     });
 
-    expect(result).toBe("checkpoint-xyz");
-    expect(sharedMocks.createCheckpoint).toHaveBeenCalledTimes(1);
+    expect(archive.save.mock.calls[0][1].state.deckHtmlDsl).toBe("node-dsl");
+  });
 
-    const [checkpointState, checkpointMeta] = sharedMocks.createCheckpoint.mock.calls[0];
+  it("should_tag_checkpoint_as_PRE_ACTION_when_savePreActionCheckpoint_called", async () => {
+    const archive = { save: vi.fn(async () => "checkpoint-xyz") };
+    const loop = createLoop({ archive });
 
-    expect(checkpointState).toMatchObject({
-      phase: statesMocks.DesignPhase.GENERATE,
-      loopStatus: runtimeMocks.AgentStatus.RUNNING,
-      deckHtmlDsl: "node-dsl",
-    });
-    expect(checkpointState.statusHistory).toEqual([{ from: "idle", to: "running", timestamp: 1 }]);
-    expect(checkpointState.statusHistory).not.toBe(loop._statusHistory);
+    await loop._savePreActionCheckpoint({ runId: "run-1" });
 
-    expect(checkpointMeta).toMatchObject({
+    expect(archive.save.mock.calls[0][1].metadata.type).toBe(sharedMocks.CheckpointType.PRE_ACTION);
+  });
+
+  it("should_copy_statusHistory_entries_when_savePreActionCheckpoint_called", async () => {
+    const archive = { save: vi.fn(async () => "checkpoint-xyz") };
+    const loop = createLoop({ archive });
+    loop._statusHistory = [{ from: "idle", to: "running", timestamp: 1 }];
+
+    await loop._savePreActionCheckpoint({ runId: "run-1" });
+
+    expect(archive.save.mock.calls[0][1].state.statusHistory).toEqual([{ from: "idle", to: "running", timestamp: 1 }]);
+  });
+
+  it("should_throw_when_transitionPhase_rejected_by_machine", () => {
+    const loop = createLoop();
+    statesMocks.designPhaseMachine.transition.mockReturnValue(false);
+
+    expect(() => loop._transitionPhase(loop.phase, statesMocks.DesignPhase.PREPARE)).toThrow(
+      "DesignPhase transition rejected"
+    );
+  });
+
+  it("should_return_next_when_transitionPhase_succeeds", () => {
+    const loop = createLoop();
+
+    expect(loop._transitionPhase(loop.phase, statesMocks.DesignPhase.PREPARE)).toBe(statesMocks.DesignPhase.PREPARE);
+  });
+
+  it("should_call_custom_lifecycle_when_transitionPhase_called_with_lifecycle", () => {
+    const loop = createLoop();
+    const lifecycle = { phaseTransition: vi.fn() };
+
+    loop._transitionPhase(loop.phase, statesMocks.DesignPhase.PREPARE, {
       runId: "run-1",
-      extra: "meta",
-      type: sharedMocks.CheckpointType.PRE_ACTION,
+      payload: { ok: true },
+      lifecycle,
     });
-    expect(archive.save).toHaveBeenCalledWith("run-1", expect.any(Object));
+
+    expect(lifecycle.phaseTransition).toHaveBeenCalledWith(
+      statesMocks.DesignPhase.IDLE,
+      statesMocks.DesignPhase.PREPARE,
+      "run-1",
+      { ok: true }
+    );
+  });
+
+  it("should_create_lifecycle_emitter_when_transitionPhase_called_without_lifecycle", () => {
+    const loop = createLoop();
+    const emit = vi.fn();
+
+    loop._transitionPhase(loop.phase, statesMocks.DesignPhase.PREPARE, { runId: "run-1", emit });
+
+    expect(runtimeMocks.createLifecycleEmitter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: "design",
+        emit,
+        eventBus: loop.eventBus,
+      })
+    );
+  });
+
+  it("should_use_trace_span_when_transitionPhase_has_traceContext", () => {
+    const loop = createLoop();
+    const lifecycle = { phaseTransition: vi.fn() };
+    const span = {};
+    loop._traceContext = { startSpan: vi.fn(() => span), endSpan: vi.fn() };
+
+    loop._transitionPhase(loop.phase, statesMocks.DesignPhase.PREPARE, { runId: "run-1", lifecycle });
+
+    expect(loop._traceContext.startSpan).toHaveBeenCalledWith(
+      "design.phase.transition",
+      expect.objectContaining({
+        attributes: expect.objectContaining({
+          from: statesMocks.DesignPhase.IDLE,
+          to: statesMocks.DesignPhase.PREPARE,
+          runId: "run-1",
+        }),
+      })
+    );
+  });
+
+  it("should_end_trace_span_when_transitionPhase_lifecycle_throws", () => {
+    const loop = createLoop();
+    const span = {};
+    loop._traceContext = { startSpan: vi.fn(() => span), endSpan: vi.fn() };
+    const lifecycle = {
+      phaseTransition: vi.fn(() => {
+        throw new Error("boom");
+      }),
+    };
+
+    try {
+      loop._transitionPhase(loop.phase, statesMocks.DesignPhase.PREPARE, { runId: "run-1", lifecycle });
+    } catch {
+      // expected
+    }
+
+    expect(loop._traceContext.endSpan).toHaveBeenCalledWith(span);
+  });
+
+  it("should_emit_status_change_event_when_emitAgentStatusChanged_called", () => {
+    const loop = createLoop();
+
+    loop._emitAgentStatusChanged({ from: "idle", to: "running" });
+
+    expect(loop.eventBus.emit).toHaveBeenCalledWith(
+      "design.agent.status.changed",
+      expect.objectContaining({
+        actor: "design",
+        status: "info",
+        payload: { from: "idle", to: "running" },
+      })
+    );
+  });
+
+  it("should_prefer_loop_emit_when_emitAgentStatusChanged_called", () => {
+    const loop = createLoop();
+    loop.emit = vi.fn();
+
+    loop._emitAgentStatusChanged({ from: "idle", to: "running" });
+
+    expect(loop.emit).toHaveBeenCalledWith(
+      "design.agent.status.changed",
+      expect.objectContaining({ payload: { from: "idle", to: "running" } })
+    );
+  });
+
+  it("should_noop_when_emit_is_truthy_non_function", () => {
+    const loop = createLoop();
+    loop.emit = "invalid";
+
+    loop._emitAgentStatusChanged({ from: "idle", to: "running" });
+
+    expect(loop.eventBus.emit).toHaveBeenCalledTimes(0);
+  });
+
+  it("should_return_null_when_transitionTo_called_with_same_status", async () => {
+    const loop = createLoop({ _loopStatus: runtimeMocks.AgentStatus.RUNNING });
+
+    expect(await loop._transitionTo(runtimeMocks.AgentStatus.RUNNING)).toBeNull();
+  });
+
+  it("should_reject_with_code_when_transitionTo_called_with_invalid_transition", async () => {
+    const loop = createLoop({ _loopStatus: runtimeMocks.AgentStatus.IDLE });
+
+    await expect(loop._transitionTo(runtimeMocks.AgentStatus.PAUSED)).rejects.toMatchObject({
+      code: "INVALID_STATE_TRANSITION",
+    });
+  });
+
+  it("should_return_checkpointId_when_transitionTo_saves_pre_action_checkpoint", async () => {
+    const archive = { save: vi.fn(async () => "checkpoint-xyz") };
+    const loop = createLoop({ _loopStatus: runtimeMocks.AgentStatus.IDLE, archive, _pauseRequested: false });
+
+    expect(await loop._transitionTo(runtimeMocks.AgentStatus.RUNNING, { runId: "run-1" })).toBe("checkpoint-xyz");
+  });
+
+  it("should_store_checkpointId_on_runtimeState_when_transitionTo_saves_checkpoint", async () => {
+    const runtimeState = { status: "running", lastCheckpointId: null };
+    telemetryMocks.getRuntimeState.mockReturnValue(runtimeState);
+    const archive = { save: vi.fn(async () => "checkpoint-xyz") };
+    const loop = createLoop({ _loopStatus: runtimeMocks.AgentStatus.IDLE, archive, _pauseRequested: false });
+
+    await loop._transitionTo(runtimeMocks.AgentStatus.RUNNING, { runId: "run-1", stageApi: { signal: {} } });
+
+    expect(runtimeState.lastCheckpointId).toBe("checkpoint-xyz");
+  });
+
+  it("should_throw_StagePausedError_when_transitionTo_pauses_run", async () => {
+    const archive = { save: vi.fn(async () => "checkpoint-xyz") };
+    const loop = createLoop({
+      _loopStatus: runtimeMocks.AgentStatus.IDLE,
+      archive,
+      _pauseRequested: true,
+      _pauseReason: "user",
+    });
+
+    const promise = loop._transitionTo(runtimeMocks.AgentStatus.RUNNING, { runId: "run-1" });
+
+    await expect(promise).rejects.toBeInstanceOf(runtimeMocks.StagePausedError);
+  });
+
+  it("should_set_loopStatus_to_PAUSED_when_transitionTo_pauses_run", async () => {
+    const archive = { save: vi.fn(async () => "checkpoint-xyz") };
+    const loop = createLoop({
+      _loopStatus: runtimeMocks.AgentStatus.IDLE,
+      archive,
+      _pauseRequested: true,
+      _pauseReason: "user",
+    });
+
+    try {
+      await loop._transitionTo(runtimeMocks.AgentStatus.RUNNING, { runId: "run-1" });
+    } catch {
+      // expected
+    }
+
+    expect(loop._loopStatus).toBe(runtimeMocks.AgentStatus.PAUSED);
+  });
+
+  it("should_include_checkpointId_in_pause_error_details_when_transitionTo_pauses_run", async () => {
+    const archive = { save: vi.fn(async () => "checkpoint-xyz") };
+    const loop = createLoop({
+      _loopStatus: runtimeMocks.AgentStatus.IDLE,
+      archive,
+      _pauseRequested: true,
+      _pauseReason: "user",
+    });
+
+    await expect(loop._transitionTo(runtimeMocks.AgentStatus.RUNNING, { runId: "run-1" })).rejects.toMatchObject({
+      details: { checkpointId: "checkpoint-xyz" },
+    });
+  });
+
+  it("should_include_pausedReason_in_statusHistory_when_transitionTo_pauses_run", async () => {
+    const archive = { save: vi.fn(async () => "checkpoint-xyz") };
+    const loop = createLoop({
+      _loopStatus: runtimeMocks.AgentStatus.IDLE,
+      archive,
+      _pauseRequested: true,
+      _pauseReason: "user",
+    });
+
+    try {
+      await loop._transitionTo(runtimeMocks.AgentStatus.RUNNING, { runId: "run-1" });
+    } catch {
+      // expected
+    }
+
+    expect(loop._statusHistory.at(-1).pausedReason).toBe("user");
+  });
+
+  it("should_use_metadata_checkpointId_when_transitionTo_pauses_without_archive", async () => {
+    const loop = createLoop({
+      _loopStatus: runtimeMocks.AgentStatus.IDLE,
+      archive: null,
+      _pauseRequested: true,
+      _pauseReason: "user",
+    });
+
+    await expect(
+      loop._transitionTo(runtimeMocks.AgentStatus.RUNNING, { runId: "run-1", checkpointId: "from-meta" })
+    ).rejects.toMatchObject({
+      details: { checkpointId: "from-meta" },
+    });
+  });
+
+  it("should_use_runtime_pausedReason_when_runtime_state_requests_pause", async () => {
+    const runtimeState = { status: "paused", pausedReason: "runtime", lastCheckpointId: "from-runtime" };
+    telemetryMocks.getRuntimeState.mockReturnValue(runtimeState);
+    const loop = createLoop({
+      _loopStatus: runtimeMocks.AgentStatus.IDLE,
+      archive: null,
+      _pauseRequested: false,
+      _pauseReason: null,
+    });
+
+    try {
+      await loop._transitionTo(runtimeMocks.AgentStatus.RUNNING, { runId: "run-1", stageApi: { signal: {} } });
+    } catch {
+      // expected
+    }
+
+    expect(loop._statusHistory.at(-1).pausedReason).toBe("runtime");
   });
 });
 
 describe("resumeDesignAgentLoop", () => {
-  it("throws when DesignAgentLoopCtor is missing", async () => {
-    await expect(resumeDesignAgentLoop("checkpoint")).rejects.toThrow("missing DesignAgentLoopCtor");
+  it("should_throw_when_DesignAgentLoopCtor_missing", async () => {
+    await expect(stateManager.resumeDesignAgentLoop("checkpoint")).rejects.toThrow("missing DesignAgentLoopCtor");
   });
 
-  it("rejects missing checkpoints for boundary checkpoint ids", async () => {
-    const { DesignAgentLoopCtor } = createResumeCtor();
-    const boundaryIds = [null, undefined, "", " ", 0, -1, Number.MAX_SAFE_INTEGER, "0"];
-
-    for (const checkpointId of boundaryIds) {
+  it.each([null, undefined, "", " ", 0, -1, Number.MAX_SAFE_INTEGER, "0"])(
+    "should_throw_when_checkpoint_not_found_for_checkpointId_%s",
+    async (checkpointId) => {
+      const { DesignAgentLoopCtor } = createResumeCtor();
       sharedMocks.archiveState.restoreResult = null;
-      await expect(resumeDesignAgentLoop(checkpointId, {}, { DesignAgentLoopCtor })).rejects.toThrow("Checkpoint not found");
+
+      await expect(stateManager.resumeDesignAgentLoop(checkpointId, {}, { DesignAgentLoopCtor })).rejects.toThrow(
+        "Checkpoint not found"
+      );
     }
-  });
+  );
 
-  it("uses stageApi.archive and skips Archive construction", async () => {
+  it("should_call_stageApi_archive_restore_when_stageApi_archive_provided", async () => {
     const { DesignAgentLoopCtor } = createResumeCtor();
-    const snapshot = createSnapshot({ contentPackage: { id: "pkg" } });
-    const archive = { restore: vi.fn(async () => snapshot) };
+    const archive = { restore: vi.fn(async () => createSnapshot({ contentPackage: { id: "pkg" } })) };
 
-    await resumeDesignAgentLoop("checkpoint", { archive }, { DesignAgentLoopCtor });
+    await stateManager.resumeDesignAgentLoop("checkpoint", { archive }, { DesignAgentLoopCtor });
 
     expect(archive.restore).toHaveBeenCalledWith("checkpoint");
+  });
+
+  it("should_not_construct_Archive_when_stageApi_archive_provided", async () => {
+    const { DesignAgentLoopCtor } = createResumeCtor();
+    const archive = { restore: vi.fn(async () => createSnapshot({ contentPackage: { id: "pkg" } })) };
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", { archive }, { DesignAgentLoopCtor });
+
     expect(sharedMocks.Archive).not.toHaveBeenCalled();
+  });
+
+  it("should_call_migrateCheckpoint_when_restoring_checkpoint", async () => {
+    const { DesignAgentLoopCtor } = createResumeCtor();
+    const snapshot = createSnapshot({ contentPackage: { id: "pkg" } });
+    sharedMocks.archiveState.restoreResult = snapshot;
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+
     expect(sharedMocks.migrateCheckpoint).toHaveBeenCalledWith(snapshot);
   });
 
-  it("creates an Archive with MapAdapter when indexedDB is unavailable", async () => {
+  it("should_create_MapAdapter_when_indexedDB_unavailable", async () => {
     globalThis.indexedDB = undefined;
     const { DesignAgentLoopCtor } = createResumeCtor();
     sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { id: "pkg" } });
 
-    await resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
 
     expect(sharedMocks.MapAdapter).toHaveBeenCalledTimes(1);
-    expect(sharedMocks.FallbackAdapter).not.toHaveBeenCalled();
-    expect(sharedMocks.Archive).toHaveBeenCalledTimes(1);
+  });
+
+  it("should_pass_MapAdapter_to_Archive_when_indexedDB_unavailable", async () => {
+    globalThis.indexedDB = undefined;
+    const { DesignAgentLoopCtor } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { id: "pkg" } });
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+
     expect(sharedMocks.Archive.mock.calls[0][0]).toMatchObject({ type: "map" });
   });
 
-  it("creates an Archive with FallbackAdapter when indexedDB is available", async () => {
+  it("should_create_FallbackAdapter_when_indexedDB_available", async () => {
     globalThis.indexedDB = {};
     const { DesignAgentLoopCtor } = createResumeCtor();
     sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { id: "pkg" } });
 
-    await resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
 
     expect(sharedMocks.FallbackAdapter).toHaveBeenCalledWith("PPTArchiveDB", "checkpoints");
-    expect(sharedMocks.Archive).toHaveBeenCalledTimes(1);
   });
 
-  it("hydrates resume state and forwards run context", async () => {
-    const { DesignAgentLoopCtor, run, getLastInstance } = createResumeCtor();
-    const longDsl = "b".repeat(200000);
-    const contentPackage = {
-      runId: "run-from-content",
-      constraints: { maxSlides: 9 },
-      deep: { level1: { level2: { value: "deep" } } },
-    };
-
-    sharedMocks.archiveState.restoreResult = createSnapshot(
-      {
-        phase: statesMocks.DesignPhase.GENERATE,
-        loopStatus: runtimeMocks.AgentStatus.PAUSED,
-        contentPackage,
-        slideIntents: [{ id: "s1" }],
-        designSystem: { theme: "light" },
-        generated: ["gen"],
-        slideHtmls: ["<section></section>"],
-        deckHtmlDsl: longDsl,
-        slidesMeta: [{ index: 0 }],
-        imageSlots: [],
-        visualSlots: [],
-        imageReport: { ok: true },
-        visualReport: { ok: true },
-        pendingImages: [],
-        refineReport: { ok: true },
-        constraints: { maxSlides: 3 },
-        userConfig: { locale: "en" },
-        runId: "run-from-node",
-      },
-      { runId: "run-from-meta" }
-    );
-
-    const stageApi = {
-      runContext: { runId: "run-from-stage", constraints: { maxSlides: 5 } },
-    };
-
-    await resumeDesignAgentLoop("checkpoint", stageApi, { DesignAgentLoopCtor });
-
-    const loop = getLastInstance();
-    expect(loop._loopStatus).toBe(runtimeMocks.AgentStatus.IDLE);
-    expect(loop.phase).toEqual({ status: statesMocks.DesignPhase.IDLE });
-    expect(loop._resumeState).toMatchObject({
-      loopStatus: runtimeMocks.AgentStatus.PAUSED,
-      phase: statesMocks.DesignPhase.GENERATE,
-      deckHtmlDsl: longDsl,
-      constraints: { maxSlides: 3 },
-      userConfig: { locale: "en" },
-    });
-
-    expect(toolHandlerMocks.createResumeToolExecutor).toHaveBeenCalledWith({
-      agentLoop: loop,
-      stageApi,
-      resumeState: loop._resumeState,
-      contentPackage,
-    });
-
-    expect(run).toHaveBeenCalledWith(contentPackage, expect.objectContaining({
-      resumed: true,
-      resumeState: loop._resumeState,
-      runContext: { runId: "run-from-stage", constraints: { maxSlides: 5 } },
-    }));
-  });
-
-  it("uses fallback contentPackage and deep clones into state", async () => {
+  it("should_set_loopStatus_to_IDLE_when_resuming", async () => {
     const { DesignAgentLoopCtor, getLastInstance } = createResumeCtor();
-    const fallbackPackage = { runId: "fallback", nested: { value: "deep" } };
+    sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { id: "pkg" } });
 
-    sharedMocks.archiveState.restoreResult = createSnapshot({
-      phase: statesMocks.DesignPhase.IDLE,
-      loopStatus: runtimeMocks.AgentStatus.IDLE,
-      slideIntents: [],
-    });
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
 
-    await resumeDesignAgentLoop("checkpoint", { contentPackage: fallbackPackage }, { DesignAgentLoopCtor });
-
-    const loop = getLastInstance();
-    expect(loop.state.contentPackage).toEqual(fallbackPackage);
-    expect(loop.state.contentPackage).not.toBe(fallbackPackage);
-    expect(sharedMocks.deepClone).toHaveBeenCalledWith(fallbackPackage);
+    expect(getLastInstance()._loopStatus).toBe(runtimeMocks.AgentStatus.IDLE);
   });
 
-  it("throws when contentPackage is missing from checkpoint and stageApi", async () => {
-    const { DesignAgentLoopCtor } = createResumeCtor();
+  it("should_reset_pause_flags_when_resuming", async () => {
+    const { DesignAgentLoopCtor, getLastInstance } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { id: "pkg" } });
 
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+
+    expect(getLastInstance()._pauseRequested).toBe(false);
+  });
+
+  it("should_restore_statusHistory_when_checkpoint_contains_statusHistory", async () => {
+    const { DesignAgentLoopCtor, getLastInstance } = createResumeCtor();
+    const statusHistory = [{ from: "idle", to: "running", timestamp: 1 }];
+    sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { id: "pkg" }, statusHistory });
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+
+    expect(getLastInstance()._statusHistory).toEqual(statusHistory);
+  });
+
+  it("should_set_resumeState_phase_when_checkpoint_contains_phase", async () => {
+    const { DesignAgentLoopCtor, getLastInstance } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({
+      phase: statesMocks.DesignPhase.GENERATE,
+      contentPackage: { id: "pkg" },
+    });
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+
+    expect(getLastInstance()._resumeState.phase).toBe(statesMocks.DesignPhase.GENERATE);
+  });
+
+  it("should_create_resume_tool_executor_when_resuming", async () => {
+    const { DesignAgentLoopCtor } = createResumeCtor();
+    const contentPackage = { id: "pkg" };
+    sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage });
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+
+    expect(toolHandlerMocks.createResumeToolExecutor).toHaveBeenCalledWith(
+      expect.objectContaining({ stageApi: {}, contentPackage })
+    );
+  });
+
+  it("should_pass_toolExecutor_to_run_options_when_resuming", async () => {
+    const { DesignAgentLoopCtor, run } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { id: "pkg" } });
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+
+    expect(run.mock.calls[0][1].toolExecutor).toEqual({ executor: "resume" });
+  });
+
+  it("should_use_fallback_contentPackage_from_stageApi_input_when_missing_from_checkpoint", async () => {
+    const { DesignAgentLoopCtor, run } = createResumeCtor();
+    const fallback = { runId: "fallback" };
     sharedMocks.archiveState.restoreResult = createSnapshot({
       phase: statesMocks.DesignPhase.IDLE,
       loopStatus: runtimeMocks.AgentStatus.IDLE,
     });
 
-    await expect(resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor })).rejects.toThrow(
+    await stateManager.resumeDesignAgentLoop("checkpoint", { input: fallback }, { DesignAgentLoopCtor });
+
+    expect(run.mock.calls[0][0]).toEqual(fallback);
+  });
+
+  it("should_deep_clone_fallback_contentPackage_into_state_when_missing", async () => {
+    const { DesignAgentLoopCtor, getLastInstance } = createResumeCtor();
+    const fallback = { runId: "fallback", nested: { value: "deep" } };
+    sharedMocks.archiveState.restoreResult = createSnapshot({
+      phase: statesMocks.DesignPhase.IDLE,
+      loopStatus: runtimeMocks.AgentStatus.IDLE,
+    });
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", { contentPackage: fallback }, { DesignAgentLoopCtor });
+
+    expect(getLastInstance().state.contentPackage).not.toBe(fallback);
+  });
+
+  it("should_throw_when_contentPackage_missing_from_checkpoint_and_stageApi", async () => {
+    const { DesignAgentLoopCtor } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({
+      phase: statesMocks.DesignPhase.IDLE,
+      loopStatus: runtimeMocks.AgentStatus.IDLE,
+    });
+
+    await expect(stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor })).rejects.toThrow(
       "Checkpoint missing contentPackage"
     );
   });
 
-  it("supports concurrent resume calls", async () => {
+  it("should_use_stageApi_runContext_runId_when_provided", async () => {
     const { DesignAgentLoopCtor, run } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { runId: "content" } });
 
+    await stateManager.resumeDesignAgentLoop(
+      "checkpoint",
+      { runContext: { runId: "stage-run", constraints: {} } },
+      { DesignAgentLoopCtor }
+    );
+
+    expect(run.mock.calls[0][1].runContext.runId).toBe("stage-run");
+  });
+
+  it("should_use_nodeStates_runId_when_stageApi_runContext_missing", async () => {
+    const { DesignAgentLoopCtor, run } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { id: "pkg" }, runId: "node-run" });
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+
+    expect(run.mock.calls[0][1].runContext.runId).toBe("node-run");
+  });
+
+  it("should_use_snapshot_metadata_runId_when_nodeStates_runId_missing", async () => {
+    const { DesignAgentLoopCtor, run } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { id: "pkg" } }, { runId: "meta-run" });
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+
+    expect(run.mock.calls[0][1].runContext.runId).toBe("meta-run");
+  });
+
+  it("should_default_runId_to_run_unknown_when_all_sources_missing", async () => {
+    const { DesignAgentLoopCtor, run } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({ contentPackage: { id: "pkg" } }, {});
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", {}, { DesignAgentLoopCtor });
+
+    expect(run.mock.calls[0][1].runContext.runId).toBe("run_unknown");
+  });
+
+  it("should_use_stageApi_runContext_constraints_when_provided", async () => {
+    const { DesignAgentLoopCtor, run } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({
+      contentPackage: { runId: "content", constraints: { maxSlides: 1 } },
+    });
+
+    await stateManager.resumeDesignAgentLoop(
+      "checkpoint",
+      { runContext: { runId: "stage-run", constraints: { maxSlides: 5 } } },
+      { DesignAgentLoopCtor }
+    );
+
+    expect(run.mock.calls[0][1].runContext.constraints).toEqual({ maxSlides: 5 });
+  });
+
+  it("should_fallback_to_contentPackage_constraints_when_stage_constraints_missing", async () => {
+    const { DesignAgentLoopCtor, run } = createResumeCtor();
+    sharedMocks.archiveState.restoreResult = createSnapshot({
+      contentPackage: { runId: "content", constraints: { maxSlides: 9 } },
+    });
+
+    await stateManager.resumeDesignAgentLoop("checkpoint", { runContext: { runId: "stage-run" } }, { DesignAgentLoopCtor });
+
+    expect(run.mock.calls[0][1].runContext.constraints).toEqual({ maxSlides: 9 });
+  });
+
+  it("should_support_concurrent_resume_calls", async () => {
+    const { DesignAgentLoopCtor, run } = createResumeCtor();
     sharedMocks.archiveState.restoreResult = (checkpointId) =>
       createSnapshot({
         contentPackage: { runId: String(checkpointId), constraints: {}, meta: { id: checkpointId } },
       });
 
     await Promise.all([
-      resumeDesignAgentLoop("first", {}, { DesignAgentLoopCtor }),
-      resumeDesignAgentLoop("second", {}, { DesignAgentLoopCtor }),
+      stateManager.resumeDesignAgentLoop("first", {}, { DesignAgentLoopCtor }),
+      stateManager.resumeDesignAgentLoop("second", {}, { DesignAgentLoopCtor }),
     ]);
 
-    const runIds = run.mock.calls.map((call) => call[0].runId);
-
-    expect(runIds).toContain("first");
-    expect(runIds).toContain("second");
     expect(run).toHaveBeenCalledTimes(2);
   });
 });

@@ -53,11 +53,9 @@ vi.mock("../../../../../js/agents/shared/index.js", () => ({
   isPlainObject: mocks.mockIsPlainObject,
 }));
 
-import {
-  TOOL_DEFINITIONS,
-  createToolExecutor,
-  formatToolDefinitionsForLLM,
-} from "../../../../../js/agents/stages/codesearch/code-tools.js";
+import * as CodeTools from "../../../../../js/agents/stages/codesearch/code-tools.js";
+
+const { TOOL_DEFINITIONS, createToolExecutor, formatToolDefinitionsForLLM } = CodeTools;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -114,6 +112,18 @@ describe("createToolExecutor", () => {
     expect(() => createToolExecutor({ basePath: "   " })).toThrow("basePath must not be empty");
   });
 
+  it("throws when basePath is root slash", () => {
+    expect(() => createToolExecutor({ basePath: "/" })).toThrow("Invalid basePath: /");
+  });
+
+  it("throws when basePath is a Windows absolute path", () => {
+    expect(() => createToolExecutor({ basePath: "C:\\temp" })).toThrow("Invalid basePath");
+  });
+
+  it("throws when basePath contains traversal segments", () => {
+    expect(() => createToolExecutor({ basePath: "a/../b" })).toThrow("Invalid basePath");
+  });
+
   it("exposes TOOL_DEFINITIONS on executor", () => {
     const executor = createToolExecutor();
     expect(executor.definitions).toBe(TOOL_DEFINITIONS);
@@ -160,6 +170,22 @@ describe("createToolExecutor", () => {
       await expect(executor.glob({ pattern: "" })).rejects.toThrow("glob: pattern is required");
       await expect(executor.glob({ pattern: null })).rejects.toThrow("glob: pattern is required");
     });
+
+    it("returns empty result with error when globFn throws", async () => {
+      const globFn = vi.fn().mockRejectedValue(new Error("glob failed"));
+      const executor = createToolExecutor({ globFn });
+      const result = await executor.glob({ pattern: "*.js" });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          total: 0,
+          truncated: false,
+          error: "glob failed",
+        }),
+      );
+      expect(result.files).toBe(result);
+      expect(result).toHaveLength(0);
+    });
   });
 
   describe("grep", () => {
@@ -179,11 +205,10 @@ describe("createToolExecutor", () => {
       const executor = createToolExecutor({ fs, globFn, maxResults: 10 });
       const result = await executor.grep({ pattern: "alpha", path: "." });
 
-      expect(mocks.mockGrepChunks).toHaveBeenCalledWith(
-        expect.any(Array),
-        "alpha",
-        { regex: false, caseSensitive: false },
-      );
+      expect(mocks.mockGrepChunks).toHaveBeenCalledWith(expect.any(Array), "alpha", {
+        regex: false,
+        caseSensitive: false,
+      });
       expect(result.matches).toEqual([
         { file: "a.txt", matchCount: 2, spans: [1, 2, 3, 4, 5] },
         { file: "b.txt", matchCount: 1, spans: [7] },
@@ -217,6 +242,20 @@ describe("createToolExecutor", () => {
     it("throws when pattern is missing", async () => {
       const executor = createToolExecutor({ globFn: vi.fn().mockResolvedValue([]) });
       await expect(executor.grep({ pattern: "" })).rejects.toThrow("grep: pattern is required");
+    });
+
+    it("warns when read_file fails and returns message when no readable files", async () => {
+      const logger = { warn: vi.fn() };
+      const globFn = vi.fn().mockResolvedValue(["a.txt"]);
+      const executor = createToolExecutor({ globFn, logger });
+
+      const result = await executor.grep({ pattern: "alpha", path: "." });
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        "grep: failed to read file",
+        expect.objectContaining({ path: "a.txt", error: expect.any(String) }),
+      );
+      expect(result).toEqual({ matches: [], message: "No files to search" });
     });
   });
 
@@ -257,6 +296,57 @@ describe("createToolExecutor", () => {
       await expect(executor.read_file({ path: undefined })).rejects.toThrow("read_file: path is required");
     });
 
+    it("throws when no read implementation is available", async () => {
+      const executor = createToolExecutor();
+      await expect(executor.read_file({ path: "note.txt" })).rejects.toThrow(
+        "read_file: fs.readFile or vfs.readText is required",
+      );
+    });
+
+    it("throws when path attempts traversal", async () => {
+      const executor = createToolExecutor({ fs: { readFile: vi.fn() } });
+      await expect(executor.read_file({ path: "../secret.txt" })).rejects.toThrow("Invalid path: ../secret.txt");
+    });
+
+    it("throws when absolute path is provided under relative basePath", async () => {
+      const executor = createToolExecutor({ fs: { readFile: vi.fn() }, basePath: "." });
+      await expect(executor.read_file({ path: "/etc/passwd" })).rejects.toThrow("Invalid path: /etc/passwd");
+    });
+
+    it("reads when absolute path is within absolute basePath", async () => {
+      const fs = {
+        readFile: vi.fn((p) => {
+          if (p === "/repo/a.txt") return "hello";
+          throw new Error(`unexpected path: ${p}`);
+        }),
+        stat: vi.fn().mockResolvedValue({ size: 5 }),
+      };
+      const executor = createToolExecutor({ fs, basePath: "/repo" });
+
+      const result = await executor.read_file({ path: "/repo/a.txt" });
+
+      expect(result.path).toBe("a.txt");
+    });
+
+    it("throws when absolute path escapes absolute basePath", async () => {
+      const executor = createToolExecutor({ fs: { readFile: vi.fn() }, basePath: "/repo" });
+      await expect(executor.read_file({ path: "/other/a.txt" })).rejects.toThrow("Invalid path: /other/a.txt");
+    });
+
+    it("normalizes backslashes and strips basePath prefix", async () => {
+      const fs = {
+        readFile: vi.fn((p) => {
+          if (p === "project/file.txt") return Buffer.from("ok");
+          throw new Error(`unexpected path: ${p}`);
+        }),
+      };
+      const executor = createToolExecutor({ fs, basePath: "project" });
+
+      const result = await executor.read_file({ path: "project\\file.txt" });
+
+      expect(result.path).toBe("project/file.txt");
+    });
+
     it("throws when file is too large", async () => {
       const fs = {
         readFile: vi.fn(() => Buffer.from("data")),
@@ -265,6 +355,15 @@ describe("createToolExecutor", () => {
       const executor = createToolExecutor({ fs, maxFileSize: 10 });
 
       await expect(executor.read_file({ path: "big.txt" })).rejects.toThrow("File too large");
+    });
+
+    it("throws when vfs stat reports oversized file", async () => {
+      const vfs = {
+        readText: vi.fn().mockResolvedValue("data"),
+        stat: vi.fn().mockResolvedValue({ size: 999 }),
+      };
+      const executor = createToolExecutor({ vfs, maxFileSize: 10 });
+      await expect(executor.read_file({ path: "big-vfs.txt" })).rejects.toThrow("File too large");
     });
 
     it("truncates long lines", async () => {
@@ -276,6 +375,47 @@ describe("createToolExecutor", () => {
 
       const result = await executor.read_file({ path: "long.txt" });
       expect(result.content).toBe("1│01234...");
+    });
+
+    it("reads from vfs.readText when available", async () => {
+      const vfs = {
+        readText: vi.fn().mockResolvedValue("one\ntwo"),
+      };
+      const executor = createToolExecutor({ vfs });
+
+      const result = await executor.read_file({ path: "vfs.txt", endLine: 1 });
+
+      expect(result.content).toBe("1│one");
+    });
+
+    it("decodes ArrayBuffer content from vfs.readFile", async () => {
+      const buffer = new TextEncoder().encode("hello").buffer;
+      // Ensure bufferToText doesn't take the `.toString()` shortcut.
+      buffer.toString = undefined;
+      const vfs = {
+        readFile: vi.fn().mockResolvedValue(buffer),
+        stat: vi.fn().mockResolvedValue({ size: 5 }),
+      };
+      const executor = createToolExecutor({ vfs });
+
+      const result = await executor.read_file({ path: "buf.txt" });
+
+      expect(result.content).toBe("1│hello");
+    });
+
+    it("decodes ArrayBuffer views from vfs.readFile", async () => {
+      const view = new Uint8Array([104, 105]);
+      // Ensure bufferToText doesn't take the `.toString()` shortcut.
+      view.toString = undefined;
+      const vfs = {
+        readFile: vi.fn().mockResolvedValue(view),
+        stat: vi.fn().mockResolvedValue({ size: 2 }),
+      };
+      const executor = createToolExecutor({ vfs });
+
+      const result = await executor.read_file({ path: "view.txt" });
+
+      expect(result.content).toBe("1│hi");
     });
   });
 
@@ -334,6 +474,16 @@ describe("createToolExecutor", () => {
       const executor = createToolExecutor({ vfs: { writeText: vi.fn() } });
       await expect(executor.write_file({ path: undefined, content: "x" })).rejects.toThrow("write_file: path is required");
     });
+
+    it("returns error when policy wrapper throws", async () => {
+      const vfs = { writeText: vi.fn() };
+      mocks.mockWriteTextFileWithPolicy.mockRejectedValue(new Error("write failed"));
+      const executor = createToolExecutor({ vfs });
+
+      const result = await executor.write_file({ path: "note.txt", content: "hello" });
+
+      expect(result).toEqual({ error: "write failed" });
+    });
   });
 
   describe("multi_edit", () => {
@@ -371,14 +521,22 @@ describe("createToolExecutor", () => {
       const executor = createToolExecutor({ vfs });
       await executor.multi_edit({ path: "app.js", edits: { old_string: "a", new_string: "b" } });
 
-      expect(mocks.mockMultiEditTextFileWithPolicy).toHaveBeenCalledWith(
-        expect.objectContaining({ edits: [] }),
-      );
+      expect(mocks.mockMultiEditTextFileWithPolicy).toHaveBeenCalledWith(expect.objectContaining({ edits: [] }));
     });
 
     it("throws when path is missing", async () => {
       const executor = createToolExecutor({ vfs: { writeText: vi.fn() } });
       await expect(executor.multi_edit({ path: "" })).rejects.toThrow("multi_edit: path is required");
+    });
+
+    it("returns error when policy wrapper throws", async () => {
+      const vfs = { writeText: vi.fn() };
+      mocks.mockMultiEditTextFileWithPolicy.mockRejectedValue(new Error("edit failed"));
+      const executor = createToolExecutor({ vfs });
+
+      const result = await executor.multi_edit({ path: "app.js", edits: [] });
+
+      expect(result).toEqual({ error: "edit failed" });
     });
   });
 
@@ -431,6 +589,37 @@ describe("createToolExecutor", () => {
       );
       expect(Array.from(result.entries)).toEqual([]);
     });
+
+    it("normalizes entries from multiple dirent shapes", async () => {
+      const fs = {
+        readdir: vi.fn().mockResolvedValue([
+          { name: "dirA", isDirectory: true },
+          { name: "dirB", kind: "directory" },
+          { name: "fileA", type: "file" },
+          { name: "fileB", kind: "file" },
+          { nope: true },
+          ".hidden",
+        ]),
+      };
+      const executor = createToolExecutor({ fs, maxResults: 10 });
+
+      const result = await executor.list_dir({ path: ".", showHidden: true });
+
+      expect(Array.from(result.entries)).toEqual([
+        { name: "dirA", type: "dir" },
+        { name: "dirB", type: "dir" },
+        { name: ".hidden", type: "file" },
+        { name: "fileA", type: "file" },
+        { name: "fileB", type: "file" },
+      ]);
+    });
+
+    it("returns empty result with error when readdir throws", async () => {
+      const fs = { readdir: vi.fn().mockRejectedValue(new Error("readdir failed")) };
+      const executor = createToolExecutor({ fs });
+      const result = await executor.list_dir({ path: "." });
+      expect(result.error).toBe("readdir failed");
+    });
   });
 
   describe("tree", () => {
@@ -481,6 +670,49 @@ describe("createToolExecutor", () => {
 
       expect(result).toEqual({ error: "tree requires fs.readdir or vfs.readdir/list", tree: "" });
     });
+
+    it("sorts directories before files and keeps directories even when pattern mismatches", async () => {
+      const fs = {
+        readdir: vi.fn().mockResolvedValue([
+          { name: "b.txt", isDirectory: false },
+          { name: "src", isDirectory: true },
+          "a.txt",
+        ]),
+      };
+      const executor = createToolExecutor({ fs });
+
+      const sorted = await executor.tree({ depth: 1, pattern: "*" });
+
+      expect(sorted.tree.indexOf("📁 src")).toBeLessThan(sorted.tree.indexOf("📄 a.txt"));
+    });
+
+    it("keeps directories even when pattern excludes files", async () => {
+      const fs = {
+        readdir: vi.fn().mockResolvedValue([
+          { name: "b.txt", isDirectory: false },
+          { name: "src", isDirectory: true },
+          "a.txt",
+        ]),
+      };
+      const executor = createToolExecutor({ fs });
+
+      const result = await executor.tree({ depth: 1, pattern: "md" });
+
+      expect(result.tree).toContain("📁 src");
+    });
+
+    it("truncates when directory contains too many entries", async () => {
+      const fs = {
+        readdir: vi.fn().mockResolvedValue(
+          Array.from({ length: 202 }, (_v, i) => `file_${String(i).padStart(3, "0")}.txt`),
+        ),
+      };
+      const executor = createToolExecutor({ fs });
+
+      const result = await executor.tree({ depth: 1, pattern: "*" });
+
+      expect(result.truncated).toBe(true);
+    });
   });
 
   describe("index_symbols", () => {
@@ -510,9 +742,10 @@ describe("createToolExecutor", () => {
       const executor = createToolExecutor({ fs, globFn });
       const indexer = mocks.symbolIndexerInstances[0];
 
-      indexer.indexFile
-        .mockResolvedValueOnce({ skipped: true, symbols: ["a"] })
-        .mockResolvedValueOnce({ skipped: false, symbols: ["b", "c"] });
+      indexer.indexFile.mockResolvedValueOnce({ skipped: true, symbols: ["a"] }).mockResolvedValueOnce({
+        skipped: false,
+        symbols: ["b", "c"],
+      });
 
       const result = await executor.index_symbols({ pattern: "*.js" });
 
@@ -537,15 +770,12 @@ describe("createToolExecutor", () => {
         workspaceId: " custom ",
       });
 
-      expect(indexer.store.putSymbolRecord).toHaveBeenCalledWith(
-        "custom",
-        "file.js",
-        { sha256: "hash", symbols: ["sym1", "sym2"] },
-      );
+      expect(indexer.store.putSymbolRecord).toHaveBeenCalledWith("custom", "file.js", {
+        sha256: "hash",
+        symbols: ["sym1", "sym2"],
+      });
       expect(indexer.invalidateCaches).toHaveBeenCalled();
-      expect(result).toEqual(
-        expect.objectContaining({ indexed: 1, skipped: 0, failed: 0, workspaceId: "custom" }),
-      );
+      expect(result).toEqual(expect.objectContaining({ indexed: 1, skipped: 0, failed: 0, workspaceId: "custom" }));
     });
 
     it("marks oversized files as failed", async () => {
@@ -573,6 +803,78 @@ describe("createToolExecutor", () => {
 
       expect(result.total).toBe(1);
       expect(result.truncated).toBe(true);
+    });
+
+    it("deduplicates paths input before indexing", async () => {
+      const fs = { stat: vi.fn().mockResolvedValue({ size: 1 }) };
+      const executor = createToolExecutor({ fs });
+      const indexer = mocks.symbolIndexerInstances[0];
+
+      await executor.index_symbols({ paths: ["dup.js", "dup.js"] });
+
+      expect(indexer.indexFile).toHaveBeenCalledTimes(1);
+    });
+
+    it("deduplicates glob results before indexing", async () => {
+      const fs = { stat: vi.fn().mockResolvedValue({ size: 1 }) };
+      const globFn = vi.fn().mockResolvedValue(["a.js", "a.js", "b.js"]);
+      const executor = createToolExecutor({ fs, globFn });
+      const indexer = mocks.symbolIndexerInstances[0];
+
+      await executor.index_symbols({ pattern: "*.js" });
+
+      expect(indexer.indexFile).toHaveBeenCalledTimes(2);
+    });
+
+    it("records failures when indexer throws", async () => {
+      const fs = { stat: vi.fn().mockResolvedValue({ size: 1 }) };
+      const executor = createToolExecutor({ fs });
+      const indexer = mocks.symbolIndexerInstances[0];
+
+      indexer.indexFile.mockImplementation(() => {
+        throw new Error("index failed");
+      });
+
+      const result = await executor.index_symbols({ paths: ["a.js"] });
+
+      expect(result.files[0].error).toBe("index failed");
+    });
+
+    it("reads text for forced indexing from vfs.readFile when readText is missing", async () => {
+      const vfs = {
+        readFile: vi.fn().mockResolvedValue(new TextEncoder().encode("code").buffer),
+      };
+      const executor = createToolExecutor({ vfs });
+      const indexer = mocks.symbolIndexerInstances[0];
+
+      indexer.extractSymbolsAsync.mockResolvedValue([]);
+      mocks.mockComputeSha256.mockResolvedValue("hash");
+
+      await executor.index_symbols({ paths: "file.js", force: true });
+
+      expect(vfs.readFile).toHaveBeenCalledWith("file.js");
+    });
+
+    it("reads text for forced indexing from fs.readFile when vfs is missing", async () => {
+      const fs = {
+        readFile: vi.fn().mockResolvedValue("code"),
+        stat: vi.fn().mockResolvedValue({ size: 4 }),
+      };
+      const executor = createToolExecutor({ fs });
+      const indexer = mocks.symbolIndexerInstances[0];
+
+      indexer.extractSymbolsAsync.mockResolvedValue([]);
+      mocks.mockComputeSha256.mockResolvedValue("hash");
+
+      await executor.index_symbols({ paths: ["file.js"], force: true });
+
+      expect(fs.readFile).toHaveBeenCalledWith("./file.js");
+    });
+
+    it("records failures when forced indexing lacks any readable backend", async () => {
+      const executor = createToolExecutor();
+      const result = await executor.index_symbols({ paths: ["file.js"], force: true });
+      expect(result.files[0].error).toBe("index_symbols: vfs.readText or fs.readFile is required");
     });
   });
 
