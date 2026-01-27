@@ -953,7 +953,7 @@ describe("createPreAgentHook", () => {
 
     const hook = createPreAgentHook();
     await hook({ sessionId: "s", runId: "r", input: {}, context: createContext(eventBus) });
-    expect(findEvent(eventBus.events, "agent:hook-error")?.payload?.error).toBe("boom");
+    expect(findEvent(eventBus.events, "agent:hook:error")?.payload?.error).toBe("boom");
   });
 });
 
@@ -1005,7 +1005,7 @@ describe("createPostAgentHook", () => {
       context: createContext(eventBus),
     });
 
-    expect(findEvent(eventBus.events, "agent:hook-error")?.payload?.error).toBe("post boom");
+    expect(findEvent(eventBus.events, "agent:hook:error")?.payload?.error).toBe("post boom");
   });
 });
 

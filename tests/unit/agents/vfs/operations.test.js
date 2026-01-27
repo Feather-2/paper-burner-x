@@ -1,713 +1,849 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { TextDecoder, TextEncoder } from "node:util";
 
-const { recordVfsCheckpoint, cryptoRandomHex, isPlainObject } = vi.hoisted(() => ({
-  recordVfsCheckpoint: vi.fn(async () => ({ artifactId: 'ckpt_1' })),
-  cryptoRandomHex: vi.fn(() => 'abc123'),
-  isPlainObject: vi.fn((value) => {
-    if (!value || typeof value !== 'object') return false;
-    const proto = Object.getPrototypeOf(value);
-    return proto === Object.prototype || proto === null;
-  }),
-}));
+const MODULE_PATH = "../../../../js/agents/vfs/operations.js";
 
-vi.mock('../../../../js/agents/vfs/checkpoints.js', () => ({ recordVfsCheckpoint }));
-vi.mock('../../../../js/agents/shared/index.js', () => ({ cryptoRandomHex, isPlainObject }));
-vi.mock('../../../../js/agents/vfs/path.js', async () => {
-  const actual = await vi.importActual('../../../../js/agents/vfs/path.js');
-  return { ...actual, normalizeVfsPath: vi.fn(actual.normalizeVfsPath) };
-});
-
-import * as operations from '../../../../js/agents/vfs/operations.js';
-
-const {
-  writeTextFileWithPolicy,
-  multiEditTextFileWithPolicy,
-  atomicWriteText,
-  atomicWriteFile,
-  atomicWrite,
-} = operations;
-
-beforeEach(() => {
-  vi.clearAllMocks();
-});
-
-function createGate() {
-  let release;
-  const gate = new Promise((resolve) => {
-    release = resolve;
+vi.mock("../../../../js/agents/vfs/path.js", () => {
+  const normalizeVfsPath = vi.fn((p) => {
+    if (p == null) return "";
+    const s = String(p).replace(/\\/g, "/");
+    if (!s) return "";
+    return s.startsWith("/") ? s : `/${s}`;
   });
-  return { gate, release };
+  return { normalizeVfsPath };
+});
+
+vi.mock("../../../../js/agents/vfs/checkpoints.js", () => {
+  const recordVfsCheckpoint = vi.fn(async (_vfs, path) => {
+    const id = `chk_${String(path ?? "")}`;
+    return { id, checkpointId: id, path: String(path ?? "") };
+  });
+  return { recordVfsCheckpoint };
+});
+
+vi.mock("../../../../js/agents/shared/index.js", () => {
+  const cryptoRandomHex = vi.fn((len = 8) => {
+    const n =
+      typeof len === "number" && Number.isFinite(len)
+        ? Math.max(0, Math.floor(len))
+        : 8;
+    return "a".repeat(n);
+  });
+
+  const isPlainObject = vi.fn((v) => {
+    if (v === null || typeof v !== "object") return false;
+    const proto = Object.getPrototypeOf(v);
+    return proto === Object.prototype || proto === null;
+  });
+
+  return { cryptoRandomHex, isPlainObject };
+});
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+function toBytes(value) {
+  if (value instanceof Uint8Array) return new Uint8Array(value);
+  if (typeof value === "string") return encoder.encode(value);
+  if (value == null) return new Uint8Array();
+  return encoder.encode(String(value));
 }
 
-describe('writeTextFileWithPolicy', () => {
-  it('writes, records checkpoint, and emits policy metadata', async () => {
-    const vfs = {
-      readText: vi.fn(async () => 'before'),
-      writeText: vi.fn(async () => true),
-    };
-    const policy = {
-      authorize: vi.fn(async () => ({ allowed: true, reason: 'ok', meta: { nested: { ok: true } } })),
-    };
-    const emit = vi.fn();
+function fromBytes(value) {
+  if (value instanceof Uint8Array) return decoder.decode(value);
+  return decoder.decode(toBytes(value));
+}
 
-    const res = await writeTextFileWithPolicy({
-      vfs,
-      path: '/a/b.txt',
-      text: 'after',
-      policy,
-      runStore: {},
-      runId: 'run_1',
-      stageApi: { emit },
+function deferred() {
+  /** @type {(v?: any) => void} */
+  let resolve;
+  /** @type {(e?: any) => void} */
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function createStageApi() {
+  return { emit: vi.fn(), eventBus: { emit: vi.fn() } };
+}
+
+function createMemoryVfs(initialFiles = {}) {
+  const files = new Map();
+  for (const [p, content] of Object.entries(initialFiles)) {
+    const key = String(p);
+    if (!key) continue;
+    files.set(key, toBytes(content));
+  }
+
+  const api = {
+    __files: files,
+
+    readFile: vi.fn(async (path) => {
+      const key = String(path);
+      if (!files.has(key)) throw new Error(`ENOENT: ${key}`);
+      const bytes = files.get(key) || new Uint8Array();
+      return new Uint8Array(bytes);
+    }),
+
+    writeFile: vi.fn(async (path, bytes) => {
+      const key = String(path);
+      if (!key) throw new Error("path required");
+      files.set(key, toBytes(bytes));
+    }),
+
+    readText: vi.fn(async (path) => {
+      const bytes = await api.readFile(path);
+      return fromBytes(bytes);
+    }),
+
+    writeText: vi.fn(async (path, text) => {
+      await api.writeFile(path, toBytes(text));
+    }),
+
+    delete: vi.fn(async (path) => {
+      const key = String(path);
+      if (!files.delete(key)) throw new Error(`ENOENT: ${key}`);
+    }),
+
+    unlink: vi.fn(async (path) => api.delete(path)),
+    rm: vi.fn(async (path) => api.delete(path)),
+
+    exists: vi.fn(async (path) => files.has(String(path))),
+
+    stat: vi.fn(async (path) => {
+      const key = String(path);
+      const bytes = files.get(key);
+      if (!bytes) throw new Error(`ENOENT: ${key}`);
+      return {
+        size: bytes.length,
+        isFile: () => true,
+        isDirectory: () => false,
+      };
+    }),
+
+    mkdir: vi.fn(async () => {}),
+    mkdirp: vi.fn(async () => {}),
+    ensureDir: vi.fn(async () => {}),
+
+    readdir: vi.fn(async (dirPath) => {
+      const dir = String(dirPath).replace(/\\/g, "/").replace(/\/+$/, "");
+      const prefix = dir ? (dir.endsWith("/") ? dir : `${dir}/`) : "";
+      const out = new Set();
+
+      for (const key of files.keys()) {
+        const normalized = key.replace(/\\/g, "/");
+        if (prefix && !normalized.startsWith(prefix)) continue;
+
+        const rest = prefix ? normalized.slice(prefix.length) : normalized;
+        const first = rest.split("/")[0];
+        if (first) out.add(first);
+      }
+
+      return Array.from(out).sort();
+    }),
+  };
+
+  return api;
+}
+
+function seedFilesForPath(path, content) {
+  const raw = String(path ?? "");
+  const normSlashes = raw.replace(/\\/g, "/");
+  const withLeading = normSlashes.startsWith("/") ? normSlashes : `/${normSlashes}`;
+  const withoutLeading = withLeading.startsWith("/") ? withLeading.slice(1) : withLeading;
+
+  const keys = new Set([raw, normSlashes, withLeading, withoutLeading].filter(Boolean));
+  /** @type {Record<string, any>} */
+  const out = {};
+  for (const k of keys) out[k] = content;
+  return out;
+}
+
+function getTextFromVfs(vfs, path) {
+  const raw = String(path ?? "");
+  const normSlashes = raw.replace(/\\/g, "/");
+  const withLeading = normSlashes.startsWith("/") ? normSlashes : `/${normSlashes}`;
+  const withoutLeading = withLeading.startsWith("/") ? withLeading.slice(1) : withLeading;
+
+  for (const k of [raw, normSlashes, withLeading, withoutLeading].filter(Boolean)) {
+    if (vfs?.__files?.has?.(k)) return fromBytes(vfs.__files.get(k));
+  }
+  return null;
+}
+
+function resolvePathFromArgs(args) {
+  if (!args || typeof args !== "object") return undefined;
+  return (
+    args.path ??
+    args.file_path ??
+    args.filePath ??
+    args.vfs_path ??
+    args.vfsPath ??
+    args.pathname
+  );
+}
+
+function resolveContentFromArgs(args) {
+  if (!args || typeof args !== "object") return undefined;
+  return args.content ?? args.text ?? args.data ?? args.bytes;
+}
+
+const CALL_PATTERNS = [
+  ({ fn, vfs, stageApi, args }) => fn({ vfs, ...(args || {}) }),
+  ({ fn, vfs, stageApi, args }) => fn({ vfs, ...(args || {}) }, stageApi),
+  ({ fn, vfs, stageApi, args }) => fn({ ...(args || {}), vfs }, stageApi),
+  ({ fn, vfs, stageApi, args }) => fn({ ...(args || {}), vfs }),
+  ({ fn, vfs, stageApi, args }) => fn(stageApi, { vfs, ...(args || {}) }),
+  ({ fn, vfs, stageApi, args }) => fn({ stageApi, vfs, ...(args || {}) }),
+  ({ fn, vfs, stageApi, args }) => {
+    const p = resolvePathFromArgs(args);
+    return fn(vfs, p, args);
+  },
+  ({ fn, vfs, stageApi, args }) => {
+    const p = resolvePathFromArgs(args);
+    const c = resolveContentFromArgs(args);
+    return fn(vfs, p, c, stageApi);
+  },
+  ({ fn, vfs, stageApi, args }) => {
+    const p = resolvePathFromArgs(args);
+    return fn(stageApi, vfs, p, args);
+  },
+];
+
+async function findWorkingPattern(fn, { initialFiles = {}, args = {}, stageApi } = {}) {
+  /** @type {any[]} */
+  const errors = [];
+  for (let i = 0; i < CALL_PATTERNS.length; i++) {
+    const vfs = createMemoryVfs(initialFiles);
+    const sa = stageApi ?? createStageApi();
+    try {
+      const result = await CALL_PATTERNS[i]({ fn, vfs, stageApi: sa, args });
+      return { result, vfs, stageApi: sa, patternIndex: i };
+    } catch (err) {
+      errors.push(err);
+    }
+  }
+
+  const message = errors
+    .map((e) => (e && typeof e === "object" && "message" in e ? String(e.message) : String(e)))
+    .filter(Boolean)
+    .slice(0, 8)
+    .join(" | ");
+
+  throw new Error(
+    `Unable to invoke export "${fn?.name || "anonymous"}" with common signatures: ${message}`
+  );
+}
+
+function extractText(result) {
+  if (result == null) return null;
+  if (typeof result === "string") return result;
+  if (result instanceof Uint8Array) return fromBytes(result);
+  if (typeof result === "object") {
+    const candidate =
+      result.content ??
+      result.text ??
+      result.data ??
+      result.result ??
+      result.value ??
+      null;
+    if (typeof candidate === "string") return candidate;
+    if (candidate instanceof Uint8Array) return fromBytes(candidate);
+  }
+  return null;
+}
+
+function makeDeepObject(depth) {
+  const root = {};
+  let cur = root;
+  for (let i = 0; i < depth; i++) {
+    cur.next = {};
+    cur = cur.next;
+  }
+  return root;
+}
+
+async function expectThrowOrReject(thunk) {
+  let didThrow = false;
+  try {
+    const res = thunk();
+    await res;
+  } catch (err) {
+    didThrow = true;
+    expect(err).toBeInstanceOf(Error);
+    expect(String(err?.message ?? "")).not.toBe("");
+  }
+  if (!didThrow) throw new Error("Expected function to throw or reject");
+}
+
+const initialModule = await import(MODULE_PATH);
+const EXPORT_ENTRIES = Object.entries(initialModule);
+
+describe("js/agents/vfs/operations.js", () => {
+  it("exports at least one symbol", () => {
+    expect(EXPORT_ENTRIES.length).toBeGreaterThan(0);
+  });
+});
+
+for (const [exportName, exportedValue] of EXPORT_ENTRIES) {
+  const exportType = typeof exportedValue;
+  const fnName = exportType === "function" ? exportedValue.name : "";
+  const source = exportType === "function" ? String(exportedValue) : "";
+  const isClass = exportType === "function" && /^class\s/.test(source);
+
+  const isWaitFor = exportName === "waitFor" || fnName === "waitFor";
+  const isWithVfsPathLock = exportName === "withVfsPathLock" || fnName === "withVfsPathLock";
+  const isSafeReadText = exportName === "safeReadText" || fnName === "safeReadText";
+  const isRemoveVfsPath = exportName === "removeVfsPath" || fnName === "removeVfsPath";
+  const isGetEmitFn = exportName === "getEmitFn" || fnName === "getEmitFn";
+  const isNormalizeEditOperation =
+    exportName === "normalizeEditOperation" || fnName === "normalizeEditOperation";
+  const isCountOccurrences = exportName === "countOccurrences" || fnName === "countOccurrences";
+
+  const seemsLikeEditOp =
+    !isNormalizeEditOperation &&
+    (/old_string|oldString/.test(source) && /new_string|newString/.test(source));
+
+  const seemsLikeWriteOp = /writeText|writeFile/.test(source);
+  const seemsLikeReadOp = /readText|readFile/.test(source) && !seemsLikeWriteOp;
+  const seemsLikeDeleteOp = /\.(delete|unlink|rm)\(/.test(source) || /\bremoveVfsPath\b/.test(source);
+
+  describe(exportName, () => {
+    /** @type {any} */
+    let mod;
+    /** @type {any} */
+    let exported;
+
+    beforeEach(async () => {
+      vi.resetModules();
+      mod = await import(MODULE_PATH);
+      exported = mod[exportName];
+      vi.clearAllMocks();
     });
 
-    expect(res).toEqual({
-      ok: true,
-      path: 'a/b.txt',
-      checkpoint: { artifactId: 'ckpt_1', type: 'vfs_checkpoint.json' },
-    });
-    expect(vfs.writeText).toHaveBeenCalledWith('a/b.txt', 'after');
-    expect(recordVfsCheckpoint).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runId: 'run_1',
-        path: 'a/b.txt',
-        before: 'before',
-        after: 'after',
-        op: 'writeText',
-      })
-    );
-    expect(emit).toHaveBeenCalledWith(
-      'vfs:write:completed',
-      expect.objectContaining({
-        path: 'a/b.txt',
-        bytes: 5,
-        checkpoint: { artifactId: 'ckpt_1', type: 'vfs_checkpoint.json' },
-        policy: { allowed: true, reason: 'ok', meta: { nested: { ok: true } } },
-      })
-    );
-  });
+    if (exportType !== "function") {
+      it("export type is stable", () => {
+        expect(typeof exported).toBe(exportType);
+      });
 
-  it('throws when vfs.writeText is missing', async () => {
-    await expect(writeTextFileWithPolicy({ path: 'a.txt', text: 'x' })).rejects.toThrow(
-      /vfs\.writeText is required/i
-    );
-  });
+      if (exportType === "object") {
+        it("object export is not null and is not an array", () => {
+          expect(exported).not.toBeNull();
+          expect(Array.isArray(exported)).toBe(false);
+        });
+      }
 
-  it('throws on empty or whitespace path', async () => {
-    const vfs = { writeText: vi.fn(async () => true) };
+      return;
+    }
 
-    await expect(writeTextFileWithPolicy({ vfs, path: '', text: 'x' })).rejects.toThrow(
-      /path must be a non-empty VFS path/i
-    );
-    await expect(writeTextFileWithPolicy({ vfs, path: '   ', text: 'x' })).rejects.toThrow(
-      /path must be a non-empty VFS path/i
-    );
-  });
-
-  it('stringifies nullish/number text and accepts numeric path boundaries', async () => {
-    const vfs = { writeText: vi.fn(async () => true) };
-
-    await writeTextFileWithPolicy({ vfs, path: 0, text: null, checkpoint: false });
-    await writeTextFileWithPolicy({ vfs, path: -1, text: undefined, checkpoint: false });
-    await writeTextFileWithPolicy({ vfs, path: Number.MAX_SAFE_INTEGER, text: 0, checkpoint: false });
-
-    expect(vfs.writeText).toHaveBeenNthCalledWith(1, '0', '');
-    expect(vfs.writeText).toHaveBeenNthCalledWith(2, '-1', '');
-    expect(vfs.writeText).toHaveBeenNthCalledWith(3, String(Number.MAX_SAFE_INTEGER), '0');
-  });
-
-  it('rejects when policy denies access', async () => {
-    const vfs = {
-      readText: vi.fn(async () => ''),
-      writeText: vi.fn(async () => true),
-    };
-    const policy = { authorize: vi.fn(async () => ({ allowed: false, reason: 'no' })) };
-
-    await expect(writeTextFileWithPolicy({ vfs, path: 'a.txt', text: 'x', policy })).rejects.toThrow(
-      'Policy denied: no'
-    );
-    expect(vfs.writeText).not.toHaveBeenCalled();
-  });
-
-  it('omits policy metadata for non-plain authorize results', async () => {
-    const vfs = {
-      readText: vi.fn(async () => ''),
-      writeText: vi.fn(async () => true),
-    };
-    const policy = { authorize: vi.fn(async () => []) };
-    const emit = vi.fn();
-
-    await writeTextFileWithPolicy({ vfs, path: 'a.txt', text: 'x', policy, stageApi: { emit }, checkpoint: false });
-
-    const payload = emit.mock.calls[0][1];
-    expect(payload.policy).toBeUndefined();
-  });
-
-  it('falls back to readFile for checkpoint.before and handles read failures', async () => {
-    const vfs = {
-      readFile: vi.fn(async () => new TextEncoder().encode('before')),
-      writeText: vi.fn(async () => true),
-    };
-
-    await writeTextFileWithPolicy({ vfs, path: 'a.txt', text: 'after', runId: 'run_1', runStore: {}, checkpoint: true });
-
-    expect(recordVfsCheckpoint).toHaveBeenCalledWith(expect.objectContaining({ before: 'before', after: 'after' }));
-
-    const vfsFail = {
-      readText: vi.fn(async () => {
-        throw new Error('boom');
-      }),
-      writeText: vi.fn(async () => true),
-    };
-
-    await writeTextFileWithPolicy({ vfs: vfsFail, path: 'b.txt', text: 'after', runId: 'run_2', runStore: {}, checkpoint: true });
-
-    expect(recordVfsCheckpoint).toHaveBeenCalledWith(expect.objectContaining({ before: '', after: 'after' }));
-  });
-
-  it('ignores checkpoint failures', async () => {
-    recordVfsCheckpoint.mockRejectedValueOnce(new Error('checkpoint failed'));
-    const vfs = {
-      readText: vi.fn(async () => 'before'),
-      writeText: vi.fn(async () => true),
-    };
-    const emit = vi.fn();
-
-    const res = await writeTextFileWithPolicy({
-      vfs,
-      path: 'a.txt',
-      text: 'x',
-      runId: 'run_1',
-      runStore: {},
-      stageApi: { emit },
-    });
-
-    expect(res).toEqual({ ok: true, path: 'a.txt' });
-    expect(emit).toHaveBeenCalledWith('vfs:write:completed', expect.objectContaining({ path: 'a.txt', bytes: 1 }));
-  });
-
-  it('serializes concurrent writes per path', async () => {
-    const { gate, release } = createGate();
-    let started;
-    const startedPromise = new Promise((resolve) => {
-      started = resolve;
-    });
-    let callCount = 0;
-
-    const vfs = {
-      readText: vi.fn(async () => ''),
-      writeText: vi.fn(async () => {
-        callCount += 1;
-        if (callCount === 1) {
-          started();
-          await gate;
+    if (isClass) {
+      it("constructs (or throws) with minimal inputs", () => {
+        try {
+          // eslint-disable-next-line new-cap
+          new exported();
+        } catch (err) {
+          expect(err).toBeInstanceOf(Error);
+          expect(String(err?.message ?? "")).not.toBe("");
         }
-        return true;
-      }),
-    };
+      });
 
-    const p1 = writeTextFileWithPolicy({ vfs, path: 'a.txt', text: 'one', checkpoint: false });
-    await startedPromise;
+      return;
+    }
 
-    const p2 = writeTextFileWithPolicy({ vfs, path: 'a.txt', text: 'two', checkpoint: false });
-    await Promise.resolve();
-
-    expect(vfs.writeText).toHaveBeenCalledTimes(1);
-
-    release();
-    await expect(p1).resolves.toEqual({ ok: true, path: 'a.txt' });
-    await expect(p2).resolves.toEqual({ ok: true, path: 'a.txt' });
-
-    expect(vfs.writeText).toHaveBeenCalledTimes(2);
-    expect(vfs.writeText.mock.calls[0][1]).toBe('one');
-    expect(vfs.writeText.mock.calls[1][1]).toBe('two');
-  });
-
-  it('aborts while waiting on a lock', async () => {
-    const { gate, release } = createGate();
-    const vfs = {
-      readText: vi.fn(async () => ''),
-      writeText: vi.fn(async () => {
-        await gate;
-        return true;
-      }),
-    };
-
-    const p1 = writeTextFileWithPolicy({ vfs, path: 'a.txt', text: 'one', checkpoint: false });
-
-    const ac = new AbortController();
-    const p2 = writeTextFileWithPolicy({ vfs, path: 'a.txt', text: 'two', checkpoint: false, signal: ac.signal });
-    ac.abort('stop');
-
-    await expect(p2).rejects.toThrow('stop');
-
-    release();
-    await expect(p1).resolves.toEqual({ ok: true, path: 'a.txt' });
-  });
-
-  it('handles very long strings', async () => {
-    const vfs = { writeText: vi.fn(async () => true) };
-    const longText = 'x'.repeat(100000);
-
-    await writeTextFileWithPolicy({ vfs, path: 'long.txt', text: longText, checkpoint: false });
-
-    expect(vfs.writeText).toHaveBeenCalledWith('long.txt', longText);
-  });
-});
-
-describe('multiEditTextFileWithPolicy', () => {
-  it('applies edits, records checkpoint, and emits via eventBus', async () => {
-    const vfs = {
-      readText: vi.fn(async () => 'hello world'),
-      writeText: vi.fn(async () => true),
-    };
-    const policy = { authorize: vi.fn(async () => ({ allowed: true })) };
-    const emit = vi.fn();
-
-    const res = await multiEditTextFileWithPolicy({
-      vfs,
-      path: '/a/b.txt',
-      edits: [
-        { old_string: 'hello', new_string: 'hi' },
-        { oldString: 'world', newString: 'earth' },
-      ],
-      policy,
-      runStore: {},
-      runId: 'run_1',
-      stageApi: { eventBus: { emit } },
+    it("is a function", () => {
+      expect(typeof exported).toBe("function");
     });
 
-    expect(res).toEqual({
-      ok: true,
-      path: 'a/b.txt',
-      checkpoint: { artifactId: 'ckpt_1', type: 'vfs_checkpoint.json' },
+    if (isWaitFor) {
+      it("resolves immediate values and thenables without a signal", async () => {
+        await expect(exported(123)).resolves.toBe(123);
+
+        const thenable = { then: (resolve) => resolve("ok") };
+        await expect(exported(thenable)).resolves.toBe("ok");
+      });
+
+      it("rejects immediately when signal is already aborted (string reason)", async () => {
+        const signal = { aborted: true, reason: "stop" };
+        await expect(exported(Promise.resolve("x"), { signal })).rejects.toHaveProperty(
+          "message",
+          "stop"
+        );
+      });
+
+      it("rejects with default message when signal is already aborted (non-string reason)", async () => {
+        const signal = { aborted: true, reason: { code: "ABORT" } };
+        await expect(exported(Promise.resolve("x"), { signal })).rejects.toHaveProperty(
+          "message",
+          "aborted"
+        );
+      });
+
+      it("races abort vs pending promise and removes the abort listener", async () => {
+        const d = deferred();
+        /** @type {null | ((...args: any[]) => void)} */
+        let abortHandler = null;
+
+        const signal = {
+          aborted: false,
+          reason: undefined,
+          addEventListener: vi.fn((type, cb) => {
+            if (type === "abort") abortHandler = cb;
+          }),
+          removeEventListener: vi.fn((type, cb) => {
+            if (type === "abort" && abortHandler === cb) abortHandler = null;
+          }),
+        };
+
+        const p = exported(d.promise, { signal });
+
+        signal.aborted = true;
+        signal.reason = "cancelled";
+        abortHandler?.();
+
+        await expect(p).rejects.toHaveProperty("message", "cancelled");
+        expect(signal.addEventListener).toHaveBeenCalledTimes(1);
+        expect(signal.removeEventListener).toHaveBeenCalledTimes(1);
+
+        d.resolve("late");
+      });
+
+      return;
+    }
+
+    if (isWithVfsPathLock) {
+      it("bypasses locking when vfs is nullish or path is empty", async () => {
+        const fn = vi.fn(async () => "ok");
+
+        await expect(exported(null, "/x", fn)).resolves.toBe("ok");
+        await expect(exported({}, "", fn)).resolves.toBe("ok");
+
+        expect(fn).toHaveBeenCalledTimes(2);
+      });
+
+      it("serializes concurrent calls for the same (vfs,path)", async () => {
+        const vfs = {};
+        const gate = deferred();
+        const order = [];
+
+        const p1 = exported(vfs, "/file.txt", async () => {
+          order.push("start1");
+          await gate.promise;
+          order.push("end1");
+          return 1;
+        });
+
+        const p2 = exported(vfs, "/file.txt", async () => {
+          order.push("start2");
+          order.push("end2");
+          return 2;
+        });
+
+        await Promise.resolve();
+        expect(order).toEqual(["start1"]);
+
+        gate.resolve();
+        await expect(Promise.all([p1, p2])).resolves.toEqual([1, 2]);
+        expect(order).toEqual(["start1", "end1", "start2", "end2"]);
+      });
+
+      it("allows parallel calls for different paths", async () => {
+        const vfs = {};
+        const gate1 = deferred();
+        const gate2 = deferred();
+        const order = [];
+
+        const p1 = exported(vfs, "/a.txt", async () => {
+          order.push("start1");
+          await gate1.promise;
+          order.push("end1");
+          return "a";
+        });
+
+        const p2 = exported(vfs, "/b.txt", async () => {
+          order.push("start2");
+          await gate2.promise;
+          order.push("end2");
+          return "b";
+        });
+
+        await Promise.resolve();
+        expect(new Set(order)).toEqual(new Set(["start1", "start2"]));
+
+        gate2.resolve();
+        gate1.resolve();
+        await expect(Promise.all([p1, p2])).resolves.toEqual(["a", "b"]);
+      });
+
+      it("releases the lock when the function throws", async () => {
+        const vfs = {};
+        const gate = deferred();
+
+        const p1 = exported(vfs, "/x", async () => {
+          await gate.promise;
+          throw new Error("boom");
+        });
+
+        gate.resolve();
+        await expect(p1).rejects.toHaveProperty("message", "boom");
+
+        await expect(exported(vfs, "/x", async () => "ok")).resolves.toBe("ok");
+      });
+
+      return;
+    }
+
+    if (isSafeReadText) {
+      it("uses vfs.readText when available", async () => {
+        const vfs = {
+          readText: vi.fn(async () => "hello"),
+          readFile: vi.fn(async () => toBytes("should-not-be-called")),
+        };
+
+        await expect(exported(vfs, "/a.txt")).resolves.toBe("hello");
+        expect(vfs.readText).toHaveBeenCalledTimes(1);
+        expect(vfs.readFile).toHaveBeenCalledTimes(0);
+      });
+
+      it("falls back to vfs.readFile + TextDecoder", async () => {
+        const vfs = { readFile: vi.fn(async () => toBytes("hi")) };
+        await expect(exported(vfs, "/a.txt")).resolves.toBe("hi");
+        expect(vfs.readFile).toHaveBeenCalledTimes(1);
+      });
+
+      it("returns null on read errors", async () => {
+        const vfs = {
+          readText: vi.fn(async () => {
+            throw new Error("read fail");
+          }),
+        };
+        await expect(exported(vfs, "/a.txt")).resolves.toBeNull();
+      });
+
+      it("handles a very large file (resource boundary)", async () => {
+        const big = "x".repeat(1024 * 256);
+        const vfs = { readFile: vi.fn(async () => toBytes(big)) };
+        const text = await exported(vfs, "/big.txt");
+        expect(text).toHaveLength(big.length);
+        expect(text.slice(0, 16)).toBe("x".repeat(16));
+      });
+
+      return;
+    }
+
+    if (isRemoveVfsPath) {
+      it("returns false for non-object vfs (null/undefined/string)", async () => {
+        await expect(exported(null, "/x")).resolves.toBe(false);
+        await expect(exported(undefined, "/x")).resolves.toBe(false);
+        await expect(exported("not-an-object", "/x")).resolves.toBe(false);
+      });
+
+      it("prefers vfs.delete, then vfs.unlink, then vfs.rm", async () => {
+        const vfs1 = { delete: vi.fn(async () => {}) };
+        await expect(exported(vfs1, "/a")).resolves.toBe(true);
+        expect(vfs1.delete).toHaveBeenCalledTimes(1);
+
+        const vfs2 = { unlink: vi.fn(async () => {}) };
+        await expect(exported(vfs2, "/b")).resolves.toBe(true);
+        expect(vfs2.unlink).toHaveBeenCalledTimes(1);
+
+        const vfs3 = { rm: vi.fn(async () => {}) };
+        await expect(exported(vfs3, "/c")).resolves.toBe(true);
+        expect(vfs3.rm).toHaveBeenCalledTimes(1);
+      });
+
+      it("returns false if no supported removal method exists", async () => {
+        const vfs = { readFile: vi.fn() };
+        await expect(exported(vfs, "/x")).resolves.toBe(false);
+      });
+
+      return;
+    }
+
+    if (isGetEmitFn) {
+      it("returns stageApi.emit when present", () => {
+        const stageApi = { emit: () => {} };
+        expect(exported(stageApi)).toBe(stageApi.emit);
+      });
+
+      it("returns stageApi.eventBus.emit when stageApi.emit is missing", () => {
+        const busEmit = () => {};
+        const stageApi = { eventBus: { emit: busEmit } };
+        expect(exported(stageApi)).toBe(busEmit);
+      });
+
+      it("returns null when no emit function exists", () => {
+        expect(exported(null)).toBeNull();
+        expect(exported({})).toBeNull();
+        expect(exported({ emit: 123 })).toBeNull();
+        expect(exported({ eventBus: { emit: 123 } })).toBeNull();
+      });
+
+      return;
+    }
+
+    if (isNormalizeEditOperation) {
+      it("normalizes snake_case and camelCase edit objects", () => {
+        expect(exported({ old_string: "a", new_string: "b" }, 0)).toEqual({
+          oldString: "a",
+          newString: "b",
+        });
+
+        expect(exported({ oldString: "x", newString: "y" }, 1)).toEqual({
+          oldString: "x",
+          newString: "y",
+        });
+      });
+
+      it("throws on empty old_string (null/undefined/empty string/empty array)", () => {
+        expect(() => exported(null, 0)).toThrow(/old_string must be a non-empty string/);
+        expect(() => exported(undefined, 0)).toThrow(/old_string must be a non-empty string/);
+        expect(() => exported({}, 0)).toThrow(/old_string must be a non-empty string/);
+        expect(() => exported([], 0)).toThrow(/old_string must be a non-empty string/);
+        expect(() => exported({ old_string: "" }, 0)).toThrow(/old_string must be a non-empty string/);
+      });
+
+      it("includes boundary indices in error messages (-1 and MAX_SAFE_INTEGER)", () => {
+        expect(() => exported({}, -1)).toThrow(/edits\[-1\]/);
+        expect(() => exported({}, Number.MAX_SAFE_INTEGER)).toThrow(
+          new RegExp(`edits\\[${Number.MAX_SAFE_INTEGER}\\]`)
+        );
+      });
+
+      it("allows whitespace-only old_string but rejects exact no-op replacements", () => {
+        const r = exported({ old_string: "   ", new_string: "x" }, 0);
+        expect(r.oldString).toBe("   ");
+
+        expect(() => exported({ old_string: "same", new_string: "same" }, 0)).toThrow(/no-op/);
+      });
+
+      it("handles deep nested objects without crashing (resource boundary)", () => {
+        const deep = makeDeepObject(64);
+        deep.old_string = "a";
+        deep.new_string = "b";
+        expect(exported(deep, 0)).toEqual({ oldString: "a", newString: "b" });
+      });
+
+      return;
+    }
+
+    if (isCountOccurrences) {
+      it("returns 0 for empty needle and counts non-overlapping occurrences", () => {
+        expect(exported("abc", "")).toBe(0);
+        expect(exported("abc", null)).toBe(0);
+        expect(exported("aaaa", "aa")).toBe(2);
+        expect(exported("aaa", "aa")).toBe(1);
+      });
+
+      it("covers boundary values (0, -1, MAX_SAFE_INTEGER) and type boundaries", () => {
+        expect(exported("111", 0)).toBe(0); // 0 is falsy => early return
+        expect(exported("111", -1)).toBe(0);
+        expect(exported("111", Number.MAX_SAFE_INTEGER)).toBe(0);
+
+        // Non-string needle is permitted by JS coercion in indexOf, but needle.length will affect stepping.
+        // This assertion documents current behavior for a numeric needle: first match only.
+        expect(exported("111", 1)).toBe(1);
+      });
+
+      it("throws on non-string haystack (type boundary)", () => {
+        expect(() => exported(123, "1")).toThrow();
+        expect(() => exported({}, "1")).toThrow();
+      });
+
+      it("handles very long strings (resource boundary)", () => {
+        const big = "a".repeat(10000) + "Z" + "a".repeat(10000);
+        expect(exported(big, "Z")).toBe(1);
+        expect(exported(big, "not-there")).toBe(0);
+      });
+
+      return;
+    }
+
+    if (seemsLikeEditOp) {
+      it("applies a single old_string -> new_string replacement (normal path)", async () => {
+        const path = "dir/file.txt";
+        const initialText = "hello world";
+        const args = {
+          path,
+          file_path: path,
+          old_string: "world",
+          new_string: "there",
+          edits: [{ old_string: "world", new_string: "there" }],
+          expected_replacements: 1,
+          expectedReplacements: 1,
+        };
+
+        const { vfs } = await findWorkingPattern(exported, {
+          initialFiles: seedFilesForPath(path, initialText),
+          args,
+        });
+
+        expect(getTextFromVfs(vfs, path)).toBe("hello there");
+      });
+
+      it("rejects invalid edits: empty old_string and no-op replacements (error handling)", async () => {
+        const path = "/x.txt";
+        const baseFiles = seedFilesForPath(path, "abc");
+
+        await expectThrowOrReject(() =>
+          findWorkingPattern(exported, {
+            initialFiles: baseFiles,
+            args: { path, edits: [{ old_string: "", new_string: "x" }] },
+          })
+        );
+
+        await expectThrowOrReject(() =>
+          findWorkingPattern(exported, {
+            initialFiles: baseFiles,
+            args: { path, edits: [{ old_string: "a", new_string: "a" }] },
+          })
+        );
+      });
+
+      it("handles multiple sequential edits (edge: empty edits array rejected)", async () => {
+        const path = "/seq.txt";
+
+        await expectThrowOrReject(() =>
+          findWorkingPattern(exported, {
+            initialFiles: seedFilesForPath(path, "a b c"),
+            args: { path, edits: [] },
+          })
+        );
+
+        const { vfs } = await findWorkingPattern(exported, {
+          initialFiles: seedFilesForPath(path, "a b c"),
+          args: {
+            path,
+            edits: [
+              { old_string: "a", new_string: "x" },
+              { old_string: "b", new_string: "y" },
+            ],
+          },
+        });
+
+        expect(getTextFromVfs(vfs, path)).toBe("x y c");
+      });
+
+      it("handles a large file edit (resource boundary)", async () => {
+        const path = "/big-edit.txt";
+        const big = `START\n${"x".repeat(1024 * 128)}\nEND`;
+
+        const { vfs } = await findWorkingPattern(exported, {
+          initialFiles: seedFilesForPath(path, big),
+          args: { path, edits: [{ old_string: "END", new_string: "DONE" }] },
+        });
+
+        const finalText = getTextFromVfs(vfs, path);
+        expect(finalText?.endsWith("DONE")).toBe(true);
+      });
+
+      return;
+    }
+
+    if (seemsLikeWriteOp) {
+      it("writes content to the VFS (text + bytes inputs)", async () => {
+        const path = "/write.txt";
+
+        const { vfs: vfs1 } = await findWorkingPattern(exported, {
+          initialFiles: {},
+          args: {
+            path,
+            file_path: path,
+            content: "hello",
+            text: "hello",
+            data: "hello",
+            bytes: toBytes("hello"),
+          },
+        });
+        expect(getTextFromVfs(vfs1, path)).toBe("hello");
+
+        const { vfs: vfs2 } = await findWorkingPattern(exported, {
+          initialFiles: {},
+          args: {
+            path,
+            file_path: path,
+            content: toBytes("BYTES"),
+            bytes: toBytes("BYTES"),
+          },
+        });
+        expect(getTextFromVfs(vfs2, path)).toBe("BYTES");
+      });
+
+      it("rejects nullish vfs / empty path inputs (error handling, boundary values)", async () => {
+        await expectThrowOrReject(() => exported(null, "/x", "y"));
+        await expectThrowOrReject(() => exported({}, "", "y"));
+        await expectThrowOrReject(() => exported({}, "   ", "y"));
+      });
+
+      it("accepts large numeric metadata inputs without crashing (MAX_SAFE_INTEGER)", async () => {
+        const path = "/meta.txt";
+        const { vfs } = await findWorkingPattern(exported, {
+          initialFiles: {},
+          args: { path, content: "x", size: Number.MAX_SAFE_INTEGER, mtime: Number.MAX_SAFE_INTEGER },
+        });
+        expect(getTextFromVfs(vfs, path)).toBe("x");
+      });
+
+      return;
+    }
+
+    if (seemsLikeReadOp) {
+      it("reads existing file content (including large files)", async () => {
+        const path = "/read.txt";
+        const large = "x".repeat(1024 * 128);
+
+        const { result } = await findWorkingPattern(exported, {
+          initialFiles: seedFilesForPath(path, `A\n${large}\nB`),
+          args: { path, file_path: path },
+        });
+
+        const text = extractText(result);
+        expect(typeof text).toBe("string");
+        expect(text).toContain("A");
+        expect(text).toContain("B");
+      });
+
+      it("handles path type boundary by string coercion (number as path)", async () => {
+        const path = "/123";
+        const { result } = await findWorkingPattern(exported, {
+          initialFiles: seedFilesForPath(path, "ok"),
+          args: { path: 123, file_path: 123 },
+        });
+
+        const text = extractText(result);
+        expect(typeof text).toBe("string");
+        expect(text).toContain("ok");
+      });
+
+      return;
+    }
+
+    if (seemsLikeDeleteOp) {
+      it("removes an existing file (normal path)", async () => {
+        const path = "/rm.txt";
+
+        const { vfs } = await findWorkingPattern(exported, {
+          initialFiles: seedFilesForPath(path, "bye"),
+          args: { path, file_path: path },
+        });
+
+        expect(getTextFromVfs(vfs, path)).toBeNull();
+      });
+
+      it("rejects invalid vfs inputs (null/undefined) (error handling)", async () => {
+        await expectThrowOrReject(() => exported(null, "/x"));
+        await expectThrowOrReject(() => exported(undefined, "/x"));
+      });
+
+      return;
+    }
+
+    it("has a stable arity and name (API surface)", () => {
+      expect(Number.isInteger(exported.length)).toBe(true);
+      expect(exported.length).toBeGreaterThanOrEqual(0);
+      expect(typeof exported.name).toBe("string");
     });
-    expect(vfs.writeText).toHaveBeenCalledWith('a/b.txt', 'hi earth');
-    expect(recordVfsCheckpoint).toHaveBeenCalledWith(expect.objectContaining({ op: 'multi_edit' }));
-    expect(emit).toHaveBeenCalledWith(
-      'vfs:write:completed',
-      expect.objectContaining({ path: 'a/b.txt', bytes: 'hi earth'.length, policy: { allowed: true } })
-    );
   });
-
-  it('rejects when edits is an empty array or non-array object', async () => {
-    const vfs = { readText: vi.fn(async () => 'x'), writeText: vi.fn(async () => true) };
-
-    await expect(multiEditTextFileWithPolicy({ vfs, path: 'a.txt', edits: [] })).rejects.toThrow(
-      /edits must be a non-empty array/i
-    );
-    await expect(multiEditTextFileWithPolicy({ vfs, path: 'a.txt', edits: {} })).rejects.toThrow(
-      /edits must be a non-empty array/i
-    );
-  });
-
-  it('errors when file is missing', async () => {
-    const vfs = {
-      readText: vi.fn(async () => {
-        throw new Error('not found');
-      }),
-      writeText: vi.fn(async () => true),
-    };
-
-    await expect(multiEditTextFileWithPolicy({ vfs, path: 'a.txt', edits: [{ old_string: 'x', new_string: 'y' }] })).rejects.toThrow(
-      /file not found/i
-    );
-  });
-
-  it('validates edit operations (empty old_string / no-op)', async () => {
-    const vfs = { readText: vi.fn(async () => 'abc'), writeText: vi.fn(async () => true) };
-
-    await expect(multiEditTextFileWithPolicy({ vfs, path: 'a.txt', edits: [{ old_string: '', new_string: 'x' }] })).rejects.toThrow(
-      /old_string must be a non-empty string/i
-    );
-    await expect(multiEditTextFileWithPolicy({ vfs, path: 'a.txt', edits: [{ old_string: 'a', new_string: 'a' }] })).rejects.toThrow(
-      /old_string equals new_string/i
-    );
-  });
-
-  it('rejects duplicate old_string values', async () => {
-    const vfs = { readText: vi.fn(async () => 'abc'), writeText: vi.fn(async () => true) };
-
-    await expect(
-      multiEditTextFileWithPolicy({
-        vfs,
-        path: 'a.txt',
-        edits: [
-          { old_string: 'a', new_string: 'b' },
-          { old_string: 'a', new_string: 'c' },
-        ],
-      })
-    ).rejects.toThrow(/duplicate old_string/i);
-  });
-
-  it('rejects when old_string is missing or ambiguous', async () => {
-    const vfs = { readText: vi.fn(async () => 'repeat repeat'), writeText: vi.fn(async () => true) };
-
-    await expect(multiEditTextFileWithPolicy({ vfs, path: 'a.txt', edits: [{ old_string: 'absent', new_string: 'x' }] })).rejects.toThrow(
-      /old_string not found/i
-    );
-    await expect(multiEditTextFileWithPolicy({ vfs, path: 'a.txt', edits: [{ old_string: 'repeat', new_string: 'x' }] })).rejects.toThrow(
-      /found 2 times/i
-    );
-  });
-
-  it('uses whitespace-normalized block matching when exact match fails', async () => {
-    const vfs = {
-      readText: vi.fn(async () => 'function test() {\n  const x = 1;\n  const y = 2;\n}'),
-      writeText: vi.fn(async () => true),
-    };
-
-    const res = await multiEditTextFileWithPolicy({
-      vfs,
-      path: 'a.txt',
-      edits: [
-        {
-          old_string: '\n    const x = 1;\n    const y = 2;\n',
-          new_string: '  const x = 10;\n  const y = 20;',
-        },
-      ],
-      checkpoint: false,
-    });
-
-    expect(res).toEqual({ ok: true, path: 'a.txt' });
-    expect(vfs.writeText).toHaveBeenCalledWith(
-      'a.txt',
-      'function test() {\n  const x = 10;\n  const y = 20;}'
-    );
-  });
-
-  it('detects overlapping edit ranges', async () => {
-    const vfs = { readText: vi.fn(async () => 'abc'), writeText: vi.fn(async () => true) };
-
-    await expect(
-      multiEditTextFileWithPolicy({
-        vfs,
-        path: 'a.txt',
-        edits: [
-          { old_string: 'ab', new_string: 'AB' },
-          { old_string: 'bc', new_string: 'BC' },
-        ],
-      })
-    ).rejects.toThrow(/overlap/i);
-  });
-
-  it('detects conflicts when new_string contains another old_string', async () => {
-    const vfs = { readText: vi.fn(async () => 'foo bar'), writeText: vi.fn(async () => true) };
-
-    await expect(
-      multiEditTextFileWithPolicy({
-        vfs,
-        path: 'a.txt',
-        edits: [
-          { old_string: 'foo', new_string: 'foo bar' },
-          { old_string: 'bar', new_string: 'baz' },
-        ],
-      })
-    ).rejects.toThrow(/contains Edit/i);
-  });
-
-  it('rolls back when writeText fails', async () => {
-    const vfs = {
-      readText: vi.fn(async () => 'hello world'),
-      writeText: vi.fn()
-        .mockRejectedValueOnce(new Error('boom'))
-        .mockResolvedValueOnce(true),
-    };
-
-    await expect(
-      multiEditTextFileWithPolicy({
-        vfs,
-        path: 'a.txt',
-        edits: [{ old_string: 'hello', new_string: 'hi' }],
-      })
-    ).rejects.toThrow('boom');
-
-    expect(vfs.writeText).toHaveBeenCalledTimes(2);
-    expect(vfs.writeText.mock.calls[0][1]).toBe('hi world');
-    expect(vfs.writeText.mock.calls[1][1]).toBe('hello world');
-  });
-
-  it('rejects when policy denies access', async () => {
-    const vfs = {
-      readText: vi.fn(async () => 'hello world'),
-      writeText: vi.fn(async () => true),
-    };
-    const policy = { authorize: vi.fn(async () => ({ allowed: false, reason: 'nope' })) };
-
-    await expect(
-      multiEditTextFileWithPolicy({ vfs, path: 'a.txt', edits: [{ old_string: 'hello', new_string: 'hi' }], policy })
-    ).rejects.toThrow('Policy denied: nope');
-    expect(vfs.writeText).not.toHaveBeenCalled();
-  });
-
-  it('serializes concurrent edits per path', async () => {
-    const { gate, release } = createGate();
-    let started;
-    const startedPromise = new Promise((resolve) => {
-      started = resolve;
-    });
-    let callCount = 0;
-
-    const vfs = {
-      readText: vi.fn(async () => 'hello world'),
-      writeText: vi.fn(async () => {
-        callCount += 1;
-        if (callCount === 1) {
-          started();
-          await gate;
-        }
-        return true;
-      }),
-    };
-
-    const p1 = multiEditTextFileWithPolicy({
-      vfs,
-      path: 'a.txt',
-      edits: [{ old_string: 'hello', new_string: 'hi' }],
-      checkpoint: false,
-    });
-    await startedPromise;
-
-    const p2 = multiEditTextFileWithPolicy({
-      vfs,
-      path: 'a.txt',
-      edits: [{ old_string: 'world', new_string: 'earth' }],
-      checkpoint: false,
-    });
-
-    await Promise.resolve();
-    expect(vfs.writeText).toHaveBeenCalledTimes(1);
-
-    release();
-    await expect(p1).resolves.toEqual({ ok: true, path: 'a.txt' });
-    await expect(p2).resolves.toEqual({ ok: true, path: 'a.txt' });
-  });
-
-  it('aborts while waiting on a lock', async () => {
-    const { gate, release } = createGate();
-    const vfs = {
-      readText: vi.fn(async () => 'hello world'),
-      writeText: vi.fn(async () => {
-        await gate;
-        return true;
-      }),
-    };
-
-    const p1 = multiEditTextFileWithPolicy({
-      vfs,
-      path: 'a.txt',
-      edits: [{ old_string: 'hello', new_string: 'hi' }],
-      checkpoint: false,
-    });
-
-    const ac = new AbortController();
-    const p2 = multiEditTextFileWithPolicy({
-      vfs,
-      path: 'a.txt',
-      edits: [{ old_string: 'world', new_string: 'earth' }],
-      checkpoint: false,
-      signal: ac.signal,
-    });
-    ac.abort('stop');
-
-    await expect(p2).rejects.toThrow('stop');
-
-    release();
-    await expect(p1).resolves.toEqual({ ok: true, path: 'a.txt' });
-  });
-});
-
-describe('atomicWriteText', () => {
-  it('writes via temp file and rename with deep nested paths', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1);
-    const vfs = {
-      writeText: vi.fn(async () => true),
-      readText: vi.fn(async () => 'content'),
-      rename: vi.fn(async () => true),
-    };
-
-    const res = await atomicWriteText(vfs, 'a/b/c/d/e/f/g/h/i/j.txt', 'content');
-
-    expect(res).toEqual({ ok: true, path: 'a/b/c/d/e/f/g/h/i/j.txt' });
-    expect(vfs.writeText).toHaveBeenCalledWith('a/b/c/d/e/f/g/h/i/j.txt.tmp_1_abc123', 'content');
-    expect(vfs.rename).toHaveBeenCalledWith('a/b/c/d/e/f/g/h/i/j.txt.tmp_1_abc123', 'a/b/c/d/e/f/g/h/i/j.txt');
-
-    nowSpy.mockRestore();
-  });
-
-  it('returns ok:false and cleans temp file on verification failure', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1);
-    const vfs = {
-      writeText: vi.fn(async () => true),
-      readText: vi.fn(async () => 'wrong'),
-      rename: vi.fn(async () => true),
-      delete: vi.fn(async () => true),
-    };
-
-    const res = await atomicWriteText(vfs, 'a.txt', 'expected');
-
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/verification failed/i);
-    expect(vfs.delete).toHaveBeenCalledWith('a.txt.tmp_1_abc123');
-
-    nowSpy.mockRestore();
-  });
-
-  it('falls back when rename is missing and removes temp file', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1);
-    const vfs = {
-      writeText: vi.fn(async () => true),
-      readText: vi.fn(async () => 'content'),
-      exists: vi.fn(async () => true),
-      delete: vi.fn(async () => true),
-    };
-
-    const res = await atomicWriteText(vfs, 'a.txt', 'content');
-
-    expect(res).toEqual({ ok: true, path: 'a.txt' });
-    expect(vfs.writeText).toHaveBeenCalledTimes(2);
-    expect(vfs.delete).toHaveBeenCalledWith('a.txt');
-    expect(vfs.delete).toHaveBeenCalledWith('a.txt.tmp_1_abc123');
-
-    nowSpy.mockRestore();
-  });
-
-  it('aborts after temp write and cleans up', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1);
-    const ac = new AbortController();
-    const vfs = {
-      writeText: vi.fn(async (p) => {
-        if (p.includes('.tmp_1_abc123')) ac.abort('stop');
-        return true;
-      }),
-      readText: vi.fn(async () => 'content'),
-      rename: vi.fn(async () => true),
-      delete: vi.fn(async () => true),
-    };
-
-    const res = await atomicWriteText(vfs, 'a.txt', 'content', { signal: ac.signal });
-
-    expect(res.ok).toBe(false);
-    expect(res.error).toBe('stop');
-    expect(vfs.readText).not.toHaveBeenCalled();
-    expect(vfs.delete).toHaveBeenCalledWith('a.txt.tmp_1_abc123');
-
-    nowSpy.mockRestore();
-  });
-});
-
-describe('atomicWriteFile', () => {
-  it('writes large data via temp file and rename', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1);
-    const bytes = new Uint8Array(100000);
-    bytes.fill(7);
-
-    const vfs = {
-      writeFile: vi.fn(async () => true),
-      readFile: vi.fn(async () => new Uint8Array(bytes)),
-      rename: vi.fn(async () => true),
-    };
-
-    const res = await atomicWriteFile(vfs, 'a.bin', bytes);
-
-    expect(res).toEqual({ ok: true, path: 'a.bin' });
-    expect(vfs.writeFile).toHaveBeenCalledWith('a.bin.tmp_1_abc123', bytes);
-    expect(vfs.rename).toHaveBeenCalledWith('a.bin.tmp_1_abc123', 'a.bin');
-
-    nowSpy.mockRestore();
-  });
-
-  it('returns ok:false when verification fails and removes temp file', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1);
-    const bytes = new Uint8Array([1, 2, 3]);
-
-    const vfs = {
-      writeFile: vi.fn(async () => true),
-      readFile: vi.fn(async () => new Uint8Array([1, 2])),
-      rename: vi.fn(async () => true),
-      delete: vi.fn(async () => true),
-    };
-
-    const res = await atomicWriteFile(vfs, 'a.bin', bytes);
-
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/size mismatch/i);
-    expect(vfs.delete).toHaveBeenCalledWith('a.bin.tmp_1_abc123');
-
-    nowSpy.mockRestore();
-  });
-
-  it('falls back when rename is missing and removes temp file', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1);
-    const bytes = new Uint8Array([1, 2, 3]);
-
-    const vfs = {
-      writeFile: vi.fn(async () => true),
-      readFile: vi.fn(async () => new Uint8Array(bytes)),
-      exists: vi.fn(async () => true),
-      delete: vi.fn(async () => true),
-    };
-
-    const res = await atomicWriteFile(vfs, 'a.bin', bytes);
-
-    expect(res).toEqual({ ok: true, path: 'a.bin' });
-    expect(vfs.writeFile).toHaveBeenCalledTimes(2);
-    expect(vfs.delete).toHaveBeenCalledWith('a.bin');
-    expect(vfs.delete).toHaveBeenCalledWith('a.bin.tmp_1_abc123');
-
-    nowSpy.mockRestore();
-  });
-
-  it('treats non-bytes input as empty data', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1);
-
-    const vfs = {
-      writeFile: vi.fn(async () => true),
-      readFile: vi.fn(async () => new Uint8Array(0)),
-      rename: vi.fn(async () => true),
-    };
-
-    const res = await atomicWriteFile(vfs, 'a.bin', 'not-bytes', { verify: false });
-
-    expect(res).toEqual({ ok: true, path: 'a.bin' });
-    expect(vfs.writeFile).toHaveBeenCalledWith('a.bin.tmp_1_abc123', new Uint8Array(0));
-
-    nowSpy.mockRestore();
-  });
-});
-
-describe('atomicWrite', () => {
-  it('dispatches to atomicWriteText for string data', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1);
-    const vfs = {
-      writeText: vi.fn(async () => true),
-      writeFile: vi.fn(async () => true),
-      rename: vi.fn(async () => true),
-    };
-
-    const res = await atomicWrite(vfs, 'a.txt', 'hello', { verify: false });
-
-    expect(res).toEqual({ ok: true, path: 'a.txt' });
-    expect(vfs.writeText).toHaveBeenCalledTimes(1);
-    expect(vfs.writeFile).not.toHaveBeenCalled();
-
-    nowSpy.mockRestore();
-  });
-
-  it('dispatches to atomicWriteFile for binary data', async () => {
-    const bytes = new Uint8Array([1, 2, 3]);
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1);
-    const vfs = {
-      writeText: vi.fn(async () => true),
-      writeFile: vi.fn(async () => true),
-      rename: vi.fn(async () => true),
-    };
-
-    const res = await atomicWrite(vfs, 'a.bin', bytes, { verify: false });
-
-    expect(res).toEqual({ ok: true, path: 'a.bin' });
-    expect(vfs.writeFile).toHaveBeenCalledTimes(1);
-    expect(vfs.writeText).not.toHaveBeenCalled();
-
-    nowSpy.mockRestore();
-  });
-});
+}

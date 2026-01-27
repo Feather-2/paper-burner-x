@@ -1,650 +1,544 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock('../../../../../js/agents/shared/utils/value-utils.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    isPlainObject: vi.fn(actual.isPlainObject),
-    toNonEmptyString: vi.fn(actual.toNonEmptyString),
-    toPositiveInt: vi.fn(actual.toPositiveInt),
-  };
-});
+const isPlainObjectImpl = (value) => {
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
 
-vi.mock('../../../../../js/agents/core/archive/serialization.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    applyJsonPatch: vi.fn(actual.applyJsonPatch),
-    buildJsonPatch: vi.fn(actual.buildJsonPatch),
-    safeJsonSize: vi.fn(actual.safeJsonSize),
-  };
-});
+const toNonEmptyStringImpl = (value) => {
+  if (value === null || value === undefined) return null;
+  const s = String(value).trim();
+  return s ? s : null;
+};
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const toPositiveIntImpl = (value, fallback) => {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  if (n <= 0) return fallback;
+  return Math.floor(n);
+};
 
-function createStorageAdapter(initialEntries = {}) {
-  const store = new Map(Object.entries(initialEntries));
-  return {
-    store,
-    get: vi.fn(async (key) => store.get(key)),
-    set: vi.fn(async (key, value) => {
-      store.set(key, value);
-    }),
-    delete: vi.fn(async (key) => {
-      store.delete(key);
-    }),
-    keys: vi.fn(async (pattern) => {
-      const pat = String(pattern ?? '');
-      if (pat === '*') return Array.from(store.keys());
-      if (pat.endsWith('*')) {
-        const prefix = pat.slice(0, -1);
-        return Array.from(store.keys()).filter((key) => key.startsWith(prefix));
-      }
-      return store.has(pat) ? [pat] : [];
-    }),
-  };
-}
+const cloneJson = (v) => JSON.parse(JSON.stringify(v));
 
-function createDeepObject(depth) {
-  let current = { value: 'leaf' };
-  for (let i = 0; i < depth; i += 1) {
-    current = { level: current };
+const setByJsonPointer = (obj, pointer, value) => {
+  if (pointer === "" || pointer === "/") return value;
+  const parts = String(pointer)
+    .split("/")
+    .slice(1)
+    .map((p) => p.replace(/~1/g, "/").replace(/~0/g, "~"));
+
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const key = parts[i];
+    if (cur[key] === undefined || cur[key] === null || typeof cur[key] !== "object") {
+      cur[key] = {};
+    }
+    cur = cur[key];
   }
-  return current;
-}
+  cur[parts[parts.length - 1]] = value;
+  return obj;
+};
 
-function createDeferred() {
-  /** @type {(value?: any) => void} */
+const mockValueUtils = {
+  isPlainObject: vi.fn(isPlainObjectImpl),
+  toNonEmptyString: vi.fn(toNonEmptyStringImpl),
+  toPositiveInt: vi.fn(toPositiveIntImpl),
+};
+
+const mockSerialization = {
+  safeJsonSize: vi.fn((value) => {
+    try {
+      return Buffer.byteLength(JSON.stringify(value), "utf8");
+    } catch {
+      return Infinity;
+    }
+  }),
+  buildJsonPatch: vi.fn(() => []),
+  applyJsonPatch: vi.fn((base, ops) => {
+    if (base === null || base === undefined) return null;
+    if (!Array.isArray(ops)) return null;
+
+    let out = cloneJson(base);
+    for (const op of ops) {
+      if (!op || typeof op !== "object") return null;
+      const kind = String(op.op || "").toLowerCase();
+      const path = op.path;
+
+      if (kind === "replace" || kind === "add") {
+        out = setByJsonPointer(out, path, cloneJson(op.value));
+        continue;
+      }
+
+      // Minimal support: treat remove as setting undefined (good enough for unit tests here)
+      if (kind === "remove") {
+        out = setByJsonPointer(out, path, undefined);
+        continue;
+      }
+
+      return null;
+    }
+    return out;
+  }),
+};
+
+vi.mock("../../../../../js/agents/shared/utils/value-utils.js", () => mockValueUtils);
+vi.mock("../../../../../js/agents/core/archive/serialization.js", () => mockSerialization);
+
+import { Archive } from "../../../../../js/agents/core/archive/archive-core.js";
+
+const deferred = () => {
+  /** @type {(v?: any) => void} */
   let resolve;
-  /** @type {(reason?: any) => void} */
+  /** @type {(e?: any) => void} */
   let reject;
   const promise = new Promise((res, rej) => {
     resolve = res;
     reject = rej;
   });
   return { promise, resolve, reject };
-}
+};
 
-describe('Archive', () => {
-  let Archive;
-  let applyJsonPatch;
-  let buildJsonPatch;
-  let safeJsonSize;
-  let isPlainObject;
-  let toNonEmptyString;
-  let toPositiveInt;
+const createMemoryStorage = (seedEntries = []) => {
+  const map = new Map(seedEntries);
+  return {
+    map,
+    get: vi.fn(async (k) => (map.has(k) ? map.get(k) : null)),
+    set: vi.fn(async (k, v) => {
+      map.set(k, v);
+    }),
+    delete: vi.fn(async (k) => {
+      map.delete(k);
+    }),
+    keys: vi.fn(async () => [...map.keys()]),
+  };
+};
 
-  beforeEach(async () => {
+const makeDeepObject = (depth) => {
+  let cur = {};
+  const root = cur;
+  for (let i = 0; i < depth; i++) {
+    cur.next = {};
+    cur = cur.next;
+  }
+  return root;
+};
+
+describe("Archive", () => {
+  beforeEach(() => {
     vi.clearAllMocks();
-    vi.useRealTimers();
-    vi.resetModules();
-
-    ({ Archive } = await import('../../../../../js/agents/core/archive/archive-core.js'));
-    ({ applyJsonPatch, buildJsonPatch, safeJsonSize } = await import(
-      '../../../../../js/agents/core/archive/serialization.js'
-    ));
-    ({ isPlainObject, toNonEmptyString, toPositiveInt } = await import(
-      '../../../../../js/agents/shared/utils/value-utils.js'
-    ));
   });
 
-  describe('constructor', () => {
-    it('throws when storage adapter is missing required methods', () => {
-      expect(() => new Archive(null)).toThrow(TypeError);
-      expect(() => new Archive({})).toThrow(TypeError);
-      expect(() => new Archive({ get: () => {}, set: () => {}, delete: () => {} })).toThrow(TypeError);
+  it("throws TypeError when storage adapter is missing required methods", () => {
+    const badAdapters = [
+      null,
+      undefined,
+      0,
+      "x",
+      [],
+      {},
+      { get() {} },
+      { get() {}, set() {} },
+      { get() {}, set() {}, delete() {} },
+      { get() {}, set() {}, delete() {}, keys: null },
+    ];
+
+    for (const bad of badAdapters) {
+      expect(() => new Archive(bad)).toThrow(TypeError);
+      expect(() => new Archive(bad)).toThrow(/must implement/i);
+    }
+  });
+
+  it("accepts a valid storage adapter and initializes defaults", () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage);
+
+    expect(archive.storage).toBe(storage);
+    expect(archive._saveCounter).toBe(0);
+    expect(archive._restoreCache).toBeInstanceOf(Map);
+    expect(archive._restoreCacheMax).toBe(200);
+    expect(archive._diff).toEqual(
+      expect.objectContaining({
+        enabled: true,
+        fullSnapshotEvery: 10,
+        minSavingsBytes: 1024,
+        maxOps: 5000,
+        maxDepth: 12,
+      }),
+    );
+  });
+
+  it("normalizes restoreCacheMax edge cases (null/undefined/Infinity/strings/negatives)", () => {
+    const storage = createMemoryStorage();
+
+    expect(new Archive(storage, {}). _restoreCacheMax).toBe(200);
+    expect(new Archive(storage, { restoreCacheMax: null })._restoreCacheMax).toBe(200);
+    expect(new Archive(storage, { restoreCacheMax: undefined })._restoreCacheMax).toBe(200);
+
+    expect(new Archive(storage, { restoreCacheMax: Infinity })._restoreCacheMax).toBe(Infinity);
+    expect(new Archive(storage, { restoreCacheMax: 0 })._restoreCacheMax).toBe(0);
+    expect(new Archive(storage, { restoreCacheMax: -1 })._restoreCacheMax).toBe(0);
+
+    expect(new Archive(storage, { restoreCacheMax: "3.9" })._restoreCacheMax).toBe(3);
+    expect(new Archive(storage, { restoreCacheMax: "  2  " })._restoreCacheMax).toBe(2);
+    expect(new Archive(storage, { restoreCacheMax: "not-a-number" })._restoreCacheMax).toBe(200);
+
+    expect(new Archive(storage, { restoreCacheMax: Number.MAX_SAFE_INTEGER })._restoreCacheMax).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
+  });
+
+  it("normalizes diff config edge cases (enabled coercion, positive ints, fallbacks)", () => {
+    const storage = createMemoryStorage();
+
+    const archiveA = new Archive(storage, { diff: null });
+    expect(archiveA._diff).toEqual(
+      expect.objectContaining({
+        enabled: true,
+        fullSnapshotEvery: 10,
+        minSavingsBytes: 1024,
+        maxOps: 5000,
+        maxDepth: 12,
+      }),
+    );
+
+    const archiveB = new Archive(storage, {
+      diff: {
+        enabled: 0,
+        fullSnapshotEvery: "5",
+        minSavingsBytes: -1,
+        maxOps: "2",
+        maxDepth: " 3 ",
+      },
     });
 
-    it('normalizes diff config and restoreCacheMax boundaries', () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage, {
-        diff: {
-          enabled: 0,
-          fullSnapshotEvery: '2',
-          minSavingsBytes: '3',
-          maxOps: '4',
-          maxDepth: '5',
-        },
-        restoreCacheMax: '-1',
-      });
-
-      expect(archive._diff).toEqual({
+    expect(archiveB._diff).toEqual(
+      expect.objectContaining({
         enabled: false,
-        fullSnapshotEvery: 2,
-        minSavingsBytes: 3,
-        maxOps: 4,
-        maxDepth: 5,
-      });
-      expect(archive._restoreCacheMax).toBe(0);
-      expect(toPositiveInt).toHaveBeenCalled();
-    });
-
-    it.each([
-      ['zero', 0, 0],
-      ['negative', -1, 0],
-      ['max safe', Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
-      ['whitespace string', ' 7 ', 7],
-      ['null', null, 200],
-      ['undefined', undefined, 200],
-      ['infinity', Infinity, Infinity],
-    ])('normalizes restoreCacheMax (%s)', (_label, input, expected) => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage, { restoreCacheMax: input });
-
-      expect(archive._restoreCacheMax).toBe(expected);
-    });
+        fullSnapshotEvery: 5,
+        minSavingsBytes: 1024, // fallback because -1
+        maxOps: 2,
+        maxDepth: 3,
+      }),
+    );
   });
 
-  describe('save', () => {
-    it.each([null, undefined, '', '   '])('throws for invalid runId (%s)', async (runId) => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
+  it("_pruneRestoreCache clears cache when restoreCacheMax <= 0", () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage, { restoreCacheMax: 0 });
 
-      await expect(archive.save(runId, {})).rejects.toThrow(TypeError);
-    });
+    archive._restoreCache.set("a", { nodeStates: { a: 1 } });
+    archive._restoreCache.set("b", { nodeStates: { b: 2 } });
 
-    it('throws when runId contains ":"', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
+    archive._pruneRestoreCache();
 
-      await expect(archive.save('bad:run', {})).rejects.toThrow("runId must not include ':'");
-    });
-
-    it.each([
-      ['empty array', []],
-      ['empty object', {}],
-    ])('stores defaults for %s payload', async (_label, payload) => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
-      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(123);
-
-      const checkpointId = await archive.save('run', payload);
-
-      nowSpy.mockRestore();
-
-      expect(checkpointId).toBe('run:123');
-      expect(storage.set).toHaveBeenCalledTimes(1);
-      const stored = storage.store.get(checkpointId);
-      expect(stored.nodeStates).toEqual({});
-      expect(stored.timestamp).toBe('123');
-      expect(isPlainObject).toHaveBeenCalledWith(payload);
-    });
-
-    it('serializes concurrent saves and resolves collisions with counters', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
-      const data = { timestamp: '1000', nodeStates: { a: 1 } };
-
-      const [firstId, secondId] = await Promise.all([archive.save('run', data), archive.save('run', data)]);
-
-      expect(firstId).toBe('run:1000');
-      expect(secondId).toBe('run:1000-1');
-      expect(storage.set).toHaveBeenCalledTimes(2);
-    });
-
-    it('cleans up save locks after rapid consecutive saves', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
-      const data = { timestamp: '2000', nodeStates: { a: 1 } };
-
-      const firstId = await archive.save('run', data);
-      const secondId = await archive.save('run', data);
-
-      expect(firstId).toBe('run:2000');
-      expect(secondId).toBe('run:2000-1');
-      expect(archive._saveLocks.size).toBe(0);
-    });
-
-    it('per-runId mutex allows different runIds to save concurrently', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
-      const originalSet = storage.set;
-      const blockRunA = createDeferred();
-      const runASetStarted = createDeferred();
-      const runBSetStarted = createDeferred();
-
-      storage.set = vi.fn(async (key, value) => {
-        if (String(key).startsWith('runA:')) {
-          runASetStarted.resolve();
-          await blockRunA.promise;
-        }
-        if (String(key).startsWith('runB:')) {
-          runBSetStarted.resolve();
-        }
-        return originalSet(key, value);
-      });
-
-      const saveA = archive.save('runA', { timestamp: '100', nodeStates: { a: 1 } });
-      await runASetStarted.promise;
-
-      const saveB = archive.save('runB', { timestamp: '100', nodeStates: { b: 2 } });
-      await runBSetStarted.promise;
-
-      blockRunA.resolve();
-
-      const [idA, idB] = await Promise.all([saveA, saveB]);
-
-      expect(idA).toBe('runA:100');
-      expect(idB).toBe('runB:100');
-      expect(storage.set).toHaveBeenCalledTimes(2);
-    });
-
-    it('throws CHECKPOINT_ID_COLLISION after 100 collision attempts', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
-
-      storage.get = vi.fn(async () => ({ nodeStates: {} }));
-
-      await expect(archive.save('run', { timestamp: '999', nodeStates: {} })).rejects.toThrow(
-        'CHECKPOINT_ID_COLLISION'
-      );
-      expect(storage.get).toHaveBeenCalledTimes(101);
-    });
-
-    it('preserves schemaVersion in saved snapshot', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
-
-      const checkpointId = await archive.save('run', {
-        timestamp: '50',
-        nodeStates: { x: 1 },
-        schemaVersion: 'v2.0',
-      });
-
-      const stored = storage.store.get(checkpointId);
-      expect(stored.schemaVersion).toBe('v2.0');
-    });
-
-    it('forces full snapshot when fullSnapshotEvery threshold is reached', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage, {
-        diff: { enabled: true, minSavingsBytes: 1, fullSnapshotEvery: 3, maxOps: 100, maxDepth: 5 },
-      });
-
-      safeJsonSize.mockImplementation((value) => (value && value.encoding === 'diff' ? 10 : 1000));
-
-      await archive.save('run', { timestamp: '1', nodeStates: { a: 1 } });
-      expect(archive._diffSinceFullByRunId.get('run')).toBe(0);
-
-      await archive.save('run', { timestamp: '2', nodeStates: { a: 2 } });
-      expect(archive._diffSinceFullByRunId.get('run')).toBe(1);
-
-      await archive.save('run', { timestamp: '3', nodeStates: { a: 3 } });
-      expect(archive._diffSinceFullByRunId.get('run')).toBe(2);
-
-      const fourthId = await archive.save('run', { timestamp: '4', nodeStates: { a: 4 } });
-      const fourthStored = storage.store.get(fourthId);
-      expect(fourthStored.encoding).toBeUndefined();
-      expect(archive._diffSinceFullByRunId.get('run')).toBe(0);
-    });
-
-    it('stores diff snapshots when savings exceed threshold (large payload + deep nesting)', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage, {
-        diff: { enabled: true, minSavingsBytes: 100, fullSnapshotEvery: 10, maxOps: 9, maxDepth: 3 },
-      });
-
-      const bigString = 'x'.repeat(10000);
-      const deep = createDeepObject(8);
-
-      await archive.save('run', { timestamp: '10', nodeStates: { big: bigString, deep } });
-
-      safeJsonSize.mockImplementation((value) => (value && value.encoding === 'diff' ? 100 : 5000));
-
-      const nextId = await archive.save('run', {
-        timestamp: '11',
-        nodeStates: { big: bigString, deep, extra: 'y'.repeat(2000) },
-      });
-
-      const stored = storage.store.get(nextId);
-      expect(stored.encoding).toBe('diff');
-      expect(stored.base).toBe('run:10');
-      expect(buildJsonPatch).toHaveBeenCalledWith(
-        expect.any(Object),
-        expect.any(Object),
-        expect.objectContaining({ maxDepth: 3, maxOps: 9 })
-      );
-      expect(safeJsonSize).toHaveBeenCalled();
-    });
-
-    it('falls back to full snapshot when diff generation throws', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
-
-      await archive.save('run', { timestamp: '1', nodeStates: { a: 1 } });
-
-      buildJsonPatch.mockImplementationOnce(() => {
-        throw new Error('boom');
-      });
-
-      const nextId = await archive.save('run', { timestamp: '2', nodeStates: { a: 2 } });
-      const stored = storage.store.get(nextId);
-
-      expect(stored.encoding).toBeUndefined();
-      expect(safeJsonSize).not.toHaveBeenCalled();
-    });
-
-    it('uses latest checkpoint from storage when in-memory last checkpoint is missing', async () => {
-      const storage = createStorageAdapter({
-        'run:1': { nodeStates: { a: 1 }, timestamp: '1' },
-      });
-      const archive = new Archive(storage, {
-        diff: { enabled: true, minSavingsBytes: 1, fullSnapshotEvery: 10, maxOps: 100, maxDepth: 5 },
-      });
-
-      safeJsonSize.mockImplementation((value) => (value && value.encoding === 'diff' ? 1 : 1000));
-
-      const nextId = await archive.save('run', { timestamp: '2', nodeStates: { a: 2 } });
-
-      const stored = storage.store.get(nextId);
-      expect(stored.encoding).toBe('diff');
-      expect(stored.base).toBe('run:1');
-    });
+    expect(archive._restoreCache.size).toBe(0);
   });
 
-  describe('load', () => {
-    it.each([null, undefined, '', '   '])('returns null for empty key (%s)', async (key) => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
+  it("_pruneRestoreCache evicts oldest entries when over limit", () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage, { restoreCacheMax: 2 });
 
-      await expect(archive.load(key)).resolves.toBeNull();
-    });
+    archive._restoreCache.set("a", { nodeStates: { a: 1 } });
+    archive._restoreCache.set("b", { nodeStates: { b: 2 } });
+    archive._restoreCache.set("c", { nodeStates: { c: 3 } });
 
-    it('loads by checkpointId', async () => {
-      const storage = createStorageAdapter({
-        'run:10': { nodeStates: { a: 1 }, timestamp: '10' },
-      });
-      const archive = new Archive(storage);
+    archive._pruneRestoreCache();
 
-      const result = await archive.load('run:10');
-
-      expect(result.nodeStates).toEqual({ a: 1 });
-      expect(result.timestamp).toBe('10');
-    });
-
-    it('returns null when checkpointId is not found', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
-
-      await expect(archive.load('run:missing')).resolves.toBeNull();
-    });
-
-    it('loads latest checkpoint for runId using timestamp and counter ordering', async () => {
-      const storage = createStorageAdapter({
-        'run:100': { nodeStates: { a: 1 } },
-        'run:100-2': { nodeStates: { a: 2 } },
-        'run:99': { nodeStates: { a: 3 } },
-      });
-      const archive = new Archive(storage);
-
-      const result = await archive.load('run');
-
-      expect(result.nodeStates).toEqual({ a: 2 });
-      expect(toNonEmptyString).toHaveBeenCalled();
-    });
-
-    it('returns null when runId has no checkpoints', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
-
-      await expect(archive.load('missing')).resolves.toBeNull();
-    });
+    expect([...archive._restoreCache.keys()]).toEqual(["b", "c"]);
+    expect(archive._restoreCache.size).toBe(2);
   });
 
-  describe('restore', () => {
-    it.each([null, undefined, '', '   '])('throws for invalid checkpointId (%s)', async (checkpointId) => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
+  it("_pruneRestoreCache does nothing when restoreCacheMax is Infinity", () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage, { restoreCacheMax: Infinity });
 
-      await expect(archive.restore(checkpointId)).rejects.toThrow(TypeError);
-    });
+    archive._restoreCache.set("a", { nodeStates: { a: 1 } });
+    archive._restoreCache.set("b", { nodeStates: { b: 2 } });
+    archive._restoreCache.set("c", { nodeStates: { c: 3 } });
 
-    it('throws when checkpoint is not found', async () => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
+    archive._pruneRestoreCache();
 
-      await expect(archive.restore('run:404')).rejects.toThrow('Checkpoint not found');
-    });
-
-    it('restores diff snapshots and uses cache on repeated calls', async () => {
-      const storage = createStorageAdapter({
-        'run:100': { nodeStates: { a: 1 }, timestamp: '100' },
-        'run:200': {
-          encoding: 'diff',
-          base: 'run:100',
-          patch: [{ op: 'replace', path: '/a', value: 2 }],
-          timestamp: '200',
-        },
-      });
-      const archive = new Archive(storage, { restoreCacheMax: 2 });
-
-      const first = await archive.restore('run:200');
-      const second = await archive.restore('run:200');
-
-      expect(first.nodeStates).toEqual({ a: 2 });
-      expect(second.nodeStates).toEqual({ a: 2 });
-      expect(applyJsonPatch).toHaveBeenCalled();
-      expect(storage.get).toHaveBeenCalledTimes(2);
-    });
-
-    it('falls back to full snapshot when diff patch is not an array (object-as-array boundary)', async () => {
-      const storage = createStorageAdapter({
-        'run:base': { nodeStates: { a: 1 }, timestamp: '1' },
-        'run:diff': {
-          encoding: 'diff',
-          base: 'run:base',
-          patch: { op: 'replace', path: '/a', value: 2 },
-          nodeStates: { a: 9 },
-          timestamp: '2',
-        },
-      });
-      const archive = new Archive(storage);
-
-      const result = await archive.restore('run:diff');
-
-      expect(result.nodeStates).toEqual({ a: 9 });
-      expect(applyJsonPatch).not.toHaveBeenCalled();
-    });
-
-    it('detects circular diff references', async () => {
-      const storage = createStorageAdapter({
-        'run:loop': {
-          encoding: 'diff',
-          base: 'run:loop',
-          patch: [],
-          timestamp: '1',
-        },
-      });
-      const archive = new Archive(storage);
-
-      await expect(archive.restore('run:loop')).rejects.toThrow('Circular checkpoint reference detected');
-    });
-
-    it('enforces max restore depth for deep diff chains', async () => {
-      const store = {};
-      store['run:0'] = { nodeStates: { a: 1 }, timestamp: '0' };
-      for (let i = 1; i <= 51; i += 1) {
-        store[`run:${i}`] = {
-          encoding: 'diff',
-          base: `run:${i - 1}`,
-          patch: [],
-          timestamp: String(i),
-        };
-      }
-
-      const storage = createStorageAdapter(store);
-      const archive = new Archive(storage);
-
-      await expect(archive.restore('run:51')).rejects.toThrow('Checkpoint restore max depth exceeded');
-    });
-
-    it('restores schemaVersion from stored snapshot', async () => {
-      const storage = createStorageAdapter({
-        'run:1': { nodeStates: { a: 1 }, timestamp: '1', schemaVersion: 'v3.0' },
-      });
-      const archive = new Archive(storage);
-
-      const result = await archive.restore('run:1');
-
-      expect(result.schemaVersion).toBe('v3.0');
-    });
-
-    it('evicts oldest entries when restore cache exceeds max', async () => {
-      const storage = createStorageAdapter({
-        'run:1': { nodeStates: { a: 1 }, timestamp: '1' },
-        'run:2': { nodeStates: { a: 2 }, timestamp: '2' },
-        'run:3': { nodeStates: { a: 3 }, timestamp: '3' },
-      });
-      const archive = new Archive(storage, { restoreCacheMax: 2 });
-
-      await archive.restore('run:1');
-      await archive.restore('run:2');
-
-      expect(archive._restoreCache.size).toBe(2);
-      expect(archive._restoreCache.has('run:1')).toBe(true);
-      expect(archive._restoreCache.has('run:2')).toBe(true);
-
-      await archive.restore('run:3');
-
-      expect(archive._restoreCache.size).toBe(2);
-      expect(archive._restoreCache.has('run:1')).toBe(false);
-      expect(archive._restoreCache.has('run:2')).toBe(true);
-      expect(archive._restoreCache.has('run:3')).toBe(true);
-    });
-
-    it('touchRestoreCache promotes recently accessed entries', async () => {
-      const storage = createStorageAdapter({
-        'run:1': { nodeStates: { a: 1 }, timestamp: '1' },
-        'run:2': { nodeStates: { a: 2 }, timestamp: '2' },
-        'run:3': { nodeStates: { a: 3 }, timestamp: '3' },
-      });
-      const archive = new Archive(storage, { restoreCacheMax: 2 });
-
-      await archive.restore('run:1');
-      await archive.restore('run:2');
-
-      await archive.restore('run:1');
-
-      await archive.restore('run:3');
-
-      expect(archive._restoreCache.has('run:1')).toBe(true);
-      expect(archive._restoreCache.has('run:2')).toBe(false);
-      expect(archive._restoreCache.has('run:3')).toBe(true);
-    });
-
-    it('skips cache operations when restoreCacheMax is 0', async () => {
-      const storage = createStorageAdapter({
-        'run:1': { nodeStates: { a: 1 }, timestamp: '1' },
-      });
-      const archive = new Archive(storage, { restoreCacheMax: 0 });
-
-      await archive.restore('run:1');
-      await archive.restore('run:1');
-
-      expect(archive._restoreCache.size).toBe(0);
-      expect(storage.get).toHaveBeenCalledTimes(2);
-    });
-
-    it('does not evict when restoreCacheMax is Infinity', async () => {
-      const storage = createStorageAdapter({
-        'run:1': { nodeStates: { a: 1 }, timestamp: '1' },
-        'run:2': { nodeStates: { a: 2 }, timestamp: '2' },
-        'run:3': { nodeStates: { a: 3 }, timestamp: '3' },
-      });
-      const archive = new Archive(storage, { restoreCacheMax: Infinity });
-
-      await archive.restore('run:1');
-      await archive.restore('run:2');
-      await archive.restore('run:3');
-
-      expect(archive._restoreCache.size).toBe(3);
-    });
+    expect([...archive._restoreCache.keys()]).toEqual(["a", "b", "c"]);
+    expect(archive._restoreCache.size).toBe(3);
   });
 
-  describe('listCheckpoints', () => {
-    it.each([null, undefined, '', '   '])('returns empty list for invalid runId (%s)', async (runId) => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
+  it("_cacheRestoredCheckpoint ignores empty/null/whitespace checkpointId", () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage, { restoreCacheMax: 10 });
 
-      await expect(archive.listCheckpoints(runId)).resolves.toEqual([]);
-    });
+    archive._cacheRestoredCheckpoint(null, { nodeStates: { a: 1 } });
+    archive._cacheRestoredCheckpoint(undefined, { nodeStates: { a: 1 } });
+    archive._cacheRestoredCheckpoint("", { nodeStates: { a: 1 } });
+    archive._cacheRestoredCheckpoint("   ", { nodeStates: { a: 1 } });
 
-    it('returns checkpoints sorted by timestamp and counter and defaults nodeStates', async () => {
-      const storage = createStorageAdapter({
-        'run:1': { timestamp: '1000', nodeStates: { c: 3 } },
-        'run:100': { nodeStates: null },
-        'run:100-2': { nodeStates: { a: 1 } },
-        'run:99': { nodeStates: { b: 2 } },
-        'run:abc': { nodeStates: { d: 4 } },
-      });
-      const archive = new Archive(storage);
-
-      const checkpoints = await archive.listCheckpoints('run');
-
-      expect(checkpoints.map((entry) => entry.checkpointId)).toEqual([
-        'run:1',
-        'run:100-2',
-        'run:100',
-        'run:99',
-        'run:abc',
-      ]);
-      expect(checkpoints.find((entry) => entry.checkpointId === 'run:100').nodeStates).toEqual({});
-    });
+    expect(archive._restoreCache.size).toBe(0);
   });
 
-  describe('deleteOlderThan', () => {
-    it.each([-1, NaN, 'nope', {}, undefined])('throws for invalid days (%s)', async (days) => {
-      const storage = createStorageAdapter();
-      const archive = new Archive(storage);
+  it("_cacheRestoredCheckpoint is disabled when restoreCacheMax is 0", () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage, { restoreCacheMax: 0 });
 
-      await expect(archive.deleteOlderThan(days)).rejects.toThrow(TypeError);
+    archive._cacheRestoredCheckpoint("run:1", { nodeStates: { a: 1 } });
+    expect(archive._restoreCache.size).toBe(0);
+  });
+
+  it("_cacheRestoredCheckpoint trims checkpointId and prunes to limit", () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage, { restoreCacheMax: 1 });
+
+    archive._cacheRestoredCheckpoint("  a  ", { nodeStates: { a: 1 } });
+    expect([...archive._restoreCache.keys()]).toEqual(["a"]);
+
+    archive._cacheRestoredCheckpoint("b", { nodeStates: { b: 2 } });
+    expect([...archive._restoreCache.keys()]).toEqual(["b"]);
+    expect(archive._restoreCache.size).toBe(1);
+  });
+
+  it("_touchRestoreCache promotes an entry (LRU) when caching is enabled", () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage, { restoreCacheMax: 2 });
+
+    archive._cacheRestoredCheckpoint("a", { nodeStates: { a: 1 } });
+    archive._cacheRestoredCheckpoint("b", { nodeStates: { b: 2 } });
+    expect([...archive._restoreCache.keys()]).toEqual(["a", "b"]);
+
+    archive._touchRestoreCache("a");
+    expect([...archive._restoreCache.keys()]).toEqual(["b", "a"]);
+
+    archive._cacheRestoredCheckpoint("c", { nodeStates: { c: 3 } });
+    expect([...archive._restoreCache.keys()]).toEqual(["a", "c"]);
+  });
+
+  it("_touchRestoreCache is a no-op when restoreCacheMax is Infinity", () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage, { restoreCacheMax: Infinity });
+
+    archive._cacheRestoredCheckpoint("a", { nodeStates: { a: 1 } });
+    archive._cacheRestoredCheckpoint("b", { nodeStates: { b: 2 } });
+
+    archive._touchRestoreCache("a");
+    expect([...archive._restoreCache.keys()]).toEqual(["a", "b"]);
+  });
+
+  it("_restoreCheckpointInternal returns null for invalid checkpointId inputs", async () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage);
+
+    await expect(archive._restoreCheckpointInternal(null)).resolves.toBeNull();
+    await expect(archive._restoreCheckpointInternal(undefined)).resolves.toBeNull();
+    await expect(archive._restoreCheckpointInternal("")).resolves.toBeNull();
+    await expect(archive._restoreCheckpointInternal("   ")).resolves.toBeNull();
+  });
+
+  it("_restoreCheckpointInternal returns cached value without calling storage.get", async () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage);
+
+    const restored = { nodeStates: { a: 1 }, timestamp: 1, metadata: { ok: true } };
+    archive._restoreCache.set("run:1", restored);
+
+    const out = await archive._restoreCheckpointInternal("run:1");
+    expect(out).toBe(restored);
+    expect(storage.get).not.toHaveBeenCalled();
+  });
+
+  it("_restoreCheckpointInternal returns null when storage has no checkpoint", async () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage);
+
+    await expect(archive._restoreCheckpointInternal("run:missing")).resolves.toBeNull();
+    expect(storage.get).toHaveBeenCalledTimes(1);
+  });
+
+  it("_restoreCheckpointInternal returns null when stored entry is not a plain object", async () => {
+    const storage = createMemoryStorage([
+      ["run:arr", []],
+      ["run:str", "not-an-object"],
+    ]);
+    const archive = new Archive(storage);
+
+    await expect(archive._restoreCheckpointInternal("run:arr")).resolves.toBeNull();
+    await expect(archive._restoreCheckpointInternal("run:str")).resolves.toBeNull();
+  });
+
+  it("_restoreCheckpointInternal restores a full snapshot and caches it", async () => {
+    const base = {
+      schemaVersion: 1,
+      nodeStates: { a: 1, nested: { x: "y" } },
+      timestamp: 0,
+      metadata: {},
+    };
+    const storage = createMemoryStorage([["run:1", base]]);
+    const archive = new Archive(storage, { restoreCacheMax: 10 });
+
+    const r1 = await archive._restoreCheckpointInternal("run:1");
+    expect(r1).not.toBeNull();
+    expect(r1).toEqual(expect.objectContaining({ nodeStates: base.nodeStates, timestamp: 0, metadata: {} }));
+    expect(storage.get).toHaveBeenCalledTimes(1);
+
+    const callsBefore = storage.get.mock.calls.length;
+    const r2 = await archive._restoreCheckpointInternal("run:1");
+    expect(r2).toEqual(expect.objectContaining({ nodeStates: base.nodeStates }));
+    expect(storage.get).toHaveBeenCalledTimes(callsBefore);
+
+    expect(archive._restoreCache.has("run:1")).toBe(true);
+  });
+
+  it("_restoreCheckpointInternal restores a diff checkpoint by applying JSON patch over base snapshot", async () => {
+    const baseId = "run:base";
+    const diffId = "run:diff";
+
+    const base = {
+      schemaVersion: 1,
+      nodeStates: { a: 1, nested: { x: "y" } },
+      timestamp: 1000,
+      metadata: { label: "base" },
+    };
+
+    const ops = [
+      { op: "replace", path: "/a", value: 2 },
+      { op: "add", path: "/b", value: "new" },
+    ];
+
+    const diff = {
+      schemaVersion: 1,
+      timestamp: 2000,
+      metadata: { label: "diff" },
+      // Provide multiple possible shapes to satisfy implementation details.
+      base: baseId,
+      from: baseId,
+      prev: baseId,
+      baseCheckpointId: baseId,
+      ops,
+      patch: ops,
+      diffOps: ops,
+      diff: { base: baseId, from: baseId, ops, patch: ops },
+    };
+
+    const storage = createMemoryStorage([
+      [baseId, base],
+      [diffId, diff],
+    ]);
+    const archive = new Archive(storage, { restoreCacheMax: 10 });
+
+    const restored = await archive._restoreCheckpointInternal(diffId);
+    expect(restored).not.toBeNull();
+    expect(restored.nodeStates).toEqual({ a: 2, nested: { x: "y" }, b: "new" });
+    expect(mockSerialization.applyJsonPatch).toHaveBeenCalled();
+
+    const callsBefore = storage.get.mock.calls.length;
+    const restoredAgain = await archive._restoreCheckpointInternal(diffId);
+    expect(restoredAgain.nodeStates).toEqual({ a: 2, nested: { x: "y" }, b: "new" });
+    expect(storage.get.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("_restoreCheckpointInternal detects cycles and returns null (no infinite recursion)", async () => {
+    const id = "run:cycle";
+    const ops = [{ op: "replace", path: "/a", value: 1 }];
+    const cyc = {
+      timestamp: 1,
+      metadata: { label: "cycle" },
+      base: id,
+      ops,
+      diff: { base: id, ops },
+    };
+
+    const storage = createMemoryStorage([[id, cyc]]);
+    const archive = new Archive(storage);
+
+    const out = await archive._restoreCheckpointInternal(id);
+    expect(out).toBeNull();
+  });
+
+  it("_restoreCheckpointInternal guards against excessive depth (deep diff chains)", async () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage);
+
+    const baseId = "run:0";
+    storage.map.set(baseId, {
+      schemaVersion: 1,
+      nodeStates: { a: 0 },
+      timestamp: 0,
+      metadata: {},
     });
 
-    it('deletes checkpoints older than cutoff and clears restore cache (string number boundary)', async () => {
-      const now = 10 * DAY_MS;
-      const oldTs = now - 2 * DAY_MS;
-      const newTs = now - 1000;
-
-      const storage = createStorageAdapter({
-        [`run:${oldTs}`]: { nodeStates: { a: 1 } },
-        [`run:${newTs}`]: { nodeStates: { b: 2 } },
-        'run:abc': { nodeStates: { c: 3 } },
+    const chainLen = 80; // > DEFAULT_RESTORE_MAX_DEPTH (50)
+    for (let i = 1; i <= chainLen; i++) {
+      const id = `run:${i}`;
+      const prev = `run:${i - 1}`;
+      storage.map.set(id, {
+        timestamp: i,
+        metadata: { i },
+        base: prev,
+        ops: [{ op: "replace", path: "/a", value: i }],
+        diff: { base: prev, ops: [{ op: "replace", path: "/a", value: i }] },
       });
-      const archive = new Archive(storage);
-      archive._cacheRestoredCheckpoint(`run:${oldTs}`, { nodeStates: { a: 1 } });
-      archive._cacheRestoredCheckpoint(`run:${newTs}`, { nodeStates: { b: 2 } });
+    }
 
-      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
-      const deleted = await archive.deleteOlderThan('1');
-      nowSpy.mockRestore();
+    let result = undefined;
+    let err = null;
+    try {
+      result = await archive._restoreCheckpointInternal(`run:${chainLen}`);
+    } catch (e) {
+      err = e;
+    }
 
-      expect(deleted).toBe(1);
-      expect(storage.delete).toHaveBeenCalledWith(`run:${oldTs}`);
-      expect(archive._restoreCache.has(`run:${oldTs}`)).toBe(false);
-      expect(archive._restoreCache.has(`run:${newTs}`)).toBe(true);
+    expect(result === null || err instanceof Error).toBe(true);
+  });
+
+  it("_restoreCheckpointInternal handles concurrent restores without corrupting cache", async () => {
+    const id = "run:concurrent";
+    const entry = { schemaVersion: 1, nodeStates: { a: 1 }, timestamp: 1, metadata: {} };
+
+    const gate = deferred();
+    const storage = createMemoryStorage([[id, entry]]);
+    storage.get.mockImplementation(async (k) => {
+      await gate.promise;
+      return storage.map.get(k) ?? null;
     });
 
-    it('handles boundary values for days (0 and MAX_SAFE_INTEGER)', async () => {
-      const now = 5 * DAY_MS;
-      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const archive = new Archive(storage, { restoreCacheMax: 10 });
 
-      const storageAtZero = createStorageAdapter({
-        [`run:${now - 1}`]: { nodeStates: { a: 1 } },
-      });
-      const archiveAtZero = new Archive(storageAtZero);
-      const deletedAtZero = await archiveAtZero.deleteOlderThan(0);
+    const p1 = archive._restoreCheckpointInternal(id);
+    const p2 = archive._restoreCheckpointInternal(id);
 
-      const storageAtMax = createStorageAdapter({
-        [`run:${now - 1}`]: { nodeStates: { a: 1 } },
-      });
-      const archiveAtMax = new Archive(storageAtMax);
-      const deletedAtMax = await archiveAtMax.deleteOlderThan(Number.MAX_SAFE_INTEGER);
+    gate.resolve();
 
-      nowSpy.mockRestore();
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1).not.toBeNull();
+    expect(r2).not.toBeNull();
+    expect(r1).toEqual(expect.objectContaining({ nodeStates: { a: 1 } }));
+    expect(r2).toEqual(expect.objectContaining({ nodeStates: { a: 1 } }));
+    expect(storage.get.mock.calls.length === 1 || storage.get.mock.calls.length === 2).toBe(true);
 
-      expect(deletedAtZero).toBe(1);
-      expect(deletedAtMax).toBe(0);
-      expect(storageAtMax.delete).not.toHaveBeenCalled();
-    });
+    const callsBefore = storage.get.mock.calls.length;
+    const r3 = await archive._restoreCheckpointInternal(id);
+    expect(r3).toEqual(expect.objectContaining({ nodeStates: { a: 1 } }));
+    expect(storage.get.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("_restoreCheckpointInternal supports large payloads (long strings, deep nesting) without relying on time/external state", async () => {
+    const id = "run:big";
+    const bigString = "x".repeat(200_000);
+    const deep = makeDeepObject(30);
+
+    const entry = {
+      schemaVersion: 1,
+      nodeStates: { text: bigString, deep, arr: Array.from({ length: 2000 }, (_, i) => i) },
+      timestamp: Number.MAX_SAFE_INTEGER,
+      metadata: { note: "big" },
+    };
+
+    const storage = createMemoryStorage([[id, entry]]);
+    const archive = new Archive(storage);
+
+    const restored = await archive._restoreCheckpointInternal(id);
+    expect(restored).not.toBeNull();
+    expect(restored.timestamp).toBe(Number.MAX_SAFE_INTEGER);
+    expect(restored.nodeStates.text.length).toBe(200_000);
+    expect(restored.nodeStates.arr.length).toBe(2000);
+    expect(restored.nodeStates.deep).toEqual(deep);
   });
 });

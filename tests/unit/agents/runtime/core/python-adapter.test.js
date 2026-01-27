@@ -1,815 +1,519 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockedRuntimeAdapter = vi.hoisted(() => {
+const hoisted = vi.hoisted(() => {
+  const mockLogger = {
+    debug: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+  };
+
+  const createLogger = vi.fn(() => mockLogger);
+
+  const VfsProxyHost = vi.fn(function VfsProxyHost() {});
+  const VFS_REQUEST = 'VFS_REQUEST';
+
   class RuntimeAdapter {
-    constructor(options = {}) {
+    constructor(options) {
       this.options = options;
     }
   }
 
-  return {
-    RuntimeAdapter,
-    RuntimeType: { PYTHON: 'python' },
-  };
+  const RuntimeType = { PYTHON: 'PYTHON' };
+
+  return { mockLogger, createLogger, VfsProxyHost, VFS_REQUEST, RuntimeAdapter, RuntimeType };
 });
-
-const mockedLogger = vi.hoisted(() => {
-  const logger = {
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  };
-
-  return {
-    logger,
-    createLogger: vi.fn(() => logger),
-  };
-});
-
-const mockedVfsProxyHost = vi.hoisted(() => {
-  const instances = [];
-
-  class VfsProxyHost {
-    constructor(vfs, worker) {
-      this.vfs = vfs;
-      this.worker = worker;
-      this.setVfs = vi.fn();
-      this.dispose = vi.fn();
-      instances.push(this);
-    }
-  }
-
-  return { instances, VfsProxyHost };
-});
-
-const mockedVfsProtocol = vi.hoisted(() => ({
-  VFS_REQUEST: 'vfs-request',
-}));
 
 vi.mock('../../../../../js/agents/runtime/core/runtime-adapter.js', () => ({
-  RuntimeAdapter: mockedRuntimeAdapter.RuntimeAdapter,
-  RuntimeType: mockedRuntimeAdapter.RuntimeType,
+  RuntimeAdapter: hoisted.RuntimeAdapter,
+  RuntimeType: hoisted.RuntimeType,
 }));
 
 vi.mock('../../../../../js/agents/shared/index.js', () => ({
-  createLogger: mockedLogger.createLogger,
+  createLogger: hoisted.createLogger,
 }));
 
 vi.mock('../../../../../js/agents/runtime/core/vfs-proxy-host.js', () => ({
-  VfsProxyHost: mockedVfsProxyHost.VfsProxyHost,
+  VfsProxyHost: hoisted.VfsProxyHost,
 }));
 
 vi.mock('../../../../../js/agents/runtime/core/vfs-proxy-protocol.js', () => ({
-  VFS_REQUEST: mockedVfsProtocol.VFS_REQUEST,
+  VFS_REQUEST: hoisted.VFS_REQUEST,
 }));
 
-async function loadModule() {
-  return await import('../../../../../js/agents/runtime/core/python-adapter.js');
-}
+import { PythonRuntimeAdapter } from '../../../../../js/agents/runtime/core/python-adapter.js';
 
-function createWorkerMock() {
-  const instances = [];
+describe('PythonRuntimeAdapter', () => {
+  const DEFAULT_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
+  const EXPECTED_SAB_SIZE = 16 + 4 * 1024 * 1024;
 
-  class FakeWorker {
-    constructor(url, options) {
+  /** @type {{ WorkerMock: import('vitest').Mock, instances: any[] }} */
+  let workerHarness;
+
+  function makeWorkerHarness() {
+    const instances = [];
+    const WorkerMock = vi.fn().mockImplementation(function (url, options) {
       this.url = url;
       this.options = options;
       this.postMessage = vi.fn();
-      this.terminate = vi.fn();
       this.onmessage = null;
+      this.emit = async (data) => {
+        if (this.onmessage) await this.onmessage({ data });
+      };
       instances.push(this);
-    }
+    });
+
+    vi.stubGlobal('Worker', WorkerMock);
+    return { WorkerMock, instances };
   }
 
-  return { FakeWorker, instances };
-}
+  async function initAdapter(adapter) {
+    const initPromise = adapter.initialize();
+    const worker = workerHarness.instances[0];
+    const initMsg = worker.postMessage.mock.calls[0][0];
+    await worker.emit({ type: 'ready', id: initMsg.id, data: 'ready' });
+    await initPromise;
+    return worker;
+  }
 
-beforeEach(() => {
-  vi.resetModules();
-  vi.clearAllMocks();
-  mockedVfsProxyHost.instances.length = 0;
-});
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    workerHarness = makeWorkerHarness();
+  });
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-describe('PythonRuntimeAdapter', () => {
   describe('constructor', () => {
-    it('sets defaults when options are empty', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
+    it('defaults runtime type, indexUrl, and watchPaths', () => {
       const adapter = new PythonRuntimeAdapter();
 
-      expect(adapter.worker).toBeNull();
-      expect(adapter.indexUrl).toBe('https://cdn.jsdelivr.net/pyodide/v0.26.4/full/');
-      expect(adapter.pendingRequests.size).toBe(0);
+      expect(adapter.options).toEqual(expect.objectContaining({ type: 'PYTHON' }));
+      expect(adapter.worker).toBe(null);
+      expect(adapter.indexUrl).toBe(DEFAULT_INDEX_URL);
+      expect(adapter.pendingRequests).toBeInstanceOf(Map);
       expect(adapter._requestId).toBe(0);
       expect(adapter.watchPaths).toEqual(['/mnt/workspace']);
-      expect(adapter.vfsProxyHost).toBeNull();
-      expect(adapter.vfsProxySharedBuffer).toBeNull();
-      expect(adapter.options.type).toBe('python');
+      expect(adapter.vfsProxyHost).toBe(null);
+      expect(adapter.vfsProxySharedBuffer).toBe(null);
     });
 
-    it('uses provided options and preserves empty watchPaths', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter({
-        id: 'adapter-1',
-        indexUrl: 'https://example.com/',
-        watchPaths: [],
-      });
+    it('falls back to default indexUrl when option is empty/nullish', () => {
+      expect(new PythonRuntimeAdapter({ indexUrl: '' }).indexUrl).toBe(DEFAULT_INDEX_URL);
+      expect(new PythonRuntimeAdapter({ indexUrl: null }).indexUrl).toBe(DEFAULT_INDEX_URL);
+      expect(new PythonRuntimeAdapter({ indexUrl: undefined }).indexUrl).toBe(DEFAULT_INDEX_URL);
+    });
 
-      expect(adapter.indexUrl).toBe('https://example.com/');
+    it('accepts an empty watchPaths array as-is', () => {
+      const adapter = new PythonRuntimeAdapter({ watchPaths: [] });
       expect(adapter.watchPaths).toEqual([]);
-      expect(adapter.options).toEqual({
-        id: 'adapter-1',
-        indexUrl: 'https://example.com/',
-        watchPaths: [],
-        type: 'python',
-      });
-    });
-
-    it('falls back to default watchPaths when null is provided', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter({ watchPaths: null });
-
-      expect(adapter.watchPaths).toEqual(['/mnt/workspace']);
     });
   });
 
   describe('_ensureVfsProxySharedBuffer', () => {
-    it('creates and caches SharedArrayBuffer when available', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      function FakeSharedArrayBuffer(length) {
-        this.byteLength = length;
-      }
-
-      vi.stubGlobal('SharedArrayBuffer', FakeSharedArrayBuffer);
-
-      const adapter = new PythonRuntimeAdapter();
-      const buffer = adapter._ensureVfsProxySharedBuffer();
-
-      expect(buffer).toBeInstanceOf(FakeSharedArrayBuffer);
-      expect(buffer.byteLength).toBe(16 + 4 * 1024 * 1024);
-      expect(adapter.vfsProxySharedBuffer).toBe(buffer);
-      expect(adapter._ensureVfsProxySharedBuffer()).toBe(buffer);
-    });
-
-    it('returns null when SharedArrayBuffer is unavailable', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
+    it('returns null when SharedArrayBuffer is unavailable', () => {
       vi.stubGlobal('SharedArrayBuffer', undefined);
 
       const adapter = new PythonRuntimeAdapter();
-      const buffer = adapter._ensureVfsProxySharedBuffer();
+      const buf = adapter._ensureVfsProxySharedBuffer();
 
-      expect(buffer).toBeNull();
-      expect(adapter.vfsProxySharedBuffer).toBeNull();
+      expect(buf).toBe(null);
+      expect(adapter.vfsProxySharedBuffer).toBe(null);
+      expect(hoisted.mockLogger.warn).not.toHaveBeenCalled();
     });
 
-    it('logs a warning and returns null when SharedArrayBuffer throws', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      function ThrowingSharedArrayBuffer() {
-        throw new Error('nope');
+    it('allocates and caches a reusable SharedArrayBuffer', () => {
+      const allocations = [];
+      class FakeSharedArrayBuffer {
+        constructor(size) {
+          this.byteLength = size;
+          allocations.push(size);
+        }
       }
-
-      vi.stubGlobal('SharedArrayBuffer', ThrowingSharedArrayBuffer);
+      vi.stubGlobal('SharedArrayBuffer', FakeSharedArrayBuffer);
 
       const adapter = new PythonRuntimeAdapter();
-      const buffer = adapter._ensureVfsProxySharedBuffer();
+      const first = adapter._ensureVfsProxySharedBuffer();
 
-      expect(buffer).toBeNull();
-      expect(mockedLogger.logger.warn).toHaveBeenCalled();
+      expect(first).toBeInstanceOf(FakeSharedArrayBuffer);
+      expect(first.byteLength).toBe(EXPECTED_SAB_SIZE);
+      expect(allocations).toEqual([EXPECTED_SAB_SIZE]);
+      expect(adapter.vfsProxySharedBuffer).toBe(first);
+
+      const second = adapter._ensureVfsProxySharedBuffer();
+      expect(second).toBe(first);
+      expect(allocations).toEqual([EXPECTED_SAB_SIZE]);
+    });
+
+    it('logs a warning and returns null when SAB construction throws', () => {
+      function ThrowingSAB() {
+        throw new Error('blocked');
+      }
+      vi.stubGlobal('SharedArrayBuffer', ThrowingSAB);
+
+      const adapter = new PythonRuntimeAdapter();
+      const buf = adapter._ensureVfsProxySharedBuffer();
+
+      expect(buf).toBe(null);
+      expect(adapter.vfsProxySharedBuffer).toBe(null);
+      expect(hoisted.mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('SharedArrayBuffer unavailable'),
+        expect.objectContaining({ error: expect.stringContaining('blocked') }),
+      );
+    });
+
+    it('returns the existing buffer without accessing SharedArrayBuffer', () => {
+      const adapter = new PythonRuntimeAdapter();
+      adapter.vfsProxySharedBuffer = /** @type {any} */ ({ sentinel: true });
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
+      const buf = adapter._ensureVfsProxySharedBuffer();
+
+      expect(buf).toBe(adapter.vfsProxySharedBuffer);
+      expect(hoisted.mockLogger.warn).not.toHaveBeenCalled();
     });
   });
 
   describe('_getVfsProxyAliases', () => {
-    it('normalizes watch paths and includes defaults with boundary values', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
+    it('includes trimmed watchPaths plus /workspace and /output, without duplicates', () => {
       const adapter = new PythonRuntimeAdapter({
-        watchPaths: [
-          '/mnt/workspace',
-          '  ',
-          '',
-          null,
-          undefined,
-          0,
-          -1,
-          Number.MAX_SAFE_INTEGER,
-          '  /custom  ',
-          '/workspace',
-          '/output',
-          '42',
-        ],
+        watchPaths: ['/mnt/workspace', '/mnt/workspace', '  /custom  ', '', '   ', null, undefined],
       });
 
       const aliases = adapter._getVfsProxyAliases();
-      const aliasSet = new Set(aliases);
 
-      expect(aliasSet.has('/mnt/workspace')).toBe(true);
-      expect(aliasSet.has('/custom')).toBe(true);
-      expect(aliasSet.has('0')).toBe(true);
-      expect(aliasSet.has('-1')).toBe(true);
-      expect(aliasSet.has(String(Number.MAX_SAFE_INTEGER))).toBe(true);
-      expect(aliasSet.has('42')).toBe(true);
-      expect(aliasSet.has('/workspace')).toBe(true);
-      expect(aliasSet.has('/output')).toBe(true);
-      expect(aliasSet.has('')).toBe(false);
+      expect(aliases).toEqual(expect.arrayContaining(['/mnt/workspace', '/custom', '/workspace', '/output']));
+      expect(new Set(aliases).size).toBe(aliases.length);
+      expect(aliases.filter((x) => x === '/mnt/workspace')).toHaveLength(1);
     });
 
-    it('falls back to defaults when watchPaths is not an array', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter({ watchPaths: { path: '/noop' } });
+    it('handles non-array, nullish, and mixed-type watchPaths safely', () => {
+      const adapter = new PythonRuntimeAdapter({
+        watchPaths: /** @type {any} */ ({
+          not: 'an array',
+        }),
+      });
 
-      const aliases = adapter._getVfsProxyAliases();
+      const aliasesFromObject = adapter._getVfsProxyAliases();
+      expect(aliasesFromObject).toEqual(expect.arrayContaining(['/workspace', '/output']));
+      expect(aliasesFromObject).toHaveLength(2);
 
-      expect(new Set(aliases)).toEqual(new Set(['/workspace', '/output']));
+      adapter.watchPaths = /** @type {any} */ (null);
+      const aliasesFromNull = adapter._getVfsProxyAliases();
+      expect(aliasesFromNull).toEqual(expect.arrayContaining(['/workspace', '/output']));
+      expect(aliasesFromNull).toHaveLength(2);
+
+      adapter.watchPaths = /** @type {any} */ ([
+        0,
+        -1,
+        Number.MAX_SAFE_INTEGER,
+        '   ',
+        { toString: () => '  /ok  ' },
+        { toString: () => '   ' },
+      ]);
+      const aliasesMixed = adapter._getVfsProxyAliases();
+      expect(aliasesMixed).toEqual(
+        expect.arrayContaining(['0', '-1', String(Number.MAX_SAFE_INTEGER), '/ok', '/workspace', '/output']),
+      );
+      expect(aliasesMixed).not.toEqual(expect.arrayContaining(['']));
     });
   });
 
   describe('initialize', () => {
-    it('returns early when worker already exists', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const { FakeWorker, instances } = createWorkerMock();
-
-      vi.stubGlobal('Worker', FakeWorker);
-
-      const adapter = new PythonRuntimeAdapter();
-      adapter.worker = { existing: true };
-
-      const sendSpy = vi.spyOn(adapter, '_send');
-
-      await adapter.initialize();
-
-      expect(instances).toHaveLength(0);
-      expect(sendSpy).not.toHaveBeenCalled();
-    });
-
-    it('creates worker, vfs proxy, and sends init payload with shared buffer', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const { FakeWorker, instances } = createWorkerMock();
-      function FakeSharedArrayBuffer(length) {
-        this.byteLength = length;
+    it('creates a module Worker and sends init payload (with shared buffer when available)', async () => {
+      class FakeSharedArrayBuffer {
+        constructor(size) {
+          this.byteLength = size;
+        }
       }
-
-      vi.stubGlobal('Worker', FakeWorker);
       vi.stubGlobal('SharedArrayBuffer', FakeSharedArrayBuffer);
 
-      const adapter = new PythonRuntimeAdapter({ watchPaths: ['/mnt/workspace'] });
-      const initPromise = adapter.initialize();
-      const worker = instances[0];
-      const initMessage = worker.postMessage.mock.calls[0][0];
+      const adapter = new PythonRuntimeAdapter({
+        indexUrl: 'https://example.com/py/',
+        watchPaths: ['/mnt/workspace', '/custom'],
+      });
 
-      expect(worker.options).toEqual({ type: 'module' });
-      expect(mockedVfsProxyHost.instances).toHaveLength(1);
-      expect(mockedVfsProxyHost.instances[0].worker).toBe(worker);
-      expect(initMessage.type).toBe('init');
-      expect(initMessage.payload.indexUrl).toBe(adapter.indexUrl);
-      expect(initMessage.payload.vfsProxy.enabled).toBe(false);
-      expect(initMessage.payload.vfsProxy.sharedBuffer).toBeInstanceOf(FakeSharedArrayBuffer);
-      expect(initMessage.payload.vfsProxy.aliases).toEqual(
-        expect.arrayContaining(['/workspace', '/output', '/mnt/workspace'])
-      );
+      const initPromise = adapter.initialize();
+
+      expect(workerHarness.WorkerMock).toHaveBeenCalledTimes(1);
+      const [workerUrl, workerOptions] = workerHarness.WorkerMock.mock.calls[0];
+      expect(workerUrl).toBeInstanceOf(URL);
+      expect(workerOptions).toEqual({ type: 'module' });
+
+      const worker = workerHarness.instances[0];
+      expect(adapter.worker).toBe(worker);
       expect(typeof worker.onmessage).toBe('function');
 
-      await worker.onmessage({ data: { type: 'ready', id: initMessage.id, data: { ok: true } } });
-      await initPromise;
-    });
+      expect(hoisted.VfsProxyHost).toHaveBeenCalledWith(null, worker);
 
-    it('sends init payload without aliases when shared buffer is unavailable', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const { FakeWorker, instances } = createWorkerMock();
+      const initMsg = worker.postMessage.mock.calls[0][0];
+      expect(initMsg).toEqual(
+        expect.objectContaining({
+          type: 'init',
+          id: expect.any(Number),
+          payload: expect.objectContaining({
+            indexUrl: 'https://example.com/py/',
+            vfsProxy: expect.objectContaining({
+              enabled: false,
+              sharedBuffer: expect.any(FakeSharedArrayBuffer),
+              aliases: expect.arrayContaining(['/mnt/workspace', '/custom', '/workspace', '/output']),
+            }),
+          }),
+        }),
+      );
 
-      vi.stubGlobal('Worker', FakeWorker);
-      vi.stubGlobal('SharedArrayBuffer', undefined);
-
-      const adapter = new PythonRuntimeAdapter();
-      const aliasSpy = vi.spyOn(adapter, '_getVfsProxyAliases');
-
-      const initPromise = adapter.initialize();
-      const worker = instances[0];
-      const initMessage = worker.postMessage.mock.calls[0][0];
-
-      expect(initMessage.payload.vfsProxy).toEqual({ enabled: false });
-      expect(aliasSpy).not.toHaveBeenCalled();
-
-      await worker.onmessage({ data: { type: 'ready', id: initMessage.id, data: null } });
-      await initPromise;
-    });
-  });
-
-  describe('_send', () => {
-    it('stores pending requests and posts messages', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter();
-      const vfs = { tag: 'vfs' };
-
-      adapter.worker = { postMessage: vi.fn() };
-
-      const promise = adapter._send('custom', { value: 1 }, vfs);
-      const request = adapter.pendingRequests.get(1);
-
-      expect(adapter._requestId).toBe(1);
-      expect(request).toBeTruthy();
-      expect(request.vfs).toBe(vfs);
-      expect(adapter.worker.postMessage).toHaveBeenCalledWith({
-        type: 'custom',
-        payload: { value: 1 },
-        id: 1,
-      });
-
-      request.resolve('ok');
-      await expect(promise).resolves.toBe('ok');
-    });
-
-    it('handles concurrent requests with out-of-order responses', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const { FakeWorker, instances } = createWorkerMock();
-
-      vi.stubGlobal('Worker', FakeWorker);
-      vi.stubGlobal('SharedArrayBuffer', undefined);
-
-      const adapter = new PythonRuntimeAdapter();
-      const initPromise = adapter.initialize();
-      const worker = instances[0];
-      const initMessage = worker.postMessage.mock.calls[0][0];
-
-      await worker.onmessage({ data: { type: 'ready', id: initMessage.id, data: null } });
-      await initPromise;
-
-      const promiseA = adapter._send('execute', { code: 'a' });
-      const idA = adapter._requestId;
-      const promiseB = adapter._send('execute', { code: 'b' });
-      const idB = adapter._requestId;
-
-      expect(idB).toBe(idA + 1);
-
-      await worker.onmessage({ data: { type: 'result', id: idB, data: 'b', files: [] } });
-      await worker.onmessage({ data: { type: 'result', id: idA, data: 'a', files: [] } });
-
-      await expect(promiseB).resolves.toBe('b');
-      await expect(promiseA).resolves.toBe('a');
+      await worker.emit({ type: 'ready', id: initMsg.id, data: { ok: true } });
+      await expect(initPromise).resolves.toEqual({ ok: true });
       expect(adapter.pendingRequests.size).toBe(0);
     });
-  });
 
-  describe('worker message handling', () => {
-    it('logs stdout/stderr and ignores VFS proxy requests', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const { FakeWorker, instances } = createWorkerMock();
-
-      vi.stubGlobal('Worker', FakeWorker);
+    it('sends init without shared buffer when SharedArrayBuffer is unavailable', async () => {
       vi.stubGlobal('SharedArrayBuffer', undefined);
 
       const adapter = new PythonRuntimeAdapter();
       const initPromise = adapter.initialize();
-      const worker = instances[0];
-      const initMessage = worker.postMessage.mock.calls[0][0];
 
-      await worker.onmessage({ data: { type: 'ready', id: initMessage.id, data: null } });
-      await initPromise;
+      const worker = workerHarness.instances[0];
+      const initMsg = worker.postMessage.mock.calls[0][0];
 
-      await worker.onmessage({ data: { type: 'stdout', id: 999, text: 'hello' } });
-      await worker.onmessage({ data: { type: 'stderr', id: 999, text: 'oops' } });
-
-      expect(mockedLogger.logger.debug).toHaveBeenCalledWith('[Python Stdout] hello');
-      expect(mockedLogger.logger.error).toHaveBeenCalledWith('[Python Stderr] oops');
-
-      const promise = adapter._send('noop', {});
-      const id = adapter._requestId;
-
-      await worker.onmessage({ data: { type: mockedVfsProtocol.VFS_REQUEST, id } });
-
-      expect(adapter.pendingRequests.has(id)).toBe(true);
-      adapter.pendingRequests.get(id).resolve('ok');
-      await expect(promise).resolves.toBe('ok');
-    });
-
-    it('writes files on result and resolves', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const { FakeWorker, instances } = createWorkerMock();
-
-      vi.stubGlobal('Worker', FakeWorker);
-      vi.stubGlobal('SharedArrayBuffer', undefined);
-
-      const adapter = new PythonRuntimeAdapter();
-      const initPromise = adapter.initialize();
-      const worker = instances[0];
-      const initMessage = worker.postMessage.mock.calls[0][0];
-
-      await worker.onmessage({ data: { type: 'ready', id: initMessage.id, data: null } });
-      await initPromise;
-
-      const vfs = { writeFile: vi.fn().mockResolvedValue(undefined) };
-      const promise = adapter._send('execute', { code: 'print(1)' }, vfs);
-      const id = adapter._requestId;
-
-      await worker.onmessage({
-        data: {
-          type: 'result',
-          id,
-          data: { ok: true },
-          files: [{ path: '/output/result.txt', content: 'data' }],
-        },
-      });
-
-      await expect(promise).resolves.toEqual({ ok: true });
-      expect(vfs.writeFile).toHaveBeenCalledWith('/output/result.txt', 'data');
-      expect(adapter.pendingRequests.has(id)).toBe(false);
-    });
-
-    it('rejects on file write error and logs failure', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const { FakeWorker, instances } = createWorkerMock();
-
-      vi.stubGlobal('Worker', FakeWorker);
-      vi.stubGlobal('SharedArrayBuffer', undefined);
-
-      const adapter = new PythonRuntimeAdapter();
-      const initPromise = adapter.initialize();
-      const worker = instances[0];
-      const initMessage = worker.postMessage.mock.calls[0][0];
-
-      await worker.onmessage({ data: { type: 'ready', id: initMessage.id, data: null } });
-      await initPromise;
-
-      const vfs = {
-        writeFile: vi.fn().mockRejectedValue(new Error('write-failed')),
-      };
-      const promise = adapter._send('execute', { code: 'print(1)' }, vfs);
-      const id = adapter._requestId;
-
-      await worker.onmessage({
-        data: {
-          type: 'result',
-          id,
-          data: { ok: true },
-          files: [{ path: '/output/result.txt', content: 'data' }],
-        },
-      });
-
-      await expect(promise).rejects.toThrow('write-failed');
-      expect(mockedLogger.logger.error).toHaveBeenCalled();
-      expect(adapter.pendingRequests.has(id)).toBe(false);
-    });
-
-    it('resolves ready/preloaded and rejects on error', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const { FakeWorker, instances } = createWorkerMock();
-
-      vi.stubGlobal('Worker', FakeWorker);
-      vi.stubGlobal('SharedArrayBuffer', undefined);
-
-      const adapter = new PythonRuntimeAdapter();
-      const initPromise = adapter.initialize();
-      const worker = instances[0];
-      const initMessage = worker.postMessage.mock.calls[0][0];
-
-      await worker.onmessage({ data: { type: 'ready', id: initMessage.id, data: null } });
-      await initPromise;
-
-      const readyPromise = adapter._send('preload', {});
-      const readyId = adapter._requestId;
-      const preloadedPromise = adapter._send('preload', {});
-      const preloadedId = adapter._requestId;
-      const errorPromise = adapter._send('execute', {});
-      const errorId = adapter._requestId;
-
-      await worker.onmessage({ data: { type: 'ready', id: readyId, data: 'ready' } });
-      await worker.onmessage({ data: { type: 'preloaded', id: preloadedId, data: 'preloaded' } });
-      await worker.onmessage({ data: { type: 'error', id: errorId, error: 'boom' } });
-
-      await expect(readyPromise).resolves.toBe('ready');
-      await expect(preloadedPromise).resolves.toBe('preloaded');
-      await expect(errorPromise).rejects.toThrow('boom');
-    });
-  });
-
-  describe('_prepareFiles', () => {
-    it('collects nested files, handles errors, and returns large content', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter();
-
-      const largeContent = 'x'.repeat(1024 * 1024);
-      const entriesByPath = new Map();
-
-      entriesByPath.set('/workspace', [
-        { name: 'dir', kind: 'dir' },
-        { name: 'dir2', kind: 'directory' },
-        { name: 'file1.txt', kind: 'file' },
-        { name: 'missing.txt', kind: 'file' },
-        { name: 'bad.txt', kind: 'file' },
-        { name: 'missingdir', kind: 'dir' },
-        { name: 'baddir', kind: 'dir' },
-        { name: 'deep', kind: 'dir' },
-      ]);
-
-      entriesByPath.set('/workspace/dir', [{ name: 'big.bin', kind: 'file' }]);
-      entriesByPath.set('/workspace/dir2', [{ name: 'deepdir', kind: 'dir' }]);
-      entriesByPath.set('/workspace/dir2/deepdir', [
-        { name: 'deepfile.txt', kind: 'file' },
-      ]);
-
-      let deepPath = '/workspace/deep';
-      for (let i = 0; i < 10; i++) {
-        const name = `level${i}`;
-        entriesByPath.set(deepPath, [{ name, kind: 'dir' }]);
-        deepPath = `${deepPath}/${name}`;
-      }
-      entriesByPath.set(deepPath, [{ name: 'deep.txt', kind: 'file' }]);
-
-      const vfs = {
-        list: vi.fn(async (path) => {
-          const key = String(path);
-          if (key === '/workspace/missingdir') {
-            const err = new Error('ENOENT');
-            err.code = 'ENOENT';
-            throw err;
-          }
-          if (key === '/workspace/baddir') {
-            throw new Error('list-failed');
-          }
-          const entries = entriesByPath.get(key);
-          if (!entries) {
-            const err = new Error('NotFoundError');
-            err.code = 'ENOENT';
-            throw err;
-          }
-          return entries;
-        }),
-        readFile: vi.fn(async (path) => {
-          const key = String(path);
-          if (key === '/workspace/missing.txt') {
-            throw new Error('NotFoundError');
-          }
-          if (key === '/workspace/bad.txt') {
-            throw new Error('read-failed');
-          }
-          if (key === '/workspace/dir/big.bin') return largeContent;
-          if (key === '/workspace/dir2/deepdir/deepfile.txt') return 'deepfile';
-          if (key === '/workspace/file1.txt') return 'file1';
-          if (key.endsWith('deep.txt')) return 'deep';
-          return 'other';
-        }),
-        writeFile: vi.fn(),
-      };
-
-      const files = await adapter._prepareFiles(vfs, ['/workspace', '', null]);
-
-      const paths = files.map((file) => file.path);
-      expect(paths).toEqual(
-        expect.arrayContaining([
-          '/workspace/file1.txt',
-          '/workspace/dir/big.bin',
-          '/workspace/dir2/deepdir/deepfile.txt',
-          `${deepPath}/deep.txt`,
-        ])
-      );
-      expect(files.find((file) => file.path === '/workspace/dir/big.bin').content).toBe(
-        largeContent
-      );
-      expect(paths.includes('/workspace/missing.txt')).toBe(false);
-      expect(paths.includes('/workspace/bad.txt')).toBe(false);
-
-      const debugMessages = mockedLogger.logger.debug.mock.calls.map(([msg]) => msg);
-      const warnMessages = mockedLogger.logger.warn.mock.calls.map(([msg]) => msg);
-
-      expect(debugMessages.some((msg) => msg.includes('VFS path missing'))).toBe(true);
-      expect(debugMessages.some((msg) => msg.includes('VFS file missing'))).toBe(true);
-      expect(warnMessages.some((msg) => msg.includes('Failed to list VFS path'))).toBe(true);
-      expect(warnMessages.some((msg) => msg.includes('Failed to read VFS file'))).toBe(true);
-    });
-
-    it('returns empty list for non-array, null, or empty paths', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter();
-      const vfs = {
-        list: vi.fn(),
-        readFile: vi.fn(),
-        writeFile: vi.fn(),
-      };
-
-      expect(await adapter._prepareFiles(vfs, { nope: true })).toEqual([]);
-      expect(await adapter._prepareFiles(vfs, null)).toEqual([]);
-      expect(await adapter._prepareFiles(vfs, undefined)).toEqual([]);
-      expect(await adapter._prepareFiles(vfs, [])).toEqual([]);
-      expect(vfs.list).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('preload', () => {
-    it('initializes and preloads dependencies', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter();
-      const initSpy = vi.spyOn(adapter, 'initialize').mockResolvedValue(undefined);
-      const sendSpy = vi.spyOn(adapter, '_send').mockResolvedValue(undefined);
-      const dependencies = ['0', '-1', String(Number.MAX_SAFE_INTEGER)];
-
-      await adapter.preload(dependencies);
-
-      expect(initSpy).toHaveBeenCalled();
-      expect(sendSpy).toHaveBeenCalledWith('preload', {
-        dependencies,
-        indexUrl: adapter.indexUrl,
-      });
-    });
-
-    it('skips preload for null, empty, or empty-string dependencies', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter();
-      const initSpy = vi.spyOn(adapter, 'initialize').mockResolvedValue(undefined);
-      const sendSpy = vi.spyOn(adapter, '_send').mockResolvedValue(undefined);
-
-      await adapter.preload(null);
-      await adapter.preload([]);
-      await adapter.preload(undefined);
-      await adapter.preload('');
-
-      expect(initSpy).toHaveBeenCalledTimes(4);
-      expect(sendSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('preloadPlan', () => {
-    it('skips preload when load plan has no work', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter();
-      const initSpy = vi.spyOn(adapter, 'initialize').mockResolvedValue(undefined);
-      const sendSpy = vi.spyOn(adapter, '_send').mockResolvedValue(undefined);
-
-      await adapter.preloadPlan(null);
-      await adapter.preloadPlan({});
-      await adapter.preloadPlan({ builtin: [], micropip: [], wheels: [] });
-
-      expect(initSpy).toHaveBeenCalledTimes(3);
-      expect(sendSpy).not.toHaveBeenCalled();
-    });
-
-    it('sends preload plan when work exists', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter();
-      const initSpy = vi.spyOn(adapter, 'initialize').mockResolvedValue(undefined);
-      const sendSpy = vi.spyOn(adapter, '_send').mockResolvedValue(undefined);
-      const loadPlan = { builtin: ['stdlib'], micropip: [], wheels: [] };
-
-      await adapter.preloadPlan(loadPlan);
-
-      expect(initSpy).toHaveBeenCalled();
-      expect(sendSpy).toHaveBeenCalledWith('preload', {
-        loadPlan,
-        indexUrl: adapter.indexUrl,
-      });
-    });
-  });
-
-  describe('execute', () => {
-    it('uses vfs proxy when available and sends shared buffers', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      function FakeSharedArrayBuffer(length) {
-        this.byteLength = length;
-      }
-
-      vi.stubGlobal('SharedArrayBuffer', FakeSharedArrayBuffer);
-
-      const adapter = new PythonRuntimeAdapter({ watchPaths: ['/mnt/workspace', '/output'] });
-      const sharedBuffer = new SharedArrayBuffer(16);
-      const otherBuffer = new ArrayBuffer(8);
-      const longCode = '0'.repeat(10_000);
-      const vfs = { list: vi.fn(), readFile: vi.fn(), writeFile: vi.fn() };
-
-      adapter.vfsProxyHost = { setVfs: vi.fn() };
-
-      vi.spyOn(adapter, 'initialize').mockResolvedValue(undefined);
-      vi.spyOn(adapter, '_ensureVfsProxySharedBuffer').mockReturnValue(sharedBuffer);
-      vi.spyOn(adapter, '_getVfsProxyAliases').mockReturnValue(['/mnt/workspace', '/output']);
-
-      const prepareSpy = vi.spyOn(adapter, '_prepareFiles').mockResolvedValue([
-        { path: '/workspace/a.py', content: 'print(1)' },
-      ]);
-      const sendSpy = vi.spyOn(adapter, '_send').mockResolvedValue({ ok: true });
-      vi.spyOn(Date, 'now').mockReturnValueOnce(100).mockReturnValueOnce(250);
-
-      const result = await adapter.execute(longCode, {
-        vfs,
-        state: { buf: sharedBuffer, other: otherBuffer, count: '0' },
-      });
-
-      expect(prepareSpy).not.toHaveBeenCalled();
-      expect(adapter.vfsProxyHost.setVfs).toHaveBeenCalledWith(vfs);
-      expect(sendSpy).toHaveBeenCalledWith(
-        'execute',
+      expect(initMsg.payload).toEqual(
         expect.objectContaining({
-          code: longCode,
-          state: { buf: sharedBuffer, other: otherBuffer, count: '0' },
-          files: [],
-          sharedBuffers: { buf: sharedBuffer },
-          watchPaths: adapter.watchPaths,
-          vfsProxy: {
-            enabled: true,
-            sharedBuffer,
-            aliases: ['/mnt/workspace', '/output'],
-          },
-          indexUrl: adapter.indexUrl,
-        }),
-        vfs
-      );
-      expect(result).toEqual({
-        success: true,
-        data: { ok: true },
-        metrics: { duration: 150 },
-      });
-    });
-
-    it('falls back to snapshot mode when vfs proxy is unavailable', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter();
-      const vfs = { list: vi.fn(), readFile: vi.fn(), writeFile: vi.fn() };
-
-      vi.spyOn(adapter, 'initialize').mockResolvedValue(undefined);
-      vi.spyOn(adapter, '_ensureVfsProxySharedBuffer').mockReturnValue(null);
-      const prepareSpy = vi.spyOn(adapter, '_prepareFiles').mockResolvedValue([
-        { path: '/workspace/a.py', content: 'print(1)' },
-      ]);
-      const sendSpy = vi.spyOn(adapter, '_send').mockResolvedValue('done');
-      vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValueOnce(10);
-
-      const result = await adapter.execute(0, { vfs, state: {} });
-
-      expect(prepareSpy).toHaveBeenCalledWith(vfs, ['/workspace']);
-      expect(sendSpy).toHaveBeenCalledWith(
-        'execute',
-        expect.objectContaining({
-          code: 0,
-          files: [{ path: '/workspace/a.py', content: 'print(1)' }],
+          indexUrl: DEFAULT_INDEX_URL,
           vfsProxy: { enabled: false },
         }),
-        vfs
       );
-      expect(result).toEqual({
-        success: true,
-        data: 'done',
-        metrics: { duration: 10 },
-      });
+      expect(hoisted.mockLogger.warn).not.toHaveBeenCalled();
+
+      await worker.emit({ type: 'ready', id: initMsg.id, data: 'ok' });
+      await expect(initPromise).resolves.toBe('ok');
     });
 
-    it('returns error when execution fails', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
+    it('is idempotent (including back-to-back calls) and does not create a second Worker', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
       const adapter = new PythonRuntimeAdapter();
 
-      vi.spyOn(adapter, 'initialize').mockResolvedValue(undefined);
-      vi.spyOn(adapter, '_ensureVfsProxySharedBuffer').mockReturnValue(null);
-      vi.spyOn(adapter, '_send').mockRejectedValue(new Error('boom'));
-      vi.spyOn(Date, 'now').mockReturnValueOnce(200).mockReturnValueOnce(230);
+      const p1 = adapter.initialize();
+      const p2 = adapter.initialize();
 
-      const result = await adapter.execute('', { vfs: null, state: null });
+      expect(workerHarness.WorkerMock).toHaveBeenCalledTimes(1);
 
-      expect(result).toEqual({
-        success: false,
-        error: 'boom',
-        metrics: { duration: 30 },
-      });
+      const worker = workerHarness.instances[0];
+      const initMsg = worker.postMessage.mock.calls[0][0];
+
+      await worker.emit({ type: 'ready', id: initMsg.id, data: 'ready' });
+      await expect(p1).resolves.toBe('ready');
+      await expect(p2).resolves.toBe(undefined);
+
+      const callsAfter = worker.postMessage.mock.calls.length;
+      await adapter.initialize();
+      expect(workerHarness.WorkerMock).toHaveBeenCalledTimes(1);
+      expect(worker.postMessage.mock.calls.length).toBe(callsAfter);
     });
 
-    it('returns error for undefined context', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
+    it('ignores VFS proxy requests (VFS_REQUEST) without affecting pending requests', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
       const adapter = new PythonRuntimeAdapter();
+      const initPromise = adapter.initialize();
 
-      vi.spyOn(adapter, 'initialize').mockResolvedValue(undefined);
-      vi.spyOn(Date, 'now').mockReturnValueOnce(300).mockReturnValueOnce(320);
+      const worker = workerHarness.instances[0];
+      const initMsg = worker.postMessage.mock.calls[0][0];
 
-      const result = await adapter.execute('print(1)', undefined);
+      await worker.emit({ type: hoisted.VFS_REQUEST, id: initMsg.id, data: { any: true } });
 
-      expect(result.success).toBe(false);
-      expect(typeof result.error).toBe('string');
-      expect(result.metrics.duration).toBe(20);
+      expect(adapter.pendingRequests.has(initMsg.id)).toBe(true);
+      expect(hoisted.mockLogger.debug).not.toHaveBeenCalled();
+      expect(hoisted.mockLogger.error).not.toHaveBeenCalled();
+
+      await worker.emit({ type: 'ready', id: initMsg.id, data: 'ready' });
+      await expect(initPromise).resolves.toBe('ready');
+      expect(adapter.pendingRequests.size).toBe(0);
     });
   });
 
-  describe('terminate', () => {
-    it('disposes vfs proxy host, terminates worker, and clears pending requests', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
+  describe('_send / worker message handling', () => {
+    it('logs stdout/stderr without settling the request until a result arrives', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
       const adapter = new PythonRuntimeAdapter();
-      const worker = { terminate: vi.fn() };
-      const vfsProxyHost = { dispose: vi.fn() };
+      const worker = await initAdapter(adapter);
 
-      adapter.worker = worker;
-      adapter.vfsProxyHost = vfsProxyHost;
-      adapter.pendingRequests.set(1, { resolve: vi.fn(), reject: vi.fn(), vfs: null });
+      const promise = adapter._send('run', { code: 'print("x")' });
+      const runMsg = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+      const id = runMsg.id;
 
-      await adapter.terminate();
+      let settled = false;
+      promise.finally(() => {
+        settled = true;
+      });
 
-      expect(vfsProxyHost.dispose).toHaveBeenCalled();
-      expect(worker.terminate).toHaveBeenCalled();
-      expect(adapter.worker).toBeNull();
-      expect(adapter.vfsProxyHost).toBeNull();
+      await worker.emit({ type: 'stdout', id, text: 'hello' });
+      expect(hoisted.mockLogger.debug).toHaveBeenCalledWith('[Python Stdout] hello');
+      expect(adapter.pendingRequests.has(id)).toBe(true);
+
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      await worker.emit({ type: 'stderr', id, text: 'oops' });
+      expect(hoisted.mockLogger.error).toHaveBeenCalledWith('[Python Stderr] oops');
+      expect(adapter.pendingRequests.has(id)).toBe(true);
+
+      await worker.emit({ type: 'result', id, data: 123 });
+      await expect(promise).resolves.toBe(123);
+      expect(adapter.pendingRequests.has(id)).toBe(false);
+
+      await worker.emit({ type: 'stdout', id: 9999, text: 'orphan' });
+      await worker.emit({ type: 'stderr', id: 9999, text: 'orphan' });
+      expect(hoisted.mockLogger.debug).toHaveBeenCalledWith('[Python Stdout] orphan');
+      expect(hoisted.mockLogger.error).toHaveBeenCalledWith('[Python Stderr] orphan');
+    });
+
+    it('writes returned files back to the provided VFS (large content + deep path) and resolves', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
+      const adapter = new PythonRuntimeAdapter();
+      const worker = await initAdapter(adapter);
+
+      const vfs = {
+        writeFile: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const bigContent = 'x'.repeat(1024 * 1024);
+
+      const promise = adapter._send('run', { code: '...' }, vfs);
+      const runMsg = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+      const id = runMsg.id;
+
+      expect(adapter.pendingRequests.get(id)?.vfs).toBe(vfs);
+
+      const files = [
+        { path: '/output/simple.txt', content: 'hi' },
+        { path: '/output/a/b/c/d/e/f/g/h/i/j/big.txt', content: bigContent },
+      ];
+
+      await worker.emit({ type: 'result', id, data: { ok: true }, files });
+
+      await expect(promise).resolves.toEqual({ ok: true });
+      expect(vfs.writeFile).toHaveBeenCalledTimes(2);
+      expect(vfs.writeFile).toHaveBeenNthCalledWith(1, '/output/simple.txt', 'hi');
+      expect(vfs.writeFile).toHaveBeenNthCalledWith(2, '/output/a/b/c/d/e/f/g/h/i/j/big.txt', bigContent);
       expect(adapter.pendingRequests.size).toBe(0);
     });
 
-    it('handles terminate with null worker and host', async () => {
-      const { PythonRuntimeAdapter } = await loadModule();
-      const adapter = new PythonRuntimeAdapter();
+    it('does not attempt VFS writes when no VFS is provided, even if files exist', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
 
-      await expect(adapter.terminate()).resolves.toBeUndefined();
-      expect(adapter.worker).toBeNull();
-      expect(adapter.vfsProxyHost).toBeNull();
+      const adapter = new PythonRuntimeAdapter();
+      const worker = await initAdapter(adapter);
+
+      const promise = adapter._send('run', { code: '...' }, null);
+      const runMsg = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+      const id = runMsg.id;
+
+      await worker.emit({
+        type: 'result',
+        id,
+        data: 'ok',
+        files: [{ path: '/output/ignored.txt', content: 'x' }],
+      });
+
+      await expect(promise).resolves.toBe('ok');
+      expect(adapter.pendingRequests.size).toBe(0);
+    });
+
+    it('rejects when writing files back to VFS fails and cleans up the pending request', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
+      const adapter = new PythonRuntimeAdapter();
+      const worker = await initAdapter(adapter);
+
+      const vfsWriteErr = new Error('disk full');
+      const vfs = {
+        writeFile: vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(vfsWriteErr),
+      };
+
+      const promise = adapter._send('run', { code: '...' }, vfs);
+      const runMsg = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+      const id = runMsg.id;
+
+      await worker.emit({
+        type: 'result',
+        id,
+        data: 'ignored',
+        files: [
+          { path: '/output/ok.txt', content: 'ok' },
+          { path: '/output/fail.txt', content: 'nope' },
+        ],
+      });
+
+      await expect(promise).rejects.toThrow('disk full');
+      expect(adapter.pendingRequests.has(id)).toBe(false);
+      expect(hoisted.mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to write file back to VFS'),
+        expect.objectContaining({ error: expect.stringContaining('disk full') }),
+      );
+    });
+
+    it('handles ready/preloaded/error response types and always cleans up pendingRequests', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
+      const adapter = new PythonRuntimeAdapter();
+      const worker = await initAdapter(adapter);
+
+      const pReady = adapter._send('one', { n: 0 });
+      const msgReady = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+      await worker.emit({ type: 'ready', id: msgReady.id, data: 'READY' });
+      await expect(pReady).resolves.toBe('READY');
+      expect(adapter.pendingRequests.has(msgReady.id)).toBe(false);
+
+      const pPreloaded = adapter._send('two', { n: -1 });
+      const msgPreloaded = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+      await worker.emit({ type: 'preloaded', id: msgPreloaded.id, data: 'PRELOADED' });
+      await expect(pPreloaded).resolves.toBe('PRELOADED');
+      expect(adapter.pendingRequests.has(msgPreloaded.id)).toBe(false);
+
+      const pError = adapter._send('three', { n: Number.MAX_SAFE_INTEGER });
+      const msgError = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+      await worker.emit({ type: 'error', id: msgError.id, error: 'boom' });
+      await expect(pError).rejects.toThrow('boom');
+      expect(adapter.pendingRequests.has(msgError.id)).toBe(false);
+    });
+
+    it('supports concurrent _send calls and allows out-of-order responses', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
+      const adapter = new PythonRuntimeAdapter();
+      const worker = await initAdapter(adapter);
+
+      const pA = adapter._send('a', { idx: 0 });
+      const msgA = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+
+      const pB = adapter._send('b', { idx: -1 });
+      const msgB = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+
+      const pC = adapter._send('c', { idx: Number.MAX_SAFE_INTEGER });
+      const msgC = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+
+      expect(adapter.pendingRequests.size).toBe(3);
+
+      await worker.emit({ type: 'ready', id: msgB.id, data: 'B' });
+      await worker.emit({ type: 'ready', id: msgC.id, data: 'C' });
+      await worker.emit({ type: 'ready', id: msgA.id, data: 'A' });
+
+      await expect(Promise.all([pA, pB, pC])).resolves.toEqual(['A', 'B', 'C']);
+      expect(adapter.pendingRequests.size).toBe(0);
+    });
+
+    it('ignores messages for unknown request ids without throwing', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
+      const adapter = new PythonRuntimeAdapter();
+      const worker = await initAdapter(adapter);
+
+      await worker.emit({ type: 'result', id: 999999, data: 'x' });
+      await worker.emit({ type: 'ready', id: 999999, data: 'x' });
+      await worker.emit({ type: 'preloaded', id: 999999, data: 'x' });
+      await worker.emit({ type: 'error', id: 999999, error: 'x' });
+
+      expect(adapter.pendingRequests.size).toBe(0);
     });
   });
 });

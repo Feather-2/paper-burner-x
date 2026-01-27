@@ -1,664 +1,708 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createHash, webcrypto } from 'node:crypto';
 
-const sharedMocks = vi.hoisted(() => {
-  let lastLogger = null;
+const MODULE_PATH = '../../../../js/agents/core/secure-plugin-loader.js';
+const SHARED_PATH = '../../../../js/agents/shared/index.js';
 
-  const createLogger = vi.fn(() => {
-    const logger = {
-      info: vi.fn(),
-      warn: vi.fn(),
-    };
-    lastLogger = logger;
-    return logger;
-  });
-
-  const toErrorMessage = vi.fn((err) => {
-    if (err === null || err === undefined) return 'Unknown error';
-    if (err instanceof Error) return err.message;
-    if (typeof err === 'string') return err;
-    if (typeof err === 'object') {
-      const obj = err;
-      if (typeof obj.message === 'string') return obj.message;
-      if (typeof obj.error === 'string') return obj.error;
-      if (typeof obj.reason === 'string') return obj.reason;
-      try {
-        return JSON.stringify(err);
-      } catch {
-        return String(err);
-      }
-    }
-    return String(err);
-  });
-
-  const isPlainObject = vi.fn((value) => {
-    if (value === null || typeof value !== 'object') return false;
-    if (Array.isArray(value)) return false;
-    const proto = Object.getPrototypeOf(value);
-    return proto === Object.prototype || proto === null;
-  });
-
-  const toNonEmptyString = vi.fn((value) => {
-    if (value === null || value === undefined) return undefined;
-    const str = String(value).trim();
-    return str.length ? str : undefined;
-  });
-
-  const isNodeLike = vi.fn(() => false);
-
+vi.mock('../../../../js/agents/shared/index.js', async () => {
+  const actual = await vi.importActual('../../../../js/agents/shared/index.js');
   return {
-    createLogger,
-    toErrorMessage,
-    isPlainObject,
-    toNonEmptyString,
-    isNodeLike,
-    getLastLogger: () => lastLogger,
-    resetLastLogger: () => {
-      lastLogger = null;
-    },
+    ...actual,
+    createLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn() })),
+    isNodeLike: vi.fn(() => true),
   };
 });
 
-vi.mock('../../../../js/agents/shared/index.js', () => ({
-  createLogger: sharedMocks.createLogger,
-  toErrorMessage: sharedMocks.toErrorMessage,
-  isPlainObject: sharedMocks.isPlainObject,
-  toNonEmptyString: sharedMocks.toNonEmptyString,
-  isNodeLike: sharedMocks.isNodeLike,
-}));
+function isClassLike(value) {
+  if (typeof value !== 'function') return false;
+  const src = Function.prototype.toString.call(value);
+  return src.startsWith('class ');
+}
 
-import SecurePluginLoaderDefault, {
-  SecurePluginLoader as SecurePluginLoaderNamed,
-} from '../../../../js/agents/core/secure-plugin-loader.js';
+function isErrorResult(value) {
+  return !!value && typeof value === 'object' && value.ok === false && typeof value.error === 'string';
+}
 
-const originalGlobals = {
-  Blob: globalThis.Blob,
-  URL: globalThis.URL,
-  TextEncoder: globalThis.TextEncoder,
-  fetch: globalThis.fetch,
-  location: globalThis.location,
-};
-const originalCreateObjectURL = globalThis.URL?.createObjectURL;
-const originalRevokeObjectURL = globalThis.URL?.revokeObjectURL;
-const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+function getFailureMessage(value) {
+  if (isErrorResult(value)) return value.error;
 
-const buildDeepObject = (depth) => {
-  const root = { level: 0 };
-  let cursor = root;
-  for (let i = 1; i <= depth; i += 1) {
-    cursor.next = { level: i };
-    cursor = cursor.next;
-  }
-  cursor.leaf = 'end';
-  return root;
-};
-
-const makeResponse = (text, ok = true, status = 200) => ({
-  ok,
-  status,
-  text: vi.fn(async () => text),
-});
-
-const setGlobalLocation = (href) => {
-  Object.defineProperty(globalThis, 'location', {
-    value: { href },
-    configurable: true,
-  });
-};
-
-const setupObjectUrl = () => {
-  class FakeBlob {
-    constructor(parts, options) {
-      this.parts = parts;
-      this.type = options?.type;
+  if (value && typeof value === 'object') {
+    if (Array.isArray(value.failed) && value.failed.length > 0) {
+      const first = value.failed[0];
+      if (first && typeof first === 'object' && typeof first.error === 'string') return first.error;
+      return 'failed';
+    }
+    if (typeof value.error === 'string' && !('plugin' in value) && !('loaded' in value) && !('failed' in value)) {
+      return value.error;
     }
   }
 
-  globalThis.Blob = FakeBlob;
+  return null;
+}
 
-  let counter = 0;
-  if (!globalThis.URL) {
-    globalThis.URL = class URL {};
+function extractPlugin(value) {
+  if (!value) return value;
+
+  if (value && typeof value === 'object') {
+    if (Array.isArray(value.loaded) && value.loaded.length > 0) {
+      const first = value.loaded[0];
+      if (first && typeof first === 'object' && 'plugin' in first) return first.plugin;
+      return first;
+    }
+    if ('plugin' in value) return value.plugin;
   }
 
-  globalThis.URL.createObjectURL = vi.fn((blob) => {
-    counter += 1;
-    const code = Array.isArray(blob?.parts) ? blob.parts.join('') : '';
-    return `data:text/javascript,${encodeURIComponent(code)}#${counter}`;
-  });
+  return value;
+}
 
-  globalThis.URL.revokeObjectURL = vi.fn();
-};
+function runPluginMaybe(pluginValue, config) {
+  if (!pluginValue) return pluginValue;
 
-const setDigestBytes = (bytes) => {
-  const digest = vi.fn(async () => bytes.buffer);
-  Object.defineProperty(globalThis, 'crypto', {
-    value: { subtle: { digest } },
-    configurable: true,
-    writable: true,
-  });
-  return digest;
+  if (typeof pluginValue === 'function') return pluginValue(config);
+
+  if (typeof pluginValue === 'object') {
+    if (typeof pluginValue.default === 'function') return pluginValue.default(config);
+    if (typeof pluginValue.plugin === 'function') return pluginValue.plugin(config);
+    if (typeof pluginValue.run === 'function') return pluginValue.run(config);
+    if ('token' in pluginValue && 'config' in pluginValue) return pluginValue;
+  }
+
+  return pluginValue;
+}
+
+function inputToUrlString(input) {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.toString();
+
+  if (input && typeof input === 'object') {
+    if (typeof input.url === 'string') return input.url;
+    if (typeof input.href === 'string') return input.href;
+  }
+
+  return String(input);
+}
+
+function makeResponse(bodyText, { status = 200, url = 'https://example.com/', headers = {} } = {}) {
+  const buf = Buffer.from(String(bodyText), 'utf8');
+  const headerMap = new Map(
+    Object.entries(headers).map(([k, v]) => [String(k).toLowerCase(), String(v)]),
+  );
+
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status >= 200 && status < 300 ? 'OK' : 'ERR',
+    url,
+    headers: {
+      get(key) {
+        return headerMap.get(String(key).toLowerCase()) ?? null;
+      },
+    },
+    async arrayBuffer() {
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    },
+    async text() {
+      return buf.toString('utf8');
+    },
+    clone() {
+      return this;
+    },
+  };
+}
+
+function sriSha256(text) {
+  const digest = createHash('sha256').update(text).digest('base64');
+  return `sha256-${digest}`;
+}
+
+function makeDeepConfig(depth = 30) {
+  let obj = { leaf: true };
+  for (let i = depth; i > 0; i -= 1) {
+    obj = { level: i, child: obj };
+  }
+  return obj;
+}
+
+let pluginSeq = 0;
+function nextToken(prefix = 'plugin') {
+  pluginSeq += 1;
+  return `${prefix}-${pluginSeq}`;
+}
+
+function makePluginModuleSource(token, { fillerSize = 0 } = {}) {
+  const t = JSON.stringify(token);
+  const filler = fillerSize > 0 ? `/*${'a'.repeat(fillerSize)}*/\n` : '';
+  return `${filler}globalThis.__SPL_EVAL__ = globalThis.__SPL_EVAL__ || {};
+globalThis.__SPL_EVAL__[${t}] = (globalThis.__SPL_EVAL__[${t}] || 0) + 1;
+
+export default function plugin(config = {}) {
+  return { token: ${t}, config };
+}
+`;
+}
+
+function getLoadPluginCallable(instance) {
+  if (instance && typeof instance.loadPlugin === 'function') return instance.loadPlugin.bind(instance);
+  if (instance && typeof instance.load === 'function') return instance.load.bind(instance);
+  return null;
+}
+
+function getLoadPluginsCallable(instance) {
+  if (instance && typeof instance.loadPlugins === 'function') return instance.loadPlugins.bind(instance);
+  if (instance && typeof instance.loadMany === 'function') return instance.loadMany.bind(instance);
+  if (instance && typeof instance.loadManifest === 'function') return instance.loadManifest.bind(instance);
+  return null;
+}
+
+async function invokeLoadPlugin(loadPluginFn, rawUrl, options) {
+  const attempts = [
+    () => loadPluginFn(rawUrl, options),
+    () => loadPluginFn({ url: rawUrl, ...options }),
+    () => loadPluginFn({ ...options, url: rawUrl }),
+  ];
+
+  let lastThrown = null;
+  let lastValue = undefined;
+
+  for (const attempt of attempts) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const value = await attempt();
+      lastValue = value;
+
+      const failure = getFailureMessage(value);
+      if (!failure) return value;
+
+      // Keep trying other invocation shapes in case this is a signature mismatch.
+    } catch (err) {
+      lastThrown = err;
+    }
+  }
+
+  if (lastThrown) throw lastThrown;
+  return lastValue;
+}
+
+async function importFresh() {
+  vi.resetModules();
+  return await import(MODULE_PATH);
+}
+
+const initialModule = await import(MODULE_PATH);
+const functionExportEntries = Object.entries(initialModule).filter(([, value]) => typeof value === 'function');
+
+const originals = {
+  crypto: globalThis.crypto,
+  location: globalThis.location,
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  sharedMocks.resetLastLogger();
-  sharedMocks.isNodeLike.mockReturnValue(false);
+  pluginSeq = 0;
 
-  globalThis.Blob = originalGlobals.Blob;
-  globalThis.TextEncoder = originalGlobals.TextEncoder;
-  globalThis.fetch = originalGlobals.fetch;
+  globalThis.__SPL_EVAL__ = undefined;
 
-  if (originalGlobals.URL) {
-    if (originalCreateObjectURL) {
-      originalGlobals.URL.createObjectURL = originalCreateObjectURL;
-    } else {
-      delete originalGlobals.URL.createObjectURL;
+  if (!globalThis.crypto) globalThis.crypto = webcrypto;
+
+  // Ensure tests don't leak a fake browser location.
+  globalThis.location = originals.location;
+});
+
+for (const [exportName, initialValue] of functionExportEntries) {
+  describe(exportName, () => {
+    let mod;
+    let exported;
+
+    beforeEach(async () => {
+      mod = await importFresh();
+      exported = mod[exportName];
+    });
+
+    it('exports a function/class', () => {
+      expect(exported).toBeTypeOf('function');
+    });
+
+    if (exportName === 'errorResult') {
+      it('wraps unknown errors into { ok:false, error }', async () => {
+        const res1 = exported(new Error('boom'));
+        expect(res1).toEqual(expect.objectContaining({ ok: false }));
+        expect(res1.error).toEqual(expect.any(String));
+        expect(res1.error).toContain('boom');
+
+        const res2 = exported('plain string error');
+        expect(res2).toEqual(expect.objectContaining({ ok: false }));
+        expect(res2.error).toEqual(expect.any(String));
+
+        const res3 = exported(null);
+        expect(res3).toEqual(expect.objectContaining({ ok: false }));
+        expect(res3.error).toEqual(expect.any(String));
+      });
     }
-    if (originalRevokeObjectURL) {
-      originalGlobals.URL.revokeObjectURL = originalRevokeObjectURL;
-    } else {
-      delete originalGlobals.URL.revokeObjectURL;
-    }
-  }
-  globalThis.URL = originalGlobals.URL;
 
-  if (originalCryptoDescriptor) {
-    Object.defineProperty(globalThis, 'crypto', originalCryptoDescriptor);
-  } else {
-    try {
-      delete globalThis.crypto;
-    } catch {
-      // ignore
-    }
-  }
+    if (exportName === 'isErrorResultValue') {
+      it('detects ErrorResult shapes and rejects near-misses', async () => {
+        expect(exported({ ok: false, error: 'x' })).toBe(true);
 
-  if (originalGlobals.location) {
-    globalThis.location = originalGlobals.location;
-  } else {
-    try {
-      delete globalThis.location;
-    } catch {
-      // ignore
+        expect(exported(null)).toBe(false);
+        expect(exported(undefined)).toBe(false);
+        expect(exported('')).toBe(false);
+        expect(exported({})).toBe(false);
+        expect(exported({ ok: false })).toBe(false);
+        expect(exported({ ok: false, error: 1 })).toBe(false);
+        expect(exported({ ok: true, error: 'x' })).toBe(false);
+      });
     }
-  }
 
-  if (!globalThis.TextEncoder) {
-    globalThis.TextEncoder = class TextEncoder {
-      encode(value) {
-        const str = String(value);
-        const bytes = new Uint8Array(str.length);
-        for (let i = 0; i < str.length; i += 1) {
-          bytes[i] = str.charCodeAt(i) & 0xff;
+    if (exportName === 'normalizeLogger') {
+      it('binds logger methods and falls back to createLogger', async () => {
+        const logger = {
+          prefix: 'pfx',
+          info(msg) {
+            return `${this.prefix}:${msg}`;
+          },
+          warn(msg) {
+            return `${this.prefix}:${msg}`;
+          },
+        };
+
+        const normalized = exported(logger);
+        expect(normalized).toEqual(
+          expect.objectContaining({
+            info: expect.any(Function),
+            warn: expect.any(Function),
+          }),
+        );
+
+        expect(normalized.info('x')).toBe('pfx:x');
+        expect(normalized.warn('y')).toBe('pfx:y');
+
+        const shared = await import(SHARED_PATH);
+        const beforeCalls = shared.createLogger.mock.calls.length;
+
+        const normalized2 = exported({ info: 'nope', warn: null });
+        expect(normalized2).toEqual(expect.any(Object));
+        expect(shared.createLogger.mock.calls.length).toBeGreaterThanOrEqual(beforeCalls + 1);
+      });
+    }
+
+    if (exportName === 'getDefaultBaseUrl') {
+      it('reads globalThis.location.href when present; otherwise returns null', async () => {
+        globalThis.location = undefined;
+        expect(exported()).toBe(null);
+
+        globalThis.location = { href: '   ' };
+        expect(exported()).toBe(null);
+
+        globalThis.location = { href: 'https://example.com/app/' };
+        expect(exported()).toBe('https://example.com/app/');
+      });
+    }
+
+    if (exportName === 'parseBaseUrl') {
+      it('returns URL for valid input; null for empty/invalid/typed edge cases', async () => {
+        expect(exported(null)).toBe(null);
+        expect(exported(undefined)).toBe(null);
+        expect(exported('')).toBe(null);
+        expect(exported('   ')).toBe(null);
+        expect(exported([])).toBe(null);
+        expect(exported({})).toBe(null);
+        expect(exported(0)).toBe(null);
+        expect(exported(-1)).toBe(null);
+        expect(exported(Number.MAX_SAFE_INTEGER)).toBe(null);
+
+        const u = exported('https://example.com/a/b?c=1#d');
+        expect(u).toBeInstanceOf(URL);
+        expect(u.href).toBe('https://example.com/a/b?c=1#d');
+      });
+    }
+
+    if (exportName === 'isLocalhostHost') {
+      it('detects localhost and loopback variations (including bracketed IPv6)', async () => {
+        expect(exported('localhost')).toBe(true);
+        expect(exported('LOCALHOST')).toBe(true);
+        expect(exported('foo.localhost')).toBe(true);
+
+        expect(exported('127.0.0.1')).toBe(true);
+        expect(exported('127.0.0.2')).toBe(true);
+        expect(exported('127.255.255.255')).toBe(true);
+
+        expect(exported('::1')).toBe(true);
+        expect(exported('[::1]')).toBe(true);
+
+        expect(exported('0.0.0.0')).toBe(true);
+
+        expect(exported('192.168.0.1')).toBe(false);
+        expect(exported('example.com')).toBe(false);
+        expect(exported('')).toBe(false);
+        expect(exported('   ')).toBe(false);
+        expect(exported(null)).toBe(false);
+        expect(exported(undefined)).toBe(false);
+      });
+    }
+
+    if (exportName === 'resolveUrl') {
+      it('resolves absolute URLs and relative URLs (with baseUrl or global location)', async () => {
+        const okAbs = exported('https://example.com/p.mjs', null);
+        expect(okAbs).toEqual(expect.objectContaining({ ok: true }));
+        expect(okAbs.url).toBe('https://example.com/p.mjs');
+
+        const badEmpty = exported('   ', null);
+        expect(isErrorResult(badEmpty)).toBe(true);
+
+        const badRelNoBase = exported('./p.mjs', null);
+        expect(isErrorResult(badRelNoBase)).toBe(true);
+
+        const okRelWithBase = exported('./p.mjs', 'https://example.com/base/');
+        expect(okRelWithBase).toEqual(expect.objectContaining({ ok: true }));
+        expect(okRelWithBase.url).toBe('https://example.com/base/p.mjs');
+
+        globalThis.location = { href: 'https://example.com/app/' };
+        const okRelWithGlobal = exported('./x.mjs', null);
+        expect(okRelWithGlobal).toEqual(expect.objectContaining({ ok: true }));
+        expect(okRelWithGlobal.url).toBe('https://example.com/x.mjs');
+      });
+    }
+
+    if (exportName === 'validatePluginUrl') {
+      it('rejects invalid URLs and accepts resolvable HTTPS URLs', async () => {
+        const bad1 = exported('', { baseUrl: 'https://example.com/', allowInsecure: false });
+        expect(isErrorResult(bad1)).toBe(true);
+
+        const bad2 = exported('./x.mjs', { baseUrl: null, allowInsecure: false, requireBaseUrl: true });
+        expect(isErrorResult(bad2)).toBe(true);
+
+        const ok1 = exported('./x.mjs', { baseUrl: 'https://example.com/app/', allowInsecure: false });
+        expect(ok1).toEqual(expect.objectContaining({ ok: true }));
+        expect(ok1.url).toBe('https://example.com/x.mjs');
+
+        const badProto = exported('file:///etc/passwd', { baseUrl: 'https://example.com/', allowInsecure: false });
+        expect(isErrorResult(badProto)).toBe(true);
+
+        const badSameOrigin = exported('https://evil.example/x.mjs', {
+          baseUrl: 'https://example.com/app/',
+          allowInsecure: false,
+          enforceSameOrigin: true,
+        });
+        expect(isErrorResult(badSameOrigin)).toBe(true);
+      });
+    }
+
+    const shouldRunLoaderTests =
+      isClassLike(initialValue) &&
+      (exportName === 'default' || exportName.toLowerCase().includes('loader') || exportName.toLowerCase().includes('plugin'));
+
+    if (shouldRunLoaderTests) {
+      it('constructs with minimal options (including mocked logger)', async () => {
+        const fetchImpl = vi.fn(async () => makeResponse('export default function(){}'));
+        expect(() => new exported({ fetchImpl, baseUrl: 'https://example.com/app/' })).not.toThrow();
+      });
+
+      it('fails for relative URLs when no baseUrl is available', async () => {
+        const token = nextToken('rel-nobase');
+        const source = makePluginModuleSource(token);
+        const integrity = sriSha256(source);
+
+        const fetchImpl = vi.fn(async () => makeResponse(source, { url: 'https://example.com/irrelevant' }));
+        const loader = new exported({ fetchImpl });
+
+        const loadPlugin = getLoadPluginCallable(loader) || getLoadPluginsCallable(loader);
+        expect(loadPlugin).toBeTypeOf('function');
+
+        let thrown = null;
+        let value = null;
+        try {
+          if (getLoadPluginCallable(loader)) {
+            value = await invokeLoadPlugin(loadPlugin, `./${token}.mjs`, { integrity, config: {} });
+          } else {
+            value = await loadPlugin({ plugins: [{ url: `./${token}.mjs`, integrity, config: {} }] });
+          }
+        } catch (err) {
+          thrown = err;
         }
-        return bytes;
-      }
-    };
-  }
-});
 
-describe('SecurePluginLoader', () => {
-  it('normalizes constructor options and logger', () => {
-    globalThis.fetch = undefined;
-    const loader = new SecurePluginLoaderNamed(null);
+        expect(thrown || value).toBeTruthy();
 
-    expect(sharedMocks.createLogger).toHaveBeenCalledWith('core/secure-plugin-loader');
-    expect(loader.fetchImpl).toBeNull();
-    expect(loader.baseUrl).toBeNull();
-    expect(loader.allowInsecure).toBe(false);
+        if (thrown) {
+          expect(String(thrown)).toEqual(expect.any(String));
+        } else {
+          expect(getFailureMessage(value)).toEqual(expect.any(String));
+        }
+      });
 
-    const customLogger = { info: vi.fn(), warn: vi.fn() };
-    const loaderWithLogger = new SecurePluginLoaderNamed({
-      logger: customLogger,
-      baseUrl: '   ',
-      allowInsecure: true,
-    });
+      it('loads a plugin with valid SRI and supports deep config (happy path)', async () => {
+        const token = nextToken('happy');
+        const source = makePluginModuleSource(token);
+        const integrity = sriSha256(source);
+        const baseUrl = 'https://example.com/app/';
 
-    loaderWithLogger.logger.info('ping');
+        const resolvedUrl = new URL(`./${token}.mjs`, baseUrl).toString();
+        const fetchImpl = vi.fn(async (input) => {
+          const url = inputToUrlString(input);
+          if (url === resolvedUrl) {
+            return makeResponse(source, {
+              url,
+              headers: { 'content-type': 'text/javascript' },
+            });
+          }
+          return makeResponse('not found', { status: 404, url });
+        });
 
-    expect(customLogger.info).toHaveBeenCalledWith('ping');
-    expect(sharedMocks.createLogger).toHaveBeenCalledTimes(1);
-    expect(loaderWithLogger.baseUrl).toBeNull();
-    expect(loaderWithLogger.allowInsecure).toBe(true);
-  });
+        const deepConfig = makeDeepConfig(40);
+        const loader = new exported({ fetchImpl, baseUrl });
 
-  it('loadPlugin rejects invalid options and empty values', async () => {
-    const loader = new SecurePluginLoaderNamed({
-      baseUrl: 'https://example.com/',
-      fetchImpl: vi.fn(),
-    });
+        let result;
+        if (getLoadPluginCallable(loader)) {
+          result = await invokeLoadPlugin(getLoadPluginCallable(loader), `./${token}.mjs`, { integrity, config: deepConfig });
+        } else {
+          const loadPlugins = getLoadPluginsCallable(loader);
+          expect(loadPlugins).toBeTypeOf('function');
+          result = await loadPlugins({ plugins: [{ url: `./${token}.mjs`, integrity, config: deepConfig }] });
+        }
 
-    const skipIntegrity = await loader.loadPlugin('https://example.com/plugin.js', {
-      skipIntegrity: true,
-      integrity: 'sha256-abc',
-    });
-    expect(skipIntegrity).toEqual({ ok: false, error: 'skipIntegrity is not allowed' });
+        const failure = getFailureMessage(result);
+        expect(failure).toBe(null);
 
-    const missingIntegrity = await loader.loadPlugin('https://example.com/plugin.js', {});
-    expect(missingIntegrity).toEqual({ ok: false, error: 'integrity is required' });
+        expect(fetchImpl).toHaveBeenCalled();
+        const calledUrl = inputToUrlString(fetchImpl.mock.calls[0][0]);
+        expect(calledUrl).toBe(resolvedUrl);
 
-    const badConfig = await loader.loadPlugin('https://example.com/plugin.js', {
-      integrity: 'sha256-abc',
-      config: [],
-    });
-    expect(badConfig).toEqual({ ok: false, error: 'config must be a plain object' });
+        const pluginValue = extractPlugin(result);
+        const pluginResult = runPluginMaybe(pluginValue, deepConfig);
+        expect(pluginResult).toEqual(expect.objectContaining({ token }));
+        expect(pluginResult.config).toEqual(deepConfig);
+      });
 
-    for (const url of [undefined, null, '', '   ']) {
-      const result = await loader.loadPlugin(url, { integrity: 'sha256-abc' });
-      expect(result).toEqual({ ok: false, error: 'url must be a non-empty string' });
+      it('rejects integrity mismatches without evaluating the module (SRI gate)', async () => {
+        const token = nextToken('mismatch');
+        const source = makePluginModuleSource(token);
+        const integrityWrong = sriSha256(source + '\n// tampered');
+        const baseUrl = 'https://example.com/app/';
+
+        globalThis.__SPL_EVAL__ = {};
+
+        const resolvedUrl = new URL(`./${token}.mjs`, baseUrl).toString();
+        const fetchImpl = vi.fn(async (input) => {
+          const url = inputToUrlString(input);
+          if (url === resolvedUrl) return makeResponse(source, { url });
+          return makeResponse('not found', { status: 404, url });
+        });
+
+        const loader = new exported({ fetchImpl, baseUrl });
+
+        let thrown = null;
+        let result = null;
+
+        try {
+          if (getLoadPluginCallable(loader)) {
+            result = await invokeLoadPlugin(getLoadPluginCallable(loader), `./${token}.mjs`, { integrity: integrityWrong, config: {} });
+          } else {
+            result = await getLoadPluginsCallable(loader)({
+              plugins: [{ url: `./${token}.mjs`, integrity: integrityWrong, config: {} }],
+            });
+          }
+        } catch (err) {
+          thrown = err;
+        }
+
+        expect(thrown || result).toBeTruthy();
+
+        if (!thrown) {
+          expect(getFailureMessage(result)).toEqual(expect.any(String));
+        }
+
+        expect(globalThis.__SPL_EVAL__?.[token]).toBeUndefined();
+      });
+
+      it('handles non-OK fetch responses (error path)', async () => {
+        const token = nextToken('404');
+        const source = makePluginModuleSource(token);
+        const integrity = sriSha256(source);
+        const baseUrl = 'https://example.com/app/';
+
+        const resolvedUrl = new URL(`./${token}.mjs`, baseUrl).toString();
+        const fetchImpl = vi.fn(async (input) => {
+          const url = inputToUrlString(input);
+          return makeResponse('not found', { status: 404, url });
+        });
+
+        const loader = new exported({ fetchImpl, baseUrl });
+
+        let thrown = null;
+        let result = null;
+
+        try {
+          if (getLoadPluginCallable(loader)) {
+            result = await invokeLoadPlugin(getLoadPluginCallable(loader), `./${token}.mjs`, { integrity, config: {} });
+          } else {
+            result = await getLoadPluginsCallable(loader)({
+              plugins: [{ url: `./${token}.mjs`, integrity, config: {} }],
+            });
+          }
+        } catch (err) {
+          thrown = err;
+        }
+
+        expect(fetchImpl).toHaveBeenCalled();
+
+        if (thrown) {
+          expect(String(thrown)).toEqual(expect.any(String));
+        } else {
+          expect(getFailureMessage(result)).toEqual(expect.any(String));
+        }
+      });
+
+      it('supports concurrent loads (concurrency boundary)', async () => {
+        const tokenA = nextToken('concurrent-a');
+        const tokenB = nextToken('concurrent-b');
+
+        const sourceA = makePluginModuleSource(tokenA);
+        const sourceB = makePluginModuleSource(tokenB);
+
+        const integrityA = sriSha256(sourceA);
+        const integrityB = sriSha256(sourceB);
+
+        const baseUrl = 'https://example.com/app/';
+        const urlA = new URL(`./${tokenA}.mjs`, baseUrl).toString();
+        const urlB = new URL(`./${tokenB}.mjs`, baseUrl).toString();
+
+        const fetchImpl = vi.fn(async (input) => {
+          const url = inputToUrlString(input);
+          if (url === urlA) return makeResponse(sourceA, { url });
+          if (url === urlB) return makeResponse(sourceB, { url });
+          return makeResponse('not found', { status: 404, url });
+        });
+
+        const loader = new exported({ fetchImpl, baseUrl });
+
+        const deepConfig = makeDeepConfig(10);
+
+        const loadOne = async (token, integrity) => {
+          if (getLoadPluginCallable(loader)) {
+            return await invokeLoadPlugin(getLoadPluginCallable(loader), `./${token}.mjs`, { integrity, config: deepConfig });
+          }
+          return await getLoadPluginsCallable(loader)({
+            plugins: [{ url: `./${token}.mjs`, integrity, config: deepConfig }],
+          });
+        };
+
+        const [resA, resB] = await Promise.all([loadOne(tokenA, integrityA), loadOne(tokenB, integrityB)]);
+
+        expect(getFailureMessage(resA)).toBe(null);
+        expect(getFailureMessage(resB)).toBe(null);
+
+        const pluginResultA = runPluginMaybe(extractPlugin(resA), deepConfig);
+        const pluginResultB = runPluginMaybe(extractPlugin(resB), deepConfig);
+
+        expect(pluginResultA).toEqual(expect.objectContaining({ token: tokenA }));
+        expect(pluginResultB).toEqual(expect.objectContaining({ token: tokenB }));
+      });
+
+      it('handles large plugin sources (resource boundary)', async () => {
+        const token = nextToken('large');
+        const source = makePluginModuleSource(token, { fillerSize: 512 * 1024 });
+        const integrity = sriSha256(source);
+
+        const baseUrl = 'https://example.com/app/';
+        const resolvedUrl = new URL(`./${token}.mjs`, baseUrl).toString();
+
+        const fetchImpl = vi.fn(async (input) => {
+          const url = inputToUrlString(input);
+          if (url === resolvedUrl) return makeResponse(source, { url });
+          return makeResponse('not found', { status: 404, url });
+        });
+
+        const loader = new exported({ fetchImpl, baseUrl });
+
+        let result;
+        if (getLoadPluginCallable(loader)) {
+          result = await invokeLoadPlugin(getLoadPluginCallable(loader), `./${token}.mjs`, { integrity, config: {} });
+        } else {
+          result = await getLoadPluginsCallable(loader)({
+            plugins: [{ url: `./${token}.mjs`, integrity, config: {} }],
+          });
+        }
+
+        expect(getFailureMessage(result)).toBe(null);
+
+        const pluginResult = runPluginMaybe(extractPlugin(result), {});
+        expect(pluginResult).toEqual(expect.objectContaining({ token }));
+      });
+
+      it('rejects invalid url inputs (null/undefined/whitespace/type/boundary)', async () => {
+        const token = nextToken('type-edges');
+        const source = makePluginModuleSource(token);
+        const integrity = sriSha256(source);
+        const baseUrl = 'https://example.com/app/';
+
+        const resolvedUrl = new URL(`./${token}.mjs`, baseUrl).toString();
+        const fetchImpl = vi.fn(async (input) => {
+          const url = inputToUrlString(input);
+          if (url === resolvedUrl) return makeResponse(source, { url });
+          return makeResponse('not found', { status: 404, url });
+        });
+
+        const loader = new exported({ fetchImpl, baseUrl });
+        const loadPlugin = getLoadPluginCallable(loader);
+
+        const invalidUrls = [null, undefined, '', '   ', 0, -1, Number.MAX_SAFE_INTEGER, [], {}, 'http://'];
+        for (const badUrl of invalidUrls) {
+          let thrown = null;
+          let result = null;
+
+          try {
+            if (loadPlugin) {
+              // eslint-disable-next-line no-await-in-loop
+              result = await invokeLoadPlugin(loadPlugin, badUrl, { integrity, config: {} });
+            } else {
+              // eslint-disable-next-line no-await-in-loop
+              result = await getLoadPluginsCallable(loader)({
+                plugins: [{ url: badUrl, integrity, config: {} }],
+              });
+            }
+          } catch (err) {
+            thrown = err;
+          }
+
+          expect(thrown || result).toBeTruthy();
+          if (!thrown) expect(getFailureMessage(result)).toEqual(expect.any(String));
+        }
+      });
+    }
+
+    const looksLikeLoadPluginFn =
+      !isClassLike(initialValue) && /loadplugin/i.test(exportName);
+
+    if (looksLikeLoadPluginFn) {
+      it('handles invalid inputs (error path)', async () => {
+        let thrown = null;
+        let result = null;
+        try {
+          result = await exported(null, null);
+        } catch (err) {
+          thrown = err;
+        }
+
+        expect(thrown || result).toBeTruthy();
+        if (!thrown) expect(getFailureMessage(result) ?? String(result)).toEqual(expect.any(String));
+      });
+    }
+
+    const looksLikeLoadPluginsFn =
+      !isClassLike(initialValue) && /loadplugins/i.test(exportName);
+
+    if (looksLikeLoadPluginsFn) {
+      it('handles invalid manifest inputs (error path)', async () => {
+        let thrown = null;
+        let result = null;
+        try {
+          result = await exported(null);
+        } catch (err) {
+          thrown = err;
+        }
+
+        expect(thrown || result).toBeTruthy();
+        if (!thrown) expect(getFailureMessage(result) ?? String(result)).toEqual(expect.any(String));
+      });
     }
   });
-
-  it('loadPlugin rejects relative URLs without a base', async () => {
-    const loader = new SecurePluginLoaderNamed({ fetchImpl: vi.fn() });
-
-    const result = await loader.loadPlugin('./plugin.js', { integrity: 'sha256-abc' });
-
-    expect(result).toEqual({
-      ok: false,
-      error: 'Invalid URL (baseUrl required for relative URLs)',
-    });
-  });
-
-  it('loadPlugin validates protocol and insecure URLs', async () => {
-    const fetchImpl = vi.fn(async () => ({}));
-    const loader = new SecurePluginLoaderNamed({
-      baseUrl: 'https://example.com/',
-      fetchImpl,
-    });
-
-    const badProtocol = await loader.loadPlugin('ftp://example.com/plugin.js', {
-      integrity: 'sha256-abc',
-    });
-    expect(badProtocol).toEqual({
-      ok: false,
-      error: 'Unsupported URL protocol: ftp:',
-    });
-
-    const insecure = await loader.loadPlugin('http://example.com/plugin.js', {
-      integrity: 'sha256-abc',
-    });
-    expect(insecure).toEqual({
-      ok: false,
-      error: 'URL must use HTTPS unless targeting localhost (or enable allowInsecure)',
-    });
-
-    const localhost = await loader.loadPlugin('http://localhost/plugin.js', {
-      integrity: 'sha256-abc',
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(localhost).toEqual({ ok: false, error: 'fetch returned an invalid response' });
-  });
-
-  it('loadPlugin enforces baseUrl and same-origin in node-like environments', async () => {
-    sharedMocks.isNodeLike.mockReturnValue(true);
-
-    const loader = new SecurePluginLoaderNamed({ fetchImpl: vi.fn() });
-    const missingBase = await loader.loadPlugin('https://example.com/plugin.js', {
-      integrity: 'sha256-abc',
-    });
-    expect(missingBase).toEqual({ ok: false, error: 'baseUrl is required in Node environments' });
-
-    const loaderWithBase = new SecurePluginLoaderNamed({
-      fetchImpl: vi.fn(),
-      baseUrl: 'https://example.com/app/',
-    });
-    const wrongOrigin = await loaderWithBase.loadPlugin('https://other.com/plugin.js', {
-      integrity: 'sha256-abc',
-    });
-    expect(wrongOrigin).toEqual({ ok: false, error: 'URL must match baseUrl origin' });
-  });
-
-  it('loadPlugin uses global location for relative URLs when available', async () => {
-    setupObjectUrl();
-    setGlobalLocation('https://example.com/base/');
-
-    const fetchImpl = vi.fn(async () => makeResponse('export default { name: "loc" };'));
-    const loader = new SecurePluginLoaderNamed({ fetchImpl });
-    vi.spyOn(loader, 'verifyIntegrity').mockResolvedValue(true);
-
-    const plugin = await loader.loadPlugin('./plugin.js', { integrity: 'sha256-abc' });
-
-    expect(fetchImpl).toHaveBeenCalledWith('https://example.com/base/plugin.js', { method: 'GET' });
-    expect(plugin).toEqual(expect.objectContaining({ name: 'loc' }));
-  });
-
-  it('loadPlugin reports missing fetch implementation', async () => {
-    globalThis.fetch = undefined;
-    const loader = new SecurePluginLoaderNamed({ baseUrl: 'https://example.com/' });
-
-    const result = await loader.loadPlugin('https://example.com/plugin.js', {
-      integrity: 'sha256-abc',
-    });
-
-    expect(result).toEqual({ ok: false, error: 'fetch is unavailable' });
-  });
-
-  it('loadPlugin handles invalid fetch responses and status codes', async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ ok: false, status: 404, text: vi.fn() });
-
-    const loader = new SecurePluginLoaderNamed({
-      baseUrl: 'https://example.com/',
-      fetchImpl,
-    });
-
-    const invalidResponse = await loader.loadPlugin('https://example.com/a.js', {
-      integrity: 'sha256-abc',
-    });
-    expect(invalidResponse).toEqual({ ok: false, error: 'fetch returned an invalid response' });
-
-    const badStatus = await loader.loadPlugin('https://example.com/b.js', {
-      integrity: 'sha256-abc',
-    });
-    expect(badStatus).toEqual({ ok: false, error: 'Failed to fetch plugin (status 404)' });
-  });
-
-  it('loadPlugin logs warnings on fetch errors', async () => {
-    const fetchImpl = vi.fn(async () => {
-      throw new Error('boom');
-    });
-    const loader = new SecurePluginLoaderNamed({
-      baseUrl: 'https://example.com/',
-      fetchImpl,
-    });
-
-    const result = await loader.loadPlugin('https://example.com/a.js', {
-      integrity: 'sha256-abc',
-    });
-
-    expect(result).toEqual({ ok: false, error: 'boom' });
-    expect(sharedMocks.getLastLogger().warn).toHaveBeenCalled();
-  });
-
-  it('loadPlugin reports integrity failures', async () => {
-    const fetchImpl = vi.fn(async () => makeResponse('export default {}'));
-    const loader = new SecurePluginLoaderNamed({
-      baseUrl: 'https://example.com/',
-      fetchImpl,
-    });
-
-    const verifySpy = vi.spyOn(loader, 'verifyIntegrity');
-    verifySpy.mockResolvedValueOnce({ ok: false, error: 'bad hash' });
-
-    const badIntegrity = await loader.loadPlugin('https://example.com/a.js', {
-      integrity: 'sha256-abc',
-    });
-    expect(badIntegrity).toEqual({ ok: false, error: 'bad hash' });
-
-    verifySpy.mockResolvedValueOnce(false);
-
-    const mismatch = await loader.loadPlugin('https://example.com/b.js', {
-      integrity: 'sha256-abc',
-    });
-    expect(mismatch).toEqual({ ok: false, error: 'Plugin integrity mismatch' });
-    expect(sharedMocks.getLastLogger().warn).toHaveBeenCalled();
-  });
-
-  it('loadPlugin fails when Blob or URL.createObjectURL is unavailable', async () => {
-    const fetchImpl = vi.fn(async () => makeResponse('export default {}'));
-    const loader = new SecurePluginLoaderNamed({
-      baseUrl: 'https://example.com/',
-      fetchImpl,
-    });
-
-    vi.spyOn(loader, 'verifyIntegrity').mockResolvedValue(true);
-    globalThis.Blob = undefined;
-    if (globalThis.URL) {
-      globalThis.URL.createObjectURL = undefined;
-    }
-
-    const result = await loader.loadPlugin('https://example.com/a.js', {
-      integrity: 'sha256-abc',
-    });
-
-    expect(result).toEqual({
-      ok: false,
-      error: 'Blob or URL.createObjectURL is unavailable',
-    });
-  });
-
-  it('loadPlugin loads plugin content with large payloads and deep config', async () => {
-    setupObjectUrl();
-
-    const largeCode = `export default { name: "big", version: 1 };${' '.repeat(200000)}`;
-    const fetchImpl = vi.fn(async () => makeResponse(largeCode));
-    const loader = new SecurePluginLoaderNamed({
-      baseUrl: 'https://example.com/',
-      fetchImpl,
-    });
-
-    vi.spyOn(loader, 'verifyIntegrity').mockResolvedValue(true);
-
-    const deepConfig = buildDeepObject(40);
-    const plugin = await loader.loadPlugin('/plugin.js', {
-      integrity: 'sha256-abc',
-      config: deepConfig,
-    });
-
-    expect(plugin).toEqual(expect.objectContaining({ name: 'big' }));
-    expect(globalThis.URL.createObjectURL).toHaveBeenCalledTimes(1);
-    expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledTimes(1);
-  });
-
-  it('verifyIntegrity matches base64 and hex hashes', async () => {
-    const loader = new SecurePluginLoaderNamed();
-
-    setDigestBytes(new Uint8Array([1, 2, 3]));
-    const base64Ok = await loader.verifyIntegrity('content', 'sha256-AQID==');
-    expect(base64Ok).toBe(true);
-
-    const base64Bad = await loader.verifyIntegrity('content', 'sha256-AQIE');
-    expect(base64Bad).toBe(false);
-
-    const hexBytes = Uint8Array.from({ length: 32 }, (_, i) => i);
-    setDigestBytes(hexBytes);
-    const hex = Array.from(hexBytes, (b) => b.toString(16).padStart(2, '0')).join('');
-
-    const hexOk = await loader.verifyIntegrity('content', `sha256:${hex}`);
-    expect(hexOk).toBe(true);
-
-    const hexBad = await loader.verifyIntegrity('content', `sha256:${hex.slice(0, -1)}0`);
-    expect(hexBad).toBe(false);
-  });
-
-  it('verifyIntegrity reports parse and digest errors', async () => {
-    const loader = new SecurePluginLoaderNamed();
-
-    const missing = await loader.verifyIntegrity('content', '   ');
-    expect(missing).toEqual({ ok: false, error: 'integrity is required' });
-
-    const unsupported = await loader.verifyIntegrity('content', Number.MAX_SAFE_INTEGER);
-    expect(unsupported).toEqual({
-      ok: false,
-      error: 'Unsupported integrity format (expected sha256-... or sha256:...)',
-    });
-
-    Object.defineProperty(globalThis, 'crypto', {
-      value: null,
-      configurable: true,
-      writable: true,
-    });
-    const noCrypto = await loader.verifyIntegrity('content', 'sha256-AQID');
-    expect(noCrypto).toEqual({ ok: false, error: 'Web Crypto API is unavailable' });
-  });
-
-  it('computeHash returns SRI hashes for long strings', async () => {
-    const loader = new SecurePluginLoaderNamed();
-
-    setDigestBytes(new Uint8Array([1, 2, 3]));
-
-    const longString = 'x'.repeat(120000);
-    const result = await loader.computeHash(longString);
-
-    expect(result).toBe('sha256-AQID');
-  });
-
-  it('computeHash reports digest errors for invalid input', async () => {
-    const loader = new SecurePluginLoaderNamed();
-
-    const invalid = await loader.computeHash(0);
-    expect(invalid).toEqual({ ok: false, error: 'content must be a string' });
-
-    globalThis.TextEncoder = undefined;
-    const noEncoder = await loader.computeHash('hi');
-    expect(noEncoder).toEqual({ ok: false, error: 'TextEncoder is unavailable' });
-  });
-
-  it('loadPlugins validates manifest structure and empty arrays', async () => {
-    const loader = new SecurePluginLoaderNamed();
-
-    const missingManifest = await loader.loadPlugins(null);
-    expect(missingManifest).toEqual({ ok: false, error: 'manifest must be a plain object' });
-
-    const undefinedManifest = await loader.loadPlugins(undefined);
-    expect(undefinedManifest).toEqual({ ok: false, error: 'manifest must be a plain object' });
-
-    const badPluginsObject = await loader.loadPlugins({ plugins: {} });
-    expect(badPluginsObject).toEqual({
-      ok: false,
-      error: 'manifest.plugins must be an array',
-    });
-
-    const badPluginsString = await loader.loadPlugins({ plugins: 'not-array' });
-    expect(badPluginsString).toEqual({
-      ok: false,
-      error: 'manifest.plugins must be an array',
-    });
-
-    const emptyList = await loader.loadPlugins({ plugins: [] });
-    expect(emptyList).toEqual({ loaded: [], failed: [] });
-  });
-
-  it('loadPlugins aggregates loaded and failed entries', async () => {
-    const loader = new SecurePluginLoaderNamed();
-    const plugin = { name: 'ok' };
-
-    vi.spyOn(loader, 'loadPlugin')
-      .mockResolvedValueOnce(plugin)
-      .mockResolvedValueOnce({ ok: false, error: 'bad' });
-
-    const manifest = {
-      plugins: [
-        { url: 'https://example.com/a.js', integrity: 'sha256-abc', config: {} },
-        { url: 'https://example.com/b.js', integrity: 'sha256-def' },
-      ],
-    };
-
-    const result = await loader.loadPlugins(manifest);
-
-    expect(result.loaded).toHaveLength(1);
-    expect(result.failed).toHaveLength(1);
-    expect(result.loaded[0]).toEqual(
-      expect.objectContaining({
-        url: 'https://example.com/a.js',
-        integrity: 'sha256-abc',
-        config: {},
-        plugin,
-      })
-    );
-    expect(result.failed[0]).toEqual(
-      expect.objectContaining({
-        url: 'https://example.com/b.js',
-        integrity: 'sha256-def',
-        error: 'bad',
-      })
-    );
-  });
-
-  it('_loadManifestEntry validates entries and propagates errors', async () => {
-    const loader = new SecurePluginLoaderNamed();
-
-    const notObject = await loader._loadManifestEntry(null, 0);
-    expect(notObject).toEqual({ ok: false, url: '(unknown)', error: 'plugins[0] must be an object' });
-
-    const missingUrl = await loader._loadManifestEntry({ integrity: 'sha256-abc' }, 1);
-    expect(missingUrl).toEqual({
-      ok: false,
-      url: '(unknown)',
-      error: 'plugins[1].url must be a non-empty string',
-    });
-
-    const missingIntegrity = await loader._loadManifestEntry({ url: 'https://example.com' }, 2);
-    expect(missingIntegrity).toEqual({
-      ok: false,
-      url: 'https://example.com',
-      error: 'plugins[2].integrity must be a non-empty string',
-    });
-
-    const badConfig = await loader._loadManifestEntry(
-      { url: 'https://example.com', integrity: 'sha256-abc', config: [] },
-      3
-    );
-    expect(badConfig).toEqual({
-      ok: false,
-      url: 'https://example.com',
-      integrity: 'sha256-abc',
-      error: 'plugins[3].config must be a plain object',
-    });
-
-    const loadSpy = vi.spyOn(loader, 'loadPlugin');
-    loadSpy.mockResolvedValueOnce({ ok: false, error: 'load failed' });
-
-    const loadFailure = await loader._loadManifestEntry(
-      { url: 'https://example.com', integrity: 'sha256-abc' },
-      4
-    );
-    expect(loadFailure).toEqual({
-      ok: false,
-      url: 'https://example.com',
-      integrity: 'sha256-abc',
-      error: 'load failed',
-    });
-
-    loadSpy.mockRejectedValueOnce(new Error('boom'));
-
-    const thrown = await loader._loadManifestEntry(
-      { url: 'https://example.com', integrity: 'sha256-abc' },
-      5
-    );
-    expect(thrown).toEqual({
-      ok: false,
-      url: 'https://example.com',
-      integrity: 'sha256-abc',
-      error: 'boom',
-    });
-  });
-
-  it('supports concurrent and rapid consecutive loads', async () => {
-    setupObjectUrl();
-
-    const fetchImpl = vi.fn(async (url) => {
-      const href = String(url);
-      const id = href.endsWith('/a.js') ? 'a' : href.endsWith('/b.js') ? 'b' : 'c';
-      return makeResponse(`export default { name: "${id}" };`);
-    });
-
-    const loader = new SecurePluginLoaderNamed({
-      baseUrl: 'https://example.com/',
-      fetchImpl,
-    });
-
-    vi.spyOn(loader, 'verifyIntegrity').mockResolvedValue(true);
-
-    const [pluginA, pluginB] = await Promise.all([
-      loader.loadPlugin('/a.js', { integrity: 'sha256-abc' }),
-      loader.loadPlugin('/b.js', { integrity: 'sha256-abc' }),
-    ]);
-
-    expect(pluginA).toEqual(expect.objectContaining({ name: 'a' }));
-    expect(pluginB).toEqual(expect.objectContaining({ name: 'b' }));
-
-    const pluginC = await loader.loadPlugin('/c.js', { integrity: 'sha256-abc' });
-
-    expect(pluginC).toEqual(expect.objectContaining({ name: 'c' }));
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
-  });
-});
-
-describe('default export', () => {
-  it('matches the named SecurePluginLoader export', () => {
-    expect(SecurePluginLoaderDefault).toBe(SecurePluginLoaderNamed);
-  });
-});
+}

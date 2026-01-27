@@ -1,480 +1,551 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const MODULE_PATH = '../../../../../js/agents/runtime/core/js-sandbox-worker.node.js';
+const SUBJECT_PATH =
+  '../../../../../js/agents/runtime/core/js-sandbox-worker.node.js';
 
-const workerThreadsState = vi.hoisted(() => ({
-  parentPort: null,
-  workerData: {},
+let mockParentPort;
+let mockWorkerData;
+
+vi.mock('node:worker_threads', () => ({
+  parentPort: mockParentPort,
+  workerData: mockWorkerData,
+  isMainThread: false,
 }));
 
-vi.mock('node:worker_threads', () => workerThreadsState);
+function makeParentPort() {
+  const listeners = Object.create(null);
 
-function collectMessages(postMessage) {
-  return postMessage.mock.calls.map(([message]) => message);
+  /** @type {any} */
+  const port = {
+    postMessage: vi.fn(),
+    on: vi.fn((event, handler) => {
+      listeners[event] = handler;
+      return port;
+    }),
+    once: vi.fn((event, handler) => {
+      listeners[event] = handler;
+      return port;
+    }),
+    addListener: vi.fn((event, handler) => {
+      listeners[event] = handler;
+      return port;
+    }),
+    removeListener: vi.fn((event) => {
+      delete listeners[event];
+      return port;
+    }),
+    off: vi.fn((event) => {
+      delete listeners[event];
+      return port;
+    }),
+  };
+
+  return { port, listeners };
 }
 
-function findMessage(messages, predicate) {
-  return messages.find(predicate);
-}
+/**
+ * Import subject with a fresh module cache and fresh worker_threads mocks.
+ * @param {{ workerData?: any, parentPort?: any }} [opts]
+ */
+async function importFresh(opts = {}) {
+  const { workerData = {}, parentPort } = opts;
 
-function findResult(messages, id) {
-  return findMessage(messages, (msg) => msg?.type === 'result' && msg.id === id);
-}
-
-function findAudit(messages, id, event) {
-  return findMessage(messages, (msg) => msg?.type === 'audit' && msg.id === id && msg.event === event);
-}
-
-async function loadWorker(options = {}) {
   vi.resetModules();
-  const handlers = new Map();
 
-  const hasParentPort = Object.prototype.hasOwnProperty.call(options, 'parentPort');
-  const parentPort = hasParentPort ? options.parentPort : null;
-  const workerData = options.workerData ?? {};
+  const { port: defaultPort, listeners } = makeParentPort();
+  mockParentPort = parentPort ?? defaultPort;
+  mockWorkerData = workerData;
 
-  if (parentPort === null) {
-    workerThreadsState.parentPort = {
-      postMessage: vi.fn(),
-      on: vi.fn((event, handler) => {
-        handlers.set(event, handler);
-      }),
-    };
-  } else {
-    workerThreadsState.parentPort = parentPort;
-    if (workerThreadsState.parentPort) {
-      workerThreadsState.parentPort = {
-        ...workerThreadsState.parentPort,
-        postMessage: workerThreadsState.parentPort.postMessage ?? vi.fn(),
-        on: vi.fn((event, handler) => {
-          handlers.set(event, handler);
-        }),
-      };
-    }
+  const mod = await import(SUBJECT_PATH);
+  return { mod, parentPort: mockParentPort, listeners };
+}
+
+/**
+ * Find an exported function by name across common export patterns.
+ * @param {any} mod
+ * @param {string} exportName
+ * @returns {Function|undefined}
+ */
+function getFn(mod, exportName) {
+  if (typeof mod?.[exportName] === 'function') return mod[exportName];
+  if (mod?.default && typeof mod.default?.[exportName] === 'function')
+    return mod.default[exportName];
+
+  // Common patterns for exposing internals for tests.
+  for (const containerKey of [
+    '__test__',
+    '__tests__',
+    '__private__',
+    '_test',
+    '_private',
+    'internals',
+  ]) {
+    const container = mod?.[containerKey] ?? mod?.default?.[containerKey];
+    if (container && typeof container?.[exportName] === 'function')
+      return container[exportName];
   }
 
-  workerThreadsState.workerData = workerData;
+  // Fallback: search nested exports for a function with matching .name.
+  const seen = new Set();
+  const stack = [mod, mod?.default];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (!cur) continue;
 
-  await import(MODULE_PATH);
+    if (typeof cur === 'function') {
+      if (cur.name === exportName) return cur;
+      continue;
+    }
 
-  return {
-    postMessage: workerThreadsState.parentPort?.postMessage,
-    on: workerThreadsState.parentPort?.on,
-    handler: handlers.get('message'),
-  };
+    if (typeof cur !== 'object') continue;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+
+    for (const v of Object.values(cur)) stack.push(v);
+  }
+
+  return undefined;
 }
 
-describe('js-sandbox-worker.node.js', () => {
-  beforeEach(() => {
-    vi.useRealTimers();
-    vi.clearAllMocks();
-    workerThreadsState.parentPort = null;
-    workerThreadsState.workerData = {};
-  });
+function makeDeepObject(depth) {
+  const root = { level: 0 };
+  let cur = root;
+  for (let i = 1; i <= depth; i += 1) {
+    cur.next = { level: i };
+    cur = cur.next;
+  }
+  return root;
+}
 
-  it('posts ready and registers message handler on import', async () => {
-    const { postMessage, on, handler } = await loadWorker();
+async function flushMicrotasks(turns = 3) {
+  for (let i = 0; i < turns; i += 1) {
+    await Promise.resolve();
+  }
+}
 
-    expect(on).toHaveBeenCalledWith('message', expect.any(Function));
-    expect(typeof handler).toBe('function');
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockParentPort = undefined;
+  mockWorkerData = undefined;
+});
 
-    const messages = collectMessages(postMessage);
-    expect(messages).toContainEqual({ type: 'ready' });
-  });
+describe('validateSandboxCode', () => {
+  it('returns { valid: true } for safe code and various boundary inputs', async () => {
+    const { mod } = await importFresh();
+    const validateSandboxCode = getFn(mod, 'validateSandboxCode');
+    expect(typeof validateSandboxCode).toBe('function');
 
-  it('does not throw if parentPort is missing', async () => {
-    await expect(loadWorker({ parentPort: undefined })).resolves.toMatchObject({
-      postMessage: undefined,
-      on: undefined,
-      handler: undefined,
-    });
-  });
+    const longSafe = 'a'.repeat(200_000);
 
-  it('swallows postMessage errors (ready signal does not crash import)', async () => {
-    const throwingPostMessage = vi.fn(() => {
-      throw new Error('postMessage failed');
-    });
+    const inputs = [
+      '',
+      '   \n\t',
+      '1 + 1',
+      'const x = 1; x;',
+      longSafe,
 
-    const { postMessage } = await loadWorker({ parentPort: { postMessage: throwingPostMessage } });
+      // Null-ish
+      null,
+      undefined,
 
-    expect(postMessage).toHaveBeenCalledWith({ type: 'ready' });
-  });
+      // Empty structures
+      [],
+      {},
 
-  it('ignores non-execute messages', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
-
-    await handler({ type: 'noop', id: 'noop' });
-
-    const messages = collectMessages(postMessage);
-    expect(messages).toContainEqual({ type: 'ready' });
-    expect(messages.find((msg) => msg?.type === 'result')).toBeUndefined();
-  });
-
-  it('executes code with frozen state, injected globals, and posts emit/log events', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
-
-    const state = { value: 2, nested: { deep: { value: 3 } } };
-    const globals = { custom: 5, list: [1, 2, 3], console: 'evil', emit: 'evil' };
-    const code = `
-      state.value = 99;
-      emit('ping', { value: state.value, size: list.length });
-      console.info('info', custom);
-      return {
-        sum: custom + state.value + state.nested.deep.value,
-        frozen: Object.isFrozen(state),
-        nestedFrozen: Object.isFrozen(state.nested),
-      };
-    `;
-
-    await handler({
-      type: 'execute',
-      id: 'basic',
-      code,
-      state,
-      globals,
-      timeout: 1000,
-    });
-
-    const messages = collectMessages(postMessage);
-    expect(findResult(messages, 'basic')).toMatchObject({
-      type: 'result',
-      id: 'basic',
-      success: true,
-      data: { sum: 10, frozen: true, nestedFrozen: false },
-    });
-
-    const emitMessage = findMessage(messages, (msg) => msg?.type === 'emit' && msg.name === 'ping');
-    expect(emitMessage?.payload).toEqual({ value: 2, size: 3 });
-
-    const logMessage = findMessage(messages, (msg) => msg?.type === 'log' && msg.level === 'info');
-    expect(logMessage?.args).toEqual(['info', '5']);
-
-    const auditStart = findAudit(messages, 'basic', 'start');
-    const auditEnd = findAudit(messages, 'basic', 'end');
-    expect(auditStart?.payload.codeLength).toBe(code.length);
-    expect(auditEnd?.payload.blockedGlobals).toEqual([]);
-
-    expect(Object.isFrozen(state)).toBe(true);
-    expect(state.value).toBe(2);
-  });
-
-  it('isolates host globals and maps globalThis/self/global to sandbox proxy', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
-
-    await handler({
-      type: 'execute',
-      id: 'isolation',
-      code: `
-        notDefined;
-        return {
-          math: Math.max(1, 2),
-          setTimeoutType: typeof setTimeout,
-          sameProxy: globalThis === self && self === global,
-          proto: Object.getPrototypeOf(globalThis),
-        };
-      `,
-      state: {},
-      globals: {},
-      timeout: 1000,
-    });
-
-    const messages = collectMessages(postMessage);
-    expect(findResult(messages, 'isolation')).toMatchObject({
-      type: 'result',
-      id: 'isolation',
-      success: true,
-      data: { math: 2, setTimeoutType: 'undefined', sameProxy: true, proto: null },
-    });
-    expect(findAudit(messages, 'isolation', 'end')?.payload?.blockedGlobals).toEqual([]);
-  });
-
-  it('rejects blocked patterns and reports security errors', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
-
-    const cases = [
-      { id: 'blocked-import', code: 'return import("x");' },
-      { id: 'blocked-require', code: 'const fs = require("fs");' },
-      { id: 'blocked-ctor', code: 'return constructor.constructor("return 1")();' },
-      { id: 'blocked-process', code: 'return process;' },
+      // Boundary numbers + "string as number"
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      '0',
+      ' -1 ',
+      String(Number.MAX_SAFE_INTEGER),
     ];
 
-    for (const entry of cases) {
-      await handler({ type: 'execute', ...entry, state: null, globals: null, timeout: 1000 });
-    }
+    const results = await Promise.all(
+      inputs.map((code) => Promise.resolve(validateSandboxCode(code)))
+    );
 
-    const messages = collectMessages(postMessage);
-    for (const entry of cases) {
-      const result = findResult(messages, entry.id);
-      expect(result?.success).toBe(false);
-      expect(result?.error).toContain('Security:');
-      expect(result?.error).toContain('Blocked pattern');
-      expect(result?.metrics?.blocked).toBe(true);
-      expect(findAudit(messages, entry.id, 'blocked')?.payload?.reason).toContain('Blocked pattern');
-      expect(findAudit(messages, entry.id, 'end')).toBeTruthy();
+    for (const res of results) {
+      expect(res).toMatchObject({ valid: true });
+      expect(res.reason).toBeUndefined();
     }
   });
 
-  it('treats near-miss patterns as allowed (word boundary check)', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
-
-    await handler({
-      type: 'execute',
-      id: 'near-miss',
-      code: 'return "processes";',
-      state: {},
-      globals: {},
-      timeout: 1000,
-    });
-
-    const messages = collectMessages(postMessage);
-    expect(findResult(messages, 'near-miss')).toMatchObject({ success: true, data: 'processes' });
-  });
-
-  it('tracks blocked globals across get/set/defineProperty without failing execution', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
-
-    await handler({
-      type: 'execute',
-      id: 'blocked-globals',
-      code: `
-        eval = 3;
-        const defined = Reflect.defineProperty(this, "Function", { value: 1 });
-        return { evalType: typeof eval, functionType: typeof Function, defined };
-      `,
-      state: {},
-      globals: {},
-      timeout: 1000,
-    });
-
-    const messages = collectMessages(postMessage);
-    expect(findResult(messages, 'blocked-globals')).toMatchObject({
-      type: 'result',
-      id: 'blocked-globals',
-      success: true,
-      data: { evalType: 'undefined', functionType: 'undefined', defined: false },
-    });
-
-    const auditEnd = findAudit(messages, 'blocked-globals', 'end');
-    expect(auditEnd?.payload?.blockedGlobals).toEqual(expect.arrayContaining(['eval', 'Function']));
-  });
-
-  it('injects extra globals but refuses overriding reserved keys or blocked globals', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
-
-    await handler({
-      type: 'execute',
-      id: 'globals',
-      code: `
-        emit("evt", { ok: true });
-        console.log("hi");
-        return [typeof eval, custom].join("|");
-      `,
-      state: {},
-      globals: { custom: 1, console: 'evil', emit: 'evil', eval: () => 2 },
-      timeout: 1000,
-    });
-
-    const messages = collectMessages(postMessage);
-    expect(findMessage(messages, (msg) => msg?.type === 'emit' && msg.name === 'evt')).toBeTruthy();
-    expect(findMessage(messages, (msg) => msg?.type === 'log' && msg.level === 'log')).toBeTruthy();
-    expect(findResult(messages, 'globals')).toMatchObject({ success: true, data: 'undefined|1' });
-
-    const auditEnd = findAudit(messages, 'globals', 'end');
-    expect(auditEnd?.payload?.blockedGlobals).toContain('eval');
-  });
-
-  it('reports runtime errors for thrown exceptions', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
-
-    await handler({
-      type: 'execute',
-      id: 'throw',
-      code: 'throw new Error("boom");',
-      state: {},
-      globals: {},
-      timeout: 1000,
-    });
-
-    const messages = collectMessages(postMessage);
-    const result = findResult(messages, 'throw');
-    expect(result?.success).toBe(false);
-    expect(result?.error).toBe('boom');
-    expect(findAudit(messages, 'throw', 'end')).toBeTruthy();
-  });
-
-  it('reports syntax errors during compilation', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
-
-    await handler({
-      type: 'execute',
-      id: 'syntax',
-      code: 'return (',
-      state: {},
-      globals: {},
-      timeout: 1000,
-    });
-
-    const messages = collectMessages(postMessage);
-    const result = findResult(messages, 'syntax');
-    expect(result?.success).toBe(false);
-    expect(result?.error).toMatch(/unexpected|syntax|end of input/i);
-    expect(findAudit(messages, 'syntax', 'end')).toBeTruthy();
-  });
-
-  it('enforces execution timeouts (including string coercion)', async () => {
-    vi.useFakeTimers();
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
-
-    const execPromise = handler({
-      type: 'execute',
-      id: 'timeout',
-      code: 'await new Promise(() => {});',
-      state: {},
-      globals: {},
-      timeout: '5',
-    });
-
-    await vi.advanceTimersByTimeAsync(5);
-    await execPromise;
-    vi.useRealTimers();
-
-    const messages = collectMessages(postMessage);
-    const result = findResult(messages, 'timeout');
-    expect(result?.success).toBe(false);
-    expect(result?.error).toBe('Execution timeout');
-  });
-
-  it('handles empty values, type boundaries, and timeout boundary values', async () => {
-    vi.useFakeTimers();
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
+  it('blocks known dangerous patterns and reports which pattern matched', async () => {
+    const { mod } = await importFresh();
+    const validateSandboxCode = getFn(mod, 'validateSandboxCode');
+    expect(typeof validateSandboxCode).toBe('function');
 
     const cases = [
-      { id: 'null-code', code: null, state: null, globals: null, timeout: 0, expected: undefined },
-      { id: 'undefined-code', code: undefined, state: undefined, globals: undefined, timeout: -1, expected: undefined },
-      { id: 'empty-code', code: '', state: [], globals: {}, timeout: Number.MAX_SAFE_INTEGER, expected: undefined },
-      { id: 'blank-code', code: '  \n\t', state: {}, globals: [], timeout: 0, expected: undefined },
-      { id: 'string-timeout', code: 'return 42;', state: {}, globals: {}, timeout: '5', expected: 42 },
+      { code: 'import("fs")', expectSource: String.raw`\bimport\s*\(` },
       {
-        id: 'object-as-array',
-        code: 'return Array.isArray(items) ? items.length : -1;',
-        state: {},
-        globals: { items: {} },
-        timeout: 0,
-        expected: -1,
+        code: 'constructor.constructor("return 1")()',
+        expectSource: String.raw`\bconstructor\s*\.\s*constructor\b`,
       },
-      { id: 'state-as-string', code: 'return Object.keys(state).length;', state: 'not-an-object', globals: {}, timeout: 0, expected: 0 },
+      { code: 'require("fs")', expectSource: String.raw`\brequire\s*\(` },
+      { code: 'process.exit(0)', expectSource: String.raw`\bprocess\b` },
     ];
 
-    for (const entry of cases) {
-      await handler({ type: 'execute', ...entry });
+    for (const { code, expectSource } of cases) {
+      const res = validateSandboxCode(code);
+      expect(res).toMatchObject({ valid: false });
+      expect(res.reason).toContain(expectSource);
     }
-
-    const messages = collectMessages(postMessage);
-    for (const entry of cases) {
-      expect(findResult(messages, entry.id)).toMatchObject({
-        type: 'result',
-        id: entry.id,
-        success: true,
-        data: entry.expected,
-      });
-    }
-
-    vi.useRealTimers();
   });
 
-  it('supports large inputs and deep state nesting', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
+  it('returns the first matching blocked pattern when multiple patterns are present', async () => {
+    const { mod } = await importFresh();
+    const validateSandboxCode = getFn(mod, 'validateSandboxCode');
+    expect(typeof validateSandboxCode).toBe('function');
 
-    const depth = 60;
-    const deepState = { payload: 'x'.repeat(100000), next: null };
-    let cursor = deepState;
-    for (let i = 0; i < depth; i += 1) {
-      cursor.next = { next: null };
-      cursor = cursor.next;
-    }
-    cursor.value = 7;
-
-    const padding = ' '.repeat(100000);
-    const code = `
-      ${padding}
-      let node = state;
-      for (let i = 0; i < depth; i += 1) node = node.next;
-      return [state.payload.length, node.value, Object.isFrozen(state), Object.isFrozen(state.next)].join(":");
-    `;
-
-    await handler({
-      type: 'execute',
-      id: 'large',
-      code,
-      state: deepState,
-      globals: { depth },
-      timeout: 1000,
-    });
-
-    const messages = collectMessages(postMessage);
-    expect(findResult(messages, 'large')).toMatchObject({
-      type: 'result',
-      id: 'large',
-      success: true,
-      data: `100000:7:true:false`,
-    });
-
-    const auditStart = findAudit(messages, 'large', 'start');
-    expect(auditStart?.payload?.codeLength).toBe(code.length);
+    const res = validateSandboxCode('process; require("fs")');
+    expect(res).toMatchObject({ valid: false });
+    // require() is checked before process
+    expect(res.reason).toContain(String.raw`\brequire\s*\(`);
   });
 
-  it('handles concurrent and rapid sequential executions', async () => {
-    const { postMessage, handler } = await loadWorker();
-    expect(typeof handler).toBe('function');
+  it('detects blocked patterns near the end of a very long string (resource boundary)', async () => {
+    const { mod } = await importFresh();
+    const validateSandboxCode = getFn(mod, 'validateSandboxCode');
+    expect(typeof validateSandboxCode).toBe('function');
 
-    await Promise.all([
-      handler({
-        type: 'execute',
-        id: 'c1',
-        code: 'return state.value;',
-        state: { value: 1 },
-        globals: {},
-        timeout: 1000,
-      }),
-      handler({
-        type: 'execute',
-        id: 'c2',
-        code: 'return state.value;',
-        state: { value: 2 },
-        globals: {},
-        timeout: 1000,
-      }),
-    ]);
+    const code = `${'x'.repeat(150_000)} require("fs")`;
+    const res = validateSandboxCode(code);
+    expect(res).toMatchObject({ valid: false });
+    expect(res.reason).toContain(String.raw`\brequire\s*\(`);
+  });
 
-    for (let i = 0; i < 5; i += 1) {
-      await handler({
-        type: 'execute',
-        id: `s${i}`,
-        code: 'return state.value;',
-        state: { value: i },
-        globals: {},
-        timeout: 1000,
+  it('is safe to call many times concurrently (concurrency boundary)', async () => {
+    const { mod } = await importFresh();
+    const validateSandboxCode = getFn(mod, 'validateSandboxCode');
+    expect(typeof validateSandboxCode).toBe('function');
+
+    const inputs = Array.from({ length: 50 }, (_, i) =>
+      i % 7 === 0 ? 'process' : `const n = ${i}; n;`
+    );
+
+    const results = await Promise.all(
+      inputs.map((code) => Promise.resolve(validateSandboxCode(code)))
+    );
+
+    for (let i = 0; i < results.length; i += 1) {
+      if (i % 7 === 0) {
+        expect(results[i]).toMatchObject({ valid: false });
+      } else {
+        expect(results[i]).toMatchObject({ valid: true });
+      }
+    }
+  });
+});
+
+describe('createSandboxProxy', () => {
+  it('creates a proxy that always claims properties exist (with-scope isolation)', async () => {
+    const { mod } = await importFresh();
+    const createSandboxProxy = getFn(mod, 'createSandboxProxy');
+    expect(typeof createSandboxProxy).toBe('function');
+
+    const audit = { blockedAccesses: new Set() };
+    const base = { fromBase: 'ok' };
+    const proxy = createSandboxProxy(base, audit);
+
+    expect('anything' in proxy).toBe(true);
+    expect('fromBase' in proxy).toBe(true);
+    expect(proxy.fromBase).toBe('ok');
+
+    // `in` should not trigger an audit entry by itself.
+    expect(audit.blockedAccesses.size).toBe(0);
+  });
+
+  it('resolves globalThis/self/global to the proxy itself', async () => {
+    const { mod } = await importFresh();
+    const createSandboxProxy = getFn(mod, 'createSandboxProxy');
+    expect(typeof createSandboxProxy).toBe('function');
+
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy({}, audit);
+
+    expect(proxy.globalThis).toBe(proxy);
+    expect(proxy.self).toBe(proxy);
+    expect(proxy.global).toBe(proxy);
+  });
+
+  it('blocks reads/writes/defineProperty for blocked globals and records attempts', async () => {
+    const { mod } = await importFresh();
+    const createSandboxProxy = getFn(mod, 'createSandboxProxy');
+    expect(typeof createSandboxProxy).toBe('function');
+
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy({ allowed: 1 }, audit);
+
+    expect(proxy.allowed).toBe(1);
+
+    expect(proxy.process).toBeUndefined();
+    expect(proxy.require).toBeUndefined();
+    expect(proxy.eval).toBeUndefined();
+    expect(proxy.constructor).toBeUndefined();
+
+    expect(audit.blockedAccesses.has('process')).toBe(true);
+    expect(audit.blockedAccesses.has('require')).toBe(true);
+    expect(audit.blockedAccesses.has('eval')).toBe(true);
+    expect(audit.blockedAccesses.has('constructor')).toBe(true);
+
+    proxy.process = 123;
+    expect(proxy.process).toBeUndefined();
+
+    expect(Reflect.defineProperty(proxy, 'process', { value: 1 })).toBe(false);
+    expect(audit.blockedAccesses.has('process')).toBe(true);
+  });
+
+  it('isolates sandbox writes from the base object and prefers sandbox values', async () => {
+    const { mod } = await importFresh();
+    const createSandboxProxy = getFn(mod, 'createSandboxProxy');
+    expect(typeof createSandboxProxy).toBe('function');
+
+    const audit = { blockedAccesses: new Set() };
+    const base = { shared: 'base', num: 0 };
+    const proxy = createSandboxProxy(base, audit);
+
+    expect(proxy.shared).toBe('base');
+
+    proxy.shared = 'sandbox';
+    proxy.num = Number.MAX_SAFE_INTEGER;
+
+    expect(proxy.shared).toBe('sandbox');
+    expect(proxy.num).toBe(Number.MAX_SAFE_INTEGER);
+
+    expect(base.shared).toBe('base');
+    expect(base.num).toBe(0);
+
+    expect(
+      Reflect.defineProperty(proxy, 'defined', { value: 42, enumerable: true })
+    ).toBe(true);
+    expect(proxy.defined).toBe(42);
+  });
+
+  it('hardens prototype-related operations', async () => {
+    const { mod } = await importFresh();
+    const createSandboxProxy = getFn(mod, 'createSandboxProxy');
+    expect(typeof createSandboxProxy).toBe('function');
+
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy({}, audit);
+
+    expect(Object.getPrototypeOf(proxy)).toBe(null);
+    expect(Reflect.setPrototypeOf(proxy, {})).toBe(false);
+
+    // __proto__ is treated as a blocked global name; should not mutate the proxy prototype.
+    expect(Reflect.set(proxy, '__proto__', { hacked: true })).toBe(true);
+    expect(Object.getPrototypeOf(proxy)).toBe(null);
+    expect(audit.blockedAccesses.has('__proto__')).toBe(true);
+  });
+
+  it('handles non-string property keys safely (type boundary)', async () => {
+    const { mod } = await importFresh();
+    const createSandboxProxy = getFn(mod, 'createSandboxProxy');
+    expect(typeof createSandboxProxy).toBe('function');
+
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy({}, audit);
+
+    expect(proxy[Symbol.unscopables]).toBeUndefined();
+    expect(proxy[Symbol.iterator]).toBeUndefined();
+    expect(Reflect.set(proxy, Symbol.toStringTag, 'x')).toBe(false);
+  });
+
+  it('throws on invalid base when a missing property triggers base lookup (type boundary + error path)', async () => {
+    const { mod } = await importFresh();
+    const createSandboxProxy = getFn(mod, 'createSandboxProxy');
+    expect(typeof createSandboxProxy).toBe('function');
+
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy(/** @type {any} */ (null), audit);
+
+    expect(() => proxy.missing).toThrow();
+  });
+
+  it('is safe to create and use multiple proxies concurrently (concurrency boundary)', async () => {
+    const { mod } = await importFresh();
+    const createSandboxProxy = getFn(mod, 'createSandboxProxy');
+    expect(typeof createSandboxProxy).toBe('function');
+
+    const audits = Array.from({ length: 25 }, () => ({
+      blockedAccesses: new Set(),
+    }));
+    const bases = audits.map((_, i) => ({ idx: i }));
+    const proxies = bases.map((base, i) => createSandboxProxy(base, audits[i]));
+
+    await Promise.all(
+      proxies.map((p, i) =>
+        Promise.resolve().then(() => {
+          p.answer = i;
+          // Trigger a blocked read to populate per-proxy audit.
+          void p.process;
+        })
+      )
+    );
+
+    for (let i = 0; i < proxies.length; i += 1) {
+      expect(proxies[i].idx).toBe(i);
+      expect(proxies[i].answer).toBe(i);
+      expect(audits[i].blockedAccesses.has('process')).toBe(true);
+    }
+  });
+});
+
+describe('createRestrictedGlobals', () => {
+  it('exposes allowed built-ins, injects a frozen state, and does not expose blocked Node globals', async () => {
+    const { mod } = await importFresh();
+    const createRestrictedGlobals = getFn(mod, 'createRestrictedGlobals');
+    expect(typeof createRestrictedGlobals).toBe('function');
+
+    const audit = { blockedAccesses: new Set() };
+    const state = { n: 0, deep: makeDeepObject(50) };
+
+    const globals = {
+      answer: 0,
+      neg: -1,
+      big: Number.MAX_SAFE_INTEGER,
+      numAsString: '123',
+      arr: [],
+      deepObj: makeDeepObject(10),
+    };
+
+    const restricted = createRestrictedGlobals(state, globals, audit);
+
+    // Null prototype either directly (Object.create(null)) or via proxy getPrototypeOf trap.
+    expect(Object.getPrototypeOf(restricted)).toBe(null);
+
+    expect(restricted.Array).toBe(Array);
+    expect(restricted.Promise).toBe(Promise);
+    expect(restricted.Math).toBe(Math);
+    expect(restricted.JSON).toBe(JSON);
+    expect(restricted.console).toBe(console);
+
+    expect(restricted.process).toBeUndefined();
+    expect(restricted.Buffer).toBeUndefined();
+    expect(restricted.require).toBeUndefined();
+    expect(restricted.parentPort).toBeUndefined();
+    expect(restricted.workerData).toBeUndefined();
+
+    expect(restricted.state).toEqual(state);
+    expect(Object.isFrozen(restricted.state)).toBe(true);
+    expect(() => {
+      restricted.state.n = 1;
+    }).toThrow(TypeError);
+
+    // Host "globals" injection: support either flattened keys or nested under `.globals`.
+    expect([restricted.answer, restricted.globals?.answer]).toContain(0);
+    expect([restricted.neg, restricted.globals?.neg]).toContain(-1);
+    expect([restricted.big, restricted.globals?.big]).toContain(
+      Number.MAX_SAFE_INTEGER
+    );
+    expect([restricted.numAsString, restricted.globals?.numAsString]).toContain(
+      '123'
+    );
+  });
+
+  it('emit() posts to parentPort and swallows postMessage errors (error handling)', async () => {
+    const { mod, parentPort } = await importFresh();
+    const createRestrictedGlobals = getFn(mod, 'createRestrictedGlobals');
+    expect(typeof createRestrictedGlobals).toBe('function');
+
+    const restricted = createRestrictedGlobals({}, {}, { blockedAccesses: new Set() });
+    expect(typeof restricted.emit).toBe('function');
+
+    parentPort.postMessage.mockClear();
+
+    restricted.emit('evt', { ok: true });
+    await flushMicrotasks();
+
+    expect(parentPort.postMessage).toHaveBeenCalledTimes(1);
+    const msg = parentPort.postMessage.mock.calls[0][0];
+
+    expect(msg).toEqual(expect.anything());
+    expect(() => JSON.stringify(msg)).not.toThrow();
+    expect(JSON.stringify(msg)).toContain('evt');
+
+    parentPort.postMessage.mockImplementation(() => {
+      throw new Error('boom');
+    });
+
+    expect(() => restricted.emit('evt2', { ok: true })).not.toThrow();
+  });
+
+  it('handles null/undefined/empty and wrong-typed state/globals without throwing (boundaries + type)', async () => {
+    const { mod } = await importFresh();
+    const createRestrictedGlobals = getFn(mod, 'createRestrictedGlobals');
+    expect(typeof createRestrictedGlobals).toBe('function');
+
+    const cases = [
+      { state: null, globals: null },
+      { state: undefined, globals: undefined },
+      { state: '', globals: '' },
+      { state: '   ', globals: '   ' },
+      { state: 0, globals: 0 },
+      { state: -1, globals: -1 },
+      { state: [], globals: [] },
+      { state: {}, globals: {} },
+    ];
+
+    for (const { state, globals } of cases) {
+      const restricted = createRestrictedGlobals(state, globals, {
+        blockedAccesses: new Set(),
       });
-    }
 
-    const messages = collectMessages(postMessage);
-    expect(findResult(messages, 'c1')).toMatchObject({ success: true, data: 1 });
-    expect(findResult(messages, 'c2')).toMatchObject({ success: true, data: 2 });
-    for (let i = 0; i < 5; i += 1) {
-      expect(findResult(messages, `s${i}`)).toMatchObject({ success: true, data: i });
-      expect(findAudit(messages, `s${i}`, 'end')).toBeTruthy();
+      expect(restricted).toBeTruthy();
+      expect(Object.isFrozen(restricted.state)).toBe(true);
+      expect(typeof restricted.emit).toBe('function');
     }
+  });
+
+  it('can be created many times concurrently without cross-talk (concurrency boundary)', async () => {
+    const { mod } = await importFresh();
+    const createRestrictedGlobals = getFn(mod, 'createRestrictedGlobals');
+    expect(typeof createRestrictedGlobals).toBe('function');
+
+    const states = Array.from({ length: 20 }, (_, i) => ({
+      i,
+      nested: makeDeepObject(10),
+    }));
+    const globalsList = Array.from({ length: 20 }, (_, i) => ({
+      value: i,
+      str: String(i),
+      num: i % 2 === 0 ? 0 : -1,
+    }));
+
+    const results = await Promise.all(
+      states.map((state, i) =>
+        Promise.resolve(
+          createRestrictedGlobals(state, globalsList[i], {
+            blockedAccesses: new Set(),
+          })
+        )
+      )
+    );
+
+    for (let i = 0; i < results.length; i += 1) {
+      expect(results[i].state).toEqual(states[i]);
+      expect(Object.isFrozen(results[i].state)).toBe(true);
+      expect([results[i].value, results[i].globals?.value]).toContain(i);
+      expect([results[i].str, results[i].globals?.str]).toContain(String(i));
+    }
+  });
+
+  it('accepts deep nested state and a very long string in globals (resource boundary)', async () => {
+    const { mod } = await importFresh();
+    const createRestrictedGlobals = getFn(mod, 'createRestrictedGlobals');
+    expect(typeof createRestrictedGlobals).toBe('function');
+
+    const deep = makeDeepObject(200);
+    const long = 'x'.repeat(100_000);
+
+    const restricted = createRestrictedGlobals(
+      { deep },
+      { long },
+      { blockedAccesses: new Set() }
+    );
+
+    expect(restricted.state).toEqual({ deep });
+    expect([restricted.long, restricted.globals?.long]).toContain(long);
   });
 });

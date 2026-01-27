@@ -1,138 +1,240 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fileURLToPath } from "node:url";
-import * as fs from "node:fs";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { fileURLToPath } from 'node:url';
 
-vi.mock("node:fs", async () => {
-  const actual = await vi.importActual("node:fs");
-  return {
-    ...actual,
-    readFileSync: vi.fn(actual.readFileSync),
-  };
+const MODULE_SPECIFIER =
+  '../../../../../js/agents/core/archive/storage-adapter.js';
+const SOURCE_PATH = fileURLToPath(new URL(MODULE_SPECIFIER, import.meta.url));
+
+vi.mock('node:fs/promises', () => {
+  return { readFile: vi.fn() };
 });
 
-const MODULE_IMPORT = "../../../../../js/agents/core/archive/storage-adapter.js";
-const MODULE_URL = new URL(MODULE_IMPORT, import.meta.url);
-const MODULE_PATH = fileURLToPath(MODULE_URL);
-const mockedFs = vi.mocked(fs);
+const longString = 'x'.repeat(1_000_000);
 
-function readStorageAdapterSource() {
-  return mockedFs.readFileSync(MODULE_PATH, "utf8");
-}
+const deepNestedObject = (() => {
+  let value = {};
+  for (let i = 0; i < 250; i++) value = { nested: value };
+  return value;
+})();
 
-function extractAdapterProperties(source) {
-  if (typeof source !== "string") {
-    throw new TypeError("source must be a string");
-  }
-  if (!/@typedef\s+\{Object\}\s+StorageAdapter/.test(source)) {
-    return [];
-  }
-  const propertyRegex = /@property\s+\{[^}]+\}\s+([A-Za-z_$][\w$]*)\b/g;
-  const props = new Set();
-  let match = propertyRegex.exec(source);
-  while (match) {
-    props.add(match[1]);
-    match = propertyRegex.exec(source);
-  }
-  return Array.from(props);
-}
+const hugeArray = Array.from({ length: 50_000 }, (_, i) => i);
 
-beforeEach(async () => {
+const keyEdgeCases = [
+  null,
+  undefined,
+  '',
+  '   ',
+  0,
+  -1,
+  Number.MAX_SAFE_INTEGER,
+  '123',
+  [],
+  {},
+  longString,
+];
+
+const valueEdgeCases = [
+  null,
+  undefined,
+  '',
+  '   ',
+  0,
+  -1,
+  Number.MAX_SAFE_INTEGER,
+  '123',
+  [],
+  {},
+  deepNestedObject,
+  longString,
+  hugeArray,
+];
+
+beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
-  const actualFs = await vi.importActual("node:fs");
-  mockedFs.readFileSync.mockImplementation(actualFs.readFileSync);
 });
 
-describe("storage-adapter module exports", () => {
-  it("imports as an empty namespace", async () => {
-    const mod = await import(MODULE_IMPORT);
+async function importModule() {
+  return await import(MODULE_SPECIFIER);
+}
+
+async function readActualSourceText() {
+  const { readFile } = await vi.importActual('node:fs/promises');
+  return await readFile(SOURCE_PATH, 'utf8');
+}
+
+async function readSourceTextViaMock() {
+  const { readFile } = await import('node:fs/promises');
+  return await readFile(SOURCE_PATH, 'utf8');
+}
+
+describe('js/agents/core/archive/storage-adapter.js', () => {
+  it('imports successfully and has no runtime exports', async () => {
+    const mod = await importModule();
     expect(Object.keys(mod)).toEqual([]);
-    expect(mod.default).toBeUndefined();
+    expect(Reflect.has(mod, 'default')).toBe(false);
   });
 
-  it("does not expose properties for boundary keys", async () => {
-    const mod = await import(MODULE_IMPORT);
-    const boundaryKeys = [
-      null,
-      undefined,
-      "",
-      [],
-      {},
-      0,
-      -1,
-      Number.MAX_SAFE_INTEGER,
-      "   ",
-      "123",
-      { 0: "x", length: 1 },
-      { nested: { deeper: { deepest: true } } },
-    ];
-
-    for (const key of boundaryKeys) {
-      expect(mod[key]).toBeUndefined();
-    }
-  });
-
-  it("remains empty across concurrent imports", async () => {
-    const mods = await Promise.all([
-      import(MODULE_IMPORT),
-      import(MODULE_IMPORT),
-      import(MODULE_IMPORT),
-      import(MODULE_IMPORT),
-    ]);
+  it('is safe to import concurrently', async () => {
+    const mods = await Promise.all(
+      Array.from({ length: 25 }, () => importModule()),
+    );
 
     for (const mod of mods) {
-      expect(Object.keys(mod)).toHaveLength(0);
+      expect(Object.keys(mod)).toEqual([]);
+    }
+  });
+
+  it('documents StorageAdapter interface in JSDoc', async () => {
+    const text = await readActualSourceText();
+
+    expect(text).toContain('@typedef {Object} StorageAdapter');
+    expect(text).toMatch(
+      /@property\s+\{\s*\(key:\s*string\)\s*=>\s*Promise<any\|null>\s*\}\s+get\b/m,
+    );
+    expect(text).toMatch(
+      /@property\s+\{\s*\(key:\s*string,\s*value:\s*any\)\s*=>\s*Promise<boolean>\s*\}\s+set\b/m,
+    );
+    expect(text).toMatch(
+      /@property\s+\{\s*\(key:\s*string\)\s*=>\s*Promise<boolean>\s*\}\s+delete\b/m,
+    );
+    expect(text).toMatch(
+      /@property\s+\{\s*\(pattern\?:\s*string\)\s*=>\s*Promise<string\[\]>\s*\}\s+keys\b/m,
+    );
+  });
+
+  it('has no imports and declares an empty export', async () => {
+    const text = await readActualSourceText();
+
+    expect(text).not.toMatch(/^\s*import\s/m);
+    expect(text).toMatch(/^\s*export\s*\{\s*\}\s*;\s*$/m);
+  });
+
+  it('can read source text concurrently (resource/concurrency boundary)', async () => {
+    const reads = await Promise.all(
+      Array.from({ length: 10 }, () => readActualSourceText()),
+    );
+    expect(new Set(reads).size).toBe(1);
+  });
+
+  it('propagates fs read errors (mocked dependency)', async () => {
+    const fsPromises = await import('node:fs/promises');
+    fsPromises.readFile.mockRejectedValueOnce(new Error('read failed'));
+
+    await expect(readSourceTextViaMock()).rejects.toThrow('read failed');
+  });
+});
+
+describe('StorageAdapter#get', () => {
+  it('is not a runtime export (undefined)', async () => {
+    const mod = await importModule();
+    expect(mod.get).toBeUndefined();
+  });
+
+  it('throws TypeError for boundary keys', async () => {
+    const mod = await importModule();
+    const fn = /** @type {any} */ (mod).get;
+
+    for (const key of keyEdgeCases) {
+      expect(() => fn(key)).toThrow(TypeError);
+    }
+  });
+
+  it('throws consistently under concurrent misuse calls', async () => {
+    const mod = await importModule();
+    const fn = /** @type {any} */ (mod).get;
+
+    const results = await Promise.allSettled(
+      keyEdgeCases.map((key) => Promise.resolve().then(() => fn(key))),
+    );
+
+    expect(results.every((r) => r.status === 'rejected')).toBe(true);
+    expect(
+      results.every(
+        (r) =>
+          r.status === 'rejected' &&
+          typeof r.reason?.name === 'string' &&
+          r.reason.name === 'TypeError',
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('StorageAdapter#set', () => {
+  it('is not a runtime export (undefined)', async () => {
+    const mod = await importModule();
+    expect(mod.set).toBeUndefined();
+  });
+
+  it('throws TypeError for boundary keys and values', async () => {
+    const mod = await importModule();
+    const fn = /** @type {any} */ (mod).set;
+
+    const cases = [
+      ...keyEdgeCases.map((key) => [key, 'v']),
+      ...valueEdgeCases.map((value) => ['k', value]),
+      [longString, deepNestedObject],
+      ['k', hugeArray],
+    ];
+
+    for (const [key, value] of cases) {
+      expect(() => fn(key, value)).toThrow(TypeError);
+    }
+  });
+
+  it('throws consistently under rapid consecutive misuse calls', async () => {
+    const mod = await importModule();
+    const fn = /** @type {any} */ (mod).set;
+
+    for (let i = 0; i < 50; i++) {
+      expect(() => fn('k', i)).toThrow(TypeError);
     }
   });
 });
 
-describe("storage-adapter source contract", () => {
-  it("declares StorageAdapter typedef with required properties", () => {
-    const source = readStorageAdapterSource();
-    expect(source).toMatch(/@typedef\s+\{Object\}\s+StorageAdapter/);
-    const props = extractAdapterProperties(source).sort();
-    expect(props).toEqual(["delete", "get", "keys", "set"]);
+describe('StorageAdapter#delete', () => {
+  it('is not a runtime export (undefined)', async () => {
+    const mod = await importModule();
+    expect(mod.delete).toBeUndefined();
   });
 
-  it("extractAdapterProperties handles empty and whitespace sources", () => {
-    expect(extractAdapterProperties("")).toEqual([]);
-    expect(extractAdapterProperties("\n\t  ")).toEqual([]);
+  it('throws TypeError for boundary keys', async () => {
+    const mod = await importModule();
+    const fn = /** @type {any} */ (mod).delete;
+
+    for (const key of keyEdgeCases) {
+      expect(() => fn(key)).toThrow(TypeError);
+    }
+  });
+});
+
+describe('StorageAdapter#keys', () => {
+  it('is not a runtime export (undefined)', async () => {
+    const mod = await importModule();
+    expect(mod.keys).toBeUndefined();
   });
 
-  it("extractAdapterProperties ignores long strings without a typedef", () => {
-    const longString = "x".repeat(100_000);
-    expect(extractAdapterProperties(longString)).toEqual([]);
-  });
+  it('throws TypeError for boundary patterns', async () => {
+    const mod = await importModule();
+    const fn = /** @type {any} */ (mod).keys;
 
-  it("extractAdapterProperties handles very large sources", () => {
-    const source = readStorageAdapterSource();
-    const hugeSource = `${source}\n`.repeat(5000);
-    const props = extractAdapterProperties(hugeSource).sort();
-    expect(props).toEqual(["delete", "get", "keys", "set"]);
-  });
-
-  it("readStorageAdapterSource surfaces fs errors", () => {
-    mockedFs.readFileSync.mockImplementationOnce(() => {
-      throw new Error("read boom");
-    });
-    expect(() => readStorageAdapterSource()).toThrow(/read boom/);
-  });
-
-  it("extractAdapterProperties throws on non-string inputs", () => {
-    const badInputs = [
-      null,
+    const patternEdgeCases = [
       undefined,
-      [],
-      {},
+      null,
+      '',
+      '   ',
       0,
       -1,
       Number.MAX_SAFE_INTEGER,
-      { 0: "x", length: 1 },
-      { nested: { deeper: { deepest: true } } },
+      '123',
+      [],
+      {},
+      longString,
     ];
 
-    for (const input of badInputs) {
-      expect(() => extractAdapterProperties(input)).toThrow(TypeError);
+    expect(() => fn()).toThrow(TypeError);
+    for (const pattern of patternEdgeCases) {
+      expect(() => fn(pattern)).toThrow(TypeError);
     }
   });
 });

@@ -1,740 +1,607 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const modulePath = '../../../../../js/agents/plugins/transports/index.js';
+const MODULE_PATH = "../../../../../js/agents/plugins/transports/index.js";
 
-// Mutable hoisted state used by mocks. This lets each test control the branch
-// (node vs browser) and simulate import failures without importing real modules.
-const platformState = vi.hoisted(() => ({ isNode: true }));
-const loadState = vi.hoisted(() => ({
-  throwNodeImport: false,
-  throwBrowserImport: false,
-  nodeImportError: new Error('index.node.js import failed'),
-  browserImportError: new Error('index.browser.js import failed'),
+const state = vi.hoisted(() => ({
+  platformIsNode: true,
+  nodeExports: {},
+  browserExports: {},
+  nodeImportError: null,
+  browserImportError: null,
 }));
 
-const nodeMock = vi.hoisted(() => {
-  const state = {
-    processCtorCalls: [],
-    binaryCtorCalls: [],
-  };
-
-  class ProcessTransport {
-    constructor(...args) {
-      state.processCtorCalls.push(args);
-      if (args[0] === '__throw__') throw new Error('node ProcessTransport constructor failed');
-      this.args = args;
-    }
-  }
-
-  class BinarySkillProvider {
-    constructor(...args) {
-      state.binaryCtorCalls.push(args);
-      if (args[0] === '__throw__') throw new Error('node BinarySkillProvider constructor failed');
-      this.args = args;
-    }
-  }
-
-  const createProcessTransport = vi.fn((...args) => ({ impl: 'node', kind: 'process', args }));
-  const createBinarySkillProvider = vi.fn((...args) => ({ impl: 'node', kind: 'binary', args }));
-
-  return {
-    state,
-    ProcessTransport,
-    createProcessTransport,
-    BinarySkillProvider,
-    createBinarySkillProvider,
-  };
-});
-
-const browserMock = vi.hoisted(() => {
-  const state = {
-    processCtorCalls: [],
-    binaryCtorCalls: [],
-  };
-
-  class ProcessTransport {
-    constructor(...args) {
-      state.processCtorCalls.push(args);
-      if (args[0] === '__throw__') throw new Error('browser ProcessTransport constructor failed');
-      this.args = args;
-    }
-  }
-
-  class BinarySkillProvider {
-    constructor(...args) {
-      state.binaryCtorCalls.push(args);
-      if (args[0] === '__throw__') throw new Error('browser BinarySkillProvider constructor failed');
-      this.args = args;
-    }
-  }
-
-  const createProcessTransport = vi.fn((...args) => ({ impl: 'browser', kind: 'process', args }));
-  const createBinarySkillProvider = vi.fn((...args) => ({ impl: 'browser', kind: 'binary', args }));
-
-  return {
-    state,
-    ProcessTransport,
-    createProcessTransport,
-    BinarySkillProvider,
-    createBinarySkillProvider,
-    default: {
-      ProcessTransport,
-      createProcessTransport,
-      BinarySkillProvider,
-      createBinarySkillProvider,
+vi.mock("../../../../../js/agents/shared/index.js", () => ({
+  Platform: {
+    get isNode() {
+      return state.platformIsNode;
     },
-  };
+  },
+}));
+
+vi.mock("../../../../../js/agents/plugins/transports/index.node.js", () => {
+  if (state.nodeImportError) throw state.nodeImportError;
+  return state.nodeExports;
 });
 
-vi.mock('../../../../../js/agents/shared/index.js', () => ({ Platform: platformState }));
-
-vi.mock('../../../../../js/agents/plugins/transports/index.node.js', () => {
-  if (loadState.throwNodeImport) throw loadState.nodeImportError;
-  return {
-    ProcessTransport: nodeMock.ProcessTransport,
-    createProcessTransport: nodeMock.createProcessTransport,
-    BinarySkillProvider: nodeMock.BinarySkillProvider,
-    createBinarySkillProvider: nodeMock.createBinarySkillProvider,
-  };
+vi.mock("../../../../../js/agents/plugins/transports/index.browser.js", () => {
+  if (state.browserImportError) throw state.browserImportError;
+  return state.browserExports;
 });
 
-vi.mock('../../../../../js/agents/plugins/transports/index.browser.js', () => {
-  if (loadState.throwBrowserImport) throw loadState.browserImportError;
-  return {
-    ProcessTransport: browserMock.ProcessTransport,
-    createProcessTransport: browserMock.createProcessTransport,
-    BinarySkillProvider: browserMock.BinarySkillProvider,
-    createBinarySkillProvider: browserMock.createBinarySkillProvider,
-    default: browserMock.default,
-  };
-});
+async function importUnderTest() {
+  return await import(MODULE_PATH);
+}
 
-function buildDeepNested(depth) {
+function makeDeepObject(depth) {
   const root = {};
-  let cursor = root;
-  for (let i = 0; i < depth; i += 1) {
-    cursor.next = {};
-    cursor = cursor.next;
+  let cur = root;
+  for (let i = 0; i < depth; i++) {
+    cur.next = {};
+    cur = cur.next;
   }
   return root;
 }
 
-async function importTransports() {
-  vi.resetModules();
-  return await import(modulePath);
-}
-
 beforeEach(() => {
+  vi.resetModules();
   vi.clearAllMocks();
-  platformState.isNode = true;
-  loadState.throwNodeImport = false;
-  loadState.throwBrowserImport = false;
-  nodeMock.state.processCtorCalls.length = 0;
-  nodeMock.state.binaryCtorCalls.length = 0;
-  browserMock.state.processCtorCalls.length = 0;
-  browserMock.state.binaryCtorCalls.length = 0;
+
+  state.platformIsNode = true;
+  state.nodeImportError = null;
+  state.browserImportError = null;
+  state.nodeExports = {};
+  state.browserExports = {};
 });
 
-describe('plugins/transports/index.js exports', () => {
-  describe('ProcessTransport', () => {
-    it('should_export_node_ProcessTransport_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const transports = await importTransports();
+describe("ProcessTransport", () => {
+  it("selects node implementation when Platform.isNode is true", async () => {
+    class NodeProcessTransport {}
+    class BrowserProcessTransport {}
 
-      expect(transports.ProcessTransport).toBe(nodeMock.ProcessTransport);
-    });
+    state.platformIsNode = true;
+    state.nodeExports = { ProcessTransport: NodeProcessTransport };
+    state.browserExports = { ProcessTransport: BrowserProcessTransport };
 
-    it('should_export_browser_ProcessTransport_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const transports = await importTransports();
-
-      expect(transports.ProcessTransport).toBe(browserMock.ProcessTransport);
-    });
-
-    it('should_forward_constructor_args_to_node_ProcessTransport_when_constructed', async () => {
-      platformState.isNode = true;
-      const { ProcessTransport } = await importTransports();
-      const options = { command: 'tool', args: ['--flag'] };
-
-      new ProcessTransport(options);
-
-      expect(nodeMock.state.processCtorCalls[0]).toEqual([options]);
-    });
-
-    it.each([
-      ['null', null],
-      ['undefined', undefined],
-      ['empty string', ''],
-      ['empty array', []],
-      ['empty object', {}],
-    ])('should_forward_constructor_args_to_node_ProcessTransport_when_input_is_%s', async (_label, input) => {
-      platformState.isNode = true;
-      const { ProcessTransport } = await importTransports();
-
-      new ProcessTransport(input);
-
-      expect(nodeMock.state.processCtorCalls[0]).toEqual([input]);
-    });
-
-    it('should_throw_when_node_ProcessTransport_constructor_throws', async () => {
-      platformState.isNode = true;
-      const { ProcessTransport } = await importTransports();
-
-      expect(() => new ProcessTransport('__throw__')).toThrow('node ProcessTransport constructor failed');
-    });
-
-    it('should_throw_when_browser_ProcessTransport_constructor_throws', async () => {
-      platformState.isNode = false;
-      const { ProcessTransport } = await importTransports();
-
-      expect(() => new ProcessTransport('__throw__')).toThrow('browser ProcessTransport constructor failed');
-    });
+    const mod = await importUnderTest();
+    expect(mod.ProcessTransport).toBe(NodeProcessTransport);
   });
 
-  describe('createProcessTransport', () => {
-    it('should_export_node_createProcessTransport_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const transports = await importTransports();
+  it("selects browser implementation when Platform.isNode is false", async () => {
+    class NodeProcessTransport {}
+    class BrowserProcessTransport {}
 
-      expect(transports.createProcessTransport).toBe(nodeMock.createProcessTransport);
-    });
+    state.platformIsNode = false;
+    state.nodeExports = { ProcessTransport: NodeProcessTransport };
+    state.browserExports = { ProcessTransport: BrowserProcessTransport };
 
-    it('should_export_browser_createProcessTransport_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const transports = await importTransports();
-
-      expect(transports.createProcessTransport).toBe(browserMock.createProcessTransport);
-    });
-
-    it('should_call_node_createProcessTransport_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-      const options = { command: 'tool', cwd: '/tmp' };
-
-      createProcessTransport(options);
-
-      expect(nodeMock.createProcessTransport).toHaveBeenCalledWith(options);
-    });
-
-    it('should_return_value_from_node_createProcessTransport_when_impl_returns_value', async () => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-      const output = { ok: true };
-      nodeMock.createProcessTransport.mockReturnValueOnce(output);
-
-      const result = createProcessTransport({ command: 'x' });
-
-      expect(result).toBe(output);
-    });
-
-    it.each([
-      ['null', null],
-      ['undefined', undefined],
-      ['empty string', ''],
-      ['empty array', []],
-      ['empty object', {}],
-      ['zero', 0],
-      ['negative one', -1],
-      ['max safe integer', Number.MAX_SAFE_INTEGER],
-      ['whitespace string', '   '],
-      ['numeric string', '42'],
-      ['array-like object', { 0: 'value', length: 1 }],
-    ])('should_forward_boundary_input_to_node_createProcessTransport_when_input_is_%s', async (_label, input) => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-
-      createProcessTransport(input);
-
-      expect(nodeMock.createProcessTransport).toHaveBeenCalledWith(input);
-    });
-
-    it('should_forward_resource_boundary_input_to_node_createProcessTransport_when_input_is_long_string', async () => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-      const longString = 'x'.repeat(200_000);
-
-      createProcessTransport(longString);
-
-      expect(nodeMock.createProcessTransport).toHaveBeenCalledWith(longString);
-    });
-
-    it('should_forward_resource_boundary_input_to_node_createProcessTransport_when_input_is_large_file_like', async () => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-      const largeFileLike = new Uint8Array(1024 * 1024);
-
-      createProcessTransport(largeFileLike);
-
-      expect(nodeMock.createProcessTransport.mock.calls[0][0]).toBe(largeFileLike);
-    });
-
-    it('should_forward_resource_boundary_input_to_node_createProcessTransport_when_input_is_deep_nested', async () => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-      const deepNested = buildDeepNested(64);
-
-      createProcessTransport(deepNested);
-
-      expect(nodeMock.createProcessTransport.mock.calls[0][0]).toBe(deepNested);
-    });
-
-    it('should_throw_when_node_createProcessTransport_throws', async () => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-      nodeMock.createProcessTransport.mockImplementationOnce(() => {
-        throw new Error('node createProcessTransport failed');
-      });
-
-      expect(() => createProcessTransport({})).toThrow('node createProcessTransport failed');
-    });
-
-    it('should_resolve_when_node_createProcessTransport_returns_promise', async () => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-      nodeMock.createProcessTransport.mockResolvedValueOnce('ok');
-
-      const result = await createProcessTransport('cmd');
-
-      expect(result).toBe('ok');
-    });
-
-    it('should_reject_when_node_createProcessTransport_returns_rejected_promise', async () => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-      nodeMock.createProcessTransport.mockRejectedValueOnce(new Error('node rejected'));
-
-      await expect(createProcessTransport('cmd')).rejects.toThrow('node rejected');
-    });
-
-    it('should_support_concurrent_calls_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-
-      await Promise.all([1, 2, 3].map((n) => Promise.resolve(createProcessTransport({ n }))));
-
-      expect(nodeMock.createProcessTransport).toHaveBeenCalledTimes(3);
-    });
-
-    it('should_support_rapid_consecutive_calls_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const { createProcessTransport } = await importTransports();
-
-      for (let i = 0; i < 5; i += 1) createProcessTransport(i);
-
-      expect(nodeMock.createProcessTransport).toHaveBeenCalledTimes(5);
-    });
-
-    it('should_call_browser_createProcessTransport_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const { createProcessTransport } = await importTransports();
-
-      createProcessTransport({ command: 'x' });
-
-      expect(browserMock.createProcessTransport).toHaveBeenCalledTimes(1);
-    });
-
-    it('should_return_value_from_browser_createProcessTransport_when_impl_returns_value', async () => {
-      platformState.isNode = false;
-      const { createProcessTransport } = await importTransports();
-      const output = { ok: 'browser' };
-      browserMock.createProcessTransport.mockReturnValueOnce(output);
-
-      const result = createProcessTransport({ command: 'x' });
-
-      expect(result).toBe(output);
-    });
-
-    it('should_throw_when_browser_createProcessTransport_throws', async () => {
-      platformState.isNode = false;
-      const { createProcessTransport } = await importTransports();
-      browserMock.createProcessTransport.mockImplementationOnce(() => {
-        throw new Error('browser createProcessTransport failed');
-      });
-
-      expect(() => createProcessTransport({})).toThrow('browser createProcessTransport failed');
-    });
+    const mod = await importUnderTest();
+    expect(mod.ProcessTransport).toBe(BrowserProcessTransport);
   });
 
-  describe('BinarySkillProvider', () => {
-    it('should_export_node_BinarySkillProvider_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const transports = await importTransports();
+  it("handles isNode boundary types (truthy string vs 0) deterministically", async () => {
+    class NodeProcessTransport {}
+    class BrowserProcessTransport {}
 
-      expect(transports.BinarySkillProvider).toBe(nodeMock.BinarySkillProvider);
-    });
+    state.platformIsNode = "0";
+    state.nodeExports = { ProcessTransport: NodeProcessTransport };
+    state.browserExports = { ProcessTransport: BrowserProcessTransport };
 
-    it('should_export_browser_BinarySkillProvider_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const transports = await importTransports();
+    const modTruthyString = await importUnderTest();
+    expect(modTruthyString.ProcessTransport).toBe(NodeProcessTransport);
 
-      expect(transports.BinarySkillProvider).toBe(browserMock.BinarySkillProvider);
-    });
+    vi.resetModules();
 
-    it('should_forward_constructor_args_to_node_BinarySkillProvider_when_constructed', async () => {
-      platformState.isNode = true;
-      const { BinarySkillProvider } = await importTransports();
-      const config = { name: 'skill', args: ['--flag'] };
-
-      new BinarySkillProvider(config, 'meta');
-
-      expect(nodeMock.state.binaryCtorCalls[0]).toEqual([config, 'meta']);
-    });
-
-    it('should_forward_resource_boundary_input_to_node_BinarySkillProvider_when_input_is_long_string', async () => {
-      platformState.isNode = true;
-      const { BinarySkillProvider } = await importTransports();
-      const longString = 'x'.repeat(200_000);
-
-      new BinarySkillProvider(longString);
-
-      expect(nodeMock.state.binaryCtorCalls[0]).toEqual([longString]);
-    });
-
-    it('should_forward_resource_boundary_input_to_node_BinarySkillProvider_when_input_is_large_file_like', async () => {
-      platformState.isNode = true;
-      const { BinarySkillProvider } = await importTransports();
-      const largeFileLike = new Uint8Array(1024 * 1024);
-
-      new BinarySkillProvider(largeFileLike);
-
-      expect(nodeMock.state.binaryCtorCalls[0][0]).toBe(largeFileLike);
-    });
-
-    it('should_throw_when_node_BinarySkillProvider_constructor_throws', async () => {
-      platformState.isNode = true;
-      const { BinarySkillProvider } = await importTransports();
-
-      expect(() => new BinarySkillProvider('__throw__')).toThrow('node BinarySkillProvider constructor failed');
-    });
-
-    it('should_throw_when_browser_BinarySkillProvider_constructor_throws', async () => {
-      platformState.isNode = false;
-      const { BinarySkillProvider } = await importTransports();
-
-      expect(() => new BinarySkillProvider('__throw__')).toThrow('browser BinarySkillProvider constructor failed');
-    });
+    state.platformIsNode = 0;
+    const modZero = await importUnderTest();
+    expect(modZero.ProcessTransport).toBe(BrowserProcessTransport);
   });
 
-  describe('createBinarySkillProvider', () => {
-    it('should_export_node_createBinarySkillProvider_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const transports = await importTransports();
+  it("is undefined if selected implementation omits it", async () => {
+    state.platformIsNode = true;
+    state.nodeExports = {};
+    state.browserExports = { ProcessTransport: class BrowserProcessTransport {} };
 
-      expect(transports.createBinarySkillProvider).toBe(nodeMock.createBinarySkillProvider);
+    const mod = await importUnderTest();
+    expect(mod.ProcessTransport).toBeUndefined();
+  });
+});
+
+describe("createProcessTransport", () => {
+  it("re-exports the selected implementation function reference (node)", async () => {
+    const createProcessTransport = vi.fn(async () => ({ ok: true }));
+
+    state.platformIsNode = true;
+    state.nodeExports = { createProcessTransport };
+    state.browserExports = { createProcessTransport: vi.fn() };
+
+    const mod = await importUnderTest();
+    expect(mod.createProcessTransport).toBe(createProcessTransport);
+  });
+
+  it("passes through normal path, boundaries, and propagates errors (node)", async () => {
+    const createProcessTransport = vi.fn(async (options) => {
+      await Promise.resolve();
+
+      if (options == null) throw new TypeError("options is required");
+      if (typeof options !== "object" || Array.isArray(options))
+        throw new TypeError("options must be an object");
+
+      const { cmd, args, timeoutMs, payload } = options ?? {};
+
+      if (typeof cmd !== "string") throw new TypeError("cmd must be a string");
+      if (cmd.trim() === "") throw new RangeError("cmd cannot be empty/blank");
+
+      if (!Array.isArray(args)) throw new TypeError("args must be an array");
+      if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs))
+        throw new TypeError("timeoutMs must be a finite number");
+
+      return {
+        cmdLen: cmd.length,
+        argsLen: args.length,
+        timeoutMs,
+        payloadTag:
+          payload == null
+            ? "nullish"
+            : payload instanceof Uint8Array
+              ? `u8:${payload.byteLength}`
+              : typeof payload,
+      };
     });
 
-    it('should_export_browser_createBinarySkillProvider_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const transports = await importTransports();
+    state.platformIsNode = true;
+    state.nodeExports = { createProcessTransport };
+    state.browserExports = { createProcessTransport: vi.fn() };
 
-      expect(transports.createBinarySkillProvider).toBe(browserMock.createBinarySkillProvider);
+    const mod = await importUnderTest();
+
+    // 空值: null / undefined
+    await expect(mod.createProcessTransport(null)).rejects.toThrow(TypeError);
+    await expect(mod.createProcessTransport(undefined)).rejects.toThrow(TypeError);
+
+    // 空数组 / 空对象 (类型边界也覆盖)
+    await expect(mod.createProcessTransport([])).rejects.toThrow(TypeError);
+    await expect(mod.createProcessTransport({})).rejects.toThrow(TypeError);
+
+    // cmd 空字符串 / 空白字符串
+    await expect(
+      mod.createProcessTransport({ cmd: "", args: [], timeoutMs: 0 }),
+    ).rejects.toThrow(RangeError);
+    await expect(
+      mod.createProcessTransport({ cmd: "   ", args: [], timeoutMs: 0 }),
+    ).rejects.toThrow(RangeError);
+
+    // 类型边界: 字符串当数字传入
+    await expect(
+      mod.createProcessTransport({ cmd: "tool", args: [], timeoutMs: "1000" }),
+    ).rejects.toThrow(TypeError);
+
+    // 类型边界: 对象当数组传入
+    await expect(
+      mod.createProcessTransport({ cmd: "tool", args: {}, timeoutMs: 0 }),
+    ).rejects.toThrow(TypeError);
+
+    // 边界值: 0 / -1 / MAX_SAFE_INTEGER + 空数组作为 args
+    const r0 = await mod.createProcessTransport({
+      cmd: "tool",
+      args: [],
+      timeoutMs: 0,
+      payload: null,
+    });
+    expect(r0).toEqual({
+      cmdLen: 4,
+      argsLen: 0,
+      timeoutMs: 0,
+      payloadTag: "nullish",
     });
 
-    it('should_call_node_createBinarySkillProvider_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const { createBinarySkillProvider } = await importTransports();
-      const options = { name: 'alpha', command: 'tool' };
-
-      createBinarySkillProvider(options);
-
-      expect(nodeMock.createBinarySkillProvider).toHaveBeenCalledWith(options);
+    const rNeg = await mod.createProcessTransport({
+      cmd: "tool",
+      args: ["x"],
+      timeoutMs: -1,
+      payload: undefined,
+    });
+    expect(rNeg).toEqual({
+      cmdLen: 4,
+      argsLen: 1,
+      timeoutMs: -1,
+      payloadTag: "nullish",
     });
 
-    it('should_return_value_from_node_createBinarySkillProvider_when_impl_returns_value', async () => {
-      platformState.isNode = true;
-      const { createBinarySkillProvider } = await importTransports();
-      const output = { ok: true };
-      nodeMock.createBinarySkillProvider.mockReturnValueOnce(output);
-
-      const result = createBinarySkillProvider({ name: 'x' });
-
-      expect(result).toBe(output);
+    const rMax = await mod.createProcessTransport({
+      cmd: "tool",
+      args: ["x", "y"],
+      timeoutMs: Number.MAX_SAFE_INTEGER,
+      payload: "",
+    });
+    expect(rMax).toEqual({
+      cmdLen: 4,
+      argsLen: 2,
+      timeoutMs: Number.MAX_SAFE_INTEGER,
+      payloadTag: "string",
     });
 
-    it.each([
-      ['null', null],
-      ['undefined', undefined],
-      ['empty string', ''],
-      ['empty array', []],
-      ['empty object', {}],
-      ['zero', 0],
-      ['negative one', -1],
-      ['max safe integer', Number.MAX_SAFE_INTEGER],
-      ['whitespace string', '   '],
-      ['numeric string', '123'],
-      ['array-like object', { 0: 'x', length: 1 }],
-    ])(
-      'should_forward_boundary_input_to_node_createBinarySkillProvider_when_input_is_%s',
-      async (_label, input) => {
-        platformState.isNode = true;
-        const { createBinarySkillProvider } = await importTransports();
+    // 资源边界: 超长字符串 / 超大文件(用 Uint8Array 模拟) / 深层嵌套
+    const longCmd = "x".repeat(200_000);
+    const bigPayload = new Uint8Array(1_000_000);
+    const deep = makeDeepObject(2000);
 
-        createBinarySkillProvider(input);
+    const rRes = await mod.createProcessTransport({
+      cmd: longCmd,
+      args: [],
+      timeoutMs: 0,
+      payload: { bigPayload, deep },
+    });
+    expect(rRes.cmdLen).toBe(200_000);
+    expect(rRes.argsLen).toBe(0);
+    expect(rRes.timeoutMs).toBe(0);
+    expect(rRes.payloadTag).toBe("object");
 
-        expect(nodeMock.createBinarySkillProvider).toHaveBeenCalledWith(input);
-      },
+    expect(createProcessTransport).toHaveBeenCalled();
+  });
+
+  it("supports concurrency boundaries (simultaneous + rapid calls)", async () => {
+    const createProcessTransport = vi.fn(async (options) => {
+      await Promise.resolve();
+      return options;
+    });
+
+    state.platformIsNode = true;
+    state.nodeExports = { createProcessTransport };
+    state.browserExports = { createProcessTransport: vi.fn() };
+
+    const mod = await importUnderTest();
+
+    const simultaneous = await Promise.all(
+      Array.from({ length: 25 }, (_, i) =>
+        mod.createProcessTransport({
+          cmd: `tool${i}`,
+          args: [],
+          timeoutMs: i,
+        }),
+      ),
+    );
+    expect(simultaneous).toHaveLength(25);
+    expect(createProcessTransport).toHaveBeenCalledTimes(25);
+
+    for (let i = 0; i < 10; i++) {
+      // 快速连续调用
+      // eslint-disable-next-line no-await-in-loop
+      await mod.createProcessTransport({ cmd: "tool", args: [], timeoutMs: i });
+    }
+    expect(createProcessTransport).toHaveBeenCalledTimes(35);
+  });
+
+  it("selects browser implementation when Platform.isNode is false", async () => {
+    const nodeFn = vi.fn(async () => "node");
+    const browserFn = vi.fn(async () => "browser");
+
+    state.platformIsNode = false;
+    state.nodeExports = { createProcessTransport: nodeFn };
+    state.browserExports = { createProcessTransport: browserFn };
+
+    const mod = await importUnderTest();
+    expect(mod.createProcessTransport).toBe(browserFn);
+    await expect(mod.createProcessTransport()).resolves.toBe("browser");
+    expect(nodeFn).not.toHaveBeenCalled();
+  });
+});
+
+describe("BinarySkillProvider", () => {
+  it("selects node implementation class when Platform.isNode is true", async () => {
+    class NodeBinarySkillProvider {
+      constructor(config) {
+        if (config == null) throw new TypeError("config is required");
+        this.config = config;
+      }
+    }
+    class BrowserBinarySkillProvider {}
+
+    state.platformIsNode = true;
+    state.nodeExports = { BinarySkillProvider: NodeBinarySkillProvider };
+    state.browserExports = { BinarySkillProvider: BrowserBinarySkillProvider };
+
+    const mod = await importUnderTest();
+    expect(mod.BinarySkillProvider).toBe(NodeBinarySkillProvider);
+
+    const instance = new mod.BinarySkillProvider({ name: "ok" });
+    expect(instance).toBeInstanceOf(NodeBinarySkillProvider);
+    expect(instance.config).toEqual({ name: "ok" });
+
+    expect(() => new mod.BinarySkillProvider(null)).toThrow(TypeError);
+    expect(() => new mod.BinarySkillProvider(undefined)).toThrow(TypeError);
+  });
+
+  it("selects browser implementation class when Platform.isNode is false", async () => {
+    class NodeBinarySkillProvider {}
+    class BrowserBinarySkillProvider {
+      constructor(x) {
+        this.x = x;
+      }
+    }
+
+    state.platformIsNode = false;
+    state.nodeExports = { BinarySkillProvider: NodeBinarySkillProvider };
+    state.browserExports = { BinarySkillProvider: BrowserBinarySkillProvider };
+
+    const mod = await importUnderTest();
+    expect(mod.BinarySkillProvider).toBe(BrowserBinarySkillProvider);
+
+    const instance = new mod.BinarySkillProvider("hi");
+    expect(instance).toBeInstanceOf(BrowserBinarySkillProvider);
+    expect(instance.x).toBe("hi");
+  });
+
+  it("is undefined if selected implementation omits it", async () => {
+    state.platformIsNode = false;
+    state.nodeExports = { BinarySkillProvider: class NodeBinarySkillProvider {} };
+    state.browserExports = {};
+
+    const mod = await importUnderTest();
+    expect(mod.BinarySkillProvider).toBeUndefined();
+  });
+});
+
+describe("createBinarySkillProvider", () => {
+  it("re-exports the selected implementation function reference (browser)", async () => {
+    const createBinarySkillProvider = vi.fn(async () => ({ ok: true }));
+
+    state.platformIsNode = false;
+    state.nodeExports = { createBinarySkillProvider: vi.fn() };
+    state.browserExports = { createBinarySkillProvider };
+
+    const mod = await importUnderTest();
+    expect(mod.createBinarySkillProvider).toBe(createBinarySkillProvider);
+  });
+
+  it("covers normal path, boundary values, type edges, resource edges, and error propagation", async () => {
+    const createBinarySkillProvider = vi.fn(async (spec) => {
+      await Promise.resolve();
+
+      if (spec == null) throw new TypeError("spec is required");
+      if (typeof spec !== "object" || Array.isArray(spec))
+        throw new TypeError("spec must be an object");
+
+      const { binaryPath, args, maxConcurrency, meta } = spec ?? {};
+
+      if (typeof binaryPath !== "string")
+        throw new TypeError("binaryPath must be a string");
+      if (binaryPath.trim() === "")
+        throw new RangeError("binaryPath cannot be empty/blank");
+
+      if (!Array.isArray(args)) throw new TypeError("args must be an array");
+      if (
+        typeof maxConcurrency !== "number" ||
+        !Number.isFinite(maxConcurrency)
+      ) {
+        throw new TypeError("maxConcurrency must be a finite number");
+      }
+
+      return {
+        binaryPathLen: binaryPath.length,
+        argsLen: args.length,
+        maxConcurrency,
+        metaType: meta == null ? "nullish" : typeof meta,
+      };
+    });
+
+    state.platformIsNode = true;
+    state.nodeExports = { createBinarySkillProvider };
+    state.browserExports = { createBinarySkillProvider: vi.fn() };
+
+    const mod = await importUnderTest();
+
+    // 空值: null / undefined
+    await expect(mod.createBinarySkillProvider(null)).rejects.toThrow(TypeError);
+    await expect(mod.createBinarySkillProvider(undefined)).rejects.toThrow(
+      TypeError,
     );
 
-    it('should_forward_resource_boundary_input_to_node_createBinarySkillProvider_when_input_is_long_string', async () => {
-      platformState.isNode = true;
-      const { createBinarySkillProvider } = await importTransports();
-      const longString = 'x'.repeat(200_000);
+    // 空数组 / 空对象
+    await expect(mod.createBinarySkillProvider([])).rejects.toThrow(TypeError);
+    await expect(mod.createBinarySkillProvider({})).rejects.toThrow(TypeError);
 
-      createBinarySkillProvider(longString);
+    // binaryPath 空字符串 / 空白字符串
+    await expect(
+      mod.createBinarySkillProvider({
+        binaryPath: "",
+        args: [],
+        maxConcurrency: 0,
+      }),
+    ).rejects.toThrow(RangeError);
+    await expect(
+      mod.createBinarySkillProvider({
+        binaryPath: "   ",
+        args: [],
+        maxConcurrency: 0,
+      }),
+    ).rejects.toThrow(RangeError);
 
-      expect(nodeMock.createBinarySkillProvider).toHaveBeenCalledWith(longString);
+    // 类型边界: 字符串当数字传入
+    await expect(
+      mod.createBinarySkillProvider({
+        binaryPath: "tool",
+        args: [],
+        maxConcurrency: "2",
+      }),
+    ).rejects.toThrow(TypeError);
+
+    // 类型边界: 对象当数组传入
+    await expect(
+      mod.createBinarySkillProvider({
+        binaryPath: "tool",
+        args: {},
+        maxConcurrency: 1,
+      }),
+    ).rejects.toThrow(TypeError);
+
+    // 边界值: 0 / -1 / MAX_SAFE_INTEGER + 空数组 args
+    const r0 = await mod.createBinarySkillProvider({
+      binaryPath: "tool",
+      args: [],
+      maxConcurrency: 0,
+      meta: "",
+    });
+    expect(r0).toEqual({
+      binaryPathLen: 4,
+      argsLen: 0,
+      maxConcurrency: 0,
+      metaType: "string",
     });
 
-    it('should_forward_resource_boundary_input_to_node_createBinarySkillProvider_when_input_is_large_file_like', async () => {
-      platformState.isNode = true;
-      const { createBinarySkillProvider } = await importTransports();
-      const largeFileLike = new Uint8Array(1024 * 1024);
-
-      createBinarySkillProvider(largeFileLike);
-
-      expect(nodeMock.createBinarySkillProvider.mock.calls[0][0]).toBe(largeFileLike);
+    const rNeg = await mod.createBinarySkillProvider({
+      binaryPath: "tool",
+      args: ["--x"],
+      maxConcurrency: -1,
+      meta: undefined,
+    });
+    expect(rNeg).toEqual({
+      binaryPathLen: 4,
+      argsLen: 1,
+      maxConcurrency: -1,
+      metaType: "nullish",
     });
 
-    it('should_forward_resource_boundary_input_to_node_createBinarySkillProvider_when_input_is_deep_nested', async () => {
-      platformState.isNode = true;
-      const { createBinarySkillProvider } = await importTransports();
-      const deepNested = buildDeepNested(64);
-
-      createBinarySkillProvider(deepNested);
-
-      expect(nodeMock.createBinarySkillProvider.mock.calls[0][0]).toBe(deepNested);
+    const rMax = await mod.createBinarySkillProvider({
+      binaryPath: "tool",
+      args: ["--x", "--y"],
+      maxConcurrency: Number.MAX_SAFE_INTEGER,
+      meta: null,
+    });
+    expect(rMax).toEqual({
+      binaryPathLen: 4,
+      argsLen: 2,
+      maxConcurrency: Number.MAX_SAFE_INTEGER,
+      metaType: "nullish",
     });
 
-    it('should_throw_when_node_createBinarySkillProvider_throws', async () => {
-      platformState.isNode = true;
-      const { createBinarySkillProvider } = await importTransports();
-      nodeMock.createBinarySkillProvider.mockImplementationOnce(() => {
-        throw new Error('node createBinarySkillProvider failed');
-      });
+    // 资源边界: 超长字符串 / 超大文件(用 Uint8Array 模拟) / 深层嵌套
+    const longPath = "p".repeat(150_000);
+    const bigPayload = new Uint8Array(1_000_000);
+    const deep = makeDeepObject(1500);
 
-      expect(() => createBinarySkillProvider({})).toThrow('node createBinarySkillProvider failed');
+    const rRes = await mod.createBinarySkillProvider({
+      binaryPath: longPath,
+      args: [],
+      maxConcurrency: 1,
+      meta: { bigPayload, deep },
     });
+    expect(rRes.binaryPathLen).toBe(150_000);
+    expect(rRes.argsLen).toBe(0);
+    expect(rRes.maxConcurrency).toBe(1);
+    expect(rRes.metaType).toBe("object");
 
-    it('should_resolve_when_node_createBinarySkillProvider_returns_promise', async () => {
-      platformState.isNode = true;
-      const { createBinarySkillProvider } = await importTransports();
-      nodeMock.createBinarySkillProvider.mockResolvedValueOnce('ok');
-
-      const result = await createBinarySkillProvider('cmd');
-
-      expect(result).toBe('ok');
-    });
-
-    it('should_reject_when_node_createBinarySkillProvider_returns_rejected_promise', async () => {
-      platformState.isNode = true;
-      const { createBinarySkillProvider } = await importTransports();
-      nodeMock.createBinarySkillProvider.mockRejectedValueOnce(new Error('node rejected'));
-
-      await expect(createBinarySkillProvider('cmd')).rejects.toThrow('node rejected');
-    });
-
-    it('should_support_concurrent_calls_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const { createBinarySkillProvider } = await importTransports();
-
-      await Promise.all([1, 2, 3].map((n) => Promise.resolve(createBinarySkillProvider({ n }))));
-
-      expect(nodeMock.createBinarySkillProvider).toHaveBeenCalledTimes(3);
-    });
-
-    it('should_support_rapid_consecutive_calls_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const { createBinarySkillProvider } = await importTransports();
-
-      for (let i = 0; i < 5; i += 1) createBinarySkillProvider(i);
-
-      expect(nodeMock.createBinarySkillProvider).toHaveBeenCalledTimes(5);
-    });
-
-    it('should_call_browser_createBinarySkillProvider_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const { createBinarySkillProvider } = await importTransports();
-
-      createBinarySkillProvider({ name: 'x' });
-
-      expect(browserMock.createBinarySkillProvider).toHaveBeenCalledTimes(1);
-    });
-
-    it('should_return_value_from_browser_createBinarySkillProvider_when_impl_returns_value', async () => {
-      platformState.isNode = false;
-      const { createBinarySkillProvider } = await importTransports();
-      const output = { ok: 'browser' };
-      browserMock.createBinarySkillProvider.mockReturnValueOnce(output);
-
-      const result = createBinarySkillProvider({ name: 'x' });
-
-      expect(result).toBe(output);
-    });
-
-    it('should_throw_when_browser_createBinarySkillProvider_throws', async () => {
-      platformState.isNode = false;
-      const { createBinarySkillProvider } = await importTransports();
-      browserMock.createBinarySkillProvider.mockImplementationOnce(() => {
-        throw new Error('browser createBinarySkillProvider failed');
-      });
-
-      expect(() => createBinarySkillProvider({})).toThrow('browser createBinarySkillProvider failed');
-    });
+    expect(createBinarySkillProvider).toHaveBeenCalled();
   });
 
-  describe('default export', () => {
-    it('should_export_node_namespace_as_default_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const transports = await importTransports();
-      const nodeNamespace = await import('../../../../../js/agents/plugins/transports/index.node.js');
-
-      expect(transports.default).toBe(nodeNamespace);
+  it("supports concurrency boundaries (simultaneous + rapid calls)", async () => {
+    const createBinarySkillProvider = vi.fn(async (spec) => {
+      await Promise.resolve();
+      return spec?.id ?? null;
     });
 
-    it('should_export_browser_namespace_as_default_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const transports = await importTransports();
-      const browserNamespace = await import('../../../../../js/agents/plugins/transports/index.browser.js');
+    state.platformIsNode = false;
+    state.nodeExports = { createBinarySkillProvider: vi.fn() };
+    state.browserExports = { createBinarySkillProvider };
 
-      expect(transports.default).toBe(browserNamespace);
-    });
+    const mod = await importUnderTest();
 
-    it('should_expose_ProcessTransport_on_default_export_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const transports = await importTransports();
-
-      expect(transports.default.ProcessTransport).toBe(transports.ProcessTransport);
-    });
-
-    it('should_expose_createProcessTransport_on_default_export_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const transports = await importTransports();
-
-      expect(transports.default.createProcessTransport).toBe(transports.createProcessTransport);
-    });
-
-    it('should_expose_BinarySkillProvider_on_default_export_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const transports = await importTransports();
-
-      expect(transports.default.BinarySkillProvider).toBe(transports.BinarySkillProvider);
-    });
-
-    it('should_expose_createBinarySkillProvider_on_default_export_when_Platform_isNode_is_true', async () => {
-      platformState.isNode = true;
-      const transports = await importTransports();
-
-      expect(transports.default.createBinarySkillProvider).toBe(transports.createBinarySkillProvider);
-    });
-
-    it('should_expose_ProcessTransport_on_default_export_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const transports = await importTransports();
-
-      expect(transports.default.ProcessTransport).toBe(transports.ProcessTransport);
-    });
-
-    it('should_expose_createProcessTransport_on_default_export_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const transports = await importTransports();
-
-      expect(transports.default.createProcessTransport).toBe(transports.createProcessTransport);
-    });
-
-    it('should_expose_BinarySkillProvider_on_default_export_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const transports = await importTransports();
-
-      expect(transports.default.BinarySkillProvider).toBe(transports.BinarySkillProvider);
-    });
-
-    it('should_expose_createBinarySkillProvider_on_default_export_when_Platform_isNode_is_false', async () => {
-      platformState.isNode = false;
-      const transports = await importTransports();
-
-      expect(transports.default.createBinarySkillProvider).toBe(transports.createBinarySkillProvider);
-    });
-  });
-
-  describe('Platform.isNode truthiness boundaries', () => {
-    it.each([['null', null], ['undefined', undefined], ['empty string', ''], ['zero', 0]])(
-      'should_select_browser_impl_when_Platform_isNode_is_falsey_%s',
-      async (_label, value) => {
-        platformState.isNode = value;
-        const transports = await importTransports();
-
-        expect(transports.ProcessTransport).toBe(browserMock.ProcessTransport);
-      },
+    const ids = await Promise.all(
+      Array.from({ length: 30 }, (_, i) =>
+        mod.createBinarySkillProvider({
+          id: i,
+          binaryPath: "tool",
+          args: [],
+          maxConcurrency: 1,
+        }),
+      ),
     );
+    expect(ids).toEqual(Array.from({ length: 30 }, (_, i) => i));
+    expect(createBinarySkillProvider).toHaveBeenCalledTimes(30);
 
-    it.each([
-      ['negative one', -1],
-      ['max safe integer', Number.MAX_SAFE_INTEGER],
-      ['string zero', '0'],
-      ['whitespace string', '   '],
-      ['empty array', []],
-      ['empty object', {}],
-    ])('should_select_node_impl_when_Platform_isNode_is_truthy_%s', async (_label, value) => {
-      platformState.isNode = value;
-      const transports = await importTransports();
+    for (let i = 0; i < 12; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await mod.createBinarySkillProvider({
+        id: `r${i}`,
+        binaryPath: "tool",
+        args: [],
+        maxConcurrency: 1,
+      });
+    }
+    expect(createBinarySkillProvider).toHaveBeenCalledTimes(42);
+  });
+});
 
-      expect(transports.ProcessTransport).toBe(nodeMock.ProcessTransport);
-    });
+describe("default", () => {
+  it("default export exposes the same selected implementation namespace (node)", async () => {
+    class NodeProcessTransport {}
+    const createProcessTransport = vi.fn(async () => ({ kind: "pt" }));
+    class NodeBinarySkillProvider {}
+    const createBinarySkillProvider = vi.fn(async () => ({ kind: "bsp" }));
+
+    state.platformIsNode = true;
+    state.nodeExports = {
+      ProcessTransport: NodeProcessTransport,
+      createProcessTransport,
+      BinarySkillProvider: NodeBinarySkillProvider,
+      createBinarySkillProvider,
+      extra: "node-only",
+    };
+    state.browserExports = {
+      ProcessTransport: class BrowserProcessTransport {},
+      createProcessTransport: vi.fn(async () => ({ kind: "pt-browser" })),
+      BinarySkillProvider: class BrowserBinarySkillProvider {},
+      createBinarySkillProvider: vi.fn(async () => ({ kind: "bsp-browser" })),
+      extra: "browser-only",
+    };
+
+    const mod = await importUnderTest();
+
+    expect(mod.default.ProcessTransport).toBe(mod.ProcessTransport);
+    expect(mod.default.createProcessTransport).toBe(mod.createProcessTransport);
+    expect(mod.default.BinarySkillProvider).toBe(mod.BinarySkillProvider);
+    expect(mod.default.createBinarySkillProvider).toBe(
+      mod.createBinarySkillProvider,
+    );
+    expect(mod.default.extra).toBe("node-only");
   });
 
-  describe('module import error paths', () => {
-    it('should_reject_import_when_node_impl_import_fails', async () => {
-      platformState.isNode = true;
-      vi.resetModules();
-      vi.doMock('../../../../../js/agents/plugins/transports/index.node.js', () => {
-        throw new Error('index.node.js import failed');
-      });
+  it("default export selects browser impl for falsey isNode values (null/undefined/empty string)", async () => {
+    class NodeProcessTransport {}
+    class BrowserProcessTransport {}
 
-      let error;
-      try {
-        await import(modulePath);
-      } catch (err) {
-        error = err;
-      }
+    state.nodeExports = { ProcessTransport: NodeProcessTransport };
+    state.browserExports = { ProcessTransport: BrowserProcessTransport };
 
-      expect(error?.cause?.message).toBe('index.node.js import failed');
-    });
+    state.platformIsNode = null;
+    const modNull = await importUnderTest();
+    expect(modNull.default.ProcessTransport).toBe(BrowserProcessTransport);
 
-    it('should_reject_import_when_browser_impl_import_fails', async () => {
-      platformState.isNode = false;
-      vi.resetModules();
-      vi.doMock('../../../../../js/agents/plugins/transports/index.browser.js', () => {
-        throw new Error('index.browser.js import failed');
-      });
+    vi.resetModules();
 
-      let error;
-      try {
-        await import(modulePath);
-      } catch (err) {
-        error = err;
-      }
+    state.platformIsNode = undefined;
+    const modUndef = await importUnderTest();
+    expect(modUndef.default.ProcessTransport).toBe(BrowserProcessTransport);
 
-      expect(error?.cause?.message).toBe('index.browser.js import failed');
-    });
+    vi.resetModules();
 
-    it('should_reject_import_when_Platform_isNode_getter_throws', async () => {
-      const originalDescriptor = Object.getOwnPropertyDescriptor(platformState, 'isNode');
-      Object.defineProperty(platformState, 'isNode', {
-        configurable: true,
-        get() {
-          throw new Error('Platform.isNode access failed');
-        },
-      });
+    state.platformIsNode = "";
+    const modEmptyStr = await importUnderTest();
+    expect(modEmptyStr.default.ProcessTransport).toBe(BrowserProcessTransport);
+  });
 
-      try {
-        await expect(importTransports()).rejects.toThrow('Platform.isNode access failed');
-      } finally {
-        if (originalDescriptor) Object.defineProperty(platformState, 'isNode', originalDescriptor);
-        else {
-          delete platformState.isNode;
-          platformState.isNode = true;
-        }
-      }
-    });
+  it("propagates errors when the selected implementation module fails to import", async () => {
+    state.platformIsNode = true;
+    state.nodeImportError = new Error("node import failed");
+    state.browserExports = {};
+
+    await expect(importUnderTest()).rejects.toThrow("node import failed");
+  });
+
+  it("propagates errors when browser implementation module fails to import", async () => {
+    state.platformIsNode = false;
+    state.browserImportError = new Error("browser import failed");
+    state.nodeExports = {};
+
+    await expect(importUnderTest()).rejects.toThrow("browser import failed");
   });
 });

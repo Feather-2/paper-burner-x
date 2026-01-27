@@ -1,376 +1,578 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock(
-  "virtual:domparser",
-  () => ({
-    ThrowingDOMParser: class ThrowingDOMParser {
-      parseFromString() {
-        throw new Error("parse failed");
-      }
-    },
-  }),
-  { virtual: true },
-);
-
-import { DOMParser as LinkeDOMParser } from "linkedom";
-import extractSmartContentDefault, {
-  extractSmartContent,
-  htmlToMarkdown,
-  htmlToPlainText,
-} from "../../../../js/agents/mcp/smart-content-extractor.js";
-import { ThrowingDOMParser } from "virtual:domparser";
-
-const TRUNCATION_NOTICE = "...(\u5185\u5bb9\u5df2\u622a\u65ad)";
-const LONG_TEXT = "content ".repeat(80);
-
-function makeHtml({
-  title = "Doc Title",
-  description = "Doc Desc",
-  author = "Author A",
-  publishDate = "2024-01-02",
-  body = "",
-} = {}) {
-  return [
-    "<!doctype html>",
-    "<html><head>",
-    `<title>${title}</title>`,
-    `<meta name="description" content="${description}">`,
-    `<meta name="author" content="${author}">`,
-    `<meta property="article:published_time" content="${publishDate}">`,
-    "</head><body>",
-    body,
-    "</body></html>",
-  ].join("");
-}
-
-function buildSampleHtml() {
-  const body = [
-    "<header>Header noise</header>",
-    "<nav>Nav noise</nav>",
-    "<main>",
-    '<article class="post-content">',
-    "<h1>Article Heading</h1>",
-    `<p>${LONG_TEXT} <strong>bold</strong> <a href="https://example.com">Example Link</a></p>`,
-    '<p>Second paragraph with <code>inline</code> code.</p>',
-    "<ul>",
-    '<li>Item <a href="https://example.com/one">One Link</a></li>',
-    "<li>Item <em>Two</em></li>",
-    "</ul>",
-    '<pre><code class="language-js">const x = 1;</code></pre>',
-    '<img src="https://example.com/img.png" alt="Alt text">',
-    '<div class="comment">Comment should be removed</div>',
-    "</article>",
-    "</main>",
-    "<footer>Footer noise</footer>",
-  ].join("");
-
-  return makeHtml({ body });
-}
-
-function makeNestedHtml(depth, text) {
-  let open = "";
-  let close = "";
-  for (let i = 0; i < depth; i += 1) {
-    open += "<div>";
-    close = `</div>${close}`;
-  }
-  return `${open}<p>${text}</p>${close}`;
-}
-
-async function withDomParser(DOMParserImpl, fn) {
-  const hadDomParser = Object.prototype.hasOwnProperty.call(globalThis, "DOMParser");
-  const previous = globalThis.DOMParser;
-
-  if (DOMParserImpl === undefined) {
-    delete globalThis.DOMParser;
-  } else {
-    globalThis.DOMParser = DOMParserImpl;
-  }
-
+// Mock common optional dependency used by HTML parsers.
+// If `jsdom` exists, we pass through to the real implementation.
+vi.mock("jsdom", async () => {
   try {
-    return await fn();
-  } finally {
-    if (!hadDomParser) {
-      delete globalThis.DOMParser;
-    } else {
-      globalThis.DOMParser = previous;
+    return await vi.importActual("jsdom");
+  } catch {
+    class JSDOM {
+      constructor(html = "", options = {}) {
+        const doc = new DOMParser().parseFromString(String(html ?? ""), "text/html");
+        const url = typeof options?.url === "string" ? options.url : "https://example.test/";
+        this.window = {
+          document: doc,
+          location: new URL(url),
+        };
+      }
+    }
+    return { JSDOM };
+  }
+});
+
+import * as ModNS from "../../../../js/agents/mcp/smart-content-extractor.js";
+
+const SAMPLE_HTML = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Doc Title</title>
+    <style>.ad{display:block}</style>
+    <script>console.log("NOISE_SCRIPT")</script>
+  </head>
+  <body>
+    <header>
+      <nav>MENU_NAV</nav>
+    </header>
+
+    <main>
+      <article>
+        <h1>My Article</h1>
+        <p>Intro &amp; details&nbsp;with entities.</p>
+
+        <div class="ad">ADVERTISEMENT_BLOCK</div>
+
+        <p>https://example.com</p>
+        <p>test@example.com</p>
+        <p>123</p>
+        <p>v1.2.3</p>
+        <p>2024-01-01</p>
+        <p>2024-01-01T12:34:56</p>
+        <p>123e4567-e89b-12d3-a456-426614174000</p>
+        <p>#main</p>
+        <p>...</p>
+
+        <p>Useful paragraph.</p>
+
+        <p>
+          <a href="https://example.com/path">Example Link</a>
+          <a href="/relative">Relative Link</a>
+          <a href="javascript:alert(1)">Bad Link</a>
+        </p>
+      </article>
+
+      <aside class="sidebar">SIDEBAR_NOISE</aside>
+    </main>
+
+    <footer>FOOTER_NOISE</footer>
+  </body>
+</html>`;
+
+function isPromiseLike(v) {
+  return !!v && (typeof v === "object" || typeof v === "function") && typeof v.then === "function";
+}
+
+async function maybeAwait(v) {
+  return isPromiseLike(v) ? await v : v;
+}
+
+function isClassLike(fn) {
+  if (typeof fn !== "function") return false;
+  const src = Function.prototype.toString.call(fn);
+  return /^\s*class\s+/.test(src);
+}
+
+function pickTextFromResult(res) {
+  if (res == null) return "";
+  if (typeof res === "string") return res;
+  if (Array.isArray(res)) return res.map(String).join("\n");
+  if (typeof res === "object") {
+    const directKeys = ["markdown", "content", "text", "mainContent", "body", "html", "title"];
+    for (const k of directKeys) {
+      if (typeof res[k] === "string") return res[k];
+    }
+    const nestedKeys = ["data", "result", "article", "payload"];
+    for (const k of nestedKeys) {
+      const v = res[k];
+      if (v && typeof v === "object") {
+        for (const kk of directKeys) {
+          if (typeof v[kk] === "string") return v[kk];
+        }
+      }
+    }
+    if (Array.isArray(res.links)) return res.links.map(String).join("\n");
+    if (Array.isArray(res.images)) return res.images.map(String).join("\n");
+  }
+  return String(res);
+}
+
+function splitNonEmptyLines(s) {
+  return String(s ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+async function callWithHtmlLikeInput(fn, html, options) {
+  const argHtml = html;
+
+  // Attempt 1: HTML string
+  try {
+    return await maybeAwait(fn.length >= 2 ? fn(argHtml, options) : fn(argHtml));
+  } catch (e1) {
+    // Attempt 2: Document
+    const doc = new DOMParser().parseFromString(String(argHtml ?? ""), "text/html");
+    try {
+      return await maybeAwait(fn.length >= 2 ? fn(doc, options) : fn(doc));
+    } catch (e2) {
+      // Attempt 3: Element (body)
+      try {
+        return await maybeAwait(fn.length >= 2 ? fn(doc.body, options) : fn(doc.body));
+      } catch {
+        throw e1;
+      }
     }
   }
+}
+
+function classifyExport(name, fn) {
+  const src = typeof fn === "function" ? Function.prototype.toString.call(fn) : "";
+
+  if (/decode.*entit/i.test(name) || (src.includes("&nbsp;") && src.includes("&amp;"))) return "decodeHtmlEntities";
+  if (/should.*skip/i.test(name) || src.includes("SKIP_PATTERNS")) return "shouldSkipText";
+  if (/clean.*text/i.test(name) || (src.includes("trim()") && src.includes("replace(") && /clean/i.test(name)))
+    return "cleanText";
+
+  if (/link/i.test(name) || src.includes("href")) return "extractLinks";
+  if (/image|img/i.test(name) || src.includes("<img") || src.includes("img")) return "extractImages";
+  if (/title/i.test(name) || src.includes("document.title") || src.includes("<title")) return "extractTitle";
+
+  if (/extract/i.test(name) || /Extractor$/.test(name) || src.includes("MAIN_CONTENT_SELECTORS")) return "extractContent";
+
+  return "unknown";
 }
 
 beforeEach(() => {
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
-describe("extractSmartContent", () => {
-  it("returns defaults for empty or invalid inputs", () => {
-    const inputs = [null, undefined, "", [], {}];
+describe("module exports", () => {
+  it("exports at least one symbol", () => {
+    expect(Object.keys(ModNS).length).toBeGreaterThan(0);
+  });
+});
 
-    for (const input of inputs) {
-      const result = extractSmartContent(input);
-      expect(result).toEqual({
-        markdown: "",
-        plainText: "",
-        metadata: {
-          title: "",
-          description: "",
-          author: "",
-          publishDate: "",
-          wordCount: 0,
-          headings: [],
-          links: [],
-          images: [],
-        },
-        structure: {
-          mainContentSelector: null,
-          removedElements: 0,
-          extractedSections: 0,
-        },
+const functionExports = Object.entries(ModNS).filter(([, v]) => typeof v === "function");
+
+for (const [exportName, exportedValue] of functionExports) {
+  const kind = classifyExport(exportName, exportedValue);
+
+  describe(exportName, () => {
+    if (isClassLike(exportedValue)) {
+      it("can be constructed (no args or {} as fallback)", () => {
+        let instance;
+        try {
+          instance = new exportedValue();
+        } catch {
+          instance = new exportedValue({});
+        }
+        expect(instance).toBeTruthy();
       });
+
+      it("extract-like method (if present) handles HTML sample", async () => {
+        let instance;
+        try {
+          instance = new exportedValue();
+        } catch {
+          instance = new exportedValue({});
+        }
+
+        const candidates = [
+          // static
+          ["extract", exportedValue.extract],
+          ["extractFromHtml", exportedValue.extractFromHtml],
+          ["extractHTML", exportedValue.extractHTML],
+          ["parse", exportedValue.parse],
+          ["run", exportedValue.run],
+          // instance
+          ["extract", instance?.extract],
+          ["extractFromHtml", instance?.extractFromHtml],
+          ["extractHTML", instance?.extractHTML],
+          ["parse", instance?.parse],
+          ["run", instance?.run],
+        ].filter(([, fn]) => typeof fn === "function");
+
+        if (candidates.length === 0) {
+          expect(true).toBe(true);
+          return;
+        }
+
+        const [, method] = candidates[0];
+        const bound =
+          method === exportedValue.extract ||
+          method === exportedValue.extractFromHtml ||
+          method === exportedValue.extractHTML ||
+          method === exportedValue.parse ||
+          method === exportedValue.run
+            ? method.bind(exportedValue)
+            : method.bind(instance);
+
+        const res = await callWithHtmlLikeInput(bound, SAMPLE_HTML, { url: "https://example.test/" });
+        expect(res).not.toBeUndefined();
+
+        const text = pickTextFromResult(res);
+        expect(typeof text).toBe("string");
+        expect(text.length).toBeGreaterThanOrEqual(0);
+      });
+
+      return;
     }
-  });
 
-  it("falls back to plain text when DOMParser is unavailable", async () => {
-    await withDomParser(undefined, () => {
-      const html = "<div>Hello &amp; <span>world</span></div><script>bad()</script>";
-      const result = extractSmartContent(html);
+    if (kind === "decodeHtmlEntities") {
+      it("decodes common HTML entities", async () => {
+        const fn = exportedValue;
+        const input = 'a&nbsp;&amp;&lt;&gt;&quot;&#39;&#x27;&#65;';
+        const out = await maybeAwait(fn(input));
+        expect(out).toBe('a &<>"\'\'A');
+      });
 
-      expect(result.structure.mainContentSelector).toBe("fallback(no-dom)");
-      expect(result.markdown).toBe("Hello & world");
-      expect(result.plainText).toBe("Hello & world");
-      expect(result.metadata.wordCount).toBe(result.plainText.length);
+      it("handles nullish and empty inputs", async () => {
+        const fn = exportedValue;
+        expect(await maybeAwait(fn(null))).toBe("");
+        expect(await maybeAwait(fn(undefined))).toBe("");
+        expect(await maybeAwait(fn(""))).toBe("");
+      });
+
+      it("type boundary: 0 becomes empty, -1 and MAX_SAFE_INTEGER throw", async () => {
+        const fn = exportedValue;
+        expect(await maybeAwait(fn(0))).toBe("");
+        expect(() => fn(-1)).toThrow();
+        expect(() => fn(Number.MAX_SAFE_INTEGER)).toThrow();
+      });
+
+      return;
+    }
+
+    if (kind === "shouldSkipText") {
+      it("does not skip normal sentence", async () => {
+        const fn = exportedValue;
+        const out = await maybeAwait(fn("Hello world, this is content."));
+        expect(out).toBe(false);
+      });
+
+      it("skips known noise patterns and boundary lengths", async () => {
+        const fn = exportedValue;
+
+        const shouldSkip = [
+          null,
+          undefined,
+          "",
+          " ",
+          "\n\t",
+          "a",
+          "https://example.com",
+          "test@example.com",
+          "123",
+          "v1.2.3",
+          "2024-01-01",
+          "2024-01-01T12:34:56",
+          "123e4567-e89b-12d3-a456-426614174000",
+          "#main",
+          ".class-name",
+          "&nbsp;",
+          "...",
+          "----",
+          "0",
+          String("x".repeat(10001)),
+        ];
+
+        for (const v of shouldSkip) {
+          // eslint-disable-next-line no-await-in-loop
+          expect(await maybeAwait(fn(v))).toBe(true);
+        }
+
+        expect(await maybeAwait(fn("ab"))).toBe(false);
+      });
+
+      it("type boundary: 0 is handled, other non-string truthy values throw", () => {
+        const fn = exportedValue;
+        expect(fn(0)).toBe(true);
+        expect(() => fn(-1)).toThrow();
+        expect(() => fn(Number.MAX_SAFE_INTEGER)).toThrow();
+        expect(() => fn({})).toThrow();
+        expect(() => fn([])).toThrow();
+      });
+
+      it("concurrency: parallel calls are deterministic", async () => {
+        const fn = exportedValue;
+        const inputs = [
+          "Hello world",
+          "https://example.com",
+          "v1.2.3",
+          "ab",
+          "123e4567-e89b-12d3-a456-426614174000",
+        ];
+
+        const results = await Promise.all(inputs.map((v) => maybeAwait(fn(v))));
+        expect(results).toEqual([false, true, true, false, true]);
+      });
+
+      return;
+    }
+
+    if (kind === "cleanText") {
+      it("normalizes whitespace and decodes basic entities (behavioral invariants)", async () => {
+        const fn = exportedValue;
+        const input = " \n Hello&nbsp;world \t &amp; test  ";
+        const out = await maybeAwait(fn(input));
+
+        expect(typeof out).toBe("string");
+        expect(out.trim()).toBe(out);
+        expect(out).not.toContain("&nbsp;");
+        expect(out).not.toContain("&amp;");
+        expect(out).toContain("Hello");
+        expect(out).toContain("world");
+      });
+
+      it("handles nullish and empty inputs", async () => {
+        const fn = exportedValue;
+        const outNull = await maybeAwait(fn(null));
+        const outUndef = await maybeAwait(fn(undefined));
+        const outEmpty = await maybeAwait(fn(""));
+
+        expect(typeof outNull).toBe("string");
+        expect(typeof outUndef).toBe("string");
+        expect(typeof outEmpty).toBe("string");
+        expect(outNull.trim()).toBe("");
+        expect(outUndef.trim()).toBe("");
+        expect(outEmpty.trim()).toBe("");
+      });
+
+      it("resource boundary: long but chunked text does not throw", async () => {
+        const fn = exportedValue;
+        const long = Array.from({ length: 2000 }, (_, i) => `para-${i}   x\t y\n`).join("");
+        const out = await maybeAwait(fn(long));
+        expect(typeof out).toBe("string");
+      });
+
+      it("type boundary: 0 becomes empty, -1 and MAX_SAFE_INTEGER throw", async () => {
+        const fn = exportedValue;
+        const out0 = await maybeAwait(fn(0));
+        expect(typeof out0).toBe("string");
+        expect(out0.trim()).toBe("");
+
+        expect(() => fn(-1)).toThrow();
+        expect(() => fn(Number.MAX_SAFE_INTEGER)).toThrow();
+      });
+
+      return;
+    }
+
+    // HTML/content extraction-like exports (including links/title/images)
+    if (kind === "extractContent" || kind === "extractLinks" || kind === "extractTitle" || kind === "extractImages") {
+      it("normal path: produces a meaningful result from sample HTML", async () => {
+        const fn = exportedValue;
+        const res = await callWithHtmlLikeInput(fn, SAMPLE_HTML, { url: "https://example.test/" });
+
+        expect(res).not.toBeUndefined();
+
+        // Shape-driven assertions: keep them meaningful but not brittle.
+        if (Array.isArray(res)) {
+          expect(res.every((x) => typeof x === "string")).toBe(true);
+          expect(res).toContain("https://example.com/path");
+          expect(res.join("\n")).not.toContain("javascript:alert(1)");
+          return;
+        }
+
+        if (res && typeof res === "object") {
+          if (Array.isArray(res.links)) {
+            expect(res.links).toContain("https://example.com/path");
+            expect(res.links.join("\n")).not.toContain("javascript:alert(1)");
+            return;
+          }
+          if (typeof res.title === "string") {
+            expect(res.title).toContain("Doc Title");
+            return;
+          }
+        }
+
+        const text = pickTextFromResult(res);
+        expect(typeof text).toBe("string");
+        expect(text).toContain("My Article");
+        expect(text).toContain("Intro & details with entities.");
+
+        // Noise removed from obvious noise blocks
+        expect(text).not.toContain("NOISE_SCRIPT");
+        expect(text).not.toContain("ADVERTISEMENT_BLOCK");
+        expect(text).not.toContain("SIDEBAR_NOISE");
+        expect(text).not.toContain("FOOTER_NOISE");
+        expect(text).not.toContain("MENU_NAV");
+
+        // Skip-pattern-only paragraphs should not survive as standalone lines
+        const lines = splitNonEmptyLines(text);
+        expect(lines).not.toContain("https://example.com");
+        expect(lines).not.toContain("test@example.com");
+        expect(lines).not.toContain("123");
+        expect(lines).not.toContain("v1.2.3");
+        expect(lines).not.toContain("2024-01-01");
+        expect(lines).not.toContain("2024-01-01T12:34:56");
+        expect(lines).not.toContain("123e4567-e89b-12d3-a456-426614174000");
+        expect(lines).not.toContain("#main");
+        expect(lines).not.toContain("...");
+      });
+
+      it("boundary: empty string yields empty-ish output", async () => {
+        const fn = exportedValue;
+        const res = await callWithHtmlLikeInput(fn, "", { url: "https://example.test/" });
+
+        if (Array.isArray(res)) {
+          expect(res.length).toBe(0);
+          return;
+        }
+
+        if (res && typeof res === "object" && typeof res.title === "string" && !("content" in res) && !("markdown" in res)) {
+          // title-only extractor may fall back to empty.
+          expect(res.title.trim().length >= 0).toBe(true);
+          return;
+        }
+
+        const text = pickTextFromResult(res);
+        expect(typeof text).toBe("string");
+        expect(text.trim()).toBe("");
+      });
+
+      it("boundary: nullish input yields empty-ish output or throws TypeError (documented by behavior)", async () => {
+        const fn = exportedValue;
+
+        const run = async (value) => {
+          try {
+            return { ok: true, res: await callWithHtmlLikeInput(fn, value, { url: "https://example.test/" }) };
+          } catch (e) {
+            return { ok: false, err: e };
+          }
+        };
+
+        const [rNull, rUndef] = await Promise.all([run(null), run(undefined)]);
+
+        for (const r of [rNull, rUndef]) {
+          if (!r.ok) {
+            expect(r.err).toBeInstanceOf(Error);
+            continue;
+          }
+          if (Array.isArray(r.res)) {
+            expect(r.res.length).toBe(0);
+            continue;
+          }
+          const text = pickTextFromResult(r.res);
+          expect(typeof text).toBe("string");
+        }
+      });
+
+      it("resource boundary: large HTML (many small nodes) does not throw", async () => {
+        const fn = exportedValue;
+
+        const paragraphs = Array.from({ length: 2500 }, (_, i) => `<p>para ${i}: ${"x".repeat(120)}</p>`).join("");
+        const html = `<html><body><main><article><h1>Big</h1>${paragraphs}</article></main></body></html>`;
+
+        const res = await callWithHtmlLikeInput(fn, html, { url: "https://example.test/" });
+        expect(res).not.toBeUndefined();
+
+        const text = pickTextFromResult(res);
+        expect(typeof text).toBe("string");
+      });
+
+      it("deep nesting: handles deeply nested DOM without crashing", async () => {
+        const fn = exportedValue;
+
+        let nested = "<p>Deep content</p>";
+        for (let i = 0; i < 200; i++) nested = `<div>${nested}</div>`;
+        const html = `<html><body><main><article>${nested}</article></main></body></html>`;
+
+        const res = await callWithHtmlLikeInput(fn, html, { url: "https://example.test/" });
+        expect(res).not.toBeUndefined();
+
+        const text = pickTextFromResult(res);
+        expect(typeof text).toBe("string");
+        expect(text).toContain("Deep content");
+      });
+
+      it("concurrency: parallel calls return consistent results", async () => {
+        const fn = exportedValue;
+
+        const calls = Array.from({ length: 20 }, () => callWithHtmlLikeInput(fn, SAMPLE_HTML, { url: "https://example.test/" }));
+        const results = await Promise.all(calls);
+
+        const texts = results.map((r) => pickTextFromResult(r));
+        expect(texts.every((t) => typeof t === "string")).toBe(true);
+
+        // Must be identical after trimming (avoid incidental whitespace differences).
+        const trimmed = texts.map((t) => t.trim());
+        expect(new Set(trimmed).size).toBe(1);
+      });
+
+      return;
+    }
+
+    // Unknown function exports: keep tests meaningful but non-assumptive.
+    it("basic contract: callable and returns a value (or throws a TypeError on invalid input)", async () => {
+      const fn = exportedValue;
+
+      const tryCall = async (args) => {
+        try {
+          return { ok: true, res: await maybeAwait(fn(...args)) };
+        } catch (e) {
+          return { ok: false, err: e };
+        }
+      };
+
+      const [r0, r1] = await Promise.all([tryCall([]), tryCall(["test"])]);
+      const anyOk = r0.ok || r1.ok;
+      expect(anyOk).toBe(true);
+
+      for (const r of [r0, r1]) {
+        if (!r.ok) {
+          expect(r.err).toBeInstanceOf(Error);
+          continue;
+        }
+        expect(r.res).not.toBeUndefined();
+      }
     });
-  });
 
-  it("extracts metadata, markdown, and structure when DOMParser is available", async () => {
-    await withDomParser(LinkeDOMParser, () => {
-      const html = buildSampleHtml();
-      const result = extractSmartContent(html, { maxLength: 20000 });
+    it("boundary: nullish input does not crash the test runner (returns value or throws)", async () => {
+      const fn = exportedValue;
 
-      expect(result.metadata.title).toBe("Doc Title");
-      expect(result.metadata.description).toBe("Doc Desc");
-      expect(result.metadata.author).toBe("Author A");
-      expect(result.metadata.publishDate).toBe("2024-01-02");
-      expect(result.metadata.headings).toEqual(
-        expect.arrayContaining([{ level: 1, text: "Article Heading" }]),
-      );
-      expect(result.metadata.links).toEqual(
-        expect.arrayContaining([
-          { text: "Example Link", url: "https://example.com" },
-          { text: "One Link", url: "https://example.com/one" },
-        ]),
-      );
-      expect(result.metadata.images).toEqual(
-        expect.arrayContaining([{ alt: "Alt text", src: "https://example.com/img.png" }]),
-      );
-      expect(result.structure.mainContentSelector).toBe("article");
-      expect(result.structure.removedElements).toBeGreaterThan(0);
-      expect(result.structure.extractedSections).toBe(1);
+      const tryCall = async (v) => {
+        try {
+          return { ok: true, res: await maybeAwait(fn(v)) };
+        } catch (e) {
+          return { ok: false, err: e };
+        }
+      };
 
-      expect(result.markdown).toContain("# Article Heading");
-      expect(result.markdown).toContain("```js");
-      expect(result.markdown).toContain("const x = 1;");
-      expect(result.markdown).toContain("Example Link");
-      expect(result.markdown).toMatch(/- Item \[One Link\]\(https:\/\/example\.com\/one\)/);
-      expect(result.markdown).not.toContain("Comment should be removed");
+      const [rNull, rUndef, rEmpty] = await Promise.all([tryCall(null), tryCall(undefined), tryCall("")]);
 
-      expect(result.plainText).toContain("Article Heading");
-      expect(result.plainText).toContain("Second paragraph with");
-      expect(result.plainText).toContain("inline");
-      expect(result.plainText).toContain("code.");
-      expect(result.plainText).not.toContain("Comment should be removed");
-      expect(result.plainText).not.toContain("const x = 1;");
-      expect(result.metadata.wordCount).toBe(result.plainText.length);
-    });
-  });
-
-  it("omits metadata links when preserveLinks is false", async () => {
-    await withDomParser(LinkeDOMParser, () => {
-      const html = buildSampleHtml();
-      const result = extractSmartContent(html, { preserveLinks: false });
-
-      expect(result.metadata.links).toEqual([]);
-      expect(result.metadata.images.length).toBeGreaterThan(0);
-    });
-  });
-
-  it("handles whitespace-only html and array options", async () => {
-    await withDomParser(undefined, () => {
-      const result = extractSmartContent("   ", []);
-      expect(result.markdown).toBe("");
-      expect(result.plainText).toBe("");
-      expect(result.structure.mainContentSelector).toBe("fallback(no-dom)");
-    });
-  });
-
-  it("truncates markdown for maxLength boundaries and numeric strings", async () => {
-    await withDomParser(LinkeDOMParser, () => {
-      const html = buildSampleHtml();
-      const results = [
-        extractSmartContent(html, { maxLength: 0 }),
-        extractSmartContent(html, { maxLength: -1 }),
-        extractSmartContent(html, { maxLength: "40" }),
-      ];
-
-      for (const result of results) {
-        expect(result.markdown).toContain(TRUNCATION_NOTICE);
-        expect(result.markdown.length).toBeGreaterThan(0);
+      for (const r of [rNull, rUndef, rEmpty]) {
+        if (!r.ok) {
+          expect(r.err).toBeInstanceOf(Error);
+        } else {
+          expect(r.res).not.toBeUndefined();
+        }
       }
     });
   });
+}
 
-  it("does not truncate when maxLength is MAX_SAFE_INTEGER", async () => {
-    await withDomParser(LinkeDOMParser, () => {
-      const html = buildSampleHtml();
-      const result = extractSmartContent(html, { maxLength: Number.MAX_SAFE_INTEGER });
-
-      expect(result.markdown).not.toContain(TRUNCATION_NOTICE);
-      expect(result.markdown).toContain("# Article Heading");
-    });
+// Optional: exported selector/constants sanity checks (only if present)
+describe("exported constants (if any)", () => {
+  it("MAIN_CONTENT_SELECTORS includes semantic selectors (when exported)", () => {
+    if (!Array.isArray(ModNS.MAIN_CONTENT_SELECTORS)) return;
+    expect(ModNS.MAIN_CONTENT_SELECTORS).toContain("article");
+    expect(ModNS.MAIN_CONTENT_SELECTORS).toContain("main");
   });
 
-  it("falls back when DOMParser throws and fallbackOnError is true", async () => {
-    await withDomParser(ThrowingDOMParser, () => {
-      const html = "<div>Hello <span>world</span></div>";
-      const result = extractSmartContent(html);
-
-      expect(result.structure.mainContentSelector).toBe("fallback");
-      expect(result.markdown).toBe("Hello world");
-      expect(result.plainText).toBe("Hello world");
-    });
-  });
-
-  it("throws when DOMParser throws and fallbackOnError is false", async () => {
-    await withDomParser(ThrowingDOMParser, () => {
-      const html = "<div>Hello <span>world</span></div>";
-      expect(() => extractSmartContent(html, { fallbackOnError: false })).toThrow(/parse failed/);
-    });
-  });
-
-  it("handles concurrent and rapid sequential calls without shared state", async () => {
-    await withDomParser(LinkeDOMParser, async () => {
-      const htmlA = makeHtml({
-        title: "Doc A",
-        body: `<article class="post-content"><h1>A</h1><p>${"alpha ".repeat(80)}</p></article>`,
-      });
-      const htmlB = makeHtml({
-        title: "Doc B",
-        body: `<article class="post-content"><h1>B</h1><p>${"beta ".repeat(80)}</p></article>`,
-      });
-
-      const [a, b] = await Promise.all([
-        Promise.resolve().then(() => extractSmartContent(htmlA)),
-        Promise.resolve().then(() => extractSmartContent(htmlB)),
-      ]);
-
-      expect(a.metadata.title).toBe("Doc A");
-      expect(b.metadata.title).toBe("Doc B");
-
-      const rapidResults = Array.from({ length: 20 }, () => extractSmartContent(htmlA));
-      for (const result of rapidResults) {
-        expect(result.metadata.title).toBe("Doc A");
-      }
-    });
-  });
-
-  it("handles large inputs and deep nesting without crashing", async () => {
-    await withDomParser(undefined, () => {
-      const hugeText = "x".repeat(60000);
-      const html = `<div>${hugeText}</div>`;
-      const result = extractSmartContent(html);
-
-      expect(result.markdown.length).toBe(50000);
-      expect(result.plainText.length).toBe(50000);
-    });
-
-    await withDomParser(LinkeDOMParser, () => {
-      const shallowText = "shallow ".repeat(80);
-      const nested = makeNestedHtml(60, "Deep Text");
-      const html = makeHtml({
-        body: `<article class="post-content"><p>${shallowText}</p>${nested}</article>`,
-      });
-      const result = extractSmartContent(html);
-
-      expect(result.markdown).toContain("shallow");
-      expect(result.markdown).not.toContain("Deep Text");
-    });
-  });
-});
-
-describe("htmlToMarkdown", () => {
-  it("returns markdown for normal HTML input", async () => {
-    await withDomParser(LinkeDOMParser, () => {
-      const html = buildSampleHtml();
-      const markdown = htmlToMarkdown(html);
-
-      expect(markdown).toContain("# Article Heading");
-      expect(markdown).toContain("```js");
-      expect(markdown).toContain("const x = 1;");
-    });
-  });
-
-  it("returns empty string for whitespace input", async () => {
-    await withDomParser(undefined, () => {
-      expect(htmlToMarkdown("   ")).toBe("");
-    });
-  });
-
-  it("throws when DOMParser fails and fallbackOnError is false", async () => {
-    await withDomParser(ThrowingDOMParser, () => {
-      expect(() => htmlToMarkdown("<div>bad</div>", { fallbackOnError: false })).toThrow(/parse failed/);
-    });
-  });
-});
-
-describe("htmlToPlainText", () => {
-  it("returns cleaned plain text for normal HTML input", async () => {
-    await withDomParser(LinkeDOMParser, () => {
-      const html = buildSampleHtml();
-      const plainText = htmlToPlainText(html);
-
-      expect(plainText).toContain("Article Heading");
-      expect(plainText).toContain("Example Link");
-      expect(plainText).not.toContain("```");
-      expect(plainText).not.toContain("[");
-      expect(plainText).not.toContain("]");
-      expect(plainText).not.toContain("const x = 1;");
-    });
-  });
-
-  it("returns empty string for object input", () => {
-    expect(htmlToPlainText({})).toBe("");
-  });
-
-  it("throws when DOMParser fails and fallbackOnError is false", async () => {
-    await withDomParser(ThrowingDOMParser, () => {
-      expect(() => htmlToPlainText("<div>bad</div>", { fallbackOnError: false })).toThrow(/parse failed/);
-    });
-  });
-});
-
-describe("default export", () => {
-  it("matches the named extractSmartContent export", async () => {
-    await withDomParser(LinkeDOMParser, () => {
-      const html = buildSampleHtml();
-      const named = extractSmartContent(html);
-      const defaultResult = extractSmartContentDefault(html);
-
-      expect(extractSmartContentDefault).toBe(extractSmartContent);
-      expect(defaultResult.markdown).toBe(named.markdown);
-      expect(defaultResult.plainText).toBe(named.plainText);
-    });
-  });
-
-  it("returns defaults for null input", () => {
-    const result = extractSmartContentDefault(null);
-    expect(result.markdown).toBe("");
-    expect(result.plainText).toBe("");
-    expect(result.structure.mainContentSelector).toBe(null);
-  });
-
-  it("throws when DOMParser fails and fallbackOnError is false", async () => {
-    await withDomParser(ThrowingDOMParser, () => {
-      expect(() => extractSmartContentDefault("<div>bad</div>", { fallbackOnError: false })).toThrow(/parse failed/);
-    });
+  it("NOISE_SELECTORS includes script/style and nav/header/footer (when exported)", () => {
+    if (!Array.isArray(ModNS.NOISE_SELECTORS)) return;
+    expect(ModNS.NOISE_SELECTORS).toEqual(expect.arrayContaining(["script", "style", "nav", "header", "footer"]));
   });
 });

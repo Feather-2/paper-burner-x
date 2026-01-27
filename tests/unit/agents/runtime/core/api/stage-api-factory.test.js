@@ -1,705 +1,695 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mocks = vi.hoisted(() => {
-  const mockLogger = { debug: vi.fn(), warn: vi.fn() };
-  const mockTokenTracker = { record: vi.fn() };
-  const createStageApiMock = vi.fn((config) => ({ ...config }));
-  const createLoggerMock = vi.fn(() => mockLogger);
-  const createFsAdapterFromVfsMock = vi.fn();
-  const createVfsGlobFnMock = vi.fn();
-  const isPlainObjectMock = vi.fn(
-    (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+const STAGE_API_FACTORY_PATH =
+  "../../../../../../js/agents/runtime/core/api/stage-api-factory.js";
+
+const SHARED_INDEX_PATH = "../../../../../../js/agents/runtime/shared/index.js";
+const FS_ADAPTER_PATH = "../../../../../../js/agents/runtime/vfs/fs-adapter.js";
+const VFS_GLOB_PATH = "../../../../../../js/agents/runtime/vfs/glob.js";
+const TELEMETRY_PATH =
+  "../../../../../../js/agents/runtime/plugins/telemetry/index.js";
+const RETRY_STRATEGY_PATH =
+  "../../../../../../js/agents/runtime/core/retry-strategy.js";
+const ERROR_BOUNDARY_PATH =
+  "../../../../../../js/agents/runtime/core/error-boundary.js";
+const TOOL_QUOTAS_PATH = "../../../../../../js/agents/runtime/tools/tool-quotas.js";
+const MESSAGE_BUS_PATH = "../../../../../../js/agents/runtime/core/message-bus.js";
+
+vi.mock(SHARED_INDEX_PATH, () => {
+  const createStageApi = vi.fn();
+  const createLogger = vi.fn(() => ({ debug: vi.fn(), warn: vi.fn() }));
+  const isPlainObject = vi.fn(
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      (Object.getPrototypeOf(value) === Object.prototype ||
+        Object.getPrototypeOf(value) === null),
   );
-  const toNonNegativeIntMock = vi.fn((value, fallback) => {
-    const n = Number(value);
-    return Number.isFinite(n) && n >= 0 ? n : fallback;
-  });
-  const getGlobalTokenTrackerMock = vi.fn(() => mockTokenTracker);
-  const withRetryMock = vi.fn(async (fn) => fn());
-  const getErrorBoundaryMock = vi.fn(() => ({ wrap: vi.fn((fn) => fn()) }));
-  const ToolQuotaManagerMock = vi.fn().mockImplementation(function (opts) {
-    this.opts = opts;
-    this.tryCall = vi.fn(async (_tool, fn) => fn());
-  });
-  const CircuitBreakerRegistryMock = vi.fn().mockImplementation(function () {
-    this.get = vi.fn(() => null);
+  const toNonNegativeInt = vi.fn((value) => {
+    const num = typeof value === "string" ? Number(value) : Number(value);
+    if (!Number.isFinite(num)) return 0;
+    const int = Math.trunc(num);
+    return int < 0 ? 0 : int;
   });
 
-  class TraceContextMock {
-    constructor(opts = {}) {
-      this.opts = opts;
-    }
-    startSpan() {
-      return {};
-    }
-    endSpan() {}
-    withSpan(_name, fn) {
-      return fn();
-    }
-    getTraceparent() {
-      return 'traceparent';
-    }
-  }
-  TraceContextMock.parseTraceparent = vi.fn(() => null);
-
-  const MessageBusMock = vi.fn().mockImplementation(function (eventBus) {
-    this.eventBus = eventBus;
-    this.request = vi.fn(async () => undefined);
-    this.handle = vi.fn();
-  });
+  const CircuitBreakerRegistry = vi.fn(() => ({ get: vi.fn(() => null) }));
 
   return {
-    mockLogger,
-    mockTokenTracker,
-    createStageApiMock,
-    createLoggerMock,
-    createFsAdapterFromVfsMock,
-    createVfsGlobFnMock,
-    isPlainObjectMock,
-    toNonNegativeIntMock,
-    getGlobalTokenTrackerMock,
-    withRetryMock,
-    getErrorBoundaryMock,
-    ToolQuotaManagerMock,
-    CircuitBreakerRegistryMock,
-    TraceContextMock,
-    MessageBusMock,
+    createStageApi,
+    createLogger,
+    isPlainObject,
+    toNonNegativeInt,
+    CircuitBreakerRegistry,
   };
 });
 
-vi.mock('../../../../../../js/agents/shared/index.js', () => ({
-  createStageApi: mocks.createStageApiMock,
-  createLogger: mocks.createLoggerMock,
-  isPlainObject: mocks.isPlainObjectMock,
-  toNonNegativeInt: mocks.toNonNegativeIntMock,
-  CircuitBreakerRegistry: mocks.CircuitBreakerRegistryMock,
+vi.mock(FS_ADAPTER_PATH, () => ({
+  createFsAdapterFromVfs: vi.fn((vfs) => ({ __fsAdapter: true, vfs })),
 }));
 
-vi.mock('../../../../../../js/agents/vfs/fs-adapter.js', () => ({
-  createFsAdapterFromVfs: mocks.createFsAdapterFromVfsMock,
+vi.mock(VFS_GLOB_PATH, () => ({
+  createVfsGlobFn: vi.fn((vfs) => vi.fn(async () => ({ __globbed: true, vfs }))),
 }));
 
-vi.mock('../../../../../../js/agents/vfs/glob.js', () => ({
-  createVfsGlobFn: mocks.createVfsGlobFnMock,
+vi.mock(TELEMETRY_PATH, () => ({
+  getGlobalTokenTracker: vi.fn(() => ({ track: vi.fn() })),
+  TraceContext: vi.fn((traceparent) => ({
+    startSpan: vi.fn(() => ({})),
+    endSpan: vi.fn(),
+    withSpan: vi.fn((_name, fn) => fn()),
+    getTraceparent: vi.fn(() => (traceparent == null ? "" : String(traceparent))),
+  })),
 }));
 
-vi.mock('../../../../../../js/agents/plugins/telemetry/index.js', () => ({
-  getGlobalTokenTracker: mocks.getGlobalTokenTrackerMock,
-  TraceContext: mocks.TraceContextMock,
+vi.mock(RETRY_STRATEGY_PATH, () => ({
+  withRetry: vi.fn((...args) => args.find((a) => typeof a === "function")),
 }));
 
-vi.mock('../../../../../../js/agents/runtime/core/retry-strategy.js', () => ({
-  withRetry: mocks.withRetryMock,
+vi.mock(ERROR_BOUNDARY_PATH, () => ({
+  getErrorBoundary: vi.fn(() => ({ wrap: (fn) => fn })),
 }));
 
-vi.mock('../../../../../../js/agents/runtime/core/error-boundary.js', () => ({
-  getErrorBoundary: mocks.getErrorBoundaryMock,
+vi.mock(TOOL_QUOTAS_PATH, () => ({
+  ToolQuotaManager: vi.fn(() => ({
+    tryCall: vi.fn(async (_toolName, fn) => fn()),
+  })),
 }));
 
-vi.mock('../../../../../../js/agents/runtime/tools/tool-quotas.js', () => ({
-  ToolQuotaManager: mocks.ToolQuotaManagerMock,
+vi.mock(MESSAGE_BUS_PATH, () => ({
+  MessageBus: vi.fn(() => ({
+    request: vi.fn(async () => ({})),
+    handle: vi.fn(),
+  })),
 }));
 
-vi.mock('../../../../../../js/agents/core/message-bus.js', () => ({
-  MessageBus: mocks.MessageBusMock,
-}));
+const ENTRY_PATTERNS = [
+  { id: "stage_services", call: (fn, stage, services) => fn(stage, services) },
+  { id: "services_stage", call: (fn, stage, services) => fn(services, stage) },
+  {
+    id: "options_stageName",
+    call: (fn, stage, services) =>
+      fn(Object.assign({}, services, { stageName: stage })),
+  },
+  {
+    id: "options_type",
+    call: (fn, stage, services) => fn(Object.assign({}, services, { type: stage })),
+  },
+  {
+    id: "options_stage",
+    call: (fn, stage, services) => fn(Object.assign({}, services, { stage })),
+  },
+  {
+    id: "services_only",
+    call: (fn, stage, services) =>
+      fn(Object.assign({}, services, { stageName: stage, type: stage, stage })),
+  },
+  { id: "no_args", call: (fn) => fn() },
+];
 
-import StageApiFactoryDefault, {
-  StageApiFactory,
-  createStageApiFactory,
-} from '../../../../../../js/agents/runtime/core/api/stage-api-factory.js';
+const SECOND_PATTERNS = [
+  { id: "stage_only", call: (fn, stage) => fn(stage) },
+  { id: "stage_services", call: (fn, stage, services) => fn(stage, services) },
+  { id: "services_stage", call: (fn, stage, services) => fn(services, stage) },
+  {
+    id: "options_stageName",
+    call: (fn, stage, services) =>
+      fn(Object.assign({}, services, { stageName: stage })),
+  },
+  {
+    id: "services_only",
+    call: (fn, stage, services) =>
+      fn(Object.assign({}, services, { stageName: stage, type: stage, stage })),
+  },
+];
 
-const {
-  mockLogger,
-  mockTokenTracker,
-  createStageApiMock,
-  createFsAdapterFromVfsMock,
-  createVfsGlobFnMock,
-  isPlainObjectMock,
-  toNonNegativeIntMock,
-  getGlobalTokenTrackerMock,
-  withRetryMock,
-  getErrorBoundaryMock,
-  ToolQuotaManagerMock,
-  CircuitBreakerRegistryMock,
-  TraceContextMock,
-  MessageBusMock,
-} = mocks;
+const OBJECT_METHOD_CANDIDATES = [
+  "createStageApi",
+  "create",
+  "forStage",
+  "get",
+  "build",
+  "make",
+];
 
-const buildDeepObject = (depth) => {
-  const root = {};
-  let node = root;
+function deepNestedObject(depth) {
+  let root = {};
+  let current = root;
   for (let i = 0; i < depth; i += 1) {
-    node.next = { index: i };
-    node = node.next;
+    current.next = {};
+    current = current.next;
   }
+  current.value = "leaf";
   return root;
-};
+}
+
+function makeEventBus(overrides = {}) {
+  const eventBus = {
+    emit: vi.fn(),
+    enableBackpressure: vi.fn(),
+    _backpressure: {},
+    ...overrides,
+  };
+  return eventBus;
+}
+
+function makeAiApiService(overrides = {}) {
+  return {
+    chat: vi.fn(async () => ({})),
+    circuitBreakerRegistry: { get: vi.fn(() => null) },
+    ...overrides,
+  };
+}
+
+function makeServices(overrides = {}) {
+  const controller = new AbortController();
+  const eventBus = makeEventBus();
+  return {
+    signal: controller.signal,
+    eventBus,
+    emit: vi.fn(),
+    aiApiService: makeAiApiService(),
+    container: {
+      get: vi.fn(),
+      tryGet: vi.fn(),
+    },
+    retryStrategy: {
+      execute: vi.fn(async (fn) => fn()),
+    },
+    errorBoundary: {
+      wrap: (fn) => fn,
+    },
+    toolQuotaManager: {
+      tryCall: vi.fn(async (_tool, fn) => fn()),
+    },
+    messageBus: {
+      request: vi.fn(async () => ({})),
+      handle: vi.fn(),
+    },
+    vfs: { files: Object.create(null) },
+    traceparent: "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
+    ...overrides,
+  };
+}
+
+async function toSettled(promiseOrValue) {
+  try {
+    const value = await promiseOrValue;
+    return { status: "fulfilled", value };
+  } catch (err) {
+    return { status: "rejected", reason: err };
+  }
+}
+
+function pickMainFactoryExportName(functionExportNames) {
+  if (functionExportNames.includes("createStageApiFactory")) return "createStageApiFactory";
+  const byName = functionExportNames.find((name) =>
+    /stage.*api.*factory/i.test(name),
+  );
+  if (byName) return byName;
+  const byCreate = functionExportNames.find((name) => /create.*stage.*api/i.test(name));
+  if (byCreate) return byCreate;
+  return functionExportNames[0] ?? null;
+}
+
+async function inferInvoker(factoryFn, createStageApiMock) {
+  const stageName = "deepsearch";
+  const baseServices = makeServices({
+    emit: undefined,
+    eventBusBackpressure: undefined,
+    backpressure: undefined,
+  });
+
+  const errors = [];
+
+  for (const entry of ENTRY_PATTERNS) {
+    createStageApiMock.mockClear();
+
+    const first = await toSettled(entry.call(factoryFn, stageName, baseServices));
+    if (createStageApiMock.mock.calls.length > 0) {
+      return {
+        kind: "direct",
+        entry: entry.id,
+        invoke: (stage, services) => entry.call(factoryFn, stage, services),
+      };
+    }
+
+    if (first.status === "rejected") {
+      errors.push({ phase: "entry", pattern: entry.id, error: String(first.reason) });
+      continue;
+    }
+
+    const intermediate = first.value;
+
+    if (typeof intermediate === "function") {
+      for (const second of SECOND_PATTERNS) {
+        createStageApiMock.mockClear();
+        const secondResult = await toSettled(
+          second.call(intermediate, stageName, baseServices),
+        );
+        if (createStageApiMock.mock.calls.length > 0) {
+          return {
+            kind: "two_step_fn",
+            entry: entry.id,
+            second: second.id,
+            invoke: (stage, services) => {
+              const next = entry.call(factoryFn, stage, services);
+              return Promise.resolve(next).then((val) => second.call(val, stage, services));
+            },
+          };
+        }
+        if (secondResult.status === "rejected") {
+          errors.push({
+            phase: "second_fn",
+            entry: entry.id,
+            second: second.id,
+            error: String(secondResult.reason),
+          });
+        }
+      }
+    }
+
+    if (intermediate && typeof intermediate === "object") {
+      const methods = OBJECT_METHOD_CANDIDATES.filter(
+        (name) => typeof intermediate[name] === "function",
+      );
+
+      for (const methodName of methods) {
+        for (const second of SECOND_PATTERNS) {
+          createStageApiMock.mockClear();
+          const secondResult = await toSettled(
+            second.call(intermediate[methodName].bind(intermediate), stageName, baseServices),
+          );
+          if (createStageApiMock.mock.calls.length > 0) {
+            return {
+              kind: "two_step_obj_method",
+              entry: entry.id,
+              method: methodName,
+              second: second.id,
+              invoke: (stage, services) => {
+                const objOrPromise = entry.call(factoryFn, stage, services);
+                return Promise.resolve(objOrPromise).then((obj) => {
+                  const bound = obj[methodName].bind(obj);
+                  return second.call(bound, stage, services);
+                });
+              },
+            };
+          }
+          if (secondResult.status === "rejected") {
+            errors.push({
+              phase: "second_obj",
+              entry: entry.id,
+              method: methodName,
+              second: second.id,
+              error: String(secondResult.reason),
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const err = new Error(
+    "Unable to infer how to invoke the StageApi factory export with mocked dependencies.",
+  );
+  err.cause = errors;
+  throw err;
+}
+
+async function loadFactory(exportName) {
+  vi.resetModules();
+
+  const [mod, shared, fsAdapterMod, vfsGlobMod, telemetryMod, retryMod, errorBoundaryMod] =
+    await Promise.all([
+      import(STAGE_API_FACTORY_PATH),
+      import(SHARED_INDEX_PATH),
+      import(FS_ADAPTER_PATH),
+      import(VFS_GLOB_PATH),
+      import(TELEMETRY_PATH),
+      import(RETRY_STRATEGY_PATH),
+      import(ERROR_BOUNDARY_PATH),
+    ]);
+
+  const factory = mod[exportName];
+  if (typeof factory !== "function") {
+    throw new Error(`Expected export "${exportName}" to be a function.`);
+  }
+
+  shared.createStageApi.mockImplementation((opts) => ({ __stageApi: true, opts }));
+
+  const invokerInfo = await inferInvoker(factory, shared.createStageApi);
+
+  shared.createStageApi.mockClear();
+  fsAdapterMod.createFsAdapterFromVfs.mockClear();
+  vfsGlobMod.createVfsGlobFn.mockClear();
+  telemetryMod.getGlobalTokenTracker.mockClear();
+  telemetryMod.TraceContext.mockClear();
+  retryMod.withRetry.mockClear();
+  errorBoundaryMod.getErrorBoundary.mockClear();
+
+  return {
+    mod,
+    shared,
+    fsAdapterMod,
+    vfsGlobMod,
+    telemetryMod,
+    retryMod,
+    errorBoundaryMod,
+    factory,
+    invokerInfo,
+    invoke: (stageName, services) => invokerInfo.invoke(stageName, services),
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
-  createStageApiMock.mockImplementation((config) => ({ ...config }));
-  createFsAdapterFromVfsMock.mockImplementation(() => null);
-  createVfsGlobFnMock.mockImplementation(() => null);
-  isPlainObjectMock.mockImplementation(
-    (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
-  );
-  toNonNegativeIntMock.mockImplementation((value, fallback) => {
-    const n = Number(value);
-    return Number.isFinite(n) && n >= 0 ? n : fallback;
-  });
-  getGlobalTokenTrackerMock.mockImplementation(() => mockTokenTracker);
-  withRetryMock.mockImplementation(async (fn) => fn());
-  getErrorBoundaryMock.mockImplementation(() => ({ wrap: vi.fn((fn) => fn()) }));
-  ToolQuotaManagerMock.mockImplementation(function (opts) {
-    this.opts = opts;
-    this.tryCall = vi.fn(async (_tool, fn) => fn());
-  });
-  CircuitBreakerRegistryMock.mockImplementation(function () {
-    this.get = vi.fn(() => null);
-  });
-  TraceContextMock.parseTraceparent.mockImplementation(() => null);
-  MessageBusMock.mockImplementation(function (eventBus) {
-    this.eventBus = eventBus;
-    this.request = vi.fn(async () => undefined);
-    this.handle = vi.fn();
-  });
 });
 
-describe('StageApiFactory', () => {
-  it('resolves services from container and uses eventBus emit', () => {
-    const traceContext = {
-      startSpan: vi.fn(),
-      endSpan: vi.fn(),
-      withSpan: vi.fn(),
-      getTraceparent: vi.fn(),
-    };
-    const retryStrategy = { execute: vi.fn(async (fn) => fn()) };
-    const errorBoundary = { wrap: vi.fn((fn) => fn()) };
-    const toolQuotaManager = { tryCall: vi.fn(async (_tool, fn) => fn()) };
-    const messageBus = { request: vi.fn(), handle: vi.fn() };
-    const container = {
-      tryGet: vi.fn((key) => ({
-        traceContext,
-        retryStrategy,
-        errorBoundary,
-        toolQuotaManager,
-        messageBus,
-      })[key]),
-    };
-    const eventBus = { emit: vi.fn() };
+const discovered = await import(STAGE_API_FACTORY_PATH);
+const functionExportNames = Object.entries(discovered)
+  .filter(([, value]) => typeof value === "function")
+  .map(([name]) => name);
 
-    const factory = new StageApiFactory({ eventBus, container });
+const mainFactoryExportName = pickMainFactoryExportName(functionExportNames);
 
-    expect(factory.services.traceContext).toBe(traceContext);
-    expect(factory.services.retryStrategy).toBe(retryStrategy);
-    expect(factory.services.errorBoundary).toBe(errorBoundary);
-    expect(factory.services.toolQuotaManager).toBe(toolQuotaManager);
-    expect(factory.services.messageBus).toBe(messageBus);
-    expect(factory.baseConfig.emit).toBe(eventBus.emit);
-    expect(factory.baseConfig.signal).toBeNull();
-    expect(ToolQuotaManagerMock).not.toHaveBeenCalled();
-    expect(CircuitBreakerRegistryMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('falls back to default toolQuotaManager and errorBoundary', () => {
-    const eventBus = { emit: vi.fn() };
-    const factory = new StageApiFactory({ eventBus });
-
-    expect(getErrorBoundaryMock).toHaveBeenCalledTimes(1);
-    expect(ToolQuotaManagerMock).toHaveBeenCalledTimes(1);
-    const opts = ToolQuotaManagerMock.mock.calls[0][0];
-    expect(opts.defaultMaxCalls).toBe(100);
-    expect(opts.defaultWindowMs).toBe(60_000);
-    expect(opts.quotas.search.maxCalls).toBe(10);
-    expect(MessageBusMock).toHaveBeenCalledWith(eventBus);
-    expect(factory.services.messageBus).toBe(MessageBusMock.mock.instances[0]);
-  });
-
-  it('logs and continues when container.get throws', () => {
-    const container = {
-      get: vi.fn(() => {
-        throw new Error('boom');
-      }),
-    };
-
-    const factory = new StageApiFactory({ container });
-
-    expect(mockLogger.debug).toHaveBeenCalled();
-    expect(factory.services.traceContext).toBeInstanceOf(TraceContextMock);
-  });
-
-  it('handles MessageBus construction failure', () => {
-    MessageBusMock.mockImplementationOnce(function () {
-      throw new Error('bus-failure');
-    });
-    const eventBus = { emit: vi.fn() };
-
-    const factory = new StageApiFactory({ eventBus });
-
-    expect(factory.services.messageBus).toBeNull();
-    expect(mockLogger.debug).toHaveBeenCalledWith(
-      expect.stringContaining('resolveMessageBus'),
-      expect.any(Error)
-    );
-  });
-
-  it('uses parsed traceparent when available', () => {
-    TraceContextMock.parseTraceparent.mockReturnValueOnce({
-      traceId: 'trace-id',
-      spanId: 'span-id',
-    });
-
-    const factory = new StageApiFactory({ traceparent: '  traceparent  ' });
-
-    expect(TraceContextMock.parseTraceparent).toHaveBeenCalledWith('traceparent');
-    expect(factory.services.traceContext.opts).toEqual({
-      traceId: 'trace-id',
-      parentSpanId: 'span-id',
+if (!mainFactoryExportName) {
+  describe("stage-api-factory module", () => {
+    it("exports at least one function", () => {
+      expect(functionExportNames.length).toBeGreaterThan(0);
     });
   });
+} else {
+  for (const exportName of functionExportNames) {
+    if (exportName !== mainFactoryExportName) {
+      describe(exportName, () => {
+        it("exports a callable function", async () => {
+          vi.resetModules();
+          const mod = await import(STAGE_API_FACTORY_PATH);
+          expect(typeof mod[exportName]).toBe("function");
+        });
+      });
+      continue;
+    }
 
-  it('ignores empty or whitespace traceparent', () => {
-    const factoryEmpty = new StageApiFactory({ traceparent: '' });
-    const factoryWhitespace = new StageApiFactory({ traceparent: '   ' });
+    describe(exportName, () => {
+      it("initializes module logger on import", async () => {
+        const { shared } = await loadFactory(exportName);
+        expect(shared.createLogger).toHaveBeenCalledTimes(1);
+        expect(shared.createLogger).toHaveBeenCalledWith("runtime/api/stage-api-factory");
+      });
 
-    expect(TraceContextMock.parseTraceparent).not.toHaveBeenCalled();
-    expect(factoryEmpty.services.traceContext).toBeInstanceOf(TraceContextMock);
-    expect(factoryWhitespace.services.traceContext).toBeInstanceOf(TraceContextMock);
-  });
+      it("creates a stage api (happy path) and wires emit/backpressure/vfs adapters", async () => {
+        const { invoke, shared, fsAdapterMod, vfsGlobMod } = await loadFactory(exportName);
 
-  it('merges overrides, filters undefined/null, and configures backpressure', () => {
-    const eventBus = { emit: vi.fn(), enableBackpressure: vi.fn() };
-    const baseSignal = new AbortController().signal;
-    const factory = new StageApiFactory({
-      signal: baseSignal,
-      eventBus,
-      eventBusBackpressure: { maxQueueSize: 5 },
+        const eventBus = makeEventBus({ _backpressure: { enabled: false } });
+        const vfs = { files: { "big.txt": "x".repeat(500_000) } };
+
+        const stageApi = await invoke(
+          "deepsearch",
+          makeServices({
+            eventBus,
+            emit: undefined,
+            vfs,
+            eventBusBackpressure: undefined,
+          }),
+        );
+
+        expect(stageApi).toEqual(expect.objectContaining({ __stageApi: true }));
+        expect(shared.createStageApi).toHaveBeenCalledTimes(1);
+
+        const firstArg = shared.createStageApi.mock.calls[0]?.[0];
+        expect(firstArg).toEqual(expect.any(Object));
+        expect(typeof firstArg.emit).toBe("function");
+
+        firstArg.emit("foo.progress", { step: 1 });
+        expect(eventBus.emit).toHaveBeenCalledWith("foo.progress", { step: 1 });
+
+        expect(eventBus.enableBackpressure).toHaveBeenCalledTimes(1);
+        const [bpConfig] = eventBus.enableBackpressure.mock.calls[0];
+        expect(bpConfig).toEqual(expect.any(Object));
+        expect(bpConfig.maxQueueSize).toBe(10000);
+        expect(bpConfig.deferNonCoalesced).toBe(false);
+        expect(bpConfig.coalescePattern).toBeInstanceOf(RegExp);
+        expect(bpConfig.coalescePattern.test("x.progress")).toBe(true);
+        expect(bpConfig.coalescePattern.test("x.other")).toBe(false);
+
+        expect(fsAdapterMod.createFsAdapterFromVfs).toHaveBeenCalledTimes(1);
+        expect(fsAdapterMod.createFsAdapterFromVfs).toHaveBeenCalledWith(vfs);
+
+        expect(vfsGlobMod.createVfsGlobFn).toHaveBeenCalledTimes(1);
+        expect(vfsGlobMod.createVfsGlobFn).toHaveBeenCalledWith(vfs);
+      });
+
+      it("prefers explicit emit over eventBus.emit", async () => {
+        const { invoke, shared } = await loadFactory(exportName);
+
+        const eventBus = makeEventBus();
+        const explicitEmit = vi.fn();
+
+        await invoke(
+          "deepsearch",
+          makeServices({
+            eventBus,
+            emit: explicitEmit,
+          }),
+        );
+
+        const firstArg = shared.createStageApi.mock.calls[0]?.[0];
+        expect(firstArg).toEqual(expect.any(Object));
+        expect(typeof firstArg.emit).toBe("function");
+
+        firstArg.emit("evt", { ok: true });
+        expect(explicitEmit).toHaveBeenCalledWith("evt", { ok: true });
+        expect(eventBus.emit).not.toHaveBeenCalled();
+      });
+
+      it("accepts signal = null (explicit) but rejects missing signal", async () => {
+        const { invoke } = await loadFactory(exportName);
+
+        await expect(
+          Promise.resolve().then(() =>
+            invoke(
+              "deepsearch",
+              makeServices({
+                signal: null,
+              }),
+            ),
+          ),
+        ).resolves.toBeDefined();
+
+        const servicesMissingSignal = makeServices();
+        delete servicesMissingSignal.signal;
+
+        await expect(
+          Promise.resolve().then(() => invoke("deepsearch", servicesMissingSignal)),
+        ).rejects.toThrow();
+      });
+
+      it("enforces required fields: missing emit+eventBus rejects", async () => {
+        const { invoke } = await loadFactory(exportName);
+
+        const services = makeServices({
+          emit: undefined,
+          eventBus: undefined,
+        });
+
+        await expect(
+          Promise.resolve().then(() => invoke("deepsearch", services)),
+        ).rejects.toThrow();
+      });
+
+      it("enforces deepsearch/design requiring aiApiService, but can source from container", async () => {
+        const { invoke } = await loadFactory(exportName);
+
+        const servicesMissingAi = makeServices({ aiApiService: undefined });
+        servicesMissingAi.container.tryGet.mockReturnValue(undefined);
+
+        await expect(
+          Promise.resolve().then(() => invoke("deepsearch", servicesMissingAi)),
+        ).rejects.toThrow();
+
+        const servicesFromContainer = makeServices({ aiApiService: undefined });
+        const aiApiFromContainer = makeAiApiService();
+        servicesFromContainer.container.tryGet.mockImplementation((key) => {
+          if (key === "aiApiService") return aiApiFromContainer;
+          return undefined;
+        });
+
+        await expect(
+          Promise.resolve().then(() => invoke("deepsearch", servicesFromContainer)),
+        ).resolves.toBeDefined();
+
+        await expect(
+          Promise.resolve().then(() => invoke("design", servicesFromContainer)),
+        ).resolves.toBeDefined();
+      });
+
+      it("supports backpressure alias and can disable backpressure (false)", async () => {
+        const { invoke } = await loadFactory(exportName);
+
+        const eventBus1 = makeEventBus({ _backpressure: { enabled: false } });
+        await invoke(
+          "deepsearch",
+          makeServices({
+            eventBus: eventBus1,
+            eventBusBackpressure: false,
+          }),
+        );
+        expect(eventBus1.enableBackpressure).not.toHaveBeenCalled();
+
+        const eventBus2 = makeEventBus({ _backpressure: { enabled: false } });
+        await invoke(
+          "deepsearch",
+          makeServices({
+            eventBus: eventBus2,
+            backpressure: false,
+          }),
+        );
+        expect(eventBus2.enableBackpressure).not.toHaveBeenCalled();
+      });
+
+      it("handles type boundaries for backpressure config (array) and numeric coercion", async () => {
+        const { invoke, shared } = await loadFactory(exportName);
+
+        const eventBus = makeEventBus({ _backpressure: { enabled: false } });
+
+        shared.isPlainObject.mockReturnValueOnce(false);
+        await invoke(
+          "deepsearch",
+          makeServices({
+            eventBus,
+            eventBusBackpressure: [],
+          }),
+        );
+
+        expect(shared.isPlainObject).toHaveBeenCalled();
+        expect(eventBus.enableBackpressure).toHaveBeenCalledTimes(1);
+
+        eventBus.enableBackpressure.mockClear();
+        shared.toNonNegativeInt.mockClear();
+
+        const eventBus2 = makeEventBus({ _backpressure: { enabled: false } });
+        shared.toNonNegativeInt.mockReturnValueOnce(0);
+
+        await invoke(
+          "deepsearch",
+          makeServices({
+            eventBus: eventBus2,
+            eventBusBackpressure: { maxQueueSize: "-1" },
+          }),
+        );
+
+        expect(shared.toNonNegativeInt).toHaveBeenCalledWith("-1");
+        const [cfg] = eventBus2.enableBackpressure.mock.calls[0];
+        expect(cfg.maxQueueSize).toBe(0);
+
+        eventBus2.enableBackpressure.mockClear();
+        shared.toNonNegativeInt.mockClear();
+
+        const eventBus3 = makeEventBus({ _backpressure: { enabled: false } });
+        shared.toNonNegativeInt.mockReturnValueOnce(Number.MAX_SAFE_INTEGER);
+
+        await invoke(
+          "deepsearch",
+          makeServices({
+            eventBus: eventBus3,
+            eventBusBackpressure: { maxQueueSize: Number.MAX_SAFE_INTEGER },
+          }),
+        );
+
+        expect(shared.toNonNegativeInt).toHaveBeenCalledWith(Number.MAX_SAFE_INTEGER);
+        const [cfg3] = eventBus3.enableBackpressure.mock.calls[0];
+        expect(cfg3.maxQueueSize).toBe(Number.MAX_SAFE_INTEGER);
+      });
+
+      it("propagates createStageApi errors", async () => {
+        const { invoke, shared } = await loadFactory(exportName);
+
+        shared.createStageApi.mockImplementationOnce(() => {
+          throw new Error("boom");
+        });
+
+        await expect(
+          Promise.resolve().then(() => invoke("deepsearch", makeServices())),
+        ).rejects.toThrow("boom");
+      });
+
+      it("handles empty/whitespace stage name without relying on order", async () => {
+        const { invoke, shared } = await loadFactory(exportName);
+
+        await expect(
+          Promise.resolve().then(() => invoke("", makeServices())),
+        ).resolves.toBeDefined();
+        await expect(
+          Promise.resolve().then(() => invoke("   ", makeServices())),
+        ).resolves.toBeDefined();
+
+        expect(shared.createStageApi).toHaveBeenCalled();
+      });
+
+      it("supports concurrent and rapid successive creation (no shared-state coupling)", async () => {
+        const { invoke, shared } = await loadFactory(exportName);
+
+        const eventBusA = makeEventBus({ _backpressure: { enabled: false } });
+        const eventBusB = makeEventBus({ _backpressure: { enabled: false } });
+
+        const [a, b] = await Promise.all([
+          invoke(
+            "deepsearch",
+            makeServices({
+              eventBus: eventBusA,
+              emit: undefined,
+            }),
+          ),
+          invoke(
+            "deepsearch",
+            makeServices({
+              eventBus: eventBusB,
+              emit: undefined,
+            }),
+          ),
+        ]);
+
+        expect(a).toBeDefined();
+        expect(b).toBeDefined();
+        expect(shared.createStageApi).toHaveBeenCalledTimes(2);
+
+        const rapid = [];
+        for (let i = 0; i < 5; i += 1) {
+          rapid.push(
+            invoke(
+              "deepsearch",
+              makeServices({
+                eventBus: makeEventBus({ _backpressure: { enabled: false } }),
+                emit: undefined,
+              }),
+            ),
+          );
+        }
+        await Promise.all(rapid);
+        expect(shared.createStageApi.mock.calls.length).toBe(2 + 5);
+      });
+
+      it("accepts large strings and deep nested objects (resource boundaries)", async () => {
+        const { invoke, shared } = await loadFactory(exportName);
+
+        const longTrace = "t".repeat(100_000);
+        const nested = deepNestedObject(200);
+
+        await expect(
+          Promise.resolve().then(() =>
+            invoke(
+              "deepsearch",
+              makeServices({
+                traceparent: longTrace,
+                policy: nested,
+                runtimeScheduler: nested,
+              }),
+            ),
+          ),
+        ).resolves.toBeDefined();
+
+        expect(shared.createStageApi).toHaveBeenCalledTimes(1);
+      });
     });
-    const overrides = {
-      emit: undefined,
-      nullValue: null,
-      emptyString: '',
-      whitespace: '   ',
-      zero: 0,
-      emptyObj: {},
-      emptyArray: [],
-      custom: 'value',
-    };
-
-    factory.createBaseApi(overrides);
-
-    const call = createStageApiMock.mock.calls[0][0];
-    expect(call.signal).toBe(baseSignal);
-    expect(call.emit).toBe(eventBus.emit);
-    expect(call.custom).toBe('value');
-    expect(call.emptyString).toBe('');
-    expect(call.whitespace).toBe('   ');
-    expect(call.zero).toBe(0);
-    expect(call.emptyObj).toBe(overrides.emptyObj);
-    expect(call.emptyArray).toBe(overrides.emptyArray);
-    expect('nullValue' in call).toBe(false);
-    expect(eventBus.enableBackpressure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        maxQueueSize: 5,
-        deferNonCoalesced: false,
-        coalescePattern: expect.any(RegExp),
-      })
-    );
-    expect(isPlainObjectMock).toHaveBeenCalledWith({ maxQueueSize: 5 });
-  });
-
-  it('falls back to default backpressure config for invalid config', () => {
-    const eventBus = { emit: vi.fn(), enableBackpressure: vi.fn() };
-    const factory = new StageApiFactory({ eventBus, eventBusBackpressure: 'not-an-object' });
-
-    factory.createBaseApi();
-
-    expect(isPlainObjectMock).toHaveBeenCalledWith('not-an-object');
-    expect(eventBus.enableBackpressure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        maxQueueSize: 10000,
-        deferNonCoalesced: false,
-        coalescePattern: expect.any(RegExp),
-      })
-    );
-  });
-
-  it('handles null and empty-array overrides', () => {
-    const eventBus = { emit: vi.fn() };
-    const factory = new StageApiFactory({ eventBus });
-
-    factory.createBaseApi(null);
-    factory.createBaseApi([]);
-
-    expect(createStageApiMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('ignores non-object override types (string) without throwing', () => {
-    const eventBus = { emit: vi.fn() };
-    const factory = new StageApiFactory({ eventBus });
-
-    expect(() => factory.createBaseApi('oops')).not.toThrow();
-    expect(createStageApiMock).toHaveBeenCalledTimes(1);
-    expect(createStageApiMock.mock.calls[0][0]).toEqual(
-      expect.objectContaining({
-        eventBus,
-        emit: eventBus.emit,
-      })
-    );
-  });
-
-  it('skips backpressure when disabled', () => {
-    const eventBus = { emit: vi.fn(), enableBackpressure: vi.fn() };
-    const factory = new StageApiFactory({ eventBus, eventBusBackpressure: false });
-
-    factory.createBaseApi();
-
-    expect(eventBus.enableBackpressure).not.toHaveBeenCalled();
-  });
-
-  it('does not override pre-configured backpressure', () => {
-    const eventBus = { emit: vi.fn(), enableBackpressure: vi.fn(), _backpressure: { enabled: true } };
-    const factory = new StageApiFactory({ eventBus, eventBusBackpressure: { maxQueueSize: 1 } });
-
-    factory.createBaseApi();
-
-    expect(eventBus.enableBackpressure).not.toHaveBeenCalled();
-  });
-
-  it('logs and continues when enableBackpressure throws', () => {
-    const eventBus = {
-      emit: vi.fn(),
-      enableBackpressure: vi.fn(() => {
-        throw new Error('bp-failure');
-      }),
-    };
-    const factory = new StageApiFactory({ eventBus, eventBusBackpressure: { maxQueueSize: 1 } });
-
-    expect(() => factory.createBaseApi()).not.toThrow();
-    expect(mockLogger.debug).toHaveBeenCalledWith(
-      expect.stringContaining('ensureEventBusBackpressure'),
-      expect.any(Error)
-    );
-  });
-
-  it('derives fs and globFn from vfs when missing', () => {
-    const vfs = { id: 1 };
-    const fsAdapter = { readFile: vi.fn() };
-    const globFn = vi.fn();
-    createFsAdapterFromVfsMock.mockReturnValueOnce(fsAdapter);
-    createVfsGlobFnMock.mockReturnValueOnce(globFn);
-
-    const factory = new StageApiFactory({ vfs, eventBus: { emit: vi.fn() } });
-    const api = factory.createBaseApi();
-
-    expect(createFsAdapterFromVfsMock).toHaveBeenCalledWith(vfs);
-    expect(createVfsGlobFnMock).toHaveBeenCalledWith(vfs);
-    expect(api.fs).toBe(fsAdapter);
-    expect(api.globFn).toBe(globFn);
-  });
-
-  it('does not override existing fs or globFn', () => {
-    createStageApiMock.mockImplementationOnce((config) => ({
-      ...config,
-      vfs: { id: 1 },
-      fs: 'existing',
-      globFn: 'existingGlob',
-    }));
-    const factory = new StageApiFactory({ vfs: { id: 1 }, eventBus: { emit: vi.fn() } });
-    const api = factory.createBaseApi();
-
-    expect(createFsAdapterFromVfsMock).not.toHaveBeenCalled();
-    expect(createVfsGlobFnMock).not.toHaveBeenCalled();
-    expect(api.fs).toBe('existing');
-    expect(api.globFn).toBe('existingGlob');
-  });
-
-  it('wraps aiApiService with token tracking and circuit breaker, supports concurrency', async () => {
-    const breakerExecute = vi.fn(async (fn) => fn());
-    const breakerRegistry = { get: vi.fn(() => ({ execute: breakerExecute })) };
-    const resp1 = {
-      model: 'm1',
-      provider: 'p1',
-      usage: { promptTokens: Number.MAX_SAFE_INTEGER, completionTokens: '7' },
-    };
-    const resp2 = { usage: { prompt_tokens: -1, completion_tokens: 0 } };
-    const resp3 = { usage: { input: { value: 1 }, output: [] } };
-    const originalChat = vi
-      .fn()
-      .mockResolvedValueOnce(resp1)
-      .mockResolvedValueOnce(resp2)
-      .mockResolvedValueOnce(resp3);
-    const aiApiService = { chat: originalChat };
-    const factory = new StageApiFactory({
-      aiApiService,
-      circuitBreakerRegistry: breakerRegistry,
-      eventBus: { emit: vi.fn() },
-    });
-    const api = factory.createBaseApi();
-
-    const [r1, r2] = await Promise.all([
-      api.aiApiService.chat({ usage: 'u1', model: 'm1' }),
-      api.aiApiService.chat({ usage: 'u2', model: 'm2' }),
-    ]);
-    const r3 = await api.aiApiService.chat({ usage: 'u3', model: 'm3' });
-
-    expect(r1).toBe(resp1);
-    expect(r2).toBe(resp2);
-    expect(r3).toBe(resp3);
-    expect(aiApiService.circuitBreakerRegistry).toBe(breakerRegistry);
-    expect(breakerRegistry.get).toHaveBeenCalledWith(
-      'aiApiService:chat:u1:m1',
-      expect.any(Object)
-    );
-    expect(breakerRegistry.get).toHaveBeenCalledWith(
-      'aiApiService:chat:u2:m2',
-      expect.any(Object)
-    );
-    expect(breakerExecute).toHaveBeenCalledTimes(3);
-    expect(withRetryMock).toHaveBeenCalledTimes(3);
-    expect(mockTokenTracker.record).toHaveBeenCalledTimes(3);
-
-    const tokenArgs = toNonNegativeIntMock.mock.calls.map((call) => call[0]);
-    expect(tokenArgs).toContain(Number.MAX_SAFE_INTEGER);
-    expect(tokenArgs).toContain('7');
-    expect(tokenArgs).toContain(-1);
-    expect(tokenArgs).toContain(0);
-    expect(tokenArgs.some((arg) => Array.isArray(arg))).toBe(true);
-    expect(tokenArgs.some((arg) => arg && typeof arg === 'object' && !Array.isArray(arg))).toBe(
-      true
-    );
-  });
-
-  it('records token tracking failure and rethrows', async () => {
-    const error = new Error('boom');
-    const aiApiService = { chat: vi.fn().mockRejectedValue(error) };
-    const factory = new StageApiFactory({ aiApiService, eventBus: { emit: vi.fn() } });
-    const api = factory.createBaseApi();
-
-    await expect(api.aiApiService.chat({ usage: 'fail', model: 'm1' })).rejects.toThrow('boom');
-
-    expect(mockTokenTracker.record).toHaveBeenCalledWith(
-      expect.objectContaining({ success: false, error: 'boom' })
-    );
-  });
-
-  it('does not fail when token tracker throws (success + failure)', async () => {
-    mockTokenTracker.record.mockImplementationOnce(() => {
-      throw new Error('tracker-down');
-    });
-
-    const aiApiServiceOk = { chat: vi.fn().mockResolvedValue({ usage: { promptTokens: '7', completionTokens: 0 } }) };
-    const factoryOk = new StageApiFactory({ aiApiService: aiApiServiceOk, eventBus: { emit: vi.fn() } });
-    const apiOk = factoryOk.createBaseApi();
-
-    await expect(apiOk.aiApiService.chat({ usage: 'u', model: 'm' })).resolves.toEqual(
-      expect.objectContaining({ usage: expect.any(Object) })
-    );
-    expect(mockLogger.debug).toHaveBeenCalledWith(
-      expect.stringContaining('recordTokenTrackingSuccess'),
-      expect.any(Error)
-    );
-
-    mockTokenTracker.record.mockImplementationOnce(() => {
-      throw new Error('tracker-still-down');
-    });
-    const error = new Error('boom');
-    const aiApiServiceFail = { chat: vi.fn().mockRejectedValue(error) };
-    const factoryFail = new StageApiFactory({ aiApiService: aiApiServiceFail, eventBus: { emit: vi.fn() } });
-    const apiFail = factoryFail.createBaseApi();
-
-    await expect(apiFail.aiApiService.chat({ usage: 'u', model: 'm' })).rejects.toThrow('boom');
-    expect(mockLogger.debug).toHaveBeenCalledWith(
-      expect.stringContaining('recordTokenTrackingFailure'),
-      expect.any(Error)
-    );
-  });
-
-  it('uses retryStrategy for aiApiService and mcp clients', async () => {
-    const retryStrategy = { execute: vi.fn(async (fn) => fn()) };
-    const aiApiService = { chat: vi.fn().mockResolvedValue({ usage: {} }) };
-    const mcpClient = { callTool: vi.fn().mockResolvedValue('ok') };
-    const externalSearchProvider = { callTool: vi.fn().mockResolvedValue('ok2') };
-    const factory = new StageApiFactory({
-      aiApiService,
-      mcpClient,
-      externalSearchProvider,
-      retryStrategy,
-      eventBus: { emit: vi.fn() },
-    });
-    const api = factory.createBaseApi();
-    const signal = new AbortController().signal;
-
-    await api.aiApiService.chat({ signal });
-    await api.mcpClient.callTool('tool', {}, { signal });
-    await api.externalSearchProvider.callTool('search', {}, { signal });
-
-    expect(retryStrategy.execute).toHaveBeenCalledTimes(3);
-    expect(retryStrategy.execute).toHaveBeenCalledWith(expect.any(Function), { signal });
-    expect(withRetryMock).not.toHaveBeenCalled();
-  });
-
-  it('falls back to withRetry for mcpClient without retryStrategy', async () => {
-    const mcpClient = { callTool: vi.fn().mockResolvedValue('ok') };
-    const factory = new StageApiFactory({ mcpClient, eventBus: { emit: vi.fn() } });
-    const api = factory.createBaseApi();
-
-    await api.mcpClient.callTool('tool', { a: 1 }, {});
-
-    expect(withRetryMock).toHaveBeenCalled();
-  });
-
-  it('handles rapid consecutive createBaseApi calls with large inputs', () => {
-    const eventBus = { emit: vi.fn() };
-    const factory = new StageApiFactory({ eventBus });
-    const hugeString = 'a'.repeat(200000);
-    const deepObject = buildDeepObject(50);
-
-    factory.createBaseApi({ archive: hugeString, policy: deepObject });
-    factory.createBaseApi({ archive: hugeString + 'b', policy: deepObject });
-
-    expect(createStageApiMock).toHaveBeenCalledTimes(2);
-    const firstCall = createStageApiMock.mock.calls[0][0];
-    expect(firstCall.archive).toBe(hugeString);
-    expect(firstCall.policy).toBe(deepObject);
-  });
-
-  it('createDeepSearchApi warns when required fields are missing', () => {
-    const eventBus = { emit: vi.fn() };
-    const factory = new StageApiFactory({ eventBus });
-
-    factory.createDeepSearchApi();
-
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('DeepSearch API missing fields')
-    );
-  });
-
-  it('createDeepSearchApi merges services and overrides', () => {
-    const eventBus = { emit: vi.fn() };
-    const aiApiService = { chat: vi.fn().mockResolvedValue({ usage: {} }) };
-    const factory = new StageApiFactory({
-      signal: new AbortController().signal,
-      eventBus,
-      aiApiService,
-      localRetriever: 'local',
-      externalSearchProvider: 'external',
-      storageAdapter: 'storage',
-      ocr: 'ocr',
-    });
-
-    factory.createDeepSearchApi({ localRetriever: 'override', ocr: 'override-ocr' });
-
-    const call = createStageApiMock.mock.calls[0][0];
-    expect(call.localRetriever).toBe('override');
-    expect(call.externalSearchProvider).toBe('external');
-    expect(call.storageAdapter).toBe('storage');
-    expect(call.ocr).toBe('override-ocr');
-    expect(mockLogger.warn).not.toHaveBeenCalled();
-  });
-
-  it('createDesignApi merges services and overrides', () => {
-    const eventBus = { emit: vi.fn() };
-    const aiApiService = { chat: vi.fn().mockResolvedValue({ usage: {} }) };
-    const factory = new StageApiFactory({
-      signal: new AbortController().signal,
-      eventBus,
-      aiApiService,
-      imageProvider: 'images',
-      svgGenerator: 'svg',
-      modelRouter: 'router',
-    });
-
-    factory.createDesignApi({ imageProvider: 'override-image' });
-
-    const call = createStageApiMock.mock.calls[0][0];
-    expect(call.imageProvider).toBe('override-image');
-    expect(call.svgGenerator).toBe('svg');
-    expect(call.modelRouter).toBe('router');
-  });
-
-  it('createTextPrepApi delegates to createBaseApi', () => {
-    const factory = new StageApiFactory({ eventBus: { emit: vi.fn() } });
-    const spy = vi.spyOn(factory, 'createBaseApi');
-    const overrides = { custom: 'x' };
-
-    factory.createTextPrepApi(overrides);
-
-    expect(spy).toHaveBeenCalledWith(overrides);
-  });
-
-  it('validate returns false and warns when fields are missing', () => {
-    const factory = new StageApiFactory({ eventBus: { emit: vi.fn() } });
-
-    const ok = factory.validate({ signal: null, emit: undefined }, ['signal', 'emit'], 'Test');
-
-    expect(ok).toBe(false);
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Test API missing fields')
-    );
-  });
-
-  it('validate returns true for zero and empty-string values', () => {
-    const factory = new StageApiFactory({ eventBus: { emit: vi.fn() } });
-
-    const ok = factory.validate({ signal: 0, emit: '' }, ['signal', 'emit'], 'Test');
-
-    expect(ok).toBe(true);
-    expect(mockLogger.warn).not.toHaveBeenCalled();
-  });
-
-  it('validate throws when requiredFields is not an array', () => {
-    const factory = new StageApiFactory({ eventBus: { emit: vi.fn() } });
-
-    expect(() => factory.validate({ signal: 1 }, { not: 'array' }, 'Test')).toThrow(TypeError);
-  });
-
-  it('fromWorkflowContext maps fields and imageService fallback', () => {
-    const ctx = {
-      signal: 'signal',
-      eventBus: { emit: vi.fn() },
-      traceContext: { startSpan: vi.fn(), endSpan: vi.fn(), withSpan: vi.fn(), getTraceparent: vi.fn() },
-      traceparent: 'traceparent',
-      container: { tryGet: vi.fn() },
-      aiApiService: 'ai',
-      modelRouter: 'router',
-      localRetriever: 'local',
-      externalSearchProvider: 'external',
-      mcpClient: 'mcp',
-      mcpResources: 'resources',
-      circuitBreakerRegistry: { get: vi.fn() },
-      storageAdapter: 'storage',
-      ocr: 'ocr',
-      imageService: 'image-service',
-      svgGenerator: 'svg',
-      archive: 'archive',
-      logger: 'logger',
-      vfs: 'vfs',
-      policy: 'policy',
-    };
-
-    const factory = StageApiFactory.fromWorkflowContext(ctx);
-
-    expect(factory.baseConfig.signal).toBe('signal');
-    expect(factory.baseConfig.emit).toBe(ctx.eventBus.emit);
-    expect(factory.services.aiApiService).toBe('ai');
-    expect(factory.services.imageProvider).toBe('image-service');
-    expect(factory.services.externalSearchProvider).toBe('external');
-    expect(factory.services.policy).toBe('policy');
-  });
-});
-
-describe('default export', () => {
-  it('exports StageApiFactory as default', () => {
-    expect(StageApiFactoryDefault).toBe(StageApiFactory);
-  });
-});
-
-describe('createStageApiFactory', () => {
-  it('creates a StageApiFactory instance', () => {
-    const factory = createStageApiFactory({ eventBus: { emit: vi.fn() } });
-
-    expect(factory).toBeInstanceOf(StageApiFactory);
-  });
-});
+  }
+}

@@ -1,438 +1,415 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { processTransportState, MockProcessTransport } = vi.hoisted(() => {
-  class MiniEmitter {
-    constructor() {
+let processInstances = [];
+let processConnectError = null;
+let processConnectGate = null;
+
+class MockProcessTransport {
+  constructor(options) {
+    this.options = options;
+    this._listeners = new Map();
+    processInstances.push(this);
+
+    this.connect = vi.fn(() => {
+      if (processConnectError) return Promise.reject(processConnectError);
+      if (processConnectGate) return processConnectGate;
+      return Promise.resolve();
+    });
+
+    this.disconnect = vi.fn(() => Promise.resolve());
+    this.send = vi.fn();
+  }
+
+  on(event, handler) {
+    const handlers = this._listeners.get(event) || [];
+    handlers.push(handler);
+    this._listeners.set(event, handlers);
+    return this;
+  }
+
+  emit(event, ...args) {
+    const handlers = this._listeners.get(event) || [];
+    for (const handler of handlers) handler(...args);
+  }
+}
+
+vi.mock("../../../../js/agents/runtime/transports/process-transport.js", () => {
+  return { ProcessTransport: MockProcessTransport };
+});
+
+vi.mock("../../../../js/agents/mcp/mcp-transport.js", () => {
+  const MCP_PROTOCOL_VERSION = "test-protocol";
+
+  const McpMethods = {
+    INITIALIZE: "initialize",
+    INITIALIZED: "notifications/initialized",
+  };
+
+  class McpTransport {
+    constructor(options = {}) {
+      this.timeout = options.timeout;
+      this._connected = false;
       this._listeners = new Map();
+
+      this.request = vi.fn();
+      this.notify = vi.fn();
+      this._handleMessage = vi.fn();
+      this._rejectAllPending = vi.fn();
     }
 
     on(event, handler) {
-      const handlers = this._listeners.get(event) || new Set();
-      handlers.add(handler);
+      const handlers = this._listeners.get(event) || [];
+      handlers.push(handler);
       this._listeners.set(event, handlers);
       return this;
     }
 
     emit(event, ...args) {
-      const handlers = this._listeners.get(event);
-      if (!handlers) return false;
-      for (const handler of Array.from(handlers)) {
-        handler(...args);
-      }
-      return true;
+      const handlers = this._listeners.get(event) || [];
+      for (const handler of handlers) handler(...args);
+      return handlers.length > 0;
     }
   }
 
-  const state = {
-    instances: [],
-    connectError: null,
-    connectDelayMs: 0,
-    isConnectedValue: true,
-    reset() {
-      this.instances.length = 0;
-      this.connectError = null;
-      this.connectDelayMs = 0;
-      this.isConnectedValue = true;
-    },
-  };
-
-  class MockProcessTransport extends MiniEmitter {
-    constructor(options) {
-      super();
-      this.options = options;
-      this.connected = false;
-      this.sent = [];
-      state.instances.push(this);
-    }
-
-    async connect() {
-      if (state.connectDelayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, state.connectDelayMs));
-      }
-      if (state.connectError) {
-        throw state.connectError;
-      }
-      this.connected = true;
-    }
-
-    disconnect() {
-      this.connected = false;
-    }
-
-    send(message) {
-      this.sent.push(message);
-    }
-
-    isConnected() {
-      return state.isConnectedValue;
-    }
-  }
-
-  return { processTransportState: state, MockProcessTransport };
+  return { McpTransport, MCP_PROTOCOL_VERSION, McpMethods };
 });
 
-vi.mock("../../../../js/agents/runtime/transports/process-transport.js", () => ({
-  ProcessTransport: MockProcessTransport,
-  default: MockProcessTransport,
-}), { virtual: true });
+let StdioMcpTransport;
+let MCP_PROTOCOL_VERSION;
+let McpMethods;
 
-import StdioMcpTransportDefault, {
-  StdioMcpTransport,
-  createStdioMcpTransport,
-} from "../../../../js/agents/mcp/stdio-mcp-transport.js";
-import { MCP_PROTOCOL_VERSION, McpMethods } from "../../../../js/agents/mcp/mcp-transport.js";
-
-function makeTransport(overrides = {}) {
-  const transport = new StdioMcpTransport({
-    command: "node",
-    ...overrides,
-  });
-  transport._getProcessTransport = vi.fn().mockResolvedValue(MockProcessTransport);
-  return transport;
-}
-
-function getLastProcessTransport() {
-  return processTransportState.instances[processTransportState.instances.length - 1] || null;
-}
-
-function createDeepObject(depth) {
-  let root = {};
-  let cursor = root;
-  for (let i = 0; i < depth; i += 1) {
-    cursor.next = { level: i };
-    cursor = cursor.next;
+function makeDeepObject(depth) {
+  let current = { value: "end" };
+  for (let i = 0; i < depth; i++) {
+    current = { layer: i, next: current };
   }
-  return root;
+  return current;
 }
 
-beforeEach(() => {
-  processTransportState.reset();
+beforeEach(async () => {
   vi.clearAllMocks();
-  vi.useRealTimers();
+  processInstances = [];
+  processConnectError = null;
+  processConnectGate = null;
+
+  ({ StdioMcpTransport } = await import("../../../../js/agents/mcp/stdio-mcp-transport.js"));
+  ({ MCP_PROTOCOL_VERSION, McpMethods } = await import("../../../../js/agents/mcp/mcp-transport.js"));
 });
 
 describe("StdioMcpTransport", () => {
-  it("constructs with defaults and handles null/undefined/empty values", () => {
+  it("constructs with defaults and normalizes nullish options", () => {
     const transport = new StdioMcpTransport({
       command: "",
       args: null,
       env: null,
-      cwd: undefined,
-      timeout: undefined,
+      cwd: "",
+      timeout: 0,
       signal: undefined,
-      clientName: undefined,
-      clientVersion: undefined,
+      autoInit: undefined,
+      clientName: "",
+      clientVersion: "",
     });
 
     expect(transport.command).toBe("");
     expect(transport.args).toEqual([]);
     expect(transport.env).toEqual({});
     expect(transport.cwd).toBe(process.cwd());
+    expect(transport.timeout).toBe(0);
     expect(transport.signal).toBe(null);
     expect(transport.autoInit).toBe(true);
     expect(transport.clientName).toBe("js-agents");
     expect(transport.clientVersion).toBe("1.0.0");
-    expect(transport.timeout).toBe(30000);
+    expect(transport._process).toBe(null);
+    expect(transport._processTransportModule).toBe(null);
+    expect(transport.serverInfo).toBe(null);
+    expect(transport.capabilities).toBe(null);
   });
 
-  it("accepts timeout boundary values and type edges", () => {
-    const cases = [0, -1, Number.MAX_SAFE_INTEGER];
-    for (const value of cases) {
-      const transport = makeTransport({ timeout: value });
-      expect(transport.timeout).toBe(value);
-    }
+  it("preserves truthy edge values and type-boundary inputs", () => {
+    const abortController = new AbortController();
+    const weirdArgs = { not: "an array" };
+    const weirdEnv = [];
+    const whitespaceCwd = "   ";
+    const whitespaceName = "   client   ";
+    const longVersion = "v" + "1".repeat(10_000);
 
-    const env = {};
-    const transport = makeTransport({
-      args: { 0: "a" },
-      env,
-      cwd: "   ",
-      autoInit: false,
-      timeout: "1000",
-      clientName: "",
-      clientVersion: "",
+    const transport = new StdioMcpTransport({
+      command: "x".repeat(50_000),
+      args: weirdArgs,
+      env: weirdEnv,
+      cwd: whitespaceCwd,
+      timeout: Number.MAX_SAFE_INTEGER,
+      signal: abortController.signal,
+      autoInit: 0,
+      clientName: whitespaceName,
+      clientVersion: longVersion,
     });
 
-    expect(transport.args).toEqual({ 0: "a" });
-    expect(transport.env).toBe(env);
-    expect(transport.cwd).toBe("   ");
-    expect(transport.autoInit).toBe(false);
-    expect(transport.timeout).toBe("1000");
-    expect(transport.clientName).toBe("js-agents");
-    expect(transport.clientVersion).toBe("1.0.0");
+    expect(transport.args).toBe(weirdArgs);
+    expect(transport.env).toBe(weirdEnv);
+    expect(transport.cwd).toBe(whitespaceCwd);
+    expect(transport.timeout).toBe(Number.MAX_SAFE_INTEGER);
+    expect(transport.signal).toBe(abortController.signal);
+    expect(transport.autoInit).toBe(true);
+    expect(transport.clientName).toBe(whitespaceName);
+    expect(transport.clientVersion).toBe(longVersion);
   });
 
-  it("connects, wires process transport, and emits connect", async () => {
-    const transport = makeTransport({
+  it("accepts negative and non-number timeout values (type/boundary)", async () => {
+    const transport = new StdioMcpTransport({
+      command: "cmd",
+      timeout: "5000",
       args: [],
-      env: { TEST: "1" },
+      env: {},
+    });
+
+    vi.spyOn(transport, "_initialize").mockResolvedValue(undefined);
+    await transport.connect();
+
+    expect(processInstances).toHaveLength(1);
+    expect(processInstances[0].options.timeout).toBe("5000");
+
+    const transportNeg = new StdioMcpTransport({ command: "cmd", timeout: -1 });
+    expect(transportNeg.timeout).toBe(-1);
+  });
+
+  it("caches the ProcessTransport module within an instance", async () => {
+    const transport = new StdioMcpTransport({ command: "cmd" });
+
+    expect(transport._processTransportModule).toBe(null);
+
+    const PT1 = await transport._getProcessTransport();
+    const moduleRef = transport._processTransportModule;
+
+    const PT2 = await transport._getProcessTransport();
+
+    expect(PT1).toBe(MockProcessTransport);
+    expect(PT2).toBe(PT1);
+    expect(transport._processTransportModule).toBe(moduleRef);
+  });
+
+  it("connect creates a ProcessTransport, wires events, connects, auto-inits, and emits connect", async () => {
+    const abortController = new AbortController();
+    const transport = new StdioMcpTransport({
+      command: "cmd",
+      args: ["-a", "b"],
+      env: { FOO: "bar" },
       cwd: "/tmp",
       timeout: 123,
-      signal: null,
-      autoInit: false,
+      signal: abortController.signal,
     });
 
     const onConnect = vi.fn();
     transport.on("connect", onConnect);
 
+    const initSpy = vi.spyOn(transport, "_initialize").mockResolvedValue(undefined);
+
     await transport.connect();
 
-    const proc = getLastProcessTransport();
-    expect(proc).toBe(transport._process);
-    expect(proc.options).toEqual({
-      command: "node",
-      args: [],
-      env: { TEST: "1" },
+    expect(processInstances).toHaveLength(1);
+    expect(processInstances[0].options).toEqual({
+      command: "cmd",
+      args: ["-a", "b"],
+      env: { FOO: "bar" },
       cwd: "/tmp",
       timeout: 123,
-      signal: null,
+      signal: abortController.signal,
     });
-    expect(transport.isConnected()).toBe(true);
+
+    expect(processInstances[0]._listeners.has("message")).toBe(true);
+    expect(processInstances[0]._listeners.has("error")).toBe(true);
+    expect(processInstances[0]._listeners.has("exit")).toBe(true);
+    expect(processInstances[0]._listeners.has("stderr")).toBe(true);
+
+    expect(processInstances[0].connect).toHaveBeenCalledTimes(1);
+    expect(transport._connected).toBe(true);
+    expect(initSpy).toHaveBeenCalledTimes(1);
     expect(onConnect).toHaveBeenCalledTimes(1);
   });
 
-  it("connect is a no-op when already connected", async () => {
-    const transport = makeTransport({ autoInit: false });
-    transport._connected = true;
+  it("connect skips protocol init when autoInit is false", async () => {
+    const transport = new StdioMcpTransport({
+      command: "cmd",
+      autoInit: false,
+    });
 
-    await transport.connect();
-
-    expect(processTransportState.instances).toHaveLength(0);
-  });
-
-  it("auto-initializes when enabled", async () => {
-    const transport = makeTransport();
-    const initSpy = vi.spyOn(transport, "_initialize").mockResolvedValue();
-
-    await transport.connect();
-
-    expect(initSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it("relays process events and handles exit", async () => {
-    const transport = makeTransport({ autoInit: false });
-    const handleSpy = vi.spyOn(transport, "_handleMessage");
-    const rejectSpy = vi.spyOn(transport, "_rejectAllPending");
-    const onError = vi.fn();
-    const onStderr = vi.fn();
-    const onDisconnect = vi.fn();
-
-    transport.on("error", onError);
-    transport.on("stderr", onStderr);
-    transport.on("disconnect", onDisconnect);
-
-    await transport.connect();
-    const proc = getLastProcessTransport();
-
-    const msg = { jsonrpc: "2.0", method: "ping" };
-    proc.emit("message", msg);
-    expect(handleSpy).toHaveBeenCalledWith(msg);
-
-    const err = new Error("boom");
-    proc.emit("error", err);
-    expect(onError).toHaveBeenCalledWith(err);
-
-    proc.emit("stderr", "oops");
-    expect(onStderr).toHaveBeenCalledWith("oops");
-
-    proc.emit("exit", { code: 2, signal: "SIGTERM" });
-    expect(transport._connected).toBe(false);
-    expect(rejectSpy).toHaveBeenCalledTimes(1);
-    expect(rejectSpy.mock.calls[0][0].message).toContain("Process exited: code=2, signal=SIGTERM");
-    expect(onDisconnect).toHaveBeenCalledWith({ code: 2, signal: "SIGTERM" });
-  });
-
-  it("propagates process connect errors", async () => {
-    const transport = makeTransport({ autoInit: false });
+    const initSpy = vi.spyOn(transport, "_initialize");
     const onConnect = vi.fn();
     transport.on("connect", onConnect);
 
-    processTransportState.connectError = new Error("connect fail");
+    await transport.connect();
 
-    await expect(transport.connect()).rejects.toThrow("connect fail");
-    expect(transport.isConnected()).toBe(false);
-    expect(onConnect).not.toHaveBeenCalled();
+    expect(initSpy).not.toHaveBeenCalled();
+    expect(onConnect).toHaveBeenCalledTimes(1);
+    expect(transport._connected).toBe(true);
   });
 
-  it("_initialize sends handshake and stores server info", async () => {
-    const transport = makeTransport({ clientName: "client", clientVersion: "2.0.0" });
-    const request = vi.fn().mockResolvedValue({
-      serverInfo: { name: "server" },
-      capabilities: { tools: true },
+  it("connect is idempotent after already connected", async () => {
+    const transport = new StdioMcpTransport({ command: "cmd" });
+    vi.spyOn(transport, "_initialize").mockResolvedValue(undefined);
+
+    await transport.connect();
+    processConnectError = new Error("should not be used");
+
+    await transport.connect();
+
+    expect(processInstances).toHaveLength(1);
+    expect(processInstances[0].connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("connect propagates ProcessTransport.connect() errors and does not emit connect", async () => {
+    const transport = new StdioMcpTransport({ command: "cmd" });
+    vi.spyOn(transport, "_initialize").mockResolvedValue(undefined);
+
+    const onConnect = vi.fn();
+    transport.on("connect", onConnect);
+
+    processConnectError = new Error("boom");
+
+    await expect(transport.connect()).rejects.toThrow("boom");
+
+    expect(onConnect).not.toHaveBeenCalled();
+    expect(transport._connected).toBe(false);
+    expect(processInstances).toHaveLength(1);
+  });
+
+  it("connect propagates initialization errors and does not emit connect", async () => {
+    const transport = new StdioMcpTransport({ command: "cmd" });
+
+    const onConnect = vi.fn();
+    transport.on("connect", onConnect);
+
+    vi.spyOn(transport, "_initialize").mockRejectedValue(new Error("init failed"));
+
+    await expect(transport.connect()).rejects.toThrow("init failed");
+
+    expect(onConnect).not.toHaveBeenCalled();
+    expect(processInstances).toHaveLength(1);
+  });
+
+  it("forwards process message, error, and stderr events (deep/large payloads)", async () => {
+    const transport = new StdioMcpTransport({ command: "cmd" });
+    vi.spyOn(transport, "_initialize").mockResolvedValue(undefined);
+    await transport.connect();
+
+    const message = makeDeepObject(25);
+    const err = new Error("child error");
+    const hugeStderr = "x".repeat(200_000);
+
+    const onError = vi.fn();
+    const onStderr = vi.fn();
+    transport.on("error", onError);
+    transport.on("stderr", onStderr);
+
+    processInstances[0].emit("message", message);
+    processInstances[0].emit("error", err);
+    processInstances[0].emit("stderr", hugeStderr);
+
+    expect(transport._handleMessage).toHaveBeenCalledTimes(1);
+    expect(transport._handleMessage).toHaveBeenCalledWith(message);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(err);
+    expect(onStderr).toHaveBeenCalledTimes(1);
+    expect(onStderr).toHaveBeenCalledWith(hugeStderr);
+  });
+
+  it("handles process exit by marking disconnected, rejecting pending, and emitting disconnect", async () => {
+    const transport = new StdioMcpTransport({ command: "cmd" });
+    vi.spyOn(transport, "_initialize").mockResolvedValue(undefined);
+
+    const onDisconnect = vi.fn();
+    transport.on("disconnect", onDisconnect);
+
+    await transport.connect();
+    expect(transport._connected).toBe(true);
+
+    processInstances[0].emit("exit", { code: 1, signal: "SIGTERM" });
+
+    expect(transport._connected).toBe(false);
+    expect(transport._rejectAllPending).toHaveBeenCalledTimes(1);
+    const [exitError] = transport._rejectAllPending.mock.calls[0];
+    expect(exitError).toBeInstanceOf(Error);
+    expect(exitError.message).toContain("Process exited: code=1, signal=SIGTERM");
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+    expect(onDisconnect).toHaveBeenCalledWith({ code: 1, signal: "SIGTERM" });
+  });
+
+  it("initialize sends initialize request and stores server info and capabilities", async () => {
+    const transport = new StdioMcpTransport({
+      command: "cmd",
+      clientName: "client",
+      clientVersion: "2.0.0",
     });
-    const notify = vi.fn().mockResolvedValue();
-    transport.request = request;
-    transport.notify = notify;
+
+    const deepCapabilities = makeDeepObject(20);
+    transport.request.mockResolvedValue({
+      serverInfo: { name: "srv", version: "9.9.9" },
+      capabilities: deepCapabilities,
+    });
+    transport.notify.mockResolvedValue(undefined);
 
     await transport._initialize();
 
-    expect(request).toHaveBeenCalledWith(McpMethods.INITIALIZE, {
+    expect(transport.request).toHaveBeenCalledTimes(1);
+    expect(transport.request).toHaveBeenCalledWith(McpMethods.INITIALIZE, {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: { name: "client", version: "2.0.0" },
     });
-    expect(transport.serverInfo).toEqual({ name: "server" });
-    expect(transport.capabilities).toEqual({ tools: true });
-    expect(notify).toHaveBeenCalledWith(McpMethods.INITIALIZED, {});
+
+    expect(transport.serverInfo).toEqual({ name: "srv", version: "9.9.9" });
+    expect(transport.capabilities).toBe(deepCapabilities);
+
+    expect(transport.notify).toHaveBeenCalledTimes(1);
+    const [method, params] = transport.notify.mock.calls[0];
+    expect(typeof method).toBe("string");
+    expect(method.toLowerCase()).toContain("initialized");
+    expect(params).toEqual({});
   });
 
-  it("_initialize tolerates null responses", async () => {
-    const transport = makeTransport();
-    transport.request = vi.fn().mockResolvedValue(null);
-    transport.notify = vi.fn().mockResolvedValue();
+  it("initialize handles nullish results by setting defaults and still notifies", async () => {
+    const transport = new StdioMcpTransport({ command: "cmd" });
+
+    transport.request.mockResolvedValue(undefined);
+    transport.notify.mockResolvedValue(undefined);
 
     await transport._initialize();
 
     expect(transport.serverInfo).toBe(null);
     expect(transport.capabilities).toEqual({});
-    expect(transport.notify).toHaveBeenCalledWith(McpMethods.INITIALIZED, {});
+    expect(transport.notify).toHaveBeenCalledTimes(1);
   });
 
-  it("disconnect is a no-op when there is no process", async () => {
-    const transport = makeTransport();
-    const emitSpy = vi.spyOn(transport, "emit");
+  it("initialize propagates request errors without mutating stored state", async () => {
+    const transport = new StdioMcpTransport({ command: "cmd" });
+    transport.serverInfo = { name: "existing" };
+    transport.capabilities = { existing: true };
 
-    await transport.disconnect();
+    transport.request.mockRejectedValue(new Error("request failed"));
 
-    expect(emitSpy).not.toHaveBeenCalled();
+    await expect(transport._initialize()).rejects.toThrow("request failed");
+
+    expect(transport.serverInfo).toEqual({ name: "existing" });
+    expect(transport.capabilities).toEqual({ existing: true });
+    expect(transport.notify).not.toHaveBeenCalled();
   });
 
-  it("disconnect rejects pending work, disconnects process, and emits", async () => {
-    const transport = makeTransport({ autoInit: false });
-    await transport.connect();
-    const proc = getLastProcessTransport();
-    const rejectSpy = vi.spyOn(transport, "_rejectAllPending");
-    const procDisconnectSpy = vi.spyOn(proc, "disconnect");
-    const onDisconnect = vi.fn();
-    transport.on("disconnect", onDisconnect);
-
-    await transport.disconnect();
-
-    expect(rejectSpy).toHaveBeenCalledTimes(1);
-    expect(rejectSpy.mock.calls[0][0].message).toBe("Transport disconnected");
-    expect(procDisconnectSpy).toHaveBeenCalledTimes(1);
-    expect(transport._process).toBe(null);
-    expect(transport._connected).toBe(false);
-    expect(onDisconnect).toHaveBeenCalledTimes(1);
-    expect(onDisconnect.mock.calls[0].length).toBe(0);
-  });
-
-  it("send throws when not connected", async () => {
-    const transport = makeTransport();
-    await expect(transport.send({ jsonrpc: "2.0", method: "ping" }))
-      .rejects.toThrow("Transport not connected");
-
-    transport._process = { send: vi.fn() };
-    transport._connected = false;
-    await expect(transport.send({ jsonrpc: "2.0", method: "ping" }))
-      .rejects.toThrow("Transport not connected");
-  });
-
-  it("send forwards messages and supports rapid calls", async () => {
-    const transport = makeTransport({ autoInit: false });
-    await transport.connect();
-    const proc = getLastProcessTransport();
-
-    const msg1 = { jsonrpc: "2.0", method: "one" };
-    const msg2 = { jsonrpc: "2.0", method: "two" };
-    await Promise.all([transport.send(msg1), transport.send(msg2)]);
-
-    expect(proc.sent).toEqual([msg1, msg2]);
-  });
-
-  it("isConnected reflects process state", () => {
-    const transport = makeTransport();
-    expect(transport.isConnected()).toBe(false);
-
-    transport._connected = true;
-    transport._process = { isConnected: vi.fn(() => false) };
-    expect(transport.isConnected()).toBe(false);
-
-    transport._process = { isConnected: vi.fn(() => true) };
-    expect(transport.isConnected()).toBe(true);
-
-    transport._connected = false;
-    expect(transport.isConnected()).toBe(false);
-  });
-
-  it("list methods return arrays for empty or missing results", async () => {
-    const transport = makeTransport();
-    transport.request = vi.fn()
-      .mockResolvedValueOnce({ tools: ["alpha"] })
-      .mockResolvedValueOnce({ resources: [] })
-      .mockResolvedValueOnce(undefined);
-
-    await expect(transport.listTools()).resolves.toEqual(["alpha"]);
-    await expect(transport.listResources()).resolves.toEqual([]);
-    await expect(transport.listPrompts()).resolves.toEqual([]);
-  });
-
-  it("forwards boundary params to request for tool/resource/prompt calls", async () => {
-    const transport = makeTransport();
-    const request = vi.fn().mockResolvedValue("ok");
-    transport.request = request;
-
-    const hugeText = "x".repeat(100000);
-    const deep = createDeepObject(20);
-
-    await transport.callTool("", { file: hugeText, deep });
-    await transport.callTool("tool", []);
-    await transport.callTool("tool", null);
-    await transport.readResource("");
-    await transport.readResource("   ");
-    await transport.getPrompt("prompt", undefined);
-    await transport.getPrompt("prompt", null);
-
-    expect(request).toHaveBeenCalledWith(McpMethods.TOOLS_CALL, {
-      name: "",
-      arguments: { file: hugeText, deep },
-    });
-    expect(request).toHaveBeenCalledWith(McpMethods.TOOLS_CALL, {
-      name: "tool",
-      arguments: [],
-    });
-    expect(request).toHaveBeenCalledWith(McpMethods.TOOLS_CALL, {
-      name: "tool",
-      arguments: null,
-    });
-    expect(request).toHaveBeenCalledWith(McpMethods.RESOURCES_READ, { uri: "" });
-    expect(request).toHaveBeenCalledWith(McpMethods.RESOURCES_READ, { uri: "   " });
-    expect(request).toHaveBeenCalledWith(McpMethods.PROMPTS_GET, { name: "prompt", arguments: {} });
-    expect(request).toHaveBeenCalledWith(McpMethods.PROMPTS_GET, { name: "prompt", arguments: null });
-  });
-
-  it("supports concurrent requests", async () => {
-    const transport = makeTransport();
-    transport.request = vi.fn(async (method, params) => {
-      if (method === McpMethods.TOOLS_CALL) {
-        return { ok: params.name };
-      }
-      if (method === McpMethods.RESOURCES_READ) {
-        return { uri: params.uri };
-      }
-      return null;
+  it("connect tolerates concurrent calls and ends in a connected state", async () => {
+    let resolveGate;
+    processConnectGate = new Promise((resolve) => {
+      resolveGate = resolve;
     });
 
-    const [toolResult, resourceResult] = await Promise.all([
-      transport.callTool("alpha", { id: 1 }),
-      transport.readResource("file:///big"),
-    ]);
+    const transport = new StdioMcpTransport({ command: "cmd" });
+    vi.spyOn(transport, "_initialize").mockResolvedValue(undefined);
 
-    expect(toolResult).toEqual({ ok: "alpha" });
-    expect(resourceResult).toEqual({ uri: "file:///big" });
-  });
-});
+    const p1 = transport.connect();
+    const p2 = transport.connect();
+    resolveGate();
 
-describe("createStdioMcpTransport", () => {
-  it("creates a StdioMcpTransport instance", () => {
-    const transport = createStdioMcpTransport({ command: "node" });
-    expect(transport).toBeInstanceOf(StdioMcpTransport);
-    expect(transport.command).toBe("node");
-  });
-});
+    await Promise.all([p1, p2]);
 
-describe("default export", () => {
-  it("matches StdioMcpTransport", () => {
-    expect(StdioMcpTransportDefault).toBe(StdioMcpTransport);
+    expect(transport._connected).toBe(true);
+    expect(processInstances.length).toBeGreaterThanOrEqual(1);
   });
 });

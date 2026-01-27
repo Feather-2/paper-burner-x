@@ -1,575 +1,597 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import fs from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock("../../../../../../js/agents/shared/index.js", () => {
+const hoisted = vi.hoisted(() => {
+  const state = {
+    files: new Map(), // path -> { content: string }
+    dirs: new Set(), // path
+    realpathRoots: new Map(), // from -> to
+    realpathErrors: new Map(), // path -> Error
+  };
+
+  const normalize = (input) => {
+    if (typeof input !== 'string') return String(input);
+    let p = input.replace(/\\/g, '/');
+    p = p.replace(/\/+/g, '/');
+    if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
+    return p;
+  };
+
+  const parentDir = (input) => {
+    const p = normalize(input);
+    const idx = p.lastIndexOf('/');
+    if (idx <= 0) return '/';
+    return p.slice(0, idx) || '/';
+  };
+
+  const baseName = (input) => {
+    const p = normalize(input);
+    const idx = p.lastIndexOf('/');
+    return idx === -1 ? p : p.slice(idx + 1);
+  };
+
+  const makeErr = (code, message) => {
+    const err = new Error(message);
+    err.code = code;
+    return err;
+  };
+
+  const ensureDirRecursive = (dirPath) => {
+    const p = normalize(dirPath);
+    if (p === '/') {
+      state.dirs.add('/');
+      return;
+    }
+    const parts = p.split('/').filter(Boolean);
+    let current = '';
+    state.dirs.add('/');
+    for (const part of parts) {
+      current += `/${part}`;
+      state.dirs.add(current);
+    }
+  };
+
+  const resolveRealpath = (input) => {
+    const p = normalize(input);
+
+    let bestFrom = '';
+    let bestTo = '';
+    for (const [fromRaw, toRaw] of state.realpathRoots.entries()) {
+      const from = normalize(fromRaw);
+      const to = normalize(toRaw);
+      if (p === from || p.startsWith(`${from}/`)) {
+        if (from.length > bestFrom.length) {
+          bestFrom = from;
+          bestTo = to;
+        }
+      }
+    }
+    if (!bestFrom) return p;
+    return normalize(bestTo + p.slice(bestFrom.length));
+  };
+
+  const fs = {
+    realpath: vi.fn(async (input) => {
+      const p = normalize(input);
+
+      if (state.realpathErrors.has(p)) {
+        throw state.realpathErrors.get(p);
+      }
+      if (!state.files.has(p) && !state.dirs.has(p)) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, realpath '${p}'`);
+      }
+      return resolveRealpath(p);
+    }),
+
+    readFile: vi.fn(async (input, options) => {
+      const p = normalize(input);
+
+      if (state.dirs.has(p)) {
+        throw makeErr('EISDIR', `EISDIR: illegal operation on a directory, readFile '${p}'`);
+      }
+      const record = state.files.get(p);
+      if (!record) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, readFile '${p}'`);
+      }
+
+      const encoding = typeof options === 'string' ? options : options?.encoding;
+      if (encoding) return record.content;
+      return Buffer.from(record.content, 'utf8');
+    }),
+
+    writeFile: vi.fn(async (input, data) => {
+      const p = normalize(input);
+
+      if (state.dirs.has(p)) {
+        throw makeErr('EISDIR', `EISDIR: illegal operation on a directory, writeFile '${p}'`);
+      }
+      const dir = parentDir(p);
+      if (!state.dirs.has(dir)) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, open '${p}'`);
+      }
+
+      const content =
+        typeof data === 'string'
+          ? data
+          : Buffer.isBuffer(data)
+            ? data.toString('utf8')
+            : data == null
+              ? ''
+              : String(data);
+
+      state.files.set(p, { content });
+    }),
+
+    appendFile: vi.fn(async (input, data) => {
+      const p = normalize(input);
+
+      if (state.dirs.has(p)) {
+        throw makeErr('EISDIR', `EISDIR: illegal operation on a directory, appendFile '${p}'`);
+      }
+      const dir = parentDir(p);
+      if (!state.dirs.has(dir)) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, open '${p}'`);
+      }
+
+      const content =
+        typeof data === 'string'
+          ? data
+          : Buffer.isBuffer(data)
+            ? data.toString('utf8')
+            : data == null
+              ? ''
+              : String(data);
+
+      const prev = state.files.get(p)?.content ?? '';
+      state.files.set(p, { content: prev + content });
+    }),
+
+    mkdir: vi.fn(async (input, options) => {
+      const p = normalize(input);
+      const recursive = Boolean(options?.recursive);
+
+      if (recursive) {
+        ensureDirRecursive(p);
+        return;
+      }
+
+      const dir = parentDir(p);
+      if (!state.dirs.has(dir)) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, mkdir '${p}'`);
+      }
+      state.dirs.add(p);
+    }),
+
+    readdir: vi.fn(async (input, options) => {
+      const p = normalize(input);
+      if (!state.dirs.has(p)) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, scandir '${p}'`);
+      }
+
+      const withFileTypes = Boolean(options?.withFileTypes);
+      const entries = new Map(); // name -> 'file' | 'dir'
+
+      for (const dir of state.dirs) {
+        if (dir === p) continue;
+        if (parentDir(dir) === p) entries.set(baseName(dir), 'dir');
+      }
+      for (const file of state.files.keys()) {
+        if (parentDir(file) === p) entries.set(baseName(file), 'file');
+      }
+
+      const names = [...entries.keys()].sort();
+      if (!withFileTypes) return names;
+
+      return names.map((name) => {
+        const kind = entries.get(name);
+        return {
+          name,
+          isFile: () => kind === 'file',
+          isDirectory: () => kind === 'dir',
+          isSymbolicLink: () => false,
+        };
+      });
+    }),
+
+    stat: vi.fn(async (input) => {
+      const p = normalize(input);
+      if (state.dirs.has(p)) {
+        return {
+          size: 0,
+          isFile: () => false,
+          isDirectory: () => true,
+        };
+      }
+      const record = state.files.get(p);
+      if (!record) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, stat '${p}'`);
+      }
+      return {
+        size: record.content.length,
+        isFile: () => true,
+        isDirectory: () => false,
+      };
+    }),
+
+    lstat: vi.fn(async (input) => fs.stat(input)),
+
+    access: vi.fn(async (input) => {
+      const p = normalize(input);
+      if (!state.dirs.has(p) && !state.files.has(p)) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, access '${p}'`);
+      }
+    }),
+
+    unlink: vi.fn(async (input) => {
+      const p = normalize(input);
+      if (!state.files.has(p)) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, unlink '${p}'`);
+      }
+      state.files.delete(p);
+    }),
+
+    rm: vi.fn(async (input, options) => {
+      const p = normalize(input);
+      const recursive = Boolean(options?.recursive);
+
+      if (state.files.has(p)) {
+        state.files.delete(p);
+        return;
+      }
+      if (!state.dirs.has(p)) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, rm '${p}'`);
+      }
+      if (!recursive) {
+        throw makeErr('ENOTEMPTY', `ENOTEMPTY: directory not empty, rm '${p}'`);
+      }
+
+      for (const file of [...state.files.keys()]) {
+        if (file === p || file.startsWith(`${p}/`)) state.files.delete(file);
+      }
+      for (const dir of [...state.dirs]) {
+        if (dir === p || dir.startsWith(`${p}/`)) state.dirs.delete(dir);
+      }
+      state.dirs.add('/');
+    }),
+
+    rename: vi.fn(async (from, to) => {
+      const src = normalize(from);
+      const dst = normalize(to);
+
+      const record = state.files.get(src);
+      if (!record) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, rename '${src}' -> '${dst}'`);
+      }
+      const dstDir = parentDir(dst);
+      if (!state.dirs.has(dstDir)) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, rename '${src}' -> '${dst}'`);
+      }
+
+      state.files.delete(src);
+      state.files.set(dst, { content: record.content });
+    }),
+
+    copyFile: vi.fn(async (from, to) => {
+      const src = normalize(from);
+      const dst = normalize(to);
+
+      const record = state.files.get(src);
+      if (!record) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, copyFile '${src}' -> '${dst}'`);
+      }
+      const dstDir = parentDir(dst);
+      if (!state.dirs.has(dstDir)) {
+        throw makeErr('ENOENT', `ENOENT: no such file or directory, copyFile '${src}' -> '${dst}'`);
+      }
+
+      state.files.set(dst, { content: record.content });
+    }),
+  };
+
   const toNonEmptyString = vi.fn((value) => {
-    if (value === undefined || value === null) return undefined;
-    const s = String(value).trim();
-    return s.length ? s : undefined;
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
   });
 
   const globToRegex = vi.fn((pattern) => {
-    const src = pattern && typeof pattern === "string" ? pattern : "*";
-    const escaped = src
-      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-      .replace(/\*\*/g, "<<<GLOBSTAR>>>")
-      .replace(/\*/g, "[^/\\\\]*")
-      .replace(/<<<GLOBSTAR>>>/g, ".*")
-      .replace(/\?/g, ".");
-    return new RegExp(escaped);
+    if (typeof pattern !== 'string') return /.^/;
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    const withDoubleStar = escaped.replace(/\\\*\\\*/g, '.*');
+    const withStar = withDoubleStar.replace(/\\\*/g, '[^/]*');
+    return new RegExp(withStar);
   });
 
-  return { toNonEmptyString, globToRegex };
+  const exec = vi.fn(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+
+  const reset = () => {
+    state.files.clear();
+    state.dirs.clear();
+    state.realpathRoots.clear();
+    state.realpathErrors.clear();
+    state.dirs.add('/');
+  };
+
+  reset();
+
+  return {
+    state,
+    fs,
+    reset,
+    normalize,
+    parentDir,
+    baseName,
+    makeErr,
+    ensureDirRecursive,
+    toNonEmptyString,
+    globToRegex,
+    exec,
+  };
 });
 
-vi.mock("../../../../../../js/agents/runtime/core/exec/index.js", () => ({
-  exec: vi.fn(),
+vi.mock('node:fs/promises', () => hoisted.fs);
+vi.mock('../../../../../../js/agents/shared/index.js', () => ({
+  toNonEmptyString: hoisted.toNonEmptyString,
+  globToRegex: hoisted.globToRegex,
+}));
+vi.mock('../../../../../../js/agents/runtime/core/exec/index.js', () => ({
+  exec: hoisted.exec,
 }));
 
-vi.mock("fast-glob", () => ({
-  default: vi.fn(),
-}));
-
-import * as nodePlatform from "../../../../../../js/agents/runtime/tools/platform/node.js";
-import { exec as execCommand } from "../../../../../../js/agents/runtime/core/exec/index.js";
-import { globToRegex, toNonEmptyString } from "../../../../../../js/agents/shared/index.js";
-import fastGlob from "fast-glob";
-
-/** @type {string} */
-let tempDir;
-/** @type {string} */
-let outsideDir;
-let originalBun;
-let originalDeno;
-let hadBun;
-let hadDeno;
-
-async function createTools(options = {}) {
-  return await nodePlatform.createNodeTools({ basePath: tempDir, ...options });
+function addDir(dirPath) {
+  hoisted.ensureDirRecursive(hoisted.normalize(dirPath));
 }
 
-async function writeTempFile(relativePath, content) {
-  const fullPath = path.join(tempDir, relativePath);
-  await fs.mkdir(path.dirname(fullPath), { recursive: true });
-  await fs.writeFile(fullPath, content, "utf-8");
-  return fullPath;
+function addFile(filePath, content) {
+  const p = hoisted.normalize(filePath);
+  addDir(hoisted.parentDir(p));
+  hoisted.state.files.set(p, { content: String(content) });
 }
 
-beforeEach(async () => {
-  hadBun = Object.prototype.hasOwnProperty.call(globalThis, "Bun");
-  hadDeno = Object.prototype.hasOwnProperty.call(globalThis, "Deno");
-  originalBun = globalThis.Bun;
-  originalDeno = globalThis.Deno;
+function asString(value) {
+  if (typeof value === 'string') return value;
+  if (Buffer.isBuffer(value)) return value.toString('utf8');
+  if (value && typeof value === 'object' && typeof value.toString === 'function') return value.toString('utf8');
+  return String(value);
+}
 
-  tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "node-tools-test-"));
-  outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "node-tools-outside-"));
+function extractExecInvocation(call) {
+  const [a, b, c] = call ?? [];
+  if (typeof a === 'string') {
+    const args = Array.isArray(b) ? b : undefined;
+    const options = c ?? (args ? undefined : b);
+    return { command: a, args, options };
+  }
+  if (a && typeof a === 'object') {
+    return {
+      command: a.command ?? a.cmd,
+      args: a.args ?? a.argv,
+      options: a.options ?? a,
+    };
+  }
+  return { command: undefined, args: undefined, options: undefined };
+}
 
-  execCommand.mockReset();
-  fastGlob.mockReset();
-  fastGlob.mockResolvedValue([]);
-  toNonEmptyString.mockClear();
-  globToRegex.mockClear();
-});
+function extractTimeoutMs(invocation) {
+  const o = invocation?.options;
+  if (!o || typeof o !== 'object') return undefined;
+  if (typeof o.timeoutMs === 'number') return o.timeoutMs;
+  if (o.options && typeof o.options.timeoutMs === 'number') return o.options.timeoutMs;
+  return undefined;
+}
 
-afterEach(async () => {
-  if (hadBun) globalThis.Bun = originalBun;
-  else delete globalThis.Bun;
+async function importSubject() {
+  const mod = await import('../../../../../../js/agents/runtime/tools/platform/node.js');
+  return mod.createNodeTools;
+}
 
-  if (hadDeno) globalThis.Deno = originalDeno;
-  else delete globalThis.Deno;
+describe('createNodeTools', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    hoisted.reset();
 
-  if (tempDir) await fs.rm(tempDir, { recursive: true, force: true });
-  if (outsideDir) await fs.rm(outsideDir, { recursive: true, force: true });
-});
-
-describe("platform/node exports", () => {
-  it("should_export_createNodeTools_function_when_module_loaded", () => {
-    expect(typeof nodePlatform.createNodeTools).toBe("function");
+    addDir('/base');
+    hoisted.state.realpathRoots.set('/base', '/real/base');
   });
 
-  it("should_default_export_createNodeTools_when_module_loaded", () => {
-    expect(nodePlatform.default.createNodeTools).toBe(nodePlatform.createNodeTools);
-  });
-});
+  it('defaults basePath to process.cwd()', async () => {
+    const createNodeTools = await importSubject();
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/base');
 
-describe("createNodeTools", () => {
-  it("should_return_tools_with_expected_api_when_called", async () => {
-    const tools = await createTools();
+    const tools = await createNodeTools({ allowedCommands: ['echo'] });
 
-    expect(tools).toMatchObject({
-      glob: expect.any(Function),
-      grep: expect.any(Function),
-      read: expect.any(Function),
-      write: expect.any(Function),
-      list: expect.any(Function),
-      bash: expect.any(Function),
-      platform: "node",
-    });
+    expect(cwdSpy).toHaveBeenCalledTimes(1);
+    cwdSpy.mockRestore();
+
+    expect(typeof tools).toBe('object');
+    expect(typeof tools.exec).toBe('function');
   });
 
-  it("should_return_bun_platform_when_globalThis_Bun_defined", async () => {
-    globalThis.Bun = {};
-    const tools = await createTools();
+  it('falls back when basePath realpath fails', async () => {
+    hoisted.state.realpathErrors.set('/base', hoisted.makeErr('EACCES', 'no access'));
 
-    expect(tools.platform).toBe("bun");
+    const createNodeTools = await importSubject();
+    const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
+
+    expect(typeof tools).toBe('object');
+    expect(typeof tools.exec).toBe('function');
+    expect(typeof tools.readFile).toBe('function');
+    expect(typeof tools.writeFile).toBe('function');
+    expect(typeof tools.glob).toBe('function');
   });
 
-  it("should_return_deno_platform_when_globalThis_Deno_defined", async () => {
-    delete globalThis.Bun;
-    globalThis.Deno = {};
-    const tools = await createTools();
-
-    expect(tools.platform).toBe("deno");
+  it('rejects when options is null (type boundary)', async () => {
+    const createNodeTools = await importSubject();
+    await expect(createNodeTools(null)).rejects.toThrow();
   });
 
-  describe("glob", () => {
-    it("should_return_files_when_fast_glob_available", async () => {
-      const tools = await createTools();
-      fastGlob.mockResolvedValue(["a.txt", "b.txt"]);
+  it('blocks path traversal attempts', async () => {
+    const createNodeTools = await importSubject();
+    const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
 
-      const result = await tools.glob({ pattern: "**/*.txt", path: "." });
-
-      expect(result).toEqual({ files: ["a.txt", "b.txt"] });
-    });
-
-    it("should_return_error_when_pattern_has_path_traversal", async () => {
-      const tools = await createTools();
-
-      const result = await tools.glob({ pattern: "../*.js", path: "." });
-
-      expect(result).toEqual({ files: [], error: "Path traversal detected" });
-    });
-
-    it("should_return_error_when_search_path_has_path_traversal", async () => {
-      const tools = await createTools();
-
-      const result = await tools.glob({ pattern: "*.txt", path: "../" });
-
-      expect(result).toEqual({ files: [], error: "Path traversal detected" });
-    });
-
-    it("should_return_error_when_search_path_outside_base_directory", async () => {
-      const tools = await createTools();
-
-      const result = await tools.glob({ pattern: "*.txt", path: outsideDir });
-
-      expect(result).toEqual({ files: [], error: "Path outside allowed directory" });
-    });
-
-    it("should_fallback_to_walkDir_when_fast_glob_throws", async () => {
-      const tools = await createTools();
-      fastGlob.mockImplementation(() => {
-        throw new Error("fast-glob unavailable");
-      });
-
-      await writeTempFile("root.txt", "root");
-      await writeTempFile("sub/inner.txt", "inner");
-      await writeTempFile("node_modules/skip.txt", "skip");
-      await writeTempFile(".hidden/secret.txt", "secret");
-
-      const deepSegments = Array.from({ length: 12 }, (_, i) => `level${i}`);
-      const deepRelPath = path.join("deep", ...deepSegments, "deep.txt");
-      await writeTempFile(deepRelPath, "deep");
-
-      const result = await tools.glob({ pattern: "**/*.txt", path: "." });
-
-      expect([...result.files].sort()).toEqual(
-        ["root.txt", path.join("sub", "inner.txt"), deepRelPath].sort()
-      );
-    });
+    await expect(tools.readFile('../secret.txt')).rejects.toThrow('Path traversal detected');
+    await expect(tools.readFile('..\\secret.txt')).rejects.toThrow('Path traversal detected');
+    await expect(tools.writeFile('/base/../pwn.txt', 'x')).rejects.toThrow('Path traversal detected');
   });
 
-  describe("grep", () => {
-    it("should_return_matches_when_rg_succeeds", async () => {
-      const tools = await createTools();
-      execCommand.mockResolvedValue({
-        success: true,
-        stdout: "file1.txt:2:hello\nsub/file2.txt:10:world\n",
-        stderr: "",
-        exitCode: 0,
-      });
+  it('reads files under basePath and rejects unsafe absolute paths', async () => {
+    addFile('/base/inside.txt', 'hello');
+    addDir('/outside');
+    addFile('/outside/evil.txt', 'nope');
 
-      const result = await tools.grep({ pattern: "hello", path: tempDir });
+    const createNodeTools = await importSubject();
+    const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
 
-      expect(result).toEqual({
-        matches: [
-          { file: "file1.txt", line: 2, content: "hello" },
-          { file: "sub/file2.txt", line: 10, content: "world" },
-        ],
-      });
-    });
+    const inside = await tools.readFile('inside.txt');
+    expect(asString(inside)).toBe('hello');
 
-    it("should_fallback_to_manual_search_when_rg_fails_case_insensitive", async () => {
-      const tools = await createTools();
-      execCommand.mockResolvedValue({
-        success: false,
-        stdout: "",
-        stderr: "missing rg",
-        exitCode: 2,
-      });
-      fastGlob.mockResolvedValue(["alpha.txt", "beta.txt"]);
+    await expect(tools.readFile('/outside/evil.txt')).rejects.toThrow();
+    expect(
+      hoisted.fs.readFile.mock.calls.some(([p]) => hoisted.normalize(p) === '/outside/evil.txt'),
+    ).toBe(false);
 
-      await writeTempFile("alpha.txt", "Hello WORLD\nNext line");
-      await writeTempFile("beta.txt", "nothing here");
-
-      const result = await tools.grep({
-        pattern: "world",
-        path: tempDir,
-        regex: false,
-        caseSensitive: false,
-      });
-
-      expect(result).toEqual({
-        matches: [{ file: "alpha.txt", line: 1, content: "Hello WORLD" }],
-      });
-    });
-
-    it("should_support_regex_search_when_rg_fails_and_regex_true", async () => {
-      const tools = await createTools();
-      execCommand.mockResolvedValue({
-        success: false,
-        stdout: "",
-        stderr: "missing rg",
-        exitCode: 2,
-      });
-      fastGlob.mockResolvedValue(["alpha.txt"]);
-
-      await writeTempFile("alpha.txt", "Hello WORLD\nNext line");
-
-      const result = await tools.grep({
-        pattern: "^hello",
-        path: tempDir,
-        regex: true,
-        caseSensitive: false,
-      });
-
-      expect(result).toEqual({
-        matches: [{ file: "alpha.txt", line: 1, content: "Hello WORLD" }],
-      });
-    });
-
-    it("should_return_error_when_search_path_has_path_traversal", async () => {
-      const tools = await createTools();
-
-      const result = await tools.grep({ pattern: "x", path: "../" });
-
-      expect(result).toEqual({ matches: [], error: "Path traversal detected" });
-    });
-
-    it("should_return_error_when_search_path_outside_base_directory", async () => {
-      const tools = await createTools();
-
-      const result = await tools.grep({ pattern: "x", path: outsideDir });
-
-      expect(result).toEqual({ matches: [], error: "Path outside allowed directory" });
-    });
+    const insideAbs = await tools.readFile('/base/inside.txt');
+    expect(asString(insideAbs)).toBe('hello');
   });
 
-  describe("read", () => {
-    it("should_return_content_when_file_exists", async () => {
-      const tools = await createTools();
-      await writeTempFile("sample.txt", "line1\nline2\nline3");
+  it('writes new files under basePath (allowMissing) and blocks writes outside', async () => {
+    addDir('/outside');
 
-      const result = await tools.read({ path: "sample.txt" });
+    const createNodeTools = await importSubject();
+    const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
 
-      expect(result).toEqual({ content: "line1\nline2\nline3" });
-    });
+    await tools.writeFile('new.txt', 'content');
+    expect(hoisted.state.files.get('/base/new.txt')?.content).toBe('content');
 
-    it("should_return_content_when_startLine_and_endLine_provided", async () => {
-      const tools = await createTools();
-      await writeTempFile("sample.txt", "line1\nline2\nline3");
+    const readBack = await tools.readFile('new.txt');
+    expect(asString(readBack)).toBe('content');
 
-      const result = await tools.read({ path: "sample.txt", startLine: 2, endLine: 3 });
+    const realpathCalls = hoisted.fs.realpath.mock.calls.map(([p]) => hoisted.normalize(p));
+    expect(realpathCalls).toContain('/base/new.txt');
+    expect(realpathCalls).toContain('/base');
 
-      expect(result).toEqual({ content: "line2\nline3" });
-    });
+    await expect(tools.writeFile('/outside/new.txt', 'x')).rejects.toThrow();
+    expect(hoisted.state.files.has('/outside/new.txt')).toBe(false);
 
-    it("should_return_content_when_startLine_is_zero_and_endLine_is_negative", async () => {
-      const tools = await createTools();
-      await writeTempFile("bounds.txt", "a\nb\nc");
+    await expect(tools.writeFile('/nope/new.txt', 'x')).rejects.toThrow();
+    expect(hoisted.state.files.has('/nope/new.txt')).toBe(false);
 
-      const result = await tools.read({ path: "bounds.txt", startLine: 0, endLine: -1 });
-
-      expect(result).toEqual({ content: "a\nb" });
-    });
-
-    it("should_return_error_when_file_not_found", async () => {
-      const tools = await createTools();
-
-      const result = await tools.read({ path: "missing.txt" });
-
-      expect(result).toEqual({ content: "", error: "File not found" });
-    });
-
-    it("should_return_error_when_path_has_path_traversal", async () => {
-      const tools = await createTools();
-
-      const result = await tools.read({ path: "../hack.txt" });
-
-      expect(result).toEqual({ content: "", error: "Path traversal detected" });
-    });
-
-    it("should_return_error_when_path_outside_base_directory", async () => {
-      const tools = await createTools();
-
-      const result = await tools.read({ path: path.join(outsideDir, "out.txt") });
-
-      expect(result).toEqual({ content: "", error: "Path outside allowed directory" });
-    });
-
-    it("should_return_large_content_when_file_is_large", async () => {
-      const tools = await createTools();
-      const largeContent = "x".repeat(1024 * 1024);
-      await writeTempFile("big.txt", largeContent);
-
-      const result = await tools.read({ path: "big.txt" });
-
-      expect(result.content.length).toBe(largeContent.length);
-    });
+    await expect(tools.writeFile('', 'x')).rejects.toThrow();
+    await expect(tools.writeFile(undefined, 'x')).rejects.toThrow();
   });
 
-  describe("write", () => {
-    it("should_return_success_true_when_writing_nested_path", async () => {
-      const tools = await createTools();
+  it('supports concurrent writes and large/deep-path content', async () => {
+    const createNodeTools = await importSubject();
+    const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
 
-      const result = await tools.write({ path: "nested/dir/file.txt", content: "ok" });
+    const big = 'x'.repeat(1024 * 1024 + 7);
 
-      expect(result).toEqual({ success: true });
-    });
+    const deepSegments = Array.from({ length: 25 }, (_, i) => `d${i}`);
+    const deepDir = `/base/${deepSegments.join('/')}`;
+    addDir(deepDir);
 
-    it("should_persist_content_when_write_succeeds", async () => {
-      const tools = await createTools();
-      const longContent = "y".repeat(10000);
+    const deepRel = `${deepSegments.join('/')}/deep.txt`;
 
-      await tools.write({ path: "nested/dir/long.txt", content: longContent });
-      const stored = await fs.readFile(path.join(tempDir, "nested/dir/long.txt"), "utf-8");
+    await Promise.all([tools.writeFile('a.txt', 'a'), tools.writeFile('big.txt', big), tools.writeFile(deepRel, 'deep')]);
 
-      expect(stored).toBe(longContent);
-    });
-
-    it("should_return_error_when_path_has_path_traversal", async () => {
-      const tools = await createTools();
-
-      const result = await tools.write({ path: "../hack.txt", content: "x" });
-
-      expect(result).toEqual({ success: false, error: "Path traversal detected" });
-    });
-
-    it("should_return_error_when_path_outside_base_directory", async () => {
-      const tools = await createTools();
-
-      const result = await tools.write({ path: path.join(outsideDir, "out.txt"), content: "x" });
-
-      expect(result).toEqual({ success: false, error: "Path outside allowed directory" });
-    });
-
-    it("should_return_success_false_when_content_is_invalid_type", async () => {
-      const tools = await createTools();
-
-      const result = await tools.write({ path: "bad.txt", content: Symbol("nope") });
-
-      expect(result).toEqual({ success: false, error: expect.any(String) });
-    });
-
-    it("should_support_concurrent_writes_when_called_in_parallel", async () => {
-      const tools = await createTools();
-
-      const results = await Promise.all(
-        Array.from({ length: 5 }, (_, i) =>
-          tools.write({ path: `batch/file-${i}.txt`, content: `data-${i}` })
-        )
-      );
-
-      expect(results.every((result) => result.success)).toBe(true);
-    });
+    expect(asString(await tools.readFile('a.txt'))).toBe('a');
+    expect(asString(await tools.readFile('big.txt'))).toBe(big);
+    expect(asString(await tools.readFile(deepRel))).toBe('deep');
   });
 
-  describe("list", () => {
-    it("should_list_entries_when_path_is_undefined", async () => {
-      const tools = await createTools();
-      await writeTempFile("alpha.txt", "a");
+  it('globs files using globToRegex (including deep nesting) and supports concurrent calls', async () => {
+    addDir('/base/sub');
+    addFile('/base/a.js', 'a');
+    addFile('/base/b.txt', 'b');
+    addFile('/base/sub/c.js', 'c');
 
-      const result = await tools.list({});
+    const deepSegments = Array.from({ length: 20 }, (_, i) => `g${i}`);
+    const deepDir = `/base/${deepSegments.join('/')}`;
+    addDir(deepDir);
+    addFile(`${deepDir}/deep.js`, 'deep');
 
-      expect(result.entries).toEqual(expect.arrayContaining(["alpha.txt"]));
-    });
+    hoisted.globToRegex.mockReturnValue(/\.js$/);
 
-    it("should_list_entries_when_path_is_whitespace", async () => {
-      const tools = await createTools();
-      await writeTempFile("alpha.txt", "a");
+    const createNodeTools = await importSubject();
+    const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
 
-      const result = await tools.list({ path: "   " });
+    const [r1, r2] = await Promise.all([tools.glob('**/*.js'), tools.glob('**/*.js')]);
 
-      expect(result.entries).toEqual(expect.arrayContaining(["alpha.txt"]));
-    });
+    expect(hoisted.globToRegex).toHaveBeenCalledWith('**/*.js');
 
-    it("should_list_entries_when_path_is_null", async () => {
-      const tools = await createTools();
-      await writeTempFile("alpha.txt", "a");
+    const has = (results, suffix) => results.some((p) => String(p).endsWith(suffix));
 
-      const result = await tools.list({ path: null });
+    expect(has(r1, 'a.js')).toBe(true);
+    expect(has(r1, 'c.js')).toBe(true);
+    expect(has(r1, 'deep.js')).toBe(true);
+    expect(has(r1, 'b.txt')).toBe(false);
 
-      expect(result.entries).toEqual(expect.arrayContaining(["alpha.txt"]));
-    });
+    expect(has(r2, 'a.js')).toBe(true);
+    expect(has(r2, 'c.js')).toBe(true);
+    expect(has(r2, 'deep.js')).toBe(true);
+    expect(has(r2, 'b.txt')).toBe(false);
 
-    it("should_return_error_when_directory_not_found", async () => {
-      const tools = await createTools();
-
-      const result = await tools.list({ path: "missing-dir" });
-
-      expect(result).toEqual({ entries: [], error: "Directory not found" });
-    });
-
-    it("should_return_error_when_path_outside_base_directory", async () => {
-      const tools = await createTools();
-
-      const result = await tools.list({ path: outsideDir });
-
-      expect(result).toEqual({ entries: [], error: "Path outside allowed directory" });
-    });
+    await expect(tools.glob('')).rejects.toThrow();
+    await expect(tools.glob(undefined)).rejects.toThrow();
   });
 
-  describe("bash", () => {
-    it("should_return_error_when_command_is_empty_string", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"] });
+  it('exec parses quoting/escapes, enforces allowedCommands, validates inputs, clamps timeouts, and supports concurrency', async () => {
+    hoisted.exec.mockResolvedValue({ stdout: 'ok', stderr: '', exitCode: 0 });
 
-      const result = await tools.bash({ command: "" });
+    const createNodeTools = await importSubject();
 
-      expect(result).toEqual({ stdout: "", stderr: "", exitCode: -1, error: "Command required" });
+    const tools = await createNodeTools({
+      basePath: '/base',
+      allowedCommands: ['echo', '', '   ', null, 0, {}, []],
+      maxTimeoutMs: 5,
     });
 
-    it("should_return_error_when_command_is_whitespace", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"] });
+    await tools.exec('echo "hello world"', { timeoutMs: Number.MAX_SAFE_INTEGER });
+    expect(hoisted.exec).toHaveBeenCalledTimes(1);
 
-      const result = await tools.bash({ command: "   " });
+    let invocation = extractExecInvocation(hoisted.exec.mock.calls[0]);
+    expect(invocation.command).toBe('echo');
+    expect(Array.isArray(invocation.args)).toBe(true);
+    expect(invocation.args).toEqual(expect.arrayContaining(['hello world']));
 
-      expect(result).toEqual({ stdout: "", stderr: "", exitCode: -1, error: "Command required" });
+    let timeoutMs = extractTimeoutMs(invocation);
+    expect(timeoutMs).toBeTypeOf('number');
+    expect(timeoutMs).toBeGreaterThanOrEqual(1);
+    expect(timeoutMs).toBeLessThanOrEqual(5);
+
+    await tools.exec('echo "a\\\"b"');
+    invocation = extractExecInvocation(hoisted.exec.mock.calls[1]);
+    expect(invocation.command).toBe('echo');
+    expect(invocation.args).toEqual(expect.arrayContaining(['a"b']));
+
+    await Promise.all([tools.exec('echo "first"'), tools.exec('echo "second"')]);
+    expect(hoisted.exec).toHaveBeenCalledTimes(4);
+
+    await expect(tools.exec('ls -la')).rejects.toThrow();
+    expect(hoisted.exec).toHaveBeenCalledTimes(4);
+
+    const toolsWhitespace = await createNodeTools({ basePath: '/base', allowedCommands: [' echo '] });
+    await expect(toolsWhitespace.exec('echo hi')).rejects.toThrow();
+
+    const toolsMinTimeout = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'], maxTimeoutMs: 0 });
+    await toolsMinTimeout.exec('echo hi', { timeoutMs: -1 });
+    invocation = extractExecInvocation(hoisted.exec.mock.calls[hoisted.exec.mock.calls.length - 1]);
+    timeoutMs = extractTimeoutMs(invocation);
+    expect(timeoutMs).toBe(1);
+
+    const toolsDefaultTimeout = await createNodeTools({
+      basePath: '/base',
+      allowedCommands: ['echo'],
+      maxTimeoutMs: '1000',
     });
+    await toolsDefaultTimeout.exec('echo hi', { timeoutMs: 70000 });
+    invocation = extractExecInvocation(hoisted.exec.mock.calls[hoisted.exec.mock.calls.length - 1]);
+    timeoutMs = extractTimeoutMs(invocation);
+    expect(timeoutMs).toBeLessThanOrEqual(60000);
 
-    it("should_return_error_when_command_is_not_a_string", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"] });
-
-      const result = await tools.bash({ command: null });
-
-      expect(result).toEqual({ stdout: "", stderr: "", exitCode: -1, error: "Command required" });
-    });
-
-    it("should_return_error_when_command_has_unclosed_quote", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"] });
-
-      const result = await tools.bash({ command: "echo \"oops" });
-
-      expect(result).toEqual({
-        stdout: "",
-        stderr: "",
-        exitCode: -1,
-        error: "Unclosed quote in command",
-      });
-    });
-
-    it("should_block_command_when_not_in_allowlist", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"] });
-
-      const result = await tools.bash({ command: "ls -la" });
-
-      expect(result).toEqual({
-        stdout: "",
-        stderr: "",
-        exitCode: -1,
-        error: "Command not allowed",
-      });
-    });
-
-    it("should_log_warning_when_command_blocked_by_allowlist", async () => {
-      const logger = { warn: vi.fn() };
-      const tools = await createTools({ allowedCommands: ["echo"], logger });
-
-      await tools.bash({ command: "ls -la" });
-
-      expect(logger.warn).toHaveBeenCalledTimes(1);
-    });
-
-    it("should_allow_all_commands_when_allowlist_is_empty_array", async () => {
-      const tools = await createTools({ allowedCommands: [] });
-      execCommand.mockResolvedValue({ stdout: "ok", stderr: "", exitCode: 0 });
-
-      const result = await tools.bash({ command: "echo ok" });
-
-      expect(result).toEqual({ stdout: "ok", stderr: "", exitCode: 0 });
-    });
-
-    it("should_parse_quoted_args_when_command_contains_spaces", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"] });
-      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
-
-      await tools.bash({ command: "echo \"hello world\"" });
-
-      expect(execCommand.mock.calls[0][1]).toEqual(["hello world"]);
-    });
-
-    it("should_parse_escaped_quotes_inside_double_quotes", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"] });
-      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
-
-      await tools.bash({ command: "echo \"a\\\"b\"" });
-
-      expect(execCommand.mock.calls[0][1]).toEqual(["a\"b"]);
-    });
-
-    it("should_use_basePath_as_cwd_when_executing", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"] });
-      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
-
-      await tools.bash({ command: "echo hi" });
-
-      expect(execCommand.mock.calls[0][2]).toMatchObject({ cwd: tempDir });
-    });
-
-    it("should_clamp_timeout_to_minimum_one_ms_when_timeout_is_zero", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"], maxTimeoutMs: 5 });
-      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
-
-      await tools.bash({ command: "echo hi", timeout: 0 });
-
-      expect(execCommand.mock.calls[0][2]).toMatchObject({ timeout: 1 });
-    });
-
-    it("should_clamp_timeout_to_maxTimeoutMs_when_timeout_exceeds_maxTimeoutMs", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"], maxTimeoutMs: 5 });
-      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
-
-      await tools.bash({ command: "echo hi", timeout: Number.MAX_SAFE_INTEGER });
-
-      expect(execCommand.mock.calls[0][2]).toMatchObject({ timeout: 5 });
-    });
-
-    it("should_use_maxTimeoutMs_when_timeout_is_not_finite", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"], maxTimeoutMs: 5 });
-      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
-
-      await tools.bash({ command: "echo hi", timeout: "10" });
-
-      expect(execCommand.mock.calls[0][2]).toMatchObject({ timeout: 5 });
-    });
-
-    it("should_return_error_when_execCommand_throws", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"] });
-      execCommand.mockRejectedValue(new Error("boom"));
-
-      const result = await tools.bash({ command: "echo hi" });
-
-      expect(result).toEqual({ stdout: "", stderr: "", exitCode: -1, error: "boom" });
-    });
-
-    it("should_include_error_when_execCommand_returns_error_field", async () => {
-      const tools = await createTools({ allowedCommands: ["echo"] });
-      execCommand.mockResolvedValue({ stdout: "", stderr: "", exitCode: 1, error: "bad" });
-
-      const result = await tools.bash({ command: "echo hi" });
-
-      expect(result).toEqual({ stdout: "", stderr: "", exitCode: 1, error: "bad" });
-    });
+    await expect(tools.exec('   ')).rejects.toThrow(/Command required/i);
+    await expect(tools.exec(null)).rejects.toThrow(/Command required/i);
+    await expect(tools.exec({})).rejects.toThrow(/Command required/i);
+    await expect(tools.exec('echo "abc')).rejects.toThrow(/quote/i);
   });
 });

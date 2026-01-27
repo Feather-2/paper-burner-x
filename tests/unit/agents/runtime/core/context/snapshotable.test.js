@@ -1,192 +1,222 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  isSnapshotable,
+  assertSnapshotable,
+} from "../../../../../../js/agents/runtime/core/context/snapshotable.js";
 
-vi.mock('node:crypto', () => ({
-  randomUUID: vi.fn(() => 'mocked-uuid'),
-}));
+vi.mock(
+  "snapshotable-test-dep",
+  () => ({
+    label: "mocked-label",
+  }),
+  { virtual: true },
+);
 
-const makeSnapshotable = (overrides = {}) => ({
-  toSnapshot: vi.fn(() => ({ ok: true })),
-  fromSnapshot: vi.fn(),
-  ...overrides,
-});
-
-const makeDeepObject = (depth) => {
-  let node = { level: depth };
-  for (let i = depth - 1; i >= 0; i -= 1) {
-    node = { level: i, child: node };
-  }
-  return node;
-};
+function makeDeepObject(depth) {
+  let obj = { leaf: true };
+  for (let i = 0; i < depth; i++) obj = { child: obj };
+  return obj;
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('isSnapshotable', () => {
-  it('returns true for objects with toSnapshot/fromSnapshot functions', async () => {
-    const { isSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
+describe("isSnapshotable", () => {
+  it("returns true for objects implementing toSnapshot/fromSnapshot functions", () => {
+    const component = {
+      toSnapshot: vi.fn(() => ({})),
+      fromSnapshot: vi.fn(),
+    };
 
-    const snapshotable = makeSnapshotable({ extra: 123 });
-
-    expect(isSnapshotable(snapshotable)).toBe(true);
-    expect(snapshotable.toSnapshot).not.toHaveBeenCalled();
-    expect(snapshotable.fromSnapshot).not.toHaveBeenCalled();
+    expect(isSnapshotable(component)).toBe(true);
+    expect(component.toSnapshot).not.toHaveBeenCalled();
+    expect(component.fromSnapshot).not.toHaveBeenCalled();
   });
 
-  it('returns false when only one snapshot method exists', async () => {
-    const { isSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
+  it("returns false for nullish/falsy primitives", () => {
+    const cases = [null, undefined, "", 0, false, NaN];
 
-    expect(isSnapshotable({ toSnapshot: () => ({}) })).toBe(false);
-    expect(isSnapshotable({ fromSnapshot: () => {} })).toBe(false);
-    expect(isSnapshotable({ toSnapshot: () => ({}), fromSnapshot: null })).toBe(false);
+    for (const value of cases) {
+      expect(isSnapshotable(value)).toBe(false);
+    }
   });
 
-  it('returns false for nullish and empty values', async () => {
-    const { isSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
-
-    expect(isSnapshotable(null)).toBe(false);
-    expect(isSnapshotable(undefined)).toBe(false);
-    expect(isSnapshotable('')).toBe(false);
-    expect(isSnapshotable([])).toBe(false);
-    expect(isSnapshotable({})).toBe(false);
-  });
-
-  it('returns false for boundary numbers, whitespace, and type-mismatched values', async () => {
-    const { isSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
-
-    expect(isSnapshotable(0)).toBe(false);
-    expect(isSnapshotable(-1)).toBe(false);
-    expect(isSnapshotable(Number.MAX_SAFE_INTEGER)).toBe(false);
-    expect(isSnapshotable('   ')).toBe(false);
-    expect(isSnapshotable('123')).toBe(false);
-    expect(isSnapshotable({ length: 0 })).toBe(false);
-  });
-
-  it('handles large payloads and deep nesting without caring about contents', async () => {
-    const { isSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
-
-    const hugeContent = 'x'.repeat(1024 * 1024);
-    const deep = makeDeepObject(32);
-    const snapshotable = makeSnapshotable({
-      file: { name: 'big.bin', content: hugeContent },
-      deep,
-      longText: 'l'.repeat(8192),
-    });
-
-    expect(isSnapshotable(snapshotable)).toBe(true);
-  });
-
-  it('supports concurrent and rapid consecutive calls', async () => {
-    const { isSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
-
-    const values = [
-      makeSnapshotable(),
-      null,
-      undefined,
-      {},
-      { toSnapshot: () => ({}), fromSnapshot: () => {} },
+  it("returns false for empty containers and boundary values", () => {
+    const cases = [
       [],
-      '123',
+      {},
+      "   ",
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      "123", // string passed where an object is expected
     ];
 
-    const results = await Promise.all(values.map((value) => Promise.resolve(isSnapshotable(value))));
-
-    expect(results).toEqual([true, false, false, false, true, false, false]);
-
-    const snapshotable = makeSnapshotable();
-    const rapid = [];
-    for (let i = 0; i < 100; i += 1) {
-      rapid.push(isSnapshotable(snapshotable));
+    for (const value of cases) {
+      expect(isSnapshotable(value)).toBe(false);
     }
-    expect(rapid.every(Boolean)).toBe(true);
+  });
+
+  it("returns false when methods are missing or not functions", () => {
+    const cases = [
+      { toSnapshot: () => ({}) }, // missing fromSnapshot
+      { fromSnapshot: () => {} }, // missing toSnapshot
+      { toSnapshot: "nope", fromSnapshot: () => {} },
+      { toSnapshot: () => ({}), fromSnapshot: "nope" },
+    ];
+
+    for (const value of cases) {
+      expect(isSnapshotable(value)).toBe(false);
+    }
+  });
+
+  it("handles resource-boundary inputs without throwing", () => {
+    const longString = "a".repeat(100_000);
+    const deep = makeDeepObject(200);
+    const hugeBinary = new Uint8Array(1024 * 1024); // 1 MiB "file"
+
+    expect(() => isSnapshotable(longString)).not.toThrow();
+    expect(() => isSnapshotable(deep)).not.toThrow();
+    expect(() => isSnapshotable(hugeBinary)).not.toThrow();
+
+    expect(isSnapshotable(longString)).toBe(false);
+    expect(isSnapshotable(deep)).toBe(false);
+    expect(isSnapshotable(hugeBinary)).toBe(false);
+  });
+
+  it("is stable under concurrent/rapid calls", async () => {
+    const component = {
+      toSnapshot: vi.fn(() => ({})),
+      fromSnapshot: vi.fn(),
+    };
+
+    const results = await Promise.all(
+      Array.from({ length: 200 }, () =>
+        Promise.resolve().then(() => isSnapshotable(component)),
+      ),
+    );
+
+    expect(results.every(Boolean)).toBe(true);
+    expect(component.toSnapshot).not.toHaveBeenCalled();
+    expect(component.fromSnapshot).not.toHaveBeenCalled();
   });
 });
 
-describe('assertSnapshotable', () => {
-  it('returns the same value for valid snapshotable', async () => {
-    const { assertSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
+describe("assertSnapshotable", () => {
+  it("returns the input value when it implements the protocol", () => {
+    const component = {
+      toSnapshot: vi.fn(() => ({})),
+      fromSnapshot: vi.fn(),
+      extra: 123,
+    };
 
-    const snapshotable = makeSnapshotable({ tag: 'ok' });
-    const result = assertSnapshotable(snapshotable);
+    const result = assertSnapshotable(component, "component");
 
-    expect(result).toBe(snapshotable);
-    expect(snapshotable.toSnapshot).not.toHaveBeenCalled();
-    expect(snapshotable.fromSnapshot).not.toHaveBeenCalled();
+    expect(result).toBe(component);
+    expect(result.extra).toBe(123);
+    expect(component.toSnapshot).not.toHaveBeenCalled();
+    expect(component.fromSnapshot).not.toHaveBeenCalled();
   });
 
-  it('throws for nullish and falsy values', async () => {
-    const { assertSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
-
-    expect(() => assertSnapshotable(null)).toThrowError(new TypeError('value is required'));
-    expect(() => assertSnapshotable(undefined)).toThrowError(new TypeError('value is required'));
-    expect(() => assertSnapshotable('')).toThrowError(new TypeError('value is required'));
-    expect(() => assertSnapshotable(0)).toThrowError(new TypeError('value is required'));
+  it("uses default label `value` when none is provided", () => {
+    expect(() => assertSnapshotable(undefined)).toThrowError(TypeError);
+    expect(() => assertSnapshotable(undefined)).toThrowError("value is required");
   });
 
-  it('includes custom label in required error', async () => {
-    const { assertSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
+  it("throws `${label} is required` for null/undefined/empty-string/zero", async () => {
+    const dep = await import("snapshotable-test-dep");
+    const label = dep.label;
 
-    expect(() => assertSnapshotable(null, 'snapshotable')).toThrowError(new TypeError('snapshotable is required'));
-  });
+    const cases = [null, undefined, "", 0];
 
-  it('throws for missing toSnapshot with boundary values and type mismatches', async () => {
-    const { assertSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
-
-    expect(() => assertSnapshotable([])).toThrowError(new TypeError('value.toSnapshot must be a function'));
-    expect(() => assertSnapshotable({})).toThrowError(new TypeError('value.toSnapshot must be a function'));
-    expect(() => assertSnapshotable('   ')).toThrowError(new TypeError('value.toSnapshot must be a function'));
-    expect(() => assertSnapshotable('123')).toThrowError(new TypeError('value.toSnapshot must be a function'));
-    expect(() => assertSnapshotable(-1)).toThrowError(new TypeError('value.toSnapshot must be a function'));
-    expect(() => assertSnapshotable(Number.MAX_SAFE_INTEGER)).toThrowError(
-      new TypeError('value.toSnapshot must be a function')
-    );
-    expect(() => assertSnapshotable({ length: 0 })).toThrowError(new TypeError('value.toSnapshot must be a function'));
-  });
-
-  it('throws for non-function toSnapshot or fromSnapshot with custom label', async () => {
-    const { assertSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
-    const { randomUUID } = await import('node:crypto');
-
-    const label = randomUUID();
-
-    expect(() => assertSnapshotable({ toSnapshot: 'nope', fromSnapshot: () => {} }, label)).toThrowError(
-      new TypeError(`${label}.toSnapshot must be a function`)
-    );
-
-    expect(() => assertSnapshotable({ toSnapshot: () => ({}), fromSnapshot: 123 }, label)).toThrowError(
-      new TypeError(`${label}.fromSnapshot must be a function`)
-    );
-
-    expect(randomUUID).toHaveBeenCalledTimes(1);
-  });
-
-  it('accepts large payloads and deep nesting without inspection', async () => {
-    const { assertSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
-
-    const hugeContent = 'y'.repeat(1024 * 1024);
-    const deep = makeDeepObject(40);
-    const longLabel = 'label-'.repeat(2000);
-    const snapshotable = makeSnapshotable({
-      file: { name: 'huge.dat', content: hugeContent },
-      deep,
-      longText: 'z'.repeat(10000),
-    });
-
-    const result = assertSnapshotable(snapshotable, longLabel);
-    expect(result).toBe(snapshotable);
-  });
-
-  it('supports concurrent and rapid consecutive calls', async () => {
-    const { assertSnapshotable } = await import('../../../../../../js/agents/runtime/core/context/snapshotable.js');
-
-    const items = [makeSnapshotable(), makeSnapshotable(), makeSnapshotable()];
-    const results = await Promise.all(items.map((item) => Promise.resolve(assertSnapshotable(item))));
-
-    expect(results).toEqual(items);
-
-    const snapshotable = makeSnapshotable();
-    for (let i = 0; i < 100; i += 1) {
-      expect(assertSnapshotable(snapshotable)).toBe(snapshotable);
+    for (const value of cases) {
+      expect(() => assertSnapshotable(value, label)).toThrowError(TypeError);
+      expect(() => assertSnapshotable(value, label)).toThrowError(
+        `${label} is required`,
+      );
     }
+  });
+
+  it("throws `${label}.toSnapshot must be a function` when toSnapshot is missing or invalid", () => {
+    const label = "value";
+
+    const cases = [
+      {}, // empty object
+      [], // empty array
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      "   ", // blank string
+      "123", // string passed where an object is expected
+      { toSnapshot: 123, fromSnapshot: () => {} },
+    ];
+
+    for (const value of cases) {
+      expect(() => assertSnapshotable(value, label)).toThrowError(TypeError);
+      expect(() => assertSnapshotable(value, label)).toThrowError(
+        `${label}.toSnapshot must be a function`,
+      );
+    }
+  });
+
+  it("throws `${label}.fromSnapshot must be a function` when fromSnapshot is missing or invalid", () => {
+    const label = "component";
+
+    const cases = [
+      { toSnapshot: () => ({}) }, // missing fromSnapshot
+      { toSnapshot: () => ({}), fromSnapshot: undefined },
+      { toSnapshot: () => ({}), fromSnapshot: 123 },
+    ];
+
+    for (const value of cases) {
+      expect(() => assertSnapshotable(value, label)).toThrowError(TypeError);
+      expect(() => assertSnapshotable(value, label)).toThrowError(
+        `${label}.fromSnapshot must be a function`,
+      );
+    }
+  });
+
+  it("is stable under concurrent/rapid calls and does not invoke snapshot methods", async () => {
+    const component = {
+      toSnapshot: vi.fn(() => ({})),
+      fromSnapshot: vi.fn(),
+    };
+
+    const results = await Promise.all(
+      Array.from({ length: 200 }, () =>
+        Promise.resolve().then(() => assertSnapshotable(component, "component")),
+      ),
+    );
+
+    for (const result of results) {
+      expect(result).toBe(component);
+    }
+    expect(component.toSnapshot).not.toHaveBeenCalled();
+    expect(component.fromSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("works with large/deep snapshots (resource boundary)", () => {
+    const deep = makeDeepObject(250);
+    const hugeText = "x".repeat(100_000);
+    const hugeBinary = new Uint8Array(1024 * 1024); // 1 MiB
+
+    const snapshot = { deep, hugeText, hugeBinary };
+
+    const component = {
+      toSnapshot: vi.fn(() => snapshot),
+      fromSnapshot: vi.fn((s) => {
+        expect(s).toBe(snapshot);
+        expect(s.deep.child).toBeDefined();
+      }),
+    };
+
+    const asserted = assertSnapshotable(component, "component");
+    const produced = asserted.toSnapshot({
+      includeCheckpoints: true,
+      incremental: true,
+    });
+    asserted.fromSnapshot(produced);
+
+    expect(component.toSnapshot).toHaveBeenCalledTimes(1);
+    expect(component.fromSnapshot).toHaveBeenCalledTimes(1);
   });
 });

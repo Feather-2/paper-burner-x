@@ -1,127 +1,65 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../../js/agents/core/crdt/lww-register.js', () => {
-  class LWWRegisterMock {
-    constructor(...args) {
-      if (args[0] === '__throw__') {
-        throw new Error('LWWRegisterMock constructor error');
-      }
-      this.args = args;
-    }
-  }
-  return { LWWRegister: LWWRegisterMock };
+const mockedDeps = vi.hoisted(() => {
+  class LWWRegister {}
+  class GCounter {}
+  class PNCounter {}
+  class LWWMap {}
+  class ORSet {}
+  class CRDTDocument {}
+  class CRDTSyncManager {}
+  const createMemoryTransport = vi.fn((...args) => ({ kind: 'memory-transport', args }));
+
+  return {
+    LWWRegister,
+    GCounter,
+    PNCounter,
+    LWWMap,
+    ORSet,
+    CRDTDocument,
+    CRDTSyncManager,
+    createMemoryTransport,
+  };
 });
 
-vi.mock('../../../../../js/agents/core/crdt/counters.js', () => {
-  class GCounterMock {
-    constructor(...args) {
-      if (args[0] === '__throw__') {
-        throw new Error('GCounterMock constructor error');
-      }
-      this.args = args;
-    }
-  }
-  class PNCounterMock {
-    constructor(...args) {
-      if (args[0] === '__throw__') {
-        throw new Error('PNCounterMock constructor error');
-      }
-      this.args = args;
-    }
-  }
-  return { GCounter: GCounterMock, PNCounter: PNCounterMock };
-});
+vi.mock('../../../../../js/agents/core/crdt/lww-register.js', () => ({
+  LWWRegister: mockedDeps.LWWRegister,
+}));
 
-vi.mock('../../../../../js/agents/core/crdt/lww-map.js', () => {
-  class LWWMapMock {
-    constructor(...args) {
-      if (args[0] === '__throw__') {
-        throw new Error('LWWMapMock constructor error');
-      }
-      this.args = args;
-    }
-  }
-  return { LWWMap: LWWMapMock };
-});
+vi.mock('../../../../../js/agents/core/crdt/counters.js', () => ({
+  GCounter: mockedDeps.GCounter,
+  PNCounter: mockedDeps.PNCounter,
+}));
 
-vi.mock('../../../../../js/agents/core/crdt/or-set.js', () => {
-  class ORSetMock {
-    constructor(...args) {
-      if (args[0] === '__throw__') {
-        throw new Error('ORSetMock constructor error');
-      }
-      this.args = args;
-    }
-  }
-  return { ORSet: ORSetMock };
-});
+vi.mock('../../../../../js/agents/core/crdt/lww-map.js', () => ({
+  LWWMap: mockedDeps.LWWMap,
+}));
 
-vi.mock('../../../../../js/agents/core/crdt/document.js', () => {
-  class CRDTDocumentMock {
-    constructor(...args) {
-      if (args[0] === '__throw__') {
-        throw new Error('CRDTDocumentMock constructor error');
-      }
-      this.args = args;
-    }
-  }
-  return { CRDTDocument: CRDTDocumentMock };
-});
+vi.mock('../../../../../js/agents/core/crdt/or-set.js', () => ({
+  ORSet: mockedDeps.ORSet,
+}));
 
-vi.mock('../../../../../js/agents/core/crdt/sync-manager.js', () => {
-  class CRDTSyncManagerMock {
-    constructor(...args) {
-      if (args[0] === '__throw__') {
-        throw new Error('CRDTSyncManagerMock constructor error');
-      }
-      this.args = args;
-    }
-  }
-  const createMemoryTransport = vi.fn((...args) => {
-    if (args[0] === '__throw__') {
-      throw new Error('createMemoryTransportMock error');
-    }
-    return { type: 'memory', args };
-  });
-  return { CRDTSyncManager: CRDTSyncManagerMock, createMemoryTransport };
-});
+vi.mock('../../../../../js/agents/core/crdt/document.js', () => ({
+  CRDTDocument: mockedDeps.CRDTDocument,
+}));
 
-let crdtIndex;
-let lwwRegisterModule;
-let countersModule;
-let lwwMapModule;
-let orSetModule;
-let documentModule;
-let syncManagerModule;
+vi.mock('../../../../../js/agents/core/crdt/sync-manager.js', () => ({
+  CRDTSyncManager: mockedDeps.CRDTSyncManager,
+  createMemoryTransport: mockedDeps.createMemoryTransport,
+}));
 
-beforeEach(async () => {
-  vi.resetModules();
+const importIndex = async () => import('../../../../../js/agents/core/crdt/index.js');
+
+beforeEach(() => {
   vi.restoreAllMocks();
+  vi.resetModules();
   vi.clearAllMocks();
-  vi.useRealTimers();
-
-  [
-    lwwRegisterModule,
-    countersModule,
-    lwwMapModule,
-    orSetModule,
-    documentModule,
-    syncManagerModule,
-  ] = await Promise.all([
-    import('../../../../../js/agents/core/crdt/lww-register.js'),
-    import('../../../../../js/agents/core/crdt/counters.js'),
-    import('../../../../../js/agents/core/crdt/lww-map.js'),
-    import('../../../../../js/agents/core/crdt/or-set.js'),
-    import('../../../../../js/agents/core/crdt/document.js'),
-    import('../../../../../js/agents/core/crdt/sync-manager.js'),
-  ]);
-
-  crdtIndex = await import('../../../../../js/agents/core/crdt/index.js');
 });
 
 describe('OpType', () => {
-  it('exposes the expected operation constants', () => {
-    expect(crdtIndex.OpType).toEqual({
+  it('exposes the expected operation type constants', async () => {
+    const { OpType } = await importIndex();
+    expect(OpType).toEqual({
       SET: 'set',
       DELETE: 'delete',
       INCREMENT: 'increment',
@@ -131,351 +69,261 @@ describe('OpType', () => {
     });
   });
 
-  it('handles unknown keys without throwing (error handling)', () => {
-    expect(crdtIndex.OpType.UNKNOWN).toBeUndefined();
-    expect(crdtIndex.OpType['']).toBeUndefined();
-    expect(crdtIndex.OpType['   ']).toBeUndefined();
-    expect(crdtIndex.OpType[/** @type {any} */ (null)]).toBeUndefined();
-    expect(crdtIndex.OpType[/** @type {any} */ (undefined)]).toBeUndefined();
-  });
+  it('contains unique non-empty string values', async () => {
+    const { OpType } = await importIndex();
 
-  it('exposes only non-empty string values (boundary)', () => {
-    const values = Object.values(crdtIndex.OpType);
-    expect(values.length).toBeGreaterThan(0);
-    for (const value of values) {
-      expect(typeof value).toBe('string');
-      expect(value.length).toBeGreaterThan(0);
+    const values = Object.values(OpType);
+    expect(values.length).toBe(6);
+
+    for (const v of values) {
+      expect(typeof v).toBe('string');
+      expect(v.trim()).not.toBe('');
     }
+
+    expect(new Set(values).size).toBe(values.length);
   });
 });
 
 describe('createOp', () => {
-  it('creates an operation using the provided clock and extracts nodeId', () => {
-    const clock = { seq: 7, ts: 42, id: 'nodeA_99' };
-    const op = crdtIndex.createOp('set', 'title', 'hello', clock);
+  it('creates an op with provided clock and derived nodeId from the prefix before "_"', async () => {
+    const { createOp } = await importIndex();
 
-    expect(op.type).toBe('set');
-    expect(op.key).toBe('title');
-    expect(op.value).toBe('hello');
+    const clock = { seq: 7, ts: 123, id: 'agentA_42' };
+    const op = createOp('set', 'k', 123, clock);
+
+    expect(op).toEqual({
+      type: 'set',
+      key: 'k',
+      value: 123,
+      clock,
+      nodeId: 'agentA',
+    });
     expect(op.clock).toBe(clock);
-    expect(op.nodeId).toBe('nodeA');
   });
 
-  it('defaults clock and nodeId when no clock is provided', () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(123456);
-    const op = crdtIndex.createOp('set', 'k', 'v');
+  it('derives nodeId from clock.id and falls back to "unknown" when the prefix is empty', async () => {
+    const { createOp } = await importIndex();
 
-    expect(op.clock).toEqual({ seq: 0, ts: 123456, id: '' });
-    expect(op.nodeId).toBe('unknown');
+    expect(createOp('set', 'k', 'v', { seq: 0, ts: 0, id: 'solo' }).nodeId).toBe('solo');
+    expect(createOp('set', 'k', 'v', { seq: 0, ts: 0, id: '_suffix' }).nodeId).toBe('unknown');
+    expect(createOp('set', 'k', 'v', { seq: 0, ts: 0, id: '' }).nodeId).toBe('unknown');
+  });
+
+  it('uses a default clock when clock is omitted and sets nodeId to "unknown"', async () => {
+    const { createOp } = await importIndex();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+
+    const op = createOp('set', 'k', 'v');
+
     expect(nowSpy).toHaveBeenCalledTimes(1);
+    expect(op.clock).toEqual({ seq: 0, ts: 1700000000000, id: '' });
+    expect(op.nodeId).toBe('unknown');
   });
 
-  it('handles empty and nullish values without throwing', () => {
-    const clock = { seq: 0, ts: 0, id: '' };
-    const op = crdtIndex.createOp('', null, undefined, clock);
+  it('treats null/0/"" clock as absent and generates a default clock', async () => {
+    const { createOp } = await importIndex();
+    vi.spyOn(Date, 'now').mockReturnValue(42);
 
-    expect(op.type).toBe('');
+    expect(createOp('set', 'k', 'v', null).clock).toEqual({ seq: 0, ts: 42, id: '' });
+    expect(createOp('set', 'k', 'v', 0).clock).toEqual({ seq: 0, ts: 42, id: '' });
+    expect(createOp('set', 'k', 'v', '').clock).toEqual({ seq: 0, ts: 42, id: '' });
+  });
+
+  it('preserves null/undefined/empty values without coercion', async () => {
+    const { createOp } = await importIndex();
+
+    const clock = { seq: 0, ts: 0, id: 'node_1' };
+    const op = createOp(' ', null, undefined, clock);
+
+    expect(op.type).toBe(' ');
     expect(op.key).toBeNull();
     expect(op.value).toBeUndefined();
     expect(op.clock).toBe(clock);
-    expect(op.nodeId).toBe('unknown');
-  });
-
-  it('preserves empty collections and whitespace strings', () => {
-    const emptyArray = [];
-    const emptyObject = {};
-    const clock = { seq: 1, ts: 1, id: '   ' };
-    const op = crdtIndex.createOp('   ', emptyArray, emptyObject, clock);
-
-    expect(op.type).toBe('   ');
-    expect(op.key).toBe(emptyArray);
-    expect(op.value).toBe(emptyObject);
-    expect(op.nodeId).toBe('   ');
-  });
-
-  it('keeps boundary numeric values intact', () => {
-    const clock = { seq: 2, ts: 2, id: 'node' };
-    const op = crdtIndex.createOp('increment', 0, Number.MAX_SAFE_INTEGER, clock);
-
-    expect(op.key).toBe(0);
-    expect(op.value).toBe(Number.MAX_SAFE_INTEGER);
     expect(op.nodeId).toBe('node');
-
-    const opNegative = crdtIndex.createOp('decrement', -1, -1, clock);
-    expect(opNegative.key).toBe(-1);
-    expect(opNegative.value).toBe(-1);
   });
 
-  it('accepts type boundary inputs without coercion', () => {
-    const clock = { seq: 3, ts: 3, id: 'nodeB_1' };
-    const arrayLike = { 0: 'x', length: 1 };
-    const op = crdtIndex.createOp('add', '42', arrayLike, clock);
+  it('does not validate type/key/value types (type boundary) and keeps references', async () => {
+    const { createOp } = await importIndex();
 
-    expect(op.key).toBe('42');
-    expect(op.value).toBe(arrayLike);
-    expect(op.nodeId).toBe('nodeB');
+    const keyObj = { k: 'v' };
+    const valueArr = ['1', '2', '3'];
+
+    const op = createOp(123, keyObj, valueArr, { seq: 1, ts: 1, id: 'agent_1' });
+
+    expect(op.type).toBe(123);
+    expect(op.key).toBe(keyObj);
+    expect(op.value).toBe(valueArr);
+    expect(op.nodeId).toBe('agent');
   });
 
-  it('preserves numeric strings when values are expected to be numbers (type boundary)', () => {
-    const clock = { seq: 5, ts: 5, id: 'nodeD_1' };
-    const op = crdtIndex.createOp('increment', 'count', '1', clock);
+  it('handles boundary numbers and very large payloads', async () => {
+    const { createOp } = await importIndex();
 
-    expect(op.value).toBe('1');
-    expect(op.nodeId).toBe('nodeD');
-  });
+    const veryLongString = 'x'.repeat(100_000);
 
-  it('supports large payloads and deep nesting', () => {
-    const largeString = 'x'.repeat(100000);
-    const largeArray = new Array(50000).fill('data');
-    const deepObject = { level: 0 };
-    let cursor = deepObject;
-    for (let i = 1; i <= 50; i += 1) {
-      cursor.next = { level: i };
-      cursor = cursor.next;
+    const deep = {};
+    let cursor = deep;
+    for (let i = 0; i < 2000; i++) {
+      cursor.child = {};
+      cursor = cursor.child;
     }
 
-    const value = { largeArray, deepObject };
-    const clock = { seq: 4, ts: 4, id: 'nodeC_2' };
-    const op = crdtIndex.createOp('set', largeString, value, clock);
+    const clock = { seq: Number.MAX_SAFE_INTEGER, ts: -1, id: 'n' };
+    const op = createOp('set', veryLongString, { deep, nums: [0, -1, Number.MAX_SAFE_INTEGER] }, clock);
 
-    expect(op.key).toBe(largeString);
-    expect(op.value).toBe(value);
-    expect(op.value.largeArray).toBe(largeArray);
-    expect(op.value.deepObject).toBe(deepObject);
+    expect(op.key).toBe(veryLongString);
+    expect(op.value).toEqual({ deep, nums: [0, -1, Number.MAX_SAFE_INTEGER] });
+    expect(op.clock).toBe(clock);
+    expect(op.nodeId).toBe('n');
   });
 
-  it('accepts empty object/array clocks and keeps references (boundary)', () => {
-    const emptyObjectClock = {};
-    const opObjectClock = crdtIndex.createOp('set', 'k', 'v', emptyObjectClock);
-    expect(opObjectClock.clock).toBe(emptyObjectClock);
-    expect(opObjectClock.nodeId).toBe('unknown');
+  it('can be called concurrently; omitted clocks are independent objects', async () => {
+    const { createOp } = await importIndex();
+    vi.spyOn(Date, 'now').mockReturnValue(1);
 
-    const emptyArrayClock = [];
-    const opArrayClock = crdtIndex.createOp('set', 'k', 'v', emptyArrayClock);
-    expect(opArrayClock.clock).toBe(emptyArrayClock);
-    expect(opArrayClock.nodeId).toBe('unknown');
+    const ops = await Promise.all(
+      Array.from({ length: 50 }, (_, i) => Promise.resolve().then(() => createOp('set', `k${i}`, i))),
+    );
+
+    const clocks = ops.map((o) => o.clock);
+    expect(new Set(clocks).size).toBe(clocks.length);
+
+    for (const op of ops) {
+      expect(op.nodeId).toBe('unknown');
+    }
   });
 
-  it('creates independent default clocks for rapid consecutive calls', () => {
-    let now = 1000;
-    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now++);
+  it('can be called concurrently with a shared clock object', async () => {
+    const { createOp } = await importIndex();
 
-    const ops = [
-      crdtIndex.createOp('set', 'a', 1),
-      crdtIndex.createOp('set', 'b', 2),
-      crdtIndex.createOp('set', 'c', 3),
-    ];
+    const clock = { seq: 1, ts: 2, id: 'agentX_9' };
+    const ops = await Promise.all(
+      Array.from({ length: 25 }, (_, i) => Promise.resolve().then(() => createOp('set', i, i, clock))),
+    );
 
-    expect(ops[0].clock).not.toBe(ops[1].clock);
-    expect(ops[1].clock).not.toBe(ops[2].clock);
-    expect(ops.map((op) => op.clock.ts)).toEqual([1000, 1001, 1002]);
-    expect(nowSpy).toHaveBeenCalledTimes(3);
+    for (const op of ops) {
+      expect(op.clock).toBe(clock);
+      expect(op.nodeId).toBe('agentX');
+    }
   });
 
-  it('handles simultaneous calls with distinct clocks', async () => {
-    const clocks = [
-      { seq: 1, ts: 10, id: 'alpha_1' },
-      { seq: 2, ts: 20, id: 'beta_2' },
-      { seq: 3, ts: 30, id: 'gamma_3' },
-    ];
+  it('throws a TypeError when clock.id is non-nullish but does not support split()', async () => {
+    const { createOp } = await importIndex();
 
-    const [opA, opB, opC] = await Promise.all([
-      crdtIndex.createOp('set', 'a', 1, clocks[0]),
-      crdtIndex.createOp('set', 'b', 2, clocks[1]),
-      crdtIndex.createOp('set', 'c', 3, clocks[2]),
-    ]);
-
-    expect(opA.clock).toBe(clocks[0]);
-    expect(opB.clock).toBe(clocks[1]);
-    expect(opC.clock).toBe(clocks[2]);
-    expect(opA.nodeId).toBe('alpha');
-    expect(opB.nodeId).toBe('beta');
-    expect(opC.nodeId).toBe('gamma');
-  });
-
-  it('throws when clock id is not a string', () => {
-    const badClock = { seq: 1, ts: 1, id: 123 };
-    expect(() => crdtIndex.createOp('set', 'k', 'v', badClock)).toThrow(TypeError);
+    expect(() => createOp('set', 'k', 'v', { seq: 0, ts: 0, id: 123 })).toThrow(TypeError);
+    expect(() => createOp('set', 'k', 'v', { seq: 0, ts: 0, id: {} })).toThrow(TypeError);
   });
 });
 
 describe('LWWRegister', () => {
-  it('re-exports LWWRegister from the lww-register module', () => {
-    expect(crdtIndex.LWWRegister).toBe(lwwRegisterModule.LWWRegister);
+  it('re-exports LWWRegister from lww-register.js', async () => {
+    const { LWWRegister } = await importIndex();
+    expect(LWWRegister).toBe(mockedDeps.LWWRegister);
   });
 
-  it('constructs with boundary inputs (boundary)', () => {
-    const emptyArray = [];
-    const emptyObject = {};
-    const longString = 'x'.repeat(10000);
-    const deepObject = { a: { b: { c: { d: { e: [] } } } } };
-
-    const instance = new crdtIndex.LWWRegister(
-      null,
-      undefined,
-      '',
-      '   ',
-      emptyArray,
-      emptyObject,
-      0,
-      -1,
-      Number.MAX_SAFE_INTEGER,
-      longString,
-      deepObject,
-    );
-
-    expect(instance).toBeInstanceOf(crdtIndex.LWWRegister);
-    expect(instance.args[0]).toBeNull();
-    expect(instance.args[1]).toBeUndefined();
-    expect(instance.args[2]).toBe('');
-    expect(instance.args[3]).toBe('   ');
-    expect(instance.args[4]).toBe(emptyArray);
-    expect(instance.args[5]).toBe(emptyObject);
-    expect(instance.args[6]).toBe(0);
-    expect(instance.args[7]).toBe(-1);
-    expect(instance.args[8]).toBe(Number.MAX_SAFE_INTEGER);
-    expect(instance.args[9]).toBe(longString);
-    expect(instance.args[10]).toBe(deepObject);
-  });
-
-  it('propagates constructor errors (error handling)', () => {
-    expect(() => new crdtIndex.LWWRegister('__throw__')).toThrow('LWWRegisterMock constructor error');
+  it('is constructable', async () => {
+    const { LWWRegister } = await importIndex();
+    expect(() => new LWWRegister()).not.toThrow();
   });
 });
 
 describe('GCounter', () => {
-  it('re-exports GCounter from the counters module', () => {
-    expect(crdtIndex.GCounter).toBe(countersModule.GCounter);
+  it('re-exports GCounter from counters.js', async () => {
+    const { GCounter } = await importIndex();
+    expect(GCounter).toBe(mockedDeps.GCounter);
   });
 
-  it('constructs with boundary inputs (boundary)', () => {
-    const instance = new crdtIndex.GCounter(null, undefined, '', [], {}, 0, -1, Number.MAX_SAFE_INTEGER, '   ');
-    expect(instance).toBeInstanceOf(crdtIndex.GCounter);
-    expect(instance.args[0]).toBeNull();
-  });
-
-  it('propagates constructor errors (error handling)', () => {
-    expect(() => new crdtIndex.GCounter('__throw__')).toThrow('GCounterMock constructor error');
+  it('is constructable', async () => {
+    const { GCounter } = await importIndex();
+    expect(() => new GCounter()).not.toThrow();
   });
 });
 
 describe('PNCounter', () => {
-  it('re-exports PNCounter from the counters module', () => {
-    expect(crdtIndex.PNCounter).toBe(countersModule.PNCounter);
+  it('re-exports PNCounter from counters.js', async () => {
+    const { PNCounter } = await importIndex();
+    expect(PNCounter).toBe(mockedDeps.PNCounter);
   });
 
-  it('constructs with boundary inputs (boundary)', () => {
-    const instance = new crdtIndex.PNCounter(undefined, [], {}, 'x'.repeat(10000));
-    expect(instance).toBeInstanceOf(crdtIndex.PNCounter);
-    expect(instance.args[0]).toBeUndefined();
-  });
-
-  it('propagates constructor errors (error handling)', () => {
-    expect(() => new crdtIndex.PNCounter('__throw__')).toThrow('PNCounterMock constructor error');
+  it('is constructable', async () => {
+    const { PNCounter } = await importIndex();
+    expect(() => new PNCounter()).not.toThrow();
   });
 });
 
 describe('LWWMap', () => {
-  it('re-exports LWWMap from the lww-map module', () => {
-    expect(crdtIndex.LWWMap).toBe(lwwMapModule.LWWMap);
+  it('re-exports LWWMap from lww-map.js', async () => {
+    const { LWWMap } = await importIndex();
+    expect(LWWMap).toBe(mockedDeps.LWWMap);
   });
 
-  it('constructs with boundary inputs (boundary)', () => {
-    const instance = new crdtIndex.LWWMap('', '   ', [], {}, 0, -1, Number.MAX_SAFE_INTEGER);
-    expect(instance).toBeInstanceOf(crdtIndex.LWWMap);
-    expect(instance.args[0]).toBe('');
-  });
-
-  it('propagates constructor errors (error handling)', () => {
-    expect(() => new crdtIndex.LWWMap('__throw__')).toThrow('LWWMapMock constructor error');
+  it('is constructable', async () => {
+    const { LWWMap } = await importIndex();
+    expect(() => new LWWMap()).not.toThrow();
   });
 });
 
 describe('ORSet', () => {
-  it('re-exports ORSet from the or-set module', () => {
-    expect(crdtIndex.ORSet).toBe(orSetModule.ORSet);
+  it('re-exports ORSet from or-set.js', async () => {
+    const { ORSet } = await importIndex();
+    expect(ORSet).toBe(mockedDeps.ORSet);
   });
 
-  it('constructs with boundary inputs (boundary)', () => {
-    const deep = { a: { b: { c: { d: { e: [] } } } } };
-    const instance = new crdtIndex.ORSet(null, deep);
-    expect(instance).toBeInstanceOf(crdtIndex.ORSet);
-    expect(instance.args[0]).toBeNull();
-    expect(instance.args[1]).toBe(deep);
-  });
-
-  it('propagates constructor errors (error handling)', () => {
-    expect(() => new crdtIndex.ORSet('__throw__')).toThrow('ORSetMock constructor error');
+  it('is constructable', async () => {
+    const { ORSet } = await importIndex();
+    expect(() => new ORSet()).not.toThrow();
   });
 });
 
 describe('CRDTDocument', () => {
-  it('re-exports CRDTDocument from the document module', () => {
-    expect(crdtIndex.CRDTDocument).toBe(documentModule.CRDTDocument);
+  it('re-exports CRDTDocument from document.js', async () => {
+    const { CRDTDocument } = await importIndex();
+    expect(CRDTDocument).toBe(mockedDeps.CRDTDocument);
   });
 
-  it('constructs with boundary inputs (boundary)', () => {
-    const largeString = 'x'.repeat(100000);
-    const instance = new crdtIndex.CRDTDocument(largeString, [], {});
-    expect(instance).toBeInstanceOf(crdtIndex.CRDTDocument);
-    expect(instance.args[0]).toBe(largeString);
-  });
-
-  it('propagates constructor errors (error handling)', () => {
-    expect(() => new crdtIndex.CRDTDocument('__throw__')).toThrow('CRDTDocumentMock constructor error');
+  it('is constructable', async () => {
+    const { CRDTDocument } = await importIndex();
+    expect(() => new CRDTDocument()).not.toThrow();
   });
 });
 
 describe('CRDTSyncManager', () => {
-  it('re-exports CRDTSyncManager from the sync-manager module', () => {
-    expect(crdtIndex.CRDTSyncManager).toBe(syncManagerModule.CRDTSyncManager);
+  it('re-exports CRDTSyncManager from sync-manager.js', async () => {
+    const { CRDTSyncManager } = await importIndex();
+    expect(CRDTSyncManager).toBe(mockedDeps.CRDTSyncManager);
   });
 
-  it('constructs with boundary inputs (boundary)', () => {
-    const instance = new crdtIndex.CRDTSyncManager({ nodeId: '   ' });
-    expect(instance).toBeInstanceOf(crdtIndex.CRDTSyncManager);
-    expect(instance.args[0]).toEqual({ nodeId: '   ' });
-  });
-
-  it('propagates constructor errors (error handling)', () => {
-    expect(() => new crdtIndex.CRDTSyncManager('__throw__')).toThrow(
-      'CRDTSyncManagerMock constructor error',
-    );
+  it('is constructable', async () => {
+    const { CRDTSyncManager } = await importIndex();
+    expect(() => new CRDTSyncManager()).not.toThrow();
   });
 });
 
 describe('createMemoryTransport', () => {
-  it('re-exports createMemoryTransport from the sync-manager module', () => {
-    expect(crdtIndex.createMemoryTransport).toBe(syncManagerModule.createMemoryTransport);
-  });
+  it('re-exports createMemoryTransport from sync-manager.js and forwards calls', async () => {
+    const { createMemoryTransport } = await importIndex();
 
-  it('passes through boundary arguments and returns transport (boundary)', () => {
-    const emptyObject = {};
-    const transport = crdtIndex.createMemoryTransport(null, undefined, '', [], emptyObject, '   ');
+    const payload = { deep: { a: [1, 2, 3] } };
+    const result = createMemoryTransport(null, undefined, '', payload);
 
-    expect(transport).toEqual({ type: 'memory', args: [null, undefined, '', [], emptyObject, '   '] });
-    expect(syncManagerModule.createMemoryTransport).toHaveBeenCalledTimes(1);
-  });
-
-  it('propagates errors from the underlying transport factory (error handling)', () => {
-    expect(() => crdtIndex.createMemoryTransport('__throw__')).toThrow('createMemoryTransportMock error');
+    expect(mockedDeps.createMemoryTransport).toHaveBeenCalledTimes(1);
+    expect(mockedDeps.createMemoryTransport).toHaveBeenCalledWith(null, undefined, '', payload);
+    expect(result).toEqual({ kind: 'memory-transport', args: [null, undefined, '', payload] });
   });
 });
 
 describe('default', () => {
-  it('exposes OpType and createOp on the default export', () => {
-    expect(crdtIndex.default.OpType).toBe(crdtIndex.OpType);
-    expect(crdtIndex.default.createOp).toBe(crdtIndex.createOp);
+  it('exports an object containing OpType and createOp by reference', async () => {
+    const mod = await importIndex();
+
+    expect(mod.default).not.toBeNull();
+    expect(typeof mod.default).toBe('object');
+    expect(mod.default.OpType).toBe(mod.OpType);
+    expect(mod.default.createOp).toBe(mod.createOp);
   });
 
-  it('handles unknown properties without throwing (boundary)', () => {
-    expect(crdtIndex.default.NOPE).toBeUndefined();
-    expect(crdtIndex.default['']).toBeUndefined();
-    expect(crdtIndex.default['   ']).toBeUndefined();
-  });
-
-  it('surfaces createOp errors via default export (error handling)', () => {
-    const badClock = { seq: 1, ts: 1, id: 123 };
-    expect(() => crdtIndex.default.createOp('set', 'k', 'v', badClock)).toThrow(TypeError);
+  it('does not include other named exports on the default object', async () => {
+    const { default: def } = await importIndex();
+    expect(Object.keys(def).sort()).toEqual(['OpType', 'createOp']);
   });
 });

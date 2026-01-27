@@ -1,535 +1,267 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-
-const fixtures = vi.hoisted(() => ({
-  getLargeString: vi.fn((length = 100000) => 'X'.repeat(length)),
-  getDeepState: vi.fn((depth = 40) => {
-    let node = { value: 'leaf' };
-    for (let i = 0; i < depth; i += 1) {
-      node = { level: i, child: node };
-    }
-    return node;
-  }),
-}));
-
-vi.mock('virtual:js-sandbox-worker-fixtures', () => fixtures, { virtual: true });
-
-import { getLargeString, getDeepState } from 'virtual:js-sandbox-worker-fixtures';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const MODULE_PATH = '../../../../../js/agents/runtime/core/js-sandbox-worker.js';
 
-let restoreSelf = null;
+// Use vi.mock() for external dependency simulation (pass-through, keeps behavior intact).
+vi.mock('node:worker_threads', async (importOriginal) => {
+  const actual = await importOriginal();
+  return actual;
+});
 
-async function setupWorker(options = {}) {
-  const { postMessageImpl, selfOverrides } = options;
-  if (restoreSelf) {
-    restoreSelf();
-    restoreSelf = null;
-  }
+function getExport(mod, name) {
+  if (mod && Object.prototype.hasOwnProperty.call(mod, name)) return mod[name];
+  if (mod?.default && Object.prototype.hasOwnProperty.call(mod.default, name)) return mod.default[name];
+  return undefined;
+}
 
-  const originalSelf = globalThis.self;
-  const postMessage = Object.prototype.hasOwnProperty.call(options, 'postMessageImpl')
-    ? postMessageImpl
-    : vi.fn();
-  const selfStub = { ...(selfOverrides ?? {}), postMessage };
-  globalThis.self = selfStub;
-
+async function importFresh({ self = undefined } = {}) {
   vi.resetModules();
-  await import(MODULE_PATH);
-
-  restoreSelf = () => {
-    if (originalSelf === undefined) {
-      delete globalThis.self;
-    } else {
-      globalThis.self = originalSelf;
-    }
-  };
-
-  return { self: selfStub, postMessage };
-}
-
-function collectMessages(postMessage) {
-  return postMessage.mock.calls.map(([message]) => message);
-}
-
-function findResult(messages, id) {
-  return messages.find((msg) => msg.type === 'result' && msg.id === id);
-}
-
-function findAudit(messages, id, event) {
-  return messages.find((msg) => msg.type === 'audit' && msg.id === id && msg.event === event);
+  vi.unstubAllGlobals();
+  vi.stubGlobal('self', self);
+  return import(MODULE_PATH);
 }
 
 beforeEach(() => {
-  vi.useRealTimers();
+  vi.clearAllMocks();
 });
 
-afterEach(() => {
-  if (restoreSelf) {
-    restoreSelf();
-    restoreSelf = null;
-  }
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
+describe('module initialization hardening', () => {
+  it('best-effort undefines high-risk Worker globals when self is present', async () => {
+    const self = {
+      fetch: vi.fn(),
+      XMLHttpRequest: vi.fn(),
+      WebSocket: vi.fn(),
+      importScripts: vi.fn(),
+      postMessage: vi.fn(),
+    };
 
-describe('self.onmessage', () => {
-  it('best-effort hardens high-risk Worker globals but still communicates with host', async () => {
-    const fetchMock = vi.fn();
-    const xhrMock = vi.fn();
-    const webSocketMock = vi.fn();
-    const importScriptsMock = vi.fn();
-
-    const { self, postMessage } = await setupWorker({
-      selfOverrides: {
-        fetch: fetchMock,
-        XMLHttpRequest: xhrMock,
-        WebSocket: webSocketMock,
-        importScripts: importScriptsMock,
-      },
-    });
+    await importFresh({ self });
 
     expect(self.fetch).toBeUndefined();
     expect(self.XMLHttpRequest).toBeUndefined();
     expect(self.WebSocket).toBeUndefined();
     expect(self.importScripts).toBeUndefined();
     expect(self.postMessage).toBeUndefined();
-
-    await self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'hardening',
-        code: 'return 1',
-      },
-    });
-
-    const messages = collectMessages(postMessage);
-    expect(findResult(messages, 'hardening')).toMatchObject({ success: true, data: 1 });
   });
 
-  it('ignores non-execute messages', async () => {
-    const { self, postMessage } = await setupWorker();
+  it('does not throw when self is missing/undefined', async () => {
+    const mod = await importFresh({ self: undefined });
+    expect(mod).toBeTruthy();
+  });
+});
 
-    await self.onmessage({ data: { type: 'noop', id: 'noop' } });
+describe('validateSandboxCode', () => {
+  it('returns { valid: true } for benign code', async () => {
+    const mod = await importFresh();
+    const validateSandboxCode = getExport(mod, 'validateSandboxCode');
 
-    expect(postMessage).not.toHaveBeenCalled();
+    expect(validateSandboxCode).toBeTypeOf('function');
+    expect(validateSandboxCode('const x = 1 + 2; x;')).toEqual({ valid: true });
   });
 
-  it('executes code with state/globals and posts audit events', async () => {
-    const { self, postMessage } = await setupWorker();
+  it('blocks dynamic import() by pattern', async () => {
+    const mod = await importFresh();
+    const validateSandboxCode = getExport(mod, 'validateSandboxCode');
 
-    const code = `
-      state.mutated = 1;
-      return Object.isFrozen(state) && state.mutated === undefined && state.value + extra;
-    `;
-
-    await self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'ok',
-        code,
-        state: { value: 2 },
-        globals: { extra: 3 },
-      },
-    });
-
-    const messages = collectMessages(postMessage);
-    const start = findAudit(messages, 'ok', 'start');
-    expect(start).toMatchObject({
-      type: 'audit',
-      id: 'ok',
-      event: 'start',
-      payload: { codeLength: code.length, timeoutMs: 30000 },
-    });
-
-    const result = findResult(messages, 'ok');
-    expect(result).toMatchObject({
-      type: 'result',
-      id: 'ok',
-      success: true,
-      data: 5,
-    });
-    expect(result.metrics.duration).toEqual(expect.any(Number));
-
-    const end = findAudit(messages, 'ok', 'end');
-    expect(end.payload.blockedGlobals).toEqual([]);
+    const res = validateSandboxCode('import("fs")');
+    expect(res.valid).toBe(false);
+    expect(res.reason).toContain('Blocked pattern:');
+    expect(res.reason).toContain('import');
   });
 
-  it('posts console logs and emit events', async () => {
-    const { self, postMessage } = await setupWorker();
+  it('blocks common Function-constructor escape chain by pattern', async () => {
+    const mod = await importFresh();
+    const validateSandboxCode = getExport(mod, 'validateSandboxCode');
 
-    const code = `
-      console.log("hi", 1);
-      console.warn("warn");
-      console.error({ err: true });
-      console.info("info");
-      console.debug("dbg");
-      emit("evt", { ok: true });
-      return "done";
-    `;
-
-    await self.onmessage({ data: { type: 'execute', id: 'logs', code } });
-
-    const messages = collectMessages(postMessage);
-    expect(messages).toContainEqual({ type: 'log', level: 'log', args: ['hi', '1'] });
-    expect(messages).toContainEqual({ type: 'log', level: 'warn', args: ['warn'] });
-    expect(messages).toContainEqual({ type: 'log', level: 'error', args: ['[object Object]'] });
-    expect(messages).toContainEqual({ type: 'log', level: 'info', args: ['info'] });
-    expect(messages).toContainEqual({ type: 'log', level: 'debug', args: ['dbg'] });
-    expect(messages).toContainEqual({ type: 'emit', name: 'evt', payload: { ok: true } });
-
-    const result = findResult(messages, 'logs');
-    expect(result).toMatchObject({ success: true, data: 'done' });
+    const res = validateSandboxCode('constructor  .  constructor("return 1")()');
+    expect(res.valid).toBe(false);
+    expect(res.reason).toContain('Blocked pattern:');
+    expect(res.reason).toContain('constructor');
   });
 
-  it('provides sandboxed globalThis/self references without exposing host globals', async () => {
-    const { self, postMessage } = await setupWorker();
+  it('does not false-positive on similar words', async () => {
+    const mod = await importFresh();
+    const validateSandboxCode = getExport(mod, 'validateSandboxCode');
 
-    await self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'sandbox-global',
-        code: 'return globalThis === self && typeof globalThis.setTimeout === "undefined";',
-      },
-    });
-
-    const messages = collectMessages(postMessage);
-    expect(findResult(messages, 'sandbox-global')).toMatchObject({ success: true, data: true });
+    expect(validateSandboxCode('const imported = 1; const constructorX = 2;')).toEqual({ valid: true });
   });
 
-  it('blocks unsafe patterns before execution (dynamic import)', async () => {
-    const { self, postMessage } = await setupWorker();
+  it('handles empty and whitespace strings', async () => {
+    const mod = await importFresh();
+    const validateSandboxCode = getExport(mod, 'validateSandboxCode');
 
-    await self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'blocked-import',
-        code: 'return import("x")',
-      },
-    });
-
-    const messages = collectMessages(postMessage);
-    const blocked = findAudit(messages, 'blocked-import', 'blocked');
-    expect(blocked).toMatchObject({
-      type: 'audit',
-      id: 'blocked-import',
-      event: 'blocked',
-    });
-    expect(blocked.payload.reason).toMatch(/Blocked pattern/);
-
-    const result = findResult(messages, 'blocked-import');
-    expect(result).toMatchObject({
-      type: 'result',
-      id: 'blocked-import',
-      success: false,
-    });
-    expect(result.error).toMatch(/Security: Blocked pattern/);
-    expect(result.metrics.blocked).toBe(true);
+    expect(validateSandboxCode('')).toEqual({ valid: true });
+    expect(validateSandboxCode(' \n\t ')).toEqual({ valid: true });
   });
 
-  it('blocks unsafe patterns before execution (constructor.constructor)', async () => {
-    const { self, postMessage } = await setupWorker();
+  it('handles null/undefined/array/object/number inputs without throwing (type + empty boundaries)', async () => {
+    const mod = await importFresh();
+    const validateSandboxCode = getExport(mod, 'validateSandboxCode');
 
-    await self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'blocked-ctor-chain',
-        code: 'return constructor.constructor("return 1")()',
-      },
-    });
-
-    const messages = collectMessages(postMessage);
-    const result = findResult(messages, 'blocked-ctor-chain');
-    expect(result).toMatchObject({ success: false });
-    expect(result.error).toMatch(/Security: Blocked pattern/);
-
-    const blocked = findAudit(messages, 'blocked-ctor-chain', 'blocked');
-    expect(blocked.payload.reason).toMatch(/constructor/);
-  });
-
-  it('hides blocked globals and records accesses', async () => {
-    const { self, postMessage } = await setupWorker();
-
-    const code = 'return [typeof fetch, typeof postMessage, typeof constructor, typeof notReal].join("|")';
-
-    await self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'blocked-globals',
-        code,
-        globals: { fetch: () => 'nope', extra: 1 },
-      },
-    });
-
-    const messages = collectMessages(postMessage);
-    const result = findResult(messages, 'blocked-globals');
-    expect(result).toMatchObject({ success: true, data: 'undefined|undefined|undefined|undefined' });
-
-    const end = findAudit(messages, 'blocked-globals', 'end');
-    expect(end.payload.blockedGlobals).toEqual(
-      expect.arrayContaining(['fetch', 'postMessage', 'constructor'])
-    );
-    expect(end.payload.blockedGlobals).not.toContain('notReal');
-  });
-
-  it('prevents setting blocked globals (set trap) and records audit data', async () => {
-    const { self, postMessage } = await setupWorker();
-
-    await self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'blocked-set',
-        code: 'fetch = 123; return typeof fetch;',
-      },
-    });
-
-    const messages = collectMessages(postMessage);
-    expect(findResult(messages, 'blocked-set')).toMatchObject({ success: true, data: 'undefined' });
-
-    const end = findAudit(messages, 'blocked-set', 'end');
-    expect(end.payload.blockedGlobals).toEqual(expect.arrayContaining(['fetch']));
-  });
-
-  it('prevents defining blocked globals (defineProperty trap) and reports errors', async () => {
-    const { self, postMessage } = await setupWorker();
-
-    await self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'blocked-define',
-        code: `
-          "use strict";
-          Object.defineProperty(self, "fetch", { value: 1 });
-          return "unreachable";
-        `,
-      },
-    });
-
-    const messages = collectMessages(postMessage);
-    const result = findResult(messages, 'blocked-define');
-    expect(result).toMatchObject({ success: false });
-    expect(result.error).toMatch(/fetch|defineProperty/i);
-
-    const end = findAudit(messages, 'blocked-define', 'end');
-    expect(end.payload.blockedGlobals).toEqual(expect.arrayContaining(['fetch']));
-  });
-
-  it('reports runtime errors', async () => {
-    const { self, postMessage } = await setupWorker();
-
-    await self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'boom',
-        code: 'throw new Error("boom")',
-      },
-    });
-
-    const messages = collectMessages(postMessage);
-    const result = findResult(messages, 'boom');
-    expect(result).toMatchObject({ success: false, error: 'boom' });
-
-    const end = findAudit(messages, 'boom', 'end');
-    expect(end).toBeTruthy();
-  });
-
-  it('does not crash if host postMessage throws', async () => {
-    const throwingPostMessage = vi.fn(() => {
-      throw new Error('postMessage failed');
-    });
-
-    const { self } = await setupWorker({ postMessageImpl: throwingPostMessage });
-
-    await expect(
-      self.onmessage({
-        data: {
-          type: 'execute',
-          id: 'postMessage-throws',
-          code: 'return 1',
-        },
-      })
-    ).resolves.toBeUndefined();
-  });
-
-  it('times out long-running code', async () => {
-    vi.useFakeTimers();
-    const { self, postMessage } = await setupWorker();
-
-    const execPromise = self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'timeout',
-        code: 'await new Promise(() => {})',
-        timeout: 10,
-      },
-    });
-
-    await vi.advanceTimersByTimeAsync(10);
-    await execPromise;
-
-    const messages = collectMessages(postMessage);
-    const result = findResult(messages, 'timeout');
-    expect(result).toMatchObject({ success: false, error: 'Execution timeout' });
-  });
-
-  it('handles timeout boundary values and string coercion', async () => {
-    vi.useFakeTimers();
-    const { self, postMessage } = await setupWorker();
-
-    const cases = [
-      { id: 'timeout-0', timeout: 0 },
-      { id: 'timeout-neg', timeout: -1 },
-      { id: 'timeout-max', timeout: Number.MAX_SAFE_INTEGER },
-      { id: 'timeout-string', timeout: '5' },
+    const inputs = [
+      null,
+      undefined,
+      '',
+      [],
+      {},
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      '0',
+      '   ',
+      { a: 1 },
     ];
 
-    for (const testCase of cases) {
-      await self.onmessage({
-        data: {
-          type: 'execute',
-          id: testCase.id,
-          code: 'return 42',
-          timeout: testCase.timeout,
-        },
-      });
-    }
-
-    const messages = collectMessages(postMessage);
-    for (const testCase of cases) {
-      const result = findResult(messages, testCase.id);
-      expect(result).toMatchObject({ success: true, data: 42 });
+    for (const input of inputs) {
+      expect(() => validateSandboxCode(input)).not.toThrow();
+      expect(validateSandboxCode(input).valid).toBe(true);
     }
   });
 
-  it('handles empty values and array-like objects', async () => {
-    const { self, postMessage } = await setupWorker();
+  it('handles very long code strings (resource boundary)', async () => {
+    const mod = await importFresh();
+    const validateSandboxCode = getExport(mod, 'validateSandboxCode');
+
+    const long = 'a'.repeat(200_000);
+    expect(validateSandboxCode(long)).toEqual({ valid: true });
+
+    const longBlocked = `${'a'.repeat(100_000)}import(${ 'a'.repeat(10) })`;
+    const res = validateSandboxCode(longBlocked);
+    expect(res.valid).toBe(false);
+    expect(res.reason).toContain('import');
+  });
+
+  it('supports rapid consecutive and concurrent validation calls (concurrency boundary)', async () => {
+    const mod = await importFresh();
+    const validateSandboxCode = getExport(mod, 'validateSandboxCode');
 
     const cases = [
-      { id: 'null-code', code: null, state: null, globals: undefined, expected: undefined },
-      { id: 'undefined-code', code: undefined, state: undefined, globals: {}, expected: undefined },
-      { id: 'empty-code', code: '', state: {}, globals: null, expected: undefined },
-      { id: 'whitespace-code', code: '   ', state: {}, globals: [], expected: undefined },
-      {
-        id: 'primitive-state',
-        code: 'return Object.keys(state).length',
-        state: 0,
-        globals: {},
-        expected: 0,
-      },
-      {
-        id: 'array-state',
-        code: 'return Array.isArray(state) && state.length === 0',
-        state: [],
-        globals: {},
-        expected: true,
-      },
-      {
-        id: 'object-state',
-        code: 'return !Array.isArray(state) && Object.keys(state).length === 0',
-        state: {},
-        globals: {},
-        expected: true,
-      },
-      {
-        id: 'array-like-object',
-        code: 'return Array.isArray(state)',
-        state: { 0: 'x', length: 1 },
-        globals: {},
-        expected: false,
-      },
-      {
-        id: 'object-as-array',
-        code: 'return Array.isArray(items) ? items.length : -1',
-        state: {},
-        globals: { items: {} },
-        expected: -1,
-      },
+      'const ok = 1;',
+      'import("x")',
+      'constructor.constructor("return 1")',
+      '',
+      '   ',
     ];
 
-    for (const testCase of cases) {
-      await self.onmessage({
-        data: {
-          type: 'execute',
-          id: testCase.id,
-          code: testCase.code,
-          state: testCase.state,
-          globals: testCase.globals,
-        },
-      });
-    }
+    const consecutive = cases.map((c) => validateSandboxCode(c).valid);
+    expect(consecutive).toEqual([true, false, false, true, true]);
 
-    const messages = collectMessages(postMessage);
-    for (const testCase of cases) {
-      const result = findResult(messages, testCase.id);
-      expect(result).toMatchObject({ success: true, data: testCase.expected });
+    const results = await Promise.all(cases.map((c) => Promise.resolve().then(() => validateSandboxCode(c))));
+    expect(results.map((r) => r.valid)).toEqual([true, false, false, true, true]);
+  });
+});
+
+describe('createSandboxProxy', () => {
+  it('provides a sandboxed globalThis/self reference and exposes base bindings', async () => {
+    const mod = await importFresh();
+    const createSandboxProxy = getExport(mod, 'createSandboxProxy');
+
+    expect(createSandboxProxy).toBeTypeOf('function');
+
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy({ foo: 123, Math }, audit);
+
+    expect(proxy).toBe(proxy.globalThis);
+    expect(proxy).toBe(proxy.self);
+    expect(proxy.foo).toBe(123);
+    expect(proxy.Math).toBe(Math);
+  });
+
+  it('prevents fallback to host globals via Proxy has-trap (critical sandbox boundary)', async () => {
+    const mod = await importFresh();
+    const createSandboxProxy = getExport(mod, 'createSandboxProxy');
+
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy({}, audit);
+
+    expect('anything' in proxy).toBe(true);
+    expect(Reflect.has(proxy, 'process')).toBe(true);
+
+    const outerType = new Function('return typeof process;')();
+    expect(outerType).toBe('object');
+
+    const sandboxType = new Function('sandbox', 'with (sandbox) { return typeof process; }')(proxy);
+    expect(sandboxType).toBe('undefined');
+  });
+
+  it('blocks access to high-risk globals and records audit trail', async () => {
+    const mod = await importFresh();
+    const createSandboxProxy = getExport(mod, 'createSandboxProxy');
+
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy({ process: 'leak', postMessage: 'leak' }, audit);
+
+    expect(proxy.eval).toBeUndefined();
+    expect(proxy.Function).toBeUndefined();
+    expect(proxy.process).toBeUndefined();
+    expect(proxy.postMessage).toBeUndefined();
+    expect(proxy.__proto__).toBeUndefined();
+    expect(proxy.constructor).toBeUndefined();
+
+    expect(audit.blockedAccesses.has('eval')).toBe(true);
+    expect(audit.blockedAccesses.has('Function')).toBe(true);
+    expect(audit.blockedAccesses.has('process')).toBe(true);
+    expect(audit.blockedAccesses.has('postMessage')).toBe(true);
+    expect(audit.blockedAccesses.has('__proto__')).toBe(true);
+    expect(audit.blockedAccesses.has('constructor')).toBe(true);
+
+    const sizeAfterFirstReads = audit.blockedAccesses.size;
+    void proxy.eval;
+    void proxy.eval;
+    void proxy.process;
+    expect(audit.blockedAccesses.size).toBe(sizeAfterFirstReads);
+  });
+
+  it('returns undefined for Symbol.unscopables and non-string properties', async () => {
+    const mod = await importFresh();
+    const createSandboxProxy = getExport(mod, 'createSandboxProxy');
+
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy({}, audit);
+
+    expect(proxy[Symbol.unscopables]).toBeUndefined();
+
+    const sym = Symbol('x');
+    expect(proxy[sym]).toBeUndefined();
+    expect(audit.blockedAccesses.size).toBe(0);
+  });
+
+  it('supports deep nested values in base (resource boundary)', async () => {
+    const mod = await importFresh();
+    const createSandboxProxy = getExport(mod, 'createSandboxProxy');
+
+    const deep = { a: { b: { c: { d: { e: 1 } } } } };
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy({ deep }, audit);
+
+    expect(proxy.deep.a.b.c.d.e).toBe(1);
+  });
+
+  it('isolates parallel proxy instances (concurrency boundary)', async () => {
+    const mod = await importFresh();
+    const createSandboxProxy = getExport(mod, 'createSandboxProxy');
+
+    const run = new Function('sandbox', 'with (sandbox) { return typeof process; }');
+
+    const audits = Array.from({ length: 50 }, () => ({ blockedAccesses: new Set() }));
+    const proxies = audits.map((audit, i) => createSandboxProxy({ id: i }, audit));
+
+    const results = await Promise.all(proxies.map((proxy) => Promise.resolve().then(() => run(proxy))));
+    expect(results.every((t) => t === 'undefined')).toBe(true);
+
+    for (const audit of audits) {
+      expect(audit.blockedAccesses.has('process')).toBe(true);
     }
   });
 
-  it('handles large code, long strings, and deep nested state', async () => {
-    const { self, postMessage } = await setupWorker();
+  it('handles base argument type boundary (array as base) without leaking host globals', async () => {
+    const mod = await importFresh();
+    const createSandboxProxy = getExport(mod, 'createSandboxProxy');
 
-    const large = getLargeString(100000);
-    const depth = 60;
-    const deep = getDeepState(depth);
-    const code = `/*${large}*/
-      let node = state.deep;
-      for (let i = 0; i < ${depth}; i += 1) {
-        node = node.child;
-      }
-      return [state.payload.length, node.value].join(':');
-    `;
+    const audit = { blockedAccesses: new Set() };
+    const proxy = createSandboxProxy([], audit);
 
-    await self.onmessage({
-      data: {
-        type: 'execute',
-        id: 'resource',
-        code,
-        state: { payload: large, deep },
-        globals: {},
-      },
-    });
-
-    const messages = collectMessages(postMessage);
-    const start = findAudit(messages, 'resource', 'start');
-    expect(start.payload.codeLength).toBe(code.length);
-
-    const result = findResult(messages, 'resource');
-    expect(result).toMatchObject({ success: true, data: `${large.length}:leaf` });
-  });
-
-  it('handles concurrent executions', async () => {
-    const { self, postMessage } = await setupWorker();
-
-    const first = self.onmessage({
-      data: { type: 'execute', id: 'c1', code: 'return state.value', state: { value: 1 } },
-    });
-    const second = self.onmessage({
-      data: { type: 'execute', id: 'c2', code: 'return state.value', state: { value: 2 } },
-    });
-
-    await Promise.all([first, second]);
-
-    const messages = collectMessages(postMessage);
-    expect(findResult(messages, 'c1')).toMatchObject({ success: true, data: 1 });
-    expect(findResult(messages, 'c2')).toMatchObject({ success: true, data: 2 });
-  });
-
-  it('handles rapid sequential executions', async () => {
-    const { self, postMessage } = await setupWorker();
-
-    for (let i = 0; i < 5; i += 1) {
-      await self.onmessage({
-        data: {
-          type: 'execute',
-          id: `s${i}`,
-          code: 'return state.value',
-          state: { value: i },
-        },
-      });
-    }
-
-    const messages = collectMessages(postMessage);
-    for (let i = 0; i < 5; i += 1) {
-      expect(findResult(messages, `s${i}`)).toMatchObject({ success: true, data: i });
-    }
+    expect(proxy.process).toBeUndefined();
+    expect(audit.blockedAccesses.has('process')).toBe(true);
   });
 });

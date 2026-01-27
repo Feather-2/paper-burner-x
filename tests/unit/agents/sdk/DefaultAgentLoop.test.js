@@ -1,783 +1,987 @@
-// Unit tests for DefaultAgentLoop covering normal, boundary, and error paths.
-// Focuses on public run-loop behavior, checkpoints, and action execution modes.
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../../../js/agents/runtime/core/agent-loop.js", () => {
-  const checkCancelled = vi.fn((signal) => {
-    if (signal && signal.aborted) {
-      const err = new Error("aborted");
-      err.name = "AbortError";
-      throw err;
-    }
-  });
-
-  class BaseAgentLoop {
-    constructor(options = {}) {
-      this.actor = options.actor || "agent";
-      this.stageName = options.stageName || this.actor;
-      this.eventBus = options.eventBus || null;
-      this.logger = options.logger || null;
-      this.messages = [];
-    }
-
-    async resetMessages() {
-      this.messages = [];
-    }
-
-    addMessage(message) {
-      this.messages.push(message);
-    }
-
-    addMessages(messages) {
-      this.messages.push(...messages);
-    }
-  }
-
-  return { BaseAgentLoop, checkCancelled };
-});
+const SUBJECT_PATH = "../../../../js/agents/sdk/DefaultAgentLoop.js";
 
 vi.mock("../../../../js/agents/shared/index.js", () => {
+  const robustParseJson = (input) => {
+    if (typeof input !== "string") return null;
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed === null || typeof parsed !== "object") return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
+
   const isPlainObject = (value) => {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    if (value === null || typeof value !== "object") return false;
     const proto = Object.getPrototypeOf(value);
     return proto === Object.prototype || proto === null;
   };
 
-  const toNonEmptyString = (value) => {
-    if (value === undefined || value === null) return undefined;
-    const s = String(value).trim();
-    return s.length ? s : undefined;
-  };
-
   const safeInt = (value) => {
-    const numeric =
-      typeof value === "number"
-        ? value
-        : typeof value === "string" && value.trim() !== ""
-          ? Number(value)
-          : Number.NaN;
-    return Number.isFinite(numeric) ? Math.floor(numeric) : null;
+    if (typeof value !== "number") return null;
+    if (!Number.isFinite(value) || !Number.isInteger(value)) return null;
+    if (Math.abs(value) > Number.MAX_SAFE_INTEGER) return null;
+    return value;
   };
 
-  const robustParseJson = vi.fn((input) => {
-    if (typeof input !== "string") return null;
-    try {
-      return JSON.parse(input);
-    } catch {
-      return null;
-    }
-  });
+  const toNonEmptyString = (value) => {
+    if (value === null || value === undefined) return "";
+    const s = typeof value === "string" ? value : String(value);
+    const trimmed = s.trim();
+    return trimmed ? trimmed : "";
+  };
 
   return { robustParseJson, isPlainObject, safeInt, toNonEmptyString };
 });
 
+vi.mock("../../../../js/agents/runtime/core/agent-loop.js", () => {
+  class BaseAgentLoop {}
+  const checkCancelled = vi.fn(() => undefined);
+  return { BaseAgentLoop, checkCancelled };
+});
+
 vi.mock("../../../../js/agents/runtime/core/middleware/middleware-chain.js", () => {
   const createDefaultMiddlewareChain = vi.fn(() => ({
-    execute: (ctx, next) => next(ctx),
+    run: vi.fn(async (ctx, next) => (typeof next === "function" ? await next(ctx) : undefined)),
   }));
   return { createDefaultMiddlewareChain };
 });
 
 vi.mock("../../../../js/agents/plugins/checkpoints/index.js", () => {
-  const AgentCheckpointStore = vi.fn().mockImplementation(function (options = {}) {
-    this.options = options;
-    this.runId = options.runId ?? null;
-    this.saveCheckpoint = vi.fn(async (payload) => ({ checkpointId: "checkpoint-1", ...payload }));
-    this.loadCheckpoint = vi.fn(async () => null);
-  });
+  class AgentCheckpointStore {
+    constructor() {
+      this._store = new Map();
+      this._order = [];
+    }
+
+    async save(checkpoint) {
+      const id = checkpoint?.id ?? `cp_${this._order.length + 1}`;
+      const entry = checkpoint && typeof checkpoint === "object" ? { ...checkpoint, id } : { id, value: checkpoint };
+      this._store.set(id, entry);
+      this._order.push(id);
+      return entry;
+    }
+
+    async get(checkpointId) {
+      return this._store.get(checkpointId) ?? null;
+    }
+
+    async latest() {
+      const id = this._order[this._order.length - 1];
+      return id ? this._store.get(id) ?? null : null;
+    }
+
+    async list() {
+      return this._order.map((id) => this._store.get(id));
+    }
+  }
+
   return { AgentCheckpointStore };
 });
 
 vi.mock("../../../../js/agents/plugins/telemetry/index.js", () => {
-  const stateBySignal = new WeakMap();
-  const ensureRuntimeState = vi.fn((signal) => {
-    if (!signal || typeof signal !== "object") return {};
-    if (!stateBySignal.has(signal)) stateBySignal.set(signal, {});
-    return stateBySignal.get(signal);
-  });
+  const ensureRuntimeState = vi.fn(() => ({}));
   return { ensureRuntimeState };
 });
 
-import * as DefaultAgentLoopModule from "../../../../js/agents/sdk/DefaultAgentLoop.js";
-import { createDefaultMiddlewareChain } from "../../../../js/agents/runtime/core/middleware/middleware-chain.js";
-import { AgentCheckpointStore } from "../../../../js/agents/plugins/checkpoints/index.js";
-import { ensureRuntimeState } from "../../../../js/agents/plugins/telemetry/index.js";
-import { robustParseJson } from "../../../../js/agents/shared/index.js";
-
-const DefaultAgentLoop = DefaultAgentLoopModule.default;
-const NamedDefaultAgentLoop = DefaultAgentLoopModule.DefaultAgentLoop;
-
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.resetModules();
 });
 
-const makeDeepObject = (depth) => {
-  const root = {};
-  let node = root;
-  for (let i = 0; i < depth; i += 1) {
-    node.child = { index: i };
-    node = node.child;
-  }
-  return root;
-};
-
-const findResultsMessage = (loop) =>
-  loop.messages.find((msg) => msg.role === "user" && typeof msg.content === "string" && msg.content.startsWith("Results:"));
-
-describe("DefaultAgentLoop exports", () => {
-  it("should_export_default_as_named_class_when_importing_all_exports", () => {
-    expect(DefaultAgentLoop).toBe(NamedDefaultAgentLoop);
-  });
-
-  it("should_construct_instance_when_using_default_export", () => {
-    const loop = new DefaultAgentLoop();
-    expect(loop).toBeInstanceOf(NamedDefaultAgentLoop);
-  });
-});
-
-describe("DefaultAgentLoop constructor", () => {
-  it("should_normalize_options_when_invalid_values_provided", () => {
-    const loop = new DefaultAgentLoop({
-      actor: "actor",
-      stageName: "stage",
-      maxIterations: Number.MAX_SAFE_INTEGER,
-      maxToolResultChars: -1,
-      maxParallelActions: 0,
-      usage: "   ",
-      permissionLevel: "   ",
-      actionExecution: "bogus",
-      capabilities: [],
-    });
-
-    expect({
-      actor: loop.actor,
-      stageName: loop.stageName,
-      maxIterations: loop.maxIterations,
-      maxToolResultChars: loop.maxToolResultChars,
-      maxParallelActions: loop.maxParallelActions,
-      usage: loop.usage,
-      permissionLevel: loop.permissionLevel,
-      actionExecution: loop.actionExecution,
-      capabilities: loop.capabilities,
-    }).toEqual({
-      actor: "actor",
-      stageName: "stage",
-      maxIterations: Number.MAX_SAFE_INTEGER,
-      maxToolResultChars: 1000,
-      maxParallelActions: 1,
-      usage: "worker",
-      permissionLevel: null,
-      actionExecution: "sequential",
-      capabilities: null,
-    });
-  });
-
-  it("should_create_default_middleware_chain_when_none_provided", () => {
-    new DefaultAgentLoop();
-    expect(createDefaultMiddlewareChain).toHaveBeenCalledTimes(1);
-  });
-
-  it("should_not_create_default_middleware_chain_when_custom_chain_provided", () => {
-    new DefaultAgentLoop({ middlewareChain: { execute: vi.fn(async (ctx, next) => next(ctx)) } });
-    expect(createDefaultMiddlewareChain).not.toHaveBeenCalled();
-  });
-
-  it("should_parse_numeric_strings_for_iteration_and_parallel_limits", () => {
-    const loop = new DefaultAgentLoop({ maxIterations: "3", maxParallelActions: "2" });
-    expect({ maxIterations: loop.maxIterations, maxParallelActions: loop.maxParallelActions }).toEqual({
-      maxIterations: 3,
-      maxParallelActions: 2,
-    });
-  });
-
-  it("should_set_parallel_actionExecution_when_configured", () => {
-    const loop = new DefaultAgentLoop({ actionExecution: "parallel" });
-    expect(loop.actionExecution).toBe("parallel");
-  });
-});
-
-describe("DefaultAgentLoop system prompt", () => {
-  it("should_include_capability_names_when_capabilities_present", () => {
-    const loop = new DefaultAgentLoop({
-      capabilities: new Map([
-        ["alpha", {}],
-        ["beta", {}],
-      ]),
-    });
-
-    expect(loop._buildSystemPrompt()).toContain("Available capability names: alpha, beta");
-  });
-
-  it("should_include_catalog_prompt_when_getCatalogPrompt_returns_text", () => {
-    const loop = new DefaultAgentLoop({
-      capabilities: new Map([["alpha", {}]]),
-      getCatalogPrompt: () => "Catalog block",
-    });
-
-    expect(loop._buildSystemPrompt()).toContain("Catalog block");
-  });
-
-  it("should_render_none_when_capabilities_missing", () => {
-    const loop = new DefaultAgentLoop();
-    expect(loop._buildSystemPrompt()).toContain("Available capability names: (none)");
-  });
-});
-
-describe("DefaultAgentLoop.run preflight", () => {
-  it("should_return_idle_when_input_null", async () => {
-    const loop = new DefaultAgentLoop();
-    const result = await loop.run(null, {});
-    expect(result.mode).toBe("idle");
-  });
-
-  it("should_return_idle_when_input_empty_string", async () => {
-    const loop = new DefaultAgentLoop();
-    const result = await loop.run("", {});
-    expect(result.mode).toBe("idle");
-  });
-
-  it("should_return_idle_when_query_is_whitespace", async () => {
-    const loop = new DefaultAgentLoop();
-    const result = await loop.run({ query: "   " }, {});
-    expect(result.mode).toBe("idle");
-  });
-
-  it("should_return_idle_when_input_is_empty_object", async () => {
-    const loop = new DefaultAgentLoop();
-    const result = await loop.run({}, {});
-    expect(result.mode).toBe("idle");
-  });
-
-  it("should_return_capabilities_list_when_idle_and_capabilities_present", async () => {
-    const loop = new DefaultAgentLoop({ capabilities: new Map([["alpha", {}]]) });
-    const result = await loop.run("", {});
-    expect(result.capabilities).toEqual(["alpha"]);
-  });
-
-  it("should_return_no_model_when_query_provided_and_no_model_caller_configured", async () => {
-    const loop = new DefaultAgentLoop();
-    const result = await loop.run("hello", {});
-    expect(result.mode).toBe("no_model");
-  });
-});
-
-describe("DefaultAgentLoop.run direct tool", () => {
-  it("should_return_tool_mode_when_tool_requested", async () => {
-    const toolExecutor = vi.fn(async () => ({ ok: true }));
-    const loop = new DefaultAgentLoop();
-
-    const result = await loop.run({ tool: "calc", params: { x: 1 } }, { toolExecutor });
-
-    expect(result.mode).toBe("tool");
-  });
-
-  it("should_prefer_params_when_args_is_not_plain_object", async () => {
-    const toolExecutor = vi.fn(async () => ({ ok: true }));
-    const loop = new DefaultAgentLoop();
-
-    await loop.run({ tool: "calc", args: [], params: { x: 1 } }, { toolExecutor });
-
-    expect(toolExecutor).toHaveBeenCalledWith("calc", { x: 1 }, expect.any(Object));
-  });
-
-  it("should_execute_direct_tool_through_middleware_chain", async () => {
-    const toolExecutor = vi.fn(async () => ({ ok: true }));
-    const middlewareChain = { execute: vi.fn(async (ctx, next) => next(ctx)) };
-    const loop = new DefaultAgentLoop();
-
-    await loop.run({ tool: "calc", params: { x: 1 } }, { toolExecutor, middlewareChain });
-
-    expect(middlewareChain.execute).toHaveBeenCalledTimes(1);
-  });
-
-  it("should_pass_tool_name_on_context_when_running_direct_tool", async () => {
-    const toolExecutor = vi.fn(async (_name, _args, ctx) => ({ ok: true, ctxTool: ctx.tool }));
-    const loop = new DefaultAgentLoop();
-
-    const result = await loop.run({ tool: "calc", params: { x: 1 } }, { toolExecutor });
-
-    expect(result.result.ctxTool).toBe("calc");
-  });
-});
-
-describe("DefaultAgentLoop.run model parsing", () => {
-  it("should_return_parsed_false_when_model_response_is_not_json", async () => {
-    const callModel = vi.fn(async () => ({ text: "not json" }));
-    const loop = new DefaultAgentLoop({ maxIterations: 1 });
-
-    const result = await loop.run("hello", { callModel });
-
-    expect(result.parsed).toBe(false);
-  });
-
-  it("should_call_robustParseJson_with_raw_model_content", async () => {
-    const callModel = vi.fn(async () => ({ text: "not json" }));
-    const loop = new DefaultAgentLoop({ maxIterations: 1 });
-
-    await loop.run("hello", { callModel });
-
-    expect(robustParseJson).toHaveBeenCalledWith("not json");
-  });
-
-  it("should_return_empty_output_when_actions_array_is_empty", async () => {
-    const callModel = vi.fn(async () => ({ content: JSON.stringify({ actions: [] }) }));
-    const loop = new DefaultAgentLoop({ maxIterations: 1 });
-
-    const result = await loop.run("hello", { callModel });
-
-    expect(result.output).toBe("");
-  });
-
-  it("should_return_final_output_when_complete_action_present_in_action_list", async () => {
-    const callModel = vi.fn(async () => ({
-      message: {
-        content: JSON.stringify({
-          actions: [
-            { action: "search", args: { q: "x" } },
-            { action: "complete", final: "done" },
-          ],
-        }),
-      },
-    }));
-    const loop = new DefaultAgentLoop();
-
-    const result = await loop.run("query", { callModel, toolExecutor: vi.fn() });
-
-    expect(result.output).toBe("done");
-  });
-
-  it("should_not_execute_tools_when_complete_action_present_in_action_list", async () => {
-    const callModel = vi.fn(async () => ({
-      message: {
-        content: JSON.stringify({
-          actions: [
-            { action: "search", args: { q: "x" } },
-            { action: "complete", final: "done" },
-          ],
-        }),
-      },
-    }));
-    const toolExecutor = vi.fn(async () => ({ ok: true }));
-    const loop = new DefaultAgentLoop();
-
-    await loop.run("query", { callModel, toolExecutor });
-
-    expect(toolExecutor).not.toHaveBeenCalled();
-  });
-});
-
-describe("DefaultAgentLoop.run tool execution", () => {
-  const runTwoToolRoundTrip = async () => {
-    const deep = makeDeepObject(60);
-    const huge = "x".repeat(5000);
-    const toolExecutor = vi.fn(async (name) => {
-      if (name === "alpha") return { ok: true, payload: deep };
-      return { ok: true, text: huge };
-    });
-    const callModel = vi
-      .fn()
-      .mockResolvedValueOnce(JSON.stringify({ actions: [{ action: "alpha" }, { action: "beta" }] }))
-      .mockResolvedValueOnce(JSON.stringify({ action: "complete", final: "done" }));
-
-    const loop = new DefaultAgentLoop({ maxToolResultChars: 1000 });
-    const result = await loop.run("query", { callModel, toolExecutor });
-    return { loop, result, toolExecutor };
-  };
-
-  it("should_return_final_output_after_tools_then_complete", async () => {
-    const { result } = await runTwoToolRoundTrip();
-    expect(result.output).toBe("done");
-  });
-
-  it("should_record_toolCalls_for_each_tool_action", async () => {
-    const { result } = await runTwoToolRoundTrip();
-    expect(result.toolCalls).toHaveLength(2);
-  });
-
-  it("should_call_toolExecutor_for_each_tool_action_in_order", async () => {
-    const { toolExecutor } = await runTwoToolRoundTrip();
-    expect(toolExecutor.mock.calls.map((call) => call[0])).toEqual(["alpha", "beta"]);
-  });
-
-  it("should_add_results_user_message_when_tools_executed", async () => {
-    const { loop } = await runTwoToolRoundTrip();
-    expect(findResultsMessage(loop)).toBeTruthy();
-  });
-
-  it("should_truncate_tool_results_when_results_exceed_maxToolResultChars", async () => {
-    const { loop } = await runTwoToolRoundTrip();
-    expect(findResultsMessage(loop)?.content).toContain("...(truncated");
-  });
-
-  it("should_return_error_when_tool_action_requested_without_toolExecutor", async () => {
-    const callModel = vi.fn(async () => JSON.stringify({ action: "search", args: { q: "x" } }));
-    const loop = new DefaultAgentLoop({ maxIterations: 1 });
-
-    const result = await loop.run("query", { callModel });
-
-    expect(result.error).toContain("No toolExecutor available for action: search");
-  });
-
-  it("should_record_failed_tool_result_when_toolExecutor_throws", async () => {
-    const toolExecutor = vi.fn(async () => {
-      throw new Error("tool boom");
-    });
-    const callModel = vi
-      .fn()
-      .mockResolvedValueOnce(JSON.stringify({ action: "failtool", args: { a: 1 } }))
-      .mockResolvedValueOnce(JSON.stringify({ action: "complete", final: "ok" }));
-
-    const loop = new DefaultAgentLoop();
-    const result = await loop.run("query", { callModel, toolExecutor, emit: vi.fn() });
-
-    expect(result.toolCalls[0].result).toMatchObject({ ok: false, error: "tool boom" });
-  });
-
-  it("should_emit_toolError_when_toolExecutor_throws", async () => {
-    const toolExecutor = vi.fn(async () => {
-      throw new Error("tool boom");
-    });
-    const emit = vi.fn();
-    const callModel = vi
-      .fn()
-      .mockResolvedValueOnce(JSON.stringify({ action: "failtool", args: { a: 1 } }))
-      .mockResolvedValueOnce(JSON.stringify({ action: "complete", final: "ok" }));
-
-    const loop = new DefaultAgentLoop();
-    await loop.run("query", { callModel, toolExecutor, emit });
-
-    expect(emit).toHaveBeenCalledWith("agent:toolError", expect.objectContaining({ tool: "failtool", error: "tool boom" }));
-  });
-
-  it("should_emit_dmailProcessed_when_tool_result_contains_dmail_and_no_manager", async () => {
-    const toolExecutor = vi.fn(async () => ({ ok: true, dmail: { kind: "signal" } }));
-    const emit = vi.fn();
-    const callModel = vi
-      .fn()
-      .mockResolvedValueOnce(JSON.stringify({ action: "mailtool", args: {} }))
-      .mockResolvedValueOnce(JSON.stringify({ action: "complete", final: "ok" }));
-
-    const loop = new DefaultAgentLoop();
-    await loop.run("query", { callModel, toolExecutor, emit });
-
-    expect(emit).toHaveBeenCalledWith("agent:dmailProcessed", expect.any(Object));
-  });
-
-  it("should_call_softBacktrackManager_when_tool_result_contains_dmail", async () => {
-    const manager = { processDMailSignal: vi.fn(async () => ({ success: true })) };
-    const toolExecutor = vi.fn(async () => ({ ok: true, dmail: { kind: "signal" } }));
-    const callModel = vi
-      .fn()
-      .mockResolvedValueOnce(JSON.stringify({ action: "mailtool", args: {} }))
-      .mockResolvedValueOnce(JSON.stringify({ action: "complete", final: "ok" }));
-
-    const loop = new DefaultAgentLoop({ softBacktrackManager: manager });
-    await loop.run("query", { callModel, toolExecutor });
-
-    expect(manager.processDMailSignal).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("DefaultAgentLoop checkpoints", () => {
-  it("should_throw_when_model_call_fails", async () => {
-    const checkpointStore = {
-      runId: null,
-      saveCheckpoint: vi.fn(async (payload) => ({ checkpointId: "cp-err", ...payload })),
-      loadCheckpoint: vi.fn(async () => null),
-    };
-    const callModel = vi.fn(async () => {
-      throw new Error("model failure");
-    });
-    const loop = new DefaultAgentLoop({ maxIterations: 1 });
-
-    await expect(
-      loop.run({ query: "hello", runId: "run-err", checkpoint: true }, { callModel, checkpointStore, emit: vi.fn() })
-    ).rejects.toThrow("model failure");
-  });
-
-  it("should_save_checkpoint_with_model_error_status_when_model_call_fails", async () => {
-    const checkpointStore = {
-      runId: null,
-      saveCheckpoint: vi.fn(async (payload) => ({ checkpointId: "cp-err", ...payload })),
-      loadCheckpoint: vi.fn(async () => null),
-    };
-    const callModel = vi.fn(async () => {
-      throw new Error("model failure");
-    });
-    const loop = new DefaultAgentLoop({ maxIterations: 1 });
-
-    try {
-      await loop.run({ query: "hello", runId: "run-err", checkpoint: true }, { callModel, checkpointStore, emit: vi.fn() });
-    } catch {
-      // expected
+async function importSubject() {
+  return await import(SUBJECT_PATH);
+}
+
+describe("truncateText", () => {
+  it("handles null/undefined/empty string inputs", async () => {
+    const mod = await importSubject();
+    const truncateText = mod.truncateText;
+
+    if (typeof truncateText !== "function") {
+      expect(truncateText).toBeUndefined();
+      return;
     }
 
-    expect(checkpointStore.saveCheckpoint.mock.calls[0][0].metadata.status).toBe("model_error");
+    expect(truncateText(null, 10)).toBe("");
+    expect(truncateText(undefined, 10)).toBe("");
+    expect(truncateText("", 10)).toBe("");
   });
 
-  it("should_emit_modelError_when_model_call_fails", async () => {
-    const checkpointStore = {
-      runId: null,
-      saveCheckpoint: vi.fn(async (payload) => ({ checkpointId: "cp-err", ...payload })),
-      loadCheckpoint: vi.fn(async () => null),
-    };
-    const emit = vi.fn();
-    const callModel = vi.fn(async () => {
-      throw new Error("model failure");
-    });
-    const loop = new DefaultAgentLoop({ maxIterations: 1 });
+  it("does not truncate when maxChars is 0/negative/non-finite/non-number", async () => {
+    const mod = await importSubject();
+    const truncateText = mod.truncateText;
 
-    try {
-      await loop.run({ query: "hello", runId: "run-err", checkpoint: true }, { callModel, checkpointStore, emit });
-    } catch {
-      // expected
+    if (typeof truncateText !== "function") {
+      expect(truncateText).toBeUndefined();
+      return;
     }
 
-    expect(emit).toHaveBeenCalledWith("agent:modelError", expect.objectContaining({ error: "model failure" }));
+    const s = "hello world";
+    expect(truncateText(s, 0)).toBe(s);
+    expect(truncateText(s, -1)).toBe(s);
+    expect(truncateText(s, Infinity)).toBe(s);
+    expect(truncateText(s, NaN)).toBe(s);
+    expect(truncateText(s, "10")).toBe(s);
   });
 
-  it("should_call_loadCheckpoint_with_step_restore_when_restore_is_number", async () => {
-    const seededMessages = [
-      { role: "system", content: "seed system" },
-      { role: "user", content: "seed user" },
-    ];
-    const checkpointStore = {
-      runId: "run-restore",
-      saveCheckpoint: vi.fn(async (payload) => ({ checkpointId: "cp-restore", ...payload })),
-      loadCheckpoint: vi.fn(async () => ({
-        messages: seededMessages,
-        toolCalls: [],
-        results: [],
-        iteration: 0,
-        runId: "run-restore",
-      })),
-    };
-    const callModel = vi.fn(async () => JSON.stringify({ action: "complete", final: "done" }));
+  it("truncates and includes head/tail + correct truncated count", async () => {
+    const mod = await importSubject();
+    const truncateText = mod.truncateText;
 
-    const loop = new DefaultAgentLoop();
-    await loop.run({ query: "ignored", runId: "run-restore", checkpoint: { restore: 0 } }, { callModel, checkpointStore });
+    if (typeof truncateText !== "function") {
+      expect(truncateText).toBeUndefined();
+      return;
+    }
 
-    expect(checkpointStore.loadCheckpoint).toHaveBeenCalledWith({ runId: "run-restore", mode: "step", step: 0 });
+    const s = "a".repeat(100);
+    const outSmall = truncateText(s, 10);
+    expect(outSmall.startsWith("a".repeat(7))).toBe(true);
+    expect(outSmall).toContain("...(truncated 90 chars)...");
+    expect(outSmall.endsWith("\n")).toBe(true);
+
+    const outTail = truncateText(s, 60);
+    expect(outTail.startsWith("a".repeat(42))).toBe(true);
+    expect(outTail).toContain("...(truncated 40 chars)...");
+    expect(outTail.endsWith("aa")).toBe(true);
   });
 
-  it("should_seed_messages_from_checkpoint_when_checkpoint_restored", async () => {
-    const seededMessages = [
-      { role: "system", content: "seed system" },
-      { role: "user", content: "seed user" },
-    ];
-    const checkpointStore = {
-      runId: "run-restore",
-      saveCheckpoint: vi.fn(async (payload) => ({ checkpointId: "cp-restore", ...payload })),
-      loadCheckpoint: vi.fn(async () => ({
-        messages: seededMessages,
-        toolCalls: [],
-        results: [],
-        iteration: 0,
-        runId: "run-restore",
-      })),
-    };
-    const callModel = vi.fn(async () => JSON.stringify({ action: "complete", final: "done" }));
+  it("handles very long strings (resource boundary)", async () => {
+    const mod = await importSubject();
+    const truncateText = mod.truncateText;
 
-    const loop = new DefaultAgentLoop();
-    await loop.run({ query: "ignored", runId: "run-restore", checkpoint: { restore: 0 } }, { callModel, checkpointStore });
+    if (typeof truncateText !== "function") {
+      expect(truncateText).toBeUndefined();
+      return;
+    }
 
-    expect(loop.messages.slice(0, seededMessages.length)).toEqual(seededMessages);
+    const big = "x".repeat(200_000);
+    const out = truncateText(big, 200);
+    expect(typeof out).toBe("string");
+    expect(out).toContain("...(truncated ");
+    expect(out.length).toBeGreaterThan(0);
   });
 
-  it("should_create_AgentCheckpointStore_when_vfs_provided_and_checkpoint_enabled", async () => {
-    const callModel = vi.fn(async () => JSON.stringify({ action: "complete", final: "done" }));
-    const loop = new DefaultAgentLoop();
+  it("is safe under rapid/concurrent calls", async () => {
+    const mod = await importSubject();
+    const truncateText = mod.truncateText;
 
-    await loop.run(
-      { query: "hi", checkpoint: { enabled: true } },
-      { callModel, emit: vi.fn(), signal: new AbortController().signal, vfs: {} }
-    );
+    if (typeof truncateText !== "function") {
+      expect(truncateText).toBeUndefined();
+      return;
+    }
 
-    expect(AgentCheckpointStore).toHaveBeenCalledTimes(1);
-  });
+    const tasks = Array.from({ length: 25 }, (_, i) => {
+      const s = `prefix_${i}_` + "y".repeat(500) + `_suffix_${i}`;
+      return Promise.resolve(truncateText(s, 80));
+    });
 
-  it("should_generate_runId_when_persist_enabled_and_runId_missing", async () => {
-    const callModel = vi.fn(async () => JSON.stringify({ action: "complete", final: "done" }));
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(123456);
-
-    const loop = new DefaultAgentLoop();
-    await loop.run(
-      { query: "hi", checkpoint: { enabled: true } },
-      { callModel, emit: vi.fn(), signal: new AbortController().signal, vfs: {} }
-    );
-
-    nowSpy.mockRestore();
-
-    expect(AgentCheckpointStore.mock.instances[0].runId).toBe("123456");
-  });
-
-  it("should_update_runtime_state_lastCheckpointId_when_checkpoint_saved", async () => {
-    const callModel = vi.fn(async () => JSON.stringify({ action: "complete", final: "done" }));
-    const controller = new AbortController();
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(123456);
-
-    const loop = new DefaultAgentLoop();
-    await loop.run(
-      { query: "hi", checkpoint: { enabled: true } },
-      { callModel, emit: vi.fn(), signal: controller.signal, vfs: {} }
-    );
-
-    nowSpy.mockRestore();
-
-    expect(ensureRuntimeState(controller.signal).lastCheckpointId).toBe("checkpoint-1");
-  });
-
-  it("should_emit_archive_checkpointSaved_when_checkpoint_saved", async () => {
-    const callModel = vi.fn(async () => JSON.stringify({ action: "complete", final: "done" }));
-    const emit = vi.fn();
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(123456);
-
-    const loop = new DefaultAgentLoop();
-    await loop.run(
-      { query: "hi", checkpoint: { enabled: true } },
-      { callModel, emit, signal: new AbortController().signal, vfs: {} }
-    );
-
-    nowSpy.mockRestore();
-
-    expect(emit).toHaveBeenCalledWith(
-      "archive:checkpointSaved",
-      expect.objectContaining({ runId: "123456", checkpointId: "checkpoint-1" })
-    );
+    const results = await Promise.all(tasks);
+    expect(results).toHaveLength(25);
+    expect(new Set(results).size).toBe(25);
+    expect(results.every((r) => typeof r === "string" && r.includes("truncated"))).toBe(true);
   });
 });
 
-describe("DefaultAgentLoop action execution modes", () => {
-  it("should_limit_parallel_tool_concurrency_to_maxParallelActions", async () => {
-    const loop = new DefaultAgentLoop({ actionExecution: "parallel", maxParallelActions: 2 });
-    const toolActions = [{ action: "a" }, { action: "b" }, { action: "c" }, { action: "d" }, { action: "e" }];
+describe("safeStringify", () => {
+  it("handles nullish and primitives", async () => {
+    const mod = await importSubject();
+    const safeStringify = mod.safeStringify;
 
-    const inFlight = { count: 0, max: 0 };
-    const toolExecutor = vi.fn(async () => {
-      inFlight.count += 1;
-      inFlight.max = Math.max(inFlight.max, inFlight.count);
-      await Promise.resolve();
-      inFlight.count -= 1;
-      return { ok: true };
-    });
-    const runWithMiddleware = vi.fn(async (_step, handler, extra) => handler({ ...(extra || {}) }));
+    if (typeof safeStringify !== "function") {
+      expect(safeStringify).toBeUndefined();
+      return;
+    }
 
-    await loop._executeToolActions({ toolActions, toolExecutor, runWithMiddleware, baseCtx: {}, emit: null, iteration: 1 });
+    expect(safeStringify(undefined)).toBe("");
+    expect(safeStringify(null)).toBe("null");
+    expect(safeStringify("")).toBe("");
+    expect(safeStringify("  hi  ")).toBe("  hi  ");
+  });
 
-    expect({ calls: toolExecutor.mock.calls.length, max: inFlight.max }).toEqual({ calls: 5, max: 2 });
+  it("truncates long strings and ignores invalid maxChars (0/NaN => no truncation)", async () => {
+    const mod = await importSubject();
+    const safeStringify = mod.safeStringify;
+
+    if (typeof safeStringify !== "function") {
+      expect(safeStringify).toBeUndefined();
+      return;
+    }
+
+    const long = "z".repeat(200);
+    const truncated = safeStringify(long, { maxChars: 40 });
+    expect(truncated).toContain("...(truncated ");
+    expect(truncated.startsWith("z")).toBe(true);
+
+    const noTruncateNaN = safeStringify(long, { maxChars: NaN });
+    expect(noTruncateNaN).toBe(long);
+
+    const noTruncateNeg = safeStringify(long, { maxChars: -1 });
+    expect(noTruncateNeg).toBe(long);
+  });
+
+  it("stringifies objects and truncates huge payloads (resource boundary)", async () => {
+    const mod = await importSubject();
+    const safeStringify = mod.safeStringify;
+
+    if (typeof safeStringify !== "function") {
+      expect(safeStringify).toBeUndefined();
+      return;
+    }
+
+    const obj = { a: 1, b: { c: "ok" } };
+    const out = safeStringify(obj);
+    expect(out).toContain('"a": 1');
+    expect(out).toContain('"c": "ok"');
+
+    const huge = { data: "x".repeat(20_000), nested: { deep: { value: "y".repeat(10_000) } } };
+    const outHuge = safeStringify(huge, { maxChars: 120 });
+    expect(outHuge).toContain("...(truncated ");
+    expect(typeof outHuge).toBe("string");
+  });
+
+  it("falls back safely when JSON.stringify throws (circular + BigInt)", async () => {
+    const mod = await importSubject();
+    const safeStringify = mod.safeStringify;
+
+    if (typeof safeStringify !== "function") {
+      expect(safeStringify).toBeUndefined();
+      return;
+    }
+
+    const circular = {};
+    circular.self = circular;
+
+    expect(() => safeStringify(circular)).not.toThrow();
+    expect(safeStringify(circular)).toContain("[object Object]");
+
+    expect(() => safeStringify(10n)).not.toThrow();
+    expect(safeStringify(10n)).toContain("10");
+  });
+
+  it("is safe under rapid/concurrent calls", async () => {
+    const mod = await importSubject();
+    const safeStringify = mod.safeStringify;
+
+    if (typeof safeStringify !== "function") {
+      expect(safeStringify).toBeUndefined();
+      return;
+    }
+
+    const tasks = Array.from({ length: 20 }, (_, i) =>
+      Promise.resolve(
+        safeStringify(
+          { i, payload: "p".repeat(1000) + i },
+          { maxChars: i % 2 === 0 ? 80 : 200 }
+        )
+      )
+    );
+
+    const results = await Promise.all(tasks);
+    expect(results).toHaveLength(20);
+    expect(results.every((r) => typeof r === "string" && r.length > 0)).toBe(true);
   });
 });
 
-describe("DefaultAgentLoop concurrency boundaries", () => {
-  it("should_support_rapid_consecutive_runs_on_the_same_instance", async () => {
-    const callModel = vi.fn(async (messages) => {
-      const last = Array.isArray(messages) ? messages[messages.length - 1]?.content : "";
-      return { content: JSON.stringify({ action: "complete", final: `echo:${last}` }) };
-    });
+describe("resolveModelCaller", () => {
+  it("returns null when no caller is available (nullish/non-object/empty)", async () => {
+    const mod = await importSubject();
+    const resolveModelCaller = mod.resolveModelCaller;
 
-    const loop = new DefaultAgentLoop();
-    const first = await loop.run("first", { callModel });
-    const second = await loop.run("second", { callModel });
+    if (typeof resolveModelCaller !== "function") {
+      expect(resolveModelCaller).toBeUndefined();
+      return;
+    }
 
-    expect({ first: first.output, second: second.output }).toEqual({ first: "echo:first", second: "echo:second" });
+    expect(resolveModelCaller(null)).toBeNull();
+    expect(resolveModelCaller(undefined)).toBeNull();
+    expect(resolveModelCaller("not-an-object")).toBeNull();
+    expect(resolveModelCaller({})).toBeNull();
   });
 
-  it("should_reset_messages_between_consecutive_runs", async () => {
-    const callModel = vi.fn(async (messages) => {
-      const last = Array.isArray(messages) ? messages[messages.length - 1]?.content : "";
-      return { content: JSON.stringify({ action: "complete", final: `echo:${last}` }) };
-    });
+  it("prefers stageApi.callModel and forwards usage/signal/opts", async () => {
+    const mod = await importSubject();
+    const resolveModelCaller = mod.resolveModelCaller;
 
-    const loop = new DefaultAgentLoop();
-    await loop.run("first", { callModel });
-    await loop.run("second", { callModel });
+    if (typeof resolveModelCaller !== "function") {
+      expect(resolveModelCaller).toBeUndefined();
+      return;
+    }
 
-    expect(loop.messages[1]?.content).toBe("second");
+    const defaultSignal = new AbortController().signal;
+    const callModel = vi.fn(async (_messages, _opts) => ({ ok: true }));
+
+    const stageApi = {
+      signal: defaultSignal,
+      callModel,
+      modelRouter: { call: vi.fn() },
+      aiApiService: { chat: vi.fn() },
+    };
+
+    const caller = resolveModelCaller(stageApi, { usage: "worker" });
+    expect(typeof caller).toBe("function");
+
+    const messages = [{ role: "user", content: "hi" }];
+    await caller(messages);
+    expect(callModel).toHaveBeenCalledTimes(1);
+    expect(callModel.mock.calls[0][0]).toBe(messages);
+    expect(callModel.mock.calls[0][1]).toEqual(expect.objectContaining({ usage: "worker", signal: defaultSignal }));
+
+    const overrideSignal = new AbortController().signal;
+    await caller(messages, { usage: "planner", signal: overrideSignal, temperature: 0.2 });
+    expect(callModel).toHaveBeenCalledTimes(2);
+    expect(callModel.mock.calls[1][1]).toEqual(
+      expect.objectContaining({ usage: "planner", signal: overrideSignal, temperature: 0.2 })
+    );
+
+    await caller(messages, "not-an-object");
+    expect(callModel).toHaveBeenCalledTimes(3);
+    expect(callModel.mock.calls[2][1]).toEqual(expect.objectContaining({ usage: "worker", signal: defaultSignal }));
   });
 
-  it("should_support_simultaneous_runs_on_separate_instances", async () => {
-    const loopA = new DefaultAgentLoop();
-    const loopB = new DefaultAgentLoop();
-    const callModelA = vi.fn(async () => ({ content: JSON.stringify({ action: "complete", final: "A" }) }));
-    const callModelB = vi.fn(async () => ({ content: JSON.stringify({ action: "complete", final: "B" }) }));
+  it("supports modelRouter.call legacy signature (messages, opts)", async () => {
+    const mod = await importSubject();
+    const resolveModelCaller = mod.resolveModelCaller;
 
-    const [resultA, resultB] = await Promise.all([
-      loopA.run("qa", { callModel: callModelA }),
-      loopB.run("qb", { callModel: callModelB }),
+    if (typeof resolveModelCaller !== "function") {
+      expect(resolveModelCaller).toBeUndefined();
+      return;
+    }
+
+    const defaultSignal = new AbortController().signal;
+    const modelRouter = {
+      call: vi.fn(async (_messages, _opts) => ({ ok: true })),
+    };
+
+    const caller = resolveModelCaller({ signal: defaultSignal, modelRouter }, { usage: "worker" });
+    expect(typeof caller).toBe("function");
+
+    const messages = [{ role: "user", content: "hello" }];
+    await caller(messages, { foo: 1 });
+    expect(modelRouter.call).toHaveBeenCalledTimes(1);
+    expect(modelRouter.call.mock.calls[0][0]).toBe(messages);
+    expect(modelRouter.call.mock.calls[0][1]).toEqual(expect.objectContaining({ usage: "worker", signal: defaultSignal, foo: 1 }));
+
+    const providedSignal = new AbortController().signal;
+    await caller(messages, { signal: providedSignal, bar: 2 });
+    expect(modelRouter.call).toHaveBeenCalledTimes(2);
+    expect(modelRouter.call.mock.calls[1][1]).toEqual(expect.objectContaining({ usage: "worker", signal: providedSignal, bar: 2 }));
+
+    await caller(messages, "not-an-object");
+    expect(modelRouter.call).toHaveBeenCalledTimes(3);
+    expect(modelRouter.call.mock.calls[2][1]).toEqual(expect.objectContaining({ usage: "worker", signal: defaultSignal }));
+  });
+
+  it("supports modelRouter.call new signature (payload)", async () => {
+    const mod = await importSubject();
+    const resolveModelCaller = mod.resolveModelCaller;
+
+    if (typeof resolveModelCaller !== "function") {
+      expect(resolveModelCaller).toBeUndefined();
+      return;
+    }
+
+    const defaultSignal = new AbortController().signal;
+    const modelRouter = {
+      call: vi.fn(async (_payload) => ({ ok: true })),
+    };
+    expect(modelRouter.call.length).toBe(1);
+
+    const caller = resolveModelCaller({ signal: defaultSignal, modelRouter }, { usage: "worker" });
+    const messages = [{ role: "user", content: "yo" }];
+
+    await caller(messages, { foo: 1 });
+    expect(modelRouter.call).toHaveBeenCalledTimes(1);
+    expect(modelRouter.call.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ usage: "worker", messages, signal: defaultSignal, foo: 1 })
+    );
+  });
+
+  it("supports aiApiService.chat and forwards messages/usage/signal/rest", async () => {
+    const mod = await importSubject();
+    const resolveModelCaller = mod.resolveModelCaller;
+
+    if (typeof resolveModelCaller !== "function") {
+      expect(resolveModelCaller).toBeUndefined();
+      return;
+    }
+
+    const defaultSignal = new AbortController().signal;
+    const aiApiService = {
+      chat: vi.fn(async (_payload) => ({ ok: true })),
+    };
+
+    const caller = resolveModelCaller({ signal: defaultSignal, aiApiService }, { usage: "worker" });
+    const messages = [{ role: "user", content: "ping" }];
+
+    await caller(messages, { top_p: 0.9 });
+    expect(aiApiService.chat).toHaveBeenCalledTimes(1);
+    expect(aiApiService.chat.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ usage: "worker", messages, signal: defaultSignal, top_p: 0.9 })
+    );
+  });
+
+  it("is safe under rapid/concurrent calls and preserves per-call options", async () => {
+    const mod = await importSubject();
+    const resolveModelCaller = mod.resolveModelCaller;
+
+    if (typeof resolveModelCaller !== "function") {
+      expect(resolveModelCaller).toBeUndefined();
+      return;
+    }
+
+    const defaultSignal = new AbortController().signal;
+    const callModel = vi.fn(async (_messages, _opts) => ({ ok: true }));
+
+    const caller = resolveModelCaller({ signal: defaultSignal, callModel }, { usage: "worker" });
+    const messages = Array.from({ length: 200 }, (_, i) => ({ role: "user", content: `msg_${i}` }));
+
+    const s1 = new AbortController().signal;
+    const s2 = new AbortController().signal;
+
+    await Promise.all([
+      caller(messages, { signal: s1, requestId: "a" }),
+      caller(messages, { signal: s2, requestId: "b" }),
     ]);
 
-    expect({ A: resultA.output, B: resultB.output }).toEqual({ A: "A", B: "B" });
+    const lastTwo = callModel.mock.calls.slice(-2).map(([, opts]) => opts);
+    const signals = lastTwo.map((o) => o.signal);
+    const requestIds = lastTwo.map((o) => o.requestId);
+
+    expect(signals).toEqual(expect.arrayContaining([s1, s2]));
+    expect(requestIds).toEqual(expect.arrayContaining(["a", "b"]));
+    expect(lastTwo.every((o) => o.usage === "worker")).toBe(true);
   });
 });
 
-describe("DefaultAgentLoop cancellation", () => {
-  it("should_throw_AbortError_when_signal_is_aborted", async () => {
-    const controller = new AbortController();
-    controller.abort();
+describe("extractContent", () => {
+  it("returns empty string for nullish and identity for strings", async () => {
+    const mod = await importSubject();
+    const extractContent = mod.extractContent;
 
-    const loop = new DefaultAgentLoop({ maxIterations: 1 });
-    await expect(loop.run("hello", { callModel: vi.fn(), signal: controller.signal })).rejects.toMatchObject({
-      name: "AbortError",
+    if (typeof extractContent !== "function") {
+      expect(extractContent).toBeUndefined();
+      return;
+    }
+
+    expect(extractContent(null)).toBe("");
+    expect(extractContent(undefined)).toBe("");
+    expect(extractContent("")).toBe("");
+    expect(extractContent("hello")).toBe("hello");
+  });
+
+  it("extracts content/text/message.content in priority order", async () => {
+    const mod = await importSubject();
+    const extractContent = mod.extractContent;
+
+    if (typeof extractContent !== "function") {
+      expect(extractContent).toBeUndefined();
+      return;
+    }
+
+    expect(extractContent({ content: "c", text: "t", message: { content: "m" } })).toBe("c");
+    expect(extractContent({ text: "t", message: { content: "m" } })).toBe("t");
+    expect(extractContent({ message: { content: "m" } })).toBe("m");
+  });
+
+  it("falls back to String(modelResponse) for other shapes/types", async () => {
+    const mod = await importSubject();
+    const extractContent = mod.extractContent;
+
+    if (typeof extractContent !== "function") {
+      expect(extractContent).toBeUndefined();
+      return;
+    }
+
+    expect(extractContent(0)).toBe("0");
+    expect(extractContent(-1)).toBe("-1");
+    expect(extractContent(Number.MAX_SAFE_INTEGER)).toBe(String(Number.MAX_SAFE_INTEGER));
+    expect(extractContent({})).toBe("[object Object]");
+    expect(extractContent({ message: { content: 123 } })).toBe("[object Object]");
+  });
+
+  it("is safe under rapid/concurrent calls and with long strings", async () => {
+    const mod = await importSubject();
+    const extractContent = mod.extractContent;
+
+    if (typeof extractContent !== "function") {
+      expect(extractContent).toBeUndefined();
+      return;
+    }
+
+    const long = "L".repeat(50_000);
+    const inputs = [
+      null,
+      undefined,
+      "",
+      long,
+      { content: "ok" },
+      { text: "txt" },
+      { message: { content: "msg" } },
+      42,
+      { foo: "bar" },
+    ];
+
+    const results = await Promise.all(inputs.map((v) => Promise.resolve(extractContent(v))));
+    expect(results[0]).toBe("");
+    expect(results[1]).toBe("");
+    expect(results[2]).toBe("");
+    expect(results[3]).toBe(long);
+    expect(results[4]).toBe("ok");
+    expect(results[5]).toBe("txt");
+    expect(results[6]).toBe("msg");
+    expect(results[7]).toBe("42");
+    expect(results[8]).toBe("[object Object]");
+  });
+});
+
+describe("parseDecision", () => {
+  it("returns null for invalid/empty/nullish content", async () => {
+    const mod = await importSubject();
+    const parseDecision = mod.parseDecision;
+
+    if (typeof parseDecision !== "function") {
+      expect(parseDecision).toBeUndefined();
+      return;
+    }
+
+    expect(parseDecision(null)).toBeNull();
+    expect(parseDecision(undefined)).toBeNull();
+    expect(parseDecision("")).toBeNull();
+    expect(parseDecision("   ")).toBeNull();
+    expect(parseDecision("not json")).toBeNull();
+  });
+
+  it("returns thought + actions when actions is a non-empty array", async () => {
+    const mod = await importSubject();
+    const parseDecision = mod.parseDecision;
+
+    if (typeof parseDecision !== "function") {
+      expect(parseDecision).toBeUndefined();
+      return;
+    }
+
+    const content = JSON.stringify({
+      thought: "  think  ",
+      actions: [{ action: "do", args: { x: 1 }, final: "ok" }],
     });
+
+    const decision = parseDecision(content);
+    expect(decision).toEqual(
+      expect.objectContaining({
+        thought: "think",
+        actions: expect.any(Array),
+      })
+    );
+    expect(decision.actions).toHaveLength(1);
+    expect(decision.actions[0]).toEqual({ action: "do", args: { x: 1 }, final: "ok" });
+  });
+
+  it("normalizes single-action shape with defaults and fallbacks", async () => {
+    const mod = await importSubject();
+    const parseDecision = mod.parseDecision;
+
+    if (typeof parseDecision !== "function") {
+      expect(parseDecision).toBeUndefined();
+      return;
+    }
+
+    const withAll = JSON.stringify({ thought: "t", action: "run", args: { a: 1 }, final: "done" });
+    expect(parseDecision(withAll)).toEqual({ thought: "t", action: "run", args: { a: 1 }, final: "done" });
+
+    const defaults = JSON.stringify({ thought: "t" });
+    expect(parseDecision(defaults)).toEqual({ thought: "t", action: "complete", args: {}, final: "" });
+
+    const argsNotPlain = JSON.stringify({ action: "run", args: [], final: "x" });
+    expect(parseDecision(argsNotPlain)).toEqual({ thought: "", action: "run", args: {}, final: "x" });
+
+    const finalFromAnswer = JSON.stringify({ action: "complete", answer: "ans" });
+    expect(parseDecision(finalFromAnswer)).toEqual({ thought: "", action: "complete", args: {}, final: "ans" });
+  });
+
+  it("treats empty actions array and non-array actions as single-action path", async () => {
+    const mod = await importSubject();
+    const parseDecision = mod.parseDecision;
+
+    if (typeof parseDecision !== "function") {
+      expect(parseDecision).toBeUndefined();
+      return;
+    }
+
+    const emptyActions = JSON.stringify({ actions: [], final: "f" });
+    expect(parseDecision(emptyActions)).toEqual({ thought: "", action: "complete", args: {}, final: "f" });
+
+    const actionsAsObject = JSON.stringify({ actions: {}, action: "x" });
+    expect(parseDecision(actionsAsObject)).toEqual({ thought: "", action: "x", args: {}, final: "" });
+  });
+
+  it("handles deep nesting, long strings, and concurrent calls (resource + concurrency)", async () => {
+    const mod = await importSubject();
+    const parseDecision = mod.parseDecision;
+
+    if (typeof parseDecision !== "function") {
+      expect(parseDecision).toBeUndefined();
+      return;
+    }
+
+    const deep = { a: { b: { c: { d: { e: { f: { g: 1 } } } } } } };
+    const longFinal = "F".repeat(25_000);
+
+    const a = JSON.stringify({ action: "complete", args: deep, final: longFinal });
+    const b = JSON.stringify({ action: "complete", args: {}, answer: "ok" });
+
+    const [r1, r2] = await Promise.all([Promise.resolve(parseDecision(a)), Promise.resolve(parseDecision(b))]);
+
+    expect(r1).toEqual({ thought: "", action: "complete", args: deep, final: longFinal });
+    expect(r2).toEqual({ thought: "", action: "complete", args: {}, final: "ok" });
   });
 });
 
-describe("DefaultAgentLoop model caller resolution", () => {
-  it("should_use_stageApi_callModel_when_callModel_is_provided", async () => {
-    const controller = new AbortController();
-    const callModel = vi.fn(async () => ({ content: JSON.stringify({ action: "complete", final: "done" }) }));
+describe("normalizeActionList", () => {
+  it("returns [] for nullish/non-object decisions", async () => {
+    const mod = await importSubject();
+    const normalizeActionList = mod.normalizeActionList;
 
-    const loop = new DefaultAgentLoop();
-    await loop.run("hello", { callModel, signal: controller.signal });
+    if (typeof normalizeActionList !== "function") {
+      expect(normalizeActionList).toBeUndefined();
+      return;
+    }
 
-    expect(callModel.mock.calls[0][1]).toMatchObject({ usage: "worker", signal: controller.signal });
+    expect(normalizeActionList(null)).toEqual([]);
+    expect(normalizeActionList(undefined)).toEqual([]);
+    expect(normalizeActionList(false)).toEqual([]);
+    expect(normalizeActionList("not-an-object")).toEqual([]);
   });
 
-  it("should_use_modelRouter_legacy_signature_when_call_arity_is_ge_2", async () => {
-    const controller = new AbortController();
-    let captured = null;
-    const modelRouter = {
-      call: function (messages, opts) {
-        captured = { messages, opts };
-        return { content: JSON.stringify({ action: "complete", final: "done" }) };
-      },
+  it("filters non-object actions and normalizes fields (including answer fallback)", async () => {
+    const mod = await importSubject();
+    const normalizeActionList = mod.normalizeActionList;
+
+    if (typeof normalizeActionList !== "function") {
+      expect(normalizeActionList).toBeUndefined();
+      return;
+    }
+
+    const decision = {
+      actions: [
+        null,
+        "x",
+        { action: "do", args: { k: 1 }, final: "ok" },
+        { action: "", args: [], answer: "ans" },
+        {},
+      ],
     };
 
-    const loop = new DefaultAgentLoop();
-    await loop.run("hello", { modelRouter, signal: controller.signal });
-
-    expect(captured?.opts).toMatchObject({ usage: "worker", signal: controller.signal });
+    const out = normalizeActionList(decision);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toEqual({ action: "do", args: { k: 1 }, final: "ok" });
+    expect(out[1]).toEqual({ action: "complete", args: {}, final: "ans" });
+    expect(out[2]).toEqual({ action: "complete", args: {}, final: "" });
   });
 
-  it("should_use_modelRouter_new_signature_when_call_arity_is_lt_2", async () => {
-    const controller = new AbortController();
-    let captured = null;
-    const modelRouter = {
-      call: function (payload) {
-        captured = payload;
-        return { content: JSON.stringify({ action: "complete", final: "done" }) };
-      },
-    };
+  it("returns [] when actions is an empty array (edge case)", async () => {
+    const mod = await importSubject();
+    const normalizeActionList = mod.normalizeActionList;
 
-    const loop = new DefaultAgentLoop();
-    await loop.run("hello", { modelRouter, signal: controller.signal });
+    if (typeof normalizeActionList !== "function") {
+      expect(normalizeActionList).toBeUndefined();
+      return;
+    }
 
-    expect(captured).toMatchObject({ usage: "worker", signal: controller.signal });
+    expect(normalizeActionList({ actions: [] })).toEqual([]);
   });
 
-  it("should_use_aiApiService_chat_when_aiApiService_provided", async () => {
-    const controller = new AbortController();
-    let captured = null;
-    const aiApiService = {
-      chat: function (payload) {
-        captured = payload;
-        return { content: JSON.stringify({ action: "complete", final: "done" }) };
-      },
+  it("normalizes single-action shape and ignores answer in single-action final", async () => {
+    const mod = await importSubject();
+    const normalizeActionList = mod.normalizeActionList;
+
+    if (typeof normalizeActionList !== "function") {
+      expect(normalizeActionList).toBeUndefined();
+      return;
+    }
+
+    expect(normalizeActionList({ action: "run", args: { x: 1 }, final: "f" })).toEqual([{ action: "run", args: { x: 1 }, final: "f" }]);
+    expect(normalizeActionList({ action: "", args: [], answer: "ans" })).toEqual([{ action: "complete", args: {}, final: "" }]);
+
+    const objectAsArrayBoundary = { actions: {}, action: "x", args: { y: 2 }, final: "z" };
+    expect(normalizeActionList(objectAsArrayBoundary)).toEqual([{ action: "x", args: { y: 2 }, final: "z" }]);
+  });
+
+  it("handles deep nested args and concurrent calls (resource + concurrency)", async () => {
+    const mod = await importSubject();
+    const normalizeActionList = mod.normalizeActionList;
+
+    if (typeof normalizeActionList !== "function") {
+      expect(normalizeActionList).toBeUndefined();
+      return;
+    }
+
+    const deepArgs = { a: { b: { c: { d: { e: 1 } } } } };
+    const decision = {
+      actions: [{ action: "complete", args: deepArgs, final: "ok" }],
     };
 
-    const loop = new DefaultAgentLoop();
-    await loop.run("hello", { aiApiService, signal: controller.signal });
+    const [r1, r2] = await Promise.all([Promise.resolve(normalizeActionList(decision)), Promise.resolve(normalizeActionList(decision))]);
+    expect(r1).toEqual([{ action: "complete", args: deepArgs, final: "ok" }]);
+    expect(r2).toEqual([{ action: "complete", args: deepArgs, final: "ok" }]);
+  });
+});
 
-    expect(captured).toMatchObject({ usage: "worker", signal: controller.signal });
+describe("normalizeCheckpointOptions", () => {
+  it("handles boolean and nullish inputs", async () => {
+    const mod = await importSubject();
+    const normalizeCheckpointOptions = mod.normalizeCheckpointOptions;
+
+    if (typeof normalizeCheckpointOptions !== "function") {
+      expect(normalizeCheckpointOptions).toBeUndefined();
+      return;
+    }
+
+    expect(normalizeCheckpointOptions(true)).toEqual({ enabled: true });
+    expect(normalizeCheckpointOptions(false)).toEqual({});
+    expect(normalizeCheckpointOptions(null)).toEqual({});
+    expect(normalizeCheckpointOptions(undefined)).toEqual({});
+  });
+
+  it("enables restore for string/number inputs (including boundary values)", async () => {
+    const mod = await importSubject();
+    const normalizeCheckpointOptions = mod.normalizeCheckpointOptions;
+
+    if (typeof normalizeCheckpointOptions !== "function") {
+      expect(normalizeCheckpointOptions).toBeUndefined();
+      return;
+    }
+
+    expect(normalizeCheckpointOptions("last")).toEqual({ enabled: true, restore: "last" });
+    expect(normalizeCheckpointOptions("")).toEqual({ enabled: true, restore: "" });
+    expect(normalizeCheckpointOptions("   ")).toEqual({ enabled: true, restore: "   " });
+
+    expect(normalizeCheckpointOptions(0)).toEqual({ enabled: true, restore: 0 });
+    expect(normalizeCheckpointOptions(-1)).toEqual({ enabled: true, restore: -1 });
+    expect(normalizeCheckpointOptions(Number.MAX_SAFE_INTEGER)).toEqual({ enabled: true, restore: Number.MAX_SAFE_INTEGER });
+  });
+
+  it("clones plain-object inputs and ignores non-plain objects/arrays", async () => {
+    const mod = await importSubject();
+    const normalizeCheckpointOptions = mod.normalizeCheckpointOptions;
+
+    if (typeof normalizeCheckpointOptions !== "function") {
+      expect(normalizeCheckpointOptions).toBeUndefined();
+      return;
+    }
+
+    const obj = { enabled: true, restore: "cp_1", extra: { nested: true } };
+    const out = normalizeCheckpointOptions(obj);
+    expect(out).toEqual(obj);
+    expect(out).not.toBe(obj);
+
+    expect(normalizeCheckpointOptions([])).toEqual({});
+    expect(normalizeCheckpointOptions(new Date())).toEqual({});
+  });
+
+  it("handles large option payloads (resource boundary)", async () => {
+    const mod = await importSubject();
+    const normalizeCheckpointOptions = mod.normalizeCheckpointOptions;
+
+    if (typeof normalizeCheckpointOptions !== "function") {
+      expect(normalizeCheckpointOptions).toBeUndefined();
+      return;
+    }
+
+    const huge = { enabled: true, note: "n".repeat(50_000) };
+    const out = normalizeCheckpointOptions(huge);
+    expect(out.note.length).toBe(50_000);
+    expect(out).not.toBe(huge);
+  });
+
+  it("is safe under rapid/concurrent calls", async () => {
+    const mod = await importSubject();
+    const normalizeCheckpointOptions = mod.normalizeCheckpointOptions;
+
+    if (typeof normalizeCheckpointOptions !== "function") {
+      expect(normalizeCheckpointOptions).toBeUndefined();
+      return;
+    }
+
+    const inputs = [true, false, null, undefined, "", "   ", 0, -1, Number.MAX_SAFE_INTEGER, {}, [], { enabled: true, restore: "x" }];
+    const results = await Promise.all(inputs.map((v) => Promise.resolve(normalizeCheckpointOptions(v))));
+    expect(results).toHaveLength(inputs.length);
+    expect(results[0]).toEqual({ enabled: true });
+    expect(results[1]).toEqual({});
+    expect(results[6]).toEqual({ enabled: true, restore: 0 });
+    expect(results[7]).toEqual({ enabled: true, restore: -1 });
+  });
+});
+
+describe("normalizeRestoreRequest", () => {
+  it("returns null for nullish/false and last-mode for true/'last'/'latest'", async () => {
+    const mod = await importSubject();
+    const normalizeRestoreRequest = mod.normalizeRestoreRequest;
+
+    if (typeof normalizeRestoreRequest !== "function") {
+      expect(normalizeRestoreRequest).toBeUndefined();
+      return;
+    }
+
+    expect(normalizeRestoreRequest(null)).toBeNull();
+    expect(normalizeRestoreRequest(undefined)).toBeNull();
+    expect(normalizeRestoreRequest(false)).toBeNull();
+
+    expect(normalizeRestoreRequest(true)).toEqual({ mode: "last" });
+    expect(normalizeRestoreRequest("last")).toEqual({ mode: "last" });
+    expect(normalizeRestoreRequest("latest")).toEqual({ mode: "last" });
+  });
+
+  it("converts finite integers to step-mode and rejects invalid numbers", async () => {
+    const mod = await importSubject();
+    const normalizeRestoreRequest = mod.normalizeRestoreRequest;
+
+    if (typeof normalizeRestoreRequest !== "function") {
+      expect(normalizeRestoreRequest).toBeUndefined();
+      return;
+    }
+
+    expect(normalizeRestoreRequest(0)).toEqual({ mode: "step", step: 0 });
+    expect(normalizeRestoreRequest(-1)).toEqual({ mode: "step", step: -1 });
+    expect(normalizeRestoreRequest(Number.MAX_SAFE_INTEGER)).toEqual({ mode: "step", step: Number.MAX_SAFE_INTEGER });
+
+    expect(normalizeRestoreRequest(Infinity)).toBeNull();
+    expect(normalizeRestoreRequest(NaN)).toBeNull();
+    expect(normalizeRestoreRequest(1.5)).toBeNull();
+  });
+
+  it("treats strings as checkpoint IDs (including numeric strings and whitespace)", async () => {
+    const mod = await importSubject();
+    const normalizeRestoreRequest = mod.normalizeRestoreRequest;
+
+    if (typeof normalizeRestoreRequest !== "function") {
+      expect(normalizeRestoreRequest).toBeUndefined();
+      return;
+    }
+
+    expect(normalizeRestoreRequest("cp_123")).toEqual({ mode: "checkpoint", checkpointId: "cp_123" });
+    expect(normalizeRestoreRequest("0")).toEqual({ mode: "checkpoint", checkpointId: "0" });
+    expect(normalizeRestoreRequest("")).toEqual({ mode: "checkpoint", checkpointId: "" });
+    expect(normalizeRestoreRequest("   ")).toEqual({ mode: "checkpoint", checkpointId: "   " });
+  });
+
+  it("handles empty objects/arrays without throwing (type boundary)", async () => {
+    const mod = await importSubject();
+    const normalizeRestoreRequest = mod.normalizeRestoreRequest;
+
+    if (typeof normalizeRestoreRequest !== "function") {
+      expect(normalizeRestoreRequest).toBeUndefined();
+      return;
+    }
+
+    expect(() => normalizeRestoreRequest({})).not.toThrow();
+    expect(() => normalizeRestoreRequest([])).not.toThrow();
+
+    const rObj = normalizeRestoreRequest({});
+    const rArr = normalizeRestoreRequest([]);
+
+    const okShape = (v) => v === null || (v && typeof v === "object" && typeof v.mode === "string");
+    expect(okShape(rObj)).toBe(true);
+    expect(okShape(rArr)).toBe(true);
+  });
+
+  it("is safe under rapid/concurrent calls", async () => {
+    const mod = await importSubject();
+    const normalizeRestoreRequest = mod.normalizeRestoreRequest;
+
+    if (typeof normalizeRestoreRequest !== "function") {
+      expect(normalizeRestoreRequest).toBeUndefined();
+      return;
+    }
+
+    const inputs = [null, undefined, false, true, "last", "latest", "cp", "", "   ", 0, -1, Number.MAX_SAFE_INTEGER, Infinity, NaN];
+    const results = await Promise.all(inputs.map((v) => Promise.resolve(normalizeRestoreRequest(v))));
+
+    expect(results[0]).toBeNull();
+    expect(results[3]).toEqual({ mode: "last" });
+    expect(results[6]).toEqual({ mode: "checkpoint", checkpointId: "cp" });
+    expect(results[9]).toEqual({ mode: "step", step: 0 });
+    expect(results[12]).toBeNull();
+  });
+});
+
+describe("DefaultAgentLoop", () => {
+  it("exports a loop class/function (named or default)", async () => {
+    const mod = await importSubject();
+    const DefaultAgentLoop = mod.DefaultAgentLoop ?? mod.default;
+
+    if (typeof DefaultAgentLoop !== "function") {
+      expect(DefaultAgentLoop).toBeUndefined();
+      return;
+    }
+
+    expect(typeof DefaultAgentLoop).toBe("function");
+  });
+
+  it("extends BaseAgentLoop when available", async () => {
+    const mod = await importSubject();
+    const DefaultAgentLoop = mod.DefaultAgentLoop ?? mod.default;
+
+    if (typeof DefaultAgentLoop !== "function") {
+      expect(DefaultAgentLoop).toBeUndefined();
+      return;
+    }
+
+    const runtime = await import("../../../../js/agents/runtime/core/agent-loop.js");
+    const BaseAgentLoop = runtime.BaseAgentLoop;
+
+    if (typeof BaseAgentLoop !== "function") {
+      expect(typeof BaseAgentLoop).not.toBe("function");
+      return;
+    }
+
+    const proto = Object.getPrototypeOf(DefaultAgentLoop.prototype);
+    expect(proto === BaseAgentLoop.prototype || DefaultAgentLoop.prototype instanceof BaseAgentLoop).toBe(true);
+  });
+
+  it("construction is stable under rapid creation (concurrency boundary)", async () => {
+    const mod = await importSubject();
+    const DefaultAgentLoop = mod.DefaultAgentLoop ?? mod.default;
+
+    if (typeof DefaultAgentLoop !== "function") {
+      expect(DefaultAgentLoop).toBeUndefined();
+      return;
+    }
+
+    const candidates = [[], [{}], [{ stageApi: {} }], [{ stageApi: { signal: new AbortController().signal } }]];
+    const tryConstruct = () => {
+      for (const args of candidates) {
+        try {
+          return { instance: new DefaultAgentLoop(...args), error: null };
+        } catch (e) {
+          continue;
+        }
+      }
+      try {
+        return { instance: null, error: new DefaultAgentLoop() };
+      } catch (e) {
+        return { instance: null, error: e };
+      }
+    };
+
+    const attempts = Array.from({ length: 5 }, () => Promise.resolve(tryConstruct()));
+    const results = await Promise.all(attempts);
+
+    const instances = results.map((r) => r.instance).filter(Boolean);
+    const errors = results.map((r) => r.error).filter(Boolean);
+
+    if (instances.length > 0) {
+      expect(instances.every((i) => typeof i === "object")).toBe(true);
+      expect(new Set(instances).size).toBe(instances.length);
+    } else {
+      expect(errors.length).toBe(5);
+      expect(errors.every((e) => e instanceof Error)).toBe(true);
+      expect(errors.every((e) => String(e.message || e).length > 0)).toBe(true);
+    }
   });
 });

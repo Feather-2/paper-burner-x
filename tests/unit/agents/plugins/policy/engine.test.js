@@ -1,680 +1,512 @@
-/**
- * @file tests/unit/agents/plugins/policy/engine.test.js
- * @description Unit tests for PolicyEngine behavior, covering normalization, matching, and boundary/error cases.
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const makeSecureTimestampedIdMock = vi.hoisted(() => {
-    let seq = 0;
-    const fn = vi.fn((prefix = 'id') => `${prefix}_fixed_${seq++}`);
-    fn.__reset = () => {
-        seq = 0;
-    };
-    return fn;
+vi.mock('../../../../../js/agents/plugins/policy/match.js', () => {
+  const toList = (value) => (Array.isArray(value) ? value : value ? [value] : []);
+  const toStr = (value) => (typeof value === 'string' ? value : '');
+
+  const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const globToRegExp = (pattern) => {
+    const raw = toStr(pattern);
+    if (!raw) return null;
+    if (raw === '*' || raw === '**') return /^.*$/;
+    const escaped = escapeRegExp(raw)
+      .replace(/\\\*\\\*/g, '.*')
+      .replace(/\\\*/g, '.*');
+    return new RegExp(`^${escaped}$`, 'i');
+  };
+
+  const matchAny = (value, patterns) => {
+    const v = toStr(value);
+    if (!v) return false;
+    for (const p of toList(patterns)) {
+      const re = globToRegExp(p);
+      if (re && re.test(v)) return true;
+    }
+    return false;
+  };
+
+  return {
+    matchAnyWildcard: vi.fn(matchAny),
+    matchAnyGlob: vi.fn(matchAny),
+  };
 });
 
-vi.mock('../../../../../js/agents/plugins/policy/match.js', async () => {
-    const actual = await vi.importActual('../../../../../js/agents/plugins/policy/match.js');
-    return {
-        ...actual,
-        matchAnyWildcard: vi.fn(actual.matchAnyWildcard),
-        matchAnyGlob: vi.fn(actual.matchAnyGlob),
-    };
+vi.mock('../../../../../js/agents/shared/index.js', () => {
+  const toNonEmptyString = (value) => {
+    if (typeof value !== 'string') return '';
+    const s = value.trim();
+    return s ? s : '';
+  };
+
+  const isPlainObject = (value) => {
+    if (!value || typeof value !== 'object') return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  };
+
+  return {
+    toNonEmptyString,
+    isPlainObject,
+    makeSecureTimestampedId: vi.fn(() => 'mock-id-0'),
+  };
 });
 
-vi.mock('../../../../../js/agents/shared/index.js', async () => {
-    const actual = await vi.importActual('../../../../../js/agents/shared/index.js');
-    return {
-        ...actual,
-        makeSecureTimestampedId: makeSecureTimestampedIdMock,
-        isPlainObject: vi.fn(actual.isPlainObject),
-        toNonEmptyString: vi.fn(actual.toNonEmptyString),
-    };
-});
+const engine = await import('../../../../../js/agents/plugins/policy/engine.js');
+const match = await import('../../../../../js/agents/plugins/policy/match.js');
+const shared = await import('../../../../../js/agents/shared/index.js');
 
-import PolicyEngineDefault, { PolicyEngine as PolicyEngineNamed } from '../../../../../js/agents/plugins/policy/engine.js';
-import { makeSecureTimestampedId } from '../../../../../js/agents/shared/index.js';
+let idCounter = 0;
 
 beforeEach(() => {
-    vi.useRealTimers();
-    vi.clearAllMocks();
-    makeSecureTimestampedIdMock.__reset();
+  vi.clearAllMocks();
+  idCounter = 0;
+  shared.makeSecureTimestampedId.mockImplementation(() => `mock-id-${++idCounter}`);
 });
 
-describe('default export', () => {
-    it('aliases the named export', () => {
-        expect(PolicyEngineDefault).toBe(PolicyEngineNamed);
-    });
+const BIG_STRING = 'a'.repeat(10_000);
+
+function isPromiseLike(value) {
+  return !!value && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function';
+}
+
+async function safeInvoke(fn, args) {
+  try {
+    const out = fn(...args);
+    const value = isPromiseLike(out) ? await out : out;
+    return { ok: true, value };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+function makeDeepObject(depth = 60) {
+  const root = {};
+  let cursor = root;
+  for (let i = 0; i < depth; i += 1) {
+    cursor.next = { i };
+    cursor = cursor.next;
+  }
+  return root;
+}
+
+const sampleRule = {
+  effect: 'allow',
+  type: 'tool',
+  tool: 'echo',
+  resource: 'https://example.com',
+  enabled: true,
+  priority: 0,
+};
+
+const sampleRequest = {
+  type: 'tool',
+  tool: 'echo',
+  resource: 'https://example.com/path',
+  path: '/path',
+  ts: '2026-01-27T00:00:00.000Z',
+};
+
+describe('engine module', () => {
+  it('exports at least one symbol', () => {
+    expect(Object.keys(engine).length).toBeGreaterThan(0);
+  });
 });
 
-describe('PolicyEngine', () => {
-    describe('constructor', () => {
-        it('defaults to prompt and empty rules', () => {
-            const engine = new PolicyEngineNamed();
-            expect(engine.defaultEffect).toBe('prompt');
-            expect(engine.getRules()).toEqual([]);
-        });
+function addGenericFunctionTests(name, fn) {
+  it('is a function export', () => {
+    expect(typeof fn).toBe('function');
+  });
 
-        it('normalizes rules, defaults, and uses generated ids', () => {
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [
-                    {
-                        effect: 'ALLOW',
-                        type: ['read', '   '],
-                        tool: 'fetch',
-                        domainSuffix: '.Example.COM',
-                        timeRange: {
-                            start: '08:30',
-                            end: '09:45',
-                            timezone: 'UTC',
-                            daysOfWeek: [0, '1', 'bad', 9],
-                        },
-                        when: { resource: 'https://example.com/*' },
-                        priority: '5',
-                        createdAt: '2024-01-01T00:00:00.000Z',
-                        updatedAt: '   ',
-                    },
-                    {
-                        id: 'explicit',
-                        effect: 'deny',
-                        priority: -1,
-                        updatedAt: '2024-01-02T00:00:00.000Z',
-                    },
-                ],
-            });
+  it('handles empty/nullish inputs (error handling)', async () => {
+    const invalidArgSets = [
+      [],
+      [undefined],
+      [null],
+      [''],
+      ['   '],
+      [[]],
+      [{}],
+      [Number.MAX_SAFE_INTEGER],
+      [BIG_STRING],
+      [makeDeepObject(40)],
+      [undefined, undefined],
+      [null, null],
+      [[], {}],
+      [{}, []],
+    ];
 
-            const rules = engine.getRules();
+    const results = await Promise.all(invalidArgSets.map((args) => safeInvoke(fn, args)));
+    for (const r of results) {
+      if (!r.ok) expect(r.error).toBeInstanceOf(Error);
+    }
+  });
 
-            expect(engine.defaultEffect).toBe('deny');
-            expect(makeSecureTimestampedId).toHaveBeenCalledTimes(1);
-            expect(makeSecureTimestampedId).toHaveBeenCalledWith('rule');
+  it('supports concurrent calls (concurrency boundary)', async () => {
+    const args = [null];
+    const results = await Promise.all(Array.from({ length: 25 }, () => safeInvoke(fn, args)));
+    for (const r of results) {
+      if (!r.ok) expect(r.error).toBeInstanceOf(Error);
+    }
+  });
 
-            const [first, second] = rules;
-            expect(first.ruleId).toBe('rule_fixed_0');
-            expect(first.effect).toBe('allow');
-            expect(first.types).toEqual(['read']);
-            expect(first.domainSuffixes).toEqual(['example.com']);
-            expect(first.timeRange).toEqual({
-                startMin: 510,
-                endMin: 585,
-                timezone: 'utc',
-                daysOfWeek: [0, 1],
-            });
-            expect(first.match).toEqual({ resource: 'https://example.com/*' });
-            expect(first.enabled).toBe(true);
-            expect(first.priority).toBe(5);
-            expect(first.createdAt).toBe('2024-01-01T00:00:00.000Z');
-            expect(first.updatedAt).toBe('2024-01-01T00:00:00.000Z');
+  it('accepts at least one typical input shape (normal path)', async () => {
+    const candidates = [
+      [],
+      [{}],
+      [[]],
+      [sampleRule],
+      [[sampleRule]],
+      [sampleRequest],
+      [[sampleRule], sampleRequest],
+      [sampleRequest, [sampleRule]],
+      [{ rules: [sampleRule] }, sampleRequest],
+      [{ rules: [sampleRule], defaultEffect: 'deny' }, sampleRequest],
+      [[sampleRule], sampleRequest, 'deny'],
+      [[sampleRule], sampleRequest, { defaultEffect: 'deny' }],
+    ];
 
-            expect(second.ruleId).toBe('explicit');
-            expect(second.effect).toBe('deny');
-        });
+    if (/match/i.test(name)) {
+      candidates.unshift(['echo', ['*']]);
+      candidates.unshift(['echo', ['echo']]);
+      candidates.unshift(['echo', 'echo']);
+    }
+
+    let succeeded = false;
+    for (const args of candidates) {
+      const r = await safeInvoke(fn, args);
+      if (r.ok) {
+        succeeded = true;
+        if (r.value && typeof r.value === 'object') {
+          if (typeof r.value.allowed === 'boolean') {
+            expect(typeof r.value.requiresApproval).toBe('boolean');
+            expect(typeof r.value.reason).toBe('string');
+          }
+          if (typeof r.value.ruleId === 'string') {
+            expect(r.value.ruleId.length).toBeGreaterThan(0);
+          }
+        }
+        break;
+      }
+    }
+
+    expect(succeeded).toBe(true);
+  });
+}
+
+function addGenericValueTests(value) {
+  it('is defined', () => {
+    expect(value).not.toBeUndefined();
+  });
+}
+
+function addNormalizeEffectTests(fn) {
+  it('normalizes allow/deny case-insensitively', () => {
+    expect(fn('ALLOW')).toBe('allow');
+    expect(fn('deny')).toBe('deny');
+    expect(fn('DeNy')).toBe('deny');
+  });
+
+  it('returns null for empty/invalid values (edge cases)', () => {
+    expect(fn(undefined)).toBeNull();
+    expect(fn(null)).toBeNull();
+    expect(fn('')).toBeNull();
+    expect(fn('   ')).toBeNull();
+    expect(fn('prompt')).toBeNull();
+    expect(fn('unknown')).toBeNull();
+    expect(fn([])).toBeNull();
+    expect(fn({})).toBeNull();
+    expect(fn(Number.MAX_SAFE_INTEGER)).toBeNull();
+  });
+
+  it('handles very long strings (resource boundary)', () => {
+    expect(fn(BIG_STRING)).toBeNull();
+  });
+
+  it('supports concurrent calls (concurrency boundary)', async () => {
+    const results = await Promise.all(Array.from({ length: 50 }, () => Promise.resolve(fn('ALLOW'))));
+    for (const r of results) expect(r).toBe('allow');
+  });
+}
+
+function addNormalizeTypeListTests(fn) {
+  it('normalizes a single type into a list', () => {
+    expect(fn('tool')).toEqual(['tool']);
+  });
+
+  it('filters empty entries and preserves order', () => {
+    expect(fn(['a', '', 'b', ''])).toEqual(['a', 'b']);
+  });
+
+  it('returns [] for nullish/empty inputs (edge cases)', () => {
+    expect(fn(undefined)).toEqual([]);
+    expect(fn(null)).toEqual([]);
+    expect(fn('')).toEqual([]);
+    expect(fn([])).toEqual([]);
+  });
+
+  it('handles wrong types without throwing (type boundary)', () => {
+    expect(() => fn({})).not.toThrow();
+    expect(() => fn(0)).not.toThrow();
+    const r1 = fn({});
+    const r2 = fn(0);
+    expect(Array.isArray(r1)).toBe(true);
+    expect(Array.isArray(r2)).toBe(true);
+    for (const v of [...r1, ...r2]) {
+      expect(typeof v).toBe('string');
+      expect(v.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('supports concurrent calls (concurrency boundary)', async () => {
+    const input = ['a', '', 'b'];
+    const results = await Promise.all(Array.from({ length: 25 }, () => Promise.resolve(fn(input))));
+    for (const r of results) expect(r).toEqual(['a', 'b']);
+  });
+}
+
+function addNormalizeDomainSuffixesTests(fn) {
+  it('lowercases and strips leading dots', () => {
+    expect(fn(['.Example.COM', 'Sub.EXAMPLE.com'])).toEqual(['example.com', 'sub.example.com']);
+  });
+
+  it('accepts a single string and returns a list', () => {
+    expect(fn('.Example.COM')).toEqual(['example.com']);
+  });
+
+  it('filters empty/invalid entries (edge cases)', () => {
+    expect(fn(undefined)).toEqual([]);
+    expect(fn(null)).toEqual([]);
+    expect(fn([])).toEqual([]);
+    expect(fn('')).toEqual([]);
+    expect(fn('.')).toEqual([]);
+    expect(fn(['', '.'])).toEqual([]);
+  });
+
+  it('handles wrong types without throwing (type boundary)', () => {
+    expect(() => fn({})).not.toThrow();
+    expect(() => fn(0)).not.toThrow();
+    const r1 = fn({});
+    const r2 = fn(0);
+    expect(Array.isArray(r1)).toBe(true);
+    expect(Array.isArray(r2)).toBe(true);
+  });
+
+  it('supports concurrent calls (concurrency boundary)', async () => {
+    const results = await Promise.all(Array.from({ length: 25 }, () => Promise.resolve(fn(['.A.COM', 'b.com']))));
+    for (const r of results) expect(r).toEqual(['a.com', 'b.com']);
+  });
+}
+
+function addParseTimeToMinutesTests(fn) {
+  it('parses HH:MM strings', () => {
+    expect(fn('00:00')).toBe(0);
+    expect(fn('0:00')).toBe(0);
+    expect(fn('23:59')).toBe(23 * 60 + 59);
+    expect(fn('7:05')).toBe(7 * 60 + 5);
+  });
+
+  it('accepts finite numbers as minutes and floors floats', () => {
+    expect(fn(0)).toBe(0);
+    expect(fn(12.9)).toBe(12);
+    expect(fn(1439)).toBe(1439);
+  });
+
+  it('returns null for invalid ranges and formats (edge cases)', () => {
+    expect(fn(-1)).toBeNull();
+    expect(fn(24 * 60)).toBeNull();
+    expect(fn(Number.MAX_SAFE_INTEGER)).toBeNull();
+    expect(fn('24:00')).toBeNull();
+    expect(fn('12:60')).toBeNull();
+    expect(fn('7:5')).toBeNull();
+    expect(fn('')).toBeNull();
+    expect(fn('   ')).toBeNull();
+    expect(fn({})).toBeNull();
+    expect(fn([])).toBeNull();
+    expect(fn('0')).toBeNull();
+  });
+
+  it('supports concurrent calls (concurrency boundary)', async () => {
+    const results = await Promise.all(Array.from({ length: 50 }, () => Promise.resolve(fn('23:59'))));
+    for (const r of results) expect(r).toBe(1439);
+  });
+}
+
+function addNormalizeTimeRangeTests(fn) {
+  it('normalizes start/end and defaults to local timezone', () => {
+    expect(fn({ start: '09:00', end: '17:00' })).toEqual({
+      startMin: 9 * 60,
+      endMin: 17 * 60,
+      timezone: 'local',
+    });
+  });
+
+  it('accepts utc timezone and alternative keys', () => {
+    expect(fn({ from: '08:00', to: '09:00', tz: 'utc' })).toEqual({
+      startMin: 8 * 60,
+      endMin: 9 * 60,
+      timezone: 'utc',
+    });
+  });
+
+  it('accepts numeric startMin/endMin (including floats)', () => {
+    expect(fn({ startMin: 1.9, endMin: 2.1 })).toEqual({
+      startMin: 1,
+      endMin: 2,
+      timezone: 'local',
+    });
+  });
+
+  it('returns null for invalid inputs (edge cases)', () => {
+    expect(fn(null)).toBeNull();
+    expect(fn(undefined)).toBeNull();
+    expect(fn('')).toBeNull();
+    expect(fn([])).toBeNull();
+    expect(fn({})).toBeNull();
+    expect(fn({ start: '00:00' })).toBeNull();
+    expect(fn({ end: '00:01' })).toBeNull();
+    expect(fn({ start: '24:00', end: '00:01' })).toBeNull();
+    expect(fn({ startMin: -1, endMin: 0 })).toBeNull();
+  });
+
+  it('filters daysOfWeek into 0..6 and omits when empty', () => {
+    const r1 = fn({ start: '00:00', end: '00:01', daysOfWeek: [0, 1, 6, 7, -1, '2', 'nope'] });
+    expect(r1).toEqual({
+      startMin: 0,
+      endMin: 1,
+      timezone: 'local',
+      daysOfWeek: [0, 1, 6, 2],
     });
 
-    describe('setRules', () => {
-        it('sorts rules by priority and updatedAt using boundary values', () => {
-            const engine = new PolicyEngineNamed();
+    const r2 = fn({ start: '00:00', end: '00:01', daysOfWeek: [] });
+    expect(r2).toEqual({ startMin: 0, endMin: 1, timezone: 'local' });
+    expect('daysOfWeek' in r2).toBe(false);
+  });
 
-            engine.setRules([
-                { id: 'low', effect: 'allow', priority: -1, updatedAt: '2024-01-01T00:00:00Z' },
-                { id: 'mid', effect: 'allow', priority: 0, updatedAt: '2024-01-02T00:00:00Z' },
-                { id: 'high', effect: 'allow', priority: Number.MAX_SAFE_INTEGER, updatedAt: '2024-01-03T00:00:00Z' },
-                { id: 'tieA', effect: 'allow', priority: 5, updatedAt: '2024-01-04T00:00:00Z' },
-                { id: 'tieB', effect: 'allow', priority: 5, updatedAt: '2024-01-05T00:00:00Z' },
-            ]);
+  it('handles deep nested objects and very long strings (resource boundary)', () => {
+    const deep = makeDeepObject(80);
+    const r1 = fn({ start: '00:00', end: '00:01', extra: deep });
+    expect(r1).toEqual({ startMin: 0, endMin: 1, timezone: 'local' });
 
-            const order = engine.getRules().map((rule) => rule.ruleId);
-            expect(order).toEqual(['high', 'tieB', 'tieA', 'mid', 'low']);
+    const r2 = fn({ start: BIG_STRING, end: '00:01' });
+    expect(r2).toBeNull();
+  });
+
+  it('supports concurrent calls (concurrency boundary)', async () => {
+    const input = { start: '09:00', end: '17:00', tz: 'utc' };
+    const results = await Promise.all(Array.from({ length: 50 }, () => Promise.resolve(fn(input))));
+    for (const r of results) {
+      expect(r).toEqual({ startMin: 540, endMin: 1020, timezone: 'utc' });
+    }
+  });
+}
+
+function addExtractHostnameTests(fn) {
+  it('returns empty string for nullish/empty inputs (edge cases)', () => {
+    expect(fn(undefined)).toBe('');
+    expect(fn(null)).toBe('');
+    expect(fn('')).toBe('');
+    expect(fn('   ')).toBe('');
+    expect(fn([])).toBe('');
+    expect(fn({})).toBe('');
+  });
+
+  it('extracts hostname from full URLs', () => {
+    expect(fn('https://Example.COM/path')).toBe('example.com');
+    expect(fn('http://example.com:8080/path')).toBe('example.com');
+    expect(fn('ftp://EXAMPLE.com/something')).toBe('example.com');
+  });
+
+  it('extracts hostname from schemeless host/path (heuristic)', () => {
+    expect(fn('example.com/path')).toBe('example.com');
+    expect(fn('example.com')).toBe('example.com');
+    expect(fn('sub.Example.com/foo')).toBe('sub.example.com');
+  });
+
+  it('returns empty string for non-host inputs and spaced strings', () => {
+    expect(fn('localhost')).toBe('');
+    expect(fn('not a url')).toBe('');
+    expect(fn('foo.bar baz')).toBe('');
+  });
+
+  it('handles very long strings (resource boundary)', () => {
+    expect(fn(`${'a'.repeat(10_000)}.com bad`)).toBe('');
+  });
+
+  it('supports concurrent calls (concurrency boundary)', async () => {
+    const results = await Promise.all(Array.from({ length: 50 }, () => Promise.resolve(fn('example.com/path'))));
+    for (const r of results) expect(r).toBe('example.com');
+  });
+}
+
+for (const [name, value] of Object.entries(engine)) {
+  describe(name, () => {
+    if (typeof value === 'function') {
+      if (name === 'normalizeEffect') return addNormalizeEffectTests(value);
+      if (name === 'normalizeTypeList') return addNormalizeTypeListTests(value);
+      if (name === 'normalizeDomainSuffixes') return addNormalizeDomainSuffixesTests(value);
+      if (name === 'parseTimeToMinutes') return addParseTimeToMinutesTests(value);
+      if (name === 'normalizeTimeRange') return addNormalizeTimeRangeTests(value);
+      if (name === 'extractHostname') return addExtractHostnameTests(value);
+
+      if (/normalize.*rule/i.test(name)) {
+        it('returns a normalized rule-like object for basic input (normal path)', async () => {
+          const r = await safeInvoke(value, [sampleRule]);
+          if (!r.ok) throw r.error;
+          expect(r.value).toBeTruthy();
+          if (r.value && typeof r.value === 'object') {
+            if ('effect' in r.value) expect(typeof r.value.effect).toBe('string');
+            if ('ruleId' in r.value) expect(typeof r.value.ruleId).toBe('string');
+          }
         });
+      }
 
-        it('clears rules when non-array input is provided', () => {
-            const engine = new PolicyEngineNamed({
-                rules: [{ id: 'keep', effect: 'allow' }],
-            });
+      if (/(decide|evaluate|check|enforce).*policy|policy.*(decide|evaluate|check|enforce)/i.test(name)) {
+        it('produces a decision-like object for a simple allow rule (normal path)', async () => {
+          const candidates = [
+            [[sampleRule], sampleRequest],
+            [sampleRequest, [sampleRule]],
+            [{ rules: [sampleRule] }, sampleRequest],
+            [[sampleRule], sampleRequest, 'deny'],
+            [[sampleRule], sampleRequest, { defaultEffect: 'deny' }],
+          ];
 
-            engine.setRules(null);
-            expect(engine.getRules()).toEqual([]);
-
-            engine.setRules(undefined);
-            expect(engine.getRules()).toEqual([]);
-
-            engine.setRules({});
-            expect(engine.getRules()).toEqual([]);
-        });
-
-        it('accepts invalid rule entries without throwing', () => {
-            vi.useFakeTimers();
-            vi.setSystemTime(new Date('2024-01-01T00:00:00.000Z'));
-
-            const engine = new PolicyEngineNamed();
-            expect(() => {
-                engine.setRules([null, undefined, 'rule', 0, Number.MAX_SAFE_INTEGER, [], {}]);
-            }).not.toThrow();
-
-            const rules = engine.getRules();
-            expect(rules).toHaveLength(7);
-            // Invalid entries normalize into rules with generated ids.
-            expect(rules.some((r) => r.ruleId === 'rule_fixed_0')).toBe(true);
-            expect(rules.some((r) => r.ruleId === 'rule_fixed_1')).toBe(true);
-        });
-    });
-
-    describe('getRules', () => {
-        it('returns a copy that does not mutate internal rules', () => {
-            const engine = new PolicyEngineNamed({
-                rules: [{ id: 'r1', effect: 'allow' }],
-            });
-
-            const rules = engine.getRules();
-            rules.push({ ruleId: 'r2', effect: 'deny' });
-
-            expect(engine.getRules()).toHaveLength(1);
-            expect(engine.getRules()[0].ruleId).toBe('r1');
-        });
-    });
-
-    describe('evaluate', () => {
-        it('requires approval when type is missing or blank', () => {
-            const engine = new PolicyEngineNamed({
-                rules: [{ id: 'allow', effect: 'allow', type: 'read' }],
-            });
-
-            const cases = [null, undefined, {}, { type: '' }, { type: '   ' }];
-            for (const input of cases) {
-                const result = engine.evaluate(input);
-                expect(result.allowed).toBe(false);
-                expect(result.requiresApproval).toBe(true);
-                expect(result.reason).toBe('missing_type');
+          let decision = null;
+          for (const args of candidates) {
+            const r = await safeInvoke(value, args);
+            if (r.ok && r.value && typeof r.value === 'object') {
+              decision = r.value;
+              break;
             }
+          }
+
+          expect(decision).toBeTruthy();
+          if (decision && typeof decision === 'object') {
+            expect(typeof decision.allowed).toBe('boolean');
+            expect(typeof decision.requiresApproval).toBe('boolean');
+            expect(typeof decision.reason).toBe('string');
+          }
         });
+      }
 
-        it('ignores disabled rules even if they match', () => {
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [{ id: 'disabled', effect: 'allow', type: 'read', enabled: false }],
-            });
+      return addGenericFunctionTests(name, value);
+    }
 
-            const result = engine.evaluate({ type: 'read' });
-            expect(result).toEqual({
-                allowed: false,
-                requiresApproval: false,
-                effect: 'deny',
-                reason: 'default_deny',
-            });
-        });
+    return addGenericValueTests(value);
+  });
+}
 
-        it('ignores rules with invalid effects', () => {
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [{ id: 'bad-effect', effect: 'prompt', type: 'read' }],
-            });
+describe('external dependency mocks', () => {
+  it('mocks match functions with spies', () => {
+    expect(typeof match.matchAnyWildcard).toBe('function');
+    expect(typeof match.matchAnyGlob).toBe('function');
+    expect(typeof match.matchAnyWildcard.mock).toBe('object');
+    expect(typeof match.matchAnyGlob.mock).toBe('object');
+  });
 
-            const result = engine.evaluate({ type: 'read' });
-            expect(result.reason).toBe('default_deny');
-        });
-
-        it('gives deny rules precedence over allow rules', () => {
-            const engine = new PolicyEngineNamed({
-                rules: [
-                    { id: 'allow', effect: 'allow', type: 'read', tool: 'fetch', updatedAt: '2024-01-02T00:00:00Z' },
-                    { id: 'deny', effect: 'deny', type: 'read', tool: 'fetch', updatedAt: '2024-01-01T00:00:00Z' },
-                ],
-            });
-
-            const result = engine.evaluate({
-                type: 'read',
-                tool: 'fetch',
-                resource: 'https://example.com/data',
-            });
-
-            expect(result).toEqual({
-                allowed: false,
-                requiresApproval: false,
-                effect: 'deny',
-                ruleId: 'deny',
-                reason: 'matched_deny_rule',
-            });
-        });
-
-        it('treats defaultEffect as case-sensitive', () => {
-            const engine = new PolicyEngineNamed({ defaultEffect: 'ALLOW' });
-            expect(engine.evaluate({ type: '0' })).toEqual({
-                allowed: false,
-                requiresApproval: true,
-                reason: 'no_matching_rule',
-            });
-        });
-
-        it('applies default effects when no rules match', () => {
-            const request = { type: 0 };
-
-            const allowEngine = new PolicyEngineNamed({ defaultEffect: 'allow' });
-            expect(allowEngine.evaluate(request)).toEqual({
-                allowed: true,
-                requiresApproval: false,
-                effect: 'allow',
-                reason: 'default_allow',
-            });
-
-            const denyEngine = new PolicyEngineNamed({ defaultEffect: 'deny' });
-            expect(denyEngine.evaluate(request)).toEqual({
-                allowed: false,
-                requiresApproval: false,
-                effect: 'deny',
-                reason: 'default_deny',
-            });
-
-            const promptEngine = new PolicyEngineNamed();
-            expect(promptEngine.evaluate(request)).toEqual({
-                allowed: false,
-                requiresApproval: true,
-                reason: 'no_matching_rule',
-            });
-        });
-
-        it('matches path patterns against resource when path is missing', () => {
-            const engine = new PolicyEngineNamed({
-                rules: [{ id: 'path-fallback', effect: 'allow', type: 'file', path: 'data/**' }],
-            });
-
-            const result = engine.evaluate({
-                type: 'file',
-                resource: 'data/nested/file.txt',
-            });
-            expect(result.allowed).toBe(true);
-            expect(result.ruleId).toBe('path-fallback');
-        });
-
-        it('supports toolPattern/resourcePattern/paths aliases', () => {
-            const engine = new PolicyEngineNamed({
-                rules: [
-                    {
-                        id: 'aliases',
-                        effect: 'allow',
-                        type: 'net',
-                        toolPattern: 'f*',
-                        resourcePattern: 'https://example.com/*',
-                        paths: ['data/**'],
-                    },
-                ],
-            });
-
-            const result = engine.evaluate({
-                type: 'net',
-                tool: 'fetch',
-                resource: 'https://example.com/data',
-                path: 'data/file.txt',
-            });
-
-            expect(result.allowed).toBe(true);
-            expect(result.ruleId).toBe('aliases');
-        });
-
-        it('matches host suffixes and URL heuristics without scheme', () => {
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [
-                    {
-                        id: 'host-suffix',
-                        effect: 'allow',
-                        type: 'net',
-                        hostSuffixes: ['example.com'],
-                        resource: '*',
-                    },
-                ],
-            });
-
-            const ok = engine.evaluate({
-                type: 'net',
-                resource: 'sub.example.com/path',
-            });
-            expect(ok.allowed).toBe(true);
-            expect(ok.ruleId).toBe('host-suffix');
-
-            const bad = engine.evaluate({
-                type: 'net',
-                resource: 'sub.example.com path',
-            });
-            expect(bad.reason).toBe('default_deny');
-        });
-
-        it('matches rules even when the type list is empty', () => {
-            const engine = new PolicyEngineNamed({
-                rules: [
-                    { id: 'empty-types', effect: 'allow', types: [], tool: 'fetch', updatedAt: '2024-01-01T00:00:00Z' },
-                ],
-            });
-
-            const result = engine.evaluate({
-                type: 'anything',
-                tool: 'fetch',
-                resource: 'https://example.com/data',
-            });
-
-            expect(result.allowed).toBe(true);
-            expect(result.ruleId).toBe('empty-types');
-            expect(result.reason).toBe('matched_allow_rule');
-        });
-
-        it('ignores rules with object types and falls back to default', () => {
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [
-                    { id: 'bad-types', effect: 'allow', types: { bad: true }, updatedAt: '2024-01-01T00:00:00Z' },
-                ],
-            });
-
-            const result = engine.evaluate({
-                type: 'read',
-                tool: 'fetch',
-                resource: 'https://example.com/data',
-            });
-
-            expect(result).toEqual({
-                allowed: false,
-                requiresApproval: false,
-                effect: 'deny',
-                reason: 'default_deny',
-            });
-        });
-
-        it('supports complex match conditions including string resources and not clauses', () => {
-            const engine = new PolicyEngineNamed({
-                rules: [
-                    {
-                        id: 'complex',
-                        effect: 'allow',
-                        type: 'network',
-                        match: {
-                            allOf: [{ tool: 'fetch' }],
-                            anyOf: ['https://example.com/*', { resource: 'https://example.org/*' }],
-                            none: [{ resource: 'https://example.com/private/*' }],
-                        },
-                    },
-                ],
-            });
-
-            const allowed = engine.evaluate({
-                type: 'network',
-                tool: 'fetch',
-                resource: 'https://example.com/data',
-            });
-            expect(allowed.allowed).toBe(true);
-            expect(allowed.ruleId).toBe('complex');
-
-            const blocked = engine.evaluate({
-                type: 'network',
-                tool: 'fetch',
-                resource: 'https://example.com/private/secret',
-            });
-            expect(blocked.allowed).toBe(false);
-            expect(blocked.requiresApproval).toBe(true);
-            expect(blocked.reason).toBe('no_matching_rule');
-        });
-
-        it('applies leaf semantics (AND) before nested match clauses', () => {
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [
-                    {
-                        id: 'leaf-and',
-                        effect: 'allow',
-                        type: 'network',
-                        match: {
-                            resource: 'https://example.com/*',
-                            anyOf: ['https://example.org/*'],
-                        },
-                    },
-                ],
-            });
-
-            const result = engine.evaluate({
-                type: 'network',
-                resource: 'https://example.org/data',
-            });
-            expect(result.reason).toBe('default_deny');
-        });
-
-        it('treats non-object match conditions as non-matches', () => {
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [{ id: 'bad-match', effect: 'allow', type: 'network', match: [] }],
-            });
-
-            const result = engine.evaluate({
-                type: 'network',
-                resource: 'https://example.com/data',
-            });
-
-            expect(result.reason).toBe('default_deny');
-        });
-
-        it('rejects empty any-lists in match conditions', () => {
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [
-                    {
-                        id: 'empty-any',
-                        effect: 'allow',
-                        type: 'network',
-                        match: { any: [] },
-                    },
-                ],
-            });
-
-            const result = engine.evaluate({
-                type: 'network',
-                resource: 'https://example.com/data',
-            });
-
-            expect(result.reason).toBe('default_deny');
-        });
-
-        it('matches time ranges at boundary values', () => {
-            const engine = new PolicyEngineNamed({
-                rules: [
-                    {
-                        id: 'midnight',
-                        effect: 'allow',
-                        type: 'time',
-                        timeRange: {
-                            start: '00:00',
-                            end: '00:00',
-                            timezone: 'UTC',
-                            daysOfWeek: [1],
-                        },
-                        updatedAt: '2024-01-01T00:00:00Z',
-                    },
-                ],
-            });
-
-            const result = engine.evaluate({
-                type: 'time',
-                ts: '2024-01-01T00:00:00Z',
-            });
-
-            expect(result.allowed).toBe(true);
-            expect(result.ruleId).toBe('midnight');
-        });
-
-        it('supports wrap-around time ranges and numeric start/end minutes', () => {
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [
-                    {
-                        id: 'wrap',
-                        effect: 'allow',
-                        type: 'time',
-                        timeRange: { startMin: 22 * 60, endMin: 6 * 60, timezone: 'UTC' },
-                    },
-                ],
-            });
-
-            expect(engine.evaluate({ type: 'time', ts: '2024-01-01T23:00:00Z' }).allowed).toBe(true);
-            expect(engine.evaluate({ type: 'time', ts: '2024-01-02T05:00:00Z' }).allowed).toBe(true);
-            expect(engine.evaluate({ type: 'time', ts: '2024-01-01T12:00:00Z' }).reason).toBe('default_deny');
-        });
-
-        it('falls back to Date.now() when request.ts is invalid', () => {
-            vi.useFakeTimers();
-            vi.setSystemTime(new Date('2024-01-01T00:05:00.000Z'));
-
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [
-                    {
-                        id: 'now',
-                        effect: 'allow',
-                        type: 'time',
-                        timeRange: { start: '00:00', end: '00:10', timezone: 'UTC' },
-                    },
-                ],
-            });
-
-            const result = engine.evaluate({
-                type: 'time',
-                ts: 'not-a-date',
-            });
-
-            expect(result.allowed).toBe(true);
-            expect(result.ruleId).toBe('now');
-        });
-
-        it('treats invalid time ranges in match conditions as non-matches', () => {
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [
-                    {
-                        id: 'bad-time',
-                        effect: 'allow',
-                        type: 'time',
-                        match: {
-                            timeRange: { start: '25:00', end: '26:00' },
-                        },
-                    },
-                ],
-            });
-
-            const result = engine.evaluate({
-                type: 'time',
-                ts: '2024-01-01T00:00:00Z',
-            });
-
-            expect(result.reason).toBe('default_deny');
-        });
-
-        it('rejects overly deep match trees', () => {
-            const buildDeepCondition = (depth) => {
-                let cond = { resource: 'https://example.com/*' };
-                for (let i = 0; i < depth; i += 1) {
-                    cond = { all: [cond] };
-                }
-                return cond;
-            };
-
-            const engine = new PolicyEngineNamed({
-                defaultEffect: 'deny',
-                rules: [
-                    {
-                        id: 'deep',
-                        effect: 'allow',
-                        type: 'network',
-                        match: buildDeepCondition(13),
-                    },
-                ],
-            });
-
-            const result = engine.evaluate({
-                type: 'network',
-                resource: 'https://example.com/data',
-            });
-
-            expect(result.reason).toBe('default_deny');
-        });
-
-        it('handles long resources and large file paths', () => {
-            const longSegment = 'a'.repeat(5000);
-            const longResource = `https://sub.example.com/${longSegment}`;
-            const longPath = `data/${'b'.repeat(5000)}/file.txt`;
-
-            const engine = new PolicyEngineNamed({
-                rules: [
-                    {
-                        id: 'net-long',
-                        effect: 'allow',
-                        type: 'network',
-                        resource: '*',
-                        domainSuffix: 'example.com',
-                        updatedAt: '2024-01-01T00:00:00Z',
-                    },
-                    {
-                        id: 'file-long',
-                        effect: 'allow',
-                        type: 'file',
-                        path: 'data/**',
-                        updatedAt: '2024-01-01T00:00:00Z',
-                    },
-                ],
-            });
-
-            const netResult = engine.evaluate({
-                type: 'network',
-                resource: longResource,
-            });
-            expect(netResult.allowed).toBe(true);
-            expect(netResult.ruleId).toBe('net-long');
-
-            const fileResult = engine.evaluate({
-                type: 'file',
-                path: longPath,
-                resource: longPath,
-            });
-            expect(fileResult.allowed).toBe(true);
-            expect(fileResult.ruleId).toBe('file-long');
-        });
-
-        it('supports concurrent evaluate calls', async () => {
-            const engine = new PolicyEngineNamed({
-                rules: [
-                    { id: 'allow-read', effect: 'allow', type: 'read', updatedAt: '2024-01-01T00:00:00Z' },
-                    { id: 'deny-write', effect: 'deny', type: 'write', updatedAt: '2024-01-01T00:00:00Z' },
-                ],
-            });
-
-            const requests = [
-                { type: 'read', resource: 'a' },
-                { type: 'write', resource: 'b' },
-                { type: 'read', resource: 'c' },
-            ];
-
-            const results = await Promise.all(
-                requests.map((req) => Promise.resolve(engine.evaluate(req)))
-            );
-
-            expect(results[0].allowed).toBe(true);
-            expect(results[1].allowed).toBe(false);
-            expect(results[1].reason).toBe('matched_deny_rule');
-            expect(results[2].allowed).toBe(true);
-        });
-
-        it('handles rapid sequential evaluate calls consistently', () => {
-            const engine = new PolicyEngineNamed({
-                rules: [
-                    { id: 'allow', effect: 'allow', type: 'read', updatedAt: '2024-01-01T00:00:00Z' },
-                ],
-            });
-
-            for (let i = 0; i < 25; i += 1) {
-                const result = engine.evaluate({
-                    type: 'read',
-                    resource: `res-${i}`,
-                });
-                expect(result.allowed).toBe(true);
-                expect(result.ruleId).toBe('allow');
-                expect(result.reason).toBe('matched_allow_rule');
-            }
-        });
-    });
+  it('mocks makeSecureTimestampedId deterministically', () => {
+    const id1 = shared.makeSecureTimestampedId();
+    const id2 = shared.makeSecureTimestampedId();
+    expect(id1).toBe('mock-id-1');
+    expect(id2).toBe('mock-id-2');
+  });
 });

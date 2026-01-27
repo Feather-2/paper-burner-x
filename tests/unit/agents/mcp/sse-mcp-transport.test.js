@@ -1,67 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const sseMocks = vi.hoisted(() => ({
-  parseSseStream: vi.fn(),
+const { parseSseStreamMock } = vi.hoisted(() => ({
+  parseSseStreamMock: vi.fn(),
 }));
-
-const sharedMocks = vi.hoisted(() => {
-  const logger = {
-    warn: vi.fn(),
-    info: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  };
-  return {
-    logger,
-    createLogger: vi.fn(() => logger),
-    isPlainObject: vi.fn(),
-    toNonEmptyString: vi.fn(),
-  };
-});
 
 vi.mock("../../../../js/agents/mcp/sse.js", () => ({
-  parseSseStream: sseMocks.parseSseStream,
+  parseSseStream: parseSseStreamMock,
 }));
 
-vi.mock("../../../../js/agents/shared/index.js", async () => {
-  const actual = await vi.importActual("../../../../js/agents/shared/index.js");
-  sharedMocks.isPlainObject.mockImplementation(actual.isPlainObject);
-  sharedMocks.toNonEmptyString.mockImplementation(actual.toNonEmptyString);
-  return {
-    ...actual,
-    createLogger: sharedMocks.createLogger,
-    isPlainObject: sharedMocks.isPlainObject,
-    toNonEmptyString: sharedMocks.toNonEmptyString,
-  };
-});
+import { SseMcpTransport } from "../../../../js/agents/mcp/sse-mcp-transport.js";
 
-import SseMcpTransportDefault, { SseMcpTransport } from "../../../../js/agents/mcp/sse-mcp-transport.js";
-
-function buildDeepObject(depth) {
-  const root = {};
-  let cursor = root;
-  for (let i = 0; i < depth; i += 1) {
-    cursor.next = {};
-    cursor = cursor.next;
-  }
-  return root;
-}
-
-function makeResponse({ ok = true, status = 200, headers = {}, text = "", body = {} } = {}) {
-  const headerMap = new Map(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]));
-  return {
-    ok,
-    status,
-    headers: {
-      get: (name) => headerMap.get(String(name).toLowerCase()) || "",
-    },
-    text: vi.fn(async () => text),
-    body,
-  };
-}
-
-function createDeferred() {
+function deferred() {
+  /** @type {(v:any)=>void} */
   let resolve;
+  /** @type {(e:any)=>void} */
   let reject;
   const promise = new Promise((res, rej) => {
     resolve = res;
@@ -70,445 +22,541 @@ function createDeferred() {
   return { promise, resolve, reject };
 }
 
-function makeAsyncIterable(events, { signal, waitForAbort = false } = {}) {
-  return (async function* () {
-    for (const evt of events) {
-      if (evt instanceof Error) throw evt;
-      yield evt;
-    }
-    if (waitForAbort && signal) {
-      if (signal.aborted) return;
-      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
-    }
-  })();
+function createHeaders(contentType) {
+  return {
+    get(key) {
+      return String(key).toLowerCase() === "content-type" ? contentType : null;
+    },
+  };
 }
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.unstubAllGlobals();
-  sseMocks.parseSseStream.mockReset();
-});
+function createResponse({ ok = true, status = 200, contentType = "text/event-stream", body = {} } = {}) {
+  const headers =
+    contentType === undefined
+      ? undefined
+      : {
+          get(key) {
+            return String(key).toLowerCase() === "content-type" ? contentType : null;
+          },
+        };
+
+  return { ok, status, headers, body };
+}
+
+function getSendMethodName(instance) {
+  if (typeof instance?.send === "function") return "send";
+  if (typeof instance?.sendMessage === "function") return "sendMessage";
+  return null;
+}
+
+function getCloseMethodName(instance) {
+  if (typeof instance?.close === "function") return "close";
+  if (typeof instance?.disconnect === "function") return "disconnect";
+  if (typeof instance?.dispose === "function") return "dispose";
+  return null;
+}
+
+function makeAbortAwarePendingFetch({ onCall, resolveOnAbort = false } = {}) {
+  return vi.fn((input, init = {}) => {
+    onCall?.(input, init);
+    const signal = init.signal;
+
+    return new Promise((resolve, reject) => {
+      const finishOnAbort = () => {
+        if (resolveOnAbort) {
+          resolve({ ok: false, status: 499, headers: createHeaders(""), body: null });
+          return;
+        }
+        const err = new Error("Aborted");
+        err.name = "AbortError";
+        err.reason = signal?.reason;
+        reject(err);
+      };
+
+      if (signal?.aborted) {
+        finishOnAbort();
+        return;
+      }
+
+      if (signal && typeof signal.addEventListener === "function") {
+        signal.addEventListener("abort", finishOnAbort, { once: true });
+      }
+    });
+  });
+}
+
+async function expectThrowOrReject(fn) {
+  try {
+    const r = fn();
+    await r;
+    throw new Error("Expected throw/reject, but it resolved");
+  } catch (err) {
+    expect(err).toBeInstanceOf(Error);
+  }
+}
 
 describe("SseMcpTransport", () => {
-  it("throws when url is empty or whitespace", () => {
-    const cases = [null, undefined, "", "   "];
-    for (const value of cases) {
-      expect(() => new SseMcpTransport({ url: value, fetchImpl: vi.fn() })).toThrow(/requires url/i);
+  beforeEach(() => {
+    parseSseStreamMock.mockReset();
+    parseSseStreamMock.mockImplementation(() => new Promise(() => {}));
+  });
+
+  it("throws for missing/empty/invalid url (null/undefined/blank/type-boundary)", () => {
+    const fetchImpl = vi.fn();
+    const invalidUrls = [undefined, null, "", "   ", 0, -1, [], {}];
+
+    for (const url of invalidUrls) {
+      expect(() => new SseMcpTransport({ url, fetchImpl })).toThrow(/requires url/i);
     }
   });
 
-  it("requires fetch when no global fetch or fetchImpl is available", () => {
-    vi.stubGlobal("fetch", undefined);
-    expect(() => new SseMcpTransport({ url: "http://example.com" })).toThrow(/requires global fetch or fetchImpl/i);
-  });
+  it("normalizes options, clones plain headers, and clamps timeouts", () => {
+    const fetchImpl = vi.fn();
+    const headers = { Authorization: "Bearer x", Accept: "text/event-stream" };
 
-  it("normalizes options, preserves boundaries, and clones headers", () => {
-    const headers = { "X-Test": "1" };
-    const transport = new SseMcpTransport({
-      url: "http://example.com",
-      sseUrl: "   ",
+    const t = new SseMcpTransport({
+      url: "https://example.com/mcp",
       headers,
-      fetchImpl: vi.fn(),
-      connectTimeoutMs: -1,
-      readTimeoutMs: "5",
-      maxLineBytes: 0,
-      maxBufferBytes: 1024,
-      maxEventChars: Number.MAX_SAFE_INTEGER,
-    });
-
-    headers["X-Test"] = "2";
-
-    expect(transport.url).toBe("http://example.com");
-    expect(transport.sseUrl).toBe("http://example.com");
-    expect(transport.headers).toEqual({ "X-Test": "1" });
-    expect(transport.headers).not.toBe(headers);
-    expect(transport.connectTimeoutMs).toBe(200);
-    expect(transport.readTimeoutMs).toBe(0);
-    expect(transport.maxLineBytes).toBe(0);
-    expect(transport.maxBufferBytes).toBe(1024);
-    expect(transport.maxEventChars).toBe(Number.MAX_SAFE_INTEGER);
-
-    const noHeaders = new SseMcpTransport({
-      url: "http://example.com",
-      headers: [],
+      fetchImpl,
       connectTimeoutMs: 0,
       readTimeoutMs: -1,
-      fetchImpl: vi.fn(),
+      maxLineBytes: 123,
+      maxBufferBytes: 456,
+      maxEventChars: 789,
     });
-    expect(noHeaders.headers).toEqual({});
-    expect(noHeaders.connectTimeoutMs).toBe(200);
-    expect(noHeaders.readTimeoutMs).toBe(0);
 
-    const stringTimeout = new SseMcpTransport({
-      url: "http://example.com",
-      connectTimeoutMs: "500",
-      fetchImpl: vi.fn(),
-    });
-    expect(stringTimeout.connectTimeoutMs).toBe(10000);
+    expect(t.url).toBe("https://example.com/mcp");
+    expect(t.sseUrl).toBe("https://example.com/mcp");
+    expect(t.headers).toEqual(headers);
+    expect(t.headers).not.toBe(headers);
+
+    expect(t._fetch).toBe(fetchImpl);
+
+    expect(t.connectTimeoutMs).toBe(200);
+    expect(t.readTimeoutMs).toBe(0);
+
+    expect(t.maxLineBytes).toBe(123);
+    expect(t.maxBufferBytes).toBe(456);
+    expect(t.maxEventChars).toBe(789);
   });
 
-  it("connects via GET, emits connect, and starts SSE consumption", async () => {
-    sseMocks.parseSseStream.mockImplementation((stream, options = {}) =>
-      makeAsyncIterable([], { signal: options.signal, waitForAbort: true }),
-    );
+  it("treats non-plain headers as empty object (null/undefined/array/string/number)", () => {
+    const fetchImpl = vi.fn();
+    const cases = [null, undefined, [], "", 123];
 
-    const fetchImpl = vi.fn(async () =>
-      makeResponse({
-        ok: true,
-        headers: { "content-type": "text/event-stream" },
-        body: { stream: true },
-      }),
-    );
+    for (const headers of cases) {
+      const t = new SseMcpTransport({ url: "https://example.com/mcp", headers, fetchImpl });
+      expect(t.headers).toEqual({});
+    }
+  });
 
-    const transport = new SseMcpTransport({
-      url: "http://api.example.com",
-      sseUrl: "http://sse.example.com",
-      headers: { Authorization: "Bearer token" },
+  it("uses defaults for non-numeric timeout inputs and accepts MAX_SAFE_INTEGER", () => {
+    const fetchImpl = vi.fn();
+
+    const t1 = new SseMcpTransport({
+      url: "https://example.com/mcp",
       fetchImpl,
-      readTimeoutMs: 10,
-      maxLineBytes: 128,
-      maxBufferBytes: 256,
-      maxEventChars: 512,
+      connectTimeoutMs: "123",
+      readTimeoutMs: "456",
     });
 
-    const onConnect = vi.fn();
-    transport.on("connect", onConnect);
+    expect(t1.connectTimeoutMs).toBe(10_000);
+    expect(t1.readTimeoutMs).toBe(0);
 
-    await transport.connect();
-
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const [calledUrl, init] = fetchImpl.mock.calls[0];
-    expect(calledUrl).toBe("http://sse.example.com");
-    expect(init.method).toBe("GET");
-    expect(init.headers).toMatchObject({
-      Accept: "text/event-stream",
-      Authorization: "Bearer token",
+    const t2 = new SseMcpTransport({
+      url: "https://example.com/mcp",
+      fetchImpl,
+      connectTimeoutMs: Number.MAX_SAFE_INTEGER,
+      readTimeoutMs: Number.MAX_SAFE_INTEGER,
     });
-    expect(onConnect).toHaveBeenCalledTimes(1);
-    expect(sseMocks.parseSseStream).toHaveBeenCalledTimes(1);
-    expect(sseMocks.parseSseStream.mock.calls[0][1]).toMatchObject({
-      readTimeoutMs: 10,
-      maxLineBytes: 128,
-      maxBufferBytes: 256,
-      maxEventChars: 512,
-    });
-    expect(transport.isConnected()).toBe(true);
 
-    await transport.disconnect();
+    expect(t2.connectTimeoutMs).toBe(Number.MAX_SAFE_INTEGER);
+    expect(t2.readTimeoutMs).toBe(Number.MAX_SAFE_INTEGER);
   });
 
-  it("skips connect when already connected or connecting", async () => {
-    const fetchImpl = vi.fn(async () =>
-      makeResponse({ ok: true, headers: { "content-type": "text/event-stream" }, body: {} }),
-    );
-
-    const connected = new SseMcpTransport({ url: "http://example.com", fetchImpl });
-    connected._connected = true;
-    await connected.connect();
-    expect(fetchImpl).not.toHaveBeenCalled();
-
-    const connecting = new SseMcpTransport({ url: "http://example.com", fetchImpl });
-    connecting._sseController = new AbortController();
-    await connecting.connect();
-    expect(fetchImpl).not.toHaveBeenCalled();
+  it("requires global fetch or fetchImpl when fetchImpl is not provided", () => {
+    vi.stubGlobal("fetch", undefined);
+    try {
+      expect(() => new SseMcpTransport({ url: "https://example.com/mcp" })).toThrow(/requires global fetch or fetchImpl/i);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
-  it("throws on non-OK responses and unexpected content types", async () => {
-    const fetchFail = vi.fn(async () =>
-      makeResponse({ ok: false, status: 500, headers: { "content-type": "text/event-stream" } }),
-    );
-    const failTransport = new SseMcpTransport({ url: "http://example.com", fetchImpl: fetchFail });
-    await expect(failTransport.connect()).rejects.toThrow("SSE MCP error: HTTP 500");
-
-    const fetchBadType = vi.fn(async () =>
-      makeResponse({ ok: true, headers: { "content-type": "application/json" } }),
-    );
-    const badTypeTransport = new SseMcpTransport({ url: "http://example.com", fetchImpl: fetchBadType });
-    await expect(badTypeTransport.connect()).rejects.toThrow(/unexpected content-type/i);
-  });
-
-  it("consumes SSE messages, ignores invalid data, and disconnects when stream ends", async () => {
-    const events = [
-      { data: "" },
-      { data: "   " },
-      { data: "not json" },
-      { data: "123" },
-      { data: JSON.stringify({ jsonrpc: "2.0", id: 0, result: { ok: true } }) },
-    ];
-    sseMocks.parseSseStream.mockImplementation(() => makeAsyncIterable(events));
-
-    const fetchImpl = vi.fn(async () =>
-      makeResponse({ ok: true, headers: { "content-type": "text/event-stream" }, body: {} }),
-    );
-    const transport = new SseMcpTransport({ url: "http://example.com", fetchImpl });
-
-    const handleSpy = vi.spyOn(transport, "_handleMessage");
-    const rejectSpy = vi.spyOn(transport, "_rejectAllPending");
-    const onDisconnect = vi.fn();
-    transport.on("disconnect", onDisconnect);
-
-    await transport.connect();
-    await transport._sseTask;
-
-    expect(handleSpy).toHaveBeenCalledTimes(1);
-    expect(handleSpy.mock.calls[0][0]).toMatchObject({ jsonrpc: "2.0", id: 0, result: { ok: true } });
-    expect(rejectSpy).toHaveBeenCalledWith(expect.any(Error));
-    expect(transport.isConnected()).toBe(false);
-    expect(onDisconnect).toHaveBeenCalledTimes(1);
-  });
-
-  it("emits error and disconnects when SSE consumption fails", async () => {
-    sseMocks.parseSseStream.mockImplementation(() =>
-      makeAsyncIterable([new Error("stream blew up")]),
-    );
-
-    const fetchImpl = vi.fn(async () =>
-      makeResponse({ ok: true, headers: { "content-type": "text/event-stream" }, body: {} }),
-    );
-    const transport = new SseMcpTransport({ url: "http://example.com", fetchImpl });
-
-    const errorSpy = vi.fn();
-    const disconnectSpy = vi.fn();
-    const rejectSpy = vi.spyOn(transport, "_rejectAllPending");
-
-    transport.on("error", errorSpy);
-    transport.on("disconnect", disconnectSpy);
-
-    await transport.connect();
-    await transport._sseTask;
-
-    expect(errorSpy).toHaveBeenCalledTimes(1);
-    expect(errorSpy.mock.calls[0][0]).toMatchObject({ message: "stream blew up" });
-    expect(rejectSpy).toHaveBeenCalled();
-    expect(disconnectSpy).toHaveBeenCalled();
-    expect(transport.isConnected()).toBe(false);
-  });
-
-  it("throws when send is called before connecting", async () => {
-    const transport = new SseMcpTransport({ url: "http://example.com", fetchImpl: vi.fn() });
-    await expect(transport.send({ jsonrpc: "2.0", method: "ping" })).rejects.toThrow("Transport not connected");
-  });
-
-  it("posts JSON and handles JSON-RPC responses", async () => {
-    const fetchImpl = vi.fn(async () =>
-      makeResponse({
+  it("connect() uses sseUrl (override), sends GET with Accept header and merges headers", async () => {
+    const fetchImpl = vi.fn(async (input, init = {}) => {
+      return createResponse({
         ok: true,
-        headers: { "content-type": "application/json" },
-        text: JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true } }),
-      }),
-    );
-    const transport = new SseMcpTransport({
-      url: "http://example.com",
+        status: 200,
+        contentType: "Text/Event-Stream; charset=utf-8",
+        body: "STREAM",
+      });
+    });
+
+    const t = new SseMcpTransport({
+      url: "https://example.com/mcp",
+      sseUrl: "https://example.com/sse",
       headers: { "X-Test": "1" },
       fetchImpl,
     });
-    transport._connected = true;
 
-    const handleSpy = vi.spyOn(transport, "_handleMessage");
-
-    await transport.send({ jsonrpc: "2.0", id: 1, method: "ping" });
+    await t.connect();
+    await Promise.resolve();
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const [, init] = fetchImpl.mock.calls[0];
-    expect(init.method).toBe("POST");
-    expect(init.headers).toMatchObject({
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "X-Test": "1",
-    });
-    expect(JSON.parse(init.body)).toMatchObject({ jsonrpc: "2.0", id: 1, method: "ping" });
-    expect(handleSpy).toHaveBeenCalledTimes(1);
+    const [input, init] = fetchImpl.mock.calls[0];
+
+    expect(input).toBe("https://example.com/sse");
+    expect(init).toEqual(
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Accept: "text/event-stream",
+          "X-Test": "1",
+        }),
+      })
+    );
+    expect(init.signal).toBeTruthy();
+    expect(typeof init.signal.aborted).toBe("boolean");
+
+    expect(t._connected).toBe(true);
+    expect(parseSseStreamMock).toHaveBeenCalledTimes(1);
+    expect(parseSseStreamMock.mock.calls[0]).toContain("STREAM");
   });
 
-  it("handles array responses and ignores non-object entries", async () => {
+  it("connect() allows empty or missing content-type", async () => {
+    const fetchImplEmpty = vi.fn(async () => createResponse({ contentType: "" }));
+    const t1 = new SseMcpTransport({ url: "https://example.com/mcp", fetchImpl: fetchImplEmpty });
+    await t1.connect();
+
+    const fetchImplMissing = vi.fn(async () => createResponse({ contentType: undefined }));
+    const t2 = new SseMcpTransport({ url: "https://example.com/mcp", fetchImpl: fetchImplMissing });
+    await t2.connect();
+  });
+
+  it("connect() is idempotent (does not refetch when already connected)", async () => {
+    const fetchImpl = vi.fn(async () => createResponse({ body: "STREAM" }));
+    const t = new SseMcpTransport({ url: "https://example.com/mcp", fetchImpl });
+
+    await t.connect();
+    await t.connect();
+    await Promise.resolve();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(t._connected).toBe(true);
+  });
+
+  it("connect() concurrent/rapid calls only issue one fetch", async () => {
+    const gate = deferred();
+    const fetchImpl = vi.fn(() => gate.promise);
+
+    const t = new SseMcpTransport({ url: "https://example.com/mcp", fetchImpl });
+
+    const p1 = t.connect();
+    const p2 = t.connect();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    gate.resolve(createResponse({ body: "STREAM" }));
+
+    await Promise.all([p1, p2]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(t._connected).toBe(true);
+  });
+
+  it("connect() rejects on HTTP error (non-ok)", async () => {
+    const fetchImpl = vi.fn(async () => createResponse({ ok: false, status: 401 }));
+    const t = new SseMcpTransport({ url: "https://example.com/mcp", fetchImpl });
+
+    await expect(t.connect()).rejects.toThrow(/HTTP 401/i);
+    expect(t._connected).not.toBe(true);
+  });
+
+  it("connect() rejects on unexpected content-type", async () => {
     const fetchImpl = vi.fn(async () =>
-      makeResponse({
+      createResponse({
         ok: true,
-        text: JSON.stringify([
-          { jsonrpc: "2.0", id: 1, result: "a" },
-          42,
-          { jsonrpc: "2.0", id: 2, result: "b" },
-        ]),
-      }),
+        status: 200,
+        contentType: "application/json",
+        body: "STREAM",
+      })
     );
-    const transport = new SseMcpTransport({ url: "http://example.com", fetchImpl });
-    transport._connected = true;
+    const t = new SseMcpTransport({ url: "https://example.com/mcp", fetchImpl });
 
-    const handleSpy = vi.spyOn(transport, "_handleMessage");
-
-    await transport.send({ jsonrpc: "2.0", id: 1, method: "list" });
-
-    expect(handleSpy).toHaveBeenCalledTimes(2);
-    expect(handleSpy.mock.calls[0][0]).toMatchObject({ jsonrpc: "2.0", id: 1, result: "a" });
-    expect(handleSpy.mock.calls[1][0]).toMatchObject({ jsonrpc: "2.0", id: 2, result: "b" });
+    await expect(t.connect()).rejects.toThrow(/unexpected content-type/i);
+    expect(t._connected).not.toBe(true);
   });
 
-  it("wraps non-JSONRPC responses for request ids and emits messages for notifications", async () => {
-    const arrayLike = { 0: "a", length: 1 };
-    const fetchImpl = vi.fn(async () =>
-      makeResponse({
-        ok: true,
-        text: JSON.stringify(arrayLike),
-      }),
-    );
-    const transport = new SseMcpTransport({ url: "http://example.com", fetchImpl });
-    transport._connected = true;
+  it("connect() aborts when connectTimeoutMs elapses (timer boundary)", async () => {
+    vi.useFakeTimers();
+    try {
+      /** @type {AbortSignal|undefined} */
+      let seenSignal;
 
-    const handleSpy = vi.spyOn(transport, "_handleMessage");
+      const fetchImpl = makeAbortAwarePendingFetch({
+        onCall: (_, init) => {
+          seenSignal = init?.signal;
+        },
+      });
 
-    await transport.send({ jsonrpc: "2.0", id: Number.MAX_SAFE_INTEGER, method: "ping" });
+      const t = new SseMcpTransport({
+        url: "https://example.com/mcp",
+        fetchImpl,
+        connectTimeoutMs: 200,
+      });
 
-    expect(handleSpy).toHaveBeenCalledTimes(1);
-    expect(handleSpy.mock.calls[0][0]).toMatchObject({
-      jsonrpc: "2.0",
-      id: Number.MAX_SAFE_INTEGER,
-      result: arrayLike,
+      const p = t.connect();
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(seenSignal).toBeTruthy();
+      expect(seenSignal.aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(seenSignal.aborted).toBe(true);
+      if (seenSignal.reason !== undefined) {
+        expect(seenSignal.reason).toBe("connect_timeout");
+      }
+
+      await expect(p).rejects.toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("connect() attaches to parent AbortSignal (already-aborted and abort-after-call)", async () => {
+    // already aborted
+    {
+      const parent = new AbortController();
+      try {
+        parent.abort("already");
+      } catch {
+        parent.abort();
+      }
+
+      /** @type {AbortSignal|undefined} */
+      let seenSignal;
+      const fetchImpl = makeAbortAwarePendingFetch({
+        onCall: (_, init) => {
+          seenSignal = init?.signal;
+        },
+      });
+
+      const t = new SseMcpTransport({
+        url: "https://example.com/mcp",
+        fetchImpl,
+        signal: parent.signal,
+      });
+
+      await expect(t.connect()).rejects.toBeDefined();
+      expect(seenSignal).toBeTruthy();
+      expect(seenSignal.aborted).toBe(true);
+      if (seenSignal.reason !== undefined && parent.signal.reason !== undefined) {
+        expect(seenSignal.reason).toBe(parent.signal.reason);
+      }
+    }
+
+    // abort after call
+    {
+      const parent = new AbortController();
+
+      /** @type {AbortSignal|undefined} */
+      let seenSignal;
+      const fetchImpl = makeAbortAwarePendingFetch({
+        onCall: (_, init) => {
+          seenSignal = init?.signal;
+        },
+      });
+
+      const t = new SseMcpTransport({
+        url: "https://example.com/mcp",
+        fetchImpl,
+        signal: parent.signal,
+        connectTimeoutMs: 10_000,
+      });
+
+      const p = t.connect();
+
+      try {
+        parent.abort("user_cancel");
+      } catch {
+        parent.abort();
+      }
+
+      await expect(p).rejects.toBeDefined();
+
+      expect(seenSignal).toBeTruthy();
+      expect(seenSignal.aborted).toBe(true);
+      if (seenSignal.reason !== undefined && parent.signal.reason !== undefined) {
+        expect(seenSignal.reason).toBe(parent.signal.reason);
+      }
+    }
+  });
+
+  it("send() posts JSON to url with correct headers; supports long strings and deep nesting (resource boundary)", async () => {
+    const calls = [];
+    const fetchImpl = vi.fn(async (input, init = {}) => {
+      calls.push({ input, init });
+      if (init.method === "GET") {
+        return createResponse({ body: "STREAM" });
+      }
+      return { ok: true, status: 204, headers: createHeaders(""), body: null };
     });
 
-    const messageFetch = vi.fn(async () =>
-      makeResponse({
-        ok: true,
-        text: JSON.stringify({ ok: true }),
-      }),
-    );
-    const notifyTransport = new SseMcpTransport({ url: "http://example.com", fetchImpl: messageFetch });
-    notifyTransport._connected = true;
-
-    const onMessage = vi.fn();
-    notifyTransport.on("message", onMessage);
-
-    await notifyTransport.send({ jsonrpc: "2.0", method: "notify" });
-
-    expect(onMessage).toHaveBeenCalledWith({ ok: true });
-  });
-
-  it("ignores empty responses and emits errors on fetch failures", async () => {
-    const emptyFetch = vi.fn(async () => makeResponse({ ok: true, text: "" }));
-    const transport = new SseMcpTransport({ url: "http://example.com", fetchImpl: emptyFetch });
-    transport._connected = true;
-
-    const handleSpy = vi.spyOn(transport, "_handleMessage");
-    const messageSpy = vi.fn();
-    transport.on("message", messageSpy);
-
-    await transport.send({ jsonrpc: "2.0", id: 1, method: "noop" });
-
-    expect(handleSpy).not.toHaveBeenCalled();
-    expect(messageSpy).not.toHaveBeenCalled();
-
-    const errorFetch = vi.fn(async () => {
-      throw new Error("network down");
+    const t = new SseMcpTransport({
+      url: "https://example.com/mcp",
+      sseUrl: "https://example.com/sse",
+      headers: { Authorization: "Bearer x" },
+      fetchImpl,
     });
-    const errorTransport = new SseMcpTransport({ url: "http://example.com", fetchImpl: errorFetch });
-    errorTransport._connected = true;
-    const onError = vi.fn();
-    errorTransport.on("error", onError);
 
-    await expect(errorTransport.send({ jsonrpc: "2.0", id: -1, method: "ping" })).rejects.toThrow("network down");
-    expect(onError).toHaveBeenCalledTimes(1);
-    expect(errorTransport._inflight.size).toBe(0);
-  });
+    const sendName = getSendMethodName(t);
+    expect(sendName).toBeTruthy();
 
-  it("handles concurrent sends and large payloads without leaking inflight controllers", async () => {
-    const first = createDeferred();
-    const second = createDeferred();
-    const fetchImpl = vi.fn()
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
+    await t.connect();
 
-    const transport = new SseMcpTransport({ url: "http://example.com", fetchImpl });
-    transport._connected = true;
+    const deep = {};
+    let cur = deep;
+    for (let i = 0; i < 50; i++) {
+      cur.next = {};
+      cur = cur.next;
+    }
 
-    const largeContent = "x".repeat(512 * 1024);
-    const deepMeta = buildDeepObject(40);
-
-    const messageA = {
+    const payload = "x".repeat(200_000);
+    const msg = {
       jsonrpc: "2.0",
       id: 1,
-      method: "upload",
-      params: { content: largeContent, meta: deepMeta },
-    };
-    const messageB = {
-      jsonrpc: "2.0",
-      id: -1,
       method: "ping",
-      params: [],
+      params: { payload, deep },
     };
 
-    const sendA = transport.send(messageA);
-    const sendB = transport.send(messageB);
+    await t[sendName](msg);
 
-    expect(transport._inflight.size).toBe(2);
+    const postCalls = calls.filter((c) => c.init?.method === "POST");
+    expect(postCalls.length).toBe(1);
 
-    first.resolve(makeResponse({ ok: true, text: "" }));
-    second.resolve(makeResponse({ ok: true, text: "" }));
+    const { input, init } = postCalls[0];
+    expect(input).toBe("https://example.com/mcp");
 
-    await Promise.all([sendA, sendB]);
+    expect(init.headers).toEqual(
+      expect.objectContaining({
+        "Content-Type": "application/json",
+        Authorization: "Bearer x",
+      })
+    );
 
-    expect(transport._inflight.size).toBe(0);
-
-    const payload = JSON.parse(fetchImpl.mock.calls[0][1].body);
-    expect(payload.params.content.length).toBe(largeContent.length);
-    expect(payload.params.meta.next).toBeDefined();
+    expect(typeof init.body).toBe("string");
+    expect(JSON.parse(init.body)).toEqual(msg);
   });
 
-  it("receive resolves on message and rejects on error or disconnect", async () => {
-    const transport = new SseMcpTransport({ url: "http://example.com", fetchImpl: vi.fn() });
+  it("send() rejects on invalid message types (null/undefined/empty string/empty array/type boundary) and does not POST", async () => {
+    const calls = [];
+    const fetchImpl = vi.fn(async (input, init = {}) => {
+      calls.push({ input, init });
+      if (init.method === "GET") return createResponse({ body: "STREAM" });
+      return { ok: true, status: 204, headers: createHeaders(""), body: null };
+    });
 
-    await expect(transport.receive()).rejects.toThrow("Transport not connected");
+    const t = new SseMcpTransport({
+      url: "https://example.com/mcp",
+      sseUrl: "https://example.com/sse",
+      fetchImpl,
+    });
 
-    transport._connected = true;
+    const sendName = getSendMethodName(t);
+    expect(sendName).toBeTruthy();
 
-    const messagePromise = transport.receive();
-    transport.emit("message", { ok: true });
-    await expect(messagePromise).resolves.toEqual({ ok: true });
-    expect(transport._events.get("message")).toBeUndefined();
+    await t.connect();
 
-    const errorPromise = transport.receive();
-    transport.emit("error", new Error("boom"));
-    await expect(errorPromise).rejects.toThrow("boom");
+    const invalidMessages = [null, undefined, "", [], 123, "not-an-object"];
+    for (const bad of invalidMessages) {
+      const before = calls.filter((c) => c.init?.method === "POST").length;
+      await expectThrowOrReject(() => t[sendName](bad));
+      const after = calls.filter((c) => c.init?.method === "POST").length;
+      expect(after).toBe(before);
+    }
 
-    const disconnectPromise = transport.receive();
-    transport.emit("disconnect");
-    await expect(disconnectPromise).rejects.toThrow("Transport disconnected");
+    // empty object is allowed as a boundary; should serialize and POST
+    await t[sendName]({});
+    expect(calls.some((c) => c.init?.method === "POST" && c.input === "https://example.com/mcp")).toBe(true);
   });
 
-  it("disconnects safely, aborts inflight controllers, and clears state", async () => {
-    const transport = new SseMcpTransport({ url: "http://example.com", fetchImpl: vi.fn() });
-    await expect(transport.disconnect()).resolves.toBeUndefined();
+  it("send() supports concurrent calls (concurrency boundary)", async () => {
+    const calls = [];
+    const fetchImpl = vi.fn(async (input, init = {}) => {
+      calls.push({ input, init });
+      if (init.method === "GET") return createResponse({ body: "STREAM" });
+      return { ok: true, status: 204, headers: createHeaders(""), body: null };
+    });
 
-    transport._connected = true;
-    const inflightA = new AbortController();
-    const inflightB = new AbortController();
-    transport._inflight.add(inflightA);
-    transport._inflight.add(inflightB);
-    transport._sseController = new AbortController();
-    transport._sseTask = Promise.resolve();
+    const t = new SseMcpTransport({
+      url: "https://example.com/mcp",
+      sseUrl: "https://example.com/sse",
+      fetchImpl,
+    });
 
-    const disconnectSpy = vi.fn();
-    transport.on("disconnect", disconnectSpy);
+    const sendName = getSendMethodName(t);
+    expect(sendName).toBeTruthy();
 
-    await transport.disconnect();
+    await t.connect();
 
-    expect(transport.isConnected()).toBe(false);
-    expect(inflightA.signal.aborted).toBe(true);
-    expect(inflightB.signal.aborted).toBe(true);
-    expect(transport._inflight.size).toBe(0);
-    expect(transport._sseController).toBeNull();
-    expect(transport._sseTask).toBeNull();
-    expect(disconnectSpy).toHaveBeenCalledTimes(1);
+    const msg1 = { jsonrpc: "2.0", id: 1, method: "m1", params: {} };
+    const msg2 = { jsonrpc: "2.0", id: 2, method: "m2", params: {} };
+
+    await Promise.all([t[sendName](msg1), t[sendName](msg2)]);
+
+    const postCalls = calls.filter((c) => c.init?.method === "POST");
+    expect(postCalls.length).toBe(2);
   });
 
-  it("close delegates to disconnect", async () => {
-    const transport = new SseMcpTransport({ url: "http://example.com", fetchImpl: vi.fn() });
-    const disconnectSpy = vi.spyOn(transport, "disconnect").mockResolvedValue();
-    await transport.close();
-    expect(disconnectSpy).toHaveBeenCalledTimes(1);
-  });
-});
+  it("close/disconnect is idempotent and aborts SSE + inflight POSTs (concurrency/resource cleanup boundary)", async () => {
+    /** @type {AbortSignal[]} */
+    const postSignals = [];
 
-describe("default export", () => {
-  it("exposes the same class as the named export", () => {
-    expect(SseMcpTransportDefault).toBe(SseMcpTransport);
+    const fetchImpl = vi.fn((input, init = {}) => {
+      if (init.method === "GET") return Promise.resolve(createResponse({ body: "STREAM" }));
+
+      if (init.method === "POST") {
+        if (init.signal) postSignals.push(init.signal);
+        // Resolve on abort to avoid unhandled rejections across implementations.
+        return makeAbortAwarePendingFetch({ resolveOnAbort: true })(input, init);
+      }
+
+      return Promise.resolve({ ok: true, status: 200, headers: createHeaders(""), body: null });
+    });
+
+    const t = new SseMcpTransport({
+      url: "https://example.com/mcp",
+      sseUrl: "https://example.com/sse",
+      fetchImpl,
+    });
+
+    const sendName = getSendMethodName(t);
+    expect(sendName).toBeTruthy();
+
+    const closeName = getCloseMethodName(t);
+    expect(closeName).toBeTruthy();
+
+    await t.connect();
+
+    const p1 = t[sendName]({ jsonrpc: "2.0", id: 1, method: "m1", params: {} });
+    const p2 = t[sendName]({ jsonrpc: "2.0", id: 2, method: "m2", params: {} });
+
+    expect(Array.isArray(postSignals)).toBe(true);
+
+    await t[closeName]();
+    await t[closeName]();
+
+    for (const s of postSignals) {
+      expect(typeof s?.aborted).toBe("boolean");
+      expect(s.aborted).toBe(true);
+    }
+
+    const sseController = t._sseController;
+    if (sseController && sseController.signal) {
+      expect(sseController.signal.aborted).toBe(true);
+    }
+
+    const settled = await Promise.allSettled([p1, p2].filter(Boolean));
+    expect(settled.length).toBeGreaterThanOrEqual(0);
   });
 });

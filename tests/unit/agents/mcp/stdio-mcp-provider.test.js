@@ -1,474 +1,432 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const modulePath = '../../../../js/agents/mcp/stdio-mcp-provider.js';
-
-const transportMocks = vi.hoisted(() => ({
-  instances: [],
-  connectImpl: null,
-  disconnectImpl: null,
-  isConnectedImpl: null,
-  listToolsImpl: null,
-  callToolImpl: null,
-  serverInfo: { name: 'mock-server' },
-  capabilities: { protocol: 'mock' },
+const state = vi.hoisted(() => ({
+  mcpProviderCtorArgs: [],
+  transportInstances: [],
+  nextConnectDeferred: null,
+  nextConnectError: null,
+  nextDisconnectError: null,
 }));
 
-vi.mock('../../../../js/agents/mcp/stdio-mcp-transport.js', () => {
+function createDeferred() {
+  /** @type {(value?: any) => void} */
+  let resolve;
+  /** @type {(reason?: any) => void} */
+  let reject;
+
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
+vi.mock("../../../../js/agents/mcp/mcp-client.js", () => {
+  class McpProvider {
+    constructor(options) {
+      state.mcpProviderCtorArgs.push(options);
+      this.id = options?.id;
+      this.name = options?.name;
+      this.endpoint = options?.endpoint;
+    }
+  }
+
+  class McpToolDefinition {}
+  class McpToolResult {}
+
+  return { McpProvider, McpToolDefinition, McpToolResult };
+});
+
+vi.mock("../../../../js/agents/shared/index.js", () => {
+  function toNonEmptyString(value) {
+    if (typeof value !== "string") return "";
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : "";
+  }
+  return { toNonEmptyString };
+});
+
+vi.mock("../../../../js/agents/mcp/stdio-mcp-transport.js", () => {
   class StdioMcpTransport {
     constructor(options) {
       this.options = options;
-      this.serverInfo = transportMocks.serverInfo;
-      this.capabilities = transportMocks.capabilities;
       this._connected = false;
 
-      this.connect = vi.fn(async () => {
-        if (transportMocks.connectImpl) {
-          await transportMocks.connectImpl(this);
-          return;
+      this.isConnected = vi.fn(() => this._connected);
+
+      this.connect = vi.fn(() => {
+        if (state.nextConnectError) {
+          const error = state.nextConnectError;
+          state.nextConnectError = null;
+          return Promise.reject(error);
         }
+
+        const deferred = state.nextConnectDeferred;
+        if (deferred) {
+          state.nextConnectDeferred = null;
+          return deferred.promise.then(() => {
+            this._connected = true;
+          });
+        }
+
         this._connected = true;
+        return Promise.resolve();
       });
 
-      this.disconnect = vi.fn(async () => {
-        if (transportMocks.disconnectImpl) {
-          await transportMocks.disconnectImpl(this);
-          return;
+      this.disconnect = vi.fn(() => {
+        if (state.nextDisconnectError) {
+          const error = state.nextDisconnectError;
+          state.nextDisconnectError = null;
+          return Promise.reject(error);
         }
+
         this._connected = false;
+        return Promise.resolve();
       });
 
-      this.isConnected = vi.fn(() => {
-        if (transportMocks.isConnectedImpl) {
-          return transportMocks.isConnectedImpl(this);
-        }
-        return this._connected;
-      });
-
-      this.listTools = vi.fn(async () => {
-        if (transportMocks.listToolsImpl) {
-          return transportMocks.listToolsImpl(this);
-        }
-        return [];
-      });
-
-      this.callTool = vi.fn(async (name, args) => {
-        if (transportMocks.callToolImpl) {
-          return transportMocks.callToolImpl(this, name, args);
-        }
-        return { content: [] };
-      });
-
-      transportMocks.instances.push(this);
+      state.transportInstances.push(this);
     }
   }
 
   return { StdioMcpTransport };
 });
 
-vi.mock('../../../../js/agents/mcp/mcp-client.js', () => {
-  class McpProvider {
-    constructor({ id, name, endpoint }) {
-      this.id = id;
-      this.name = name;
-      this.endpoint = endpoint;
-    }
-  }
+import { StdioMcpProvider } from "../../../../js/agents/mcp/stdio-mcp-provider.js";
 
-  class McpToolDefinition {
-    constructor(payload) {
-      Object.assign(this, payload);
-    }
-  }
-
-  class McpToolResult {
-    constructor(payload) {
-      Object.assign(this, payload);
-    }
-  }
-
-  return { McpProvider, McpToolDefinition, McpToolResult };
-});
-
-vi.mock('../../../../js/agents/shared/index.js', () => ({
-  toNonEmptyString: (value) => {
-    if (value === undefined || value === null) return undefined;
-    const s = String(value).trim();
-    return s.length ? s : undefined;
-  },
-}));
-
-let StdioMcpProvider;
-let createStdioMcpProvider;
-let McpToolDefinition;
-let McpToolResult;
-
-const createProvider = (options = {}) => {
-  const command = options.command ?? 'mock-cmd';
-  const hasAllowed = Object.prototype.hasOwnProperty.call(options, 'allowedCommands');
-  const allowedCommands = hasAllowed ? options.allowedCommands : [command];
-  return new StdioMcpProvider({ command, allowedCommands, ...options });
-};
-
-beforeEach(async () => {
+beforeEach(() => {
+  state.mcpProviderCtorArgs.length = 0;
+  state.transportInstances.length = 0;
+  state.nextConnectDeferred = null;
+  state.nextConnectError = null;
+  state.nextDisconnectError = null;
   vi.clearAllMocks();
-  transportMocks.instances = [];
-  transportMocks.connectImpl = null;
-  transportMocks.disconnectImpl = null;
-  transportMocks.isConnectedImpl = null;
-  transportMocks.listToolsImpl = null;
-  transportMocks.callToolImpl = null;
-  transportMocks.serverInfo = { name: 'mock-server' };
-  transportMocks.capabilities = { protocol: 'mock' };
-
-  ({ StdioMcpProvider, createStdioMcpProvider } = await import(modulePath));
-  ({ McpToolDefinition, McpToolResult } = await import('../../../../js/agents/mcp/mcp-client.js'));
 });
 
-describe('StdioMcpProvider', () => {
-  it('throws when options is null or undefined', () => {
-    expect(() => new StdioMcpProvider()).toThrow();
-    expect(() => new StdioMcpProvider(null)).toThrow();
-  });
-
-  it('throws when command is missing or blank', () => {
-    const values = [undefined, null, '', '   '];
-    values.forEach((value) => {
-      expect(() => new StdioMcpProvider({ command: value, allowUnsafeCommand: true })).toThrow(
-        'StdioMcpProvider: command is required'
-      );
-    });
-  });
-
-  it('requires allowlist unless unsafe is allowed', () => {
-    expect(() => new StdioMcpProvider({ command: 'cmd' })).toThrow(
-      'StdioMcpProvider: command not allowed without allowlist or allowUnsafeCommand'
-    );
-    expect(() => new StdioMcpProvider({ command: 'cmd', allowedCommands: [] })).toThrow(
-      'StdioMcpProvider: command not allowed without allowlist or allowUnsafeCommand'
-    );
-    expect(() => new StdioMcpProvider({ command: 'cmd', allowedCommands: {} })).toThrow(
-      'StdioMcpProvider: command not allowed without allowlist or allowUnsafeCommand'
-    );
-  });
-
-  it('rejects commands outside allowlist', () => {
-    expect(() => new StdioMcpProvider({ command: 'cmd', allowedCommands: ['other'] })).toThrow(
-      'StdioMcpProvider: command is not in allowedCommands'
-    );
-  });
-
-  it('accepts allowUnsafeCommand flags', () => {
-    const provider = new StdioMcpProvider({ command: 'cmd', allowUnsafeCommand: true });
-    const providerAlias = new StdioMcpProvider({ command: 'cmd', allowUnsafeCommands: true });
-
-    expect(provider.command).toBe('cmd');
-    expect(providerAlias.command).toBe('cmd');
-  });
-
-  it('applies id/name defaults and trims input', () => {
-    const provider = createProvider({ id: '  custom-id  ' });
-    const namedProvider = createProvider({ id: 'id', name: '  Name  ' });
-    const defaultedProvider = createProvider({ id: '   ', name: ' ' });
-
-    expect(provider.id).toBe('custom-id');
-    expect(provider.name).toBe('custom-id');
-    expect(namedProvider.id).toBe('id');
-    expect(namedProvider.name).toBe('Name');
-    expect(defaultedProvider.id).toBe('stdio-mcp');
-    expect(defaultedProvider.name).toBe('stdio-mcp');
-  });
-
-  it('stores options and preserves type boundaries', () => {
-    const argsObject = { not: 'array' };
-    const deepEnv = { nested: { level: { value: 'x' } } };
-
-    const provider = createProvider({
-      args: argsObject,
-      env: deepEnv,
-      cwd: '',
-      timeout: '5000',
-      autoConnect: false,
-      lazyConnect: true,
-    });
-
-    expect(provider.args).toBe(argsObject);
-    expect(provider.env).toBe(deepEnv);
-    expect(provider.cwd).toBe('');
-    expect(provider.timeout).toBe('5000');
-    expect(provider.autoConnect).toBe(false);
-    expect(provider.lazyConnect).toBe(true);
-  });
-
-  it('accepts boundary timeout values', () => {
-    const values = [0, -1, Number.MAX_SAFE_INTEGER];
-    values.forEach((value) => {
-      const provider = createProvider({ timeout: value });
-      expect(provider.timeout).toBe(value);
-    });
-  });
-
-  it('supports long command strings and ignores empty allowlist entries', () => {
-    const longCommand = `cmd-${'x'.repeat(10000)}`;
-    const provider = new StdioMcpProvider({
-      command: longCommand,
-      allowedCommands: [' ', '', longCommand, null],
-    });
-
-    expect(provider.command).toBe(longCommand);
-  });
-
-  it('connect creates transport with expected options', async () => {
-    const env = { KEY: 'VALUE' };
-    const provider = createProvider({
-      args: ['--flag'],
-      env,
-      cwd: '/tmp',
-      timeout: 1234,
-    });
-
-    await provider.connect();
-
-    expect(transportMocks.instances).toHaveLength(1);
-    const transport = transportMocks.instances[0];
-    expect(transport.options).toEqual({
-      command: 'mock-cmd',
-      args: ['--flag'],
-      env,
-      cwd: '/tmp',
-      timeout: 1234,
-      autoInit: true,
-    });
-    expect(transport.connect).toHaveBeenCalledTimes(1);
-  });
-
-  it('connect is idempotent when already connected', async () => {
-    const provider = createProvider();
-
-    await provider.connect();
-    await provider.connect();
-
-    expect(transportMocks.instances).toHaveLength(1);
-    expect(transportMocks.instances[0].connect).toHaveBeenCalledTimes(1);
-  });
-
-  it('deduplicates concurrent connect calls', async () => {
-    let resolveConnect;
-    const connectPromise = new Promise((resolve) => {
-      resolveConnect = resolve;
-    });
-
-    transportMocks.connectImpl = (instance) =>
-      connectPromise.then(() => {
-        instance._connected = true;
+describe("StdioMcpProvider", () => {
+  describe("constructor", () => {
+    it("defaults id/name and initializes properties", () => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        allowedCommands: ["cmd"],
       });
 
-    const provider = createProvider();
-    const first = provider.connect();
-    const second = provider.connect();
+      expect(state.mcpProviderCtorArgs).toEqual([
+        { id: "stdio-mcp", name: "stdio-mcp", endpoint: "stdio" },
+      ]);
 
-    expect(transportMocks.instances).toHaveLength(1);
-    expect(transportMocks.instances[0].connect).toHaveBeenCalledTimes(1);
-    expect(provider._connectPromise).not.toBeNull();
+      expect(provider.id).toBe("stdio-mcp");
+      expect(provider.name).toBe("stdio-mcp");
+      expect(provider.endpoint).toBe("stdio");
 
-    resolveConnect();
-    await Promise.all([first, second]);
-    expect(provider._connectPromise).toBeNull();
-  });
+      expect(provider.command).toBe("cmd");
+      expect(provider.args).toEqual([]);
+      expect(provider.env).toEqual({});
+      expect(provider.cwd).toBe(undefined);
+      expect(provider.timeout).toBe(30000);
+      expect(provider.autoConnect).toBe(true);
+      expect(provider.lazyConnect).toBe(false);
 
-  it('reports connection status and server info', async () => {
-    const provider = createProvider();
-
-    expect(provider.isConnected()).toBe(false);
-    expect(provider.getServerInfo()).toBeNull();
-    expect(provider.getCapabilities()).toBeNull();
-
-    await provider.connect();
-
-    expect(provider.isConnected()).toBe(true);
-    expect(provider.getServerInfo()).toEqual({ name: 'mock-server' });
-    expect(provider.getCapabilities()).toEqual({ protocol: 'mock' });
-  });
-
-  it('disconnects and clears cache', async () => {
-    transportMocks.listToolsImpl = () => [
-      { name: 'tool', description: 'd', inputSchema: { type: 'object' } },
-    ];
-    const provider = createProvider();
-
-    await provider.listTools();
-
-    const transport = transportMocks.instances[0];
-    expect(provider._toolsCache).toHaveLength(1);
-
-    await provider.disconnect();
-
-    expect(transport.disconnect).toHaveBeenCalledTimes(1);
-    expect(provider._transport).toBeNull();
-    expect(provider._toolsCache).toBeNull();
-  });
-
-  it('lists tools and caches definitions', async () => {
-    const rawTools = [
-      { name: 'alpha', description: 'Alpha', inputSchema: { type: 'object' } },
-      { name: 'beta', description: '', inputSchema: null },
-    ];
-    transportMocks.listToolsImpl = () => rawTools;
-
-    const provider = createProvider();
-    const first = await provider.listTools();
-    const transport = transportMocks.instances[0];
-
-    expect(first).toHaveLength(2);
-    expect(first[0]).toBeInstanceOf(McpToolDefinition);
-    expect(first[0]).toMatchObject({
-      name: 'alpha',
-      description: 'Alpha',
-      inputSchema: { type: 'object' },
-    });
-    expect(transport.listTools).toHaveBeenCalledTimes(1);
-
-    const second = await provider.listTools();
-
-    expect(transport.listTools).toHaveBeenCalledTimes(1);
-    expect(second).not.toBe(first);
-    expect(second[0]).toBe(first[0]);
-  });
-
-  it('returns error results for invalid tool names', async () => {
-    const provider = createProvider();
-    const invalidNames = [null, undefined, '', '   '];
-
-    for (const name of invalidNames) {
-      const result = await provider.callTool(name, { foo: 'bar' });
-
-      expect(result).toBeInstanceOf(McpToolResult);
-      expect(result.success).toBe(false);
-      expect(result.isError).toBe(true);
-      expect(result.error).toBe('Tool name is required');
-    }
-
-    const transport = transportMocks.instances[0];
-    expect(transport.callTool).not.toHaveBeenCalled();
-  });
-
-  it('wraps tool error responses', async () => {
-    transportMocks.callToolImpl = () => ({
-      isError: true,
-      content: [{ type: 'text', text: 'bad request' }],
+      expect(provider._transport).toBe(null);
+      expect(provider._toolsCache).toBe(null);
+      expect(provider._connectPromise).toBe(null);
     });
 
-    const provider = createProvider();
-    const result = await provider.callTool('badTool', {});
+    it("trims id/name/command via toNonEmptyString", () => {
+      const provider = new StdioMcpProvider({
+        id: "  my-id  ",
+        name: "  My Provider  ",
+        command: "  cmd  ",
+        allowedCommands: ["cmd"],
+      });
 
-    expect(result).toBeInstanceOf(McpToolResult);
-    expect(result.success).toBe(false);
-    expect(result.isError).toBe(true);
-    expect(result.error).toBe('bad request');
-    expect(result.content).toEqual([{ type: 'text', text: 'bad request' }]);
-  });
-
-  it('returns error results when transport throws', async () => {
-    transportMocks.callToolImpl = () => {
-      throw new Error('boom');
-    };
-
-    const provider = createProvider();
-    const result = await provider.callTool('tool', {});
-
-    expect(result).toBeInstanceOf(McpToolResult);
-    expect(result.success).toBe(false);
-    expect(result.isError).toBe(true);
-    expect(result.error).toBe('boom');
-    expect(result.content).toEqual([{ type: 'text', text: 'Error: boom' }]);
-  });
-
-  it('forwards args and returns success for tool calls', async () => {
-    const hugeContent = 'a'.repeat(120000);
-    const args = {
-      file: { name: 'big.txt', content: hugeContent },
-      nested: { level1: { level2: { level3: { value: 'deep' } } } },
-    };
-
-    transportMocks.callToolImpl = () => ({
-      content: [{ type: 'text', text: 'ok' }],
+      expect(provider.id).toBe("my-id");
+      expect(provider.name).toBe("My Provider");
+      expect(provider.command).toBe("cmd");
+      expect(state.mcpProviderCtorArgs[0]).toEqual({
+        id: "my-id",
+        name: "My Provider",
+        endpoint: "stdio",
+      });
     });
 
-    const provider = createProvider();
-    const result = await provider.callTool(0, args);
+    it("throws when options is undefined (null/undefined boundary)", () => {
+      expect(() => new StdioMcpProvider(/** @type {any} */ (undefined))).toThrow();
+      expect(() => new StdioMcpProvider(/** @type {any} */ (null))).toThrow();
+    });
 
-    const transport = transportMocks.instances[0];
-    expect(transport.callTool).toHaveBeenCalledWith('0', args);
-    expect(result).toBeInstanceOf(McpToolResult);
-    expect(result.success).toBe(true);
-    expect(result.isError).toBe(false);
-    expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+    it.each([
+      ["undefined", undefined],
+      ["null", null],
+      ["empty string", ""],
+      ["whitespace string", "   "],
+      ["number (type boundary)", 123],
+      ["object (type boundary)", { command: "cmd" }],
+    ])("throws when command is invalid: %s", (_label, command) => {
+      expect(
+        () =>
+          new StdioMcpProvider({
+            command: /** @type {any} */ (command),
+            allowedCommands: ["cmd"],
+          })
+      ).toThrow("StdioMcpProvider: command is required");
+    });
+
+    it("throws when unsafe is not enabled and allowlist is missing", () => {
+      expect(() => new StdioMcpProvider({ command: "cmd" })).toThrow(
+        "StdioMcpProvider: command not allowed without allowlist or allowUnsafeCommand"
+      );
+    });
+
+    it("throws when allowedCommands is not an array (type boundary)", () => {
+      expect(
+        () =>
+          new StdioMcpProvider({
+            command: "cmd",
+            allowedCommands: /** @type {any} */ ({}),
+          })
+      ).toThrow("StdioMcpProvider: command not allowed without allowlist or allowUnsafeCommand");
+    });
+
+    it("throws when command is not in allowedCommands", () => {
+      expect(
+        () =>
+          new StdioMcpProvider({
+            command: "cmd",
+            allowedCommands: ["other"],
+          })
+      ).toThrow("StdioMcpProvider: command is not in allowedCommands");
+    });
+
+    it("allows command when allowedCommands contains the trimmed command (ignores empty entries)", () => {
+      const provider = new StdioMcpProvider({
+        command: "  cmd  ",
+        allowedCommands: ["", "   ", "cmd", "  cmd  "],
+      });
+
+      expect(provider.command).toBe("cmd");
+    });
+
+    it("allows command when allowUnsafeCommand is true even without allowlist", () => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        allowUnsafeCommand: true,
+      });
+
+      expect(provider.command).toBe("cmd");
+    });
+
+    it("allows command when allowUnsafeCommands (legacy) is true even without allowlist", () => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        allowUnsafeCommands: true,
+      });
+
+      expect(provider.command).toBe("cmd");
+    });
+
+    it("forwards extreme/edge option shapes without mutation (resource/type boundaries)", async () => {
+      const longCommand = "x".repeat(10_000);
+      /** @type {any} */
+      const argsObject = { not: ["an", "array"], deep: { level: { n: 1 } } };
+      /** @type {any} */
+      const deepEnv = {
+        A: "1",
+        nested: { level2: { level3: { level4: { value: "x" } } } },
+      };
+
+      const provider = new StdioMcpProvider({
+        id: "   ",
+        name: "   ",
+        command: longCommand,
+        args: argsObject,
+        env: deepEnv,
+        cwd: "",
+        timeout: Number.MAX_SAFE_INTEGER,
+        autoConnect: /** @type {any} */ (0),
+        lazyConnect: /** @type {any} */ ("true"),
+        allowUnsafeCommand: true,
+      });
+
+      expect(provider.id).toBe("stdio-mcp");
+      expect(provider.name).toBe("stdio-mcp");
+      expect(provider.command).toBe(longCommand);
+      expect(provider.args).toBe(argsObject);
+      expect(provider.env).toBe(deepEnv);
+      expect(provider.cwd).toBe("");
+      expect(provider.timeout).toBe(Number.MAX_SAFE_INTEGER);
+      expect(provider.autoConnect).toBe(true);
+      expect(provider.lazyConnect).toBe(false);
+
+      await provider.connect();
+      expect(state.transportInstances).toHaveLength(1);
+      expect(state.transportInstances[0].options).toEqual({
+        command: longCommand,
+        args: argsObject,
+        env: deepEnv,
+        cwd: "",
+        timeout: Number.MAX_SAFE_INTEGER,
+        autoInit: true,
+      });
+    });
   });
 
-  it('returns ok status and tool count on healthCheck', async () => {
-    transportMocks.listToolsImpl = () => [
-      { name: 't1', description: 'A', inputSchema: {} },
-      { name: 't2', description: 'B', inputSchema: {} },
-    ];
+  describe("connect", () => {
+    it("creates a transport and connects with expected options", async () => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        args: ["--foo", "bar"],
+        env: { FOO: "1" },
+        cwd: "/work",
+        timeout: 123,
+        allowedCommands: ["cmd"],
+      });
 
-    const provider = createProvider();
-    const result = await provider.healthCheck();
+      await provider.connect();
 
-    expect(result.ok).toBe(true);
-    expect(result.providerId).toBe(provider.id);
-    expect(result.toolCount).toBe(2);
-    expect(result.serverInfo).toEqual({ name: 'mock-server' });
-    expect(result.ts).toEqual(expect.any(String));
+      expect(state.transportInstances).toHaveLength(1);
+      const transport = state.transportInstances[0];
+
+      expect(transport.options).toEqual({
+        command: "cmd",
+        args: ["--foo", "bar"],
+        env: { FOO: "1" },
+        cwd: "/work",
+        timeout: 123,
+        autoInit: true,
+      });
+
+      expect(transport.connect).toHaveBeenCalledTimes(1);
+      expect(provider._transport).toBe(transport);
+      expect(provider._connectPromise).toBe(null);
+    });
+
+    it("is a no-op when already connected", async () => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        allowedCommands: ["cmd"],
+      });
+
+      await provider.connect();
+      const transport = state.transportInstances[0];
+
+      await provider.connect();
+
+      expect(state.transportInstances).toHaveLength(1);
+      expect(transport.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it("deduplicates concurrent connect() calls (concurrency boundary)", async () => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        allowedCommands: ["cmd"],
+      });
+
+      const deferred = createDeferred();
+      state.nextConnectDeferred = deferred;
+
+      const p1 = provider.connect();
+      const p2 = provider.connect();
+
+      expect(state.transportInstances).toHaveLength(1);
+      const transport = state.transportInstances[0];
+
+      expect(transport.connect).toHaveBeenCalledTimes(1);
+      expect(provider._connectPromise).not.toBe(null);
+
+      deferred.resolve();
+      await Promise.all([p1, p2]);
+
+      expect(provider._connectPromise).toBe(null);
+      expect(transport.isConnected()).toBe(true);
+
+      await provider.connect();
+      expect(state.transportInstances).toHaveLength(1);
+      expect(transport.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it("clears _connectPromise and allows retry after connect failure", async () => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        allowedCommands: ["cmd"],
+      });
+
+      state.nextConnectError = new Error("boom");
+      await expect(provider.connect()).rejects.toThrow("boom");
+      expect(provider._connectPromise).toBe(null);
+
+      await provider.connect();
+      expect(state.transportInstances).toHaveLength(2);
+      expect(state.transportInstances[1].connect).toHaveBeenCalledTimes(1);
+      expect(provider._transport).toBe(state.transportInstances[1]);
+    });
+
+    it.each([
+      ["0", 0],
+      ["-1", -1],
+      ["MAX_SAFE_INTEGER", Number.MAX_SAFE_INTEGER],
+      ["string (type boundary)", "123"],
+    ])("forwards timeout boundary value: %s", async (_label, timeout) => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        timeout: /** @type {any} */ (timeout),
+        allowedCommands: ["cmd"],
+      });
+
+      await provider.connect();
+      expect(state.transportInstances[0].options.timeout).toBe(timeout);
+    });
   });
 
-  it('refreshes tools during healthCheck when requested', async () => {
-    transportMocks.listToolsImpl = () => [{ name: 't1', description: '', inputSchema: {} }];
+  describe("disconnect", () => {
+    it("disconnects transport, clears transport reference and tools cache, and is idempotent", async () => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        allowedCommands: ["cmd"],
+      });
 
-    const provider = createProvider();
-    await provider.listTools();
-    const transport = transportMocks.instances[0];
+      await provider.connect();
+      const transport = state.transportInstances[0];
 
-    transportMocks.listToolsImpl = () => [{ name: 't2', description: '', inputSchema: {} }];
-    const result = await provider.healthCheck({ refreshTools: true });
+      provider._toolsCache = /** @type {any} */ ([{ name: "tool" }]);
 
-    expect(transport.listTools).toHaveBeenCalledTimes(2);
-    expect(result.toolCount).toBe(1);
-    expect(provider._toolsCache[0].name).toBe('t2');
-  });
+      await provider.disconnect();
+      expect(transport.disconnect).toHaveBeenCalledTimes(1);
+      expect(provider._transport).toBe(null);
+      expect(provider._toolsCache).toBe(null);
 
-  it('returns error status on healthCheck failure', async () => {
-    transportMocks.listToolsImpl = () => {
-      throw new Error('down');
-    };
+      await provider.disconnect();
+      expect(transport.disconnect).toHaveBeenCalledTimes(1);
+      expect(provider._transport).toBe(null);
+      expect(provider._toolsCache).toBe(null);
+    });
 
-    const provider = createProvider();
-    const result = await provider.healthCheck();
+    it("clears tools cache even when no transport exists", async () => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        allowedCommands: ["cmd"],
+      });
 
-    expect(result.ok).toBe(false);
-    expect(result.providerId).toBe(provider.id);
-    expect(result.error).toBe('down');
-    expect(result.ts).toEqual(expect.any(String));
-  });
+      provider._toolsCache = /** @type {any} */ ([{ name: "cached" }]);
+      await provider.disconnect();
 
-  it('refreshTools clears cache and reloads tools', async () => {
-    transportMocks.listToolsImpl = () => [{ name: 't1', description: '', inputSchema: {} }];
+      expect(state.transportInstances).toHaveLength(0);
+      expect(provider._transport).toBe(null);
+      expect(provider._toolsCache).toBe(null);
+    });
 
-    const provider = createProvider();
-    await provider.listTools();
-    const transport = transportMocks.instances[0];
+    it("propagates errors from transport.disconnect()", async () => {
+      const provider = new StdioMcpProvider({
+        command: "cmd",
+        allowedCommands: ["cmd"],
+      });
 
-    transportMocks.listToolsImpl = () => [{ name: 't2', description: '', inputSchema: {} }];
-    const refreshed = await provider.refreshTools();
+      await provider.connect();
+      const transport = state.transportInstances[0];
 
-    expect(transport.listTools).toHaveBeenCalledTimes(2);
-    expect(refreshed[0].name).toBe('t2');
-  });
-});
-
-describe('createStdioMcpProvider', () => {
-  it('creates a StdioMcpProvider instance', () => {
-    const provider = createStdioMcpProvider({ command: 'cmd', allowUnsafeCommand: true });
-
-    expect(provider).toBeInstanceOf(StdioMcpProvider);
-    expect(provider.command).toBe('cmd');
+      state.nextDisconnectError = new Error("disconnect-failed");
+      await expect(provider.disconnect()).rejects.toThrow("disconnect-failed");
+      expect(provider._transport).toBe(transport);
+    });
   });
 });

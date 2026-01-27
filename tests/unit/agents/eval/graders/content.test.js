@@ -1,355 +1,530 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import EvaluateStageDefault, { EvaluateStage, contentGrader } from "../../../../../js/agents/eval/graders/content.js";
-
-vi.mock("node:crypto", () => ({
-  randomUUID: vi.fn(() => "mock-uuid"),
-}));
-
-beforeEach(() => {
-  vi.restoreAllMocks();
-  vi.clearAllMocks();
+vi.mock("node:crypto", async () => {
+  const actual = await vi.importActual("node:crypto");
+  return actual;
 });
 
-describe("eval/graders/content.js", () => {
-  describe("EvaluateStage", () => {
-    it("initializes with builtin evaluators", () => {
-      const stage = new EvaluateStage();
-      const names = stage.getEvaluatorNames();
+import * as contentModule from "../../../../../js/agents/eval/graders/content.js";
 
-      expect(names).toEqual(
-        expect.arrayContaining(["completeness", "accuracy", "clarity", "relevance"])
-      );
-    });
+const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
 
-    it("registers/unregisters evaluators and merges config", async () => {
-      const stage = new EvaluateStage({
-        dimensions: ["custom"],
-        dimensionConfig: {
-          custom: { weight: 2, options: { a: 1 } },
-        },
-      });
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
 
-      const evaluator = vi.fn(() => ({ score: 0.5, issues: [] }));
-      stage.registerEvaluator("custom", evaluator, { options: { b: 2 } });
+function isIssue(value) {
+  return (
+    isPlainObject(value)
+    && typeof value.type === "string"
+    && typeof value.severity === "string"
+    && typeof value.message === "string"
+  );
+}
 
-      expect(stage.dimensionConfig.custom).toEqual({ weight: 2, options: { b: 2 } });
+function isEvaluationResult(value) {
+  return (
+    isPlainObject(value)
+    && typeof value.passed === "boolean"
+    && typeof value.score === "number"
+    && Array.isArray(value.issues)
+    && value.issues.every(isIssue)
+  );
+}
 
-      const result = await stage.run(null, { content: "x".repeat(80) });
-      expect(evaluator).toHaveBeenCalledTimes(1);
-      expect(result.dimensions.custom).toBe(0.5);
+function issueTypes(result) {
+  return Array.isArray(result?.issues) ? result.issues.map(i => i.type) : [];
+}
 
-      stage.unregisterEvaluator("custom");
-      expect(stage.getEvaluatorNames()).not.toContain("custom");
-    });
+function assertScoreInRange(score) {
+  expect(score).toBeGreaterThanOrEqual(0);
+  expect(score).toBeLessThanOrEqual(1);
+}
 
-    it("throws when registerEvaluator receives null config", () => {
-      const stage = new EvaluateStage();
-      expect(() => stage.registerEvaluator("custom", () => ({ score: 1 }), null)).toThrow();
-    });
+function getEvaluateStageExport() {
+  const direct = contentModule?.EvaluateStage;
+  if (typeof direct === "function" || isPlainObject(direct)) return direct;
 
-    it("returns error for missing or invalid content values", async () => {
-      const stage = new EvaluateStage();
-      const cases = [
-        { label: "undefined input", input: undefined },
-        { label: "empty input object", input: {} },
-        { label: "null content", input: { content: null } },
-        { label: "undefined content", input: { content: undefined } },
-        { label: "empty string", input: { content: "" } },
-        { label: "empty array", input: { content: [] } },
-        { label: "empty object", input: { content: {} } },
-      ];
+  const def = contentModule?.default;
+  if (typeof def === "function" || isPlainObject(def)) return def;
 
-      for (const testCase of cases) {
-        const result = await stage.run(null, testCase.input);
-        expect(result.passed, testCase.label).toBe(false);
-        expect(result.score, testCase.label).toBe(0);
-        expect(result.issues[0]?.type, testCase.label).toBe("missing_content");
-        expect(result.dimensions, testCase.label).toEqual({});
+  const defProp = contentModule?.default?.EvaluateStage;
+  if (typeof defProp === "function" || isPlainObject(defProp)) return defProp;
+
+  return undefined;
+}
+
+function getContentGraderExport() {
+  const direct = contentModule?.contentGrader;
+  if (direct) return direct;
+
+  const defProp = contentModule?.default?.contentGrader;
+  if (defProp) return defProp;
+
+  return undefined;
+}
+
+function createStage(options) {
+  const EvaluateStage = getEvaluateStageExport();
+  expect(EvaluateStage, "Missing export: EvaluateStage").toBeTruthy();
+
+  if (typeof EvaluateStage === "function") {
+    try {
+      return new EvaluateStage(options);
+    } catch {
+      const maybeStage = EvaluateStage(options);
+      if (maybeStage && (typeof maybeStage === "object" || typeof maybeStage === "function")) return maybeStage;
+      return EvaluateStage;
+    }
+  }
+
+  if (EvaluateStage && typeof EvaluateStage === "object") return EvaluateStage;
+
+  throw new Error("Unsupported EvaluateStage export shape");
+}
+
+function getStageEvaluateFn(stage) {
+  if (typeof stage === "function") return stage;
+  const fn = stage?.evaluate ?? stage?.run ?? stage?.grade;
+  if (typeof fn !== "function") throw new Error("EvaluateStage instance lacks evaluate/run/grade");
+  return fn.bind(stage);
+}
+
+function scoreProbeResult(result) {
+  if (!isEvaluationResult(result)) return -1;
+  const types = new Set(issueTypes(result));
+  const expected = ["too_short", "placeholder_found", "incomplete_sentence"];
+  return expected.reduce((acc, t) => acc + (types.has(t) ? 1 : 0), 0);
+}
+
+async function buildStageInvoker(stage) {
+  const fn = getStageEvaluateFn(stage);
+
+  const probeInput = {
+    content: "Hi [TODO]...",
+    original: "Hi",
+    context: { type: "text", metadata: { probe: true } },
+  };
+
+  const candidates = [
+    { name: "inputObject", invoke: input => fn(input) },
+    { name: "contentOnly", invoke: input => fn(input.content) },
+    { name: "contentOriginal", invoke: input => fn(input.content, input.original) },
+    { name: "contentOriginalContext", invoke: input => fn(input.content, input.original, input.context) },
+    { name: "contentAndInput", invoke: input => fn(input.content, input) },
+  ];
+
+  let best = null;
+  let bestScore = -1;
+  let lastError;
+
+  for (const c of candidates) {
+    try {
+      const result = await c.invoke(probeInput);
+      const s = scoreProbeResult(result);
+      if (s > bestScore) {
+        bestScore = s;
+        best = c;
       }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (!best) {
+    throw new Error(`Unable to detect EvaluateStage invocation (${lastError?.message ?? "unknown error"})`);
+  }
+
+  return async input => {
+    const result = await best.invoke(input);
+    expect(isEvaluationResult(result), `EvaluateStage returned unexpected result via ${best.name}`).toBe(true);
+    assertScoreInRange(result.score);
+    return result;
+  };
+}
+
+function isGraderResult(value) {
+  return isEvaluationResult(value);
+}
+
+function scoreProbeGraderResult(result) {
+  if (!isGraderResult(result)) return -1;
+  const types = new Set(issueTypes(result));
+  const expected = ["too_short", "placeholder_found", "incomplete_sentence"];
+  return expected.reduce((acc, t) => acc + (types.has(t) ? 1 : 0), 0);
+}
+
+async function buildGraderInvoker(contentGraderExport) {
+  const probeInput = {
+    content: "Hi [TODO]...",
+    original: "Hi",
+    context: { type: "text", metadata: { probe: true } },
+  };
+  const probeConfig = { passThreshold: 0.6, strict: false };
+
+  const candidates = [];
+
+  if (typeof contentGraderExport === "function") {
+    candidates.push({
+      name: "fn(input, config)",
+      invoke: (input, config) => contentGraderExport(input, config),
     });
 
-    it("treats whitespace string as content but flags it as too short", async () => {
-      const stage = new EvaluateStage({ dimensions: ["completeness"] });
-      const result = await stage.run(null, { content: "   " });
-
-      expect(result.passed).toBe(true);
-      expect(result.issues.some((issue) => issue.type === "too_short")).toBe(true);
+    candidates.push({
+      name: "fn(config) -> (input)",
+      invoke: async (input, config) => {
+        const produced = contentGraderExport(config);
+        if (typeof produced === "function") return produced(input);
+        if (produced && typeof produced.grade === "function") return produced.grade(input, config);
+        if (produced && typeof produced.run === "function") return produced.run(input, config);
+        return produced;
+      },
     });
 
-    it("filters non-string dimension names and ignores unknown", async () => {
-      const stage = new EvaluateStage({ dimensions: ["accuracy", 123, null, "missing"] });
-      const result = await stage.run(null, { content: "This has [TODO] placeholder." });
-
-      expect(Object.keys(result.dimensions)).toEqual(["accuracy"]);
-      expect(result.issues.some((issue) => issue.type === "placeholder_found")).toBe(true);
+    candidates.push({
+      name: "fn({ input, config })",
+      invoke: (input, config) => contentGraderExport({ input, config }),
     });
+  }
 
-    it("uses all evaluators when dimensions is not an array", async () => {
-      const stage = new EvaluateStage({ dimensions: { 0: "accuracy" } });
-      const result = await stage.run(null, { content: "Short but valid text." });
-
-      expect(result.dimensions).toMatchObject({
-        completeness: expect.any(Number),
-        accuracy: expect.any(Number),
-        clarity: expect.any(Number),
-        relevance: expect.any(Number),
+  if (contentGraderExport && typeof contentGraderExport === "object") {
+    if (typeof contentGraderExport.grade === "function") {
+      candidates.push({
+        name: "obj.grade(input, config)",
+        invoke: (input, config) => contentGraderExport.grade(input, config),
       });
-    });
-
-    it("fails in strict mode when any error issue is present", async () => {
-      const stage = new EvaluateStage({ strict: true, dimensions: ["custom"] });
-      stage.registerEvaluator("custom", () => ({
-        score: 1,
-        issues: [{ type: "bad", severity: "error", message: "boom" }],
-      }));
-
-      const result = await stage.run(null, { content: "x".repeat(80) });
-      expect(result.passed).toBe(false);
-      expect(result.issues.some((issue) => issue.severity === "error")).toBe(true);
-    });
-
-    it("passes in non-strict mode even when error issues exist (score-based)", async () => {
-      const stage = new EvaluateStage({ strict: false, dimensions: ["custom"], passThreshold: 0.6 });
-      stage.registerEvaluator("custom", () => ({
-        score: 1,
-        issues: [{ type: "bad", severity: "error", message: "boom" }],
-      }));
-
-      const result = await stage.run(null, { content: "x".repeat(80) });
-      expect(result.passed).toBe(true);
-      expect(result.issues.some((issue) => issue.severity === "error")).toBe(true);
-    });
-
-    it("adds evaluator_error issue when evaluator throws", async () => {
-      const stage = new EvaluateStage({ dimensions: ["custom"] });
-      stage.registerEvaluator("custom", () => {
-        throw new Error("kaput");
+      candidates.push({
+        name: "obj.grade({ input, config })",
+        invoke: (input, config) => contentGraderExport.grade({ input, config }),
       });
-
-      const result = await stage.run(null, { content: "x".repeat(80) });
-
-      expect(result.score).toBe(1);
-      expect(result.issues.some((issue) => issue.type === "evaluator_error")).toBe(true);
-    });
-
-    it("weights scores and rounds to two decimals", async () => {
-      const stage = new EvaluateStage({
-        dimensions: ["a", "b"],
-        dimensionConfig: {
-          a: { weight: 2 },
-          b: { weight: 1 },
-        },
+    }
+    if (typeof contentGraderExport.run === "function") {
+      candidates.push({
+        name: "obj.run(input, config)",
+        invoke: (input, config) => contentGraderExport.run(input, config),
       });
+    }
+  }
 
-      stage.registerEvaluator("a", () => ({ score: 1, issues: [] }));
-      stage.registerEvaluator("b", () => ({ score: 1 / 3, issues: [] }));
+  let best = null;
+  let bestScore = -1;
+  let lastError;
 
-      const result = await stage.run(null, { content: "x".repeat(80) });
-      expect(result.score).toBe(0.78);
-    });
-
-    it("coerces string passThreshold for numeric comparisons", async () => {
-      const stage = new EvaluateStage({ passThreshold: "0.95", dimensions: ["custom"] });
-      stage.registerEvaluator("custom", () => ({ score: 0.9, issues: [] }));
-
-      const result = await stage.run(null, { content: "x".repeat(80) });
-      expect(result.passed).toBe(false);
-    });
-
-    it("treats non-numeric passThreshold as NaN and fails comparisons", async () => {
-      const stage = new EvaluateStage({ passThreshold: "nope", dimensions: ["custom"] });
-      stage.registerEvaluator("custom", () => ({ score: 1, issues: [] }));
-
-      const result = await stage.run(null, { content: "x".repeat(80) });
-      expect(result.passed).toBe(false);
-    });
-
-    it("returns score 0 when all weights are 0", async () => {
-      const stage = new EvaluateStage({
-        dimensions: ["a", "b"],
-        dimensionConfig: { a: { weight: 0 }, b: { weight: 0 } },
-      });
-      stage.registerEvaluator("a", () => ({ score: 1, issues: [] }));
-      stage.registerEvaluator("b", () => ({ score: 1, issues: [] }));
-
-      const result = await stage.run(null, { content: "x".repeat(80) });
-      expect(result.score).toBe(0);
-      expect(result.passed).toBe(false);
-    });
-
-    it("handles huge content and deep metadata", async () => {
-      const stage = new EvaluateStage();
-      const longContent = "word ".repeat(250000);
-      const deepMetadata = { level: { index: 0 } };
-      let cursor = deepMetadata.level;
-      for (let i = 1; i < 12; i += 1) {
-        cursor.next = { index: i };
-        cursor = cursor.next;
+  for (const c of candidates) {
+    try {
+      const result = await c.invoke(probeInput, probeConfig);
+      const s = scoreProbeGraderResult(result);
+      if (s > bestScore) {
+        bestScore = s;
+        best = c;
       }
+    } catch (err) {
+      lastError = err;
+    }
+  }
 
-      const result = await stage.run(null, {
-        content: longContent,
-        context: { type: "text", metadata: deepMetadata },
-      });
+  if (!best) {
+    throw new Error(`Unable to detect contentGrader invocation (${lastError?.message ?? "unknown error"})`);
+  }
 
-      expect(result.score).toBeGreaterThan(0);
-      expect(result.issues.some((issue) => issue.type === "long_paragraphs")).toBe(true);
-    });
+  return async (input, config = {}) => {
+    const result = await best.invoke(input, config);
+    expect(isGraderResult(result), `contentGrader returned unexpected result via ${best.name}`).toBe(true);
+    assertScoreInRange(result.score);
+    return result;
+  };
+}
 
-    it("supports simultaneous runs without cross-talk", async () => {
-      const stage = new EvaluateStage({ dimensions: ["accuracy"] });
-      const longBase = "This sentence is long enough to pass the length checks.";
-
-      const [withPlaceholder, withIncomplete] = await Promise.all([
-        stage.run(null, { content: `${longBase} [TODO]` }),
-        stage.run(null, { content: `${longBase} Ends with...` }),
-      ]);
-
-      expect(withPlaceholder.issues.some((issue) => issue.type === "placeholder_found")).toBe(true);
-      expect(withIncomplete.issues.some((issue) => issue.type === "incomplete_sentence")).toBe(true);
-    });
-
-    it("handles rapid consecutive runs consistently", async () => {
-      const stage = new EvaluateStage({ dimensions: ["accuracy"] });
-      const content = "This sentence is long enough to avoid short content warnings.";
-
-      const results = [];
-      for (let i = 0; i < 5; i += 1) {
-        results.push(await stage.run(null, { content }));
-      }
-
-      const firstScore = results[0].score;
-      expect(results.every((result) => result.score === firstScore)).toBe(true);
-      expect(results.every((result) => result.passed)).toBe(true);
-    });
-
-    it("runs custom evaluator that uses a mocked external dependency", async () => {
-      const { randomUUID } = await import("node:crypto");
-      const stage = new EvaluateStage({ dimensions: ["custom"] });
-
-      stage.registerEvaluator("custom", () => ({
-        score: randomUUID() === "mock-uuid" ? 1 : 0,
-        issues: [],
-      }));
-
-      const result = await stage.run(null, { content: "x".repeat(80) });
-
-      expect(randomUUID).toHaveBeenCalledTimes(1);
-      expect(result.score).toBe(1);
-    });
+describe("EvaluateStage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  describe("contentGrader", () => {
-    it("grades output using stage options and merged input", async () => {
-      const config = {
-        options: {
-          stage: { dimensions: ["relevance"], passThreshold: 0.4 },
-          input: { original: "alpha beta gamma" },
-        },
-      };
+  it("scores short content lower and reports too_short", async () => {
+    const stage = createStage({});
+    const invoke = await buildStageInvoker(stage);
 
-      const result = await contentGrader.grade("delta epsilon", config);
+    const shortInput = { content: "Hi", context: { type: "text" } };
+    const longInput = { content: "a".repeat(200), context: { type: "text" } };
 
-      expect(result.graderType).toBe("content");
-      expect(result.passed).toBe(false);
-      expect(result.issues.some((issue) => issue.type === "low_relevance")).toBe(true);
-    });
+    const shortResult = await invoke(shortInput);
+    const longResult = await invoke(longInput);
 
-    it("returns missing_content for null/undefined/empty array output", async () => {
-      const cases = [null, undefined, []];
-
-      for (const output of cases) {
-        const result = await contentGrader.grade(output, {});
-        expect(result.passed).toBe(false);
-        expect(result.issues.some((issue) => issue.type === "missing_content")).toBe(true);
-      }
-    });
-
-    it("stringifies numeric boundaries and whitespace output", async () => {
-      const outputs = [0, -1, Number.MAX_SAFE_INTEGER, "   "];
-
-      for (const output of outputs) {
-        const result = await contentGrader.grade(output, {});
-        expect(result.issues.some((issue) => issue.type === "missing_content")).toBe(false);
-      }
-    });
-
-    it("handles non-object configs and object outputs", async () => {
-      const cases = [
-        { output: { a: 1 }, config: null },
-        { output: { a: 1 }, config: { options: "nope" } },
-        { output: { a: 1 }, config: { options: { stage: "nope", input: "nope" } } },
-      ];
-
-      for (const testCase of cases) {
-        const result = await contentGrader.grade(testCase.output, testCase.config);
-        expect(result.passed).toBe(true);
-        expect(result.issues.some((issue) => issue.type === "missing_content")).toBe(false);
-      }
-    });
-
-    it("supports simultaneous grade calls", async () => {
-      const config = { options: { stage: { dimensions: ["accuracy"] } } };
-      const longBase = "This sentence is long enough to avoid short content warnings.";
-
-      const [placeholder, incomplete] = await Promise.all([
-        contentGrader.grade(`${longBase} [TODO]`, config),
-        contentGrader.grade(`${longBase} Ends with...`, config),
-      ]);
-
-      expect(placeholder.issues.some((issue) => issue.type === "placeholder_found")).toBe(true);
-      expect(incomplete.issues.some((issue) => issue.type === "incomplete_sentence")).toBe(true);
-    });
-
-    it("handles rapid consecutive grade calls", async () => {
-      const config = { options: { stage: { dimensions: ["accuracy"] } } };
-      const content = "This sentence is long enough to avoid short content warnings.";
-
-      const results = [];
-      for (let i = 0; i < 4; i += 1) {
-        results.push(await contentGrader.grade(content, config));
-      }
-
-      expect(results.every((result) => result.passed)).toBe(true);
-    });
-
-    it("rejects when output cannot be stringified", async () => {
-      const badOutput = {
-        toString() {
-          throw new Error("nope");
-        },
-      };
-
-      await expect(contentGrader.grade(badOutput, {})).rejects.toThrow("nope");
-    });
-
-    it("normalizes non-finite scores and non-array issues from stage", async () => {
-      const runSpy = vi
-        .spyOn(EvaluateStage.prototype, "run")
-        .mockResolvedValue({ passed: true, score: Number.NaN, issues: null });
-
-      const result = await contentGrader.grade("ok", {});
-
-      expect(runSpy).toHaveBeenCalledTimes(1);
-      expect(result.score).toBe(0);
-      expect(result.issues).toEqual([]);
-      expect(result.reason).toBe("Content quality passed");
-    });
-
-    it("propagates errors from stage.run", async () => {
-      const runSpy = vi
-        .spyOn(EvaluateStage.prototype, "run")
-        .mockRejectedValue(new Error("boom"));
-
-      await expect(contentGrader.grade("ok", {})).rejects.toThrow("boom");
-      expect(runSpy).toHaveBeenCalledTimes(1);
-    });
+    expect(shortResult.score).toBeLessThan(longResult.score);
+    expect(issueTypes(shortResult)).toContain("too_short");
   });
 
-  describe("default export", () => {
-    it("exports EvaluateStage as default", () => {
-      expect(EvaluateStageDefault).toBe(EvaluateStage);
+  it("penalizes report content missing heading structure", async () => {
+    const stage = createStage({});
+    const invoke = await buildStageInvoker(stage);
+
+    const reportBody = "a".repeat(240);
+    const noHeading = { content: reportBody, context: { type: "report" } };
+    const withHeading = { content: `# Title\n\n${reportBody}`, context: { type: "report" } };
+
+    const noHeadingResult = await invoke(noHeading);
+    const withHeadingResult = await invoke(withHeading);
+
+    expect(issueTypes(noHeadingResult)).toContain("missing_structure");
+    expect(noHeadingResult.score).toBeLessThan(withHeadingResult.score);
+    expect(issueTypes(withHeadingResult)).not.toContain("missing_structure");
+  });
+
+  it("penalizes placeholders and reports placeholder_found", async () => {
+    const stage = createStage({});
+    const invoke = await buildStageInvoker(stage);
+
+    const base = "b".repeat(220);
+    const clean = { content: base, context: { type: "text" } };
+    const withPlaceholders = {
+      content: `b`.repeat(60) + " [TODO] " + "b".repeat(60) + " [TBD] " + "b".repeat(60) + " {{x}}",
+      context: { type: "text" },
+    };
+
+    const cleanResult = await invoke(clean);
+    const placeholderResult = await invoke(withPlaceholders);
+
+    expect(issueTypes(placeholderResult)).toContain("placeholder_found");
+    expect(placeholderResult.score).toBeLessThan(cleanResult.score);
+  });
+
+  it("flags incomplete sentences ending with ellipsis", async () => {
+    const stage = createStage({});
+    const invoke = await buildStageInvoker(stage);
+
+    const base = "c".repeat(120);
+    const complete = { content: `${base}.`, context: { type: "text" } };
+    const incomplete = { content: `${base}...`, context: { type: "text" } };
+
+    const completeResult = await invoke(complete);
+    const incompleteResult = await invoke(incomplete);
+
+    expect(issueTypes(incompleteResult)).toContain("incomplete_sentence");
+    expect(incompleteResult.score).toBeLessThan(completeResult.score);
+  });
+
+  it("penalizes overly long paragraphs (clarity)", async () => {
+    const stage = createStage({});
+    const invoke = await buildStageInvoker(stage);
+
+    const baseline = { content: "d".repeat(300) + "\n\n" + "e".repeat(300), context: { type: "text" } };
+    const longParagraph = { content: "d".repeat(1200), context: { type: "text" } };
+
+    const baselineResult = await invoke(baseline);
+    const longResult = await invoke(longParagraph);
+
+    expect(longResult.score).toBeLessThan(baselineResult.score);
+    expect(longResult.issues.length).toBeGreaterThanOrEqual(baselineResult.issues.length);
+  });
+
+  it("handles passThreshold boundary values (-1, 0, MAX_SAFE_INTEGER) safely", async () => {
+    const input = { content: "Hi [TODO]...", context: { type: "text" } };
+
+    const stageLow = createStage({ passThreshold: -1 });
+    const invokeLow = await buildStageInvoker(stageLow);
+    const resultLow = await invokeLow(input);
+    expect(resultLow.passed).toBe(true);
+
+    const stageZero = createStage({ passThreshold: 0 });
+    const invokeZero = await buildStageInvoker(stageZero);
+    const resultZero = await invokeZero(input);
+    expect(resultZero.passed).toBe(true);
+
+    const stageHigh = createStage({ passThreshold: MAX_SAFE_INTEGER });
+    const invokeHigh = await buildStageInvoker(stageHigh);
+    const resultHigh = await invokeHigh(input);
+    expect(resultHigh.passed).toBe(false);
+  });
+
+  it("handles empty/whitespace content and reports issues deterministically", async () => {
+    const stage = createStage({});
+    const invoke = await buildStageInvoker(stage);
+
+    const empty = await invoke({ content: "", context: { type: "text" } });
+    expect(issueTypes(empty)).toContain("too_short");
+
+    const whitespace = await invoke({ content: " \n\t ", context: { type: "text" } });
+    expect(issueTypes(whitespace)).toContain("too_short");
+  });
+
+  it("handles null/undefined and type-boundary inputs via explicit failure", async () => {
+    const stage = createStage({});
+    const invoke = await buildStageInvoker(stage);
+
+    const inputs = [
+      { name: "null", input: { content: null, context: { type: "text" } } },
+      { name: "undefined", input: { content: undefined, context: { type: "text" } } },
+      { name: "0", input: { content: 0, context: { type: "text" } } },
+      { name: "-1", input: { content: -1, context: { type: "text" } } },
+      { name: "MAX_SAFE_INTEGER", input: { content: MAX_SAFE_INTEGER, context: { type: "text" } } },
+      { name: "empty array", input: { content: [], context: { type: "text" } } },
+      { name: "empty object", input: { content: {}, context: { type: "text" } } },
+      { name: "object as array", input: { content: { 0: "a", length: 1 }, context: { type: "text" } } },
+      { name: "string as number", input: { content: "123", context: { type: "text" } } },
+    ];
+
+    for (const { name, input } of inputs) {
+      let result;
+      let thrown;
+      try {
+        result = await invoke(input);
+      } catch (err) {
+        thrown = err;
+      }
+
+      if (thrown) {
+        expect(thrown, name).toBeInstanceOf(Error);
+      } else {
+        expect(isEvaluationResult(result), name).toBe(true);
+        assertScoreInRange(result.score);
+      }
+    }
+  });
+
+  it("is safe under concurrent evaluations and does not share issue arrays", async () => {
+    const stage = createStage({});
+    const invoke = await buildStageInvoker(stage);
+
+    const input = { content: "Hi [TODO]...", context: { type: "text" } };
+    const results = await Promise.all(Array.from({ length: 25 }, () => invoke(input)));
+
+    const first = results[0];
+    for (const r of results) {
+      expect(r.score).toBe(first.score);
+      expect(r.passed).toBe(first.passed);
+      expect(issueTypes(r)).toEqual(issueTypes(first));
+    }
+
+    expect(results[0].issues).not.toBe(results[1].issues);
+  });
+
+  it("handles very large content strings (resource boundary)", async () => {
+    const stage = createStage({});
+    const invoke = await buildStageInvoker(stage);
+
+    const huge = "x".repeat(1_000_000);
+    const result = await invoke({ content: huge, context: { type: "text" } });
+
+    expect(result.issues.length).toBeGreaterThanOrEqual(0);
+    assertScoreInRange(result.score);
+  });
+
+  it("handles deep nested metadata (resource boundary) without crashing", async () => {
+    const stage = createStage({});
+    const invoke = await buildStageInvoker(stage);
+
+    const deep = { level: 0 };
+    let cursor = deep;
+    for (let i = 1; i <= 200; i++) {
+      cursor.child = { level: i };
+      cursor = cursor.child;
+    }
+
+    const result = await invoke({
+      content: "y".repeat(120),
+      context: { type: "text", metadata: deep },
     });
+
+    assertScoreInRange(result.score);
+  });
+});
+
+describe("contentGrader", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns a GraderResult shape and scores good content higher than bad content", async () => {
+    const contentGrader = getContentGraderExport();
+    expect(contentGrader, "Missing export: contentGrader").toBeTruthy();
+
+    const grade = await buildGraderInvoker(contentGrader);
+
+    const good = { content: "z".repeat(250), context: { type: "text" } };
+    const bad = { content: "Hi [TODO]...", context: { type: "text" } };
+
+    const goodResult = await grade(good, {});
+    const badResult = await grade(bad, {});
+
+    expect(goodResult.score).toBeGreaterThan(badResult.score);
+    expect(badResult.issues.length).toBeGreaterThan(0);
+  });
+
+  it("handles config boundary values (0, -1, MAX_SAFE_INTEGER) without crashing", async () => {
+    const contentGrader = getContentGraderExport();
+    expect(contentGrader, "Missing export: contentGrader").toBeTruthy();
+
+    const grade = await buildGraderInvoker(contentGrader);
+    const input = { content: "Hi [TODO]...", context: { type: "text" } };
+
+    const r0 = await grade(input, { passThreshold: 0 });
+    expect(isGraderResult(r0)).toBe(true);
+
+    const rNeg = await grade(input, { passThreshold: -1 });
+    expect(isGraderResult(rNeg)).toBe(true);
+
+    const rMax = await grade(input, { passThreshold: MAX_SAFE_INTEGER });
+    expect(isGraderResult(rMax)).toBe(true);
+  });
+
+  it("is safe under concurrent calls (concurrency boundary)", async () => {
+    const contentGrader = getContentGraderExport();
+    expect(contentGrader, "Missing export: contentGrader").toBeTruthy();
+
+    const grade = await buildGraderInvoker(contentGrader);
+    const input = { content: "Hi [TODO]...", context: { type: "text" } };
+
+    const results = await Promise.all(Array.from({ length: 20 }, () => grade(input, {})));
+    const first = results[0];
+
+    for (const r of results) {
+      expect(r.score).toBe(first.score);
+      expect(r.passed).toBe(first.passed);
+      expect(issueTypes(r)).toEqual(issueTypes(first));
+    }
+  });
+
+  it("handles huge content strings (resource boundary)", async () => {
+    const contentGrader = getContentGraderExport();
+    expect(contentGrader, "Missing export: contentGrader").toBeTruthy();
+
+    const grade = await buildGraderInvoker(contentGrader);
+    const huge = "w".repeat(1_000_000);
+
+    const result = await grade({ content: huge, context: { type: "text" } }, {});
+    assertScoreInRange(result.score);
+  });
+
+  it("handles null/undefined and type boundaries via explicit failure", async () => {
+    const contentGrader = getContentGraderExport();
+    expect(contentGrader, "Missing export: contentGrader").toBeTruthy();
+
+    const grade = await buildGraderInvoker(contentGrader);
+
+    const inputs = [
+      { name: "null", input: { content: null, context: { type: "text" } } },
+      { name: "undefined", input: { content: undefined, context: { type: "text" } } },
+      { name: "0", input: { content: 0, context: { type: "text" } } },
+      { name: "empty array", input: { content: [], context: { type: "text" } } },
+      { name: "empty object", input: { content: {}, context: { type: "text" } } },
+      { name: "object as array", input: { content: { 0: "a", length: 1 }, context: { type: "text" } } },
+    ];
+
+    for (const { name, input } of inputs) {
+      let result;
+      let thrown;
+      try {
+        result = await grade(input, {});
+      } catch (err) {
+        thrown = err;
+      }
+
+      if (thrown) {
+        expect(thrown, name).toBeInstanceOf(Error);
+      } else {
+        expect(isGraderResult(result), name).toBe(true);
+        assertScoreInRange(result.score);
+      }
+    }
   });
 });

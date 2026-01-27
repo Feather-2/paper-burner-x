@@ -140,20 +140,20 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../../js/agents/shared/index.js', () => ({ createLogger: mocks.createLogger }));
-vi.mock('../../../js/agents/core/event-record.js', () => ({
+vi.mock('../../../../js/agents/shared/index.js', () => ({ createLogger: mocks.createLogger }));
+vi.mock('../../../../js/agents/core/event-record.js', () => ({
   createEventRecord: mocks.createEventRecord,
   createEventBusClock: mocks.createEventBusClock,
 }));
-vi.mock('../../../js/agents/core/event-bus-utils.js', () => ({
+vi.mock('../../../../js/agents/core/event-bus-utils.js', () => ({
   createEventId: mocks.createEventId,
   matchPattern: mocks.matchPattern,
   isValidEventName: mocks.isValidEventName,
 }));
-vi.mock('../../../js/agents/core/event-bus-subscriptions.js', () => ({
+vi.mock('../../../../js/agents/core/event-bus-subscriptions.js', () => ({
   EventBusSubscriptions: mocks.EventBusSubscriptions,
 }));
-vi.mock('../../../js/agents/core/lamport-clock.js', () => ({
+vi.mock('../../../../js/agents/core/lamport-clock.js', () => ({
   LamportClock: mocks.LamportClock,
 }));
 
@@ -162,7 +162,7 @@ function flushMicrotasks() {
 }
 
 async function importEventBusModule() {
-  return import('../../../js/agents/core/event-bus.js');
+  return import('../../../../js/agents/core/event-bus.js');
 }
 
 beforeEach(() => {

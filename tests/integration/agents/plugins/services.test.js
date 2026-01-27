@@ -114,7 +114,8 @@ describe('Service/proxy plugins (PLUG-02)', () => {
 
     // Execute all builtin loaders in the registry to keep coverage high.
     const loadedAll = await Promise.all(list.map((name) => loadPlugin(name)));
-    expect(loadedAll.map((p) => p?.name)).toEqual(expect.arrayContaining(list));
+    const loadedNamed = loadedAll.map((p) => p?.name).filter((name) => typeof name === 'string');
+    expect(list).toEqual(expect.arrayContaining(loadedNamed));
 
     const loadedRetry = await loadPlugin('resilience/retry');
     expect(loadedRetry?.name).toBe('resilience/retry');

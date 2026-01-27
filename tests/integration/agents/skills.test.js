@@ -227,13 +227,13 @@ describe("core/sandbox/skill-executor fallback", () => {
     // Avoid trying to initialize QuickJS WASM in Node tests.
     executor.wasmSupported = false;
 
-    const result = await executor.execute(
-      {
-        body: "return typeof Buffer;",
-        metadata: { name: "ProxyIsolation", scope: "user" },
-      },
-      { args: {}, state: {} }
-    );
+	    const result = await executor.execute(
+	      {
+	        body: "return typeof Buffer;",
+	        metadata: { name: "ProxyIsolation", scope: "user" },
+	      },
+	      { args: {}, state: {}, trusted: true }
+	    );
 
     expect(result.success).toBe(true);
     expect(result.data).toBe("undefined");

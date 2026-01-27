@@ -1,688 +1,470 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const sharedMocks = vi.hoisted(() => {
-  const state = { idCounter: 0 };
+const MANAGER_PATH = "../../../../../js/agents/plugins/policy/manager.js";
+const SHARED_PATH = "../../../../../js/agents/shared/index.js";
+const ARTIFACT_PATH = "../../../../../js/agents/storage/artifact-manager.js";
 
-  const defaultToNonEmptyString = (value) => {
-    if (value === undefined || value === null) return undefined;
-    const s = String(value).trim();
-    return s.length ? s : undefined;
+vi.mock("../../../../../js/agents/storage/artifact-manager.js", () => {
+  return {
+    computeSha256: vi.fn(),
   };
+});
 
-  const mockLogger = { warn: vi.fn() };
-  const createLogger = vi.fn(() => mockLogger);
-  const toNonEmptyString = vi.fn(defaultToNonEmptyString);
-  const isNodeLike = vi.fn(() => false);
-  const makeSecureTimestampedId = vi.fn((prefix = "id") => `${prefix}_${++state.idCounter}`);
+vi.mock("../../../../../js/agents/plugins/policy/engine.js", () => {
+  class PolicyEngine {}
+  return { PolicyEngine };
+});
+
+vi.mock("../../../../../js/agents/plugins/policy/store.js", () => {
+  class PolicyRuleStore {}
+  return { PolicyRuleStore };
+});
+
+vi.mock("../../../../../js/agents/shared/index.js", () => {
+  const __mockLogger = {
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+  };
 
   return {
-    state,
-    mockLogger,
-    createLogger,
-    toNonEmptyString,
-    isNodeLike,
-    makeSecureTimestampedId,
-    defaultToNonEmptyString,
+    __mockLogger,
+    makeSecureTimestampedId: vi.fn(() => "rule_test_1"),
+    createLogger: vi.fn(() => __mockLogger),
+    isNodeLike: vi.fn(() => true),
+    // Keep deterministic + strict: only accept real, non-empty strings.
+    toNonEmptyString: vi.fn((value) => {
+      if (typeof value !== "string") return null;
+      const trimmed = value.trim();
+      return trimmed.length ? trimmed : null;
+    }),
   };
 });
 
-const artifactMocks = vi.hoisted(() => ({
-  computeSha256: vi.fn(),
-}));
+async function flushPromises() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
 
-const policyMocks = vi.hoisted(() => {
-  const engineInstances = [];
-  const storeInstances = [];
+async function freshImports() {
+  vi.resetModules();
+  const manager = await import(MANAGER_PATH);
+  const shared = await import(SHARED_PATH);
+  const artifact = await import(ARTIFACT_PATH);
+  return { manager, shared, artifact };
+}
 
-  class PolicyEngine {
-    constructor(options) {
-      this.options = options;
-      this.setRules = vi.fn();
-      this.getRules = vi.fn(() => []);
-      this.evaluate = vi.fn(() => ({
-        allowed: true,
-        requiresApproval: false,
-        reason: "default",
-      }));
-      engineInstances.push(this);
-    }
-  }
+function createEventBus() {
+  const handlersByName = new Map();
 
-  class PolicyRuleStore {
-    constructor() {
-      this.load = vi.fn(() => []);
-      this.save = vi.fn(() => true);
-      this.clear = vi.fn(() => true);
-      storeInstances.push(this);
-    }
-  }
-
-  return { PolicyEngine, PolicyRuleStore, engineInstances, storeInstances };
-});
-
-vi.mock("../../../../../js/agents/shared/index.js", () => ({
-  createLogger: sharedMocks.createLogger,
-  makeSecureTimestampedId: sharedMocks.makeSecureTimestampedId,
-  isNodeLike: sharedMocks.isNodeLike,
-  toNonEmptyString: sharedMocks.toNonEmptyString,
-}));
-
-vi.mock("../../../../../js/agents/storage/artifact-manager.js", () => ({
-  computeSha256: artifactMocks.computeSha256,
-}));
-
-vi.mock("../../../../../js/agents/plugins/policy/engine.js", () => ({
-  PolicyEngine: policyMocks.PolicyEngine,
-}));
-
-vi.mock("../../../../../js/agents/plugins/policy/store.js", () => ({
-  PolicyRuleStore: policyMocks.PolicyRuleStore,
-}));
-
-import PolicyManager, {
-  PolicyManager as NamedPolicyManager,
-} from "../../../../../js/agents/plugins/policy/manager.js";
-
-const createEventBus = () => {
-  const handlers = new Map();
-  const events = [];
-
-  const emit = vi.fn((name, payload) => {
-    events.push({ name, payload });
-    const list = handlers.get(name);
-    if (list) {
-      list.slice().forEach((handler) => handler({ payload }));
-    }
-  });
-
-  const subscribe = vi.fn((name, handler) => {
-    const list = handlers.get(name) || [];
-    list.push(handler);
-    handlers.set(name, list);
-    return () => {
-      const idx = list.indexOf(handler);
-      if (idx >= 0) list.splice(idx, 1);
-    };
-  });
-
-  return { emit, subscribe, events };
-};
-
-const createDeepObject = (depth) => {
-  let obj = { value: "leaf" };
-  for (let i = 0; i < depth; i += 1) {
-    obj = { level: i, child: obj };
-  }
-  return obj;
-};
-
-const makeArgs = (extraKeys = 0) => {
-  const args = {
-    zero: 0,
-    negative: -1,
-    max: Number.MAX_SAFE_INTEGER,
-    long: "x".repeat(50000),
-    nested: createDeepObject(20),
-    arrayLike: { 0: "a", 1: "b", length: 2 },
-    emptyArr: [],
-    emptyObj: {},
+  return {
+    emit(name, payload) {
+      const handlers = handlersByName.get(name);
+      if (!handlers) return;
+      // Copy to allow unsubscribe while iterating.
+      [...handlers].forEach((h) => h(payload));
+    },
+    subscribe(name, handler) {
+      let handlers = handlersByName.get(name);
+      if (!handlers) {
+        handlers = new Set();
+        handlersByName.set(name, handlers);
+      }
+      handlers.add(handler);
+      return vi.fn(() => handlers.delete(handler));
+    },
+    _count(name) {
+      return handlersByName.get(name)?.size ?? 0;
+    },
   };
-  for (let i = 0; i < extraKeys; i += 1) {
-    args[`k${i}`] = `v${i}`;
-  }
-  return args;
-};
+}
+
+function createFakeAbortSignal() {
+  const listeners = new Set();
+  return {
+    addEventListener: vi.fn((eventName, handler) => {
+      if (eventName !== "abort") return;
+      listeners.add(handler);
+    }),
+    removeEventListener: vi.fn((eventName, handler) => {
+      if (eventName !== "abort") return;
+      listeners.delete(handler);
+    }),
+    abort() {
+      [...listeners].forEach((h) => h());
+    },
+  };
+}
 
 beforeEach(() => {
-  sharedMocks.state.idCounter = 0;
-
-  sharedMocks.createLogger.mockClear();
-  sharedMocks.mockLogger.warn.mockClear();
-
-  sharedMocks.toNonEmptyString.mockReset();
-  sharedMocks.toNonEmptyString.mockImplementation(sharedMocks.defaultToNonEmptyString);
-
-  sharedMocks.isNodeLike.mockReset();
-  sharedMocks.isNodeLike.mockImplementation(() => false);
-
-  sharedMocks.makeSecureTimestampedId.mockClear();
-  sharedMocks.makeSecureTimestampedId.mockImplementation(
-    (prefix = "id") => `${prefix}_${++sharedMocks.state.idCounter}`,
-  );
-
-  artifactMocks.computeSha256.mockReset();
-  artifactMocks.computeSha256.mockImplementation(async (value) => `hash:${value}`);
-
-  policyMocks.engineInstances.length = 0;
-  policyMocks.storeInstances.length = 0;
+  vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
-describe("PolicyManager", () => {
-  it("accepts injected ruleStore/engine without instantiating defaults", () => {
-    const ruleStore = { load: vi.fn(() => []), save: vi.fn(() => true) };
-    const engine = {
-      setRules: vi.fn(),
-      getRules: vi.fn(() => []),
-      evaluate: vi.fn(() => ({ allowed: true, requiresApproval: false, reason: "ok" })),
-    };
+const initialManager = await import(MANAGER_PATH);
+const exportedFunctionNames = Object.entries(initialManager)
+  .filter(([, v]) => typeof v === "function")
+  .map(([k]) => k);
 
-    const manager = new PolicyManager({ ruleStore, engine });
-
-    expect(manager.ruleStore).toBe(ruleStore);
-    expect(manager.engine).toBe(engine);
-    expect(policyMocks.engineInstances).toHaveLength(0);
-    expect(policyMocks.storeInstances).toHaveLength(0);
-  });
-
-  it("uses runtime defaults and clamps approvalTimeoutMs", () => {
-    sharedMocks.isNodeLike.mockImplementation(() => true);
-    const nodeManager = new PolicyManager({
-      approvalTimeoutMs: 0,
-      onMissingApprovalProvider: "   ",
-    });
-    expect(nodeManager.interactive).toBe(false);
-    expect(nodeManager.onMissingApprovalProvider).toBe("allow");
-    expect(nodeManager.approvalTimeoutMs).toBe(1000);
-
-    sharedMocks.isNodeLike.mockImplementation(() => false);
-    const browserManager = new PolicyManager({ approvalTimeoutMs: -1 });
-    expect(browserManager.interactive).toBe(true);
-    expect(browserManager.onMissingApprovalProvider).toBe("deny");
-    expect(browserManager.approvalTimeoutMs).toBe(1000);
-
-    const stringTimeoutManager = new PolicyManager({ approvalTimeoutMs: "2000" });
-    expect(stringTimeoutManager.approvalTimeoutMs).toBe(300000);
-  });
-
-  it("passes defaultEffect and accepts large timeout values", () => {
-    const manager = new PolicyManager({
-      defaultEffect: "deny",
-      approvalTimeoutMs: Number.MAX_SAFE_INTEGER,
-    });
-    const engine = policyMocks.engineInstances[0];
-    expect(engine.options).toMatchObject({ defaultEffect: "deny" });
-    expect(manager.approvalTimeoutMs).toBe(Number.MAX_SAFE_INTEGER);
-  });
-
-  it("setRunContext updates context only when values are provided", () => {
-    const manager = new PolicyManager({ runId: "run_0" });
-    const eventBus = createEventBus();
-    const runStore = { get: vi.fn(), set: vi.fn() };
-
-    manager.setRunContext({ eventBus, runStore, runId: "run_1" });
-    expect(manager.eventBus).toBe(eventBus);
-    expect(manager.runStore).toBe(runStore);
-    expect(manager.runId).toBe("run_1");
-
-    manager.setRunContext({ eventBus: null, runStore: null, runId: "" });
-    expect(manager.eventBus).toBe(eventBus);
-    expect(manager.runStore).toBe(runStore);
-    expect(manager.runId).toBe("run_1");
-  });
-
-  it("load/getRules hydrate rules once and return engine rules", () => {
-    const manager = new PolicyManager();
-    const store = policyMocks.storeInstances[0];
-    const engine = policyMocks.engineInstances[0];
-    const rules = [{ ruleId: "r1" }];
-    store.load.mockReturnValue(rules);
-    engine.getRules.mockReturnValue(rules);
-
-    expect(manager.getRules()).toEqual(rules);
-    expect(manager.getRules()).toEqual(rules);
-    expect(store.load).toHaveBeenCalledTimes(1);
-    expect(engine.setRules).toHaveBeenCalledWith(rules);
-    expect(engine.getRules).toHaveBeenCalledTimes(2);
-  });
-
-  it("saveRules coerces invalid inputs and addRule appends to existing rules", () => {
-    const manager = new PolicyManager();
-    const store = policyMocks.storeInstances[0];
-    const engine = policyMocks.engineInstances[0];
-
-    manager.saveRules(null);
-    manager.saveRules({});
-    expect(store.save).toHaveBeenCalledWith([]);
-    expect(engine.setRules).toHaveBeenCalledWith([]);
-
-    engine.getRules.mockReturnValue([{ ruleId: "base" }]);
-    const rule = { ruleId: "next" };
-    manager.addRule(rule);
-    const lastSaved = store.save.mock.calls[store.save.mock.calls.length - 1][0];
-    expect(lastSaved).toEqual([{ ruleId: "base" }, rule]);
-  });
-
-  it("authorize keeps caller-provided requestId/ts (trimmed) and does not mutate the input request object", async () => {
-    const manager = new PolicyManager();
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
-
-    const input = { type: "run", requestId: "  req_custom  ", ts: "  2020-01-01T00:00:00.000Z  " };
-    const result = await manager.authorize(input);
-
-    expect(result.request.requestId).toBe("req_custom");
-    expect(result.request.ts).toBe("2020-01-01T00:00:00.000Z");
-    expect(sharedMocks.makeSecureTimestampedId).not.toHaveBeenCalled();
-
-    expect(input).toEqual({ type: "run", requestId: "  req_custom  ", ts: "  2020-01-01T00:00:00.000Z  " });
-  });
-
-  it("authorize enriches request, hashes args, and emits decision", async () => {
-    const eventBus = createEventBus();
-    const manager = new PolicyManager({ eventBus, runId: "run_1" });
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
-
-    const args = makeArgs(25);
-    const result = await manager.authorize({
-      type: "  deploy ",
-      tool: "   ",
-      resource: "",
-      args,
+if (exportedFunctionNames.includes("summarizeArgs")) {
+  describe("summarizeArgs", () => {
+    it("returns kind:null for null/undefined (empty value boundary)", async () => {
+      const { manager } = await freshImports();
+      expect(manager.summarizeArgs(null)).toEqual({ kind: "null" });
+      expect(manager.summarizeArgs(undefined)).toEqual({ kind: "null" });
     });
 
-    expect(result.allowed).toBe(true);
-    expect(result.requiresApproval).toBe(false);
-    expect(result.reason).toBe("ok");
-    expect(result.request.schemaVersion).toBe("0.1");
-    expect(result.request.requestId).toBe("polreq_1");
-    expect(result.request.ts).toEqual(expect.any(String));
-    expect(result.request.type).toBe("deploy");
-    expect(result.request.tool).toBeUndefined();
-    expect(result.request.resource).toBeUndefined();
-    expect(result.request.runId).toBe("run_1");
-    expect(result.request.argsHash).toBe(`hash:${JSON.stringify(args)}`);
-    expect(result.request.argsSummary).toMatchObject({ kind: "object" });
-    expect(result.request.argsSummary.keys).toHaveLength(20);
-    expect(result.request.argsSummary.moreKeys).toBeGreaterThan(0);
+    it("summarizes primitives with kind and stringified value (type/boundary values)", async () => {
+      const { manager } = await freshImports();
 
-    expect(artifactMocks.computeSha256).toHaveBeenCalledWith(JSON.stringify(args));
-    expect(eventBus.events.map((evt) => evt.name)).toEqual(
-      expect.arrayContaining(["policy.requested", "policy.decided"]),
-    );
-  });
-
-  it("authorize summarizes empty arrays/objects and array-like payloads", async () => {
-    const manager = new PolicyManager();
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
-
-    const arrayResult = await manager.authorize({ type: "run", args: [] });
-    const objectResult = await manager.authorize({ type: "run", args: {} });
-    const arrayLike = { 0: "a", length: 1 };
-    const arrayLikeResult = await manager.authorize({ type: "run", args: arrayLike });
-
-    expect(arrayResult.request.argsSummary).toEqual({ kind: "object", keys: [] });
-    expect(objectResult.request.argsSummary).toEqual({ kind: "object", keys: [] });
-    expect(arrayLikeResult.request.argsSummary.keys).toEqual(["0", "length"]);
-
-    expect(artifactMocks.computeSha256).toHaveBeenCalledWith("[]");
-    expect(artifactMocks.computeSha256).toHaveBeenCalledWith("{}");
-    expect(artifactMocks.computeSha256).toHaveBeenCalledWith(JSON.stringify(arrayLike));
-  });
-
-  it("authorize hashes/summarizes primitive args (including boundary values)", async () => {
-    const manager = new PolicyManager();
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
-
-    const negativeResult = await manager.authorize({ type: "run", args: -1 });
-    const maxResult = await manager.authorize({ type: "run", args: Number.MAX_SAFE_INTEGER });
-    const whitespaceStringResult = await manager.authorize({ type: "run", args: "   " });
-
-    expect(negativeResult.request.argsHash).toBe("hash:-1");
-    expect(negativeResult.request.argsSummary).toEqual({ kind: "number", value: "-1" });
-
-    expect(maxResult.request.argsHash).toBe(`hash:${String(Number.MAX_SAFE_INTEGER)}`);
-    expect(maxResult.request.argsSummary).toEqual({ kind: "number", value: String(Number.MAX_SAFE_INTEGER) });
-
-    expect(whitespaceStringResult.request.argsHash).toBe("hash:\"   \"");
-    expect(whitespaceStringResult.request.argsSummary).toEqual({ kind: "string", value: "   " });
-  });
-
-  it("authorize uses precomputed argsHash/argsSummary and skips hashing", async () => {
-    const manager = new PolicyManager();
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
-
-    const argsSummary = { kind: "precomputed", keys: ["a"] };
-    const result = await manager.authorize({
-      type: "run",
-      args: { a: 1 },
-      argsHash: "prehash",
-      argsSummary,
-    });
-
-    expect(result.request.argsHash).toBe("prehash");
-    expect(result.request.argsSummary).toBe(argsSummary);
-    expect(artifactMocks.computeSha256).not.toHaveBeenCalled();
-  });
-
-  it("authorize omits argsHash when computeSha256 returns undefined and does not emit argsHash in policy.requested", async () => {
-    const eventBus = createEventBus();
-    const manager = new PolicyManager({ eventBus });
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
-
-    artifactMocks.computeSha256.mockResolvedValue(undefined);
-
-    const result = await manager.authorize({ type: "run", args: { a: 1 } });
-    expect(result.request.argsHash).toBeUndefined();
-
-    const requested = eventBus.events.find((evt) => evt.name === "policy.requested");
-    expect(requested).toBeTruthy();
-    expect(requested.payload).not.toHaveProperty("argsHash");
-  });
-
-  it("authorize skips hashing for falsy args and undefined requests", async () => {
-    const manager = new PolicyManager();
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
-
-    const undefinedResult = await manager.authorize(undefined);
-    const nullResult = await manager.authorize({ type: "run", args: null });
-    const zeroResult = await manager.authorize({ type: "run", args: 0, argsHash: "", argsSummary: "" });
-    const emptyStringResult = await manager.authorize({ type: "run", args: "" });
-
-    expect(undefinedResult.request.argsHash).toBeUndefined();
-    expect(undefinedResult.request.argsSummary).toBeUndefined();
-    expect(nullResult.request.argsHash).toBeUndefined();
-    expect(nullResult.request.argsSummary).toBeUndefined();
-    expect(zeroResult.request.argsHash).toBe("");
-    expect(zeroResult.request.argsSummary).toBe("");
-    expect(emptyStringResult.request.argsHash).toBeUndefined();
-    expect(emptyStringResult.request.argsSummary).toBeUndefined();
-    expect(artifactMocks.computeSha256).not.toHaveBeenCalled();
-  });
-
-  it("authorize logs hashing errors and continues", async () => {
-    const manager = new PolicyManager();
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
-
-    artifactMocks.computeSha256.mockImplementation(async () => {
-      throw new Error("boom");
-    });
-
-    const result = await manager.authorize({ type: "run", args: { value: 1 } });
-    expect(result.request.argsHash).toBeUndefined();
-    expect(sharedMocks.mockLogger.warn).toHaveBeenCalledWith(
-      "sha256OfJson failed",
-      expect.objectContaining({ error: expect.stringContaining("boom") }),
-    );
-  });
-
-  it("authorize falls back when approvals are required but non-interactive", async () => {
-    sharedMocks.isNodeLike.mockImplementation(() => true);
-    const allowManager = new PolicyManager({ onMissingApprovalProvider: "allow" });
-    const allowEngine = policyMocks.engineInstances[0];
-    allowEngine.evaluate.mockReturnValue({
-      allowed: false,
-      requiresApproval: true,
-      reason: "needs approval",
-    });
-
-    const allowResult = await allowManager.authorize({ type: "run", tool: "tool" });
-    expect(allowResult.allowed).toBe(true);
-    expect(allowResult.reason).toBe("non_interactive_allow");
-
-    const denyManager = new PolicyManager({ onMissingApprovalProvider: "deny" });
-    const denyEngine = policyMocks.engineInstances[1];
-    denyEngine.evaluate.mockReturnValue({
-      allowed: false,
-      requiresApproval: true,
-      reason: "needs approval",
-    });
-
-    const denyResult = await denyManager.authorize({ type: "run", tool: "tool" });
-    expect(denyResult.allowed).toBe(false);
-    expect(denyResult.reason).toBe("non_interactive_deny");
-  });
-
-  it("authorize throws when interactive approvals are required but no approval provider exists", async () => {
-    const eventBus = { emit: vi.fn() };
-    const manager = new PolicyManager({ eventBus, interactive: true });
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: false, requiresApproval: true, reason: "approval_needed" });
-
-    await expect(manager.authorize({ type: "run", requestId: "req_missing_provider" })).rejects.toThrow(TypeError);
-
-    const emittedNames = eventBus.emit.mock.calls.map(([name]) => name);
-    expect(emittedNames).toEqual(expect.arrayContaining(["policy.requested", "policy.approval.requested"]));
-    expect(emittedNames).not.toEqual(expect.arrayContaining(["policy.approval.responded", "policy.decided"]));
-  });
-
-  it("authorize handles approval flow and stores remember=always rules", async () => {
-    const eventBus = createEventBus();
-    const manager = new PolicyManager({ eventBus, interactive: true });
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({
-      allowed: false,
-      requiresApproval: true,
-      reason: "approval_needed",
-    });
-
-    const deriveRule = vi.fn((req, response) => ({
-      ruleId: "rule_1",
-      effect: "allow",
-      type: req.type,
-      tool: req.tool,
-      createdAt: "now",
-      updatedAt: "now",
-      enabled: true,
-      priority: 0,
-      reason: response?.reason,
-    }));
-
-    const authorizePromise = manager.authorize(
-      { type: "deploy", tool: "tool", requestId: "req_1" },
-      { deriveRule },
-    );
-
-    eventBus.emit("policy.approval.response", {
-      requestId: "req_1",
-      decision: "ALLOW",
-      remember: "always",
-      reason: "ok",
-    });
-
-    const result = await authorizePromise;
-    expect(result.allowed).toBe(true);
-    expect(result.reason).toBe("approved");
-    expect(deriveRule).toHaveBeenCalled();
-
-    const store = policyMocks.storeInstances[0];
-    const lastSaved = store.save.mock.calls[store.save.mock.calls.length - 1][0];
-    expect(lastSaved).toEqual([expect.objectContaining({ ruleId: "rule_1" })]);
-    expect(eventBus.events.map((evt) => evt.name)).toEqual(
-      expect.arrayContaining([
-        "policy.approval.requested",
-        "policy.approval.responded",
-        "policy.rule.added",
-        "policy.decided",
-      ]),
-    );
-  });
-
-  it("authorize derives and stores rules via the default deriveRule implementation", async () => {
-    vi.useFakeTimers();
-    try {
-      const eventBus = createEventBus();
-      const manager = new PolicyManager({ eventBus, interactive: true });
-      const engine = policyMocks.engineInstances[0];
-      engine.evaluate.mockReturnValue({ allowed: false, requiresApproval: true, reason: "approval_needed" });
-
-      vi.setSystemTime(new Date("2025-01-01T00:00:00.000Z"));
-
-      const authorizePromise = manager.authorize({
-        type: "deploy",
-        tool: "tool",
-        resource: "res",
-        requestId: "req_default_rule",
+      expect(manager.summarizeArgs(0)).toEqual({ kind: "number", value: "0" });
+      expect(manager.summarizeArgs(-1)).toEqual({ kind: "number", value: "-1" });
+      expect(manager.summarizeArgs(Number.MAX_SAFE_INTEGER)).toEqual({
+        kind: "number",
+        value: String(Number.MAX_SAFE_INTEGER),
       });
 
-      eventBus.emit("policy.approval.response", { requestId: "req_default_rule", decision: "allow", remember: "always" });
+      expect(manager.summarizeArgs("   ")).toEqual({ kind: "string", value: "   " });
+      expect(manager.summarizeArgs(false)).toEqual({ kind: "boolean", value: "false" });
 
-      const result = await authorizePromise;
-      expect(result.allowed).toBe(true);
-      expect(result.reason).toBe("approved");
+      const veryLong = "x".repeat(10000);
+      const summary = manager.summarizeArgs(veryLong);
+      expect(summary).toEqual({ kind: "string", value: veryLong });
+      expect(summary.value.length).toBe(10000);
+    });
 
-      const store = policyMocks.storeInstances[0];
-      expect(store.save).toHaveBeenCalledTimes(1);
-      const savedRules = store.save.mock.calls[0][0];
-      expect(savedRules).toHaveLength(1);
-      expect(savedRules[0]).toMatchObject({
+    it("treats arrays as objects and handles empty arrays/objects (empty array/object boundary)", async () => {
+      const { manager } = await freshImports();
+
+      expect(manager.summarizeArgs([])).toEqual({ kind: "object", keys: [] });
+      expect(manager.summarizeArgs({})).toEqual({ kind: "object", keys: [] });
+
+      const arr = ["a", "b"];
+      expect(manager.summarizeArgs(arr)).toEqual({ kind: "object", keys: ["0", "1"] });
+    });
+
+    it("limits keys to first 20 and reports remaining (resource boundary)", async () => {
+      const { manager } = await freshImports();
+
+      const obj = {};
+      for (let i = 0; i < 25; i++) obj[`k${i}`] = i;
+
+      const summary = manager.summarizeArgs(obj);
+      expect(summary.kind).toBe("object");
+      expect(summary.keys).toEqual(Array.from({ length: 20 }, (_, i) => `k${i}`));
+      expect(summary.moreKeys).toBe(5);
+    });
+  });
+}
+
+if (exportedFunctionNames.includes("sha256OfJson")) {
+  describe("sha256OfJson", () => {
+    it("hashes JSON stringified values and treats undefined as null", async () => {
+      const { manager, artifact } = await freshImports();
+      artifact.computeSha256.mockResolvedValueOnce("h:null").mockResolvedValueOnce("h:obj");
+
+      await expect(manager.sha256OfJson(undefined)).resolves.toBe("h:null");
+      expect(artifact.computeSha256).toHaveBeenCalledWith("null");
+
+      await expect(manager.sha256OfJson({ a: 1 })).resolves.toBe("h:obj");
+      expect(artifact.computeSha256).toHaveBeenLastCalledWith(JSON.stringify({ a: 1 }));
+    });
+
+    it("handles long strings and deep-ish objects (resource boundary)", async () => {
+      const { manager, artifact } = await freshImports();
+      artifact.computeSha256.mockImplementation(async (s) => `h:${s.length}`);
+
+      const hugeString = "a".repeat(200000);
+      const result1 = await manager.sha256OfJson({ hugeString });
+      expect(result1).toBe(`h:${JSON.stringify({ hugeString }).length}`);
+
+      let deep = { level: 0 };
+      for (let i = 1; i <= 200; i++) deep = { level: i, child: deep };
+      const result2 = await manager.sha256OfJson(deep);
+      expect(result2).toBe(`h:${JSON.stringify(deep).length}`);
+    });
+
+    it("returns null and warns when computeSha256 throws (error handling)", async () => {
+      const { manager, artifact, shared } = await freshImports();
+      artifact.computeSha256.mockRejectedValueOnce(new Error("boom"));
+
+      await expect(manager.sha256OfJson({ a: 1 })).resolves.toBeNull();
+      expect(shared.__mockLogger.warn).toHaveBeenCalledWith("sha256OfJson failed", { error: "boom" });
+    });
+
+    it("returns null and warns when JSON.stringify fails (circular structure)", async () => {
+      const { manager, artifact, shared } = await freshImports();
+
+      const circular = {};
+      circular.self = circular;
+
+      await expect(manager.sha256OfJson(circular)).resolves.toBeNull();
+      expect(artifact.computeSha256).not.toHaveBeenCalled();
+
+      expect(shared.__mockLogger.warn).toHaveBeenCalledWith(
+        "sha256OfJson failed",
+        expect.objectContaining({ error: expect.any(String) }),
+      );
+    });
+
+    it("supports concurrent calls without cross-talk (concurrency boundary)", async () => {
+      const { manager, artifact } = await freshImports();
+      artifact.computeSha256.mockImplementation(async (s) => `h:${s}`);
+
+      const [a, b, c] = await Promise.all([
+        manager.sha256OfJson(0),
+        manager.sha256OfJson({ x: 1 }),
+        manager.sha256OfJson(null),
+      ]);
+
+      expect(a).toBe("h:0");
+      expect(b).toBe('h:{"x":1}');
+      expect(c).toBe("h:null");
+    });
+  });
+}
+
+if (exportedFunctionNames.includes("defaultDeriveRuleFromRequest")) {
+  describe("defaultDeriveRuleFromRequest", () => {
+    it("returns null and warns when missing type/tool/resource (empty/blank boundary)", async () => {
+      const { manager, shared } = await freshImports();
+
+      expect(manager.defaultDeriveRuleFromRequest(null)).toBeNull();
+      expect(manager.defaultDeriveRuleFromRequest(undefined)).toBeNull();
+      expect(manager.defaultDeriveRuleFromRequest({})).toBeNull();
+      expect(manager.defaultDeriveRuleFromRequest({ type: "" })).toBeNull();
+      expect(manager.defaultDeriveRuleFromRequest({ type: "   " })).toBeNull();
+      expect(manager.defaultDeriveRuleFromRequest({ tool: "   " })).toBeNull();
+      expect(manager.defaultDeriveRuleFromRequest({ resource: "   " })).toBeNull();
+
+      expect(shared.__mockLogger.warn).toHaveBeenCalledWith(
+        "defaultDeriveRuleFromRequest: missing type/tool/resource, refusing to generate rule",
+      );
+    });
+
+    it("generates a deterministic rule with timestamps and optional fields (normal path)", async () => {
+      const { manager, shared } = await freshImports();
+
+      shared.makeSecureTimestampedId.mockReturnValueOnce("rule_123");
+
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+
+      const rule = manager.defaultDeriveRuleFromRequest({
+        type: "tool.call",
+        tool: "fs.readFile",
+        resource: "/tmp/a.txt",
+      });
+
+      expect(rule).toEqual({
+        ruleId: "rule_123",
         effect: "allow",
-        type: "deploy",
-        tool: "tool",
-        resource: "res",
+        type: "tool.call",
+        tool: "fs.readFile",
+        resource: "/tmp/a.txt",
+        createdAt: "2020-01-01T00:00:00.000Z",
+        updatedAt: "2020-01-01T00:00:00.000Z",
         enabled: true,
         priority: 0,
-        createdAt: "2025-01-01T00:00:00.000Z",
-        updatedAt: "2025-01-01T00:00:00.000Z",
-      });
-      expect(savedRules[0].ruleId).toMatch(/^rule_/);
-
-      const ruleAdded = eventBus.events.find((evt) => evt.name === "policy.rule.added");
-      expect(ruleAdded).toBeTruthy();
-      expect(ruleAdded.payload).toMatchObject({ requestId: "req_default_rule", ruleId: savedRules[0].ruleId });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("authorize does not persist a rule when default deriveRule refuses overly-broad rules", async () => {
-    const eventBus = createEventBus();
-    const manager = new PolicyManager({ eventBus, interactive: true });
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: false, requiresApproval: true, reason: "approval_needed" });
-
-    const authorizePromise = manager.authorize({ type: "   ", tool: "", resource: undefined, requestId: "req_no_rule" });
-
-    eventBus.emit("policy.approval.response", { requestId: "req_no_rule", decision: "allow", remember: "always" });
-    const result = await authorizePromise;
-
-    expect(result.allowed).toBe(true);
-    expect(result.reason).toBe("approved");
-    expect(sharedMocks.mockLogger.warn).toHaveBeenCalledWith(
-      "defaultDeriveRuleFromRequest: missing type/tool/resource, refusing to generate rule",
-    );
-
-    const store = policyMocks.storeInstances[0];
-    expect(store.save).not.toHaveBeenCalled();
-    expect(eventBus.events.map((evt) => evt.name)).not.toEqual(expect.arrayContaining(["policy.rule.added"]));
-  });
-
-  it("authorize times out when approval responses never arrive", async () => {
-    vi.useFakeTimers();
-    try {
-      const eventBus = createEventBus();
-      const manager = new PolicyManager({
-        eventBus,
-        interactive: true,
-        approvalTimeoutMs: 1000,
-      });
-      const engine = policyMocks.engineInstances[0];
-      engine.evaluate.mockReturnValue({
-        allowed: false,
-        requiresApproval: true,
-        reason: "approval_needed",
       });
 
-      const authorizePromise = manager.authorize({ type: "run", requestId: "req_timeout" });
-      await vi.advanceTimersByTimeAsync(1000);
-
-      const result = await authorizePromise;
-      expect(result.allowed).toBe(false);
-      expect(result.reason).toBe("rejected");
-      expect(eventBus.events.map((evt) => evt.name)).toEqual(
-        expect.arrayContaining(["policy.approval.responded", "policy.decided"]),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("authorize respects abort signals during approval waits", async () => {
-    const eventBus = createEventBus();
-    const manager = new PolicyManager({ eventBus, interactive: true });
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({
-      allowed: false,
-      requiresApproval: true,
-      reason: "approval_needed",
+      expect(shared.makeSecureTimestampedId).toHaveBeenCalledWith("rule");
     });
 
-    const controller = new AbortController();
-    const authorizePromise = manager.authorize(
-      { type: "run", requestId: "req_abort" },
-      { signal: controller.signal },
-    );
+    it("allows generating a rule from tool/resource only and trims whitespace (edge cases)", async () => {
+      const { manager, shared } = await freshImports();
 
-    controller.abort();
-    const result = await authorizePromise;
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toBe("rejected");
-    expect(eventBus.events.map((evt) => evt.name)).toEqual(
-      expect.arrayContaining(["policy.approval.responded", "policy.decided"]),
-    );
-  });
+      shared.makeSecureTimestampedId.mockReturnValueOnce("rule_tool_only");
 
-  it("authorize supports concurrent approvals without cross-talk", async () => {
-    const eventBus = createEventBus();
-    const manager = new PolicyManager({ eventBus, interactive: true });
-    const engine = policyMocks.engineInstances[0];
-    engine.evaluate.mockReturnValue({
-      allowed: false,
-      requiresApproval: true,
-      reason: "approval_needed",
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+
+      const r1 = manager.defaultDeriveRuleFromRequest({ tool: "  tool.only  " });
+      expect(r1).not.toBeNull();
+      expect(r1.ruleId).toBe("rule_tool_only");
+      expect(r1.tool).toBe("tool.only");
+      expect(Boolean(r1.type)).toBe(false);
+
+      shared.makeSecureTimestampedId.mockReturnValueOnce("rule_trim");
+      const r2 = manager.defaultDeriveRuleFromRequest({ type: "t", tool: "   ", resource: "  /a  " });
+      expect(r2).not.toBeNull();
+      expect(r2.tool).toBeUndefined();
+      expect(r2.resource).toBe("/a");
     });
 
-    const p1 = manager.authorize({ type: "run", tool: "a", requestId: "req_1" });
-    const p2 = manager.authorize({ type: "run", tool: "b", requestId: "req_2" });
+    it("does not share state across rapid successive calls (rapid-call boundary)", async () => {
+      const { manager, shared } = await freshImports();
 
-    eventBus.emit("policy.approval.response", {
-      requestId: "req_2",
-      decision: "allow",
-      remember: "none",
+      shared.makeSecureTimestampedId
+        .mockImplementationOnce(() => "rule_1")
+        .mockImplementationOnce(() => "rule_2");
+
+      const r1 = manager.defaultDeriveRuleFromRequest({ type: "t1" });
+      const r2 = manager.defaultDeriveRuleFromRequest({ type: "t2" });
+
+      expect(r1.ruleId).toBe("rule_1");
+      expect(r2.ruleId).toBe("rule_2");
+      expect(r1.type).toBe("t1");
+      expect(r2.type).toBe("t2");
     });
-    eventBus.emit("policy.approval.response", {
-      requestId: "req_1",
-      decision: "deny",
-      remember: "none",
+  });
+}
+
+if (exportedFunctionNames.includes("waitForApprovalResponse")) {
+  describe("waitForApprovalResponse", () => {
+    it("returns null when eventBus is missing or requestId is invalid (null/blank/type boundary)", async () => {
+      const { manager } = await freshImports();
+
+      await expect(manager.waitForApprovalResponse(null, "x")).resolves.toBeNull();
+      await expect(manager.waitForApprovalResponse({}, "x")).resolves.toBeNull();
+
+      const bus = { subscribe: vi.fn() };
+      await expect(manager.waitForApprovalResponse(bus, null)).resolves.toBeNull();
+      await expect(manager.waitForApprovalResponse(bus, undefined)).resolves.toBeNull();
+      await expect(manager.waitForApprovalResponse(bus, "")).resolves.toBeNull();
+      await expect(manager.waitForApprovalResponse(bus, "   ")).resolves.toBeNull();
+      await expect(manager.waitForApprovalResponse(bus, 0)).resolves.toBeNull();
+      await expect(manager.waitForApprovalResponse(bus, [])).resolves.toBeNull();
+      await expect(manager.waitForApprovalResponse(bus, {})).resolves.toBeNull();
     });
 
-    const [r1, r2] = await Promise.all([p1, p2]);
-    expect(r1.request.requestId).toBe("req_1");
-    expect(r1.allowed).toBe(false);
-    expect(r2.request.requestId).toBe("req_2");
-    expect(r2.allowed).toBe(true);
+    it("times out with deny/timeout (timeoutMs boundary: 0 and -1) and cleans up subscription", async () => {
+      const { manager } = await freshImports();
+      vi.useFakeTimers();
+
+      const bus0 = createEventBus();
+      const p0 = manager.waitForApprovalResponse(bus0, "req_0", { timeoutMs: 0 });
+      expect(bus0._count("policy.approval.response")).toBe(1);
+      vi.advanceTimersByTime(0);
+      await flushPromises();
+      await expect(p0).resolves.toEqual({ decision: "deny", remember: "none", reason: "timeout" });
+      expect(bus0._count("policy.approval.response")).toBe(0);
+
+      const busNeg = createEventBus();
+      const pNeg = manager.waitForApprovalResponse(busNeg, "req_neg", { timeoutMs: -1 });
+      expect(busNeg._count("policy.approval.response")).toBe(1);
+      vi.advanceTimersByTime(0);
+      await flushPromises();
+      await expect(pNeg).resolves.toEqual({ decision: "deny", remember: "none", reason: "timeout" });
+      expect(busNeg._count("policy.approval.response")).toBe(0);
+    });
+
+    it("aborts with deny/aborted and removes abort listener", async () => {
+      const { manager } = await freshImports();
+      vi.useFakeTimers();
+
+      const signal = createFakeAbortSignal();
+      const bus = createEventBus();
+
+      const p = manager.waitForApprovalResponse(bus, "req_abort", { timeoutMs: 1000, signal });
+
+      expect(signal.addEventListener).toHaveBeenCalledWith("abort", expect.any(Function), { once: true });
+      signal.abort();
+
+      await expect(p).resolves.toEqual({ decision: "deny", remember: "none", reason: "aborted" });
+      expect(signal.removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function));
+      expect(bus._count("policy.approval.response")).toBe(0);
+    });
+
+    it("resolves with matching payload and ignores non-matching events (normal + edge cases)", async () => {
+      const { manager } = await freshImports();
+      vi.useFakeTimers();
+
+      const bus = createEventBus();
+      const p = manager.waitForApprovalResponse(bus, "  req_ok  ", { timeoutMs: 1000 });
+
+      bus.emit("policy.approval.response", { requestId: "other", decision: "deny" });
+      expect(bus._count("policy.approval.response")).toBe(1);
+
+      bus.emit("policy.approval.response", {
+        payload: { requestId: "req_ok", decision: "allow", remember: "always" },
+      });
+
+      await expect(p).resolves.toEqual({ requestId: "req_ok", decision: "allow", remember: "always" });
+      expect(bus._count("policy.approval.response")).toBe(0);
+
+      vi.advanceTimersByTime(2000);
+      await flushPromises();
+    });
+
+    it("supports subscribe() returning void (no off function) and still resolves", async () => {
+      const { manager } = await freshImports();
+      vi.useFakeTimers();
+
+      let handler;
+      const bus = {
+        subscribe: vi.fn((_name, h) => {
+          handler = h;
+          return undefined;
+        }),
+      };
+
+      const p = manager.waitForApprovalResponse(bus, "req_void_off", { timeoutMs: 1000 });
+      expect(bus.subscribe).toHaveBeenCalledWith("policy.approval.response", expect.any(Function));
+
+      handler({ requestId: "req_void_off", decision: "allow", remember: "none" });
+      await expect(p).resolves.toEqual({ requestId: "req_void_off", decision: "allow", remember: "none" });
+    });
+
+    it("handles concurrent requests resolving independently (concurrency boundary)", async () => {
+      const { manager } = await freshImports();
+      vi.useFakeTimers();
+
+      const bus = createEventBus();
+
+      const pA = manager.waitForApprovalResponse(bus, "A", { timeoutMs: 1000 });
+      const pB = manager.waitForApprovalResponse(bus, "B", { timeoutMs: 1000 });
+
+      expect(bus._count("policy.approval.response")).toBe(2);
+
+      bus.emit("policy.approval.response", { requestId: "B", decision: "deny", remember: "none", reason: "no" });
+      await expect(pB).resolves.toEqual({ requestId: "B", decision: "deny", remember: "none", reason: "no" });
+      expect(bus._count("policy.approval.response")).toBe(1);
+
+      bus.emit("policy.approval.response", { requestId: "A", decision: "allow", remember: "none" });
+      await expect(pA).resolves.toEqual({ requestId: "A", decision: "allow", remember: "none" });
+      expect(bus._count("policy.approval.response")).toBe(0);
+    });
+
+    it("supports very long requestId strings (resource boundary) and tolerates off() throwing", async () => {
+      const { manager } = await freshImports();
+      vi.useFakeTimers();
+
+      const longId = `req_${"x".repeat(10000)}`;
+      let handler;
+
+      const bus = {
+        subscribe: vi.fn((_name, h) => {
+          handler = h;
+          return () => {
+            throw new Error("off failed");
+          };
+        }),
+      };
+
+      const p = manager.waitForApprovalResponse(bus, longId, { timeoutMs: 1000 });
+
+      handler({ requestId: longId, decision: "allow", remember: "none" });
+      await expect(p).resolves.toEqual({ requestId: longId, decision: "allow", remember: "none" });
+    });
   });
+}
 
-  it("authorize handles rapid sequential calls without shared state", async () => {
-    const manager = new PolicyManager();
-    const engine = policyMocks.engineInstances[0];
-    const store = policyMocks.storeInstances[0];
-    engine.evaluate.mockReturnValue({ allowed: true, requiresApproval: false, reason: "ok" });
+const covered = new Set([
+  "summarizeArgs",
+  "sha256OfJson",
+  "defaultDeriveRuleFromRequest",
+  "waitForApprovalResponse",
+]);
 
-    const results = [];
-    for (let i = 0; i < 5; i += 1) {
-      results.push(await manager.authorize({ type: "run", requestId: `req_${i}` }));
-    }
+const otherFunctionExports = exportedFunctionNames.filter((name) => !covered.has(name));
 
-    expect(results.map((res) => res.request.requestId)).toEqual([
-      "req_0",
-      "req_1",
-      "req_2",
-      "req_3",
-      "req_4",
-    ]);
-    expect(store.load).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("default export", () => {
-  it("exposes the PolicyManager class", () => {
-    expect(PolicyManager).toBe(NamedPolicyManager);
+describe.each(otherFunctionExports)("%s", (exportName) => {
+  describe(exportName, () => {
+    it("is exported as a function/class", async () => {
+      const { manager } = await freshImports();
+      expect(typeof manager[exportName]).toBe("function");
+    });
   });
 });

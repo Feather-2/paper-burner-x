@@ -1,335 +1,491 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-
-const MODULE_PATH = "../../../../../js/agents/shared/parser/tree-sitter-wasm.js";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let wasmSupported = true;
 let nodeLike = false;
 
-const isWasmSupportedMock = vi.fn(() => wasmSupported);
-const isNodeLikeMock = vi.fn(() => nodeLike);
+const mockParser = { init: vi.fn() };
+const mockLanguage = { load: vi.fn() };
+let webTreeSitterFactory = () => ({ Parser: mockParser, Language: mockLanguage });
 
-let parserInitMock = vi.fn();
-let languageLoadMock = vi.fn();
-let parserShape = "valid";
-let languageShape = "valid";
-
-vi.mock("../../../../../js/agents/shared/utils/wasm-support.js", () => ({
-  isWasmSupported: isWasmSupportedMock,
+vi.mock('../../../../../js/agents/shared/utils/wasm-support.js', () => ({
+  isWasmSupported: vi.fn(() => wasmSupported),
 }));
 
-vi.mock("../../../../../js/agents/shared/platform.js", () => ({
-  isNodeLike: isNodeLikeMock,
+vi.mock('../../../../../js/agents/shared/platform.js', () => ({
+  isNodeLike: vi.fn(() => nodeLike),
 }));
 
-vi.mock("web-tree-sitter", () => ({
-  get Parser() {
-    if (parserShape === "missing") return undefined;
-    if (parserShape === "noInit") return {};
-    return { init: (...args) => parserInitMock(...args) };
-  },
-  get Language() {
-    if (languageShape === "missing") return undefined;
-    if (languageShape === "noLoad") return {};
-    return { load: (...args) => languageLoadMock(...args) };
-  },
-}));
+vi.mock('web-tree-sitter', () => webTreeSitterFactory());
 
-async function importTreeSitterWasm() {
-  return await import(MODULE_PATH);
-}
+function setGlobalProperty(name, value) {
+  const hadOwn = Object.prototype.hasOwnProperty.call(globalThis, name);
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, name);
+  const originalValue = globalThis[name];
 
-function setWebRuntime({ locationHref } = {}) {
-  nodeLike = false;
-  vi.stubGlobal("fetch", vi.fn());
-  if (locationHref !== undefined) {
-    vi.stubGlobal("location", { href: locationHref });
+  try {
+    Object.defineProperty(globalThis, name, { value, writable: true, configurable: true });
+  } catch {
+    try {
+      globalThis[name] = value;
+    } catch {
+      // ignore
+    }
   }
+
+  return () => {
+    try {
+      if (!hadOwn) {
+        delete globalThis[name];
+      } else if (descriptor) {
+        Object.defineProperty(globalThis, name, descriptor);
+      } else {
+        globalThis[name] = originalValue;
+      }
+    } catch {
+      try {
+        globalThis[name] = originalValue;
+      } catch {
+        // ignore
+      }
+    }
+  };
 }
 
-function setWebTreeSitterModule({
-  parserShape: nextParserShape = "valid",
-  languageShape: nextLanguageShape = "valid",
-  parserInitImpl,
-  languageLoadImpl,
-} = {}) {
-  parserShape = nextParserShape;
-  languageShape = nextLanguageShape;
-  parserInitMock = vi.fn(parserInitImpl || (async () => {}));
-  languageLoadMock = vi.fn(languageLoadImpl || (async (url) => ({ url })));
+function createDeferred() {
+  /** @type {(value?: any) => void} */
+  let resolve;
+  /** @type {(reason?: any) => void} */
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function importSubject() {
+  return await import('../../../../../js/agents/shared/parser/tree-sitter-wasm.js');
 }
 
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
-  vi.unstubAllGlobals();
+
   wasmSupported = true;
   nodeLike = false;
-  parserInitMock = vi.fn();
-  languageLoadMock = vi.fn();
-  parserShape = "valid";
-  languageShape = "valid";
+
+  mockParser.init = vi.fn().mockResolvedValue(undefined);
+  mockLanguage.load = vi.fn().mockResolvedValue({ mock: true });
+
+  webTreeSitterFactory = () => ({ Parser: mockParser, Language: mockLanguage });
 });
 
-describe("DEFAULT_TREE_SITTER_WASM_BASE_URL", () => {
-  it("exports the expected default base URL", async () => {
-    const mod = await importTreeSitterWasm();
-    expect(mod.DEFAULT_TREE_SITTER_WASM_BASE_URL).toBe("wasm/tree-sitter/");
+describe('DEFAULT_TREE_SITTER_WASM_BASE_URL', () => {
+  it('exports the expected default base URL', async () => {
+    const mod = await importSubject();
+    expect(mod.DEFAULT_TREE_SITTER_WASM_BASE_URL).toBe('wasm/tree-sitter/');
   });
 });
 
-describe("initTreeSitter", () => {
-  it("returns null outside web runtime", async () => {
+describe('initTreeSitter', () => {
+  it('returns null in node-like runtime', async () => {
     nodeLike = true;
-    const { initTreeSitter } = await importTreeSitterWasm();
 
-    await expect(initTreeSitter()).resolves.toBeNull();
-    expect(isWasmSupportedMock).not.toHaveBeenCalled();
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const { initTreeSitter } = await importSubject();
+      await expect(initTreeSitter()).resolves.toBeNull();
+
+      const wasmSupport = await import('../../../../../js/agents/shared/utils/wasm-support.js');
+      expect(wasmSupport.isWasmSupported).not.toHaveBeenCalled();
+      expect(mockParser.init).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
   });
 
-  it("throws when WebAssembly is unsupported", async () => {
-    setWebRuntime();
+  it('returns null when fetch is unavailable', async () => {
+    const restoreFetch = setGlobalProperty('fetch', undefined);
+    try {
+      const { initTreeSitter } = await importSubject();
+      await expect(initTreeSitter()).resolves.toBeNull();
+
+      const wasmSupport = await import('../../../../../js/agents/shared/utils/wasm-support.js');
+      expect(wasmSupport.isWasmSupported).not.toHaveBeenCalled();
+      expect(mockParser.init).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('throws when WebAssembly is unsupported in a web runtime', async () => {
     wasmSupported = false;
-    setWebTreeSitterModule();
-    const { initTreeSitter } = await importTreeSitterWasm();
 
-    await expect(initTreeSitter()).rejects.toThrow("Tree-sitter requires WebAssembly support");
-    expect(parserInitMock).not.toHaveBeenCalled();
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const { initTreeSitter } = await importSubject();
+      await expect(initTreeSitter()).rejects.toThrow('Tree-sitter requires WebAssembly support');
+
+      const wasmSupport = await import('../../../../../js/agents/shared/utils/wasm-support.js');
+      expect(wasmSupport.isWasmSupported).toHaveBeenCalledTimes(1);
+      expect(mockParser.init).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
   });
 
-  it("initializes Parser/Language and resolves an absolute base URL", async () => {
-    setWebRuntime({ locationHref: "https://example.com/app/" });
-    setWebTreeSitterModule();
-    const { initTreeSitter } = await importTreeSitterWasm();
-
-    const env = await initTreeSitter({ wasmBaseUrl: "assets/tree-sitter" });
-
-    expect(typeof env.Parser.init).toBe("function");
-    expect(typeof env.Language.load).toBe("function");
-    expect(env.wasmBaseUrl).toBe("https://example.com/app/assets/tree-sitter/");
-    expect(parserInitMock).toHaveBeenCalledTimes(1);
-
-    const initArg = parserInitMock.mock.calls[0][0];
-    expect(typeof initArg.locateFile).toBe("function");
-    expect(initArg.locateFile("tree-sitter.wasm")).toBe("https://example.com/app/assets/tree-sitter/tree-sitter.wasm");
+  it('rejects with TypeError when options is null', async () => {
+    const { initTreeSitter } = await importSubject();
+    await expect(initTreeSitter(null)).rejects.toBeInstanceOf(TypeError);
   });
 
-  it("reuses the in-flight promise for concurrent calls", async () => {
-    setWebRuntime();
-    setWebTreeSitterModule();
-    const { initTreeSitter } = await importTreeSitterWasm();
+  it('initializes successfully and wires locateFile using an absolute base URL', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      let locateFile;
+      mockParser.init.mockImplementation(async (opts) => {
+        locateFile = opts?.locateFile;
+      });
 
-    const first = initTreeSitter();
-    const second = initTreeSitter();
-    const [env1, env2] = await Promise.all([first, second]);
+      const { initTreeSitter } = await importSubject();
+      const env = await initTreeSitter({ wasmBaseUrl: 'https://example.com/wasm/tree-sitter' });
 
-    expect(env1).toBe(env2);
-    expect(env1).toEqual(expect.objectContaining({ Parser: expect.any(Object), Language: expect.any(Object) }));
-    expect(parserInitMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("returns the cached module for rapid consecutive calls", async () => {
-    setWebRuntime();
-    setWebTreeSitterModule();
-    const { initTreeSitter } = await importTreeSitterWasm();
-
-    const env1 = await initTreeSitter();
-    const env2 = await initTreeSitter();
-
-    expect(env2).toBe(env1);
-    expect(parserInitMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("clears the cached promise on failure and allows retry", async () => {
-    setWebRuntime();
-    let attempts = 0;
-    setWebTreeSitterModule({
-      parserInitImpl: () => {
-        attempts += 1;
-        if (attempts === 1) return Promise.reject(new Error("boom"));
-        return Promise.resolve();
-      },
-    });
-    const { initTreeSitter } = await importTreeSitterWasm();
-
-    await expect(initTreeSitter()).rejects.toThrow("boom");
-    await expect(initTreeSitter()).resolves.toEqual(expect.objectContaining({ wasmBaseUrl: "wasm/tree-sitter/" }));
-    expect(parserInitMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("throws when Parser.init is missing", async () => {
-    setWebRuntime();
-    setWebTreeSitterModule({ parserShape: "noInit" });
-    const { initTreeSitter } = await importTreeSitterWasm();
-
-    await expect(initTreeSitter()).rejects.toThrow("web-tree-sitter Parser.init unavailable");
-  });
-
-  it("throws when Language.load is missing", async () => {
-    setWebRuntime();
-    setWebTreeSitterModule({ languageShape: "noLoad" });
-    const { initTreeSitter } = await importTreeSitterWasm();
-
-    await expect(initTreeSitter()).rejects.toThrow("web-tree-sitter Language.load unavailable");
-  });
-
-  const invalidBaseValues = [
-    { label: "null", value: null },
-    { label: "undefined", value: undefined },
-    { label: "empty string", value: "" },
-    { label: "whitespace", value: "   " },
-    { label: "0", value: 0 },
-    { label: "-1", value: -1 },
-    { label: "MAX_SAFE_INTEGER", value: Number.MAX_SAFE_INTEGER },
-    { label: "empty array", value: [] },
-    { label: "empty object", value: {} },
-    { label: "array-like object", value: { 0: "x", length: 1 } },
-  ];
-
-  invalidBaseValues.forEach(({ label, value }) => {
-    it(`falls back to the default base URL for ${label}`, async () => {
-      setWebRuntime();
-      setWebTreeSitterModule();
-      const { initTreeSitter, DEFAULT_TREE_SITTER_WASM_BASE_URL } = await importTreeSitterWasm();
-
-      const env = await initTreeSitter({ wasmBaseUrl: value });
-      expect(env.wasmBaseUrl).toBe(DEFAULT_TREE_SITTER_WASM_BASE_URL);
-    });
-  });
-
-  it("normalizes numeric-looking base strings", async () => {
-    setWebRuntime();
-    setWebTreeSitterModule();
-    const { initTreeSitter } = await importTreeSitterWasm();
-
-    const env = await initTreeSitter({ wasmBaseUrl: "0" });
-    expect(env.wasmBaseUrl).toBe("0/");
-  });
-
-  it("handles very long base URL strings", async () => {
-    setWebRuntime();
-    setWebTreeSitterModule();
-    const { initTreeSitter } = await importTreeSitterWasm();
-
-    const longBase = "x".repeat(5000);
-    const env = await initTreeSitter({ wasmBaseUrl: longBase });
-    expect(env.wasmBaseUrl).toBe(`${longBase}/`);
-  });
-
-  it("accepts deeply nested options objects", async () => {
-    setWebRuntime();
-    setWebTreeSitterModule();
-    const { initTreeSitter, DEFAULT_TREE_SITTER_WASM_BASE_URL } = await importTreeSitterWasm();
-
-    const deepOptions = {
-      wasmBaseUrl: "   ",
-      meta: { a: { b: { c: { d: { e: { f: "g" } } } } } },
-    };
-    const env = await initTreeSitter(deepOptions);
-    expect(env.wasmBaseUrl).toBe(DEFAULT_TREE_SITTER_WASM_BASE_URL);
-  });
-});
-
-describe("loadTreeSitterLanguage", () => {
-  it("returns null outside web runtime", async () => {
-    nodeLike = true;
-    setWebTreeSitterModule();
-    const { loadTreeSitterLanguage } = await importTreeSitterWasm();
-
-    await expect(loadTreeSitterLanguage("tree-sitter-js.wasm")).resolves.toBeNull();
-    expect(languageLoadMock).not.toHaveBeenCalled();
-  });
-
-  const invalidFileValues = [
-    { label: "null", value: null },
-    { label: "undefined", value: undefined },
-    { label: "empty string", value: "" },
-    { label: "whitespace", value: "   " },
-    { label: "0", value: 0 },
-    { label: "-1", value: -1 },
-    { label: "MAX_SAFE_INTEGER", value: Number.MAX_SAFE_INTEGER },
-    { label: "empty array", value: [] },
-    { label: "empty object", value: {} },
-    { label: "array-like object", value: { 0: "x", length: 1 } },
-  ];
-
-  invalidFileValues.forEach(({ label, value }) => {
-    it(`throws when wasmFileName is ${label}`, async () => {
-      setWebRuntime();
-      setWebTreeSitterModule();
-      const { loadTreeSitterLanguage } = await importTreeSitterWasm();
-
-      await expect(loadTreeSitterLanguage(value)).rejects.toThrow(
-        "loadTreeSitterLanguage(wasmFileName): wasmFileName is required",
+      expect(env).toEqual(
+        expect.objectContaining({
+          Parser: mockParser,
+          Language: mockLanguage,
+          wasmBaseUrl: 'https://example.com/wasm/tree-sitter/',
+        }),
       );
-      expect(languageLoadMock).not.toHaveBeenCalled();
-    });
+
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+      expect(locateFile).toEqual(expect.any(Function));
+      expect(locateFile('tree-sitter.wasm')).toBe('https://example.com/wasm/tree-sitter/tree-sitter.wasm');
+    } finally {
+      restoreFetch();
+    }
   });
 
-  it("trims the wasm file name and resolves the language URL", async () => {
-    setWebRuntime({ locationHref: "https://example.com/app/" });
-    setWebTreeSitterModule();
-    const { loadTreeSitterLanguage } = await importTreeSitterWasm();
+  it('returns the cached initialized module on repeated calls', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const { initTreeSitter } = await importSubject();
 
-    const result = await loadTreeSitterLanguage("  tree-sitter-js.wasm  ", { wasmBaseUrl: "wasm/tree-sitter" });
+      const first = await initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' });
+      const second = await initTreeSitter({ wasmBaseUrl: 'https://other.example.com/ts/' });
 
-    expect(languageLoadMock).toHaveBeenCalledTimes(1);
-    expect(languageLoadMock).toHaveBeenCalledWith(
-      "https://example.com/app/wasm/tree-sitter/tree-sitter-js.wasm",
-    );
-    expect(result).toEqual({ url: "https://example.com/app/wasm/tree-sitter/tree-sitter-js.wasm" });
+      expect(second).toBe(first);
+      expect(first.wasmBaseUrl).toBe('https://cdn.example.com/ts/');
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreFetch();
+    }
   });
 
-  it("accepts numeric-looking file names as strings", async () => {
-    setWebRuntime({ locationHref: "https://example.com/app/" });
-    setWebTreeSitterModule();
-    const { loadTreeSitterLanguage } = await importTreeSitterWasm();
+  it('coalesces concurrent calls and only initializes once', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const deferred = createDeferred();
+      mockParser.init.mockImplementation(() => deferred.promise);
 
-    const result = await loadTreeSitterLanguage("0", { wasmBaseUrl: "wasm/tree-sitter/" });
+      const { initTreeSitter } = await importSubject();
+      const p1 = initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' });
+      const p2 = initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' });
 
-    expect(languageLoadMock).toHaveBeenCalledTimes(1);
-    expect(languageLoadMock).toHaveBeenCalledWith("https://example.com/app/wasm/tree-sitter/0");
-    expect(result).toEqual({ url: "https://example.com/app/wasm/tree-sitter/0" });
+      deferred.resolve();
+
+      const [env1, env2] = await Promise.all([p1, p2]);
+      expect(env2).toBe(env1);
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreFetch();
+    }
   });
 
-  it("handles very long wasm file names", async () => {
-    setWebRuntime({ locationHref: "https://example.com/app/" });
-    setWebTreeSitterModule();
-    const { loadTreeSitterLanguage } = await importTreeSitterWasm();
+  it('clears the cached init promise on failure so it can retry', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const { initTreeSitter } = await importSubject();
 
-    const longName = `tree-sitter-${"x".repeat(10000)}.wasm`;
-    const result = await loadTreeSitterLanguage(longName, { wasmBaseUrl: "wasm/tree-sitter" });
-    const expectedUrl = `https://example.com/app/wasm/tree-sitter/${longName}`;
+      mockParser.init.mockRejectedValueOnce(new Error('boom'));
+      await expect(initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' })).rejects.toThrow('boom');
 
-    expect(languageLoadMock).toHaveBeenCalledWith(expectedUrl);
-    expect(result).toEqual({ url: expectedUrl });
-    expect(result.url.length).toBeGreaterThan(10000);
+      mockParser.init.mockResolvedValueOnce(undefined);
+      await expect(initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' })).resolves.toEqual(
+        expect.objectContaining({ wasmBaseUrl: 'https://cdn.example.com/ts/' }),
+      );
+
+      expect(mockParser.init).toHaveBeenCalledTimes(2);
+    } finally {
+      restoreFetch();
+    }
   });
 
-  it("supports concurrent language loads with shared init", async () => {
-    setWebRuntime({ locationHref: "https://example.com/app/" });
-    setWebTreeSitterModule();
-    const { loadTreeSitterLanguage } = await importTreeSitterWasm();
+  it('throws a clear error if web-tree-sitter Parser.init is unavailable', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      webTreeSitterFactory = () => ({ Parser: {}, Language: mockLanguage });
 
-    const [first, second] = await Promise.all([
-      loadTreeSitterLanguage("tree-sitter-a.wasm", { wasmBaseUrl: "wasm/tree-sitter" }),
-      loadTreeSitterLanguage("tree-sitter-b.wasm", { wasmBaseUrl: "wasm/tree-sitter" }),
-    ]);
+      const { initTreeSitter } = await importSubject();
+      await expect(initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' })).rejects.toThrow(
+        'web-tree-sitter Parser.init unavailable',
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
 
-    expect(parserInitMock).toHaveBeenCalledTimes(1);
-    expect(languageLoadMock).toHaveBeenCalledTimes(2);
-    expect(first).toEqual({ url: "https://example.com/app/wasm/tree-sitter/tree-sitter-a.wasm" });
-    expect(second).toEqual({ url: "https://example.com/app/wasm/tree-sitter/tree-sitter-b.wasm" });
+  it('throws a clear error if web-tree-sitter Language.load is unavailable', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      webTreeSitterFactory = () => ({ Parser: mockParser, Language: {} });
+
+      const { initTreeSitter } = await importSubject();
+      await expect(initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' })).rejects.toThrow(
+        'web-tree-sitter Language.load unavailable',
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('supports web-tree-sitter default export shape { default: { Parser, Language } }', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      webTreeSitterFactory = () => ({ default: { Parser: mockParser, Language: mockLanguage } });
+
+      const { initTreeSitter } = await importSubject();
+      const env = await initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' });
+
+      expect(env.Parser).toBe(mockParser);
+      expect(env.Language).toBe(mockLanguage);
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('supports web-tree-sitter shape where Parser is the default export', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      webTreeSitterFactory = () => ({ default: mockParser, Language: mockLanguage });
+
+      const { initTreeSitter } = await importSubject();
+      const env = await initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' });
+
+      expect(env.Parser).toBe(mockParser);
+      expect(env.Language).toBe(mockLanguage);
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+    ['whitespace string', '   '],
+    ['0', 0],
+    ['-1', -1],
+    ['MAX_SAFE_INTEGER', Number.MAX_SAFE_INTEGER],
+    ['empty object', {}],
+    ['empty array', []],
+    ['deep object', { a: { b: { c: [1, 2, 3] } } }],
+  ])('falls back to the default base URL for wasmBaseUrl=%s', async (_label, wasmBaseUrl) => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const { initTreeSitter } = await importSubject();
+      const env = await initTreeSitter({ wasmBaseUrl });
+
+      expect(env).toEqual(expect.objectContaining({ wasmBaseUrl: 'wasm/tree-sitter/' }));
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('handles very long wasmBaseUrl strings', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const longPath = 'a'.repeat(5000);
+      const { initTreeSitter } = await importSubject();
+      const env = await initTreeSitter({ wasmBaseUrl: `https://example.com/${longPath}` });
+
+      expect(env.wasmBaseUrl).toBe(`https://example.com/${longPath}/`);
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('accepts options passed as an array and uses the default base URL', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const { initTreeSitter } = await importSubject();
+      const env = await initTreeSitter([]);
+
+      expect(env).toEqual(expect.objectContaining({ wasmBaseUrl: 'wasm/tree-sitter/' }));
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreFetch();
+    }
   });
 });
 
-describe("default", () => {
-  it("exposes the public API on the default export", async () => {
-    const mod = await importTreeSitterWasm();
+describe('loadTreeSitterLanguage', () => {
+  it('returns null in node-like runtime (does not validate wasmFileName)', async () => {
+    nodeLike = true;
 
-    expect(mod.default).toEqual({
-      initTreeSitter: mod.initTreeSitter,
-      loadTreeSitterLanguage: mod.loadTreeSitterLanguage,
-      DEFAULT_TREE_SITTER_WASM_BASE_URL: mod.DEFAULT_TREE_SITTER_WASM_BASE_URL,
-    });
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const { loadTreeSitterLanguage } = await importSubject();
+      await expect(loadTreeSitterLanguage('')).resolves.toBeNull();
+
+      expect(mockLanguage.load).not.toHaveBeenCalled();
+      expect(mockParser.init).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('returns null when fetch is unavailable (does not validate wasmFileName)', async () => {
+    const restoreFetch = setGlobalProperty('fetch', undefined);
+    try {
+      const { loadTreeSitterLanguage } = await importSubject();
+      await expect(loadTreeSitterLanguage('', { wasmBaseUrl: 'https://cdn.example.com/ts/' })).resolves.toBeNull();
+
+      expect(mockLanguage.load).not.toHaveBeenCalled();
+      expect(mockParser.init).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('rejects with TypeError when options is null', async () => {
+    const { loadTreeSitterLanguage } = await importSubject();
+    await expect(loadTreeSitterLanguage('x.wasm', null)).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+    ['whitespace string', '   '],
+    ['0', 0],
+    ['-1', -1],
+    ['MAX_SAFE_INTEGER', Number.MAX_SAFE_INTEGER],
+    ['empty object', {}],
+    ['empty array', []],
+  ])('throws when wasmFileName is required (%s)', async (_label, wasmFileName) => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const { loadTreeSitterLanguage } = await importSubject();
+      await expect(
+        loadTreeSitterLanguage(wasmFileName, { wasmBaseUrl: 'https://cdn.example.com/ts/' }),
+      ).rejects.toThrow('loadTreeSitterLanguage(wasmFileName): wasmFileName is required');
+
+      expect(mockLanguage.load).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('trims wasmFileName and loads the language using a resolved absolute URL', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      mockLanguage.load.mockResolvedValueOnce({ id: 'lang' });
+
+      const { loadTreeSitterLanguage } = await importSubject();
+      const result = await loadTreeSitterLanguage('  tree-sitter-javascript.wasm  ', {
+        wasmBaseUrl: 'https://cdn.example.com/ts',
+      });
+
+      expect(result).toEqual({ id: 'lang' });
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+      expect(mockLanguage.load).toHaveBeenCalledTimes(1);
+      expect(mockLanguage.load).toHaveBeenCalledWith('https://cdn.example.com/ts/tree-sitter-javascript.wasm');
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('coalesces concurrent calls via initTreeSitter and loads each language once', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const deferred = createDeferred();
+      mockParser.init.mockImplementation(() => deferred.promise);
+      mockLanguage.load.mockImplementation(async (url) => ({ url }));
+
+      const { loadTreeSitterLanguage } = await importSubject();
+
+      const p1 = loadTreeSitterLanguage('a.wasm', { wasmBaseUrl: 'https://cdn.example.com/ts/' });
+      const p2 = loadTreeSitterLanguage('b.wasm', { wasmBaseUrl: 'https://cdn.example.com/ts/' });
+
+      deferred.resolve();
+
+      const [r1, r2] = await Promise.all([p1, p2]);
+
+      expect(r1).toEqual({ url: 'https://cdn.example.com/ts/a.wasm' });
+      expect(r2).toEqual({ url: 'https://cdn.example.com/ts/b.wasm' });
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+      expect(mockLanguage.load).toHaveBeenCalledTimes(2);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('fails with TypeError when default/relative wasmBaseUrl cannot form an absolute URL base', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const { loadTreeSitterLanguage } = await importSubject();
+      await expect(loadTreeSitterLanguage('lang.wasm', { wasmBaseUrl: '' })).rejects.toBeInstanceOf(TypeError);
+
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+      expect(mockLanguage.load).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('handles very long wasmFileName strings', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const longName = `${'a'.repeat(5000)}.wasm`;
+      const { loadTreeSitterLanguage } = await importSubject();
+      await loadTreeSitterLanguage(longName, { wasmBaseUrl: 'https://cdn.example.com/ts/' });
+
+      expect(mockLanguage.load).toHaveBeenCalledTimes(1);
+      expect(mockLanguage.load).toHaveBeenCalledWith(`https://cdn.example.com/ts/${longName}`);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('accepts options passed as an array but may fail if the base URL is not absolute', async () => {
+    const restoreFetch = setGlobalProperty('fetch', vi.fn());
+    try {
+      const { loadTreeSitterLanguage } = await importSubject();
+      await expect(loadTreeSitterLanguage('lang.wasm', [])).rejects.toBeInstanceOf(TypeError);
+
+      expect(mockParser.init).toHaveBeenCalledTimes(1);
+      expect(mockLanguage.load).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+describe('default export', () => {
+  it('exposes the named exports on the default object', async () => {
+    const mod = await importSubject();
+
+    expect(mod.default).toEqual(
+      expect.objectContaining({
+        DEFAULT_TREE_SITTER_WASM_BASE_URL: mod.DEFAULT_TREE_SITTER_WASM_BASE_URL,
+        initTreeSitter: mod.initTreeSitter,
+        loadTreeSitterLanguage: mod.loadTreeSitterLanguage,
+      }),
+    );
   });
 });

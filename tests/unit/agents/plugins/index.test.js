@@ -1,459 +1,368 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock every plugin implementation referenced by the registry to ensure we never load real code.
-vi.mock("../../../../js/agents/plugins/compression/cicada.js", () => ({
-  default: { id: "compression/cicada" },
-}));
-vi.mock("../../../../js/agents/plugins/compression/watchdog.js", () => ({
-  default: { id: "compression/watchdog" },
-}));
+const SUBJECT_PATH = '../../../../js/agents/plugins/index.js';
 
-vi.mock("../../../../js/agents/plugins/analysis/fingerprint.js", () => ({
-  default: { id: "analysis/fingerprint" },
-}));
-vi.mock("../../../../js/agents/plugins/analysis/convergence-detector.js", () => ({
-  default: { id: "analysis/convergence" },
-}));
-vi.mock("../../../../js/agents/plugins/analysis/behavior-fingerprint.js", () => ({
-  default: { id: "analysis/behavior" },
-}));
+vi.mock(
+  '../../../../js/agents/plugins/compression/cicada.js',
+  () => ({
+    default: { name: 'cicada', kind: 'compression' },
+  }),
+  { virtual: true },
+);
 
-vi.mock("../../../../js/agents/plugins/telemetry/token-tracker.js", () => ({
-  default: { id: "telemetry/token-tracker" },
-}));
-vi.mock("../../../../js/agents/plugins/telemetry/trace-context.js", () => ({
-  default: { id: "telemetry/trace" },
-}));
-vi.mock("../../../../js/agents/plugins/telemetry/replay-controller.js", () => ({
-  default: { id: "telemetry/replay" },
-}));
+vi.mock(
+  '../../../../js/agents/plugins/compression/watchdog.js',
+  () => ({
+    plugin: { name: 'watchdog', kind: 'compression' },
+  }),
+  { virtual: true },
+);
 
-vi.mock("../../../../js/agents/plugins/memory/memory-store.impl.js", () => ({
-  default: { id: "memory/store" },
-}));
-vi.mock("../../../../js/agents/plugins/memory/state-engine.js", () => ({
-  default: { id: "memory/state-engine" },
-}));
-vi.mock("../../../../js/agents/plugins/memory/retrieval-engine.js", () => ({
-  default: { id: "memory/retrieval" },
-}));
-
-vi.mock("../../../../js/agents/plugins/coordination/tab-coordinator.js", () => ({
-  default: { id: "coordination/tab" },
-}));
-vi.mock("../../../../js/agents/plugins/coordination/process-coordinator.js", () => ({
-  default: { id: "coordination/process" },
-}));
-
-vi.mock("../../../../js/agents/plugins/checkpoints/agent-checkpoint-store.js", () => ({
-  default: { id: "checkpoints/store" },
-}));
-
-vi.mock("../../../../js/agents/plugins/deps/index.js", () => ({
-  default: { id: "deps/python" },
-}));
-
-vi.mock("../../../../js/agents/plugins/plan/plan-store.js", () => ({
-  default: { id: "plan/store" },
-}));
-vi.mock("../../../../js/agents/plugins/plan/structured-plan.js", () => ({
-  default: { id: "plan/structured" },
-}));
-
-vi.mock("../../../../js/agents/plugins/policy/engine.js", () => ({
-  default: { id: "policy/engine" },
-}));
-vi.mock("../../../../js/agents/plugins/policy/manager.js", () => ({
-  default: { id: "policy/manager" },
-}));
-
-vi.mock("../../../../js/agents/plugins/routing/performance-router.js", () => ({
-  default: { id: "routing/performance" },
-}));
-
-vi.mock("../../../../js/agents/plugins/transports/index.js", () => ({
-  default: { id: "transports/process" },
-}));
-
-vi.mock("../../../../js/agents/plugins/side-effects/side-effect-journal.js", () => ({
-  default: { id: "side-effects/journal" },
-}));
-
-vi.mock("../../../../js/agents/plugins/resilience/retry.js", () => ({
-  default: { id: "resilience/retry" },
-}));
-vi.mock("../../../../js/agents/plugins/resilience/degradation-matrix.js", () => ({
-  default: { id: "resilience/level" },
-}));
-
-vi.mock("../../../../js/agents/plugins/stages/deepsearch.js", () => ({
-  default: { id: "stage/deepsearch" },
-}));
-
-vi.mock("../../../../js/agents/plugins/services/llm.js", () => ({
-  default: { id: "service/llm" },
-}));
-vi.mock("../../../../js/agents/plugins/services/mcp.js", () => ({
-  default: { id: "service/mcp" },
-}));
-vi.mock("../../../../js/agents/plugins/services/scheduler.js", () => ({
-  default: { id: "service/scheduler" },
-}));
-vi.mock("../../../../js/agents/plugins/services/vfs.js", () => ({
-  default: { id: "service/vfs" },
-}));
-
-vi.mock("../../../../js/agents/core/sandbox/plugin.js", () => ({
-  default: { id: "sandbox" },
-}));
-
-// One registry entry needs to validate "no default export" behavior.
-vi.mock("../../../../js/agents/plugins/debug/logger.js", () => ({
-  default: undefined,
-  name: "logger",
-  LoggerPlugin: { id: "debug/logger" },
-}));
-vi.mock("../../../../js/agents/plugins/debug/inspector.js", () => ({
-  default: { id: "debug/inspector" },
-}));
-
-const LONG_NAME = "x".repeat(50_000);
-const LARGE_PAYLOAD = "y".repeat(1024 * 1024);
-
-const buildDeepNested = (depth) => {
-  let node = { level: depth };
-  for (let i = depth - 1; i >= 0; i -= 1) {
-    node = { level: i, child: node };
-  }
-  return node;
-};
-
-const countDepth = (node) => {
-  let depth = 0;
-  let current = node;
-  while (current && current.child) {
-    depth += 1;
-    current = current.child;
-  }
-  return depth;
-};
-
-let plugins;
-
-beforeEach(async () => {
-  vi.clearAllMocks();
+beforeEach(() => {
   vi.resetModules();
-  plugins = await import("../../../../js/agents/plugins/index.js");
+  vi.clearAllMocks();
 });
 
-describe("loadPlugin", () => {
-  it("should_return_default_export_when_module_has_default_export", async () => {
-    // Act
-    const plugin = await plugins.loadPlugin("analysis/fingerprint");
+async function importSubject() {
+  return import(SUBJECT_PATH);
+}
 
-    // Assert
-    expect(plugin).toEqual({ id: "analysis/fingerprint" });
+function makeDeepNestedObject(depth) {
+  let current = { leaf: true };
+  for (let i = 0; i < depth; i += 1) {
+    current = { level: i, next: current };
+  }
+  return current;
+}
+
+describe('loadPlugin', () => {
+  it('loads a known plugin and returns its default export', async () => {
+    const { loadPlugin } = await importSubject();
+    const plugin = await loadPlugin('compression/cicada');
+    expect(plugin).toEqual({ name: 'cicada', kind: 'compression' });
   });
 
-  it("should_return_module_namespace_when_module_has_no_default_export", async () => {
-    // Act
-    const plugin = await plugins.loadPlugin("debug/logger");
+  it('loads a known plugin and returns the module object when default is missing', async () => {
+    const { loadPlugin } = await importSubject();
+    const mod = await loadPlugin('compression/watchdog');
 
-    // Assert
-    expect(plugin).toEqual(expect.objectContaining({ LoggerPlugin: { id: "debug/logger" } }));
+    expect(mod).toMatchObject({ plugin: { name: 'watchdog', kind: 'compression' } });
+    expect(mod).not.toHaveProperty('default');
   });
 
-  it("should_throw_unknown_plugin_error_when_name_is_unregistered", async () => {
-    // Act + Assert
-    await expect(plugins.loadPlugin("missing/plugin")).rejects.toThrow(/Unknown plugin:/);
+  it('throws an error for unknown plugin names', async () => {
+    const { loadPlugin } = await importSubject();
+    await expect(loadPlugin('does/not-exist')).rejects.toThrowError(/Unknown plugin:/);
   });
 
   it.each([
-    ["null", null],
-    ["undefined", undefined],
-    ["empty_string", ""],
-    ["whitespace", "   "],
-    ["zero_number", 0],
-    ["negative_number", -1],
-    ["max_safe_integer", Number.MAX_SAFE_INTEGER],
-    ["zero_string", "0"],
-    ["numeric_string", "123"],
-    ["empty_array", []],
-    ["empty_object", {}],
-    ["very_long_string", LONG_NAME],
-  ])("should_throw_unknown_plugin_error_when_name_is_%s", async (_label, value) => {
-    // Act + Assert
-    await expect(plugins.loadPlugin(value)).rejects.toThrow(/Unknown plugin:/);
+    ['null', null],
+    ['undefined', undefined],
+    ['empty string', ''],
+    ['whitespace string', '   '],
+    ['0', 0],
+    ['-1', -1],
+    ['MAX_SAFE_INTEGER', Number.MAX_SAFE_INTEGER],
+    ['empty array', []],
+    ['empty object', {}],
+    ['array-like object', { 0: 'compression/cicada', length: 1 }],
+    ['numeric string', '42'],
+  ])('rejects invalid/edge name: %s', async (_label, name) => {
+    const { loadPlugin } = await importSubject();
+    await expect(loadPlugin(name)).rejects.toThrowError(/Unknown plugin:/);
   });
 
-  it("should_propagate_loader_error_when_loader_throws", async () => {
-    // Arrange
-    const error = new Error("boom");
-    plugins.registerPlugin("custom/error", () => {
-      throw error;
+  it('propagates errors thrown by plugin loaders', async () => {
+    const { loadPlugin, registerPlugin } = await importSubject();
+    registerPlugin('custom/fails', async () => {
+      throw new Error('boom');
     });
 
-    // Act + Assert
-    await expect(plugins.loadPlugin("custom/error")).rejects.toThrow("boom");
+    await expect(loadPlugin('custom/fails')).rejects.toThrow('boom');
   });
 
-  it("should_handle_concurrent_calls_when_loader_returns_large_payload", async () => {
-    // Arrange
-    const loader = async () => ({
-      default: {
-        payload: LARGE_PAYLOAD,
-      },
-    });
-    plugins.registerPlugin("custom/large", loader);
+  it('throws TypeError when a registered loader is not a function', async () => {
+    const { loadPlugin, registerPlugin } = await importSubject();
+    registerPlugin('custom/bad-loader', { not: 'a function' });
 
-    // Act
-    const [first, second] = await Promise.all([
-      plugins.loadPlugin("custom/large"),
-      plugins.loadPlugin("custom/large"),
+    await expect(loadPlugin('custom/bad-loader')).rejects.toThrow(TypeError);
+  });
+
+  it('handles concurrent and rapid consecutive loads deterministically', async () => {
+    const { loadPlugin, registerPlugin } = await importSubject();
+    const loader = vi.fn(async () => ({ default: { name: 'concurrent', kind: 'custom' } }));
+    registerPlugin('custom/concurrent', loader);
+
+    const [a, b] = await Promise.all([
+      loadPlugin('custom/concurrent'),
+      loadPlugin('custom/concurrent'),
     ]);
 
-    // Assert
-    expect([first.payload.length, second.payload.length]).toEqual([LARGE_PAYLOAD.length, LARGE_PAYLOAD.length]);
+    expect(a).toEqual({ name: 'concurrent', kind: 'custom' });
+    expect(b).toEqual({ name: 'concurrent', kind: 'custom' });
+    expect(loader).toHaveBeenCalledTimes(2);
+
+    for (let i = 0; i < 10; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      expect(await loadPlugin('custom/concurrent')).toEqual({ name: 'concurrent', kind: 'custom' });
+    }
+    expect(loader).toHaveBeenCalledTimes(12);
   });
 
-  it("should_preserve_deep_nesting_when_loader_returns_deep_structure", async () => {
-    // Arrange
-    const deep = buildDeepNested(32);
-    plugins.registerPlugin("custom/deep", async () => ({
-      default: { nested: deep },
-    }));
+  it('supports large payloads and deep nested plugin objects', async () => {
+    const { loadPlugin, registerPlugin } = await importSubject();
+    const large = 'x'.repeat(1_000_000);
+    const deep = makeDeepNestedObject(256);
 
-    // Act
-    const plugin = await plugins.loadPlugin("custom/deep");
+    registerPlugin('custom/large', async () => ({ default: large }));
+    registerPlugin('custom/deep', async () => ({ default: deep }));
 
-    // Assert
-    expect(countDepth(plugin.nested)).toBe(32);
+    const loadedLarge = await loadPlugin('custom/large');
+    expect(loadedLarge).toHaveLength(1_000_000);
+
+    const loadedDeep = await loadPlugin('custom/deep');
+    expect(loadedDeep).toBe(deep);
+    expect(loadedDeep).toMatchObject({ level: 255, next: expect.any(Object) });
   });
 });
 
-describe("hasPlugin", () => {
-  it("should_return_true_when_name_is_registered", () => {
-    // Act
-    const result = plugins.hasPlugin("analysis/fingerprint");
-
-    // Assert
-    expect(result).toBe(true);
+describe('hasPlugin', () => {
+  it('returns true for known plugins', async () => {
+    const { hasPlugin } = await importSubject();
+    expect(hasPlugin('compression/cicada')).toBe(true);
   });
 
-  it("should_return_false_when_name_is_unregistered", () => {
-    // Act
-    const result = plugins.hasPlugin("missing/plugin");
-
-    // Assert
-    expect(result).toBe(false);
+  it('returns false for unknown plugins', async () => {
+    const { hasPlugin } = await importSubject();
+    expect(hasPlugin('unknown/plugin')).toBe(false);
   });
 
   it.each([
-    ["null", null],
-    ["undefined", undefined],
-    ["empty_string", ""],
-    ["whitespace", "   "],
-    ["zero_number", 0],
-    ["negative_number", -1],
-    ["max_safe_integer", Number.MAX_SAFE_INTEGER],
-    ["zero_string", "0"],
-    ["numeric_string", "123"],
-    ["empty_array", []],
-    ["empty_object", {}],
-    ["very_long_string", LONG_NAME],
-  ])("should_return_false_when_name_is_%s", (_label, value) => {
-    // Act
-    const result = plugins.hasPlugin(value);
-
-    // Assert
-    expect(result).toBe(false);
+    ['null', null, false],
+    ['undefined', undefined, false],
+    ['empty string', '', false],
+    ['whitespace string', '   ', false],
+    ['0', 0, false],
+    ['-1', -1, false],
+    ['MAX_SAFE_INTEGER', Number.MAX_SAFE_INTEGER, false],
+    ['empty array', [], false],
+    ['empty object', {}, false],
+    ['array-like object', { 0: 'compression/cicada', length: 1 }, false],
+    ['numeric string', '42', false],
+  ])('handles boundary name: %s', async (_label, name, expected) => {
+    const { hasPlugin } = await importSubject();
+    expect(hasPlugin(name)).toBe(expected);
   });
 
-  it("should_return_expected_results_when_called_concurrently", async () => {
-    // Arrange
-    const names = ["analysis/fingerprint", "debug/logger", "missing", null, "   "];
+  it('reflects custom registrations, including non-string keys', async () => {
+    const { hasPlugin, registerPlugin } = await importSubject();
+    registerPlugin(undefined, async () => ({ default: { ok: true } }));
+    registerPlugin(null, async () => ({ default: { ok: true } }));
+    registerPlugin(0, async () => ({ default: { ok: true } }));
 
-    // Act
-    const results = await Promise.all(names.map((name) => Promise.resolve().then(() => plugins.hasPlugin(name))));
-
-    // Assert
-    expect(results).toEqual([true, true, false, false, false]);
+    expect(hasPlugin(undefined)).toBe(true);
+    expect(hasPlugin(null)).toBe(true);
+    expect(hasPlugin(0)).toBe(true);
   });
 });
 
-describe("listAvailablePlugins", () => {
-  it("should_return_a_non_empty_array_of_plugin_names", () => {
-    // Act
-    const list = plugins.listAvailablePlugins();
+describe('listAvailablePlugins', () => {
+  it('lists built-in plugin names', async () => {
+    const { listAvailablePlugins } = await importSubject();
+    const list = listAvailablePlugins();
 
-    // Assert
-    expect(list.length).toBeGreaterThan(0);
+    expect(Array.isArray(list)).toBe(true);
+    expect(list).toContain('compression/cicada');
+    expect(list).toContain('debug/inspector');
   });
 
-  it("should_include_known_plugin_names_when_listing", () => {
-    // Act
-    const list = plugins.listAvailablePlugins();
+  it('returns a new array instance on each call', async () => {
+    const { listAvailablePlugins } = await importSubject();
+    const a = listAvailablePlugins();
+    const b = listAvailablePlugins();
 
-    // Assert
-    expect(list).toEqual(expect.arrayContaining(["analysis/fingerprint", "sandbox", "debug/inspector"]));
+    expect(a).toEqual(b);
+    expect(a).not.toBe(b);
   });
 
-  it("should_include_registered_plugin_when_registerPlugin_is_called", () => {
-    // Arrange
-    plugins.registerPlugin("custom/list", async () => ({ default: { ok: true } }));
+  it('includes newly registered plugins, including long names', async () => {
+    const { listAvailablePlugins, registerPlugin, hasPlugin } = await importSubject();
+    const longName = `custom/${'a'.repeat(10_000)}`;
+    registerPlugin(longName, async () => ({ default: { ok: true } }));
 
-    // Act
-    const list = plugins.listAvailablePlugins();
-
-    // Assert
-    expect(list).toContain("custom/list");
+    expect(hasPlugin(longName)).toBe(true);
+    expect(listAvailablePlugins()).toContain(longName);
   });
 
-  it("should_not_mutate_registry_when_consumer_mutates_returned_list", () => {
-    // Arrange
-    const list = plugins.listAvailablePlugins();
+  it('handles a large number of custom registrations without losing built-ins', async () => {
+    const { listAvailablePlugins, registerPlugin, hasPlugin } = await importSubject();
+    const base = new Set(listAvailablePlugins());
 
-    // Act
-    list.push("fake/plugin");
+    const count = 250;
+    for (let i = 0; i < count; i += 1) {
+      registerPlugin(`bulk/plugin-${i}`, async () => ({ default: i }));
+    }
 
-    // Assert
-    expect(plugins.hasPlugin("fake/plugin")).toBe(false);
-  });
-});
-
-describe("registerPlugin", () => {
-  it("should_register_plugin_name_when_loader_is_provided", () => {
-    // Arrange
-    plugins.registerPlugin("custom/plugin", async () => ({ default: { id: "custom/plugin" } }));
-
-    // Act
-    const result = plugins.hasPlugin("custom/plugin");
-
-    // Assert
-    expect(result).toBe(true);
-  });
-
-  it("should_load_registered_plugin_when_loader_returns_default_export", async () => {
-    // Arrange
-    plugins.registerPlugin("custom/plugin", async () => ({ default: { id: "custom/plugin" } }));
-
-    // Act
-    const plugin = await plugins.loadPlugin("custom/plugin");
-
-    // Assert
-    expect(plugin).toEqual({ id: "custom/plugin" });
-  });
-
-  it("should_override_existing_loader_when_name_is_re_registered", async () => {
-    // Arrange
-    plugins.registerPlugin("analysis/fingerprint", async () => ({ default: { id: "override" } }));
-
-    // Act
-    const plugin = await plugins.loadPlugin("analysis/fingerprint");
-
-    // Assert
-    expect(plugin).toEqual({ id: "override" });
-  });
-
-  it("should_throw_typeerror_when_loader_is_not_a_function_and_loaded", async () => {
-    // Arrange
-    plugins.registerPlugin("custom/bad", "not-a-function");
-
-    // Act + Assert
-    await expect(plugins.loadPlugin("custom/bad")).rejects.toThrow(TypeError);
-  });
-
-  it("should_support_very_long_names_when_registering", () => {
-    // Arrange
-    plugins.registerPlugin(LONG_NAME, async () => ({ default: { id: LONG_NAME } }));
-
-    // Act
-    const result = plugins.hasPlugin(LONG_NAME);
-
-    // Assert
-    expect(result).toBe(true);
+    const all = listAvailablePlugins();
+    expect(all.length).toBeGreaterThanOrEqual(base.size + count);
+    expect(all).toContain('compression/cicada');
+    expect(hasPlugin('bulk/plugin-0')).toBe(true);
+    expect(hasPlugin(`bulk/plugin-${count - 1}`)).toBe(true);
   });
 });
 
-describe("createPluginLoader", () => {
-  it("should_return_a_function_when_called", () => {
-    // Act
-    const loader = plugins.createPluginLoader();
+describe('registerPlugin', () => {
+  it('registers a new plugin loader and enables loading it', async () => {
+    const { registerPlugin, hasPlugin, loadPlugin, listAvailablePlugins } = await importSubject();
+    const loader = vi.fn(async () => ({ default: { name: 'custom', kind: 'test' } }));
 
-    // Assert
-    expect(typeof loader).toBe("function");
+    registerPlugin('custom/plugin', loader);
+
+    expect(hasPlugin('custom/plugin')).toBe(true);
+    expect(listAvailablePlugins()).toContain('custom/plugin');
+    await expect(loadPlugin('custom/plugin')).resolves.toEqual({ name: 'custom', kind: 'test' });
+    expect(loader).toHaveBeenCalledTimes(1);
   });
 
-  it("should_load_same_plugin_as_loadPlugin_when_called", async () => {
-    // Arrange
-    const loader = plugins.createPluginLoader();
+  it('overrides an existing plugin loader', async () => {
+    const { registerPlugin, loadPlugin } = await importSubject();
 
-    // Act
-    const viaLoader = await loader("analysis/fingerprint");
-    const viaDirect = await plugins.loadPlugin("analysis/fingerprint");
+    registerPlugin('compression/cicada', async () => ({ default: { name: 'override' } }));
+    const plugin = await loadPlugin('compression/cicada');
 
-    // Assert
-    expect([viaLoader, viaDirect]).toEqual([{ id: "analysis/fingerprint" }, { id: "analysis/fingerprint" }]);
+    expect(plugin).toEqual({ name: 'override' });
   });
 
   it.each([
-    ["null", null],
-    ["undefined", undefined],
-    ["empty_string", ""],
-    ["whitespace", "   "],
-    ["zero_number", 0],
-    ["negative_number", -1],
-    ["max_safe_integer", Number.MAX_SAFE_INTEGER],
-    ["missing", "missing"],
-  ])("should_throw_unknown_plugin_error_when_loader_is_called_with_%s", async (_label, value) => {
-    // Arrange
-    const loader = plugins.createPluginLoader();
+    ['empty string', ''],
+    ['whitespace string', '   '],
+    ['0', 0],
+    ['-1', -1],
+    ['MAX_SAFE_INTEGER', Number.MAX_SAFE_INTEGER],
+    ['null', null],
+    ['undefined', undefined],
+    ['empty array', []],
+    ['empty object', {}],
+    ['array-like object', { 0: 'x', length: 0 }],
+  ])('accepts boundary plugin name: %s', async (_label, name) => {
+    const { registerPlugin, hasPlugin, loadPlugin, listAvailablePlugins } = await importSubject();
 
-    // Act + Assert
-    await expect(loader(value)).rejects.toThrow(/Unknown plugin:/);
+    registerPlugin(name, async () => ({ default: { ok: true, name: String(name) } }));
+
+    expect(hasPlugin(name)).toBe(true);
+    expect(listAvailablePlugins()).toContain(String(name));
+    await expect(loadPlugin(name)).resolves.toMatchObject({ ok: true });
   });
 
-  it("should_support_concurrent_calls_to_different_plugins", async () => {
-    // Arrange
-    plugins.registerPlugin("custom/a", async () => ({ default: { id: "a" } }));
-    plugins.registerPlugin("custom/b", async () => ({ default: { id: "b" } }));
-    const loader = plugins.createPluginLoader();
+  it('last registration wins under rapid consecutive overrides', async () => {
+    const { registerPlugin, loadPlugin } = await importSubject();
 
-    // Act
-    const [first, second] = await Promise.all([loader("custom/a"), loader("custom/b")]);
+    registerPlugin('custom/override', async () => ({ default: { v: 1 } }));
+    registerPlugin('custom/override', async () => ({ default: { v: 2 } }));
+    registerPlugin('custom/override', async () => ({ default: { v: 3 } }));
 
-    // Assert
-    expect([first.id, second.id]).toEqual(["a", "b"]);
+    await expect(loadPlugin('custom/override')).resolves.toEqual({ v: 3 });
   });
 });
 
-describe("default", () => {
-  it("should_expose_expected_api_surface_when_accessing_default_export", () => {
-    // Act
-    const api = plugins.default;
+describe('createPluginLoader', () => {
+  it('creates an async loader function that delegates to loadPlugin', async () => {
+    const { createPluginLoader } = await importSubject();
+    const loader = createPluginLoader();
 
-    // Assert
-    expect(api).toEqual(
-      expect.objectContaining({
-        load: plugins.loadPlugin,
-        has: plugins.hasPlugin,
-        list: plugins.listAvailablePlugins,
-        register: plugins.registerPlugin,
-        createLoader: plugins.createPluginLoader,
-      }),
-    );
+    expect(typeof loader).toBe('function');
+
+    const plugin = await loader('compression/cicada');
+    expect(plugin).toEqual({ name: 'cicada', kind: 'compression' });
   });
 
-  it("should_load_plugin_when_using_default_api_load", async () => {
-    // Act
-    const plugin = await plugins.default.load("analysis/fingerprint");
+  it('rejects unknown plugin names through the created loader', async () => {
+    const { createPluginLoader } = await importSubject();
+    const loader = createPluginLoader();
 
-    // Assert
-    expect(plugin).toEqual({ id: "analysis/fingerprint" });
+    await expect(loader('unknown/plugin')).rejects.toThrowError(/Unknown plugin:/);
   });
 
-  it("should_throw_unknown_plugin_error_when_default_api_loads_unregistered_name", async () => {
-    // Act + Assert
-    await expect(plugins.default.load("missing/plugin")).rejects.toThrow(/Unknown plugin:/);
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['empty string', ''],
+    ['whitespace string', '   '],
+    ['0', 0],
+    ['-1', -1],
+    ['MAX_SAFE_INTEGER', Number.MAX_SAFE_INTEGER],
+    ['empty array', []],
+    ['empty object', {}],
+  ])('handles boundary names concurrently: %s', async (_label, name) => {
+    const { createPluginLoader } = await importSubject();
+    const loader = createPluginLoader();
+
+    const results = await Promise.all([
+      loader(name).then(
+        () => null,
+        (e) => e,
+      ),
+      loader(name).then(
+        () => null,
+        (e) => e,
+      ),
+    ]);
+
+    results.forEach((r) => expect(r).toBeInstanceOf(Error));
+  });
+
+  it('supports concurrent loads via the created loader', async () => {
+    const { createPluginLoader, registerPlugin } = await importSubject();
+    const loader = createPluginLoader();
+    const fn = vi.fn(async () => ({ default: { ok: true } }));
+    registerPlugin('custom/concurrent', fn);
+
+    const results = await Promise.all([
+      loader('custom/concurrent'),
+      loader('custom/concurrent'),
+      loader('custom/concurrent'),
+    ]);
+
+    results.forEach((r) => expect(r).toEqual({ ok: true }));
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('default export', () => {
+  it('exposes the expected API surface', async () => {
+    const mod = await importSubject();
+    const api = mod.default;
+
+    expect(api).toBeDefined();
+    expect(api).toMatchObject({
+      load: expect.any(Function),
+      has: expect.any(Function),
+      list: expect.any(Function),
+      register: expect.any(Function),
+      createLoader: expect.any(Function),
+    });
+
+    expect(api.load).toBe(mod.loadPlugin);
+    expect(api.has).toBe(mod.hasPlugin);
+    expect(api.list).toBe(mod.listAvailablePlugins);
+    expect(api.register).toBe(mod.registerPlugin);
+    expect(api.createLoader).toBe(mod.createPluginLoader);
+  });
+
+  it('supports end-to-end register → has/list → load through default API', async () => {
+    const mod = await importSubject();
+    const api = mod.default;
+
+    const deep = makeDeepNestedObject(64);
+    api.register('custom/e2e', async () => ({ default: deep }));
+
+    expect(api.has('custom/e2e')).toBe(true);
+    expect(api.list()).toContain('custom/e2e');
+
+    const loaded = await api.load('custom/e2e');
+    expect(loaded).toMatchObject({ level: 63, next: expect.any(Object) });
+
+    const loader = api.createLoader();
+    await expect(loader('custom/e2e')).resolves.toBe(deep);
   });
 });

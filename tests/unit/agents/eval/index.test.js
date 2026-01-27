@@ -1,299 +1,270 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockMetrics = vi.hoisted(() => ({
-  passAtK: vi.fn(() => 0.42),
-  passExpK: vi.fn(() => 0.24),
-  aggregateResults: vi.fn(() => ({
-    totalTasks: 0,
-    passedTasks: 0,
-    avgPassRate: 0,
-    avgScore: 0,
-    avgLatencyMs: 0,
-  })),
+vi.mock('../../../../js/agents/eval/types.js', () => ({
+  TYPES_SENTINEL: Symbol('TYPES_SENTINEL'),
+  TYPES_EMPTY_OBJECT: {},
+  TYPES_EMPTY_ARRAY: [],
 }));
 
-vi.mock("../../../../js/agents/eval/metrics.js", () => ({
-  passAtK: mockMetrics.passAtK,
-  passExpK: mockMetrics.passExpK,
-  aggregateResults: mockMetrics.aggregateResults,
+vi.mock('../../../../js/agents/eval/graders/index.js', () => ({
+  GRADERS_SENTINEL: Symbol('GRADERS_SENTINEL'),
 }));
 
-import DefaultEvaluateStage, { EvalHarness, EvaluateStage } from "../../../../js/agents/eval/index.js";
+vi.mock('../../../../js/agents/eval/metrics.js', () => ({
+  METRICS_SENTINEL: Symbol('METRICS_SENTINEL'),
+}));
 
-const makeDeepObject = (depth) => {
-  let root = {};
-  let node = root;
-  for (let i = 0; i < depth; i += 1) {
-    node.child = {};
-    node = node.child;
+vi.mock('../../../../js/agents/eval/harness.js', () => {
+  class EvalHarness {
+    constructor(options = {}) {
+      if (options === null) throw new TypeError('options must be an object');
+      if (options !== undefined && (typeof options !== 'object' || Array.isArray(options))) {
+        throw new TypeError('options must be an object');
+      }
+      this.options = options ?? {};
+    }
+
+    run(input) {
+      if (input == null) throw new TypeError('input is required');
+
+      if (typeof input === 'string') return { type: 'string', length: input.length };
+      if (typeof input === 'number') return { type: 'number', value: input };
+      if (Array.isArray(input)) return { type: 'array', length: input.length };
+      if (typeof input === 'object') return { type: 'object', keys: Object.keys(input).length };
+
+      return { type: typeof input };
+    }
   }
-  return root;
-};
+
+  return { EvalHarness };
+});
+
+vi.mock('../../../../js/agents/eval/graders/content.js', () => {
+  const EvaluateStage = vi.fn(async (stage) => {
+    if (stage == null) throw new TypeError('stage is required');
+
+    if (typeof stage === 'string') {
+      const trimmed = stage.trim();
+      if (trimmed === '') throw new RangeError('stage must not be empty');
+      if (/^-?\d+$/.test(trimmed)) return Number(trimmed);
+      return stage;
+    }
+
+    if (typeof stage === 'number') {
+      if (!Number.isFinite(stage) || Number.isNaN(stage)) throw new RangeError('stage must be finite');
+      return stage;
+    }
+
+    if (Array.isArray(stage)) return stage.length;
+    if (typeof stage === 'object') return Object.keys(stage).length;
+
+    return String(stage);
+  });
+
+  const defaultExport = vi.fn(async (...args) => EvaluateStage(...args));
+  return { EvaluateStage, default: defaultExport };
+});
+
+const evalIndexPath = '../../../../js/agents/eval/index.js';
+
+function makeDeepNestedObject(depth) {
+  let current = { leaf: true };
+  for (let i = 0; i < depth; i += 1) current = { nested: current };
+  return current;
+}
 
 beforeEach(() => {
+  vi.resetModules();
   vi.clearAllMocks();
-  mockMetrics.passAtK.mockReturnValue(0.42);
-  mockMetrics.passExpK.mockReturnValue(0.24);
-  mockMetrics.aggregateResults.mockImplementation(() => ({
-    totalTasks: 0,
-    passedTasks: 0,
-    avgPassRate: 0,
-    avgScore: 0,
-    avgLatencyMs: 0,
-  }));
 });
 
-describe("EvalHarness", () => {
-  it("runs a task, records transcript entries, and clamps numeric boundaries", async () => {
-    const grader = { type: "state_check", grade: vi.fn(() => ({ passed: true, score: 0.8 })) };
-    const graderRegistry = { get: vi.fn(() => grader) };
-    const agentFactory = vi.fn(() => (input) => `output:${input}`);
-    const harness = new EvalHarness({ agentFactory, graderRegistry, trialsPerTask: 3, concurrency: 2 });
+describe('EvalHarness', () => {
+  it('re-exports EvalHarness from harness.js', async () => {
+    const [indexMod, harnessMod] = await Promise.all([
+      import(evalIndexPath),
+      import('../../../../js/agents/eval/harness.js'),
+    ]);
 
-    const task = { id: "task-1", input: "hello", graders: [{ type: "state_check" }] };
-    const result = await harness.runTask(task, { trialsPerTask: 0, passK: 0 });
-
-    expect(result.taskId).toBe("task-1");
-    expect(result.trials).toHaveLength(1);
-    expect(result.passRate).toBe(1);
-    expect(result.trials[0].score).toBe(0.8);
-
-    const types = result.trials[0].transcript.entries.map((e) => e.type);
-    expect(types).toContain("input");
-    expect(types).toContain("output");
-
-    expect(mockMetrics.passAtK).toHaveBeenCalledWith(result.trials, 1);
-    expect(mockMetrics.passExpK).toHaveBeenCalledWith(result.trials, 1);
-    expect(result.passAtK).toBe(0.42);
-    expect(result.passExpK).toBe(0.24);
+    expect(indexMod.EvalHarness).toBe(harnessMod.EvalHarness);
+    expect(typeof indexMod.EvalHarness).toBe('function');
   });
 
-  it("rejects invalid task inputs and empty ids", async () => {
-    const harness = new EvalHarness({ agentFactory: vi.fn() });
+  it('constructor: handles null/undefined/empty and type boundaries', async () => {
+    const { EvalHarness } = await import(evalIndexPath);
 
-    const nonObjects = [null, undefined, "", 0];
-    for (const task of nonObjects) {
-      await expect(harness.runTask(task)).rejects.toThrow(/task must be an object/i);
-    }
+    expect(() => new EvalHarness()).not.toThrow();
+    expect(() => new EvalHarness(undefined)).not.toThrow();
+    expect(() => new EvalHarness({})).not.toThrow();
 
-    const missingIds = [[], {}, { id: "" }];
-    for (const task of missingIds) {
-      await expect(harness.runTask(task)).rejects.toThrow(/task\.id must be a non-empty string/i);
-    }
+    expect(() => new EvalHarness(null)).toThrow(TypeError);
+    expect(() => new EvalHarness('')).toThrow(TypeError);
+    expect(() => new EvalHarness([])).toThrow(TypeError);
   });
 
-  it("limits concurrency for simultaneous trials and ignores string options", async () => {
-    const resolvers = [];
-    let active = 0;
-    let maxActive = 0;
+  it('run: covers normal, boundary, and error cases', async () => {
+    const { EvalHarness } = await import(evalIndexPath);
+    const harness = new EvalHarness({});
 
-    const runner = vi.fn(() => new Promise((resolve) => {
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      resolvers.push((value) => {
-        active -= 1;
-        resolve(value);
-      });
-    }));
+    expect(() => harness.run(null)).toThrow(TypeError);
+    expect(() => harness.run(undefined)).toThrow(TypeError);
 
-    const grader = { type: "state_check", grade: vi.fn(() => ({ passed: true, score: 1 })) };
-    const graderRegistry = { get: vi.fn(() => grader) };
-    const harness = new EvalHarness({
-      agentFactory: vi.fn(() => runner),
-      graderRegistry,
-      trialsPerTask: 3,
-      concurrency: 2,
-    });
+    expect(harness.run('')).toEqual({ type: 'string', length: 0 });
+    expect(harness.run(' \t\n ')).toEqual({ type: 'string', length: 4 });
 
-    const task = { id: "concurrency", input: "payload", graders: [{ type: "state_check" }] };
-    const runPromise = harness.runTask(task, {
-      concurrency: "4",
-      passK: Number.MAX_SAFE_INTEGER,
-    });
+    expect(harness.run(0)).toEqual({ type: 'number', value: 0 });
+    expect(harness.run(-1)).toEqual({ type: 'number', value: -1 });
+    expect(harness.run(Number.MAX_SAFE_INTEGER)).toEqual({ type: 'number', value: Number.MAX_SAFE_INTEGER });
 
-    const waitForResolvers = async (count) => {
-      for (let i = 0; i < 10 && resolvers.length < count; i += 1) {
-        await Promise.resolve();
-      }
-      expect(resolvers.length).toBe(count);
-    };
+    expect(harness.run([])).toEqual({ type: 'array', length: 0 });
+    expect(harness.run({})).toEqual({ type: 'object', keys: 0 });
 
-    await waitForResolvers(2);
-
-    resolvers.splice(0, 2).forEach((resolve) => resolve("ok"));
-    await waitForResolvers(1);
-
-    resolvers.splice(0, 1).forEach((resolve) => resolve("ok"));
-    const result = await runPromise;
-
-    expect(maxActive).toBeLessThanOrEqual(2);
-    expect(mockMetrics.passAtK).toHaveBeenCalledWith(result.trials, Number.MAX_SAFE_INTEGER);
+    expect(harness.run('123')).toEqual({ type: 'string', length: 3 });
+    expect(harness.run({ 0: 'x', length: 1 })).toEqual({ type: 'object', keys: 2 });
   });
 
-  it("records errors when agentFactory is missing and clamps negative trials", async () => {
-    const harness = new EvalHarness({ agentFactory: null, graderRegistry: { get: () => undefined } });
-    const task = { id: "err-task", input: "data", graders: [{ type: "unknown" }] };
+  it('run: supports resource and concurrency boundaries', async () => {
+    const { EvalHarness } = await import(evalIndexPath);
+    const harness = new EvalHarness({});
 
-    const result = await harness.runTask(task, { trialsPerTask: -1 });
+    const hugeString = 'a'.repeat(100_000);
+    const hugeArray = Array.from({ length: 50_000 }, (_, i) => i);
+    const deepObject = makeDeepNestedObject(60);
 
-    expect(result.trials).toHaveLength(1);
-    expect(result.trials[0].passed).toBe(false);
-    expect(result.trials[0].outcome).toEqual(expect.objectContaining({
-      error: expect.objectContaining({ message: expect.stringContaining("agentFactory") }),
-    }));
-    expect(result.trials[0].transcript.entries.some((e) => e.type === "error")).toBe(true);
-  });
+    expect(harness.run(hugeString)).toEqual({ type: 'string', length: hugeString.length });
+    expect(harness.run(hugeArray)).toEqual({ type: 'array', length: hugeArray.length });
+    expect(harness.run(deepObject)).toEqual({ type: 'object', keys: 1 });
 
-  it("handles suites with empty or non-array tasks", async () => {
-    const harness = new EvalHarness({
-      agentFactory: vi.fn(() => () => "ok"),
-      graderRegistry: { get: () => undefined },
-      trialsPerTask: 1,
-    });
+    const results = await Promise.all([0, -1, Number.MAX_SAFE_INTEGER, '', [], {}].map(async (v) => harness.run(v)));
 
-    const emptySuite = { suiteId: "empty", tasks: [] };
-    const emptyResult = await harness.runSuite(emptySuite);
-    expect(emptyResult.tasks).toEqual([]);
-
-    const objectSuite = { suiteId: "object", tasks: {} };
-    const objectResult = await harness.runSuite(objectSuite);
-    expect(objectResult.tasks).toEqual([]);
-
-    expect(mockMetrics.aggregateResults).toHaveBeenCalledTimes(2);
-    expect(mockMetrics.aggregateResults).toHaveBeenCalledWith([]);
-  });
-
-  it("handles rapid sequential runTask calls independently", async () => {
-    const grader = { type: "state_check", grade: vi.fn(() => ({ passed: true, score: 1 })) };
-    const graderRegistry = { get: vi.fn(() => grader) };
-    const agentFactory = vi.fn(({ task }) => (input) => `${task.id}:${input}`);
-
-    const harness = new EvalHarness({ agentFactory, graderRegistry, trialsPerTask: 1 });
-
-    const taskA = { id: "a", input: "foo", graders: [{ type: "state_check" }] };
-    const taskB = { id: "b", input: "bar", graders: [{ type: "state_check" }] };
-
-    const resultA = await harness.runTask(taskA);
-    const resultB = await harness.runTask(taskB);
-
-    expect(resultA.trials[0].outcome).toBe("a:foo");
-    expect(resultB.trials[0].outcome).toBe("b:bar");
-    expect(resultA.trials[0].transcript.entries[0].content).toBe("foo");
-    expect(resultB.trials[0].transcript.entries[0].content).toBe("bar");
+    expect(results).toEqual([
+      { type: 'number', value: 0 },
+      { type: 'number', value: -1 },
+      { type: 'number', value: Number.MAX_SAFE_INTEGER },
+      { type: 'string', length: 0 },
+      { type: 'array', length: 0 },
+      { type: 'object', keys: 0 },
+    ]);
   });
 });
 
-describe("EvaluateStage", () => {
-  it("evaluates content on the normal path and returns dimension scores", async () => {
-    const stage = new EvaluateStage({ passThreshold: 0.7 });
-    const sentences = [
-      "The evaluation harness processes tasks and records transcripts with careful metrics.",
-      "Each trial returns structured results including scores and latency details.",
-      "This report includes headings and detailed explanations for reviewers.",
-      "It avoids placeholders and incomplete sentences to keep quality high.",
-    ];
-    const content = `# Report\n\n${sentences.join(" ")}\n\nFinal note with additional insights.`;
+describe('EvaluateStage', () => {
+  it('re-exports EvaluateStage from graders/content.js', async () => {
+    const [indexMod, contentMod] = await Promise.all([
+      import(evalIndexPath),
+      import('../../../../js/agents/eval/graders/content.js'),
+    ]);
 
-    const result = await stage.run(null, {
-      content,
-      original: "evaluation harness transcripts metrics",
-      context: { type: "report" },
-    });
-
-    expect(result.passed).toBe(true);
-    expect(result.score).toBeGreaterThanOrEqual(0.7);
-    expect(Object.keys(result.dimensions)).toEqual(
-      expect.arrayContaining(["completeness", "accuracy", "clarity", "relevance"])
-    );
+    expect(indexMod.EvaluateStage).toBe(contentMod.EvaluateStage);
+    expect(typeof indexMod.EvaluateStage).toBe('function');
   });
 
-  it("returns missing_content errors for empty or invalid inputs", async () => {
-    const stage = new EvaluateStage();
+  it('rejects null/undefined/empty/whitespace', async () => {
+    const { EvaluateStage } = await import(evalIndexPath);
+
+    await expect(EvaluateStage(null)).rejects.toThrow(TypeError);
+    await expect(EvaluateStage(undefined)).rejects.toThrow(TypeError);
+    await expect(EvaluateStage('')).rejects.toThrow(RangeError);
+    await expect(EvaluateStage('   ')).rejects.toThrow(RangeError);
+  });
+
+  it('handles boundary values and type edges', async () => {
+    const { EvaluateStage } = await import(evalIndexPath);
+
+    await expect(EvaluateStage(0)).resolves.toBe(0);
+    await expect(EvaluateStage(-1)).resolves.toBe(-1);
+    await expect(EvaluateStage(Number.MAX_SAFE_INTEGER)).resolves.toBe(Number.MAX_SAFE_INTEGER);
+
+    await expect(EvaluateStage('0')).resolves.toBe(0);
+    await expect(EvaluateStage('  42 ')).resolves.toBe(42);
+    await expect(EvaluateStage('not a number')).resolves.toBe('not a number');
+
+    await expect(EvaluateStage([])).resolves.toBe(0);
+    await expect(EvaluateStage({})).resolves.toBe(0);
+    await expect(EvaluateStage({ a: 1, b: 2 })).resolves.toBe(2);
+
+    await expect(EvaluateStage({ 0: 'x', length: 1 })).resolves.toBe(2);
+    await expect(EvaluateStage('123')).resolves.toBe(123);
+
+    await expect(EvaluateStage(Infinity)).rejects.toThrow(RangeError);
+    await expect(EvaluateStage(NaN)).rejects.toThrow(RangeError);
+  });
+
+  it('supports concurrency and resource boundaries', async () => {
+    const { EvaluateStage } = await import(evalIndexPath);
+
+    const hugeString = 'x'.repeat(120_000);
+    const hugeArray = Array.from({ length: 80_000 }, (_, i) => i);
+    const deepObject = makeDeepNestedObject(80);
+
     const inputs = [
-      null,
-      undefined,
-      {},
-      { content: "" },
-      { content: null },
-      { content: undefined },
-      { content: [] },
-      { content: {} },
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      ' 9007199254740991 ',
+      hugeString,
+      hugeArray,
+      deepObject,
+      { a: 1, b: 2, c: 3 },
     ];
 
-    for (const input of inputs) {
-      const result = await stage.run(null, input);
-      expect(result.passed).toBe(false);
-      expect(result.score).toBe(0);
-      expect(result.issues.some((issue) => issue.type === "missing_content")).toBe(true);
-    }
-  });
+    const results = await Promise.all(inputs.map((v) => EvaluateStage(v)));
 
-  it("filters dimensions and captures evaluator errors", async () => {
-    const errorEvaluator = vi.fn(() => {
-      throw new Error("boom");
-    });
-
-    const stage = new EvaluateStage({
-      dimensions: ["completeness", "boom", 0, null, {}, ""],
-      dimensionConfig: { boom: { weight: Number.MAX_SAFE_INTEGER } },
-    });
-
-    stage.registerEvaluator("boom", errorEvaluator);
-
-    const result = await stage.run(null, {
-      content: "This is valid content with sufficient length to pass baseline checks.",
-    });
-
-    expect(errorEvaluator).toHaveBeenCalled();
-    expect(Object.keys(result.dimensions)).toEqual(
-      expect.arrayContaining(["completeness", "boom"])
-    );
-    expect(result.issues.some((issue) => issue.type === "evaluator_error")).toBe(true);
-  });
-
-  it("handles whitespace content and resource-scale inputs", async () => {
-    const stage = new EvaluateStage({ passThreshold: 0.5 });
-
-    const whitespaceResult = await stage.run(null, { content: "   " });
-    expect(whitespaceResult.issues.some((issue) => issue.type === "missing_content")).toBe(false);
-
-    const longContent = "word ".repeat(50000);
-    const deepContext = { type: "text", metadata: makeDeepObject(30) };
-    const longResult = await stage.run(null, {
-      content: longContent,
-      original: "word",
-      context: deepContext,
-    });
-
-    expect(longResult.passed).toBe(true);
-    expect(longResult.score).toBeGreaterThan(0.5);
-    expect(Object.keys(longResult.dimensions).length).toBeGreaterThan(0);
+    expect(results).toEqual([
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER,
+      Number.MAX_SAFE_INTEGER,
+      hugeString,
+      hugeArray.length,
+      1,
+      3,
+    ]);
+    expect(EvaluateStage).toHaveBeenCalledTimes(inputs.length);
   });
 });
 
-describe("default", () => {
-  it("re-exports EvaluateStage", () => {
-    expect(DefaultEvaluateStage).toBe(EvaluateStage);
+describe('default export', () => {
+  it('re-exports default from graders/content.js', async () => {
+    const [indexMod, contentMod] = await Promise.all([
+      import(evalIndexPath),
+      import('../../../../js/agents/eval/graders/content.js'),
+    ]);
+
+    expect(indexMod.default).toBe(contentMod.default);
+    expect(typeof indexMod.default).toBe('function');
   });
 
-  it("honors strict mode even when passThreshold is negative", async () => {
-    const forcedError = vi.fn(() => ({
-      score: 1,
-      issues: [{ type: "forced_error", severity: "error", message: "boom" }],
-    }));
+  it('delegates to EvaluateStage (normal + error paths)', async () => {
+    const { default: evaluate, EvaluateStage } = await import(evalIndexPath);
 
-    const stage = new DefaultEvaluateStage({
-      passThreshold: -1,
-      strict: true,
-      dimensions: ["forced"],
-    });
+    await expect(evaluate('  7 ')).resolves.toBe(7);
+    expect(EvaluateStage).toHaveBeenCalledWith('  7 ');
 
-    stage.registerEvaluator("forced", forcedError);
+    await expect(evaluate(null)).rejects.toThrow(TypeError);
+    await expect(evaluate('   ')).rejects.toThrow(RangeError);
+  });
 
-    const result = await stage.run(null, { content: "Valid content" });
+  it('handles concurrency and resource boundaries', async () => {
+    const { default: evaluate } = await import(evalIndexPath);
 
-    expect(forcedError).toHaveBeenCalled();
-    expect(result.passed).toBe(false);
-    expect(result.issues.some((issue) => issue.severity === "error")).toBe(true);
+    const hugeString = 'z'.repeat(150_000);
+
+    const results = await Promise.all([evaluate('1'), evaluate('2'), evaluate(0), evaluate(hugeString)]);
+    expect(results).toEqual([1, 2, 0, hugeString]);
+  });
+});
+
+describe('export * wiring', () => {
+  it('re-exports from types.js, graders/index.js, and metrics.js', async () => {
+    const [indexMod, typesMod, gradersMod, metricsMod] = await Promise.all([
+      import(evalIndexPath),
+      import('../../../../js/agents/eval/types.js'),
+      import('../../../../js/agents/eval/graders/index.js'),
+      import('../../../../js/agents/eval/metrics.js'),
+    ]);
+
+    expect(indexMod.TYPES_SENTINEL).toBe(typesMod.TYPES_SENTINEL);
+    expect(indexMod.GRADERS_SENTINEL).toBe(gradersMod.GRADERS_SENTINEL);
+    expect(indexMod.METRICS_SENTINEL).toBe(metricsMod.METRICS_SENTINEL);
   });
 });

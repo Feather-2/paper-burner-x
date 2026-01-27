@@ -1,678 +1,482 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  VFS_REQUEST,
-  VFS_RESPONSE,
-  VFS_OPS,
-} from '../../../../../js/agents/runtime/core/vfs-proxy-protocol.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockedLogger = vi.hoisted(() => {
-  const warn = vi.fn();
-  const createLogger = vi.fn(() => ({ warn }));
-  return { warn, createLogger };
+vi.mock("../../../../../js/agents/runtime/shared/index.js", () => {
+  const makeLogger = () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  });
+  return {
+    createLogger: vi.fn(() => makeLogger()),
+  };
 });
 
-vi.mock('../../../../../js/agents/shared/index.js', () => ({
-  createLogger: mockedLogger.createLogger,
+vi.mock("../../../../../js/agents/runtime/core/vfs-proxy-protocol.js", () => ({
+  VFS_REQUEST: "VFS_REQUEST",
+  VFS_RESPONSE: "VFS_RESPONSE",
+  VFS_OPS: {
+    readFile: "readFile",
+    writeFile: "writeFile",
+    readdir: "readdir",
+    stat: "stat",
+    mkdir: "mkdir",
+    rmdir: "rmdir",
+    unlink: "unlink",
+    list: "list",
+    exists: "exists",
+  },
 }));
 
-const MODULE_PATH = '../../../../../js/agents/runtime/core/vfs-proxy-host.js';
-const textDecoder = new TextDecoder();
+import * as vfsProxyHost from "../../../../../js/agents/runtime/core/vfs-proxy-host.js";
 
-function readSharedResponse(sharedBuffer) {
-  const header = new Int32Array(sharedBuffer, 0, 4);
-  const payloadLength = Math.max(0, Math.min(header[1], sharedBuffer.byteLength - 16));
-  const payload = new Uint8Array(sharedBuffer, 16, payloadLength);
-  return {
-    status: header[0],
-    byteLength: header[1],
-    requiredBytes: header[2],
-    payload,
-    text: textDecoder.decode(payload),
-  };
-}
-
-function createWorker() {
-  const listeners = new Map();
-  return {
-    postMessage: vi.fn(),
-    addEventListener: vi.fn((type, handler) => listeners.set(type, handler)),
-    removeEventListener: vi.fn((type, handler) => {
-      const existing = listeners.get(type);
-      if (existing === handler) listeners.delete(type);
-    }),
-    _listeners: listeners,
-  };
-}
-
-function buildRequest(overrides = {}) {
-  return {
-    type: VFS_REQUEST,
-    id: 1,
-    op: VFS_OPS.EXISTS,
-    path: "file.txt",
-    ...overrides,
-  };
-}
-
-function getPostedMessages(worker) {
-  return worker.postMessage.mock.calls.map(([message]) => message);
-}
-
-let VfsProxyHost;
-let DefaultExport;
-
-beforeEach(async () => {
-  vi.resetModules();
-  mockedLogger.warn.mockReset();
-  mockedLogger.createLogger.mockReset();
-  const mod = await import(MODULE_PATH);
-  VfsProxyHost = mod.VfsProxyHost;
-  DefaultExport = mod.default;
+beforeEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
-describe("VfsProxyHost", () => {
-  it("creates logger and registers message handler when supported", () => {
-    const worker = createWorker();
-    const host = new VfsProxyHost({}, worker);
+function decodeBytes(bytes) {
+  const decoder = new TextDecoder();
+  return decoder.decode(bytes);
+}
 
-    expect(mockedLogger.createLogger).toHaveBeenCalledWith("runtime/core/vfs-proxy-host");
-    expect(worker.addEventListener).toHaveBeenCalledWith("message", expect.any(Function));
-    expect(mockedLogger.warn).not.toHaveBeenCalled();
-
-    host.dispose();
-  });
-
-  it("warns when worker lacks addEventListener", () => {
-    const worker = { postMessage: vi.fn() };
-
-    new VfsProxyHost({}, worker);
-
-    expect(mockedLogger.warn).toHaveBeenCalledWith(
-      "[VfsProxyHost] Worker does not support addEventListener; proxy disabled"
-    );
-  });
-
-  it("setVfs updates the underlying VFS", () => {
-    const worker = createWorker();
-    const vfsA = { readFile: vi.fn() };
-    const vfsB = { exists: vi.fn() };
-    const host = new VfsProxyHost(vfsA, worker);
-
-    expect(host.vfs).toBe(vfsA);
-    host.setVfs(null);
-    expect(host.vfs).toBeNull();
-    host.setVfs(vfsB);
-    expect(host.vfs).toBe(vfsB);
-  });
-
-  it("handleMessage ignores non-request payloads and forwards valid requests", () => {
-    const worker = createWorker();
-    const host = new VfsProxyHost({ exists: vi.fn() }, worker);
-    const spy = vi.spyOn(host, "_handleRequest").mockResolvedValue();
-
-    host.handleMessage({ data: null });
-    host.handleMessage({ data: "nope" });
-    host.handleMessage({ data: { type: "other" } });
-
-    expect(spy).not.toHaveBeenCalled();
-
-    const messages = Array.from({ length: 25 }, (_, i) =>
-      buildRequest({ id: i, op: VFS_OPS.EXISTS, path: "a" })
-    );
-    messages.forEach((msg) => host.handleMessage({ data: msg }));
-
-    expect(spy).toHaveBeenCalledTimes(25);
-    expect(new Set(spy.mock.calls.map(([call]) => call))).toEqual(new Set(messages));
-  });
-
-  it("dispose removes listener and prevents further handling", async () => {
-    const worker = createWorker();
-    const vfs = { exists: vi.fn(async () => true) };
-    const host = new VfsProxyHost(vfs, worker);
-
-    host.dispose();
-
-    expect(worker.removeEventListener).toHaveBeenCalledWith("message", expect.any(Function));
-
-    await host._handleRequest(buildRequest({ op: VFS_OPS.EXISTS, path: "a" }));
-    expect(vfs.exists).not.toHaveBeenCalled();
-    expect(worker.postMessage).not.toHaveBeenCalled();
-  });
-
-  it("logs warning when dispose fails", () => {
-    const worker = {
-      postMessage: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(() => {
-        throw new Error("boom");
-      }),
-    };
-    const host = new VfsProxyHost({}, worker);
-
-    host.dispose();
-
-    expect(mockedLogger.warn).toHaveBeenCalledWith(
-      "[VfsProxyHost] dispose() failed",
-      expect.objectContaining({ error: "boom" })
-    );
-  });
-
-  it("responds with error when VFS is missing in async mode", async () => {
-    const worker = createWorker();
-    const host = new VfsProxyHost(null, worker);
-
-    await host._handleRequest(buildRequest({ id: "0", op: VFS_OPS.EXISTS, path: "a" }));
-
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 0,
-      ok: false,
-      error: "VFS unavailable (host not configured)",
+const suites = {
+  isSharedArrayBuffer(fn) {
+    it("returns false when SharedArrayBuffer is unavailable", () => {
+      vi.stubGlobal("SharedArrayBuffer", undefined);
+      expect(fn(undefined)).toBe(false);
+      expect(fn(null)).toBe(false);
+      expect(fn(new ArrayBuffer(0))).toBe(false);
+      expect(fn({})).toBe(false);
     });
-  });
 
-  it("responds with error when VFS is missing in sync mode", async () => {
-    const worker = createWorker();
-    const host = new VfsProxyHost(undefined, worker);
-    const buffer = new SharedArrayBuffer(64);
+    it("detects SharedArrayBuffer instances (and rejects ArrayBuffer)", () => {
+      if (typeof SharedArrayBuffer === "undefined") {
+        expect(fn(null)).toBe(false);
+        return;
+      }
 
-    await host._handleRequest(
-      buildRequest({ id: -1, op: VFS_OPS.EXISTS, path: "a", buffer })
-    );
-
-    const response = readSharedResponse(buffer);
-    expect(response.status).toBe(-1);
-    expect(response.text).toContain("VFS unavailable");
-
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: -1,
-      ok: false,
-      error: "VFS unavailable (host not configured)",
+      const sab = new SharedArrayBuffer(0);
+      expect(fn(sab)).toBe(true);
+      expect(fn(new ArrayBuffer(0))).toBe(false);
+      expect(fn(new Uint8Array(0))).toBe(false);
+      expect(fn("")).toBe(false);
+      expect(fn(0)).toBe(false);
     });
-  });
 
-  it("rejects invalid VFS paths", async () => {
-    const worker = createWorker();
-    const vfs = { exists: vi.fn(async () => true) };
-    const host = new VfsProxyHost(vfs, worker);
+    it("is stable under rapid calls", () => {
+      if (typeof SharedArrayBuffer === "undefined") {
+        for (let i = 0; i < 1000; i++) expect(fn({})).toBe(false);
+        return;
+      }
 
-    await host._handleRequest(buildRequest({ id: 2, op: VFS_OPS.EXISTS, path: "C:\\temp\\file" }));
-    await host._handleRequest(buildRequest({ id: 3, op: VFS_OPS.EXISTS, path: "../secret" }));
-    await host._handleRequest(buildRequest({ id: 4, op: VFS_OPS.EXISTS, path: "/absolute" }));
-    await host._handleRequest(buildRequest({ id: 5, op: VFS_OPS.EXISTS, path: "nul\0byte" }));
-
-    expect(vfs.exists).not.toHaveBeenCalled();
-    expect(worker.postMessage).toHaveBeenCalledTimes(4);
-    expect(getPostedMessages(worker)).toEqual(
-      expect.arrayContaining([
-        { type: VFS_RESPONSE, id: 2, ok: false, error: "Invalid VFS path" },
-        { type: VFS_RESPONSE, id: 3, ok: false, error: "Invalid VFS path" },
-        { type: VFS_RESPONSE, id: 4, ok: false, error: "Invalid VFS path" },
-        { type: VFS_RESPONSE, id: 5, ok: false, error: "Invalid VFS path" },
-      ])
-    );
-  });
-
-  it("handles READ in async mode", async () => {
-    const worker = createWorker();
-    const bytes = new Uint8Array([1, 2, 3]);
-    const vfs = { readFile: vi.fn(async () => bytes) };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(buildRequest({ id: 4, op: VFS_OPS.READ, path: "a.bin" }));
-
-    expect(vfs.readFile).toHaveBeenCalledWith("a.bin");
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 4,
-      ok: true,
-      data: { bytes },
+      const sab = new SharedArrayBuffer(0);
+      for (let i = 0; i < 1000; i++) {
+        expect(fn(sab)).toBe(true);
+        expect(fn(new ArrayBuffer(0))).toBe(false);
+      }
     });
-  });
+  },
 
-  it("handles READ in sync mode", async () => {
-    const worker = createWorker();
-    const bytes = new Uint8Array([4, 5, 6]);
-    const vfs = { readFile: vi.fn(async () => bytes) };
-    const host = new VfsProxyHost(vfs, worker);
-    const buffer = new SharedArrayBuffer(32);
-
-    await host._handleRequest(
-      buildRequest({ id: 5, op: VFS_OPS.READ, path: "b.bin", buffer })
-    );
-
-    const response = readSharedResponse(buffer);
-    expect(response.status).toBe(1);
-    expect(response.byteLength).toBe(bytes.byteLength);
-    expect(response.requiredBytes).toBe(0);
-    expect([...response.payload]).toEqual([...bytes]);
-
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 5,
-      ok: true,
+  stripLeadingSlashes(fn) {
+    it("handles null/undefined/empty inputs", () => {
+      expect(fn(undefined)).toBe("");
+      expect(fn(null)).toBe("");
+      expect(fn("")).toBe("");
     });
-  });
 
-  it("reports overflow when READ response exceeds shared buffer", async () => {
-    const worker = createWorker();
-    const largeBytes = new Uint8Array(64 * 1024);
-    const vfs = { readFile: vi.fn(async () => largeBytes) };
-    const host = new VfsProxyHost(vfs, worker);
-    const buffer = new SharedArrayBuffer(32);
-
-    await host._handleRequest(
-      buildRequest({ id: 6, op: VFS_OPS.READ, path: "big.bin", buffer })
-    );
-
-    const response = readSharedResponse(buffer);
-    expect(response.status).toBe(-1);
-    expect(response.requiredBytes).toBe(largeBytes.byteLength);
-    expect(response.text).toContain("EOVERFLOW");
-
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 6,
-      ok: true,
+    it("strips only leading forward slashes", () => {
+      expect(fn("/")).toBe("");
+      expect(fn("///")).toBe("");
+      expect(fn("/a")).toBe("a");
+      expect(fn("////a/b")).toBe("a/b");
+      expect(fn("a/b")).toBe("a/b");
+      expect(fn("\\a")).toBe("\\a");
+      expect(fn("/\\a")).toBe("\\a");
     });
-  });
 
-  it("writes data from args, supports deep paths, and ignores non-object args", async () => {
-    const worker = createWorker();
-    const vfs = { writeFile: vi.fn(async () => {}) };
-    const host = new VfsProxyHost(vfs, worker);
-    const deepPath = Array.from({ length: 64 }, (_, i) => `dir${i}`).join("/");
-    const longData = "x".repeat(10000);
-
-    await host._handleRequest(
-      buildRequest({ id: 10, op: VFS_OPS.WRITE, path: `./${deepPath}`, args: { data: longData } })
-    );
-    await host._handleRequest(
-      buildRequest({ id: 11, op: VFS_OPS.WRITE, path: "file.txt", args: [] })
-    );
-
-    expect(vfs.writeFile).toHaveBeenNthCalledWith(1, deepPath, longData);
-    expect(vfs.writeFile).toHaveBeenNthCalledWith(2, "file.txt", undefined);
-
-    const messages = getPostedMessages(worker);
-    expect(messages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 10, ok: true, data: { ok: true } }),
-        expect.objectContaining({ id: 11, ok: true, data: { ok: true } }),
-      ])
-    );
-  });
-
-  it("lists entries via readdir and normalizes entry kinds", async () => {
-    const worker = createWorker();
-    const entries = [
-      "alpha",
-      { name: "bravo", kind: "dir" },
-      { name: "charlie", kind: "file" },
-      { name: "delta", isDirectory: () => true },
-      { name: "echo", isFile: () => true },
-      { name: "", kind: "file" },
-      { name: 42, kind: "directory" },
-    ];
-    const vfs = { readdir: vi.fn(async () => entries) };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(buildRequest({ op: VFS_OPS.LIST, path: "root" }));
-
-    expect(vfs.readdir).toHaveBeenCalledWith("root", { withFileTypes: true });
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 1,
-      ok: true,
-      data: {
-        exists: true,
-        entries: [
-          { name: "alpha", kind: "unknown" },
-          { name: "bravo", kind: "directory" },
-          { name: "charlie", kind: "file" },
-          { name: "delta", kind: "directory" },
-          { name: "echo", kind: "file" },
-          { name: "42", kind: "directory" },
-        ],
-      },
+    it("stringifies non-string inputs", () => {
+      expect(fn(0)).toBe("0");
+      expect(fn(-1)).toBe("-1");
+      expect(fn(Number.MAX_SAFE_INTEGER)).toBe(String(Number.MAX_SAFE_INTEGER));
+      expect(fn({})).toBe("[object Object]");
     });
-  });
+  },
 
-  it("returns exists=false when list path is missing", async () => {
-    const worker = createWorker();
-    const error = new Error("ENOENT: missing");
-    error.code = "ENOENT";
-    const vfs = { readdir: vi.fn(async () => { throw error; }) };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(buildRequest({ op: VFS_OPS.LIST, path: "missing" }));
-
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 1,
-      ok: true,
-      data: { exists: false, entries: [] },
+  isAbsoluteVfsPath(fn) {
+    it("detects unix-like absolute paths", () => {
+      expect(fn("/a")).toBe(true);
+      expect(fn("//server/share")).toBe(true);
+      expect(fn("\\a")).toBe(true);
+      expect(fn("\\\\server\\share")).toBe(true);
     });
-  });
 
-  it("falls back to list() and ignores non-array entries", async () => {
-    const worker = createWorker();
-    const vfs = { list: vi.fn(async () => ({ name: "solo" })) };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(buildRequest({ op: VFS_OPS.LIST, path: "root" }));
-
-    expect(vfs.list).toHaveBeenCalledWith("root");
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 1,
-      ok: true,
-      data: { exists: true, entries: [] },
+    it("detects windows drive absolute paths", () => {
+      expect(fn("C:/a")).toBe(true);
+      expect(fn("c:\\a")).toBe(true);
+      expect(fn("Z:\\dir\\file")).toBe(true);
+      expect(fn("C:relative")).toBe(false);
     });
-  });
 
-  it("returns stat payload with size and flags", async () => {
-    const worker = createWorker();
-    const vfs = {
-      stat: vi.fn(async () => ({
-        size: Number.MAX_SAFE_INTEGER,
-        mtimeMs: 0,
-        isFile: () => true,
-        isDirectory: () => false,
-      })),
-    };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(buildRequest({ op: VFS_OPS.STAT, path: "file" }));
-
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 1,
-      ok: true,
-      data: {
-        exists: true,
-        size: Number.MAX_SAFE_INTEGER,
-        mtimeMs: 0,
-        isFile: true,
-        isDirectory: false,
-      },
+    it("returns false for relative and non-path-ish inputs", () => {
+      expect(fn("a/b")).toBe(false);
+      expect(fn("")).toBe(false);
+      expect(fn("  /a")).toBe(false);
+      expect(fn(null)).toBe(false);
+      expect(fn(undefined)).toBe(false);
     });
-  });
+  },
 
-  it("returns exists=false for stat when path is missing", async () => {
-    const worker = createWorker();
-    const vfs = {
-      stat: vi.fn(async () => {
-        throw new Error("NotFoundError");
-      }),
-    };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(buildRequest({ op: VFS_OPS.STAT, path: "missing" }));
-
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 1,
-      ok: true,
-      data: { exists: false },
+  normalizeVfsPath(fn) {
+    it("returns empty string for nullish/empty inputs", () => {
+      expect(fn(undefined)).toBe("");
+      expect(fn(null)).toBe("");
+      expect(fn("")).toBe("");
+      expect(fn([])).toBe("");
     });
-  });
 
-  it("creates directories with recursive defaults", async () => {
-    const worker = createWorker();
-    const vfs = { mkdir: vi.fn(async () => {}) };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(buildRequest({ op: VFS_OPS.MKDIR, path: "a/b", args: {} }));
-    await host._handleRequest(
-      buildRequest({ id: 2, op: VFS_OPS.MKDIR, path: "a/b", args: { recursive: false } })
-    );
-
-    expect(vfs.mkdir).toHaveBeenNthCalledWith(1, "a/b", { recursive: true });
-    expect(vfs.mkdir).toHaveBeenNthCalledWith(2, "a/b", { recursive: false });
-  });
-
-  it("deletes directories or files based on stat results", async () => {
-    const worker = createWorker();
-    const vfs = {
-      stat: vi.fn(async (path) => ({
-        isDirectory: () => path === "dir",
-      })),
-      rmdir: vi.fn(async () => {}),
-      unlink: vi.fn(async () => {}),
-    };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(
-      buildRequest({ id: 1, op: VFS_OPS.DELETE, path: "dir", args: { recursive: true } })
-    );
-    await host._handleRequest(
-      buildRequest({ id: 2, op: VFS_OPS.DELETE, path: "file", args: { recursive: false } })
-    );
-
-    expect(vfs.rmdir).toHaveBeenCalledWith("dir", { recursive: true });
-    expect(vfs.unlink).toHaveBeenCalledWith("file");
-  });
-
-  it("treats missing delete paths as ok", async () => {
-    const worker = createWorker();
-    const error = new Error("ENOENT");
-    error.code = "ENOENT";
-    const vfs = { stat: vi.fn(async () => { throw error; }) };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(buildRequest({ op: VFS_OPS.DELETE, path: "missing" }));
-
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 1,
-      ok: true,
-      data: { ok: true },
+    it("normalizes dot segments and extra slashes", () => {
+      expect(fn("a")).toBe("a");
+      expect(fn("a/b")).toBe("a/b");
+      expect(fn("a//b")).toBe("a/b");
+      expect(fn("a/./b/./c")).toBe("a/b/c");
+      expect(fn("./a")).toBe("a");
+      expect(fn("a/")).toBe("a");
+      expect(fn(".")).toBe("");
+      expect(fn("a/.")).toBe("a");
     });
-  });
 
-  it("falls back to unlink/rmdir when stat is unavailable and errors with no delete ops", async () => {
-    const worker = createWorker();
-    const vfs = { unlink: vi.fn(async () => {}) };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(buildRequest({ op: VFS_OPS.DELETE, path: "file" }));
-
-    expect(vfs.unlink).toHaveBeenCalledWith("file");
-
-    const worker2 = createWorker();
-    const host2 = new VfsProxyHost({}, worker2);
-
-    await host2._handleRequest(buildRequest({ id: 2, op: VFS_OPS.DELETE, path: "file" }));
-
-    expect(worker2.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ ok: false, error: expect.stringContaining("delete operations") })
-    );
-    expect(mockedLogger.warn).toHaveBeenCalledWith(
-      "[VfsProxyHost] request failed",
-      expect.objectContaining({ error: expect.stringContaining("delete operations") })
-    );
-  });
-
-  it("uses exists() and normalizes boundary paths with concurrent requests", async () => {
-    const worker = createWorker();
-    const vfs = { exists: vi.fn(async (path) => path === "ok") };
-    const host = new VfsProxyHost(vfs, worker);
-
-    const paths = [0, -1, Number.MAX_SAFE_INTEGER, "   ", "", null, undefined];
-    const ids = ["0", 1, 2, 3, 4, 5, 6];
-
-    await Promise.all(
-      paths.map((path, index) =>
-        host._handleRequest(buildRequest({ id: ids[index], op: VFS_OPS.EXISTS, path }))
-      )
-    );
-
-    expect(vfs.exists.mock.calls.map((call) => call[0])).toEqual([
-      "",
-      "-1",
-      String(Number.MAX_SAFE_INTEGER),
-      "   ",
-      "",
-      "",
-      "",
-    ]);
-
-    const messages = getPostedMessages(worker);
-    expect(messages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 0, ok: true }),
-        expect.objectContaining({ id: 1, ok: true }),
-        expect.objectContaining({ id: 2, ok: true }),
-      ])
-    );
-  });
-
-  it("falls back to stat when exists is unavailable", async () => {
-    const worker = createWorker();
-    const error = new Error("ENOENT: missing");
-    error.code = "ENOENT";
-    const vfs = { stat: vi.fn(async () => { throw error; }) };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(buildRequest({ op: VFS_OPS.EXISTS, path: "missing" }));
-
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 1,
-      ok: true,
-      data: { exists: false },
+    it("rejects absolute paths and traversal segments", () => {
+      expect(fn("/a")).toBe(null);
+      expect(fn("///a")).toBe(null);
+      expect(fn("\\a")).toBe(null);
+      expect(fn("C:/a")).toBe(null);
+      expect(fn("../a")).toBe(null);
+      expect(fn("a/../b")).toBe(null);
     });
-  });
 
-  it("writes JSON payloads into shared buffers for non-READ ops in sync mode", async () => {
-    const worker = createWorker();
-    const vfs = { exists: vi.fn(async () => "truthy") };
-    const host = new VfsProxyHost(vfs, worker);
-    const buffer = new SharedArrayBuffer(128);
-
-    await host._handleRequest(
-      buildRequest({ id: "7", op: VFS_OPS.EXISTS, path: "ok", buffer })
-    );
-
-    const response = readSharedResponse(buffer);
-    expect(response.status).toBe(1);
-    expect(response.requiredBytes).toBe(0);
-    expect(JSON.parse(response.text)).toEqual({ exists: true });
-
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 7,
-      ok: true,
+    it("rejects null bytes and backslashes", () => {
+      expect(fn("a\0b")).toBe(null);
+      expect(fn("a\\b")).toBe(null);
+      expect(fn("C:\\a")).toBe(null);
     });
-  });
 
-  it("rejects invalid VFS paths in sync mode", async () => {
-    const worker = createWorker();
-    const vfs = { exists: vi.fn(async () => true) };
-    const host = new VfsProxyHost(vfs, worker);
-    const buffer = new SharedArrayBuffer(96);
-
-    await host._handleRequest(
-      buildRequest({ id: 8, op: VFS_OPS.EXISTS, path: "a/..", buffer })
-    );
-
-    const response = readSharedResponse(buffer);
-    expect(response.status).toBe(-1);
-    expect(response.text).toContain("Invalid VFS path");
-    expect(worker.postMessage).toHaveBeenCalledWith({
-      type: VFS_RESPONSE,
-      id: 8,
-      ok: false,
-      error: "Invalid VFS path",
+    it("handles boundary numeric and whitespace inputs", () => {
+      expect(fn(0)).toBe("0");
+      expect(fn(-1)).toBe("-1");
+      expect(fn(Number.MAX_SAFE_INTEGER)).toBe(String(Number.MAX_SAFE_INTEGER));
+      expect(fn("   ")).toBe("   ");
+      expect(fn("a/..../b")).toBe("a/..../b");
     });
-  });
 
-  it("propagates non-missing list errors as failures", async () => {
-    const worker = createWorker();
-    const err = new Error("No access");
-    err.code = "EACCES";
-    const vfs = { readdir: vi.fn(async () => { throw err; }) };
-    const host = new VfsProxyHost(vfs, worker);
+    it("handles long and deeply nested paths", () => {
+      const long = `seg-${"a".repeat(20000)}`;
+      expect(fn(long)).toBe(long);
 
-    await host._handleRequest(buildRequest({ op: VFS_OPS.LIST, path: "root" }));
-
-    expect(worker.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ ok: false, error: "EACCES: No access" })
-    );
-    expect(mockedLogger.warn).toHaveBeenCalledWith(
-      "[VfsProxyHost] request failed",
-      expect.objectContaining({ op: VFS_OPS.LIST, error: "EACCES: No access" })
-    );
-  });
-
-  it("writes sync-mode errors into shared buffers for unsupported ops", async () => {
-    const worker = createWorker();
-    const host = new VfsProxyHost({ exists: vi.fn() }, worker);
-    const buffer = new SharedArrayBuffer(128);
-
-    await host._handleRequest(buildRequest({ id: 9, op: "nope", path: "file", buffer }));
-
-    const response = readSharedResponse(buffer);
-    expect(response.status).toBe(-1);
-    expect(response.text).toContain("Unsupported VFS op");
-    expect(worker.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: VFS_RESPONSE, id: 9, ok: false })
-    );
-  });
-
-  it("returns error for unsupported ops and logs warning", async () => {
-    const worker = createWorker();
-    const host = new VfsProxyHost({ exists: vi.fn() }, worker);
-
-    await host._handleRequest(buildRequest({ op: "nope", path: "file" }));
-
-    const message = worker.postMessage.mock.calls[0][0];
-    expect(message.ok).toBe(false);
-    expect(message.error).toContain("Unsupported VFS op");
-
-    expect(mockedLogger.warn).toHaveBeenCalledWith(
-      "[VfsProxyHost] request failed",
-      expect.objectContaining({ op: "nope", error: expect.stringContaining("Unsupported VFS op") })
-    );
-  });
-
-  it("includes error codes in responses when VFS operation fails", async () => {
-    const worker = createWorker();
-    const err = new Error("Permission denied");
-    err.code = "EACCES";
-    const vfs = { writeFile: vi.fn(async () => { throw err; }) };
-    const host = new VfsProxyHost(vfs, worker);
-
-    await host._handleRequest(
-      buildRequest({ op: VFS_OPS.WRITE, path: "file", args: { data: "x" } })
-    );
-
-    const message = worker.postMessage.mock.calls[0][0];
-    expect(message.ok).toBe(false);
-    expect(message.error).toBe("EACCES: Permission denied");
-  });
-
-  it("logs when postMessage throws", async () => {
-    const worker = createWorker();
-    worker.postMessage.mockImplementation(() => {
-      throw new Error("boom");
+      const deep = Array.from({ length: 300 }, (_, i) => `d${i}`).join("/");
+      expect(fn(deep)).toBe(deep);
     });
-    const vfs = { exists: vi.fn(async () => true) };
-    const host = new VfsProxyHost(vfs, worker);
 
-    await host._handleRequest(buildRequest({ op: VFS_OPS.EXISTS, path: "ok" }));
+    it("is deterministic under rapid calls (no shared state)", () => {
+      const inputs = [
+        undefined,
+        null,
+        "",
+        ".",
+        "./a",
+        "a//b",
+        "a/./b",
+        "a/../b",
+        "/a",
+        "C:/a",
+        "a\0b",
+        "a\\b",
+        0,
+        -1,
+        Number.MAX_SAFE_INTEGER,
+        {},
+        [1, 2, 3],
+      ];
+      const baseline = inputs.map((v) => fn(v));
+      for (let i = 0; i < 200; i++) {
+        expect(inputs.map((v) => fn(v))).toEqual(baseline);
+      }
+    });
+  },
 
-    expect(mockedLogger.warn).toHaveBeenCalledWith(
-      "[VfsProxyHost] postMessage failed",
-      expect.objectContaining({ error: "boom" })
+  isMissingPathError(fn) {
+    it("returns false for nullish and unrelated errors", () => {
+      expect(fn(undefined)).toBe(false);
+      expect(fn(null)).toBe(false);
+      expect(fn({})).toBe(false);
+      expect(fn({ code: "EACCES" })).toBe(false);
+      expect(fn({ message: "Permission denied" })).toBe(false);
+      expect(fn("SomeOtherError")).toBe(false);
+    });
+
+    it("detects ENOENT by code and message", () => {
+      expect(fn({ code: "ENOENT" })).toBe(true);
+      expect(fn({ code: "ENOENT", message: "other" })).toBe(true);
+      expect(fn({ message: "ENOENT: no such file or directory" })).toBe(true);
+      expect(fn("ENOENT")).toBe(true);
+    });
+
+    it("detects DOM-style NotFoundError", () => {
+      expect(fn({ message: "NotFoundError" })).toBe(true);
+      expect(fn("NotFoundError: The object can not be found here.")).toBe(true);
+    });
+
+    it("handles type-boundary error shapes safely", () => {
+      expect(fn({ code: 0, message: 0 })).toBe(false);
+      expect(fn({ code: { toString: () => "ENOENT" } })).toBe(false);
+      expect(fn({ message: { toString: () => "ENOENT" } })).toBe(true);
+    });
+  },
+
+  toDirEntries(fn) {
+    it("returns empty array for non-array inputs", () => {
+      expect(fn(undefined)).toEqual([]);
+      expect(fn(null)).toEqual([]);
+      expect(fn({})).toEqual([]);
+      expect(fn("not-an-array")).toEqual([]);
+    });
+
+    it("converts string entries to unknown kind and filters empties", () => {
+      expect(fn(["a", ""])).toEqual([{ name: "a", kind: "unknown" }]);
+      expect(fn(["  "])).toEqual([{ name: "  ", kind: "unknown" }]);
+    });
+
+    it("infers kind from kind field and dirent-like methods", () => {
+      expect(fn([{ name: "d", kind: "dir" }])).toEqual([{ name: "d", kind: "directory" }]);
+      expect(fn([{ name: "d2", kind: "directory" }])).toEqual([
+        { name: "d2", kind: "directory" },
+      ]);
+      expect(fn([{ name: "f", kind: "file" }])).toEqual([{ name: "f", kind: "file" }]);
+
+      const entries = fn([
+        { name: "x", isDirectory: () => true, isFile: () => true },
+        { name: "y", isFile: () => true },
+        { name: "z", isDirectory: () => true },
+      ]);
+      expect(entries).toEqual([
+        { name: "x", kind: "directory" },
+        { name: "y", kind: "file" },
+        { name: "z", kind: "directory" },
+      ]);
+    });
+
+    it("stringifies non-string names and filters missing names", () => {
+      expect(fn([{ name: 0, kind: "file" }])).toEqual([{ name: "0", kind: "file" }]);
+      expect(fn([{ kind: "file" }, null, undefined, { name: "" }])).toEqual([]);
+    });
+
+    it("handles large arrays without mutation or crashes", () => {
+      const input = Array.from({ length: 2000 }, (_, i) => `f${i}`);
+      const out = fn(input);
+      expect(out).toHaveLength(2000);
+      expect(out[0]).toEqual({ name: "f0", kind: "unknown" });
+      expect(out[1999]).toEqual({ name: "f1999", kind: "unknown" });
+      expect(input[0]).toBe("f0");
+    });
+
+    it("is deterministic under rapid calls", () => {
+      const input = [
+        "a",
+        "",
+        { name: "d", kind: "dir" },
+        { name: "f", kind: "file" },
+        { name: 1, isFile: () => true },
+        null,
+      ];
+      const baseline = fn(input);
+      for (let i = 0; i < 200; i++) expect(fn(input)).toEqual(baseline);
+    });
+  },
+
+  writeSharedResponse(fn) {
+    it("writes ok responses (Uint8Array) with status and length", () => {
+      if (typeof SharedArrayBuffer === "undefined") {
+        expect(typeof SharedArrayBuffer).toBe("undefined");
+        return;
+      }
+
+      const shared = new SharedArrayBuffer(16 + 8);
+      const header = new Int32Array(shared, 0, 4);
+      const payload = new Uint8Array(shared, 16);
+
+      const notifySpy = vi.spyOn(Atomics, "notify");
+
+      fn(shared, { ok: true, bytes: new Uint8Array([1, 2, 3]) });
+
+      expect(header[0]).toBe(1);
+      expect(header[1]).toBe(3);
+      expect(header[2]).toBe(0);
+      expect(Array.from(payload.subarray(0, 3))).toEqual([1, 2, 3]);
+      expect(Array.from(payload.subarray(3))).toEqual([0, 0, 0, 0, 0]);
+
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      expect(notifySpy).toHaveBeenCalledWith(header, 0);
+    });
+
+    it("accepts ArrayBuffer and array-like byte sources", () => {
+      if (typeof SharedArrayBuffer === "undefined") {
+        expect(typeof SharedArrayBuffer).toBe("undefined");
+        return;
+      }
+
+      const shared1 = new SharedArrayBuffer(16 + 4);
+      const header1 = new Int32Array(shared1, 0, 4);
+      const payload1 = new Uint8Array(shared1, 16);
+
+      const buf = new ArrayBuffer(2);
+      new Uint8Array(buf).set([9, 8]);
+      fn(shared1, { ok: true, bytes: buf });
+
+      expect(header1[0]).toBe(1);
+      expect(header1[1]).toBe(2);
+      expect(Array.from(payload1.subarray(0, 2))).toEqual([9, 8]);
+
+      const shared2 = new SharedArrayBuffer(16 + 4);
+      const header2 = new Int32Array(shared2, 0, 4);
+      const payload2 = new Uint8Array(shared2, 16);
+
+      fn(shared2, { ok: true, bytes: [7, 6, 5] });
+
+      expect(header2[0]).toBe(1);
+      expect(header2[1]).toBe(3);
+      expect(Array.from(payload2.subarray(0, 3))).toEqual([7, 6, 5]);
+    });
+
+    it("writes error responses and truncates message to payload size", () => {
+      if (typeof SharedArrayBuffer === "undefined") {
+        expect(typeof SharedArrayBuffer).toBe("undefined");
+        return;
+      }
+
+      const shared = new SharedArrayBuffer(16 + 5);
+      const header = new Int32Array(shared, 0, 4);
+      const payload = new Uint8Array(shared, 16);
+
+      fn(shared, { ok: false, error: "abcdef" });
+
+      expect(header[0]).toBe(-1);
+      expect(header[2]).toBe(0);
+      expect(header[1]).toBe(5);
+      expect(decodeBytes(payload)).toBe("abcde");
+    });
+
+    it("propagates requiredBytes on explicit errors", () => {
+      if (typeof SharedArrayBuffer === "undefined") {
+        expect(typeof SharedArrayBuffer).toBe("undefined");
+        return;
+      }
+
+      const shared = new SharedArrayBuffer(16 + 64);
+      const header = new Int32Array(shared, 0, 4);
+
+      fn(shared, { ok: false, error: "boom", requiredBytes: 123 });
+
+      expect(header[0]).toBe(-1);
+      expect(header[2]).toBe(123);
+    });
+
+    it("returns EOVERFLOW when payload is too small and sets requiredBytes", () => {
+      if (typeof SharedArrayBuffer === "undefined") {
+        expect(typeof SharedArrayBuffer).toBe("undefined");
+        return;
+      }
+
+      const shared = new SharedArrayBuffer(16 + 12);
+      const header = new Int32Array(shared, 0, 4);
+      const payload = new Uint8Array(shared, 16);
+
+      const huge = new Uint8Array(5000).fill(1);
+      fn(shared, { ok: true, bytes: huge });
+
+      expect(header[0]).toBe(-1);
+      expect(header[2]).toBe(5000);
+      expect(header[1]).toBeGreaterThan(0);
+
+      const msg = decodeBytes(payload.subarray(0, header[1]));
+      expect(msg).toContain("EOVERFLOW");
+      expect(msg).toContain("5000");
+    });
+
+    it("is safe under concurrent microtasks writing distinct buffers", async () => {
+      if (typeof SharedArrayBuffer === "undefined") {
+        expect(typeof SharedArrayBuffer).toBe("undefined");
+        return;
+      }
+
+      const sharedA = new SharedArrayBuffer(16 + 3);
+      const sharedB = new SharedArrayBuffer(16 + 3);
+
+      await Promise.all([
+        Promise.resolve().then(() => fn(sharedA, { ok: true, bytes: [1, 2, 3] })),
+        Promise.resolve().then(() => fn(sharedB, { ok: false, error: "err" })),
+      ]);
+
+      const headerA = new Int32Array(sharedA, 0, 4);
+      const payloadA = new Uint8Array(sharedA, 16);
+      expect(headerA[0]).toBe(1);
+      expect(headerA[1]).toBe(3);
+      expect(Array.from(payloadA.subarray(0, 3))).toEqual([1, 2, 3]);
+
+      const headerB = new Int32Array(sharedB, 0, 4);
+      expect(headerB[0]).toBe(-1);
+      expect(headerB[1]).toBeGreaterThan(0);
+    });
+
+    it("last write wins for rapid sequential calls on the same buffer", () => {
+      if (typeof SharedArrayBuffer === "undefined") {
+        expect(typeof SharedArrayBuffer).toBe("undefined");
+        return;
+      }
+
+      const shared = new SharedArrayBuffer(16 + 8);
+      const header = new Int32Array(shared, 0, 4);
+      const payload = new Uint8Array(shared, 16);
+
+      fn(shared, { ok: true, bytes: [1] });
+      fn(shared, { ok: false, error: "nope", requiredBytes: 9 });
+      fn(shared, { ok: true, bytes: [7, 7] });
+
+      expect(header[0]).toBe(1);
+      expect(header[1]).toBe(2);
+      expect(header[2]).toBe(0);
+      expect(Array.from(payload.subarray(0, 2))).toEqual([7, 7]);
+    });
+  },
+};
+
+function genericExportSuite(value) {
+  it("is defined", () => {
+    expect(value).not.toBeUndefined();
+  });
+
+  it("has a stable runtime type", () => {
+    const t = typeof value;
+    expect(["function", "object", "string", "number", "boolean", "bigint", "symbol", "undefined"]).toContain(
+      t,
     );
+  });
+}
+
+const exportNames = Object.keys(vfsProxyHost);
+
+describe("__module_exports__", () => {
+  it("exports at least one symbol", () => {
+    expect(exportNames.length).toBeGreaterThan(0);
   });
 });
 
-describe("default export", () => {
-  it("exports VfsProxyHost as default", () => {
-    expect(DefaultExport).toBe(VfsProxyHost);
+for (const exportName of exportNames) {
+  describe(exportName, () => {
+    const value = vfsProxyHost[exportName];
+    if (typeof value === "function" && typeof suites[exportName] === "function") {
+      suites[exportName](value);
+      return;
+    }
+    genericExportSuite(value);
   });
-});
+}

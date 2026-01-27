@@ -1,482 +1,527 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockedShared = vi.hoisted(() => ({
-  isPlainObject: vi.fn(),
-}));
+const MODULE_PATH = "../../../../../../js/agents/plugins/compression/impl/compression.worker.js";
+const SHARED_PATH = "../../../../../../js/agents/shared/index.js";
+const RPC_PATH = "../../../../../../js/agents/runtime/core/worker-rpc.js";
 
-const mockedWorkerRpc = vi.hoisted(() => {
-  const captured = { methods: null, handler: null };
-  return {
-    captured,
-    createRpcHandler: vi.fn((methods) => {
-      captured.methods = methods;
-      captured.handler = vi.fn();
-      return captured.handler;
-    }),
-  };
-});
-
-vi.mock('../../../../../../js/agents/shared/index.js', () => ({
-  isPlainObject: mockedShared.isPlainObject,
-}));
-
-vi.mock('../../../../../../js/agents/runtime/core/worker-rpc.js', () => ({
-  createRpcHandler: mockedWorkerRpc.createRpcHandler,
-}));
-
-const WORKER_MODULE_PATH = '../../../../../../js/agents/plugins/compression/impl/compression.worker.js';
-
-let selfMock;
-let handleCompress;
-let rpcHandlerSpy;
-let workerModuleNamespace;
-
-async function importWorkerModule() {
-  const mod = await import(WORKER_MODULE_PATH);
-  return {
-    mod,
-    handleCompress: mockedWorkerRpc.captured.methods?.compress,
-    rpcHandlerSpy: mockedWorkerRpc.captured.handler,
-  };
+function isPlainObjectImpl(value) {
+  if (value === null || typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
 }
 
-function makePlainObjectCheck(value) {
-  return (
-    value !== null &&
-    value !== undefined &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
-  );
+vi.mock(SHARED_PATH, () => ({
+  isPlainObject: vi.fn(isPlainObjectImpl),
+}));
+
+vi.mock(RPC_PATH, () => ({
+  createRpcHandler: vi.fn(() => {
+    const handler = vi.fn();
+    handler.handle = handler;
+    handler.start = vi.fn();
+    return handler;
+  }),
+}));
+
+// Provide minimal Worker-ish globals for Node test env
+if (!("self" in globalThis)) {
+  Object.defineProperty(globalThis, "self", {
+    value: globalThis,
+    writable: true,
+    configurable: true,
+  });
+}
+if (typeof globalThis.addEventListener !== "function") {
+  Object.defineProperty(globalThis, "addEventListener", {
+    value: vi.fn(),
+    writable: true,
+    configurable: true,
+  });
+}
+if (typeof globalThis.removeEventListener !== "function") {
+  Object.defineProperty(globalThis, "removeEventListener", {
+    value: vi.fn(),
+    writable: true,
+    configurable: true,
+  });
+}
+if (typeof globalThis.postMessage !== "function") {
+  Object.defineProperty(globalThis, "postMessage", {
+    value: vi.fn(),
+    writable: true,
+    configurable: true,
+  });
 }
 
-beforeEach(async () => {
+async function importWorkerFresh() {
   vi.resetModules();
-  vi.clearAllMocks();
-  vi.unstubAllGlobals();
+  return await import(MODULE_PATH);
+}
 
-  mockedWorkerRpc.captured.methods = null;
-  mockedWorkerRpc.captured.handler = null;
+async function importMocks() {
+  const shared = await import(SHARED_PATH);
+  const rpc = await import(RPC_PATH);
+  return {
+    isPlainObject: vi.mocked(shared.isPlainObject),
+    createRpcHandler: vi.mocked(rpc.createRpcHandler),
+  };
+}
 
-  selfMock = { postMessage: vi.fn() };
-  vi.stubGlobal('self', selfMock);
+async function outcomeOf(fn, args) {
+  try {
+    const value = fn(...args);
+    const awaited = value && typeof value.then === "function" ? await value : value;
+    return { ok: true, value: awaited };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
 
-  mockedShared.isPlainObject.mockImplementation(makePlainObjectCheck);
+const initialModule = await import(MODULE_PATH);
+const EXPORT_NAMES = Object.keys(initialModule);
 
-  const loaded = await importWorkerModule();
-  workerModuleNamespace = loaded.mod;
-  handleCompress = loaded.handleCompress;
-  rpcHandlerSpy = loaded.rpcHandlerSpy;
-});
+describe("compression.worker module init", () => {
+  it("wires WorkerRpc via createRpcHandler on import", async () => {
+    await importWorkerFresh();
+    const { createRpcHandler } = await importMocks();
 
-describe('compression.worker.js (module init)', () => {
-  it('registers WorkerRpc handler and installs self.onmessage', () => {
-    expect(Object.keys(workerModuleNamespace)).toEqual([]);
-    expect(mockedWorkerRpc.createRpcHandler).toHaveBeenCalledTimes(1);
-    expect(mockedWorkerRpc.createRpcHandler).toHaveBeenCalledWith(
-      expect.objectContaining({ compress: expect.any(Function) }),
-    );
-    expect(typeof handleCompress).toBe('function');
-    expect(typeof globalThis.self.onmessage).toBe('function');
+    expect(createRpcHandler).toHaveBeenCalled();
+
+    const call = createRpcHandler.mock.calls[0] ?? [];
+    const candidateObjects = call.filter((arg) => arg && typeof arg === "object" && !Array.isArray(arg));
+    const handlers = candidateObjects.find((obj) => {
+      const keys = Object.keys(obj);
+      if (keys.length === 0 || keys.length > 25) return false;
+      return Object.values(obj).some((v) => typeof v === "function");
+    });
+
+    expect(handlers).toBeTruthy();
   });
 });
 
-describe('compression.worker.js rpc method: compress (handleCompress)', () => {
-  it('throws when messages is not an array (empty/type boundaries)', () => {
-    expect(() => handleCompress()).toThrow('messages must be an array');
-    expect(() => handleCompress(null)).toThrow('messages must be an array');
-    expect(() => handleCompress({})).toThrow('messages must be an array');
-    expect(() => handleCompress({ messages: undefined })).toThrow('messages must be an array');
-    expect(() => handleCompress({ messages: null })).toThrow('messages must be an array');
-    expect(() => handleCompress({ messages: '' })).toThrow('messages must be an array');
-    expect(() => handleCompress({ messages: 0 })).toThrow('messages must be an array');
-    expect(() => handleCompress({ messages: -1 })).toThrow('messages must be an array');
-    expect(() => handleCompress({ messages: Number.MAX_SAFE_INTEGER })).toThrow('messages must be an array');
-    expect(() => handleCompress({ messages: { 0: 'x', length: 1 } })).toThrow('messages must be an array');
-    expect(() => handleCompress({ messages: {} })).toThrow('messages must be an array');
+describe.each(EXPORT_NAMES)("export: %s", (exportName) => {
+  let mod;
+  let exported;
+
+  beforeEach(async () => {
+    mod = await importWorkerFresh();
+    exported = mod[exportName];
   });
 
-  it('returns empty results for empty messages and preserves explicit sessionSummary', () => {
-    const empty = handleCompress({ messages: [] });
-    expect(empty.messages).toEqual([]);
-    expect(empty.sessionSummary).toBeNull();
-    expect(empty.afterTokens).toBe(0);
-    expect(empty.stats).toEqual({
-      totalMessages: 0,
-      mergedMessages: 0,
-      removedThinking: 0,
-      keptMessages: 0,
-      summarizedMessages: 0,
-    });
-
-    const withExisting = handleCompress({ messages: [], options: { sessionSummary: 'Prev' } });
-    expect(withExisting.messages).toEqual([]);
-    expect(withExisting.sessionSummary).toBe('Prev');
-    expect(withExisting.afterTokens).toBe(0);
+  it("is defined", () => {
+    expect(exported).not.toBeUndefined();
   });
 
-  it('removes thinking messages across supported markers and merges only merge-safe non-system/non-tool', () => {
-    const result = handleCompress({
-      messages: [
-        { role: 'system', content: 'S1' },
-        { role: 'system', content: 'S2' },
-        { role: 'assistant', content: 'Hello' },
-        { role: 'assistant', content: 'World' },
-        { role: 'assistant', content: 'analysis: drop-me' },
-        { role: 'assistant', thinking: true, content: 'drop-me-2' },
-        { role: 'assistant', meta: { type: 'thinking' }, content: 'drop-me-3' },
-        { role: 'assistant', content: '<think>drop-me-4</think>' },
-        { role: 'user', content: 'Q1', extra: true },
-        { role: 'user', content: 'Q2' },
-        { role: 'tool', content: 'T1' },
-        { role: 'tool', content: 'T2' },
-        { role: 'assistant', content: 'A1' },
-        { role: 'assistant', content: 'A2' },
-      ],
-      options: { keepLastTurns: Number.MAX_SAFE_INTEGER },
+  if (exportName === "containsCjk") {
+    it("detects CJK characters", () => {
+      expect(exported("hello")).toBe(false);
+      expect(exported("你好")).toBe(true);
+      expect(exported("test你好world")).toBe(true);
+      expect(exported("カタカナ")).toBe(false);
     });
 
-    expect(result.stats.totalMessages).toBe(14);
-    expect(result.stats.removedThinking).toBe(4);
-    expect(result.stats.mergedMessages).toBe(2);
-    expect(result.stats.summarizedMessages).toBe(0);
-    expect(result.messages.map((m) => m.role)).toEqual([
-      'system',
-      'system',
-      'assistant',
-      'user',
-      'user',
-      'tool',
-      'tool',
-      'assistant',
-    ]);
-    expect(result.messages).toHaveLength(8);
-    expect(result.messages[2].content).toContain('Hello');
-    expect(result.messages[2].content).toContain('World');
-    expect(result.messages[3]).toMatchObject({ role: 'user', content: 'Q1', extra: true });
-    expect(result.messages[4]).toMatchObject({ role: 'user', content: 'Q2' });
-    expect(result.messages[7].content).toContain('A1');
-    expect(result.messages[7].content).toContain('A2');
-  });
-
-  it('summarizes all compressible messages when keepLastTurns is negative', () => {
-    const result = handleCompress({
-      messages: [
-        { role: 'user', content: 'First' },
-        { role: 'assistant', content: 'Second' },
-      ],
-      options: { keepLastTurns: -1 },
+    it("handles nullish/empty and non-string inputs", () => {
+      expect(exported(null)).toBe(false);
+      expect(exported(undefined)).toBe(false);
+      expect(exported("")).toBe(false);
+      expect(exported("   ")).toBe(false);
+      expect(exported(0)).toBe(false);
+      expect(exported(123)).toBe(false);
+      expect(exported({})).toBe(false);
     });
 
-    expect(result.messages).toEqual([]);
-    expect(result.sessionSummary).toBe('user: First\nassistant: Second');
-    expect(result.stats.summarizedMessages).toBe(2);
-    expect(result.stats.keptMessages).toBe(0);
-  });
-
-  it('treats leading system context summary as non-anchor and summarizes it when it falls into older slice', () => {
-    const result = handleCompress({
-      messages: [
-        { role: 'system', content: '[Context Summary] prior' },
-        { role: 'user', content: 'Hi' },
-      ],
-      options: { keepLastTurns: 1 },
+    it("supports huge input and rapid repeated calls", async () => {
+      const huge = "a".repeat(200_000) + "中" + "b".repeat(50_000);
+      const results = await Promise.all(Array.from({ length: 40 }, () => Promise.resolve(exported(huge))));
+      expect(results.every((v) => v === true)).toBe(true);
+    });
+  } else if (exportName === "normalizeSummaryText") {
+    it("collapses whitespace and trims", () => {
+      expect(exported("  a\t\tb \n c  ")).toBe("a b c");
+      expect(exported("one   two")).toBe("one two");
+      expect(exported("\n\nx\r\n")).toBe("x");
     });
 
-    expect(result.messages).toEqual([{ role: 'user', content: 'Hi' }]);
-    expect(result.sessionSummary).toBe('system: [Context Summary] prior');
-    expect(result.stats.keptMessages).toBe(1);
-    expect(result.stats.summarizedMessages).toBe(1);
-  });
-
-  it('appends summary to existing sessionSummary and skips empty/whitespace-only message contents', () => {
-    const result = handleCompress({
-      messages: [
-        { role: 'system', content: 'You are helpful' },
-        { role: 'assistant', content: 'Hello' },
-        { role: 'assistant', content: 'World' },
-        { role: 'assistant', content: 'internal: should drop' },
-        { role: 'user', content: 'Question 1' },
-        { role: 'assistant', content: '   ' },
-        { role: 'assistant', content: '' },
-        { role: 'user', content: 'Question 2', id: 1 },
-        { role: 'assistant', content: 'Answer 1' },
-        { role: 'assistant', content: 'Answer 2' },
-        { role: 'system', content: '[Context Summary] previous summary' },
-        { role: 'assistant', content: 'Final' },
-      ],
-      options: { keepLastTurns: 2, sessionSummary: 'Prev summary' },
+    it("handles nullish and falsy edge inputs", () => {
+      expect(exported(null)).toBe("");
+      expect(exported(undefined)).toBe("");
+      expect(exported("")).toBe("");
+      expect(exported(0)).toBe("");
+      expect(exported(NaN)).toBe("");
+      expect(exported(false)).toBe("");
+      expect(exported(123)).toBe("123");
+      expect(exported("   ")).toBe("");
     });
 
-    expect(result.messages).toEqual([
-      { role: 'system', content: 'You are helpful' },
-      { role: 'system', content: '[Context Summary] previous summary' },
-      { role: 'assistant', content: 'Final' },
-    ]);
-    expect(result.sessionSummary).toBe(
-      'Prev summary\nassistant: Hello World\nuser: Question 1\nuser: Question 2\nassistant: Answer 1 Answer 2',
-    );
-    expect(result.stats).toEqual({
-      totalMessages: 12,
-      mergedMessages: 3,
-      removedThinking: 1,
-      keptMessages: 3,
-      summarizedMessages: 5,
+    it("supports huge input and concurrent calls", async () => {
+      const huge = `  ${"x".repeat(150_000)}   ${"y".repeat(50_000)}  `;
+      const results = await Promise.all(Array.from({ length: 20 }, () => Promise.resolve(exported(huge))));
+      expect(results[0]).toBe(results[1]);
+      expect(results[0].startsWith("x")).toBe(true);
+      expect(results[0].includes(" ")).toBe(true);
     });
-    expect(result.afterTokens).toBe(15);
-  });
-
-  it('creates title-only summaries and clamps titleMaxWords/titleMaxChars (0/-1 boundaries)', () => {
-    const result = handleCompress({
-      messages: [
-        { role: 'user', content: 'one two three four' },
-        { role: 'assistant', content: '你好世界你好世界你好世界' },
-      ],
-      options: { keepLastTurns: 0, titleOnly: true, titleMaxWords: 0, titleMaxChars: -1 },
+  } else if (exportName === "toTitle") {
+    it("returns empty string for empty/whitespace-only input", () => {
+      expect(exported("")).toBe("");
+      expect(exported("   ")).toBe("");
+      expect(exported(null)).toBe("");
+      expect(exported(undefined)).toBe("");
     });
 
-    expect(result.messages).toEqual([]);
-    expect(result.sessionSummary).toBe('user: one...\nassistant: 你好世界你好世界你好...');
-  });
-
-  it('ignores numeric strings in options and falls back to defaults (type boundaries)', () => {
-    const messages = [
-      { role: 'user', content: 'msg1' },
-      { role: 'assistant', content: 'msg2' },
-      { role: 'user', content: 'msg3' },
-      { role: 'assistant', content: 'msg4' },
-      { role: 'user', content: 'msg5' },
-      { role: 'assistant', content: 'msg6' },
-      { role: 'user', content: 'msg7' },
-    ];
-
-    const result = handleCompress({
-      messages,
-      options: { keepLastTurns: '2', summaryLineChars: '3', titleMaxWords: '1', titleMaxChars: '10' },
+    it("generates word-based titles for non-CJK text (default limits)", () => {
+      const text = "one two   three\nfour five six seven eight nine ten eleven";
+      expect(exported(text)).toBe("one two three four five six seven eight nine ten...");
     });
 
-    expect(result.messages).toHaveLength(6);
-    expect(result.messages[0]).toEqual({ role: 'assistant', content: 'msg2' });
-    expect(result.sessionSummary).toBe('user: msg1');
-  });
-
-  it('handles summaryLineChars boundaries (<=3 and 0) without crashing', () => {
-    const max3 = handleCompress({
-      messages: [{ role: 'user', content: 'abcdef' }],
-      options: { keepLastTurns: 0, summaryLineChars: 3 },
-    });
-    expect(max3.messages).toEqual([]);
-    expect(max3.sessionSummary).toBe('user: abc');
-
-    const zero = handleCompress({
-      messages: [{ role: 'user', content: 'abcdef' }],
-      options: { keepLastTurns: 0, summaryLineChars: 0 },
-    });
-    expect(zero.messages).toEqual([]);
-    expect(zero.sessionSummary).toBe('user: ');
-  });
-
-  it('keeps all messages for MAX_SAFE_INTEGER and handles deep nested content + super long strings', () => {
-    const deep = {};
-    let cursor = deep;
-    for (let i = 0; i < 60; i += 1) {
-      cursor.next = {};
-      cursor = cursor.next;
-    }
-    const hugeText = 'x'.repeat(120_000);
-
-    const result = handleCompress({
-      messages: [
-        { role: 'assistant', content: deep, extra: true },
-        { role: 'assistant', content: hugeText },
-      ],
-      options: { keepLastTurns: Number.MAX_SAFE_INTEGER },
+    it("clamps maxWords to >= 1 and truncates with ellipsis", () => {
+      expect(exported("one two three", { maxWords: 0 })).toBe("one...");
+      expect(exported("one two three", { maxWords: -1 })).toBe("one...");
     });
 
-    expect(result.messages).toHaveLength(2);
-    expect(result.messages[0].content).toBe('[object Object]');
-    expect(result.messages[1].content).toBe(hugeText);
-    const expectedTokens =
-      Math.ceil(result.messages[0].content.length * 0.25) + Math.ceil(result.messages[1].content.length * 0.25);
-    expect(result.afterTokens).toBe(expectedTokens);
-  });
-
-  it('estimates tokens with CJK weighting', () => {
-    const result = handleCompress({
-      messages: [
-        { role: 'assistant', content: '汉字', extra: true },
-        { role: 'assistant', content: 'abc' },
-      ],
+    it("applies maxChars (and may exceed by 3 due to ellipsis)", () => {
+      const longOneWord =
+        "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+      expect(exported(longOneWord, { maxWords: 50, maxChars: 20 })).toBe(longOneWord.slice(0, 20) + "...");
     });
 
-    expect(result.afterTokens).toBe(5);
-  });
-
-  it('supports concurrent calls without state bleed (concurrency boundary)', async () => {
-    const inputs = [
-      { messages: ['hello'] },
-      { messages: [{ role: 'assistant', text: 'from text' }] },
-      { messages: [{ role: 'assistant', content: 42 }] },
-      { messages: [{ role: 'assistant', content: 'msg-3' }] },
-    ];
-
-    const results = await Promise.all(inputs.map((input) => Promise.resolve().then(() => handleCompress(input))));
-
-    expect(results).toHaveLength(4);
-    expect(results[0].messages[0]).toEqual({ role: 'assistant', content: 'hello' });
-    expect(results[1].messages[0].content).toBe('from text');
-    expect(results[2].messages[0].content).toBe('42');
-    expect(results[3].messages[0].content).toBe('msg-3');
-  });
-
-  it('throws when options.sessionSummary getter throws (error boundary)', () => {
-    const options = {};
-    Object.defineProperty(options, 'sessionSummary', {
-      get() {
-        throw new Error('boom');
-      },
+    it("treats numeric-string options as numbers (via Number())", () => {
+      expect(exported("one two three", { maxWords: "2", maxChars: "11" })).toBe("one two...");
     });
-    expect(() => handleCompress({ messages: [], options })).toThrow('boom');
-  });
-});
 
-describe('compression.worker.js self.onmessage', () => {
-  it('routes rpc:request messages to the rpc handler and does not call postMessage', () => {
-    const event = { data: { type: 'rpc:request', id: 'rpc1' } };
-    globalThis.self.onmessage(event);
+    it("uses character-based clipping for CJK text", () => {
+      const cjk = "这是一个很长的中文标题用于测试截断逻辑";
+      // maxChars is clamped to >= 10 in implementation
+      const out = exported(cjk, { maxChars: 5 });
+      expect(out.startsWith(cjk.slice(0, 10))).toBe(true);
+      expect(out.endsWith("...")).toBe(true);
+    });
 
-    expect(rpcHandlerSpy).toHaveBeenCalledTimes(1);
-    expect(rpcHandlerSpy).toHaveBeenCalledWith(event);
-    expect(globalThis.self.postMessage).not.toHaveBeenCalled();
-  });
+    it("supports rapid repeated calls (concurrency boundary)", async () => {
+      const text = "one two three four five six seven eight nine ten eleven twelve";
+      const results = await Promise.all(
+        Array.from({ length: 25 }, () => Promise.resolve(exported(text, { maxWords: 5, maxChars: 30 }))),
+      );
+      expect(results.every((v) => v === results[0])).toBe(true);
+    });
+  } else if (exportName === "truncateText") {
+    it("returns empty string for non-string input", () => {
+      expect(exported(null, 10)).toBe("");
+      expect(exported(undefined, 10)).toBe("");
+      expect(exported(123, 10)).toBe("");
+      expect(exported({ text: "hi" }, 10)).toBe("");
+    });
 
-  it('rejects invalid message formats (null/undefined/empty string/array) and includes id when present', () => {
-    mockedShared.isPlainObject.mockReturnValue(false);
-    globalThis.self.onmessage(undefined);
-    globalThis.self.onmessage({ data: null });
-    globalThis.self.onmessage({ data: '' });
-    globalThis.self.onmessage({ data: [] });
-    globalThis.self.onmessage({ data: { id: 0 } });
+    it("returns original string when within limit", () => {
+      expect(exported("abc", 3)).toBe("abc");
+      expect(exported("abc", 10)).toBe("abc");
+      expect(exported("abc", Number.MAX_SAFE_INTEGER)).toBe("abc");
+    });
 
-    expect(globalThis.self.postMessage).toHaveBeenNthCalledWith(1, {
-      id: undefined,
-      ok: false,
-      error: 'Invalid message format',
+    it("uses slice when maxChars <= 3 (including 0 and negatives)", () => {
+      expect(exported("abcdefghij", 3)).toBe("abc");
+      expect(exported("abcdefghij", 0)).toBe("");
+      expect(exported("abcdefghij", -1)).toBe("abcdefghi");
     });
-    expect(globalThis.self.postMessage).toHaveBeenNthCalledWith(2, {
-      id: undefined,
-      ok: false,
-      error: 'Invalid message format',
-    });
-    expect(globalThis.self.postMessage).toHaveBeenNthCalledWith(3, {
-      id: undefined,
-      ok: false,
-      error: 'Invalid message format',
-    });
-    expect(globalThis.self.postMessage).toHaveBeenNthCalledWith(4, {
-      id: undefined,
-      ok: false,
-      error: 'Invalid message format',
-    });
-    expect(globalThis.self.postMessage).toHaveBeenNthCalledWith(5, {
-      id: 0,
-      ok: false,
-      error: 'Invalid message format',
-    });
-  });
 
-  it('rejects non-array messages including empty objects and array-like objects', () => {
-    mockedShared.isPlainObject.mockReturnValue(true);
-    globalThis.self.onmessage({ data: {} });
-    globalThis.self.onmessage({ data: { id: 'nope', messages: {} } });
-    globalThis.self.onmessage({ data: { id: 'array-like', messages: { 0: 'x', length: 1 } } });
+    it("uses head/tail with ellipsis for typical truncation", () => {
+      expect(exported("abcdefghij", 9)).toBe("abcde...j");
+      expect(exported("abcdefghij", 6)).toBe("abc...");
+    });
 
-    expect(globalThis.self.postMessage).toHaveBeenNthCalledWith(1, {
-      id: undefined,
-      ok: false,
-      error: 'messages must be an array',
+    it("exhibits current behavior for small maxChars > 3 (can exceed maxChars)", () => {
+      expect(exported("abcdefghij", 4)).toBe("ab...");
+      expect(exported("abcdefghij", 5)).toBe("abc...");
     });
-    expect(globalThis.self.postMessage).toHaveBeenNthCalledWith(2, {
-      id: 'nope',
-      ok: false,
-      error: 'messages must be an array',
-    });
-    expect(globalThis.self.postMessage).toHaveBeenNthCalledWith(3, {
-      id: 'array-like',
-      ok: false,
-      error: 'messages must be an array',
-    });
-  });
 
-  it('posts success responses for valid requests and preserves id edge values', () => {
-    mockedShared.isPlainObject.mockReturnValue(true);
-    const ids = [0, -1, Number.MAX_SAFE_INTEGER];
-    for (const id of ids) {
-      globalThis.self.onmessage({
-        data: { id, messages: [{ role: 'assistant', content: 'Hi' }], options: {} },
+    it("handles huge strings without throwing (resource boundary)", () => {
+      const huge = "x".repeat(250_000) + "TAIL";
+      const out = exported(huge, 50);
+      expect(out.includes("...")).toBe(true);
+      expect(out.startsWith("x")).toBe(true);
+      expect(out.endsWith("TAIL")).toBe(true);
+    });
+
+    it("supports rapid repeated calls (concurrency boundary)", async () => {
+      const text = "a".repeat(10_000) + "END";
+      const results = await Promise.all(Array.from({ length: 30 }, () => Promise.resolve(exported(text, 100))));
+      expect(results.every((v) => v === results[0])).toBe(true);
+    });
+  } else if (exportName === "isThinkingMessage") {
+    it("returns false for non-objects and empty content", () => {
+      expect(exported(null)).toBe(false);
+      expect(exported(undefined)).toBe(false);
+      expect(exported("analysis: x")).toBe(false);
+      expect(exported(0)).toBe(false);
+      expect(exported({})).toBe(false);
+      expect(exported({ content: "   " })).toBe(false);
+      expect(exported([])).toBe(false);
+    });
+
+    it("detects explicit flags and types", () => {
+      expect(exported({ thinking: true })).toBe(true);
+      expect(exported({ internal: true })).toBe(true);
+      expect(exported({ type: "thinking" })).toBe(true);
+      expect(exported({ meta: { type: "thinking" } })).toBe(true);
+    });
+
+    it("detects thinking markers in content/text", () => {
+      expect(exported({ content: "<think> hello" })).toBe(true);
+      expect(exported({ content: "<analysis> hello" })).toBe(true);
+      expect(exported({ content: "thought: hello" })).toBe(true);
+      expect(exported({ content: "Thoughts: hello" })).toBe(true);
+      expect(exported({ content: "analysis: hello" })).toBe(true);
+      expect(exported({ content: "internal: hello" })).toBe(true);
+      expect(exported({ text: "analysis: hello" })).toBe(true);
+      expect(exported({ content: "analysis hello" })).toBe(false);
+    });
+
+    it("supports rapid repeated calls (concurrency boundary)", async () => {
+      const msg = { content: "<think> x" };
+      const results = await Promise.all(Array.from({ length: 40 }, () => Promise.resolve(exported(msg))));
+      expect(results.every((v) => v === true)).toBe(true);
+    });
+  } else if (exportName === "normalizeMessage") {
+    it("normalizes string input to assistant role", () => {
+      expect(exported("hi")).toEqual({ role: "assistant", content: "hi" });
+    });
+
+    it("normalizes object content/text to string and preserves fields", () => {
+      const msg = { role: "user", content: 123, extra: { k: "v" } };
+      const out = exported(msg);
+      expect(out).toEqual({ role: "user", content: "123", extra: { k: "v" } });
+      expect(msg.content).toBe(123);
+    });
+
+    it("falls back to text when content is nullish", () => {
+      expect(exported({ role: "assistant", content: null, text: "hello" })).toEqual({
+        role: "assistant",
+        content: "hello",
+        text: "hello",
       });
-    }
-
-    expect(globalThis.self.postMessage).toHaveBeenCalledTimes(3);
-    const postedIds = globalThis.self.postMessage.mock.calls.map((call) => call[0].id);
-    expect(postedIds).toEqual(ids);
-
-    for (const call of globalThis.self.postMessage.mock.calls) {
-      expect(call[0]).toMatchObject({
-        ok: true,
-        messages: [{ role: 'assistant', content: 'Hi' }],
-        sessionSummary: null,
-      });
-      expect(call[0].stats.totalMessages).toBe(1);
-      expect(call[0].afterTokens).toBe(1);
-    }
-  });
-
-  it('returns errors when handleCompress throws (options getter throws)', () => {
-    mockedShared.isPlainObject.mockReturnValue(true);
-    const options = {};
-    Object.defineProperty(options, 'sessionSummary', {
-      get() {
-        throw new Error('boom');
-      },
-    });
-    globalThis.self.onmessage({ data: { id: 'err', messages: [], options } });
-
-    expect(globalThis.self.postMessage).toHaveBeenCalledWith({
-      id: 'err',
-      ok: false,
-      error: 'boom',
-    });
-  });
-
-  it('handles rapid consecutive calls (concurrency boundary)', () => {
-    mockedShared.isPlainObject.mockReturnValue(true);
-    for (let i = 0; i < 5; i += 1) {
-      globalThis.self.onmessage({
-        data: { id: `msg-${i}`, messages: [{ role: 'assistant', content: `m${i}` }] },
-      });
-    }
-
-    expect(globalThis.self.postMessage).toHaveBeenCalledTimes(5);
-    const ids = globalThis.self.postMessage.mock.calls.map((call) => call[0].id);
-    expect(ids).toEqual(['msg-0', 'msg-1', 'msg-2', 'msg-3', 'msg-4']);
-  });
-
-  it('supports interleaved rpc and legacy messages without cross-contamination', () => {
-    mockedShared.isPlainObject.mockReturnValue(true);
-
-    globalThis.self.onmessage({ data: { type: 'rpc:request', id: 'rpc-a' } });
-    globalThis.self.onmessage({
-      data: { id: 'legacy-1', messages: [{ role: 'assistant', content: 'x' }] },
-    });
-    globalThis.self.onmessage({ data: { type: 'rpc:request', id: 'rpc-b' } });
-    globalThis.self.onmessage({
-      data: { id: 'legacy-2', messages: [{ role: 'assistant', content: 'y' }] },
     });
 
-    expect(rpcHandlerSpy).toHaveBeenCalledTimes(2);
-    expect(globalThis.self.postMessage).toHaveBeenCalledTimes(2);
-    const legacyIds = globalThis.self.postMessage.mock.calls.map((call) => call[0].id);
-    expect(legacyIds).toEqual(['legacy-1', 'legacy-2']);
-  });
+    it("returns default assistant message for non-string/non-object", () => {
+      expect(exported(null)).toEqual({ role: "assistant", content: "" });
+      expect(exported(undefined)).toEqual({ role: "assistant", content: "" });
+      expect(exported(0)).toEqual({ role: "assistant", content: "" });
+      expect(exported(false)).toEqual({ role: "assistant", content: "" });
+    });
+
+    it("treats arrays as objects (current behavior)", () => {
+      expect(exported(["x"])).toEqual({ 0: "x", content: "" });
+      expect(exported([])).toEqual({ content: "" });
+    });
+
+    it("supports rapid repeated calls (concurrency boundary)", async () => {
+      const msg = { role: "user", content: 1 };
+      const results = await Promise.all(Array.from({ length: 25 }, () => Promise.resolve(exported(msg))));
+      expect(results.every((v) => v.content === "1")).toBe(true);
+    });
+  } else if (exportName === "isMergeSafeMessage") {
+    it("returns false for non-objects", () => {
+      expect(exported(null)).toBe(false);
+      expect(exported(undefined)).toBe(false);
+      expect(exported("x")).toBe(false);
+      expect(exported(0)).toBe(false);
+    });
+
+    it("returns true only when keys are limited to role/content", () => {
+      expect(exported({})).toBe(true);
+      expect(exported({ role: "assistant" })).toBe(true);
+      expect(exported({ content: "hi" })).toBe(true);
+      expect(exported({ role: "assistant", content: "hi" })).toBe(true);
+      expect(exported({ role: "assistant", content: "hi", meta: {} })).toBe(false);
+      expect(exported({ role: "assistant", content: "hi", extra: undefined })).toBe(false);
+    });
+
+    it("treats arrays based on their enumerable keys (current behavior)", () => {
+      expect(exported([])).toBe(true);
+      expect(exported(["x"])).toBe(false);
+    });
+  } else if (exportName === "isContextSummaryMessage") {
+    it("detects system messages with [Context Summary] prefix", () => {
+      expect(exported({ role: "system", content: "[Context Summary] hello" })).toBe(true);
+      expect(exported({ role: "system", content: "   [Context Summary] hello" })).toBe(true);
+      expect(exported({ role: "system", content: "[context summary] hello" })).toBe(false);
+    });
+
+    it("returns false for non-system or empty content", () => {
+      expect(exported({ role: "user", content: "[Context Summary] hello" })).toBe(false);
+      expect(exported({ role: "system", content: "" })).toBe(false);
+      expect(exported({ role: "system" })).toBe(false);
+      expect(exported(null)).toBe(false);
+    });
+  } else if (exportName === "summarizeMessages") {
+    it("summarizes messages with truncation (normal path)", () => {
+      const out = exported([{ role: "user", content: "  hello   world " }], 10);
+      expect(out).toBe("user: hello ...d");
+    });
+
+    it("skips empty/whitespace content and preserves unknown roles", () => {
+      expect(exported([{ role: "user", content: "   " }], 10)).toBe("");
+      expect(exported([{ content: "hi" }], 10)).toBe("unknown: hi");
+    });
+
+    it("treats falsy non-empty values in content as empty due to `||` (current behavior)", () => {
+      expect(exported([{ role: "user", content: 0 }], 10)).toBe("");
+      expect(exported([{ role: "user", content: false }], 10)).toBe("");
+      expect(exported([{ role: "user", content: NaN }], 10)).toBe("");
+    });
+
+    it("supports titleOnly mode", () => {
+      const out = exported(
+        [{ role: "user", content: "one two three four" }],
+        50,
+        { titleOnly: true, titleMaxWords: 2, titleMaxChars: 80 },
+      );
+      expect(out).toBe("user: one two...");
+    });
+
+    it("throws on non-iterable messages input (error handling)", () => {
+      expect(() => exported(null, 10)).toThrow();
+      expect(() => exported(undefined, 10)).toThrow();
+    });
+
+    it("handles large inputs (resource boundary) and rapid calls (concurrency boundary)", async () => {
+      const huge = "x".repeat(200_000) + " END";
+      const messages = [
+        { role: "system", content: "[Context Summary] prior" },
+        { role: "user", content: huge },
+        { role: "assistant", content: "ok" },
+      ];
+
+      const results = await Promise.all(Array.from({ length: 15 }, () => Promise.resolve(exported(messages, 120))));
+      expect(results[0]).toBe(results[1]);
+      expect(results[0].split("\n").length).toBe(3);
+    });
+  } else if (exportName === "compressSessionHistory") {
+    it("returns { compressed, stats } for a minimal context object", async () => {
+      const ctx = {
+        layers: {
+          SESSION_HISTORY: {
+            messages: [
+              { role: "user", content: "hello" },
+              { role: "assistant", content: "world" },
+            ],
+          },
+        },
+        sessionHistory: [
+          { role: "user", content: "hello" },
+          { role: "assistant", content: "world" },
+        ],
+      };
+
+      const result = exported(ctx, {});
+      const awaited = result && typeof result.then === "function" ? await result : result;
+
+      expect(awaited).toBeTruthy();
+      expect(typeof awaited).toBe("object");
+      expect(awaited).toHaveProperty("compressed");
+      expect(awaited).toHaveProperty("stats");
+    });
+
+    it("handles boundary keepLastTurns values without throwing", async () => {
+      const ctx = { sessionHistory: [{ role: "user", content: "hi" }] };
+
+      const cases = [
+        { keepLastTurns: 0 },
+        { keepLastTurns: -1 },
+        { keepLastTurns: Number.MAX_SAFE_INTEGER },
+        { keepLastTurns: NaN },
+        { keepLastTurns: "6" },
+      ];
+
+      const results = [];
+      for (const options of cases) {
+        const out = exported(ctx, options);
+        results.push(out && typeof out.then === "function" ? await out : out);
+      }
+
+      for (const r of results) {
+        expect(r).toBeTruthy();
+        expect(typeof r).toBe("object");
+        expect(r).toHaveProperty("compressed");
+        expect(r).toHaveProperty("stats");
+      }
+    });
+
+    it("uses isPlainObject during processing (dependency interaction)", async () => {
+      await importWorkerFresh();
+      const { isPlainObject } = await importMocks();
+
+      const ctx = { sessionHistory: [{ role: "user", content: "hi" }] };
+      const out = exported(ctx, {});
+      await (out && typeof out.then === "function" ? out : Promise.resolve(out));
+
+      expect(isPlainObject).toHaveBeenCalled();
+    });
+
+    it("supports concurrent calls with deep/large context (concurrency + resource boundary)", async () => {
+      const deep = {};
+      let cur = deep;
+      for (let i = 0; i < 120; i += 1) {
+        cur.next = {};
+        cur = cur.next;
+      }
+
+      const hugeText = "x".repeat(120_000);
+      const ctx = {
+        layers: {
+          SESSION_HISTORY: {
+            messages: [
+              { role: "user", content: hugeText },
+              { role: "assistant", content: "reply" },
+              { role: "assistant", content: "<think>internal</think>" },
+            ],
+          },
+        },
+        deep,
+      };
+
+      const tasks = Array.from({ length: 10 }, () => outcomeOf(exported, [ctx, { keepLastTurns: 6 }]));
+      const outcomes = await Promise.all(tasks);
+
+      expect(outcomes.every((o) => o.ok)).toBe(true);
+      const first = outcomes[0].value;
+      expect(first).toBeTruthy();
+      expect(typeof first).toBe("object");
+      expect(first).toHaveProperty("compressed");
+      expect(first).toHaveProperty("stats");
+    });
+  } else {
+    it("has stable behavior for boundary inputs (generic)", async () => {
+      if (typeof exported !== "function") return;
+
+      const argSets = [[], [undefined], [null], [""], [0], [-1], [Number.MAX_SAFE_INTEGER], [{}], [[]]];
+
+      for (const args of argSets) {
+        const a = await outcomeOf(exported, args);
+        const b = await outcomeOf(exported, args);
+
+        expect(b.ok).toBe(a.ok);
+
+        if (a.ok) {
+          if (typeof a.value === "undefined") {
+            expect(typeof b.value).toBe("undefined");
+          } else {
+            expect(b.value).toEqual(a.value);
+          }
+        } else {
+          expect(b.error && b.error.name).toBe(a.error && a.error.name);
+          expect(String(b.error && b.error.message)).toBe(String(a.error && a.error.message));
+        }
+      }
+    });
+
+    it("supports rapid consecutive invocations (generic concurrency)", async () => {
+      if (typeof exported !== "function") return;
+
+      const tasks = Array.from({ length: 25 }, () => outcomeOf(exported, []));
+      const outcomes = await Promise.all(tasks);
+
+      // All should either consistently succeed or consistently fail for empty input
+      const okCount = outcomes.filter((o) => o.ok).length;
+      expect(okCount === 0 || okCount === outcomes.length).toBe(true);
+    });
+  }
 });

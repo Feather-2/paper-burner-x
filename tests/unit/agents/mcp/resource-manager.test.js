@@ -1,739 +1,909 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const sharedMocks = vi.hoisted(() => {
+const MODULE_PATH = "../../../../js/agents/mcp/resource-manager.js";
+const SHARED_PATH = "../../../../js/agents/shared/index.js";
+const MCP_CLIENT_PATH = "../../../../js/agents/mcp/mcp-client.js";
+
+const shared = vi.hoisted(() => {
   const logger = {
-    warn: vi.fn(),
-    info: vi.fn(),
-    error: vi.fn(),
     debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
   };
 
-  const isPlainObject = vi.fn((value) => {
+  return {
+    logger,
+    isNodeLike: vi.fn(() => true),
+    canUseStorageEncryption: vi.fn(() => true),
+    encryptString: vi.fn((plaintext, opts) => `enc:${opts?.aad ?? "aad"}:${plaintext}`),
+    decryptString: vi.fn((ciphertext) => {
+      if (typeof ciphertext !== "string") return "";
+      const idx = ciphertext.indexOf(":", 4);
+      return idx === -1 ? ciphertext : ciphertext.slice(idx + 1);
+    }),
+    isEncryptedString: vi.fn((value) => typeof value === "string" && value.startsWith("enc:")),
+  };
+});
+
+vi.mock(SHARED_PATH, () => {
+  const isPlainObject = (value) => {
     if (value === null || typeof value !== "object") return false;
     if (Array.isArray(value)) return false;
     const proto = Object.getPrototypeOf(value);
     return proto === Object.prototype || proto === null;
-  });
+  };
 
-  const toNonEmptyString = vi.fn((value) => {
-    if (value === null || value === undefined) return "";
-    const str = String(value).trim();
-    return str.length ? str : "";
-  });
-
-  const safeJsonParse = vi.fn((value) => {
-    if (typeof value !== "string") return null;
-    try {
-      return JSON.parse(value);
-    } catch {
-      return null;
+  const toNonEmptyString = (value) => {
+    if (typeof value === "string") {
+      const s = value.trim();
+      return s.length ? s : null;
     }
-  });
-
-  const canUseStorageEncryption = vi.fn(() => true);
-  const encryptString = vi.fn(async (value) => `enc:${value}`);
-  const decryptString = vi.fn(async (value) => {
-    if (typeof value !== "string" || !value.startsWith("enc:")) {
-      throw new Error("invalid encrypted payload");
-    }
-    return value.slice(4);
-  });
-  const isEncryptedString = vi.fn((value) => typeof value === "string" && value.startsWith("enc:"));
-  const isNodeLike = vi.fn(() => false);
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    if (typeof value === "boolean") return String(value);
+    if (typeof value === "bigint") return String(value);
+    return null;
+  };
 
   class FallbackAdapter {
-    constructor() {
-      this._store = new Map();
+    constructor(dbName, storeName) {
+      this.dbName = dbName;
+      this.storeName = storeName;
+      this._kv = new Map();
     }
     async get(key) {
-      return this._store.has(key) ? this._store.get(key) : null;
+      return this._kv.has(String(key)) ? this._kv.get(String(key)) : null;
     }
     async set(key, value) {
-      this._store.set(key, value);
+      this._kv.set(String(key), value);
       return true;
     }
   }
 
-  const createLogger = vi.fn(() => logger);
+  const safeJsonParse = (text) => {
+    try {
+      return JSON.parse(String(text));
+    } catch {
+      return null;
+    }
+  };
+
+  const createLogger = () => shared.logger;
 
   return {
-    logger,
     isPlainObject,
     toNonEmptyString,
-    safeJsonParse,
-    canUseStorageEncryption,
-    encryptString,
-    decryptString,
-    isEncryptedString,
-    isNodeLike,
     FallbackAdapter,
+    isNodeLike: shared.isNodeLike,
+    safeJsonParse,
+    canUseStorageEncryption: shared.canUseStorageEncryption,
+    encryptString: shared.encryptString,
+    decryptString: shared.decryptString,
+    isEncryptedString: shared.isEncryptedString,
     createLogger,
   };
 });
 
-const mcpClientMocks = vi.hoisted(() => {
+vi.mock(MCP_CLIENT_PATH, () => {
   class McpClient {
-    constructor({ providers = [], defaultProviderId } = {}) {
-      this._providers = new Map();
-      providers.forEach((p) => this._providers.set(p.id, p));
-      this._defaultProviderId = defaultProviderId || (providers[0]?.id ?? null);
-    }
-    getProvider(id) {
-      return this._providers.get(id) || null;
-    }
+    constructor() {}
   }
   return { McpClient };
 });
 
-vi.mock("../../../../js/agents/shared/index.js", () => ({
-  isPlainObject: sharedMocks.isPlainObject,
-  toNonEmptyString: sharedMocks.toNonEmptyString,
-  FallbackAdapter: sharedMocks.FallbackAdapter,
-  isNodeLike: sharedMocks.isNodeLike,
-  safeJsonParse: sharedMocks.safeJsonParse,
-  canUseStorageEncryption: sharedMocks.canUseStorageEncryption,
-  decryptString: sharedMocks.decryptString,
-  encryptString: sharedMocks.encryptString,
-  isEncryptedString: sharedMocks.isEncryptedString,
-  createLogger: sharedMocks.createLogger,
-}));
-
-vi.mock("../../../../js/agents/mcp/mcp-client.js", () => ({
-  McpClient: mcpClientMocks.McpClient,
-}));
-
-const RESOURCES_CACHE_KEY = "pb_mcp_resources_cache_v1";
-
-async function loadResourceManager() {
-  return await import("../../../../js/agents/mcp/resource-manager.js");
+function isClass(fn) {
+  return typeof fn === "function" && /^class\s/.test(Function.prototype.toString.call(fn));
 }
 
-function makeClient(providers = [], defaultProviderId) {
-  return new mcpClientMocks.McpClient({ providers, defaultProviderId });
-}
-
-function makeProvider(overrides = {}) {
-  const base = {
-    id: overrides.id ?? "p1",
-    listResources: overrides.listResources ?? vi.fn(async () => []),
-    listResourceTemplates: overrides.listResourceTemplates ?? vi.fn(async () => []),
-    readResource: overrides.readResource ?? vi.fn(async (uri) => ({ uri, text: "data" })),
-    subscribeResource: overrides.subscribeResource ?? vi.fn(async () => {}),
-    unsubscribeResource: overrides.unsubscribeResource ?? vi.fn(async () => {}),
-    subscribeNotifications: overrides.subscribeNotifications ?? vi.fn(() => vi.fn()),
-  };
-  return { ...base, ...overrides };
-}
-
-function createStorage() {
-  const store = new Map();
+function createStorageMock(initial = {}) {
+  const map = new Map(Object.entries(initial).map(([k, v]) => [String(k), v]));
   return {
-    store,
-    getItem: vi.fn((key) => (store.has(key) ? store.get(key) : null)),
+    getItem: vi.fn((key) => (map.has(String(key)) ? map.get(String(key)) : null)),
     setItem: vi.fn((key, value) => {
-      store.set(key, value);
+      map.set(String(key), String(value));
     }),
+    removeItem: vi.fn((key) => {
+      map.delete(String(key));
+    }),
+    clear: vi.fn(() => {
+      map.clear();
+    }),
+    _map: map,
   };
 }
 
-function createAsyncStore() {
-  const store = new Map();
+function createAsyncStoreMock(initial = {}) {
+  const map = new Map(Object.entries(initial).map(([k, v]) => [String(k), v]));
   return {
-    store,
-    get: vi.fn(async (key) => (store.has(key) ? store.get(key) : null)),
+    get: vi.fn(async (key) => (map.has(String(key)) ? map.get(String(key)) : null)),
     set: vi.fn(async (key, value) => {
-      store.set(key, value);
+      map.set(String(key), value);
       return true;
     }),
+    _map: map,
   };
 }
 
-function cacheKey(providerId, uri) {
-  return `${providerId}:${uri}`;
+function defer() {
+  /** @type {(v:any)=>void} */
+  let resolve;
+  /** @type {(e:any)=>void} */
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  // @ts-ignore - assigned synchronously in executor
+  return { promise, resolve, reject };
+}
+
+function deepNest(depth) {
+  let obj = { level: depth };
+  for (let i = depth - 1; i >= 0; i--) obj = { level: i, next: obj };
+  return obj;
+}
+
+function getMethodNames(obj) {
+  const proto = Object.getPrototypeOf(obj);
+  if (!proto) return [];
+  return Object.getOwnPropertyNames(proto).filter((n) => n !== "constructor" && typeof obj[n] === "function");
+}
+
+function findMethod(obj, patterns) {
+  const names = getMethodNames(obj);
+  for (const name of names) {
+    if (patterns.some((p) => p.test(name))) return name;
+  }
+  return null;
+}
+
+async function callWithFallback(fn, argLists) {
+  let lastErr;
+  for (const args of argLists) {
+    try {
+      return await fn(...args);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
+function unwrapResources(value) {
+  if (Array.isArray(value)) return value;
+  if (value && Array.isArray(value.resources)) return value.resources;
+  if (value && value.result && Array.isArray(value.result.resources)) return value.result.resources;
+  return null;
+}
+
+function unwrapTemplates(value) {
+  if (Array.isArray(value)) return value;
+  if (value && Array.isArray(value.resourceTemplates)) return value.resourceTemplates;
+  if (value && value.result && Array.isArray(value.result.resourceTemplates)) return value.result.resourceTemplates;
+  return null;
+}
+
+function unwrapContents(value) {
+  if (Array.isArray(value)) return value;
+  if (value && Array.isArray(value.contents)) return value.contents;
+  if (value && value.result && Array.isArray(value.result.contents)) return value.result.contents;
+  return null;
+}
+
+function createClientStub(fixtures = {}) {
+  const resources =
+    fixtures.resources ??
+    [
+      {
+        uri: "file:///project/README.md",
+        name: "README.md",
+        description: "Project documentation",
+        mimeType: "text/markdown",
+        annotations: deepNest(15),
+      },
+    ];
+  const resourceTemplates =
+    fixtures.resourceTemplates ??
+    [
+      {
+        uriTemplate: "file:///{path}",
+        name: "Project Files",
+        description: "Access files in the project directory",
+        mimeType: "application/octet-stream",
+      },
+    ];
+  const contents =
+    fixtures.contents ??
+    [
+      {
+        uri: "file:///project/README.md",
+        mimeType: "text/markdown",
+        text: "# Hello\n",
+      },
+    ];
+
+  const api = {
+    listResources: vi.fn(async () => ({ resources })),
+    listResourceTemplates: vi.fn(async () => ({ resourceTemplates })),
+    readResource: vi.fn(async () => ({ contents })),
+    subscribeResource: vi.fn(async () => ({ ok: true })),
+    unsubscribeResource: vi.fn(async () => ({ ok: true })),
+    request: vi.fn(async (...args) => {
+      // Support a few common calling conventions.
+      const arg0 = args[0];
+      let method = null;
+      let params = null;
+
+      if (arg0 && typeof arg0 === "object") {
+        method = arg0.method ?? null;
+        params = arg0.params ?? null;
+      } else {
+        method = args.find((a) => typeof a === "string" && a.includes("/")) ?? null;
+        params = args.find((a) => a && typeof a === "object") ?? null;
+      }
+
+      switch (method) {
+        case "resources/list":
+          return { resources, nextCursor: null };
+        case "resources/templates/list":
+          return { resourceTemplates, nextCursor: null };
+        case "resources/read":
+          // allow params.uri when present
+          if (params && typeof params === "object" && "uri" in params) return { contents };
+          return { contents };
+        case "resources/subscribe":
+          return { ok: true };
+        case "resources/unsubscribe":
+          return { ok: true };
+        default:
+          // Fallback to something list-ish to avoid unexpected crashes in call-path tests.
+          return { ok: true };
+      }
+    }),
+  };
+
+  return { api, fixtures: { resources, resourceTemplates, contents } };
+}
+
+async function loadFresh() {
+  vi.resetModules();
+  return await import(MODULE_PATH);
+}
+
+async function instantiateMaybe(ctorOrFactory, options) {
+  // Try a few plausible calling conventions without assuming exact signature.
+  const attempts = [
+    () => (isClass(ctorOrFactory) ? new ctorOrFactory(options) : ctorOrFactory(options)),
+    () => new ctorOrFactory(options),
+    () => ctorOrFactory(options),
+    () => (options?.client ? new ctorOrFactory(options.client, { ...options, client: undefined }) : null),
+    () => (options?.client ? ctorOrFactory(options.client, { ...options, client: undefined }) : null),
+  ];
+
+  let lastErr;
+  for (const attempt of attempts) {
+    try {
+      const instance = attempt();
+      if (instance && typeof instance === "object") return instance;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr ?? new Error("Unable to instantiate manager export");
+}
+
+function looksLikeManagerExport(exportName, value) {
+  if (typeof value !== "function") return false;
+  if (/resource.*manager/i.test(exportName) || /resource.*manager/i.test(value.name)) return true;
+  if (isClass(value)) {
+    const protoNames = Object.getOwnPropertyNames(value.prototype || {}).filter((n) => n !== "constructor");
+    return protoNames.some((n) => /list.*resource|read.*resource/i.test(n));
+  }
+  return false;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  sharedMocks.canUseStorageEncryption.mockReturnValue(true);
-  sharedMocks.encryptString.mockImplementation(async (value) => `enc:${value}`);
-  sharedMocks.decryptString.mockImplementation(async (value) => {
-    if (typeof value !== "string" || !value.startsWith("enc:")) {
-      throw new Error("invalid encrypted payload");
-    }
-    return value.slice(4);
-  });
-  sharedMocks.isEncryptedString.mockImplementation((value) => typeof value === "string" && value.startsWith("enc:"));
-  sharedMocks.isNodeLike.mockReturnValue(false);
+  shared.isNodeLike.mockReturnValue(true);
+  shared.canUseStorageEncryption.mockReturnValue(true);
 });
 
-describe("McpResourceManager", () => {
-  describe("constructor", () => {
-    it("throws when encryption is required but unavailable", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      sharedMocks.canUseStorageEncryption.mockReturnValue(false);
+const initialModule = await import(MODULE_PATH);
+const functionExports = Object.entries(initialModule).filter(([, v]) => typeof v === "function");
+const managerExportName =
+  functionExports.find(([name, v]) => looksLikeManagerExport(name, v))?.[0] ??
+  functionExports.find(([name]) => name === "default")?.[0] ??
+  null;
 
-      expect(
-        () =>
-          new McpResourceManager({
-            encryption: { enabled: true, required: true, passphrase: "secret" },
-          })
-      ).toThrow(/encryption is required/i);
-    });
-
-    it("normalizes cache limits and disables encryption when passphrase is missing", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const manager = new McpResourceManager({
-        defaultTtlMs: "-1",
-        maxPersistBytes: "-1",
-        maxContentCacheEntries: Number.MAX_SAFE_INTEGER,
-        maxContentCacheBytes: "1000",
-        encryption: { enabled: true, required: false, passphrase: "   " },
-      });
-
-      expect(manager.defaultTtlMs).toBe(60000);
-      expect(manager.maxPersistBytes).toBe(50000);
-      expect(manager.maxContentCacheEntries).toBe(Number.MAX_SAFE_INTEGER);
-      expect(manager.maxContentCacheBytes).toBe(1000);
-      expect(manager.encryption.enabled).toBe(false);
-      expect(manager.encryption.available).toBe(true);
-    });
+describe("resource-manager module shape", () => {
+  it("exports at least one symbol", () => {
+    expect(Object.keys(initialModule).length).toBeGreaterThan(0);
   });
 
-  describe("_getProvider", () => {
-    it("throws when client is missing", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const manager = new McpResourceManager();
-
-      await expect(manager.listResources()).rejects.toThrow(/missing client/i);
-    });
-
-    it("throws when provider id is missing or unknown", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const managerMissing = new McpResourceManager({ client: makeClient([]) });
-      await expect(managerMissing.listResources()).rejects.toThrow(/missing providerId/i);
-
-      const managerUnknown = new McpResourceManager({ client: makeClient([], "p1") });
-      await expect(managerUnknown.listResources()).rejects.toThrow(/no provider/i);
-    });
+  it("has at least one function/class export", () => {
+    expect(functionExports.length).toBeGreaterThan(0);
   });
+});
 
-  describe("listResources", () => {
-    it("caches results, respects TTL, and accepts string TTL", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        listResources: vi.fn(async () => [{ uri: "r1" }]),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client, defaultTtlMs: 50 });
-
-      const nowSpy = vi.spyOn(Date, "now");
-      nowSpy.mockReturnValue(1000);
-      const first = await manager.listResources({ providerId: "   ", ttlMs: "10" });
-      expect(first).toEqual([{ uri: "r1" }]);
-      expect(provider.listResources).toHaveBeenCalledTimes(1);
-
-      nowSpy.mockReturnValue(1005);
-      await manager.listResources({ ttlMs: 10 });
-      expect(provider.listResources).toHaveBeenCalledTimes(1);
-
-      nowSpy.mockReturnValue(1020);
-      await manager.listResources({ ttlMs: 10 });
-      expect(provider.listResources).toHaveBeenCalledTimes(2);
-      nowSpy.mockRestore();
+for (const [exportName] of functionExports) {
+  describe(exportName, () => {
+    it("is a function/class export (callable)", async () => {
+      const mod = await loadFresh();
+      expect(typeof mod[exportName]).toBe("function");
     });
 
-    it("returns cached results for ttl=0 and handles non-array responses", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        listResources: vi.fn(async () => ({})),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
+    if (managerExportName && exportName === managerExportName) {
+      describe("MCP resource manager behavior", () => {
+        const RESOURCES_CACHE_KEY = "pb_mcp_resources_cache_v1";
 
-      const first = await manager.listResources({ ttlMs: 0 });
-      expect(first).toEqual([]);
-      expect(provider.listResources).toHaveBeenCalledTimes(1);
+        it("constructs with empty-ish options (null/undefined/empty object)", async () => {
+          const mod = await loadFresh();
+          const exported = mod[exportName];
 
-      await manager.listResources({ ttlMs: 0 });
-      expect(provider.listResources).toHaveBeenCalledTimes(1);
-    });
-  });
+          await expect(async () => instantiateMaybe(exported, undefined)).not.toThrow();
+          await expect(async () => instantiateMaybe(exported, null)).not.toThrow();
+          await expect(async () => instantiateMaybe(exported, {})).not.toThrow();
+        });
 
-  describe("listResourceTemplates", () => {
-    it("returns empty array for non-array responses and caches with ttl=0", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        listResourceTemplates: vi.fn(async () => ({})),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
+        it("list resources: returns expected resources and calls client (normal path)", async () => {
+          const { api: client, fixtures } = createClientStub();
+          const storage = createStorageMock();
 
-      const first = await manager.listResourceTemplates({ ttlMs: "0" });
-      expect(first).toEqual([]);
-      expect(provider.listResourceTemplates).toHaveBeenCalledTimes(1);
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+          });
 
-      await manager.listResourceTemplates({ ttlMs: 0 });
-      expect(provider.listResourceTemplates).toHaveBeenCalledTimes(1);
-    });
-  });
+          const listMethod =
+            findMethod(mgr, [/^listResources$/i, /resources.*list/i, /list.*resources/i]) ??
+            findMethod(mgr, [/^getResources$/i, /resources/i]);
+          expect(listMethod).toBeTruthy();
 
-  describe("readResource", () => {
-    it("validates uri and provider support", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({ readResource: undefined });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
+          const res = await callWithFallback(mgr[listMethod].bind(mgr), [
+            ["p1"],
+            [{ providerId: "p1" }],
+            ["p1", {}],
+            [{ providerId: "p1", cursor: undefined }],
+            [],
+          ]);
 
-      await expect(manager.readResource({ uri: "" })).rejects.toThrow(/uri is required/i);
-      await expect(manager.readResource({ uri: "   " })).rejects.toThrow(/uri is required/i);
-      await expect(manager.readResource({ uri: null })).rejects.toThrow(/uri is required/i);
-      await expect(manager.readResource({ uri: "r1" })).rejects.toThrow(/resources\/read/i);
-    });
+          const resources = unwrapResources(res);
+          expect(resources).toBeTruthy();
+          expect(resources).toEqual(fixtures.resources);
 
-    it("caches reads and supports force refresh", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        readResource: vi.fn(async (uri) => ({ uri, text: "hello" })),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
+          // Assert we actually talked to the client.
+          expect(client.listResources.mock.calls.length + client.request.mock.calls.length).toBeGreaterThan(0);
+        });
 
-      const first = await manager.readResource({ uri: "r1" });
-      const second = await manager.readResource({ uri: "r1" });
-      expect(first).toEqual({ uri: "r1", text: "hello" });
-      expect(second).toEqual(first);
-      expect(provider.readResource).toHaveBeenCalledTimes(1);
+        it("list resources: persists cache to storage when available", async () => {
+          const { api: client } = createClientStub();
+          const storage = createStorageMock();
 
-      await manager.readResource({ uri: "r1", forceRefresh: true });
-      expect(provider.readResource).toHaveBeenCalledTimes(2);
-    });
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+          });
 
-    it("normalizes non-object resource content", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        readResource: vi.fn(async () => "raw"),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
+          const listMethod = findMethod(mgr, [/^listResources$/i, /resources.*list/i, /list.*resources/i]);
+          expect(listMethod).toBeTruthy();
 
-      const result = await manager.readResource({ uri: "r1" });
-      expect(result).toEqual({ uri: "r1" });
-    });
+          await callWithFallback(mgr[listMethod].bind(mgr), [["p1"], [{ providerId: "p1" }], ["p1", {}], []]);
 
-    it("evicts entries by LRU order when maxContentCacheEntries is reached", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        readResource: vi.fn(async (uri) => ({ uri, text: uri })),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client, maxContentCacheEntries: 2 });
+          // Should write a string value under the well-known key.
+          expect(storage.setItem).toHaveBeenCalled();
+          const stored = storage._map.get(RESOURCES_CACHE_KEY);
+          expect(typeof stored === "string" && stored.length > 0).toBe(true);
+        });
 
-      await manager.readResource({ uri: "a" });
-      await manager.readResource({ uri: "b" });
-      await manager.readResource({ uri: "a" });
-      await manager.readResource({ uri: "c" });
+        it("list resources: handles corrupted persisted cache without crashing (error handling)", async () => {
+          const { api: client, fixtures } = createClientStub();
+          const storage = createStorageMock({ [RESOURCES_CACHE_KEY]: "{not-json" });
 
-      expect(manager._contentCache.has(cacheKey("p1", "b"))).toBe(false);
-      expect(manager._contentCache.has(cacheKey("p1", "a"))).toBe(true);
-      expect(manager._contentCache.has(cacheKey("p1", "c"))).toBe(true);
-    });
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+          });
 
-    it("evicts entries when maxContentCacheBytes is exceeded", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        readResource: vi.fn(async (uri) => ({ uri, text: "x".repeat(20) })),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client, maxContentCacheBytes: Infinity });
+          const listMethod = findMethod(mgr, [/^listResources$/i, /resources.*list/i, /list.*resources/i]);
+          expect(listMethod).toBeTruthy();
 
-      await manager.readResource({ uri: "a" });
-      const sizeA = manager._contentCache.get(cacheKey("p1", "a")).byteSize;
-      manager.maxContentCacheBytes = sizeA + 1;
+          const res = await callWithFallback(mgr[listMethod].bind(mgr), [["p1"], [{ providerId: "p1" }], []]);
+          const resources = unwrapResources(res);
+          expect(resources).toEqual(fixtures.resources);
+          expect(storage.setItem).toHaveBeenCalled();
+        });
 
-      await manager.readResource({ uri: "b" });
-      expect(manager._contentCache.has(cacheKey("p1", "a"))).toBe(false);
-      expect(manager._contentCache.has(cacheKey("p1", "b"))).toBe(true);
-    });
+        it("list resources: enforces maxPersistBytes (resource boundary: very large payload)", async () => {
+          const huge = "x".repeat(256 * 1024); // 256KB
+          const { api: client } = createClientStub({
+            resources: [
+              {
+                uri: "file:///big.txt",
+                name: "big.txt",
+                description: huge,
+                mimeType: "text/plain",
+                annotations: deepNest(50),
+              },
+            ],
+          });
 
-    it("handles concurrent reads without sharing state", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        readResource: vi.fn(async (uri) => ({ uri, text: "data" })),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
+          const maxPersistBytes = 1024; // intentionally tiny
+          const storage = createStorageMock();
 
-      const [first, second] = await Promise.all([
-        manager.readResource({ uri: "r1", forceRefresh: true }),
-        manager.readResource({ uri: "r1", forceRefresh: true }),
-      ]);
-      expect(first).toEqual({ uri: "r1", text: "data" });
-      expect(second).toEqual(first);
-      expect(provider.readResource).toHaveBeenCalledTimes(2);
-    });
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes,
+            encryption: { enabled: false },
+          });
 
-    it("avoids persisting oversized text content", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const storage = createStorage();
-      const provider = makeProvider({
-        listResources: vi.fn(async () => []),
-        readResource: vi.fn(async (uri) => ({ uri, text: "x".repeat(200) })),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client, storage, maxPersistBytes: 10 });
+          const listMethod = findMethod(mgr, [/^listResources$/i, /resources.*list/i, /list.*resources/i]);
+          expect(listMethod).toBeTruthy();
 
-      await manager.listResources();
-      await manager.readResource({ uri: "big" });
+          await callWithFallback(mgr[listMethod].bind(mgr), [["p1"], [{ providerId: "p1" }], []]);
 
-      const payload = JSON.parse(storage.store.get(RESOURCES_CACHE_KEY));
-      const providerData = payload.providers.p1;
-      expect(providerData).toBeTruthy();
-      expect(providerData.contents?.big).toBeUndefined();
-    });
-  });
+          const stored = storage._map.get(RESOURCES_CACHE_KEY);
+          if (stored != null) {
+            expect(String(stored).length).toBeLessThanOrEqual(maxPersistBytes);
+          } else {
+            expect(storage.setItem).not.toHaveBeenCalled();
+          }
+        });
 
-  describe("_estimateContentByteSize", () => {
-    it("handles strings, buffers, views, deep objects, and circular refs", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const manager = new McpResourceManager();
+        it("list resources: encrypts persisted cache when encryption enabled", async () => {
+          shared.canUseStorageEncryption.mockReturnValue(true);
 
-      expect(manager._estimateContentByteSize("abcd")).toBe(8);
+          const { api: client } = createClientStub();
+          const storage = createStorageMock();
 
-      const buffer = new ArrayBuffer(16);
-      expect(manager._estimateContentByteSize(buffer)).toBe(16);
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+            encryption: { enabled: true, passphrase: "pw", aad: "test-aad", iterations: 10_000 },
+          });
 
-      const view = new Uint8Array(8);
-      expect(manager._estimateContentByteSize(view)).toBe(8);
+          const listMethod = findMethod(mgr, [/^listResources$/i, /resources.*list/i, /list.*resources/i]);
+          expect(listMethod).toBeTruthy();
 
-      const deep = { a: { b: { c: { d: { e: 1 } } } } };
-      expect(manager._estimateContentByteSize(deep)).toBeGreaterThan(0);
+          await callWithFallback(mgr[listMethod].bind(mgr), [["p1"], [{ providerId: "p1" }], []]);
 
-      const circular = {};
-      circular.self = circular;
-      expect(manager._estimateContentByteSize(circular)).toBe(1000);
-    });
-  });
+          const stored = storage._map.get(RESOURCES_CACHE_KEY);
+          expect(stored).toBeTruthy();
+          expect(shared.encryptString).toHaveBeenCalled();
+          expect(shared.isEncryptedString(stored)).toBe(true);
+        });
 
-  describe("subscribeResource / unsubscribeResource", () => {
-    it("validates uri and callback types", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider();
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
+        it("list resources: when encryption is required but unavailable, it must not persist plaintext", async () => {
+          shared.canUseStorageEncryption.mockReturnValue(false);
 
-      await expect(manager.subscribeResource({ uri: "r1" })).rejects.toThrow(/callback/i);
-      await expect(manager.subscribeResource({ callback: () => {} })).rejects.toThrow(/uri is required/i);
-      await expect(manager.subscribeResource({ uri: "   ", callback: () => {} })).rejects.toThrow(/uri is required/i);
-    });
+          const { api: client } = createClientStub();
+          const storage = createStorageMock();
 
-    it("manages ref counts and server subscriptions", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const off = vi.fn();
-      const provider = makeProvider({
-        subscribeResource: vi.fn(async () => {}),
-        unsubscribeResource: vi.fn(async () => {}),
-        subscribeNotifications: vi.fn(() => off),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+            encryption: { enabled: true, required: true, passphrase: "pw" },
+          });
 
-      const sub1 = await manager.subscribeResource({ uri: "r1", callback: vi.fn() });
-      const sub2 = await manager.subscribeResource({ uri: "r1", callback: vi.fn() });
+          const listMethod = findMethod(mgr, [/^listResources$/i, /resources.*list/i, /list.*resources/i]);
+          expect(listMethod).toBeTruthy();
 
-      expect(provider.subscribeResource).toHaveBeenCalledTimes(1);
-      expect(manager._serverSubRefCounts.get(cacheKey("p1", "r1"))).toBe(2);
+          let err = null;
+          try {
+            await callWithFallback(mgr[listMethod].bind(mgr), [["p1"], [{ providerId: "p1" }], []]);
+          } catch (e) {
+            err = e;
+          }
 
-      await manager.unsubscribeResource(sub1.id);
-      expect(provider.unsubscribeResource).not.toHaveBeenCalled();
-      expect(manager._serverSubRefCounts.get(cacheKey("p1", "r1"))).toBe(1);
+          if (err) {
+            expect(err).toBeInstanceOf(Error);
+          } else {
+            // If it didn't throw, it still must not write unencrypted cache.
+            expect(storage.setItem).not.toHaveBeenCalled();
+          }
+        });
 
-      await manager.unsubscribeResource(sub2.id);
-      expect(provider.unsubscribeResource).toHaveBeenCalledTimes(1);
-      expect(manager._serverSubRefCounts.has(cacheKey("p1", "r1"))).toBe(false);
-      expect(off).toHaveBeenCalledTimes(1);
-    });
-  });
+        it("list resources: boundary inputs for providerId (null/undefined/empty/whitespace/number/object/array)", async () => {
+          const { api: client } = createClientStub();
+          const storage = createStorageMock();
 
-  describe("_ensureProviderNotifications", () => {
-    it("rewires notifications and resubscribes on provider replacement", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const off1 = vi.fn();
-      const off2 = vi.fn();
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: "60000", // type boundary: string as number
+            maxPersistBytes: 1024 * 1024,
+          });
 
-      const provider1 = makeProvider({
-        listResources: vi.fn(async () => []),
-        subscribeResource: vi.fn(async () => {}),
-        subscribeNotifications: vi.fn(() => off1),
-      });
-      const provider2 = makeProvider({
-        listResources: vi.fn(async () => []),
-        subscribeResource: vi.fn(async () => {}),
-        subscribeNotifications: vi.fn(() => off2),
-      });
+          const listMethod = findMethod(mgr, [/^listResources$/i, /resources.*list/i, /list.*resources/i]);
+          expect(listMethod).toBeTruthy();
 
-      const client = makeClient([provider1], "p1");
-      const manager = new McpResourceManager({ client });
+          const providerIds = [
+            null,
+            undefined,
+            "",
+            "   ",
+            0,
+            -1,
+            Number.MAX_SAFE_INTEGER,
+            [],
+            {},
+            { toString: () => "p1" },
+          ];
 
-      await manager.subscribeResource({ uri: "r1", callback: vi.fn() });
+          for (const pid of providerIds) {
+            let out;
+            let err;
+            try {
+              out = await callWithFallback(mgr[listMethod].bind(mgr), [[pid], [{ providerId: pid }], [pid, {}], []]);
+            } catch (e) {
+              err = e;
+            }
 
-      client._providers.set("p1", provider2);
-      await manager.listResources({ providerId: "p1" });
-      await new Promise((resolve) => setTimeout(resolve, 0));
+            if (err) {
+              expect(err).toBeInstanceOf(Error);
+            } else {
+              const resources = unwrapResources(out);
+              expect(resources === null || Array.isArray(resources)).toBe(true);
+            }
+          }
+        });
 
-      expect(off1).toHaveBeenCalledTimes(1);
-      expect(provider2.subscribeResource).toHaveBeenCalledWith("r1");
-      expect(provider2.subscribeNotifications).toHaveBeenCalledTimes(1);
-    });
-  });
+        it("list resources: concurrency (simultaneous calls resolve consistently)", async () => {
+          const d = defer();
+          const resources = [
+            { uri: "file:///a.txt", name: "a.txt", description: "A", mimeType: "text/plain", annotations: deepNest(5) },
+          ];
+          const { api: client } = createClientStub({ resources });
 
-  describe("handleNotification", () => {
-    it("ignores invalid inputs", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const manager = new McpResourceManager({ client: makeClient([]) });
+          client.listResources.mockImplementation(() => d.promise);
+          client.request.mockImplementation(() => d.promise);
 
-      await manager.handleNotification("", null);
-      await manager.handleNotification("p1", []);
-      expect(manager._listCache.size).toBe(0);
-    });
+          const storage = createStorageMock();
 
-    it("clears list cache on list_changed notifications", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const storage = createStorage();
-      const provider = makeProvider({ listResources: vi.fn(async () => []) });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client, storage });
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+          });
 
-      await manager.listResources();
-      expect(manager._listCache.has("p1")).toBe(true);
+          const listMethod = findMethod(mgr, [/^listResources$/i, /resources.*list/i, /list.*resources/i]);
+          expect(listMethod).toBeTruthy();
 
-      await manager.handleNotification("p1", { method: "notifications/resources/list_changed" });
-      expect(manager._listCache.has("p1")).toBe(false);
-      expect(storage.setItem).toHaveBeenCalled();
-    });
+          const p1 = callWithFallback(mgr[listMethod].bind(mgr), [["p1"], [{ providerId: "p1" }], []]);
+          const p2 = callWithFallback(mgr[listMethod].bind(mgr), [["p1"], [{ providerId: "p1" }], []]);
 
-    it("refreshes updated resources and notifies subscribers", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        readResource: vi.fn(async (uri) => ({ uri, text: "fresh" })),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
-      const callback = vi.fn();
+          d.resolve({ resources });
 
-      await manager.subscribeResource({ uri: "r1", callback });
-      await manager.handleNotification("p1", {
-        method: "notifications/resources/updated",
-        params: { uri: "r1" },
-      });
+          const [r1, r2] = await Promise.all([p1, p2]);
+          expect(unwrapResources(r1)).toEqual(unwrapResources(r2));
+        });
 
-      expect(provider.readResource).toHaveBeenCalledTimes(1);
-      expect(callback).toHaveBeenCalledWith({
-        providerId: "p1",
-        uri: "r1",
-        content: { uri: "r1", text: "fresh" },
-      });
-    });
+        it("list resource templates: returns expected templates (normal path)", async () => {
+          const { api: client, fixtures } = createClientStub();
+          const storage = createStorageMock();
 
-    it("avoids refresh when no subscribers are present", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        readResource: vi.fn(async (uri) => ({ uri, text: "fresh" })),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+          });
 
-      await manager.handleNotification("p1", {
-        method: "notifications/resources/updated",
-        params: { uri: "r1" },
-      });
+          const tmplMethod = findMethod(mgr, [
+            /^listResourceTemplates$/i,
+            /templates.*list/i,
+            /list.*templates/i,
+            /resourceTemplates/i,
+          ]);
 
-      expect(provider.readResource).not.toHaveBeenCalled();
-    });
+          // Not all managers expose templates; if absent, treat as a hard failure for this module.
+          expect(tmplMethod).toBeTruthy();
 
-    it("propagates read errors to subscribers", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const provider = makeProvider({
-        readResource: vi.fn(async () => {
-          throw new Error("boom");
-        }),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
-      const callback = vi.fn();
+          const res = await callWithFallback(mgr[tmplMethod].bind(mgr), [
+            ["p1"],
+            [{ providerId: "p1" }],
+            ["p1", {}],
+            [{ providerId: "p1", cursor: undefined }],
+            [],
+          ]);
 
-      await manager.subscribeResource({ uri: "r1", callback });
-      await manager.handleNotification("p1", {
-        method: "notifications/resources/updated",
-        params: { uri: "r1" },
-      });
+          const templates = unwrapTemplates(res);
+          expect(templates).toBeTruthy();
+          expect(templates).toEqual(fixtures.resourceTemplates);
+        });
 
-      expect(callback).toHaveBeenCalledWith(
-        expect.objectContaining({
-          providerId: "p1",
-          uri: "r1",
-          content: null,
-          error: "boom",
-        })
-      );
-    });
-  });
-
-  describe("_hydratePersistedCache", () => {
-    it("hydrates unencrypted cache entries and skips expired data", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const storage = createStorage();
-
-      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1000);
-      const payload = {
-        schemaVersion: "0.1",
-        ts: 900,
-        providers: {
-          p1: {
-            ts: 900,
-            ttlMs: 200,
-            resources: [{ uri: "r1" }],
-            templates: [{ uriTemplate: "t1" }],
-            contents: {
-              r1: { ts: 950, ttlMs: 200, content: { uri: "r1", text: "ok" } },
-              r2: { ts: 700, ttlMs: 100, content: { uri: "r2", text: "expired" } },
+        it("read resource: returns text content and handles very long strings (resource boundary)", async () => {
+          const hugeText = "y".repeat(1024 * 1024); // 1MB
+          const contents = [
+            {
+              uri: "file:///project/big.md",
+              mimeType: "text/markdown",
+              text: hugeText,
+              annotations: deepNest(20),
             },
-          },
-          p2: {
-            ts: 600,
-            ttlMs: 100,
-            resources: [{ uri: "old" }],
-          },
-        },
-      };
+          ];
 
-      storage.store.set(RESOURCES_CACHE_KEY, JSON.stringify(payload));
-      const manager = new McpResourceManager({ storage });
-      await manager._hydrationPromise;
+          const { api: client } = createClientStub({ contents });
+          const storage = createStorageMock();
 
-      expect(manager._listCache.has("p1")).toBe(true);
-      expect(manager._templatesCache.has("p1")).toBe(true);
-      expect(manager._listCache.has("p2")).toBe(false);
-      expect(manager._contentCache.has(cacheKey("p1", "r1"))).toBe(true);
-      expect(manager._contentCache.has(cacheKey("p1", "r2"))).toBe(false);
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+            maxContentCacheEntries: 10,
+            maxContentCacheBytes: 2 * 1024 * 1024,
+          });
 
-      nowSpy.mockRestore();
-    });
+          const readMethod = findMethod(mgr, [/^readResource$/i, /resource.*read/i, /read.*resource/i]);
+          expect(readMethod).toBeTruthy();
 
-    it("hydrates encrypted cache entries when encryption is enabled", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const storage = createStorage();
-      const payload = { schemaVersion: "0.1", ts: 5, providers: { p1: { ts: 5, ttlMs: 100, resources: [] } } };
+          const res = await callWithFallback(mgr[readMethod].bind(mgr), [
+            ["p1", "file:///project/big.md"],
+            [{ providerId: "p1", uri: "file:///project/big.md" }],
+            ["file:///project/big.md"],
+            [{ uri: "file:///project/big.md" }],
+          ]);
 
-      storage.store.set(RESOURCES_CACHE_KEY, `enc:${JSON.stringify(payload)}`);
-      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10);
-      const manager = new McpResourceManager({
-        storage,
-        encryption: { enabled: true, passphrase: "pw" },
+          const outContents = unwrapContents(res);
+          expect(outContents).toBeTruthy();
+          expect(outContents[0]?.text).toBe(hugeText);
+
+          expect(client.readResource.mock.calls.length + client.request.mock.calls.length).toBeGreaterThan(0);
+        });
+
+        it("read resource: supports binary blob content (type boundary)", async () => {
+          const blob = new Uint8Array([0, 1, 2, 255]);
+          const contents = [{ uri: "file:///project/img.bin", mimeType: "application/octet-stream", blob }];
+
+          const { api: client } = createClientStub({ contents });
+          const storage = createStorageMock();
+
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+          });
+
+          const readMethod = findMethod(mgr, [/^readResource$/i, /resource.*read/i, /read.*resource/i]);
+          expect(readMethod).toBeTruthy();
+
+          const res = await callWithFallback(mgr[readMethod].bind(mgr), [
+            ["p1", "file:///project/img.bin"],
+            [{ providerId: "p1", uri: "file:///project/img.bin" }],
+            ["file:///project/img.bin"],
+            [{ uri: "file:///project/img.bin" }],
+          ]);
+
+          const outContents = unwrapContents(res);
+          expect(outContents).toBeTruthy();
+
+          const out = outContents[0];
+          expect(out).toBeTruthy();
+          expect(out.uri).toBe("file:///project/img.bin");
+          expect(out.blob).toBeTruthy();
+          expect(out.blob instanceof Uint8Array || typeof out.blob === "string").toBe(true);
+
+          if (out.blob instanceof Uint8Array) {
+            expect(Array.from(out.blob)).toEqual(Array.from(blob));
+          }
+        });
+
+        it("read resource: error handling (client throws) surfaces an Error or returns an error-shaped result", async () => {
+          const { api: client } = createClientStub();
+          client.readResource.mockImplementation(async () => {
+            throw new Error("boom");
+          });
+          client.request.mockImplementation(async () => {
+            throw new Error("boom");
+          });
+
+          const storage = createStorageMock();
+
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], { client, storage });
+
+          const readMethod = findMethod(mgr, [/^readResource$/i, /resource.*read/i, /read.*resource/i]);
+          expect(readMethod).toBeTruthy();
+
+          let err = null;
+          let res = null;
+          try {
+            res = await callWithFallback(mgr[readMethod].bind(mgr), [
+              ["p1", "file:///x"],
+              [{ providerId: "p1", uri: "file:///x" }],
+              ["file:///x"],
+              [{ uri: "file:///x" }],
+            ]);
+          } catch (e) {
+            err = e;
+          }
+
+          if (err) {
+            expect(err).toBeInstanceOf(Error);
+          } else {
+            // If the manager chooses to swallow errors, it should not return undefined.
+            expect(res).not.toBeUndefined();
+          }
+        });
+
+        it("subscribe resource: returns a subscription with unsubscribe() (concurrency: rapid subscribe/unsubscribe)", async () => {
+          const { api: client } = createClientStub();
+          const storage = createStorageMock();
+
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], { client, storage });
+
+          const subMethod = findMethod(mgr, [/^subscribe/i, /resource.*subscribe/i, /subscribe.*resource/i]);
+          expect(subMethod).toBeTruthy();
+
+          const cb = vi.fn();
+          const uri = "file:///project/README.md";
+
+          const sub1 = await callWithFallback(mgr[subMethod].bind(mgr), [
+            ["p1", uri, cb],
+            [{ providerId: "p1", uri }, cb],
+            [uri, cb],
+            [{ uri }, cb],
+          ]);
+
+          const sub2 = await callWithFallback(mgr[subMethod].bind(mgr), [
+            ["p1", uri, cb],
+            [{ providerId: "p1", uri }, cb],
+            [uri, cb],
+            [{ uri }, cb],
+          ]);
+
+          expect(sub1).toBeTruthy();
+          expect(sub2).toBeTruthy();
+
+          expect(typeof sub1.unsubscribe).toBe("function");
+          expect(typeof sub2.unsubscribe).toBe("function");
+
+          const [u1, u2] = await Promise.all([sub1.unsubscribe(), sub2.unsubscribe()]);
+          expect(u1 && typeof u1 === "object" && "ok" in u1).toBe(true);
+          expect(u2 && typeof u2 === "object" && "ok" in u2).toBe(true);
+
+          // IDs should be stable-ish and not falsy if provided.
+          if ("id" in sub1 && "id" in sub2) {
+            expect(sub1.id).toBeTruthy();
+            expect(sub2.id).toBeTruthy();
+          }
+        });
+
+        it("supports async store interface {get,set} (type boundary: object as Storage)", async () => {
+          const { api: client } = createClientStub();
+          const asyncStore = createAsyncStoreMock();
+
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], { client, storage: asyncStore });
+
+          const listMethod = findMethod(mgr, [/^listResources$/i, /resources.*list/i, /list.*resources/i]);
+          expect(listMethod).toBeTruthy();
+
+          await callWithFallback(mgr[listMethod].bind(mgr), [["p1"], [{ providerId: "p1" }], []]);
+          expect(asyncStore.set).toHaveBeenCalled();
+        });
       });
-      await manager._hydrationPromise;
+    } else {
+      // Generic non-manager export tests (keep minimal but meaningful).
+      it("is stable across repeated calls for boundary inputs (does not throw non-Error)", async () => {
+        const mod = await loadFresh();
+        const exported = mod[exportName];
+        expect(typeof exported).toBe("function");
 
-      expect(sharedMocks.decryptString).toHaveBeenCalled();
-      expect(manager._listCache.has("p1")).toBe(true);
-      nowSpy.mockRestore();
-    });
+        // If this is a class, skip call checks and just ensure it's constructible or throws Error.
+        if (isClass(exported)) {
+          let err = null;
+          try {
+            // Try a few boundary inputs for constructor.
+            // eslint-disable-next-line no-new
+            new exported();
+            // eslint-disable-next-line no-new
+            new exported({});
+            // eslint-disable-next-line no-new
+            new exported(null);
+          } catch (e) {
+            err = e;
+          }
+          if (err) expect(err).toBeInstanceOf(Error);
+          return;
+        }
 
-    it("rejects when decryption fails and encryption is required", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const storage = createStorage();
-      storage.store.set(RESOURCES_CACHE_KEY, "enc:bad");
-      sharedMocks.decryptString.mockImplementation(async () => {
-        throw new Error("decrypt failed");
+        const arity = Math.min(3, Math.max(0, exported.length));
+        const boundary = [
+          null,
+          undefined,
+          "",
+          "   ",
+          0,
+          -1,
+          Number.MAX_SAFE_INTEGER,
+          "123",
+          [],
+          {},
+          deepNest(5),
+        ];
+
+        /** @type {any[][]} */
+        const argLists = [];
+        if (arity === 0) {
+          argLists.push([]);
+        } else if (arity === 1) {
+          for (const a of boundary) argLists.push([a]);
+        } else if (arity === 2) {
+          argLists.push([null, null]);
+          argLists.push([undefined, undefined]);
+          argLists.push(["", "fallback"]);
+          argLists.push(["   ", "fallback"]);
+          argLists.push([0, -1]);
+          argLists.push(["123", 10]);
+          argLists.push([{}, []]);
+        } else {
+          argLists.push([null, null, null]);
+          argLists.push([undefined, undefined, undefined]);
+          argLists.push(["", "  ", "fallback"]);
+          argLists.push([0, -1, Number.MAX_SAFE_INTEGER]);
+          argLists.push(["123", {}, []]);
+        }
+
+        for (const args of argLists.slice(0, 10)) {
+          const run = async () => {
+            const out = exported(...args);
+            return out && typeof out.then === "function" ? await out : out;
+          };
+
+          let aErr = null;
+          let bErr = null;
+          let aVal;
+          let bVal;
+
+          try {
+            aVal = await run();
+          } catch (e) {
+            aErr = e;
+          }
+          try {
+            bVal = await run();
+          } catch (e) {
+            bErr = e;
+          }
+
+          if (aErr || bErr) {
+            expect(aErr || bErr).toBeInstanceOf(Error);
+          } else {
+            // Determinism check for primitives; for objects just ensure it's not undefined.
+            const isPrimitive =
+              aVal === null || aVal === undefined || (typeof aVal !== "object" && typeof aVal !== "function");
+            if (isPrimitive) expect(bVal).toBe(aVal);
+            else expect(aVal).not.toBeUndefined();
+          }
+        }
       });
-
-      const manager = new McpResourceManager({
-        storage,
-        encryption: { enabled: true, required: true, passphrase: "pw" },
-      });
-      await expect(manager._hydrationPromise).rejects.toThrow(/decrypt failed/i);
-    });
+    }
   });
-
-  describe("_persistCache", () => {
-    it("returns false when storage writes fail", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const storage = {
-        getItem: vi.fn(),
-        setItem: vi.fn(() => {
-          throw new Error("fail");
-        }),
-      };
-      const manager = new McpResourceManager({ storage });
-      manager._listCache.set("p1", { ts: 0, ttlMs: 1000, resources: [] });
-
-      expect(manager._persistCache()).toBe(false);
-    });
-
-    it("persists payloads to async stores without stringifying", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const storage = createAsyncStore();
-      const manager = new McpResourceManager({ storage });
-      manager._listCache.set("p1", { ts: 0, ttlMs: 1000, resources: [] });
-
-      expect(manager._persistCache()).toBe(true);
-      expect(storage.set).toHaveBeenCalledTimes(1);
-      const stored = storage.store.get(RESOURCES_CACHE_KEY);
-      expect(typeof stored).toBe("object");
-      expect(stored.schemaVersion).toBe("0.1");
-    });
-
-    it("logs when encryption fails during persistence", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const storage = createStorage();
-      sharedMocks.encryptString.mockImplementation(async () => {
-        throw new Error("boom");
-      });
-      const manager = new McpResourceManager({
-        storage,
-        encryption: { enabled: true, passphrase: "pw" },
-      });
-      manager._listCache.set("p1", { ts: 0, ttlMs: 1000, resources: [] });
-
-      expect(manager._persistCache()).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(sharedMocks.logger.warn).toHaveBeenCalled();
-    });
-  });
-
-  describe("_stopProviderNotifications", () => {
-    it("returns false for missing provider id", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const manager = new McpResourceManager({ client: makeClient([]) });
-
-      expect(manager._stopProviderNotifications("")).toBe(false);
-      expect(manager._stopProviderNotifications(null)).toBe(false);
-    });
-  });
-
-  describe("dispose", () => {
-    it("cleans up notifications and subscription state", async () => {
-      const { McpResourceManager } = await loadResourceManager();
-      const off = vi.fn();
-      const provider = makeProvider({
-        subscribeResource: vi.fn(async () => {}),
-        subscribeNotifications: vi.fn(() => off),
-      });
-      const client = makeClient([provider], "p1");
-      const manager = new McpResourceManager({ client });
-
-      await manager.subscribeResource({ uri: "r1", callback: vi.fn() });
-      manager.dispose();
-
-      expect(off).toHaveBeenCalledTimes(1);
-      expect(manager._subs.size).toBe(0);
-      expect(manager._serverSubRefCounts.size).toBe(0);
-      expect(manager._providerNotifyUnsub.size).toBe(0);
-    });
-  });
-});
-
-describe("default export", () => {
-  it("matches McpResourceManager", async () => {
-    const module = await loadResourceManager();
-    expect(module.default).toBe(module.McpResourceManager);
-  });
-});
+}

@@ -1,222 +1,313 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const platformState = vi.hoisted(() => ({
-  isNode: false,
-}));
-
-const browserMock = vi.hoisted(() => ({
-  createVfs: vi.fn(),
-}));
-
-const nodeMock = vi.hoisted(() => ({
-  createVfs: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  Platform: { isNode: false },
+  createBrowserVfs: vi.fn(),
+  createNodeVfs: vi.fn(),
 }));
 
 vi.mock("../../../../js/agents/shared/index.js", () => ({
-  Platform: platformState,
+  Platform: mocks.Platform,
 }));
 
 vi.mock("../../../../js/agents/vfs/index.browser.js", () => ({
-  createVfs: browserMock.createVfs,
+  createVfs: mocks.createBrowserVfs,
 }));
 
 vi.mock("../../../../js/agents/vfs/index.node.js", () => ({
-  createVfs: nodeMock.createVfs,
+  createVfs: mocks.createNodeVfs,
 }));
 
-async function loadIndex() {
-  return await import("../../../../js/agents/vfs/index.js");
+async function importCreateVfs() {
+  const mod = await import("../../../../js/agents/vfs/index.js");
+  return mod.createVfs;
 }
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-function buildDeepObject(depth) {
-  const root = { level: 0 };
-  let current = root;
+function makeDeepNested(depth) {
+  let root = { level: 0 };
+  let cur = root;
   for (let i = 1; i <= depth; i++) {
-    current.child = { level: i };
-    current = current.child;
+    cur.next = { level: i };
+    cur = cur.next;
   }
   return root;
 }
 
-describe("agents/vfs/index createVfs", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.clearAllMocks();
+beforeEach(() => {
+  vi.resetModules();
+  mocks.Platform.isNode = false;
+  mocks.createBrowserVfs.mockReset();
+  mocks.createNodeVfs.mockReset();
+});
 
-    platformState.isNode = false;
-    browserMock.createVfs.mockImplementation(async (options) => ({
-      tag: "browser",
-      options,
-    }));
-    nodeMock.createVfs.mockImplementation(async (options) => ({
-      tag: "node",
-      options,
-    }));
+describe("createVfs", () => {
+  describe("browser runtime (Platform.isNode=false)", () => {
+    it("delegates to browser createVfs and returns its result", async () => {
+      const createVfs = await importCreateVfs();
+
+      const options = { kind: "memory", keyPrefix: "k" };
+      const expected = { backend: "browser" };
+
+      mocks.createBrowserVfs.mockReturnValue(expected);
+
+      const result = await createVfs(options);
+
+      expect(mocks.createBrowserVfs).toHaveBeenCalledTimes(1);
+      expect(mocks.createBrowserVfs).toHaveBeenCalledWith(options);
+      expect(mocks.createNodeVfs).not.toHaveBeenCalled();
+      expect(result).toBe(expected);
+    });
+
+    it("defaults options to {} when called with no arguments or undefined", async () => {
+      const createVfs = await importCreateVfs();
+
+      mocks.createBrowserVfs.mockReturnValue("ok");
+
+      const r1 = await createVfs();
+      const r2 = await createVfs(undefined);
+
+      expect(r1).toBe("ok");
+      expect(r2).toBe("ok");
+      expect(mocks.createBrowserVfs).toHaveBeenCalledTimes(2);
+
+      const arg0 = mocks.createBrowserVfs.mock.calls[0][0];
+      const arg1 = mocks.createBrowserVfs.mock.calls[1][0];
+
+      expect(arg0).toEqual({});
+      expect(arg1).toEqual({});
+      expect(arg0).not.toBe(arg1);
+    });
+
+    it("forwards options objects containing empty/whitespace strings and empty containers (field boundaries)", async () => {
+      const createVfs = await importCreateVfs();
+
+      const options = {
+        kind: "storage",
+        rootDirName: "",
+        rootPath: "   ",
+        keyPrefix: "",
+        preferOpfs: false,
+        silent: true,
+        storageAdapter: { kind: "dummy", keys: [] },
+        extra: {
+          emptyArray: [],
+          emptyObject: {},
+          numberBoundary0: 0,
+          numberBoundaryNeg1: -1,
+          numberBoundaryMax: Number.MAX_SAFE_INTEGER,
+          stringAsNumber: "0",
+          objectAsArray: { length: 0 },
+        },
+      };
+
+      mocks.createBrowserVfs.mockReturnValue("ok");
+
+      const out = await createVfs(options);
+
+      expect(out).toBe("ok");
+      expect(mocks.createBrowserVfs).toHaveBeenCalledTimes(1);
+      expect(mocks.createBrowserVfs.mock.calls[0][0]).toBe(options);
+    });
+
+    it.each([
+      ["null", null],
+      ["empty string", ""],
+      ["whitespace string", " \t\n"],
+      ["empty array", []],
+      ["empty object", {}],
+      ["0", 0],
+      ["-1", -1],
+      ["MAX_SAFE_INTEGER", Number.MAX_SAFE_INTEGER],
+      ["numeric string", "123"],
+      ["array-like object", { length: 2, 0: "a", 1: "b" }],
+    ])("forwards boundary input: %s", async (_name, value) => {
+      const createVfs = await importCreateVfs();
+
+      mocks.createBrowserVfs.mockImplementation((opts) => ({ opts }));
+
+      const out = await createVfs(value);
+
+      expect(mocks.createBrowserVfs).toHaveBeenCalledTimes(1);
+      expect(mocks.createBrowserVfs).toHaveBeenCalledWith(value);
+      expect(out).toEqual({ opts: value });
+    });
+
+    it("handles very long strings, large payloads, and deeply nested options (resource boundaries)", async () => {
+      const createVfs = await importCreateVfs();
+
+      const longString = "x".repeat(100_000);
+      const largePayload = "y".repeat(1_000_000);
+      const deep = makeDeepNested(80);
+      const options = { keyPrefix: longString, payload: largePayload, nested: deep };
+
+      mocks.createBrowserVfs.mockReturnValue("ok");
+
+      const out = await createVfs(options);
+
+      expect(out).toBe("ok");
+      expect(mocks.createBrowserVfs).toHaveBeenCalledTimes(1);
+
+      const passed = mocks.createBrowserVfs.mock.calls[0][0];
+      expect(passed).toBe(options);
+      expect(passed.keyPrefix).toBe(longString);
+      expect(passed.payload).toBe(largePayload);
+      expect(passed.nested).toBe(deep);
+    });
+
+    it("propagates synchronous errors from browser createVfs", async () => {
+      const createVfs = await importCreateVfs();
+
+      const err = new Error("browser boom");
+      mocks.createBrowserVfs.mockImplementation(() => {
+        throw err;
+      });
+
+      await expect(createVfs({})).rejects.toBe(err);
+    });
+
+    it("propagates rejected promises from browser createVfs", async () => {
+      const createVfs = await importCreateVfs();
+
+      const err = new Error("browser reject");
+      mocks.createBrowserVfs.mockRejectedValue(err);
+
+      await expect(createVfs({})).rejects.toBe(err);
+    });
+
+    it("supports rapid successive and concurrent calls without cross-talk (concurrency boundaries)", async () => {
+      const createVfs = await importCreateVfs();
+
+      mocks.createBrowserVfs.mockImplementation(async (opts) => ({ ok: true, opts }));
+
+      const a = await createVfs({ id: 1 });
+      const b = await createVfs({ id: 2 });
+      const [c, d] = await Promise.all([createVfs({ id: 3 }), createVfs({ id: 4 })]);
+
+      expect(mocks.createBrowserVfs).toHaveBeenCalledTimes(4);
+      expect(a.opts).toEqual({ id: 1 });
+      expect(b.opts).toEqual({ id: 2 });
+      expect(c.opts).toEqual({ id: 3 });
+      expect(d.opts).toEqual({ id: 4 });
+    });
   });
 
-  it("uses browser implementation when Platform.isNode is false", async () => {
-    const { createVfs } = await loadIndex();
-    const options = { kind: "memory", rootDirName: "root", preferOpfs: true };
+  describe("node runtime (Platform.isNode=true)", () => {
+    beforeEach(() => {
+      mocks.Platform.isNode = true;
+    });
 
-    const result = await createVfs(options);
+    it("delegates to node createVfs via dynamic import and returns its result", async () => {
+      const createVfs = await importCreateVfs();
 
-    expect(browserMock.createVfs).toHaveBeenCalledTimes(1);
-    expect(browserMock.createVfs).toHaveBeenCalledWith(options);
-    expect(nodeMock.createVfs).not.toHaveBeenCalled();
-    expect(result).toEqual({ tag: "browser", options });
+      const options = { kind: "nodefs", rootPath: "/tmp" };
+      const expected = { backend: "node" };
+
+      mocks.createNodeVfs.mockReturnValue(expected);
+
+      const result = await createVfs(options);
+
+      expect(mocks.createNodeVfs).toHaveBeenCalledTimes(1);
+      expect(mocks.createNodeVfs).toHaveBeenCalledWith(options);
+      expect(mocks.createBrowserVfs).not.toHaveBeenCalled();
+      expect(result).toBe(expected);
+    });
+
+    it("defaults options to {} when called with no arguments or undefined", async () => {
+      const createVfs = await importCreateVfs();
+
+      mocks.createNodeVfs.mockReturnValue("ok");
+
+      const r1 = await createVfs();
+      const r2 = await createVfs(undefined);
+
+      expect(r1).toBe("ok");
+      expect(r2).toBe("ok");
+      expect(mocks.createNodeVfs).toHaveBeenCalledTimes(2);
+
+      const arg0 = mocks.createNodeVfs.mock.calls[0][0];
+      const arg1 = mocks.createNodeVfs.mock.calls[1][0];
+
+      expect(arg0).toEqual({});
+      expect(arg1).toEqual({});
+      expect(arg0).not.toBe(arg1);
+    });
+
+    it.each([
+      ["null", null],
+      ["whitespace string", "   "],
+      ["empty array", []],
+      ["MAX_SAFE_INTEGER", Number.MAX_SAFE_INTEGER],
+      ["numeric string", "123"],
+      ["object passed as array-like", { length: 1, 0: "x" }],
+    ])("forwards boundary input: %s", async (_name, value) => {
+      const createVfs = await importCreateVfs();
+
+      mocks.createNodeVfs.mockImplementation((opts) => ({ opts }));
+
+      const out = await createVfs(value);
+
+      expect(mocks.createNodeVfs).toHaveBeenCalledTimes(1);
+      expect(mocks.createNodeVfs).toHaveBeenCalledWith(value);
+      expect(out).toEqual({ opts: value });
+    });
+
+    it("propagates synchronous errors from node createVfs", async () => {
+      const createVfs = await importCreateVfs();
+
+      const err = new Error("node boom");
+      mocks.createNodeVfs.mockImplementation(() => {
+        throw err;
+      });
+
+      await expect(createVfs({})).rejects.toBe(err);
+    });
+
+    it("propagates rejected promises from node createVfs", async () => {
+      const createVfs = await importCreateVfs();
+
+      const err = new Error("node reject");
+      mocks.createNodeVfs.mockRejectedValue(err);
+
+      await expect(createVfs({})).rejects.toBe(err);
+    });
+
+    it("supports rapid successive and concurrent calls without cross-talk (concurrency boundaries)", async () => {
+      const createVfs = await importCreateVfs();
+
+      mocks.createNodeVfs.mockImplementation(async (opts) => ({ ok: true, opts }));
+
+      const a = await createVfs({ id: 1 });
+      const b = await createVfs({ id: 2 });
+      const [c, d] = await Promise.all([createVfs({ id: 3 }), createVfs({ id: 4 })]);
+
+      expect(mocks.createNodeVfs).toHaveBeenCalledTimes(4);
+      expect(a.opts).toEqual({ id: 1 });
+      expect(b.opts).toEqual({ id: 2 });
+      expect(c.opts).toEqual({ id: 3 });
+      expect(d.opts).toEqual({ id: 4 });
+    });
   });
 
-  it("defaults options to an empty object when undefined", async () => {
-    const { createVfs } = await loadIndex();
+  it("selects backend based on Platform.isNode at call time", async () => {
+    const createVfs = await importCreateVfs();
 
-    const result = await createVfs();
+    mocks.createBrowserVfs.mockReturnValue("browser");
+    mocks.createNodeVfs.mockReturnValue("node");
 
-    expect(browserMock.createVfs).toHaveBeenCalledTimes(1);
-    expect(browserMock.createVfs.mock.calls[0][0]).toEqual({});
-    expect(result).toEqual({ tag: "browser", options: {} });
-  });
+    mocks.Platform.isNode = false;
+    const r1 = await createVfs({ a: 1 });
 
-  it.each([
-    ["null", null],
-    ["empty string", ""],
-    ["empty array", []],
-    ["empty object", {}],
-  ])("forwards %s options without normalization", async (_label, input) => {
-    const { createVfs } = await loadIndex();
+    mocks.Platform.isNode = true;
+    const r2 = await createVfs({ b: 2 });
 
-    await createVfs(input);
+    mocks.Platform.isNode = false;
+    const r3 = await createVfs({ c: 3 });
 
-    expect(browserMock.createVfs).toHaveBeenCalledTimes(1);
-    expect(browserMock.createVfs).toHaveBeenCalledWith(input);
-  });
+    expect(r1).toBe("browser");
+    expect(r2).toBe("node");
+    expect(r3).toBe("browser");
 
-  it.each([
-    ["zero", 0],
-    ["negative one", -1],
-    ["max safe integer", Number.MAX_SAFE_INTEGER],
-    ["whitespace string", "   "],
-  ])("forwards boundary value %s", async (_label, input) => {
-    const { createVfs } = await loadIndex();
-
-    await createVfs(input);
-
-    expect(browserMock.createVfs).toHaveBeenCalledTimes(1);
-    expect(browserMock.createVfs).toHaveBeenCalledWith(input);
-  });
-
-  it.each([
-    ["numeric string (string as number)", "123"],
-    ["array-like object (object as array)", { 0: "x", length: 1 }],
-  ])("forwards type boundary input: %s", async (_label, input) => {
-    const { createVfs } = await loadIndex();
-
-    await createVfs(input);
-
-    expect(browserMock.createVfs).toHaveBeenCalledTimes(1);
-    expect(browserMock.createVfs).toHaveBeenCalledWith(input);
-  });
-
-  it("forwards large resource-oriented options payloads", async () => {
-    const { createVfs } = await loadIndex();
-    const longString = "x".repeat(200_000);
-    const largeBuffer = new Uint8Array(1024 * 1024);
-    const deepNested = buildDeepObject(40);
-    const options = {
-      kind: "memory",
-      keyPrefix: longString,
-      storageAdapter: {
-        blob: largeBuffer,
-        nested: deepNested,
-      },
-    };
-
-    await createVfs(options);
-
-    expect(browserMock.createVfs).toHaveBeenCalledTimes(1);
-    expect(browserMock.createVfs).toHaveBeenCalledWith(options);
-  });
-
-  it("propagates browser createVfs errors", async () => {
-    const { createVfs } = await loadIndex();
-    const error = new Error("browser fail");
-    browserMock.createVfs.mockRejectedValueOnce(error);
-
-    await expect(createVfs({ kind: "memory" })).rejects.toThrow("browser fail");
-  });
-
-  it("uses node implementation when Platform.isNode is true", async () => {
-    const { createVfs } = await loadIndex();
-    platformState.isNode = true;
-    const options = { kind: "nodefs", rootPath: "/tmp" };
-
-    const result = await createVfs(options);
-
-    expect(nodeMock.createVfs).toHaveBeenCalledTimes(1);
-    expect(nodeMock.createVfs).toHaveBeenCalledWith(options);
-    expect(browserMock.createVfs).not.toHaveBeenCalled();
-    expect(result).toEqual({ tag: "node", options });
-  });
-
-  it("propagates node createVfs errors", async () => {
-    const { createVfs } = await loadIndex();
-    platformState.isNode = true;
-    const error = new Error("node fail");
-    nodeMock.createVfs.mockRejectedValueOnce(error);
-
-    await expect(createVfs({ kind: "nodefs" })).rejects.toThrow("node fail");
-  });
-
-  it("handles concurrent calls", async () => {
-    const { createVfs } = await loadIndex();
-    const defers = [deferred(), deferred(), deferred()];
-
-    browserMock.createVfs
-      .mockImplementationOnce(() => defers[0].promise)
-      .mockImplementationOnce(() => defers[1].promise)
-      .mockImplementationOnce(() => defers[2].promise);
-
-    const p1 = createVfs({ kind: "memory" });
-    const p2 = createVfs({ kind: "opfs" });
-    const p3 = createVfs({ kind: "storage" });
-
-    defers[1].resolve({ id: "b" });
-    defers[0].resolve({ id: "a" });
-    defers[2].resolve({ id: "c" });
-
-    await expect(Promise.all([p1, p2, p3])).resolves.toEqual([
-      { id: "a" },
-      { id: "b" },
-      { id: "c" },
-    ]);
-    expect(browserMock.createVfs).toHaveBeenCalledTimes(3);
-  });
-
-  it("handles rapid successive calls", async () => {
-    const { createVfs } = await loadIndex();
-
-    const results = [];
-    for (let i = 0; i < 5; i++) {
-      results.push(await createVfs({ seq: i }));
-    }
-
-    expect(results).toHaveLength(5);
-    expect(browserMock.createVfs).toHaveBeenCalledTimes(5);
-    expect(browserMock.createVfs.mock.calls.map((call) => call[0])).toEqual([
-      { seq: 0 },
-      { seq: 1 },
-      { seq: 2 },
-      { seq: 3 },
-      { seq: 4 },
-    ]);
+    expect(mocks.createBrowserVfs).toHaveBeenCalledTimes(2);
+    expect(mocks.createNodeVfs).toHaveBeenCalledTimes(1);
   });
 });

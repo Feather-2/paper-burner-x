@@ -1,28 +1,36 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const sharedState = vi.hoisted(() => ({
-  estimateTokensCached: vi.fn(),
-  makeSecureTimestampedId: vi.fn(),
-  Platform: { isBrowser: false },
+let mockPlatformIsBrowser = false;
+const estimateTokensCachedMock = vi.fn();
+const makeSecureTimestampedIdMock = vi.fn();
+
+vi.mock("../../../../../js/agents/shared/index.js", () => ({
+  estimateTokensCached: (...args) => estimateTokensCachedMock(...args),
+  makeSecureTimestampedId: (...args) => makeSecureTimestampedIdMock(...args),
+  Platform: {
+    get isBrowser() {
+      return mockPlatformIsBrowser;
+    },
+  },
 }));
 
-vi.mock('../../../../../js/agents/shared/index.js', () => sharedState);
-
-const utilsPath = '../../../../../js/agents/plugins/memory/unified-memory-store.utils.js';
-
-const loadUtils = async () => import(utilsPath);
+async function importUtils({ isBrowser = false } = {}) {
+  mockPlatformIsBrowser = isBrowser;
+  vi.resetModules();
+  return await import(
+    "../../../../../js/agents/plugins/memory/unified-memory-store.utils.js"
+  );
+}
 
 beforeEach(() => {
-  vi.resetModules();
-  sharedState.Platform.isBrowser = false;
-  sharedState.estimateTokensCached.mockReset();
-  sharedState.makeSecureTimestampedId.mockReset();
+  mockPlatformIsBrowser = false;
+  estimateTokensCachedMock.mockReset();
+  makeSecureTimestampedIdMock.mockReset();
 });
 
-describe('DEFAULT_CONFIG', () => {
-  it('uses non-browser maxL3Bytes and freezes config', async () => {
-    sharedState.Platform.isBrowser = false;
-    const { DEFAULT_CONFIG } = await loadUtils();
+describe("DEFAULT_CONFIG", () => {
+  it("provides expected defaults and is frozen", async () => {
+    const { DEFAULT_CONFIG } = await importUtils({ isBrowser: false });
 
     expect(DEFAULT_CONFIG).toMatchObject({
       maxMessages: 20,
@@ -34,246 +42,314 @@ describe('DEFAULT_CONFIG', () => {
     });
     expect(DEFAULT_CONFIG.maxL3Bytes).toBe(Infinity);
     expect(Object.isFrozen(DEFAULT_CONFIG)).toBe(true);
+
+    const original = DEFAULT_CONFIG.maxMessages;
+    try {
+      DEFAULT_CONFIG.maxMessages = 999;
+    } catch {}
+    expect(DEFAULT_CONFIG.maxMessages).toBe(original);
   });
 
-  it('uses browser cap for maxL3Bytes', async () => {
-    sharedState.Platform.isBrowser = true;
-    const { DEFAULT_CONFIG } = await loadUtils();
-
+  it("caps maxL3Bytes to 5GB in browser", async () => {
+    const { DEFAULT_CONFIG } = await importUtils({ isBrowser: true });
     expect(DEFAULT_CONFIG.maxL3Bytes).toBe(5 * 1024 * 1024 * 1024);
   });
 });
 
-describe('estimateBytes', () => {
-  it('returns zero for nullish values and handles empty inputs', async () => {
-    const { estimateBytes } = await loadUtils();
-
+describe("estimateBytes", () => {
+  it("returns 0 for nullish values", async () => {
+    const { estimateBytes } = await importUtils();
     expect(estimateBytes(null)).toBe(0);
     expect(estimateBytes(undefined)).toBe(0);
-    expect(estimateBytes('')).toBe(0);
-    expect(estimateBytes([])).toBe(4);
-    expect(estimateBytes({})).toBe(4);
   });
 
-  it('handles primitive boundaries and whitespace strings', async () => {
-    const { estimateBytes } = await loadUtils();
+  it("estimates primitives (string/number/boolean)", async () => {
+    const { estimateBytes } = await importUtils();
 
-    expect(estimateBytes('   ')).toBe(6);
-    expect(estimateBytes('123')).toBe(6);
+    expect(estimateBytes("")).toBe(0);
+    expect(estimateBytes("   ")).toBe(6);
+
     expect(estimateBytes(0)).toBe(8);
     expect(estimateBytes(-1)).toBe(8);
     expect(estimateBytes(Number.MAX_SAFE_INTEGER)).toBe(8);
+
     expect(estimateBytes(true)).toBe(4);
     expect(estimateBytes(false)).toBe(4);
   });
 
-  it('stringifies arrays, array-like objects, and deep nesting', async () => {
-    const { estimateBytes } = await loadUtils();
-    const arrayLike = { 0: 'a', length: 1 };
-    const deep = { level: 0 };
-    let node = deep;
-    for (let i = 1; i <= 20; i += 1) {
-      node.child = { level: i, items: [i, i + 1] };
-      node = node.child;
-    }
+  it("estimates JSON-serializable objects and arrays", async () => {
+    const { estimateBytes } = await importUtils();
 
-    expect(estimateBytes([1, 2, 3])).toBe(JSON.stringify([1, 2, 3]).length * 2);
-    expect(estimateBytes(arrayLike)).toBe(JSON.stringify(arrayLike).length * 2);
-    expect(estimateBytes(deep)).toBe(JSON.stringify(deep).length * 2);
+    const obj = { a: 1, b: "x" };
+    const arr = [1, 2, 3];
+
+    expect(estimateBytes({})).toBe(JSON.stringify({}).length * 2);
+    expect(estimateBytes([])).toBe(JSON.stringify([]).length * 2);
+    expect(estimateBytes(obj)).toBe(JSON.stringify(obj).length * 2);
+    expect(estimateBytes(arr)).toBe(JSON.stringify(arr).length * 2);
   });
 
-  it('handles large payloads and circular fallback', async () => {
-    const { estimateBytes } = await loadUtils();
-    const hugeText = 'x'.repeat(100000);
-    const hugePayload = { name: 'file', content: hugeText };
-    const circular = {};
-    circular.self = circular;
+  it("handles deep nesting and very long strings", async () => {
+    const { estimateBytes } = await importUtils();
 
-    expect(estimateBytes(hugeText)).toBe(hugeText.length * 2);
-    expect(estimateBytes(hugePayload)).toBe(JSON.stringify(hugePayload).length * 2);
+    let deep = {};
+    let cursor = deep;
+    for (let i = 0; i < 200; i += 1) {
+      cursor.next = {};
+      cursor = cursor.next;
+    }
+    const deepJson = JSON.stringify(deep);
+    expect(estimateBytes(deep)).toBe(deepJson.length * 2);
+
+    const huge = "x".repeat(200_000);
+    expect(estimateBytes(huge)).toBe(huge.length * 2);
+  });
+
+  it("falls back for circular or non-serializable values", async () => {
+    const { estimateBytes } = await importUtils();
+
+    const circular = { a: 1 };
+    circular.self = circular;
     expect(estimateBytes(circular)).toBe(1024);
+
+    expect(estimateBytes(() => {})).toBe(1024);
+    expect(estimateBytes(1n)).toBe(1024);
   });
 });
 
-describe('estimateTokensValue', () => {
-  it('returns zero for nullish values without calling the estimator', async () => {
-    const { estimateTokensValue } = await loadUtils();
-    sharedState.estimateTokensCached.mockReturnValue(5);
+describe("estimateTokensValue", () => {
+  it("returns 0 for nullish values without calling counter", async () => {
+    const { estimateTokensValue } = await importUtils();
 
     expect(estimateTokensValue(null)).toBe(0);
     expect(estimateTokensValue(undefined)).toBe(0);
-    expect(sharedState.estimateTokensCached).not.toHaveBeenCalled();
+    expect(estimateTokensCachedMock).not.toHaveBeenCalled();
   });
 
-  it('passes string input through and forwards token counters', async () => {
-    const { estimateTokensValue } = await loadUtils();
-    const counter = vi.fn(() => 42);
-    sharedState.estimateTokensCached.mockReturnValue(7);
+  it("passes through strings to estimateTokensCached", async () => {
+    estimateTokensCachedMock.mockReturnValue(42);
+    const { estimateTokensValue } = await importUtils();
 
-    const result = estimateTokensValue('hello', counter);
+    const tokenCounter = vi.fn((t) => t.length);
+    const result = estimateTokensValue("hello", tokenCounter);
 
-    expect(result).toBe(7);
-    expect(sharedState.estimateTokensCached).toHaveBeenCalledWith('hello', counter);
+    expect(result).toBe(42);
+    expect(estimateTokensCachedMock).toHaveBeenCalledTimes(1);
+    expect(estimateTokensCachedMock).toHaveBeenCalledWith("hello", tokenCounter);
   });
 
-  it('stringifies objects, arrays, and array-like data including empty values', async () => {
-    const { estimateTokensValue } = await loadUtils();
-    sharedState.estimateTokensCached.mockImplementation((text) => text.length);
-    const arrayLike = { 0: 'a', length: 1 };
+  it("JSON-stringifies objects/arrays before counting", async () => {
+    estimateTokensCachedMock.mockReturnValue(7);
+    const { estimateTokensValue } = await importUtils();
 
-    const objectResult = estimateTokensValue({ a: 1 });
-    const arrayResult = estimateTokensValue([]);
-    const arrayLikeResult = estimateTokensValue(arrayLike);
+    const input = { a: 1, b: ["x"] };
+    const tokenCounter = vi.fn();
 
-    expect(objectResult).toBe(JSON.stringify({ a: 1 }).length);
-    expect(arrayResult).toBe(JSON.stringify([]).length);
-    expect(arrayLikeResult).toBe(JSON.stringify(arrayLike).length);
+    expect(estimateTokensValue(input, tokenCounter)).toBe(7);
+    expect(estimateTokensCachedMock).toHaveBeenCalledWith(
+      JSON.stringify(input),
+      tokenCounter
+    );
+
+    estimateTokensCachedMock.mockClear();
+    expect(estimateTokensValue([], tokenCounter)).toBe(7);
+    expect(estimateTokensCachedMock).toHaveBeenCalledWith("[]", tokenCounter);
+
+    estimateTokensCachedMock.mockClear();
+    expect(estimateTokensValue({}, tokenCounter)).toBe(7);
+    expect(estimateTokensCachedMock).toHaveBeenCalledWith("{}", tokenCounter);
   });
 
-  it('falls back to String() when JSON.stringify throws', async () => {
-    const { estimateTokensValue } = await loadUtils();
-    sharedState.estimateTokensCached.mockImplementation((text) => text.length);
+  it("stringifies numeric boundary inputs", async () => {
+    estimateTokensCachedMock.mockReturnValue(1);
+    const { estimateTokensValue } = await importUtils();
+
+    expect(estimateTokensValue(0)).toBe(1);
+    expect(estimateTokensValue(-1)).toBe(1);
+    expect(estimateTokensValue(Number.MAX_SAFE_INTEGER)).toBe(1);
+
+    const calledWith = estimateTokensCachedMock.mock.calls.map(
+      ([rawText]) => rawText
+    );
+    expect(calledWith).toEqual(["0", "-1", String(Number.MAX_SAFE_INTEGER)]);
+  });
+
+  it("falls back to String(value) when JSON.stringify throws", async () => {
+    estimateTokensCachedMock.mockReturnValue(99);
+    const { estimateTokensValue } = await importUtils();
+
     const circular = {};
     circular.self = circular;
 
-    const result = estimateTokensValue(circular);
+    expect(estimateTokensValue(circular)).toBe(99);
+    expect(estimateTokensCachedMock).toHaveBeenCalledWith(
+      "[object Object]",
+      undefined
+    );
 
-    expect(sharedState.estimateTokensCached).toHaveBeenCalledWith('[object Object]', undefined);
-    expect(result).toBe('[object Object]'.length);
+    estimateTokensCachedMock.mockClear();
+    expect(estimateTokensValue(1n)).toBe(99);
+    expect(estimateTokensCachedMock).toHaveBeenCalledWith("1", undefined);
   });
 
-  it('handles long text, deep nesting, and concurrent calls', async () => {
-    const { estimateTokensValue } = await loadUtils();
-    sharedState.estimateTokensCached.mockImplementation((text) => Math.ceil(text.length / 5));
-    const longText = 'y'.repeat(50000);
-    const deep = { level: 0 };
-    let node = deep;
-    for (let i = 1; i <= 15; i += 1) {
-      node.child = { level: i, items: [i, i + 1] };
-      node = node.child;
+  it("forwards undefined when JSON.stringify returns undefined", async () => {
+    estimateTokensCachedMock.mockReturnValue(5);
+    const { estimateTokensValue } = await importUtils();
+
+    expect(estimateTokensValue(() => {})).toBe(5);
+    expect(estimateTokensCachedMock).toHaveBeenCalledWith(undefined, undefined);
+  });
+
+  it("handles rapid concurrent calls deterministically", async () => {
+    estimateTokensCachedMock.mockImplementation(
+      (rawText) => String(rawText).length
+    );
+    const { estimateTokensValue } = await importUtils();
+
+    const inputs = Array.from({ length: 25 }, (_, i) => `payload-${i}`);
+    const results = await Promise.all(
+      inputs.map((t) => Promise.resolve().then(() => estimateTokensValue(t)))
+    );
+
+    expect(results).toEqual(inputs.map((t) => t.length));
+    expect(estimateTokensCachedMock).toHaveBeenCalledTimes(inputs.length);
+
+    const calledWith = estimateTokensCachedMock.mock.calls.map(
+      ([rawText]) => rawText
+    );
+    for (const t of inputs) {
+      expect(calledWith).toContain(t);
     }
-
-    const results = await Promise.all([
-      Promise.resolve(estimateTokensValue('   ')),
-      Promise.resolve(estimateTokensValue(longText)),
-      Promise.resolve(estimateTokensValue(deep)),
-    ]);
-
-    expect(results).toEqual([
-      Math.ceil(3 / 5),
-      Math.ceil(longText.length / 5),
-      Math.ceil(JSON.stringify(deep).length / 5),
-    ]);
-    expect(sharedState.estimateTokensCached).toHaveBeenCalledTimes(3);
   });
 });
 
-describe('truncate', () => {
-  it('returns input unchanged for nullish or empty values', async () => {
-    const { truncate } = await loadUtils();
+describe("truncate", () => {
+  it("returns input unchanged for nullish/empty/short strings", async () => {
+    const { truncate } = await importUtils();
 
-    expect(truncate(null)).toBeNull();
-    expect(truncate(undefined)).toBeUndefined();
-    expect(truncate('')).toBe('');
+    expect(truncate(null)).toBe(null);
+    expect(truncate(undefined)).toBe(undefined);
+    expect(truncate("")).toBe("");
+    expect(truncate("   ")).toBe("   ");
+
+    expect(truncate("hello", 5)).toBe("hello");
+    expect(truncate("hello", 10)).toBe("hello");
+    expect(truncate("hello", Number.MAX_SAFE_INTEGER)).toBe("hello");
   });
 
-  it('does not truncate when text length is within maxLen', async () => {
-    const { truncate } = await loadUtils();
+  it("truncates long strings and appends ellipsis", async () => {
+    const { truncate } = await importUtils();
 
-    expect(truncate('short', 10)).toBe('short');
-    expect(truncate('   ', 10)).toBe('   ');
-    expect(truncate('tiny', Number.MAX_SAFE_INTEGER)).toBe('tiny');
+    expect(truncate("123456", 5)).toBe("12...");
+    expect(truncate("123456", 6)).toBe("123456");
+
+    const long = "x".repeat(10_000);
+    const out = truncate(long, 200);
+
+    expect(out).toHaveLength(200);
+    expect(out.endsWith("...")).toBe(true);
+    expect(out.startsWith("x".repeat(197))).toBe(true);
   });
 
-  it('truncates long text and appends ellipsis', async () => {
-    const { truncate } = await loadUtils();
+  it("handles small or negative maxLen without throwing", async () => {
+    const { truncate } = await importUtils();
 
-    const result = truncate('hello world', 8);
-
-    expect(result).toBe('hello...');
-    expect(result.length).toBe(8);
+    const input = "abcdef";
+    for (const maxLen of [3, 2, 1, 0, -1]) {
+      const out = truncate(input, maxLen);
+      expect(typeof out).toBe("string");
+      expect(out.endsWith("...")).toBe(true);
+    }
   });
 
-  it('handles string maxLen values, zero/negative boundaries, and rapid calls', async () => {
-    const { truncate } = await loadUtils();
+  it("is safe under rapid concurrent calls", async () => {
+    const { truncate } = await importUtils();
 
-    const results = await Promise.all([
-      Promise.resolve(truncate('abcdef', '4')),
-      Promise.resolve(truncate('abcdef', 0)),
-      Promise.resolve(truncate('abcdef', -1)),
-    ]);
+    const inputs = Array.from({ length: 30 }, (_, i) => "x".repeat(500 + i));
+    const outputs = await Promise.all(
+      inputs.map((s) => Promise.resolve().then(() => truncate(s, 100)))
+    );
 
-    expect(results).toEqual(['a...', 'abc...', 'ab...']);
-  });
-
-  it('handles very long strings as a resource boundary', async () => {
-    const { truncate } = await loadUtils();
-    const longText = 'z'.repeat(10000);
-
-    const result = truncate(longText, 200);
-
-    expect(result.length).toBe(200);
-    expect(result.endsWith('...')).toBe(true);
+    for (const out of outputs) {
+      expect(out).toHaveLength(100);
+      expect(out.endsWith("...")).toBe(true);
+    }
   });
 });
 
-describe('genId', () => {
-  it('uses the default prefix when none is provided', async () => {
-    const { genId } = await loadUtils();
-    sharedState.makeSecureTimestampedId.mockReturnValue('id_123');
+describe("genId", () => {
+  it("delegates to makeSecureTimestampedId with default prefix", async () => {
+    makeSecureTimestampedIdMock.mockImplementation((prefix) => `${prefix}-mock`);
+    const { genId } = await importUtils();
 
-    const result = genId();
-
-    expect(result).toBe('id_123');
-    expect(sharedState.makeSecureTimestampedId).toHaveBeenCalledWith('id');
+    expect(genId()).toBe("id-mock");
+    expect(makeSecureTimestampedIdMock).toHaveBeenCalledTimes(1);
+    expect(makeSecureTimestampedIdMock).toHaveBeenCalledWith("id");
   });
 
-  it('uses custom prefixes and supports rapid consecutive calls', async () => {
-    const { genId } = await loadUtils();
+  it("forwards the provided prefix verbatim (type boundary)", async () => {
+    makeSecureTimestampedIdMock.mockImplementation((prefix) => prefix);
+    const { genId } = await importUtils();
+
+    expect(genId("mem")).toBe("mem");
+    expect(genId(123)).toBe(123);
+
+    expect(makeSecureTimestampedIdMock).toHaveBeenNthCalledWith(1, "mem");
+    expect(makeSecureTimestampedIdMock).toHaveBeenNthCalledWith(2, 123);
+  });
+
+  it("handles rapid concurrent calls", async () => {
     let counter = 0;
-    sharedState.makeSecureTimestampedId.mockImplementation((prefix) => `${prefix}_${counter++}`);
+    makeSecureTimestampedIdMock.mockImplementation(
+      (prefix) => `${prefix}-${(counter += 1)}`
+    );
+    const { genId } = await importUtils();
 
-    const results = await Promise.all([
-      Promise.resolve(genId('run')),
-      Promise.resolve(genId('run')),
-      Promise.resolve(genId('task')),
-    ]);
+    const ids = await Promise.all(
+      Array.from({ length: 50 }, () =>
+        Promise.resolve().then(() => genId("g"))
+      )
+    );
 
-    expect(results).toEqual(['run_0', 'run_1', 'task_2']);
-    expect(sharedState.makeSecureTimestampedId).toHaveBeenCalledTimes(3);
-  });
-
-  it('forwards non-string prefixes without mutation', async () => {
-    const { genId } = await loadUtils();
-    sharedState.makeSecureTimestampedId.mockReturnValue('123_id');
-
-    const result = genId(123);
-
-    expect(result).toBe('123_id');
-    expect(sharedState.makeSecureTimestampedId).toHaveBeenCalledWith(123);
+    expect(ids).toHaveLength(50);
+    expect(new Set(ids).size).toBe(50);
+    expect(makeSecureTimestampedIdMock).toHaveBeenCalledTimes(50);
+    for (const id of ids) {
+      expect(id.startsWith("g-")).toBe(true);
+    }
   });
 });
 
-describe('isFiniteNumber', () => {
-  it('returns true for finite numbers including boundaries', async () => {
-    const { isFiniteNumber } = await loadUtils();
+describe("isFiniteNumber", () => {
+  it("returns true only for finite numbers", async () => {
+    const { isFiniteNumber } = await importUtils();
 
     expect(isFiniteNumber(0)).toBe(true);
     expect(isFiniteNumber(-1)).toBe(true);
     expect(isFiniteNumber(Number.MAX_SAFE_INTEGER)).toBe(true);
-  });
-
-  it('returns false for non-numbers or non-finite values', async () => {
-    const { isFiniteNumber } = await loadUtils();
+    expect(isFiniteNumber(123.456)).toBe(true);
 
     expect(isFiniteNumber(NaN)).toBe(false);
     expect(isFiniteNumber(Infinity)).toBe(false);
     expect(isFiniteNumber(-Infinity)).toBe(false);
-    expect(isFiniteNumber('123')).toBe(false);
-    expect(isFiniteNumber('   ')).toBe(false);
+
     expect(isFiniteNumber(null)).toBe(false);
     expect(isFiniteNumber(undefined)).toBe(false);
-    expect(isFiniteNumber({})).toBe(false);
+    expect(isFiniteNumber("0")).toBe(false);
+    expect(isFiniteNumber("123")).toBe(false);
+    expect(isFiniteNumber(new Number(1))).toBe(false);
     expect(isFiniteNumber([])).toBe(false);
+    expect(isFiniteNumber({})).toBe(false);
+  });
+
+  it("is stable under rapid mixed inputs", async () => {
+    const { isFiniteNumber } = await importUtils();
+
+    const inputs = [0, 1, -1, NaN, Infinity, "1", {}, Number.MAX_SAFE_INTEGER];
+    const results = await Promise.all(
+      inputs.map((v) => Promise.resolve().then(() => isFiniteNumber(v)))
+    );
+
+    expect(results).toEqual([true, true, true, false, false, false, false, true]);
   });
 });

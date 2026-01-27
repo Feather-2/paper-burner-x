@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../../../js/agents/vfs/diff.js", () => ({
   createUnifiedDiff: vi.fn(),
@@ -8,191 +8,263 @@ vi.mock("../../../../js/agents/shared/index.js", () => ({
   isPlainObject: vi.fn(),
 }));
 
-const WORKER_PATH = "../../../../js/agents/vfs/diff.worker.js";
-const DIFF_PATH = "../../../../js/agents/vfs/diff.js";
-const SHARED_PATH = "../../../../js/agents/shared/index.js";
+let createUnifiedDiff;
+let isPlainObject;
 
-let restoreSelf = null;
-
-async function setupWorker() {
-  if (restoreSelf) {
-    restoreSelf();
-    restoreSelf = null;
+function prepareWorkerSelf() {
+  if (globalThis.self && typeof globalThis.self === "object") {
+    globalThis.self.postMessage = vi.fn();
+    globalThis.self.onmessage = undefined;
+    return { workerSelf: globalThis.self, postMessage: globalThis.self.postMessage };
   }
 
-  const originalSelf = globalThis.self;
-  const postMessage = vi.fn();
-  const selfStub = { postMessage };
-  globalThis.self = selfStub;
+  const workerSelf = { postMessage: vi.fn(), onmessage: undefined };
+  try {
+    globalThis.self = workerSelf;
+  } catch {
+    Object.defineProperty(globalThis, "self", { value: workerSelf, configurable: true, writable: true });
+  }
+  return { workerSelf, postMessage: workerSelf.postMessage };
+}
 
+async function loadWorker() {
+  const { workerSelf, postMessage } = prepareWorkerSelf();
+  await import("../../../../js/agents/vfs/diff.worker.js");
+
+  const onmessage = workerSelf.onmessage;
+  if (typeof onmessage !== "function") {
+    throw new Error("Expected self.onmessage to be a function");
+  }
+
+  return { workerSelf, onmessage, postMessage };
+}
+
+beforeEach(async () => {
   vi.resetModules();
-  const { createUnifiedDiff } = await import(DIFF_PATH);
-  const { isPlainObject } = await import(SHARED_PATH);
+
+  ({ createUnifiedDiff } = await import("../../../../js/agents/vfs/diff.js"));
+  ({ isPlainObject } = await import("../../../../js/agents/shared/index.js"));
 
   createUnifiedDiff.mockReset();
   isPlainObject.mockReset();
 
-  await import(WORKER_PATH);
-
-  restoreSelf = () => {
-    if (originalSelf === undefined) {
-      delete globalThis.self;
-    } else {
-      globalThis.self = originalSelf;
-    }
-  };
-
-  return { self: selfStub, postMessage, createUnifiedDiff, isPlainObject };
-}
-
-beforeEach(() => {
-  vi.useRealTimers();
+  isPlainObject.mockImplementation((value) => {
+    if (value === null || typeof value !== "object") return false;
+    if (Array.isArray(value)) return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  });
 });
 
-afterEach(() => {
-  if (restoreSelf) {
-    restoreSelf();
-    restoreSelf = null;
-  }
-  vi.restoreAllMocks();
-});
-
-describe("self.onmessage", () => {
-  it("posts diff for valid requests", async () => {
-    const { self, postMessage, createUnifiedDiff, isPlainObject } = await setupWorker();
-
-    const diffResult = { hunks: ["h1"], text: "ok" };
-    const options = { path: "a.txt", beforeText: "a", afterText: "b", context: 3 };
-
-    isPlainObject.mockReturnValue(true);
-    createUnifiedDiff.mockReturnValue(diffResult);
-
-    self.onmessage({ data: { id: "req-1", options } });
-
-    expect(isPlainObject).toHaveBeenCalledWith(options);
-    expect(createUnifiedDiff).toHaveBeenCalledWith(options);
-    expect(postMessage).toHaveBeenCalledWith({ id: "req-1", ok: true, diff: diffResult });
-  });
-
-  it("defaults to empty options for missing or non-plain inputs", async () => {
-    const { self, postMessage, createUnifiedDiff, isPlainObject } = await setupWorker();
-    const diffResult = { hunks: [], text: "default" };
-
-    isPlainObject.mockReturnValue(false);
-    createUnifiedDiff.mockReturnValue(diffResult);
-
-    self.onmessage(undefined);
-    self.onmessage({ data: { id: "", options: null } });
-    self.onmessage({ data: { id: "array", options: [] } });
-
-    expect(createUnifiedDiff).toHaveBeenCalledTimes(3);
-    expect(createUnifiedDiff).toHaveBeenNthCalledWith(1, {});
-    expect(createUnifiedDiff).toHaveBeenNthCalledWith(2, {});
-    expect(createUnifiedDiff).toHaveBeenNthCalledWith(3, {});
-
-    expect(postMessage).toHaveBeenNthCalledWith(1, { id: undefined, ok: true, diff: diffResult });
-    expect(postMessage).toHaveBeenNthCalledWith(2, { id: "", ok: true, diff: diffResult });
-    expect(postMessage).toHaveBeenNthCalledWith(3, { id: "array", ok: true, diff: diffResult });
-
-    expect(isPlainObject).toHaveBeenNthCalledWith(1, undefined);
-    expect(isPlainObject).toHaveBeenNthCalledWith(2, null);
-    expect(isPlainObject).toHaveBeenNthCalledWith(3, []);
-  });
-
-  it("forwards boundary values and type-odd options when treated as plain objects", async () => {
-    const { self, postMessage, createUnifiedDiff, isPlainObject } = await setupWorker();
-    const diffResult = { hunks: [], text: "boundary" };
-
-    isPlainObject.mockReturnValue(true);
-    createUnifiedDiff.mockReturnValue(diffResult);
-
-    const cases = [
-      { id: "empty-object", options: {} },
-      { id: "ctx-zero", options: { context: 0, path: "   ", beforeText: "", afterText: "" } },
-      { id: "ctx-neg", options: { context: -1 } },
-      { id: "ctx-max", options: { context: Number.MAX_SAFE_INTEGER } },
-      { id: "ctx-str", options: { context: "7" } },
-      { id: "array-like", options: { 0: "x", length: 1 } },
-    ];
-
-    cases.forEach(({ id, options }) => {
-      self.onmessage({ data: { id, options } });
-    });
-
-    expect(createUnifiedDiff).toHaveBeenCalledTimes(cases.length);
-    cases.forEach(({ id, options }, index) => {
-      expect(createUnifiedDiff).toHaveBeenNthCalledWith(index + 1, options);
-      expect(postMessage).toHaveBeenNthCalledWith(index + 1, { id, ok: true, diff: diffResult });
-      expect(isPlainObject).toHaveBeenNthCalledWith(index + 1, options);
+describe("js/agents/vfs/diff.worker.js", () => {
+  describe("module initialization", () => {
+    it("registers self.onmessage", async () => {
+      const { workerSelf } = await loadWorker();
+      expect(typeof workerSelf.onmessage).toBe("function");
     });
   });
 
-  it("handles rapid consecutive calls", async () => {
-    const { self, postMessage, createUnifiedDiff, isPlainObject } = await setupWorker();
+  describe("self.onmessage", () => {
+    it("posts ok response with diff for plain options", async () => {
+      const diff = { hunks: [{ a: 1 }], text: "u-diff" };
+      createUnifiedDiff.mockReturnValue(diff);
 
-    isPlainObject.mockReturnValue(true);
-    createUnifiedDiff.mockImplementation((opts) => ({ hunks: [], text: opts.path || "" }));
+      const { onmessage, postMessage } = await loadWorker();
+      const options = { path: "file.txt", beforeText: "a", afterText: "b", context: 3 };
 
-    self.onmessage({ data: { id: "fast-1", options: { path: "a" } } });
-    self.onmessage({ data: { id: "fast-2", options: { path: "b" } } });
+      onmessage({ data: { id: "req-1", options } });
 
-    expect(createUnifiedDiff).toHaveBeenCalledTimes(2);
-    expect(postMessage).toHaveBeenNthCalledWith(1, { id: "fast-1", ok: true, diff: { hunks: [], text: "a" } });
-    expect(postMessage).toHaveBeenNthCalledWith(2, { id: "fast-2", ok: true, diff: { hunks: [], text: "b" } });
-  });
-
-  it("accepts large payloads and deep nesting", async () => {
-    const { self, postMessage, createUnifiedDiff, isPlainObject } = await setupWorker();
-    const diffResult = { hunks: [], text: "large" };
-
-    isPlainObject.mockReturnValue(true);
-    createUnifiedDiff.mockReturnValue(diffResult);
-
-    const hugeText = "A".repeat(200000);
-    const longText = "B".repeat(10000);
-    let deep = { level: 0 };
-    let cursor = deep;
-    for (let i = 1; i <= 40; i += 1) {
-      cursor.child = { level: i };
-      cursor = cursor.child;
-    }
-
-    const options = { beforeText: hugeText, afterText: longText, extra: { deep } };
-
-    self.onmessage({ data: { id: "large", options } });
-
-    expect(createUnifiedDiff).toHaveBeenCalledWith(options);
-    const passedOptions = createUnifiedDiff.mock.calls[0][0];
-    expect(passedOptions).toBe(options);
-    expect(passedOptions.beforeText.length).toBe(200000);
-    expect(passedOptions.afterText.length).toBe(10000);
-    expect(passedOptions.extra.deep.child.child).toBeDefined();
-    expect(postMessage).toHaveBeenCalledWith({ id: "large", ok: true, diff: diffResult });
-  });
-
-  it("posts error responses when createUnifiedDiff throws an Error", async () => {
-    const { self, postMessage, createUnifiedDiff, isPlainObject } = await setupWorker();
-
-    isPlainObject.mockReturnValue(true);
-    createUnifiedDiff.mockImplementation(() => {
-      throw new Error("boom");
+      expect(isPlainObject).toHaveBeenCalledWith(options);
+      expect(createUnifiedDiff).toHaveBeenCalledWith(options);
+      expect(createUnifiedDiff.mock.calls[0][0]).toBe(options);
+      expect(postMessage).toHaveBeenCalledWith({ id: "req-1", ok: true, diff });
     });
 
-    self.onmessage({ data: { id: "err-1", options: {} } });
+    it.each([
+      ["empty object", {}],
+      ["empty strings + context 0", { path: "", beforeText: "", afterText: "", context: 0 }],
+      ["whitespace strings + context -1", { path: "   ", beforeText: " \n\t", afterText: "   ", context: -1 }],
+      ["MAX_SAFE_INTEGER context", { path: "x", beforeText: "a", afterText: "b", context: Number.MAX_SAFE_INTEGER }],
+      ["string context", { path: "x", beforeText: "a", afterText: "b", context: "3" }],
+      ["object context", { path: "x", beforeText: "a", afterText: "b", context: { n: 3 } }],
+      ["array beforeText", { path: "x", beforeText: ["a"], afterText: "b", context: 1 }],
+    ])("forwards plain options unchanged (%s)", async (_label, options) => {
+      const diff = { hunks: [], text: "ok" };
+      createUnifiedDiff.mockReturnValue(diff);
 
-    expect(postMessage).toHaveBeenCalledWith({ id: "err-1", ok: false, error: "boom" });
-  });
+      const { onmessage, postMessage } = await loadWorker();
+      onmessage({ data: { id: "id", options } });
 
-  it("stringifies non-Error throwables", async () => {
-    const { self, postMessage, createUnifiedDiff, isPlainObject } = await setupWorker();
-
-    isPlainObject.mockReturnValue(true);
-    createUnifiedDiff.mockImplementation(() => {
-      throw 0;
+      expect(isPlainObject).toHaveBeenCalledWith(options);
+      expect(createUnifiedDiff).toHaveBeenCalledWith(options);
+      expect(createUnifiedDiff.mock.calls[0][0]).toBe(options);
+      expect(postMessage).toHaveBeenCalledWith({ id: "id", ok: true, diff });
     });
 
-    self.onmessage({ data: { id: "err-2", options: {} } });
+    it.each([
+      ["undefined", undefined],
+      ["null", null],
+      ["empty string", ""],
+      ["whitespace string", "   "],
+      ["number 0", 0],
+      ["number -1", -1],
+      ["MAX_SAFE_INTEGER", Number.MAX_SAFE_INTEGER],
+      ["empty array", []],
+      ["array", [1, 2]],
+      ["date", new Date(0)],
+      ["function", () => {}],
+    ])("defaults options to {} when not plain (%s)", async (_label, options) => {
+      const diff = { hunks: [], text: "ok" };
+      createUnifiedDiff.mockReturnValue(diff);
 
-    expect(postMessage).toHaveBeenCalledWith({ id: "err-2", ok: false, error: "0" });
+      const { onmessage, postMessage } = await loadWorker();
+      onmessage({ data: { id: "id", options } });
+
+      expect(isPlainObject).toHaveBeenCalledWith(options);
+      expect(createUnifiedDiff).toHaveBeenCalledTimes(1);
+      expect(createUnifiedDiff.mock.calls[0][0]).toEqual({});
+      expect(postMessage).toHaveBeenCalledWith({ id: "id", ok: true, diff });
+    });
+
+    it("uses {} when isPlainObject returns false (even for objects)", async () => {
+      isPlainObject.mockReturnValue(false);
+
+      const diff = { hunks: [], text: "ok" };
+      createUnifiedDiff.mockReturnValue(diff);
+
+      const { onmessage } = await loadWorker();
+      const options = { path: "x" };
+
+      onmessage({ data: { id: "id", options } });
+
+      expect(isPlainObject).toHaveBeenCalledWith(options);
+      expect(createUnifiedDiff).toHaveBeenCalledTimes(1);
+      expect(createUnifiedDiff.mock.calls[0][0]).toEqual({});
+    });
+
+    it.each([
+      ["undefined event", undefined],
+      ["null event", null],
+      ["empty object event", {}],
+      ["event with undefined data", { data: undefined }],
+      ["event with null data", { data: null }],
+      ["event with empty string data", { data: "" }],
+      ["event with number data (0)", { data: 0 }],
+      ["event with array data", { data: [] }],
+      ["event with string data", { data: "x" }],
+      ["event with data missing id/options", { data: {} }],
+    ])("handles missing/invalid event/data (%s)", async (_label, event) => {
+      const diff = { hunks: [], text: "ok" };
+      createUnifiedDiff.mockReturnValue(diff);
+
+      const { onmessage, postMessage } = await loadWorker();
+
+      expect(() => onmessage(event)).not.toThrow();
+      expect(createUnifiedDiff).toHaveBeenCalledTimes(1);
+      expect(createUnifiedDiff.mock.calls[0][0]).toEqual({});
+      expect(postMessage).toHaveBeenCalledWith({ id: undefined, ok: true, diff });
+    });
+
+    it.each([
+      ["undefined", undefined],
+      ["null", null],
+      ["empty string", ""],
+      ["0", 0],
+      ["-1", -1],
+      ["MAX_SAFE_INTEGER", Number.MAX_SAFE_INTEGER],
+    ])("preserves id value (%s)", async (_label, id) => {
+      const diff = { hunks: [], text: "ok" };
+      createUnifiedDiff.mockReturnValue(diff);
+
+      const { onmessage, postMessage } = await loadWorker();
+      onmessage({ data: { id, options: {} } });
+
+      expect(postMessage).toHaveBeenCalledWith({ id, ok: true, diff });
+    });
+
+    it.each([
+      ["Error with message", new Error("boom"), "boom"],
+      ["string", "fail", "fail"],
+      ["undefined", undefined, "undefined"],
+      ["object with empty message", { message: "" }, "[object Object]"],
+      ["object with message", { message: "x" }, "x"],
+      ["object with message 0", { message: 0 }, "[object Object]"],
+    ])("posts error when createUnifiedDiff throws (%s)", async (_label, thrown, expectedError) => {
+      createUnifiedDiff.mockImplementation(() => {
+        throw thrown;
+      });
+
+      const { onmessage, postMessage } = await loadWorker();
+      onmessage({ data: { id: "e", options: {} } });
+
+      expect(postMessage).toHaveBeenCalledWith({ id: "e", ok: false, error: expectedError });
+    });
+
+    it("propagates error if isPlainObject throws (no postMessage)", async () => {
+      isPlainObject.mockImplementation(() => {
+        throw new Error("nope");
+      });
+
+      const { onmessage, postMessage } = await loadWorker();
+
+      expect(() => onmessage({ data: { id: "x", options: {} } })).toThrow("nope");
+      expect(createUnifiedDiff).not.toHaveBeenCalled();
+      expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    it("handles rapid consecutive messages independently (mixed ok/error)", async () => {
+      createUnifiedDiff.mockImplementation((opts) => {
+        if (opts?.path === "err") throw new Error("bad");
+        return { hunks: [opts?.path ?? null], text: String(opts?.afterText ?? "") };
+      });
+
+      const { onmessage, postMessage } = await loadWorker();
+
+      const payloads = [
+        { id: "1", options: { path: "a", afterText: "A" } },
+        { id: "2", options: { path: "err", afterText: "B" } },
+        { id: "3", options: null },
+        { id: "4", options: { path: "c", afterText: "" } },
+      ];
+
+      await Promise.all(payloads.map((data) => Promise.resolve().then(() => onmessage({ data }))));
+
+      expect(createUnifiedDiff).toHaveBeenCalledTimes(payloads.length);
+
+      const posted = postMessage.mock.calls.map(([msg]) => msg);
+      expect(posted).toEqual(
+        expect.arrayContaining([
+          { id: "1", ok: true, diff: { hunks: ["a"], text: "A" } },
+          { id: "2", ok: false, error: "bad" },
+          { id: "3", ok: true, diff: { hunks: [null], text: "" } },
+          { id: "4", ok: true, diff: { hunks: ["c"], text: "" } },
+        ]),
+      );
+    });
+
+    it("forwards very large strings and deep nested objects", async () => {
+      const diff = { hunks: [], text: "ok" };
+      createUnifiedDiff.mockReturnValue(diff);
+
+      const { onmessage } = await loadWorker();
+
+      const beforeText = "a".repeat(1_000_000);
+      const afterText = "b".repeat(1_000_000);
+
+      let nested = { depth: 0 };
+      for (let i = 1; i <= 500; i += 1) nested = { depth: i, next: nested };
+
+      const options = {
+        path: "big.txt",
+        beforeText,
+        afterText,
+        context: Number.MAX_SAFE_INTEGER,
+        meta: nested,
+      };
+
+      onmessage({ data: { id: "big", options } });
+
+      expect(createUnifiedDiff).toHaveBeenCalledWith(options);
+    });
   });
 });

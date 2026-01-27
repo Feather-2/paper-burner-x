@@ -430,7 +430,7 @@ describe("createPreAgentHook", () => {
     const result = await hook({ sessionId: "s", runId: "r", input: "", context: { eventBus } });
 
     expect(result).toBeNull();
-    const errorEvent = eventBus.events.find((entry) => entry.event === "agent:hook-error");
+    const errorEvent = eventBus.events.find((entry) => entry.event === "agent:hook:error");
     expect(errorEvent).not.toBeNull();
   });
 
@@ -488,7 +488,7 @@ describe("createPostAgentHook", () => {
     const hook = createPostAgentHook();
     await hook({ sessionId: "s", runId: "r", input: {}, result: null, error: null, duration: 0, context: { eventBus } });
 
-    const errorEvent = eventBus.events.find((entry) => entry.event === "agent:hook-error");
+    const errorEvent = eventBus.events.find((entry) => entry.event === "agent:hook:error");
     expect(errorEvent).not.toBeNull();
   });
 
