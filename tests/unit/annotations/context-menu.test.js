@@ -384,10 +384,10 @@ describe('updateCrossBlockContextMenuOptions', () => {
     const first = colorOptions[0];
     first.dispatchEvent(new Event('mouseenter'));
     expect(first.style.transform).toBe('scale(1.1)');
-    expect(first.style.borderColor).toMatch(/(#333|rgb\\(51,\\s*51,\\s*51\\))/);
+    expect(first.style.borderColor).toMatch(/(#333|rgb\(51,\s*51,\s*51\))/);
     first.dispatchEvent(new Event('mouseleave'));
     expect(first.style.transform).toBe('scale(1)');
-    expect(first.style.borderColor).toMatch(/(#ccc|rgb\\(204,\\s*204,\\s*204\\))/);
+    expect(first.style.borderColor).toMatch(/(#ccc|rgb\(204,\s*204,\s*204\))/);
 
     expect(removeHighlightOption.textContent).toBe('移除选中区域高亮');
     expect(removeHighlightOption.style.display).toBe('none');
@@ -462,4 +462,3 @@ describe('updateCrossBlockContextMenuOptions', () => {
     expect(() => updateCrossBlockContextMenuOptions(true, true)).not.toThrow();
   });
 });
-

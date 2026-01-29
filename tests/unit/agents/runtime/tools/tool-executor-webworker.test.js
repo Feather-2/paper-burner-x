@@ -1,60 +1,53 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-let createToolExecutorHandlerMock;
-let capturedAdapter;
+vi.mock('../../../../../js/agents/runtime/tools/tool-executor-worker-shared.js', () => ({
+  createToolExecutorHandler: vi.fn(),
+}));
 
-const MODULE_PATH = "../../../../../js/agents/runtime/tools/tool-executor-webworker.js";
-
-vi.mock("../../../../../js/agents/runtime/tools/tool-executor-worker-shared.js", () => {
-  createToolExecutorHandlerMock = vi.fn((adapter) => {
-    capturedAdapter = adapter;
-    return { close: adapter.close };
-  });
-  return { createToolExecutorHandler: createToolExecutorHandlerMock };
-});
+const SUBJECT_PATH = '../../../../../js/agents/runtime/tools/tool-executor-webworker.js';
+const SHARED_PATH = '../../../../../js/agents/runtime/tools/tool-executor-worker-shared.js';
 
 function buildDeepObject(depth) {
-  const root = {};
-  let cursor = root;
+  let current = { leaf: true };
   for (let i = 0; i < depth; i += 1) {
-    cursor.next = {};
-    cursor = cursor.next;
+    current = { level: i, child: current };
   }
-  return root;
+  return current;
 }
 
-async function loadModule({ includeClose = true } = {}) {
+async function loadSubject({ withClose = true } = {}) {
   vi.resetModules();
-  capturedAdapter = null;
-  const selfObj = {
+
+  const selfMock = {
     postMessage: vi.fn(),
     addEventListener: vi.fn(),
-    ...(includeClose ? { close: vi.fn() } : {}),
+    close: withClose ? vi.fn() : undefined,
   };
-  globalThis.self = selfObj;
-  await import(MODULE_PATH);
-  return selfObj;
-}
 
-function registerMessageHandler(selfObj) {
-  const cb = vi.fn();
-  capturedAdapter.onMessage(cb);
-  expect(selfObj.addEventListener).toHaveBeenCalledTimes(1);
-  expect(selfObj.addEventListener.mock.calls[0][0]).toBe("message");
-  const handler = selfObj.addEventListener.mock.calls[0][1];
-  return { cb, handler };
+  vi.stubGlobal('self', selfMock);
+
+  const shared = await import(SHARED_PATH);
+  const createToolExecutorHandler = shared.createToolExecutorHandler;
+  createToolExecutorHandler.mockClear();
+
+  await import(SUBJECT_PATH);
+
+  expect(createToolExecutorHandler).toHaveBeenCalledTimes(1);
+  const handler = createToolExecutorHandler.mock.calls[0][0];
+
+  return { handler, selfMock, createToolExecutorHandler };
 }
 
 beforeEach(() => {
-  capturedAdapter = null;
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
-describe("tool-executor-webworker adapter", () => {
-  it("registers adapter with createToolExecutorHandler and proxies self methods", async () => {
-    const selfObj = await loadModule();
+describe('tool-executor-webworker.js (module side-effects)', () => {
+  it('registers createToolExecutorHandler with worker adapters', async () => {
+    const { handler, createToolExecutorHandler } = await loadSubject();
 
-    expect(createToolExecutorHandlerMock).toHaveBeenCalledTimes(1);
-    expect(capturedAdapter).toEqual(
+    expect(createToolExecutorHandler).toHaveBeenCalledWith(
       expect.objectContaining({
         postMessage: expect.any(Function),
         onMessage: expect.any(Function),
@@ -62,235 +55,356 @@ describe("tool-executor-webworker adapter", () => {
       }),
     );
 
-    const payload = { ok: true };
-    capturedAdapter.postMessage(payload);
-    expect(selfObj.postMessage).toHaveBeenCalledWith(payload);
+    expect(handler).toEqual(
+      expect.objectContaining({
+        postMessage: expect.any(Function),
+        onMessage: expect.any(Function),
+        close: expect.any(Function),
+      }),
+    );
+  });
+
+  it('postMessage forwards to self.postMessage (supports large payloads)', async () => {
+    const { handler, selfMock } = await loadSubject();
+
+    const msg = {
+      type: 'any',
+      payload: {
+        url: 'file://' + 'a'.repeat(20000),
+        text: 'x'.repeat(100000),
+        nested: buildDeepObject(50),
+      },
+    };
+
+    handler.postMessage(msg);
+
+    expect(selfMock.postMessage).toHaveBeenCalledTimes(1);
+    expect(selfMock.postMessage).toHaveBeenCalledWith(msg);
+  });
+
+  it('close calls self.close when available', async () => {
+    const { handler, selfMock } = await loadSubject({ withClose: true });
+
+    handler.close();
+
+    expect(selfMock.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('close is a no-op when self.close is missing', async () => {
+    const { handler } = await loadSubject({ withClose: false });
+
+    expect(() => handler.close()).not.toThrow();
+  });
+
+  it('onMessage passes through non-execute payloads (null/undefined/primitives/empty)', async () => {
+    const { handler, selfMock } = await loadSubject();
 
     const cb = vi.fn();
-    capturedAdapter.onMessage(cb);
-    expect(selfObj.addEventListener).toHaveBeenCalledWith("message", expect.any(Function));
+    handler.onMessage(cb);
 
-    capturedAdapter.close();
-    expect(selfObj.close).toHaveBeenCalledTimes(1);
-  });
+    expect(selfMock.addEventListener).toHaveBeenCalledTimes(1);
+    expect(selfMock.addEventListener).toHaveBeenCalledWith('message', expect.any(Function));
 
-  it("does not throw when self.close is missing", async () => {
-    const selfObj = await loadModule({ includeClose: false });
-
-    expect(selfObj.close).toBeUndefined();
-    expect(capturedAdapter).toEqual(
-      expect.objectContaining({ close: expect.any(Function) }),
-    );
-    expect(() => capturedAdapter.close()).not.toThrow();
-  });
-});
-
-describe("normalizeMessage (indirect)", () => {
-  it("passes through non-object or non-execute payloads with boundary values", async () => {
-    const selfObj = await loadModule();
-    const { cb, handler } = registerMessageHandler(selfObj);
+    const listener = selfMock.addEventListener.mock.calls[0][1];
 
     const emptyArray = [];
     const emptyObject = {};
-    const nonExecute = { type: "noop", value: "x" };
+    const nonExecuteObject = { type: 'noop', ok: true };
 
-    const inputs = [
-      null,
-      undefined,
-      "",
-      "   ",
-      0,
-      -1,
-      Number.MAX_SAFE_INTEGER,
-      emptyArray,
-      emptyObject,
-      nonExecute,
+    const cases = [
+      { label: 'event is undefined', call: () => listener(), expected: undefined },
+      { label: 'event missing data', call: () => listener({}), expected: undefined },
+      { label: 'data is undefined', call: () => listener({ data: undefined }), expected: undefined },
+      { label: 'data is null', call: () => listener({ data: null }), expected: null },
+      { label: 'empty string', call: () => listener({ data: '' }), expected: '' },
+      { label: 'whitespace string', call: () => listener({ data: '   ' }), expected: '   ' },
+      { label: 'zero', call: () => listener({ data: 0 }), expected: 0 },
+      { label: 'negative', call: () => listener({ data: -1 }), expected: -1 },
+      {
+        label: 'MAX_SAFE_INTEGER',
+        call: () => listener({ data: Number.MAX_SAFE_INTEGER }),
+        expected: Number.MAX_SAFE_INTEGER,
+      },
+      { label: 'empty array', call: () => listener({ data: emptyArray }), expected: emptyArray },
+      { label: 'empty object', call: () => listener({ data: emptyObject }), expected: emptyObject },
+      {
+        label: 'non-execute object',
+        call: () => listener({ data: nonExecuteObject }),
+        expected: nonExecuteObject,
+      },
     ];
 
-    inputs.forEach((data) => handler({ data }));
+    for (const testCase of cases) {
+      expect(() => testCase.call()).not.toThrow();
+      expect(cb).toHaveBeenLastCalledWith(testCase.expected);
+    }
 
-    expect(cb).toHaveBeenCalledTimes(inputs.length);
-    const received = cb.mock.calls.map((call) => call[0]);
-
-    expect(received[0]).toBe(null);
-    expect(received[1]).toBeUndefined();
-    expect(received[2]).toBe("");
-    expect(received[3]).toBe("   ");
-    expect(received[4]).toBe(0);
-    expect(received[5]).toBe(-1);
-    expect(received[6]).toBe(Number.MAX_SAFE_INTEGER);
-    expect(received[7]).toBe(emptyArray);
-    expect(received[8]).toBe(emptyObject);
-    expect(received[9]).toBe(nonExecute);
+    expect(cb).toHaveBeenCalledTimes(cases.length);
   });
 
-  it("normalizes legacy execute payloads and defaults handlerName when exportName is invalid", async () => {
-    const selfObj = await loadModule();
-    const { cb, handler } = registerMessageHandler(selfObj);
+  it('normalizes legacy execute messages (exportName/context shape)', async () => {
+    const { handler, selfMock } = await loadSubject();
 
-    const legacy = {
-      type: "execute",
-      id: "job-1",
-      moduleUrl: "mod",
-      exportName: "legacyHandler",
+    const cb = vi.fn();
+    handler.onMessage(cb);
+
+    const listener = selfMock.addEventListener.mock.calls[0][1];
+
+    const deepContext = buildDeepObject(120);
+    const hugeArg = 'x'.repeat(100000);
+    const longExportName = 'h'.repeat(10000);
+
+    const legacyEmptyExport = {
+      type: 'execute',
+      id: 0,
+      moduleUrl: 'mod://legacy',
+      exportName: '',
       args: { a: 1 },
-      context: { user: "u" },
+      context: { b: 2 },
     };
 
-    handler({ data: legacy });
+    listener({ data: legacyEmptyExport });
+    const normalized1 = cb.mock.calls[cb.mock.calls.length - 1][0];
 
-    const deep = buildDeepObject(40);
-    const hugeText = "x".repeat(100000);
-    const context = { nested: deep, value: -1 };
-
-    const fallback = {
-      type: "execute",
+    expect(normalized1).toEqual({
+      type: 'execute',
       id: 0,
-      moduleUrl: "  ",
-      exportName: "",
-      args: hugeText,
-      context,
+      moduleUrl: 'mod://legacy',
+      handlerName: 'handler',
+      args: [{ a: 1 }, { b: 2 }],
+    });
+    expect(normalized1).not.toBe(legacyEmptyExport);
+
+    const legacyWhitespaceExport = {
+      type: 'execute',
+      id: -1,
+      moduleUrl: '',
+      exportName: '   ',
+      args: hugeArg,
+      context: deepContext,
     };
 
-    handler({ data: fallback });
+    listener({ data: legacyWhitespaceExport });
+    const normalized2 = cb.mock.calls[cb.mock.calls.length - 1][0];
 
-    expect(cb).toHaveBeenCalledTimes(2);
-    expect(cb.mock.calls[0][0]).toEqual({
-      type: "execute",
-      id: "job-1",
-      moduleUrl: "mod",
-      handlerName: "legacyHandler",
-      args: [legacy.args, legacy.context],
+    expect(normalized2).toEqual({
+      type: 'execute',
+      id: -1,
+      moduleUrl: '',
+      handlerName: '   ',
+      args: [hugeArg, deepContext],
     });
 
-    const normalizedFallback = cb.mock.calls[1][0];
-    expect(normalizedFallback).toMatchObject({
-      type: "execute",
-      id: 0,
-      moduleUrl: "  ",
-      handlerName: "handler",
+    const legacyNonStringExport = {
+      type: 'execute',
+      id: Number.MAX_SAFE_INTEGER,
+      moduleUrl: 'mod://legacy-nonstring',
+      exportName: 123,
+      args: null,
+      context: undefined,
+    };
+
+    listener({ data: legacyNonStringExport });
+    const normalized3 = cb.mock.calls[cb.mock.calls.length - 1][0];
+
+    expect(normalized3).toEqual({
+      type: 'execute',
+      id: Number.MAX_SAFE_INTEGER,
+      moduleUrl: 'mod://legacy-nonstring',
+      handlerName: 'handler',
+      args: [null, undefined],
     });
-    expect(normalizedFallback.args[0]).toBe(hugeText);
-    expect(normalizedFallback.args[1]).toBe(context);
-    expect(normalizedFallback.args[1].nested).toBe(deep);
-    expect(normalizedFallback.args[1].value).toBe(-1);
+
+    const legacyContextOnly = {
+      type: 'execute',
+      id: '1',
+      moduleUrl: 'mod://legacy-context-only',
+      args: 'payload',
+      context: undefined,
+    };
+
+    listener({ data: legacyContextOnly });
+    const normalized4 = cb.mock.calls[cb.mock.calls.length - 1][0];
+
+    expect(normalized4).toEqual({
+      type: 'execute',
+      id: '1',
+      moduleUrl: 'mod://legacy-context-only',
+      handlerName: 'handler',
+      args: ['payload', undefined],
+    });
+
+    const legacyTakesPrecedenceOverModernFields = {
+      type: 'execute',
+      id: 2,
+      moduleUrl: 'mod://mixed',
+      handlerName: 'should-be-ignored',
+      args: ['array-should-be-wrapped'],
+      context: { c: true },
+    };
+
+    listener({ data: legacyTakesPrecedenceOverModernFields });
+    const normalized5 = cb.mock.calls[cb.mock.calls.length - 1][0];
+
+    expect(normalized5).toEqual({
+      type: 'execute',
+      id: 2,
+      moduleUrl: 'mod://mixed',
+      handlerName: 'handler',
+      args: [['array-should-be-wrapped'], { c: true }],
+    });
+
+    const legacyLongExportName = {
+      type: 'execute',
+      id: 3,
+      moduleUrl: 'mod://' + 'a'.repeat(20000),
+      exportName: longExportName,
+      args: [],
+      context: {},
+    };
+
+    listener({ data: legacyLongExportName });
+    const normalized6 = cb.mock.calls[cb.mock.calls.length - 1][0];
+
+    expect(normalized6.handlerName).toBe(longExportName);
+    expect(normalized6.args).toEqual([[], {}]);
   });
 
-  it("normalizes non-legacy execute payloads with array args and preserves resources", async () => {
-    const selfObj = await loadModule();
-    const { cb, handler } = registerMessageHandler(selfObj);
+  it('normalizes modern execute messages (handlerName + args array), defaulting args to [] for non-arrays', async () => {
+    const { handler, selfMock } = await loadSubject();
 
-    const deep = buildDeepObject(30);
-    const hugeText = "y".repeat(120000);
-    const hugeFile = { name: "big.bin", size: Number.MAX_SAFE_INTEGER, content: hugeText };
-    const args = [0, -1, Number.MAX_SAFE_INTEGER, "", "   ", deep, hugeFile, "123"];
+    const cb = vi.fn();
+    handler.onMessage(cb);
 
-    const payload = {
-      type: "execute",
-      id: "42",
-      moduleUrl: "module-url",
-      handlerName: "run",
-      args,
+    const listener = selfMock.addEventListener.mock.calls[0][1];
+
+    const deep = buildDeepObject(150);
+    const huge = 'z'.repeat(100000);
+    const argsArray = [huge, deep];
+
+    const modernOk = {
+      type: 'execute',
+      id: '007',
+      moduleUrl: 'mod://modern',
+      handlerName: 'run',
+      args: argsArray,
     };
 
-    const emptyArgsPayload = {
-      type: "execute",
-      id: "empty",
-      moduleUrl: "module-url",
-      handlerName: "run",
+    listener({ data: modernOk });
+    const normalized1 = cb.mock.calls[cb.mock.calls.length - 1][0];
+
+    expect(normalized1).toEqual({
+      type: 'execute',
+      id: '007',
+      moduleUrl: 'mod://modern',
+      handlerName: 'run',
+      args: argsArray,
+    });
+    expect(normalized1).not.toBe(modernOk);
+    expect(normalized1.args).toBe(argsArray);
+
+    const modernArgsObject = {
+      type: 'execute',
+      id: 0,
+      moduleUrl: 'mod://modern-nonarray',
+      handlerName: 'h',
+      args: { 0: 'a', length: 1 },
+    };
+
+    listener({ data: modernArgsObject });
+    const normalized2 = cb.mock.calls[cb.mock.calls.length - 1][0];
+
+    expect(normalized2).toEqual({
+      type: 'execute',
+      id: 0,
+      moduleUrl: 'mod://modern-nonarray',
+      handlerName: 'h',
+      args: [],
+    });
+
+    const modernArgsNull = {
+      type: 'execute',
+      id: -1,
+      moduleUrl: '',
+      handlerName: '   ',
+      args: null,
+    };
+
+    listener({ data: modernArgsNull });
+    const normalized3 = cb.mock.calls[cb.mock.calls.length - 1][0];
+
+    expect(normalized3).toEqual({
+      type: 'execute',
+      id: -1,
+      moduleUrl: '',
+      handlerName: '   ',
+      args: [],
+    });
+
+    const modernMissingFields = {
+      type: 'execute',
+      id: Number.MAX_SAFE_INTEGER,
+      moduleUrl: undefined,
       args: [],
     };
 
-    handler({ data: payload });
-    handler({ data: emptyArgsPayload });
+    listener({ data: modernMissingFields });
+    const normalized4 = cb.mock.calls[cb.mock.calls.length - 1][0];
 
-    expect(cb).toHaveBeenCalledTimes(2);
-    const normalized = cb.mock.calls[0][0];
-    expect(normalized).toMatchObject({
-      type: "execute",
-      id: "42",
-      moduleUrl: "module-url",
-      handlerName: "run",
+    expect(normalized4).toEqual({
+      type: 'execute',
+      id: Number.MAX_SAFE_INTEGER,
+      moduleUrl: undefined,
+      handlerName: undefined,
+      args: modernMissingFields.args,
     });
-    expect(normalized.args).toBe(args);
-    expect(normalized.args[5]).toBe(deep);
-    expect(normalized.args[6]).toBe(hugeFile);
-    expect(normalized.args[7]).toBe("123");
-
-    const normalizedEmpty = cb.mock.calls[1][0];
-    expect(normalizedEmpty.args).toBe(emptyArgsPayload.args);
-    expect(normalizedEmpty.args).toEqual([]);
+    expect(normalized4.args).toBe(modernMissingFields.args);
   });
 
-  it("defaults non-legacy args to [] when args is not an array", async () => {
-    const selfObj = await loadModule();
-    const { cb, handler } = registerMessageHandler(selfObj);
+  it('handles rapid consecutive messages and multiple onMessage registrations', async () => {
+    const { handler, selfMock } = await loadSubject();
 
-    const payloadObjectArgs = {
-      type: "execute",
-      id: "obj-args",
-      moduleUrl: "mod",
-      handlerName: "run",
-      args: { not: "array" },
-    };
+    const cb1 = vi.fn();
+    const cb2 = vi.fn();
 
-    const payloadStringArgs = {
-      type: "execute",
-      id: "str-args",
-      moduleUrl: "mod",
-      handlerName: "run",
-      args: "123",
-    };
+    handler.onMessage(cb1);
+    handler.onMessage(cb2);
 
-    handler({ data: payloadObjectArgs });
-    handler({ data: payloadStringArgs });
+    expect(selfMock.addEventListener).toHaveBeenCalledTimes(2);
 
-    expect(cb).toHaveBeenCalledTimes(2);
-    expect(cb.mock.calls[0][0].args).toEqual([]);
-    expect(cb.mock.calls[1][0].args).toEqual([]);
-  });
+    const listener1 = selfMock.addEventListener.mock.calls[0][1];
+    const listener2 = selfMock.addEventListener.mock.calls[1][1];
 
-  it("handles rapid consecutive execute events", async () => {
-    const selfObj = await loadModule();
-    const { cb, handler } = registerMessageHandler(selfObj);
+    const msg1 = { type: 'execute', id: 1, moduleUrl: 'mod://c', handlerName: 'h', args: [1] };
+    const msg2 = { type: 'execute', id: 2, moduleUrl: 'mod://c', handlerName: 'h', args: [2] };
 
-    for (let i = 0; i < 5; i += 1) {
-      handler({
-        data: {
-          type: "execute",
-          id: i,
-          moduleUrl: "mod",
-          handlerName: "h",
-          args: [i],
-        },
-      });
-    }
+    listener1({ data: msg1 });
+    listener1({ data: msg2 });
 
-    expect(cb).toHaveBeenCalledTimes(5);
-    const ids = cb.mock.calls.map((call) => call[0].id);
-    expect(ids).toEqual([0, 1, 2, 3, 4]);
-  });
-
-  it("supports concurrent execute events without state bleed", async () => {
-    const selfObj = await loadModule();
-    const { cb, handler } = registerMessageHandler(selfObj);
-
-    const payloads = [
-      { type: "execute", id: "a", moduleUrl: "m1", handlerName: "h", args: [1] },
-      { type: "execute", id: "b", moduleUrl: "m2", handlerName: "h", args: [2] },
-      { type: "execute", id: "c", moduleUrl: "m3", handlerName: "h", args: [3] },
-      { type: "execute", id: "d", moduleUrl: "m4", handlerName: "h", args: [4] },
-    ];
-
-    await Promise.all(
-      payloads.map((data) => Promise.resolve().then(() => handler({ data }))),
-    );
-
-    expect(cb).toHaveBeenCalledTimes(payloads.length);
-    const ids = cb.mock.calls.map((call) => call[0].id).sort();
-    expect(ids).toEqual(payloads.map((payload) => payload.id).sort());
-    cb.mock.calls.forEach((call) => {
-      expect(call[0].type).toBe("execute");
+    expect(cb1).toHaveBeenCalledTimes(2);
+    expect(cb1.mock.calls[0][0]).toEqual({
+      type: 'execute',
+      id: 1,
+      moduleUrl: 'mod://c',
+      handlerName: 'h',
+      args: [1],
     });
+    expect(cb1.mock.calls[1][0]).toEqual({
+      type: 'execute',
+      id: 2,
+      moduleUrl: 'mod://c',
+      handlerName: 'h',
+      args: [2],
+    });
+    expect(cb1.mock.calls[0][0]).not.toBe(cb1.mock.calls[1][0]);
+
+    await Promise.all([
+      Promise.resolve().then(() => listener2({ data: msg1 })),
+      Promise.resolve().then(() => listener2({ data: msg2 })),
+    ]);
+
+    expect(cb2).toHaveBeenCalledTimes(2);
+    const receivedIds = cb2.mock.calls.map((call) => call[0]?.id).sort();
+    expect(receivedIds).toEqual([1, 2]);
   });
 });

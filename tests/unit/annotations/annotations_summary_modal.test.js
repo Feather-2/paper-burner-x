@@ -669,7 +669,7 @@ describe('populateAnnotationsSummaryTable', () => {
 
   it('persists highlight color edits via updateAnnotationInDB and refreshes the table', async () => {
     const mod = await loadModule();
-    const { tableBody } = setupDom();
+    const { modal, tableBody } = setupDom();
 
     const annotation = makeAnnotation({
       id: 1,
@@ -682,6 +682,8 @@ describe('populateAnnotationsSummaryTable', () => {
 
     globalThis.updateAnnotationInDB = vi.fn(async () => {});
 
+    // In real usage, the table lives inside a visible modal; polling runs only when visible.
+    modal.classList.add('visible');
     mod.populateAnnotationsSummaryTable();
 
     const itemRow = tableBody.querySelectorAll('tr')[1];
@@ -697,6 +699,11 @@ describe('populateAnnotationsSummaryTable', () => {
 
     expect(globalThis.updateAnnotationInDB).toHaveBeenCalledTimes(1);
     expect(window.data.annotations[0].highlightColor).toBe('pink');
+
+    // Changing to a previously unseen color can temporarily filter the row out; polling
+    // detects the new color and auto-selects it when the modal is visible.
+    vi.advanceTimersByTime(1000);
+    await flushPromises();
 
     const refreshedRow = tableBody.querySelectorAll('tr')[1];
     const refreshedSwatch = refreshedRow.cells[5].querySelector('span.color-swatch');
@@ -730,7 +737,10 @@ describe('populateAnnotationsSummaryTable', () => {
     const jumpButton = tableBody.querySelector('button.action-btn');
     expect(jumpButton).not.toBeNull();
 
-    await jumpButton.onclick();
+    const clickPromise = jumpButton.onclick();
+    await flushPromises(); // allow showTab() await to schedule the post-switch timeout
+    vi.advanceTimersByTime(250);
+    await clickPromise;
 
     expect(modal.classList.contains('visible')).toBe(false);
     expect(globalThis.showTab).toHaveBeenCalledWith('ocr');
@@ -819,4 +829,3 @@ describe('populateAnnotationsSummaryTable', () => {
     expect(pinkCheckbox.checked).toBe(true);
   });
 });
-

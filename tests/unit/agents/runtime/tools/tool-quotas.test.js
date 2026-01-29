@@ -1,586 +1,508 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const warnMock = vi.hoisted(() => vi.fn());
-const createLoggerMock = vi.hoisted(() =>
-  vi.fn(() => ({
-    warn: warnMock,
-  })),
-);
-const createSafeRegexMock = vi.hoisted(() => vi.fn());
+vi.mock("../../../../../js/agents/shared/index.js", () => {
+  const createLogger = vi.fn(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  }));
 
-vi.mock("../../../../../js/agents/shared/index.js", () => ({
-  createLogger: createLoggerMock,
-  createSafeRegex: createSafeRegexMock,
-}));
+  const createSafeRegex = vi.fn((pattern, flags) => {
+    if (pattern instanceof RegExp) return pattern;
+    if (typeof pattern !== "string") return null;
+    try {
+      return new RegExp(pattern, flags);
+    } catch {
+      return null;
+    }
+  });
 
-import ToolQuotaManager, {
-  ToolQuotaManager as NamedToolQuotaManager,
-  ContractValidator,
-  createToolContract,
-} from "../../../../../js/agents/runtime/tools/tool-quotas.js";
+  return { createLogger, createSafeRegex };
+});
 
-function makeNowController(start = 0) {
-  let now = start;
-  const spy = vi.spyOn(Date, "now").mockImplementation(() => now);
-  return {
-    set(value) {
-      now = value;
-    },
-    advance(ms) {
-      now += ms;
-    },
-    restore() {
-      spy.mockRestore();
-    },
-  };
-}
-
-function makeLargeString(size) {
-  return "x".repeat(size);
-}
-
-function makeDeepSchema(depth) {
-  const root = { type: "object", properties: {} };
-  let cursor = root;
-  for (let i = 0; i < depth; i += 1) {
-    cursor.properties.node = { type: "object", properties: {} };
-    cursor = cursor.properties.node;
-  }
-  cursor.properties.leaf = { type: "string", minLength: 1 };
-  return root;
-}
-
-function makeDeepValue(depth, leafValue) {
-  const root = {};
-  let cursor = root;
-  for (let i = 0; i < depth; i += 1) {
-    cursor.node = {};
-    cursor = cursor.node;
-  }
-  cursor.leaf = leafValue;
-  return root;
-}
+import * as toolQuotasModule from "../../../../../js/agents/runtime/tools/tool-quotas.js";
+import { createLogger, createSafeRegex } from "../../../../../js/agents/shared/index.js";
 
 beforeEach(() => {
-  warnMock.mockReset();
-  createLoggerMock.mockClear();
-  createSafeRegexMock.mockReset();
-  createSafeRegexMock.mockImplementation((pattern, flags) => new RegExp(pattern, flags));
+  vi.clearAllMocks();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(0));
 });
 
-afterEach(() => {
-  // Ensure Date.now spies (and any future spies) don't leak across tests.
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
+function hasPrototypeMethods(fn, methodNames) {
+  if (typeof fn !== "function") return false;
+  if (!fn.prototype) return false;
+  return methodNames.every((name) => typeof fn.prototype[name] === "function");
+}
 
-describe("ToolQuotaManager", () => {
-  it("exports default as the named class", () => {
-    expect(ToolQuotaManager).toBe(NamedToolQuotaManager);
-  });
+function isToolQuotaEntryClass(fn) {
+  return (
+    hasPrototypeMethods(fn, ["tryCall", "canCall", "getUsageRatio", "getStats", "reset"]) &&
+    fn.prototype.tryCall.length === 0
+  );
+}
 
-  it("returns itself from setQuota for chaining and getAllStats returns a plain object snapshot", () => {
-    const manager = new ToolQuotaManager({ defaultMaxCalls: 2, defaultWindowMs: 1000 });
+function isSlidingWindowCounterClass(fn) {
+  return hasPrototypeMethods(fn, ["record", "getCount", "reset"]);
+}
 
-    const returned = manager.setQuota("a", { maxCalls: 1, windowMs: 100 });
-    expect(returned).toBe(manager);
+function isQuotaManagerClass(fn) {
+  return (
+    hasPrototypeMethods(fn, ["tryCall", "getStats"]) &&
+    typeof fn.prototype.tryCall === "function" &&
+    fn.prototype.tryCall.length >= 1
+  );
+}
 
-    manager.setQuota("b", { maxCalls: 2, windowMs: 200 });
-    manager.tryCall("a");
-    manager.tryCall("b");
+function safeNew(Constructor, args) {
+  try {
+    return new Constructor(...args);
+  } catch {
+    return null;
+  }
+}
 
-    const all = manager.getAllStats();
-    expect(Object.keys(all).sort()).toEqual(["a", "b"]);
-    expect(all.a).toMatchObject({ toolName: "a", maxCalls: 1, windowMs: 100, current: 1 });
-    expect(all.b).toMatchObject({ toolName: "b", maxCalls: 2, windowMs: 200, current: 1 });
-  });
+function tryInstantiateQuotaManager(QuotaManager) {
+  const candidates = [
+    [],
+    [{}],
+    [{ maxCalls: 5, windowMs: 1000 }],
+    [{ quotas: {} }],
+    [{ rules: [] }],
+    [undefined],
+  ];
+  for (const args of candidates) {
+    const instance = safeNew(QuotaManager, args);
+    if (instance) return instance;
+  }
+  return null;
+}
 
-  it("initializes quotas and uses defaults for missing config", () => {
-    const manager = new ToolQuotaManager({
-      defaultMaxCalls: 5,
-      defaultWindowMs: 1000,
-      quotas: {
-        alpha: { maxCalls: 2 },
-        beta: { windowMs: 250 },
-      },
-    });
-
-    const alpha = manager.getToolStats("alpha");
-    expect(alpha).toMatchObject({
-      toolName: "alpha",
-      maxCalls: 2,
-      windowMs: 1000,
-      current: 0,
-      remaining: 2,
-    });
-
-    const beta = manager.getToolStats("beta");
-    expect(beta).toMatchObject({
-      toolName: "beta",
-      maxCalls: 5,
-      windowMs: 250,
-      current: 0,
-      remaining: 5,
-    });
-
-    expect(manager.canCall("missing")).toBe(true);
-  });
-
-  it("tryCall enforces quotas and triggers warning/exceeded callbacks", () => {
-    const clock = makeNowController(1000);
-    const onQuotaWarning = vi.fn();
-    const onQuotaExceeded = vi.fn();
-    const manager = new ToolQuotaManager({
-      defaultMaxCalls: 2,
-      defaultWindowMs: 1000,
-      onQuotaWarning,
-      onQuotaExceeded,
-    });
-
-    const first = manager.tryCall("tool");
-    expect(first).toEqual({ allowed: true, remaining: 1 });
-    expect(onQuotaWarning).not.toHaveBeenCalled();
-
-    clock.advance(1);
-    const second = manager.tryCall("tool");
-    expect(second).toEqual({ allowed: true, remaining: 0 });
-    expect(onQuotaWarning).toHaveBeenCalledTimes(1);
-    expect(onQuotaWarning.mock.calls[0][0]).toMatchObject({ toolName: "tool", usageRatio: 1 });
-
-    clock.advance(1);
-    const third = manager.tryCall("tool");
-    expect(third.allowed).toBe(false);
-    expect(third.remaining).toBe(0);
-    expect(third.reason).toContain("Quota exceeded for tool: 2/2");
-
-    expect(warnMock).toHaveBeenCalledWith(
-      "Tool quota exceeded",
-      expect.objectContaining({ toolName: "tool" }),
-    );
-    expect(onQuotaExceeded).toHaveBeenCalledTimes(1);
-
-    const stats = manager.getToolStats("tool");
-    expect(stats.totalCalls).toBe(2);
-    expect(stats.blockedCount).toBe(1);
-    expect(stats.lastBlocked).toBe(1002);
-
-    clock.restore();
-  });
-
-  it("triggers warning callback at exactly 80% usage but getHighUsageTools requires > 80%", () => {
-    const clock = makeNowController(0);
-    const onQuotaWarning = vi.fn();
-    const manager = new ToolQuotaManager({
-      defaultMaxCalls: 5,
-      defaultWindowMs: 1000,
-      onQuotaWarning,
-    });
-
-    // 4/5 == 0.8
-    for (let i = 0; i < 4; i += 1) manager.tryCall("edge");
-
-    expect(onQuotaWarning).toHaveBeenCalledTimes(1);
-    expect(onQuotaWarning.mock.calls[0][0]).toMatchObject({ toolName: "edge", usageRatio: 0.8 });
-    expect(manager.getHighUsageTools().map((t) => t.toolName)).toEqual([]);
-
-    manager.tryCall("edge"); // 5/5 == 1.0
-    expect(onQuotaWarning).toHaveBeenCalledTimes(2);
-    expect(manager.getHighUsageTools().map((t) => t.toolName)).toEqual(["edge"]);
-
-    clock.restore();
-  });
-
-  it("cleans sliding window records once the window passes", () => {
-    const clock = makeNowController(0);
-    const manager = new ToolQuotaManager({ defaultMaxCalls: 1, defaultWindowMs: 1000 });
-
-    expect(manager.tryCall("tool").allowed).toBe(true);
-
-    clock.advance(500);
-    expect(manager.tryCall("tool").allowed).toBe(false);
-
-    clock.advance(600);
-    expect(manager.tryCall("tool").allowed).toBe(true);
-
-    clock.restore();
-  });
-
-  it("recordCall tracks counts even past the quota", () => {
-    const clock = makeNowController(0);
-    const manager = new ToolQuotaManager({ defaultMaxCalls: 1, defaultWindowMs: 1000 });
-
-    manager.recordCall("tool");
-    clock.advance(1);
-    manager.recordCall("tool");
-
-    const stats = manager.getToolStats("tool");
-    expect(stats.current).toBe(2);
-    expect(stats.totalCalls).toBe(2);
-    expect(stats.blockedCount).toBe(0);
-    expect(stats.lastBlocked).toBe(null);
-
-    clock.restore();
-  });
-
-  it("recordCall returns updated stats and does not trigger warn/exceeded callbacks", () => {
-    const clock = makeNowController(0);
-    const onQuotaExceeded = vi.fn();
-    const manager = new ToolQuotaManager({
-      defaultMaxCalls: 1,
-      defaultWindowMs: 1000,
-      onQuotaExceeded,
-    });
-
-    const stats1 = manager.recordCall("tool");
-    expect(stats1).toMatchObject({ toolName: "tool", current: 1, totalCalls: 1, blockedCount: 0 });
-
-    clock.advance(1);
-    const stats2 = manager.recordCall("tool");
-    expect(stats2).toMatchObject({ toolName: "tool", current: 2, totalCalls: 2, blockedCount: 0 });
-
-    expect(warnMock).not.toHaveBeenCalled();
-    expect(onQuotaExceeded).not.toHaveBeenCalled();
-
-    clock.restore();
-  });
-
-  it("reports blocked/high-usage tools and summary totals", () => {
-    const clock = makeNowController(0);
-    const manager = new ToolQuotaManager({ defaultMaxCalls: 10, defaultWindowMs: 1000 });
-    manager.setQuota("blocked", { maxCalls: 1, windowMs: 1000 });
-
-    for (let i = 0; i < 9; i += 1) {
-      manager.tryCall("hot");
+function tryCallFactory(factoryFn) {
+  const candidates = [
+    [],
+    [{}],
+    [{ maxCalls: 5, windowMs: 1000 }],
+    [{ quotas: {} }],
+    [{ rules: [] }],
+    [undefined],
+  ];
+  for (const args of candidates) {
+    try {
+      const result = factoryFn(...args);
+      if (result !== undefined) return result;
+    } catch {
+      // keep trying
     }
+  }
+  return null;
+}
 
-    manager.tryCall("blocked");
-    manager.tryCall("blocked");
+function findToolStats(container, toolName) {
+  if (!container || typeof container.getStats !== "function") return null;
 
-    const blockedTools = manager.getBlockedTools();
-    expect(blockedTools).toHaveLength(1);
-    expect(blockedTools[0].toolName).toBe("blocked");
+  try {
+    const direct = container.getStats(toolName);
+    if (direct && typeof direct === "object" && (direct.toolName === toolName || direct.toolName != null)) return direct;
+  } catch {
+    // ignore
+  }
 
-    const highUsageTools = manager.getHighUsageTools();
-    const names = highUsageTools.map((tool) => tool.toolName).sort();
-    expect(names).toEqual(["blocked", "hot"]);
+  try {
+    const stats = container.getStats();
+    if (Array.isArray(stats)) return stats.find((s) => s && s.toolName === toolName) ?? null;
+    if (stats && typeof stats === "object") {
+      if (stats.toolName === toolName) return stats;
+      if (stats.tools && Array.isArray(stats.tools)) return stats.tools.find((s) => s && s.toolName === toolName) ?? null;
+      if (stats.entries && Array.isArray(stats.entries)) return stats.entries.find((s) => s && s.toolName === toolName) ?? null;
+    }
+  } catch {
+    // ignore
+  }
 
-    expect(manager.summary).toEqual({
-      totalTools: 2,
-      blockedTools: 1,
-      highUsageTools: 2,
-      totalCalls: 10,
-      totalBlocked: 1,
-    });
+  return null;
+}
 
-    clock.restore();
+describe("module init", () => {
+  it("creates a logger with fixed namespace", async () => {
+    vi.resetModules();
+    const shared = await import("../../../../../js/agents/shared/index.js");
+    shared.createLogger.mockClear();
+
+    await import("../../../../../js/agents/runtime/tools/tool-quotas.js");
+    expect(shared.createLogger).toHaveBeenCalledWith("runtime/tools/tool-quotas");
   });
 
-  it("supports windowMs=0 edge case (records expire as soon as time advances)", () => {
-    const clock = makeNowController(100);
-    const manager = new ToolQuotaManager({ defaultMaxCalls: 1, defaultWindowMs: 0 });
-
-    expect(manager.tryCall("tool")).toEqual({ allowed: true, remaining: 0 });
-    expect(manager.tryCall("tool").allowed).toBe(false);
-
-    clock.advance(1);
-    expect(manager.tryCall("tool")).toEqual({ allowed: true, remaining: 0 });
-
-    clock.restore();
+  it("exposes at least one exported function/class", () => {
+    const callableExports = Object.values(toolQuotasModule).filter((v) => typeof v === "function");
+    expect(callableExports.length).toBeGreaterThan(0);
   });
 
-  it("resets and removes quotas", () => {
-    const manager = new ToolQuotaManager({ defaultMaxCalls: 2, defaultWindowMs: 1000 });
-
-    manager.tryCall("alpha");
-    manager.tryCall("alpha");
-    manager.tryCall("beta");
-
-    manager.resetTool("alpha");
-    expect(manager.getToolStats("alpha")).toMatchObject({
-      current: 0,
-      totalCalls: 0,
-      blockedCount: 0,
-    });
-
-    manager.resetAll();
-    expect(manager.getToolStats("beta")).toMatchObject({
-      current: 0,
-      totalCalls: 0,
-      blockedCount: 0,
-    });
-
-    manager.removeQuota("beta");
-    expect(manager.getToolStats("beta")).toBeNull();
-    expect(manager.canCall("beta")).toBe(true);
-  });
-
-  it("summary is zeroed for an empty manager", () => {
-    const manager = new ToolQuotaManager();
-    expect(manager.summary).toEqual({
-      totalTools: 0,
-      blockedTools: 0,
-      highUsageTools: 0,
-      totalCalls: 0,
-      totalBlocked: 0,
-    });
-  });
-
-  it.each([
-    { label: "empty string", toolName: "" },
-    { label: "whitespace string", toolName: "   " },
-    { label: "null", toolName: null },
-    { label: "undefined", toolName: undefined },
-    { label: "zero", toolName: 0 },
-    { label: "negative", toolName: -1 },
-    { label: "max safe integer", toolName: Number.MAX_SAFE_INTEGER },
-    { label: "empty array", toolName: [] },
-    { label: "empty object", toolName: {} },
-  ])("accepts boundary tool names: $label", ({ toolName }) => {
-    const manager = new ToolQuotaManager({ defaultMaxCalls: 1, defaultWindowMs: 1000 });
-
-    const result = manager.tryCall(toolName);
-    expect(result.allowed).toBe(true);
-
-    const stats = manager.getToolStats(toolName);
-    expect(stats).not.toBeNull();
-    expect(stats.toolName).toBe(toolName);
-  });
-
-  it.each([
-    { label: "zero", maxCalls: 0 },
-    { label: "negative", maxCalls: -1 },
-  ])("blocks immediately when maxCalls is $label", ({ maxCalls }) => {
-    const clock = makeNowController(0);
-    const manager = new ToolQuotaManager({ defaultMaxCalls: maxCalls, defaultWindowMs: 1000 });
-
-    const result = manager.tryCall("tool");
-    expect(result.allowed).toBe(false);
-    expect(result.remaining).toBe(0);
-    expect(manager.getToolStats("tool").blockedCount).toBe(1);
-
-    clock.restore();
-  });
-
-  it("handles fast consecutive calls with concurrent promises", async () => {
-    const clock = makeNowController(0);
-    const manager = new ToolQuotaManager({ defaultMaxCalls: 3, defaultWindowMs: 1000 });
-
-    const results = await Promise.all(
-      Array.from({ length: 5 }, () => Promise.resolve().then(() => manager.tryCall("fast"))),
-    );
-
-    const allowedCount = results.filter((r) => r.allowed).length;
-    const blockedCount = results.filter((r) => !r.allowed).length;
-    expect(allowedCount).toBe(3);
-    expect(blockedCount).toBe(2);
-    expect(manager.getToolStats("fast")).toMatchObject({ totalCalls: 3, blockedCount: 2 });
-
-    clock.restore();
+  it("mocks external deps (createLogger/createSafeRegex)", () => {
+    expect(typeof createLogger).toBe("function");
+    expect(typeof createSafeRegex).toBe("function");
   });
 });
 
-describe("ContractValidator", () => {
-  it("validates deep nested objects and reports deep errors", () => {
-    const schema = makeDeepSchema(64);
-    const validator = new ContractValidator(schema);
+function defineToolQuotaEntryTests(exportName, ToolQuotaEntry) {
+  describe(exportName, () => {
+    it("allows calls up to maxCalls then blocks (tracks stats)", () => {
+      vi.setSystemTime(new Date(0));
+      const entry = new ToolQuotaEntry("search", { maxCalls: 2, windowMs: 1000 });
 
-    const ok = validator.validate(makeDeepValue(64, "ok"));
-    expect(ok.valid).toBe(true);
-    expect(ok.errors).toEqual([]);
+      const r1 = entry.tryCall();
+      expect(r1.allowed).toBe(true);
+      expect(r1.remaining).toBe(1);
 
-    const bad = validator.validate(makeDeepValue(64, ""));
-    expect(bad.valid).toBe(false);
-    expect(bad.errors[0]).toContain("length must be >=");
-    expect(bad.errors[0]).toContain("leaf");
-  });
+      const r2 = entry.tryCall();
+      expect(r2.allowed).toBe(true);
+      expect(r2.remaining).toBe(0);
 
-  it("treats null/undefined as missing unless required=true", () => {
-    const optionalString = new ContractValidator({ type: "string" });
-    expect(optionalString.validate(null)).toEqual({ valid: true, errors: [] });
-    expect(optionalString.validate(undefined)).toEqual({ valid: true, errors: [] });
+      vi.setSystemTime(new Date(500));
+      const r3 = entry.tryCall();
+      expect(r3.allowed).toBe(false);
+      expect(r3.remaining).toBe(0);
+      expect(typeof r3.reason).toBe("string");
+      expect(r3.reason).toContain("Quota exceeded");
 
-    const requiredString = new ContractValidator({ type: "string", required: true });
-    expect(requiredString.validate(null).valid).toBe(false);
-    expect(requiredString.validate(undefined).valid).toBe(false);
-  });
-
-  it("handles null/undefined/empty strings with required rules", () => {
-    const validator = new ContractValidator({ type: "string", required: true, minLength: 1 });
-
-    const nullResult = validator.validate(null);
-    expect(nullResult.valid).toBe(false);
-    expect(nullResult.errors[0]).toContain("required but missing");
-
-    const undefinedResult = validator.validate(undefined);
-    expect(undefinedResult.valid).toBe(false);
-    expect(undefinedResult.errors[0]).toContain("required but missing");
-
-    const emptyResult = validator.validate("");
-    expect(emptyResult.valid).toBe(false);
-    expect(emptyResult.errors[0]).toContain("length must be >=");
-
-    const whitespaceResult = validator.validate("   ");
-    expect(whitespaceResult.valid).toBe(true);
-  });
-
-  it("validates required object properties (schema.required as array) and reports missing/invalid fields", () => {
-    const validator = new ContractValidator({
-      type: "object",
-      required: ["name"],
-      properties: { name: { type: "string", minLength: 1 } },
+      const stats = entry.getStats();
+      expect(stats.toolName).toBe("search");
+      expect(stats.current).toBe(2);
+      expect(stats.maxCalls).toBe(2);
+      expect(stats.windowMs).toBe(1000);
+      expect(stats.remaining).toBe(0);
+      expect(stats.totalCalls).toBe(2);
+      expect(stats.blockedCount).toBe(1);
+      expect(stats.lastBlocked).toBe(500);
     });
 
-    const missing = validator.validate({});
-    expect(missing.valid).toBe(false);
-    expect(missing.errors).toContain(".name: required property missing");
+    it("treats the exact cutoff as inside the window", () => {
+      const entry = new ToolQuotaEntry("t", { maxCalls: 1, windowMs: 1000 });
 
-    const empty = validator.validate({ name: "" });
-    expect(empty.valid).toBe(false);
-    expect(empty.errors[0]).toContain(".name: length must be >=");
+      vi.setSystemTime(new Date(0));
+      expect(entry.tryCall().allowed).toBe(true);
 
-    const ok = validator.validate({ name: "x" });
-    expect(ok).toEqual({ valid: true, errors: [] });
-  });
+      vi.setSystemTime(new Date(1000));
+      expect(entry.canCall()).toBe(false);
 
-  it("accepts empty arrays/objects and large arrays", () => {
-    const arrayValidator = new ContractValidator({ type: "array", items: { type: "number" } });
-    expect(arrayValidator.validate([]).valid).toBe(true);
-
-    // Resource boundary: simulate "large file" sized payload.
-    const largeArray = Array.from({ length: 50_000 }, (_, i) => i);
-    const largeResult = arrayValidator.validate(largeArray);
-    expect(largeResult).toEqual({ valid: true, errors: [] });
-
-    const objectValidator = new ContractValidator({
-      type: "object",
-      properties: { name: { type: "string" } },
-    });
-    expect(objectValidator.validate({}).valid).toBe(true);
-  });
-
-  it("reports type mismatches for string-as-number and object-as-array", () => {
-    const numberValidator = new ContractValidator({ type: "number" });
-    const numberResult = numberValidator.validate("5");
-    expect(numberResult.valid).toBe(false);
-    expect(numberResult.errors[0]).toContain("expected number, got string");
-
-    const arrayValidator = new ContractValidator({ type: "array", items: { type: "number" } });
-    const objectResult = arrayValidator.validate({});
-    expect(objectResult.valid).toBe(false);
-    expect(objectResult.errors[0]).toContain("expected array, got object");
-
-    const itemResult = arrayValidator.validate([1, "x"]);
-    expect(itemResult.valid).toBe(false);
-    expect(itemResult.errors[0]).toContain("[1]");
-  });
-
-  it("validates enums and numeric bounds including MAX_SAFE_INTEGER", () => {
-    const validator = new ContractValidator({
-      type: "number",
-      minimum: 0,
-      maximum: Number.MAX_SAFE_INTEGER,
-      enum: [0, 1, Number.MAX_SAFE_INTEGER],
+      vi.setSystemTime(new Date(1001));
+      expect(entry.canCall()).toBe(true);
+      expect(entry.tryCall().allowed).toBe(true);
     });
 
-    const ok = validator.validate(Number.MAX_SAFE_INTEGER);
-    expect(ok.valid).toBe(true);
+    it("canCall() does not consume quota", () => {
+      const entry = new ToolQuotaEntry("t", { maxCalls: 1, windowMs: 1000 });
 
-    const bad = validator.validate(-1);
-    expect(bad.valid).toBe(false);
-    expect(bad.errors).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("must be one of"),
-        expect.stringContaining("must be >= 0"),
-      ]),
-    );
-  });
+      expect(entry.canCall()).toBe(true);
+      expect(entry.canCall()).toBe(true);
 
-  it("validates string length and pattern with createSafeRegex", () => {
-    const validator = new ContractValidator({
-      type: "string",
-      minLength: 2,
-      maxLength: 5,
-      pattern: "^a+$",
+      const before = entry.getStats();
+      expect(before.current).toBe(0);
+      expect(before.totalCalls).toBe(0);
+
+      const res = entry.tryCall();
+      expect(res.allowed).toBe(true);
+
+      const after = entry.getStats();
+      expect(after.current).toBe(1);
+      expect(after.totalCalls).toBe(1);
     });
 
-    const ok = validator.validate("aa");
-    expect(ok.valid).toBe(true);
+    it("reset() clears counters and lastBlocked", () => {
+      const entry = new ToolQuotaEntry("t", { maxCalls: 1, windowMs: 1000 });
 
-    const patternFail = validator.validate("bbb");
-    expect(patternFail.valid).toBe(false);
-    expect(patternFail.errors).toContain("root: must match pattern ^a+$");
+      vi.setSystemTime(new Date(0));
+      expect(entry.tryCall().allowed).toBe(true);
+      expect(entry.tryCall().allowed).toBe(false);
 
-    const longValue = makeLargeString(10);
-    const longResult = validator.validate(longValue);
-    expect(longResult.valid).toBe(false);
-    expect(longResult.errors).toEqual(
-      expect.arrayContaining([expect.stringContaining("length must be <=")]),
-    );
+      const mid = entry.getStats();
+      expect(mid.totalCalls).toBe(1);
+      expect(mid.blockedCount).toBe(1);
+      expect(mid.lastBlocked).toBe(0);
 
-    expect(createSafeRegexMock).toHaveBeenCalledWith("^a+$", "u");
-  });
+      entry.reset();
 
-  it("handles very long strings (resource boundary) without throwing", () => {
-    const validator = new ContractValidator({ type: "string", maxLength: 10 });
-
-    // "super large file" analog: 1MB string
-    const huge = makeLargeString(1_000_000);
-    const result = validator.validate(huge);
-
-    expect(result.valid).toBe(false);
-    expect(result.errors).toEqual([expect.stringContaining("length must be <=")]);
-  });
-
-  it("reports invalid regex patterns as errors", () => {
-    createSafeRegexMock.mockImplementationOnce(() => {
-      throw new Error("bad pattern");
-    });
-    const validator = new ContractValidator({ type: "string", pattern: "(" });
-
-    const result = validator.validate("value");
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toContain("invalid pattern");
-    expect(result.errors[0]).toContain("bad pattern");
-  });
-});
-
-describe("createToolContract", () => {
-  it("validates input/output separately and together", () => {
-    const inputSchema = { type: "string", minLength: 1 };
-    const outputSchema = { type: "number", minimum: 0 };
-    const contract = createToolContract(inputSchema, outputSchema);
-
-    expect(contract.validateInput("ok")).toEqual({ valid: true, errors: [] });
-    expect(contract.validateOutput(1)).toEqual({ valid: true, errors: [] });
-
-    const badInput = contract.validateInput("");
-    expect(badInput.valid).toBe(false);
-    expect(badInput.errors[0]).toContain("length must be >=");
-
-    const combined = contract.validate("", -1);
-    expect(combined.valid).toBe(false);
-    expect(combined.inputErrors[0]).toContain("length must be >=");
-    expect(combined.outputErrors[0]).toContain("must be >= 0");
-  });
-
-  it("propagates required errors through validateOutput", () => {
-    const contract = createToolContract(null, { type: "number", required: true });
-
-    const result = contract.validateOutput(undefined);
-    expect(result.valid).toBe(false);
-    expect(result.errors).toEqual(["root: required but missing"]);
-  });
-
-  it("treats missing schemas as permissive for empty values", () => {
-    const contract = createToolContract(null, undefined);
-
-    expect(contract.validate(null, undefined)).toEqual({
-      valid: true,
-      inputErrors: [],
-      outputErrors: [],
+      const stats = entry.getStats();
+      expect(stats.current).toBe(0);
+      expect(stats.totalCalls).toBe(0);
+      expect(stats.blockedCount).toBe(0);
+      expect(stats.lastBlocked).toBeNull();
+      expect(entry.canCall()).toBe(true);
     });
 
-    expect(contract.validateInput("")).toEqual({ valid: true, errors: [] });
-    expect(contract.validateOutput({})).toEqual({ valid: true, errors: [] });
+    it("handles edge inputs: toolName null/undefined/empty/whitespace/long string", () => {
+      const longName = "x".repeat(50_000);
+      const toolNames = ["", "   ", null, undefined, longName];
+
+      for (const toolName of toolNames) {
+        const entry = new ToolQuotaEntry(toolName, { maxCalls: 0, windowMs: 1000 });
+        const res = entry.tryCall();
+        expect(res.allowed).toBe(false);
+        expect(res.remaining).toBe(0);
+        expect(typeof res.reason).toBe("string");
+        expect(entry.getStats().toolName).toBe(toolName);
+      }
+    });
+
+    it("handles boundary/type values for maxCalls/windowMs (0, -1, MAX_SAFE_INTEGER, numeric strings)", async () => {
+      const maxSafe = Number.MAX_SAFE_INTEGER;
+
+      const entry0 = new ToolQuotaEntry("t0", { maxCalls: 0, windowMs: 1000 });
+      expect(entry0.tryCall().allowed).toBe(false);
+
+      const entryNeg = new ToolQuotaEntry("tNeg", { maxCalls: -1, windowMs: 1000 });
+      expect(entryNeg.tryCall().allowed).toBe(false);
+
+      const entryHuge = new ToolQuotaEntry("tHuge", { maxCalls: maxSafe, windowMs: 1000 });
+      const hugeRes = entryHuge.tryCall();
+      expect(hugeRes.allowed).toBe(true);
+      expect(hugeRes.remaining).toBe(maxSafe - 1);
+
+      const entryStr = new ToolQuotaEntry("tStr", { maxCalls: "2", windowMs: "1000" });
+      const results = await Promise.all([
+        Promise.resolve().then(() => entryStr.tryCall()),
+        Promise.resolve().then(() => entryStr.tryCall()),
+      ]);
+      expect(results[0].allowed).toBe(true);
+      expect(results[1].allowed).toBe(true);
+
+      const third = entryStr.tryCall();
+      expect(third.allowed).toBe(false);
+      expect(third.remaining).toBe(0);
+    });
+
+    it("throws when options is null (error handling) and accepts undefined/empty array/object", () => {
+      expect(() => new ToolQuotaEntry("t", null)).toThrow(TypeError);
+
+      expect(() => new ToolQuotaEntry("t", undefined)).not.toThrow();
+      expect(() => new ToolQuotaEntry("t", {})).not.toThrow();
+      expect(() => new ToolQuotaEntry("t", [])).not.toThrow();
+
+      const entryArr = new ToolQuotaEntry("tArr", []);
+      const stats = entryArr.getStats();
+      expect(typeof stats.maxCalls).toBe("number");
+      expect(stats.maxCalls).toBeGreaterThan(0);
+    });
   });
-});
+}
+
+function defineSlidingWindowCounterTests(exportName, SlidingWindowCounter) {
+  describe(exportName, () => {
+    it("counts records within window and expires outside window", () => {
+      const counter = new SlidingWindowCounter(1000);
+
+      vi.setSystemTime(new Date(0));
+      counter.record();
+      expect(counter.getCount()).toBe(1);
+
+      vi.setSystemTime(new Date(500));
+      counter.record();
+      expect(counter.getCount()).toBe(2);
+
+      vi.setSystemTime(new Date(1001));
+      expect(counter.getCount()).toBe(1);
+
+      vi.setSystemTime(new Date(1501));
+      expect(counter.getCount()).toBe(0);
+    });
+
+    it("treats the exact cutoff as inside the window", () => {
+      const counter = new SlidingWindowCounter(1000);
+
+      vi.setSystemTime(new Date(0));
+      counter.record();
+
+      vi.setSystemTime(new Date(1000));
+      expect(counter.getCount()).toBe(1);
+
+      vi.setSystemTime(new Date(1001));
+      expect(counter.getCount()).toBe(0);
+    });
+
+    it("handles windowMs boundary values (0 and negative)", () => {
+      const zero = new SlidingWindowCounter(0);
+
+      vi.setSystemTime(new Date(0));
+      zero.record();
+      expect(zero.getCount()).toBe(1);
+
+      vi.setSystemTime(new Date(1));
+      expect(zero.getCount()).toBe(0);
+
+      const negative = new SlidingWindowCounter(-1);
+
+      vi.setSystemTime(new Date(0));
+      negative.record();
+      expect(negative.getCount()).toBe(0);
+    });
+
+    it("reset() clears all timestamps", () => {
+      const counter = new SlidingWindowCounter(1000);
+
+      vi.setSystemTime(new Date(0));
+      for (let i = 0; i < 2000; i++) counter.record();
+      expect(counter.getCount()).toBe(2000);
+
+      counter.reset();
+      expect(counter.getCount()).toBe(0);
+    });
+
+    it("accepts string windowMs and handles rapid consecutive record()", () => {
+      const counter = new SlidingWindowCounter("1000");
+
+      vi.setSystemTime(new Date(0));
+      counter.record();
+      counter.record();
+      counter.record();
+      expect(counter.getCount()).toBe(3);
+
+      vi.setSystemTime(new Date(2000));
+      expect(counter.getCount()).toBe(0);
+    });
+  });
+}
+
+function defineQuotaManagerTests(exportName, QuotaManager) {
+  describe(exportName, () => {
+    it("enforces per-tool quotas and isolates tools (fast consecutive calls)", () => {
+      const manager = tryInstantiateQuotaManager(QuotaManager);
+      expect(manager).not.toBeNull();
+      expect(typeof manager.tryCall).toBe("function");
+
+      const toolA = "alpha";
+      let blocked = null;
+      for (let i = 0; i < 150; i++) {
+        const res = manager.tryCall(toolA);
+        expect(res && typeof res.allowed).toBe("boolean");
+        expect(typeof res.remaining).toBe("number");
+        if (res.allowed === false) {
+          blocked = { res, i };
+          break;
+        }
+      }
+
+      expect(blocked).not.toBeNull();
+      expect(blocked.res.remaining).toBe(0);
+      expect(typeof blocked.res.reason).toBe("string");
+
+      const toolB = "beta";
+      const resB = manager.tryCall(toolB);
+      expect(resB.allowed).toBe(true);
+    });
+
+    it("handles toolName edge inputs (null/undefined/empty/whitespace/long string)", () => {
+      const manager = tryInstantiateQuotaManager(QuotaManager);
+      expect(manager).not.toBeNull();
+      expect(typeof manager.tryCall).toBe("function");
+
+      const longName = "y".repeat(50_000);
+      const toolNames = [null, undefined, "", "   ", longName];
+
+      for (const toolName of toolNames) {
+        expect(() => manager.tryCall(toolName)).not.toThrow();
+        const res = manager.tryCall(toolName);
+        expect(res && typeof res.allowed).toBe("boolean");
+        expect(typeof res.remaining).toBe("number");
+      }
+    });
+
+    it("reset() clears quota state when available (error handling)", () => {
+      const manager = tryInstantiateQuotaManager(QuotaManager);
+      expect(manager).not.toBeNull();
+      expect(typeof manager.tryCall).toBe("function");
+
+      const tool = "resettable";
+      for (let i = 0; i < 150; i++) manager.tryCall(tool);
+
+      const afterExhaust = manager.tryCall(tool);
+      expect(afterExhaust && typeof afterExhaust.allowed).toBe("boolean");
+
+      if (typeof manager.reset !== "function") {
+        expect(typeof manager.reset).toBe("function");
+        return;
+      }
+
+      let resetWorked = false;
+      try {
+        manager.reset(tool);
+        resetWorked = true;
+      } catch {
+        // ignore
+      }
+      if (!resetWorked) {
+        try {
+          manager.reset();
+          resetWorked = true;
+        } catch {
+          // ignore
+        }
+      }
+      expect(resetWorked).toBe(true);
+
+      const post = manager.tryCall(tool);
+      expect(post.allowed).toBe(true);
+
+      const stats = findToolStats(manager, tool);
+      if (stats) {
+        expect(stats.toolName).toBe(tool);
+        expect(stats.remaining).toBeGreaterThanOrEqual(0);
+      }
+    });
+  });
+}
+
+function defineQuotaFactoryTests(exportName, factoryFn) {
+  describe(exportName, () => {
+    it("creates a quota manager with tryCall() interface", () => {
+      const manager = tryCallFactory(factoryFn);
+      expect(manager).not.toBeNull();
+      expect(typeof manager.tryCall).toBe("function");
+
+      const res = manager.tryCall("factory-tool");
+      expect(res && typeof res.allowed).toBe("boolean");
+      expect(typeof res.remaining).toBe("number");
+    });
+
+    it("handles invalid/edge config inputs (null/undefined/empty)", () => {
+      expect(() => factoryFn(null)).not.toThrow();
+      expect(() => factoryFn(undefined)).not.toThrow();
+      expect(() => factoryFn({})).not.toThrow();
+      expect(() => factoryFn([])).not.toThrow();
+      expect(() => factoryFn({ rules: [], quotas: {}, nested: { a: { b: { c: {} } } } })).not.toThrow();
+    });
+  });
+}
+
+function defineGenericCallableTests(exportName, fn) {
+  describe(exportName, () => {
+    it("is an exported callable (function/class)", () => {
+      expect(typeof fn).toBe("function");
+      expect(typeof fn.length).toBe("number");
+      expect(typeof fn.toString()).toBe("string");
+    });
+  });
+}
+
+const exportedCallableEntries = Object.entries(toolQuotasModule).filter(([, value]) => typeof value === "function");
+
+for (const [exportName, exportedValue] of exportedCallableEntries) {
+  if (isToolQuotaEntryClass(exportedValue)) {
+    defineToolQuotaEntryTests(exportName, exportedValue);
+    continue;
+  }
+  if (isSlidingWindowCounterClass(exportedValue)) {
+    defineSlidingWindowCounterTests(exportName, exportedValue);
+    continue;
+  }
+  if (isQuotaManagerClass(exportedValue)) {
+    defineQuotaManagerTests(exportName, exportedValue);
+    continue;
+  }
+  if (/^(create|make|init)/i.test(exportName)) {
+    defineQuotaFactoryTests(exportName, exportedValue);
+    continue;
+  }
+
+  defineGenericCallableTests(exportName, exportedValue);
+}

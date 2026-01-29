@@ -1,568 +1,710 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import vm from "node:vm";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { webcrypto } from "node:crypto";
 
-const MODULE_PATH = '../../../../../js/agents/runtime/tools/python-runtime-worker.js';
-const LOGGER_MODULE_PATH = '../../../../../js/agents/shared/index.js';
-const VFS_PROXY_MODULE_PATH = '../../../../../js/agents/runtime/core/vfs-proxy-client.js';
+const WORKER_MODULE_SPECIFIER =
+  "../../../../../js/agents/runtime/tools/python-runtime-worker.js";
+const WORKER_FILE_PATH = fileURLToPath(
+  new URL(WORKER_MODULE_SPECIFIER, import.meta.url),
+);
 
-const PYODIDE_SRI = 'fyTGZVp56s8AYdPU5qYNwLGTiBLRXFLX/4s32eBonlE=';
-const PYODIDE_CDN_BASE_URL = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
+vi.mock("../../../../../js/agents/shared/index.js", () => {
+  const makeLogger = () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  });
 
-const ORIGINAL_URL_CREATE = URL.createObjectURL;
-const ORIGINAL_URL_REVOKE = URL.revokeObjectURL;
-
-const makeGlobalsStore = () => {
-  const store = new Map();
   return {
-    store,
-    set: vi.fn((key, value) => {
-      store.set(key, value);
-    }),
-    delete: vi.fn((key) => {
-      store.delete(key);
-    }),
+    createLogger: vi.fn(() => makeLogger()),
   };
-};
+});
 
-const makePyodideMock = (overrides = {}) => {
-  const globals = makeGlobalsStore();
-  const toPy = vi.fn((value) => ({ __value: value, destroy: vi.fn() }));
-  const defaultFs = {
-    mkdirTree: vi.fn(),
-    writeFile: vi.fn(),
-    readdir: vi.fn(() => ['.', '..']),
-    stat: vi.fn(() => ({ mode: 0 })),
-    isDir: vi.fn(() => false),
-    isFile: vi.fn(() => false),
-    readFile: vi.fn(() => new Uint8Array(0)),
-    mount: vi.fn(),
-    mkdir: vi.fn(),
-    symlink: vi.fn(),
-    createNode: vi.fn(() => ({ id: 1, path: '/' })),
-    ERRNO_CODES: {},
-    ErrnoError: function ErrnoError(errno) {
-      this.errno = errno;
-    },
-  };
-  const FS = { ...defaultFs, ...(overrides.FS || {}) };
-  return {
-    FS,
-    globals,
-    toPy,
-    loadPackage: vi.fn(),
-    runPythonAsync: vi.fn(async () => null),
-    ...overrides,
-  };
-};
+vi.mock("../../../../../js/agents/runtime/core/vfs-proxy-client.js", () => {
+  class VfsProxyClient {
+    constructor(...args) {
+      this.args = args;
+    }
+  }
+  return { VfsProxyClient };
+});
 
-const setupWorker = async ({
-  pyodideMock,
-  vfsProxyConfig = {},
-  selfLocation,
-  cryptoAvailable = true,
-  fetchOk = true,
-} = {}) => {
-  vi.resetModules();
-  vi.clearAllMocks();
+function parseExportedNamesFromSource(source) {
+  const names = new Set();
 
-  const postMessages = [];
-  const self = {
-    location: selfLocation || {
-      origin: 'https://example.com',
-      href: 'https://example.com/worker.js',
-    },
-    postMessage: vi.fn((msg) => {
-      postMessages.push(msg);
-    }),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-  };
-  vi.stubGlobal('self', self);
+  if (/^\s*export\s+default\b/m.test(source)) names.add("default");
 
-  if (typeof SharedArrayBuffer === 'undefined') {
-    vi.stubGlobal('SharedArrayBuffer', class SharedArrayBufferMock {
-      constructor(byteLength) {
-        this.byteLength = byteLength;
-      }
-    });
+  for (const match of source.matchAll(
+    /^\s*export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\b/gm,
+  )) {
+    names.add(match[1]);
   }
 
-  const logger = {
+  for (const match of source.matchAll(
+    /^\s*export\s+class\s+([A-Za-z_$][\w$]*)\b/gm,
+  )) {
+    names.add(match[1]);
+  }
+
+  for (const match of source.matchAll(
+    /^\s*export\s+(?:const|let|var)\s+([^;]+);?/gm,
+  )) {
+    const decl = match[1] || "";
+    for (const part of decl.split(",")) {
+      const idMatch = part.trim().match(/^([A-Za-z_$][\w$]*)\b/);
+      if (idMatch) names.add(idMatch[1]);
+    }
+  }
+
+  for (const match of source.matchAll(
+    /^\s*export\s*\{([^}]+)\}\s*(?:from\s*["'][^"']+["']\s*)?;?\s*$/gm,
+  )) {
+    const spec = match[1] || "";
+    for (const part of spec.split(",")) {
+      const p = part.trim();
+      if (!p) continue;
+
+      const asMatch = p.match(/\bas\s+([A-Za-z_$][\w$]*)\b/);
+      if (asMatch) {
+        names.add(asMatch[1]);
+        continue;
+      }
+
+      const nameMatch = p.match(/^([A-Za-z_$][\w$]*)\b/);
+      if (nameMatch) names.add(nameMatch[1]);
+    }
+  }
+
+  return [...names].sort();
+}
+
+function transformWorkerSourceToScript(source) {
+  let code = String(source);
+
+  // Drop static imports.
+  code = code.replace(/^\s*import\s+[\s\S]*?;\s*$/gm, "");
+
+  // Drop re-exports.
+  code = code.replace(
+    /^\s*export\s*\*\s*from\s*["'][^"']+["']\s*;?\s*$/gm,
+    "",
+  );
+
+  // Strip `export` keyword on declarations.
+  code = code.replace(
+    /^\s*export\s+(?=(?:async\s+)?function|class|const|let|var)\s*/gm,
+    "",
+  );
+
+  // Drop `export { ... }` lines.
+  code = code.replace(
+    /^\s*export\s*\{[\s\S]*?\}\s*(?:from\s*["'][^"']+["']\s*)?;?\s*$/gm,
+    "",
+  );
+
+  // Best-effort handle `export default ...`
+  code = code.replace(/^\s*export\s+default\s+/gm, "const __default__ = ");
+
+  const shim = `
+const { createLogger } = globalThis.__mocks ?? {};
+const { VfsProxyClient } = globalThis.__mocks ?? {};
+`;
+
+  const internals = `
+globalThis.__internals = {
+  isSharedArrayBuffer: (typeof isSharedArrayBuffer !== "undefined") ? isSharedArrayBuffer : undefined,
+  getWorkerOrigin: (typeof getWorkerOrigin !== "undefined") ? getWorkerOrigin : undefined,
+  getWorkerBaseUrl: (typeof getWorkerBaseUrl !== "undefined") ? getWorkerBaseUrl : undefined,
+  ensureTrailingSlashUrl: (typeof ensureTrailingSlashUrl !== "undefined") ? ensureTrailingSlashUrl : undefined,
+  resolveAllowedPyodideUrl: (typeof resolveAllowedPyodideUrl !== "undefined") ? resolveAllowedPyodideUrl : undefined,
+  resolveAllowedIndexUrl: (typeof resolveAllowedIndexUrl !== "undefined") ? resolveAllowedIndexUrl : undefined,
+  resolveAllowedWheelUrl: (typeof resolveAllowedWheelUrl !== "undefined") ? resolveAllowedWheelUrl : undefined,
+  ensureDir: (typeof ensureDir !== "undefined") ? ensureDir : undefined,
+  ensureDirTree: (typeof ensureDirTree !== "undefined") ? ensureDirTree : undefined,
+  ensureSymlink: (typeof ensureSymlink !== "undefined") ? ensureSymlink : undefined,
+  decodeBase64ToBytes: (typeof decodeBase64ToBytes !== "undefined") ? decodeBase64ToBytes : undefined,
+  verifySha256SRI: (typeof verifySha256SRI !== "undefined") ? verifySha256SRI : undefined,
+  PYODIDE_CDN_BASE_URL: (typeof PYODIDE_CDN_BASE_URL !== "undefined") ? PYODIDE_CDN_BASE_URL : undefined,
+  PYODIDE_CDN_ORIGIN: (typeof PYODIDE_CDN_ORIGIN !== "undefined") ? PYODIDE_CDN_ORIGIN : undefined,
+};
+`;
+
+  return `${shim}\n${code}\n${internals}\n`;
+}
+
+const WORKER_SOURCE = readFileSync(WORKER_FILE_PATH, "utf8");
+const WORKER_SCRIPT = transformWorkerSourceToScript(WORKER_SOURCE);
+const EXPORTED_NAMES = parseExportedNamesFromSource(WORKER_SOURCE);
+const CRYPTO = globalThis.crypto ?? webcrypto;
+
+function evaluateWorkerInVm({
+  self = {
+    location: { origin: "https://example.com", href: "https://example.com/worker.js" },
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    postMessage: vi.fn(),
+  },
+  crypto = CRYPTO,
+  SharedArrayBuffer = globalThis.SharedArrayBuffer,
+  Buffer = globalThis.Buffer,
+  atob = globalThis.atob,
+} = {}) {
+  const mockLogger = {
     debug: vi.fn(),
+    info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
   };
+  const createLogger = vi.fn(() => mockLogger);
 
-  globalThis.__loggerMock__ = logger;
-  globalThis.__vfsProxyConfig__ = vfsProxyConfig;
-  globalThis.__vfsProxyInstances__ = [];
+  class VfsProxyClient {}
 
-  vi.doMock(LOGGER_MODULE_PATH, () => ({
-    createLogger: vi.fn(() => logger),
-  }));
+  const context = {
+    URL,
+    console,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
 
-  vi.doMock(VFS_PROXY_MODULE_PATH, () => ({
-    VfsProxyClient: class VfsProxyClientMock {
-      constructor(options = {}) {
-        const cfg = globalThis.__vfsProxyConfig__ || {};
-        this.options = options;
-        this.supportsSync = cfg.supportsSync ?? false;
-        this.statSync = cfg.statSync ?? vi.fn();
-        this.listSync = cfg.listSync ?? vi.fn();
-        this.readFileSync = cfg.readFileSync ?? vi.fn();
-        this.writeFileSync = cfg.writeFileSync ?? vi.fn();
-        this.mkdirSync = cfg.mkdirSync ?? vi.fn();
-        this.deleteSync = cfg.deleteSync ?? vi.fn();
-        globalThis.__vfsProxyInstances__.push(this);
-      }
-    },
-  }));
+    self,
+    crypto,
+    SharedArrayBuffer,
+    Buffer,
+    atob,
 
-  const moduleCode = `export async function loadPyodide(options) {
-    if (globalThis.__loadPyodideSpy__) globalThis.__loadPyodideSpy__(options);
-    return globalThis.__pyodideMock__;
-  }`;
-  const moduleBytes = Buffer.from(moduleCode, 'utf8');
-  const moduleArrayBuffer = moduleBytes.buffer.slice(
-    moduleBytes.byteOffset,
-    moduleBytes.byteOffset + moduleBytes.byteLength,
-  );
-  const dataUrl = `data:text/javascript;base64,${moduleBytes.toString('base64')}`;
+    __mocks: { createLogger, VfsProxyClient },
+  };
+  context.globalThis = context;
 
-  vi.stubGlobal('fetch', vi.fn(async () => ({
-    ok: fetchOk,
-    status: fetchOk ? 200 : 500,
-    arrayBuffer: async () => moduleArrayBuffer,
-  })));
-
-  if (cryptoAvailable) {
-    const expectedDigest = Buffer.from(PYODIDE_SRI, 'base64');
-    const expectedBuffer = expectedDigest.buffer.slice(
-      expectedDigest.byteOffset,
-      expectedDigest.byteOffset + expectedDigest.byteLength,
-    );
-    vi.stubGlobal('crypto', {
-      subtle: {
-        digest: vi.fn(async () => expectedBuffer),
-      },
-    });
-  } else {
-    vi.stubGlobal('crypto', undefined);
-  }
-
-  Object.defineProperty(URL, 'createObjectURL', {
-    value: vi.fn(() => dataUrl),
-    configurable: true,
-    writable: true,
-  });
-  Object.defineProperty(URL, 'revokeObjectURL', {
-    value: vi.fn(),
-    configurable: true,
-    writable: true,
-  });
-
-  globalThis.__pyodideMock__ = pyodideMock || makePyodideMock();
-  globalThis.__loadPyodideSpy__ = vi.fn();
-
-  await import(MODULE_PATH);
+  vm.runInNewContext(WORKER_SCRIPT, context, { filename: WORKER_FILE_PATH });
 
   return {
-    self,
-    postMessages,
-    pyodide: globalThis.__pyodideMock__,
-    loadPyodideSpy: globalThis.__loadPyodideSpy__,
-    vfsProxyInstances: globalThis.__vfsProxyInstances__,
-    logger,
+    internals: context.__internals,
+    createLogger,
+    mockLogger,
   };
-};
+}
+
+async function sha256Integrity(bytes) {
+  const digest = await CRYPTO.subtle.digest("SHA-256", bytes);
+  const b64 = Buffer.from(new Uint8Array(digest)).toString("base64");
+  return `sha256-${b64}`;
+}
+
+function corruptBase64(b64) {
+  const s = String(b64);
+  if (s.length < 2) return `${s}A`;
+
+  const idx = s.endsWith("=") ? s.length - 2 : s.length - 1;
+  const head = s.slice(0, idx);
+  const tail = s.slice(idx + 1);
+  const ch = s[idx];
+  const flipped = ch === "A" ? "B" : "A";
+  return `${head}${flipped}${tail}`;
+}
+
+async function importFreshWorkerModule() {
+  return await import(WORKER_MODULE_SPECIFIER);
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.resetModules();
+
+  globalThis.self = {
+    location: { origin: "https://example.com", href: "https://example.com/worker.js" },
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    postMessage: vi.fn(),
+    onmessage: null,
+  };
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  delete globalThis.__loggerMock__;
-  delete globalThis.__pyodideMock__;
-  delete globalThis.__loadPyodideSpy__;
-  delete globalThis.__vfsProxyConfig__;
-  delete globalThis.__vfsProxyInstances__;
+if (EXPORTED_NAMES.length) {
+  for (const exportName of EXPORTED_NAMES) {
+    describe(`export: ${exportName}`, () => {
+      it("is present on the module namespace", async () => {
+        const mod = await importFreshWorkerModule();
+        expect(Object.prototype.hasOwnProperty.call(mod, exportName)).toBe(true);
+      });
+    });
+  }
+}
 
-  if (ORIGINAL_URL_CREATE) {
-    URL.createObjectURL = ORIGINAL_URL_CREATE;
-  } else {
-    delete URL.createObjectURL;
-  }
-  if (ORIGINAL_URL_REVOKE) {
-    URL.revokeObjectURL = ORIGINAL_URL_REVOKE;
-  } else {
-    delete URL.revokeObjectURL;
-  }
+describe("isSharedArrayBuffer (internal)", () => {
+  it("returns false when SharedArrayBuffer is unavailable", () => {
+    const { internals } = evaluateWorkerInVm({ SharedArrayBuffer: undefined });
+    expect(internals.isSharedArrayBuffer).toBeTypeOf("function");
+
+    expect(internals.isSharedArrayBuffer(null)).toBe(false);
+    expect(internals.isSharedArrayBuffer(undefined)).toBe(false);
+    expect(internals.isSharedArrayBuffer("")).toBe(false);
+    expect(internals.isSharedArrayBuffer(0)).toBe(false);
+    expect(internals.isSharedArrayBuffer(-1)).toBe(false);
+    expect(internals.isSharedArrayBuffer(Number.MAX_SAFE_INTEGER)).toBe(false);
+    expect(internals.isSharedArrayBuffer(new ArrayBuffer(1))).toBe(false);
+  });
+
+  it("detects SharedArrayBuffer instances when available", () => {
+    class FakeSharedArrayBuffer {}
+    const { internals } = evaluateWorkerInVm({ SharedArrayBuffer: FakeSharedArrayBuffer });
+    expect(internals.isSharedArrayBuffer).toBeTypeOf("function");
+
+    expect(internals.isSharedArrayBuffer(new FakeSharedArrayBuffer())).toBe(true);
+    expect(internals.isSharedArrayBuffer({})).toBe(false);
+    expect(internals.isSharedArrayBuffer([])).toBe(false);
+  });
 });
 
-describe('python-runtime-worker', () => {
-  describe('init message', () => {
-    it('loads pyodide with a trailing-slash indexUrl and posts ready', async () => {
-      const pyodide = makePyodideMock();
-      const { self, postMessages, loadPyodideSpy, vfsProxyInstances } = await setupWorker({
-        pyodideMock: pyodide,
-      });
-
-      await self.onmessage({
-        data: {
-          type: 'init',
-          id: 1,
-          payload: {
-            indexUrl: 'https://example.com/pyodide',
-            vfsProxy: { enabled: false },
-          },
-        },
-      });
-
-      expect(loadPyodideSpy).toHaveBeenCalledTimes(1);
-      const options = loadPyodideSpy.mock.calls[0][0];
-      expect(options.indexURL).toBe('https://example.com/pyodide/');
-
-      options.stdout('hello');
-      options.stderr('oops');
-
-      expect(postMessages).toContainEqual({ type: 'ready', id: 1 });
-      expect(postMessages).toContainEqual({ type: 'stdout', text: 'hello' });
-      expect(postMessages).toContainEqual({ type: 'stderr', text: 'oops' });
-      expect(vfsProxyInstances.length).toBe(1);
+describe("getWorkerOrigin (internal)", () => {
+  it("returns self.location.origin when available", () => {
+    const { internals } = evaluateWorkerInVm({
+      self: {
+        location: { origin: "https://app.local", href: "https://app.local/worker.js" },
+      },
     });
 
-    it('rejects disallowed indexUrl origins', async () => {
-      const { self, postMessages, loadPyodideSpy } = await setupWorker();
-
-      await self.onmessage({
-        data: {
-          type: 'init',
-          id: 'bad-origin',
-          payload: { indexUrl: 'https://evil.example.com/pyodide/' },
-        },
-      });
-
-      expect(loadPyodideSpy).not.toHaveBeenCalled();
-      expect(postMessages).toContainEqual({
-        type: 'error',
-        id: 'bad-origin',
-        error: 'URL origin not allowed',
-      });
-    });
+    expect(internals.getWorkerOrigin).toBeTypeOf("function");
+    expect(internals.getWorkerOrigin()).toBe("https://app.local");
   });
 
-  describe('preload message', () => {
-    it('normalizes loadPlan entries and installs builtin + micropip + wheels', async () => {
-      const pyodide = makePyodideMock({
-        runPythonAsync: vi.fn(async () => 'ok'),
-      });
-      const { self, postMessages } = await setupWorker({ pyodideMock: pyodide });
-
-      await self.onmessage({
-        data: {
-          type: 'preload',
-          id: 2,
-          payload: {
-            loadPlan: {
-              builtin: [0, -1, Number.MAX_SAFE_INTEGER, ' numpy ', '', '   '],
-              micropip: 'requests',
-              wheels: [
-                { cached: true, localPath: 'cache/wheel-1.whl' },
-                { url: `${PYODIDE_CDN_BASE_URL}wheels/pkg.whl` },
-                { url: 'emfs:/custom/pkg.whl' },
-                { url: 42 },
-              ],
-            },
-          },
-        },
-      });
-
-      expect(pyodide.loadPackage).toHaveBeenCalledTimes(2);
-      expect(pyodide.loadPackage.mock.calls[0][0]).toEqual([
-        '0',
-        '-1',
-        String(Number.MAX_SAFE_INTEGER),
-        'numpy',
-      ]);
-      expect(pyodide.loadPackage.mock.calls[1][0]).toBe('micropip');
-
-      const depsCall = pyodide.globals.set.mock.calls.find((call) => call[0] === '__pb_micropip_deps__');
-      const wheelsCall = pyodide.globals.set.mock.calls.find((call) => call[0] === '__pb_micropip_wheels__');
-
-      expect(depsCall).toBeTruthy();
-      expect(wheelsCall).toBeTruthy();
-
-      const depsProxy = depsCall[1];
-      const wheelsProxy = wheelsCall[1];
-
-      expect(depsProxy.__value).toEqual(['requests']);
-      expect(wheelsProxy.__value).toEqual([
-        'emfs:cache/wheel-1.whl',
-        `${PYODIDE_CDN_BASE_URL}wheels/pkg.whl`,
-        'emfs:/custom/pkg.whl',
-      ]);
-
-      expect(pyodide.runPythonAsync).toHaveBeenCalled();
-      expect(pyodide.globals.delete).toHaveBeenCalledWith('__pb_micropip_deps__');
-      expect(pyodide.globals.delete).toHaveBeenCalledWith('__pb_micropip_wheels__');
-      expect(depsProxy.destroy).toHaveBeenCalled();
-      expect(wheelsProxy.destroy).toHaveBeenCalled();
-      expect(postMessages).toContainEqual({ type: 'preloaded', id: 2 });
-    });
-
-    it('accepts empty loadPlan object and legacy dependencies string', async () => {
-      const pyodide = makePyodideMock();
-      const { self, postMessages } = await setupWorker({ pyodideMock: pyodide });
-
-      await self.onmessage({
-        data: {
-          type: 'preload',
-          id: 3,
-          payload: {
-            loadPlan: {},
-            dependencies: '123',
-          },
-        },
-      });
-
-      expect(pyodide.loadPackage).toHaveBeenCalledTimes(1);
-      expect(pyodide.loadPackage).toHaveBeenCalledWith('123');
-      expect(pyodide.runPythonAsync).not.toHaveBeenCalled();
-      expect(postMessages).toContainEqual({ type: 'preloaded', id: 3 });
-    });
-
-    it('skips empty arrays in loadPlan without triggering micropip', async () => {
-      const pyodide = makePyodideMock();
-      const { self, postMessages } = await setupWorker({ pyodideMock: pyodide });
-
-      await self.onmessage({
-        data: {
-          type: 'preload',
-          id: 4,
-          payload: {
-            loadPlan: {
-              builtin: [],
-              micropip: [],
-              wheels: [],
-            },
-            dependencies: [],
-          },
-        },
-      });
-
-      expect(pyodide.loadPackage).not.toHaveBeenCalled();
-      expect(pyodide.runPythonAsync).not.toHaveBeenCalled();
-      expect(postMessages).toContainEqual({ type: 'preloaded', id: 4 });
-    });
-
-    it('rejects legacy loadScript preloads', async () => {
-      const { self, postMessages } = await setupWorker();
-
-      await self.onmessage({
-        data: {
-          type: 'preload',
-          id: 5,
-          payload: {
-            loadScript: 'print("hi")',
-          },
-        },
-      });
-
-      expect(postMessages).toContainEqual({
-        type: 'error',
-        id: 5,
-        error: 'Legacy loadScript preload is disabled; use loadPlan instead',
-      });
-    });
+  it("returns null when self is missing", () => {
+    const { internals } = evaluateWorkerInVm({ self: undefined });
+    expect(internals.getWorkerOrigin).toBeTypeOf("function");
+    expect(internals.getWorkerOrigin()).toBe(null);
   });
 
-  describe('execute message', () => {
-    it('syncs input files, injects state/buffers, and collects output files', async () => {
-      const MODE_DIR = 0o040000;
-      const MODE_FILE = 0o100000;
-      const fsMock = {
-        mkdirTree: vi.fn(),
-        writeFile: vi.fn(),
-        readdir: vi.fn((path) => {
-          if (path === '/out') return ['.', '..', 'result.txt', 'sub'];
-          if (path === '/out/sub') return ['.', '..', 'nested.bin'];
-          throw new Error('ENOENT');
-        }),
-        stat: vi.fn((path) => {
-          if (path === '/out' || path === '/out/sub') return { mode: MODE_DIR };
-          if (path === '/out/result.txt' || path === '/out/sub/nested.bin') return { mode: MODE_FILE };
-          throw new Error('ENOENT');
-        }),
-        isDir: vi.fn((mode) => mode === MODE_DIR),
-        readFile: vi.fn((path) => {
-          if (path === '/out/result.txt') return new Uint8Array([1, 2, 3]);
-          if (path === '/out/sub/nested.bin') return new Uint8Array([4, 5]);
-          return new Uint8Array(0);
-        }),
-      };
-
-      const pyodide = makePyodideMock({
-        FS: fsMock,
-        runPythonAsync: vi.fn(async (code) => `ok:${code.length}`),
-      });
-      const { self, postMessages } = await setupWorker({ pyodideMock: pyodide });
-
-      const bigContent = new Uint8Array(1024 * 1024).fill(7);
-      const deepState = { level: 0 };
-      let cursor = deepState;
-      for (let i = 1; i < 40; i += 1) {
-        cursor.next = { level: i };
-        cursor = cursor.next;
-      }
-
-      const sharedBuffer = new SharedArrayBuffer(16);
-      const longCode = 'x'.repeat(100000);
-
-      await self.onmessage({
-        data: {
-          type: 'execute',
-          id: 6,
-          payload: {
-            code: longCode,
-            files: [
-              { path: '/input/data.bin', content: bigContent },
-              { path: '/deep/a/b/c/file.txt', content: new Uint8Array([9]) },
-            ],
-            watchPaths: ['/out'],
-            state: deepState,
-            sharedBuffers: { buf: sharedBuffer },
-          },
+  it("returns null when reading location throws", () => {
+    const { internals } = evaluateWorkerInVm({
+      self: {
+        get location() {
+          throw new Error("boom");
         },
-      });
-
-      expect(fsMock.mkdirTree).toHaveBeenCalledWith('/input');
-      expect(fsMock.mkdirTree).toHaveBeenCalledWith('/deep/a/b/c');
-      expect(fsMock.writeFile).toHaveBeenCalledWith('/input/data.bin', bigContent);
-      expect(fsMock.writeFile).toHaveBeenCalledWith('/deep/a/b/c/file.txt', new Uint8Array([9]));
-
-      expect(pyodide.globals.set).toHaveBeenCalledWith('__context_state__', expect.any(Object));
-      expect(pyodide.globals.set).toHaveBeenCalledWith('buf', expect.any(Object));
-      expect(pyodide.runPythonAsync).toHaveBeenCalledWith(longCode);
-
-      const resultMsg = postMessages.find((msg) => msg.type === 'result' && msg.id === 6);
-      expect(resultMsg).toBeTruthy();
-      expect(resultMsg.data).toBe(`ok:${longCode.length}`);
-      expect(Array.isArray(resultMsg.files)).toBe(true);
-      expect(resultMsg.files.map((file) => file.path)).toEqual([
-        '/out/result.txt',
-        '/out/sub/nested.bin',
-      ]);
+      },
     });
 
-    it('skips file sync and collection when proxy VFS is mounted', async () => {
-      const fsMock = {
-        mkdirTree: vi.fn(),
-        writeFile: vi.fn(),
-        readdir: vi.fn(),
-        mount: vi.fn(),
-        mkdir: vi.fn(),
-        symlink: vi.fn(),
-      };
+    expect(internals.getWorkerOrigin).toBeTypeOf("function");
+    expect(internals.getWorkerOrigin()).toBe(null);
+  });
+});
 
-      const pyodide = makePyodideMock({
-        FS: fsMock,
-        runPythonAsync: vi.fn(async () => 'proxy-ok'),
-      });
-
-      const { self, postMessages } = await setupWorker({
-        pyodideMock: pyodide,
-        vfsProxyConfig: { supportsSync: true },
-      });
-
-      await self.onmessage({
-        data: {
-          type: 'execute',
-          id: 7,
-          payload: {
-            code: 'print("proxy")',
-            files: [{ path: '/input/ignored.txt', content: new Uint8Array([1]) }],
-            watchPaths: ['/out'],
-            vfsProxy: { enabled: true },
-          },
-        },
-      });
-
-      expect(fsMock.mount).toHaveBeenCalledTimes(1);
-      expect(fsMock.writeFile).not.toHaveBeenCalled();
-      expect(fsMock.readdir).not.toHaveBeenCalled();
-
-      const resultMsg = postMessages.find((msg) => msg.type === 'result' && msg.id === 7);
-      expect(resultMsg.files).toEqual([]);
-      expect(resultMsg.data).toBe('proxy-ok');
+describe("getWorkerBaseUrl (internal)", () => {
+  it("returns self.location.href when available", () => {
+    const { internals } = evaluateWorkerInVm({
+      self: { location: { origin: "https://app.local", href: "https://app.local/w.js" } },
     });
 
-    it('returns error when files payload is a non-iterable object', async () => {
-      const pyodide = makePyodideMock({
-        runPythonAsync: vi.fn(async () => 'unused'),
-      });
-      const { self, postMessages } = await setupWorker({ pyodideMock: pyodide });
+    expect(internals.getWorkerBaseUrl).toBeTypeOf("function");
+    expect(internals.getWorkerBaseUrl()).toBe("https://app.local/w.js");
+  });
 
-      await self.onmessage({
-        data: {
-          type: 'execute',
-          id: 8,
-          payload: {
-            code: 'print("bad files")',
-            files: {},
-          },
-        },
-      });
-
-      expect(pyodide.runPythonAsync).not.toHaveBeenCalled();
-      expect(postMessages.some((msg) => msg.type === 'error' && msg.id === 8)).toBe(true);
+  it("falls back to PYODIDE_CDN_BASE_URL when href is empty", () => {
+    const { internals } = evaluateWorkerInVm({
+      self: { location: { origin: "https://app.local", href: "" } },
     });
 
-    it('handles simultaneous and rapid consecutive execute calls', async () => {
-      const pyodide = makePyodideMock({
-        runPythonAsync: vi.fn(async (code) => `result:${code}`),
-      });
-      const { self, postMessages } = await setupWorker({ pyodideMock: pyodide });
+    expect(internals.getWorkerBaseUrl).toBeTypeOf("function");
+    expect(internals.PYODIDE_CDN_BASE_URL).toBeTypeOf("string");
+    expect(internals.getWorkerBaseUrl()).toBe(internals.PYODIDE_CDN_BASE_URL);
+  });
 
-      await Promise.all([
-        self.onmessage({
-          data: {
-            type: 'execute',
-            id: 9,
-            payload: { code: 'A' },
-          },
+  it("falls back to PYODIDE_CDN_BASE_URL when self is missing or location throws", () => {
+    const { internals: noSelf } = evaluateWorkerInVm({ self: undefined });
+    expect(noSelf.PYODIDE_CDN_BASE_URL).toBeTypeOf("string");
+    expect(noSelf.getWorkerBaseUrl()).toBe(noSelf.PYODIDE_CDN_BASE_URL);
+
+    const { internals: throwsLocation } = evaluateWorkerInVm({
+      self: {
+        get location() {
+          throw new Error("boom");
+        },
+      },
+    });
+    expect(throwsLocation.PYODIDE_CDN_BASE_URL).toBeTypeOf("string");
+    expect(throwsLocation.getWorkerBaseUrl()).toBe(throwsLocation.PYODIDE_CDN_BASE_URL);
+  });
+});
+
+describe("ensureTrailingSlashUrl (internal)", () => {
+  it("adds a trailing slash when missing", () => {
+    const { internals } = evaluateWorkerInVm();
+    expect(internals.ensureTrailingSlashUrl).toBeTypeOf("function");
+
+    const url = new URL("https://example.com/foo");
+    const out = internals.ensureTrailingSlashUrl(url);
+    expect(out).toBe("https://example.com/foo/");
+    expect(url.pathname).toBe("/foo/");
+  });
+
+  it("preserves query/hash and does not double-add", () => {
+    const { internals } = evaluateWorkerInVm();
+    expect(internals.ensureTrailingSlashUrl).toBeTypeOf("function");
+
+    const url1 = new URL("https://example.com/foo/?bar=baz#q");
+    const out1 = internals.ensureTrailingSlashUrl(url1);
+    expect(out1).toBe("https://example.com/foo/?bar=baz#q");
+    expect(url1.pathname).toBe("/foo/");
+
+    const url2 = new URL("https://example.com/a/b/c?x=1#y");
+    const out2 = internals.ensureTrailingSlashUrl(url2);
+    expect(out2).toBe("https://example.com/a/b/c/?x=1#y");
+    expect(url2.pathname).toBe("/a/b/c/");
+  });
+});
+
+describe("resolveAllowedPyodideUrl (internal)", () => {
+  it("returns null for empty/non-string inputs (including boundary numbers and long whitespace)", () => {
+    const { internals } = evaluateWorkerInVm();
+    expect(internals.resolveAllowedPyodideUrl).toBeTypeOf("function");
+
+    expect(internals.resolveAllowedPyodideUrl("")).toBe(null);
+    expect(internals.resolveAllowedPyodideUrl("   ")).toBe(null);
+    expect(internals.resolveAllowedPyodideUrl(" \n\t ")).toBe(null);
+    expect(internals.resolveAllowedPyodideUrl(" ".repeat(10_000))).toBe(null);
+
+    expect(internals.resolveAllowedPyodideUrl(null)).toBe(null);
+    expect(internals.resolveAllowedPyodideUrl(undefined)).toBe(null);
+    expect(internals.resolveAllowedPyodideUrl([])).toBe(null);
+    expect(internals.resolveAllowedPyodideUrl({})).toBe(null);
+
+    expect(internals.resolveAllowedPyodideUrl(0)).toBe(null);
+    expect(internals.resolveAllowedPyodideUrl(-1)).toBe(null);
+    expect(internals.resolveAllowedPyodideUrl(Number.MAX_SAFE_INTEGER)).toBe(null);
+  });
+
+  it("throws on invalid URLs or non-http(s) protocols", () => {
+    const { internals } = evaluateWorkerInVm({
+      self: { location: { origin: "https://app.local", href: "https://app.local/worker.js" } },
+    });
+
+    expect(() => internals.resolveAllowedPyodideUrl("http://example.com:bad/")).toThrow();
+    expect(() => internals.resolveAllowedPyodideUrl("file:///etc/passwd")).toThrow(
+      /http\(s\)/i,
+    );
+  });
+
+  it("allows same-origin URLs when workerOrigin is available", () => {
+    const { internals } = evaluateWorkerInVm({
+      self: { location: { origin: "https://app.local", href: "https://app.local/worker.js" } },
+    });
+
+    const url = internals.resolveAllowedPyodideUrl("/assets/pyodide/");
+    expect(url).toBeInstanceOf(URL);
+    expect(url.origin).toBe("https://app.local");
+    expect(url.href).toBe("https://app.local/assets/pyodide/");
+  });
+
+  it("allows Pyodide CDN origin; optionally enforces CDN base prefix", () => {
+    const { internals } = evaluateWorkerInVm({
+      self: { location: { origin: "https://app.local", href: "https://app.local/worker.js" } },
+    });
+
+    expect(internals.PYODIDE_CDN_BASE_URL).toBeTypeOf("string");
+    expect(internals.PYODIDE_CDN_ORIGIN).toBeTypeOf("string");
+
+    const ok = internals.resolveAllowedPyodideUrl(
+      `${internals.PYODIDE_CDN_BASE_URL}pyodide.mjs`,
+      { requireCdnPrefix: true },
+    );
+    expect(ok).toBeInstanceOf(URL);
+    expect(ok.origin).toBe(internals.PYODIDE_CDN_ORIGIN);
+
+    const okWithoutPrefix = internals.resolveAllowedPyodideUrl(
+      `${internals.PYODIDE_CDN_ORIGIN}/some/other/path.js`,
+      { requireCdnPrefix: false },
+    );
+    expect(okWithoutPrefix).toBeInstanceOf(URL);
+    expect(okWithoutPrefix.origin).toBe(internals.PYODIDE_CDN_ORIGIN);
+
+    expect(() =>
+      internals.resolveAllowedPyodideUrl(`${internals.PYODIDE_CDN_ORIGIN}/not/pyodide/`, {
+        requireCdnPrefix: true,
+      }),
+    ).toThrow(/base path/i);
+  });
+
+  it("rejects other origins (including when workerOrigin is unavailable)", () => {
+    const { internals } = evaluateWorkerInVm({ self: undefined });
+
+    expect(() => internals.resolveAllowedPyodideUrl("https://evil.example/")).toThrow(
+      /not allowed/i,
+    );
+  });
+
+  it("is safe under rapid/concurrent calls", async () => {
+    const { internals } = evaluateWorkerInVm({
+      self: { location: { origin: "https://app.local", href: "https://app.local/worker.js" } },
+    });
+
+    const tasks = [
+      () => internals.resolveAllowedPyodideUrl(""),
+      () => internals.resolveAllowedPyodideUrl("   "),
+      () => internals.resolveAllowedPyodideUrl("/ok"),
+      () =>
+        internals.resolveAllowedPyodideUrl(`${internals.PYODIDE_CDN_BASE_URL}pyodide.mjs`, {
+          requireCdnPrefix: true,
         }),
-        self.onmessage({
-          data: {
-            type: 'execute',
-            id: 10,
-            payload: { code: 'B' },
-          },
-        }),
-      ]);
+    ];
 
-      await self.onmessage({
-        data: {
-          type: 'execute',
-          id: 11,
-          payload: { code: 'C' },
-        },
-      });
-      await self.onmessage({
-        data: {
-          type: 'execute',
-          id: 12,
-          payload: { code: 'D' },
-        },
-      });
+    const results = await Promise.all(tasks.map((fn) => Promise.resolve().then(fn)));
+    expect(results[0]).toBe(null);
+    expect(results[1]).toBe(null);
+    expect(results[2]).toBeInstanceOf(URL);
+    expect(results[3]).toBeInstanceOf(URL);
+  });
+});
 
-      const results = postMessages.filter((msg) => msg.type === 'result');
-      const byId = new Map(results.map((msg) => [msg.id, msg.data]));
+describe("resolveAllowedIndexUrl (internal)", () => {
+  it("defaults to PYODIDE_CDN_BASE_URL for empty inputs", () => {
+    const { internals } = evaluateWorkerInVm();
+    expect(internals.resolveAllowedIndexUrl).toBeTypeOf("function");
+    expect(internals.PYODIDE_CDN_BASE_URL).toBeTypeOf("string");
 
-      expect(byId.get(9)).toBe('result:A');
-      expect(byId.get(10)).toBe('result:B');
-      expect(byId.get(11)).toBe('result:C');
-      expect(byId.get(12)).toBe('result:D');
+    expect(internals.resolveAllowedIndexUrl(null)).toBe(internals.PYODIDE_CDN_BASE_URL);
+    expect(internals.resolveAllowedIndexUrl(undefined)).toBe(internals.PYODIDE_CDN_BASE_URL);
+    expect(internals.resolveAllowedIndexUrl("")).toBe(internals.PYODIDE_CDN_BASE_URL);
+    expect(internals.resolveAllowedIndexUrl("   ")).toBe(internals.PYODIDE_CDN_BASE_URL);
+  });
+
+  it("ensures trailing slash for allowed URLs", () => {
+    const { internals } = evaluateWorkerInVm({
+      self: { location: { origin: "https://app.local", href: "https://app.local/worker.js" } },
     });
+
+    const out1 = internals.resolveAllowedIndexUrl("https://cdn.jsdelivr.net/pyodide/v0.26.4/full");
+    expect(out1.endsWith("/")).toBe(true);
+
+    const out2 = internals.resolveAllowedIndexUrl("https://app.local/pyodide/full");
+    expect(out2).toBe("https://app.local/pyodide/full/");
+  });
+
+  it("throws when pointing to CDN origin outside base path", () => {
+    const { internals } = evaluateWorkerInVm();
+    expect(() =>
+      internals.resolveAllowedIndexUrl("https://cdn.jsdelivr.net/not-pyodide/"),
+    ).toThrow();
+  });
+});
+
+describe("resolveAllowedWheelUrl (internal)", () => {
+  it("returns null for empty/non-string inputs and preserves emfs: URLs", () => {
+    const { internals } = evaluateWorkerInVm();
+    expect(internals.resolveAllowedWheelUrl).toBeTypeOf("function");
+
+    expect(internals.resolveAllowedWheelUrl("")).toBe(null);
+    expect(internals.resolveAllowedWheelUrl("   ")).toBe(null);
+    expect(internals.resolveAllowedWheelUrl(null)).toBe(null);
+    expect(internals.resolveAllowedWheelUrl(undefined)).toBe(null);
+    expect(internals.resolveAllowedWheelUrl([])).toBe(null);
+    expect(internals.resolveAllowedWheelUrl({})).toBe(null);
+    expect(internals.resolveAllowedWheelUrl(0)).toBe(null);
+    expect(internals.resolveAllowedWheelUrl(-1)).toBe(null);
+    expect(internals.resolveAllowedWheelUrl(Number.MAX_SAFE_INTEGER)).toBe(null);
+
+    expect(internals.resolveAllowedWheelUrl("emfs:/wheels/pkg.whl")).toBe("emfs:/wheels/pkg.whl");
+  });
+
+  it("accepts wheels within the Pyodide CDN base and rejects others", () => {
+    const { internals } = evaluateWorkerInVm();
+    expect(internals.PYODIDE_CDN_BASE_URL).toBeTypeOf("string");
+
+    const ok = internals.resolveAllowedWheelUrl(`${internals.PYODIDE_CDN_BASE_URL}numpy.whl`);
+    expect(ok).toBe(`${internals.PYODIDE_CDN_BASE_URL}numpy.whl`);
+
+    expect(() => internals.resolveAllowedWheelUrl("https://evil.example/pkg.whl")).toThrow(
+      /not allowed/i,
+    );
+    expect(() =>
+      internals.resolveAllowedWheelUrl("https://cdn.jsdelivr.net/not-pyodide/pkg.whl"),
+    ).toThrow();
+  });
+});
+
+describe("ensureDir / ensureDirTree / ensureSymlink (internal)", () => {
+  it("does not throw when FS operations succeed or fail (including missing methods)", () => {
+    const { internals } = evaluateWorkerInVm();
+    expect(internals.ensureDir).toBeTypeOf("function");
+    expect(internals.ensureDirTree).toBeTypeOf("function");
+    expect(internals.ensureSymlink).toBeTypeOf("function");
+
+    const FS1 = {
+      mkdir: vi.fn(),
+      mkdirTree: vi.fn(),
+      symlink: vi.fn(),
+    };
+
+    expect(() => internals.ensureDir(FS1, "/tmp")).not.toThrow();
+    expect(FS1.mkdir).toHaveBeenCalledWith("/tmp");
+
+    FS1.mkdir.mockImplementationOnce(() => {
+      throw new Error("EEXIST");
+    });
+    expect(() => internals.ensureDir(FS1, "/tmp")).not.toThrow();
+
+    expect(() => internals.ensureDirTree(FS1, "/a/b/c")).not.toThrow();
+    expect(FS1.mkdirTree).toHaveBeenCalledWith("/a/b/c");
+
+    FS1.mkdirTree.mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+    expect(() => internals.ensureDirTree(FS1, "/a/b/c")).not.toThrow();
+
+    const FS2 = {};
+    expect(() => internals.ensureDir(FS2, "/x")).not.toThrow();
+    expect(() => internals.ensureDirTree(FS2, "/x/y")).not.toThrow();
+    expect(() => internals.ensureSymlink(FS2, "/target", "/x/y/z")).not.toThrow();
+  });
+
+  it("ensureSymlink ensures parent directory creation and is safe under concurrency", async () => {
+    const { internals } = evaluateWorkerInVm();
+
+    const FS = {
+      mkdirTree: vi.fn(),
+      symlink: vi.fn(),
+    };
+
+    const deepLink = "/a/b/c/d/e/f/g/h/i/j/k/link";
+    expect(() => internals.ensureSymlink(FS, "/target", deepLink)).not.toThrow();
+    expect(FS.mkdirTree).toHaveBeenCalledWith("/a/b/c/d/e/f/g/h/i/j/k");
+    expect(FS.symlink).toHaveBeenCalledWith("/target", deepLink);
+
+    await expect(
+      Promise.all(
+        Array.from({ length: 25 }, (_, i) =>
+          Promise.resolve().then(() =>
+            internals.ensureSymlink(FS, `/t${i}`, `/p/q/r/s/${i}/lnk`),
+          ),
+        ),
+      ),
+    ).resolves.toBeDefined();
+  });
+});
+
+describe("decodeBase64ToBytes (internal)", () => {
+  it("returns null for empty/non-string inputs (including boundary numbers)", () => {
+    const { internals } = evaluateWorkerInVm();
+    expect(internals.decodeBase64ToBytes).toBeTypeOf("function");
+
+    expect(internals.decodeBase64ToBytes(null)).toBe(null);
+    expect(internals.decodeBase64ToBytes(undefined)).toBe(null);
+    expect(internals.decodeBase64ToBytes("")).toBe(null);
+    expect(internals.decodeBase64ToBytes("   ")).toBe(null);
+    expect(internals.decodeBase64ToBytes([])).toBe(null);
+    expect(internals.decodeBase64ToBytes({})).toBe(null);
+    expect(internals.decodeBase64ToBytes(0)).toBe(null);
+    expect(internals.decodeBase64ToBytes(-1)).toBe(null);
+    expect(internals.decodeBase64ToBytes(Number.MAX_SAFE_INTEGER)).toBe(null);
+  });
+
+  it("decodes base64 using Buffer path (normal + whitespace trimming)", () => {
+    const { internals } = evaluateWorkerInVm();
+    const out = internals.decodeBase64ToBytes("aGVsbG8=");
+    expect(out).toBeInstanceOf(Uint8Array);
+    expect(Buffer.from(out).toString("utf8")).toBe("hello");
+
+    const out2 = internals.decodeBase64ToBytes("  aGVsbG8=  ");
+    expect(Buffer.from(out2).toString("utf8")).toBe("hello");
+  });
+
+  it("decodes base64 using atob path when Buffer is unavailable; throws on invalid base64", () => {
+    const nodeBuffer = globalThis.Buffer;
+
+    const strictAtob = (b64) => {
+      const s = String(b64);
+      if (/[^A-Za-z0-9+/=]/.test(s)) throw new Error("Invalid base64");
+      return nodeBuffer.from(s, "base64").toString("binary");
+    };
+
+    const { internals } = evaluateWorkerInVm({
+      Buffer: undefined,
+      atob: strictAtob,
+    });
+
+    const out = internals.decodeBase64ToBytes("aGVsbG8=");
+    expect(out).toBeInstanceOf(Uint8Array);
+    expect(nodeBuffer.from(out).toString("utf8")).toBe("hello");
+
+    expect(() => internals.decodeBase64ToBytes("@@not-base64@@")).toThrow(/base64/i);
+  });
+
+  it("handles long base64 strings (resource boundary)", () => {
+    const { internals } = evaluateWorkerInVm();
+
+    const bytes = new Uint8Array(256 * 1024);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = i % 251;
+
+    const b64 = Buffer.from(bytes).toString("base64");
+    const decoded = internals.decodeBase64ToBytes(b64);
+
+    expect(decoded).toBeInstanceOf(Uint8Array);
+    expect(decoded.length).toBe(bytes.length);
+    expect(decoded[0]).toBe(bytes[0]);
+    expect(decoded[bytes.length - 1]).toBe(bytes[bytes.length - 1]);
+  });
+});
+
+describe("verifySha256SRI (internal)", () => {
+  it("no-ops when expected integrity is empty (even if crypto is missing)", async () => {
+    const { internals } = evaluateWorkerInVm({ crypto: undefined });
+    expect(internals.verifySha256SRI).toBeTypeOf("function");
+
+    await expect(internals.verifySha256SRI(new Uint8Array([1, 2, 3]), "")).resolves.toBeUndefined();
+    await expect(
+      internals.verifySha256SRI(new Uint8Array([1, 2, 3]), "   "),
+    ).resolves.toBeUndefined();
+    await expect(
+      internals.verifySha256SRI(new Uint8Array([1, 2, 3]), null),
+    ).resolves.toBeUndefined();
+    await expect(
+      internals.verifySha256SRI(new Uint8Array([1, 2, 3]), undefined),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects when crypto.subtle is unavailable and integrity is provided", async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    const integrity = await sha256Integrity(bytes);
+
+    const { internals } = evaluateWorkerInVm({ crypto: undefined });
+
+    await expect(internals.verifySha256SRI(bytes, integrity)).rejects.toThrow();
+  });
+
+  it("accepts matching integrity (with and without sha256- prefix) and rejects mismatches", async () => {
+    const bytes = new Uint8Array([9, 8, 7, 6, 5, 4, 3]);
+    const integrity = await sha256Integrity(bytes);
+    const b64 = integrity.replace(/^sha256-/, "");
+
+    const { internals } = evaluateWorkerInVm({ crypto: CRYPTO });
+
+    await expect(internals.verifySha256SRI(bytes, integrity)).resolves.toBeUndefined();
+    await expect(internals.verifySha256SRI(bytes, b64)).resolves.toBeUndefined();
+
+    const bad = `sha256-${corruptBase64(b64)}`;
+    await expect(internals.verifySha256SRI(bytes, bad)).rejects.toThrow();
+  });
+
+  it("is safe under concurrency and large inputs (resource + concurrency boundary)", async () => {
+    const bytes = new Uint8Array(512 * 1024);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 31) % 251;
+
+    const integrity = await sha256Integrity(bytes);
+    const { internals } = evaluateWorkerInVm({ crypto: CRYPTO });
+
+    await expect(
+      Promise.all(
+        Array.from({ length: 20 }, () => internals.verifySha256SRI(bytes, integrity)),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it("handles type-boundary bytes input by rejecting when bytes is not binary-like", async () => {
+    const { internals } = evaluateWorkerInVm({ crypto: CRYPTO });
+
+    // @ts-expect-error intentional type boundary
+    await expect(internals.verifySha256SRI("not-bytes", "sha256-AAAA")).rejects.toThrow();
   });
 });

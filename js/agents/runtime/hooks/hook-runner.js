@@ -518,7 +518,7 @@ export function createPreAgentHook(options = {}) {
             return { skip: true, value: result.value, reason };
           }
         } catch (err) {
-          eventBus?.emit?.("agent:hook-error", {
+          eventBus?.emit?.("agent:hook:error", {
             sessionId,
             runId,
             hookEvent: hookEventName,
@@ -557,7 +557,7 @@ export function createPostAgentHook(options = {}) {
           await hook.handler({ sessionId, runId, input, result, error, duration, context });
         } catch (err) {
           // PostAgent 错误不阻塞，只记录
-          eventBus?.emit?.("agent:hook-error", {
+          eventBus?.emit?.("agent:hook:error", {
             sessionId,
             runId,
             hookEvent: hookEventName,
