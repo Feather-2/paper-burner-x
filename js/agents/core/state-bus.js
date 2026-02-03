@@ -40,6 +40,13 @@ function getSafePathSegments(path) {
  */
 
 /**
+ * 订阅选项
+ * @typedef {Object} SubscribeOptions
+ * @property {string} [ownerId] - 订阅者标识（用于泄漏追踪和批量取消）
+ * @property {string} [scope] - 作用域标识（如插件名）
+ */
+
+/**
  * Deep clone helper with structuredClone preferred.
  * Falls back to JSON clone for environments/values that are not cloneable.
  * @template T
@@ -128,6 +135,12 @@ export class StateBus {
      * @type {Map<string, Map<Function, (change: StateChangeRecord) => void>>}
      */
     this._subscribers = new Map();
+
+    /**
+     * 按 ownerId 追踪订阅，用于泄漏检测和批量取消
+     * @type {Map<string, Set<() => void>>}
+     */
+    this._subsByOwner = new Map();
 
     /** @type {Map<string, Record<string, unknown>>} */
     this._snapshots = new Map();
@@ -274,9 +287,17 @@ export class StateBus {
    * 订阅状态变更
    * @param {string} pattern - 路径模式，支持 * 通配符
    * @param {StateSubscriber} callback
+   * @param {SubscribeOptions} [options] - 订阅选项（ownerId 用于追踪和批量取消）
    * @returns {() => void} 取消订阅函数
    */
-  subscribe(pattern, callback) {
+  subscribe(pattern, callback, options = {}) {
+    const { ownerId, scope } = options;
+
+    // 开发模式下警告无 scope 的订阅
+    if (!scope && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+      logger.debug(`[StateBus] subscribe without scope: ${pattern}`, { ownerId });
+    }
+
     if (!this._subscribers.has(pattern)) {
       this._subscribers.set(pattern, new Map());
     }
@@ -290,7 +311,51 @@ export class StateBus {
 
     subs.set(callback, wrapped);
 
-    return () => { subs.delete(callback); };
+    const unsubscribe = () => { subs.delete(callback); };
+
+    // 按 ownerId 追踪订阅
+    if (ownerId) {
+      if (!this._subsByOwner.has(ownerId)) {
+        this._subsByOwner.set(ownerId, new Set());
+      }
+      this._subsByOwner.get(ownerId).add(unsubscribe);
+    }
+
+    return unsubscribe;
+  }
+
+  /**
+   * 取消指定 owner 的所有订阅
+   * @param {string} ownerId
+   * @returns {number} 取消的订阅数量
+   */
+  unsubscribeByOwner(ownerId) {
+    const subs = this._subsByOwner.get(ownerId);
+    if (!subs) return 0;
+    let count = 0;
+    for (const unsub of subs) {
+      unsub();
+      count++;
+    }
+    this._subsByOwner.delete(ownerId);
+    return count;
+  }
+
+  /**
+   * 获取订阅统计（用于泄漏检测）
+   * @returns {{ total: number, byOwner: Record<string, number> }}
+   */
+  getSubscriptionStats() {
+    let total = 0;
+    for (const subs of this._subscribers.values()) {
+      total += subs.size;
+    }
+    /** @type {Record<string, number>} */
+    const byOwner = {};
+    for (const [ownerId, subs] of this._subsByOwner) {
+      byOwner[ownerId] = subs.size;
+    }
+    return { total, byOwner };
   }
 
   /**

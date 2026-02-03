@@ -42,6 +42,24 @@ export const PermissionType = Object.freeze({
 });
 
 /**
+ * 权限作用域 - 用于精细化权限控制
+ * @typedef {Object} PermissionScope
+ * @property {string[]} [mounts] - 允许的挂载点/目录 (用于 READ_FILE/WRITE_FILE)
+ * @property {string[]} [globs] - 允许的文件模式 (如 "**\/*.md")
+ * @property {string[]} [allowHosts] - 允许的主机名 (用于 NETWORK)
+ * @property {boolean} [denyPrivateIp] - 是否拒绝私有 IP (用于 NETWORK)
+ * @property {string[]} [allowCommands] - 允许的命令模式 (用于 EXECUTE)
+ * @property {string[]} [allowTools] - 允许的 MCP 工具名 (用于 MCP)
+ */
+
+/**
+ * 带作用域的权限声明
+ * @typedef {Object} ScopedPermission
+ * @property {PermissionValue} type - 权限类型
+ * @property {PermissionScope} [scope] - 权限作用域（可选，不提供则表示完全权限）
+ */
+
+/**
  * 插件类型
  */
 export const PluginType = Object.freeze({
@@ -80,7 +98,7 @@ export const PluginType = Object.freeze({
  * @property {string} [author] - 作者
  * @property {string} [license] - 许可证
  * @property {string[]} [keywords] - 关键词
- * @property {PermissionValue[]} [permissions] - 所需权限
+ * @property {(PermissionValue | ScopedPermission)[]} [permissions] - 所需权限（字符串或带作用域对象）
  * @property {Object} [parameters] - 参数 JSON Schema
  * @property {Object} [output] - 输出 JSON Schema
  * @property {Object} [input] - 输入 JSON Schema（Stage）
