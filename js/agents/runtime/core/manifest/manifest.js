@@ -52,6 +52,20 @@ export const PluginType = Object.freeze({
 });
 
 /**
+ * 依赖项类型
+ * @typedef {'plugin' | 'service' | 'tool' | 'stage'} DependencyKind
+ */
+
+/**
+ * 结构化依赖声明
+ * @typedef {Object} ManifestDependency
+ * @property {DependencyKind} kind - 依赖类型
+ * @property {string} id - 依赖标识符
+ * @property {string} [version] - 版本约束 (semver range)
+ * @property {boolean} [optional] - 是否可选依赖
+ */
+
+/**
  * @typedef {typeof PluginType[keyof typeof PluginType]} PluginTypeValue
  * @typedef {typeof PermissionType[keyof typeof PermissionType]} PermissionValue
  */
@@ -70,7 +84,7 @@ export const PluginType = Object.freeze({
  * @property {Object} [parameters] - 参数 JSON Schema
  * @property {Object} [output] - 输出 JSON Schema
  * @property {Object} [input] - 输入 JSON Schema（Stage）
- * @property {Object} [dependencies] - 依赖
+ * @property {ManifestDependency[] | Record<string, string>} [dependencies] - 依赖（结构化数组或 {id: version} 简写）
  * @property {Object} [config] - 配置选项
  * @property {Object} [metadata] - 扩展元数据（优先级、激活条件等）
  */

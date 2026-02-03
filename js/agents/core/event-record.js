@@ -11,11 +11,21 @@ import { assertValidEventName, createEventId } from './event-bus-utils.js';
  */
 
 /**
+ * 分布式追踪信息
+ * @typedef {object} EventTraceInfo
+ * @property {string} [traceId] - W3C Trace ID (32 hex chars)
+ * @property {string} [spanId] - W3C Span ID (16 hex chars)
+ * @property {string} [parentSpanId] - Parent Span ID
+ * @property {string} [traceparent] - W3C traceparent header value
+ */
+
+/**
  * EventBus 内部使用的结构化事件记录。
  *
  * 说明：
  * - `CoreEventRecord` 来自 `core/types.d.ts`（兼容旧字段：id/type/timestamp/clock）
  * - 本模块同时保留运行时字段：schemaVersion/eventId/runId/ts/name/_clock/seq 等
+ * - `trace` 字段用于分布式追踪（可选，与 TraceContext 集成）
  *
  * @typedef {Omit<CoreEventRecord, 'payload'> & { payload?: unknown } & {
  *   schemaVersion: string,
@@ -28,6 +38,7 @@ import { assertValidEventName, createEventId } from './event-bus-utils.js';
  *   durationMs?: number,
  *   meta?: unknown,
  *   status?: string,
+ *   trace?: EventTraceInfo,
  *   _clock: LamportClockState,
  *   seq: number,
  * }} EventRecord
