@@ -9,7 +9,7 @@
 
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { StagePausedError } from "./stage-errors.js";
-import { getRuntimeState } from "../../plugins/telemetry/index.js";
+import { getRuntimeState } from "./loop-runtime-state.js";
 import { createLogger } from "../../shared/index.js";
 
 /**
