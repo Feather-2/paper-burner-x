@@ -76,24 +76,26 @@ function isMissingPathError(err) {
  */
 function toDirEntries(entries) {
   const arr = Array.isArray(entries) ? entries : [];
-  return arr
-    .map((entry) => {
-      if (typeof entry === "string") {
-        return { name: entry, kind: "unknown" };
-      }
-      const name = typeof entry?.name === "string" ? entry.name : String(entry?.name ?? "");
-      const rawKind = typeof entry?.kind === "string" ? entry.kind : "";
-      const isDir =
-        rawKind === "dir" ||
-        rawKind === "directory" ||
-        (typeof entry?.isDirectory === "function" ? !!entry.isDirectory() : false);
-      const isFile =
-        rawKind === "file" ||
-        (typeof entry?.isFile === "function" ? !!entry.isFile() : false);
-      const kind = isDir ? "directory" : isFile ? "file" : "unknown";
-      return { name, kind };
-    })
-    .filter((e) => typeof e.name === "string" && e.name.length > 0);
+  return /** @type {any} */ (
+    arr
+      .map((entry) => {
+        if (typeof entry === "string") {
+          return { name: entry, kind: "unknown" };
+        }
+        const name = typeof entry?.name === "string" ? entry.name : String(entry?.name ?? "");
+        const rawKind = typeof entry?.kind === "string" ? entry.kind : "";
+        const isDir =
+          rawKind === "dir" ||
+          rawKind === "directory" ||
+          (typeof entry?.isDirectory === "function" ? !!entry.isDirectory() : false);
+        const isFile =
+          rawKind === "file" ||
+          (typeof entry?.isFile === "function" ? !!entry.isFile() : false);
+        const kind = isDir ? "directory" : isFile ? "file" : "unknown";
+        return { name, kind };
+      })
+      .filter((e) => typeof e.name === "string" && e.name.length > 0)
+  );
 }
 
 /**

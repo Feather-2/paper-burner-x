@@ -7,6 +7,34 @@
 
 import { safeJsonParse } from "../shared/index.js";
 
+/**
+ * @typedef {object} ChatMessage
+ * @property {string} role
+ * @property {string | Array<Record<string, unknown>>} content
+ */
+
+/**
+ * Options passed to aiApiService.chat().
+ * Keep this permissive for forward compatibility, but avoid `any`.
+ *
+ * @typedef {{
+ *   messages?: ChatMessage[],
+ *   model?: string,
+ *   modelId?: string,
+ *   temperature?: number,
+ *   maxTokens?: number,
+ * } & Record<string, unknown>} PptChatCallOptions
+ */
+
+/**
+ * Minimal interface for the AI API service used by this bridge.
+ *
+ * @typedef {object} AiApiServiceLike
+ * @property {(opts: PptChatCallOptions) => Promise<unknown>} chat
+ * @property {((modelKey: string, modelId: (string|null)) => unknown)=} _resolveModelConfig
+ * @property {((apiConfig: unknown, messages: ChatMessage[], temperature: number, maxTokens: number) => Promise<unknown>)=} _callApi
+ */
+
 const STORAGE_KEYS = {
   lang: 'pptModelConfigLanguage',
   img: 'pptModelConfigImage',
@@ -46,8 +74,13 @@ function loadPptConfig(type) {
 // 标签集合校验
 const VALID_CAPABILITY_TAGS = ['lang', 'vision', 'image', 'audio'];
 
+/**
+ * @param {unknown} raw
+ * @returns {Record<string, string[]>}
+ */
 function normalizePptModelTags(raw) {
   if (!raw || typeof raw !== 'object') return {};
+  /** @type {Record<string, string[]>} */
   const result = {};
   for (const [k, v] of Object.entries(raw)) {
     if (Array.isArray(v)) {
@@ -57,17 +90,25 @@ function normalizePptModelTags(raw) {
   return result;
 }
 
+/**
+ * @param {unknown} raw
+ * @returns {Record<string, string[]>}
+ */
 function normalizePptRolePriority(raw) {
   // 基础角色（与 agent runtime 对应）
   const baseRoles = ['analyst', 'planner', 'writer', 'reviewer', 'vision', 'worker', 'reranker', 'shadow', 'think', 'codesearch'];
   // Design 子角色（UI 配置中使用的）
   const designSubRoles = ['design_tokens', 'design_brainstorm', 'design_layout', 'design_svg', 'design_image', 'design_review'];
 
+  /** @type {Record<string, unknown>} */
+  const input = raw && typeof raw === 'object' ? /** @type {Record<string, unknown>} */ (raw) : {};
+
+  /** @type {Record<string, string[]>} */
   const result = {};
 
   // 处理基础角色
   for (const role of baseRoles) {
-    const arr = raw?.[role];
+    const arr = input[role];
     result[role] = Array.isArray(arr)
       ? [...new Set(arr.filter(s => typeof s === 'string' && s))]
       : [];
@@ -76,10 +117,11 @@ function normalizePptRolePriority(raw) {
   // 合并 design_* 子角色为统一的 designer usage
   // 优先级：design_brainstorm > design_layout > design_tokens > 其他
   const designPriorityOrder = ['design_brainstorm', 'design_layout', 'design_tokens', 'design_svg', 'design_image', 'design_review'];
+  /** @type {Set<string>} */
   const designModels = new Set();
 
   for (const subRole of designPriorityOrder) {
-    const arr = raw?.[subRole];
+    const arr = input[subRole];
     if (Array.isArray(arr)) {
       for (const m of arr) {
         if (typeof m === 'string' && m) designModels.add(m);
@@ -88,7 +130,7 @@ function normalizePptRolePriority(raw) {
   }
 
   // 也检查旧的 designer 配置（向后兼容）
-  const legacyDesigner = raw?.designer;
+  const legacyDesigner = input.designer;
   if (Array.isArray(legacyDesigner)) {
     for (const m of legacyDesigner) {
       if (typeof m === 'string' && m) designModels.add(m);
@@ -171,6 +213,10 @@ export function buildPptUsageConfigForModelRouter() {
   // No console logging in core modules.
 
   // 能力过滤：检查模型是否有所需标签（未标注则允许）
+  /**
+   * @param {string} key
+   * @returns {string[]}
+   */
   function getTagsForCandidate(key) {
     if (!key) return [];
     const direct = tags[key];
@@ -178,6 +224,7 @@ export function buildPptUsageConfigForModelRouter() {
 
     // 兼容新格式：{ "openai:gpt-4o": ["lang"] }
     const prefix = `${key}:`;
+    /** @type {Set<string>} */
     const agg = new Set();
     for (const [k, v] of Object.entries(tags)) {
       if (!k.startsWith(prefix)) continue;
@@ -187,6 +234,11 @@ export function buildPptUsageConfigForModelRouter() {
     return Array.from(agg);
   }
 
+  /**
+   * @param {string[]} models
+   * @param {string} requiredTag
+   * @returns {string[]}
+   */
   function filterByCapability(models, requiredTag) {
     const filtered = models.filter(key => {
       const modelTags = getTagsForCandidate(key);
@@ -197,6 +249,7 @@ export function buildPptUsageConfigForModelRouter() {
   }
 
   // 构建 usageConfig
+  /** @type {Record<string, string[]>} */
   const result = {};
   const textRoles = ['analyst', 'planner', 'writer', 'reviewer', 'designer', 'worker'];
 
@@ -236,9 +289,9 @@ export function buildPptUsageConfigForModelRouter() {
 /**
  * 创建带 PPT 配置的 chat 函数
  * 包装 aiApiService.chat，自动注入 PPT 配置的模型
- * @param {object} aiApiService - AI API 服务对象，需实现 chat 方法
+ * @param {AiApiServiceLike} aiApiService - AI API 服务对象，需实现 chat 方法
  * @param {string} [usage='worker'] - 用途类型 analyst/planner/writer/vision/image
- * @returns {((opts: { messages: any[], [key: string]: any }) => Promise<any>) | null}
+ * @returns {((opts?: PptChatCallOptions) => Promise<unknown>) | null}
  */
 export function createPptConfiguredChat(aiApiService, usage = 'worker') {
   if (!aiApiService || typeof aiApiService.chat !== 'function') {
@@ -247,8 +300,13 @@ export function createPptConfiguredChat(aiApiService, usage = 'worker') {
 
   const config = getPptModelConfig(usage);
 
-  return async function chat({ messages, ...opts } = {}) {
-    const callOpts = { messages, ...opts };
+  return async function chat(opts = {}) {
+    /** @type {PptChatCallOptions} */
+    const input = opts && typeof opts === 'object' ? opts : {};
+    /** @type {ChatMessage[]} */
+    const messages = Array.isArray(input.messages) ? input.messages : [];
+    /** @type {PptChatCallOptions} */
+    const callOpts = { ...input, messages };
     const modelExplicit = typeof callOpts.model === 'string' && callOpts.model.trim();
 
     // 如果调用者没有指定 model / 或使用 auto，则用 PPT 配置

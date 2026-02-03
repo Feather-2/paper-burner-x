@@ -173,7 +173,7 @@ function escapeForSBPL(str) {
  * @param {SeatbeltOptions} defaultOptions
  * @returns {Object}
  */
-export function createSeatbeltExecutor(defaultOptions = {}) {
+export function createSeatbeltExecutor(defaultOptions = /** @type {any} */ ({})) {
   return {
     backend: SandboxBackend.SEATBELT,
 

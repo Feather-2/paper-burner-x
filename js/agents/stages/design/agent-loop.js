@@ -42,6 +42,14 @@ export { BacktrackError };
  */
 export class DesignAgentLoop extends BaseAgentLoop {
   /**
+   * Installed by `installStateManager(DesignAgentLoop)` below.
+   * Declared here for TS checkJs (TS2339).
+   * @private
+   * @type {(newStatus: string, metadata?: Record<string, any>) => Promise<string|null>}
+   */
+  _transitionTo = DesignAgentLoop.prototype._transitionTo;
+
+  /**
    * @param {DesignLoopConstructorOptions} [options]
    */
   constructor({ batchSize, archive, eventBus, tools, memoryStore, stateEngine, container } = {}) {

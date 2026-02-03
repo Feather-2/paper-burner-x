@@ -294,8 +294,9 @@ export function createBrowserTools(options = {}) {
         const entries = await vfs.list(normalizedPath);
         return { entries: Array.isArray(entries) ? entries : [] };
       }
-      if (typeof vfs.readdir === 'function') {
-        const entries = await vfs.readdir(normalizedPath);
+      const vfsAny = /** @type {any} */ (vfs);
+      if (typeof vfsAny.readdir === 'function') {
+        const entries = await vfsAny.readdir(normalizedPath);
         return { entries: Array.isArray(entries) ? entries : [] };
       }
 

@@ -5,6 +5,7 @@
  * 与 js-sandbox-worker.js (浏览器版) 保持相同的消息协议。
  */
 
+// @ts-ignore
 import { parentPort, workerData } from 'node:worker_threads';
 
 // eslint-disable-next-line no-new-func

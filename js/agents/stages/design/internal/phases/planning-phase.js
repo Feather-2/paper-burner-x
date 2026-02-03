@@ -59,7 +59,7 @@ function normalizePlanEdits(plans, edits) {
  * 规划阶段：生成预案并等待用户确认
  *
  * @param {any} loop
- * @param {{ context: any, runContext: any, emit?: EmitFn, traceContext?: any }} params
+ * @param {{ slideIntents?: any[], designSystem?: any, context: any, runContext: any, emit?: EmitFn, traceContext?: any }} params
  * @returns {Promise<{ plans: any[], planResult: any }>}
  */
 export async function runPlanningPhase(loop, {

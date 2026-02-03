@@ -207,7 +207,8 @@ export function applyWriteMethods(UnifiedMemoryStore) {
     return this.getClaims();
   };
 
-  UnifiedMemoryStore.prototype.bind = function bind({ sharedContext, discoveryManager } = {}) {
+  UnifiedMemoryStore.prototype.bind = function bind(options = {}) {
+    const { sharedContext, discoveryManager } = /** @type {{ sharedContext?: any, discoveryManager?: any }} */ (options);
     if (sharedContext) this._sharedContext = sharedContext;
     if (discoveryManager) this._discoveryManager = discoveryManager;
     return this;

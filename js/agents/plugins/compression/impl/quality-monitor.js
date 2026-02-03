@@ -210,7 +210,7 @@ export class CompressionQualityMonitor {
 
   /**
    * 获取配置
-   * @returns {{ minRetentionRatio: number, maxSamples: number, trendWindowSize: number }}
+   * @returns {{ minRetentionRatio: number, maxSamples: number, trendWindowSize: number, warningThreshold: number, criticalThreshold: number }}
    */
   getConfig() {
     return {

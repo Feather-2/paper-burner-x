@@ -98,7 +98,7 @@ export function validateLlmResponse(response) {
     for (let i = 0; i < obj.toolCalls.length; i++) {
       const result = validateToolCall(obj.toolCalls[i], i);
       if (!result.ok) {
-        return result;
+        return /** @type {any} */ (result);
       }
       toolCalls.push(result.value);
     }

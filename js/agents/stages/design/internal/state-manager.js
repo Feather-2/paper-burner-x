@@ -322,7 +322,11 @@ export function installStateManager(ctor) {
   Object.defineProperties(ctor.prototype, stateManagerAccessors);
 }
 
-export async function resumeDesignAgentLoop(checkpointId, stageApi = {}, { DesignAgentLoopCtor } = {}) {
+export async function resumeDesignAgentLoop(
+  checkpointId,
+  stageApi = {},
+  { DesignAgentLoopCtor } = /** @type {{ DesignAgentLoopCtor?: new (...args: any[]) => any }} */ ({})
+) {
   if (typeof DesignAgentLoopCtor !== "function") {
     throw new Error("resumeDesignAgentLoop: missing DesignAgentLoopCtor");
   }

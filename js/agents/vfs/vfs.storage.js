@@ -79,10 +79,13 @@ function isQuotaExceededError(err) {
   return lower.includes("quota") || lower.includes("no space") || lower.includes("insufficient storage");
 }
 
+/** @typedef {Error & { code?: string, quota?: unknown }} StorageVfsQuotaError */
+
 function buildQuotaError(path, usage) {
   const suffix = usage && typeof usage === "object" && Number.isFinite(usage.used) && Number.isFinite(usage.quota)
     ? ` (used ${usage.used}/${usage.quota})`
     : "";
+  /** @type {StorageVfsQuotaError} */
   const err = new Error(`ENOSPC: storage quota exceeded for ${path}${suffix}; consider clearing space`);
   err.code = "ENOSPC";
   err.name = "QuotaExceededError";

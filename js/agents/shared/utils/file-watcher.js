@@ -7,12 +7,19 @@ import { DisposableBase } from "../base/disposable-base.js";
 import { toNonEmptyString, toPositiveInt } from "./value-utils.js";
 
 /**
+ * @typedef {import("../../core/contracts/disposable.js").Disposable} Disposable
+ *
  * @typedef {"change" | "rename" | "error"} FileWatcherEventType
  *
  * @typedef {object} FileWatcherEvent
  * @property {FileWatcherEventType} type
  * @property {string} path
  * @property {Error=} error
+ *
+ * Minimal `process` shape used by this module.
+ * (Avoids a hard dependency on `@types/node` in browser builds.)
+ * @typedef {object} ProcessLike
+ * @property {{ node?: string }=} versions
  *
  * @typedef {object} VfsStatLike
  * @property {number=} size
@@ -43,7 +50,9 @@ let _nativeWatchSupportedPromise = null;
  * @returns {boolean}
  */
 function isNodeRuntime() {
-  return typeof process !== "undefined" && !!process.versions?.node;
+  const maybeProcess =
+    /** @type {ProcessLike | undefined} */ (/** @type {any} */ (globalThis).process);
+  return !!maybeProcess?.versions?.node;
 }
 
 /**
@@ -143,7 +152,7 @@ export async function isNativeWatchSupported() {
 
 /**
  * Cross-platform file watcher that uses fs.watch in Node-like runtimes and polling otherwise.
- * @implements {import("../contracts/disposable.js").Disposable}
+ * @implements {Disposable}
  */
 export class FileWatcher extends DisposableBase {
   /**

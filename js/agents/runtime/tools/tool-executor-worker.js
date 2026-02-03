@@ -4,6 +4,7 @@
  * @platform node - This module uses node:worker_threads; browser builds should
  * exclude or stub this file via bundler configuration.
  */
+// @ts-ignore
 import { parentPort } from "node:worker_threads";
 import { createToolExecutorHandler } from "./tool-executor-worker-shared.js";
 

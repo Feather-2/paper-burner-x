@@ -11,7 +11,7 @@ const logger = createLogger("runtime/compression/cicada-compressor");
  * @typedef {{ role?: string, content?: unknown }} CicadaMessage
  * @typedef {Record<string, unknown>} CicadaArchiveEntry
  * @typedef {Object} CicadaModelRouter
- * @property {(payload: { usage?: string, messages: Array<CicadaMessage> }) => Promise<unknown>} [call]
+ * @property {(payloadOrMessages: unknown, options?: unknown) => Promise<unknown>} [call]
  * @property {(messages: Array<CicadaMessage>) => Promise<unknown>} [chat]
  * @typedef {Object} CicadaArchiveAdapter
  * @property {(key: string, entry: CicadaArchiveEntry) => Promise<unknown>} [store]
@@ -30,6 +30,31 @@ const logger = createLogger("runtime/compression/cicada-compressor");
  * @property {CicadaEventBus} [eventBus]
  * @property {number} [maxArchives]
  * @property {number|null} [archiveRetentionDays]
+ * @typedef {Object} CicadaSharedContext
+ * @property {(stageKey: string, summary: string) => void} [setSummary]
+ * @property {(stageKey: string, index: { keywords?: string[] }) => void} [setIndex]
+ * @property {(stageKey: string, payload: Record<string, unknown>) => void} [signal]
+ * @property {() => string} [buildSummaryText]
+ * @property {() => string[]} [getDecisions]
+ * @property {() => Record<string, unknown>} [getAllSummaries]
+ * @typedef {Object} CicadaTodo
+ * @property {unknown} [status]
+ * @property {unknown} [content]
+ * @property {unknown} [title]
+ * @property {unknown} [text]
+ * @property {unknown} [priority]
+ * @typedef {Object} CicadaAgentStateL1
+ * @property {{ summary?: unknown, decisionTrace?: unknown }} [condensedMemory]
+ * @property {unknown[]} [claims]
+ * @typedef {Object} CicadaAgentStateL2
+ * @property {unknown[]} [warnings]
+ * @typedef {Object} CicadaAgentState
+ * @property {CicadaTodo[]} [todos]
+ * @property {unknown} [runId]
+ * @property {CicadaAgentStateL1} [L1]
+ * @property {CicadaAgentStateL2} [L2]
+ * @property {unknown} [taskGoal]
+ * @property {unknown} [iteration]
  */
 
 export const CompressionLayer = Object.freeze({
@@ -49,6 +74,7 @@ const DEFAULT_MAX_INPUT_CHARS = 12000;
 
 // Schema versioning for forward compatibility
 const CICADA_SCHEMA_VERSION = "1.0";
+/** @type {Set<string | undefined>} */
 const SUPPORTED_SCHEMA_VERSIONS = new Set(["1.0", "0.1", undefined]); // undefined = legacy
 
 // 结构化摘要模板 (from shared/)
@@ -418,6 +444,23 @@ function buildFallbackSummary(text) {
 }
 
 export class CicadaCompressor {
+  /** @type {CicadaModelRouter|null} */
+  modelRouter;
+  /** @type {CicadaArchiveAdapter|null} */
+  archiveAdapter;
+  /** @type {number} */
+  maxTokens;
+  /** @type {string[]} */
+  layers;
+  /** @type {CicadaEventBus|null} */
+  eventBus;
+  /** @type {Map<string, CicadaArchiveEntry>} */
+  _archiveStore;
+  /** @type {number} */
+  _maxArchives;
+  /** @type {number|null} */
+  _archiveRetentionDays;
+
   /**
    * @param {CicadaCompressorOptions} [options]
    */
@@ -504,7 +547,9 @@ export class CicadaCompressor {
    * @returns {Promise<{ context: Record<string, unknown>, metadata: Record<string, unknown> }>}
    */
   async compress(context, options = {}) {
-    const base = isPlainObject(context) ? { ...context } : { value: context };
+    const contextObject = isPlainObject(context) ? /** @type {Record<string, unknown>} */ (context) : null;
+    /** @type {Record<string, unknown>} */
+    const base = contextObject ? { ...contextObject } : { value: context };
     const layers = normalizeLayerList(options.layers || this.layers);
     const metadata = {
       layersApplied: [],
@@ -540,7 +585,11 @@ export class CicadaCompressor {
       }
     }
 
-    const archiveKey = toNonEmptyString(options.archiveKey || options.stageKey || context?.stageKey);
+    const contextStageKey =
+      context && (typeof context === "object" || typeof context === "function")
+        ? /** @type {Record<string, unknown>} */ (context).stageKey
+        : undefined;
+    const archiveKey = toNonEmptyString(options.archiveKey || options.stageKey || base.stageKey || contextStageKey);
     if (archiveKey) {
       // 关键修正：存档时保留 base (原始全量内容)，而不是 current (压缩后内容)
       metadata.archiveId = await this.archive(archiveKey, {
@@ -551,7 +600,11 @@ export class CicadaCompressor {
     }
 
     // SharedContext 集成 (from shared/)
-    const sharedContext = options?.sharedContext || null;
+    const sharedContextRaw = options?.sharedContext;
+    const sharedContext =
+      sharedContextRaw && (typeof sharedContextRaw === "object" || typeof sharedContextRaw === "function")
+        ? /** @type {CicadaSharedContext} */ (sharedContextRaw)
+        : null;
     if (sharedContext && archiveKey) {
       const summaryText = metadata.llmSummary?.summary || "";
       if (typeof sharedContext.setSummary === "function" && summaryText) {
@@ -605,14 +658,16 @@ export class CicadaCompressor {
 
     if (toolKey) {
       const outputs = context[toolKey];
-      const compressedOutputs = outputs.map((entry) => {
-        const text = safeStringify(entry);
-        stats.originalSize += text.length;
-        const compressed = compressValue(entry, { maxChars, maxArrayItems, maxDepth }, stats, 0);
-        stats.compressedSize += safeStringify(compressed).length;
-        return compressed;
-      });
-      updated[toolKey] = compressedOutputs;
+      if (Array.isArray(outputs)) {
+        const compressedOutputs = outputs.map((entry) => {
+          const text = safeStringify(entry);
+          stats.originalSize += text.length;
+          const compressed = compressValue(entry, { maxChars, maxArrayItems, maxDepth }, stats, 0);
+          stats.compressedSize += safeStringify(compressed).length;
+          return compressed;
+        });
+        updated[toolKey] = compressedOutputs;
+      }
     }
 
     if (Array.isArray(context.messages)) {
@@ -637,14 +692,29 @@ export class CicadaCompressor {
    * @returns {{ compressed: Record<string, unknown>, stats: Record<string, number> }}
    */
   _compressSessionHistory(context, options = {}) {
-    const keepLastTurns = Number.isFinite(options.keepLastTurns) ? options.keepLastTurns : 6;
-    const summaryLineChars = Number.isFinite(options.summaryLineChars) ? options.summaryLineChars : 120;
+    const keepLastTurns = (() => {
+      const n = typeof options.keepLastTurns === "number" ? options.keepLastTurns : Number(options.keepLastTurns);
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 6;
+    })();
+    const summaryLineChars = (() => {
+      const n = typeof options.summaryLineChars === "number" ? options.summaryLineChars : Number(options.summaryLineChars);
+      return Number.isFinite(n) ? Math.max(20, Math.floor(n)) : 120;
+    })();
     const titleOnly = options.titleOnly === true;
-    const titleMaxWords = Number.isFinite(options.titleMaxWords) ? Math.max(1, Math.floor(options.titleMaxWords)) : 10;
-    const titleMaxChars = Number.isFinite(options.titleMaxChars) ? Math.max(10, Math.floor(options.titleMaxChars)) : 80;
+    const titleMaxWords = (() => {
+      const n = typeof options.titleMaxWords === "number" ? options.titleMaxWords : Number(options.titleMaxWords);
+      return Number.isFinite(n) ? Math.max(1, Math.floor(n)) : 10;
+    })();
+    const titleMaxChars = (() => {
+      const n = typeof options.titleMaxChars === "number" ? options.titleMaxChars : Number(options.titleMaxChars);
+      return Number.isFinite(n) ? Math.max(10, Math.floor(n)) : 80;
+    })();
     // 新增：thinking 摘要选项（默认 false 保持向后兼容）
     const summarizeThinking = options.summarizeThinking === true;
-    const thinkingSummaryMaxChars = Number.isFinite(options.thinkingSummaryMaxChars) ? options.thinkingSummaryMaxChars : 150;
+    const thinkingSummaryMaxChars = (() => {
+      const n = typeof options.thinkingSummaryMaxChars === "number" ? options.thinkingSummaryMaxChars : Number(options.thinkingSummaryMaxChars);
+      return Number.isFinite(n) ? Math.max(30, Math.floor(n)) : 150;
+    })();
 
     const stats = {
       totalMessages: 0,
@@ -661,7 +731,10 @@ export class CicadaCompressor {
 
     if (!historyKey) return { compressed: context, stats };
 
-    const messages = context[historyKey].map(normalizeMessage);
+    const history = context[historyKey];
+    if (!Array.isArray(history)) return { compressed: context, stats };
+
+    const messages = history.map(normalizeMessage);
     stats.totalMessages = messages.length;
     const merged = [];
     for (const message of messages) {
@@ -736,9 +809,10 @@ export class CicadaCompressor {
    * @returns {Promise<Record<string, unknown>>}
    */
   async _compressWithLLM(context, options = {}) {
-    const maxInputChars = Number.isFinite(options.maxInputChars)
-      ? options.maxInputChars
-      : DEFAULT_MAX_INPUT_CHARS;
+    const maxInputChars = (() => {
+      const n = typeof options.maxInputChars === "number" ? options.maxInputChars : Number(options.maxInputChars);
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : DEFAULT_MAX_INPUT_CHARS;
+    })();
     const contextText = safeStringify(context).slice(0, maxInputChars);
     const currentTime = new Date().toISOString();
     const prompt = [
@@ -786,18 +860,30 @@ export class CicadaCompressor {
     if (this.modelRouter && typeof this.modelRouter.call === "function") {
       try {
         const resp = await this.modelRouter.call({ usage: "cicada_summary", messages });
-        return resp?.content ?? resp?.text ?? resp;
+        if (resp && typeof resp === "object") {
+          const record = /** @type {Record<string, unknown>} */ (resp);
+          return record.content ?? record.text ?? resp;
+        }
+        return resp;
       } catch (err) {
         if (this.modelRouter.call.length >= 2) {
           const resp = await this.modelRouter.call(messages, { usage: "cicada_summary" });
-          return resp?.content ?? resp?.text ?? resp;
+          if (resp && typeof resp === "object") {
+            const record = /** @type {Record<string, unknown>} */ (resp);
+            return record.content ?? record.text ?? resp;
+          }
+          return resp;
         }
         throw err;
       }
     }
     if (this.modelRouter && typeof this.modelRouter.chat === "function") {
       const resp = await this.modelRouter.chat(messages);
-      return resp?.content ?? resp?.text ?? resp;
+      if (resp && typeof resp === "object") {
+        const record = /** @type {Record<string, unknown>} */ (resp);
+        return record.content ?? record.text ?? resp;
+      }
+      return resp;
     }
     return null;
   }
@@ -811,6 +897,10 @@ export class CicadaCompressor {
     const key = toNonEmptyString(stageKey) || makeSecureTimestampedId("archive");
     const adapter = this.archiveAdapter;
 
+    const metadata = isPlainObject(data?.metadata) ? /** @type {Record<string, unknown>} */ (data.metadata) : null;
+    const llmSummary = metadata && isPlainObject(metadata.llmSummary) ? /** @type {Record<string, unknown>} */ (metadata.llmSummary) : null;
+    const summaryText = toNonEmptyString(llmSummary?.summary) || toNonEmptyString(data.summary) || "";
+
     const resolvedTimestamp = (() => {
       const raw = data?.timestamp;
       if (typeof raw === "number" && Number.isFinite(raw)) return raw;
@@ -823,7 +913,7 @@ export class CicadaCompressor {
       schemaVersion: CICADA_SCHEMA_VERSION,
       ...data,
       timestamp: resolvedTimestamp,
-      summary: data.metadata?.llmSummary?.summary || data.summary || "",
+      summary: summaryText,
       stageKey: key,
     };
 
@@ -867,11 +957,13 @@ export class CicadaCompressor {
 
     // Schema version validation
     if (entry && typeof entry === "object") {
-      const version = entry.schemaVersion;
-      if (!SUPPORTED_SCHEMA_VERSIONS.has(version)) {
-        logger.warn(`CicadaCompressor.restore: unsupported schema version "${version}" for key "${key}"`);
+      const version = /** @type {Record<string, unknown>} */ (entry).schemaVersion;
+      /** @type {string | undefined} */
+      const normalizedVersion = version === undefined ? undefined : typeof version === "string" ? version : String(version);
+      if (!SUPPORTED_SCHEMA_VERSIONS.has(normalizedVersion)) {
+        logger.warn(`CicadaCompressor.restore: unsupported schema version "${String(version)}" for key "${key}"`);
         // Return entry anyway but mark as potentially incompatible
-        entry._schemaWarning = `Unsupported schema version: ${version}`;
+        entry._schemaWarning = `Unsupported schema version: ${String(version)}`;
       }
     }
 
@@ -885,15 +977,20 @@ export class CicadaCompressor {
    */
   async listArchives(options = {}) {
     const { limit = 10, pattern = "" } = options;
+    const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 10;
+    /** @type {Array<{ id: string, timestamp: number, summary: string, stageKey: string }>} */
     const all = [];
 
     // 从内存 store 中获取
     for (const [key, entry] of this._archiveStore.entries()) {
+      const ts = this._toTimestampMs(entry?.timestamp) ?? (typeof entry?.timestamp === "number" ? entry.timestamp : 0);
+      const summary = toNonEmptyString(entry?.summary) || "";
+      const stage = toNonEmptyString(entry?.stageKey) || key;
       all.push({
         id: key,
-        timestamp: entry.timestamp,
-        summary: entry.summary,
-        stageKey: entry.stageKey,
+        timestamp: ts,
+        summary,
+        stageKey: stage,
       });
     }
 
@@ -910,11 +1007,11 @@ export class CicadaCompressor {
         const escaped = safePattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         regex = new RegExp(escaped, "i");
       }
-      filtered = all.filter(e => regex.test(e.summary) || regex.test(e.id));
+      filtered = all.filter((e) => regex.test(e.summary) || regex.test(e.id));
     }
 
     filtered.sort((a, b) => b.timestamp - a.timestamp);
-    return filtered.slice(0, limit);
+    return filtered.slice(0, safeLimit);
   }
 
   /**
@@ -924,36 +1021,43 @@ export class CicadaCompressor {
    * @returns {Record<string, unknown>} handoff 文档
    */
   buildHandoff(state, sharedContext) {
-    const todos = Array.isArray(state?.todos) ? state.todos : [];
+    /** @type {CicadaAgentState} */
+    const stateValue = state && typeof state === "object" ? /** @type {CicadaAgentState} */ (state) : {};
+    const sharedValue =
+      sharedContext && (typeof sharedContext === "object" || typeof sharedContext === "function")
+        ? /** @type {CicadaSharedContext} */ (sharedContext)
+        : null;
+
+    const todos = Array.isArray(stateValue.todos) ? stateValue.todos : [];
     const pending = todos.filter(t => t.status !== "done" && t.status !== "completed");
     const completed = todos.filter(t => t.status === "done" || t.status === "completed");
 
     return {
-      runId: state?.runId,
+      runId: stateValue.runId,
       timestamp: new Date().toISOString(),
 
       // 已完成
       accomplished: {
-        summary: sharedContext?.buildSummaryText?.() || state?.L1?.condensedMemory?.summary || "",
+        summary: sharedValue?.buildSummaryText?.() || stateValue.L1?.condensedMemory?.summary || "",
         completedTodos: completed.map(t => t.content || t.title || t.text),
-        claimCount: state?.L1?.claims?.length || 0,
+        claimCount: stateValue.L1?.claims?.length || 0,
       },
 
       // 待办
       pending: {
         todos: pending.map(t => ({ content: t.content || t.title || t.text, priority: t.priority })),
-        taskGoal: state?.taskGoal || "",
+        taskGoal: stateValue.taskGoal || "",
       },
 
       // 关键决策（最近5条）
-      decisions: sharedContext?.getDecisions?.()?.slice(-5) || state?.L1?.condensedMemory?.decisionTrace || [],
+      decisions: sharedValue?.getDecisions?.()?.slice(-5) || stateValue.L1?.condensedMemory?.decisionTrace || [],
 
       // 继续指南
       resumeGuide: {
         nextAction: pending[0]?.content || pending[0]?.title || pending[0]?.text || null,
-        context: sharedContext?.getAllSummaries?.() || {},
-        warnings: state?.L2?.warnings || [],
-        iteration: state?.iteration || 0,
+        context: sharedValue?.getAllSummaries?.() || {},
+        warnings: stateValue.L2?.warnings || [],
+        iteration: stateValue.iteration || 0,
       },
     };
   }

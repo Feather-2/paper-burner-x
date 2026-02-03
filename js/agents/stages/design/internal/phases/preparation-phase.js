@@ -71,7 +71,7 @@ function normalizeFontFamily(value, fallback) {
  * 准备阶段：解析大纲 + 提取样式
  *
  * @param {any} loop
- * @param {{ context: any, runContext: any, emit?: EmitFn, startExecution: StartExecutionFn, finishExecution: FinishExecutionFn, traceContext?: any }} params
+ * @param {{ contentPackage?: any, context: any, runContext: any, emit?: EmitFn, startExecution: StartExecutionFn, finishExecution: FinishExecutionFn, traceContext?: any }} params
  * @returns {Promise<{ parsedContentPackage: any, slideIntents: any[], designSystem: any, constraints: any, userConfig: any }>}
  */
 export async function runPreparationPhase(loop, {

@@ -13,6 +13,20 @@ import { safeJsonParse } from "../shared/index.js";
 import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 
 /**
+ * @typedef {Error & { status?: number }} HttpError
+ */
+
+/**
+ * @typedef {object} WhisperProviderConstructorOptions
+ * @property {string} [provider] - 'elevenlabs' | 'groq' | 'openai' | 'openai-compatible'
+ * @property {string} [apiKey] - API key
+ * @property {string} [model] - 模型 ID
+ * @property {string} [baseUrl] - 自定义 API 基础 URL（openai-compatible）
+ * @property {boolean} [baseUrlTrusted]
+ * @property {string} [name]
+ */
+
+/**
  * Sanitize baseUrl - only clean up URL format, no host allowlist restriction.
  * The host allowlist was removed because users need to use OpenAI-compatible
  * endpoints (LocalAI, ollama, oneapi, etc.) which would be blocked.
@@ -66,7 +80,7 @@ async function elevenLabsAdapter(file, apiKey, opts = {}) {
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
-    const err = new Error(`ElevenLabs STT failed: ${resp.status} ${errText}`);
+    const err = /** @type {HttpError} */ (new Error(`ElevenLabs STT failed: ${resp.status} ${errText}`));
     err.status = resp.status;
     throw err;
   }
@@ -128,7 +142,7 @@ async function groqWhisperAdapter(file, apiKey, opts = {}) {
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
-    const err = new Error(`Groq Whisper failed: ${resp.status} ${errText}`);
+    const err = /** @type {HttpError} */ (new Error(`Groq Whisper failed: ${resp.status} ${errText}`));
     err.status = resp.status;
     throw err;
   }
@@ -185,7 +199,7 @@ async function openaiWhisperAdapter(file, apiKey, opts = {}) {
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
-    const err = new Error(`OpenAI Whisper failed: ${resp.status} ${errText}`);
+    const err = /** @type {HttpError} */ (new Error(`OpenAI Whisper failed: ${resp.status} ${errText}`));
     err.status = resp.status;
     throw err;
   }
@@ -225,12 +239,25 @@ const PROVIDER_ADAPTERS = {
 // ============ Main Class ============
 
 export class WhisperProvider {
+  /** @type {string} */
+  provider;
+  /** @type {string} */
+  apiKey;
+  /** @type {string | undefined} */
+  model;
+  /** @type {string | undefined} */
+  baseUrl;
+  /** @type {boolean} */
+  baseUrlTrusted;
+  /** @type {string} */
+  id;
+  /** @type {string} */
+  name;
+  /** @type {string[]} */
+  capabilities;
+
   /**
-   * @param {Object} opts
-   * @param {string} opts.provider - 'elevenlabs' | 'groq' | 'openai' | 'openai-compatible'
-   * @param {string} opts.apiKey - API key
-   * @param {string} [opts.model] - 模型 ID
-   * @param {string} [opts.baseUrl] - 自定义 API 基础 URL（openai-compatible）
+   * @param {WhisperProviderConstructorOptions} [opts]
    */
   constructor(opts = {}) {
     this.provider = toNonEmptyString(opts.provider) || "elevenlabs";
@@ -358,6 +385,7 @@ export function createWhisperProviderFromConfig({ storage, keyLoader, storageKey
   if (toNonEmptyString(config.baseUrl)) config.baseUrlTrusted = false;
 
   // 尝试从模型管理获取 API key
+  // @ts-ignore - loadModelKeys may be provided as a global in browser builds
   const loader = typeof keyLoader === "function" ? keyLoader : typeof loadModelKeys === "function" ? loadModelKeys : null;
   if (!config.apiKey && loader) {
     const providerKeyMap = {

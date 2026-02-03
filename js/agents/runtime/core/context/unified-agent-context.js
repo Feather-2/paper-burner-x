@@ -341,6 +341,7 @@ export class UnifiedAgentContext {
    * @param {boolean} [options.includeMemoryL3] - 是否包含 L3 记忆
    * @param {boolean} [options.incremental] - 是否使用增量快照
    * @param {string} [options.stateStrategy] - 状态策略
+   * @param {string} [options.strategy] - 状态策略（兼容旧字段）
    * @returns {Promise<object>} 检查点对象
    */
   async saveCheckpoint(options = {}) {

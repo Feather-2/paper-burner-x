@@ -2,7 +2,7 @@ import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 
 /**
  * 内存存储适配器
- * @implements {import("./storage-adapter.js").StorageAdapter}
+ * @see StorageAdapter (./storage-adapter.js)
  */
 export class MapAdapter {
   /** @type {Map<string, any>} */

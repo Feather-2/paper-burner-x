@@ -43,7 +43,7 @@ function resolveUrl(pathOrUrl) {
   }
 }
 
-async function fetchJson(url, { maxBytes, context } = {}) {
+async function fetchJson(url, /** @type {{ maxBytes?: number, context?: string }} */ { maxBytes, context } = {}) {
   if (typeof fetch !== "function") throw new Error("fetch is not available in this environment");
   const resp = await fetch(url, { cache: "no-store" });
   if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status}`);
@@ -195,7 +195,7 @@ function parseSkillMarkdown(contents, filePath, scope) {
   };
 }
 
-async function loadManifest(manifestUrl, { maxManifestBytes } = {}) {
+async function loadManifest(manifestUrl, /** @type {{ maxManifestBytes?: number }} */ { maxManifestBytes } = {}) {
   const primary = resolveUrl(manifestUrl || DEFAULT_MANIFEST_URL);
   const fallback = resolveUrl(DEFAULT_MANIFEST_URL_FALLBACK);
   const candidates = [primary, fallback].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
@@ -286,6 +286,7 @@ function normalizeSkillFromUserStore(entry) {
  *
  * @param {Object} options
  * @param {string} [options.manifestUrl] - manifest.json URL（默认 public/skills/manifest.json）
+ * @param {number} [options.maxManifestBytes] - Maximum manifest size in bytes
  * @returns {Promise<{skills:Array,errors:Array}>}
  */
 export async function loadSkills({ manifestUrl, maxManifestBytes } = {}) {
@@ -419,6 +420,7 @@ export async function loadSkillsFromNexus(nexusProvider) {
  * @param {Object} [options]
  * @param {string} [options.manifestUrl]
  * @param {any} [options.nexusProvider]
+ * @param {number} [options.maxManifestBytes] - Maximum manifest size in bytes
  * @returns {Promise<{skills:Array,errors:Array}>}
  */
 export async function loadAllSkills({ manifestUrl, nexusProvider, maxManifestBytes } = {}) {

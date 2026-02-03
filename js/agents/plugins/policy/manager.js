@@ -211,7 +211,7 @@ export class PolicyManager {
   load() {
     if (this._loaded) return;
     const rules = this.ruleStore.load();
-    this.engine.setRules(rules);
+    this.engine.setRules(/** @type {any} */ (rules));
     this._loaded = true;
   }
 

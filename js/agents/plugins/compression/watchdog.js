@@ -8,6 +8,8 @@ import { createPlugin } from '../../core/plugin.js';
 
 /** @typedef {import('../../core/plugin.js').PluginContext & Record<string, any>} PluginContext */
 
+export { Watchdog } from './impl/watchdog.js';
+
 export default createPlugin({
   name: 'compression/watchdog',
   version: '1.0.0',

@@ -72,6 +72,7 @@ function safeStringify(value, { space = 0 } = {}) {
  *
  * @typedef {object} DeepSearchStageApi
  * @property {unknown=} runStore
+ * @property {number=} toolTimeoutMs
  * @property {{ getCursor?: () => unknown }=} sideEffects
  *
  * @typedef {object} ExecuteDeepSearchDecisionParams

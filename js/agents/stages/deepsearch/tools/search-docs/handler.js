@@ -19,7 +19,7 @@ function withTimeout(promise, timeoutMs, label = "operation") {
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
-      const err = new Error(`${label} timed out`);
+      const err = /** @type {Error & { code?: string }} */ (new Error(`${label} timed out`));
       err.code = "TIMEOUT";
       reject(err);
     }, timeoutMs);
@@ -40,6 +40,9 @@ function withTimeout(promise, timeoutMs, label = "operation") {
  * @property {string} [docId] - 文档 ID（备用）
  * @property {string} [id] - 通用 ID（备用）
  * @property {string} [chunkId] - 分块 ID
+ * @property {string} [chunk_id] - 分块 ID（snake_case 备用）
+ * @property {string} [hitId] - 命中 ID（备用）
+ * @property {string} [hit_id] - 命中 ID（snake_case 备用）
  * @property {string} [text] - 文本内容
  * @property {string} [snippet] - 摘要片段
  * @property {string} [content] - 内容（备用）

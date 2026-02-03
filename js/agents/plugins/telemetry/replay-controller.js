@@ -84,7 +84,7 @@ export class RunReplayController {
   get state() {
     return {
       runId: this._runId,
-      status: this._status,
+      status: /** @type {"idle" | "completed" | "playing" | "paused"} */ (this._status),
       speed: this.speed,
       maxDelayMs: this.maxDelayMs,
       cursor: this._cursor,

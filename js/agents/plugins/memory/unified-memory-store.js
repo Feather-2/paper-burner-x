@@ -134,6 +134,14 @@ export class UnifiedMemoryStore {
   _getStateRef() {
     return this._engine._getStateRef();
   }
+
+  /**
+   * @private
+   * @param {string} layer
+   */
+  _markDirty(layer) {
+    void layer;
+  }
 }
 
 applyQueryMethods(UnifiedMemoryStore);

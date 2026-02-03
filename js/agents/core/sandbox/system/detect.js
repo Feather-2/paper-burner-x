@@ -5,6 +5,9 @@
 
 import { SandboxBackend, Platform } from './constants.js';
 
+/** @type {typeof globalThis.process} */
+const process = globalThis.process;
+
 /**
  * 检测结果
  * @typedef {Object} DetectionResult
@@ -65,7 +68,9 @@ export function getPlatform() {
     return process.platform;
   }
   // Deno
+  // @ts-ignore
   if (typeof Deno !== 'undefined' && Deno.build) {
+    // @ts-ignore
     return Deno.build.os === 'windows' ? Platform.WIN32 : Deno.build.os;
   }
   // Browser - 无系统级沙箱
@@ -216,6 +221,7 @@ async function execCommand(cmd, args = [], options = {}) {
 
   // Node.js / Bun
   if (typeof process !== 'undefined' && process.versions?.node) {
+    // @ts-ignore - Node.js builtin module (only available in Node runtime)
     const { spawn } = await import('child_process');
     return new Promise((resolve) => {
       const proc = spawn(cmd, args, {
@@ -248,8 +254,10 @@ async function execCommand(cmd, args = [], options = {}) {
   }
 
   // Deno
+  // @ts-ignore
   if (typeof Deno !== 'undefined') {
     try {
+      // @ts-ignore
       const proc = new Deno.Command(cmd, {
         args,
         stdout: 'piped',

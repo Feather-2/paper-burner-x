@@ -72,7 +72,10 @@ function errorResult(err) {
  * @returns {value is ErrorResult}
  */
 function isErrorResultValue(value) {
-  return !!value && typeof value === 'object' && value.ok === false && typeof value.error === 'string';
+  if (!value || typeof value !== 'object') return false;
+  /** @type {{ ok?: unknown, error?: unknown }} */
+  const maybe = value;
+  return maybe.ok === false && typeof maybe.error === 'string';
 }
 
 /**
@@ -81,8 +84,10 @@ function isErrorResultValue(value) {
  */
 function normalizeLogger(logger) {
   if (logger && typeof logger === 'object') {
-    const info = typeof logger.info === 'function' ? logger.info.bind(logger) : null;
-    const warn = typeof logger.warn === 'function' ? logger.warn.bind(logger) : null;
+    /** @type {{ info?: unknown, warn?: unknown }} */
+    const maybe = logger;
+    const info = typeof maybe.info === 'function' ? maybe.info.bind(logger) : undefined;
+    const warn = typeof maybe.warn === 'function' ? maybe.warn.bind(logger) : undefined;
     if (info || warn) return { info, warn };
   }
   return createLogger('core/secure-plugin-loader');
@@ -301,7 +306,7 @@ export class SecurePluginLoader {
    * @param {LoadPluginOptions} [options]
    * @returns {Promise<any | ErrorResult>}
    */
-  async loadPlugin(url, options = {}) {
+  async loadPlugin(url, options) {
     const opts = isPlainObject(options) ? options : {};
 
     if (opts.skipIntegrity) {
@@ -448,10 +453,11 @@ export class SecurePluginLoader {
           plugin: result.plugin,
         });
       } else {
+        const failedResult = /** @type {{ ok: false, url: string, integrity?: string, error: string }} */ (result);
         failed.push({
-          url: result.url,
-          integrity: result.integrity,
-          error: result.error,
+          url: failedResult.url,
+          integrity: failedResult.integrity,
+          error: failedResult.error,
         });
       }
     }
@@ -473,9 +479,12 @@ export class SecurePluginLoader {
       };
     }
 
-    const url = toNonEmptyString(entry.url) || '(unknown)';
-    const integrity = toNonEmptyString(entry.integrity);
-    if (!toNonEmptyString(entry.url)) {
+    const spec = /** @type {Record<string, unknown>} */ (entry);
+
+    const rawUrl = toNonEmptyString(spec.url);
+    const url = rawUrl || '(unknown)';
+    const integrity = toNonEmptyString(spec.integrity);
+    if (!rawUrl) {
       return {
         ok: false,
         url,
@@ -490,7 +499,8 @@ export class SecurePluginLoader {
       };
     }
 
-    if (entry.config !== undefined && !isPlainObject(entry.config)) {
+    const rawConfig = spec.config;
+    if (rawConfig !== undefined && !isPlainObject(rawConfig)) {
       return {
         ok: false,
         url,
@@ -499,8 +509,11 @@ export class SecurePluginLoader {
       };
     }
 
+    /** @type {Record<string, unknown> | undefined} */
+    const config = rawConfig === undefined ? undefined : /** @type {Record<string, unknown>} */ (rawConfig);
+
     try {
-      const plugin = await this.loadPlugin(url, { integrity, config: entry.config });
+      const plugin = await this.loadPlugin(url, { integrity, config });
       if (isErrorResultValue(plugin)) {
         return {
           ok: false,
@@ -514,7 +527,7 @@ export class SecurePluginLoader {
         ok: true,
         url,
         integrity,
-        config: entry.config,
+        config,
         plugin,
       };
     } catch (err) {

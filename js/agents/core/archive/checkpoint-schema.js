@@ -66,14 +66,18 @@ export function validateCheckpoint(checkpoint) {
 export function migrateCheckpoint(checkpoint) {
   if (!checkpoint) return null;
 
+  const cp = /** @type {AnyRecord} */ (checkpoint);
+
   // Already in new format.
-  if (checkpoint.schemaVersion) return checkpoint;
+  if (cp.schemaVersion) return /** @type {Checkpoint} */ (cp);
 
   // Migrate legacy format.
   return {
     schemaVersion: CHECKPOINT_SCHEMA_VERSION,
-    nodeStates: checkpoint.nodeStates || checkpoint,
-    timestamp: checkpoint.timestamp || Date.now(),
-    metadata: checkpoint.metadata || { type: CheckpointType.ARCHIVE },
+    nodeStates: /** @type {NodeStates} */ (cp.nodeStates || cp),
+    timestamp: /** @type {number} */ (cp.timestamp || Date.now()),
+    metadata: /** @type {CheckpointMetadata} */ (
+      cp.metadata || { type: CheckpointType.ARCHIVE }
+    ),
   };
 }

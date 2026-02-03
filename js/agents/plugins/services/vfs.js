@@ -7,6 +7,10 @@
 import { createPlugin } from '../../core/plugin.js';
 
 /**
+ * @typedef {string} BufferEncoding
+ */
+
+/**
  * @typedef {object} VfsReadOptions
  * @property {BufferEncoding} [encoding] - 文件编码
  */
@@ -195,7 +199,7 @@ export default createPlugin({
             ? { ...(pattern || {}), ...(options || {}) }
             : { pattern, ...(options || {}) };
 
-        return globFn(request);
+        return globFn(/** @type {any} */ (request));
       },
 
       /**

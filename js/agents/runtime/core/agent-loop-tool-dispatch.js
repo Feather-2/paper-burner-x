@@ -23,6 +23,9 @@ export function initToolDispatch(loop, { tools, hooks, logger } = {}) {
 }
 
 class AgentLoopToolDispatch {
+  /** @type {ToolRegistry} */
+  _toolRegistry;
+
   /** @param {any} tools */
   registerTools(tools) {
     return this._toolRegistry.registerTools(tools);

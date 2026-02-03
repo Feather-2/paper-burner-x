@@ -57,7 +57,7 @@ function ensureTrailingSlashUrl(url) {
   return url.toString();
 }
 
-function resolveAllowedPyodideUrl(raw, { requireCdnPrefix } = {}) {
+function resolveAllowedPyodideUrl(raw, /** @type {{ requireCdnPrefix?: boolean }} */ { requireCdnPrefix } = {}) {
   const value = typeof raw === "string" ? raw.trim() : "";
   if (!value) return null;
 

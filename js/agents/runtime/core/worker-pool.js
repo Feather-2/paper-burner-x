@@ -184,7 +184,7 @@ export class WorkerPool {
     if (!idleWorker && this._workers.size < this._maxWorkers) {
       const id = this._nextWorkerId++;
       const client = new WorkerRpcClient({
-        createWorker: this._createWorker,
+        createWorker: /** @type {any} */ (this._createWorker),
         timeoutMs: this._taskTimeoutMs,
       });
       const workerInfo = { client, busy: false, lastUsed: Date.now(), taskCount: 0 };
@@ -298,7 +298,7 @@ export class WorkerPool {
     for (let i = 0; i < toCreate; i++) {
       const id = this._nextWorkerId++;
       const client = new WorkerRpcClient({
-        createWorker: this._createWorker,
+        createWorker: /** @type {any} */ (this._createWorker),
         timeoutMs: this._taskTimeoutMs,
       });
       this._workers.set(id, { client, busy: false, lastUsed: Date.now(), taskCount: 0 });

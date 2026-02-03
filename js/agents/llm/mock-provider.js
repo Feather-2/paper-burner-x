@@ -113,7 +113,7 @@ export class MockProvider extends BaseProvider {
    * @param {{ model: string, messages: ChatMessage[], images?: any }} [input]
    * @returns {Promise<ChatResponse>}
    */
-  async chat({ model, messages, images } = {}) {
+  async chat({ model, messages, images } = /** @type {any} */ ({})) {
     const m = toNonEmptyString(model);
     if (!m) throw new TypeError("chat({model}): model must be a non-empty string");
     assertChatMessages(messages);

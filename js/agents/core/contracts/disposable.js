@@ -19,6 +19,7 @@ export function isDisposable(obj) {
     obj !== null &&
     obj !== undefined &&
     typeof obj === "object" &&
+    "dispose" in obj &&
     typeof obj.dispose === "function"
   );
 }

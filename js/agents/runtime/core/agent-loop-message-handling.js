@@ -4,24 +4,27 @@ import { getLimit } from "./constants/limits.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord
+ * @typedef {import("./message-manager.js").EmitFn} EmitFn
  * @typedef {{ payload: any, ts: number }} UserInputEntry
  * @typedef {{ clear?: boolean }} ConsumeUserInputsOptions
  * @typedef {{ clear?: boolean }} DrainUserInputsOptions
  * @typedef {{ key?: string }} ApplyUserInputsOptions
- * @typedef {{ emit?: Function, subscribe?: (eventName: string, handler: (evt: any) => void, options?: { signal?: AbortSignal }) => (() => void) }} EventBusLike
+ * @typedef {{ emit?: EmitFn, subscribe?: (eventName: string, handler: (evt: any) => void, options?: { signal?: AbortSignal }) => (() => void) }} EventBusLike
  * @typedef {{ eventName?: string, signal?: AbortSignal }} AttachListenerOptions
+ *
+ * @typedef {object} InitMessageHandlingOptions
+ * @property {AnyRecord | null} [contextConfig]
+ * @property {any} [tokenCounter]
+ * @property {any} [logger]
+ * @property {EmitFn | null} [emit]
+ * @property {string} [stageName]
+ * @property {string} [actor]
+ * @property {number} [maxUserInputs]
  */
 
 /**
  * @param {any} loop
- * @param {object} options
- * @param {AnyRecord | null} [options.contextConfig]
- * @param {any} [options.tokenCounter]
- * @param {any} [options.logger]
- * @param {Function | null} [options.emit]
- * @param {string} options.stageName
- * @param {string} options.actor
- * @param {number} [options.maxUserInputs]
+ * @param {InitMessageHandlingOptions} [options]
  */
 export function initMessageHandling(
   loop,
@@ -46,6 +49,42 @@ export function initMessageHandling(
 }
 
 class AgentLoopMessageHandling {
+  /** @type {MessageManager} */
+  _messageManager;
+
+  /** @type {Deque<UserInputEntry>} */
+  _userInputs;
+
+  /** @type {number} */
+  _maxUserInputs;
+
+  /** @type {(() => void) | null} */
+  _userInputUnsub;
+
+  /** @type {EventBusLike | null} */
+  _userInputBus;
+
+  /** @type {string} */
+  _userInputEvent;
+
+  /** @type {(() => void) | null} */
+  _pauseListenerUnsub;
+
+  /** @type {EmitFn | null | undefined} */
+  emit;
+
+  /** @type {EventBusLike | null | undefined} */
+  eventBus;
+
+  /** @type {string} */
+  stageName;
+
+  /** @type {string} */
+  actor;
+
+  /** @type {(reason?: string) => void} */
+  pause;
+
   // ===== Message handling (delegates to MessageManager) =====
 
   /** @returns {any[]} */

@@ -442,9 +442,9 @@ export class ToolPermissions {
   static fromJSON(json) {
     if (!isPlainObject(json)) return new ToolPermissions();
     return new ToolPermissions({
-      level: json.level,
+      level: /** @type {PermissionLevel} */ (json.level),
       restrictions: json.restrictions,
-      strict: json.strict,
+      strict: /** @type {boolean} */ (json.strict),
     });
   }
 

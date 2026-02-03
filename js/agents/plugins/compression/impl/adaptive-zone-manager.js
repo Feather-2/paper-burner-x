@@ -46,6 +46,15 @@ const DEFAULT_BOUNDARIES = Object.freeze({
 });
 
 export class AdaptiveZoneManager {
+  /** @type {ZoneBoundaries} */
+  _defaultBoundaries;
+  /** @type {ZoneBoundaries} */
+  _currentBoundaries;
+  /** @type {number} */
+  _densityWeight;
+  /** @type {{ archive: number, condensed: number, working: number, active: number }} */
+  _zoneDensities;
+
   /**
    * @param {AdaptiveZoneManagerOptions} [options]
    */
@@ -57,7 +66,7 @@ export class AdaptiveZoneManager {
     this._currentBoundaries = { ...this._defaultBoundaries };
     this._densityWeight = Math.min(1, Math.max(0, densityWeight));
 
-    /** @type {number[]} 区域内消息密度（tokens/message） */
+    // 区域内消息密度（tokens/message）
     this._zoneDensities = {
       archive: 0,
       condensed: 0,
@@ -95,6 +104,7 @@ export class AdaptiveZoneManager {
   getZoneConfig(zone) {
     const b = this._currentBoundaries;
 
+    /** @type {Record<ZoneName, ZoneConfig>} */
     const configs = {
       archive: {
         name: "archive",

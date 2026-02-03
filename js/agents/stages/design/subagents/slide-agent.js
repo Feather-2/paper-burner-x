@@ -31,7 +31,9 @@ async function ensureNodeModules() {
   if (isBrowser) return false;
   try {
     /* Dynamic import specifier kept in variable to avoid static bundler analysis of node:* */
+    // @ts-ignore
     const fsMod = await import(/* webpackIgnore: true */ /* @vite-ignore */ "node:fs");
+    // @ts-ignore
     const pathMod = await import(/* webpackIgnore: true */ /* @vite-ignore */ "node:path");
     fsPromises = fsMod.promises || (fsMod.default && fsMod.default.promises) || fsMod;
     pathModule = pathMod.default || pathMod;

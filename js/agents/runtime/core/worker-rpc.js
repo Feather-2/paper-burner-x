@@ -57,11 +57,47 @@ function normalizeRemoteError(raw) {
 // WorkerRpcClient
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Minimal "Worker-like" interface that works for both:
+ * - Web Workers (`addEventListener`, `removeEventListener`)
+ * - Node.js `worker_threads` (`on`, `off`, `removeListener`)
+ *
+ * @typedef {object} WorkerRpcWorker
+ * @property {(message: any, transferList?: Transferable[]) => void} postMessage
+ * @property {(() => unknown) | undefined} [terminate]
+ * @property {(type: string, listener: (ev: any) => void, options?: any) => void} [addEventListener]
+ * @property {(type: string, listener: (ev: any) => void, options?: any) => void} [removeEventListener]
+ * @property {(event: string, listener: (...args: any[]) => void) => void} [on]
+ * @property {(event: string, listener: (...args: any[]) => void) => void} [off]
+ * @property {(event: string, listener: (...args: any[]) => void) => void} [removeListener]
+ * @property {((ev: any) => void) | null | undefined} [onmessage]
+ * @property {((ev: any) => void) | null | undefined} [onerror]
+ */
+
 export class WorkerRpcClient {
+  /** @type {WorkerRpcWorker | null} */
+  _workerInstance;
+  /** @type {(() => WorkerRpcWorker | Promise<WorkerRpcWorker>) | null} */
+  _createWorker;
+  /** @type {Promise<WorkerRpcWorker> | null} */
+  _workerPromise;
+  /** @type {number} */
+  _timeoutMs;
+  /** @type {Map<string, { resolve: (v: any) => void, reject: (e: any) => void, timer: any }>} */
+  _pending;
+  /** @type {boolean} */
+  _disposed;
+  /** @type {(event: any) => void} */
+  _boundOnMessage;
+  /** @type {(event: any) => void} */
+  _boundOnError;
+  /** @type {(code: any) => void} */
+  _boundOnExit;
+
   /**
    * @param {object} options
-   * @param {Worker} [options.worker] - Worker instance
-   * @param {function} [options.createWorker] - Factory function to create worker (can return Worker or Promise<Worker>)
+   * @param {WorkerRpcWorker} [options.worker] - Worker instance
+   * @param {(() => WorkerRpcWorker | Promise<WorkerRpcWorker>)} [options.createWorker] - Factory function to create worker (can return Worker or Promise<WorkerRpcWorker>)
    * @param {number} [options.timeoutMs=30000]
    */
   constructor({ worker, createWorker, timeoutMs = 30000 } = {}) {
@@ -89,7 +125,7 @@ export class WorkerRpcClient {
 
   /**
    * Get or create worker
-   * @returns {Promise<Worker>}
+   * @returns {Promise<WorkerRpcWorker>}
    */
   async _getWorker() {
     if (this._workerInstance) return this._workerInstance;
@@ -130,7 +166,7 @@ export class WorkerRpcClient {
 
   /**
    * Attach message/error listeners
-   * @param {Worker} worker
+   * @param {WorkerRpcWorker} worker
    */
   _attachListeners(worker) {
     // Prefer addEventListener if available
@@ -160,7 +196,7 @@ export class WorkerRpcClient {
 
   /**
    * Detach listeners from worker
-   * @param {Worker} worker
+   * @param {WorkerRpcWorker} worker
    */
   _detachListeners(worker) {
     if (!worker) return;
@@ -218,8 +254,12 @@ export class WorkerRpcClient {
     // Validate response structure
     const validated = validateRpcResponse(data);
     if (!validated.ok) {
-      logger.warn("Invalid RPC response", { error: validated.error, id: data.id });
-      pending.reject(new Error(validated.error));
+      let error = "Invalid RPC response";
+      if ("error" in validated && typeof validated.error === "string") {
+        error = validated.error;
+      }
+      logger.warn("Invalid RPC response", { error, id: data.id });
+      pending.reject(new Error(error));
       return;
     }
 

@@ -29,10 +29,21 @@ const DEFAULT_CONFIG = Object.freeze({
   maxL3Bytes: Platform.isBrowser ? 5 * 1024 * 1024 * 1024 : Infinity,
 });
 
-/** @typedef {import("../context/snapshotable.js").Snapshotable} Snapshotable */
+/** @typedef {import("../../runtime/core/context/snapshotable.js").Snapshotable} Snapshotable */
 
 /**
  * MemoryStore - 统一记忆管理
+ *
+ * Note: L0/L1/L2/L3 APIs are mixed in at runtime via `Object.defineProperties()`.
+ * These declarations keep `tsc --checkJs` happy without altering runtime behavior.
+ *
+ * @property {() => Record<string, string>} getAllStageSummaries
+ * @property {() => any[]} getAllDiscoveries
+ * @property {() => any[]} getAllSubagents
+ * @property {(filter?: "pending" | ((signal: any) => boolean)) => any[]} getSignals
+ * @property {(limit?: number) => any[]} getDecisions
+ * @property {() => void} _recalculateL3Bytes
+ *
  * @implements {Snapshotable}
  * @extends {DisposableBase}
  */
@@ -133,6 +144,48 @@ export class MemoryStore extends DisposableBase {
     };
     this._lastSnapshotTs = 0;
   }
+
+  // NOTE: L0/L1/L2/L3 methods are injected at runtime via defineL*Layer().
+  // The stubs below keep `tsc --checkJs` happy; they will be overwritten by Object.defineProperties().
+
+  /** @returns {Record<string, string>} */
+  getAllStageSummaries() {
+    return Object.fromEntries(this._L2?.stageSummaries || []);
+  }
+
+  /** @returns {any[]} */
+  getAllDiscoveries() {
+    const discoveries = this._L1?.syncTable?.discoveries;
+    return discoveries instanceof Map ? Array.from(discoveries.values()) : [];
+  }
+
+  /** @returns {any[]} */
+  getAllSubagents() {
+    const subagents = this._L1?.syncTable?.subagents;
+    return subagents instanceof Map ? Array.from(subagents.values()) : [];
+  }
+
+  /**
+   * @param {"pending" | ((signal: any) => boolean)=} filter
+   * @returns {any[]}
+   */
+  getSignals(filter) {
+    const signals = Array.isArray(this._L1?.signals) ? this._L1.signals : [];
+    if (typeof filter === "function") return signals.filter(filter);
+    if (filter === "pending") return signals.filter((s) => !s?.acknowledged);
+    return [...signals];
+  }
+
+  /**
+   * @param {number=} limit
+   * @returns {any[]}
+   */
+  getDecisions(limit = 10) {
+    const decisions = Array.isArray(this._L1?.decisions) ? this._L1.decisions : [];
+    return decisions.slice(-limit);
+  }
+
+  _recalculateL3Bytes() {}
 
   _markDirty(layer) {
     if (layer in this._dirty) this._dirty[layer] = true;

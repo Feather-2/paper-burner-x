@@ -62,6 +62,9 @@ import { createScreenshotStitcher } from "../internal/screenshot-stitcher.js";
  * @property {number} [maxLayoutVariants] - Override max layout variants
  * @property {number} [minConsistencyScore] - Override min consistency score
  * @property {boolean} [autoFixEnabled] - Enable auto-fix suggestions
+ * @property {{ errorPenalty?: number, warningPenalty?: number, infoPenalty?: number }} [scoring] - Override score penalties
+ * @property {{ unexpectedColorWarning?: number, topColorsToShow?: number, topColorsForFix?: number, unexpectedColorsToShow?: number }} [thresholds] - Override warning/analysis thresholds
+ * @property {{ poor?: number, fair?: number, good?: number }} [statusThresholds] - Override status grading thresholds
  */
 
 /**

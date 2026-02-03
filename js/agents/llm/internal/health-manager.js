@@ -66,14 +66,22 @@ export function computeCooldownMsForBackoff({ backoffLevel, baseCooldownMs, maxC
  * @returns {any | null}
  */
 export function markUnhealthy({ healthMap, time, modelId, error, baseCooldownMs, maxCooldownMs, backoffMultiplier }) {
-  return markUnhealthyInternal({ healthMap, time, modelId, error, baseCooldownMs, maxCooldownMs, backoffMultiplier });
+  return markUnhealthyInternal({
+    healthMap,
+    time: /** @type {any} */ (time),
+    modelId,
+    error,
+    baseCooldownMs,
+    maxCooldownMs,
+    backoffMultiplier,
+  });
 }
 
 /**
  * @param {{ healthMap: Map<string, any>, modelId: string, error: unknown, reason?: string }} input
  * @returns {any | null}
  */
-export function disableModel({ healthMap, modelId, error, reason } = {}) {
+export function disableModel({ healthMap, modelId, error, reason } = /** @type {any} */ ({})) {
   return disableModelInternal({ healthMap, modelId, error, reason });
 }
 
@@ -90,7 +98,7 @@ export function markHealthy({ healthMap, modelId }) {
  * @returns {{ modelId: string, remainingMs: number } | null}
  */
 export function getShortestCooldown({ healthMap, time, candidates }) {
-  return getShortestCooldownInternal({ healthMap, time, candidates });
+  return getShortestCooldownInternal({ healthMap, time: /** @type {any} */ (time), candidates });
 }
 
 /**

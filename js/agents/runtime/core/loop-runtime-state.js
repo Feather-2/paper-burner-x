@@ -6,6 +6,14 @@ import { toNonEmptyString } from "../../shared/index.js";
 /**
  * @typedef {string | Array<unknown> | Record<string, unknown> | null} LoopRuntimeCursor
  */
+/**
+ * @typedef {object} LoopRuntimeStateJSON
+ * @property {unknown} [status]
+ * @property {unknown} [cursor]
+ * @property {unknown} [pausedReason]
+ * @property {unknown} [lastCheckpointId]
+ * @property {Array<unknown>} [statusHistory]
+ */
 
 const runtimeStateBySignal = new WeakMap();
 
@@ -129,7 +137,7 @@ export class LoopRuntimeState {
 
   /**
    * 从 JSON 对象反序列化
-   * @param {unknown} payload - JSON 对象
+   * @param {LoopRuntimeStateJSON | null | undefined} payload - JSON 对象
    * @returns {LoopRuntimeState} 新的 LoopRuntimeState 实例
    */
   static fromJSON(payload) {

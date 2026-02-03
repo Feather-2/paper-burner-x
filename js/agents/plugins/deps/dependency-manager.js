@@ -67,7 +67,7 @@ function sanitizeWheelFilenameFromUrl(url) {
  * @returns {Promise<string>} 小写十六进制哈希字符串
  */
 async function sha256(data) {
-  const buffer = data instanceof ArrayBuffer ? data : data.buffer;
+  const buffer = data instanceof ArrayBuffer ? data : /** @type {ArrayBuffer} */ (data.buffer);
   const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");

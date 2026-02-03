@@ -163,7 +163,14 @@ function normalizeRestoreRequest(input) {
   return null;
 }
 
-function resolveCheckpointStore(api, { runId, logger, fallbackStore } = {}) {
+/**
+ * @typedef {object} StoreOptions
+ * @property {string | null | undefined} [runId]
+ * @property {any} [logger]
+ * @property {any} [fallbackStore]
+ */
+
+function resolveCheckpointStore(api, /** @type {StoreOptions} */ { runId, logger, fallbackStore } = {}) {
   const direct = api?.checkpointStore || api?.checkpoints || null;
   if (direct && typeof direct.saveCheckpoint === "function" && typeof direct.loadCheckpoint === "function") {
     return direct;
@@ -216,8 +223,25 @@ function resolveCheckpointStore(api, { runId, logger, fallbackStore } = {}) {
  * @property {any} [storageAdapter]
  * @property {any} [checkpointStore]
  * @property {any} [checkpoint]
+ * @property {any} [restoreCheckpoint]
+ *
+ * @typedef {object} ResumeOptions
+ * @property {boolean} [force]
+ * @property {number} [iteration]
+ * @property {string} [status]
+ * @property {string} [output]
  */
 
+/**
+ * Note: Message-handling is mixed into BaseAgentLoop at runtime via attachMessageHandling().
+ * These declarations keep `tsc --checkJs` happy without altering runtime behavior.
+ *
+ * @property {any[]} messages
+ * @property {(options?: { clearCompressionHistory?: boolean } | null | undefined) => Promise<void>} resetMessages
+ * @property {(messages: any[]) => void} addMessages
+ * @property {(message: any) => any} addMessage
+ * @property {(options?: { maxRounds?: number } | null | undefined) => Promise<void>} flushCompression
+ */
 export class DefaultAgentLoop extends BaseAgentLoop {
   /**
    * @param {DefaultAgentLoopOptions} [options]
@@ -251,6 +275,36 @@ export class DefaultAgentLoop extends BaseAgentLoop {
     // Callers can inject their own chain via opts.middlewareChain or stageApi.middlewareChain.
     this._middlewareChain =
       opts.middlewareChain && typeof opts.middlewareChain.execute === "function" ? opts.middlewareChain : createDefaultMiddlewareChain({});
+  }
+
+  /** @returns {any[]} */
+  get messages() {
+    const manager = /** @type {any} */ (this)._messageManager;
+    return Array.isArray(manager?.messages) ? manager.messages : [];
+  }
+
+  /** @param {any} message */
+  addMessage(message) {
+    const manager = /** @type {any} */ (this)._messageManager;
+    return manager?.addMessage ? manager.addMessage(message) : message;
+  }
+
+  /** @param {any[]} messages */
+  addMessages(messages) {
+    const manager = /** @type {any} */ (this)._messageManager;
+    manager?.addMessages?.(messages);
+  }
+
+  /** @param {{ clearCompressionHistory?: boolean } | null | undefined} [options] */
+  resetMessages(options = {}) {
+    const manager = /** @type {any} */ (this)._messageManager;
+    return manager?.reset?.(options);
+  }
+
+  /** @param {{ maxRounds?: number } | null | undefined} [options] */
+  flushCompression(options = {}) {
+    const manager = /** @type {any} */ (this)._messageManager;
+    return manager?.flushCompression?.(options);
   }
 
   _buildSystemPrompt() {
@@ -446,7 +500,7 @@ export class DefaultAgentLoop extends BaseAgentLoop {
     const { shouldPersist, checkpointStore, checkpointInterval, mergedCheckpointOptions, emit, signal } = ctx;
     const { toolCalls, results } = state;
 
-    return async ({ iteration, status, output, force = false } = {}) => {
+    return async (/** @type {ResumeOptions} */ { iteration, status, output, force = false } = {}) => {
       if (!shouldPersist || !checkpointStore || !ctx.runId) return null;
       if (!force && iteration && iteration % checkpointInterval !== 0) return null;
 

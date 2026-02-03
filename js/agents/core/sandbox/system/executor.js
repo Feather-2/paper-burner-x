@@ -130,7 +130,7 @@ export class SystemSandboxExecutor {
       default:
         this.executor = createPermissionExecutor({
           ...executorOptions,
-          permissionHandler: this.config.permissionHandler,
+          permissionHandler: /** @type {any} */ (this.config.permissionHandler),
         });
         this.activeBackend = SandboxBackend.PERMISSION_ONLY;
         break;

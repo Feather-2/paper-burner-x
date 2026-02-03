@@ -103,6 +103,34 @@ function matchSegment(pattern, text) {
   return pi === pLen;
 }
 
+/**
+ * Best-effort dev/prod detection that works in both browser and Node without @types/node.
+ * @returns {boolean}
+ */
+function isNonProductionEnvironment() {
+  try {
+    /** @type {any} */
+    const g = typeof globalThis !== "undefined" ? globalThis : {};
+    const env = g?.process?.env ?? null;
+    if (env && typeof env === "object") {
+      const nodeEnv = env.NODE_ENV;
+      if (typeof nodeEnv === "string") return nodeEnv !== "production";
+      if (nodeEnv == null) return true;
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    /** @type {any} */
+    const meta = import.meta;
+    const mode = meta?.env?.MODE;
+    if (typeof mode === "string") return mode !== "production";
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 export class StateBus {
   /**
    * @param {StateBusOptions} [options]
@@ -294,7 +322,7 @@ export class StateBus {
     const { ownerId, scope } = options;
 
     // 开发模式下警告无 scope 的订阅
-    if (!scope && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+    if (!scope && isNonProductionEnvironment()) {
       logger.debug(`[StateBus] subscribe without scope: ${pattern}`, { ownerId });
     }
 

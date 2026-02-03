@@ -56,12 +56,12 @@ export const detectBestBackend = isNodeLike()
 
 /** @type {typeof import('./system/index.js').getPlatform} */
 export const getPlatform = isNodeLike()
-  ? () => import('./system/index.js').then(m => m.getPlatform())
+  ? /** @type {any} */ (() => import('./system/index.js').then(m => m.getPlatform()))
   : () => throwNodeOnlyError('getPlatform');
 
 /** @type {typeof import('./system/index.js').createSystemSandbox} */
 export const createSystemSandbox = isNodeLike()
-  ? (...args) => import('./system/index.js').then(m => m.createSystemSandbox(...args))
+  ? /** @type {any} */ ((...args) => import('./system/index.js').then(m => m.createSystemSandbox(...args)))
   : () => throwNodeOnlyError('createSystemSandbox');
 
 /** @type {typeof import('./system/index.js').execInSandbox} */
@@ -96,7 +96,7 @@ export const createPermissionExecutor = isNodeLike()
 
 /** @type {typeof import('./system/index.js').createInteractivePermissionHandler} */
 export const createInteractivePermissionHandler = isNodeLike()
-  ? (...args) => import('./system/index.js').then(m => m.createInteractivePermissionHandler(...args))
+  ? /** @type {any} */ ((options) => import('./system/index.js').then(m => m.createInteractivePermissionHandler(options)))
   : () => throwNodeOnlyError('createInteractivePermissionHandler');
 
 // SystemSandboxExecutor 类需要特殊处理

@@ -29,10 +29,73 @@ function clampInt(value, min, max, fallback) {
  */
 
 /**
+ * @typedef {import("../../refiner/react-refiner-tools.js").ContentPackage} ContentPackage
+ */
+
+/**
+ * @typedef {import("../../reviewer/auto-reviewer.js").DesignSystem} DesignSystem
+ */
+
+/**
+ * @typedef {Record<string, unknown> & { slideIntentId?: string, pageType?: string, title?: string }} SlideIntent
+ */
+
+/**
+ * @typedef {Record<string, unknown> & { slideHtml?: string }} GeneratedSlide
+ */
+
+/**
+ * @typedef {Record<string, unknown> & { slotId: string, renderType?: string }} ImageSlot
+ */
+
+/**
+ * @typedef {{ enabled?: boolean, recommendedSteps?: number|string, hardLimit?: number|string }} RefineConfig
+ */
+
+/**
+ * @typedef {Record<string, unknown> & { refine?: RefineConfig }} UserConfig
+ */
+
+/**
+ * @typedef {Record<string, unknown>} VisualConstraints
+ */
+
+/**
+ * @typedef {{ slideIntentId?: string, slideIndex?: number, selectedCandidate?: { visualSlots?: Array<Record<string, unknown>> } }} BrainstormCandidateRow
+ */
+
+/**
+ * @typedef {{ candidatesBySlide?: BrainstormCandidateRow[] }} BrainstormResult
+ */
+
+/**
+ * @typedef {object} VisualPhaseContext
+ * @property {ContentPackage} [contentPackage]
+ * @property {SlideIntent[]} [slideIntents]
+ * @property {DesignSystem} [designSystem]
+ * @property {GeneratedSlide[]} [generated]
+ * @property {string[]} [slideHtmls]
+ * @property {Array<Record<string, unknown>>} [slidesMeta]
+ * @property {ImageSlot[]} [imageSlots]
+ * @property {string} [baseDeckHtmlDsl]
+ * @property {string[]} [pendingImages]
+ * @property {BrainstormResult|null} [brainstormResult]
+ * @property {VisualConstraints} [constraints]
+ * @property {UserConfig} [userConfig]
+ * @property {any} context
+ * @property {any} runContext
+ * @property {EmitFn} [emit]
+ * @property {StartExecutionFn} startExecution
+ * @property {FinishExecutionFn} finishExecution
+ * @property {EmitDeckUpdateFn} emitDeckUpdate
+ * @property {any} [traceContext]
+ */
+
+/**
  * 视觉填充阶段处理
  *
  * @param {any} loop
- * @param {{ context: any, runContext: any, emit?: EmitFn, startExecution: StartExecutionFn, finishExecution: FinishExecutionFn, emitDeckUpdate: EmitDeckUpdateFn, traceContext?: any }} params
+ * @param {VisualPhaseContext} params
  * @returns {Promise<{ deckHtmlDsl: string, slidesMeta: any[], imageSlots: any[], imageReport: any, visualReport: any, refineResult?: any, pendingImages: string[] }>}
  */
 export async function runVisualPhase(loop, {

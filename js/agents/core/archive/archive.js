@@ -18,7 +18,7 @@ const logger = createLogger("shared/archive/archive");
 /**
  * IndexedDB 存储适配器（浏览器持久化）
  * 解决问题：MapAdapter 是内存存储，刷新即丢失
- * @implements {import("./storage-adapter.js").StorageAdapter}
+ * @see StorageAdapter (./storage-adapter.js)
  */
 export class IndexedDBAdapter {
   /** @type {string} */
@@ -179,9 +179,11 @@ export class IndexedDBAdapter {
         const p = toNonEmptyString(pattern) ?? "*";
         const escaped = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
         const regex = new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
-        const matches = allKeys.filter((key) => regex.test(key));
+        const matches = /** @type {string[]} */ (
+          allKeys.filter((key) => regex.test(String(key)))
+        );
         matches.sort();
-        resolve(matches);
+        resolve(/** @type {string[]} */ (matches));
       });
     });
   }
@@ -220,7 +222,7 @@ export class IndexedDBAdapter {
 
 /**
  * 降级适配器：优先 IndexedDB，失败时回退到 MapAdapter
- * @implements {import("./storage-adapter.js").StorageAdapter}
+ * @see StorageAdapter (./storage-adapter.js)
  */
 export class FallbackAdapter {
   /** @type {IndexedDBAdapter|null} */

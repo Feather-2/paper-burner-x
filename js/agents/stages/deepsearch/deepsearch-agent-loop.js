@@ -61,6 +61,26 @@ export const AnalysisMode = Object.freeze({
 });
 
 export class DeepSearchAgentLoop extends BaseAgentLoop {
+  /**
+   * Message handling helpers are mixed into `BaseAgentLoop` at runtime via
+   * `attachMessageHandling()`. `checkJs` can't see those prototype extensions,
+   * so we redeclare thin wrappers here to satisfy TS.
+   *
+   * @param {any} message
+   * @returns {any}
+   */
+  addMessage(message) {
+    return /** @type {any} */ (BaseAgentLoop.prototype).addMessage.call(this, message);
+  }
+
+  /**
+   * @param {{ clearCompressionHistory?: boolean } | null | undefined} [options]
+   * @returns {Promise<void>}
+   */
+  resetMessages(options = {}) {
+    return /** @type {any} */ (BaseAgentLoop.prototype).resetMessages.call(this, options);
+  }
+
   constructor(options = {}) {
     const contextConfig = {
       contextWindow: options.contextWindow || options.userConfig?.contextWindow,

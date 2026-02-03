@@ -81,7 +81,10 @@ function makeAbortError(signal) {
   return err;
 }
 
-function withAbortAndTimeout(promise, { signal, timeoutMs } = {}) {
+function withAbortAndTimeout(
+  promise,
+  { signal, timeoutMs } = /** @type {{ signal?: AbortSignal | null, timeoutMs?: number }} */ ({})
+) {
   const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
   if (!signal && !ms) return promise;
   let timer = null;

@@ -95,7 +95,7 @@ export class KernelCompat extends Kernel {
    * @returns {import('./types.d.ts').EventBus}
    */
   get eventBus() {
-    return this.events;
+    return /** @type {any} */ (this.events);
   }
 
   /**
@@ -119,7 +119,7 @@ export class KernelCompat extends Kernel {
  * @returns {typeof Kernel}
  */
 export function attachKernelCompat(KernelClass) {
-  if (!KernelClass || KernelClass.prototype.register) return KernelClass;
+  if (!KernelClass || /** @type {any} */ (KernelClass.prototype).register) return KernelClass;
   const descriptors = Object.getOwnPropertyDescriptors(KernelCompat.prototype);
   for (const [key, descriptor] of Object.entries(descriptors)) {
     if (key === "constructor") continue;

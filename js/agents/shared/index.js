@@ -24,12 +24,14 @@ export { FileWatcher, isNativeWatchSupported } from "./utils/file-watcher.js";
 export { cryptoRandomHex, cryptoRandomUuid, makeSecureId, makeSecureTimestampedId } from "./utils/secure-id.js";
 export { checkCancelled, withCancellation, createLinkedSignal } from "./utils/cancellation.js";
 export { classifyDeepSearchError, classifyDesignError, isNonRetryableError } from "./utils/error-classifier.js";
+export { isNonRecoverableDeepSearchError, toDeepSearchErrorMessage } from "./utils/error-classifier.js";
 export { normalizeMaxBytes, createResponseTooLargeError, readTextWithLimit, readJsonWithLimit } from "./utils/response-limits.js";
 export { estimateTokensCached, clearTokenCache, getTokenCacheStats } from "./utils/token-cache.js";
 export { isPotentiallyDangerous, createSafeRegex, safeMatch, globToRegex } from "./utils/safe-regex.js";
 export { EventEmitter } from "./utils/event-emitter.js";
 export { LRUCache, createAutoPruningCache } from "./utils/lru-cache.js";
 export { PB_ENCRYPTED_PREFIX, isEncryptedString, canUseStorageEncryption, encryptString, decryptString } from "./utils/storage-crypto.js";
+export { initTreeSitter, loadTreeSitterLanguage, DEFAULT_TREE_SITTER_WASM_BASE_URL } from "./parser/tree-sitter-wasm.js";
 export {
   validateChunk,
   validateChunks,

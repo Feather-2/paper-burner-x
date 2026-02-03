@@ -3,6 +3,28 @@ import { RetrievalEngine } from "./retrieval-engine.js";
 import { L3Storage } from "./l3-storage.js";
 import { defineGetter, defineMethod, estimateBytes, genId, truncate } from "./memory-store.impl.utils.js";
 
+class MemoryStoreL3This {
+  /** @type {any} */ _vfs;
+  /** @type {string} */ runId;
+  /** @type {any} */ eventBus;
+  /** @type {any} */ _embeddingService;
+  /** @type {any} */ _vectorIndex;
+  /** @type {any} */ _retrievalEngine;
+  /** @type {any} */ _L0;
+  /** @type {any} */ _L1;
+  /** @type {any} */ _L2;
+  /** @type {any} */ _L3;
+  /** @type {any} */ _l3Storage;
+  /** @type {any} */ _l3StoragePromise;
+  /** @type {number} */ _l3BytesUsed;
+
+  /** @type {() => Promise<any>} */ _getL3Storage;
+  /** @type {(ckpt: any, l3Storage: any) => Promise<boolean>} */ _restoreFromBaseStorage;
+  /** @type {() => void} */ _updateTokenUsage;
+  /** @type {(layer?: any) => void} */ _clearDirty;
+  /** @type {(ckpt: any) => boolean} */ _restoreFromBase;
+}
+
 export function defineL3Layer() {
   return {
     L3: defineGetter(function () {
@@ -22,7 +44,7 @@ export function defineL3Layer() {
       return deepClone(this._L3);
     }),
 
-    _getL3Storage: defineMethod(async function () {
+    _getL3Storage: defineMethod(/** @this {MemoryStoreL3This} */ async function () {
       const existing = this._l3Storage;
       if (existing) return existing;
       const vfs = this._vfs;
@@ -151,7 +173,7 @@ export function defineL3Layer() {
       return id;
     }),
 
-    _getRetrievalEngine: defineMethod(function () {
+    _getRetrievalEngine: defineMethod(/** @this {MemoryStoreL3This} */ function () {
       const engine = this._retrievalEngine;
       if (engine && typeof engine === "object" && typeof engine.recall === "function") return engine;
       const next = new RetrievalEngine({
@@ -329,7 +351,7 @@ export function defineL3Layer() {
       return this._dirty.L0 || this._dirty.L1 || this._dirty.L2 || this._dirty.L3;
     }),
 
-    restore: defineMethod(async function (checkpointId) {
+    restore: defineMethod(/** @this {MemoryStoreL3This} */ async function (checkpointId) {
       const l3Storage = await this._getL3Storage();
       if (l3Storage) {
         const id = toNonEmptyString(checkpointId);
@@ -384,7 +406,7 @@ export function defineL3Layer() {
      * Restore from base checkpoint then apply incremental changes
      * @private
      */
-    _restoreFromBase: defineMethod(function (incrementalCkpt) {
+    _restoreFromBase: defineMethod(/** @this {MemoryStoreL3This} */ function (incrementalCkpt) {
       // Find the nearest full checkpoint
       let baseId = incrementalCkpt.baseId;
       const chain = [incrementalCkpt];
@@ -442,7 +464,7 @@ export function defineL3Layer() {
      * 重新计算 L3 字节使用量
      * @private
      */
-    _recalculateL3Bytes: defineMethod(function () {
+    _recalculateL3Bytes: defineMethod(/** @this {MemoryStoreL3This} */ function () {
       let total = 0;
       for (const entry of this._L3.snapshots.values()) {
         total += estimateBytes(entry);

@@ -22,6 +22,11 @@ export { normalizeToolResult };
  *
  * @typedef {{ ok: boolean, data?: any, error?: any, quota?: any, policy?: any, [key: string]: any }} ToolResult
  *
+ * @typedef {(
+ *   ((params: any, context?: any) => any) &
+ *   { schema?: any, paramsSchema?: any, parameters?: any, definition?: any }
+ * )} ToolHandler
+ *
  * @typedef {(name: string, params: any, context?: any) => any | Promise<any>} ToolExecutor
  * @typedef {{ execute: (name: string, params: any, context?: any) => any | Promise<any> }} ToolExecutorContainer
  *
@@ -177,13 +182,21 @@ function resolveToolQuotaMode(context) {
  * @returns {TraceContextLike | null}
  */
 function isTraceContextLike(traceContext) {
-  return (
+  return /** @type {any} */ (
     traceContext &&
     typeof traceContext === "object" &&
     typeof traceContext.startSpan === "function" &&
     typeof traceContext.endSpan === "function" &&
     typeof traceContext.withSpan === "function"
   );
+}
+
+/**
+ * @param {any} value
+ * @returns {value is ToolResult}
+ */
+function isToolResult(value) {
+  return !!value && typeof value === "object" && typeof value.ok === "boolean";
 }
 
 function resolveTraceContext(context) {
@@ -253,7 +266,7 @@ export class ToolRegistry {
         if (fn && typeof fn === "object" && typeof fn.fn === "function") {
           this.registerTool(name, fn.fn, fn.schema || fn.paramsSchema || fn.parameters || fn.definition?.parameters);
         } else {
-          this.registerTool(name, fn);
+          this.registerTool(name, /** @type {any} */ (fn));
         }
       }
       return;
@@ -278,7 +291,7 @@ export class ToolRegistry {
         if (fn && typeof fn === "object" && typeof fn.fn === "function") {
           this.registerTool(name, fn.fn, fn.schema || fn.paramsSchema || fn.parameters || fn.definition?.parameters);
         } else {
-          this.registerTool(name, fn);
+          this.registerTool(name, /** @type {any} */ (fn));
         }
       }
       return;
@@ -298,12 +311,13 @@ export class ToolRegistry {
       throw new TypeError("ToolRegistry.registerTool: fn must be a function");
     }
     this._tools[name] = fn;
+    const handler = /** @type {ToolHandler} */ (fn);
     const resolvedSchema =
       schema ||
-      fn?.schema ||
-      fn?.paramsSchema ||
-      fn?.parameters ||
-      fn?.definition?.parameters ||
+      handler.schema ||
+      handler.paramsSchema ||
+      handler.parameters ||
+      handler.definition?.parameters ||
       null;
     if (resolvedSchema && typeof resolvedSchema === "object") {
       this._toolSchemas[name] = resolvedSchema;
@@ -490,6 +504,7 @@ export class ToolRegistry {
 
     // Execute tool
     const executor = resolveToolExecutor(context);
+    /** @type {ToolResult} */
     let result;
     if (executor) {
       result = normalizeToolResult(await executor(name, finalParams, context));
@@ -519,7 +534,7 @@ export class ToolRegistry {
     }
 
     // Attach quota diagnostics (best-effort)
-    if (quotaSnapshot && typeof result === "object" && result) {
+    if (quotaSnapshot && isToolResult(result)) {
       try {
         result.quota = result.quota || quotaSnapshot;
       } catch {

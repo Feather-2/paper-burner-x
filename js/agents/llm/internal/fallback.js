@@ -5,6 +5,15 @@ import { toNonEmptyString } from "../../shared/index.js";
  */
 
 /**
+ * @typedef {{
+ *   status?: unknown,
+ *   statusCode?: unknown,
+ *   httpStatus?: unknown,
+ *   response?: { status?: unknown, statusCode?: unknown } | null,
+ * }} HttpErrorLike
+ */
+
+/**
  * @param {unknown} err
  * @returns {{ name: string, message: string }}
  */
@@ -19,9 +28,10 @@ export function toErrorInfo(err) {
  */
 export function extractHttpStatus(err) {
   if (!err || typeof err !== "object") return null;
-  const direct = err.status ?? err.statusCode ?? err.httpStatus ?? null;
+  const e = /** @type {HttpErrorLike} */ (err);
+  const direct = e.status ?? e.statusCode ?? e.httpStatus ?? null;
   if (typeof direct === "number" && Number.isFinite(direct)) return direct;
-  const nested = err.response?.status ?? err.response?.statusCode ?? null;
+  const nested = e.response?.status ?? e.response?.statusCode ?? null;
   if (typeof nested === "number" && Number.isFinite(nested)) return nested;
   return null;
 }
@@ -104,7 +114,7 @@ export function markUnhealthy({
  * @param {{ healthMap: Map<string, any>, modelId: string, error: unknown, reason?: string }} input
  * @returns {any | null}
  */
-export function disableModel({ healthMap, modelId, error, reason } = {}) {
+export function disableModel({ healthMap, modelId, error, reason } = /** @type {any} */ ({})) {
   const id = toNonEmptyString(modelId);
   if (!id) return null;
   const prev = healthMap.get(id) || { failures: 0, unhealthyUntilMs: 0 };

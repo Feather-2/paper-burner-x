@@ -59,6 +59,16 @@ function bytesToText(bytes) {
   return new TextDecoder().decode(b);
 }
 
+/**
+ * @param {unknown} entry
+ * @returns {entry is VfsDirent}
+ */
+function isVfsDirent(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  const e = /** @type {any} */ (entry);
+  return typeof e.name === "string" && typeof e.isDirectory === "function" && typeof e.isFile === "function";
+}
+
 function makeDirent(entry) {
   return {
     name: entry.name,
@@ -255,8 +265,8 @@ export class MemoryVfs {
     const dirents = await this.readdir(path, { withFileTypes: true });
     if (!Array.isArray(dirents)) return [];
     return dirents
-      .filter((e) => e && typeof e === "object" && typeof e.name === "string")
-      .map((e) => ({ name: e.name, kind: e.isDirectory?.() ? "dir" : "file" }));
+      .filter(isVfsDirent)
+      .map((entry) => ({ name: entry.name, kind: entry.isDirectory() ? "dir" : "file" }));
   }
 
   /**

@@ -78,9 +78,13 @@ let clusterModule = null;
  */
 function normalizeClusterModule(mod) {
   if (mod && typeof mod === "object") {
-    if (typeof mod.isPrimary === "boolean") return /** @type {ClusterModuleLike} */ (mod);
-    const def = mod.default;
-    if (def && typeof def.isPrimary === "boolean") return /** @type {ClusterModuleLike} */ (def);
+    const obj = /** @type {{ isPrimary?: unknown, default?: unknown }} */ (mod);
+    if (typeof obj.isPrimary === "boolean") return /** @type {ClusterModuleLike} */ (obj);
+    const def = obj.default;
+    if (def && typeof def === "object") {
+      const defObj = /** @type {{ isPrimary?: unknown }} */ (def);
+      if (typeof defObj.isPrimary === "boolean") return /** @type {ClusterModuleLike} */ (defObj);
+    }
   }
   return null;
 }
@@ -176,6 +180,30 @@ export function isClusterSupported() {
 }
 
 export class ProcessCoordinator extends DisposableBase {
+  /** @type {(sessionId: string) => void | null} */
+  _onEviction;
+  /** @type {(sessionId: string) => void | null} */
+  _onAccess;
+  /** @type {LoggerLike | null} */
+  _logger;
+
+  /** @type {boolean} */
+  _supported;
+  /** @type {boolean} */
+  _initialized;
+
+  /** @type {ClusterModuleLike | null} */
+  _cluster;
+  /** @type {ProcessLike | null} */
+  _process;
+  /** @type {number | null} */
+  _processId;
+
+  /** @type {boolean} */
+  _isPrimary;
+  /** @type {boolean} */
+  _isWorker;
+
   /**
    * @param {ProcessCoordinatorOptions} [options]
    */
@@ -415,15 +443,17 @@ export class ProcessCoordinator extends DisposableBase {
 
     if (!isPlainObject(data)) return null;
 
-    const type = toNonEmptyString(data.type);
-    const sessionId = toNonEmptyString(data.sessionId);
-    const source = toProcessId(data.source);
+    const obj = /** @type {Record<string, unknown>} */ (data);
+
+    const type = toNonEmptyString(obj.type);
+    const sessionId = toNonEmptyString(obj.sessionId);
+    const source = toProcessId(obj.source);
 
     if (!type || !MESSAGE_TYPES.has(type)) return null;
     if (!sessionId) return null;
     if (source === null) return null;
 
-    return { type, sessionId, source };
+    return { type: /** @type {ProcessCoordinatorMessageType} */ (type), sessionId, source };
   }
 
   /**

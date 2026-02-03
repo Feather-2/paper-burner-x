@@ -375,7 +375,7 @@ async function finalizeVerification({ factId, contradiction, sourceIds, evidence
  * Normalize and validate handler arguments.
  * @private
  * @param {Object} args
- * @returns {{factId: string, contradiction: string, requestedSourceIds: string[], force: boolean, isAsync: boolean, timeoutMs: number, subagentType: string}|{error: string}}
+ * @returns {NormalizeCrossVerifyArgsResult}
  */
 function normalizeCrossVerifyArgs(args) {
   let factId = toNonEmptyString(args?.factId);
@@ -413,6 +413,35 @@ function normalizeCrossVerifyArgs(args) {
     DEFAULT_SUBAGENT_TYPE;
 
   return { factId, contradiction, requestedSourceIds, force, isAsync, timeoutMs, subagentType };
+}
+
+/**
+ * @typedef {{
+ *   factId: string,
+ *   contradiction: string,
+ *   requestedSourceIds: string[],
+ *   force: boolean,
+ *   isAsync: boolean,
+ *   timeoutMs: number,
+ *   subagentType: string
+ * }} NormalizedCrossVerifyArgs
+ */
+
+/**
+ * @typedef {{ error: string }} NormalizeCrossVerifyArgsError
+ */
+
+/**
+ * @typedef {NormalizedCrossVerifyArgs | NormalizeCrossVerifyArgsError} NormalizeCrossVerifyArgsResult
+ */
+
+/**
+ * @private
+ * @param {NormalizeCrossVerifyArgsResult} value
+ * @returns {value is NormalizeCrossVerifyArgsError}
+ */
+function isNormalizeCrossVerifyArgsError(value) {
+  return Boolean(value && typeof value === "object" && "error" in value);
 }
 
 /**
@@ -627,9 +656,7 @@ export async function handler(args, context) {
   const { state, emit, discoveryManager, stageApi, sharedContext } = context;
 
   const normalized = normalizeCrossVerifyArgs(args);
-  if (normalized.error) {
-    return { success: false, error: normalized.error };
-  }
+  if (isNormalizeCrossVerifyArgsError(normalized)) return { success: false, error: normalized.error };
   const { factId, contradiction, requestedSourceIds, force, isAsync, timeoutMs, subagentType } = normalized;
 
   // 0) 去重：若已有运行中的验证任务，直接返回

@@ -153,6 +153,10 @@ export const TOOL_DEFINITIONS = [
  *
  * @typedef {object} VfsLike
  * @property {(path:string)=>Promise<string>=} readText
+ * @property {(path:string)=>Promise<any>=} readFile
+ * @property {(path:string)=>Promise<any>=} stat
+ * @property {(path:string, opts?:any)=>Promise<any>=} readdir
+ * @property {(path:string, opts?:any)=>Promise<any>=} list
  * @property {(path:string, text:string)=>Promise<any>=} writeText
  *
  * @typedef {object} LoggerLike
@@ -415,6 +419,7 @@ export function createToolExecutor(options = {}) {
     const { vfsPath } = buildPaths(path);
 
     if (!globFn) {
+      /** @type {any} */
       const empty = [];
       empty.files = empty;
       empty.total = 0;
@@ -426,12 +431,14 @@ export function createToolExecutor(options = {}) {
     try {
       const files = await globFn({ pattern, path: vfsPath });
       const limited = Array.isArray(files) ? files.slice(0, maxResults) : [];
+      /** @type {any} */
       const result = limited.slice();
       result.files = result;
       result.total = Array.isArray(files) ? files.length : 0;
       result.truncated = Array.isArray(files) && files.length > maxResults;
       return result;
     } catch (err) {
+      /** @type {any} */
       const empty = [];
       empty.files = empty;
       empty.total = 0;
@@ -541,6 +548,7 @@ export function createToolExecutor(options = {}) {
         })
         .join("\n");
 
+      /** @type {any} */
       const output = new String(numberedContent);
       output.content = numberedContent;
       output.path = displayPath;
@@ -625,6 +633,7 @@ export function createToolExecutor(options = {}) {
     const { fsPath, vfsPath, displayPath } = buildPaths(path);
 
     if (!fs?.readdir && !vfs?.readdir && !vfs?.list) {
+      /** @type {any} */
       const empty = [];
       empty.entries = empty;
       empty.path = displayPath;
@@ -673,6 +682,7 @@ export function createToolExecutor(options = {}) {
         return a.name.localeCompare(b.name);
       });
 
+      /** @type {any} */
       const output = result.slice();
       output.entries = output;
       output.path = displayPath;
@@ -680,6 +690,7 @@ export function createToolExecutor(options = {}) {
       output.truncated = filtered.length > maxResults;
       return output;
     } catch (err) {
+      /** @type {any} */
       const empty = [];
       empty.entries = empty;
       empty.path = displayPath;

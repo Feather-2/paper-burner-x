@@ -6,6 +6,9 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/** @type {typeof globalThis.process} */
+const process = globalThis.process;
+
 /** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
 
 /**

@@ -14,6 +14,18 @@ import { DefaultAgentLoop } from "./DefaultAgentLoop.js";
 import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 
 /**
+ * Agent loop instances are extended at runtime by mixins (e.g. message handling),
+ * so some members are not present in the static class declaration.
+ *
+ * @typedef {BaseAgentLoop & {
+ *   _detachEventBusListeners?: () => void,
+ *   dispose?: () => void | Promise<void>,
+ * }} DisposableAgentLoop
+ *
+ * @typedef {{ _ensureNotDisposed: () => void }} EnsureNotDisposedLike
+ */
+
+/**
  * @typedef {object} AgentInstanceCore
  * @property {EventBus} eventBus
  * @property {any} logger
@@ -159,7 +171,7 @@ export class AgentInstance extends DisposableBase {
     });
 
     this._registerDisposable(async () => {
-      const loop = this._loop;
+      const loop = /** @type {DisposableAgentLoop | null} */ (this._loop);
       this._loop = null;
       if (!loop) return;
 
@@ -404,14 +416,14 @@ function guardDisposablePrototype(prototype) {
     if (needsGetWrap) {
       const originalGet = desc.get;
       next.get = function guardedGet() {
-        this._ensureNotDisposed();
+        /** @type {EnsureNotDisposedLike} */ (this)._ensureNotDisposed();
         return originalGet.call(this);
       };
     }
     if (needsSetWrap) {
       const originalSet = desc.set;
       next.set = function guardedSet(value) {
-        this._ensureNotDisposed();
+        /** @type {EnsureNotDisposedLike} */ (this)._ensureNotDisposed();
         return originalSet.call(this, value);
       };
     }

@@ -371,6 +371,23 @@ export class BaseAgentLoop {
     this._executeAbortController = null;
   }
 
+  /**
+   * @param {EventBusLike} _eventBus
+   * @param {AttachListenerOptions} [_options]
+   * @returns {void}
+   */
+  _attachUserInputListener(_eventBus, _options = {}) {}
+
+  /**
+   * @param {EventBusLike} _eventBus
+   * @param {{ signal?: AbortSignal }} [_options]
+   * @returns {void}
+   */
+  _attachPauseListener(_eventBus, _options = {}) {}
+
+  /** @returns {void} */
+  _detachEventBusListeners() {}
+
   // ===== 状态管理 (委托给 StatusController) =====
 
   /** @returns {string} */

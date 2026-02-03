@@ -50,10 +50,11 @@ function sha256HexUtf8(str) {
   // TextEncoder is available in modern browsers and Node >= 11.
   const enc = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
   // Fallback: Node Buffer if available, otherwise manual UTF-8 encoding for legacy browsers.
+  const NodeBuffer = typeof globalThis !== "undefined" ? /** @type {any} */ (globalThis).Buffer : undefined;
   const msg = enc
     ? enc.encode(str)
-    : typeof Buffer !== "undefined"
-      ? Uint8Array.from(Buffer.from(String(str), "utf8"))
+    : typeof NodeBuffer !== "undefined"
+      ? Uint8Array.from(NodeBuffer.from(String(str), "utf8"))
       : encodeUtf8Manual(String(str));
 
   const K = new Uint32Array([

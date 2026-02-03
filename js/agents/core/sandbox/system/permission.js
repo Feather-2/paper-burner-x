@@ -137,7 +137,7 @@ export async function executeWithPermission(command, args, options) {
  * @param {PermissionOptions} defaultOptions
  * @returns {Object}
  */
-export function createPermissionExecutor(defaultOptions = {}) {
+export function createPermissionExecutor(defaultOptions = /** @type {any} */ ({})) {
   return {
     backend: SandboxBackend.PERMISSION_ONLY,
 

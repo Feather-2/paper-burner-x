@@ -219,7 +219,8 @@ function normalizeEmbeddingResponse(json, expectedCount) {
  * @returns {EmbeddingConfig | null} Normalized config or null if invalid/disabled.
  */
 export function normalizeEmbeddingConfig(raw) {
-  const cfg = isPlainObject(raw) ? raw : null;
+  /** @type {Record<string, unknown> | null} */
+  const cfg = isPlainObject(raw) ? /** @type {Record<string, unknown>} */ (raw) : null;
   if (!cfg) return null;
 
   const endpoint = normalizeEmbeddingEndpoint(cfg.endpoint || cfg.url || cfg.baseUrl);
@@ -253,6 +254,25 @@ export function normalizeEmbeddingConfig(raw) {
 }
 
 export class EmbeddingService {
+  /** @type {EmbeddingConfig | null} */
+  _cfg;
+  /** @type {typeof fetch | null} */
+  _fetch;
+  /** @type {any[]} */
+  _queue;
+  /** @type {ReturnType<typeof setTimeout> | true | null} */
+  _flushTimer;
+  /** @type {Promise<void> | null} */
+  _inFlight;
+  /** @type {boolean | null} */
+  _available;
+  /** @type {number} */
+  _failures;
+  /** @type {number} */
+  _nextRetryAt;
+  /** @type {string | null} */
+  _lastError;
+
   /**
    * @param {unknown} config
    * @param {{ fetchImpl?: typeof fetch }} [options]

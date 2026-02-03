@@ -435,8 +435,17 @@ export function fillAssetPlaceholders(html, resolvedAssets) {
   };
 }
 
-if (import.meta.vitest) {
-  const { describe, it, expect } = import.meta.vitest;
+/**
+ * Vitest exposes `import.meta.vitest` in the test environment.
+ * TS doesn't know this in our `checkJs` setup unless we declare it.
+ * @typedef {ImportMeta & { readonly vitest?: typeof import("vitest") }} ImportMetaVitest
+ */
+
+/** @type {ImportMetaVitest} */
+const importMeta = import.meta;
+
+if (importMeta.vitest) {
+  const { describe, it, expect } = importMeta.vitest;
 
   describe("fillAssetPlaceholders", () => {
     it("keeps data URI assets and fills placeholders", () => {

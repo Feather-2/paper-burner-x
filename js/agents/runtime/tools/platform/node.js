@@ -18,15 +18,20 @@ import { exec as execCommand } from '../../core/exec/index.js';
  * @returns {Promise<PlatformTools>}
  */
 export async function createNodeTools(options = {}) {
+  const g = /** @type {any} */ (globalThis);
+  const defaultBasePath = typeof g.process?.cwd === 'function' ? g.process.cwd() : '.';
+
   const {
-    basePath = process.cwd(),
+    basePath = defaultBasePath,
     logger,
     allowedCommands: configuredAllowedCommands,
     maxTimeoutMs: configuredMaxTimeoutMs,
   } = options;
 
   // 动态导入 Node 模块
+  // @ts-ignore
   const fs = await import('node:fs/promises');
+  // @ts-ignore
   const path = await import('node:path');
   const baseRealPath = await fs.realpath(basePath).catch(() => path.resolve(basePath));
   const basePrefix = baseRealPath.endsWith(path.sep) ? baseRealPath : `${baseRealPath}${path.sep}`;
@@ -198,6 +203,7 @@ export async function createNodeTools(options = {}) {
     try {
       // 尝试使用 fast-glob (如果可用)
       try {
+        // @ts-ignore
         const fg = await import('fast-glob');
         const files = await fg.default(pattern, {
           cwd: dir,
@@ -491,7 +497,6 @@ export async function createNodeTools(options = {}) {
   }
 
   // 检测平台类型
-  const g = globalThis;
   let platform = 'node';
   if (typeof g.Bun !== 'undefined') platform = 'bun';
   else if (typeof g.Deno !== 'undefined') platform = 'deno';

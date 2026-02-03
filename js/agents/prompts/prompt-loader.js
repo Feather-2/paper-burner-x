@@ -135,7 +135,10 @@ function tryGetHeader(response, name) {
   return null;
 }
 
-async function tryReadTextWithLimit(response, { maxBytes, context } = {}) {
+async function tryReadTextWithLimit(
+  response,
+  { maxBytes, context } = /** @type {{ maxBytes?: number, context?: string }} */ ({})
+) {
   const limit = normalizeMaxBytes(maxBytes, Infinity);
   const label = typeof context === "string" && context.trim() ? context.trim() : "Response body";
 

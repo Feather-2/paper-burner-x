@@ -124,7 +124,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.RETRY_STRATEGY,
     async () => {
-      const { RetryStrategy } = await import("../core/retry-strategy.js");
+      const { RetryStrategy } = await import("../../runtime/core/retry-strategy.js");
       return new RetryStrategy();
     },
     { scope: SINGLETON }
@@ -194,7 +194,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.TOOL_QUOTA_MANAGER,
     async () => {
-      const { ToolQuotaManager } = await import("../tools/tool-quotas.js");
+      const { ToolQuotaManager } = await import("../../runtime/tools/tool-quotas.js");
       return new ToolQuotaManager({
         defaultMaxCalls: 100,
         defaultWindowMs: 60_000,
@@ -212,14 +212,14 @@ export function createAgentContainer(overrides = {}) {
 
   // MemoryStore (depends on eventBus)
   container.register(ServiceId.MEMORY_STORE, async (c) => {
-    const { MemoryStore } = await import("../memory/memory-store.js");
+    const { MemoryStore } = await import("../../plugins/memory/memory-store.impl.js");
     const eventBus = await c.get(ServiceId.EVENT_BUS);
     return new MemoryStore({ eventBus });
   });
 
   // StateEngine (depends on eventBus)
   container.register(ServiceId.STATE_ENGINE, async (c) => {
-    const { StateEngine } = await import("../memory/state-engine.js");
+    const { StateEngine } = await import("../../plugins/memory/state-engine.js");
     const eventBus = await c.get(ServiceId.EVENT_BUS);
     return new StateEngine({ eventBus });
   });
@@ -271,7 +271,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.WATCHDOG,
     async (c) => {
-      const { Watchdog } = await import("../compression/watchdog.js");
+      const { Watchdog } = await import("../../plugins/compression/watchdog.js");
       const eventBus = await c.get(ServiceId.EVENT_BUS);
       return new Watchdog({ eventBus });
     },
@@ -283,7 +283,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.WORKER_POOL,
     async () => {
-      const { WorkerPool } = await import("../core/worker-pool.js");
+      const { WorkerPool } = await import("../../runtime/core/worker-pool.js");
       // 返回 WorkerPool 类而非实例，因为需要 createWorker
       return { WorkerPool, isWorkerSupported: typeof Worker !== "undefined" };
     },
@@ -315,7 +315,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.JS_ADAPTER,
     async () => {
-      const { JSRuntimeAdapter } = await import("../core/js-adapter.js");
+      const { JSRuntimeAdapter } = await import("../../runtime/core/js-adapter.js");
       return new JSRuntimeAdapter({ useWorkerSandbox: true });
     },
     { scope: TRANSIENT }
@@ -325,7 +325,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.PYTHON_ADAPTER,
     async () => {
-      const { PythonRuntimeAdapter } = await import("../core/python-adapter.js");
+      const { PythonRuntimeAdapter } = await import("../../runtime/core/python-adapter.js");
       return new PythonRuntimeAdapter();
     },
     { scope: SINGLETON }
@@ -335,7 +335,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.PYTHON_SKILL_EXECUTOR,
     async (c) => {
-      const { PythonSkillExecutor } = await import("../deps/python-skill-executor.js");
+      const { PythonSkillExecutor } = await import("../../plugins/deps/python-skill-executor.js");
       const pythonAdapter = await c.get(ServiceId.PYTHON_ADAPTER);
       return new PythonSkillExecutor({ pythonAdapter });
     },
@@ -346,7 +346,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.RUNTIME_SCHEDULER,
     async () => {
-      const { RuntimeScheduler } = await import("../core/scheduler.js");
+      const { RuntimeScheduler } = await import("../../runtime/core/scheduler.js");
       return new RuntimeScheduler();
     },
     { scope: SINGLETON }
@@ -356,7 +356,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.HNSW_INDEX,
     async () => {
-      const { HnswLiteIndex } = await import("../../shared/embeddings/hnsw-lite.js");
+      const { HnswLiteIndex } = await import("../../retrieval/embeddings/hnsw-lite.js");
       return new HnswLiteIndex();
     },
     { scope: TRANSIENT }
@@ -403,7 +403,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.POLICY_ENGINE,
     async () => {
-      const { PolicyEngine } = await import("../policy/engine.js");
+      const { PolicyEngine } = await import("../../plugins/policy/engine.js");
       return new PolicyEngine({ defaultEffect: "prompt" });
     },
     { scope: SINGLETON }
@@ -413,7 +413,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.POLICY_MANAGER,
     async (c) => {
-      const { PolicyManager } = await import("../policy/manager.js");
+      const { PolicyManager } = await import("../../plugins/policy/manager.js");
       const eventBus = await c.get(ServiceId.EVENT_BUS);
       const engine = await c.get(ServiceId.POLICY_ENGINE);
       return new PolicyManager({ eventBus, engine });
@@ -425,7 +425,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.REPLAY_CONTROLLER,
     async () => {
-      const { RunReplayController } = await import("../telemetry/replay-controller.js");
+      const { RunReplayController } = await import("../../plugins/telemetry/replay-controller.js");
       return new RunReplayController();
     },
     { scope: TRANSIENT }
@@ -435,7 +435,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.VFS_PROXY,
     async () => {
-      const { VfsProxy } = await import("../core/vfs-proxy.js");
+      const { VfsProxy } = await import("../../runtime/core/vfs-proxy.js");
       return { VfsProxy }; // 返回类，由 Worker 场景实例化
     },
     { scope: SINGLETON }
@@ -445,7 +445,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.SHARED_MEMORY_BRIDGE,
     async () => {
-      const { SharedMemoryBridge } = await import("../core/shared-memory.js");
+      const { SharedMemoryBridge } = await import("../../runtime/core/shared-memory.js");
       return new SharedMemoryBridge();
     },
     { scope: SINGLETON }

@@ -1,5 +1,5 @@
 import { createLogger, deepClone } from "../../../shared/index.js";
-import { Watchdog } from "../../../../plugins/compression/index.js";
+import { Watchdog } from "../../../plugins/compression/index.js";
 import {
   DESIGN_LOOP_DEFAULTS,
   buildDesignWatchdogAdvice,
@@ -12,7 +12,7 @@ import { VisualHandler } from "./visual-handler.js";
 const logger = createLogger("stages/design/agent-loop");
 
 export class DeckOperations {
-  constructor(loop, { imageConcurrency } = {}) {
+  constructor(loop, { imageConcurrency } = /** @type {{ imageConcurrency?: number }} */ ({}) ) {
     this._loop = loop;
     this._visualHandler = new VisualHandler({ imageConcurrency });
   }
@@ -55,12 +55,21 @@ export class DeckOperations {
 
 export function installDeckOperations(ctor) {
   Object.assign(ctor.prototype, {
+    /**
+     * @this {{ _deckOps: DeckOperations }}
+     */
     _initDesignSystem(contentPackage, context, constraints, userConfig) {
       return this._deckOps.initDesignSystem(contentPackage, context, constraints, userConfig);
     },
+    /**
+     * @this {{ _deckOps: DeckOperations }}
+     */
     _buildVisualSlots(brainstormResult, imageSlots, imageProvider, hasModelCapability = true) {
       return this._deckOps.buildVisualSlots(brainstormResult, imageSlots, imageProvider, hasModelCapability);
     },
+    /**
+     * @this {{ _deckOps: DeckOperations }}
+     */
     _renderVisuals(
       visualSlotsForRender,
       contentPackage,
@@ -160,7 +169,7 @@ function buildDeckSignature(deckHtmlDsl) {
 
 export function createDeckUpdateEmitter({ loop, emit, runId, watchdog, watchdogSettings, handleWatchdogHealth }) {
   let lastDeckSignature = null;
-  return (deckHtmlDsl, slidesMeta, { source } = {}) => {
+  return (deckHtmlDsl, slidesMeta, { source } = /** @type {{ source?: string }} */ ({}) ) => {
     if (!emit || typeof deckHtmlDsl !== "string") return;
     if (!deckHtmlDsl.includes("<section")) return;
     const signature = buildDeckSignature(deckHtmlDsl);

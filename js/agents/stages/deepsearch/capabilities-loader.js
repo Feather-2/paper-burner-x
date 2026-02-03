@@ -98,14 +98,14 @@ export async function loadDeepSearchCapabilities() {
     }
 
     try {
-      const memory = await import("../../runtime/memory/memory-store.js");
+      const memory = await import("../../plugins/memory/memory-store.impl.js");
       capabilities.MemoryStore = memory.MemoryStore || memory.default;
     } catch (err) {
       warn("MemoryStore", err);
     }
 
     try {
-      const unified = await import("../../runtime/context/unified-agent-context.js");
+      const unified = await import("../../runtime/core/context/unified-agent-context.js");
       capabilities.UnifiedAgentContext = unified.UnifiedAgentContext || unified.default;
     } catch (err) {
       warn("UnifiedAgentContext", err);

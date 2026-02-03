@@ -10,8 +10,12 @@
  *   构建工具通过 package.json exports/browser field 自动选择。
  */
 
+// @ts-ignore
 import { spawn } from 'node:child_process';
 import { createLogger } from '../../../shared/index.js';
+
+/** @type {typeof globalThis.process} */
+const process = globalThis.process;
 
 const logger = createLogger('runtime/exec');
 
@@ -50,7 +54,11 @@ const logger = createLogger('runtime/exec');
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 
+/**
+ * @param {ExecOptions} [options]
+ */
 function normalizeExecOptions(options = {}) {
+  /** @type {ExecOptions} */
   const opts = options && typeof options === 'object' ? options : {};
   return {
     cwd: opts.cwd || process.cwd(),
@@ -84,7 +92,7 @@ function createOutputCollector(maxOutputBytes, onStdout, onStderr) {
 
   const append = (kind, chunk, handler) => {
     const str = chunk.toString();
-    const bytes = Buffer.byteLength(str);
+    const bytes = /** @type {typeof Buffer} */ (globalThis.Buffer).byteLength(str);
 
     if (kind === 'stdout') {
       if (stdoutBytes + bytes <= maxOutputBytes) {
@@ -201,6 +209,7 @@ export async function exec(command, args = [], options = {}) {
   const output = createOutputCollector(opts.maxOutputBytes, opts.onStdout, opts.onStderr);
 
   return new Promise((resolve) => {
+    // @ts-ignore
     /** @type {import('node:child_process').ChildProcess | null} */
     let child = null;
     /** @type {ReturnType<typeof setTimeout> | null} */

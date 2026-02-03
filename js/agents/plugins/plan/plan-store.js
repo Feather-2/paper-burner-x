@@ -7,6 +7,7 @@ import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
  * @typedef {Object} PlanStep
  * @property {string} stepId
  * @property {string} title
+ * @property {string} [text] - legacy alias of title (input compatibility)
  * @property {string} status
  * @property {string} [createdAt]
  * @property {string} [updatedAt]
@@ -24,6 +25,7 @@ import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
  * @property {string} updatedAt
  * @property {string} lifecycleStatus
  * @property {string} [status] - legacy alias of lifecycleStatus
+ * @property {() => Record<string, unknown>} [toJSON] - optional serializer for persistence
  * @property {number} selectedStepIndex
  * @property {PlanStep[]} steps
  * @property {Record<string, unknown>} [meta] - 计划元数据 (扩展字段)
@@ -77,7 +79,7 @@ export const PlanLifecycleStatus = Object.freeze({
  * @returns {boolean} True when the value matches a known lifecycle status.
  */
 export function isValidPlanLifecycleStatus(value) {
-  return Object.values(PlanLifecycleStatus).includes(value);
+  return /** @type {string[]} */ (Object.values(PlanLifecycleStatus)).includes(value);
 }
 
 const PLAN_LIFECYCLE_TRANSITIONS = Object.freeze({
@@ -193,14 +195,18 @@ export function normalizePlanStep(step, { fallbackIndex = 0 } = {}) {
   const statusRaw = toNonEmptyString(s.status) || StepStatus.PENDING;
   const status = isValidStepStatus(statusRaw) ? statusRaw : StepStatus.PENDING;
 
-  return {
+  return /** @type {PlanStep} */ ({
     stepId,
     title,
     status,
-    ...(toNonEmptyString(s.updatedAt) ? { updatedAt: toIso(s.updatedAt) } : {}),
-    ...(toNonEmptyString(s.createdAt) ? { createdAt: toIso(s.createdAt) } : {}),
+    ...(toNonEmptyString(s.updatedAt)
+      ? { updatedAt: toIso(/** @type {string | number | Date | null} */ (s.updatedAt)) }
+      : {}),
+    ...(toNonEmptyString(s.createdAt)
+      ? { createdAt: toIso(/** @type {string | number | Date | null} */ (s.createdAt)) }
+      : {}),
     ...(isPlainObject(s.meta) ? { meta: s.meta } : {}),
-  };
+  });
 }
 
 /**

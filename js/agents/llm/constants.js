@@ -32,7 +32,7 @@ export const MessageRole = Object.freeze({
  * @returns {boolean} 是否为有效的 ModelUsage
  */
 export function isValidModelUsage(value) {
-  return Object.values(ModelUsage).includes(value);
+  return (/** @type {any} */ (Object.values(ModelUsage))).includes(value);
 }
 
 /**
@@ -41,7 +41,7 @@ export function isValidModelUsage(value) {
  * @returns {boolean} 是否为有效的 MessageRole
  */
 export function isValidMessageRole(value) {
-  return Object.values(MessageRole).includes(value);
+  return (/** @type {any} */ (Object.values(MessageRole))).includes(value);
 }
 
 /**
@@ -87,7 +87,7 @@ export const TransportKind = Object.freeze({
  * @returns {boolean} 是否为有效的 ModelHealth
  */
 export function isValidModelHealth(value) {
-  return Object.values(ModelHealth).includes(value);
+  return (/** @type {any} */ (Object.values(ModelHealth))).includes(value);
 }
 
 /**
@@ -96,7 +96,7 @@ export function isValidModelHealth(value) {
  * @returns {boolean} 是否为有效的 RouterStrategy
  */
 export function isValidRouterStrategy(value) {
-  return VALID_ROUTER_STRATEGIES.has(value);
+  return (/** @type {any} */ (VALID_ROUTER_STRATEGIES)).has(value);
 }
 
 /**

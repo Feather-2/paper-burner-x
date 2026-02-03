@@ -42,6 +42,20 @@ import { normalizeVfsPath, dirnameVfsPath, basenameVfsPath } from "./path.js";
  * @property {boolean=} recursive
  */
 
+/**
+ * @param {unknown} entry
+ * @returns {entry is VfsDirent}
+ */
+function isVfsDirent(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  const candidate = /** @type {any} */ (entry);
+  return (
+    typeof candidate.name === "string" &&
+    typeof candidate.isDirectory === "function" &&
+    typeof candidate.isFile === "function"
+  );
+}
+
 function isOpfsAvailable() {
   return typeof navigator !== "undefined" && typeof navigator.storage?.getDirectory === "function";
 }
@@ -287,8 +301,8 @@ export class OpfsVfs {
     const dirents = await this.readdir(path, { withFileTypes: true });
     if (!Array.isArray(dirents)) return [];
     return dirents
-      .filter((e) => e && typeof e === "object" && typeof e.name === "string")
-      .map((e) => ({ name: e.name, kind: e.isDirectory?.() ? "dir" : "file" }));
+      .filter(isVfsDirent)
+      .map((entry) => ({ name: entry.name, kind: entry.isDirectory() ? "dir" : "file" }));
   }
 
   /**

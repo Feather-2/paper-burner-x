@@ -228,7 +228,7 @@ function normalizeTodoInput(item) {
 }
 
 export async function runDeepSearchTodosStage(runContext, input, stageApi = {}) {
-  const { emit: rawEmit, logger: injectedLogger } = extractServices(stageApi);
+  const { emit: rawEmit, logger: injectedLogger } = /** @type {{ emit?: any, logger?: any }} */ (extractServices(stageApi));
   const state = ensureState(runContext, input);
   const emit = makeStageEmitter(stageApi, "deepsearch", () => ({
     runId: state.runId,
@@ -237,7 +237,7 @@ export async function runDeepSearchTodosStage(runContext, input, stageApi = {}) 
     stage: "todos",
   }));
   const logger =
-    injectedLogger && typeof injectedLogger.info === "function"
+    injectedLogger && typeof injectedLogger.info === "function" && typeof injectedLogger.warn === "function"
       ? injectedLogger
       : createLogger({
           emit: rawEmit,

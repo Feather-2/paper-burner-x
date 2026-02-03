@@ -24,7 +24,7 @@ function getEnvAdapter() {
   try {
     // @ts-ignore - import.meta.env may not exist
     if (typeof import.meta !== "undefined" && import.meta.env && typeof import.meta.env === "object") {
-      return /** @type {Record<string, string | undefined>} */ (import.meta.env);
+      return /** @type {Record<string, string | undefined>} */ ((/** @type {any} */ (import.meta)).env);
     }
   } catch {
     // import.meta not supported

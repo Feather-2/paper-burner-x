@@ -136,7 +136,7 @@ function getJsonType(value) {
  * 简化格式: { fieldName: "描述" } 或 { fieldName: { type, description, required } }
  *
  * @param {Object} schema - 简化参数定义或已规范化的 JSON Schema
- * @returns {{ type: string, properties?: Object, required?: string[] }} 规范化的 JSON Schema 对象
+ * @returns {{ type: string, properties?: Object, required?: string[], additionalProperties?: boolean | Object }} 规范化的 JSON Schema 对象
  */
 export function normalizeSchema(schema) {
   // 已经是 JSON Schema 格式

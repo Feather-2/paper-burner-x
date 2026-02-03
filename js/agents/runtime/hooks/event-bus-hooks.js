@@ -29,7 +29,8 @@ export function enhanceEventBusWithHooks(eventBus) {
   Object.defineProperty(bus, REGISTRY_SYMBOL, { value: registry, enumerable: false });
 
   if (typeof bus.registerHook !== "function") {
-    bus.registerHook = (eventName, hookDef) => registry.register(eventName, hookDef);
+    bus.registerHook = (eventName, hookDef) =>
+      registry.register(eventName, /** @type {any} */ (hookDef));
   }
   if (typeof bus.getHooks !== "function") {
     bus.getHooks = (eventName) => registry.list(eventName);

@@ -57,7 +57,8 @@ const DEFAULT_MODEL_PRICES_USD_PER_1K = Object.freeze({
 export function ensureTokenUsage(v) {
   const normalized = normalizeTokenUsage(v);
   if (normalized) {
-    const estimatedCostUSD = safeNumber(v?.estimatedCostUSD ?? v?.costUSD);
+    const usage = /** @type {{ estimatedCostUSD?: unknown, costUSD?: unknown }} */ (isPlainObject(v) ? v : {});
+    const estimatedCostUSD = safeNumber(usage.estimatedCostUSD ?? usage.costUSD);
     return {
       input: normalized.input,
       output: normalized.output,
@@ -120,7 +121,9 @@ function normalizeModelPrices(raw) {
  * @returns {BudgetConfig}
  */
 export function normalizeBudgetConfig(raw) {
-  const cfg = isPlainObject(raw) ? raw : {};
+  const cfg = /** @type {{ maxTokens?: unknown, maxCostUSD?: unknown, warnAt?: unknown, action?: unknown, prices?: unknown }} */ (
+    isPlainObject(raw) ? raw : {}
+  );
 
   const maxTokens = safeInt(cfg.maxTokens);
   const maxCostUSD = safeNumber(cfg.maxCostUSD);

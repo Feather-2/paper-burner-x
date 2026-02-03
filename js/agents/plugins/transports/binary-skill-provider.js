@@ -24,6 +24,12 @@ const DEFAULT_TIMEOUT_MS = 30000;
  */
 
 /**
+ * Minimal EventEmitter surface used by this module.
+ * @typedef {object} EventEmitterLike
+ * @property {(event: string, handler: (...args: any[]) => unknown) => unknown} on
+ */
+
+/**
  * @typedef {object} BinarySkillConfig
  * @property {string} name - 技能名称
  * @property {string} command - 可执行文件路径或命令名
@@ -47,6 +53,28 @@ const DEFAULT_TIMEOUT_MS = 30000;
  */
 
 export class BinarySkillProvider {
+  /** @type {BinarySkillConfig[]} */
+  skills;
+  /** @type {{ emit?: Function, subscribe?: Function } | null} */
+  eventBus;
+  /** @type {{ register?: Function } | null} */
+  serviceBus;
+  /** @type {Logger | null} */
+  logger;
+
+  /** @type {Map<string, { transport: ProcessTransport, config: BinarySkillConfig }>} */
+  _connections;
+  /** @type {boolean} */
+  _initialized;
+  /** @type {boolean} 关闭标记，阻止重连 */
+  _shuttingDown;
+  /** @type {Map<string, number>} 重试次数 */
+  _retryCount;
+  /** @type {number} 最大重试次数 */
+  _maxRetries;
+  /** @type {Map<string, TimeoutHandle>} 自动重连计时器 */
+  _reconnectTimers;
+
   /**
    * @param {BinarySkillProviderOptions} options - Provider 配置
    */
@@ -104,7 +132,7 @@ export class BinarySkillProvider {
     if (config.allowedCwdRoots) transportOptions.allowedCwdRoots = config.allowedCwdRoots;
     if (config.allowedEnvKeys) transportOptions.allowedEnvKeys = config.allowedEnvKeys;
 
-    const transport = new ProcessTransport(transportOptions);
+    const transport = /** @type {ProcessTransport & EventEmitterLike} */ (new ProcessTransport(transportOptions));
 
     // 绑定事件
     transport.on("transport:message", (msg) => {
@@ -285,7 +313,7 @@ export class BinarySkillProvider {
         this.logger?.error?.(`Reconnect failed for ${skillName}`, err);
       });
     }, delay);
-    timer?.unref?.();
+    (/** @type {{ unref?: () => void }} */ (timer)).unref?.();
     this._reconnectTimers.set(skillName, timer);
   }
 

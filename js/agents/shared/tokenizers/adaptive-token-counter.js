@@ -5,6 +5,13 @@ import { getGlobalContainer } from "../../core/di/global-container.js";
 
 /**
  * @private
+ * @typedef {object} TiktokenEncoder
+ * @property {(text: string) => number[] | { length: number }} encode
+ * @property {(() => void) | undefined} [free]
+ */
+
+/**
+ * @private
  * @param {unknown} value
  * @param {(info: TokenCounterLogInfo) => void} onLog
  * @returns {string}
@@ -23,8 +30,8 @@ function toText(value, onLog) {
 
 /**
  * @private
- * @param {{ model: string | null, encoding: string | null, tiktoken: { get_encoding: Function, encoding_for_model: Function } }} options
- * @returns {unknown}
+ * @param {{ model: string | null, encoding: string | null, tiktoken: { get_encoding: (name: string) => TiktokenEncoder, encoding_for_model: (model: string) => TiktokenEncoder } }} options
+ * @returns {TiktokenEncoder}
  */
 function pickEncoding({ model, encoding, tiktoken }) {
   const encName = typeof encoding === "string" && encoding.trim() ? encoding.trim() : null;
@@ -118,7 +125,7 @@ function parseWarmupOptions(warmupRaw, warmupIdleMsRaw) {
 /**
  * @private
  * @typedef {object} TokenCounterState
- * @property {unknown} encoder
+ * @property {TiktokenEncoder | null} encoder
  * @property {"heuristic" | "tiktoken"} mode
  * @property {boolean} ready
  * @property {boolean} failed

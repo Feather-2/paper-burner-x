@@ -9,9 +9,15 @@
  * Use conditional imports or package.json exports to prevent browser inclusion.
  */
 
+// @ts-ignore
 import { spawn } from "node:child_process";
+// @ts-ignore
 import { EventEmitter } from "node:events";
+// @ts-ignore
 import path from "node:path";
+
+/** @type {typeof globalThis.process} */
+const process = globalThis.process;
 
 const MAX_MESSAGE_LENGTH = 256 * 1024; // 256KB per JSON line
 const MAX_JSON_DEPTH = 8;
@@ -295,7 +301,53 @@ function validateJsonRpcMessage(message) {
  * @property {{ code: number, message: string, data?: unknown }} [error] - 错误
  */
 
+/**
+ * @typedef {object} ChildProcessLike
+ * @property {{ write: (chunk: string) => unknown, end: () => unknown } | null | undefined} stdin
+ * @property {{ on: (event: "data", handler: (chunk: any) => unknown) => unknown } | null | undefined} stdout
+ * @property {{ on: (event: "data", handler: (chunk: any) => unknown) => unknown } | null | undefined} stderr
+ * @property {(event: string, handler: (...args: any[]) => unknown) => unknown} on
+ * @property {(signal?: string) => unknown} kill
+ * @property {boolean} killed
+ */
+
 export class ProcessTransport extends EventEmitter {
+  /** @type {string} */
+  cwd;
+  /** @type {string} */
+  command;
+  /** @type {string[]} */
+  args;
+  /** @type {Record<string, string | undefined>} */
+  env;
+  /** @type {number} */
+  timeout;
+  /** @type {AbortSignal | null} */
+  signal;
+  /** @type {ChildProcessLike | null} */
+  process;
+  /** @type {string} */
+  buffer;
+  /** @type {boolean} */
+  connected;
+  /** @type {number} */
+  _maxBufferSize;
+  /** @type {number} */
+  _maxMessageSize;
+  /** @type {number} */
+  _requestId;
+  /** @type {Map<string | number, PendingRequest>} */
+  _pending;
+
+  /**
+   * @param {string | symbol} event
+   * @param {...any} args
+   * @returns {boolean}
+   */
+  emit(event, ...args) {
+    return super.emit(event, ...args);
+  }
+
   /**
    * @param {ProcessTransportOptions} options - 传输配置
    */
@@ -316,7 +368,6 @@ export class ProcessTransport extends EventEmitter {
     this.timeout = options.timeout || 30000;
     this.signal = options.signal || null;
 
-    /** @type {import("node:child_process").ChildProcess | null} */
     this.process = null;
     this.buffer = "";
     this.connected = false;

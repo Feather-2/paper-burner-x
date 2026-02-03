@@ -2,6 +2,9 @@ import { restoreVfsCheckpoint } from "../../vfs/checkpoints.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
+/** @type {typeof globalThis.process} */
+const process = globalThis.process;
+
 /** Maximum WAL file size in bytes (10 MB) to prevent DoS. */
 const MAX_WAL_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -11,6 +14,7 @@ const MAX_WAL_LINE_SIZE = 100 * 1024;
 /**
  * @typedef {object} SideEffectJournalCheckpointRef
  * @property {string} artifactId
+ * @property {string=} op
  * @property {string=} type
  * @property {string=} path
  */
@@ -355,7 +359,7 @@ function validateWalEntry(parsed) {
  * @returns {SideEffectJournalEntry} The normalized journal entry
  */
 function buildJournalEntry(entry, seq) {
-  const e = isPlainObject(entry) ? entry : {};
+  const e = /** @type {SideEffectJournalRecordInput} */ (isPlainObject(entry) ? entry : {});
   const kind = toNonEmptyString(e.kind) || "unknown";
   const ts = toIso(e.ts);
   const reversible = e.reversible === true;
@@ -568,6 +572,22 @@ function applyRollbackResult(journal, { target, current, rolledBack, failures, r
  * For now we implement reversible VFS effects via `vfs_checkpoint.json` artifacts.
  */
 export class SideEffectJournal {
+  /** @type {RunStoreLike | null} */ runStore;
+  /** @type {StorageAdapterLike | null} */ storageAdapter;
+  /** @type {string | null} */ runId;
+  /** @type {VfsLike | null} */ vfs;
+  /** @type {EventBusLike | null} */ eventBus;
+  /** @type {LoggerLike | null} */ logger;
+  /** @type {boolean} */ autoPersist;
+  /** @type {string} */ walDir;
+
+  /** @type {SideEffectJournalEntry[]} */ _entries;
+  /** @type {Set<string>} */ _seenEventIds;
+  /** @type {(() => void) | null} */ _unsub;
+  /** @type {number} */ _persistedCursor;
+  /** @type {Promise<void>} */ _persistQueue;
+  /** @type {boolean} */ _appendFallbackWarned;
+
   /**
    * @param {SideEffectJournalOptions | undefined} [input]
    */
@@ -694,9 +714,10 @@ export class SideEffectJournal {
     }
 
     for (const evt of Array.isArray(events) ? events : []) {
-      if (!evt || typeof evt !== "object") continue;
-      if (evt.meta?.replay) continue;
-      this._onVfsWriteEvent(evt, { allowDuplicates: false });
+      if (!isPlainObject(evt)) continue;
+      const event = /** @type {SideEffectJournalEvent} */ (evt);
+      if (event.meta?.replay) continue;
+      this._onVfsWriteEvent(event, { allowDuplicates: false });
     }
 
     return { ok: true, cursor: this.getCursor() };
@@ -751,7 +772,7 @@ export class SideEffectJournal {
     const cursor = this.getCursor();
     try {
       const replay = await readWalReplayState({ vfs, walPath, logger: this.logger, cursor });
-      if (!replay.ok) return replay.result;
+      if (replay.ok === false) return replay.result;
 
       if (replay.skippedLines) {
         this.logger?.warn?.(`[SideEffectJournal] Skipped ${replay.skippedLines} invalid WAL lines`);
@@ -823,7 +844,7 @@ export class SideEffectJournal {
     if (target >= current) return { ok: true, rolledBack: 0, cursor: current };
 
     const deps = resolveRollbackDeps(this);
-    if (!deps.ok) return { ok: false, reason: deps.reason };
+    if (deps.ok === false) return { ok: false, reason: deps.reason };
 
     const { rolledBack, failures } = await rollbackEntries(this._entries, target, {
       vfs: deps.vfs,
@@ -996,7 +1017,9 @@ const SHOULD_RUN_INLINE_TESTS =
 
 if (SHOULD_RUN_INLINE_TESTS) {
   (async () => {
+    // @ts-ignore
     const { test } = await import("node:test");
+    // @ts-ignore
     const { default: assert } = await import("node:assert/strict");
 
     const createMemoryVfs = () => {

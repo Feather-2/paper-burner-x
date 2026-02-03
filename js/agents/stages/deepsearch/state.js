@@ -419,6 +419,7 @@ function guardDisposablePrototype(prototype) {
     const next = { ...desc };
     if (needsGetWrap) {
       const originalGet = desc.get;
+      /** @this {any} */
       next.get = function guardedGet() {
         this._ensureNotDisposed();
         return originalGet.call(this);
@@ -426,6 +427,7 @@ function guardDisposablePrototype(prototype) {
     }
     if (needsSetWrap) {
       const originalSet = desc.set;
+      /** @this {any} */
       next.set = function guardedSet(value) {
         this._ensureNotDisposed();
         return originalSet.call(this, value);

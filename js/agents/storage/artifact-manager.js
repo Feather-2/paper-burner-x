@@ -202,6 +202,7 @@ export async function computeSha256(data) {
   // Skip entirely in browser builds to avoid bundler warnings
   if (typeof globalThis.process !== "undefined" && globalThis.process?.versions?.node) {
     try {
+      // @ts-ignore - node:crypto is Node.js-only; this code path is gated at runtime
       const cryptoMod = await import(/* @vite-ignore */ "node:crypto");
       const createHash = cryptoMod?.createHash;
       if (typeof createHash === "function") {

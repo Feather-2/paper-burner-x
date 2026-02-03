@@ -16,8 +16,8 @@ import {
   loadMechanisms,
   initMechanisms,
   createLifecycleEmitter,
-  Watchdog,
 } from "../../runtime/index.js";
+import { Watchdog } from "../../plugins/compression/watchdog.js";
 import { createBudgetManager, BudgetAction } from "../../shared/index.js";
 import { createLogger } from "../../shared/index.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";

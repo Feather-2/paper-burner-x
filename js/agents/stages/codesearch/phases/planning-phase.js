@@ -41,6 +41,9 @@ const ALLOWED_TODO_PRIORITIES = new Set(["low", "medium", "high"]);
  * @typedef {object} CodeSearchTodoLike
  * @property {string=} todoId
  * @property {string=} text
+ * @property {string=} title
+ * @property {string=} todo
+ * @property {string=} name
  * @property {string=} priority
  * @property {string=} status
  * @property {string[]=} queryHints

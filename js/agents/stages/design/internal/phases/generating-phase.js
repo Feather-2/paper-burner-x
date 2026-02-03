@@ -31,6 +31,22 @@ import { DESIGN_PHASE_DEFAULTS, runWithPhaseSpan } from "./phase-utils.js";
  * @typedef {(stepName: string, loopIteration: any, stepInfo: any) => Promise<void>} FinishExecutionFn
  */
 
+/**
+ * @typedef {object} GeneratingPhaseParams
+ * @property {any[]=} slideIntents
+ * @property {any=} contentPackage
+ * @property {any=} designSystem
+ * @property {any=} constraints
+ * @property {any=} userConfig
+ * @property {any} context
+ * @property {any} runContext
+ * @property {EmitFn=} emit
+ * @property {StartExecutionFn} startExecution
+ * @property {FinishExecutionFn} finishExecution
+ * @property {any=} traceContext
+ * @property {boolean=} skipReview
+ */
+
 function hasImagePlanningConfig(constraints) {
   if (!constraints || typeof constraints !== "object") return false;
   return (
@@ -53,7 +69,7 @@ const DEFAULT_SPAWN_TIMEOUT_MS = 10 * 60 * 1000;
  * 生成阶段处理
  *
  * @param {any} loop
- * @param {{ context: any, runContext: any, emit?: EmitFn, startExecution: StartExecutionFn, finishExecution: FinishExecutionFn, traceContext?: any, skipReview?: boolean }} params
+ * @param {GeneratingPhaseParams} params
  * @returns {Promise<{ generated: any[], slideHtmls: string[], slidesMeta: any[], imageSlots: any[], brainstormResult: any, pendingImages: string[], baseDeckHtmlDsl: string, degradedCount: number, styleLock: any }>}
  */
 export async function runGeneratingPhase(loop, {

@@ -96,6 +96,10 @@ export function applyLifecycleMethods(UnifiedMemoryStore) {
           ts,
           encoding: "incremental",
           dirtyLayers: { ...this._dirty },
+          L0: /** @type {any} */ (undefined),
+          L1: /** @type {any} */ (undefined),
+          L2: /** @type {any} */ (undefined),
+          baseId: /** @type {any} */ (undefined),
         };
         if (this._dirty.L0) snapshot.L0 = this.cloneL0();
         if (this._dirty.L1) snapshot.L1 = this.cloneL1();
@@ -137,6 +141,10 @@ export function applyLifecycleMethods(UnifiedMemoryStore) {
         ts,
         encoding: "incremental",
         dirtyLayers: { ...this._dirty },
+        L0: /** @type {any} */ (undefined),
+        L1: /** @type {any} */ (undefined),
+        L2: /** @type {any} */ (undefined),
+        baseId: /** @type {any} */ (undefined),
       };
       if (this._dirty.L0) snapshot.L0 = this.cloneL0();
       if (this._dirty.L1) snapshot.L1 = this.cloneL1();

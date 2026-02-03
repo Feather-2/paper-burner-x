@@ -80,6 +80,57 @@ import { callWithPerformanceRouting, callWithStandardRouting, executeCall } from
  */
 
 export class ModelRouter {
+  /** @type {import("./model-events.js").ModelEventEmitter} */
+  _events;
+  /** @type {boolean} */
+  _debug;
+  /** @type {LoggerLike} */
+  _logger;
+  /** @type {string} */
+  _strategy;
+  /** @type {boolean | null} */
+  _performanceRouting;
+  /** @type {((args: { modelId: string, modelEntry: any, usage?: string, images?: any[] }) => string) | null} */
+  _tierResolver;
+  /** @type {import("../runtime/routing/performance-router.js").PerformanceRouter} */
+  _performanceRouter;
+  /** @type {Map<string, string | number>} */
+  _rrNextIndexByUsage;
+  /** @type {boolean} */
+  _persistRoundRobin;
+  /** @type {string} */
+  _roundRobinStorageKey;
+  /** @type {StorageLike | null} */
+  _roundRobinStorage;
+  /** @type {ModelRouterTime} */
+  _time;
+  /** @type {import("../runtime/core/retry-strategy.js").RetryStrategy | { execute: (fn: () => Promise<any>) => Promise<any> } | null} */
+  _retryStrategy;
+  /** @type {number} */
+  _baseCooldownMs;
+  /** @type {number} */
+  _maxCooldownMs;
+  /** @type {number} */
+  _backoffMultiplier;
+  /** @type {number} */
+  _cooldownMs;
+  /** @type {Map<string, any>} */
+  _models;
+  /** @type {Record<string, string[]>} */
+  _usageConfig;
+  /** @type {Map<string, any>} */
+  _providers;
+  /** @type {Map<string, string[]>} */
+  _usageTags;
+  /** @type {Map<string, any>} */
+  _health;
+  /** @type {Map<string, any>} */
+  _rateLimiters;
+  /** @type {Map<string, any>} */
+  _circuitBreakers;
+  /** @type {number | null} */
+  _lastCircuitBreakerCleanupMs;
+
   /**
    * @param {ModelRouterOptions} [options]
    */
@@ -284,15 +335,15 @@ export class ModelRouter {
    * @returns {void}
    */
   _registerPerformanceCandidates({ usage, baseCandidates, images }) {
-    registerPerformanceCandidates({
-      usage,
-      baseCandidates,
-      images,
-      models: this._models,
-      performanceRouter: this._performanceRouter,
-      resolveEndpointTier: (modelId, entry, options) => this._resolveEndpointTier(modelId, entry, options),
-    });
-  }
+	    registerPerformanceCandidates({
+	      usage,
+	      baseCandidates,
+	      images,
+	      models: this._models,
+	      performanceRouter: /** @type {any} */ (this._performanceRouter),
+	      resolveEndpointTier: (modelId, entry, options) => this._resolveEndpointTier(modelId, entry, options),
+	    });
+	  }
 
   /**
    * @param {{ usage: string, strategy: string, startIndex: number, baseCandidates: string[], requiredTags: Set<string> }} input

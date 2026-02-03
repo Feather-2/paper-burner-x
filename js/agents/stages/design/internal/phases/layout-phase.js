@@ -61,7 +61,7 @@ function sanitizeLayoutOverrides(currentLayouts, overrides) {
  * 布局阶段：生成线框图并等待用户确认
  *
  * @param {any} loop
- * @param {{ context: any, runContext: any, emit?: EmitFn, traceContext?: any }} params
+ * @param {{ slideIntents?: any[], designSystem?: any, plans?: any[], context: any, runContext: any, emit?: EmitFn, traceContext?: any }} params
  * @returns {Promise<{ layouts: any[] }>}
  */
 export async function runLayoutPhase(loop, {

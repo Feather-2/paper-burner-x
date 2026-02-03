@@ -23,7 +23,7 @@ import { isDisposable } from "../../core/contracts/disposable.js";
  *   }
  * }
  *
- * @implements {import('../contracts/disposable.js').Disposable}
+ * @see Disposable (../../core/contracts/disposable.js)
  */
 export class DisposableBase {
   constructor() {
@@ -36,7 +36,7 @@ export class DisposableBase {
 
   /**
    * 注册需要清理的资源
-   * @param {(() => void | Promise<void>) | import('../contracts/disposable.js').Disposable} cleanup
+   * @param {(() => void | Promise<void>) | import('../../core/contracts/disposable.js').Disposable} cleanup
    * @returns {void}
    */
   _registerDisposable(cleanup) {

@@ -11,6 +11,9 @@ import { SandboxBackend, DefaultSandboxConfig } from './constants.js';
 import { execCommand } from './detect.js';
 import { normalizeSandboxPath } from './path-utils.js';
 
+/** @type {typeof globalThis.process} */
+const process = globalThis.process;
+
 /**
  * Docker 执行选项
  * @typedef {Object} DockerOptions
@@ -168,7 +171,7 @@ export async function ensureImage(image = DEFAULT_IMAGE) {
  * @param {DockerOptions} defaultOptions
  * @returns {Object}
  */
-export function createDockerExecutor(defaultOptions = {}) {
+export function createDockerExecutor(defaultOptions = /** @type {any} */ ({})) {
   let imageReady = false;
 
   return {

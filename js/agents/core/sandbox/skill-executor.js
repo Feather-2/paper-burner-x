@@ -798,9 +798,11 @@ export class SkillExecutor {
     const timeoutMs = Math.max(0, Number(options?.timeoutMs ?? 30000));
 
     // Dynamic import for Node.js worker_threads
+    // @ts-ignore - Node-only module; this package is type-checked without Node types.
     const { Worker } = await import(/* @vite-ignore */ 'node:worker_threads');
     const workerPath = new URL('../../runtime/core/js-sandbox-worker.node.js', import.meta.url);
 
+    // @ts-ignore - Node-only type; this package is type-checked without Node types.
     /** @type {import('node:worker_threads').Worker | null} */
     let worker = null;
     try {

@@ -146,7 +146,12 @@ function createLogFn(options) {
     const sanitized = sanitizeData(data, sensitiveFields);
 
     if (maxBuffer > 0) {
-      buffer.push({ level, event, data: sanitized, timestamp: Date.now() });
+      buffer.push({
+        level: /** @type {"error" | "info" | "warn" | "debug"} */ (level),
+        event,
+        data: sanitized,
+        timestamp: Date.now(),
+      });
       while (buffer.length > maxBuffer) buffer.shift();
     }
 

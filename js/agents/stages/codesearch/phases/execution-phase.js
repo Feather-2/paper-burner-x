@@ -71,8 +71,7 @@ function withTimeout(promise, timeoutMs, label) {
   let timeoutId;
   const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(() => {
-      const error = new Error(`${label} timed out after ${timeoutMs}ms`);
-      error.code = "timeout";
+      const error = Object.assign(new Error(`${label} timed out after ${timeoutMs}ms`), { code: "timeout" });
       reject(error);
     }, timeoutMs);
   });

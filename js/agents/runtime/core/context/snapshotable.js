@@ -17,13 +17,22 @@
  */
 
 /**
+ * Narrowing helper for runtime checks (`tsc --checkJs`).
+ * @typedef {object} SnapshotableLike
+ * @property {unknown} [toSnapshot]
+ * @property {unknown} [fromSnapshot]
+ */
+
+/**
  * Runtime guard for Snapshotable.
  *
  * @param {unknown} value - 待检测的值
  * @returns {value is Snapshotable}
  */
 export function isSnapshotable(value) {
-  return Boolean(value) && typeof value.toSnapshot === "function" && typeof value.fromSnapshot === "function";
+  if (!value) return false;
+  const candidate = /** @type {SnapshotableLike} */ (value);
+  return typeof candidate.toSnapshot === "function" && typeof candidate.fromSnapshot === "function";
 }
 
 /**
@@ -36,8 +45,8 @@ export function isSnapshotable(value) {
  */
 export function assertSnapshotable(value, label = "value") {
   if (!value) throw new TypeError(`${label} is required`);
-  if (typeof value.toSnapshot !== "function") throw new TypeError(`${label}.toSnapshot must be a function`);
-  if (typeof value.fromSnapshot !== "function") throw new TypeError(`${label}.fromSnapshot must be a function`);
-  return value;
+  const candidate = /** @type {SnapshotableLike} */ (value);
+  if (typeof candidate.toSnapshot !== "function") throw new TypeError(`${label}.toSnapshot must be a function`);
+  if (typeof candidate.fromSnapshot !== "function") throw new TypeError(`${label}.fromSnapshot must be a function`);
+  return /** @type {Snapshotable} */ (value);
 }
-

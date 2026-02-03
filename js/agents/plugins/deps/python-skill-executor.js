@@ -8,6 +8,7 @@
  * 4. 返回结果
  */
 
+// @ts-ignore
 import nodePath from "node:path";
 import { DependencyManager } from "../deps/dependency-manager.js";
 import { PythonRuntimeAdapter } from "../../runtime/core/python-adapter.js";

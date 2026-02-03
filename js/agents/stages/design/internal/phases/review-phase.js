@@ -6,10 +6,21 @@ import { runWithPhaseSpan } from "./phase-utils.js";
  */
 
 /**
+ * @typedef {object} ReviewPhaseParams
+ * @property {string} [deckHtmlDsl]
+ * @property {any[]} [slidesMeta]
+ * @property {any} [designSystem]
+ * @property {any} context
+ * @property {any} runContext
+ * @property {EmitFn} [emit]
+ * @property {any} [traceContext]
+ */
+
+/**
  * Review 阶段处理 - 全局风格检查
  *
  * @param {any} loop
- * @param {{ context: any, runContext: any, emit?: EmitFn, traceContext?: any }} params
+ * @param {ReviewPhaseParams} params
  * @returns {Promise<{ reviewResult: any, fixedDeckHtmlDsl: string, fixes: any[] }>}
  */
 export async function runReviewPhase(loop, {

@@ -70,8 +70,9 @@ export function assertChatMessages(messages) {
   if (!Array.isArray(messages)) throw new TypeError("messages must be an array");
   for (const m of messages) {
     if (!isPlainObject(m)) throw new TypeError("messages entries must be objects");
-    if (!toNonEmptyString(m.role)) throw new TypeError("messages.role must be a non-empty string");
-    const c = m.content;
+    const msg = /** @type {{ role?: unknown, content?: unknown }} */ (m);
+    if (!toNonEmptyString(msg.role)) throw new TypeError("messages.role must be a non-empty string");
+    const c = msg.content;
     const ok = typeof c === "string" || (Array.isArray(c) && c.every((p) => isPlainObject(p)));
     if (!ok) throw new TypeError("messages.content must be a string or an array of objects");
   }

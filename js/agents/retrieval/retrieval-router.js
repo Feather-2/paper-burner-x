@@ -115,6 +115,11 @@ function isCompatibleBm25Index(index, chunks) {
   return true;
 }
 
+/**
+ * @param {any} store
+ * @param {string} key
+ * @param {{ logger?: any }} [options]
+ */
 async function loadBm25IndexFromStore(store, key, { logger } = {}) {
   if (!store || typeof store.get !== "function") return null;
   try {

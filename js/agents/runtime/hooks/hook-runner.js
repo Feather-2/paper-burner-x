@@ -512,7 +512,7 @@ export function createPreAgentHook(options = {}) {
       if (typeof hook.handler === "function") {
         try {
           const result = await hook.handler({ sessionId, runId, input, context });
-          if (result?.skip && blocking) {
+          if (blocking && result && result.skip) {
             const reason = toNonEmptyString(result.reason) || "PreAgent hook denied";
             eventBus?.emit?.("agent:denied", { sessionId, runId, reason });
             return { skip: true, value: result.value, reason };

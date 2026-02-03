@@ -370,7 +370,7 @@ export function validateManifest(manifest) {
 
   if (manifest.permissions) {
     for (const perm of manifest.permissions) {
-      if (!Object.values(PermissionType).includes(perm)) {
+      if (!Object.values(PermissionType).includes(/** @type {any} */ (perm))) {
         errors.push(`Unknown permission: ${perm}`);
       }
     }
@@ -453,7 +453,7 @@ function inferPermissions(definition) {
     permissions.push(PermissionType.LLM);
   }
 
-  return [...new Set(permissions)];
+  return /** @type {any} */ ([...new Set(permissions)]);
 }
 
 /**
@@ -477,7 +477,7 @@ function inferSkillPermissions(metadata) {
     permissions.push(PermissionType.MCP);
   }
 
-  return [...new Set(permissions)];
+  return /** @type {any} */ ([...new Set(permissions)]);
 }
 
 /**

@@ -36,7 +36,9 @@ import { injectSystemHint } from "../../../shared/index.js";
  * @returns {Function|null} Model caller function or null if no backend is available
  */
 export function buildBaseCaller(stageApi, { usage = "worker" } = {}) {
-  const { signal: defaultSignal, modelRouter, aiApiService } = extractServices(stageApi);
+  const { signal: defaultSignal, modelRouter: rawModelRouter, aiApiService: rawAiApiService } = extractServices(stageApi);
+  const modelRouter = /** @type {{ call?: Function } | null | undefined} */ (rawModelRouter);
+  const aiApiService = /** @type {{ chat?: Function } | null | undefined} */ (rawAiApiService);
   const systemHint = stageApi?.runtimeHints?.system;
   const routerCall = modelRouter?.call;
   if (typeof routerCall === "function") {

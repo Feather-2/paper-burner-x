@@ -17,6 +17,45 @@ const CHECKPOINT_JSON_MAX_CHARS = 5_000_000;
 const indexLocks = new Map();
 
 /**
+ * @typedef {object} LoggerLike
+ * @property {(msg: string, data?: object) => void} [debug]
+ * @property {(msg: string, data?: object) => void} [info]
+ * @property {(msg: string, data?: object) => void} [warn]
+ * @property {(msg: string, data?: object) => void} [error]
+ */
+
+/**
+ * @typedef {object} CheckpointVfsLike
+ * @property {(path: string) => Promise<string>} [readText]
+ * @property {(path: string, data: string) => Promise<unknown>} [writeText]
+ * @property {(path: string) => Promise<string | Uint8Array | ArrayBuffer | ArrayBufferView>} [readFile]
+ * @property {(path: string, data: string) => Promise<unknown>} [writeFile]
+ */
+
+/**
+ * @typedef {object} CheckpointStoreOptions
+ * @property {CheckpointVfsLike} [vfs] - VFS instance (needs read/write capability)
+ * @property {import('../../vfs/storage-adapter.js').StorageAdapter} [storageAdapter] - StorageAdapter fallback (used to build StorageVfs)
+ * @property {string} [runId] - Default run id
+ * @property {LoggerLike} [logger] - Custom logger
+ */
+
+/**
+ * @typedef {object} AgentCheckpoint
+ * @property {string} schemaVersion
+ * @property {string} kind
+ * @property {string} checkpointId
+ * @property {string} runId
+ * @property {string} ts
+ * @property {number|null} [step]
+ * @property {number|null} [iteration]
+ * @property {unknown[]} [messages]
+ * @property {unknown[]} [toolCalls]
+ * @property {unknown[]} [results]
+ * @property {Record<string, unknown>} [metadata]
+ */
+
+/**
  * 简易互斥锁 - 保证同一 runId 的索引操作串行
  * @param {string} runId
  * @param {() => Promise<T>} fn
@@ -28,9 +67,10 @@ async function withIndexLock(runId, fn) {
   while (indexLocks.has(key)) {
     await indexLocks.get(key);
   }
-  let release;
+  /** @type {() => void} */
+  let release = () => {};
   const lock = new Promise((resolve) => {
-    release = resolve;
+    release = () => resolve();
   });
   indexLocks.set(key, lock);
   try {
@@ -90,7 +130,7 @@ function buildIndexPath(runId) {
 /**
  * @private
  */
-function ensureVfs({ vfs, storageAdapter } = {}) {
+function ensureVfs({ vfs, storageAdapter } = /** @type {CheckpointStoreOptions} */ ({})) {
   if (vfs && typeof vfs.writeFile === "function") return vfs;
   if (storageAdapter && typeof storageAdapter.get === "function") {
     try {
@@ -200,25 +240,26 @@ async function saveIndex(vfs, runId, checkpoints) {
  * 校验 checkpoint 数据的最小 schema
  * @private
  * @param {unknown} data - 解析后的数据
- * @returns {object|null} 校验通过返回原对象，否则返回 null
+ * @returns {AgentCheckpoint|null} 校验通过返回原对象，否则返回 null
  */
 function validateCheckpoint(data) {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-  const { schemaVersion, kind, checkpointId, runId } = data;
+  const obj = /** @type {Partial<AgentCheckpoint> & Record<string, unknown>} */ (data);
+  const { schemaVersion, kind, checkpointId, runId } = obj;
   // 必须包含核心字段且类型正确
   if (typeof schemaVersion !== "string") return null;
   if (typeof kind !== "string" || kind !== CHECKPOINT_KIND) return null;
   if (typeof checkpointId !== "string" || !checkpointId) return null;
   if (typeof runId !== "string" || !runId) return null;
   // metadata 必须是 plain object 或不存在
-  if (data.metadata !== undefined && !isPlainObject(data.metadata)) return null;
-  return data;
+  if (obj.metadata !== undefined && !isPlainObject(obj.metadata)) return null;
+  return /** @type {AgentCheckpoint} */ (obj);
 }
 
 /**
  * @private
  */
-function normalizeRestoreMode(mode, { checkpointId, step } = {}) {
+function normalizeRestoreMode(mode, { checkpointId, step } = /** @type {{ checkpointId?: string, step?: number }} */ ({})) {
   const normalized = toNonEmptyString(mode)?.toLowerCase();
   if (normalized === "last" || normalized === "latest") return "last";
   if (normalized === "checkpoint" || normalized === "id") return "checkpoint";
@@ -259,13 +300,9 @@ function normalizeIndexEntry(entry) {
  */
 export class AgentCheckpointStore {
   /**
-   * @param {object} options - 配置选项
-   * @param {object} [options.vfs] - VFS 实例 (需要 readFile/writeFile 能力)
-   * @param {object} [options.storageAdapter] - 存储适配器 (可替代 vfs)
-   * @param {string} [options.runId] - 默认运行 ID
-   * @param {object} [options.logger] - 自定义 logger
+   * @param {CheckpointStoreOptions} [options] - 配置选项
    */
-  constructor({ vfs, storageAdapter, runId, logger: customLogger } = {}) {
+  constructor({ vfs, storageAdapter, runId, logger: customLogger } = /** @type {CheckpointStoreOptions} */ ({})) {
     this._logger = customLogger || logger;
     this._vfs = ensureVfs({ vfs, storageAdapter });
     this._runId = toNonEmptyString(runId) || null;

@@ -26,6 +26,7 @@ export function isWorkerSupported() {
  */
 export async function createWorker(scriptUrl, options = {}) {
   if (isNodeLike()) {
+    // @ts-ignore
     const { Worker } = await import(/* @vite-ignore */ "node:worker_threads");
     return new Worker(scriptUrl, {
       ...options,
@@ -50,9 +51,7 @@ export async function terminateWorker(worker) {
   if (!worker) return;
 
   if (typeof worker.terminate === "function") {
-    const result = worker.terminate();
-    // Node.js Worker.terminate() 返回 Promise
-    if (result?.then) await result;
+    // Node.js Worker.terminate() 返回 Promise；浏览器返回 void
+    await worker.terminate();
   }
 }
-

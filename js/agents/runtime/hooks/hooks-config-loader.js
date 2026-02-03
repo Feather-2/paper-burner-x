@@ -4,6 +4,9 @@ import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 import { FileWatcher, isNativeWatchSupported } from "../../shared/index.js";
 import { createLogger } from "../../shared/index.js";
 
+/** @type {typeof globalThis.process} */
+const process = globalThis.process;
+
 const logger = createLogger("runtime/hooks/config-loader");
 
 /** @type {Set<string>} */
@@ -63,8 +66,11 @@ function normalizeEventName(input) {
 }
 
 function byteLength(text) {
-  if (typeof Buffer !== "undefined" && typeof Buffer.byteLength === "function") {
-    return Buffer.byteLength(text, "utf8");
+  if (
+    typeof globalThis.Buffer !== "undefined" &&
+    typeof /** @type {typeof Buffer} */ (globalThis.Buffer).byteLength === "function"
+  ) {
+    return /** @type {typeof Buffer} */ (globalThis.Buffer).byteLength(text, "utf8");
   }
   return new TextEncoder().encode(text).byteLength;
 }

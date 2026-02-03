@@ -70,6 +70,54 @@ function compareTabIds(a, b) {
 }
 
 export class TabCoordinator {
+  /** @type {string} */
+  _channelName;
+
+  /** @type {number} */
+  _heartbeatMs;
+
+  /** @type {number} */
+  _staleMs;
+
+  /** @type {((sessionId: string) => void) | null} */
+  _onEviction;
+
+  /** @type {((sessionId: string) => void) | null} */
+  _onAccess;
+
+  /** @type {LoggerLike | null} */
+  _logger;
+
+  /** @type {boolean} */
+  _supported;
+
+  /** @type {BroadcastChannel | null} */
+  _channel;
+
+  /** @type {boolean} */
+  _initialized;
+
+  /** @type {boolean} */
+  _disposed;
+
+  /** @type {string} */
+  _tabId;
+
+  /** @type {Map<string, number>} */
+  _tabSeen;
+
+  /** @type {string} */
+  _leaderId;
+
+  /** @type {boolean} */
+  _isLeader;
+
+  /** @type {number} */
+  _activeTabCount;
+
+  /** @type {ReturnType<typeof setInterval> | null} */
+  _heartbeatTimer;
+
   /**
    * @param {TabCoordinatorOptions} [options]
    */
@@ -263,18 +311,20 @@ export class TabCoordinator {
 
     if (!isPlainObject(data)) return null;
 
-    const type = toNonEmptyString(data.type);
-    const tabId = toNonEmptyString(data.tabId);
-    const ts = Number(data.ts);
+    const obj = /** @type {Record<string, unknown>} */ (data);
+
+    const type = toNonEmptyString(obj.type);
+    const tabId = toNonEmptyString(obj.tabId);
+    const ts = Number(obj.ts);
 
     if (!type || !MESSAGE_TYPES.has(type)) return null;
     if (!tabId) return null;
     if (!Number.isFinite(ts)) return null;
 
-    const sessionId = toNonEmptyString(data.sessionId);
+    const sessionId = toNonEmptyString(obj.sessionId);
 
     return {
-      type,
+      type: /** @type {TabCoordinatorMessageType} */ (type),
       tabId,
       ts,
       ...(sessionId ? { sessionId } : {}),

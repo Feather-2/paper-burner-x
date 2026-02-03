@@ -14,7 +14,65 @@ import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 const ALLOWED_OPENAI_HOSTS = ["api.openai.com"];
 const ALLOWED_GEMINI_HOSTS = ["generativelanguage.googleapis.com"];
 
-function sanitizeBaseUrl(url, fallback, { allowedHosts } = {}) {
+/**
+ * @typedef {object} SanitizeBaseUrlOptions
+ * @property {string[] | null} [allowedHosts]
+ */
+
+/**
+ * @typedef {object} GeminiDimensionsOptions
+ * @property {string} [aspectRatio]
+ * @property {string} [imageSize]
+ * @property {number} [width]
+ * @property {number} [height]
+ */
+
+/**
+ * @typedef {object} MakeTimeoutErrorOptions
+ * @property {number} [timeoutMs]
+ * @property {unknown} [cause]
+ */
+
+/**
+ * @typedef {object} FetchWithTimeoutOptions
+ * @property {number} [timeoutMs]
+ */
+
+/**
+ * @typedef {object} AssertEnumValueOptions
+ * @property {string} [name]
+ * @property {string} [fallback]
+ */
+
+/**
+ * @typedef {Error & { status?: number, data?: unknown }} HttpError
+ */
+
+/**
+ * @typedef {Error & { data?: unknown }} ErrorWithData
+ */
+
+/**
+ * @typedef {Error & { code?: string, timeoutMs?: number, cause?: unknown }} TimeoutError
+ */
+
+/**
+ * @typedef {object} ImageProviderConstructorOptions
+ * @property {string} [provider] - 'gemini-image' | 'openai-image' | aliases: 'gemini' | 'openai'
+ * @property {string} [apiKey]
+ * @property {string} [model]
+ * @property {string} [baseUrl]
+ * @property {boolean} [baseUrlTrusted]
+ * @property {string} [name]
+ */
+
+/**
+ * @param {string} url
+ * @param {string} fallback
+ * @param {SanitizeBaseUrlOptions} [options]
+ */
+function sanitizeBaseUrl(url, fallback, options = {}) {
+  const { allowedHosts } = options || {};
   const raw = toNonEmptyString(url) || toNonEmptyString(fallback) || "";
   if (!raw) return "";
   const trimmed = raw.replace(/\/+$/, "");
@@ -50,7 +108,11 @@ function parseSizeString(size) {
   return { width, height };
 }
 
-function deriveGeminiDimensions({ aspectRatio, imageSize, width, height } = {}) {
+/**
+ * @param {GeminiDimensionsOptions} [options]
+ */
+function deriveGeminiDimensions(options = {}) {
+  const { aspectRatio, imageSize, width, height } = options || {};
   const explicitW = typeof width === "number" && width > 0 ? Math.floor(width) : null;
   const explicitH = typeof height === "number" && height > 0 ? Math.floor(height) : null;
   if (explicitW && explicitH) return { width: explicitW, height: explicitH };
@@ -70,8 +132,14 @@ function toTimeoutMs(v, fallback = 30_000) {
   return fallback;
 }
 
-function makeTimeoutError(message, { timeoutMs, cause } = {}) {
-  const err = new Error(message || "Network timeout");
+/**
+ * @param {string} message
+ * @param {MakeTimeoutErrorOptions} [options]
+ * @returns {TimeoutError}
+ */
+function makeTimeoutError(message, options = {}) {
+  const { timeoutMs, cause } = options || {};
+  const err = /** @type {TimeoutError} */ (new Error(message || "Network timeout"));
   err.name = "TimeoutError";
   err.code = "ETIMEDOUT";
   err.timeoutMs = timeoutMs;
@@ -79,7 +147,13 @@ function makeTimeoutError(message, { timeoutMs, cause } = {}) {
   return err;
 }
 
-async function fetchWithTimeout(url, init = {}, { timeoutMs } = {}) {
+/**
+ * @param {string} url
+ * @param {RequestInit} [init]
+ * @param {FetchWithTimeoutOptions} [options]
+ */
+async function fetchWithTimeout(url, init = {}, options = {}) {
+  const { timeoutMs } = options || {};
   const ms = toTimeoutMs(timeoutMs);
   const parentSignal = init?.signal;
   const ctrl = new AbortController();
@@ -132,18 +206,18 @@ async function buildHttpError(resp, defaultMsg) {
         data?.error ||
         (typeof data === "string" ? data : null) ||
         `${defaultMsg} (${status})`;
-      const err = new Error(String(msg));
+      const err = /** @type {HttpError} */ (new Error(String(msg)));
       err.status = status;
       err.data = data;
       return err;
     }
     const text = typeof resp.text === "function" ? await resp.text() : "";
-    const err = new Error(text || `${defaultMsg} (${status})`);
+    const err = /** @type {HttpError} */ (new Error(text || `${defaultMsg} (${status})`));
     err.status = status;
     err.data = text;
     return err;
   } catch (e) {
-    const err = new Error(`${defaultMsg} (${status})`);
+    const err = /** @type {HttpError} */ (new Error(`${defaultMsg} (${status})`));
     err.status = status;
     err.cause = e instanceof Error ? e : undefined;
     return err;
@@ -158,7 +232,13 @@ export const GEMINI_IMAGE_SIZES = Object.freeze(["1K", "2K"]);
 export const OPENAI_SIZES = Object.freeze(["1024x1024", "1792x1024", "1024x1792"]);
 export const OPENAI_QUALITIES = Object.freeze(["standard", "hd"]);
 
-function assertEnumValue(value, allowed, { name, fallback } = {}) {
+/**
+ * @param {unknown} value
+ * @param {readonly string[]} allowed
+ * @param {AssertEnumValueOptions} [options]
+ */
+function assertEnumValue(value, allowed, options = {}) {
+  const { name, fallback } = options || {};
   const v = toNonEmptyString(value) || fallback;
   if (!v) return undefined;
   if (!allowed.includes(v)) throw new TypeError(`${name || "value"} must be one of: ${allowed.join(", ")}`);
@@ -224,7 +304,7 @@ export async function GeminiImageAdapter(request, apiKey, opts = {}) {
   if (!base64) {
     const finish = data?.candidates?.[0]?.finishReason || data?.promptFeedback?.blockReason || "";
     const detail = toNonEmptyString(finish) || "no image data returned";
-    const err = new Error(`Gemini returned no image: ${detail}`);
+    const err = /** @type {ErrorWithData} */ (new Error(`Gemini returned no image: ${detail}`));
     err.data = data;
     throw err;
   }
@@ -292,7 +372,7 @@ export async function OpenAIImageAdapter(request, apiKey, opts = {}) {
   const url = toNonEmptyString(first?.url) || null;
 
   if (!base64 && !url) {
-    const err = new Error("OpenAI returned no image data");
+    const err = /** @type {ErrorWithData} */ (new Error("OpenAI returned no image data"));
     err.data = data;
     throw err;
   }
@@ -324,12 +404,25 @@ const PROVIDER_ADAPTERS = {
 // ============ Main Class ============
 
 export class ImageProvider {
+  /** @type {string} */
+  provider;
+  /** @type {string} */
+  apiKey;
+  /** @type {string | undefined} */
+  model;
+  /** @type {string | undefined} */
+  baseUrl;
+  /** @type {boolean} */
+  baseUrlTrusted;
+  /** @type {string} */
+  id;
+  /** @type {string} */
+  name;
+  /** @type {string[]} */
+  capabilities;
+
   /**
-   * @param {Object} opts
-   * @param {string} opts.provider - 'gemini-image' | 'openai-image' | aliases: 'gemini' | 'openai'
-   * @param {string} opts.apiKey
-   * @param {string} [opts.model]
-   * @param {string} [opts.baseUrl]
+   * @param {ImageProviderConstructorOptions} [opts]
    */
   constructor(opts = {}) {
     this.provider = toNonEmptyString(opts.provider)?.toLowerCase() || "gemini-image";
@@ -454,6 +547,7 @@ export function createImageProviderFromConfig({ storage, keyLoader, storageKey =
   if (!toNonEmptyString(config.provider)) config.provider = "gemini-image";
   if (toNonEmptyString(config.baseUrl)) config.baseUrlTrusted = false;
 
+  // @ts-ignore - loadModelKeys may be provided as a global in browser builds
   const loader = typeof keyLoader === "function" ? keyLoader : typeof loadModelKeys === "function" ? loadModelKeys : null;
   if (!toNonEmptyString(config.apiKey) && loader) {
     const providerKeyMap = {

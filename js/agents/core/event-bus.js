@@ -555,7 +555,7 @@ export class EventBus {
 
         const evt = createEventRecord({
           ...raw,
-          _clock: clock,
+          _clock: /** @type {any} */ (clock),
           runId: rawRunId ?? runId,
           meta: { ...(rawMeta || {}), replay: true },
         });
