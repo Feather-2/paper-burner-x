@@ -194,7 +194,7 @@ export class PolicyManager {
 
     this.interactive = typeof options.interactive === "boolean" ? options.interactive : !isNodeLike();
     this.approvalTimeoutMs = Number.isFinite(options.approvalTimeoutMs) ? Math.max(1000, Math.floor(options.approvalTimeoutMs)) : 300000;
-    this.onMissingApprovalProvider = toNonEmptyString(options.onMissingApprovalProvider) || (isNodeLike() ? "allow" : "deny");
+    this.onMissingApprovalProvider = toNonEmptyString(options.onMissingApprovalProvider) || "deny";
 
     this._loaded = false;
   }

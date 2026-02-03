@@ -571,9 +571,12 @@ export class ToolRegistry {
         // "allow" or "prompt" (已通过用户确认) -> 继续执行
         return null;
       } catch (err) {
-        // Policy 检查失败时默认允许（fail-open），避免阻塞正常流程
-        this._logger?.warn?.(`[tool-registry] PolicyManager.check failed: ${err.message}`);
-        return null;
+        // Policy 检查失败时默认拒绝（fail-close），确保安全
+        this._logger?.error?.(`[tool-registry] PolicyManager.check failed: ${err.message}`);
+        return {
+          skip: true,
+          value: { ok: false, error: `Policy check failed: ${err.message}` },
+        };
       }
     });
 
