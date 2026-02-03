@@ -95,8 +95,3 @@ export {
   PhaseEvents,
 } from "./events/events.js";
 
-// Compression - import from plugins/compression for full API
-export { Watchdog, CicadaCompressor, CompressionLayer, CompressionCoordinator } from "../plugins/compression/index.js";
-
-// Telemetry - import from plugins/telemetry for full API
-export { TokenTracker, TraceContext } from "../plugins/telemetry/index.js";

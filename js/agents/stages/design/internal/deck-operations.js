@@ -1,5 +1,5 @@
 import { createLogger, deepClone } from "../../../shared/index.js";
-import { Watchdog } from "../../../runtime/index.js";
+import { Watchdog } from "../../../../plugins/compression/index.js";
 import {
   DESIGN_LOOP_DEFAULTS,
   buildDesignWatchdogAdvice,
