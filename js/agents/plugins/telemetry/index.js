@@ -19,6 +19,7 @@ export {
   parseTraceparent,
 } from "./trace-context.js";
 
+// loop-runtime-state 已移至 runtime/core/，此处 re-export 保持兼容
 export {
   LoopRuntimeState,
   LoopRuntimeStatuses,
@@ -27,7 +28,7 @@ export {
   setRuntimeState,
   ensureRuntimeState,
   clearRuntimeState,
-} from "./loop-runtime-state.js";
+} from "../../runtime/core/loop-runtime-state.js";
 
 export { RunReplayController } from "./replay-controller.js";
 export { subscribeTelemetry } from "./runstore-telemetry.js";
