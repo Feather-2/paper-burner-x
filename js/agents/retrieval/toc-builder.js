@@ -1,5 +1,8 @@
 import { isPlainObject, toPositiveInt } from "../shared/index.js";
 
+/** @type {number} Default section target size for fallback sections (characters) */
+export const DEFAULT_SECTION_TARGET_SIZE = 5000;
+
 function normalizeTitle(title) {
   return String(title || "")
     .replace(/\s+/g, " ")
@@ -58,7 +61,7 @@ function buildFallbackSections(text) {
   const sections = [];
   const n = text.length;
   if (n === 0) return sections;
-  const target = 5000;
+  const target = DEFAULT_SECTION_TARGET_SIZE;
   let start = 0;
   let i = 0;
   while (start < n) {
@@ -78,7 +81,7 @@ function buildFallbackSectionsByLength(n) {
   const sections = [];
   const len = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
   if (len === 0) return sections;
-  const target = 5000;
+  const target = DEFAULT_SECTION_TARGET_SIZE;
   let start = 0;
   let i = 0;
   while (start < len) {
