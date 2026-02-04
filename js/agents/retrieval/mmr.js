@@ -1,3 +1,9 @@
+/** @type {number} Default lambda for MMR diversity (0.7 = relevance-heavy) */
+export const DEFAULT_MMR_LAMBDA = 0.7;
+
+/** @type {number} Default max tokens for similarity computation */
+export const DEFAULT_MMR_MAX_TOKENS = 200;
+
 let _mmrSegmenter = null;
 
 function getMmrSegmenter() {
@@ -94,13 +100,13 @@ function clamp01(n) {
  * @param {any[]} candidates
  * @param {MmrSelectOptions} [options]
  */
-export function mmrSelect(candidates, { topK, lambda = 0.7, seed = [], maxTokens = 200 } = {}) {
+export function mmrSelect(candidates, { topK, lambda = DEFAULT_MMR_LAMBDA, seed = [], maxTokens = DEFAULT_MMR_MAX_TOKENS } = {}) {
   const list = Array.isArray(candidates) ? candidates : [];
   const k = Number.isFinite(topK) ? Math.max(0, Math.floor(topK)) : list.length;
   if (k <= 0) return [];
   if (list.length <= 1) return list.slice(0, k);
 
-  const l = clamp01(lambda === undefined ? 0.7 : lambda);
+  const l = clamp01(lambda === undefined ? DEFAULT_MMR_LAMBDA : lambda);
 
   const selected = [];
   const selectedIds = new Set();
@@ -171,6 +177,8 @@ export function mmrSelect(candidates, { topK, lambda = 0.7, seed = [], maxTokens
 }
 
 export default {
+  DEFAULT_MMR_LAMBDA,
+  DEFAULT_MMR_MAX_TOKENS,
   mmrSelect,
 };
 
