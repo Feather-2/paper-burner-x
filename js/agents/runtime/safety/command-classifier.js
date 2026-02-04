@@ -42,7 +42,8 @@ const DANGEROUS_COMMANDS = new Set([
   "umount",
 ]);
 
-const SENSITIVE_PATH_PATTERNS = [
+/** @type {RegExp[]} */
+const DEFAULT_SENSITIVE_PATH_PATTERNS = [
   // 系统密码和认证
   /(^|\/)etc\/passwd$/i,
   /(^|\/)etc\/shadow$/i,
@@ -76,6 +77,61 @@ const SENSITIVE_PATH_PATTERNS = [
 ];
 
 /**
+ * @typedef {Object} ClassifierConfig
+ * @property {Set<string>} [safeCommands] - Commands considered safe
+ * @property {Set<string>} [dangerousCommands] - Commands considered dangerous
+ * @property {RegExp[]} [sensitivePathPatterns] - Patterns for sensitive paths
+ * @property {string[]} [projectAllowPaths] - Project-specific paths to whitelist
+ */
+
+/** @type {ClassifierConfig} */
+let _config = {
+  safeCommands: SAFE_COMMANDS,
+  dangerousCommands: DANGEROUS_COMMANDS,
+  sensitivePathPatterns: DEFAULT_SENSITIVE_PATH_PATTERNS,
+  projectAllowPaths: [],
+};
+
+/**
+ * Configure the command classifier
+ * @param {Partial<ClassifierConfig>} config
+ */
+export function configureClassifier(config) {
+  if (config.safeCommands instanceof Set) {
+    _config.safeCommands = config.safeCommands;
+  }
+  if (config.dangerousCommands instanceof Set) {
+    _config.dangerousCommands = config.dangerousCommands;
+  }
+  if (Array.isArray(config.sensitivePathPatterns)) {
+    _config.sensitivePathPatterns = config.sensitivePathPatterns;
+  }
+  if (Array.isArray(config.projectAllowPaths)) {
+    _config.projectAllowPaths = config.projectAllowPaths.map((p) => normalizePathArg(p));
+  }
+}
+
+/**
+ * Reset classifier to defaults
+ */
+export function resetClassifierConfig() {
+  _config = {
+    safeCommands: SAFE_COMMANDS,
+    dangerousCommands: DANGEROUS_COMMANDS,
+    sensitivePathPatterns: DEFAULT_SENSITIVE_PATH_PATTERNS,
+    projectAllowPaths: [],
+  };
+}
+
+/**
+ * Get current classifier config (for testing/debugging)
+ * @returns {Readonly<ClassifierConfig>}
+ */
+export function getClassifierConfig() {
+  return { ..._config };
+}
+
+/**
  * Command substitution patterns that bypass allow/block rules.
  * Detects $(), backticks, and process substitution <() >().
  */
@@ -107,7 +163,11 @@ function normalizePathArg(arg) {
 function looksSensitivePath(arg) {
   const candidate = normalizePathArg(arg);
   if (!candidate) return false;
-  return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(candidate));
+  // Check project allow paths first
+  if (_config.projectAllowPaths.some((allowed) => candidate.startsWith(allowed))) {
+    return false;
+  }
+  return _config.sensitivePathPatterns.some((pattern) => pattern.test(candidate));
 }
 
 /**
@@ -338,11 +398,11 @@ export function classifyCommand(command) {
       return { level: "dangerous", requiresApproval: true, baseCommand: base, reasons: ["sensitive_path"] };
     }
 
-    if (DANGEROUS_COMMANDS.has(base)) {
+    if (_config.dangerousCommands.has(base)) {
       return { level: "dangerous", requiresApproval: true, baseCommand: base, reasons: ["dangerous_executable"] };
     }
 
-    if (SAFE_COMMANDS.has(base)) {
+    if (_config.safeCommands.has(base)) {
       worst = worst || { level: "safe", requiresApproval: false, baseCommand: base, reasons: ["allowlisted_executable"] };
       continue;
     }
@@ -359,6 +419,10 @@ export const __internal = { tokenizeShell, toBaseName, hasCommandSubstitution };
 export default {
   SAFE_COMMANDS,
   DANGEROUS_COMMANDS,
+  DEFAULT_SENSITIVE_PATH_PATTERNS,
   parseCompoundCommand,
   classifyCommand,
+  configureClassifier,
+  resetClassifierConfig,
+  getClassifierConfig,
 };
