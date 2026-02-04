@@ -8,7 +8,17 @@ import { mmrSelect } from "./mmr.js";
 import { isPlainObject } from "../shared/index.js";
 import { checkCancelled } from "../shared/index.js";
 
-const MAX_BM25_SNAPSHOT_CHARS = 2 * 1024 * 1024;
+/** @type {number} Default max BM25 snapshot size in chars (2MB) */
+export const DEFAULT_MAX_BM25_SNAPSHOT_CHARS = 2 * 1024 * 1024;
+
+/** @type {number} Default threshold for async grep (chunk count) */
+export const DEFAULT_GREP_ASYNC_THRESHOLD = 2000;
+
+/** @type {number} Default yield interval for async grep */
+export const DEFAULT_GREP_YIELD_EVERY = 200;
+
+/** @type {number} Default MMR lambda for diversity */
+export const DEFAULT_MMR_LAMBDA = 0.7;
 
 function getGapId(gap) {
   if (!gap || !isPlainObject(gap)) return null;
@@ -118,17 +128,17 @@ function isCompatibleBm25Index(index, chunks) {
 /**
  * @param {any} store
  * @param {string} key
- * @param {{ logger?: any }} [options]
+ * @param {{ logger?: any, maxSnapshotChars?: number }} [options]
  */
-async function loadBm25IndexFromStore(store, key, { logger } = {}) {
+async function loadBm25IndexFromStore(store, key, { logger, maxSnapshotChars = DEFAULT_MAX_BM25_SNAPSHOT_CHARS } = {}) {
   if (!store || typeof store.get !== "function") return null;
   try {
     const raw = await store.get(key);
     if (!raw) return null;
     let snapshot = raw;
     if (typeof raw === "string") {
-      if (raw.length > MAX_BM25_SNAPSHOT_CHARS) {
-        logger?.warn?.("[retrieval] bm25 snapshot too large; ignoring", { size: raw.length, max: MAX_BM25_SNAPSHOT_CHARS });
+      if (raw.length > maxSnapshotChars) {
+        logger?.warn?.("[retrieval] bm25 snapshot too large; ignoring", { size: raw.length, max: maxSnapshotChars });
         return null;
       }
       try {
@@ -267,11 +277,11 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
   const grepAsyncThreshold =
     typeof config.grepAsyncThreshold === "number" && Number.isFinite(config.grepAsyncThreshold)
       ? Math.max(0, Math.floor(config.grepAsyncThreshold))
-      : 2000;
+      : DEFAULT_GREP_ASYNC_THRESHOLD;
   const grepYieldEvery =
     typeof config.grepYieldEvery === "number" && Number.isFinite(config.grepYieldEvery) && config.grepYieldEvery > 0
       ? Math.floor(config.grepYieldEvery)
-      : 200;
+      : DEFAULT_GREP_YIELD_EVERY;
 
   for (let gi = 0; gi < gaps.length; gi++) {
     checkCancelled(signal);
