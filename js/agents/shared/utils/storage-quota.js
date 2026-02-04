@@ -7,8 +7,11 @@
 
 import { safeJsonParse } from "./safe-json.js";
 
-const DEFAULT_WARN_THRESHOLD = 0.8; // 80%
-const DEFAULT_CRITICAL_THRESHOLD = 0.95; // 95%
+/** @type {number} Default warn threshold (80%) */
+export const DEFAULT_WARN_THRESHOLD = 0.8;
+
+/** @type {number} Default critical threshold (95%) */
+export const DEFAULT_CRITICAL_THRESHOLD = 0.95;
 
 /**
  * 检查 localStorage 是否可用
