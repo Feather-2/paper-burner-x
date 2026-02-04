@@ -95,12 +95,6 @@ const mocks = vi.hoisted(() => {
     'StageApiFactory',
     'UnifiedAgentContext',
     'EventBus',
-    'Watchdog',
-    'CicadaCompressor',
-    'CompressionLayer',
-    'CompressionCoordinator',
-    'TokenTracker',
-    'TraceContext',
   ];
 
   const errorClassNames = [
@@ -295,18 +289,6 @@ vi.mock('../../../../js/agents/runtime/events/events.js', () => ({
   CodeSearchEvents: mocks.CodeSearchEvents,
   AgentLifecycleEvents: mocks.AgentLifecycleEvents,
   PhaseEvents: mocks.PhaseEvents,
-}));
-
-vi.mock('../../../../js/agents/plugins/compression/index.js', () => ({
-  Watchdog: mocks.Watchdog,
-  CicadaCompressor: mocks.CicadaCompressor,
-  CompressionLayer: mocks.CompressionLayer,
-  CompressionCoordinator: mocks.CompressionCoordinator,
-}));
-
-vi.mock('../../../../js/agents/plugins/telemetry/index.js', () => ({
-  TokenTracker: mocks.TokenTracker,
-  TraceContext: mocks.TraceContext,
 }));
 
 import * as runtime from '../../../../js/agents/runtime/index.js';

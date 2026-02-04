@@ -211,7 +211,7 @@ it("DesignAgentLoop runs phases, uses tools, emits events", async () => {
 
   // Verify phase transitions
   const transitions = events
-    .filter((evt) => evt.name === "design.phase.transition")
+    .filter((evt) => evt.name === "design:phase:transition" || evt.name === "design.phase.transition")
     .map((evt) => evt.record.payload.to);
 
   expect(transitions).toContain(DesignPhase.OUTLINE_PARSING);
@@ -220,8 +220,8 @@ it("DesignAgentLoop runs phases, uses tools, emits events", async () => {
 
   // Verify lifecycle events
   const eventNames = events.map((evt) => evt.name);
-  expect(eventNames).toContain("design.started");
-  expect(eventNames).toContain("design.ended");
+  expect(eventNames).toContain("design:started");
+  expect(eventNames).toContain("design:ended");
 });
 
 it("DesignAgentLoop exposes getPhase and getStatus methods", async () => {

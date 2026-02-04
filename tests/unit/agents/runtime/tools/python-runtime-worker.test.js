@@ -85,7 +85,10 @@ function transformWorkerSourceToScript(source) {
   let code = String(source);
 
   // Drop static imports.
-  code = code.replace(/^\s*import\s+[\s\S]*?;\s*$/gm, "");
+  // Keep this line-based to avoid matching "import ..." that appears inside
+  // template literals (e.g. embedded Python code) and accidentally deleting
+  // large chunks of the source.
+  code = code.replace(/^\s*import\s+[^\n]*;\s*$/gm, "");
 
   // Drop re-exports.
   code = code.replace(
@@ -101,7 +104,7 @@ function transformWorkerSourceToScript(source) {
 
   // Drop `export { ... }` lines.
   code = code.replace(
-    /^\s*export\s*\{[\s\S]*?\}\s*(?:from\s*["'][^"']+["']\s*)?;?\s*$/gm,
+    /^\s*export\s*\{[^\n]*\}\s*(?:from\s*["'][^"']+["']\s*)?;?\s*$/gm,
     "",
   );
 
@@ -141,17 +144,23 @@ const EXPORTED_NAMES = parseExportedNamesFromSource(WORKER_SOURCE);
 const CRYPTO = globalThis.crypto ?? webcrypto;
 
 function evaluateWorkerInVm({
-  self = {
-    location: { origin: "https://example.com", href: "https://example.com/worker.js" },
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    postMessage: vi.fn(),
-  },
-  crypto = CRYPTO,
-  SharedArrayBuffer = globalThis.SharedArrayBuffer,
-  Buffer = globalThis.Buffer,
-  atob = globalThis.atob,
 } = {}) {
+  const options = arguments[0] ?? {};
+  const has = (key) => Object.prototype.hasOwnProperty.call(options, key);
+
+  const self = has("self")
+    ? options.self
+    : {
+        location: { origin: "https://example.com", href: "https://example.com/worker.js" },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      };
+  const crypto = has("crypto") ? options.crypto : CRYPTO;
+  const SharedArrayBuffer = has("SharedArrayBuffer") ? options.SharedArrayBuffer : globalThis.SharedArrayBuffer;
+  const Buffer = has("Buffer") ? options.Buffer : globalThis.Buffer;
+  const atob = has("atob") ? options.atob : globalThis.atob;
+
   const mockLogger = {
     debug: vi.fn(),
     info: vi.fn(),
@@ -169,6 +178,8 @@ function evaluateWorkerInVm({
     clearTimeout,
     setInterval,
     clearInterval,
+    // Ensure typed arrays created in the VM are compatible with instanceof checks in this test file.
+    Uint8Array,
 
     self,
     crypto,
@@ -273,7 +284,7 @@ describe("getWorkerOrigin (internal)", () => {
   });
 
   it("returns null when self is missing", () => {
-    const { internals } = evaluateWorkerInVm({ self: undefined });
+    const { internals } = evaluateWorkerInVm({ self: {} });
     expect(internals.getWorkerOrigin).toBeTypeOf("function");
     expect(internals.getWorkerOrigin()).toBe(null);
   });
@@ -313,7 +324,7 @@ describe("getWorkerBaseUrl (internal)", () => {
   });
 
   it("falls back to PYODIDE_CDN_BASE_URL when self is missing or location throws", () => {
-    const { internals: noSelf } = evaluateWorkerInVm({ self: undefined });
+    const { internals: noSelf } = evaluateWorkerInVm({ self: {} });
     expect(noSelf.PYODIDE_CDN_BASE_URL).toBeTypeOf("string");
     expect(noSelf.getWorkerBaseUrl()).toBe(noSelf.PYODIDE_CDN_BASE_URL);
 
@@ -428,7 +439,7 @@ describe("resolveAllowedPyodideUrl (internal)", () => {
   });
 
   it("rejects other origins (including when workerOrigin is unavailable)", () => {
-    const { internals } = evaluateWorkerInVm({ self: undefined });
+    const { internals } = evaluateWorkerInVm({ self: {} });
 
     expect(() => internals.resolveAllowedPyodideUrl("https://evil.example/")).toThrow(
       /not allowed/i,

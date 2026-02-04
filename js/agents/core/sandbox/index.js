@@ -41,23 +41,41 @@ function throwNodeOnlyError(fnName) {
   );
 }
 
+/**
+ * Lazily import the Node-only system sandbox module and cache the import promise.
+ * This avoids redundant concurrent dynamic imports and keeps browser bundles safe.
+ *
+ * @returns {Promise<typeof import('./system/index.js')>}
+ */
+let systemImportPromise;
+function importSystemSandbox() {
+  if (!systemImportPromise) {
+    systemImportPromise = import('./system/index.js').catch((err) => {
+      // Allow retries if the import fails (e.g. transient loader issues in test runners).
+      systemImportPromise = undefined;
+      throw err;
+    });
+  }
+  return systemImportPromise;
+}
+
 // System Sandbox 函数存根（浏览器环境下抛出明确错误）
 // 真实实现通过动态 import 或 Node-only 入口获取
 
 /** @type {typeof import('./system/index.js').detectAllBackends} */
 export const detectAllBackends = isNodeLike()
-  ? (...args) => import('./system/index.js').then(m => m.detectAllBackends(...args))
+  ? (...args) => importSystemSandbox().then((m) => m.detectAllBackends(...args))
   : () => throwNodeOnlyError('detectAllBackends');
 
 /** @type {typeof import('./system/index.js').detectBestBackend} */
 export const detectBestBackend = isNodeLike()
-  ? (...args) => import('./system/index.js').then(m => m.detectBestBackend(...args))
+  ? (...args) => importSystemSandbox().then((m) => m.detectBestBackend(...args))
   : () => throwNodeOnlyError('detectBestBackend');
 
 /** @type {typeof import('./system/index.js').getPlatform} */
 export const getPlatform = isNodeLike()
   ? /** @type {typeof import('./system/index.js').getPlatform} */ (
-      /** @type {unknown} */ (() => import('./system/index.js').then(m => m.getPlatform()))
+      /** @type {unknown} */ (() => importSystemSandbox().then((m) => m.getPlatform()))
     )
   : () => throwNodeOnlyError('getPlatform');
 
@@ -65,46 +83,46 @@ export const getPlatform = isNodeLike()
 export const createSystemSandbox = isNodeLike()
   ? /** @type {typeof import('./system/index.js').createSystemSandbox} */ (
       /** @type {unknown} */ ((...args) =>
-        import('./system/index.js').then(m => m.createSystemSandbox(...args))
+        importSystemSandbox().then((m) => m.createSystemSandbox(...args))
       )
     )
   : () => throwNodeOnlyError('createSystemSandbox');
 
 /** @type {typeof import('./system/index.js').execInSandbox} */
 export const execInSandbox = isNodeLike()
-  ? (...args) => import('./system/index.js').then(m => m.execInSandbox(...args))
+  ? (...args) => importSystemSandbox().then((m) => m.execInSandbox(...args))
   : () => throwNodeOnlyError('execInSandbox');
 
 /** @type {typeof import('./system/index.js').shellInSandbox} */
 export const shellInSandbox = isNodeLike()
-  ? (...args) => import('./system/index.js').then(m => m.shellInSandbox(...args))
+  ? (...args) => importSystemSandbox().then((m) => m.shellInSandbox(...args))
   : () => throwNodeOnlyError('shellInSandbox');
 
 /** @type {typeof import('./system/index.js').createBubblewrapExecutor} */
 export const createBubblewrapExecutor = isNodeLike()
-  ? (...args) => import('./system/index.js').then(m => m.createBubblewrapExecutor(...args))
+  ? (...args) => importSystemSandbox().then((m) => m.createBubblewrapExecutor(...args))
   : () => throwNodeOnlyError('createBubblewrapExecutor');
 
 /** @type {typeof import('./system/index.js').createSeatbeltExecutor} */
 export const createSeatbeltExecutor = isNodeLike()
-  ? (...args) => import('./system/index.js').then(m => m.createSeatbeltExecutor(...args))
+  ? (...args) => importSystemSandbox().then((m) => m.createSeatbeltExecutor(...args))
   : () => throwNodeOnlyError('createSeatbeltExecutor');
 
 /** @type {typeof import('./system/index.js').createDockerExecutor} */
 export const createDockerExecutor = isNodeLike()
-  ? (...args) => import('./system/index.js').then(m => m.createDockerExecutor(...args))
+  ? (...args) => importSystemSandbox().then((m) => m.createDockerExecutor(...args))
   : () => throwNodeOnlyError('createDockerExecutor');
 
 /** @type {typeof import('./system/index.js').createPermissionExecutor} */
 export const createPermissionExecutor = isNodeLike()
-  ? (...args) => import('./system/index.js').then(m => m.createPermissionExecutor(...args))
+  ? (...args) => importSystemSandbox().then((m) => m.createPermissionExecutor(...args))
   : () => throwNodeOnlyError('createPermissionExecutor');
 
 /** @type {typeof import('./system/index.js').createInteractivePermissionHandler} */
 export const createInteractivePermissionHandler = isNodeLike()
   ? /** @type {typeof import('./system/index.js').createInteractivePermissionHandler} */ (
       /** @type {unknown} */ ((options) =>
-        import('./system/index.js').then(m => m.createInteractivePermissionHandler(options))
+        importSystemSandbox().then((m) => m.createInteractivePermissionHandler(options))
       )
     )
   : () => throwNodeOnlyError('createInteractivePermissionHandler');

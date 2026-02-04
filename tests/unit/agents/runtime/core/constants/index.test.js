@@ -18,17 +18,23 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../../../../js/agents/runtime/core/constants/timeouts.js', () => ({
-  TIMEOUTS: mocks.timeouts.TIMEOUTS,
+  get TIMEOUTS() {
+    return mocks.timeouts.TIMEOUTS;
+  },
   getTimeout: mocks.timeouts.getTimeout,
 }));
 
 vi.mock('../../../../../../js/agents/runtime/core/constants/limits.js', () => ({
-  LIMITS: mocks.limits.LIMITS,
+  get LIMITS() {
+    return mocks.limits.LIMITS;
+  },
   getLimit: mocks.limits.getLimit,
 }));
 
 vi.mock('../../../../../../js/agents/runtime/core/constants/thresholds.js', () => ({
-  THRESHOLDS: mocks.thresholds.THRESHOLDS,
+  get THRESHOLDS() {
+    return mocks.thresholds.THRESHOLDS;
+  },
   getThreshold: mocks.thresholds.getThreshold,
 }));
 

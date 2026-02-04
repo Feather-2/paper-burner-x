@@ -20,9 +20,13 @@ const transportMocks = vi.hoisted(() => {
   return { stdioCtor, httpCtor, sseCtor };
 });
 
-vi.mock("../../../../js/agents/shared/index.js", () => ({
-  isNodeLike: sharedMocks.isNodeLike,
-}));
+vi.mock("../../../../js/agents/shared/index.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    isNodeLike: sharedMocks.isNodeLike,
+  };
+});
 
 vi.mock("../../../../js/agents/mcp/stdio-mcp-transport.js", () => ({
   StdioMcpTransport: transportMocks.stdioCtor,
@@ -58,14 +62,11 @@ beforeEach(() => {
 });
 
 describe("createMcpTransport", () => {
-  it("defaults to http in auto mode for undefined or empty options when not node-like", async () => {
-    const transportUndefined = await createMcpTransport();
-    const transportEmpty = await createMcpTransport({});
+  it("throws in auto mode when url is missing (non-node-like)", async () => {
+    await expect(createMcpTransport()).rejects.toThrow("HttpMcpTransport requires url");
+    await expect(createMcpTransport({})).rejects.toThrow("HttpMcpTransport requires url");
 
-    expect(transportMocks.httpCtor).toHaveBeenCalledTimes(2);
-    expect(transportUndefined.kind).toBe("http");
-    expect(transportEmpty.kind).toBe("http");
-    expect(transportEmpty.options).toEqual({});
+    expect(transportMocks.httpCtor).not.toHaveBeenCalled();
     expect(transportMocks.stdioCtor).not.toHaveBeenCalled();
     expect(transportMocks.sseCtor).not.toHaveBeenCalled();
   });
@@ -92,9 +93,11 @@ describe("createMcpTransport", () => {
     const transport = await createMcpTransport(options);
 
     expect(transportMocks.stdioCtor).toHaveBeenCalledTimes(1);
-    expect(transportMocks.stdioCtor).toHaveBeenCalledWith(options);
+    const [[calledOptions]] = transportMocks.stdioCtor.mock.calls;
+    expect(calledOptions).not.toBe(options);
+    expect(calledOptions).toEqual(expect.objectContaining(options));
     expect(transport.kind).toBe("stdio");
-    expect(transport.options).toBe(options);
+    expect(transport.options).toBe(calledOptions);
     expect(transport.options.payload.length).toBe(256 * 1024);
     expect(transport.options.file.byteLength).toBe(1024 * 1024);
     expect(transport.options.meta).toBe(deepMeta);

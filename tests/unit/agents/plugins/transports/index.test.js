@@ -2,13 +2,80 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const MODULE_PATH = "../../../../../js/agents/plugins/transports/index.js";
 
-const state = vi.hoisted(() => ({
-  platformIsNode: true,
-  nodeExports: {},
-  browserExports: {},
-  nodeImportError: null,
-  browserImportError: null,
-}));
+const state = vi.hoisted(() => {
+  let platformIsNode = true;
+  let nodeImportError = null;
+  let browserImportError = null;
+
+  const nodeExports = {};
+  const browserExports = {};
+
+  function replaceExports(target, next) {
+    for (const key of Object.keys(target)) delete target[key];
+    Object.assign(target, {
+      ProcessTransport: undefined,
+      createProcessTransport: undefined,
+      BinarySkillProvider: undefined,
+      createBinarySkillProvider: undefined,
+      ["$$typeof"]: undefined,
+      ...next,
+    });
+  }
+
+  const nodeModule = new Proxy(nodeExports, {
+    get(target, prop) {
+      if (nodeImportError) throw nodeImportError;
+      return Reflect.get(target, prop);
+    },
+  });
+
+  const browserModule = new Proxy(browserExports, {
+    get(target, prop) {
+      if (browserImportError) throw browserImportError;
+      return Reflect.get(target, prop);
+    },
+  });
+
+  const stateObj = {
+    get platformIsNode() {
+      return platformIsNode;
+    },
+    set platformIsNode(next) {
+      platformIsNode = next;
+    },
+    get nodeImportError() {
+      return nodeImportError;
+    },
+    set nodeImportError(next) {
+      nodeImportError = next;
+    },
+    get browserImportError() {
+      return browserImportError;
+    },
+    set browserImportError(next) {
+      browserImportError = next;
+    },
+    get nodeExports() {
+      return nodeExports;
+    },
+    set nodeExports(next) {
+      replaceExports(nodeExports, next);
+    },
+    get browserExports() {
+      return browserExports;
+    },
+    set browserExports(next) {
+      replaceExports(browserExports, next);
+    },
+    nodeModule,
+    browserModule,
+  };
+
+  replaceExports(nodeExports, {});
+  replaceExports(browserExports, {});
+
+  return stateObj;
+});
 
 vi.mock("../../../../../js/agents/shared/index.js", () => ({
   Platform: {
@@ -19,13 +86,11 @@ vi.mock("../../../../../js/agents/shared/index.js", () => ({
 }));
 
 vi.mock("../../../../../js/agents/plugins/transports/index.node.js", () => {
-  if (state.nodeImportError) throw state.nodeImportError;
-  return state.nodeExports;
+  return state.nodeModule;
 });
 
 vi.mock("../../../../../js/agents/plugins/transports/index.browser.js", () => {
-  if (state.browserImportError) throw state.browserImportError;
-  return state.browserExports;
+  return state.browserModule;
 });
 
 async function importUnderTest() {
@@ -42,6 +107,7 @@ function makeDeepObject(depth) {
   return root;
 }
 
+describe.sequential("transports/index", () => {
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
@@ -604,4 +670,6 @@ describe("default", () => {
 
     await expect(importUnderTest()).rejects.toThrow("browser import failed");
   });
+});
+
 });

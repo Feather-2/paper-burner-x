@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolvers as concurrencyResolvers } from "../../../../fixtures/tool-executor/concurrency.mjs";
 
 const argLengthHandler = vi.hoisted(() => vi.fn((...args) => args.length));
 const boundaryHandler = vi.hoisted(() => vi.fn((...args) => args));
@@ -33,16 +34,12 @@ const resourcesHandler = vi.hoisted(() =>
     };
   })
 );
-const concurrencyResolvers = vi.hoisted(() => []);
-const concurrentHandler = vi.hoisted(() =>
-  vi.fn(
-    () =>
-      new Promise((resolve) => {
-        concurrencyResolvers.push(resolve);
-      })
-  )
-);
-const rapidHandler = vi.hoisted(() => vi.fn((value) => value));
+
+const concurrencyModuleUrl = new URL(
+  "../../../../fixtures/tool-executor/concurrency.mjs",
+  import.meta.url
+).href;
+const rapidModuleUrl = new URL("../../../../fixtures/tool-executor/rapid.mjs", import.meta.url).href;
 
 vi.mock("virtual:arg-length", () => ({ default: argLengthHandler }), { virtual: true });
 vi.mock("virtual:boundary", () => ({ default: boundaryHandler }), { virtual: true });
@@ -51,8 +48,6 @@ vi.mock("virtual:not-function", () => ({ default: { ok: true } }), { virtual: tr
 vi.mock("virtual:throws", () => ({ default: throwingHandler }), { virtual: true });
 vi.mock("virtual:type-check", () => ({ default: typeCheckHandler }), { virtual: true });
 vi.mock("virtual:resources", () => ({ default: resourcesHandler }), { virtual: true });
-vi.mock("virtual:concurrency", () => ({ default: concurrentHandler }), { virtual: true });
-vi.mock("virtual:rapid", () => ({ default: rapidHandler }), { virtual: true });
 
 import { createToolExecutorHandler } from "../../../../../js/agents/runtime/tools/tool-executor-worker-shared.js";
 
@@ -106,8 +101,6 @@ describe("createToolExecutorHandler", () => {
     throwingHandler.mockClear();
     typeCheckHandler.mockClear();
     resourcesHandler.mockClear();
-    concurrentHandler.mockClear();
-    rapidHandler.mockClear();
     concurrencyResolvers.length = 0;
   });
 
@@ -297,16 +290,15 @@ describe("createToolExecutorHandler", () => {
     const p1 = send({
       type: "execute",
       id: "c1",
-      moduleUrl: "virtual:concurrency",
+      moduleUrl: concurrencyModuleUrl,
     });
     const p2 = send({
       type: "execute",
       id: "c2",
-      moduleUrl: "virtual:concurrency",
+      moduleUrl: concurrencyModuleUrl,
     });
 
-    await flushMicrotasks();
-    expect(concurrencyResolvers.length).toBe(2);
+    await vi.waitFor(() => expect(concurrencyResolvers.length).toBe(2));
     expect(adapter.postMessage).not.toHaveBeenCalled();
 
     concurrencyResolvers[1]("second");
@@ -336,7 +328,7 @@ describe("createToolExecutorHandler", () => {
         send({
           type: "execute",
           id: `r${i}`,
-          moduleUrl: "virtual:rapid",
+          moduleUrl: rapidModuleUrl,
           args: [i],
         })
       );

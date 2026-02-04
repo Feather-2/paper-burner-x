@@ -164,7 +164,11 @@ const MAX_WAL_LINE_SIZE = 100 * 1024;
 function toIso(ts) {
   if (typeof ts === "string" && ts.trim()) return ts;
   const ms = typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now();
-  return new Date(ms).toISOString();
+  const dt = new Date(ms);
+  if (!Number.isFinite(dt.getTime())) {
+    return new Date(Date.now()).toISOString();
+  }
+  return dt.toISOString();
 }
 
 /**
@@ -495,7 +499,7 @@ async function rollbackEntries(entries, target, { vfs, runStore, storageAdapter,
     const entry = entries[i];
     if (!entry) continue;
 
-    if (entry.kind === "vfs_checkpoint" && entry.checkpoint?.artifactId) {
+    if (entry.reversible && entry.checkpoint?.artifactId) {
       try {
         await restoreVfsCheckpoint({
           vfs,
@@ -892,13 +896,47 @@ export class SideEffectJournal {
     const ensureOk = await this._ensureWalDir();
     if (!ensureOk) return { ok: false, reason: "wal_dir_unavailable" };
 
-    let line = "";
+    let json = "";
     try {
-      line = `${JSON.stringify(entry)}\n`;
+      json = JSON.stringify(entry);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      this.logger?.warn?.(`[SideEffectJournal] WAL stringify failed: ${msg}`);
       return { ok: false, reason: "stringify_failed", error: msg };
     }
+
+    const encoder = new TextEncoder();
+    const jsonBytes = encoder.encode(json).length;
+    if (jsonBytes > MAX_WAL_LINE_SIZE) {
+      // Best-effort: drop optional fields (e.g. large meta payloads) to keep WAL bounded.
+      const slim = isPlainObject(entry) ? { ...entry } : { seq: entry?.seq, kind: entry?.kind, ts: entry?.ts, reversible: entry?.reversible };
+      if (slim && typeof slim === "object" && "meta" in slim) delete slim.meta;
+
+      try {
+        const slimJson = JSON.stringify(slim);
+        if (encoder.encode(slimJson).length <= MAX_WAL_LINE_SIZE) {
+          if (!this._oversizedWalEntryWarned) {
+            this._oversizedWalEntryWarned = true;
+            this.logger?.warn?.("[SideEffectJournal] WAL entry exceeded MAX_WAL_LINE_SIZE; meta was dropped");
+          }
+          json = slimJson;
+        } else {
+          this.logger?.warn?.(
+            `[SideEffectJournal] WAL entry too large (${jsonBytes} bytes; max ${MAX_WAL_LINE_SIZE}); skipping seq ${entry?.seq ?? "?"}`,
+          );
+          if (typeof entry?.seq === "number") {
+            this._persistedCursor = Math.max(this._persistedCursor, entry.seq);
+          }
+          return { ok: true, skipped: true };
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger?.warn?.(`[SideEffectJournal] WAL stringify failed after trimming: ${msg}`);
+        return { ok: false, reason: "stringify_failed", error: msg };
+      }
+    }
+
+    const line = `${json}\n`;
 
     try {
       const { ok, appended } = await appendTextToVfs(vfs, walPath, line);
@@ -916,6 +954,7 @@ export class SideEffectJournal {
       return { ok: true };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      this.logger?.warn?.(`[SideEffectJournal] WAL write failed: ${msg}`);
       return { ok: false, reason: "wal_write_failed", error: msg };
     }
   }

@@ -7,7 +7,7 @@ vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   deepClone: vi.fn(),
 }));
 
-vi.mock("../../../../../../js/agents/runtime/index.js", () => ({
+vi.mock("../../../../../../js/agents/plugins/compression/index.js", () => ({
   Watchdog: vi.fn(),
 }));
 
@@ -29,7 +29,7 @@ import {
   initWatchdogManager,
 } from "../../../../../../js/agents/stages/design/internal/deck-operations.js";
 import { deepClone } from "../../../../../../js/agents/shared/index.js";
-import { Watchdog } from "../../../../../../js/agents/runtime/index.js";
+import { Watchdog } from "../../../../../../js/agents/plugins/compression/index.js";
 import {
   buildDesignWatchdogAdvice,
   emitStage,

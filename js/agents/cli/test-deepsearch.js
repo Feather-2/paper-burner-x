@@ -114,6 +114,8 @@ function loadSource(filePath) {
   }
 }
 
+export { askQuestion, findMdFiles, loadSource };
+
 /**
  * 等待用户输入
  */

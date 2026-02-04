@@ -222,16 +222,18 @@ it("DesignAgentLoop skips final review when skipReview is true", async () => {
   const events = [];
   const emit = (name, record) => {
     events.push({ name, record });
-    if (name === "design.phase.transition" && record.payload.to === DesignPhase.OUTLINE_CONFIRMING) {
+    const isPhaseTransition = name === "design.phase.transition" || name === "design:phase:transition";
+    const nextPhase = record?.payload?.to;
+    if (isPhaseTransition && nextPhase === DesignPhase.OUTLINE_CONFIRMING) {
       setTimeout(() => eventBus.emit("user.action.confirm_outline", { slideIntents: contentPackage.slideIntents }), 0);
     }
-    if (name === "design.phase.transition" && record.payload.to === DesignPhase.STYLE_CONFIRMING) {
+    if (isPhaseTransition && nextPhase === DesignPhase.STYLE_CONFIRMING) {
       setTimeout(() => eventBus.emit("user.action.confirm_style", { ok: true }), 0);
     }
-    if (name === "design.phase.transition" && record.payload.to === DesignPhase.PLAN_CONFIRMING) {
+    if (isPhaseTransition && nextPhase === DesignPhase.PLAN_CONFIRMING) {
       setTimeout(() => eventBus.emit("user.action.confirm_plan", { ok: true }), 0);
     }
-    if (name === "design.phase.transition" && record.payload.to === DesignPhase.LAYOUT_CONFIRMING) {
+    if (isPhaseTransition && nextPhase === DesignPhase.LAYOUT_CONFIRMING) {
       setTimeout(() => eventBus.emit("user.action.confirm_layout", { ok: true }), 0);
     }
   };
@@ -254,7 +256,7 @@ it("DesignAgentLoop skips final review when skipReview is true", async () => {
   expect(events.some(evt => evt.name === "design.qa.ended")).toBe(true);
 
   const transitions = events
-    .filter((evt) => evt.name === "design.phase.transition")
+    .filter((evt) => evt.name === "design.phase.transition" || evt.name === "design:phase:transition")
     .map((evt) => evt.record.payload.to);
 
   expect(transitions).toContain(DesignPhase.VISUAL_FILLING);
@@ -320,7 +322,7 @@ it("DesignAgentLoop runs repair + final review when enabled", async () => {
   expect(events.some(evt => evt.name === "design.review.started"), "Expected final review to run when enabled");
 
   const transitions = events
-    .filter((evt) => evt.name === "design.phase.transition")
+    .filter((evt) => evt.name === "design.phase.transition" || evt.name === "design:phase:transition")
     .map((evt) => evt.record.payload.to);
 
   expect(transitions).toContain(DesignPhase.REPAIR);

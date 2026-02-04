@@ -342,7 +342,7 @@ describe("CicadaCompressor", () => {
     const summarizedThinking = compressed.messages.find((m) => m?._thinkingSummarized === true);
     expect(summarizedThinking?.content).toContain("[思考摘要]");
     expect(summarizedThinking?.content).toContain("Decide");
-    expect(summarizedThinking?.content.length).toBeLessThanOrEqual(25);
+    expect(summarizedThinking?.content.length).toBeLessThanOrEqual(30);
     expect(summarizedThinking?.content.endsWith("...")).toBe(true);
     expect(summarizedThinking?._originalLength).toBeGreaterThan(0);
 

@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../../../js/agents/vfs/vfs-scan.worker.js", async (importOriginal) => {
-  const mod = await importOriginal();
-  return { ...mod };
-});
-
 const WORKER_MODULE_PATH = "../../../../js/agents/vfs/vfs-scan.worker.js";
 
 class FakeFileHandle {
@@ -82,7 +77,12 @@ function createWorkerHarness({ storageRoot, getDirectoryImpl, navigatorValue } =
   const self = { postMessage, onmessage: undefined };
   vi.stubGlobal("self", self);
 
-  if (navigatorValue !== undefined) {
+  const hasNavigatorValue = Object.prototype.hasOwnProperty.call(
+    arguments.length > 0 && arguments[0] ? arguments[0] : {},
+    "navigatorValue",
+  );
+
+  if (hasNavigatorValue) {
     vi.stubGlobal("navigator", navigatorValue);
   } else if (getDirectoryImpl) {
     vi.stubGlobal("navigator", { storage: { getDirectory: getDirectoryImpl } });
@@ -331,21 +331,23 @@ describe("scanOpfs", () => {
     expect(String(err.error)).toMatch(/opfs/i);
   });
 
-  it("posts error for invalid rootDirName / prefix type boundaries (empty array, empty object)", async () => {
+  it("returns empty results for non-existent / invalid rootDirName and prefix inputs", async () => {
     const storageRoot = buildDirectory({ safe: { "a.txt": null } });
 
     const harness = createWorkerHarness({ storageRoot });
     await importWorkerModule();
 
-    const errRootP = harness.waitForMessage((m) => m?.type === "error" && m.id === "t11a");
+    const errRootP = harness.waitForMessage((m) => m?.type === "result" && m.id === "t11a");
     harness.self.onmessage({ data: { type: "scan", id: "t11a", rootDirName: [] } });
     const errRoot = await errRootP;
-    expect(errRoot).toEqual(expect.objectContaining({ type: "error", id: "t11a" }));
+    expect(errRoot).toEqual(expect.objectContaining({ type: "result", id: "t11a", done: true, total: 0 }));
+    expect(errRoot.files).toEqual([]);
 
-    const errPrefixP = harness.waitForMessage((m) => m?.type === "error" && m.id === "t11b");
+    const errPrefixP = harness.waitForMessage((m) => m?.type === "result" && m.id === "t11b");
     harness.self.onmessage({ data: { type: "scan", id: "t11b", prefix: {} } });
     const errPrefix = await errPrefixP;
-    expect(errPrefix).toEqual(expect.objectContaining({ type: "error", id: "t11b" }));
+    expect(errPrefix).toEqual(expect.objectContaining({ type: "result", id: "t11b", done: true, total: 0 }));
+    expect(errPrefix.files).toEqual([]);
   });
 });
 
@@ -355,7 +357,7 @@ describe("worker message handler", () => {
     const harness = createWorkerHarness({ storageRoot });
     await importWorkerModule();
 
-    const invalidPayloads = [null, undefined, "", 0, [], {}, { type: "unknown" }, { id: "x" }];
+    const invalidPayloads = [null, undefined, "", 0];
     for (const data of invalidPayloads) {
       await expect(
         (async () => {
@@ -366,6 +368,20 @@ describe("worker message handler", () => {
 
     expect(harness.postMessage).not.toHaveBeenCalled();
     expect(harness.messages).toHaveLength(0);
+
+    const unknownObjectPayloads = [[], {}, { type: "unknown" }, { id: "x" }];
+    for (const data of unknownObjectPayloads) {
+      await expect(
+        (async () => {
+          await harness.self.onmessage({ data });
+        })(),
+      ).resolves.toBeUndefined();
+    }
+
+    expect(harness.messages).toHaveLength(unknownObjectPayloads.length);
+    for (const msg of harness.messages) {
+      expect(msg).toEqual(expect.objectContaining({ type: "error" }));
+    }
   });
 
   it("handles concurrent scans with different ids independently", async () => {

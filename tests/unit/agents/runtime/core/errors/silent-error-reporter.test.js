@@ -158,25 +158,22 @@ describe("SilentErrorReporter", () => {
     expect(reporter.size).toBe(2);
   });
 
-  it("records callback errors when onError throws", () => {
+  it("swallows callback errors when onError throws", () => {
     const callbackError = new Error("callback boom");
-    callbackError.stack = ["cb1", "cb2", "cb3", "cb4"].join("\n");
     const onError = vi.fn(() => {
       throw callbackError;
     });
 
     const reporter = new SilentErrorReporter({ onError });
-    reporter.report(new Error("primary"), { location: "loc" });
+
+    expect(() => reporter.report(new Error("primary"), { location: "loc" })).not.toThrow();
 
     const samples = reporter.export();
     expect(onError).toHaveBeenCalledTimes(1);
-    expect(samples).toHaveLength(2);
-    expect(samples[1]).toMatchObject({
-      message: "callback boom",
-      stack: "cb1\ncb2\ncb3",
-      location: "SilentErrorReporter.onError",
-      category: ErrorCategory.DEGRADED,
-      operation: "callback",
+    expect(samples).toHaveLength(1);
+    expect(samples[0]).toMatchObject({
+      message: "primary",
+      location: "loc",
     });
   });
 

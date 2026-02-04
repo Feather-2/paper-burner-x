@@ -42,6 +42,13 @@ vi.mock("../../../../js/agents/shared/index.js", () => {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+function normalizePathKey(path) {
+  if (path == null) return "";
+  const s = String(path).replace(/\\/g, "/");
+  if (!s) return "";
+  return s.startsWith("/") ? s : `/${s}`;
+}
+
 function toBytes(value) {
   if (value instanceof Uint8Array) return new Uint8Array(value);
   if (typeof value === "string") return encoder.encode(value);
@@ -73,7 +80,7 @@ function createStageApi() {
 function createMemoryVfs(initialFiles = {}) {
   const files = new Map();
   for (const [p, content] of Object.entries(initialFiles)) {
-    const key = String(p);
+    const key = normalizePathKey(p);
     if (!key) continue;
     files.set(key, toBytes(content));
   }
@@ -82,14 +89,14 @@ function createMemoryVfs(initialFiles = {}) {
     __files: files,
 
     readFile: vi.fn(async (path) => {
-      const key = String(path);
+      const key = normalizePathKey(path);
       if (!files.has(key)) throw new Error(`ENOENT: ${key}`);
       const bytes = files.get(key) || new Uint8Array();
       return new Uint8Array(bytes);
     }),
 
     writeFile: vi.fn(async (path, bytes) => {
-      const key = String(path);
+      const key = normalizePathKey(path);
       if (!key) throw new Error("path required");
       files.set(key, toBytes(bytes));
     }),
@@ -104,17 +111,17 @@ function createMemoryVfs(initialFiles = {}) {
     }),
 
     delete: vi.fn(async (path) => {
-      const key = String(path);
+      const key = normalizePathKey(path);
       if (!files.delete(key)) throw new Error(`ENOENT: ${key}`);
     }),
 
     unlink: vi.fn(async (path) => api.delete(path)),
     rm: vi.fn(async (path) => api.delete(path)),
 
-    exists: vi.fn(async (path) => files.has(String(path))),
+    exists: vi.fn(async (path) => files.has(normalizePathKey(path))),
 
     stat: vi.fn(async (path) => {
-      const key = String(path);
+      const key = normalizePathKey(path);
       const bytes = files.get(key);
       if (!bytes) throw new Error(`ENOENT: ${key}`);
       return {
@@ -129,7 +136,7 @@ function createMemoryVfs(initialFiles = {}) {
     ensureDir: vi.fn(async () => {}),
 
     readdir: vi.fn(async (dirPath) => {
-      const dir = String(dirPath).replace(/\\/g, "/").replace(/\/+$/, "");
+      const dir = normalizePathKey(dirPath).replace(/\/+$/, "");
       const prefix = dir ? (dir.endsWith("/") ? dir : `${dir}/`) : "";
       const out = new Set();
 
@@ -221,6 +228,10 @@ async function findWorkingPattern(fn, { initialFiles = {}, args = {}, stageApi }
     const sa = stageApi ?? createStageApi();
     try {
       const result = await CALL_PATTERNS[i]({ fn, vfs, stageApi: sa, args });
+      if (result && typeof result === "object" && "ok" in result && result.ok === false) {
+        const detail = typeof result.error === "string" ? result.error : "operation returned ok:false";
+        throw new Error(detail);
+      }
       return { result, vfs, stageApi: sa, patternIndex: i };
     } catch (err) {
       errors.push(err);
@@ -656,6 +667,70 @@ for (const [exportName, exportedValue] of EXPORT_ENTRIES) {
         const big = "a".repeat(10000) + "Z" + "a".repeat(10000);
         expect(exported(big, "Z")).toBe(1);
         expect(exported(big, "not-there")).toBe(0);
+      });
+
+      return;
+    }
+
+    if (exportName === "writeTextFileWithPolicy" || fnName === "writeTextFileWithPolicy") {
+      it("writes text to the VFS and returns ok/path", async () => {
+        const vfs = createMemoryVfs({});
+        const res = await exported({ vfs, path: "dir/file.txt", text: "hello" });
+
+        expect(res).toEqual(expect.objectContaining({ ok: true, path: "/dir/file.txt" }));
+        expect(getTextFromVfs(vfs, "/dir/file.txt")).toBe("hello");
+      });
+
+      it("throws for nullish vfs and empty paths", async () => {
+        await expect(exported({ vfs: null, path: "/x", text: "y" })).rejects.toBeInstanceOf(Error);
+        await expect(exported({ vfs: createMemoryVfs({}), path: "", text: "y" })).rejects.toBeInstanceOf(Error);
+      });
+
+      it("accepts whitespace-only paths (boundary value)", async () => {
+        const vfs = createMemoryVfs({});
+        const res = await exported({ vfs, path: "   ", text: "ok" });
+        expect(res).toEqual(expect.objectContaining({ ok: true, path: "/   " }));
+        expect(getTextFromVfs(vfs, "/   ")).toBe("ok");
+      });
+
+      return;
+    }
+
+    if (exportName === "atomicWriteText" || fnName === "atomicWriteText") {
+      it("writes content to the VFS (string input) and reports ok=true", async () => {
+        const vfs = createMemoryVfs({});
+        const path = "/write.txt";
+
+        const res = await exported(vfs, path, "hello");
+
+        expect(res).toEqual(expect.objectContaining({ ok: true, path }));
+        expect(getTextFromVfs(vfs, path)).toBe("hello");
+      });
+
+      it("returns ok=false for nullish vfs / empty path inputs (error handling, boundary values)", async () => {
+        await expect(exported(null, "/x", "y")).resolves.toEqual(expect.objectContaining({ ok: false }));
+        await expect(exported({}, "", "y")).resolves.toEqual(expect.objectContaining({ ok: false }));
+        await expect(exported({}, "   ", "y")).resolves.toEqual(expect.objectContaining({ ok: false }));
+      });
+
+      return;
+    }
+
+    if (exportName === "atomicWriteFile" || fnName === "atomicWriteFile") {
+      it("writes content to the VFS (bytes input) and reports ok=true", async () => {
+        const vfs = createMemoryVfs({});
+        const path = "/write.bin";
+
+        const res = await exported(vfs, path, toBytes("BYTES"));
+
+        expect(res).toEqual(expect.objectContaining({ ok: true, path }));
+        expect(getTextFromVfs(vfs, path)).toBe("BYTES");
+      });
+
+      it("returns ok=false for nullish vfs / empty path inputs (error handling, boundary values)", async () => {
+        await expect(exported(null, "/x", toBytes("y"))).resolves.toEqual(expect.objectContaining({ ok: false }));
+        await expect(exported({}, "", toBytes("y"))).resolves.toEqual(expect.objectContaining({ ok: false }));
+        await expect(exported({}, "   ", toBytes("y"))).resolves.toEqual(expect.objectContaining({ ok: false }));
       });
 
       return;

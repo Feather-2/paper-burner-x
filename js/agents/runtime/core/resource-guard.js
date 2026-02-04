@@ -152,7 +152,9 @@ export class ResourceGuard {
       }
 
       // Wait a bit before retry
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      const intervalMs = Number(this._checkIntervalMs);
+      const delayMs = Number.isFinite(intervalMs) && intervalMs >= 0 ? Math.floor(intervalMs) : 50;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 

@@ -892,7 +892,12 @@ for (const [exportName, exported] of Object.entries(sideEffectJournalModule)) {
         })
         .mockResolvedValueOnce(undefined);
 
-      const res = await journal[rollbackName]({ reason: "test" });
+      // Some implementations expose rollbackToCursor(cursor, options) rather than rollback(options).
+      // Try the options-only form first, then fall back to cursor-based rollback when we detect it.
+      let res = await journal[rollbackName]({ reason: "test" });
+      if (res && typeof res === "object" && res.reason === "invalid_cursor") {
+        res = await journal[rollbackName](0, { reason: "test" });
+      }
 
       expect(vi.mocked(restoreVfsCheckpoint).mock.calls.length).toBeGreaterThanOrEqual(1);
 

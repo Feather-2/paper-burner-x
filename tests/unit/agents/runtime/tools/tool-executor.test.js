@@ -251,7 +251,8 @@ describe("ToolExecutor", () => {
       vi.useFakeTimers();
       try {
         const promise = executor.execute("slow", {}, {});
-        await vi.advanceTimersByTimeAsync(5);
+        // Drive the executor forward until the timeout fires.
+        await vi.runAllTimersAsync();
         const result = await promise;
 
         expect(result.success).toBe(false);
@@ -282,9 +283,7 @@ describe("ToolExecutor", () => {
 
       const p1 = executor.execute("slow", { id: 1 }, {});
       const p2 = executor.execute("slow", { id: 2 }, {});
-      await Promise.resolve();
-
-      expect(resolvers).toHaveLength(2);
+      await vi.waitFor(() => expect(resolvers).toHaveLength(2));
       expect(maxInFlight).toBe(2);
 
       resolvers.forEach((resolve) => resolve());

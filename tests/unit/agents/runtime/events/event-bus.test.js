@@ -297,8 +297,14 @@ describe("createEventRecord", () => {
       throw new TypeError("bad options");
     });
 
-    expect(() => createEventRecord({})).toThrow(TypeError);
-    expect(() => createEventRecord({})).toThrow("bad options");
+    let err;
+    try {
+      createEventRecord({});
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(TypeError);
+    expect(err?.message).toBe("bad options");
     expect(createEventRecordMock).toHaveBeenCalledTimes(1);
   });
 

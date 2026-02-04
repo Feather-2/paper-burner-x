@@ -86,48 +86,48 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../../../../js/agents/stages/design/model.js", () => ({
+vi.mock("../../../../../../js/agents/stages/design/model.js", () => ({
   getDesignModelCaller: mocks.getDesignModelCaller,
   isNonRetryableError: mocks.isNonRetryableError,
 }));
 
-vi.mock("../../../../../js/agents/shared/index.js", () => ({
+vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   robustParseJson: mocks.robustParseJson,
   extractJsonCandidate: mocks.extractJsonCandidate,
   createLogger: mocks.createLogger,
   toNonEmptyString: mocks.toNonEmptyString,
 }));
 
-vi.mock("../../../../../js/agents/stages/design/constants.js", () => ({
+vi.mock("../../../../../../js/agents/stages/design/constants.js", () => ({
   VisualDataStatus: mocks.VisualDataStatus,
 }));
 
-vi.mock("../../../../../js/agents/stages/design/dsl/dsl-builder.js", () => ({
+vi.mock("../../../../../../js/agents/stages/design/dsl/dsl-builder.js", () => ({
   buildSlideHtml: mocks.buildSlideHtml,
 }));
 
-vi.mock("../../../../../js/agents/stages/design/generators/layout-protocol.js", () => ({
+vi.mock("../../../../../../js/agents/stages/design/generators/layout-protocol.js", () => ({
   resolveLayoutType: mocks.resolveLayoutType,
 }));
 
-vi.mock("../../../../../js/agents/prompts/prompt-loader.js", () => ({
+vi.mock("../../../../../../js/agents/prompts/prompt-loader.js", () => ({
   loadPrompt: mocks.loadPrompt,
 }));
 
-vi.mock("../../../../../js/agents/stages/design/shared/html-parser.js", () => ({
+vi.mock("../../../../../../js/agents/stages/design/shared/html-parser.js", () => ({
   parseTagAttributes: mocks.parseTagAttributes,
 }));
 
-vi.mock("../../../../../js/agents/stages/design/shared/safe-emit.js", () => ({
+vi.mock("../../../../../../js/agents/stages/design/shared/safe-emit.js", () => ({
   safeEmit: mocks.safeEmit,
   default: { safeEmit: mocks.safeEmit },
 }));
 
-vi.mock("../../../../../js/agents/runtime/index.js", () => ({
+vi.mock("../../../../../../js/agents/runtime/index.js", () => ({
   ResourceGuard: mocks.ResourceGuard,
 }));
 
-const SUBJECT_PATH = "../../../../../js/agents/stages/design/generators/batch-generator.js";
+const SUBJECT_PATH = "../../../../../../js/agents/stages/design/generators/batch-generator.js";
 
 async function importSubject() {
   // Ensure module-level caches (e.g. system prompt) reset per test.

@@ -3,7 +3,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 it("LoopRuntimeState serializes and restores", async () => {
-  const { LoopRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
+  const { LoopRuntimeState, LoopRuntimeStatuses } = await import(
+    "../../../../../js/agents/runtime/core/loop-runtime-state.js"
+  );
 
   const state = new LoopRuntimeState({
     status: LoopRuntimeStatuses.RUNNING,
@@ -28,7 +30,7 @@ it("LoopRuntimeState serializes and restores", async () => {
 });
 
 it("LoopRuntimeState normalizes statusHistory entries", async () => {
-  const { LoopRuntimeState } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
+  const { LoopRuntimeState } = await import("../../../../../js/agents/runtime/core/loop-runtime-state.js");
 
   const state = new LoopRuntimeState({
     statusHistory: [
@@ -49,7 +51,7 @@ it("LoopRuntimeState normalizes statusHistory entries", async () => {
 });
 
 it("LoopRuntimeState normalizes cursor inputs", async () => {
-  const { LoopRuntimeState } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
+  const { LoopRuntimeState } = await import("../../../../../js/agents/runtime/core/loop-runtime-state.js");
 
   const objectCursor = { step: 1 };
   const stateA = new LoopRuntimeState({ cursor: objectCursor });
@@ -69,7 +71,9 @@ it("LoopRuntimeState normalizes cursor inputs", async () => {
 });
 
 it("LoopRuntimeState normalizes status, pausedReason, and lastCheckpointId", async () => {
-  const { LoopRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
+  const { LoopRuntimeState, LoopRuntimeStatuses } = await import(
+    "../../../../../js/agents/runtime/core/loop-runtime-state.js"
+  );
 
   const state = new LoopRuntimeState({
     status: "unknown",
@@ -83,7 +87,9 @@ it("LoopRuntimeState normalizes status, pausedReason, and lastCheckpointId", asy
 });
 
 it("LoopRuntimeState.fromJSON accepts non-object payloads", async () => {
-  const { LoopRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
+  const { LoopRuntimeState, LoopRuntimeStatuses } = await import(
+    "../../../../../js/agents/runtime/core/loop-runtime-state.js"
+  );
 
   const state = LoopRuntimeState.fromJSON(null);
   expect(state.status).toBe(LoopRuntimeStatuses.IDLE);
@@ -92,7 +98,9 @@ it("LoopRuntimeState.fromJSON accepts non-object payloads", async () => {
 });
 
 it("LoopRuntimeState validates transitions", async () => {
-  const { LoopRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
+  const { LoopRuntimeState, LoopRuntimeStatuses } = await import(
+    "../../../../../js/agents/runtime/core/loop-runtime-state.js"
+  );
 
   const state = new LoopRuntimeState({ status: LoopRuntimeStatuses.IDLE });
 
@@ -119,7 +127,7 @@ it("getRuntimeState/setRuntimeState isolate per signal", async () => {
     setRuntimeState,
     LoopRuntimeStatuses,
     LoopRuntimeState,
-  } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
+  } = await import("../../../../../js/agents/runtime/core/loop-runtime-state.js");
 
   const a = new AbortController();
   const b = new AbortController();
@@ -144,7 +152,7 @@ it("setRuntimeState validates signal type and clearRuntimeState is safe", async 
     getRuntimeState,
     LoopRuntimeStatuses,
     LoopRuntimeState,
-  } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
+  } = await import("../../../../../js/agents/runtime/core/loop-runtime-state.js");
 
   expect(() => setRuntimeState(null, { status: LoopRuntimeStatuses.RUNNING })).toThrow(/signal must be an object/);
 

@@ -20,25 +20,28 @@ export { isNonRetryableError } from "./shared/error-classifier.js";
  * @returns {Record<string, string | undefined> | null}
  */
 function getEnvAdapter() {
-  // Prefer import.meta.env (Vite/modern bundlers)
+  /** @type {Record<string, string | undefined> | null} */
+  let importMetaEnv = null;
   try {
     // @ts-ignore - import.meta.env may not exist
     if (typeof import.meta !== "undefined" && import.meta.env && typeof import.meta.env === "object") {
-      return /** @type {Record<string, string | undefined>} */ (
+      importMetaEnv = /** @type {Record<string, string | undefined>} */ (
         (/** @type {{ env: Record<string, string | undefined> }} */ (/** @type {unknown} */ (import.meta))).env
       );
     }
   } catch {
     // import.meta not supported
   }
-  // Fallback to globalThis.process.env (Node.js or bundler polyfill)
+  // globalThis.process.env (Node.js or bundler polyfill)
   const proc = /** @type {{ env?: Record<string, string | undefined> } | undefined} */ (
     /** @type {Record<string, unknown>} */ (globalThis).process
   );
   if (proc && typeof proc === "object" && proc.env && typeof proc.env === "object") {
+    // In Node/Vitest, process.env is mutable and should override import.meta.env.
+    if (importMetaEnv) return { ...importMetaEnv, ...proc.env };
     return proc.env;
   }
-  return null;
+  return importMetaEnv;
 }
 
 /**

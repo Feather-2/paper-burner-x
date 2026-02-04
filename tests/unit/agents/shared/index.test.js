@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const SHARED_INDEX_PATH = "../../../../../js/agents/shared/index.js";
+const SHARED_INDEX_PATH = "../../../../js/agents/shared/index.js";
 
 const hoisted = vi.hoisted(() => {
   const THROW = Symbol("THROW");
@@ -13,6 +13,7 @@ const hoisted = vi.hoisted(() => {
     "CircuitBreaker",
     "CircuitBreakerRegistry",
     "CircuitState",
+    "DEFAULT_TREE_SITTER_WASM_BASE_URL",
     "Deque",
     "DisposableBase",
     "EmbeddingService",
@@ -68,15 +69,18 @@ const hoisted = vi.hoisted(() => {
     "getTokenCacheStats",
     "globToRegex",
     "hasLocalStorage",
+    "initTreeSitter",
     "injectSystemHint",
     "isAbortError",
     "isEncryptedString",
     "isNativeWatchSupported",
     "isNodeLike",
+    "isNonRecoverableDeepSearchError",
     "isNonRetryableError",
     "isPlainObject",
     "isPotentiallyDangerous",
     "isTimeoutError",
+    "loadTreeSitterLanguage",
     "logEvent",
     "makeSafe",
     "makeSecureId",
@@ -100,6 +104,7 @@ const hoisted = vi.hoisted(() => {
     "sanitizeForJson",
     "stripThinkingTags",
     "toBoolean",
+    "toDeepSearchErrorMessage",
     "toErrorMessage",
     "toNonEmptyString",
     "toNonNegativeInt",
@@ -148,6 +153,7 @@ const hoisted = vi.hoisted(() => {
     "ValidationErrorCode",
     "CircuitState",
     "CheckpointType",
+    "DEFAULT_TREE_SITTER_WASM_BASE_URL",
   ];
 
   const makeFn = (name) =>
@@ -178,6 +184,7 @@ const hoisted = vi.hoisted(() => {
     ValidationErrorCode: Object.freeze({ __type: "ValidationErrorCode", INVALID: "INVALID", TOO_LARGE: "TOO_LARGE" }),
     CircuitState: Object.freeze({ __type: "CircuitState", OPEN: "OPEN", CLOSED: "CLOSED", HALF_OPEN: "HALF_OPEN" }),
     CheckpointType: Object.freeze({ __type: "CheckpointType", V1: "V1", V2: "V2" }),
+    DEFAULT_TREE_SITTER_WASM_BASE_URL: "wasm/tree-sitter/",
   };
 
   const functionNames = ALL_EXPORTS.filter((name) => !CLASS_EXPORTS.includes(name) && !VALUE_EXPORTS.includes(name));
@@ -197,24 +204,24 @@ const hoisted = vi.hoisted(() => {
 });
 
 // Required mocks: do not import real implementations.
-vi.mock("../../../../../js/agents/shared/platform.js", () => ({
+vi.mock("../../../../js/agents/shared/platform.js", () => ({
   Platform: hoisted.Platform,
   isNodeLike: hoisted.isNodeLike,
 }));
-vi.mock("../../../../../js/agents/shared/base/disposable-base.js", () => ({
+vi.mock("../../../../js/agents/shared/base/disposable-base.js", () => ({
   DisposableBase: hoisted.DisposableBase,
 }));
-vi.mock("../../../../../js/agents/shared/utils/budget.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/budget.js", () => ({
   createBudgetManager: hoisted.createBudgetManager,
   BudgetAction: hoisted.BudgetAction,
 }));
-vi.mock("../../../../../js/agents/shared/utils/message-utils.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/message-utils.js", () => ({
   injectSystemHint: hoisted.injectSystemHint,
 }));
-vi.mock("../../../../../js/agents/shared/utils/robust-json.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/robust-json.js", () => ({
   robustParseJson: hoisted.robustParseJson,
 }));
-vi.mock("../../../../../js/agents/shared/utils/stage-api.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/stage-api.js", () => ({
   createStageApi: hoisted.createStageApi,
   StageApiSpec: hoisted.StageApiSpec,
   validateStageApi: hoisted.validateStageApi,
@@ -223,7 +230,7 @@ vi.mock("../../../../../js/agents/shared/utils/stage-api.js", () => ({
   createChildApi: hoisted.createChildApi,
   createRunTool: hoisted.createRunTool,
 }));
-vi.mock("../../../../../js/agents/shared/utils/value-utils.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/value-utils.js", () => ({
   isPlainObject: hoisted.isPlainObject,
   toNonEmptyString: hoisted.toNonEmptyString,
   toNumber: hoisted.toNumber,
@@ -240,85 +247,87 @@ vi.mock("../../../../../js/agents/shared/utils/value-utils.js", () => ({
   estimateTokens: hoisted.estimateTokens,
   estimateTokenCountFast: hoisted.estimateTokenCountFast,
 }));
-vi.mock("../../../../../js/agents/shared/utils/logger.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/logger.js", () => ({
   createLogger: hoisted.createLogger,
   useLogger: hoisted.useLogger,
   trackToolCall: hoisted.trackToolCall,
   logEvent: hoisted.logEvent,
 }));
-vi.mock("../../../../../js/agents/shared/utils/error-utils.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/error-utils.js", () => ({
   safeExec: hoisted.safeExec,
   catchAndLog: hoisted.catchAndLog,
   makeSafe: hoisted.makeSafe,
   isAbortError: hoisted.isAbortError,
   isTimeoutError: hoisted.isTimeoutError,
 }));
-vi.mock("../../../../../js/agents/shared/utils/error-utils-extended.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/error-utils-extended.js", () => ({
   wrapError: hoisted.wrapError,
   toErrorMessage: hoisted.toErrorMessage,
 }));
-vi.mock("../../../../../js/agents/shared/utils/deque.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/deque.js", () => ({
   Deque: hoisted.Deque,
 }));
-vi.mock("../../../../../js/agents/shared/utils/safe-json.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/safe-json.js", () => ({
   safeJsonParse: hoisted.safeJsonParse,
 }));
-vi.mock("../../../../../js/agents/shared/utils/json-candidate.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/json-candidate.js", () => ({
   extractJsonCandidate: hoisted.extractJsonCandidate,
   stripThinkingTags: hoisted.stripThinkingTags,
 }));
-vi.mock("../../../../../js/agents/shared/utils/file-watcher.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/file-watcher.js", () => ({
   FileWatcher: hoisted.FileWatcher,
   isNativeWatchSupported: hoisted.isNativeWatchSupported,
 }));
-vi.mock("../../../../../js/agents/shared/utils/secure-id.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/secure-id.js", () => ({
   cryptoRandomHex: hoisted.cryptoRandomHex,
   cryptoRandomUuid: hoisted.cryptoRandomUuid,
   makeSecureId: hoisted.makeSecureId,
   makeSecureTimestampedId: hoisted.makeSecureTimestampedId,
 }));
-vi.mock("../../../../../js/agents/shared/utils/cancellation.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/cancellation.js", () => ({
   checkCancelled: hoisted.checkCancelled,
   withCancellation: hoisted.withCancellation,
   createLinkedSignal: hoisted.createLinkedSignal,
 }));
-vi.mock("../../../../../js/agents/shared/utils/error-classifier.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/error-classifier.js", () => ({
   classifyDeepSearchError: hoisted.classifyDeepSearchError,
   classifyDesignError: hoisted.classifyDesignError,
   isNonRetryableError: hoisted.isNonRetryableError,
+  isNonRecoverableDeepSearchError: hoisted.isNonRecoverableDeepSearchError,
+  toDeepSearchErrorMessage: hoisted.toDeepSearchErrorMessage,
 }));
-vi.mock("../../../../../js/agents/shared/utils/response-limits.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/response-limits.js", () => ({
   normalizeMaxBytes: hoisted.normalizeMaxBytes,
   createResponseTooLargeError: hoisted.createResponseTooLargeError,
   readTextWithLimit: hoisted.readTextWithLimit,
   readJsonWithLimit: hoisted.readJsonWithLimit,
 }));
-vi.mock("../../../../../js/agents/shared/utils/token-cache.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/token-cache.js", () => ({
   estimateTokensCached: hoisted.estimateTokensCached,
   clearTokenCache: hoisted.clearTokenCache,
   getTokenCacheStats: hoisted.getTokenCacheStats,
 }));
-vi.mock("../../../../../js/agents/shared/utils/safe-regex.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/safe-regex.js", () => ({
   isPotentiallyDangerous: hoisted.isPotentiallyDangerous,
   createSafeRegex: hoisted.createSafeRegex,
   safeMatch: hoisted.safeMatch,
   globToRegex: hoisted.globToRegex,
 }));
-vi.mock("../../../../../js/agents/shared/utils/event-emitter.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/event-emitter.js", () => ({
   EventEmitter: hoisted.EventEmitter,
 }));
-vi.mock("../../../../../js/agents/shared/utils/lru-cache.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/lru-cache.js", () => ({
   LRUCache: hoisted.LRUCache,
   createAutoPruningCache: hoisted.createAutoPruningCache,
 }));
-vi.mock("../../../../../js/agents/shared/utils/storage-crypto.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/storage-crypto.js", () => ({
   PB_ENCRYPTED_PREFIX: hoisted.PB_ENCRYPTED_PREFIX,
   isEncryptedString: hoisted.isEncryptedString,
   canUseStorageEncryption: hoisted.canUseStorageEncryption,
   encryptString: hoisted.encryptString,
   decryptString: hoisted.decryptString,
 }));
-vi.mock("../../../../../js/agents/shared/utils/schema-validator.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/schema-validator.js", () => ({
   validateChunk: hoisted.validateChunk,
   validateChunks: hoisted.validateChunks,
   validateGlobResult: hoisted.validateGlobResult,
@@ -328,7 +337,7 @@ vi.mock("../../../../../js/agents/shared/utils/schema-validator.js", () => ({
   ValidationErrorCode: hoisted.ValidationErrorCode,
   createValidationError: hoisted.createValidationError,
 }));
-vi.mock("../../../../../js/agents/shared/utils/storage-quota.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/storage-quota.js", () => ({
   hasLocalStorage: hoisted.hasLocalStorage,
   estimateLocalStorageUsage: hoisted.estimateLocalStorageUsage,
   estimateLocalStorageQuota: hoisted.estimateLocalStorageQuota,
@@ -337,7 +346,7 @@ vi.mock("../../../../../js/agents/shared/utils/storage-quota.js", () => ({
   cleanupLocalStorage: hoisted.cleanupLocalStorage,
   getIndexedDBQuotaStatus: hoisted.getIndexedDBQuotaStatus,
 }));
-vi.mock("../../../../../js/agents/shared/utils/circuit-breaker.js", () => ({
+vi.mock("../../../../js/agents/shared/utils/circuit-breaker.js", () => ({
   CircuitState: hoisted.CircuitState,
   CircuitBreaker: hoisted.CircuitBreaker,
   CircuitBreakerRegistry: hoisted.CircuitBreakerRegistry,
@@ -346,17 +355,23 @@ vi.mock("../../../../../js/agents/shared/utils/circuit-breaker.js", () => ({
   withCircuitBreaker: hoisted.withCircuitBreaker,
 }));
 
-vi.mock("../../../../../js/agents/core/archive/archive.js", () => ({
+vi.mock("../../../../js/agents/shared/parser/tree-sitter-wasm.js", () => ({
+  DEFAULT_TREE_SITTER_WASM_BASE_URL: hoisted.DEFAULT_TREE_SITTER_WASM_BASE_URL,
+  initTreeSitter: hoisted.initTreeSitter,
+  loadTreeSitterLanguage: hoisted.loadTreeSitterLanguage,
+}));
+
+vi.mock("../../../../js/agents/core/archive/archive.js", () => ({
   Archive: hoisted.Archive,
   MapAdapter: hoisted.MapAdapter,
   FallbackAdapter: hoisted.FallbackAdapter,
 }));
-vi.mock("../../../../../js/agents/core/archive/checkpoint-schema.js", () => ({
+vi.mock("../../../../js/agents/core/archive/checkpoint-schema.js", () => ({
   CheckpointType: hoisted.CheckpointType,
   createCheckpoint: hoisted.createCheckpoint,
   migrateCheckpoint: hoisted.migrateCheckpoint,
 }));
-vi.mock("../../../../../js/agents/core/contracts/index.js", () => ({
+vi.mock("../../../../js/agents/core/contracts/index.js", () => ({
   validateRpcRequest: hoisted.validateRpcRequest,
   validateRpcResponse: hoisted.validateRpcResponse,
   validateLlmResponse: hoisted.validateLlmResponse,
@@ -364,18 +379,18 @@ vi.mock("../../../../../js/agents/core/contracts/index.js", () => ({
   validateToolResult: hoisted.validateToolResult,
   normalizeToolResult: hoisted.normalizeToolResult,
 }));
-vi.mock("../../../../../js/agents/retrieval/embeddings/embedding-service.js", () => ({
+vi.mock("../../../../js/agents/retrieval/embeddings/embedding-service.js", () => ({
   EmbeddingService: hoisted.EmbeddingService,
   createEmbeddingService: hoisted.createEmbeddingService,
   normalizeEmbeddingConfig: hoisted.normalizeEmbeddingConfig,
 }));
-vi.mock("../../../../../js/agents/retrieval/embeddings/vector-index.js", () => ({
+vi.mock("../../../../js/agents/retrieval/embeddings/vector-index.js", () => ({
   VectorIndex: hoisted.VectorIndex,
 }));
-vi.mock("../../../../../js/agents/retrieval/embeddings/hnsw-lite.js", () => ({
+vi.mock("../../../../js/agents/retrieval/embeddings/hnsw-lite.js", () => ({
   HnswLiteIndex: hoisted.HnswLiteIndex,
 }));
-vi.mock("../../../../../js/agents/shared/tokenizers/adaptive-token-counter.js", () => ({
+vi.mock("../../../../js/agents/shared/tokenizers/adaptive-token-counter.js", () => ({
   createAdaptiveTokenCounter: hoisted.createAdaptiveTokenCounter,
   getGlobalTokenCounter: hoisted.getGlobalTokenCounter,
 }));

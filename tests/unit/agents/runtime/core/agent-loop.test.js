@@ -50,9 +50,15 @@ vi.mock("../../../../../js/agents/plugins/compression/index.js", () => ({
   },
 }));
 
-vi.mock("../../../../../js/agents/plugins/telemetry/index.js", () => ({
-  getRuntimeState: vi.fn(() => null),
-}));
+vi.mock("../../../../../js/agents/runtime/core/loop-runtime-state.js", async () => {
+  const actual = await vi.importActual(
+    "../../../../../js/agents/runtime/core/loop-runtime-state.js",
+  );
+  return {
+    ...actual,
+    getRuntimeState: vi.fn(() => null),
+  };
+});
 
 vi.mock("../../../../../js/agents/runtime/hooks/hook-runner.js", () => ({
   createPreToolUseHook: vi.fn(() => async () => null),
@@ -92,7 +98,7 @@ beforeEach(async () => {
   persistedOutput = await import("../../../../../js/agents/runtime/core/persisted-output.js");
   ({ validateArgs } = await import("../../../../../js/agents/runtime/tools/schema-validator.js"));
   ({ createPreToolUseHook } = await import("../../../../../js/agents/runtime/hooks/hook-runner.js"));
-  ({ getRuntimeState } = await import("../../../../../js/agents/plugins/telemetry/index.js"));
+  ({ getRuntimeState } = await import("../../../../../js/agents/runtime/core/loop-runtime-state.js"));
 });
 
 describe("DEFAULT_CONTEXT_CONFIG", () => {

@@ -271,31 +271,29 @@ describe("registerDeepSearchSubagents", () => {
     }
   });
 
-  it("creates independent agents on concurrent factory and run calls", async () => {
+  it("creates independent agents across factory and concurrent run calls", async () => {
     const { researcherFactory } = await setupFactories();
     const sharedA = { marker: "A" };
     const sharedB = { marker: "B" };
 
-    const [agentA, agentB] = await Promise.all([
-      researcherFactory({
-        prompt: "p1",
-        taskId: 0,
-        inheritedContext: { sharedContext: sharedA },
-        parentStageApi: { traceparent: "  tp-a  " },
-      }),
-      researcherFactory({
-        prompt: "p2",
-        taskId: -1,
-        inheritedContext: { sharedContext: sharedB },
-      }),
-    ]);
+    const agentA = await researcherFactory({
+      prompt: "p1",
+      taskId: 0,
+      inheritedContext: { sharedContext: sharedA },
+      parentStageApi: { traceparent: "  tp-a  " },
+    });
+    const agentB = await researcherFactory({
+      prompt: "p2",
+      taskId: -1,
+      inheritedContext: { sharedContext: sharedB },
+    });
 
-    const instanceA = mockState.agentLoopInstances.find(
-      (inst) => inst.options.sharedContext.marker === "A"
-    );
-    const instanceB = mockState.agentLoopInstances.find(
-      (inst) => inst.options.sharedContext.marker === "B"
-    );
+    expect(mockState.agentLoopInstances).toHaveLength(2);
+    const [first, second] = mockState.agentLoopInstances;
+    const instanceA = first.options.sharedContext === sharedA ? first : second;
+    const instanceB = instanceA === first ? second : first;
+    expect(instanceA.options.sharedContext).toBe(sharedA);
+    expect(instanceB.options.sharedContext).not.toBe(sharedA);
 
     instanceA.run
       .mockResolvedValueOnce({ report: "A1" })

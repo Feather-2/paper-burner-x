@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Use a module mock so no real filesystem IO happens in these unit tests.
 const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
+  stat: vi.fn(),
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -11,6 +12,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return {
     ...actual,
     readFile: fsMocks.readFile,
+    stat: fsMocks.stat,
   };
 });
 
@@ -50,6 +52,7 @@ describe("HtmlAdapter (vitest)", () => {
   beforeEach(() => {
     vi.resetModules();
     fsMocks.readFile.mockReset();
+    fsMocks.stat.mockReset();
     turndownMocks.ctor.mockReset();
     turndownMocks.turndown.mockReset();
     turndownMockControl.throwOnDefaultAccess = false;
@@ -79,7 +82,8 @@ describe("HtmlAdapter (vitest)", () => {
       "",
     ].join("");
 
-    fsMocks.readFile.mockResolvedValue(Buffer.from(html, "utf8"));
+    fsMocks.stat.mockResolvedValue({ size: Buffer.byteLength(html, "utf8") });
+    fsMocks.readFile.mockResolvedValue(html);
 
     turndownMocks.turndown.mockImplementation((inputHtml) => {
       // Data URIs should be rewritten before turndown runs.
@@ -104,7 +108,9 @@ describe("HtmlAdapter (vitest)", () => {
     const parsed = await adapter.parse(htmlPath, { allowPathRead: true });
 
     expect(fsMocks.readFile).toHaveBeenCalledTimes(1);
-    expect(fsMocks.readFile).toHaveBeenCalledWith(htmlPath);
+    expect(fsMocks.stat).toHaveBeenCalledTimes(1);
+    expect(fsMocks.stat).toHaveBeenCalledWith(htmlPath);
+    expect(fsMocks.readFile).toHaveBeenCalledWith(htmlPath, "utf8");
 
     // Uses imported turndown.
     expect(turndownMocks.ctor).toHaveBeenCalledWith({ headingStyle: "atx", codeBlockStyle: "fenced" });

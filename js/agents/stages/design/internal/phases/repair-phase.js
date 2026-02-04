@@ -1,4 +1,5 @@
 import { emitStage } from "../../design-helpers.js";
+import { runAutoReview } from "../../reviewer/auto-reviewer.js";
 import { DesignPhase } from "../../states.js";
 import { runWithPhaseSpan } from "./phase-utils.js";
 
@@ -36,7 +37,6 @@ export async function runBatchRepairPhase(loop, stateOrParams, maybeParams) {
     loop._transitionPhase(loop.phase, DesignPhase.REPAIR, { emit, runId });
 
     // 1. 运行全局风格审计
-    const { runAutoReview } = await import("../../reviewer/auto-reviewer.js");
     const reviewResult = await runAutoReview({ deckHtmlDsl: baseDeckHtmlDsl, slidesMeta }, designSystem, { signal: context.signal });
 
     // 2. 收集 QA 报错

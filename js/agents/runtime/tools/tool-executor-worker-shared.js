@@ -45,4 +45,3 @@ export function createToolExecutorHandler(adapter) {
   
   return { close: () => adapter.close?.() };
 }
-

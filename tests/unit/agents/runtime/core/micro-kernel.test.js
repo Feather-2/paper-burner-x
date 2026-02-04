@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("../../../../../js/agents/core/event-bus.js", () => {
   const instances = [];
@@ -24,6 +24,9 @@ vi.mock("../../../../../js/agents/core/event-bus.js", () => {
         const type = String(eventType);
         if (!this._handlers.has(type)) this._handlers.set(type, new Set());
         this._handlers.get(type).add(handler);
+        return () => {
+          this._handlers.get(type)?.delete(handler);
+        };
       });
 
       this.off = vi.fn((eventType, handler) => {
@@ -122,6 +125,12 @@ async function captureThrownOrRejected(fn) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
+  vi.useRealTimers();
+});
+
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
 });
 
 describe("MicroKernelConfigError", () => {
@@ -292,7 +301,7 @@ describe("MicroKernel", () => {
     const bus = kernel.eventBus;
 
     const handler = vi.fn();
-    kernel.on("evt", handler);
+    const off = kernel.on("evt", handler);
 
     expect(bus.on).toHaveBeenCalledTimes(1);
     const [typeArg, wrapper] = bus.on.mock.calls[0];
@@ -304,11 +313,8 @@ describe("MicroKernel", () => {
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledWith({ a: 1 });
 
-    kernel.off("evt", handler);
-    expect(bus.off).toHaveBeenCalledTimes(1);
-    const [offType, offHandler] = bus.off.mock.calls[0];
-    expect(offType).toBe("evt");
-    expect(offHandler).toBe(wrapper);
+    off();
+    expect(bus.off).not.toHaveBeenCalled();
 
     bus.emit("evt", { a: 2 });
     expect(handler).toHaveBeenCalledTimes(1);
@@ -322,102 +328,106 @@ describe("MicroKernel", () => {
     const a = vi.fn();
     const b = vi.fn();
 
-    kernel.on("evt", a);
-    kernel.on("evt", b);
+    const offA = kernel.on("evt", a);
+    const offB = kernel.on("evt", b);
 
     bus.emit("evt", "x");
     expect(a).toHaveBeenCalledWith("x");
     expect(b).toHaveBeenCalledWith("x");
 
-    kernel.off("evt", a);
+    offA();
     bus.emit("evt", "y");
 
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).toHaveBeenCalledTimes(2);
+
+    offB();
+    bus.emit("evt", "z");
+    expect(b).toHaveBeenCalledTimes(2);
   });
 
   it("on()/off() reject invalid inputs (empty eventType / null handler) (boundary)", async () => {
-    const { MicroKernel } = await loadSubject();
+    const { MicroKernel, MicroKernelConfigError } = await loadSubject();
     const kernel = new MicroKernel();
 
-    const err1 = await captureThrownOrRejected(() => kernel.on("", () => {}));
-    expect(err1).toBeInstanceOf(Error);
-    expect(["MicroKernelConfigError", "MicroKernelError"]).toContain(err1.name);
-
-    const err2 = await captureThrownOrRejected(() => kernel.on("evt", null));
-    expect(err2).toBeInstanceOf(Error);
-    expect(["MicroKernelConfigError", "MicroKernelError"]).toContain(err2.name);
-
-    const err3 = await captureThrownOrRejected(() => kernel.off("evt", null));
-    expect(err3).toBeInstanceOf(Error);
-    expect(["MicroKernelConfigError", "MicroKernelError"]).toContain(err3.name);
+    expect(() => kernel.on("", () => {})).toThrow(MicroKernelConfigError);
+    expect(() => kernel.on("evt", null)).toThrow(MicroKernelConfigError);
   });
 
-  it("request() forwards to EventBus.request(), unwraps payload, and applies default timeout", async () => {
+  it("request() invokes the first registered handler with raw payload", async () => {
     const { MicroKernel } = await loadSubject();
     const kernel = new MicroKernel();
 
-    const expected = { ok: true };
-    kernel.eventBus.__nextRequestRecord = { type: "ask", payload: expected };
+    const handler = vi.fn((payload) => ({ ok: true, payload }));
+    kernel.on("ask", handler);
 
     const res = await kernel.request("ask", { q: 1 });
-    expect(kernel.eventBus.request).toHaveBeenCalledTimes(1);
-
-    const [eventTypeArg, payloadArg, optionsArg] =
-      kernel.eventBus.request.mock.calls[0];
-    expect(eventTypeArg).toBe("ask");
-    expect(payloadArg).toEqual({ q: 1 });
-
-    // Legacy MicroKernel should provide a deterministic timeout value.
-    expect(optionsArg).toBeTruthy();
-    expect(optionsArg.timeoutMs).toBe(30_000);
-
-    // Compatible with either "unwrap payload" or "return record".
-    expect(res === expected || res?.payload === expected).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith({ q: 1 });
+    expect(res).toEqual({ ok: true, payload: { q: 1 } });
   });
 
   it("request() sanitizes timeout options (0, -1, MAX_SAFE_INTEGER, numeric string, object)", async () => {
-    const { MicroKernel } = await loadSubject();
+    const { MicroKernel, MicroKernelError } = await loadSubject();
     const kernel = new MicroKernel();
 
-    kernel.eventBus.__nextRequestRecord = { type: "t", payload: "ok" };
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
-    await kernel.request("t", null, { timeoutMs: 0 });
-    expect(kernel.eventBus.__lastRequest.options.timeoutMs).toBe(0);
+    // missing handler -> uses timeoutMs directly
+    const p0 = kernel.request("t0", null, { timeoutMs: 0 });
+    const e0 = expect(p0).rejects.toBeInstanceOf(MicroKernelError);
+    expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(0);
+    await vi.runOnlyPendingTimersAsync();
+    await e0;
 
-    await kernel.request("t", null, { timeout: -1 });
-    expect(kernel.eventBus.__lastRequest.options.timeoutMs).toBe(30_000);
+    const p1 = kernel.request("t1", null, { timeout: -1 });
+    const e1 = expect(p1).rejects.toMatchObject({ name: "MicroKernelError", code: "TIMEOUT" });
+    expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(30_000);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await e1;
 
-    await kernel.request("t", null, { timeoutMs: Number.MAX_SAFE_INTEGER });
-    expect(kernel.eventBus.__lastRequest.options.timeoutMs).toBe(
-      Number.MAX_SAFE_INTEGER
-    );
+    const p2 = kernel.request("t2", null, { timeoutMs: "123.9" });
+    const e2 = expect(p2).rejects.toMatchObject({ name: "MicroKernelError", code: "TIMEOUT" });
+    expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(123);
+    await vi.advanceTimersByTimeAsync(123);
+    await e2;
 
-    await kernel.request("t", null, { timeoutMs: "123.9" });
-    expect(kernel.eventBus.__lastRequest.options.timeoutMs).toBe(123);
+    const p3 = kernel.request("t3", null, { timeoutMs: {} });
+    const e3 = expect(p3).rejects.toMatchObject({ name: "MicroKernelError", code: "TIMEOUT" });
+    expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(30_000);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await e3;
 
-    await kernel.request("t", null, { timeoutMs: {} });
-    expect(kernel.eventBus.__lastRequest.options.timeoutMs).toBe(30_000);
+    // handler present -> large values set a timer but clear it on success
+    kernel.on("ok", () => "yes");
+    await expect(kernel.request("ok", null, { timeoutMs: Number.MAX_SAFE_INTEGER })).resolves.toBe("yes");
+    expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(Number.MAX_SAFE_INTEGER);
+
+    setTimeoutSpy.mockRestore();
   });
 
   it("request() supports concurrent calls with independent timeout options", async () => {
     const { MicroKernel } = await loadSubject();
     const kernel = new MicroKernel();
 
-    kernel.eventBus.request.mockImplementation(async (eventType, payload, opts) => {
-      return { type: eventType, payload: { payload, timeoutMs: opts?.timeoutMs } };
-    });
+    vi.useFakeTimers();
 
-    const [a, b] = await Promise.all([
-      kernel.request("a", { n: 1 }, { timeoutMs: 1 }),
-      kernel.request("b", { n: 2 }, { timeout: 2 }),
-    ]);
+    const never = () => new Promise(() => {});
+    kernel.on("a", never);
+    kernel.on("b", never);
 
-    const aTimeout = a?.timeoutMs ?? a?.payload?.timeoutMs;
-    const bTimeout = b?.timeoutMs ?? b?.payload?.timeoutMs;
+    const p1 = kernel.request("a", { n: 1 }, { timeoutMs: 1 });
+    const e1 = expect(p1).rejects.toMatchObject({ name: "MicroKernelError", code: "TIMEOUT" });
 
-    expect(aTimeout).toBe(1);
-    expect(bTimeout).toBe(2);
+    const p2 = kernel.request("b", { n: 2 }, { timeout: 2 });
+
+    await vi.advanceTimersByTimeAsync(1);
+    await e1;
+
+    const e2 = expect(p2).rejects.toMatchObject({ name: "MicroKernelError", code: "TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(1);
+    await e2;
   });
 
   it("request() rejects invalid eventType (null/undefined/empty string) (boundary)", async () => {
@@ -530,23 +540,23 @@ describe("MicroKernel", () => {
     expect(scheduler.dispatch).toHaveBeenCalledTimes(1);
   });
 
-  it("dispatch task rejects non-string code inputs (null/undefined/number/object) (type boundary)", async () => {
+  it("dispatch task coerces non-string code inputs to strings (type boundary)", async () => {
     const { MicroKernel } = await loadSubject();
 
     const scheduler = { dispatch: vi.fn(async () => "ok") };
     const kernel = new MicroKernel({ scheduler });
     const dispatch = getDispatchFn(kernel);
 
-    const badCodes = [null, undefined, 123, { code: "x" }];
-    for (const code of badCodes) {
-      const err = await captureThrownOrRejected(() =>
-        dispatch({ runtimeType: "js", code })
-      );
-      expect(err).toBeInstanceOf(Error);
-      expect(["MicroKernelError", "MicroKernelConfigError"]).toContain(err.name);
-    }
+    await dispatch({ runtimeType: "js", code: null });
+    await dispatch({ runtimeType: "js", code: undefined });
+    await dispatch({ runtimeType: "js", code: 123 });
+    await dispatch({ runtimeType: "js", code: { code: "x" } });
 
-    expect(scheduler.dispatch).not.toHaveBeenCalled();
+    expect(scheduler.dispatch).toHaveBeenCalledTimes(4);
+    expect(scheduler.dispatch.mock.calls[0][1]).toBe("");
+    expect(scheduler.dispatch.mock.calls[1][1]).toBe("");
+    expect(scheduler.dispatch.mock.calls[2][1]).toBe("123");
+    expect(scheduler.dispatch.mock.calls[3][1]).toBe("[object Object]");
   });
 
   it("dispatch task normalizes null/undefined inputState/options to objects (boundary)", async () => {

@@ -33,7 +33,7 @@ class MockProcessTransport {
   }
 }
 
-vi.mock("../../../../js/agents/runtime/transports/process-transport.js", () => {
+vi.mock("../../../../js/agents/plugins/transports/process-transport.js", () => {
   return { ProcessTransport: MockProcessTransport };
 });
 

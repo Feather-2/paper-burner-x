@@ -4,7 +4,7 @@ let isNodeLikeValue = true;
 let throwStdioTransportImport = false;
 let throwStdioProviderImport = false;
 
-// Captured mock modules/exports (reset per fresh import)
+// Captured mock modules/exports (shared across isolated index.js imports)
 let sharedModule;
 let mcpClientModule;
 let mcpClientInstances;
@@ -117,22 +117,34 @@ vi.mock("../../../../js/agents/mcp/transport-factory.js", () => {
 });
 
 vi.mock("../../../../js/agents/mcp/stdio-mcp-transport.js", () => {
-  if (throwStdioTransportImport) {
-    throw new Error("mock stdio transport import failure");
-  }
-
   class StdioMcpTransport {}
   const createStdioMcpTransport = vi.fn((options) => ({ kind: "stdio-transport", options }));
 
-  stdioTransportModule = { StdioMcpTransport, createStdioMcpTransport };
+  // Note: `vi.resetModules()` does NOT reset mocked modules by default in Vitest.
+  // Use getters so we can simulate import failures across repeated index.js imports.
+  stdioTransportModule = {};
+  Object.defineProperty(stdioTransportModule, "StdioMcpTransport", {
+    enumerable: true,
+    get() {
+      if (throwStdioTransportImport || throwStdioProviderImport) {
+        throw new Error("mock stdio transport import failure");
+      }
+      return StdioMcpTransport;
+    },
+  });
+  Object.defineProperty(stdioTransportModule, "createStdioMcpTransport", {
+    enumerable: true,
+    get() {
+      if (throwStdioTransportImport || throwStdioProviderImport) {
+        throw new Error("mock stdio transport import failure");
+      }
+      return createStdioMcpTransport;
+    },
+  });
   return stdioTransportModule;
 });
 
 vi.mock("../../../../js/agents/mcp/stdio-mcp-provider.js", () => {
-  if (throwStdioProviderImport) {
-    throw new Error("mock stdio provider import failure");
-  }
-
   const StdioMcpProvider = vi.fn(function (config) {
     this.config = config;
   });
@@ -149,17 +161,9 @@ beforeEach(() => {
   throwStdioTransportImport = false;
   throwStdioProviderImport = false;
 
-  sharedModule = undefined;
-  mcpClientModule = undefined;
-  mcpClientInstances = undefined;
-  localProviderModule = undefined;
-  nexusProviderModule = undefined;
-  stdioTransportModule = undefined;
-  stdioProviderModule = undefined;
-  transportModule = undefined;
-  transportFactoryModule = undefined;
-  resourceManagerModule = undefined;
-  sseModule = undefined;
+  // Important: `vi.resetModules()` won't reset mocked modules, so do not null out
+  // references that are closed over by mock implementations.
+  mcpClientInstances = [];
 
   vi.clearAllMocks();
 });
@@ -172,10 +176,6 @@ async function loadIndexModule({
   isNodeLikeValue = isNodeLike;
   throwStdioTransportImport = stdioTransportThrows;
   throwStdioProviderImport = stdioProviderThrows;
-
-  // Prevent stale values when certain modules aren't imported (e.g., isNodeLike=false)
-  stdioTransportModule = undefined;
-  stdioProviderModule = undefined;
 
   vi.resetModules();
   return await import("../../../../js/agents/mcp/index.js");

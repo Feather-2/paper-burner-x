@@ -154,6 +154,29 @@ function scoreProbeGraderResult(result) {
   return expected.reduce((acc, t) => acc + (types.has(t) ? 1 : 0), 0);
 }
 
+function normalizeContentGraderConfig(config, input) {
+  const cfg = isPlainObject(config) ? config : {};
+
+  if (isPlainObject(cfg.options)) {
+    return {
+      ...cfg,
+      options: {
+        ...cfg.options,
+        input: cfg.options.input ?? input,
+      },
+    };
+  }
+
+  // Back-compat: treat a plain object config as EvaluateStageOptions.
+  return {
+    ...cfg,
+    options: {
+      stage: cfg,
+      input,
+    },
+  };
+}
+
 async function buildGraderInvoker(contentGraderExport) {
   const probeInput = {
     content: "Hi [TODO]...",
@@ -189,6 +212,14 @@ async function buildGraderInvoker(contentGraderExport) {
 
   if (contentGraderExport && typeof contentGraderExport === "object") {
     if (typeof contentGraderExport.grade === "function") {
+      candidates.push({
+        name: "obj.grade(input.content, normalizeConfig(config,input))",
+        invoke: (input, config) => {
+          const out = isPlainObject(input) && "content" in input ? input.content : input;
+          return contentGraderExport.grade(out, normalizeContentGraderConfig(config, input));
+        },
+      });
+
       candidates.push({
         name: "obj.grade(input, config)",
         invoke: (input, config) => contentGraderExport.grade(input, config),
@@ -341,7 +372,8 @@ describe("EvaluateStage", () => {
     const invoke = await buildStageInvoker(stage);
 
     const empty = await invoke({ content: "", context: { type: "text" } });
-    expect(issueTypes(empty)).toContain("too_short");
+    expect(issueTypes(empty)).toContain("missing_content");
+    expect(empty.score).toBe(0);
 
     const whitespace = await invoke({ content: " \n\t ", context: { type: "text" } });
     expect(issueTypes(whitespace)).toContain("too_short");

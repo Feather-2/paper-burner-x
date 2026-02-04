@@ -8,12 +8,12 @@ describe('compression/watchdog cleanup', () => {
     vi.restoreAllMocks();
   });
 
-  it('should clear interval and unsubscribe during uninstall (no ctx.cleanup)', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(console, 'debug').mockImplementation(() => {});
-    vi.spyOn(console, 'info').mockImplementation(() => {});
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+	  it('should clear interval and unsubscribe during uninstall (no ctx.cleanup)', async () => {
+	    vi.useFakeTimers();
+	    vi.spyOn(console, 'debug').mockImplementation(() => {});
+	    vi.spyOn(console, 'info').mockImplementation(() => {});
+	    vi.spyOn(console, 'warn').mockImplementation(() => {});
+	    vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const kernel = new Kernel({ enableRetry: false, enableTimeout: false });
     const ctx = new PluginContext(kernel, watchdogPlugin, {
@@ -21,12 +21,20 @@ describe('compression/watchdog cleanup', () => {
       threshold: 0.5,
       checkInterval: 50,
       autoCompress: false,
-    });
+	    });
 
-    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
-    const offSpy = vi.spyOn(kernel.events, 'off');
+	    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+	    const originalOn = ctx.on.bind(ctx);
+	    /** @type {{ event: string, unsubscribe: ReturnType<typeof vi.fn> }[]} */
+	    const subscriptions = [];
+	    vi.spyOn(ctx, 'on').mockImplementation((event, callback) => {
+	      const unsubscribe = originalOn(event, callback);
+	      const wrapped = vi.fn(() => unsubscribe());
+	      subscriptions.push({ event, unsubscribe: wrapped });
+	      return wrapped;
+	    });
 
-    await watchdogPlugin.install(ctx);
+	    await watchdogPlugin.install(ctx);
 
     expect(ctx._watchdogInterval).toEqual(
       expect.objectContaining({
@@ -36,12 +44,14 @@ describe('compression/watchdog cleanup', () => {
     );
     expect(typeof ctx._watchdogCleanup).toBe('function');
 
-    await watchdogPlugin.uninstall(ctx);
+	    await watchdogPlugin.uninstall(ctx);
 
-    expect(clearIntervalSpy).toHaveBeenCalled();
-    expect(offSpy.mock.calls.some(([name]) => name === 'runtime.tokens.*')).toBe(true);
-    expect(ctx._watchdogInterval).toBeNull();
-    expect(ctx._watchdogCleanup).toBeNull();
+	    expect(clearIntervalSpy).toHaveBeenCalled();
+	    const tokenSub = subscriptions.find(({ event }) => event === 'runtime.tokens.*');
+	    expect(tokenSub).toBeTruthy();
+	    expect(tokenSub?.unsubscribe).toHaveBeenCalled();
+	    expect(ctx._watchdogInterval).toBeNull();
+	    expect(ctx._watchdogCleanup).toBeNull();
 
     // Keep tests isolated (service registry / subscriptions)
     ctx.dispose();

@@ -60,14 +60,32 @@ function isNodeRuntime() {
 }
 
 /**
+ * Vitest will throw if you access a non-existent export on a mocked module.
+ * @param {any} mod
+ * @param {string} key
+ * @returns {any}
+ */
+function safeGetExport(mod, key) {
+  if (!mod || (typeof mod !== "object" && typeof mod !== "function")) return undefined;
+  try {
+    return mod[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * @param {any} mod
  * @returns {any}
  */
 function normalizeNodeFsModule(mod) {
-  if (mod && typeof mod.watch === "function") return mod;
-  const def = mod && typeof mod === "object" ? mod.default : null;
+  const watch = safeGetExport(mod, "watch");
+  if (typeof watch === "function") return mod;
+
+  const def = safeGetExport(mod, "default");
   if (def && typeof def.watch === "function") return def;
   if (def && (def.promises || def.stat)) return def;
+
   return mod;
 }
 
@@ -140,16 +158,22 @@ function toError(err, fallback) {
  * Detect whether native fs.watch is available.
  * @returns {Promise<boolean>}
  */
-export async function isNativeWatchSupported() {
-  if (_nativeWatchSupported !== null) return _nativeWatchSupported;
+export function isNativeWatchSupported() {
+  if (_nativeWatchSupported !== null) return Promise.resolve(_nativeWatchSupported);
   if (_nativeWatchSupportedPromise) return _nativeWatchSupportedPromise;
 
-  _nativeWatchSupportedPromise = (async () => {
-    const fs = await loadNodeFsModule();
-    _nativeWatchSupported = !!(fs && typeof fs.watch === "function");
-    _nativeWatchSupportedPromise = null;
-    return _nativeWatchSupported;
-  })();
+  _nativeWatchSupportedPromise = loadNodeFsModule()
+    .then((fs) => {
+      _nativeWatchSupported = !!(fs && typeof fs.watch === "function");
+      return _nativeWatchSupported;
+    })
+    .catch(() => {
+      _nativeWatchSupported = false;
+      return false;
+    })
+    .finally(() => {
+      _nativeWatchSupportedPromise = null;
+    });
 
   return _nativeWatchSupportedPromise;
 }
@@ -166,7 +190,7 @@ export class FileWatcher extends DisposableBase {
     super();
 
     const opts = options && typeof options === "object" ? options : {};
-    const path = toNonEmptyString(opts.path);
+    const path = typeof opts.path === "string" ? toNonEmptyString(opts.path) : undefined;
     if (!path) throw new Error("FileWatcher: options.path is required");
 
     if (typeof opts.onChange !== "function") {
@@ -201,6 +225,10 @@ export class FileWatcher extends DisposableBase {
     this._lastSnapshot = null;
     /** @type {((path: string) => Promise<any>) | null} */
     this._statReader = null;
+
+    void this.start().catch((err) => {
+      this._emitError(err);
+    });
   }
 
   /**
@@ -225,7 +253,7 @@ export class FileWatcher extends DisposableBase {
    * @returns {void}
    */
   stop() {
-    if (this.disposed || !this._running) return;
+    if (!this._running) return;
     this._running = false;
 
     if (this._watcher && typeof this._watcher.close === "function") {
@@ -265,13 +293,10 @@ export class FileWatcher extends DisposableBase {
     const sessionId = this._sessionId;
 
     try {
-      const nativeSupported = await isNativeWatchSupported();
+      const startedNative = await this._startNativeWatch(sessionId);
       if (this._sessionId !== sessionId || !this._running) return;
 
-      if (nativeSupported) {
-        const started = await this._startNativeWatch(sessionId);
-        if (started) return;
-      }
+      if (startedNative) return;
 
       await this._startPolling(sessionId);
     } catch (err) {
@@ -286,14 +311,27 @@ export class FileWatcher extends DisposableBase {
    */
   async _startNativeWatch(sessionId) {
     const fs = await loadNodeFsModule();
-    if (!fs || typeof fs.watch !== "function") return false;
+    const watch = safeGetExport(fs, "watch");
+    if (typeof watch !== "function") return false;
 
     try {
-      const watcher = fs.watch(this._path, (eventType) => {
+      const watcher = watch(this._path, (eventType) => {
         if (!this._running || this._sessionId !== sessionId) return;
         const type = eventType === "rename" ? "rename" : "change";
         this._emit({ type, path: this._path });
       });
+
+      // If we were stopped/disposed while awaiting fs import, close immediately.
+      if (!this._running || this._sessionId !== sessionId) {
+        if (watcher && typeof watcher.close === "function") {
+          try {
+            watcher.close();
+          } catch {
+            // ignore
+          }
+        }
+        return false;
+      }
 
       if (watcher && typeof watcher.on === "function") {
         watcher.on("error", (err) => {
@@ -350,9 +388,9 @@ export class FileWatcher extends DisposableBase {
     if (typeof fs?.stat === "function") {
       return (path) =>
         new Promise((resolve, reject) => {
-          fs.stat(path, (err, stat) => {
+          fs.stat(path, (err, statResult) => {
             if (err) reject(err);
-            else resolve(stat);
+            else resolve(statResult);
           });
         });
     }

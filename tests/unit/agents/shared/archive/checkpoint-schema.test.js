@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 const assert = require("node:assert/strict");
 
 async function loadModule() {
-  return import("../../../js/agents/shared/archive/checkpoint-schema.js");
+  return import("../../../../../js/agents/core/archive/checkpoint-schema.js");
 }
 
 it("createCheckpoint: builds schema with defaults", async () => {

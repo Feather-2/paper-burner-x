@@ -407,8 +407,8 @@ describe("ToolRegistry", () => {
     expect(toolFn).not.toHaveBeenCalled();
   });
 
-  it("fails open when PolicyManager check throws", async () => {
-    const logger = { warn: vi.fn() };
+  it("fails closed when PolicyManager check throws", async () => {
+    const logger = { error: vi.fn() };
     const toolFn = vi.fn(async () => "ok");
     const registry = new ToolRegistry({ tools: { readFile: toolFn }, logger });
 
@@ -422,9 +422,12 @@ describe("ToolRegistry", () => {
 
     const result = await registry.callTool("readFile", { path: "/tmp/demo.txt" }, {});
 
-    expect(result).toMatchObject({ ok: true, data: "ok" });
-    expect(toolFn).toHaveBeenCalledTimes(1);
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("PolicyManager.check failed: policy-failed"));
+    expect(result).toMatchObject({ ok: false, success: false, error: "Policy check failed: policy-failed" });
+    expect(normalizeToolResult).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, error: "Policy check failed: policy-failed" })
+    );
+    expect(toolFn).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("PolicyManager.check failed: policy-failed"));
   });
 
   it("passes resource to PolicyManager and handles large/deep params", async () => {

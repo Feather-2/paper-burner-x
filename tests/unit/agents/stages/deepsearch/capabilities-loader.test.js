@@ -270,13 +270,14 @@ describe("loadDeepSearchCapabilities", () => {
     expect(warned).toBe(true);
   });
 
-  it("should_warn_when_unified_agent_context_module_is_missing", async () => {
+  it("should_not_warn_when_unified_agent_context_module_is_available", async () => {
     const subject = await loadSubject();
-    await subject.loadDeepSearchCapabilities();
+    const result = await subject.loadDeepSearchCapabilities();
+    expect(result.UnifiedAgentContext).not.toBeNull();
     const warned = mockedLogger.warn.mock.calls.some(([msg]) =>
       msg.startsWith("[deepsearch] Failed to load UnifiedAgentContext:"),
     );
-    expect(warned).toBe(true);
+    expect(warned).toBe(false);
   });
 
   it("should_return_null_when_memory_store_import_fails", async () => {
@@ -286,6 +287,9 @@ describe("loadDeepSearchCapabilities", () => {
   });
 
   it("should_return_null_when_unified_agent_context_import_fails", async () => {
+    vi.doMock("/js/agents/runtime/core/context/unified-agent-context.js", () => {
+      throw new Error("unified down");
+    });
     const subject = await loadSubject();
     const result = await subject.loadDeepSearchCapabilities();
     expect(result.UnifiedAgentContext).toBeNull();

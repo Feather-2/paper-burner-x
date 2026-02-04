@@ -6,6 +6,18 @@ export * from "./index.browser.js";
 /** @typedef {import("./index.browser.js").CreateBrowserVfsOptions} CreateBrowserVfsOptions */
 /** @typedef {import("./index.node.js").CreateNodeVfsOptions} CreateNodeVfsOptions */
 
+/** @type {Promise<any> | null} */
+let _nodeModulePromise = null;
+
+async function importNodeModule() {
+  // Keep Node.js code paths isolated from browser bundlers.
+  // Also de-duplicate concurrent dynamic imports (helps test runners and avoids extra microtasks).
+  if (!_nodeModulePromise) {
+    _nodeModulePromise = import(/* @vite-ignore */ "./index.node.js");
+  }
+  return _nodeModulePromise;
+}
+
 /**
  * @typedef {object} CreateVfsOptions
  * @property {'memory'|'mem'|'opfs'|'nodefs'|'storage'} [kind] - VFS backend type
@@ -31,7 +43,6 @@ export async function createVfs(options = {}) {
     return createBrowserVfs(/** @type {CreateBrowserVfsOptions} */ (options));
   }
 
-  // Keep Node.js code paths isolated from browser bundlers.
-  const node = await import(/* @vite-ignore */ "./index.node.js");
+  const node = await importNodeModule();
   return node.createVfs(/** @type {CreateNodeVfsOptions} */ (options));
 }

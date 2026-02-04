@@ -18,6 +18,7 @@ const PYODIDE_VERSION = '0.26.4';
 const PYODIDE_CDN_BASE = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full`;
 const PYODIDE_CDN_BASE_URL = `${PYODIDE_CDN_BASE}/`;
 const PYODIDE_CDN_ORIGIN = new URL(PYODIDE_CDN_BASE_URL).origin;
+const PYODIDE_CDN_BASE_PATH = new URL(PYODIDE_CDN_BASE_URL).pathname.replace(/\/$/, "");
 const PYODIDE_MJS_SRI_BY_VERSION = Object.freeze({
   "0.26.4": "sha256-fyTGZVp56s8AYdPU5qYNwLGTiBLRXFLX/4s32eBonlE=",
 });
@@ -76,7 +77,10 @@ function resolveAllowedPyodideUrl(raw, /** @type {{ requireCdnPrefix?: boolean }
   if (workerOrigin && url.origin === workerOrigin) return url;
 
   if (url.origin === PYODIDE_CDN_ORIGIN) {
-    if (requireCdnPrefix && !url.href.startsWith(PYODIDE_CDN_BASE_URL)) {
+    if (
+      requireCdnPrefix &&
+      !(url.pathname === PYODIDE_CDN_BASE_PATH || url.pathname.startsWith(`${PYODIDE_CDN_BASE_PATH}/`))
+    ) {
       throw new Error("URL must be within the Pyodide CDN base path");
     }
     return url;

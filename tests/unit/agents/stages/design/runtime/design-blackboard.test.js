@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Unit-scope: mock external deps so we only test DesignBlackboard logic.
-vi.mock("../../../../js/agents/shared/utils/value-utils.js", () => {
+vi.mock("../../../../../../js/agents/shared/utils/value-utils.js", () => {
   return {
     toNonEmptyString: vi.fn((v) => {
       const s = String(v ?? "").trim();
@@ -16,7 +16,7 @@ vi.mock("../../../../js/agents/shared/utils/value-utils.js", () => {
   };
 });
 
-vi.mock("../../../../js/agents/shared/base/disposable-base.js", () => {
+vi.mock("../../../../../../js/agents/shared/base/disposable-base.js", () => {
   class DisposableBase {
     constructor() {
       this.disposed = false;
@@ -40,7 +40,7 @@ vi.mock("../../../../js/agents/shared/base/disposable-base.js", () => {
   return { DisposableBase };
 });
 
-vi.mock("../../../../js/agents/runtime/memory/action-types.js", () => {
+vi.mock("../../../../../../js/agents/runtime/memory/action-types.js", () => {
   return {
     L1_ADD_SIGNAL: "L1/ADD_SIGNAL",
     L1_ACKNOWLEDGE_SIGNAL: "L1/ACKNOWLEDGE_SIGNAL",
@@ -121,8 +121,10 @@ describe("design/runtime/design-blackboard", () => {
     vi.clearAllMocks();
     vi.resetModules();
 
-    ({ toNonEmptyString } = await import("../../../../js/agents/shared/utils/value-utils.js"));
-    ({ DesignBlackboard } = await import("../../../../js/agents/stages/design/runtime/design-blackboard.js"));
+    ({ toNonEmptyString } = await import("../../../../../../js/agents/shared/utils/value-utils.js"));
+    ({ DesignBlackboard } = await import(
+      "../../../../../../js/agents/stages/design/internal/design-blackboard.js"
+    ));
   });
 
   it("constructor sets runId/limits and generates a runId when missing", () => {

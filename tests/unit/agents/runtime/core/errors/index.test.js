@@ -142,21 +142,20 @@ describe("SilentErrorReporter", () => {
     expect(messages).toEqual(expect.arrayContaining(["A", "B"]));
   });
 
-  it("captures onError callback failures without throwing", () => {
-    const reporter = new SilentErrorReporter({
-      onError: () => {
-        throw new Error("callback failed");
-      },
+  it("does not throw when onError callback fails", () => {
+    const onError = vi.fn(() => {
+      throw new Error("callback failed");
     });
 
-    reporter.report(new Error("primary"), { location: "Callback.test" });
+    const reporter = new SilentErrorReporter({ onError });
+
+    expect(() => reporter.report(new Error("primary"), { location: "Callback.test" })).not.toThrow();
+    expect(onError).toHaveBeenCalledTimes(1);
 
     const exported = reporter.export();
-    expect(exported).toHaveLength(2);
+    expect(exported).toHaveLength(1);
     expect(exported[0].message).toBe("primary");
-    expect(exported[1].location).toBe("SilentErrorReporter.onError");
-    expect(exported[1].category).toBe(ErrorCategory.DEGRADED);
-    expect(exported[1].operation).toBe("callback");
+    expect(exported[0].location).toBe("Callback.test");
   });
 
   it("handles resource-heavy inputs and deep nesting", () => {

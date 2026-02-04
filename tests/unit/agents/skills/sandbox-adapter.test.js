@@ -26,9 +26,6 @@ const mockState = vi.hoisted(() => {
     skillsManagerInstances.push(this);
   }
 
-  const SkillExecutor = vi.fn(defaultSkillExecutorCtor);
-  const SkillsManager = vi.fn(defaultSkillsManagerCtor);
-
   return {
     executorInstances,
     executorCtorArgs,
@@ -36,24 +33,23 @@ const mockState = vi.hoisted(() => {
     skillsManagerCtorArgs,
     defaultSkillExecutorCtor,
     defaultSkillsManagerCtor,
-    SkillExecutor,
-    SkillsManager,
   };
 });
 
-vi.mock('../../../../js/agents/core/sandbox/skill-executor.js', () => ({
-  SkillExecutor: mockState.SkillExecutor,
-}));
+vi.mock('../../../../js/agents/core/sandbox/skill-executor.js');
+vi.mock('../../../../js/agents/skills/manager.js');
 
-vi.mock('../../../../js/agents/skills/manager.js', () => ({
-  SkillsManager: mockState.SkillsManager,
-}));
+import { SkillExecutor as SkillExecutorMock } from '../../../../js/agents/core/sandbox/skill-executor.js';
+import { SkillsManager as SkillsManagerMock } from '../../../../js/agents/skills/manager.js';
 
 import {
   enhanceWithSandbox,
   createSandboxedSkillsManager,
   analyzeSkillRisk,
 } from '../../../../js/agents/skills/sandbox-adapter.js';
+
+mockState.SkillExecutor = SkillExecutorMock;
+mockState.SkillsManager = SkillsManagerMock;
 
 beforeEach(() => {
   vi.clearAllMocks();

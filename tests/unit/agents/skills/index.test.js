@@ -18,42 +18,46 @@ let analyzeSkillRiskMock;
 
 let throwOnImport;
 
-vi.mock("../../../../js/agents/skills/model.js", () => {
-  if (throwOnImport?.model) throw throwOnImport.model;
-  return { SkillScope: SkillScopeMock };
-});
+function registerSkillModuleMocks() {
+  // Vitest v4: `vi.resetModules()` intentionally does not reset mock modules.
+  // Re-register mocks each test so mock factories are re-evaluated with fresh state.
+  vi.doMock("../../../../js/agents/skills/model.js", () => {
+    if (throwOnImport?.model) throw throwOnImport.model;
+    return { SkillScope: SkillScopeMock };
+  });
 
-vi.mock("../../../../js/agents/skills/loader.js", () => {
-  if (throwOnImport?.loader) throw throwOnImport.loader;
-  return {
-    loadSkills: loadSkillsMock,
-    loadSkillFromPath: loadSkillFromPathMock,
-    loadSkillsFromNexus: loadSkillsFromNexusMock,
-    loadAllSkills: loadAllSkillsMock,
-  };
-});
+  vi.doMock("../../../../js/agents/skills/loader.js", () => {
+    if (throwOnImport?.loader) throw throwOnImport.loader;
+    return {
+      loadSkills: loadSkillsMock,
+      loadSkillFromPath: loadSkillFromPathMock,
+      loadSkillsFromNexus: loadSkillsFromNexusMock,
+      loadAllSkills: loadAllSkillsMock,
+    };
+  });
 
-vi.mock("../../../../js/agents/skills/manager.js", () => {
-  if (throwOnImport?.manager) throw throwOnImport.manager;
-  return { SkillsManager: SkillsManagerMock };
-});
+  vi.doMock("../../../../js/agents/skills/manager.js", () => {
+    if (throwOnImport?.manager) throw throwOnImport.manager;
+    return { SkillsManager: SkillsManagerMock };
+  });
 
-vi.mock("../../../../js/agents/skills/render.js", () => {
-  if (throwOnImport?.render) throw throwOnImport.render;
-  return {
-    renderSkillsSection: renderSkillsSectionMock,
-    renderSkillsList: renderSkillsListMock,
-  };
-});
+  vi.doMock("../../../../js/agents/skills/render.js", () => {
+    if (throwOnImport?.render) throw throwOnImport.render;
+    return {
+      renderSkillsSection: renderSkillsSectionMock,
+      renderSkillsList: renderSkillsListMock,
+    };
+  });
 
-vi.mock("../../../../js/agents/skills/sandbox-adapter.js", () => {
-  if (throwOnImport?.sandbox) throw throwOnImport.sandbox;
-  return {
-    enhanceWithSandbox: enhanceWithSandboxMock,
-    createSandboxedSkillsManager: createSandboxedSkillsManagerMock,
-    analyzeSkillRisk: analyzeSkillRiskMock,
-  };
-});
+  vi.doMock("../../../../js/agents/skills/sandbox-adapter.js", () => {
+    if (throwOnImport?.sandbox) throw throwOnImport.sandbox;
+    return {
+      enhanceWithSandbox: enhanceWithSandboxMock,
+      createSandboxedSkillsManager: createSandboxedSkillsManagerMock,
+      analyzeSkillRisk: analyzeSkillRiskMock,
+    };
+  });
+}
 
 const importIndex = () => import("../../../../js/agents/skills/index.js");
 
@@ -125,6 +129,8 @@ beforeEach(() => {
   enhanceWithSandboxMock = vi.fn((...args) => ({ ok: true, args }));
   createSandboxedSkillsManagerMock = vi.fn((...args) => ({ ok: true, args }));
   analyzeSkillRiskMock = vi.fn((...args) => ({ ok: true, args }));
+
+  registerSkillModuleMocks();
 });
 
 describe("SkillScope", () => {
@@ -151,7 +157,7 @@ describe("SkillScope", () => {
 
   it("throws when model.js fails to load", async () => {
     throwOnImport.model = new Error("model import failed");
-    await expect(importIndex()).rejects.toThrow("model import failed");
+    await expect(importIndex()).rejects.toHaveProperty("cause.message", "model import failed");
   });
 });
 
@@ -171,7 +177,7 @@ describe("loadSkills", () => {
 
   it("throws when loader.js fails to load", async () => {
     throwOnImport.loader = new Error("loader import failed");
-    await expect(importIndex()).rejects.toThrow("loader import failed");
+    await expect(importIndex()).rejects.toHaveProperty("cause.message", "loader import failed");
   });
 
   it("handles concurrent calls (simultaneous + rapid)", async () => {
@@ -355,7 +361,7 @@ describe("SkillsManager", () => {
 
   it("throws when manager.js fails to load", async () => {
     throwOnImport.manager = new Error("manager import failed");
-    await expect(importIndex()).rejects.toThrow("manager import failed");
+    await expect(importIndex()).rejects.toHaveProperty("cause.message", "manager import failed");
   });
 
   it("handles rapid consecutive instantiation", async () => {
@@ -448,7 +454,7 @@ describe("renderSkillsList", () => {
 
   it("throws when render.js fails to load", async () => {
     throwOnImport.render = new Error("render import failed");
-    await expect(importIndex()).rejects.toThrow("render import failed");
+    await expect(importIndex()).rejects.toHaveProperty("cause.message", "render import failed");
   });
 });
 
@@ -513,7 +519,7 @@ describe("createSandboxedSkillsManager", () => {
 
   it("throws when sandbox-adapter.js fails to load", async () => {
     throwOnImport.sandbox = new Error("sandbox import failed");
-    await expect(importIndex()).rejects.toThrow("sandbox import failed");
+    await expect(importIndex()).rejects.toHaveProperty("cause.message", "sandbox import failed");
   });
 
   it("handles rapid consecutive calls", async () => {
@@ -592,6 +598,6 @@ describe("default", () => {
 
   it("throws when manager.js fails to load", async () => {
     throwOnImport.manager = new Error("manager import failed");
-    await expect(importIndex()).rejects.toThrow("manager import failed");
+    await expect(importIndex()).rejects.toHaveProperty("cause.message", "manager import failed");
   });
 });

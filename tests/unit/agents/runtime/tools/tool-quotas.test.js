@@ -499,7 +499,8 @@ for (const [exportName, exportedValue] of exportedCallableEntries) {
     defineQuotaManagerTests(exportName, exportedValue);
     continue;
   }
-  if (/^(create|make|init)/i.test(exportName)) {
+  // Not every `create*` export is a quota manager factory (e.g. createToolContract).
+  if (/^(create|make|init)/i.test(exportName) && exportedValue.length <= 1) {
     defineQuotaFactoryTests(exportName, exportedValue);
     continue;
   }

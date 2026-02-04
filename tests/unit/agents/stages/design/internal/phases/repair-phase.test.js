@@ -84,16 +84,17 @@ beforeEach(() => {
 });
 
 describe("runBatchRepairPhase", () => {
-  it("runs repair and updates state when issues exist", async () => {
-    const { runBatchRepairPhase } = await loadRepairPhase();
-    const state = {
-      slideHtmls: ["<section>One</section>"],
-      slidesMeta: [{ slideNo: 1, qa: { pass: false, issues: ["typo"] }, degraded: false }],
-      baseDeckHtmlDsl: "<section>One</section>",
-      designSystem: { theme: "brand" },
-    };
-    const loop = makeLoop(state);
-    const params = makeParams({ runContext: { runId: "run_1" } });
+	  it("runs repair and updates state when issues exist", async () => {
+	    const { runBatchRepairPhase } = await loadRepairPhase();
+	    const state = {
+	      slideHtmls: ["<section>One</section>"],
+	      slidesMeta: [{ slideNo: 1, qa: { pass: false, issues: ["typo"] }, degraded: false }],
+	      baseDeckHtmlDsl: "<section>One</section>",
+	      designSystem: { theme: "brand" },
+	    };
+	    const initialSlidesMeta = state.slidesMeta;
+	    const loop = makeLoop(state);
+	    const params = makeParams({ runContext: { runId: "run_1" } });
 
     mockedAutoReviewer.runAutoReview.mockResolvedValue({
       pass: false,
@@ -115,28 +116,28 @@ describe("runBatchRepairPhase", () => {
 
     const result = await runBatchRepairPhase(loop, params);
 
-    expect(mockedPhaseUtils.runWithPhaseSpan).toHaveBeenCalledWith(
-      params.traceContext,
-      "design.phase.repair",
-      { runId: "run_1", slideCount: 1 },
-      expect.any(Function),
-    );
-    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, "repair", { emit: params.emit, runId: "run_1" });
-    expect(mockedAutoReviewer.runAutoReview).toHaveBeenCalledWith(
-      { deckHtmlDsl: "<section>One</section>", slidesMeta: state.slidesMeta },
-      state.designSystem,
-      { signal: params.context.signal },
-    );
-    expect(loop._callTool).toHaveBeenCalledWith(
-      "orchestrate_batch_repair",
-      {
-        deckPackage: { deckHtmlDsl: "<section>One</section>", slidesMeta: state.slidesMeta },
-        qaIssues: [{ slideIndex: 0, issues: ["typo"] }],
-        styleIssues: ["style"],
-        designSystem: state.designSystem,
-      },
-      params.context,
-    );
+	    expect(mockedPhaseUtils.runWithPhaseSpan).toHaveBeenCalledWith(
+	      params.traceContext,
+	      "design.phase.repair",
+	      { runId: "run_1", slideCount: 1 },
+	      expect.any(Function),
+	    );
+	    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, "repair", { emit: params.emit, runId: "run_1" });
+	    expect(mockedAutoReviewer.runAutoReview).toHaveBeenCalledWith(
+	      { deckHtmlDsl: "<section>One</section>", slidesMeta: initialSlidesMeta },
+	      state.designSystem,
+	      { signal: params.context.signal },
+	    );
+	    expect(loop._callTool).toHaveBeenCalledWith(
+	      "orchestrate_batch_repair",
+	      {
+	        deckPackage: { deckHtmlDsl: "<section>One</section>", slidesMeta: initialSlidesMeta },
+	        qaIssues: [{ slideIndex: 0, issues: ["typo"] }],
+	        styleIssues: ["style"],
+	        designSystem: state.designSystem,
+	      },
+	      params.context,
+	    );
     expect(mockedDesignHelpers.emitStage).toHaveBeenCalledTimes(2);
     expect(mockedDesignHelpers.emitStage).toHaveBeenNthCalledWith(
       1,
@@ -231,22 +232,23 @@ describe("runBatchRepairPhase", () => {
     expect(state.baseDeckHtmlDsl).toBe("<section>Base</section>");
   });
 
-  it("supports legacy signature and boundary slide numbers", async () => {
-    const { runBatchRepairPhase } = await loadRepairPhase();
-    const maxSafe = Number.MAX_SAFE_INTEGER;
-    const state = {
-      slideHtmls: ["<section>Ignored</section>"],
+	  it("supports legacy signature and boundary slide numbers", async () => {
+	    const { runBatchRepairPhase } = await loadRepairPhase();
+	    const maxSafe = Number.MAX_SAFE_INTEGER;
+	    const state = {
+	      slideHtmls: ["<section>Ignored</section>"],
       slidesMeta: [
         { slideNo: 0, qa: { pass: false, issues: "" } },
         { slideNo: -1, qa: { pass: false, issues: [] } },
         { slideNo: maxSafe, qa: { pass: false, issues: ["max"] } },
         { slideNo: "2", qa: { pass: false, issues: ["string"] } },
       ],
-      baseDeckHtmlDsl: "   ",
-      designSystem: {},
-    };
-    const loop = makeLoop({ baseDeckHtmlDsl: "<section>Loop</section>" });
-    const params = makeParams({ runContext: { runId: "run_legacy" } });
+	      baseDeckHtmlDsl: "   ",
+	      designSystem: {},
+	    };
+	    const initialSlidesMeta = state.slidesMeta;
+	    const loop = makeLoop({ baseDeckHtmlDsl: "<section>Loop</section>" });
+	    const params = makeParams({ runContext: { runId: "run_legacy" } });
 
     mockedAutoReviewer.runAutoReview.mockResolvedValue({
       pass: false,
@@ -263,22 +265,22 @@ describe("runBatchRepairPhase", () => {
       },
     });
 
-    const result = await runBatchRepairPhase(loop, state, params);
+	    const result = await runBatchRepairPhase(loop, state, params);
 
-    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, "repair", { emit: params.emit, runId: "run_legacy" });
-    expect(mockedAutoReviewer.runAutoReview).toHaveBeenCalledWith(
-      { deckHtmlDsl: "   ", slidesMeta: state.slidesMeta },
-      state.designSystem,
-      { signal: params.context.signal },
-    );
-    expect(loop._callTool).toHaveBeenCalledWith(
-      "orchestrate_batch_repair",
-      {
-        deckPackage: { deckHtmlDsl: "   ", slidesMeta: state.slidesMeta },
-        qaIssues: [
-          { slideIndex: -1, issues: "" },
-          { slideIndex: -2, issues: [] },
-          { slideIndex: maxSafe - 1, issues: ["max"] },
+	    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, "repair", { emit: params.emit, runId: "run_legacy" });
+	    expect(mockedAutoReviewer.runAutoReview).toHaveBeenCalledWith(
+	      { deckHtmlDsl: "   ", slidesMeta: initialSlidesMeta },
+	      state.designSystem,
+	      { signal: params.context.signal },
+	    );
+	    expect(loop._callTool).toHaveBeenCalledWith(
+	      "orchestrate_batch_repair",
+	      {
+	        deckPackage: { deckHtmlDsl: "   ", slidesMeta: initialSlidesMeta },
+	        qaIssues: [
+	          { slideIndex: -1, issues: "" },
+	          { slideIndex: -2, issues: [] },
+	          { slideIndex: maxSafe - 1, issues: ["max"] },
           { slideIndex: 1, issues: ["string"] },
         ],
         styleIssues: ["style"],
@@ -425,13 +427,13 @@ describe("runBatchRepairPhase", () => {
     expect(result.slidesMeta).toEqual(slidesMeta);
   });
 
-  it("supports concurrent calls", async () => {
-    const { runBatchRepairPhase } = await loadRepairPhase();
-    const loopA = makeLoop({
-      slideHtmls: ["<section>A</section>"],
-      slidesMeta: [{ slideNo: 1, qa: { pass: true, issues: [] } }],
-      designSystem: {},
-    });
+	  it("supports concurrent calls", async () => {
+	    const { runBatchRepairPhase } = await loadRepairPhase();
+	    const loopA = makeLoop({
+	      slideHtmls: ["<section>A</section>"],
+	      slidesMeta: [{ slideNo: 1, qa: { pass: true, issues: [] } }],
+	      designSystem: {},
+	    });
     const loopB = makeLoop({
       slideHtmls: ["<section>B</section>"],
       slidesMeta: [{ slideNo: 1, qa: { pass: true, issues: [] } }],
@@ -445,17 +447,17 @@ describe("runBatchRepairPhase", () => {
       runBatchRepairPhase(loopB, paramsB),
     ]);
 
-    expect(resultA.deckHtmlDsl).toBe(loopA.state.slideHtmls.join("\n\n"));
-    expect(resultB.deckHtmlDsl).toBe(loopB.state.slideHtmls.join("\n\n"));
-    expect(loopA.state.baseDeckHtmlDsl).toBe(resultA.deckHtmlDsl);
-    expect(loopB.state.baseDeckHtmlDsl).toBe(resultB.deckHtmlDsl);
-    expect(mockedDesignHelpers.emitStage).toHaveBeenCalledTimes(2);
-    expect(mockedAutoReviewer.runAutoReview).toHaveBeenCalledTimes(2);
-    expect(loopA._callTool).not.toHaveBeenCalled();
-    expect(loopB._callTool).not.toHaveBeenCalled();
-    const emitCalls = mockedDesignHelpers.emitStage.mock.calls.map((call) => call[0]);
-    expect(emitCalls).toEqual(expect.arrayContaining([paramsA.emit, paramsB.emit]));
-  });
+	    expect(resultA.deckHtmlDsl).toBe(loopA.state.slideHtmls.join("\n\n"));
+	    expect(resultB.deckHtmlDsl).toBe(loopB.state.slideHtmls.join("\n\n"));
+	    expect(loopA.state.baseDeckHtmlDsl).toBe(resultA.deckHtmlDsl);
+	    expect(loopB.state.baseDeckHtmlDsl).toBe(resultB.deckHtmlDsl);
+	    expect(mockedDesignHelpers.emitStage).toHaveBeenCalledTimes(2);
+	    expect(mockedAutoReviewer.runAutoReview).toHaveBeenCalledTimes(2);
+	    expect(loopA._callTool).not.toHaveBeenCalled();
+	    expect(loopB._callTool).not.toHaveBeenCalled();
+	    const emitCalls = mockedDesignHelpers.emitStage.mock.calls.map((call) => call[0]);
+	    expect(emitCalls).toEqual(expect.arrayContaining([paramsA.emit, paramsB.emit]));
+	  });
 
   it("supports rapid consecutive calls", async () => {
     const { runBatchRepairPhase } = await loadRepairPhase();

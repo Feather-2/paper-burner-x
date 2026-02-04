@@ -88,10 +88,10 @@ describe('isCompressionWorkerAvailable', () => {
 
   it('returns false when Worker or URL is missing', async () => {
     nodeLikeState.value = false;
+    const { isCompressionWorkerAvailable } = await loadModule();
+
     vi.stubGlobal('Worker', undefined);
     vi.stubGlobal('URL', undefined);
-
-    const { isCompressionWorkerAvailable } = await loadModule();
 
     expect(isCompressionWorkerAvailable()).toBe(false);
   });

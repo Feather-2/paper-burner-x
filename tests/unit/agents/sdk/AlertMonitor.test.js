@@ -60,7 +60,7 @@ describe("AlertMonitor", () => {
 
         expect(onSpy).toHaveBeenCalledTimes(3);
         expect(onSpy).toHaveBeenCalledWith("*:toolCompleted", expect.any(Function));
-        expect(onSpy).toHaveBeenCalledWith("deepsearch.gap.evaluated", expect.any(Function));
+        expect(onSpy).toHaveBeenCalledWith("deepsearch:gapEvaluated", expect.any(Function));
         expect(onSpy).toHaveBeenCalledWith("agent:iteration", expect.any(Function));
 
         const actionSpy = vi.spyOn(monitor, "_onActionCompleted").mockResolvedValue();
@@ -74,7 +74,7 @@ describe("AlertMonitor", () => {
         expect(actionSpy).toHaveBeenCalledWith(toolPayload);
 
         const discovery = { status: "pending", id: "d-1" };
-        agent.emit("deepsearch.gap.evaluated", { payload: discovery });
+        agent.emit("deepsearch:gapEvaluated", { payload: discovery });
         await Promise.resolve();
         expect(discoverySpy).toHaveBeenCalledWith(discovery);
 
@@ -249,7 +249,7 @@ describe("AlertMonitor", () => {
 
         monitor._triggerAlert({ type: "notification", message: "boom", severity: "critical" });
 
-        expect(emitSpy).toHaveBeenCalledWith("alertmonitor.force_backtrack", { reason: "boom" });
+        expect(emitSpy).toHaveBeenCalledWith("alertmonitor:forceBacktrack", { reason: "boom" });
 
         const noAgentMonitor = new AlertMonitor({ logger });
         expect(() => noAgentMonitor._forceBacktrack("reason")).not.toThrow();

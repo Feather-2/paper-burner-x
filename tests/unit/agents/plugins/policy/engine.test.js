@@ -75,6 +75,18 @@ async function safeInvoke(fn, args) {
     const value = isPromiseLike(out) ? await out : out;
     return { ok: true, value };
   } catch (error) {
+    if (
+      error instanceof TypeError &&
+      typeof error.message === 'string' &&
+      /class constructor|cannot be invoked without 'new'|cannot call a class as a function/i.test(error.message)
+    ) {
+      try {
+        const constructed = new fn(...args);
+        return { ok: true, value: constructed };
+      } catch (ctorError) {
+        return { ok: false, error: ctorError };
+      }
+    }
     return { ok: false, error };
   }
 }

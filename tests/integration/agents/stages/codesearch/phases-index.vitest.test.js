@@ -13,6 +13,7 @@ const hoisted = vi.hoisted(() => {
     "CircuitBreaker",
     "CircuitBreakerRegistry",
     "CircuitState",
+    "DEFAULT_TREE_SITTER_WASM_BASE_URL",
     "Deque",
     "DisposableBase",
     "EmbeddingService",
@@ -68,15 +69,18 @@ const hoisted = vi.hoisted(() => {
     "getTokenCacheStats",
     "globToRegex",
     "hasLocalStorage",
+    "initTreeSitter",
     "injectSystemHint",
     "isAbortError",
     "isEncryptedString",
     "isNativeWatchSupported",
     "isNodeLike",
+    "isNonRecoverableDeepSearchError",
     "isNonRetryableError",
     "isPlainObject",
     "isPotentiallyDangerous",
     "isTimeoutError",
+    "loadTreeSitterLanguage",
     "logEvent",
     "makeSafe",
     "makeSecureId",
@@ -100,6 +104,7 @@ const hoisted = vi.hoisted(() => {
     "sanitizeForJson",
     "stripThinkingTags",
     "toBoolean",
+    "toDeepSearchErrorMessage",
     "toErrorMessage",
     "toNonEmptyString",
     "toNonNegativeInt",
@@ -145,6 +150,7 @@ const hoisted = vi.hoisted(() => {
     "BudgetAction",
     "StageApiSpec",
     "PB_ENCRYPTED_PREFIX",
+    "DEFAULT_TREE_SITTER_WASM_BASE_URL",
     "ValidationErrorCode",
     "CircuitState",
     "CheckpointType",
@@ -175,6 +181,7 @@ const hoisted = vi.hoisted(() => {
     BudgetAction: Object.freeze({ __type: "BudgetAction", ALLOCATE: "ALLOCATE", RELEASE: "RELEASE" }),
     StageApiSpec: Object.freeze({ __type: "StageApiSpec" }),
     PB_ENCRYPTED_PREFIX: "PB_ENCRYPTED:",
+    DEFAULT_TREE_SITTER_WASM_BASE_URL: "wasm/tree-sitter/",
     ValidationErrorCode: Object.freeze({ __type: "ValidationErrorCode", INVALID: "INVALID", TOO_LARGE: "TOO_LARGE" }),
     CircuitState: Object.freeze({ __type: "CircuitState", OPEN: "OPEN", CLOSED: "CLOSED", HALF_OPEN: "HALF_OPEN" }),
     CheckpointType: Object.freeze({ __type: "CheckpointType", V1: "V1", V2: "V2" }),
@@ -285,7 +292,9 @@ vi.mock("../../../../../js/agents/shared/utils/cancellation.js", () => ({
 vi.mock("../../../../../js/agents/shared/utils/error-classifier.js", () => ({
   classifyDeepSearchError: hoisted.classifyDeepSearchError,
   classifyDesignError: hoisted.classifyDesignError,
+  isNonRecoverableDeepSearchError: hoisted.isNonRecoverableDeepSearchError,
   isNonRetryableError: hoisted.isNonRetryableError,
+  toDeepSearchErrorMessage: hoisted.toDeepSearchErrorMessage,
 }));
 vi.mock("../../../../../js/agents/shared/utils/response-limits.js", () => ({
   normalizeMaxBytes: hoisted.normalizeMaxBytes,
@@ -317,6 +326,11 @@ vi.mock("../../../../../js/agents/shared/utils/storage-crypto.js", () => ({
   canUseStorageEncryption: hoisted.canUseStorageEncryption,
   encryptString: hoisted.encryptString,
   decryptString: hoisted.decryptString,
+}));
+vi.mock("../../../../../js/agents/shared/parser/tree-sitter-wasm.js", () => ({
+  initTreeSitter: hoisted.initTreeSitter,
+  loadTreeSitterLanguage: hoisted.loadTreeSitterLanguage,
+  DEFAULT_TREE_SITTER_WASM_BASE_URL: hoisted.DEFAULT_TREE_SITTER_WASM_BASE_URL,
 }));
 vi.mock("../../../../../js/agents/shared/utils/schema-validator.js", () => ({
   validateChunk: hoisted.validateChunk,

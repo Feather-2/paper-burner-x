@@ -24,37 +24,16 @@ async function disposeWatcher(instance) {
 }
 
 function createFsWatchHarness() {
-  let eventListener = null;
-  let errorListener = null;
-  let closed = false;
-
   const watcher = {
-    close: vi.fn(() => {
-      closed = true;
-    }),
-    on: vi.fn((eventName, handler) => {
-      if (eventName === "error" && typeof handler === "function") errorListener = handler;
+    close: vi.fn(),
+    on: vi.fn(function () {
       return watcher;
     }),
   };
 
-  const fsWatchMock = vi.fn((...args) => {
-    eventListener = args.find((arg) => typeof arg === "function") ?? null;
-    return watcher;
-  });
+  const fsWatchMock = vi.fn(() => watcher);
 
-  return {
-    fsWatchMock,
-    watcher,
-    triggerEvent(eventType, filename) {
-      if (closed) return;
-      if (eventListener) eventListener(eventType, filename);
-    },
-    triggerError(err) {
-      if (closed) return;
-      if (errorListener) errorListener(err);
-    },
-  };
+  return { fsWatchMock, watcher };
 }
 
 describe("isNativeWatchSupported", () => {
@@ -112,8 +91,8 @@ describe("FileWatcher", () => {
   });
 
   it("native mode: uses fs.watch and forwards change/rename events with the watched path", async () => {
-    const harness = createFsWatchHarness();
-    const { FileWatcher } = await importFreshModule(() => ({ watch: harness.fsWatchMock }));
+    const { fsWatchMock } = createFsWatchHarness();
+    const { FileWatcher } = await importFreshModule(() => ({ watch: fsWatchMock }));
 
     const onChange = vi.fn();
     const path = "/tmp/native-watch.txt";
@@ -122,11 +101,15 @@ describe("FileWatcher", () => {
     try {
       await flushMicrotasks();
 
-      expect(harness.fsWatchMock).toHaveBeenCalled();
-      expect(harness.fsWatchMock.mock.calls[0][0]).toBe(path);
+      const fs = await import("node:fs");
+      expect(fs.watch).toHaveBeenCalled();
+      expect(fs.watch.mock.calls[0][0]).toBe(path);
 
-      harness.triggerEvent("change");
-      harness.triggerEvent("rename");
+      const watchCallback = fs.watch.mock.calls[0].find((arg) => typeof arg === "function");
+      expect(watchCallback).toBeTypeOf("function");
+
+      watchCallback("change");
+      watchCallback("rename");
       await flushMicrotasks();
 
       expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ type: "change", path }));
@@ -137,8 +120,8 @@ describe("FileWatcher", () => {
   });
 
   it("native mode: forwards FSWatcher error events as { type: 'error', error: Error }", async () => {
-    const harness = createFsWatchHarness();
-    const { FileWatcher } = await importFreshModule(() => ({ watch: harness.fsWatchMock }));
+    const { fsWatchMock } = createFsWatchHarness();
+    const { FileWatcher } = await importFreshModule(() => ({ watch: fsWatchMock }));
 
     const onChange = vi.fn();
     const path = "/tmp/native-error.txt";
@@ -147,7 +130,17 @@ describe("FileWatcher", () => {
     try {
       await flushMicrotasks();
 
-      harness.triggerError({ code: "EACCES", message: "denied" });
+      const fs = await import("node:fs");
+      const watcher = fs.watch.mock.results[0]?.value;
+      expect(watcher).toBeTruthy();
+
+      const errorHandlerCall = watcher?.on?.mock?.calls?.find?.(([eventName]) => eventName === "error");
+      expect(errorHandlerCall).toBeTruthy();
+
+      const errorHandler = errorHandlerCall?.[1];
+      expect(errorHandler).toBeTypeOf("function");
+
+      errorHandler({ code: "EACCES", message: "denied" });
       await flushMicrotasks();
 
       expect(onChange).toHaveBeenCalledWith(
@@ -159,8 +152,8 @@ describe("FileWatcher", () => {
   });
 
   it("native mode: dispose closes underlying watcher and stops forwarding", async () => {
-    const harness = createFsWatchHarness();
-    const { FileWatcher } = await importFreshModule(() => ({ watch: harness.fsWatchMock }));
+    const { fsWatchMock } = createFsWatchHarness();
+    const { FileWatcher } = await importFreshModule(() => ({ watch: fsWatchMock }));
 
     const onChange = vi.fn();
     const path = "/tmp/native-dispose.txt";
@@ -169,11 +162,21 @@ describe("FileWatcher", () => {
     await flushMicrotasks();
     await disposeWatcher(fw);
 
-    expect(harness.watcher.close).toHaveBeenCalledTimes(1);
+    const fs = await import("node:fs");
+    const watcher = fs.watch.mock.results[0]?.value;
+    expect(watcher).toBeTruthy();
+
+    expect(watcher?.close).toHaveBeenCalledTimes(1);
 
     onChange.mockClear();
-    harness.triggerEvent("change");
-    harness.triggerError(new Error("late"));
+
+    const watchCallback = fs.watch.mock.calls[0].find((arg) => typeof arg === "function");
+    if (watchCallback) watchCallback("change");
+
+    const errorHandlerCall = watcher?.on?.mock?.calls?.find?.(([eventName]) => eventName === "error");
+    const errorHandler = errorHandlerCall?.[1];
+    if (typeof errorHandler === "function") errorHandler(new Error("late"));
+
     await flushMicrotasks();
 
     expect(onChange).not.toHaveBeenCalled();

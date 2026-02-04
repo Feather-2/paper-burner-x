@@ -1,17 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { it, expect, afterEach } from "vitest";
 
-const assert = require("node:assert/strict");
+afterEach(async () => {
+  // Restore default subagents + clear task manager between test runs.
+  const { registerDeepSearchSubagents } = await import("../../../../js/agents/stages/deepsearch/subagents.js");
+  registerDeepSearchSubagents();
+
+  const { resetTaskManager } = await import("../../../../js/agents/stages/deepsearch/tools/task/handler.js");
+  await resetTaskManager();
+});
 
 it("cross-verify: starts subtask and writes verdict back", async () => {
   const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
-  const { SharedContext } = await import("../../../../js/agents/stages/deepsearch/shared-context.js");
+  const { SharedContext } = await import("../../../../js/agents/stages/deepsearch/internal/shared-context.js");
   const { DiscoveryManager, DiscoveryStatus } = await import("../../../../js/agents/sdk/DiscoveryManager.js");
   const { globalSubagentRegistry } = await import("../../../../js/agents/sdk/SubagentRegistry.js");
+  await import("../../../../js/agents/stages/deepsearch/subagents.js");
   const { handler } = await import("../../../../js/agents/stages/deepsearch/tools/cross-verify/handler.js");
 
-  const mockType = "__test_verifier__";
   globalSubagentRegistry.register(
-    mockType,
+    "researcher",
     async () => ({
       run: async () => ({
         ok: true,
@@ -57,7 +64,7 @@ it("cross-verify: starts subtask and writes verdict back", async () => {
       factId: "gap_revenue",
       contradiction: "同一项目在不同文档中金额不一致 (10B vs 8B)",
       sourceIds: ["doc_2023", "doc_2024"],
-      subagent_type: mockType,
+      subagent_type: "researcher",
       async: false,
       timeout: 2000,
     },

@@ -227,7 +227,11 @@ function summarizeThinkingMessage(message, { maxChars = 150 } = {}) {
 
   // 确保不超过 maxChars
   if (summary.length > maxChars) {
-    summary = summary.slice(0, maxChars - 3) + "...";
+    if (maxChars <= 3) {
+      summary = summary.slice(0, maxChars);
+    } else {
+      summary = summary.slice(0, maxChars - 3) + "...";
+    }
   }
 
   return {
@@ -698,7 +702,7 @@ export class CicadaCompressor {
     })();
     const summaryLineChars = (() => {
       const n = typeof options.summaryLineChars === "number" ? options.summaryLineChars : Number(options.summaryLineChars);
-      return Number.isFinite(n) ? Math.max(20, Math.floor(n)) : 120;
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 120;
     })();
     const titleOnly = options.titleOnly === true;
     const titleMaxWords = (() => {
@@ -713,7 +717,7 @@ export class CicadaCompressor {
     const summarizeThinking = options.summarizeThinking === true;
     const thinkingSummaryMaxChars = (() => {
       const n = typeof options.thinkingSummaryMaxChars === "number" ? options.thinkingSummaryMaxChars : Number(options.thinkingSummaryMaxChars);
-      return Number.isFinite(n) ? Math.max(30, Math.floor(n)) : 150;
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 150;
     })();
 
     const stats = {

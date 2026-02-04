@@ -47,7 +47,7 @@ Agent SDK CLI Demo
  * 创建模型路由
  * @returns {CliModelRouter}
  */
-function createModelRouter() {
+export function createModelRouter() {
     return new CliModelRouter();
 }
 
@@ -56,7 +56,7 @@ function createModelRouter() {
  * @param {CliModelRouter} router - 模型路由实例
  * @returns {Object} 构建好的 Agent 实例
  */
-function buildDemoAgent(router) {
+export function buildDemoAgent(router) {
     const redactSensitive = (value, keyPath = []) => {
         if (value === null || value === undefined) return value;
         if (typeof value === "string") {

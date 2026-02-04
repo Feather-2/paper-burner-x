@@ -13,6 +13,7 @@ vi.mock(
 vi.mock(
   '../../../../js/agents/plugins/compression/watchdog.js',
   () => ({
+    default: undefined,
     plugin: { name: 'watchdog', kind: 'compression' },
   }),
   { virtual: true },
@@ -47,7 +48,7 @@ describe('loadPlugin', () => {
     const mod = await loadPlugin('compression/watchdog');
 
     expect(mod).toMatchObject({ plugin: { name: 'watchdog', kind: 'compression' } });
-    expect(mod).not.toHaveProperty('default');
+    expect(mod.default).toBeUndefined();
   });
 
   it('throws an error for unknown plugin names', async () => {

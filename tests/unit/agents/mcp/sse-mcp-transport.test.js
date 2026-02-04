@@ -40,7 +40,17 @@ function createResponse({ ok = true, status = 200, contentType = "text/event-str
           },
         };
 
-  return { ok, status, headers, body };
+  return {
+    ok,
+    status,
+    headers,
+    body,
+    async text() {
+      if (body === null || body === undefined) return "";
+      if (typeof body === "string") return body;
+      return String(body);
+    },
+  };
 }
 
 function getSendMethodName(instance) {
@@ -64,7 +74,7 @@ function makeAbortAwarePendingFetch({ onCall, resolveOnAbort = false } = {}) {
     return new Promise((resolve, reject) => {
       const finishOnAbort = () => {
         if (resolveOnAbort) {
-          resolve({ ok: false, status: 499, headers: createHeaders(""), body: null });
+          resolve(createResponse({ ok: false, status: 499, contentType: "", body: "" }));
           return;
         }
         const err = new Error("Aborted");
@@ -98,12 +108,27 @@ async function expectThrowOrReject(fn) {
 describe("SseMcpTransport", () => {
   beforeEach(() => {
     parseSseStreamMock.mockReset();
-    parseSseStreamMock.mockImplementation(() => new Promise(() => {}));
+    // `parseSseStream` is an async iterable; return a "no-op" stream that
+    // stays pending until aborted (so connect() sets `_connected=true` without
+    // immediately tripping disconnect/error paths).
+    parseSseStreamMock.mockImplementation((_body, options = {}) => {
+      const signal = options?.signal;
+      return (async function* () {
+        if (signal?.aborted) return;
+        if (!signal || typeof signal.addEventListener !== "function") {
+          await new Promise(() => {});
+          return;
+        }
+        await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      })();
+    });
   });
 
   it("throws for missing/empty/invalid url (null/undefined/blank/type-boundary)", () => {
     const fetchImpl = vi.fn();
-    const invalidUrls = [undefined, null, "", "   ", 0, -1, [], {}];
+    // url is normalized via `toNonEmptyString` (coerces via String + trim).
+    // Only values that normalize to empty/undefined should throw.
+    const invalidUrls = [undefined, null, "", "   ", []];
 
     for (const url of invalidUrls) {
       expect(() => new SseMcpTransport({ url, fetchImpl })).toThrow(/requires url/i);
@@ -306,6 +331,8 @@ describe("SseMcpTransport", () => {
       });
 
       const p = t.connect();
+      // Prevent "unhandled rejection" when fake timers advance before awaiting `p`.
+      p.catch(() => {});
       expect(fetchImpl).toHaveBeenCalledTimes(1);
       expect(seenSignal).toBeTruthy();
       expect(seenSignal.aborted).toBe(false);
@@ -375,6 +402,8 @@ describe("SseMcpTransport", () => {
       });
 
       const p = t.connect();
+      // Avoid unhandled rejection if abort fires before awaiting `p`.
+      p.catch(() => {});
 
       try {
         parent.abort("user_cancel");
@@ -399,7 +428,7 @@ describe("SseMcpTransport", () => {
       if (init.method === "GET") {
         return createResponse({ body: "STREAM" });
       }
-      return { ok: true, status: 204, headers: createHeaders(""), body: null };
+      return createResponse({ ok: true, status: 204, contentType: "", body: "" });
     });
 
     const t = new SseMcpTransport({
@@ -448,12 +477,12 @@ describe("SseMcpTransport", () => {
     expect(JSON.parse(init.body)).toEqual(msg);
   });
 
-  it("send() rejects on invalid message types (null/undefined/empty string/empty array/type boundary) and does not POST", async () => {
+  it("send() rejects when message cannot be JSON-stringified and does not POST", async () => {
     const calls = [];
     const fetchImpl = vi.fn(async (input, init = {}) => {
       calls.push({ input, init });
       if (init.method === "GET") return createResponse({ body: "STREAM" });
-      return { ok: true, status: 204, headers: createHeaders(""), body: null };
+      return createResponse({ ok: true, status: 204, contentType: "", body: "" });
     });
 
     const t = new SseMcpTransport({
@@ -467,7 +496,9 @@ describe("SseMcpTransport", () => {
 
     await t.connect();
 
-    const invalidMessages = [null, undefined, "", [], 123, "not-an-object"];
+    const circular = {};
+    circular.self = circular;
+    const invalidMessages = [BigInt(1), { n: BigInt(2) }, circular];
     for (const bad of invalidMessages) {
       const before = calls.filter((c) => c.init?.method === "POST").length;
       await expectThrowOrReject(() => t[sendName](bad));
@@ -485,7 +516,7 @@ describe("SseMcpTransport", () => {
     const fetchImpl = vi.fn(async (input, init = {}) => {
       calls.push({ input, init });
       if (init.method === "GET") return createResponse({ body: "STREAM" });
-      return { ok: true, status: 204, headers: createHeaders(""), body: null };
+      return createResponse({ ok: true, status: 204, contentType: "", body: "" });
     });
 
     const t = new SseMcpTransport({
@@ -521,7 +552,7 @@ describe("SseMcpTransport", () => {
         return makeAbortAwarePendingFetch({ resolveOnAbort: true })(input, init);
       }
 
-      return Promise.resolve({ ok: true, status: 200, headers: createHeaders(""), body: null });
+      return Promise.resolve(createResponse({ ok: true, status: 200, contentType: "", body: "" }));
     });
 
     const t = new SseMcpTransport({

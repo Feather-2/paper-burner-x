@@ -5,6 +5,9 @@ const TYPES_MODULE_SPECIFIER = '../../../../js/agents/eval/types.js';
 const TYPES_FILE_URL = new URL(TYPES_MODULE_SPECIFIER, import.meta.url);
 const TYPES_FILE_PATH = fileURLToPath(TYPES_FILE_URL);
 
+/** @type {typeof import('node:fs/promises')} */
+let fsPromises;
+
 vi.mock('node:fs/promises', async () => {
   const actual = await vi.importActual('node:fs/promises');
   return {
@@ -14,9 +17,11 @@ vi.mock('node:fs/promises', async () => {
   };
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   vi.resetModules();
+  // Avoid concurrent dynamic-import of this manual mock (Vitest manual mocks are not concurrency-safe).
+  fsPromises = await import('node:fs/promises');
 });
 
 async function importTypesModule() {
@@ -24,8 +29,7 @@ async function importTypesModule() {
 }
 
 async function readTypesSource() {
-  const { readFile } = await import('node:fs/promises');
-  return readFile(TYPES_FILE_PATH, 'utf8');
+  return fsPromises.readFile(TYPES_FILE_PATH, 'utf8');
 }
 
 function normalizeTypeExpr(typeExpr) {
@@ -390,13 +394,11 @@ describe('eval/types (module)', () => {
     expect(typeof source).toBe('string');
     expect(source).toContain('@typedef');
 
-    const { readFile } = await import('node:fs/promises');
-    expect(readFile).toHaveBeenCalledWith(TYPES_FILE_PATH, 'utf8');
+    expect(fsPromises.readFile).toHaveBeenCalledWith(TYPES_FILE_PATH, 'utf8');
   });
 
   it('propagates fs read errors (error handling)', async () => {
-    const { readFile } = await import('node:fs/promises');
-    readFile.mockRejectedValueOnce(new Error('read failed'));
+    fsPromises.readFile.mockRejectedValueOnce(new Error('read failed'));
 
     await expect(readTypesSource()).rejects.toThrow('read failed');
   });
@@ -513,8 +515,7 @@ describe('parseJSDocTypedefs (test harness)', () => {
       expect(r.typedefs.size).toBeGreaterThan(0);
     }
 
-    const { readFile } = await import('node:fs/promises');
-    expect(readFile).toHaveBeenCalledTimes(10);
+    expect(fsPromises.readFile).toHaveBeenCalledTimes(10);
   });
 });
 

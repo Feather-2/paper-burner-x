@@ -6,7 +6,7 @@ const hoisted = vi.hoisted(() => {
   const poolInstances = [];
   const sandboxInstances = [];
 
-  const SandboxPool = vi.fn().mockImplementation(opts => {
+  const SandboxPool = vi.fn().mockImplementation(function SandboxPool(opts) {
     const sandbox = {
       execute: vi.fn(),
       executeAsync: vi.fn(),

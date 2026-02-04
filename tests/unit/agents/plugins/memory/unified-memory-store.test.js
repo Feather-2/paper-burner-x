@@ -81,7 +81,7 @@ beforeEach(() => {
 
   diffLayers.mockReturnValue({});
 
-  StateEngine.mockImplementation((options) => {
+  StateEngine.mockImplementation(function StateEngineMock(options) {
     lastEngineOptions = options;
 
     const globalListeners = [];
@@ -410,8 +410,8 @@ describe('UnifiedMemoryStore', () => {
       expect(store.subscribe(listener)).toBe(unsubscribe);
       expect(store.subscribe('L0', layerListener)).toBe(unsubscribe);
       expect(lastEngineInstance.subscribe).toHaveBeenCalledTimes(2);
-      expect(lastEngineInstance.subscribe).toHaveBeenCalledWith(listener);
-      expect(lastEngineInstance.subscribe).toHaveBeenCalledWith('L0', layerListener);
+      expect(lastEngineInstance.subscribe).toHaveBeenNthCalledWith(1, listener, undefined);
+      expect(lastEngineInstance.subscribe).toHaveBeenNthCalledWith(2, 'L0', layerListener);
 
       expect(store.subscribeLayer('L1', layerListener)).toBe(layerUnsub);
       expect(lastEngineInstance.subscribeLayer).toHaveBeenCalledWith('L1', layerListener);

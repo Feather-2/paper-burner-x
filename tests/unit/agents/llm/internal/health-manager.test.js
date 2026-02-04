@@ -272,7 +272,7 @@ describe("markUnhealthy", () => {
     expect(result).toBe(sentinel);
     expect(markUnhealthyInternalMock).toHaveBeenCalledWith({
       healthMap,
-      time,
+      time: expect.objectContaining({ now: time.now, sleep: expect.any(Function) }),
       modelId: "m1",
       error,
       baseCooldownMs: 100,
@@ -401,7 +401,11 @@ describe("getShortestCooldown", () => {
     const result = getShortestCooldown({ healthMap, time, candidates: ["m1"] });
 
     expect(result).toBe(expected);
-    expect(getShortestCooldownInternalMock).toHaveBeenCalledWith({ healthMap, time, candidates: ["m1"] });
+    expect(getShortestCooldownInternalMock).toHaveBeenCalledWith({
+      healthMap,
+      time: expect.objectContaining({ now: time.now, sleep: expect.any(Function) }),
+      candidates: ["m1"],
+    });
   });
 
   it("forwards boundary candidate inputs", () => {
@@ -418,10 +422,14 @@ describe("getShortestCooldown", () => {
 
     expect(emptyResult).toBeNull();
     expect(objectResult).toEqual({ modelId: "m1", remainingMs: 0 });
-    expect(getShortestCooldownInternalMock).toHaveBeenNthCalledWith(1, { healthMap, time, candidates: [] });
+    expect(getShortestCooldownInternalMock).toHaveBeenNthCalledWith(1, {
+      healthMap,
+      time: expect.objectContaining({ now: time.now, sleep: expect.any(Function) }),
+      candidates: [],
+    });
     expect(getShortestCooldownInternalMock).toHaveBeenNthCalledWith(2, {
       healthMap,
-      time,
+      time: expect.objectContaining({ now: time.now, sleep: expect.any(Function) }),
       candidates: candidatesAsObject,
     });
   });

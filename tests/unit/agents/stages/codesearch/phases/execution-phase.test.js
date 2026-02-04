@@ -394,8 +394,14 @@ describe("runExecutionStep", () => {
       signal: null,
     });
 
-    vi.advanceTimersByTime(30000);
-    await Promise.resolve();
+    // Allow runExecutionStep() to advance past the callModel await and start the tool execution
+    // (which is when the tool timeout timer is scheduled).
+    for (let i = 0; i < 5 && tools.execute.mock.calls.length === 0; i += 1) {
+      await Promise.resolve();
+    }
+    expect(tools.execute).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(30000);
     const res = await promise;
 
     expect(res.done).toBe(false);

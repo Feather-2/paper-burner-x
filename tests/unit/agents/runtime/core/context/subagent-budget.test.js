@@ -4,7 +4,27 @@ vi.mock("node:perf_hooks", () => ({
   performance: { now: () => 0 },
 }));
 
-import { SubagentBudgetManager } from "../../../../../../js/agents/runtime/core/context/subagent-budget.js";
+import {
+  SubagentBudgetManager,
+  MODE_ALLOCATION_RATIOS,
+  MODE_PRIORITY,
+} from "../../../../../../js/agents/runtime/core/context/subagent-budget.js";
+
+const BASE_PARENT_BUDGET = 100000;
+const BASE_RESERVE_RATIO = 0.2;
+const BASE_DISTRIBUTABLE = Math.floor(BASE_PARENT_BUDGET * (1 - BASE_RESERVE_RATIO));
+
+const ISOLATED_BUDGET = Math.floor(BASE_DISTRIBUTABLE * MODE_ALLOCATION_RATIOS.isolated);
+const SHARED_BUDGET = Math.floor(BASE_DISTRIBUTABLE * MODE_ALLOCATION_RATIOS.shared);
+const HANDOFF_BUDGET = Math.floor(BASE_DISTRIBUTABLE * MODE_ALLOCATION_RATIOS.handoff);
+
+const createManager = (options = {}) =>
+  new SubagentBudgetManager({
+    parentBudget: BASE_PARENT_BUDGET,
+    reserveRatio: BASE_RESERVE_RATIO,
+    maxConcurrent: 10,
+    ...options,
+  });
 
 describe("SubagentBudgetManager", () => {
   beforeEach(() => {
@@ -12,8 +32,8 @@ describe("SubagentBudgetManager", () => {
   });
 
   it("computes distributable budget and initial availability", () => {
-    const manager = new SubagentBudgetManager({ parentBudget: 1000, reserveRatio: 0.2 });
-    expect(manager.getAvailable()).toBe(800);
+    const manager = createManager({ maxConcurrent: 3 });
+    expect(manager.getAvailable()).toBe(BASE_DISTRIBUTABLE);
     expect(manager.getActiveCount()).toBe(0);
   });
 
@@ -38,7 +58,7 @@ describe("SubagentBudgetManager", () => {
   });
 
   it("counts only active allocations", () => {
-    const manager = new SubagentBudgetManager({ parentBudget: 1000, reserveRatio: 0.2, maxConcurrent: 10 });
+    const manager = createManager();
 
     manager.allocate("a");
     manager.allocate("b");
@@ -50,7 +70,7 @@ describe("SubagentBudgetManager", () => {
   });
 
   it("canAllocate returns explicit reasons for concurrency and budget exhaustion", () => {
-    const limited = new SubagentBudgetManager({ parentBudget: 1000, reserveRatio: 0.2, maxConcurrent: 1 });
+    const limited = createManager({ maxConcurrent: 1 });
     limited.allocate("a");
 
     expect(limited.canAllocate()).toEqual({
@@ -67,16 +87,16 @@ describe("SubagentBudgetManager", () => {
   it("allocates default per-mode budget, sets priority, and records allocation details", () => {
     vi.spyOn(Date, "now").mockReturnValue(123456789);
 
-    const manager = new SubagentBudgetManager({ parentBudget: 1000, reserveRatio: 0.2, maxConcurrent: 10 });
+    const manager = createManager();
 
     const result = manager.allocate("sub1");
-    expect(result).toEqual({ budget: 120, mode: "isolated", priority: 3 });
-    expect(manager.getAvailable()).toBe(680);
+    expect(result).toEqual({ budget: ISOLATED_BUDGET, mode: "isolated", priority: MODE_PRIORITY.isolated });
+    expect(manager.getAvailable()).toBe(BASE_DISTRIBUTABLE - ISOLATED_BUDGET);
 
     const record = manager._allocations.get("sub1");
     expect(record).toEqual({
       subagentId: "sub1",
-      allocated: 120,
+      allocated: ISOLATED_BUDGET,
       used: 0,
       mode: "isolated",
       startTime: 123456789,
@@ -86,58 +106,102 @@ describe("SubagentBudgetManager", () => {
   });
 
   it("honors requestedBudget when valid and positive; caps by mode max and available", () => {
-    const manager = new SubagentBudgetManager({ parentBudget: 1000, reserveRatio: 0.2, maxConcurrent: 10 });
+    const manager = createManager();
 
-    expect(manager.allocate("a", { requestedBudget: 50 })).toEqual({
-      budget: 50,
+    expect(manager.allocate("a", { requestedBudget: 5000 })).toEqual({
+      budget: 5000,
       mode: "isolated",
-      priority: 3,
+      priority: MODE_PRIORITY.isolated,
     });
 
-    expect(manager.allocate("b", { requestedBudget: 999 })).toEqual({
-      budget: 120,
+    expect(manager.allocate("b", { requestedBudget: 999999 })).toEqual({
+      budget: ISOLATED_BUDGET,
       mode: "isolated",
-      priority: 3,
+      priority: MODE_PRIORITY.isolated,
     });
 
     expect(manager.allocate("c", { requestedBudget: Number.MAX_SAFE_INTEGER })).toEqual({
-      budget: 120,
+      budget: ISOLATED_BUDGET,
       mode: "isolated",
-      priority: 3,
+      priority: MODE_PRIORITY.isolated,
     });
   });
 
   it("falls back to default mode budget when requestedBudget is non-positive or non-finite (type boundaries)", () => {
-    const manager = new SubagentBudgetManager({ parentBudget: 1000, reserveRatio: 0.2, maxConcurrent: 10 });
+    const manager = createManager();
 
-    expect(manager.allocate("a", { requestedBudget: 0 })).toEqual({ budget: 120, mode: "isolated", priority: 3 });
-    expect(manager.allocate("b", { requestedBudget: -1 })).toEqual({ budget: 120, mode: "isolated", priority: 3 });
-    expect(manager.allocate("c", { requestedBudget: NaN })).toEqual({ budget: 120, mode: "isolated", priority: 3 });
-    expect(manager.allocate("d", { requestedBudget: "100" })).toEqual({ budget: 120, mode: "isolated", priority: 3 });
-    expect(manager.allocate("e", { requestedBudget: {} })).toEqual({ budget: 120, mode: "isolated", priority: 3 });
-    expect(manager.allocate("f", [])).toEqual({ budget: 120, mode: "isolated", priority: 3 });
+    expect(manager.allocate("a", { requestedBudget: 0 })).toEqual({
+      budget: ISOLATED_BUDGET,
+      mode: "isolated",
+      priority: MODE_PRIORITY.isolated,
+    });
+    expect(manager.allocate("b", { requestedBudget: -1 })).toEqual({
+      budget: ISOLATED_BUDGET,
+      mode: "isolated",
+      priority: MODE_PRIORITY.isolated,
+    });
+    expect(manager.allocate("c", { requestedBudget: NaN })).toEqual({
+      budget: ISOLATED_BUDGET,
+      mode: "isolated",
+      priority: MODE_PRIORITY.isolated,
+    });
+    expect(manager.allocate("d", { requestedBudget: "100" })).toEqual({
+      budget: ISOLATED_BUDGET,
+      mode: "isolated",
+      priority: MODE_PRIORITY.isolated,
+    });
+    expect(manager.allocate("e", { requestedBudget: {} })).toEqual({
+      budget: ISOLATED_BUDGET,
+      mode: "isolated",
+      priority: MODE_PRIORITY.isolated,
+    });
+    expect(manager.allocate("f", [])).toEqual({
+      budget: ISOLATED_BUDGET,
+      mode: "isolated",
+      priority: MODE_PRIORITY.isolated,
+    });
   });
 
   it("allocates by mode ratios and uses default priority per mode; supports explicit priority override", () => {
-    const manager = new SubagentBudgetManager({ parentBudget: 1000, reserveRatio: 0.2, maxConcurrent: 10 });
+    const manager = createManager();
 
-    expect(manager.allocate("a", { mode: "shared" })).toEqual({ budget: 200, mode: "shared", priority: 2 });
-    expect(manager.allocate("b", { mode: "handoff" })).toEqual({ budget: 280, mode: "handoff", priority: 1 });
+    expect(manager.allocate("a", { mode: "shared" })).toEqual({
+      budget: SHARED_BUDGET,
+      mode: "shared",
+      priority: MODE_PRIORITY.shared,
+    });
+    expect(manager.allocate("b", { mode: "handoff" })).toEqual({
+      budget: HANDOFF_BUDGET,
+      mode: "handoff",
+      priority: MODE_PRIORITY.handoff,
+    });
 
     expect(manager.allocate("c", { mode: "handoff", priority: 99 })).toEqual({
-      budget: 280,
+      budget: HANDOFF_BUDGET,
       mode: "handoff",
       priority: 99,
     });
   });
 
   it("normalizes unknown/invalid modes to isolated (null/whitespace/unknown)", () => {
-    const manager = new SubagentBudgetManager({ parentBudget: 1000, reserveRatio: 0.2, maxConcurrent: 10 });
+    const manager = createManager();
 
-    expect(manager.allocate("a", { mode: "weird-mode" })).toMatchObject({ mode: "isolated", priority: 3 });
-    expect(manager.allocate("b", { mode: "   " })).toMatchObject({ mode: "isolated", priority: 3 });
-    expect(manager.allocate("c", { mode: null })).toMatchObject({ mode: "isolated", priority: 3 });
-    expect(manager.allocate("d", { mode: undefined })).toMatchObject({ mode: "isolated", priority: 3 });
+    expect(manager.allocate("a", { mode: "weird-mode" })).toMatchObject({
+      mode: "isolated",
+      priority: MODE_PRIORITY.isolated,
+    });
+    expect(manager.allocate("b", { mode: "   " })).toMatchObject({
+      mode: "isolated",
+      priority: MODE_PRIORITY.isolated,
+    });
+    expect(manager.allocate("c", { mode: null })).toMatchObject({
+      mode: "isolated",
+      priority: MODE_PRIORITY.isolated,
+    });
+    expect(manager.allocate("d", { mode: undefined })).toMatchObject({
+      mode: "isolated",
+      priority: MODE_PRIORITY.isolated,
+    });
   });
 
   it("rejects duplicate active allocations for the same subagentId; allows re-allocation when not active", () => {
@@ -158,30 +222,42 @@ describe("SubagentBudgetManager", () => {
   });
 
   it("caps budget by current availability even under rapid consecutive allocations (concurrency + budget edge)", () => {
-    const manager = new SubagentBudgetManager({ parentBudget: 1000, reserveRatio: 0.2, maxConcurrent: 10 });
+    const manager = createManager();
 
-    expect(manager.allocate("a", { mode: "handoff" })).toEqual({ budget: 280, mode: "handoff", priority: 1 });
-    expect(manager.allocate("b", { mode: "handoff" })).toEqual({ budget: 280, mode: "handoff", priority: 1 });
-    expect(manager.allocate("c", { mode: "handoff" })).toEqual({ budget: 240, mode: "handoff", priority: 1 });
+    expect(manager.allocate("a", { mode: "handoff" })).toEqual({
+      budget: HANDOFF_BUDGET,
+      mode: "handoff",
+      priority: MODE_PRIORITY.handoff,
+    });
+    expect(manager.allocate("b", { mode: "handoff" })).toEqual({
+      budget: HANDOFF_BUDGET,
+      mode: "handoff",
+      priority: MODE_PRIORITY.handoff,
+    });
+    expect(manager.allocate("c", { mode: "handoff" })).toEqual({
+      budget: BASE_DISTRIBUTABLE - HANDOFF_BUDGET * 2,
+      mode: "handoff",
+      priority: MODE_PRIORITY.handoff,
+    });
     expect(manager.getAvailable()).toBe(0);
   });
 
   it("handles rapid consecutive calls until budget exhaustion (no order dependence)", () => {
     const manager = new SubagentBudgetManager({
-      parentBudget: 20,
-      reserveRatio: 0.1, // distributable = 18
+      parentBudget: 20000,
+      reserveRatio: 0.1, // distributable = 18000
       maxConcurrent: 50,
       modeRatios: { isolated: 1 },
     });
 
     const results = [];
-    for (let i = 0; i < 18; i++) results.push(manager.allocate(`s${i}`, { requestedBudget: 1 }));
+    for (let i = 0; i < 18; i++) results.push(manager.allocate(`s${i}`, { requestedBudget: 1000 }));
 
-    expect(results.every((r) => !("error" in r) && r.budget === 1)).toBe(true);
+    expect(results.every((r) => !("error" in r) && r.budget === 1000)).toBe(true);
     expect(manager.getAvailable()).toBe(0);
     expect(manager.canAllocate()).toEqual({ canAllocate: false, reason: "No budget available" });
 
-    const exhausted = manager.allocate("s18", { requestedBudget: 1 });
+    const exhausted = manager.allocate("s18", { requestedBudget: 1000 });
     expect(exhausted).toEqual({ error: "No budget available" });
   });
 
@@ -191,18 +267,18 @@ describe("SubagentBudgetManager", () => {
   });
 
   it("accepts very long subagentId strings and deep-nested options objects", () => {
-    const manager = new SubagentBudgetManager({ parentBudget: 1000, reserveRatio: 0.2, maxConcurrent: 10 });
+    const manager = createManager();
     const longId = "x".repeat(10_000);
 
     const result = manager.allocate(longId, {
       mode: "shared",
-      requestedBudget: 50,
+      requestedBudget: 5000,
       priority: 7,
       extra: { nested: { value: { deeper: [{ a: 1 }, { b: 2 }] } } },
     });
 
-    expect(result).toEqual({ budget: 50, mode: "shared", priority: 7 });
-    expect(manager._allocations.get(longId)).toMatchObject({ subagentId: longId, allocated: 50, used: 0 });
+    expect(result).toEqual({ budget: 5000, mode: "shared", priority: 7 });
+    expect(manager._allocations.get(longId)).toMatchObject({ subagentId: longId, allocated: 5000, used: 0 });
   });
 
   it("handles extremely large parentBudget without producing non-finite availability", () => {

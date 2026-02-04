@@ -391,7 +391,7 @@ describe('applyLifecycleMethods', () => {
       expect(snapshot.dirtyLayers).toEqual({ L0: true, L1: false, L2: true, L3: false });
       expect(snapshot.L0).toEqual({ l0: 'ok' });
       expect(snapshot.L2).toEqual({ l2: 'ok' });
-      expect(snapshot).not.toHaveProperty('L1');
+      expect(snapshot.L1).toBeUndefined();
       expect(snapshot.baseId).toBe('base-1');
     });
 

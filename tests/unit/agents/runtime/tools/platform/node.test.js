@@ -336,6 +336,13 @@ vi.mock('../../../../../../js/agents/shared/index.js', () => ({
 vi.mock('../../../../../../js/agents/runtime/core/exec/index.js', () => ({
   exec: hoisted.exec,
 }));
+// Force createNodeTools().glob() down the fallback path that uses our mocked
+// fs + globToRegex implementation (instead of touching the real filesystem).
+vi.mock('fast-glob', () => ({
+  default: () => {
+    throw new Error('fast-glob disabled in unit tests');
+  },
+}));
 
 function addDir(dirPath) {
   hoisted.ensureDirRecursive(hoisted.normalize(dirPath));
@@ -374,8 +381,11 @@ function extractExecInvocation(call) {
 function extractTimeoutMs(invocation) {
   const o = invocation?.options;
   if (!o || typeof o !== 'object') return undefined;
+  // Different exec helpers use different option names; support both.
   if (typeof o.timeoutMs === 'number') return o.timeoutMs;
+  if (typeof o.timeout === 'number') return o.timeout;
   if (o.options && typeof o.options.timeoutMs === 'number') return o.options.timeoutMs;
+  if (o.options && typeof o.options.timeout === 'number') return o.options.timeout;
   return undefined;
 }
 
@@ -404,7 +414,13 @@ describe('createNodeTools', () => {
     cwdSpy.mockRestore();
 
     expect(typeof tools).toBe('object');
-    expect(typeof tools.exec).toBe('function');
+    expect(typeof tools.bash).toBe('function');
+    expect(typeof tools.read).toBe('function');
+    expect(typeof tools.write).toBe('function');
+    expect(typeof tools.list).toBe('function');
+    expect(typeof tools.glob).toBe('function');
+    expect(typeof tools.grep).toBe('function');
+    expect(tools.platform).toBe('node');
   });
 
   it('falls back when basePath realpath fails', async () => {
@@ -414,10 +430,13 @@ describe('createNodeTools', () => {
     const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
 
     expect(typeof tools).toBe('object');
-    expect(typeof tools.exec).toBe('function');
-    expect(typeof tools.readFile).toBe('function');
-    expect(typeof tools.writeFile).toBe('function');
+    expect(typeof tools.bash).toBe('function');
+    expect(typeof tools.read).toBe('function');
+    expect(typeof tools.write).toBe('function');
+    expect(typeof tools.list).toBe('function');
     expect(typeof tools.glob).toBe('function');
+    expect(typeof tools.grep).toBe('function');
+    expect(tools.platform).toBe('node');
   });
 
   it('rejects when options is null (type boundary)', async () => {
@@ -429,9 +448,15 @@ describe('createNodeTools', () => {
     const createNodeTools = await importSubject();
     const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
 
-    await expect(tools.readFile('../secret.txt')).rejects.toThrow('Path traversal detected');
-    await expect(tools.readFile('..\\secret.txt')).rejects.toThrow('Path traversal detected');
-    await expect(tools.writeFile('/base/../pwn.txt', 'x')).rejects.toThrow('Path traversal detected');
+    const r1 = await tools.read({ path: '../secret.txt' });
+    expect(r1.error).toBe('Path traversal detected');
+
+    const r2 = await tools.read({ path: '..\\secret.txt' });
+    expect(r2.error).toBe('Path traversal detected');
+
+    const w1 = await tools.write({ path: '/base/../pwn.txt', content: 'x' });
+    expect(w1.success).toBe(false);
+    expect(w1.error).toBe('Path traversal detected');
   });
 
   it('reads files under basePath and rejects unsafe absolute paths', async () => {
@@ -442,16 +467,20 @@ describe('createNodeTools', () => {
     const createNodeTools = await importSubject();
     const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
 
-    const inside = await tools.readFile('inside.txt');
-    expect(asString(inside)).toBe('hello');
+    const inside = await tools.read({ path: 'inside.txt' });
+    expect(inside.error).toBeUndefined();
+    expect(inside.content).toBe('hello');
 
-    await expect(tools.readFile('/outside/evil.txt')).rejects.toThrow();
+    const outside = await tools.read({ path: '/outside/evil.txt' });
+    expect(outside.content).toBe('');
+    expect(outside.error).toMatch(/outside/i);
     expect(
       hoisted.fs.readFile.mock.calls.some(([p]) => hoisted.normalize(p) === '/outside/evil.txt'),
     ).toBe(false);
 
-    const insideAbs = await tools.readFile('/base/inside.txt');
-    expect(asString(insideAbs)).toBe('hello');
+    const insideAbs = await tools.read({ path: '/base/inside.txt' });
+    expect(insideAbs.error).toBeUndefined();
+    expect(insideAbs.content).toBe('hello');
   });
 
   it('writes new files under basePath (allowMissing) and blocks writes outside', async () => {
@@ -460,24 +489,31 @@ describe('createNodeTools', () => {
     const createNodeTools = await importSubject();
     const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
 
-    await tools.writeFile('new.txt', 'content');
+    const writeOk = await tools.write({ path: 'new.txt', content: 'content' });
+    expect(writeOk.success).toBe(true);
     expect(hoisted.state.files.get('/base/new.txt')?.content).toBe('content');
 
-    const readBack = await tools.readFile('new.txt');
-    expect(asString(readBack)).toBe('content');
+    const readBack = await tools.read({ path: 'new.txt' });
+    expect(readBack.error).toBeUndefined();
+    expect(readBack.content).toBe('content');
 
     const realpathCalls = hoisted.fs.realpath.mock.calls.map(([p]) => hoisted.normalize(p));
     expect(realpathCalls).toContain('/base/new.txt');
     expect(realpathCalls).toContain('/base');
 
-    await expect(tools.writeFile('/outside/new.txt', 'x')).rejects.toThrow();
+    const writeOutside = await tools.write({ path: '/outside/new.txt', content: 'x' });
+    expect(writeOutside.success).toBe(false);
     expect(hoisted.state.files.has('/outside/new.txt')).toBe(false);
 
-    await expect(tools.writeFile('/nope/new.txt', 'x')).rejects.toThrow();
+    const writeMissingRoot = await tools.write({ path: '/nope/new.txt', content: 'x' });
+    expect(writeMissingRoot.success).toBe(false);
     expect(hoisted.state.files.has('/nope/new.txt')).toBe(false);
 
-    await expect(tools.writeFile('', 'x')).rejects.toThrow();
-    await expect(tools.writeFile(undefined, 'x')).rejects.toThrow();
+    const writeEmpty = await tools.write({ path: '', content: 'x' });
+    expect(writeEmpty.success).toBe(false);
+
+    const writeUndefined = await tools.write({ path: undefined, content: 'x' });
+    expect(writeUndefined.success).toBe(false);
   });
 
   it('supports concurrent writes and large/deep-path content', async () => {
@@ -492,11 +528,15 @@ describe('createNodeTools', () => {
 
     const deepRel = `${deepSegments.join('/')}/deep.txt`;
 
-    await Promise.all([tools.writeFile('a.txt', 'a'), tools.writeFile('big.txt', big), tools.writeFile(deepRel, 'deep')]);
+    await Promise.all([
+      tools.write({ path: 'a.txt', content: 'a' }),
+      tools.write({ path: 'big.txt', content: big }),
+      tools.write({ path: deepRel, content: 'deep' }),
+    ]);
 
-    expect(asString(await tools.readFile('a.txt'))).toBe('a');
-    expect(asString(await tools.readFile('big.txt'))).toBe(big);
-    expect(asString(await tools.readFile(deepRel))).toBe('deep');
+    expect((await tools.read({ path: 'a.txt' })).content).toBe('a');
+    expect((await tools.read({ path: 'big.txt' })).content).toBe(big);
+    expect((await tools.read({ path: deepRel })).content).toBe('deep');
   });
 
   it('globs files using globToRegex (including deep nesting) and supports concurrent calls', async () => {
@@ -515,27 +555,36 @@ describe('createNodeTools', () => {
     const createNodeTools = await importSubject();
     const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
 
-    const [r1, r2] = await Promise.all([tools.glob('**/*.js'), tools.glob('**/*.js')]);
+    const [r1, r2] = await Promise.all([
+      tools.glob({ pattern: '**/*.js' }),
+      tools.glob({ pattern: '**/*.js' }),
+    ]);
 
     expect(hoisted.globToRegex).toHaveBeenCalledWith('**/*.js');
 
     const has = (results, suffix) => results.some((p) => String(p).endsWith(suffix));
 
-    expect(has(r1, 'a.js')).toBe(true);
-    expect(has(r1, 'c.js')).toBe(true);
-    expect(has(r1, 'deep.js')).toBe(true);
-    expect(has(r1, 'b.txt')).toBe(false);
+    expect(r1.error).toBeUndefined();
+    expect(has(r1.files, 'a.js')).toBe(true);
+    expect(has(r1.files, 'c.js')).toBe(true);
+    expect(has(r1.files, 'deep.js')).toBe(true);
+    expect(has(r1.files, 'b.txt')).toBe(false);
 
-    expect(has(r2, 'a.js')).toBe(true);
-    expect(has(r2, 'c.js')).toBe(true);
-    expect(has(r2, 'deep.js')).toBe(true);
-    expect(has(r2, 'b.txt')).toBe(false);
+    expect(r2.error).toBeUndefined();
+    expect(has(r2.files, 'a.js')).toBe(true);
+    expect(has(r2.files, 'c.js')).toBe(true);
+    expect(has(r2.files, 'deep.js')).toBe(true);
+    expect(has(r2.files, 'b.txt')).toBe(false);
 
-    await expect(tools.glob('')).rejects.toThrow();
-    await expect(tools.glob(undefined)).rejects.toThrow();
+    const traversal = await tools.glob({ pattern: '../*.js' });
+    expect(traversal.files).toEqual([]);
+    expect(traversal.error).toMatch(/traversal/i);
+
+    await expect(tools.glob()).rejects.toThrow();
+    await expect(tools.glob(null)).rejects.toThrow();
   });
 
-  it('exec parses quoting/escapes, enforces allowedCommands, validates inputs, clamps timeouts, and supports concurrency', async () => {
+  it('bash parses quoting/escapes, enforces allowedCommands, validates inputs, clamps timeouts, and supports concurrency', async () => {
     hoisted.exec.mockResolvedValue({ stdout: 'ok', stderr: '', exitCode: 0 });
 
     const createNodeTools = await importSubject();
@@ -546,35 +595,40 @@ describe('createNodeTools', () => {
       maxTimeoutMs: 5,
     });
 
-    await tools.exec('echo "hello world"', { timeoutMs: Number.MAX_SAFE_INTEGER });
+    const first = await tools.bash({ command: 'echo "hello world"', timeout: Number.MAX_SAFE_INTEGER });
+    expect(first.exitCode).toBe(0);
     expect(hoisted.exec).toHaveBeenCalledTimes(1);
 
     let invocation = extractExecInvocation(hoisted.exec.mock.calls[0]);
     expect(invocation.command).toBe('echo');
     expect(Array.isArray(invocation.args)).toBe(true);
     expect(invocation.args).toEqual(expect.arrayContaining(['hello world']));
+    expect(invocation.options?.cwd).toBe('/base');
 
     let timeoutMs = extractTimeoutMs(invocation);
     expect(timeoutMs).toBeTypeOf('number');
     expect(timeoutMs).toBeGreaterThanOrEqual(1);
     expect(timeoutMs).toBeLessThanOrEqual(5);
 
-    await tools.exec('echo "a\\\"b"');
+    await tools.bash({ command: 'echo "a\\\"b"' });
     invocation = extractExecInvocation(hoisted.exec.mock.calls[1]);
     expect(invocation.command).toBe('echo');
     expect(invocation.args).toEqual(expect.arrayContaining(['a"b']));
 
-    await Promise.all([tools.exec('echo "first"'), tools.exec('echo "second"')]);
+    await Promise.all([tools.bash({ command: 'echo "first"' }), tools.bash({ command: 'echo "second"' })]);
     expect(hoisted.exec).toHaveBeenCalledTimes(4);
 
-    await expect(tools.exec('ls -la')).rejects.toThrow();
+    const blocked = await tools.bash({ command: 'ls -la' });
+    expect(blocked.exitCode).toBe(-1);
+    expect(blocked.error).toMatch(/not allowed/i);
     expect(hoisted.exec).toHaveBeenCalledTimes(4);
 
     const toolsWhitespace = await createNodeTools({ basePath: '/base', allowedCommands: [' echo '] });
-    await expect(toolsWhitespace.exec('echo hi')).rejects.toThrow();
+    const blockedWhitespace = await toolsWhitespace.bash({ command: 'echo hi' });
+    expect(blockedWhitespace.exitCode).toBe(-1);
 
     const toolsMinTimeout = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'], maxTimeoutMs: 0 });
-    await toolsMinTimeout.exec('echo hi', { timeoutMs: -1 });
+    await toolsMinTimeout.bash({ command: 'echo hi', timeout: -1 });
     invocation = extractExecInvocation(hoisted.exec.mock.calls[hoisted.exec.mock.calls.length - 1]);
     timeoutMs = extractTimeoutMs(invocation);
     expect(timeoutMs).toBe(1);
@@ -584,14 +638,14 @@ describe('createNodeTools', () => {
       allowedCommands: ['echo'],
       maxTimeoutMs: '1000',
     });
-    await toolsDefaultTimeout.exec('echo hi', { timeoutMs: 70000 });
+    await toolsDefaultTimeout.bash({ command: 'echo hi', timeout: 70000 });
     invocation = extractExecInvocation(hoisted.exec.mock.calls[hoisted.exec.mock.calls.length - 1]);
     timeoutMs = extractTimeoutMs(invocation);
     expect(timeoutMs).toBeLessThanOrEqual(60000);
 
-    await expect(tools.exec('   ')).rejects.toThrow(/Command required/i);
-    await expect(tools.exec(null)).rejects.toThrow(/Command required/i);
-    await expect(tools.exec({})).rejects.toThrow(/Command required/i);
-    await expect(tools.exec('echo "abc')).rejects.toThrow(/quote/i);
+    expect((await tools.bash({ command: '   ' })).error).toMatch(/Command required/i);
+    expect((await tools.bash({ command: null })).error).toMatch(/Command required/i);
+    expect((await tools.bash({ command: {} })).error).toMatch(/Command required/i);
+    expect((await tools.bash({ command: 'echo "abc' })).error).toMatch(/quote/i);
   });
 });

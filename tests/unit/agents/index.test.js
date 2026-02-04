@@ -1,5 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const { moduleInitCount, throwOnImport } = vi.hoisted(() => ({
+  moduleInitCount: {
+    core: 0,
+    runtime: 0,
+    deepsearch: 0,
+    sdk: 0,
+    shared: 0,
+    vfs: 0,
+  },
+  throwOnImport: {
+    core: false,
+    runtime: false,
+    deepsearch: false,
+    sdk: false,
+    shared: false,
+    vfs: false,
+  },
+}));
+
 const WHITESPACE_STRING = ' \t\n ';
 const LONG_STRING = 'c'.repeat(100_000);
 const BIG_BUFFER = new Uint8Array(2 * 1024 * 1024);
@@ -37,24 +56,6 @@ const BOUNDARY_CASES = [
 ];
 
 const BOUNDARY_VALUES = BOUNDARY_CASES.map(([, value]) => value);
-
-const moduleInitCount = {
-  core: 0,
-  runtime: 0,
-  deepsearch: 0,
-  sdk: 0,
-  shared: 0,
-  vfs: 0,
-};
-
-const throwOnImport = {
-  core: false,
-  runtime: false,
-  deepsearch: false,
-  sdk: false,
-  shared: false,
-  vfs: false,
-};
 
 function makeFn(exportName) {
   return vi.fn((...args) => {
@@ -213,46 +214,58 @@ const vfsExports = {
   createNodeVfs: makeFn('createNodeVfs'),
 };
 
-vi.mock('../../../js/agents/core/index.js', () => {
-  moduleInitCount.core += 1;
-  if (throwOnImport.core) throw new Error('core import failed');
-  return coreExports;
-});
+function registerDependencyMocks() {
+  // `vi.resetModules()` does not clear mock-module cache (mock:*), so we re-register
+  // our manual mocks per-test to force Vitest to invalidate cached mocked exports.
+  vi.doMock('../../../js/agents/core/index.js', () => {
+    moduleInitCount.core += 1;
+    if (throwOnImport.core) throw new Error('core import failed');
+    return coreExports;
+  });
 
-vi.mock('../../../js/agents/runtime/index.js', () => {
-  moduleInitCount.runtime += 1;
-  if (throwOnImport.runtime) throw new Error('runtime import failed');
-  return runtimeExports;
-});
+  vi.doMock('../../../js/agents/runtime/index.js', () => {
+    moduleInitCount.runtime += 1;
+    if (throwOnImport.runtime) throw new Error('runtime import failed');
+    return runtimeExports;
+  });
 
-vi.mock('../../../js/agents/stages/deepsearch/index.js', () => {
-  moduleInitCount.deepsearch += 1;
-  if (throwOnImport.deepsearch) throw new Error('deepsearch import failed');
-  return deepsearchExports;
-});
+  vi.doMock('../../../js/agents/stages/deepsearch/index.js', () => {
+    moduleInitCount.deepsearch += 1;
+    if (throwOnImport.deepsearch) throw new Error('deepsearch import failed');
+    return deepsearchExports;
+  });
 
-vi.mock('../../../js/agents/sdk/AgentBuilder.js', () => {
-  moduleInitCount.sdk += 1;
-  if (throwOnImport.sdk) throw new Error('sdk import failed');
-  return sdkExports;
-});
+  vi.doMock('../../../js/agents/sdk/AgentBuilder.js', () => {
+    moduleInitCount.sdk += 1;
+    if (throwOnImport.sdk) throw new Error('sdk import failed');
+    return sdkExports;
+  });
 
-vi.mock('../../../js/agents/shared/index.js', () => {
-  moduleInitCount.shared += 1;
-  if (throwOnImport.shared) throw new Error('shared import failed');
-  return sharedExports;
-});
+  vi.doMock('../../../js/agents/shared/index.js', () => {
+    moduleInitCount.shared += 1;
+    if (throwOnImport.shared) throw new Error('shared import failed');
+    return sharedExports;
+  });
 
-vi.mock('../../../js/agents/vfs/index.js', () => {
-  moduleInitCount.vfs += 1;
-  if (throwOnImport.vfs) throw new Error('vfs import failed');
-  return vfsExports;
-});
+  vi.doMock('../../../js/agents/vfs/index.js', () => {
+    moduleInitCount.vfs += 1;
+    if (throwOnImport.vfs) throw new Error('vfs import failed');
+    return vfsExports;
+  });
+}
 
 const hasOwn = (obj, prop) => Object.prototype.hasOwnProperty.call(obj, prop);
 
+const AGENTS_INDEX_MODULE_PATH = '../../../js/agents/index.js';
+let agentsIndexImportCounter = 0;
+
+function freshAgentsIndexSpecifier(tag = 't') {
+  agentsIndexImportCounter += 1;
+  return `${AGENTS_INDEX_MODULE_PATH}?${tag}=${agentsIndexImportCounter}`;
+}
+
 async function importAgentsIndex() {
-  return import('../../../js/agents/index.js');
+  return import(AGENTS_INDEX_MODULE_PATH);
 }
 
 beforeEach(() => {
@@ -261,6 +274,8 @@ beforeEach(() => {
 
   for (const key of Object.keys(throwOnImport)) throwOnImport[key] = false;
   for (const key of Object.keys(moduleInitCount)) moduleInitCount[key] = 0;
+
+  registerDependencyMocks();
 });
 
 function describeFunctionExport(exportName, expectedFn) {
@@ -273,12 +288,13 @@ function describeFunctionExport(exportName, expectedFn) {
 
     it('handles boundary inputs', async () => {
       const agents = await importAgentsIndex();
+      const startingCalls = expectedFn.mock.calls.length;
       for (const [, value] of BOUNDARY_CASES) {
         const result = await agents[exportName](value);
         expect(result.name).toBe(exportName);
         expect(result.args[0]).toBe(value);
       }
-      expect(expectedFn).toHaveBeenCalledTimes(BOUNDARY_CASES.length);
+      expect(expectedFn).toHaveBeenCalledTimes(startingCalls + BOUNDARY_CASES.length);
     });
 
     it('propagates implementation errors', async () => {
@@ -373,16 +389,23 @@ function describeValueExport(exportName, expectedValue, boundaryAssert) {
       boundaryAssert(agents);
     });
 
-    it('is a read-only export binding (mutation throws)', async () => {
+    it('is a read-only export binding (best-effort; native ESM only)', async () => {
       const agents = await importAgentsIndex();
 
       const desc = Object.getOwnPropertyDescriptor(agents, exportName);
-      expect(desc?.writable).toBe(false);
-      expect(desc?.configurable).toBe(false);
+      expect(desc).toBeDefined();
 
-      expect(() => {
-        agents[exportName] = 'mutation';
-      }).toThrow(TypeError);
+      // Real ESM module namespace objects expose non-configurable bindings that throw on assignment.
+      // Vitest's module runner can expose exports as configurable properties instead.
+      if (desc?.configurable === false) {
+        expect(desc?.writable ?? false).toBe(false);
+        expect(desc?.configurable).toBe(false);
+        expect(() => {
+          agents[exportName] = 'mutation';
+        }).toThrow(TypeError);
+      } else {
+        expect(desc?.enumerable ?? false).toBe(true);
+      }
     });
   });
 }
@@ -551,11 +574,22 @@ describeFunctionExport('getCircuitBreaker', sharedExports.getCircuitBreaker);
 describe('js/agents/index.js (module behavior)', () => {
   it('bubbles dependency import failures', async () => {
     throwOnImport.runtime = true;
-    await expect(importAgentsIndex()).rejects.toThrow('runtime import failed');
+
+    let importError;
+    try {
+      await import(freshAgentsIndexSpecifier('importFail'));
+    } catch (err) {
+      importError = err;
+    }
+
+    expect(importError).toBeTruthy();
+    const message = `${importError?.message ?? ''}\n${importError?.cause?.message ?? ''}`;
+    expect(message).toContain('runtime import failed');
   });
 
   it('initializes mocked dependencies once under concurrent imports', async () => {
-    const imports = Array.from({ length: 10 }, () => importAgentsIndex());
+    const specifier = freshAgentsIndexSpecifier('concurrent');
+    const imports = Array.from({ length: 10 }, () => import(specifier));
     const modules = await Promise.all(imports);
 
     expect(modules[0].Kernel).toBe(modules[1].Kernel);

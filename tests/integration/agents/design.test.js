@@ -79,11 +79,11 @@ it("Design: DesignStage generates design tokens + emits design.* events", async 
   expect(deck.deckHtmlDsl).toContain('data-type="freeform"');
 
   expect(events.some(e => e.name === "design:started")).toBe(true);
-  expect(events.some(e => e.name === "design:tokens:completed")).toBe(true);
-  expect(events.some(e => e.name === "design:generate:completed")).toBe(true);
-  expect(events.some(e => e.name === "design:qa:completed")).toBe(true);
+  expect(events.some(e => e.name === "design.tokens.ended")).toBe(true);
+  expect(events.some(e => e.name === "design.generate.ended")).toBe(true);
+  expect(events.some(e => e.name === "design.qa.ended")).toBe(true);
   expect(events.some(e => e.name === "design:completed")).toBe(true);
-  expect(events.every(e => e.name !== "design:image:planning:completed")).toBe(true);
+  expect(events.every(e => e.name !== "design.image.planning.completed")).toBe(true);
 });
 
 it("Design: ReactRefiner tool executor sanitizes injected HTML (no javascript: urls)", async () => {
@@ -308,22 +308,22 @@ it("Design: batch-generator respects concurrency, emits events, and retries once
   // batchConcurrency=2 (default), batchSize=2, so max 2 batches * 2 slides = 4 concurrent
   expect(maxActive <= 4).toBe(true);
 
-  const idxBatch0Start = events.findIndex((e) => e.name === "design.batch.started" && e.record?.payload?.batchIndex === 0);
-  const idxBatch0End = events.findIndex((e) => e.name === "design.batch.completed" && e.record?.payload?.batchIndex === 0);
+  const idxBatch0Start = events.findIndex((e) => e.name === "design:batch.started" && e.record?.payload?.batchIndex === 0);
+  const idxBatch0End = events.findIndex((e) => e.name === "design:batch.completed" && e.record?.payload?.batchIndex === 0);
   expect(idxBatch0Start).toBeGreaterThanOrEqual(0);
   expect(idxBatch0End).toBeGreaterThanOrEqual(0);
   expect(idxBatch0Start).toBeLessThan(idxBatch0End);
 
   for (let i = 0; i < slideIntents.length; i++) {
-    const idxStarted = events.findIndex((e) => e.name === "design.slide.started" && e.record?.payload?.slideIndex === i);
-    const idxCompleted = events.findIndex((e) => e.name === "design.slide.completed" && e.record?.payload?.slideIndex === i);
+    const idxStarted = events.findIndex((e) => e.name === "design:slide.started" && e.record?.payload?.slideIndex === i);
+    const idxCompleted = events.findIndex((e) => e.name === "design:slide.completed" && e.record?.payload?.slideIndex === i);
     expect(idxStarted).toBeGreaterThanOrEqual(0);
     expect(idxCompleted).toBeGreaterThanOrEqual(0);
     expect(idxStarted).toBeLessThan(idxCompleted);
   }
 
-  expect(events.some(e => e.name === "design.slide.retrying" && e.record?.payload?.slideIndex === 2)).toBe(true);
-  expect(events.some(e => e.name === "design.slide.failed" && e.record?.payload?.slideIndex === 2)).toBe(false);
+  expect(events.some(e => e.name === "design:slide.retrying" && e.record?.payload?.slideIndex === 2)).toBe(true);
+  expect(events.some(e => e.name === "design:slide.failed" && e.record?.payload?.slideIndex === 2)).toBe(false);
 });
 
 it("Design: DesignStage calls ImagePlanner between tokens and batch, emits planning event, and inserts placeholders", async () => {
@@ -344,7 +344,7 @@ it("Design: DesignStage calls ImagePlanner between tokens and batch, emits plann
 
   const idxTokens = events.findIndex((e) => e.name === "design.tokens.ended");
   const idxPlanning = events.findIndex((e) => e.name === "design.image.planning.completed");
-  const idxBatchStarted = events.findIndex((e) => e.name === "design.batch.started");
+  const idxBatchStarted = events.findIndex((e) => e.name === "design:batch.started");
   expect(idxTokens).toBeGreaterThanOrEqual(0);
   expect(idxPlanning).toBeGreaterThanOrEqual(0);
   expect(idxBatchStarted).toBeGreaterThanOrEqual(0);

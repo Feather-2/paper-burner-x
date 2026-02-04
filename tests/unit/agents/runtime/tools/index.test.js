@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The mocked modules in this file are created once and reused across tests.
+// Clear call history between tests to avoid cross-test pollution.
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 vi.mock('../../../../../js/agents/runtime/tools/tool-executor.js', () => {
   const ToolExecutor = vi.fn(function ToolExecutor(...args) {
     this.args = args;
@@ -134,7 +140,12 @@ const BASE_ARG_SETS = [
 function expectMockCalls(fn, argSets) {
   expect(fn).toHaveBeenCalledTimes(argSets.length);
   argSets.forEach((args, i) => {
-    expect(fn.mock.calls[i]).toEqual(args);
+    // Avoid deep equality on large buffers / deep objects; we only care that
+    // arguments are forwarded in-order without cloning.
+    expect(fn.mock.calls[i]).toHaveLength(args.length);
+    args.forEach((value, j) => {
+      expect(fn.mock.calls[i][j]).toBe(value);
+    });
   });
 }
 
@@ -169,7 +180,10 @@ describe('ToolExecutor', () => {
     const instances = argSets.map((args) => new subject.ToolExecutor(...args));
     expectMockCalls(subject.ToolExecutor, argSets);
     instances.forEach((instance, i) => {
-      expect(instance.args).toEqual(argSets[i]);
+      expect(instance.args).toHaveLength(argSets[i].length);
+      argSets[i].forEach((value, j) => {
+        expect(instance.args[j]).toBe(value);
+      });
     });
   });
 
@@ -207,7 +221,12 @@ describe('createToolExecutor', () => {
     const results = argSets.map((args) => subject.createToolExecutor(...args));
     expectMockCalls(subject.createToolExecutor, argSets);
     results.forEach((result, i) => {
-      expect(result).toEqual({ kind: 'createToolExecutor', args: argSets[i] });
+      expect(result).toBeTypeOf('object');
+      expect(result.kind).toBe('createToolExecutor');
+      expect(result.args).toHaveLength(argSets[i].length);
+      argSets[i].forEach((value, j) => {
+        expect(result.args[j]).toBe(value);
+      });
     });
   });
 
@@ -233,8 +252,18 @@ describe('createToolExecutor', () => {
 
     const results = await Promise.all(argSets.map((args) => subject.createToolExecutor(...args)));
     expectMockCalls(subject.createToolExecutor, argSets);
-    expect(results[0]).toEqual({ kind: 'async createToolExecutor', args: argSets[0] });
-    expect(results.at(-1)).toEqual({ kind: 'async createToolExecutor', args: argSets.at(-1) });
+    expect(results[0].kind).toBe('async createToolExecutor');
+    expect(results[0].args).toHaveLength(argSets[0].length);
+    argSets[0].forEach((value, j) => {
+      expect(results[0].args[j]).toBe(value);
+    });
+
+    const lastArgs = argSets.at(-1);
+    expect(results.at(-1).kind).toBe('async createToolExecutor');
+    expect(results.at(-1).args).toHaveLength(lastArgs.length);
+    lastArgs.forEach((value, j) => {
+      expect(results.at(-1).args[j]).toBe(value);
+    });
   });
 });
 
@@ -263,7 +292,12 @@ describe('createTaskTool', () => {
     const results = argSets.map((args) => subject.createTaskTool(...args));
     expectMockCalls(subject.createTaskTool, argSets);
     results.forEach((result, i) => {
-      expect(result).toEqual({ kind: 'createTaskTool', args: argSets[i] });
+      expect(result).toBeTypeOf('object');
+      expect(result.kind).toBe('createTaskTool');
+      expect(result.args).toHaveLength(argSets[i].length);
+      argSets[i].forEach((value, j) => {
+        expect(result.args[j]).toBe(value);
+      });
     });
   });
 
@@ -289,8 +323,18 @@ describe('createTaskTool', () => {
 
     const results = await Promise.all(argSets.map((args) => subject.createTaskTool(...args)));
     expectMockCalls(subject.createTaskTool, argSets);
-    expect(results[0]).toEqual({ kind: 'async createTaskTool', args: argSets[0] });
-    expect(results.at(-1)).toEqual({ kind: 'async createTaskTool', args: argSets.at(-1) });
+    expect(results[0].kind).toBe('async createTaskTool');
+    expect(results[0].args).toHaveLength(argSets[0].length);
+    argSets[0].forEach((value, j) => {
+      expect(results[0].args[j]).toBe(value);
+    });
+
+    const lastArgs = argSets.at(-1);
+    expect(results.at(-1).kind).toBe('async createTaskTool');
+    expect(results.at(-1).args).toHaveLength(lastArgs.length);
+    lastArgs.forEach((value, j) => {
+      expect(results.at(-1).args[j]).toBe(value);
+    });
   });
 });
 
@@ -362,7 +406,12 @@ describe('createRecallTool', () => {
     const results = argSets.map((args) => subject.createRecallTool(...args));
     expectMockCalls(subject.createRecallTool, argSets);
     results.forEach((result, i) => {
-      expect(result).toEqual({ kind: 'createRecallTool', args: argSets[i] });
+      expect(result).toBeTypeOf('object');
+      expect(result.kind).toBe('createRecallTool');
+      expect(result.args).toHaveLength(argSets[i].length);
+      argSets[i].forEach((value, j) => {
+        expect(result.args[j]).toBe(value);
+      });
     });
   });
 
@@ -388,8 +437,18 @@ describe('createRecallTool', () => {
 
     const results = await Promise.all(argSets.map((args) => subject.createRecallTool(...args)));
     expectMockCalls(subject.createRecallTool, argSets);
-    expect(results[0]).toEqual({ kind: 'async createRecallTool', args: argSets[0] });
-    expect(results.at(-1)).toEqual({ kind: 'async createRecallTool', args: argSets.at(-1) });
+    expect(results[0].kind).toBe('async createRecallTool');
+    expect(results[0].args).toHaveLength(argSets[0].length);
+    argSets[0].forEach((value, j) => {
+      expect(results[0].args[j]).toBe(value);
+    });
+
+    const lastArgs = argSets.at(-1);
+    expect(results.at(-1).kind).toBe('async createRecallTool');
+    expect(results.at(-1).args).toHaveLength(lastArgs.length);
+    lastArgs.forEach((value, j) => {
+      expect(results.at(-1).args[j]).toBe(value);
+    });
   });
 });
 
@@ -440,7 +499,12 @@ describe('createBacktrackTool', () => {
     const results = argSets.map((args) => subject.createBacktrackTool(...args));
     expectMockCalls(subject.createBacktrackTool, argSets);
     results.forEach((result, i) => {
-      expect(result).toEqual({ kind: 'createBacktrackTool', args: argSets[i] });
+      expect(result).toBeTypeOf('object');
+      expect(result.kind).toBe('createBacktrackTool');
+      expect(result.args).toHaveLength(argSets[i].length);
+      argSets[i].forEach((value, j) => {
+        expect(result.args[j]).toBe(value);
+      });
     });
   });
 
@@ -466,8 +530,18 @@ describe('createBacktrackTool', () => {
 
     const results = await Promise.all(argSets.map((args) => subject.createBacktrackTool(...args)));
     expectMockCalls(subject.createBacktrackTool, argSets);
-    expect(results[0]).toEqual({ kind: 'async createBacktrackTool', args: argSets[0] });
-    expect(results.at(-1)).toEqual({ kind: 'async createBacktrackTool', args: argSets.at(-1) });
+    expect(results[0].kind).toBe('async createBacktrackTool');
+    expect(results[0].args).toHaveLength(argSets[0].length);
+    argSets[0].forEach((value, j) => {
+      expect(results[0].args[j]).toBe(value);
+    });
+
+    const lastArgs = argSets.at(-1);
+    expect(results.at(-1).kind).toBe('async createBacktrackTool');
+    expect(results.at(-1).args).toHaveLength(lastArgs.length);
+    lastArgs.forEach((value, j) => {
+      expect(results.at(-1).args[j]).toBe(value);
+    });
   });
 });
 
@@ -518,7 +592,12 @@ describe('createDMailTool', () => {
     const results = argSets.map((args) => subject.createDMailTool(...args));
     expectMockCalls(subject.createDMailTool, argSets);
     results.forEach((result, i) => {
-      expect(result).toEqual({ kind: 'createDMailTool', args: argSets[i] });
+      expect(result).toBeTypeOf('object');
+      expect(result.kind).toBe('createDMailTool');
+      expect(result.args).toHaveLength(argSets[i].length);
+      argSets[i].forEach((value, j) => {
+        expect(result.args[j]).toBe(value);
+      });
     });
   });
 
@@ -544,8 +623,18 @@ describe('createDMailTool', () => {
 
     const results = await Promise.all(argSets.map((args) => subject.createDMailTool(...args)));
     expectMockCalls(subject.createDMailTool, argSets);
-    expect(results[0]).toEqual({ kind: 'async createDMailTool', args: argSets[0] });
-    expect(results.at(-1)).toEqual({ kind: 'async createDMailTool', args: argSets.at(-1) });
+    expect(results[0].kind).toBe('async createDMailTool');
+    expect(results[0].args).toHaveLength(argSets[0].length);
+    argSets[0].forEach((value, j) => {
+      expect(results[0].args[j]).toBe(value);
+    });
+
+    const lastArgs = argSets.at(-1);
+    expect(results.at(-1).kind).toBe('async createDMailTool');
+    expect(results.at(-1).args).toHaveLength(lastArgs.length);
+    lastArgs.forEach((value, j) => {
+      expect(results.at(-1).args[j]).toBe(value);
+    });
   });
 });
 
@@ -596,7 +685,12 @@ describe('validateToolSchema', () => {
     const results = argSets.map((args) => subject.validateToolSchema(...args));
     expectMockCalls(subject.validateToolSchema, argSets);
     results.forEach((result, i) => {
-      expect(result).toEqual({ kind: 'validateToolSchema', args: argSets[i] });
+      expect(result).toBeTypeOf('object');
+      expect(result.kind).toBe('validateToolSchema');
+      expect(result.args).toHaveLength(argSets[i].length);
+      argSets[i].forEach((value, j) => {
+        expect(result.args[j]).toBe(value);
+      });
     });
   });
 
@@ -622,8 +716,18 @@ describe('validateToolSchema', () => {
 
     const results = await Promise.all(argSets.map((args) => subject.validateToolSchema(...args)));
     expectMockCalls(subject.validateToolSchema, argSets);
-    expect(results[0]).toEqual({ kind: 'async validateToolSchema', args: argSets[0] });
-    expect(results.at(-1)).toEqual({ kind: 'async validateToolSchema', args: argSets.at(-1) });
+    expect(results[0].kind).toBe('async validateToolSchema');
+    expect(results[0].args).toHaveLength(argSets[0].length);
+    argSets[0].forEach((value, j) => {
+      expect(results[0].args[j]).toBe(value);
+    });
+
+    const lastArgs = argSets.at(-1);
+    expect(results.at(-1).kind).toBe('async validateToolSchema');
+    expect(results.at(-1).args).toHaveLength(lastArgs.length);
+    lastArgs.forEach((value, j) => {
+      expect(results.at(-1).args[j]).toBe(value);
+    });
   });
 });
 
@@ -693,7 +797,12 @@ describe('createPlatformTools', () => {
     const results = argSets.map((args) => subject.createPlatformTools(...args));
     expectMockCalls(subject.createPlatformTools, argSets);
     results.forEach((result, i) => {
-      expect(result).toEqual({ kind: 'createPlatformTools', args: argSets[i] });
+      expect(result).toBeTypeOf('object');
+      expect(result.kind).toBe('createPlatformTools');
+      expect(result.args).toHaveLength(argSets[i].length);
+      argSets[i].forEach((value, j) => {
+        expect(result.args[j]).toBe(value);
+      });
     });
   });
 
@@ -719,8 +828,18 @@ describe('createPlatformTools', () => {
 
     const results = await Promise.all(argSets.map((args) => subject.createPlatformTools(...args)));
     expectMockCalls(subject.createPlatformTools, argSets);
-    expect(results[0]).toEqual({ kind: 'async createPlatformTools', args: argSets[0] });
-    expect(results.at(-1)).toEqual({ kind: 'async createPlatformTools', args: argSets.at(-1) });
+    expect(results[0].kind).toBe('async createPlatformTools');
+    expect(results[0].args).toHaveLength(argSets[0].length);
+    argSets[0].forEach((value, j) => {
+      expect(results[0].args[j]).toBe(value);
+    });
+
+    const lastArgs = argSets.at(-1);
+    expect(results.at(-1).kind).toBe('async createPlatformTools');
+    expect(results.at(-1).args).toHaveLength(lastArgs.length);
+    lastArgs.forEach((value, j) => {
+      expect(results.at(-1).args[j]).toBe(value);
+    });
   });
 });
 
@@ -749,7 +868,12 @@ describe('getPlatformType', () => {
     const results = argSets.map((args) => subject.getPlatformType(...args));
     expectMockCalls(subject.getPlatformType, argSets);
     results.forEach((result, i) => {
-      expect(result).toEqual({ kind: 'getPlatformType', args: argSets[i] });
+      expect(result).toBeTypeOf('object');
+      expect(result.kind).toBe('getPlatformType');
+      expect(result.args).toHaveLength(argSets[i].length);
+      argSets[i].forEach((value, j) => {
+        expect(result.args[j]).toBe(value);
+      });
     });
   });
 
@@ -775,8 +899,18 @@ describe('getPlatformType', () => {
 
     const results = await Promise.all(argSets.map((args) => subject.getPlatformType(...args)));
     expectMockCalls(subject.getPlatformType, argSets);
-    expect(results[0]).toEqual({ kind: 'async getPlatformType', args: argSets[0] });
-    expect(results.at(-1)).toEqual({ kind: 'async getPlatformType', args: argSets.at(-1) });
+    expect(results[0].kind).toBe('async getPlatformType');
+    expect(results[0].args).toHaveLength(argSets[0].length);
+    argSets[0].forEach((value, j) => {
+      expect(results[0].args[j]).toBe(value);
+    });
+
+    const lastArgs = argSets.at(-1);
+    expect(results.at(-1).kind).toBe('async getPlatformType');
+    expect(results.at(-1).args).toHaveLength(lastArgs.length);
+    lastArgs.forEach((value, j) => {
+      expect(results.at(-1).args[j]).toBe(value);
+    });
   });
 });
 
@@ -805,7 +939,12 @@ describe('hasCapability', () => {
     const results = argSets.map((args) => subject.hasCapability(...args));
     expectMockCalls(subject.hasCapability, argSets);
     results.forEach((result, i) => {
-      expect(result).toEqual({ kind: 'hasCapability', args: argSets[i] });
+      expect(result).toBeTypeOf('object');
+      expect(result.kind).toBe('hasCapability');
+      expect(result.args).toHaveLength(argSets[i].length);
+      argSets[i].forEach((value, j) => {
+        expect(result.args[j]).toBe(value);
+      });
     });
   });
 
@@ -831,7 +970,17 @@ describe('hasCapability', () => {
 
     const results = await Promise.all(argSets.map((args) => subject.hasCapability(...args)));
     expectMockCalls(subject.hasCapability, argSets);
-    expect(results[0]).toEqual({ kind: 'async hasCapability', args: argSets[0] });
-    expect(results.at(-1)).toEqual({ kind: 'async hasCapability', args: argSets.at(-1) });
+    expect(results[0].kind).toBe('async hasCapability');
+    expect(results[0].args).toHaveLength(argSets[0].length);
+    argSets[0].forEach((value, j) => {
+      expect(results[0].args[j]).toBe(value);
+    });
+
+    const lastArgs = argSets.at(-1);
+    expect(results.at(-1).kind).toBe('async hasCapability');
+    expect(results.at(-1).args).toHaveLength(lastArgs.length);
+    lastArgs.forEach((value, j) => {
+      expect(results.at(-1).args[j]).toBe(value);
+    });
   });
 });

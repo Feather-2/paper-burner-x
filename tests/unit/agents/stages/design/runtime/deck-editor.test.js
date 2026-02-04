@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Unit-scope: mock external deps so we only test DeckEditor logic.
-vi.mock("../../../../js/agents/stages/design/refiner/react-refiner-tools.js", () => {
+vi.mock("../../../../../../js/agents/stages/design/refiner/react-refiner-tools.js", () => {
   return {
     parseSections: vi.fn(),
     joinSections: vi.fn(),
@@ -9,7 +9,7 @@ vi.mock("../../../../js/agents/stages/design/refiner/react-refiner-tools.js", ()
   };
 });
 
-vi.mock("../../../../js/agents/stages/design/shared/design-utils.js", () => {
+vi.mock("../../../../../../js/agents/stages/design/shared/design-utils.js", () => {
   return {
     isPlainObject: vi.fn(),
   };
@@ -33,11 +33,13 @@ describe("design/runtime/deck-editor", () => {
     vi.resetModules();
 
     ({ parseSections, joinSections } = await import(
-      "../../../../js/agents/stages/design/refiner/react-refiner-tools.js"
+      "../../../../../../js/agents/stages/design/refiner/react-refiner-tools.js"
     ));
-    ({ isPlainObject } = await import("../../../../js/agents/stages/design/shared/design-utils.js"));
+    ({ isPlainObject } = await import(
+      "../../../../../../js/agents/stages/design/shared/design-utils.js"
+    ));
     ({ DeckEditor, createDeckEditor } = await import(
-      "../../../../js/agents/stages/design/runtime/deck-editor.js"
+      "../../../../../../js/agents/stages/design/internal/deck-editor.js"
     ));
 
     parseSections.mockImplementation((deckHtmlDsl) => {
@@ -264,4 +266,3 @@ describe("design/runtime/deck-editor", () => {
     expect(editor.getDeckHtmlDsl()).toBe("<section>redo</section>");
   });
 });
-

@@ -120,7 +120,7 @@ describe("runtime/tools/platform", () => {
     });
 
     it("bash executes commands", async () => {
-      const tools = await createPlatformTools({ basePath: testDir });
+      const tools = await createPlatformTools({ basePath: testDir, allowedCommands: ["echo"] });
       const result = await tools.bash({ command: "echo hello" });
 
       expect(result.exitCode).toBe(0);

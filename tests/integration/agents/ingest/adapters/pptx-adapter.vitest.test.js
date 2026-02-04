@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Use a module mock so no real filesystem IO happens in these unit tests.
 const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
+  stat: vi.fn(),
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -11,6 +12,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return {
     ...actual,
     readFile: fsMocks.readFile,
+    stat: fsMocks.stat,
   };
 });
 
@@ -19,8 +21,16 @@ vi.mock("linkedom", () => ({
   DOMParser: class DOMParser {},
 }));
 
+const jszipMocks = vi.hoisted(() => ({
+  loadAsync: vi.fn(),
+}));
+
 vi.mock("jszip", () => ({
-  default: class JSZip {},
+  default: class JSZip {
+    static loadAsync(...args) {
+      return jszipMocks.loadAsync(...args);
+    }
+  },
 }));
 
 describe("PptxAdapter (vitest)", () => {
@@ -29,6 +39,9 @@ describe("PptxAdapter (vitest)", () => {
   beforeEach(() => {
     vi.resetModules();
     fsMocks.readFile.mockReset();
+    fsMocks.stat.mockReset();
+    jszipMocks.loadAsync.mockReset();
+    jszipMocks.loadAsync.mockResolvedValue({ files: {} });
     priorParser = globalThis.PPTXSlideParser;
   });
 
@@ -40,7 +53,7 @@ describe("PptxAdapter (vitest)", () => {
   it("parses a file-like input via injected stageApi.pptxParser and extracts data URI images", async () => {
     delete globalThis.PPTXSlideParser;
 
-    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx-adapter.vitest.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
 
     const pptxParser = {
       parse: vi.fn(async (arrayBuffer) => {
@@ -99,7 +112,7 @@ describe("PptxAdapter (vitest)", () => {
   it("covers guessMimeType() fallback and extFromMime() branches (gif/webp/svg/bmp/default)", async () => {
     delete globalThis.PPTXSlideParser;
 
-    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx-adapter.vitest.js");
+    const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
 
     const pptxParser = {
       parse: vi.fn(async () => ({
@@ -146,7 +159,9 @@ describe("PptxAdapter (vitest)", () => {
   });
 
   it("parses a path input via mocked fs.readFile(), uses globalThis.PPTXSlideParser, and falls back slideCount to slides.length", async () => {
-    fsMocks.readFile.mockResolvedValue(Buffer.from("FAKEPPTX", "utf8"));
+    const pptxBytes = Buffer.from("FAKEPPTX", "utf8");
+    fsMocks.stat.mockResolvedValue({ size: pptxBytes.length });
+    fsMocks.readFile.mockResolvedValue(pptxBytes);
 
     const parse = vi.fn(async () => ({
       slides: [
@@ -167,7 +182,7 @@ describe("PptxAdapter (vitest)", () => {
     const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
     const adapter = new PptxAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
 
-    const parsed = await adapter.parse("/virtual/Slides.PPTX");
+    const parsed = await adapter.parse("/virtual/Slides.PPTX", { allowPathRead: true });
 
     expect(fsMocks.readFile).toHaveBeenCalledTimes(1);
     expect(fsMocks.readFile).toHaveBeenCalledWith("/virtual/Slides.PPTX");
@@ -198,6 +213,7 @@ describe("PptxAdapter (vitest)", () => {
       "",
     ].join("\n");
 
+    fsMocks.stat.mockResolvedValue({ size: 8 });
     fsMocks.readFile.mockImplementation(async (_pathOrUrl, encoding) => {
       if (encoding === "utf8") return script;
       return Buffer.from("FAKEPPTX", "utf8");
@@ -206,7 +222,7 @@ describe("PptxAdapter (vitest)", () => {
     const { PptxAdapter } = await import("../../../../../js/agents/ingest/adapters/pptx.js");
     const adapter = new PptxAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
 
-    const parsed = await adapter.parse("/virtual/scripted.pptx");
+    const parsed = await adapter.parse("/virtual/scripted.pptx", { allowPathRead: true });
 
     expect(parsed.sourceType).toBe("pptx");
     expect(parsed.markdown).toContain("From script");

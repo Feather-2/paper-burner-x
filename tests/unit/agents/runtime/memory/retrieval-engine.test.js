@@ -2,23 +2,23 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 async function loadHybrid() {
-  return import("../../../js/agents/retrieval/hybrid-retrieval.js");
+  return import("../../../../../js/agents/retrieval/hybrid-retrieval.js");
 }
 
 async function loadBm25() {
-  return import("../../../js/agents/retrieval/bm25.js");
+  return import("../../../../../js/agents/retrieval/bm25.js");
 }
 
 async function loadMmr() {
-  return import("../../../js/agents/retrieval/mmr.js");
+  return import("../../../../../js/agents/retrieval/mmr.js");
 }
 
 async function loadVectorSearch() {
-  return import("../../../js/agents/retrieval/vector-search.js");
+  return import("../../../../../js/agents/retrieval/vector-search.js");
 }
 
 async function loadRouter() {
-  return import("../../../js/agents/retrieval/retrieval-router.js");
+  return import("../../../../../js/agents/retrieval/retrieval-router.js");
 }
 
 // Helper: create mock embedding service

@@ -360,15 +360,39 @@ export class SecurePluginLoader {
       return errorResult(msg);
     }
 
-    if (typeof Blob !== 'function' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
-      return errorResult('Blob or URL.createObjectURL is unavailable');
+    /** @type {string} */
+    let importUrl = '';
+    /** @type {null | (() => void)} */
+    let cleanup = null;
+
+    if (nodeLike) {
+      // Node's default ESM loader does not support importing "blob:" URLs, but it
+      // does support "data:" URLs. Use a base64 data URL to keep the loader
+      // usable in Node test/CI environments.
+      if (typeof TextEncoder !== 'function') return errorResult('TextEncoder is unavailable');
+      const bytes = new TextEncoder().encode(code);
+      const base64 = bytesToBase64(bytes);
+      importUrl = `data:${DEFAULT_BLOB_TYPE};base64,${base64}`;
+    } else {
+      if (typeof Blob !== 'function' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+        return errorResult('Blob or URL.createObjectURL is unavailable');
+      }
+
+      const blob = new Blob([code], { type: DEFAULT_BLOB_TYPE });
+      importUrl = URL.createObjectURL(blob);
+      cleanup = () => {
+        if (importUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+          try {
+            URL.revokeObjectURL(importUrl);
+          } catch {
+            // ignore
+          }
+        }
+      };
     }
 
-    let objectUrl = '';
     try {
-      const blob = new Blob([code], { type: DEFAULT_BLOB_TYPE });
-      objectUrl = URL.createObjectURL(blob);
-      const mod = await import(/* @vite-ignore */ objectUrl);
+      const mod = await import(/* @vite-ignore */ importUrl);
       const plugin = mod?.default || mod;
       if (!plugin) return errorResult('Plugin module has no exports');
 
@@ -378,13 +402,7 @@ export class SecurePluginLoader {
       this.logger?.warn?.('Plugin import failed', { url: normalizedUrl.url, error: toErrorMessage(err) });
       return errorResult(err);
     } finally {
-      if (objectUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
-        try {
-          URL.revokeObjectURL(objectUrl);
-        } catch {
-          // ignore
-        }
-      }
+      cleanup?.();
     }
   }
 

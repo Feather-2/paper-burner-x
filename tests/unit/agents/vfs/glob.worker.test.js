@@ -15,6 +15,7 @@ let postMessage;
 let isPlainObject;
 
 beforeEach(async () => {
+  vi.clearAllMocks();
   vi.resetModules();
 
   if (typeof globalThis.self === 'undefined') {

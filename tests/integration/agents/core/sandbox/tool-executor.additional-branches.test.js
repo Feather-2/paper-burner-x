@@ -198,23 +198,29 @@ describe('runtime/tools/tool-executor: additional branches', () => {
     expect(r2.data).toBe(null);
   });
 
-  it('emits tool lifecycle events when emit() is provided', async () => {
-    const emit = vi.fn();
-    const executor = new ToolExecutor({
-      emit,
-      maxRetries: 0,
+	  it('emits tool lifecycle events when emit() is provided', async () => {
+	    const emit = vi.fn();
+	    const executor = new ToolExecutor({
+	      emit,
+	      maxRetries: 0,
       tools: {
         ok: { handler: async () => 1 },
         fail: { handler: async () => { throw new Error('boom'); } },
       },
     });
-
-    await executor.execute('ok', {}, {}, { retries: 0 });
-    await executor.execute('fail', {}, {}, { retries: 0 });
-
-    expect(emit).toHaveBeenCalledWith('tool.completed', expect.any(Object));
-    expect(emit).toHaveBeenCalledWith('tool.failed', expect.any(Object));
-  });
+	
+	    await executor.execute('ok', {}, {}, { retries: 0 });
+	    await executor.execute('fail', {}, {}, { retries: 0 });
+	
+	    expect(emit).toHaveBeenCalledWith(
+	      'tool:completed',
+	      expect.objectContaining({ tool: 'ok', args: {}, result: 1, duration: expect.any(Number) })
+	    );
+	    expect(emit).toHaveBeenCalledWith(
+	      'tool:failed',
+	      expect.objectContaining({ tool: 'fail', args: {}, error: 'boom', duration: expect.any(Number) })
+	    );
+	  });
 
   it('supports createToolExecutor() and executeTool() helpers', async () => {
     const executor = createToolExecutor({ tools: { t: { handler: async () => 'ok' } } });
@@ -389,17 +395,21 @@ describe('runtime/tools/tool-executor: additional branches', () => {
     expect(worker.lastPosted?.context).toEqual({});
   });
 
-  it('creates a Node WorkerPool on first worker-mode execution (no pre-seeded pool)', async () => {
-    const moduleUrl = new URL('./fixtures/worker-tool.js', import.meta.url).toString();
+	  it('creates a Node WorkerPool on first worker-mode execution (no pre-seeded pool)', async () => {
+	    const moduleUrl = new URL('./fixtures/worker-tool.js', import.meta.url).toString();
 
     // Ensure the pool-creation branch runs.
     delete globalThis[POOLS_KEY];
 
-    // Mock the Worker constructor to return a FakeWorker
-    const worker = new FakeWorker();
-    vi.doMock('node:worker_threads', () => ({
-      Worker: vi.fn(() => worker),
-    }));
+	    // Mock the Worker constructor to return a FakeWorker
+	    const worker = new FakeWorker();
+	    vi.doMock('node:worker_threads', () => ({
+	      Worker: class Worker {
+	        constructor() {
+	          return worker;
+	        }
+	      },
+	    }));
 
     const handler = vi.fn(async () => {
       throw new Error('should not be called in worker mode');

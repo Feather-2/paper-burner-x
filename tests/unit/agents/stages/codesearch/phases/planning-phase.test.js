@@ -130,7 +130,7 @@ describe("runPlanningPhase", () => {
     expect(state.addTodo).not.toHaveBeenCalled();
   });
 
-  it("rejects numeric-string priorities as invalid", async () => {
+  it("accepts legacy numeric-string priorities and normalizes them", async () => {
     const callModel = vi.fn(async () => ({
       content: JSON.stringify([{ text: "A", priority: "1" }]),
     }));
@@ -138,7 +138,9 @@ describe("runPlanningPhase", () => {
 
     const res = await runPlanningPhase({ state, callModel, signal: null });
 
-    expect(res).toEqual({ success: false, todos: [], error: "no_todos_generated" });
+    expect(res.success).toBe(true);
+    expect(res.todos).toHaveLength(1);
+    expect(res.todos[0].priority).toBe("high");
   });
 
   it("rejects deep nested query hints", async () => {

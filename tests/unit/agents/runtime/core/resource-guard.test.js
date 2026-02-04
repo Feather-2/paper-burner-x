@@ -356,12 +356,13 @@ describe("ResourceGuard", () => {
 
       const controller = new AbortController();
       const p = guard.waitForSlot({ timeoutMs: 1000, signal: controller.signal });
+      const expectation = expect(p).rejects.toThrow(/aborted/i);
 
       await vi.advanceTimersByTimeAsync(20);
       controller.abort();
       await vi.advanceTimersByTimeAsync(20);
 
-      await expect(p).rejects.toThrow(/aborted/i);
+      await expectation;
     });
 
     it("times out when a slot never becomes available (error handling)", async () => {
@@ -369,9 +370,10 @@ describe("ResourceGuard", () => {
       guard._getMemoryUsageMB = () => 0;
 
       const p = guard.waitForSlot({ timeoutMs: 25 });
+      const expectation = expect(p).rejects.toBeInstanceOf(Error);
       await vi.advanceTimersByTimeAsync(200);
 
-      await expect(p).rejects.toBeInstanceOf(Error);
+      await expectation;
     });
   });
 });

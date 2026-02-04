@@ -1,21 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-let wasmSupported = true;
-let nodeLike = false;
+const runtimeState = vi.hoisted(() => ({
+  wasmSupported: true,
+  nodeLike: false,
+}));
 
-const mockParser = { init: vi.fn() };
-const mockLanguage = { load: vi.fn() };
-let webTreeSitterFactory = () => ({ Parser: mockParser, Language: mockLanguage });
+const webTreeSitterMock = vi.hoisted(() => ({
+  mockParser: { init: vi.fn() },
+  mockLanguage: { load: vi.fn() },
+  factory() {
+    return { Parser: this.mockParser, Language: this.mockLanguage };
+  },
+}));
+
+const { mockParser, mockLanguage } = webTreeSitterMock;
 
 vi.mock('../../../../../js/agents/shared/utils/wasm-support.js', () => ({
-  isWasmSupported: vi.fn(() => wasmSupported),
+  isWasmSupported: vi.fn(() => runtimeState.wasmSupported),
 }));
 
 vi.mock('../../../../../js/agents/shared/platform.js', () => ({
-  isNodeLike: vi.fn(() => nodeLike),
+  isNodeLike: vi.fn(() => runtimeState.nodeLike),
 }));
 
-vi.mock('web-tree-sitter', () => webTreeSitterFactory());
+vi.mock('web-tree-sitter', () => webTreeSitterMock.factory());
 
 function setGlobalProperty(name, value) {
   const hadOwn = Object.prototype.hasOwnProperty.call(globalThis, name);
@@ -71,13 +79,12 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
 
-  wasmSupported = true;
-  nodeLike = false;
+  runtimeState.wasmSupported = true;
+  runtimeState.nodeLike = false;
 
   mockParser.init = vi.fn().mockResolvedValue(undefined);
   mockLanguage.load = vi.fn().mockResolvedValue({ mock: true });
-
-  webTreeSitterFactory = () => ({ Parser: mockParser, Language: mockLanguage });
+  webTreeSitterMock.factory = () => ({ Parser: mockParser, Language: mockLanguage });
 });
 
 describe('DEFAULT_TREE_SITTER_WASM_BASE_URL', () => {
@@ -89,7 +96,7 @@ describe('DEFAULT_TREE_SITTER_WASM_BASE_URL', () => {
 
 describe('initTreeSitter', () => {
   it('returns null in node-like runtime', async () => {
-    nodeLike = true;
+    runtimeState.nodeLike = true;
 
     const restoreFetch = setGlobalProperty('fetch', vi.fn());
     try {
@@ -119,7 +126,7 @@ describe('initTreeSitter', () => {
   });
 
   it('throws when WebAssembly is unsupported in a web runtime', async () => {
-    wasmSupported = false;
+    runtimeState.wasmSupported = false;
 
     const restoreFetch = setGlobalProperty('fetch', vi.fn());
     try {
@@ -224,7 +231,7 @@ describe('initTreeSitter', () => {
   it('throws a clear error if web-tree-sitter Parser.init is unavailable', async () => {
     const restoreFetch = setGlobalProperty('fetch', vi.fn());
     try {
-      webTreeSitterFactory = () => ({ Parser: {}, Language: mockLanguage });
+      mockParser.init = undefined;
 
       const { initTreeSitter } = await importSubject();
       await expect(initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' })).rejects.toThrow(
@@ -238,7 +245,7 @@ describe('initTreeSitter', () => {
   it('throws a clear error if web-tree-sitter Language.load is unavailable', async () => {
     const restoreFetch = setGlobalProperty('fetch', vi.fn());
     try {
-      webTreeSitterFactory = () => ({ Parser: mockParser, Language: {} });
+      mockLanguage.load = undefined;
 
       const { initTreeSitter } = await importSubject();
       await expect(initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' })).rejects.toThrow(
@@ -252,7 +259,7 @@ describe('initTreeSitter', () => {
   it('supports web-tree-sitter default export shape { default: { Parser, Language } }', async () => {
     const restoreFetch = setGlobalProperty('fetch', vi.fn());
     try {
-      webTreeSitterFactory = () => ({ default: { Parser: mockParser, Language: mockLanguage } });
+      webTreeSitterMock.factory = () => ({ default: { Parser: mockParser, Language: mockLanguage } });
 
       const { initTreeSitter } = await importSubject();
       const env = await initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' });
@@ -268,7 +275,7 @@ describe('initTreeSitter', () => {
   it('supports web-tree-sitter shape where Parser is the default export', async () => {
     const restoreFetch = setGlobalProperty('fetch', vi.fn());
     try {
-      webTreeSitterFactory = () => ({ default: mockParser, Language: mockLanguage });
+      webTreeSitterMock.factory = () => ({ default: mockParser, Language: mockLanguage });
 
       const { initTreeSitter } = await importSubject();
       const env = await initTreeSitter({ wasmBaseUrl: 'https://cdn.example.com/ts/' });
@@ -333,9 +340,9 @@ describe('initTreeSitter', () => {
   });
 });
 
-describe('loadTreeSitterLanguage', () => {
-  it('returns null in node-like runtime (does not validate wasmFileName)', async () => {
-    nodeLike = true;
+  describe('loadTreeSitterLanguage', () => {
+    it('returns null in node-like runtime (does not validate wasmFileName)', async () => {
+    runtimeState.nodeLike = true;
 
     const restoreFetch = setGlobalProperty('fetch', vi.fn());
     try {

@@ -235,6 +235,10 @@ describe('SandboxPool', () => {
 
     expect(pool._waitQueue).toHaveLength(2);
 
+    // Flush the drain microtask scheduled by acquire() so it doesn't race the manual drain below.
+    // At this point the pool is still at maxActive, so the scheduled drain is a no-op.
+    await Promise.resolve();
+
     const key = pool._getCapabilityKey(pool.defaultCapabilities);
 
     pool._inUseCount = 0;

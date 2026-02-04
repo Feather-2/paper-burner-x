@@ -29,23 +29,26 @@ describe("MarkdownAdapter (vitest)", () => {
     vi.clearAllMocks();
   });
 
-  it("reads markdown from a path via mocked fs.readFile()", async () => {
-    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
+	  it("reads markdown from a path via mocked fs.readFile()", async () => {
+	    const { MarkdownAdapter } = await import("../../../../../js/agents/ingest/adapters/markdown.js");
 
-    const mdPath = "/virtual/notes.MARKDOWN";
-    const body = "# Title\n\nHello\n";
-    fsMocks.readFile.mockResolvedValue(Buffer.from(body, "utf8"));
+	    const mdPath = "/virtual/notes.MARKDOWN";
+	    const body = "# Title\n\nHello\n";
+	    fsMocks.stat.mockResolvedValue({ size: Buffer.byteLength(body, "utf8") });
+	    fsMocks.readFile.mockResolvedValue(body);
 
-    const adapter = new MarkdownAdapter();
-    const parsed = await adapter.parse(mdPath);
+	    const adapter = new MarkdownAdapter();
+	    const parsed = await adapter.parse(mdPath, { allowPathRead: true });
 
-    expect(fsMocks.readFile).toHaveBeenCalledTimes(1);
-    expect(fsMocks.readFile).toHaveBeenCalledWith(mdPath);
+	    expect(fsMocks.stat).toHaveBeenCalledTimes(1);
+	    expect(fsMocks.stat).toHaveBeenCalledWith(mdPath);
+	    expect(fsMocks.readFile).toHaveBeenCalledTimes(1);
+	    expect(fsMocks.readFile).toHaveBeenCalledWith(mdPath, "utf8");
 
-    expect(parsed.sourceType).toBe("markdown");
-    expect(parsed.origin.filename).toBe("notes.MARKDOWN");
-    expect(parsed.origin.mimeType).toBe("text/markdown");
-    expect(parsed.markdown).toBe(body);
+	    expect(parsed.sourceType).toBe("markdown");
+	    expect(parsed.origin.filename).toBe("notes.MARKDOWN");
+	    expect(parsed.origin.mimeType).toBe("text/markdown");
+	    expect(parsed.markdown).toBe(body);
     expect(parsed.origin.size).toBe(Buffer.byteLength(body, "utf8"));
   });
 

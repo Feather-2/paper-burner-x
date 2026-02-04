@@ -14,6 +14,7 @@ const systemIndexMock = {
   createDockerExecutor: vi.fn(),
   createPermissionExecutor: vi.fn(),
   createInteractivePermissionHandler: vi.fn(),
+  SystemSandboxExecutor: class SystemSandboxExecutorMock {},
 };
 
 class MockWasmSandbox {
@@ -57,9 +58,18 @@ const PlatformMock = Object.freeze({ LINUX: 'linux', DARWIN: 'darwin', WINDOWS: 
 
 vi.mock('../../../../../js/agents/shared/index.js', () => ({
   isNodeLike: () => isNodeLikeValue,
+  createLogger: vi.fn(() => ({
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  })),
 }));
 
 vi.mock('../../../../../js/agents/core/sandbox/system/index.js', () => systemIndexMock);
+// Vite/Vitest may resolve dynamic imports to root-absolute module IDs ("/js/...") even when tests use fs paths.
+// Mock both IDs to avoid accidentally importing the real system module during concurrent dynamic imports.
+vi.mock('/js/agents/core/sandbox/system/index.js', () => systemIndexMock);
 
 vi.mock('../../../../../js/agents/core/sandbox/wasm-sandbox.js', () => ({
   WasmSandbox: MockWasmSandbox,
@@ -149,6 +159,9 @@ describe('detectAllBackends', () => {
   it('supports concurrent and rapid calls with boundary values', async () => {
     systemIndexMock.detectAllBackends.mockImplementation(async (n) => `v:${n}`);
     const mod = await importSandboxIndex({ nodeLike: true });
+
+    // Prime the mocked system module so concurrent calls don't race the dynamic import loader.
+    await import('../../../../../js/agents/core/sandbox/system/index.js');
 
     const results = await Promise.all([
       mod.detectAllBackends(0),

@@ -265,22 +265,23 @@ describe("getDesignModelCaller", () => {
     expect(modelRouterCall).not.toHaveBeenCalled();
   });
 
-  it("times out with TimeoutError and code 124", async () => {
-    vi.useFakeTimers();
-    try {
-      const modelRouterCall = vi.fn(() => new Promise(() => {}));
-      const stageApi = { modelRouter: { call: modelRouterCall } };
-      const caller = getDesignModelCaller(stageApi);
-      const promise = caller([], { timeoutMs: 5 });
+	  it("times out with TimeoutError and code 124", async () => {
+	    vi.useFakeTimers();
+	    try {
+	      const modelRouterCall = vi.fn(() => new Promise(() => {}));
+	      const stageApi = { modelRouter: { call: modelRouterCall } };
+	      const caller = getDesignModelCaller(stageApi);
+	      const promise = caller([], { timeoutMs: 5 });
 
-      await vi.advanceTimersByTimeAsync(5);
+	      const assertion = expect(promise).rejects.toMatchObject({ name: "TimeoutError", code: 124, timeoutMs: 5 });
+	      await vi.advanceTimersByTimeAsync(5);
 
-      await expect(promise).rejects.toMatchObject({ name: "TimeoutError", code: 124, timeoutMs: 5 });
-      expect(modelRouterCall).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+	      await assertion;
+	      expect(modelRouterCall).toHaveBeenCalledTimes(1);
+	    } finally {
+	      vi.useRealTimers();
+	    }
+	  });
 
   it("does not schedule timeout when timeoutMs <= 0", async () => {
     const modelRouterCall = vi.fn(() => Promise.resolve("ok"));
@@ -296,49 +297,57 @@ describe("getDesignModelCaller", () => {
     timeoutSpy.mockRestore();
   });
 
-  it("uses env timeout when opts.timeoutMs is a string", async () => {
-    process.env.DESIGN_MODEL_TIMEOUT_MS = "7";
-    vi.useFakeTimers();
-    let timeoutSpy;
-    try {
-      const modelRouterCall = vi.fn(() => new Promise(() => {}));
-      const stageApi = { modelRouter: { call: modelRouterCall } };
-      const caller = getDesignModelCaller(stageApi);
+	  it("uses env timeout when opts.timeoutMs is a string", async () => {
+	    process.env.DESIGN_MODEL_TIMEOUT_MS = "7";
+	    vi.useFakeTimers();
+	    let timeoutSpy;
+	    try {
+	      const modelRouterCall = vi.fn(() => new Promise(() => {}));
+	      const stageApi = { modelRouter: { call: modelRouterCall } };
+	      const caller = getDesignModelCaller(stageApi);
 
-      timeoutSpy = vi.spyOn(globalThis, "setTimeout");
-      const promise = caller([], { timeoutMs: "3" });
+	      timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+	      const promise = caller([], { timeoutMs: "3" });
 
-      expect(timeoutSpy.mock.calls[0][1]).toBe(7);
+	      // `getDesignModelCaller` awaits a flush barrier before scheduling the hard timeout.
+	      await Promise.resolve();
+	      expect(timeoutSpy).toHaveBeenCalled();
+	      expect(timeoutSpy.mock.calls.some((call) => call[1] === 7)).toBe(true);
 
-      await vi.advanceTimersByTimeAsync(7);
-      await expect(promise).rejects.toMatchObject({ name: "TimeoutError", timeoutMs: 7 });
-    } finally {
-      timeoutSpy?.mockRestore();
-      vi.useRealTimers();
-    }
-  });
+	      const assertion = expect(promise).rejects.toMatchObject({ name: "TimeoutError", timeoutMs: 7 });
+	      await vi.advanceTimersByTimeAsync(7);
+	      await assertion;
+	    } finally {
+	      timeoutSpy?.mockRestore();
+	      vi.useRealTimers();
+	    }
+	  });
 
-  it("uses default timeout when env value is whitespace", async () => {
-    process.env.DESIGN_MODEL_TIMEOUT_MS = "   ";
-    vi.useFakeTimers();
-    let timeoutSpy;
-    try {
-      const modelRouterCall = vi.fn(() => new Promise(() => {}));
-      const stageApi = { modelRouter: { call: modelRouterCall } };
-      const caller = getDesignModelCaller(stageApi);
+	  it("uses default timeout when env value is whitespace", async () => {
+	    process.env.DESIGN_MODEL_TIMEOUT_MS = "   ";
+	    vi.useFakeTimers();
+	    let timeoutSpy;
+	    try {
+	      const modelRouterCall = vi.fn(() => new Promise(() => {}));
+	      const stageApi = { modelRouter: { call: modelRouterCall } };
+	      const caller = getDesignModelCaller(stageApi);
 
-      timeoutSpy = vi.spyOn(globalThis, "setTimeout");
-      const promise = caller([]);
+	      timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+	      const promise = caller([]);
 
-      expect(timeoutSpy.mock.calls[0][1]).toBe(120000);
+	      // `getDesignModelCaller` awaits a flush barrier before scheduling the hard timeout.
+	      await Promise.resolve();
+	      expect(timeoutSpy).toHaveBeenCalled();
+	      expect(timeoutSpy.mock.calls.some((call) => call[1] === 120000)).toBe(true);
 
-      await vi.advanceTimersByTimeAsync(120000);
-      await expect(promise).rejects.toMatchObject({ name: "TimeoutError", timeoutMs: 120000 });
-    } finally {
-      timeoutSpy?.mockRestore();
-      vi.useRealTimers();
-    }
-  });
+	      const assertion = expect(promise).rejects.toMatchObject({ name: "TimeoutError", timeoutMs: 120000 });
+	      await vi.advanceTimersByTimeAsync(120000);
+	      await assertion;
+	    } finally {
+	      timeoutSpy?.mockRestore();
+	      vi.useRealTimers();
+	    }
+	  });
 
   it("handles concurrent calls independently", async () => {
     const deferreds = [createDeferred(), createDeferred()];

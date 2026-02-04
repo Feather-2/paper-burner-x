@@ -37,7 +37,7 @@ describe("PdfAdapter (vitest)", () => {
   it("parses a path input via injected OCR, forwards onProgress, and mocks fs reads", async () => {
     delete globalThis.OcrManager;
 
-    const { PdfAdapter } = await import("../../../../../js/agents/ingest/adapters/pdf-adapter.vitest.js");
+    const { PdfAdapter } = await import("../../../../../js/agents/ingest/adapters/pdf.js");
 
     const pdfPath = "/virtual/Paper.PDF";
     const bytes = Buffer.from("%PDF-1.4\nHello from mocked fs\n", "utf8");
@@ -99,7 +99,7 @@ describe("PdfAdapter (vitest)", () => {
   it("falls back to embedded ASCII string extraction when OCR is unavailable", async () => {
     delete globalThis.OcrManager;
 
-    const { PdfAdapter } = await import("../../../../../js/agents/ingest/adapters/pdf-adapter.vitest.js");
+    const { PdfAdapter } = await import("../../../../../js/agents/ingest/adapters/pdf.js");
 
     // Include non-printable bytes to force segmentation inside extractAsciiStrings().
     const bytes = Buffer.from([0x00, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0x00]);

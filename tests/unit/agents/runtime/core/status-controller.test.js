@@ -23,7 +23,7 @@ vi.mock("../../../../../js/agents/shared/index.js", async () => {
   };
 });
 
-vi.mock("../../../../../js/agents/plugins/telemetry/index.js", () => ({
+vi.mock("../../../../../js/agents/runtime/core/loop-runtime-state.js", () => ({
   getRuntimeState: mocks.getRuntimeState,
 }));
 

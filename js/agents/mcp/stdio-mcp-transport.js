@@ -80,6 +80,9 @@ export class StdioMcpTransport extends McpTransport {
     /** @type {null | typeof import("../plugins/transports/process-transport.js")} */
     this._processTransportModule = null;
 
+    /** @type {Promise<void> | null} */
+    this._connectPromise = null;
+
     /** @type {unknown} */
     this.serverInfo = null;
 
@@ -94,42 +97,55 @@ export class StdioMcpTransport extends McpTransport {
   async connect() {
     if (this._connected) return;
 
-    const ProcessTransport = await this._getProcessTransport();
-
-    // 创建 ProcessTransport
-    this._process = /** @type {ProcessTransportWithEvents} */ (
-      new ProcessTransport({
-        command: this.command,
-        args: this.args,
-        env: this.env,
-        cwd: this.cwd,
-        timeout: this.timeout,
-        signal: this.signal,
-      })
-    );
-
-    // 监听消息
-    this._process.on("message", (msg) =>
-      this._handleMessage(/** @type {import("./mcp-transport.js").McpMessage} */ (msg))
-    );
-    this._process.on("error", (err) => this.emit("error", err));
-    this._process.on("exit", ({ code, signal }) => {
-      this._connected = false;
-      this._rejectAllPending(new Error(`Process exited: code=${code}, signal=${signal}`));
-      this.emit("disconnect", { code, signal });
-    });
-    this._process.on("stderr", (text) => this.emit("stderr", text));
-
-    // 启动进程
-    await this._process.connect();
-    this._connected = true;
-
-    // 自动初始化 MCP 协议
-    if (this.autoInit) {
-      await this._initialize();
+    if (this._connectPromise) {
+      await this._connectPromise;
+      return;
     }
 
-    this.emit("connect");
+    this._connectPromise = (async () => {
+      const ProcessTransport = await this._getProcessTransport();
+
+      // 创建 ProcessTransport
+      this._process = /** @type {ProcessTransportWithEvents} */ (
+        new ProcessTransport({
+          command: this.command,
+          args: this.args,
+          env: this.env,
+          cwd: this.cwd,
+          timeout: this.timeout,
+          signal: this.signal,
+        })
+      );
+
+      // 监听消息
+      this._process.on("message", (msg) =>
+        this._handleMessage(/** @type {import("./mcp-transport.js").McpMessage} */ (msg))
+      );
+      this._process.on("error", (err) => this.emit("error", err));
+      this._process.on("exit", ({ code, signal }) => {
+        this._connected = false;
+        this._rejectAllPending(new Error(`Process exited: code=${code}, signal=${signal}`));
+        this.emit("disconnect", { code, signal });
+      });
+      this._process.on("stderr", (text) => this.emit("stderr", text));
+
+      // 启动进程
+      await this._process.connect();
+      this._connected = true;
+
+      // 自动初始化 MCP 协议
+      if (this.autoInit) {
+        await this._initialize();
+      }
+
+      this.emit("connect");
+    })();
+
+    try {
+      await this._connectPromise;
+    } finally {
+      this._connectPromise = null;
+    }
   }
 
   async _getProcessTransport() {
