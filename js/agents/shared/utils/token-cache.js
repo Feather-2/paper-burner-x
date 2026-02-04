@@ -13,7 +13,44 @@ import { estimateTokens } from "./value-utils.js";
 
 /** @type {Map<string, number>} */
 const cache = new Map();
-const MAX_CACHE_SIZE = 10000;
+
+/**
+ * Get default max cache size based on device memory
+ * @returns {number}
+ */
+function getDefaultMaxCacheSize() {
+  if (typeof navigator !== "undefined" && Number.isFinite(navigator.deviceMemory)) {
+    // Scale with device memory: 2GB -> 5000, 4GB -> 10000, 8GB+ -> 20000
+    return Math.max(2000, Math.min(20000, Math.floor(navigator.deviceMemory * 2500)));
+  }
+  return 10000; // Fallback
+}
+
+/** @type {number} */
+let MAX_CACHE_SIZE = getDefaultMaxCacheSize();
+
+/**
+ * Set max cache size (for testing or low-memory environments)
+ * @param {number} size
+ */
+export function setMaxCacheSize(size) {
+  if (Number.isFinite(size) && size > 0) {
+    MAX_CACHE_SIZE = Math.floor(size);
+    // Evict if over new limit
+    while (cache.size > MAX_CACHE_SIZE) {
+      const firstKey = cache.keys().next().value;
+      cache.delete(firstKey);
+    }
+  }
+}
+
+/**
+ * Get current max cache size
+ * @returns {number}
+ */
+export function getMaxCacheSize() {
+  return MAX_CACHE_SIZE;
+}
 
 /** @type {number} */
 let hits = 0;
