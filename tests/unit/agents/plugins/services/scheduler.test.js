@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const SCHEDULER_PATH = '../../../../../js/agents/plugins/services/scheduler.js';
-const PLUGIN_CORE_PATH = '../../../../../js/agents/plugins/core/plugin.js';
+const PLUGIN_CORE_PATH = '../../../../../js/agents/core/plugin.js';
 
-vi.mock(PLUGIN_CORE_PATH, () => ({
+vi.mock('../../../../../js/agents/core/plugin.js', () => ({
   createPlugin: vi.fn(definition => definition),
 }));
 
@@ -60,6 +60,12 @@ function createMockCtx(configOverrides = {}) {
   };
 
   const events = { emit: vi.fn() };
+  const log = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  };
 
   const services = new Map();
   const registerService = vi.fn((name, service) => {
@@ -71,6 +77,7 @@ function createMockCtx(configOverrides = {}) {
     state,
     stateData,
     events,
+    log,
     registerService,
     services,
   };
@@ -207,9 +214,9 @@ describe('default (scheduler plugin)', () => {
 
     it('emits queued/start/complete events and updates stats/running', async () => {
       await withScheduler({ maxConcurrent: 1, defaultTimeout: 1000 }, async ({ mod, ctx, service }) => {
-        const p = service.schedule(() => 123, undefined);
+        expect(ctx.stateData.stats?.queued).toBeUndefined();
 
-        expect(ctx.state.get('stats.queued')).toBeUndefined();
+        const p = service.schedule(() => 123, undefined);
         expect(ctx.stateData.stats?.queued).toBe(1);
 
         const queuedCalls = emitted(ctx, 'scheduler.task.queued');
@@ -395,8 +402,9 @@ describe('default (scheduler plugin)', () => {
           throw new Error('boom');
         });
 
+        const rejected = expect(p).rejects.toThrow('boom');
         await flushImmediate();
-        await expect(p).rejects.toThrow('boom');
+        await rejected;
 
         const errors = emitted(ctx, 'scheduler.task.error');
         expect(errors).toHaveLength(1);
@@ -411,8 +419,9 @@ describe('default (scheduler plugin)', () => {
       await withScheduler({ maxConcurrent: 1, defaultTimeout: 1000 }, async ({ ctx, service }) => {
         const p = service.schedule(() => Promise.reject(new Error('nope')));
 
+        const rejected = expect(p).rejects.toThrow('nope');
         await flushImmediate();
-        await expect(p).rejects.toThrow('nope');
+        await rejected;
 
         const errors = emitted(ctx, 'scheduler.task.error');
         expect(errors).toHaveLength(1);
@@ -425,6 +434,7 @@ describe('default (scheduler plugin)', () => {
         const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
 
         const p = service.schedule(() => new Promise(() => {}));
+        const rejected = expect(p).rejects.toThrow('Task timeout');
 
         await flushImmediate();
 
@@ -432,7 +442,7 @@ describe('default (scheduler plugin)', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        await expect(p).rejects.toThrow('Task timeout');
+        await rejected;
 
         const errors = emitted(ctx, 'scheduler.task.error');
         expect(errors).toHaveLength(1);

@@ -16,7 +16,7 @@ import {
   ensureRuntimeState,
   getRuntimeState,
   setRuntimeState,
-} from '../../../../js/agents/plugins/telemetry/loop-runtime-state.js';
+} from '../../../../js/agents/runtime/core/loop-runtime-state.js';
 
 import { RunReplayController } from '../../../../js/agents/plugins/telemetry/replay-controller.js';
 

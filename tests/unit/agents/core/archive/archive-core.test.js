@@ -1,87 +1,91 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const isPlainObjectImpl = (value) => {
-  if (value === null || typeof value !== "object") return false;
-  if (Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-};
+const mockValueUtils = vi.hoisted(() => {
+  const isPlainObjectImpl = (value) => {
+    if (value === null || typeof value !== "object") return false;
+    if (Array.isArray(value)) return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  };
 
-const toNonEmptyStringImpl = (value) => {
-  if (value === null || value === undefined) return null;
-  const s = String(value).trim();
-  return s ? s : null;
-};
+  const toNonEmptyStringImpl = (value) => {
+    if (value === null || value === undefined) return null;
+    const s = String(value).trim();
+    return s ? s : null;
+  };
 
-const toPositiveIntImpl = (value, fallback) => {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  if (n <= 0) return fallback;
-  return Math.floor(n);
-};
+  const toPositiveIntImpl = (value, fallback) => {
+    const n = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    if (n <= 0) return fallback;
+    return Math.floor(n);
+  };
 
-const cloneJson = (v) => JSON.parse(JSON.stringify(v));
+  return {
+    isPlainObject: vi.fn(isPlainObjectImpl),
+    toNonEmptyString: vi.fn(toNonEmptyStringImpl),
+    toPositiveInt: vi.fn(toPositiveIntImpl),
+  };
+});
 
-const setByJsonPointer = (obj, pointer, value) => {
-  if (pointer === "" || pointer === "/") return value;
-  const parts = String(pointer)
-    .split("/")
-    .slice(1)
-    .map((p) => p.replace(/~1/g, "/").replace(/~0/g, "~"));
+const mockSerialization = vi.hoisted(() => {
+  const cloneJson = (v) => JSON.parse(JSON.stringify(v));
 
-  let cur = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const key = parts[i];
-    if (cur[key] === undefined || cur[key] === null || typeof cur[key] !== "object") {
-      cur[key] = {};
-    }
-    cur = cur[key];
-  }
-  cur[parts[parts.length - 1]] = value;
-  return obj;
-};
+  const setByJsonPointer = (obj, pointer, value) => {
+    if (pointer === "" || pointer === "/") return value;
+    const parts = String(pointer)
+      .split("/")
+      .slice(1)
+      .map((p) => p.replace(/~1/g, "/").replace(/~0/g, "~"));
 
-const mockValueUtils = {
-  isPlainObject: vi.fn(isPlainObjectImpl),
-  toNonEmptyString: vi.fn(toNonEmptyStringImpl),
-  toPositiveInt: vi.fn(toPositiveIntImpl),
-};
-
-const mockSerialization = {
-  safeJsonSize: vi.fn((value) => {
-    try {
-      return Buffer.byteLength(JSON.stringify(value), "utf8");
-    } catch {
-      return Infinity;
-    }
-  }),
-  buildJsonPatch: vi.fn(() => []),
-  applyJsonPatch: vi.fn((base, ops) => {
-    if (base === null || base === undefined) return null;
-    if (!Array.isArray(ops)) return null;
-
-    let out = cloneJson(base);
-    for (const op of ops) {
-      if (!op || typeof op !== "object") return null;
-      const kind = String(op.op || "").toLowerCase();
-      const path = op.path;
-
-      if (kind === "replace" || kind === "add") {
-        out = setByJsonPointer(out, path, cloneJson(op.value));
-        continue;
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const key = parts[i];
+      if (cur[key] === undefined || cur[key] === null || typeof cur[key] !== "object") {
+        cur[key] = {};
       }
-
-      // Minimal support: treat remove as setting undefined (good enough for unit tests here)
-      if (kind === "remove") {
-        out = setByJsonPointer(out, path, undefined);
-        continue;
-      }
-
-      return null;
+      cur = cur[key];
     }
-    return out;
-  }),
-};
+    cur[parts[parts.length - 1]] = value;
+    return obj;
+  };
+
+  return {
+    safeJsonSize: vi.fn((value) => {
+      try {
+        return Buffer.byteLength(JSON.stringify(value), "utf8");
+      } catch {
+        return Infinity;
+      }
+    }),
+    buildJsonPatch: vi.fn(() => []),
+    applyJsonPatch: vi.fn((base, ops) => {
+      if (base === null || base === undefined) return null;
+      if (!Array.isArray(ops)) return null;
+
+      let out = cloneJson(base);
+      for (const op of ops) {
+        if (!op || typeof op !== "object") return null;
+        const kind = String(op.op || "").toLowerCase();
+        const path = op.path;
+
+        if (kind === "replace" || kind === "add") {
+          out = setByJsonPointer(out, path, cloneJson(op.value));
+          continue;
+        }
+
+        // Minimal support: treat remove as setting undefined (good enough for unit tests here)
+        if (kind === "remove") {
+          out = setByJsonPointer(out, path, undefined);
+          continue;
+        }
+
+        return null;
+      }
+      return out;
+    }),
+  };
+});
 
 vi.mock("../../../../../js/agents/shared/utils/value-utils.js", () => mockValueUtils);
 vi.mock("../../../../../js/agents/core/archive/serialization.js", () => mockSerialization);
@@ -352,15 +356,20 @@ describe("Archive", () => {
     expect(storage.get).toHaveBeenCalledTimes(1);
   });
 
-  it("_restoreCheckpointInternal returns null when stored entry is not a plain object", async () => {
+  it("_restoreCheckpointInternal best-effort restores even when stored entry is not a plain object", async () => {
     const storage = createMemoryStorage([
       ["run:arr", []],
       ["run:str", "not-an-object"],
     ]);
     const archive = new Archive(storage);
 
-    await expect(archive._restoreCheckpointInternal("run:arr")).resolves.toBeNull();
-    await expect(archive._restoreCheckpointInternal("run:str")).resolves.toBeNull();
+    const outArr = await archive._restoreCheckpointInternal("run:arr");
+    expect(outArr).not.toBeNull();
+    expect(outArr).toEqual(expect.objectContaining({ nodeStates: {}, timestamp: "arr" }));
+
+    const outStr = await archive._restoreCheckpointInternal("run:str");
+    expect(outStr).not.toBeNull();
+    expect(outStr).toEqual(expect.objectContaining({ nodeStates: {}, timestamp: "str" }));
   });
 
   it("_restoreCheckpointInternal restores a full snapshot and caches it", async () => {
@@ -403,6 +412,7 @@ describe("Archive", () => {
     ];
 
     const diff = {
+      encoding: "diff",
       schemaVersion: 1,
       timestamp: 2000,
       metadata: { label: "diff" },
@@ -434,22 +444,21 @@ describe("Archive", () => {
     expect(storage.get.mock.calls.length).toBe(callsBefore);
   });
 
-  it("_restoreCheckpointInternal detects cycles and returns null (no infinite recursion)", async () => {
+  it("_restoreCheckpointInternal detects cycles and throws (no infinite recursion)", async () => {
     const id = "run:cycle";
     const ops = [{ op: "replace", path: "/a", value: 1 }];
     const cyc = {
+      encoding: "diff",
       timestamp: 1,
       metadata: { label: "cycle" },
       base: id,
-      ops,
-      diff: { base: id, ops },
+      patch: ops,
     };
 
     const storage = createMemoryStorage([[id, cyc]]);
     const archive = new Archive(storage);
 
-    const out = await archive._restoreCheckpointInternal(id);
-    expect(out).toBeNull();
+    await expect(archive._restoreCheckpointInternal(id)).rejects.toThrow(/circular checkpoint reference/i);
   });
 
   it("_restoreCheckpointInternal guards against excessive depth (deep diff chains)", async () => {
@@ -469,23 +478,15 @@ describe("Archive", () => {
       const id = `run:${i}`;
       const prev = `run:${i - 1}`;
       storage.map.set(id, {
+        encoding: "diff",
         timestamp: i,
         metadata: { i },
         base: prev,
-        ops: [{ op: "replace", path: "/a", value: i }],
-        diff: { base: prev, ops: [{ op: "replace", path: "/a", value: i }] },
+        patch: [{ op: "replace", path: "/a", value: i }],
       });
     }
 
-    let result = undefined;
-    let err = null;
-    try {
-      result = await archive._restoreCheckpointInternal(`run:${chainLen}`);
-    } catch (e) {
-      err = e;
-    }
-
-    expect(result === null || err instanceof Error).toBe(true);
+    await expect(archive._restoreCheckpointInternal(`run:${chainLen}`)).rejects.toThrow(/max depth exceeded/i);
   });
 
   it("_restoreCheckpointInternal handles concurrent restores without corrupting cache", async () => {

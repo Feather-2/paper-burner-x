@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../../../../js/agents/runtime/shared/index.js", () => {
+vi.mock("../../../../../js/agents/shared/index.js", () => {
   return {
     Deque: vi.fn(),
   };
@@ -19,7 +19,7 @@ vi.mock("../../../../../js/agents/runtime/core/constants/limits.js", () => {
 });
 
 import { initMessageHandling } from "../../../../../js/agents/runtime/core/agent-loop-message-handling.js";
-import { Deque } from "../../../../../js/agents/runtime/shared/index.js";
+import { Deque } from "../../../../../js/agents/shared/index.js";
 import { MessageManager } from "../../../../../js/agents/runtime/core/message-manager.js";
 import { getLimit } from "../../../../../js/agents/runtime/core/constants/limits.js";
 

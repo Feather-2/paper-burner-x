@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const SUT_MODULE_ID = '../../../../../js/agents/runtime/api/stage-api-factory.js';
-const CORE_MODULE_ID = '../../../../../js/agents/runtime/core/api/stage-api-factory.js';
 
 function createDeepNestedObject(depth = 50) {
   const root = { level: 0 };
@@ -21,17 +20,26 @@ let mockDefaultExport;
 let MockStageApiFactory;
 let mockCreateStageApiFactory;
 
-vi.mock(CORE_MODULE_ID, () => {
-  if (mockThrowOnImport) {
-    throw new Error('core module failed to load');
-  }
+function registerDependencyMocks() {
+  // `vi.resetModules()` does not clear mock-module cache, so we re-register our
+  // manual mock per-test to force Vitest to invalidate cached mocked exports.
+  vi.doMock('../../../../../js/agents/runtime/core/api/stage-api-factory.js', () => {
+    // Throw during mock module initialization to simulate a true "module failed to load" case.
+    if (mockThrowOnImport) throw new Error('core module failed to load');
 
-  return {
-    default: mockDefaultExport,
-    StageApiFactory: MockStageApiFactory,
-    createStageApiFactory: mockCreateStageApiFactory,
-  };
-});
+    return {
+      get default() {
+        return mockDefaultExport;
+      },
+      get StageApiFactory() {
+        return MockStageApiFactory;
+      },
+      get createStageApiFactory() {
+        return mockCreateStageApiFactory;
+      },
+    };
+  });
+}
 
 beforeEach(() => {
   vi.resetModules();
@@ -47,6 +55,8 @@ beforeEach(() => {
   };
 
   mockCreateStageApiFactory = vi.fn((...args) => ({ createdWith: args }));
+
+  registerDependencyMocks();
 });
 
 async function importSut() {
@@ -86,7 +96,10 @@ describe('default', () => {
   it('propagates errors when the core module fails to load', async () => {
     mockThrowOnImport = true;
 
-    await expect(importSut()).rejects.toThrow('core module failed to load');
+    // Vitest wraps errors thrown by mock factories; the original error is kept as `cause`.
+    await expect(importSut()).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: 'core module failed to load' }),
+    });
   });
 
   it('supports concurrent imports without changing export identity', async () => {

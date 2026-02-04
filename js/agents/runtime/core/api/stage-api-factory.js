@@ -448,8 +448,12 @@ function ensureEventBusBackpressure(eventBus, config) {
   // Avoid overriding a bus that has already been configured (e.g. Orchestrator defaults).
   if (eventBus?._backpressure?.enabled) return;
 
-  const cfg = config === false ? false : isPlainObject(config) ? config : {};
+  const cfg = config === false ? false : isPlainObject(config) ? { ...config } : {};
   if (cfg === false) return;
+
+  if (cfg.maxQueueSize !== undefined) {
+    cfg.maxQueueSize = toNonNegativeInt(cfg.maxQueueSize);
+  }
 
   try {
     eventBus.enableBackpressure({ ...DEFAULT_EVENTBUS_BACKPRESSURE, ...cfg });
@@ -760,10 +764,11 @@ export class StageApiFactory {
    */
   createBaseApi(overrides = {}) {
     // 过滤 undefined 值，避免覆盖已有配置
+    const filteredServices = filterDefinedValues(this.services);
     const filtered = filterDefinedValues(overrides);
     const api = createStageApi({
       ...this.baseConfig,
-      ...this.services,
+      ...filteredServices,
       ...filtered,
     });
 
@@ -898,7 +903,78 @@ export class StageApiFactory {
  * @returns {StageApiFactory} 新的 Factory 实例
  */
 export function createStageApiFactory(services) {
-  return new StageApiFactory(services);
+  // Back-compat: keep the original behavior when called with just services.
+  // The test harness (and some callsites) may also invoke this as a stage-aware factory:
+  //   createStageApiFactory(stageName, services) -> StageApi
+  //   createStageApiFactory(services, stageName) -> StageApi
+  const a = arguments[0];
+  const b = arguments[1];
+
+  if (arguments.length <= 1) {
+    return new StageApiFactory(services);
+  }
+
+  const stageName = typeof a === "string" ? a : typeof b === "string" ? b : "";
+  const svc = a && typeof a === "object" ? a : b && typeof b === "object" ? b : null;
+
+  if (!svc) {
+    throw new TypeError("[StageApiFactory] Expected services to be an object.");
+  }
+
+  // Required: signal must be explicitly provided (null is allowed).
+  if (!Object.prototype.hasOwnProperty.call(svc, "signal")) {
+    throw new Error("[StageApiFactory] Missing required field: signal");
+  }
+
+  // Required: emit can come from explicit emit or eventBus.emit.
+  const hasEmit =
+    typeof svc.emit === "function" || (svc.eventBus && typeof svc.eventBus.emit === "function");
+  if (!hasEmit) {
+    throw new Error("[StageApiFactory] Missing required field: emit (or eventBus.emit)");
+  }
+
+  const normalizedStage = typeof stageName === "string" ? stageName.trim().toLowerCase() : "";
+  const requiresAiApiService = normalizedStage === "deepsearch" || normalizedStage === "design";
+
+  let aiApiService = svc.aiApiService;
+  if (
+    requiresAiApiService &&
+    (!aiApiService || typeof aiApiService !== "object" || typeof aiApiService.chat !== "function")
+  ) {
+    const container = svc.container;
+    const c = container && typeof container === "object" ? container : null;
+
+    let candidate = null;
+    if (c && typeof c.tryGet === "function") {
+      candidate = c.tryGet("aiApiService");
+    } else if (c && typeof c.get === "function") {
+      try {
+        candidate = c.get("aiApiService");
+      } catch {
+        candidate = null;
+      }
+    }
+
+    if (candidate && typeof candidate === "object" && typeof candidate.chat === "function") {
+      aiApiService = candidate;
+    } else {
+      throw new Error("[StageApiFactory] Missing required field: aiApiService");
+    }
+  }
+
+  const factory = new StageApiFactory(svc);
+  const overrides =
+    requiresAiApiService &&
+    aiApiService &&
+    (!svc.aiApiService || typeof svc.aiApiService.chat !== "function")
+      ? { aiApiService }
+      : {};
+
+  if (!normalizedStage) return factory.createBaseApi(overrides);
+  if (normalizedStage === "deepsearch") return factory.createDeepSearchApi(overrides);
+  if (normalizedStage === "design") return factory.createDesignApi(overrides);
+  if (normalizedStage === "textprep") return factory.createTextPrepApi(overrides);
+  return factory.createBaseApi(overrides);
 }
 
 export default StageApiFactory;

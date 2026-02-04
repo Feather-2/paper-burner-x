@@ -35,7 +35,7 @@ import {
 import MessageManager from '../../../../js/agents/runtime/core/message-manager.js';
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from '../../../../js/agents/runtime/core/context-config.js';
 import WorkerRpcClient, { createRpcHandler } from '../../../../js/agents/runtime/core/worker-rpc.js';
-import { setRuntimeState, LoopRuntimeStatuses } from '../../../../js/agents/plugins/telemetry/loop-runtime-state.js';
+import { setRuntimeState, LoopRuntimeStatuses } from '../../../../js/agents/runtime/core/loop-runtime-state.js';
 import { BaseAgentLoop, BaseStage } from '../../../../js/agents/runtime/core/agent-loop.js';
 
 function createTestEventBus() {
@@ -227,9 +227,9 @@ describe('runtime/core ToolRegistry', () => {
     expect(capturedSpan.setStatus).toHaveBeenCalledWith('error', expect.stringContaining('Unknown tool'));
   });
 
-  it('integrates PolicyManager (deny and fail-open)', async () => {
+  it('integrates PolicyManager (deny and fail-closed)', async () => {
     const toolFn = vi.fn(async () => 'ok');
-    const logger = { warn: vi.fn() };
+    const logger = { warn: vi.fn(), error: vi.fn() };
     const registry = new ToolRegistry({ tools: { fetch: toolFn }, logger });
 
     const policyManager = {
@@ -252,9 +252,10 @@ describe('runtime/core ToolRegistry', () => {
       }),
     });
 
-    const ok = await registry2.callTool('fetch', { url: 'https://example.com' }, {});
-    expect(ok).toMatchObject({ ok: true, data: 'ok' });
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('[tool-registry] PolicyManager.check failed: policy-down'));
+    const failed = await registry2.callTool('fetch', { url: 'https://example.com' }, {});
+    expect(failed).toMatchObject({ ok: false, error: 'Policy check failed: policy-down' });
+    expect(toolFn).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('[tool-registry] PolicyManager.check failed: policy-down'));
   });
 });
 

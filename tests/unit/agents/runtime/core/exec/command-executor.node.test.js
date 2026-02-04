@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 
 const SUT_SPECIFIER = '../../../../../../js/agents/runtime/core/exec/command-executor.node.js';
-const SHARED_SPECIFIER = '../../../../../../js/agents/runtime/shared/index.js';
+const SHARED_SPECIFIER = vi.hoisted(() => '../../../../../../js/agents/runtime/shared/index.js');
 
 const spawnMock = vi.fn();
 
@@ -950,7 +950,7 @@ describe.each(EXPORT_NAMES)('%s', (exportName) => {
         expect(spawnMock).toHaveBeenCalledTimes(0);
       });
 
-      it('executes shell when trusted:true and passes shell:true to spawn', async () => {
+      it('executes shell when trusted:true and invokes the system shell', async () => {
         const mod = await importSut();
         expect(typeof mod.execShell).toBe('function');
 
@@ -961,8 +961,11 @@ describe.each(EXPORT_NAMES)('%s', (exportName) => {
 
         expect(spawnMock).toHaveBeenCalledTimes(1);
         const call = spawnMock.mock.calls[0];
+        const isWindows = process.platform === 'win32';
+        expect(call[0]).toBe(isWindows ? 'cmd.exe' : '/bin/sh');
+        expect(getSpawnArgsFromCall(call)).toEqual(isWindows ? ['/c', 'echo hello'] : ['-c', 'echo hello']);
         const opts = getSpawnOptionsFromCall(call);
-        expect(opts).toEqual(expect.objectContaining({ shell: true }));
+        expect(opts).toEqual(expect.objectContaining({ shell: false }));
 
         finishChild(child, 0, null);
 

@@ -1,19 +1,46 @@
+/**
+ * @vitest-environment node
+ * @vitest-pool forks
+ * @vitest-no-parallel
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const STAGE_API_FACTORY_PATH =
-  "../../../../../../js/agents/runtime/core/api/stage-api-factory.js";
-
-const SHARED_INDEX_PATH = "../../../../../../js/agents/runtime/shared/index.js";
-const FS_ADAPTER_PATH = "../../../../../../js/agents/runtime/vfs/fs-adapter.js";
-const VFS_GLOB_PATH = "../../../../../../js/agents/runtime/vfs/glob.js";
-const TELEMETRY_PATH =
-  "../../../../../../js/agents/runtime/plugins/telemetry/index.js";
-const RETRY_STRATEGY_PATH =
-  "../../../../../../js/agents/runtime/core/retry-strategy.js";
-const ERROR_BOUNDARY_PATH =
-  "../../../../../../js/agents/runtime/core/error-boundary.js";
-const TOOL_QUOTAS_PATH = "../../../../../../js/agents/runtime/tools/tool-quotas.js";
-const MESSAGE_BUS_PATH = "../../../../../../js/agents/runtime/core/message-bus.js";
+const {
+  STAGE_API_FACTORY_PATH,
+  SHARED_INDEX_PATH,
+  FS_ADAPTER_PATH,
+  VFS_GLOB_PATH,
+  TELEMETRY_PATH,
+  RETRY_STRATEGY_PATH,
+  ERROR_BOUNDARY_PATH,
+  TOOL_QUOTAS_PATH,
+  MESSAGE_BUS_PATH,
+} = vi.hoisted(() => ({
+  STAGE_API_FACTORY_PATH: `/@fs${new URL(
+    "../../../../../../js/agents/runtime/core/api/stage-api-factory.js",
+    import.meta.url,
+  ).pathname}`,
+  SHARED_INDEX_PATH: `/@fs${new URL("../../../../../../js/agents/shared/index.js", import.meta.url).pathname}`,
+  FS_ADAPTER_PATH: `/@fs${new URL("../../../../../../js/agents/vfs/fs-adapter.js", import.meta.url).pathname}`,
+  VFS_GLOB_PATH: `/@fs${new URL("../../../../../../js/agents/vfs/glob.js", import.meta.url).pathname}`,
+  TELEMETRY_PATH: `/@fs${new URL(
+    "../../../../../../js/agents/plugins/telemetry/index.js",
+    import.meta.url,
+  ).pathname}`,
+  RETRY_STRATEGY_PATH: `/@fs${new URL(
+    "../../../../../../js/agents/runtime/core/retry-strategy.js",
+    import.meta.url,
+  ).pathname}`,
+  ERROR_BOUNDARY_PATH: `/@fs${new URL(
+    "../../../../../../js/agents/runtime/core/error-boundary.js",
+    import.meta.url,
+  ).pathname}`,
+  TOOL_QUOTAS_PATH: `/@fs${new URL(
+    "../../../../../../js/agents/runtime/tools/tool-quotas.js",
+    import.meta.url,
+  ).pathname}`,
+  MESSAGE_BUS_PATH: `/@fs${new URL("../../../../../../js/agents/core/message-bus.js", import.meta.url).pathname}`,
+}));
 
 vi.mock(SHARED_INDEX_PATH, () => {
   const createStageApi = vi.fn();
@@ -32,7 +59,10 @@ vi.mock(SHARED_INDEX_PATH, () => {
     return int < 0 ? 0 : int;
   });
 
-  const CircuitBreakerRegistry = vi.fn(() => ({ get: vi.fn(() => null) }));
+  const CircuitBreakerRegistry = class {
+    constructor() {}
+    get = vi.fn(() => null)
+  };
 
   return {
     createStageApi,
@@ -52,13 +82,16 @@ vi.mock(VFS_GLOB_PATH, () => ({
 }));
 
 vi.mock(TELEMETRY_PATH, () => ({
-  getGlobalTokenTracker: vi.fn(() => ({ track: vi.fn() })),
-  TraceContext: vi.fn((traceparent) => ({
-    startSpan: vi.fn(() => ({})),
-    endSpan: vi.fn(),
-    withSpan: vi.fn((_name, fn) => fn()),
-    getTraceparent: vi.fn(() => (traceparent == null ? "" : String(traceparent))),
-  })),
+  getGlobalTokenTracker: vi.fn(() => ({ record: vi.fn() })),
+  TraceContext: class {
+    constructor() {}
+    startSpan = vi.fn(() => ({}))
+    endSpan = vi.fn()
+    withSpan = vi.fn((_name, fn) => fn())
+    getTraceparent = vi.fn(() => "")
+    static mockClear = vi.fn()
+    static parseTraceparent = vi.fn(() => null)
+  },
 }));
 
 vi.mock(RETRY_STRATEGY_PATH, () => ({
@@ -70,9 +103,10 @@ vi.mock(ERROR_BOUNDARY_PATH, () => ({
 }));
 
 vi.mock(TOOL_QUOTAS_PATH, () => ({
-  ToolQuotaManager: vi.fn(() => ({
-    tryCall: vi.fn(async (_toolName, fn) => fn()),
-  })),
+  ToolQuotaManager: class {
+    constructor() {}
+    tryCall = vi.fn(async (_toolName, fn) => fn())
+  },
 }));
 
 vi.mock(MESSAGE_BUS_PATH, () => ({
@@ -334,7 +368,7 @@ async function loadFactory(exportName) {
     throw new Error(`Expected export "${exportName}" to be a function.`);
   }
 
-  shared.createStageApi.mockImplementation((opts) => ({ __stageApi: true, opts }));
+  shared.createStageApi.mockImplementation((opts) => ({ __stageApi: true, ...opts }));
 
   const invokerInfo = await inferInvoker(factory, shared.createStageApi);
 

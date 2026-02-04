@@ -65,39 +65,39 @@ const runtimeMocks = vi.hoisted(() => {
 
 const mockToolModule = (tool) => ({ default: tool });
 
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/list-docs/handler.js", () => mockToolModule(toolMocks.listDocs));
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/read-doc/handler.js", () => mockToolModule(toolMocks.readDoc));
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/manage-todos/handler.js", () =>
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/list-docs/handler.js", () => mockToolModule(toolMocks.listDocs));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/read-doc/handler.js", () => mockToolModule(toolMocks.readDoc));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/manage-todos/handler.js", () =>
   mockToolModule(toolMocks.manageTodos)
 );
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/search-docs/handler.js", () => mockToolModule(toolMocks.searchDocs));
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/write-report/handler.js", () => mockToolModule(toolMocks.writeReport));
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/watchdog/handler.js", () => mockToolModule(toolMocks.watchdog));
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/evaluate-gaps/handler.js", () =>
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/search-docs/handler.js", () => mockToolModule(toolMocks.searchDocs));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/write-report/handler.js", () => mockToolModule(toolMocks.writeReport));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/watchdog/handler.js", () => mockToolModule(toolMocks.watchdog));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/evaluate-gaps/handler.js", () =>
   mockToolModule(toolMocks.evaluateGaps)
 );
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/cross-verify/handler.js", () => mockToolModule(toolMocks.crossVerify));
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/refine-planning/handler.js", () =>
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/cross-verify/handler.js", () => mockToolModule(toolMocks.crossVerify));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/refine-planning/handler.js", () =>
   mockToolModule(toolMocks.refinePlanning)
 );
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/task/handler.js", () => mockToolModule(toolMocks.task));
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/ask-user/handler.js", () => mockToolModule(toolMocks.askUser));
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/get-task-result/handler.js", () =>
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/task/handler.js", () => mockToolModule(toolMocks.task));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/ask-user/handler.js", () => mockToolModule(toolMocks.askUser));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/get-task-result/handler.js", () =>
   mockToolModule(toolMocks.getTaskResult)
 );
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/advise-task/handler.js", () => mockToolModule(toolMocks.adviseTask));
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/skill/handler.js", () => mockToolModule(toolMocks.skill));
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/record-finding/handler.js", () =>
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/advise-task/handler.js", () => mockToolModule(toolMocks.adviseTask));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/skill/handler.js", () => mockToolModule(toolMocks.skill));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/record-finding/handler.js", () =>
   mockToolModule(toolMocks.recordFinding)
 );
-vi.mock("../../../../../js/agents/stages/deepsearch/tools/get-artifact/handler.js", () => mockToolModule(toolMocks.getArtifact));
+vi.mock("../../../../../../js/agents/stages/deepsearch/tools/get-artifact/handler.js", () => mockToolModule(toolMocks.getArtifact));
 
-vi.mock("../../../../../js/agents/runtime/index.js", () => runtimeMocks);
+vi.mock("../../../../../../js/agents/runtime/index.js", () => runtimeMocks);
 
 let toolIndex = null;
 
 beforeAll(async () => {
-  toolIndex = await import("../../../../../js/agents/stages/deepsearch/tools/index.js");
+  toolIndex = await import("../../../../../../js/agents/stages/deepsearch/tools/index.js");
 });
 
 beforeEach(() => {

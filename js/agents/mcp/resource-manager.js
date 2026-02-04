@@ -369,8 +369,21 @@ export class McpResourceManager {
     }
 
     const payload = { schemaVersion: "0.1", ts: Date.now(), providers };
+
+    // Enforce an overall persistence size budget (best-effort).
+    // This is separate from the per-resource `content.text` filter above and helps avoid
+    // blowing up localStorage / storage quotas with large resource lists or metadata.
+    let json = null;
+    try {
+      json = JSON.stringify(payload);
+    } catch {
+      return false;
+    }
+    if (typeof this.maxPersistBytes === "number" && Number.isFinite(this.maxPersistBytes) && this.maxPersistBytes >= 0) {
+      if (json.length > this.maxPersistBytes) return false;
+    }
+
     if (this.encryption?.enabled) {
-      const json = JSON.stringify(payload);
       void encryptString(json, {
         passphrase: this.encryption.passphrase,
         aad: this.encryption.aad,
@@ -381,7 +394,7 @@ export class McpResourceManager {
       return true;
     }
 
-    const value = isStorageLike(store) ? JSON.stringify(payload) : payload;
+    const value = isStorageLike(store) ? json : payload;
     return storeSetFireAndForget(store, RESOURCES_CACHE_KEY, value);
   }
 
@@ -503,7 +516,9 @@ export class McpResourceManager {
 
     this._pruneContentCache();
     this._persistCache();
-    return this._contentCache.get(cacheKey).content;
+    // If the cache entry was immediately pruned due to size/entry limits, still return the fetched content.
+    const latest = this._contentCache.get(cacheKey);
+    return latest ? latest.content : normalizedContent;
   }
 
   _estimateContentByteSize(content) {
@@ -522,18 +537,54 @@ export class McpResourceManager {
   }
 
   /**
-   * @param {{ providerId?: string, uri?: string, callback?: McpResourceUpdateCallback }=} options
+   * @param {{ providerId?: string, uri?: string, callback?: McpResourceUpdateCallback }|string=} options
+   * @param {McpResourceUpdateCallback=} callback
    * @returns {Promise<McpResourceSubscription>}
    */
-  async subscribeResource({ providerId, uri, callback } = {}) {
+  async subscribeResource(options = {}, callback) {
     await this._hydrationPromise;
+
+    // Support a few calling conventions:
+    // - subscribeResource({ providerId, uri, callback })
+    // - subscribeResource({ providerId, uri }, callback)
+    // - subscribeResource(providerId, uri, callback)
+    // - subscribeResource(uri, callback)
+    let providerId;
+    let uri;
+    let cb = callback;
+
+    if (isPlainObject(options)) {
+      providerId = options.providerId;
+      uri = options.uri;
+      if (typeof options.callback === "function") cb = options.callback;
+    } else if (typeof options === "string") {
+      // Positional form: (providerId, uri, callback) or (uri, callback)
+      providerId = options;
+    }
+
+    // Handle positional args when called as (providerId, uri, cb) or (uri, cb).
+    if (typeof options === "string") {
+      // Heuristic: treat first arg as URI when it "looks like" one and 2nd arg is a function.
+      if (typeof arguments[1] === "function" && arguments.length === 2 && options.includes("://")) {
+        uri = options;
+        providerId = undefined;
+        cb = arguments[1];
+      } else {
+        uri = arguments[1];
+        cb = arguments[2];
+      }
+    }
+
+    // Allow (options, callback) where callback is supplied as 2nd argument.
+    if (typeof cb !== "function" && typeof callback === "function") cb = callback;
+
     const { providerId: id, provider } = this._getProvider(providerId);
     const u = toNonEmptyString(uri);
     if (!u) throw new Error("subscribeResource: uri is required");
-    if (typeof callback !== "function") throw new TypeError("subscribeResource: callback must be a function");
+    if (typeof cb !== "function") throw new TypeError("subscribeResource: callback must be a function");
 
     const subId = `sub_${++this._subSeq}`;
-    this._subs.set(subId, { providerId: id, uri: u, callback });
+    this._subs.set(subId, { providerId: id, uri: u, callback: cb });
 
     // Ensure notification stream after local subscription is registered (avoid missing early updates).
     this._ensureProviderNotifications(id, provider);

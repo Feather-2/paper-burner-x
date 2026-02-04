@@ -248,18 +248,18 @@ export class WorkerRpcClient {
     const pending = this._pending.get(data.id);
     if (!pending) return;
 
-    this._pending.delete(data.id);
-    clearTimeout(pending.timer);
+    // Validate response structure (best-effort; ignore invalid frames)
+    let validated;
+    try {
+      validated = validateRpcResponse(data);
+    } catch (err) {
+      logger.warn("Invalid RPC response", { error: String(err), id: data.id });
+      return;
+    }
 
-    // Validate response structure
-    const validated = validateRpcResponse(data);
-    if (!validated.ok) {
-      let error = "Invalid RPC response";
-      if ("error" in validated && typeof validated.error === "string") {
-        error = validated.error;
-      }
+    if (!validated?.ok) {
+      const error = typeof validated?.error === "string" ? validated.error : "Invalid RPC response";
       logger.warn("Invalid RPC response", { error, id: data.id });
-      pending.reject(new Error(error));
       return;
     }
 

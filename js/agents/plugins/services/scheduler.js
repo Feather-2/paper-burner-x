@@ -38,6 +38,8 @@ export default createPlugin({
       [TaskPriority.LOW]: [],
     };
 
+    const validPriorities = new Set(Object.values(TaskPriority));
+
     let running = 0;
     let taskId = 0;
     const tasks = new Map();
@@ -104,6 +106,10 @@ export default createPlugin({
        * @returns {Promise<any>}
        */
       schedule(taskFn, priority = TaskPriority.NORMAL) {
+        if (!validPriorities.has(priority)) {
+          return Promise.reject(new Error('Invalid priority'));
+        }
+
         const id = ++taskId;
 
         return new Promise((resolve, reject) => {

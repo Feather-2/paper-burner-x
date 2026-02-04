@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const MODULE_PATH = "../../../../js/agents/mcp/resource-manager.js";
-const SHARED_PATH = "../../../../js/agents/shared/index.js";
-const MCP_CLIENT_PATH = "../../../../js/agents/mcp/mcp-client.js";
 
 const shared = vi.hoisted(() => {
   const logger = {
@@ -16,7 +14,7 @@ const shared = vi.hoisted(() => {
     logger,
     isNodeLike: vi.fn(() => true),
     canUseStorageEncryption: vi.fn(() => true),
-    encryptString: vi.fn((plaintext, opts) => `enc:${opts?.aad ?? "aad"}:${plaintext}`),
+    encryptString: vi.fn(async (plaintext, opts) => `enc:${opts?.aad ?? "aad"}:${plaintext}`),
     decryptString: vi.fn((ciphertext) => {
       if (typeof ciphertext !== "string") return "";
       const idx = ciphertext.indexOf(":", 4);
@@ -26,7 +24,7 @@ const shared = vi.hoisted(() => {
   };
 });
 
-vi.mock(SHARED_PATH, () => {
+vi.mock("../../../../js/agents/shared/index.js", () => {
   const isPlainObject = (value) => {
     if (value === null || typeof value !== "object") return false;
     if (Array.isArray(value)) return false;
@@ -84,11 +82,18 @@ vi.mock(SHARED_PATH, () => {
   };
 });
 
-vi.mock(MCP_CLIENT_PATH, () => {
+const mcp = vi.hoisted(() => {
   class McpClient {
-    constructor() {}
+    constructor() {
+      // Resource manager falls back to this when providerId is missing/empty.
+      this._defaultProviderId = "p1";
+    }
   }
   return { McpClient };
+});
+
+vi.mock("../../../../js/agents/mcp/mcp-client.js", () => {
+  return mcp;
 });
 
 function isClass(fn) {
@@ -151,8 +156,11 @@ function getMethodNames(obj) {
 
 function findMethod(obj, patterns) {
   const names = getMethodNames(obj);
-  for (const name of names) {
-    if (patterns.some((p) => p.test(name))) return name;
+  // Prefer "more specific" patterns by honoring the caller's pattern order.
+  // (e.g. /^listResources$/ should win over /resources.*list/ which would also match invalidateResourcesList)
+  for (const p of patterns) {
+    const hit = names.find((name) => p.test(name));
+    if (hit) return hit;
   }
   return null;
 }
@@ -222,45 +230,57 @@ function createClientStub(fixtures = {}) {
       },
     ];
 
-  const api = {
-    listResources: vi.fn(async () => ({ resources })),
-    listResourceTemplates: vi.fn(async () => ({ resourceTemplates })),
-    readResource: vi.fn(async () => ({ contents })),
-    subscribeResource: vi.fn(async () => ({ ok: true })),
-    unsubscribeResource: vi.fn(async () => ({ ok: true })),
-    request: vi.fn(async (...args) => {
-      // Support a few common calling conventions.
-      const arg0 = args[0];
-      let method = null;
-      let params = null;
+  // ResourceManager expects a real McpClient instance (instanceof check),
+  // and then fetches a "provider" via client.getProvider(providerId).
+  // For tests, we treat the client itself as the provider.
+  const api = new mcp.McpClient();
+  api._defaultProviderId = "p1";
+  api.getProvider = vi.fn((providerId) => {
+    const id = typeof providerId === "string" ? providerId : null;
+    if (!id) return api;
+    return id === api._defaultProviderId ? api : null;
+  });
 
-      if (arg0 && typeof arg0 === "object") {
-        method = arg0.method ?? null;
-        params = arg0.params ?? null;
-      } else {
-        method = args.find((a) => typeof a === "string" && a.includes("/")) ?? null;
-        params = args.find((a) => a && typeof a === "object") ?? null;
-      }
+  // Provider surface used by McpResourceManager.
+  api.listResources = vi.fn(async () => resources);
+  api.listResourceTemplates = vi.fn(async () => resourceTemplates);
+  api.readResource = vi.fn(async () => ({ contents }));
+  api.subscribeResource = vi.fn(async () => ({ ok: true }));
+  api.unsubscribeResource = vi.fn(async () => ({ ok: true }));
 
-      switch (method) {
-        case "resources/list":
-          return { resources, nextCursor: null };
-        case "resources/templates/list":
-          return { resourceTemplates, nextCursor: null };
-        case "resources/read":
-          // allow params.uri when present
-          if (params && typeof params === "object" && "uri" in params) return { contents };
-          return { contents };
-        case "resources/subscribe":
-          return { ok: true };
-        case "resources/unsubscribe":
-          return { ok: true };
-        default:
-          // Fallback to something list-ish to avoid unexpected crashes in call-path tests.
-          return { ok: true };
-      }
-    }),
-  };
+  // Legacy / alternate calling path: keep around so tests can assert "client was called".
+  api.request = vi.fn(async (...args) => {
+    // Support a few common calling conventions.
+    const arg0 = args[0];
+    let method = null;
+    let params = null;
+
+    if (arg0 && typeof arg0 === "object") {
+      method = arg0.method ?? null;
+      params = arg0.params ?? null;
+    } else {
+      method = args.find((a) => typeof a === "string" && a.includes("/")) ?? null;
+      params = args.find((a) => a && typeof a === "object") ?? null;
+    }
+
+    switch (method) {
+      case "resources/list":
+        return { resources, nextCursor: null };
+      case "resources/templates/list":
+        return { resourceTemplates, nextCursor: null };
+      case "resources/read":
+        // allow params.uri when present
+        if (params && typeof params === "object" && "uri" in params) return { contents };
+        return { contents };
+      case "resources/subscribe":
+        return { ok: true };
+      case "resources/unsubscribe":
+        return { ok: true };
+      default:
+        // Fallback to something list-ish to avoid unexpected crashes in call-path tests.
+        return { ok: true };
+    }
+  });
 
   return { api, fixtures: { resources, resourceTemplates, contents } };
 }
@@ -272,18 +292,22 @@ async function loadFresh() {
 
 async function instantiateMaybe(ctorOrFactory, options) {
   // Try a few plausible calling conventions without assuming exact signature.
+  // Normalize null/undefined into {} so class constructors using object-destructuring don't throw.
+  const opts = options && typeof options === "object" ? options : {};
+  const maybeClass = isClass(ctorOrFactory);
+
   const attempts = [
-    () => (isClass(ctorOrFactory) ? new ctorOrFactory(options) : ctorOrFactory(options)),
-    () => new ctorOrFactory(options),
-    () => ctorOrFactory(options),
-    () => (options?.client ? new ctorOrFactory(options.client, { ...options, client: undefined }) : null),
-    () => (options?.client ? ctorOrFactory(options.client, { ...options, client: undefined }) : null),
+    async () => (maybeClass ? new ctorOrFactory(opts) : ctorOrFactory(opts)),
+    async () => new ctorOrFactory(opts),
+    async () => (maybeClass ? null : ctorOrFactory(opts)),
+    async () => (opts?.client ? new ctorOrFactory(opts.client, { ...opts, client: undefined }) : null),
+    async () => (opts?.client && !maybeClass ? ctorOrFactory(opts.client, { ...opts, client: undefined }) : null),
   ];
 
   let lastErr;
   for (const attempt of attempts) {
     try {
-      const instance = attempt();
+      const instance = await attempt();
       if (instance && typeof instance === "object") return instance;
     } catch (err) {
       lastErr = err;

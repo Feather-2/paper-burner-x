@@ -16,7 +16,7 @@ import {
   setRuntimeState,
   ensureRuntimeState,
   clearRuntimeState,
-} from "../../../../../js/agents/plugins/telemetry/loop-runtime-state.js";
+} from "../../../../../js/agents/runtime/core/loop-runtime-state.js";
 
 beforeEach(() => {
   vi.clearAllMocks();

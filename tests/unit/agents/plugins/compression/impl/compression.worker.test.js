@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const MODULE_PATH = "../../../../../../js/agents/plugins/compression/impl/compression.worker.js";
-const SHARED_PATH = "../../../../../../js/agents/shared/index.js";
-const RPC_PATH = "../../../../../../js/agents/runtime/core/worker-rpc.js";
+const SHARED_PATH = vi.hoisted(() => "../../../../../../js/agents/shared/index.js");
+const RPC_PATH = vi.hoisted(() => "../../../../../../js/agents/runtime/core/worker-rpc.js");
 
 function isPlainObjectImpl(value) {
   if (value === null || typeof value !== "object") return false;

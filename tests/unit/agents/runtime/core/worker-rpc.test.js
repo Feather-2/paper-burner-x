@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-vi.mock("../../../../../js/agents/runtime/shared/index.js", () => {
+vi.mock("../../../../../js/agents/shared/index.js", () => {
   return {
     createLogger: vi.fn(() => ({
       debug: vi.fn(),
@@ -8,12 +8,12 @@ vi.mock("../../../../../js/agents/runtime/shared/index.js", () => {
       warn: vi.fn(),
       error: vi.fn(),
     })),
-    validateRpcResponse: vi.fn(() => true),
+    validateRpcResponse: vi.fn((msg) => ({ ok: true, value: msg })),
   };
 });
 
 import { WorkerRpcClient } from "../../../../../js/agents/runtime/core/worker-rpc.js";
-import { validateRpcResponse } from "../../../../../js/agents/runtime/shared/index.js";
+import { validateRpcResponse } from "../../../../../js/agents/shared/index.js";
 
 function createBrowserWorker() {
   /** @type {Map<string, Set<Function>>} */
@@ -187,16 +187,22 @@ async function startRpcCall(
         continue;
       }
 
-      await flushMicrotasks(8);
+      await flushMicrotasks(25);
 
       const afterIds = [...client._pending.keys()];
       const newIds = afterIds.filter((id) => !beforeIds.has(id));
-      if (newIds.length === 1) return { promise, id: newIds[0], fnName };
+      if (newIds.length === 1) {
+        await flushMicrotasks(25);
+        return { promise, id: newIds[0], fnName };
+      }
 
-      await flushMicrotasks(8);
+      await flushMicrotasks(25);
       const afterIds2 = [...client._pending.keys()];
       const newIds2 = afterIds2.filter((id) => !beforeIds.has(id));
-      if (newIds2.length === 1) return { promise, id: newIds2[0], fnName };
+      if (newIds2.length === 1) {
+        await flushMicrotasks(25);
+        return { promise, id: newIds2[0], fnName };
+      }
 
       const quickSettle = await Promise.race([
         Promise.resolve(promise).then(
@@ -467,8 +473,10 @@ describe("WorkerRpcClient", () => {
 
     expect(client._pending.has(id)).toBe(true);
 
+    // Attach rejection handler before advancing fake timers to avoid unhandled rejections.
+    const asserted = expect(promise).rejects.toMatchObject({ name: "TimeoutError" });
     await vi.advanceTimersByTimeAsync(25);
-    await expect(promise).rejects.toMatchObject({ name: "TimeoutError" });
+    await asserted;
     expect(client._pending.size).toBe(0);
   });
 
@@ -545,7 +553,7 @@ describe("WorkerRpcClient", () => {
   it("rejects pending calls on worker error and recreates worker on next call", async () => {
     const worker1 = createBrowserWorker();
     const worker2 = createBrowserWorker();
-    const createWorker = vi.fn(async () => (createWorker.mock.calls.length === 0 ? worker1 : worker2));
+    const createWorker = vi.fn().mockResolvedValueOnce(worker1).mockResolvedValueOnce(worker2);
 
     const client = new WorkerRpcClient({ createWorker, timeoutMs: 500 });
 
@@ -676,11 +684,13 @@ describe("WorkerRpcClient", () => {
     expect(client._pending.has(id)).toBe(true);
 
     expect(() => {
-      emitWorker(worker, "message", { id, ok: true, result: "should_not_pass" });
+      emitWorker(worker, "message", { type: "rpc:response", id, ok: true, result: "should_not_pass" });
     }).not.toThrow();
 
+    // Attach rejection handler before advancing fake timers to avoid unhandled rejections.
+    const asserted = expect(promise).rejects.toMatchObject({ name: "TimeoutError" });
     await vi.advanceTimersByTimeAsync(25);
-    await expect(promise).rejects.toMatchObject({ name: "TimeoutError" });
+    await asserted;
     expect(vi.mocked(validateRpcResponse)).toHaveBeenCalled();
     expect(client._pending.size).toBe(0);
   });
