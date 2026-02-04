@@ -10,6 +10,14 @@ const BODY_PREFIX = "paperburner_user_skills_body_v1:";
 const IDB_DB_NAME = "paperburner_user_skills_db_v1";
 const IDB_STORE_NAME = "user_skills_kv";
 
+/**
+ * @typedef {"indexeddb" | "localstorage" | "memory"} UserSkillStoreMode
+ * @typedef {{ ok: boolean, mode: UserSkillStoreMode, count?: number }} UserSkillStoreInitResult
+ *
+ * @typedef {{ [key: string]: unknown, name: string, description: string }} UserSkillMetadata
+ * @typedef {{ schemaVersion: string, skills: UserSkillMetadata[] }} UserSkillsIndex
+ */
+
 function hasLocalStorage() {
   try {
     return typeof localStorage !== "undefined" && !!localStorage && typeof localStorage.getItem === "function";
@@ -31,17 +39,29 @@ function shouldUseIndexedDB() {
   return !isNodeLike() && hasIndexedDB();
 }
 
+/** @type {{ index: UserSkillsIndex, bodies: Map<string, string> }} */
 const MEMORY = { index: { schemaVersion: "0.1", skills: [] }, bodies: new Map() };
 let _idb = null;
+/** @type {Promise<UserSkillStoreInitResult> | null} */
 let _initPromise = null;
 let _initDone = false;
 
+/** @returns {UserSkillsIndex} */
 function normalizeIndex(raw) {
   const obj = isPlainObject(raw) ? raw : {};
   const skills = Array.isArray(obj.skills) ? obj.skills : [];
+  /** @type {UserSkillMetadata[]} */
+  const normalizedSkills = [];
+  for (const candidate of skills) {
+    if (!isPlainObject(candidate)) continue;
+    const name = toNonEmptyString(candidate.name);
+    if (!name) continue;
+    const description = typeof candidate.description === "string" ? candidate.description : "";
+    normalizedSkills.push({ ...candidate, name, description });
+  }
   return {
     schemaVersion: "0.1",
-    skills: skills.filter((s) => s && typeof s === "object" && toNonEmptyString(s.name)),
+    skills: normalizedSkills,
   };
 }
 
@@ -253,6 +273,7 @@ async function migrateLocalStorageToIndexedDB(db) {
   return true;
 }
 
+/** @returns {Promise<UserSkillStoreInitResult>} */
 async function hydrateFromLocalStorage() {
   if (!hasLocalStorage()) return { ok: true, mode: "memory" };
 
@@ -287,7 +308,7 @@ async function hydrateFromLocalStorage() {
  * @param {Object} [options] - Init options
  * @param {boolean} [options.forceReload] - Force re-initialization
  * @param {Object} [options.encryption] - Encryption config (passed to configureUserSkillStoreEncryption)
- * @returns {Promise<{ ok: boolean, mode: 'indexeddb' | 'localstorage' | 'memory', count?: number }>}
+ * @returns {Promise<UserSkillStoreInitResult>}
  */
 export async function initUserSkillStore({ forceReload = false } = {}) {
   // Optional: initUserSkillStore({ encryption: { passphrase, ... } })
@@ -308,7 +329,7 @@ export async function initUserSkillStore({ forceReload = false } = {}) {
         _initDone = true;
         return outcome;
       })()
-        .catch(() => ({ ok: false, mode: "memory" }))
+        .catch(() => /** @type {UserSkillStoreInitResult} */ ({ ok: false, mode: "memory" }))
         .finally(() => {
           _initPromise = null;
         });
@@ -327,7 +348,7 @@ export async function initUserSkillStore({ forceReload = false } = {}) {
     const db = await openUserSkillsDb();
     if (!db) {
       _initDone = true;
-      return { ok: true, mode: "memory" };
+      return /** @type {UserSkillStoreInitResult} */ ({ ok: true, mode: "memory" });
     }
 
     // One-time migration from localStorage to IndexedDB.
@@ -353,9 +374,9 @@ export async function initUserSkillStore({ forceReload = false } = {}) {
     );
 
     _initDone = true;
-    return { ok: true, mode: "indexeddb", count: normalized.skills.length };
+    return /** @type {UserSkillStoreInitResult} */ ({ ok: true, mode: "indexeddb", count: normalized.skills.length });
   })()
-    .catch(() => ({ ok: false, mode: "memory" }))
+    .catch(() => /** @type {UserSkillStoreInitResult} */ ({ ok: false, mode: "memory" }))
     .finally(() => {
       _initPromise = null;
     });
@@ -366,7 +387,7 @@ export async function initUserSkillStore({ forceReload = false } = {}) {
 /**
  * List all user skills metadata.
  *
- * @returns {Array<{ name: string, description: string, [key: string]: unknown }>}
+ * @returns {UserSkillMetadata[]}
  */
 export function listUserSkills() {
   const index = loadUserSkillsIndex();
@@ -376,7 +397,7 @@ export function listUserSkills() {
 /**
  * Load the user skills index from storage.
  *
- * @returns {{ schemaVersion: string, skills: Array<{ name: string, [key: string]: unknown }> }}
+ * @returns {UserSkillsIndex}
  */
 export function loadUserSkillsIndex() {
   if (shouldUseIndexedDB()) {
@@ -509,18 +530,20 @@ export function setUserSkillBody(name, body) {
 /**
  * Upsert a user skill (create or update).
  *
- * @param {Object} input - Skill data
- * @param {Object} input.metadata - Skill metadata (must include name and description)
- * @param {string} input.metadata.name - Skill name
- * @param {string} input.metadata.description - Skill description
- * @param {string} [input.metadata.shortDescription] - Short description
- * @param {string[]} [input.metadata.keywords] - Keywords for matching (any mode)
- * @param {string[]} [input.metadata.keywordsAll] - Keywords for matching (all mode)
- * @param {string} [input.metadata.allowedTools] - Comma-separated allowed tools
- * @param {Record<string, string>} [input.metadata.tags] - Key-value tags
- * @param {string[]} [input.metadata.traits] - Skill traits
- * @param {number} [input.metadata.priority] - Priority (lower = higher)
- * @param {string} [input.body] - Skill body content
+ * @param {{
+ *   metadata?: {
+ *     name: string,
+ *     description: string,
+ *     shortDescription?: string,
+ *     keywords?: string[],
+ *     keywordsAll?: string[],
+ *     allowedTools?: string,
+ *     tags?: Record<string, string>,
+ *     traits?: string[],
+ *     priority?: number,
+ *   },
+ *   body?: string,
+ * }} [input] - Skill data
  * @returns {{ ok: boolean, name: string }}
  * @throws {Error} If metadata.name or metadata.description is missing
  */

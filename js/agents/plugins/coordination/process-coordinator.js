@@ -93,8 +93,8 @@ function normalizeClusterModule(mod) {
  * @returns {ProcessLike | null}
  */
 function getProcessRef() {
-  const g = /** @type {{ process?: ProcessLike }} */ (globalThis);
-  const p = g.process;
+  const g = /** @type {unknown} */ (globalThis);
+  const p = /** @type {{ process?: ProcessLike }} */ (g).process;
   if (!p || typeof p !== "object") return null;
   return /** @type {ProcessLike} */ (p);
 }

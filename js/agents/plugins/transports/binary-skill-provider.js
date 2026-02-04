@@ -46,7 +46,7 @@ const DEFAULT_TIMEOUT_MS = 30000;
 
 /**
  * @typedef {object} BinarySkillProviderOptions
- * @property {BinarySkillConfig[]} skills - 技能配置列表
+ * @property {BinarySkillConfig[]} [skills] - 技能配置列表
  * @property {{ emit?: Function, subscribe?: Function }} [eventBus] - EventBus
  * @property {{ register?: Function }} [serviceBus] - ServiceBus
  * @property {Logger} [logger] - 日志

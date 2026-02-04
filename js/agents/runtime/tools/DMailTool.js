@@ -75,7 +75,7 @@ export function createDMailTool(options = {}) {
         }
 
         let resolvedSeverity = severity;
-        if (resolvedSeverity === undefined || resolvedSeverity === null || resolvedSeverity === "") {
+        if (resolvedSeverity === undefined || resolvedSeverity === null || !resolvedSeverity) {
             resolvedSeverity = "minor";
         }
 

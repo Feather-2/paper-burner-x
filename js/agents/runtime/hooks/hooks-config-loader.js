@@ -306,7 +306,7 @@ export class HooksConfigLoader extends DisposableBase {
     /** @type {string} */
     this._lastHash = "";
 
-    /** @type {number | NodeJS.Timeout | null} */
+    /** @type {number | ReturnType<typeof setTimeout> | null} */
     this._watchTimer = null;
 
     /** @type {FileWatcher | null} */

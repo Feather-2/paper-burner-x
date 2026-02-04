@@ -22,7 +22,7 @@ const SANDBOX_POOL = Symbol('sandboxPool');
 /**
  * 创建沙箱插件
  * @param {SandboxPluginOptions} [options={}] - 插件配置
- * @returns {import('../plugin.js').Plugin} 沙箱插件实例
+ * @returns {ReturnType<typeof createPlugin>} 沙箱插件实例
  */
 export function createSandboxPlugin(options = {}) {
   const defaultConfig = {
@@ -52,7 +52,7 @@ export function createSandboxPlugin(options = {}) {
         /**
          * 执行代码
          * @param {string} code
-         * @param {Object} options
+         * @param {Object} [execOptions]
          */
         async execute(code, execOptions = {}) {
           return pool.withSandbox(

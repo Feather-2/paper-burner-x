@@ -58,6 +58,8 @@ export {
  * @param {string} [config.provider] - Provider 类型
  * @param {string} [config.model] - 模型 ID
  * @param {string} [config.apiKey] - API Key
+ * @param {any[]} [config.models] - Model entries
+ * @param {object} [config.providers] - Provider configs
  * @returns {Promise<{ chat: Function }>}
  */
 export async function createProvider(config = {}) {

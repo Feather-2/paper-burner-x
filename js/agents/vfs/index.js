@@ -3,6 +3,9 @@ import { createVfs as createBrowserVfs } from "./index.browser.js";
 
 export * from "./index.browser.js";
 
+/** @typedef {import("./index.browser.js").CreateBrowserVfsOptions} CreateBrowserVfsOptions */
+/** @typedef {import("./index.node.js").CreateNodeVfsOptions} CreateNodeVfsOptions */
+
 /**
  * @typedef {object} CreateVfsOptions
  * @property {'memory'|'mem'|'opfs'|'nodefs'|'storage'} [kind] - VFS backend type
@@ -25,10 +28,10 @@ export * from "./index.browser.js";
  */
 export async function createVfs(options = {}) {
   if (!Platform.isNode) {
-    return createBrowserVfs(options);
+    return createBrowserVfs(/** @type {CreateBrowserVfsOptions} */ (options));
   }
 
   // Keep Node.js code paths isolated from browser bundlers.
   const node = await import(/* @vite-ignore */ "./index.node.js");
-  return node.createVfs(options);
+  return node.createVfs(/** @type {CreateNodeVfsOptions} */ (options));
 }

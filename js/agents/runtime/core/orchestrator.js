@@ -800,7 +800,7 @@ export class AgentOrchestrator extends DisposableBase {
    */
   _removeParallelWaiter(entry) {
     if (entry?.onAbort && this.signal && typeof this.signal.removeEventListener === "function") {
-      this.signal.removeEventListener("abort", entry.onAbort);
+      this.signal.removeEventListener("abort", /** @type {EventListener} */ (entry.onAbort));
     }
     this._parallelWaiters = this._parallelWaiters.filter((w) => w !== entry);
   }

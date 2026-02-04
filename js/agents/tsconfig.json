@@ -31,12 +31,18 @@
     "isolatedModules": true
   },
   "include": [
+    "types/**/*.d.ts",
     "core/**/*.js",
     "core/**/*.d.ts",
     "plugins/**/*.js",
     "runtime/**/*.js",
     "stages/**/*.js",
-    "shared/**/*.js"
+    "shared/**/*.js",
+    "llm/**/*.js",
+    "sdk/**/*.js",
+    "skills/**/*.js",
+    "vfs/**/*.js",
+    "prompts/**/*.js"
   ],
   "exclude": [
     "node_modules",

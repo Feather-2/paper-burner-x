@@ -71,7 +71,7 @@ function isMissingPathError(err) {
 }
 
 /**
- * @param {any} data
+ * @param {any} entries
  * @returns {VfsDirEntry[]}
  */
 function toDirEntries(entries) {

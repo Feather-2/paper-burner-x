@@ -23,6 +23,8 @@ import { isPlainObject, toNonEmptyString } from "../shared/index.js";
  * }} DisposableAgentLoop
  *
  * @typedef {{ _ensureNotDisposed: () => void }} EnsureNotDisposedLike
+ *
+ * @typedef {Parameters<InstanceType<typeof EventBus>["subscribe"]>[1]} EventHandler
  */
 
 /**
@@ -355,8 +357,8 @@ export class AgentInstance extends DisposableBase {
   /**
    * 订阅事件
    * @param {string} pattern
-   * @param {Function} handler
-   * @returns {Function}
+   * @param {EventHandler} handler
+   * @returns {() => void}
    */
   on(pattern, handler) {
     const unsubscribe = this.eventBus.subscribe(pattern, handler);

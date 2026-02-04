@@ -233,6 +233,13 @@ function resolveCheckpointStore(api, /** @type {StoreOptions} */ { runId, logger
  */
 
 /**
+ * @typedef {object} ToolCallRecord
+ * @property {string} action
+ * @property {Record<string, unknown>} args
+ * @property {unknown} result
+ */
+
+/**
  * Note: Message-handling is mixed into BaseAgentLoop at runtime via attachMessageHandling().
  * These declarations keep `tsc --checkJs` happy without altering runtime behavior.
  *
@@ -710,7 +717,17 @@ export class DefaultAgentLoop extends BaseAgentLoop {
    * Run the agent loop with the given input.
    * @param {any} input - Query string, tool request, or run config object
    * @param {StageApiLike} [stageApi] - Stage API context (model caller, signal, emit, etc.)
-   * @returns {Promise<{ success: boolean, mode: string, output?: string, error?: string, toolCalls?: any[], iterations?: number, parsed?: boolean }>}
+   * @returns {Promise<{
+   *   success: boolean,
+   *   mode: string,
+   *   output?: string,
+   *   error?: string,
+   *   toolCalls?: ToolCallRecord[],
+   *   iterations?: number,
+   *   parsed?: boolean,
+   *   capabilities?: string[],
+   *   message?: string,
+   * }>}
    */
   async run(input, stageApi = {}) {
     const ctx = this._resolveRunContext(input, stageApi);

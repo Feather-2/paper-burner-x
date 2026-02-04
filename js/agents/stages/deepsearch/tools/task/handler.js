@@ -56,7 +56,7 @@ import { toPositiveInt } from "../../../../shared/index.js";
  * @property {number} [completedAt] - 完成时间戳
  * @property {number} [expiresAt] - 过期时间戳
  * @property {Promise<TaskRecord>} [promise] - 任务 Promise（仅运行中）
- * @property {TaskResult} [result] - 压缩后的结果预览
+ * @property {TaskExecutionResult | TaskResult} [result] - 任务结果（完整或压缩预览）
  * @property {boolean} [compacted] - 是否已压缩
  */
 
@@ -141,8 +141,9 @@ class TaskManager extends DisposableBase {
     // 启动定时清理
     if (typeof setInterval === "function" && cleanupInterval > 0) {
       this._timer = setInterval(() => this._prune(), cleanupInterval);
-      if (this._timer && typeof this._timer === "object" && "unref" in this._timer) {
-        this._timer.unref?.();
+      const timer = this._timer;
+      if (timer !== null && typeof timer === "object") {
+        (/** @type {IntervalHandle} */ (timer)).unref?.();
       }
       this._registerDisposable(() => {
         if (this._timer) clearInterval(this._timer);
@@ -354,7 +355,8 @@ export async function handler(args, context) {
   // ─────────────────────────────────────────────────────────────────────────────
 
   // 验证 subagent_type 白名单
-  if (!ALLOWED_SUBAGENT_TYPES.has(subagent_type)) {
+  const subagentType = /** @type {SubagentType} */ (subagent_type);
+  if (!ALLOWED_SUBAGENT_TYPES.has(subagentType)) {
     return {
       success: false,
       error: `Invalid subagent_type: "${subagent_type}". Allowed: ${[...ALLOWED_SUBAGENT_TYPES].join(', ')}`,
@@ -384,7 +386,7 @@ export async function handler(args, context) {
   }
 
   // 获取子代理工厂
-  const factory = globalSubagentRegistry.getFactory(subagent_type);
+  const factory = globalSubagentRegistry.getFactory(subagentType);
   if (!factory) {
     const available = globalSubagentRegistry.getAvailableTypes().map(t => t.type).join(", ");
     return {
@@ -412,10 +414,10 @@ export async function handler(args, context) {
   }
 
   // 生成任务 ID
-  const taskId = makeSecureTimestampedId(`task_${subagent_type}`);
+  const taskId = makeSecureTimestampedId(`task_${subagentType}`);
   const startedAt = Date.now();
 
-  emit?.("deepsearch:subagent.started", { taskId, type: subagent_type, prompt, sourceCount: targetSources.length, async: isAsync });
+  emit?.("deepsearch:subagent.started", { taskId, type: subagentType, prompt, sourceCount: targetSources.length, async: isAsync });
 
   // 创建执行函数
   const executeTask = async () => {
@@ -440,7 +442,7 @@ export async function handler(args, context) {
       const subagent = await factory({
         taskId,
         prompt,
-        modelTier: subagent_type === "analyzer" ? "normal" : "fast",
+        modelTier: subagentType === "analyzer" ? "normal" : "fast",
         parentStageApi: stageApi,
         inheritedContext: {
           taskId,
@@ -450,7 +452,7 @@ export async function handler(args, context) {
       });
 
       if (!subagent || typeof subagent.run !== "function") {
-        throw new Error(`Factory for "${subagent_type}" did not return a valid agent`);
+        throw new Error(`Factory for "${subagentType}" did not return a valid agent`);
       }
 
       // 运行子代理（使用带超时的 signal）
@@ -461,9 +463,10 @@ export async function handler(args, context) {
 
       // 存储结果
       const completedAt = Date.now();
+      /** @type {TaskRecord} */
       const taskResult = {
         taskId,
-        type: subagent_type,
+        type: subagentType,
         prompt,
         status: "completed",
         result,
@@ -483,14 +486,14 @@ export async function handler(args, context) {
       getTaskManager().set(taskId, compactTaskRecord(taskResult, { resultPreviewChars: taskConfig.resultPreviewChars }));
       pruneRunningTasks({ now: completedAt });
 
-      emit?.("deepsearch:subagent.completed", { taskId, type: subagent_type, ok: result?.ok !== false });
+      emit?.("deepsearch:subagent.completed", { taskId, type: subagentType, ok: result?.ok !== false });
 
       return taskResult;
     } catch (err) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
       logger.error("deepsearch task failed", {
         taskId,
-        type: subagent_type,
+        type: subagentType,
         error: errorObj.message,
         stack: errorObj.stack,
       });
@@ -500,9 +503,10 @@ export async function handler(args, context) {
           ? "Task timed out. Please retry."
           : "Task failed. Please retry.";
       const completedAt = Date.now();
+      /** @type {TaskRecord} */
       const taskResult = {
         taskId,
-        type: subagent_type,
+        type: subagentType,
         prompt,
         status: "failed",
         error: errorMessage,
@@ -517,7 +521,7 @@ export async function handler(args, context) {
         sharedContext.store(taskId, taskResult);
       }
 
-      emit?.("deepsearch:subagent.failed", { taskId, type: subagent_type, error: errorObj.message });
+      emit?.("deepsearch:subagent.failed", { taskId, type: subagentType, error: errorObj.message });
 
       return taskResult;
     } finally {
@@ -532,7 +536,7 @@ export async function handler(args, context) {
   const taskPromise = executeTask();
   getTaskManager().set(taskId, {
     taskId,
-    type: subagent_type,
+    type: subagentType,
     prompt,
     status: "running",
     promise: taskPromise,
@@ -545,7 +549,7 @@ export async function handler(args, context) {
       success: true,
       taskId,
       status: "running",
-      message: `子代理 ${subagent_type} 已启动，使用 get-task-result 获取结果`,
+      message: `子代理 ${subagentType} 已启动，使用 get-task-result 获取结果`,
       hint: "主代理可继续执行其他任务，稍后通过 get-task-result 获取结果",
     };
   } else {

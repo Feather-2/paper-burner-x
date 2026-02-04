@@ -45,7 +45,7 @@ export const KEY_PAGE_TYPES = Object.freeze(
  * @returns {boolean} 是否为合法的 PageType
  */
 export function isValidPageType(value) {
-  return ALLOWED_PAGE_TYPES.has(value);
+  return ALLOWED_PAGE_TYPES.has(/** @type {any} */ (value));
 }
 
 /**

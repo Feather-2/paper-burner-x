@@ -10,7 +10,8 @@ import { runWithPhaseSpan } from "./phase-utils.js";
  * 批量编排修复阶段 - 整合 QA 与风格对齐
  *
  * @param {any} loop
- * @param {{ context: any, runContext: any, emit?: EmitFn, traceContext?: any }} params
+ * @param {any} stateOrParams
+ * @param {{ context: any, runContext: any, emit?: EmitFn, traceContext?: any } | undefined} [maybeParams]
  * @returns {Promise<{ deckHtmlDsl: string, slidesMeta: any[] }>}
  */
 export async function runBatchRepairPhase(loop, stateOrParams, maybeParams) {

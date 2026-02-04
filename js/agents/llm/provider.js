@@ -113,6 +113,10 @@ export class BaseProvider {
     this.capabilities = ["chat"];
   }
 
+  /**
+   * @param {any} _input
+   * @returns {Promise<any>}
+   */
   async chat(_input) {
     throw new Error("BaseProvider.chat() not implemented");
   }

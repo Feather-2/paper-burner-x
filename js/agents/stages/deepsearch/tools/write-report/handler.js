@@ -638,6 +638,10 @@ function handleFull(report, mode, state, emit) {
  * @property {number} [wordCount] - 当前字数
  * @property {number} [version] - 报告版本号
  * @property {string} [hint] - 提示信息
+ * @property {ReturnType<typeof checkAnalysisGates>} [gateCheck] - 分析门槛检查结果（submit 时强制）
+ * @property {string[]} [warnings] - 前置条件警告列表（非 submit 仅警告不阻止）
+ * @property {{ total: number, done: number, rate: string }} [todoStats] - 待办完成统计（submit 时强制）
+ * @property {{ count: number, required: number }} [findingStats] - 发现记录统计（submit 时强制）
  */
 
 /**

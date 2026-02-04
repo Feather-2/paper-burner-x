@@ -14,6 +14,22 @@
 import { isNodeLike } from "../shared/index.js";
 
 /**
+ * @typedef {object} AgentConfigData
+ * @property {string} instructions
+ * @property {string[]} skills
+ * @property {string|null} model
+ * @property {string[]} hooks
+ */
+
+/**
+ * @typedef {AgentConfigData & {
+ *   _loaded: boolean,
+ *   _path: string,
+ *   _raw?: Record<string, unknown>,
+ * }} AgentConfig
+ */
+
+/**
  * 解析 YAML frontmatter
  * @param {string} content
  * @returns {{frontmatter: Object, body: string}}
@@ -92,7 +108,9 @@ export async function loadAgentConfig(projectRoot) {
         };
     }
 
+    // @ts-ignore - Node.js dynamic imports
     const pathModule = await import("node:path");
+    // @ts-ignore - Node.js dynamic imports
     const fs = await import("node:fs/promises");
 
     const configPath = pathModule.join(projectRoot, ".agent", "agent.md");
@@ -127,9 +145,9 @@ export async function loadAgentConfig(projectRoot) {
 
 /**
  * 合并配置（项目 > 全局 > 默认）
- * @param {AgentConfig} project
- * @param {AgentConfig} global
- * @returns {AgentConfig}
+ * @param {Partial<AgentConfigData>} project
+ * @param {Partial<AgentConfigData>} global
+ * @returns {AgentConfigData}
  */
 export function mergeConfigs(project, global) {
     return {

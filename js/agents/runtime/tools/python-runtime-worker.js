@@ -366,7 +366,7 @@ function ensureVfsProxyMounted({ mountPoint = "/vfs", aliases = ["/mnt/workspace
           const newSize = Math.floor(attr.size);
           let cur = new Uint8Array(0);
           try {
-            cur = vfsProxy.readFileSync(hostPath, { sizeHint: node.size || 0 });
+            cur = /** @type {Uint8Array<ArrayBuffer>} */ (vfsProxy.readFileSync(hostPath, { sizeHint: node.size || 0 }));
           } catch (err) {
             if (!isNotFoundError(err)) throwErr("EIO");
           }
@@ -502,7 +502,7 @@ function ensureVfsProxyMounted({ mountPoint = "/vfs", aliases = ["/mnt/workspace
 
         let cur = new Uint8Array(0);
         try {
-          cur = vfsProxy.readFileSync(hostPath, { sizeHint: stream.node.size || 0 });
+          cur = /** @type {Uint8Array<ArrayBuffer>} */ (vfsProxy.readFileSync(hostPath, { sizeHint: stream.node.size || 0 }));
         } catch (err) {
           if (!isNotFoundError(err)) throwErr("EIO");
         }

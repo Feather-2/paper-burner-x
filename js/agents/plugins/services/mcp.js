@@ -89,7 +89,7 @@ export default createPlugin({
         const safeName = sanitizeName(serverConfig.name || serverConfig.url);
 
         const { McpClient } = await import('../../mcp/mcp-client.js');
-        const client = new McpClient(serverConfig);
+        const client = new McpClient(/** @type {any} */ (serverConfig));
         await /** @type {any} */ (client).connect();
 
         clients.set(safeName, client);

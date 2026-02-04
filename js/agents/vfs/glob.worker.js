@@ -113,7 +113,8 @@ function normalizeBasePath(value) {
   return s.replace(/^\.\/+/, "").replace(/^\/+/, "").replace(/\/+$/, "");
 }
 
-/** @type {(this: DedicatedWorkerGlobalScope, event: MessageEvent<GlobWorkerRequest>) => void} */
+// @ts-ignore - Worker self.onmessage type differs from Window.onmessage
+/** @type {(event: MessageEvent<GlobWorkerRequest>) => void} */
 self.onmessage = (event) => {
   const data = event?.data;
   const id = data?.id;

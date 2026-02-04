@@ -26,17 +26,7 @@ import { createScreenshotStitcher } from "../internal/screenshot-stitcher.js";
  */
 
 /**
- * @typedef {object} SlideElement
- * @property {string} type - Element type (text, image, shape, etc.)
- * @property {string} [id] - Element ID
- * @property {Record<string, unknown>} [props] - Element properties
- */
-
-/**
- * @typedef {object} SlideDsl
- * @property {number} slideIndex - Index of the slide
- * @property {string} html - HTML content of the slide
- * @property {SlideElement[]} elements - Parsed elements in the slide
+ * @typedef {import("../internal/deck-analyzer.js").SlideDsl} SlideDsl
  */
 
 /**
@@ -57,6 +47,7 @@ import { createScreenshotStitcher } from "../internal/screenshot-stitcher.js";
 /**
  * @typedef {object} ReviewOptions
  * @property {AbortSignal} [signal] - Abort signal for cancellation
+ * @property {Partial<typeof REVIEW_CONFIG>} [config] - Config overrides
  * @property {number} [maxColorVariants] - Override max color variants
  * @property {number} [maxFontVariants] - Override max font variants
  * @property {number} [maxLayoutVariants] - Override max layout variants
@@ -104,9 +95,10 @@ import { createScreenshotStitcher } from "../internal/screenshot-stitcher.js";
 
 /**
  * @typedef {object} FixEdit
- * @property {string} type - Edit type
+ * @property {"element"|"slide"} type - Edit type
  * @property {number} slideIndex - Target slide index
- * @property {Record<string, unknown>} changes - Changes to apply
+ * @property {string} [elementId] - Target element ID (type="element" only)
+ * @property {any} changes - Changes to apply
  */
 
 /**
@@ -153,7 +145,7 @@ import { createScreenshotStitcher } from "../internal/screenshot-stitcher.js";
 /**
  * @typedef {object} DeckEditor
  * @property {function(DeckPackage): void} setDeckPackage - Set deck to edit
- * @property {function(FixEdit[]): Promise<{ success: boolean }>} batchEdit - Apply edits
+ * @property {function(FixEdit[]): Promise<{ success: boolean, data?: any, error?: string }>} batchEdit - Apply edits
  * @property {function(): string} getDeckHtmlDsl - Get current DSL
  */
 
@@ -341,6 +333,7 @@ export function buildReviewContext(deckPackage, designSystem, options = {}) {
     throw new ReviewInputError("slidesMeta must be an array");
   }
 
+  const config = resolveReviewConfig(options);
   const allDsl = collectAllDsl(dsl || "");
   return {
     deckHtmlDsl: dsl || "",
@@ -349,6 +342,7 @@ export function buildReviewContext(deckPackage, designSystem, options = {}) {
     designSystem: designSystem || {},
     slideCount: allDsl.length,
     options,
+    config,
   };
 }
 
@@ -560,8 +554,8 @@ export async function runAutoReview(deckPackage, designSystem, options = {}) {
     };
   }
 
-  const config = resolveReviewConfig(options);
-  const context = { ...buildReviewContext(deckPackage, designSystem, options), config };
+  const context = buildReviewContext(deckPackage, designSystem, options);
+  const config = context.config;
 
   if (context.slideCount === 0) {
     return {

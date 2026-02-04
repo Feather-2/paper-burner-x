@@ -4,6 +4,13 @@
  * Full-featured transport exports for Node.js runtimes.
  */
 
-export * from "./process-transport.js";
-export * from "./binary-skill-provider.js";
+export {
+  ProcessTransport,
+  createProcessTransport,
+} from "./process-transport.js";
+
+export {
+  BinarySkillProvider,
+  createBinarySkillProvider,
+} from "./binary-skill-provider.js";
 

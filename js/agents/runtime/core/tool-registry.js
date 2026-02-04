@@ -18,7 +18,7 @@ export { normalizeToolResult };
  *
  * @typedef {{ warn?: (...args: any[]) => void, info?: (...args: any[]) => void, error?: (...args: any[]) => void, debug?: (...args: any[]) => void }} LoggerLike
  *
- * @typedef {(eventName: string, record: { actor?: string, status?: string, payload?: any }) => void} EmitFn
+ * @typedef {(eventName: string, record: { actor?: string, status?: string, payload?: any, [key: string]: any }) => void} EmitFn
  *
  * @typedef {{ ok: boolean, data?: any, error?: any, quota?: any, policy?: any, [key: string]: any }} ToolResult
  *
@@ -178,7 +178,7 @@ function resolveToolQuotaMode(context) {
 }
 
 /**
- * @param {any} context
+ * @param {any} traceContext
  * @returns {TraceContextLike | null}
  */
 function isTraceContextLike(traceContext) {

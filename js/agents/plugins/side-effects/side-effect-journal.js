@@ -60,9 +60,12 @@ const MAX_WAL_LINE_SIZE = 100 * 1024;
 
 /**
  * Interface for RunStore-like objects (DI contract).
- * @typedef {object} RunStoreLike
- * @property {(runId: string) => Promise<unknown[]>} [getEvents] - Get events for a run
- * @property {(artifactId: string) => Promise<unknown>} [getArtifactById] - Get artifact by ID
+ * @typedef {import("../../vfs/checkpoints.js").RunStoreLike} RunStoreLike
+ */
+
+/**
+ * Interface for storage adapter (DI contract).
+ * @typedef {import("../../vfs/checkpoints.js").StorageAdapterLike} StorageAdapterLike
  */
 
 /**
@@ -93,13 +96,6 @@ const MAX_WAL_LINE_SIZE = 100 * 1024;
  * @property {(msg: string) => void} [info] - Log info message
  * @property {(msg: string) => void} [debug] - Log debug message
  * @property {(msg: string) => void} [error] - Log error message
- */
-
-/**
- * Interface for StorageAdapter-like objects (DI contract).
- * @typedef {object} StorageAdapterLike
- * @property {(key: string) => Promise<unknown>} [get] - Get value by key
- * @property {(key: string, value: unknown) => Promise<void>} [set] - Set value
  */
 
 /**

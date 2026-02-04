@@ -150,6 +150,7 @@ export function analyzeSkillRisk(skillBody) {
   const riskLevels = { critical: 4, high: 3, medium: 2, low: 1 };
   const maxRisk = risks.reduce((max, r) => Math.max(max, riskLevels[r.risk] || 0), 0);
 
+  /** @type {'safe' | 'low' | 'medium' | 'high' | 'critical'} */
   let overallRisk = 'safe';
   if (maxRisk >= 4) overallRisk = 'critical';
   else if (maxRisk >= 3) overallRisk = 'high';

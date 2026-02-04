@@ -306,10 +306,10 @@ async function execCommand(cmd, args = [], options = {}) {
 
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
-      await proc.exited;
+      const exitCode = await proc.exited;
       clearTimeout(timeoutId);
 
-      return { code: proc.exitCode ?? 1, stdout, stderr };
+      return { code: exitCode ?? 1, stdout, stderr };
     } catch (err) {
       return { code: 1, stdout: '', stderr: err?.message || '' };
     }

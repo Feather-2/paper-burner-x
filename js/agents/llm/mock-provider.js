@@ -59,7 +59,6 @@ function normalizeOutcome(outcome) {
 export class MockProvider extends BaseProvider {
   /**
    * @param {MockProviderOptions} [options]
-   * @returns {void}
    */
   constructor({ id = "mock", name = "MockProvider", behaviors, defaultOutcome } = {}) {
     super({ id, name });

@@ -10,7 +10,7 @@
 
 /**
  * @typedef {import("../runtime/core/message-manager.js").MessageManager} MessageManager
- * @typedef {import("../runtime/memory/l3-storage.js").L3Storage} L3Storage
+ * @typedef {import("../plugins/memory/l3-storage.js").L3Storage} L3Storage
  *
  * @typedef {{ warn?: (...args: any[]) => void, info?: (...args: any[]) => void, error?: (...args: any[]) => void, debug?: (...args: any[]) => void }} LoggerLike
  *
@@ -27,7 +27,7 @@
  * @property {number} timestamp
  *
  * @typedef {object} SoftBacktrackManagerOptions
- * @property {MessageManager} messageManager
+ * @property {MessageManager} [messageManager]
  * @property {L3Storage} [l3Storage]
  * @property {number} [maxDMails=5]
  * @property {LoggerLike} [logger]
@@ -71,7 +71,7 @@ function clampRange(from, to, length) {
 
 export class SoftBacktrackManager {
     /**
-     * @param {SoftBacktrackManagerOptions} options
+     * @param {SoftBacktrackManagerOptions} [options]
      */
     constructor(options = {}) {
         const o = options && typeof options === "object" ? options : {};

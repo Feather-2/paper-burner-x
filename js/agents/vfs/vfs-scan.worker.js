@@ -176,7 +176,8 @@ function cancelTask(id) {
   }
 }
 
-/** @type {(this: DedicatedWorkerGlobalScope, event: MessageEvent<ScanWorkerRequestMessage>) => void} */
+// @ts-ignore - Worker self.onmessage type differs from Window.onmessage
+/** @type {(event: MessageEvent<ScanWorkerRequestMessage>) => void} */
 self.onmessage = (event) => {
   const msg = event?.data;
   if (!msg || typeof msg !== "object") return;

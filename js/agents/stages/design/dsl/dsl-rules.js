@@ -94,9 +94,8 @@ const FALLBACK_DSL_RULES = `
 /**
  * DSL 规则的同步访问代理。
  * 注意：首次访问时可能返回 fallback，需要先调用 initDslRules()。
- * @type {string & { length: number }}
  */
-export const DSL_RULES = new Proxy({}, {
+export const DSL_RULES = /** @type {string & { length: number }} */ (new Proxy({}, {
   get(target, prop) {
     if (prop === Symbol.toPrimitive || prop === "toString" || prop === "valueOf") {
       return () => _cachedDslRules || FALLBACK_DSL_RULES;
@@ -112,4 +111,4 @@ export const DSL_RULES = new Proxy({}, {
   getOwnPropertyDescriptor() {
     return { configurable: true, enumerable: true };
   },
-});
+}));

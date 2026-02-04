@@ -62,7 +62,14 @@ function pickEncoding({ model, encoding, tiktoken }) {
 
 /**
  * @private
- * @returns {Promise<{ get_encoding: Function, encoding_for_model: Function, default?: { get_encoding?: Function, encoding_for_model?: Function } }>}
+ * @returns {Promise<{
+ *   get_encoding?: (name: string) => TiktokenEncoder,
+ *   encoding_for_model?: (model: string) => TiktokenEncoder,
+ *   default?: {
+ *     get_encoding?: (name: string) => TiktokenEncoder,
+ *     encoding_for_model?: (model: string) => TiktokenEncoder,
+ *   }
+ * }>}
  */
 async function loadTiktoken() {
   // Prefer the canonical package name ("tiktoken"); allow legacy alias if present.

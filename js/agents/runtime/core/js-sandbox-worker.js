@@ -190,11 +190,11 @@ function createSandboxProxy(base, audit) {
 // 创建受限执行环境
 /**
  * @param {unknown} state
- * @param {unknown} [globals]
  * @param {{ blockedAccesses: Set<string> }} audit
+ * @param {unknown} [globals]
  * @returns {any}
  */
-function createRestrictedGlobals(state, globals, audit) {
+function createRestrictedGlobals(state, audit, globals) {
   const restricted = Object.create(null);
   const root = typeof globalThis !== "undefined" ? globalThis : self;
 
@@ -282,7 +282,7 @@ self.onmessage = async (evt) => {
       timeoutId = setTimeout(() => reject(new Error('Execution timeout')), timeout);
     });
 
-    const sandbox = createRestrictedGlobals(state, globals, audit);
+    const sandbox = createRestrictedGlobals(state, audit, globals);
 
     // 构建受限执行函数
     const wrappedCode = `

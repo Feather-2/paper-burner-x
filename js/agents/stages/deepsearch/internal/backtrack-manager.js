@@ -195,7 +195,7 @@ export class BacktrackManager {
       const cursor = restored?.metadata?.sideEffectsCursor;
       if (this.sideEffects && typeof this.sideEffects.rollbackToCursor === "function") {
         try {
-          sideEffectsRollback = await this.sideEffects.rollbackToCursor(cursor, {
+          sideEffectsRollback = await this.sideEffects.rollbackToCursor(/** @type {string} */ (cursor), {
             reason: `backtrack:${targetId}`,
           });
         } catch (err) {

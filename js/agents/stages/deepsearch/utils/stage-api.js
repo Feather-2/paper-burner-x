@@ -33,7 +33,7 @@ export { StageApiSpec };
  * @property {object=} usage
  *
  * @typedef {object} ToolCallArgs
- * @property {string=} [key: string]
+ * @property {string} [key] - optional tool key
  */
 
 /**

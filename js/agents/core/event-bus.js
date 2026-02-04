@@ -64,7 +64,7 @@ import { EventBusSubscriptions } from './event-bus-subscriptions.js';
  */
 
 /**
- * @typedef {(event: EventRecord) => void | Promise<void>} EventHandler
+ * @typedef {import('./event-bus-subscriptions.js').EventHandler} EventHandler
  */
 
 const logger = createLogger('core/event-bus');
@@ -117,7 +117,7 @@ export class RunStoreAdapter {
 
   /**
    * @param {any[]} events
-   * @returns {any}
+   * @returns {Promise<any>}
    */
   async appendEvents(events) {
     if (!Array.isArray(events)) {

@@ -40,7 +40,8 @@ import { isPlainObject } from "../shared/index.js";
  * @typedef {DiffWorkerResponseOk | DiffWorkerResponseErr} DiffWorkerResponse
  */
 
-/** @type {(this: DedicatedWorkerGlobalScope, event: MessageEvent<DiffWorkerRequest>) => void} */
+// @ts-ignore - Worker self.onmessage type differs from Window.onmessage
+/** @type {(event: MessageEvent<DiffWorkerRequest>) => void} */
 self.onmessage = (event) => {
   const data = event?.data;
   const id = data?.id;

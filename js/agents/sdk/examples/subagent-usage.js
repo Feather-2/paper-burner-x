@@ -12,17 +12,17 @@ import { createAgent, createLogger } from "../index.js";
 const logger = createLogger("sdk/examples/subagent-usage");
 
 /**
- * @typedef {import('../AgentBuilder.js').BuiltAgent} BuiltAgent
+ * @typedef {import('../AgentBuilder.js').AgentInstance} BuiltAgent
  */
 
 /**
  * 创建探索子代理
- * @param {{ prompt: string, model: string }} options - 子代理创建参数
+ * @param {object} options - 子代理创建参数
  * @param {string} options.prompt - 子代理执行的提示词
  * @param {string} options.model - 使用的模型标识
  * @returns {Promise<BuiltAgent>} 构建完成的探索子代理实例
  */
-const createExplorer = async ({ prompt, model }) => {
+const createExplorer = async (options) => {
     return createAgent({ actor: "explorer" })
         .useCapability("search", async (args) => {
             const query = typeof args.query === "string" ? args.query : "";
@@ -33,12 +33,12 @@ const createExplorer = async ({ prompt, model }) => {
 
 /**
  * 创建写作子代理
- * @param {{ prompt: string, model: string }} options - 子代理创建参数
+ * @param {object} options - 子代理创建参数
  * @param {string} options.prompt - 子代理执行的提示词
  * @param {string} options.model - 使用的模型标识
  * @returns {Promise<BuiltAgent>} 构建完成的写作子代理实例
  */
-const createWriter = async ({ prompt, model }) => {
+const createWriter = async (options) => {
     return createAgent({ actor: "writer" })
         .useCapability("write", async (args) => {
             const topic = typeof args.topic === "string" ? args.topic : "";

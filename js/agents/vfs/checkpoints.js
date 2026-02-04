@@ -24,6 +24,7 @@ const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
  * @property {(artifactId: string) => Promise<any>} getArtifactById
  * @property {(runId: string) => Promise<any[]>} listArtifacts
  * @property {(runId: string, options?: any) => Promise<any[]>} listArtifactSummaries
+ * @property {(runId: string) => Promise<unknown[]>} [getEvents] - Optional: get events for a run
  */
 
 /**

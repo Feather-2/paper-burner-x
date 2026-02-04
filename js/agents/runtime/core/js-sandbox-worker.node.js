@@ -132,11 +132,11 @@ function createSandboxProxy(base, audit) {
 
 /**
  * @param {unknown} state
- * @param {unknown} [globals]
  * @param {{ blockedAccesses: Set<string> }} audit
+ * @param {unknown} [globals]
  * @returns {any}
  */
-function createRestrictedGlobals(state, globals, audit) {
+function createRestrictedGlobals(state, audit, globals) {
   const restricted = Object.create(null);
 
   for (const key of ALLOWED_GLOBALS) {
@@ -218,7 +218,7 @@ async function handleExecute(data) {
       timeoutId = setTimeout(() => reject(new Error('Execution timeout')), timeout);
     });
 
-    const sandbox = createRestrictedGlobals(state, globals, audit);
+    const sandbox = createRestrictedGlobals(state, audit, globals);
 
     const wrappedCode = `
       with (sandbox) {

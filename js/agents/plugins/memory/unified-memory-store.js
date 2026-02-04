@@ -132,6 +132,7 @@ export class UnifiedMemoryStore {
    * @private
    */
   _getStateRef() {
+    // @ts-expect-error - accessing internal StateEngine method
     return this._engine._getStateRef();
   }
 

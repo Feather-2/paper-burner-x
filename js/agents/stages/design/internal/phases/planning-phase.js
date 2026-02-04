@@ -56,6 +56,18 @@ function normalizePlanEdits(plans, edits) {
  */
 
 /**
+ * @typedef {{
+ *   slideIntentId: string,
+ *   pageType: string,
+ *   layoutHint: string,
+ *   visualIntent: string,
+ *   sellingPoint: string,
+ *   userOverride?: boolean,
+ *   [key: string]: any,
+ * }} SlidePlan
+ */
+
+/**
  * 规划阶段：生成预案并等待用户确认
  *
  * @param {any} loop
@@ -84,6 +96,7 @@ export async function runPlanningPhase(loop, {
 
     // 生成规划
     const planResult = planDeck(slideIntents, designSystem);
+    /** @type {SlidePlan[]} */
     let plans = planResult.plans;
 
     // Emit 规划预览
@@ -115,7 +128,7 @@ export async function runPlanningPhase(loop, {
         if (Array.isArray(planConfirmResult.edits)) {
           const sanitizedEdits = normalizePlanEdits(plans, planConfirmResult.edits);
           if (sanitizedEdits.length > 0) {
-            plans = applyUserEdits(plans, sanitizedEdits);
+            plans = /** @type {SlidePlan[]} */ (applyUserEdits(plans, sanitizedEdits));
             loop._blackboard?.logDecision("plan_edited", "User modified slide plans", {
               editCount: sanitizedEdits.length,
             });
@@ -125,7 +138,7 @@ export async function runPlanningPhase(loop, {
         if (Array.isArray(planConfirmResult.plans) && isValidPlanList(plans, planConfirmResult.plans)) {
           const sanitizedOverrides = normalizePlanEdits(plans, planConfirmResult.plans);
           if (sanitizedOverrides.length > 0) {
-            plans = applyUserEdits(plans, sanitizedOverrides);
+            plans = /** @type {SlidePlan[]} */ (applyUserEdits(plans, sanitizedOverrides));
           }
         }
       }

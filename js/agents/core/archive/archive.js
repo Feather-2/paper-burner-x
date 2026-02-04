@@ -262,6 +262,7 @@ export class FallbackAdapter {
         throw new Error("IndexedDB not available");
       }
       this._primary = new IndexedDBAdapter(this._dbName, this._storeName);
+      // @ts-expect-error - accessing internal initialization method
       await this._primary._ensureDb();
       return this._primary;
     } catch (err) {
