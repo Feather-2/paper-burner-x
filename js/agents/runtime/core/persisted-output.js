@@ -5,14 +5,61 @@
  * 超过阈值的输出会被截断并包装为持久化格式。
  */
 
-/** 输出大小阈值 (字节) */
-export const OUTPUT_THRESHOLD = 400000;
+/** 输出大小阈值 (字节) - 默认 400KB */
+export const DEFAULT_OUTPUT_THRESHOLD = 400000;
 
-/** 预览大小 (字符) */
-export const PREVIEW_SIZE = 2000;
+/** 预览大小 (字符) - 默认 2000 */
+export const DEFAULT_PREVIEW_SIZE = 2000;
 
-/** 保留的持久化输出数量 */
-export const KEEP_RECENT_OUTPUTS = 3;
+/** 保留的持久化输出数量 - 默认 3 */
+export const DEFAULT_KEEP_RECENT_OUTPUTS = 3;
+
+// Mutable config for runtime adjustment
+let _config = {
+  outputThreshold: DEFAULT_OUTPUT_THRESHOLD,
+  previewSize: DEFAULT_PREVIEW_SIZE,
+  keepRecentOutputs: DEFAULT_KEEP_RECENT_OUTPUTS,
+};
+
+/**
+ * Configure persisted output settings
+ * @param {{ outputThreshold?: number, previewSize?: number, keepRecentOutputs?: number }} config
+ */
+export function configurePersistedOutput(config) {
+  if (Number.isFinite(config.outputThreshold) && config.outputThreshold > 0) {
+    _config.outputThreshold = Math.floor(config.outputThreshold);
+  }
+  if (Number.isFinite(config.previewSize) && config.previewSize > 0) {
+    _config.previewSize = Math.floor(config.previewSize);
+  }
+  if (Number.isFinite(config.keepRecentOutputs) && config.keepRecentOutputs >= 0) {
+    _config.keepRecentOutputs = Math.floor(config.keepRecentOutputs);
+  }
+}
+
+/**
+ * Get current config
+ * @returns {{ outputThreshold: number, previewSize: number, keepRecentOutputs: number }}
+ */
+export function getPersistedOutputConfig() {
+  return { ..._config };
+}
+
+/**
+ * Reset to defaults
+ */
+export function resetPersistedOutputConfig() {
+  _config = {
+    outputThreshold: DEFAULT_OUTPUT_THRESHOLD,
+    previewSize: DEFAULT_PREVIEW_SIZE,
+    keepRecentOutputs: DEFAULT_KEEP_RECENT_OUTPUTS,
+  };
+}
+
+// Backward compatibility aliases
+export const OUTPUT_THRESHOLD = DEFAULT_OUTPUT_THRESHOLD;
+export const PREVIEW_SIZE = DEFAULT_PREVIEW_SIZE;
+export const KEEP_RECENT_OUTPUTS = DEFAULT_KEEP_RECENT_OUTPUTS;
 
 /** 持久化输出标签 */
 export const PERSISTED_OUTPUT_START = "<persisted-output>";
@@ -45,8 +92,8 @@ export function wrapPersistedOutput(content, options = {}) {
     }
   }
 
-  const threshold = options.threshold ?? OUTPUT_THRESHOLD;
-  const previewSize = options.previewSize ?? PREVIEW_SIZE;
+  const threshold = options.threshold ?? _config.outputThreshold;
+  const previewSize = options.previewSize ?? _config.previewSize;
 
   if (content.length <= threshold) return content;
 
@@ -71,7 +118,7 @@ ${PERSISTED_OUTPUT_END}`;
  * @param {number} [keepRecent] - 保留数量
  * @returns {Array} - 清理后的消息数组
  */
-export function cleanOldPersistedOutputs(messages, keepRecent = KEEP_RECENT_OUTPUTS) {
+export function cleanOldPersistedOutputs(messages, keepRecent = _config.keepRecentOutputs) {
   if (!Array.isArray(messages)) return messages;
 
   const persistedIndices = [];
@@ -100,11 +147,17 @@ export function cleanOldPersistedOutputs(messages, keepRecent = KEEP_RECENT_OUTP
 }
 
 export default {
+  DEFAULT_OUTPUT_THRESHOLD,
+  DEFAULT_PREVIEW_SIZE,
+  DEFAULT_KEEP_RECENT_OUTPUTS,
   OUTPUT_THRESHOLD,
   PREVIEW_SIZE,
   KEEP_RECENT_OUTPUTS,
   PERSISTED_OUTPUT_START,
   PERSISTED_OUTPUT_END,
+  configurePersistedOutput,
+  getPersistedOutputConfig,
+  resetPersistedOutputConfig,
   isPersistedOutput,
   wrapPersistedOutput,
   cleanOldPersistedOutputs,
