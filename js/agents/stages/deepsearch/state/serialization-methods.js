@@ -48,7 +48,7 @@ export const serializationMethods = {
    */
   clone({ includeCheckpoints = true } = {}) {
     const snapshotObj = this.toSnapshot({ includeCheckpoints });
-    return /** @type {any} */ (this.constructor).fromJSON(snapshotObj);
+    return /** @type {SerializationMethodsThis["constructor"]} */ (this.constructor).fromJSON(snapshotObj);
   },
 };
 

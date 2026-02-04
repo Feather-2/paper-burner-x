@@ -23,11 +23,11 @@ function isBrowserEnv() {
  * @returns {boolean}
  */
 function isNodeEnv() {
-  return (
-    typeof globalThis !== "undefined" &&
-    typeof /** @type {any} */ (globalThis).process !== "undefined" &&
-    /** @type {any} */ (globalThis).process?.versions?.node
+  if (typeof globalThis === "undefined") return false;
+  const proc = /** @type {{ versions?: { node?: string } } | undefined} */ (
+    /** @type {Record<string, unknown>} */ (globalThis).process
   );
+  return typeof proc !== "undefined" && !!proc?.versions?.node;
 }
 
 const MAX_DATA_URL_LENGTH = 10 * 1024 * 1024;

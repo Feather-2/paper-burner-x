@@ -16,6 +16,10 @@ import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("skills/loader.browser");
 
+/**
+ * @typedef {typeof SkillScope[keyof typeof SkillScope]} SkillScopeValue
+ */
+
 // Vite serves `public/` at the site root ("/skills/manifest.json").
 // Some deployments may still expose it under "/public/skills/manifest.json".
 const DEFAULT_MANIFEST_URL = "skills/manifest.json";
@@ -232,9 +236,13 @@ function normalizeSkillFromManifest(entry, { defaultScope = SkillScope.SYSTEM } 
 
   if (!name || !description || !path) return null;
 
-  /** @type {any} */
+  /** @type {string | undefined} */
   const scopeRaw = toNonEmptyString(raw.scope);
-  const scope = scopeRaw && Object.values(SkillScope).includes(scopeRaw) ? scopeRaw : defaultScope;
+  const scope =
+    scopeRaw &&
+    /** @type {SkillScopeValue[]} */ (Object.values(SkillScope)).includes(/** @type {SkillScopeValue} */ (scopeRaw))
+      ? /** @type {SkillScopeValue} */ (scopeRaw)
+      : defaultScope;
 
   const priority = Number.isFinite(Number(raw.priority)) ? Number(raw.priority) : 100;
 
@@ -449,9 +457,9 @@ export async function loadAllSkills({ manifestUrl, nexusProvider, maxManifestByt
  * @throws {Error} If filePath is empty, fetch fails, or body is missing
  */
 export async function loadSkillFromPath(filePath, scope = SkillScope.SYSTEM, options = {}) {
-  /** @type {any} */
+  /** @type {{ maxSkillBytes?: number }} */
   let opts = options;
-  /** @type {any} */
+  /** @type {SkillScopeValue | { maxSkillBytes?: number } | undefined} */
   let normalizedScope = scope;
   if (normalizedScope && typeof normalizedScope === "object" && !Array.isArray(normalizedScope)) {
     opts = normalizedScope;

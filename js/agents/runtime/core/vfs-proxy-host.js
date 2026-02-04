@@ -76,7 +76,7 @@ function isMissingPathError(err) {
  */
 function toDirEntries(entries) {
   const arr = Array.isArray(entries) ? entries : [];
-  return /** @type {any} */ (
+  return /** @type {VfsDirEntry[]} */ (
     arr
       .map((entry) => {
         if (typeof entry === "string") {
@@ -237,7 +237,7 @@ export class VfsProxyHost {
       return;
     }
 
-    /** @type {any} */
+    /** @type {unknown} */
     let result;
     try {
       if (op === VFS_OPS.READ) {

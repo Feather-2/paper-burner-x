@@ -82,7 +82,7 @@ function isAllowedLoopStatusTransition(from, to, meta = /** @type {LoopStatusTra
   }
   if (!isValidAgentStatus(from) || !isValidAgentStatus(to)) return true;
   const allowed = DEFAULT_LOOP_STATUS_TRANSITIONS[from] || [];
-  return allowed.includes(/** @type {any} */ (to));
+  return allowed.includes(to);
 }
 
 /**
@@ -105,7 +105,7 @@ function parseBooleanish(value) {
 function resolveStrictLoopStatusTransitions(explicit) {
   if (explicit === true || explicit === false) return explicit;
 
-  /** @type {any} */
+  /** @type {{ process?: { env?: Record<string, string | undefined> } }} */
   const g = typeof globalThis !== "undefined" ? globalThis : {};
   const env = g?.process?.env ?? null;
   const fromEnv = parseBooleanish(env?.PB_STRICT_LOOP_STATUS_TRANSITIONS);

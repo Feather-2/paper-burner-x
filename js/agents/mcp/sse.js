@@ -380,8 +380,7 @@ export async function* parseSseStream(
 /**
  * Create an SSE parser that can be fed with text chunks (for tests / manual usage).
  *
- * @param {object} opts
- * @param {(evt: {event: string, data: string, id: string|null, retry: number|null}) => void} opts.onEvent
+ * @param {{ onEvent?: (evt: {event: string, data: string, id: string|null, retry: number|null}) => void }=} opts
  */
 export function createSseParser({ onEvent } = {}) {
   const emit = typeof onEvent === "function" ? onEvent : () => {};

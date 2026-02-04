@@ -130,7 +130,7 @@ function validateSandboxCode(code) {
 function createSandboxProxy(base, audit) {
   const target = Object.create(null);
 
-  /** @type {any} */
+  /** @type {Record<string, unknown>} */
   const proxy = new Proxy(target, {
     // Critical: always report bindings as present, so `with` never falls back to outer scopes.
     has() {

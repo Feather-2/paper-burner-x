@@ -414,16 +414,19 @@ export class EmbeddingService {
       });
       return;
     }
-    /** @type {any} */
     const t = setTimeout(() => {
       this._flushTimer = null;
       void this.flush();
     }, delay);
-    if (t && typeof t.unref === "function") {
-      try {
-        t.unref();
-      } catch {
-        // ignore
+    const maybeTimer = /** @type {unknown} */ (t);
+    if (maybeTimer && typeof maybeTimer === "object" && "unref" in maybeTimer) {
+      const unref = maybeTimer.unref;
+      if (typeof unref === "function") {
+        try {
+          unref.call(maybeTimer);
+        } catch {
+          // ignore
+        }
       }
     }
     this._flushTimer = t;
@@ -480,17 +483,20 @@ export class EmbeddingService {
 
     return await new Promise((resolve) => {
       let settled = false;
-      /** @type {any} */
       const t = setTimeout(() => {
         if (settled) return;
         settled = true;
         resolve(null);
       }, timeoutMs);
-      if (t && typeof t.unref === "function") {
-        try {
-          t.unref();
-        } catch {
-          // ignore
+      const maybeTimer = /** @type {unknown} */ (t);
+      if (maybeTimer && typeof maybeTimer === "object" && "unref" in maybeTimer) {
+        const unref = maybeTimer.unref;
+        if (typeof unref === "function") {
+          try {
+            unref.call(maybeTimer);
+          } catch {
+            // ignore
+          }
         }
       }
       p.then((result) => {

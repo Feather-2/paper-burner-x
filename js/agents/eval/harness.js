@@ -252,7 +252,7 @@ export class EvalHarness {
   }
 
   async _runTrial(task, trialIndex, options) {
-    /** @type {any} */
+    /** @type {unknown} */
     let agent = null;
     /** @type {unknown} */
     let outcome = null;
@@ -300,7 +300,11 @@ export class EvalHarness {
         // ignore restore errors
       }
       try {
-        if (agent && typeof agent.dispose === "function") agent.dispose();
+        if (agent && (typeof agent === "object" || typeof agent === "function")) {
+          const maybeDisposable = /** @type {{ dispose?: unknown }} */ (agent);
+          const dispose = maybeDisposable.dispose;
+          if (typeof dispose === "function") dispose.call(maybeDisposable);
+        }
       } catch {
         // ignore dispose errors
       }

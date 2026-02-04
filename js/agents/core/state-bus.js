@@ -109,7 +109,7 @@ function matchSegment(pattern, text) {
  */
 function isNonProductionEnvironment() {
   try {
-    /** @type {any} */
+    /** @type {{ process?: { env?: Record<string, string | undefined> } }} */
     const g = typeof globalThis !== "undefined" ? globalThis : {};
     const env = g?.process?.env ?? null;
     if (env && typeof env === "object") {
@@ -121,8 +121,9 @@ function isNonProductionEnvironment() {
     // ignore
   }
   try {
-    /** @type {any} */
-    const meta = import.meta;
+    const meta = /** @type {ImportMeta & { env?: { MODE?: string } }} */ (
+      /** @type {unknown} */ (import.meta)
+    );
     const mode = meta?.env?.MODE;
     if (typeof mode === "string") return mode !== "production";
   } catch {

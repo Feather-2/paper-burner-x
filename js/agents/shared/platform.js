@@ -6,6 +6,18 @@
 /** @typedef {"node"|"bun"|"deno"|"browser"|"unknown"} RuntimeType */
 
 /**
+ * `globalThis` in this repo is DOM-typed (no Node/Bun/Deno globals),
+ * so we model the few runtime-detection properties we probe.
+ * @typedef {typeof globalThis & {
+ *   Bun?: unknown,
+ *   Deno?: unknown,
+ *   process?: { versions?: { node?: string } },
+ *   window?: unknown,
+ *   self?: unknown,
+ * }} GlobalLike
+ */
+
+/**
  * @type {{ runtime: RuntimeType, isNode: boolean, isBun: boolean, isDeno: boolean, isBrowser: boolean }}
  */
 export const Platform = {
@@ -17,7 +29,7 @@ export const Platform = {
 };
 
 function detectRuntime() {
-  const g = /** @type {any} */ (globalThis);
+  const g = /** @type {GlobalLike} */ (globalThis);
 
   // Bun (often exposes `process.versions.node`, so detect first)
   if (typeof g.Bun !== "undefined") {
@@ -55,7 +67,7 @@ detectRuntime();
  * @returns {boolean}
  */
 export function isNodeLike() {
-  const g = /** @type {any} */ (globalThis);
+  const g = /** @type {GlobalLike} */ (globalThis);
   // Bun (often exposes `process.versions.node`, so detect first)
   if (typeof g.Bun !== "undefined") return true;
   // Deno may expose Node compatibility globals; treat it as non-Node-like.

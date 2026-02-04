@@ -120,7 +120,7 @@ function isValidDeepSearchSourceKindValue(value) {
   const v = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (!v) return false;
   /** @type {string[]} */
-  const allowed = /** @type {any} */ (Object.values(DeepSearchSourceKind));
+  const allowed = Object.values(DeepSearchSourceKind);
   return allowed.includes(v);
 }
 

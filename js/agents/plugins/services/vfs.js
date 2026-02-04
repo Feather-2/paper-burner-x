@@ -50,6 +50,17 @@ import { createPlugin } from '../../core/plugin.js';
  * @property {(pattern: any, options?: any) => Promise<any>} [glob]
  */
 
+/**
+ * @typedef {object} VfsGlobRequest
+ * @property {string} [pattern]
+ * @property {string} [path]
+ * @property {AbortSignal} [signal]
+ * @property {number} [yieldEvery]
+ * @property {boolean} [useScanWorker]
+ * @property {string} [cwd]
+ * @property {string[]} [ignore]
+ */
+
 export default createPlugin({
   name: 'service/vfs',
   version: '1.0.0',
@@ -188,22 +199,25 @@ export default createPlugin({
       async glob(pattern, options) {
         if (typeof vfs.glob === 'function') {
           return vfs.glob(pattern, options);
-        }
-        // Fallback
-        const { createVfsGlobFn } = await import('../../vfs/glob.js');
-        const globFn = createVfsGlobFn(vfs);
-        if (typeof globFn !== 'function') return [];
+	        }
+	        // Fallback
+	        const { createVfsGlobFn } = await import('../../vfs/glob.js');
+	        const globFn = createVfsGlobFn(vfs);
+	        if (typeof globFn !== 'function') return [];
 
-        const request =
-          pattern && typeof pattern === 'object'
-            ? { ...(pattern || {}), ...(options || {}) }
-            : { pattern, ...(options || {}) };
+	        const request = /** @type {VfsGlobRequest} */ (
+	          /** @type {unknown} */ (
+	            pattern && typeof pattern === 'object'
+	              ? { ...(pattern || {}), ...(options || {}) }
+	              : { pattern, ...(options || {}) }
+	          )
+	        );
 
-        return globFn(/** @type {any} */ (request));
-      },
+	        return globFn(request);
+	      },
 
-      /**
-       * 获取底层 VFS 实例
+	      /**
+	       * 获取底层 VFS 实例
        * @returns {VfsLike}
        */
       getInstance() {

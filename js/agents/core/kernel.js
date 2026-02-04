@@ -201,7 +201,7 @@ export class Kernel {
    * @returns {this}
    */
   registerService(name, service, options = {}) {
-    this.services.register(name, /** @type {any} */ (service), options);
+    this.services.register(name, /** @type {unknown} */ (service), options);
     return this;
   }
 

@@ -45,7 +45,7 @@ export const OrchestratorState = Object.freeze({
  * @returns {value is ActorTypeValue}
  */
 export function isValidActorType(value) {
-  return Object.values(ActorType).includes(/** @type {any} */ (value));
+  return Object.values(ActorType).includes(/** @type {ActorTypeValue} */ (value));
 }
 
 /**
@@ -54,7 +54,7 @@ export function isValidActorType(value) {
  * @returns {value is OrchestratorStateValue}
  */
 export function isValidOrchestratorState(value) {
-  return Object.values(OrchestratorState).includes(/** @type {any} */ (value));
+  return Object.values(OrchestratorState).includes(/** @type {OrchestratorStateValue} */ (value));
 }
 
 /**
@@ -142,7 +142,7 @@ export const EventBusItemKind = Object.freeze({
  * @returns {value is ReportLengthValue}
  */
 export function isValidReportLength(value) {
-  return Object.values(ReportLength).includes(/** @type {any} */ (value));
+  return Object.values(ReportLength).includes(/** @type {ReportLengthValue} */ (value));
 }
 
 /**
@@ -151,7 +151,7 @@ export function isValidReportLength(value) {
  * @returns {value is ReportToneValue}
  */
 export function isValidReportTone(value) {
-  return Object.values(ReportTone).includes(/** @type {any} */ (value));
+  return Object.values(ReportTone).includes(/** @type {ReportToneValue} */ (value));
 }
 
 /**
@@ -160,7 +160,7 @@ export function isValidReportTone(value) {
  * @returns {value is ReportAudienceValue}
  */
 export function isValidReportAudience(value) {
-  return Object.values(ReportAudience).includes(/** @type {any} */ (value));
+  return Object.values(ReportAudience).includes(/** @type {ReportAudienceValue} */ (value));
 }
 
 /**
@@ -169,7 +169,7 @@ export function isValidReportAudience(value) {
  * @returns {value is ReportLanguageValue}
  */
 export function isValidReportLanguage(value) {
-  return Object.values(ReportLanguage).includes(/** @type {any} */ (value));
+  return Object.values(ReportLanguage).includes(/** @type {ReportLanguageValue} */ (value));
 }
 
 /**
@@ -178,7 +178,7 @@ export function isValidReportLanguage(value) {
  * @returns {value is QualityModeValue}
  */
 export function isValidQualityMode(value) {
-  return Object.values(QualityMode).includes(/** @type {any} */ (value));
+  return Object.values(QualityMode).includes(/** @type {QualityModeValue} */ (value));
 }
 
 /**

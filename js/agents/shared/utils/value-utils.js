@@ -289,7 +289,7 @@ export function deepClone(v) {
         const buf = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
         return new DataView(buf);
       }
-      const Ctor = /** @type {any} */ (value.constructor);
+      const Ctor = /** @type {new (value: ArrayBufferView) => ArrayBufferView} */ (value.constructor);
       try {
         return new Ctor(value);
       } catch {

@@ -260,11 +260,13 @@ export class ServiceBus {
 
     const { instance, options } = registered;
 
-    const instanceHealthCheck = /** @type {any} */ (instance)?.healthCheck;
+    const instanceHealthCheck = (instance && (typeof instance === 'object' || typeof instance === 'function'))
+      ? /** @type {Record<string, unknown>} */ (instance).healthCheck
+      : undefined;
     const checkFn = typeof options.healthCheck === 'function'
       ? options.healthCheck
       : typeof instanceHealthCheck === 'function'
-          ? instanceHealthCheck.bind(instance)
+          ? () => instanceHealthCheck.call(instance)
           : null;
 
     if (typeof checkFn === 'function') {
@@ -380,13 +382,20 @@ export class ServiceBus {
  */
 function normalizeProxy(proxy) {
   if (typeof proxy === 'function') {
-    /** @type {any} */ (proxy).invoke = typeof /** @type {any} */ (proxy).invoke === 'function'
-      ? /** @type {any} */ (proxy).invoke
-      : proxy;
-    if (typeof /** @type {any} */ (proxy).proxyName !== 'string') {
-      /** @type {any} */ (proxy).proxyName = proxy.name || undefined;
-    }
-    return /** @type {ServiceProxyWithInvoke} */ (proxy);
+    /** @type {ServiceProxyWithInvoke} */
+    const fnProxy = /** @type {ServiceProxyWithInvoke} */ (proxy);
+
+    const proxyRecord = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (proxy));
+
+    const invokeCandidate = proxyRecord.invoke;
+    fnProxy.invoke = typeof invokeCandidate === 'function' ? /** @type {ServiceProxy} */ (invokeCandidate) : fnProxy;
+
+    const proxyNameCandidate = proxyRecord.proxyName;
+    fnProxy.proxyName = typeof proxyNameCandidate === 'string'
+      ? proxyNameCandidate
+      : /** @type {Function} */ (proxy).name || undefined;
+
+    return fnProxy;
   }
 
   if (proxy && typeof proxy.invoke === 'function') {

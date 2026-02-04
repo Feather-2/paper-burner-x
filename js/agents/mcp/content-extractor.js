@@ -43,6 +43,27 @@ import { sanitizeExtractedText, stripUrls } from "./content-sanitizer.js";
  */
 
 /**
+ * @typedef {object} DomElementLike
+ * @property {(selectors: string) => (DomElementLike|null)} querySelector
+ * @property {(selectors: string) => Iterable<DomElementLike>} querySelectorAll
+ * @property {(selectors: string) => (DomElementLike|null)} [closest]
+ * @property {DomElementLike|null|undefined} [parentElement]
+ * @property {(name: string) => (string|null)} getAttribute
+ * @property {string|null|undefined} [textContent]
+ * @property {string|null|undefined} [href]
+ */
+
+/**
+ * @typedef {object} DomDocumentLike
+ * @property {(selectors: string) => Iterable<DomElementLike>} querySelectorAll
+ * @property {(selectors: string) => (DomElementLike|null)} querySelector
+ */
+
+/**
+ * @typedef {{ new (): { parseFromString: (html: string, mimeType: string) => unknown } }} DomParserConstructor
+ */
+
+/**
  * 健壮的 HTML 文本提取器
  * 采用轻量级状态机（单次线性扫描）替代多轮 replace，降低大文档的内存/CPU 压力。
  * @param {any} html
@@ -323,18 +344,19 @@ export async function parseDuckDuckGoResults(html) {
 
   // DuckDuckGo 结果在 class="result" 的 div 中
   // Browser: use DOMParser; Node: fallback to linkedom DOMParser when available.
+  /** @type {DomParserConstructor | null} */
   let DOMParserImpl = typeof globalThis.DOMParser !== "undefined" ? globalThis.DOMParser : null;
   if (!DOMParserImpl) {
     try {
       const mod = await import("linkedom");
-      DOMParserImpl = mod?.DOMParser || null;
+      DOMParserImpl = /** @type {DomParserConstructor | null} */ (mod?.DOMParser || null);
     } catch { /* intentional: linkedom is optional */ }
   }
 
   if (DOMParserImpl) {
     try {
       const parser = new DOMParserImpl();
-      const doc = parser.parseFromString(html, "text/html");
+      const doc = /** @type {DomDocumentLike} */ (parser.parseFromString(html, "text/html"));
       const seen = new Set();
       const pushResult = (url, title, snippet) => {
         const u = toNonEmptyString(url);
@@ -442,18 +464,19 @@ export async function extractDuckDuckGoNextUrl(html, baseUrl) {
   };
 
   // Browser: use DOMParser; Node: fallback to linkedom DOMParser when available.
+  /** @type {DomParserConstructor | null} */
   let DOMParserImpl = typeof globalThis.DOMParser !== "undefined" ? globalThis.DOMParser : null;
   if (!DOMParserImpl) {
     try {
       const mod = await import("linkedom");
-      DOMParserImpl = mod?.DOMParser || null;
+      DOMParserImpl = /** @type {DomParserConstructor | null} */ (mod?.DOMParser || null);
     } catch { /* intentional: linkedom is optional */ }
   }
 
   if (DOMParserImpl) {
     try {
       const parser = new DOMParserImpl();
-      const doc = parser.parseFromString(s, "text/html");
+      const doc = /** @type {DomDocumentLike} */ (parser.parseFromString(s, "text/html"));
       const a =
         doc.querySelector("a.result--more__btn, a.result--more__a, a.result__pagination--next, a[rel='next']") ||
         doc.querySelector("a[href*='&s='], a[href*='?s=']");

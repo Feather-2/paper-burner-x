@@ -221,7 +221,13 @@ function withTimeout(ms, fn) {
     .finally(() => clearTimeout(t));
 }
 
+/**
+ * @param {Record<string, string>=} base
+ * @param {Record<string, string>=} extra
+ * @returns {Record<string, string>}
+ */
 function mergeHeaders(base, extra) {
+  /** @type {Record<string, string>} */
   const out = {};
   for (const h of [base, extra]) {
     if (!isPlainObject(h)) continue;
@@ -385,6 +391,11 @@ function jsonRpcErrorMessage(resp) {
   return msg || null;
 }
 
+/**
+ * @param {(input: RequestInfo, init?: RequestInit) => Promise<Response>} fetchImpl
+ * @param {string} url
+ * @param {{ method?: string, headers?: Record<string, string>, body?: unknown, signal?: AbortSignal }=} options
+ */
 async function fetchJson(fetchImpl, url, { method = "POST", headers, body, signal } = {}) {
   const res = await fetchImpl(url, {
     method,

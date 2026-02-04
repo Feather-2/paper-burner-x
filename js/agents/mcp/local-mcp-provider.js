@@ -181,7 +181,12 @@ export class LocalMcpProvider extends McpProvider {
     return null;
   }
 
-  _withDeprecatedToolName(result, { usedName, canonicalName } = {}) {
+  /**
+   * @param {McpToolResult} result
+   * @param {{ usedName?: string, canonicalName?: string }=} names
+   */
+  _withDeprecatedToolName(result, names = {}) {
+    const { usedName, canonicalName } = names;
     const used = toNonEmptyString(usedName);
     const canonical = toNonEmptyString(canonicalName);
     if (!used || !canonical || used === canonical) return result;
@@ -232,11 +237,22 @@ export class LocalMcpProvider extends McpProvider {
   }
 
   // Tests rely on this method existing; logic delegated to http-proxy.
-  async _fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true, signal, maxBodyBytes } = {}) {
+  /**
+   * @param {string} url
+   * @param {{ timeoutMs?: number, tryDirect?: boolean, signal?: AbortSignal, maxBodyBytes?: number }=} options
+   */
+  async _fetchWithCorsFallback(url, options = {}) {
+    const { timeoutMs = 10_000, tryDirect = true, signal, maxBodyBytes } = options;
     return this._http.fetchWithCorsFallback(url, { timeoutMs, tryDirect, signal, maxBodyBytes });
   }
 
-  async _search({ query, domain, time_range, limit } = {}, { signal } = {}) {
+  /**
+   * @param {{ query?: string, domain?: string, time_range?: string, limit?: number }=} args
+   * @param {{ signal?: AbortSignal }=} options
+   */
+  async _search(args = {}, options = {}) {
+    const { query, domain, time_range, limit } = args;
+    const { signal } = options;
     checkCancelled(signal);
     const q = toNonEmptyString(query);
     if (!q) {
@@ -288,7 +304,13 @@ export class LocalMcpProvider extends McpProvider {
     }
   }
 
-  async _searchViaWorker({ query, domain, time_range, limit }, { signal } = {}) {
+  /**
+   * @param {{ query: string, domain?: string, time_range?: string, limit?: number }} args
+   * @param {{ signal?: AbortSignal }=} options
+   */
+  async _searchViaWorker(args, options = {}) {
+    const { query, domain, time_range, limit } = args || {};
+    const { signal } = options;
     const controller = new AbortController();
     const detachAbort = attachAbortSignal(signal, controller);
     const timeoutId = setTimeout(() => {
@@ -360,7 +382,13 @@ export class LocalMcpProvider extends McpProvider {
     }
   }
 
-  async _fetchContent({ url } = {}, { signal } = {}) {
+  /**
+   * @param {{ url?: string }=} args
+   * @param {{ signal?: AbortSignal }=} options
+   */
+  async _fetchContent(args = {}, options = {}) {
+    const { url } = args;
+    const { signal } = options;
     checkCancelled(signal);
     let targetUrl = toNonEmptyString(url);
     if (!targetUrl) {
@@ -436,7 +464,13 @@ export class LocalMcpProvider extends McpProvider {
     }
   }
 
-  async _fetchContentViaWorker({ url }, { signal } = {}) {
+  /**
+   * @param {{ url: string }} args
+   * @param {{ signal?: AbortSignal }=} options
+   */
+  async _fetchContentViaWorker(args, options = {}) {
+    const { url } = args || {};
+    const { signal } = options;
     const controller = new AbortController();
     const detachAbort = attachAbortSignal(signal, controller);
     const timeoutId = setTimeout(() => {

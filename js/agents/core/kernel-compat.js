@@ -33,7 +33,7 @@ export class KernelCompat extends Kernel {
     if (typeof factoryOrValue === "function") {
       this.services.registerFactory(id, /** @type {() => unknown | Promise<unknown>} */ (factoryOrValue), options);
     } else {
-      this.services.register(id, /** @type {any} */ (factoryOrValue), options);
+      this.services.register(id, /** @type {unknown} */ (factoryOrValue), options);
     }
     return this;
   }
@@ -47,7 +47,7 @@ export class KernelCompat extends Kernel {
    */
   getService(id) {
     const registered = this.services._services.get(id);
-    return registered ? /** @type {any} */ (registered.instance) : null;
+    return registered ? /** @type {T} */ (registered.instance) : null;
   }
 
   /**
@@ -95,7 +95,7 @@ export class KernelCompat extends Kernel {
    * @returns {import('./types.d.ts').EventBus}
    */
   get eventBus() {
-    return /** @type {any} */ (this.events);
+    return /** @type {import('./types.d.ts').EventBus} */ (/** @type {unknown} */ (this.events));
   }
 
   /**
@@ -119,7 +119,7 @@ export class KernelCompat extends Kernel {
  * @returns {typeof Kernel}
  */
 export function attachKernelCompat(KernelClass) {
-  if (!KernelClass || /** @type {any} */ (KernelClass.prototype).register) return KernelClass;
+  if (!KernelClass || /** @type {{ register?: unknown }} */ (KernelClass.prototype).register) return KernelClass;
   const descriptors = Object.getOwnPropertyDescriptors(KernelCompat.prototype);
   for (const [key, descriptor] of Object.entries(descriptors)) {
     if (key === "constructor") continue;

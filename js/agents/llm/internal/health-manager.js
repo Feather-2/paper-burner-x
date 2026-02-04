@@ -15,6 +15,17 @@ const CIRCUIT_BREAKER_STALE_MS = 30 * 60_000;
 const CIRCUIT_BREAKER_CLEANUP_INTERVAL_MS = 60_000;
 
 /**
+ * @param {{ now: () => number, sleep?: (ms: number) => Promise<void> }} time
+ * @returns {import("./fallback.js").ModelRouterTime}
+ */
+function toModelRouterTime(time) {
+  return {
+    now: time.now,
+    sleep: typeof time.sleep === "function" ? time.sleep : (ms) => new Promise((r) => setTimeout(r, ms)),
+  };
+}
+
+/**
  * @param {{ healthMap: Map<string, any>, modelId: string }} input
  * @returns {any | null}
  */
@@ -68,7 +79,7 @@ export function computeCooldownMsForBackoff({ backoffLevel, baseCooldownMs, maxC
 export function markUnhealthy({ healthMap, time, modelId, error, baseCooldownMs, maxCooldownMs, backoffMultiplier }) {
   return markUnhealthyInternal({
     healthMap,
-    time: /** @type {any} */ (time),
+    time: toModelRouterTime(time),
     modelId,
     error,
     baseCooldownMs,
@@ -81,7 +92,9 @@ export function markUnhealthy({ healthMap, time, modelId, error, baseCooldownMs,
  * @param {{ healthMap: Map<string, any>, modelId: string, error: unknown, reason?: string }} input
  * @returns {any | null}
  */
-export function disableModel({ healthMap, modelId, error, reason } = /** @type {any} */ ({})) {
+export function disableModel(
+  { healthMap, modelId, error, reason } = /** @type {{ healthMap: Map<string, any>, modelId: string, error: unknown, reason?: string }} */ ({})
+) {
   return disableModelInternal({ healthMap, modelId, error, reason });
 }
 
@@ -98,7 +111,7 @@ export function markHealthy({ healthMap, modelId }) {
  * @returns {{ modelId: string, remainingMs: number } | null}
  */
 export function getShortestCooldown({ healthMap, time, candidates }) {
-  return getShortestCooldownInternal({ healthMap, time: /** @type {any} */ (time), candidates });
+  return getShortestCooldownInternal({ healthMap, time: toModelRouterTime(time), candidates });
 }
 
 /**
@@ -175,17 +188,17 @@ export function getCircuitBreaker({ modelId, circuitBreakers, time, logger, emit
     failureThreshold: 5, // 5 consecutive failures trip the breaker
     successThreshold: 2, // 2 successes in half-open to recover
     openDurationMs: 30_000, // open for 30 seconds
-    halfOpenMaxCalls: 3, // allow 3 probe calls while half-open
-    isFailure: (err) => {
-      const e = /** @type {any} */ (err);
-      // Exclude cancellations/timeouts from breaker accounting.
-      if (e?.name === "AbortError") return false;
-      if (e?.code === "TIMEOUT") return false;
-      // Auth errors are handled by disableModel, not breaker.
-      if (isPermanentAuthError(e)) return false;
-      return true;
-    },
-    onStateChange: (event) => {
+	    halfOpenMaxCalls: 3, // allow 3 probe calls while half-open
+	    isFailure: (err) => {
+	      const e = err && typeof err === "object" ? /** @type {{ name?: unknown, code?: unknown }} */ (err) : null;
+	      // Exclude cancellations/timeouts from breaker accounting.
+	      if (e?.name === "AbortError") return false;
+	      if (e?.code === "TIMEOUT") return false;
+	      // Auth errors are handled by disableModel, not breaker.
+	      if (isPermanentAuthError(err)) return false;
+	      return true;
+	    },
+	    onStateChange: (event) => {
       logger.info(`[ModelRouter] Circuit breaker ${event.name}: ${event.from} \u2192 ${event.to} (${event.reason})`);
       emit("circuit:stateChange", event);
     },

@@ -114,7 +114,9 @@ export function markUnhealthy({
  * @param {{ healthMap: Map<string, any>, modelId: string, error: unknown, reason?: string }} input
  * @returns {any | null}
  */
-export function disableModel({ healthMap, modelId, error, reason } = /** @type {any} */ ({})) {
+export function disableModel(
+  { healthMap, modelId, error, reason } = /** @type {{ healthMap: Map<string, any>, modelId: string, error: unknown, reason?: string }} */ ({})
+) {
   const id = toNonEmptyString(modelId);
   if (!id) return null;
   const prev = healthMap.get(id) || { failures: 0, unhealthyUntilMs: 0 };

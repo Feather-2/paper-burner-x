@@ -1,5 +1,7 @@
 import { HookRegistry } from "./hook-registry.js";
 
+/** @typedef {import("./hook-registry.js").HookDefinition} HookDefinition */
+
 const REGISTRY_SYMBOL = Symbol.for("paperburner.hookRegistry.v1");
 
 /**
@@ -30,7 +32,7 @@ export function enhanceEventBusWithHooks(eventBus) {
 
   if (typeof bus.registerHook !== "function") {
     bus.registerHook = (eventName, hookDef) =>
-      registry.register(eventName, /** @type {any} */ (hookDef));
+      registry.register(eventName, /** @type {HookDefinition} */ (hookDef));
   }
   if (typeof bus.getHooks !== "function") {
     bus.getHooks = (eventName) => registry.list(eventName);

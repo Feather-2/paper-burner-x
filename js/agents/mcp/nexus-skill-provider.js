@@ -204,7 +204,7 @@ export class NexusSkillProvider {
     try {
       return await readJsonWithLimit(response, { maxBytes, context });
     } catch (err) {
-      if (err && typeof err === "object" && /** @type {any} */ (err).name === "ResponseTooLargeError") {
+      if (err && typeof err === "object" && /** @type {{ name?: string }} */ (err).name === "ResponseTooLargeError") {
         throw err;
       }
       if (fallback !== undefined) return fallback;

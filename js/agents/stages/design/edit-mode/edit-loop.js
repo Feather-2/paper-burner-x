@@ -51,8 +51,8 @@ function buildTimeoutError(label, timeoutMs) {
   const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
   const err = new Error(`${label} timed out after ${ms}ms`);
   err.name = "TimeoutError";
-  /** @type {any} */ (err).code = "ETIMEDOUT";
-  /** @type {any} */ (err).timeoutMs = ms;
+  /** @type {Error & { code?: string }} */ (err).code = "ETIMEDOUT";
+  /** @type {Error & { timeoutMs?: number }} */ (err).timeoutMs = ms;
   return err;
 }
 

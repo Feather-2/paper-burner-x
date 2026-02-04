@@ -65,7 +65,7 @@ function bytesToText(bytes) {
  */
 function isVfsDirent(entry) {
   if (!entry || typeof entry !== "object") return false;
-  const e = /** @type {any} */ (entry);
+  const e = /** @type {{ name?: unknown, isDirectory?: unknown, isFile?: unknown }} */ (entry);
   return typeof e.name === "string" && typeof e.isDirectory === "function" && typeof e.isFile === "function";
 }
 

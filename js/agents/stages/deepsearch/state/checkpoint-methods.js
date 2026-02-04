@@ -16,9 +16,13 @@ import { PlanningTree } from "./planning-tree.js";
 const DEFAULT_MAX_ITERATIONS = 5;
 
 /**
+ * @typedef {typeof import("../state.js").DeepSearchState} DeepSearchStateConstructor
+ */
+
+/**
  * Determine checkpoint strategy from checkpoint data.
  * @param {object} cp - Checkpoint object.
- * @param {Function} StateCtor - State constructor.
+ * @param {DeepSearchStateConstructor} StateCtor - State constructor.
  * @returns {string} Resolved checkpoint strategy.
  */
 function resolveCheckpointStrategy(cp, StateCtor) {
@@ -187,7 +191,7 @@ export const checkpointMethods = {
     if (!id) throw new TypeError("DeepSearchState.restoreCheckpoint(checkpointId): checkpointId is required");
 
     const cp = this._loadCheckpointById(id);
-    const StateCtor = this.constructor;
+    const StateCtor = /** @type {DeepSearchStateConstructor} */ (this.constructor);
     const checkpointStrategy = resolveCheckpointStrategy(cp, StateCtor);
 
     const preservedL2 = this.L2;
@@ -224,7 +228,7 @@ export const checkpointMethods = {
    * Restore core state properties from checkpoint snapshot.
    * @private
    * @param {object} cp - Checkpoint object.
-   * @param {Function} StateCtor - State constructor.
+   * @param {DeepSearchStateConstructor} StateCtor - State constructor.
    * @param {string} checkpointStrategy - Resolved strategy.
    * @param {boolean} preserveCore - Whether to preserve L0/L1.
    * @returns {object} Restored snapshot data.
@@ -235,7 +239,7 @@ export const checkpointMethods = {
     const preservedCheckpoints = this.checkpoints;
     const snapshot = cp.stateSnapshot instanceof StateCtor
       ? cp.stateSnapshot
-      : /** @type {any} */ (StateCtor).fromJSON(cp.stateSnapshot);
+      : StateCtor.fromJSON(cp.stateSnapshot);
 
     const restored =
       checkpointStrategy === CheckpointMode.FULL && typeof snapshot?.toSnapshot === "function"

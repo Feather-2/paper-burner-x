@@ -89,8 +89,10 @@ export default createPlugin({
         const safeName = sanitizeName(serverConfig.name || serverConfig.url);
 
         const { McpClient } = await import('../../mcp/mcp-client.js');
-        const client = new McpClient(/** @type {any} */ (serverConfig));
-        await /** @type {any} */ (client).connect();
+        const client = /** @type {InstanceType<typeof McpClient> & { connect: () => Promise<void> }} */ (
+          new McpClient(/** @type {ConstructorParameters<typeof McpClient>[0]} */ (serverConfig))
+        );
+        await client.connect();
 
         clients.set(safeName, client);
         ctx.state.set(`servers.${safeName}`, { status: 'connected' });

@@ -25,6 +25,12 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_ABORT_MESSAGE = 'Request aborted';
 
 /**
+ * @typedef {{ kind: string, requestId: string, replyTo: string }} RpcRequestMeta
+ * @typedef {{ kind: string, requestId: string }} RpcResponseMeta
+ * @typedef {{ ok: boolean, data?: unknown, error?: string }} RpcResponseBody
+ */
+
+/**
  * @param {unknown} value
  * @returns {string | null}
  */
@@ -60,7 +66,52 @@ function createRpcId() {
  * @returns {signal is AbortSignal}
  */
 function isAbortSignal(signal) {
-  return !!signal && typeof signal === 'object' && typeof /** @type {any} */ (signal).aborted === 'boolean';
+  return (
+    !!signal &&
+    typeof signal === 'object' &&
+    typeof /** @type {{ aborted?: unknown }} */ (signal).aborted === 'boolean'
+  );
+}
+
+/**
+ * @param {AbortSignal} signal
+ * @returns {unknown}
+ */
+function getAbortReason(signal) {
+  return /** @type {AbortSignal & { reason?: unknown }} */ (signal).reason;
+}
+
+/**
+ * @param {import('./types.d.ts').EventRecord} evt
+ * @returns {unknown}
+ */
+function getEventMeta(evt) {
+  return /** @type {{ meta?: unknown }} */ (/** @type {unknown} */ (evt)).meta;
+}
+
+/**
+ * @param {unknown} meta
+ * @returns {meta is RpcRequestMeta}
+ */
+function isRpcRequestMeta(meta) {
+  if (!meta || typeof meta !== 'object') return false;
+  const obj = /** @type {Record<string, unknown>} */ (meta);
+  return (
+    obj.kind === RPC_KIND_REQUEST &&
+    typeof obj.replyTo === 'string' &&
+    typeof obj.requestId === 'string'
+  );
+}
+
+/**
+ * @param {unknown} meta
+ * @param {string} requestId
+ * @returns {meta is RpcResponseMeta}
+ */
+function isRpcResponseMeta(meta, requestId) {
+  if (!meta || typeof meta !== 'object') return false;
+  const obj = /** @type {Record<string, unknown>} */ (meta);
+  return obj.kind === RPC_KIND_RESPONSE && obj.requestId === requestId;
 }
 
 /**
@@ -156,17 +207,9 @@ export class MessageBus {
     }
 
     const off = this.eventBus.on(name, (evt) => {
-      /** @type {any} */
-      const meta = evt && typeof evt === 'object' ? /** @type {any} */ (evt).meta : null;
-      const isRpcRequest =
-        meta &&
-        typeof meta === 'object' &&
-        meta.kind === RPC_KIND_REQUEST &&
-        typeof meta.replyTo === 'string' &&
-        typeof meta.requestId === 'string';
-
-      if (!isRpcRequest) {
-        handler(/** @type {any} */ (evt)?.payload, evt);
+      const meta = getEventMeta(evt);
+      if (!isRpcRequestMeta(meta)) {
+        handler(evt.payload, evt);
         return;
       }
 
@@ -174,7 +217,7 @@ export class MessageBus {
       const requestId = meta.requestId;
 
       Promise.resolve()
-        .then(() => handler(/** @type {any} */ (evt)?.payload, evt))
+        .then(() => handler(evt.payload, evt))
         .then(
           (data) => {
             this.eventBus.emit(replyTo, {
@@ -219,8 +262,8 @@ export class MessageBus {
     const replyTo = `rpc.response.${requestId}`;
 
     return new Promise((resolve, reject) => {
-      if (signal?.aborted) {
-        reject(toAbortError(/** @type {any} */ (signal).reason));
+      if (signal && signal.aborted) {
+        reject(toAbortError(getAbortReason(signal)));
         return;
       }
 
@@ -274,7 +317,7 @@ export class MessageBus {
         reject(error);
       };
 
-      onAbort = () => finishReject(toAbortError(/** @type {any} */ (signal).reason));
+      onAbort = () => finishReject(toAbortError(signal ? getAbortReason(signal) : undefined));
       if (signal && typeof signal.addEventListener === 'function') {
         try {
           signal.addEventListener('abort', onAbort, { once: true });
@@ -285,28 +328,21 @@ export class MessageBus {
 
       off = /** @type {() => void} */ (
         this.eventBus.once(replyTo, (evt) => {
-          /** @type {any} */
-          const meta = evt && typeof evt === 'object' ? /** @type {any} */ (evt).meta : null;
-          const expected =
-            meta &&
-            typeof meta === 'object' &&
-            meta.kind === RPC_KIND_RESPONSE &&
-            meta.requestId === requestId;
-
-          if (!expected) {
+          const meta = getEventMeta(evt);
+          if (!isRpcResponseMeta(meta, requestId)) {
             finishReject(new Error(`Invalid response for requestId: ${requestId}`));
             return;
           }
 
-          /** @type {any} */
-          const body = /** @type {any} */ (evt)?.payload;
+          const body = evt.payload;
           if (body && typeof body === 'object' && 'ok' in body) {
-            if (body.ok) finishResolve(body.data);
-            else finishReject(new Error(body.error || 'Request failed'));
+            const rsp = /** @type {RpcResponseBody} */ (body);
+            if (rsp.ok) finishResolve(/** @type {T} */ (rsp.data));
+            else finishReject(new Error(rsp.error || 'Request failed'));
             return;
           }
 
-          finishResolve(body);
+          finishResolve(/** @type {T} */ (body));
         })
       );
 

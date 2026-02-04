@@ -52,8 +52,9 @@ function priorityRank(priority) {
 function makeTimeoutError(message, { timeoutMs } = {}) {
   const err = new Error(message || "Network timeout");
   err.name = "TimeoutError";
-  /** @type {any} */ (err).code = "ETIMEDOUT";
-  if (typeof timeoutMs === "number") /** @type {any} */ (err).timeoutMs = timeoutMs;
+  const e = /** @type {Error & { code?: string, timeoutMs?: number }} */ (err);
+  e.code = "ETIMEDOUT";
+  if (typeof timeoutMs === "number") e.timeoutMs = timeoutMs;
   return err;
 }
 

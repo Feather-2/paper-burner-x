@@ -38,8 +38,9 @@ export async function initTreeSitter({ wasmBaseUrl = DEFAULT_TREE_SITTER_WASM_BA
     const mod = await import("web-tree-sitter");
     const Parser = mod.Parser || mod.default?.Parser || mod.default;
     const Language = mod.Language || mod.default?.Language;
-    const ParserAny = /** @type {any} */ (Parser);
-    const LanguageAny = /** @type {any} */ (Language);
+    const ParserAny =
+      /** @type {{ init: (options: { locateFile: (name: string) => string }) => Promise<void> } | null | undefined} */ (Parser);
+    const LanguageAny = /** @type {{ load: (url: string) => Promise<unknown> } | null | undefined} */ (Language);
     if (!ParserAny || typeof ParserAny.init !== "function") {
       throw new Error("web-tree-sitter Parser.init unavailable");
     }

@@ -125,7 +125,7 @@ const FALLBACK_BLOCKED_GLOBALS = new Set([
 function createFallbackProxyGlobals(base, audit) {
   const target = Object.create(null);
 
-  /** @type {any} */
+  /** @type {Record<string, unknown>} */
   const proxy = new Proxy(target, {
     has() {
       return true;

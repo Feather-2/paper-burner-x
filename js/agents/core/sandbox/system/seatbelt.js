@@ -170,22 +170,23 @@ function escapeForSBPL(str) {
 
 /**
  * 创建 Seatbelt 执行器实例
- * @param {SeatbeltOptions} defaultOptions
+ * @param {Partial<SeatbeltOptions>} [defaultOptions]
  * @returns {Object}
  */
-export function createSeatbeltExecutor(defaultOptions = /** @type {any} */ ({})) {
+export function createSeatbeltExecutor(defaultOptions = /** @type {Partial<SeatbeltOptions>} */ ({})) {
   return {
     backend: SandboxBackend.SEATBELT,
 
     async execute(command, args = [], options = {}) {
-      return executeInSeatbelt(command, args, { ...defaultOptions, ...options });
+      return executeInSeatbelt(command, args, /** @type {SeatbeltOptions} */ ({ ...defaultOptions, ...options }));
     },
 
     async shell(shellCommand, options = {}) {
-      return executeInSeatbelt('/bin/sh', ['-c', shellCommand], {
-        ...defaultOptions,
-        ...options,
-      });
+      return executeInSeatbelt(
+        '/bin/sh',
+        ['-c', shellCommand],
+        /** @type {SeatbeltOptions} */ ({ ...defaultOptions, ...options })
+      );
     },
   };
 }

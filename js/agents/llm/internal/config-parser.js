@@ -15,7 +15,8 @@ const DEFAULT_BACKOFF_MULTIPLIER = 2;
  * @returns {value is { getItem: (key: string) => string | null, setItem: (key: string, value: string) => void }}
  */
 function isStorageLike(value) {
-  const v = value && typeof value === "object" ? /** @type {any} */ (value) : null;
+  const v =
+    value && typeof value === "object" ? /** @type {{ getItem?: unknown, setItem?: unknown }} */ (value) : null;
   return !!v && typeof v.getItem === "function" && typeof v.setItem === "function";
 }
 
@@ -80,7 +81,7 @@ function resolveLogger({ debug, logger } = {}) {
 }
 
 function isValidModelTier(value) {
-  return typeof value === "string" && Object.values(ModelTier).includes(/** @type {any} */ (value));
+  return typeof value === "string" && /** @type {readonly string[]} */ (Object.values(ModelTier)).includes(value);
 }
 
 function normalizeTierFromTagsOrId(modelId, modelEntry) {

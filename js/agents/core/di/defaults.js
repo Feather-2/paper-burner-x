@@ -14,8 +14,12 @@ import { createDefaultErrorBoundary } from "../../runtime/core/error-boundary.js
 import { TokenTracker, TraceContext } from "../../plugins/telemetry/index.js";
 import { enhanceEventBusWithHooks } from "../../runtime/hooks/event-bus-hooks.js";
 
-/** @type {any} */
-const process = /** @type {any} */ (globalThis).process;
+/** @typedef {{ heapUsed?: number, heapTotal?: number, rss?: number }} ProcessMemoryUsageLike */
+/** @typedef {{ env?: Record<string, string | undefined>, memoryUsage?: () => ProcessMemoryUsageLike }} ProcessLike */
+/** @typedef {{ usedJSHeapSize?: number, jsHeapSizeLimit?: number }} PerformanceMemoryLike */
+
+/** @type {ProcessLike | undefined} */
+const process = (/** @type {{ process?: ProcessLike }} */ (globalThis)).process;
 
 /**
  * Service IDs used across the agent system.
@@ -163,12 +167,13 @@ export function createAgentContainer(overrides = {}) {
           // ignore
         }
 
-        try {
-          const perfMem = /** @type {any} */ (globalThis?.performance)?.memory;
-          if (
-            perfMem &&
-            typeof perfMem.usedJSHeapSize === "number" &&
-            typeof perfMem.jsHeapSizeLimit === "number" &&
+	        try {
+	          const perfMem = (/** @type {{ memory?: PerformanceMemoryLike } | undefined} */ (globalThis?.performance))
+	            ?.memory;
+	          if (
+	            perfMem &&
+	            typeof perfMem.usedJSHeapSize === "number" &&
+	            typeof perfMem.jsHeapSizeLimit === "number" &&
             perfMem.jsHeapSizeLimit > 0
           ) {
             return perfMem.usedJSHeapSize / perfMem.jsHeapSizeLimit;
@@ -366,8 +371,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.SCHEMA_VALIDATOR,
     async () => {
-      const { SchemaValidator } = /** @type {any} */ (await import("../../shared/utils/schema-validator.js"));
-      return new SchemaValidator();
+      return await import("../../shared/utils/schema-validator.js");
     },
     { scope: SINGLETON }
   );
@@ -393,8 +397,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.TOC_BUILDER,
     async () => {
-      const { TocBuilder } = /** @type {any} */ (await import("../../retrieval/toc-builder.js"));
-      return new TocBuilder();
+      return await import("../../retrieval/toc-builder.js");
     },
     { scope: SINGLETON }
   );

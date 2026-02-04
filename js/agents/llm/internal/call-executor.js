@@ -73,10 +73,12 @@ function toSafeErrorInfo(err) {
 }
 
 /**
- * @param {CallExecutorInput} [input] - Call execution inputs.
+ * @param {Partial<CallExecutorInput> | null} [input] - Call execution inputs.
  * @returns {Promise<{content: string, model: string, provider: string}>}
  */
-export async function executeCall(/** @type {any} */ { router, usage, messages, images, waitRetryCount } = {}) {
+export async function executeCall(input) {
+  const { router, usage, messages, images, waitRetryCount } = /** @type {Partial<CallExecutorInput>} */ (input ?? {});
+  if (!router) throw new Error("executeCall: router is required");
   const ctx = router._prepareCallContext({ usage, messages, images, _waitRetryCount: waitRetryCount });
   const {
     usage: u,
@@ -320,7 +322,9 @@ export async function callWithPerformanceRouting({
       router._logger.info(`[ModelRouter] all models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
       await router._time.sleep(waitMs + 100);
       router._logger.info(`[ModelRouter] retry after cooldown wait`);
-      return /** @type {any} */ (router.call({ usage, messages, images, _waitRetryCount: waitRetryCount + 1 }));
+      return /** @type {Promise<{content: string, model: string, provider: string, latencyMs: number}>} */ (
+        router.call({ usage, messages, images, _waitRetryCount: waitRetryCount + 1 })
+      );
     }
   }
 
@@ -495,7 +499,9 @@ export async function callWithStandardRouting({
       router._logger.info(`[ModelRouter] all models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
       await router._time.sleep(waitMs + 100);
       router._logger.info(`[ModelRouter] retry after cooldown wait`);
-      return /** @type {any} */ (router.call({ usage, messages, images, _waitRetryCount: waitRetryCount + 1 }));
+      return /** @type {Promise<{content: string, model: string, provider: string, latencyMs: number}>} */ (
+        router.call({ usage, messages, images, _waitRetryCount: waitRetryCount + 1 })
+      );
     }
   }
 

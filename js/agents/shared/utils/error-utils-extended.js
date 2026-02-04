@@ -131,11 +131,11 @@ export function makeSafe(fn, options = {}) {
  * 聚合多个错误
  * @param {Error[]} errors
  * @param {string} [message]
- * @returns {AggregateError | null}
+ * @returns {Error | null}
  */
 export function aggregateErrors(errors, message) {
   if (!errors || errors.length === 0) return null;
-  if (errors.length === 1) return /** @type {any} */ (errors[0]);
+  if (errors.length === 1) return errors[0];
   return new AggregateError(errors, message || `${errors.length} errors occurred`);
 }
 

@@ -10,17 +10,7 @@ import { toNonEmptyString } from "../../shared/index.js";
 const logger = createLogger("runtime/policy/manager");
 
 /**
- * @typedef {object} PolicyRule
- * @property {string} ruleId
- * @property {string=} id
- * @property {string} effect
- * @property {string} type
- * @property {string=} tool
- * @property {string=} resource
- * @property {string} createdAt
- * @property {string} updatedAt
- * @property {boolean} enabled
- * @property {number} priority
+ * @typedef {import("./engine.js").PolicyRuleInput} PolicyRule
  */
 
 /**
@@ -210,8 +200,8 @@ export class PolicyManager {
 
   load() {
     if (this._loaded) return;
-    const rules = this.ruleStore.load();
-    this.engine.setRules(/** @type {any} */ (rules));
+    const rules = /** @type {PolicyRuleStoreLike} */ (this.ruleStore).load();
+    /** @type {PolicyEngineLike} */ (this.engine).setRules(rules);
     this._loaded = true;
   }
 

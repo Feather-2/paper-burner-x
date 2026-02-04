@@ -370,9 +370,15 @@ export function validateManifest(manifest) {
 
   if (manifest.permissions) {
     for (const perm of manifest.permissions) {
-      if (!Object.values(PermissionType).includes(/** @type {any} */ (perm))) {
-        errors.push(`Unknown permission: ${perm}`);
+      if (typeof perm === "string") {
+        if (!Object.values(PermissionType).includes(perm)) errors.push(`Unknown permission: ${perm}`);
+        continue;
       }
+      if (perm && typeof perm === "object" && typeof perm.type === "string") {
+        if (!Object.values(PermissionType).includes(perm.type)) errors.push(`Unknown permission: ${perm.type}`);
+        continue;
+      }
+      errors.push(`Unknown permission: ${String(perm)}`);
     }
   }
 
@@ -433,6 +439,7 @@ export function extractManifestFromSkill(metadata) {
  * @returns {PermissionValue[]} 权限列表
  */
 function inferPermissions(definition) {
+  /** @type {PermissionValue[]} */
   const permissions = [];
   const name = (definition.name || "").toLowerCase();
   const desc = (definition.description || "").toLowerCase();
@@ -453,7 +460,7 @@ function inferPermissions(definition) {
     permissions.push(PermissionType.LLM);
   }
 
-  return /** @type {any} */ ([...new Set(permissions)]);
+  return [...new Set(permissions)];
 }
 
 /**
@@ -463,6 +470,7 @@ function inferPermissions(definition) {
  * @returns {PermissionValue[]} 权限列表
  */
 function inferSkillPermissions(metadata) {
+  /** @type {PermissionValue[]} */
   const permissions = [];
   const allowedTools = metadata.allowedTools || "";
 
@@ -477,7 +485,7 @@ function inferSkillPermissions(metadata) {
     permissions.push(PermissionType.MCP);
   }
 
-  return /** @type {any} */ ([...new Set(permissions)]);
+  return [...new Set(permissions)];
 }
 
 /**

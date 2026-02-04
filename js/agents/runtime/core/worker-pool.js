@@ -41,7 +41,7 @@ export class WorkerPool {
    * @param {object} [options]
    * @param {string|URL} [options.scriptUrl] - Worker script path (used with WorkerFactory default)
    * @param {object} [options.workerOptions] - Worker options (used with WorkerFactory default)
-   * @param {function} [options.createWorker] - Factory function to create Worker (overrides WorkerFactory default)
+   * @param {() => Worker | Promise<Worker>} [options.createWorker] - Factory function to create Worker (overrides WorkerFactory default)
    * @param {number} [options.maxWorkers=4]
    * @param {number} [options.idleTimeoutMs=30000]
    * @param {number} [options.taskTimeoutMs=60000]
@@ -60,6 +60,7 @@ export class WorkerPool {
 
     const workerFactory = typeof createWorker === "function" ? createWorker : () => createDefaultWorker(scriptUrl, workerOptions);
 
+    /** @type {() => Worker | Promise<Worker>} */
     this._createWorker = workerFactory;
     this._maxWorkers = maxWorkers;
     this._idleTimeoutMs = idleTimeoutMs;
@@ -184,7 +185,7 @@ export class WorkerPool {
     if (!idleWorker && this._workers.size < this._maxWorkers) {
       const id = this._nextWorkerId++;
       const client = new WorkerRpcClient({
-        createWorker: /** @type {any} */ (this._createWorker),
+        createWorker: this._createWorker,
         timeoutMs: this._taskTimeoutMs,
       });
       const workerInfo = { client, busy: false, lastUsed: Date.now(), taskCount: 0 };
@@ -298,7 +299,7 @@ export class WorkerPool {
     for (let i = 0; i < toCreate; i++) {
       const id = this._nextWorkerId++;
       const client = new WorkerRpcClient({
-        createWorker: /** @type {any} */ (this._createWorker),
+        createWorker: this._createWorker,
         timeoutMs: this._taskTimeoutMs,
       });
       this._workers.set(id, { client, busy: false, lastUsed: Date.now(), taskCount: 0 });

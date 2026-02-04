@@ -33,6 +33,20 @@ export { DESIGN_AGENT_TOOL_DEFINITIONS } from "./design-tools.js";
  * @typedef {import("./internal/design-loop-types.js").DesignLoopState} DesignLoopState
  */
 
+/**
+ * @typedef {object} EventBusBackpressureConfig
+ * @property {RegExp} [coalescePattern]
+ * @property {boolean} [deferNonCoalesced]
+ * @property {number} [maxQueueSize]
+ */
+
+/**
+ * @typedef {object} BackpressureCapableEventBus
+ * @property {(name: string, record: Record<string, unknown>) => void} [emit]
+ * @property {(config: EventBusBackpressureConfig) => void} [enableBackpressure]
+ * @property {{ enabled?: boolean }} [_backpressure]
+ */
+
 const SCHEMA_VERSION = "0.1";
 
 export { BacktrackError };
@@ -84,7 +98,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
     /** @type {Function|null} Backward-compatible emit alias used by older tests. */
     this._emit = null;
-    /** @type {any} Snapshot of last resume (resumeDesignAgentLoop). */
+    /** @type {unknown} Snapshot of last resume (resumeDesignAgentLoop). */
     this._resumeState = null;
   }
 
@@ -262,7 +276,8 @@ export class DesignAgentLoop extends BaseAgentLoop {
 	    const traceContext =
 	      context?.traceContext && typeof context.traceContext.withSpan === "function" ? context.traceContext : null;
 	    this.eventBus = context.eventBus || this.eventBus || null;
-	    const eventBus = /** @type {any} */ (this.eventBus);
+	    const eventBus = this.eventBus;
+	    const backpressureBus = /** @type {BackpressureCapableEventBus | null} */ (eventBus);
 	    let emit = getEmitFn(context);
 	    if ((!emit || emit === this.eventBus?.emit) && this.eventBus?.emit) {
 	      emit = this.eventBus.emit.bind(this.eventBus);
@@ -271,12 +286,12 @@ export class DesignAgentLoop extends BaseAgentLoop {
 	    this._emit = this.emit;
 
 	    // P4.6: Enable backpressure for high-frequency events (best-effort).
-	    if (eventBus && typeof eventBus.enableBackpressure === "function" && !eventBus?._backpressure?.enabled) {
+	    if (backpressureBus && typeof backpressureBus.enableBackpressure === "function" && !backpressureBus?._backpressure?.enabled) {
 	      const cfg = context?.eventBusBackpressure ?? context?.backpressure;
 	      if (cfg !== false) {
 	        const opts = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg : {};
 	        try {
-	          eventBus.enableBackpressure({
+	          backpressureBus.enableBackpressure({
 	            coalescePattern: /\.progress$/,
 	            deferNonCoalesced: false,
 	            maxQueueSize: 10000,
@@ -312,7 +327,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
 	      // 从容器或 context 获取 memoryStore 并绑定到 Blackboard
 	      const memoryStore = await this._resolveDependency("memoryStore", context, this._memoryStore);
 	      const stateEngine = await this._resolveDependency("stateEngine", context, this._stateEngine);
-	      this._blackboard = new DesignBlackboard(/** @type {any} */ ({ runId, memoryStore, stateEngine }));
+	      this._blackboard = new DesignBlackboard({ runId, memoryStore, stateEngine });
 	      this._memoryStore = memoryStore;
 	      this._stateEngine = stateEngine;
 	      this._iteration = 0;
@@ -493,7 +508,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
 	      const pauseLike = this._shouldPauseFromError(err, context.signal);
 	      if (this._activeStep) {
 	        const message = err instanceof Error ? err.message : String(err);
-	        this._endStep(null, /** @type {any} */ ({ status: pauseLike ? "paused" : "failed", error: message }));
+	        this._endStep(null, { status: pauseLike ? "paused" : "failed", error: message });
 	      }
       if (err instanceof StagePausedError) {
         throw err;

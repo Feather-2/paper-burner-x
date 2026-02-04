@@ -21,6 +21,11 @@ import { toNonEmptyString, toPositiveInt } from "./value-utils.js";
  * @typedef {object} ProcessLike
  * @property {{ node?: string }=} versions
  *
+ * Minimal `fs.watch` watcher shape used by this module.
+ * @typedef {object} FsWatcherLike
+ * @property {() => void} [close]
+ * @property {(event: "error", listener: (err: unknown) => void) => unknown} [on]
+ *
  * @typedef {object} VfsStatLike
  * @property {number=} size
  * @property {number=} mtimeMs
@@ -50,8 +55,7 @@ let _nativeWatchSupportedPromise = null;
  * @returns {boolean}
  */
 function isNodeRuntime() {
-  const maybeProcess =
-    /** @type {ProcessLike | undefined} */ (/** @type {any} */ (globalThis).process);
+  const maybeProcess = (/** @type {{ process?: ProcessLike }} */ (globalThis)).process;
   return !!maybeProcess?.versions?.node;
 }
 
@@ -187,7 +191,7 @@ export class FileWatcher extends DisposableBase {
     /** @type {"native" | "poll" | null} */
     this._mode = null;
 
-    /** @type {any} */
+    /** @type {FsWatcherLike | null} */
     this._watcher = null;
     /** @type {ReturnType<typeof setInterval> | null} */
     this._pollTimer = null;

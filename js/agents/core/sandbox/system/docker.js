@@ -171,7 +171,7 @@ export async function ensureImage(image = DEFAULT_IMAGE) {
  * @param {DockerOptions} defaultOptions
  * @returns {Object}
  */
-export function createDockerExecutor(defaultOptions = /** @type {any} */ ({})) {
+export function createDockerExecutor(defaultOptions = /** @type {DockerOptions} */ ({})) {
   let imageReady = false;
 
   return {

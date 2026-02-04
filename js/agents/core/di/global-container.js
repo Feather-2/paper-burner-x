@@ -14,16 +14,16 @@ const GLOBAL_CONTAINER_KEY = Symbol.for("pb.agents.di.globalContainer");
  */
 function isTestEnvironment() {
   try {
-    /** @type {any} */
-    const g = typeof globalThis !== "undefined" ? globalThis : {};
+    const g = /** @type {{ process?: { env?: Record<string, unknown> } }} */ (
+      typeof globalThis !== "undefined" ? globalThis : {}
+    );
     const env = g?.process?.env ?? null;
     if (env && typeof env.NODE_ENV === "string") return env.NODE_ENV === "test";
   } catch {
     // ignore
   }
   try {
-    /** @type {any} */
-    const meta = import.meta;
+    const meta = /** @type {ImportMeta & { env?: { MODE?: unknown } }} */ (import.meta);
     const mode = meta?.env?.MODE;
     if (typeof mode === "string") return mode === "test";
   } catch {
@@ -38,9 +38,12 @@ function isTestEnvironment() {
  * @returns {Container}
  */
 export function getGlobalContainer() {
-  const root = /** @type {any} */ (globalThis);
+  const root = /** @type {Record<symbol, unknown>} */ (globalThis);
   const existing = root[GLOBAL_CONTAINER_KEY];
-  if (existing && typeof existing.get === "function") return existing;
+  if (existing && (typeof existing === "object" || typeof existing === "function")) {
+    const maybeGet = /** @type {{ get?: unknown }} */ (existing).get;
+    if (typeof maybeGet === "function") return /** @type {Container} */ (existing);
+  }
 
   const created = new Container();
   root[GLOBAL_CONTAINER_KEY] = created;
@@ -57,7 +60,7 @@ export function setGlobalContainer(container) {
   if (!isTestEnvironment()) {
     throw new Error("setGlobalContainer is only allowed in test environments");
   }
-  const root = /** @type {any} */ (globalThis);
+  const root = /** @type {Record<symbol, unknown>} */ (globalThis);
   if (!container) {
     Reflect.deleteProperty(root, GLOBAL_CONTAINER_KEY);
     return;

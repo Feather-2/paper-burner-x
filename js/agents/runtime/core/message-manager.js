@@ -470,8 +470,8 @@ export class MessageManager {
             if (this._disposed) return;
             if (this._shouldCompress()) this._scheduleCompression({ force: true });
           }, waitMs);
-          const maybeTimer = /** @type {any} */ (t);
-          if (maybeTimer && typeof maybeTimer.unref === "function") {
+          const maybeTimer = /** @type {number | { unref?: () => void }} */ (t);
+          if (typeof maybeTimer === "object" && maybeTimer && typeof maybeTimer.unref === "function") {
             try {
               maybeTimer.unref();
             } catch {

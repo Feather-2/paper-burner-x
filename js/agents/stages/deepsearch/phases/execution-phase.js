@@ -224,14 +224,14 @@ export async function executeDeepSearchDecision({
     for (const r of results) {
       if (r?.success) {
         try {
-          const stored = await maybePersistToolOutput(/** @type {any} */ ({
-            runStore,
+          const stored = await maybePersistToolOutput({
+            ...(runStore && typeof runStore === "object" ? { runStore } : {}),
             runId: agent.state?.runId,
             toolName: r.tool,
             args: r.args,
             iteration: plannedIteration,
             result: r.result,
-          }));
+          });
           formatted.push({ ...r, inline: stored.inline, persisted: stored.persisted, ref: stored.ref || null });
         } catch {
           formatted.push({ ...r, inline: r.result, persisted: false, ref: null });
@@ -310,14 +310,14 @@ export async function executeDeepSearchDecision({
 
   let toolPayloadForPrompt = toolResult;
   try {
-    const stored = await maybePersistToolOutput(/** @type {any} */ ({
-      runStore,
+    const stored = await maybePersistToolOutput({
+      ...(runStore && typeof runStore === "object" ? { runStore } : {}),
       runId: agent.state?.runId,
       toolName: singleToolName,
       args: singleToolArgs,
       iteration: plannedIteration,
       result: toolResult,
-    }));
+    });
     toolPayloadForPrompt = stored.inline;
   } catch {
     // ignore persistence failures (fallback to inline toolResult)

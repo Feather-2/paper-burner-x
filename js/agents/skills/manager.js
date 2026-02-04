@@ -22,7 +22,9 @@ import { renderSkillsList } from "./render.js";
  */
 export class SkillsManager {
   constructor(options = {}) {
-    const nodeProcess = /** @type {any} */ (globalThis).process;
+    const nodeProcess = /** @type {{ env?: Record<string, string | undefined> } | undefined} */ (
+      /** @type {Record<string, unknown>} */ (globalThis).process
+    );
     const envHome =
       nodeProcess?.env
         ? (nodeProcess.env.HOME || nodeProcess.env.USERPROFILE)

@@ -16,16 +16,16 @@ export const TRANSIENT = Symbol("transient");
  */
 function shouldWarnOnTryGetFailure() {
   try {
-    /** @type {any} */
-    const g = typeof globalThis !== "undefined" ? globalThis : {};
+    const g = /** @type {{ process?: { env?: Record<string, unknown> } }} */ (
+      typeof globalThis !== "undefined" ? globalThis : {}
+    );
     const env = g?.process?.env ?? null;
     if (env && typeof env.NODE_ENV === "string") return env.NODE_ENV !== "production";
   } catch {
     // ignore
   }
   try {
-    /** @type {any} */
-    const meta = import.meta;
+    const meta = /** @type {ImportMeta & { env?: { MODE?: unknown } }} */ (import.meta);
     const mode = meta?.env?.MODE;
     if (typeof mode === "string") return mode !== "production";
   } catch {

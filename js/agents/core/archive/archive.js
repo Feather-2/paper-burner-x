@@ -80,7 +80,7 @@ export class IndexedDBAdapter {
       };
 
       request.onupgradeneeded = (event) => {
-        const db = /** @type {any} */ (event.target).result;
+        const db = /** @type {IDBOpenDBRequest} */ (event.target).result;
         if (!db.objectStoreNames.contains(this.storeName)) {
           db.createObjectStore(this.storeName, { keyPath: "key" });
         }

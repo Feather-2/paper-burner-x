@@ -507,7 +507,7 @@ function allocateSectionTargets(sections, targetWords) {
 }
 
 export async function generateReportSingleWithLLM(state, { claims, evidenceLedger, todos, gaps, sources, config }, stageApi) {
-  const callModel = getModelCaller(stageApi, /** @type {any} */ ({ usage: "writer", state }));
+  const callModel = getModelCaller(stageApi, /** @type {{ usage: "writer", state: unknown }} */ ({ usage: "writer", state }));
   if (!callModel) return null;
 
   const todoInput = Array.isArray(todos) && todos.length ? todos : gaps;
@@ -539,7 +539,7 @@ export async function generateReportSingleWithLLM(state, { claims, evidenceLedge
 }
 
 export async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, todos, gaps, sources, config }, stageApi, emit) {
-  const callModel = getModelCaller(stageApi, /** @type {any} */ ({ usage: "writer", state }));
+  const callModel = getModelCaller(stageApi, /** @type {{ usage: "writer", state: unknown }} */ ({ usage: "writer", state }));
   if (!callModel) return null;
 
   const claimRows = Array.isArray(claims) ? claims : [];

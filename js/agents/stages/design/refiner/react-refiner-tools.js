@@ -64,8 +64,13 @@ import {
  * @property {string|undefined} [textPreview]
  */
 
-/** @type {any} */
-const process = /** @type {any} */ (globalThis).process;
+/**
+ * @typedef {{ toDataURL?: (type: string) => string }} CanvasLike
+ * @typedef {{ _captureToCanvas?: (target: Element, options: Record<string, unknown>) => Promise<CanvasLike | null> }} PptGeneratorExportImageLike
+ */
+
+/** @type {{ env?: Record<string, string | undefined> } | undefined} */
+const process = /** @type {Record<string, unknown>} */ (globalThis).process;
 
 /**
  * Parses deckHtmlDsl into an array of <section> HTML strings.
@@ -190,7 +195,9 @@ let _domPurifyPromise = null;
 let _domPurify = null;
 
 async function getDomPurify() {
-  const globalPurifier = /** @type {any} */ (globalThis).DOMPurify;
+  const globalPurifier = /** @type {{ sanitize?: (input: string, config?: Record<string, unknown>) => string } | undefined} */ (
+    /** @type {Record<string, unknown>} */ (globalThis).DOMPurify
+  );
   if (globalPurifier && typeof globalPurifier.sanitize === "function") {
     _domPurify = globalPurifier;
     return _domPurify;
@@ -207,11 +214,12 @@ async function getDomPurify() {
   _domPurifyPromise = (async () => {
     try {
       const mod = await import("dompurify");
-      const maybeFactory = /** @type {any} */ (mod).default || mod;
-      if (maybeFactory && typeof maybeFactory.sanitize === "function") return maybeFactory;
+      const maybeFactory = /** @type {Record<string, unknown>} */ (mod).default || mod;
+      const maybePurifier = /** @type {{ sanitize?: unknown }} */ (maybeFactory);
+      if (maybePurifier && typeof maybePurifier.sanitize === "function") return maybeFactory;
 
       if (typeof maybeFactory === "function") {
-        return maybeFactory(window);
+        return /** @type {(win: unknown) => unknown} */ (maybeFactory)(window);
       }
     } catch {
       // ignore (DOMPurify import unavailable)
@@ -280,7 +288,7 @@ const SCREENSHOT_CONCURRENCY = (() => {
     const n = raw ? parseInt(raw, 10) : 0;
     if (n > 0) return n;
   } catch { }
-  const env = typeof process !== "undefined" ? process.env : {};
+  const env = /** @type {Record<string, string | undefined>} */ (process?.env || {});
   const n = parseInt(env.SCREENSHOT_CONCURRENCY || env.DESIGN_SCREENSHOT_CONCURRENCY, 10);
   return n > 0 ? n : 3;
 })();
@@ -397,12 +405,19 @@ async function getSlideContext(context, params) {
 const TRANSPARENT_PNG_DATA_URL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7W7WQAAAAASUVORK5CYII=";
 
+/**
+ * @returns {PptGeneratorExportImageLike | null}
+ */
 function pickPptExportImage() {
   if (!isBrowserEnv()) return null;
-  const win = /** @type {any} */ (window);
-  if (typeof win.PPTGeneratorExportImage === "object" && win.PPTGeneratorExportImage) return win.PPTGeneratorExportImage;
-  const globals = /** @type {any} */ (globalThis);
-  if (typeof globals.PPTGeneratorExportImage === "object" && globals.PPTGeneratorExportImage) return globals.PPTGeneratorExportImage;
+  const win = /** @type {{ PPTGeneratorExportImage?: unknown }} */ (window);
+  if (typeof win.PPTGeneratorExportImage === "object" && win.PPTGeneratorExportImage) {
+    return /** @type {PptGeneratorExportImageLike} */ (win.PPTGeneratorExportImage);
+  }
+  const globals = /** @type {{ PPTGeneratorExportImage?: unknown }} */ (globalThis);
+  if (typeof globals.PPTGeneratorExportImage === "object" && globals.PPTGeneratorExportImage) {
+    return /** @type {PptGeneratorExportImageLike} */ (globals.PPTGeneratorExportImage);
+  }
   return null;
 }
 

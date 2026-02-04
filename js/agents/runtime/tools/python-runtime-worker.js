@@ -130,7 +130,8 @@ function ensureSymlink(FS, target, linkPath) {
 function decodeBase64ToBytes(b64) {
   const s = typeof b64 === "string" ? b64.trim() : "";
   if (!s) return null;
-  const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
+  const NodeBuffer =
+    /** @type {{ Buffer?: { from: (data: string, encoding: string) => ArrayLike<number> } }} */ (globalThis).Buffer;
   if (NodeBuffer && typeof NodeBuffer.from === "function") return new Uint8Array(NodeBuffer.from(s, "base64"));
   if (typeof atob === "function") {
     const bin = atob(s);

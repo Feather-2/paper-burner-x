@@ -148,7 +148,7 @@ export class BudgetManager {
  * @returns {BudgetManager} A new BudgetManager instance.
  */
 export function createBudgetManager(userConfig = {}) {
-  const budgetConfig = /** @type {any} */ (userConfig?.budget || {});
+  const budgetConfig = /** @type {BudgetManagerOptions} */ (userConfig?.budget || {});
   return new BudgetManager({
     maxInputTokens: budgetConfig.maxInputTokens,
     maxOutputTokens: budgetConfig.maxOutputTokens,
@@ -191,7 +191,7 @@ export class RecursiveBudgetManager extends BudgetManager {
     maxDepth = 5,
     ...baseOptions
   } = {}) {
-    const base = /** @type {any} */ (baseOptions);
+    const base = /** @type {BudgetManagerOptions} */ (baseOptions);
     // 从父级继承预算
     if (parent) {
       const remaining = parent.getRemaining();

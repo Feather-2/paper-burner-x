@@ -67,7 +67,7 @@ export function normalizeTodoEntry(todo, options = {}) {
 
   const ts = typeof raw.ts === "number" && Number.isFinite(raw.ts) ? raw.ts : Date.now();
 
-  /** @type {any} */
+  /** @type {Record<string, unknown>} */
   const out = {
     ...raw,
     id,
@@ -110,4 +110,3 @@ export default {
   normalizeTodoEntry,
   normalizeTodoInPlace,
 };
-

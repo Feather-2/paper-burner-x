@@ -104,7 +104,9 @@ function applyMmrToResults(results, { topK, lambda, maxTokens } = {}) {
     candidates.push({ chunkId, text, score, _row: row });
   }
 
-  const selected = mmrSelect(candidates, /** @type {any} */ ({ topK: k, lambda, maxTokens }));
+  const resolvedLambda = typeof lambda === "number" && Number.isFinite(lambda) ? lambda : 0.7;
+  const resolvedMaxTokens = typeof maxTokens === "number" && Number.isFinite(maxTokens) ? maxTokens : 200;
+  const selected = mmrSelect(candidates, { topK: k, lambda: resolvedLambda, maxTokens: resolvedMaxTokens });
   const out = [];
   for (const s of selected) {
     if (s && s._row) out.push(s._row);

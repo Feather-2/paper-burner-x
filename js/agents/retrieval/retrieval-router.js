@@ -399,7 +399,7 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
       seed.sort((a, b) => (b.score || 0) - (a.score || 0));
     }
 
-    const selected = mmrSelect(hits, /** @type {any} */ ({ topK: mmrTopK, lambda, seed }));
+    const selected = mmrSelect(hits, { topK: mmrTopK, lambda, seed });
     const selectedIds = new Set(selected.map((r) => String(r.chunkId)));
 
     for (const cid of Array.from(byChunkId.keys())) {

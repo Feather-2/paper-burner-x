@@ -25,6 +25,7 @@ import { isPlainObject, toNonEmptyString } from "../shared/index.js";
  * @typedef {{ _ensureNotDisposed: () => void }} EnsureNotDisposedLike
  *
  * @typedef {Parameters<InstanceType<typeof EventBus>["subscribe"]>[1]} EventHandler
+ * @typedef {import("./DiscoveryManager.js").SharedContextLike} SharedContextLike
  */
 
 /**
@@ -463,12 +464,13 @@ export class AgentFactory {
     const hooks = config.hooks;
     const subagentRegistry = config.subagentRegistry;
 
+    /** @type {CicadaCompressor | null} */
     let compressor = null;
     if (config.cicadaConfig) {
-      compressor = /** @type {any} */ (new CicadaCompressor({
+      compressor = new CicadaCompressor({
         eventBus,
         ...config.cicadaConfig,
-      }));
+      });
 
       config.useCapability("Recall", {
         definition: RECALL_TOOL_DEFINITION,
@@ -476,13 +478,14 @@ export class AgentFactory {
       });
     }
 
+    /** @type {BacktrackManager | null} */
     let backtrackManager = null;
     if (config.backtrackConfig || config.cicadaConfig) {
-      backtrackManager = /** @type {any} */ (new BacktrackManager({
+      backtrackManager = new BacktrackManager({
         compressor,
         logger,
         ...(config.backtrackConfig || {}),
-      }));
+      });
 
       config.useCapability("Backtrack", {
         definition: BACKTRACK_TOOL_DEFINITION,
@@ -493,7 +496,7 @@ export class AgentFactory {
     let discoveryManager = null;
     if (config.discoveryConfig || config.cicadaConfig) {
       discoveryManager = new DiscoveryManager({
-        sharedContext: /** @type {any} */ (compressor)?.sharedContext || null,
+        sharedContext: (/** @type {{ sharedContext?: SharedContextLike }} */ (compressor))?.sharedContext || null,
         logger,
         emit: (e, p) => eventBus.emit(e, p),
         ...(config.discoveryConfig || {}),
@@ -562,7 +565,7 @@ export class AgentFactory {
     });
 
     for (const { pattern, handler } of config.eventHandlers) {
-      agent.on(pattern, /** @type {any} */ (handler));
+      agent.on(pattern, /** @type {EventHandler} */ (handler));
     }
 
     if (config.alertMonitorConfig) {

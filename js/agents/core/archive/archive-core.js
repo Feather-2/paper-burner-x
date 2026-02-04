@@ -268,7 +268,7 @@ export class Archive {
       const diffEnabled = diffCfg?.enabled === true;
       const sinceFull = this._diffSinceFullByRunId.get(runKey) || 0;
 
-      /** @type {any} */
+      /** @type {unknown} */
       let snapshotToStore = snapshotFull;
 
       if (diffEnabled && sinceFull < diffCfg.fullSnapshotEvery - 1) {

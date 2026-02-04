@@ -309,7 +309,7 @@ export const VisualHeuristics = Object.freeze({
  * @returns {boolean}
  */
 export function isValidBrainstormStatus(value) {
-  return Object.values(BrainstormStatus).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(BrainstormStatus))).includes(value);
 }
 
 /**
@@ -317,7 +317,7 @@ export function isValidBrainstormStatus(value) {
  * @returns {boolean}
  */
 export function isValidDesignPhase(value) {
-  return Object.values(DesignPhase).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(DesignPhase))).includes(value);
 }
 
 /**
@@ -325,7 +325,7 @@ export function isValidDesignPhase(value) {
  * @returns {boolean}
  */
 export function isValidDesignLoopStatus(value) {
-  return Object.values(DesignLoopStatus).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(DesignLoopStatus))).includes(value);
 }
 
 /**
@@ -333,7 +333,7 @@ export function isValidDesignLoopStatus(value) {
  * @returns {boolean}
  */
 export function isValidSlideStatus(value) {
-  return Object.values(SlideStatus).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(SlideStatus))).includes(value);
 }
 
 /**
@@ -341,7 +341,7 @@ export function isValidSlideStatus(value) {
  * @returns {boolean}
  */
 export function isValidVisualSlotStatus(value) {
-  return Object.values(VisualSlotStatus).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(VisualSlotStatus))).includes(value);
 }
 
 /**
@@ -349,7 +349,7 @@ export function isValidVisualSlotStatus(value) {
  * @returns {boolean}
  */
 export function isValidEditSessionStatus(value) {
-  return Object.values(EditSessionStatus).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(EditSessionStatus))).includes(value);
 }
 
 /**
@@ -357,7 +357,7 @@ export function isValidEditSessionStatus(value) {
  * @returns {boolean}
  */
 export function isValidSubAgentStatus(value) {
-  return Object.values(SubAgentStatus).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(SubAgentStatus))).includes(value);
 }
 
 /**
@@ -365,7 +365,7 @@ export function isValidSubAgentStatus(value) {
  * @returns {boolean}
  */
 export function isValidReviewStatus(value) {
-  return Object.values(ReviewStatus).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(ReviewStatus))).includes(value);
 }
 
 /**
@@ -373,7 +373,7 @@ export function isValidReviewStatus(value) {
  * @returns {boolean}
  */
 export function isValidVisualType(value) {
-  return Object.values(VisualType).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(VisualType))).includes(value);
 }
 
 /**
@@ -381,7 +381,7 @@ export function isValidVisualType(value) {
  * @returns {boolean}
  */
 export function isValidInteractionCheckpoint(value) {
-  return Object.values(InteractionCheckpoint).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(InteractionCheckpoint))).includes(value);
 }
 
 /**
@@ -389,7 +389,7 @@ export function isValidInteractionCheckpoint(value) {
  * @returns {boolean}
  */
 export function isValidEditOperationType(value) {
-  return Object.values(EditOperationType).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(EditOperationType))).includes(value);
 }
 
 /**
@@ -397,7 +397,7 @@ export function isValidEditOperationType(value) {
  * @returns {boolean}
  */
 export function isValidReviewIssueSeverity(value) {
-  return Object.values(ReviewIssueSeverity).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(ReviewIssueSeverity))).includes(value);
 }
 
 /**
@@ -405,7 +405,7 @@ export function isValidReviewIssueSeverity(value) {
  * @returns {boolean}
  */
 export function isValidReviewIssueType(value) {
-  return Object.values(ReviewIssueType).includes(/** @type {any} */ (value));
+  return (/** @type {readonly unknown[]} */ (Object.values(ReviewIssueType))).includes(value);
 }
 
 // Re-export from states.js

@@ -88,8 +88,8 @@ export function isErrorType(err, name) {
  * @returns {boolean}
  */
 export function isAbortError(err) {
-  const e = /** @type {any} */ (err);
-  return isErrorType(err, "AbortError") || e?.code === "ABORT_ERR";
+  const e = /** @type {Error & { code?: string }} */ (err);
+  return isErrorType(err, "AbortError") || e.code === "ABORT_ERR";
 }
 
 /**
@@ -99,6 +99,6 @@ export function isAbortError(err) {
  * @returns {boolean}
  */
 export function isTimeoutError(err) {
-  const e = /** @type {any} */ (err);
-  return isErrorType(err, "TimeoutError") || e?.code === "ETIMEDOUT";
+  const e = /** @type {Error & { code?: string }} */ (err);
+  return isErrorType(err, "TimeoutError") || e.code === "ETIMEDOUT";
 }

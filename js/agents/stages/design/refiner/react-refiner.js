@@ -83,13 +83,13 @@ function callModelWithTimeout(aiApiService, callOptions, baseSignal, timeoutMs) 
 
   let timeoutId;
   const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      const err = new Error(`Timed out after ${ms}ms`);
-      /** @type {any} */ (err).timeoutMs = ms;
-      if (controller && !controller.signal.aborted) {
-        try {
-          controller.abort(err);
-        } catch {
+	    timeoutId = setTimeout(() => {
+	      const err = new Error(`Timed out after ${ms}ms`);
+	      /** @type {Error & { timeoutMs?: number }} */ (err).timeoutMs = ms;
+	      if (controller && !controller.signal.aborted) {
+	        try {
+	          controller.abort(err);
+	        } catch {
           controller.abort();
         }
       }

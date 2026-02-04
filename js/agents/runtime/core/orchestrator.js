@@ -17,6 +17,12 @@ const logger = createLogger("runtime/orchestrator");
  */
 
 /**
+ * @typedef {{ heapUsed?: number, heapTotal?: number, rss?: number }} MemoryUsageLike
+ * @typedef {{ memoryUsage?: () => MemoryUsageLike }} ProcessWithMemoryUsage
+ * @typedef {{ usedJSHeapSize?: number, jsHeapSizeLimit?: number }} PerformanceMemoryLike
+ */
+
+/**
  * @typedef {Object} SchedulingConfig
  * @property {string} [mode]
  * @property {number} [maxConcurrency]
@@ -142,7 +148,7 @@ function isDegradationMatrixLike(value) {
 function defaultMemoryUsageRatio() {
   // Ratio in [0, 1] best-effort across runtimes.
   try {
-    const proc = /** @type {any} */ (globalThis).process;
+    const proc = (/** @type {{ process?: ProcessWithMemoryUsage }} */ (globalThis)).process;
     if (proc && typeof proc.memoryUsage === "function") {
       const mem = proc.memoryUsage();
       const used = typeof mem.heapUsed === "number" ? mem.heapUsed : mem.rss;
@@ -154,7 +160,8 @@ function defaultMemoryUsageRatio() {
   }
 
   try {
-    const perfMem = /** @type {any} */ (globalThis?.performance)?.memory;
+    const perf = globalThis?.performance;
+    const perfMem = perf ? (/** @type {Performance & { memory?: PerformanceMemoryLike }} */ (perf)).memory : null;
     if (
       perfMem &&
       typeof perfMem.usedJSHeapSize === "number" &&
@@ -874,7 +881,7 @@ export class AgentOrchestrator extends DisposableBase {
         const details = formatValidationErrors(result.errors);
         const err = new Error(`Invalid userConfig for stage "${stageName}"\n${details}`);
         err.name = "ConfigValidationError";
-        /** @type {any} */ (err).errors = result.errors;
+        /** @type {Error & { errors?: Array<{ path: string, message: string, value?: unknown }> }} */ (err).errors = result.errors;
 
         // Always emit a structured validation event; throw only in strict mode.
         this.eventBus.emit(`${stageName}.config.invalid`, {

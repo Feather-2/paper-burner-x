@@ -1,7 +1,14 @@
 import { normalizeVfsPath } from "./path.js";
 
-/** @type {any} */
-const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
+/**
+ * @typedef {{ from(data: ArrayBufferLike): Uint8Array }} BufferStatic
+ */
+
+/** @type {{ Buffer: BufferStatic }} */
+const _global = /** @type {{ Buffer: BufferStatic }} */ (/** @type {unknown} */ (globalThis));
+
+/** @type {BufferStatic} */
+const NodeBuffer = _global.Buffer;
 
 function joinFsPath(rootPath, vfsPath) {
   const root = String(rootPath || ".").replaceAll("\\", "/").replace(/\/+$/, "");
@@ -43,7 +50,7 @@ export class NodeFsVfs {
       return true;
     }
     if (ArrayBuffer.isView(data)) {
-      await fs.writeFile(p, NodeBuffer.from(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)));
+      await fs.writeFile(p, new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
       return true;
     }
     await fs.writeFile(p, String(data ?? ""), "utf8");

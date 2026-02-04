@@ -319,7 +319,7 @@ export class McpClient {
       try {
         Object.defineProperty(allTools, "errors", { value: errors, enumerable: false });
       } catch {
-        /** @type {any} */ (allTools).errors = errors;
+        /** @type {{ errors?: Array<{ providerId: string, error: string, ts: string }> }} */ (allTools).errors = errors;
       }
     }
     return allTools;
@@ -357,7 +357,7 @@ export class McpClient {
       if (!breaker) return await execute();
       return await breaker.execute(execute);
     } catch (err) {
-      const maybe = /** @type {any} */ (err);
+      const maybe = /** @type {McpToolCallError} */ (err);
       if (maybe?.name === "McpToolCallError" && maybe.mcpResult) {
         return maybe.mcpResult;
       }

@@ -4,6 +4,14 @@ import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 import { FileWatcher, isNativeWatchSupported } from "../../shared/index.js";
 import { createLogger } from "../../shared/index.js";
 
+/**
+ * @typedef {import("../../shared/utils/file-watcher.js").VfsLike} FileWatcherVfsLike
+ *
+ * @typedef {FileWatcherVfsLike & {
+ *   readText?: (path: string) => Promise<string>
+ * }} HooksVfsLike
+ */
+
 /** @type {typeof globalThis.process} */
 const process = globalThis.process;
 
@@ -281,7 +289,7 @@ export class HooksConfigLoader extends DisposableBase {
       throw new Error("HooksConfigLoader requires { registry } to be a HookRegistry (or compatible)");
     }
 
-    /** @type {any} */
+    /** @type {HooksVfsLike} */
     this._vfs = vfs;
 
     /** @type {HookRegistry} */

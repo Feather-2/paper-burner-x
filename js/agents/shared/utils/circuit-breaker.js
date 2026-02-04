@@ -128,7 +128,7 @@ export class CircuitBreaker {
     this._checkStateTransition();
 
     if (this._state === CircuitState.OPEN) {
-      const err = /** @type {any} */ (new Error(`Circuit breaker is ${this._state}`));
+      const err = /** @type {Error & { circuitBreaker: string, state: string }} */ (new Error(`Circuit breaker is ${this._state}`));
       err.name = "CircuitBreakerOpenError";
       err.circuitBreaker = this.name;
       err.state = this._state;
@@ -137,7 +137,7 @@ export class CircuitBreaker {
 
     if (this._state === CircuitState.HALF_OPEN) {
       if (this._halfOpenCalls >= this.halfOpenMaxCalls) {
-        const err = /** @type {any} */ (new Error(`Circuit breaker is ${this._state}`));
+        const err = /** @type {Error & { circuitBreaker: string, state: string }} */ (new Error(`Circuit breaker is ${this._state}`));
         err.name = "CircuitBreakerOpenError";
         err.circuitBreaker = this.name;
         err.state = this._state;

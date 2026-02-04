@@ -18,6 +18,10 @@ import { createLogger } from '../../../shared/index.js';
 const logger = createLogger('core/sandbox/system/executor');
 
 /**
+ * @typedef {import('./permission.js').PermissionHandler} PermissionHandler
+ */
+
+/**
  * 沙箱执行器配置
  * @typedef {Object} SystemSandboxConfig
  * @property {string} [preferredBackend] - 首选后端
@@ -26,7 +30,7 @@ const logger = createLogger('core/sandbox/system/executor');
  * @property {string[]} [allowedWritePaths] - 允许写入的路径
  * @property {boolean} [allowNetwork] - 是否允许网络
  * @property {number} [timeoutMs] - 超时
- * @property {Function} [permissionHandler] - 权限处理器 (permission-only 模式)
+ * @property {PermissionHandler} [permissionHandler] - 权限处理器 (permission-only 模式)
  * @property {Function} [onBackendSelected] - 后端选择回调
  */
 
@@ -130,7 +134,7 @@ export class SystemSandboxExecutor {
       default:
         this.executor = createPermissionExecutor({
           ...executorOptions,
-          permissionHandler: /** @type {any} */ (this.config.permissionHandler),
+          permissionHandler: this.config.permissionHandler,
         });
         this.activeBackend = SandboxBackend.PERMISSION_ONLY;
         break;

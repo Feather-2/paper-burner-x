@@ -39,8 +39,19 @@ const logger = createLogger("stages/design/design-helpers");
  * @property {number} [imageConcurrency]
  */
 
-/** @type {any} */
-const process = /** @type {any} */ (globalThis).process;
+/**
+ * @typedef {object} ProcessLike
+ * @property {Record<string, string | undefined>} [env]
+ */
+
+/**
+ * @typedef {Record<PropertyKey, unknown>} IndexableObject
+ * @typedef {IndexableObject & { chat: Function }} AiApiServiceProxyTarget
+ * @typedef {IndexableObject & { call: Function }} ModelRouterProxyTarget
+ */
+
+/** @type {ProcessLike | undefined} */
+const process = (/** @type {{ process?: ProcessLike }} */ (globalThis)).process;
 
 // === 可配置常量 ===
 export const DESIGN_LOOP_DEFAULTS = {
@@ -159,33 +170,35 @@ export function resolveErrorBoundary(stageApi, container) {
  * @returns {T}
  */
 export function createTracedAiApiService(aiApiService, traceContext) {
-  const svc = /** @type {any} */ (aiApiService);
+  const svc = /** @type {IndexableObject} */ (aiApiService);
   if (!svc || typeof svc !== "object" || typeof svc.chat !== "function") return aiApiService;
 
-  return new Proxy(svc, {
-    get(target, prop) {
-      if (prop === "chat") {
-        return async (opts = {}) => {
-          const model = typeof opts?.model === "string" ? opts.model : "auto";
-          const maxTokens = typeof opts?.maxTokens === "number" ? opts.maxTokens : undefined;
-          const temperature = typeof opts?.temperature === "number" ? opts.temperature : undefined;
-          const usage = typeof opts?.usage === "string" ? opts.usage : undefined;
-          return await traceContext.withSpan("design.llm.chat", async (span) => {
-            span.setAttributes({
-              ...(model ? { model } : {}),
-              ...(usage ? { usage } : {}),
-              ...(maxTokens !== undefined ? { maxTokens } : {}),
-              ...(temperature !== undefined ? { temperature } : {}),
+  return /** @type {T} */ (
+    new Proxy(/** @type {AiApiServiceProxyTarget} */ (svc), {
+      get(target, prop) {
+        if (prop === "chat") {
+          return async (opts = {}) => {
+            const model = typeof opts?.model === "string" ? opts.model : "auto";
+            const maxTokens = typeof opts?.maxTokens === "number" ? opts.maxTokens : undefined;
+            const temperature = typeof opts?.temperature === "number" ? opts.temperature : undefined;
+            const usage = typeof opts?.usage === "string" ? opts.usage : undefined;
+            return await traceContext.withSpan("design.llm.chat", async (span) => {
+              span.setAttributes({
+                ...(model ? { model } : {}),
+                ...(usage ? { usage } : {}),
+                ...(maxTokens !== undefined ? { maxTokens } : {}),
+                ...(temperature !== undefined ? { temperature } : {}),
+              });
+              return await target.chat.call(target, opts);
             });
-            return await target.chat.call(target, opts);
-          });
-        };
-      }
-      const value = target[prop];
-      if (typeof value === "function") return value.bind(target);
-      return value;
-    },
-  });
+          };
+        }
+        const value = target[prop];
+        if (typeof value === "function") return value.bind(target);
+        return value;
+      },
+    })
+  );
 }
 
 /**
@@ -196,40 +209,42 @@ export function createTracedAiApiService(aiApiService, traceContext) {
  * @returns {T}
  */
 export function createTracedModelRouter(modelRouter, traceContext) {
-  const router = /** @type {any} */ (modelRouter);
+  const router = /** @type {IndexableObject} */ (modelRouter);
   if (!router || typeof router !== "object" || typeof router.call !== "function") return modelRouter;
 
-  return new Proxy(router, {
-    get(target, prop) {
-      if (prop === "call") {
-        return async (...args) => {
-          let usage = undefined;
-          let model = undefined;
-          try {
-            if (args.length >= 2 && args[1] && typeof args[1] === "object") {
-              usage = typeof args[1].usage === "string" ? args[1].usage : undefined;
-              model = typeof args[1].model === "string" ? args[1].model : undefined;
-            } else if (args.length >= 1 && args[0] && typeof args[0] === "object" && !Array.isArray(args[0])) {
-              usage = typeof args[0].usage === "string" ? args[0].usage : undefined;
-              model = typeof args[0].model === "string" ? args[0].model : undefined;
+  return /** @type {T} */ (
+    new Proxy(/** @type {ModelRouterProxyTarget} */ (router), {
+      get(target, prop) {
+        if (prop === "call") {
+          return async (...args) => {
+            let usage = undefined;
+            let model = undefined;
+            try {
+              if (args.length >= 2 && args[1] && typeof args[1] === "object") {
+                usage = typeof args[1].usage === "string" ? args[1].usage : undefined;
+                model = typeof args[1].model === "string" ? args[1].model : undefined;
+              } else if (args.length >= 1 && args[0] && typeof args[0] === "object" && !Array.isArray(args[0])) {
+                usage = typeof args[0].usage === "string" ? args[0].usage : undefined;
+                model = typeof args[0].model === "string" ? args[0].model : undefined;
+              }
+            } catch {
+              /* intentional: ignore arg inspection failures */
             }
-          } catch {
-            /* intentional: ignore arg inspection failures */
-          }
-          return await traceContext.withSpan("design.llm.call", async (span) => {
-            span.setAttributes({
-              ...(usage ? { usage } : {}),
-              ...(model ? { model } : {}),
+            return await traceContext.withSpan("design.llm.call", async (span) => {
+              span.setAttributes({
+                ...(usage ? { usage } : {}),
+                ...(model ? { model } : {}),
+              });
+              return await target.call.apply(target, args);
             });
-            return await target.call.apply(target, args);
-          });
-        };
-      }
-      const value = target[prop];
-      if (typeof value === "function") return value.bind(target);
-      return value;
-    },
-  });
+          };
+        }
+        const value = target[prop];
+        if (typeof value === "function") return value.bind(target);
+        return value;
+      },
+    })
+  );
 }
 
 /**

@@ -340,8 +340,7 @@ async function buildSkillsPrompt({ agent, stageApi, SkillsManager }) {
 
   try {
     const skillsManager = new SkillsManager();
-    /** @type {any} */
-    const nodeProcess = /** @type {any} */ (globalThis).process;
+    const nodeProcess = (/** @type {{ process?: { cwd?: () => string } }} */ (globalThis)).process;
     const cwd =
       stageApi?.cwd ||
       (typeof nodeProcess?.cwd === "function" ? nodeProcess.cwd() : "");

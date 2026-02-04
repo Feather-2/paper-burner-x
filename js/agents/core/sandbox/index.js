@@ -56,12 +56,18 @@ export const detectBestBackend = isNodeLike()
 
 /** @type {typeof import('./system/index.js').getPlatform} */
 export const getPlatform = isNodeLike()
-  ? /** @type {any} */ (() => import('./system/index.js').then(m => m.getPlatform()))
+  ? /** @type {typeof import('./system/index.js').getPlatform} */ (
+      /** @type {unknown} */ (() => import('./system/index.js').then(m => m.getPlatform()))
+    )
   : () => throwNodeOnlyError('getPlatform');
 
 /** @type {typeof import('./system/index.js').createSystemSandbox} */
 export const createSystemSandbox = isNodeLike()
-  ? /** @type {any} */ ((...args) => import('./system/index.js').then(m => m.createSystemSandbox(...args)))
+  ? /** @type {typeof import('./system/index.js').createSystemSandbox} */ (
+      /** @type {unknown} */ ((...args) =>
+        import('./system/index.js').then(m => m.createSystemSandbox(...args))
+      )
+    )
   : () => throwNodeOnlyError('createSystemSandbox');
 
 /** @type {typeof import('./system/index.js').execInSandbox} */
@@ -96,7 +102,11 @@ export const createPermissionExecutor = isNodeLike()
 
 /** @type {typeof import('./system/index.js').createInteractivePermissionHandler} */
 export const createInteractivePermissionHandler = isNodeLike()
-  ? /** @type {any} */ ((options) => import('./system/index.js').then(m => m.createInteractivePermissionHandler(options)))
+  ? /** @type {typeof import('./system/index.js').createInteractivePermissionHandler} */ (
+      /** @type {unknown} */ ((options) =>
+        import('./system/index.js').then(m => m.createInteractivePermissionHandler(options))
+      )
+    )
   : () => throwNodeOnlyError('createInteractivePermissionHandler');
 
 // SystemSandboxExecutor 类需要特殊处理
@@ -111,7 +121,7 @@ export const SystemSandboxExecutor = isNodeLike()
         }
       }
     )
-  : /** @type {any} */ (
+  : /** @type {typeof import('./system/index.js').SystemSandboxExecutor} */ (
       class SystemSandboxExecutorBrowserStub {
         constructor() {
           throwNodeOnlyError('SystemSandboxExecutor');

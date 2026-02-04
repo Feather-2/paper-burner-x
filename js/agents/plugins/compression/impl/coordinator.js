@@ -8,6 +8,13 @@ import { compressAgentLoopMessagesAsync } from "./compression-async.js";
  */
 
 /**
+ * @typedef {object} CompressionCoordinatorRuntime
+ * @property {AbortSignal} [signal]
+ * @property {boolean} [useWorker]
+ * @property {number} [workerThresholdMessages]
+ */
+
+/**
  * @param {any} value
  * @param {number} fallback
  * @returns {number}
@@ -82,7 +89,7 @@ export class CompressionCoordinator {
     const titleOnly = fillRatio >= titleThreshold;
 
     const runtimeOpts = runtime && typeof runtime === "object" ? runtime : {};
-    /** @type {any} */
+    /** @type {CompressionCoordinatorRuntime} */
     const runtimeResolved = {
       useWorker: typeof runtimeOpts.useWorker === "boolean" ? runtimeOpts.useWorker : cfg.useCompressionWorker !== false,
       workerThresholdMessages:

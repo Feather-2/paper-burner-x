@@ -263,14 +263,14 @@ export class WritingPhaseHandler {
 
             let payloadForPrompt = result;
             try {
-              const stored = await maybePersistToolOutput(/** @type {any} */ ({
-                runStore: stageApi?.runStore || null,
+              const stored = await maybePersistToolOutput({
+                runStore: stageApi?.runStore ?? undefined,
                 runId: state?.runId,
                 toolName: "write-report",
                 args: item.args || {},
                 iteration: plannedIteration,
                 result,
-              }));
+              });
               payloadForPrompt = stored.inline;
             } catch {
               // ignore persistence failures

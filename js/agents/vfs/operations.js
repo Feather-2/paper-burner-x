@@ -33,8 +33,15 @@ function getLockMapForVfs(vfs) {
  * @returns {Promise<T>}
  */
 async function waitFor(promise, { signal } = {}) {
-  const maybeThenable = /** @type {any} */ (promise);
-  const p = maybeThenable && typeof maybeThenable.then === "function" ? maybeThenable : Promise.resolve(promise);
+  /** @type {unknown} */
+  const maybeThenable = promise;
+  const p =
+    maybeThenable !== null &&
+    maybeThenable !== undefined &&
+    (typeof maybeThenable === "object" || typeof maybeThenable === "function") &&
+    typeof /** @type {{ then?: unknown }} */ (maybeThenable).then === "function"
+      ? /** @type {PromiseLike<T>} */ (maybeThenable)
+      : Promise.resolve(promise);
   if (!signal) return await p;
   if (signal.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "aborted");
 

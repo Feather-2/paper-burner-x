@@ -13,6 +13,22 @@ import { GCounter, PNCounter } from './counters.js';
 /** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
 /** @typedef {{ nodeId?: string, docId?: string, maxOpLogSize?: number }} CRDTDocumentOptions */
 /** @typedef {'register' | 'map' | 'set' | 'counter'} CRDTFieldType */
+/** @typedef {{ type: string, [key: string]: unknown }} CounterOpLike */
+/**
+ * @template T
+ * @typedef {{ type: 'LWWRegister', value: T, clock: LamportClockState, nodeId: string }} LWWRegisterJSON
+ */
+/**
+ * @template V
+ * @typedef {{ value: V, clock: LamportClockState, deleted: boolean, nodeId: string }} LWWMapEntry
+ */
+/**
+ * @template V
+ * @typedef {{ type: 'LWWMap', nodeId: string, entries: Record<string, LWWMapEntry<V>> }} LWWMapJSON
+ */
+/** @typedef {{ type: 'ORSet', nodeId: string, elements: Record<string, string[]>, tombstones: string[] }} ORSetJSON */
+/** @typedef {{ type: 'GCounter', nodeId: string, counts: Record<string, number> }} GCounterJSON */
+/** @typedef {{ type: 'PNCounter', nodeId: string, positive: GCounterJSON, negative: GCounterJSON }} PNCounterJSON */
 /**
  * 单条操作日志记录（用于同步与幂等重放）。
  *
@@ -343,9 +359,12 @@ export class CRDTDocument {
             // GCounter 无法处理 PNCounter 操作，跳过
             return false;
           }
-          changed = isPNCounter
-            ? counter.apply(/** @type {any} */ (op))
-            : counter.apply(/** @type {any} */ (op.op || op));
+          if (counter instanceof PNCounter) {
+            changed = counter.apply(/** @type {CounterOpLike} */ (op));
+          } else {
+            const opForCounter = typeof op.op?.type === 'string' ? op.op : op;
+            changed = counter.apply(/** @type {CounterOpLike} */ (opForCounter));
+          }
         }
         break;
     }
@@ -505,19 +524,19 @@ export class CRDTDocument {
     doc._version = json.version || 0;
 
     for (const [k, v] of Object.entries(json.registers || {})) {
-      doc._registers.set(k, LWWRegister.fromJSON(/** @type {any} */ (v)));
+      doc._registers.set(k, LWWRegister.fromJSON(/** @type {LWWRegisterJSON<unknown>} */ (v)));
     }
 
     for (const [k, v] of Object.entries(json.maps || {})) {
-      doc._maps.set(k, LWWMap.fromJSON(/** @type {any} */ (v)));
+      doc._maps.set(k, LWWMap.fromJSON(/** @type {LWWMapJSON<unknown>} */ (v)));
     }
 
     for (const [k, v] of Object.entries(json.sets || {})) {
-      doc._sets.set(k, ORSet.fromJSON(/** @type {any} */ (v)));
+      doc._sets.set(k, ORSet.fromJSON(/** @type {ORSetJSON} */ (v)));
     }
 
     for (const [k, v] of Object.entries(json.counters || {})) {
-      const counterJson = /** @type {any} */ (v);
+      const counterJson = /** @type {GCounterJSON | PNCounterJSON} */ (v);
       if (counterJson.type === 'GCounter') {
         doc._counters.set(k, GCounter.fromJSON(counterJson));
       } else {

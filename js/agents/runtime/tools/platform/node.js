@@ -14,11 +14,20 @@ import { exec as execCommand } from '../../core/exec/index.js';
  */
 
 /**
+ * Minimal globalThis shape used by this module.
+ * (Avoids a hard dependency on @types/node for browser builds.)
+ * @typedef {object} GlobalLike
+ * @property {{ cwd?: () => string }=} process
+ * @property {unknown=} Bun
+ * @property {unknown=} Deno
+ */
+
+/**
  * @param {PlatformToolsOptions} options
  * @returns {Promise<PlatformTools>}
  */
 export async function createNodeTools(options = {}) {
-  const g = /** @type {any} */ (globalThis);
+  const g = /** @type {GlobalLike} */ (globalThis);
   const defaultBasePath = typeof g.process?.cwd === 'function' ? g.process.cwd() : '.';
 
   const {

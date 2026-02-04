@@ -48,7 +48,7 @@ import { normalizeVfsPath, dirnameVfsPath, basenameVfsPath } from "./path.js";
  */
 function isVfsDirent(entry) {
   if (!entry || typeof entry !== "object") return false;
-  const candidate = /** @type {any} */ (entry);
+  const candidate = /** @type {{ name?: unknown, isDirectory?: unknown, isFile?: unknown }} */ (entry);
   return (
     typeof candidate.name === "string" &&
     typeof candidate.isDirectory === "function" &&

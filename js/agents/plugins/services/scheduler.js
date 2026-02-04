@@ -42,10 +42,12 @@ export default createPlugin({
     let taskId = 0;
     const tasks = new Map();
 
-    /** @type {(callback: (...args: any[]) => void, ...args: any[]) => any} */
+    const globalWithSetImmediate = /** @type {{ setImmediate?: unknown }} */ (/** @type {unknown} */ (globalThis));
+
+    /** @type {(callback: (...args: unknown[]) => void, ...args: unknown[]) => unknown} */
     const setImmediate =
-      typeof (/** @type {any} */ (globalThis)).setImmediate === 'function'
-        ? (/** @type {any} */ (globalThis)).setImmediate
+      typeof globalWithSetImmediate.setImmediate === 'function'
+        ? /** @type {(callback: (...args: unknown[]) => void, ...args: unknown[]) => unknown} */ (globalWithSetImmediate.setImmediate)
         : (callback, ...args) => setTimeout(callback, 0, ...args);
 
     const processQueue = async () => {

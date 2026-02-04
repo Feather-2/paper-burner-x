@@ -7,8 +7,13 @@ import { isPlainObject } from "../shared/index.js";
 
 const LOCAL_ARTIFACT_PREFIX = "pb_vfs_artifact|";
 
-/** @type {any} */
-const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
+/**
+ * @typedef {Uint8Array & { toString(encoding?: string): string }} NodeBufferLike
+ * @typedef {{ from(data: string | ArrayBuffer | Uint8Array, encoding?: string): NodeBufferLike }} NodeBufferConstructorLike
+ */
+
+/** @type {NodeBufferConstructorLike | undefined} */
+const NodeBuffer = /** @type {{ Buffer?: NodeBufferConstructorLike }} */ (globalThis).Buffer;
 
 /**
  * @typedef {object} StorageAdapterLike
@@ -91,8 +96,8 @@ const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
  * @returns {runStore is RunStoreLike}
  */
 function isRunStoreLike(runStore) {
-  const store = /** @type {any} */ (runStore);
-  return store && typeof store.saveArtifact === "function" && typeof store.getArtifactById === "function";
+  const store = /** @type {Partial<RunStoreLike> | null} */ (runStore);
+  return !!store && typeof store.saveArtifact === "function" && typeof store.getArtifactById === "function";
 }
 
 /**
@@ -101,7 +106,7 @@ function isRunStoreLike(runStore) {
  */
 function isStorageAdapterLike(storageAdapter) {
   const s = storageAdapter && typeof storageAdapter === "object" ? storageAdapter : null;
-  const adapter = /** @type {any} */ (s);
+  const adapter = /** @type {Partial<StorageAdapterLike> | null} */ (s);
   if (!s) return false;
   if (typeof adapter.get !== "function" || typeof adapter.set !== "function") return false;
   if (typeof adapter.delete !== "function" || typeof adapter.keys !== "function") return false;

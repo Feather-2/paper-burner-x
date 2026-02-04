@@ -1,7 +1,14 @@
 import { toNonEmptyString } from "./value-utils.js";
 
-/** @type {any} */
-const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
+/**
+ * Minimal `Buffer` constructor shape used by this module.
+ * (Avoids a hard dependency on `@types/node` in browser builds.)
+ * @typedef {object} NodeBufferConstructorLike
+ * @property {(data: string | Uint8Array, encoding?: string) => (Uint8Array & { toString: (encoding?: string) => string })} from
+ */
+
+/** @type {NodeBufferConstructorLike | undefined} */
+const NodeBuffer = (/** @type {{ Buffer?: NodeBufferConstructorLike }} */ (globalThis)).Buffer;
 
 /**
  * @typedef {object} StorageEncryptionOptions

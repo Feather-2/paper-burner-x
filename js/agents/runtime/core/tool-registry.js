@@ -179,11 +179,11 @@ function resolveToolQuotaMode(context) {
 
 /**
  * @param {any} traceContext
- * @returns {TraceContextLike | null}
+ * @returns {traceContext is TraceContextLike}
  */
 function isTraceContextLike(traceContext) {
-  return /** @type {any} */ (
-    traceContext &&
+  return (
+    !!traceContext &&
     typeof traceContext === "object" &&
     typeof traceContext.startSpan === "function" &&
     typeof traceContext.endSpan === "function" &&
@@ -266,7 +266,7 @@ export class ToolRegistry {
         if (fn && typeof fn === "object" && typeof fn.fn === "function") {
           this.registerTool(name, fn.fn, fn.schema || fn.paramsSchema || fn.parameters || fn.definition?.parameters);
         } else {
-          this.registerTool(name, /** @type {any} */ (fn));
+          this.registerTool(name, /** @type {Function} */ (fn));
         }
       }
       return;
@@ -291,7 +291,7 @@ export class ToolRegistry {
         if (fn && typeof fn === "object" && typeof fn.fn === "function") {
           this.registerTool(name, fn.fn, fn.schema || fn.paramsSchema || fn.parameters || fn.definition?.parameters);
         } else {
-          this.registerTool(name, /** @type {any} */ (fn));
+          this.registerTool(name, /** @type {Function} */ (fn));
         }
       }
       return;

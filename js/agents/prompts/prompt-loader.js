@@ -37,13 +37,13 @@ function setCacheItem(key, value) {
 }
 
 function getNodeProcess() {
-  return /** @type {any} */ (globalThis).process;
+  return /** @type {NodeProcessLike | undefined} */ (/** @type {Record<string, unknown>} */ (globalThis).process);
 }
 
 /**
  * `require` is a CommonJS-only global. This file is ESM, but we keep `typeof require`
  * checks for compatibility; declare it so TypeScript can typecheck without @types/node.
- * @type {any}
+ * @type {((id: string) => unknown) | undefined}
  */
 // eslint-disable-next-line no-var
 var require;
@@ -55,6 +55,42 @@ var require;
  */
 // eslint-disable-next-line no-var
 var __dirname;
+
+/**
+ * Minimal Node-like process type (avoid @types/node).
+ * @typedef {{ env?: Record<string, string | undefined>, platform?: string }} NodeProcessLike
+ */
+
+/**
+ * Minimal fs/promises subset used by this module (avoid @types/node).
+ * @typedef {{
+ *   realpath: (path: string) => Promise<string>,
+ *   stat: (path: string) => Promise<{ size?: number }>,
+ *   readFile: (path: string, encoding: string) => Promise<string>,
+ * }} FsPromisesLike
+ */
+
+/**
+ * Minimal sync fs subset used by this module (avoid @types/node).
+ * @typedef {{
+ *   realpathSync: (path: string) => string,
+ *   statSync: (path: string) => { size?: number },
+ *   readFileSync: (path: string, encoding: string) => string,
+ * }} FsSyncLike
+ */
+
+/**
+ * Minimal path module subset used by this module (avoid @types/node).
+ * @typedef {{
+ *   resolve: (...paths: string[]) => string,
+ *   relative: (from: string, to: string) => string,
+ *   isAbsolute: (path: string) => boolean,
+ * }} PathLike
+ */
+
+/**
+ * @typedef {{ fs: FsSyncLike, path: PathLike }} SyncNodeModules
+ */
 
 /**
  * @typedef {object} PromptLoaderOptions
@@ -495,8 +531,12 @@ export class PromptLoader {
     // Node.js 环境 - 使用 fs
     else {
       try {
-        const fs = /** @type {any} */ (await import(/* @vite-ignore */ /** @type {string} */ ("fs/promises")));
-        const pathModule = /** @type {any} */ (await import(/* @vite-ignore */ /** @type {string} */ ("path")));
+        const fs = /** @type {FsPromisesLike} */ (/** @type {unknown} */ (
+          await import(/* @vite-ignore */ /** @type {string} */ ("fs/promises"))
+        ));
+        const pathModule = /** @type {PathLike} */ (/** @type {unknown} */ (
+          await import(/* @vite-ignore */ /** @type {string} */ ("path"))
+        ));
 
         const baseResolved = pathModule.resolve(basePath);
         const baseReal = await fs.realpath(baseResolved);
@@ -725,6 +765,7 @@ export async function loadPrompt(name, { cache = true, manifestUrl } = {}) {
 
 /**
  * 获取 Node.js 模块（安全处理 ESM/CJS 兼容性）
+ * @returns {SyncNodeModules | null}
  */
 function getSyncNodeModules() {
   if (!isNodeLike()) return null;
@@ -740,8 +781,8 @@ function getSyncNodeModules() {
     /** @type {string} */
     const pathModule = "path";
     return {
-      fs: require(fsModule),
-      path: require(pathModule)
+      fs: /** @type {FsSyncLike} */ (/** @type {unknown} */ (require(fsModule))),
+      path: /** @type {PathLike} */ (/** @type {unknown} */ (require(pathModule))),
     };
   } catch {
     return null;

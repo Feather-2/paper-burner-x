@@ -17,20 +17,6 @@ interface ProcessEnv {
   [key: string]: string | undefined;
 }
 
-declare namespace NodeJS {
-  interface Process {
-    env: ProcessEnv;
-    platform: string;
-    version: string;
-    versions: Record<string, string>;
-    argv: string[];
-    execArgv: string[];
-    cwd(): string;
-    exit(code?: number): never;
-    pid: number;
-  }
-}
-
 interface DenoType {
   version: { deno: string };
   build: { os: string };
@@ -60,6 +46,20 @@ interface BunType {
 }
 
 declare global {
+  namespace NodeJS {
+    interface Process {
+      env: ProcessEnv;
+      platform: string;
+      version: string;
+      versions: Record<string, string>;
+      argv: string[];
+      execArgv: string[];
+      cwd(): string;
+      exit(code?: number): never;
+      pid: number;
+    }
+  }
+
   var Buffer: BufferConstructor | undefined;
   var process: NodeJS.Process | undefined;
   var Deno: DenoType | undefined;

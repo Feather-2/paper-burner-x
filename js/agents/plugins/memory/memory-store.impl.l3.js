@@ -3,19 +3,54 @@ import { RetrievalEngine } from "./retrieval-engine.js";
 import { L3Storage } from "./l3-storage.js";
 import { defineGetter, defineMethod, estimateBytes, genId, truncate } from "./memory-store.impl.utils.js";
 
+/**
+ * @typedef {object} L3TimelineEntry
+ * @property {string} id
+ * @property {number} ts
+ * @property {string} [summary]
+ *
+ * @typedef {object} L3SnapshotEntry
+ * @property {string} id
+ * @property {string} stageKey
+ * @property {unknown} data
+ * @property {string} summary
+ * @property {number} ts
+ *
+ * @typedef {object} L3Checkpoint
+ * @property {string} id
+ * @property {string} [runId]
+ * @property {number} [ts]
+ * @property {string} [encoding]
+ * @property {{ L0: boolean, L1: boolean, L2: boolean, L3: boolean }} [dirtyLayers]
+ * @property {string} [baseId]
+ * @property {unknown} [L0]
+ * @property {unknown} [L1]
+ * @property {unknown} [L2]
+ *
+ * @typedef {object} L3IndexState
+ * @property {Map<string, Set<string>>} keywords
+ * @property {Map<string, string>} stages
+ * @property {Array<L3TimelineEntry>} timeline
+ *
+ * @typedef {object} L3LayerState
+ * @property {Map<string, L3SnapshotEntry>} snapshots
+ * @property {L3IndexState} index
+ * @property {Array<L3Checkpoint>} checkpoints
+ */
+
 class MemoryStoreL3This {
-  /** @type {any} */ _vfs;
+  /** @type {unknown} */ _vfs;
   /** @type {string} */ runId;
-  /** @type {any} */ eventBus;
-  /** @type {any} */ _embeddingService;
-  /** @type {any} */ _vectorIndex;
-  /** @type {any} */ _retrievalEngine;
-  /** @type {any} */ _L0;
-  /** @type {any} */ _L1;
-  /** @type {any} */ _L2;
-  /** @type {any} */ _L3;
-  /** @type {any} */ _l3Storage;
-  /** @type {any} */ _l3StoragePromise;
+  /** @type {unknown} */ eventBus;
+  /** @type {unknown} */ _embeddingService;
+  /** @type {unknown} */ _vectorIndex;
+  /** @type {import("./retrieval-engine.js").RetrievalEngine | null} */ _retrievalEngine;
+  /** @type {unknown} */ _L0;
+  /** @type {unknown} */ _L1;
+  /** @type {unknown} */ _L2;
+  /** @type {L3LayerState} */ _L3;
+  /** @type {import("./l3-storage.js").L3Storage | null} */ _l3Storage;
+  /** @type {Promise<import("./l3-storage.js").L3Storage> | null} */ _l3StoragePromise;
   /** @type {number} */ _l3BytesUsed;
 
   /** @type {() => Promise<any>} */ _getL3Storage;
@@ -153,10 +188,12 @@ export function defineL3Layer() {
       for (const kw of keywords) {
         const k = toNonEmptyString(kw)?.toLowerCase();
         if (!k) continue;
-        if (!this._L3.index.keywords.has(k)) {
-          this._L3.index.keywords.set(k, new Set());
+        let idSet = this._L3.index.keywords.get(k);
+        if (!idSet) {
+          idSet = new Set();
+          this._L3.index.keywords.set(k, idSet);
         }
-        this._L3.index.keywords.get(k).add(id);
+        idSet.add(id);
       }
 
       // 阶段索引
@@ -252,7 +289,7 @@ export function defineL3Layer() {
         const checkpointCount = Array.isArray(checkpointIndex) ? checkpointIndex.length : 0;
         const shouldFull = !incremental || checkpointCount % fullSnapshotEvery === 0;
 
-        /** @type {any} */
+        /** @type {L3Checkpoint} */
         let snapshot;
         if (shouldFull || !this._hasAnyDirty()) {
           snapshot = {

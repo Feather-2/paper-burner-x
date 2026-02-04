@@ -555,7 +555,7 @@ export class EventBus {
 
         const evt = createEventRecord({
           ...raw,
-          _clock: /** @type {any} */ (clock),
+          _clock: /** @type {LamportClockState | undefined} */ (/** @type {unknown} */ (clock)),
           runId: rawRunId ?? runId,
           meta: { ...(rawMeta || {}), replay: true },
         });

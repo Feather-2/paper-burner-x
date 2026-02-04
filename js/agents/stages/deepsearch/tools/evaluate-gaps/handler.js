@@ -7,6 +7,8 @@
 import { DiscoveryStatus } from "../../../../sdk/DiscoveryManager.js";
 import { GapStatus } from "../../states.js";
 
+/** @typedef {(typeof DiscoveryStatus)[keyof typeof DiscoveryStatus]} DiscoveryStatusValue */
+
 function mapDiscoveryStatusToGapStatus(status) {
     if (status === DiscoveryStatus.SATISFIED) return GapStatus.FILLED;
     if (status === DiscoveryStatus.BLOCKED) return GapStatus.BLOCKED;
@@ -36,7 +38,7 @@ export async function handler(args, context) {
     const { gapId, status, analysis, hint } = args;
 
     if (!gapId) return { success: false, error: "gapId is required" };
-    if (!status || !Object.values(DiscoveryStatus).includes(/** @type {any} */ (status))) {
+    if (!status || !Object.values(DiscoveryStatus).includes(/** @type {DiscoveryStatusValue} */ (status))) {
         return { success: false, error: "Invalid status" };
     }
 

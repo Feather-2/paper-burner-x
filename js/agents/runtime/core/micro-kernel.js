@@ -147,7 +147,7 @@ export class MicroKernel {
     if (!key) throw new MicroKernelConfigError("MicroKernel.register(id): id is required");
 
     if (typeof factoryOrValue === "function") {
-      this._factories.set(key, /** @type {any} */ (factoryOrValue));
+      this._factories.set(key, /** @type {(kernel: MicroKernel) => unknown} */ (factoryOrValue));
       this._instances.delete(key);
       return this;
     }
@@ -208,7 +208,7 @@ export class MicroKernel {
     const wrapper = (evt) => handler(evt?.payload);
     map.set(handler, wrapper);
 
-    const offCore = this.eventBus.on(name, /** @type {any} */ (wrapper));
+    const offCore = this.eventBus.on(name, /** @type {import("../../core/event-bus-subscriptions.js").EventHandler} */ (wrapper));
     return () => {
       offCore?.();
       map.delete(handler);

@@ -36,18 +36,18 @@ export async function createVfs(options = {}) {
         // Best-effort: expose a StorageAdapter for checkpoint persistence fallback.
         // This does not change OPFS VFS semantics and remains optional.
         try {
-          const adapter =
-            options.storageAdapter && typeof options.storageAdapter.get === "function"
-              ? options.storageAdapter
-              : await createStorageAdapter({
-                  preferOpfs: true,
-                  silent: true,
-                });
-          /** @type {any} */ (vfs).storageAdapter = adapter;
-        } catch {
-          // ignore
-        }
-        return vfs;
+	          const adapter =
+	            options.storageAdapter && typeof options.storageAdapter.get === "function"
+	              ? options.storageAdapter
+	              : await createStorageAdapter({
+	                  preferOpfs: true,
+	                  silent: true,
+	                });
+	          /** @type {OpfsVfs & { storageAdapter?: import('./storage-adapter.js').StorageAdapter }} */ (vfs).storageAdapter = adapter;
+	        } catch {
+	          // ignore
+	        }
+	        return vfs;
       } catch {
         // fall through to StorageAdapter-backed VFS
       }
@@ -69,4 +69,3 @@ export { MemoryVfs } from "./vfs.memory.js";
 export { OpfsVfs, supportsOpfs } from "./vfs.opfs.js";
 export { StorageVfs } from "./vfs.storage.js";
 export { createVfsGlobFn, matchGlob, globToRegExp, expandBraces } from "./glob.js";
-

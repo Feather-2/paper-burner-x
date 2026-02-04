@@ -134,15 +134,19 @@ export async function executeWithPermission(command, args, options) {
 
 /**
  * 创建 Permission-only 执行器实例
- * @param {PermissionOptions} defaultOptions
+ * @param {Partial<PermissionOptions>} [defaultOptions]
  * @returns {Object}
  */
-export function createPermissionExecutor(defaultOptions = /** @type {any} */ ({})) {
+export function createPermissionExecutor(defaultOptions = /** @type {Partial<PermissionOptions>} */ ({})) {
   return {
     backend: SandboxBackend.PERMISSION_ONLY,
 
     async execute(command, args = [], options = {}) {
-      return executeWithPermission(command, args, { ...defaultOptions, ...options });
+      return executeWithPermission(
+        command,
+        args,
+        /** @type {PermissionOptions} */ ({ ...defaultOptions, ...options })
+      );
     },
 
     async shell(shellCommand, options = {}) {

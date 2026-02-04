@@ -336,6 +336,16 @@ function elementToMarkdown(root, options = {}) {
 
   // 使用栈进行深度优先遍历
   // { node, depth, visited: boolean, tag, children: array }
+  /**
+   * @typedef {object} MarkdownTraverseFrame
+   * @property {Element} node
+   * @property {number} depth
+   * @property {boolean} visited
+   * @property {MarkdownTraverseFrame[]=} children
+   * @property {string=} textContent
+   */
+
+  /** @type {MarkdownTraverseFrame[]} */
   const stack = [{ node: root, depth: 0, visited: false }];
 
   while (stack.length > 0 && nodeCount < maxNodes) {
@@ -367,11 +377,11 @@ function elementToMarkdown(root, options = {}) {
       for (let i = node.childNodes.length - 1; i >= 0; i--) {
         const child = node.childNodes[i];
         if (child.nodeType === 1) { // Element
-          children.unshift({ node: child, depth: depth + 1, visited: false });
+          children.unshift({ node: /** @type {Element} */ (child), depth: depth + 1, visited: false });
         } else if (child.nodeType === 3) { // Text
           const text = cleanText(child.textContent);
           if (text && !shouldSkipText(text)) {
-            children.unshift({ node: child, depth: depth + 1, visited: true, textContent: text });
+            children.unshift({ node: /** @type {Element} */ (child), depth: depth + 1, visited: true, textContent: text });
           }
         }
       }

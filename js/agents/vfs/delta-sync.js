@@ -28,6 +28,7 @@ const DEFAULT_CHUNK_SIZE = 64 * 1024; // 64KB for delta chunks
  * @returns {Promise<string>}
  */
 export async function computeHash(data) {
+  /** @type {Uint8Array} */
   let bytes;
   if (typeof data === "string") {
     bytes = new TextEncoder().encode(data);
@@ -40,7 +41,7 @@ export async function computeHash(data) {
   }
 
   try {
-    const hashBuffer = await crypto.subtle.digest("SHA-256", /** @type {any} */ (bytes));
+    const hashBuffer = await crypto.subtle.digest("SHA-256", /** @type {BufferSource} */ (bytes));
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   } catch {

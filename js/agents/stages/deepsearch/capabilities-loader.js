@@ -63,7 +63,7 @@ export async function loadDeepSearchCapabilities() {
     }
 
     try {
-      const budget = /** @type {any} */ (await import("../../shared/utils/budget.js"));
+      const budget = /** @type {(typeof import("../../shared/utils/budget.js")) & { default?: unknown }} */ (await import("../../shared/utils/budget.js"));
       capabilities.BudgetManager = budget.BudgetManager || budget.default;
     } catch (err) {
       warn("BudgetManager", err);
@@ -84,7 +84,7 @@ export async function loadDeepSearchCapabilities() {
     }
 
     try {
-      const backtrack = /** @type {any} */ (await import("./internal/backtrack-manager.js"));
+      const backtrack = /** @type {(typeof import("./internal/backtrack-manager.js")) & { default?: unknown }} */ (await import("./internal/backtrack-manager.js"));
       capabilities.BacktrackManager = backtrack.BacktrackManager || backtrack.default;
     } catch (err) {
       warn("BacktrackManager", err);

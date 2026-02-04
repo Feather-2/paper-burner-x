@@ -335,15 +335,15 @@ export class ModelRouter {
    * @returns {void}
    */
   _registerPerformanceCandidates({ usage, baseCandidates, images }) {
-	    registerPerformanceCandidates({
-	      usage,
-	      baseCandidates,
-	      images,
-	      models: this._models,
-	      performanceRouter: /** @type {any} */ (this._performanceRouter),
-	      resolveEndpointTier: (modelId, entry, options) => this._resolveEndpointTier(modelId, entry, options),
-	    });
-	  }
+		    registerPerformanceCandidates({
+		      usage,
+		      baseCandidates,
+		      images,
+		      models: this._models,
+		      performanceRouter: /** @type {{ registerEndpoint: (id: string, meta: { tier: string, weight: number }) => void }} */ (this._performanceRouter),
+		      resolveEndpointTier: (modelId, entry, options) => this._resolveEndpointTier(modelId, entry, options),
+		    });
+		  }
 
   /**
    * @param {{ usage: string, strategy: string, startIndex: number, baseCandidates: string[], requiredTags: Set<string> }} input

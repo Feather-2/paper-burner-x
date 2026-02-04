@@ -14,6 +14,10 @@ import { runWithAgentLifecycleHooks } from "./agent-loop-lifecycle-hooks.js";
 /**
  * @typedef {Record<string, any>} AnyRecord
  *
+ * @typedef {{ process?: { env?: Record<string, string | undefined> } }} GlobalThisWithProcessEnv
+ *
+ * @typedef {ImportMeta & { env?: { MODE?: unknown } }} ImportMetaWithEnv
+ *
  * @typedef {(eventName: string, record: { actor?: string, status?: string, payload?: any }) => void} EmitFn
  *
  * @typedef {{ emit?: EmitFn, subscribe?: (eventName: string, handler: (evt: any) => void, options?: { signal?: AbortSignal }) => (() => void) }} EventBusLike
@@ -118,14 +122,12 @@ function estimateTokens(text, tokenCounter) {
  */
 function isProductionRuntime() {
   try {
-    /** @type {any} */
-    const g = typeof globalThis !== "undefined" ? globalThis : {};
+    const g = /** @type {GlobalThisWithProcessEnv} */ (typeof globalThis !== "undefined" ? globalThis : {});
     const env = g?.process?.env ?? null;
     if (env && typeof env.NODE_ENV === "string") return env.NODE_ENV === "production";
   } catch { /* intentional: process.env may not exist */ }
   try {
-    /** @type {any} */
-    const meta = import.meta;
+    const meta = /** @type {ImportMetaWithEnv} */ (import.meta);
     const mode = meta?.env?.MODE;
     if (typeof mode === "string") return mode === "production";
   } catch { /* intentional: import.meta.env may not exist */ }
@@ -152,8 +154,7 @@ function parseBooleanish(value) {
 function resolveStrictLoopStatusTransitions(explicit) {
   if (explicit === true || explicit === false) return explicit;
 
-  /** @type {any} */
-  const g = typeof globalThis !== "undefined" ? globalThis : {};
+  const g = /** @type {GlobalThisWithProcessEnv} */ (typeof globalThis !== "undefined" ? globalThis : {});
   const env = g?.process?.env ?? null;
   const fromEnv = parseBooleanish(env?.PB_STRICT_LOOP_STATUS_TRANSITIONS);
   if (typeof fromEnv === "boolean") return fromEnv;
@@ -190,7 +191,7 @@ function isAllowedLoopStatusTransition(from, to, meta = /** @type {LoopStatusTra
   }
   if (!isValidAgentStatus(from) || !isValidAgentStatus(to)) return true;
   const allowed = DEFAULT_LOOP_STATUS_TRANSITIONS[from] || [];
-  return allowed.includes(/** @type {any} */ (to));
+  return allowed.includes(to);
 }
 
 /**

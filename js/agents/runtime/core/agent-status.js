@@ -41,7 +41,7 @@ export const StepStatus = Object.freeze({
  * @returns {value is AgentStatusValue}
  */
 export function isValidAgentStatus(value) {
-  return Object.values(AgentStatus).includes(/** @type {any} */ (value));
+  return Object.values(AgentStatus).includes(/** @type {AgentStatusValue} */ (value));
 }
 
 /**
@@ -49,7 +49,7 @@ export function isValidAgentStatus(value) {
  * @returns {value is StepStatusValue}
  */
 export function isValidStepStatus(value) {
-  return Object.values(StepStatus).includes(/** @type {any} */ (value));
+  return Object.values(StepStatus).includes(/** @type {StepStatusValue} */ (value));
 }
 
 /**

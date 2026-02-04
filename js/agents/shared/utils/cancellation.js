@@ -17,7 +17,10 @@ import { isAbortError as _isAbortError } from "./error-utils.js";
 function toCancellationMessage(reason) {
   if (typeof reason === "string" && reason.trim()) return reason;
   if (reason instanceof Error && typeof reason.message === "string" && reason.message.trim()) return reason.message;
-  if (reason && typeof reason === "object" && typeof /** @type {any} */ (reason).message === "string" && /** @type {any} */ (reason).message.trim()) return /** @type {any} */ (reason).message;
+  if (reason && typeof reason === "object") {
+    const message = /** @type {{ message?: unknown }} */ (reason).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
   return "Run cancelled";
 }
 
@@ -40,7 +43,7 @@ export function checkCancelled(signal) {
  * @returns {boolean}
  */
 export function isAbortError(err) {
-  return _isAbortError(/** @type {any} */ (err));
+  return _isAbortError(/** @type {Error} */ (err));
 }
 
 /**

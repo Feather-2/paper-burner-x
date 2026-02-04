@@ -139,7 +139,8 @@ export class VfsProxyClient {
    */
   constructor(options = {}) {
     /** @type {EventTarget & { postMessage?: Function }} */
-    this._target = options.target || /** @type {any} */ (typeof self !== "undefined" ? self : globalThis);
+    this._target =
+      options.target || /** @type {EventTarget & { postMessage?: Function }} */ (typeof self !== "undefined" ? self : globalThis);
     /** @type {(msg:any, transfer?: Transferable[]) => void} */
     this._postMessage =
       options.postMessage ||

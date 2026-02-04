@@ -10,6 +10,11 @@
 import { McpTransport, MCP_PROTOCOL_VERSION, McpMethods } from "./mcp-transport.js";
 
 /**
+ * @typedef {import("../plugins/transports/process-transport.js").ProcessTransport} ProcessTransport
+ * @typedef {ProcessTransport & { on: (event: string, handler: (...args: unknown[]) => unknown) => unknown }} ProcessTransportWithEvents
+ */
+
+/**
  * @typedef {object} StdioMcpTransportOptions
  * @property {string} command - 可执行文件路径
  * @property {string[]} [args] - 命令行参数
@@ -69,16 +74,16 @@ export class StdioMcpTransport extends McpTransport {
     this.clientName = options.clientName || "js-agents";
     this.clientVersion = options.clientVersion || "1.0.0";
 
-    /** @type {import("../plugins/transports/process-transport.js").ProcessTransport | null} */
+    /** @type {ProcessTransportWithEvents | null} */
     this._process = null;
 
     /** @type {null | typeof import("../plugins/transports/process-transport.js")} */
     this._processTransportModule = null;
 
-    /** @type {any} */
+    /** @type {unknown} */
     this.serverInfo = null;
 
-    /** @type {any} */
+    /** @type {unknown} */
     this.capabilities = null;
   }
 
@@ -92,17 +97,21 @@ export class StdioMcpTransport extends McpTransport {
     const ProcessTransport = await this._getProcessTransport();
 
     // 创建 ProcessTransport
-    this._process = new ProcessTransport({
-      command: this.command,
-      args: this.args,
-      env: this.env,
-      cwd: this.cwd,
-      timeout: this.timeout,
-      signal: this.signal,
-    });
+    this._process = /** @type {ProcessTransportWithEvents} */ (
+      new ProcessTransport({
+        command: this.command,
+        args: this.args,
+        env: this.env,
+        cwd: this.cwd,
+        timeout: this.timeout,
+        signal: this.signal,
+      })
+    );
 
     // 监听消息
-    this._process.on("message", (msg) => this._handleMessage(msg));
+    this._process.on("message", (msg) =>
+      this._handleMessage(/** @type {import("./mcp-transport.js").McpMessage} */ (msg))
+    );
     this._process.on("error", (err) => this.emit("error", err));
     this._process.on("exit", ({ code, signal }) => {
       this._connected = false;

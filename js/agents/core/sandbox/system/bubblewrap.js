@@ -168,7 +168,7 @@ function buildBubblewrapArgs(options) {
  * @param {BubblewrapOptions} defaultOptions - 默认选项
  * @returns {Object}
  */
-export function createBubblewrapExecutor(defaultOptions = /** @type {any} */ ({})) {
+export function createBubblewrapExecutor(defaultOptions = /** @type {BubblewrapOptions} */ ({})) {
   return {
     backend: SandboxBackend.BUBBLEWRAP,
 
@@ -178,7 +178,7 @@ export function createBubblewrapExecutor(defaultOptions = /** @type {any} */ ({}
      * @param {string[]} args
      * @param {BubblewrapOptions} options
      */
-    async execute(command, args = [], options = /** @type {any} */ ({})) {
+    async execute(command, args = [], options = /** @type {BubblewrapOptions} */ ({})) {
       return executeInBubblewrap(command, args, { ...defaultOptions, ...options });
     },
 
@@ -187,7 +187,7 @@ export function createBubblewrapExecutor(defaultOptions = /** @type {any} */ ({}
      * @param {string} shellCommand
      * @param {BubblewrapOptions} options
      */
-    async shell(shellCommand, options = /** @type {any} */ ({})) {
+    async shell(shellCommand, options = /** @type {BubblewrapOptions} */ ({})) {
       return executeInBubblewrap('/bin/sh', ['-c', shellCommand], {
         ...defaultOptions,
         ...options,

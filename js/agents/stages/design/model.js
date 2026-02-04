@@ -24,13 +24,17 @@ function getEnvAdapter() {
   try {
     // @ts-ignore - import.meta.env may not exist
     if (typeof import.meta !== "undefined" && import.meta.env && typeof import.meta.env === "object") {
-      return /** @type {Record<string, string | undefined>} */ ((/** @type {any} */ (import.meta)).env);
+      return /** @type {Record<string, string | undefined>} */ (
+        (/** @type {{ env: Record<string, string | undefined> }} */ (/** @type {unknown} */ (import.meta))).env
+      );
     }
   } catch {
     // import.meta not supported
   }
   // Fallback to globalThis.process.env (Node.js or bundler polyfill)
-  const proc = /** @type {any} */ (globalThis).process;
+  const proc = /** @type {{ env?: Record<string, string | undefined> } | undefined} */ (
+    /** @type {Record<string, unknown>} */ (globalThis).process
+  );
   if (proc && typeof proc === "object" && proc.env && typeof proc.env === "object") {
     return proc.env;
   }
@@ -137,8 +141,9 @@ function makeTimeoutError(timeoutMs) {
   const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
   const err = new Error(ms ? `LLM call timeout after ${ms}ms` : "LLM call timeout");
   err.name = "TimeoutError";
-  /** @type {any} */ (err).code = 124;
-  if (ms) /** @type {any} */ (err).timeoutMs = ms;
+  const e = /** @type {Error & { code?: number, timeoutMs?: number }} */ (err);
+  e.code = 124;
+  if (ms) e.timeoutMs = ms;
   return err;
 }
 

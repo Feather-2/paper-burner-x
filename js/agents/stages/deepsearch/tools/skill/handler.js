@@ -24,6 +24,11 @@ import { loadSkills, loadSkillFromPath } from "../../../../skills/loader.js";
  * @property {string=} available
  */
 
+/**
+ * @typedef {object} NodeProcessLike
+ * @property {() => string} [cwd]
+ */
+
 // 缓存已加载的 Skills
 let _skillsCache = null;
 let _cacheTime = 0;
@@ -65,8 +70,9 @@ Skills 是可扩展的策略包，定义在 SKILL.md 文件中。
 export async function handler(args, context) {
   const { name } = args;
   const { stageApi = {} } = context;
-  /** @type {any} */
-  const nodeProcess = /** @type {any} */ (globalThis).process;
+  const nodeProcess = /** @type {NodeProcessLike | null} */ (
+    (/** @type {Record<string, unknown>} */ (globalThis)).process ?? null
+  );
   const cwd =
     stageApi?.cwd ||
     (typeof nodeProcess?.cwd === "function" ? nodeProcess.cwd() : "");

@@ -19,6 +19,25 @@ import { SkillScope } from "./model.js";
  * @typedef {typeof SkillScope[keyof typeof SkillScope]} SkillScopeValue
  */
 
+/**
+ * @typedef {{ isDirectory: () => boolean }} FsStatLike
+ * @typedef {{ name: string, isDirectory: () => boolean, isFile: () => boolean }} FsDirentLike
+ * @typedef {{
+ *   readFile: (path: string, encoding: string) => Promise<string>,
+ *   stat: (path: string) => Promise<FsStatLike>,
+ *   readdir: (path: string, options: { withFileTypes: true }) => Promise<FsDirentLike[]>,
+ * }} FsPromisesLike
+ *
+ * @typedef {{ update: (data: string) => HashLike, digest: (encoding: string) => string }} HashLike
+ * @typedef {(algorithm: string) => HashLike} CreateHashLike
+ *
+ * @typedef {{
+ *   join: (...parts: string[]) => string,
+ *   resolve: (path: string) => string,
+ *   sep: string,
+ * }} PathModuleLike
+ */
+
 /** @type {string} */
 const NODE_FS_PROMISES_SPEC = "node:fs/promises";
 /** @type {string} */
@@ -26,11 +45,11 @@ const NODE_CRYPTO_SPEC = "node:crypto";
 /** @type {string} */
 const NODE_PATH_SPEC = "node:path";
 
-/** @type {any} */
+/** @type {FsPromisesLike} */
 const fs = await import(NODE_FS_PROMISES_SPEC);
-/** @type {any} */
+/** @type {{ createHash: CreateHashLike }} */
 const { createHash } = await import(NODE_CRYPTO_SPEC);
-/** @type {any} */
+/** @type {PathModuleLike} */
 const path = await import(NODE_PATH_SPEC);
 
 const SKILL_FILENAME = "SKILL.md";

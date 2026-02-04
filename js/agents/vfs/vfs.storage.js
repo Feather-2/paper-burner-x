@@ -2,8 +2,13 @@ import { normalizeVfsPath, dirnameVfsPath } from "./path.js";
 
 import { isPlainObject } from "../shared/index.js";
 
-/** @type {any} */
-const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
+/**
+ * Minimal static surface of Node.js `Buffer` used by this module.
+ * @typedef {Uint8Array & { toString: (encoding: string) => string }} NodeBufferInstance
+ * @typedef {{ from: (data: Uint8Array | string, encoding?: string) => NodeBufferInstance }} NodeBufferStatic
+ */
+/** @type {NodeBufferStatic | undefined} */
+const NodeBuffer = /** @type {NodeBufferStatic | undefined} */ (/** @type {{ Buffer?: unknown }} */ (globalThis).Buffer);
 
 function makeDirent(name, kind) {
   return {

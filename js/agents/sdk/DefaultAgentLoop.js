@@ -55,7 +55,7 @@ function resolveModelCaller(stageApi, { usage = "worker" } = {}) {
   if (modelRouter && typeof modelRouter.call === "function") {
     const legacySignature = modelRouter.call.length >= 2;
     return (messages, opts = {}) => {
-      const forward = /** @type {any} */ (opts && typeof opts === "object" ? opts : {});
+      const forward = /** @type {{ signal?: AbortSignal } & Record<string, unknown>} */ (opts && typeof opts === "object" ? opts : {});
       const { signal: providedSignal, ...rest } = forward;
       const signal = providedSignal ?? defaultSignal;
       return legacySignature ? modelRouter.call(messages, { usage, signal, ...rest }) : modelRouter.call({ usage, messages, signal, ...rest });
@@ -65,7 +65,7 @@ function resolveModelCaller(stageApi, { usage = "worker" } = {}) {
   const aiApiService = api.aiApiService;
   if (aiApiService && typeof aiApiService.chat === "function") {
     return (messages, opts = {}) => {
-      const forward = /** @type {any} */ (opts && typeof opts === "object" ? opts : {});
+      const forward = /** @type {{ signal?: AbortSignal } & Record<string, unknown>} */ (opts && typeof opts === "object" ? opts : {});
       const { signal: providedSignal, ...rest } = forward;
       const signal = providedSignal ?? defaultSignal;
       return aiApiService.chat({ messages, usage, signal, ...rest });
@@ -286,31 +286,31 @@ export class DefaultAgentLoop extends BaseAgentLoop {
 
   /** @returns {any[]} */
   get messages() {
-    const manager = /** @type {any} */ (this)._messageManager;
+    const manager = (/** @type {{ _messageManager?: import("../runtime/core/message-manager.js").MessageManager }} */ (this))._messageManager;
     return Array.isArray(manager?.messages) ? manager.messages : [];
   }
 
   /** @param {any} message */
   addMessage(message) {
-    const manager = /** @type {any} */ (this)._messageManager;
+    const manager = (/** @type {{ _messageManager?: import("../runtime/core/message-manager.js").MessageManager }} */ (this))._messageManager;
     return manager?.addMessage ? manager.addMessage(message) : message;
   }
 
   /** @param {any[]} messages */
   addMessages(messages) {
-    const manager = /** @type {any} */ (this)._messageManager;
+    const manager = (/** @type {{ _messageManager?: import("../runtime/core/message-manager.js").MessageManager }} */ (this))._messageManager;
     manager?.addMessages?.(messages);
   }
 
   /** @param {{ clearCompressionHistory?: boolean } | null | undefined} [options] */
   resetMessages(options = {}) {
-    const manager = /** @type {any} */ (this)._messageManager;
+    const manager = (/** @type {{ _messageManager?: import("../runtime/core/message-manager.js").MessageManager }} */ (this))._messageManager;
     return manager?.reset?.(options);
   }
 
   /** @param {{ maxRounds?: number } | null | undefined} [options] */
   flushCompression(options = {}) {
-    const manager = /** @type {any} */ (this)._messageManager;
+    const manager = (/** @type {{ _messageManager?: import("../runtime/core/message-manager.js").MessageManager }} */ (this))._messageManager;
     return manager?.flushCompression?.(options);
   }
 

@@ -288,7 +288,7 @@ export class CRDTSyncManager {
       return;
     }
 
-    const applied = doc.applyOp(/** @type {any} */ (message.op));
+    const applied = doc.applyOp(/** @type {Parameters<CRDTDocument['applyOp']>[0]} */ (message.op));
     if (applied) {
       this._emit('opApplied', {
         docId: message.docId,
@@ -332,7 +332,7 @@ export class CRDTSyncManager {
       this._emit('syncPartial', { docId: message.docId, skipped: message.ops.length - validOps.length });
     }
 
-    const applied = doc.applyOps(/** @type {any} */ (validOps));
+    const applied = doc.applyOps(/** @type {Parameters<CRDTDocument['applyOps']>[0]} */ (validOps));
     this._emit('syncComplete', {
       docId: message.docId,
       applied,

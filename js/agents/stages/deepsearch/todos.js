@@ -22,14 +22,21 @@ const MAX_TODO_JSON_LENGTH = 12000;
 const TODO_ALLOWED_FIELDS = new Set(["text", "priority", "queryHints", "expectedEvidence"]);
 
 /**
+ * @typedef {DeepSearchState & {
+ *   setAwaitUserFeedback: (value: boolean, reason?: string) => any,
+ *   addTodo: (params: any) => any
+ * }} DeepSearchStateWithTodoOps
+ */
+
+/**
  * @param {any} _runContext
  * @param {any} input
- * @returns {DeepSearchState & { setAwaitUserFeedback: (value: boolean, reason?: string) => any, addTodo: (params: any) => any }}
+ * @returns {DeepSearchStateWithTodoOps}
  */
 function ensureState(_runContext, input) {
-  if (input instanceof DeepSearchState) return /** @type {any} */ (input);
-  if (input?.state instanceof DeepSearchState) return /** @type {any} */ (input.state);
-  if (isPlainObject(input?.state)) return /** @type {any} */ (DeepSearchState.fromJSON(input.state));
+  if (input instanceof DeepSearchState) return /** @type {DeepSearchStateWithTodoOps} */ (input);
+  if (input?.state instanceof DeepSearchState) return /** @type {DeepSearchStateWithTodoOps} */ (input.state);
+  if (isPlainObject(input?.state)) return /** @type {DeepSearchStateWithTodoOps} */ (DeepSearchState.fromJSON(input.state));
   throw new TypeError("DeepSearch todos: input.state is required");
 }
 

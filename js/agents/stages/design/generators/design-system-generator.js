@@ -7,6 +7,17 @@ import { createLogger } from "../../../shared/index.js";
 import { isPlainObject } from "../../../shared/index.js";
 const logger = createLogger("stages/design/generators/design-system-generator");
 
+/**
+ * @typedef {Record<string, unknown>} UnknownRecord
+ * @typedef {UnknownRecord & {
+ *   colors?: UnknownRecord,
+ *   typography?: UnknownRecord,
+ *   spacing?: UnknownRecord,
+ *   grid?: UnknownRecord,
+ *   visualPreference?: unknown,
+ * }} LegacyDesignTokens
+ */
+
 function normalizeVisualPreference(v) {
   if (typeof v === "string") return { mode: v.trim().toLowerCase() };
   if (!isPlainObject(v)) return v;
@@ -249,7 +260,7 @@ function assertValidDesignSystem(system, label) {
 }
 
 function syncLegacyTokens(system, constraints) {
-  /** @type {any} */
+  /** @type {LegacyDesignTokens} */
   const baseLegacy = generateDesignTokens(constraints || {})?.designTokens || {};
   const pageMarginX = system?.spacing?.page?.marginX;
   const safeMarginPct = clamp(coerceFiniteNumber(pageMarginX, baseLegacy?.spacing?.safeMarginPct ?? 6), 0, 40);
