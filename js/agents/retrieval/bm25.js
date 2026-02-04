@@ -17,7 +17,8 @@ function normalizeIndexLimits(options = {}) {
   };
 }
 
-const STOPWORDS = new Set([
+/** @type {ReadonlySet<string>} */
+const _DEFAULT_STOPWORDS = new Set([
   "a",
   "an",
   "and",
@@ -114,6 +115,27 @@ const STOPWORDS = new Set([
   "或",
 ]);
 
+/**
+ * Immutable copy of default stopwords. Returns a new Set each time to prevent mutation.
+ * @returns {Set<string>}
+ */
+export function getDefaultStopwords() {
+  return new Set(_DEFAULT_STOPWORDS);
+}
+
+/** @deprecated Use getDefaultStopwords() instead - this Set is frozen and will throw on mutation */
+export const DEFAULT_STOPWORDS = Object.freeze(_DEFAULT_STOPWORDS);
+
+/**
+ * Default single-char token filter. Drops ASCII single letters, keeps digits and CJK.
+ * @param {string} t
+ * @returns {boolean}
+ */
+function defaultSingleCharFilter(t) {
+  if (t.length !== 1) return false;
+  return /^[a-z]$/i.test(t);
+}
+
 function wordRegex() {
   try {
     // eslint-disable-next-line no-new
@@ -127,25 +149,39 @@ function wordRegex() {
 
 const WORD_RE = wordRegex();
 
-let _wordSegmenter = null;
-function getWordSegmenter() {
-  if (_wordSegmenter !== null) return _wordSegmenter;
+/** @type {WeakMap<object, Intl.Segmenter|undefined>} */
+const _segmenterCache = new WeakMap();
+
+/**
+ * Get or create a word segmenter. Supports context-based caching to avoid singleton pollution.
+ * @param {object} [context] - Optional context object for caching (e.g., AgentContext)
+ * @returns {Intl.Segmenter|undefined}
+ */
+function getWordSegmenter(context) {
+  if (context && _segmenterCache.has(context)) {
+    return _segmenterCache.get(context);
+  }
+
+  let segmenter;
   try {
     if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
-      _wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
-      return _wordSegmenter;
+      segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
     }
   } catch {
-    // ignore
+    segmenter = undefined;
   }
-  _wordSegmenter = undefined;
-  return _wordSegmenter;
+
+  if (context) {
+    _segmenterCache.set(context, segmenter);
+  }
+  return segmenter;
 }
 
-function shouldDropSingleCharToken(t) {
-  if (t.length !== 1) return false;
-  // Keep digits and non-ASCII (e.g. CJK) single-char tokens; drop only Latin noise.
-  return /^[a-z]$/i.test(t);
+/**
+ * @deprecated Use singleCharFilter option instead
+ */
+function shouldDropSingleCharToken(t, filter = defaultSingleCharFilter) {
+  return filter(t);
 }
 
 function isCjkCodePoint(cp) {
@@ -203,19 +239,66 @@ function pushCjkBigrams(token, out, { maxBigrams = 64 } = {}) {
   for (let i = tailStart; i < total; i++) out.push(chars[i] + chars[i + 1]);
 }
 
-function tokenize(text) {
+/**
+ * Normalize stopwords input to a Set or null (disabled).
+ * @param {Set<string>|string[]|false|null|undefined} input
+ * @returns {Set<string>|null} - null means no stopword filtering
+ */
+function normalizeStopwords(input) {
+  if (input === false) return null;
+  if (input instanceof Set) return input;
+  if (Array.isArray(input)) return new Set(input.map((x) => String(x ?? "")));
+  return DEFAULT_STOPWORDS;
+}
+
+/**
+ * @typedef {Object} TokenizeOptions
+ * @property {Set<string>|null} [stopwords] - Stopwords set, null to disable
+ * @property {(t:string)=>boolean} [singleCharFilter] - Filter for single-char tokens
+ * @property {number} [maxBigrams] - Max bigrams for CJK tokens
+ * @property {object} [context] - Context for segmenter caching
+ */
+
+/**
+ * Tokenize text with configurable options.
+ * @param {string} text
+ * @param {Set<string>|null|TokenizeOptions} [optionsOrStopwords=DEFAULT_STOPWORDS]
+ * @returns {string[]}
+ */
+function tokenize(text, optionsOrStopwords = DEFAULT_STOPWORDS) {
+  // Normalize options
+  let stopwords = DEFAULT_STOPWORDS;
+  let singleCharFilter = defaultSingleCharFilter;
+  let maxBigrams = 64;
+  let context;
+
+  if (optionsOrStopwords === null || optionsOrStopwords === false) {
+    stopwords = null;
+  } else if (optionsOrStopwords instanceof Set) {
+    stopwords = optionsOrStopwords;
+  } else if (typeof optionsOrStopwords === "object" && !Array.isArray(optionsOrStopwords)) {
+    stopwords = optionsOrStopwords.stopwords !== undefined ? optionsOrStopwords.stopwords : DEFAULT_STOPWORDS;
+    if (typeof optionsOrStopwords.singleCharFilter === "function") {
+      singleCharFilter = optionsOrStopwords.singleCharFilter;
+    }
+    if (Number.isFinite(optionsOrStopwords.maxBigrams)) {
+      maxBigrams = Math.max(1, Math.floor(optionsOrStopwords.maxBigrams));
+    }
+    context = optionsOrStopwords.context;
+  }
+
   const s = String(text || "").toLowerCase();
   if (!s) return [];
 
-  const seg = getWordSegmenter();
+  const seg = getWordSegmenter(context);
   if (seg && typeof seg.segment === "function") {
     const out = [];
     for (const part of seg.segment(s)) {
       if (part && part.isWordLike === false) continue;
       const t = String(part?.segment || "").trim().toLowerCase();
       if (!t) continue;
-      if (STOPWORDS.has(t)) continue;
-      if (shouldDropSingleCharToken(t)) continue;
+      if (stopwords && stopwords.has(t)) continue;
+      if (singleCharFilter(t)) continue;
       out.push(t);
     }
     return out;
@@ -225,11 +308,10 @@ function tokenize(text) {
   const out = [];
   for (const t of tokens) {
     if (!t) continue;
-    if (STOPWORDS.has(t)) continue;
-    if (shouldDropSingleCharToken(t)) continue;
+    if (stopwords && stopwords.has(t)) continue;
+    if (singleCharFilter(t)) continue;
     if (isAllCjkToken(t)) {
-      // Intl.Segmenter unavailable; approximate segmentation via bigrams for CJK.
-      pushCjkBigrams(t, out, { maxBigrams: 64 });
+      pushCjkBigrams(t, out, { maxBigrams });
       continue;
     }
     out.push(t);
@@ -249,6 +331,32 @@ function uniq(arr) {
 }
 
 /**
+ * Derive stopwords from an existing index based on document frequency threshold.
+ * Terms appearing in more than dfThreshold proportion of documents are considered stopwords.
+ *
+ * @param {BM25Index} index - The BM25 index to analyze
+ * @param {{dfThreshold?:number}} [options] - Options
+ * @returns {Set<string>} - Set of derived stopwords
+ */
+export function deriveStopwords(index, options = {}) {
+  if (!isPlainObject(index)) return new Set();
+  const nDocs = index.chunkIds ? index.chunkIds.length : 0;
+  if (nDocs === 0) return new Set();
+
+  const threshold = Number.isFinite(options?.dfThreshold) ? options.dfThreshold : 0.9;
+  const minDf = Math.floor(nDocs * threshold);
+  const result = new Set();
+
+  if (index.df instanceof Map) {
+    for (const [term, count] of index.df.entries()) {
+      if (count >= minDf) result.add(term);
+    }
+  }
+
+  return result;
+}
+
+/**
  * @typedef {Object} BM25Index
  * @property {string[]} chunkIds
  * @property {number[]} docLens
@@ -260,8 +368,20 @@ function uniq(arr) {
  */
 
 /**
+ * @typedef {Object} BuildIndexOptions
+ * @property {number} [k1=1.2]
+ * @property {number} [b=0.75]
+ * @property {Set<string>|string[]|false} [stopwords] - Custom stopwords, false to disable
+ * @property {boolean|{dfThreshold?:number}} [autoStopwords] - Derive stopwords from corpus
+ * @property {number} [maxTokensPerDoc]
+ * @property {number} [maxUniqueTerms]
+ * @property {number} [maxPostingsPerTerm]
+ * @property {number} [maxTermLength]
+ */
+
+/**
  * @param {Array<{chunkId:string,text:string}>} chunks
- * @param {object=} options
+ * @param {BuildIndexOptions} [options]
  * @returns {BM25Index}
  */
 export function buildIndex(chunks, options = {}) {
@@ -271,6 +391,7 @@ export function buildIndex(chunks, options = {}) {
   const k1 = Number.isFinite(options.k1) ? options.k1 : 1.2;
   const b = Number.isFinite(options.b) ? options.b : 0.75;
   const limits = normalizeIndexLimits(options);
+  const stopwords = normalizeStopwords(options.stopwords);
 
   const chunkIds = [];
   const docLens = new Array(chunks.length);
@@ -284,7 +405,7 @@ export function buildIndex(chunks, options = {}) {
     const chunkId = c && c.chunkId ? String(c.chunkId) : `chunk_${di + 1}`;
     chunkIds.push(chunkId);
 
-    let tokens = tokenize(c && c.text);
+    let tokens = tokenize(c && c.text, stopwords);
     if (limits.maxTokensPerDoc !== Infinity && tokens.length > limits.maxTokensPerDoc) {
       tokens = tokens.slice(0, limits.maxTokensPerDoc);
     }
@@ -312,14 +433,29 @@ export function buildIndex(chunks, options = {}) {
   }
 
   const avgDocLen = chunks.length ? totalLen / chunks.length : 0;
-  return { chunkIds, docLens, avgDocLen, df, postings, k1, b };
+  let index = { chunkIds, docLens, avgDocLen, df, postings, k1, b };
+
+  // Auto-derive stopwords and rebuild if requested
+  if (options.autoStopwords) {
+    const threshold =
+      typeof options.autoStopwords === "object" && Number.isFinite(options.autoStopwords.dfThreshold)
+        ? options.autoStopwords.dfThreshold
+        : 0.9;
+    const derived = deriveStopwords(index, { dfThreshold: threshold });
+    if (derived.size > 0) {
+      const merged = stopwords ? new Set([...stopwords, ...derived]) : derived;
+      index = buildIndex(chunks, { ...options, stopwords: merged, autoStopwords: false });
+    }
+  }
+
+  return index;
 }
 
 /**
  * Async index builder that can offload CPU work to a WorkerPool when provided.
  *
  * @param {Array<{chunkId:string,text:string}>} chunks
- * @param {{k1?:number,b?:number,yieldEveryDocs?:number,signal?:AbortSignal,workerPool?:{buildIndex?:(chunks:any,options?:any)=>Promise<any>}}=} options
+ * @param {BuildIndexOptions & {yieldEveryDocs?:number,signal?:AbortSignal,workerPool?:{buildIndex?:(chunks:any,options?:any)=>Promise<any>}}} [options]
  * @returns {Promise<BM25Index>}
  */
 export async function buildIndexAsync(chunks, options = {}) {
@@ -346,6 +482,7 @@ export async function buildIndexAsync(chunks, options = {}) {
   const k1 = Number.isFinite(options.k1) ? options.k1 : 1.2;
   const b = Number.isFinite(options.b) ? options.b : 0.75;
   const limits = normalizeIndexLimits(options);
+  const stopwords = normalizeStopwords(options.stopwords);
 
   const chunkIds = [];
   const docLens = new Array(chunks.length);
@@ -362,7 +499,7 @@ export async function buildIndexAsync(chunks, options = {}) {
     const chunkId = c && c.chunkId ? String(c.chunkId) : `chunk_${di + 1}`;
     chunkIds.push(chunkId);
 
-    let tokens = tokenize(c && c.text);
+    let tokens = tokenize(c && c.text, stopwords);
     if (limits.maxTokensPerDoc !== Infinity && tokens.length > limits.maxTokensPerDoc) {
       tokens = tokens.slice(0, limits.maxTokensPerDoc);
     }
@@ -390,7 +527,22 @@ export async function buildIndexAsync(chunks, options = {}) {
   }
 
   const avgDocLen = chunks.length ? totalLen / chunks.length : 0;
-  return { chunkIds, docLens, avgDocLen, df, postings, k1, b };
+  let index = { chunkIds, docLens, avgDocLen, df, postings, k1, b };
+
+  // Auto-derive stopwords and rebuild if requested
+  if (options.autoStopwords) {
+    const threshold =
+      typeof options.autoStopwords === "object" && Number.isFinite(options.autoStopwords.dfThreshold)
+        ? options.autoStopwords.dfThreshold
+        : 0.9;
+    const derived = deriveStopwords(index, { dfThreshold: threshold });
+    if (derived.size > 0) {
+      const merged = stopwords ? new Set([...stopwords, ...derived]) : derived;
+      index = await buildIndexAsync(chunks, { ...options, stopwords: merged, autoStopwords: false });
+    }
+  }
+
+  return index;
 }
 
 function idf(nDocs, df) {
@@ -402,7 +554,7 @@ function idf(nDocs, df) {
  * @param {BM25Index} index
  * @param {string} query
  * @param {number} topK
- * @param {object=} options
+ * @param {{filterDocIndex?:(di:number)=>boolean,stopwords?:Set<string>|string[]|false}} [options]
  * @returns {Array<{chunkId:string,score:number}>}
  */
 export function search(index, query, topK = 8, options = {}) {
@@ -415,7 +567,8 @@ export function search(index, query, topK = 8, options = {}) {
   if (!nDocs) return [];
 
   const filterDocIndex = typeof options.filterDocIndex === "function" ? options.filterDocIndex : null;
-  const qTerms = uniq(tokenize(query));
+  const stopwords = normalizeStopwords(options.stopwords);
+  const qTerms = uniq(tokenize(query, stopwords));
   if (qTerms.length === 0) return [];
 
   const scores = new Float64Array(nDocs);
