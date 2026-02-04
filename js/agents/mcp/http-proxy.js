@@ -289,17 +289,18 @@ export function validateFetchUrl(rawUrl, { allowPrivateNetwork = false } = {}) {
  */
 export class CorsProxyHttpClient {
   /**
-   * @param {CorsProxyHttpClientOptions} options
+   * @param {Partial<CorsProxyHttpClientOptions>} [options]
    */
-  constructor({
-    fetchImpl,
-    proxyEndpoint = null,
-    corsProxies = DEFAULT_CORS_PROXIES,
-    proxyCooldownMs = 60_000,
-    proxyMaxCooldownMs = 15 * 60_000,
-    allowSensitiveUrlProxying = false,
-    useUrlWhitelist = true,
-  } = {}) {
+  constructor(options = {}) {
+    const {
+      fetchImpl,
+      proxyEndpoint = null,
+      corsProxies = DEFAULT_CORS_PROXIES,
+      proxyCooldownMs = 60_000,
+      proxyMaxCooldownMs = 15 * 60_000,
+      allowSensitiveUrlProxying = false,
+      useUrlWhitelist = true,
+    } = options;
     if (typeof fetchImpl !== "function") throw new Error("fetchImpl must be a function");
 
     this._fetch = fetchImpl;

@@ -69,10 +69,10 @@ export class StdioMcpTransport extends McpTransport {
     this.clientName = options.clientName || "js-agents";
     this.clientVersion = options.clientVersion || "1.0.0";
 
-    /** @type {import("../runtime/transports/process-transport.js").ProcessTransport | null} */
+    /** @type {import("../plugins/transports/process-transport.js").ProcessTransport | null} */
     this._process = null;
 
-    /** @type {null | typeof import("../runtime/transports/process-transport.js")} */
+    /** @type {null | typeof import("../plugins/transports/process-transport.js")} */
     this._processTransportModule = null;
 
     /** @type {any} */
@@ -125,7 +125,7 @@ export class StdioMcpTransport extends McpTransport {
 
   async _getProcessTransport() {
     if (!this._processTransportModule) {
-      this._processTransportModule = await import("../runtime/transports/process-transport.js");
+      this._processTransportModule = await import("../plugins/transports/process-transport.js");
     }
     return this._processTransportModule.ProcessTransport;
   }

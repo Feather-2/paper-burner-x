@@ -48,7 +48,8 @@ function concatUint8Arrays(arrays) {
   return result;
 }
 
-function sleepMs(ms, { signal } = {}) {
+function sleepMs(ms, options = {}) {
+  const { signal } = options;
   const delay = Math.max(0, Math.floor(Number(ms) || 0));
   if (delay <= 0) return Promise.resolve();
   if (signal?.aborted) return Promise.resolve();
@@ -72,6 +73,7 @@ function sleepMs(ms, { signal } = {}) {
 
 function makeReadTimeoutError(timeoutMs) {
   const ms = toPositiveInt(timeoutMs, 0);
+  /** @type {Error & { code?: string, readTimeoutMs?: number }} */
   const err = new Error(`SSE: read timeout after ${ms}ms`);
   err.name = "SseReadTimeoutError";
   err.code = "SSE_READ_TIMEOUT";
@@ -80,6 +82,7 @@ function makeReadTimeoutError(timeoutMs) {
 }
 
 function makeSizeLimitError(message, code) {
+  /** @type {Error & { code?: string }} */
   const err = new Error(message);
   err.name = "SseSizeLimitError";
   err.code = code || "SSE_SIZE_LIMIT";
@@ -249,6 +252,50 @@ export class NewlineDecoder {
   }
 }
 
+/**
+ * @typedef {object} ParseSseStreamOptions
+ * @property {AbortSignal=} signal
+ * @property {number=} readTimeoutMs
+ * @property {number=} maxLineBytes
+ * @property {number=} maxBufferBytes
+ * @property {number=} maxEventChars
+ */
+
+/**
+ * @typedef {object} ConsumeSseOptions
+ * @property {(input: RequestInfo, init?: RequestInit) => Promise<Response>=} fetchImpl - fetch implementation (defaults to global fetch)
+ * @property {string} url
+ * @property {Record<string, string>=} headers
+ * @property {AbortSignal=} signal
+ * @property {number=} connectTimeoutMs
+ * @property {number=} readTimeoutMs
+ * @property {number=} maxLineBytes
+ * @property {number=} maxBufferBytes
+ * @property {number=} maxEventChars
+ * @property {boolean=} reconnect
+ * @property {number=} maxReconnects
+ * @property {number=} reconnectBackoffMs
+ * @property {number=} maxReconnectBackoffMs
+ * @property {(evt: {event: string, data: string, id: string|null, retry: number|null}) => void=} onEvent
+ */
+
+/**
+ * @typedef {object} ConsumeSseJsonOptions
+ * @property {(input: RequestInfo, init?: RequestInit) => Promise<Response>=} fetchImpl
+ * @property {string} url
+ * @property {Record<string, string>=} headers
+ * @property {AbortSignal=} signal
+ * @property {number=} connectTimeoutMs
+ * @property {(json: unknown, evt: {event: string, data: string, id: string|null, retry: number|null}) => void=} onJson
+ * @property {number=} maxJsonChars
+ * @property {(msg: unknown) => (string|null)=} validateMessage
+ * @property {(err: unknown, context: Record<string, unknown>) => void=} onError
+ */
+
+/**
+ * @param {ReadableStream<Uint8Array>} stream
+ * @param {ParseSseStreamOptions=} options
+ */
 export async function* parseSseStream(
   stream,
   { signal, readTimeoutMs = 0, maxLineBytes = 0, maxBufferBytes = 0, maxEventChars = 0 } = {}
@@ -394,13 +441,7 @@ export function createSseParser({ onEvent } = {}) {
 /**
  * Consume an SSE endpoint with fetch streaming.
  *
- * @param {object} opts
- * @param {Function} [opts.fetchImpl] - fetch implementation (defaults to global fetch)
- * @param {string} opts.url
- * @param {object} [opts.headers]
- * @param {AbortSignal} [opts.signal]
- * @param {number} [opts.connectTimeoutMs=10000]
- * @param {(evt: {event: string, data: string, id: string|null, retry: number|null}) => void} opts.onEvent
+ * @param {Partial<ConsumeSseOptions>} opts
  */
 export async function consumeSse({
   fetchImpl,
@@ -504,6 +545,8 @@ export async function consumeSse({
 
 /**
  * Consume SSE and parse each event's data as JSON.
+ *
+ * @param {Partial<ConsumeSseJsonOptions>} opts
  */
 export async function consumeSseJson({
   fetchImpl,

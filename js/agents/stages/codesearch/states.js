@@ -23,5 +23,5 @@ export const CodeSearchPhase = Object.freeze({
  * @returns {boolean}
  */
 export function isValidCodeSearchPhase(value) {
-  return Object.values(CodeSearchPhase).includes(/** @type {any} */ (value));
+  return Object.values(CodeSearchPhase).includes(value);
 }

@@ -160,6 +160,7 @@ export class McpTransport extends EventEmitter {
     }
 
     const id = ++this._messageId;
+    /** @type {McpMessage} */
     const message = { jsonrpc: "2.0", id, method, params };
 
     return new Promise((resolve, reject) => {
@@ -185,7 +186,9 @@ export class McpTransport extends EventEmitter {
    * @returns {Promise<void>}
    */
   async notify(method, params) {
-    return this.send({ jsonrpc: "2.0", method, params });
+    /** @type {McpMessage} */
+    const message = { jsonrpc: "2.0", method, params };
+    return this.send(message);
   }
 
   /**

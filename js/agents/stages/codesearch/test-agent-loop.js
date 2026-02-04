@@ -101,7 +101,6 @@ async function testAgentLoop() {
   const __dirname = dirname(__filename);
   const projectRoot = join(__dirname, "../../../..");
 
-  /** @type {any} */
   const mockStageApi = {
     modelRouter: mockModelRouter,
     fs: { readFile, readdir, stat },
@@ -123,7 +122,8 @@ async function testAgentLoop() {
   mockCallIndex = 0;
 
   try {
-    const result = /** @type {any} */ (await stage.execute(runContext, input, mockStageApi));
+    /** @type {{ query: string, totalSteps: number, steps: Array<{ step?: number, tool?: string }>, summary: string }} */
+    const result = await stage.execute(runContext, input, mockStageApi);
 
     console.log("\n=== Result ===");
     console.log("Query:", result.query);
@@ -134,7 +134,7 @@ async function testAgentLoop() {
     console.log("\n✅ Agent Loop Test Passed!");
   } catch (err) {
     logger.error("\n❌ Test Failed:", { error: err?.message || String(err), stack: err?.stack });
-    /** @type {any} */ (globalThis).process?.exit?.(1);
+    (/** @type {typeof globalThis & { process?: { exit?: (code?: number) => void } }} */ (globalThis)).process?.exit?.(1);
   }
 }
 

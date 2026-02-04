@@ -66,7 +66,7 @@ function parseJsonBestEffort(text) {
  */
 export class HttpMcpTransport extends McpTransport {
   /**
-   * @param {HttpMcpTransportOptions} options
+   * @param {Partial<HttpMcpTransportOptions>} [options]
    */
   constructor(options = {}) {
     super({

@@ -426,9 +426,21 @@ export class SymbolIndexer {
 
     this._parserPromise = Promise.resolve()
       .then(async () => {
+        /** @type {{ Parser?: unknown, default?: unknown }} */
         const mod = await import("web-tree-sitter");
-        /** @type {any} */
-        const ParserCtor = mod.Parser || mod.default?.Parser || mod.default;
+        const defaultExport = mod.default;
+        const defaultObj = defaultExport && typeof defaultExport === "object"
+          ? /** @type {{ Parser?: unknown }} */ (defaultExport)
+          : null;
+        /** @type {typeof import("web-tree-sitter").Parser | null} */
+        const ParserCtor =
+          typeof mod.Parser === "function"
+            ? /** @type {typeof import("web-tree-sitter").Parser} */ (mod.Parser)
+            : defaultObj && typeof defaultObj.Parser === "function"
+              ? /** @type {typeof import("web-tree-sitter").Parser} */ (defaultObj.Parser)
+              : typeof defaultExport === "function"
+                ? /** @type {typeof import("web-tree-sitter").Parser} */ (defaultExport)
+                : null;
         if (!ParserCtor) throw new Error("web-tree-sitter Parser unavailable");
         const parser = new ParserCtor();
         this._parserInstance = parser;

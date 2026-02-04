@@ -23,6 +23,7 @@ import { toNonEmptyString } from "../shared/index.js";
  * @property {boolean} [autoConnect] - 自动连接 (default: true)
  * @property {boolean} [lazyConnect] - 延迟连接，首次调用时连接 (default: false)
  * @property {boolean} [allowUnsafeCommand=false] - 显式允许执行未在 allowlist 中的命令
+ * @property {boolean} [allowUnsafeCommands] - (deprecated) allowUnsafeCommand 的别名
  * @property {string[]} [allowedCommands] - 允许执行的命令白名单
  */
 

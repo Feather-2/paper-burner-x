@@ -154,7 +154,7 @@ async function main() {
     await testMockAgentLoop();
   } catch (err) {
     logger.error("Test failed:", { error: err?.message || String(err), stack: err?.stack });
-    /** @type {any} */ (globalThis).process?.exit?.(1);
+    (/** @type {typeof globalThis & { process?: { exit?: (code?: number) => void } }} */ (globalThis)).process?.exit?.(1);
   }
 }
 

@@ -3,7 +3,7 @@
  * @module mcp/transport-factory
  */
 
-import { isNodeLike } from "../shared/index.js";
+import { isNodeLike, toNonEmptyString } from "../shared/index.js";
 
 /**
  * @typedef {'stdio' | 'http' | 'sse' | 'websocket' | 'auto'} TransportType
@@ -11,35 +11,43 @@ import { isNodeLike } from "../shared/index.js";
 
 /**
  * 创建 MCP 传输
- * @param {object} options
- * @param {TransportType} [options.type='auto'] - 传输类型
- * @param {string} [options.command] - Stdio 命令 (Node.js)
- * @param {string[]} [options.args] - Stdio 参数 (Node.js)
- * @param {string} [options.url] - HTTP/SSE/WebSocket URL
+ * @param {{ type?: TransportType, command?: string, args?: string[], url?: string }} [options] - Transport options
  * @returns {Promise<import('./mcp-transport.js').McpTransport>}
  */
 export async function createMcpTransport(options = {}) {
-  const { type = 'auto' } = options;
+  const { type = "auto" } = options;
 
   // Stdio 仅 Node.js
-  if (type === 'stdio' || (type === 'auto' && isNodeLike() && options.command)) {
+  if (type === "stdio" || (type === "auto" && isNodeLike() && options.command)) {
     if (!isNodeLike()) {
-      throw new Error('StdioMcpTransport is only available in Node.js');
+      throw new Error("StdioMcpTransport is only available in Node.js");
     }
     const { StdioMcpTransport } = await import('./stdio-mcp-transport.js');
-    return new StdioMcpTransport(options);
+    const command = toNonEmptyString(options.command);
+    if (!command) throw new Error("StdioMcpTransport requires command");
+    return new StdioMcpTransport(
+      /** @type {import('./stdio-mcp-transport.js').StdioMcpTransportOptions} */ ({ ...options, command })
+    );
   }
 
   // HTTP - 跨平台
-  if (type === 'http' || type === 'auto') {
+  if (type === "http" || type === "auto") {
     const { HttpMcpTransport } = await import('./http-mcp-transport.js');
-    return new HttpMcpTransport(options);
+    const url = toNonEmptyString(options.url);
+    if (!url) throw new Error("HttpMcpTransport requires url");
+    return new HttpMcpTransport(
+      /** @type {import('./http-mcp-transport.js').HttpMcpTransportOptions} */ ({ ...options, url })
+    );
   }
 
   // SSE - 跨平台
-  if (type === 'sse') {
+  if (type === "sse") {
     const { SseMcpTransport } = await import('./sse-mcp-transport.js');
-    return new SseMcpTransport(options);
+    const url = toNonEmptyString(options.url);
+    if (!url) throw new Error("SseMcpTransport requires url");
+    return new SseMcpTransport(
+      /** @type {import('./sse-mcp-transport.js').SseMcpTransportOptions} */ ({ ...options, url })
+    );
   }
 
   throw new Error(`Unknown MCP transport type: ${type}`);
@@ -50,10 +58,10 @@ export async function createMcpTransport(options = {}) {
  * @returns {TransportType[]} 支持的传输类型数组
  */
 export function getSupportedTransports() {
-  const supported = ['http', 'sse'];
+  /** @type {TransportType[]} */
+  const supported = ["http", "sse"];
   if (isNodeLike()) {
-    supported.unshift('stdio');
+    supported.unshift("stdio");
   }
   return supported;
 }
-

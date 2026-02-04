@@ -74,7 +74,7 @@ function parseJsonBestEffort(text) {
  */
 export class SseMcpTransport extends McpTransport {
   /**
-   * @param {SseMcpTransportOptions} options
+   * @param {Partial<SseMcpTransportOptions>} [options]
    */
   constructor(options = {}) {
     super({
@@ -358,4 +358,3 @@ export class SseMcpTransport extends McpTransport {
 }
 
 export default SseMcpTransport;
-

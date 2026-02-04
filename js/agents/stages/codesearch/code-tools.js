@@ -170,6 +170,19 @@ export const TOOL_DEFINITIONS = [
  * @typedef {object} WatchdogLike
  * @property {(action:any)=>void=} recordAction
  *
+ * @typedef {{ files: string[], total: number, truncated: boolean, error?: string }} GlobToolResult
+ *
+ * @typedef {InstanceType<typeof String> & {
+ *   content: string,
+ *   path: string,
+ *   totalLines: number,
+ *   range: { start: number, end: number },
+ *   truncated: boolean
+ * }} ReadFileToolResult
+ *
+ * @typedef {{ name: string, type: "file" | "dir" }} ListDirEntry
+ * @typedef {{ entries: ListDirEntry[], path: string, total: number, truncated: boolean, error?: string }} ListDirToolResult
+ *
  * @typedef {object} CodeToolExecutorOptions
  * @property {FileSystemLike=} fs - 文件系统接口 (readFile, readdir, stat)
  * @property {VfsLike=} vfs - Browser-first VFS（可选）
@@ -412,39 +425,42 @@ export function createToolExecutor(options = {}) {
   // glob 工具
   /**
    * @param {{ pattern: string, path?: string }} args
-   * @returns {Promise<{files:any[], total?:number, truncated?:boolean, error?:string}>}
+   * @returns {Promise<GlobToolResult>}
    */
   async function glob({ pattern, path }) {
     if (!pattern) throw new Error("glob: pattern is required");
     const { vfsPath } = buildPaths(path);
 
     if (!globFn) {
-      /** @type {any} */
+      /** @type {string[]} */
       const empty = [];
-      empty.files = empty;
-      empty.total = 0;
-      empty.truncated = false;
-      empty.error = "glob function not available";
-      return empty;
+      const out = /** @type {GlobToolResult} */ (/** @type {unknown} */ (empty));
+      out.files = empty;
+      out.total = 0;
+      out.truncated = false;
+      out.error = "glob function not available";
+      return out;
     }
 
     try {
       const files = await globFn({ pattern, path: vfsPath });
       const limited = Array.isArray(files) ? files.slice(0, maxResults) : [];
-      /** @type {any} */
+      /** @type {string[]} */
       const result = limited.slice();
-      result.files = result;
-      result.total = Array.isArray(files) ? files.length : 0;
-      result.truncated = Array.isArray(files) && files.length > maxResults;
-      return result;
+      const out = /** @type {GlobToolResult} */ (/** @type {unknown} */ (result));
+      out.files = result;
+      out.total = Array.isArray(files) ? files.length : 0;
+      out.truncated = Array.isArray(files) && files.length > maxResults;
+      return out;
     } catch (err) {
-      /** @type {any} */
+      /** @type {string[]} */
       const empty = [];
-      empty.files = empty;
-      empty.total = 0;
-      empty.truncated = false;
-      empty.error = String(err?.message || err);
-      return empty;
+      const out = /** @type {GlobToolResult} */ (/** @type {unknown} */ (empty));
+      out.files = empty;
+      out.total = 0;
+      out.truncated = false;
+      out.error = String(err?.message || err);
+      return out;
     }
   }
 
@@ -502,7 +518,7 @@ export function createToolExecutor(options = {}) {
   // read_file 工具
   /**
    * @param {{ path: string, startLine?: number, endLine?: number }} args
-   * @returns {Promise<any>}
+   * @returns {Promise<ReadFileToolResult>}
    */
   async function read_file({ path, startLine, endLine }) {
     if (!path) throw new Error("read_file: path is required");
@@ -548,8 +564,7 @@ export function createToolExecutor(options = {}) {
         })
         .join("\n");
 
-      /** @type {any} */
-      const output = new String(numberedContent);
+      const output = /** @type {ReadFileToolResult} */ (new String(numberedContent));
       output.content = numberedContent;
       output.path = displayPath;
       output.totalLines = lines.length;
@@ -579,7 +594,7 @@ export function createToolExecutor(options = {}) {
     }
 
     try {
-      const res = await writeTextFileWithPolicy(/** @type {any} */ ({
+      const res = await writeTextFileWithPolicy({
         vfs,
         path: vfsPath,
         text,
@@ -588,7 +603,7 @@ export function createToolExecutor(options = {}) {
         runId: runId || stageApi?.runContext?.runId,
         stageApi: stageApi || { emit },
         checkpoint: checkpoint !== false,
-      }));
+      });
       return { ok: true, ...res };
     } catch (err) {
       return { error: String(err?.message || err) };
@@ -608,7 +623,7 @@ export function createToolExecutor(options = {}) {
     const { vfsPath } = buildPaths(path);
 
     try {
-      const res = await multiEditTextFileWithPolicy(/** @type {any} */ ({
+      const res = await multiEditTextFileWithPolicy({
         vfs,
         path: vfsPath,
         edits: Array.isArray(edits) ? edits : [],
@@ -617,7 +632,7 @@ export function createToolExecutor(options = {}) {
         runId: runId || stageApi?.runContext?.runId,
         stageApi: stageApi || { emit },
         checkpoint: checkpoint !== false,
-      }));
+      });
       return { ok: true, ...res };
     } catch (err) {
       return { error: String(err?.message || err) };
@@ -627,20 +642,21 @@ export function createToolExecutor(options = {}) {
   // list_dir 工具
   /**
    * @param {{ path: string, showHidden?: boolean }} args
-   * @returns {Promise<any>}
+   * @returns {Promise<ListDirToolResult>}
    */
   async function list_dir({ path, showHidden = false }) {
     const { fsPath, vfsPath, displayPath } = buildPaths(path);
 
     if (!fs?.readdir && !vfs?.readdir && !vfs?.list) {
-      /** @type {any} */
+      /** @type {ListDirEntry[]} */
       const empty = [];
-      empty.entries = empty;
-      empty.path = displayPath;
-      empty.total = 0;
-      empty.truncated = false;
-      empty.error = "list_dir requires fs.readdir or vfs.readdir/list";
-      return empty;
+      const out = /** @type {ListDirToolResult} */ (/** @type {unknown} */ (empty));
+      out.entries = empty;
+      out.path = displayPath;
+      out.total = 0;
+      out.truncated = false;
+      out.error = "list_dir requires fs.readdir or vfs.readdir/list";
+      return out;
     }
 
     try {
@@ -650,27 +666,30 @@ export function createToolExecutor(options = {}) {
           ? await vfs.readdir(vfsPath, { withFileTypes: true })
           : await vfs.list(vfsPath);
       const normalized = (Array.isArray(entries) ? entries : [])
-        .map((entry) => {
-          if (typeof entry === "string") {
-            return { name: entry, type: "file" };
+        .map(
+          /** @returns {ListDirEntry | null} */
+          (entry) => {
+            if (typeof entry === "string") {
+              return { name: entry, type: "file" };
+            }
+            if (entry && typeof entry.name === "string") {
+              if (typeof entry.isDirectory === "function") {
+                return { name: entry.name, type: entry.isDirectory() ? "dir" : "file" };
+              }
+              if (typeof entry.isDirectory === "boolean") {
+                return { name: entry.name, type: entry.isDirectory ? "dir" : "file" };
+              }
+              if (typeof entry.kind === "string") {
+                return { name: entry.name, type: entry.kind === "dir" || entry.kind === "directory" ? "dir" : "file" };
+              }
+              if (typeof entry.type === "string") {
+                return { name: entry.name, type: entry.type === "dir" || entry.type === "directory" ? "dir" : "file" };
+              }
+            }
+            return null;
           }
-          if (entry && typeof entry.name === "string") {
-            if (typeof entry.isDirectory === "function") {
-              return { name: entry.name, type: entry.isDirectory() ? "dir" : "file" };
-            }
-            if (typeof entry.isDirectory === "boolean") {
-              return { name: entry.name, type: entry.isDirectory ? "dir" : "file" };
-            }
-            if (typeof entry.kind === "string") {
-              return { name: entry.name, type: entry.kind === "dir" || entry.kind === "directory" ? "dir" : "file" };
-            }
-            if (typeof entry.type === "string") {
-              return { name: entry.name, type: entry.type === "dir" || entry.type === "directory" ? "dir" : "file" };
-            }
-          }
-          return null;
-        })
-        .filter(Boolean);
+        )
+        .filter((e) => e != null);
 
       const filtered = showHidden ? normalized : normalized.filter((e) => !e.name.startsWith("."));
 
@@ -682,22 +701,23 @@ export function createToolExecutor(options = {}) {
         return a.name.localeCompare(b.name);
       });
 
-      /** @type {any} */
       const output = result.slice();
-      output.entries = output;
-      output.path = displayPath;
-      output.total = filtered.length;
-      output.truncated = filtered.length > maxResults;
-      return output;
+      const out = /** @type {ListDirToolResult} */ (/** @type {unknown} */ (output));
+      out.entries = output;
+      out.path = displayPath;
+      out.total = filtered.length;
+      out.truncated = filtered.length > maxResults;
+      return out;
     } catch (err) {
-      /** @type {any} */
+      /** @type {ListDirEntry[]} */
       const empty = [];
-      empty.entries = empty;
-      empty.path = displayPath;
-      empty.total = 0;
-      empty.truncated = false;
-      empty.error = String(err?.message || err);
-      return empty;
+      const out = /** @type {ListDirToolResult} */ (/** @type {unknown} */ (empty));
+      out.entries = empty;
+      out.path = displayPath;
+      out.total = 0;
+      out.truncated = false;
+      out.error = String(err?.message || err);
+      return out;
     }
   }
 

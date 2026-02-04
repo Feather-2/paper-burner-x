@@ -178,8 +178,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     this.eventBus = eventBus || this.eventBus || null;
 
     // P4.6: Enable backpressure for high-frequency events (best-effort).
-    /** @type {any} */
-    const backpressureBus = this.eventBus;
+    const backpressureBus = /** @type {{ enableBackpressure?: (opts: ({ coalescePattern?: RegExp, deferNonCoalesced?: boolean, maxQueueSize?: number } & Record<string, unknown>)) => void, _backpressure?: { enabled?: boolean } } | null} */ (this.eventBus);
     if (backpressureBus && typeof backpressureBus.enableBackpressure === "function" && !backpressureBus?._backpressure?.enabled) {
       const cfg = stageApi?.eventBusBackpressure ?? stageApi?.backpressure;
       if (cfg !== false) {
@@ -255,11 +254,11 @@ export class CodeSearchStage extends BaseAgentLoop {
       watchdog.reset();
     }
     if (!watchdog) {
-      watchdog = new Watchdog(/** @type {any} */ ({
+      watchdog = new Watchdog({
         eventBus: this.eventBus,
         maxRecentOutputs: watchdogSettings.maxRecentOutputs,
         oscillationThreshold: watchdogSettings.similarityThreshold,
-      }));
+      });
     } else {
       // Best-effort: apply user config to instance from DI.
       if (typeof watchdog.configure === "function") {
@@ -404,7 +403,7 @@ export class CodeSearchStage extends BaseAgentLoop {
         if (err instanceof StagePausedError) throw err;
 
         const pauseLike = this._shouldPauseFromError(err, stepContext.signal);
-        this._endStep({ step: stepMeta }, /** @type {any} */ ({ status: pauseLike ? "paused" : "failed", error: err?.message }));
+        this._endStep({ step: stepMeta }, { status: pauseLike ? "paused" : "failed", error: err?.message });
 
         if (pauseLike) {
           await this._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: step, reason: err?.message });
@@ -479,7 +478,7 @@ export class CodeSearchStage extends BaseAgentLoop {
       await this._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: 0, reason });
     }
     const err = new StagePausedError("Run paused", { runId, reason });
-    /** @type {any} */ (err).awaitUserFeedback = true;
+    /** @type {StagePausedError & { awaitUserFeedback: boolean }} */ (err).awaitUserFeedback = true;
     throw err;
   }
 
