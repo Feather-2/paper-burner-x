@@ -18,9 +18,21 @@ const logger = createLogger("runtime/core/worker-pool");
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_MAX_WORKERS = 4;
-const DEFAULT_IDLE_TIMEOUT_MS = 30000; // 30s
-const DEFAULT_TASK_TIMEOUT_MS = 60000; // 60s
+/**
+ * Get default max workers based on hardware concurrency
+ * @returns {number}
+ */
+function getDefaultMaxWorkers() {
+  if (typeof navigator !== "undefined" && Number.isFinite(navigator.hardwareConcurrency)) {
+    // Use half of available cores, min 2, max 8
+    return Math.max(2, Math.min(8, Math.floor(navigator.hardwareConcurrency / 2)));
+  }
+  return 4; // Fallback
+}
+
+export const DEFAULT_MAX_WORKERS = getDefaultMaxWorkers();
+export const DEFAULT_IDLE_TIMEOUT_MS = 30000; // 30s
+export const DEFAULT_TASK_TIMEOUT_MS = 60000; // 60s
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Task Priority
