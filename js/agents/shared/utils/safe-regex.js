@@ -9,6 +9,8 @@
 const DEFAULT_MAX_PATTERN_LENGTH = 1000;
 const DEFAULT_TIMEOUT_MS = 2000;
 
+export { DEFAULT_MAX_PATTERN_LENGTH, DEFAULT_TIMEOUT_MS };
+
 function hasNestedQuantifiers(src) {
   // Rough heuristic for patterns like (a+)+, (a*)+, (a{1,2})*
   return /\([^)]*[+*}][^)]*\)\s*(?:[+*]|\{\d+(?:,\d*)?\})/.test(src);
