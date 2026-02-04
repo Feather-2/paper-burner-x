@@ -32,7 +32,9 @@ describe("WorkerPool: basic lifecycle", () => {
     expect(stats.busy).toBe(0);
     expect(stats.idle).toBe(0);
     expect(stats.queued).toBe(0);
-    expect(stats.maxWorkers).toBe(4);
+    // maxWorkers is derived from navigator.hardwareConcurrency at runtime
+    expect(typeof stats.maxWorkers).toBe("number");
+    expect(stats.maxWorkers).toBeGreaterThanOrEqual(2);
     pool.close();
   });
 
@@ -171,12 +173,18 @@ describe("RetryStrategy: retry behavior", () => {
   let RetryStrategy;
   let isRetryableError;
   let withRetry;
+  let resetGlobalRetryStats;
 
   beforeAll(async () => {
     const mod = await import("../../../../js/agents/runtime/core/retry-strategy.js");
     RetryStrategy = mod.RetryStrategy;
     isRetryableError = mod.isRetryableError;
     withRetry = mod.withRetry;
+    resetGlobalRetryStats = mod.resetGlobalRetryStats;
+  });
+
+  beforeEach(() => {
+    resetGlobalRetryStats?.();
   });
 
   it("isRetryableError detects retryable errors", () => {

@@ -162,6 +162,15 @@ export class RetryStrategy {
    * Get stats
    */
   get stats() {
+    if (this._useGlobalBudget) {
+      const global = getGlobalRetryStats();
+      return {
+        retriesLastMinute: global.retriesLastMinute,
+        budgetPerMinute: this._globalBudgetPerMinute,
+        budgetRemaining: Math.max(0, this._globalBudgetPerMinute - global.retriesLastMinute),
+      };
+    }
+
     const now = Date.now();
     const minuteAgo = now - 60000;
     const recentRetries = this._retryTimestamps.filter((t) => t > minuteAgo).length;

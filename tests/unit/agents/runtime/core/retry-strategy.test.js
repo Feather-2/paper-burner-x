@@ -18,7 +18,7 @@ vi.mock('../../../../../js/agents/shared/index.js', () => ({
   createLogger: mockCreateLogger,
 }));
 
-import { isRetryableError, RetryStrategy } from '../../../../../js/agents/runtime/core/retry-strategy.js';
+import { isRetryableError, RetryStrategy, resetGlobalRetryStats } from '../../../../../js/agents/runtime/core/retry-strategy.js';
 
 const FIXED_TIME = new Date('2024-01-01T00:00:00.000Z');
 
@@ -85,6 +85,10 @@ describe('isRetryableError', () => {
 });
 
 describe('RetryStrategy', () => {
+  beforeEach(() => {
+    resetGlobalRetryStats();
+  });
+
   it('stats counts retries in the last minute and tracks budget remaining', () => {
     vi.useFakeTimers();
     vi.setSystemTime(FIXED_TIME);
