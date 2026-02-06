@@ -6,6 +6,12 @@
 
 ## 最近变更
 
+- **bm25**: 停用词机制重构
+  - 新增 `DEFAULT_STOPWORDS` 导出，可复用/扩展
+  - `buildIndex/buildIndexAsync` 支持 `stopwords` 选项：`Set | string[] | false`
+  - `autoStopwords: true | { dfThreshold: 0.9 }` - 从语料自动推导高频停用词
+  - `search()` 也支持 `stopwords` 选项用于查询分词
+  - 新增 `deriveStopwords(index, { dfThreshold })` 工具函数
 - **bm25**: 新增索引规模限额归一化（maxTokensPerDoc / maxUniqueTerms / maxPostingsPerTerm / maxTermLength），默认启用安全上限；支持 Infinity 表示不设上限（仅建议可信配置）
 - **grepChunks**: 引入安全正则编译（复杂度限制以降低 ReDoS 风险）并支持 maxMatchesPerChunk；支持 Infinity 表示不限制
 - **hybrid-retrieval**: 数值参数统一做 finite/非负归一化，避免 NaN/负值影响融合排序
@@ -15,7 +21,7 @@
 | 文件 | 职责 |
 |------|------|
 | `retrieval-router.js` | 检索路由器：BM25 + Grep 合并、MMR 重排、ReadAround 扩展 |
-| `bm25.js` | BM25 关键词检索与索引序列化（含索引规模/term 长度限额） |
+| `bm25.js` | BM25 关键词检索与索引序列化（含可配置停用词 + 索引规模/term 长度限额） |
 | `vector-search.js` | 向量索引构建与相似度检索 |
 | `hybrid-retrieval.js` | BM25 + 向量检索融合（RRF） |
 | `mmr.js` | MMR (Maximal Marginal Relevance) 多样性重排 |
@@ -27,6 +33,11 @@
 
 ## 参数与限额
 
+- **BM25 停用词**（见 `bm25.js`）：
+  - `DEFAULT_STOPWORDS`: 预置英文 + 中文停用词集合
+  - `stopwords: Set | string[] | false` - 自定义 / 禁用（让 IDF 自然降权）
+  - `autoStopwords: true | { dfThreshold: 0.9 }` - 从语料动态推导
+  - `deriveStopwords(index, { dfThreshold })` - 工具函数，返回 DF/N > 阈值的词集
 - **BM25 索引限额**（见 `bm25.js`）：
   - maxTokensPerDoc = 10_000
   - maxUniqueTerms = 50_000
