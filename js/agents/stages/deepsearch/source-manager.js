@@ -530,7 +530,7 @@ export class SourceManager {
 
     const results = [];
     const queryLower = trimmed.toLowerCase();
-    const keywords = queryLower.split(/\s+/).filter((w) => w.length >= 2);
+    const keywords = queryLower.split(/\s+/).filter((w) => w.length >= 2).slice(0, 50);
     const maxResults = Math.max(1, toPositiveInt(limit, 10));
 
     for (const source of targetSources) {

@@ -11,6 +11,7 @@
 import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
 import { createLogger } from "../../../shared/index.js";
 import { checkCancelled } from "../../../shared/index.js";
+import { isPotentiallyDangerous } from "../../../shared/utils/safe-regex.js";
 import { TodoStatus } from "../states.js";
 import { CODESEARCH_STEP_PROMPT } from "../prompts.js";
 import { formatOpenTodos, isTodoOpen } from "./planning-phase.js";
@@ -190,6 +191,9 @@ function sanitizeArgs(toolName, args) {
     let sanitized = null;
     if (type === "string") {
       sanitized = normalizeString(value, MAX_ARG_STRING_CHARS);
+      if (sanitized && toolName === "grep" && key === "pattern" && args?.regex === true) {
+        if (isPotentiallyDangerous(sanitized)) return null;
+      }
     } else if (type === "number") {
       sanitized = Number.isFinite(value) ? value : null;
     } else if (type === "boolean") {

@@ -208,13 +208,14 @@ async function buildHttpError(response, { url, maxChars = 1500 } = {}) {
         const ctype = response?.headers?.get?.("content-type") || "";
         if (ctype.includes("application/json") && typeof response.json === "function") {
             const data = await response.json().catch(() => null);
-            const msg =
+            const rawMsg =
                 data?.error?.message ||
                 data?.message ||
                 data?.error ||
                 (typeof data === "string" ? data : null) ||
                 `HTTP ${status}`;
-            const err = new Error(`API 请求失败 (${status})${endpoint ? `: ${endpoint}` : ""}: ${String(msg).slice(0, maxChars)}`);
+            const msg = String(rawMsg).slice(0, maxChars).replace(/\b(sk-|pk-|key-|whsec_)[A-Za-z0-9_-]{8,}\b/g, "$1***");
+            const err = new Error(`API 请求失败 (${status})${endpoint ? `: ${endpoint}` : ""}: ${msg}`);
             err.status = status;
             err.data = data;
             const retryAfter = response?.headers?.get?.("retry-after") || "";
@@ -223,7 +224,8 @@ async function buildHttpError(response, { url, maxChars = 1500 } = {}) {
         }
 
         const text = typeof response.text === "function" ? await response.text() : "";
-        const err = new Error(`API 请求失败 (${status})${endpoint ? `: ${endpoint}` : ""}: ${String(text).slice(0, maxChars)}`);
+        const safeText = String(text).slice(0, maxChars).replace(/\b(sk-|pk-|key-|whsec_)[A-Za-z0-9_-]{8,}\b/g, "$1***");
+        const err = new Error(`API 请求失败 (${status})${endpoint ? `: ${endpoint}` : ""}: ${safeText}`);
         err.status = status;
         err.data = text;
         const retryAfter = response?.headers?.get?.("retry-after") || "";

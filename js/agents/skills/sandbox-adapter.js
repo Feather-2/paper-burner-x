@@ -116,7 +116,10 @@ export async function createSandboxedSkillsManager(options = {}) {
 }
 
 /**
- * 安全检查：分析 Skill 代码的潜在风险
+ * Heuristic risk analysis — NOT a security boundary.
+ * Regex patterns can be trivially bypassed (bracket notation, string concatenation, etc.).
+ * The actual security boundary is the WASM sandbox (SkillExecutor).
+ * This function only influences the capability set granted to the sandbox.
  *
  * @param {string} skillBody - Skill body content to analyze
  * @returns {{ overallRisk: 'safe' | 'low' | 'medium' | 'high' | 'critical', risks: Array<{ risk: string, desc: string, pattern: string }>, safe: boolean }}

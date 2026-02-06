@@ -11,9 +11,8 @@ vi.mock('node:os', () => ({
   cpus: vi.fn(() => Array.from({ length: 4 }, () => ({ model: 'mock' }))),
 }));
 
-const ZERO_WIDTH_SPACE = "\u200B";
-const ESCAPED_OPEN = `{${ZERO_WIDTH_SPACE}{`;
-const ESCAPED_CLOSE = `}${ZERO_WIDTH_SPACE}}`;
+const ESCAPED_OPEN = "\\{\\{";
+const ESCAPED_CLOSE = "\\}\\}";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -110,7 +109,7 @@ describe('escapeTemplateDelimiters', () => {
     const longOut = escapeTemplateDelimiters(longString);
 
     expect(longOut.endsWith(`${ESCAPED_OPEN}tail${ESCAPED_CLOSE}`)).toBe(true);
-    expect(longOut.length).toBe(longString.length + 2);
+    expect(longOut.length).toBe(longString.length + 4);
   });
 
   it('escapes delimiters inside deep nested structures', () => {

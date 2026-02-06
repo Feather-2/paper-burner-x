@@ -157,7 +157,7 @@ describe("GeminiImageAdapter", () => {
     const out = await GeminiImageAdapter(
       { prompt: "a cat", aspectRatio: "16:9", imageSize: "2K", model: "gemini-model-x" },
       "k_gemini",
-      { baseUrl: "https://example.com///" }
+      { baseUrl: "https://example.com///", baseUrlTrusted: true }
     );
 
     expect(out).toMatchObject({
@@ -347,7 +347,7 @@ describe("OpenAIImageAdapter", () => {
     const out1 = await OpenAIImageAdapter(
       { prompt: "x", size: "1024x1024", quality: "hd", responseFormat: "b64_json", width: 1200, height: 1000 },
       "k_openai",
-      { baseUrl: "https://openai.example.com///" }
+      { baseUrl: "https://openai.example.com///", baseUrlTrusted: true }
     );
     expect(out1).toMatchObject({ provider: "openai-image", base64: "b64", url: null, width: 1200, height: 1000 });
 
@@ -466,9 +466,10 @@ describe("ImageProvider", () => {
       apiKey: "k",
       model: "model-a",
       baseUrl: "https://base.example.com///",
+      baseUrlTrusted: true,
     });
 
-    const out = await provider.generate({ prompt: "x" }, { model: "model-b", baseUrl: "https://override.example.com///" });
+    const out = await provider.generate({ prompt: "x" }, { model: "model-b", baseUrl: "https://override.example.com///", baseUrlTrusted: true });
 
     expect(out.model).toBe("model-b");
     expect(calls[0].url).toBe("https://override.example.com/v1beta/models/model-b:generateContent?key=k");
@@ -501,10 +502,10 @@ describe("ImageProvider", () => {
       throw new Error("unexpected url");
     });
 
-    const gem = new ImageProvider({ provider: "gemini-image", apiKey: "G", baseUrl: "https://g.example.com///" });
+    const gem = new ImageProvider({ provider: "gemini-image", apiKey: "G", baseUrl: "https://g.example.com///", baseUrlTrusted: true });
     expect(await gem.isAvailable()).toBe(true);
 
-    const openai = new ImageProvider({ provider: "openai-image", apiKey: "O", baseUrl: "https://o.example.com///" });
+    const openai = new ImageProvider({ provider: "openai-image", apiKey: "O", baseUrl: "https://o.example.com///", baseUrlTrusted: true });
     expect(await openai.isAvailable()).toBe(false);
 
     expect(calls[0].url).toContain("https://g.example.com/v1beta/models?key=G");

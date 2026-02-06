@@ -260,7 +260,7 @@ export async function GeminiImageAdapter(request, apiKey, opts = {}) {
 
   const modelId = toNonEmptyString(request.model) || toNonEmptyString(opts.model) || "gemini-2.5-flash-image";
   const baseUrl = sanitizeBaseUrl(opts.baseUrl, "https://generativelanguage.googleapis.com", {
-    allowedHosts: opts.baseUrlTrusted === false ? ALLOWED_GEMINI_HOSTS : null,
+    allowedHosts: opts.baseUrlTrusted === true ? null : ALLOWED_GEMINI_HOSTS,
   });
   const endpoint = `${baseUrl}/v1beta/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
@@ -343,7 +343,7 @@ export async function OpenAIImageAdapter(request, apiKey, opts = {}) {
 
   const modelId = toNonEmptyString(request.model) || toNonEmptyString(opts.model) || "gpt-image-1";
   const baseUrl = sanitizeBaseUrl(opts.baseUrl, "https://api.openai.com", {
-    allowedHosts: opts.baseUrlTrusted === false ? ALLOWED_OPENAI_HOSTS : null,
+    allowedHosts: opts.baseUrlTrusted === true ? null : ALLOWED_OPENAI_HOSTS,
   });
   const endpoint = `${baseUrl}/v1/images/generations`;
 
@@ -429,7 +429,7 @@ export class ImageProvider {
     this.apiKey = toNonEmptyString(opts.apiKey) || "";
     this.model = toNonEmptyString(opts.model);
     this.baseUrl = toNonEmptyString(opts.baseUrl);
-    this.baseUrlTrusted = opts.baseUrlTrusted !== false;
+    this.baseUrlTrusted = opts.baseUrlTrusted === true;
     this.id = `image_${this.provider}`;
     this.name = opts.name || `Image (${this.provider})`;
     this.capabilities = ["generate"];
@@ -482,7 +482,7 @@ export class ImageProvider {
     try {
       if (this.provider === "gemini-image" || this.provider === "gemini") {
         const baseUrl = sanitizeBaseUrl(this.baseUrl, "https://generativelanguage.googleapis.com", {
-          allowedHosts: this.baseUrlTrusted === false ? ALLOWED_GEMINI_HOSTS : null,
+          allowedHosts: this.baseUrlTrusted === true ? null : ALLOWED_GEMINI_HOSTS,
         });
         const endpoint = `${baseUrl}/v1beta/models?key=${encodeURIComponent(this.apiKey)}`;
         const resp = await fetchWithTimeout(endpoint, { method: "GET" }, { timeoutMs: 10_000 });
@@ -490,7 +490,7 @@ export class ImageProvider {
       }
       if (this.provider === "openai-image" || this.provider === "openai") {
         const baseUrl = sanitizeBaseUrl(this.baseUrl, "https://api.openai.com", {
-          allowedHosts: this.baseUrlTrusted === false ? ALLOWED_OPENAI_HOSTS : null,
+          allowedHosts: this.baseUrlTrusted === true ? null : ALLOWED_OPENAI_HOSTS,
         });
         const endpoint = `${baseUrl}/v1/models`;
         const resp = await fetchWithTimeout(

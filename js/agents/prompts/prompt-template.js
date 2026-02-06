@@ -159,7 +159,7 @@ export function renderPromptTemplate(
 
   const formatterTable = { ...DEFAULT_FORMATTERS, ...(formatters && typeof formatters === "object" ? formatters : {}) };
 
-  let rendered = input.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, rawName) => {
+  let rendered = input.replace(/(?<!\\)\{\{\s*([^}]+?)\s*(?<!\\)\}\}/g, (match, rawName) => {
     const { key, formatters: pipeline } = parsePlaceholder(rawName);
     const varKey = key.trim().toLowerCase();
     if (!varKey) return keepUnresolved ? match : "";
@@ -183,6 +183,9 @@ export function renderPromptTemplate(
     const out = pipeline.length ? String(value ?? "") : formatValueDefault(value);
     return escapeVars ? escapeTemplateDelimiters(out) : out;
   });
+
+  // Unescape backslash-escaped delimiters from escapeTemplateDelimiters
+  rendered = rendered.split("\\{\\{").join("{{").split("\\}\\}").join("}}");
 
   const extra = [];
   const append = appendIfMissing && typeof appendIfMissing === "object" ? appendIfMissing : null;

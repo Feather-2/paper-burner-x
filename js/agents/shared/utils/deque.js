@@ -40,6 +40,7 @@ export class Deque {
         this._back--;
         const value = this._items[this._back];
         delete this._items[this._back];
+        if (this._front === this._back) { this._items = {}; this._front = 0; this._back = 0; }
         return value;
     }
 
@@ -51,6 +52,7 @@ export class Deque {
         const value = this._items[this._front];
         delete this._items[this._front];
         this._front++;
+        if (this._front === this._back) { this._items = {}; this._front = 0; this._back = 0; }
         return value;
     }
 

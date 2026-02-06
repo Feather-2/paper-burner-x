@@ -36,8 +36,8 @@ export function isSensitiveQueryParamKey(key) {
   if (k.includes("session") || k.endsWith("sid")) return true;
   if (k === "csrf" || k === "csrf_token" || k === "xsrf" || k === "xsrf_token" || k.includes("csrf") || k.includes("xsrf")) return true;
   if (k === "nonce" || k.includes("nonce")) return true;
-  if (k === "code" || k.endsWith("_code") || k.endsWith("-code")) return true;
-  if (k === "state" || k.endsWith("_state") || k.endsWith("-state")) return true;
+  if (k === "code" || k === "auth_code" || k === "authorization_code" || k === "grant_code" || k === "verification_code" || k === "invite_code") return true;
+  if (k === "state" || k === "oauth_state" || k === "auth_state" || k === "login_state" || k === "flow-state" || k === "flow_state") return true;
   if (k.startsWith("x-amz-") && (k.includes("credential") || k.includes("signature") || k.includes("security-token"))) return true;
 
   return false;
