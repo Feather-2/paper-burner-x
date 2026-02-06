@@ -1,22 +1,7 @@
-import { isPlainObject, toPositiveInt } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toPositiveInt, deepClone } from "../../shared/utils/value-utils.js";
 
 const DEFAULT_PATCH_MAX_DEPTH = 12;
 const DEFAULT_PATCH_MAX_OPS = 5000;
-
-function safeClone(value) {
-  if (value === null || value === undefined) return value;
-  if (typeof value !== "object") return value;
-  try {
-    return structuredClone(value);
-  } catch {
-    // Fallback: best-effort deep clone for plain JSON-ish data.
-    try {
-      return JSON.parse(JSON.stringify(value));
-    } catch {
-      return value;
-    }
-  }
-}
 
 export function safeJsonSize(value) {
   try {
@@ -100,7 +85,7 @@ export function buildJsonPatch(base, next, { maxDepth, maxOps } = {}) {
   const walk = (a, b, path, remainingDepth) => {
     if (Object.is(a, b)) return;
     if (remainingDepth <= 0) {
-      pushOp({ op: "replace", path: toJsonPointer(path), value: safeClone(b) });
+      pushOp({ op: "replace", path: toJsonPointer(path), value: deepClone(b) });
       return;
     }
 
@@ -108,7 +93,7 @@ export function buildJsonPatch(base, next, { maxDepth, maxOps } = {}) {
     const bIsArr = Array.isArray(b);
     if (aIsArr || bIsArr) {
       if (!deepEqualLimited(a, b, remainingDepth - 1)) {
-        pushOp({ op: "replace", path: toJsonPointer(path), value: safeClone(b) });
+        pushOp({ op: "replace", path: toJsonPointer(path), value: deepClone(b) });
       }
       return;
     }
@@ -116,7 +101,7 @@ export function buildJsonPatch(base, next, { maxDepth, maxOps } = {}) {
     const aObj = isPlainObject(a);
     const bObj = isPlainObject(b);
     if (!aObj || !bObj) {
-      pushOp({ op: "replace", path: toJsonPointer(path), value: safeClone(b) });
+      pushOp({ op: "replace", path: toJsonPointer(path), value: deepClone(b) });
       return;
     }
 
@@ -135,7 +120,7 @@ export function buildJsonPatch(base, next, { maxDepth, maxOps } = {}) {
     for (const k of bKeys) {
       if (isUnsafePathSegment(k)) throw new Error("unsafe_path_segment");
       if (!aSet.has(k)) {
-        pushOp({ op: "add", path: toJsonPointer([...path, k]), value: safeClone(b[k]) });
+        pushOp({ op: "add", path: toJsonPointer([...path, k]), value: deepClone(b[k]) });
       }
     }
 
@@ -150,7 +135,7 @@ export function buildJsonPatch(base, next, { maxDepth, maxOps } = {}) {
 }
 
 export function applyJsonPatch(base, ops) {
-  const doc = safeClone(base);
+  const doc = deepClone(base);
   const list = Array.isArray(ops) ? ops : [];
   let root = doc;
 
@@ -173,7 +158,7 @@ export function applyJsonPatch(base, ops) {
 
     if (segments.length === 0) {
       if (kind === "replace" || kind === "add") {
-        root = safeClone(op.value);
+        root = deepClone(op.value);
         continue;
       }
       if (kind === "remove") {
@@ -205,10 +190,10 @@ export function applyJsonPatch(base, ops) {
       if (Array.isArray(parent)) {
         const idx = Number(leaf);
         if (!Number.isFinite(idx) || idx < 0) continue;
-        if (idx >= parent.length) parent.push(safeClone(op.value));
-        else parent[idx] = safeClone(op.value);
+        if (idx >= parent.length) parent.push(deepClone(op.value));
+        else parent[idx] = deepClone(op.value);
       } else {
-        parent[leaf] = safeClone(op.value);
+        parent[leaf] = deepClone(op.value);
       }
       continue;
     }

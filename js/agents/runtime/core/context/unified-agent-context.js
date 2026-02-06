@@ -17,6 +17,29 @@ import { createLogger } from "../../../shared/index.js";
 
 const logger = createLogger("runtime/context/unified-agent-context");
 
+/**
+ * 轻量 async mutex，串行化 SharedContext 写操作，
+ * 防止并行 Stage 的 async 读-改-写交织导致数据丢失。
+ */
+class AsyncMutex {
+  constructor() {
+    /** @type {Promise<void>} */
+    this._lock = Promise.resolve();
+  }
+  /**
+   * @returns {Promise<() => void>} release 函数
+   */
+  async acquire() {
+    /** @type {() => void} */
+    let release;
+    const next = new Promise(/** @param {() => void} resolve */ (resolve) => { release = resolve; });
+    const prev = this._lock;
+    this._lock = next;
+    await prev;
+    return /** @type {() => void} */ (release);
+  }
+}
+
 export class UnifiedAgentContext {
   constructor(options = {}) {
     this.runId = toNonEmptyString(options.runId) || `ctx_${Date.now()}`;
@@ -29,6 +52,9 @@ export class UnifiedAgentContext {
 
     // 同步标志
     this._syncEnabled = true;
+
+    // 写操作互斥锁，串行化 SharedContext 并发写入 (AUDIT A1)
+    this._writeMutex = new AsyncMutex();
   }
 
   /**
@@ -166,34 +192,39 @@ export class UnifiedAgentContext {
   /**
    * 添加 claim/发现
    * @param {object} claim - claim 对象，包含 text/content/source/confidence/verified
-   * @returns {void}
+   * @returns {Promise<void>}
    */
-  addClaim(claim) {
+  async addClaim(claim) {
     // 校验 claim 为有效对象
     if (!claim || typeof claim !== "object") {
       logger.warn("UnifiedAgentContext.addClaim: invalid claim (null or non-object)");
       return;
     }
-    if (this._state?.addClaim) this._state.addClaim(claim);
-    if (this._memory?.addClaim) {
-      try {
-        this._memory.addClaim({
+    const release = await this._writeMutex.acquire();
+    try {
+      if (this._state?.addClaim) this._state.addClaim(claim);
+      if (this._memory?.addClaim) {
+        try {
+          this._memory.addClaim({
+            content: claim?.text || claim?.content || "",
+            source: claim?.source,
+            confidence: claim?.confidence,
+            verified: claim?.verified,
+          });
+        } catch (err) {
+          logger.warn(`UnifiedAgentContext.addClaim: memory.addClaim failed: ${err?.message || err}`);
+        }
+      }
+      if (this._sharedContext?.addFinding) {
+        this._sharedContext.addFinding({
+          type: "claim",
           content: claim?.text || claim?.content || "",
           source: claim?.source,
           confidence: claim?.confidence,
-          verified: claim?.verified,
         });
-      } catch (err) {
-        logger.warn(`UnifiedAgentContext.addClaim: memory.addClaim failed: ${err?.message || err}`);
       }
-    }
-    if (this._sharedContext?.addFinding) {
-      this._sharedContext.addFinding({
-        type: "claim",
-        content: claim?.text || claim?.content || "",
-        source: claim?.source,
-        confidence: claim?.confidence,
-      });
+    } finally {
+      release();
     }
   }
 
@@ -205,11 +236,16 @@ export class UnifiedAgentContext {
    * 发送跨阶段信号
    * @param {string} type - 信号类型
    * @param {unknown} payload - 信号载荷
-   * @returns {void}
+   * @returns {Promise<void>}
    */
-  signal(type, payload) {
-    if (this._sharedContext?.signal) {
-      this._sharedContext.signal(type, payload);
+  async signal(type, payload) {
+    const release = await this._writeMutex.acquire();
+    try {
+      if (this._sharedContext?.signal) {
+        this._sharedContext.signal(type, payload);
+      }
+    } finally {
+      release();
     }
   }
 
@@ -232,11 +268,16 @@ export class UnifiedAgentContext {
   /**
    * 记录决策
    * @param {object} decision - 决策对象
-   * @returns {void}
+   * @returns {Promise<void>}
    */
-  recordDecision(decision) {
-    if (this._memory?.recordDecision) this._memory.recordDecision(decision);
-    if (this._sharedContext?.recordDecision) this._sharedContext.recordDecision(decision);
+  async recordDecision(decision) {
+    const release = await this._writeMutex.acquire();
+    try {
+      if (this._memory?.recordDecision) this._memory.recordDecision(decision);
+      if (this._sharedContext?.recordDecision) this._sharedContext.recordDecision(decision);
+    } finally {
+      release();
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

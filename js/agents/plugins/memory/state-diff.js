@@ -19,23 +19,17 @@ function isUnsafeKey(key) {
 // Clone Utilities
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { deepClone } from "../../shared/index.js";
+
 /**
- * Clone JSON-serializable value (prefers structuredClone)
+ * Clone JSON-serializable value.
+ * Delegates to shared deepClone (supports Map/Set/循环引用/TypedArray).
  * @param {any} value
  * @returns {any}
  */
 export function cloneJson(value) {
   if (value === null || typeof value !== "object") return value;
-  try {
-    return structuredClone(value);
-  } catch {
-    // Fallback for non-clonable values (functions, etc.)
-    try {
-      return JSON.parse(JSON.stringify(value));
-    } catch {
-      return value;
-    }
-  }
+  return deepClone(value);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

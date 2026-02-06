@@ -8,7 +8,7 @@
  * - 自动与 EventBus 联动
  */
 
-import { createLogger } from "../shared/index.js";
+import { createLogger, deepClone } from "../shared/index.js";
 
 const logger = createLogger("core/state-bus");
 const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -45,24 +45,6 @@ function getSafePathSegments(path) {
  * @property {string} [ownerId] - 订阅者标识（用于泄漏追踪和批量取消）
  * @property {string} [scope] - 作用域标识（如插件名）
  */
-
-/**
- * Deep clone helper with structuredClone preferred.
- * Falls back to JSON clone for environments/values that are not cloneable.
- * @template T
- * @param {T} value
- * @returns {T}
- */
-function deepClone(value) {
-  if (typeof structuredClone === 'function') {
-    try {
-      return structuredClone(value);
-    } catch {
-      // fallback for non-cloneable values
-    }
-  }
-  return JSON.parse(JSON.stringify(value));
-}
 
 /**
  * 双指针通配符匹配（单段，无正则回溯）

@@ -12,7 +12,7 @@
  * - decisions → MemoryStore.recordDecision()
  */
 
-import { toNonEmptyString, isPlainObject, createLogger } from "../../../shared/index.js";
+import { toNonEmptyString, isPlainObject, createLogger, deepClone } from "../../../shared/index.js";
 import { DisposableBase } from "../../../shared/index.js";
 import {
   L1_ADD_SIGNAL,
@@ -35,17 +35,7 @@ function logSilentError(context, err) {
 
 function cloneValue(value) {
   if (value === null || value === undefined) return value;
-  try {
-    return structuredClone(value);
-  } catch (err) {
-    logSilentError("cloneValue.structuredClone", err);
-    try {
-      return JSON.parse(JSON.stringify(value));
-    } catch (innerErr) {
-      logSilentError("cloneValue.jsonFallback", innerErr);
-      return value;
-    }
-  }
+  return deepClone(value);
 }
 
 function stripDesignPrefix(value) {

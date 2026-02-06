@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { isPlainObject, toNonEmptyString, deepClone } from "../../../shared/index.js";
 import { createCheckpoint, CheckpointType as ArchiveCheckpointType } from "../../../shared/index.js";
 import { createLogger } from "../../../shared/index.js";
 import { CheckpointMode } from "../constants.js";
@@ -35,113 +35,15 @@ export function getCheckpointStrategyFromState(state, override) {
   return normalizeCheckpointStrategy(direct || DEFAULT_CHECKPOINT_STRATEGY());
 }
 
-function cloneValueFallback(v, seen) {
-  if (v === null || typeof v !== "object") return v;
-  if (seen.has(v)) return "[Circular]";
-  seen.add(v);
-
-  if (Array.isArray(v)) return v.map((item) => cloneValueFallback(item, seen));
-  if (v instanceof Date) return new Date(v.getTime());
-  if (v instanceof RegExp) return new RegExp(v);
-  if (v instanceof Map) {
-    const out = new Map();
-    for (const [k, val] of v.entries()) out.set(cloneValueFallback(k, seen), cloneValueFallback(val, seen));
-    return out;
-  }
-  if (v instanceof Set) {
-    const out = new Set();
-    for (const item of v.values()) out.add(cloneValueFallback(item, seen));
-    return out;
-  }
-
-  const cloned = {};
-  for (const [k, val] of Object.entries(v)) {
-    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
-    cloned[k] = cloneValueFallback(val, seen);
-  }
-  return cloned;
-}
-
-function hasCycle(root) {
-  if (root === null || typeof root !== "object") return false;
-
-  const visited = new WeakSet();
-  const inPath = new WeakSet();
-  const stack = [];
-
-  const getIterator = (v) => {
-    if (Array.isArray(v)) return v.values();
-    if (v instanceof Map) {
-      const entries = v.entries();
-      let pending = null;
-      return {
-        next() {
-          if (pending) {
-            const value = pending[1];
-            pending = null;
-            return { value, done: false };
-          }
-          const step = entries.next();
-          if (step.done) return { value: undefined, done: true };
-          pending = step.value;
-          return { value: pending[0], done: false };
-        },
-        [Symbol.iterator]() {
-          return this;
-        },
-      };
-    }
-    if (v instanceof Set) return v.values();
-    return Object.values(v)[Symbol.iterator]();
-  };
-
-  const push = (v) => {
-    if (v === null || typeof v !== "object") return false;
-    if (inPath.has(v)) return true;
-    if (visited.has(v)) return false;
-
-    visited.add(v);
-    inPath.add(v);
-    stack.push({ node: v, iterator: getIterator(v) });
-    return false;
-  };
-
-  if (push(root)) return true;
-
-  while (stack.length) {
-    const frame = stack[stack.length - 1];
-    const step = frame.iterator.next();
-    if (step.done) {
-      inPath.delete(frame.node);
-      stack.pop();
-      continue;
-    }
-
-    if (push(step.value)) return true;
-  }
-
-  return false;
-}
-
 /**
  * Deep clone a value safely, handling cycles and non-cloneable objects.
+ * Delegates to shared deepClone (supports Map/Set/循环引用/TypedArray).
  * @param {*} v - Value to clone
- * @param {WeakSet=} seen - Internal tracker for circular reference detection
  * @returns {*} Cloned value
  */
-export function cloneValue(v, seen = new WeakSet()) {
+export function cloneValue(v) {
   if (v === null || typeof v !== "object") return v;
-  if (typeof structuredClone === "function") {
-    try {
-      if (!hasCycle(v)) return structuredClone(v);
-    } catch (err) {
-      logger.debug("structuredClone failed, falling back to manual clone", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  return cloneValueFallback(v, seen);
+  return deepClone(v);
 }
 
 export function buildLiteSnapshot(state) {

@@ -1,6 +1,6 @@
 import { EditOperationType } from "../constants.js";
 
-import { isPlainObject } from "../../../shared/index.js";
+import { isPlainObject, deepClone } from "../../../shared/index.js";
 export const EditModeTools = Object.freeze({
   [EditOperationType.ADD_SLIDE]: {
     description: "在指定位置添加新页面",
@@ -66,8 +66,7 @@ let elementCounter = 0;
 let slideCounter = 0;
 
 function clone(value) {
-  if (typeof globalThis.structuredClone === "function") return globalThis.structuredClone(value);
-  return JSON.parse(JSON.stringify(value));
+  return deepClone(value);
 }
 
 function toInt(value) {

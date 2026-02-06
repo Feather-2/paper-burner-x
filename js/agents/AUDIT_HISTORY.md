@@ -4,6 +4,38 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-02-06 (Phase 0 — 止血)
+
+### [RESOLVED] A1. SharedContext 并行写入无保护 — HIGH
+*Archived: 2026-02-06*
+
+- **File**: `runtime/core/context/unified-agent-context.js`
+- **Description**: SharedContext 的 addFinding/signal/recordDecision 无并发保护，并行 Stage 写入会丢数据。
+- **Fix**: 在 UnifiedAgentContext 中引入 AsyncMutex，addClaim/signal/recordDecision 改为 async 并串行化写操作。
+
+### [RESOLVED] A3. CRDT version vector 是空壳声明 — HIGH
+*Archived: 2026-02-06*
+
+- **File**: `core/crdt/sync-manager.js:73`
+- **Description**: `this._versionVectors = new Map()` 被声明但从未使用，误导维护者。
+- **Fix**: 删除死字段，添加注释说明 version vector 未实现，并引用 AUDIT.md A3。
+
+### [RESOLVED] B1. SyncManager.dispose() 不清理 transport 订阅 — HIGH
+*Archived: 2026-02-06*
+
+- **File**: `core/crdt/sync-manager.js`
+- **Description**: `_startPeerSync()` 注册了 EventBus 订阅但 `dispose()` 不清理，导致内存泄漏。
+- **Fix**: 保存 bound handler 引用，添加 `dispose()` 方法清理 transport/documents/peers/pendingOps。
+
+### [RESOLVED] E5. structuredClone 兼容——至少 4 种不同 fallback 写法 — MEDIUM
+*Archived: 2026-02-06*
+
+- **File**: 多处 (state-bus.js, BacktrackManager.js, serialization.js, state-diff.js, design-blackboard.js, tools.js, config-validator.js, tool-executor.js, checkpoint.js)
+- **Description**: 每个位置自行判断 structuredClone 可用性并实现 fallback，检测方式和 fallback 行为不一致。
+- **Fix**: 统一收敛到 `shared/utils/value-utils.js` 的 `deepClone()`（支持 Map/Set/循环引用/TypedArray）。删除 9 处重复实现，清除 checkpoint.js 中 ~90 行 hasCycle/cloneValueFallback 死代码。
+
+---
+
 ## Archived: 2026-01-18
 
 ### [RESOLVED] security-eval

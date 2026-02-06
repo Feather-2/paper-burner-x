@@ -68,9 +68,9 @@ export class CRDTSyncManager {
     /** @type {Map<string, CRDTDocument>} */
     this._documents = new Map(); // docId → CRDTDocument
 
-    // 节点版本向量 (nodeId → version)
-    /** @type {Map<string, number>} */
-    this._versionVectors = new Map();
+    // NOTE: version vector 未实现。当前同步依赖 CRDTDocument.getOps(sinceVersion) 的单一版本号。
+    // 多节点 (>2) 场景需要真正的 version vector 来区分已见/未见 op。
+    // 参见 AUDIT.md A3。
 
     // 待发送操作队列
     /** @type {CRDTOpMessage[]} */
@@ -82,9 +82,12 @@ export class CRDTSyncManager {
     /** @type {Set<string>} */
     this._peers = new Set();
 
-    // 绑定传输层回调
+    // 绑定传输层回调（保留引用以便 dispose 时取消）
+    /** @type {((message: CRDTSyncMessage) => void) | null} */
+    this._boundMessageHandler = null;
     if (this._transport?.onReceive) {
-      this._transport.onReceive(this._handleMessage.bind(this));
+      this._boundMessageHandler = this._handleMessage.bind(this);
+      this._transport.onReceive(this._boundMessageHandler);
     }
   }
 
@@ -409,6 +412,26 @@ export class CRDTSyncManager {
     this._connected = false;
     this._emit('disconnect');
     return this;
+  }
+
+  /**
+   * 释放所有资源，清理 transport 订阅
+   * @returns {void}
+   */
+  dispose() {
+    if (this._connected) {
+      this.disconnect();
+    }
+    // 清理 transport 订阅，防止内存泄漏
+    if (this._transport?.close) {
+      this._transport.close();
+    }
+    this._boundMessageHandler = null;
+    this._documents.clear();
+    this._peers.clear();
+    this._pendingOps = [];
+    this._transport = undefined;
+    this._events = undefined;
   }
 
   /**

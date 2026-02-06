@@ -8,7 +8,7 @@
  * - 自定义校验规则
  */
 
-import { createLogger } from "../../shared/index.js";
+import { createLogger, deepClone } from "../../shared/index.js";
 import { createSafeRegex } from "../../shared/index.js";
 
 const logger = createLogger("runtime/core/config-validator");
@@ -116,9 +116,7 @@ export class ConfigValidator {
         } else if (fieldSchema.default !== undefined) {
           result[key] = typeof fieldSchema.default === "function"
             ? fieldSchema.default()
-            : (typeof globalThis.structuredClone === "function"
-                ? globalThis.structuredClone(fieldSchema.default)
-                : JSON.parse(JSON.stringify(fieldSchema.default)));
+            : deepClone(fieldSchema.default);
         }
         continue;
       }
