@@ -124,27 +124,6 @@ export class DesignAgentLoop extends BaseAgentLoop {
   }
 
   /**
-   * 从容器或 context 解析依赖
-   * @private
-   * @param {string} serviceId
-   * @param {DesignStageApi} context
-   * @param {any} fallback
-   * @returns {Promise<any>}
-   */
-  async _resolveDependency(serviceId, context, fallback) {
-    // 优先从 context 获取（显式传入）
-    if (context?.[serviceId]) return context[serviceId];
-    // 其次从容器获取
-    if (this._container) {
-      try {
-        return await this._container.get(serviceId);
-      } catch { /* fallback */ }
-    }
-    // 最后使用回退值
-    return fallback;
-  }
-
-  /**
    * Stage interface (Runtime): execute(runContext, contentPackage) -> DeckPackage.
    * @param {object} runContext
    * @param {object} contentPackage ContentPackage v0.1
