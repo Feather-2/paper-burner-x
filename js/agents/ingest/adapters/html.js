@@ -50,21 +50,8 @@ function estimateByteLength(text) {
   return text.length;
 }
 
-function resolveTurndownService(stageApi) {
-  if (typeof stageApi?.TurndownService === "function") return stageApi.TurndownService;
-  if (typeof globalThis?.TurndownService === "function") return globalThis.TurndownService;
-  return null;
-}
-
-async function importTurndownService() {
-  try {
-    const mod = await import("turndown");
-    const svc = mod?.default || mod;
-    return typeof svc === "function" ? svc : null;
-  } catch {
-    return null;
-  }
-}
+// Shared resolver (AUDIT E4) — combines sync stageApi/globalThis + async import fallback
+import { resolveTurndownService } from "./resolve-deps.js";
 
 function extFromMime(mimeType) {
   const mt = String(mimeType || "").toLowerCase();
