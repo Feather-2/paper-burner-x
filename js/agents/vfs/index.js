@@ -1,4 +1,4 @@
-import { Platform } from "../shared/index.js";
+import { isNodeLike } from "../shared/index.js";
 import { createVfs as createBrowserVfs } from "./index.browser.js";
 
 export * from "./index.browser.js";
@@ -39,7 +39,7 @@ async function importNodeModule() {
  * @returns {Promise<import('./vfs.memory.js').default | import('./vfs.opfs.js').OpfsVfs | import('./vfs.storage.js').StorageVfs | import('./vfs.node.js').NodeFsVfs>}
  */
 export async function createVfs(options = {}) {
-  if (!Platform.isNode) {
+  if (!isNodeLike()) {
     return createBrowserVfs(/** @type {CreateBrowserVfsOptions} */ (options));
   }
 

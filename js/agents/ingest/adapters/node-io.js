@@ -7,15 +7,7 @@
  * @module adapters/node-io
  */
 
-/**
- * Detect if running in a Node.js environment.
- * @returns {boolean}
- */
-function isNodeEnvironment() {
-  return typeof process !== "undefined" &&
-    process.versions != null &&
-    process.versions.node != null;
-}
+import { isNodeLike } from "../../shared/index.js";
 
 /**
  * Assert Node environment or throw a descriptive error.
@@ -23,7 +15,7 @@ function isNodeEnvironment() {
  * @throws {Error} If not in Node environment
  */
 function assertNodeEnvironment(operation) {
-  if (!isNodeEnvironment()) {
+  if (!isNodeLike()) {
     throw new Error(
       `${operation} requires Node.js. ` +
       `In browser environments, pass a File or ArrayBuffer instead of a file path.`
@@ -135,4 +127,4 @@ export async function readTextFromPath(path, { maxBytes } = {}) {
  * Check if running in Node.js environment.
  * @returns {boolean}
  */
-export { isNodeEnvironment };
+export { isNodeLike as isNodeEnvironment };
