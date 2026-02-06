@@ -815,7 +815,7 @@ export class EventBus {
         this._onListenerError(err, evt, fn);
       } catch {}
     } else {
-      console.error(`[EventBus] Error in handler for "${evt.name}":`, err);
+      logger.error("Error in handler", { event: evt?.name, error: err?.message });
     }
   }
 
