@@ -206,8 +206,21 @@ export class ToolPermissions {
     /** @type {boolean} */
     this._strict = cfg.strict === true;
 
+    /** @type {{ evaluate: (req: any) => any } | null} */
+    this._policyEngine = cfg.policyEngine || null;
+
     /** @type {ToolRestrictions | null} */
     this._mergedRestrictions = mergeRestrictions(this._baseRestrictions, this._customRestrictions);
+  }
+
+  /**
+   * Attach a PolicyEngine (AUDIT C2: single evaluation pipeline).
+   * @param {{ evaluate: (req: any) => any }} engine
+   * @returns {ToolPermissions}
+   */
+  setPolicyEngine(engine) {
+    this._policyEngine = engine || null;
+    return this;
   }
 
   /**
@@ -247,6 +260,21 @@ export class ToolPermissions {
    * @returns {{ allowed: boolean, reason?: string, policy?: Record<string, unknown> }}
    */
   check(toolName, command) {
+    // AUDIT C2: PolicyEngine takes priority when available
+    if (this._policyEngine) {
+      try {
+        const decision = this._policyEngine.evaluate({
+          type: 'tool:use',
+          tool: toolName,
+          ...(command ? { resource: command } : {}),
+        });
+        if (decision && !decision.requiresApproval) {
+          if (decision.allowed === false) return { allowed: false, reason: decision.reason || 'policy_deny', policy: decision };
+          if (decision.allowed === true) return { allowed: true, reason: 'policy_allow', policy: decision };
+        }
+      } catch { /* PolicyEngine error: fall through to local restrictions */ }
+    }
+
     if (!this._mergedRestrictions && !this._strict) {
       return { allowed: true };
     }
