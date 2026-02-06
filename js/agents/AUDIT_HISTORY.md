@@ -4,6 +4,40 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-02-06 (Phase 1 — 统一性)
+
+### [RESOLVED] C1. DI 注入路径不统一 — HIGH
+*Archived: 2026-02-06*
+
+- **Fix**: Promote `_resolveDependency(serviceId, context, fallback)` to BaseAgentLoop. Remove duplicates from CodeSearchStage and DesignAgentLoop.
+
+### [RESOLVED] E3. VFS Platform.isNode 不含 Bun — MEDIUM
+*Archived: 2026-02-06*
+
+- **Fix**: `vfs/index.js` — `Platform.isNode` → `isNodeLike()`.
+
+### [RESOLVED] E8. node-io.js 自定义 isNodeEnvironment — LOW
+*Archived: 2026-02-06*
+
+- **Fix**: Replace with shared `isNodeLike()` import.
+
+### [RESOLVED] E4. Ingest 适配器依赖解析重复 — MEDIUM
+*Archived: 2026-02-06*
+
+- **Fix**: Extract `resolve-deps.js` with shared `resolveTurndownService` + `resolveDOMParser`. Remove 3 duplicates from html.js, docx.js, epub.js.
+
+### [RESOLVED] C2. ToolPermissions/PolicyEngine 双轨权限 — HIGH
+*Archived: 2026-02-06*
+
+- **Fix**: `ToolPermissions.check()` now consults PolicyEngine first. `setPolicyEngine()` for post-construction binding.
+
+### [PARTIAL] E10. console 散布收敛到 logger — MEDIUM
+*Archived: 2026-02-06*
+
+- **Fix**: Replaced 13 console.warn/error in core/ and runtime/ with structured logger. Remaining in stages/plugins deferred.
+
+---
+
 ## Archived: 2026-02-06 (Phase 0 — 止血)
 
 ### [RESOLVED] A1. SharedContext 并行写入无保护 — HIGH
