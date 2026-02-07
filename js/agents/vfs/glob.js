@@ -6,8 +6,23 @@ function escapeRegExp(s) {
   return s.replace(/[\\^$+?.()|[\]{}]/g, "\\$&");
 }
 
+let _moduleWorkerSupported = null;
+
 function canUseWorker() {
-  return !isNodeLike() && typeof Worker !== "undefined" && typeof URL !== "undefined";
+  if (isNodeLike()) return false;
+  if (typeof Worker === "undefined" || typeof URL === "undefined") return false;
+  if (_moduleWorkerSupported !== null) return _moduleWorkerSupported;
+  try {
+    const blob = new Blob([""], { type: "text/javascript" });
+    const url = URL.createObjectURL(blob);
+    const w = new Worker(url, { type: "module" });
+    w.terminate();
+    URL.revokeObjectURL(url);
+    _moduleWorkerSupported = true;
+  } catch {
+    _moduleWorkerSupported = false;
+  }
+  return _moduleWorkerSupported;
 }
 
 function normalizePattern(pattern) {

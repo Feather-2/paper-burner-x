@@ -10,11 +10,32 @@
 
 import { Platform } from "../../shared/index.js";
 
-const impl = Platform.isNode ? await import("./index.node.js") : await import("./index.browser.js");
+let _impl = null;
 
-export const ProcessTransport = impl.ProcessTransport;
-export const createProcessTransport = impl.createProcessTransport;
-export const BinarySkillProvider = impl.BinarySkillProvider;
-export const createBinarySkillProvider = impl.createBinarySkillProvider;
+async function getImpl() {
+  if (!_impl) {
+    _impl = Platform.isNode
+      ? await import("./index.node.js")
+      : await import("./index.browser.js");
+  }
+  return _impl;
+}
 
-export default impl;
+export { getImpl };
+
+export async function getProcessTransport() {
+  return (await getImpl()).ProcessTransport;
+}
+export async function createProcessTransport(...args) {
+  const mod = await getImpl();
+  return mod.createProcessTransport(...args);
+}
+export async function getBinarySkillProvider() {
+  return (await getImpl()).BinarySkillProvider;
+}
+export async function createBinarySkillProvider(...args) {
+  const mod = await getImpl();
+  return mod.createBinarySkillProvider(...args);
+}
+
+export default { getImpl, getProcessTransport, createProcessTransport, getBinarySkillProvider, createBinarySkillProvider };

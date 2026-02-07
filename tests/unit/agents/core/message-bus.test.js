@@ -200,6 +200,70 @@ describe('MessageBus', () => {
       expect(handler.mock.calls[0][0]).toBe(0);
       expect(handler.mock.calls[49][0]).toBe(49);
     });
+
+    it('supports channel/to/metadata emit options and dispatches channel subscribers', () => {
+      const bus = new MessageBus(new EventBus());
+      const baseHandler = vi.fn();
+      const channelHandler = vi.fn();
+
+      bus.on('topic:event', baseHandler);
+      bus.onChannel('research', 'topic:event', channelHandler);
+
+      const record = bus.emit('topic:event', { value: 7 }, {
+        to: 'agent:worker',
+        channel: 'research',
+        metadata: { source: 'audit-f3' },
+      });
+
+      expect(record).toMatchObject({
+        type: 'topic:event',
+        payload: { value: 7 },
+        meta: {
+          to: 'agent:worker',
+          channel: 'research',
+          metadata: { source: 'audit-f3' },
+          message: expect.objectContaining({
+            type: 'topic:event',
+            payload: { value: 7 },
+            to: 'agent:worker',
+            channel: 'research',
+            metadata: { source: 'audit-f3' },
+            from: expect.any(String),
+            id: expect.any(String),
+            ts: expect.any(Number),
+          }),
+        },
+      });
+
+      expect(baseHandler).toHaveBeenCalledWith(
+        { value: 7 },
+        expect.objectContaining({
+          type: 'topic:event',
+          meta: expect.objectContaining({
+            channel: 'research',
+            to: 'agent:worker',
+            metadata: { source: 'audit-f3' },
+          }),
+        })
+      );
+      expect(channelHandler).toHaveBeenCalledWith(
+        { value: 7 },
+        expect.objectContaining({
+          type: 'channel:research:topic:event',
+          meta: expect.objectContaining({ channel: 'research' }),
+        })
+      );
+    });
+
+    it('does not deliver to channel handlers when channel is absent', () => {
+      const bus = new MessageBus(new EventBus());
+      const channelHandler = vi.fn();
+
+      bus.onChannel('research', 'topic:event', channelHandler);
+      bus.emit('topic:event', { value: 1 });
+
+      expect(channelHandler).not.toHaveBeenCalled();
+    });
   });
 
   describe('on', () => {
@@ -241,6 +305,28 @@ describe('MessageBus', () => {
     it('rejects invalid event names on subscribe', () => {
       const bus = new MessageBus(new EventBus());
       expect(() => bus.on(/** @type {any} */ ([]), () => {})).toThrow(/valid event name/i);
+    });
+  });
+
+  describe('onChannel', () => {
+    it('returns no-op unsubscribe for invalid parameters', () => {
+      const bus = new MessageBus(new EventBus());
+      expect(bus.onChannel(/** @type {any} */ (null), 'x', () => {})).toBeTypeOf('function');
+      expect(bus.onChannel('x', /** @type {any} */ (null), () => {})).toBeTypeOf('function');
+      expect(bus.onChannel('x', 'y', /** @type {any} */ (null))).toBeTypeOf('function');
+    });
+
+    it('unsubscribe stops channel-specific delivery', () => {
+      const bus = new MessageBus(new EventBus());
+      const handler = vi.fn();
+
+      const off = bus.onChannel('research', 'topic:event', handler);
+      bus.emit('topic:event', 1, { channel: 'research' });
+      expect(handler).toHaveBeenCalledTimes(1);
+
+      off();
+      bus.emit('topic:event', 2, { channel: 'research' });
+      expect(handler).toHaveBeenCalledTimes(1);
     });
   });
 

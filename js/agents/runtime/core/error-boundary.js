@@ -34,6 +34,8 @@ export const ERROR_BOUNDARY_UNHANDLED = Symbol("error_boundary_unhandled");
  * @typedef {Error & {
  *   code?: string,
  *   status?: number,
+ *   statusCode?: number,
+ *   retryable?: boolean,
  * }} ErrorWithMeta
  */
 
@@ -92,6 +94,28 @@ export function categorizeError(error) {
   }
 
   return ErrorCategory.UNKNOWN;
+}
+
+/**
+ * Determine if an error is retryable (transient).
+ * @param {ErrorWithMeta} error
+ * @returns {boolean}
+ */
+export function isRetryable(error) {
+  if (!error) return false;
+  const category = categorizeError(error);
+  // Network, timeout, and quota errors are typically transient
+  if (category === ErrorCategory.NETWORK || category === ErrorCategory.TIMEOUT || category === ErrorCategory.QUOTA) {
+    return true;
+  }
+  // HTTP 429 (rate limit) and 5xx are retryable
+  const status = error.status || error.statusCode;
+  if (typeof status === "number") {
+    if (status === 429 || (status >= 500 && status < 600)) return true;
+  }
+  // Explicit retryable flag
+  if (error.retryable === true) return true;
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,16 +211,29 @@ export class ErrorBoundary {
    * @param {object} [options.context]
    * @param {any} [options.fallbackValue]
    * @param {boolean} [options.rethrow=false]
+   * @param {number} [options.maxRetries=0]
    * @returns {Promise<any>}
    */
   async wrap(fn, options = {}) {
-    const { context = {}, fallbackValue, rethrow = false } = options;
+    const { context = {}, fallbackValue, rethrow = false, maxRetries = 0 } = options;
+    const retries = Number.isFinite(maxRetries) && maxRetries > 0 ? Math.floor(maxRetries) : 0;
 
-    try {
-      return await fn();
-    } catch (error) {
-      return this._handleError(error, context, fallbackValue, rethrow);
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        if (attempt < retries && isRetryable(error)) {
+          const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        return this._handleError(error, context, fallbackValue, rethrow);
+      }
     }
+
+    return this._handleError(lastError, context, fallbackValue, rethrow);
   }
 
   /**
@@ -374,6 +411,7 @@ function createDefaultFallback(category) {
 
 /**
  * Create the default ErrorBoundary instance (used by DI defaults).
+ * Callers can opt in retry by using `boundary.wrap(fn, { maxRetries: 1 })`.
  * @returns {ErrorBoundary}
  */
 export function createDefaultErrorBoundary() {

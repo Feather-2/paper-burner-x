@@ -1,9 +1,13 @@
+import { createLogger } from "../shared/index.js";
+
 /** @type {number} Default lambda for MMR diversity (0.7 = relevance-heavy) */
 export const DEFAULT_MMR_LAMBDA = 0.7;
 
 /** @type {number} Default max tokens for similarity computation */
 export const DEFAULT_MMR_MAX_TOKENS = 200;
 
+const logger = createLogger("retrieval/mmr");
+let _mmrSegmenterWarned = false;
 let _mmrSegmenter = null;
 
 function getMmrSegmenter() {
@@ -17,6 +21,10 @@ function getMmrSegmenter() {
     // ignore
   }
   _mmrSegmenter = undefined;
+  if (!_mmrSegmenterWarned) {
+    _mmrSegmenterWarned = true;
+    logger.warn?.("Intl.Segmenter unavailable — MMR similarity will use regex tokenization");
+  }
   return _mmrSegmenter;
 }
 
@@ -181,4 +189,3 @@ export default {
   DEFAULT_MMR_MAX_TOKENS,
   mmrSelect,
 };
-

@@ -28,6 +28,16 @@ const DEFAULT_ABORT_MESSAGE = 'Request aborted';
  * @typedef {{ kind: string, requestId: string, replyTo: string }} RpcRequestMeta
  * @typedef {{ kind: string, requestId: string }} RpcResponseMeta
  * @typedef {{ ok: boolean, data?: unknown, error?: string }} RpcResponseBody
+ * @typedef {object} Message
+ * @property {string} id - Message id
+ * @property {string} type - 消息类型
+ * @property {unknown} payload - 消息负载
+ * @property {string} from - 发送方标识
+ * @property {string} [to] - 定向接收方标识
+ * @property {string} [channel] - 消息频道 (topic-based routing)
+ * @property {number} ts - 时间戳（毫秒）
+ * @property {unknown} [metadata] - 扩展元数据
+ * @typedef {{ to?: string, channel?: string, metadata?: unknown }} EmitOptions
  */
 
 /**
@@ -147,6 +157,9 @@ export class MessageBus {
    * @param {EventBus} [eventBus]
    */
   constructor(eventBus) {
+    /** @type {string} */
+    this._agentId = createRpcId();
+
     if (eventBus === undefined || eventBus === null) {
       /** @type {EventBus} */
       this.eventBus = new EventBus();
@@ -179,16 +192,52 @@ export class MessageBus {
    * 发送单向消息
    * @param {string} type
    * @param {unknown} payload
+   * @param {EmitOptions} [options]
    * @returns {EventRecord}
    */
-  emit(type, payload) {
+  emit(type, payload, options = {}) {
     const name = toNonEmptyString(type);
     if (!name || !isValidEventName(name)) {
       throw new Error('MessageBus.emit(type, payload): type must be a valid event name');
     }
-    // Always wrap as EventRecord-like to preserve `undefined` payloads and avoid
-    // EventBus heuristics that would treat `{ payload: ... }` objects specially.
-    return this.eventBus.emit(name, { payload });
+
+    const to = toNonEmptyString(options?.to);
+    const channel = toNonEmptyString(options?.channel);
+
+    /** @type {Message} */
+    const message = {
+      id: `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      type: name,
+      payload,
+      from: this._agentId,
+      ...(to ? { to } : {}),
+      ...(channel ? { channel } : {}),
+      ts: Date.now(),
+      ...(options?.metadata !== undefined ? { metadata: options.metadata } : {}),
+    };
+
+    const record = this.eventBus.emit(name, {
+      payload,
+      meta: {
+        message,
+        ...(to ? { to } : {}),
+        ...(channel ? { channel } : {}),
+        ...(options?.metadata !== undefined ? { metadata: options.metadata } : {}),
+      },
+    });
+
+    if (channel) {
+      this.eventBus.emit(`channel:${channel}:${name}`, {
+        payload,
+        meta: {
+          message,
+          channel,
+          ...(options?.metadata !== undefined ? { metadata: options.metadata } : {}),
+        },
+      });
+    }
+
+    return record;
   }
 
   /**
@@ -233,6 +282,27 @@ export class MessageBus {
             });
           }
         );
+    });
+
+    return /** @type {() => void} */ (off);
+  }
+
+  /**
+   * Subscribe to messages on a specific channel.
+   * @param {string} channel - Channel name
+   * @param {string} type - Message type (or "*" for all)
+   * @param {(payload: unknown, evt: unknown) => void | Promise<void>} handler
+   * @returns {() => void} unsubscribe
+   */
+  onChannel(channel, type, handler) {
+    if (typeof channel !== 'string' || typeof type !== 'string' || typeof handler !== 'function') {
+      return () => {};
+    }
+
+    const key = `channel:${channel}:${type}`;
+
+    const off = this.eventBus.on(key, (evt) => {
+      handler(evt.payload, evt);
     });
 
     return /** @type {() => void} */ (off);

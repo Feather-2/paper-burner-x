@@ -273,6 +273,19 @@ describe("concurrency-isolation", () => {
       expect(fastResult.status).toBe("fulfilled");
       expect(fastResult.value).toBe("fast");
     });
+
+    it("MessageBus channel wildcard subscriptions receive routed messages", () => {
+      const mb = new MessageBus();
+      const handler = vi.fn();
+
+      mb.onChannel("research", "*", handler);
+      mb.emit("topic.update", { value: 1 }, { channel: "research" });
+
+      expect(handler).toHaveBeenCalledWith(
+        { value: 1 },
+        expect.objectContaining({ type: "channel:research:topic.update" })
+      );
+    });
   });
 
   describe("multi-agent concurrent execution", () => {

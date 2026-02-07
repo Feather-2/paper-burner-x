@@ -211,8 +211,23 @@ export function createUnifiedDiff({ path = "file", beforeText = "", afterText = 
   return { hunks, text: [...header, ...body].join("\n") + (body.length ? "\n" : "") };
 }
 
+let _moduleWorkerSupportedDiff = null;
+
 function canUseWorker() {
-  return !isNodeLike() && typeof Worker !== "undefined" && typeof URL !== "undefined";
+  if (isNodeLike()) return false;
+  if (typeof Worker === "undefined" || typeof URL === "undefined") return false;
+  if (_moduleWorkerSupportedDiff !== null) return _moduleWorkerSupportedDiff;
+  try {
+    const blob = new Blob([""], { type: "text/javascript" });
+    const url = URL.createObjectURL(blob);
+    const w = new Worker(url, { type: "module" });
+    w.terminate();
+    URL.revokeObjectURL(url);
+    _moduleWorkerSupportedDiff = true;
+  } catch {
+    _moduleWorkerSupportedDiff = false;
+  }
+  return _moduleWorkerSupportedDiff;
 }
 
 let _diffWorker = null;

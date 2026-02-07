@@ -320,6 +320,73 @@ export class WorkerPool {
   }
 
   /**
+   * Gracefully drain the pool: wait for all in-flight tasks to finish, then terminate.
+   * New tasks submitted after drain() is called will be rejected.
+   * @param {number} [timeoutMs=30000] - Maximum wait time before force-terminating
+   * @returns {Promise<void>}
+   */
+  async drain(timeoutMs = 30000) {
+    this._closed = true;
+
+    if (this._idleCheckTimer) {
+      clearTimeout(this._idleCheckTimer);
+      this._idleCheckTimer = null;
+    }
+
+    for (const task of this._taskQueue) {
+      if (task.signal && task.abortListener && typeof task.signal.removeEventListener === "function") {
+        try {
+          task.signal.removeEventListener("abort", task.abortListener);
+        } catch {
+          // ignore
+        }
+      }
+      task.reject(new Error("WorkerPool draining"));
+    }
+    this._taskQueue.length = 0;
+
+    const hasBusyWorkers = () => {
+      for (const worker of this._workers.values()) {
+        if (worker.busy) return true;
+      }
+      return false;
+    };
+
+    const safeTimeout = typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30000;
+
+    if (hasBusyWorkers()) {
+      /** @type {ReturnType<typeof setInterval> | null} */
+      let checkTimer = null;
+
+      await Promise.race([
+        new Promise((resolve) => {
+          checkTimer = setInterval(() => {
+            if (!hasBusyWorkers()) {
+              if (checkTimer) {
+                clearInterval(checkTimer);
+                checkTimer = null;
+              }
+              resolve(undefined);
+            }
+          }, 100);
+        }),
+        new Promise((resolve) => setTimeout(resolve, safeTimeout)),
+      ]);
+
+      if (checkTimer) {
+        clearInterval(checkTimer);
+      }
+    }
+
+    for (const [, worker] of this._workers) {
+      worker.client.terminate("pool drained");
+    }
+    this._workers.clear();
+
+    logger.info("Pool drained");
+  }
+
+  /**
    * Close all workers
    */
   close() {

@@ -1,4 +1,6 @@
-import { isPlainObject } from "../shared/index.js";
+import { createLogger, isPlainObject } from "../shared/index.js";
+
+const logger = createLogger("retrieval/bm25");
 
 function normalizeLimit(value, fallback) {
   if (value === Infinity) return Infinity;
@@ -151,6 +153,7 @@ const WORD_RE = wordRegex();
 
 /** @type {WeakMap<object, Intl.Segmenter|undefined>} */
 const _segmenterCache = new WeakMap();
+let _segmenterWarned = false;
 
 /**
  * Get or create a word segmenter. Supports context-based caching to avoid singleton pollution.
@@ -171,6 +174,10 @@ function getWordSegmenter(context) {
     segmenter = undefined;
   }
 
+  if (!segmenter && !_segmenterWarned) {
+    _segmenterWarned = true;
+    logger.warn?.("Intl.Segmenter unavailable — CJK text will use bigram fallback (reduced retrieval quality)");
+  }
   if (context) {
     _segmenterCache.set(context, segmenter);
   }

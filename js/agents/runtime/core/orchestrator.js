@@ -502,31 +502,50 @@ export class AgentOrchestrator extends DisposableBase {
   }
 
   /**
-   * @param {string} name
-   * @param {(ctx: any, input: any, api: any) => any | Promise<any>} handler
-   * @param {{ actor?: string, timeoutMs?: number, configSchema?: any, configValidation?: any }} [options]
-   * @returns {this}
+   * Register a stage.
+   *
+   * @param {string} name - Stage name
+   * @param {(ctx: any, input: any, api: any) => Promise<any>} handler
+   * @param {object} [options]
+   * @param {string} [options.actor]
+   * @param {number} [options.timeoutMs]
+   * @param {object} [options.retryPolicy]
+   * @param {string[]} [options.requiredServices] - Services this stage depends on
+   * @param {string} [options.statePrefix] - StateBus namespace prefix
+   * @param {string[]} [options.tools] - Tools this stage uses
+   * @param {string[]} [options.dependencies] - Other stage names that must run before this one
    */
   registerStage(name, handler, options = {}) {
-    this._ensureNotDisposed();
-    const stageName = toNonEmptyString(name);
-    if (!stageName) throw new Error("AgentOrchestrator.registerStage(name, handler): name must be a non-empty string");
-    if (typeof handler !== "function") throw new TypeError("AgentOrchestrator.registerStage(name, handler): handler must be a function");
+    if (typeof name !== "string" || !name) throw new TypeError("registerStage: name must be a non-empty string");
+    if (typeof handler !== "function") throw new TypeError("registerStage: handler must be a function");
 
-    const actor = toNonEmptyString(options?.actor);
-    const timeoutMs = normalizeTimeoutMs(options?.timeoutMs, null);
-    const configSchema = isPlainObject(options?.configSchema) ? options.configSchema : null;
-    const configValidation = isPlainObject(options?.configValidation) ? options.configValidation : null;
-    this._stages.set(stageName, {
+    this._stages.set(name, {
       handler,
-      options: {
-        actor: actor && isValidActorType(actor) ? actor : undefined,
-        timeoutMs,
-        configSchema,
-        configValidation,
-      },
+      actor: options.actor || name,
+      timeoutMs: typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs) ? options.timeoutMs : 0,
+      retryPolicy: options.retryPolicy || null,
+      // Manifest fields (declarative)
+      requiredServices: Array.isArray(options.requiredServices) ? [...options.requiredServices] : [],
+      statePrefix: typeof options.statePrefix === "string" ? options.statePrefix : name,
+      tools: Array.isArray(options.tools) ? [...options.tools] : [],
+      dependencies: Array.isArray(options.dependencies) ? [...options.dependencies] : [],
     });
-    return this;
+  }
+
+  /**
+   * Get the manifest for a registered stage.
+   * @param {string} name
+   * @returns {{ requiredServices: string[], statePrefix: string, tools: string[], dependencies: string[] } | null}
+   */
+  getStageManifest(name) {
+    const entry = this._stages.get(name);
+    if (!entry) return null;
+    return {
+      requiredServices: entry.requiredServices || [],
+      statePrefix: entry.statePrefix || name,
+      tools: entry.tools || [],
+      dependencies: entry.dependencies || [],
+    };
   }
 
   /**
@@ -859,15 +878,24 @@ export class AgentOrchestrator extends DisposableBase {
     const entry = this._stages.get(stageName);
     if (!entry) throw new Error(`Stage not registered: ${stageName}`);
 
-    const stageActor = entry.options.actor || deriveActorFromStageName(stageName);
-    const { signal: stageSignal, cleanup } = createStageAbortSignal(this.signal, entry.options.timeoutMs);
+    const stageOptions = isPlainObject(entry.options) ? entry.options : null;
+    const stageActor =
+      toNonEmptyString(entry.actor) ||
+      toNonEmptyString(stageOptions?.actor) ||
+      deriveActorFromStageName(stageName);
+    const stageTimeoutMs = normalizeTimeoutMs(entry.timeoutMs ?? stageOptions?.timeoutMs, null);
+    const { signal: stageSignal, cleanup } = createStageAbortSignal(this.signal, stageTimeoutMs);
 
     // P6.1.3: Validate userConfig at stage init (best-effort, backward compatible).
     let stageInput = input;
     let userConfigValidation = null;
     if (isPlainObject(stageInput) && ("userConfig" in stageInput || stageInput.userConfig !== undefined)) {
-      const schema = entry.options?.configSchema || DEFAULT_USER_CONFIG_SCHEMA;
-      const stageCfg = isPlainObject(entry.options?.configValidation) ? entry.options.configValidation : {};
+      const schema = entry.configSchema || stageOptions?.configSchema || DEFAULT_USER_CONFIG_SCHEMA;
+      const stageCfg = isPlainObject(entry.configValidation)
+        ? entry.configValidation
+        : isPlainObject(stageOptions?.configValidation)
+          ? stageOptions.configValidation
+          : {};
       const strict =
         stageCfg.strict === true ||
         this._configValidation.strict === true ||

@@ -163,23 +163,23 @@ export function createAgentContainer(overrides = {}) {
             const total = typeof mem.heapTotal === "number" ? mem.heapTotal : mem.rss;
             if (typeof used === "number" && typeof total === "number" && total > 0) return used / total;
           }
-        } catch {
-          // ignore
+        } catch (err) {
+          logger?.debug?.("[DegradationMatrix] Failed to read process memory usage", err?.message);
         }
 
-	        try {
-	          const perfMem = (/** @type {{ memory?: PerformanceMemoryLike } | undefined} */ (globalThis?.performance))
-	            ?.memory;
-	          if (
-	            perfMem &&
-	            typeof perfMem.usedJSHeapSize === "number" &&
-	            typeof perfMem.jsHeapSizeLimit === "number" &&
+        try {
+          const perfMem = (/** @type {{ memory?: PerformanceMemoryLike } | undefined} */ (globalThis?.performance))
+            ?.memory;
+          if (
+            perfMem &&
+            typeof perfMem.usedJSHeapSize === "number" &&
+            typeof perfMem.jsHeapSizeLimit === "number" &&
             perfMem.jsHeapSizeLimit > 0
           ) {
             return perfMem.usedJSHeapSize / perfMem.jsHeapSizeLimit;
           }
-        } catch {
-          // ignore
+        } catch (err) {
+          logger?.debug?.("[DegradationMatrix] Failed to read performance memory", err?.message);
         }
 
         return 0;

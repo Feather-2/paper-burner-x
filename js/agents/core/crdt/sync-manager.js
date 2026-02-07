@@ -8,22 +8,29 @@
  * - 离线缓存与重连同步
  */
 
+import { createLogger } from '../../shared/index.js';
 import { CRDTDocument } from './document.js';
+
+const logger = createLogger('core/crdt/sync-manager');
 
 /** @typedef {{ emit: (event: string, data?: unknown) => unknown }} CRDTEventBusLike */
 /**
  * @typedef {{
- *   send: (message: CRDTSyncMessage) => void,
+ *   send: (...args: unknown[]) => void,
  *   onReceive?: (handler: (message: CRDTSyncMessage) => void) => void,
+ *   on?: (event: string, handler: (data?: unknown) => void) => void,
+ *   off?: (event: string, handler: (data?: unknown) => void) => void,
  *   close?: () => void
  * }} CRDTTransport
  */
 /** @typedef {{ type: 'crdt:op', from: string, docId: string, op: unknown, ts: number }} CRDTOpMessage */
-/** @typedef {{ type: 'crdt:sync-request', from: string, docId: string, sinceVersion: number, ts: number }} CRDTSyncRequestMessage */
-/** @typedef {{ type: 'crdt:sync-response', from: string, to: string, docId: string, ops: unknown[], ts: number }} CRDTSyncResponseMessage */
+/** @typedef {{ type: 'crdt:sync-request', from: string, docId: string, sinceVersion: number | string | null, ts: number }} CRDTSyncRequestMessage */
+/** @typedef {{ type: 'crdt:sync-response', from: string, to: string, docId: string, ops: unknown[], complete?: boolean, ts: number }} CRDTSyncResponseMessage */
+/** @typedef {{ type: 'crdt:snapshot-request', from: string, docId: string, ts: number }} CRDTSnapshotRequestMessage */
+/** @typedef {{ type: 'crdt:snapshot-response', from: string, to: string, docId: string, snapshot: unknown, version?: number, ts: number }} CRDTSnapshotResponseMessage */
 /** @typedef {{ type: 'crdt:peer-join', from: string, ts: number }} CRDTPeerJoinMessage */
 /** @typedef {{ type: 'crdt:peer-leave', from: string, ts: number }} CRDTPeerLeaveMessage */
-/** @typedef {CRDTOpMessage | CRDTSyncRequestMessage | CRDTSyncResponseMessage | CRDTPeerJoinMessage | CRDTPeerLeaveMessage} CRDTSyncMessage */
+/** @typedef {CRDTOpMessage | CRDTSyncRequestMessage | CRDTSyncResponseMessage | CRDTSnapshotRequestMessage | CRDTSnapshotResponseMessage | CRDTPeerJoinMessage | CRDTPeerLeaveMessage} CRDTSyncMessage */
 /** @typedef {{ nodeId?: string, transport?: CRDTTransport, events?: CRDTEventBusLike, maxPendingOps?: number, maxOpsPerSync?: number, maxOpSize?: number }} CRDTSyncManagerOptions */
 /**
  * @typedef {{
@@ -85,10 +92,15 @@ export class CRDTSyncManager {
     // 绑定传输层回调（保留引用以便 dispose 时取消）
     /** @type {((message: CRDTSyncMessage) => void) | null} */
     this._boundMessageHandler = null;
+    /** @type {((data?: unknown) => void) | null} */
+    this._boundSyncResponseHandler = null;
+    /** @type {((data?: unknown) => void) | null} */
+    this._boundSnapshotResponseHandler = null;
     if (this._transport?.onReceive) {
       this._boundMessageHandler = this._handleMessage.bind(this);
       this._transport.onReceive(this._boundMessageHandler);
     }
+    this._startPeerSync();
   }
 
   /**
@@ -169,7 +181,7 @@ export class CRDTSyncManager {
     };
 
     if (this._connected && this._transport) {
-      this._transport.send(message);
+      this._sendTransportMessage(message);
     } else {
       // 离线时缓存，超限丢弃最旧消息
       if (this._pendingOps.length >= this._maxPendingOps) {
@@ -185,7 +197,7 @@ export class CRDTSyncManager {
   /**
    * 请求同步
    * @param {string} docId
-   * @param {number} [sinceVersion=0]
+   * @param {number | string | null} [sinceVersion=0]
    * @returns {void}
    */
   requestSync(docId, sinceVersion = 0) {
@@ -198,9 +210,7 @@ export class CRDTSyncManager {
       ts: Date.now(),
     };
 
-    if (this._transport) {
-      this._transport.send(message);
-    }
+    this._sendTransportMessage(message);
   }
 
   /**
@@ -208,9 +218,10 @@ export class CRDTSyncManager {
    * @param {string} to
    * @param {string} docId
    * @param {unknown[]} ops
+   * @param {boolean} [complete=true]
    * @returns {void}
    */
-  _sendSyncResponse(to, docId, ops) {
+  _sendSyncResponse(to, docId, ops, complete = true) {
     /** @type {CRDTSyncResponseMessage} */
     const message = {
       type: 'crdt:sync-response',
@@ -221,9 +232,34 @@ export class CRDTSyncManager {
       ts: Date.now(),
     };
 
-    if (this._transport) {
-      this._transport.send(message);
+    if (complete === false) {
+      message.complete = false;
     }
+
+    this._sendTransportMessage(message);
+  }
+
+  /**
+   * 发送全量快照响应
+   * @param {string} to
+   * @param {string} docId
+   * @param {unknown} snapshot
+   * @param {number} [version]
+   * @returns {void}
+   */
+  _sendSnapshotResponse(to, docId, snapshot, version) {
+    /** @type {CRDTSnapshotResponseMessage} */
+    const message = {
+      type: 'crdt:snapshot-response',
+      from: this._nodeId,
+      to,
+      docId,
+      snapshot,
+      version,
+      ts: Date.now(),
+    };
+
+    this._sendTransportMessage(message);
   }
 
   // ===== 消息处理 =====
@@ -246,6 +282,14 @@ export class CRDTSyncManager {
 
       case 'crdt:sync-response':
         this._handleSyncResponse(message);
+        break;
+
+      case 'crdt:snapshot-request':
+        this._handleSnapshotRequest(message);
+        break;
+
+      case 'crdt:snapshot-response':
+        this._handleSnapshotResponse(message);
         break;
 
       case 'crdt:peer-join':
@@ -309,7 +353,18 @@ export class CRDTSyncManager {
     const doc = this._documents.get(message.docId);
     if (!doc) return;
 
+    // sinceVersion = null 表示对端显式请求全量快照
+    if (message.sinceVersion === null) {
+      this._sendSnapshotResponse(message.from, message.docId, doc.snapshot(), doc.version);
+      return;
+    }
+
     const ops = doc.getOps(message.sinceVersion);
+    const complete = this._isSyncResponseComplete(message.sinceVersion, ops, doc.version);
+    if (complete === false) {
+      this._sendSyncResponse(message.from, message.docId, ops, false);
+      return;
+    }
     this._sendSyncResponse(message.from, message.docId, ops);
   }
 
@@ -320,6 +375,11 @@ export class CRDTSyncManager {
   _handleSyncResponse(message) {
     // 只处理发给自己的响应
     if (message.to !== this._nodeId) return;
+
+    if (message.complete === false) {
+      this._requestSnapshotFallback(message.docId);
+      return;
+    }
 
     const doc = this._documents.get(message.docId);
     if (!doc) return;
@@ -341,6 +401,30 @@ export class CRDTSyncManager {
       applied,
       from: message.from,
     });
+  }
+
+  /**
+   * @param {CRDTSnapshotRequestMessage} message
+   * @returns {void}
+   */
+  _handleSnapshotRequest(message) {
+    this._handleSyncRequest({
+      type: 'crdt:sync-request',
+      from: message.from,
+      docId: message.docId,
+      sinceVersion: null,
+      ts: message.ts,
+    });
+  }
+
+  /**
+   * @param {CRDTSnapshotResponseMessage} message
+   * @returns {void}
+   */
+  _handleSnapshotResponse(message) {
+    // 只处理发给自己的响应
+    if (message.to !== this._nodeId) return;
+    this._applySnapshotPayload(message.docId, message.snapshot, message.version);
   }
 
   /**
@@ -366,6 +450,116 @@ export class CRDTSyncManager {
     this._emit('peerLeave', { nodeId: message.from });
   }
 
+  /**
+   * 为支持 EventEmitter 风格 transport（on/off）绑定响应处理器。
+   * @returns {void}
+   */
+  _startPeerSync() {
+    if (typeof this._transport?.on !== 'function') return;
+
+    this._boundSyncResponseHandler = (data) => {
+      const payload = /** @type {{ docId?: string, ops?: unknown[], complete?: boolean }} */ (data || {});
+      const { docId, ops, complete } = payload;
+      if (!docId) return;
+
+      // If response is explicitly incomplete (ops were trimmed), request full snapshot
+      if (complete === false) {
+        logger.warn(`Incomplete ops for doc ${docId}, requesting full snapshot`);
+        this._requestSnapshotFallback(docId);
+        return;
+      }
+
+      if (!Array.isArray(ops)) return;
+      const doc = this._documents.get(docId);
+      if (doc) {
+        try {
+          doc.applyOps(/** @type {Parameters<CRDTDocument['applyOps']>[0]} */ (ops));
+        } catch (err) {
+          logger.error(`Failed to apply ops for doc ${docId}:`, { error: err?.message });
+        }
+      }
+    };
+
+    this._transport.on?.('crdt:sync-response', this._boundSyncResponseHandler);
+
+    // Handle snapshot responses (full document state)
+    this._boundSnapshotResponseHandler = (data) => {
+      const payload = /** @type {{ docId?: string, snapshot?: unknown, version?: number }} */ (data || {});
+      const { docId, snapshot, version } = payload;
+      if (!docId || !snapshot) return;
+      this._applySnapshotPayload(docId, snapshot, version);
+    };
+
+    this._transport.on?.('crdt:snapshot-response', this._boundSnapshotResponseHandler);
+  }
+
+  /**
+   * @param {string} docId
+   * @returns {void}
+   */
+  _requestSnapshotFallback(docId) {
+    if (!docId) return;
+
+    try {
+      this.requestSync(docId, null);
+    } catch (err) {
+      logger.error(`Failed to request snapshot for doc ${docId}:`, { error: err?.message });
+    }
+  }
+
+  /**
+   * @param {string} docId
+   * @param {unknown} snapshot
+   * @param {number | undefined} version
+   * @returns {void}
+   */
+  _applySnapshotPayload(docId, snapshot, version) {
+    const doc = this._documents.get(docId);
+    if (!doc) return;
+
+    const snapshotDoc = /** @type {CRDTDocument & { applySnapshot?: (value: unknown, version?: number) => void }} */ (doc);
+    if (typeof snapshotDoc.applySnapshot === 'function') {
+      try {
+        snapshotDoc.applySnapshot(snapshot, version);
+        logger.debug(`Applied full snapshot for doc ${docId} at version ${version}`);
+      } catch (err) {
+        logger.error(`Failed to apply snapshot for doc ${docId}:`, { error: err?.message });
+      }
+      return;
+    }
+
+    logger.warn(`Snapshot received for doc ${docId}, but applySnapshot() is unavailable`);
+  }
+
+  /**
+   * 判断 sync-response 是否完整（无日志裁剪缺口）。
+   * @param {number | string | null | undefined} sinceVersion
+   * @param {unknown[]} ops
+   * @param {number} latestVersion
+   * @returns {boolean}
+   */
+  _isSyncResponseComplete(sinceVersion, ops, latestVersion) {
+    if (!Array.isArray(ops)) return false;
+    if (sinceVersion === null || sinceVersion === undefined) return false;
+
+    const numericSince = typeof sinceVersion === 'number' ? sinceVersion : Number(sinceVersion);
+    if (!Number.isFinite(numericSince)) return true;
+
+    if (ops.length === 0) {
+      return numericSince >= latestVersion;
+    }
+
+    const firstOp = /** @type {{ version?: number } | undefined} */ (ops[0]);
+    const firstVersion = typeof firstOp?.version === 'number' ? firstOp.version : null;
+    if (firstVersion === null) {
+      // 无法确认连续性时，保守视为完整，避免错误触发全量快照。
+      return true;
+    }
+
+    const expectedFirstVersion = numericSince >= 0 ? numericSince + 1 : 1;
+    return firstVersion <= expectedFirstVersion;
+  }
+
   // ===== 连接管理 =====
 
   /**
@@ -376,13 +570,11 @@ export class CRDTSyncManager {
     this._connected = true;
 
     // 广播加入
-    if (this._transport) {
-      this._transport.send({
-        type: 'crdt:peer-join',
-        from: this._nodeId,
-        ts: Date.now(),
-      });
-    }
+    this._sendTransportMessage({
+      type: 'crdt:peer-join',
+      from: this._nodeId,
+      ts: Date.now(),
+    });
 
     // 发送缓存的操作
     this._flushPendingOps();
@@ -401,13 +593,11 @@ export class CRDTSyncManager {
    * @returns {this}
    */
   disconnect() {
-    if (this._transport) {
-      this._transport.send({
-        type: 'crdt:peer-leave',
-        from: this._nodeId,
-        ts: Date.now(),
-      });
-    }
+    this._sendTransportMessage({
+      type: 'crdt:peer-leave',
+      from: this._nodeId,
+      ts: Date.now(),
+    });
 
     this._connected = false;
     this._emit('disconnect');
@@ -422,11 +612,19 @@ export class CRDTSyncManager {
     if (this._connected) {
       this.disconnect();
     }
+    if (this._boundSyncResponseHandler) {
+      this._transport?.off?.('crdt:sync-response', this._boundSyncResponseHandler);
+    }
+    if (this._boundSnapshotResponseHandler) {
+      this._transport?.off?.('crdt:snapshot-response', this._boundSnapshotResponseHandler);
+    }
     // 清理 transport 订阅，防止内存泄漏
     if (this._transport?.close) {
       this._transport.close();
     }
     this._boundMessageHandler = null;
+    this._boundSyncResponseHandler = null;
+    this._boundSnapshotResponseHandler = null;
     this._documents.clear();
     this._peers.clear();
     this._pendingOps = [];
@@ -442,9 +640,26 @@ export class CRDTSyncManager {
     if (!this._connected || !this._transport) return;
 
     for (const message of this._pendingOps) {
-      this._transport.send(message);
+      this._sendTransportMessage(message);
     }
     this._pendingOps = [];
+  }
+
+  /**
+   * 兼容两种 transport 发送风格：
+   * - send(message)
+   * - send(eventName, payload)
+   * @param {CRDTSyncMessage} message
+   * @returns {void}
+   */
+  _sendTransportMessage(message) {
+    if (!this._transport?.send) return;
+    if (typeof this._transport.on === 'function' && !this._transport.onReceive) {
+      const { type, ...data } = message;
+      this._transport.send(type, data);
+      return;
+    }
+    this._transport.send(message);
   }
 
   // ===== 事件 =====

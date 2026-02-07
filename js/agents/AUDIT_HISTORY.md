@@ -4,6 +4,64 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-02-06 (Phase 3 — 协同基础)
+
+### [RESOLVED] A2. SyncManager op log 裁剪后无快照 fallback — HIGH
+*Archived: 2026-02-06*
+
+- **Fix**: `core/crdt/sync-manager.js` — `_boundSyncResponseHandler` now detects `complete === false` and falls back to requesting full snapshot via `sinceVersion: null`. Added `crdt:snapshot-response` handler with `doc.applySnapshot()` support.
+
+### [RESOLVED] A4. Worker Pool 无 graceful shutdown — MEDIUM
+*Archived: 2026-02-06*
+
+- **Fix**: `runtime/core/worker-pool.js` — added `drain(timeoutMs)` method that waits for in-flight tasks to complete (polling every 100ms) with configurable timeout before force-terminating.
+
+### [RESOLVED] C5. StageApiFactory 参数推断脆弱 — MEDIUM
+*Archived: 2026-02-06*
+
+- **Fix**: `runtime/core/api/stage-api-factory.js` — `createStageApiFactory()` now prefers options object `{ stageName, services }` while maintaining backward compatibility with legacy positional forms.
+
+### [RESOLVED] C6. registerStage() 无声明式 manifest — MEDIUM
+*Archived: 2026-02-06*
+
+- **Fix**: `runtime/core/orchestrator.js` — `registerStage()` now accepts manifest fields (`requiredServices`, `statePrefix`, `tools`, `dependencies`). Added `getStageManifest(name)` for introspection.
+
+### [RESOLVED] F3. MessageBus 广播无定向路由 — LOW
+*Archived: 2026-02-06*
+
+- **Fix**: `core/message-bus.js` — added `channel` field to Message typedef, `onChannel(channel, type, handler)` for topic-based subscription, and channel-aware dispatch in `_dispatch()`.
+
+---
+
+## Archived: 2026-02-06 (Phase 2 — 跨运行时稳固)
+
+### [RESOLVED] E1. TLA 在非叶子模块 — MEDIUM
+*Archived: 2026-02-06*
+
+- **Fix**: `plugins/transports/index.js` — replaced top-level await with lazy `getImpl()` async getter + proxy exports.
+
+### [RESOLVED] E6. Intl.Segmenter 无 fallback — LOW
+*Archived: 2026-02-06*
+
+- **Fix**: `retrieval/bm25.js` and `retrieval/mmr.js` — added one-time `logger.warn` when Intl.Segmenter unavailable. Existing bigram fallback already handles CJK tokenization.
+
+### [RESOLVED] E7. Module Worker 缺少能力检测 — LOW
+*Archived: 2026-02-06*
+
+- **Fix**: `vfs/glob.js`, `vfs/diff.js`, `vfs/vfs-scan-async.js` — `canUseWorker()` now probes Module Worker support with cached Blob-based test.
+
+### [PARTIAL] D1. 空 catch 滥用 — HIGH
+*Archived: 2026-02-06*
+
+- **Fix**: Critical path catch blocks in `degradation-matrix.js`, `defaults.js`, `prompt-template.js` converted to catch-and-log. Remaining defensive catches in user-store.js/error-boundary.js retained (acceptable for browser API edge cases).
+
+### [RESOLVED] D2. ErrorBoundary 不区分暂时/永久错误 — MEDIUM
+*Archived: 2026-02-06*
+
+- **Fix**: Added `isRetryable(error)` classifier (NETWORK/TIMEOUT/QUOTA/429/5xx). `wrap()` now supports `maxRetries` option with exponential backoff for retryable errors.
+
+---
+
 ## Archived: 2026-02-06 (Phase 1 — 统一性)
 
 ### [RESOLVED] C1. DI 注入路径不统一 — HIGH
@@ -183,4 +241,3 @@ throw err;
 ```
 
 ---
-

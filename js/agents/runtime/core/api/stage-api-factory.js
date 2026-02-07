@@ -898,20 +898,35 @@ export class StageApiFactory {
 }
 
 /**
- * 创建 StageApiFactory 的工厂函数
- * @param {StageApiFactoryServices} services - 服务配置与依赖注入
- * @returns {StageApiFactory} 新的 Factory 实例
+ * Create a StageApiFactory.
+ *
+ * Preferred: `createStageApiFactory({ stageName, services })`
+ * Legacy:    `createStageApiFactory(services)`, `createStageApiFactory(stageName, services)`, `createStageApiFactory(services, stageName)`
+ *
+ * @param {StageApiFactoryServices|{stageName?:string, services:StageApiFactoryServices}|string} first
+ * @param {string|Object} [second]
+ * @returns {StageApiFactory|object}
  */
-export function createStageApiFactory(services) {
-  // Back-compat: keep the original behavior when called with just services.
-  // The test harness (and some callsites) may also invoke this as a stage-aware factory:
-  //   createStageApiFactory(stageName, services) -> StageApi
-  //   createStageApiFactory(services, stageName) -> StageApi
+export function createStageApiFactory(first, second) {
+  // ── New preferred form: options object { stageName, services } ──
+  if (
+    arguments.length === 1 &&
+    first &&
+    typeof first === "object" &&
+    ("stageName" in first || "services" in first) &&
+    !("signal" in first) // disambiguate from legacy services-only form
+  ) {
+    const stageName = typeof first.stageName === "string" && first.stageName ? first.stageName : "runtime";
+    const svc = first.services && typeof first.services === "object" ? first.services : {};
+    return new StageApiFactory(svc);
+  }
+
+  // ── Legacy forms (preserved as-is) ──
   const a = arguments[0];
   const b = arguments[1];
 
   if (arguments.length <= 1) {
-    return new StageApiFactory(services);
+    return new StageApiFactory(first);
   }
 
   const stageName = typeof a === "string" ? a : typeof b === "string" ? b : "";
@@ -941,40 +956,30 @@ export function createStageApiFactory(services) {
     requiresAiApiService &&
     (!aiApiService || typeof aiApiService !== "object" || typeof aiApiService.chat !== "function")
   ) {
-    const container = svc.container;
-    const c = container && typeof container === "object" ? container : null;
-
-    let candidate = null;
-    if (c && typeof c.tryGet === "function") {
-      candidate = c.tryGet("aiApiService");
-    } else if (c && typeof c.get === "function") {
-      try {
-        candidate = c.get("aiApiService");
-      } catch {
-        candidate = null;
-      }
+    if (svc.container && typeof svc.container.tryGet === "function") {
+      aiApiService = svc.container.tryGet("aiApiService") ?? svc.container.tryGet("llm");
     }
-
-    if (candidate && typeof candidate === "object" && typeof candidate.chat === "function") {
-      aiApiService = candidate;
-    } else {
-      throw new Error("[StageApiFactory] Missing required field: aiApiService");
+    if (!aiApiService || typeof aiApiService !== "object" || typeof aiApiService.chat !== "function") {
+      logger.warn(
+        `createStageApiFactory: aiApiService missing/invalid for stage "${normalizedStage}". ` +
+          `Stage-specific API creation may fail.`
+      );
     }
   }
 
   const factory = new StageApiFactory(svc);
-  const overrides =
-    requiresAiApiService &&
-    aiApiService &&
-    (!svc.aiApiService || typeof svc.aiApiService.chat !== "function")
-      ? { aiApiService }
-      : {};
 
-  if (!normalizedStage) return factory.createBaseApi(overrides);
-  if (normalizedStage === "deepsearch") return factory.createDeepSearchApi(overrides);
-  if (normalizedStage === "design") return factory.createDesignApi(overrides);
-  if (normalizedStage === "textprep") return factory.createTextPrepApi(overrides);
-  return factory.createBaseApi(overrides);
+  switch (normalizedStage) {
+    case "deepsearch":
+      return factory.createDeepSearchApi({ ...svc, aiApiService });
+    case "design":
+      return factory.createDesignApi({ ...svc, aiApiService });
+    case "textprep":
+    case "text-prep":
+      return factory.createTextPrepApi(svc);
+    default:
+      return factory.createBaseApi(svc);
+  }
 }
 
 export default StageApiFactory;

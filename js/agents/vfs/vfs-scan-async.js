@@ -8,14 +8,23 @@
 let _scanWorker = null;
 let _scanSeq = 0;
 const _scanPending = new Map(); // id -> { resolve, reject, onProgress, files }
+let _moduleWorkerSupportedScan = null;
 
 function canUseScanWorker() {
-  return (
-    typeof Worker !== "undefined" &&
-    typeof URL !== "undefined" &&
-    typeof navigator !== "undefined" &&
-    typeof navigator.storage?.getDirectory === "function"
-  );
+  if (typeof Worker === "undefined" || typeof URL === "undefined") return false;
+  if (typeof navigator === "undefined" || typeof navigator.storage?.getDirectory !== "function") return false;
+  if (_moduleWorkerSupportedScan !== null) return _moduleWorkerSupportedScan;
+  try {
+    const blob = new Blob([""], { type: "text/javascript" });
+    const url = URL.createObjectURL(blob);
+    const w = new Worker(url, { type: "module" });
+    w.terminate();
+    URL.revokeObjectURL(url);
+    _moduleWorkerSupportedScan = true;
+  } catch {
+    _moduleWorkerSupportedScan = false;
+  }
+  return _moduleWorkerSupportedScan;
 }
 
 function getScanWorker() {
