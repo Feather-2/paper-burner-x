@@ -8,11 +8,13 @@ import { Container, SINGLETON, TRANSIENT } from "./container.js";
 import { LamportClockService } from "../lamport-clock.js";
 import { CircuitBreakerRegistry } from "../../shared/index.js";
 import { createAdaptiveTokenCounter } from "../../shared/index.js";
-import { InjectionScanner } from "../../sdk/injection-scanner.js";
-import { FileLock } from "../../vfs/file-lock.js";
-import { createDefaultErrorBoundary } from "../../runtime/core/error-boundary.js";
-import { TokenTracker, TraceContext } from "../../plugins/telemetry/index.js";
-import { enhanceEventBusWithHooks } from "../../runtime/hooks/event-bus-hooks.js";
+
+// 以下导入改为动态导入以打破循环依赖:
+// - InjectionScanner (sdk)
+// - FileLock (vfs)
+// - createDefaultErrorBoundary (runtime)
+// - TokenTracker, TraceContext (plugins/telemetry)
+// - enhanceEventBusWithHooks (runtime/hooks)
 
 /** @typedef {{ heapUsed?: number, heapTotal?: number, rss?: number }} ProcessMemoryUsageLike */
 /** @typedef {{ env?: Record<string, string | undefined>, memoryUsage?: () => ProcessMemoryUsageLike }} ProcessLike */
@@ -92,6 +94,7 @@ export function createAgentContainer(overrides = {}) {
   // EventBus (no dependencies)
   container.register(ServiceId.EVENT_BUS, async (c) => {
     const { EventBus } = await import("../../core/event-bus.js");
+    const { enhanceEventBusWithHooks } = await import("../../runtime/hooks/event-bus-hooks.js");
     const eventBus = new EventBus();
     enhanceEventBusWithHooks(eventBus);
     // P4.6: 默认启用背压，避免高频事件堆积（浏览器和 Node.js 均生效）
@@ -119,7 +122,10 @@ export function createAgentContainer(overrides = {}) {
   // Use SINGLETON so stages created from the same container share a trace by default.
   container.register(
     ServiceId.TRACE_CONTEXT,
-    () => new TraceContext(),
+    async () => {
+      const { TraceContext } = await import("../../plugins/telemetry/index.js");
+      return new TraceContext();
+    },
     { scope: SINGLETON }
   );
 
@@ -135,13 +141,22 @@ export function createAgentContainer(overrides = {}) {
   );
 
   // ErrorBoundary (no dependencies)
-  container.register(ServiceId.ERROR_BOUNDARY, () => createDefaultErrorBoundary(), { scope: SINGLETON });
+  container.register(ServiceId.ERROR_BOUNDARY, async () => {
+    const { createDefaultErrorBoundary } = await import("../../runtime/core/error-boundary.js");
+    return createDefaultErrorBoundary();
+  }, { scope: SINGLETON });
 
   // InjectionScanner (no dependencies)
-  container.register(ServiceId.INJECTION_SCANNER, () => new InjectionScanner(), { scope: SINGLETON });
+  container.register(ServiceId.INJECTION_SCANNER, async () => {
+    const { InjectionScanner } = await import("../../sdk/injection-scanner.js");
+    return new InjectionScanner();
+  }, { scope: SINGLETON });
 
   // TokenTracker (no dependencies)
-  container.register(ServiceId.TOKEN_TRACKER, () => new TokenTracker(), { scope: SINGLETON });
+  container.register(ServiceId.TOKEN_TRACKER, async () => {
+    const { TokenTracker } = await import("../../plugins/telemetry/index.js");
+    return new TokenTracker();
+  }, { scope: SINGLETON });
 
   // TokenCounter (adaptive-token-counter, no dependencies)
   container.register(ServiceId.TOKEN_COUNTER, () => createAdaptiveTokenCounter(), { scope: SINGLETON });
@@ -389,7 +404,10 @@ export function createAgentContainer(overrides = {}) {
   // P6.6: File Lock (SINGLETON - 全局锁管理)
   container.register(
     ServiceId.FILE_LOCK,
-    () => new FileLock(),
+    async () => {
+      const { FileLock } = await import("../../vfs/file-lock.js");
+      return new FileLock();
+    },
     { scope: SINGLETON }
   );
 

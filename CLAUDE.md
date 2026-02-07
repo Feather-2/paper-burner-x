@@ -14,7 +14,7 @@
 |------|------|------|
 | **Language** | JavaScript + JSDoc | 无 TypeScript 编译，最大化跨端兼容 |
 | **Runtime** | ES Modules | Browser / Node.js / Deno / Bun |
-| **Agent Core** | 微内核架构 | 三总线 (EventBus/StateBus/ServiceBus) + Plugin + Stages |
+| **Agent Core** | 微内核架构 | 四总线 (EventBus/StateBus/ServiceBus/MessageBus) + Plugin + Stages |
 | **Protocol** | MCP | Model Context Protocol，标准化工具调用 |
 | **LLM** | ModelRouter | 多模型路由，速率限制，Token 溢出恢复 |
 | **Retrieval** | BM25 + Vector + MMR | 混合检索 + 多样性重排 |
@@ -49,7 +49,7 @@
 
 | 能力 | 模块 | 说明 |
 |------|------|------|
-| **三总线** | core | EventBus (Lamport Clock) + StateBus (响应式) + ServiceBus (Retry/Cache) |
+| **四总线** | core | EventBus (Lamport Clock) + StateBus (响应式) + ServiceBus (Retry/Cache) + MessageBus (RPC) |
 | **插件系统** | core/plugins | createPlugin + 预设 (minimal/standard/deepsearch/production) |
 | **多 Agent 编排** | runtime | Orchestrator + SchedulingMode (Serial/Parallel/Priority) |
 | **工具执行** | runtime | ToolRegistry + ToolExecutor + Pre/Post Hooks |
@@ -189,7 +189,7 @@ StorageFacade (门面)
 
 | 模块 | 详细文档 | 文件数 |
 |------|----------|--------|
-| **agents** | `js/agents/CLAUDE.md` | 393 |
+| **agents** | `js/agents/CLAUDE.md` | 544 |
 | **ppt** | `js/ppt/CLAUDE.md` | - |
 | **chatbot** | `js/chatbot/CLAUDE.md` | - |
 | **storage** | `js/storage/CLAUDE.md` | - |
@@ -199,7 +199,7 @@ StorageFacade (门面)
 
 ## 当前状态
 
-- ✅ Agent 微内核完成 (Kernel + 三总线 + Plugin + Stages)
+- ✅ Agent 微内核完成 (Kernel + 四总线 + Plugin + Stages)
 - ✅ DeepSearch / Design / CodeSearch Stages 完成
 - ✅ PPT 生成核心完成
 - ✅ VFS / Retrieval / Ingest / Skills 完成

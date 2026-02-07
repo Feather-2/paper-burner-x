@@ -17,7 +17,7 @@ export {
   KernelStatus,
   KernelBuilder,
 
-  // 三大总线
+  // 四大总线
   EventBus,
   StateBus,
   ServiceBus,
@@ -81,15 +81,6 @@ export {
   WatchdogEvents,
   CicadaEvents,
 
-  // Compression
-  Watchdog,
-  CicadaCompressor,
-  CompressionCoordinator,
-
-  // Telemetry
-  TokenTracker,
-  TraceContext,
-
   // Tools
   ToolRegistry,
   ToolExecutor,
@@ -108,6 +99,29 @@ export {
   classifyCommand,
   parseCompoundCommand,
 } from './runtime/index.js';
+
+// ============================================================
+// Compression - 压缩组件
+// ============================================================
+
+export {
+  Watchdog,
+  CicadaCompressor,
+  CompressionCoordinator,
+  ProactiveCompressor,
+  CompressionQualityMonitor,
+} from './plugins/compression/index.js';
+
+// ============================================================
+// Telemetry - 遥测组件
+// ============================================================
+
+export {
+  TokenTracker,
+  TraceContext,
+  SpanKind,
+  SpanStatus,
+} from './plugins/telemetry/index.js';
 
 // ============================================================
 // Stages - 业务阶段

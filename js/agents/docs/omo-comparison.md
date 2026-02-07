@@ -18,7 +18,7 @@
 | **运行环境** | Browser / Node / Deno / Bun | Bun only (CLI) |
 | **语言** | JavaScript + JSDoc | TypeScript |
 | **构建依赖** | 无需编译 | bun build + tsc |
-| **架构风格** | 微内核 + 三总线 + Plugin | 插件 API + Hooks + Tools |
+| **架构风格** | 微内核 + 四总线 + Plugin | 插件 API + Hooks + Tools |
 
 ### 架构分层
 
@@ -31,7 +31,7 @@ js/agents (微内核)                    oh-my-opencode (插件)
 ├─────────────────┤                   ├─────────────────┤
 │    Runtime      │ ← AgentLoop       │     Hooks       │ ← 22+ 钩子
 ├─────────────────┤                   ├─────────────────┤
-│   Core/Kernel   │ ← 三总线          │     Tools       │ ← LSP/AST
+│   Core/Kernel   │ ← 四总线          │     Tools       │ ← LSP/AST
 ├─────────────────┤                   ├─────────────────┤
 │ Infrastructure  │ ← VFS/LLM/MCP     │   Features      │ ← 功能层
 └─────────────────┘                   └─────────────────┘

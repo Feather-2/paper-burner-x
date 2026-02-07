@@ -35,7 +35,7 @@ Agent 状态是结构化的键值/计数器/集合，LWW 语义足够；Yjs 的�
 - Lamport Clock 保证因果序（op 携带 clock；合并时使用 `syncClock`）
 - 操作幂等，可安全重放
 - 支持离线操作 + 在线合并
-- 与三总线原生集成
+- 与四总线原生集成
 - 可选限制 op log 大小（`maxOpLogSize`）避免内存无限增长
 
 ## 与 Lamport Clock 的关系

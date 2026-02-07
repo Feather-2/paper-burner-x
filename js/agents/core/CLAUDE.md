@@ -1,6 +1,6 @@
 # core - 微内核核心
 
-提供 Kernel、三大总线、插件系统、CRDT 共识层和沙箱执行环境，并提供旧 ServiceProvider → 新 Plugin 的兼容层。
+提供 Kernel、四大总线、插件系统、CRDT 共识层和沙箱执行环境，并提供旧 ServiceProvider → 新 Plugin 的兼容层。
 
 ## API 层次
 
@@ -10,7 +10,7 @@
 | 0.5 | `isServiceProvider()`, `adaptProvider()` | 兼容旧 ServiceProvider |
 | 1 | `KernelBuilder` | 链式配置 |
 | 2 | `new Kernel()` + `usePreset()` | 完整控制 |
-| 3 | `EventBus`, `StateBus`, `ServiceBus` | 底层组件 |
+| 3 | `EventBus`, `StateBus`, `ServiceBus`, `MessageBus` | 底层组件 |
 
 ## 核心文件
 
@@ -22,7 +22,7 @@
 | `event-bus-utils.js` | 事件名/模式校验、模式匹配工具（支持 `:` 与 `.` 分隔；支持 `*`/`?`） |
 | `state-bus.js` | 细粒度状态订阅 |
 | `service-bus.js` | 服务注册/发现 + Retry/Timeout/Cache 代理 |
-| `message-bus.js` | 跨 Agent 消息传递 |
+| `message-bus.js` | MessageBus：RPC over EventBus，跨 Agent/Stage 请求-响应通信 |
 | `plugin.js` | `createPlugin`, PluginManager, PluginContext |
 | `presets.js` | 预设配置 (minimal/standard/deepsearch/production) |
 | `compat.js` | 旧 API 兼容层：旧 ServiceProvider → 新 Plugin (`isServiceProvider`, `adaptProvider`) |

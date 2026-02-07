@@ -34,7 +34,7 @@ const agent = await createAgent({ model: 'gpt-4o', skills: ['search'] });
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| **core** | `core/CLAUDE.md` | 微内核：Kernel, EventBus, StateBus, ServiceBus, Plugin |
+| **core** | `core/CLAUDE.md` | 微内核：Kernel, EventBus, StateBus, ServiceBus, MessageBus, Plugin |
 | **runtime** | `runtime/CLAUDE.md` | 运行时：AgentLoop, Orchestrator, Tools, Hooks |
 | **ingest** | `ingest/CLAUDE.md` | 文档摄取：多格式适配器 |
 | **llm** | `llm/CLAUDE.md` | LLM 层：ModelRouter, Provider |
@@ -96,13 +96,13 @@ const agent = await createAgent({ model: 'gpt-4o', skills: ['search'] });
 
 ## 核心概念
 
-### 三总线架构
+### 四总线架构
 
 ```
-EventBus  ─→ 发布/订阅事件（Lamport Clock 排序）
-StateBus  ─→ 状态订阅（细粒度响应式）
+EventBus   ─→ 发布/订阅事件（Lamport Clock 排序）
+StateBus   ─→ 状态订阅（细粒度响应式）
 ServiceBus ─→ 服务注册/发现（支持 Retry/Timeout/Cache 代理）
-MessageBus ─→ 跨 Agent 消息传递
+MessageBus ─→ RPC over EventBus，跨 Agent/Stage 请求-响应通信
 ```
 
 ### 插件系统
@@ -129,24 +129,24 @@ const myPlugin = createPlugin({
 
 | 模块 | 文件数 | 入口 |
 |------|--------|------|
-| **core** | 33 | `core/index.js` |
-| **runtime** | 127 | `runtime/index.js` |
-| **stages** | 138 | - |
-| **shared** | 40 | `shared/index.js` |
+| **stages** | 148 | `stages/index.js` |
+| **runtime** | 138 | `runtime/index.js` |
+| **core** | 52 | `core/index.js` |
+| **plugins** | 38 | `plugins/index.js` |
+| **shared** | 35 | `shared/index.js` |
 | **ingest** | 21 | `ingest/index.js` |
-| **mcp** | 20 | `mcp/index.js` |
 | **vfs** | 20 | `vfs/index.js` |
-| **sdk** | 17 | `sdk/index.js` |
-| **plugins** | 12 | `plugins/index.js` |
+| **mcp** | 19 | `mcp/index.js` |
 | **llm** | 11 | `llm/index.js` |
-| **prompts** | 11 | - |
-| **retrieval** | 10 | - |
+| **prompts** | 11 | `prompts/index.js` |
+| **retrieval** | 10 | `retrieval/index.js` |
 | **skills** | 9 | `skills/index.js` |
 | **eval** | 9 | `eval/index.js` |
-| **cli** | 4 | - |
-| **storage** | 3 | - |
-| **testing** | 1 | - |
-| **合计** | **487** | `index.js` |
+| **sdk** | 7 | `sdk/index.js` |
+| **cli** | 5 | `cli/index.js` |
+| **storage** | 3 | `storage/index.js` |
+| **testing** | 1 | `testing/index.js` |
+| **合计** | **544** | `index.js` |
 
 - 类型定义：`events.d.ts`, `core/types.d.ts` (JSDoc 生成的 `.d.ts`)
 

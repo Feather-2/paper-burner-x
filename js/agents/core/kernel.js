@@ -2,7 +2,7 @@
  * Kernel - 微内核
  *
  * 核心职责：
- * - 管理三大总线（EventBus, StateBus, ServiceBus）
+ * - 管理四大总线（EventBus, StateBus, ServiceBus, MessageBus）
  * - 插件生命周期管理
  * - 预设加载
  * - 统一入口
@@ -87,7 +87,7 @@ export class Kernel {
     /** @type {Partial<KernelOptions>} */
     this._options = options;
 
-    // 三大总线
+    // 四大总线 (MessageBus 惰性创建)
     this.events = new EventBus({
       keepHistory: options.keepHistory ?? false,
       maxHistory: options.maxHistory || 100,
