@@ -8,7 +8,8 @@
 import { nextTick } from '../lamport-clock.js';
 
 /** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
-/** @typedef {{ nodeId?: string }} CounterOptions */
+/** @typedef {{ nextTick: () => LamportClockState }} ClockServiceLike */
+/** @typedef {{ nodeId?: string, clockService?: ClockServiceLike }} CounterOptions */
 /** @typedef {{ type: 'increment', nodeId: string, value: number, clock: LamportClockState }} GCounterIncrementOp */
 /** @typedef {GCounterIncrementOp | { type: string, [key: string]: unknown }} GCounterOp */
 /** @typedef {{ type: 'GCounter', nodeId: string, counts: Record<string, number> }} GCounterJSON */
@@ -25,11 +26,21 @@ export class GCounter {
    * @param {CounterOptions} [options={}]
    */
   constructor(options = {}) {
+    /** @type {ClockServiceLike | null} */
+    this._clockService = options.clockService || null;
     /** @type {string} */
-    this._nodeId = options.nodeId || nextTick().id.split('_')[0];
+    this._nodeId = options.nodeId || this._nextTick().id.split('_')[0];
     /** @type {Map<string, number>} */
     this._counts = new Map(); // nodeId → count
     this._counts.set(this._nodeId, 0);
+  }
+
+  /**
+   * 获取下一个时钟值（优先使用注入的 clockService）
+   * @returns {LamportClockState}
+   */
+  _nextTick() {
+    return this._clockService ? this._clockService.nextTick() : nextTick();
   }
 
   /**
@@ -59,7 +70,7 @@ export class GCounter {
       type: 'increment',
       nodeId: this._nodeId,
       value: this._counts.get(this._nodeId),
-      clock: nextTick(),
+      clock: this._nextTick(),
     };
   }
 
@@ -134,12 +145,22 @@ export class PNCounter {
    * @param {CounterOptions} [options={}]
    */
   constructor(options = {}) {
+    /** @type {ClockServiceLike | null} */
+    this._clockService = options.clockService || null;
     /** @type {string} */
-    this._nodeId = options.nodeId || nextTick().id.split('_')[0];
+    this._nodeId = options.nodeId || this._nextTick().id.split('_')[0];
     /** @type {GCounter} */
-    this._positive = new GCounter({ nodeId: this._nodeId });
+    this._positive = new GCounter({ nodeId: this._nodeId, clockService: this._clockService });
     /** @type {GCounter} */
-    this._negative = new GCounter({ nodeId: this._nodeId });
+    this._negative = new GCounter({ nodeId: this._nodeId, clockService: this._clockService });
+  }
+
+  /**
+   * 获取下一个时钟值（优先使用注入的 clockService）
+   * @returns {LamportClockState}
+   */
+  _nextTick() {
+    return this._clockService ? this._clockService.nextTick() : nextTick();
   }
 
   /**

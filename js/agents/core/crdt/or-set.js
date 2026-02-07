@@ -8,7 +8,8 @@
 import { nextTick } from '../lamport-clock.js';
 
 /** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
-/** @typedef {{ nodeId?: string }} ORSetOptions */
+/** @typedef {{ nextTick: () => LamportClockState }} ClockServiceLike */
+/** @typedef {{ nodeId?: string, clockService?: ClockServiceLike }} ORSetOptions */
 /**
  * @template T
  * @typedef {{ type: 'set-add', element: T, tag: string, clock: LamportClockState, nodeId: string }} ORSetAddOp
@@ -36,8 +37,10 @@ export class ORSet {
    * @param {ORSetOptions} [options={}]
    */
   constructor(options = {}) {
+    /** @type {ClockServiceLike | null} */
+    this._clockService = options.clockService || null;
     /** @type {string} */
-    this._nodeId = options.nodeId || nextTick().id.split('_')[0];
+    this._nodeId = options.nodeId || this._nextTick().id.split('_')[0];
     // element → Set<tag>
     /** @type {Map<T, Set<string>>} */
     this._elements = new Map();
@@ -50,11 +53,19 @@ export class ORSet {
   }
 
   /**
+   * 获取下一个时钟值（优先使用注入的 clockService）
+   * @returns {LamportClockState}
+   */
+  _nextTick() {
+    return this._clockService ? this._clockService.nextTick() : nextTick();
+  }
+
+  /**
    * 生成唯一标签
    * @returns {string}
    */
   _makeTag() {
-    const clock = nextTick();
+    const clock = this._nextTick();
     return `${this._nodeId}_${clock.seq}_${clock.ts}`;
   }
 
@@ -118,7 +129,7 @@ export class ORSet {
       type: 'set-add',
       element,
       tag,
-      clock: nextTick(),
+      clock: this._nextTick(),
       nodeId: this._nodeId,
     };
   }
@@ -146,7 +157,7 @@ export class ORSet {
       type: 'set-remove',
       element,
       tags: removedTags,
-      clock: nextTick(),
+      clock: this._nextTick(),
       nodeId: this._nodeId,
     };
   }

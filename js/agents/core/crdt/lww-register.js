@@ -7,7 +7,8 @@
 import { nextTick, compare } from '../lamport-clock.js';
 
 /** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
-/** @typedef {{ nodeId?: string, clock?: LamportClockState }} LWWRegisterOptions */
+/** @typedef {{ nextTick: () => LamportClockState }} ClockServiceLike */
+/** @typedef {{ nodeId?: string, clock?: LamportClockState, clockService?: ClockServiceLike }} LWWRegisterOptions */
 /**
  * @template T
  * @typedef {{ type: 'set', value: T, clock: LamportClockState, nodeId: string }} LWWRegisterSetOp
@@ -36,12 +37,22 @@ export class LWWRegister {
    * @param {LWWRegisterOptions} [options={}]
    */
   constructor(initialValue = null, options = {}) {
+    /** @type {ClockServiceLike | null} */
+    this._clockService = options.clockService || null;
     /** @type {T} */
     this._value = initialValue;
     /** @type {LamportClockState} */
-    this._clock = options.clock || nextTick();
+    this._clock = options.clock || this._nextTick();
     /** @type {string} */
     this._nodeId = options.nodeId || this._clock.id.split('_')[0];
+  }
+
+  /**
+   * 获取下一个时钟值（优先使用注入的 clockService）
+   * @returns {LamportClockState}
+   */
+  _nextTick() {
+    return this._clockService ? this._clockService.nextTick() : nextTick();
   }
 
   /**
@@ -66,7 +77,7 @@ export class LWWRegister {
    * @returns {LWWRegisterSetOp<T>}
    */
   set(value) {
-    this._clock = nextTick();
+    this._clock = this._nextTick();
     this._value = value;
     return {
       type: 'set',

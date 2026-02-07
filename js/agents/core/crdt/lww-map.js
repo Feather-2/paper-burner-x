@@ -8,7 +8,8 @@
 import { nextTick, compare } from '../lamport-clock.js';
 
 /** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
-/** @typedef {{ nodeId?: string }} LWWMapOptions */
+/** @typedef {{ nextTick: () => LamportClockState }} ClockServiceLike */
+/** @typedef {{ nodeId?: string, clockService?: ClockServiceLike }} LWWMapOptions */
 /**
  * @template V
  * @typedef {{ value: V, clock: LamportClockState, deleted: boolean, nodeId: string }} LWWMapEntry
@@ -39,10 +40,20 @@ export class LWWMap {
    * @param {LWWMapOptions} [options={}]
    */
   constructor(options = {}) {
+    /** @type {ClockServiceLike | null} */
+    this._clockService = options.clockService || null;
     /** @type {string} */
-    this._nodeId = options.nodeId || nextTick().id.split('_')[0];
+    this._nodeId = options.nodeId || this._nextTick().id.split('_')[0];
     /** @type {Map<string, LWWMapEntry<V>>} */
     this._entries = new Map(); // key → { value, clock, deleted }
+  }
+
+  /**
+   * 获取下一个时钟值（优先使用注入的 clockService）
+   * @returns {LamportClockState}
+   */
+  _nextTick() {
+    return this._clockService ? this._clockService.nextTick() : nextTick();
   }
 
   /**
@@ -143,7 +154,7 @@ export class LWWMap {
    * @returns {LWWMapSetOp<V>}
    */
   set(key, value) {
-    const clock = nextTick();
+    const clock = this._nextTick();
     this._entries.set(key, {
       value,
       clock,
@@ -166,7 +177,7 @@ export class LWWMap {
    * @returns {LWWMapDeleteOp}
    */
   delete(key) {
-    const clock = nextTick();
+    const clock = this._nextTick();
     const existing = this._entries.get(key);
 
     this._entries.set(key, {
