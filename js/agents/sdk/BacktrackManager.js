@@ -1,4 +1,4 @@
-import { deepClone } from "../shared/index.js";
+import { deepClone } from "../shared/utils/value-utils.js";
 
 /**
  * GenericBacktrackManager - 通用回溯管理 (春秋蝉)

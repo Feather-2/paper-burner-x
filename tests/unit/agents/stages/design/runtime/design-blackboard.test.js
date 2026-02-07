@@ -13,6 +13,10 @@ vi.mock("../../../../../../js/agents/shared/utils/value-utils.js", () => {
       const proto = Object.getPrototypeOf(v);
       return proto === Object.prototype || proto === null;
     }),
+    deepClone: vi.fn((v) => {
+      if (v === null || typeof v !== "object") return v;
+      return JSON.parse(JSON.stringify(v));
+    }),
   };
 });
 

@@ -467,6 +467,32 @@ export class BaseAgentLoop {
     return this._statusController.checkPaused(signal);
   }
 
+  // ===== DI 服务解析 (统一入口) =====
+
+  /**
+   * 解析依赖：DI 容器优先，回退到 context 属性，最后使用 fallback。
+   *
+   * @param {string} serviceId - 服务 ID（ServiceId.XXX 或字符串）
+   * @param {any} context - 上下文对象（可能包含 container 或直接属性）
+   * @param {any} fallback - 兜底值
+   * @returns {Promise<any>} 解析后的服务实例
+   */
+  async _resolveDependency(serviceId, context, fallback) {
+    // 1. 尝试从 DI 容器获取
+    const container = context?.container;
+    if (container && typeof container.tryGet === "function") {
+      const fromContainer = await container.tryGet(serviceId);
+      if (fromContainer !== undefined) return fromContainer;
+    }
+    // 2. 尝试从 context 属性获取（兼容 stageApi.xxx 直传）
+    if (context && typeof context === "object" && serviceId in context) {
+      const fromContext = context[serviceId];
+      if (fromContext !== undefined) return fromContext;
+    }
+    // 3. 返回 fallback
+    return fallback;
+  }
+
   /** @param {{ signal?: AbortSignal, runId?: string | null } | null | undefined} [options] */
   _createPauseError(options) {
     return this._statusController.createPauseError(options);
