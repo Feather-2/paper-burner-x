@@ -8,7 +8,8 @@
  * - 自动与 EventBus 联动
  */
 
-import { createLogger, deepClone } from "../shared/index.js";
+import { createLogger } from "../shared/index.js";
+import { deepClone } from "../shared/utils/value-utils.js";
 
 const logger = createLogger("core/state-bus");
 const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);

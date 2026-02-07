@@ -1,4 +1,5 @@
-import { deepClone, isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import { normalizeTodoStatus } from "./todo-normalize.js";
 import { estimateTokensValue, truncate } from "./unified-memory-store.utils.js";
 

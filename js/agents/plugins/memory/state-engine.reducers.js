@@ -2,7 +2,8 @@
  * StateEngine - State transitions and reducers
  */
 
-import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import { cloneJson } from "./state-diff.js";
 import { normalizeTodoEntry, normalizeTodoPriority, normalizeTodoStatus } from "./todo-normalize.js";
 import {

@@ -1,5 +1,6 @@
 import { Archive, FallbackAdapter, MapAdapter } from "../../../shared/index.js";
-import { CheckpointType, createCheckpoint, deepClone, migrateCheckpoint } from "../../../shared/index.js";
+import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../../shared/index.js";
+import { deepClone } from "../../../shared/utils/value-utils.js";
 import { AgentStatus, StagePausedError, createLifecycleEmitter } from "../../../runtime/index.js";
 import { getRuntimeState } from "../../../plugins/telemetry/index.js";
 import { DesignPhase, designPhaseMachine } from "../states.js";

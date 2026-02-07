@@ -8,7 +8,8 @@
  * - 自定义校验规则
  */
 
-import { createLogger, deepClone } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import { createSafeRegex } from "../../shared/index.js";
 
 const logger = createLogger("runtime/core/config-validator");

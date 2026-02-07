@@ -12,7 +12,8 @@
  * - 统一 Checkpoint
  */
 
-import { toNonEmptyString, deepClone } from "../../../shared/index.js";
+import { toNonEmptyString } from "../../../shared/index.js";
+import { deepClone } from "../../../shared/utils/value-utils.js";
 import { createLogger } from "../../../shared/index.js";
 
 const logger = createLogger("runtime/context/unified-agent-context");

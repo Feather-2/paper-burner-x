@@ -1,4 +1,5 @@
-import { deepClone, isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import {
   L2_SET_HISTORY_SUMMARY,
   L2_APPEND_HISTORY_SUMMARY,

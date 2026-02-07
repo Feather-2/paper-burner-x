@@ -1,6 +1,7 @@
 import { EditOperationType } from "../constants.js";
 
-import { isPlainObject, deepClone } from "../../../shared/index.js";
+import { isPlainObject } from "../../../shared/index.js";
+import { deepClone } from "../../../shared/utils/value-utils.js";
 export const EditModeTools = Object.freeze({
   [EditOperationType.ADD_SLIDE]: {
     description: "在指定位置添加新页面",

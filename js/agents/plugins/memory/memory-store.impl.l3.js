@@ -1,4 +1,5 @@
-import { deepClone, isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import { RetrievalEngine } from "./retrieval-engine.js";
 import { L3Storage } from "./l3-storage.js";
 import { defineGetter, defineMethod, estimateBytes, genId, truncate } from "./memory-store.impl.utils.js";

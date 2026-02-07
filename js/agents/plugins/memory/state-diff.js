@@ -19,7 +19,7 @@ function isUnsafeKey(key) {
 // Clone Utilities
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { deepClone } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 
 /**
  * Clone JSON-serializable value.

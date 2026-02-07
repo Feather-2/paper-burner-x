@@ -1,4 +1,5 @@
-import { deepClone, isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import { normalizeTodoEntry, normalizeTodoInPlace, normalizeTodoStatus } from "./todo-normalize.js";
 import { defineGetter, defineMethod, estimateTokens, genId } from "./memory-store.impl.utils.js";
 

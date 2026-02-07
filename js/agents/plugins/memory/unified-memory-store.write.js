@@ -1,4 +1,5 @@
-import { deepClone, isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import {
   L0_SET_SYSTEM_PROMPT,
   L0_SET_TASK_GOAL,

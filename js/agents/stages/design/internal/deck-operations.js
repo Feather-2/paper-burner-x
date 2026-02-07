@@ -1,4 +1,5 @@
-import { createLogger, deepClone } from "../../../shared/index.js";
+import { createLogger } from "../../../shared/index.js";
+import { deepClone } from "../../../shared/utils/value-utils.js";
 import { Watchdog } from "../../../plugins/compression/index.js";
 import {
   DESIGN_LOOP_DEFAULTS,

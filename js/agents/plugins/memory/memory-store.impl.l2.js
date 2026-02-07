@@ -1,4 +1,5 @@
-import { deepClone, toNonEmptyString } from "../../shared/index.js";
+import { toNonEmptyString } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import { defineGetter, defineMethod, genId } from "./memory-store.impl.utils.js";
 
 export function defineL2Layer() {

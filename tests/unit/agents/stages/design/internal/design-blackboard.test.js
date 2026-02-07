@@ -53,6 +53,21 @@ const MEMORY_CONSTANTS = vi.hoisted(() => ({
   L2_RECORD_DECISION: "L2_RECORD_DECISION",
 }));
 
+const deepCloneImpl = vi.hoisted(
+  () => (v) => {
+    if (v === null || typeof v !== "object") return v;
+    try {
+      return JSON.parse(JSON.stringify(v));
+    } catch {
+      return v;
+    }
+  },
+);
+
+vi.mock("../../../../../../js/agents/shared/utils/value-utils.js", () => ({
+  deepClone: deepCloneImpl,
+}));
+
 vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   toNonEmptyString: toNonEmptyStringImpl,
   isPlainObject: isPlainObjectImpl,

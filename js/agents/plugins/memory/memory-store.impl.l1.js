@@ -1,4 +1,5 @@
-import { deepClone, isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import { defineAccessor, defineGetter, defineMethod, estimateTokens, genId, isFiniteNumber } from "./memory-store.impl.utils.js";
 
 const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);

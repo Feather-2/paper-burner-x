@@ -8,7 +8,8 @@
  * - L3: Archive (归档) - snapshots, index, checkpoints
  */
 
-import { deepClone, isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import { getGlobalTokenCounter, Platform, DisposableBase } from "../../shared/index.js";
 import { normalizeTodoStatus } from "./todo-normalize.js";
 import { defineL0Layer } from "./memory-store.impl.l0.js";

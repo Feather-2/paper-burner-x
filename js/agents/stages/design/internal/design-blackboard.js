@@ -12,7 +12,8 @@
  * - decisions → MemoryStore.recordDecision()
  */
 
-import { toNonEmptyString, isPlainObject, createLogger, deepClone } from "../../../shared/index.js";
+import { toNonEmptyString, isPlainObject, createLogger } from "../../../shared/index.js";
+import { deepClone } from "../../../shared/utils/value-utils.js";
 import { DisposableBase } from "../../../shared/index.js";
 import {
   L1_ADD_SIGNAL,
