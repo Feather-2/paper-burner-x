@@ -19,31 +19,28 @@ import { McpTransport, MCP_PROTOCOL_VERSION, MCP_SUPPORTED_VERSIONS, McpMethods 
 import { createMcpTransport, getSupportedTransports } from "./transport-factory.js";
 import { isNodeLike } from "../shared/index.js";
 
-// Stdio 相关模块仅 Node.js 可用，浏览器打包时需排除或使用 index.browser.js
-/** @type {typeof import('./stdio-mcp-transport.js').StdioMcpTransport | undefined} */
-let StdioMcpTransport;
-/** @type {typeof import('./stdio-mcp-transport.js').createStdioMcpTransport | undefined} */
-let createStdioMcpTransport;
-/** @type {typeof import('./stdio-mcp-provider.js').StdioMcpProvider | undefined} */
-let StdioMcpProvider;
-/** @type {typeof import('./stdio-mcp-provider.js').createStdioMcpProvider | undefined} */
-let createStdioMcpProvider;
+// Stdio 相关模块仅 Node.js 可用，按需 lazy-load 避免非叶子模块的顶层副作用
+/** @type {Promise<{StdioMcpTransport: any, createStdioMcpTransport: any, StdioMcpProvider: any, createStdioMcpProvider: any}> | null} */
+let _stdioPromise = null;
 
-// 条件加载 Stdio 模块 (Node.js only)
-if (isNodeLike()) {
-  Promise.all([
-    import("./stdio-mcp-transport.js"),
-    import("./stdio-mcp-provider.js")
-  ])
-    .then(([stdioTransport, stdioProvider]) => {
-      StdioMcpTransport = stdioTransport.StdioMcpTransport;
-      createStdioMcpTransport = stdioTransport.createStdioMcpTransport;
-      StdioMcpProvider = stdioProvider.StdioMcpProvider;
-      createStdioMcpProvider = stdioProvider.createStdioMcpProvider;
-    })
-    .catch(() => {
-      // Stdio modules not available in this environment
-    });
+/**
+ * Lazy-load stdio modules (Node.js only). Cached after first call.
+ * @returns {Promise<{StdioMcpTransport: any, createStdioMcpTransport: any, StdioMcpProvider: any, createStdioMcpProvider: any} | null>}
+ */
+async function loadStdioModules() {
+  if (!isNodeLike()) return null;
+  if (!_stdioPromise) {
+    _stdioPromise = Promise.all([
+      import("./stdio-mcp-transport.js"),
+      import("./stdio-mcp-provider.js")
+    ]).then(([stdioTransport, stdioProvider]) => ({
+      StdioMcpTransport: stdioTransport.StdioMcpTransport,
+      createStdioMcpTransport: stdioTransport.createStdioMcpTransport,
+      StdioMcpProvider: stdioProvider.StdioMcpProvider,
+      createStdioMcpProvider: stdioProvider.createStdioMcpProvider,
+    })).catch(() => null);
+  }
+  return _stdioPromise;
 }
 
 export {
@@ -57,13 +54,12 @@ export {
   LocalMcpProvider,
   createLocalMcpProvider,
   McpNexusProvider,
-  StdioMcpProvider,
-  createStdioMcpProvider,
+
+  // Stdio — use loadStdioModules() for lazy access
+  loadStdioModules,
 
   // Transport Layer
   McpTransport,
-  StdioMcpTransport,
-  createStdioMcpTransport,
   createMcpTransport,
   getSupportedTransports,
   MCP_PROTOCOL_VERSION,
@@ -97,9 +93,9 @@ export {
 /**
  * 创建配置好的 MCP 客户端
  * @param {CreateMcpClientOptions} [options={}] - 客户端配置
- * @returns {McpClient} 配置好的 MCP 客户端实例
+ * @returns {Promise<McpClient>} 配置好的 MCP 客户端实例
  */
-export function createMcpClient(options = {}) {
+export async function createMcpClient(options = {}) {
   const client = new McpClient();
 
   // 默认添加 local-mcp provider
@@ -120,11 +116,14 @@ export function createMcpClient(options = {}) {
     );
   }
 
-  // 支持 stdio providers
-  if (Array.isArray(options.stdioProviders)) {
-    for (const config of options.stdioProviders) {
-      if (config && config.command) {
-        client.addProvider(new StdioMcpProvider(config));
+  // 支持 stdio providers (lazy-load)
+  if (Array.isArray(options.stdioProviders) && options.stdioProviders.length) {
+    const stdio = await loadStdioModules();
+    if (stdio) {
+      for (const config of options.stdioProviders) {
+        if (config && config.command) {
+          client.addProvider(new stdio.StdioMcpProvider(config));
+        }
       }
     }
   }

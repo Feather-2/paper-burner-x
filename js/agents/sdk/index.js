@@ -37,7 +37,7 @@ export { createLogger, trackToolCall } from "../shared/index.js";
 export { createBudgetManager, BudgetAction } from "../shared/index.js";
 
 // MCP
-export { createMcpClient, McpClient, McpProvider } from "../mcp/index.js";
+export { createMcpClient, McpClient, McpProvider, loadStdioModules } from "../mcp/index.js";
 
 // Config
 export { loadAgentConfig, mergeConfigs } from "./config-loader.js";
