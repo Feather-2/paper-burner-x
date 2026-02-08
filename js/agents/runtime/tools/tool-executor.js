@@ -199,10 +199,18 @@ class WorkerPool {
     return this._maxWorkers;
   }
 
-  async acquire() {
+  /**
+   * Acquire a worker from the pool.
+   *
+   * @param {number} [timeoutMs=30000] - Queue wait timeout when pool is saturated.
+   * @returns {Promise<PooledWorker>}
+   */
+  async acquire(timeoutMs = 30_000) {
+    const waitTimeoutMs = toPositiveInt(timeoutMs, 30_000);
+
     if (this._idle.length) {
       const w = this._idle.pop();
-      if (!w || w.destroyed) return this.acquire();
+      if (!w || w.destroyed) return this.acquire(waitTimeoutMs);
       w.busy = true;
       w._ref();
       return w;
@@ -230,16 +238,20 @@ class WorkerPool {
     }
 
     return await new Promise((resolve, reject) => {
-      const timeoutMs = 30_000;
+      /** @type {{ resolve: (value: PooledWorker) => void, reject: (reason?: unknown) => void } | null} */
+      let waiter = null;
       const timer = setTimeout(() => {
-        const idx = this._waiters.findIndex(w => w.resolve === resolve);
-        if (idx !== -1) this._waiters.splice(idx, 1);
-        reject(new Error(`WorkerPool.acquire() timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-      this._waiters.push({
+        if (waiter) {
+          const idx = this._waiters.indexOf(waiter);
+          if (idx !== -1) this._waiters.splice(idx, 1);
+        }
+        reject(new Error(`WorkerPool.acquire() timed out after ${waitTimeoutMs}ms`));
+      }, waitTimeoutMs);
+      waiter = {
         resolve: (v) => { clearTimeout(timer); resolve(v); },
         reject: (e) => { clearTimeout(timer); reject(e); },
-      });
+      };
+      this._waiters.push(waiter);
     });
   }
 

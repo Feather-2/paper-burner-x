@@ -5,7 +5,6 @@
  * - 防止并发写入冲突
  * - 读写锁分离（多读单写）
  * - 超时自动释放
- * - 死锁检测
  */
 
 import { createLogger } from "../shared/index.js";

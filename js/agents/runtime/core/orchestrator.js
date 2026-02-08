@@ -649,6 +649,7 @@ export class AgentOrchestrator extends DisposableBase {
     const concurrencyLimit = await this._getEffectiveConcurrencyLimit();
     const pending = [...stages];
     const executing = new Set();
+    const allErrors = [];
 
     const runNext = async () => {
       while (pending.length > 0 && executing.size < concurrencyLimit) {
@@ -663,7 +664,9 @@ export class AgentOrchestrator extends DisposableBase {
             return runNext();
           })
           .catch((error) => {
-            results.set(stageName, { success: false, error: error?.message || String(error) });
+            const errorMessage = error?.message || String(error);
+            results.set(stageName, { success: false, error: errorMessage });
+            allErrors.push(new Error(`Stage "${stageName}": ${errorMessage}`));
             executing.delete(promise);
             return runNext();
           });
@@ -682,13 +685,8 @@ export class AgentOrchestrator extends DisposableBase {
       await Promise.allSettled(executing);
     }
 
-    // Collect failures from results map (catch handlers drain executing before allSettled)
-    const failures = [];
-    for (const [stageName, r] of results) {
-      if (!r.success) failures.push(new Error(`Stage "${stageName}": ${r.error}`));
-    }
-    if (failures.length > 0) {
-      throw new AggregateError(failures, `${failures.length} parallel stage(s) failed`);
+    if (allErrors.length > 0) {
+      throw new AggregateError(allErrors, `${allErrors.length} parallel stage(s) failed`);
     }
 
     return results;

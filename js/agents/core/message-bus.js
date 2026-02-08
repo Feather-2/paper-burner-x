@@ -72,6 +72,19 @@ function createRpcId() {
 }
 
 /**
+ * @returns {string}
+ */
+function createReplyToEventName() {
+  const c = globalThis?.crypto;
+  const uuid = typeof c?.randomUUID === 'function' ? c.randomUUID() : null;
+  if (uuid) return `rpc.response.${uuid.toLowerCase().replace(/-/g, '_')}`;
+
+  const partA = Math.random().toString(36).slice(2, 12) || '0';
+  const partB = Math.random().toString(36).slice(2, 12) || '0';
+  return `rpc.response.r_${partA}_${partB}`;
+}
+
+/**
  * @param {unknown} signal
  * @returns {signal is AbortSignal}
  */
@@ -326,9 +339,9 @@ export class MessageBus {
     }
 
     // Idempotency: deduplicate in-flight requests with same key
-    const idempotencyKey = typeof options?.idempotencyKey === 'string' ? options.idempotencyKey : null;
+    const idempotencyKey = toNonEmptyString(options?.idempotencyKey);
     if (idempotencyKey && this._inflightRequests.has(idempotencyKey)) {
-      return this._inflightRequests.get(idempotencyKey);
+      return /** @type {Promise<T>} */ (this._inflightRequests.get(idempotencyKey));
     }
 
     const timeoutMs = toPositiveInt(options?.timeoutMs, DEFAULT_TIMEOUT_MS);
@@ -338,7 +351,7 @@ export class MessageBus {
     }
 
     const requestId = createRpcId();
-    const replyTo = `rpc.response.${requestId}`;
+    const replyTo = createReplyToEventName();
 
     const promise = new Promise((resolve, reject) => {
       if (signal && signal.aborted) {

@@ -58,7 +58,11 @@ function sanitizeString(input, maxChars) {
   return s.length > maxLen ? s.slice(0, Math.max(0, maxLen - 3)) + "..." : s;
 }
 
-function sanitizeArgs(args, { maxDepth = 6, maxKeys = 50, maxArray = 50, maxString = 500 } = {}) {
+function sanitizeArgs(args, maxDepth = 6) {
+  const depthLimit = Number.isFinite(maxDepth) ? Math.max(0, Math.floor(maxDepth)) : 6;
+  const maxKeys = 50;
+  const maxArray = 50;
+  const maxString = 500;
   const seen = new WeakSet();
 
   const visit = (value, depth) => {
@@ -112,7 +116,7 @@ function sanitizeArgs(args, { maxDepth = 6, maxKeys = 50, maxArray = 50, maxStri
   };
 
   try {
-    return visit(args, maxDepth);
+    return visit(args, depthLimit);
   } catch {
     return "[Unserializable]";
   }
