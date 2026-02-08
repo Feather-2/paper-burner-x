@@ -4,6 +4,8 @@
  */
 
 import { isDisposable } from "../../core/contracts/disposable.js";
+import { createLogger } from "../utils/logger.js";
+const logger = createLogger("agents");
 
 /**
  * Disposable 基类
@@ -41,7 +43,7 @@ export class DisposableBase {
    */
   _registerDisposable(cleanup) {
     if (this.disposed) {
-      console.warn(`[${this.constructor.name}] registering disposable after disposed`);
+      logger.warn(`[${this.constructor.name}] registering disposable after disposed`);
       return;
     }
 
@@ -90,7 +92,7 @@ export class DisposableBase {
       try {
         await this._disposables[i]();
       } catch (e) {
-        console.warn(`[${this.constructor.name}] dispose error:`, e);
+        logger.warn(`[${this.constructor.name}] dispose error:`, e);
       }
     }
     this._disposables.length = 0;

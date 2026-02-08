@@ -4,6 +4,8 @@ import { SourceKind } from "../constants.js";
 import { basenameOfPath, fileLikeFromPath as nodeFileLikeFromPath } from "./node-io.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { createLogger } from "../../shared/utils/logger.js";
+const logger = createLogger("agents");
 function guessMimeType(filename) {
   const name = String(filename || "").toLowerCase();
   if (name.endsWith(".pdf")) return "application/pdf";
@@ -162,7 +164,7 @@ export class PdfAdapter extends BaseAdapter {
         images = Array.isArray(ocrResult?.images) ? ocrResult.images : [];
       } catch (ocrError) {
         // OCR failed; fall back to embedded text extraction
-        console.warn?.(`PdfAdapter: OCR failed, falling back to text extraction: ${ocrError?.message || ocrError}`);
+        logger.warn?.(`PdfAdapter: OCR failed, falling back to text extraction: ${ocrError?.message || ocrError}`);
         const ab = typeof file?.arrayBuffer === "function" ? await file.arrayBuffer() : new ArrayBuffer(0);
         const text = extractAsciiStrings(new Uint8Array(ab));
         markdown = text ? `# ${fileLabel(input)}\n\n${text}\n` : `# ${fileLabel(input)}\n\n(OCR failed; extracted embedded text strings.))\n`;

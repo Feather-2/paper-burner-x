@@ -5,6 +5,8 @@
  */
 
 import { createPlugin } from '../../core/plugin.js';
+import { createLogger } from "../../shared/utils/logger.js";
+const logger = createLogger("agents");
 
 /** @type {typeof globalThis.process} */
 const process = globalThis.process;
@@ -170,7 +172,7 @@ function buildInspector(ctx) {
     },
 
     help: () => {
-      console.log(`
+      logger.debug(`
 Inspector API:
 
   inspector.kernel.status()       - 获取内核状态

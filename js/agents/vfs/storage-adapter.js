@@ -504,7 +504,7 @@ export async function createStorageAdapter({ preferOpfs = true, silent = false }
     const opfsSupported = await detectOpfsSupport();
     if (opfsSupported) {
       if (!silent) {
-        console.info("[StorageAdapter] Using OPFS backend (best performance)");
+        logger.info("[StorageAdapter] Using OPFS backend (best performance)");
       }
       return new OpfsStorageAdapter();
     }

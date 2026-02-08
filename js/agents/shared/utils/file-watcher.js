@@ -5,6 +5,8 @@
 
 import { DisposableBase } from "../base/disposable-base.js";
 import { toNonEmptyString, toPositiveInt } from "./value-utils.js";
+import { createLogger } from "./logger.js";
+const logger = createLogger("agents");
 
 /**
  * @typedef {import("../../core/contracts/disposable.js").Disposable} Disposable
@@ -260,7 +262,7 @@ export class FileWatcher extends DisposableBase {
       try {
         this._watcher.close();
       } catch (err) {
-        console.warn("[FileWatcher] close error:", err);
+        logger.warn("[FileWatcher] close error:", err);
       }
     }
 
@@ -459,7 +461,7 @@ export class FileWatcher extends DisposableBase {
       this._onChange(event);
     } catch (err) {
       // Avoid crashing due to user callbacks.
-      console.warn("[FileWatcher] onChange error:", err);
+      logger.warn("[FileWatcher] onChange error:", err);
     }
   }
 

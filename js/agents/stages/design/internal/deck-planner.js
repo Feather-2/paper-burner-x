@@ -10,6 +10,8 @@
  */
 
 import { toNonEmptyString, protoSafeReviver} from "../../../shared/index.js";
+import { createLogger } from "../../../shared/utils/logger.js";
+const logger = createLogger("agents");
 
 /**
  * 页面类型到默认布局的映射
@@ -427,7 +429,7 @@ ${feedback}
     return validEdits;
   } catch (err) {
     const preview = typeof feedback === "string" ? feedback.slice(0, 160) : "";
-    console.warn("parseFeedbackWithLLM failed, falling back to simple parser", {
+    logger.warn("parseFeedbackWithLLM failed, falling back to simple parser", {
       error: err?.message || String(err),
       planCount: Array.isArray(plans) ? plans.length : 0,
       feedbackPreview: preview,

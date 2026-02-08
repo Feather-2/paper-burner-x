@@ -8,6 +8,8 @@ import { injectSystemHint, protoSafeReviver} from "../../shared/index.js";
 import { extractJsonCandidate } from "../../shared/index.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { createLogger } from "../../shared/utils/logger.js";
+const logger = createLogger("agents");
 function clampArrayStrings(arr) {
   if (!Array.isArray(arr)) return undefined;
   const out = [];
@@ -28,7 +30,7 @@ function tryParseSlideIntentsFromContent(content) {
   if (!candidate) return null;
   // Length guard: reject oversized payloads before parsing.
   if (candidate.length > MAX_JSON_CANDIDATE_LEN) {
-    console.warn("[slideplan] JSON candidate exceeds max length, rejecting");
+    logger.warn("[slideplan] JSON candidate exceeds max length, rejecting");
     return null;
   }
   try {
@@ -36,12 +38,12 @@ function tryParseSlideIntentsFromContent(content) {
     if (!Array.isArray(parsed)) return null;
     // Cardinality guard: limit number of slide intents.
     if (parsed.length > MAX_SLIDE_INTENTS) {
-      console.warn(`[slideplan] Parsed ${parsed.length} intents, truncating to ${MAX_SLIDE_INTENTS}`);
+      logger.warn(`[slideplan] Parsed ${parsed.length} intents, truncating to ${MAX_SLIDE_INTENTS}`);
       return parsed.slice(0, MAX_SLIDE_INTENTS);
     }
     return parsed;
   } catch (err) {
-    console.warn("[slideplan] JSON parse failed:", err?.message);
+    logger.warn("[slideplan] JSON parse failed:", err?.message);
     return null;
   }
 }
@@ -190,7 +192,7 @@ export async function planSlides(chunks, constraints = {}) {
         return ensureCoreSlides(normalized, chunks?.[0]?.text);
       }
     } catch (err) {
-      console.warn("[slideplan] LLM call failed, falling back to heuristic:", err?.message);
+      logger.warn("[slideplan] LLM call failed, falling back to heuristic:", err?.message);
       // fall through to heuristic
     }
   }

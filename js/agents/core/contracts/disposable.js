@@ -1,3 +1,5 @@
+import { createLogger } from "../../shared/utils/logger.js";
+const logger = createLogger("agents");
 /**
  * Disposable 契约 - 统一资源生命周期管理
  * @module shared/contracts/disposable
@@ -44,7 +46,7 @@ export async function safeDispose(obj, options = {}) {
       try {
         options.onError(error);
       } catch (onErrorError) {
-        console.warn(
+        logger.warn(
           "[safeDispose] onError callback failed:",
           onErrorError instanceof Error
             ? onErrorError.message
@@ -52,7 +54,7 @@ export async function safeDispose(obj, options = {}) {
         );
       }
     } else {
-      console.warn("[safeDispose] error:", error.message);
+      logger.warn("[safeDispose] error:", error.message);
     }
     return false;
   }
@@ -134,7 +136,7 @@ export function createCompositeDisposable(disposables) {
             await d.dispose();
           }
         } catch (e) {
-          console.warn("[CompositeDisposable] error:", e);
+          logger.warn("[CompositeDisposable] error:", e);
         }
       }
     },

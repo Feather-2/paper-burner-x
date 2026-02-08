@@ -63,7 +63,7 @@ export class IndexedDBAdapter {
         try {
           logger.warn(`[IndexedDBAdapter] open blocked for ${this.dbName}@v1`);
         } catch (err) {
-          console.warn(
+          logger.warn(
             `[IndexedDBAdapter] failed to log blocked open for ${this.dbName}@v1`,
             err,
           );
@@ -74,7 +74,7 @@ export class IndexedDBAdapter {
         try {
           this._db.onversionchange = () => this.close();
         } catch (err) {
-          console.warn("[IndexedDBAdapter] failed to set onversionchange handler", err);
+          logger.warn("[IndexedDBAdapter] failed to set onversionchange handler", err);
         }
         resolve(this._db);
       };

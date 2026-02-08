@@ -1,3 +1,5 @@
+import { createLogger } from "./logger.js";
+const logger = createLogger("agents");
 /**
  * 错误处理工具函数
  * @module shared/utils/error-utils
@@ -104,7 +106,7 @@ export function catchAndLog(fn, options = {}) {
       options.onError(error);
     } else {
       const ctx = options.context ? `[${options.context}] ` : "";
-      console.warn(`${ctx}${error.message}`);
+      logger.warn(`${ctx}${error.message}`);
     }
     return options.fallback;
   }

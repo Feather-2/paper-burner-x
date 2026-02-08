@@ -10,6 +10,8 @@ import { TraceContext } from "../../plugins/telemetry/index.js";
 import { createStageApi, protoSafeReviver} from "../../shared/index.js";
 import { injectSystemHint } from "../../shared/index.js";
 import { extractJsonCandidate } from "../../shared/index.js";
+import { createLogger } from "../../shared/utils/logger.js";
+const logger = createLogger("agents");
 
 /** @private Maximum allowed input text length (2MB) to prevent memory exhaustion. */
 const MAX_INPUT_TEXT_LEN = 2 * 1024 * 1024;
@@ -131,7 +133,7 @@ function resolveErrorBoundary(api) {
         const candidate = get("errorBoundary");
         if (candidate && typeof candidate === "object" && typeof candidate.wrap === "function") return candidate;
       } catch (err) {
-        console.warn("[textprep.resolveErrorBoundary] container.get('errorBoundary') failed, using default:", err?.message);
+        logger.warn("[textprep.resolveErrorBoundary] container.get('errorBoundary') failed, using default:", err?.message);
       }
     }
   }
@@ -214,7 +216,7 @@ async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
       const candidate = extractJsonCandidate(result?.content, { prefer: "array" });
       // Length guard: reject oversized payloads.
       if (candidate && candidate.length > 64_000) {
-        console.warn("[textprep.alignClaims] JSON candidate exceeds max length, falling back to heuristic");
+        logger.warn("[textprep.alignClaims] JSON candidate exceeds max length, falling back to heuristic");
       } else if (candidate) {
         const parsed = JSON.parse(candidate, protoSafeReviver);
         if (Array.isArray(parsed)) {
@@ -235,7 +237,7 @@ async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
         }
       }
     } catch (err) {
-      console.warn("[textprep.alignClaims] LLM call failed, falling back to heuristic:", err?.message);
+      logger.warn("[textprep.alignClaims] LLM call failed, falling back to heuristic:", err?.message);
       // fall through to heuristic
     }
   }

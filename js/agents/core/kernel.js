@@ -14,6 +14,8 @@ import { ServiceBus, createRetryProxy, createTimeoutProxy } from './service-bus.
 import { PluginManager, PluginStatus } from './plugin.js';
 import { resolvePreset, mergePresetConfig } from './presets.js';
 import { isServiceProvider, adaptProvider } from './compat.js';
+import { createLogger } from "../shared/utils/logger.js";
+const logger = createLogger("agents");
 
 /**
  * Types
@@ -185,7 +187,7 @@ export class Kernel {
       try {
         await this.use(pluginName, pluginConfig);
       } catch (err) {
-        console.warn(`[Kernel] Failed to load plugin "${pluginName}":`, err.message);
+        logger.warn(`[Kernel] Failed to load plugin "${pluginName}":`, err.message);
       }
     }
 

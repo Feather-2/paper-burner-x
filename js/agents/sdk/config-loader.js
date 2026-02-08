@@ -12,6 +12,8 @@
  */
 
 import { isNodeLike } from "../shared/index.js";
+import { createLogger } from "../shared/utils/logger.js";
+const logger = createLogger("agents");
 
 /**
  * @typedef {object} AgentConfigData
@@ -137,7 +139,7 @@ export async function loadAgentConfig(projectRoot) {
         const code = err?.code;
         if (code !== "ENOENT" && code !== "ENOTDIR") {
             // Log parse/permission errors for debugging, but still return default
-            console.warn?.(`[config-loader] Failed to load ${configPath}: ${err?.message || err}`);
+            logger.warn?.(`[config-loader] Failed to load ${configPath}: ${err?.message || err}`);
         }
         return defaultConfig;
     }
