@@ -25,6 +25,28 @@ const SENSITIVE_KEY_RE =
   /(?:pass(word)?|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|authorization|cookie|session|jwt|private[_-]?key|client[_-]?secret)/i;
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+/** @type {Array<{pattern: RegExp, replacement: string}>} */
+let _customTokenPatterns = [];
+
+/**
+ * Register additional token patterns for sanitizeString.
+ * Each entry: { pattern: RegExp, replacement: string }.
+ * @param {Array<{pattern: RegExp, replacement: string}>} patterns
+ */
+export function registerTokenPatterns(patterns) {
+  if (!Array.isArray(patterns)) return;
+  for (const p of patterns) {
+    if (p && p.pattern instanceof RegExp && typeof p.replacement === "string") {
+      _customTokenPatterns.push({ pattern: p.pattern, replacement: p.replacement });
+    }
+  }
+}
+
+/** Clear all custom token patterns (useful for testing). */
+export function clearTokenPatterns() {
+  _customTokenPatterns = [];
+}
+
 function sanitizeString(input, maxChars) {
   const maxLen = Number.isFinite(maxChars) ? Math.max(32, Math.floor(maxChars)) : 500;
   let s = String(input ?? "");
@@ -54,6 +76,11 @@ function sanitizeString(input, maxChars) {
   s = s.replace(/\bAKIA[A-Z0-9]{16}\b/g, `AKIA${REDACTED}`);
   s = s.replace(/\bgoog_[A-Za-z0-9_-]{20,}\b/g, `goog_${REDACTED}`);
   s = s.replace(/\b[A-Za-z0-9+/]{40,}={0,2}\b/g, (m) => m.length > 80 ? REDACTED : m);
+
+  // Custom token patterns registered via registerTokenPatterns()
+  for (const { pattern, replacement } of _customTokenPatterns) {
+    s = s.replace(pattern, replacement);
+  }
 
   return s.length > maxLen ? s.slice(0, Math.max(0, maxLen - 3)) + "..." : s;
 }
@@ -579,4 +606,4 @@ export function createPostAgentHook(options = {}) {
   };
 }
 
-export default { createPreToolUseHook, createPreAgentHook, createPostAgentHook };
+export default { createPreToolUseHook, createPreAgentHook, createPostAgentHook, registerTokenPatterns, clearTokenPatterns };

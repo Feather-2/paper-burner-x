@@ -476,7 +476,7 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 |------|------|------|
 | 移除 MCP 顶层 await，改用 lazy-load | `mcp/index.js` | ✅ RESOLVED |
 | 路径遍历防护 `..` | `vfs/path.js` | ✅ RESOLVED (normalizeVfsPath 已拒绝 `..` 段) |
-| sanitizeString 支持自定义 token patterns | `hook-runner.js` | pending |
+| sanitizeString 支持自定义 token patterns | `hook-runner.js` | ✅ RESOLVED |
 
 ---
 
