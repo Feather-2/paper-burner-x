@@ -5,6 +5,7 @@
  */
 
 // 插件映射表
+const _initialKeys = new Set();
 const pluginRegistry = {
   // Compression
   'compression/cicada': () => import('./compression/cicada.js'),
@@ -73,6 +74,9 @@ const pluginRegistry = {
   'debug/inspector': () => import('./debug/inspector.js'),
 };
 
+// Capture initial keys for reset
+for (const k of Object.keys(pluginRegistry)) _initialKeys.add(k);
+
 /**
  * 加载插件
  * @param {string} name - 插件名称
@@ -118,10 +122,21 @@ export function createPluginLoader() {
   };
 }
 
+/**
+ * Reset plugin registry to initial state (test isolation).
+ * Removes dynamically registered plugins, restores original set.
+ */
+export function resetPluginRegistry() {
+  for (const k of Object.keys(pluginRegistry)) {
+    if (!_initialKeys.has(k)) delete pluginRegistry[k];
+  }
+}
+
 export default {
   load: loadPlugin,
   has: hasPlugin,
   list: listAvailablePlugins,
   register: registerPlugin,
   createLoader: createPluginLoader,
+  reset: resetPluginRegistry,
 };
