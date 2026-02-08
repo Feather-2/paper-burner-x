@@ -15,7 +15,7 @@
  * - 可序列化：所有 Action 和 State 可 JSON 序列化
  */
 
-import { nextTick, sync as syncClock, currentSeq } from "../../core/lamport-clock.js";
+import { nextTick, sync as syncClock, currentSeq, getDefaultClockService } from "../../core/lamport-clock.js";
 import { DisposableBase } from "../../shared/index.js";
 import { createLogger } from "../../shared/index.js";
 import { cloneJson } from "./state-diff.js";
@@ -48,6 +48,7 @@ export class StateEngine extends DisposableBase {
    * @param {object} [options.eventBus] - EventBus for emitting state changes
    * @param {string} [options.actorId] - Actor ID for Lamport clock
    * @param {number} [options.maxQueueSize=1000] - Max dispatch queue size (backpressure)
+   * @param {{ nextTick: () => any, sync?: (seq: number) => void, currentSeq?: () => number }} [options.clockService] - Injected clock service (defaults to global)
    */
   constructor({
     initialState,
@@ -56,8 +57,11 @@ export class StateEngine extends DisposableBase {
     eventBus = null,
     actorId,
     maxQueueSize = 1000,
+    clockService,
   } = {}) {
     super();
+
+    this._clockService = clockService || null;
 
     this._state = initialState
       ? { ...createInitialState(), ...initialState }
@@ -262,7 +266,7 @@ export class StateEngine extends DisposableBase {
    */
   _executeBatchDispatch(actions) {
     const ts = Date.now();
-    const seq = nextTick().seq; // Single tick for entire batch
+    const seq = (this._clockService ? this._clockService.nextTick() : nextTick()).seq; // Single tick for entire batch
     const actorId = this._actorId;
 
     const prevState = this._state;
@@ -319,7 +323,7 @@ export class StateEngine extends DisposableBase {
    */
   _executeDispatch(action) {
     // Add metadata
-    const seq = nextTick().seq;
+    const seq = (this._clockService ? this._clockService.nextTick() : nextTick()).seq;
     const enrichedAction = {
       ...action,
       meta: {
@@ -483,7 +487,7 @@ export class StateEngine extends DisposableBase {
    * Get current Lamport clock value
    */
   getClockValue() {
-    return currentSeq();
+    return this._clockService ? this._clockService.currentSeq() : currentSeq();
   }
 
   /**
@@ -492,8 +496,16 @@ export class StateEngine extends DisposableBase {
    */
   receiveClockValue(externalSeq) {
     // Lamport rule: local = max(local, remote) + 1
-    syncClock(externalSeq);
-    nextTick();
+    if (this._clockService && typeof this._clockService.sync === 'function') {
+      this._clockService.sync(externalSeq);
+    } else {
+      syncClock(externalSeq);
+    }
+    if (this._clockService) {
+      this._clockService.nextTick();
+    } else {
+      nextTick();
+    }
   }
 
   /**

@@ -83,12 +83,12 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 - **影响**: SyncManager 被反复创建/销毁时，transport 上的 handler 累积，导致内存泄漏和重复消息处理。
 - **建议**: 在 `dispose()` 中调用 `this._transport.off(...)` 或维护一个 subscription 列表统一清理。
 
-### [MEDIUM] B2. Lamport Clock 是全局模块级单例
+### [MEDIUM] B2. ~~Lamport Clock 是全局模块级单例~~ — ✅ RESOLVED
 
 - **File**: core/lamport-clock.js
 - **Description**: `let _seq = 0; let _nodeId = '';` 是模块顶层变量，所有 `nextTick()` / `sync()` 调用共享同一个计数器。CRDT 类型内部直接 `import { nextTick, sync }` 绕过 DI。
 - **Impact**: 同进程多 Agent 共享 Lamport Clock，因果关系失真；并行测试无法隔离。
-- **Suggestion**: CRDT 类型改为从 DI 容器获取 clock 实例。
+- **Resolution**: 全局函数现委托到默认 `LamportClockService` 实例；导出 `getDefaultClockService()`/`setDefaultClockService()` 供 DI 和测试隔离；CRDTDocument 通过 `_childOpts()` 传递 clockService 到子 CRDT；StateEngine 接受 `clockService` 选项，DI 容器自动注入。
 
 ### [MEDIUM] B3. 全局单例散布导致测试无法隔离
 

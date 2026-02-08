@@ -99,6 +99,13 @@ export class CRDTDocument {
     this._version = 0;
   }
 
+  /** Common options for child CRDT construction (forwards clockService). */
+  _childOpts() {
+    const o = { nodeId: this._nodeId };
+    if (this._clockService) o.clockService = this._clockService;
+    return o;
+  }
+
   /** @returns {LamportClockState} */
   _nextTick() {
     return this._clockService ? this._clockService.nextTick() : nextTick();
@@ -153,7 +160,7 @@ export class CRDTDocument {
    */
   setRegister(name, value) {
     if (!this._registers.has(name)) {
-      this._registers.set(name, new LWWRegister(null, { nodeId: this._nodeId }));
+      this._registers.set(name, new LWWRegister(null, this._childOpts()));
     }
     const op = this._registers.get(name).set(value);
     this._recordOp({ ...op, field: name, fieldType: 'register' });
@@ -169,7 +176,7 @@ export class CRDTDocument {
    */
   getMap(name) {
     if (!this._maps.has(name)) {
-      this._maps.set(name, new LWWMap({ nodeId: this._nodeId }));
+      this._maps.set(name, new LWWMap(this._childOpts()));
     }
     return this._maps.get(name);
   }
@@ -210,7 +217,7 @@ export class CRDTDocument {
    */
   getSet(name) {
     if (!this._sets.has(name)) {
-      this._sets.set(name, new ORSet({ nodeId: this._nodeId }));
+      this._sets.set(name, new ORSet(this._childOpts()));
     }
     return this._sets.get(name);
   }
@@ -254,7 +261,7 @@ export class CRDTDocument {
   getCounter(name, type = 'pn') {
     if (!this._counters.has(name)) {
       const Counter = type === 'g' ? GCounter : PNCounter;
-      this._counters.set(name, new Counter({ nodeId: this._nodeId }));
+      this._counters.set(name, new Counter(this._childOpts()));
     }
     return this._counters.get(name);
   }
@@ -339,7 +346,7 @@ export class CRDTDocument {
         if (!this._registers.has(op.field)) {
           this._registers.set(
             op.field,
-            new LWWRegister(null, { nodeId: this._nodeId, clock: { seq: 0, ts: 0, id: `${this._nodeId}_0` } })
+            new LWWRegister(null, { ...this._childOpts(), clock: { seq: 0, ts: 0, id: `${this._nodeId}_0` } })
           );
         }
         changed = this._registers.get(op.field).apply(op);
@@ -347,14 +354,14 @@ export class CRDTDocument {
 
       case 'map':
         if (!this._maps.has(op.field)) {
-          this._maps.set(op.field, new LWWMap({ nodeId: this._nodeId }));
+          this._maps.set(op.field, new LWWMap(this._childOpts()));
         }
         changed = this._maps.get(op.field).apply(op);
         break;
 
       case 'set':
         if (!this._sets.has(op.field)) {
-          this._sets.set(op.field, new ORSet({ nodeId: this._nodeId }));
+          this._sets.set(op.field, new ORSet(this._childOpts()));
         }
         changed = this._sets.get(op.field).apply(op);
         break;
@@ -363,7 +370,7 @@ export class CRDTDocument {
         if (!this._counters.has(op.field)) {
           const type = op.type?.startsWith('pn') ? 'pn' : 'g';
           this._counters.set(op.field,
-            type === 'g' ? new GCounter({ nodeId: this._nodeId }) : new PNCounter({ nodeId: this._nodeId })
+            type === 'g' ? new GCounter(this._childOpts()) : new PNCounter(this._childOpts())
           );
         }
         {
@@ -422,7 +429,7 @@ export class CRDTDocument {
       if (!this._registers.has(name)) {
         this._registers.set(
           name,
-          new LWWRegister(null, { nodeId: this._nodeId, clock: { seq: 0, ts: 0, id: `${this._nodeId}_0` } })
+          new LWWRegister(null, { ...this._childOpts(), clock: { seq: 0, ts: 0, id: `${this._nodeId}_0` } })
         );
       }
       if (this._registers.get(name).merge(reg)) {
@@ -433,7 +440,7 @@ export class CRDTDocument {
     // 合并 maps
     for (const [name, map] of other._maps) {
       if (!this._maps.has(name)) {
-        this._maps.set(name, new LWWMap({ nodeId: this._nodeId }));
+        this._maps.set(name, new LWWMap(this._childOpts()));
       }
       if (this._maps.get(name).merge(map)) {
         changed = true;
@@ -443,7 +450,7 @@ export class CRDTDocument {
     // 合并 sets
     for (const [name, set] of other._sets) {
       if (!this._sets.has(name)) {
-        this._sets.set(name, new ORSet({ nodeId: this._nodeId }));
+        this._sets.set(name, new ORSet(this._childOpts()));
       }
       if (this._sets.get(name).merge(set)) {
         changed = true;
@@ -455,8 +462,8 @@ export class CRDTDocument {
       if (!this._counters.has(name)) {
         this._counters.set(name,
           counter instanceof GCounter
-            ? new GCounter({ nodeId: this._nodeId })
-            : new PNCounter({ nodeId: this._nodeId })
+            ? new GCounter(this._childOpts())
+            : new PNCounter(this._childOpts())
         );
       }
       const localCounter = this._counters.get(name);

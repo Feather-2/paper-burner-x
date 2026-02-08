@@ -10,19 +10,27 @@ import { cryptoRandomHex } from "../shared/index.js";
 /** @typedef {import("./types.d.ts").LamportClockState} LamportClockState */
 /** @typedef {{ _clock?: LamportClockState | null, seq?: number | null, ts?: number | null }} LogicalOrderEvent */
 
-/** @type {number} */
-let _globalSeq = 0;
-/** @type {string | null} */
-let _globalInstanceId = null;
+/** @type {LamportClockService} */
+let _defaultService = new LamportClockService();
 
 /**
- * @returns {string}
+ * Get the default (global) LamportClockService instance.
+ * Modules should prefer injecting a clockService via DI;
+ * this getter exists for backward compat and as the DI container's default binding.
+ * @returns {LamportClockService}
  */
-function getGlobalInstanceId() {
-  if (_globalInstanceId === null) {
-    _globalInstanceId = cryptoRandomHex(4);
+export function getDefaultClockService() {
+  return _defaultService;
+}
+
+/**
+ * Replace the default LamportClockService (useful for testing isolation).
+ * @param {LamportClockService} service
+ */
+export function setDefaultClockService(service) {
+  if (service instanceof LamportClockService) {
+    _defaultService = service;
   }
-  return _globalInstanceId;
 }
 
 /**
@@ -98,12 +106,7 @@ export class LamportClockService {
  * @returns {LamportClockState}
  */
 export function nextTick() {
-  _globalSeq += 1;
-  return {
-    seq: _globalSeq,
-    ts: typeof performance !== "undefined" ? performance.now() : Date.now(),
-    id: `${getGlobalInstanceId()}_${_globalSeq}`,
-  };
+  return _defaultService.nextTick();
 }
 
 /**
@@ -113,9 +116,7 @@ export function nextTick() {
  * @returns {void}
  */
 export function sync(remoteSeq) {
-  if (typeof remoteSeq === "number" && Number.isFinite(remoteSeq) && remoteSeq > _globalSeq) {
-    _globalSeq = remoteSeq;
-  }
+  _defaultService.sync(remoteSeq);
 }
 
 /**
@@ -123,7 +124,7 @@ export function sync(remoteSeq) {
  * @returns {number}
  */
 export function currentSeq() {
-  return _globalSeq;
+  return _defaultService.currentSeq();
 }
 
 /**
@@ -131,8 +132,7 @@ export function currentSeq() {
  * @returns {void}
  */
 export function resetClock() {
-  _globalSeq = 0;
-  _globalInstanceId = null;
+  _defaultService.resetClock();
 }
 
 /**
@@ -244,4 +244,7 @@ export default {
   stampEvent,
   sortByLogicalOrder,
   LamportClock,
+  LamportClockService,
+  getDefaultClockService,
+  setDefaultClockService,
 };

@@ -237,11 +237,12 @@ export function createAgentContainer(overrides = {}) {
     return new MemoryStore({ eventBus });
   });
 
-  // StateEngine (depends on eventBus)
+  // StateEngine (depends on eventBus, lamportClock)
   container.register(ServiceId.STATE_ENGINE, async (c) => {
     const { StateEngine } = await import("../../plugins/memory/state-engine.js");
     const eventBus = await c.get(ServiceId.EVENT_BUS);
-    return new StateEngine({ eventBus });
+    const clockService = await c.get(ServiceId.LAMPORT_CLOCK);
+    return new StateEngine({ eventBus, clockService });
   });
 
   // ModelRouter (depends on logger)
