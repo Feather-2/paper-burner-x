@@ -6,7 +6,7 @@
  * - 构建系统 prompt
  */
 
-import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../../../shared/index.js";
 import { createLogger } from "../../../shared/index.js";
 import { checkCancelled } from "../../../shared/index.js";
 import { TodoStatus } from "../states.js";
@@ -116,7 +116,7 @@ function parseTodoPlannerJson(rawJson) {
   if (rawJson.length > MAX_TODO_JSON_CHARS) return null;
   let parsed;
   try {
-    parsed = JSON.parse(rawJson);
+    parsed = JSON.parse(rawJson, protoSafeReviver);
   } catch {
     return null;
   }

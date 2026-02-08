@@ -4,7 +4,7 @@
 // (page types/titles/objectives/keyPoints) based on the input chunks + constraints.
 
 import { ALLOWED_PAGE_TYPES, PageType } from "./constants.js";
-import { injectSystemHint } from "../../shared/index.js";
+import { injectSystemHint, protoSafeReviver} from "../../shared/index.js";
 import { extractJsonCandidate } from "../../shared/index.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
@@ -32,7 +32,7 @@ function tryParseSlideIntentsFromContent(content) {
     return null;
   }
   try {
-    const parsed = JSON.parse(candidate);
+    const parsed = JSON.parse(candidate, protoSafeReviver);
     if (!Array.isArray(parsed)) return null;
     // Cardinality guard: limit number of slide intents.
     if (parsed.length > MAX_SLIDE_INTENTS) {

@@ -659,10 +659,10 @@ for spec in __pb_micropip_wheels__:
     await micropip.install(spec)
 `);
   } finally {
-    try { pyodide.globals.delete("__pb_micropip_deps__"); } catch {}
-    try { pyodide.globals.delete("__pb_micropip_wheels__"); } catch {}
-    try { depsProxy.destroy?.(); } catch {}
-    try { wheelsProxy.destroy?.(); } catch {}
+    try { pyodide.globals.delete("__pb_micropip_deps__"); } catch { /* intentional: pyodide cleanup */ }
+    try { pyodide.globals.delete("__pb_micropip_wheels__"); } catch { /* intentional: pyodide cleanup */ }
+    try { depsProxy.destroy?.(); } catch { /* intentional: pyodide cleanup */ }
+    try { wheelsProxy.destroy?.(); } catch { /* intentional: pyodide cleanup */ }
   }
 }
 

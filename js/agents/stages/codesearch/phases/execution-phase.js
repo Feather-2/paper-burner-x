@@ -8,7 +8,7 @@
  * - 更新 Todo 状态
  */
 
-import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../../../shared/index.js";
 import { createLogger } from "../../../shared/index.js";
 import { checkCancelled } from "../../../shared/index.js";
 import { isPotentiallyDangerous } from "../../../shared/utils/safe-regex.js";
@@ -266,7 +266,7 @@ function safeParseJsonObject(text, maxChars) {
   const trimmed = text.trim();
   if (!trimmed || trimmed.length > maxChars) return null;
   try {
-    const parsed = JSON.parse(trimmed);
+    const parsed = JSON.parse(trimmed, protoSafeReviver);
     return isPlainObject(parsed) ? parsed : null;
   } catch {
     return null;

@@ -1,4 +1,4 @@
-import { isPlainObject } from "../../../shared/index.js";
+import { isPlainObject, protoSafeReviver} from "../../../shared/index.js";
 import { toSnapshot } from "./serializer.js";
 
 /**
@@ -146,7 +146,7 @@ export function deserialize(text) {
   }
   let parsed;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(text, protoSafeReviver);
   } catch (err) {
     throw new SyntaxError(`deserialize: invalid JSON - ${err instanceof Error ? err.message : String(err)}`);
   }

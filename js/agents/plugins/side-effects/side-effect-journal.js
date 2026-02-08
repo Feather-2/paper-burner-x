@@ -1,6 +1,6 @@
 import { restoreVfsCheckpoint } from "../../vfs/checkpoints.js";
 
-import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../../shared/index.js";
 
 /** @type {typeof globalThis.process} */
 const process = globalThis.process;
@@ -416,7 +416,7 @@ function parseWalEntries(text, logger) {
 
     let parsed = null;
     try {
-      parsed = JSON.parse(line);
+      parsed = JSON.parse(line, protoSafeReviver);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger?.warn?.(`[SideEffectJournal] WAL parse error: ${msg}`);

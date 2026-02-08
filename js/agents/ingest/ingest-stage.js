@@ -12,7 +12,7 @@ import { VideoAdapter } from "./adapters/video.js";
 import { CodeAdapter } from "./adapters/code.js";
 import { understandAssets as runAssetUnderstanding } from "./asset-understanding.js";
 import { normalizeText } from "../stages/textprep/normalize.js";
-import { isPlainObject, toNonEmptyString } from "../shared/index.js";
+import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../shared/index.js";
 import { validateFetchUrl } from "../mcp/http-proxy.js";
 import { createResponseTooLargeError, normalizeMaxBytes, readTextWithLimit } from "../shared/index.js";
 
@@ -142,7 +142,7 @@ function normalizeIngestArtifact(data) {
   if (raw) return raw;
   if (typeof data !== "string") return null;
   try {
-    const parsed = JSON.parse(data);
+    const parsed = JSON.parse(data, protoSafeReviver);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;

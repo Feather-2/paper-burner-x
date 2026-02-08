@@ -1,3 +1,4 @@
+import { protoSafeReviver } from "../../shared/utils/safe-json.js";
 /**
  * VfsProxy
  *
@@ -338,7 +339,7 @@ export class VfsProxy {
     const text = new TextDecoder().decode(bytes);
     let payload;
     try {
-      payload = JSON.parse(text);
+      payload = JSON.parse(text, protoSafeReviver);
     } catch (err) {
       throw new Error(`VfsProxy.statSync: invalid JSON response (${err?.message || err})`);
     }
@@ -354,7 +355,7 @@ export class VfsProxy {
     const text = new TextDecoder().decode(bytes);
     let payload;
     try {
-      payload = JSON.parse(text);
+      payload = JSON.parse(text, protoSafeReviver);
     } catch (err) {
       throw new Error(`VfsProxy.readdirSync: invalid JSON response (${err?.message || err})`);
     }

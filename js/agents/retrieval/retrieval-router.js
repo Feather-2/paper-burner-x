@@ -5,7 +5,7 @@ import { chunksInScope, selectScope } from "./scope.js";
 import { buildTocAsync } from "./toc-builder.js";
 import { mmrSelect } from "./mmr.js";
 
-import { isPlainObject } from "../shared/index.js";
+import { isPlainObject, protoSafeReviver} from "../shared/index.js";
 import { checkCancelled } from "../shared/index.js";
 
 /** @type {number} Default max BM25 snapshot size in chars (2MB) */
@@ -142,7 +142,7 @@ async function loadBm25IndexFromStore(store, key, { logger, maxSnapshotChars = D
         return null;
       }
       try {
-        snapshot = JSON.parse(raw);
+        snapshot = JSON.parse(raw, protoSafeReviver);
       } catch (err) {
         logger?.warn?.("[retrieval] bm25 snapshot parse failed; ignoring", { error: err?.message || String(err) });
         return null;

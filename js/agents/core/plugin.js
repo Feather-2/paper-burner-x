@@ -155,12 +155,12 @@ export class PluginContext {
    */
   dispose() {
     for (const unsub of this._subscriptions) {
-      try { unsub(); } catch {}
+      try { unsub(); } catch { /* intentional: disposal cleanup */ }
     }
     this._subscriptions.length = 0;
 
     for (const name of this._services) {
-      try { this.services.unregister(name); } catch {}
+      try { this.services.unregister(name); } catch { /* intentional: disposal cleanup */ }
     }
     this._services.length = 0;
   }

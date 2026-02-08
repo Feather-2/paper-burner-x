@@ -1,4 +1,4 @@
-import { isPlainObject } from "../shared/index.js";
+import { isPlainObject, protoSafeReviver} from "../shared/index.js";
 
 /**
  * @typedef {object} ArtifactItem
@@ -253,6 +253,6 @@ export function serializeArtifactPayload(type, data, { pretty = false } = {}) {
  */
 export function deserializeArtifactPayload(type, raw) {
   const t = assertSupportedType(type);
-  if (t.endsWith(".json") && typeof raw === "string") return JSON.parse(raw);
+  if (t.endsWith(".json") && typeof raw === "string") return JSON.parse(raw, protoSafeReviver);
   return raw;
 }

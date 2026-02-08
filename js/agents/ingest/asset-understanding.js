@@ -1,4 +1,5 @@
 import { loadPrompt } from "../prompts/prompt-loader.js";
+import { protoSafeReviver } from "../shared/utils/safe-json.js";
 
 /**
  * @typedef {object} IngestAsset
@@ -95,7 +96,7 @@ function safeParseJson(payload) {
   if (typeof payload !== "string") return null;
   if (payload.length > MAX_JSON_RESPONSE_CHARS) return null;
   try {
-    return JSON.parse(payload);
+    return JSON.parse(payload, protoSafeReviver);
   } catch {
     return null;
   }

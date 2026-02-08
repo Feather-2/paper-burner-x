@@ -1,4 +1,4 @@
-import { createLogger, toNonEmptyString, toPositiveInt } from "../shared/index.js";
+import { createLogger, toNonEmptyString, toPositiveInt, protoSafeReviver} from "../shared/index.js";
 
 const DEFAULT_MAX_LINE_BYTES = 256 * 1024; // 256KiB
 const DEFAULT_MAX_BUFFER_BYTES = 2 * 1024 * 1024; // 2MiB
@@ -582,7 +582,7 @@ export async function consumeSseJson({
         return;
       }
       try {
-        const parsed = JSON.parse(data);
+        const parsed = JSON.parse(data, protoSafeReviver);
         if (validate) {
           const validationError = validate(parsed);
           if (validationError) {

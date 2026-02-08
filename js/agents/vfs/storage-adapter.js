@@ -11,7 +11,7 @@
  * 浏览器友好，无 Node.js 依赖。
  */
 
-import { createLogger } from "../shared/index.js";
+import { createLogger, protoSafeReviver} from "../shared/index.js";
 
 const logger = createLogger("vfs/storage-adapter");
 
@@ -185,7 +185,7 @@ export class OpfsStorageAdapter extends StorageAdapter {
       const fileHandle = await root.getFileHandle(fileName);
       const file = await fileHandle.getFile();
       const text = await file.text();
-      return JSON.parse(text);
+      return JSON.parse(text, protoSafeReviver);
     } catch (err) {
       if (err.name === "NotFoundError") return undefined;
       throw err;
@@ -400,7 +400,7 @@ export class LocalStorageAdapter extends StorageAdapter {
     const raw = localStorage.getItem(this._prefixKey(key));
     if (raw === null) return undefined;
     try {
-      return JSON.parse(raw);
+      return JSON.parse(raw, protoSafeReviver);
     } catch {
       return raw;
     }

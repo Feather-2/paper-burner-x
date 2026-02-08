@@ -9,7 +9,7 @@
  * - 卖点说明 (sellingPoint) - 这页的核心价值主张
  */
 
-import { toNonEmptyString } from "../../../shared/index.js";
+import { toNonEmptyString, protoSafeReviver} from "../../../shared/index.js";
 
 /**
  * 页面类型到默认布局的映射
@@ -405,7 +405,7 @@ ${feedback}
     const trimmed = String(result || "").slice(0, 50000).replace(/```json?\n?|\n?```/g, "").trim();
     if (!trimmed) return parseSimpleFeedback(feedback, plans);
 
-    const parsed = JSON.parse(trimmed);
+    const parsed = JSON.parse(trimmed, protoSafeReviver);
     if (!Array.isArray(parsed)) return [];
 
     // 校验每个元素结构，过滤非法项

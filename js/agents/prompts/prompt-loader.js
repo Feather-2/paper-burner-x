@@ -4,7 +4,7 @@
  * 支持浏览器和 Node.js 环境
  */
 
-import { createLogger } from "../shared/index.js";
+import { createLogger, protoSafeReviver} from "../shared/index.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 import { isNodeLike } from "../shared/index.js";
@@ -409,7 +409,7 @@ export class PromptLoader {
     const text = await tryReadTextWithLimit(resp, { maxBytes: this._maxManifestBytes, context: "Prompt manifest" });
     if (typeof text === "string") {
       try {
-        return JSON.parse(text);
+        return JSON.parse(text, protoSafeReviver);
       } catch (err) {
         throw new Error(`Failed to parse JSON from ${url}: ${err?.message || String(err)}`);
       }

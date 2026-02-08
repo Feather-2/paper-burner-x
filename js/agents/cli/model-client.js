@@ -16,7 +16,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { toNonEmptyString } from "../shared/index.js";
+import { toNonEmptyString, protoSafeReviver} from "../shared/index.js";
 import { estimateTokensCached, createLogger } from "../shared/index.js";
 import { executeWithOverflowRecovery } from "../llm/overflow-recovery.js";
 
@@ -38,7 +38,7 @@ function loadConfig() {
 
     try {
         const raw = readFileSync(configPath, "utf-8");
-        return JSON.parse(raw);
+        return JSON.parse(raw, protoSafeReviver);
     } catch (err) {
         logger.warn("配置文件解析失败", { error: err.message });
         return null;

@@ -40,4 +40,16 @@ export function safeJsonParse(value, options) {
   }
 }
 
-export default { safeJsonParse };
+/**
+ * Reviver that strips prototype-polluting keys.
+ * Use as: JSON.parse(text, protoSafeReviver) — preserves throw semantics.
+ * @param {string} key
+ * @param {any} value
+ * @returns {any}
+ */
+export function protoSafeReviver(key, value) {
+  if (key === "__proto__" || key === "constructor" || key === "prototype") return undefined;
+  return value;
+}
+
+export default { safeJsonParse, protoSafeReviver };

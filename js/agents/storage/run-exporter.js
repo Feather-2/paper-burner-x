@@ -1,7 +1,7 @@
 import { RunStore, RunStoreConstants } from "./run-store.js";
 import { createManifest, SUPPORTED_ARTIFACT_TYPES } from "./artifact-manager.js";
 
-import { isPlainObject, safeJsonParse } from "../shared/index.js";
+import { isPlainObject, safeJsonParse, protoSafeReviver} from "../shared/index.js";
 import { isNodeLike } from "../shared/index.js";
 
 async function getJSZip() {
@@ -228,7 +228,7 @@ function forEachJsonl(text, onItem) {
     start = i + 1;
     if (!line) continue;
     try {
-      const obj = JSON.parse(line);
+      const obj = JSON.parse(line, protoSafeReviver);
       if (obj && typeof obj === "object") cb(obj);
     } catch {
       // ignore bad lines
@@ -254,7 +254,7 @@ async function appendEventsFromJsonl(runStore, runId, text, { batchSize = 200 } 
     start = i + 1;
     if (!line) continue;
     try {
-      const obj = JSON.parse(line);
+      const obj = JSON.parse(line, protoSafeReviver);
       if (obj && typeof obj === "object") batch.push(obj);
     } catch {
       // ignore bad lines
@@ -556,7 +556,7 @@ export async function importRunFromZip(file, options = {}) {
         let data = content;
         if (shouldLoadAsText && typeof content === "string" && type.endsWith(".json")) {
           try {
-            data = JSON.parse(content);
+            data = JSON.parse(content, protoSafeReviver);
           } catch {
             data = content;
           }
@@ -617,7 +617,7 @@ export async function importRunFromZip(file, options = {}) {
     let data = content;
     if (shouldLoadAsText && typeof content === "string" && type.endsWith(".json")) {
       try {
-        data = JSON.parse(content);
+        data = JSON.parse(content, protoSafeReviver);
       } catch {
         data = content;
       }

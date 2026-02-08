@@ -15,7 +15,7 @@
  *                     Do NOT bundle for browser targets; use conditional imports or build aliases.
  */
 
-import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../../shared/index.js";
 import { DisposableBase } from "../../shared/index.js";
 import { Platform } from "../../shared/index.js";
 
@@ -440,7 +440,7 @@ export class ProcessCoordinator extends DisposableBase {
     let data = raw;
     if (typeof data === "string") {
       try {
-        data = JSON.parse(data);
+        data = JSON.parse(data, protoSafeReviver);
       } catch (err) {
         this._logWarn("[ProcessCoordinator] Failed to parse message:", err);
         return null;

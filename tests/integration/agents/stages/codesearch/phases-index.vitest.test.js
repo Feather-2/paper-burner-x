@@ -93,6 +93,7 @@ const hoisted = vi.hoisted(() => {
     "normalizeMaxBytes",
     "normalizeRenderType",
     "normalizeToolResult",
+    "protoSafeReviver",
     "readJsonWithLimit",
     "readTextWithLimit",
     "robustParseJson",
@@ -270,6 +271,7 @@ vi.mock("../../../../../js/agents/shared/utils/deque.js", () => ({
 }));
 vi.mock("../../../../../js/agents/shared/utils/safe-json.js", () => ({
   safeJsonParse: hoisted.safeJsonParse,
+  protoSafeReviver: hoisted.protoSafeReviver,
 }));
 vi.mock("../../../../../js/agents/shared/utils/json-candidate.js", () => ({
   extractJsonCandidate: hoisted.extractJsonCandidate,

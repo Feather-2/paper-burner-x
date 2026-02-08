@@ -799,7 +799,7 @@ export class EventBus {
       try {
         const result = this._persistenceAdapter.appendEvents(events);
         if (result?.then) result.catch((err) => logger.warn("Event persistence error", { error: err.message }));
-      } catch {}
+      } catch (e) { logger.debug("Event persistence sync error", { error: e?.message }); }
     });
   }
 
@@ -813,7 +813,7 @@ export class EventBus {
     if (this._onListenerError) {
       try {
         this._onListenerError(err, evt, fn);
-      } catch {}
+      } catch (e) { logger.debug("onListenerError handler threw", { error: e?.message }); }
     } else {
       logger.error("Error in handler", { event: evt?.name, error: err?.message });
     }

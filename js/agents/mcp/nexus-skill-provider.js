@@ -11,7 +11,7 @@
  */
 
 import { parseSseStream } from "./sse.js";
-import { normalizeMaxBytes, readJsonWithLimit } from "../shared/index.js";
+import { normalizeMaxBytes, readJsonWithLimit, protoSafeReviver} from "../shared/index.js";
 
 /**
  * @typedef {Object} NexusSkillInfo
@@ -376,7 +376,7 @@ export class NexusSkillProvider {
         const data = typeof evt?.data === "string" ? evt.data.trim() : "";
         if (!data) continue;
         try {
-          emit(JSON.parse(data));
+          emit(JSON.parse(data, protoSafeReviver));
         } catch {
           // ignore invalid JSON payloads
         }

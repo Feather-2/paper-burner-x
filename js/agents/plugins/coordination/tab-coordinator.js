@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../../shared/index.js";
 
 /**
  * Concurrency scope note:
@@ -313,7 +313,7 @@ export class TabCoordinator {
     let data = raw;
     if (typeof data === "string") {
       try {
-        data = JSON.parse(data);
+        data = JSON.parse(data, protoSafeReviver);
       } catch (err) {
         this._logWarn("[TabCoordinator] Failed to parse message:", err);
         return null;

@@ -1,4 +1,5 @@
 import { toNonEmptyString } from "./utils.js";
+import { protoSafeReviver } from "../../../shared/utils/safe-json.js";
 
 const TAB_COORDINATOR_HOOKS_KEY = "__l3StorageHooks";
 
@@ -14,7 +15,7 @@ export function decodeTabCoordinatorSession(sessionId) {
   if (!raw) return null;
   let parsed;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(raw, protoSafeReviver);
   } catch {
     return null;
   }

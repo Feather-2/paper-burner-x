@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 // @ts-ignore
 import path from "node:path";
+import { protoSafeReviver } from "../../shared/utils/safe-json.js";
 
 /** @type {typeof globalThis.process} */
 const process = globalThis.process;
@@ -525,7 +526,7 @@ export class ProcessTransport extends EventEmitter {
       }
 
       try {
-        const message = JSON.parse(trimmed);
+        const message = JSON.parse(trimmed, protoSafeReviver);
         const validation = validateJsonRpcMessage(message);
         if (!validation.ok) {
           this.emit("transport:invalid_message", { reason: validation.reason });

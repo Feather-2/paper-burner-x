@@ -597,7 +597,7 @@ export class EvalHarness {
 
     const restore = () => {
       for (const fn of restorers.splice(0)) {
-        try { fn(); } catch {}
+        try { fn(); } catch { /* intentional: restore cleanup */ }
       }
     };
 

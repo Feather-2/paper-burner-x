@@ -8,7 +8,7 @@
  */
 
 import { McpTransport } from "./mcp-transport.js";
-import { isPlainObject, toNonEmptyString } from "../shared/index.js";
+import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../shared/index.js";
 
 function attachAbortSignal(parentSignal, controller) {
   if (!parentSignal || typeof parentSignal !== "object" || typeof parentSignal.aborted !== "boolean") return () => {};
@@ -37,7 +37,7 @@ function parseJsonBestEffort(text) {
   const raw = typeof text === "string" ? text : String(text ?? "");
   if (!raw.trim()) return null;
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw, protoSafeReviver);
   } catch {
     return null;
   }

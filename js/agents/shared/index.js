@@ -18,7 +18,7 @@ export { createLogger, useLogger, trackToolCall, logEvent } from "./utils/logger
 export { safeExec, catchAndLog, makeSafe, isAbortError, isTimeoutError } from "./utils/error-utils.js";
 export { wrapError, toErrorMessage } from "./utils/error-utils-extended.js";
 export { Deque } from "./utils/deque.js";
-export { safeJsonParse } from "./utils/safe-json.js";
+export { safeJsonParse, protoSafeReviver } from "./utils/safe-json.js";
 export { extractJsonCandidate, stripThinkingTags } from "./utils/json-candidate.js";
 export { FileWatcher, isNativeWatchSupported } from "./utils/file-watcher.js";
 export { cryptoRandomHex, cryptoRandomUuid, makeSecureId, makeSecureTimestampedId } from "./utils/secure-id.js";

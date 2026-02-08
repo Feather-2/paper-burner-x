@@ -7,7 +7,7 @@ import { extractClaims } from "./claims.js";
 import { buildContentPackage } from "./build-content-package.js";
 import { BaseStage, getErrorBoundary } from "../../runtime/index.js";
 import { TraceContext } from "../../plugins/telemetry/index.js";
-import { createStageApi } from "../../shared/index.js";
+import { createStageApi, protoSafeReviver} from "../../shared/index.js";
 import { injectSystemHint } from "../../shared/index.js";
 import { extractJsonCandidate } from "../../shared/index.js";
 
@@ -216,7 +216,7 @@ async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
       if (candidate && candidate.length > 64_000) {
         console.warn("[textprep.alignClaims] JSON candidate exceeds max length, falling back to heuristic");
       } else if (candidate) {
-        const parsed = JSON.parse(candidate);
+        const parsed = JSON.parse(candidate, protoSafeReviver);
         if (Array.isArray(parsed)) {
           // Cardinality guard: limit parsed rows.
           const safeRows = parsed.length > 200 ? parsed.slice(0, 200) : parsed;

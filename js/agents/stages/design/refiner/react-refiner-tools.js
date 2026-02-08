@@ -287,7 +287,7 @@ const SCREENSHOT_CONCURRENCY = (() => {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem("ppt_screenshotConcurrency") : null;
     const n = raw ? parseInt(raw, 10) : 0;
     if (n > 0) return n;
-  } catch { }
+  } catch { /* intentional: env probe */ }
   const env = /** @type {Record<string, string | undefined>} */ (process?.env || {});
   const n = parseInt(env.SCREENSHOT_CONCURRENCY || env.DESIGN_SCREENSHOT_CONCURRENCY, 10);
   return n > 0 ? n : 3;
@@ -491,7 +491,7 @@ async function screenshot(context, params) {
     } finally {
       try {
         document.body.removeChild(container);
-      } catch { }
+      } catch { /* intentional: env probe */ }
     }
   } catch (err) {
     return { success: false, error: `screenshot failed: ${err.message}` };

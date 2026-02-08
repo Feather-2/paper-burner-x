@@ -3,7 +3,7 @@ import { TransportKind } from "./constants.js";
 import { consumeSseJson } from "./sse.js";
 import { validateMcpMessage } from "./mcp-transport.js";
 
-import { isPlainObject, toNonEmptyString } from "../shared/index.js";
+import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../shared/index.js";
 import { createLogger } from "../shared/index.js";
 
 const logger = createLogger("mcp/mcp-nexus-provider");
@@ -404,7 +404,7 @@ async function fetchJson(fetchImpl, url, { method = "POST", headers, body, signa
     ...(signal ? { signal } : {}),
   });
   const text = await res.text();
-  const parsed = text ? (() => { try { return JSON.parse(text); } catch { return null; } })() : null;
+  const parsed = text ? (() => { try { return JSON.parse(text, protoSafeReviver); } catch { return null; } })() : null;
   if (!res.ok) {
     const msg = jsonRpcErrorMessage(parsed) || toNonEmptyString(parsed?.error) || `HTTP ${res.status}`;
     throw new Error(`MCP-Nexus HTTP error: ${msg}`);

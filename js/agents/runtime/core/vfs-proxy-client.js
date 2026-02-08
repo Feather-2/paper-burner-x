@@ -1,4 +1,4 @@
-import { createLogger } from "../../shared/index.js";
+import { createLogger, protoSafeReviver} from "../../shared/index.js";
 import { VFS_REQUEST, VFS_RESPONSE, VFS_OPS } from "./vfs-proxy-protocol.js";
 
 const logger = createLogger("runtime/core/vfs-proxy-client");
@@ -349,7 +349,7 @@ export class VfsProxyClient {
     const text = new TextDecoder().decode(bytes);
     let payload;
     try {
-      payload = JSON.parse(text);
+      payload = JSON.parse(text, protoSafeReviver);
     } catch (err) {
       throw new Error(`VfsProxyClient: invalid JSON response for ${op}(${path}): ${err?.message || String(err)}`);
     }

@@ -4,6 +4,7 @@ import { EditModeTools, createEditToolExecutor } from "./tools.js";
 import { EditHistoryManager } from "./history.js";
 
 import { isPlainObject } from "../shared/design-utils.js";
+import { protoSafeReviver } from "../../../shared/utils/safe-json.js";
 
 function ensureState(initialState) {
   if (!isPlainObject(initialState)) throw new TypeError("Edit loop: initialState must be an object");
@@ -207,7 +208,7 @@ function safeParseJson(value) {
   if (typeof value !== "string") return null;
   if (value.length > MAX_INTENT_JSON_CHARS) return null;
   try {
-    const parsed = JSON.parse(value);
+    const parsed = JSON.parse(value, protoSafeReviver);
     const length = getJsonLength(parsed);
     if (length === null || length > MAX_INTENT_JSON_CHARS) return null;
     if (exceedsDepth(parsed) || !isValidIntentPayload(parsed)) return null;

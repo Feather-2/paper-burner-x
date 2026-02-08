@@ -1,4 +1,4 @@
-import { DisposableBase } from "../../shared/index.js";
+import { DisposableBase, protoSafeReviver} from "../../shared/index.js";
 import HookRegistry, { HookEvent, HookType } from "./hook-registry.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 import { FileWatcher, isNativeWatchSupported } from "../../shared/index.js";
@@ -575,7 +575,7 @@ export class HooksConfigLoader extends DisposableBase {
         return null;
       }
 
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(text, protoSafeReviver);
       if (maxDepth(parsed) > MAX_HOOKS_CONFIG_DEPTH) {
         logger.warn(`[HooksConfigLoader] hooks config too deep: ${this._configPath}`);
         return null;

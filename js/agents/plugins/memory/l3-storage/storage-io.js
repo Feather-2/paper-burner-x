@@ -1,4 +1,5 @@
 import { isMissingPathError } from "./utils.js";
+import { protoSafeReviver } from "../../../shared/utils/safe-json.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -79,7 +80,7 @@ export function createStorageIO({ vfs, basePath }) {
     const text = decoder.decode(bytes);
     let parsed;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(text, protoSafeReviver);
     } catch {
       return null;
     }
