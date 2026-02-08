@@ -61,8 +61,8 @@ const INJECTION_PATTERNS = [
   { pattern: /act\s+as\s+(a|an|the)?\s*(new|different)/i, name: "act_as" },
   { pattern: /pretend\s+(you\s+are|to\s+be)/i, name: "pretend" },
 
-  // 系统提示注入
-  { pattern: /^(assistant|system|user)\s*:/im, name: "role_prefix" },
+  // 系统提示注入 — require standalone role label (not "operating system:")
+  { pattern: /^\s*(assistant|system|user)\s*:\s*\S/im, name: "role_prefix" },
   { pattern: /<\|im_start\|>/i, name: "im_start" },
   { pattern: /<\|im_end\|>/i, name: "im_end" },
   { pattern: /<\|endoftext\|>/i, name: "end_of_text" },
@@ -210,7 +210,7 @@ export class InjectionScanner {
 
     // 4. 检查角色劫持
     const roleHijackPatterns = [
-      /^(assistant|system|user)\s*:/im,
+      /^\s*(assistant|system|user)\s*:\s*\S/im,
       /^\[?(assistant|system|user)\]?\s*$/im,
     ];
     for (const pattern of roleHijackPatterns) {
