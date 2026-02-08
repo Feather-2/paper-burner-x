@@ -223,7 +223,8 @@ function looksLikeForkBomb(command) {
   if (funcMatch) {
     const funcName = funcMatch[1];
     const funcBody = funcMatch[2];
-    const callCount = (funcBody.match(new RegExp(`\\b${funcName}\\b`, "g")) || []).length;
+    const safeName = funcName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const callCount = (funcBody.match(new RegExp(`\\b${safeName}\\b`, "g")) || []).length;
     if (callCount >= 2 && /[&|]/.test(funcBody)) return true;
   }
 

@@ -7,6 +7,8 @@
  * @module eval/graders/deterministic
  */
 
+import { createSafeRegex } from "../../shared/utils/safe-regex.js";
+
 /**
  * @typedef {import('../types.js').GraderConfig} GraderConfig
  * @typedef {import('../types.js').GraderResult} GraderResult
@@ -44,7 +46,7 @@ function compileRegex(pattern, flags = "") {
     if (typeof flags === "string" && flags.length > 0) return new RegExp(pattern.source, flags);
     return pattern;
   }
-  return new RegExp(String(pattern), String(flags || ""));
+  return createSafeRegex(String(pattern), String(flags || ""));
 }
 
 function getByPath(obj, path) {
