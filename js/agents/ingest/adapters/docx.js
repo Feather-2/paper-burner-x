@@ -76,24 +76,8 @@ function enforceZipLimits(zip, { maxEntries, maxUncompressedBytes, maxCompressio
   }
 }
 
-function resolveMammoth(stageApi) {
-  if (stageApi?.mammoth && typeof stageApi.mammoth.convertToHtml === "function") return stageApi.mammoth;
-  if (globalThis?.mammoth && typeof globalThis.mammoth.convertToHtml === "function") return globalThis.mammoth;
-  return null;
-}
-
-async function importMammoth() {
-  try {
-    const mod = await import("mammoth");
-    const mammoth = mod?.default || mod;
-    return mammoth && typeof mammoth.convertToHtml === "function" ? mammoth : null;
-  } catch {
-    return null;
-  }
-}
-
-// Shared resolver (AUDIT E4)
-import { resolveTurndownService } from "./resolve-deps.js";
+// Shared resolvers (AUDIT E4)
+import { resolveTurndownService, resolveMammoth, importMammoth } from "./resolve-deps.js";
 
 function extFromMime(mimeType) {
   const mt = String(mimeType || "").toLowerCase();

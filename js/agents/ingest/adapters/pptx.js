@@ -149,8 +149,10 @@ async function loadPptxSlideParserFromScript() {
 }
 
 async function resolvePptxParser(stageApi) {
-  if (stageApi?.pptxParser && typeof stageApi.pptxParser.parse === "function") return stageApi.pptxParser;
-  if (typeof globalThis?.PPTXSlideParser === "function") return new globalThis.PPTXSlideParser();
+  // AUDIT E4: try shared resolver first, then local fallback
+  const { resolvePptxParser: sharedResolve } = await import("./resolve-deps.js");
+  const fromShared = await sharedResolve(stageApi);
+  if (fromShared) return fromShared;
   const Parser = await loadPptxSlideParserFromScript();
   return new Parser();
 }
