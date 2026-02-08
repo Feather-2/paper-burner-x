@@ -1,0 +1,88 @@
+import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
+
+/** @type {Record<string, readonly string[]>} */
+const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({
+  [AgentStatus.IDLE]: [AgentStatus.RUNNING, AgentStatus.COMPLETED, AgentStatus.FAILED],
+  [AgentStatus.RUNNING]: [AgentStatus.PAUSED, AgentStatus.COMPLETED, AgentStatus.FAILED],
+  [AgentStatus.PAUSED]: [AgentStatus.RUNNING, AgentStatus.COMPLETED, AgentStatus.FAILED],
+  [AgentStatus.COMPLETED]: [AgentStatus.IDLE],
+  [AgentStatus.FAILED]: [AgentStatus.IDLE],
+});
+
+/**
+ * @param {string} from
+ * @param {string} to
+ * @param {{ force?: boolean, allowReset?: boolean }} [meta]
+ * @returns {boolean}
+ */
+export function isAllowedLoopStatusTransition(from, to, meta = {}) {
+  if (meta && typeof meta === "object") {
+    if (meta.force) return true;
+    if (meta.allowReset && to === AgentStatus.IDLE) return true;
+  }
+  if (!isValidAgentStatus(from) || !isValidAgentStatus(to)) return true;
+  const allowed = DEFAULT_LOOP_STATUS_TRANSITIONS[from] || [];
+  return allowed.includes(to);
+}
+
+/**
+ * Attach phase transition and DI resolution methods to BaseAgentLoop.
+ * @param {Function} BaseAgentLoop
+ */
+export function attachPhaseMixin(BaseAgentLoop) {
+  const proto = BaseAgentLoop.prototype;
+
+  /**
+   * Resolve a dependency: DI container first, then context property, then fallback.
+   * @param {string} serviceId
+   * @param {any} context
+   * @param {any} fallback
+   * @returns {Promise<any>}
+   */
+  proto._resolveDependency = async function _resolveDependency(serviceId, context, fallback) {
+    const container = context?.container;
+    if (container && typeof container.tryGet === "function") {
+      const fromContainer = await container.tryGet(serviceId);
+      if (fromContainer !== undefined) return fromContainer;
+    }
+    if (context && typeof context === "object" && serviceId in context) {
+      const fromContext = context[serviceId];
+      if (fromContext !== undefined) return fromContext;
+    }
+    return fallback;
+  };
+
+  /**
+   * Transition phase state and emit event.
+   * @param {any} state
+   * @param {string} next
+   * @param {{ emit?: Function, runId?: string|null, payload?: any, eventName?: string|null }} [options]
+   * @returns {string}
+   */
+  proto._transitionPhase = function _transitionPhase(state, next, { emit, runId, payload, eventName } = {}) {
+    const from = state?.status ?? state?.state;
+    let ok = true;
+    if (this.stateMachine && typeof this.stateMachine.transition === "function") {
+      ok = this.stateMachine.transition(state, next, { runId, from, to: next, ...payload });
+    } else if (state && typeof state === "object") {
+      if ("status" in state) state.status = next;
+      else if ("state" in state) state.state = next;
+      else state.status = next;
+    }
+
+    if (!ok) {
+      throw new Error(`${this.stageName} phase transition rejected: ${from} -> ${next}`);
+    }
+
+    const emitFn = emit || this.emit || this.eventBus?.emit;
+    if (typeof emitFn === "function") {
+      emitFn(eventName || `${this.stageName}.phase.transition`, {
+        actor: this.actor,
+        status: "progress",
+        payload: { runId, from, to: next, ...payload },
+      });
+    }
+
+    return next;
+  };
+}

@@ -10,6 +10,8 @@ import { initMessageHandling, attachMessageHandling } from "./agent-loop-message
 import { initToolDispatch, attachToolDispatch } from "./agent-loop-tool-dispatch.js";
 import { initStatusMixin, attachStatusMixin } from "./agent-loop-status-mixin.js";
 import { initStepMixin, attachStepMixin } from "./agent-loop-step-mixin.js";
+import { attachPhaseMixin } from "./agent-loop-phase-mixin.js";
+import { attachUserActionMixin } from "./agent-loop-user-action-mixin.js";
 import { runWithAgentLifecycleHooks } from "./agent-loop-lifecycle-hooks.js";
 
 /**
@@ -95,8 +97,6 @@ export { StatusController } from "./status-controller.js";
 // Re-export 配置供外部自定义
 export { DEFAULT_CONTEXT_CONFIG, mergeContextConfig };
 
-const USER_ACTION_PREFIX = "user.action";
-
 // 简单 token 估算 (4 chars ≈ 1 token)
 /**
  * @param {unknown} text
@@ -170,30 +170,8 @@ function resolveStrictLoopStatusTransitions(explicit) {
   return true;
 }
 
-/** @type {Record<string, readonly string[]>} */
-const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({
-  [AgentStatus.IDLE]: [AgentStatus.RUNNING, AgentStatus.COMPLETED, AgentStatus.FAILED],
-  [AgentStatus.RUNNING]: [AgentStatus.PAUSED, AgentStatus.COMPLETED, AgentStatus.FAILED],
-  [AgentStatus.PAUSED]: [AgentStatus.RUNNING, AgentStatus.COMPLETED, AgentStatus.FAILED],
-  [AgentStatus.COMPLETED]: [AgentStatus.IDLE],
-  [AgentStatus.FAILED]: [AgentStatus.IDLE],
-});
-
-/**
- * @param {string} from
- * @param {string} to
- * @param {LoopStatusTransitionMeta} [meta]
- * @returns {boolean}
- */
-function isAllowedLoopStatusTransition(from, to, meta = /** @type {LoopStatusTransitionMeta} */ ({})) {
-  if (meta && typeof meta === "object") {
-    if (meta.force) return true;
-    if (meta.allowReset && to === AgentStatus.IDLE) return true;
-  }
-  if (!isValidAgentStatus(from) || !isValidAgentStatus(to)) return true;
-  const allowed = DEFAULT_LOOP_STATUS_TRANSITIONS[from] || [];
-  return allowed.includes(to);
-}
+// isAllowedLoopStatusTransition moved to agent-loop-phase-mixin.js
+export { isAllowedLoopStatusTransition } from "./agent-loop-phase-mixin.js";
 
 /**
  * @param {any} ctx
@@ -342,126 +320,6 @@ export class BaseAgentLoop {
   }
 
   /**
-   * @param {EventBusLike} _eventBus
-   * @param {AttachListenerOptions} [_options]
-   * @returns {void}
-   */
-  _attachUserInputListener(_eventBus, _options = {}) {}
-
-  /**
-   * @param {EventBusLike} _eventBus
-   * @param {{ signal?: AbortSignal }} [_options]
-   * @returns {void}
-   */
-  _attachPauseListener(_eventBus, _options = {}) {}
-
-  /** @returns {void} */
-  _detachEventBusListeners() {}
-
-  // ===== DI 服务解析 (统一入口) =====
-
-  /**
-   * 解析依赖：DI 容器优先，回退到 context 属性，最后使用 fallback。
-   *
-   * @param {string} serviceId - 服务 ID（ServiceId.XXX 或字符串）
-   * @param {any} context - 上下文对象（可能包含 container 或直接属性）
-   * @param {any} fallback - 兜底值
-   * @returns {Promise<any>} 解析后的服务实例
-   */
-  async _resolveDependency(serviceId, context, fallback) {
-    // 1. 尝试从 DI 容器获取
-    const container = context?.container;
-    if (container && typeof container.tryGet === "function") {
-      const fromContainer = await container.tryGet(serviceId);
-      if (fromContainer !== undefined) return fromContainer;
-    }
-    // 2. 尝试从 context 属性获取（兼容 stageApi.xxx 直传）
-    if (context && typeof context === "object" && serviceId in context) {
-      const fromContext = context[serviceId];
-      if (fromContext !== undefined) return fromContext;
-    }
-    // 3. 返回 fallback
-    return fallback;
-  }
-
-  /**
-   * @param {any} state
-   * @param {string} next
-   * @param {TransitionPhaseOptions} [options]
-   * @returns {string}
-   */
-  _transitionPhase(state, next, { emit, runId, payload, eventName } = {}) {
-    const from = state?.status ?? state?.state;
-    let ok = true;
-    if (this.stateMachine && typeof this.stateMachine.transition === "function") {
-      ok = this.stateMachine.transition(state, next, { runId, from, to: next, ...payload });
-    } else if (state && typeof state === "object") {
-      if ("status" in state) state.status = next;
-      else if ("state" in state) state.state = next;
-      else state.status = next;
-    }
-
-    if (!ok) {
-      throw new Error(`${this.stageName} phase transition rejected: ${from} -> ${next}`);
-    }
-
-    const emitFn = emit || this.emit || this.eventBus?.emit;
-    if (typeof emitFn === "function") {
-      emitFn(eventName || `${this.stageName}.phase.transition`, {
-        actor: this.actor,
-        status: "progress",
-        payload: { runId, from, to: next, ...payload },
-      });
-    }
-
-    return next;
-  }
-
-  /**
-   * @param {string} actionName
-   * @param {WaitForUserActionOptions} [options]
-   * @returns {Promise<any>}
-   */
-  async waitForUserAction(actionName, { timeout = 300000, eventBus, signal } = {}) {
-    const bus = eventBus || this.eventBus;
-    if (!bus || typeof bus.subscribe !== "function") {
-      throw new Error("waitForUserAction: eventBus with subscribe() is required");
-    }
-
-    return new Promise((resolve, reject) => {
-      let done = false;
-      const finish = (err, payload) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timeoutId);
-        off?.();
-        if (signal && typeof signal.removeEventListener === "function") {
-          signal.removeEventListener("abort", onAbort);
-        }
-        if (err) reject(err);
-        else resolve(payload);
-      };
-
-      const onAbort = () => {
-        finish(new Error("Run cancelled"));
-      };
-
-      if (signal && typeof signal.addEventListener === "function") {
-        signal.addEventListener("abort", onAbort, { once: true });
-      }
-
-      const timeoutId = setTimeout(() => {
-        finish(new Error(`Timeout waiting for user action: ${actionName}`));
-      }, timeout);
-
-      const off = bus.subscribe(`${USER_ACTION_PREFIX}.${actionName}`, (evt) => {
-        const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
-        finish(null, payload);
-      });
-    });
-  }
-
-  /**
    * Subclasses should implement: (input, context) => Promise<unknown>
    * @param {any} _input
    * @param {AnyRecord} _context
@@ -535,3 +393,5 @@ attachMessageHandling(BaseAgentLoop);
 attachToolDispatch(BaseAgentLoop);
 attachStatusMixin(BaseAgentLoop);
 attachStepMixin(BaseAgentLoop);
+attachPhaseMixin(BaseAgentLoop);
+attachUserActionMixin(BaseAgentLoop);
