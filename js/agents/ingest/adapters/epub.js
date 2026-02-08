@@ -78,8 +78,8 @@ function enforceZipLimits(zip, { maxEntries, maxUncompressedBytes, maxCompressio
   }
 }
 
-// Shared resolver (AUDIT E4)
-import { resolveTurndownService } from "./resolve-deps.js";
+// Shared resolvers (AUDIT E4)
+import { resolveTurndownService, importTurndownService } from "./resolve-deps.js";
 
 function extFromMime(mimeType) {
   const mt = String(mimeType || "").toLowerCase();

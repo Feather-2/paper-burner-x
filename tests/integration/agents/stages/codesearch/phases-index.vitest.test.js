@@ -85,6 +85,7 @@ const hoisted = vi.hoisted(() => {
     "makeSafe",
     "makeSecureId",
     "makeSecureTimestampedId",
+    "mergeSignals",
     "mergeStageApis",
     "migrateCheckpoint",
     "normalizeEmbeddingConfig",
@@ -288,6 +289,7 @@ vi.mock("../../../../../js/agents/shared/utils/cancellation.js", () => ({
   checkCancelled: hoisted.checkCancelled,
   withCancellation: hoisted.withCancellation,
   createLinkedSignal: hoisted.createLinkedSignal,
+  mergeSignals: hoisted.mergeSignals,
 }));
 vi.mock("../../../../../js/agents/shared/utils/error-classifier.js", () => ({
   classifyDeepSearchError: hoisted.classifyDeepSearchError,

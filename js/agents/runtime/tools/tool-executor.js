@@ -14,7 +14,6 @@
 import { validateArgs } from "./schema-validator.js";
 
 import { isPlainObject, toPositiveInt } from "../../shared/index.js";
-import { deepClone } from "../../shared/utils/value-utils.js";
 import { isNodeLike } from "../../shared/index.js";
 import { createPreToolUseHook } from "../hooks/hook-runner.js";
 
@@ -597,7 +596,11 @@ export class ToolExecutor {
 
     try {
       // Ensure cloneability for worker_threads postMessage.
-      return deepClone(snapshot);
+      // Must use structuredClone (not deepClone) — deepClone silently
+      // preserves function refs which would fail in postMessage.
+      return typeof structuredClone === "function"
+        ? structuredClone(snapshot)
+        : JSON.parse(JSON.stringify(snapshot));
     } catch {
       return {};
     }

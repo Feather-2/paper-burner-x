@@ -70,8 +70,8 @@ function estimateByteLength(text) {
   return text.length;
 }
 
-// Shared resolver (AUDIT E4) — combines sync stageApi/globalThis + async import fallback
-import { resolveTurndownService } from "./resolve-deps.js";
+// Shared resolvers (AUDIT E4)
+import { resolveTurndownService, importTurndownService } from "./resolve-deps.js";
 
 function extFromMime(mimeType) {
   const mt = String(mimeType || "").toLowerCase();

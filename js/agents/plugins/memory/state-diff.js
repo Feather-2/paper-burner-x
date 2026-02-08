@@ -29,7 +29,11 @@ import { deepClone } from "../../shared/utils/value-utils.js";
  */
 export function cloneJson(value) {
   if (value === null || typeof value !== "object") return value;
-  return deepClone(value);
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return deepClone(value);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

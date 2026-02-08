@@ -64,6 +64,30 @@ export function withCancellation(fn, context = "unknown") {
 }
 
 /**
+ * Merge two AbortSignals into one that aborts when either input aborts.
+ * @param {AbortSignal | null | undefined} a
+ * @param {AbortSignal | null | undefined} b
+ * @returns {AbortSignal | null}
+ */
+export function mergeSignals(a, b) {
+  const signals = [a, b].filter(Boolean);
+  if (signals.length === 0) return null;
+  if (signals.length === 1) return signals[0];
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") return AbortSignal.any(signals);
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  for (const s of signals) {
+    if (s.aborted) {
+      controller.abort();
+      return controller.signal;
+    }
+    s.addEventListener?.("abort", abort, { once: true });
+  }
+  return controller.signal;
+}
+
+/**
  * Create an AbortSignal linked to a parent (optional) with an optional timeout.
  * @param {AbortSignal | AbortSignalLike | null | undefined} parent
  * @param {number} [timeoutMs]

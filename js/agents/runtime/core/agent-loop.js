@@ -1,5 +1,5 @@
 import { createStageApi } from "../../shared/index.js";
-import { checkCancelled } from "../../shared/index.js";
+import { checkCancelled, mergeSignals } from "../../shared/index.js";
 import { StagePausedError } from "./stage-errors.js";
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "./loop-runtime-state.js";
@@ -232,26 +232,6 @@ export function checkCancelledOrPaused(signal) {
 
 // Re-export from contracts for backward compatibility
 export { normalizeToolResult, resolveToolExecutor } from "./agent-loop-tool-dispatch.js";
-
-/**
- * @param {AbortSignal | null | undefined} a
- * @param {AbortSignal | null | undefined} b
- * @returns {AbortSignal | null}
- */
-function mergeSignals(a, b) {
-  const signals = [a, b].filter(Boolean);
-  if (signals.length === 0) return null;
-  if (signals.length === 1) return signals[0];
-  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") return AbortSignal.any(signals);
-
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  for (const s of signals) {
-    if (s.aborted) return s;
-    s.addEventListener?.("abort", abort, { once: true });
-  }
-  return controller.signal;
-}
 
 
 

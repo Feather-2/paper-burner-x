@@ -7,13 +7,21 @@
  */
 
 /**
- * Resolve TurndownService.
+ * Resolve TurndownService (sync: stageApi/globalThis only).
  * @param {Record<string, any>} [stageApi]
- * @returns {Promise<any>}
+ * @returns {Function | null}
  */
-export async function resolveTurndownService(stageApi) {
+export function resolveTurndownService(stageApi) {
   if (typeof stageApi?.TurndownService === "function") return stageApi.TurndownService;
   if (typeof globalThis?.TurndownService === "function") return globalThis.TurndownService;
+  return null;
+}
+
+/**
+ * Async import TurndownService (Node.js / bundler fallback).
+ * @returns {Promise<Function | null>}
+ */
+export async function importTurndownService() {
   try {
     const mod = await import(/* @vite-ignore */ "turndown");
     return mod.default || mod.TurndownService || mod;

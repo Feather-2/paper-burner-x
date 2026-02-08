@@ -15,6 +15,8 @@
  * @typedef {{ status?: string, error?: any, result?: any }} EndStepOptions
  */
 
+import { mergeSignals } from "../../shared/utils/cancellation.js";
+
 let _stepSeq = 0;
 
 /**
@@ -25,29 +27,6 @@ function buildStepId(prefix) {
   _stepSeq += 1;
   const base = prefix && typeof prefix === "string" ? prefix : "step";
   return `${base}_${Date.now().toString(36)}_${_stepSeq}`;
-}
-
-/**
- * @param {AbortSignal | null | undefined} a
- * @param {AbortSignal | null | undefined} b
- * @returns {AbortSignal | null}
- */
-function mergeSignals(a, b) {
-  const signals = [a, b].filter(Boolean);
-  if (signals.length === 0) return null;
-  if (signals.length === 1) return signals[0];
-  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") return AbortSignal.any(signals);
-
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  for (const s of signals) {
-    if (s.aborted) {
-      controller.abort();
-      return controller.signal;
-    }
-    s.addEventListener?.("abort", abort, { once: true });
-  }
-  return controller.signal;
 }
 
 /**
