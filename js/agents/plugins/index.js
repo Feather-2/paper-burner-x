@@ -123,6 +123,18 @@ export function createPluginLoader() {
 }
 
 /**
+ * Register plugins from a manifest object.
+ * Allows external plugin discovery without modifying this file.
+ * @param {Record<string, () => Promise<any>>} manifest - plugin name → async loader
+ */
+export function registerPluginsFromManifest(manifest) {
+  if (!manifest || typeof manifest !== "object") return;
+  for (const [name, loader] of Object.entries(manifest)) {
+    if (typeof loader === "function") pluginRegistry[name] = loader;
+  }
+}
+
+/**
  * Reset plugin registry to initial state (test isolation).
  * Removes dynamically registered plugins, restores original set.
  */
@@ -139,4 +151,5 @@ export default {
   register: registerPlugin,
   createLoader: createPluginLoader,
   reset: resetPluginRegistry,
+  registerFromManifest: registerPluginsFromManifest,
 };
