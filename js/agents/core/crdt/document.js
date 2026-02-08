@@ -11,7 +11,8 @@ import { ORSet } from './or-set.js';
 import { GCounter, PNCounter } from './counters.js';
 
 /** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
-/** @typedef {{ nodeId?: string, docId?: string, maxOpLogSize?: number }} CRDTDocumentOptions */
+/** @typedef {{ nextTick: () => LamportClockState }} ClockServiceLike */
+/** @typedef {{ nodeId?: string, docId?: string, maxOpLogSize?: number, clockService?: ClockServiceLike }} CRDTDocumentOptions */
 /** @typedef {'register' | 'map' | 'set' | 'counter'} CRDTFieldType */
 /** @typedef {{ type: string, [key: string]: unknown }} CounterOpLike */
 /**
@@ -73,8 +74,9 @@ export class CRDTDocument {
    * @param {CRDTDocumentOptions} [options={}]
    */
   constructor(options = {}) {
+    this._clockService = options.clockService || null;
     /** @type {string} */
-    this._nodeId = options.nodeId || nextTick().id.split('_')[0];
+    this._nodeId = options.nodeId || this._nextTick().id.split('_')[0];
     /** @type {string} */
     this._docId = options.docId || `doc_${Date.now()}`;
 
@@ -95,6 +97,20 @@ export class CRDTDocument {
     this._maxOpLogSize = options.maxOpLogSize || 1000;
     /** @type {number} */
     this._version = 0;
+  }
+
+  /** @returns {LamportClockState} */
+  _nextTick() {
+    return this._clockService ? this._clockService.nextTick() : nextTick();
+  }
+
+  /** @param {number} remoteSeq */
+  _syncClock(remoteSeq) {
+    if (this._clockService && typeof this._clockService.sync === "function") {
+      this._clockService.sync(remoteSeq);
+    } else {
+      syncClock(remoteSeq);
+    }
   }
 
   /**
@@ -313,7 +329,7 @@ export class CRDTDocument {
     // 同步时钟
     const remoteSeq = op.clock?.seq ?? op.op?.clock?.seq;
     if (typeof remoteSeq === 'number' && Number.isFinite(remoteSeq)) {
-      syncClock(remoteSeq);
+      this._syncClock(remoteSeq);
     }
 
     let changed = false;

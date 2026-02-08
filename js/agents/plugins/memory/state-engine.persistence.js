@@ -1,4 +1,16 @@
 import { sync as syncClock, currentSeq } from "../../core/lamport-clock.js";
+
+/** Get current seq from engine's clockService or global fallback */
+function _currentSeq(engine) {
+  const cs = engine?._clockService;
+  return cs && typeof cs.currentSeq === "function" ? cs.currentSeq() : currentSeq();
+}
+/** Sync clock via engine's clockService or global fallback */
+function _syncClock(engine, seq) {
+  const cs = engine?._clockService;
+  if (cs && typeof cs.sync === "function") cs.sync(seq);
+  else syncClock(seq);
+}
 import { cloneJson, buildStatePatch } from "./state-diff.js";
 import { L3_ADD_CHECKPOINT } from "./action-types.js";
 import { generateId } from "./state-engine.utils.js";
@@ -11,7 +23,7 @@ import { generateId } from "./state-engine.utils.js";
 export function createSnapshot(state) {
   return {
     state: cloneJson(state),
-    clock: currentSeq(),
+    clock: _currentSeq(null),
     ts: Date.now(),
   };
 }
@@ -28,7 +40,7 @@ export function restoreSnapshot(engine, snapshot) {
   engine._state = cloneJson(snapshot.state);
   if (typeof snapshot.clock === "number") {
     engine._actorId = engine._state.runId;
-    syncClock(snapshot.clock);
+    _syncClock(engine, snapshot.clock);
   }
   return true;
 }
@@ -44,7 +56,7 @@ export function saveCheckpoint(engine, options = {}) {
   const { fullSnapshotEvery = 10 } = options;
   const checkpointId = generateId("cp");
   const ts = Date.now();
-  const clock = currentSeq();
+  const clock = _currentSeq(engine);
 
   // Find most recent checkpoint as base
   const checkpointList = engine._state.L3?.checkpoints || [];
@@ -127,7 +139,7 @@ export function restoreCheckpoint(engine, checkpointId) {
 
   if (typeof cp.clock === "number") {
     engine._actorId = engine._state.runId;
-    syncClock(cp.clock);
+    _syncClock(engine, cp.clock);
   }
 
   return true;
