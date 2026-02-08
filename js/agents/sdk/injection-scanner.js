@@ -62,7 +62,7 @@ const INJECTION_PATTERNS = [
   { pattern: /pretend\s+(you\s+are|to\s+be)/i, name: "pretend" },
 
   // 系统提示注入
-  { pattern: /system\s*:\s*/i, name: "system_colon" },
+  { pattern: /^(assistant|system|user)\s*:/im, name: "role_prefix" },
   { pattern: /<\|im_start\|>/i, name: "im_start" },
   { pattern: /<\|im_end\|>/i, name: "im_end" },
   { pattern: /<\|endoftext\|>/i, name: "end_of_text" },

@@ -1,6 +1,6 @@
 import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
 import { estimateTokensCached } from "../../../shared/index.js";
-import { robustParseJson } from "../../../shared/index.js";
+import { robustParseJson, createSafeRegex } from "../../../shared/index.js";
 import { CicadaEvents } from "../../../runtime/events/events.js";
 import { makeSecureTimestampedId } from "../../../shared/index.js";
 import { createLogger } from "../../../shared/index.js";
@@ -1005,7 +1005,7 @@ export class CicadaCompressor {
       const safePattern = String(pattern).slice(0, 100);
       let regex;
       try {
-        regex = new RegExp(safePattern, "i");
+        regex = createSafeRegex(safePattern, "i");
       } catch {
         // 非法正则表达式，转义为字面量匹配
         const escaped = safePattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

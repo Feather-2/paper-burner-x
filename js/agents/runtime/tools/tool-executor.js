@@ -231,7 +231,16 @@ class WorkerPool {
     }
 
     return await new Promise((resolve, reject) => {
-      this._waiters.push({ resolve, reject });
+      const timeoutMs = 30_000;
+      const timer = setTimeout(() => {
+        const idx = this._waiters.findIndex(w => w.resolve === resolve);
+        if (idx !== -1) this._waiters.splice(idx, 1);
+        reject(new Error(`WorkerPool.acquire() timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this._waiters.push({
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
     });
   }
 

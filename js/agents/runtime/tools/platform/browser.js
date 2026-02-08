@@ -5,7 +5,7 @@
  */
 
 import { isPlainObject, toNonEmptyString } from '../../../shared/index.js';
-import { globToRegex } from '../../../shared/index.js';
+import { globToRegex, createSafeRegex } from '../../../shared/index.js';
 
 /**
  * @typedef {import('./index.js').PlatformToolsOptions} PlatformToolsOptions
@@ -148,7 +148,7 @@ export function createBrowserTools(options = {}) {
     try {
       // 在 try 内构造 RegExp 以捕获非法 pattern
       // 不使用 g flag 避免 test() 状态化问题
-      const searchPattern = regex ? new RegExp(pattern, 'm') : null;
+      const searchPattern = regex ? createSafeRegex(pattern, 'm') : null;
 
       // 获取文件列表
       const { files } = await glob({ pattern: '**/*', path: searchPath });

@@ -5,7 +5,7 @@
  */
 
 import { toNonEmptyString } from '../../../shared/index.js';
-import { globToRegex } from '../../../shared/index.js';
+import { globToRegex, createSafeRegex } from '../../../shared/index.js';
 import { exec as execCommand } from '../../core/exec/index.js';
 
 /**
@@ -335,7 +335,7 @@ export async function createNodeTools(options = {}) {
     const matches = [];
     // 不使用 global flag 避免 lastIndex 累积问题
     const searchPattern = isRegex
-      ? new RegExp(pattern, caseSensitive ? 'm' : 'im')
+      ? createSafeRegex(pattern, caseSensitive ? 'm' : 'im')
       : null;
 
     for (const file of files.slice(0, 50)) {

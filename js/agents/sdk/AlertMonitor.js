@@ -162,6 +162,7 @@ export class AlertMonitor {
         /** @type {{ tool: string, time: number }[]} */
         this._toolHistory = this._toolHistory || [];
         this._toolHistory.push({ tool, time: Date.now() });
+        if (this._toolHistory.length > 100) this._toolHistory = this._toolHistory.slice(-50);
 
         // 重复性检查
         const recent = this._toolHistory.slice(-3);

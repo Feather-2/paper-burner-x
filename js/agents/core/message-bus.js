@@ -174,6 +174,9 @@ export class MessageBus {
     this._ownsEventBus = false;
   }
 
+  /** @type {Map<string, Promise<any>>} */
+  _inflightRequests = new Map();
+
   /**
    * 释放资源
    * @returns {void}
@@ -313,13 +316,19 @@ export class MessageBus {
    * @template T
    * @param {string} type
    * @param {unknown} payload
-   * @param {{ timeoutMs?: number, signal?: AbortSignal }} [options]
+   * @param {{ timeoutMs?: number, signal?: AbortSignal, idempotencyKey?: string }} [options]
    * @returns {Promise<T>}
    */
   request(type, payload, options = {}) {
     const name = toNonEmptyString(type);
     if (!name || !isValidEventName(name)) {
       throw new Error('MessageBus.request(type, payload): type must be a valid event name');
+    }
+
+    // Idempotency: deduplicate in-flight requests with same key
+    const idempotencyKey = typeof options?.idempotencyKey === 'string' ? options.idempotencyKey : null;
+    if (idempotencyKey && this._inflightRequests.has(idempotencyKey)) {
+      return this._inflightRequests.get(idempotencyKey);
     }
 
     const timeoutMs = toPositiveInt(options?.timeoutMs, DEFAULT_TIMEOUT_MS);
@@ -331,7 +340,7 @@ export class MessageBus {
     const requestId = createRpcId();
     const replyTo = `rpc.response.${requestId}`;
 
-    return new Promise((resolve, reject) => {
+    const promise = new Promise((resolve, reject) => {
       if (signal && signal.aborted) {
         reject(toAbortError(getAbortReason(signal)));
         return;
@@ -425,6 +434,13 @@ export class MessageBus {
         meta: { kind: RPC_KIND_REQUEST, requestId, replyTo },
       });
     });
+
+    // Cache in-flight promise for idempotency dedup
+    if (idempotencyKey) {
+      this._inflightRequests.set(idempotencyKey, promise);
+      promise.finally(() => this._inflightRequests.delete(idempotencyKey));
+    }
+    return promise;
   }
 }
 

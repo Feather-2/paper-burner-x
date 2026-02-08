@@ -54,6 +54,10 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+/** Escape special regex chars */
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 const MAX_STYLE_LENGTH = 4000;
 const SAFE_STYLE_PROPERTIES = new Set([
@@ -524,13 +528,14 @@ export class DeckEditor {
     // 简单的文本替换（转义防 XSS）
     if (changes.text !== undefined) {
       const safeText = escapeHtml(String(changes.text).slice(0, 10000));
-      const regex = new RegExp(`(data-el="${elementId}"[^>]*>)[^<]*(<)`, "g");
+      const safeId = escapeRegExp(elementId);
+      const regex = new RegExp(`(data-el="${safeId}"[^>]*>)[^<]*(<)`, "g");
       sectionHtml = sectionHtml.replace(regex, `$1${safeText}$2`);
       appliedChanges = { ...appliedChanges, text: safeText };
     }
 
     if (changes.style !== undefined) {
-      const regex = new RegExp(`(data-el="${elementId}"[^>]*style=")[^"]*"`, "g");
+      const regex = new RegExp(`(data-el="${safeId}"[^>]*style=")[^"]*"`, "g");
       if (sectionHtml.match(regex)) {
         const rawStyle = String(changes.style ?? "");
         const sanitizedStyle = sanitizeInlineStyle(rawStyle);

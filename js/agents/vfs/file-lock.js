@@ -19,7 +19,6 @@ const logger = createLogger("vfs/file-lock");
 
 const DEFAULT_LOCK_TIMEOUT_MS = 30000;
 const DEFAULT_ACQUIRE_TIMEOUT_MS = 10000;
-const DEADLOCK_CHECK_INTERVAL_MS = 5000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Lock Types
@@ -62,7 +61,7 @@ export class FileLock {
     /** @type {Map<string, Array<{ type: string, holder: string, resolve: Function, reject: Function }>>} */
     this._waiters = new Map();
 
-    this._deadlockTimer = null;
+
     this._nextLockId = 0;
   }
 

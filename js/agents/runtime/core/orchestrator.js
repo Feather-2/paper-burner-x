@@ -678,10 +678,17 @@ export class AgentOrchestrator extends DisposableBase {
 
     await runNext();
     // Wait for all remaining
-    const settled = await Promise.allSettled(executing);
-    const errors = settled.filter((r) => r.status === "rejected").map((r) => r.reason);
-    if (errors.length > 0) {
-      throw new AggregateError(errors, `${errors.length} parallel stages failed`);
+    if (executing.size > 0) {
+      await Promise.allSettled(executing);
+    }
+
+    // Collect failures from results map (catch handlers drain executing before allSettled)
+    const failures = [];
+    for (const [stageName, r] of results) {
+      if (!r.success) failures.push(new Error(`Stage "${stageName}": ${r.error}`));
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, `${failures.length} parallel stage(s) failed`);
     }
 
     return results;

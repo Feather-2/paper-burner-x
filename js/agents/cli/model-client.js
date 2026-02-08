@@ -17,12 +17,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { toNonEmptyString } from "../shared/index.js";
-import { estimateTokensCached } from "../shared/index.js";
+import { estimateTokensCached, createLogger } from "../shared/index.js";
 import { executeWithOverflowRecovery } from "../llm/overflow-recovery.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = join(__dirname, "config.json");
 const EXAMPLE_FILE = join(__dirname, "config.example.json");
+const logger = createLogger("cli/model-client");
 
 /** @typedef {{baseUrl: string, model: string, apiKey: string, contextWindow?: number, maxOutputTokens?: number, timeoutMs?: number}} ModelConfig */
 /** @typedef {{models: Record<string, ModelConfig>, tiers?: Record<string, string[]>, roles?: Record<string, string>, default: string}} CliConfig */
@@ -39,7 +40,7 @@ function loadConfig() {
         const raw = readFileSync(configPath, "utf-8");
         return JSON.parse(raw);
     } catch (err) {
-        console.warn(`[CliModelClient] 配置文件解析失败: ${err.message}`);
+        logger.warn("配置文件解析失败", { error: err.message });
         return null;
     }
 }
@@ -66,10 +67,15 @@ function mergeAbortSignals(a, b) {
         }
     }
 
+    // Check for pre-aborted signals before registering listeners
+    if (signals.some(s => s.aborted)) {
+        const controller = new AbortController();
+        controller.abort();
+        return controller.signal;
+    }
     const controller = new AbortController();
     const abort = () => controller.abort();
     for (const s of signals) {
-        if (s.aborted) return s;
         s.addEventListener?.("abort", abort, { once: true });
     }
     return controller.signal;
@@ -248,8 +254,8 @@ export class CliModelRouter {
         this._clients = new Map();
 
         if (!this.config && !process.env.OPENAI_API_KEY) {
-            console.warn(`[CliModelRouter] 未找到配置。请创建 config.json 或设置 OPENAI_API_KEY`);
-            console.warn(`  参考: ${EXAMPLE_FILE}`);
+            logger.warn("未找到配置。请创建 config.json 或设置 OPENAI_API_KEY");
+            logger.warn(`参考: ${EXAMPLE_FILE}`);
         }
     }
 
