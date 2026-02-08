@@ -49,6 +49,12 @@ function sanitizeString(input, maxChars) {
   s = s.replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, `xox-...-${REDACTED}`);
   s = s.replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\b/g, REDACTED);
 
+  // Anthropic, AWS, Google Cloud token formats
+  s = s.replace(/\bsk-ant-[A-Za-z0-9_-]{16,}\b/g, `sk-ant-${REDACTED}`);
+  s = s.replace(/\bAKIA[A-Z0-9]{16}\b/g, `AKIA${REDACTED}`);
+  s = s.replace(/\bgoog_[A-Za-z0-9_-]{20,}\b/g, `goog_${REDACTED}`);
+  s = s.replace(/\b[A-Za-z0-9+/]{40,}={0,2}\b/g, (m) => m.length > 80 ? REDACTED : m);
+
   return s.length > maxLen ? s.slice(0, Math.max(0, maxLen - 3)) + "..." : s;
 }
 

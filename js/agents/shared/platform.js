@@ -38,7 +38,9 @@ function detectRuntime() {
     return;
   }
 
-  // Deno (has `window`, so detect before browser heuristics)
+  // Deno — detected but NOT fully supported.
+  // VFS falls back to browser paths (OPFS/Memory), Skills use browser loader,
+  // MCP stdio transport is unavailable. Deno users get browser-grade functionality.
   if (typeof g.Deno !== "undefined") {
     Platform.isDeno = true;
     Platform.runtime = "deno";

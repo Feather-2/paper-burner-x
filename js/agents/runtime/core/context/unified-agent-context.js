@@ -240,10 +240,18 @@ export class UnifiedAgentContext {
    * @returns {Promise<void>}
    */
   async signal(type, payload) {
+    // D3: validate payload is serializable (prevent circular refs crashing checkpoint)
+    let safePayload = payload;
+    if (payload !== null && typeof payload === "object") {
+      try { JSON.stringify(payload); } catch {
+        logger.warn("UnifiedAgentContext.signal: payload not serializable, using shallow copy");
+        safePayload = { ...payload, _truncated: true };
+      }
+    }
     const release = await this._writeMutex.acquire();
     try {
       if (this._sharedContext?.signal) {
-        this._sharedContext.signal(type, payload);
+        this._sharedContext.signal(type, safePayload);
       }
     } finally {
       release();

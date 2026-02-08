@@ -554,6 +554,11 @@ export class EvalHarness {
 
     // Instrument toolExecutor if present (preferred for precise tool_call/tool_result pairs).
     if (agent && typeof agent === "object" && typeof agent.toolExecutor === "function") {
+      // Z2: check property descriptor before monkey-patching
+      const desc = Object.getOwnPropertyDescriptor(agent, "toolExecutor") || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(agent) || {}, "toolExecutor");
+      if (desc && desc.writable === false) {
+        // Cannot patch — skip instrumentation silently
+      } else {
       const original = agent.toolExecutor;
       agent.toolExecutor = async (name, params, ctx) => {
         record("tool_call", { name, args: params }, { taskId: task.id, trialIndex });
@@ -569,6 +574,7 @@ export class EvalHarness {
       restorers.push(() => {
         agent.toolExecutor = original;
       });
+      } // end else (writable check)
     }
 
     // Best-effort event subscription (optional; can be noisy).

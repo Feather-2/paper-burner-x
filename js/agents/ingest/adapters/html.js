@@ -4,6 +4,26 @@ import { SourceKind } from "../constants.js";
 import { basenameOfPath, readTextFromPath as nodeReadTextFromPath } from "./node-io.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+/**
+ * Basic HTML sanitization — strip script/style/event handlers before Turndown.
+ * Not a full DOMPurify replacement, but covers the critical XSS vectors.
+ */
+function sanitizeHtml(html) {
+  let s = html;
+  // Remove <script>...</script> and <style>...</style> blocks
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, "");
+  s = s.replace(/<style[\s\S]*?<\/style>/gi, "");
+  // Remove event handler attributes (onclick, onerror, onload, etc.)
+  s = s.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  // Remove javascript: URIs
+  s = s.replace(/\bhref\s*=\s*["']?\s*javascript:/gi, 'href="#');
+  s = s.replace(/\bsrc\s*=\s*["']?\s*javascript:/gi, 'src="');
+  // Remove <iframe>, <object>, <embed>, <applet> tags
+  s = s.replace(/<(iframe|object|embed|applet)[\s\S]*?<\/\1>/gi, "");
+  s = s.replace(/<(iframe|object|embed|applet)[^>]*\/?>/gi, "");
+  return s;
+}
+
 function guessMimeType(filename) {
   const name = String(filename || "").toLowerCase();
   if (name.endsWith(".html") || name.endsWith(".htm")) return "text/html";
@@ -173,7 +193,8 @@ export class HtmlAdapter extends BaseAdapter {
     const TurndownService = resolveTurndownService(stageApi) || (await importTurndownService());
     if (!TurndownService) throw new Error("HtmlAdapter.parse(input): TurndownService is required (stageApi.TurndownService, globalThis.TurndownService, or npm 'turndown')");
 
-    const extractedFromHtml = extractDataUriImagesFromHtml(html, { idPrefix: "html_img" });
+    const cleanHtml = sanitizeHtml(html);
+    const extractedFromHtml = extractDataUriImagesFromHtml(cleanHtml, { idPrefix: "html_img" });
     const images = [...extractedFromHtml.images];
 
     const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
@@ -208,6 +229,7 @@ export const __internal = {
   importTurndownService,
   extFromMime,
   parseDataUri,
+  sanitizeHtml,
   extractDataUriImagesFromHtml,
   extractEmbeddedDataUriImagesFromMarkdown,
 };
