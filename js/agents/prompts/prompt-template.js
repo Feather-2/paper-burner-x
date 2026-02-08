@@ -211,7 +211,7 @@ export function renderPromptTemplate(
         onUnresolved(list);
       } catch (err) {
         // onUnresolved callback failed — log but don't propagate
-        if (typeof console !== "undefined") console.debug?.("onUnresolved callback error", err?.message);
+        logger.debug("onUnresolved callback error", err?.message);
       }
     } else if (warnOnUnresolved) {
       logger.warn(`[prompt-template] Unresolved placeholders: ${list.join(", ")}${unresolved.size > list.length ? ", ..." : ""}`);
