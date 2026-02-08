@@ -294,7 +294,7 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 | 消除 `transports/index.js` 的 TLA | `plugins/transports/index.js` | ✅ |
 | `Intl.Segmenter` 加字符级 fallback + 警告 | `retrieval/bm25.js`, `mmr.js` | ✅ |
 | Module Worker 加能力检测 | `vfs/glob.js`, `diff.js`, `vfs-scan-async.js` | ✅ |
-| 明确 Deno 支持范围 | 文档 + `platform.js` | pending |
+| 明确 Deno 支持范围 | 文档 + `platform.js` | ✅ (7e769e23) |
 | catch 规范治理（消除空 catch） | 全局 30+ 处 | ✅ partial |
 | ErrorBoundary 区分 retryable/fatal | `error-boundary.js` | ✅ |
 
@@ -304,7 +304,7 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 |------|------|------|
 | CRDT version vector 实现或删除空壳 | `sync-manager.js` | ✅ RESOLVED (死字段已删除，注释标明未实现) |
 | SyncManager 加全量快照 fallback | `sync-manager.js` | ✅ |
-| StateBus namespace 隔离 | `core/state-bus.js` | pending |
+| StateBus namespace 隔离 | `core/state-bus.js` | ✅ (7e769e23) |
 | MessageBus channel/target 路由 | `core/message-bus.js` | ✅ |
 | Stage manifest 声明式注册 | `orchestrator.js` | ✅ |
 | BaseAgentLoop 拆分为组合式 mixin | `runtime/core/agent-loop.js` | ✅ partial (StatusMixin + StepMixin extracted) |
@@ -315,21 +315,21 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 
 ### G. 并发与竞态条件
 
-### [MEDIUM] G1. MessageBus request() 无请求去重
+### [MEDIUM] G1. ~~MessageBus request() 无请求去重~~ — ✅ RESOLVED (ad715cb1)
 
 - **File**: core/message-bus.js:319
 - **Description**: `request()` 每次调用生成新 `requestId`，没有去重/幂等机制。如果调用端因网络抖动重试同一个请求，服务端会重复执行。
 - **Impact**: 副作用操作（如写入、扣款）可能被重复执行。
 - **Suggestion**: 增加可选的 idempotency key 参数。
 
-### [MEDIUM] G2. Orchestrator 并行 Stage 失败处理不完整
+### [MEDIUM] G2. ~~Orchestrator 并行 Stage 失败处理不完整~~ — ✅ RESOLVED (ad715cb1)
 
 - **File**: runtime/core/orchestrator.js:654
 - **Description**: `runStagesParallel()` 中 `await Promise.race(executing)` 后继续调用 `runNext()`，但如果某个 stage 失败，它仍会继续启动新 stage。最后 `Promise.allSettled()` 只收集 `executing` 中的错误，已从 `executing` 移除的失败不会被 rethrow。
 - **Impact**: 并行执行时部分失败可能被静默忽略。
 - **Suggestion**: 收集所有失败，或提供 `failFast` 选项。
 
-### [LOW] G3. WorkerPool acquire() 队列无超时
+### [LOW] G3. ~~WorkerPool acquire() 队列无超时~~ — ✅ RESOLVED (ad715cb1)
 
 - **File**: runtime/tools/tool-executor.js:203
 - **Description**: `acquire()` 在 worker 池满时排队等待，但等待 Promise 没有超时。如果某个 worker 死锁不释放，后续请求永久阻塞。
@@ -351,7 +351,7 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 - **Impact**: 功能静默失效，无日志可追踪。
 - **Suggestion**: 分类处理：预期可恢复 → `catch { logger.debug(...) }`；非关键路径 → `catch { logger.warn(...) }`。
 
-### [LOW] H2. sanitizeArgs 递归深度固定
+### [LOW] H2. ~~sanitizeArgs 递归深度固定~~ — ✅ RESOLVED (ad715cb1)
 
 - **File**: runtime/hooks/hook-runner.js:55
 - **Description**: `sanitizeArgs()` 使用固定 `maxDepth = 6`，对于深度嵌套的工具参数，超过 6 层的数据被替换为 `[MaxDepth]`。
@@ -371,7 +371,7 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 - **Impact**: 新 API key 格式可能泄露到日志。
 - **Suggestion**: 用更宽泛的模式匹配，或支持用户自定义 patterns。
 
-### [LOW] J2. MessageBus replyTo 可被伪造
+### [LOW] J2. ~~MessageBus replyTo 可被伪造~~ — ✅ RESOLVED (ad715cb1)
 
 - **File**: core/message-bus.js:268
 - **Description**: RPC 响应通过 `replyTo` 事件名发送。恶意/错误的 handler 可以向任意 `rpc.response.*` 发消息，干扰其他请求的响应。
@@ -468,7 +468,7 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 | 所有 `new RegExp(userInput)` 走 `safe-regex.js` | 全局 40+ 处 | ✅ (S1 fixed in a80e15d9) |
 | JSON.parse 添加 reviver 过滤 `__proto__` | 全局 40+ 处 | ✅ partial (高风险路径已加 reviver) |
 | Worker 消息添加 nonce 校验 | `worker-rpc.js`, `skill-executor.js` | assessed (T1 评估完成，风险可控) |
-| OPFS 写入加 Web Locks | `vfs.opfs.js` | pending (MEDIUM) |
+| OPFS 写入加 Web Locks | `vfs.opfs.js` | ✅ (7e769e23) |
 
 ## Phase 5 — 兼容性
 
@@ -490,7 +490,7 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 - **描述**: `runWithConcurrency()` 中多个 async worker 共享 `cursor` 变量并用 `cursor++` 推进。JS 事件循环保证 `cursor++` 在同步块内完成，后续 `await handler()` 才 yield。
 - **状态**: ✅ 审计确认安全。
 
-### [MEDIUM] W3. HtmlAdapter 无 HTML 消毒
+### [MEDIUM] W3. ~~HtmlAdapter 无 HTML 消毒~~ — ✅ RESOLVED (ad715cb1)
 
 - **File**: ingest/adapters/html.js:179
 - **Description**: `turndown.turndown(html)` 直接处理原始 HTML。TurndownService 会剥离大部分标签，但：
@@ -595,14 +595,14 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 
 ### AE. 事件监听器与资源泄漏
 
-### [LOW] AE2. AlertMonitor._toolHistory 无界增长
+### [LOW] AE2. ~~AlertMonitor._toolHistory 无界增长~~ — ✅ RESOLVED (ad715cb1)
 
 - **File**: sdk/AlertMonitor.js:164
 - **Description**: `this._toolHistory.push({ tool, time: Date.now() })` 每次工具调用追加记录，无任何淘汰机制。长时间运行的 agent 会积累大量历史数据。
 - **Impact**: 内存泄漏（长时间运行场景）。
 - **Suggestion**: 限制 `_toolHistory` 最大长度（如 100），使用滑动窗口。
 
-### [LOW] AE3. FileLock 死锁检测未实现
+### [LOW] AE3. ~~FileLock 死锁检测未实现~~ — ✅ RESOLVED (ad715cb1)
 
 - **File**: vfs/file-lock.js:65
 - **Description**: `this._deadlockTimer = null` 和 `DEADLOCK_CHECK_INTERVAL_MS = 5000` 声明了死锁检测，但 timer 从未启动。类头注释宣称支持"死锁检测"，实际未实现。
@@ -621,8 +621,8 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 ## Remediation DAG — 剩余 20 个问题修复依赖图
 
 > Generated: 2026-02-08
-> 已修复: 49/59 (Phase 4 批量修复 27 + 手动修复 12 + 后续提交 10)
-> 剩余: 10 个 (2 架构级 + 2 跨文件批量收尾 + 6 独立)
+> 已修复: 59/59
+> 剩余: 0
 
 ### 依赖图 (Mermaid)
 
