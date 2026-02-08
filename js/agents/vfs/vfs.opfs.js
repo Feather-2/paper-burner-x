@@ -73,6 +73,9 @@ async function getDirHandle(root, dirPath, { create = false } = {}) {
   let handle = root;
   if (!p) return handle;
   for (const segment of p.split("/")) {
+    if (segment === "..") {
+      throw new Error("Invalid path segment '..'");
+    }
     handle = await handle.getDirectoryHandle(segment, { create });
   }
   return handle;
@@ -159,15 +162,31 @@ export class OpfsVfs {
   async writeFile(path, data) {
     const p = normalizeVfsPath(path);
     if (!p) throw new Error("EISDIR: /");
-    await ensureParentDir(this._root, p);
-    const handle = await getFileHandle(this._root, p, { create: true });
-    const writable = await handle.createWritable();
-    try {
-      await writable.write(dataToWritableChunk(data));
-    } finally {
-      await writable.close();
+
+    const writeTask = async () => {
+      await ensureParentDir(this._root, p);
+      const handle = await getFileHandle(this._root, p, { create: true });
+      const writable = await handle.createWritable();
+      try {
+        await writable.write(dataToWritableChunk(data));
+      } finally {
+        await writable.close();
+      }
+      return true;
+    };
+
+    if (typeof navigator !== "undefined" && navigator?.locks?.request) {
+      return navigator.locks.request(`opfs:write:${p}`, { mode: "exclusive" }, writeTask);
     }
-    return true;
+
+    this._writeQueue ??= new Map();
+    const prev = this._writeQueue.get(p) || Promise.resolve();
+    const next = prev.catch(() => {}).then(writeTask);
+    this._writeQueue.set(p, next);
+
+    return next.finally(() => {
+      if (this._writeQueue.get(p) === next) this._writeQueue.delete(p);
+    });
   }
 
   /**

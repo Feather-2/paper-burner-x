@@ -259,7 +259,11 @@ export class InjectionScanner {
   sanitize(text) {
     if (!text || typeof text !== "string") return text;
 
-    let sanitized = text;
+    // 先做 Unicode 归一化，减少兼容字符/同形字符绕过
+    let sanitized = text.normalize("NFKC");
+
+    // 移除零宽字符与 BOM，防止不可见字符拆分 payload
+    sanitized = sanitized.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
 
     // 移除常见的控制标记
     sanitized = sanitized.replace(/<\|im_start\|>/gi, "");
@@ -303,7 +307,8 @@ const INJECTION_SCANNER_SERVICE_ID = "injectionScanner";
 /**
  * Global scanner singleton (compatibility layer).
  *
- * @deprecated Prefer resolving via DI container (`ServiceId.INJECTION_SCANNER`) or passing an explicit instance.
+ * Used by public helper APIs as the default scanner instance.
+ * Prefer resolving via DI container (`ServiceId.INJECTION_SCANNER`) or passing an explicit instance when wiring dependencies.
  * @returns {InjectionScanner} The global injection scanner instance
  */
 export function getGlobalInjectionScanner() {

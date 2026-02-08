@@ -50,21 +50,7 @@ function isAllowlistedSkill(allowlist, skill) {
 // Fallback eval 的基础防护（best-effort；不是强安全边界）
 /** @type {RegExp[]} */
 const FALLBACK_BLOCK_PATTERNS = [
-  /\beval\s*\(/,
-  /\bFunction\s*\(/,
-  /\bimport\s*\(/,
-  /\brequire\s*\(/,
-  /\bprocess\b/,
-  /\bglobalThis\b/,
-  /\bwindow\b/,
-  /\bdocument\b/,
-  /\bfetch\s*\(/,
-  /\bXMLHttpRequest\b/,
-  /\bWebSocket\b/,
-  /\bimportScripts\b/,
-  /__proto__/,
-  /\bconstructor\s*\[/,
-  /\bconstructor\s*\.\s*constructor\b/,
+  /[\s\S]/, // SECURITY: deny-all — non-empty code is always blocked (effectively disables fallback eval)
 ];
 
 /** @type {Set<string>} */
@@ -116,7 +102,10 @@ const FALLBACK_BLOCKED_GLOBALS = new Set([
 /**
  * Create a Proxy suitable for `with (...)` that prevents identifier lookup from falling back to real globals.
  *
- * Note: This is a best-effort sandbox; use the QuickJS WASM sandbox for a strong isolation boundary.
+ * SECURITY NOTICE: This proxy fallback is compatibility-only and NOT a security boundary.
+ * It is vulnerable to known JavaScript sandbox-escape techniques.
+ * Keep `fallbackMode: 'none'` as the default; only enable proxy fallback for trusted code.
+ * For untrusted execution, use the QuickJS WASM sandbox for real isolation.
  *
  * @param {Record<string, any>} base
  * @param {{ blockedAccesses?: Set<string> } | null | undefined} audit
@@ -950,10 +939,16 @@ export class SkillExecutor {
       // SECURITY: Fallback sandbox via new Function/with - TRUSTED-ONLY.
       // This path is only reached when WASM sandbox is unavailable.
       // Do not route untrusted input here; prefer WASM/Worker sandbox.
+      const userCode = typeof options?.code === 'string' ? options.code : '';
+      const nonStrictUserCode = userCode.replace(
+        /^\s*(?:["']use strict["'];?\s*)+/,
+        ''
+      );
+
       const wrappedCode = `
         with (sandbox) {
           return (async function () {
-            ${options.code}
+            ${nonStrictUserCode}
           }).call(this);
         }
       `;

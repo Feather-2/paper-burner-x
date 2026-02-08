@@ -147,11 +147,11 @@ export class CodeSearchStage extends BaseAgentLoop {
     const query = toNonEmptyString(input?.query) || "分析这个代码库的架构";
     const userConfig = isPlainObject(input?.userConfig) ? input.userConfig : {};
 
-    // 解析依赖（DI 容器优先）
-    const memoryStore = await this._resolveDependency(ServiceId.MEMORY_STORE, stageApi, null);
-    const stateEngine = await this._resolveDependency(ServiceId.STATE_ENGINE, stageApi, null);
-    const eventBus = await this._resolveDependency(ServiceId.EVENT_BUS, stageApi, this.eventBus);
-    this.eventBus = eventBus || this.eventBus || null;
+    // 解析依赖（统一仅走 DI 容器，避免双路径实例化）
+    const memoryStore = await this._resolveDependency(ServiceId.MEMORY_STORE, null, null);
+    const stateEngine = await this._resolveDependency(ServiceId.STATE_ENGINE, null, null);
+    const eventBus = await this._resolveDependency(ServiceId.EVENT_BUS, null, null);
+    this.eventBus = eventBus || null;
 
     // P4.6: Enable backpressure for high-frequency events (best-effort).
     const backpressureBus = /** @type {{ enableBackpressure?: (opts: ({ coalescePattern?: RegExp, deferNonCoalesced?: boolean, maxQueueSize?: number } & Record<string, unknown>)) => void, _backpressure?: { enabled?: boolean } } | null} */ (this.eventBus);

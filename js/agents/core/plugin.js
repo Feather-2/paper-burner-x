@@ -79,7 +79,8 @@ export class PluginContext {
    * 创建作用域状态访问器
    */
   _createScopedState(stateBus, pluginName) {
-    const prefix = `plugins.${pluginName}`;
+    const safePluginName = String(pluginName).replace(/\./g, '_');
+    const prefix = `plugins.${safePluginName}`;
 
     return {
       // 插件私有状态

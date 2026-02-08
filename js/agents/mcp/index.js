@@ -31,16 +31,19 @@ let createStdioMcpProvider;
 
 // 条件加载 Stdio 模块 (Node.js only)
 if (isNodeLike()) {
-  try {
-    const stdioTransport = await import("./stdio-mcp-transport.js");
-    const stdioProvider = await import("./stdio-mcp-provider.js");
-    StdioMcpTransport = stdioTransport.StdioMcpTransport;
-    createStdioMcpTransport = stdioTransport.createStdioMcpTransport;
-    StdioMcpProvider = stdioProvider.StdioMcpProvider;
-    createStdioMcpProvider = stdioProvider.createStdioMcpProvider;
-  } catch {
-    // Stdio modules not available in this environment
-  }
+  Promise.all([
+    import("./stdio-mcp-transport.js"),
+    import("./stdio-mcp-provider.js")
+  ])
+    .then(([stdioTransport, stdioProvider]) => {
+      StdioMcpTransport = stdioTransport.StdioMcpTransport;
+      createStdioMcpTransport = stdioTransport.createStdioMcpTransport;
+      StdioMcpProvider = stdioProvider.StdioMcpProvider;
+      createStdioMcpProvider = stdioProvider.createStdioMcpProvider;
+    })
+    .catch(() => {
+      // Stdio modules not available in this environment
+    });
 }
 
 export {

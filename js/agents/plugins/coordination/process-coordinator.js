@@ -1,7 +1,13 @@
 /**
- * ProcessCoordinator - Node.js cluster/worker coordination.
+ * ProcessCoordinator - Node.js cluster/worker coordination for cache/session sync.
  *
- * Mirrors TabCoordinator API but uses cluster IPC for multi-process sync.
+ * Mirrors TabCoordinator API but only uses cluster IPC to broadcast session
+ * access/eviction events (cross-process LRU consistency).
+ *
+ * NOTE: This is NOT a distributed lock implementation.
+ * It does not provide acquireLock()/releaseLock(), semaphore semantics,
+ * or global mutual exclusion guarantees.
+ *
  * Falls back to no-op when cluster is unavailable.
  *
  * @module process-coordinator

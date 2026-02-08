@@ -335,7 +335,7 @@ const CIRCUIT_BREAKER_REGISTRY_SERVICE_ID = "circuitBreakerRegistry";
 /**
  * Global registry singleton (compatibility layer).
  *
- * @deprecated Prefer resolving via DI container (`ServiceId.CIRCUIT_BREAKER_REGISTRY`) or passing an explicit registry instance.
+ * Prefer resolving via DI container (`ServiceId.CIRCUIT_BREAKER_REGISTRY`) or passing an explicit registry instance.
  */
 export function getGlobalCircuitBreakerRegistry() {
   const container = getGlobalContainer();

@@ -127,11 +127,11 @@ export async function createSandboxedSkillsManager(options = {}) {
 export function analyzeSkillRisk(skillBody) {
   const risks = [];
 
-  // 检查危险模式
+  // 检查危险模式（正则启发式，非 AST，存在少量误报/漏报）
   const dangerousPatterns = [
     { pattern: /eval\s*\(/, risk: 'high', desc: 'Uses eval()' },
     { pattern: /new\s+Function\s*\(/, risk: 'high', desc: 'Creates dynamic functions' },
-    { pattern: /import\s*\(/, risk: 'medium', desc: 'Uses dynamic import' },
+    { pattern: /(?:^|[=(:,;\[\{]\s*|(?:await|return)\s+)import\s*\(/m, risk: 'medium', desc: 'Uses dynamic import (heuristic, non-AST)' },
     { pattern: /require\s*\(/, risk: 'medium', desc: 'Uses require()' },
     { pattern: /process\./, risk: 'high', desc: 'Accesses process object' },
     { pattern: /child_process/, risk: 'critical', desc: 'Uses child_process' },

@@ -1,6 +1,17 @@
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
 /**
+ * Concurrency scope note:
+ * - Leader election is best-effort within the same browser profile + origin.
+ * - BroadcastChannel does not provide a global total order across tabs.
+ * - `_checkLeader()` and `_handleHeartbeat()` may interleave, so transient split-brain
+ *   (multiple tabs briefly believing they are leader) can occur under timer skew,
+ *   background tab throttling, or delayed message delivery.
+ * - Consumers should treat leader-triggered side effects as idempotent and eventually
+ *   consistent, not as a strict lock/mutex guarantee.
+ */
+
+/**
  * @typedef {"session-evicted" | "session-accessed" | "leader-election" | "heartbeat"} TabCoordinatorMessageType
  */
 

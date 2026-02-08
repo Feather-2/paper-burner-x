@@ -390,7 +390,11 @@ export class IngestStage {
           storageKey: `runs/${runId}/${INGEST_RESULT_ARTIFACT_TYPE}`,
           mime: "application/json",
         });
-      } catch {
+      } catch (error) {
+        logger.warn("ingest:persistResumeFailed", {
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         return null;
       }
     };
@@ -592,6 +596,8 @@ export class IngestStage {
     };
 
     const fetchUrlText = async (targetUrl) => {
+      targetUrl = validateFetchUrl(targetUrl, { allowPrivateNetwork });
+
       const enforceTextLimit = (text, label) => {
         if (typeof text !== "string" || !text) throw new Error("empty response body");
         if (maxUrlBytes !== Infinity && text.length > maxUrlBytes) {
@@ -758,8 +764,11 @@ export class IngestStage {
     // Ensure any queued resume writes finish before finalizing.
     try {
       await persistQueue;
-    } catch {
-      // ignore
+    } catch (error) {
+      logger.warn("ingest:persistQueueFlushFailed", {
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
     persistQueue = persistQueue.then(
       () => persistResume({ lastDoc: { origin: null, status: "completed" } }),

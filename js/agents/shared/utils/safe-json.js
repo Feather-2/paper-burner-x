@@ -29,7 +29,12 @@ export function safeJsonParse(value, options) {
   if (limit !== Infinity && s.length > limit) return null;
 
   try {
-    return JSON.parse(s);
+    return JSON.parse(s, (key, parsedValue) => {
+      if (key === "__proto__" || key === "constructor" || key === "prototype") {
+        return undefined;
+      }
+      return parsedValue;
+    });
   } catch {
     return null;
   }

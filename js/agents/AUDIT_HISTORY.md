@@ -241,3 +241,192 @@ throw err;
 ```
 
 ---
+
+## 2026-02-07 - [HIGH] C1. DI 注入路径不一致——部分 Stage 用 DI、部分不用
+
+- **File**: stages/codesearch/codesearch-stage.js:152
+- **Type**: unknown
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: 两种注入路径并存。同一个服务可能通过两条不同路径被实例化两次（特别是 TRANSIENT scope 的服务如 Watchdog）。
+
+## 2026-02-07 - [HIGH] O1. Fallback Eval 正则绕过风险
+
+- **File**: core/sandbox/skill-executor.js:52
+- **Type**: security_sandbox
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `FALLBACK_BLOCK_PATTERNS` 使用正则检测危险代码，但存在绕过风险：
+
+## 2026-02-07 - [HIGH] O2. Proxy 沙箱可逃逸
+
+- **File**: core/sandbox/skill-executor.js:125
+- **Type**: unknown
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `createFallbackProxyGlobals()` 使用 Proxy 拦截全局访问，但存在已知绕过：
+
+## 2026-02-07 - [MEDIUM] E3. VFS 入口 Platform 判断不一致——Bun 走错路径
+
+- **File**: vfs/index.js:42
+- **Type**: compat_platform
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `vfs/index.js:42` 用 `Platform.isNode`（不包含 Bun），而 `skills/loader.js:33` 用 `isNodeLike()`（包含 Bun）。Bun 环境下：VFS 走浏览器路径（OPFS/Memory），Skills 走 Node 路径（扫描文件系统）。
+
+## 2026-02-07 - [MEDIUM] I1. LWWMap 直接 import 全局 Lamport Clock
+
+- **File**: core/crdt/lww-map.js:8
+- **Type**: unknown
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `import { nextTick, compare } from '../lamport-clock.js'` 直接引用模块级全局时钟。虽然支持 `clockService` 注入，但默认路径绕过 DI。
+
+## 2026-02-07 - [MEDIUM] O3. `with` 语句在严格模式下不可用
+
+- **File**: core/sandbox/skill-executor.js:953
+- **Type**: unknown
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: 如果用户代码以 `"use strict";` 开头，`with` 会抛出语法错误。
+
+## 2026-02-07 - [MEDIUM] U1. 顶层 await 在旧环境不支持
+
+- **File**: mcp/index.js:35
+- **Type**: compat_tla
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: 顶层 await 需要 ES2022+，旧版 Node.js (<14.8) 或打包工具可能不支持。
+
+## 2026-02-07 - [MEDIUM] W2. URL 摄取 SSRF 防护不完整
+
+- **File**: ingest/ingest-stage.js:594
+- **Type**: security_ssrf
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `fetchUrlText()` 有三条路径：
+
+## 2026-02-07 - [MEDIUM] V1. OPFS 操作无并发保护
+
+- **File**: vfs/vfs.opfs.js:159
+- **Type**: concurrency
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: 如果同一文件被并发写入，可能导致数据损坏或 `InvalidStateError`。
+
+## 2026-02-07 - [MEDIUM] AB2. InjectionScanner.sanitize 未覆盖 Unicode 绕过
+
+- **File**: sdk/injection-scanner.js:259
+- **Type**: security_xss
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `sanitize()` 只移除已知的 ASCII 控制标记，但未处理：
+
+## 2026-02-07 - [MEDIUM] AC1. safeJsonParse 未过滤 __proto__
+
+- **File**: shared/utils/safe-json.js:31
+- **Type**: security_json
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `safeJsonParse()` 是项目的"安全" JSON 解析工具，但仅做了大小限制，未添加 reviver 过滤 `__proto__`/`constructor`/`prototype`。所有使用 `safeJsonParse()` 的调用点仍面临原型污染风险。
+
+## 2026-02-07 - [MEDIUM] AF1. atomicWrite 无 rename 时有数据丢失窗口
+
+- **File**: vfs/operations.js:624
+- **Type**: vfs_concurrency
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: 当 VFS 不支持 `rename()` 时，fallback 策略为：
+
+## 2026-02-07 - [MEDIUM] AE1. AlertMonitor 无 dispose/cleanup 方法
+
+- **File**: sdk/AlertMonitor.js:98
+- **Type**: security_sandbox
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `_setupListeners()` 通过 `this.agent.on()` 订阅三个事件（`*:toolCompleted`、`deepsearch:gapEvaluated`、`agent:iteration`），但没有 `dispose()` 方法移除这些订阅。
+
+## 2026-02-07 - [MEDIUM] AG1. 6+ 处 deprecated 全局 getter 仍为主要入口
+
+- **File**: shared/utils/circuit-breaker.js:338
+- **Type**: deprecated_api
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: 标记 `@deprecated` 但被公开 API 函数直接调用，形成 deprecated→active 反模式。开发者无从判断应该使用 DI 还是全局 getter。
+
+## 2026-02-07 - [LOW] E9. Skills sandbox-adapter.js 的 import() 检测正则误报
+
+- **File**: skills/sandbox-adapter.js:134
+- **Type**: security_sandbox
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `{ pattern: /import\s*\(/, risk: 'medium' }` 会匹配注释和字符串中的 `import(`。
+
+## 2026-02-07 - [LOW] F2. ProcessCoordinator 只是 LRU 广播，非通用分布式锁
+
+- **File**: plugins/coordination/process-coordinator.js:0
+- **Type**: unknown
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: 实际只做 session eviction/access 广播（跨 Tab/进程 LRU 缓存一致性），没有 `acquireLock()` / `releaseLock()` / 信号量。
+
+## 2026-02-07 - [LOW] F1. TabCoordinator leader election 存在竞态条件
+
+- **File**: plugins/coordination/tab-coordinator.js:0
+- **Type**: concurrency
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: 选主逻辑基于心跳，用 `setTimeout` 而非 `setInterval`。`_checkLeader()` 和 `_handleHeartbeat()` 之间没有互斥。BroadcastChannel 消息无总序保证。
+
+## 2026-02-07 - [LOW] I2. PluginContext._createScopedState 路径拼接脆弱
+
+- **File**: core/plugin.js:81
+- **Type**: api_design
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `_createScopedState()` 用字符串拼接 `` `plugins.${pluginName}` ``，如果 `pluginName` 含 `.`（如 `compression.cicada`），会导致路径层级混乱。
+
+## 2026-02-07 - [LOW] V2. 路径遍历未完全防护
+
+- **File**: vfs/vfs.opfs.js:72
+- **Type**: unknown
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `getDirHandle()` 按 `/` 分割路径遍历目录，但未检查 `..`。
+
+## 2026-02-07 - [LOW] W4. persistResume 错误静默吞没
+
+- **File**: ingest/ingest-stage.js:387
+- **Type**: silent_catch
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `persistResume()` 和最终 `await persistQueue` 均有 `catch { // ignore }`。持久化失败意味着断点续传数据丢失。
+
+## 2026-02-07 - [LOW] Y3. deleteDatabase onblocked 静默 resolve
+
+- **File**: storage/run-store.js:165
+- **Type**: storage_idb
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `deleteDatabase` 的 `onblocked` 直接 `resolve()`，即使数据库未真正删除。
+
+## 2026-02-07 - [LOW] Y2. IndexedDB onblocked Promise 永久挂起
+
+- **File**: storage/run-store.js:119
+- **Type**: storage_idb
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `onblocked` 仅 `logger.warn()`，未 resolve/reject。如果 DB 被旧版本连接阻塞，`open()` 返回的 Promise 永久挂起。
+
+## 2026-02-07 - [LOW] Z1. createLimiter 队列无 shutdown 机制
+
+- **File**: eval/harness.js:73
+- **Type**: unknown
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `createLimiter()` 内部队列项通过 `new Promise(resolve => queue.push(resolve))` 等待。如果 harness 销毁或进程退出，队列中的 Promise 永远不会 resolve。
+
+## 2026-02-07 - [LOW] AB4. BacktrackManager 默认 console 日志
+
+- **File**: sdk/BacktrackManager.js:17
+- **Type**: unknown
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `this._logger = options.logger || console` — 默认使用全局 console。
+
+## 2026-02-07 - [LOW] AB3. getGlobalInjectionScanner deprecated 但仍活跃使用
+
+- **File**: sdk/injection-scanner.js:309
+- **Type**: deprecated_api
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `getGlobalInjectionScanner()` 标记 `@deprecated` 但被 `scanForInjection()`、`sanitizeOutput()`、`isCleanOutput()` 三个公开 API 调用。
+
+## 2026-02-07 - [LOW] AC3. getGlobalTokenTracker() 全局单例绕过 DI
+
+- **File**: llm/internal/call-executor.js:3
+- **Type**: di_inconsistency
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `import { getGlobalTokenTracker } from "../../plugins/telemetry/index.js"` — 直接使用全局单例而非从 DI 容器获取。同 I1/M3/AB3 模式。
+
+## 2026-02-07 - [LOW] AD2. logEvent deprecated 但仍导出
+
+- **File**: shared/utils/logger.js:110
+- **Type**: console_log
+- **Resolution**: Auto-fixed by audit-fix
+- **Description**: `logEvent()` 标记 `@deprecated` 但仍公开导出，使用原始 `console.log`。

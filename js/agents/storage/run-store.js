@@ -115,15 +115,36 @@ export class RunStore {
         ensureIndex(countersStore, "byRunId", "runId", { unique: false });
       };
 
-      req.onsuccess = () => resolve(req.result);
+      let blockedTimer = null;
+      const blockedOpenTimeoutMs = 5000;
+
+      req.onsuccess = () => {
+        if (blockedTimer !== null) {
+          clearTimeout(blockedTimer);
+          blockedTimer = null;
+        }
+        resolve(req.result);
+      };
       req.onblocked = () => {
         try {
           logger.warn(`[RunStore] IndexedDB open blocked for ${this.dbName}@v${this.dbVersion}`);
         } catch {
           // ignore
         }
+
+        if (blockedTimer === null) {
+          blockedTimer = setTimeout(() => {
+            reject(new Error(`[RunStore] IndexedDB open blocked timeout after ${blockedOpenTimeoutMs}ms for ${this.dbName}@v${this.dbVersion}`));
+          }, blockedOpenTimeoutMs);
+        }
       };
-      req.onerror = () => reject(req.error);
+      req.onerror = () => {
+        if (blockedTimer !== null) {
+          clearTimeout(blockedTimer);
+          blockedTimer = null;
+        }
+        reject(req.error);
+      };
     }).catch((err) => {
       // If open fails, clear the cached promise so callers can retry later.
       this._dbp = null;
@@ -162,7 +183,7 @@ export class RunStore {
       const req = indexedDB.deleteDatabase(dbName);
       req.onsuccess = () => resolve();
       req.onerror = () => reject(req.error);
-      req.onblocked = () => resolve();
+      req.onblocked = () => reject(new Error("deleteDatabase blocked"));
     });
   }
 }

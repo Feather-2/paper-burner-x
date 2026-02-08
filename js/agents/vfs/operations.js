@@ -622,13 +622,8 @@ async function atomicWriteText(vfs, path, content, { verify = true, signal } = {
         if (typeof vfs.rename === "function") {
           await vfs.rename(tempPath, normalizedPath);
         } else {
-          // 降级：删除旧文件 + 写入新内容（非原子但尽量安全）
-          try {
-            const exists = typeof vfs.exists === "function" ? await vfs.exists(normalizedPath) : true;
-            if (exists) await removeVfsPath(vfs, normalizedPath);
-          } catch {
-            // 忽略删除错误
-          }
+          // 降级：直接覆盖写入，避免“先删后写”导致的数据丢失窗口
+          // 注意：无 rename 支持时依然不是严格原子写入（进程崩溃时可能出现部分写入）
           await vfs.writeText(normalizedPath, content);
           // 清理临时文件
           try {
