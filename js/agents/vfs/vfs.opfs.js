@@ -102,6 +102,57 @@ function dataToWritableChunk(data) {
 }
 
 /**
+ * @template T
+ * @param {string[]} lockPaths
+ * @param {() => Promise<T>} task
+ * @returns {Promise<T>}
+ */
+async function withOpfsPathLocks(lockPaths, task) {
+  const paths = Array.from(
+    new Set(
+      (Array.isArray(lockPaths) ? lockPaths : [])
+        .map((p) => normalizeVfsPath(p))
+        .filter((p) => !!p)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  if (!paths.length) return task();
+  if (typeof navigator === "undefined" || typeof navigator?.locks?.request !== "function") {
+    return task();
+  }
+
+  const run = async (index) => {
+    if (index >= paths.length) return task();
+    return navigator.locks.request(paths[index], { mode: "exclusive" }, async () => run(index + 1));
+  };
+
+  return run(0);
+}
+
+/**
+ * @param {FileSystemDirectoryHandle} root
+ * @param {string} filePath
+ * @param {unknown} data
+ * @param {{ append?: boolean }} [options]
+ * @returns {Promise<boolean>}
+ */
+async function writeOpfsFile(root, filePath, data, { append = false } = {}) {
+  await ensureParentDir(root, filePath);
+  const handle = await getFileHandle(root, filePath, { create: true });
+  const writable = append ? await handle.createWritable({ keepExistingData: true }) : await handle.createWritable();
+  try {
+    if (append) {
+      const file = await handle.getFile();
+      await writable.seek(file.size);
+    }
+    await writable.write(dataToWritableChunk(data));
+  } finally {
+    await writable.close();
+  }
+  return true;
+}
+
+/**
  * OPFS-backed VFS implementation (browser-only).
  *
  * @param {FileSystemDirectoryHandle} rootHandle
@@ -162,30 +213,31 @@ export class OpfsVfs {
   async writeFile(path, data) {
     const p = normalizeVfsPath(path);
     if (!p) throw new Error("EISDIR: /");
-
-    const writeTask = async () => {
-      await ensureParentDir(this._root, p);
-      const handle = await getFileHandle(this._root, p, { create: true });
-      const writable = await handle.createWritable();
+    return withOpfsPathLocks([p], async () => {
       try {
-        await writable.write(dataToWritableChunk(data));
-      } finally {
-        await writable.close();
+        return await writeOpfsFile(this._root, p, data);
+      } catch (err) {
+        if (err?.name === "TypeMismatchError") throw new Error(`EISDIR: ${p}`);
+        throw err;
       }
-      return true;
-    };
+    });
+  }
 
-    if (typeof navigator !== "undefined" && navigator?.locks?.request) {
-      return navigator.locks.request(`opfs:write:${p}`, { mode: "exclusive" }, writeTask);
-    }
-
-    this._writeQueue ??= new Map();
-    const prev = this._writeQueue.get(p) || Promise.resolve();
-    const next = prev.catch(() => {}).then(writeTask);
-    this._writeQueue.set(p, next);
-
-    return next.finally(() => {
-      if (this._writeQueue.get(p) === next) this._writeQueue.delete(p);
+  /**
+   * @param {string} path
+   * @param {unknown} data
+   * @returns {Promise<boolean>}
+   */
+  async appendFile(path, data) {
+    const p = normalizeVfsPath(path);
+    if (!p) throw new Error("EISDIR: /");
+    return withOpfsPathLocks([p], async () => {
+      try {
+        return await writeOpfsFile(this._root, p, data, { append: true });
+      } catch (err) {
+        if (err?.name === "TypeMismatchError") throw new Error(`EISDIR: ${p}`);
+        throw err;
+      }
     });
   }
 
@@ -358,6 +410,63 @@ export class OpfsVfs {
     await this.copy(src, dest);
     await this.unlink(src);
     return true;
+  }
+
+  /**
+   * @param {string} src
+   * @param {string} dest
+   * @returns {Promise<boolean>}
+   */
+  async rename(src, dest) {
+    const s = normalizeVfsPath(src);
+    const d = normalizeVfsPath(dest);
+    if (!s) throw new Error("EISDIR: /");
+    if (!d) throw new Error("EISDIR: /");
+    return withOpfsPathLocks([s, d], async () => {
+      if (s === d) {
+        await this.stat(s);
+        return true;
+      }
+      const bytes = await this.readFile(s);
+      try {
+        await writeOpfsFile(this._root, d, bytes);
+      } catch (err) {
+        if (err?.name === "TypeMismatchError") throw new Error(`EISDIR: ${d}`);
+        throw err;
+      }
+      try {
+        const sourceParent = await getDirHandle(this._root, dirnameVfsPath(s), { create: false });
+        await sourceParent.removeEntry(basenameVfsPath(s));
+      } catch (err) {
+        if (err?.name === "NotFoundError") throw new Error(`ENOENT: ${s}`);
+        throw err;
+      }
+      return true;
+    });
+  }
+
+  /**
+   * @param {string} path
+   * @param {RmdirOptions} [options]
+   * @returns {Promise<boolean>}
+   */
+  async remove(path, { recursive = false } = {}) {
+    const p = normalizeVfsPath(path);
+    if (!p) throw new Error("EPERM: cannot remove root");
+    return withOpfsPathLocks([p], async () => {
+      const st = await this.stat(p);
+      if (st?.isDirectory?.()) return this.rmdir(p, { recursive });
+      return this.unlink(p);
+    });
+  }
+
+  /**
+   * @param {string} path
+   * @param {RmdirOptions} [options]
+   * @returns {Promise<boolean>}
+   */
+  async rm(path, options = {}) {
+    return this.remove(path, options);
   }
 
   /**

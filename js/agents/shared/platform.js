@@ -1,5 +1,8 @@
 /**
  * Platform Detection - 统一平台检测
+ * Deno runtime can be detected but is NOT fully supported:
+ * VFS falls back to browser paths (OPFS/Memory), Skills use browser manifest fetch,
+ * and MCP stdio transport is unavailable.
  * @module shared/platform
  */
 
@@ -42,6 +45,7 @@ function detectRuntime() {
   // VFS falls back to browser paths (OPFS/Memory), Skills use browser loader,
   // MCP stdio transport is unavailable. Deno users get browser-grade functionality.
   if (typeof g.Deno !== "undefined") {
+    console.warn("[agents/platform] Deno detected but not fully supported; using browser-compatible fallbacks.");
     Platform.isDeno = true;
     Platform.runtime = "deno";
     return;

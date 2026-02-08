@@ -115,32 +115,73 @@ function isNonProductionEnvironment() {
   return false;
 }
 
+/**
+ * 创建默认状态结构
+ * @returns {Record<string, unknown>}
+ */
+function createDefaultState() {
+  return {
+    meta: {
+      runId: null,
+      status: 'idle',
+      startedAt: null,
+      updatedAt: null,
+    },
+    input: {},
+    context: {},
+    stages: {},
+    runtime: {
+      iteration: 0,
+      messages: [],
+      tokens: { input: 0, output: 0 },
+    },
+    plugins: {},
+  };
+}
+
 export class StateBus {
   /**
-   * @param {StateBusOptions} [options]
+   * @param {StateBusOptions | string} [options]
+   * @param {string} [namespace]
    */
-  constructor(options = {}) {
+  constructor(options = {}, namespace = '') {
+    /** @type {StateBusOptions} */
+    const resolvedOptions = typeof options === 'string' ? {} : options;
+    const rawNamespace = typeof options === 'string' ? options : namespace;
+
+    /** @type {string} */
+    this._namespace = typeof rawNamespace === 'string' ? rawNamespace.trim() : '';
+
+    /** @type {string} */
+    this._namespacePrefix = this._namespace ? `${this._namespace}.` : '';
+
     /** @type {EventBus | null} */
-    this._events = options.events || null;
+    this._events = resolvedOptions.events || null;
 
     /** @type {Record<string, any>} */
-    this._state = {
-      meta: {
-        runId: null,
-        status: 'idle',
-        startedAt: null,
-        updatedAt: null,
-      },
-      input: {},
-      context: {},
-      stages: {},
-      runtime: {
-        iteration: 0,
-        messages: [],
-        tokens: { input: 0, output: 0 },
-      },
-      plugins: {},
-    };
+    this._state = createDefaultState();
+
+    if (this._namespace) {
+      const nsKeys = getSafePathSegments(this._namespace);
+      if (!nsKeys) {
+        this._namespace = '';
+        this._namespacePrefix = '';
+      } else {
+        const lastKey = nsKeys.pop();
+        if (lastKey) {
+          let current = this._state;
+          for (const key of nsKeys) {
+            if (current[key] == null || typeof current[key] !== 'object') {
+              current[key] = {};
+            }
+            current = current[key];
+          }
+          if (current[lastKey] == null || typeof current[lastKey] !== 'object') {
+            current[lastKey] = createDefaultState();
+          }
+        }
+      }
+    }
 
     /**
      * pattern -> (rawCallback -> wrappedCallback)
@@ -158,13 +199,13 @@ export class StateBus {
     this._snapshots = new Map();
 
     /** @type {number} */
-    this._maxSnapshots = options.maxSnapshots || 50;
+    this._maxSnapshots = resolvedOptions.maxSnapshots || 50;
 
     /** @type {StateChangeRecord[] | null} */
-    this._changeLog = options.keepLog ? [] : null;
+    this._changeLog = resolvedOptions.keepLog ? [] : null;
 
     /** @type {number} */
-    this._maxLog = options.maxLog || 500;
+    this._maxLog = resolvedOptions.maxLog || 500;
   }
 
   /**
@@ -184,20 +225,14 @@ export class StateBus {
    * @returns {unknown}
    */
   get(path) {
-    if (!path) return this._state;
-
-    const keys = getSafePathSegments(path);
-    if (!keys) return undefined;
-    let current = this._state;
-
-    for (const key of keys) {
-      if (current == null || typeof current !== 'object') {
-        return undefined;
-      }
-      current = current[key];
+    if (!path) {
+      if (!this._namespace) return this._state;
+      const scopedPath = this._resolvePath('');
+      return this._getByPath(scopedPath);
     }
 
-    return current;
+    const resolvedPath = this._resolvePath(path);
+    return this._getByPath(resolvedPath);
   }
 
   /**
@@ -208,7 +243,8 @@ export class StateBus {
    * @returns {void}
    */
   set(path, value, meta = {}) {
-    const keys = getSafePathSegments(path);
+    const resolvedPath = this._resolvePath(path);
+    const keys = getSafePathSegments(resolvedPath);
     if (!keys) return;
     const oldValue = this.get(path);
     if (oldValue === value) return;
@@ -224,9 +260,9 @@ export class StateBus {
     }
 
     current[lastKey] = value;
-    this._state.meta.updatedAt = Date.now();
+    this._touchUpdatedAt();
 
-    this._notifyChange(path, value, oldValue, meta);
+    this._notifyChange(resolvedPath, value, oldValue, meta);
   }
 
   /**
@@ -255,7 +291,8 @@ export class StateBus {
    * @returns {boolean}
    */
   delete(path) {
-    const keys = getSafePathSegments(path);
+    const resolvedPath = this._resolvePath(path);
+    const keys = getSafePathSegments(resolvedPath);
     if (!keys) return false;
     const oldValue = this.get(path);
     if (oldValue === undefined) return false;
@@ -272,8 +309,8 @@ export class StateBus {
     if (!Object.prototype.hasOwnProperty.call(current, lastKey)) return false;
 
     delete current[lastKey];
-    this._state.meta.updatedAt = Date.now();
-    this._notifyChange(path, undefined, oldValue, { op: 'delete' });
+    this._touchUpdatedAt();
+    this._notifyChange(resolvedPath, undefined, oldValue, { op: 'delete' });
     return true;
   }
 
@@ -304,22 +341,36 @@ export class StateBus {
    */
   subscribe(pattern, callback, options = {}) {
     const { ownerId, scope } = options;
+    const resolvedPattern = this._resolvePattern(pattern);
 
     // 开发模式下警告无 scope 的订阅
     if (!scope && isNonProductionEnvironment()) {
       logger.debug(`[StateBus] subscribe without scope: ${pattern}`, { ownerId });
     }
 
-    if (!this._subscribers.has(pattern)) {
-      this._subscribers.set(pattern, new Map());
+    if (!this._subscribers.has(resolvedPattern)) {
+      this._subscribers.set(resolvedPattern, new Map());
     }
 
-    const subs = this._subscribers.get(pattern);
+    const subs = this._subscribers.get(resolvedPattern);
 
     /** @type {StateChangeSubscriber} */
     const wrapped = callback.length >= 2
-      ? (change) => /** @type {LegacyStateSubscriber} */ (callback)(change.newValue, change.oldValue, change.path)
-      : /** @type {StateChangeSubscriber} */ (callback);
+      ? (change) => /** @type {LegacyStateSubscriber} */ (callback)(
+        change.newValue,
+        change.oldValue,
+        this._stripNamespace(change.path),
+      )
+      : (change) => {
+        if (!this._namespace) {
+          /** @type {StateChangeSubscriber} */ (callback)(change);
+          return;
+        }
+        /** @type {StateChangeSubscriber} */ (callback)({
+          ...change,
+          path: this._stripNamespace(change.path),
+        });
+      };
 
     subs.set(callback, wrapped);
 
@@ -575,6 +626,86 @@ export class StateBus {
     if (this._events) {
       this._events.emitSync(event, data);
     }
+  }
+
+  /**
+   * 解析外部路径为内部路径（可选命名空间前缀）
+   * @private
+   * @param {string} path
+   * @returns {string}
+   */
+  _resolvePath(path) {
+    if (!this._namespace) return path;
+    if (!path) return this._namespace;
+    return `${this._namespacePrefix}${path}`;
+  }
+
+  /**
+   * 解析订阅模式为内部模式（可选命名空间前缀）
+   * @private
+   * @param {string} pattern
+   * @returns {string}
+   */
+  _resolvePattern(pattern) {
+    if (!this._namespace) return pattern;
+    if (pattern === '*') return `${this._namespace}.*`;
+    if (!pattern) return this._namespace;
+    return `${this._namespacePrefix}${pattern}`;
+  }
+
+  /**
+   * 将内部路径还原为外部路径
+   * @private
+   * @param {string} path
+   * @returns {string}
+   */
+  _stripNamespace(path) {
+    if (!this._namespace || typeof path !== 'string') return path;
+    if (path === this._namespace) return '';
+    if (path.startsWith(this._namespacePrefix)) {
+      return path.slice(this._namespacePrefix.length);
+    }
+    return path;
+  }
+
+  /**
+   * 通过路径读取状态（内部路径）
+   * @private
+   * @param {string} path
+   * @returns {unknown}
+   */
+  _getByPath(path) {
+    const keys = getSafePathSegments(path);
+    if (!keys) return undefined;
+
+    let current = this._state;
+    for (const key of keys) {
+      if (current == null || typeof current !== 'object') return undefined;
+      current = current[key];
+    }
+    return current;
+  }
+
+  /**
+   * 更新 meta.updatedAt（支持命名空间）
+   * @private
+   * @returns {void}
+   */
+  _touchUpdatedAt() {
+    const resolvedPath = this._resolvePath('meta.updatedAt');
+    const keys = getSafePathSegments(resolvedPath);
+    if (!keys) return;
+
+    const lastKey = keys.pop();
+    if (!lastKey) return;
+    let current = this._state;
+    for (const key of keys) {
+      if (current[key] == null || typeof current[key] !== 'object') {
+        current[key] = {};
+      }
+      current = current[key];
+    }
+    current[lastKey] = Date.now();
   }
 }
 
