@@ -73,6 +73,102 @@ function toSafeErrorInfo(err) {
 }
 
 /**
+ * Try a single model: build call chain, execute, record metrics, handle errors.
+ * Extracted from callWithPerformanceRouting / callWithStandardRouting (AC2).
+ *
+ * @param {object} ctx
+ * @param {ModelRouter} ctx.router
+ * @param {string} ctx.modelId
+ * @param {string} ctx.usage
+ * @param {Array<unknown>} ctx.messages
+ * @param {Array<unknown>=} ctx.images
+ * @returns {Promise<{content: string, model: string, provider: string, latencyMs: number}>}
+ */
+async function _tryModel({ router, modelId, usage, messages, images }) {
+  const entry = router._models.get(modelId);
+  if (!entry) throw new Error(`Unknown model id: ${modelId}`);
+
+  const provider = router._getProvider(entry.provider);
+  if (!provider) throw new Error(`Missing provider: ${entry.provider} for model ${modelId}`);
+
+  const limiter = router._getRateLimiter(entry);
+  const circuitBreaker = router._getCircuitBreaker(modelId);
+
+  router._logger.debug(`[ModelRouter] try ${modelId} via ${entry.provider}`);
+
+  const doChat = () => provider.chat({ model: entry.id, messages, images });
+  const doChatWithCB = circuitBreaker ? () => circuitBreaker.execute(doChat) : doChat;
+  const callStartMs = router._time.now();
+  const executeOnce = () =>
+    limiter ? limiter.schedule(doChatWithCB, { label: `${usage}:${modelId}` }) : doChatWithCB();
+
+  try {
+    const resp = router._retryStrategy ? await router._retryStrategy.execute(executeOnce) : await executeOnce();
+    assertChatResponse(resp);
+
+    const latencyMs = router._time.now() - callStartMs;
+
+    try {
+      getGlobalTokenTracker().record({
+        model: entry.id,
+        provider: entry.provider,
+        usage,
+        promptTokens: resp.usage?.promptTokens || resp.usage?.prompt_tokens || 0,
+        completionTokens: resp.usage?.completionTokens || resp.usage?.completion_tokens || 0,
+        latencyMs,
+        success: true,
+      });
+    } catch (err) {
+      router._logger.debug(`[ModelRouter] token tracker failed for ${entry.id}: ${redactErrorMessage(err)}`);
+    }
+
+    try {
+      router._performanceRouter.recordResult(modelId, { success: true, latencyMs });
+    } catch (err) {
+      router._logger.debug(`[ModelRouter] perf router record failed for ${modelId}: ${redactErrorMessage(err)}`);
+    }
+
+    router.markHealthy(modelId);
+    router._logger.debug(`[ModelRouter] ok ${modelId} via ${entry.provider} (${latencyMs}ms)`);
+    return { ...resp, model: entry.id, provider: entry.provider, latencyMs };
+  } catch (err) {
+    const errorInfo = toSafeErrorInfo(err);
+    const latencyMs = router._time.now() - callStartMs;
+
+    try {
+      router._performanceRouter.recordResult(modelId, { success: false, latencyMs, error: errorInfo.message });
+    } catch (recordErr) {
+      router._logger.debug(`[ModelRouter] perf router record failed for ${modelId}: ${redactErrorMessage(recordErr)}`);
+    }
+
+    const retryAfterMs =
+      typeof err?.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) && err.retryAfterMs > 0
+        ? Math.floor(err.retryAfterMs)
+        : null;
+    if (retryAfterMs && limiter && typeof limiter.blockFor === "function") {
+      limiter.blockFor(retryAfterMs);
+    }
+
+    router._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${errorInfo.message}`);
+    const permanent = isPermanentAuthError(err);
+    const health = permanent ? router.disableModel(modelId, err, { reason: "auth" }) : router.markUnhealthy(modelId, err);
+    router.emit("model:unhealthy", {
+      usage,
+      modelId,
+      provider: entry.provider,
+      error: errorInfo,
+      cooldownMs: health?.cooldownMs ?? router._cooldownMs,
+      backoffLevel: health?.backoffLevel,
+      unhealthyUntilMs: health?.unhealthyUntilMs,
+      ...(health?.disabled ? { disabled: true, disabledReason: health.disabledReason || "auth" } : {}),
+    });
+
+    err._errorInfo = errorInfo;
+    throw err;
+  }
+}
+
+/**
  * @param {Partial<CallExecutorInput> | null} [input] - Call execution inputs.
  * @returns {Promise<{content: string, model: string, provider: string}>}
  */
@@ -191,15 +287,7 @@ export async function callWithPerformanceRouting({
     });
     const modelId = decision?.endpointId || available[0];
 
-    const entry = router._models.get(modelId);
-    if (!entry) throw new Error(`Unknown model id: ${modelId}`);
-
-    const provider = router._getProvider(entry.provider);
-    if (!provider) throw new Error(`Missing provider: ${entry.provider} for model ${modelId}`);
-
-    const limiter = router._getRateLimiter(entry);
-
-    // P3.3: check circuit breaker status.
+    // Pre-check circuit breaker before _tryModel
     const circuitBreaker = router._getCircuitBreaker(modelId);
     if (circuitBreaker && !circuitBreaker.canExecute()) {
       tried.add(modelId);
@@ -209,90 +297,10 @@ export async function callWithPerformanceRouting({
     }
 
     triedCount++;
-    router._logger.debug(`[ModelRouter] try ${modelId} via ${entry.provider}`);
-
-    // P3.3: wrap call with circuit breaker.
-    const doChat = () => provider.chat({ model: entry.id, messages, images });
-    const doChatWithCircuitBreaker = circuitBreaker ? () => circuitBreaker.execute(doChat) : doChat;
-
-    // P4.3: time the call.
-    const callStartMs = router._time.now();
-
-    const executeOnce = () =>
-      limiter ? limiter.schedule(doChatWithCircuitBreaker, { label: `${usage}:${modelId}` }) : doChatWithCircuitBreaker();
-
     try {
-      const resp = router._retryStrategy ? await router._retryStrategy.execute(executeOnce) : await executeOnce();
-      assertChatResponse(resp);
-
-      const callEndMs = router._time.now();
-      const latencyMs = callEndMs - callStartMs;
-
-      // P4.3: record token usage.
-      try {
-        getGlobalTokenTracker().record({
-          model: entry.id,
-          provider: entry.provider,
-          usage,
-          promptTokens: resp.usage?.promptTokens || resp.usage?.prompt_tokens || 0,
-          completionTokens: resp.usage?.completionTokens || resp.usage?.completion_tokens || 0,
-          latencyMs,
-          success: true,
-        });
-      } catch (err) {
-        router._logger.debug(`[ModelRouter] token tracker failed for ${entry.id}: ${redactErrorMessage(err)}`);
-      }
-
-      // PerfRouter: record success.
-      try {
-        router._performanceRouter.recordResult(modelId, { success: true, latencyMs });
-      } catch (err) {
-        router._logger.debug(`[ModelRouter] perf router record failed for ${modelId}: ${redactErrorMessage(err)}`);
-      }
-
-      router.markHealthy(modelId);
-      router._logger.debug(`[ModelRouter] ok ${modelId} via ${entry.provider} (${latencyMs}ms)`);
-      return { ...resp, model: entry.id, provider: entry.provider, latencyMs };
+      return await _tryModel({ router, modelId, usage, messages, images });
     } catch (err) {
       lastError = err;
-      const errorInfo = toSafeErrorInfo(err);
-      const errorMessage = errorInfo.message;
-
-      const callEndMs = router._time.now();
-      const latencyMs = callEndMs - callStartMs;
-
-      // PerfRouter: record failure.
-      try {
-        router._performanceRouter.recordResult(modelId, {
-          success: false,
-          latencyMs,
-          error: errorMessage,
-        });
-      } catch (recordErr) {
-        router._logger.debug(`[ModelRouter] perf router record failed for ${modelId}: ${redactErrorMessage(recordErr)}`);
-      }
-
-      const retryAfterMs =
-        typeof err?.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) && err.retryAfterMs > 0
-          ? Math.floor(err.retryAfterMs)
-          : null;
-      if (retryAfterMs && limiter && typeof limiter.blockFor === "function") {
-        limiter.blockFor(retryAfterMs);
-      }
-      router._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${errorMessage}`);
-      const permanent = isPermanentAuthError(err);
-      const health = permanent ? router.disableModel(modelId, err, { reason: "auth" }) : router.markUnhealthy(modelId, err);
-      router.emit("model:unhealthy", {
-        usage,
-        modelId,
-        provider: entry.provider,
-        error: errorInfo,
-        cooldownMs: health?.cooldownMs ?? router._cooldownMs,
-        backoffLevel: health?.backoffLevel,
-        unhealthyUntilMs: health?.unhealthyUntilMs,
-        ...(health?.disabled ? { disabled: true, disabledReason: health.disabledReason || "auth" } : {}),
-      });
-
       tried.add(modelId);
 
       const { available: remaining } = computeAvailability();
@@ -302,6 +310,7 @@ export async function callWithPerformanceRouting({
         : null;
 
       if (next) {
+        const errorInfo = err._errorInfo || toSafeErrorInfo(err);
         router.emit("model:failover", {
           usage,
           fromModelId: modelId,
@@ -386,99 +395,15 @@ export async function callWithStandardRouting({
       continue;
     }
 
-    const provider = router._getProvider(entry.provider);
-    if (!provider) throw new Error(`Missing provider: ${entry.provider} for model ${modelId}`);
-
-    const limiter = router._getRateLimiter(entry);
-
-    let callStartMs = null;
+    triedCount++;
     try {
-      triedCount++;
-      router._logger.debug(`[ModelRouter] try ${modelId} via ${entry.provider}`);
-
-      // P3.3: wrap call with circuit breaker.
-      const doChat = () => provider.chat({ model: entry.id, messages, images });
-      const doChatWithCircuitBreaker = circuitBreaker ? () => circuitBreaker.execute(doChat) : doChat;
-
-      // P4.3: time the call.
-      callStartMs = router._time.now();
-
-      const executeOnce = () =>
-        limiter ? limiter.schedule(doChatWithCircuitBreaker, { label: `${usage}:${modelId}` }) : doChatWithCircuitBreaker();
-
-      const resp = router._retryStrategy ? await router._retryStrategy.execute(executeOnce) : await executeOnce();
-      assertChatResponse(resp);
-
-      const callEndMs = router._time.now();
-      const latencyMs = callEndMs - callStartMs;
-
-      // P4.3: record token usage.
-      try {
-        getGlobalTokenTracker().record({
-          model: entry.id,
-          provider: entry.provider,
-          usage,
-          promptTokens: resp.usage?.promptTokens || resp.usage?.prompt_tokens || 0,
-          completionTokens: resp.usage?.completionTokens || resp.usage?.completion_tokens || 0,
-          latencyMs,
-          success: true,
-        });
-      } catch (err) {
-        router._logger.debug(`[ModelRouter] token tracker failed for ${entry.id}: ${redactErrorMessage(err)}`);
-      }
-
-      // PerfRouter: record success.
-      try {
-        router._performanceRouter.recordResult(modelId, { success: true, latencyMs });
-      } catch (err) {
-        router._logger.debug(`[ModelRouter] perf router record failed for ${modelId}: ${redactErrorMessage(err)}`);
-      }
-
-      router.markHealthy(modelId);
-      router._logger.debug(`[ModelRouter] ok ${modelId} via ${entry.provider} (${latencyMs}ms)`);
-      return { ...resp, model: entry.id, provider: entry.provider, latencyMs };
+      return await _tryModel({ router, modelId, usage, messages, images });
     } catch (err) {
       lastError = err;
-      const errorInfo = toSafeErrorInfo(err);
-      const errorMessage = errorInfo.message;
-
-      const callEndMs = router._time.now();
-      const latencyMs = typeof callStartMs === "number" ? callEndMs - callStartMs : 0;
-
-      // PerfRouter: record failure.
-      try {
-        router._performanceRouter.recordResult(modelId, {
-          success: false,
-          latencyMs,
-          error: errorMessage,
-        });
-      } catch (recordErr) {
-        router._logger.debug(`[ModelRouter] perf router record failed for ${modelId}: ${redactErrorMessage(recordErr)}`);
-      }
-
-      const retryAfterMs =
-        typeof err?.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) && err.retryAfterMs > 0
-          ? Math.floor(err.retryAfterMs)
-          : null;
-      if (retryAfterMs && limiter && typeof limiter.blockFor === "function") {
-        limiter.blockFor(retryAfterMs);
-      }
-      router._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${errorMessage}`);
-      const permanent = isPermanentAuthError(err);
-      const health = permanent ? router.disableModel(modelId, err, { reason: "auth" }) : router.markUnhealthy(modelId, err);
-      router.emit("model:unhealthy", {
-        usage,
-        modelId,
-        provider: entry.provider,
-        error: errorInfo,
-        cooldownMs: health?.cooldownMs ?? router._cooldownMs,
-        backoffLevel: health?.backoffLevel,
-        unhealthyUntilMs: health?.unhealthyUntilMs,
-        ...(health?.disabled ? { disabled: true, disabledReason: health.disabledReason || "auth" } : {}),
-      });
 
       const nextModelId = router._findNextCandidate(idx + 1, orderedCandidates, requiredTags);
       if (nextModelId) {
+        const errorInfo = err._errorInfo || toSafeErrorInfo(err);
         router.emit("model:failover", {
           usage,
           fromModelId: modelId,

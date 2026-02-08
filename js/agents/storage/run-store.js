@@ -186,39 +186,42 @@ export class RunStore {
       req.onblocked = () => reject(new Error("deleteDatabase blocked"));
     });
   }
-}
 
-Object.assign(RunStore.prototype, {
-  saveTask,
-  loadTask,
-  saveState,
-  loadState,
-  estimateQuota,
-  _maybeWarnQuota,
-  setRetentionPolicy,
-  listRunRecords,
-  _estimateRunBytes,
-  _estimateRunBytesFromManifest,
-  cleanupRuns,
-  createRun,
-  getRun,
-  updateRunContext,
-  listRuns,
-  deleteRun,
-  appendEvent,
-  appendEvents,
-  getEvents,
-  saveArtifact,
-  getArtifact,
-  getArtifactRecord,
-  getArtifactById,
-  loadArtifact,
-  listArtifacts,
-  listArtifactSummaries,
-  getLatestArtifactSummary,
-  updateManifest,
-  getManifest,
-});
+  // ─── Delegated CRUD (run-store-crud.js) ───
+  saveTask(...a) { return saveTask.call(this, ...a); }
+  loadTask(...a) { return loadTask.call(this, ...a); }
+  saveState(...a) { return saveState.call(this, ...a); }
+  loadState(...a) { return loadState.call(this, ...a); }
+  createRun(...a) { return createRun.call(this, ...a); }
+  updateRunContext(...a) { return updateRunContext.call(this, ...a); }
+  deleteRun(...a) { return deleteRun.call(this, ...a); }
+  appendEvent(...a) { return appendEvent.call(this, ...a); }
+  appendEvents(...a) { return appendEvents.call(this, ...a); }
+  saveArtifact(...a) { return saveArtifact.call(this, ...a); }
+  updateManifest(...a) { return updateManifest.call(this, ...a); }
+
+  // ─── Delegated queries (run-store-queries.js) ───
+  getRun(...a) { return getRun.call(this, ...a); }
+  listRuns(...a) { return listRuns.call(this, ...a); }
+  listRunRecords(...a) { return listRunRecords.call(this, ...a); }
+  getEvents(...a) { return getEvents.call(this, ...a); }
+  getArtifact(...a) { return getArtifact.call(this, ...a); }
+  getArtifactRecord(...a) { return getArtifactRecord.call(this, ...a); }
+  getArtifactById(...a) { return getArtifactById.call(this, ...a); }
+  loadArtifact(...a) { return loadArtifact.call(this, ...a); }
+  listArtifacts(...a) { return listArtifacts.call(this, ...a); }
+  listArtifactSummaries(...a) { return listArtifactSummaries.call(this, ...a); }
+  getLatestArtifactSummary(...a) { return getLatestArtifactSummary.call(this, ...a); }
+  getManifest(...a) { return getManifest.call(this, ...a); }
+
+  // ─── Delegated lifecycle (run-store-cache.js) ───
+  estimateQuota(...a) { return estimateQuota.call(this, ...a); }
+  _maybeWarnQuota(...a) { return _maybeWarnQuota.call(this, ...a); }
+  setRetentionPolicy(...a) { return setRetentionPolicy.call(this, ...a); }
+  _estimateRunBytes(...a) { return _estimateRunBytes.call(this, ...a); }
+  _estimateRunBytesFromManifest(...a) { return _estimateRunBytesFromManifest.call(this, ...a); }
+  cleanupRuns(...a) { return cleanupRuns.call(this, ...a); }
+}
 
 export const RunStoreConstants = {
   DB_NAME,
