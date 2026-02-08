@@ -1,6 +1,11 @@
 /**
  * VFS Delta Sync - 增量文件同步
  *
+ * 本地工具层：基于 hash 的文件级 diff/patch，不涉及网络 transport。
+ * 与 CRDT SyncManager（core/crdt/sync-manager.js）互补而非竞争：
+ *   - DeltaSync: 文件二进制级别，用于大文件增量传输
+ *   - SyncManager: CRDT op-log 级别，用于状态实时同步
+ *
  * 特性：
  * - 基于 hash 的变更检测
  * - 增量传输（只传输变更部分）

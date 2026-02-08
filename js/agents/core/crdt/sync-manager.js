@@ -1,6 +1,11 @@
 /**
  * CRDT Sync Manager - 多节点同步管理
  *
+ * 基于 CRDTTransport 的 op-log 级别实时同步，使用 Lamport Clock 排序。
+ * 与 VFS DeltaSync（vfs/delta-sync.js）互补而非竞争：
+ *   - SyncManager: CRDT 状态同步（小粒度、实时）
+ *   - DeltaSync: 文件二进制 diff（大粒度、批量）
+ *
  * 处理：
  * - 节点发现与连接
  * - 操作广播
