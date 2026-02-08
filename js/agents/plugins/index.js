@@ -4,9 +4,10 @@
  * 提供插件的统一加载入口
  */
 
-// 插件映射表
+// 插件映射表 — 通过 _registry 间接引用，支持 DI 替换
 const _initialKeys = new Set();
-const pluginRegistry = {
+/** @type {Record<string, () => Promise<any>>} */
+let _registry = {
   // Compression
   'compression/cicada': () => import('./compression/cicada.js'),
   'compression/watchdog': () => import('./compression/watchdog.js'),
@@ -75,7 +76,25 @@ const pluginRegistry = {
 };
 
 // Capture initial keys for reset
-for (const k of Object.keys(pluginRegistry)) _initialKeys.add(k);
+for (const k of Object.keys(_registry)) _initialKeys.add(k);
+
+/**
+ * Get the current plugin registry object (for DI / testing).
+ * @returns {Record<string, () => Promise<any>>}
+ */
+export function getPluginRegistry() {
+  return _registry;
+}
+
+/**
+ * Replace the plugin registry (for DI / testing isolation).
+ * @param {Record<string, () => Promise<any>>} registry
+ */
+export function setPluginRegistry(registry) {
+  if (registry && typeof registry === "object") {
+    _registry = registry;
+  }
+}
 
 /**
  * 加载插件
@@ -83,7 +102,7 @@ for (const k of Object.keys(pluginRegistry)) _initialKeys.add(k);
  * @returns {Promise<Object>} 插件对象
  */
 export async function loadPlugin(name) {
-  const loader = pluginRegistry[name];
+  const loader = _registry[name];
   if (!loader) {
     throw new Error(`Unknown plugin: ${name}`);
   }
@@ -96,21 +115,21 @@ export async function loadPlugin(name) {
  * 检查插件是否存在
  */
 export function hasPlugin(name) {
-  return name in pluginRegistry;
+  return name in _registry;
 }
 
 /**
  * 列出所有可用插件
  */
 export function listAvailablePlugins() {
-  return Object.keys(pluginRegistry);
+  return Object.keys(_registry);
 }
 
 /**
  * 注册自定义插件
  */
 export function registerPlugin(name, loader) {
-  pluginRegistry[name] = loader;
+  _registry[name] = loader;
 }
 
 /**
@@ -130,7 +149,7 @@ export function createPluginLoader() {
 export function registerPluginsFromManifest(manifest) {
   if (!manifest || typeof manifest !== "object") return;
   for (const [name, loader] of Object.entries(manifest)) {
-    if (typeof loader === "function") pluginRegistry[name] = loader;
+    if (typeof loader === "function") _registry[name] = loader;
   }
 }
 
@@ -139,8 +158,8 @@ export function registerPluginsFromManifest(manifest) {
  * Removes dynamically registered plugins, restores original set.
  */
 export function resetPluginRegistry() {
-  for (const k of Object.keys(pluginRegistry)) {
-    if (!_initialKeys.has(k)) delete pluginRegistry[k];
+  for (const k of Object.keys(_registry)) {
+    if (!_initialKeys.has(k)) delete _registry[k];
   }
 }
 
@@ -152,4 +171,6 @@ export default {
   createLoader: createPluginLoader,
   reset: resetPluginRegistry,
   registerFromManifest: registerPluginsFromManifest,
+  getRegistry: getPluginRegistry,
+  setRegistry: setPluginRegistry,
 };

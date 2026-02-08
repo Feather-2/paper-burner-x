@@ -90,16 +90,15 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 - **Impact**: 同进程多 Agent 共享 Lamport Clock，因果关系失真；并行测试无法隔离。
 - **Resolution**: 全局函数现委托到默认 `LamportClockService` 实例；导出 `getDefaultClockService()`/`setDefaultClockService()` 供 DI 和测试隔离；CRDTDocument 通过 `_childOpts()` 传递 clockService 到子 CRDT；StateEngine 接受 `clockService` 选项，DI 容器自动注入。
 
-### [MEDIUM] B3. 全局单例散布导致测试无法隔离
+### [MEDIUM] B3. ~~全局单例散布导致测试无法隔离~~ — ✅ PARTIALLY RESOLVED
 
 - **File**: 多处
-  - `core/lamport-clock.js`: `let _seq, _nodeId`
-  - `core/crdt/sync-manager.js`: `let clusterModulePromise, clusterModule`
-  - `plugins/index.js`: `const pluginRegistry = {...}`
-  - `core/di/global-container.js`: 全局容器单例
+  - `core/lamport-clock.js`: ✅ 已迁移到 `LamportClockService` 默认实例 + `setDefaultClockService()`
+  - `core/crdt/sync-manager.js`: `let clusterModulePromise, clusterModule` (lazy-load, 非共享状态)
+  - `plugins/index.js`: ✅ 已迁移到 `_registry` + `getPluginRegistry()`/`setPluginRegistry()`
+  - `core/di/global-container.js`: 全局容器单例 (设计如此，DI 根容器本身是全局的)
 - **Description**: 多个模块使用模块级全局可变状态，且这些状态被绕过 DI 直接 import 使用。
-- **Impact**: 并行测试几乎不可能——一个测试修改的状态会影响同进程其他测试。
-- **Suggestion**: 逐步将全局状态迁移到 DI 容器管理。
+- **Resolution**: lamport-clock 和 pluginRegistry 已支持 DI 替换；clusterModule 是 lazy-load 缓存，无共享状态风险；global-container 是 DI 根，保持全局合理。
 
 ---
 
