@@ -5,10 +5,11 @@ import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "./loop-runtime-state.js";
 import { estimateTokensCached } from "../../shared/index.js";
 import { getGlobalTokenCounter } from "../../shared/index.js";
-import { StatusController } from "./status-controller.js";
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
 import { initMessageHandling, attachMessageHandling } from "./agent-loop-message-handling.js";
 import { initToolDispatch, attachToolDispatch } from "./agent-loop-tool-dispatch.js";
+import { initStatusMixin, attachStatusMixin } from "./agent-loop-status-mixin.js";
+import { initStepMixin, attachStepMixin } from "./agent-loop-step-mixin.js";
 import { runWithAgentLifecycleHooks } from "./agent-loop-lifecycle-hooks.js";
 
 /**
@@ -89,7 +90,7 @@ import { runWithAgentLifecycleHooks } from "./agent-loop-lifecycle-hooks.js";
 // Re-export 组合类供外部使用
 export { MessageManager } from "./message-manager.js";
 export { ToolRegistry } from "./tool-registry.js";
-export { StatusController };
+export { StatusController } from "./status-controller.js";
 
 // Re-export 配置供外部自定义
 export { DEFAULT_CONTEXT_CONFIG, mergeContextConfig };
@@ -252,16 +253,7 @@ function mergeSignals(a, b) {
   return controller.signal;
 }
 
-let _stepSeq = 0;
-/**
- * @param {string | null | undefined} prefix
- * @returns {string}
- */
-function buildStepId(prefix) {
-  _stepSeq += 1;
-  const base = prefix && typeof prefix === "string" ? prefix : "step";
-  return `${base}_${Date.now().toString(36)}_${_stepSeq}`;
-}
+
 
 export class BaseStage {
   /**
@@ -357,18 +349,15 @@ export class BaseAgentLoop {
 
     initToolDispatch(this, { tools, hooks, logger });
 
-    this._statusController = new StatusController({
-      status: AgentStatus.IDLE,
-      machine: null,
-      eventName: null,
-      strict: strictLoopStatus,
+    initStatusMixin(this, {
+      strictLoopStatus,
       logger,
       emit: this.emit,
       stageName: this.stageName,
       actor: this.actor,
     });
 
-    this._activeStep = null;
+    initStepMixin(this);
     this._executeAbortController = null;
   }
 
@@ -388,84 +377,6 @@ export class BaseAgentLoop {
 
   /** @returns {void} */
   _detachEventBusListeners() {}
-
-  // ===== 状态管理 (委托给 StatusController) =====
-
-  /** @returns {string} */
-  get loopStatus() {
-    return this._statusController.status;
-  }
-
-  /** @returns {string} */
-  get _loopStatus() {
-    return this._statusController._loopStatus;
-  }
-
-  /** @param {string} value */
-  set _loopStatus(value) {
-    this._statusController._loopStatus = value;
-  }
-
-  /** @returns {boolean} */
-  get isPaused() {
-    return this._statusController.isPaused;
-  }
-
-  /** @returns {boolean} */
-  get _pauseRequested() {
-    return this._statusController._pauseRequested;
-  }
-
-  /** @param {boolean} value */
-  set _pauseRequested(value) {
-    this._statusController._pauseRequested = value;
-  }
-
-  /** @returns {string | null} */
-  get _pauseReason() {
-    return this._statusController._pauseReason;
-  }
-
-  /** @param {string | null} value */
-  set _pauseReason(value) {
-    this._statusController._pauseReason = value;
-  }
-
-  /** @returns {any[]} */
-  get statusHistory() {
-    return this._statusController.statusHistory;
-  }
-
-  /** @returns {any[]} */
-  get _statusHistory() {
-    return this._statusController._statusHistory;
-  }
-
-  /** @param {{ status?: string, machine?: any, eventName?: string, strict?: boolean } | null | undefined} [options] */
-  initLoopStatus({ status, machine, eventName, strict } = {}) {
-    this._statusController.init({ status, machine, eventName, strict });
-  }
-
-  /** @param {string} [reason] */
-  pause(reason = "user_requested") {
-    this._statusController.pause(reason);
-    this._abortActiveStep(reason);
-  }
-
-  /** @returns {void} */
-  resume() {
-    this._statusController.resume();
-  }
-
-  /** @param {string} newStatus @param {LoopStatusTransitionMeta} [metadata] */
-  _transitionLoopStatus(newStatus, metadata = {}) {
-    return this._statusController.transition(newStatus, metadata);
-  }
-
-  /** @param {AbortSignal | null | undefined} signal */
-  _checkPaused(signal) {
-    return this._statusController.checkPaused(signal);
-  }
 
   // ===== DI 服务解析 (统一入口) =====
 
@@ -491,21 +402,6 @@ export class BaseAgentLoop {
     }
     // 3. 返回 fallback
     return fallback;
-  }
-
-  /** @param {{ signal?: AbortSignal, runId?: string | null } | null | undefined} [options] */
-  _createPauseError(options) {
-    return this._statusController.createPauseError(options);
-  }
-
-  /** @param {any} err @param {AbortSignal | null | undefined} signal */
-  _shouldPauseFromError(err, signal) {
-    return this._statusController.shouldPauseFromError(err, signal);
-  }
-
-  /** @param {any} err @param {AbortSignal | null | undefined} signal */
-  _isAbortError(err, signal) {
-    return this._statusController._isAbortError(err, signal);
   }
 
   /**
@@ -653,75 +549,9 @@ export class BaseAgentLoop {
     }
   }
 
-  /**
-   * @param {StepMeta} [stepMeta]
-   * @param {AnyRecord} [context]
-   * @returns {{ step: StepInfo, context: AnyRecord }}
-   */
-  _beginStep(stepMeta = {}, context = {}) {
-    const meta = stepMeta && typeof stepMeta === "object" ? stepMeta : {};
-    const stepId = meta.stepId || buildStepId(this.stageName);
-    const startedAt = Date.now();
-    const { signal, controller } = this._createStepSignal(context.signal);
-    const step = {
-      stepId,
-      name: meta.name || meta.step || "step",
-      runId: meta.runId || null,
-      iteration: meta.iteration ?? null,
-      startedAt,
-      meta: meta.meta || null,
-    };
-    this._activeStep = { ...step, signal, controller };
-    this._emitStepEvent("started", step);
-    return {
-      step,
-      context: { ...context, signal },
-    };
-  }
-
-  /**
-   * @param {{ step?: StepInfo } | null | undefined} stepInfo
-   * @param {EndStepOptions} [options]
-   */
-  _endStep(stepInfo, { status = "completed", error, result } = {}) {
-    const step = stepInfo?.step || this._activeStep;
-    if (!step) return;
-    const payload = /** @type {AnyRecord} */ ({ ...step });
-    if (error) payload.error = error;
-    if (result !== undefined) payload.result = result;
-    this._emitStepEvent(status, payload);
-    if (this._activeStep && this._activeStep.stepId === step.stepId) {
-      this._activeStep = null;
-    }
-  }
-
-  /**
-   * @param {string} status
-   * @param {AnyRecord} payload
-   */
-  _emitStepEvent(status, payload) {
-    const emit = this.emit || this.eventBus?.emit;
-    if (typeof emit !== "function") return;
-    emit(`${this.stageName}.step.${status}`, { actor: this.actor, status, payload });
-  }
-
-  /** @param {string | null | undefined} reason */
-  _abortActiveStep(reason) {
-    const controller = this._activeStep?.controller;
-    if (!controller || controller.signal.aborted) return;
-    controller.abort(reason || "paused");
-  }
-
-  /**
-   * @param {AbortSignal | null | undefined} parentSignal
-   * @returns {{ signal: AbortSignal, controller: AbortController }}
-   */
-  _createStepSignal(parentSignal) {
-    const controller = new AbortController();
-    const signal = mergeSignals(parentSignal, controller.signal) || controller.signal;
-    return { signal, controller };
-  }
 }
 
 attachMessageHandling(BaseAgentLoop);
 attachToolDispatch(BaseAgentLoop);
+attachStatusMixin(BaseAgentLoop);
+attachStepMixin(BaseAgentLoop);
