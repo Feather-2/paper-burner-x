@@ -4,11 +4,11 @@ import {
   normalizeCursor,
   sanitizeRunId,
   joinVfsPath,
-  bytesToText,
-  textToBytes,
   readTextFromVfs,
   writeTextToVfs,
   appendTextToVfs,
+  createMemoryVfs,
+  createStorageAdapter,
   buildJournalEntry,
   readWalReplayState,
   applyWalReplayState,
@@ -656,42 +656,6 @@ if (SHOULD_RUN_INLINE_TESTS) {
     const { test } = await import("node:test");
     // @ts-ignore
     const { default: assert } = await import("node:assert/strict");
-
-    const createMemoryVfs = () => {
-      const files = new Map();
-      return {
-        exists: async (path) => files.has(path),
-        readText: async (path) => (files.has(path) ? files.get(path) : null),
-        read: async (path) => (files.has(path) ? textToBytes(files.get(path)) : null),
-        write: async (path, data) => {
-          files.set(path, bytesToText(data));
-        },
-        writeText: async (path, text) => {
-          files.set(path, String(text ?? ""));
-        },
-        writeFile: async (path, data) => {
-          files.set(path, typeof data === "string" ? data : bytesToText(data));
-        },
-        appendText: async (path, text) => {
-          files.set(path, `${files.get(path) ?? ""}${String(text ?? "")}`);
-        },
-        mkdir: async () => undefined,
-      };
-    };
-
-    const createStorageAdapter = (seed = {}) => {
-      const store = new Map(Object.entries(seed));
-      return {
-        get: async (key) => store.get(key),
-        set: async (key, value) => {
-          store.set(key, value);
-        },
-        delete: async (key) => {
-          store.delete(key);
-        },
-        keys: async () => Array.from(store.keys()),
-      };
-    };
 
     test("SideEffectJournal.replayFromStorage returns missing_wal when empty", async () => {
       const vfs = createMemoryVfs();

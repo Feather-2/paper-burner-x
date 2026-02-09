@@ -157,6 +157,51 @@ export async function appendTextToVfs(vfs, path, text) {
 }
 
 /**
+ * Create an in-memory VFS adapter for tests.
+ * @returns {object}
+ */
+export function createMemoryVfs() {
+  const files = new Map();
+  return {
+    exists: async (path) => files.has(path),
+    readText: async (path) => (files.has(path) ? files.get(path) : null),
+    read: async (path) => (files.has(path) ? textToBytes(files.get(path)) : null),
+    write: async (path, data) => {
+      files.set(path, bytesToText(data));
+    },
+    writeText: async (path, text) => {
+      files.set(path, String(text ?? ""));
+    },
+    writeFile: async (path, data) => {
+      files.set(path, typeof data === "string" ? data : bytesToText(data));
+    },
+    appendText: async (path, text) => {
+      files.set(path, `${files.get(path) ?? ""}${String(text ?? "")}`);
+    },
+    mkdir: async () => undefined,
+  };
+}
+
+/**
+ * Create an in-memory key-value storage adapter for tests.
+ * @param {Record<string, unknown>} [seed]
+ * @returns {object}
+ */
+export function createStorageAdapter(seed = {}) {
+  const store = new Map(Object.entries(seed));
+  return {
+    get: async (key) => store.get(key),
+    set: async (key, value) => {
+      store.set(key, value);
+    },
+    delete: async (key) => {
+      store.delete(key);
+    },
+    keys: async () => Array.from(store.keys()),
+  };
+}
+
+/**
  * Check whether a VFS path exists.
  * @param {object} vfs
  * @param {string} path
