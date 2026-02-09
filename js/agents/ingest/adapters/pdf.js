@@ -26,31 +26,6 @@ function normalizeMaxFileSize(value, fallback) {
 // Default PDF max file size (25MB). Override via new PdfAdapter({ maxFileSize }).
 const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
 
-// 缓存 OcrManager 实例，避免重复创建
-let _cachedOcrManager = null;
-
-function resolveOcr(stageApi) {
-  // 1. 优先使用注入的 OCR 引擎
-  if (hasProcessFile(stageApi?.ocr)) return stageApi.ocr;
-
-  // 2. 检测全局 OcrManager（浏览器环境）
-  const OcrManagerClass = globalThis?.OcrManager;
-  if (OcrManagerClass) {
-    // 如果是已实例化的对象
-    if (hasProcessFile(OcrManagerClass)) return OcrManagerClass;
-
-    // 如果是类，使用缓存的实例或创建新实例
-    if (typeof OcrManagerClass === "function") {
-      if (!_cachedOcrManager) {
-        _cachedOcrManager = new OcrManagerClass();
-      }
-      if (hasProcessFile(_cachedOcrManager)) return _cachedOcrManager;
-    }
-  }
-
-  return null;
-}
-
 function extractAsciiStrings(bytes, { minLen = 4, maxStrings = 200, maxChars = 20_000 } = {}) {
   const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array();
   const out = [];
@@ -109,6 +84,34 @@ export class PdfAdapter extends BaseAdapter {
   constructor(options = {}) {
     super({ ...options, adapterName: "pdf" });
     this.maxFileSize = normalizeMaxFileSize(options.maxFileSize, DEFAULT_MAX_FILE_SIZE);
+    this._ocrManager = options.ocrManager ?? null;
+  }
+
+  resolveOcr(stageApi) {
+    // 1. 优先使用注入的 OCR 引擎
+    if (hasProcessFile(stageApi?.ocr)) return stageApi.ocr;
+
+    // 2. 优先使用构造函数注入的 OCR 管理器
+    if (this._ocrManager !== null) return this._ocrManager;
+
+    // 3. 检测全局 OcrManager（浏览器环境）
+    const OcrManagerClass = globalThis?.OcrManager;
+    if (OcrManagerClass) {
+      // 如果是已实例化的对象
+      if (hasProcessFile(OcrManagerClass)) {
+        this._ocrManager = OcrManagerClass;
+        return this._ocrManager;
+      }
+
+      // 如果是类，缓存到实例字段，避免模块级全局单例
+      if (typeof OcrManagerClass === "function") {
+        this._ocrManager = new OcrManagerClass();
+        if (hasProcessFile(this._ocrManager)) return this._ocrManager;
+        this._ocrManager = null;
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -119,7 +122,7 @@ export class PdfAdapter extends BaseAdapter {
   async parse(input, stageApi = {}) {
     const t0 = Date.now();
 
-    const ocr = resolveOcr(stageApi);
+    const ocr = this.resolveOcr(stageApi);
 
     let file = input;
     let filename = "";
