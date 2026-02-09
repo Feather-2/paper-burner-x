@@ -176,7 +176,7 @@ describe("RetryStrategy: retry behavior", () => {
   let resetGlobalRetryStats;
 
   beforeAll(async () => {
-    const mod = await import("../../../../js/agents/runtime/core/retry-strategy.js");
+    const mod = await import("../../../../js/agents/shared/retry-strategy.js");
     RetryStrategy = mod.RetryStrategy;
     isRetryableError = mod.isRetryableError;
     withRetry = mod.withRetry;

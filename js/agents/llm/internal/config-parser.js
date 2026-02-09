@@ -2,7 +2,7 @@ import { assertModelEntry, assertProvider, assertUsageConfig, normalizeModelTags
 import { RouterStrategy, normalizeRouterStrategy } from "../constants.js";
 import { safeJsonParse } from "../../shared/index.js";
 import { ModelEventEmitter } from "../model-events.js";
-import { RetryStrategy } from "../../runtime/core/retry-strategy.js";
+import { RetryStrategy } from "../../shared/retry-strategy.js";
 import { PerformanceRouter, ModelTier } from "../../runtime/routing/performance-router.js";
 import { isPlainObject, toNonEmptyString, toPositiveInt } from "../../shared/index.js";
 

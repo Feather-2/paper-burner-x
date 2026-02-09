@@ -28,7 +28,7 @@ const {
     import.meta.url,
   ).pathname}`,
   RETRY_STRATEGY_PATH: `/@fs${new URL(
-    "../../../../../../js/agents/runtime/core/retry-strategy.js",
+    "../../../../../../js/agents/shared/retry-strategy.js",
     import.meta.url,
   ).pathname}`,
   ERROR_BOUNDARY_PATH: `/@fs${new URL(

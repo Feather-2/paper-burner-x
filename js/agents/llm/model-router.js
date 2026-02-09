@@ -104,7 +104,7 @@ export class ModelRouter {
   _roundRobinStorage;
   /** @type {ModelRouterTime} */
   _time;
-  /** @type {import("../runtime/core/retry-strategy.js").RetryStrategy | { execute: (fn: () => Promise<any>) => Promise<any> } | null} */
+  /** @type {import("../shared/retry-strategy.js").RetryStrategy | { execute: (fn: () => Promise<any>) => Promise<any> } | null} */
   _retryStrategy;
   /** @type {number} */
   _baseCooldownMs;

@@ -1,6 +1,6 @@
 import { createLogger, isPlainObject, toNonNegativeInt } from "../../../shared/index.js";
 import { getGlobalTokenTracker, TraceContext } from "../../../plugins/telemetry/index.js";
-import { withRetry } from "../retry-strategy.js";
+import { withRetry } from "../../../shared/retry-strategy.js";
 import { getErrorBoundary } from "../error-boundary.js";
 import { MessageBus } from "../../../core/message-bus.js";
 

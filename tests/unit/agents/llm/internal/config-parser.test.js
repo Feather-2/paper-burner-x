@@ -133,7 +133,7 @@ vi.mock("../../../../../js/agents/llm/model-events.js", () => ({
   ModelEventEmitter: mocks.ModelEventEmitter,
 }));
 
-vi.mock("../../../../../js/agents/runtime/core/retry-strategy.js", () => ({
+vi.mock("../../../../../js/agents/shared/retry-strategy.js", () => ({
   RetryStrategy: mocks.RetryStrategy,
 }));
 

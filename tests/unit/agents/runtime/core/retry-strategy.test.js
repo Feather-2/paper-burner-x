@@ -18,7 +18,7 @@ vi.mock('../../../../../js/agents/shared/index.js', () => ({
   createLogger: mockCreateLogger,
 }));
 
-import { isRetryableError, RetryStrategy, resetGlobalRetryStats } from '../../../../../js/agents/runtime/core/retry-strategy.js';
+import { isRetryableError, RetryStrategy, resetGlobalRetryStats } from '../../../../../js/agents/shared/retry-strategy.js';
 
 const FIXED_TIME = new Date('2024-01-01T00:00:00.000Z');
 

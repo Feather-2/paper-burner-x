@@ -134,7 +134,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.RETRY_STRATEGY,
     async () => {
-      const { RetryStrategy } = await import("../../runtime/core/retry-strategy.js");
+      const { RetryStrategy } = await import("../../shared/retry-strategy.js");
       return new RetryStrategy();
     },
     { scope: SINGLETON }
