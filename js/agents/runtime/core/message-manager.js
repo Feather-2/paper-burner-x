@@ -8,13 +8,20 @@
  * - 异步摘要预生成（用于主动压缩）
  */
 
-import { estimateTokensCached } from "../../shared/index.js";
 import { createLogger } from "../../shared/index.js";
 import { getGlobalTokenCounter } from "../../shared/index.js";
 import { CompressionCoordinator } from "../../plugins/compression/index.js";
 import { DEFAULT_CONTEXT_CONFIG } from "./context-config.js";
 import { wrapPersistedOutput, cleanOldPersistedOutputs, KEEP_RECENT_OUTPUTS } from "./persisted-output.js";
 import { createScopedReporter, ErrorCategory } from "./errors/silent-error-reporter.js";
+import {
+  estimateTokens,
+  computeContentHash,
+  isAbortError,
+  shouldGenerateSummary,
+  isThinkingMessage,
+  generateBuiltinSummary,
+} from "./message-manager-helpers.js";
 
 const fallbackLogger = createLogger("runtime/core/message-manager");
 const silentReporter = createScopedReporter("MessageManager");
@@ -76,26 +83,6 @@ const silentReporter = createScopedReporter("MessageManager");
  * @property {boolean} [asyncSummaryEnabled] - 是否启用异步摘要预生成
  * @property {(message: ChatMessage) => Promise<string|null>} [summaryGenerator] - 自定义摘要生成器
  */
-
-/**
- * @param {unknown} text
- * @param {TokenCounterLike | null | undefined} tokenCounter
- * @returns {number}
- */
-function estimateTokens(text, tokenCounter) {
-  if (text === null || text === undefined) return 0;
-  let rawText = "";
-  if (typeof text === "string") {
-    rawText = text;
-  } else {
-    try {
-      rawText = JSON.stringify(text);
-    } catch {
-      rawText = String(text);
-    }
-  }
-  return estimateTokensCached(rawText, tokenCounter);
-}
 
 export class MessageManager {
   /**
@@ -347,31 +334,9 @@ export class MessageManager {
   // Token 缓存（基于内容 hash 的失效机制）
   // ==========================================================================
 
-  /**
-   * 计算内容的简单 hash（32-bit）
-   * @private
-   * @param {unknown} content
-   * @returns {number}
-   */
+  /** @private @param {unknown} content @returns {number} */
   _computeContentHash(content) {
-    let str;
-    if (typeof content === "string") {
-      str = content;
-    } else if (content === null || content === undefined) {
-      return 0;
-    } else {
-      try {
-        str = JSON.stringify(content);
-      } catch {
-        str = String(content);
-      }
-    }
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = ((hash << 5) - hash) + str.charCodeAt(i);
-      hash |= 0; // Convert to 32-bit integer
-    }
-    return hash;
+    return computeContentHash(content);
   }
 
   /**
@@ -444,12 +409,7 @@ export class MessageManager {
 
   /** @param {any} err @returns {boolean} */
   _isAbortError(err) {
-    if (!err) return false;
-    const name = err?.name || err?.code;
-    if (name === "AbortError" || name === "CanceledError" || name === "CancelledError") return true;
-    const msg = err instanceof Error ? err.message : String(err);
-    const lower = msg.toLowerCase();
-    return lower.includes("aborted") || lower.includes("canceled") || lower.includes("cancelled");
+    return isAbortError(err);
   }
 
   /** @param {{ force?: boolean } | null | undefined} [options] */
@@ -667,22 +627,7 @@ export class MessageManager {
    * @returns {boolean}
    */
   _shouldGenerateSummary(message) {
-    if (!message || typeof message !== "object") return false;
-    if (message._summary) return false; // 已有摘要
-    if (this._pendingSummaries.has(message)) return false; // 已在处理
-
-    const content = message.content || message.text;
-    if (!content) return false;
-
-    // 只对较长的消息或 thinking 消息生成摘要
-    const tokens = message._tokens || 0;
-    if (tokens < 100) return false;
-
-    // thinking 消息优先生成摘要
-    if (this._isThinkingMessage(message)) return true;
-
-    // 较长消息也生成
-    return tokens > 200;
+    return shouldGenerateSummary(message, this._pendingSummaries, this._isThinkingMessage.bind(this));
   }
 
   /**
@@ -692,12 +637,7 @@ export class MessageManager {
    * @returns {boolean}
    */
   _isThinkingMessage(message) {
-    if (!message || typeof message !== "object") return false;
-    if (message.thinking === true || message.internal === true) return true;
-    if (message.type === "thinking") return true;
-    const content = String(message.content || message.text || "").trim();
-    if (!content) return false;
-    return /^<(think|analysis)>/i.test(content) || /^(thoughts?|analysis|internal):/i.test(content);
+    return isThinkingMessage(message);
   }
 
   /**
@@ -772,33 +712,7 @@ export class MessageManager {
    * @returns {string|null}
    */
   _generateBuiltinSummary(message) {
-    const content = String(message.content || message.text || "");
-    if (!content) return null;
-
-    const isThinking = this._isThinkingMessage(message);
-    if (isThinking) {
-      // 提取关键决策点
-      const lines = content.split("\n");
-      const decisions = [];
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (/^(决定|选择|确定|采用|使用|将|要|需要|应该|因此|所以|结论)/i.test(trimmed) ||
-            /^(decide|choose|will|should|therefore|conclusion|plan to)/i.test(trimmed)) {
-          decisions.push(trimmed.slice(0, 80));
-          if (decisions.length >= 3) break;
-        }
-      }
-      if (decisions.length > 0) {
-        return `[决策] ${decisions.join("; ")}`;
-      }
-      return `[Thinking] ${content.slice(0, 80)}...`;
-    }
-
-    // 普通消息：首尾截取
-    if (content.length > 200) {
-      return content.slice(0, 100) + " ... " + content.slice(-50);
-    }
-    return null;
+    return generateBuiltinSummary(message, this._isThinkingMessage.bind(this));
   }
 
   /**
