@@ -188,3 +188,93 @@ import { DesignAgentLoop } from "js/agents/stages/design/agent-loop.js";
 | 不创建 re-export 门面 | 外部调用者继续 import 主文件，helpers 是内部实现细节 |
 | SDK 不导出 Stage 类 | 核心框架零业务依赖，对齐 Vercel AI SDK / LangChain.js 最佳实践 |
 | L0 convenience 不从 SDK barrel 导出 | 使用者按需 import 具体路径，避免隐式捆绑 |
+
+## 8. 多 Agent 协作能力路线图
+
+### 8.1 当前就绪度
+
+**基础设施已就绪（90%）**：
+- EventBus + Lamport Clock：跨 Agent 事件因果序 ✅
+- MessageBus：request/response RPC + 幂等去重 + 超时 ✅
+- Orchestrator：Sequential + Parallel + DAG 调度 ✅
+- SubagentRegistry：运行时注册/调用子 Agent ✅
+- CRDT SyncManager：LWW/GCounter/PNCounter/ORSet/Document ✅
+- SharedContext：子 Agent 继承父级上下文 ✅
+- Agent 生命周期：dispose + 子 Agent 清理 ✅
+
+**实际使用薄弱**：
+- MessageBus 只在 stage-api-factory 中解析，无 Stage 真正使用 RPC
+- CRDT 只有 MemoryTransport，无网络传输
+- SubagentRegistry 只有 DeepSearch 的 2 个子 Agent
+- DAG 调度未被任何 Stage 组合使用
+
+### 8.2 需要补全的能力
+
+#### 第一层：通信基础（必须）
+
+| 缺口 | 说明 | 涉及模块 |
+|------|------|----------|
+| **网络 Transport** | CRDT 只有 MemoryTransport，需要 WebSocket/WebRTC Transport 才能跨浏览器/跨进程同步 | `core/crdt/` |
+| **Agent 通信协议** | 定义标准消息格式：task-request, task-result, status-update, knowledge-share | `core/contracts/` |
+| **消息可靠性** | MessageBus 缺少死信队列、消息确认、持久化投递保证 | `core/message-bus.js` |
+| **跨 Agent 背压** | 当前背压只在单 EventBus 内，多 Agent 间没有流控 | `core/message-bus.js` |
+
+#### 第二层：协调机制（重要）
+
+| 缺口 | 说明 | 涉及模块 |
+|------|------|----------|
+| **任务分配策略** | 当前 SubagentRegistry 只有简单 dispatch，缺少：负载均衡、能力匹配、优先级队列 | `sdk/SubagentRegistry.js` |
+| **Agent 身份与发现** | Agent 没有统一的 ID 体系，无法寻址。需要：注册中心、心跳检测、能力广播 | 新建 `core/agent-identity.js` |
+| **共享黑板协议** | CRDT Document 存在但没有多 Agent 读写集成。需要：冲突标记、合并策略、变更通知 | `core/crdt/document.js` |
+| **协调者模式** | 缺少 Coordinator/Leader 选举。多 Agent 场景需要一个协调者分配任务、汇总结果 | 新建 `runtime/core/coordinator.js` |
+
+#### 第三层：可观测性（重要）
+
+| 缺口 | 说明 | 涉及模块 |
+|------|------|----------|
+| **Agent 状态可视化** | Orchestrator 没有 getStatus/inspect API，外部无法观察 Agent 群体状态 | `runtime/core/orchestrator.js` |
+| **冲突可视化** | CRDT 自动合并了冲突，但用户看不到"Agent A 和 B 有分歧" | `core/crdt/` |
+| **跨 Agent 追踪** | TraceContext 在单 Agent 内工作，但跨 Agent 的 trace propagation 未实现 | `plugins/telemetry/` |
+| **协作仪表盘** | 无法从外部观察多 Agent 的任务进度、通信拓扑、资源使用 | 新建 |
+
+#### 第四层：容错与弹性（锦上添花）
+
+| 缺口 | 说明 | 涉及模块 |
+|------|------|----------|
+| **Agent 故障隔离** | 一个子 Agent 崩溃可能影响整个 Orchestrator | `runtime/core/orchestrator.js` |
+| **任务重分配** | Agent 失败后任务自动分配给其他 Agent | `sdk/SubagentRegistry.js` |
+| **一致性快照** | 多 Agent 系统的全局一致性检查点（跨 Agent 的 Archive） | `core/archive/` |
+| **脑裂处理** | 网络分区后多个 Agent 独立运行，恢复后如何合并 | `core/crdt/sync-manager.js` |
+
+### 8.3 推荐实施顺序
+
+```
+阶段 1：单进程多 Agent（当前可立即推进）
+  ├── 定义 Agent 通信协议（contracts/agent-message.js）
+  ├── 让现有 Stage 使用 MessageBus RPC
+  ├── Orchestrator 暴露 getStatus() API
+  └── 验证场景：DeepSearch + CodeSearch 协作研究
+
+阶段 2：跨进程多 Agent
+  ├── 实现 WebSocket Transport for CRDT
+  ├── Agent 身份注册与发现
+  ├── 跨 Agent TraceContext propagation
+  └── 验证场景：浏览器 Agent + Node 服务端 Agent 协作
+
+阶段 3：弹性多 Agent 系统
+  ├── Coordinator 模式 + Leader 选举
+  ├── 任务重分配 + 故障隔离
+  ├── 全局一致性检查点
+  └── 验证场景：5+ Agent 长时间运行科研任务
+```
+
+### 8.4 框架独特优势（vs 竞品多 Agent 方案）
+
+| 维度 | LangGraph | AutoGen | CrewAI | Paper-Burner |
+|------|-----------|---------|--------|-------------|
+| 状态同步 | 共享 state dict | 消息传递 | 无 | **CRDT 无冲突合并** |
+| 调度模式 | 图遍历 | 轮询/选择 | 顺序 | **Sequential + Parallel + DAG** |
+| 通信模式 | 边传递 | 消息 | 委托 | **EventBus + MessageBus RPC** |
+| 容错 | checkpoint | 无 | 无 | **WAL + DegradationMatrix + CircuitBreaker** |
+| 运行时替换 | 无 | 无 | 无 | **Plugin 热插拔 + ServiceBus 中间件** |
+| 浏览器支持 | 无 | 无 | 无 | **完整支持** |
