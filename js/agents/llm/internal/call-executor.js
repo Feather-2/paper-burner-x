@@ -1,7 +1,7 @@
 import { assertChatResponse } from "../provider.js";
 import { extractPromptText } from "./provider-selection.js";
 import { getGlobalTokenTracker } from "../../plugins/telemetry/index.js";
-import { estimateComplexity } from "../../runtime/routing/performance-router.js";
+import { estimateComplexity } from "../performance-router.js";
 import { toNonEmptyString } from "../../shared/index.js";
 import { isPermanentAuthError, toErrorInfo } from "./fallback.js";
 
@@ -30,7 +30,7 @@ import { isPermanentAuthError, toErrorInfo } from "./fallback.js";
  */
 
 /**
- * @typedef {RoutingInput & { taskComplexity: import("../../plugins/routing/performance-router.js").TaskComplexityType }} PerformanceRoutingInput
+ * @typedef {RoutingInput & { taskComplexity: import("../performance-router.js").TaskComplexityType }} PerformanceRoutingInput
  */
 
 const REDACTED = "[REDACTED]";

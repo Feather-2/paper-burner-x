@@ -137,7 +137,7 @@ vi.mock("../../../../../js/agents/shared/retry-strategy.js", () => ({
   RetryStrategy: mocks.RetryStrategy,
 }));
 
-vi.mock("../../../../../js/agents/runtime/routing/performance-router.js", () => ({
+vi.mock("../../../../../js/agents/llm/performance-router.js", () => ({
   PerformanceRouter: mocks.PerformanceRouter,
   ModelTier: mocks.ModelTier,
 }));

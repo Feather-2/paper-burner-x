@@ -67,7 +67,7 @@ import { callWithPerformanceRouting, callWithStandardRouting, executeCall } from
  * @property {string=} roundRobinStorageKey
  * @property {StorageLike=} storage
  * @property {boolean=} performanceRouting
- * @property {import("../runtime/routing/performance-router.js").PerformanceRouter=} performanceRouter
+ * @property {import("./performance-router.js").PerformanceRouter=} performanceRouter
  * @property {(args: { modelId: string, modelEntry: any, usage?: string, images?: any[] }) => string=} tierResolver
  */
 
@@ -92,7 +92,7 @@ export class ModelRouter {
   _performanceRouting;
   /** @type {((args: { modelId: string, modelEntry: any, usage?: string, images?: any[] }) => string) | null} */
   _tierResolver;
-  /** @type {import("../runtime/routing/performance-router.js").PerformanceRouter} */
+  /** @type {import("./performance-router.js").PerformanceRouter} */
   _performanceRouter;
   /** @type {Map<string, string | number>} */
   _rrNextIndexByUsage;

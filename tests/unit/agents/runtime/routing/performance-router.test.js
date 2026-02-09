@@ -1,4 +1,4 @@
-// Unit tests for runtime performance-router re-exports with mocked logger.
+// Unit tests for performance-router with mocked logger.
 // Covers EWMA tracking, routing decisions, and complexity estimation edge cases.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -19,7 +19,7 @@ import {
   PerformanceRouter,
   TaskComplexity,
   estimateComplexity,
-} from "../../../../../js/agents/runtime/routing/performance-router.js";
+} from "../../../../../js/agents/llm/performance-router.js";
 
 beforeEach(() => {
   vi.clearAllMocks();

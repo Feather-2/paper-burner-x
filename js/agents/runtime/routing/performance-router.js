@@ -1,1 +1,2 @@
-export * from "../../plugins/routing/performance-router.js";
+export * from "../../llm/performance-router.js";
+export { default } from "../../llm/performance-router.js";

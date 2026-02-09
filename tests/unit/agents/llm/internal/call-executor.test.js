@@ -23,7 +23,7 @@ vi.mock("../../../../../js/agents/plugins/telemetry/index.js", () => ({
   getGlobalTokenTracker: getGlobalTokenTrackerMock,
 }));
 
-vi.mock("../../../../../js/agents/runtime/routing/performance-router.js", () => ({
+vi.mock("../../../../../js/agents/llm/performance-router.js", () => ({
   estimateComplexity: estimateComplexityMock,
 }));
 

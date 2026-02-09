@@ -8,7 +8,7 @@ describe("PerformanceRouter: EWMA and routing", () => {
   let estimateComplexity;
 
   beforeEach(async () => {
-    const mod = await import("../../../../js/agents/runtime/routing/performance-router.js");
+    const mod = await import("../../../../js/agents/llm/performance-router.js");
     PerformanceRouter = mod.PerformanceRouter;
     EwmaTracker = mod.EwmaTracker;
     ModelTier = mod.ModelTier;

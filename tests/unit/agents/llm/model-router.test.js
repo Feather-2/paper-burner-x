@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ModelRouter } from '../../../../js/agents/llm/model-router.js';
 import { TokenBucketRateLimiter, loadRateLimitConfig, normalizeRateLimitConfig } from '../../../../js/agents/llm/rate-limit.js';
-import { ModelTier } from '../../../../js/agents/runtime/routing/performance-router.js';
+import { ModelTier } from '../../../../js/agents/llm/performance-router.js';
 
 import { createCaptureLogger, createFakeTime, createMockProvider, createMockStorage, withPatchedConsole } from "./vitest-utils.js";
 
