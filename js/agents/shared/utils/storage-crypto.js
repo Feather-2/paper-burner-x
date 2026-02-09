@@ -172,7 +172,7 @@ export async function decryptString(payload, { passphrase, aad } = {}) {
 
   let decoded;
   try {
-    decoded = JSON.parse(raw.slice(PB_ENCRYPTED_PREFIX.length, protoSafeReviver));
+    decoded = JSON.parse(raw.slice(PB_ENCRYPTED_PREFIX.length), protoSafeReviver);
   } catch {
     throw new Error("decryptString: invalid payload JSON");
   }

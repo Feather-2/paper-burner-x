@@ -1,4 +1,5 @@
 import { checkCancelled } from "./cancellation.js";
+import { protoSafeReviver } from "./safe-json.js";
 import { toNonEmptyString } from "./value-utils.js";
 
 /**
@@ -145,7 +146,7 @@ export async function readJsonWithLimit(response, { maxBytes, context, signal, c
   const label = toNonEmptyString(context) || "JSON response body";
   const text = await readTextWithLimit(response, { maxBytes, context: label, signal, code });
   if (text === null) throw new Error(`${label} is empty`);
-  const data = JSON.parse(text);
+  const data = JSON.parse(text, protoSafeReviver);
   if (!isJsonContainer(data)) {
     throw new Error(`${label} must be a JSON object or array`);
   }
