@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const SUT_MODULE_ID = '../../../../../js/agents/runtime/api/stage-api-factory.js';
+const SUT_MODULE_ID = '../../../../../js/agents/runtime/core/api/stage-api-factory.js';
 
 function createDeepNestedObject(depth = 50) {
   const root = { level: 0 };

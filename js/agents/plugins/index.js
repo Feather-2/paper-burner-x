@@ -23,7 +23,7 @@ let _registry = {
   'telemetry/replay': () => import('./telemetry/replay-controller.js'),
 
   // Memory
-  'memory/store': () => import('./memory/memory-store.impl.js'),
+  'memory/store': () => import('./memory/memory-store.impl.core.js'),
   'memory/state-engine': () => import('./memory/state-engine.js'),
   'memory/retrieval': () => import('./memory/retrieval-engine.js'),
 
@@ -46,7 +46,7 @@ let _registry = {
   'policy/manager': () => import('./policy/manager.js'),
 
   // Routing
-  'routing/performance': () => import('./routing/performance-router.js'),
+  'routing/performance': () => import('../llm/performance-router.js'),
 
   // Transports
   'transports/process': () => import('./transports/index.js'),

@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 async function createStore(options = {}) {
-  const { MemoryStore } = await import("../../../../../js/agents/plugins/memory/memory-store.impl.js");
+  const { MemoryStore } = await import("../../../../../js/agents/plugins/memory/memory-store.impl.core.js");
   return new MemoryStore({
     runId: "ms_test",
     tokenCounter: null,
@@ -19,7 +19,7 @@ async function createStore(options = {}) {
 
 describe("runtime/memory/memory-store.js", () => {
   it("re-exports MemoryStore as named + default export", async () => {
-    const mod = await import("../../../../../js/agents/plugins/memory/memory-store.impl.js");
+    const mod = await import("../../../../../js/agents/plugins/memory/memory-store.impl.core.js");
     expect(mod.MemoryStore).toBeTypeOf("function");
     expect(mod.default).toBe(mod.MemoryStore);
   });

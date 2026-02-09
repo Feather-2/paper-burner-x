@@ -98,7 +98,7 @@ export async function loadDeepSearchCapabilities() {
     }
 
     try {
-      const memory = await import("../../plugins/memory/memory-store.impl.js");
+      const memory = await import("../../plugins/memory/memory-store.impl.core.js");
       capabilities.MemoryStore = memory.MemoryStore || memory.default;
     } catch (err) {
       warn("MemoryStore", err);

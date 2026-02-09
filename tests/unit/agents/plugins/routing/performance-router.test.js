@@ -22,7 +22,7 @@ import {
   EwmaTracker,
   ModelTier,
   TaskComplexity,
-} from '../../../../../js/agents/plugins/routing/performance-router.js';
+} from '../../../../../js/agents/llm/performance-router.js';
 
 beforeEach(() => {
   vi.clearAllMocks();

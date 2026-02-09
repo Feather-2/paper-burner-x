@@ -232,7 +232,7 @@ export function createAgentContainer(overrides = {}) {
 
   // MemoryStore (depends on eventBus)
   container.register(ServiceId.MEMORY_STORE, async (c) => {
-    const { MemoryStore } = await import("../../plugins/memory/memory-store.impl.js");
+    const { MemoryStore } = await import("../../plugins/memory/memory-store.impl.core.js");
     const eventBus = await c.get(ServiceId.EVENT_BUS);
     return new MemoryStore({ eventBus });
   });

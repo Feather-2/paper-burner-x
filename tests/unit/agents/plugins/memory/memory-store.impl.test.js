@@ -50,7 +50,7 @@ vi.mock('../../../../../js/agents/plugins/memory/l3-storage.js', () => {
   return { L3Storage };
 });
 
-import { MemoryStore, default as MemoryStoreDefault } from '../../../../../js/agents/plugins/memory/memory-store.impl.js';
+import { MemoryStore, default as MemoryStoreDefault } from '../../../../../js/agents/plugins/memory/memory-store.impl.core.js';
 
 const buildEventBus = () => ({
   emit: vi.fn(),

@@ -10,7 +10,7 @@ import { StepStatus } from '../../agents/runtime/core/agent-status.js';
 import { RunStoreAdapter } from '../../agents/core/event-bus.js';
 import { subscribeTelemetry } from '../../agents/plugins/telemetry/runstore-telemetry.js';
 import { RunReplayController } from '../../agents/plugins/telemetry/replay-controller.js';
-import { StageApiFactory } from '../../agents/runtime/api/stage-api-factory.js';
+import { StageApiFactory } from '../../agents/runtime/core/api/stage-api-factory.js';
 import { RunStore } from '../../agents/storage/run-store.js';
 import { exportRunAsZip, importRunFromZip } from '../../agents/storage/run-exporter.js';
 import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesignVisualMode } from '../design/design-preferences.js';
