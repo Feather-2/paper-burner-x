@@ -1,18 +1,17 @@
 import { createStageApi } from "../../shared/index.js";
 import { EventBus } from "../../core/event-bus.js";
-import { ActorType, OrchestratorState, isValidActorType } from "./constants.js";
+import { ActorType, OrchestratorState } from "./constants.js";
 import { ServiceId } from "../../core/di/defaults.js";
-import { validateConfig } from "./config-validator.js";
 import { TaskGraph } from "./parallel/task-graph.js";
 import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
 import { DisposableBase } from "../../shared/index.js";
 import { createLogger } from "../../shared/index.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 import {
-  normalizeTimeoutMs, DEFAULT_USER_CONFIG_SCHEMA,
-  formatValidationErrors, maybeAwait,
+  normalizeTimeoutMs, maybeAwait,
   isDegradationMatrixLike, defaultMemoryUsageRatio,
   buildRunContext, deriveActorFromStageName, createStageAbortSignal,
+  isFailureStopReason, buildDegradationContext, prepareStageInputWithUserConfigValidation,
 } from "./orchestrator-helpers.js";
 
 const logger = createLogger("runtime/orchestrator");
@@ -351,12 +350,7 @@ export class AgentOrchestrator extends DisposableBase {
     this._ensureNotDisposed();
     if (this.signal.aborted) return;
     const r = toNonEmptyString(reason) || "cancelled";
-    const isFailure =
-      r === "stage_failed" ||
-      r === "workflow_failed" ||
-      r.endsWith(".failed") ||
-      r.endsWith("_failed") ||
-      r.includes("failed");
+    const isFailure = isFailureStopReason(r);
 
     this.state = isFailure ? OrchestratorState.FAILED : OrchestratorState.CANCELLED;
     this._abortController.abort(r);
@@ -664,54 +658,20 @@ export class AgentOrchestrator extends DisposableBase {
     const { signal: stageSignal, cleanup } = createStageAbortSignal(this.signal, stageTimeoutMs);
 
     // P6.1.3: Validate userConfig at stage init (best-effort, backward compatible).
-    let stageInput = input;
-    let userConfigValidation = null;
-    if (isPlainObject(stageInput) && ("userConfig" in stageInput || stageInput.userConfig !== undefined)) {
-      const schema = entry.configSchema || stageOptions?.configSchema || DEFAULT_USER_CONFIG_SCHEMA;
-      const stageCfg = isPlainObject(entry.configValidation)
-        ? entry.configValidation
-        : isPlainObject(stageOptions?.configValidation)
-          ? stageOptions.configValidation
-          : {};
-      const strict =
-        stageCfg.strict === true ||
-        this._configValidation.strict === true ||
-        stageInput?.userConfig?.strictValidation === true;
-      const coerce = stageCfg.coerce === true || this._configValidation.coerce === true;
-
-      const result = validateConfig(stageInput.userConfig, schema, { strict: false, coerce });
-      userConfigValidation = { valid: result.valid, errors: result.errors };
-
-      if (!result.valid) {
-        const details = formatValidationErrors(result.errors);
-        const err = new Error(`Invalid userConfig for stage "${stageName}"\n${details}`);
-        err.name = "ConfigValidationError";
-        /** @type {Error & { errors?: Array<{ path: string, message: string, value?: unknown }> }} */ (err).errors = result.errors;
-
-        // Always emit a structured validation event; throw only in strict mode.
-        this.eventBus.emit(`${stageName}.config.invalid`, {
-          actor: stageActor,
-          status: "failed",
-          payload: { message: err.message, errors: result.errors },
-        });
-
-        if (strict) throw err;
-      }
-
-      stageInput = { ...stageInput, userConfig: result.config };
-    }
+    const { stageInput, userConfigValidation } = prepareStageInputWithUserConfigValidation({
+      stageInput: input,
+      entry,
+      stageOptions,
+      globalConfigValidation: this._configValidation,
+      stageName,
+      stageActor,
+      emitInvalid: (record) => {
+        this.eventBus.emit(`${stageName}.config.invalid`, record);
+      },
+    });
 
     const degradationMatrix = await this._getDegradationMatrix();
-    const degradation =
-      degradationMatrix
-        ? {
-            level: degradationMatrix.currentLevel,
-            enabledFeatures: degradationMatrix.getEnabledFeatures(),
-            recommendations: degradationMatrix.getRecommendations(),
-            status: degradationMatrix.getStatus(),
-            isFeatureEnabled: (feature) => degradationMatrix.isFeatureEnabled(feature),
-          }
-        : null;
+    const degradation = buildDegradationContext(degradationMatrix);
 
     const api = createStageApi({
       signal: stageSignal,

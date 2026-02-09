@@ -2,9 +2,9 @@
  * Orchestrator — helper functions (extracted from orchestrator.js)
  */
 
-import { toNonEmptyString } from "../../shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 import { ActorType, isValidActorType } from "./constants.js";
-import { CommonSchemas } from "./config-validator.js";
+import { CommonSchemas, validateConfig } from "./config-validator.js";
 
 /**
  * @param {unknown} v
@@ -15,6 +15,21 @@ export function normalizeTimeoutMs(v, fallback) {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.floor(n);
+}
+
+/**
+ * @param {any} reason
+ * @returns {boolean}
+ */
+export function isFailureStopReason(reason) {
+  const r = toNonEmptyString(reason) || "";
+  return (
+    r === "stage_failed" ||
+    r === "workflow_failed" ||
+    r.endsWith(".failed") ||
+    r.endsWith("_failed") ||
+    r.includes("failed")
+  );
 }
 
 export const DEFAULT_USER_CONFIG_SCHEMA = Object.freeze({
@@ -131,6 +146,93 @@ export function deriveActorFromStageName(stageName, fallbackActor = ActorType.SY
   const head = name.split(".")[0];
   const candidate = head && isValidActorType(head) ? head : fallbackActor;
   return candidate;
+}
+
+/**
+ * @param {any} degradationMatrix
+ * @returns {null | {
+ *   level: any,
+ *   enabledFeatures: any,
+ *   recommendations: any,
+ *   status: any,
+ *   isFeatureEnabled: (feature: any) => any,
+ * }}
+ */
+export function buildDegradationContext(degradationMatrix) {
+  if (!degradationMatrix) return null;
+  return {
+    level: degradationMatrix.currentLevel,
+    enabledFeatures: degradationMatrix.getEnabledFeatures(),
+    recommendations: degradationMatrix.getRecommendations(),
+    status: degradationMatrix.getStatus(),
+    isFeatureEnabled: (feature) => degradationMatrix.isFeatureEnabled(feature),
+  };
+}
+
+/**
+ * @param {{
+ *   stageInput: any,
+ *   entry: any,
+ *   stageOptions: any,
+ *   globalConfigValidation: { strict?: boolean, coerce?: boolean } | null | undefined,
+ *   stageName: string,
+ *   stageActor: string,
+ *   emitInvalid?: (payload: { actor: string, status: string, payload: { message: string, errors: Array<{ path: string, message: string, value?: unknown }> } }) => void,
+ * }} options
+ * @returns {{
+ *   stageInput: any,
+ *   userConfigValidation: { valid: boolean, errors: Array<{ path?: string, message?: string, value?: unknown }> } | null,
+ * }}
+ */
+export function prepareStageInputWithUserConfigValidation({
+  stageInput,
+  entry,
+  stageOptions,
+  globalConfigValidation,
+  stageName,
+  stageActor,
+  emitInvalid,
+}) {
+  let nextInput = stageInput;
+  let userConfigValidation = null;
+
+  if (isPlainObject(nextInput) && ("userConfig" in nextInput || nextInput.userConfig !== undefined)) {
+    const schema = entry.configSchema || stageOptions?.configSchema || DEFAULT_USER_CONFIG_SCHEMA;
+    const stageCfg = isPlainObject(entry.configValidation)
+      ? entry.configValidation
+      : isPlainObject(stageOptions?.configValidation)
+        ? stageOptions.configValidation
+        : {};
+    const strict =
+      stageCfg.strict === true ||
+      globalConfigValidation?.strict === true ||
+      nextInput?.userConfig?.strictValidation === true;
+    const coerce = stageCfg.coerce === true || globalConfigValidation?.coerce === true;
+
+    const result = validateConfig(nextInput.userConfig, schema, { strict: false, coerce });
+    userConfigValidation = { valid: result.valid, errors: result.errors };
+
+    if (!result.valid) {
+      const details = formatValidationErrors(result.errors);
+      const err = new Error(`Invalid userConfig for stage "${stageName}"\n${details}`);
+      err.name = "ConfigValidationError";
+      /** @type {Error & { errors?: Array<{ path: string, message: string, value?: unknown }> }} */ (err).errors = result.errors;
+
+      if (typeof emitInvalid === "function") {
+        emitInvalid({
+          actor: stageActor,
+          status: "failed",
+          payload: { message: err.message, errors: result.errors },
+        });
+      }
+
+      if (strict) throw err;
+    }
+
+    nextInput = { ...nextInput, userConfig: result.config };
+  }
+
+  return { stageInput: nextInput, userConfigValidation };
 }
 
 export function createStageAbortSignal(parentSignal, timeoutMs) {
