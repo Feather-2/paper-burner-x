@@ -1,16 +1,17 @@
 /**
  * @paper-burner/agents SDK
  *
- * Public SDK entrypoint with a layered API surface:
- * - L0: one-line convenience helpers
- * - L1: primary SDK building blocks
- * - L2: advanced integrations, tools, and pre-built stages
+ * Core framework entrypoint — model-agnostic agent building blocks.
+ * Business stages (DeepSearch, Design, CodeSearch) are NOT exported here;
+ * import them directly from their stage directories when needed.
+ *
+ * API layers:
+ * - L1: primary SDK building blocks (Builder, Loop, Events)
+ * - L2: advanced integrations (Tools, MCP, multi-agent)
+ *
+ * L0 convenience helpers (runDeepSearch, runDesign) live in ./convenience.js
+ * and can be imported directly:  import { runDeepSearch } from "sdk/convenience.js"
  */
-
-// ============================================================
-// L0 - Convenience (one-line execution)
-// ============================================================
-export { runDeepSearch, runDesign } from "./convenience.js";
 
 // ============================================================
 // L1 - Primary SDK API
@@ -46,11 +47,6 @@ export { createMcpClient, McpClient, McpProvider, loadStdioModules } from "../mc
 
 // Config
 export { loadAgentConfig, mergeConfigs } from "./config-loader.js";
-
-// Pre-built stages
-export { DeepSearchAgentLoop } from "../stages/deepsearch/deepsearch-agent-loop.js";
-export { DesignAgentLoop } from "../stages/design/agent-loop.js";
-export { CodeSearchStage } from "../stages/codesearch/codesearch-stage.js";
 
 // Version
 export const VERSION = "1.0.0";
