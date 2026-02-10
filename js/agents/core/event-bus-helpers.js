@@ -318,6 +318,7 @@ export function collectMatchingWaiters(waitersMap, eventName) {
  *   actor?: string,
  *   status?: string,
  *   level?: string,
+ *   trace?: Record<string, unknown> & { traceId: string },
  * }}
  */
 export function extractEventDataFields(data) {
@@ -332,8 +333,11 @@ export function extractEventDataFields(data) {
   const actor = isObject(data) && typeof data.actor === 'string' ? data.actor : undefined;
   const status = isObject(data) && typeof data.status === 'string' ? data.status : undefined;
   const level = isObject(data) && typeof data.level === 'string' ? data.level : undefined;
+  const trace = isObject(data) && isObject(data.trace) && typeof data.trace.traceId === 'string'
+    ? data.trace
+    : undefined;
 
-  return { payload, meta, actor, status, level };
+  return { payload, meta, actor, status, level, trace };
 }
 
 /**

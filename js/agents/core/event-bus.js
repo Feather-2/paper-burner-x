@@ -465,7 +465,7 @@ export class EventBus {
    * @returns {EventRecord}
    */
   _createEvent(name, data) {
-    const { payload, meta, actor, status, level } = extractEventDataFields(data);
+    const { payload, meta, actor, status, level, trace } = extractEventDataFields(data);
 
     return createEventRecord({
       runId: this.runId,
@@ -477,6 +477,7 @@ export class EventBus {
       ...(actor ? { actor } : {}),
       ...(status ? { status } : {}),
       ...(level ? { level } : {}),
+      ...(trace ? { trace } : {}),
     });
   }
 

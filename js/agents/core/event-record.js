@@ -56,6 +56,7 @@ import { assertValidEventName, createEventId } from './event-bus-utils.js';
  * @property {unknown} [meta]
  * @property {string} [level]
  * @property {number} [durationMs]
+ * @property {EventTraceInfo} [trace]
  * @property {LamportClockState} [_clock]
  * @property {string} [id] - legacy alias for eventId
  * @property {string} [type] - legacy alias for name
@@ -81,6 +82,7 @@ export function createEventRecord({
   meta,
   level,
   durationMs,
+  trace,
   _clock,
   // legacy aliases (core/types.d.ts)
   id,
@@ -139,6 +141,7 @@ export function createEventRecord({
   if (typeof durationMs === 'number') record.durationMs = durationMs;
   if (payload !== undefined) record.payload = payload;
   if (meta !== undefined) record.meta = meta;
+  if (trace && typeof trace === 'object' && typeof trace.traceId === 'string') record.trace = trace;
 
   return record;
 }
