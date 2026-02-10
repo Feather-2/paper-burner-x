@@ -1,14 +1,14 @@
 # Checkpoint: js/agents 架构审计 + SDK 分层
 
 **Thread ID**: thread-8676e41d
-**Saved**: 2026-02-10T00:15:00Z
+**Saved**: 2026-02-10T12:30:00Z
 **Branch**: feat-pptgen1
-**Last Commit**: d548b9de - docs: add multi-agent collaboration roadmap to architecture design doc
-**Session History**: 1 session in thread
+**Last Commit**: 2d989f77 - chore: save checkpoint — architecture audit + SDK layering complete
+**Session History**: 3 sessions in thread
 
 ## Current Task
 
-所有架构审计和 SDK 分层任务已完成。最后完成了多 Agent 协作路线图文档。
+所有架构审计和 SDK 分层任务已完成。Checkpoint 技能文档已更新（save.md 凭据自动发现 + hapi-integration.md 完整重写）。准备推进多 Agent 协作工作。
 
 ## Completed Work
 
@@ -45,6 +45,10 @@
 - `8fb9e99e` SDK 移除 Stage re-export，对齐框架独立原则
 - `d548b9de` 多 Agent 协作路线图文档
 
+### Checkpoint 文档更新（Session #003）
+- save.md Step 4a 重写：凭据自动发现（`~/.hapi/settings.json`）
+- hapi-integration.md 完整重写：API 端点补全，spawn/auth/resume 流程
+
 ### Bug 修复
 - `361c0903` PdfAdapter 全局缓存 → 实例级注入
 - `98756f36` storage-crypto.js JSON.parse reviver 误传 slice() + response-limits.js 缺失 reviver
@@ -57,19 +61,18 @@
 
 ## Uncommitted Changes
 
-| File | Type | Description |
-|------|------|-------------|
-| `.checkpoints/` | New (untracked) | Checkpoint thread 数据 |
+无。工作区干净。
 
 ## Key Decisions
 
 | Decision | Rationale | Session |
-|----------|----------|---------|
+|----------|----------|--------|
 | `-helpers.js` 命名约定 | 统一模式，易发现，1:1 配对 | #001 |
 | SDK 不导出 Stage 类 | 核心框架零业务依赖，对齐 Vercel AI SDK/LangChain 最佳实践 | #001 |
 | L0 convenience 不从 SDK barrel 导出 | 使用者按需 import 具体路径，避免隐式捆绑 | #001 |
 | RetryStrategy 下移 shared | 通用重试模式不属于 runtime 层 | #001 |
 | PerformanceRouter 下移 llm | LLM 路由逻辑属于 LLM 基础设施层 | #001 |
+| Hapi 凭据自动发现 | 从 ~/.hapi/settings.json 读取，不依赖环境变量 | #003 |
 
 ## Test State
 
@@ -117,3 +120,5 @@ node --check 验证通过所有改动文件。
 | # | Name | Archived | Context Used |
 |---|------|----------|-------------|
 | 001 | 架构审计+SDK分层 | - | ~90% |
+| 002 | 多Agent协作推进 | - | ~85% |
+| 003 | Checkpoint文档更新+Save | - | ~40% |
