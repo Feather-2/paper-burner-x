@@ -537,7 +537,33 @@ describe("AgentOrchestrator", () => {
       expect(names).toContain("run.completed");
       expect(names).toContain("run.ended");
 
-      await Promise.all([orchCancel.dispose(), orchFail.dispose(), orchIdleEnd.dispose(), orchRunEnd.dispose()]);
+await Promise.all([orchCancel.dispose(), orchFail.dispose(), orchIdleEnd.dispose(), orchRunEnd.dispose()]);
+    });
+
+    it("emits AgentLifecycleEvents.BUSY on start and STOPPED on stop/end", async () => {
+      const orchStart = new AgentOrchestrator();
+      orchStart.start();
+      const startNames = getEmitNames(orchStart.eventBus);
+      expect(startNames).toContain("agent:busy");
+      const busyRecord = getEmitRecord(orchStart.eventBus, "agent:busy");
+      expect(busyRecord.status).toBe("busy");
+      expect(busyRecord.payload.runId).toBe(orchStart.runId);
+
+      orchStart.stop("cancelled");
+      const stopNames = getEmitNames(orchStart.eventBus);
+      expect(stopNames).toContain("agent:stopped");
+      const stoppedRecord = getEmitRecord(orchStart.eventBus, "agent:stopped");
+      expect(stoppedRecord.status).toBe("stopped");
+      expect(stoppedRecord.payload.reason).toBe("cancelled");
+
+      const orchEnd = new AgentOrchestrator();
+      orchEnd.start();
+      orchEnd.end("done");
+      const endNames = getEmitNames(orchEnd.eventBus);
+      expect(endNames).toContain("agent:busy");
+      expect(endNames).toContain("agent:stopped");
+
+      await Promise.all([orchStart.dispose(), orchEnd.dispose()]);
     });
   });
 

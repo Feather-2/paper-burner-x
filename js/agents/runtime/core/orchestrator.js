@@ -1,6 +1,7 @@
 import { createStageApi } from "../../shared/index.js";
 import { EventBus } from "../../core/event-bus.js";
 import { ActorType, OrchestratorState, isValidActorType } from "./constants.js";
+import { AgentLifecycleEvents } from "../events/events.js";
 import { ServiceId } from "../../core/di/defaults.js";
 import { TaskGraph } from "./parallel/task-graph.js";
 import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
@@ -353,6 +354,7 @@ export class AgentOrchestrator extends DisposableBase {
     if (this.state === OrchestratorState.RUNNING) return;
     this.state = OrchestratorState.RUNNING;
     this._emitRunStarted();
+    this.eventBus.emit(AgentLifecycleEvents.BUSY, { actor: ActorType.SYSTEM, status: "busy", payload: { runId: this.runId } });
   }
 
   /**
@@ -370,6 +372,7 @@ export class AgentOrchestrator extends DisposableBase {
     if (isFailure) this._emitRunFailed({ error: r });
     else this._emitRunCancelled(r);
     this._emitRunEnded({ reason: r });
+    this.eventBus.emit(AgentLifecycleEvents.STOPPED, { actor: ActorType.SYSTEM, status: "stopped", payload: { reason: r, runId: this.runId } });
   }
 
   /**
@@ -383,6 +386,7 @@ export class AgentOrchestrator extends DisposableBase {
       this.state = OrchestratorState.ENDED;
       this._emitRunCompleted({ reason });
       this._emitRunEnded({ reason });
+      this.eventBus.emit(AgentLifecycleEvents.STOPPED, { actor: ActorType.SYSTEM, status: "stopped", payload: { reason, runId: this.runId } });
       return;
     }
     this.state = OrchestratorState.ENDED;
@@ -731,6 +735,9 @@ export class AgentOrchestrator extends DisposableBase {
               status: "info",
               payload: { level, runId: this.runId, stage: stageName },
             });
+            if (level !== "normal") {
+              this.eventBus.emit(AgentLifecycleEvents.DEGRADED, { actor: ActorType.SYSTEM, status: "degraded", payload: { level, runId: this.runId, stage: stageName } });
+            }
           }
         } catch {
           // ignore
