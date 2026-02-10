@@ -4,6 +4,8 @@ const { moduleInitCount, throwOnImport } = vi.hoisted(() => ({
   moduleInitCount: {
     core: 0,
     runtime: 0,
+    compression: 0,
+    telemetry: 0,
     deepsearch: 0,
     sdk: 0,
     shared: 0,
@@ -12,6 +14,8 @@ const { moduleInitCount, throwOnImport } = vi.hoisted(() => ({
   throwOnImport: {
     core: false,
     runtime: false,
+    compression: false,
+    telemetry: false,
     deepsearch: false,
     sdk: false,
     shared: false,
@@ -180,6 +184,21 @@ const runtimeExports = {
   parseCompoundCommand: makeFn('parseCompoundCommand'),
 };
 
+const compressionExports = {
+  Watchdog: runtimeExports.Watchdog,
+  CicadaCompressor: runtimeExports.CicadaCompressor,
+  CompressionCoordinator: runtimeExports.CompressionCoordinator,
+  ProactiveCompressor: makeClass('ProactiveCompressor'),
+  CompressionQualityMonitor: makeClass('CompressionQualityMonitor'),
+};
+
+const telemetryExports = {
+  TokenTracker: runtimeExports.TokenTracker,
+  TraceContext: runtimeExports.TraceContext,
+  SpanKind: Object.freeze({ INTERNAL: 'internal' }),
+  SpanStatus: Object.freeze({ OK: 'ok' }),
+};
+
 const deepsearchExports = {
   DeepSearchAgentLoop: makeClass('DeepSearchAgentLoop'),
   DeepSearchState: '',
@@ -227,6 +246,18 @@ function registerDependencyMocks() {
     moduleInitCount.runtime += 1;
     if (throwOnImport.runtime) throw new Error('runtime import failed');
     return runtimeExports;
+  });
+
+  vi.doMock('../../../js/agents/plugins/compression/index.js', () => {
+    moduleInitCount.compression += 1;
+    if (throwOnImport.compression) throw new Error('compression import failed');
+    return compressionExports;
+  });
+
+  vi.doMock('../../../js/agents/plugins/telemetry/index.js', () => {
+    moduleInitCount.telemetry += 1;
+    if (throwOnImport.telemetry) throw new Error('telemetry import failed');
+    return telemetryExports;
   });
 
   vi.doMock('../../../js/agents/stages/deepsearch/index.js', () => {

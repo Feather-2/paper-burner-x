@@ -187,9 +187,9 @@ describe("createMcpClient", () => {
   it("creates a client and adds LocalMcpProvider by default", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
 
-    const client = mod.createMcpClient();
+    const client = await mod.createMcpClient();
 
-    expect(sharedModule.isNodeLike).toHaveBeenCalledTimes(1);
+    expect(sharedModule.isNodeLike).not.toHaveBeenCalled();
     expect(client).toBeInstanceOf(mcpClientModule.McpClient);
     expect(localProviderModule.LocalMcpProvider).toHaveBeenCalledTimes(1);
     expect(nexusProviderModule.McpNexusProvider).not.toHaveBeenCalled();
@@ -206,7 +206,7 @@ describe("createMcpClient", () => {
   it("does not add LocalMcpProvider when useLocal is false", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
 
-    const client = mod.createMcpClient({ useLocal: false });
+    const client = await mod.createMcpClient({ useLocal: false });
 
     expect(client).toBeInstanceOf(mcpClientModule.McpClient);
     expect(localProviderModule.LocalMcpProvider).not.toHaveBeenCalled();
@@ -217,7 +217,7 @@ describe("createMcpClient", () => {
   it("merges localOptions (including overriding default id)", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
 
-    const client = mod.createMcpClient({
+    const client = await mod.createMcpClient({
       localOptions: { id: "override-id", extra: "x" },
     });
 
@@ -236,7 +236,7 @@ describe("createMcpClient", () => {
       nested,
     };
 
-    const client = mod.createMcpClient({
+    const client = await mod.createMcpClient({
       nexusEndpoint: "http://example.test",
       nexusOptions,
     });
@@ -256,7 +256,7 @@ describe("createMcpClient", () => {
   it("does not add McpNexusProvider when nexusEndpoint is empty string", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
 
-    const client = mod.createMcpClient({ nexusEndpoint: "" });
+    const client = await mod.createMcpClient({ nexusEndpoint: "" });
 
     expect(client).toBeInstanceOf(mcpClientModule.McpClient);
     expect(nexusProviderModule.McpNexusProvider).not.toHaveBeenCalled();
@@ -266,7 +266,7 @@ describe("createMcpClient", () => {
   it("treats whitespace-only nexusEndpoint as truthy and adds McpNexusProvider", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
 
-    mod.createMcpClient({ nexusEndpoint: "   " });
+    await mod.createMcpClient({ nexusEndpoint: "   " });
 
     expect(nexusProviderModule.McpNexusProvider).toHaveBeenCalledTimes(1);
     const nexusConfig = nexusProviderModule.McpNexusProvider.mock.calls[0][0];
@@ -276,7 +276,7 @@ describe("createMcpClient", () => {
   it("handles nexusOptions type boundaries (string ignored, array spread) without crashing", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
 
-    mod.createMcpClient({
+    await mod.createMcpClient({
       nexusEndpoint: "http://example.test",
       nexusOptions: "not-an-object",
     });
@@ -286,7 +286,7 @@ describe("createMcpClient", () => {
 
     nexusProviderModule.McpNexusProvider.mockClear();
 
-    mod.createMcpClient({
+    await mod.createMcpClient({
       nexusEndpoint: "http://example.test",
       nexusOptions: ["a", "b"],
     });
@@ -313,7 +313,7 @@ describe("createMcpClient", () => {
       { id: "ok3", command: hugeCommand },
     ];
 
-    const client = mod.createMcpClient({ stdioProviders: configs });
+    const client = await mod.createMcpClient({ stdioProviders: configs });
 
     expect(stdioProviderModule).toBeDefined();
     expect(stdioProviderModule.StdioMcpProvider).toHaveBeenCalledTimes(3);
@@ -323,12 +323,13 @@ describe("createMcpClient", () => {
 
     expect(client.addProvider).toHaveBeenCalledTimes(4); // 1 local + 3 stdio
     expect(client.providers).toHaveLength(4);
+    expect(sharedModule.isNodeLike).toHaveBeenCalledTimes(1);
   });
 
   it("ignores stdioProviders when it is not an array (type boundary: object as array)", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
 
-    const client = mod.createMcpClient({
+    const client = await mod.createMcpClient({
       stdioProviders: /** @type {any} */ ({ not: "an-array" }),
     });
 
@@ -336,28 +337,30 @@ describe("createMcpClient", () => {
     expect(stdioProviderModule.StdioMcpProvider).not.toHaveBeenCalled();
   });
 
-  it("throws when stdioProviders is used in non-node environment (StdioMcpProvider undefined)", async () => {
+  it("skips stdioProviders in non-node environment without throwing", async () => {
     const mod = await loadIndexModule({ isNodeLike: false });
 
-    expect(mod.StdioMcpProvider).toBeUndefined();
-    expect(() =>
-      mod.createMcpClient({
-        stdioProviders: [{ id: "x", command: "echo" }],
-      })
-    ).toThrow(TypeError);
+    const client = await mod.createMcpClient({
+      stdioProviders: [{ id: "x", command: "echo" }],
+    });
+
+    expect(client).toBeInstanceOf(mcpClientModule.McpClient);
+    expect(client.providers).toHaveLength(1);
+    expect(localProviderModule.LocalMcpProvider).toHaveBeenCalledTimes(1);
+    expect(sharedModule.isNodeLike).toHaveBeenCalledTimes(1);
   });
 
   it("throws TypeError when options is null", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
 
-    expect(() => mod.createMcpClient(null)).toThrow(TypeError);
+    await expect(mod.createMcpClient(null)).rejects.toThrow(TypeError);
   });
 
   it("accepts primitive options values (0, -1, MAX_SAFE_INTEGER, '0') without crashing", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
 
     for (const value of [0, -1, Number.MAX_SAFE_INTEGER, "0"]) {
-      const client = mod.createMcpClient(/** @type {any} */ (value));
+      const client = await mod.createMcpClient(/** @type {any} */ (value));
       expect(client).toBeInstanceOf(mcpClientModule.McpClient);
       expect(client.providers).toHaveLength(1);
     }
@@ -366,9 +369,7 @@ describe("createMcpClient", () => {
   it("creates independent clients under rapid concurrent calls", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
 
-    const clients = await Promise.all(
-      Array.from({ length: 25 }, () => Promise.resolve(mod.createMcpClient()))
-    );
+    const clients = await Promise.all(Array.from({ length: 25 }, () => mod.createMcpClient()));
 
     expect(new Set(clients).size).toBe(25);
     expect(localProviderModule.LocalMcpProvider).toHaveBeenCalledTimes(25);
@@ -389,7 +390,7 @@ describe("createMcpClient", () => {
     const longEndpoint = `http://example.test/${"a".repeat(100_000)}`;
     const deep = { a: { b: { c: { d: { e: 1 } } } } };
 
-    mod.createMcpClient({
+    await mod.createMcpClient({
       nexusEndpoint: longEndpoint,
       nexusOptions: { deep },
     });
@@ -462,37 +463,51 @@ describe("McpNexusProvider", () => {
 });
 
 describe("StdioMcpProvider", () => {
-  it("is undefined when isNodeLike() is false", async () => {
+  it("is unavailable from loadStdioModules() when isNodeLike() is false", async () => {
     const mod = await loadIndexModule({ isNodeLike: false });
+    const stdio = await mod.loadStdioModules();
     expect(sharedModule.isNodeLike).toHaveBeenCalledTimes(1);
+    expect(stdio).toBeNull();
     expect(mod.StdioMcpProvider).toBeUndefined();
   });
 
-  it("re-exports StdioMcpProvider when stdio modules load in node-like environment", async () => {
+  it("exposes StdioMcpProvider via loadStdioModules() in node-like environment", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
-    expect(mod.StdioMcpProvider).toBe(stdioProviderModule.StdioMcpProvider);
+    const stdio = await mod.loadStdioModules();
+    expect(stdioProviderModule).toBeDefined();
+    expect(stdio?.StdioMcpProvider).toBe(stdioProviderModule.StdioMcpProvider);
+    expect(mod.StdioMcpProvider).toBeUndefined();
   });
 
   it("stays undefined when stdio modules fail to import (error handled)", async () => {
     const mod = await loadIndexModule({ isNodeLike: true, stdioTransportThrows: true });
+    const stdio = await mod.loadStdioModules();
+    expect(stdio).toBeNull();
     expect(mod.StdioMcpProvider).toBeUndefined();
     expect(mod.createMcpClient).toBeTypeOf("function");
   });
 });
 
 describe("createStdioMcpProvider", () => {
-  it("is undefined when isNodeLike() is false", async () => {
+  it("is not exported directly when isNodeLike() is false", async () => {
     const mod = await loadIndexModule({ isNodeLike: false });
+    const stdio = await mod.loadStdioModules();
+    expect(stdio).toBeNull();
     expect(mod.createStdioMcpProvider).toBeUndefined();
   });
 
-  it("re-exports createStdioMcpProvider when stdio modules load in node-like environment", async () => {
+  it("is available via loadStdioModules() in node-like environment", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
-    expect(mod.createStdioMcpProvider).toBe(stdioProviderModule.createStdioMcpProvider);
+    const stdio = await mod.loadStdioModules();
+    expect(stdioProviderModule).toBeDefined();
+    expect(stdio?.createStdioMcpProvider).toBe(stdioProviderModule.createStdioMcpProvider);
+    expect(mod.createStdioMcpProvider).toBeUndefined();
   });
 
   it("stays undefined when stdio provider import fails (error handled)", async () => {
     const mod = await loadIndexModule({ isNodeLike: true, stdioProviderThrows: true });
+    const stdio = await mod.loadStdioModules();
+    expect(stdio).toBeNull();
     expect(mod.createStdioMcpProvider).toBeUndefined();
   });
 });
@@ -505,35 +520,46 @@ describe("McpTransport", () => {
 });
 
 describe("StdioMcpTransport", () => {
-  it("is undefined when isNodeLike() is false", async () => {
+  it("is unavailable from loadStdioModules() when isNodeLike() is false", async () => {
     const mod = await loadIndexModule({ isNodeLike: false });
+    const stdio = await mod.loadStdioModules();
+    expect(stdio).toBeNull();
     expect(mod.StdioMcpTransport).toBeUndefined();
   });
 
-  it("re-exports StdioMcpTransport when stdio modules load in node-like environment", async () => {
+  it("exposes StdioMcpTransport via loadStdioModules() in node-like environment", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
-    expect(mod.StdioMcpTransport).toBe(stdioTransportModule.StdioMcpTransport);
+    const stdio = await mod.loadStdioModules();
+    expect(stdioTransportModule).toBeDefined();
+    expect(stdio?.StdioMcpTransport).toBe(stdioTransportModule.StdioMcpTransport);
+    expect(mod.StdioMcpTransport).toBeUndefined();
   });
 
   it("stays undefined when stdio provider import fails (error handled, no partial assignment)", async () => {
     const mod = await loadIndexModule({ isNodeLike: true, stdioProviderThrows: true });
+    const stdio = await mod.loadStdioModules();
+    expect(stdio).toBeNull();
     expect(mod.StdioMcpTransport).toBeUndefined();
     expect(mod.createStdioMcpTransport).toBeUndefined();
   });
 });
 
 describe("createStdioMcpTransport", () => {
-  it("is undefined when isNodeLike() is false", async () => {
+  it("is not exported directly when isNodeLike() is false", async () => {
     const mod = await loadIndexModule({ isNodeLike: false });
+    const stdio = await mod.loadStdioModules();
+    expect(stdio).toBeNull();
     expect(mod.createStdioMcpTransport).toBeUndefined();
   });
 
-  it("re-exports createStdioMcpTransport when stdio modules load in node-like environment", async () => {
+  it("is available via loadStdioModules() in node-like environment", async () => {
     const mod = await loadIndexModule({ isNodeLike: true });
-    expect(mod.createStdioMcpTransport).toBe(stdioTransportModule.createStdioMcpTransport);
+    const stdio = await mod.loadStdioModules();
+    expect(stdioTransportModule).toBeDefined();
+    expect(stdio?.createStdioMcpTransport).toBe(stdioTransportModule.createStdioMcpTransport);
 
     const input = { cmd: "x", args: [] };
-    const out = mod.createStdioMcpTransport(input);
+    const out = stdio.createStdioMcpTransport(input);
     expect(stdioTransportModule.createStdioMcpTransport).toHaveBeenCalledWith(input);
     expect(out).toEqual({ kind: "stdio-transport", options: input });
   });

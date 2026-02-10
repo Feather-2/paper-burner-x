@@ -10,6 +10,14 @@ const mockedFs = vi.hoisted(() => ({
 const mockedShared = vi.hoisted(() => ({
   toNonEmptyString: vi.fn((value) => (typeof value === 'string' && value.trim() ? value : '')),
   estimateTokensCached: vi.fn((input) => (typeof input === 'string' ? input.length : 0)),
+  protoSafeReviver: vi.fn((key, value) => value),
+  logger: {
+    warn: vi.fn((...args) => console.warn(...args)),
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+  createLogger: vi.fn(),
 }));
 
 const mockedOverflow = vi.hoisted(() => ({
@@ -24,6 +32,8 @@ vi.mock('node:fs', () => ({
 vi.mock('../../../../js/agents/shared/index.js', () => ({
   toNonEmptyString: mockedShared.toNonEmptyString,
   estimateTokensCached: mockedShared.estimateTokensCached,
+  protoSafeReviver: mockedShared.protoSafeReviver,
+  createLogger: mockedShared.createLogger,
 }));
 
 vi.mock('../../../../js/agents/llm/overflow-recovery.js', () => ({
@@ -79,12 +89,21 @@ beforeEach(() => {
   mockedFs.existsSync.mockReset();
   mockedShared.toNonEmptyString.mockReset();
   mockedShared.estimateTokensCached.mockReset();
+  mockedShared.protoSafeReviver.mockReset();
+  mockedShared.createLogger.mockReset();
+  mockedShared.logger.warn.mockReset();
+  mockedShared.logger.info.mockReset();
+  mockedShared.logger.error.mockReset();
+  mockedShared.logger.debug.mockReset();
   mockedOverflow.executeWithOverflowRecovery.mockReset();
 
   mockedFs.existsSync.mockReturnValue(false);
   mockedFs.readFileSync.mockReturnValue('');
   mockedShared.toNonEmptyString.mockImplementation((value) => (typeof value === 'string' && value.trim() ? value : ''));
   mockedShared.estimateTokensCached.mockImplementation((input) => (typeof input === 'string' ? input.length : 0));
+  mockedShared.protoSafeReviver.mockImplementation((key, value) => value);
+  mockedShared.logger.warn.mockImplementation((...args) => console.warn(...args));
+  mockedShared.createLogger.mockImplementation(() => mockedShared.logger);
   mockedOverflow.executeWithOverflowRecovery.mockImplementation(async (fn, opts) => fn(opts.initialMaxTokens));
 
   fetchMock = vi.fn();
