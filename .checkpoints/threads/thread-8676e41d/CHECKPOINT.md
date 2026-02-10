@@ -1,52 +1,61 @@
-# Checkpoint: 多Agent协作 Phase2+3 — 全链路 Trace + Bridge + Formatter
+# Checkpoint: 浏览器 Node 运行时 Sandbox 实现 + 测试修复
 
 **Thread ID**: thread-8676e41d
-**Saved**: 2026-02-11T00:15:00Z
+**Saved**: 2026-02-11T16:00:00Z
 **Branch**: feat-pptgen1
-**Last Commit**: d2086fb7 - feat(contracts): add trace context fields to agent-message protocol
-**Session History**: 7 sessions in thread
+**Last Commit**: 99e1190c - feat(sandbox): add three-level factory, unified facade, stack-trace polyfill (52 tests)
+**Session History**: 9 sessions in thread
 
 ## Current Task
 
-多 Agent 协作 Phase2 全部 Next Steps 已完成。Phase3 推进了 trace 全链路传播（EventBus → MessageBus → agent-message）和 CostAggregator 导出+格式化。完整测试套件回归已运行，未引入新回归。
+浏览器 Node 运行时 PRD 实施。P0 和 P1 全部完成，剩余 P2/P3 待推进。同时持续修复测试基础设施。
 
 ## Completed Work
 
-### Session #007 新增（5 commits）
+### Session #009 新增
 
-- `d2086fb7` feat(contracts): add trace context fields to agent-message protocol
-- `5ec34ac8` feat(core): propagate trace context through MessageBus emit/request/on
-- `c47954dc` feat(core): propagate trace context through EventBus pipeline
-- `eb0aa5d5` feat(telemetry): export CostAggregator + add cost-formatter helpers (13 tests)
-- `7eee9222` feat(contracts): add TaskBoardOrchestratorBridge with tests (23 passed)
+- Checkpoint 保存（本次）
 
-### Session #006 新增（4 commits）
+### Session #008 新增
 
-- `0a8598be` feat(contracts): add AgentCoordinator with leader election and task delegation
-- `a6777e76` feat(contracts): add TraceContextPropagator for cross-agent trace propagation
-- `9f73c860` feat(contracts): add AgentRegistry for agent identity and discovery
-- `366b7496` feat(crdt): add WebSocketCrdtTransport for real-time CRDT sync
+- 深度分析 `ref/almostnode-main/` 全部源码
+- 产出 22 个借鉴点 PRD: `docs/prd-browser-node-runtime.md`（634 行）
+- [P0] VFS 快照同步 — `vfs-snapshot.js` + `vfs-events.js`（28 tests）
+- [P0] 三级安全工厂 — `create-sandbox.js` + `sandbox-interface.js`（52 tests）
+- [P0] 统一门面 — `create-node-env.js`
+- [P1] Error.captureStackTrace polyfill — `polyfills/stack-trace.js`
+- [P1] CORS Proxy — `cors-proxy.js`
+- [P1] REPL 上下文 — `repl.js`
+- [P1] 跨域 iframe 沙箱 — `iframe-sandbox.js`
+- [P1] Comlink Worker 通信 — `worker-comlink.js`
 
-### 全量能力清单
+### Session #007 测试修复
 
-- WebSocket CRDT Transport — 双模式 send，自动重连，心跳保活，离线队列（24 tests）
-- AgentRegistry — register/unregister/lookup/list/findByCapability/heartbeat/getStaleAgents
-- TraceContextPropagator — W3C traceparent inject/extract，跨 Agent 传播桥接
-- AgentCoordinator — Leader 选举（字典序最小），任务分配，故障恢复，stale task reclaim
-- TaskBoardOrchestratorBridge — SharedTaskBoard 与 Orchestrator 桥接（23 tests）
-- CostAggregator 导出 + cost-formatter 格式化 helper（13 tests）
-- EventBus trace 传播 — extractEventDataFields 提取 trace，createEventRecord 填充
-- MessageBus trace 传播 — emit/request/on 三处注入 trace
-- agent-message trace 字段 — 四种消息类型 + 工厂函数 + 验证（41 tests 全过）
-- SharedTaskBoard — 原子 claim 语义（31 tests）
-- StageRpcBridge — 跨 Stage MessageBus RPC（12 tests）
-- CostAggregator — 跨 Agent token 汇总（15 tests）
-- 800 行硬标准（16 文件拆分，19 个 helper 模块）
-- SDK 分层（框架独立，Stage re-export 清理）
+- LamportClock 循环依赖修复（lazy init + 直接 import）— `322914ef`
+- Logger mock 基础设施（14 files）— `1d405dd5`
+- model-client, mcp/index, agents/index 测试修复（268 tests）— `96d31c30`
+- vfs, transports, skill-executor, cicada, deck-editor 修复（185 tests）— `f0766468`
+- 19 批量测试修复（memory, design, deepsearch, runtime）— `9bd26692`
+- 测试通过率：96.9% → 改善中
+
+### 历史完成工作
+
+- WebSocket CRDT Transport（24 tests）
+- AgentRegistry / TraceContextPropagator / AgentCoordinator
+- TaskBoardOrchestratorBridge（23 tests）
+- CostAggregator 导出 + cost-formatter（13 tests）
+- EventBus/MessageBus trace 传播
+- agent-message trace 字段（41 tests）
+- SharedTaskBoard 原子 claim（31 tests）
+- StageRpcBridge 跨 Stage RPC（12 tests）
+- 800 行硬标准 + SDK 分层
 
 ## Uncommitted Changes
 
-无。工作区干净。
+| File | Type | Description |
+|------|------|-------------|
+| 33 test files | Modified | 测试 mock 修复（待提交或继续修复） |
+| 4 sandbox files | Untracked | cors-proxy, iframe-sandbox, repl, worker-comlink（需确认是否已 committed） |
 
 ## Key Decisions
 
@@ -54,67 +63,62 @@
 |----------|----------|--------|
 | `-helpers.js` 命名约定 | 统一模式，易发现，1:1 配对 | #001 |
 | SDK 不导出 Stage 类 | 核心框架零业务依赖 | #001 |
-| RetryStrategy 下移 shared | 通用重试模式不属于 runtime 层 | #001 |
-| PerformanceRouter 下移 llm | LLM 路由逻辑属于基础设施层 | #001 |
-| Hapi 凭据自动发现 | ~/.hapi/settings.json，不依赖环境变量 | #003 |
+| Hapi 凭据自动发现 | ~/.hapi/settings.json | #003 |
 | WebSocket Transport 双模式 send | 兼容 SyncManager 两种调用风格 | #006 |
-| AgentRegistry 放 contracts 层 | 与 SharedTaskBoard/AgentMessage 同层 | #006 |
-| TraceContextPropagator 不直接依赖 TraceContext 类 | core/contracts 对 plugins 零依赖 | #006 |
-| Leader 选举用字典序最小 agentId | 确定性算法，参考 TabCoordinator 先例 | #006 |
-| CostAggregator UI Dashboard 延后 | UI 渲染属于 UI 层，先补数据层导出和格式化 | #007 |
-| Trace 传播用可选字段非侵入式注入 | 完全向后兼容，不破坏现有 API | #007 |
+| Trace 传播用可选字段非侵入式注入 | 完全向后兼容 | #007 |
+| 浏览器 Node 运行时采用 AlmostNode 模式 | 完整 require + 40+ shim + 三级隔离 | #008 |
+| 所有沙箱代码放 js/agents/core/sandbox/ | 统一目录，与现有沙箱代码共存 | #008 |
+| JS+JSDoc 无 TypeScript | 项目约定，最大化跨端兼容 | #008 |
 
 ## Test State
 
-完整测试套件回归：17060 passed / 531 failed / 19 skipped (760 files)
-所有 531 个失败均为预存问题（LamportClock 循环依赖级联 75 文件 + 测试 mock 不全 57 文件）。
-本 session 改动未引入新回归。
-
-各模块单测：
-- websocket-transport.test.js: 24 passed
-- agent-registry.test.js: passed
-- trace-propagator.test.js: passed
-- agent-coordinator.test.js: passed
-- taskboard-orchestrator-bridge.test.js: 23 passed
-- cost-formatter.test.js: 13 passed
-- agent-message.test.js: 41 passed
-- event-record.test.js: passed
+测试修复进展：531 failed → ~64 failed（88% 降低）。
+剩余 33 个未提交的测试修复文件。
 
 ## Key Files
 
 | File | Role |
 |------|------|
-| `js/agents/core/crdt/websocket-transport.js` | WebSocket CRDT 传输层 |
-| `js/agents/core/contracts/agent-registry.js` | Agent 身份注册与发现 |
-| `js/agents/core/contracts/trace-propagator.js` | 跨 Agent 追踪上下文传播 |
-| `js/agents/core/contracts/agent-coordinator.js` | Coordinator + Leader 选举 |
-| `js/agents/core/contracts/taskboard-orchestrator-bridge.js` | TaskBoard-Orchestrator 桥接 |
-| `js/agents/core/contracts/agent-message.js` | 多 Agent 通信协议 (含 trace) |
-| `js/agents/core/contracts/index.js` | contracts 层 barrel 导出 |
-| `js/agents/core/event-bus.js` | EventBus (含 trace 传播) |
-| `js/agents/core/message-bus.js` | MessageBus RPC (含 trace 传播) |
-| `js/agents/plugins/telemetry/cost-formatter.js` | CostAggregator 格式化 helper |
-| `js/agents/plugins/telemetry/index.js` | telemetry 层导出 |
+| `docs/prd-browser-node-runtime.md` | 浏览器 Node 运行时 PRD（22 功能点） |
+| `js/agents/core/sandbox/create-sandbox.js` | 三级安全工厂 |
+| `js/agents/core/sandbox/sandbox-interface.js` | 沙箱接口契约 |
+| `js/agents/core/sandbox/create-node-env.js` | 统一门面 |
+| `js/agents/core/sandbox/vfs-snapshot.js` | VFS 快照同步 |
+| `js/agents/core/sandbox/vfs-events.js` | VFS 事件桥 |
+| `js/agents/core/sandbox/cors-proxy.js` | CORS 代理 |
+| `js/agents/core/sandbox/iframe-sandbox.js` | 跨域 iframe 沙箱 |
+| `js/agents/core/sandbox/repl.js` | REPL 上下文 |
+| `js/agents/core/sandbox/worker-comlink.js` | Comlink Worker |
+| `js/agents/core/sandbox/polyfills/stack-trace.js` | Error.captureStackTrace |
 
 ## Next Steps (Priority Order)
 
-1. [P1] LamportClock 循环依赖修复 — lamport-clock.js:14 初始化顺序问题，级联 75 个测试文件
-2. [P2] 测试 mock 基础设施修复 — createLogger/isNodeLike/safeId 等 mock 不全问题
-3. [P2] CostAggregator UI Dashboard — 待 UI 集成需求明确后实现
-4. [P3] 子 Agent trace 继承优化 — 修改 stripTraceContext 逻辑，保留 TraceContext 对象
-5. [P3] LLM/工具调用 trace 关联 — llm.complete 事件携带 traceId
-6. [P4] 全局一致性检查点 — 跨 Agent 状态快照
+1. [P2] 实施 #7 完整 fs shim — `shims/fs.js`
+2. [P2] 实施 #4 CommonJS require — `require.js` + `module-resolver.js`
+3. [P2] 实施 #5 ESM→CJS 转换 — `transform-esm.js`
+4. [P2] 实施 #9 child_process + just-bash — `shims/child-process.js`
+5. [P2] 实施 #8 SW HTTP 桥 — `server-bridge.js` + `sw-handler.js`
+6. [P2] 实施 #17 DevServer 抽象 — `dev-server.js`
+7. [P2] 实施 #19 VFSAdapter — `vfs-adapter.js`
+8. [P2] 实施 #22 Zlib + Brotli — `shims/zlib.js`
+9. [P3] 实施 #10 npm 包管理器 — `npm/` 目录
+10. [P3] 实施 #6 40+ Node.js shim 模块 — `shims/` 目录
+11. [P3] 实施 #18 HMR — `hmr.js`
+12. [P3] 实施 #16 Sandbox 部署工具 — `sandbox-deploy.js`
+13. [P3] 实施 #13 TextDecoder polyfill — `polyfills/text-decoder.js`
+14. [持续] 剩余测试修复（~33 files uncommitted）
 
 ## Architecture Health
 
 | 指标 | 数值 |
 |------|------|
-| 文件数 | ~580 |
+| 文件数 | ~600 |
 | 跨层违规 | 0 |
 | >800 行文件 | 0 |
-| 新增模块 (session #007) | 3 (bridge, formatter, trace 传播) |
-| 新增测试文件 (session #007) | 2 |
-| 全量测试通过率 | 96.9% (17060/17610) |
+| P0 完成 | 3/3 |
+| P1 完成 | 5/5 |
+| P2 完成 | 0/8 |
+| P3 完成 | 0/5 |
 
 ## Session History
 
@@ -126,4 +130,6 @@
 | 004 | 多Agent协作-Phase1 | - | ~80% |
 | 005 | 多Agent协作-Phase1续 | - | ~60% |
 | 006 | 多Agent协作-Phase2推进 | - | ~70% |
-| 007 | Phase2续-Trace传播+Bridge+Formatter | - | ~85% |
+| 007 | Phase2续-Trace传播+Bridge+Formatter+测试修复 | - | ~85% |
+| 008 | AlmostNode分析+浏览器Node运行时PRD+Sandbox P0/P1 | - | ~90% |
+| 009 | Checkpoint保存+继续推进 | - | ~10% |

@@ -3,7 +3,7 @@
   "name": "js/agents 架构审计 + SDK 分层 + 多Agent协作",
   "project": "paper-burner",
   "createdAt": "2026-02-09T17:23:16Z",
-  "updatedAt": "2026-02-11T00:15:00Z",
+  "updatedAt": "2026-02-11T12:30:00Z",
   "config": {
     "checkpointEnabled": true,
     "autoSave": false,
@@ -52,6 +52,18 @@
       "seq": 7,
       "hapiSessionId": "hapi-phase2-trace-session",
       "name": "Phase2续-Trace传播+Bridge+Formatter",
+      "active": true
+    },
+    {
+      "seq": 8,
+      "hapiSessionId": "fde6d175-2b8b-4513-a25a-f63f9490c5a3",
+      "name": "AlmostNode分析+浏览器Node运行时PRD",
+      "active": true
+    },
+    {
+      "seq": 9,
+      "hapiSessionId": "95d23891-aabd-4188-88a5-8fadb3113754",
+      "name": "Checkpoint保存+继续推进",
       "active": true
     }
   ]
