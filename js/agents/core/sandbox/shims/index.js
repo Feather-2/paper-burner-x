@@ -1,0 +1,96 @@
+/**
+ * @file Node.js builtin module registry.
+ * Each module is lazily imported on first access.
+ */
+
+import pathShim from './path.js';
+import { EventEmitter } from './events.js';
+import { Buffer } from './buffer.js';
+import streamShim from './stream.js';
+import urlShim from './url.js';
+import qsShim from './querystring.js';
+import utilShim from './util.js';
+import osShim from './os.js';
+import { createFsShim } from './fs.js';
+import { createChildProcessShim } from './child-process.js';
+import zlibShim from './zlib.js';
+
+// Stub modules — minimal objects that don't throw on require
+const noop = () => {};
+const noopStub = new Proxy({}, { get: () => noop });
+
+const STUB_MODULES = {
+  assert: { ok: (v) => { if (!v) throw new Error('Assertion failed'); }, equal: (a, b) => { if (a !== b) throw new Error(`${a} !== ${b}`); }, deepEqual: noop, strictEqual: (a, b) => { if (a !== b) throw new Error(`${a} !== ${b}`); }, notEqual: noop, throws: noop, doesNotThrow: noop, fail: (msg) => { throw new Error(msg || 'Failed'); } },
+  console: globalThis.console,
+  constants: {},
+  crypto: { randomUUID: () => globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2), randomBytes: (n) => globalThis.crypto?.getRandomValues?.(new Uint8Array(n)) || new Uint8Array(n), createHash: () => ({ update: () => ({ digest: () => '' }), digest: () => '' }) },
+  dgram: noopStub,
+  dns: { resolve: noop, lookup: (hostname, cb) => cb?.(null, '127.0.0.1', 4) },
+  domain: { create: () => ({ run: (fn) => fn(), on: noop }) },
+  http: { Server: class {}, createServer: () => ({ listen: noop, close: noop, on: noop }), request: noop, get: noop, IncomingMessage: class {}, ServerResponse: class {} },
+  http2: noopStub,
+  https: { request: noop, get: noop, Server: class {}, createServer: () => ({ listen: noop, close: noop, on: noop }) },
+  inspector: noopStub,
+  module: { createRequire: noop, builtinModules: [] },
+  net: { Socket: class extends EventEmitter { connect() { return this; } write() {} end() {} destroy() {} }, Server: class extends EventEmitter { listen() { return this; } close() {} address() { return null; } }, createServer: () => new (STUB_MODULES.net.Server)(), createConnection: noop, isIP: () => 0, isIPv4: () => false, isIPv6: () => false },
+  perf_hooks: { performance: globalThis.performance || { now: () => Date.now() }, PerformanceObserver: class { observe() {} disconnect() {} } },
+  process: { env: {}, cwd: () => '/', argv: ['node'], platform: 'browser', version: 'v18.0.0', versions: { node: '18.0.0' }, exit: noop, nextTick: (fn, ...args) => queueMicrotask(() => fn(...args)), stdout: { write: noop, isTTY: false }, stderr: { write: noop, isTTY: false }, stdin: { isTTY: false }, on: noop, once: noop, off: noop, hrtime: { bigint: () => BigInt(Math.round(performance.now() * 1e6)) } },
+  punycode: { encode: (s) => s, decode: (s) => s, toASCII: (s) => s, toUnicode: (s) => s },
+  readline: { createInterface: () => ({ on: noop, close: noop, question: (q, cb) => cb?.('') }) },
+  repl: noopStub,
+  string_decoder: { StringDecoder: class { write(buf) { return new TextDecoder().decode(buf); } end() { return ''; } } },
+  sys: utilShim,
+  timers: { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval, setImmediate: (fn, ...args) => setTimeout(fn, 0, ...args), clearImmediate: clearTimeout },
+  tls: noopStub,
+  tty: { isatty: () => false, ReadStream: class {}, WriteStream: class {} },
+  v8: noopStub,
+  vm: { runInNewContext: (code) => (0, eval)(code), createContext: () => ({}), Script: class { constructor(code) { this._code = code; } runInThisContext() { return (0, eval)(this._code); } } },
+  worker_threads: { isMainThread: true, parentPort: null, Worker: class {}, workerData: null },
+  async_hooks: { AsyncLocalStorage: class { getStore() { return undefined; } run(store, fn, ...args) { return fn(...args); } enterWith() {} disable() {} }, createHook: () => ({ enable: noop, disable: noop }) },
+  diagnostics_channel: { channel: () => ({ subscribe: noop, unsubscribe: noop, publish: noop }), subscribe: noop, unsubscribe: noop },
+  cluster: { isMaster: true, isPrimary: true, isWorker: false, fork: noop, on: noop },
+};
+
+/**
+ * 创建完整的内置模块注册表。
+ * @param {object} [config]
+ * @param {object} [config.vfs] - VFS 实例（fs/child_process 需要）
+ * @param {Function} [config.evaluate] - 代码执行器（child_process 需要）
+ * @param {Record<string, string>} [config.env] - 环境变量
+ * @param {string} [config.cwd] - 工作目录
+ * @returns {Record<string, object>}
+ */
+export function createBuiltinModules(config = {}) {
+  const { vfs, evaluate, env = {}, cwd = '' } = config;
+
+  const modules = {
+    path: pathShim,
+    events: { EventEmitter, default: EventEmitter },
+    buffer: { Buffer },
+    stream: streamShim,
+    url: urlShim,
+    querystring: qsShim,
+    util: utilShim,
+    os: osShim,
+    zlib: zlibShim,
+    ...STUB_MODULES,
+  };
+
+  // 动态模块（需要 VFS）
+  if (vfs) {
+    modules.fs = createFsShim(vfs);
+    modules.child_process = createChildProcessShim({ vfs, evaluate, env, cwd });
+  }
+
+  // process 补充
+  modules.process = { ...STUB_MODULES.process, env, cwd: () => cwd || '/' };
+
+  return modules;
+}
+
+/**
+ * 所有已知内置模块名。
+ */
+export const BUILTIN_MODULE_NAMES = Object.keys({ ...STUB_MODULES, path: 1, events: 1, buffer: 1, stream: 1, url: 1, querystring: 1, util: 1, os: 1, zlib: 1, fs: 1, child_process: 1 });
+
+export default { createBuiltinModules, BUILTIN_MODULE_NAMES };
