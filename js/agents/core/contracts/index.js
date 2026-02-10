@@ -35,3 +35,13 @@ export {
   AgentType,
   AgentStatus,
 } from "./agent-registry.js";
+export {
+  TraceContextPropagator,
+  createTracePropagator,
+  injectTrace,
+  extractTrace,
+  generateTraceId,
+  generateSpanId,
+  formatTraceparent,
+  parseTraceparent,
+} from "./trace-propagator.js";
