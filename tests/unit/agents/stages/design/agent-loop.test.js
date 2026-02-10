@@ -72,6 +72,26 @@ const runtimeMocks = vi.hoisted(() => {
   BaseAgentLoop.prototype._createPauseError = vi.fn(function ({ runId } = {}) {
     return new StagePausedError(`Paused: ${runId || "unknown"}`);
   });
+  BaseAgentLoop.prototype._resolveDependency = vi.fn(async function (serviceId, context, fallback) {
+    if (context && typeof context === "object" && serviceId in context && context[serviceId] !== undefined) {
+      return context[serviceId];
+    }
+
+    const container = context?.container || this._container;
+    if (container && typeof container.tryGet === "function") {
+      const fromTryGet = await container.tryGet(serviceId);
+      if (fromTryGet !== undefined) return fromTryGet;
+    }
+    if (container && typeof container.get === "function") {
+      try {
+        const fromGet = await container.get(serviceId);
+        if (fromGet !== undefined) return fromGet;
+      } catch {
+        return fallback;
+      }
+    }
+    return fallback;
+  });
 
   const AgentStatus = {
     IDLE: "idle",

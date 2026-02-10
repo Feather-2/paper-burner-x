@@ -2,9 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../../../../js/agents/shared/index.js", () => {
   return {
-    deepClone: vi.fn(),
     isPlainObject: vi.fn(),
     toNonEmptyString: vi.fn(),
+  };
+});
+
+vi.mock("../../../../../js/agents/shared/utils/value-utils.js", () => {
+  return {
+    deepClone: vi.fn(),
   };
 });
 
@@ -34,7 +39,8 @@ vi.mock("../../../../../js/agents/plugins/memory/memory-store.impl.utils.js", ()
 });
 
 import { defineL0Layer } from "../../../../../js/agents/plugins/memory/memory-store.impl.l0.js";
-import { deepClone, isPlainObject, toNonEmptyString } from "../../../../../js/agents/shared/index.js";
+import { isPlainObject, toNonEmptyString } from "../../../../../js/agents/shared/index.js";
+import { deepClone } from "../../../../../js/agents/shared/utils/value-utils.js";
 import { normalizeTodoEntry, normalizeTodoInPlace, normalizeTodoStatus } from "../../../../../js/agents/plugins/memory/todo-normalize.js";
 import { defineGetter, defineMethod, estimateTokens, genId } from "../../../../../js/agents/plugins/memory/memory-store.impl.utils.js";
 

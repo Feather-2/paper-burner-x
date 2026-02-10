@@ -7,9 +7,12 @@ const normalizeTodoEntryMock = vi.hoisted(() => vi.fn());
 const genIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../../../js/agents/shared/index.js', () => ({
-  deepClone: deepCloneMock,
   isPlainObject: isPlainObjectMock,
   toNonEmptyString: toNonEmptyStringMock,
+}));
+
+vi.mock('../../../../../js/agents/shared/utils/value-utils.js', () => ({
+  deepClone: deepCloneMock,
 }));
 
 vi.mock('../../../../../js/agents/plugins/memory/todo-normalize.js', () => ({

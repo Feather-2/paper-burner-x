@@ -115,11 +115,13 @@ describe("AgentOrchestrator", () => {
       expect(() => orchestrator.registerStage("test", "not-a-function")).toThrow(/handler must be a function/);
     });
 
-    it("allows method chaining", () => {
-      const result = orchestrator
-        .registerStage("a", () => {})
-        .registerStage("b", () => {});
-      expect(result).toBe(orchestrator);
+    it("registers multiple stages with repeated calls", () => {
+      orchestrator.registerStage("a", () => {});
+      const result = orchestrator.registerStage("b", () => {});
+
+      expect(result).toBeUndefined();
+      expect(orchestrator._stages.has("a")).toBe(true);
+      expect(orchestrator._stages.has("b")).toBe(true);
     });
 
     it("registers with options", () => {

@@ -8,7 +8,6 @@ const { warnSpy, toNonEmptyStringMock, deepCloneMock } = vi.hoisted(() => ({
 
 vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   toNonEmptyString: (value) => toNonEmptyStringMock(value),
-  deepClone: (value) => deepCloneMock(value),
   createLogger: vi.fn(() => ({
     log: vi.fn(),
     debug: vi.fn(),
@@ -16,6 +15,10 @@ vi.mock("../../../../../../js/agents/shared/index.js", () => ({
     warn: warnSpy,
     error: vi.fn(),
   })),
+}));
+
+vi.mock("../../../../../../js/agents/shared/utils/value-utils.js", () => ({
+  deepClone: (value) => deepCloneMock(value),
 }));
 
 import UnifiedAgentContextDefault, {
@@ -366,12 +369,12 @@ describe("UnifiedAgentContext", () => {
     expect(warnSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("addClaim maps claim.content when text is missing", () => {
+  it("addClaim maps claim.content when text is missing", async () => {
     const memory = { addClaim: vi.fn() };
     const sharedContext = { addFinding: vi.fn() };
     const ctx = new UnifiedAgentContext({ memory, sharedContext });
 
-    ctx.addClaim({ content: "content-only", source: "source-b" });
+    await ctx.addClaim({ content: "content-only", source: "source-b" });
 
     expect(memory.addClaim).toHaveBeenCalledWith({
       content: "content-only",
@@ -387,7 +390,7 @@ describe("UnifiedAgentContext", () => {
     });
   });
 
-  it("addClaim records to state, memory, and sharedContext", () => {
+  it("addClaim records to state, memory, and sharedContext", async () => {
     const state = { addClaim: vi.fn() };
     const memory = { addClaim: vi.fn() };
     const sharedContext = { addFinding: vi.fn() };
@@ -400,7 +403,7 @@ describe("UnifiedAgentContext", () => {
       verified: true,
     };
 
-    ctx.addClaim(claim);
+    await ctx.addClaim(claim);
 
     expect(state.addClaim).toHaveBeenCalledWith(claim);
     expect(memory.addClaim).toHaveBeenCalledWith({
@@ -417,7 +420,7 @@ describe("UnifiedAgentContext", () => {
     });
   });
 
-  it("addClaim handles empty object and logs memory failures", () => {
+  it("addClaim handles empty object and logs memory failures", async () => {
     const memory = {
       addClaim: vi.fn(() => {
         throw new Error("memory fail");
@@ -426,7 +429,7 @@ describe("UnifiedAgentContext", () => {
     const sharedContext = { addFinding: vi.fn() };
     const ctx = new UnifiedAgentContext({ memory, sharedContext });
 
-    ctx.addClaim({});
+    await ctx.addClaim({});
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(sharedContext.addFinding).toHaveBeenCalledWith({
@@ -437,14 +440,14 @@ describe("UnifiedAgentContext", () => {
     });
   });
 
-  it("signal and getSignals delegate to sharedContext", () => {
+  it("signal and getSignals delegate to sharedContext", async () => {
     const sharedContext = {
       signal: vi.fn(),
       getSignals: vi.fn().mockReturnValue([{ id: "s1" }]),
     };
     const ctx = new UnifiedAgentContext({ sharedContext });
 
-    ctx.signal("phase", { ok: true });
+    await ctx.signal("phase", { ok: true });
     expect(sharedContext.signal).toHaveBeenCalledWith("phase", { ok: true });
     expect(ctx.getSignals({ type: "phase" })).toEqual([{ id: "s1" }]);
   });
@@ -454,13 +457,13 @@ describe("UnifiedAgentContext", () => {
     expect(ctx.getSignals({ type: "none" })).toEqual([]);
   });
 
-  it("recordDecision writes to memory and sharedContext", () => {
+  it("recordDecision writes to memory and sharedContext", async () => {
     const memory = { recordDecision: vi.fn() };
     const sharedContext = { recordDecision: vi.fn() };
     const ctx = new UnifiedAgentContext({ memory, sharedContext });
 
     const decision = { id: "d1" };
-    ctx.recordDecision(decision);
+    await ctx.recordDecision(decision);
 
     expect(memory.recordDecision).toHaveBeenCalledWith(decision);
     expect(sharedContext.recordDecision).toHaveBeenCalledWith(decision);

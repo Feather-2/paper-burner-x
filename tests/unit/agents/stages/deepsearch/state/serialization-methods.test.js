@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   isPlainObject: vi.fn(),
+  protoSafeReviver: (_key, value) => value,
 }));
 
 vi.mock("../../../../../../js/agents/stages/deepsearch/state/serializer.js", () => ({

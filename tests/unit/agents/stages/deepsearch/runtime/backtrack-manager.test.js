@@ -36,6 +36,14 @@ function createMockLogger() {
   };
 }
 
+beforeEach(() => {
+  globalThis.createLogger = vi.fn(() => createMockLogger());
+});
+
+afterEach(() => {
+  delete globalThis.createLogger;
+});
+
 describe("BacktrackManager", () => {
   describe("constructor", () => {
     it("should use default values when no options provided", () => {

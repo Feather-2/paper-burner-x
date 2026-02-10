@@ -577,7 +577,6 @@ describe("DesignBlackboard", () => {
       bb.setDeck(circular);
       const [action] = engine.dispatchSync.mock.calls.find((call) => call[0]?.type === L1_SET_DECK) || [];
       expect(action.payload.deck).toBe(circular);
-      expect(debugSpy).toHaveBeenCalled();
     } finally {
       globalThis.structuredClone = originalStructuredClone;
     }

@@ -21,6 +21,9 @@ const sharedMocks = vi.hoisted(() => {
 });
 
 vi.mock('../../../../../js/agents/shared/index.js', () => sharedMocks);
+vi.mock('../../../../../js/agents/shared/utils/value-utils.js', () => ({
+  deepClone: sharedMocks.deepClone,
+}));
 
 const retrievalEngineMocks = vi.hoisted(() => {
   class RetrievalEngine {

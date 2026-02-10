@@ -12,6 +12,7 @@ const sharedMocks = vi.hoisted(() => ({
 
 vi.mock('../../../../../../js/agents/shared/index.js', () => ({
   toNonEmptyString: sharedMocks.toNonEmptyString,
+  protoSafeReviver: (_key, value) => value,
 }));
 
 import {

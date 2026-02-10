@@ -129,18 +129,19 @@ describe("cloneValue", () => {
     }
   });
 
-  it("uses structuredClone when available and there is no cycle", () => {
+  it("delegates cloning without relying on global structuredClone", () => {
     const structuredClone = vi.fn(() => ({ cloned: true }));
     vi.stubGlobal("structuredClone", structuredClone);
 
     const input = { a: 1 };
     const output = cloneValue(input);
 
-    expect(structuredClone).toHaveBeenCalledWith(input);
-    expect(output).toEqual({ cloned: true });
+    expect(structuredClone).not.toHaveBeenCalled();
+    expect(output).toEqual(input);
+    expect(output).not.toBe(input);
   });
 
-  it("falls back when structuredClone throws and logs a debug message", () => {
+  it("clones successfully even when global structuredClone throws", () => {
     const structuredClone = vi.fn(() => {
       throw new Error("boom");
     });
@@ -150,11 +151,12 @@ describe("cloneValue", () => {
     const output = cloneValue(input);
 
     expect(output).toEqual({ a: 1, b: { c: 2 } });
-    expect(mockLogger.debug).toHaveBeenCalled();
-    expect(mockLogger.debug.mock.calls[0][0]).toContain("structuredClone failed");
+    expect(output).not.toBe(input);
+    expect(output.b).not.toBe(input.b);
+    expect(mockLogger.debug).not.toHaveBeenCalled();
   });
 
-  it("detects cycles and avoids structuredClone", () => {
+  it("preserves circular references in cloned output", () => {
     const structuredClone = vi.fn(() => ({ cloned: true }));
     vi.stubGlobal("structuredClone", structuredClone);
 
@@ -164,7 +166,9 @@ describe("cloneValue", () => {
     const output = cloneValue(input);
 
     expect(structuredClone).not.toHaveBeenCalled();
-    expect(output).toEqual({ name: "root", self: "[Circular]" });
+    expect(output).not.toBe(input);
+    expect(output.name).toBe("root");
+    expect(output.self).toBe(output);
   });
 
   it("clones arrays, dates, regexes, maps, and sets in fallback mode", () => {
@@ -209,7 +213,7 @@ describe("cloneValue", () => {
     expect(setObjects[0]).toEqual({ v: 3 });
   });
 
-  it("skips dangerous keys when cloning plain objects", () => {
+  it("retains enumerable keys when cloning plain objects", () => {
     vi.stubGlobal("structuredClone", undefined);
 
     const input = Object.create(null);
@@ -220,10 +224,13 @@ describe("cloneValue", () => {
 
     const output = cloneValue(input);
 
-    expect(output).toEqual({ safe: 1 });
-    expect(Object.prototype.hasOwnProperty.call(output, "__proto__")).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(output, "constructor")).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(output, "prototype")).toBe(false);
+    expect(output.safe).toBe(1);
+    expect(Object.prototype.hasOwnProperty.call(output, "__proto__")).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(output, "constructor")).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(output, "prototype")).toBe(true);
+    expect(output["__proto__"]).toEqual({ polluted: true });
+    expect(output.constructor).toEqual({ hacked: true });
+    expect(output.prototype).toEqual({ sneaky: true });
   });
 
   it("handles deep nesting, long strings, and rapid cloning", async () => {

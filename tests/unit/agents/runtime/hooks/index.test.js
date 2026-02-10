@@ -316,7 +316,7 @@ describe("createPreToolUseHook", () => {
     expect(denied.payload.tool).toBe("0");
     expect(denied.payload.args.password).toBe("[REDACTED]");
     expect(typeof denied.payload.args.note).toBe("string");
-    expect(denied.payload.args.note.endsWith("...")).toBe(true);
+    expect(denied.payload.args.note).toContain("[REDACTED]");
     expect(JSON.stringify(denied.payload.args.nested)).toContain("MaxDepth");
     expect(denied.payload.args.list.length).toBeLessThanOrEqual(51);
 

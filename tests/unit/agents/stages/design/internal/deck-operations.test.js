@@ -4,6 +4,9 @@ const logger = vi.hoisted(() => ({ warn: vi.fn() }));
 
 vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   createLogger: vi.fn(() => logger),
+}));
+
+vi.mock("../../../../../../js/agents/shared/utils/value-utils.js", () => ({
   deepClone: vi.fn(),
 }));
 
@@ -28,7 +31,7 @@ import {
   installDeckOperations,
   initWatchdogManager,
 } from "../../../../../../js/agents/stages/design/internal/deck-operations.js";
-import { deepClone } from "../../../../../../js/agents/shared/index.js";
+import { deepClone } from "../../../../../../js/agents/shared/utils/value-utils.js";
 import { Watchdog } from "../../../../../../js/agents/plugins/compression/index.js";
 import {
   buildDesignWatchdogAdvice,

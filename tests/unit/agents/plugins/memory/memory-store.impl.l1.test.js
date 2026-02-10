@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockedShared = vi.hoisted(() => ({
-  deepClone: vi.fn(),
   isPlainObject: vi.fn(),
   toNonEmptyString: vi.fn(),
+}));
+
+const mockedValueUtils = vi.hoisted(() => ({
+  deepClone: vi.fn(),
 }));
 
 const mockedUtils = vi.hoisted(() => ({
@@ -16,6 +19,7 @@ const mockedUtils = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../../../js/agents/shared/index.js", () => mockedShared);
+vi.mock("../../../../../js/agents/shared/utils/value-utils.js", () => mockedValueUtils);
 vi.mock("../../../../../js/agents/plugins/memory/memory-store.impl.utils.js", () => mockedUtils);
 
 import { defineL1Layer } from "../../../../../js/agents/plugins/memory/memory-store.impl.l1.js";
@@ -93,7 +97,7 @@ describe("defineL1Layer", () => {
     mockedUtils.estimateTokens.mockImplementation(tokenEstimator);
     mockedUtils.isFiniteNumber.mockImplementation((value) => typeof value === "number" && Number.isFinite(value));
 
-    mockedShared.deepClone.mockImplementation((value) => JSON.parse(JSON.stringify(value)));
+    mockedValueUtils.deepClone.mockImplementation((value) => JSON.parse(JSON.stringify(value)));
     mockedShared.isPlainObject.mockImplementation((value) => {
       if (value === null || typeof value !== "object") return false;
       return !Array.isArray(value);
@@ -141,12 +145,12 @@ describe("defineL1Layer", () => {
 
   it("cloneL1 delegates to deepClone", () => {
     const sentinel = { ok: true };
-    mockedShared.deepClone.mockReturnValueOnce(sentinel);
+    mockedValueUtils.deepClone.mockReturnValueOnce(sentinel);
 
     const result = store.cloneL1();
 
     expect(result).toBe(sentinel);
-    expect(mockedShared.deepClone).toHaveBeenCalledWith(store._L1);
+    expect(mockedValueUtils.deepClone).toHaveBeenCalledWith(store._L1);
   });
 
   it("addMessage adds plain objects and updates stats", () => {

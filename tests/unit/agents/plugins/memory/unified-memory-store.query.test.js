@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockedShared = vi.hoisted(() => ({
-  deepClone: vi.fn(),
   isPlainObject: vi.fn(),
   toNonEmptyString: vi.fn(),
+}));
+
+const mockedValueUtils = vi.hoisted(() => ({
+  deepClone: vi.fn(),
 }));
 
 const mockedTodoNormalize = vi.hoisted(() => ({
@@ -16,6 +19,7 @@ const mockedUtils = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../../../js/agents/shared/index.js', () => mockedShared);
+vi.mock('../../../../../js/agents/shared/utils/value-utils.js', () => mockedValueUtils);
 vi.mock('../../../../../js/agents/plugins/memory/todo-normalize.js', () => mockedTodoNormalize);
 vi.mock('../../../../../js/agents/plugins/memory/unified-memory-store.utils.js', () => mockedUtils);
 
@@ -94,7 +98,7 @@ function createStore(stateOverrides = {}, options = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
 
-  mockedShared.deepClone.mockImplementation((value) => JSON.parse(JSON.stringify(value)));
+  mockedValueUtils.deepClone.mockImplementation((value) => JSON.parse(JSON.stringify(value)));
   mockedShared.isPlainObject.mockImplementation((value) => {
     if (value === null || typeof value !== 'object') return false;
     return !Array.isArray(value);
@@ -255,7 +259,7 @@ describe('applyQueryMethods', () => {
 
   it('cloneL0/L1/L2/L3 delegate to deepClone', () => {
     const state = baseState();
-    mockedShared.deepClone.mockImplementation((value) => ({ cloned: value }));
+    mockedValueUtils.deepClone.mockImplementation((value) => ({ cloned: value }));
 
     const store = createStore(state);
 
@@ -263,11 +267,11 @@ describe('applyQueryMethods', () => {
     expect(store.cloneL1()).toEqual({ cloned: state.L1 });
     expect(store.cloneL2()).toEqual({ cloned: state.L2 });
     expect(store.cloneL3()).toEqual({ cloned: state.L3 });
-    expect(mockedShared.deepClone).toHaveBeenCalledTimes(4);
-    expect(mockedShared.deepClone).toHaveBeenCalledWith(state.L0);
-    expect(mockedShared.deepClone).toHaveBeenCalledWith(state.L1);
-    expect(mockedShared.deepClone).toHaveBeenCalledWith(state.L2);
-    expect(mockedShared.deepClone).toHaveBeenCalledWith(state.L3);
+    expect(mockedValueUtils.deepClone).toHaveBeenCalledTimes(4);
+    expect(mockedValueUtils.deepClone).toHaveBeenCalledWith(state.L0);
+    expect(mockedValueUtils.deepClone).toHaveBeenCalledWith(state.L1);
+    expect(mockedValueUtils.deepClone).toHaveBeenCalledWith(state.L2);
+    expect(mockedValueUtils.deepClone).toHaveBeenCalledWith(state.L3);
   });
 
   it('getTaskGoal returns trimmed values and handles empty inputs', () => {

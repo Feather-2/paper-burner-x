@@ -25,13 +25,20 @@ vi.mock('../../../../../js/agents/shared/index.js', async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
-    deepClone: vi.fn((value) => original.deepClone(value)),
     toNonEmptyString: vi.fn((value) => original.toNonEmptyString(value)),
   };
 });
 
+vi.mock('../../../../../js/agents/shared/utils/value-utils.js', async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...original,
+    deepClone: vi.fn((value) => original.deepClone(value)),
+  };
+});
+
 import { defineL2Layer } from '../../../../../js/agents/plugins/memory/memory-store.impl.l2.js';
-import { deepClone } from '../../../../../js/agents/shared/index.js';
+import { deepClone } from '../../../../../js/agents/shared/utils/value-utils.js';
 
 const createStore = ({ historySummary = 'summary', stageSummaries, claims } = {}) => {
   const store = {

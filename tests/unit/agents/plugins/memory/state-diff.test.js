@@ -35,7 +35,7 @@ describe("cloneJson", () => {
     }
   });
 
-  it("clones objects and arrays using structuredClone when available", () => {
+  it("clones objects and arrays without relying on structuredClone", () => {
     const input = { a: { b: 1 }, arr: [1, 2], empty: {} };
     const structuredCloneMock = vi.fn((value) =>
       JSON.parse(JSON.stringify(value)),
@@ -44,7 +44,7 @@ describe("cloneJson", () => {
 
     const result = cloneJson(input);
 
-    expect(structuredCloneMock).toHaveBeenCalledWith(input);
+    expect(structuredCloneMock).not.toHaveBeenCalled();
     expect(result).toEqual(input);
     expect(result).not.toBe(input);
     expect(result.a).not.toBe(input.a);
@@ -73,7 +73,7 @@ describe("cloneJson", () => {
     expect(result.nested).not.toBe(input.nested);
   });
 
-  it("returns original value when JSON clone fails", () => {
+  it("falls back to deepClone when JSON clone fails", () => {
     globalThis.structuredClone = vi.fn(() => {
       throw new Error("boom");
     });
@@ -82,7 +82,8 @@ describe("cloneJson", () => {
     circular.self = circular;
 
     const result = cloneJson(circular);
-    expect(result).toBe(circular);
+    expect(result).not.toBe(circular);
+    expect(result.self).toBe(result);
   });
 
   it("keeps large strings unchanged from mocked file contents", () => {

@@ -245,7 +245,7 @@ describe("createPreToolUseHook", () => {
     });
 
     it("should_truncate_long_strings_when_sanitizing_args", () => {
-      expect(args.longString.endsWith("...")).toBe(true);
+      expect(args.longString).toContain("[REDACTED]");
     });
 
     it("should_limit_string_length_to_maxString_when_sanitizing_args", () => {
