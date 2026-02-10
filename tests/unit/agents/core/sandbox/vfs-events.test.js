@@ -1,5 +1,4 @@
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
 import {
   withVfsEvents,
@@ -23,9 +22,9 @@ describe('vfs-events', () => {
     vfs.on('change', (path, data) => events.push({ path, data }));
     const data = new Uint8Array([1, 2, 3]);
     await vfs.writeFile('foo.bin', data);
-    assert.strictEqual(events.length, 1);
-    assert.strictEqual(events[0].path, 'foo.bin');
-    assert.deepStrictEqual(events[0].data, data);
+    expect(events).toHaveLength(1);
+    expect(events[0].path).toBe('foo.bin');
+    expect(events[0].data).toEqual(data);
   });
 
   // 2. writeText triggers change
@@ -33,9 +32,9 @@ describe('vfs-events', () => {
     const events = [];
     vfs.on('change', (path, data) => events.push({ path, data }));
     await vfs.writeText('hello.txt', 'world');
-    assert.strictEqual(events.length, 1);
-    assert.strictEqual(events[0].path, 'hello.txt');
-    assert.strictEqual(events[0].data, 'world');
+    expect(events).toHaveLength(1);
+    expect(events[0].path).toBe('hello.txt');
+    expect(events[0].data).toBe('world');
   });
 
   // 3. unlink triggers delete
@@ -44,7 +43,7 @@ describe('vfs-events', () => {
     const events = [];
     vfs.on('delete', (path) => events.push(path));
     await vfs.unlink('tmp.txt');
-    assert.deepStrictEqual(events, ['tmp.txt']);
+    expect(events).toEqual(['tmp.txt']);
   });
 
   // 4. rmdir triggers delete
@@ -53,7 +52,7 @@ describe('vfs-events', () => {
     const events = [];
     vfs.on('delete', (path) => events.push(path));
     await vfs.rmdir('mydir');
-    assert.deepStrictEqual(events, ['mydir']);
+    expect(events).toEqual(['mydir']);
   });
 
   // 5. move triggers delete on src and change on dest
@@ -64,8 +63,8 @@ describe('vfs-events', () => {
     vfs.on('delete', (p) => deleted.push(p));
     vfs.on('change', (p) => changed.push(p));
     await vfs.move('old.txt', 'new.txt');
-    assert.deepStrictEqual(deleted, ['old.txt']);
-    assert.deepStrictEqual(changed, ['new.txt']);
+    expect(deleted).toEqual(['old.txt']);
+    expect(changed).toEqual(['new.txt']);
   });
 
   // 6. copy triggers change on dest
@@ -74,7 +73,7 @@ describe('vfs-events', () => {
     const changed = [];
     vfs.on('change', (p) => changed.push(p));
     await vfs.copy('src.txt', 'dst.txt');
-    assert.deepStrictEqual(changed, ['dst.txt']);
+    expect(changed).toEqual(['dst.txt']);
   });
 
   // 7. appendText triggers change
@@ -83,16 +82,16 @@ describe('vfs-events', () => {
     const events = [];
     vfs.on('change', (p, d) => events.push({ p, d }));
     await vfs.appendText('log.txt', '\nline2');
-    assert.strictEqual(events.length, 1);
-    assert.strictEqual(events[0].p, 'log.txt');
+    expect(events).toHaveLength(1);
+    expect(events[0].p).toBe('log.txt');
   });
 
   // 8. failed operation does not trigger event
   it('unlink on non-existent file does not trigger delete', async () => {
     const events = [];
     vfs.on('delete', (p) => events.push(p));
-    await assert.rejects(() => vfs.unlink('nope.txt'));
-    assert.strictEqual(events.length, 0);
+    await expect(vfs.unlink('nope.txt')).rejects.toThrow();
+    expect(events).toHaveLength(0);
   });
 
   // 9. off removes listener
@@ -103,8 +102,8 @@ describe('vfs-events', () => {
     await vfs.writeText('a.txt', '1');
     vfs.off('change', listener);
     await vfs.writeText('b.txt', '2');
-    assert.strictEqual(events.length, 1);
-    assert.strictEqual(events[0], 'a.txt');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toBe('a.txt');
   });
 
   // 10. once fires only once
@@ -113,7 +112,7 @@ describe('vfs-events', () => {
     vfs.once('change', (p) => events.push(p));
     await vfs.writeText('x.txt', '1');
     await vfs.writeText('y.txt', '2');
-    assert.deepStrictEqual(events, ['x.txt']);
+    expect(events).toEqual(['x.txt']);
   });
 
   // 11. removeAllListeners
@@ -123,7 +122,7 @@ describe('vfs-events', () => {
     vfs.on('delete', (p) => events.push(p));
     vfs.removeAllListeners();
     await vfs.writeText('z.txt', 'data');
-    assert.strictEqual(events.length, 0);
+    expect(events).toHaveLength(0);
   });
 
   it('removeAllListeners with event name clears only that event', async () => {
@@ -134,8 +133,8 @@ describe('vfs-events', () => {
     vfs.removeAllListeners('change');
     await vfs.writeText('a.txt', '1');
     await vfs.unlink('a.txt');
-    assert.strictEqual(changes.length, 0);
-    assert.strictEqual(deletes.length, 1);
+    expect(changes).toHaveLength(0);
+    expect(deletes).toHaveLength(1);
   });
 
   // 12. listener exception does not break VFS operation
@@ -143,7 +142,7 @@ describe('vfs-events', () => {
     vfs.on('change', () => { throw new Error('boom'); });
     await vfs.writeFile('safe.txt', new Uint8Array([42]));
     const text = await vfs.readText('safe.txt');
-    assert.strictEqual(text, '*'); // 42 == '*'
+    expect(text).toBe('*'); // 42 == '*'
   });
 
   // 13. createVfsEventBridge syncs writes
@@ -154,7 +153,7 @@ describe('vfs-events', () => {
     // bridge onChange is async; give it a tick
     await new Promise((r) => setTimeout(r, 20));
     const text = await target.readText('synced.txt');
-    assert.strictEqual(text, 'hello');
+    expect(text).toBe('hello');
     bridge.dispose();
   });
 
@@ -167,8 +166,8 @@ describe('vfs-events', () => {
     bridge.dispose();
     await vfs.writeText('second.txt', '2');
     await new Promise((r) => setTimeout(r, 20));
-    assert.ok(await target.exists('first.txt'));
-    assert.strictEqual(await target.exists('second.txt'), false);
+    expect(await target.exists('first.txt')).toBe(true);
+    expect(await target.exists('second.txt')).toBe(false);
   });
 
   // 15. path normalization in events
@@ -176,7 +175,7 @@ describe('vfs-events', () => {
     const events = [];
     vfs.on('change', (p) => events.push(p));
     await vfs.writeText('./foo/bar.txt', 'data');
-    assert.strictEqual(events.length, 1);
-    assert.strictEqual(events[0], 'foo/bar.txt');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toBe('foo/bar.txt');
   });
 });

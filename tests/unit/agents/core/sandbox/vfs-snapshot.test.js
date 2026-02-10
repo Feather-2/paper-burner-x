@@ -1,5 +1,4 @@
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
 import {
   toSnapshot,
@@ -24,7 +23,7 @@ describe('vfs-snapshot', () => {
       const original = new TextEncoder().encode('hello world');
       const b64 = uint8ToBase64(original);
       const restored = base64ToUint8(b64);
-      assert.deepStrictEqual(restored, original);
+      expect(restored).toEqual(original);
     });
 
     it('round-trips binary data with all byte values', () => {
@@ -32,14 +31,14 @@ describe('vfs-snapshot', () => {
       for (let i = 0; i < 256; i++) original[i] = i;
       const b64 = uint8ToBase64(original);
       const restored = base64ToUint8(b64);
-      assert.deepStrictEqual(restored, original);
+      expect(restored).toEqual(original);
     });
 
     it('round-trips empty array', () => {
       const original = new Uint8Array(0);
       const b64 = uint8ToBase64(original);
       const restored = base64ToUint8(b64);
-      assert.deepStrictEqual(restored, original);
+      expect(restored).toEqual(original);
     });
   });
 
@@ -47,8 +46,8 @@ describe('vfs-snapshot', () => {
 
   it('toSnapshot on empty VFS returns empty files array', async () => {
     const snap = await toSnapshot(vfs);
-    assert.ok(Array.isArray(snap.files));
-    assert.strictEqual(snap.files.length, 0);
+    expect(Array.isArray(snap.files)).toBe(true);
+    expect(snap.files.length).toBe(0);
   });
 
   // --- text file round-trip ---
@@ -58,7 +57,7 @@ describe('vfs-snapshot', () => {
     const snap = await toSnapshot(vfs);
     const restored = await fromSnapshot(snap);
     const text = await restored.readText('notes.txt');
-    assert.strictEqual(text, 'some text content');
+    expect(text).toBe('some text content');
   });
 
   // --- binary file round-trip ---
@@ -69,7 +68,7 @@ describe('vfs-snapshot', () => {
     const snap = await toSnapshot(vfs);
     const restored = await fromSnapshot(snap);
     const read = await restored.readFile('data.bin');
-    assert.deepStrictEqual(read, bin);
+    expect(read).toEqual(bin);
   });
 
   // --- directory structure preserved ---
@@ -80,9 +79,9 @@ describe('vfs-snapshot', () => {
     const snap = await toSnapshot(vfs);
     const restored = await fromSnapshot(snap);
     const text = await restored.readText('a/b/c/deep.txt');
-    assert.strictEqual(text, 'deep');
+    expect(text).toBe('deep');
     const exists = await restored.exists('a/b/c');
-    assert.ok(exists);
+    expect(exists).toBe(true);
   });
 
   // --- multi-file round-trip ---
@@ -95,9 +94,9 @@ describe('vfs-snapshot', () => {
     const snap = await toSnapshot(vfs);
     const restored = await fromSnapshot(snap);
 
-    assert.strictEqual(await restored.readText('src/index.js'), 'export default 1;');
-    assert.strictEqual(await restored.readText('src/util.js'), 'export const x = 2;');
-    assert.strictEqual(await restored.readText('README.md'), '# Hello');
+    expect(await restored.readText('src/index.js')).toBe('export default 1;');
+    expect(await restored.readText('src/util.js')).toBe('export const x = 2;');
+    expect(await restored.readText('README.md')).toBe('# Hello');
   });
 
   // --- fromSnapshot into existing VFS ---
@@ -110,9 +109,9 @@ describe('vfs-snapshot', () => {
     const snap = await toSnapshot(vfs);
     const result = await fromSnapshot(snap, target);
 
-    assert.strictEqual(result, target);
-    assert.strictEqual(await target.readText('existing.txt'), 'keep me');
-    assert.strictEqual(await target.readText('new.txt'), 'added');
+    expect(result).toBe(target);
+    expect(await target.readText('existing.txt')).toBe('keep me');
+    expect(await target.readText('new.txt')).toBe('added');
   });
 
   // --- diffSnapshots ---
@@ -126,9 +125,9 @@ describe('vfs-snapshot', () => {
       const snapB = await toSnapshot(vfs);
 
       const diff = diffSnapshots(snapA, snapB);
-      assert.deepStrictEqual(diff.added, ['b.txt']);
-      assert.deepStrictEqual(diff.modified, []);
-      assert.deepStrictEqual(diff.deleted, []);
+      expect(diff.added).toEqual(['b.txt']);
+      expect(diff.modified).toEqual([]);
+      expect(diff.deleted).toEqual([]);
     });
 
     it('detects modified files', async () => {
@@ -139,9 +138,9 @@ describe('vfs-snapshot', () => {
       const snapB = await toSnapshot(vfs);
 
       const diff = diffSnapshots(snapA, snapB);
-      assert.deepStrictEqual(diff.added, []);
-      assert.deepStrictEqual(diff.modified, ['file.txt']);
-      assert.deepStrictEqual(diff.deleted, []);
+      expect(diff.added).toEqual([]);
+      expect(diff.modified).toEqual(['file.txt']);
+      expect(diff.deleted).toEqual([]);
     });
 
     it('detects deleted files', async () => {
@@ -153,9 +152,9 @@ describe('vfs-snapshot', () => {
       const snapB = await toSnapshot(vfs);
 
       const diff = diffSnapshots(snapA, snapB);
-      assert.deepStrictEqual(diff.added, []);
-      assert.deepStrictEqual(diff.modified, []);
-      assert.deepStrictEqual(diff.deleted, ['gone.txt']);
+      expect(diff.added).toEqual([]);
+      expect(diff.modified).toEqual([]);
+      expect(diff.deleted).toEqual(['gone.txt']);
     });
   });
 });
