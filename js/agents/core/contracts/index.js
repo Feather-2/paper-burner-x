@@ -11,3 +11,17 @@
 export { validateRpcRequest, validateRpcResponse } from "./rpc-message.js";
 export { validateLlmResponse, validateToolCall } from "./llm-response.js";
 export { validateToolResult, normalizeToolResult } from "./tool-result.js";
+export {
+  AgentMessageKind,
+  TaskStatus,
+  AgentRunStatus,
+  validateTaskRequest,
+  validateTaskResult,
+  validateStatusUpdate,
+  validateKnowledgeShare,
+  validateAgentMessage,
+  createTaskRequest,
+  createTaskResult,
+  createStatusUpdate,
+  createKnowledgeShare,
+} from "./agent-message.js";

@@ -14,6 +14,7 @@ Agent 边界的轻量级结构验证，防止类型欺骗。
 |------|------|
 | `index.js` | Contracts 聚合导出（推荐入口） |
 | `rpc-message.js` | 跨 Agent RPC request/response 消息契约 |
+| `agent-message.js` | 多 Agent 通信协议（task-request/result, status-update, knowledge-share） |
 | `llm-response.js` | LLM 响应与 Tool Call 契约 |
 | `tool-result.js` | 工具执行结果契约（validate + normalize） |
 | `disposable.js` | 资源生命周期 Disposable 契约与释放辅助 |
@@ -44,6 +45,28 @@ const res = validateRpcResponse(outgoingMessage);
 if (!res.ok) {
   console.warn('Invalid RPC response:', res.error);
 }
+
+// === 多 Agent 通信协议 ===
+import {
+  validateAgentMessage,
+  createTaskRequest,
+  createTaskResult,
+  createStatusUpdate,
+  createKnowledgeShare,
+} from 'js/agents/core/contracts';
+
+// 创建并验证任务请求
+const taskReq = createTaskRequest('agent-a', 'search:execute', { query: 'hello' });
+const validated = validateAgentMessage(taskReq);
+
+// 创建任务结果
+const result = createTaskResult('agent-b', taskReq.correlationId, 'completed', { data: {...} });
+
+// 广播状态更新
+const status = createStatusUpdate('agent-a', 'busy', { progress: 50 });
+
+// 共享知识
+const knowledge = createKnowledgeShare('agent-a', 'findings', { ... }, { contentType: 'json' });
 
 // 验证 LLM 响应
 const llm = validateLlmResponse(response);

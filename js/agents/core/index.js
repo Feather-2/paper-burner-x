@@ -87,6 +87,18 @@ export {
   validateToolCall,
   validateToolResult,
   normalizeToolResult,
+  AgentMessageKind,
+  TaskStatus,
+  AgentRunStatus,
+  validateTaskRequest,
+  validateTaskResult,
+  validateStatusUpdate,
+  validateKnowledgeShare,
+  validateAgentMessage,
+  createTaskRequest,
+  createTaskResult,
+  createStatusUpdate,
+  createKnowledgeShare,
 } from './contracts/index.js';
 
 // === Dependency Injection ===
