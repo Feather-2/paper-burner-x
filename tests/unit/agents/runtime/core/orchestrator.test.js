@@ -588,6 +588,61 @@ describe("AgentOrchestrator", () => {
     });
   });
 
+  describe("getStatus", () => {
+    it("returns snapshot of idle orchestrator", () => {
+      orchestrator = new AgentOrchestrator({ scheduling: { mode: SchedulingMode.PARALLEL, maxConcurrency: 5 } });
+      const status = orchestrator.getStatus();
+
+      expect(status.state).toBe(OrchestratorState.IDLE);
+      expect(status.runId).toBe(orchestrator.runId);
+      expect(status.schedulingMode).toBe(SchedulingMode.PARALLEL);
+      expect(status.inFlight).toBe(0);
+      expect(status.maxConcurrency).toBe(5);
+      expect(status.stages).toEqual([]);
+      expect(status.childAgentCount).toBe(0);
+      expect(status.aborted).toBe(false);
+    });
+
+    it("reflects registered stages with dependencies", () => {
+      orchestrator = new AgentOrchestrator();
+      orchestrator.registerStage("a", () => {}, { actor: "actorA", dependencies: ["x"] });
+      orchestrator.registerStage("b", () => {}, { dependencies: [] });
+
+      const status = orchestrator.getStatus();
+      expect(status.stages).toHaveLength(2);
+      expect(status.stages[0]).toEqual({ name: "a", actor: "actorA", dependencies: ["x"] });
+      expect(status.stages[1]).toEqual({ name: "b", actor: "b", dependencies: [] });
+    });
+
+    it("reflects running state and child agent count", async () => {
+      const agent1 = { dispose: vi.fn() };
+      const agent2 = { dispose: vi.fn() };
+      orchestrator = new AgentOrchestrator({ services: { agents: [agent1, agent2] } });
+      orchestrator.start();
+
+      const status = orchestrator.getStatus();
+      expect(status.state).toBe(OrchestratorState.RUNNING);
+      expect(status.childAgentCount).toBe(2);
+    });
+
+    it("reflects aborted state after stop", () => {
+      orchestrator = new AgentOrchestrator();
+      orchestrator.start();
+      orchestrator.stop("cancelled");
+
+      const status = orchestrator.getStatus();
+      expect(status.aborted).toBe(true);
+      expect(status.state).toBe(OrchestratorState.CANCELLED);
+    });
+
+    it("defaults to sequential scheduling mode", () => {
+      orchestrator = new AgentOrchestrator();
+      const status = orchestrator.getStatus();
+      expect(status.schedulingMode).toBe(SchedulingMode.SEQUENTIAL);
+      expect(status.maxConcurrency).toBe(3);
+    });
+  });
+
   describe("services and resources", () => {
     it("resolves degradation matrix from container", async () => {
       const matrix = createMatrix();

@@ -244,6 +244,11 @@ export const AgentLifecycleEvents = Object.freeze({
   PAUSED: "agent:paused",
   RESUMED: "agent:resumed",
   ITERATION: "agent:iteration",
+  // Multi-agent coordination (Phase 1)
+  IDLE: "agent:idle",
+  BUSY: "agent:busy",
+  STOPPED: "agent:stopped",
+  DEGRADED: "agent:degraded",
 });
 
 /**

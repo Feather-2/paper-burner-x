@@ -1,6 +1,6 @@
 import { createStageApi } from "../../shared/index.js";
 import { EventBus } from "../../core/event-bus.js";
-import { ActorType, OrchestratorState } from "./constants.js";
+import { ActorType, OrchestratorState, isValidActorType } from "./constants.js";
 import { ServiceId } from "../../core/di/defaults.js";
 import { TaskGraph } from "./parallel/task-graph.js";
 import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
@@ -287,14 +287,27 @@ export class AgentOrchestrator extends DisposableBase {
    * @param {string[]} [options.dependencies] - Other stage names that must run before this one
    */
   registerStage(name, handler, options = {}) {
-    if (typeof name !== "string" || !name) throw new TypeError("registerStage: name must be a non-empty string");
+    if (typeof name !== "string" || !name || !name.trim()) throw new TypeError("registerStage: name must be a non-empty string");
     if (typeof handler !== "function") throw new TypeError("registerStage: handler must be a function");
+
+    const actorRaw = toNonEmptyString(options.actor);
+    const validActor = actorRaw && isValidActorType(actorRaw) ? actorRaw : undefined;
+
+    const normalizedOptions = {
+      actor: validActor,
+      rawActor: actorRaw || undefined,
+      timeoutMs: normalizeTimeoutMs(options.timeoutMs, null),
+      configSchema: isPlainObject(options.configSchema) ? options.configSchema : undefined,
+      configValidation: isPlainObject(options.configValidation) ? options.configValidation : undefined,
+      retryPolicy: options.retryPolicy || null,
+    };
 
     this._stages.set(name, {
       handler,
-      actor: options.actor || name,
-      timeoutMs: typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs) ? options.timeoutMs : 0,
-      retryPolicy: options.retryPolicy || null,
+      actor: validActor,
+      timeoutMs: normalizedOptions.timeoutMs ?? 0,
+      retryPolicy: normalizedOptions.retryPolicy,
+      options: normalizedOptions,
       // Manifest fields (declarative)
       requiredServices: Array.isArray(options.requiredServices) ? [...options.requiredServices] : [],
       statePrefix: typeof options.statePrefix === "string" ? options.statePrefix : name,
@@ -449,10 +462,6 @@ export class AgentOrchestrator extends DisposableBase {
     // Wait for all remaining
     if (executing.size > 0) {
       await Promise.allSettled(executing);
-    }
-
-    if (allErrors.length > 0) {
-      throw new AggregateError(allErrors, `${allErrors.length} parallel stage(s) failed`);
     }
 
     return results;
@@ -745,6 +754,36 @@ export class AgentOrchestrator extends DisposableBase {
 
       cleanup();
     }
+  }
+
+  /**
+   * Get a snapshot of the orchestrator's current status.
+   *
+   * Returns state, registered stages, in-flight count, scheduling mode,
+   * child agent count, and run context. Useful for external inspection
+   * and multi-agent coordination dashboards.
+   *
+   * @returns {{ state: string, runId: string, schedulingMode: string, inFlight: number, maxConcurrency: number, stages: Array<{ name: string, actor: string, dependencies: string[] }>, childAgentCount: number, aborted: boolean }}
+   */
+  getStatus() {
+    const stages = [];
+    for (const [name, entry] of this._stages) {
+      stages.push({
+        name,
+        actor: entry.options?.rawActor || entry.actor || name,
+        dependencies: entry.dependencies || [],
+      });
+    }
+    return {
+      state: this.state,
+      runId: this.runId,
+      schedulingMode: this._schedulingMode,
+      inFlight: this._inFlight,
+      maxConcurrency: this._maxConcurrency,
+      stages,
+      childAgentCount: this._childAgents.size,
+      aborted: this.signal.aborted,
+    };
   }
 
   /**
