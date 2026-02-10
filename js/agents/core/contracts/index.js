@@ -26,3 +26,12 @@ export {
   createKnowledgeShare,
 } from "./agent-message.js";
 export { SharedTaskBoard, TaskBoardEvents } from "./shared-task-board.js";
+export {
+  AgentRegistry,
+  createAgentDescriptor,
+  validateAgentDescriptor,
+  isValidAgentType,
+  isValidAgentStatus,
+  AgentType,
+  AgentStatus,
+} from "./agent-registry.js";
