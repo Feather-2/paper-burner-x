@@ -193,7 +193,7 @@ describe("UnifiedAgentContext", () => {
       expect(ctx.claims).toEqual([{ text: "claim1" }]);
     });
 
-    it("should add to state and sharedContext", () => {
+    it("should add to state and sharedContext", async () => {
       const ctx = new UnifiedAgentContext();
       let stateClaim = null;
       let sharedFinding = null;
@@ -202,7 +202,7 @@ describe("UnifiedAgentContext", () => {
       ctx._state = { addClaim: (c) => { stateClaim = c; } };
       ctx._sharedContext = { addFinding: (f) => { sharedFinding = f; } };
 
-      ctx.addClaim(claim);
+      await ctx.addClaim(claim);
 
       expect(stateClaim).toBe(claim);
       expect(sharedFinding).toEqual({
@@ -215,7 +215,7 @@ describe("UnifiedAgentContext", () => {
   });
 
   describe("signals", () => {
-    it("should delegate to sharedContext", () => {
+    it("should delegate to sharedContext", async () => {
       const ctx = new UnifiedAgentContext();
       let signaled = null;
 
@@ -224,7 +224,7 @@ describe("UnifiedAgentContext", () => {
         getSignals: () => [{ type: "test" }],
       };
 
-      ctx.signal("test_signal", { data: 1 });
+      await ctx.signal("test_signal", { data: 1 });
 
       expect(signaled).toEqual({ type: "test_signal", payload: { data: 1 } });
       expect(ctx.getSignals()).toEqual([{ type: "test" }]);

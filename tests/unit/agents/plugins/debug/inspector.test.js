@@ -166,7 +166,7 @@ describe('default export', () => {
 
     inspector.help();
     expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(String(logSpy.mock.calls[0][0])).toContain('Inspector API');
+    expect(String(logSpy.mock.calls[0][1] ?? logSpy.mock.calls[0][0])).toContain('Inspector API');
 
     expect(ctx.log.info).toHaveBeenCalledWith('Debug inspector plugin installed');
   });

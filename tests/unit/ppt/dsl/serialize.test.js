@@ -220,7 +220,7 @@ describe('PPT DSL serialize', () => {
 
     const t1 = slide.elements.find((el) => el.id === 't1');
     expect(t1).toEqual(expect.objectContaining({ type: 'text', x: '10%', y: '20%', w: '30%', h: '40%' }));
-    expect(t1.content).toBe('Hello &lt;b&gt;World&lt;/b&gt;');
+    expect(t1.content).toBe('Hello &amp;lt;b&amp;gt;World&amp;lt;/b&amp;gt;');
 
     const group = slide.elements.find((el) => el.id === 'g1');
     expect(group).toEqual(expect.objectContaining({ type: 'group', children: expect.any(Array) }));

@@ -166,7 +166,7 @@ describe("planSlides", () => {
     expect(aiApiService.chat).toHaveBeenCalledTimes(1);
     expect(sharedMocks.extractJsonCandidate).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalled();
-    expect(String(warn.mock.calls[0][0])).toContain("LLM call failed");
+    expect(String(warn.mock.calls[0][1] ?? warn.mock.calls[0][0])).toContain("LLM call failed");
     expect(result).toHaveLength(8);
     assertCoreSlides(result);
 
@@ -184,7 +184,7 @@ describe("planSlides", () => {
 
     expect(sharedMocks.extractJsonCandidate).toHaveBeenCalledWith("big", { prefer: "array" });
     expect(warn).toHaveBeenCalled();
-    expect(String(warn.mock.calls[0][0])).toContain("JSON candidate exceeds max length");
+    expect(String(warn.mock.calls[0][1] ?? warn.mock.calls[0][0])).toContain("JSON candidate exceeds max length");
     expect(result).toHaveLength(8);
     assertCoreSlides(result);
 
@@ -201,7 +201,7 @@ describe("planSlides", () => {
 
     expect(sharedMocks.extractJsonCandidate).toHaveBeenCalledWith("bad", { prefer: "array" });
     expect(warn).toHaveBeenCalled();
-    expect(String(warn.mock.calls[0][0])).toContain("JSON parse failed");
+    expect(String(warn.mock.calls[0][1] ?? warn.mock.calls[0][0])).toContain("JSON parse failed");
     expect(result).toHaveLength(8);
     assertCoreSlides(result);
 
@@ -242,7 +242,7 @@ describe("planSlides", () => {
     const result = await planSlides([], { __services: { aiApiService } });
 
     expect(warn).toHaveBeenCalled();
-    expect(String(warn.mock.calls[0][0])).toContain("truncating to 100");
+    expect(String(warn.mock.calls[0][1] ?? warn.mock.calls[0][0])).toContain("truncating to 100");
     expect(result).toHaveLength(103);
     assertCoreSlides(result);
     assertUniqueIds(result);

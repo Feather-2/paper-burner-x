@@ -112,6 +112,19 @@ vi.mock("../../../../../js/agents/runtime/index.js", () => {
       return new StagePausedError("Run paused", { runId, reason });
     }
 
+    async _resolveDependency(serviceId, context, fallback) {
+      const container = context?.container;
+      if (container && typeof container.tryGet === "function") {
+        const fromContainer = await container.tryGet(serviceId);
+        if (fromContainer !== undefined) return fromContainer;
+      }
+      if (context && typeof context === "object" && serviceId in context) {
+        const fromContext = context[serviceId];
+        if (fromContext !== undefined) return fromContext;
+      }
+      return fallback;
+    }
+
     async execute(runContext, input, stageApi = {}) {
       return this.run(input, { ...stageApi, runContext });
     }

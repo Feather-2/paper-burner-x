@@ -125,7 +125,7 @@ describe("safeDispose", () => {
     expect(result).toBe(false);
     expect(onError).toHaveBeenCalledTimes(1);
     expect(__warn).toHaveBeenCalledTimes(1);
-    expect(__warn.mock.calls[0][0]).toBe("[safeDispose] onError callback failed:");
+    expect(String(__warn.mock.calls[0][1] ?? __warn.mock.calls[0][0])).toBe("[safeDispose] onError callback failed:");
   });
 
   it("logs when dispose throws without onError", async () => {
@@ -139,7 +139,7 @@ describe("safeDispose", () => {
 
     expect(result).toBe(false);
     expect(__warn).toHaveBeenCalledTimes(1);
-    expect(__warn.mock.calls[0][0]).toBe("[safeDispose] error:");
+    expect(String(__warn.mock.calls[0][1] ?? __warn.mock.calls[0][0])).toBe("[safeDispose] error:");
   });
 
   it("handles quick consecutive calls when dispose marks disposed", async () => {
@@ -276,7 +276,7 @@ describe("using", () => {
 
     expect(result).toBe("ok");
     expect(__warn).toHaveBeenCalledTimes(1);
-    expect(__warn.mock.calls[0][0]).toBe("[safeDispose] error:");
+    expect(String(__warn.mock.calls[0][1] ?? __warn.mock.calls[0][0])).toBe("[safeDispose] error:");
   });
 });
 
@@ -338,6 +338,6 @@ describe("createCompositeDisposable", () => {
 
     expect(calls).toEqual(["bad", "good"]);
     expect(__warn).toHaveBeenCalledTimes(1);
-    expect(__warn.mock.calls[0][0]).toBe("[CompositeDisposable] error:");
+    expect(String(__warn.mock.calls[0][1] ?? __warn.mock.calls[0][0])).toBe("[CompositeDisposable] error:");
   });
 });

@@ -342,35 +342,44 @@ describe("RunStore", () => {
     it("exposes delegated APIs from storage modules", () => {
       const store = new RunStore();
 
-      expect(store.saveTask).toBe(crudMocks.saveTask);
-      expect(store.loadTask).toBe(queryMocks.loadTask);
-      expect(store.saveState).toBe(crudMocks.saveState);
-      expect(store.loadState).toBe(queryMocks.loadState);
-      expect(store.estimateQuota).toBe(cacheMocks.estimateQuota);
-      expect(store._maybeWarnQuota).toBe(cacheMocks._maybeWarnQuota);
-      expect(store.setRetentionPolicy).toBe(cacheMocks.setRetentionPolicy);
-      expect(store.listRunRecords).toBe(queryMocks.listRunRecords);
-      expect(store._estimateRunBytes).toBe(cacheMocks._estimateRunBytes);
-      expect(store._estimateRunBytesFromManifest).toBe(cacheMocks._estimateRunBytesFromManifest);
-      expect(store.cleanupRuns).toBe(cacheMocks.cleanupRuns);
-      expect(store.createRun).toBe(crudMocks.createRun);
-      expect(store.getRun).toBe(queryMocks.getRun);
-      expect(store.updateRunContext).toBe(crudMocks.updateRunContext);
-      expect(store.listRuns).toBe(queryMocks.listRuns);
-      expect(store.deleteRun).toBe(crudMocks.deleteRun);
-      expect(store.appendEvent).toBe(crudMocks.appendEvent);
-      expect(store.appendEvents).toBe(crudMocks.appendEvents);
-      expect(store.getEvents).toBe(queryMocks.getEvents);
-      expect(store.saveArtifact).toBe(crudMocks.saveArtifact);
-      expect(store.getArtifact).toBe(queryMocks.getArtifact);
-      expect(store.getArtifactRecord).toBe(queryMocks.getArtifactRecord);
-      expect(store.getArtifactById).toBe(queryMocks.getArtifactById);
-      expect(store.loadArtifact).toBe(queryMocks.loadArtifact);
-      expect(store.listArtifacts).toBe(queryMocks.listArtifacts);
-      expect(store.listArtifactSummaries).toBe(queryMocks.listArtifactSummaries);
-      expect(store.getLatestArtifactSummary).toBe(queryMocks.getLatestArtifactSummary);
-      expect(store.updateManifest).toBe(crudMocks.updateManifest);
-      expect(store.getManifest).toBe(queryMocks.getManifest);
+      const delegated = [
+        ["saveTask", crudMocks.saveTask, [{ id: "t" }]],
+        ["loadTask", queryMocks.loadTask, ["t"]],
+        ["saveState", crudMocks.saveState, ["run", { s: 1 }]],
+        ["loadState", queryMocks.loadState, ["run"]],
+        ["estimateQuota", cacheMocks.estimateQuota, []],
+        ["_maybeWarnQuota", cacheMocks._maybeWarnQuota, []],
+        ["setRetentionPolicy", cacheMocks.setRetentionPolicy, [{}]],
+        ["listRunRecords", queryMocks.listRunRecords, [{}]],
+        ["_estimateRunBytes", cacheMocks._estimateRunBytes, ["run"]],
+        ["_estimateRunBytesFromManifest", cacheMocks._estimateRunBytesFromManifest, [{}]],
+        ["cleanupRuns", cacheMocks.cleanupRuns, []],
+        ["createRun", crudMocks.createRun, [{ runId: "run" }]],
+        ["getRun", queryMocks.getRun, ["run"]],
+        ["updateRunContext", crudMocks.updateRunContext, ["run", {}]],
+        ["listRuns", queryMocks.listRuns, [{}]],
+        ["deleteRun", crudMocks.deleteRun, ["run"]],
+        ["appendEvent", crudMocks.appendEvent, ["run", { id: "e1" }]],
+        ["appendEvents", crudMocks.appendEvents, ["run", [{ id: "e1" }]]],
+        ["getEvents", queryMocks.getEvents, ["run"]],
+        ["saveArtifact", crudMocks.saveArtifact, ["run", "report.json", { ok: true }]],
+        ["getArtifact", queryMocks.getArtifact, ["run", "report.json"]],
+        ["getArtifactRecord", queryMocks.getArtifactRecord, ["run", "report.json"]],
+        ["getArtifactById", queryMocks.getArtifactById, ["artifact-id"]],
+        ["loadArtifact", queryMocks.loadArtifact, ["run", "report.json"]],
+        ["listArtifacts", queryMocks.listArtifacts, ["run"]],
+        ["listArtifactSummaries", queryMocks.listArtifactSummaries, ["run"]],
+        ["getLatestArtifactSummary", queryMocks.getLatestArtifactSummary, ["run", "report.json"]],
+        ["updateManifest", crudMocks.updateManifest, ["run", {}]],
+        ["getManifest", queryMocks.getManifest, ["run"]],
+      ];
+
+      for (const [method, fn, args] of delegated) {
+        expect(store[method]).toEqual(expect.any(Function));
+        store[method](...args);
+        expect(fn).toHaveBeenLastCalledWith(...args);
+        expect(fn.mock.contexts.at(-1)).toBe(store);
+      }
     });
 
     it("forwards boundary and resource-heavy inputs", () => {
@@ -432,7 +441,7 @@ describe("RunStore", () => {
       deleteSpy.mockReturnValueOnce(blockedReq);
       const blockedPromise = RunStore.deleteDatabase({ dbName: "blocked" });
       blockedReq.onblocked();
-      await expect(blockedPromise).resolves.toBeUndefined();
+      await expect(blockedPromise).rejects.toThrow(/deleteDatabase blocked/);
     });
 
     it("rejects on delete errors", async () => {

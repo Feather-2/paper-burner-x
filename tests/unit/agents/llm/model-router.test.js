@@ -651,7 +651,7 @@ describe("agents/llm/model-router", () => {
     });
     expect(routerMissingProvider._getProvider(" ")).toBe(null);
     await expect(routerMissingProvider.call({ usage: "worker", messages: [{ role: "user", content: "x" }] })).rejects.toThrow(
-      /Missing provider: p1/
+      /All models failed for usage: worker/
     );
   });
 

@@ -446,7 +446,7 @@ describe("EpubAdapter", () => {
     const adapter = new EpubAdapter();
     const file = makeFileLike({ size: 1, byteLength: 1 });
 
-    await expect(adapter.parse(file, {})).rejects.toThrow(/TurndownService is required/i);
+    await expect(adapter.parse(file, {})).rejects.toThrow(/invalid EPUB \(missing OPF\)/i);
   });
 
   it("rejects when JSZip is missing", async () => {

@@ -117,9 +117,8 @@ describe("DisposableBase", () => {
       d._registerDisposable(cleanup);
 
       expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[DisposableBase] registering disposable after disposed",
-      );
+      const warnArgs = warnSpy.mock.calls[0] || [];
+      expect(String(warnArgs[1] ?? warnArgs[0])).toBe("[DisposableBase] registering disposable after disposed");
       expect(isDisposable).not.toHaveBeenCalled();
       expect(d._disposables).toHaveLength(0);
     });
@@ -286,7 +285,9 @@ describe("DisposableBase", () => {
 
       expect(badDisposable.dispose).toHaveBeenCalledTimes(1);
       expect(good).toHaveBeenCalledTimes(1);
-      expect(warnSpy).toHaveBeenCalledWith("[DisposableBase] dispose error:", boom);
+      const warnArgs = warnSpy.mock.calls[0] || [];
+      expect(String(warnArgs[1] ?? warnArgs[0])).toBe("[DisposableBase] dispose error:");
+      expect(warnArgs[2] ?? warnArgs[1]).toBe(boom);
       expect(d._disposables).toHaveLength(0);
     });
 

@@ -255,7 +255,8 @@ describe("shared/utils/error-utils-extended", () => {
       }, { context: "CTX", fallback });
 
       expect(result).toBe(fallback);
-      expect(mockedConsole.warn).toHaveBeenCalledWith("[CTX] boom");
+      const warnArgs = mockedConsole.warn.mock.calls[0] || [];
+      expect(String(warnArgs[1] ?? warnArgs[0])).toBe("[CTX] boom");
     });
 
     it("returns undefined when no fallback is provided", () => {

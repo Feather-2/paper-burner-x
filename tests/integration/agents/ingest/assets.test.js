@@ -267,7 +267,8 @@ it("PdfAdapter: falls back to globalThis.OcrManager (object and class) when stag
       }
     };
 
-    const parsed2 = await adapter.parse(makePdfFile({ name: "b.pdf" }), {});
+    const adapter2 = new PdfAdapter({ defaultChunkOptions: { chunkSize: 10, overlap: 0, includeLineNumbers: false } });
+    const parsed2 = await adapter2.parse(makePdfFile({ name: "b.pdf" }), {});
     expect(parsed2.metadata.engine).toBe("global_class");
     expect(parsed2.assets.length).toBe(0);
   } finally {

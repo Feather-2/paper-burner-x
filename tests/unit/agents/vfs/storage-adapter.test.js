@@ -264,7 +264,7 @@ describe("agents/vfs/storage-adapter", () => {
     vi.stubGlobal("indexedDB", fakeIndexedDB);
     vi.stubGlobal("localStorage", createLocalStorageMock());
 
-    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const a1 = await createStorageAdapter({ preferOpfs: true, silent: false });

@@ -154,9 +154,9 @@ describe('loadAgentConfig', () => {
 
     expect(result._loaded).toBe(false);
     expect(result._path).toBe('/project/.agent/agent.md');
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to load /project/.agent/agent.md')
-    );
+    expect(warnSpy).toHaveBeenCalled();
+    const firstCall = warnSpy.mock.calls[0] || [];
+    expect(String(firstCall[1] ?? firstCall[0])).toContain('Failed to load /project/.agent/agent.md');
     warnSpy.mockRestore();
   });
 

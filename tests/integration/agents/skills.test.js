@@ -235,10 +235,10 @@ describe("core/sandbox/skill-executor fallback", () => {
 	      { args: {}, state: {}, trusted: true }
 	    );
 
-    expect(result.success).toBe(true);
-    expect(result.data).toBe("undefined");
-    // Node 环境下优先使用 worker_threads，mode 为 'node-worker'
-    // 浏览器环境下使用 Web Worker 或 main-thread eval
-    expect(["eval", "node-worker", "worker"]).toContain(result.metrics.mode);
+    expect(result.success).toBe(false);
+    expect(String(result.error)).toContain("Blocked pattern");
+    expect(result.data).toBeNull();
+    expect(result.metrics?.blocked).toBe(true);
+    expect(result.metrics?.mode).toBe("eval");
   });
 });

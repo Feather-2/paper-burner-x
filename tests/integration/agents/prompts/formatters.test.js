@@ -18,9 +18,9 @@ describe("agents/prompts/formatters", () => {
       expect(escapeTemplateDelimiters(undefined)).toBe("");
     });
 
-    it("escapes {{ and }} with a zero-width break", () => {
+    it("escapes {{ and }} with backslashes", () => {
       const out = escapeTemplateDelimiters("a {{b}} c");
-      expect(out).toBe(`a {\\u200B{b}\\u200B} c`.replaceAll("\\u200B", "\u200B"));
+      expect(out).toBe("a \\{\\{b\\}\\} c");
     });
 
     it("leaves strings without delimiters unchanged", () => {

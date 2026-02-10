@@ -32,6 +32,7 @@ const protocolMocks = vi.hoisted(() => ({
 
 vi.mock("../../../../../js/agents/shared/index.js", () => ({
   createLogger: loggerMocks.createLogger,
+  protoSafeReviver: (_key, value) => value,
 }));
 
 vi.mock("../../../../../js/agents/runtime/core/vfs-proxy-protocol.js", () => protocolMocks);

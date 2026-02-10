@@ -7,6 +7,7 @@ const sseMocks = vi.hoisted(() => ({
 const sharedMocks = vi.hoisted(() => ({
   normalizeMaxBytes: vi.fn(),
   readJsonWithLimit: vi.fn(),
+  protoSafeReviver: vi.fn((_, value) => value),
 }));
 
 vi.mock("../../../../js/agents/mcp/sse.js", () => ({
@@ -16,6 +17,7 @@ vi.mock("../../../../js/agents/mcp/sse.js", () => ({
 vi.mock("../../../../js/agents/shared/index.js", () => ({
   normalizeMaxBytes: sharedMocks.normalizeMaxBytes,
   readJsonWithLimit: sharedMocks.readJsonWithLimit,
+  protoSafeReviver: sharedMocks.protoSafeReviver,
 }));
 
 import NexusSkillProviderDefault, { NexusSkillProvider } from "../../../../js/agents/mcp/nexus-skill-provider.js";
@@ -79,6 +81,7 @@ beforeEach(() => {
     return n > 0 ? n : fallback;
   });
   sharedMocks.readJsonWithLimit.mockResolvedValue({});
+  sharedMocks.protoSafeReviver.mockImplementation((_, value) => value);
   sseMocks.parseSseStream.mockImplementation(() => makeAsyncIterable([]));
 });
 
@@ -333,7 +336,7 @@ describe("NexusSkillProvider", () => {
   });
 
   it("streamExecution emits parsed messages and ignores invalid payloads", async () => {
-    const provider = new NexusSkillProvider({ authToken: "tok", timeout: 0 });
+    const provider = new NexusSkillProvider({ authToken: "tok", timeout: 100 });
     const events = [
       { data: JSON.stringify({ ok: true }) },
       { data: "   " },
@@ -341,7 +344,16 @@ describe("NexusSkillProvider", () => {
       { data: JSON.stringify({ ok: false, value: 0 }) },
     ];
 
-    sseMocks.parseSseStream.mockImplementation(() => makeAsyncIterable(events));
+    let yielded = 0;
+    sseMocks.parseSseStream.mockImplementation(
+      () =>
+        (async function* () {
+          for (const evt of events) {
+            yielded += 1;
+            yield evt;
+          }
+        })(),
+    );
     globalThis.fetch.mockResolvedValue(
       makeResponse({
         ok: true,
@@ -364,6 +376,8 @@ describe("NexusSkillProvider", () => {
     });
     expect(JSON.parse(init.body)).toEqual({ a: 1 });
 
+    expect(sseMocks.parseSseStream).toHaveBeenCalledTimes(1);
+    expect(yielded).toBe(4);
     expect(onMessage).toHaveBeenCalledTimes(2);
     expect(onMessage.mock.calls[0][0]).toEqual({ ok: true });
     expect(onMessage.mock.calls[1][0]).toEqual({ ok: false, value: 0 });

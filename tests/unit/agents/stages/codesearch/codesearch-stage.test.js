@@ -298,10 +298,14 @@ describe("CodeSearchStage", () => {
     const deepConfig = { maxQueueSize: 1, deep: { nested: { value: true } } };
 
     const stage = new CodeSearchStage();
+    vi.spyOn(stage, "_resolveDependency").mockImplementation(async (serviceId, _context, fallback) => {
+      if (serviceId === "eventBus") return eventBus;
+      return fallback;
+    });
     await stage.execute(
       { runId: "run_backpressure" },
       { query: "backpressure", userConfig: {} },
-      { watchdog, eventBus, eventBusBackpressure: deepConfig }
+      { watchdog, eventBusBackpressure: deepConfig }
     );
 
     expect(eventBus.enableBackpressure).toHaveBeenCalledWith(expect.objectContaining(deepConfig));
@@ -376,16 +380,27 @@ describe("CodeSearchStage", () => {
   });
 
   it("resolves dependencies from context, container, and fallback", async () => {
-    const container = {
-      get: vi.fn()
-        .mockResolvedValueOnce("fromContainer")
-        .mockRejectedValueOnce(new Error("missing")),
-    };
-    const stage = new CodeSearchStage({ container });
+    const stage = new CodeSearchStage();
+    const tryGet = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce("fromContainer")
+      .mockResolvedValueOnce(undefined);
 
-    const fromContext = await stage._resolveDependency("eventBus", { eventBus: "fromContext" }, "fallback");
-    const fromContainer = await stage._resolveDependency("eventBus", {}, "fallback");
-    const fromFallback = await stage._resolveDependency("missing", {}, "fallback");
+    const fromContext = await stage._resolveDependency(
+      "eventBus",
+      { eventBus: "fromContext", container: { tryGet } },
+      "fallback"
+    );
+    const fromContainer = await stage._resolveDependency(
+      "eventBus",
+      { container: { tryGet } },
+      "fallback"
+    );
+    const fromFallback = await stage._resolveDependency(
+      "missing",
+      { container: { tryGet } },
+      "fallback"
+    );
 
     expect(fromContext).toBe("fromContext");
     expect(fromContainer).toBe("fromContainer");

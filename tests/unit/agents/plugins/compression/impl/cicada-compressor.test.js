@@ -23,6 +23,7 @@ vi.mock('../../../../../../js/agents/shared/index.js', () => {
         return fallback ?? null;
       }
     }),
+    createSafeRegex: vi.fn((pattern, flags) => new RegExp(pattern, flags)),
     makeSecureTimestampedId: vi.fn(() => "archive_mock"),
     createLogger: vi.fn((stage) => {
       const logger = {

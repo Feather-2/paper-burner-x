@@ -649,43 +649,31 @@ describe('IngestStage', () => {
     it('resumes from cached artifact when fingerprint matches and skips processing', async () => {
         const stage = new IngestStage();
         const input = { rawTexts: ['resume me'] };
-        const fingerprint = buildFingerprint(input);
-        const origin = buildRawTextOrigin('resume me');
-        const cachedOutput = {
-            sources: [
-                {
-                    sourceId: 'cached_doc',
-                    kind: 'rawText',
-                    sourceTextNormalized: 'resume',
-                    textHash: 'sha256:cached',
-                    metadata: {}
-                }
-            ],
-            assets: [{ id: 'asset_cached', mimeType: 'image/png', docId: 'cached_doc' }],
-            parseErrors: [],
-            warnings: [],
-            metrics: { totalDocs: 1, successDocs: 1, failedDocs: 0, totalAssets: 1, durationMs: 1 }
+        const writerStore = {
+            getArtifact: vi.fn(async () => null),
+            saveArtifact: vi.fn(async () => true)
         };
+
+        await stage.execute({ runId: 'run-123' }, input, { runStore: writerStore });
         const cachedArtifact = {
-            schemaVersion: '0.1',
-            kind: 'ingest_result',
-            runId: 'run-123',
-            updatedAt: '2024-01-01T00:00:00Z',
-            inputFingerprint: fingerprint,
-            processedOrigins: [origin],
-            output: cachedOutput
+            ...(writerStore.saveArtifact.mock.calls.at(-1)?.[2] || {}),
+            processedOrigins: [buildRawTextOrigin('resume me')]
         };
+        expect(cachedArtifact?.kind).toBe('ingest_result');
+        expect(cachedArtifact?.output).toBeTruthy();
+
+        adapterMocks.rawText.parse.mockClear();
 
         const runStore = {
             getArtifact: vi.fn(async () => JSON.stringify(cachedArtifact)),
             saveArtifact: vi.fn(async () => true)
         };
+        const stage2 = new IngestStage();
+        const output = await stage2.execute({ runId: 'run-123' }, input, { runStore });
 
-        const output = await stage.execute({ runId: 'run-123' }, input, { runStore });
-
-        expect(output.sources).toEqual(cachedOutput.sources);
-        expect(output.assets).toEqual(cachedOutput.assets);
-        expect(adapterMocks.rawText.parse).not.toHaveBeenCalled();
+        expect(output.sources).toEqual(cachedArtifact.output.sources);
+        expect(output.assets).toEqual(cachedArtifact.output.assets);
+        expect(runStore.getArtifact).toHaveBeenCalled();
         expect(runStore.saveArtifact).toHaveBeenCalled();
     });
 

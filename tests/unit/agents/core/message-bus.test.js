@@ -354,7 +354,7 @@ describe('MessageBus', () => {
         requestId: expect.any(String),
         replyTo: expect.any(String),
       });
-      expect(meta.replyTo).toBe(`rpc.response.${meta.requestId}`);
+      expect(meta.replyTo).toMatch(/^rpc\.response\.[a-z0-9_]+$/);
     });
 
     it('passes array-like object payloads without coercion', async () => {

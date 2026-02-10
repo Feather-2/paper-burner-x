@@ -85,6 +85,7 @@ const hoisted = vi.hoisted(() => {
     "makeSafe",
     "makeSecureId",
     "makeSecureTimestampedId",
+    "mergeSignals",
     "mergeStageApis",
     "migrateCheckpoint",
     "normalizeEmbeddingConfig",
@@ -92,6 +93,7 @@ const hoisted = vi.hoisted(() => {
     "normalizeMaxBytes",
     "normalizeRenderType",
     "normalizeToolResult",
+    "protoSafeReviver",
     "readJsonWithLimit",
     "readTextWithLimit",
     "robustParseJson",
@@ -269,6 +271,7 @@ vi.mock("../../../../js/agents/shared/utils/deque.js", () => ({
 }));
 vi.mock("../../../../js/agents/shared/utils/safe-json.js", () => ({
   safeJsonParse: hoisted.safeJsonParse,
+  protoSafeReviver: hoisted.protoSafeReviver,
 }));
 vi.mock("../../../../js/agents/shared/utils/json-candidate.js", () => ({
   extractJsonCandidate: hoisted.extractJsonCandidate,
@@ -288,6 +291,7 @@ vi.mock("../../../../js/agents/shared/utils/cancellation.js", () => ({
   checkCancelled: hoisted.checkCancelled,
   withCancellation: hoisted.withCancellation,
   createLinkedSignal: hoisted.createLinkedSignal,
+  mergeSignals: hoisted.mergeSignals,
 }));
 vi.mock("../../../../js/agents/shared/utils/error-classifier.js", () => ({
   classifyDeepSearchError: hoisted.classifyDeepSearchError,

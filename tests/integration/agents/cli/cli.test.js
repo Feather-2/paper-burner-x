@@ -341,7 +341,7 @@ it("CliModelRouter: constructor without config or env warns", async () => {
 
   const warns = [];
   const originalWarn = console.warn;
-  console.warn = (msg) => warns.push(msg);
+  console.warn = (...args) => warns.push(args.map((v) => String(v)).join(" "));
 
   try {
     const router = new CliModelRouter();

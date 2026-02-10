@@ -143,6 +143,7 @@ vi.mock("../../../../js/agents/shared/index.js", () => ({
   isPlainObject: mockIsPlainObject,
   safeJsonParse: mockSafeJsonParse,
   isNodeLike: mockIsNodeLike,
+  protoSafeReviver: (_, value) => value,
 }));
 
 vi.mock("jszip", () => ({ default: FakeJSZip }));

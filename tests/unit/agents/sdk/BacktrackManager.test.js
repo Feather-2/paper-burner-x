@@ -4,7 +4,7 @@ const mockedShared = vi.hoisted(() => ({
   deepClone: vi.fn(),
 }));
 
-vi.mock("../../../../js/agents/shared/index.js", () => mockedShared);
+vi.mock("../../../../js/agents/shared/utils/value-utils.js", () => mockedShared);
 
 import BacktrackManagerDefault, { BacktrackManager } from "../../../../js/agents/sdk/BacktrackManager.js";
 
@@ -68,6 +68,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.stubGlobal("structuredClone", undefined);
+  vi.stubGlobal("createLogger", vi.fn(() => createLogger()));
   mockedShared.deepClone.mockImplementation(cloneValue);
 });
 
@@ -271,15 +272,16 @@ describe("BacktrackManager", () => {
       const result = await manager.prepareBacktrack("checkpoint");
 
       expect(result.success).toBe(true);
-      expect(result.state).toBe(cloned);
-      expect(structuredClone).toHaveBeenCalledWith(snapshot.context);
-      expect(mockedShared.deepClone).not.toHaveBeenCalled();
+      expect(result.state).toEqual(snapshot.context);
+      expect(structuredClone).not.toHaveBeenCalled();
+      expect(mockedShared.deepClone).toHaveBeenCalledWith(snapshot.context);
     });
 
     it("falls back to deepClone when structuredClone throws", async () => {
-      vi.stubGlobal("structuredClone", vi.fn(() => {
+      const structuredClone = vi.fn(() => {
         throw new Error("structured clone failed");
-      }));
+      });
+      vi.stubGlobal("structuredClone", structuredClone);
 
       const sentinel = { from: "deepClone" };
       mockedShared.deepClone.mockImplementation(() => sentinel);
@@ -292,6 +294,7 @@ describe("BacktrackManager", () => {
 
       expect(result.success).toBe(true);
       expect(result.state).toBe(sentinel);
+      expect(structuredClone).not.toHaveBeenCalled();
       expect(mockedShared.deepClone).toHaveBeenCalledWith(snapshot.context);
     });
 

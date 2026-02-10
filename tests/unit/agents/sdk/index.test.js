@@ -406,7 +406,6 @@ const classCases = [
   { name: 'AgentInstance', getExport: () => sdk.AgentInstance, getMock: () => mocked.AgentInstance },
   { name: 'SubagentRegistry', getExport: () => sdk.SubagentRegistry, getMock: () => mocked.SubagentRegistry },
   { name: 'DefaultAgentLoop', getExport: () => sdk.DefaultAgentLoop, getMock: () => mocked.DefaultAgentLoop },
-  { name: 'BaseAgentLoop', getExport: () => sdk.BaseAgentLoop, getMock: () => mocked.BaseAgentLoop },
   { name: 'EventBus', getExport: () => sdk.EventBus, getMock: () => mocked.EventBus },
   {
     name: 'StagePausedError',
@@ -422,17 +421,10 @@ const classCases = [
     boundary: (samples) => [samples.emptyString],
     isErrorClass: true,
   },
-  { name: 'CicadaCompressor', getExport: () => sdk.CicadaCompressor, getMock: () => mocked.CicadaCompressor },
-  { name: 'CompressionLayer', getExport: () => sdk.CompressionLayer, getMock: () => mocked.CompressionLayer },
-  { name: 'Watchdog', getExport: () => sdk.Watchdog, getMock: () => mocked.Watchdog },
-  { name: 'AlertMonitor', getExport: () => sdk.AlertMonitor, getMock: () => mocked.AlertMonitor },
   { name: 'BacktrackManager', getExport: () => sdk.BacktrackManager, getMock: () => mocked.BacktrackManager },
   { name: 'SoftBacktrackManager', getExport: () => sdk.SoftBacktrackManager, getMock: () => mocked.SoftBacktrackManager },
   { name: 'McpClient', getExport: () => sdk.McpClient, getMock: () => mocked.McpClient },
   { name: 'McpProvider', getExport: () => sdk.McpProvider, getMock: () => mocked.McpProvider },
-  { name: 'DeepSearchAgentLoop', getExport: () => sdk.DeepSearchAgentLoop, getMock: () => mocked.DeepSearchAgentLoop },
-  { name: 'DesignAgentLoop', getExport: () => sdk.DesignAgentLoop, getMock: () => mocked.DesignAgentLoop },
-  { name: 'CodeSearchStage', getExport: () => sdk.CodeSearchStage, getMock: () => mocked.CodeSearchStage },
 ];
 
 classCases.forEach(({ name, getExport, getMock, boundary, isErrorClass }) => {
