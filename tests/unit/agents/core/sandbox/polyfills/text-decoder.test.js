@@ -1,86 +1,143 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { installTextDecoderPolyfill } from '../../../../../../js/agents/core/sandbox/polyfills/text-decoder.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  ExtendedTextDecoder,
+  installPolyfill,
+} from '../../../../../../js/agents/core/sandbox/polyfills/text-decoder.js';
 
-describe('installTextDecoderPolyfill', () => {
-  let fakeTarget;
+const OriginalTextDecoder = globalThis.TextDecoder;
 
-  beforeEach(() => {
-    fakeTarget = { TextDecoder: globalThis.TextDecoder };
-    installTextDecoderPolyfill(fakeTarget);
+afterEach(() => {
+  globalThis.TextDecoder = OriginalTextDecoder;
+});
+
+describe('ExtendedTextDecoder', () => {
+  it('delegates utf-8 decoding to native TextDecoder', () => {
+    const decoder = new ExtendedTextDecoder('utf-8');
+    const bytes = new TextEncoder().encode('Hello, 世界');
+    expect(decoder.decode(bytes)).toBe('Hello, 世界');
   });
 
-  it('should decode hex encoding', () => {
-    const decoder = new fakeTarget.TextDecoder('hex');
-    const input = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-    expect(decoder.decode(input)).toBe('deadbeef');
+  it('supports utf16 aliases and decodes utf-16le bytes', () => {
+    const decoder = new ExtendedTextDecoder('utf16');
+    const bytes = new Uint8Array([72, 0, 105, 0]);
+    expect(decoder.encoding).toBe('utf-16le');
+    expect(decoder.decode(bytes)).toBe('Hi');
   });
 
-  it('should decode base64 encoding', () => {
-    const decoder = new fakeTarget.TextDecoder('base64');
-    const input = new TextEncoder().encode('Hello');
-    expect(decoder.decode(input)).toBe(btoa('Hello'));
+  it('delegates ascii decoding to native TextDecoder', () => {
+    const decoder = new ExtendedTextDecoder('ascii');
+    const bytes = new Uint8Array([80, 97, 112, 101, 114]);
+    expect(decoder.decode(bytes)).toBe('Paper');
   });
 
-  it('should decode base64url encoding', () => {
-    const decoder = new fakeTarget.TextDecoder('base64url');
-    // bytes that produce +, / and = in standard base64
-    const input = new Uint8Array([251, 239, 190]);
-    const result = decoder.decode(input);
-    expect(result).not.toMatch(/[+/=]/);
+  it('delegates latin1 decoding to native TextDecoder', () => {
+    const decoder = new ExtendedTextDecoder('latin1');
+    const bytes = new Uint8Array([0xe9, 0x20, 0x61]);
+    expect(decoder.decode(bytes)).toBe('é a');
   });
 
-  it('should decode binary/latin1 encoding', () => {
-    const decoder = new fakeTarget.TextDecoder('latin1');
-    const input = new Uint8Array([72, 101, 108, 108, 111]);
-    expect(decoder.decode(input)).toBe('Hello');
-
-    const decoder2 = new fakeTarget.TextDecoder('binary');
-    expect(decoder2.decode(input)).toBe('Hello');
+  it('encodes bytes as base64 string', () => {
+    const decoder = new ExtendedTextDecoder('base64');
+    const bytes = new TextEncoder().encode('hello');
+    expect(decoder.decode(bytes)).toBe('aGVsbG8=');
   });
 
-  it('should delegate utf-8 to native TextDecoder', () => {
-    const decoder = new fakeTarget.TextDecoder('utf-8');
-    const input = new TextEncoder().encode('Hello World');
-    expect(decoder.decode(input)).toBe('Hello World');
+  it('encodes bytes as base64url string', () => {
+    const decoder = new ExtendedTextDecoder('base64url');
+    const bytes = new Uint8Array([251, 239, 190]);
+    expect(decoder.decode(bytes)).toBe('----');
   });
 
-  it('should report correct encoding property', () => {
-    const hex = new fakeTarget.TextDecoder('hex');
-    expect(hex.encoding).toBe('hex');
-
-    const utf8 = new fakeTarget.TextDecoder('utf-8');
-    expect(utf8.encoding).toBe('utf-8');
+  it('encodes bytes as lowercase hex string', () => {
+    const decoder = new ExtendedTextDecoder('hex');
+    const bytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+    expect(decoder.decode(bytes)).toBe('deadbeef');
   });
 
-  it('should handle empty input', () => {
-    const decoder = new fakeTarget.TextDecoder('hex');
-    expect(decoder.decode(new Uint8Array([]))).toBe('');
+  it('accepts ArrayBuffer and DataView inputs', () => {
+    const source = new Uint8Array([0x01, 0x02, 0x03, 0x04]);
+    const decoder = new ExtendedTextDecoder('hex');
 
-    const b64 = new fakeTarget.TextDecoder('base64');
-    expect(b64.decode(new Uint8Array([]))).toBe('');
+    const fromBuffer = decoder.decode(source.buffer);
+    const fromDataView = decoder.decode(new DataView(source.buffer, 1, 2));
 
-    const latin = new fakeTarget.TextDecoder('latin1');
-    expect(latin.decode(new Uint8Array([]))).toBe('');
+    expect(fromBuffer).toBe('01020304');
+    expect(fromDataView).toBe('0203');
   });
 
-  it('should skip installation when native supports hex', () => {
-    const mockDecoder = class {
-      constructor() {}
-      decode() { return ''; }
-      get encoding() { return 'hex'; }
-    };
-    const target = { TextDecoder: mockDecoder };
-    installTextDecoderPolyfill(target);
-    expect(target.TextDecoder).toBe(mockDecoder);
+  it('returns empty string for empty inputs in extended encodings', () => {
+    expect(new ExtendedTextDecoder('base64').decode()).toBe('');
+    expect(new ExtendedTextDecoder('base64url').decode(new Uint8Array(0))).toBe('');
+    expect(new ExtendedTextDecoder('hex').decode(null)).toBe('');
   });
 
-  it('should skip installation when target has no TextDecoder', () => {
-    const target = {};
-    installTextDecoderPolyfill(target);
-    expect(target.TextDecoder).toBeUndefined();
+  it('exposes normalized encoding in encoding getter', () => {
+    expect(new ExtendedTextDecoder('UTF8').encoding).toBe('utf-8');
+    expect(new ExtendedTextDecoder('LATIN-1').encoding).toBe('windows-1252');
+    expect(new ExtendedTextDecoder('base64url').encoding).toBe('base64url');
   });
 
-  it('should set __polyfill flag on installed class', () => {
-    expect(fakeTarget.TextDecoder.__polyfill).toBe(true);
+  it('throws for unsupported encoding', () => {
+    expect(() => new ExtendedTextDecoder('unsupported-codec')).toThrow(RangeError);
+  });
+
+  it('throws when decode input is not ArrayBuffer or view', () => {
+    const decoder = new ExtendedTextDecoder('hex');
+    expect(() => decoder.decode(/** @type {unknown} */ ('abc'))).toThrow(TypeError);
+  });
+});
+
+describe('installPolyfill', () => {
+  it('installs ExtendedTextDecoder when current implementation lacks base64/hex support', () => {
+    class UtfOnlyDecoder {
+      constructor(encoding = 'utf-8') {
+        if (encoding === 'base64' || encoding === 'base64url' || encoding === 'hex') {
+          throw new RangeError('unsupported');
+        }
+        this.encoding = encoding;
+      }
+
+      decode() {
+        return '';
+      }
+    }
+
+    globalThis.TextDecoder = UtfOnlyDecoder;
+    const installed = installPolyfill();
+
+    expect(installed).toBe(true);
+    expect(globalThis.TextDecoder).toBe(ExtendedTextDecoder);
+  });
+
+  it('is idempotent when polyfill already installed', () => {
+    globalThis.TextDecoder = ExtendedTextDecoder;
+    expect(installPolyfill()).toBe(false);
+    expect(globalThis.TextDecoder).toBe(ExtendedTextDecoder);
+  });
+
+  it('does not replace decoder if it already supports extended encodings', () => {
+    class SupportsExtendedDecoder {
+      constructor(encoding = 'utf-8') {
+        this.encoding = encoding;
+      }
+
+      decode() {
+        return '';
+      }
+    }
+
+    globalThis.TextDecoder = SupportsExtendedDecoder;
+    const installed = installPolyfill();
+
+    expect(installed).toBe(false);
+    expect(globalThis.TextDecoder).toBe(SupportsExtendedDecoder);
+  });
+
+  it('installs polyfill when global TextDecoder is missing', () => {
+    globalThis.TextDecoder = undefined;
+    const installed = installPolyfill();
+
+    expect(installed).toBe(true);
+    expect(globalThis.TextDecoder).toBe(ExtendedTextDecoder);
   });
 });

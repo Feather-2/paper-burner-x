@@ -1,123 +1,265 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { HmrEngine } from '../../../../../js/agents/core/sandbox/hmr.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { HmrClient, createHmrClient } from '../../../../../js/agents/core/sandbox/hmr.js';
 
 function createMockVfs() {
   const listeners = new Map();
+
   return {
-    on(event, fn) {
-      if (!listeners.has(event)) listeners.set(event, []);
-      listeners.get(event).push(fn);
+    on(event, callback) {
+      if (!listeners.has(event)) {
+        listeners.set(event, new Set());
+      }
+      listeners.get(event).add(callback);
     },
-    off(event, fn) {
-      const arr = listeners.get(event);
-      if (arr) {
-        const i = arr.indexOf(fn);
-        if (i >= 0) arr.splice(i, 1);
+    off(event, callback) {
+      const callbacks = listeners.get(event);
+      if (!callbacks) return;
+      callbacks.delete(callback);
+      if (callbacks.size === 0) {
+        listeners.delete(event);
       }
     },
-    _emit(event, ...args) {
-      (listeners.get(event) || []).forEach((fn) => fn(...args));
+    emit(event, ...args) {
+      const callbacks = listeners.get(event);
+      if (!callbacks) return;
+      for (const callback of [...callbacks]) {
+        callback(...args);
+      }
+    },
+    listenerCount(event) {
+      return listeners.get(event)?.size || 0;
     },
   };
 }
 
-describe('HmrEngine', () => {
-  /** @type {ReturnType<typeof createMockVfs>} */
+describe('HmrClient', () => {
+  let moduleCache;
   let vfs;
-  /** @type {HmrEngine} */
-  let hmr;
 
   beforeEach(() => {
+    moduleCache = new Map();
     vfs = createMockVfs();
-    hmr = new HmrEngine({ vfs });
   });
 
-  it('CSS 文件变更触发 css-update', () => {
-    hmr.start();
-    const spy = vi.fn();
-    hmr.on('css-update', spy);
-    vfs._emit('change', '/app/style.css');
-    expect(spy).toHaveBeenCalledOnce();
-    expect(spy.mock.calls[0][0]).toMatchObject({ type: 'css-update', path: '/app/style.css' });
+  it('createHmrClient returns HmrClient instance', () => {
+    const client = createHmrClient({ moduleCache, vfs });
+    expect(client).toBeInstanceOf(HmrClient);
   });
 
-  it('JS 文件变更触发 update', () => {
-    hmr.start();
-    const spy = vi.fn();
-    hmr.on('hmr', spy);
-    hmr.accept('/app/main.js', () => {});
-    vfs._emit('change', '/app/main.js');
-    expect(spy).toHaveBeenCalled();
-    expect(spy.mock.calls[0][0]).toMatchObject({ type: 'update', path: '/app/main.js' });
-  });
+  it('createHotContext returns import.meta.hot compatible API', () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const hot = client.createHotContext('/entry.js');
 
-  it('HTML 文件变更触发 full-reload', () => {
-    hmr.start();
-    const spy = vi.fn();
-    hmr.on('hmr', spy);
-    vfs._emit('change', '/app/index.html');
-    expect(spy).toHaveBeenCalledOnce();
-    expect(spy.mock.calls[0][0]).toMatchObject({ type: 'full-reload', path: '/app/index.html' });
-  });
-
-  it('accept handler 被调用', () => {
-    hmr.start();
-    const acceptCb = vi.fn();
-    hmr.accept('/app/mod.js', acceptCb);
-    vfs._emit('change', '/app/mod.js');
-    expect(acceptCb).toHaveBeenCalledOnce();
-    expect(acceptCb.mock.calls[0][0]).toMatchObject({ type: 'update', path: '/app/mod.js' });
-  });
-
-  it('无 accept handler 时触发 full-reload', () => {
-    hmr.start();
-    const spy = vi.fn();
-    hmr.on('hmr', spy);
-    vfs._emit('change', '/app/mod.js');
-    // first call: update event, second call: full-reload fallback
-    expect(spy).toHaveBeenCalledTimes(2);
-    expect(spy.mock.calls[1][0]).toMatchObject({ type: 'full-reload', path: '/app/mod.js' });
-  });
-
-  it('stop 后不再触发事件', () => {
-    hmr.start();
-    const spy = vi.fn();
-    hmr.on('hmr', spy);
-    hmr.stop();
-    vfs._emit('change', '/app/main.js');
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('dispose callback 在 invalidate 时调用', () => {
-    hmr.start();
-    const disposeCb = vi.fn();
-    hmr.dispose('/app/mod.js', disposeCb);
-    hmr.accept('/app/mod.js', () => {});
-    vfs._emit('change', '/app/mod.js');
-    expect(disposeCb).toHaveBeenCalledOnce();
-  });
-
-  it('createHotContext 返回 accept/dispose/invalidate', () => {
-    const hot = hmr.createHotContext('/app/comp.js');
     expect(typeof hot.accept).toBe('function');
     expect(typeof hot.dispose).toBe('function');
     expect(typeof hot.invalidate).toBe('function');
+    expect(typeof hot.decline).toBe('function');
+    expect(hot.data).toEqual({});
+
+    hot.data.renderCount = 1;
+    const hotAgain = client.createHotContext('/entry.js');
+    expect(hotAgain.data.renderCount).toBe(1);
   });
 
-  it('invalidate 触发 full-reload', () => {
-    hmr.start();
-    const spy = vi.fn();
-    hmr.on('hmr', spy);
-    const hot = hmr.createHotContext('/app/comp.js');
-    hot.invalidate();
-    expect(spy).toHaveBeenCalledOnce();
-    expect(spy.mock.calls[0][0]).toMatchObject({ type: 'full-reload', path: '/app/comp.js' });
+  it('self-accept callback handles js update', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const acceptSpy = vi.fn();
+    client.createHotContext('/mod.js').accept(acceptSpy);
+
+    const updateSpy = vi.fn();
+    client.on('hmr:update', updateSpy);
+
+    const update = await client.handleFileChange('/mod.js', 'export const v = 1;');
+    expect(update.type).toBe('update');
+    expect(updateSpy).toHaveBeenCalledOnce();
+    expect(acceptSpy).toHaveBeenCalledOnce();
   });
 
-  it('_invalidateModule 清除缓存', () => {
-    const cache = new Map([[ '/app/mod.js', { exports: {} } ]]);
-    const engine = new HmrEngine({ vfs, moduleCache: cache });
-    engine._invalidateModule('/app/mod.js');
-    expect(cache.has('/app/mod.js')).toBe(false);
+  it('accept() without callback still marks module as self-accepted', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    client.createHotContext('/self.js').accept();
+
+    const update = await client.handleFileChange('/self.js', 'console.log(1);');
+    expect(update.type).toBe('update');
+  });
+
+  it('dependency accept callback runs when accepted dependency changes', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const depAcceptSpy = vi.fn();
+
+    client.createHotContext('/importer.js').accept('/dep.js', depAcceptSpy);
+    const update = await client.handleFileChange('/dep.js', 'export const dep = 2;');
+
+    expect(update.type).toBe('update');
+    expect(depAcceptSpy).toHaveBeenCalledOnce();
+    expect(depAcceptSpy.mock.calls[0][0][0].path).toBe('/dep.js');
+  });
+
+  it('dependency accept supports array form', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const depAcceptSpy = vi.fn();
+
+    client.createHotContext('/importer.js').accept(['/a.js', '/b.js'], depAcceptSpy);
+
+    const first = await client.handleFileChange('/a.js', 'export const a = 1;');
+    const second = await client.handleFileChange('/b.js', 'export const b = 2;');
+
+    expect(first.type).toBe('update');
+    expect(second.type).toBe('update');
+    expect(depAcceptSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('dispose callback executes before accept callback and receives hot data', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const callOrder = [];
+
+    const hot = client.createHotContext('/ordered.js');
+    hot.data.count = 0;
+    hot.dispose((data) => {
+      data.count += 1;
+      callOrder.push(`dispose:${data.count}`);
+    });
+    hot.accept(() => {
+      callOrder.push('accept');
+    });
+
+    await client.handleFileChange('/ordered.js', 'console.log("ordered");');
+
+    expect(callOrder).toEqual(['dispose:1', 'accept']);
+    expect(client.createHotContext('/ordered.js').data.count).toBe(1);
+  });
+
+  it('update clears normalized module cache entries', async () => {
+    moduleCache.set('/app/main.js?version=42', { exports: {} });
+    const client = new HmrClient({ moduleCache, vfs });
+    client.createHotContext('/app/main.js').accept(() => {});
+
+    await client.handleFileChange('/app/main.js', 'export default 1;');
+
+    expect(moduleCache.size).toBe(0);
+  });
+
+  it('css change emits css-update and does not trigger full reload', async () => {
+    const onFullReload = vi.fn();
+    const client = new HmrClient({ moduleCache, vfs, onFullReload });
+    const cssSpy = vi.fn();
+    const fullReloadSpy = vi.fn();
+
+    client.on('hmr:css-update', cssSpy);
+    client.on('hmr:full-reload', fullReloadSpy);
+
+    const update = await client.handleFileChange('/styles/site.css', 'body {}');
+
+    expect(update.type).toBe('css-update');
+    expect(cssSpy).toHaveBeenCalledOnce();
+    expect(fullReloadSpy).not.toHaveBeenCalled();
+    expect(onFullReload).not.toHaveBeenCalled();
+  });
+
+  it('js/mjs without accept falls back to full reload', async () => {
+    const onFullReload = vi.fn();
+    const client = new HmrClient({ moduleCache, vfs, onFullReload });
+    const fullReloadSpy = vi.fn();
+
+    client.on('hmr:full-reload', fullReloadSpy);
+
+    const jsUpdate = await client.handleFileChange('/plain.js', 'export default 1;');
+    const mjsUpdate = await client.handleFileChange('/plain.mjs', 'export default 2;');
+
+    expect(jsUpdate.type).toBe('full-reload');
+    expect(mjsUpdate.type).toBe('full-reload');
+    expect(fullReloadSpy).toHaveBeenCalledTimes(2);
+    expect(onFullReload).toHaveBeenCalledTimes(2);
+  });
+
+  it('declined module refuses updates and forces full reload', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const fullReloadSpy = vi.fn();
+
+    const hot = client.createHotContext('/declined.js');
+    hot.accept(() => {});
+    hot.decline();
+
+    client.on('hmr:full-reload', fullReloadSpy);
+
+    const update = await client.handleFileChange('/declined.js', 'export const v = 3;');
+
+    expect(update.type).toBe('full-reload');
+    expect(fullReloadSpy).toHaveBeenCalledOnce();
+  });
+
+  it('unknown extension triggers full reload', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const fullReloadSpy = vi.fn();
+    client.on('hmr:full-reload', fullReloadSpy);
+
+    const update = await client.handleFileChange('/assets/data.json', '{"ok":true}');
+
+    expect(update.type).toBe('full-reload');
+    expect(fullReloadSpy).toHaveBeenCalledOnce();
+  });
+
+  it('off removes event listener', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const updateSpy = vi.fn();
+
+    client.createHotContext('/off.js').accept(() => {});
+    client.on('hmr:update', updateSpy);
+    client.off('hmr:update', updateSpy);
+
+    await client.handleFileChange('/off.js', 'export const off = true;');
+
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it('accept callback errors emit hmr:error', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const errorSpy = vi.fn();
+
+    client.createHotContext('/error.js').accept(() => {
+      throw new Error('accept failed');
+    });
+    client.on('hmr:error', errorSpy);
+
+    await client.handleFileChange('/error.js', 'export const err = 1;');
+
+    expect(errorSpy).toHaveBeenCalledOnce();
+    expect(errorSpy.mock.calls[0][0].phase).toBe('accept');
+  });
+
+  it('applyUpdate reports unsupported update types as hmr:error', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const errorSpy = vi.fn();
+    client.on('hmr:error', errorSpy);
+
+    await client.applyUpdate({
+      type: 'bad-update-type',
+      path: '/bad.js',
+      timestamp: Date.now(),
+    });
+
+    expect(errorSpy).toHaveBeenCalledOnce();
+    expect(String(errorSpy.mock.calls[0][0].error.message)).toContain('Unsupported update type');
+  });
+
+  it('auto-listens to vfs change events and dispose detaches listener', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const updateSpy = vi.fn();
+
+    client.createHotContext('/vfs.js').accept(() => {});
+    client.on('hmr:update', updateSpy);
+
+    expect(vfs.listenerCount('change')).toBe(1);
+
+    vfs.emit('change', '/vfs.js', 'export const v = 1;');
+    await Promise.resolve();
+    expect(updateSpy).toHaveBeenCalledOnce();
+
+    client.dispose();
+    expect(vfs.listenerCount('change')).toBe(0);
+
+    vfs.emit('change', '/vfs.js', 'export const v = 2;');
+    await Promise.resolve();
+    expect(updateSpy).toHaveBeenCalledTimes(1);
   });
 });

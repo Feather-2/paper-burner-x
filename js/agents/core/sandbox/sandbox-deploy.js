@@ -1,139 +1,217 @@
 /**
- * @typedef {object} DeployConfig
- * @property {string} [title='Sandbox App']
- * @property {string} [sandboxUrl] - 沙箱页面 URL（用于 iframe postMessage 目标）
- * @property {boolean} [enableSW=true] - 是否启用 Service Worker
- * @property {string} [swScope='/__virtual__/']
+ * @typedef {object} SandboxDeployOptions
+ * @property {string} [parentOrigin]
+ * @property {string} [title='Sandbox']
+ * @property {string[]} [scripts]
  */
 
 /**
- * @typedef {object} DeployFiles
- * @property {string} 'index.html'
- * @property {string} 'vercel.json'
- * @property {string} '__sw__.js'
+ * @typedef {object} SandboxDeployFiles
+ * @property {string} indexHtml
+ * @property {string} vercelJson
+ * @property {string} swScript
  */
 
 /**
- * 生成部署文件。
- * @param {DeployConfig} [config]
- * @returns {DeployFiles}
+ * @param {unknown} value
+ * @returns {string}
  */
-export function generateSandboxFiles(config = {}) {
-  const { title = 'Sandbox App', sandboxUrl, enableSW = true, swScope = '/__virtual__/' } = config;
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-  const indexHtml = `<!DOCTYPE html>
+/**
+ * @param {string} [origin]
+ * @returns {string}
+ */
+function normalizeOrigin(origin) {
+  if (typeof origin !== 'string') return '';
+  const trimmed = origin.trim();
+  if (!trimmed) return '';
+
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Build CSP header for sandbox iframe page.
+ *
+ * @param {string} [parentOrigin]
+ * @returns {string}
+ */
+export function generateCspHeader(parentOrigin) {
+  const normalizedOrigin = normalizeOrigin(parentOrigin);
+  const frameAncestors = normalizedOrigin
+    ? `'self' ${normalizedOrigin}`
+    : `'self'`;
+
+  return [
+    `default-src 'none'`,
+    `script-src 'self' 'unsafe-inline'`,
+    `style-src 'self' 'unsafe-inline'`,
+    `img-src 'self' data: blob:`,
+    `font-src 'self' data:`,
+    `connect-src 'self' https: http:`,
+    `worker-src 'self' blob:`,
+    `frame-ancestors ${frameAncestors}`,
+    `base-uri 'none'`,
+    `form-action 'none'`,
+    `object-src 'none'`,
+  ].join('; ');
+}
+
+/**
+ * Generate service worker source code.
+ *
+ * @returns {string}
+ */
+export function generateSwScript() {
+  return `const CACHE_NAME = 'paper-burner-sandbox-v1';
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) {
+    return;
+  }
+
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const cached = await cache.match(event.request);
+    if (cached) {
+      return cached;
+    }
+
+    const response = await fetch(event.request);
+    if (response && response.ok && response.type !== 'opaque') {
+      void cache.put(event.request, response.clone());
+    }
+
+    return response;
+  })());
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'sw:skip-waiting') {
+    self.skipWaiting();
+  }
+});
+`;
+}
+
+/**
+ * Generate static files used by the browser sandbox deployment.
+ *
+ * @param {SandboxDeployOptions} [options]
+ * @returns {SandboxDeployFiles}
+ */
+export function generateSandboxFiles(options = {}) {
+  const {
+    parentOrigin,
+    title = 'Sandbox',
+    scripts = [],
+  } = options;
+
+  const normalizedOrigin = normalizeOrigin(parentOrigin);
+  const cspHeader = generateCspHeader(normalizedOrigin);
+  const safeTitle = escapeHtml(title);
+  const safeScripts = Array.isArray(scripts)
+    ? scripts.filter((item) => typeof item === 'string' && item.trim())
+    : [];
+
+  const scriptTags = safeScripts
+    .map((src) => `  <script type="module" src="${escapeHtml(src.trim())}"></script>`)
+    .join('\n');
+
+  const indexHtml = `<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(title)}</title>
-  <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
-  <meta http-equiv="Cross-Origin-Embedder-Policy" content="credentialless">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="${escapeHtml(cspHeader)}">
+  <title>${safeTitle}</title>
 </head>
 <body>
   <div id="app"></div>
+${scriptTags}
   <script type="module">
-    ${enableSW ? `
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/__sw__.js', { scope: '${swScope}' })
-        .then(reg => console.log('SW registered:', reg.scope))
-        .catch(err => console.error('SW registration failed:', err));
-    }` : '// Service Worker disabled'}
+    const ALLOWED_PARENT_ORIGIN = ${JSON.stringify(normalizedOrigin)};
 
-    // Communication with parent frame
     window.addEventListener('message', (event) => {
-      ${sandboxUrl ? `if (event.origin !== new URL('${sandboxUrl}').origin) return;` : ''}
-      const { type, payload } = event.data || {};
-      if (type === 'execute') {
-        try {
-          const result = (0, eval)(payload.code);
-          event.source.postMessage({ type: 'result', payload: { value: result } }, event.origin);
-        } catch (err) {
-          event.source.postMessage({ type: 'error', payload: { message: err.message } }, event.origin);
-        }
+      if (ALLOWED_PARENT_ORIGIN && event.origin !== ALLOWED_PARENT_ORIGIN) {
+        return;
+      }
+
+      const payload = event.data || {};
+
+      if (payload.type === 'sandbox:ping') {
+        event.source?.postMessage(
+          {
+            type: 'sandbox:pong',
+            payload: { timestamp: Date.now() },
+          },
+          ALLOWED_PARENT_ORIGIN || event.origin || '*'
+        );
+      }
+
+      if (payload.type === 'sandbox:reload') {
+        window.location.reload();
       }
     });
+
+    window.parent?.postMessage(
+      {
+        type: 'sandbox:ready',
+        payload: { href: window.location.href },
+      },
+      ALLOWED_PARENT_ORIGIN || '*'
+    );
   </script>
 </body>
-</html>`;
+</html>
+`;
 
+  const allowCredentials = normalizedOrigin ? 'true' : 'false';
   const vercelJson = JSON.stringify({
     headers: [
       {
         source: '/(.*)',
         headers: [
+          { key: 'Access-Control-Allow-Origin', value: normalizedOrigin || '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type,Authorization' },
+          { key: 'Access-Control-Allow-Credentials', value: allowCredentials },
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
-          { key: 'Cross-Origin-Embedder-Policy', value: 'credentialless' },
+          { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
           { key: 'Cross-Origin-Resource-Policy', value: 'cross-origin' },
+          { key: 'Content-Security-Policy', value: cspHeader },
         ],
       },
     ],
   }, null, 2);
 
-  const swJs = `// Service Worker for virtual HTTP bridge
-const SCOPE = '${swScope}';
-
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
-
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-  if (!url.pathname.startsWith(SCOPE)) return;
-
-  const match = url.pathname.match(/\\/__virtual__\\/(\\d+)(\\/.*)?\\//);
-  if (!match) return;
-
-  event.respondWith(
-    new Promise((resolve) => {
-      const mc = new MessageChannel();
-      mc.port1.onmessage = (e) => {
-        const { status, headers, body } = e.data;
-        resolve(new Response(body, { status, headers }));
-      };
-      self.clients.matchAll().then(clients => {
-        if (!clients.length) { resolve(new Response('No client', { status: 503 })); return; }
-        clients[0].postMessage({
-          type: 'virtual-request',
-          port: parseInt(match[1]),
-          method: event.request.method,
-          url: match[2] || '/',
-          headers: Object.fromEntries(event.request.headers.entries()),
-        }, [mc.port2]);
-      });
-      setTimeout(() => resolve(new Response('Timeout', { status: 504 })), 60000);
-    })
-  );
-});
-
-self.addEventListener('message', (event) => {
-  if (event.data?.type === 'keepalive') { /* prevent idle */ }
-});
-`;
-
   return {
-    'index.html': indexHtml,
-    'vercel.json': vercelJson,
-    '__sw__.js': swJs,
+    indexHtml,
+    vercelJson,
+    swScript: generateSwScript(),
   };
 }
-
-/**
- * 将部署文件写入 VFS。
- * @param {object} vfs
- * @param {DeployConfig} [config]
- * @param {string} [outputDir='deploy']
- */
-export async function writeSandboxFiles(vfs, config, outputDir = 'deploy') {
-  const files = generateSandboxFiles(config);
-  await vfs.mkdir(outputDir, { recursive: true });
-  for (const [name, content] of Object.entries(files)) {
-    await vfs.writeText(`${outputDir}/${name}`, content);
-  }
-  return files;
-}
-
-function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-export default { generateSandboxFiles, writeSandboxFiles };
