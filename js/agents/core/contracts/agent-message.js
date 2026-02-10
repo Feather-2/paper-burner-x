@@ -61,6 +61,14 @@ const TASK_TYPE_PATTERN = /^[a-z][a-zA-Z0-9]*:[a-z][a-zA-Z0-9]*$/;
  */
 
 /**
+ * @typedef {object} AgentTraceInfo
+ * @property {string} traceId - W3C Trace ID
+ * @property {string} [spanId] - W3C Span ID
+ * @property {string} [parentSpanId] - Parent Span ID
+ * @property {string} [traceparent] - W3C traceparent header
+ */
+
+/**
  * @typedef {Object} TaskRequest
  * @property {'task-request'} kind
  * @property {string} agentId - 发送方 Agent ID
@@ -70,6 +78,7 @@ const TASK_TYPE_PATTERN = /^[a-z][a-zA-Z0-9]*:[a-z][a-zA-Z0-9]*$/;
  * @property {string} [correlationId] - 关联 ID（用于追踪）
  * @property {number} [priority] - 优先级 (0=最高, 默认 5)
  * @property {number} [timeoutMs] - 超时毫秒
+ * @property {AgentTraceInfo} [trace] - Distributed trace context
  * @property {number} ts - 时间戳
  */
 
@@ -82,6 +91,7 @@ const TASK_TYPE_PATTERN = /^[a-z][a-zA-Z0-9]*:[a-z][a-zA-Z0-9]*$/;
  * @property {unknown} [data] - 返回数据
  * @property {string} [error] - 错误信息
  * @property {number} [durationMs] - 执行耗时
+ * @property {AgentTraceInfo} [trace] - Distributed trace context
  * @property {number} ts - 时间戳
  */
 
@@ -93,6 +103,7 @@ const TASK_TYPE_PATTERN = /^[a-z][a-zA-Z0-9]*:[a-z][a-zA-Z0-9]*$/;
  * @property {string} [currentTask] - 当前任务描述
  * @property {number} [progress] - 进度百分比 (0-100)
  * @property {Record<string, unknown>} [meta] - 附加元数据
+ * @property {AgentTraceInfo} [trace] - Distributed trace context
  * @property {number} ts - 时间戳
  */
 
@@ -105,6 +116,7 @@ const TASK_TYPE_PATTERN = /^[a-z][a-zA-Z0-9]*:[a-z][a-zA-Z0-9]*$/;
  * @property {unknown} content - 知识内容
  * @property {string} [contentType] - 内容类型 (text/json/reference)
  * @property {string} [correlationId] - 关联 ID
+ * @property {AgentTraceInfo} [trace] - Distributed trace context
  * @property {number} ts - 时间戳
  */
 
@@ -141,6 +153,30 @@ function num(v, def) {
   return typeof v === 'number' && Number.isFinite(v) ? v : def;
 }
 
+/**
+ * @param {unknown} v
+ * @param {string} ctx
+ * @returns {{ trace?: AgentTraceInfo, error?: string }}
+ */
+function normalizeTrace(v, ctx) {
+  if (v === undefined) return {};
+
+  const t = obj(v);
+  if (!t) return { error: `${ctx}.trace: expected object` };
+
+  const traceId = str(t.traceId);
+  if (!traceId) return { error: `${ctx}.trace.traceId: required non-empty string` };
+
+  return {
+    trace: {
+      traceId,
+      ...(str(t.spanId) ? { spanId: str(t.spanId) } : {}),
+      ...(str(t.parentSpanId) ? { parentSpanId: str(t.parentSpanId) } : {}),
+      ...(str(t.traceparent) ? { traceparent: str(t.traceparent) } : {}),
+    },
+  };
+}
+
 // ─── 验证函数 ───────────────────────────────────────────
 
 /**
@@ -171,6 +207,8 @@ export function validateTaskRequest(msg) {
     return { ok: false, error: 'TaskRequest.timeoutMs: must be positive' };
   }
 
+  const traceInfo = normalizeTrace(o.trace, 'TaskRequest');
+
   return {
     ok: true,
     value: {
@@ -182,8 +220,10 @@ export function validateTaskRequest(msg) {
       ...(str(o.correlationId) ? { correlationId: str(o.correlationId) } : {}),
       priority,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      ...(traceInfo.trace ? { trace: traceInfo.trace } : {}),
       ts: num(o.ts, Date.now()),
     },
+    ...(traceInfo.error ? { error: traceInfo.error } : {}),
   };
 }
 
@@ -207,6 +247,8 @@ export function validateTaskResult(msg) {
     return { ok: false, error: `TaskResult.status: must be one of ${TaskStatus.join(', ')}` };
   }
 
+  const traceInfo = normalizeTrace(o.trace, 'TaskResult');
+
   return {
     ok: true,
     value: {
@@ -217,8 +259,10 @@ export function validateTaskResult(msg) {
       ...(o.data !== undefined ? { data: o.data } : {}),
       ...(typeof o.error === 'string' ? { error: o.error } : {}),
       ...(typeof o.durationMs === 'number' ? { durationMs: o.durationMs } : {}),
+      ...(traceInfo.trace ? { trace: traceInfo.trace } : {}),
       ts: num(o.ts, Date.now()),
     },
+    ...(traceInfo.error ? { error: traceInfo.error } : {}),
   };
 }
 
@@ -244,6 +288,8 @@ export function validateStatusUpdate(msg) {
     return { ok: false, error: 'StatusUpdate.progress: must be 0-100' };
   }
 
+  const traceInfo = normalizeTrace(o.trace, 'StatusUpdate');
+
   return {
     ok: true,
     value: {
@@ -253,8 +299,10 @@ export function validateStatusUpdate(msg) {
       ...(str(o.currentTask) ? { currentTask: str(o.currentTask) } : {}),
       ...(progress !== undefined ? { progress } : {}),
       ...(obj(o.meta) ? { meta: obj(o.meta) } : {}),
+      ...(traceInfo.trace ? { trace: traceInfo.trace } : {}),
       ts: num(o.ts, Date.now()),
     },
+    ...(traceInfo.error ? { error: traceInfo.error } : {}),
   };
 }
 
@@ -282,6 +330,8 @@ export function validateKnowledgeShare(msg) {
     return { ok: false, error: 'KnowledgeShare.contentType: must be text/json/reference' };
   }
 
+  const traceInfo = normalizeTrace(o.trace, 'KnowledgeShare');
+
   return {
     ok: true,
     value: {
@@ -292,8 +342,10 @@ export function validateKnowledgeShare(msg) {
       content: o.content,
       ...(contentType ? { contentType } : {}),
       ...(str(o.correlationId) ? { correlationId: str(o.correlationId) } : {}),
+      ...(traceInfo.trace ? { trace: traceInfo.trace } : {}),
       ts: num(o.ts, Date.now()),
     },
+    ...(traceInfo.error ? { error: traceInfo.error } : {}),
   };
 }
 
@@ -306,19 +358,28 @@ export function validateAgentMessage(msg) {
   const o = obj(msg);
   if (!o) return { ok: false, error: 'AgentMessage: expected object' };
 
+  const traceInfo = normalizeTrace(o.trace, 'AgentMessage');
+
   const kind = str(o.kind);
   if (!kind || !AgentMessageKind.includes(/** @type {any} */ (kind))) {
     return { ok: false, error: `AgentMessage.kind: must be one of ${AgentMessageKind.join(', ')}` };
   }
 
-  switch (kind) {
-    case 'task-request': return validateTaskRequest(o);
-    case 'task-result': return validateTaskResult(o);
-    case 'status-update': return validateStatusUpdate(o);
-    case 'knowledge-share': return validateKnowledgeShare(o);
-    default:
-      return { ok: false, error: `AgentMessage.kind: unknown kind "${kind}"` };
+  const result = (() => {
+    switch (kind) {
+      case 'task-request': return validateTaskRequest(o);
+      case 'task-result': return validateTaskResult(o);
+      case 'status-update': return validateStatusUpdate(o);
+      case 'knowledge-share': return validateKnowledgeShare(o);
+      default:
+        return { ok: false, error: `AgentMessage.kind: unknown kind "${kind}"` };
+    }
+  })();
+
+  if (result.ok && traceInfo.error && !result.error) {
+    return { ...result, error: traceInfo.error };
   }
+  return result;
 }
 
 // ─── 工厂函数（便捷创建） ─────────────────────────────────
@@ -332,15 +393,24 @@ export function validateAgentMessage(msg) {
  * @returns {TaskRequest}
  */
 export function createTaskRequest(agentId, taskType, payload, opts = {}) {
+  const {
+    targetAgentId,
+    correlationId,
+    priority,
+    timeoutMs,
+    trace,
+  } = opts;
+
   return {
     kind: 'task-request',
     agentId,
-    ...(opts.targetAgentId ? { targetAgentId: opts.targetAgentId } : {}),
+    ...(targetAgentId ? { targetAgentId } : {}),
     taskType,
     payload,
-    ...(opts.correlationId ? { correlationId: opts.correlationId } : {}),
-    priority: opts.priority ?? 5,
-    ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+    ...(correlationId ? { correlationId } : {}),
+    priority: priority ?? 5,
+    ...(timeoutMs ? { timeoutMs } : {}),
+    ...(trace ? { trace } : {}),
     ts: Date.now(),
   };
 }
@@ -350,18 +420,26 @@ export function createTaskRequest(agentId, taskType, payload, opts = {}) {
  * @param {string} agentId
  * @param {string} correlationId
  * @param {typeof TaskStatus[number]} status
- * @param {Partial<Pick<TaskResult, 'data' | 'error' | 'durationMs'>>} [opts]
+ * @param {Partial<Pick<TaskResult, 'data' | 'error' | 'durationMs' | 'trace'>>} [opts]
  * @returns {TaskResult}
  */
 export function createTaskResult(agentId, correlationId, status, opts = {}) {
+  const {
+    data,
+    error,
+    durationMs,
+    trace,
+  } = opts;
+
   return {
     kind: 'task-result',
     agentId,
     correlationId,
     status,
-    ...(opts.data !== undefined ? { data: opts.data } : {}),
-    ...(opts.error ? { error: opts.error } : {}),
-    ...(opts.durationMs !== undefined ? { durationMs: opts.durationMs } : {}),
+    ...(data !== undefined ? { data } : {}),
+    ...(error ? { error } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(trace ? { trace } : {}),
     ts: Date.now(),
   };
 }
@@ -370,17 +448,25 @@ export function createTaskResult(agentId, correlationId, status, opts = {}) {
  * 创建 StatusUpdate
  * @param {string} agentId
  * @param {typeof AgentRunStatus[number]} status
- * @param {Partial<Pick<StatusUpdate, 'currentTask' | 'progress' | 'meta'>>} [opts]
+ * @param {Partial<Pick<StatusUpdate, 'currentTask' | 'progress' | 'meta' | 'trace'>>} [opts]
  * @returns {StatusUpdate}
  */
 export function createStatusUpdate(agentId, status, opts = {}) {
+  const {
+    currentTask,
+    progress,
+    meta,
+    trace,
+  } = opts;
+
   return {
     kind: 'status-update',
     agentId,
     status,
-    ...(opts.currentTask ? { currentTask: opts.currentTask } : {}),
-    ...(opts.progress !== undefined ? { progress: opts.progress } : {}),
-    ...(opts.meta ? { meta: opts.meta } : {}),
+    ...(currentTask ? { currentTask } : {}),
+    ...(progress !== undefined ? { progress } : {}),
+    ...(meta ? { meta } : {}),
+    ...(trace ? { trace } : {}),
     ts: Date.now(),
   };
 }
@@ -390,18 +476,26 @@ export function createStatusUpdate(agentId, status, opts = {}) {
  * @param {string} agentId
  * @param {string} topic
  * @param {unknown} content
- * @param {Partial<Pick<KnowledgeShare, 'targetAgentId' | 'contentType' | 'correlationId'>>} [opts]
+ * @param {Partial<Pick<KnowledgeShare, 'targetAgentId' | 'contentType' | 'correlationId' | 'trace'>>} [opts]
  * @returns {KnowledgeShare}
  */
 export function createKnowledgeShare(agentId, topic, content, opts = {}) {
+  const {
+    targetAgentId,
+    contentType,
+    correlationId,
+    trace,
+  } = opts;
+
   return {
     kind: 'knowledge-share',
     agentId,
-    ...(opts.targetAgentId ? { targetAgentId: opts.targetAgentId } : {}),
+    ...(targetAgentId ? { targetAgentId } : {}),
     topic,
     content,
-    ...(opts.contentType ? { contentType: opts.contentType } : {}),
-    ...(opts.correlationId ? { correlationId: opts.correlationId } : {}),
+    ...(contentType ? { contentType } : {}),
+    ...(correlationId ? { correlationId } : {}),
+    ...(trace ? { trace } : {}),
     ts: Date.now(),
   };
 }
