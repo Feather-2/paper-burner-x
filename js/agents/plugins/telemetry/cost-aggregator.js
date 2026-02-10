@@ -1,0 +1,223 @@
+/**
+ * CostAggregator - 跨 Agent Token 使用汇总
+ *
+ * 聚合多个 Agent/Stage 的 token 消耗，提供：
+ * - recordUsage(agentId, usage): 记录单次 LLM 调用
+ * - getAgentCost(agentId): 获取单 Agent 累计
+ * - getTotalCost(): 获取全局累计
+ * - getBreakdown(): 按 Agent 分组的详细报告
+ * - EventBus 集成：监听 llm:complete 自动记录
+ *
+ * 设计原则：
+ * - 纯内存，通过 getSnapshot/restore 支持持久化
+ * - 与 TokenTracker 互补（Tracker 记录明细，Aggregator 汇总）
+ * - 与 BudgetManager 互补（Budget 控制限额，Aggregator 只读报告）
+ */
+
+/** @param {unknown} v @returns {number} */
+function safeInt(v) {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+}
+
+/** @param {unknown} v @returns {string | null} */
+function str(v) {
+  return typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
+}
+
+export class CostAggregator {
+  /**
+   * @param {{ eventBus?: { on?: Function, emit?: Function } }} [options]
+   */
+  constructor(options = {}) {
+    /** @type {Map<string, object>} */
+    this._agents = new Map();
+    this._eventBus = options?.eventBus ?? null;
+    this._unsubscribe = null;
+    this.disposed = false;
+
+    if (this._eventBus && typeof this._eventBus.on === 'function') {
+      this._unsubscribe = this._eventBus.on('llm.complete', (evt) => {
+        try {
+          const p = evt?.payload ?? evt;
+          const agentId = str(p?.agentId) || str(p?.actor) || 'unknown';
+          this.recordUsage(agentId, p);
+        } catch { /* best-effort */ }
+      });
+    }
+  }
+
+  /**
+   * Record a single LLM call's token usage for an agent.
+   * @param {string} agentId
+   * @param {object} usage
+   * @returns {{ ok: true } | { ok: false, error: string }}
+   */
+  recordUsage(agentId, usage) {
+    if (this.disposed) return { ok: false, error: 'Aggregator disposed' };
+    const id = str(agentId);
+    if (!id) return { ok: false, error: 'agentId required' };
+
+    const prompt = safeInt(usage?.promptTokens);
+    const completion = safeInt(usage?.completionTokens);
+    const total = safeInt(usage?.totalTokens) || (prompt + completion);
+    const latency = safeInt(usage?.latencyMs);
+    const model = str(usage?.model) || 'unknown';
+
+    let entry = this._agents.get(id);
+    if (!entry) {
+      entry = {
+        agentId: id,
+        calls: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        totalLatencyMs: 0,
+        byModel: new Map(),
+      };
+      this._agents.set(id, entry);
+    }
+
+    entry.calls++;
+    entry.promptTokens += prompt;
+    entry.completionTokens += completion;
+    entry.totalTokens += total;
+    entry.totalLatencyMs += latency;
+
+    let modelEntry = entry.byModel.get(model);
+    if (!modelEntry) {
+      modelEntry = { calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+      entry.byModel.set(model, modelEntry);
+    }
+    modelEntry.calls++;
+    modelEntry.promptTokens += prompt;
+    modelEntry.completionTokens += completion;
+    modelEntry.totalTokens += total;
+
+    return { ok: true };
+  }
+
+  /**
+   * Get cost summary for a single agent.
+   * @param {string} agentId
+   * @returns {object | null}
+   */
+  getAgentCost(agentId) {
+    const entry = this._agents.get(agentId);
+    if (!entry) return null;
+    return {
+      calls: entry.calls,
+      promptTokens: entry.promptTokens,
+      completionTokens: entry.completionTokens,
+      totalTokens: entry.totalTokens,
+      totalLatencyMs: entry.totalLatencyMs,
+    };
+  }
+
+  /**
+   * Get total cost across all agents.
+   * @returns {object}
+   */
+  getTotalCost() {
+    let calls = 0, prompt = 0, completion = 0, total = 0, latency = 0;
+    for (const entry of this._agents.values()) {
+      calls += entry.calls;
+      prompt += entry.promptTokens;
+      completion += entry.completionTokens;
+      total += entry.totalTokens;
+      latency += entry.totalLatencyMs;
+    }
+    return {
+      agents: this._agents.size,
+      calls,
+      promptTokens: prompt,
+      completionTokens: completion,
+      totalTokens: total,
+      totalLatencyMs: latency,
+    };
+  }
+
+  /**
+   * Get detailed breakdown by agent.
+   * @returns {Array<object>}
+   */
+  getBreakdown() {
+    const result = [];
+    for (const entry of this._agents.values()) {
+      const models = [];
+      for (const [model, m] of entry.byModel) {
+        models.push({ model, calls: m.calls, totalTokens: m.totalTokens });
+      }
+      result.push({
+        agentId: entry.agentId,
+        calls: entry.calls,
+        promptTokens: entry.promptTokens,
+        completionTokens: entry.completionTokens,
+        totalTokens: entry.totalTokens,
+        totalLatencyMs: entry.totalLatencyMs,
+        models,
+      });
+    }
+    return result.sort((a, b) => b.totalTokens - a.totalTokens);
+  }
+
+  /**
+   * Get serializable snapshot.
+   * @returns {object}
+   */
+  getSnapshot() {
+    const agents = [];
+    for (const entry of this._agents.values()) {
+      agents.push({
+        agentId: entry.agentId,
+        calls: entry.calls,
+        promptTokens: entry.promptTokens,
+        completionTokens: entry.completionTokens,
+        totalTokens: entry.totalTokens,
+        totalLatencyMs: entry.totalLatencyMs,
+        byModel: Array.from(entry.byModel.entries()),
+      });
+    }
+    return { agents, ts: Date.now() };
+  }
+
+  /**
+   * Restore from snapshot.
+   * @param {object} snapshot
+   * @returns {{ ok: true, count: number } | { ok: false, error: string }}
+   */
+  restore(snapshot) {
+    if (this.disposed) return { ok: false, error: 'Aggregator disposed' };
+    if (!snapshot || !Array.isArray(snapshot.agents)) return { ok: false, error: 'Invalid snapshot' };
+
+    this._agents.clear();
+    let count = 0;
+    for (const a of snapshot.agents) {
+      if (!a || !str(a.agentId)) continue;
+      const entry = {
+        agentId: a.agentId,
+        calls: safeInt(a.calls),
+        promptTokens: safeInt(a.promptTokens),
+        completionTokens: safeInt(a.completionTokens),
+        totalTokens: safeInt(a.totalTokens),
+        totalLatencyMs: safeInt(a.totalLatencyMs),
+        byModel: new Map(Array.isArray(a.byModel) ? a.byModel : []),
+      };
+      this._agents.set(entry.agentId, entry);
+      count++;
+    }
+    return { ok: true, count };
+  }
+
+  /** @returns {number} */
+  get agentCount() { return this._agents.size; }
+
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (typeof this._unsubscribe === 'function') {
+      try { this._unsubscribe(); } catch { /* ignore */ }
+    }
+    this._agents.clear();
+    this._eventBus = null;
+  }
+}
