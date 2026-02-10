@@ -37,7 +37,7 @@ const DEFAULT_ABORT_MESSAGE = 'Request aborted';
  * @property {string} [channel] - 消息频道 (topic-based routing)
  * @property {number} ts - 时间戳（毫秒）
  * @property {unknown} [metadata] - 扩展元数据
- * @typedef {{ to?: string, channel?: string, metadata?: unknown }} EmitOptions
+ * @typedef {{ to?: string, channel?: string, metadata?: unknown, trace?: { traceId: string, spanId?: string, parentSpanId?: string, traceparent?: string } }} EmitOptions
  */
 
 /**
@@ -240,6 +240,7 @@ export class MessageBus {
         ...(channel ? { channel } : {}),
         ...(options?.metadata !== undefined ? { metadata: options.metadata } : {}),
       },
+      ...(options?.trace ? { trace: options.trace } : {}),
     });
 
     if (channel) {
@@ -250,6 +251,7 @@ export class MessageBus {
           channel,
           ...(options?.metadata !== undefined ? { metadata: options.metadata } : {}),
         },
+        ...(options?.trace ? { trace: options.trace } : {}),
       });
     }
 
@@ -280,6 +282,7 @@ export class MessageBus {
 
       const replyTo = meta.replyTo;
       const requestId = meta.requestId;
+      const reqTrace = evt.trace;
 
       Promise.resolve()
         .then(() => handler(evt.payload, evt))
@@ -288,6 +291,7 @@ export class MessageBus {
             this.eventBus.emit(replyTo, {
               payload: { ok: true, data },
               meta: { kind: RPC_KIND_RESPONSE, requestId },
+              ...(reqTrace ? { trace: reqTrace } : {}),
             });
           },
           (err) => {
@@ -295,6 +299,7 @@ export class MessageBus {
             this.eventBus.emit(replyTo, {
               payload: { ok: false, error: message },
               meta: { kind: RPC_KIND_RESPONSE, requestId },
+              ...(reqTrace ? { trace: reqTrace } : {}),
             });
           }
         );
@@ -329,7 +334,7 @@ export class MessageBus {
    * @template T
    * @param {string} type
    * @param {unknown} payload
-   * @param {{ timeoutMs?: number, signal?: AbortSignal, idempotencyKey?: string }} [options]
+   * @param {{ timeoutMs?: number, signal?: AbortSignal, idempotencyKey?: string, trace?: { traceId: string, spanId?: string, parentSpanId?: string, traceparent?: string } }} [options]
    * @returns {Promise<T>}
    */
   request(type, payload, options = {}) {
@@ -445,6 +450,7 @@ export class MessageBus {
       this.eventBus.emit(name, {
         payload,
         meta: { kind: RPC_KIND_REQUEST, requestId, replyTo },
+        ...(options?.trace ? { trace: options.trace } : {}),
       });
     });
 
