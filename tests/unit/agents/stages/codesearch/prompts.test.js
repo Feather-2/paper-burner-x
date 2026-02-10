@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const warn = vi.fn();
-  const createLogger = vi.fn(() => ({ warn }));
+  const createLogger = vi.fn(() => ({
+    log: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn,
+    error: vi.fn(),
+  }));
   const loadPrompt = vi.fn();
   return { warn, createLogger, loadPrompt };
 });

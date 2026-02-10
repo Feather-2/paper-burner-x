@@ -5,7 +5,13 @@ const { warnSpy } = vi.hoisted(() => ({
 }));
 
 const sharedMocks = vi.hoisted(() => ({
-  createLogger: vi.fn(() => ({ warn: warnSpy })),
+  createLogger: vi.fn(() => ({
+    log: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: warnSpy,
+    error: vi.fn(),
+  })),
   toNonEmptyString: vi.fn(),
 }));
 

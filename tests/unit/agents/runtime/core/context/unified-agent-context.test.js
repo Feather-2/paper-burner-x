@@ -9,7 +9,13 @@ const { warnSpy, toNonEmptyStringMock, deepCloneMock } = vi.hoisted(() => ({
 vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   toNonEmptyString: (value) => toNonEmptyStringMock(value),
   deepClone: (value) => deepCloneMock(value),
-  createLogger: vi.fn(() => ({ warn: warnSpy })),
+  createLogger: vi.fn(() => ({
+    log: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: warnSpy,
+    error: vi.fn(),
+  })),
 }));
 
 import UnifiedAgentContextDefault, {

@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockedLogger = vi.hoisted(() => ({ warn: vi.fn() }));
+const mockedLogger = vi.hoisted(() => ({
+  log: vi.fn(),
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
 
 const mockedSubagentRegistry = vi.hoisted(() => {
   const instances = [];
@@ -16,7 +22,13 @@ const mockedSubagentRegistry = vi.hoisted(() => {
 });
 
 vi.mock("../../../../js/agents/shared/index.js", () => ({
-  createLogger: vi.fn(() => ({ warn: mockedLogger.warn })),
+  createLogger: vi.fn(() => ({
+    log: mockedLogger.log,
+    debug: mockedLogger.debug,
+    info: mockedLogger.info,
+    warn: mockedLogger.warn,
+    error: mockedLogger.error,
+  })),
 }));
 
 vi.mock("../../../../js/agents/sdk/SubagentRegistry.js", () => ({

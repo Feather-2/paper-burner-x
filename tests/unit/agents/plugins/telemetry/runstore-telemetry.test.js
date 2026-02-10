@@ -1,14 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockState = vi.hoisted(() => ({
+  logMock: vi.fn(),
+  debugMock: vi.fn(),
+  infoMock: vi.fn(),
   warnMock: vi.fn(),
+  errorMock: vi.fn(),
 }));
 
 vi.mock("../../../../../js/agents/shared/index.js", async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    createLogger: vi.fn(() => ({ warn: mockState.warnMock })),
+    createLogger: vi.fn(() => ({
+      log: mockState.logMock,
+      debug: mockState.debugMock,
+      info: mockState.infoMock,
+      warn: mockState.warnMock,
+      error: mockState.errorMock,
+    })),
   };
 });
 

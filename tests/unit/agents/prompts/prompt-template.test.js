@@ -18,7 +18,13 @@ const { loggerWarn, escapeTemplateDelimitersMock, defaultFormatters } = vi.hoist
 });
 
 vi.mock("../../../../js/agents/shared/index.js", () => ({
-  createLogger: vi.fn(() => ({ warn: loggerWarn })),
+  createLogger: vi.fn(() => ({
+    log: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: loggerWarn,
+    error: vi.fn(),
+  })),
 }));
 
 vi.mock("../../../../js/agents/prompts/formatters/index.js", () => ({

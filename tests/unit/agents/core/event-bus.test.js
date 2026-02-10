@@ -4,7 +4,13 @@ const mocks = vi.hoisted(() => {
   const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
   const loggerWarn = vi.fn();
-  const createLogger = vi.fn(() => ({ warn: loggerWarn }));
+  const createLogger = vi.fn(() => ({
+    log: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: loggerWarn,
+    error: vi.fn((...args) => console.error(...args)),
+  }));
 
   const isValidEventName = vi.fn((name) => {
     if (typeof name !== 'string') return false;

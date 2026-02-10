@@ -4,7 +4,13 @@ vi.mock("../../../../../js/agents/shared/index.js", async () => {
   const actual = await vi.importActual("../../../../../js/agents/shared/index.js");
   return {
     ...actual,
-    createLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn() })),
+    createLogger: vi.fn(() => ({
+      log: vi.fn(),
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    })),
     cryptoRandomHex: vi.fn((bytes) => "a".repeat(bytes * 2)),
   };
 });

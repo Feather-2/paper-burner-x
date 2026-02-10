@@ -1,10 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const loggerMocks = vi.hoisted(() => {
+  const log = vi.fn();
+  const debug = vi.fn();
+  const info = vi.fn();
   const warn = vi.fn();
+  const error = vi.fn();
   return {
+    log,
+    debug,
+    info,
     warn,
-    createLogger: vi.fn(() => ({ warn })),
+    error,
+    createLogger: vi.fn(() => ({ log, debug, info, warn, error })),
   };
 });
 

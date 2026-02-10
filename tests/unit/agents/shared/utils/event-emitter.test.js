@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../../../../js/agents/shared/utils/logger.js", () => {
   const __loggerError = vi.fn();
-  const createLogger = vi.fn(() => ({ error: __loggerError }));
+  const createLogger = vi.fn(() => ({
+    log: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: __loggerError,
+  }));
   return { createLogger, __loggerError };
 });
 

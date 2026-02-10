@@ -1,9 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const loggerMocks = vi.hoisted(() => ({ warn: vi.fn() }));
+const loggerMocks = vi.hoisted(() => ({
+  log: vi.fn(),
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
 
 vi.mock('../../../../../../js/agents/shared/index.js', () => ({
-  createLogger: vi.fn(() => ({ warn: loggerMocks.warn })),
+  createLogger: vi.fn(() => ({
+    log: loggerMocks.log,
+    debug: loggerMocks.debug,
+    info: loggerMocks.info,
+    warn: loggerMocks.warn,
+    error: loggerMocks.error,
+  })),
 }));
 
 vi.mock('../../../../../../js/agents/core/sandbox/system/detect.js', () => ({
