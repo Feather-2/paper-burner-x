@@ -5,13 +5,24 @@
  * 不再依赖物理时钟的启发式排序。
  */
 
-import { cryptoRandomHex } from "../shared/index.js";
+import { cryptoRandomHex } from "../shared/utils/secure-id.js";
 
 /** @typedef {import("./types.d.ts").LamportClockState} LamportClockState */
 /** @typedef {{ _clock?: LamportClockState | null, seq?: number | null, ts?: number | null }} LogicalOrderEvent */
 
-/** @type {LamportClockService} */
-let _defaultService = new LamportClockService();
+/** @type {LamportClockService | null} */
+let _defaultService = null;
+
+/**
+ * Lazily create and return the default LamportClockService instance.
+ * @returns {LamportClockService}
+ */
+function getDefaultService() {
+  if (!_defaultService) {
+    _defaultService = new LamportClockService();
+  }
+  return _defaultService;
+}
 
 /**
  * Get the default (global) LamportClockService instance.
@@ -20,7 +31,7 @@ let _defaultService = new LamportClockService();
  * @returns {LamportClockService}
  */
 export function getDefaultClockService() {
-  return _defaultService;
+  return getDefaultService();
 }
 
 /**
@@ -106,7 +117,7 @@ export class LamportClockService {
  * @returns {LamportClockState}
  */
 export function nextTick() {
-  return _defaultService.nextTick();
+  return getDefaultService().nextTick();
 }
 
 /**
@@ -116,7 +127,7 @@ export function nextTick() {
  * @returns {void}
  */
 export function sync(remoteSeq) {
-  _defaultService.sync(remoteSeq);
+  getDefaultService().sync(remoteSeq);
 }
 
 /**
@@ -124,7 +135,7 @@ export function sync(remoteSeq) {
  * @returns {number}
  */
 export function currentSeq() {
-  return _defaultService.currentSeq();
+  return getDefaultService().currentSeq();
 }
 
 /**
@@ -132,7 +143,7 @@ export function currentSeq() {
  * @returns {void}
  */
 export function resetClock() {
-  _defaultService.resetClock();
+  _defaultService = null;
 }
 
 /**

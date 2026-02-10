@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../../js/agents/shared/index.js', () => ({
+vi.mock('../../../../js/agents/shared/utils/secure-id.js', () => ({
   cryptoRandomHex: vi.fn(() => 'deadbeef'),
 }));
 
@@ -12,7 +12,7 @@ import {
   resetClock,
   sync,
 } from '../../../../js/agents/core/lamport-clock.js';
-import { cryptoRandomHex } from '../../../../js/agents/shared/index.js';
+import { cryptoRandomHex } from '../../../../js/agents/shared/utils/secure-id.js';
 
 const cryptoRandomHexMock = vi.mocked(cryptoRandomHex);
 
