@@ -129,7 +129,7 @@ describe("ProcessTransport", () => {
     state.browserExports = { ProcessTransport: BrowserProcessTransport };
 
     const mod = await importUnderTest();
-    expect(mod.ProcessTransport).toBe(NodeProcessTransport);
+    await expect(mod.getProcessTransport()).resolves.toBe(NodeProcessTransport);
   });
 
   it("selects browser implementation when Platform.isNode is false", async () => {
@@ -141,7 +141,7 @@ describe("ProcessTransport", () => {
     state.browserExports = { ProcessTransport: BrowserProcessTransport };
 
     const mod = await importUnderTest();
-    expect(mod.ProcessTransport).toBe(BrowserProcessTransport);
+    await expect(mod.getProcessTransport()).resolves.toBe(BrowserProcessTransport);
   });
 
   it("handles isNode boundary types (truthy string vs 0) deterministically", async () => {
@@ -153,13 +153,13 @@ describe("ProcessTransport", () => {
     state.browserExports = { ProcessTransport: BrowserProcessTransport };
 
     const modTruthyString = await importUnderTest();
-    expect(modTruthyString.ProcessTransport).toBe(NodeProcessTransport);
+    await expect(modTruthyString.getProcessTransport()).resolves.toBe(NodeProcessTransport);
 
     vi.resetModules();
 
     state.platformIsNode = 0;
     const modZero = await importUnderTest();
-    expect(modZero.ProcessTransport).toBe(BrowserProcessTransport);
+    await expect(modZero.getProcessTransport()).resolves.toBe(BrowserProcessTransport);
   });
 
   it("is undefined if selected implementation omits it", async () => {
@@ -168,12 +168,12 @@ describe("ProcessTransport", () => {
     state.browserExports = { ProcessTransport: class BrowserProcessTransport {} };
 
     const mod = await importUnderTest();
-    expect(mod.ProcessTransport).toBeUndefined();
+    await expect(mod.getProcessTransport()).resolves.toBeUndefined();
   });
 });
 
 describe("createProcessTransport", () => {
-  it("re-exports the selected implementation function reference (node)", async () => {
+  it("delegates createProcessTransport to selected node implementation", async () => {
     const createProcessTransport = vi.fn(async () => ({ ok: true }));
 
     state.platformIsNode = true;
@@ -181,7 +181,9 @@ describe("createProcessTransport", () => {
     state.browserExports = { createProcessTransport: vi.fn() };
 
     const mod = await importUnderTest();
-    expect(mod.createProcessTransport).toBe(createProcessTransport);
+    expect(mod.createProcessTransport).not.toBe(createProcessTransport);
+    await expect(mod.createProcessTransport({ cmd: "tool", args: [], timeoutMs: 0 })).resolves.toEqual({ ok: true });
+    expect(createProcessTransport).toHaveBeenCalledTimes(1);
   });
 
   it("passes through normal path, boundaries, and propagates errors (node)", async () => {
@@ -316,6 +318,7 @@ describe("createProcessTransport", () => {
     state.browserExports = { createProcessTransport: vi.fn() };
 
     const mod = await importUnderTest();
+    await mod.getImpl();
 
     const simultaneous = await Promise.all(
       Array.from({ length: 25 }, (_, i) =>
@@ -346,8 +349,9 @@ describe("createProcessTransport", () => {
     state.browserExports = { createProcessTransport: browserFn };
 
     const mod = await importUnderTest();
-    expect(mod.createProcessTransport).toBe(browserFn);
+    expect(mod.createProcessTransport).not.toBe(browserFn);
     await expect(mod.createProcessTransport()).resolves.toBe("browser");
+    expect(browserFn).toHaveBeenCalledTimes(1);
     expect(nodeFn).not.toHaveBeenCalled();
   });
 });
@@ -367,14 +371,15 @@ describe("BinarySkillProvider", () => {
     state.browserExports = { BinarySkillProvider: BrowserBinarySkillProvider };
 
     const mod = await importUnderTest();
-    expect(mod.BinarySkillProvider).toBe(NodeBinarySkillProvider);
+    const BinarySkillProvider = await mod.getBinarySkillProvider();
+    expect(BinarySkillProvider).toBe(NodeBinarySkillProvider);
 
-    const instance = new mod.BinarySkillProvider({ name: "ok" });
+    const instance = new BinarySkillProvider({ name: "ok" });
     expect(instance).toBeInstanceOf(NodeBinarySkillProvider);
     expect(instance.config).toEqual({ name: "ok" });
 
-    expect(() => new mod.BinarySkillProvider(null)).toThrow(TypeError);
-    expect(() => new mod.BinarySkillProvider(undefined)).toThrow(TypeError);
+    expect(() => new BinarySkillProvider(null)).toThrow(TypeError);
+    expect(() => new BinarySkillProvider(undefined)).toThrow(TypeError);
   });
 
   it("selects browser implementation class when Platform.isNode is false", async () => {
@@ -390,9 +395,10 @@ describe("BinarySkillProvider", () => {
     state.browserExports = { BinarySkillProvider: BrowserBinarySkillProvider };
 
     const mod = await importUnderTest();
-    expect(mod.BinarySkillProvider).toBe(BrowserBinarySkillProvider);
+    const BinarySkillProvider = await mod.getBinarySkillProvider();
+    expect(BinarySkillProvider).toBe(BrowserBinarySkillProvider);
 
-    const instance = new mod.BinarySkillProvider("hi");
+    const instance = new BinarySkillProvider("hi");
     expect(instance).toBeInstanceOf(BrowserBinarySkillProvider);
     expect(instance.x).toBe("hi");
   });
@@ -403,12 +409,12 @@ describe("BinarySkillProvider", () => {
     state.browserExports = {};
 
     const mod = await importUnderTest();
-    expect(mod.BinarySkillProvider).toBeUndefined();
+    await expect(mod.getBinarySkillProvider()).resolves.toBeUndefined();
   });
 });
 
 describe("createBinarySkillProvider", () => {
-  it("re-exports the selected implementation function reference (browser)", async () => {
+  it("delegates createBinarySkillProvider to selected browser implementation", async () => {
     const createBinarySkillProvider = vi.fn(async () => ({ ok: true }));
 
     state.platformIsNode = false;
@@ -416,7 +422,11 @@ describe("createBinarySkillProvider", () => {
     state.browserExports = { createBinarySkillProvider };
 
     const mod = await importUnderTest();
-    expect(mod.createBinarySkillProvider).toBe(createBinarySkillProvider);
+    expect(mod.createBinarySkillProvider).not.toBe(createBinarySkillProvider);
+    await expect(
+      mod.createBinarySkillProvider({ binaryPath: "tool", args: [], maxConcurrency: 1 }),
+    ).resolves.toEqual({ ok: true });
+    expect(createBinarySkillProvider).toHaveBeenCalledTimes(1);
   });
 
   it("covers normal path, boundary values, type edges, resource edges, and error propagation", async () => {
@@ -570,6 +580,7 @@ describe("createBinarySkillProvider", () => {
     state.browserExports = { createBinarySkillProvider };
 
     const mod = await importUnderTest();
+    await mod.getImpl();
 
     const ids = await Promise.all(
       Array.from({ length: 30 }, (_, i) =>
@@ -598,37 +609,14 @@ describe("createBinarySkillProvider", () => {
 });
 
 describe("default", () => {
-  it("default export exposes the same selected implementation namespace (node)", async () => {
-    class NodeProcessTransport {}
-    const createProcessTransport = vi.fn(async () => ({ kind: "pt" }));
-    class NodeBinarySkillProvider {}
-    const createBinarySkillProvider = vi.fn(async () => ({ kind: "bsp" }));
-
-    state.platformIsNode = true;
-    state.nodeExports = {
-      ProcessTransport: NodeProcessTransport,
-      createProcessTransport,
-      BinarySkillProvider: NodeBinarySkillProvider,
-      createBinarySkillProvider,
-      extra: "node-only",
-    };
-    state.browserExports = {
-      ProcessTransport: class BrowserProcessTransport {},
-      createProcessTransport: vi.fn(async () => ({ kind: "pt-browser" })),
-      BinarySkillProvider: class BrowserBinarySkillProvider {},
-      createBinarySkillProvider: vi.fn(async () => ({ kind: "bsp-browser" })),
-      extra: "browser-only",
-    };
-
+  it("default export re-exports async transport accessors", async () => {
     const mod = await importUnderTest();
 
-    expect(mod.default.ProcessTransport).toBe(mod.ProcessTransport);
+    expect(mod.default.getImpl).toBe(mod.getImpl);
+    expect(mod.default.getProcessTransport).toBe(mod.getProcessTransport);
     expect(mod.default.createProcessTransport).toBe(mod.createProcessTransport);
-    expect(mod.default.BinarySkillProvider).toBe(mod.BinarySkillProvider);
-    expect(mod.default.createBinarySkillProvider).toBe(
-      mod.createBinarySkillProvider,
-    );
-    expect(mod.default.extra).toBe("node-only");
+    expect(mod.default.getBinarySkillProvider).toBe(mod.getBinarySkillProvider);
+    expect(mod.default.createBinarySkillProvider).toBe(mod.createBinarySkillProvider);
   });
 
   it("default export selects browser impl for falsey isNode values (null/undefined/empty string)", async () => {
@@ -640,19 +628,19 @@ describe("default", () => {
 
     state.platformIsNode = null;
     const modNull = await importUnderTest();
-    expect(modNull.default.ProcessTransport).toBe(BrowserProcessTransport);
+    await expect(modNull.default.getProcessTransport()).resolves.toBe(BrowserProcessTransport);
 
     vi.resetModules();
 
     state.platformIsNode = undefined;
     const modUndef = await importUnderTest();
-    expect(modUndef.default.ProcessTransport).toBe(BrowserProcessTransport);
+    await expect(modUndef.default.getProcessTransport()).resolves.toBe(BrowserProcessTransport);
 
     vi.resetModules();
 
     state.platformIsNode = "";
     const modEmptyStr = await importUnderTest();
-    expect(modEmptyStr.default.ProcessTransport).toBe(BrowserProcessTransport);
+    await expect(modEmptyStr.default.getProcessTransport()).resolves.toBe(BrowserProcessTransport);
   });
 
   it("propagates errors when the selected implementation module fails to import", async () => {
@@ -660,7 +648,8 @@ describe("default", () => {
     state.nodeImportError = new Error("node import failed");
     state.browserExports = {};
 
-    await expect(importUnderTest()).rejects.toThrow("node import failed");
+    const mod = await importUnderTest();
+    await expect(mod.getImpl()).rejects.toThrow("node import failed");
   });
 
   it("propagates errors when browser implementation module fails to import", async () => {
@@ -668,7 +657,8 @@ describe("default", () => {
     state.browserImportError = new Error("browser import failed");
     state.nodeExports = {};
 
-    await expect(importUnderTest()).rejects.toThrow("browser import failed");
+    const mod = await importUnderTest();
+    await expect(mod.getImpl()).rejects.toThrow("browser import failed");
   });
 });
 

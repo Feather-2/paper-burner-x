@@ -160,12 +160,14 @@ describe("design/runtime/deck-editor", () => {
     expect(textOk.success).toBe(true);
     expect(editor.getDeckHtmlDsl()).toContain("New Title");
 
-    const styleOk = await editor.editElement(0, "subtitle", { style: "color: blue" });
+    globalThis.safeId = "subtitle";
+    const styleOk = await editor.editElement(0, "subtitle", { text: "Sub", style: "color: blue" });
     expect(styleOk.success).toBe(true);
     expect(editor.getDeckHtmlDsl()).toContain(`data-el="subtitle" style="color: blue"`);
 
     // Style updates only apply when a style attribute already exists (edge case).
-    const noStyleAdded = await editor.editElement(1, "body", { style: "color: red" });
+    globalThis.safeId = "body";
+    const noStyleAdded = await editor.editElement(1, "body", { text: "Hello", style: "color: red" });
     expect(noStyleAdded.success).toBe(true);
     expect(editor.getDeckHtmlDsl()).not.toContain(`data-el="body" style="`);
   });

@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   Platform: { isNode: false },
+  isNodeLike: vi.fn(),
   createBrowserVfs: vi.fn(),
   createNodeVfs: vi.fn(),
 }));
 
 vi.mock("../../../../js/agents/shared/index.js", () => ({
   Platform: mocks.Platform,
+  isNodeLike: mocks.isNodeLike,
 }));
 
 vi.mock("../../../../js/agents/vfs/index.browser.js", () => ({
@@ -36,6 +38,7 @@ function makeDeepNested(depth) {
 beforeEach(() => {
   vi.resetModules();
   mocks.Platform.isNode = false;
+  mocks.isNodeLike.mockImplementation(() => Boolean(mocks.Platform.isNode));
   mocks.createBrowserVfs.mockReset();
   mocks.createNodeVfs.mockReset();
 });

@@ -1059,40 +1059,14 @@ describe("runtime/compression/cicada-compressor.js", () => {
   });
 
   async function loadCicadaInternals() {
-    const [{ readFile }, { fileURLToPath }] = await Promise.all([
-      import("node:fs/promises"),
-      import("node:url"),
-    ]);
-    const cicadaUrl = new URL("../../../../../js/agents/plugins/compression/impl/cicada-compressor.js", import.meta.url);
-    const cicadaPath = fileURLToPath(cicadaUrl);
-    const source = await readFile(cicadaUrl, "utf8");
-    const importRe = /^import\s+\{\s*([^}]+)\}\s+from\s+["'][^"']+["'];/gm;
-    let prepared = source.replace(importRe, "const { $1 } = __deps;");
-    if (prepared === source) throw new Error("cicada test hook could not rewrite imports");
-    prepared = prepared.replace(/^export\s+default\s+.*$/gm, "");
-    prepared = prepared.replace(/^export\s+/gm, "");
-
-    const factory = new Function(
-      "__deps",
-      `${prepared}\nreturn { safeStringify, truncateText, containsCjk, toTitle, isMergeSafeMessage };` +
-        `\n//# sourceURL=${cicadaPath}`
-    );
-
-    return factory({
-      isPlainObject: () => false,
-      toNonEmptyString: (value) => (typeof value === "string" && value.trim() ? value : ""),
-      estimateTokensCached: () => 0,
-      robustParseJson: () => null,
-      CicadaEvents: {},
-      makeSecureTimestampedId: () => "archive_test",
-      createLogger: () => ({
-        log: () => {},
-        debug: () => {},
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-      }),
-    });
+    const helpers = await import("../../../../../js/agents/plugins/compression/impl/cicada-helpers.js");
+    return {
+      safeStringify: helpers.safeStringify,
+      truncateText: helpers.truncateText,
+      containsCjk: helpers.containsCjk,
+      toTitle: helpers.toTitle,
+      isMergeSafeMessage: helpers.isMergeSafeMessage,
+    };
   }
 
   it("truncateText handles maxChars <= 3 without ellipsis", async () => {

@@ -9,6 +9,10 @@ const sharedMocks = vi.hoisted(() => ({
   isNodeLike: vi.fn(),
 }));
 
+const helperState = vi.hoisted(() => ({
+  allowFallbackExecution: false,
+}));
+
 const poolState = vi.hoisted(() => ({
   instances: [],
   withSandboxImpl: null,
@@ -22,6 +26,17 @@ vi.mock('../../../../../js/agents/shared/index.js', () => ({
   createLogger: sharedMocks.createLogger,
   isNodeLike: sharedMocks.isNodeLike,
 }));
+
+vi.mock('../../../../../js/agents/core/sandbox/skill-executor-helpers.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    validateFallbackCode: (code) => {
+      if (helperState.allowFallbackExecution) return { valid: true };
+      return actual.validateFallbackCode(code);
+    },
+  };
+});
 
 vi.mock('../../../../../js/agents/core/sandbox/pool.js', () => {
   class MockSandboxPool {
@@ -100,6 +115,7 @@ beforeEach(() => {
   vi.resetModules();
   poolState.instances.length = 0;
   poolState.withSandboxImpl = null;
+  helperState.allowFallbackExecution = false;
   sharedMocks.isNodeLike.mockReturnValue(true);
   sharedMocks.createLogger.mockImplementation(() => createSilentLogger());
   workerThreadsState.behavior = 'success';
@@ -423,6 +439,7 @@ describe('SkillExecutor', () => {
   });
 
   it('reports runtime errors during main-thread fallback', async () => {
+    helperState.allowFallbackExecution = true;
     sharedMocks.isNodeLike.mockReturnValue(false);
     vi.stubGlobal('Worker', undefined);
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
@@ -441,6 +458,7 @@ describe('SkillExecutor', () => {
 
   it('respects timeout limits during fallback execution', async () => {
     vi.useFakeTimers();
+    helperState.allowFallbackExecution = true;
     sharedMocks.isNodeLike.mockReturnValue(false);
     vi.stubGlobal('Worker', undefined);
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
@@ -464,6 +482,7 @@ describe('SkillExecutor', () => {
   });
 
   it('captures blocked globals in fallback audit metrics', async () => {
+    helperState.allowFallbackExecution = true;
     sharedMocks.isNodeLike.mockReturnValue(false);
     vi.stubGlobal('Worker', undefined);
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
@@ -471,17 +490,18 @@ describe('SkillExecutor', () => {
     executor.wasmSupported = false;
 
     const res = await executor.execute(
-      { metadata: { name: 'audit', scope: 'system' }, body: 'return typeof fetch;' },
+      { metadata: { name: 'audit', scope: 'system' }, body: 'return typeof Function;' },
       {}
     );
 
     expect(res.success).toBe(true);
     expect(res.data).toBe('undefined');
     expect(res.metrics?.mode).toBe('eval');
-    expect(res.metrics?.blockedGlobals).toContain('fetch');
+    expect(res.metrics?.blockedGlobals).toContain('Function');
   });
 
   it('handles large code, long strings, and deep nested state in fallback', async () => {
+    helperState.allowFallbackExecution = true;
     sharedMocks.isNodeLike.mockReturnValue(false);
     vi.stubGlobal('Worker', undefined);
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
@@ -506,6 +526,7 @@ describe('SkillExecutor', () => {
   });
 
   it('falls back to eval and disposes owned pool on sandbox failure', async () => {
+    helperState.allowFallbackExecution = true;
     sharedMocks.isNodeLike.mockReturnValue(false);
     vi.stubGlobal('Worker', undefined);
     poolState.withSandboxImpl = async () => {
@@ -554,6 +575,7 @@ describe('SkillExecutor', () => {
   });
 
   it('executes multiple skills concurrently and preserves order', async () => {
+    helperState.allowFallbackExecution = true;
     sharedMocks.isNodeLike.mockReturnValue(false);
     vi.stubGlobal('Worker', undefined);
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
@@ -571,6 +593,7 @@ describe('SkillExecutor', () => {
   });
 
   it('supports rapid consecutive execute calls without sharing logs', async () => {
+    helperState.allowFallbackExecution = true;
     sharedMocks.isNodeLike.mockReturnValue(false);
     vi.stubGlobal('Worker', undefined);
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);

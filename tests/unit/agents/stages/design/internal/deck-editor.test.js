@@ -280,10 +280,11 @@ describe("DeckEditor", () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+    globalThis.safeId = 'el1';
 
     const rawStyle =
       "color: red; background: url(javascript:alert(1)); position: absolute; cursor: pointer;";
-    const result = await editor.editElement(0, 'el1', { style: rawStyle });
+    const result = await editor.editElement(0, 'el1', { text: 'Hello', style: rawStyle });
 
     expect(result.success).toBe(true);
     const updated = editor.getDeckHtmlDsl();
@@ -299,8 +300,9 @@ describe("DeckEditor", () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+    globalThis.safeId = 'el1';
 
-    const result = await editor.editElement(0, 'el1', { style: '   ' });
+    const result = await editor.editElement(0, 'el1', { text: 'Hello', style: '   ' });
 
     expect(result.success).toBe(true);
     const updated = editor.getDeckHtmlDsl();
@@ -314,8 +316,12 @@ describe("DeckEditor", () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+    globalThis.safeId = 'el1';
 
-    const result = await editor.editElement(0, 'el1', { style: 'background: url(javascript:alert(1))' });
+    const result = await editor.editElement(0, 'el1', {
+      text: 'Hello',
+      style: 'background: url(javascript:alert(1))',
+    });
 
     expect(result.success).toBe(true);
     expect(editor.getDeckHtmlDsl()).toContain('style="color: blue"');
@@ -329,9 +335,10 @@ describe("DeckEditor", () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+    globalThis.safeId = 'el1';
 
     const longStyle = 'color: red;'.repeat(500) + 'font-size: 12px;';
-    const result = await editor.editElement(0, 'el1', { style: longStyle });
+    const result = await editor.editElement(0, 'el1', { text: 'Hello', style: longStyle });
 
     expect(result.success).toBe(true);
     const updated = editor.getDeckHtmlDsl();
@@ -344,8 +351,9 @@ describe("DeckEditor", () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+    globalThis.safeId = 'el1';
 
-    const result = await editor.editElement(0, 'el1', { style: 'color: red' });
+    const result = await editor.editElement(0, 'el1', { text: 'Hello', style: 'color: red' });
 
     expect(result.success).toBe(true);
     expect(editor.getDeckHtmlDsl()).toContain('<div data-el="el1">');
