@@ -22,6 +22,7 @@ export { LWWMap } from './lww-map.js';
 export { ORSet } from './or-set.js';
 export { CRDTDocument } from './document.js';
 export { CRDTSyncManager, createMemoryTransport } from './sync-manager.js';
+export { WebSocketCrdtTransport, createWebSocketTransport } from './websocket-transport.js';
 
 // 操作类型
 export const OpType = {
