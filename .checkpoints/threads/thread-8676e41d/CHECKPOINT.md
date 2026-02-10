@@ -1,119 +1,131 @@
-# Checkpoint: js/agents 架构审计 + SDK 分层
+# Checkpoint: js/agents 架构审计 + SDK 分层 + 多Agent协作
 
 **Thread ID**: thread-8676e41d
-**Saved**: 2026-02-10T12:30:00Z
+**Saved**: 2026-02-10T22:40:00Z
 **Branch**: feat-pptgen1
-**Last Commit**: 2d989f77 - chore: save checkpoint — architecture audit + SDK layering complete
-**Session History**: 3 sessions in thread
+**Last Commit**: 14e985ee - feat(telemetry): add CostAggregator for cross-agent token usage summary
+**Session History**: 5 sessions in thread
 
 ## Current Task
 
-所有架构审计和 SDK 分层任务已完成。Checkpoint 技能文档已更新（save.md 凭据自动发现 + hapi-integration.md 完整重写）。准备推进多 Agent 协作工作。
+多 Agent 协作阶段 1 全部完成，阶段 2 (P2) 核心项完成。P1 三项 + P2 两项共 5 个 commit 已提交。
 
 ## Completed Work
 
-### 800 行硬标准（16 个文件拆分，19 个 helper 模块）
-- `37d3eaa8` mcp-nexus-provider 1068→743
-- `71e4a792` batch-generator 1061→518
-- `1e91be29` skill-executor 1039→791
-- `905a1d6b` code-tools 1003→720
-- `126c1f0a` stage-api-factory 985→439
-- `ade454f8` prompt-loader 971→603
-- `42b574e1` smart-content-extractor 946→565
-- `a0e77f29` mock-suite 901→764
-- `87be7525` tool-executor 896→746
-- `b4ffee52` planning-phase 885→376
-- `a0917aac` message-manager 854→768
-- `c2db3931` event-bus 838→661
-- `8f02c9aa` react-refiner-tools 819→529
-- `da644520` orchestrator 808→768
-- `430c9e8c` write-report/handler 807→723
-- `c906cd96` side-effect-journal 804→768
+### Session #005: 多Agent协作 Phase 1 收尾 + Phase 2 核心
 
-### 跨层违规修复
-- `c743d2ac` RetryStrategy 从 runtime/core → shared
-- `398a50e6` PerformanceRouter 从 runtime/routing → llm
-- `9347d8cb` EventBus import 改为 runtime barrel
+#### P1 #1: orchestrator.js + events.js 提交 + 测试 (6d721336)
+- `orchestrator.js` — `getStatus()` API: state/runId/stages/inFlight/childAgentCount/aborted
+- `events.js` — AgentLifecycleEvents 新增 IDLE/BUSY/STOPPED/DEGRADED
+- `registerStage` 规范化：actor 验证 (isValidActorType)、timeoutMs 归一化、options 对象保留
+- `runStagesParallel` 移除 AggregateError throw，results Map 已包含错误信息
+- 修复空白字符串 stage name 拒绝
+- 70 个测试全部通过
 
-### 架构微调
-- `c69edc0b` textprep/index.js 拆分 (552→1 行 barrel)
-- `1f69d95a` 清理 5 个 re-export shim
-- `3ea6d3d9` deepsearch/tools/index.js 拆分 (270→48 行 barrel)
+#### P1 #3: AgentLifecycleEvents 广播集成 (0ca5be22)
+- `orchestrator.js:343` — start() 发出 `agent:busy`
+- `orchestrator.js:360` — stop() 发出 `agent:stopped`
+- `orchestrator.js:374` — end() 发出 `agent:stopped`
+- `orchestrator.js:726` — 降级时发出 `agent:degraded`
+- 新增 lifecycle broadcast 测试
 
-### SDK 分层
-- `3cc177ae` SDK L0 convenience API (runDeepSearch/runDesign)
-- `8fb9e99e` SDK 移除 Stage re-export，对齐框架独立原则
-- `d548b9de` 多 Agent 协作路线图文档
+#### P1 #2: SharedTaskBoard (9cf3d91f)
+- `core/contracts/shared-task-board.js` — 跨 Agent 共享任务列表
+- 原子 claim 语义防止双重认领
+- 优先级排序 pending 列表
+- Snapshot/restore 持久化
+- EventBus 集成（可选）
+- 31 个单元测试全部通过
 
-### Checkpoint 文档更新（Session #003）
-- save.md Step 4a 重写：凭据自动发现（`~/.hapi/settings.json`）
-- hapi-integration.md 完整重写：API 端点补全，spawn/auth/resume 流程
+#### P2 #4: StageRpcBridge (e82dede6)
+- `runtime/core/stage-rpc-bridge.js` — 跨 Stage MessageBus RPC 桥接
+- registerHandler/request 模式
+- Scoped client factory
+- 12 个单元测试全部通过
 
-### Bug 修复
-- `361c0903` PdfAdapter 全局缓存 → 实例级注入
-- `98756f36` storage-crypto.js JSON.parse reviver 误传 slice() + response-limits.js 缺失 reviver
+#### P2 #5: CostAggregator (14e985ee)
+- `plugins/telemetry/cost-aggregator.js` — 跨 Agent token 使用汇总
+- Per-agent 和全局 token 累积
+- Model-level breakdown
+- EventBus 自动记录 llm.complete
+- Snapshot/restore 持久化
+- 15 个单元测试全部通过
 
-### 架构审计结论（不需修改）
-- C2 ToolPermissions vs PolicyEngine — 互补分层，已集成
-- C3 DeltaSync vs SyncManager — 不同层级，不需合并
-- E4 Ingest DI — 不需全量 DI
-- C7 pluginRegistry manifest — 已有 registerPluginsFromManifest()
+### 历史完成工作 (Session #001-#004)
+
+- Session #001: 800 行硬标准拆分 (16 文件)、跨层违规修复、架构微调
+- Session #002: SDK 分层、Stage re-export 移除
+- Session #003: Checkpoint 文档、Hapi 自动发现
+- Session #004: agent-message.js 通信协议 (41 测试)、Claude Agent Teams 对比分析、Orchestrator getStatus() 初版
 
 ## Uncommitted Changes
 
-无。工作区干净。
+无未提交改动。所有 P1/P2 工作已全部提交。
 
 ## Key Decisions
 
 | Decision | Rationale | Session |
 |----------|----------|--------|
 | `-helpers.js` 命名约定 | 统一模式，易发现，1:1 配对 | #001 |
-| SDK 不导出 Stage 类 | 核心框架零业务依赖，对齐 Vercel AI SDK/LangChain 最佳实践 | #001 |
-| L0 convenience 不从 SDK barrel 导出 | 使用者按需 import 具体路径，避免隐式捆绑 | #001 |
+| SDK 不导出 Stage 类 | 核心框架零业务依赖 | #001 |
 | RetryStrategy 下移 shared | 通用重试模式不属于 runtime 层 | #001 |
 | PerformanceRouter 下移 llm | LLM 路由逻辑属于 LLM 基础设施层 | #001 |
-| Hapi 凭据自动发现 | 从 ~/.hapi/settings.json 读取，不依赖环境变量 | #003 |
+| Hapi 凭据自动发现 | 从 ~/.hapi/settings.json 读取 | #003 |
+| agent-message 4 种消息类型 | task-request/result + status-update + knowledge-share 覆盖多Agent协作核心场景 | #004 |
+| domain:action taskType 格式 | 与 EventBus 事件名格式一致，便于 MessageBus 路由 | #004 |
+| runStagesParallel 不抛 AggregateError | results Map 已包含 success/failure 信息，抛异常导致 runStagesGraph 丢失部分结果 | #005 |
+| registerStage actor 验证 | isValidActorType 验证 + rawActor 保留原始值用于 getStatus 显示 | #005 |
+| SharedTaskBoard 原子 claim | 单线程 JS 天然原子，claim 检查 status===pending 后立即改为 running | #005 |
+| StageRpcBridge 不侵入 Stage | 通过 stageApi 注入，Stage 不需要改动即可获得 RPC 能力 | #005 |
+| CostAggregator 与 TokenTracker 互补 | Tracker 记录明细，Aggregator 跨 Agent 汇总，各司其职 | #005 |
 
 ## Test State
 
-未运行完整测试套件（750 个测试文件存在）。
-node --check 验证通过所有改动文件。
+- orchestrator.test.js: 30 tests passed
+- events.test.js: 41 tests passed
+- shared-task-board.test.js: 31 tests passed
+- stage-rpc-bridge.test.js: 12 tests passed
+- cost-aggregator.test.js: 15 tests passed
+- agent-message.test.js: 41 tests passed
+- 本 session 新增测试: 129 tests (跨 5 个文件)
+- disposable.test.js 4 个失败为已有问题（logger mock 格式）
 
 ## Key Files
 
 | File | Role |
 |------|------|
-| `js/agents/sdk/index.js` | SDK 核心入口（已精简为框架 API only） |
-| `js/agents/sdk/convenience.js` | L0 便捷函数（runDeepSearch/runDesign） |
-| `docs/sdk-architecture-design.md` | SDK 架构设计文档 + 多 Agent 路线图 |
-| `js/agents/shared/retry-strategy.js` | RetryStrategy（从 runtime 下移） |
-| `js/agents/llm/performance-router.js` | PerformanceRouter（从 runtime 下移） |
+| `js/agents/core/contracts/agent-message.js` | 多Agent通信协议 — 4 种消息 + 验证器 + 工厂 |
+| `js/agents/core/contracts/shared-task-board.js` | 共享任务列表 — claim 语义 + 快照持久化 |
+| `js/agents/core/contracts/index.js` | Contracts barrel |
+| `js/agents/runtime/core/orchestrator.js` | Orchestrator — getStatus() + lifecycle 广播 |
+| `js/agents/runtime/core/stage-rpc-bridge.js` | 跨 Stage MessageBus RPC 桥接 |
+| `js/agents/runtime/events/events.js` | AgentLifecycleEvents (IDLE/BUSY/STOPPED/DEGRADED) |
+| `js/agents/plugins/telemetry/cost-aggregator.js` | 跨 Agent token 使用汇总 |
+| `docs/sdk-architecture-design.md` | 架构文档 (8.5/8.6 Claude 对比分析) |
 
 ## Next Steps (Priority Order)
 
-1. [P1] 多 Agent 协作阶段 1：Agent 通信协议定义 (contracts/agent-message.js)
-2. [P1] 现有 Stage 使用 MessageBus RPC 集成验证
-3. [P2] 多 Agent 协作阶段 2：WebSocket Transport for CRDT
-4. [P2] Agent 身份注册与发现机制
-5. [P3] Orchestrator 暴露 getStatus() API
-6. [P3] 跨 Agent TraceContext propagation
-7. [P4] Coordinator 模式 + Leader 选举
-8. [P4] 全局一致性检查点
+1. [P2] 多 Agent 协作阶段 2：WebSocket Transport for CRDT
+2. [P3] Agent 身份注册与发现机制
+3. [P3] 跨 Agent TraceContext propagation
+4. [P4] Coordinator 模式 + Leader 选举
+5. [P4] SharedTaskBoard 与 Orchestrator 集成（自动 claim + 完成通知）
+6. [P4] CostAggregator UI Dashboard 组件
 
 ## Architecture Health
 
 | 指标 | 数值 |
 |------|------|
-| 文件数 | 567 |
-| 总行数 | 151,010 |
-| 平均行数 | 267 |
-| 最大文件 | 791 行 |
+| 文件数 | ~573 |
+| 最大文件 | 798 行 |
 | 跨层违规 | 0 |
-| 空 catch | 0 |
 | >800 行文件 | 0 |
 | Re-export shim | 0 |
-| 测试文件 | 750 |
-| DI 注册 | 40 |
+| 测试文件 | ~755 |
+| 新增 contracts | 2 (agent-message + shared-task-board) |
+| 新增 runtime | 1 (stage-rpc-bridge) |
+| 新增 plugins | 1 (cost-aggregator) |
+| 新增测试 | 5 files (129 tests) |
 
 ## Session History
 
@@ -122,3 +134,5 @@ node --check 验证通过所有改动文件。
 | 001 | 架构审计+SDK分层 | - | ~90% |
 | 002 | 多Agent协作推进 | - | ~85% |
 | 003 | Checkpoint文档更新+Save | - | ~40% |
+| 004 | 多Agent协作-Phase1 | - | ~70% |
+| 005 | Phase1收尾+Phase2核心 | - | ~75% |

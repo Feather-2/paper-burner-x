@@ -1,9 +1,9 @@
 {
   "threadId": "thread-8676e41d",
-  "name": "js/agents 架构审计 + SDK 分层",
+  "name": "js/agents 架构审计 + SDK 分层 + 多Agent协作",
   "project": "paper-burner",
   "createdAt": "2026-02-09T17:23:16Z",
-  "updatedAt": "2026-02-10T12:30:00Z",
+  "updatedAt": "2026-02-10T19:35:00Z",
   "config": {
     "checkpointEnabled": true,
     "autoSave": false,
@@ -34,6 +34,12 @@
       "seq": 4,
       "hapiSessionId": "e5e91682-311e-496b-9553-1dd6c3409bc4",
       "name": "多Agent协作-Phase1",
+      "active": true
+    },
+    {
+      "seq": 5,
+      "hapiSessionId": "5b242291-5f3d-4d49-b676-94e106fbed57",
+      "name": "多Agent协作-Phase1续",
       "active": true
     }
   ]
