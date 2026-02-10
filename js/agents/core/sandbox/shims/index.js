@@ -14,6 +14,10 @@ import osShim from './os.js';
 import { createFsShim } from './fs.js';
 import { createChildProcessShim } from './child-process.js';
 import zlibShim from './zlib.js';
+import netShim from './net.js';
+import httpShim from './http.js';
+import cryptoShim from './crypto.js';
+import { createProcess } from './process.js';
 
 // Stub modules — minimal objects that don't throw on require
 const noop = () => {};
@@ -23,18 +27,18 @@ const STUB_MODULES = {
   assert: { ok: (v) => { if (!v) throw new Error('Assertion failed'); }, equal: (a, b) => { if (a !== b) throw new Error(`${a} !== ${b}`); }, deepEqual: noop, strictEqual: (a, b) => { if (a !== b) throw new Error(`${a} !== ${b}`); }, notEqual: noop, throws: noop, doesNotThrow: noop, fail: (msg) => { throw new Error(msg || 'Failed'); } },
   console: globalThis.console,
   constants: {},
-  crypto: { randomUUID: () => globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2), randomBytes: (n) => globalThis.crypto?.getRandomValues?.(new Uint8Array(n)) || new Uint8Array(n), createHash: () => ({ update: () => ({ digest: () => '' }), digest: () => '' }) },
+  crypto: cryptoShim,
   dgram: noopStub,
   dns: { resolve: noop, lookup: (hostname, cb) => cb?.(null, '127.0.0.1', 4) },
   domain: { create: () => ({ run: (fn) => fn(), on: noop }) },
-  http: { Server: class {}, createServer: () => ({ listen: noop, close: noop, on: noop }), request: noop, get: noop, IncomingMessage: class {}, ServerResponse: class {} },
+  http: httpShim,
   http2: noopStub,
-  https: { request: noop, get: noop, Server: class {}, createServer: () => ({ listen: noop, close: noop, on: noop }) },
+  https: { ...httpShim, request: httpShim.request, get: httpShim.get },
   inspector: noopStub,
   module: { createRequire: noop, builtinModules: [] },
-  net: { Socket: class extends EventEmitter { connect() { return this; } write() {} end() {} destroy() {} }, Server: class extends EventEmitter { listen() { return this; } close() {} address() { return null; } }, createServer: () => new (STUB_MODULES.net.Server)(), createConnection: noop, isIP: () => 0, isIPv4: () => false, isIPv6: () => false },
+  net: netShim,
   perf_hooks: { performance: globalThis.performance || { now: () => Date.now() }, PerformanceObserver: class { observe() {} disconnect() {} } },
-  process: { env: {}, cwd: () => '/', argv: ['node'], platform: 'browser', version: 'v18.0.0', versions: { node: '18.0.0' }, exit: noop, nextTick: (fn, ...args) => queueMicrotask(() => fn(...args)), stdout: { write: noop, isTTY: false }, stderr: { write: noop, isTTY: false }, stdin: { isTTY: false }, on: noop, once: noop, off: noop, hrtime: { bigint: () => BigInt(Math.round(performance.now() * 1e6)) } },
+  process: createProcess(),
   punycode: { encode: (s) => s, decode: (s) => s, toASCII: (s) => s, toUnicode: (s) => s },
   readline: { createInterface: () => ({ on: noop, close: noop, question: (q, cb) => cb?.('') }) },
   repl: noopStub,
@@ -82,8 +86,8 @@ export function createBuiltinModules(config = {}) {
     modules.child_process = createChildProcessShim({ vfs, evaluate, env, cwd });
   }
 
-  // process 补充
-  modules.process = { ...STUB_MODULES.process, env, cwd: () => cwd || '/' };
+  // process — use full shim with config
+  modules.process = createProcess({ env, cwd: cwd || '/' });
 
   return modules;
 }

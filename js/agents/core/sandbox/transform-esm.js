@@ -148,13 +148,25 @@ export function transformESMtoCJS(code, filename = '<anonymous>') {
     }).join(' ')
   );
 
+  // --- Re-exports ---
+
+  // export * from 'module'
+  out = out.replace(
+    /^export\s+\*\s+from\s+(___PROT_\d+___);?$/gm,
+    (_, ph) => `Object.assign(module.exports, require(${restore(ph)}));`
+  );
+
   // --- Misc transforms ---
 
-  // import.meta.url
-  out = out.replace(/import\.meta\.url/g, '("file://" + __filename)');
+  // import.meta (specific before bare)
+  const _dir = filename.includes('/') ? filename.slice(0, filename.lastIndexOf('/')) : '';
+  out = out.replace(/import\.meta\.url/g, `"file://${filename}"`);
+  out = out.replace(/import\.meta\.dirname/g, `"${_dir}"`);
+  out = out.replace(/import\.meta\.filename/g, `"${filename}"`);
+  out = out.replace(/import\.meta\b/g, `({ url: "file://${filename}", dirname: "${_dir}", filename: "${filename}" })`);
 
-  // Dynamic import: import(x) → Promise.resolve(require(x))
-  out = out.replace(/\bimport\(([^)]+)\)/g, 'Promise.resolve(require($1))');
+  // Dynamic import: import(x) → __dynamicImport(x)
+  out = out.replace(/\bimport\(([^)]+)\)/g, '__dynamicImport($1)');
 
   // --- Append module.exports for exported declarations ---
   if (exportedDecls.length > 0) {
@@ -163,6 +175,9 @@ export function transformESMtoCJS(code, filename = '<anonymous>') {
   if (defaultExportNames.length > 0) {
     out += '\n' + defaultExportNames.map(n => `module.exports = ${n};`).join('\n');
   }
+
+  // --- __esModule marker ---
+  out = 'Object.defineProperty(exports, "__esModule", { value: true });\n' + out;
 
   // --- Restore protected tokens ---
   out = out.replace(/___PROT_(\d+)___/g, (_, idx) => _protected[Number(idx)]);

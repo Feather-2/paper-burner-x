@@ -191,4 +191,197 @@ describe('createFsShim', () => {
       expect(fs.constants.X_OK).toBe(1);
     });
   });
+
+  // --- Sync API tests ---
+
+  describe('readFileSync', () => {
+    it('reads file content synchronously from MemoryVfs', async () => {
+      await vfs.writeFile('sync-read.txt', 'sync content');
+      const data = fs.readFileSync('sync-read.txt', 'utf-8');
+      expect(data).toBe('sync content');
+    });
+
+    it('returns Uint8Array without encoding', async () => {
+      await vfs.writeFile('bin.dat', 'binary');
+      const data = fs.readFileSync('bin.dat');
+      expect(data).toBeInstanceOf(Uint8Array);
+    });
+
+    it('throws ENOENT for missing file', () => {
+      expect(() => fs.readFileSync('nope.txt', 'utf-8')).toThrow();
+    });
+  });
+
+  describe('writeFileSync', () => {
+    it('writes and reads back synchronously', async () => {
+      await vfs.mkdir('syncdir');
+      fs.writeFileSync('syncdir/out.txt', 'written sync');
+      const data = await vfs.readText('syncdir/out.txt');
+      expect(data).toBe('written sync');
+    });
+  });
+
+  describe('appendFileSync', () => {
+    it('appends content synchronously', async () => {
+      await vfs.writeFile('append.txt', 'A');
+      fs.appendFileSync('append.txt', 'B');
+      const data = await vfs.readText('append.txt');
+      expect(data).toBe('AB');
+    });
+  });
+
+  describe('mkdirSync', () => {
+    it('creates directory synchronously', () => {
+      fs.mkdirSync('newdir', { recursive: true });
+      expect(fs.existsSync('newdir')).toBe(true);
+    });
+  });
+
+  describe('readdirSync', () => {
+    it('lists directory contents synchronously', async () => {
+      await vfs.mkdir('lsdir');
+      await vfs.writeFile('lsdir/a.txt', 'a');
+      await vfs.writeFile('lsdir/b.txt', 'b');
+      const entries = fs.readdirSync('lsdir');
+      expect(entries).toEqual(['a.txt', 'b.txt']);
+    });
+  });
+
+  describe('statSync', () => {
+    it('returns Stats for file', async () => {
+      await vfs.writeFile('st.txt', 'abc');
+      const s = fs.statSync('st.txt');
+      expect(s).toBeInstanceOf(fs.Stats);
+      expect(s.isFile()).toBe(true);
+      expect(s.size).toBe(3);
+    });
+  });
+
+  describe('unlinkSync', () => {
+    it('removes a file synchronously', async () => {
+      await vfs.writeFile('del.txt', 'x');
+      fs.unlinkSync('del.txt');
+      expect(fs.existsSync('del.txt')).toBe(false);
+    });
+  });
+
+  describe('renameSync', () => {
+    it('renames synchronously', async () => {
+      await vfs.writeFile('old-s.txt', 'data');
+      fs.renameSync('old-s.txt', 'new-s.txt');
+      expect(fs.existsSync('old-s.txt')).toBe(false);
+      const data = fs.readFileSync('new-s.txt', 'utf-8');
+      expect(data).toBe('data');
+    });
+  });
+
+  describe('copyFileSync', () => {
+    it('copies synchronously', async () => {
+      await vfs.writeFile('csrc.txt', 'cp');
+      fs.copyFileSync('csrc.txt', 'cdst.txt');
+      const data = fs.readFileSync('cdst.txt', 'utf-8');
+      expect(data).toBe('cp');
+    });
+  });
+
+  describe('accessSync', () => {
+    it('does not throw for existing file', async () => {
+      await vfs.writeFile('acc.txt', 'x');
+      expect(() => fs.accessSync('acc.txt')).not.toThrow();
+    });
+
+    it('throws ENOENT for missing file', () => {
+      expect(() => fs.accessSync('missing.txt')).toThrow(/ENOENT/);
+    });
+  });
+
+  describe('realpathSync', () => {
+    it('returns normalized path', () => {
+      expect(fs.realpathSync('foo/bar')).toBe('/foo/bar');
+    });
+  });
+
+  describe('rmSync', () => {
+    it('removes directory recursively', async () => {
+      await vfs.mkdir('rmdir/sub');
+      await vfs.writeFile('rmdir/sub/f.txt', 'x');
+      fs.rmSync('rmdir', { recursive: true });
+      expect(fs.existsSync('rmdir')).toBe(false);
+    });
+  });
+
+  // --- fd operations ---
+
+  describe('fd operations', () => {
+    it('openSync / readSync / closeSync round-trip', async () => {
+      await vfs.writeFile('fd.txt', 'hello fd');
+      const fd = fs.openSync('fd.txt', 'r');
+      expect(typeof fd).toBe('number');
+      const buf = new Uint8Array(20);
+      const n = fs.readSync(fd, buf, 0, 20);
+      expect(n).toBeGreaterThan(0);
+      fs.closeSync(fd);
+    });
+
+    it('openSync / writeSync / closeSync round-trip', async () => {
+      const fd = fs.openSync('wfd.txt', 'w');
+      const written = fs.writeSync(fd, 'write via fd');
+      expect(written).toBe('write via fd'.length);
+      fs.closeSync(fd);
+      const data = await vfs.readText('wfd.txt');
+      expect(data).toBe('write via fd');
+    });
+
+    it('closeSync throws for bad fd', () => {
+      expect(() => fs.closeSync(999)).toThrow(/EBADF/);
+    });
+  });
+
+  // --- createReadStream / createWriteStream ---
+
+  describe('createReadStream', () => {
+    it('emits data and end events', async () => {
+      await vfs.writeFile('stream.txt', 'stream data');
+      const stream = fs.createReadStream('stream.txt', 'utf-8');
+      const chunks = [];
+      await new Promise((resolve, reject) => {
+        stream.on('data', chunk => chunks.push(chunk));
+        stream.on('end', resolve);
+        stream.on('error', reject);
+      });
+      expect(chunks.join('')).toBe('stream data');
+    });
+  });
+
+  describe('createWriteStream', () => {
+    it('writes data and emits finish', async () => {
+      const stream = fs.createWriteStream('wstream.txt');
+      stream.write('hello ');
+      await new Promise((resolve, reject) => {
+        stream.on('finish', resolve);
+        stream.on('error', reject);
+        stream.end('world');
+      });
+      const data = await vfs.readText('wstream.txt');
+      expect(data).toBe('hello world');
+    });
+  });
+
+  // --- watch ---
+
+  describe('watch', () => {
+    it('returns an EventEmitter-like object', () => {
+      const watcher = fs.watch('somedir');
+      expect(typeof watcher.on).toBe('function');
+      expect(typeof watcher.close).toBe('function');
+    });
+
+    it('emits close on close()', () => {
+      const watcher = fs.watch('somedir');
+      let closed = false;
+      watcher.on('close', () => { closed = true; });
+      watcher.close();
+      expect(closed).toBe(true);
+    });
+  });
 });

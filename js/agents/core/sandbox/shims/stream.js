@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from './events.js';
+import { Buffer } from './buffer.js';
 
 export class Stream extends EventEmitter {
   pipe(dest) {
@@ -13,78 +14,241 @@ export class Stream extends EventEmitter {
 }
 
 export class Readable extends Stream {
-  constructor() {
+  constructor(opts) {
     super();
     this.readable = true;
+    this.readableFlowing = null;
     this._buffer = [];
+    this._flowing = false;
+    this._ended = false;
+    this._endEmitted = false;
+    this._encoding = null;
+    if (opts && typeof opts.read === 'function') this._read = opts.read;
+  }
+
+  on(event, listener) {
+    super.on(event, listener);
+    if (event === 'data' && !this._flowing) {
+      queueMicrotask(() => {
+        if (this.listenerCount('data') > 0 && !this._flowing) this.resume();
+      });
+    }
+    return this;
   }
 
   push(chunk) {
     if (chunk === null) {
-      this.emit('end');
+      this._ended = true;
+      this.readable = false;
+      if (this._flowing && this._buffer.length === 0 && !this._endEmitted) {
+        this._endEmitted = true;
+        queueMicrotask(() => this.emit('end'));
+      }
       return false;
     }
-    this._buffer.push(chunk);
-    this.emit('data', chunk);
+    const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+    this._buffer.push(buf);
+    if (this._flowing) queueMicrotask(() => this._flushBuffer());
     return true;
   }
 
-  read() {
-    return this._buffer.shift() || null;
+  _flushBuffer() {
+    while (this._buffer.length > 0 && this._flowing) {
+      const chunk = this._buffer.shift();
+      this.emit('data', this._encoding ? chunk.toString(this._encoding) : chunk);
+    }
+    if (this._ended && this._buffer.length === 0 && !this._endEmitted) {
+      this._endEmitted = true;
+      this.emit('end');
+    }
   }
 
-  destroy() {
+  read(size) {
+    if (!this._buffer.length) return null;
+    if (size === undefined || size === null) {
+      if (this._buffer.length === 1) {
+        const single = this._buffer.shift();
+        return single;
+      }
+      const all = Buffer.concat(this._buffer);
+      this._buffer = [];
+      return all;
+    }
+    // size-aware read
+    const first = this._buffer[0];
+    if (first.length <= size) {
+      return this._buffer.shift();
+    }
+    const slice = first.slice(0, size);
+    this._buffer[0] = first.slice(size);
+    return slice;
+  }
+
+  resume() {
+    this._flowing = true;
+    this.readableFlowing = true;
+    this._flushBuffer();
+    return this;
+  }
+
+  pause() {
+    this._flowing = false;
+    this.readableFlowing = false;
+    return this;
+  }
+
+  pipe(dest) {
+    this.on('data', (c) => {
+      const ok = dest.write(c);
+      if (ok === false && typeof this.pause === 'function') this.pause();
+    });
+    this.on('end', () => { if (typeof dest.end === 'function') dest.end(); });
+    if (dest.on) {
+      dest.on('drain', () => this.resume());
+    }
+    this.resume();
+    return dest;
+  }
+
+  unpipe(dest) {
+    this.removeAllListeners('data');
+    this.removeAllListeners('end');
+    return this;
+  }
+
+  setEncoding(enc) {
+    this._encoding = enc;
+    return this;
+  }
+
+  destroy(err) {
+    this._buffer = [];
+    this._ended = true;
     this.readable = false;
+    if (err) this.emit('error', err);
     this.emit('close');
+    return this;
+  }
+
+  /** @param {Iterable|AsyncIterable} iterable */
+  static from(iterable) {
+    const r = new Readable();
+    if (iterable[Symbol.asyncIterator]) {
+      (async () => {
+        try {
+          for await (const chunk of iterable) r.push(chunk);
+          r.push(null);
+        } catch (err) { r.destroy(err); }
+      })();
+    } else {
+      for (const chunk of iterable) r.push(chunk);
+      r.push(null);
+    }
+    return r;
   }
 }
 
 export class Writable extends Stream {
-  constructor() {
+  constructor(opts) {
     super();
     this.writable = true;
     this._chunks = [];
+    this._corked = 0;
+    this._corkBuffer = [];
+    if (opts && typeof opts.write === 'function') this._write = opts.write;
   }
 
   write(chunk, encoding, cb) {
-    this._chunks.push(chunk);
-    if (typeof cb === 'function') cb();
+    if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+    if (this._corked > 0) {
+      this._corkBuffer.push({ chunk, encoding, cb });
+      return false;
+    }
+    if (this._write) {
+      this._write(chunk, encoding || 'utf8', (err) => {
+        if (err) this.emit('error', err);
+        if (typeof cb === 'function') cb(err);
+      });
+    } else {
+      this._chunks.push(chunk);
+      if (typeof cb === 'function') cb();
+    }
     return true;
   }
 
   end(chunk, encoding, cb) {
-    if (chunk != null) this.write(chunk);
+    if (typeof chunk === 'function') { cb = chunk; chunk = null; }
+    else if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+    if (chunk != null) this.write(chunk, encoding);
     this.writable = false;
     this.emit('finish');
     if (typeof cb === 'function') cb();
-    else if (typeof encoding === 'function') encoding();
   }
 
-  destroy() {
+  cork() { this._corked++; }
+
+  uncork() {
+    this._corked--;
+    if (this._corked <= 0) {
+      this._corked = 0;
+      const pending = this._corkBuffer.splice(0);
+      for (const { chunk, encoding, cb } of pending) this.write(chunk, encoding, cb);
+    }
+  }
+
+  destroy(err) {
     this.writable = false;
+    if (err) this.emit('error', err);
     this.emit('close');
+    return this;
   }
 }
 
 export class Duplex extends Readable {
-  constructor() {
-    super();
+  constructor(opts) {
+    super(opts);
     this.writable = true;
     this._chunks = [];
+    this._corked = 0;
+    this._corkBuffer = [];
+    if (opts && typeof opts.write === 'function') this._write = opts.write;
   }
 
   write(chunk, encoding, cb) {
-    this._chunks.push(chunk);
-    if (typeof cb === 'function') cb();
+    if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+    if (this._corked > 0) {
+      this._corkBuffer.push({ chunk, encoding, cb });
+      return false;
+    }
+    if (this._write) {
+      this._write(chunk, encoding || 'utf8', (err) => {
+        if (err) this.emit('error', err);
+        if (typeof cb === 'function') cb(err);
+      });
+    } else {
+      this._chunks.push(chunk);
+      if (typeof cb === 'function') cb();
+    }
     return true;
   }
 
   end(chunk, encoding, cb) {
-    if (chunk != null) this.write(chunk);
+    if (typeof chunk === 'function') { cb = chunk; chunk = null; }
+    else if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+    if (chunk != null) this.write(chunk, encoding);
     this.writable = false;
     this.emit('finish');
     if (typeof cb === 'function') cb();
-    else if (typeof encoding === 'function') encoding();
+  }
+
+  cork() { this._corked++; }
+  uncork() {
+    this._corked--;
+    if (this._corked <= 0) {
+      this._corked = 0;
+      const pending = this._corkBuffer.splice(0);
+      for (const { chunk, encoding, cb } of pending) this.write(chunk, encoding, cb);
+    }
   }
 }
 

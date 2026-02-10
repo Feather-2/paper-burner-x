@@ -14,6 +14,15 @@ describe('hasESMSyntax', () => {
     expect(hasESMSyntax('export { a, b };')).toBe(true);
   });
 
+  it('detects import.meta', () => {
+    expect(hasESMSyntax('const u = import.meta.url;')).toBe(true);
+    expect(hasESMSyntax('console.log(import.meta.dirname);')).toBe(true);
+  });
+
+  it('detects dynamic import', () => {
+    expect(hasESMSyntax('const m = import("x");')).toBe(true);
+  });
+
   it('returns false for pure CJS code', () => {
     expect(hasESMSyntax('const a = require("x");')).toBe(false);
     expect(hasESMSyntax('module.exports = 42;')).toBe(false);
@@ -21,8 +30,6 @@ describe('hasESMSyntax', () => {
   });
 
   it('returns false for import/export in strings', () => {
-    // Note: hasESMSyntax uses a simple regex, so it may match inside strings.
-    // This is acceptable for the 80% case — the transform itself protects strings.
     expect(hasESMSyntax('const s = "no imports here";')).toBe(false);
   });
 });
@@ -96,23 +103,80 @@ describe('transformESMtoCJS', () => {
     expect(out).toContain('module.exports.add = add;');
   });
 
+  it('converts export class', () => {
+    const input = 'export class Foo { constructor() {} }';
+    const out = transformESMtoCJS(input);
+    expect(out).toContain('class Foo');
+    expect(out).toContain('module.exports.Foo = Foo;');
+    expect(out).not.toMatch(/^export/m);
+  });
+
   it('converts export with alias', () => {
     const input = 'const internal = 1;\nexport { internal as pub };';
     const out = transformESMtoCJS(input);
     expect(out).toContain('module.exports.pub = internal;');
   });
 
-  it('replaces import.meta.url', () => {
+  it('replaces import.meta.url with file URL', () => {
     const input = 'const url = import.meta.url;';
     const out = transformESMtoCJS(input);
-    expect(out).toContain('"file://" + __filename');
+    expect(out).toContain('"file://<anonymous>"');
     expect(out).not.toContain('import.meta.url');
   });
 
-  it('converts dynamic import', () => {
+  it('replaces import.meta.url with custom filename', () => {
+    const input = 'const url = import.meta.url;';
+    const out = transformESMtoCJS(input, 'src/lib/utils.js');
+    expect(out).toContain('"file://src/lib/utils.js"');
+  });
+
+  it('replaces import.meta.dirname', () => {
+    const input = 'const d = import.meta.dirname;';
+    const out = transformESMtoCJS(input, 'src/lib/utils.js');
+    expect(out).toContain('"src/lib"');
+    expect(out).not.toContain('import.meta.dirname');
+  });
+
+  it('replaces import.meta.dirname with empty dir for root file', () => {
+    const input = 'const d = import.meta.dirname;';
+    const out = transformESMtoCJS(input, 'utils.js');
+    expect(out).toContain('""');
+  });
+
+  it('replaces import.meta.filename', () => {
+    const input = 'const f = import.meta.filename;';
+    const out = transformESMtoCJS(input, 'src/lib/utils.js');
+    expect(out).toContain('"src/lib/utils.js"');
+    expect(out).not.toContain('import.meta.filename');
+  });
+
+  it('replaces bare import.meta with object', () => {
+    const input = 'const m = import.meta;';
+    const out = transformESMtoCJS(input, 'src/app.js');
+    expect(out).toContain('url: "file://src/app.js"');
+    expect(out).toContain('dirname: "src"');
+    expect(out).toContain('filename: "src/app.js"');
+    expect(out).not.toContain('import.meta');
+  });
+
+  it('converts dynamic import to __dynamicImport', () => {
     const input = 'const m = import("mod");';
     const out = transformESMtoCJS(input);
-    expect(out).toContain('Promise.resolve(require("mod"))');
+    expect(out).toContain('__dynamicImport("mod")');
+    expect(out).not.toContain('import(');
+  });
+
+  it('adds __esModule marker', () => {
+    const input = 'export const x = 1;';
+    const out = transformESMtoCJS(input);
+    expect(out).toMatch(/^Object\.defineProperty\(exports, "__esModule"/);
+  });
+
+  it('converts export * from re-export', () => {
+    const input = 'export * from "utils";';
+    const out = transformESMtoCJS(input);
+    expect(out).toContain('Object.assign(module.exports, require("utils"))');
+    expect(out).not.toMatch(/^export/m);
   });
 
   it('does not modify pure CJS code', () => {
@@ -157,7 +221,8 @@ describe('transformESMtoCJS', () => {
     expect(out).toContain('require("side-effect")');
     expect(out).toContain('module.exports.X = X;');
     expect(out).toContain('module.exports = main;');
-    expect(out).toContain('"file://" + __filename');
-    expect(out).toContain('Promise.resolve(require("lazy"))');
+    expect(out).toContain('"file://<anonymous>"');
+    expect(out).toContain('__dynamicImport("lazy")');
+    expect(out).toContain('__esModule');
   });
 });
