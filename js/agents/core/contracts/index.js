@@ -26,6 +26,7 @@ export {
   createKnowledgeShare,
 } from "./agent-message.js";
 export { SharedTaskBoard, TaskBoardEvents } from "./shared-task-board.js";
+export { TaskBoardOrchestratorBridge, createTaskBoardBridge } from "./taskboard-orchestrator-bridge.js";
 export { AgentCoordinator, createAgentCoordinator } from "./agent-coordinator.js";
 export {
   AgentRegistry,
