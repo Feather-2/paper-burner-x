@@ -25,3 +25,4 @@ export {
   createStatusUpdate,
   createKnowledgeShare,
 } from "./agent-message.js";
+export { SharedTaskBoard, TaskBoardEvents } from "./shared-task-board.js";
