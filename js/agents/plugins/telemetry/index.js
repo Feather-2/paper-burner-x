@@ -10,6 +10,15 @@ export {
   exportTokenUsageJson,
   exportTokenUsageCsv,
 } from "./token-tracker.js";
+export { CostAggregator } from "./cost-aggregator.js";
+export {
+  formatTokenCount,
+  formatLatency,
+  formatCostSummary,
+  formatBreakdownTable,
+  formatAgentReport,
+  calculateCostEstimate,
+} from "./cost-formatter.js";
 
 export {
   TraceContext,
