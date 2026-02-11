@@ -138,3 +138,106 @@ describe('createRequire', () => {
     await expect(req('nonexistent')).rejects.toThrow('Cannot find module');
   });
 });
+
+// ── module wrapping / globals injection ─────────────────────────
+
+describe('createRequire module wrapping', () => {
+  /** @type {MemoryVfs} */
+  let vfs;
+
+  beforeEach(() => {
+    vfs = new MemoryVfs();
+  });
+
+  it('injects process into module scope', async () => {
+    await vfs.writeText('mod.js', 'module.exports = typeof process;');
+    const fakeProcess = { env: { NODE_ENV: 'test' } };
+    const evaluate = vi.fn(async (code) => new Function('return ' + code)());
+    const { require: req } = createRequire({
+      vfs, builtinModules: {}, evaluate,
+      globals: { process: fakeProcess },
+    });
+    const result = await req('./mod');
+    expect(result).toBe('object');
+  });
+
+  it('injects console into module scope', async () => {
+    await vfs.writeText('mod.js', 'module.exports = typeof console;');
+    const fakeConsole = { log: vi.fn() };
+    const evaluate = vi.fn(async (code) => new Function('return ' + code)());
+    const { require: req } = createRequire({
+      vfs, builtinModules: {}, evaluate,
+      globals: { console: fakeConsole },
+    });
+    const result = await req('./mod');
+    expect(result).toBe('object');
+  });
+
+  it('injects Buffer into module scope', async () => {
+    await vfs.writeText('mod.js', 'module.exports = typeof Buffer;');
+    const FakeBuffer = class Buffer {};
+    const evaluate = vi.fn(async (code) => new Function('return ' + code)());
+    const { require: req } = createRequire({
+      vfs, builtinModules: {}, evaluate,
+      globals: { Buffer: FakeBuffer },
+    });
+    const result = await req('./mod');
+    expect(result).toBe('function');
+  });
+
+  it('injects global/globalThis into module scope', async () => {
+    await vfs.writeText('mod.js', 'module.exports = typeof global;');
+    const fakeGlobal = { myGlobal: true };
+    const evaluate = vi.fn(async (code) => new Function('return ' + code)());
+    const { require: req } = createRequire({
+      vfs, builtinModules: {}, evaluate,
+      globals: { global: fakeGlobal },
+    });
+    const result = await req('./mod');
+    expect(result).toBe('object');
+  });
+
+  it('__dynamicImport is passed as function', async () => {
+    await vfs.writeText('mod.js', '');
+    let capturedDynamicImport;
+    const evaluate = vi.fn(async () => {
+      return async (exports, require, module, __filename, __dirname,
+        process, console, Buffer, global, globalThis, __dynamicImport) => {
+        capturedDynamicImport = __dynamicImport;
+        module.exports = { hasDynamicImport: typeof __dynamicImport === 'function' };
+      };
+    });
+    const { require: req } = createRequire({ vfs, builtinModules: {}, evaluate });
+    const result = await req('./mod');
+    expect(result.hasDynamicImport).toBe(true);
+    expect(capturedDynamicImport).toBeTypeOf('function');
+  });
+
+  it('wrapper passes correct __filename and __dirname', async () => {
+    await vfs.writeText('src/lib/mod.js', '');
+    let capturedFilename, capturedDirname;
+    const evaluate = vi.fn(async () => {
+      return async (exports, require, module, __filename, __dirname) => {
+        capturedFilename = __filename;
+        capturedDirname = __dirname;
+      };
+    });
+    const { require: req } = createRequire({ vfs, builtinModules: {}, evaluate });
+    await req('./src/lib/mod');
+    expect(capturedFilename).toBe('src/lib/mod.js');
+    expect(capturedDirname).toBe('src/lib');
+  });
+
+  it('wrapper has 11 parameters', async () => {
+    await vfs.writeText('mod.js', '');
+    let paramCount;
+    const evaluate = vi.fn(async (code) => {
+      const fn = new Function('return ' + code)();
+      paramCount = fn.length;
+      return async () => {};
+    });
+    const { require: req } = createRequire({ vfs, builtinModules: {}, evaluate });
+    await req('./mod');
+    expect(paramCount).toBe(11);
+  });
+});

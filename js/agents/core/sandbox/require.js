@@ -1,5 +1,6 @@
 /**
  * @file CommonJS require factory bound to VFS.
+ * Provides Node.js-compatible module wrapping with globals injection.
  */
 
 import { createResolver } from './module-resolver.js';
@@ -10,6 +11,11 @@ import { createResolver } from './module-resolver.js';
  * @property {Record<string, object>} [builtinModules={}]
  * @property {(code: string, filename: string) => *} [evaluate] - Code evaluation function
  * @property {number} [cacheLimit=2000]
+ * @property {object} [globals] - Global objects to inject into every module scope
+ * @property {object} [globals.process] - process object
+ * @property {object} [globals.console] - console object
+ * @property {Function} [globals.Buffer] - Buffer constructor
+ * @property {object} [globals.global] - global/globalThis reference
  */
 
 /**
@@ -18,9 +24,15 @@ import { createResolver } from './module-resolver.js';
  * @returns {{ require: Function, cache: Map }}
  */
 export function createRequire(config) {
-  const { vfs, builtinModules = {}, evaluate, cacheLimit = 2000 } = config;
+  const { vfs, builtinModules = {}, evaluate, cacheLimit = 2000, globals = {} } = config;
   const cache = new Map();
   const resolver = createResolver({ vfs, builtinModules });
+
+  // Pre-extract globals once
+  const _process = globals.process || (typeof globalThis !== 'undefined' ? globalThis.process : undefined);
+  const _console = globals.console || (typeof console !== 'undefined' ? console : {});
+  const _Buffer = globals.Buffer || (builtinModules.buffer && builtinModules.buffer.Buffer);
+  const _global = globals.global || (typeof globalThis !== 'undefined' ? globalThis : {});
 
   /**
    * @param {string} specifier
@@ -59,14 +71,28 @@ export function createRequire(config) {
     childRequire.resolve = (spec) => resolver.resolve(spec, dirOfFile);
     childRequire.cache = cache;
 
-    // 7. Execute code
+    // 7. Dynamic import shim (transform-esm converts import() → __dynamicImport())
+    const __dynamicImport = (spec) => require(spec, dirOfFile);
+
+    // 8. Execute code with full Node.js-compatible wrapper
     if (evaluate) {
-      const wrapper = `(function(exports, require, module, __filename, __dirname) { ${code} })`;
+      const wrapper = [
+        '(function(exports, require, module, __filename, __dirname,',
+        ' process, console, Buffer, global, globalThis, __dynamicImport) {',
+        code,
+        '\n})',
+      ].join('');
+
       const fn = await evaluate(wrapper, resolved.path);
-      await fn(module.exports, childRequire, module, resolved.path, dirOfFile);
+      await fn(
+        module.exports, childRequire, module,
+        resolved.path, dirOfFile,
+        _process, _console, _Buffer, _global, _global,
+        __dynamicImport
+      );
     }
 
-    // 8. LRU eviction
+    // 9. LRU eviction
     if (cache.size > cacheLimit) {
       const firstKey = cache.keys().next().value;
       cache.delete(firstKey);

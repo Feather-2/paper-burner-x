@@ -32,6 +32,7 @@
  * @property {string} [swUrl='/sw.js'] - Service Worker script URL
  * @property {string} [scope='/__virtual__/']
  * @property {number} [keepaliveInterval=25000]
+ * @property {number} [maxReconnects=5]
  */
 
 class ServerBridge {
@@ -40,11 +41,14 @@ class ServerBridge {
     this._scope = config.scope || '/__virtual__/';
     this._swUrl = config.swUrl || '/sw.js';
     this._keepaliveInterval = config.keepaliveInterval || 25000;
+    this._maxReconnects = config.maxReconnects || 5;
     /** @type {Map<number, (req: VirtualRequest) => Promise<VirtualResponse>>} */
     this._servers = new Map();
     this._swReady = false;
     this._messageHandler = null;
     this._keepaliveTimer = null;
+    this._controllerChangeHandler = null;
+    this._reconnectCount = 0;
   }
 
   /** Register Service Worker and begin listening. */
@@ -56,6 +60,16 @@ class ServerBridge {
     await navigator.serviceWorker.ready;
     this._swReady = true;
 
+    this._attachMessageHandler();
+    this._startKeepalive();
+    this._attachControllerChange();
+  }
+
+  /** @private */
+  _attachMessageHandler() {
+    if (this._messageHandler) {
+      navigator.serviceWorker.removeEventListener('message', this._messageHandler);
+    }
     this._messageHandler = (event) => {
       const { type, port, method, url, headers, body, requestId } = event.data || {};
       if (type !== 'virtual-request') return;
@@ -75,10 +89,28 @@ class ServerBridge {
         }));
     };
     navigator.serviceWorker.addEventListener('message', this._messageHandler);
+  }
 
+  /** @private */
+  _startKeepalive() {
+    if (this._keepaliveTimer) clearInterval(this._keepaliveTimer);
     this._keepaliveTimer = setInterval(() => {
       navigator.serviceWorker.controller?.postMessage({ type: 'keepalive' });
     }, this._keepaliveInterval);
+  }
+
+  /** @private - Reconnect when SW controller changes (e.g. update/termination). */
+  _attachControllerChange() {
+    if (this._controllerChangeHandler) {
+      navigator.serviceWorker.removeEventListener('controllerchange', this._controllerChangeHandler);
+    }
+    this._controllerChangeHandler = () => {
+      if (this._reconnectCount >= this._maxReconnects) return;
+      this._reconnectCount++;
+      this._attachMessageHandler();
+      this._startKeepalive();
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', this._controllerChangeHandler);
   }
 
   /**
@@ -103,8 +135,10 @@ class ServerBridge {
   async stop() {
     if (this._keepaliveTimer) clearInterval(this._keepaliveTimer);
     if (this._messageHandler) navigator.serviceWorker.removeEventListener('message', this._messageHandler);
+    if (this._controllerChangeHandler) navigator.serviceWorker.removeEventListener('controllerchange', this._controllerChangeHandler);
     this._servers.clear();
     this._swReady = false;
+    this._reconnectCount = 0;
   }
 
   /** @returns {boolean} */

@@ -1,5 +1,6 @@
 /**
  * @fileoverview Node.js `http` module shim for browser sandbox.
+ * Includes fetch-based ClientRequest for http.request()/http.get().
  */
 
 import { EventEmitter } from './events.js';
@@ -50,6 +51,18 @@ export class IncomingMessage extends Readable {
     for (const [k, v] of Object.entries(headers)) msg.rawHeaders.push(k, v);
     if (body) msg._setBody(body);
     else { msg.push(null); msg.complete = true; }
+    return msg;
+  }
+
+  static fromFetchResponse(resp) {
+    const msg = new IncomingMessage();
+    msg.statusCode = resp.status;
+    msg.statusMessage = resp.statusText || STATUS_CODES[resp.status] || '';
+    msg.headers = {};
+    resp.headers.forEach((v, k) => {
+      msg.headers[k.toLowerCase()] = v;
+      msg.rawHeaders.push(k, v);
+    });
     return msg;
   }
 }
@@ -136,6 +149,149 @@ export class ServerResponse extends Writable {
   status(code) { this.statusCode = code; return this; }
 }
 
+/**
+ * Fetch-based ClientRequest for http.request()/http.get().
+ * Accumulates body via write(), fires fetch on end().
+ */
+export class ClientRequest extends Writable {
+  constructor(options, callback) {
+    super();
+    this._options = typeof options === 'string' ? new URL(options) : options;
+    this._body = [];
+    this._headers = {};
+    this._method = this._options.method || 'GET';
+    this._aborted = false;
+    this._timeout = null;
+
+    // Build URL
+    if (this._options instanceof URL) {
+      this._url = this._options.href;
+    } else {
+      const protocol = this._options.protocol || 'http:';
+      const host = this._options.hostname || this._options.host || 'localhost';
+      const port = this._options.port ? ':' + this._options.port : '';
+      const path = this._options.path || '/';
+      this._url = `${protocol}//${host}${port}${path}`;
+    }
+
+    // Copy headers
+    if (this._options.headers) {
+      for (const [k, v] of Object.entries(this._options.headers)) {
+        this._headers[k.toLowerCase()] = v;
+      }
+    }
+
+    if (callback) this.once('response', callback);
+  }
+
+  setHeader(name, value) {
+    this._headers[name.toLowerCase()] = value;
+    return this;
+  }
+
+  getHeader(name) {
+    return this._headers[name.toLowerCase()];
+  }
+
+  removeHeader(name) {
+    delete this._headers[name.toLowerCase()];
+  }
+
+  setTimeout(ms, cb) {
+    this._timeout = ms;
+    if (cb) this.once('timeout', cb);
+    return this;
+  }
+
+  abort() {
+    this._aborted = true;
+    this.emit('abort');
+  }
+
+  write(chunk, encoding, cb) {
+    const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+    this._body.push(buf);
+    if (typeof encoding === 'function') cb = encoding;
+    if (cb) queueMicrotask(() => cb(null));
+    return true;
+  }
+
+  end(chunkOrCb, encoding, cb) {
+    if (typeof chunkOrCb === 'function') {
+      cb = chunkOrCb;
+    } else if (chunkOrCb != null) {
+      this.write(chunkOrCb);
+    }
+    if (typeof encoding === 'function') cb = encoding;
+
+    this._doFetch().then(
+      (resp) => { if (cb) cb(); this.emit('response', resp); },
+      (err) => this.emit('error', err)
+    );
+    return this;
+  }
+
+  /** @private */
+  async _doFetch() {
+    if (this._aborted) throw new Error('Request aborted');
+
+    const fetchOptions = {
+      method: this._method,
+      headers: this._headers,
+    };
+
+    if (this._body.length > 0 && this._method !== 'GET' && this._method !== 'HEAD') {
+      fetchOptions.body = Buffer.concat(this._body);
+    }
+
+    const controller = new AbortController();
+    fetchOptions.signal = controller.signal;
+
+    let timer;
+    if (this._timeout) {
+      timer = setTimeout(() => {
+        controller.abort();
+        this.emit('timeout');
+      }, this._timeout);
+    }
+
+    try {
+      const fetchResp = await fetch(this._url, fetchOptions);
+      if (timer) clearTimeout(timer);
+
+      const msg = IncomingMessage.fromFetchResponse(fetchResp);
+
+      // Stream the body if available
+      if (fetchResp.body && typeof fetchResp.body.getReader === 'function') {
+        const reader = fetchResp.body.getReader();
+        const pump = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) { msg.push(null); msg.complete = true; break; }
+              msg.push(Buffer.from(value));
+            }
+          } catch (err) {
+            msg.destroy(err);
+          }
+        };
+        pump();
+      } else {
+        // Fallback: read entire body
+        const buf = await fetchResp.arrayBuffer();
+        msg.push(Buffer.from(new Uint8Array(buf)));
+        msg.push(null);
+        msg.complete = true;
+      }
+
+      return msg;
+    } catch (err) {
+      if (timer) clearTimeout(timer);
+      throw err;
+    }
+  }
+}
+
 export class Server extends EventEmitter {
   constructor(options, requestListener) {
     super();
@@ -180,12 +336,42 @@ export function createServer(options, requestListener) {
   return new Server(options, requestListener);
 }
 
-export function request() {
-  throw new Error('http.request not supported in browser sandbox');
+/**
+ * Make an HTTP request using fetch under the hood.
+ * @param {string|URL|object} urlOrOptions
+ * @param {object|Function} [optionsOrCallback]
+ * @param {Function} [callback]
+ * @returns {ClientRequest}
+ */
+export function request(urlOrOptions, optionsOrCallback, callback) {
+  let options, cb;
+  if (typeof urlOrOptions === 'string' || urlOrOptions instanceof URL) {
+    const parsed = typeof urlOrOptions === 'string' ? new URL(urlOrOptions) : urlOrOptions;
+    if (typeof optionsOrCallback === 'function') {
+      cb = optionsOrCallback;
+      options = parsed;
+    } else {
+      options = { ...optionsOrCallback, hostname: parsed.hostname, port: parsed.port, path: parsed.pathname + parsed.search, protocol: parsed.protocol };
+      cb = callback;
+    }
+  } else {
+    options = urlOrOptions;
+    cb = typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
+  }
+  return new ClientRequest(options, cb);
 }
 
-export function get() {
-  throw new Error('http.get not supported in browser sandbox');
+/**
+ * Convenience shorthand that calls request() and ends it immediately.
+ * @param {string|URL|object} urlOrOptions
+ * @param {object|Function} [optionsOrCallback]
+ * @param {Function} [callback]
+ * @returns {ClientRequest}
+ */
+export function get(urlOrOptions, optionsOrCallback, callback) {
+  const req = request(urlOrOptions, optionsOrCallback, callback);
+  req.end();
+  return req;
 }
 
 export const METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
@@ -198,7 +384,7 @@ export const STATUS_CODES = {
 };
 
 export default {
-  IncomingMessage, ServerResponse, Server, createServer,
+  IncomingMessage, ServerResponse, Server, ClientRequest, createServer,
   request, get, METHODS, STATUS_CODES,
   setServerListenCallback, setServerCloseCallback, getServer,
 };

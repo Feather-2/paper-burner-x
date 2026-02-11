@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  IncomingMessage, ServerResponse, Server, createServer,
+  IncomingMessage, ServerResponse, Server, ClientRequest, createServer,
   request, get, METHODS, STATUS_CODES,
   setServerListenCallback, setServerCloseCallback, getServer,
 } from '../../../../../../js/agents/core/sandbox/shims/http.js';
@@ -170,12 +170,62 @@ describe('http shim', () => {
     expect(srv.listenerCount('request')).toBe(1);
   });
 
-  it('request() throws', () => {
-    expect(() => request()).toThrow(/not supported/);
+  it('request() returns a ClientRequest', () => {
+    const req = request({ hostname: 'example.com', path: '/' });
+    expect(req).toBeInstanceOf(ClientRequest);
+    expect(req._method).toBe('GET');
   });
 
-  it('get() throws', () => {
-    expect(() => get()).toThrow(/not supported/);
+  it('request() accepts string URL', () => {
+    const req = request('http://example.com/api');
+    expect(req).toBeInstanceOf(ClientRequest);
+    expect(req._url).toBe('http://example.com/api');
+  });
+
+  it('request() accepts options with method and headers', () => {
+    const req = request({
+      hostname: 'example.com', port: 8080, path: '/data',
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    });
+    expect(req._method).toBe('POST');
+    expect(req._headers['content-type']).toBe('application/json');
+    expect(req._url).toBe('http://example.com:8080/data');
+  });
+
+  it('get() returns a ClientRequest', () => {
+    const req = get({ hostname: 'example.com', path: '/' });
+    expect(req).toBeInstanceOf(ClientRequest);
+  });
+
+  it('ClientRequest.setHeader / getHeader / removeHeader', () => {
+    const req = new ClientRequest({ hostname: 'localhost' });
+    req.setHeader('X-Test', 'value');
+    expect(req.getHeader('x-test')).toBe('value');
+    req.removeHeader('X-Test');
+    expect(req.getHeader('x-test')).toBeUndefined();
+  });
+
+  it('ClientRequest.abort emits abort event', () => {
+    const req = new ClientRequest({ hostname: 'localhost' });
+    const fn = vi.fn();
+    req.on('abort', fn);
+    req.abort();
+    expect(fn).toHaveBeenCalled();
+    expect(req._aborted).toBe(true);
+  });
+
+  it('ClientRequest.write accumulates body', () => {
+    const req = new ClientRequest({ hostname: 'localhost', method: 'POST' });
+    req.write('hello ');
+    req.write('world');
+    expect(req._body.length).toBe(2);
+  });
+
+  it('ClientRequest.setTimeout stores timeout', () => {
+    const req = new ClientRequest({ hostname: 'localhost' });
+    const fn = vi.fn();
+    req.setTimeout(5000, fn);
+    expect(req._timeout).toBe(5000);
   });
 
   it('STATUS_CODES includes common codes', () => {
