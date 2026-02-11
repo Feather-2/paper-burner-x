@@ -223,6 +223,79 @@ class Hmac {
   }
 }
 
+// ============ Sign / Verify ============
+
+function parseKeyAlgorithm(key) {
+  if (key && key._wcKey) return key._wcKey;
+  throw new Error('Sign/Verify requires a CryptoKey created via wrapKey()');
+}
+
+export function createSign(algorithm) { return new Sign(algorithm); }
+
+class Sign {
+  constructor(algorithm) {
+    this._algorithm = normalizeAlgorithm(algorithm);
+    this._data = [];
+  }
+
+  update(data, encoding) {
+    this._data.push(typeof data === 'string'
+      ? (encoding === 'base64' ? Buffer.from(atob(data)) : Buffer.from(data))
+      : Buffer.from(data));
+    return this;
+  }
+
+  async sign(privateKey, outputEncoding) {
+    const combined = concatBuffers(this._data);
+    const wcKey = parseKeyAlgorithm(privateKey);
+    const alg = { ...(privateKey._wcAlg || { name: 'RSASSA-PKCS1-v1_5' }) };
+    if (!alg.hash) alg.hash = this._algorithm;
+    const sig = await crypto.subtle.sign(alg, wcKey, combined.buffer);
+    return encodeResult(new Uint8Array(sig), outputEncoding);
+  }
+}
+
+export function createVerify(algorithm) { return new Verify(algorithm); }
+
+class Verify {
+  constructor(algorithm) {
+    this._algorithm = normalizeAlgorithm(algorithm);
+    this._data = [];
+  }
+
+  update(data, encoding) {
+    this._data.push(typeof data === 'string'
+      ? (encoding === 'base64' ? Buffer.from(atob(data)) : Buffer.from(data))
+      : Buffer.from(data));
+    return this;
+  }
+
+  async verify(publicKey, signature, inputEncoding) {
+    const combined = concatBuffers(this._data);
+    const wcKey = parseKeyAlgorithm(publicKey);
+    const alg = { ...(publicKey._wcAlg || { name: 'RSASSA-PKCS1-v1_5' }) };
+    if (!alg.hash) alg.hash = this._algorithm;
+    let sigBytes;
+    if (typeof signature === 'string') {
+      if (inputEncoding === 'hex') {
+        const pairs = signature.match(/.{1,2}/g) || [];
+        sigBytes = new Uint8Array(pairs.map(h => parseInt(h, 16)));
+      } else if (inputEncoding === 'base64') {
+        sigBytes = Buffer.from(atob(signature));
+      } else {
+        sigBytes = Buffer.from(signature);
+      }
+    } else {
+      sigBytes = new Uint8Array(signature);
+    }
+    return crypto.subtle.verify(alg, wcKey, sigBytes.buffer, combined.buffer);
+  }
+}
+
+export function wrapKey(wcKey, algorithm = {}) {
+  return { _wcKey: wcKey, _wcAlg: algorithm };
+}
+
 // ============ Cipher stubs ============
 
 export function createCipheriv() { throw new Error('createCipheriv not supported in browser sandbox'); }
@@ -295,6 +368,6 @@ export const webcrypto = globalThis.crypto;
 
 export default {
   randomBytes, randomFillSync, randomUUID, randomInt, getRandomValues,
-  createHash, createHmac, createCipheriv, createDecipheriv,
+  createHash, createHmac, createSign, createVerify, wrapKey, createCipheriv, createDecipheriv,
   pbkdf2, pbkdf2Sync, webcrypto,
 };

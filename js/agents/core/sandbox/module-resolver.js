@@ -160,7 +160,17 @@ async function resolveDirectory(dirPath, vfs) {
         }
       }
 
-      // 2. Fall back to browser/main
+      // 2. Handle browser field object remapping
+      if (typeof pkg.browser === 'object' && pkg.browser !== null) {
+        const main = pkg.main || 'index.js';
+        const mainKey = './' + main;
+        const remapped = pkg.browser[mainKey] || pkg.browser[main];
+        const entry = remapped !== undefined ? (remapped || 'index.js') : main;
+        const entryBase = dirPath ? dirPath + '/' + entry : entry;
+        return resolveFile(entryBase, vfs);
+      }
+
+      // 3. Fall back to browser (string) / main
       const main = pkg.browser || pkg.main || 'index.js';
       const entryBase = dirPath ? dirPath + '/' + main : main;
       return resolveFile(entryBase, vfs);

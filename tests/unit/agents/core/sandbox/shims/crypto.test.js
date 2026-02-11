@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   randomBytes, randomUUID, randomInt, createHash, createHmac, pbkdf2Sync,
+  createSign, createVerify, wrapKey,
 } from '../../../../../../js/agents/core/sandbox/shims/crypto.js';
 import { Buffer } from '../../../../../../js/agents/core/sandbox/shims/buffer.js';
 
@@ -63,7 +64,6 @@ describe('crypto shim', () => {
     const b64 = createHash('sha256').update('test').digest('base64');
     expect(typeof b64).toBe('string');
     expect(b64.length).toBeGreaterThan(0);
-    // base64 chars only
     expect(b64).toMatch(/^[A-Za-z0-9+/=]+$/);
   });
 
@@ -75,5 +75,41 @@ describe('crypto shim', () => {
 
   it('Buffer.isBuffer(randomBytes(4)) === true', () => {
     expect(Buffer.isBuffer(randomBytes(4))).toBe(true);
+  });
+});
+
+describe('crypto sign/verify', () => {
+  it('createSign returns object with update and sign', () => {
+    const signer = createSign('sha256');
+    expect(typeof signer.update).toBe('function');
+    expect(typeof signer.sign).toBe('function');
+  });
+
+  it('createVerify returns object with update and verify', () => {
+    const verifier = createVerify('sha256');
+    expect(typeof verifier.update).toBe('function');
+    expect(typeof verifier.verify).toBe('function');
+  });
+
+  it('Sign.update is chainable', () => {
+    const signer = createSign('sha256');
+    expect(signer.update('data')).toBe(signer);
+  });
+
+  it('Verify.update is chainable', () => {
+    const verifier = createVerify('sha256');
+    expect(verifier.update('data')).toBe(verifier);
+  });
+
+  it('wrapKey wraps a key with algorithm', () => {
+    const fakeKey = {};
+    const wrapped = wrapKey(fakeKey, { name: 'ECDSA', namedCurve: 'P-256' });
+    expect(wrapped._wcKey).toBe(fakeKey);
+    expect(wrapped._wcAlg.name).toBe('ECDSA');
+  });
+
+  it('Sign.sign rejects without wrapped key', async () => {
+    const signer = createSign('sha256').update('test');
+    await expect(signer.sign('invalid-key')).rejects.toThrow('requires a CryptoKey');
   });
 });

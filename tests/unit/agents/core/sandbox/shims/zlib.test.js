@@ -6,6 +6,8 @@ import {
   constants,
   Z_NO_COMPRESSION, Z_BEST_COMPRESSION,
   createGzip,
+  brotliCompressSync, brotliDecompressSync,
+  createBrotliCompress, createBrotliDecompress,
 } from '../../../../../../js/agents/core/sandbox/shims/zlib.js';
 
 describe('zlib shim', () => {
@@ -70,5 +72,23 @@ describe('zlib shim', () => {
     const compressed = await gzipAsync(input);
     const decompressed = await gunzipAsync(compressed);
     expect(decompressed.length).toBe(0);
+  });
+});
+
+describe('zlib brotli stubs', () => {
+  it('brotliCompressSync throws', () => {
+    expect(() => brotliCompressSync()).toThrow(/Brotli/);
+  });
+
+  it('brotliDecompressSync throws', () => {
+    expect(() => brotliDecompressSync()).toThrow(/Brotli/);
+  });
+
+  it('createBrotliCompress throws', () => {
+    expect(() => createBrotliCompress()).toThrow(/Brotli/);
+  });
+
+  it('createBrotliDecompress throws', () => {
+    expect(() => createBrotliDecompress()).toThrow(/Brotli/);
   });
 });

@@ -320,3 +320,44 @@ describe('createResolver backward compat', () => {
     expect(BUILTIN_MODULE_NAMES).toContain('crypto');
   });
 });
+
+// ── browser field object remapping ──────────────────────────────
+
+describe('createResolver browser field object remapping', () => {
+  let vfs;
+  let resolver;
+
+  beforeEach(async () => {
+    vfs = new MemoryVfs();
+    resolver = createResolver({ vfs, builtinModules: {} });
+  });
+
+  it('remaps main entry via browser object', async () => {
+    await vfs.writeText('node_modules/pkg/package.json', JSON.stringify({
+      main: 'lib/node.js',
+      browser: { './lib/node.js': './lib/browser.js' },
+    }));
+    await vfs.writeText('node_modules/pkg/lib/browser.js', '');
+    const result = await resolver.resolve('pkg', '');
+    expect(result.path).toBe('node_modules/pkg/lib/browser.js');
+  });
+
+  it('falls through to main when browser object has no match', async () => {
+    await vfs.writeText('node_modules/pkg/package.json', JSON.stringify({
+      main: 'lib/index.js',
+      browser: { './other.js': './browser-other.js' },
+    }));
+    await vfs.writeText('node_modules/pkg/lib/index.js', '');
+    const result = await resolver.resolve('pkg', '');
+    expect(result.path).toBe('node_modules/pkg/lib/index.js');
+  });
+
+  it('browser string field still works', async () => {
+    await vfs.writeText('node_modules/pkg/package.json', JSON.stringify({
+      browser: 'dist/browser.js',
+    }));
+    await vfs.writeText('node_modules/pkg/dist/browser.js', '');
+    const result = await resolver.resolve('pkg', '');
+    expect(result.path).toBe('node_modules/pkg/dist/browser.js');
+  });
+});

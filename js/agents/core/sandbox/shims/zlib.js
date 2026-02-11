@@ -152,12 +152,32 @@ export function createGunzip() { return createDecompressTransform('gzip'); }
 export function createDeflate() { return createCompressTransform('deflate'); }
 export function createInflate() { return createDecompressTransform('deflate'); }
 
+// ── Brotli (stub — CompressionStream lacks brotli in most browsers) ────
+
+export function brotliCompress(input, options, callback) {
+  if (typeof options === 'function') { callback = options; }
+  callback(new Error('Brotli compression not available in browser sandbox'));
+}
+
+export function brotliDecompress(input, options, callback) {
+  if (typeof options === 'function') { callback = options; }
+  callback(new Error('Brotli decompression not available in browser sandbox'));
+}
+
+export function brotliCompressSync() { throw new Error('Brotli compression not available in browser sandbox'); }
+export function brotliDecompressSync() { throw new Error('Brotli decompression not available in browser sandbox'); }
+
+export function createBrotliCompress() { throw new Error('Brotli compression not available in browser sandbox'); }
+export function createBrotliDecompress() { throw new Error('Brotli decompression not available in browser sandbox'); }
+
 // ── Default export ──────────────────────────────────────────────
 export default {
   gzip, gunzip, deflate, inflate,
   gzipSync, gunzipSync, deflateSync, inflateSync,
   gzipAsync, gunzipAsync, deflateAsync, inflateAsync,
   createGzip, createGunzip, createDeflate, createInflate,
+  brotliCompress, brotliDecompress, brotliCompressSync, brotliDecompressSync,
+  createBrotliCompress, createBrotliDecompress,
   constants,
   Z_NO_COMPRESSION, Z_BEST_SPEED, Z_BEST_COMPRESSION, Z_DEFAULT_COMPRESSION,
 };
