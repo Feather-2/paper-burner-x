@@ -62,12 +62,12 @@ export function resolveExportConditions(entry) {
 export function resolvePackageExports(exports, subpath) {
   if (!exports) return undefined;
 
-  // Exports is a string → only matches '.'
+  // Exports is a string -> only matches '.'
   if (typeof exports === 'string') {
     return subpath === '.' ? exports : undefined;
   }
 
-  // Exports is an array → only matches '.'
+  // Exports is an array -> only matches '.'
   if (Array.isArray(exports)) {
     return subpath === '.' ? resolveExportConditions(exports) : undefined;
   }
@@ -84,7 +84,7 @@ export function resolvePackageExports(exports, subpath) {
         return resolveExportConditions(exports[subpath]);
       }
 
-      // Pattern match: "./utils/*" → "./dist/utils/*.js"
+      // Pattern match: "./utils/*" -> "./dist/utils/*.js"
       for (const pattern of keys) {
         if (pattern.includes('*')) {
           const prefix = pattern.slice(0, pattern.indexOf('*'));
@@ -105,7 +105,7 @@ export function resolvePackageExports(exports, subpath) {
       return undefined;
     }
 
-    // Not a path map → conditional exports for '.'
+    // Not a path map -> conditional exports for '.'
     if (subpath === '.') {
       return resolveExportConditions(exports);
     }
@@ -115,23 +115,43 @@ export function resolvePackageExports(exports, subpath) {
 }
 
 /**
+ * Read and cache a package.json file from VFS.
+ * @param {string} normPkg - Normalized VFS path to package.json
+ * @param {object} vfs
+ * @param {Map<string, object|null>} [pkgCache]
+ * @returns {Promise<object|null>}
+ */
+async function readPkgJson(normPkg, vfs, pkgCache) {
+  if (pkgCache && pkgCache.has(normPkg)) return pkgCache.get(normPkg);
+  try {
+    const pkg = JSON.parse(await vfs.readText(normPkg));
+    if (pkgCache) pkgCache.set(normPkg, pkg);
+    return pkg;
+  } catch {
+    if (pkgCache) pkgCache.set(normPkg, null);
+    return null;
+  }
+}
+
+/**
  * Try to resolve a single file path against VFS, probing extensions.
  * @param {string} basePath
  * @param {object} vfs
+ * @param {Map<string, object|null>} [pkgCache]
  * @returns {Promise<string|null>}
  */
-async function resolveFile(basePath, vfs) {
+async function resolveFile(basePath, vfs, pkgCache) {
   const norm = normalizeVfsPath(basePath);
   if (await vfs.exists(norm)) {
     const s = await vfs.stat(norm);
     if (s.isFile()) return norm;
-    if (s.isDirectory()) return resolveDirectory(norm, vfs);
+    if (s.isDirectory()) return resolveDirectory(norm, vfs, pkgCache);
   }
   for (const ext of EXTENSIONS) {
     const p = normalizeVfsPath(basePath + ext);
     if (await vfs.exists(p)) return p;
   }
-  return resolveDirectory(norm, vfs);
+  return resolveDirectory(norm, vfs, pkgCache);
 }
 
 /**
@@ -139,42 +159,44 @@ async function resolveFile(basePath, vfs) {
  * Checks exports field first, then browser/main, then index files.
  * @param {string} dirPath
  * @param {object} vfs
+ * @param {Map<string, object|null>} [pkgCache]
  * @returns {Promise<string|null>}
  */
-async function resolveDirectory(dirPath, vfs) {
+async function resolveDirectory(dirPath, vfs, pkgCache) {
   const pkgPath = dirPath ? dirPath + '/package.json' : 'package.json';
   const normPkg = normalizeVfsPath(pkgPath);
   if (await vfs.exists(normPkg)) {
-    try {
-      const pkg = JSON.parse(await vfs.readText(normPkg));
-
-      // 1. Try exports['.'] first
-      if (pkg.exports) {
-        const exportPath = resolvePackageExports(pkg.exports, '.');
-        if (exportPath) {
-          const entryBase = dirPath
-            ? dirPath + '/' + exportPath.replace(/^\.[\/\/]/, '')
-            : exportPath.replace(/^\.[\/\/]/, '');
-          const resolved = await resolveFile(entryBase, vfs);
-          if (resolved) return resolved;
+    const pkg = await readPkgJson(normPkg, vfs, pkgCache);
+    if (pkg) {
+      try {
+        // 1. Try exports['.'] first
+        if (pkg.exports) {
+          const exportPath = resolvePackageExports(pkg.exports, '.');
+          if (exportPath) {
+            const entryBase = dirPath
+              ? dirPath + '/' + exportPath.replace(/^\.[/\\]/, '')
+              : exportPath.replace(/^\.[/\\]/, '');
+            const resolved = await resolveFile(entryBase, vfs, pkgCache);
+            if (resolved) return resolved;
+          }
         }
-      }
 
-      // 2. Handle browser field object remapping
-      if (typeof pkg.browser === 'object' && pkg.browser !== null) {
-        const main = pkg.main || 'index.js';
-        const mainKey = './' + main;
-        const remapped = pkg.browser[mainKey] || pkg.browser[main];
-        const entry = remapped !== undefined ? (remapped || 'index.js') : main;
-        const entryBase = dirPath ? dirPath + '/' + entry : entry;
-        return resolveFile(entryBase, vfs);
-      }
+        // 2. Handle browser field object remapping
+        if (typeof pkg.browser === 'object' && pkg.browser !== null) {
+          const main = pkg.main || 'index.js';
+          const mainKey = './' + main;
+          const remapped = pkg.browser[mainKey] || pkg.browser[main];
+          const entry = remapped !== undefined ? (remapped || 'index.js') : main;
+          const entryBase = dirPath ? dirPath + '/' + entry : entry;
+          return resolveFile(entryBase, vfs, pkgCache);
+        }
 
-      // 3. Fall back to browser (string) / main
-      const main = pkg.browser || pkg.main || 'index.js';
-      const entryBase = dirPath ? dirPath + '/' + main : main;
-      return resolveFile(entryBase, vfs);
-    } catch { /* ignore parse errors */ }
+        // 3. Fall back to browser (string) / main
+        const main = pkg.browser || pkg.main || 'index.js';
+        const entryBase = dirPath ? dirPath + '/' + main : main;
+        return resolveFile(entryBase, vfs, pkgCache);
+      } catch { /* ignore resolution errors */ }
+    }
   }
   for (const idx of INDEX_FILES) {
     const p = normalizeVfsPath(dirPath ? dirPath + '/' + idx : idx);
@@ -185,7 +207,7 @@ async function resolveDirectory(dirPath, vfs) {
 
 /**
  * Parse a bare specifier into package name and subpath.
- * Handles scoped packages: "@scope/pkg/sub" → { name: "@scope/pkg", subpath: "sub" }
+ * Handles scoped packages: "@scope/pkg/sub" -> { name: "@scope/pkg", subpath: "sub" }
  * @param {string} specifier
  * @returns {{ name: string, subpath: string }}
  */
@@ -209,9 +231,10 @@ function parsePackageSpecifier(specifier) {
  * @param {string} specifier - Full specifier (may include subpath)
  * @param {string} fromDir
  * @param {object} vfs
+ * @param {Map<string, object|null>} [pkgCache]
  * @returns {Promise<string|null>}
  */
-async function resolveNodeModules(specifier, fromDir, vfs) {
+async function resolveNodeModules(specifier, fromDir, vfs, pkgCache) {
   const { name, subpath } = parsePackageSpecifier(specifier);
 
   let dir = fromDir;
@@ -222,37 +245,38 @@ async function resolveNodeModules(specifier, fromDir, vfs) {
     const pkgPath = pkgDir + '/package.json';
     const normPkg = normalizeVfsPath(pkgPath);
     if (await vfs.exists(normPkg)) {
-      try {
-        const pkg = JSON.parse(await vfs.readText(normPkg));
+      const pkg = await readPkgJson(normPkg, vfs, pkgCache);
+      if (pkg) {
+        try {
+          // If there's a subpath and exports field exists, resolve via exports
+          if (subpath && pkg.exports) {
+            const exportPath = resolvePackageExports(pkg.exports, './' + subpath);
+            if (exportPath) {
+              const fullPath = pkgDir + '/' + exportPath.replace(/^\.[/\\]/, '');
+              const resolved = await resolveFile(fullPath, vfs, pkgCache);
+              if (resolved) return resolved;
+            }
+          }
 
-        // If there's a subpath and exports field exists, resolve via exports
-        if (subpath && pkg.exports) {
-          const exportPath = resolvePackageExports(pkg.exports, './' + subpath);
-          if (exportPath) {
-            const fullPath = pkgDir + '/' + exportPath.replace(/^\.[\/\/]/, '');
-            const resolved = await resolveFile(fullPath, vfs);
+          // If there's a subpath but no exports match, try direct file resolution
+          if (subpath) {
+            const directPath = pkgDir + '/' + subpath;
+            const resolved = await resolveFile(directPath, vfs, pkgCache);
             if (resolved) return resolved;
           }
-        }
 
-        // If there's a subpath but no exports match, try direct file resolution
-        if (subpath) {
-          const directPath = pkgDir + '/' + subpath;
-          const resolved = await resolveFile(directPath, vfs);
-          if (resolved) return resolved;
-        }
-
-        // No subpath → resolve main entry (resolveFile → resolveDirectory handles exports['.'])
-        if (!subpath) {
-          const resolved = await resolveFile(pkgDir, vfs);
-          if (resolved) return resolved;
-        }
-      } catch { /* ignore parse errors, fall through */ }
+          // No subpath -> resolve main entry
+          if (!subpath) {
+            const resolved = await resolveFile(pkgDir, vfs, pkgCache);
+            if (resolved) return resolved;
+          }
+        } catch { /* ignore parse errors, fall through */ }
+      }
     }
 
     // Fallback: no package.json or parse error
     const modPath = subpath ? pkgDir + '/' + subpath : pkgDir;
-    const resolved = await resolveFile(modPath, vfs);
+    const resolved = await resolveFile(modPath, vfs, pkgCache);
     if (resolved) return resolved;
 
     if (!dir) break;
@@ -282,6 +306,9 @@ async function resolveNodeModules(specifier, fromDir, vfs) {
  */
 export function createResolver(config) {
   const { vfs, builtinModules = {} } = config;
+
+  /** @type {Map<string, object|null>} */
+  const _pkgJsonCache = new Map();
 
   /**
    * @param {string} specifier
@@ -320,14 +347,14 @@ export function createResolver(config) {
         const rel = specifier.slice(2);
         base = fromDir ? fromDir + '/' + rel : rel;
       }
-      const resolved = await resolveFile(base, vfs);
+      const resolved = await resolveFile(base, vfs, _pkgJsonCache);
       if (!resolved) return null;
       const type = resolved.endsWith('.json') ? 'json' : 'file';
       return { type, path: resolved };
     }
 
     // 4. bare module -> node_modules lookup
-    const resolved = await resolveNodeModules(specifier, fromDir, vfs);
+    const resolved = await resolveNodeModules(specifier, fromDir, vfs, _pkgJsonCache);
     if (!resolved) return null;
     const type = resolved.endsWith('.json') ? 'json' : 'file';
     return { type, path: resolved };

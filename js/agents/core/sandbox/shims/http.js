@@ -12,6 +12,59 @@ let _serverListenCallback = null;
 let _serverCloseCallback = null;
 let _servers = new Map();
 
+/**
+ * Network policy for outbound request filtering.
+ * @type {{ allowedDomains?: string[], deniedDomains?: string[], onViolation?: (info: object) => void } | null}
+ */
+let _networkPolicy = null;
+
+/**
+ * Set the network policy for outbound requests.
+ * @param {{ allowedDomains?: string[], deniedDomains?: string[], onViolation?: (info: object) => void } | null} policy
+ */
+export function setNetworkPolicy(policy) { _networkPolicy = policy; }
+
+/**
+ * Check if a hostname matches a domain pattern (supports *.example.com wildcards).
+ * @param {string} hostname
+ * @param {string} pattern
+ * @returns {boolean}
+ */
+function matchesDomainPattern(hostname, pattern) {
+  if (pattern.startsWith('*.')) {
+    return hostname.toLowerCase().endsWith('.' + pattern.slice(2).toLowerCase());
+  }
+  return hostname.toLowerCase() === pattern.toLowerCase();
+}
+
+/**
+ * Check if a URL is allowed by the current network policy.
+ * @param {string} url
+ * @returns {boolean}
+ */
+function isRequestAllowed(url) {
+  if (!_networkPolicy) return true;
+  let hostname;
+  try { hostname = new URL(url).hostname; } catch { return false; }
+
+  // Deny list takes precedence
+  if (_networkPolicy.deniedDomains) {
+    for (const pattern of _networkPolicy.deniedDomains) {
+      if (matchesDomainPattern(hostname, pattern)) return false;
+    }
+  }
+
+  // If allowedDomains is set, only those domains are permitted
+  if (_networkPolicy.allowedDomains) {
+    for (const pattern of _networkPolicy.allowedDomains) {
+      if (matchesDomainPattern(hostname, pattern)) return true;
+    }
+    return false; // Not in allowlist
+  }
+
+  return true; // No allowlist = allow all (minus deny list)
+}
+
 export function setServerListenCallback(cb) { _serverListenCallback = cb; }
 export function setServerCloseCallback(cb) { _serverCloseCallback = cb; }
 export function getServer(port) { return _servers.get(port); }
@@ -235,6 +288,16 @@ export class ClientRequest extends Writable {
   async _doFetch() {
     if (this._aborted) throw new Error('Request aborted');
 
+    // Network policy check
+    if (!isRequestAllowed(this._url)) {
+      const err = new Error(`Network request blocked by policy: ${this._url}`);
+      err.code = 'ERR_NETWORK_POLICY';
+      if (_networkPolicy?.onViolation) {
+        _networkPolicy.onViolation({ type: 'network', url: this._url, method: this._method });
+      }
+      throw err;
+    }
+
     const fetchOptions = {
       method: this._method,
       headers: this._headers,
@@ -387,4 +450,5 @@ export default {
   IncomingMessage, ServerResponse, Server, ClientRequest, createServer,
   request, get, METHODS, STATUS_CODES,
   setServerListenCallback, setServerCloseCallback, getServer,
+  setNetworkPolicy,
 };

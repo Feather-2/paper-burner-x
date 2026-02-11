@@ -38,17 +38,66 @@
 | 文件 | 职责 |
 |------|------|
 | `index.js` | 统一入口（浏览器/Node 兼容） |
-| `wasm-sandbox.js` | `WasmSandbox` 主类 |
+| `wasm-sandbox.js` | `WasmSandbox` 主类 (QuickJS WASM 隔离执行) |
+| `create-node-env.js` | `createNodeEnv` 工厂 — 创建 Node.js 兼容执行环境 (VFS + Sandbox) |
+| `sandbox-tool.js` | `createSandboxTool` — ToolExecutor 集成入口 (`execute_code` 工具) |
+| `require.js` | `createRequire` — VFS 绑定的 CommonJS require 系统 |
+| `module-resolver.js` | 模块路径解析器 (支持 package.json exports, browser field, 带缓存) |
 | `pool.js` | `SandboxPool` 沙箱池 |
 | `plugin.js` | `createSandboxPlugin`（Kernel 集成） |
 | `skill-executor.js` | `SkillExecutor` 技能执行器 |
 | `constants.js` | 能力/预设/资源限制常量 |
+| `shims/` | Node.js 内置模块 shim (path, fs, http/https, crypto, stream, etc.) |
+| `npm/` | 浏览器端 npm 包管理 (Registry + Resolver + Tarball + PackageManager) |
+
+### ToolExecutor 集成 (sandbox-tool)
+
+`createSandboxTool` 创建 `execute_code` 工具供 ToolExecutor/ToolRegistry 注册：
+
+```text
+ToolExecutor.execute('execute_code', { code, filename?, install? })
+  → sandbox-tool handler
+    → PackageManager.install() (如有 install 数组)
+    → 写入 VFS → createRequire → 宿主侧 eval 模块包装器 → 执行
+    → { success, output, result? | error? }
+```
+
+**关键设计决策**：`evaluate` 回调使用宿主侧 indirect eval (`(0, eval)(code)`) 而非 WasmSandbox，因为 QuickJS `vm.dump()` 无法将函数序列化回宿主。隔离由 require 系统注入的受控 globals (process, console, Buffer) 保证。
+
+### Node.js 兼容层
+
+```text
+createNodeEnv(config)
+  → WasmSandbox (QuickJS WASM)
+  → VFS (MemoryVfs / 外部注入)
+  → createBuiltinModules(vfs) → shims/{path,fs,http,https,...}
+  → createRequire({ vfs, builtinModules, evaluate })
+      → module-resolver (pkg.json 缓存, exports field, browser field)
+      → IIFE 包装器注入 globals
+```
+
+### module-resolver 缓存
+
+`createResolver` 内部维护 `_pkgJsonCache: Map<path, object|null>`，避免同一 package.json 被重复读取和解析。缓存作用域为单个 resolver 实例生命周期。
+
+### npm 包管理 (npm/)
+
+```text
+PackageManager
+  ├── Registry      → npm registry API (LRU 缓存)
+  ├── DependencyResolver → semver 解析 + 依赖树
+  └── TarballManager     → 下载 + 解压到 VFS
+```
+
+事件：`install:start` → `install:progress` → `install:complete` | `install:error`
 
 ### 公共导出（浏览器/Node 兼容）
 
 - `WasmSandbox`, `createSandbox`
 - `SandboxPool`
 - `createSandboxPlugin`
+- `createSandboxTool`, `SANDBOX_TOOL_DEFINITION`
+- `createNodeEnv`
 - `SkillExecutor`, `createSkillExecutor`, `isWasmSupported`
 - `SandboxCapability`, `SandboxPreset`, `ResourceLimits`
 

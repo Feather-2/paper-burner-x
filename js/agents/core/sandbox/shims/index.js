@@ -33,7 +33,21 @@ const STUB_MODULES = {
   domain: { create: () => ({ run: (fn) => fn(), on: noop }) },
   http: httpShim,
   http2: noopStub,
-  https: { ...httpShim, request: httpShim.request, get: httpShim.get },
+  https: {
+    ...httpShim,
+    request(urlOrOptions, optionsOrCallback, callback) {
+      const opts = typeof urlOrOptions === 'string' ? urlOrOptions
+        : urlOrOptions instanceof URL ? urlOrOptions
+        : { protocol: 'https:', ...urlOrOptions };
+      return httpShim.request(opts, optionsOrCallback, callback);
+    },
+    get(urlOrOptions, optionsOrCallback, callback) {
+      const opts = typeof urlOrOptions === 'string' ? urlOrOptions
+        : urlOrOptions instanceof URL ? urlOrOptions
+        : { protocol: 'https:', ...urlOrOptions };
+      return httpShim.get(opts, optionsOrCallback, callback);
+    },
+  },
   inspector: noopStub,
   module: { createRequire: noop, builtinModules: [] },
   net: netShim,
@@ -65,7 +79,20 @@ const STUB_MODULES = {
  * @returns {Record<string, object>}
  */
 export function createBuiltinModules(config = {}) {
-  const { vfs, evaluate, env = {}, cwd = '' } = config;
+  const { vfs, evaluate, env = {}, cwd = '', networkPolicy, violationStore } = config;
+
+  // Apply network policy to http shim, wiring violation store if provided
+  if (networkPolicy || violationStore) {
+    const policy = { ...networkPolicy };
+    if (violationStore && !policy.onViolation) {
+      policy.onViolation = (info) => violationStore.add({
+        type: info.type || 'network',
+        detail: `Blocked ${info.method || 'request'} to ${info.url}`,
+        meta: info,
+      });
+    }
+    httpShim.setNetworkPolicy(policy);
+  }
 
   const modules = {
     path: pathShim,

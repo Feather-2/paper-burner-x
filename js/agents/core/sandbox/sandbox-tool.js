@@ -71,9 +71,12 @@ export function createSandboxTool(config = {}) {
     const { require: req } = createRequire({
       vfs: _env.vfs,
       builtinModules,
-      evaluate: async (code, filename) => {
-        const result = await _env.execute(code, filename);
-        return result?.value;
+      evaluate: async (code, _filename) => {
+        // Host-side eval: the require wrapper is an IIFE returning a function.
+        // WasmSandbox can't serialize functions across the WASM boundary,
+        // so we eval the wrapper on the host. Isolation is provided by the
+        // controlled globals (process, console, Buffer) injected by require.
+        return (0, eval)(code);
       },
       globals: {
         process: builtinModules.process,

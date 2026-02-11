@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   IncomingMessage, ServerResponse, Server, ClientRequest, createServer,
   request, get, METHODS, STATUS_CODES,
   setServerListenCallback, setServerCloseCallback, getServer,
+  setNetworkPolicy,
 } from '../../../../../../js/agents/core/sandbox/shims/http.js';
 
 describe('http shim', () => {
@@ -255,5 +256,114 @@ describe('http shim', () => {
     srv.listen(5050);
     expect(getServer(5050)).toBe(srv);
     srv.close();
+  });
+});
+
+describe('http shim > network policy', () => {
+  afterEach(() => setNetworkPolicy(null));
+
+  it('allows all requests when no policy is set', () => {
+    const req = new ClientRequest({ hostname: 'example.com', path: '/' });
+    // No policy = no restrictions, request object should be created fine
+    expect(req._url).toBe('http://example.com/');
+  });
+
+  it('blocks requests to domains not in allowedDomains', async () => {
+    setNetworkPolicy({ allowedDomains: ['api.example.com'] });
+    const req = new ClientRequest({ hostname: 'evil.com', path: '/' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(errorFn).toHaveBeenCalled();
+    expect(errorFn.mock.calls[0][0].code).toBe('ERR_NETWORK_POLICY');
+  });
+
+  it('allows requests to domains in allowedDomains', async () => {
+    setNetworkPolicy({ allowedDomains: ['registry.npmjs.org'] });
+    const req = new ClientRequest({ hostname: 'registry.npmjs.org', path: '/' });
+    // Should not throw ERR_NETWORK_POLICY — will fail with fetch error instead
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    if (errorFn.mock.calls.length > 0) {
+      expect(errorFn.mock.calls[0][0].code).not.toBe('ERR_NETWORK_POLICY');
+    }
+  });
+
+  it('deniedDomains takes precedence over allowedDomains', async () => {
+    setNetworkPolicy({
+      allowedDomains: ['*.example.com'],
+      deniedDomains: ['evil.example.com'],
+    });
+    const req = new ClientRequest({ hostname: 'evil.example.com', path: '/' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(errorFn).toHaveBeenCalled();
+    expect(errorFn.mock.calls[0][0].code).toBe('ERR_NETWORK_POLICY');
+  });
+
+  it('wildcard domain pattern matches subdomains', async () => {
+    setNetworkPolicy({ allowedDomains: ['*.npmjs.org'] });
+    const req = new ClientRequest({ hostname: 'registry.npmjs.org', path: '/' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    if (errorFn.mock.calls.length > 0) {
+      expect(errorFn.mock.calls[0][0].code).not.toBe('ERR_NETWORK_POLICY');
+    }
+  });
+
+  it('wildcard does not match the base domain itself', async () => {
+    setNetworkPolicy({ allowedDomains: ['*.example.com'] });
+    const req = new ClientRequest({ hostname: 'example.com', path: '/' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(errorFn).toHaveBeenCalled();
+    expect(errorFn.mock.calls[0][0].code).toBe('ERR_NETWORK_POLICY');
+  });
+
+  it('onViolation callback is invoked on blocked request', async () => {
+    const violationFn = vi.fn();
+    setNetworkPolicy({ allowedDomains: ['safe.com'], onViolation: violationFn });
+    const req = new ClientRequest({ hostname: 'blocked.com', path: '/secret' });
+    req.on('error', () => {});
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(violationFn).toHaveBeenCalledWith({
+      type: 'network',
+      url: 'http://blocked.com/secret',
+      method: 'GET',
+    });
+  });
+
+  it('deniedDomains only blocks without allowedDomains = allow rest', async () => {
+    setNetworkPolicy({ deniedDomains: ['evil.com'] });
+    // safe.com should NOT be blocked (no allowedDomains = allow all minus deny)
+    const req = new ClientRequest({ hostname: 'safe.com', path: '/' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    if (errorFn.mock.calls.length > 0) {
+      expect(errorFn.mock.calls[0][0].code).not.toBe('ERR_NETWORK_POLICY');
+    }
+  });
+
+  it('empty allowedDomains blocks everything', async () => {
+    setNetworkPolicy({ allowedDomains: [] });
+    const req = new ClientRequest({ hostname: 'anything.com', path: '/' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(errorFn).toHaveBeenCalled();
+    expect(errorFn.mock.calls[0][0].code).toBe('ERR_NETWORK_POLICY');
   });
 });
