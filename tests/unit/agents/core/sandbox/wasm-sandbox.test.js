@@ -303,7 +303,7 @@ describe('WasmSandbox', () => {
 
     const result = await sb.execute('1', context);
 
-    expect(result.success).toBe(true);
+    expect(result.ok).toBe(true);
 
     const evalCalls = quickjsMock.vm.evalCode.mock.calls.map(([code]) => String(code));
     expect(evalCalls.length).toBe(Object.keys(context).length + 1);
@@ -377,7 +377,7 @@ describe('WasmSandbox', () => {
 
       const result = await sb.execute('/* trigger-timeout */');
 
-      expect(result.success).toBe(false);
+      expect(result.ok).toBe(false);
       expect(result.error).toBe('Execution timeout');
       expect(quickjsMock.runtime.setInterruptHandler).toHaveBeenCalled();
 
@@ -403,7 +403,7 @@ describe('WasmSandbox', () => {
 
     const result = await sb.execute('boom');
 
-    expect(result.success).toBe(false);
+    expect(result.ok).toBe(false);
     expect(result.error).toBe('EvalBoom');
     expect(errorHandle.dispose).toHaveBeenCalledTimes(1);
 
@@ -429,8 +429,8 @@ describe('WasmSandbox', () => {
 
     const result = await sb.execute('1');
 
-    expect(result.success).toBe(true);
-    expect(result.data).toBeUndefined();
+    expect(result.ok).toBe(true);
+    expect(result.value).toBeUndefined();
 
     sb.dispose();
   });
@@ -448,9 +448,9 @@ describe('WasmSandbox', () => {
 
     const result = await sb.execute('1');
 
-    expect(result.success).toBe(false);
+    expect(result.ok).toBe(false);
     expect(result.error).toBe('kaboom');
-    expect(result.metrics.memoryUsed).toBe(0);
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
 
     sb.dispose();
   });
@@ -477,14 +477,14 @@ describe('WasmSandbox', () => {
       sb.execute('2+2'),
     ]);
 
-    expect(first.data).toBe(2);
-    expect(second.data).toBe(4);
+    expect(first.value).toBe(2);
+    expect(second.value).toBe(4);
 
     const third = await sb.execute('3+3');
     const fourth = await sb.execute('4+4');
 
-    expect(third.data).toBe(6);
-    expect(fourth.data).toBe(8);
+    expect(third.value).toBe(6);
+    expect(fourth.value).toBe(8);
 
     sb.dispose();
   });
@@ -503,7 +503,7 @@ describe('WasmSandbox', () => {
 
     const result = await sb.executeAsync('return Promise.resolve(1);');
 
-    expect(result.success).toBe(false);
+    expect(result.ok).toBe(false);
     expect(result.error).toBe('PendingBoom');
     expect(pendingError.dispose).toHaveBeenCalledTimes(1);
 
@@ -523,7 +523,7 @@ describe('WasmSandbox', () => {
 
     const result = await sb.executeAsync('return Promise.resolve(1);');
 
-    expect(result.success).toBe(true);
+    expect(result.ok).toBe(true);
     expect(quickjsMock.runtime.executePendingJobs).toHaveBeenCalled();
 
     sb.dispose();

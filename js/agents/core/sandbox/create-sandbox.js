@@ -80,7 +80,7 @@ async function createWasmSandbox(cfg) {
   return wrapAsSandbox('wasm', cfg,
     async (code) => {
       const r = await wasm.execute(code);
-      if (r.success) return r.data;
+      if (r.ok) return r.value;
       throw new Error(r.error || 'WASM execution failed');
     },
     () => { wasm.dispose(); },

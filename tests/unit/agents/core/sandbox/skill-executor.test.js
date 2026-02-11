@@ -50,13 +50,13 @@ vi.mock('../../../../../js/agents/core/sandbox/pool.js', () => {
         if (typeof fn === 'function') {
           return await fn({
             executeAsync: vi.fn(async () => ({
-              success: true,
-              data: null,
-              metrics: {},
+              ok: true,
+              value: null,
+              durationMs: 0,
             })),
           });
         }
-        return { success: true, data: null, metrics: {} };
+        return { ok: true, value: null, durationMs: 0 };
       });
       poolState.instances.push(this);
     }
@@ -338,7 +338,7 @@ describe('SkillExecutor', () => {
     const cases = [null, undefined, {}, { metadata: { name: 'empty' }, body: '' }];
     for (const skill of cases) {
       const res = await executor.execute(skill, {});
-      expect(res.success).toBe(false);
+      expect(res.ok).toBe(false);
       expect(res.error).toBe('Skill has no body');
     }
   });
@@ -346,9 +346,10 @@ describe('SkillExecutor', () => {
   it('executes via pool and forwards logs/emits to kernel', async () => {
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
     const executeAsync = vi.fn(async (body, args) => ({
-      success: true,
-      data: { body, args },
-      metrics: { mode: 'wasm' },
+      ok: true,
+      value: { body, args },
+      durationMs: 1,
+      mode: 'wasm',
     }));
     const pool = {
       withSandbox: vi.fn(async (options, fn) => {
@@ -374,12 +375,12 @@ describe('SkillExecutor', () => {
     expect(options.state.extra).toBe('x');
     expect(executeAsync).toHaveBeenCalledWith(skill.body, context.args);
 
-    expect(res.success).toBe(true);
-    expect(res.data).toEqual({ body: skill.body, args: context.args });
+    expect(res.ok).toBe(true);
+    expect(res.value).toEqual({ body: skill.body, args: context.args });
     expect(res.logs).toHaveLength(1);
     expect(res.emits).toHaveLength(1);
     expect(res.skill).toBe('pool-skill');
-    expect(res.metrics.mode).toBe('wasm');
+    expect(res.mode).toBe('wasm');
     expect(kernel.events.emit).toHaveBeenCalledWith(
       'skill:log',
       expect.objectContaining({ skill: 'pool-skill', level: 'info' })
@@ -400,7 +401,7 @@ describe('SkillExecutor', () => {
       {}
     );
 
-    expect(res.success).toBe(false);
+    expect(res.ok).toBe(false);
     expect(String(res.error)).toMatch(/fallback disabled/i);
   });
 
@@ -416,9 +417,9 @@ describe('SkillExecutor', () => {
       {}
     );
 
-    expect(res.success).toBe(false);
+    expect(res.ok).toBe(false);
     expect(res.error).toBe('Security: fallback eval blocked for untrusted skill');
-    expect(res.metrics?.blocked).toBe(true);
+    expect(res.blocked).toBe(true);
   });
 
   it('blocks unsafe patterns before evaluating fallback code', async () => {
@@ -433,9 +434,9 @@ describe('SkillExecutor', () => {
       {}
     );
 
-    expect(res.success).toBe(false);
+    expect(res.ok).toBe(false);
     expect(String(res.error)).toMatch(/^Security: Blocked pattern:/);
-    expect(res.metrics?.blocked).toBe(true);
+    expect(res.blocked).toBe(true);
   });
 
   it('reports runtime errors during main-thread fallback', async () => {
@@ -451,9 +452,9 @@ describe('SkillExecutor', () => {
       {}
     );
 
-    expect(res.success).toBe(false);
+    expect(res.ok).toBe(false);
     expect(res.error).toContain('boom');
-    expect(res.metrics?.mode).toBe('eval');
+    expect(res.mode).toBe('eval');
   });
 
   it('respects timeout limits during fallback execution', async () => {
@@ -477,7 +478,7 @@ describe('SkillExecutor', () => {
     await Promise.resolve();
     const res = await resPromise;
 
-    expect(res.success).toBe(false);
+    expect(res.ok).toBe(false);
     expect(res.error).toBe('Execution timeout');
   });
 
@@ -494,10 +495,10 @@ describe('SkillExecutor', () => {
       {}
     );
 
-    expect(res.success).toBe(true);
-    expect(res.data).toBe('undefined');
-    expect(res.metrics?.mode).toBe('eval');
-    expect(res.metrics?.blockedGlobals).toContain('Function');
+    expect(res.ok).toBe(true);
+    expect(res.value).toBe('undefined');
+    expect(res.mode).toBe('eval');
+    expect(res.blockedGlobals).toContain('Function');
   });
 
   it('handles large code, long strings, and deep nested state in fallback', async () => {
@@ -521,8 +522,8 @@ describe('SkillExecutor', () => {
       { state: deepState }
     );
 
-    expect(res.success).toBe(true);
-    expect(res.data).toBe(7 + bigText.length);
+    expect(res.ok).toBe(true);
+    expect(res.value).toBe(7 + bigText.length);
   });
 
   it('falls back to eval and disposes owned pool on sandbox failure', async () => {
@@ -541,8 +542,8 @@ describe('SkillExecutor', () => {
       {}
     );
 
-    expect(res.success).toBe(true);
-    expect(res.data).toBe(2);
+    expect(res.ok).toBe(true);
+    expect(res.value).toBe(2);
     expect(poolState.instances).toHaveLength(1);
     expect(poolState.instances[0].dispose).toHaveBeenCalledTimes(1);
     expect(executor.pool).toBeNull();
@@ -568,7 +569,7 @@ describe('SkillExecutor', () => {
       {}
     );
 
-    expect(res.success).toBe(false);
+    expect(res.ok).toBe(false);
     expect(res.error).toBe('pool boom');
     expect(pool.dispose).not.toHaveBeenCalled();
     expect(executor.pool).toBe(pool);
@@ -589,7 +590,7 @@ describe('SkillExecutor', () => {
     const results = await executor.executeMany(skills, {});
 
     expect(results).toHaveLength(2);
-    expect(results.map(result => result.data)).toEqual(['a', 'b']);
+    expect(results.map(result => result.value)).toEqual(['a', 'b']);
   });
 
   it('supports rapid consecutive execute calls without sharing logs', async () => {
@@ -642,11 +643,11 @@ describe('SkillExecutor', () => {
       onEmit: vi.fn(),
     });
 
-    expect(resZero.success).toBe(true);
-    expect(resZero.data).toBe(Number.MAX_SAFE_INTEGER);
-    expect(resNegative.success).toBe(true);
-    expect(resString.success).toBe(true);
-    expect(resString.data).toBe('undefined');
+    expect(resZero.ok).toBe(true);
+    expect(resZero.value).toBe(Number.MAX_SAFE_INTEGER);
+    expect(resNegative.ok).toBe(true);
+    expect(resString.ok).toBe(true);
+    expect(resString.value).toBe('undefined');
   });
 
   it('handles worker messages during fallback execution', async () => {
@@ -681,9 +682,9 @@ describe('SkillExecutor', () => {
 
     expect(onLog).toHaveBeenCalledWith('info', ['hello']);
     expect(onEmit).toHaveBeenCalledWith('ping', { ok: true });
-    expect(res.success).toBe(true);
-    expect(res.data).toBe(5);
-    expect(res.metrics.mode).toBe('worker');
+    expect(res.ok).toBe(true);
+    expect(res.value).toBe(5);
+    expect(res.mode).toBe('worker');
   });
 
   it('executes fallback via node worker when available', async () => {
@@ -699,9 +700,9 @@ describe('SkillExecutor', () => {
       onEmit: vi.fn(),
     });
 
-    expect(res.success).toBe(true);
-    expect(res.data).toBe(7);
-    expect(res.metrics.mode).toBe('node-worker');
+    expect(res.ok).toBe(true);
+    expect(res.value).toBe(7);
+    expect(res.mode).toBe('node-worker');
   });
 });
 

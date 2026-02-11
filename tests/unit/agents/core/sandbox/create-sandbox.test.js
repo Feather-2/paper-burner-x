@@ -46,7 +46,7 @@ vi.mock(
   '../../../../../js/agents/core/sandbox/wasm-sandbox.js',
   () => ({
     createSandbox: vi.fn(async () => ({
-      execute: vi.fn(async () => ({ success: true, data: 42 })),
+      execute: vi.fn(async () => ({ ok: true, value: 42, durationMs: 1 })),
       dispose: vi.fn(),
     })),
   })

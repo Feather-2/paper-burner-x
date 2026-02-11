@@ -194,10 +194,9 @@ export class SkillExecutor {
   async execute(skill, context = {}) {
     if (!skill?.body) {
       return {
-        success: false,
+        ok: false,
         error: 'Skill has no body',
-        data: null,
-        metrics: {},
+        value: null,
       };
     }
 
@@ -307,13 +306,12 @@ export class SkillExecutor {
       };
     } catch (err) {
       return {
-        success: false,
+        ok: false,
         error: err?.message || String(err),
-        data: null,
+        value: null,
         logs,
         emits,
         skill: skill.metadata?.name,
-        metrics: {},
       };
     }
   }
@@ -330,7 +328,7 @@ export class SkillExecutor {
    * @param {Object} exec.limits
    * @param {(level: string, args: any[]) => void} exec.onLog
    * @param {(name: string, payload: any) => void} exec.onEmit
-   * @returns {Promise<{ success: boolean, data: any, error?: string, metrics: any }>}
+   * @returns {Promise<{ ok: boolean, value: any, error?: string, durationMs: number }>}
    */
   async _executeFallback(skill, context, exec) {
     const skillId = skill?.id || skill?.metadata?.name;
@@ -346,10 +344,12 @@ export class SkillExecutor {
         // ignore
       }
       return {
-        success: false,
-        data: null,
+        ok: false,
+        value: null,
         error: 'Security: fallback eval blocked for untrusted skill',
-        metrics: { duration: 0, blocked: true, mode: 'eval' },
+        durationMs: 0,
+        blocked: true,
+        mode: 'eval',
       };
     }
 
@@ -364,10 +364,12 @@ export class SkillExecutor {
         // ignore
       }
       return {
-        success: false,
-        data: null,
+        ok: false,
+        value: null,
         error: `Security: ${validation.reason}`,
-        metrics: { duration: 0, blocked: true, mode: 'eval' },
+        durationMs: 0,
+        blocked: true,
+        mode: 'eval',
       };
     }
 
@@ -455,10 +457,12 @@ export class SkillExecutor {
         timeoutId = setTimeout(() => {
           cleanup();
           finish({
-            success: false,
-            data: null,
+            ok: false,
+            value: null,
             error: 'Worker execution timeout',
-            metrics: { duration: Date.now() - startTime, timedOut: true, mode: 'worker' },
+            durationMs: Date.now() - startTime,
+            timedOut: true,
+            mode: 'worker',
           });
         }, timeoutMs + 1000);
       }
@@ -487,13 +491,13 @@ export class SkillExecutor {
 
         if (type === 'result') {
           cleanup();
-          const nextMetrics = metrics && typeof metrics === "object" ? { ...metrics } : { duration: Date.now() - startTime };
-          nextMetrics.mode = 'worker';
+          const elapsed = (metrics && typeof metrics === "object" && typeof metrics.duration === 'number') ? metrics.duration : Date.now() - startTime;
           finish({
-            success: Boolean(success),
-            data: success ? data : null,
+            ok: Boolean(success),
+            value: success ? data : null,
             error: success ? undefined : String(error || 'Unknown error'),
-            metrics: nextMetrics,
+            durationMs: elapsed,
+            mode: 'worker',
           });
         }
       };
@@ -501,10 +505,11 @@ export class SkillExecutor {
       worker.onerror = (err) => {
         cleanup();
         finish({
-          success: false,
-          data: null,
+          ok: false,
+          value: null,
           error: err?.message || String(err),
-          metrics: { duration: Date.now() - startTime, mode: 'worker' },
+          durationMs: Date.now() - startTime,
+          mode: 'worker',
         });
       };
 
@@ -520,10 +525,11 @@ export class SkillExecutor {
       } catch (err) {
         cleanup();
         finish({
-          success: false,
-          data: null,
+          ok: false,
+          value: null,
           error: err?.message || String(err),
-          metrics: { duration: Date.now() - startTime, mode: 'worker' },
+          durationMs: Date.now() - startTime,
+          mode: 'worker',
         });
       }
     });
@@ -532,7 +538,7 @@ export class SkillExecutor {
   /**
    * Node.js worker_threads 执行
    * @param {Object} options
-   * @returns {Promise<{ success: boolean, data: any, error?: string, metrics: any }>}
+   * @returns {Promise<{ ok: boolean, value: any, error?: string, durationMs: number }>}
    */
   async _executeFallbackInNodeWorker(options) {
     const startTime = Date.now();
@@ -580,10 +586,12 @@ export class SkillExecutor {
         timeoutId = setTimeout(() => {
           cleanup();
           finish({
-            success: false,
-            data: null,
+            ok: false,
+            value: null,
             error: 'Worker execution timeout',
-            metrics: { duration: Date.now() - startTime, timedOut: true, mode: 'node-worker' },
+            durationMs: Date.now() - startTime,
+            timedOut: true,
+            mode: 'node-worker',
           });
         }, timeoutMs + 1000);
       }
@@ -612,13 +620,13 @@ export class SkillExecutor {
 
         if (type === 'result') {
           cleanup();
-          const nextMetrics = metrics && typeof metrics === 'object' ? { ...metrics } : { duration: Date.now() - startTime };
-          nextMetrics.mode = 'node-worker';
+          const elapsed = (metrics && typeof metrics === 'object' && typeof metrics.duration === 'number') ? metrics.duration : Date.now() - startTime;
           finish({
-            success: Boolean(success),
-            data: success ? resultData : null,
+            ok: Boolean(success),
+            value: success ? resultData : null,
             error: success ? undefined : String(error || 'Unknown error'),
-            metrics: nextMetrics,
+            durationMs: elapsed,
+            mode: 'node-worker',
           });
         }
       });
@@ -626,10 +634,11 @@ export class SkillExecutor {
       worker.on('error', (err) => {
         cleanup();
         finish({
-          success: false,
-          data: null,
+          ok: false,
+          value: null,
           error: err?.message || String(err),
-          metrics: { duration: Date.now() - startTime, mode: 'node-worker' },
+          durationMs: Date.now() - startTime,
+          mode: 'node-worker',
         });
       });
 
@@ -637,10 +646,11 @@ export class SkillExecutor {
         if (!done && code !== 0) {
           cleanup();
           finish({
-            success: false,
-            data: null,
+            ok: false,
+            value: null,
             error: `Worker exited with code ${code}`,
-            metrics: { duration: Date.now() - startTime, mode: 'node-worker' },
+            durationMs: Date.now() - startTime,
+            mode: 'node-worker',
           });
         }
       });
@@ -657,10 +667,11 @@ export class SkillExecutor {
       } catch (err) {
         cleanup();
         finish({
-          success: false,
-          data: null,
+          ok: false,
+          value: null,
           error: err?.message || String(err),
-          metrics: { duration: Date.now() - startTime, mode: 'node-worker' },
+          durationMs: Date.now() - startTime,
+          mode: 'node-worker',
         });
       }
     });
@@ -726,24 +737,20 @@ export class SkillExecutor {
       }
 
       return {
-        success: true,
-        data: result,
-        metrics: {
-          duration: Date.now() - startTime,
-          mode: 'eval',
-          blockedGlobals: Array.from(audit.blockedAccesses),
-        },
+        ok: true,
+        value: result,
+        durationMs: Date.now() - startTime,
+        mode: 'eval',
+        blockedGlobals: Array.from(audit.blockedAccesses),
       };
     } catch (err) {
       return {
-        success: false,
-        data: null,
+        ok: false,
+        value: null,
         error: err?.message || String(err),
-        metrics: {
-          duration: Date.now() - startTime,
-          mode: 'eval',
-          blockedGlobals: Array.from(audit.blockedAccesses),
-        },
+        durationMs: Date.now() - startTime,
+        mode: 'eval',
+        blockedGlobals: Array.from(audit.blockedAccesses),
       };
     } finally {
       try {
