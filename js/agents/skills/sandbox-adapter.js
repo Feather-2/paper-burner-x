@@ -15,6 +15,9 @@ import { SkillExecutor } from '../core/sandbox/skill-executor.js';
  *
  * @param {SkillsManagerWithSandbox} manager
  * @param {Object} options
+ * @param {Object} [options.kernel] - Kernel instance
+ * @param {Function} [options.trustChecker] - Trust checker function
+ * @param {Object} [options.packageManager] - PackageManager for npm install in sandbox
  * @returns {SkillsManagerWithSandbox} 增强后的 manager
  */
 export function enhanceWithSandbox(manager, options = {}) {
@@ -22,6 +25,11 @@ export function enhanceWithSandbox(manager, options = {}) {
     kernel: options.kernel,
     trustChecker: options.trustChecker,
   });
+
+  // Expose packageManager for skill sandbox npm installs
+  if (options.packageManager) {
+    manager.packageManager = options.packageManager;
+  }
 
   // 添加执行方法
   manager.executeSkill = async function(skillNameOrObj, context = {}) {
@@ -96,6 +104,7 @@ export function enhanceWithSandbox(manager, options = {}) {
  * @param {number} [options.cacheMaxEntries] - Maximum cache entries
  * @param {Object} [options.kernel] - Kernel instance for sandbox
  * @param {Function} [options.trustChecker] - Trust checker function
+ * @param {Object} [options.packageManager] - PackageManager for npm install
  * @returns {Promise<SkillsManagerWithSandbox>} Enhanced manager with sandbox execution
  */
 export async function createSandboxedSkillsManager(options = {}) {
@@ -112,6 +121,7 @@ export async function createSandboxedSkillsManager(options = {}) {
   return enhanceWithSandbox(manager, {
     kernel: options.kernel,
     trustChecker: options.trustChecker,
+    packageManager: options.packageManager,
   });
 }
 
