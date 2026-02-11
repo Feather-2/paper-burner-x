@@ -41,6 +41,7 @@ import {
   DefaultSandboxConfig,
   SandboxBackend,
 } from '../../../../../../js/agents/core/sandbox/system/constants.js';
+import { existsSync } from 'node:fs';
 
 const BASE_RESULT = { code: 0, stdout: 'ok', stderr: '' };
 
@@ -358,6 +359,79 @@ describe('executeInBubblewrap', () => {
     expect(args[readIndex - 1]).toBe('--ro-bind-try');
     expect(args).toContain(longCommand);
     expect(args).toContain(deepEnv);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Non-existent deny path protection
+// ---------------------------------------------------------------------------
+describe('non-existent deny path protection', () => {
+  it('binds /dev/null to non-existent file deny path', async () => {
+    // /work exists but /work/.env.secret does not
+    existsSync.mockImplementation((p) => p === '/work');
+
+    await executeInBubblewrap('echo', [], {
+      workDir: '/work',
+      denyPaths: ['/work/.env.secret'],
+      disableMandatoryDeny: true,
+      allowedWritePaths: [],
+    });
+    const args = execCommand.mock.calls[0][1];
+    // Should have --ro-bind /dev/null /work/.env.secret
+    const idx = args.indexOf('/work/.env.secret');
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx - 1]).toBe('/dev/null');
+    expect(args[idx - 2]).toBe('--ro-bind');
+
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
+  });
+
+  it('binds /dev/null to first non-existent component for deep paths', async () => {
+    // /work exists, /work/deep does not, so /work/deep/nested/file should
+    // result in --ro-bind /dev/null /work/deep
+    existsSync.mockImplementation((p) => {
+      if (p === '/work') return true;
+      return false;
+    });
+
+    await executeInBubblewrap('echo', [], {
+      workDir: '/work',
+      denyPaths: ['/work/deep/nested/file'],
+      disableMandatoryDeny: true,
+      allowedWritePaths: [],
+    });
+    const args = execCommand.mock.calls[0][1];
+    const idx = args.indexOf('/work/deep');
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx - 1]).toBe('/dev/null');
+    expect(args[idx - 2]).toBe('--ro-bind');
+    // Should NOT contain the full path — blocked at /work/deep
+    expect(args).not.toContain('/work/deep/nested/file');
+
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
+  });
+
+  it('uses --ro-bind path path for existing deny paths (unchanged behavior)', async () => {
+    existsSync.mockImplementation(() => true);
+
+    await executeInBubblewrap('echo', [], {
+      workDir: '/work',
+      denyPaths: ['/work/.bashrc'],
+      disableMandatoryDeny: true,
+      allowedWritePaths: [],
+    });
+    const args = execCommand.mock.calls[0][1];
+    // --ro-bind /work/.bashrc /work/.bashrc  (src=dest for existing paths)
+    // indexOf finds the first occurrence (src), so idx-1 is '--ro-bind'
+    const idx = args.indexOf('/work/.bashrc');
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx - 1]).toBe('--ro-bind');
+    expect(args[idx + 1]).toBe('/work/.bashrc');
+
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
   });
 });
 

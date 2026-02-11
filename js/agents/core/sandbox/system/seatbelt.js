@@ -14,6 +14,62 @@ import { statSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 /**
+ * Default mach-lookup service whitelist.
+ * Covers essential macOS services required for process execution.
+ */
+const DEFAULT_MACH_SERVICES = [
+  'com.apple.SecurityServer',
+  'com.apple.lsd.mapdb',
+  'com.apple.system.opendirectoryd.membership',
+  'com.apple.CoreServices.coreservicesd',
+  'com.apple.DiskArbitration.diskarbitrationd',
+  'com.apple.FileCoordination',
+  'com.apple.FSEvents',
+  'com.apple.distributed_notifications@Uid',
+  'com.apple.coreservices.launchservicesd',
+  'com.apple.system.notification_center',
+  'com.apple.logd',
+  'com.apple.cfprefsd.daemon',
+  'com.apple.cfprefsd.agent',
+];
+
+/** Regex patterns for mach-lookup whitelist. */
+const DEFAULT_MACH_REGEX_PATTERNS = [
+  '#"^com\\.apple\\.sandbox\\."',
+];
+
+/**
+ * Default sysctl-read whitelist.
+ * Covers hardware/kernel introspection needed by runtimes.
+ */
+const DEFAULT_SYSCTL_NAMES = [
+  'hw.memsize',
+  'hw.ncpu',
+  'hw.logicalcpu',
+  'hw.physicalcpu',
+  'hw.pagesize',
+  'kern.ostype',
+  'kern.osrelease',
+  'kern.hostname',
+  'kern.version',
+];
+
+/** Sysctl prefix whitelist. */
+const DEFAULT_SYSCTL_PREFIXES = [
+  'hw.',
+  'kern.',
+  'sysctl.',
+  'net.',
+];
+
+/** System directories protected from file-write-unlink. */
+const UNLINK_DENY_PATHS = [
+  '/etc',
+  '/usr',
+  '/System',
+];
+
+/**
  * Sensitive files that should be deny-write inside the sandbox.
  * Inspired by Anthropic Sandbox Runtime mandatory deny paths.
  */
@@ -70,6 +126,8 @@ function getMandatoryDenyPaths(workDir) {
  * @property {Object.<string, string>} [env] - 环境变量
  * @property {string[]} [denyPaths] - 额外的拒绝写入路径
  * @property {boolean} [disableMandatoryDeny] - 禁用自动 mandatory deny paths（默认 false）
+ * @property {string[]} [extraMachServices] - 额外的 mach-lookup 服务白名单
+ * @property {string[]} [extraSysctlNames] - 额外的 sysctl-read 名称白名单
  */
 
 /**
@@ -103,6 +161,8 @@ export async function executeInSeatbelt(command, args, options) {
     allowNetwork,
     denyPaths,
     disableMandatoryDeny,
+    extraMachServices: options.extraMachServices,
+    extraSysctlNames: options.extraSysctlNames,
   });
 
   // sandbox-exec -p <profile> <command> [args...]
@@ -138,10 +198,20 @@ function generateSBPLProfile(options) {
     '(allow process-fork)',
     '(allow process-exec)',
     '(allow signal)',
-    '(allow sysctl-read)',
     '',
-    '; 允许 mach 服务 (必要的系统调用)',
-    '(allow mach-lookup)',
+    '; sysctl 精细白名单',
+    '(allow sysctl-read',
+    ...DEFAULT_SYSCTL_NAMES.map(n => `  (sysctl-name "${n}")`),
+    ...DEFAULT_SYSCTL_PREFIXES.map(p => `  (sysctl-name-prefix "${p}")`),
+    ...(options.extraSysctlNames || []).filter(n => typeof n === 'string' && n.length > 0).map(n => `  (sysctl-name "${n}")`),
+    ')',
+    '',
+    '; mach-lookup 精细白名单',
+    '(allow mach-lookup',
+    ...DEFAULT_MACH_SERVICES.map(s => `  (global-name "${s}")`),
+    ...DEFAULT_MACH_REGEX_PATTERNS.map(r => `  (global-name-regex ${r})`),
+    ...(options.extraMachServices || []).filter(s => typeof s === 'string' && s.length > 0).map(s => `  (global-name "${s}")`),
+    ')',
     '',
     '; 允许读取系统库',
     '(allow file-read*',
@@ -226,6 +296,13 @@ function generateSBPLProfile(options) {
   } else {
     lines.push('; 网络已禁用');
     lines.push('(deny network*)');
+  }
+
+  // 防止通过 rename/unlink 绕过只读限制
+  lines.push('');
+  lines.push('; 禁止对系统目录 unlink');
+  for (const up of UNLINK_DENY_PATHS) {
+    lines.push(`(deny file-write-unlink (subpath "${up}"))`);
   }
 
   // 临时文件

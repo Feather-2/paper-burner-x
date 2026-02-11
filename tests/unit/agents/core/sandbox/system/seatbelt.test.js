@@ -127,6 +127,25 @@ describe('executeInSeatbelt', () => {
     expect(profile).toContain('(allow file-write* (subpath "/work/default-write"))');
     expect(profile).toContain('(allow file-write* (subpath "/abs-write"))');
     expect(profile).toContain('(deny network*)');
+
+    // Fine-grained mach-lookup whitelist (not open allow)
+    expect(profile).toContain('(allow mach-lookup');
+    expect(profile).toContain('(global-name "com.apple.SecurityServer")');
+    expect(profile).toContain('(global-name "com.apple.logd")');
+    expect(profile).toContain('(global-name-regex #"^com\\.apple\\.sandbox\\.")');
+    // Must NOT have a bare (allow mach-lookup) line
+    expect(profile).not.toMatch(/^\(allow mach-lookup\)$/m);
+
+    // Fine-grained sysctl-read whitelist
+    expect(profile).toContain('(allow sysctl-read');
+    expect(profile).toContain('(sysctl-name "hw.memsize")');
+    expect(profile).toContain('(sysctl-name-prefix "kern.")');
+    expect(profile).not.toMatch(/^\(allow sysctl-read\)$/m);
+
+    // file-write-unlink deny for system dirs
+    expect(profile).toContain('(deny file-write-unlink (subpath "/etc"))');
+    expect(profile).toContain('(deny file-write-unlink (subpath "/usr"))');
+    expect(profile).toContain('(deny file-write-unlink (subpath "/System"))');
   });
 
   it('toggles network rule based on allowNetwork', async () => {
@@ -359,6 +378,92 @@ describe('mandatory deny paths', () => {
     const profile = getProfileFromCall();
 
     expect(profile).not.toContain('/unsafe/path');
+  });
+});
+
+describe('fine-grained whitelists', () => {
+  beforeEach(() => {
+    statSync.mockImplementation(() => { throw new Error('ENOENT'); });
+  });
+
+  it('generates sysctl-read with individual names and prefixes', async () => {
+    await executeInSeatbelt('echo', [], { workDir: '/work' });
+    const profile = getProfileFromCall();
+
+    expect(profile).toContain('(allow sysctl-read');
+    expect(profile).toContain('  (sysctl-name "hw.memsize")');
+    expect(profile).toContain('  (sysctl-name "hw.ncpu")');
+    expect(profile).toContain('  (sysctl-name "kern.ostype")');
+    expect(profile).toContain('  (sysctl-name-prefix "hw.")');
+    expect(profile).toContain('  (sysctl-name-prefix "kern.")');
+    expect(profile).toContain('  (sysctl-name-prefix "sysctl.")');
+    expect(profile).toContain('  (sysctl-name-prefix "net.")');
+    // No bare (allow sysctl-read)
+    expect(profile).not.toMatch(/^\(allow sysctl-read\)$/m);
+  });
+
+  it('generates mach-lookup with specific global-name entries', async () => {
+    await executeInSeatbelt('echo', [], { workDir: '/work' });
+    const profile = getProfileFromCall();
+
+    expect(profile).toContain('(allow mach-lookup');
+    expect(profile).toContain('  (global-name "com.apple.SecurityServer")');
+    expect(profile).toContain('  (global-name "com.apple.lsd.mapdb")');
+    expect(profile).toContain('  (global-name "com.apple.FSEvents")');
+    expect(profile).toContain('  (global-name "com.apple.cfprefsd.daemon")');
+    expect(profile).toContain('  (global-name "com.apple.cfprefsd.agent")');
+    expect(profile).toContain('  (global-name-regex #"^com\\.apple\\.sandbox\\.")');
+    // No bare (allow mach-lookup)
+    expect(profile).not.toMatch(/^\(allow mach-lookup\)$/m);
+  });
+
+  it('appends extraMachServices to the whitelist', async () => {
+    await executeInSeatbelt('echo', [], {
+      workDir: '/work',
+      extraMachServices: ['com.custom.myservice', 'com.custom.other'],
+    });
+    const profile = getProfileFromCall();
+
+    expect(profile).toContain('  (global-name "com.custom.myservice")');
+    expect(profile).toContain('  (global-name "com.custom.other")');
+    // Default entries still present
+    expect(profile).toContain('  (global-name "com.apple.SecurityServer")');
+  });
+
+  it('appends extraSysctlNames to the whitelist', async () => {
+    await executeInSeatbelt('echo', [], {
+      workDir: '/work',
+      extraSysctlNames: ['custom.metric'],
+    });
+    const profile = getProfileFromCall();
+
+    expect(profile).toContain('  (sysctl-name "custom.metric")');
+    // Default entries still present
+    expect(profile).toContain('  (sysctl-name "hw.memsize")');
+  });
+
+  it('filters out empty/non-string extra entries', async () => {
+    await executeInSeatbelt('echo', [], {
+      workDir: '/work',
+      extraMachServices: ['', null, undefined, 42, 'com.valid.service'],
+      extraSysctlNames: ['', null, 'valid.name'],
+    });
+    const profile = getProfileFromCall();
+
+    expect(profile).toContain('  (global-name "com.valid.service")');
+    expect(profile).toContain('  (sysctl-name "valid.name")');
+    // Should not contain empty or invalid entries
+    expect(profile).not.toContain('(global-name "")');
+    expect(profile).not.toContain('(sysctl-name "")');
+  });
+
+  it('includes file-write-unlink deny for system directories', async () => {
+    await executeInSeatbelt('echo', [], { workDir: '/work' });
+    const profile = getProfileFromCall();
+
+    expect(profile).toContain('(deny file-write-unlink (subpath "/etc"))');
+    expect(profile).toContain('(deny file-write-unlink (subpath "/usr"))');
+    expect(profile).toContain('(deny file-write-unlink (subpath "/System"))');
   });
 });
 

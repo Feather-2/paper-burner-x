@@ -96,6 +96,25 @@ function getMandatoryDenyPaths(workDir) {
 }
 
 /**
+ * Walk a path from root toward leaf and return the first component that
+ * does not exist on disk.  Used to block creation of non-existent deny
+ * paths: binding /dev/null at this component prevents mkdir of the
+ * entire subtree.
+ * @param {string} targetPath - Absolute path to inspect
+ * @returns {string|null} First non-existent component, or null if fully exists
+ */
+function findFirstNonExistentComponent(targetPath) {
+  const parts = targetPath.split('/');
+  let current = '';
+  for (const part of parts) {
+    if (!part) continue;
+    current += '/' + part;
+    if (!existsSync(current)) return current;
+  }
+  return null;
+}
+
+/**
  * Check if a path component is a symlink within allowed write paths.
  * Prevents symlink replacement attacks.
  * @param {string} targetPath
@@ -250,6 +269,13 @@ function buildBubblewrapArgs(options) {
     }
     if (existsSync(dp)) {
       args.push('--ro-bind', dp, dp);
+    } else {
+      // Non-existent deny path: block creation via --ro-bind /dev/null
+      // at the first missing path component (prevents mkdir subtree).
+      const missing = findFirstNonExistentComponent(dp);
+      if (missing) {
+        args.push('--ro-bind', '/dev/null', missing);
+      }
     }
   }
 
