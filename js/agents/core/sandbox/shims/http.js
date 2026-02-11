@@ -10,42 +10,7 @@ import { EventEmitter } from './events.js';
 import { Readable, Writable } from './stream.js';
 import { Buffer } from './buffer.js';
 import { Socket } from './net.js';
-
-/**
- * Validate a domain pattern. Rejects overly broad or malformed patterns.
- * @param {string} pattern
- * @throws {Error} if pattern is invalid
- */
-function validateDomainPattern(pattern) {
-  if (!pattern || typeof pattern !== 'string') {
-    throw new Error(`Invalid domain pattern: empty or non-string`);
-  }
-  if (pattern === '*') {
-    throw new Error(`Domain pattern '*' is too broad; use specific domains`);
-  }
-  if (pattern.includes('://') || pattern.includes('/') || pattern.includes(':')) {
-    throw new Error(`Domain pattern '${pattern}' must not contain protocol, port, or path`);
-  }
-  if (pattern.startsWith('*.')) {
-    const rest = pattern.slice(2);
-    if (!rest.includes('.')) {
-      throw new Error(`Domain pattern '${pattern}' is too broad; wildcard must have at least two domain segments (e.g.*.example.com)`);
-    }
-  }
-}
-
-/**
- * Check if a hostname matches a domain pattern (supports *.example.com wildcards).
- * @param {string} hostname
- * @param {string} pattern
- * @returns {boolean}
- */
-function matchesDomainPattern(hostname, pattern) {
-  if (pattern.startsWith('*.')) {
-    return hostname.toLowerCase().endsWith('.' + pattern.slice(2).toLowerCase());
-  }
-  return hostname.toLowerCase() === pattern.toLowerCase();
-}
+import { validateDomainPattern, matchesDomainPattern, isUrlAllowed } from '../network-policy-utils.js';
 
 export class IncomingMessage extends Readable {
   constructor(socket) {
@@ -218,24 +183,7 @@ export function createHttpShim(options = {}) {
   }
 
   function isRequestAllowed(url) {
-    if (!_networkPolicy) return true;
-    let hostname;
-    try { hostname = new URL(url).hostname; } catch { return false; }
-
-    if (_networkPolicy.deniedDomains) {
-      for (const pattern of _networkPolicy.deniedDomains) {
-        if (matchesDomainPattern(hostname, pattern)) return false;
-      }
-    }
-
-    if (_networkPolicy.allowedDomains) {
-      for (const pattern of _networkPolicy.allowedDomains) {
-        if (matchesDomainPattern(hostname, pattern)) return true;
-      }
-      return false;
-    }
-
-    return true;
+    return isUrlAllowed(url, _networkPolicy);
   }
 
   function setServerListenCallback(cb) { _serverListenCallback = cb; }

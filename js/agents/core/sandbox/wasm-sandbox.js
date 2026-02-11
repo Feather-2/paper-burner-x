@@ -49,10 +49,11 @@ function tryJsonStringify(value) {
 /**
  * 沙箱执行结果
  * @typedef {Object} SandboxResult
- * @property {boolean} success
- * @property {*} data
- * @property {string} [error]
- * @property {Object} metrics
+ * @property {boolean} ok - 是否成功
+ * @property {*} [value] - 返回值
+ * @property {string} [error] - 错误消息
+ * @property {string} [stack] - 错误堆栈
+ * @property {number} durationMs - 执行耗时
  */
 
 /**
@@ -300,13 +301,10 @@ export class WasmSandbox {
         result.error.dispose();
 
         return {
-          success: false,
-          data: null,
+          ok: false,
+          value: null,
           error: interrupted ? 'Execution timeout' : String(error),
-          metrics: {
-            duration,
-            memoryUsed: this._runtime.computeMemoryUsage().malloc_size,
-          },
+          durationMs: duration,
         };
       }
 
@@ -320,22 +318,16 @@ export class WasmSandbox {
       result.value.dispose();
 
       return {
-        success: true,
-        data,
-        metrics: {
-          duration,
-          memoryUsed: this._runtime.computeMemoryUsage().malloc_size,
-        },
+        ok: true,
+        value: data,
+        durationMs: duration,
       };
     } catch (err) {
       return {
-        success: false,
-        data: null,
+        ok: false,
+        value: null,
         error: err.message,
-        metrics: {
-          duration: performance.now() - startTime,
-          memoryUsed: 0,
-        },
+        durationMs: performance.now() - startTime,
       };
     } finally {
       clearTimeout(timeoutId);
@@ -363,7 +355,7 @@ export class WasmSandbox {
     const result = await this.execute(wrappedCode, context);
 
     // 如果返回了 Promise，需要轮询 pending jobs
-    if (result.success) {
+    if (result.ok) {
       // 执行 pending jobs（Promise 回调）
       const maxIterations = 1000;
       for (let i = 0; i < maxIterations; i++) {
@@ -373,7 +365,7 @@ export class WasmSandbox {
           pending.error.dispose();
           return {
             ...result,
-            success: false,
+            ok: false,
             error: String(error),
           };
         }
