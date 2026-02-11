@@ -1,9 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  IncomingMessage, ServerResponse, Server, ClientRequest, createServer,
-  request, get, METHODS, STATUS_CODES,
-  setServerListenCallback, setServerCloseCallback, getServer,
-  setNetworkPolicy,
+  IncomingMessage, ServerResponse, METHODS, STATUS_CODES,
+  createHttpShim,
 } from '../../../../../../js/agents/core/sandbox/shims/http.js';
 
 describe('http shim', () => {
@@ -121,7 +119,8 @@ describe('http shim', () => {
   });
 
   it('Server.listen triggers listening', async () => {
-    const srv = new Server();
+    const shim = createHttpShim();
+    const srv = new shim.Server();
     const fn = vi.fn();
     srv.on('listening', fn);
     srv.listen(7070);
@@ -132,14 +131,16 @@ describe('http shim', () => {
   });
 
   it('Server.address returns listen address', () => {
-    const srv = new Server();
+    const shim = createHttpShim();
+    const srv = new shim.Server();
     srv.listen(8080);
     expect(srv.address()).toEqual({ port: 8080, address: '0.0.0.0', family: 'IPv4' });
     srv.close();
   });
 
   it('Server.close triggers close event', async () => {
-    const srv = new Server();
+    const shim = createHttpShim();
+    const srv = new shim.Server();
     srv.listen(9090);
     const fn = vi.fn();
     srv.on('close', fn);
@@ -149,7 +150,8 @@ describe('http shim', () => {
   });
 
   it('Server.handleRequest returns response', async () => {
-    const srv = createServer((req, res) => {
+    const shim = createHttpShim();
+    const srv = shim.createServer((req, res) => {
       expect(req.method).toBe('GET');
       expect(req.url).toBe('/test');
       res.writeHead(200);
@@ -161,30 +163,35 @@ describe('http shim', () => {
   });
 
   it('createServer returns a Server', () => {
-    const srv = createServer();
-    expect(srv).toBeInstanceOf(Server);
+    const shim = createHttpShim();
+    const srv = shim.createServer();
+    expect(srv).toBeDefined();
+    expect(srv._listening).toBe(false);
   });
 
   it('createServer with listener', () => {
+    const shim = createHttpShim();
     const fn = vi.fn();
-    const srv = createServer(fn);
+    const srv = shim.createServer(fn);
     expect(srv.listenerCount('request')).toBe(1);
   });
 
   it('request() returns a ClientRequest', () => {
-    const req = request({ hostname: 'example.com', path: '/' });
-    expect(req).toBeInstanceOf(ClientRequest);
+    const shim = createHttpShim();
+    const req = shim.request({ hostname: 'example.com', path: '/' });
+    expect(req).toBeDefined();
     expect(req._method).toBe('GET');
   });
 
   it('request() accepts string URL', () => {
-    const req = request('http://example.com/api');
-    expect(req).toBeInstanceOf(ClientRequest);
+    const shim = createHttpShim();
+    const req = shim.request('http://example.com/api');
     expect(req._url).toBe('http://example.com/api');
   });
 
   it('request() accepts options with method and headers', () => {
-    const req = request({
+    const shim = createHttpShim();
+    const req = shim.request({
       hostname: 'example.com', port: 8080, path: '/data',
       method: 'POST', headers: { 'Content-Type': 'application/json' },
     });
@@ -194,12 +201,14 @@ describe('http shim', () => {
   });
 
   it('get() returns a ClientRequest', () => {
-    const req = get({ hostname: 'example.com', path: '/' });
-    expect(req).toBeInstanceOf(ClientRequest);
+    const shim = createHttpShim();
+    const req = shim.get({ hostname: 'example.com', path: '/' });
+    expect(req).toBeDefined();
   });
 
   it('ClientRequest.setHeader / getHeader / removeHeader', () => {
-    const req = new ClientRequest({ hostname: 'localhost' });
+    const shim = createHttpShim();
+    const req = new shim.ClientRequest({ hostname: 'localhost' });
     req.setHeader('X-Test', 'value');
     expect(req.getHeader('x-test')).toBe('value');
     req.removeHeader('X-Test');
@@ -207,7 +216,8 @@ describe('http shim', () => {
   });
 
   it('ClientRequest.abort emits abort event', () => {
-    const req = new ClientRequest({ hostname: 'localhost' });
+    const shim = createHttpShim();
+    const req = new shim.ClientRequest({ hostname: 'localhost' });
     const fn = vi.fn();
     req.on('abort', fn);
     req.abort();
@@ -216,14 +226,16 @@ describe('http shim', () => {
   });
 
   it('ClientRequest.write accumulates body', () => {
-    const req = new ClientRequest({ hostname: 'localhost', method: 'POST' });
+    const shim = createHttpShim();
+    const req = new shim.ClientRequest({ hostname: 'localhost', method: 'POST' });
     req.write('hello ');
     req.write('world');
     expect(req._body.length).toBe(2);
   });
 
   it('ClientRequest.setTimeout stores timeout', () => {
-    const req = new ClientRequest({ hostname: 'localhost' });
+    const shim = createHttpShim();
+    const req = new shim.ClientRequest({ hostname: 'localhost' });
     const fn = vi.fn();
     req.setTimeout(5000, fn);
     expect(req._timeout).toBe(5000);
@@ -242,35 +254,35 @@ describe('http shim', () => {
   });
 
   it('setServerListenCallback is called on listen', async () => {
+    const shim = createHttpShim();
     const cb = vi.fn();
-    setServerListenCallback(cb);
-    const srv = createServer();
+    shim.setServerListenCallback(cb);
+    const srv = shim.createServer();
     srv.listen(6060);
     expect(cb).toHaveBeenCalledWith(6060, srv);
     srv.close();
-    setServerListenCallback(null);
+    shim.setServerListenCallback(null);
   });
 
   it('getServer retrieves server by port', () => {
-    const srv = createServer();
+    const shim = createHttpShim();
+    const srv = shim.createServer();
     srv.listen(5050);
-    expect(getServer(5050)).toBe(srv);
+    expect(shim.getServer(5050)).toBe(srv);
     srv.close();
   });
 });
 
 describe('http shim > network policy', () => {
-  afterEach(() => setNetworkPolicy(null));
-
   it('allows all requests when no policy is set', () => {
-    const req = new ClientRequest({ hostname: 'example.com', path: '/' });
-    // No policy = no restrictions, request object should be created fine
+    const shim = createHttpShim();
+    const req = new shim.ClientRequest({ hostname: 'example.com', path: '/' });
     expect(req._url).toBe('http://example.com/');
   });
 
   it('blocks requests to domains not in allowedDomains', async () => {
-    setNetworkPolicy({ allowedDomains: ['api.example.com'] });
-    const req = new ClientRequest({ hostname: 'evil.com', path: '/' });
+    const shim = createHttpShim({ networkPolicy: { allowedDomains: ['api.example.com'] } });
+    const req = new shim.ClientRequest({ hostname: 'evil.com', path: '/' });
     const errorFn = vi.fn();
     req.on('error', errorFn);
     req.end();
@@ -280,9 +292,8 @@ describe('http shim > network policy', () => {
   });
 
   it('allows requests to domains in allowedDomains', async () => {
-    setNetworkPolicy({ allowedDomains: ['registry.npmjs.org'] });
-    const req = new ClientRequest({ hostname: 'registry.npmjs.org', path: '/' });
-    // Should not throw ERR_NETWORK_POLICY — will fail with fetch error instead
+    const shim = createHttpShim({ networkPolicy: { allowedDomains: ['registry.npmjs.org'] } });
+    const req = new shim.ClientRequest({ hostname: 'registry.npmjs.org', path: '/' });
     const errorFn = vi.fn();
     req.on('error', errorFn);
     req.end();
@@ -293,11 +304,13 @@ describe('http shim > network policy', () => {
   });
 
   it('deniedDomains takes precedence over allowedDomains', async () => {
-    setNetworkPolicy({
-      allowedDomains: ['*.example.com'],
-      deniedDomains: ['evil.example.com'],
+    const shim = createHttpShim({
+      networkPolicy: {
+        allowedDomains: ['*.example.com'],
+        deniedDomains: ['evil.example.com'],
+      },
     });
-    const req = new ClientRequest({ hostname: 'evil.example.com', path: '/' });
+    const req = new shim.ClientRequest({ hostname: 'evil.example.com', path: '/' });
     const errorFn = vi.fn();
     req.on('error', errorFn);
     req.end();
@@ -307,8 +320,8 @@ describe('http shim > network policy', () => {
   });
 
   it('wildcard domain pattern matches subdomains', async () => {
-    setNetworkPolicy({ allowedDomains: ['*.npmjs.org'] });
-    const req = new ClientRequest({ hostname: 'registry.npmjs.org', path: '/' });
+    const shim = createHttpShim({ networkPolicy: { allowedDomains: ['*.npmjs.org'] } });
+    const req = new shim.ClientRequest({ hostname: 'registry.npmjs.org', path: '/' });
     const errorFn = vi.fn();
     req.on('error', errorFn);
     req.end();
@@ -319,8 +332,8 @@ describe('http shim > network policy', () => {
   });
 
   it('wildcard does not match the base domain itself', async () => {
-    setNetworkPolicy({ allowedDomains: ['*.example.com'] });
-    const req = new ClientRequest({ hostname: 'example.com', path: '/' });
+    const shim = createHttpShim({ networkPolicy: { allowedDomains: ['*.example.com'] } });
+    const req = new shim.ClientRequest({ hostname: 'example.com', path: '/' });
     const errorFn = vi.fn();
     req.on('error', errorFn);
     req.end();
@@ -331,8 +344,10 @@ describe('http shim > network policy', () => {
 
   it('onViolation callback is invoked on blocked request', async () => {
     const violationFn = vi.fn();
-    setNetworkPolicy({ allowedDomains: ['safe.com'], onViolation: violationFn });
-    const req = new ClientRequest({ hostname: 'blocked.com', path: '/secret' });
+    const shim = createHttpShim({
+      networkPolicy: { allowedDomains: ['safe.com'], onViolation: violationFn },
+    });
+    const req = new shim.ClientRequest({ hostname: 'blocked.com', path: '/secret' });
     req.on('error', () => {});
     req.end();
     await new Promise(r => setTimeout(r, 50));
@@ -344,9 +359,8 @@ describe('http shim > network policy', () => {
   });
 
   it('deniedDomains only blocks without allowedDomains = allow rest', async () => {
-    setNetworkPolicy({ deniedDomains: ['evil.com'] });
-    // safe.com should NOT be blocked (no allowedDomains = allow all minus deny)
-    const req = new ClientRequest({ hostname: 'safe.com', path: '/' });
+    const shim = createHttpShim({ networkPolicy: { deniedDomains: ['evil.com'] } });
+    const req = new shim.ClientRequest({ hostname: 'safe.com', path: '/' });
     const errorFn = vi.fn();
     req.on('error', errorFn);
     req.end();
@@ -357,13 +371,72 @@ describe('http shim > network policy', () => {
   });
 
   it('empty allowedDomains blocks everything', async () => {
-    setNetworkPolicy({ allowedDomains: [] });
-    const req = new ClientRequest({ hostname: 'anything.com', path: '/' });
+    const shim = createHttpShim({ networkPolicy: { allowedDomains: [] } });
+    const req = new shim.ClientRequest({ hostname: 'anything.com', path: '/' });
     const errorFn = vi.fn();
     req.on('error', errorFn);
     req.end();
     await new Promise(r => setTimeout(r, 50));
     expect(errorFn).toHaveBeenCalled();
     expect(errorFn.mock.calls[0][0].code).toBe('ERR_NETWORK_POLICY');
+  });
+
+  it('setNetworkPolicy can update policy after creation', async () => {
+    const shim = createHttpShim();
+    shim.setNetworkPolicy({ allowedDomains: ['api.example.com'] });
+    const req = new shim.ClientRequest({ hostname: 'evil.com', path: '/' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(errorFn).toHaveBeenCalled();
+    expect(errorFn.mock.calls[0][0].code).toBe('ERR_NETWORK_POLICY');
+  });
+});
+
+describe('http shim > domain pattern validation', () => {
+  it('rejects bare wildcard *', () => {
+    expect(() => createHttpShim({ networkPolicy: { allowedDomains: ['*'] } })).toThrow('too broad');
+  });
+
+  it('rejects *.com (TLD-only wildcard)', () => {
+    expect(() => createHttpShim({ networkPolicy: { allowedDomains: ['*.com'] } })).toThrow('too broad');
+  });
+
+  it('rejects *.org (TLD-only wildcard)', () => {
+    expect(() => createHttpShim({ networkPolicy: { deniedDomains: ['*.org'] } })).toThrow('too broad');
+  });
+
+  it('accepts *.example.com (two segments after wildcard)', () => {
+    expect(() => createHttpShim({ networkPolicy: { allowedDomains: ['*.example.com'] } })).not.toThrow();
+  });
+
+  it('rejects pattern with protocol', () => {
+    expect(() => createHttpShim({ networkPolicy: { allowedDomains: ['https://example.com'] } })).toThrow('protocol');
+  });
+
+  it('rejects pattern with port', () => {
+    expect(() => createHttpShim({ networkPolicy: { allowedDomains: ['example.com:8080'] } })).toThrow('port');
+  });
+
+  it('rejects pattern with path', () => {
+    expect(() => createHttpShim({ networkPolicy: { allowedDomains: ['example.com/api'] } })).toThrow('path');
+  });
+
+  it('rejects empty string', () => {
+    expect(() => createHttpShim({ networkPolicy: { allowedDomains: [''] } })).toThrow('empty');
+  });
+
+  it('accepts localhost', () => {
+    expect(() => createHttpShim({ networkPolicy: { allowedDomains: ['localhost'] } })).not.toThrow();
+  });
+
+  it('accepts plain domain', () => {
+    expect(() => createHttpShim({ networkPolicy: { allowedDomains: ['api.example.com'] } })).not.toThrow();
+  });
+
+  it('setNetworkPolicy also validates patterns', () => {
+    const shim = createHttpShim();
+    expect(() => shim.setNetworkPolicy({ allowedDomains: ['*'] })).toThrow('too broad');
   });
 });

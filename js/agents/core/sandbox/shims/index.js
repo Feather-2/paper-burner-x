@@ -15,7 +15,7 @@ import { createFsShim } from './fs.js';
 import { createChildProcessShim } from './child-process.js';
 import zlibShim from './zlib.js';
 import netShim from './net.js';
-import httpShim from './http.js';
+import { createHttpShim, IncomingMessage, ServerResponse, METHODS, STATUS_CODES } from './http.js';
 import cryptoShim from './crypto.js';
 import { createProcess } from './process.js';
 
@@ -31,23 +31,7 @@ const STUB_MODULES = {
   dgram: noopStub,
   dns: { resolve: noop, lookup: (hostname, cb) => cb?.(null, '127.0.0.1', 4) },
   domain: { create: () => ({ run: (fn) => fn(), on: noop }) },
-  http: httpShim,
   http2: noopStub,
-  https: {
-    ...httpShim,
-    request(urlOrOptions, optionsOrCallback, callback) {
-      const opts = typeof urlOrOptions === 'string' ? urlOrOptions
-        : urlOrOptions instanceof URL ? urlOrOptions
-        : { protocol: 'https:', ...urlOrOptions };
-      return httpShim.request(opts, optionsOrCallback, callback);
-    },
-    get(urlOrOptions, optionsOrCallback, callback) {
-      const opts = typeof urlOrOptions === 'string' ? urlOrOptions
-        : urlOrOptions instanceof URL ? urlOrOptions
-        : { protocol: 'https:', ...urlOrOptions };
-      return httpShim.get(opts, optionsOrCallback, callback);
-    },
-  },
   inspector: noopStub,
   module: { createRequire: noop, builtinModules: [] },
   net: netShim,
@@ -81,7 +65,8 @@ const STUB_MODULES = {
 export function createBuiltinModules(config = {}) {
   const { vfs, evaluate, env = {}, cwd = '', networkPolicy, violationStore } = config;
 
-  // Apply network policy to http shim, wiring violation store if provided
+  // Build http shim instance with network policy
+  const httpShimOptions = {};
   if (networkPolicy || violationStore) {
     const policy = { ...networkPolicy };
     if (violationStore && !policy.onViolation) {
@@ -91,8 +76,9 @@ export function createBuiltinModules(config = {}) {
         meta: info,
       });
     }
-    httpShim.setNetworkPolicy(policy);
+    httpShimOptions.networkPolicy = policy;
   }
+  const httpInstance = createHttpShim(httpShimOptions);
 
   const modules = {
     path: pathShim,
@@ -105,11 +91,36 @@ export function createBuiltinModules(config = {}) {
     os: osShim,
     zlib: zlibShim,
     ...STUB_MODULES,
+    http: httpInstance,
+    https: {
+      ...httpInstance,
+      request(urlOrOptions, optionsOrCallback, callback) {
+        const opts = typeof urlOrOptions === 'string' ? urlOrOptions
+          : urlOrOptions instanceof URL ? urlOrOptions
+          : { protocol: 'https:', ...urlOrOptions };
+        return httpInstance.request(opts, optionsOrCallback, callback);
+      },
+      get(urlOrOptions, optionsOrCallback, callback) {
+        const opts = typeof urlOrOptions === 'string' ? urlOrOptions
+          : urlOrOptions instanceof URL ? urlOrOptions
+          : { protocol: 'https:', ...urlOrOptions };
+        return httpInstance.get(opts, optionsOrCallback, callback);
+      },
+    },
   };
 
   // 动态模块（需要 VFS）
   if (vfs) {
-    modules.fs = createFsShim(vfs);
+    const fsOptions = {};
+    if (config.protectedPaths) fsOptions.protectedPaths = config.protectedPaths;
+    if (violationStore) {
+      fsOptions.onViolation = (info) => violationStore.add({
+        type: info.type || 'fs:write',
+        detail: `Blocked ${info.op} on ${info.path}`,
+        meta: info,
+      });
+    }
+    modules.fs = createFsShim(vfs, fsOptions);
     modules.child_process = createChildProcessShim({ vfs, evaluate, env, cwd });
   }
 
@@ -122,6 +133,6 @@ export function createBuiltinModules(config = {}) {
 /**
  * 所有已知内置模块名。
  */
-export const BUILTIN_MODULE_NAMES = Object.keys({ ...STUB_MODULES, path: 1, events: 1, buffer: 1, stream: 1, url: 1, querystring: 1, util: 1, os: 1, zlib: 1, fs: 1, child_process: 1 });
+export const BUILTIN_MODULE_NAMES = Object.keys({ ...STUB_MODULES, path: 1, events: 1, buffer: 1, stream: 1, url: 1, querystring: 1, util: 1, os: 1, zlib: 1, fs: 1, child_process: 1, http: 1, https: 1 });
 
 export default { createBuiltinModules, BUILTIN_MODULE_NAMES };
