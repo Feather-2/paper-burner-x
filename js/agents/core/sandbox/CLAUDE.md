@@ -47,6 +47,7 @@
 | `plugin.js` | `createSandboxPlugin`（Kernel 集成） |
 | `skill-executor.js` | `SkillExecutor` 技能执行器 |
 | `constants.js` | 能力/预设/资源限制常量 |
+| `violation-store.js` | `createViolationStore` — 违规记录存储 (网络策略/能力越权等) |
 | `shims/` | Node.js 内置模块 shim (path, fs, http/https, crypto, stream, etc.) |
 | `npm/` | 浏览器端 npm 包管理 (Registry + Resolver + Tarball + PackageManager) |
 
@@ -184,6 +185,63 @@ SandboxPreset.TRUSTED;
 - `getPlatform()`
 
 其余 System API 见 `./system/index.js`。
+
+### 网络策略 (Network Policy)
+
+`ClientRequest`（http/https shim）支持域名级网络过滤，灵感来自 Anthropic Sandbox Runtime 的 `filterNetworkRequest`。
+
+```js
+import { createBuiltinModules } from './shims/index.js';
+
+const modules = createBuiltinModules({
+  vfs,
+  networkPolicy: {
+    allowedDomains: ['registry.npmjs.org', '*.github.com'],
+    deniedDomains: ['evil.com'],           // 优先于 allowedDomains
+    // onViolation: (info) => { ... }      // 可选：自定义违规回调
+  },
+  violationStore,                           // 可选：自动记录被拒操作
+});
+```
+
+- `allowedDomains` — 白名单模式，空数组 `[]` = 阻止所有请求
+- `deniedDomains` — 黑名单，优先于白名单
+- 支持 `*.example.com` 通配符（匹配子域名，不匹配基域名本身）
+- 被阻止的请求抛出 `ERR_NETWORK_POLICY` 错误
+
+### VFS 写保护 (Protected Paths)
+
+`createFsShim` 支持 `protectedPaths` 选项，强制指定路径为只读（灵感来自 ASRT 的 Mandatory Deny Paths）。
+
+```js
+import { createFsShim } from './shims/fs.js';
+
+const fs = createFsShim(vfs, {
+  protectedPaths: ['node_modules', '.env', '.git'],
+  onViolation: (info) => violationStore.add(info),  // 可选
+});
+
+fs.writeFileSync('.env', 'hacked');  // → EPERM
+fs.readFileSync('.env', 'utf8');     // → 正常读取
+```
+
+写保护覆盖所有写操作（writeFile, appendFile, unlink, rmdir, mkdir, rename, copyFile）的 callback / sync / promises 三种形式。读操作不受影响。
+
+### 违规存储 (ViolationStore)
+
+环形缓冲区记录被拒绝的沙箱操作，用于审计和调试。
+
+```js
+import { createViolationStore } from './violation-store.js';
+
+const store = createViolationStore({ maxEntries: 256 });
+store.subscribe((v) => console.warn('Violation:', v.type, v.detail));
+
+// 通过 createBuiltinModules 自动集成
+const modules = createBuiltinModules({ vfs, violationStore: store, networkPolicy: { ... } });
+```
+
+类型：`network` | `fs:read` | `fs:write` | `exec` | `capability`
 
 ### 事件与边界
 

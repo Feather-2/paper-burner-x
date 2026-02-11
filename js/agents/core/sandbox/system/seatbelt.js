@@ -10,6 +10,54 @@
 import { SandboxBackend, DefaultSandboxConfig } from './constants.js';
 import { execCommand } from './detect.js';
 import { normalizeSandboxPath, isSafeForSBPL } from './path-utils.js';
+import { statSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+
+/**
+ * Sensitive files that should be deny-write inside the sandbox.
+ * Inspired by Anthropic Sandbox Runtime mandatory deny paths.
+ */
+const DANGEROUS_FILES = [
+  '.bashrc', '.bash_profile', '.profile',
+  '.zshrc', '.gitconfig', '.npmrc', '.yarnrc',
+  '.env', '.env.local', '.env.production',
+];
+
+/**
+ * Dangerous directories that should be deny-write.
+ */
+const DANGEROUS_DIRS = ['.ssh', '.gnupg', '.claude'];
+
+/**
+ * Get mandatory deny paths for a working directory.
+ * These paths are automatically protected even if the user configures broad write access.
+ * @param {string} workDir
+ * @returns {string[]}
+ */
+function getMandatoryDenyPaths(workDir) {
+  const denyPaths = [];
+
+  for (const f of DANGEROUS_FILES) {
+    denyPaths.push(resolve(workDir, f));
+  }
+
+  for (const d of DANGEROUS_DIRS) {
+    denyPaths.push(resolve(workDir, d));
+  }
+
+  // .git/hooks and .git/config — only if .git is a real directory
+  const dotGitPath = resolve(workDir, '.git');
+  try {
+    if (statSync(dotGitPath).isDirectory()) {
+      denyPaths.push(join(dotGitPath, 'hooks'));
+      denyPaths.push(join(dotGitPath, 'config'));
+    }
+  } catch {
+    // .git doesn't exist — skip
+  }
+
+  return denyPaths;
+}
 
 /**
  * Seatbelt 执行选项
@@ -20,6 +68,8 @@ import { normalizeSandboxPath, isSafeForSBPL } from './path-utils.js';
  * @property {boolean} [allowNetwork] - 是否允许网络
  * @property {number} [timeoutMs] - 超时
  * @property {Object.<string, string>} [env] - 环境变量
+ * @property {string[]} [denyPaths] - 额外的拒绝写入路径
+ * @property {boolean} [disableMandatoryDeny] - 禁用自动 mandatory deny paths（默认 false）
  */
 
 /**
@@ -42,12 +92,17 @@ export async function executeInSeatbelt(command, args, options) {
     throw new Error('workDir is required for Seatbelt sandbox');
   }
 
+  const denyPaths = options.denyPaths || [];
+  const disableMandatoryDeny = options.disableMandatoryDeny || false;
+
   // 生成 SBPL profile
   const profile = generateSBPLProfile({
     workDir,
     allowedReadPaths,
     allowedWritePaths,
     allowNetwork,
+    denyPaths,
+    disableMandatoryDeny,
   });
 
   // sandbox-exec -p <profile> <command> [args...]
@@ -68,7 +123,10 @@ export async function executeInSeatbelt(command, args, options) {
  * @returns {string}
  */
 function generateSBPLProfile(options) {
-  const { workDir, allowedReadPaths, allowedWritePaths, allowNetwork } = options;
+  const {
+    workDir, allowedReadPaths, allowedWritePaths, allowNetwork,
+    denyPaths = [], disableMandatoryDeny = false,
+  } = options;
 
   const lines = [
     '(version 1)',
@@ -114,6 +172,28 @@ function generateSBPLProfile(options) {
   lines.push('; 工作目录权限');
   lines.push(`(allow file-read* (subpath "${escapeForSBPL(workDir)}"))`);
   lines.push(`(allow file-write* (subpath "${escapeForSBPL(workDir)}"))`);
+
+  // Mandatory deny paths — 覆盖上面的 allow，SBPL 后出现的 deny 优先
+  const allDenyPaths = [...denyPaths];
+  if (!disableMandatoryDeny) {
+    allDenyPaths.push(...getMandatoryDenyPaths(workDir));
+  }
+  if (allDenyPaths.length > 0) {
+    lines.push('');
+    lines.push('; 拒绝写入敏感路径 (mandatory deny)');
+    for (const dp of allDenyPaths) {
+      if (!isSafeForSBPL(dp)) continue;
+      const escaped = escapeForSBPL(dp);
+      // 目录用 subpath，文件用 literal
+      const isDirPath = DANGEROUS_DIRS.some(d => dp.endsWith('/' + d))
+        || dp.endsWith('/hooks') || dp.endsWith('/hooks/');
+      if (isDirPath) {
+        lines.push(`(deny file-write* (subpath "${escaped}"))`);
+      } else {
+        lines.push(`(deny file-write* (literal "${escaped}"))`);
+      }
+    }
+  }
 
   // 额外的读取路径
   if (allowedReadPaths.length > 0) {

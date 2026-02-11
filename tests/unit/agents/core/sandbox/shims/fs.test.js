@@ -385,3 +385,107 @@ describe('createFsShim', () => {
     });
   });
 });
+
+describe('createFsShim > protectedPaths', () => {
+  let vfs;
+  let fs;
+
+  beforeEach(async () => {
+    vfs = new MemoryVfs();
+    await vfs.writeFile('node_modules/pkg/index.js', 'module.exports = 1;');
+    await vfs.writeFile('.env', 'SECRET=abc');
+    await vfs.writeFile('src/app.js', 'console.log("ok")');
+    fs = createFsShim(vfs, { protectedPaths: ['node_modules', '.env'] });
+  });
+
+  it('blocks writeFileSync on protected path', () => {
+    expect(() => fs.writeFileSync('node_modules/pkg/index.js', 'hacked')).toThrow(/EPERM/);
+  });
+
+  it('blocks writeFileSync on protected file', () => {
+    expect(() => fs.writeFileSync('.env', 'hacked')).toThrow(/EPERM/);
+  });
+
+  it('allows writeFileSync on non-protected path', () => {
+    fs.writeFileSync('src/app.js', 'updated');
+    expect(fs.readFileSync('src/app.js', 'utf8')).toBe('updated');
+  });
+
+  it('blocks unlinkSync on protected path', () => {
+    expect(() => fs.unlinkSync('node_modules/pkg/index.js')).toThrow(/EPERM/);
+  });
+
+  it('blocks mkdirSync on protected path', () => {
+    expect(() => fs.mkdirSync('node_modules/new-pkg')).toThrow(/EPERM/);
+  });
+
+  it('blocks appendFileSync on protected path', () => {
+    expect(() => fs.appendFileSync('.env', '\nMORE=data')).toThrow(/EPERM/);
+  });
+
+  it('blocks renameSync when source is protected', () => {
+    expect(() => fs.renameSync('.env', '.env.bak')).toThrow(/EPERM/);
+  });
+
+  it('blocks renameSync when dest is protected', () => {
+    expect(() => fs.renameSync('src/app.js', 'node_modules/app.js')).toThrow(/EPERM/);
+  });
+
+  it('blocks writeFile callback on protected path', () => {
+    return new Promise((resolve, reject) => {
+      fs.writeFile('.env', 'hacked', (err) => {
+        try {
+          expect(err).toBeDefined();
+          expect(err.code).toBe('EPERM');
+          resolve();
+        } catch (e) { reject(e); }
+      });
+    });
+  });
+
+  it('blocks promises.writeFile on protected path', async () => {
+    await expect(fs.promises.writeFile('.env', 'hacked')).rejects.toThrow(/EPERM/);
+  });
+
+  it('blocks promises.unlink on protected path', async () => {
+    await expect(fs.promises.unlink('node_modules/pkg/index.js')).rejects.toThrow(/EPERM/);
+  });
+
+  it('blocks promises.mkdir on protected path', async () => {
+    await expect(fs.promises.mkdir('node_modules/new')).rejects.toThrow(/EPERM/);
+  });
+
+  it('allows read on protected path', () => {
+    const data = fs.readFileSync('.env', 'utf8');
+    expect(data).toBe('SECRET=abc');
+  });
+
+  it('allows readdir on protected path', () => {
+    const entries = fs.readdirSync('node_modules');
+    expect(entries).toContain('pkg');
+  });
+
+  it('calls onViolation callback', () => {
+    const violations = [];
+    const guardedFs = createFsShim(vfs, {
+      protectedPaths: ['.env'],
+      onViolation: (v) => violations.push(v),
+    });
+    expect(() => guardedFs.writeFileSync('.env', 'x')).toThrow(/EPERM/);
+    expect(violations).toHaveLength(1);
+    expect(violations[0].type).toBe('fs:write');
+    expect(violations[0].path).toBe('/.env');
+  });
+
+  it('protects subdirectories of protected paths', () => {
+    expect(() => fs.writeFileSync('node_modules/pkg/deep/file.js', 'x')).toThrow(/EPERM/);
+  });
+
+  it('case-insensitive protection prevents bypass on macOS/Windows', () => {
+    // .ENV should be blocked even though protectedPaths has '.env'
+    expect(() => fs.writeFileSync('.ENV', 'hacked')).toThrow(/EPERM/);
+    expect(() => fs.writeFileSync('.Env', 'hacked')).toThrow(/EPERM/);
+    // NODE_MODULES should also be blocked
+    expect(() => fs.writeFileSync('NODE_MODULES/pkg/index.js', 'x')).toThrow(/EPERM/);
+  });
+});

@@ -2,10 +2,15 @@
  * Bubblewrap 沙箱执行器 (Linux)
  *
  * 使用 Linux namespace 实现进程级隔离：
- * - PID namespace: 独立进程空间
+ * - PID namespace: 独立进程空间（防止沙箱逃逸）
  * - Network namespace: 网络隔离
  * - Mount namespace: 文件系统隔离
  * - User namespace: 用户隔离
+ *
+ * 安全特性（参考 Anthropic Sandbox Runtime）：
+ * - Mandatory deny paths: 自动保护 .bashrc/.gitconfig/.git/hooks 等敏感文件
+ * - Symlink 检测: 防止通过符号链接逃逸写保护
+ * - PID namespace + /proc: 隔离进程空间，防止信息泄露
  *
  * @module core/sandbox/system/bubblewrap
  */
@@ -13,6 +18,8 @@
 import { SandboxBackend, DefaultSandboxConfig } from './constants.js';
 import { execCommand } from './detect.js';
 import { normalizeSandboxPath } from './path-utils.js';
+import { existsSync, statSync, lstatSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 
 /**
  * Bubblewrap 执行选项
@@ -23,6 +30,9 @@ import { normalizeSandboxPath } from './path-utils.js';
  * @property {boolean} [allowNetwork] - 是否允许网络
  * @property {number} [timeoutMs] - 超时
  * @property {Object.<string, string>} [env] - 环境变量
+ * @property {string[]} [denyPaths] - 额外的拒绝写入路径
+ * @property {boolean} [disableMandatoryDeny] - 禁用自动 mandatory deny paths（默认 false）
+ * @property {(info: object) => void} [onViolation] - 违规回调
  */
 
 /**
@@ -34,6 +44,86 @@ import { normalizeSandboxPath } from './path-utils.js';
  * @property {boolean} killed - 是否被终止
  * @property {string} backend - 使用的后端
  */
+
+/**
+ * Sensitive files that should be read-only inside the sandbox.
+ * Inspired by Anthropic Sandbox Runtime mandatory deny paths.
+ */
+const DANGEROUS_FILES = [
+  '.bashrc', '.bash_profile', '.bash_login', '.profile',
+  '.zshrc', '.zprofile', '.zlogin',
+  '.gitconfig', '.npmrc', '.yarnrc',
+  '.env', '.env.local', '.env.production',
+];
+
+/**
+ * Dangerous directories that should be read-only.
+ */
+const DANGEROUS_DIRS = ['.ssh', '.gnupg', '.claude'];
+
+/**
+ * Get mandatory deny paths for a working directory.
+ * These paths are automatically protected even if the user configures broad write access.
+ * @param {string} workDir
+ * @returns {string[]}
+ */
+function getMandatoryDenyPaths(workDir) {
+  const denyPaths = [];
+
+  // Dangerous files in workDir
+  for (const f of DANGEROUS_FILES) {
+    denyPaths.push(resolve(workDir, f));
+  }
+
+  // Dangerous directories in workDir
+  for (const d of DANGEROUS_DIRS) {
+    denyPaths.push(resolve(workDir, d));
+  }
+
+  // .git/hooks and .git/config — only if .git is a real directory
+  // In git worktrees, .git is a file pointing elsewhere, so .git/hooks can never exist
+  const dotGitPath = resolve(workDir, '.git');
+  try {
+    if (statSync(dotGitPath).isDirectory()) {
+      denyPaths.push(join(dotGitPath, 'hooks'));
+      denyPaths.push(join(dotGitPath, 'config'));
+    }
+  } catch {
+    // .git doesn't exist — skip
+  }
+
+  return denyPaths;
+}
+
+/**
+ * Check if a path component is a symlink within allowed write paths.
+ * Prevents symlink replacement attacks.
+ * @param {string} targetPath
+ * @param {string[]} allowedWritePaths
+ * @returns {string|null} The symlink path if found
+ */
+function findSymlinkInPath(targetPath, allowedWritePaths) {
+  const parts = targetPath.split('/');
+  let currentPath = '';
+
+  for (const part of parts) {
+    if (!part) continue;
+    const nextPath = currentPath + '/' + part;
+    try {
+      const stats = lstatSync(nextPath);
+      if (stats.isSymbolicLink()) {
+        const isWithinAllowed = allowedWritePaths.some(
+          ap => nextPath.startsWith(ap + '/') || nextPath === ap,
+        );
+        if (isWithinAllowed) return nextPath;
+      }
+    } catch {
+      break;
+    }
+    currentPath = nextPath;
+  }
+  return null;
+}
 
 /**
  * 在 Bubblewrap 沙箱中执行命令
@@ -64,6 +154,8 @@ export async function executeInBubblewrap(command, args, options) {
     command,
     commandArgs: args,
     env,
+    denyPaths: options.denyPaths,
+    disableMandatoryDeny: options.disableMandatoryDeny,
   });
 
   const result = await execCommand('bwrap', bwrapArgs, { timeout: timeoutMs });
@@ -89,6 +181,8 @@ function buildBubblewrapArgs(options) {
     command,
     commandArgs,
     env,
+    denyPaths = [],
+    disableMandatoryDeny = false,
   } = options;
 
   const args = [
@@ -97,9 +191,12 @@ function buildBubblewrapArgs(options) {
     '--die-with-parent', // 父进程退出时终止
     '--new-session', // 新会话
 
+    // PID namespace + /proc (防止沙箱逃逸和信息泄露)
+    '--unshare-pid',
+    '--proc', '/proc',
+
     // 基础文件系统
     '--dev', '/dev',
-    '--proc', '/proc',
     '--tmpfs', '/tmp',
 
     // 只读绑定必要目录
@@ -135,6 +232,24 @@ function buildBubblewrapArgs(options) {
     const absPath = normalizeSandboxPath(p, workDir);
     if (absPath && absPath !== workDir) {
       args.push('--bind-try', absPath, absPath);
+    }
+  }
+
+  // Mandatory deny paths — 自动保护敏感文件/目录（参考 ASRT）
+  const allDenyPaths = [...(denyPaths || [])];
+  if (!disableMandatoryDeny) {
+    allDenyPaths.push(...getMandatoryDenyPaths(workDir));
+  }
+  const resolvedWritePaths = [workDir, ...allowedWritePaths.map(p => normalizeSandboxPath(p, workDir)).filter(Boolean)];
+  for (const dp of [...new Set(allDenyPaths)]) {
+    // Symlink 攻击检测
+    const symlink = findSymlinkInPath(dp, resolvedWritePaths);
+    if (symlink) {
+      args.push('--ro-bind', '/dev/null', symlink);
+      continue;
+    }
+    if (existsSync(dp)) {
+      args.push('--ro-bind', dp, dp);
     }
   }
 

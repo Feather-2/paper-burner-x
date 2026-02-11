@@ -26,6 +26,7 @@ export { SandboxPool } from './pool.js';
 export { createSandboxPlugin } from './plugin.js';
 export { SkillExecutor, createSkillExecutor, isWasmSupported } from './skill-executor.js';
 export { SandboxCapability, SandboxPreset, ResourceLimits } from './constants.js';
+export { ViolationStore, createViolationStore } from './violation-store.js';
 
 // System Sandbox 常量（不依赖 Node API，浏览器安全）
 export { SandboxBackend, SandboxPolicy, DefaultSandboxConfig, Platform } from './system/constants.js';

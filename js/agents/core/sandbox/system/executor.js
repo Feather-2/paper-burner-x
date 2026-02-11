@@ -55,6 +55,42 @@ export class SystemSandboxExecutor {
 
     /** @type {Promise|null} */
     this._initPromise = null;
+
+    /** @type {Set<import('child_process').ChildProcess>} */
+    this._activeProcesses = new Set();
+
+    /** @type {boolean} */
+    this._cleanupRegistered = false;
+  }
+
+  /**
+   * 注册进程退出清理钩子（参考 ASRT SandboxManager cleanup）。
+   * 确保父进程退出时终止所有活跃的沙箱子进程。
+   */
+  _registerCleanup() {
+    if (this._cleanupRegistered) return;
+    this._cleanupRegistered = true;
+
+    const cleanup = () => {
+      for (const proc of this._activeProcesses) {
+        try { proc.kill('SIGTERM'); } catch { /* already dead */ }
+      }
+      this._activeProcesses.clear();
+    };
+
+    process.once('exit', cleanup);
+    process.once('SIGINT', () => { cleanup(); process.exit(130); });
+    process.once('SIGTERM', () => { cleanup(); process.exit(143); });
+  }
+
+  /**
+   * 跟踪子进程，退出时自动从 Set 中移除。
+   * @param {import('child_process').ChildProcess} proc
+   */
+  trackProcess(proc) {
+    this._registerCleanup();
+    this._activeProcesses.add(proc);
+    proc.once('exit', () => this._activeProcesses.delete(proc));
   }
 
   /**

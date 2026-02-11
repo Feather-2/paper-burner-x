@@ -24,6 +24,17 @@ vi.mock('../../../../../../js/agents/core/sandbox/system/path-utils.js', () => (
   isSafeForSBPL: vi.fn(),
 }));
 
+vi.mock('node:fs', () => ({
+  statSync: vi.fn(),
+  existsSync: vi.fn(),
+  lstatSync: vi.fn(),
+}));
+
+vi.mock('node:path', async () => {
+  const actual = await vi.importActual('node:path');
+  return { ...actual };
+});
+
 import {
   executeInSeatbelt,
   createSeatbeltExecutor,
@@ -37,6 +48,7 @@ import {
   DefaultSandboxConfig,
   SandboxBackend,
 } from '../../../../../../js/agents/core/sandbox/system/constants.js';
+import { statSync } from 'node:fs';
 
 const BASE_RESULT = { code: 0, stdout: 'ok', stderr: '' };
 
@@ -252,6 +264,101 @@ describe('executeInSeatbelt', () => {
     expect(profile).toContain(hugePath);
     expect(profile).toContain(`/work/${deepPath}`);
     expect(args).toContain(longCommand);
+  });
+});
+
+describe('mandatory deny paths', () => {
+  beforeEach(() => {
+    // statSync throws by default (no .git directory)
+    statSync.mockImplementation(() => { throw new Error('ENOENT'); });
+  });
+
+  it('adds deny rules for dangerous files and dirs by default', async () => {
+    await executeInSeatbelt('echo', [], { workDir: '/work' });
+    const profile = getProfileFromCall();
+
+    // Dangerous files get literal deny
+    expect(profile).toContain('(deny file-write* (literal "/work/.bashrc"))');
+    expect(profile).toContain('(deny file-write* (literal "/work/.env"))');
+    expect(profile).toContain('(deny file-write* (literal "/work/.gitconfig"))');
+    expect(profile).toContain('(deny file-write* (literal "/work/.npmrc"))');
+    expect(profile).toContain('(deny file-write* (literal "/work/.env.local"))');
+    expect(profile).toContain('(deny file-write* (literal "/work/.env.production"))');
+
+    // Dangerous dirs get subpath deny
+    expect(profile).toContain('(deny file-write* (subpath "/work/.ssh"))');
+    expect(profile).toContain('(deny file-write* (subpath "/work/.gnupg"))');
+    expect(profile).toContain('(deny file-write* (subpath "/work/.claude"))');
+  });
+
+  it('adds .git/hooks and .git/config deny when .git is a directory', async () => {
+    statSync.mockImplementation(() => ({ isDirectory: () => true }));
+
+    await executeInSeatbelt('echo', [], { workDir: '/work' });
+    const profile = getProfileFromCall();
+
+    expect(profile).toContain('(deny file-write* (subpath "/work/.git/hooks"))');
+    expect(profile).toContain('(deny file-write* (literal "/work/.git/config"))');
+  });
+
+  it('skips .git/hooks when .git is not a directory', async () => {
+    statSync.mockImplementation(() => ({ isDirectory: () => false }));
+
+    await executeInSeatbelt('echo', [], { workDir: '/work' });
+    const profile = getProfileFromCall();
+
+    expect(profile).not.toContain('.git/hooks');
+    expect(profile).not.toContain('.git/config');
+  });
+
+  it('disables mandatory deny when disableMandatoryDeny is true', async () => {
+    await executeInSeatbelt('echo', [], {
+      workDir: '/work',
+      disableMandatoryDeny: true,
+    });
+    const profile = getProfileFromCall();
+
+    expect(profile).not.toContain('.bashrc');
+    expect(profile).not.toContain('.ssh');
+    expect(profile).not.toContain('.env');
+    expect(profile).not.toContain('mandatory deny');
+  });
+
+  it('merges custom denyPaths with mandatory deny paths', async () => {
+    await executeInSeatbelt('echo', [], {
+      workDir: '/work',
+      denyPaths: ['/custom/secret.key'],
+    });
+    const profile = getProfileFromCall();
+
+    // Custom deny path
+    expect(profile).toContain('(deny file-write* (literal "/custom/secret.key"))');
+    // Mandatory still present
+    expect(profile).toContain('(deny file-write* (literal "/work/.bashrc"))');
+  });
+
+  it('uses only custom denyPaths when mandatory deny is disabled', async () => {
+    await executeInSeatbelt('echo', [], {
+      workDir: '/work',
+      denyPaths: ['/custom/secret.key'],
+      disableMandatoryDeny: true,
+    });
+    const profile = getProfileFromCall();
+
+    expect(profile).toContain('(deny file-write* (literal "/custom/secret.key"))');
+    expect(profile).not.toContain('.bashrc');
+    expect(profile).not.toContain('.ssh');
+  });
+
+  it('skips deny paths that fail isSafeForSBPL', async () => {
+    await executeInSeatbelt('echo', [], {
+      workDir: '/work',
+      denyPaths: ['/unsafe/path'],
+      disableMandatoryDeny: true,
+    });
+    const profile = getProfileFromCall();
+
+    expect(profile).not.toContain('/unsafe/path');
   });
 });
 

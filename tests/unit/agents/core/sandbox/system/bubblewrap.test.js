@@ -1,6 +1,7 @@
 /**
  * Unit coverage for executeInBubblewrap/createBubblewrapExecutor in bubblewrap.js,
- * exercising boundary inputs, env merging, and mocked system dependencies.
+ * exercising boundary inputs, env merging, PID namespace isolation,
+ * and mocked system dependencies.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +22,13 @@ vi.mock('../../../../../../js/agents/core/sandbox/system/detect.js', () => ({
 
 vi.mock('../../../../../../js/agents/core/sandbox/system/path-utils.js', () => ({
   normalizeSandboxPath: vi.fn(),
+}));
+
+// getMandatoryDenyPaths calls statSync — stub it so it never touches real FS
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn(() => false),
+  statSync: vi.fn(() => { throw new Error('ENOENT'); }),
+  lstatSync: vi.fn(() => { throw new Error('ENOENT'); }),
 }));
 
 import {
@@ -58,6 +66,22 @@ beforeEach(() => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Module exports
+// ---------------------------------------------------------------------------
+describe('module exports', () => {
+  it('exports executeInBubblewrap as a function', () => {
+    expect(typeof executeInBubblewrap).toBe('function');
+  });
+
+  it('exports createBubblewrapExecutor as a function', () => {
+    expect(typeof createBubblewrapExecutor).toBe('function');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeInBubblewrap
+// ---------------------------------------------------------------------------
 describe('executeInBubblewrap', () => {
   it('rejects when options is null or undefined', async () => {
     await expect(executeInBubblewrap('echo', [], undefined)).rejects.toThrow();
@@ -112,6 +136,68 @@ describe('executeInBubblewrap', () => {
     expect(bwrapArgs.slice(separatorIndex + 1)).toEqual(['echo', 'hello']);
   });
 
+  // -- PID namespace isolation --
+  it('includes PID namespace isolation args (--unshare-pid and --proc /proc)', async () => {
+    await executeInBubblewrap('echo', [], { workDir: '/work' });
+    const args = execCommand.mock.calls[0][1];
+
+    expect(args).toContain('--unshare-pid');
+    const procIdx = args.indexOf('--proc');
+    expect(procIdx).toBeGreaterThan(-1);
+    expect(args[procIdx + 1]).toBe('/proc');
+  });
+
+  it('places --unshare-pid before the command separator', async () => {
+    await executeInBubblewrap('echo', [], { workDir: '/work' });
+    const args = execCommand.mock.calls[0][1];
+    const sepIdx = args.indexOf('--');
+    const pidIdx = args.indexOf('--unshare-pid');
+    expect(pidIdx).toBeLessThan(sepIdx);
+  });
+
+  it('includes --unshare-all for full namespace isolation', async () => {
+    await executeInBubblewrap('echo', [], { workDir: '/work' });
+    const args = execCommand.mock.calls[0][1];
+    expect(args).toContain('--unshare-all');
+    expect(args).toContain('--die-with-parent');
+    expect(args).toContain('--new-session');
+  });
+
+  // -- Base filesystem bindings --
+  it('includes base filesystem bindings (dev, tmpfs, ro-bind)', async () => {
+    await executeInBubblewrap('echo', [], { workDir: '/work' });
+    const args = execCommand.mock.calls[0][1];
+
+    expect(args).toContain('--dev');
+    expect(args).toContain('/dev');
+    expect(args).toContain('--tmpfs');
+    expect(args).toContain('/tmp');
+
+    // Core read-only bindings
+    const roBinds = [];
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--ro-bind') roBinds.push(args[i + 1]);
+    }
+    expect(roBinds).toContain('/usr');
+    expect(roBinds).toContain('/lib');
+    expect(roBinds).toContain('/bin');
+  });
+
+  // -- workDir binding --
+  it('binds workDir as read-write with --bind and --chdir', async () => {
+    const workDir = '/my/project';
+    await executeInBubblewrap('echo', [], { workDir });
+    const args = execCommand.mock.calls[0][1];
+
+    const bindIdx = args.indexOf('--bind');
+    expect(args[bindIdx + 1]).toBe(workDir);
+    expect(args[bindIdx + 2]).toBe(workDir);
+
+    const chdirIdx = args.indexOf('--chdir');
+    expect(args[chdirIdx + 1]).toBe(workDir);
+  });
+
+  // -- Network --
   it('toggles network namespace args based on allowNetwork', async () => {
     execCommand.mockResolvedValueOnce({ ...BASE_RESULT });
     await executeInBubblewrap('echo', [], { workDir: '/work', allowNetwork: true });
@@ -126,6 +212,7 @@ describe('executeInBubblewrap', () => {
     expect(argsDeny).not.toContain('--share-net');
   });
 
+  // -- Timeout --
   it('passes through timeout boundary values and string types', async () => {
     const timeouts = [0, -1, Number.MAX_SAFE_INTEGER, '5000'];
 
@@ -138,6 +225,7 @@ describe('executeInBubblewrap', () => {
     }
   });
 
+  // -- Killed detection --
   it('sets killed for timeout exit codes', async () => {
     execCommand.mockResolvedValueOnce({ code: 137, stdout: '', stderr: '' });
     const killedBySig = await executeInBubblewrap('echo', [], { workDir: '/work' });
@@ -150,6 +238,29 @@ describe('executeInBubblewrap', () => {
     expect(killedByTimeout.backend).toBe(SandboxBackend.BUBBLEWRAP);
   });
 
+  it('does not set killed for normal exit codes', async () => {
+    for (const code of [0, 1, 2, 127, 128, 255]) {
+      execCommand.mockResolvedValueOnce({ code, stdout: '', stderr: '' });
+      const result = await executeInBubblewrap('echo', [], { workDir: '/work' });
+      expect(result.killed).toBe(false);
+    }
+  });
+
+  // -- Environment --
+  it('merges user env over defaults', async () => {
+    await executeInBubblewrap('echo', [], {
+      workDir: '/work',
+      env: { PATH: '/custom/bin', MY_VAR: 'hello' },
+    });
+    const args = execCommand.mock.calls[0][1];
+    const envMap = extractEnvMap(args);
+    expect(envMap.PATH).toBe('/custom/bin');
+    expect(envMap.MY_VAR).toBe('hello');
+    expect(envMap.HOME).toBe('/tmp');
+    expect(args).toContain('--clearenv');
+  });
+
+  // -- Empty arrays --
   it('handles empty arrays and objects without extra bindings', async () => {
     await executeInBubblewrap('echo', [], {
       workDir: '/work',
@@ -181,6 +292,23 @@ describe('executeInBubblewrap', () => {
     ).rejects.toThrow();
   });
 
+  // -- /etc partial binds --
+  it('includes /etc partial file bindings for DNS and TLS', async () => {
+    await executeInBubblewrap('echo', [], { workDir: '/work' });
+    const args = execCommand.mock.calls[0][1];
+
+    // resolv.conf is mandatory ro-bind: '--ro-bind', src, dest
+    const roBindIdx = args.indexOf('/etc/resolv.conf');
+    expect(roBindIdx).toBeGreaterThan(-1);
+    expect(args[roBindIdx - 1]).toBe('--ro-bind');
+    // src and dest are both /etc/resolv.conf
+    expect(args[roBindIdx + 1]).toBe('/etc/resolv.conf');
+
+    // SSL certs as try-bind
+    expect(args).toContain('/etc/ssl');
+  });
+
+  // -- Concurrency --
   it('supports concurrent execution calls', async () => {
     execCommand
       .mockResolvedValueOnce({ code: 0, stdout: 'first', stderr: '' })
@@ -233,7 +361,22 @@ describe('executeInBubblewrap', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// createBubblewrapExecutor
+// ---------------------------------------------------------------------------
 describe('createBubblewrapExecutor', () => {
+  it('returns an object with backend, execute, and shell', () => {
+    const executor = createBubblewrapExecutor({ workDir: '/w' });
+    expect(executor.backend).toBe(SandboxBackend.BUBBLEWRAP);
+    expect(typeof executor.execute).toBe('function');
+    expect(typeof executor.shell).toBe('function');
+  });
+
+  it('works with no arguments (empty defaults)', () => {
+    const executor = createBubblewrapExecutor();
+    expect(executor.backend).toBe(SandboxBackend.BUBBLEWRAP);
+  });
+
   it('exposes backend and merges default options for execute', async () => {
     const executor = createBubblewrapExecutor({
       workDir: '/base',
@@ -285,5 +428,23 @@ describe('createBubblewrapExecutor', () => {
       'echo hi',
     ]);
     expect(execCommand).toHaveBeenCalledWith('bwrap', expect.any(Array), { timeout: 0 });
+  });
+
+  it('shell inherits PID namespace args from executor defaults', async () => {
+    const executor = createBubblewrapExecutor({ workDir: '/w' });
+    execCommand.mockResolvedValueOnce({ ...BASE_RESULT });
+
+    await executor.shell('whoami');
+
+    const args = execCommand.mock.calls[0][1];
+    expect(args).toContain('--unshare-pid');
+    expect(args).toContain('--proc');
+  });
+
+  it('execute rejects when workDir is not provided in defaults or overrides', async () => {
+    const executor = createBubblewrapExecutor();
+    await expect(executor.execute('echo', [])).rejects.toThrow(
+      'workDir is required for Bubblewrap sandbox'
+    );
   });
 });

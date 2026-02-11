@@ -76,12 +76,46 @@ const X_OK = 1;
 /**
  * Create a Node.js fs-compatible shim backed by a VFS instance.
  * @param {object} vfs - MemoryVfs instance
+ * @param {{ protectedPaths?: string[], onViolation?: (info: object) => void }} [options]
  * @returns {object} Node.js fs compatible API
  */
-export function createFsShim(vfs) {
+export function createFsShim(vfs, options = {}) {
+  const _protectedPaths = (options.protectedPaths || []).map(p => normalizeVfsPath(p).toLowerCase());
+  const _onViolation = options.onViolation || null;
 
   function normPath(p) {
     return normalizeVfsPath(p);
+  }
+
+  /**
+   * Check if a normalized path is protected (read-only).
+   * Uses case-insensitive comparison to prevent bypass on macOS/Windows.
+   * @param {string} normalizedPath
+   * @returns {boolean}
+   */
+  function isProtected(normalizedPath) {
+    const lc = normalizedPath.toLowerCase();
+    for (const pp of _protectedPaths) {
+      if (lc === pp || lc.startsWith(pp + '/')) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Throw EPERM for write operations on protected paths.
+   * @param {string} normalizedPath
+   * @param {string} op
+   */
+  function guardWrite(normalizedPath, op) {
+    if (isProtected(normalizedPath)) {
+      if (_onViolation) {
+        _onViolation({ type: 'fs:write', path: '/' + normalizedPath, op });
+      }
+      const e = new Error(`EPERM: operation not permitted, ${op} '/${normalizedPath}'`);
+      e.code = 'EPERM';
+      e.path = '/' + normalizedPath;
+      throw e;
+    }
   }
 
   // --- callback-style APIs ---
@@ -98,6 +132,7 @@ export function createFsShim(vfs) {
   function writeFile(path, data, options, callback) {
     if (typeof options === 'function') { callback = options; options = {}; }
     const p = normPath(path);
+    try { guardWrite(p, 'writeFile'); } catch (e) { return callback(e); }
     vfs.writeFile(p, data)
       .then(() => callback(null))
       .catch(err => callback(makeErrno(err, p)));
@@ -106,6 +141,7 @@ export function createFsShim(vfs) {
   function appendFile(path, data, options, callback) {
     if (typeof options === 'function') { callback = options; options = {}; }
     const p = normPath(path);
+    try { guardWrite(p, 'appendFile'); } catch (e) { return callback(e); }
     vfs.appendText(p, typeof data === 'string' ? data : new TextDecoder().decode(data))
       .then(() => callback(null))
       .catch(err => callback(makeErrno(err, p)));
@@ -126,6 +162,7 @@ export function createFsShim(vfs) {
     if (typeof options === 'function') { callback = options; options = {}; }
     const recursive = typeof options === 'object' ? !!options.recursive : false;
     const p = normPath(path);
+    try { guardWrite(p, 'mkdir'); } catch (e) { return callback(e); }
     vfs.mkdir(p, { recursive })
       .then(() => callback(null))
       .catch(err => callback(makeErrno(err, p)));
@@ -152,6 +189,7 @@ export function createFsShim(vfs) {
 
   function unlink(path, callback) {
     const p = normPath(path);
+    try { guardWrite(p, 'unlink'); } catch (e) { return callback(e); }
     vfs.unlink(p)
       .then(() => callback(null))
       .catch(err => callback(makeErrno(err, p)));
@@ -161,6 +199,7 @@ export function createFsShim(vfs) {
     if (typeof options === 'function') { callback = options; options = {}; }
     const recursive = typeof options === 'object' ? !!options.recursive : false;
     const p = normPath(path);
+    try { guardWrite(p, 'rmdir'); } catch (e) { return callback(e); }
     vfs.rmdir(p, { recursive })
       .then(() => callback(null))
       .catch(err => callback(makeErrno(err, p)));
@@ -169,6 +208,7 @@ export function createFsShim(vfs) {
   function rename(oldPath, newPath, callback) {
     const op = normPath(oldPath);
     const np = normPath(newPath);
+    try { guardWrite(op, 'rename'); guardWrite(np, 'rename'); } catch (e) { return callback(e); }
     vfs.move(op, np)
       .then(() => callback(null))
       .catch(err => callback(makeErrno(err, op)));
@@ -177,6 +217,7 @@ export function createFsShim(vfs) {
   function copyFile(src, dest, callback) {
     const s = normPath(src);
     const d = normPath(dest);
+    try { guardWrite(d, 'copyFile'); } catch (e) { return callback(e); }
     vfs.copy(s, d)
       .then(() => callback(null))
       .catch(err => callback(makeErrno(err, s)));
@@ -232,6 +273,7 @@ export function createFsShim(vfs) {
   function writeFileSync(path, data) {
     requireSyncVfs(vfs);
     const p = normPath(path);
+    guardWrite(p, 'writeFileSync');
     try {
       const info = vfs._getParentDirForPath(p, { create: true });
       if (!info?.parent) { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; e.path = p; throw e; }
@@ -247,6 +289,7 @@ export function createFsShim(vfs) {
   function appendFileSync(path, data) {
     requireSyncVfs(vfs);
     const p = normPath(path);
+    guardWrite(p, 'appendFileSync');
     let before = new Uint8Array(0);
     try {
       const node = vfs._getNode(p);
@@ -263,6 +306,7 @@ export function createFsShim(vfs) {
     requireSyncVfs(vfs);
     const recursive = typeof options === 'object' ? !!options.recursive : false;
     const p = normPath(path);
+    guardWrite(p, 'mkdirSync');
     try {
       vfs._getDirNode(p, { create: recursive || true });
     } catch (err) {
@@ -301,6 +345,7 @@ export function createFsShim(vfs) {
   function unlinkSync(path) {
     requireSyncVfs(vfs);
     const p = normPath(path);
+    guardWrite(p, 'unlinkSync');
     const parts = p.split('/').filter(Boolean);
     const parentPath = parts.slice(0, -1).join('/');
     const name = parts[parts.length - 1];
@@ -317,6 +362,7 @@ export function createFsShim(vfs) {
     requireSyncVfs(vfs);
     const recursive = typeof options === 'object' ? !!options.recursive : false;
     const p = normPath(path);
+    guardWrite(p, 'rmdirSync');
     const parts = p.split('/').filter(Boolean);
     if (!parts.length) throw new Error('EPERM: cannot remove root');
     const parentPath = parts.slice(0, -1).join('/');
@@ -335,6 +381,8 @@ export function createFsShim(vfs) {
     requireSyncVfs(vfs);
     const op = normPath(oldPath);
     const np = normPath(newPath);
+    guardWrite(op, 'renameSync');
+    guardWrite(np, 'renameSync');
     const oParts = op.split('/').filter(Boolean);
     const oParentPath = oParts.slice(0, -1).join('/');
     const oName = oParts[oParts.length - 1];
@@ -354,6 +402,8 @@ export function createFsShim(vfs) {
 
   function copyFileSync(src, dest) {
     requireSyncVfs(vfs);
+    const d = normPath(dest);
+    guardWrite(d, 'copyFileSync');
     const bytes = readFileSync(src);
     writeFileSync(dest, new Uint8Array(bytes));
   }
@@ -494,6 +544,7 @@ export function createFsShim(vfs) {
     },
     async writeFile(path, data) {
       const p = normPath(path);
+      guardWrite(p, 'writeFile');
       try {
         await vfs.writeFile(p, data);
       } catch (err) {
@@ -502,6 +553,7 @@ export function createFsShim(vfs) {
     },
     async appendFile(path, data) {
       const p = normPath(path);
+      guardWrite(p, 'appendFile');
       try {
         await vfs.appendText(p, typeof data === 'string' ? data : new TextDecoder().decode(data));
       } catch (err) {
@@ -523,6 +575,7 @@ export function createFsShim(vfs) {
     async mkdir(path, options) {
       const recursive = typeof options === 'object' ? !!options.recursive : false;
       const p = normPath(path);
+      guardWrite(p, 'mkdir');
       try {
         await vfs.mkdir(p, { recursive });
       } catch (err) {
@@ -547,6 +600,7 @@ export function createFsShim(vfs) {
     },
     async unlink(path) {
       const p = normPath(path);
+      guardWrite(p, 'unlink');
       try {
         await vfs.unlink(p);
       } catch (err) {
@@ -556,6 +610,7 @@ export function createFsShim(vfs) {
     async rmdir(path, options) {
       const recursive = typeof options === 'object' ? !!options.recursive : false;
       const p = normPath(path);
+      guardWrite(p, 'rmdir');
       try {
         await vfs.rmdir(p, { recursive });
       } catch (err) {
@@ -565,6 +620,8 @@ export function createFsShim(vfs) {
     async rename(oldPath, newPath) {
       const op = normPath(oldPath);
       const np = normPath(newPath);
+      guardWrite(op, 'rename');
+      guardWrite(np, 'rename');
       try {
         await vfs.move(op, np);
       } catch (err) {
@@ -574,6 +631,7 @@ export function createFsShim(vfs) {
     async copyFile(src, dest) {
       const s = normPath(src);
       const d = normPath(dest);
+      guardWrite(d, 'copyFile');
       try {
         await vfs.copy(s, d);
       } catch (err) {
