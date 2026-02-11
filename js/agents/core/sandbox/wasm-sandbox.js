@@ -6,6 +6,7 @@
  */
 
 import { SandboxCapability, ResourceLimits } from './constants.js';
+import { validateDomainPattern, isUrlAllowed } from './network-policy-utils.js';
 
 // 动态导入 quickjs-emscripten（支持 tree-shaking）
 let _quickjsModule = null;
@@ -65,6 +66,7 @@ export class WasmSandbox {
    * @param {Function} [options.onLog] - 日志回调
    * @param {Function} [options.onEmit] - 事件发射回调
    * @param {Object} [options.state] - 注入的状态
+   * @param {{ allowedDomains?: string[], deniedDomains?: string[] }} [options.networkPolicy] - 网络策略
    */
   constructor(options = {}) {
     this.capabilities = new Set(options.capabilities || [SandboxCapability.CONSOLE]);
@@ -72,6 +74,13 @@ export class WasmSandbox {
     this.onLog = options.onLog || (() => {});
     this.onEmit = options.onEmit || (() => {});
     this.state = options.state || {};
+    this.networkPolicy = options.networkPolicy || null;
+
+    if (this.networkPolicy) {
+      for (const list of [this.networkPolicy.allowedDomains, this.networkPolicy.deniedDomains]) {
+        if (list) list.forEach(validateDomainPattern);
+      }
+    }
 
     this._vm = null;
     this._runtime = null;
@@ -158,23 +167,89 @@ export class WasmSandbox {
       emitFn.dispose();
     }
 
-    // fetch（如果有权限）- 返回 Promise 代理
+    // fetch（如果有权限）- 通过宿主代理真实 fetch + NetworkPolicy 过滤
     if (this.capabilities.has(SandboxCapability.FETCH)) {
-      // 注意：真正的 fetch 需要通过宿主代理实现
-      // 这里注入一个占位，实际实现需要 async 通道
-      const fetchFn = vm.newFunction('__hostFetch', (urlHandle, optionsHandle) => {
+      const sandbox = this;
+
+      const fetchFn = vm.newFunction('__hostFetch', (urlHandle, methodHandle, headersJsonHandle, bodyHandle) => {
         const url = vm.getString(urlHandle);
-        // 返回一个标记，由宿主处理
-        return vm.newString(JSON.stringify({ __hostCall: 'fetch', url }));
+        const method = vm.getString(methodHandle);
+        const headersJson = vm.getString(headersJsonHandle);
+        const body = vm.getString(bodyHandle);
+
+        // NetworkPolicy 检查
+        if (!isUrlAllowed(url, sandbox.networkPolicy)) {
+          const errJson = JSON.stringify({ __fetchError: true, message: `Network request blocked by policy: ${url}`, code: 'ERR_NETWORK_POLICY' });
+          return vm.newString(errJson);
+        }
+
+        // 构建 fetch 选项
+        const fetchOptions = { method };
+        try {
+          const parsed = JSON.parse(headersJson);
+          if (parsed && typeof parsed === 'object') fetchOptions.headers = parsed;
+        } catch { /* ignore */ }
+        if (body && method !== 'GET' && method !== 'HEAD') {
+          fetchOptions.body = body;
+        }
+
+        // 创建 QuickJS Promise 并桥接宿主 fetch
+        const promise = vm.newPromise();
+
+        fetch(url, fetchOptions).then(async (resp) => {
+          let text;
+          try { text = await resp.text(); } catch { text = ''; }
+          const result = JSON.stringify({
+            ok: resp.ok,
+            status: resp.status,
+            statusText: resp.statusText || '',
+            headers: Object.fromEntries(resp.headers.entries()),
+            body: text,
+          });
+          const handle = vm.newString(result);
+          promise.resolve(handle);
+          handle.dispose();
+        }).catch((err) => {
+          const errJson = JSON.stringify({ __fetchError: true, message: err.message || 'Fetch failed', code: 'ERR_FETCH' });
+          const handle = vm.newString(errJson);
+          promise.resolve(handle);
+          handle.dispose();
+        }).finally(() => {
+          sandbox._runtime?.executePendingJobs();
+        });
+
+        return promise.handle;
       });
       vm.setProp(vm.global, '__hostFetch', fetchFn);
       fetchFn.dispose();
 
-      // 注入 fetch polyfill
+      // 注入 VM 内的 fetch polyfill：序列化参数 → 调用 __hostFetch → 解析响应
       vm.evalCode(`
-        globalThis.fetch = async (url, options) => {
-          // 通过标记通道与宿主通信
-          return Promise.resolve({ ok: false, status: 403, text: () => 'Sandboxed' });
+        globalThis.fetch = function(url, options) {
+          var opts = options || {};
+          var method = (opts.method || 'GET').toUpperCase();
+          var headers = '{}';
+          if (opts.headers) {
+            try { headers = JSON.stringify(opts.headers); } catch(e) {}
+          }
+          var body = opts.body || '';
+          var resultPromise = __hostFetch(String(url), method, headers, String(body));
+          return resultPromise.then(function(raw) {
+            var data = JSON.parse(raw);
+            if (data.__fetchError) {
+              var err = new Error(data.message);
+              err.code = data.code;
+              throw err;
+            }
+            return {
+              ok: data.ok,
+              status: data.status,
+              statusText: data.statusText,
+              headers: data.headers || {},
+              text: function() { return Promise.resolve(data.body); },
+              json: function() { return Promise.resolve(JSON.parse(data.body)); }
+            };
+          });
         };
       `);
     }

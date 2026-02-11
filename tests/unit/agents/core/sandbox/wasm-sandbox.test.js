@@ -46,6 +46,14 @@ const createQuickJsMock = (options = {}) => {
       return handle;
     }),
     newString: vi.fn((value) => createHandle(String(value))),
+    newPromise: vi.fn(() => {
+      const promiseHandle = createHandle('__promise__');
+      return {
+        handle: promiseHandle,
+        resolve: vi.fn(),
+        reject: vi.fn(),
+      };
+    }),
     setProp: vi.fn(),
     dump: vi.fn((handle) => {
       if (handle && Object.prototype.hasOwnProperty.call(handle, 'value')) {
@@ -215,10 +223,17 @@ describe('WasmSandbox', () => {
     expect(onEmit).toHaveBeenCalledWith('event:ping', { ok: true });
 
     const fetchHandle = quickjsMock.functionHandles.__hostFetch;
-    const fetchResult = fetchHandle.fn(createHandle('https://example.com'), createHandle({}));
+    // New signature: (url, method, headersJson, body) → promise handle
+    const fetchResult = fetchHandle.fn(
+      createHandle('https://example.com'),
+      createHandle('GET'),
+      createHandle('{}'),
+      createHandle('')
+    );
 
-    expect(fetchResult.value).toContain('"__hostCall":"fetch"');
-    expect(fetchResult.value).toContain('https://example.com');
+    // Returns a promise handle (via vm.newPromise)
+    expect(quickjsMock.vm.newPromise).toHaveBeenCalled();
+    expect(fetchResult.value).toBe('__promise__');
 
     sb.dispose();
   });
@@ -633,5 +648,201 @@ describe('createSandbox', () => {
     const { createSandbox } = await loadWasmSandbox({ emscriptenImpl, coreImpl });
 
     await expect(createSandbox({ capabilities: [] })).rejects.toThrow(/quickjs-emscripten/i);
+  });
+});
+
+describe('WasmSandbox NetworkPolicy', () => {
+  it('allows fetch without policy (no restrictions)', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({
+      capabilities: [SandboxCapability.FETCH],
+    });
+
+    await sb.init();
+
+    const fetchHandle = quickjsMock.functionHandles.__hostFetch;
+    const result = fetchHandle.fn(
+      createHandle('https://example.com/api'),
+      createHandle('GET'),
+      createHandle('{}'),
+      createHandle('')
+    );
+
+    // No policy → should proceed to real fetch (returns promise handle)
+    expect(quickjsMock.vm.newPromise).toHaveBeenCalled();
+    expect(result.value).toBe('__promise__');
+
+    sb.dispose();
+  });
+
+  it('blocks fetch when URL is not in allowedDomains', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({
+      capabilities: [SandboxCapability.FETCH],
+      networkPolicy: {
+        allowedDomains: ['api.example.com'],
+      },
+    });
+
+    await sb.init();
+
+    const fetchHandle = quickjsMock.functionHandles.__hostFetch;
+    const result = fetchHandle.fn(
+      createHandle('https://evil.com/steal'),
+      createHandle('GET'),
+      createHandle('{}'),
+      createHandle('')
+    );
+
+    // Blocked → returns error string (not a promise)
+    expect(result.value).toContain('__fetchError');
+    expect(result.value).toContain('ERR_NETWORK_POLICY');
+    expect(result.value).toContain('evil.com');
+
+    sb.dispose();
+  });
+
+  it('allows fetch when URL matches allowedDomains', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({
+      capabilities: [SandboxCapability.FETCH],
+      networkPolicy: {
+        allowedDomains: ['api.example.com', '*.github.com'],
+      },
+    });
+
+    await sb.init();
+
+    const fetchHandle = quickjsMock.functionHandles.__hostFetch;
+    const result = fetchHandle.fn(
+      createHandle('https://api.example.com/data'),
+      createHandle('GET'),
+      createHandle('{}'),
+      createHandle('')
+    );
+
+    expect(quickjsMock.vm.newPromise).toHaveBeenCalled();
+    expect(result.value).toBe('__promise__');
+
+    sb.dispose();
+  });
+
+  it('blocks fetch when URL matches deniedDomains', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({
+      capabilities: [SandboxCapability.FETCH],
+      networkPolicy: {
+        deniedDomains: ['evil.com', '*.malware.org'],
+      },
+    });
+
+    await sb.init();
+
+    const fetchHandle = quickjsMock.functionHandles.__hostFetch;
+
+    // Exact match
+    const r1 = fetchHandle.fn(
+      createHandle('https://evil.com/payload'),
+      createHandle('GET'),
+      createHandle('{}'),
+      createHandle('')
+    );
+    expect(r1.value).toContain('ERR_NETWORK_POLICY');
+
+    // Wildcard match
+    const r2 = fetchHandle.fn(
+      createHandle('https://sub.malware.org/c2'),
+      createHandle('POST'),
+      createHandle('{}'),
+      createHandle('')
+    );
+    expect(r2.value).toContain('ERR_NETWORK_POLICY');
+
+    // Allowed (not denied)
+    const r3 = fetchHandle.fn(
+      createHandle('https://safe.com/ok'),
+      createHandle('GET'),
+      createHandle('{}'),
+      createHandle('')
+    );
+    expect(r3.value).toBe('__promise__');
+
+    sb.dispose();
+  });
+
+  it('deniedDomains takes priority over allowedDomains', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const sb = new WasmSandbox({
+      capabilities: [SandboxCapability.FETCH],
+      networkPolicy: {
+        allowedDomains: ['*.example.com'],
+        deniedDomains: ['blocked.example.com'],
+      },
+    });
+
+    await sb.init();
+
+    const fetchHandle = quickjsMock.functionHandles.__hostFetch;
+
+    // Denied even though it matches allowedDomains wildcard
+    const r1 = fetchHandle.fn(
+      createHandle('https://blocked.example.com/api'),
+      createHandle('GET'),
+      createHandle('{}'),
+      createHandle('')
+    );
+    expect(r1.value).toContain('ERR_NETWORK_POLICY');
+
+    // Allowed subdomain
+    const r2 = fetchHandle.fn(
+      createHandle('https://api.example.com/ok'),
+      createHandle('GET'),
+      createHandle('{}'),
+      createHandle('')
+    );
+    expect(r2.value).toBe('__promise__');
+
+    sb.dispose();
+  });
+
+  it('validates domain patterns on construction', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    expect(() => new WasmSandbox({
+      capabilities: [SandboxCapability.FETCH],
+      networkPolicy: { allowedDomains: ['*'] },
+    })).toThrow(/too broad/);
+
+    expect(() => new WasmSandbox({
+      capabilities: [SandboxCapability.FETCH],
+      networkPolicy: { deniedDomains: ['http://evil.com'] },
+    })).toThrow(/protocol/);
+  });
+
+  it('stores networkPolicy on instance', async () => {
+    const quickjsMock = createQuickJsMock();
+    const { WasmSandbox } = await loadWasmSandbox({ quickjsMock });
+
+    const policy = { allowedDomains: ['api.example.com'] };
+    const sb = new WasmSandbox({
+      capabilities: [SandboxCapability.FETCH],
+      networkPolicy: policy,
+    });
+
+    expect(sb.networkPolicy).toBe(policy);
+
+    const sb2 = new WasmSandbox({ capabilities: [] });
+    expect(sb2.networkPolicy).toBeNull();
   });
 });
