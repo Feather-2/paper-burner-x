@@ -3,7 +3,7 @@
   "name": "js/agents 架构审计 + SDK 分层 + 多Agent协作",
   "project": "paper-burner",
   "createdAt": "2026-02-09T17:23:16Z",
-  "updatedAt": "2026-02-11T12:30:00Z",
+  "updatedAt": "2026-02-12T00:30:00Z",
   "config": {
     "checkpointEnabled": true,
     "autoSave": false,
@@ -64,6 +64,18 @@
       "seq": 9,
       "hapiSessionId": "95d23891-aabd-4188-88a5-8fadb3113754",
       "name": "PRD全量实施+P2/P3完成+测试修复",
+      "active": true
+    },
+    {
+      "seq": 10,
+      "hapiSessionId": "85a32135-4df1-476c-a636-e8f20af30cab",
+      "name": "Shim审计对标+深度差距分析",
+      "active": true
+    },
+    {
+      "seq": 11,
+      "hapiSessionId": "14ba6f43-13a9-4f2c-a50b-6ab7d10c02d6",
+      "name": "差距修复P1-P3+ToolExecutor集成",
       "active": true
     }
   ]
