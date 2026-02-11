@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Buffer, SlowBuffer, kMaxLength, INSPECT_MAX_BYTES, constants, transcode } from '../../../../../../js/agents/core/sandbox/shims/buffer.js';
+import { Buffer, SlowBuffer, kMaxLength, INSPECT_MAX_BYTES, constants, transcode } from '../../../../../../js/agents/core/node-compat/shims/buffer.js';
 
 describe('Buffer shim', () => {
   // ── existing tests ──

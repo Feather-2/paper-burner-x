@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   ExtendedTextDecoder,
   installPolyfill,
-} from '../../../../../../js/agents/core/sandbox/polyfills/text-decoder.js';
+} from '../../../../../../js/agents/core/node-compat/polyfills/text-decoder.js';
 
 const OriginalTextDecoder = globalThis.TextDecoder;
 

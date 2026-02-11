@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parse, format, resolve } from '../../../../../../js/agents/core/sandbox/shims/url.js';
+import { parse, format, resolve } from '../../../../../../js/agents/core/node-compat/shims/url.js';
 
 describe('url shim', () => {
   it('parse returns correct fields', () => {

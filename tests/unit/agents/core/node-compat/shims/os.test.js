@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { platform, arch, homedir, tmpdir, hostname, type, release, uptime, totalmem, freemem, cpus, networkInterfaces, userInfo, loadavg, endianness, EOL, devNull, constants } from '../../../../../../js/agents/core/sandbox/shims/os.js';
+import { platform, arch, homedir, tmpdir, hostname, type, release, uptime, totalmem, freemem, cpus, networkInterfaces, userInfo, loadavg, endianness, EOL, devNull, constants } from '../../../../../../js/agents/core/node-compat/shims/os.js';
 
 describe('os shim', () => {
   it('platform returns browser', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { format, inspect, promisify, callbackify, inherits, types } from '../../../../../../js/agents/core/sandbox/shims/util.js';
+import { format, inspect, promisify, callbackify, inherits, types } from '../../../../../../js/agents/core/node-compat/shims/util.js';
 
 describe('util shim', () => {
   it('format with %s and %d', () => {

@@ -4,7 +4,7 @@ import {
   parseSemver,
   satisfies,
   compareVersions,
-} from '../../../../../../js/agents/core/sandbox/npm/resolver.js';
+} from '../../../../../../js/agents/core/node-compat/npm/resolver.js';
 
 /**
  * @param {Record<string, any>} packages

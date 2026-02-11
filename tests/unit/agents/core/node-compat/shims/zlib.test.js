@@ -8,7 +8,7 @@ import {
   createGzip,
   brotliCompressSync, brotliDecompressSync,
   createBrotliCompress, createBrotliDecompress,
-} from '../../../../../../js/agents/core/sandbox/shims/zlib.js';
+} from '../../../../../../js/agents/core/node-compat/shims/zlib.js';
 
 describe('zlib shim', () => {
   it('gzipAsync + gunzipAsync round-trip (text)', async () => {

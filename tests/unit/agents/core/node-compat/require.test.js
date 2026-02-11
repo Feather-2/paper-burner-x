@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
-import { createRequire } from '../../../../../js/agents/core/sandbox/require.js';
-import { createResolver, BUILTIN_MODULE_NAMES } from '../../../../../js/agents/core/sandbox/module-resolver.js';
+import { createRequire } from '../../../../../js/agents/core/node-compat/require.js';
+import { createResolver, BUILTIN_MODULE_NAMES } from '../../../../../js/agents/core/node-compat/module-resolver.js';
 
 // ── module-resolver tests ──────────────────────────────────────
 

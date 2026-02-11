@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   validateDomainPattern,
   matchesDomainPattern,
   isUrlAllowed,
+  isUrlAllowedAsync,
   validateNetworkPolicy,
 } from '../../../../../js/agents/core/sandbox/network-policy-utils.js';
 
@@ -162,6 +163,59 @@ describe('network-policy-utils', () => {
 
     it('accepts policy with no domain lists', () => {
       expect(() => validateNetworkPolicy({})).not.toThrow();
+    });
+  });
+
+  describe('isUrlAllowedAsync', () => {
+    it('allows all when policy is null', async () => {
+      expect(await isUrlAllowedAsync('http://anything.com/', null)).toBe(true);
+    });
+
+    it('returns false for invalid URL', async () => {
+      expect(await isUrlAllowedAsync('not-a-url', { allowedDomains: ['example.com'] })).toBe(false);
+    });
+
+    it('allows matching allowedDomains without calling askCallback', async () => {
+      const ask = vi.fn();
+      const policy = { allowedDomains: ['api.example.com'] };
+      expect(await isUrlAllowedAsync('http://api.example.com/test', policy, { askCallback: ask })).toBe(true);
+      expect(ask).not.toHaveBeenCalled();
+    });
+
+    it('blocks denied domains without calling askCallback', async () => {
+      const ask = vi.fn();
+      const policy = { allowedDomains: ['api.example.com'], deniedDomains: ['evil.com'] };
+      expect(await isUrlAllowedAsync('http://evil.com/', policy, { askCallback: ask })).toBe(false);
+      expect(ask).not.toHaveBeenCalled();
+    });
+
+    it('calls askCallback when URL not in allowedDomains', async () => {
+      const ask = vi.fn().mockResolvedValue(true);
+      const policy = { allowedDomains: ['safe.com'] };
+      expect(await isUrlAllowedAsync('http://unknown.com/', policy, { askCallback: ask })).toBe(true);
+      expect(ask).toHaveBeenCalledWith({ url: 'http://unknown.com/', hostname: 'unknown.com', method: undefined });
+    });
+
+    it('askCallback can deny the request', async () => {
+      const ask = vi.fn().mockResolvedValue(false);
+      const policy = { allowedDomains: ['safe.com'] };
+      expect(await isUrlAllowedAsync('http://unknown.com/', policy, { askCallback: ask })).toBe(false);
+    });
+
+    it('passes method to askCallback', async () => {
+      const ask = vi.fn().mockResolvedValue(true);
+      const policy = { allowedDomains: ['safe.com'] };
+      await isUrlAllowedAsync('http://unknown.com/', policy, { askCallback: ask, method: 'POST' });
+      expect(ask).toHaveBeenCalledWith({ url: 'http://unknown.com/', hostname: 'unknown.com', method: 'POST' });
+    });
+
+    it('returns false without askCallback when URL not in allowedDomains', async () => {
+      const policy = { allowedDomains: ['safe.com'] };
+      expect(await isUrlAllowedAsync('http://unknown.com/', policy)).toBe(false);
+    });
+
+    it('allows all when no allowedDomains and no deniedDomains', async () => {
+      expect(await isUrlAllowedAsync('http://anything.com/', {})).toBe(true);
     });
   });
 });

@@ -6,7 +6,7 @@ import {
   diffSnapshots,
   uint8ToBase64,
   base64ToUint8,
-} from '../../../../../js/agents/core/sandbox/vfs-snapshot.js';
+} from '../../../../../js/agents/core/webruntime/vfs-snapshot.js';
 
 describe('vfs-snapshot', () => {
   /** @type {MemoryVfs} */

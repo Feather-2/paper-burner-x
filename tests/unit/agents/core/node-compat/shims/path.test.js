@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import path, {
   join, resolve, normalize, dirname, basename, extname,
   isAbsolute, relative, parse, format, sep, delimiter,
-} from '../../../../../../js/agents/core/sandbox/shims/path.js';
+} from '../../../../../../js/agents/core/node-compat/shims/path.js';
 
 describe('path shim', () => {
   describe('join', () => {

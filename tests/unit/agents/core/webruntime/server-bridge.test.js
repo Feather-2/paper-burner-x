@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createServerBridge, createFetchHandler } from '../../../../../js/agents/core/sandbox/server-bridge.js';
-import { installFetchHandler } from '../../../../../js/agents/core/sandbox/sw-handler.js';
+import { createServerBridge, createFetchHandler } from '../../../../../js/agents/core/webruntime/server-bridge.js';
+import { installFetchHandler } from '../../../../../js/agents/core/webruntime/sw-handler.js';
 
 describe('server-bridge', () => {
   /** @type {ReturnType<typeof createServerBridge>} */

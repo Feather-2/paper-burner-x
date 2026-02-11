@@ -5,8 +5,8 @@
  */
 
 import { MemoryVfs } from '../../vfs/vfs.memory.js';
-import { withVfsEvents } from './vfs-events.js';
-import { createSandbox } from './wasm-sandbox.js';
+import { withVfsEvents } from '../webruntime/vfs-events.js';
+import { createSandbox } from '../sandbox/wasm-sandbox.js';
 
 /**
  * @typedef {object} NodeEnvConfig

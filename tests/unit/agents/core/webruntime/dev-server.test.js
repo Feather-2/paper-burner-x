@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
-import { DevServer, MIME_TYPES } from '../../../../../js/agents/core/sandbox/dev-server.js';
+import { DevServer, MIME_TYPES } from '../../../../../js/agents/core/webruntime/dev-server.js';
 
 describe('DevServer', () => {
   /** @type {MemoryVfs} */

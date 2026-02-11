@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stringify, parse, escape, unescape } from '../../../../../../js/agents/core/sandbox/shims/querystring.js';
+import { stringify, parse, escape, unescape } from '../../../../../../js/agents/core/node-compat/shims/querystring.js';
 
 describe('querystring shim', () => {
   it('stringify converts object to query string', () => {

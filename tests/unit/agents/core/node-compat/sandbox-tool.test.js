@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createSandboxTool, SANDBOX_TOOL_DEFINITION } from '../../../../../js/agents/core/sandbox/sandbox-tool.js';
+import { createSandboxTool, SANDBOX_TOOL_DEFINITION } from '../../../../../js/agents/core/node-compat/sandbox-tool.js';
 
 // Mock iframe-eval-bridge to control browser vs Node behavior in tests
 vi.mock('../../../../../js/agents/core/sandbox/iframe-eval-bridge.js', () => {

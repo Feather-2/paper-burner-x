@@ -3,7 +3,7 @@ import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
 import {
   withVfsEvents,
   createVfsEventBridge,
-} from '../../../../../js/agents/core/sandbox/vfs-events.js';
+} from '../../../../../js/agents/core/webruntime/vfs-events.js';
 
 describe('vfs-events', () => {
   /** @type {MemoryVfs} */

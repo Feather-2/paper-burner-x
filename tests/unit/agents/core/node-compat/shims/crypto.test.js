@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   randomBytes, randomUUID, randomInt, createHash, createHmac, pbkdf2Sync,
   createSign, createVerify, wrapKey,
-} from '../../../../../../js/agents/core/sandbox/shims/crypto.js';
-import { Buffer } from '../../../../../../js/agents/core/sandbox/shims/buffer.js';
+} from '../../../../../../js/agents/core/node-compat/shims/crypto.js';
+import { Buffer } from '../../../../../../js/agents/core/node-compat/shims/buffer.js';
 
 describe('crypto shim', () => {
   it('randomBytes returns Buffer', () => {

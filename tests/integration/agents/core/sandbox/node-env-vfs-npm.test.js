@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
-import { createNodeEnv } from '../../../../../js/agents/core/sandbox/create-node-env.js';
-import { createSandboxTool } from '../../../../../js/agents/core/sandbox/sandbox-tool.js';
-import { PackageManager } from '../../../../../js/agents/core/sandbox/npm/index.js';
+import { createNodeEnv } from '../../../../../js/agents/core/node-compat/create-node-env.js';
+import { createSandboxTool } from '../../../../../js/agents/core/node-compat/sandbox-tool.js';
+import { PackageManager } from '../../../../../js/agents/core/node-compat/npm/index.js';
 
 /**
  * Create a mock Registry that returns fake metadata for known packages.

@@ -148,6 +148,32 @@ export const SystemSandboxExecutor = isNodeLike()
       }
     );
 
+// === 向后兼容重导出：node-compat ===
+export {
+  createBuiltinModules, BUILTIN_MODULE_NAMES,
+  createRequire,
+  createResolver,
+  hasESMSyntax, transformESMtoCJS,
+  createNodeEnv,
+  createSandboxTool, SANDBOX_TOOL_DEFINITION,
+  createCorsProxy, setCorsProxy, getCorsProxy, buildProxyUrl, proxyFetch,
+  createREPL,
+  createVfsAdapter,
+  PackageManager,
+} from '../node-compat/index.js';
+
+// === 向后兼容重导出：webruntime ===
+export {
+  DevServer, MIME_TYPES,
+  HmrClient, createHmrClient,
+  createServerBridge, createFetchHandler,
+  installFetchHandler,
+  generateCspHeader, generateSwScript, generateSandboxFiles,
+  wrapWorker, exposeApi,
+  uint8ToBase64, base64ToUint8, toSnapshot, fromSnapshot, diffSnapshots,
+  withVfsEvents, createVfsEventBridge,
+} from '../webruntime/index.js';
+
 import { SandboxCapability, SandboxPreset, ResourceLimits } from './constants.js';
 import { SandboxBackend } from './system/constants.js';
 

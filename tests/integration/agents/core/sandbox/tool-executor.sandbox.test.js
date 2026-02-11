@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
-import { createSandboxTool, SANDBOX_TOOL_DEFINITION } from '../../../../../js/agents/core/sandbox/sandbox-tool.js';
+import { createSandboxTool, SANDBOX_TOOL_DEFINITION } from '../../../../../js/agents/core/node-compat/sandbox-tool.js';
 import { createToolExecutor } from '../../../../../js/agents/runtime/tools/tool-executor.js';
 import { ToolRegistry } from '../../../../../js/agents/runtime/core/tool-registry.js';
 

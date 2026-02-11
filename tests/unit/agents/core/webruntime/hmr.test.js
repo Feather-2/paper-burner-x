@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { HmrClient, createHmrClient } from '../../../../../js/agents/core/sandbox/hmr.js';
+import { HmrClient, createHmrClient } from '../../../../../js/agents/core/webruntime/hmr.js';
 
 function createMockVfs() {
   const listeners = new Map();

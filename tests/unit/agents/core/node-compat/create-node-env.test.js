@@ -18,7 +18,7 @@ vi.mock(
 );
 
 const { createNodeEnv } = await import(
-  '../../../../../js/agents/core/sandbox/create-node-env.js'
+  '../../../../../js/agents/core/node-compat/create-node-env.js'
 );
 
 describe('create-node-env', () => {

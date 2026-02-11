@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createBuiltinModules, BUILTIN_MODULE_NAMES } from '../../../../../../js/agents/core/sandbox/shims/index.js';
+import { createBuiltinModules, BUILTIN_MODULE_NAMES } from '../../../../../../js/agents/core/node-compat/shims/index.js';
 import { MemoryVfs } from '../../../../../../js/agents/vfs/vfs.memory.js';
 
 describe('shims/index', () => {

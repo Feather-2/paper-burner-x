@@ -3,7 +3,7 @@ import { gzipSync } from 'node:zlib';
 import {
   TarballManager,
   parseTarHeaders,
-} from '../../../../../../js/agents/core/sandbox/npm/tarball.js';
+} from '../../../../../../js/agents/core/node-compat/npm/tarball.js';
 
 const encoder = new TextEncoder();
 const ORIGINAL_PAKO = globalThis.pako;

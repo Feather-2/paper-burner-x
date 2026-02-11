@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryVfs } from '../../../../../../js/agents/vfs/vfs.memory.js';
-import { createChildProcessShim } from '../../../../../../js/agents/core/sandbox/shims/child-process.js';
+import { createChildProcessShim } from '../../../../../../js/agents/core/node-compat/shims/child-process.js';
 
 describe('createChildProcessShim', () => {
   /** @type {MemoryVfs} */

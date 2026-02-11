@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   PackageManager,
   EventEmitter,
-} from '../../../../../../js/agents/core/sandbox/npm/index.js';
+} from '../../../../../../js/agents/core/node-compat/npm/index.js';
 
 /**
  * @param {string} name

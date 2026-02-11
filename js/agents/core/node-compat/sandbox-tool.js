@@ -8,7 +8,7 @@
 import { createNodeEnv } from './create-node-env.js';
 import { createRequire } from './require.js';
 import { createBuiltinModules } from './shims/index.js';
-import { createIframeEvalBridge, isBrowserWithDOM } from './iframe-eval-bridge.js';
+import { createIframeEvalBridge, isBrowserWithDOM } from '../sandbox/iframe-eval-bridge.js';
 
 /**
  * @typedef {object} SandboxToolConfig

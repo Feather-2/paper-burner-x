@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Readable, Writable, Duplex, Transform, PassThrough, pipeline, finished, Stream } from '../../../../../../js/agents/core/sandbox/shims/stream.js';
-import { Buffer } from '../../../../../../js/agents/core/sandbox/shims/buffer.js';
+import { Readable, Writable, Duplex, Transform, PassThrough, pipeline, finished, Stream } from '../../../../../../js/agents/core/node-compat/shims/stream.js';
+import { Buffer } from '../../../../../../js/agents/core/node-compat/shims/buffer.js';
 
 /**
  * Helper: collect all 'data' events from a Readable once it flows.

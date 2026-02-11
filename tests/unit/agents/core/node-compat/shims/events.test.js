@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { EventEmitter } from '../../../../../../js/agents/core/sandbox/shims/events.js';
+import { EventEmitter } from '../../../../../../js/agents/core/node-compat/shims/events.js';
 
 describe('EventEmitter shim', () => {
   it('on + emit basic functionality', () => {

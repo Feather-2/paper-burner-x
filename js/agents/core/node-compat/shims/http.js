@@ -10,7 +10,7 @@ import { EventEmitter } from './events.js';
 import { Readable, Writable } from './stream.js';
 import { Buffer } from './buffer.js';
 import { Socket } from './net.js';
-import { validateDomainPattern, matchesDomainPattern, isUrlAllowed, isUrlAllowedAsync } from '../network-policy-utils.js';
+import { validateDomainPattern, matchesDomainPattern, isUrlAllowed, isUrlAllowedAsync } from '../../sandbox/network-policy-utils.js';
 
 export class IncomingMessage extends Readable {
   constructor(socket) {

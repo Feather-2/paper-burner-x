@@ -5,7 +5,7 @@ import {
   getCorsProxy,
   buildProxyUrl,
   proxyFetch,
-} from '../../../../../js/agents/core/sandbox/cors-proxy.js';
+} from '../../../../../js/agents/core/node-compat/cors-proxy.js';
 
 describe('cors-proxy', () => {
   // --- Legacy module-level API (backward compat) ---

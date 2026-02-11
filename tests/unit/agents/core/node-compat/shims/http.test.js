@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   IncomingMessage, ServerResponse, METHODS, STATUS_CODES,
   createHttpShim,
-} from '../../../../../../js/agents/core/sandbox/shims/http.js';
+} from '../../../../../../js/agents/core/node-compat/shims/http.js';
 
 describe('http shim', () => {
   it('IncomingMessage has default properties', () => {
@@ -391,6 +391,87 @@ describe('http shim > network policy', () => {
     await new Promise(r => setTimeout(r, 50));
     expect(errorFn).toHaveBeenCalled();
     expect(errorFn.mock.calls[0][0].code).toBe('ERR_NETWORK_POLICY');
+  });
+});
+
+describe('http shim > askCallback', () => {
+  it('askCallback approves request not in allowedDomains', async () => {
+    const askCb = vi.fn().mockResolvedValue(true);
+    const shim = createHttpShim({
+      networkPolicy: { allowedDomains: ['safe.com'] },
+      askCallback: askCb,
+    });
+    const req = new shim.ClientRequest({ hostname: 'unknown.com', path: '/data' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(askCb).toHaveBeenCalledWith({
+      url: 'http://unknown.com/data',
+      hostname: 'unknown.com',
+      method: 'GET',
+    });
+    if (errorFn.mock.calls.length > 0) {
+      expect(errorFn.mock.calls[0][0].code).not.toBe('ERR_NETWORK_POLICY');
+    }
+  });
+
+  it('askCallback denies request not in allowedDomains', async () => {
+    const askCb = vi.fn().mockResolvedValue(false);
+    const shim = createHttpShim({
+      networkPolicy: { allowedDomains: ['safe.com'] },
+      askCallback: askCb,
+    });
+    const req = new shim.ClientRequest({ hostname: 'unknown.com', path: '/' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(errorFn).toHaveBeenCalled();
+    expect(errorFn.mock.calls[0][0].code).toBe('ERR_NETWORK_POLICY');
+  });
+
+  it('askCallback is not called for allowed domains', async () => {
+    const askCb = vi.fn().mockResolvedValue(true);
+    const shim = createHttpShim({
+      networkPolicy: { allowedDomains: ['safe.com'] },
+      askCallback: askCb,
+    });
+    const req = new shim.ClientRequest({ hostname: 'safe.com', path: '/' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(askCb).not.toHaveBeenCalled();
+  });
+
+  it('askCallback is not called for denied domains', async () => {
+    const askCb = vi.fn().mockResolvedValue(true);
+    const shim = createHttpShim({
+      networkPolicy: { allowedDomains: ['safe.com'], deniedDomains: ['evil.com'] },
+      askCallback: askCb,
+    });
+    const req = new shim.ClientRequest({ hostname: 'evil.com', path: '/' });
+    const errorFn = vi.fn();
+    req.on('error', errorFn);
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(askCb).not.toHaveBeenCalled();
+    expect(errorFn).toHaveBeenCalled();
+    expect(errorFn.mock.calls[0][0].code).toBe('ERR_NETWORK_POLICY');
+  });
+
+  it('askCallback receives correct method for POST requests', async () => {
+    const askCb = vi.fn().mockResolvedValue(true);
+    const shim = createHttpShim({
+      networkPolicy: { allowedDomains: ['safe.com'] },
+      askCallback: askCb,
+    });
+    const req = new shim.ClientRequest({ hostname: 'unknown.com', path: '/api', method: 'POST' });
+    req.on('error', () => {});
+    req.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(askCb).toHaveBeenCalledWith(expect.objectContaining({ method: 'POST' }));
   });
 });
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   wrapWorker, exposeApi,
   MSG_CALL, MSG_RETURN, MSG_CONSOLE,
-} from '../../../../../js/agents/core/sandbox/worker-comlink.js';
+} from '../../../../../js/agents/core/webruntime/worker-comlink.js';
 
 function createMockWorker() {
   const listeners = new Map();

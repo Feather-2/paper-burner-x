@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createREPL } from '../../../../../js/agents/core/sandbox/repl.js';
+import { createREPL } from '../../../../../js/agents/core/node-compat/repl.js';
 
 describe('createREPL', () => {
-  /** @type {import('../../../../../js/agents/core/sandbox/repl.js').ReplContext} */
+  /** @type {import('../../../../../js/agents/core/node-compat/repl.js').ReplContext} */
   let repl;
 
   beforeEach(() => {

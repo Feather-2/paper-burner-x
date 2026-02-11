@@ -3,7 +3,7 @@ import {
   generateCspHeader,
   generateSandboxFiles,
   generateSwScript,
-} from '../../../../../js/agents/core/sandbox/sandbox-deploy.js';
+} from '../../../../../js/agents/core/webruntime/sandbox-deploy.js';
 
 describe('sandbox-deploy', () => {
   describe('generateCspHeader', () => {

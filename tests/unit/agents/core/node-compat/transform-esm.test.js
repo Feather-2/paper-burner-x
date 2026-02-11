@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hasESMSyntax, transformESMtoCJS } from '../../../../../js/agents/core/sandbox/transform-esm.js';
+import { hasESMSyntax, transformESMtoCJS } from '../../../../../js/agents/core/node-compat/transform-esm.js';
 
 describe('hasESMSyntax', () => {
   it('detects import statements', () => {

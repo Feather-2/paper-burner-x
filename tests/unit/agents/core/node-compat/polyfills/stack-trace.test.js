@@ -3,7 +3,7 @@ import {
   parseStack,
   createCallSite,
   installStackTracePolyfill,
-} from '../../../../../../js/agents/core/sandbox/polyfills/stack-trace.js';
+} from '../../../../../../js/agents/core/node-compat/polyfills/stack-trace.js';
 
 describe('stack-trace polyfill', () => {
   // 1. parseStack parses V8 format

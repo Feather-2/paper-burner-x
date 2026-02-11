@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   Socket, Server, createServer, createConnection, connect,
   isIP, isIPv4, isIPv6,
-} from '../../../../../../js/agents/core/sandbox/shims/net.js';
+} from '../../../../../../js/agents/core/node-compat/shims/net.js';
 
 describe('net shim', () => {
   it('Socket constructor does not throw', () => {

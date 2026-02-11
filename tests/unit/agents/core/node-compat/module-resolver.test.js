@@ -5,7 +5,7 @@ import {
   resolveExportConditions,
   resolvePackageExports,
   BUILTIN_MODULE_NAMES,
-} from '../../../../../js/agents/core/sandbox/module-resolver.js';
+} from '../../../../../js/agents/core/node-compat/module-resolver.js';
 
 // ── resolveExportConditions ─────────────────────────────────────
 

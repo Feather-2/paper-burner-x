@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
-import { createVfsAdapter } from '../../../../../js/agents/core/sandbox/vfs-adapter.js';
+import { createVfsAdapter } from '../../../../../js/agents/core/node-compat/vfs-adapter.js';
 
 describe('createVfsAdapter', () => {
   /** @type {MemoryVfs} */

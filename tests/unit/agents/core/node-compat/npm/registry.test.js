@@ -3,7 +3,7 @@ import {
   Registry,
   encodePackageName,
   normalizeRegistryUrl,
-} from '../../../../../../js/agents/core/sandbox/npm/registry.js';
+} from '../../../../../../js/agents/core/node-compat/npm/registry.js';
 
 /**
  * @param {unknown} data

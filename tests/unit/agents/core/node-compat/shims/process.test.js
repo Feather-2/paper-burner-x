@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import processShim, { createProcess } from '../../../../../../js/agents/core/sandbox/shims/process.js';
+import processShim, { createProcess } from '../../../../../../js/agents/core/node-compat/shims/process.js';
 
 describe('process shim', () => {
   it('process.platform === linux', () => {
