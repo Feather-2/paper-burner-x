@@ -8,6 +8,7 @@
 import { createNodeEnv } from './create-node-env.js';
 import { createRequire } from './require.js';
 import { createBuiltinModules } from './shims/index.js';
+import { createIframeEvalBridge, isBrowserWithDOM } from './iframe-eval-bridge.js';
 
 /**
  * @typedef {object} SandboxToolConfig
@@ -55,6 +56,7 @@ export function createSandboxTool(config = {}) {
 
   let _env = null;
   let _require = null;
+  let _iframeBridge = null;
 
   async function getEnv() {
     if (_env) return { env: _env, require: _require };
@@ -68,16 +70,29 @@ export function createSandboxTool(config = {}) {
 
     const builtinModules = createBuiltinModules({ vfs: _env.vfs });
 
+    // Browser: route eval through sandboxed iframe (allow-scripts only,
+    // no allow-same-origin) to prevent prototype-chain escape to host globalThis.
+    // Node.js: no iframe available, fall back to indirect eval with warning.
+    let evaluate;
+    if (isBrowserWithDOM()) {
+      _iframeBridge = createIframeEvalBridge({ timeout, onConsole });
+      evaluate = async (code, _filename) => {
+        const result = await _iframeBridge.evaluate(code, _filename);
+        if (!result.ok) throw new Error(result.error || 'iframe eval failed');
+        return result.value;
+      };
+    } else {
+      // Node.js fallback — isolation relies on controlled globals from require
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[sandbox-tool] No iframe available; using host-side eval (Node.js fallback)');
+      }
+      evaluate = async (code) => (0, eval)(code);
+    }
+
     const { require: req } = createRequire({
       vfs: _env.vfs,
       builtinModules,
-      evaluate: async (code, _filename) => {
-        // Host-side eval: the require wrapper is an IIFE returning a function.
-        // WasmSandbox can't serialize functions across the WASM boundary,
-        // so we eval the wrapper on the host. Isolation is provided by the
-        // controlled globals (process, console, Buffer) injected by require.
-        return (0, eval)(code);
-      },
+      evaluate,
       globals: {
         process: builtinModules.process,
         console: builtinModules.console || console,
@@ -125,6 +140,10 @@ export function createSandboxTool(config = {}) {
   }
 
   handler.dispose = async () => {
+    if (_iframeBridge) {
+      _iframeBridge.dispose();
+      _iframeBridge = null;
+    }
     if (_env) {
       await _env.dispose();
       _env = null;
