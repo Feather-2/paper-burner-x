@@ -4,7 +4,7 @@
  * and mocked system dependencies.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../../../js/agents/core/sandbox/system/constants.js', () => ({
   SandboxBackend: { BUBBLEWRAP: 'bubblewrap' },
@@ -34,6 +34,8 @@ vi.mock('node:fs', () => ({
 import {
   executeInBubblewrap,
   createBubblewrapExecutor,
+  findSeccompBinary,
+  generateSeccompCommand,
 } from '../../../../../../js/agents/core/sandbox/system/bubblewrap.js';
 import { execCommand } from '../../../../../../js/agents/core/sandbox/system/detect.js';
 import { normalizeSandboxPath } from '../../../../../../js/agents/core/sandbox/system/path-utils.js';
@@ -520,5 +522,214 @@ describe('createBubblewrapExecutor', () => {
     await expect(executor.execute('echo', [])).rejects.toThrow(
       'workDir is required for Bubblewrap sandbox'
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findSeccompBinary
+// ---------------------------------------------------------------------------
+describe('findSeccompBinary', () => {
+  it('returns null when no binary exists anywhere', () => {
+    existsSync.mockReturnValue(false);
+    expect(findSeccompBinary('bpf', 'x64')).toBeNull();
+    expect(findSeccompBinary('apply-seccomp', 'x64')).toBeNull();
+  });
+
+  it('returns user-specified bpfPath when it exists', () => {
+    existsSync.mockImplementation((p) => p === '/custom/seccomp-bpf.bin');
+    const result = findSeccompBinary('bpf', 'x64', { bpfPath: '/custom/seccomp-bpf.bin' });
+    expect(result).toBe('/custom/seccomp-bpf.bin');
+  });
+
+  it('returns user-specified applySeccompPath when it exists', () => {
+    existsSync.mockImplementation((p) => p === '/custom/apply-seccomp');
+    const result = findSeccompBinary('apply-seccomp', 'x64', { applySeccompPath: '/custom/apply-seccomp' });
+    expect(result).toBe('/custom/apply-seccomp');
+  });
+
+  it('skips user path when file does not exist and falls through', () => {
+    existsSync.mockReturnValue(false);
+    const result = findSeccompBinary('bpf', 'x64', { bpfPath: '/missing/file' });
+    expect(result).toBeNull();
+  });
+
+  it('finds vendor path for bpf type', () => {
+    existsSync.mockImplementation((p) => p.includes('vendor/seccomp/x64/seccomp-bpf.bin'));
+    const result = findSeccompBinary('bpf', 'x64');
+    expect(result).toContain('vendor/seccomp/x64/seccomp-bpf.bin');
+  });
+
+  it('finds vendor path for apply-seccomp type', () => {
+    existsSync.mockImplementation((p) => p.includes('vendor/seccomp/arm64/apply-seccomp'));
+    const result = findSeccompBinary('apply-seccomp', 'arm64');
+    expect(result).toContain('vendor/seccomp/arm64/apply-seccomp');
+  });
+
+  it('uses correct filename for each type', () => {
+    const calls = [];
+    existsSync.mockImplementation((p) => { calls.push(p); return false; });
+    findSeccompBinary('bpf', 'x64');
+    expect(calls.some(c => c.includes('seccomp-bpf.bin'))).toBe(true);
+    expect(calls.every(c => !c.includes('apply-seccomp'))).toBe(true);
+
+    calls.length = 0;
+    findSeccompBinary('apply-seccomp', 'x64');
+    expect(calls.some(c => c.includes('apply-seccomp'))).toBe(true);
+  });
+
+  afterEach(() => {
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// generateSeccompCommand
+// ---------------------------------------------------------------------------
+describe('generateSeccompCommand', () => {
+  it('throws when BPF filter not found', () => {
+    existsSync.mockReturnValue(false);
+    expect(() => generateSeccompCommand(['echo', 'hi'], { arch: 'x64' }))
+      .toThrow('Seccomp BPF filter not found for arch x64');
+  });
+
+  it('throws when apply-seccomp binary not found', () => {
+    // bpf exists but apply-seccomp does not
+    existsSync.mockImplementation((p) => p.includes('seccomp-bpf.bin'));
+    expect(() => generateSeccompCommand(['echo', 'hi'], { arch: 'x64' }))
+      .toThrow('apply-seccomp binary not found for arch x64');
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
+  });
+
+  it('returns correct two-stage command structure', () => {
+    existsSync.mockImplementation((p) => {
+      return p.includes('vendor/seccomp/x64/seccomp-bpf.bin')
+        || p.includes('vendor/seccomp/x64/apply-seccomp');
+    });
+    const result = generateSeccompCommand(['node', 'app.js'], { arch: 'x64' });
+    expect(result.bpfPath).toContain('seccomp-bpf.bin');
+    expect(result.applySeccompPath).toContain('apply-seccomp');
+    expect(result.wrappedCmd).toEqual([
+      result.applySeccompPath,
+      result.bpfPath,
+      '--',
+      'node',
+      'app.js',
+    ]);
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
+  });
+
+  it('uses user-specified paths from config', () => {
+    existsSync.mockImplementation((p) => {
+      return p === '/my/bpf.bin' || p === '/my/apply';
+    });
+    const result = generateSeccompCommand(['ls'], {
+      arch: 'arm64',
+      bpfPath: '/my/bpf.bin',
+      applySeccompPath: '/my/apply',
+    });
+    expect(result.bpfPath).toBe('/my/bpf.bin');
+    expect(result.applySeccompPath).toBe('/my/apply');
+    expect(result.wrappedCmd).toEqual(['/my/apply', '/my/bpf.bin', '--', 'ls']);
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
+  });
+
+  it('defaults arch to x64 when not specified', () => {
+    existsSync.mockImplementation((p) => p.includes('vendor/seccomp/x64/'));
+    const result = generateSeccompCommand(['echo'], {});
+    expect(result.bpfPath).toContain('x64');
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildBubblewrapArgs seccomp integration
+// ---------------------------------------------------------------------------
+describe('seccomp integration in executeInBubblewrap', () => {
+  it('inserts apply-seccomp stage when seccomp.enabled is true', async () => {
+    existsSync.mockImplementation((p) => {
+      return p.includes('vendor/seccomp/x64/seccomp-bpf.bin')
+        || p.includes('vendor/seccomp/x64/apply-seccomp');
+    });
+
+    await executeInBubblewrap('node', ['app.js'], {
+      workDir: '/work',
+      disableMandatoryDeny: true,
+      allowedWritePaths: [],
+      seccomp: { enabled: true, arch: 'x64' },
+    });
+
+    const args = execCommand.mock.calls[0][1];
+    const sepIdx = args.indexOf('--');
+    const tail = args.slice(sepIdx + 1);
+    // tail should be: [apply-seccomp-path, bpf-path, '--', 'node', 'app.js']
+    expect(tail.length).toBe(5);
+    expect(tail[0]).toContain('apply-seccomp');
+    expect(tail[1]).toContain('seccomp-bpf.bin');
+    expect(tail[2]).toBe('--');
+    expect(tail[3]).toBe('node');
+    expect(tail[4]).toBe('app.js');
+
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
+  });
+
+  it('does not insert seccomp stage when seccomp.enabled is false', async () => {
+    await executeInBubblewrap('echo', ['hi'], {
+      workDir: '/work',
+      disableMandatoryDeny: true,
+      allowedWritePaths: [],
+      seccomp: { enabled: false },
+    });
+
+    const args = execCommand.mock.calls[0][1];
+    const sepIdx = args.indexOf('--');
+    expect(args.slice(sepIdx + 1)).toEqual(['echo', 'hi']);
+  });
+
+  it('does not insert seccomp stage when seccomp is undefined', async () => {
+    await executeInBubblewrap('echo', ['hi'], {
+      workDir: '/work',
+      disableMandatoryDeny: true,
+      allowedWritePaths: [],
+    });
+
+    const args = execCommand.mock.calls[0][1];
+    const sepIdx = args.indexOf('--');
+    expect(args.slice(sepIdx + 1)).toEqual(['echo', 'hi']);
+  });
+
+  it('uses user-specified seccomp paths in buildCommand', async () => {
+    existsSync.mockImplementation((p) => {
+      return p === '/opt/bpf.bin' || p === '/opt/apply-seccomp';
+    });
+
+    await executeInBubblewrap('bash', ['-c', 'echo test'], {
+      workDir: '/work',
+      disableMandatoryDeny: true,
+      allowedWritePaths: [],
+      seccomp: {
+        enabled: true,
+        bpfPath: '/opt/bpf.bin',
+        applySeccompPath: '/opt/apply-seccomp',
+      },
+    });
+
+    const args = execCommand.mock.calls[0][1];
+    const sepIdx = args.indexOf('--');
+    const tail = args.slice(sepIdx + 1);
+    expect(tail[0]).toBe('/opt/apply-seccomp');
+    expect(tail[1]).toBe('/opt/bpf.bin');
+    expect(tail[2]).toBe('--');
+    expect(tail[3]).toBe('bash');
+    expect(tail[4]).toBe('-c');
+    expect(tail[5]).toBe('echo test');
+
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
   });
 });

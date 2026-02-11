@@ -348,4 +348,123 @@ export function createSeatbeltExecutor(defaultOptions = /** @type {Partial<Seatb
   };
 }
 
-export default { executeInSeatbelt, createSeatbeltExecutor };
+/**
+ * Known noisy macOS processes that generate frequent sandbox deny events.
+ * These are filtered out by default in the violation monitor.
+ */
+const NOISY_PROCESSES = new Set([
+  'mDNSResponder', 'diagnosticd', 'analyticsd', 'cfprefsd', 'logd',
+]);
+
+/** Predicate for macOS log stream to capture sandbox deny events. */
+const LOG_STREAM_PREDICATE = 'eventMessage CONTAINS "deny"';
+
+/**
+ * Parse a macOS log stream line for sandbox deny information.
+ * @param {string} line - Raw log stream output line
+ * @returns {{ operation: string, path: string|null, process: string|null, timestamp: string|null }|null}
+ */
+export function parseLogLine(line) {
+  if (!line || typeof line !== 'string') return null;
+
+  // Must contain 'deny' to be relevant
+  if (!line.includes('deny')) return null;
+
+  // Extract operation: Sandbox: deny(1) file-read-data /some/path
+  const opMatch = line.match(/deny(?:\(\d+\))?\s+(\S+)/);
+  if (!opMatch) return null;
+
+  const operation = opMatch[1];
+
+  // Extract path or target after operation
+  const afterOp = line.slice(opMatch.index + opMatch[0].length).trim();
+  const path = afterOp.length > 0 ? afterOp.split(/\s+/)[0] : null;
+
+  // Extract process name: processName[pid] format (standard macOS log)
+  const procMatch = line.match(/(\w[\w.-]*)\[\d+]/);
+  const process = procMatch ? procMatch[1] : null;
+
+  // Extract timestamp: ISO or macOS default format at line start
+  const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}[\d.+-:]*)/);
+  const timestamp = tsMatch ? tsMatch[1] : null;
+
+  return { operation, path, process, timestamp };
+}
+
+/**
+ * Start a macOS log stream violation monitor.
+ * Spawns `log stream` and feeds parsed deny events into a ViolationStore.
+ *
+ * Requires Node.js (child_process). Will throw in browser environments.
+ *
+ * @param {Object} options
+ * @param {import('../violation-store.js').ViolationStore} options.violationStore
+ * @param {RegExp[]} [options.ignorePatterns] - Patterns to skip
+ * @param {string} [options.sessionId] - Session identifier for meta
+ * @param {Set<string>} [options.noisyProcesses] - Override noisy process filter
+ * @returns {Promise<{ stop: () => void }>}
+ */
+export async function startViolationMonitor(options) {
+  const {
+    violationStore,
+    ignorePatterns = [],
+    sessionId = null,
+    noisyProcesses = NOISY_PROCESSES,
+  } = options;
+
+  if (!violationStore || typeof violationStore.add !== 'function') {
+    throw new Error('violationStore with add() method is required');
+  }
+
+  // Lazy import child_process for browser compatibility
+  const { spawn } = await import('node:child_process');
+
+  const child = spawn('log', [
+    'stream',
+    '--predicate', LOG_STREAM_PREDICATE,
+  ], { stdio: ['ignore', 'pipe', 'ignore'] });
+
+  let buffer = '';
+
+  child.stdout.on('data', (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const parsed = parseLogLine(line);
+      if (!parsed) continue;
+
+      // Filter noisy processes
+      if (parsed.process && noisyProcesses.has(parsed.process)) continue;
+
+      // Check ignore patterns
+      if (ignorePatterns.length > 0) {
+        const full = line;
+        if (ignorePatterns.some(re => re.test(full))) continue;
+      }
+
+      violationStore.add({
+        type: 'sandbox:deny',
+        detail: `${parsed.operation}${parsed.path ? ' ' + parsed.path : ''}`,
+        meta: {
+          operation: parsed.operation,
+          path: parsed.path,
+          process: parsed.process,
+          timestamp: parsed.timestamp,
+          ...(sessionId ? { sessionId } : {}),
+        },
+      });
+    }
+  });
+
+  return {
+    stop() {
+      child.kill('SIGTERM');
+    },
+  };
+}
+
+export { NOISY_PROCESSES, LOG_STREAM_PREDICATE };
+
+export default { executeInSeatbelt, createSeatbeltExecutor, parseLogLine, startViolationMonitor, NOISY_PROCESSES, LOG_STREAM_PREDICATE };

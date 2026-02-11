@@ -3,7 +3,7 @@
  * focusing on SBPL profile generation and boundary cases.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../../../js/agents/core/sandbox/system/constants.js', () => ({
   SandboxBackend: { SEATBELT: 'seatbelt' },
@@ -30,6 +30,10 @@ vi.mock('node:fs', () => ({
   lstatSync: vi.fn(),
 }));
 
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(),
+}));
+
 vi.mock('node:path', async () => {
   const actual = await vi.importActual('node:path');
   return { ...actual };
@@ -38,6 +42,10 @@ vi.mock('node:path', async () => {
 import {
   executeInSeatbelt,
   createSeatbeltExecutor,
+  parseLogLine,
+  startViolationMonitor,
+  NOISY_PROCESSES,
+  LOG_STREAM_PREDICATE,
 } from '../../../../../../js/agents/core/sandbox/system/seatbelt.js';
 import { execCommand } from '../../../../../../js/agents/core/sandbox/system/detect.js';
 import {
@@ -49,6 +57,7 @@ import {
   SandboxBackend,
 } from '../../../../../../js/agents/core/sandbox/system/constants.js';
 import { statSync } from 'node:fs';
+import { spawn as mockSpawnFn } from 'node:child_process';
 
 const BASE_RESULT = { code: 0, stdout: 'ok', stderr: '' };
 
@@ -513,5 +522,224 @@ describe('createSeatbeltExecutor', () => {
     expect(execCommand).toHaveBeenCalledWith('sandbox-exec', expect.any(Array), {
       timeout: 0,
     });
+  });
+});
+
+describe('constants', () => {
+  it('NOISY_PROCESSES is a Set with expected entries', () => {
+    expect(NOISY_PROCESSES).toBeInstanceOf(Set);
+    expect(NOISY_PROCESSES.has('mDNSResponder')).toBe(true);
+    expect(NOISY_PROCESSES.has('diagnosticd')).toBe(true);
+    expect(NOISY_PROCESSES.has('analyticsd')).toBe(true);
+    expect(NOISY_PROCESSES.has('cfprefsd')).toBe(true);
+    expect(NOISY_PROCESSES.has('logd')).toBe(true);
+    expect(NOISY_PROCESSES.size).toBe(5);
+  });
+
+  it('LOG_STREAM_PREDICATE contains deny filter', () => {
+    expect(LOG_STREAM_PREDICATE).toBe('eventMessage CONTAINS "deny"');
+  });
+});
+
+describe('parseLogLine', () => {
+  it('returns null for empty/invalid input', () => {
+    expect(parseLogLine('')).toBeNull();
+    expect(parseLogLine(null)).toBeNull();
+    expect(parseLogLine(undefined)).toBeNull();
+    expect(parseLogLine(123)).toBeNull();
+  });
+
+  it('returns null for lines without deny', () => {
+    expect(parseLogLine('some random log line')).toBeNull();
+    expect(parseLogLine('allow file-read-data /foo')).toBeNull();
+  });
+
+  it('parses sandbox deny with file-read-data operation', () => {
+    const line = '2025-01-15 10:30:45.123456 myprocess[1234] Sandbox: deny(1) file-read-data /usr/local/secret';
+    const result = parseLogLine(line);
+    expect(result).not.toBeNull();
+    expect(result.operation).toBe('file-read-data');
+    expect(result.path).toBe('/usr/local/secret');
+    expect(result.process).toBe('myprocess');
+    expect(result.timestamp).toMatch(/^2025-01-15/);
+  });
+
+  it('parses mach-lookup deny', () => {
+    const line = '2025-01-15 10:30:45.000 node[5678] Sandbox: deny(1) mach-lookup com.apple.private.service';
+    const result = parseLogLine(line);
+    expect(result.operation).toBe('mach-lookup');
+    expect(result.path).toBe('com.apple.private.service');
+    expect(result.process).toBe('node');
+  });
+
+  it('parses network-outbound deny', () => {
+    const line = '2025-01-15 10:30:45.000 curl[999] Sandbox: deny(1) network-outbound';
+    const result = parseLogLine(line);
+    expect(result.operation).toBe('network-outbound');
+    expect(result.process).toBe('curl');
+  });
+
+  it('parses deny without parens', () => {
+    const line = 'Sandbox: deny file-write-data /tmp/foo';
+    const result = parseLogLine(line);
+    expect(result.operation).toBe('file-write-data');
+    expect(result.path).toBe('/tmp/foo');
+  });
+
+  it('returns null timestamp when not present', () => {
+    const line = 'Sandbox: deny(1) file-read-data /secret';
+    const result = parseLogLine(line);
+    expect(result.timestamp).toBeNull();
+  });
+
+  it('returns null process when not present', () => {
+    const line = 'Sandbox: deny(1) file-read-data /secret';
+    const result = parseLogLine(line);
+    expect(result.process).toBeNull();
+  });
+});
+
+describe('startViolationMonitor', () => {
+  let mockStdout;
+  let mockChild;
+
+  beforeEach(() => {
+    mockStdout = {
+      on: vi.fn(),
+    };
+    mockChild = {
+      stdout: mockStdout,
+      kill: vi.fn(),
+    };
+    mockSpawnFn.mockReturnValue(mockChild);
+  });
+
+  it('rejects when violationStore is missing', async () => {
+    await expect(startViolationMonitor({})).rejects.toThrow('violationStore');
+    await expect(startViolationMonitor({ violationStore: null })).rejects.toThrow('violationStore');
+    await expect(startViolationMonitor({ violationStore: {} })).rejects.toThrow('violationStore');
+  });
+
+  it('spawns log stream with correct predicate', async () => {
+    const store = { add: vi.fn() };
+    const { stop } = await startViolationMonitor({ violationStore: store });
+
+    expect(mockSpawnFn).toHaveBeenCalledWith(
+      'log',
+      ['stream', '--predicate', LOG_STREAM_PREDICATE],
+      { stdio: ['ignore', 'pipe', 'ignore'] }
+    );
+
+    stop();
+    expect(mockChild.kill).toHaveBeenCalledWith('SIGTERM');
+  });
+
+  it('parses incoming data and writes to violationStore', async () => {
+    const store = { add: vi.fn() };
+    await startViolationMonitor({ violationStore: store });
+
+    // Simulate data event
+    const dataHandler = mockStdout.on.mock.calls.find(c => c[0] === 'data')[1];
+    dataHandler(Buffer.from(
+      '2025-01-15 10:30:45.000 node[123] Sandbox: deny(1) file-read-data /secret\n'
+    ));
+
+    expect(store.add).toHaveBeenCalledTimes(1);
+    const call = store.add.mock.calls[0][0];
+    expect(call.type).toBe('sandbox:deny');
+    expect(call.detail).toContain('file-read-data');
+    expect(call.detail).toContain('/secret');
+    expect(call.meta.operation).toBe('file-read-data');
+    expect(call.meta.path).toBe('/secret');
+    expect(call.meta.process).toBe('node');
+  });
+
+  it('filters out noisy processes', async () => {
+    const store = { add: vi.fn() };
+    await startViolationMonitor({ violationStore: store });
+
+    const dataHandler = mockStdout.on.mock.calls.find(c => c[0] === 'data')[1];
+    dataHandler(Buffer.from(
+      '2025-01-15 10:30:45.000 mDNSResponder[111] Sandbox: deny(1) network-outbound\n' +
+      '2025-01-15 10:30:45.000 diagnosticd[222] Sandbox: deny(1) file-read-data /foo\n' +
+      '2025-01-15 10:30:45.000 myapp[333] Sandbox: deny(1) file-read-data /bar\n'
+    ));
+
+    expect(store.add).toHaveBeenCalledTimes(1);
+    expect(store.add.mock.calls[0][0].meta.process).toBe('myapp');
+  });
+
+  it('filters by ignorePatterns', async () => {
+    const store = { add: vi.fn() };
+    await startViolationMonitor({
+      violationStore: store,
+      ignorePatterns: [/\/tmp\/harmless/],
+    });
+
+    const dataHandler = mockStdout.on.mock.calls.find(c => c[0] === 'data')[1];
+    dataHandler(Buffer.from(
+      'app[1] Sandbox: deny(1) file-read-data /tmp/harmless/foo\n' +
+      'app[1] Sandbox: deny(1) file-read-data /secret/bar\n'
+    ));
+
+    expect(store.add).toHaveBeenCalledTimes(1);
+    expect(store.add.mock.calls[0][0].detail).toContain('/secret/bar');
+  });
+
+  it('includes sessionId in meta when provided', async () => {
+    const store = { add: vi.fn() };
+    await startViolationMonitor({
+      violationStore: store,
+      sessionId: 'sess-42',
+    });
+
+    const dataHandler = mockStdout.on.mock.calls.find(c => c[0] === 'data')[1];
+    dataHandler(Buffer.from(
+      '2025-01-15 10:30:45.000 node[123] Sandbox: deny(1) file-read-data /x\n'
+    ));
+
+    expect(store.add.mock.calls[0][0].meta.sessionId).toBe('sess-42');
+  });
+
+  it('accepts custom noisyProcesses override', async () => {
+    const store = { add: vi.fn() };
+    const custom = new Set(['mynoisy']);
+    await startViolationMonitor({
+      violationStore: store,
+      noisyProcesses: custom,
+    });
+
+    const dataHandler = mockStdout.on.mock.calls.find(c => c[0] === 'data')[1];
+    dataHandler(Buffer.from(
+      '2025-01-15 10:30:45.000 mynoisy[111] Sandbox: deny(1) file-read-data /a\n' +
+      '2025-01-15 10:30:45.000 mDNSResponder[222] Sandbox: deny(1) file-read-data /b\n'
+    ));
+
+    // mynoisy filtered, mDNSResponder NOT filtered (custom override)
+    expect(store.add).toHaveBeenCalledTimes(1);
+    expect(store.add.mock.calls[0][0].meta.process).toBe('mDNSResponder');
+  });
+
+  it('handles partial lines across chunks', async () => {
+    const store = { add: vi.fn() };
+    await startViolationMonitor({ violationStore: store });
+
+    const dataHandler = mockStdout.on.mock.calls.find(c => c[0] === 'data')[1];
+    // First chunk: partial line
+    dataHandler(Buffer.from('app[1] Sandbox: deny(1) file-read-data'));
+    expect(store.add).not.toHaveBeenCalled();
+
+    // Second chunk: completes the line
+    dataHandler(Buffer.from(' /secret\n'));
+    expect(store.add).toHaveBeenCalledTimes(1);
+    expect(store.add.mock.calls[0][0].detail).toContain('/secret');
+  });
+
+  it('stop kills the child process', async () => {
+    const store = { add: vi.fn() };
+    const { stop } = await startViolationMonitor({ violationStore: store });
+
+    stop();
+    expect(mockChild.kill).toHaveBeenCalledWith('SIGTERM');
   });
 });

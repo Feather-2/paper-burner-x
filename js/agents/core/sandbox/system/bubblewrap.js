@@ -33,6 +33,16 @@ import { resolve, join } from 'node:path';
  * @property {string[]} [denyPaths] - 额外的拒绝写入路径
  * @property {boolean} [disableMandatoryDeny] - 禁用自动 mandatory deny paths（默认 false）
  * @property {(info: object) => void} [onViolation] - 违规回调
+ * @property {SeccompConfig} [seccomp] - Seccomp BPF 二阶段配置
+ */
+
+/**
+ * Seccomp BPF 配置
+ * @typedef {object} SeccompConfig
+ * @property {boolean} [enabled=false]
+ * @property {string} [bpfPath] - 预编译 BPF 过滤器路径
+ * @property {string} [applySeccompPath] - apply-seccomp 二进制路径
+ * @property {'x64'|'arm64'} [arch] - 目标架构
  */
 
 /**
@@ -44,6 +54,62 @@ import { resolve, join } from 'node:path';
  * @property {boolean} killed - 是否被终止
  * @property {string} backend - 使用的后端
  */
+
+/**
+ * Find a seccomp binary (BPF filter or apply-seccomp launcher).
+ * Search priority: user config → vendor/seccomp/{arch}/ → global npm.
+ * @param {'bpf'|'apply-seccomp'} type
+ * @param {'x64'|'arm64'} [arch]
+ * @param {SeccompConfig} [config]
+ * @returns {string|null}
+ */
+export function findSeccompBinary(type, arch, config) {
+  const filename = type === 'bpf' ? 'seccomp-bpf.bin' : 'apply-seccomp';
+
+  // 1. User-specified path
+  if (config) {
+    const explicit = type === 'bpf' ? config.bpfPath : config.applySeccompPath;
+    if (explicit && existsSync(explicit)) return explicit;
+  }
+
+  const resolvedArch = arch || (process ? (process.arch === 'arm64' ? 'arm64' : 'x64') : 'x64');
+
+  // 2. Project-local vendor/seccomp/{arch}/
+  const vendorPath = resolve('vendor', 'seccomp', resolvedArch, filename);
+  if (existsSync(vendorPath)) return vendorPath;
+
+  // 3. Global npm prefix
+  if (typeof process !== 'undefined' && process.env) {
+    const npmPrefix = process.env.NPM_GLOBAL_PREFIX || '/usr/local/lib/node_modules';
+    const globalPath = join(npmPrefix, 'paper-burner', 'vendor', 'seccomp', resolvedArch, filename);
+    if (existsSync(globalPath)) return globalPath;
+  }
+
+  return null;
+}
+
+/**
+ * Generate a two-stage seccomp command string.
+ * Stage 1: bwrap sets up namespaces normally.
+ * Stage 2: apply-seccomp loads BPF filter, then exec's the user command.
+ * @param {string[]} userCmd - [command, ...args]
+ * @param {SeccompConfig} config
+ * @returns {{ applySeccompPath: string, bpfPath: string, wrappedCmd: string[] }}
+ */
+export function generateSeccompCommand(userCmd, config) {
+  const arch = config.arch || 'x64';
+  const bpfPath = findSeccompBinary('bpf', arch, config);
+  const applyPath = findSeccompBinary('apply-seccomp', arch, config);
+
+  if (!bpfPath) throw new Error(`Seccomp BPF filter not found for arch ${arch}`);
+  if (!applyPath) throw new Error(`apply-seccomp binary not found for arch ${arch}`);
+
+  return {
+    applySeccompPath: applyPath,
+    bpfPath,
+    wrappedCmd: [applyPath, bpfPath, '--', ...userCmd],
+  };
+}
 
 /**
  * Sensitive files that should be read-only inside the sandbox.
@@ -175,6 +241,7 @@ export async function executeInBubblewrap(command, args, options) {
     env,
     denyPaths: options.denyPaths,
     disableMandatoryDeny: options.disableMandatoryDeny,
+    seccomp: options.seccomp,
   });
 
   const result = await execCommand('bwrap', bwrapArgs, { timeout: timeoutMs });
@@ -202,6 +269,7 @@ function buildBubblewrapArgs(options) {
     env,
     denyPaths = [],
     disableMandatoryDeny = false,
+    seccomp,
   } = options;
 
   const args = [
@@ -298,8 +366,13 @@ function buildBubblewrapArgs(options) {
     args.push('--setenv', key, value);
   }
 
-  // 要执行的命令
-  args.push('--', command, ...commandArgs);
+  // 要执行的命令 (seccomp 二阶段: bwrap -- apply-seccomp <bpf> -- <cmd>)
+  if (seccomp?.enabled) {
+    const { wrappedCmd } = generateSeccompCommand([command, ...commandArgs], seccomp);
+    args.push('--', ...wrappedCmd);
+  } else {
+    args.push('--', command, ...commandArgs);
+  }
 
   return args;
 }
@@ -337,4 +410,4 @@ export function createBubblewrapExecutor(defaultOptions = /** @type {BubblewrapO
   };
 }
 
-export default { executeInBubblewrap, createBubblewrapExecutor };
+export default { executeInBubblewrap, createBubblewrapExecutor, findSeccompBinary, generateSeccompCommand };
