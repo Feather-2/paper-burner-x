@@ -25,6 +25,7 @@ export class ViolationStore {
     this._max = options.maxEntries || DEFAULT_MAX;
     /** @type {Set<(v: Violation) => void>} */
     this._listeners = new Set();
+    this._totalCount = 0;
   }
 
   /**
@@ -34,6 +35,7 @@ export class ViolationStore {
   add(violation) {
     const entry = { ...violation, timestamp: violation.timestamp || Date.now() };
     this._entries.push(entry);
+    this._totalCount++;
     if (this._entries.length > this._max) {
       this._entries.shift();
     }
@@ -62,16 +64,36 @@ export class ViolationStore {
   /**
    * Subscribe to new violations.
    * @param {(v: Violation) => void} fn
+   * @param {{ emitExisting?: boolean }} [options]
    * @returns {() => void} unsubscribe
    */
-  subscribe(fn) {
+  subscribe(fn, options = {}) {
     this._listeners.add(fn);
+    if (options.emitExisting) {
+      for (const entry of this._entries) {
+        try { fn(entry); } catch (_) { /* swallow */ }
+      }
+    }
     return () => this._listeners.delete(fn);
   }
 
   /** Clear all entries. */
   clear() {
     this._entries.length = 0;
+  }
+
+  /**
+   * Get violations filtered by encoded command.
+   * @param {string} encodedCommand
+   * @returns {Violation[]}
+   */
+  getByCommand(encodedCommand) {
+    return this._entries.filter(v => v.meta?.encodedCommand === encodedCommand);
+  }
+
+  /** @returns {number} Total violations ever recorded (not reset by clear). */
+  get totalCount() {
+    return this._totalCount;
   }
 
   /** @returns {number} */
