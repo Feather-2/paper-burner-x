@@ -10,7 +10,7 @@ import { EventEmitter } from './events.js';
 import { Readable, Writable } from './stream.js';
 import { Buffer } from './buffer.js';
 import { Socket } from './net.js';
-import { validateDomainPattern, matchesDomainPattern, isUrlAllowed } from '../network-policy-utils.js';
+import { validateDomainPattern, matchesDomainPattern, isUrlAllowed, isUrlAllowedAsync } from '../network-policy-utils.js';
 
 export class IncomingMessage extends Readable {
   constructor(socket) {
@@ -160,6 +160,7 @@ export const STATUS_CODES = {
  */
 export function createHttpShim(options = {}) {
   let _networkPolicy = null;
+  let _askCallback = options.askCallback || null;
   let _serverListenCallback = null;
   let _serverCloseCallback = null;
   let _servers = new Map();
@@ -184,6 +185,10 @@ export function createHttpShim(options = {}) {
 
   function isRequestAllowed(url) {
     return isUrlAllowed(url, _networkPolicy);
+  }
+
+  function isRequestAllowedAsync(url, method) {
+    return isUrlAllowedAsync(url, _networkPolicy, { askCallback: _askCallback, method });
   }
 
   function setServerListenCallback(cb) { _serverListenCallback = cb; }
@@ -261,7 +266,8 @@ export function createHttpShim(options = {}) {
     async _doFetch() {
       if (this._aborted) throw new Error('Request aborted');
 
-      if (!isRequestAllowed(this._url)) {
+      const allowed = await isRequestAllowedAsync(this._url, this._method);
+      if (!allowed) {
         const err = new Error(`Network request blocked by policy: ${this._url}`);
         err.code = 'ERR_NETWORK_POLICY';
         if (_networkPolicy?.onViolation) {

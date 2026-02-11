@@ -84,3 +84,36 @@ export function isUrlAllowed(url, policy) {
 
   return true;
 }
+
+/**
+ * Async version of isUrlAllowed that supports interactive askCallback.
+ * When a URL doesn't match any allow/deny rule, askCallback is invoked
+ * to let the user decide whether to permit the request.
+ * @param {string} url
+ * @param {{ allowedDomains?: string[], deniedDomains?: string[] } | null} policy
+ * @param {{ askCallback?: (info: { url: string, hostname: string, method?: string }) => Promise<boolean>, method?: string }} [options]
+ * @returns {Promise<boolean>}
+ */
+export async function isUrlAllowedAsync(url, policy, options = {}) {
+  if (!policy) return true;
+  let hostname;
+  try { hostname = new URL(url).hostname; } catch { return false; }
+
+  if (policy.deniedDomains) {
+    for (const pattern of policy.deniedDomains) {
+      if (matchesDomainPattern(hostname, pattern)) return false;
+    }
+  }
+
+  if (policy.allowedDomains) {
+    for (const pattern of policy.allowedDomains) {
+      if (matchesDomainPattern(hostname, pattern)) return true;
+    }
+    if (options.askCallback) {
+      return options.askCallback({ url, hostname, method: options.method });
+    }
+    return false;
+  }
+
+  return true;
+}
