@@ -133,8 +133,8 @@ describe('SandboxPolicy', () => {
 
 describe('DefaultSandboxConfig', () => {
   it('exposes the expected default configuration', () => {
-    expect(DefaultSandboxConfig.allowedWritePaths).toEqual(['.', './output', './temp']);
-    expect(DefaultSandboxConfig.allowedReadPaths).toEqual(['.', '/usr', '/lib', '/lib64', '/bin', '/etc']);
+    expect(DefaultSandboxConfig.allowedWritePaths).toEqual([]);
+    expect(DefaultSandboxConfig.allowedReadPaths).toEqual([]);
     expect(DefaultSandboxConfig.allowNetwork).toBe(false);
     expect(DefaultSandboxConfig.timeoutMs).toBe(60000);
     expect(DefaultSandboxConfig.memoryLimit).toBe(512 * 1024 * 1024);
@@ -143,8 +143,9 @@ describe('DefaultSandboxConfig', () => {
   it('supports numeric and string indices while rejecting boundary numbers', () => {
     const { allowedWritePaths } = DefaultSandboxConfig;
 
-    expect(allowedWritePaths[0]).toBe('.');
-    expect(allowedWritePaths['0']).toBe('.');
+    // Empty by default (security hardening: force explicit declaration)
+    expect(allowedWritePaths[0]).toBeUndefined();
+    expect(allowedWritePaths['0']).toBeUndefined();
     expect(allowedWritePaths[-1]).toBeUndefined();
     expect(allowedWritePaths[Number.MAX_SAFE_INTEGER]).toBeUndefined();
   });
