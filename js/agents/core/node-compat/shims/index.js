@@ -18,13 +18,17 @@ import netShim from './net.js';
 import { createHttpShim, IncomingMessage, ServerResponse, METHODS, STATUS_CODES } from './http.js';
 import cryptoShim from './crypto.js';
 import { createProcess } from './process.js';
+import assertShim from './assert.js';
+import moduleShim from './module.js';
+import chokidarShim from './chokidar.js';
+import httpsShim from './https.js';
 
 // Stub modules — minimal objects that don't throw on require
 const noop = () => {};
 const noopStub = new Proxy({}, { get: () => noop });
 
 const STUB_MODULES = {
-  assert: { ok: (v) => { if (!v) throw new Error('Assertion failed'); }, equal: (a, b) => { if (a !== b) throw new Error(`${a} !== ${b}`); }, deepEqual: noop, strictEqual: (a, b) => { if (a !== b) throw new Error(`${a} !== ${b}`); }, notEqual: noop, throws: noop, doesNotThrow: noop, fail: (msg) => { throw new Error(msg || 'Failed'); } },
+  assert: assertShim,
   console: globalThis.console,
   constants: {},
   crypto: cryptoShim,
@@ -33,7 +37,7 @@ const STUB_MODULES = {
   domain: { create: () => ({ run: (fn) => fn(), on: noop }) },
   http2: noopStub,
   inspector: noopStub,
-  module: { createRequire: noop, builtinModules: [] },
+  module: moduleShim,
   net: netShim,
   perf_hooks: { performance: globalThis.performance || { now: () => Date.now() }, PerformanceObserver: class { observe() {} disconnect() {} } },
   process: createProcess(),
@@ -92,21 +96,8 @@ export function createBuiltinModules(config = {}) {
     zlib: zlibShim,
     ...STUB_MODULES,
     http: httpInstance,
-    https: {
-      ...httpInstance,
-      request(urlOrOptions, optionsOrCallback, callback) {
-        const opts = typeof urlOrOptions === 'string' ? urlOrOptions
-          : urlOrOptions instanceof URL ? urlOrOptions
-          : { protocol: 'https:', ...urlOrOptions };
-        return httpInstance.request(opts, optionsOrCallback, callback);
-      },
-      get(urlOrOptions, optionsOrCallback, callback) {
-        const opts = typeof urlOrOptions === 'string' ? urlOrOptions
-          : urlOrOptions instanceof URL ? urlOrOptions
-          : { protocol: 'https:', ...urlOrOptions };
-        return httpInstance.get(opts, optionsOrCallback, callback);
-      },
-    },
+    https: httpsShim,
+    chokidar: chokidarShim,
   };
 
   // 动态模块（需要 VFS）
@@ -133,6 +124,6 @@ export function createBuiltinModules(config = {}) {
 /**
  * 所有已知内置模块名。
  */
-export const BUILTIN_MODULE_NAMES = Object.keys({ ...STUB_MODULES, path: 1, events: 1, buffer: 1, stream: 1, url: 1, querystring: 1, util: 1, os: 1, zlib: 1, fs: 1, child_process: 1, http: 1, https: 1 });
+export const BUILTIN_MODULE_NAMES = Object.keys({ ...STUB_MODULES, path: 1, events: 1, buffer: 1, stream: 1, url: 1, querystring: 1, util: 1, os: 1, zlib: 1, fs: 1, child_process: 1, http: 1, https: 1, chokidar: 1 });
 
 export default { createBuiltinModules, BUILTIN_MODULE_NAMES };
