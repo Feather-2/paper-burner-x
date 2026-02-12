@@ -1,6 +1,16 @@
 # sandbox - 沙箱隔离系统
 
-提供两层沙箱机制，覆盖浏览器和 Node/Bun/Deno 环境。
+提供沙箱隔离核心能力（WASM + System），并与 `node-compat`、`webruntime` 两个模块协同工作。
+
+## 模块拆分
+
+> 自 commit `03d6fab6` 起，原 `sandbox/` 拆分为三个职责清晰的模块：
+
+| 模块 | 路径 | 职责 |
+|------|------|------|
+| **sandbox** | `./` | 隔离核心（WASM sandbox + system sandbox + capability/preset/limits + plugin） |
+| **node-compat** | `../node-compat/` | Node.js 兼容层（require/module-resolver/shims/npm/ToolExecutor 集成） |
+| **webruntime** | `../webruntime/` | 浏览器运行时（dev-server/HMR/SW/worker bridge/VFS snapshot/events） |
 
 ## 架构
 
@@ -20,7 +30,7 @@
 └─────────────────────┴───────────────────────────────────────┘
 ```
 
-> `index.js` 作为统一入口：浏览器环境可安全导入 WASM 相关导出与 system 常量；System Sandbox 的函数在浏览器会抛出明确错误，并在 Node-like 环境通过动态 import 延迟加载真实实现。
+> `index.js` 作为统一入口（向后兼容）：浏览器环境可安全导入 WASM 相关导出与 system 常量；System Sandbox 的函数在浏览器会抛出明确错误，并在 Node-like 环境通过动态 import 延迟加载真实实现。
 
 ## 子模块
 
@@ -37,70 +47,40 @@
 
 | 文件 | 职责 |
 |------|------|
-| `index.js` | 统一入口（浏览器/Node 兼容） |
+| `index.js` | 统一入口（含向后兼容重导出） |
+| `sandbox-interface.js` | `SandboxInterface` 抽象接口 |
+| `create-sandbox.js` | `createSandbox` 工厂封装 |
 | `wasm-sandbox.js` | `WasmSandbox` 主类 (QuickJS WASM 隔离执行) |
-| `create-node-env.js` | `createNodeEnv` 工厂 — 创建 Node.js 兼容执行环境 (VFS + Sandbox) |
-| `sandbox-tool.js` | `createSandboxTool` — ToolExecutor 集成入口 (`execute_code` 工具) |
-| `require.js` | `createRequire` — VFS 绑定的 CommonJS require 系统 |
-| `module-resolver.js` | 模块路径解析器 (支持 package.json exports, browser field, 带缓存) |
+| `iframe-eval-bridge.js` | iframe eval 桥接（受控执行） |
+| `iframe-sandbox.js` | iframe 沙箱执行器 |
+| `skill-executor.js` | `SkillExecutor` 技能执行器 |
+| `skill-executor-helpers.js` | Skill 执行辅助函数 |
 | `pool.js` | `SandboxPool` 沙箱池 |
 | `plugin.js` | `createSandboxPlugin`（Kernel 集成） |
-| `skill-executor.js` | `SkillExecutor` 技能执行器 |
 | `constants.js` | 能力/预设/资源限制常量 |
 | `violation-store.js` | `createViolationStore` — 违规记录存储 (网络策略/能力越权等) |
-| `shims/` | Node.js 内置模块 shim (path, fs, http/https, crypto, stream, etc.) |
-| `npm/` | 浏览器端 npm 包管理 (Registry + Resolver + Tarball + PackageManager) |
+| `network-policy-utils.js` | 网络策略匹配与校验工具 |
+| `system/` | 系统级沙箱子模块（后端探测/执行器/策略） |
 
-### ToolExecutor 集成 (sandbox-tool)
+### 跨模块能力（拆分后）
 
-`createSandboxTool` 创建 `execute_code` 工具供 ToolExecutor/ToolRegistry 注册：
+以下能力已迁出 `sandbox/`，请参考对应模块文档：
 
-```text
-ToolExecutor.execute('execute_code', { code, filename?, install? })
-  → sandbox-tool handler
-    → PackageManager.install() (如有 install 数组)
-    → 写入 VFS → createRequire → 宿主侧 eval 模块包装器 → 执行
-    → { success, output, result? | error? }
-```
-
-**关键设计决策**：`evaluate` 回调使用宿主侧 indirect eval (`(0, eval)(code)`) 而非 WasmSandbox，因为 QuickJS `vm.dump()` 无法将函数序列化回宿主。隔离由 require 系统注入的受控 globals (process, console, Buffer) 保证。
-
-### Node.js 兼容层
-
-```text
-createNodeEnv(config)
-  → WasmSandbox (QuickJS WASM)
-  → VFS (MemoryVfs / 外部注入)
-  → createBuiltinModules(vfs) → shims/{path,fs,http,https,...}
-  → createRequire({ vfs, builtinModules, evaluate })
-      → module-resolver (pkg.json 缓存, exports field, browser field)
-      → IIFE 包装器注入 globals
-```
-
-### module-resolver 缓存
-
-`createResolver` 内部维护 `_pkgJsonCache: Map<path, object|null>`，避免同一 package.json 被重复读取和解析。缓存作用域为单个 resolver 实例生命周期。
-
-### npm 包管理 (npm/)
-
-```text
-PackageManager
-  ├── Registry      → npm registry API (LRU 缓存)
-  ├── DependencyResolver → semver 解析 + 依赖树
-  └── TarballManager     → 下载 + 解压到 VFS
-```
-
-事件：`install:start` → `install:progress` → `install:complete` | `install:error`
+- ToolExecutor 集成、Node.js 兼容层、`module-resolver` 缓存、npm 包管理：`../node-compat/CLAUDE.md`
+- 浏览器运行时（DevServer/HMR/SW handler/Worker bridge/VFS snapshot/events）：`../webruntime/CLAUDE.md`
 
 ### 公共导出（浏览器/Node 兼容）
 
-- `WasmSandbox`, `createSandbox`
-- `SandboxPool`
-- `createSandboxPlugin`
-- `createSandboxTool`, `SANDBOX_TOOL_DEFINITION`
-- `createNodeEnv`
-- `SkillExecutor`, `createSkillExecutor`, `isWasmSupported`
-- `SandboxCapability`, `SandboxPreset`, `ResourceLimits`
+- 沙箱核心导出（推荐直接使用）：
+  - `WasmSandbox`, `createSandbox`
+  - `SandboxPool`
+  - `createSandboxPlugin`
+  - `SkillExecutor`, `createSkillExecutor`, `isWasmSupported`
+  - `SandboxCapability`, `SandboxPreset`, `ResourceLimits`
+- `index.js` 仍保留向后兼容重导出（含 `node-compat` / `webruntime`）。
+- 新代码建议直接从规范入口导入：
+  - `../node-compat/index.js`
+  - `../webruntime/index.js`
 
 ### 能力模型 (SandboxCapability)
 
@@ -191,7 +171,7 @@ SandboxPreset.TRUSTED;
 `ClientRequest`（http/https shim）支持域名级网络过滤，灵感来自 Anthropic Sandbox Runtime 的 `filterNetworkRequest`。
 
 ```js
-import { createBuiltinModules } from './shims/index.js';
+import { createBuiltinModules } from '../node-compat/shims/index.js';
 
 const modules = createBuiltinModules({
   vfs,
@@ -214,7 +194,7 @@ const modules = createBuiltinModules({
 `createFsShim` 支持 `protectedPaths` 选项，强制指定路径为只读（灵感来自 ASRT 的 Mandatory Deny Paths）。
 
 ```js
-import { createFsShim } from './shims/fs.js';
+import { createFsShim } from '../node-compat/shims/fs.js';
 
 const fs = createFsShim(vfs, {
   protectedPaths: ['node_modules', '.env', '.git'],
