@@ -29,6 +29,10 @@ import readlineShim from './readline.js';
 import tlsShim from './tls.js';
 import ttyShim from './tty.js';
 import vmShim from './vm.js';
+import workerThreadsShim from './worker_threads.js';
+import http2Shim from './http2.js';
+import perfHooksShim from './perf_hooks.js';
+import v8Shim from './v8.js';
 
 // Stub modules — minimal objects that don't throw on require
 const noop = () => {};
@@ -42,11 +46,9 @@ const STUB_MODULES = {
   dgram: noopStub,
   dns: dnsShim,
   domain: { create: () => ({ run: (fn) => fn(), on: noop }) },
-  http2: noopStub,
   inspector: noopStub,
   module: moduleShim,
   net: netShim,
-  perf_hooks: { performance: globalThis.performance || { now: () => Date.now() }, PerformanceObserver: class { observe() {} disconnect() {} } },
   process: createProcess(),
   punycode: { encode: (s) => s, decode: (s) => s, toASCII: (s) => s, toUnicode: (s) => s },
   readline: readlineShim,
@@ -56,9 +58,7 @@ const STUB_MODULES = {
   timers: { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval, setImmediate: (fn, ...args) => setTimeout(fn, 0, ...args), clearImmediate: clearTimeout },
   tls: tlsShim,
   tty: ttyShim,
-  v8: noopStub,
   vm: vmShim,
-  worker_threads: { isMainThread: true, parentPort: null, Worker: class {}, workerData: null },
   async_hooks: { AsyncLocalStorage: class { getStore() { return undefined; } run(store, fn, ...args) { return fn(...args); } enterWith() {} disable() {} }, createHook: () => ({ enable: noop, disable: noop }) },
   diagnostics_channel: { channel: () => ({ subscribe: noop, unsubscribe: noop, publish: noop }), subscribe: noop, unsubscribe: noop },
   cluster: { isMaster: true, isPrimary: true, isWorker: false, fork: noop, on: noop },
@@ -107,6 +107,10 @@ export function createBuiltinModules(config = {}) {
     chokidar: chokidarShim,
     ws: wsShim,
     esbuild: esbuildShim,
+    worker_threads: workerThreadsShim,
+    http2: http2Shim,
+    perf_hooks: perfHooksShim,
+    v8: v8Shim,
   };
 
   // 动态模块（需要 VFS）
