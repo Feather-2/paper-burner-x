@@ -34,6 +34,72 @@
  * @property {number} durationMs - 执行耗时
  */
 
+// ── 统一 CodeExecutor 接口 ─────────────────────────────────
+// 桥接 WASM sandbox 和 System sandbox 的统一执行接口
+// 参考 SmolAgents PythonExecutor ABC 设计
+
+/**
+ * 执行器后端类型
+ * @typedef {'wasm'|'worker'|'iframe'|'main'|'bubblewrap'|'seatbelt'|'docker'|'permission'} ExecutorBackend
+ */
+
+/**
+ * 统一执行结果 — 兼容 WASM SandboxResult 和 System ExecutionResult
+ * @typedef {object} ExecutionResult
+ * @property {boolean} ok - 是否成功
+ * @property {unknown} [value] - 返回值 (WASM: JS value, System: stdout)
+ * @property {string} [error] - 错误消息 (WASM: error, System: stderr)
+ * @property {string} [stack] - 错误堆栈
+ * @property {string} [logs] - 合并的 console/stdout 输出
+ * @property {number} durationMs - 执行耗时
+ * @property {ExecutorBackend} backend - 使用的后端
+ */
+
+/**
+ * 统一代码执行器接口
+ * @typedef {object} CodeExecutor
+ * @property {ExecutorBackend} backend - 后端类型
+ * @property {(code: string, opts?: object) => Promise<ExecutionResult>} execute - 执行代码
+ * @property {() => Promise<void>} terminate - 终止并清理
+ * @property {boolean} terminated - 是否已终止
+ */
+
+/**
+ * 将 System sandbox 的 {code, stdout, stderr, killed, backend} 转换为统一 ExecutionResult
+ * @param {{ code: number, stdout: string, stderr: string, killed?: boolean, backend?: string }} raw
+ * @param {number} [durationMs=0]
+ * @returns {ExecutionResult}
+ */
+export function normalizeSystemResult(raw, durationMs = 0) {
+  return {
+    ok: raw.code === 0,
+    value: raw.stdout || null,
+    error: raw.code !== 0 ? (raw.stderr || `Exit code ${raw.code}`) : undefined,
+    stack: undefined,
+    logs: raw.stdout || undefined,
+    durationMs,
+    backend: /** @type {ExecutorBackend} */ (raw.backend || 'bubblewrap'),
+  };
+}
+
+/**
+ * 将 WASM SandboxResult 转换为统一 ExecutionResult
+ * @param {SandboxResult} raw
+ * @param {ExecutorBackend} backend
+ * @returns {ExecutionResult}
+ */
+export function normalizeWasmResult(raw, backend = 'wasm') {
+  return {
+    ok: raw.ok,
+    value: raw.value,
+    error: raw.error,
+    stack: raw.stack,
+    logs: undefined,
+    durationMs: raw.durationMs,
+    backend,
+  };
+}
+
 /**
  * 统一沙箱接口 — 所有沙箱实现必须满足此契约
  * @typedef {object} Sandbox

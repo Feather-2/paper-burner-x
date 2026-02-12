@@ -308,4 +308,67 @@ describe('SandboxPool', () => {
     expect(reject2).toHaveBeenCalledWith(expect.any(Error));
     expect(reject1.mock.calls[0][0].message).toContain('  ');
   });
+
+  it('warmUp pre-creates sandboxes and adds them to pool', async () => {
+    const pool = new SandboxPool({ maxSize: 5, defaultCapabilities: ['a', 'b'] });
+
+    await pool.warmUp(3);
+
+    expect(hoisted.sandboxInstances).toHaveLength(3);
+    expect(pool._totalCount).toBe(3);
+    expect(pool._inUseCount).toBe(0);
+
+    const key = pool._getCapabilityKey(['a', 'b']);
+    const poolEntry = pool._pools.get(key);
+    expect(poolEntry).toHaveLength(3);
+    expect(hoisted.mockLogger.info).toHaveBeenCalledWith(
+      expect.stringContaining('Pre-warmed 3 sandboxes'),
+      expect.objectContaining({ key, total: 3 }),
+    );
+  });
+
+  it('warmUp respects maxSize limit', async () => {
+    const pool = new SandboxPool({ maxSize: 2 });
+
+    await pool.warmUp(5);
+
+    expect(hoisted.sandboxInstances).toHaveLength(2);
+    expect(pool._totalCount).toBe(2);
+  });
+
+  it('warmUp rejects when pool is disposed', async () => {
+    const pool = new SandboxPool();
+    pool._disposed = true;
+
+    await expect(pool.warmUp(2)).rejects.toThrow('Pool has been disposed');
+  });
+
+  it('constructor auto-warms when preWarmCount is set', async () => {
+    await vi.waitFor(() => {
+      const pool = new SandboxPool({ preWarmCount: 2, defaultCapabilities: ['x'] });
+      return new Promise(resolve => setTimeout(() => {
+        expect(hoisted.sandboxInstances.length).toBeGreaterThanOrEqual(2);
+        resolve();
+      }, 50));
+    });
+  });
+
+  it('updateConfig changes default capabilities', async () => {
+    const pool = new SandboxPool({ defaultCapabilities: ['a'] });
+    expect(pool.defaultCapabilities).toEqual(['a']);
+
+    pool.updateConfig({ defaultCapabilities: ['b', 'c'] });
+    expect(pool.defaultCapabilities).toEqual(['b', 'c']);
+
+    const sb = await pool.acquire();
+    expect(hoisted.sandboxInstances[0].options.capabilities).toEqual(['b', 'c']);
+  });
+
+  it('updateConfig merges default limits', async () => {
+    const pool = new SandboxPool({ defaultLimits: { cpuMs: 100, memoryMb: 64 } });
+    expect(pool.defaultLimits).toEqual({ cpuMs: 100, memoryMb: 64 });
+
+    pool.updateConfig({ defaultLimits: { memoryMb: 128 } });
+    expect(pool.defaultLimits).toEqual({ cpuMs: 100, memoryMb: 128 });
+  });
 });

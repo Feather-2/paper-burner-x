@@ -18,7 +18,7 @@
 import { SandboxBackend, DefaultSandboxConfig } from './constants.js';
 import { execCommand } from './detect.js';
 import { normalizeSandboxPath } from './path-utils.js';
-import { existsSync, statSync, lstatSync } from 'node:fs';
+import { existsSync, statSync, lstatSync, unlinkSync, rmdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 /**
@@ -34,6 +34,13 @@ import { resolve, join } from 'node:path';
  * @property {boolean} [disableMandatoryDeny] - 禁用自动 mandatory deny paths（默认 false）
  * @property {(info: object) => void} [onViolation] - 违规回调
  * @property {SeccompConfig} [seccomp] - Seccomp BPF 二阶段配置
+ * @property {NetworkProxyConfig} [networkProxy] - 网络代理配置（代理桥接模式）
+ */
+
+/**
+ * 网络代理配置 — 启用后 bwrap 使用 --unshare-net + Unix socket 桥接
+ * @typedef {object} NetworkProxyConfig
+ * @property {string} httpSocketPath - 宿主侧 HTTP 代理 Unix socket 路径
  */
 
 /**
@@ -211,6 +218,55 @@ function findSymlinkInPath(targetPath, allowedWritePaths) {
 }
 
 /**
+ * Clean up empty files/directories created by bwrap mount points.
+ * bwrap creates empty files/dirs at mount destinations that don't exist.
+ * These should be cleaned up after execution.
+ * 参考 ASRT linux-sandbox-utils.ts:330-357
+ * @param {string} workDir
+ * @param {string[]} denyPaths - deny paths that may have created mount artifacts
+ */
+function cleanupBwrapMountPoints(workDir, denyPaths) {
+  for (const dp of denyPaths) {
+    // Only clean up paths within workDir
+    if (!dp.startsWith(workDir + '/') && dp !== workDir) continue;
+    try {
+      const stats = lstatSync(dp);
+      // Remove empty files created by --ro-bind /dev/null
+      if (stats.isFile() && stats.size === 0) {
+        try { unlinkSync(dp); } catch { /* ok */ }
+      }
+      // Remove empty directories created by bwrap
+      if (stats.isDirectory()) {
+        try { rmdirSync(dp); } catch { /* non-empty, skip */ }
+      }
+    } catch {
+      // doesn't exist, nothing to clean
+    }
+  }
+}
+
+/**
+ * Annotate stderr with sandbox failure hints.
+ * 参考 ASRT annotateStderrWithSandboxFailures
+ * @param {string} stderr
+ * @param {number} exitCode
+ * @returns {string}
+ */
+function annotateStderr(stderr, exitCode) {
+  const hints = [];
+  if (exitCode === 137) hints.push('[sandbox] Process killed (OOM or timeout)');
+  if (exitCode === 124) hints.push('[sandbox] Command timed out');
+  if (stderr?.includes('Operation not permitted')) {
+    hints.push('[sandbox] Operation blocked by sandbox policy — check allowedWritePaths or network settings');
+  }
+  if (stderr?.includes('Permission denied')) {
+    hints.push('[sandbox] Permission denied — path may be in mandatory deny list');
+  }
+  if (!hints.length) return stderr;
+  return `${stderr}\n${hints.join('\n')}`;
+}
+
+/**
  * 在 Bubblewrap 沙箱中执行命令
  * @param {string} command - 要执行的命令
  * @param {string[]} args - 命令参数
@@ -242,12 +298,26 @@ export async function executeInBubblewrap(command, args, options) {
     denyPaths: options.denyPaths,
     disableMandatoryDeny: options.disableMandatoryDeny,
     seccomp: options.seccomp,
+    networkProxy: options.networkProxy,
   });
 
   const result = await execCommand('bwrap', bwrapArgs, { timeout: timeoutMs });
 
+  // 清理 bwrap 创建的 mount point 残留（参考 ASRT cleanupBwrapMountPoints）
+  const allDenyPaths = [...(options.denyPaths || [])];
+  if (!options.disableMandatoryDeny) {
+    allDenyPaths.push(...getMandatoryDenyPaths(workDir));
+  }
+  cleanupBwrapMountPoints(workDir, allDenyPaths);
+
+  // 如果命令失败且有 onViolation 回调，注入违规信息到 stderr
+  const stderr = result.code !== 0 && options.onViolation
+    ? annotateStderr(result.stderr, result.code)
+    : result.stderr;
+
   return {
     ...result,
+    stderr,
     killed: result.code === 137 || result.code === 124,
     backend: SandboxBackend.BUBBLEWRAP,
   };
@@ -270,6 +340,7 @@ function buildBubblewrapArgs(options) {
     denyPaths = [],
     disableMandatoryDeny = false,
     seccomp,
+    networkProxy,
   } = options;
 
   const args = [
@@ -282,35 +353,16 @@ function buildBubblewrapArgs(options) {
     '--unshare-pid',
     '--proc', '/proc',
 
-    // 基础文件系统
+    // 全局只读根 — 比逐个挂载更安全（不会遗漏路径）
+    // 参考 ASRT linux-sandbox-utils.ts:647
+    '--ro-bind', '/', '/',
+
+    // 覆盖 /dev 和 /tmp（需要可写）
     '--dev', '/dev',
     '--tmpfs', '/tmp',
-
-    // 只读绑定必要目录
-    '--ro-bind', '/usr', '/usr',
-    '--ro-bind', '/lib', '/lib',
-    '--ro-bind', '/bin', '/bin',
   ];
 
-  // 如果存在 /lib64，绑定它
-  args.push('--ro-bind-try', '/lib64', '/lib64');
-
-  // /etc 部分文件
-  args.push(
-    '--ro-bind', '/etc/resolv.conf', '/etc/resolv.conf',
-    '--ro-bind-try', '/etc/hosts', '/etc/hosts',
-    '--ro-bind-try', '/etc/ssl', '/etc/ssl',
-    '--ro-bind-try', '/etc/ca-certificates', '/etc/ca-certificates',
-  );
-
-  // 允许读取的路径
-  for (const p of allowedReadPaths) {
-    if (p.startsWith('/')) {
-      args.push('--ro-bind-try', p, p);
-    }
-  }
-
-  // 工作目录 (可写)
+  // 工作目录 (可写) — 覆盖全局只读根中的对应路径
   args.push('--bind', workDir, workDir);
   args.push('--chdir', workDir);
 
@@ -348,7 +400,11 @@ function buildBubblewrapArgs(options) {
   }
 
   // 网络隔离
-  if (!allowNetwork) {
+  if (networkProxy?.httpSocketPath) {
+    // 代理桥接模式：隔离网络 + 绑定 Unix socket 进沙箱
+    args.push('--unshare-net');
+    args.push('--bind', networkProxy.httpSocketPath, networkProxy.httpSocketPath);
+  } else if (!allowNetwork) {
     args.push('--unshare-net');
   } else {
     args.push('--share-net');
@@ -367,11 +423,33 @@ function buildBubblewrapArgs(options) {
   }
 
   // 要执行的命令 (seccomp 二阶段: bwrap -- apply-seccomp <bpf> -- <cmd>)
+  // 代理桥接模式：包装用户命令，在沙箱内启动 socat → Unix socket
+  let finalCommand = command;
+  let finalArgs = commandArgs;
+
+  if (networkProxy?.httpSocketPath) {
+    // 将用户命令包装为 shell 脚本：socat 桥接 + 代理环境变量 + 用户命令
+    const userCmd = [command, ...commandArgs].map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+    const bridgedScript = [
+      `socat TCP-LISTEN:3128,fork,reuseaddr UNIX-CONNECT:${networkProxy.httpSocketPath} &`,
+      'SOCAT_PID=$!',
+      'trap "kill $SOCAT_PID 2>/dev/null" EXIT',
+      'export http_proxy=http://127.0.0.1:3128',
+      'export https_proxy=http://127.0.0.1:3128',
+      'export HTTP_PROXY=http://127.0.0.1:3128',
+      'export HTTPS_PROXY=http://127.0.0.1:3128',
+      'sleep 0.1',
+      userCmd,
+    ].join('; ');
+    finalCommand = '/bin/sh';
+    finalArgs = ['-c', bridgedScript];
+  }
+
   if (seccomp?.enabled) {
-    const { wrappedCmd } = generateSeccompCommand([command, ...commandArgs], seccomp);
+    const { wrappedCmd } = generateSeccompCommand([finalCommand, ...finalArgs], seccomp);
     args.push('--', ...wrappedCmd);
   } else {
-    args.push('--', command, ...commandArgs);
+    args.push('--', finalCommand, ...finalArgs);
   }
 
   return args;

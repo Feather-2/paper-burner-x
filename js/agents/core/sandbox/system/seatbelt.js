@@ -153,6 +153,10 @@ export async function executeInSeatbelt(command, args, options) {
   const denyPaths = options.denyPaths || [];
   const disableMandatoryDeny = options.disableMandatoryDeny || false;
 
+  // 生成唯一日志标签用于违规追踪
+  const cmdBase64 = Buffer.from([command, ...args].join(' ')).toString('base64').slice(0, 40);
+  const logTag = `PB_${cmdBase64}_${Date.now().toString(36)}`;
+
   // 生成 SBPL profile
   const profile = generateSBPLProfile({
     workDir,
@@ -163,6 +167,7 @@ export async function executeInSeatbelt(command, args, options) {
     disableMandatoryDeny,
     extraMachServices: options.extraMachServices,
     extraSysctlNames: options.extraSysctlNames,
+    logTag,
   });
 
   // sandbox-exec -p <profile> <command> [args...]
@@ -186,13 +191,19 @@ function generateSBPLProfile(options) {
   const {
     workDir, allowedReadPaths, allowedWritePaths, allowNetwork,
     denyPaths = [], disableMandatoryDeny = false,
+    logTag,
   } = options;
+
+  // 日志标签 — 让违规可追溯到具体命令（参考 ASRT macos-sandbox-utils.ts:84-93）
+  const denyDefault = logTag
+    ? `(deny default (with message "${logTag}"))`
+    : '(deny default)';
 
   const lines = [
     '(version 1)',
     '',
-    '; 默认拒绝所有操作',
-    '(deny default)',
+    '; 默认拒绝所有操作（带日志标签用于违规追踪）',
+    denyDefault,
     '',
     '; 允许基础进程操作',
     '(allow process-fork)',
@@ -362,7 +373,7 @@ const LOG_STREAM_PREDICATE = 'eventMessage CONTAINS "deny"';
 /**
  * Parse a macOS log stream line for sandbox deny information.
  * @param {string} line - Raw log stream output line
- * @returns {{ operation: string, path: string|null, process: string|null, timestamp: string|null }|null}
+ * @returns {{ operation: string, path: string|null, process: string|null, timestamp: string|null, logTag: string|null }|null}
  */
 export function parseLogLine(line) {
   if (!line || typeof line !== 'string') return null;
@@ -388,7 +399,11 @@ export function parseLogLine(line) {
   const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}[\d.+-:]*)/);
   const timestamp = tsMatch ? tsMatch[1] : null;
 
-  return { operation, path, process, timestamp };
+  // Extract PB log tag (from deny default with message)
+  const tagMatch = line.match(/PB_([A-Za-z0-9+/=]+_[a-z0-9]+)/);
+  const logTag = tagMatch ? `PB_${tagMatch[1]}` : null;
+
+  return { operation, path, process, timestamp, logTag };
 }
 
 /**
@@ -452,6 +467,7 @@ export async function startViolationMonitor(options) {
           path: parsed.path,
           process: parsed.process,
           timestamp: parsed.timestamp,
+          logTag: parsed.logTag,
           ...(sessionId ? { sessionId } : {}),
         },
       });

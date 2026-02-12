@@ -62,4 +62,39 @@ export const Platform = {
   WIN32: 'win32',
 };
 
-export default { SandboxBackend, SandboxPolicy, DefaultSandboxConfig, Platform };
+/**
+ * 系统沙箱安全预设
+ */
+export const SystemSandboxPreset = {
+  /** 严格模式 - 最小权限 */
+  STRICT: {
+    allowedWritePaths: ['./output'],
+    allowedReadPaths: ['.'],
+    allowNetwork: false,
+    timeoutMs: 30000,
+    memoryLimit: 256 * 1024 * 1024, // 256MB
+  },
+
+  /** 标准模式 - 平衡安全与功能 */
+  STANDARD: DefaultSandboxConfig,
+
+  /** 隔离模式 - 完全隔离 */
+  ISOLATED: {
+    allowedWritePaths: ['.'],
+    allowedReadPaths: ['.'],
+    allowNetwork: false,
+    timeoutMs: 60000,
+    memoryLimit: 512 * 1024 * 1024,
+  },
+
+  /** 宽松模式 - 开发环境 */
+  PERMISSIVE: {
+    allowedWritePaths: ['.', './output', './temp', './cache'],
+    allowedReadPaths: ['.', '/usr', '/lib', '/lib64', '/bin', '/etc', '/opt'],
+    allowNetwork: true,
+    timeoutMs: 120000,
+    memoryLimit: 1024 * 1024 * 1024, // 1GB
+  },
+};
+
+export default { SandboxBackend, SandboxPolicy, DefaultSandboxConfig, Platform, SystemSandboxPreset };

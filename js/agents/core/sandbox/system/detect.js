@@ -164,11 +164,19 @@ export async function detectSeatbelt() {
   };
 }
 
+/** @type {DetectionResult | null} */
+let dockerDetectionCache = null;
+
 /**
- * 检测 Docker
+ * 检测 Docker (带缓存)
+ * @param {boolean} [forceRefresh=false] - 强制重新检测
  * @returns {Promise<DetectionResult>}
  */
-export async function detectDocker() {
+export async function detectDocker(forceRefresh = false) {
+  if (dockerDetectionCache && !forceRefresh) {
+    return dockerDetectionCache;
+  }
+
   const platform = getPlatform();
 
   try {
@@ -177,36 +185,40 @@ export async function detectDocker() {
       // 检查 Docker daemon 是否运行
       const pingResult = await execCommand('docker', ['info'], { timeout: 5000 });
       if (pingResult.code === 0) {
-        return {
+        dockerDetectionCache = {
           backend: SandboxBackend.DOCKER,
           platform,
           available: true,
           version: result.stdout.trim(),
         };
+        return dockerDetectionCache;
       }
-      return {
+      dockerDetectionCache = {
         backend: SandboxBackend.DOCKER,
         platform,
         available: false,
         version: result.stdout.trim(),
         error: 'Docker installed but daemon not running',
       };
+      return dockerDetectionCache;
     }
   } catch (err) {
-    return {
+    dockerDetectionCache = {
       backend: SandboxBackend.DOCKER,
       platform,
       available: false,
       error: err?.message || 'Docker detection failed',
     };
+    return dockerDetectionCache;
   }
 
-  return {
+  dockerDetectionCache = {
     backend: SandboxBackend.DOCKER,
     platform,
     available: false,
     error: 'Docker not installed',
   };
+  return dockerDetectionCache;
 }
 
 /**

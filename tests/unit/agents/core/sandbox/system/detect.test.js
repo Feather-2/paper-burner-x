@@ -384,3 +384,36 @@ describe('detectSeatbelt', () => {
     expect(result.error).toBe('sandbox-exec detection failed');
   });
 });
+
+describe('detectDocker caching', () => {
+  it('caches detection result on first call', async () => {
+    mockSpawnWithMap({
+      'docker --version': { code: 0, stdout: 'Docker version 25.0.0\n' },
+      'docker info': { code: 0, stdout: 'OK' },
+    });
+
+    const { detectDocker } = await import('../../../../../../js/agents/core/sandbox/system/detect.js');
+    const result1 = await detectDocker();
+    expect(result1.available).toBe(true);
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+
+    spawnMock.mockClear();
+    const result2 = await detectDocker();
+    expect(result2.available).toBe(true);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('forceRefresh bypasses cache', async () => {
+    mockSpawnWithMap({
+      'docker --version': { code: 0, stdout: 'Docker version 25.0.0\n' },
+      'docker info': { code: 0, stdout: 'OK' },
+    });
+
+    const { detectDocker } = await import('../../../../../../js/agents/core/sandbox/system/detect.js');
+    await detectDocker();
+    spawnMock.mockClear();
+
+    await detectDocker(true);
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+  });
+});

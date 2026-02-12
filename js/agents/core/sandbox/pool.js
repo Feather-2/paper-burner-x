@@ -22,6 +22,7 @@ export class SandboxPool {
    * @param {number} [options.idleTimeoutMs=60000] - 空闲超时
    * @param {string[]} [options.defaultCapabilities] - 默认能力
    * @param {Object} [options.defaultLimits] - 默认资源限制
+   * @param {number} [options.preWarmCount=0] - 预热实例数
    */
   constructor(options = {}) {
     this.maxSize = options.maxSize || 4;
@@ -29,6 +30,7 @@ export class SandboxPool {
     this.idleTimeoutMs = options.idleTimeoutMs || 60000;
     this.defaultCapabilities = options.defaultCapabilities || SandboxPreset.SKILL;
     this.defaultLimits = options.defaultLimits || ResourceLimits.STANDARD;
+    this.preWarmCount = options.preWarmCount || 0;
 
     // 按能力 key 分组的池
     this._pools = new Map();
@@ -38,6 +40,13 @@ export class SandboxPool {
     this._waitQueue = [];
     this._draining = false;
     this._disposed = false;
+
+    // 自动预热
+    if (this.preWarmCount > 0) {
+      this.warmUp(this.preWarmCount).catch(err => {
+        logger.error('Pre-warm failed', { error: err?.message });
+      });
+    }
   }
 
   /**
@@ -273,6 +282,64 @@ export class SandboxPool {
       return await fn(sandbox);
     } finally {
       this.release(sandbox);
+    }
+  }
+
+  /**
+   * 预热池 - 预创建指定数量的沙箱实例
+   * @param {number} count - 预热数量
+   * @param {Object} [options] - 沙箱选项
+   * @returns {Promise<void>}
+   */
+  async warmUp(count, options = {}) {
+    if (this._disposed) throw new Error('Pool has been disposed');
+    const capabilities = options.capabilities || this.defaultCapabilities;
+    const limits = { ...this.defaultLimits, ...options.limits };
+    const key = this._getCapabilityKey(capabilities);
+
+    const toCreate = Math.min(count, this.maxSize);
+    const sandboxes = [];
+
+    for (let i = 0; i < toCreate; i++) {
+      const sandbox = new WasmSandbox({ capabilities, limits, state: {}, onLog: () => {}, onEmit: () => {} });
+      await sandbox.init();
+      sandboxes.push(sandbox);
+      this._totalCount++;
+    }
+
+    let pool = this._pools.get(key);
+    if (!pool) {
+      pool = [];
+      this._pools.set(key, pool);
+    }
+
+    for (const sandbox of sandboxes) {
+      const timeoutId = setTimeout(() => {
+        const idx = pool.findIndex(e => e.sandbox === sandbox);
+        if (idx !== -1) {
+          pool.splice(idx, 1);
+          sandbox.dispose();
+          this._totalCount = Math.max(0, this._totalCount - 1);
+        }
+      }, this.idleTimeoutMs);
+      pool.push({ sandbox, timeoutId });
+    }
+
+    logger.info(`Pre-warmed ${toCreate} sandboxes`, { key, total: this._totalCount });
+  }
+
+  /**
+   * 运行时更新默认配置
+   * @param {Object} config
+   * @param {string[]} [config.defaultCapabilities] - 新的默认能力
+   * @param {Object} [config.defaultLimits] - 新的默认资源限制
+   */
+  updateConfig(config) {
+    if (config.defaultCapabilities !== undefined) {
+      this.defaultCapabilities = config.defaultCapabilities;
+    }
+    if (config.defaultLimits !== undefined) {
+      this.defaultLimits = { ...this.defaultLimits, ...config.defaultLimits };
     }
   }
 

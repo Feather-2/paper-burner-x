@@ -29,6 +29,8 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn(() => false),
   statSync: vi.fn(() => { throw new Error('ENOENT'); }),
   lstatSync: vi.fn(() => { throw new Error('ENOENT'); }),
+  unlinkSync: vi.fn(),
+  rmdirSync: vi.fn(),
 }));
 
 import {
@@ -119,9 +121,7 @@ describe('executeInBubblewrap', () => {
     expect(cmd).toBe('bwrap');
     expect(options).toEqual({ timeout: DefaultSandboxConfig.timeoutMs });
 
-    const readIndex = bwrapArgs.indexOf('/default-read');
-    expect(readIndex).toBeGreaterThan(-1);
-    expect(bwrapArgs[readIndex - 1]).toBe('--ro-bind-try');
+    // With global readonly root, allowedReadPaths are already covered — no separate --ro-bind-try
     expect(bwrapArgs).not.toContain('relative-read');
 
     expect(normalizeSandboxPath).toHaveBeenCalledWith('./default-write', workDir);
@@ -167,7 +167,7 @@ describe('executeInBubblewrap', () => {
   });
 
   // -- Base filesystem bindings --
-  it('includes base filesystem bindings (dev, tmpfs, ro-bind)', async () => {
+  it('includes base filesystem bindings (dev, tmpfs, global ro-bind)', async () => {
     await executeInBubblewrap('echo', [], { workDir: '/work' });
     const args = execCommand.mock.calls[0][1];
 
@@ -176,14 +176,11 @@ describe('executeInBubblewrap', () => {
     expect(args).toContain('--tmpfs');
     expect(args).toContain('/tmp');
 
-    // Core read-only bindings
-    const roBinds = [];
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === '--ro-bind') roBinds.push(args[i + 1]);
-    }
-    expect(roBinds).toContain('/usr');
-    expect(roBinds).toContain('/lib');
-    expect(roBinds).toContain('/bin');
+    // Global readonly root — replaces individual /usr, /lib, /bin bindings
+    const roBindIdx = args.indexOf('--ro-bind');
+    expect(roBindIdx).toBeGreaterThan(-1);
+    expect(args[roBindIdx + 1]).toBe('/');
+    expect(args[roBindIdx + 2]).toBe('/');
   });
 
   // -- workDir binding --
@@ -295,20 +292,15 @@ describe('executeInBubblewrap', () => {
     ).rejects.toThrow();
   });
 
-  // -- /etc partial binds --
-  it('includes /etc partial file bindings for DNS and TLS', async () => {
+  // -- /etc covered by global root --
+  it('/etc is covered by global readonly root (no separate binds needed)', async () => {
     await executeInBubblewrap('echo', [], { workDir: '/work' });
     const args = execCommand.mock.calls[0][1];
 
-    // resolv.conf is mandatory ro-bind: '--ro-bind', src, dest
-    const roBindIdx = args.indexOf('/etc/resolv.conf');
+    // Global root covers /etc — verify no separate /etc/resolv.conf bind
+    const roBindIdx = args.indexOf('/');
     expect(roBindIdx).toBeGreaterThan(-1);
     expect(args[roBindIdx - 1]).toBe('--ro-bind');
-    // src and dest are both /etc/resolv.conf
-    expect(args[roBindIdx + 1]).toBe('/etc/resolv.conf');
-
-    // SSL certs as try-bind
-    expect(args).toContain('/etc/ssl');
   });
 
   // -- Concurrency --
@@ -356,9 +348,10 @@ describe('executeInBubblewrap', () => {
     });
 
     const args = execCommand.mock.calls[0][1];
-    const readIndex = args.indexOf(hugePath);
-    expect(readIndex).toBeGreaterThan(-1);
-    expect(args[readIndex - 1]).toBe('--ro-bind-try');
+    // With global readonly root, allowedWritePaths generates --bind-try
+    const writeIndex = args.indexOf(hugePath);
+    expect(writeIndex).toBeGreaterThan(-1);
+    expect(args[writeIndex - 1]).toBe('--bind-try');
     expect(args).toContain(longCommand);
     expect(args).toContain(deepEnv);
   });
