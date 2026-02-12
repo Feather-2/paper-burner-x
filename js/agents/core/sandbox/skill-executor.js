@@ -708,6 +708,9 @@ export class SkillExecutor {
         ''
       );
 
+      // WARNING: `with` provides scope shadowing but NOT security isolation.
+      // It can be bypassed via Function.constructor, __proto__, etc.
+      // Use only for trusted code; untrusted code must use WASM/Worker sandbox.
       const wrappedCode = `
         with (sandbox) {
           return (async function () {

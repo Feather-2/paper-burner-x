@@ -20,14 +20,16 @@ export class SandboxPool {
    * @param {number} [options.maxSize=4] - 池最大容量
    * @param {number} [options.maxActive] - 最大并发（获取中的沙箱数）；默认等于 maxSize
    * @param {number} [options.idleTimeoutMs=60000] - 空闲超时
+   * @param {number} [options.acquireTimeoutMs=30000] - 等待队列超时
    * @param {string[]} [options.defaultCapabilities] - 默认能力
    * @param {Object} [options.defaultLimits] - 默认资源限制
    * @param {number} [options.preWarmCount=0] - 预热实例数
    */
   constructor(options = {}) {
-    this.maxSize = options.maxSize || 4;
+    this.maxSize = options.maxSize ?? 4;
     this.maxActive = Math.max(1, options.maxActive || this.maxSize);
     this.idleTimeoutMs = options.idleTimeoutMs || 60000;
+    this.acquireTimeoutMs = options.acquireTimeoutMs || 30000;
     this.defaultCapabilities = options.defaultCapabilities || SandboxPreset.SKILL;
     this.defaultLimits = options.defaultLimits || ResourceLimits.STANDARD;
     this.preWarmCount = options.preWarmCount || 0;
@@ -87,7 +89,14 @@ export class SandboxPool {
     // 并发限制：等待释放后再创建/获取
     if (this._inUseCount >= this.maxActive) {
       return await new Promise((resolve, reject) => {
-        this._waitQueue.push({ key, options: { ...options, capabilities, limits }, resolve, reject });
+        const timeoutId = setTimeout(() => {
+          const idx = this._waitQueue.findIndex(w => w.timeoutId === timeoutId);
+          if (idx !== -1) {
+            this._waitQueue.splice(idx, 1);
+            reject(new Error(`Sandbox acquire timeout after ${this.acquireTimeoutMs}ms`));
+          }
+        }, this.acquireTimeoutMs);
+        this._waitQueue.push({ key, options: { ...options, capabilities, limits }, resolve, reject, timeoutId });
         this._scheduleDrain();
       });
     }
@@ -144,10 +153,10 @@ export class SandboxPool {
       const waiter = this._waitQueue.shift();
       if (!waiter) break;
 
-      const { key, options, resolve, reject } = waiter;
+      const { key, options, resolve, reject, timeoutId } = waiter;
+      if (timeoutId) clearTimeout(timeoutId);
 
       let sandbox = null;
-      let removedFromPool = false;
       try {
         const capabilities = options?.capabilities || this.defaultCapabilities;
         const limits = options?.limits || this.defaultLimits;
@@ -157,7 +166,6 @@ export class SandboxPool {
           const entry = pool.pop();
           clearTimeout(entry.timeoutId);
           sandbox = entry.sandbox;
-          removedFromPool = true;
         }
 
         if (!sandbox) {
@@ -182,23 +190,12 @@ export class SandboxPool {
         this._inUseCount++;
         resolve(sandbox);
       } catch (err) {
-        // Ensure the popped waiter never hangs on unexpected errors (e.g. recycle/create failures).
-        try {
-          reject(err);
-        } catch {
-          // ignore
-        }
-
+        reject(err);
         if (sandbox) {
           try {
             sandbox.dispose();
-          } catch {
-            // ignore
-          }
-          // If the sandbox existed (created or from pool), ensure total count reflects disposal.
-          if (removedFromPool || sandbox) {
-            this._totalCount = Math.max(0, this._totalCount - 1);
-          }
+          } catch {}
+          this._totalCount = Math.max(0, this._totalCount - 1);
         }
       }
     }
@@ -224,6 +221,7 @@ export class SandboxPool {
     const waiterIndex = this._waitQueue.findIndex((w) => w && w.key === key);
     if (waiterIndex !== -1) {
       const waiter = this._waitQueue.splice(waiterIndex, 1)[0];
+      if (waiter.timeoutId) clearTimeout(waiter.timeoutId);
       sandbox.recycle({
         state: waiter?.options?.state || {},
         onLog: waiter?.options?.onLog || (() => {}),
@@ -384,6 +382,7 @@ export class SandboxPool {
     this.clear();
     const waiters = this._waitQueue.splice(0, this._waitQueue.length);
     for (const waiter of waiters) {
+      if (waiter.timeoutId) clearTimeout(waiter.timeoutId);
       try {
         waiter.reject(new Error("Pool has been disposed"));
       } catch {

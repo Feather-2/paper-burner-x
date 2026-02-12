@@ -18,10 +18,19 @@ export function validateDomainPattern(pattern) {
   if (pattern.includes('://') || pattern.includes('/') || pattern.includes(':')) {
     throw new Error(`Domain pattern '${pattern}' must not contain protocol, port, or path`);
   }
-  if (pattern.startsWith('*.')) {
+
+  const wildcardCount = (pattern.match(/\*/g) || []).length;
+  if (wildcardCount > 1) {
+    throw new Error(`Domain pattern '${pattern}' contains multiple wildcards; only one wildcard at the start is allowed (e.g. *.example.com)`);
+  }
+
+  if (pattern.includes('*')) {
+    if (!pattern.startsWith('*.')) {
+      throw new Error(`Domain pattern '${pattern}' has wildcard in wrong position; only '*.domain' format is allowed`);
+    }
     const rest = pattern.slice(2);
     if (!rest.includes('.')) {
-      throw new Error(`Domain pattern '${pattern}' is too broad; wildcard must have at least two domain segments (e.g.*.example.com)`);
+      throw new Error(`Domain pattern '${pattern}' is too broad; wildcard must have at least two domain segments (e.g. *.example.com)`);
     }
   }
 }

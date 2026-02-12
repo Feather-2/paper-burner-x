@@ -42,9 +42,9 @@ export const SandboxPolicy = {
  */
 export const DefaultSandboxConfig = {
   /** 允许写入的目录 (相对于工作目录) */
-  allowedWritePaths: ['.', './output', './temp'],
+  allowedWritePaths: [],
   /** 允许读取的目录 */
-  allowedReadPaths: ['.', '/usr', '/lib', '/lib64', '/bin', '/etc'],
+  allowedReadPaths: [],
   /** 是否允许网络 */
   allowNetwork: false,
   /** 超时 (ms) */

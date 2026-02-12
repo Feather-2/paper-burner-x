@@ -1,5 +1,18 @@
+/**
+ * 递归冻结对象
+ * @param {any} obj
+ * @returns {any}
+ */
+function deepFreeze(obj) {
+  Object.freeze(obj);
+  Object.values(obj).forEach(val => {
+    if (val && typeof val === 'object') deepFreeze(val);
+  });
+  return obj;
+}
+
 // 沙箱能力定义
-export const SandboxCapability = {
+export const SandboxCapability = deepFreeze({
   CONSOLE: 'console',      // console.log/warn/error
   STATE: 'state',          // 只读 state 访问
   EMIT: 'emit',            // 事件发射
@@ -7,10 +20,10 @@ export const SandboxCapability = {
   FS_READ: 'fs:read',      // 只读文件访问
   FS_WRITE: 'fs:write',    // 文件写入（高危）
   EXEC: 'exec',            // 子进程执行（高危）
-};
+});
 
 // 预设能力组合
-export const SandboxPreset = {
+export const SandboxPreset = deepFreeze({
   // 最小权限 - 仅 console
   MINIMAL: [SandboxCapability.CONSOLE],
 
@@ -31,10 +44,10 @@ export const SandboxPreset = {
 
   // 完整权限 - 仅用于可信 Skill
   TRUSTED: Object.values(SandboxCapability),
-};
+});
 
 // 资源限制预设
-export const ResourceLimits = {
+export const ResourceLimits = deepFreeze({
   // 轻量级 - 1MB 内存，1s 超时
   LIGHT: {
     memoryLimit: 1 * 1024 * 1024,
@@ -55,6 +68,6 @@ export const ResourceLimits = {
     timeoutMs: 300000,
     maxStackDepth: 1000,
   },
-};
+});
 
 export default { SandboxCapability, SandboxPreset, ResourceLimits };
