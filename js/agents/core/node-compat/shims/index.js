@@ -24,6 +24,11 @@ import chokidarShim from './chokidar.js';
 import httpsShim from './https.js';
 import wsShim from './ws.js';
 import esbuildShim from './esbuild.js';
+import dnsShim from './dns.js';
+import readlineShim from './readline.js';
+import tlsShim from './tls.js';
+import ttyShim from './tty.js';
+import vmShim from './vm.js';
 
 // Stub modules — minimal objects that don't throw on require
 const noop = () => {};
@@ -35,7 +40,7 @@ const STUB_MODULES = {
   constants: {},
   crypto: cryptoShim,
   dgram: noopStub,
-  dns: { resolve: noop, lookup: (hostname, cb) => cb?.(null, '127.0.0.1', 4) },
+  dns: dnsShim,
   domain: { create: () => ({ run: (fn) => fn(), on: noop }) },
   http2: noopStub,
   inspector: noopStub,
@@ -44,15 +49,15 @@ const STUB_MODULES = {
   perf_hooks: { performance: globalThis.performance || { now: () => Date.now() }, PerformanceObserver: class { observe() {} disconnect() {} } },
   process: createProcess(),
   punycode: { encode: (s) => s, decode: (s) => s, toASCII: (s) => s, toUnicode: (s) => s },
-  readline: { createInterface: () => ({ on: noop, close: noop, question: (q, cb) => cb?.('') }) },
+  readline: readlineShim,
   repl: noopStub,
   string_decoder: { StringDecoder: class { write(buf) { return new TextDecoder().decode(buf); } end() { return ''; } } },
   sys: utilShim,
   timers: { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval, setImmediate: (fn, ...args) => setTimeout(fn, 0, ...args), clearImmediate: clearTimeout },
-  tls: noopStub,
-  tty: { isatty: () => false, ReadStream: class {}, WriteStream: class {} },
+  tls: tlsShim,
+  tty: ttyShim,
   v8: noopStub,
-  vm: { runInNewContext: (code) => (0, eval)(code), createContext: () => ({}), Script: class { constructor(code) { this._code = code; } runInThisContext() { return (0, eval)(this._code); } } },
+  vm: vmShim,
   worker_threads: { isMainThread: true, parentPort: null, Worker: class {}, workerData: null },
   async_hooks: { AsyncLocalStorage: class { getStore() { return undefined; } run(store, fn, ...args) { return fn(...args); } enterWith() {} disable() {} }, createHook: () => ({ enable: noop, disable: noop }) },
   diagnostics_channel: { channel: () => ({ subscribe: noop, unsubscribe: noop, publish: noop }), subscribe: noop, unsubscribe: noop },
@@ -128,6 +133,6 @@ export function createBuiltinModules(config = {}) {
 /**
  * 所有已知内置模块名。
  */
-export const BUILTIN_MODULE_NAMES = Object.keys({ ...STUB_MODULES, path: 1, events: 1, buffer: 1, stream: 1, url: 1, querystring: 1, util: 1, os: 1, zlib: 1, fs: 1, child_process: 1, http: 1, https: 1, chokidar: 1, ws: 1, esbuild: 1 });
+export const BUILTIN_MODULE_NAMES = Object.keys({ ...STUB_MODULES, path: 1, events: 1, buffer: 1, stream: 1, url: 1, querystring: 1, util: 1, os: 1, zlib: 1, fs: 1, child_process: 1, http: 1, https: 1, chokidar: 1, ws: 1, esbuild: 1, dns: 1, readline: 1, tls: 1, tty: 1, vm: 1 });
 
 export default { createBuiltinModules, BUILTIN_MODULE_NAMES };
