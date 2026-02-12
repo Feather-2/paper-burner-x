@@ -33,6 +33,12 @@ import workerThreadsShim from './worker_threads.js';
 import http2Shim from './http2.js';
 import perfHooksShim from './perf_hooks.js';
 import v8Shim from './v8.js';
+import inspectorShim from './inspector.js';
+import dgramShim from './dgram.js';
+import domainShim from './domain.js';
+import clusterShim from './cluster.js';
+import asyncHooksShim from './async_hooks.js';
+import diagnosticsChannelShim from './diagnostics_channel.js';
 
 // Stub modules — minimal objects that don't throw on require
 const noop = () => {};
@@ -43,10 +49,7 @@ const STUB_MODULES = {
   console: globalThis.console,
   constants: {},
   crypto: cryptoShim,
-  dgram: noopStub,
   dns: dnsShim,
-  domain: { create: () => ({ run: (fn) => fn(), on: noop }) },
-  inspector: noopStub,
   module: moduleShim,
   net: netShim,
   process: createProcess(),
@@ -59,9 +62,6 @@ const STUB_MODULES = {
   tls: tlsShim,
   tty: ttyShim,
   vm: vmShim,
-  async_hooks: { AsyncLocalStorage: class { getStore() { return undefined; } run(store, fn, ...args) { return fn(...args); } enterWith() {} disable() {} }, createHook: () => ({ enable: noop, disable: noop }) },
-  diagnostics_channel: { channel: () => ({ subscribe: noop, unsubscribe: noop, publish: noop }), subscribe: noop, unsubscribe: noop },
-  cluster: { isMaster: true, isPrimary: true, isWorker: false, fork: noop, on: noop },
 };
 
 /**
@@ -111,6 +111,12 @@ export function createBuiltinModules(config = {}) {
     http2: http2Shim,
     perf_hooks: perfHooksShim,
     v8: v8Shim,
+    inspector: inspectorShim,
+    dgram: dgramShim,
+    domain: domainShim,
+    cluster: clusterShim,
+    async_hooks: asyncHooksShim,
+    diagnostics_channel: diagnosticsChannelShim,
   };
 
   // 动态模块（需要 VFS）
