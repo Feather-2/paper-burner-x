@@ -7,6 +7,7 @@
 
 import { WasmSandbox } from './wasm-sandbox.js';
 import { SandboxPreset, ResourceLimits } from './constants.js';
+import { ResourceLock } from './resource-lock.js';
 import { createLogger } from "../../shared/index.js";
 
 const logger = createLogger("core/sandbox/pool");
@@ -25,6 +26,7 @@ export class SandboxPool {
    * @param {string[]} [options.defaultCapabilities] - 默认能力
    * @param {Object} [options.defaultLimits] - 默认资源限制
    * @param {number} [options.preWarmCount=0] - 预热实例数
+   * @param {boolean} [options.enableResourceLock=true] - 启用资源锁防护
    */
   constructor(options = {}) {
     this.maxSize = options.maxSize || 4;
@@ -45,6 +47,14 @@ export class SandboxPool {
     this._disposed = false;
     this._consecutiveFailures = 0;
     this._maxConsecutiveFailures = Math.max(1, Number(options.maxConsecutiveFailures) || 8);
+
+    // 资源锁（防止多进程访问同一沙箱资源）
+    // 默认禁用，仅在多进程场景下需要启用
+    this._enableResourceLock = options.enableResourceLock === true;
+    this._resourceLock = this._enableResourceLock ? new ResourceLock() : null;
+    /** @type {Map<WasmSandbox, import('./resource-lock.js').LockHandle>} */
+    this._sandboxLocks = new Map();
+    this._sandboxIdCounter = 0;
 
     // 自动预热
     if (this.preWarmCount > 0) {
@@ -106,6 +116,12 @@ export class SandboxPool {
     }
 
     // 创建新沙箱
+    let lockHandle = null;
+    if (this._resourceLock) {
+      const sandboxId = `sandbox-${this._sandboxIdCounter++}`;
+      lockHandle = await this._resourceLock.acquire(sandboxId);
+    }
+
     const sandbox = new WasmSandbox({
       capabilities,
       limits,
@@ -114,12 +130,24 @@ export class SandboxPool {
       onEmit: options.onEmit,
     });
 
-    await sandbox.init();
-    this._consecutiveFailures = 0;
-    this._totalCount++;
-    this._inUseCount++;
+    try {
+      await sandbox.init();
+      this._consecutiveFailures = 0;
+      this._totalCount++;
+      this._inUseCount++;
 
-    return sandbox;
+      if (lockHandle) {
+        this._sandboxLocks.set(sandbox, lockHandle);
+      }
+
+      return sandbox;
+    } catch (err) {
+      // 初始化失败，释放锁
+      if (lockHandle) {
+        await lockHandle.release();
+      }
+      throw err;
+    }
   }
 
   _scheduleDrain() {
@@ -162,6 +190,8 @@ export class SandboxPool {
       if (timeoutId) clearTimeout(timeoutId);
 
       let sandbox = null;
+      let lockHandle = null;
+      let isNewSandbox = false;
       try {
         const capabilities = options?.capabilities || this.defaultCapabilities;
         const limits = options?.limits || this.defaultLimits;
@@ -174,6 +204,12 @@ export class SandboxPool {
         }
 
         if (!sandbox) {
+          // 只在创建新沙箱时获取锁
+          if (this._resourceLock) {
+            const sandboxId = `sandbox-${this._sandboxIdCounter++}`;
+            lockHandle = await this._resourceLock.acquire(sandboxId);
+          }
+
           sandbox = new WasmSandbox({
             capabilities,
             limits,
@@ -182,6 +218,7 @@ export class SandboxPool {
             onEmit: options?.onEmit,
           });
           this._totalCount++;
+          isNewSandbox = true;
         }
 
         sandbox.recycle({
@@ -194,11 +231,22 @@ export class SandboxPool {
         await sandbox.init();
         this._consecutiveFailures = 0;
         this._inUseCount++;
+
+        if (lockHandle) {
+          this._sandboxLocks.set(sandbox, lockHandle);
+        }
+
         resolve(sandbox);
       } catch (err) {
         this._consecutiveFailures++;
         reject(err);
-        if (sandbox) {
+
+        // 释放锁
+        if (lockHandle) {
+          lockHandle.release().catch(() => {});
+        }
+
+        if (sandbox && isNewSandbox) {
           try {
             sandbox.dispose();
           } catch {}
@@ -389,6 +437,14 @@ export class SandboxPool {
     for (const pool of this._pools.values()) {
       for (const entry of pool) {
         clearTimeout(entry.timeoutId);
+
+        // 释放锁
+        if (this._sandboxLocks.has(entry.sandbox)) {
+          const lockHandle = this._sandboxLocks.get(entry.sandbox);
+          this._sandboxLocks.delete(entry.sandbox);
+          lockHandle.release().catch(() => {});
+        }
+
         entry.sandbox.dispose();
         this._totalCount = Math.max(0, this._totalCount - 1);
       }
@@ -402,6 +458,13 @@ export class SandboxPool {
   dispose() {
     if (this._disposed) return;
     this.clear();
+
+    // 清理所有剩余的锁
+    for (const [sandbox, lockHandle] of this._sandboxLocks.entries()) {
+      lockHandle.release().catch(() => {});
+    }
+    this._sandboxLocks.clear();
+
     const waiters = this._waitQueue.splice(0, this._waitQueue.length);
     for (const waiter of waiters) {
       if (waiter.timeoutId) clearTimeout(waiter.timeoutId);
