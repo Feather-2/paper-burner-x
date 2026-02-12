@@ -22,6 +22,8 @@ import assertShim from './assert.js';
 import moduleShim from './module.js';
 import chokidarShim from './chokidar.js';
 import httpsShim from './https.js';
+import wsShim from './ws.js';
+import esbuildShim from './esbuild.js';
 
 // Stub modules — minimal objects that don't throw on require
 const noop = () => {};
@@ -98,6 +100,8 @@ export function createBuiltinModules(config = {}) {
     http: httpInstance,
     https: httpsShim,
     chokidar: chokidarShim,
+    ws: wsShim,
+    esbuild: esbuildShim,
   };
 
   // 动态模块（需要 VFS）
@@ -124,6 +128,6 @@ export function createBuiltinModules(config = {}) {
 /**
  * 所有已知内置模块名。
  */
-export const BUILTIN_MODULE_NAMES = Object.keys({ ...STUB_MODULES, path: 1, events: 1, buffer: 1, stream: 1, url: 1, querystring: 1, util: 1, os: 1, zlib: 1, fs: 1, child_process: 1, http: 1, https: 1, chokidar: 1 });
+export const BUILTIN_MODULE_NAMES = Object.keys({ ...STUB_MODULES, path: 1, events: 1, buffer: 1, stream: 1, url: 1, querystring: 1, util: 1, os: 1, zlib: 1, fs: 1, child_process: 1, http: 1, https: 1, chokidar: 1, ws: 1, esbuild: 1 });
 
 export default { createBuiltinModules, BUILTIN_MODULE_NAMES };
