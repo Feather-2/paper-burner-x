@@ -21,6 +21,7 @@ export class SandboxPool {
    * @param {number} [options.maxActive] - 最大并发（获取中的沙箱数）；默认等于 maxSize
    * @param {number} [options.idleTimeoutMs=60000] - 空闲超时
    * @param {number} [options.acquireTimeoutMs=30000] - 等待队列超时
+   * @param {number} [options.maxConsecutiveFailures=8] - 等待队列连续初始化失败阈值
    * @param {string[]} [options.defaultCapabilities] - 默认能力
    * @param {Object} [options.defaultLimits] - 默认资源限制
    * @param {number} [options.preWarmCount=0] - 预热实例数
@@ -42,6 +43,8 @@ export class SandboxPool {
     this._waitQueue = [];
     this._draining = false;
     this._disposed = false;
+    this._consecutiveFailures = 0;
+    this._maxConsecutiveFailures = Math.max(1, Number(options.maxConsecutiveFailures) || 8);
 
     // 自动预热
     if (this.preWarmCount > 0) {
@@ -82,6 +85,7 @@ export class SandboxPool {
         limits,
       });
       await entry.sandbox.init();
+      this._consecutiveFailures = 0;
       this._inUseCount++;
       return entry.sandbox;
     }
@@ -111,6 +115,7 @@ export class SandboxPool {
     });
 
     await sandbox.init();
+    this._consecutiveFailures = 0;
     this._totalCount++;
     this._inUseCount++;
 
@@ -187,15 +192,30 @@ export class SandboxPool {
         });
 
         await sandbox.init();
+        this._consecutiveFailures = 0;
         this._inUseCount++;
         resolve(sandbox);
       } catch (err) {
+        this._consecutiveFailures++;
         reject(err);
         if (sandbox) {
           try {
             sandbox.dispose();
           } catch {}
           this._totalCount = Math.max(0, this._totalCount - 1);
+        }
+        if (this._consecutiveFailures >= this._maxConsecutiveFailures) {
+          const failure = new Error(
+            `SandboxPool wait queue aborted after ${this._consecutiveFailures} consecutive initialization failures`
+          );
+          logger.error("SandboxPool consecutive init failures exceeded threshold", {
+            consecutiveFailures: this._consecutiveFailures,
+            maxConsecutiveFailures: this._maxConsecutiveFailures,
+            waiting: this._waitQueue.length,
+            error: err?.message,
+          });
+          this._rejectAllWaiters(failure);
+          break;
         }
       }
     }
@@ -231,6 +251,7 @@ export class SandboxPool {
       sandbox
         .init()
         .then(() => {
+          this._consecutiveFailures = 0;
           this._inUseCount++;
           waiter.resolve(sandbox);
         })
@@ -301,6 +322,7 @@ export class SandboxPool {
     for (let i = 0; i < toCreate; i++) {
       const sandbox = new WasmSandbox({ capabilities, limits, state: {}, onLog: () => {}, onEmit: () => {} });
       await sandbox.init();
+      this._consecutiveFailures = 0;
       sandboxes.push(sandbox);
       this._totalCount++;
     }

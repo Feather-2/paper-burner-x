@@ -72,7 +72,16 @@ export class SkillExecutor {
     if (context?.trusted === true) return true;
 
     const allowlist = normalizeFallbackAllowlist(context?.fallbackAllowlist) || this.fallbackAllowlist;
-    if (allowlist) return isAllowlistedSkill(allowlist, skill);
+    if (allowlist) {
+      // 禁止使用通配符放开 fallback eval（例如 '*' / '**'）。
+      if (allowlist.has('*') || allowlist.has('**')) {
+        this.logger.warn('Fallback allowlist wildcard is forbidden', {
+          skill: skill?.metadata?.name,
+        });
+        return false;
+      }
+      return isAllowlistedSkill(allowlist, skill);
+    }
 
     // No explicit allowlist: do not allow fallback eval for untrusted skills.
     return false;

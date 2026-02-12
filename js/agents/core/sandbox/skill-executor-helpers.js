@@ -86,6 +86,22 @@ export const FALLBACK_BLOCKED_GLOBALS = new Set([
   'constructor',
 ]);
 
+// 仅用于阻止 sandbox 全局对象上的直接危险属性访问。
+/** @type {Set<string>} */
+export const FALLBACK_BLOCKED_MEMBER_PROPS = new Set([
+  '__proto__',
+  'constructor',
+  'prototype',
+]);
+
+/**
+ * @param {Set<string> | undefined} blockedAccesses
+ * @param {string} name
+ */
+function recordBlockedAccess(blockedAccesses, name) {
+  if (blockedAccesses && blockedAccesses.size < 32) blockedAccesses.add(name);
+}
+
 /**
  * Create a Proxy suitable for `with (...)` that prevents identifier lookup from falling back to real globals.
  *
@@ -100,6 +116,7 @@ export const FALLBACK_BLOCKED_GLOBALS = new Set([
  */
 export function createFallbackProxyGlobals(base, audit) {
   const target = Object.create(null);
+  const blockedAccesses = audit?.blockedAccesses;
 
   /** @type {Record<string, unknown>} */
   const proxy = new Proxy(target, {
@@ -113,8 +130,10 @@ export function createFallbackProxyGlobals(base, audit) {
       // Provide a sandboxed "global" reference (does not expose the host globalThis).
       if (prop === 'globalThis' || prop === 'self') return proxy;
 
-      if (FALLBACK_BLOCKED_GLOBALS.has(prop)) {
-        if (audit?.blockedAccesses && audit.blockedAccesses.size < 32) audit.blockedAccesses.add(prop);
+      // 仅阻止从 sandbox 全局对象直接读取危险属性；
+      // 例如：globalThis.constructor / globalThis.__proto__ / globalThis.prototype。
+      if (FALLBACK_BLOCKED_GLOBALS.has(prop) || FALLBACK_BLOCKED_MEMBER_PROPS.has(prop)) {
+        recordBlockedAccess(blockedAccesses, prop);
         return undefined;
       }
 
@@ -125,7 +144,7 @@ export function createFallbackProxyGlobals(base, audit) {
     set(t, prop, value) {
       if (typeof prop !== 'string') return false;
       if (FALLBACK_BLOCKED_GLOBALS.has(prop)) {
-        if (audit?.blockedAccesses && audit.blockedAccesses.size < 32) audit.blockedAccesses.add(prop);
+        recordBlockedAccess(blockedAccesses, prop);
         return true;
       }
       t[prop] = value;
@@ -134,7 +153,7 @@ export function createFallbackProxyGlobals(base, audit) {
     defineProperty(t, prop, descriptor) {
       if (typeof prop !== 'string') return false;
       if (FALLBACK_BLOCKED_GLOBALS.has(prop)) {
-        if (audit?.blockedAccesses && audit.blockedAccesses.size < 32) audit.blockedAccesses.add(prop);
+        recordBlockedAccess(blockedAccesses, prop);
         return false;
       }
       return Reflect.defineProperty(t, prop, descriptor);
