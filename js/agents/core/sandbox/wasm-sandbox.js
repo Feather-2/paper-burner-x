@@ -436,23 +436,50 @@ export class WasmSandbox {
   }
 
   /**
-   * 销毁沙箱
+   * 销毁沙箱（带超时保护）
+   * @param {Object} [options]
+   * @param {number} [options.timeoutMs=2000] - 清理超时时间
    */
-  dispose() {
+  dispose(options = {}) {
     if (this._disposed) return;
 
-    if (this._vm) {
-      this._vm.dispose();
+    const timeoutMs = options.timeoutMs || 2000;
+    const startTime = Date.now();
+
+    try {
+      // 第一阶段：尝试正常清理
+      if (this._vm) {
+        this._vm.dispose();
+        this._vm = null;
+      }
+
+      if (this._runtime) {
+        this._runtime.dispose();
+        this._runtime = null;
+      }
+
+      this._disposed = true;
+      this._initialized = false;
+    } catch (err) {
+      // 清理失败，强制标记为已销毁
+      const elapsed = Date.now() - startTime;
+
+      if (elapsed > timeoutMs) {
+        // 超时，强制清理
+        this._vm = null;
+        this._runtime = null;
+        this._disposed = true;
+        this._initialized = false;
+        throw new Error(`Sandbox dispose timeout after ${timeoutMs}ms: ${err.message}`);
+      }
+
+      // 第二阶段：强制清理
       this._vm = null;
-    }
-
-    if (this._runtime) {
-      this._runtime.dispose();
       this._runtime = null;
+      this._disposed = true;
+      this._initialized = false;
+      throw err;
     }
-
-    this._disposed = true;
-    this._initialized = false;
   }
 }
 

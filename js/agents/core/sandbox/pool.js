@@ -431,9 +431,13 @@ export class SandboxPool {
   }
 
   /**
-   * 清空池
+   * 清空池（带优雅超时）
+   * @param {Object} [options]
+   * @param {number} [options.disposeTimeoutMs=2000] - 单个沙箱清理超时
    */
-  clear() {
+  clear(options = {}) {
+    const disposeTimeoutMs = options.disposeTimeoutMs || 2000;
+
     for (const pool of this._pools.values()) {
       for (const entry of pool) {
         clearTimeout(entry.timeoutId);
@@ -445,7 +449,12 @@ export class SandboxPool {
           lockHandle.release().catch(() => {});
         }
 
-        entry.sandbox.dispose();
+        // 使用带超时的 dispose
+        try {
+          entry.sandbox.dispose({ timeoutMs: disposeTimeoutMs });
+        } catch (err) {
+          logger.warn('Sandbox dispose failed during clear', { error: err?.message });
+        }
         this._totalCount = Math.max(0, this._totalCount - 1);
       }
     }
@@ -453,11 +462,13 @@ export class SandboxPool {
   }
 
   /**
-   * 销毁池
+   * 销毁池（带优雅超时）
+   * @param {Object} [options]
+   * @param {number} [options.disposeTimeoutMs=2000] - 单个沙箱清理超时
    */
-  dispose() {
+  dispose(options = {}) {
     if (this._disposed) return;
-    this.clear();
+    this.clear(options);
 
     // 清理所有剩余的锁
     for (const [sandbox, lockHandle] of this._sandboxLocks.entries()) {
