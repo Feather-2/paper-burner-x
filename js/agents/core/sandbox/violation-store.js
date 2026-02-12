@@ -37,6 +37,8 @@ export class ViolationStore {
     this._entries.push(entry);
     this._totalCount++;
     if (this._entries.length > this._max) {
+      // Note: shift() is O(n), but with DEFAULT_MAX=256, performance impact is negligible.
+      // If max entries increases significantly (10000+), consider using a circular buffer.
       this._entries.shift();
     }
     for (const fn of this._listeners) {

@@ -269,4 +269,31 @@ describe('npm/index PackageManager install/list', () => {
 
     await expect(manager.list()).resolves.toEqual(['alpha', 'zeta']);
   });
+
+  it('uninstall removes package from vfs', async () => {
+    vfs.exists = vi.fn().mockResolvedValue(true);
+    vfs.rm = vi.fn().mockResolvedValue(undefined);
+
+    await manager.uninstall('demo');
+    expect(vfs.exists).toHaveBeenCalledWith('/node_modules/demo');
+    expect(vfs.rm).toHaveBeenCalledWith('/node_modules/demo', { recursive: true });
+  });
+
+  it('uninstall throws error when package does not exist', async () => {
+    vfs.exists = vi.fn().mockResolvedValue(false);
+    vfs.rm = vi.fn();
+
+    await expect(manager.uninstall('demo')).rejects.toThrow('Package demo is not installed');
+    expect(vfs.exists).toHaveBeenCalledWith('/node_modules/demo');
+    expect(vfs.rm).not.toHaveBeenCalled();
+  });
+
+  it('uninstall handles scoped packages', async () => {
+    vfs.exists = vi.fn().mockResolvedValue(true);
+    vfs.rm = vi.fn().mockResolvedValue(undefined);
+
+    await manager.uninstall('@scope/pkg');
+    expect(vfs.exists).toHaveBeenCalledWith('/node_modules/@scope/pkg');
+    expect(vfs.rm).toHaveBeenCalledWith('/node_modules/@scope/pkg', { recursive: true });
+  });
 });

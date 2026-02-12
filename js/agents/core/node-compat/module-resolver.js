@@ -311,6 +311,59 @@ export function createResolver(config) {
   const _pkgJsonCache = new Map();
 
   /**
+   * Find package.json by walking up from fromDir.
+   * @param {string} fromDir
+   * @returns {Promise<string|null>}
+   */
+  async function _findPackageJson(fromDir) {
+    let dir = fromDir;
+    while (true) {
+      const pkgPath = normalizeVfsPath(dir ? dir + '/package.json' : 'package.json');
+      if (await vfs.exists(pkgPath)) return pkgPath;
+      if (!dir) break;
+      const slash = dir.lastIndexOf('/');
+      dir = slash > 0 ? dir.slice(0, slash) : '';
+    }
+    return null;
+  }
+
+  /**
+   * Resolve package-internal imports (#foo).
+   * @param {string} specifier
+   * @param {Record<string, any>} imports
+   * @param {string} pkgPath
+   * @returns {string|undefined}
+   */
+  function _resolvePackageImports(specifier, imports, pkgPath) {
+    if (!imports || typeof imports !== 'object') return undefined;
+
+    // Direct match
+    if (imports[specifier] !== undefined) {
+      return resolveExportConditions(imports[specifier]);
+    }
+
+    // Pattern match with *
+    for (const pattern of Object.keys(imports)) {
+      if (pattern.includes('*')) {
+        const prefix = pattern.slice(0, pattern.indexOf('*'));
+        const suffix = pattern.slice(pattern.indexOf('*') + 1);
+        if (specifier.startsWith(prefix) && specifier.endsWith(suffix)) {
+          const match = suffix
+            ? specifier.slice(prefix.length, -suffix.length)
+            : specifier.slice(prefix.length);
+          const target = resolveExportConditions(imports[pattern]);
+          if (target && target.includes('*')) {
+            return target.replace('*', match);
+          }
+          return target;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
    * @param {string} specifier
    * @param {string} [fromDir='']
    * @returns {Promise<ResolveResult|null>}
@@ -330,7 +383,28 @@ export function createResolver(config) {
       return { type: 'builtin', path: specifier, module: builtinModules[specifier] };
     }
 
-    // 3. relative or absolute path
+    // 3. package-internal imports (#foo)
+    if (specifier.startsWith('#')) {
+      const pkgPath = await _findPackageJson(fromDir);
+      if (pkgPath) {
+        const pkg = await readPkgJson(pkgPath, vfs, _pkgJsonCache);
+        if (pkg && pkg.imports) {
+          const resolved = _resolvePackageImports(specifier, pkg.imports, pkgPath);
+          if (resolved) {
+            const pkgDir = pkgPath.slice(0, pkgPath.lastIndexOf('/'));
+            const fullPath = pkgDir + '/' + resolved.replace(/^\.[/\\]/, '');
+            const finalPath = await resolveFile(fullPath, vfs, _pkgJsonCache);
+            if (finalPath) {
+              const type = finalPath.endsWith('.json') ? 'json' : 'file';
+              return { type, path: finalPath };
+            }
+          }
+        }
+      }
+      return null;
+    }
+
+    // 4. relative or absolute path
     if (specifier.startsWith('./') || specifier.startsWith('../') || specifier.startsWith('/')) {
       let base;
       if (specifier.startsWith('/')) {

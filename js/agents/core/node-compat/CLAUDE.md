@@ -130,6 +130,21 @@ createNodeEnv(config)             │
 
 ## 5. Shims 概览（16 个 builtin shim）
 
+### Sync/Async API 限制
+
+**重要**：同步 fs API（`readFileSync`, `writeFileSync`, `readdirSync` 等）仅支持 `MemoryVfs`。
+
+- **MemoryVfs**：内存后端，支持同步与异步 API
+- **IndexedDB/OPFS 后端**：仅支持异步 API（`readFile`, `writeFile`, `readdir` 等）
+
+调用同步 API 时，若 VFS 不支持同步访问（缺少 `_getNode` 内部方法），会抛出错误：
+```
+Sync fs API requires a VFS with synchronous internals (MemoryVfs).
+For IndexedDB/OPFS backends, use async APIs (readFile, writeFile, etc.) instead.
+```
+
+**推荐做法**：优先使用异步 API（`fs.promises.*` 或回调风格），确保跨后端兼容。
+
 | 文件 | 对应模块 | 说明 |
 |------|----------|------|
 | `index.js` | registry | `createBuiltinModules` 统一装配入口 |

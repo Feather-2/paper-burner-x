@@ -167,6 +167,20 @@ export class PackageManager extends EventEmitter {
   }
 
   /**
+   * Uninstall a package from VFS.
+   * @param {string} name - Package name
+   * @returns {Promise<void>}
+   */
+  async uninstall(name) {
+    const pkgPath = `/node_modules/${name}`;
+    const exists = await this.vfs.exists(pkgPath);
+    if (!exists) {
+      throw new Error(`Package ${name} is not installed`);
+    }
+    await this.vfs.rm(pkgPath, { recursive: true });
+  }
+
+  /**
    * Resolve tarball URL for a single package version.
    * @private
    * @param {string} name

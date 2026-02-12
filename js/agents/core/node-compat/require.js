@@ -4,6 +4,7 @@
  */
 
 import { createResolver } from './module-resolver.js';
+import { hasESMSyntax, transformESMtoCJS } from './transform-esm.js';
 
 /**
  * @typedef {object} RequireConfig
@@ -59,6 +60,13 @@ export function createRequire(config) {
 
     // 5. JS file
     const code = await vfs.readText(resolved.path);
+
+    // ESM transform
+    let finalCode = code;
+    if (hasESMSyntax(code)) {
+      finalCode = transformESMtoCJS(code, resolved.path);
+    }
+
     const module = { exports: {} };
     // Put in cache early to handle circular dependencies
     cache.set(resolved.path, module);
@@ -79,7 +87,7 @@ export function createRequire(config) {
       const wrapper = [
         '(function(exports, require, module, __filename, __dirname,',
         ' process, console, Buffer, global, globalThis, __dynamicImport) {',
-        code,
+        finalCode,
         '\n})',
       ].join('');
 

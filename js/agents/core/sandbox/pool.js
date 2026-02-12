@@ -26,7 +26,7 @@ export class SandboxPool {
    * @param {number} [options.preWarmCount=0] - 预热实例数
    */
   constructor(options = {}) {
-    this.maxSize = options.maxSize ?? 4;
+    this.maxSize = options.maxSize || 4;
     this.maxActive = Math.max(1, options.maxActive || this.maxSize);
     this.idleTimeoutMs = options.idleTimeoutMs || 60000;
     this.acquireTimeoutMs = options.acquireTimeoutMs || 30000;

@@ -78,9 +78,10 @@ export class SystemSandboxExecutor {
       this._activeProcesses.clear();
     };
 
-    process.once('exit', cleanup);
-    process.once('SIGINT', () => { cleanup(); process.exit(130); });
-    process.once('SIGTERM', () => { cleanup(); process.exit(143); });
+    // Use process.on() instead of process.once() to allow multiple handlers
+    process.on('exit', cleanup);
+    process.on('SIGINT', () => { cleanup(); process.exit(130); });
+    process.on('SIGTERM', () => { cleanup(); process.exit(143); });
   }
 
   /**

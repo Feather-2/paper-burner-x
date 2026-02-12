@@ -18,7 +18,8 @@ function makeErrno(err, path) {
   return e;
 }
 
-const SYNC_ERR_MSG = 'Sync fs API requires a VFS with synchronous internals (e.g. MemoryVfs). Use fs.promises instead.';
+const SYNC_ERR_MSG = 'Sync fs API requires a VFS with synchronous internals (MemoryVfs). ' +
+  'For IndexedDB/OPFS backends, use async APIs (readFile, writeFile, etc.) instead.';
 
 /** Convert data to Uint8Array (mirrors MemoryVfs.dataToBytes). */
 function toBytes(data) {
