@@ -116,7 +116,7 @@ describe('createNodeEnv + VFS + npm install integration', () => {
     expect(indexJs).toContain('greet');
   });
 
-  it('sandbox tool can execute code after npm install to shared VFS', async () => {
+  it('sandbox tool refuses Node.js host-side eval without iframe sandbox', async () => {
     const vfs = new MemoryVfs();
 
     // Pre-populate VFS with a "package" as if npm installed it
@@ -132,7 +132,8 @@ describe('createNodeEnv + VFS + npm install integration', () => {
     const result = await tool.handler({
       code: 'module.exports = "executed";',
     });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('browser sandbox (iframe)');
 
     await tool.handler.dispose();
   });

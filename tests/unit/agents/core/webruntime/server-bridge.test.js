@@ -155,4 +155,102 @@ describe('sw-handler', () => {
   it('exports installFetchHandler', () => {
     expect(typeof installFetchHandler).toBe('function');
   });
+
+  it('resolves the initiating client via resultingClientId/clientId instead of clients[0]', async () => {
+    /** @type {Record<string, any>} */
+    const listeners = {};
+    const wrongClient = {
+      postMessage: vi.fn((_, ports) => {
+        ports[0].postMessage({ status: 200, headers: {}, body: 'wrong-client' });
+      }),
+    };
+    const rightClient = {
+      postMessage: vi.fn((_, ports) => {
+        ports[0].postMessage({ status: 200, headers: {}, body: 'right-client' });
+      }),
+    };
+    const sw = {
+      addEventListener: vi.fn((type, handler) => {
+        listeners[type] = handler;
+      }),
+      clients: {
+        get: vi.fn().mockResolvedValue(rightClient),
+        matchAll: vi.fn().mockResolvedValue([wrongClient]),
+      },
+    };
+
+    installFetchHandler(sw);
+
+    /** @type {Promise<Response> | undefined} */
+    let responsePromise;
+    listeners.fetch({
+      request: new Request('https://example.test/__virtual__/3000/hello'),
+      clientId: 'client-123',
+      respondWith: (promise) => {
+        responsePromise = promise;
+      },
+    });
+
+    const response = await responsePromise;
+    expect(sw.clients.get).toHaveBeenCalledWith('client-123');
+    expect(sw.clients.matchAll).not.toHaveBeenCalled();
+    expect(rightClient.postMessage).toHaveBeenCalledOnce();
+    expect(wrongClient.postMessage).not.toHaveBeenCalled();
+    expect(await response.text()).toBe('right-client');
+  });
+
+  it('closes port1 when request times out', async () => {
+    vi.useFakeTimers();
+    const OriginalMessageChannel = globalThis.MessageChannel;
+    const mockChannel = {
+      port1: {
+        onmessage: null,
+        close: vi.fn(),
+      },
+      port2: {},
+    };
+    class MockMessageChannel {
+      constructor() {
+        this.port1 = mockChannel.port1;
+        this.port2 = mockChannel.port2;
+      }
+    }
+    globalThis.MessageChannel = MockMessageChannel;
+
+    try {
+      /** @type {Record<string, any>} */
+      const listeners = {};
+      const sw = {
+        addEventListener: vi.fn((type, handler) => {
+          listeners[type] = handler;
+        }),
+        clients: {
+          get: vi.fn().mockResolvedValue({
+            postMessage: vi.fn(),
+          }),
+          matchAll: vi.fn().mockResolvedValue([]),
+        },
+      };
+      installFetchHandler(sw);
+
+      /** @type {Promise<Response> | undefined} */
+      let responsePromise;
+      listeners.fetch({
+        request: new Request('https://example.test/__virtual__/4000/slow'),
+        clientId: 'client-timeout',
+        respondWith: (promise) => {
+          responsePromise = promise;
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(responsePromise).toBeDefined();
+      const response = await responsePromise;
+      expect(response.status).toBe(504);
+      expect(mockChannel.port1.close).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.MessageChannel = OriginalMessageChannel;
+      vi.useRealTimers();
+    }
+  });
 });

@@ -37,12 +37,6 @@ import { execCommand, getPlatform } from './detect.js';
 const defaultPermissionHandler = async () => 'deny';
 
 /**
- * 权限缓存 - 存储 "allow-always" 的规则
- * @type {Set<string>}
- */
-const allowedPatterns = new Set();
-
-/**
  * 生成权限缓存键（包含完整请求信息）
  * @param {PermissionRequest} request
  * @returns {string}
@@ -56,11 +50,12 @@ function getPermissionKey(request) {
 /**
  * 检查是否已授权
  * @param {PermissionRequest} request
+ * @param {Set<string>} patterns
  * @returns {boolean}
  */
-function isAllowed(request) {
+function isAllowed(request, patterns) {
   const key = getPermissionKey(request);
-  return allowedPatterns.has(key) || allowedPatterns.has(`${request.type}:*`);
+  return patterns.has(key) || patterns.has(`${request.type}:*`);
 }
 
 /**
@@ -71,6 +66,7 @@ function isAllowed(request) {
  * @property {number} [timeoutMs] - ��时
  * @property {Object.<string, string>} [env] - 环境变量
  * @property {boolean} [skipPermission] - 跳过权限检查 (危险)
+ * @property {Set<string>} [allowedPatterns] - 权限缓存 (allow-always)
  */
 
 /**
@@ -100,12 +96,12 @@ export async function executeWithPermission(command, args, options) {
   };
 
   // 检查权限
-  if (!skipPermission && !isAllowed(request)) {
+  if (!skipPermission && !isAllowed(request, options.allowedPatterns || new Set())) {
     const response = await permissionHandler(request);
 
     switch (response) {
       case 'allow-always':
-        allowedPatterns.add(getPermissionKey(request));
+        options.allowedPatterns?.add(getPermissionKey(request));
         break;
       case 'deny':
         return {
@@ -138,6 +134,8 @@ export async function executeWithPermission(command, args, options) {
  * @returns {Object}
  */
 export function createPermissionExecutor(defaultOptions = /** @type {Partial<PermissionOptions>} */ ({})) {
+  const allowedPatterns = new Set();
+
   return {
     backend: SandboxBackend.PERMISSION_ONLY,
 
@@ -145,7 +143,7 @@ export function createPermissionExecutor(defaultOptions = /** @type {Partial<Per
       return executeWithPermission(
         command,
         args,
-        /** @type {PermissionOptions} */ ({ ...defaultOptions, ...options })
+        /** @type {PermissionOptions} */ ({ ...defaultOptions, ...options, allowedPatterns })
       );
     },
 

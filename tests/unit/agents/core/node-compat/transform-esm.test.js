@@ -179,6 +179,21 @@ describe('transformESMtoCJS', () => {
     expect(out).not.toMatch(/^export/m);
   });
 
+  it('ignores export-like text inside protected literals/comments when collecting export names', () => {
+    const input = [
+      'import "polyfill";',
+      'const template = `',
+      'export const fake = 1;',
+      '`;',
+      '// export const alsoFake = 2;',
+      'export const real = 3;',
+    ].join('\n');
+    const out = transformESMtoCJS(input);
+    expect(out).toContain('module.exports.real = real;');
+    expect(out).not.toContain('module.exports.fake = fake;');
+    expect(out).not.toContain('module.exports.alsoFake = alsoFake;');
+  });
+
   it('does not modify pure CJS code', () => {
     const input = 'const a = require("x");\nmodule.exports = a;';
     const out = transformESMtoCJS(input);

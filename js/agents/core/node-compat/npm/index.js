@@ -177,7 +177,15 @@ export class PackageManager extends EventEmitter {
     if (!exists) {
       throw new Error(`Package ${name} is not installed`);
     }
-    await this.vfs.rm(pkgPath, { recursive: true });
+    if (typeof this.vfs.rm === 'function') {
+      await this.vfs.rm(pkgPath, { recursive: true });
+      return;
+    }
+    if (typeof this.vfs.rmdir === 'function') {
+      await this.vfs.rmdir(pkgPath, { recursive: true });
+      return;
+    }
+    throw new Error('VFS does not support recursive removal');
   }
 
   /**

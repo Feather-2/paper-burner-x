@@ -59,7 +59,6 @@ describe('sandbox-tool', () => {
   describe('iframe bridge integration', () => {
     it('uses iframe bridge when isBrowserWithDOM returns true', async () => {
       const { __test } = await import('../../../../../js/agents/core/sandbox/iframe-eval-bridge.js');
-      const { createIframeEvalBridge } = await import('../../../../../js/agents/core/sandbox/iframe-eval-bridge.js');
 
       __test.setBrowser(true);
       try {
@@ -80,10 +79,52 @@ describe('sandbox-tool', () => {
       await expect(tool.handler.dispose()).resolves.toBeUndefined();
     });
 
-    it('falls back to eval in Node.js environment', () => {
+    it('rejects host-side eval fallback in Node.js environment', async () => {
       // isBrowserWithDOM defaults to false in Node test env
       const tool = createSandboxTool();
-      expect(tool).toBeDefined();
+      const result = await tool.handler({ code: 'module.exports = 1;' });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('browser sandbox (iframe)');
+      expect(result.error).toContain('disabled for security');
+      await tool.handler.dispose();
+    });
+
+    it('parses scoped package install spec correctly', async () => {
+      const fakePM = {
+        install: vi.fn().mockResolvedValue({ name: '@babel/core', version: '7.24.0', deps: 0 }),
+      };
+      const tool = createSandboxTool({ packageManager: fakePM });
+      await tool.handler({
+        code: 'module.exports = true;',
+        install: ['@babel/core@7.24.0'],
+      });
+      expect(fakePM.install).toHaveBeenCalledWith('@babel/core', { version: '7.24.0' });
+      await tool.handler.dispose();
+    });
+
+    it('captures console output into result.output', async () => {
+      const { __test } = await import('../../../../../js/agents/core/sandbox/iframe-eval-bridge.js');
+      const onConsole = vi.fn();
+      __test.setBrowser(true);
+
+      __test.mockEvaluate.mockImplementationOnce(async () => ({
+        ok: true,
+        value: (_exports, _require, module, _filename, _dirname, _process, scopedConsole) => {
+          scopedConsole.log('hello', 123);
+          module.exports = { ok: true };
+        },
+      }));
+
+      try {
+        const tool = createSandboxTool({ onConsole });
+        const result = await tool.handler({ code: 'module.exports = "ignored-by-mock";' });
+        expect(result.success).toBe(true);
+        expect(result.output).toContain('hello 123');
+        expect(onConsole).toHaveBeenCalledWith('log', ['hello', 123]);
+        await tool.handler.dispose();
+      } finally {
+        __test.setBrowser(false);
+      }
     });
   });
 });

@@ -17,23 +17,48 @@ export function installFetchHandler(sw) {
     const match = url.pathname.match(/\/__virtual__\/(\d+)(\/.*)?/);
     if (!match) return;
 
-    const port = parseInt(match[1]);
+    const port = parseInt(match[1], 10);
     const path = match[2] || '/';
 
     event.respondWith(
       new Promise((resolve) => {
         const mc = new MessageChannel();
-        mc.port1.onmessage = (e) => {
-          const { status, headers, body } = e.data;
-          resolve(new Response(body, { status, headers }));
+        let settled = false;
+
+        /**
+         * Resolve response once and cleanup channel resources.
+         * @param {Response} response
+         * @returns {void}
+         */
+        const settle = (response) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          mc.port1.close();
+          resolve(response);
         };
 
-        sw.clients.matchAll().then(clients => {
-          if (clients.length === 0) {
-            resolve(new Response('No client', { status: 503 }));
+        const timeoutId = setTimeout(() => {
+          settle(new Response('Timeout', { status: 504 }));
+        }, 60000);
+
+        mc.port1.onmessage = (e) => {
+          if (settled) return;
+          const { status, headers, body } = e.data;
+          settle(new Response(body, { status, headers }));
+        };
+
+        const clientId = event.resultingClientId || event.clientId;
+        const clientPromise = clientId
+          ? sw.clients.get(clientId)
+          : sw.clients.matchAll().then((clients) => clients[0]);
+
+        clientPromise.then((client) => {
+          if (!client) {
+            settle(new Response('No client', { status: 503 }));
             return;
           }
-          clients[0].postMessage({
+          client.postMessage({
             type: 'virtual-request',
             port,
             method: event.request.method,
@@ -42,9 +67,9 @@ export function installFetchHandler(sw) {
             body: null,
             requestId: Date.now() + '-' + Math.random(),
           }, [mc.port2]);
+        }).catch(() => {
+          settle(new Response('Client error', { status: 503 }));
         });
-
-        setTimeout(() => resolve(new Response('Timeout', { status: 504 })), 60000);
       })
     );
   });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   randomBytes, randomUUID, randomInt, createHash, createHmac, pbkdf2Sync,
   createSign, createVerify, wrapKey,
@@ -35,6 +35,20 @@ describe('crypto shim', () => {
       expect(val).toBeGreaterThanOrEqual(0);
       expect(val).toBeLessThan(5);
     }
+  });
+
+  it('Hash.digest warns once about non-cryptographic fallback', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    createHash('sha256').update('hello').digest('hex');
+    createHash('sha256').update('world').digest('hex');
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[crypto shim] Hash.digest() uses a non-cryptographic FNV-1a fallback. ' +
+      'Use digestAsync() for cryptographically correct results via Web Crypto API.'
+    );
+    warnSpy.mockRestore();
   });
 
   it('createHash(sha256).update(hello).digest(hex) returns non-empty hex', () => {

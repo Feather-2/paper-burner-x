@@ -273,10 +273,30 @@ describe('npm/index PackageManager install/list', () => {
   it('uninstall removes package from vfs', async () => {
     vfs.exists = vi.fn().mockResolvedValue(true);
     vfs.rm = vi.fn().mockResolvedValue(undefined);
+    vfs.rmdir = vi.fn();
 
     await manager.uninstall('demo');
     expect(vfs.exists).toHaveBeenCalledWith('/node_modules/demo');
     expect(vfs.rm).toHaveBeenCalledWith('/node_modules/demo', { recursive: true });
+    expect(vfs.rmdir).not.toHaveBeenCalled();
+  });
+
+  it('uninstall falls back to rmdir when rm is unavailable', async () => {
+    vfs.exists = vi.fn().mockResolvedValue(true);
+    vfs.rm = undefined;
+    vfs.rmdir = vi.fn().mockResolvedValue(undefined);
+
+    await manager.uninstall('demo');
+    expect(vfs.exists).toHaveBeenCalledWith('/node_modules/demo');
+    expect(vfs.rmdir).toHaveBeenCalledWith('/node_modules/demo', { recursive: true });
+  });
+
+  it('uninstall throws when vfs does not support recursive removal', async () => {
+    vfs.exists = vi.fn().mockResolvedValue(true);
+    vfs.rm = undefined;
+    vfs.rmdir = undefined;
+
+    await expect(manager.uninstall('demo')).rejects.toThrow('VFS does not support recursive removal');
   });
 
   it('uninstall throws error when package does not exist', async () => {
@@ -291,9 +311,11 @@ describe('npm/index PackageManager install/list', () => {
   it('uninstall handles scoped packages', async () => {
     vfs.exists = vi.fn().mockResolvedValue(true);
     vfs.rm = vi.fn().mockResolvedValue(undefined);
+    vfs.rmdir = vi.fn();
 
     await manager.uninstall('@scope/pkg');
     expect(vfs.exists).toHaveBeenCalledWith('/node_modules/@scope/pkg');
     expect(vfs.rm).toHaveBeenCalledWith('/node_modules/@scope/pkg', { recursive: true });
+    expect(vfs.rmdir).not.toHaveBeenCalled();
   });
 });

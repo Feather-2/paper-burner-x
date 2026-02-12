@@ -10,6 +10,37 @@ import { createRequire } from './require.js';
 import { createBuiltinModules } from './shims/index.js';
 import { createIframeEvalBridge, isBrowserWithDOM } from '../sandbox/iframe-eval-bridge.js';
 
+const CONSOLE_METHODS = ['log', 'warn', 'error', 'info', 'debug'];
+
+/**
+ * Parse npm package specifier (`name` or `name@version`) with scoped support.
+ * @param {string} pkg
+ * @returns {{ name: string, version: string | undefined }}
+ */
+function parseInstallSpecifier(pkg) {
+  const value = String(pkg || '').trim();
+  const atIdx = value.lastIndexOf('@');
+
+  if (atIdx <= 0) {
+    return { name: value, version: undefined };
+  }
+
+  return {
+    name: value.slice(0, atIdx),
+    version: value.slice(atIdx + 1) || undefined,
+  };
+}
+
+/**
+ * Convert console arguments to a single output line.
+ * @param {unknown[]} args
+ * @returns {string}
+ */
+function formatConsoleOutput(args) {
+  const list = Array.isArray(args) ? args : [args];
+  return list.map((item) => String(item)).join(' ');
+}
+
 /**
  * @typedef {object} SandboxToolConfig
  * @property {object} [vfs] - VFS instance; creates MemoryVfs if omitted
@@ -57,6 +88,27 @@ export function createSandboxTool(config = {}) {
   let _env = null;
   let _require = null;
   let _iframeBridge = null;
+  /** @type {string[] | null} */
+  let _activeOutput = null;
+
+  const hostConsole = typeof console !== 'undefined' ? console : null;
+  const captureConsole = {};
+
+  const emitConsole = (method, args) => {
+    if (_activeOutput) {
+      _activeOutput.push(formatConsoleOutput(args));
+    }
+    if (typeof onConsole === 'function') {
+      onConsole(method, args);
+    }
+  };
+
+  for (const method of CONSOLE_METHODS) {
+    captureConsole[method] = (...args) => {
+      emitConsole(method, args);
+      hostConsole?.[method]?.(...args);
+    };
+  }
 
   async function getEnv() {
     if (_env) return { env: _env, require: _require };
@@ -64,7 +116,7 @@ export function createSandboxTool(config = {}) {
     _env = await createNodeEnv({
       vfs: config.vfs,
       env,
-      onConsole,
+      onConsole: emitConsole,
       timeout,
     });
 
@@ -72,21 +124,22 @@ export function createSandboxTool(config = {}) {
 
     // Browser: route eval through sandboxed iframe (allow-scripts only,
     // no allow-same-origin) to prevent prototype-chain escape to host globalThis.
-    // Node.js: no iframe available, fall back to indirect eval with warning.
+    // Node.js: no iframe available; reject host-side eval for security.
     let evaluate;
     if (isBrowserWithDOM()) {
-      _iframeBridge = createIframeEvalBridge({ timeout, onConsole });
+      _iframeBridge = createIframeEvalBridge({ timeout, onConsole: emitConsole });
       evaluate = async (code, _filename) => {
         const result = await _iframeBridge.evaluate(code, _filename);
         if (!result.ok) throw new Error(result.error || 'iframe eval failed');
         return result.value;
       };
     } else {
-      // Node.js fallback — isolation relies on controlled globals from require
-      if (typeof console !== 'undefined' && console.warn) {
-        console.warn('[sandbox-tool] No iframe available; using host-side eval (Node.js fallback)');
-      }
-      evaluate = async (code) => (0, eval)(code);
+      evaluate = async () => {
+        throw new Error(
+          'Code execution requires a browser sandbox (iframe). ' +
+          'Node.js host-side eval is disabled for security.'
+        );
+      };
     }
 
     const { require: req } = createRequire({
@@ -95,7 +148,7 @@ export function createSandboxTool(config = {}) {
       evaluate,
       globals: {
         process: builtinModules.process,
-        console: builtinModules.console || console,
+        console: captureConsole,
         Buffer: builtinModules.buffer?.Buffer,
       },
     });
@@ -110,32 +163,37 @@ export function createSandboxTool(config = {}) {
    */
   async function handler(args) {
     const { code, filename = 'main.js', install } = args;
-    const { env: nodeEnv, require: req } = await getEnv();
-
-    if (install && install.length > 0 && packageManager) {
-      for (const pkg of install) {
-        const [name, version] = pkg.split('@');
-        await packageManager.install(name, { version: version || 'latest' });
-      }
-    }
-
-    await nodeEnv.vfs.writeText(filename, code);
-
     const output = [];
+    _activeOutput = output;
 
     try {
-      const result = await req('./' + filename.replace(/^\.\//, ''));
-      return {
-        success: true,
-        output: output.join('\n'),
-        result: result !== undefined ? result : null,
-      };
-    } catch (err) {
-      return {
-        success: false,
-        output: output.join('\n'),
-        error: err instanceof Error ? err.message : String(err),
-      };
+      const { env: nodeEnv, require: req } = await getEnv();
+
+      if (install && install.length > 0 && packageManager) {
+        for (const pkg of install) {
+          const { name, version } = parseInstallSpecifier(pkg);
+          await packageManager.install(name, { version: version || 'latest' });
+        }
+      }
+
+      await nodeEnv.vfs.writeText(filename, code);
+
+      try {
+        const result = await req('./' + filename.replace(/^\.\//, ''));
+        return {
+          success: true,
+          output: output.join('\n'),
+          result: result !== undefined ? result : null,
+        };
+      } catch (err) {
+        return {
+          success: false,
+          output: output.join('\n'),
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    } finally {
+      _activeOutput = null;
     }
   }
 

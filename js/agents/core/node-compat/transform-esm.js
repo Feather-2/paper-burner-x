@@ -49,21 +49,21 @@ export function transformESMtoCJS(code, filename = '<anonymous>') {
   out = out.replace(/\/\/[^\n]*/g, protect);
   out = out.replace(/\/\*[\s\S]*?\*\//g, protect);
 
-  // --- Collect exported declaration names from original code ---
+  // --- Collect exported declaration names from protected code ---
   const exportedDecls = [];
   const defaultExportNames = [];
   let rm;
 
   const SCAN_EXPORT_DECL = /^export\s+(const|let|var|function|class)\s+(\w+)/gm;
-  while ((rm = SCAN_EXPORT_DECL.exec(code)) !== null) {
+  while ((rm = SCAN_EXPORT_DECL.exec(out)) !== null) {
     exportedDecls.push(rm[2]);
   }
   const SCAN_DEF_FUNC = /^export\s+default\s+function\s+(\w+)/gm;
-  while ((rm = SCAN_DEF_FUNC.exec(code)) !== null) {
+  while ((rm = SCAN_DEF_FUNC.exec(out)) !== null) {
     defaultExportNames.push(rm[1]);
   }
   const SCAN_DEF_CLASS = /^export\s+default\s+class\s+(\w+)/gm;
-  while ((rm = SCAN_DEF_CLASS.exec(code)) !== null) {
+  while ((rm = SCAN_DEF_CLASS.exec(out)) !== null) {
     defaultExportNames.push(rm[1]);
   }
 

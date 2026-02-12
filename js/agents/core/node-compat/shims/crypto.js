@@ -61,8 +61,9 @@ function normalizeAlgorithm(alg) {
 }
 
 /**
- * Synchronous hash (FNV-1a based fallback).
- * Not cryptographically secure — used only when sync digest is required.
+ * Synchronous hash (FNV-1a based, NOT cryptographically secure).
+ * WARNING: Output does NOT match real SHA-256/SHA-512. Use digestAsync() for correct hashes.
+ * This exists only to satisfy synchronous Node.js API contracts where async is not possible.
  * @param {Uint8Array} data
  * @param {string} algorithm - normalized algorithm name
  * @returns {Uint8Array}
@@ -143,6 +144,8 @@ function concatBuffers(list) {
 export function createHash(algorithm) { return new Hash(algorithm); }
 
 class Hash {
+  static _syncDigestWarned = false;
+
   /** @param {string} algorithm */
   constructor(algorithm) {
     this._algorithm = normalizeAlgorithm(algorithm);
@@ -168,6 +171,15 @@ class Hash {
    * @returns {string|Buffer}
    */
   digest(encoding) {
+    if (!Hash._syncDigestWarned) {
+      Hash._syncDigestWarned = true;
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn(
+          '[crypto shim] Hash.digest() uses a non-cryptographic FNV-1a fallback. ' +
+          'Use digestAsync() for cryptographically correct results via Web Crypto API.'
+        );
+      }
+    }
     const combined = concatBuffers(this._data);
     const hash = syncHash(combined, this._algorithm);
     return encodeResult(hash, encoding);

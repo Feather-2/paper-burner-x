@@ -109,17 +109,40 @@ describe('executeWithPermission', () => {
     expect(result.backend).toBe(sandboxBackendMock.PERMISSION_ONLY);
   });
 
-  it('caches allow-always decisions for rapid consecutive calls', async () => {
+  it('caches allow-always decisions when sharing allowedPatterns set', async () => {
     execCommandMock.mockResolvedValue({ code: 0, stdout: '', stderr: '' });
 
     const permissionHandler = vi.fn().mockResolvedValueOnce('allow-always');
+    const allowedPatterns = new Set();
+
+    const { executeWithPermission } = await loadPermissionModule();
+
+    await executeWithPermission('echo', ['hi'], {
+      workDir: '/tmp',
+      permissionHandler,
+      allowedPatterns,
+    });
+    await executeWithPermission('echo', ['hi'], {
+      workDir: '/tmp',
+      permissionHandler,
+      allowedPatterns,
+    });
+
+    expect(permissionHandler).toHaveBeenCalledTimes(1);
+    expect(execCommandMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not cache allow-always without allowedPatterns set', async () => {
+    execCommandMock.mockResolvedValue({ code: 0, stdout: '', stderr: '' });
+
+    const permissionHandler = vi.fn().mockResolvedValue('allow-always');
 
     const { executeWithPermission } = await loadPermissionModule();
 
     await executeWithPermission('echo', ['hi'], { workDir: '/tmp', permissionHandler });
     await executeWithPermission('echo', ['hi'], { workDir: '/tmp', permissionHandler });
 
-    expect(permissionHandler).toHaveBeenCalledTimes(1);
+    expect(permissionHandler).toHaveBeenCalledTimes(2);
     expect(execCommandMock).toHaveBeenCalledTimes(2);
   });
 
@@ -316,6 +339,26 @@ describe('createPermissionExecutor', () => {
 
     expect(permissionHandler).toHaveBeenCalledTimes(1);
     expect(denied.code).toBe(1);
+    expect(execCommandMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps permission cache isolated between executor instances', async () => {
+    execCommandMock.mockResolvedValue({ code: 0, stdout: '', stderr: '' });
+
+    const permissionHandlerA = vi.fn().mockResolvedValue('deny');
+    const permissionHandlerB = vi.fn().mockResolvedValue('deny');
+    const { createPermissionExecutor } = await loadPermissionModule();
+
+    const executorA = createPermissionExecutor({ workDir: '/tmp', permissionHandler: permissionHandlerA });
+    const executorB = createPermissionExecutor({ workDir: '/tmp', permissionHandler: permissionHandlerB });
+
+    executorA.allowPattern('shell:*');
+    await executorA.execute('echo', ['hi']);
+    const deniedOnB = await executorB.execute('echo', ['hi']);
+
+    expect(permissionHandlerA).not.toHaveBeenCalled();
+    expect(permissionHandlerB).toHaveBeenCalledTimes(1);
+    expect(deniedOnB.code).toBe(1);
     expect(execCommandMock).toHaveBeenCalledTimes(1);
   });
 });

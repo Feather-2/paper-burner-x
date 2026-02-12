@@ -51,22 +51,23 @@ describe('sandbox-tool <> ToolExecutor integration', () => {
     expect(names).toContain('execute_code');
   });
 
-  it('returns success:true for valid code', async () => {
+  it('returns security error for valid code in Node.js without iframe sandbox', async () => {
     const result = await executor.execute('execute_code', {
       code: 'module.exports = { value: 123 };',
     }, {});
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
     expect(result.raw).toBeDefined();
-    expect(result.raw.success).toBe(true);
+    expect(result.raw.success).toBe(false);
+    expect(result.raw.error).toContain('browser sandbox (iframe)');
   });
 
-  it('returns error for code that throws', async () => {
+  it('returns security error before user code throw is evaluated', async () => {
     const result = await executor.execute('execute_code', {
       code: 'throw new Error("boom");',
     }, {});
     expect(result.raw).toBeDefined();
     expect(result.raw.success).toBe(false);
-    expect(result.raw.error).toContain('boom');
+    expect(result.raw.error).toContain('disabled for security');
   });
 
   it('supports custom filename', async () => {
@@ -74,20 +75,22 @@ describe('sandbox-tool <> ToolExecutor integration', () => {
       code: 'module.exports = "ok";',
       filename: 'custom-script.js',
     }, {});
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
     expect(result.raw).toBeDefined();
-    expect(result.raw.success).toBe(true);
+    expect(result.raw.success).toBe(false);
   });
 
   it('lazy-initializes env on first call, reuses on second', async () => {
     const r1 = await executor.execute('execute_code', {
       code: 'module.exports = 1;',
+      filename: 'first.js',
     }, {});
     const r2 = await executor.execute('execute_code', {
       code: 'module.exports = 2;',
+      filename: 'second.js',
     }, {});
-    expect(r1.ok).toBe(true);
-    expect(r2.ok).toBe(true);
+    expect(r1.ok).toBe(false);
+    expect(r2.ok).toBe(false);
   });
 
   it('unknown tool returns error', async () => {
@@ -125,18 +128,22 @@ describe('sandbox-tool with PackageManager', () => {
     await tool.handler.dispose();
   });
 
-  it('installs multiple packages sequentially', async () => {
+  it('installs multiple packages sequentially (including scoped package)', async () => {
     const fakePM = {
       install: vi.fn().mockResolvedValue({ name: 'pkg', version: '1.0.0', deps: 0 }),
     };
     const vfs = new MemoryVfs();
     const tool = createSandboxTool({ vfs, packageManager: fakePM });
 
-    await tool.handler({ code: 'module.exports = true;', install: ['pkg-a', 'pkg-b@2.0.0'] });
+    await tool.handler({
+      code: 'module.exports = true;',
+      install: ['pkg-a', 'pkg-b@2.0.0', '@babel/core@7.24.0'],
+    });
 
-    expect(fakePM.install).toHaveBeenCalledTimes(2);
+    expect(fakePM.install).toHaveBeenCalledTimes(3);
     expect(fakePM.install).toHaveBeenCalledWith('pkg-a', { version: 'latest' });
     expect(fakePM.install).toHaveBeenCalledWith('pkg-b', { version: '2.0.0' });
+    expect(fakePM.install).toHaveBeenCalledWith('@babel/core', { version: '7.24.0' });
 
     await tool.handler.dispose();
   });
@@ -148,7 +155,8 @@ describe('sandbox-tool with PackageManager', () => {
     // Should not throw even with install array but no packageManager
     const result = await tool.handler({ code: 'module.exports = true;', install: ['lodash'] });
     expect(result).toBeDefined();
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('browser sandbox (iframe)');
 
     await tool.handler.dispose();
   });
@@ -175,8 +183,10 @@ describe('sandbox-tool <> ToolRegistry integration', () => {
       code: 'module.exports = "from-registry";',
     }, {});
 
+    // ToolRegistry direct fn path wraps handler return into { ok: true, data }.
     expect(result.ok).toBe(true);
-    expect(result.data).toBeDefined();
+    expect(result.data?.success).toBe(false);
+    expect(result.data?.error).toContain('browser sandbox (iframe)');
 
     await tool.handler.dispose();
   });
@@ -204,7 +214,8 @@ describe('sandbox-tool dispose lifecycle', () => {
 
     // After dispose, calling handler again should re-initialize
     const result = await tool.handler({ code: 'module.exports = 2;' });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('disabled for security');
 
     await tool.handler.dispose();
   });
