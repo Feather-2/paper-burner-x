@@ -168,6 +168,14 @@ export async function detectSeatbelt() {
 let dockerDetectionCache = null;
 
 /**
+ * 重置 Docker 检测缓存（仅用于测试）
+ * @internal
+ */
+export function resetDockerCache() {
+  dockerDetectionCache = null;
+}
+
+/**
  * 检测 Docker (带缓存)
  * @param {boolean} [forceRefresh=false] - 强制重新检测
  * @returns {Promise<DetectionResult>}

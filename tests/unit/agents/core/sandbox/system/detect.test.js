@@ -14,6 +14,7 @@ import {
   getPlatform,
   detectBubblewrap,
   detectSeatbelt,
+  resetDockerCache,
 } from '../../../../../../js/agents/core/sandbox/system/detect.js';
 
 const spawnMock = vi.mocked(spawn);
@@ -74,6 +75,7 @@ beforeEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   spawnMock.mockReset();
+  resetDockerCache();
   if (originalPlatformDescriptor) {
     Object.defineProperty(process, 'platform', originalPlatformDescriptor);
   }

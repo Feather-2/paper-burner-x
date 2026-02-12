@@ -440,6 +440,7 @@ if (!mainFactoryExportName) {
 
     describe(exportName, () => {
       it("initializes module logger on import", async () => {
+        vi.clearAllMocks();
         const { shared } = await loadFactory(exportName);
         expect(shared.createLogger.mock.calls.length).toBeGreaterThanOrEqual(1);
         expect(shared.createLogger).toHaveBeenCalledWith("runtime/api/stage-api-factory");
