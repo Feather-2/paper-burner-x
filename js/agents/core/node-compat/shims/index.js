@@ -39,6 +39,9 @@ import domainShim from './domain.js';
 import clusterShim from './cluster.js';
 import asyncHooksShim from './async_hooks.js';
 import diagnosticsChannelShim from './diagnostics_channel.js';
+import punycodeShim from './punycode.js';
+import stringDecoderShim from './string_decoder.js';
+import timersShim from './timers.js';
 
 // Stub modules — minimal objects that don't throw on require
 const noop = () => {};
@@ -53,12 +56,9 @@ const STUB_MODULES = {
   module: moduleShim,
   net: netShim,
   process: createProcess(),
-  punycode: { encode: (s) => s, decode: (s) => s, toASCII: (s) => s, toUnicode: (s) => s },
   readline: readlineShim,
   repl: noopStub,
-  string_decoder: { StringDecoder: class { write(buf) { return new TextDecoder().decode(buf); } end() { return ''; } } },
   sys: utilShim,
-  timers: { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval, setImmediate: (fn, ...args) => setTimeout(fn, 0, ...args), clearImmediate: clearTimeout },
   tls: tlsShim,
   tty: ttyShim,
   vm: vmShim,
@@ -117,6 +117,9 @@ export function createBuiltinModules(config = {}) {
     cluster: clusterShim,
     async_hooks: asyncHooksShim,
     diagnostics_channel: diagnosticsChannelShim,
+    punycode: punycodeShim,
+    string_decoder: stringDecoderShim,
+    timers: timersShim,
   };
 
   // 动态模块（需要 VFS）
