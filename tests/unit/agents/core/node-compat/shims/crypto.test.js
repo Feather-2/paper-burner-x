@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   randomBytes, randomUUID, randomInt, createHash, createHmac, pbkdf2Sync,
   createSign, createVerify, wrapKey,
@@ -37,48 +37,44 @@ describe('crypto shim', () => {
     }
   });
 
-  it('Hash.digest warns once about non-cryptographic fallback', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    createHash('sha256').update('hello').digest('hex');
-    createHash('sha256').update('world').digest('hex');
-
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[crypto shim] Hash.digest() uses a non-cryptographic FNV-1a fallback. ' +
-      'Use digestAsync() for cryptographically correct results via Web Crypto API.'
+  it('Hash.digest throws with migration guidance', () => {
+    expect(() => createHash('sha256').update('hello').digest('hex')).toThrow(
+      '[crypto shim] Hash.digest() is not supported in browser environment. ' +
+      'Synchronous hashing cannot be implemented securely without Web Crypto API. ' +
+      'Use digestAsync() instead for cryptographically correct results.'
     );
-    warnSpy.mockRestore();
   });
 
-  it('createHash(sha256).update(hello).digest(hex) returns non-empty hex', () => {
-    const hex = createHash('sha256').update('hello').digest('hex');
-    expect(typeof hex).toBe('string');
-    expect(hex.length).toBeGreaterThan(0);
-    expect(hex).toMatch(/^[0-9a-f]+$/);
+  it('createHash(sha256).update(hello).digestAsync(hex) returns SHA-256', async () => {
+    const hex = await createHash('sha256').update('hello').digestAsync('hex');
+    expect(hex).toBe('2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824');
   });
 
-  it('createHash returns chainable update', () => {
+  it('createHash returns chainable update', async () => {
     const hash = createHash('sha256');
     const ret = hash.update('a');
     expect(ret).toBe(hash);
     ret.update('b');
-    const hex = ret.digest('hex');
-    expect(hex.length).toBeGreaterThan(0);
+    const hex = await ret.digestAsync('hex');
+    expect(hex).toBe('fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603');
   });
 
-  it('createHmac(sha256, key).update(data).digest(hex) returns non-empty hex', () => {
-    const hex = createHmac('sha256', 'secret').update('data').digest('hex');
-    expect(typeof hex).toBe('string');
-    expect(hex.length).toBeGreaterThan(0);
-    expect(hex).toMatch(/^[0-9a-f]+$/);
+  it('Hmac.digest throws with migration guidance', () => {
+    expect(() => createHmac('sha256', 'secret').update('data').digest('hex')).toThrow(
+      '[crypto shim] Hmac.digest() is not supported in browser environment. ' +
+      'Synchronous HMAC cannot be implemented securely without Web Crypto API. ' +
+      'Use digestAsync() instead for cryptographically correct results.'
+    );
   });
 
-  it('Hash.digest(base64) returns valid base64', () => {
-    const b64 = createHash('sha256').update('test').digest('base64');
-    expect(typeof b64).toBe('string');
-    expect(b64.length).toBeGreaterThan(0);
-    expect(b64).toMatch(/^[A-Za-z0-9+/=]+$/);
+  it('createHmac(sha256, key).update(data).digestAsync(hex) returns HMAC', async () => {
+    const hex = await createHmac('sha256', 'secret').update('data').digestAsync('hex');
+    expect(hex).toBe('1b2c16b75bd2a870c114153ccda5bcfca63314bc722fa160d690de133ccbb9db');
+  });
+
+  it('Hash.digestAsync(base64) returns valid base64', async () => {
+    const b64 = await createHash('sha256').update('test').digestAsync('base64');
+    expect(b64).toBe('n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=');
   });
 
   it('pbkdf2Sync returns Buffer', () => {

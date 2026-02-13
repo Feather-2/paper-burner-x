@@ -1,7 +1,49 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WebSocket, WebSocketServer } from '../../../../../../js/agents/core/node-compat/shims/ws.js';
 
+class MockNativeWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+
+  constructor(url, protocols) {
+    this.url = String(url);
+    this.protocol = Array.isArray(protocols) ? (protocols[0] || '') : (protocols || '');
+    this.extensions = '';
+    this.readyState = MockNativeWebSocket.CONNECTING;
+    this.bufferedAmount = 0;
+    this.onopen = null;
+    this.onmessage = null;
+    this.onerror = null;
+    this.onclose = null;
+  }
+
+  send() {}
+
+  close(code = 1000, reason = '') {
+    this.readyState = MockNativeWebSocket.CLOSED;
+    if (this.onclose) this.onclose({ code, reason });
+  }
+}
+
 describe('ws shim', () => {
+  /** @type {typeof globalThis.WebSocket | undefined} */
+  let originalWebSocket;
+
+  beforeEach(() => {
+    originalWebSocket = globalThis.WebSocket;
+    globalThis.WebSocket = MockNativeWebSocket;
+  });
+
+  afterEach(() => {
+    if (originalWebSocket === undefined) {
+      delete globalThis.WebSocket;
+      return;
+    }
+    globalThis.WebSocket = originalWebSocket;
+  });
+
   describe('WebSocket', () => {
     it('has correct state constants', () => {
       expect(WebSocket.CONNECTING).toBe(0);
@@ -81,47 +123,49 @@ describe('ws shim', () => {
       expect(typeof ws.pong).toBe('function');
     });
 
-    it('emits open event when connection opens', (done) => {
+    it('emits open event when connection opens', () => {
       const ws = new WebSocket('ws://localhost:8080');
-      ws.on('open', () => {
-        expect(ws.readyState).toBe(WebSocket.OPEN);
-        done();
-      });
-      // Simulate open event
+      const onOpen = vi.fn();
+      ws.on('open', onOpen);
+
+      ws._ws.readyState = WebSocket.OPEN;
       ws._ws.onopen({ type: 'open' });
+
+      expect(ws.readyState).toBe(WebSocket.OPEN);
+      expect(onOpen).toHaveBeenCalledWith({ type: 'open' });
     });
 
-    it('emits message event when receiving data', (done) => {
+    it('emits message event when receiving data', () => {
       const ws = new WebSocket('ws://localhost:8080');
-      ws.on('message', (data, isBinary) => {
-        expect(data).toBe('test message');
-        expect(isBinary).toBe(false);
-        done();
-      });
-      // Simulate message event
+      const onMessage = vi.fn();
+      ws.on('message', onMessage);
+
       ws._ws.onmessage({ data: 'test message' });
+
+      expect(onMessage).toHaveBeenCalledWith('test message', false);
     });
 
-    it('emits close event when connection closes', (done) => {
+    it('emits close event when connection closes', () => {
       const ws = new WebSocket('ws://localhost:8080');
-      ws.on('close', (code, reason) => {
-        expect(ws.readyState).toBe(WebSocket.CLOSED);
-        expect(code).toBe(1000);
-        expect(reason).toBe('normal');
-        done();
-      });
-      // Simulate close event
+      const onClose = vi.fn();
+      ws.on('close', onClose);
+
+      ws._ws.readyState = WebSocket.CLOSED;
       ws._ws.onclose({ code: 1000, reason: 'normal' });
+
+      expect(ws.readyState).toBe(WebSocket.CLOSED);
+      expect(onClose).toHaveBeenCalledWith(1000, 'normal');
     });
 
-    it('emits error event on error', (done) => {
+    it('emits error event on error', () => {
       const ws = new WebSocket('ws://localhost:8080');
-      ws.on('error', (error) => {
-        expect(error).toBeInstanceOf(Error);
-        done();
-      });
-      // Simulate error event
-      ws._ws.onerror({ error: new Error('connection failed') });
+      const onError = vi.fn();
+      ws.on('error', onError);
+
+      const err = new Error('connection failed');
+      ws._ws.onerror({ error: err });
+
+      expect(onError).toHaveBeenCalledWith(err);
     });
   });
 
