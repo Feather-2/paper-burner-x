@@ -20,26 +20,23 @@ let mockDefaultExport;
 let MockStageApiFactory;
 let mockCreateStageApiFactory;
 
-function registerDependencyMocks() {
-  // `vi.resetModules()` does not clear mock-module cache, so we re-register our
-  // manual mock per-test to force Vitest to invalidate cached mocked exports.
-  vi.doMock('../../../../../js/agents/runtime/core/api/stage-api-factory.js', () => {
-    // Throw during mock module initialization to simulate a true "module failed to load" case.
-    if (mockThrowOnImport) throw new Error('core module failed to load');
+// Move vi.doMock() to module top level to avoid module cache issues
+vi.doMock('../../../../../js/agents/runtime/core/api/stage-api-factory.js', () => {
+  // Throw during mock module initialization to simulate a true "module failed to load" case.
+  if (mockThrowOnImport) throw new Error('core module failed to load');
 
-    return {
-      get default() {
-        return mockDefaultExport;
-      },
-      get StageApiFactory() {
-        return MockStageApiFactory;
-      },
-      get createStageApiFactory() {
-        return mockCreateStageApiFactory;
-      },
-    };
-  });
-}
+  return {
+    get default() {
+      return mockDefaultExport;
+    },
+    get StageApiFactory() {
+      return MockStageApiFactory;
+    },
+    get createStageApiFactory() {
+      return mockCreateStageApiFactory;
+    },
+  };
+});
 
 beforeEach(() => {
   vi.resetModules();
@@ -55,8 +52,6 @@ beforeEach(() => {
   };
 
   mockCreateStageApiFactory = vi.fn((...args) => ({ createdWith: args }));
-
-  registerDependencyMocks();
 });
 
 async function importSut() {
