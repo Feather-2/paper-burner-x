@@ -39,7 +39,6 @@ import domainShim from './domain.js';
 import clusterShim from './cluster.js';
 import asyncHooksShim from './async_hooks.js';
 import diagnosticsChannelShim from './diagnostics_channel.js';
-import punycodeShim from './punycode.js';
 import stringDecoderShim from './string_decoder.js';
 import timersShim from './timers.js';
 
@@ -56,6 +55,7 @@ const STUB_MODULES = {
   module: moduleShim,
   net: netShim,
   process: createProcess(),
+  punycode: { encode: (s) => s, decode: (s) => s, toASCII: (s) => s, toUnicode: (s) => s },
   readline: readlineShim,
   repl: noopStub,
   sys: utilShim,
@@ -117,7 +117,6 @@ export function createBuiltinModules(config = {}) {
     cluster: clusterShim,
     async_hooks: asyncHooksShim,
     diagnostics_channel: diagnosticsChannelShim,
-    punycode: punycodeShim,
     string_decoder: stringDecoderShim,
     timers: timersShim,
   };
