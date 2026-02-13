@@ -156,7 +156,7 @@ export const STATUS_CODES = {
 
 /**
  * Create an isolated http shim instance with its own network policy and server state.
- * @param {{ networkPolicy?: { allowedDomains?: string[], deniedDomains?: string[], onViolation?: (info: object) => void } }} [options]
+ * @param {{ networkPolicy?: { allowedDomains?: string[], deniedDomains?: string[], onViolation?: (info: object) => void }, quotaEnforcer?: import('../quota.js').QuotaEnforcer, observability?: import('../observability.js').ObservabilityStream }} [options]
  */
 export function createHttpShim(options = {}) {
   let _networkPolicy = null;
@@ -164,6 +164,8 @@ export function createHttpShim(options = {}) {
   let _serverListenCallback = null;
   let _serverCloseCallback = null;
   let _servers = new Map();
+  const _quotaEnforcer = options.quotaEnforcer || null;
+  const _observability = options.observability || null;
 
   // Apply initial policy if provided
   if (options.networkPolicy) {
