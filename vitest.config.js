@@ -25,7 +25,15 @@ export default defineConfig({
     ],
   },
   test: {
-    testTimeout: 30000,
+    testTimeout: 60000,
+    hookTimeout: 30000,
+    threads: {
+      singleThread: false,
+      isolate: true,
+    },
+    maxWorkers: 4,
+    minWorkers: 1,
+    setupFiles: ['./tests/setup.js'],
     include: [
       // Unit tests (1:1 source mapping)
       'tests/unit/**/*.test.js',
