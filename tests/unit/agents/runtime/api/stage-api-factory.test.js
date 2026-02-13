@@ -20,23 +20,27 @@ let mockDefaultExport;
 let MockStageApiFactory;
 let mockCreateStageApiFactory;
 
-// Move vi.doMock() to module top level to avoid module cache issues
-vi.doMock('../../../../../js/agents/runtime/core/api/stage-api-factory.js', () => {
-  // Throw during mock module initialization to simulate a true "module failed to load" case.
-  if (mockThrowOnImport) throw new Error('core module failed to load');
+function registerCoreModuleMock() {
+  vi.doMock('../../../../../js/agents/runtime/core/api/stage-api-factory.js', () => {
+    // Throw during mock module initialization to simulate a true "module failed to load" case.
+    if (mockThrowOnImport) throw new Error('core module failed to load');
 
-  return {
-    get default() {
-      return mockDefaultExport;
-    },
-    get StageApiFactory() {
-      return MockStageApiFactory;
-    },
-    get createStageApiFactory() {
-      return mockCreateStageApiFactory;
-    },
-  };
-});
+    return {
+      get $$typeof() {
+        return undefined;
+      },
+      get default() {
+        return mockDefaultExport;
+      },
+      get StageApiFactory() {
+        return MockStageApiFactory;
+      },
+      get createStageApiFactory() {
+        return mockCreateStageApiFactory;
+      },
+    };
+  });
+}
 
 beforeEach(() => {
   vi.resetModules();
@@ -52,6 +56,7 @@ beforeEach(() => {
   };
 
   mockCreateStageApiFactory = vi.fn((...args) => ({ createdWith: args }));
+  registerCoreModuleMock();
 });
 
 async function importSut() {
