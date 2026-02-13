@@ -171,18 +171,11 @@ class Hash {
    * @returns {string|Buffer}
    */
   digest(encoding) {
-    if (!Hash._syncDigestWarned) {
-      Hash._syncDigestWarned = true;
-      if (typeof console !== 'undefined' && console.warn) {
-        console.warn(
-          '[crypto shim] Hash.digest() uses a non-cryptographic FNV-1a fallback. ' +
-          'Use digestAsync() for cryptographically correct results via Web Crypto API.'
-        );
-      }
-    }
-    const combined = concatBuffers(this._data);
-    const hash = syncHash(combined, this._algorithm);
-    return encodeResult(hash, encoding);
+    throw new Error(
+      '[crypto shim] Hash.digest() is not supported in browser environment. ' +
+      'Synchronous hashing cannot be implemented securely without Web Crypto API. ' +
+      'Use digestAsync() instead for cryptographically correct results.'
+    );
   }
 
   /**
@@ -229,9 +222,24 @@ class Hmac {
    * @returns {string|Buffer}
    */
   digest(encoding) {
+    throw new Error(
+      '[crypto shim] Hmac.digest() is not supported in browser environment. ' +
+      'Synchronous HMAC cannot be implemented securely without Web Crypto API. ' +
+      'Use digestAsync() instead for cryptographically correct results.'
+    );
+  }
+
+  /**
+   * Async digest using Web Crypto (cryptographically correct).
+   * @param {string} [encoding]
+   * @returns {Promise<string|Buffer>}
+   */
+  async digestAsync(encoding) {
     const combined = concatBuffers(this._data);
-    const hash = syncHmac(combined, this._key, this._algorithm);
-    return encodeResult(hash, encoding);
+    const keyBytes = typeof this._key === 'string' ? new TextEncoder().encode(this._key) : new Uint8Array(this._key);
+    const key = await crypto.subtle.importKey('raw', keyBytes.buffer, { name: 'HMAC', hash: this._algorithm }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', key, combined.buffer);
+    return encodeResult(new Uint8Array(sig), encoding);
   }
 }
 
