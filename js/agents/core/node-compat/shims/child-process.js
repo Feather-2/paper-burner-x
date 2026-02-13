@@ -18,11 +18,17 @@ import { normalizeVfsPath } from '../../../vfs/path.js';
 /**
  * Create a browser-side child_process shim.
  * @param {ChildProcessConfig} config
- * @returns {{ exec: Function, execSync: Function, _commands: object, _parseCommand: Function }}
+ * @returns {{
+ *   exec: Function,
+ *   execSync: Function,
+ *   _commands: object,
+ *   _parseCommand: Function,
+ *   _resolveCommandPath: (commandName: string) => Promise<string>,
+ *   _getCommandSearchPaths: () => string[]
+ * }}
  */
 export function createChildProcessShim(config) {
   const { vfs, evaluate, env = {}, cwd = '' } = config;
-  void env;
 
   function resolvePath(p) {
     if (!p) return cwd;
@@ -33,6 +39,133 @@ export function createChildProcessShim(config) {
   function parseCommand(cmd) {
     const parts = cmd.trim().split(/\s+/);
     return { name: parts[0], args: parts.slice(1) };
+  }
+
+  /**
+   * @param {string} source
+   * @returns {string}
+   */
+  function stripShebang(source) {
+    if (typeof source !== 'string') return '';
+    return source.replace(/^#![^\n]*(\n|$)/, '');
+  }
+
+  /**
+   * @param {string|undefined} value
+   * @returns {string[]}
+   */
+  function splitPathEntries(value) {
+    if (typeof value !== 'string' || value.trim().length === 0) return [];
+    return value
+      .split(/[;:]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  /**
+   * @returns {string[]}
+   */
+  function getCommandSearchPaths() {
+    /** @type {string[]} */
+    const paths = [];
+    const seen = new Set();
+
+    /**
+     * @param {string} value
+     * @returns {void}
+     */
+    const addPath = (value) => {
+      if (typeof value !== 'string' || value.trim().length === 0) return;
+      let normalized = '';
+      try {
+        normalized = resolvePath(value);
+      } catch {
+        return;
+      }
+      if (!normalized || seen.has(normalized)) return;
+      seen.add(normalized);
+      paths.push(normalized);
+    };
+
+    addPath('node_modules/.bin');
+    addPath('/node_modules/.bin');
+
+    for (const entry of splitPathEntries(env.PATH)) {
+      addPath(entry);
+    }
+
+    return paths;
+  }
+
+  /**
+   * @param {string} path
+   * @returns {Promise<boolean>}
+   */
+  async function isFile(path) {
+    if (typeof vfs.stat === 'function') {
+      try {
+        const stat = await vfs.stat(path);
+        if (stat && typeof stat.isFile === 'function') {
+          return stat.isFile();
+        }
+        if (stat && typeof stat.isDirectory === 'function') {
+          return !stat.isDirectory();
+        }
+        return !!stat;
+      } catch {
+        return false;
+      }
+    }
+
+    if (typeof vfs.exists === 'function') {
+      try {
+        return !!(await vfs.exists(path));
+      } catch {
+        return false;
+      }
+    }
+
+    if (typeof vfs.readText === 'function') {
+      try {
+        await vfs.readText(path);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * @param {string} commandName
+   * @returns {Promise<string>}
+   */
+  async function resolveCommandPath(commandName) {
+    const normalizedCommand = String(commandName || '').trim();
+    if (!normalizedCommand) return '';
+
+    if (normalizedCommand.includes('/')) {
+      let directPath = '';
+      try {
+        directPath = resolvePath(normalizedCommand);
+      } catch {
+        return '';
+      }
+      return (await isFile(directPath)) ? directPath : '';
+    }
+
+    for (const basePath of getCommandSearchPaths()) {
+      let candidatePath = '';
+      try {
+        candidatePath = normalizeVfsPath(`${basePath}/${normalizedCommand}`);
+      } catch {
+        continue;
+      }
+      if (await isFile(candidatePath)) return candidatePath;
+    }
+
+    return '';
   }
 
   /** @type {Record<string, (args: string[]) => Promise<ExecResult>>} */
@@ -97,7 +230,7 @@ export function createChildProcessShim(config) {
       try {
         const script = resolvePath(args[0]);
         const code = await vfs.readText(script);
-        const result = await evaluate(code, script);
+        const result = await evaluate(stripShebang(code), script);
         return { stdout: result !== undefined ? String(result) : '', stderr: '', exitCode: 0 };
       } catch (e) { return { stdout: '', stderr: e.message, exitCode: 1 }; }
     },
@@ -111,13 +244,18 @@ export function createChildProcessShim(config) {
   function exec(cmd, options, callback) {
     if (typeof options === 'function') { callback = options; options = {}; }
     const { name, args } = parseCommand(cmd);
-    const handler = commands[name];
-    if (!handler) {
-      const err = new Error(`command not found: ${name}`);
-      if (callback) callback(err, '', `command not found: ${name}`);
-      return;
-    }
-    handler(args)
+    Promise.resolve()
+      .then(async () => {
+        const handler = commands[name];
+        if (handler) return handler(args);
+
+        const commandPath = await resolveCommandPath(name);
+        if (!commandPath) {
+          return { stdout: '', stderr: `command not found: ${name}`, exitCode: 127 };
+        }
+
+        return commands.node([commandPath, ...args]);
+      })
       .then(r => callback?.(r.exitCode === 0 ? null : new Error(r.stderr), r.stdout, r.stderr))
       .catch(e => callback?.(e, '', e.message));
   }
@@ -126,5 +264,12 @@ export function createChildProcessShim(config) {
     throw new Error('execSync is not available in browser sandbox. Use exec() instead.');
   }
 
-  return { exec, execSync, _commands: commands, _parseCommand: parseCommand };
+  return {
+    exec,
+    execSync,
+    _commands: commands,
+    _parseCommand: parseCommand,
+    _resolveCommandPath: resolveCommandPath,
+    _getCommandSearchPaths: getCommandSearchPaths,
+  };
 }

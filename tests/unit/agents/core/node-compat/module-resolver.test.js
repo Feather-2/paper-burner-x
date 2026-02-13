@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
 import {
   createResolver,
+  ModuleResolver,
   resolveExportConditions,
   resolvePackageExports,
   BUILTIN_MODULE_NAMES,
@@ -359,5 +360,82 @@ describe('createResolver browser field object remapping', () => {
     await vfs.writeText('node_modules/pkg/dist/browser.js', '');
     const result = await resolver.resolve('pkg', '');
     expect(result.path).toBe('node_modules/pkg/dist/browser.js');
+  });
+});
+
+// ── cache management API ────────────────────────────────────────
+
+describe('ModuleResolver cache management', () => {
+  let vfs;
+  /** @type {ModuleResolver} */
+  let resolver;
+
+  beforeEach(async () => {
+    vfs = new MemoryVfs();
+    resolver = createResolver({ vfs, builtinModules: {} });
+  });
+
+  async function writePkg(name) {
+    await vfs.writeText(`node_modules/${name}/package.json`, JSON.stringify({ main: 'index.js' }));
+    await vfs.writeText(`node_modules/${name}/index.js`, '');
+  }
+
+  it('returns ModuleResolver instance for backward compatibility', () => {
+    expect(resolver).toBeInstanceOf(ModuleResolver);
+    expect(typeof resolver.resolve).toBe('function');
+  });
+
+  it('tracks cache hit/miss stats through resolve()', async () => {
+    await writePkg('alpha');
+
+    await resolver.resolve('alpha', '');
+    await resolver.resolve('alpha', '');
+
+    const stats = resolver.cacheStats();
+    expect(stats.size).toBe(1);
+    expect(stats.hitRate).toBeGreaterThan(0);
+    expect(stats.missRate).toBeGreaterThan(0);
+  });
+
+  it('clearCache() clears cache entries and stats counters', async () => {
+    await writePkg('alpha');
+    await resolver.resolve('alpha', '');
+
+    expect(resolver.cacheStats().size).toBe(1);
+    resolver.clearCache();
+
+    const stats = resolver.cacheStats();
+    expect(stats).toEqual({ size: 0, hitRate: 0, missRate: 0 });
+  });
+
+  it('pruneCache({ pattern }) removes matched cache keys', async () => {
+    await writePkg('alpha');
+    await writePkg('beta');
+    await resolver.resolve('alpha', '');
+    await resolver.resolve('beta', '');
+
+    resolver.pruneCache({ pattern: /node_modules\/alpha\/package\.json$/ });
+
+    expect(resolver.cacheStats().size).toBe(1);
+    expect(resolver._pkgJsonCache.has('node_modules/alpha/package.json')).toBe(false);
+    expect(resolver._pkgJsonCache.has('node_modules/beta/package.json')).toBe(true);
+  });
+
+  it('pruneCache({ maxSize }) evicts by LRU order', async () => {
+    await writePkg('alpha');
+    await writePkg('beta');
+    await writePkg('gamma');
+    await resolver.resolve('alpha', '');
+    await resolver.resolve('beta', '');
+    await resolver.resolve('gamma', '');
+
+    await resolver.resolve('alpha', '');
+
+    resolver.pruneCache({ maxSize: 2 });
+
+    expect(resolver.cacheStats().size).toBe(2);
+    expect(resolver._pkgJsonCache.has('node_modules/alpha/package.json')).toBe(true);
+    expect(resolver._pkgJsonCache.has('node_modules/gamma/package.json')).toBe(true);
+    expect(resolver._pkgJsonCache.has('node_modules/beta/package.json')).toBe(false);
   });
 });

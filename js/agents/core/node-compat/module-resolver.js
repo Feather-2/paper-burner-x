@@ -119,10 +119,18 @@ export function resolvePackageExports(exports, subpath) {
  * @param {string} normPkg - Normalized VFS path to package.json
  * @param {object} vfs
  * @param {Map<string, object|null>} [pkgCache]
+ * @param {{ hits: number, misses: number }} [cacheMetrics]
  * @returns {Promise<object|null>}
  */
-async function readPkgJson(normPkg, vfs, pkgCache) {
-  if (pkgCache && pkgCache.has(normPkg)) return pkgCache.get(normPkg);
+async function readPkgJson(normPkg, vfs, pkgCache, cacheMetrics) {
+  if (pkgCache && pkgCache.has(normPkg)) {
+    const cached = pkgCache.get(normPkg);
+    pkgCache.delete(normPkg);
+    pkgCache.set(normPkg, cached);
+    if (cacheMetrics) cacheMetrics.hits += 1;
+    return cached;
+  }
+  if (cacheMetrics) cacheMetrics.misses += 1;
   try {
     const pkg = JSON.parse(await vfs.readText(normPkg));
     if (pkgCache) pkgCache.set(normPkg, pkg);
@@ -138,20 +146,21 @@ async function readPkgJson(normPkg, vfs, pkgCache) {
  * @param {string} basePath
  * @param {object} vfs
  * @param {Map<string, object|null>} [pkgCache]
+ * @param {{ hits: number, misses: number }} [cacheMetrics]
  * @returns {Promise<string|null>}
  */
-async function resolveFile(basePath, vfs, pkgCache) {
+async function resolveFile(basePath, vfs, pkgCache, cacheMetrics) {
   const norm = normalizeVfsPath(basePath);
   if (await vfs.exists(norm)) {
     const s = await vfs.stat(norm);
     if (s.isFile()) return norm;
-    if (s.isDirectory()) return resolveDirectory(norm, vfs, pkgCache);
+    if (s.isDirectory()) return resolveDirectory(norm, vfs, pkgCache, cacheMetrics);
   }
   for (const ext of EXTENSIONS) {
     const p = normalizeVfsPath(basePath + ext);
     if (await vfs.exists(p)) return p;
   }
-  return resolveDirectory(norm, vfs, pkgCache);
+  return resolveDirectory(norm, vfs, pkgCache, cacheMetrics);
 }
 
 /**
@@ -160,13 +169,14 @@ async function resolveFile(basePath, vfs, pkgCache) {
  * @param {string} dirPath
  * @param {object} vfs
  * @param {Map<string, object|null>} [pkgCache]
+ * @param {{ hits: number, misses: number }} [cacheMetrics]
  * @returns {Promise<string|null>}
  */
-async function resolveDirectory(dirPath, vfs, pkgCache) {
+async function resolveDirectory(dirPath, vfs, pkgCache, cacheMetrics) {
   const pkgPath = dirPath ? dirPath + '/package.json' : 'package.json';
   const normPkg = normalizeVfsPath(pkgPath);
   if (await vfs.exists(normPkg)) {
-    const pkg = await readPkgJson(normPkg, vfs, pkgCache);
+    const pkg = await readPkgJson(normPkg, vfs, pkgCache, cacheMetrics);
     if (pkg) {
       try {
         // 1. Try exports['.'] first
@@ -176,7 +186,7 @@ async function resolveDirectory(dirPath, vfs, pkgCache) {
             const entryBase = dirPath
               ? dirPath + '/' + exportPath.replace(/^\.[/\\]/, '')
               : exportPath.replace(/^\.[/\\]/, '');
-            const resolved = await resolveFile(entryBase, vfs, pkgCache);
+            const resolved = await resolveFile(entryBase, vfs, pkgCache, cacheMetrics);
             if (resolved) return resolved;
           }
         }
@@ -188,13 +198,13 @@ async function resolveDirectory(dirPath, vfs, pkgCache) {
           const remapped = pkg.browser[mainKey] || pkg.browser[main];
           const entry = remapped !== undefined ? (remapped || 'index.js') : main;
           const entryBase = dirPath ? dirPath + '/' + entry : entry;
-          return resolveFile(entryBase, vfs, pkgCache);
+          return resolveFile(entryBase, vfs, pkgCache, cacheMetrics);
         }
 
         // 3. Fall back to browser (string) / main
         const main = pkg.browser || pkg.main || 'index.js';
         const entryBase = dirPath ? dirPath + '/' + main : main;
-        return resolveFile(entryBase, vfs, pkgCache);
+        return resolveFile(entryBase, vfs, pkgCache, cacheMetrics);
       } catch { /* ignore resolution errors */ }
     }
   }
@@ -232,9 +242,10 @@ function parsePackageSpecifier(specifier) {
  * @param {string} fromDir
  * @param {object} vfs
  * @param {Map<string, object|null>} [pkgCache]
+ * @param {{ hits: number, misses: number }} [cacheMetrics]
  * @returns {Promise<string|null>}
  */
-async function resolveNodeModules(specifier, fromDir, vfs, pkgCache) {
+async function resolveNodeModules(specifier, fromDir, vfs, pkgCache, cacheMetrics) {
   const { name, subpath } = parsePackageSpecifier(specifier);
 
   let dir = fromDir;
@@ -245,7 +256,7 @@ async function resolveNodeModules(specifier, fromDir, vfs, pkgCache) {
     const pkgPath = pkgDir + '/package.json';
     const normPkg = normalizeVfsPath(pkgPath);
     if (await vfs.exists(normPkg)) {
-      const pkg = await readPkgJson(normPkg, vfs, pkgCache);
+      const pkg = await readPkgJson(normPkg, vfs, pkgCache, cacheMetrics);
       if (pkg) {
         try {
           // If there's a subpath and exports field exists, resolve via exports
@@ -253,7 +264,7 @@ async function resolveNodeModules(specifier, fromDir, vfs, pkgCache) {
             const exportPath = resolvePackageExports(pkg.exports, './' + subpath);
             if (exportPath) {
               const fullPath = pkgDir + '/' + exportPath.replace(/^\.[/\\]/, '');
-              const resolved = await resolveFile(fullPath, vfs, pkgCache);
+              const resolved = await resolveFile(fullPath, vfs, pkgCache, cacheMetrics);
               if (resolved) return resolved;
             }
           }
@@ -261,13 +272,13 @@ async function resolveNodeModules(specifier, fromDir, vfs, pkgCache) {
           // If there's a subpath but no exports match, try direct file resolution
           if (subpath) {
             const directPath = pkgDir + '/' + subpath;
-            const resolved = await resolveFile(directPath, vfs, pkgCache);
+            const resolved = await resolveFile(directPath, vfs, pkgCache, cacheMetrics);
             if (resolved) return resolved;
           }
 
           // No subpath -> resolve main entry
           if (!subpath) {
-            const resolved = await resolveFile(pkgDir, vfs, pkgCache);
+            const resolved = await resolveFile(pkgDir, vfs, pkgCache, cacheMetrics);
             if (resolved) return resolved;
           }
         } catch { /* ignore parse errors, fall through */ }
@@ -276,7 +287,7 @@ async function resolveNodeModules(specifier, fromDir, vfs, pkgCache) {
 
     // Fallback: no package.json or parse error
     const modPath = subpath ? pkgDir + '/' + subpath : pkgDir;
-    const resolved = await resolveFile(modPath, vfs, pkgCache);
+    const resolved = await resolveFile(modPath, vfs, pkgCache, cacheMetrics);
     if (resolved) return resolved;
 
     if (!dir) break;
@@ -300,26 +311,55 @@ async function resolveNodeModules(specifier, fromDir, vfs, pkgCache) {
  */
 
 /**
- * Create a module resolver.
- * @param {ResolverConfig} config
- * @returns {{ resolve: (specifier: string, fromDir?: string) => Promise<ResolveResult|null> }}
+ * @typedef {object} CachePruneOptions
+ * @property {number} [maxSize] - Maximum number of cache entries to keep.
+ * @property {RegExp} [pattern] - Pattern matching cache keys to remove.
  */
-export function createResolver(config) {
-  const { vfs, builtinModules = {} } = config;
 
-  /** @type {Map<string, object|null>} */
-  const _pkgJsonCache = new Map();
+/**
+ * @typedef {object} CacheStats
+ * @property {number} size
+ * @property {number} hitRate
+ * @property {number} missRate
+ */
+
+/**
+ * Module resolver with package.json cache support.
+ */
+export class ModuleResolver {
+  /**
+   * @param {ResolverConfig} config
+   */
+  constructor(config) {
+    const { vfs, builtinModules = {} } = config;
+
+    /** @type {object} */
+    this.vfs = vfs;
+    /** @type {Record<string, object>} */
+    this.builtinModules = builtinModules;
+    /** @type {Map<string, object|null>} */
+    this._pkgJsonCache = new Map();
+    /** @type {number} */
+    this._cacheHits = 0;
+    /** @type {number} */
+    this._cacheMisses = 0;
+
+    this.resolve = this.resolve.bind(this);
+    this.clearCache = this.clearCache.bind(this);
+    this.pruneCache = this.pruneCache.bind(this);
+    this.cacheStats = this.cacheStats.bind(this);
+  }
 
   /**
    * Find package.json by walking up from fromDir.
    * @param {string} fromDir
    * @returns {Promise<string|null>}
    */
-  async function _findPackageJson(fromDir) {
+  async _findPackageJson(fromDir) {
     let dir = fromDir;
     while (true) {
       const pkgPath = normalizeVfsPath(dir ? dir + '/package.json' : 'package.json');
-      if (await vfs.exists(pkgPath)) return pkgPath;
+      if (await this.vfs.exists(pkgPath)) return pkgPath;
       if (!dir) break;
       const slash = dir.lastIndexOf('/');
       dir = slash > 0 ? dir.slice(0, slash) : '';
@@ -331,10 +371,9 @@ export function createResolver(config) {
    * Resolve package-internal imports (#foo).
    * @param {string} specifier
    * @param {Record<string, any>} imports
-   * @param {string} pkgPath
    * @returns {string|undefined}
    */
-  function _resolvePackageImports(specifier, imports, pkgPath) {
+  _resolvePackageImports(specifier, imports) {
     if (!imports || typeof imports !== 'object') return undefined;
 
     // Direct match
@@ -364,75 +403,145 @@ export function createResolver(config) {
   }
 
   /**
+   * Clear all internal caches and counters.
+   * @returns {void}
+   */
+  clearCache() {
+    this._pkgJsonCache.clear();
+    this._cacheHits = 0;
+    this._cacheMisses = 0;
+  }
+
+  /**
+   * Prune cache entries by conditions.
+   * @param {CachePruneOptions} [options={}]
+   * @returns {void}
+   */
+  pruneCache(options = {}) {
+    const { maxSize, pattern } = options;
+
+    if (pattern instanceof RegExp) {
+      for (const key of this._pkgJsonCache.keys()) {
+        pattern.lastIndex = 0;
+        if (pattern.test(key)) {
+          this._pkgJsonCache.delete(key);
+        }
+      }
+    }
+
+    if (typeof maxSize === 'number' && Number.isFinite(maxSize)) {
+      const targetSize = Math.max(0, Math.floor(maxSize));
+      while (this._pkgJsonCache.size > targetSize) {
+        const oldestKey = this._pkgJsonCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        this._pkgJsonCache.delete(oldestKey);
+      }
+    }
+  }
+
+  /**
+   * Return cache statistics.
+   * @returns {CacheStats}
+   */
+  cacheStats() {
+    const total = this._cacheHits + this._cacheMisses;
+    return {
+      size: this._pkgJsonCache.size,
+      hitRate: total > 0 ? this._cacheHits / total : 0,
+      missRate: total > 0 ? this._cacheMisses / total : 0,
+    };
+  }
+
+  /**
    * @param {string} specifier
    * @param {string} [fromDir='']
    * @returns {Promise<ResolveResult|null>}
    */
-  async function resolve(specifier, fromDir = '') {
-    // 1. node: prefix
-    if (specifier.startsWith('node:')) {
-      const name = specifier.slice(5);
-      if (builtinModules[name]) {
-        return { type: 'builtin', path: specifier, module: builtinModules[name] };
+  async resolve(specifier, fromDir = '') {
+    /** @type {{ hits: number, misses: number }} */
+    const cacheMetrics = { hits: 0, misses: 0 };
+    try {
+      // 1. node: prefix
+      if (specifier.startsWith('node:')) {
+        const name = specifier.slice(5);
+        if (this.builtinModules[name]) {
+          return { type: 'builtin', path: specifier, module: this.builtinModules[name] };
+        }
+        return null;
       }
-      return null;
-    }
 
-    // 2. bare builtin name
-    if (BUILTIN_SET.has(specifier) && builtinModules[specifier]) {
-      return { type: 'builtin', path: specifier, module: builtinModules[specifier] };
-    }
+      // 2. bare builtin name
+      if (BUILTIN_SET.has(specifier) && this.builtinModules[specifier]) {
+        return { type: 'builtin', path: specifier, module: this.builtinModules[specifier] };
+      }
 
-    // 3. package-internal imports (#foo)
-    if (specifier.startsWith('#')) {
-      const pkgPath = await _findPackageJson(fromDir);
-      if (pkgPath) {
-        const pkg = await readPkgJson(pkgPath, vfs, _pkgJsonCache);
-        if (pkg && pkg.imports) {
-          const resolved = _resolvePackageImports(specifier, pkg.imports, pkgPath);
-          if (resolved) {
-            const pkgDir = pkgPath.slice(0, pkgPath.lastIndexOf('/'));
-            const fullPath = pkgDir + '/' + resolved.replace(/^\.[/\\]/, '');
-            const finalPath = await resolveFile(fullPath, vfs, _pkgJsonCache);
-            if (finalPath) {
-              const type = finalPath.endsWith('.json') ? 'json' : 'file';
-              return { type, path: finalPath };
+      // 3. package-internal imports (#foo)
+      if (specifier.startsWith('#')) {
+        const pkgPath = await this._findPackageJson(fromDir);
+        if (pkgPath) {
+          const pkg = await readPkgJson(pkgPath, this.vfs, this._pkgJsonCache, cacheMetrics);
+          if (pkg && pkg.imports) {
+            const resolved = this._resolvePackageImports(specifier, pkg.imports);
+            if (resolved) {
+              const pkgDir = pkgPath.slice(0, pkgPath.lastIndexOf('/'));
+              const fullPath = pkgDir + '/' + resolved.replace(/^\.[/\\]/, '');
+              const finalPath = await resolveFile(fullPath, this.vfs, this._pkgJsonCache, cacheMetrics);
+              if (finalPath) {
+                const type = finalPath.endsWith('.json') ? 'json' : 'file';
+                return { type, path: finalPath };
+              }
             }
           }
         }
+        return null;
       }
-      return null;
-    }
 
-    // 4. relative or absolute path
-    if (specifier.startsWith('./') || specifier.startsWith('../') || specifier.startsWith('/')) {
-      let base;
-      if (specifier.startsWith('/')) {
-        base = specifier.slice(1);
-      } else if (specifier.startsWith('../')) {
-        const parts = fromDir ? fromDir.split('/') : [];
-        let spec = specifier;
-        while (spec.startsWith('../')) {
-          parts.pop();
-          spec = spec.slice(3);
+      // 4. relative or absolute path
+      if (specifier.startsWith('./') || specifier.startsWith('../') || specifier.startsWith('/')) {
+        let base;
+        if (specifier.startsWith('/')) {
+          base = specifier.slice(1);
+        } else if (specifier.startsWith('../')) {
+          const parts = fromDir ? fromDir.split('/') : [];
+          let spec = specifier;
+          while (spec.startsWith('../')) {
+            parts.pop();
+            spec = spec.slice(3);
+          }
+          base = parts.length > 0 ? parts.join('/') + '/' + spec : spec;
+        } else {
+          const rel = specifier.slice(2);
+          base = fromDir ? fromDir + '/' + rel : rel;
         }
-        base = parts.length > 0 ? parts.join('/') + '/' + spec : spec;
-      } else {
-        const rel = specifier.slice(2);
-        base = fromDir ? fromDir + '/' + rel : rel;
+        const resolved = await resolveFile(base, this.vfs, this._pkgJsonCache, cacheMetrics);
+        if (!resolved) return null;
+        const type = resolved.endsWith('.json') ? 'json' : 'file';
+        return { type, path: resolved };
       }
-      const resolved = await resolveFile(base, vfs, _pkgJsonCache);
+
+      // 5. bare module -> node_modules lookup
+      const resolved = await resolveNodeModules(
+        specifier,
+        fromDir,
+        this.vfs,
+        this._pkgJsonCache,
+        cacheMetrics
+      );
       if (!resolved) return null;
       const type = resolved.endsWith('.json') ? 'json' : 'file';
       return { type, path: resolved };
+    } finally {
+      this._cacheHits += cacheMetrics.hits;
+      this._cacheMisses += cacheMetrics.misses;
     }
-
-    // 4. bare module -> node_modules lookup
-    const resolved = await resolveNodeModules(specifier, fromDir, vfs, _pkgJsonCache);
-    if (!resolved) return null;
-    const type = resolved.endsWith('.json') ? 'json' : 'file';
-    return { type, path: resolved };
   }
+}
 
-  return { resolve };
+/**
+ * Create a module resolver.
+ * @param {ResolverConfig} config
+ * @returns {ModuleResolver}
+ */
+export function createResolver(config) {
+  return new ModuleResolver(config);
 }

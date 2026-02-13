@@ -93,6 +93,46 @@ describe('createChildProcessShim', () => {
     expect(evaluate).toHaveBeenCalledWith('return 42;', 'script.js');
   });
 
+  it('resolves commands from node_modules/.bin even when PATH omits it', async () => {
+    await vfs.mkdir('node_modules/.bin', { recursive: true });
+    await vfs.writeText('node_modules/.bin/demo', '#!/usr/bin/env node\nreturn "from-bin";');
+    const evaluate = vi.fn().mockResolvedValue('from-bin');
+    const cpWithEval = createChildProcessShim({
+      vfs,
+      evaluate,
+      cwd: '',
+      env: { PATH: 'custom-bin' },
+    });
+
+    const { err, stdout } = await new Promise((resolve) => {
+      cpWithEval.exec('demo --watch', (e, out, serr) => resolve({ err: e, stdout: out, stderr: serr }));
+    });
+
+    expect(err).toBeNull();
+    expect(stdout).toBe('from-bin');
+    expect(evaluate).toHaveBeenCalledWith('return "from-bin";', 'node_modules/.bin/demo');
+  });
+
+  it('resolves non-builtin commands via PATH entries', async () => {
+    await vfs.mkdir('custom-bin', { recursive: true });
+    await vfs.writeText('custom-bin/tool', 'return "from-path";');
+    const evaluate = vi.fn().mockResolvedValue('from-path');
+    const cpWithEval = createChildProcessShim({
+      vfs,
+      evaluate,
+      cwd: '',
+      env: { PATH: 'custom-bin' },
+    });
+
+    const { err, stdout } = await new Promise((resolve) => {
+      cpWithEval.exec('tool', (e, out, serr) => resolve({ err: e, stdout: out, stderr: serr }));
+    });
+
+    expect(err).toBeNull();
+    expect(stdout).toBe('from-path');
+    expect(evaluate).toHaveBeenCalledWith('return "from-path";', 'custom-bin/tool');
+  });
+
   it('unknown command returns exitCode 127', async () => {
     const { err, stderr } = await run('foobar');
     expect(err).toBeInstanceOf(Error);

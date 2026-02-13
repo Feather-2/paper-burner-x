@@ -77,6 +77,170 @@ async function inflateWithDecompressionStream(gzipBytes) {
   return new Uint8Array(output);
 }
 
+const textDecoder = new TextDecoder();
+
+/**
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+function bytesToText(bytes) {
+  return textDecoder.decode(bytes);
+}
+
+/**
+ * @param {string} input
+ * @returns {string}
+ */
+function normalizeBinTarget(input) {
+  return String(input || '')
+    .trim()
+    .replace(/^\.\/+/, '')
+    .replace(/^\/+/, '');
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function normalizeBinCommand(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^\/+/, '');
+}
+
+/**
+ * @param {string} packageName
+ * @returns {string}
+ */
+function toDefaultBinCommand(packageName) {
+  const normalized = String(packageName || '').trim();
+  if (!normalized) return '';
+  if (!normalized.startsWith('@')) return normalized;
+  const slashIndex = normalized.indexOf('/');
+  if (slashIndex < 0 || slashIndex === normalized.length - 1) return normalized;
+  return normalized.slice(slashIndex + 1);
+}
+
+/**
+ * @param {string} destPath
+ * @returns {string}
+ */
+function inferPackageNameFromDestPath(destPath) {
+  const normalized = String(destPath || '')
+    .replace(/\/+/g, '/')
+    .replace(/\/$/, '');
+  if (!normalized) return '';
+  const segments = normalized.split('/').filter(Boolean);
+  if (segments.length === 0) return '';
+  const last = segments[segments.length - 1];
+  const previous = segments[segments.length - 2] || '';
+  if (previous.startsWith('@')) return `${previous}/${last}`;
+  return last;
+}
+
+/**
+ * @param {Uint8Array} bytes
+ * @returns {any|null}
+ */
+function parseJsonBytes(bytes) {
+  try {
+    const parsed = JSON.parse(bytesToText(bytes));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {any} packageJson
+ * @param {string} destPath
+ * @returns {Array<{ command: string, targetPath: string }>}
+ */
+function collectBinEntries(packageJson, destPath) {
+  if (!packageJson || typeof packageJson !== 'object') return [];
+
+  const packageName = typeof packageJson.name === 'string' && packageJson.name.trim()
+    ? packageJson.name
+    : inferPackageNameFromDestPath(destPath);
+  const rawBin = packageJson.bin;
+
+  /** @type {Array<{ command: string, targetPath: string }>} */
+  const entries = [];
+
+  if (typeof rawBin === 'string') {
+    const command = toDefaultBinCommand(packageName);
+    const target = normalizeBinTarget(rawBin);
+    if (!command || !target) return entries;
+    entries.push({
+      command,
+      targetPath: joinPath(destPath, target),
+    });
+    return entries;
+  }
+
+  if (!rawBin || typeof rawBin !== 'object' || Array.isArray(rawBin)) {
+    return entries;
+  }
+
+  for (const [name, value] of Object.entries(rawBin)) {
+    const command = normalizeBinCommand(name);
+    const target = typeof value === 'string' ? normalizeBinTarget(value) : '';
+    if (!command || !target) continue;
+    entries.push({
+      command,
+      targetPath: joinPath(destPath, target),
+    });
+  }
+
+  return entries;
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeForSingleQuotedString(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'");
+}
+
+/**
+ * @param {string} targetPath
+ * @returns {string}
+ */
+function createBinStubContent(targetPath) {
+  return `#!/usr/bin/env node
+require('${escapeForSingleQuotedString(targetPath)}');
+`;
+}
+
+/**
+ * @param {{ writeFile: (path: string, content: string|Uint8Array) => Promise<unknown>, mkdir?: (path: string, options?: { recursive?: boolean }) => Promise<unknown> }} vfs
+ * @param {string} destPath
+ * @param {any} packageJson
+ * @returns {Promise<void>}
+ */
+async function writeBinStubs(vfs, destPath, packageJson) {
+  const entries = collectBinEntries(packageJson, destPath);
+  if (entries.length === 0) return;
+
+  if (typeof vfs.mkdir === 'function') {
+    await vfs.mkdir('/node_modules/.bin', { recursive: true });
+  }
+
+  for (const entry of entries) {
+    const stubPath = joinPath('/node_modules/.bin', entry.command);
+    const slashIndex = stubPath.lastIndexOf('/');
+    if (slashIndex > 0 && typeof vfs.mkdir === 'function') {
+      const dirPath = stubPath.slice(0, slashIndex);
+      await vfs.mkdir(dirPath, { recursive: true });
+    }
+    await vfs.writeFile(stubPath, createBinStubContent(entry.targetPath));
+  }
+}
+
 /**
  * Parse POSIX tar headers.
  * @param {ArrayBuffer|Uint8Array} buffer
@@ -186,6 +350,7 @@ export class TarballManager {
 
     const headers = parseTarHeaders(tarBytes);
     let written = 0;
+    let packageJson = null;
 
     for (const header of headers) {
       if (header.type === '5') continue;
@@ -201,8 +366,13 @@ export class TarballManager {
         await vfs.mkdir(dirPath, { recursive: true });
       }
       await vfs.writeFile(filePath, content);
+      if (header.name === 'package.json') {
+        packageJson = parseJsonBytes(content);
+      }
       written += 1;
     }
+
+    await writeBinStubs(vfs, destPath, packageJson);
 
     return written;
   }

@@ -9,7 +9,7 @@ export { createBuiltinModules, BUILTIN_MODULE_NAMES } from './shims/index.js';
 
 // Require / Module resolution
 export { createRequire } from './require.js';
-export { createResolver } from './module-resolver.js';
+export { createResolver, ModuleResolver } from './module-resolver.js';
 
 // ESM transform
 export { hasESMSyntax, transformESMtoCJS } from './transform-esm.js';

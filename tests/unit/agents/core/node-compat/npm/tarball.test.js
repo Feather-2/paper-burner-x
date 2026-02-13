@@ -238,6 +238,82 @@ describe('npm/tarball', () => {
     expect(vfs.mkdir).toHaveBeenCalledWith('/node_modules/demo/lib/nested', { recursive: true });
   });
 
+  it('extract creates node_modules/.bin stub for string bin entry', async () => {
+    const tar = createTar([
+      {
+        name: 'package/package.json',
+        content: JSON.stringify({
+          name: 'demo-cli',
+          version: '1.0.0',
+          bin: './bin/cli.js',
+        }),
+      },
+      { name: 'package/bin/cli.js', content: 'console.log("cli");' },
+    ]);
+    const vfs = {
+      mkdir: vi.fn().mockResolvedValue(true),
+      writeFile: vi.fn().mockResolvedValue(true),
+    };
+    const manager = new TarballManager({ fetchFn });
+
+    await manager.extract(toArrayBuffer(tar), vfs, '/node_modules/demo-cli');
+    expect(vfs.writeFile).toHaveBeenCalledWith(
+      '/node_modules/.bin/demo-cli',
+      '#!/usr/bin/env node\nrequire(\'/node_modules/demo-cli/bin/cli.js\');\n',
+    );
+  });
+
+  it('extract creates multiple stubs for object-style bin entries', async () => {
+    const tar = createTar([
+      {
+        name: 'package/package.json',
+        content: JSON.stringify({
+          name: '@scope/toolkit',
+          version: '1.0.0',
+          bin: {
+            toolkit: './bin/toolkit.js',
+            tk: 'bin/tk.js',
+          },
+        }),
+      },
+      { name: 'package/bin/toolkit.js', content: 'console.log("toolkit");' },
+      { name: 'package/bin/tk.js', content: 'console.log("tk");' },
+    ]);
+    const vfs = {
+      mkdir: vi.fn().mockResolvedValue(true),
+      writeFile: vi.fn().mockResolvedValue(true),
+    };
+    const manager = new TarballManager({ fetchFn });
+
+    await manager.extract(toArrayBuffer(tar), vfs, '/node_modules/@scope/toolkit');
+    expect(vfs.writeFile).toHaveBeenCalledWith(
+      '/node_modules/.bin/toolkit',
+      '#!/usr/bin/env node\nrequire(\'/node_modules/@scope/toolkit/bin/toolkit.js\');\n',
+    );
+    expect(vfs.writeFile).toHaveBeenCalledWith(
+      '/node_modules/.bin/tk',
+      '#!/usr/bin/env node\nrequire(\'/node_modules/@scope/toolkit/bin/tk.js\');\n',
+    );
+  });
+
+  it('extract skips bin stub creation for invalid package.json', async () => {
+    const tar = createTar([
+      { name: 'package/package.json', content: '{invalid' },
+      { name: 'package/index.js', content: 'module.exports = 1;' },
+    ]);
+    const vfs = {
+      mkdir: vi.fn().mockResolvedValue(true),
+      writeFile: vi.fn().mockResolvedValue(true),
+    };
+    const manager = new TarballManager({ fetchFn });
+
+    await manager.extract(toArrayBuffer(tar), vfs, '/node_modules/invalid');
+    expect(vfs.writeFile).not.toHaveBeenCalledWith(
+      '/node_modules/.bin/invalid',
+      expect.any(String),
+    );
+  });
+
   it('extract uses pako.inflate when available', async () => {
     const rawTar = createTar([{ name: 'package/main.js', content: 'ok' }]);
     const inflate = vi.fn().mockReturnValue(rawTar);

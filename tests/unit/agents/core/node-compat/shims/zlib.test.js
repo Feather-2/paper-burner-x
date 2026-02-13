@@ -2,13 +2,27 @@ import { describe, it, expect } from 'vitest';
 import {
   gzipAsync, gunzipAsync,
   deflateAsync, inflateAsync,
+  deflateRaw, inflateRaw,
+  deflateRawAsync, inflateRawAsync,
   gzipSync,
+  deflateRawSync, inflateRawSync,
   constants,
   Z_NO_COMPRESSION, Z_BEST_COMPRESSION,
-  createGzip,
+  createGzip, createDeflateRaw, createInflateRaw,
   brotliCompressSync, brotliDecompressSync,
   createBrotliCompress, createBrotliDecompress,
 } from '../../../../../../js/agents/core/node-compat/shims/zlib.js';
+
+const supportsDeflateRaw = (() => {
+  if (typeof CompressionStream === 'undefined' || typeof DecompressionStream === 'undefined') return false;
+  try {
+    new CompressionStream('deflate-raw');
+    new DecompressionStream('deflate-raw');
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 describe('zlib shim', () => {
   it('gzipAsync + gunzipAsync round-trip (text)', async () => {
@@ -36,6 +50,26 @@ describe('zlib shim', () => {
     expect(new TextDecoder().decode(decompressed)).toBe(text);
   });
 
+  it.runIf(supportsDeflateRaw)('deflateRawAsync + inflateRawAsync round-trip', async () => {
+    const text = 'deflate-raw round-trip test data';
+    const input = new TextEncoder().encode(text);
+    const compressed = await deflateRawAsync(input);
+    expect(compressed).toBeInstanceOf(Uint8Array);
+    const decompressed = await inflateRawAsync(compressed);
+    expect(new TextDecoder().decode(decompressed)).toBe(text);
+  });
+
+  it.runIf(supportsDeflateRaw)('deflateRaw + inflateRaw callback round-trip', async () => {
+    const input = new TextEncoder().encode('raw callback test');
+    const compressed = await new Promise((resolve, reject) => {
+      deflateRaw(input, (err, value) => (err ? reject(err) : resolve(value)));
+    });
+    const decompressed = await new Promise((resolve, reject) => {
+      inflateRaw(compressed, (err, value) => (err ? reject(err) : resolve(value)));
+    });
+    expect(new TextDecoder().decode(decompressed)).toBe('raw callback test');
+  });
+
   it('gzipAsync accepts string input', async () => {
     const compressed = await gzipAsync('string input test');
     expect(compressed).toBeInstanceOf(Uint8Array);
@@ -49,11 +83,22 @@ describe('zlib shim', () => {
     );
   });
 
+  it('deflateRawSync and inflateRawSync throw unsupported error', () => {
+    expect(() => deflateRawSync(new Uint8Array([1, 2, 3]))).toThrow(
+      'Sync compression not available in browser, use async variant',
+    );
+    expect(() => inflateRawSync(new Uint8Array([1, 2, 3]))).toThrow(
+      'Sync compression not available in browser, use async variant',
+    );
+  });
+
   it('constants contains correct values', () => {
+    expect(constants).toHaveProperty('Z_NO_FLUSH', 0);
     expect(constants).toHaveProperty('Z_NO_COMPRESSION', 0);
     expect(constants).toHaveProperty('Z_BEST_SPEED', 1);
     expect(constants).toHaveProperty('Z_BEST_COMPRESSION', 9);
     expect(constants).toHaveProperty('Z_DEFAULT_COMPRESSION', -1);
+    expect(constants).toHaveProperty('BROTLI_MAX_INPUT_BLOCK_BITS', 24);
   });
 
   it('Z_NO_COMPRESSION = 0, Z_BEST_COMPRESSION = 9', () => {
@@ -65,6 +110,15 @@ describe('zlib shim', () => {
     const stream = createGzip();
     expect(stream).toHaveProperty('readable');
     expect(stream).toHaveProperty('writable');
+  });
+
+  it.runIf(supportsDeflateRaw)('createDeflateRaw and createInflateRaw expose readable/writable', () => {
+    const compressStream = createDeflateRaw();
+    expect(compressStream).toHaveProperty('readable');
+    expect(compressStream).toHaveProperty('writable');
+    const decompressStream = createInflateRaw();
+    expect(decompressStream).toHaveProperty('readable');
+    expect(decompressStream).toHaveProperty('writable');
   });
 
   it('empty Uint8Array round-trip', async () => {
