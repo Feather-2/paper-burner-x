@@ -29,6 +29,11 @@ export { createREPL } from './repl.js';
 // VFS adapter
 export { createVfsAdapter } from './vfs-adapter.js';
 
+// Quota & Observability
+export { QuotaEnforcer } from './quota.js';
+export { ObservabilityStream, withObservability } from './observability.js';
+export { detectAvailableModes, selectExecutionMode, createExecutionContext } from './execution-strategy.js';
+
 // npm package manager
 export { PackageManager } from './npm/index.js';
 

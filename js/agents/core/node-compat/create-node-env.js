@@ -7,6 +7,8 @@
 import { MemoryVfs } from '../../vfs/vfs.memory.js';
 import { withVfsEvents } from '../webruntime/vfs-events.js';
 import { createSandbox } from '../sandbox/wasm-sandbox.js';
+import { QuotaEnforcer } from './quota.js';
+import { ObservabilityStream, withObservability } from './observability.js';
 
 /**
  * @typedef {object} NodeEnvConfig
@@ -17,6 +19,8 @@ import { createSandbox } from '../sandbox/wasm-sandbox.js';
  * @property {string[]} [capabilities]
  * @property {number} [timeout=30000]
  * @property {object} [vfs] - External VFS instance; creates MemoryVfs if omitted
+ * @property {import('./quota.js').QuotaConfig} [quota] - Resource quota limits
+ * @property {import('./observability.js').ObservabilityStream} [observability] - Observability stream
  */
 
 /**
@@ -41,11 +45,18 @@ export async function createNodeEnv(config = {}) {
     capabilities = ['console'],
     timeout = 30000,
     vfs: externalVfs,
+    quota,
+    observability,
   } = config;
 
-  // 1. VFS with events
-  const rawVfs = externalVfs || new MemoryVfs();
-  const vfs = withVfsEvents(rawVfs);
+  // 1. Resource enforcement
+  const quotaEnforcer = quota ? new QuotaEnforcer(quota) : null;
+  const obsStream = observability || new ObservabilityStream();
+
+  // 2. VFS with events + observability + quota
+  let rawVfs = externalVfs || new MemoryVfs();
+  rawVfs = withVfsEvents(rawVfs);
+  const vfs = withObservability(rawVfs, obsStream, quotaEnforcer);
 
   // 2. Ensure cwd exists
   const cwdNorm = cwd.replace(/^\/+/, '') || '';
