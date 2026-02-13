@@ -3,6 +3,10 @@ const TRACE_ID_RE = /^[0-9a-f]{32}$/;
 const SPAN_ID_RE = /^[0-9a-f]{16}$/;
 const TRACEPARENT_RE = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/i;
 
+import { createLogger } from '../../shared/utils/logger.js';
+
+const logger = createLogger('contracts/trace-propagator');
+
 /** @typedef {{ emit: (event: string, payload?: unknown) => unknown }} EventBusLike */
 /** @typedef {{ traceId: string, spanId: string, parentSpanId?: string, traceparent: string }} TraceInfo */
 /** @typedef {Record<string, unknown>} TraceCarrier */
@@ -221,7 +225,11 @@ export class TraceContextPropagator {
 
   _emit(event, payload) {
     if (!this._events || typeof this._events.emit !== 'function') return;
-    try { this._events.emit(event, { actor: 'trace-propagator', status: 'info', payload }); } catch {}
+    try {
+      this._events.emit(event, { actor: 'trace-propagator', status: 'info', payload });
+    } catch (err) {
+      logger.debug('Event emission failed', { event, error: err.message });
+    }
   }
 }
 

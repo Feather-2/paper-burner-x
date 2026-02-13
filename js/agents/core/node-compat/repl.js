@@ -7,6 +7,10 @@
  * @module repl
  */
 
+import { createLogger } from '../../shared/utils/logger.js';
+
+const logger = createLogger('node-compat/repl');
+
 // ── Types ────────────────────────────────────────────────────
 
 /**
@@ -69,7 +73,9 @@ export function createREPL(options = {}) {
         const exprFn = new Function(...keys, `return (${code})`);
         const result = exprFn(...vals);
         return { ok: true, value: result };
-      } catch (_) { /* not an expression, fall through */ }
+      } catch (err) {
+        logger.debug('Code is not an expression, trying as statement', { error: err.message });
+      }
 
       // 2. Execute as statement(s) — const/let → var for persistence
       const transformed = code.replace(/\b(const|let)\s+/g, 'var ');

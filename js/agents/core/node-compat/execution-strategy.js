@@ -3,6 +3,10 @@
  * Provides fallback chain: WASM → iframe → indirect eval
  */
 
+import { createLogger } from '../../shared/utils/logger.js';
+
+const logger = createLogger('node-compat/execution-strategy');
+
 /**
  * @typedef {'wasm'|'iframe'|'eval'|'none'} ExecutionMode
  */
@@ -19,7 +23,9 @@ export async function detectAvailableModes() {
     try {
       await WebAssembly.instantiate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
       modes.push('wasm');
-    } catch (_) { /* WASM not available */ }
+    } catch (err) {
+      logger.debug('WASM not available', { error: err.message });
+    }
   }
 
   // 2. Check iframe support (browser only)
@@ -31,7 +37,9 @@ export async function detectAvailableModes() {
   try {
     (0, eval)('1+1');
     modes.push('eval');
-  } catch (_) { /* eval blocked by CSP */ }
+  } catch (err) {
+    logger.debug('eval blocked by CSP', { error: err.message });
+  }
 
   return modes;
 }

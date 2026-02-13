@@ -1,6 +1,9 @@
 /** AgentCoordinator - 多 Agent Coordinator + Leader Election */
 
 import { AgentStatus, AgentType, createAgentDescriptor } from './agent-registry.js';
+import { createLogger } from '../../shared/utils/logger.js';
+
+const logger = createLogger('contracts/agent-coordinator');
 
 const DEFAULT_HEARTBEAT_MS = 5000;
 const DEFAULT_ASSIGN_INTERVAL_MS = 2000;
@@ -169,7 +172,11 @@ export class AgentCoordinator {
     this._heartbeatTimer = setInterval(() => {
       if (!this._started) return;
       if (!this._registry.heartbeat(this._agentId)) {
-        try { this._registry.register(coordinatorDescriptor(this._agentId)); } catch {}
+        try {
+          this._registry.register(coordinatorDescriptor(this._agentId));
+        } catch (err) {
+          logger.debug('Failed to re-register coordinator in heartbeat', { agentId: this._agentId, error: err.message });
+        }
       }
     }, this.heartbeatMs);
   }
@@ -232,7 +239,11 @@ export class AgentCoordinator {
   /** @param {string} event @param {Record<string, unknown>} payload */
   _emit(event, payload) {
     if (!this._events || typeof this._events.emit !== 'function') return;
-    try { this._events.emit(event, { actor: 'agent-coordinator', status: 'info', payload }); } catch {}
+    try {
+      this._events.emit(event, { actor: 'agent-coordinator', status: 'info', payload });
+    } catch (err) {
+      logger.debug('Event emission failed', { event, error: err.message });
+    }
   }
 }
 

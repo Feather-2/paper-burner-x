@@ -231,7 +231,11 @@ export class WasmSandbox {
           var method = (opts.method || 'GET').toUpperCase();
           var headers = '{}';
           if (opts.headers) {
-            try { headers = JSON.stringify(opts.headers); } catch(e) {}
+            try {
+              headers = JSON.stringify(opts.headers);
+            } catch(e) {
+              console.warn('Failed to stringify fetch headers:', e.message);
+            }
           }
           var body = opts.body || '';
           var resultPromise = __hostFetch(String(url), method, headers, String(body));

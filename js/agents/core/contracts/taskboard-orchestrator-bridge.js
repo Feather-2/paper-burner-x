@@ -1,4 +1,9 @@
 /** TaskBoardOrchestratorBridge - SharedTaskBoard 与 Orchestrator 桥接器 */
+
+import { createLogger } from '../../shared/utils/logger.js';
+
+const logger = createLogger('contracts/taskboard-bridge');
+
 /** @typedef {{ emit: (event: string, payload?: unknown) => unknown }} EventBusLike */
 /** @typedef {import('./shared-task-board.js').SharedTaskBoard} SharedTaskBoard */
 /** @typedef {{ id: string, taskType: string, payload: unknown, status: string, priority: number, createdBy: string, claimedBy: string | null, createdAt: number }} BoardTask */
@@ -202,7 +207,11 @@ export class TaskBoardOrchestratorBridge {
   /** @param {string} event @param {Record<string, unknown>} payload */
   _emit(event, payload) {
     if (!this._events || typeof this._events.emit !== 'function') return;
-    try { this._events.emit(event, { actor: 'taskboard-bridge', status: 'info', payload }); } catch {}
+    try {
+      this._events.emit(event, { actor: 'taskboard-bridge', status: 'info', payload });
+    } catch (err) {
+      logger.debug('Event emission failed', { event, error: err.message });
+    }
   }
 }
 

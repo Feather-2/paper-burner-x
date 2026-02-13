@@ -9,6 +9,9 @@ import { withVfsEvents } from '../webruntime/vfs-events.js';
 import { createSandbox } from '../sandbox/wasm-sandbox.js';
 import { QuotaEnforcer } from './quota.js';
 import { ObservabilityStream, withObservability } from './observability.js';
+import { createLogger } from '../../shared/utils/logger.js';
+
+const logger = createLogger('node-compat/create-node-env');
 
 /**
  * @typedef {object} NodeEnvConfig
@@ -61,7 +64,11 @@ export async function createNodeEnv(config = {}) {
   // 2. Ensure cwd exists
   const cwdNorm = cwd.replace(/^\/+/, '') || '';
   if (cwdNorm) {
-    try { await vfs.mkdir(cwdNorm, { recursive: true }); } catch (_) { /* already exists */ }
+    try {
+      await vfs.mkdir(cwdNorm, { recursive: true });
+    } catch (err) {
+      logger.debug('Failed to create cwd, may already exist', { cwd: cwdNorm, error: err.message });
+    }
   }
 
   // 3. Sandbox — bridge to WasmSandbox via createSandbox

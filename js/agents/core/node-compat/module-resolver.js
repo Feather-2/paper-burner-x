@@ -4,6 +4,9 @@
  */
 
 import { normalizeVfsPath } from '../../vfs/path.js';
+import { createLogger } from '../../shared/utils/logger.js';
+
+const logger = createLogger('node-compat/module-resolver');
 
 /** Node.js built-in module names. */
 export const BUILTIN_MODULE_NAMES = [
@@ -205,7 +208,9 @@ async function resolveDirectory(dirPath, vfs, pkgCache, cacheMetrics) {
         const main = pkg.browser || pkg.main || 'index.js';
         const entryBase = dirPath ? dirPath + '/' + main : main;
         return resolveFile(entryBase, vfs, pkgCache, cacheMetrics);
-      } catch { /* ignore resolution errors */ }
+      } catch (err) {
+        logger.debug('Failed to resolve directory entry', { dirPath, error: err.message });
+      }
     }
   }
   for (const idx of INDEX_FILES) {
