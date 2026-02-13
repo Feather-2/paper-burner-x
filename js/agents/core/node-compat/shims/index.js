@@ -42,6 +42,10 @@ import diagnosticsChannelShim from './diagnostics_channel.js';
 import punycodeShim from './punycode.js';
 import stringDecoderShim from './string_decoder.js';
 import timersShim from './timers.js';
+import consoleShim from './console.js';
+import constantsShim from './constants.js';
+import replShim from './repl.js';
+import sysShim from './sys.js';
 
 // Stub modules — minimal objects that don't throw on require
 const noop = () => {};
@@ -49,16 +53,12 @@ const noopStub = new Proxy({}, { get: () => noop });
 
 const STUB_MODULES = {
   assert: assertShim,
-  console: globalThis.console,
-  constants: {},
   crypto: cryptoShim,
   dns: dnsShim,
   module: moduleShim,
   net: netShim,
   process: createProcess(),
   readline: readlineShim,
-  repl: noopStub,
-  sys: utilShim,
   tls: tlsShim,
   tty: ttyShim,
   vm: vmShim,
@@ -120,6 +120,10 @@ export function createBuiltinModules(config = {}) {
     punycode: punycodeShim,
     string_decoder: stringDecoderShim,
     timers: timersShim,
+    console: consoleShim,
+    constants: constantsShim,
+    repl: replShim,
+    sys: sysShim,
   };
 
   // 动态模块（需要 VFS）
