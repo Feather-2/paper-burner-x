@@ -216,6 +216,49 @@ export class SideEffectJournal {
   }
 
   /**
+   * Initialize journal by recovering persisted cursor from WAL.
+   * @returns {Promise<{ ok: boolean, cursor?: number, reason?: string, error?: string }>}
+   */
+  async init() {
+    const runId = this.runId;
+    if (!runId) return { ok: false, reason: "missing_runId" };
+
+    const vfs = this.vfs;
+    if (!vfs || typeof vfs !== "object") return { ok: false, reason: "missing_vfs" };
+
+    const walPath = this._getWalPath(runId);
+    if (!walPath) return { ok: false, reason: "missing_wal_path" };
+
+    try {
+      const text = await readTextFromVfs(vfs, walPath);
+      if (!text) {
+        return { ok: true, cursor: 0 };
+      }
+
+      const lines = text.split(/\r?\n/).filter((line) => line.trim());
+      let maxSeq = 0;
+
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          if (typeof entry?.seq === "number" && entry.seq > maxSeq) {
+            maxSeq = entry.seq;
+          }
+        } catch (e) {
+          // Skip invalid lines
+        }
+      }
+
+      this._persistedCursor = maxSeq;
+      return { ok: true, cursor: maxSeq };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger?.warn?.(`[SideEffectJournal] init failed: ${msg}`);
+      return { ok: false, reason: "init_failed", error: msg };
+    }
+  }
+
+  /**
    * Attach an EventBus to listen for VFS write events.
    * @param {EventBusLike | null | undefined} eventBus - The EventBus instance
    * @returns {void}
@@ -524,9 +567,6 @@ export class SideEffectJournal {
           this.logger?.warn?.(
             `[SideEffectJournal] WAL entry too large (${jsonBytes} bytes; max ${MAX_WAL_LINE_SIZE}); skipping seq ${entry?.seq ?? "?"}`,
           );
-          if (typeof entry?.seq === "number") {
-            this._persistedCursor = Math.max(this._persistedCursor, entry.seq);
-          }
           return { ok: true, skipped: true };
         }
       } catch (err) {
