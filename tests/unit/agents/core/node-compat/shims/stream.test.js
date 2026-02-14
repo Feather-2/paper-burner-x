@@ -318,6 +318,40 @@ describe('stream shim', () => {
     expect(typeof s.on).toBe('function');
     expect(typeof s.emit).toBe('function');
   });
+
+  // ── Backpressure ──
+
+  it('Readable.push returns false when buffer exceeds highWaterMark', () => {
+    const r = new Readable({ highWaterMark: 8 });
+    const result1 = r.push(Buffer.alloc(4));
+    expect(result1).toBe(true);
+    const result2 = r.push(Buffer.alloc(8));
+    expect(result2).toBe(false);
+  });
+
+  it('Writable.write returns false when buffer exceeds highWaterMark', () => {
+    const chunks = [];
+    const w = new Writable({
+      highWaterMark: 8,
+      write(chunk, enc, cb) { chunks.push(chunk); globalThis.setTimeout(cb, 5); }
+    });
+    const result = w.write(Buffer.alloc(16));
+    expect(result).toBe(false);
+  });
+
+  it('Writable emits drain after buffer drops below highWaterMark', async () => {
+    const drainFn = vi.fn();
+    const w = new Writable({
+      highWaterMark: 8,
+      write(chunk, enc, cb) {
+        globalThis.setTimeout(() => cb(), 5);
+      }
+    });
+    w.on('drain', drainFn);
+    w.write(Buffer.alloc(16));
+    await new Promise(r => globalThis.setTimeout(r, 20));
+    expect(drainFn).toHaveBeenCalled();
+  });
 });
 
 /**

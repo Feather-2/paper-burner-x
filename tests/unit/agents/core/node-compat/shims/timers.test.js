@@ -65,4 +65,23 @@ describe('timers shim', () => {
     await new Promise(resolve => globalThis.setTimeout(resolve, 10));
     expect(callback).not.toHaveBeenCalled();
   });
+
+  it('multiple setImmediate calls execute in order', async () => {
+    const order = [];
+    setImmediate(() => order.push(1));
+    setImmediate(() => order.push(2));
+    setImmediate(() => order.push(3));
+    await new Promise(resolve => globalThis.setTimeout(resolve, 20));
+    expect(order).toEqual([1, 2, 3]);
+  });
+
+  it('setImmediate error does not break other callbacks', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fn = vi.fn();
+    setImmediate(() => { throw new Error('boom'); });
+    setImmediate(fn);
+    await new Promise(resolve => globalThis.setTimeout(resolve, 20));
+    expect(fn).toHaveBeenCalled();
+    spy.mockRestore();
+  });
 });

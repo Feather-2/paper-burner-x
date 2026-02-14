@@ -277,12 +277,14 @@ export class AgentOrchestrator extends DisposableBase {
       ...(degradation ? { degradation } : {}),
       ...(userConfigValidation ? { configValidation: { userConfig: userConfigValidation } } : {}),
       progress: (payload) => {
-        // P0: 统一事件命名为 stage:progress
-        this.eventBus.emit("stage:progress", {
+        // P0: 统一事件命名为 stage:progress（兼容旧 ${stageName}.progress）
+        const progressRecord = {
           actor: stageActor,
           status: "progress",
           payload: { stage: stageName, ...payload, runId: this.runId },
-        });
+        };
+        this.eventBus.emit("stage:progress", progressRecord);
+        this.eventBus.emit(`${stageName}.progress`, progressRecord);
       },
     });
 
@@ -297,34 +299,40 @@ export class AgentOrchestrator extends DisposableBase {
       });
     }
 
-    // P0: 统一事件命名为 stage:started
-    this.eventBus.emit("stage:started", {
+    // P0: 统一事件命名为 stage:started（兼容旧 ${stageName}.started）
+    const startedRecord = {
       actor: stageActor,
       status: "started",
       payload: { stage: stageName, input: stageInput, runId: this.runId },
-    });
+    };
+    this.eventBus.emit("stage:started", startedRecord);
+    this.eventBus.emit(`${stageName}.started`, startedRecord);
 
     const stageStartMs = Date.now();
     let stageFailed = false;
 
     try {
       const out = await entry.handler(ctx, stageInput, api);
-      // P0: 统一事件命名为 stage:completed
-      this.eventBus.emit("stage:completed", {
+      // P0: 统一事件命名为 stage:completed（兼容旧 ${stageName}.completed）
+      const completedRecord = {
         actor: stageActor,
         status: "completed",
         payload: { stage: stageName, runId: this.runId, durationMs: Date.now() - stageStartMs },
-      });
+      };
+      this.eventBus.emit("stage:completed", completedRecord);
+      this.eventBus.emit(`${stageName}.completed`, completedRecord);
       return out;
     } catch (err) {
       stageFailed = true;
       const message = String(err?.message || err);
-      // P0: 统一事件命名为 stage:failed
-      this.eventBus.emit("stage:failed", {
+      // P0: 统一事件命名为 stage:failed（兼容旧 ${stageName}.failed）
+      const failedRecord = {
         actor: stageActor,
         status: "failed",
         payload: { stage: stageName, error: message, runId: this.runId },
-      });
+      };
+      this.eventBus.emit("stage:failed", failedRecord);
+      this.eventBus.emit(`${stageName}.failed`, failedRecord);
       this.state = OrchestratorState.FAILED;
       this._emitRunFailed({ error: message, stage: stageName });
       this._emitRunEnded({ reason: "failed" });

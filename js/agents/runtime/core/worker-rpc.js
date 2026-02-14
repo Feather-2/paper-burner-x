@@ -104,12 +104,14 @@ export class WorkerRpcClient {
    * @param {WorkerRpcWorker} [options.worker] - Worker instance
    * @param {(() => WorkerRpcWorker | Promise<WorkerRpcWorker>)} [options.createWorker] - Factory function to create worker (can return Worker or Promise<WorkerRpcWorker>)
    * @param {number} [options.timeoutMs=30000]
+   * @param {object} [options.eventBus] - EventBus for RPC error events
    */
-  constructor({ worker, createWorker, timeoutMs = 30000 } = {}) {
+  constructor({ worker, createWorker, timeoutMs = 30000, eventBus } = {}) {
     this._workerInstance = worker || null;
     this._createWorker = typeof createWorker === "function" ? createWorker : null;
     this._workerPromise = null;
     this._timeoutMs = timeoutMs;
+    this._eventBus = eventBus || null;
     this._pending = new Map(); // id → { resolve, reject, timer }
     this._disposed = false;
     this._boundOnMessage = this._onMessage.bind(this);
@@ -282,6 +284,21 @@ export class WorkerRpcClient {
   _onError(event) {
     const message = event?.message || String(event);
     logger.error("Worker error", { message });
+
+    // P1: Emit worker:rpc:error event
+    const workerId = this._workerInstance?._workerId || "unknown";
+    if (this._eventBus && typeof this._eventBus.emit === "function") {
+      try {
+        this._eventBus.emit("worker:rpc:error", {
+          workerId,
+          error: message,
+          pendingCount: this._pending.size,
+          timestamp: Date.now(),
+        });
+      } catch {
+        // ignore
+      }
+    }
 
     // Clear worker reference for recreation
     this._detachListeners(this._workerInstance);

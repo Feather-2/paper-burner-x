@@ -69,4 +69,25 @@ describe('process shim', () => {
     const proc = createProcess();
     expect(() => proc.exit(1)).toThrow('Process exited with code 1');
   });
+
+  it('multiple nextTick calls execute in order', async () => {
+    const proc = createProcess();
+    const order = [];
+    proc.nextTick(() => order.push(1));
+    proc.nextTick(() => order.push(2));
+    proc.nextTick(() => order.push(3));
+    await new Promise(r => globalThis.setTimeout(r, 20));
+    expect(order).toEqual([1, 2, 3]);
+  });
+
+  it('nextTick error does not break other callbacks', async () => {
+    const proc = createProcess();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fn = vi.fn();
+    proc.nextTick(() => { throw new Error('boom'); });
+    proc.nextTick(fn);
+    await new Promise(r => globalThis.setTimeout(r, 20));
+    expect(fn).toHaveBeenCalled();
+    spy.mockRestore();
+  });
 });

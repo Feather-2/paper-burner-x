@@ -77,10 +77,10 @@ describe('crypto shim', () => {
     expect(b64).toBe('n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=');
   });
 
-  it('pbkdf2Sync returns Buffer', () => {
-    const key = pbkdf2Sync('password', 'salt', 1, 32, 'sha256');
-    expect(Buffer.isBuffer(key)).toBe(true);
-    expect(key.length).toBe(32);
+  it('pbkdf2Sync throws with migration guidance', () => {
+    expect(() => pbkdf2Sync('password', 'salt', 1, 32, 'sha256')).toThrow(
+      '[crypto shim] pbkdf2Sync() is not supported in browser environment'
+    );
   });
 
   it('Buffer.isBuffer(randomBytes(4)) === true', () => {

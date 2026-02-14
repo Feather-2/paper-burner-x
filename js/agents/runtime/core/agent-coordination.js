@@ -74,8 +74,8 @@ export const AgentCoordination = {
     this._ensureNotDisposed();
     if (this._runStarted) return;
     this._runStarted = true;
-    // P0: 统一事件命名为 run:started
-    this.emit("run:started", {
+    // P0: 统一事件命名为 run:started（兼容旧 run.started）
+    const startedRecord = {
       actor: ActorType.SYSTEM,
       status: "started",
       payload: {
@@ -83,7 +83,9 @@ export const AgentCoordination = {
         mode: this.runContext.mode,
         scenario: this.runContext.scenario,
       },
-    });
+    };
+    this.emit("run:started", startedRecord);
+    this.emit("run.started", startedRecord);
   },
 
   /**
@@ -94,12 +96,14 @@ export const AgentCoordination = {
     this._ensureNotDisposed();
     if (this._runCancelled) return;
     this._runCancelled = true;
-    // P0: 统一事件命名为 run:cancelled
-    this.emit("run:cancelled", {
+    // P0: 统一事件命名为 run:cancelled（兼容旧 run.cancelled）
+    const cancelledRecord = {
       actor: ActorType.SYSTEM,
       status: "cancelled",
       payload: { reason: toNonEmptyString(reason) || "cancelled", runId: this.runId },
-    });
+    };
+    this.emit("run:cancelled", cancelledRecord);
+    this.emit("run.cancelled", cancelledRecord);
   },
 
   /**
@@ -111,8 +115,8 @@ export const AgentCoordination = {
     if (this._runFailed) return;
     this._runFailed = true;
     const message = toNonEmptyString(error) || "Unknown error";
-    // P0: 统一事件命名为 run:failed
-    this.emit("run:failed", {
+    // P0: 统一事件命名为 run:failed（兼容旧 run.failed）
+    const failedRecord = {
       actor: ActorType.SYSTEM,
       status: "failed",
       payload: {
@@ -120,7 +124,9 @@ export const AgentCoordination = {
         error: message,
         ...(toNonEmptyString(stage) ? { stage: toNonEmptyString(stage) } : {}),
       },
-    });
+    };
+    this.emit("run:failed", failedRecord);
+    this.emit("run.failed", failedRecord);
   },
 
   /**
@@ -132,8 +138,10 @@ export const AgentCoordination = {
     if (this._runCompleted) return;
     this._runCompleted = true;
     const r = toNonEmptyString(reason) || "completed";
-    // P0: 统一事件命名为 run:completed
-    this.emit("run:completed", { actor: ActorType.SYSTEM, status: "completed", payload: { reason: r, runId: this.runId } });
+    // P0: 统一事件命名为 run:completed（兼容旧 run.completed）
+    const completedRecord = { actor: ActorType.SYSTEM, status: "completed", payload: { reason: r, runId: this.runId } };
+    this.emit("run:completed", completedRecord);
+    this.emit("run.completed", completedRecord);
   },
 
   /**
@@ -145,11 +153,13 @@ export const AgentCoordination = {
     if (this._runEnded) return;
     this._runEnded = true;
     const r = toNonEmptyString(reason);
-    // P0: 统一事件命名为 run:ended
-    this.emit("run:ended", {
+    // P0: 统一事件命名为 run:ended（兼容旧 run.ended）
+    const endedRecord = {
       actor: ActorType.SYSTEM,
       status: "ended",
       ...(r ? { payload: { reason: r, runId: this.runId } } : { payload: { runId: this.runId } }),
-    });
+    };
+    this.emit("run:ended", endedRecord);
+    this.emit("run.ended", endedRecord);
   },
 };

@@ -422,14 +422,30 @@ export class EventBus {
     }
 
     const result = [];
+    let skippedCount = 0;
     for (const raw of events) {
-      if (!isObject(raw)) continue;
+      if (!isObject(raw)) { skippedCount++; continue; }
       try {
         const evt = createReplayEvent(raw, runId);
         this._dispatch(evt);
         result.push(evt);
       } catch {
         // Skip malformed events.
+        skippedCount++;
+      }
+    }
+
+    // P1: Emit replay skipped telemetry
+    if (skippedCount > 0) {
+      try {
+        this._dispatch(createEventRecord({
+          name: 'eventbus:replay:skipped',
+          actor: 'system',
+          payload: { skippedCount, totalCount: events.length, runId },
+          runId: this._runId,
+        }));
+      } catch {
+        // ignore
       }
     }
 
@@ -626,6 +642,22 @@ export class EventBus {
     const bp = this._backpressure;
     if (!bp) return;
     flushBackpressureQueue(bp, (queuedEvent) => this._dispatch(queuedEvent));
+
+    // P1: Emit coalesce flush telemetry
+    if (bp.lastCoalescedCount && bp.lastCoalescedCount > 0) {
+      const coalescedCount = bp.lastCoalescedCount;
+      bp.lastCoalescedCount = 0;
+      try {
+        this._dispatch(createEventRecord({
+          name: 'eventbus:coalesce:flush',
+          actor: 'system',
+          payload: { coalescedCount },
+          runId: this._runId,
+        }));
+      } catch {
+        // ignore
+      }
+    }
   }
 
   /**
