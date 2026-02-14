@@ -1,29 +1,67 @@
 # telemetry - 遥测和追踪
 
-运行时状态、Token/成本追踪、分布式追踪和回放。
+运行时状态、Token/成本追踪、分布式追踪与回放。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `index.js` | Telemetry 模块公共导出入口 |
+| `index.js` | Telemetry 模块公共导出入口（聚合导出 + 兼容 re-export） |
 | `token-tracker.js` | TokenTracker - Token 使用统计与导出 |
 | `cost-aggregator.js` | CostAggregator - 跨 Agent Token 汇总与 EventBus 集成 |
-| `cost-formatter.js` | Cost 格式化工具（Token/延迟/汇总/表格） |
-| `trace-context.js` | TraceContext - 分布式追踪（OpenTelemetry 兼容） |
-| `loop-runtime-state.js` | LoopRuntimeState - 运行时状态管理 |
+| `cost-formatter.js` | Cost 格式化工具（Token/延迟/汇总/表格/估算） |
+| `trace-context.js` | TraceContext - 分布式追踪（W3C traceparent 兼容） |
 | `replay-controller.js` | RunReplayController - 运行回放 |
 | `runstore-telemetry.js` | RunStore 遥测订阅 |
 
-## 模块导出
+> 说明：`LoopRuntimeState` 等运行时状态管理不在本目录文件中，而是由 `index.js` 从 `runtime/core/loop-runtime-state.js` **re-export** 提供兼容出口。
 
-`index.js` 聚合导出：
+## 模块导出（index.js 聚合）
 
-- Token: `TokenTracker`, `getGlobalTokenTracker`, `trackTokenUsage`, `getTokenUsageSummary`, `exportTokenUsageJson`, `exportTokenUsageCsv`
-- Cost: `CostAggregator`, `formatTokenCount`, `formatLatency`, `formatCostSummary`, `formatBreakdownTable`, `formatAgentReport`, `calculateCostEstimate`
-- Tracing: `TraceContext`, `Span`, `SpanStatus`, `SpanKind`, `parseTraceparent`
-- Runtime State: `LoopRuntimeState`, `LoopRuntimeStatuses`, `LOOP_RUNTIME_TRANSITIONS`, `getRuntimeState`, `setRuntimeState`, `ensureRuntimeState`, `clearRuntimeState`
-- Replay/Storage: `RunReplayController`, `subscribeTelemetry`
+`index.js` 聚合导出如下：
+
+- Token：
+  - `TokenTracker`
+  - `getGlobalTokenTracker`
+  - `trackTokenUsage`
+  - `getTokenUsageSummary`
+  - `exportTokenUsageJson`
+  - `exportTokenUsageCsv`
+- Cost：
+  - `CostAggregator`
+  - `formatTokenCount`
+  - `formatLatency`
+  - `formatCostSummary`
+  - `formatBreakdownTable`
+  - `formatAgentReport`
+  - `calculateCostEstimate`
+- Tracing：
+  - `TraceContext`
+  - `Span`
+  - `SpanStatus`
+  - `SpanKind`
+  - `parseTraceparent`
+- Runtime State（re-export）：
+  - `LoopRuntimeState`
+  - `LoopRuntimeStatuses`
+  - `LOOP_RUNTIME_TRANSITIONS`
+  - `getRuntimeState`
+  - `setRuntimeState`
+  - `ensureRuntimeState`
+  - `clearRuntimeState`
+- Replay/Storage：
+  - `RunReplayController`
+  - `subscribeTelemetry`
+
+## trace-context.js 直接导出的差异
+
+`trace-context.js` **额外**提供以下命名导出，但 **未被 `index.js` 聚合导出**：
+
+- `generateTraceId`
+- `generateSpanId`
+- `withSpan`
+
+如需使用这些 API，请直接从 `trace-context.js` 导入，而不是从 `index.js` 聚合入口导入。
 
 ## TokenTracker
 
@@ -46,7 +84,7 @@ const summary = tracker.getSummary();
 console.log(summary.totalTokens); // 2300
 ```
 
-全局/快捷 API（同样从本模块导出）：
+全局/快捷 API（同样从 `index.js` 导出）：
 
 - `getGlobalTokenTracker`：获取全局 TokenTracker 实例
 - `trackTokenUsage`：记录一次 Token 使用（对 `record` 的封装）
@@ -70,8 +108,6 @@ aggregator.recordUsage('planner', {
   promptTokens: 1200,
   completionTokens: 600,
   latencyMs: 950,
-  success: true,
-  provider: 'openai',
   model: 'gpt-4o-mini',
 });
 
@@ -93,7 +129,9 @@ console.log(formatBreakdownTable(breakdown));
 
 EventBus 集成：
 
-- 当前实现监听 `llm.complete` 事件，自动提取 `payload`/事件对象中的 token 字段并写入聚合器
+- 当前实现监听 `llm:complete` 事件，自动提取 `payload`/事件对象中的 token 字段并写入聚合器
+
+> 注意：`recordUsage` 仅汇总 token 与 latency 等成本相关字段，不记录 `success/provider` 等信息。
 
 ## Cost 格式化（cost-formatter）
 
@@ -104,7 +142,7 @@ EventBus 集成：
 - `formatCostSummary(total)`：总览摘要文本
 - `formatBreakdownTable(rows)`：分组表格文本
 - `formatAgentReport(agent)`：单 Agent 报告
-- `calculateCostEstimate(usage, pricing)`：费用估算
+- `calculateCostEstimate(totalTokens, modelPricing)`：费用估算
 
 ```javascript
 import { formatTokenCount, formatLatency } from 'js/agents/plugins/telemetry';
@@ -115,7 +153,7 @@ console.log(formatLatency(1250));     // 1.3s
 
 ## TraceContext
 
-OpenTelemetry 兼容的分布式追踪与 W3C `traceparent` 解析：
+W3C `traceparent` 兼容的分布式追踪：
 
 ```javascript
 import {
@@ -138,11 +176,15 @@ console.log(parsed.traceId);
 
 ## Runtime State
 
-`LoopRuntimeState` 管理 Agent Loop 状态流转，配套导出：
+运行时状态管理 API 由 `index.js` re-export 提供：
 
+- `LoopRuntimeState`
 - `LoopRuntimeStatuses`
 - `LOOP_RUNTIME_TRANSITIONS`
-- `getRuntimeState`, `setRuntimeState`, `ensureRuntimeState`, `clearRuntimeState`
+- `getRuntimeState`
+- `setRuntimeState`
+- `ensureRuntimeState`
+- `clearRuntimeState`
 
 ## Replay / RunStore 遥测
 

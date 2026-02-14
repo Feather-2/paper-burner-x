@@ -26,38 +26,77 @@
 | `impl/context-predictor.js` | `ContextPredictor`：上下文占用预测 |
 | `impl/compression-async.js` | 异步压缩 worker：`compressSessionHistoryAsync` / `terminateCompressionWorker` / `isCompressionWorkerAvailable` |
 
-## 关键概念
+## 服务与事件契约
 
-- 服务接口：`compression.compress/shouldCompress/getStats`，`watchdog.check/getHealth`
+- `compression` 服务：
+  - `compress(options)`：执行压缩并更新 `state.lastCompression`
+  - `shouldCompress()`：按 token 占用与阈值给出压缩建议
+  - `getStats()`：返回压缩统计
+- `watchdog` 服务：
+  - `check()`：立即执行一次阈值检查
+  - `getHealth()`：返回健康状态与最近检查信息
 - 事件（建议统一采用 `domain:action` 形式）：
   - `compression:done`
   - `compression:warning`
   - `watchdog:threshold:exceeded`（仅 `autoCompress=true` 时触发）
-- 运行时数据：读取 `runtime.tokens` 与 `runtime.messages`，写入 `state.health` 与 `state.lastCompression`
-- 监控触发：`checkInterval` 定时检查 + `runtime.tokens.*` 事件触发（约 1s 节流）
-- 清理机制：Watchdog 在上下文挂载 `ctx._watchdogCleanup`，用于重复安装或卸载时释放资源
-- 依赖关系：`compression/watchdog` 依赖 `compression/cicada`
+
+## 关键概念
+
+- 运行时数据：读取 `runtime.tokens` 与 `runtime.messages`，写入 `state.health` 与 `state.lastCompression`。
+- 监控触发：`checkInterval` 定时检查 + `runtime.tokens.*` 事件触发（约 1s 节流）。
+- 清理机制：Watchdog 在上下文挂载 `ctx._watchdogCleanup`，用于重复安装或卸载时释放资源。
+- 依赖关系：`compression/watchdog` 依赖 `compression/cicada`。
 
 ## 常见任务
 
-启用插件并配置阈值：
+启用 Cicada + Watchdog：
 
 ```javascript
 import { Kernel } from 'js/agents/core';
 
 const kernel = new Kernel();
-await kernel.use('compression/cicada', { maxContextTokens: 120000, compressionRatio: 0.6 });
-await kernel.use('compression/watchdog', { threshold: 0.8, autoCompress: true });
+
+await kernel.use('compression/cicada', {
+  maxContextTokens: 120000,
+  warningRatio: 0.9
+});
+
+await kernel.use('compression/watchdog', {
+  maxContextTokens: 120000,
+  warningRatio: 0.9,
+  autoCompress: true,
+  checkInterval: 5000
+});
 ```
 
-手动压缩一次：
+手动触发一次压缩：
 
 ```javascript
-const result = await kernel.call('compression', 'compress', [messages], { targetTokens: 6000 });
+const compression = kernel.service('compression');
+
+if (compression.shouldCompress()) {
+  await compression.compress({ reason: 'manual' });
+}
 ```
 
-获取当前健康状态：
+使用异步压缩 worker：
 
 ```javascript
-const health = await kernel.call('watchdog', 'getHealth');
+import {
+  compressSessionHistoryAsync,
+  terminateCompressionWorker,
+  isCompressionWorkerAvailable
+} from 'js/agents/plugins/compression';
+
+if (isCompressionWorkerAvailable()) {
+  const result = await compressSessionHistoryAsync(messages, { targetRatio: 0.5 });
+  console.log(result);
+  terminateCompressionWorker();
+}
 ```
+
+## 维护建议
+
+- 新增或修改事件名时，同步更新本文档中的事件契约。
+- 调整阈值策略（如 `warningRatio`）时，同步更新告警语义说明。
+- 新增 `impl/*` 压缩策略时，同步更新「核心文件」与「依赖关系」章节，保持索引完整。

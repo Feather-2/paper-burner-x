@@ -71,45 +71,17 @@ await editAgent.run(initialState, {
 - `code: 'ETIMEDOUT'`
 - `timeoutMs: number`
 
-建议调用方捕获并转换为用户友好提示，不要将详细堆栈直接暴露到 UI。
+上层调用方应将超时错误映射为用户可理解提示，并结合 `EditHistoryManager` 执行重试或回滚策略。
 
-## 编辑工具
+### 历史回滚与事务
 
-```javascript
-import { EditModeTools, createEditToolExecutor } from 'js/agents/stages/design/edit-mode';
+- `EditHistoryManager` 负责 `undo` / `redo`。
+- 支持事务批处理，把一组原子编辑操作合并为一个历史节点。
+- 对支持 backtrack 的阶段，建议将“意图解析 + 工具执行 + 状态提交”置于同一事务边界，避免部分成功导致状态分叉。
 
-const executor = createEditToolExecutor({ timeoutMs: 30_000, tools: EditModeTools });
-```
+### 测试建议（edit-mode）
 
-- `EditModeTools` 基于 `EditOperationType` 组织可执行操作。
-- 未注册操作应返回受控错误（例如 `Unsupported edit operation`）。
-- 工具执行应统一经过超时与错误包装。
-
-## 历史管理（EditHistoryManager）
-
-```javascript
-import { EditHistoryManager } from 'js/agents/stages/design/edit-mode';
-
-const history = new EditHistoryManager(50, {
-  onUndo(op) {
-    // undo hook
-  },
-  onRedo(op) {
-    // redo hook
-  }
-});
-```
-
-能力说明：
-- 撤销/重做双栈管理（`history` + `redoStack`）。
-- 支持事务批处理（transaction）：在事务中多次 `push` 可合并为单条历史记录。
-- 默认历史上限为 `50`（可配置，非法值自动回退默认）。
-- `onUndo` / `onRedo` 可作为副作用钩子统一埋点或同步 UI。
-
-## 模块导出
-
-`index.js` 统一导出：
-- `EditModeAgentLoop`
-- `EditModeTools`
-- `createEditToolExecutor`
-- `EditHistoryManager`
+- 正常流程：`chat_message -> tool calls -> state commit`。
+- 异常恢复：model/tool/canvas 超时后的错误可见性与回滚一致性。
+- 边界输入：空 action、超长 message、非法 action type、深层 intent JSON。
+- 并发边界：连续 `undo/redo` 与快速多次 `quick_action`。

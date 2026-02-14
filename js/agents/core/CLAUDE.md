@@ -55,38 +55,42 @@
 ## EventBus 要点
 
 - 支持精确订阅、通配订阅与优先级订阅
+- 事件名与模式由 `event-bus-utils.js` 统一校验，支持 `:` 与 `.` 分隔
+- 支持 `*` / `?` 通配规则的模式匹配
 - 背压默认参数在 `event-bus-helpers.js` 统一定义
-- 对 RegExp 匹配重置 `lastIndex`，避免 `/g`、`/y` 引发状态污染
-- RunStore 适配器在运行时校验 `getEvents`、`appendEvents/appendEvent` 形状
+- 对 RegExp 相关路径使用安全测试与输入校验，避免异常模式影响调度
+- 监听器应在插件停止或上下文释放时退订，防止内存泄漏
 
-## 常用模式
+## StateBus 要点
 
-```javascript
-import { createPlugin, adaptProvider, isServiceProvider } from 'js/agents/core';
+- 提供细粒度状态订阅，减少无关更新传播
+- 建议通过受控状态变更路径更新数据，避免共享可变对象导致竞态
+- 对高并发更新场景需明确冲突处理策略
 
-const analyticsPlugin = createPlugin({
-  name: 'analytics',
-  async install(ctx) {
-    const off = ctx.events.on('agent:step', (event) => track(event), { priority: 10 });
-    return () => off();
-  }
-});
+## ServiceBus 要点
 
-if (isServiceProvider(legacyProvider)) {
-  kernel.use(adaptProvider(legacyProvider));
-}
-```
+- 提供服务注册/发现与统一调用入口
+- 内置 Retry/Timeout/Cache 代理能力
+- 服务命名遵循 camelCase，便于跨模块一致发现与治理
 
-## 稳定性建议
+## MessageBus 要点
 
-- Kernel/EventBus/StateBus 属于全局关键路径，插件不可直接改写内核私有状态
-- 兼容层内部状态建议使用私有符号或闭包，避免与其他插件上下文字段冲突
-- 长生命周期订阅必须在卸载时显式退订，避免监听器泄漏
-- 外部输入（provider 名称、配置对象、事件 payload）应做类型与边界校验
+- 基于 EventBus 提供 RPC 请求-响应语义
+- 用于跨 Agent/Stage 的通信编排
+- 请求侧应配置超时与错误回传策略，避免悬挂请求
 
-## 测试建议
+## Plugin 与安全边界
 
-- 状态机转换：覆盖 install/start/stop/error 分支
-- 并发安全：覆盖并发 emit 与优先级订阅排序稳定性
-- 插件生命周期：覆盖 legacy provider 注册、启动、停止一致性
-- 覆盖率目标：模块级 ≥ 90%，最低 ≥ 70%
+- 使用 `createPlugin` 定义插件，统一接入生命周期
+- PluginManager 负责安装与生命周期调度
+- PluginContext 提供受控能力入口，减少对内核内部状态的直接耦合
+- 远程插件加载通过 `secure-plugin-loader.js` 执行 SRI 校验
+- 不可信插件建议结合 `sandbox/` 子模块隔离运行
+
+## 维护与测试建议
+
+- 事件名遵循 `domain:action`（如 `agent:step`）
+- 异步调用要么显式处理异常，要么向上抛出
+- 避免 `eval` / `new Function` / 未校验动态执行路径
+- 重点测试：状态机转换、并发安全、插件生命周期、监听器释放
+- 覆盖率目标 ≥ 90%（最低不低于 70%）
