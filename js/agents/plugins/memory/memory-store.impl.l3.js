@@ -91,6 +91,33 @@ export function defineL3Layer() {
 
       this._l3StoragePromise = (async () => {
         const created = new L3Storage({ vfs, runId: this.runId });
+        await created.init();
+        // Hydrate in-memory index + snapshots from VFS so RetrievalEngine can recall across sessions
+        const timeline = created.getTimeline();
+        if (Array.isArray(timeline) && timeline.length > 0) {
+          for (const entry of timeline) {
+            if (!entry?.id) continue;
+            const exists = this._L3.index.timeline.some((t) => t?.id === entry.id);
+            if (exists) continue;
+            this._L3.index.timeline.push({ id: entry.id, ts: entry.ts, summary: entry.summary });
+            try {
+              const snap = await created.getSnapshot(entry.id);
+              if (snap) {
+                this._L3.snapshots.set(entry.id, snap);
+                // Rebuild keyword index from snapshot metadata
+                const kws = Array.isArray(snap.keywords) ? snap.keywords : [];
+                for (const kw of kws) {
+                  const k = toNonEmptyString(kw)?.toLowerCase();
+                  if (!k) continue;
+                  let idSet = this._L3.index.keywords.get(k);
+                  if (!idSet) { idSet = new Set(); this._L3.index.keywords.set(k, idSet); }
+                  idSet.add(entry.id);
+                }
+                if (snap.stageKey) this._L3.index.stages.set(snap.stageKey, entry.id);
+              }
+            } catch (_) { /* best-effort */ }
+          }
+        }
         this._l3Storage = created;
         return created;
       })();
@@ -157,13 +184,24 @@ export function defineL3Layer() {
       if (l3Storage) {
         const id = await l3Storage.archive(stageKey, data, keywords);
         const entry = await l3Storage.getSnapshot(id);
-        if (entry) {
-          this._emit("memory:archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
-          this._emit("memory:l3:archive", { id, stageKey: entry.stageKey, keywordCount: keywords.length });
-        } else {
-          this._emit("memory:archived", { id, stageKey, ts: Date.now() });
-          this._emit("memory:l3:archive", { id, stageKey, keywordCount: keywords.length });
+
+        // Sync to in-memory Map so RetrievalEngine can recall without VFS round-trip
+        const memEntry = entry || { id, stageKey, data, summary: data.summary || truncate(JSON.stringify(data), 200), ts: Date.now() };
+        this._L3.snapshots.set(id, memEntry);
+        this._L3.index.timeline.push({ id, ts: memEntry.ts, summary: memEntry.summary });
+        for (const kw of keywords) {
+          const k = toNonEmptyString(kw)?.toLowerCase();
+          if (!k) continue;
+          let idSet = this._L3.index.keywords.get(k);
+          if (!idSet) { idSet = new Set(); this._L3.index.keywords.set(k, idSet); }
+          idSet.add(id);
         }
+        if (stageKey) this._L3.index.stages.set(stageKey, id);
+
+        const summary = memEntry.summary;
+        const stKey = memEntry.stageKey || stageKey;
+        this._emit("memory:archived", { id, stageKey: stKey, summary, ts: memEntry.ts });
+        this._emit("memory:l3:archive", { id, stageKey: stKey, keywordCount: keywords.length });
         this._stats.archiveCount = (this._stats.archiveCount || 0) + 1;
         return id;
       }

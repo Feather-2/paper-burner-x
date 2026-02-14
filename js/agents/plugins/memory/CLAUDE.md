@@ -12,7 +12,7 @@ Agent 记忆存储、状态引擎和检索。
 | `memory-store.impl.l0.js` | L0 层：systemPrompt/taskGoal/todos |
 | `memory-store.impl.l1.js` | L1 层：messages/signals/decisions/scratchpad/flags/deck + discovery/subagent sync |
 | `memory-store.impl.l2.js` | L2 层：historySummary/stageSummaries/claims + summaries/decisions |
-| `memory-store.impl.l3.js` | L3 层：archive/index/checkpoint + RetrievalEngine/L3Storage 桥接 |
+| `memory-store.impl.l3.js` | L3 层：archive/index/checkpoint + RetrievalEngine/L3Storage 桥接（含跨会话水合与索引重建） |
 | `memory-store.impl.utils.js` | token/ID/字节估算工具 |
 | `unified-memory-store.js` | UnifiedMemoryStore 入口 (StateEngine SSOT) |
 | `unified-memory-store.query.js` | UnifiedMemoryStore 查询/汇总方法 |
@@ -48,3 +48,9 @@ await store.archive('stage1', { summary: '...' }, ['keyword1']);
 // 查看最近归档
 const archives = store.listArchives(5);
 ```
+
+## L3 层（跨会话持久化）
+
+- `L3Storage.init()` 后，`MemoryStore` 会从 VFS 水合 `timeline/snapshots` 到内存索引（`_L3.index` + `_L3.snapshots`），支持跨会话检索。
+- `archive()` 在写入 `L3Storage` 后会同步快照到内存 `Map` 与时间线，减少读取时的 VFS 往返。
+- 水合阶段会基于快照元数据重建关键词索引（并恢复 stage 映射），确保 `RetrievalEngine` 可进行跨会话召回。

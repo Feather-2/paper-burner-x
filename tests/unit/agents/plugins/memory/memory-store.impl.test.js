@@ -43,6 +43,8 @@ vi.mock('../../../../../js/agents/plugins/memory/l3-storage.js', () => {
       });
       this.getCheckpoint = vi.fn(async (id) => this.checkpoints.find((item) => item.id === id) || null);
       this.dispose = vi.fn(async () => {});
+      this.init = vi.fn(async () => {});
+      this.getTimeline = vi.fn(() => []);
       l3StorageInstances.push(this);
     }
   }

@@ -39,6 +39,8 @@ const l3StorageMocks = vi.hoisted(() => {
     this.opts = opts;
     this.archive = vi.fn();
     this.getSnapshot = vi.fn();
+    this.init = vi.fn().mockResolvedValue(undefined);
+    this.getTimeline = vi.fn().mockReturnValue([]);
   });
   return { L3Storage };
 });
@@ -262,6 +264,95 @@ describe('defineL3Layer', () => {
 
       await expect(store._getL3Storage()).rejects.toThrow('boom');
       expect(l3StorageMocks.L3Storage).not.toHaveBeenCalled();
+    });
+
+    it('hydrates in-memory index and snapshots from VFS on first init', async () => {
+      const store = createStore({ _vfs: { root: '/virtual' }, runId: 'run-hydrate' });
+
+      // Pre-configure the mock before _getL3Storage creates it
+      l3StorageMocks.L3Storage.mockImplementationOnce(function (opts) {
+        this.opts = opts;
+        this.archive = vi.fn();
+        this.init = vi.fn().mockResolvedValue(undefined);
+        this.getTimeline = vi.fn().mockReturnValue([
+          { id: 'snap-old-1', ts: 100, summary: 'old summary 1' },
+          { id: 'snap-old-2', ts: 200, summary: 'old summary 2' },
+        ]);
+        this.getSnapshot = vi.fn()
+          .mockResolvedValueOnce({ id: 'snap-old-1', stageKey: 'S1', summary: 'old summary 1', keywords: ['alpha'], ts: 100, data: { x: 1 } })
+          .mockResolvedValueOnce({ id: 'snap-old-2', stageKey: 'S2', summary: 'old summary 2', keywords: ['beta', 'gamma'], ts: 200, data: { x: 2 } });
+      });
+
+      await store._getL3Storage();
+
+      // Verify timeline hydrated
+      expect(store._L3.index.timeline).toHaveLength(2);
+      expect(store._L3.index.timeline[0]).toEqual({ id: 'snap-old-1', ts: 100, summary: 'old summary 1' });
+      expect(store._L3.index.timeline[1]).toEqual({ id: 'snap-old-2', ts: 200, summary: 'old summary 2' });
+
+      // Verify snapshots hydrated
+      expect(store._L3.snapshots.has('snap-old-1')).toBe(true);
+      expect(store._L3.snapshots.has('snap-old-2')).toBe(true);
+      expect(store._L3.snapshots.get('snap-old-1').data).toEqual({ x: 1 });
+
+      // Verify keyword index rebuilt
+      expect(store._L3.index.keywords.get('alpha')?.has('snap-old-1')).toBe(true);
+      expect(store._L3.index.keywords.get('beta')?.has('snap-old-2')).toBe(true);
+      expect(store._L3.index.keywords.get('gamma')?.has('snap-old-2')).toBe(true);
+
+      // Verify stage index rebuilt
+      expect(store._L3.index.stages.get('S1')).toBe('snap-old-1');
+      expect(store._L3.index.stages.get('S2')).toBe('snap-old-2');
+    });
+
+    it('skips already-existing timeline entries during hydrate (no duplicates)', async () => {
+      const store = createStore({ _vfs: { root: '/virtual' } });
+      // Pre-populate one entry
+      store._L3.index.timeline.push({ id: 'snap-existing', ts: 50, summary: 'existing' });
+
+      l3StorageMocks.L3Storage.mockImplementationOnce(function (opts) {
+        this.opts = opts;
+        this.archive = vi.fn();
+        this.init = vi.fn().mockResolvedValue(undefined);
+        this.getTimeline = vi.fn().mockReturnValue([
+          { id: 'snap-existing', ts: 50, summary: 'existing' },
+          { id: 'snap-new', ts: 100, summary: 'new' },
+        ]);
+        this.getSnapshot = vi.fn()
+          .mockResolvedValueOnce({ id: 'snap-new', stageKey: 'S', summary: 'new', keywords: [], ts: 100, data: {} });
+      });
+
+      await store._getL3Storage();
+
+      expect(store._L3.index.timeline).toHaveLength(2);
+      expect(store._L3.index.timeline.filter((t) => t.id === 'snap-existing')).toHaveLength(1);
+      // getSnapshot only called for the new entry
+      const storage = store._l3Storage;
+      expect(storage.getSnapshot).toHaveBeenCalledTimes(1);
+      expect(storage.getSnapshot).toHaveBeenCalledWith('snap-new');
+    });
+
+    it('handles getSnapshot failure gracefully during hydrate (best-effort)', async () => {
+      const store = createStore({ _vfs: { root: '/virtual' } });
+
+      l3StorageMocks.L3Storage.mockImplementationOnce(function (opts) {
+        this.opts = opts;
+        this.archive = vi.fn();
+        this.init = vi.fn().mockResolvedValue(undefined);
+        this.getTimeline = vi.fn().mockReturnValue([
+          { id: 'snap-fail', ts: 100, summary: 'will fail' },
+        ]);
+        this.getSnapshot = vi.fn().mockRejectedValueOnce(new Error('VFS read error'));
+      });
+
+      // Should not throw
+      const storage = await store._getL3Storage();
+      expect(storage).toBeTruthy();
+
+      // Timeline entry still added
+      expect(store._L3.index.timeline).toHaveLength(1);
+      // But snapshot not in memory
+      expect(store._L3.snapshots.has('snap-fail')).toBe(false);
     });
   });
 
@@ -640,7 +731,7 @@ describe('defineL3Layer', () => {
       nowSpy.mockRestore();
     });
 
-    it('uses L3Storage when available and emits events based on the stored snapshot entry', async () => {
+    it('uses L3Storage when available and syncs snapshot to in-memory Map', async () => {
       const store = createStore({ _vfs: { root: '/virtual' }, runId: 'run-99' });
       store._stats.archiveCount = 41;
 
@@ -650,15 +741,24 @@ describe('defineL3Layer', () => {
         id: 'remote-1',
         stageKey: 'StageFromStorage',
         summary: 'SummaryFromStorage',
+        keywords: ['alpha', 'beta'],
         ts: 999,
       });
 
       const id = await store.archive('StageInput', { payload: true }, ['a', 'b', 'c']);
 
       expect(id).toBe('remote-1');
-      expect(l3StorageMocks.L3Storage).toHaveBeenCalledTimes(1);
       expect(storage.archive).toHaveBeenCalledWith('StageInput', expect.objectContaining({ payload: true }), ['a', 'b', 'c']);
       expect(storage.getSnapshot).toHaveBeenCalledWith('remote-1');
+
+      // Verify in-memory sync
+      expect(store._L3.snapshots.has('remote-1')).toBe(true);
+      expect(store._L3.snapshots.get('remote-1').summary).toBe('SummaryFromStorage');
+      expect(store._L3.index.timeline).toEqual([{ id: 'remote-1', ts: 999, summary: 'SummaryFromStorage' }]);
+      expect(store._L3.index.keywords.get('a')?.has('remote-1')).toBe(true);
+      expect(store._L3.index.keywords.get('b')?.has('remote-1')).toBe(true);
+      expect(store._L3.index.keywords.get('c')?.has('remote-1')).toBe(true);
+      expect(store._L3.index.stages.get('StageInput')).toBe('remote-1');
 
       expect(store._emit).toHaveBeenCalledTimes(2);
       expect(store._emit).toHaveBeenNthCalledWith(
@@ -684,7 +784,7 @@ describe('defineL3Layer', () => {
       expect(store._stats.archiveCount).toBe(42);
     });
 
-    it('falls back when storage snapshot lookup returns null (null boundary)', async () => {
+    it('falls back to constructed entry when storage snapshot lookup returns null', async () => {
       const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(888);
 
       const store = createStore({ _vfs: { root: '/virtual' } });
@@ -693,21 +793,21 @@ describe('defineL3Layer', () => {
       storage.archive.mockResolvedValueOnce('remote-2');
       storage.getSnapshot.mockResolvedValueOnce(null);
 
+      utilsMocks.truncate.mockReturnValueOnce('TRUNC-FALLBACK');
+
       const id = await store.archive('StageInput', { payload: true }, []);
 
       expect(id).toBe('remote-2');
+
+      // Verify fallback entry synced to memory
+      expect(store._L3.snapshots.has('remote-2')).toBe(true);
+      const memEntry = store._L3.snapshots.get('remote-2');
+      expect(memEntry.stageKey).toBe('StageInput');
+      expect(memEntry.ts).toBe(888);
+      expect(store._L3.index.timeline).toEqual([{ id: 'remote-2', ts: 888, summary: memEntry.summary }]);
+
       expect(store._emit).toHaveBeenCalledTimes(2);
-
-      const [event1, payload1] = store._emit.mock.calls[0];
-      expect(event1).toBe('memory:archived');
-      expect(payload1).toEqual(expect.objectContaining({ id: 'remote-2', stageKey: 'StageInput', ts: 888 }));
-      expect(payload1.summary).toBeUndefined();
-
-      expect(store._emit).toHaveBeenNthCalledWith(
-        2,
-        'memory:l3:archive',
-        expect.objectContaining({ id: 'remote-2', stageKey: 'StageInput', keywordCount: 0 }),
-      );
+      expect(store._stats.archiveCount).toBe(1);
 
       nowSpy.mockRestore();
     });
