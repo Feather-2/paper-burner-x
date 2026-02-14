@@ -26,7 +26,7 @@ function str(v) {
 
 export class CostAggregator {
   /**
-   * @param {{ eventBus?: { on?: Function, emit?: Function } }} [options]
+   * @param {{ eventBus?: { on?: Function, emit?: Function }, archive?: import("../../core/archive/archive-core.js").Archive, runId?: string }} [options]
    */
   constructor(options = {}) {
     /** @type {Map<string, object>} */
@@ -34,6 +34,11 @@ export class CostAggregator {
     this._eventBus = options?.eventBus ?? null;
     this._unsubscribe = null;
     this.disposed = false;
+
+    // Archive 持久化支持
+    this._archive = options?.archive ?? null;
+    this._runId = options?.runId ?? `cost_aggregator_${Date.now()}`;
+    this._initPromise = null;
 
     if (this._eventBus && typeof this._eventBus.on === 'function') {
       this._unsubscribe = this._eventBus.on('llm:complete', (evt) => {
@@ -44,6 +49,55 @@ export class CostAggregator {
         } catch { /* best-effort */ }
       });
     }
+  }
+
+  /**
+   * 初始化 CostAggregator，从 Archive 恢复数据（如果可用）
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+    if (!this._archive) return;
+
+    this._initPromise = (async () => {
+      try {
+        const checkpoints = await this._archive.list(this._runId);
+        if (!Array.isArray(checkpoints) || checkpoints.length === 0) return;
+
+        // 获取最新的检查点
+        const latest = checkpoints[0];
+        if (!latest?.id) return;
+
+        const restored = await this._archive.load(latest.id);
+        if (!restored) return;
+
+        // 使用已有的 restore 方法恢复数据
+        this.restore(restored);
+      } catch (err) {
+        // 持久化失败不影响内存操作
+        console.warn('[CostAggregator] Failed to hydrate from Archive:', err);
+      }
+    })();
+
+    return this._initPromise;
+  }
+
+  /**
+   * 持久化当前状态到 Archive（异步，不阻塞）
+   * @private
+   */
+  _persistToArchive() {
+    if (!this._archive) return;
+
+    queueMicrotask(async () => {
+      try {
+        const snapshot = this.getSnapshot();
+        await this._archive.save(this._runId, snapshot);
+      } catch (err) {
+        // 持久化失败不影响内存操作
+        console.warn('[CostAggregator] Failed to persist to Archive:', err);
+      }
+    });
   }
 
   /**
@@ -92,6 +146,9 @@ export class CostAggregator {
     modelEntry.promptTokens += prompt;
     modelEntry.completionTokens += completion;
     modelEntry.totalTokens += total;
+
+    // 异步持久化到 Archive（不阻塞）
+    this._persistToArchive();
 
     return { ok: true };
   }

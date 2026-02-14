@@ -43,8 +43,10 @@ export class TokenTracker {
    * @param {object} options
    * @param {number} [options.maxRecords=500] - 最大记录数
    * @param {function} [options.onRecord] - 记录回调
+   * @param {import("../../core/archive/archive-core.js").Archive} [options.archive] - Archive 实例（可选）
+   * @param {string} [options.runId] - 运行 ID（可选）
    */
-  constructor({ maxRecords = MAX_RECORDS, onRecord = null } = {}) {
+  constructor({ maxRecords = MAX_RECORDS, onRecord = null, archive = null, runId = null } = {}) {
     this.maxRecords = Math.min(toNonNegativeInt(maxRecords, MAX_RECORDS), MAX_RECORDS);
     this.onRecord = typeof onRecord === "function" ? onRecord : null;
 
@@ -66,6 +68,105 @@ export class TokenTracker {
       byUsage: new Map(),
       byProvider: new Map(),
     };
+
+    // Archive 持久化支持
+    this._archive = archive || null;
+    this._runId = runId || `token_tracker_${Date.now()}`;
+    this._initPromise = null;
+  }
+
+  /**
+   * 初始化 TokenTracker，从 Archive 恢复数据（如果可用）
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+    if (!this._archive) return;
+
+    this._initPromise = (async () => {
+      try {
+        const checkpoints = await this._archive.list(this._runId);
+        if (!Array.isArray(checkpoints) || checkpoints.length === 0) return;
+
+        // 获取最新的检查点
+        const latest = checkpoints[0];
+        if (!latest?.id) return;
+
+        const restored = await this._archive.load(latest.id);
+        if (!restored) return;
+
+        // 恢复 ring buffer 状态
+        if (Array.isArray(restored.records)) {
+          this._records = restored.records.slice(0, this.maxRecords);
+          this._head = typeof restored.head === 'number' ? restored.head : 0;
+          this._size = typeof restored.size === 'number' ? restored.size : 0;
+        }
+
+        // 恢复聚合统计
+        if (restored.stats && typeof restored.stats === 'object') {
+          const s = restored.stats;
+          this._stats.totalCalls = typeof s.totalCalls === 'number' ? s.totalCalls : 0;
+          this._stats.successCalls = typeof s.successCalls === 'number' ? s.successCalls : 0;
+          this._stats.failedCalls = typeof s.failedCalls === 'number' ? s.failedCalls : 0;
+          this._stats.totalPromptTokens = typeof s.totalPromptTokens === 'number' ? s.totalPromptTokens : 0;
+          this._stats.totalCompletionTokens = typeof s.totalCompletionTokens === 'number' ? s.totalCompletionTokens : 0;
+          this._stats.totalTokens = typeof s.totalTokens === 'number' ? s.totalTokens : 0;
+          this._stats.totalLatencyMs = typeof s.totalLatencyMs === 'number' ? s.totalLatencyMs : 0;
+
+          // 恢复 Map 对象
+          if (s.byModel && typeof s.byModel === 'object') {
+            this._stats.byModel = new Map(Object.entries(s.byModel));
+          }
+          if (s.byUsage && typeof s.byUsage === 'object') {
+            this._stats.byUsage = new Map(Object.entries(s.byUsage));
+          }
+          if (s.byProvider && typeof s.byProvider === 'object') {
+            this._stats.byProvider = new Map(Object.entries(s.byProvider));
+          }
+        }
+      } catch (err) {
+        // 持久化失败不影响内存操作
+        console.warn('[TokenTracker] Failed to hydrate from Archive:', err);
+      }
+    })();
+
+    return this._initPromise;
+  }
+
+  /**
+   * 持久化当前状态到 Archive（异步，不阻塞）
+   * @private
+   */
+  _persistToArchive() {
+    if (!this._archive) return;
+
+    queueMicrotask(async () => {
+      try {
+        const snapshot = {
+          records: this.getAllRecords(),
+          head: this._head,
+          size: this._size,
+          stats: {
+            totalCalls: this._stats.totalCalls,
+            successCalls: this._stats.successCalls,
+            failedCalls: this._stats.failedCalls,
+            totalPromptTokens: this._stats.totalPromptTokens,
+            totalCompletionTokens: this._stats.totalCompletionTokens,
+            totalTokens: this._stats.totalTokens,
+            totalLatencyMs: this._stats.totalLatencyMs,
+            byModel: Object.fromEntries(this._stats.byModel),
+            byUsage: Object.fromEntries(this._stats.byUsage),
+            byProvider: Object.fromEntries(this._stats.byProvider),
+          },
+          timestamp: Date.now(),
+        };
+
+        await this._archive.save(this._runId, snapshot);
+      } catch (err) {
+        // 持久化失败不影响内存操作
+        console.warn('[TokenTracker] Failed to persist to Archive:', err);
+      }
+    });
   }
 
   /**
@@ -120,6 +221,9 @@ export class TokenTracker {
     if (this.onRecord) {
       this.onRecord(record);
     }
+
+    // 异步持久化到 Archive（不阻塞）
+    this._persistToArchive();
 
     return record;
   }
