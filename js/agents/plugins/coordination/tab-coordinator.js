@@ -7,6 +7,8 @@ import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../../shared/i
  * - `_checkLeader()` and `_handleHeartbeat()` may interleave, so transient split-brain
  *   (multiple tabs briefly believing they are leader) can occur under timer skew,
  *   background tab throttling, or delayed message delivery.
+ * - Split-brain detection: When a tab receives a heartbeat from another leader with
+ *   a smaller tabId, it will step down and trigger re-election.
  * - Consumers should treat leader-triggered side effects as idempotent and eventually
  *   consistent, not as a strict lock/mutex guarantee.
  */
@@ -21,6 +23,7 @@ import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../../shared/i
  * @property {string} tabId
  * @property {string} [sessionId]
  * @property {number} ts
+ * @property {boolean} [isLeader]
  */
 
 /**
@@ -274,7 +277,22 @@ export class TabCoordinator {
   _sendHeartbeat() {
     if (this._disposed) return;
     this._noteTabSeen(this._tabId);
-    this._broadcast("heartbeat");
+
+    if (!this._supported || !this._channel) return;
+
+    /** @type {TabCoordinatorMessage} */
+    const message = {
+      type: "heartbeat",
+      tabId: this._tabId,
+      ts: Date.now(),
+      isLeader: this._isLeader,
+    };
+
+    try {
+      this._channel.postMessage(message);
+    } catch (err) {
+      this._logWarn("[TabCoordinator] Failed to post heartbeat:", err);
+    }
   }
 
   /**
@@ -297,6 +315,17 @@ export class TabCoordinator {
     if (message.type === "session-accessed") {
       if (!message.sessionId) return;
       this._safeCall(this._onAccess, message.sessionId, "onAccess");
+      return;
+    }
+
+    if (message.type === "heartbeat") {
+      if (message.isLeader && this._isLeader) {
+        if (compareTabIds(message.tabId, this._tabId) < 0) {
+          this._logWarn("[TabCoordinator] Split-brain detected, stepping down");
+          this._isLeader = false;
+          this._triggerReelection();
+        }
+      }
       return;
     }
 
@@ -380,6 +409,11 @@ export class TabCoordinator {
     if (!leaderId) leaderId = this._tabId;
     this._leaderId = leaderId;
     this._isLeader = leaderId === this._tabId;
+  }
+
+  _triggerReelection() {
+    this._broadcast("leader-election");
+    this._refreshPresence();
   }
 
   /**
