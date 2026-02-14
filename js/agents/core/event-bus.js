@@ -152,8 +152,70 @@ export class EventBus {
     this._persistenceAdapter = adapter;
     this._onListenerError = options.onListenerError || null;
 
+    // Archive 集成（用于历史持久化）
+    /** @type {import('../archive/archive-core.js').Archive | null} */
+    this._archive = options.archive || null;
+
     // 等待队列 (用于 waitFor)
     this._waiters = new Map(); // pattern -> Set({ resolve, reject, timer })
+
+    /** @type {Promise<void> | null} */
+    this._initPromise = null;
+  }
+
+  // ============================================================
+  // 初始化
+  // ============================================================
+
+  /**
+   * 初始化 EventBus，从 Archive 恢复历史（如果可用）
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+    if (!this._archive || !this._history) return;
+
+    this._initPromise = (async () => {
+      try {
+        const checkpoints = await this._archive.list(this.runId);
+        if (!Array.isArray(checkpoints) || checkpoints.length === 0) return;
+
+        // Hydrate history from Archive to memory
+        for (const ckpt of checkpoints) {
+          if (!ckpt?.id) continue;
+          const parts = ckpt.id.split(':');
+          if (parts.length < 2) continue;
+
+          // 只恢复 history 类型的检查点
+          if (!ckpt.id.includes(':history:')) continue;
+
+          try {
+            const restored = await this._archive.load(ckpt.id);
+            if (restored?.events && Array.isArray(restored.events)) {
+              // 合并历史事件到内存，去重
+              const existingIds = new Set(this._history.map(e => e.eventId));
+              for (const evt of restored.events) {
+                if (evt?.eventId && !existingIds.has(evt.eventId)) {
+                  this._history.push(evt);
+                  existingIds.add(evt.eventId);
+                }
+              }
+
+              // 保持历史大小限制
+              if (this._history.length > this._maxHistory) {
+                this._history.splice(0, this._history.length - this._maxHistory);
+              }
+            }
+          } catch (err) {
+            logger.warn(`Failed to hydrate history from ${ckpt.id}:`, err);
+          }
+        }
+      } catch (err) {
+        logger.warn('Failed to hydrate history from Archive:', err);
+      }
+    })();
+
+    return this._initPromise;
   }
 
   // ============================================================
@@ -221,9 +283,12 @@ export class EventBus {
       if (this._history.length > this._maxHistory) {
         this._history.shift();
       }
+
+      // 持久化历史到 Archive (dual-write pattern)
+      this._persistHistoryAsync();
     }
 
-    // 持久化
+    // 持久化到 persistenceAdapter
     this._persistAsync([evt]);
 
     // 检查 waitFor
@@ -253,6 +318,9 @@ export class EventBus {
       if (this._history.length > this._maxHistory) {
         this._history.shift();
       }
+
+      // 持久化历史到 Archive (dual-write pattern)
+      this._persistHistoryAsync();
     }
 
     this._resolveWaiters(name, evt);
@@ -388,10 +456,34 @@ export class EventBus {
 
   /**
    * 清空历史
-   * @returns {void}
+   * @returns {void | Promise<void>}
    */
   clearHistory() {
-    if (this._history) this._history.length = 0;
+    if (!this._history) return;
+
+    this._history.length = 0;
+
+    // 清理 Archive 中的历史检查点
+    if (this._archive && this.runId) {
+      return (async () => {
+        try {
+          const checkpoints = await this._archive.list(this.runId);
+          if (!Array.isArray(checkpoints)) return;
+
+          for (const ckpt of checkpoints) {
+            if (ckpt?.id && ckpt.id.includes(':history:')) {
+              try {
+                await this._archive.delete(ckpt.id);
+              } catch (err) {
+                logger.debug(`Failed to delete history checkpoint ${ckpt.id}:`, err);
+              }
+            }
+          }
+        } catch (err) {
+          logger.warn('Failed to clear history from Archive:', err);
+        }
+      })();
+    }
   }
 
   /**
@@ -700,6 +792,31 @@ export class EventBus {
           logger.debug("Failed to emit persistence failure telemetry", { error: err?.message });
         }
       }
+    });
+  }
+
+  /**
+   * 异步持久化历史到 Archive (dual-write pattern)
+   * @private
+   * @returns {void}
+   */
+  _persistHistoryAsync() {
+    if (!this._archive || !this._history || this._history.length === 0) return;
+
+    queueMicrotask(() => {
+      (async () => {
+        try {
+          const checkpointId = `${this.runId}:history:${Date.now()}`;
+          await this._archive.save(checkpointId, {
+            schemaVersion: 1,
+            events: [...this._history],
+            timestamp: Date.now(),
+            metadata: { runId: this.runId, eventCount: this._history.length },
+          });
+        } catch (err) {
+          logger.warn('Failed to persist history to Archive:', err);
+        }
+      })();
     });
   }
 
