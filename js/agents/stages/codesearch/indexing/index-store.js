@@ -1,8 +1,9 @@
-import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
+import { isPlainObject, toNonEmptyString, createLogger } from "../../../shared/index.js";
 
 const DB_NAME = "CodeSearchIndexDB";
 const DB_VERSION = 1;
 const STORE_SYMBOLS = "symbols";
+const logger = createLogger("stages/codesearch/index-store");
 
 /**
  * @typedef {object} SymbolRecord
@@ -66,13 +67,15 @@ function recordKey(workspaceId, path) {
 
 export class CodeSearchIndexStore {
   /**
-   * @param {{ dbName?: string, dbVersion?: number }=} options
+   * @param {{ dbName?: string, dbVersion?: number, tabCoordinator?: any }=} options
    */
-  constructor({ dbName = DB_NAME, dbVersion = DB_VERSION } = {}) {
+  constructor({ dbName = DB_NAME, dbVersion = DB_VERSION, tabCoordinator } = {}) {
     this.dbName = dbName;
     this.dbVersion = dbVersion;
     this._dbp = null;
     this._mem = new Map(); // key -> record
+    this._tabCoordinator = tabCoordinator || null;
+    this._bc = null;
   }
 
   /**
@@ -101,16 +104,86 @@ export class CodeSearchIndexStore {
       return null;
     });
 
-    return this._dbp;
+    const db = await this._dbp;
+    if (db && typeof BroadcastChannel !== "undefined") {
+      try {
+        await this._attachTabCoordinator();
+      } catch (err) {
+        logger.warn("Failed to attach TabCoordinator:", err);
+      }
+    }
+
+    return db;
   }
 
   /**
    * @returns {Promise<void>}
    */
   async close() {
+    this._detachTabCoordinator();
     const db = await this._dbp;
     if (db) db.close();
     this._dbp = null;
+  }
+
+  /**
+   * @private
+   * @returns {Promise<void>}
+   */
+  async _attachTabCoordinator() {
+    if (this._bc) return;
+    if (typeof BroadcastChannel === "undefined") return;
+
+    try {
+      this._bc = new BroadcastChannel(`codesearch-index:${this.dbName}`);
+      this._bc.onmessage = (event) => {
+        if (event.data?.type === "update" && event.data?.key) {
+          this._handleRemoteUpdate(event.data.key);
+        }
+      };
+    } catch (err) {
+      logger.warn("Failed to create BroadcastChannel:", err);
+      this._bc = null;
+    }
+  }
+
+  /**
+   * @private
+   * @returns {void}
+   */
+  _detachTabCoordinator() {
+    if (this._bc) {
+      try {
+        this._bc.close();
+      } catch (err) {
+        logger.warn("Failed to close BroadcastChannel:", err);
+      }
+      this._bc = null;
+    }
+  }
+
+  /**
+   * @private
+   * @param {string} key
+   * @returns {void}
+   */
+  _broadcastUpdate(key) {
+    if (!this._bc) return;
+    try {
+      this._bc.postMessage({ type: "update", key });
+    } catch (err) {
+      logger.warn("Failed to broadcast update:", err);
+    }
+  }
+
+  /**
+   * @private
+   * @param {string} key
+   * @returns {void}
+   */
+  _handleRemoteUpdate(key) {
+    if (typeof key !== "string") return;
+    this._mem.delete(key);
   }
 
   /**
@@ -181,6 +254,7 @@ export class CodeSearchIndexStore {
     const store = tx.objectStore(STORE_SYMBOLS);
     store.put(record);
     await promisifyTransaction(tx);
+    this._broadcastUpdate(key);
     return key;
   }
 
