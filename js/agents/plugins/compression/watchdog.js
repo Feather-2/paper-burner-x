@@ -27,6 +27,28 @@ export default createPlugin({
    * @param {PluginContext} ctx
    * @returns {Promise<void>}
    */
+  async onStart(ctx) {
+    const archive = ctx._kernel?.archive || null;
+    const runId = ctx._kernel?.id || 'default';
+
+    if (archive) {
+      try {
+        const key = `compression:watchdog:${runId}:health`;
+        const restored = await archive.load(key);
+        if (restored?.data) {
+          ctx.state.set('health', restored.data);
+          ctx.log.info('Restored health from archive');
+        }
+      } catch (err) {
+        ctx.log.warn('Failed to restore health from archive:', err);
+      }
+    }
+  },
+
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async install(ctx) {
     // 防御：重复安装时先清理旧资源，避免 interval / listener 叠加
     if (typeof ctx._watchdogCleanup === 'function') {
@@ -52,11 +74,24 @@ export default createPlugin({
       const maxTokens = ctx.config.maxContextTokens || 100000;
       const usage = total / maxTokens;
 
-      ctx.state.set('health', {
+      const healthData = {
         usage,
         status: usage > ctx.config.threshold ? 'warning' : 'healthy',
         checkedAt: Date.now(),
-      });
+      };
+      ctx.state.set('health', healthData);
+
+      // 异步持久化
+      const archive = ctx._kernel?.archive || null;
+      const runId = ctx._kernel?.id || 'default';
+      if (archive) {
+        queueMicrotask(() => {
+          const key = `compression:watchdog:${runId}:health`;
+          archive.save(key, { data: healthData }).catch((err) => {
+            ctx.log.warn('Failed to persist health to archive:', err);
+          });
+        });
+      }
 
       if (usage > ctx.config.threshold && ctx.config.autoCompress) {
         ctx.events.emit('watchdog:threshold:exceeded', { usage, threshold: ctx.config.threshold });

@@ -52,6 +52,28 @@ export default createPlugin({
    * @param {PluginContext} ctx
    * @returns {Promise<void>}
    */
+  async onStart(ctx) {
+    const archive = ctx._kernel?.archive || null;
+    const runId = ctx._kernel?.id || 'default';
+
+    if (archive) {
+      try {
+        const key = `compression:cicada:${runId}:lastCompression`;
+        const restored = await archive.load(key);
+        if (restored?.data) {
+          ctx.state.set('lastCompression', restored.data);
+          ctx.log.info('Restored lastCompression from archive');
+        }
+      } catch (err) {
+        ctx.log.warn('Failed to restore lastCompression from archive:', err);
+      }
+    }
+  },
+
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async install(ctx) {
     // 懒加载 CicadaCompressor
     let compressor = null;
@@ -77,17 +99,30 @@ export default createPlugin({
         const result = await c.compress(messages, options);
 
         // 更新状态
-        ctx.state.set('lastCompression', {
+        const compressionData = {
           before: messages.length,
           after: result.messages?.length || messages.length,
           timestamp: Date.now(),
-        });
+        };
+        ctx.state.set('lastCompression', compressionData);
 
         ctx.events.emit('compression:done', {
           originalCount: messages.length,
           compressedCount: result.messages?.length,
           ratio: result.ratio,
         });
+
+        // 异步持久化
+        const archive = ctx._kernel?.archive || null;
+        const runId = ctx._kernel?.id || 'default';
+        if (archive) {
+          queueMicrotask(() => {
+            const key = `compression:cicada:${runId}:lastCompression`;
+            archive.save(key, { data: compressionData }).catch((err) => {
+              ctx.log.warn('Failed to persist lastCompression to archive:', err);
+            });
+          });
+        }
 
         return result;
       },
