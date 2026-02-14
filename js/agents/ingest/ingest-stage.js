@@ -317,11 +317,16 @@ export class IngestStage {
         logger?.debug?.(`[ingest-stage] Loaded ${checkpoints.length} checkpoint entries from Archive`);
       } catch (err) {
         const logger = { debug: console.debug, warn: console.warn };
-        logger?.warn?.(`[ingest-stage] Failed to load checkpoints from Archive: ${err.message}`);
+        logger?.warn?.(`[ingest-stage] Failed to load checkpoints from Archive: ${err.message} (degraded mode)`);
       }
     })();
 
-    return this._initPromise;
+    try {
+      return await this._initPromise;
+    } catch (err) {
+      this._initPromise = null;
+      throw err;
+    }
   }
 
   /**
