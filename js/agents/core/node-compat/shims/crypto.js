@@ -60,56 +60,6 @@ function normalizeAlgorithm(alg) {
   return map[alg.toLowerCase().replace('-', '')] || alg;
 }
 
-/**
- * Synchronous hash (FNV-1a based, NOT cryptographically secure).
- * WARNING: Output does NOT match real SHA-256/SHA-512. Use digestAsync() for correct hashes.
- * This exists only to satisfy synchronous Node.js API contracts where async is not possible.
- * @param {Uint8Array} data
- * @param {string} algorithm - normalized algorithm name
- * @returns {Uint8Array}
- */
-function syncHash(data, algorithm) {
-  const bytes = data instanceof Uint8Array ? data : new TextEncoder().encode(data);
-  let h = 0x811c9dc5;
-  for (let i = 0; i < bytes.length; i++) {
-    h ^= bytes[i];
-    h = Math.imul(h, 0x01000193);
-  }
-  const hashLen = algorithm.includes('512') ? 64 : algorithm.includes('384') ? 48 : algorithm === 'SHA-1' ? 20 : 32;
-  const result = new Uint8Array(hashLen);
-  for (let i = 0; i < hashLen; i += 4) {
-    h = Math.imul(h, 0x01000193) ^ (i + bytes.length);
-    result[i] = (h >>> 24) & 0xff;
-    if (i + 1 < hashLen) result[i + 1] = (h >>> 16) & 0xff;
-    if (i + 2 < hashLen) result[i + 2] = (h >>> 8) & 0xff;
-    if (i + 3 < hashLen) result[i + 3] = h & 0xff;
-  }
-  return result;
-}
-
-/**
- * @param {Uint8Array} data
- * @param {Uint8Array|string} key
- * @param {string} algorithm
- * @returns {Uint8Array}
- */
-function syncHmac(data, key, algorithm) {
-  const blockSize = 64;
-  let keyBytes = key instanceof Uint8Array ? key : new TextEncoder().encode(key);
-  if (keyBytes.length > blockSize) keyBytes = syncHash(keyBytes, algorithm);
-  const ipad = new Uint8Array(blockSize + data.length);
-  const opad = new Uint8Array(blockSize);
-  for (let i = 0; i < blockSize; i++) {
-    ipad[i] = (keyBytes[i] || 0) ^ 0x36;
-    opad[i] = (keyBytes[i] || 0) ^ 0x5c;
-  }
-  ipad.set(data instanceof Uint8Array ? data : new Uint8Array(data), blockSize);
-  const inner = syncHash(ipad, algorithm);
-  const outer = new Uint8Array(blockSize + inner.length);
-  outer.set(opad);
-  outer.set(inner, blockSize);
-  return syncHash(outer, algorithm);
-}
 
 /**
  * @param {Uint8Array} hash
@@ -348,39 +298,21 @@ async function pbkdf2Async(password, salt, iterations, keylen, digest) {
 }
 
 /**
- * Synchronous PBKDF2 (pure JS fallback).
+ * Synchronous PBKDF2 - NOT SUPPORTED in browser environment.
  * @param {string|Buffer} password
  * @param {string|Buffer} salt
  * @param {number} iterations
  * @param {number} keylen
  * @param {string} digest
  * @returns {Buffer}
+ * @throws {Error} Always throws - use pbkdf2() async version instead
  */
 export function pbkdf2Sync(password, salt, iterations, keylen, digest) {
-  const pw = typeof password === 'string' ? Buffer.from(password) : password;
-  const s = typeof salt === 'string' ? Buffer.from(salt) : salt;
-  const alg = normalizeAlgorithm(digest);
-  const hashLen = alg.includes('512') ? 64 : alg.includes('384') ? 48 : alg === 'SHA-1' ? 20 : 32;
-  const numBlocks = Math.ceil(keylen / hashLen);
-  const dk = new Uint8Array(numBlocks * hashLen);
-  for (let b = 1; b <= numBlocks; b++) {
-    const blockBuf = new Uint8Array(4);
-    blockBuf[0] = (b >>> 24) & 0xff;
-    blockBuf[1] = (b >>> 16) & 0xff;
-    blockBuf[2] = (b >>> 8) & 0xff;
-    blockBuf[3] = b & 0xff;
-    const saltBlock = new Uint8Array(s.length + 4);
-    saltBlock.set(s);
-    saltBlock.set(blockBuf, s.length);
-    let u = syncHmac(saltBlock, pw, alg);
-    const block = new Uint8Array(u);
-    for (let i = 1; i < iterations; i++) {
-      u = syncHmac(u, pw, alg);
-      for (let j = 0; j < block.length; j++) block[j] ^= u[j];
-    }
-    dk.set(block, (b - 1) * hashLen);
-  }
-  return Buffer.from(dk.slice(0, keylen));
+  throw new Error(
+    '[crypto shim] pbkdf2Sync() is not supported in browser environment. ' +
+    'Synchronous key derivation cannot be implemented securely without Web Crypto API. ' +
+    'Use pbkdf2() (async callback version) instead for cryptographically correct results.'
+  );
 }
 
 /** Web Crypto API reference */

@@ -417,7 +417,8 @@ export class ToolRegistry {
       const emit = resolveEmit(context);
       if (!finalParams || typeof finalParams !== "object" || Array.isArray(finalParams)) {
         const errors = ["params: expected object"];
-        emit?.("tool.validation.failed", { tool: name, args: finalParams, errors });
+        // P0: 统一事件命名为 tool:call:error
+        emit?.("tool:call:error", { tool: name, args: finalParams, errors, reason: "validation_failed" });
         let result = /** @type {ToolResult} */ ({
           ok: false,
           error: `Invalid tool params for ${name}`,
@@ -438,7 +439,8 @@ export class ToolRegistry {
 
       const validation = validateArgs(finalParams, schema);
       if (!validation.valid) {
-        emit?.("tool.validation.failed", { tool: name, args: finalParams, errors: validation.errors });
+        // P0: 统一事件命名为 tool:call:error
+        emit?.("tool:call:error", { tool: name, args: finalParams, errors: validation.errors, reason: "validation_failed" });
         let result = /** @type {ToolResult} */ ({
           ok: false,
           error: `Invalid tool params for ${name}`,
@@ -468,10 +470,12 @@ export class ToolRegistry {
       if (!q.allowed) {
         const stats = typeof quotaManager.getToolStats === "function" ? quotaManager.getToolStats(name) : null;
         const emit = resolveEmit(context);
-        emit?.("tool.quota.exceeded", {
-          actor: "system",
-          status: "exceeded",
-          payload: { tool: name, reason: q.reason, stats },
+        // P0: 统一事件命名为 tool:call:error
+        emit?.("tool:call:error", {
+          tool: name,
+          reason: "quota_exceeded",
+          quotaReason: q.reason,
+          stats,
         });
 
         if (quotaMode === "block") {

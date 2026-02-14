@@ -277,25 +277,54 @@ export class AgentOrchestrator extends DisposableBase {
       ...(degradation ? { degradation } : {}),
       ...(userConfigValidation ? { configValidation: { userConfig: userConfigValidation } } : {}),
       progress: (payload) => {
-        this.eventBus.emit(`${stageName}.progress`, { actor: stageActor, status: "progress", payload });
+        // P0: 统一事件命名为 stage:progress
+        this.eventBus.emit("stage:progress", {
+          actor: stageActor,
+          status: "progress",
+          payload: { stage: stageName, ...payload, runId: this.runId },
+        });
       },
     });
 
     const ctx = { ...this.runContext, runId: this.runId };
 
-    this.eventBus.emit(`${stageName}.started`, { actor: stageActor, status: "started", payload: { input: stageInput } });
+    // P1: Emit stage:dequeued for sequential mode
+    if (this._schedulingMode === SchedulingMode.SEQUENTIAL) {
+      this.eventBus.emit("stage:dequeued", {
+        actor: "system",
+        status: "dequeued",
+        payload: { stage: stageName, mode: "sequential", runId: this.runId },
+      });
+    }
+
+    // P0: 统一事件命名为 stage:started
+    this.eventBus.emit("stage:started", {
+      actor: stageActor,
+      status: "started",
+      payload: { stage: stageName, input: stageInput, runId: this.runId },
+    });
 
     const stageStartMs = Date.now();
     let stageFailed = false;
 
     try {
       const out = await entry.handler(ctx, stageInput, api);
-      this.eventBus.emit(`${stageName}.completed`, { actor: stageActor, status: "completed" });
+      // P0: 统一事件命名为 stage:completed
+      this.eventBus.emit("stage:completed", {
+        actor: stageActor,
+        status: "completed",
+        payload: { stage: stageName, runId: this.runId, durationMs: Date.now() - stageStartMs },
+      });
       return out;
     } catch (err) {
       stageFailed = true;
       const message = String(err?.message || err);
-      this.eventBus.emit(`${stageName}.failed`, { actor: stageActor, status: "failed", payload: { error: message } });
+      // P0: 统一事件命名为 stage:failed
+      this.eventBus.emit("stage:failed", {
+        actor: stageActor,
+        status: "failed",
+        payload: { stage: stageName, error: message, runId: this.runId },
+      });
       this.state = OrchestratorState.FAILED;
       this._emitRunFailed({ error: message, stage: stageName });
       this._emitRunEnded({ reason: "failed" });
@@ -313,13 +342,42 @@ export class AgentOrchestrator extends DisposableBase {
           const level = degradationMatrix.currentLevel;
           if (toNonEmptyString(level) && level !== this._lastOperationLevel) {
             this._lastOperationLevel = level;
+
+            // P1: Emit degradation decision context
+            const decisionContext = {
+              level,
+              previousLevel: this._lastOperationLevel || "normal",
+              runId: this.runId,
+              stage: stageName,
+              durationMs,
+              stageFailed,
+            };
+
+            // Best-effort: add decision metrics
+            try {
+              if (typeof degradationMatrix.getMetrics === "function") {
+                const metrics = degradationMatrix.getMetrics();
+                decisionContext.metrics = metrics;
+              }
+            } catch {
+              // ignore
+            }
+
+            // Best-effort: add effective parameters
+            try {
+              const effectiveConcurrency = await this._getEffectiveConcurrencyLimit();
+              decisionContext.effectiveConcurrency = effectiveConcurrency;
+            } catch {
+              // ignore
+            }
+
             this.eventBus.emit("system.degradation.level.changed", {
               actor: ActorType.SYSTEM,
               status: "info",
-              payload: { level, runId: this.runId, stage: stageName },
+              payload: decisionContext,
             });
             if (level !== "normal") {
-              this.eventBus.emit(AgentLifecycleEvents.DEGRADED, { actor: ActorType.SYSTEM, status: "degraded", payload: { level, runId: this.runId, stage: stageName } });
+              this.eventBus.emit(AgentLifecycleEvents.DEGRADED, { actor: ActorType.SYSTEM, status: "degraded", payload: decisionContext });
             }
           }
         } catch {

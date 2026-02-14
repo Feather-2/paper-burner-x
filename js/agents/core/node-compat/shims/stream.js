@@ -23,6 +23,12 @@ export class Readable extends Stream {
     this._ended = false;
     this._endEmitted = false;
     this._encoding = null;
+    this._readableState = {
+      highWaterMark: (opts && opts.highWaterMark) || 16384, // 16KB default
+      length: 0,
+      needReadable: false,
+      reading: false
+    };
     if (opts && typeof opts.read === 'function') this._read = opts.read;
   }
 
@@ -48,13 +54,19 @@ export class Readable extends Stream {
     }
     const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
     this._buffer.push(buf);
+    this._readableState.length += buf.length;
+
+    // Backpressure: return false if buffer exceeds highWaterMark
+    const shouldContinue = this._readableState.length < this._readableState.highWaterMark;
+
     if (this._flowing) queueMicrotask(() => this._flushBuffer());
-    return true;
+    return shouldContinue;
   }
 
   _flushBuffer() {
     while (this._buffer.length > 0 && this._flowing) {
       const chunk = this._buffer.shift();
+      this._readableState.length -= chunk.length;
       this.emit('data', this._encoding ? chunk.toString(this._encoding) : chunk);
     }
     if (this._ended && this._buffer.length === 0 && !this._endEmitted) {
@@ -68,19 +80,23 @@ export class Readable extends Stream {
     if (size === undefined || size === null) {
       if (this._buffer.length === 1) {
         const single = this._buffer.shift();
+        this._readableState.length -= single.length;
         return single;
       }
       const all = Buffer.concat(this._buffer);
       this._buffer = [];
+      this._readableState.length = 0;
       return all;
     }
     // size-aware read
     const first = this._buffer[0];
     if (first.length <= size) {
+      this._readableState.length -= first.length;
       return this._buffer.shift();
     }
     const slice = first.slice(0, size);
     this._buffer[0] = first.slice(size);
+    this._readableState.length -= slice.length;
     return slice;
   }
 
@@ -155,6 +171,12 @@ export class Writable extends Stream {
     this._chunks = [];
     this._corked = 0;
     this._corkBuffer = [];
+    this._writableState = {
+      highWaterMark: (opts && opts.highWaterMark) || 16384, // 16KB default
+      length: 0,
+      needDrain: false,
+      writing: false
+    };
     if (opts && typeof opts.write === 'function') this._write = opts.write;
   }
 
@@ -164,16 +186,32 @@ export class Writable extends Stream {
       this._corkBuffer.push({ chunk, encoding, cb });
       return false;
     }
+
+    const len = chunk.length || 0;
+    this._writableState.length += len;
+
     if (this._write) {
       this._write(chunk, encoding || 'utf8', (err) => {
+        this._writableState.length -= len;
         if (err) this.emit('error', err);
         if (typeof cb === 'function') cb(err);
+
+        // Emit drain if buffer was full and now below highWaterMark
+        if (this._writableState.needDrain && this._writableState.length < this._writableState.highWaterMark) {
+          this._writableState.needDrain = false;
+          this.emit('drain');
+        }
       });
     } else {
       this._chunks.push(chunk);
+      this._writableState.length -= len;
       if (typeof cb === 'function') cb();
     }
-    return true;
+
+    // Return false if buffer exceeds highWaterMark (backpressure signal)
+    const shouldContinue = this._writableState.length < this._writableState.highWaterMark;
+    if (!shouldContinue) this._writableState.needDrain = true;
+    return shouldContinue;
   }
 
   end(chunk, encoding, cb) {
@@ -211,6 +249,12 @@ export class Duplex extends Readable {
     this._chunks = [];
     this._corked = 0;
     this._corkBuffer = [];
+    this._writableState = {
+      highWaterMark: (opts && opts.highWaterMark) || 16384,
+      length: 0,
+      needDrain: false,
+      writing: false
+    };
     if (opts && typeof opts.write === 'function') this._write = opts.write;
   }
 
@@ -220,16 +264,30 @@ export class Duplex extends Readable {
       this._corkBuffer.push({ chunk, encoding, cb });
       return false;
     }
+
+    const len = chunk.length || 0;
+    this._writableState.length += len;
+
     if (this._write) {
       this._write(chunk, encoding || 'utf8', (err) => {
+        this._writableState.length -= len;
         if (err) this.emit('error', err);
         if (typeof cb === 'function') cb(err);
+
+        if (this._writableState.needDrain && this._writableState.length < this._writableState.highWaterMark) {
+          this._writableState.needDrain = false;
+          this.emit('drain');
+        }
       });
     } else {
       this._chunks.push(chunk);
+      this._writableState.length -= len;
       if (typeof cb === 'function') cb();
     }
-    return true;
+
+    const shouldContinue = this._writableState.length < this._writableState.highWaterMark;
+    if (!shouldContinue) this._writableState.needDrain = true;
+    return shouldContinue;
   }
 
   end(chunk, encoding, cb) {
@@ -261,12 +319,43 @@ export class PassThrough extends Transform {}
 
 export const pipeline = (source, ...rest) => {
   const cb = typeof rest[rest.length - 1] === 'function' ? rest.pop() : null;
+  const streams = [source, ...rest];
   let current = source;
-  for (const dest of rest) current = current.pipe(dest);
-  if (cb) {
-    current.on('finish', () => cb(null));
-    current.on('error', (err) => cb(err));
+  let destroyed = false;
+
+  const cleanup = () => {
+    if (destroyed) return;
+    destroyed = true;
+    for (const stream of streams) {
+      if (stream && typeof stream.destroy === 'function') {
+        stream.destroy();
+      }
+    }
+  };
+
+  const onError = (err) => {
+    if (destroyed) return;
+    cleanup();
+    if (cb) cb(err);
+  };
+
+  const onFinish = () => {
+    if (destroyed) return;
+    if (cb) cb(null);
+  };
+
+  // Connect streams with proper error propagation
+  for (let i = 0; i < rest.length; i++) {
+    const dest = rest[i];
+    current.on('error', onError);
+    dest.on('error', onError);
+    current = current.pipe(dest);
   }
+
+  // Listen for completion on the last stream
+  current.on('finish', onFinish);
+  current.on('end', onFinish);
+
   return current;
 };
 

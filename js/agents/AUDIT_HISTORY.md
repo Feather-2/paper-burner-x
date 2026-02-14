@@ -4,6 +4,28 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-02-13 (代码质量审查)
+
+### [RESOLVED] AH1. `.map(async)` 未正确处理 Promise 数组 — MEDIUM
+*Archived: 2026-02-13*
+
+- **Files**: eval/graders/content.js:294, eval/harness.js:360, mcp/mcp-client.js:275/295, mcp/resource-manager.js:695, prompts/prompt-loader.js:429, runtime/core/orchestrator.js:119, skills/user-store.js:289/367, stages/codesearch/phases/execution-phase.js:565, stages/deepsearch/phases/execution-phase.js:184, stages/design/generators/batch-generator.js:414
+- **Resolution**: 全面审计确认所有 `.map(async)` 实例均已正确使用 `await Promise.all()` 或 `await Promise.allSettled()` 包裹。无需修复。
+
+### [RESOLVED] AH2. 超大文件违反单一职责原则 — MEDIUM
+*Archived: 2026-02-13*
+
+- **Files**: core/sandbox/skill-executor.js (810 行), runtime/core/orchestrator.js (814 行)
+- **Resolution**:
+  - skill-executor.js (810 行) → 4 个文件：skill-validation.js (120 行)、skill-sandbox.js (480 行)、skill-executor-core.js (230 行)、skill-executor.js (21 行入口)
+  - orchestrator.js (814 行) → 4 个文件：scheduling-strategies.js (280 行)、agent-coordination.js (150 行)、orchestrator-core.js (410 行)、orchestrator.js (入口)
+  - ✅ 所有测试通过（80 个测试）
+  - ✅ 向后兼容性验证通过
+  - ✅ 无循环依赖
+- **Commit**: bdc40eae
+
+---
+
 ## Archived: 2026-02-06 (Phase 3 — 协同基础)
 
 ### [RESOLVED] A2. SyncManager op log 裁剪后无快照 fallback — HIGH
@@ -430,3 +452,18 @@ throw err;
 - **Type**: console_log
 - **Resolution**: Auto-fixed by audit-fix
 - **Description**: `logEvent()` 标记 `@deprecated` 但仍公开导出，使用原始 `console.log`。
+
+## 2026-02-13 - [LOW] AH3. 空 catch 块持续蔓延
+
+- **File**: 10 处分布在多个模块
+  - core/contracts/agent-coordinator.js:172, 235
+  - core/contracts/taskboard-orchestrator-bridge.js:205
+  - core/contracts/trace-propagator.js:224
+  - core/node-compat/create-node-env.js:64
+  - core/node-compat/execution-strategy.js:22, 34
+  - core/node-compat/module-resolver.js:208
+  - core/node-compat/repl.js:72
+  - core/sandbox/wasm-sandbox.js:234
+- **Type**: empty_catch
+- **Resolution**: Fixed by adding logger.debug() or console.warn() to all empty catch blocks
+- **Description**: 空 catch 块静默吞没错误，不记录任何日志或上下文信息。已修复 10 处空 catch 块，为每个空 catch 块添加了适当的日志记录（logger.debug() 或 console.warn()），确保错误信息被记录以便调试。

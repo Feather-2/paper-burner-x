@@ -326,7 +326,10 @@ export function ensureEventBusBackpressure(eventBus, config) {
  */
 export function extractTokenUsage(resp) {
   const usage = resp && typeof resp === "object" ? resp.usage : null;
-  if (!usage || typeof usage !== "object") return { promptTokens: 0, completionTokens: 0 };
+  if (!usage || typeof usage !== "object") {
+    // P1: Explicitly mark usage as missing
+    return { promptTokens: 0, completionTokens: 0, usageMissing: true };
+  }
 
   const promptTokens =
     usage.promptTokens ??
@@ -346,9 +349,13 @@ export function extractTokenUsage(resp) {
     usage.completion ??
     0;
 
+  // P1: Mark as missing if both are zero (likely no usage data)
+  const usageMissing = promptTokens === 0 && completionTokens === 0;
+
   return {
     promptTokens: toNonNegativeInt(promptTokens, 0),
     completionTokens: toNonNegativeInt(completionTokens, 0),
+    usageMissing,
   };
 }
 

@@ -43,11 +43,16 @@ function normalizeRemoteError(raw) {
   if (!raw) return new Error("Unknown error");
   if (typeof raw === "string") return new Error(raw);
   if (typeof raw === "object") {
-    /** @type {Error & { code?: string }} */
+    /** @type {Error & { code?: string; status?: number; retryable?: boolean; category?: string; context?: Record<string, any> }} */
     const err = new Error(raw.message || String(raw));
     if (raw.name) err.name = raw.name;
     if (raw.code) err.code = raw.code;
     if (raw.stack) err.stack = raw.stack;
+    // P0: 保留错误分类与可重试性字段
+    if (typeof raw.status === "number") err.status = raw.status;
+    if (typeof raw.retryable === "boolean") err.retryable = raw.retryable;
+    if (typeof raw.category === "string") err.category = raw.category;
+    if (raw.context && typeof raw.context === "object") err.context = raw.context;
     return err;
   }
   return new Error(String(raw));
@@ -336,6 +341,9 @@ export class WorkerRpcClient {
    * @param {number} [options.timeoutMs]
    * @param {AbortSignal} [options.signal]
    * @param {Transferable[]} [options.transferables]
+   * @param {object} [options.eventBus] - EventBus for task events
+   * @param {string} [options.runId] - Run ID for correlation
+   * @param {string} [options.stage] - Stage name for correlation
    * @returns {Promise<any>}
    */
   call(method, params, options = {}) {
@@ -343,7 +351,7 @@ export class WorkerRpcClient {
       return Promise.reject(new Error("WorkerRpcClient is disposed"));
     }
 
-    const { timeoutMs = this._timeoutMs, signal, transferables } = options;
+    const { timeoutMs = this._timeoutMs, signal, transferables, eventBus, runId, stage } = options;
 
     // Validate method
     if (!method) {
@@ -363,6 +371,20 @@ export class WorkerRpcClient {
 
     return new Promise((resolve, reject) => {
       const id = generateId();
+      const workerId = this._workerInstance?._workerId || "unknown";
+      const taskStartTime = Date.now();
+
+      // P0: 发射 worker:task:start 事件
+      if (eventBus && typeof eventBus.emit === "function") {
+        eventBus.emit("worker:task:start", {
+          workerId,
+          workerTaskId: id,
+          method,
+          runId,
+          stage,
+          timestamp: taskStartTime,
+        });
+      }
 
       const request = {
         type: "rpc:request",
@@ -382,7 +404,22 @@ export class WorkerRpcClient {
       const timer = setTimeout(() => {
         cleanup();
         this._sendCancel(id, "timeout");
-        reject(createTimeoutError(timeoutMs));
+        const error = createTimeoutError(timeoutMs);
+        // P0: 发射 worker:task:error 事件
+        if (eventBus && typeof eventBus.emit === "function") {
+          eventBus.emit("worker:task:error", {
+            workerId,
+            workerTaskId: id,
+            method,
+            runId,
+            stage,
+            error: error.message,
+            reason: "timeout",
+            durationMs: Date.now() - taskStartTime,
+            timestamp: Date.now(),
+          });
+        }
+        reject(error);
       }, timeoutMs);
 
       // Setup abort listener
@@ -390,7 +427,22 @@ export class WorkerRpcClient {
         cleanup();
         const reason = signal.reason || "aborted";
         this._sendCancel(id, "aborted");
-        reject(createAbortError(typeof reason === "string" ? reason : "aborted"));
+        const error = createAbortError(typeof reason === "string" ? reason : "aborted");
+        // P0: 发射 worker:task:error 事件
+        if (eventBus && typeof eventBus.emit === "function") {
+          eventBus.emit("worker:task:error", {
+            workerId,
+            workerTaskId: id,
+            method,
+            runId,
+            stage,
+            error: error.message,
+            reason: "aborted",
+            durationMs: Date.now() - taskStartTime,
+            timestamp: Date.now(),
+          });
+        }
+        reject(error);
       };
 
       if (signal) {
@@ -401,10 +453,37 @@ export class WorkerRpcClient {
       this._pending.set(id, {
         resolve: (result) => {
           cleanup();
+          // P0: 发射 worker:task:end 事件
+          if (eventBus && typeof eventBus.emit === "function") {
+            eventBus.emit("worker:task:end", {
+              workerId,
+              workerTaskId: id,
+              method,
+              runId,
+              stage,
+              success: true,
+              durationMs: Date.now() - taskStartTime,
+              timestamp: Date.now(),
+            });
+          }
           resolve(result);
         },
         reject: (error) => {
           cleanup();
+          // P0: 发射 worker:task:error 事件
+          if (eventBus && typeof eventBus.emit === "function") {
+            eventBus.emit("worker:task:error", {
+              workerId,
+              workerTaskId: id,
+              method,
+              runId,
+              stage,
+              error: error instanceof Error ? error.message : String(error),
+              reason: "execution_failed",
+              durationMs: Date.now() - taskStartTime,
+              timestamp: Date.now(),
+            });
+          }
           reject(error);
         },
         timer,

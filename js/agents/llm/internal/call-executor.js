@@ -108,18 +108,41 @@ async function _tryModel({ router, modelId, usage, messages, images }) {
 
     const latencyMs = router._time.now() - callStartMs;
 
+    // P1: Extract usage with explicit missing flag
+    const promptTokens = resp.usage?.promptTokens || resp.usage?.prompt_tokens || 0;
+    const completionTokens = resp.usage?.completionTokens || resp.usage?.completion_tokens || 0;
+    const usageMissing = !resp.usage || (promptTokens === 0 && completionTokens === 0);
+
     try {
       getGlobalTokenTracker().record({
         model: entry.id,
         provider: entry.provider,
         usage,
-        promptTokens: resp.usage?.promptTokens || resp.usage?.prompt_tokens || 0,
-        completionTokens: resp.usage?.completionTokens || resp.usage?.completion_tokens || 0,
+        promptTokens,
+        completionTokens,
         latencyMs,
         success: true,
+        usageMissing,
       });
     } catch (err) {
       router._logger.debug(`[ModelRouter] token tracker failed for ${entry.id}: ${redactErrorMessage(err)}`);
+    }
+
+    // P1: Emit unified metrics event
+    try {
+      router.emit("llm:call:metrics", {
+        usage,
+        modelId: entry.id,
+        provider: entry.provider,
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens,
+        latencyMs,
+        success: true,
+        usageMissing,
+      });
+    } catch (err) {
+      router._logger.debug(`[ModelRouter] metrics event failed for ${entry.id}: ${redactErrorMessage(err)}`);
     }
 
     try {
@@ -152,6 +175,25 @@ async function _tryModel({ router, modelId, usage, messages, images }) {
     router._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${errorInfo.message}`);
     const permanent = isPermanentAuthError(err);
     const health = permanent ? router.disableModel(modelId, err, { reason: "auth" }) : router.markUnhealthy(modelId, err);
+
+    // P1: Emit unified metrics event for failures
+    try {
+      router.emit("llm:call:metrics", {
+        usage,
+        modelId,
+        provider: entry.provider,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        latencyMs,
+        success: false,
+        usageMissing: true,
+        error: errorInfo,
+      });
+    } catch (emitErr) {
+      router._logger.debug(`[ModelRouter] metrics event failed for ${modelId}: ${redactErrorMessage(emitErr)}`);
+    }
+
     router.emit("model:unhealthy", {
       usage,
       modelId,

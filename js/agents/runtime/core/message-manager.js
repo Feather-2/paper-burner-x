@@ -684,6 +684,22 @@ export class MessageManager {
   async _generateSummaryAsync(message, signal) {
     if (this._disposed || message._summary || signal?.aborted) return;
 
+    const startMs = Date.now();
+    const messageHash = computeContentHash(message);
+
+    // P1: Emit summary start event
+    if (this._emit) {
+      try {
+        this._emit("context:summary:start", {
+          actor: this._actor,
+          status: "started",
+          payload: { messageHash, stageName: this._stageName },
+        });
+      } catch {
+        // ignore
+      }
+    }
+
     try {
       let summary = null;
 
@@ -699,8 +715,35 @@ export class MessageManager {
       if (summary && !message._summary && !signal?.aborted) {
         message._summary = summary;
         message._summaryTokens = estimateTokens(summary, this._tokenCounter);
+
+        // P1: Emit summary success event
+        if (this._emit) {
+          try {
+            const durationMs = Date.now() - startMs;
+            this._emit("context:summary:success", {
+              actor: this._actor,
+              status: "completed",
+              payload: { messageHash, durationMs, stageName: this._stageName },
+            });
+          } catch {
+            // ignore
+          }
+        }
       }
     } catch (e) {
+      // P1: Emit summary failure event
+      if (this._emit) {
+        try {
+          const durationMs = Date.now() - startMs;
+          this._emit("context:summary:failed", {
+            actor: this._actor,
+            status: "failed",
+            payload: { messageHash, durationMs, error: e?.message || String(e), stageName: this._stageName },
+          });
+        } catch {
+          // ignore
+        }
+      }
       silentReporter.report(e, "_generateSummaryAsync");
     }
   }

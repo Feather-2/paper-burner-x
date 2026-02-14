@@ -35,6 +35,11 @@ import { toNonEmptyString } from "../../shared/index.js";
  * @property {string} [reason]
  * @property {string} [timestamp]
  * @property {string} [runId]
+ * @property {string} [code]
+ * @property {number} [status]
+ * @property {boolean} [retryable]
+ * @property {string} [category]
+ * @property {Record<string, any>} [context]
  *
  * @typedef {Error & {
  *   stageName?: string;
@@ -43,6 +48,11 @@ import { toNonEmptyString } from "../../shared/index.js";
  *   reason?: string;
  *   timestamp?: string;
  *   runId?: string;
+ *   code?: string;
+ *   status?: number;
+ *   retryable?: boolean;
+ *   category?: string;
+ *   context?: Record<string, any>;
  * }} StageErrorLike
  */
 
@@ -172,12 +182,32 @@ export function toErrorPayload(err, { includeStack = false } = {}) {
       payload.cause = toErrorPayload(err.cause, { includeStack });
     }
 
+    // 保留 Stage 相关字段
     if (typeof stageErr.stageName === "string" && stageErr.stageName) payload.stageName = stageErr.stageName;
     if (typeof stageErr.timeoutMs === "number" && Number.isFinite(stageErr.timeoutMs)) payload.timeoutMs = stageErr.timeoutMs;
     if (typeof stageErr.checkpointId === "string" && stageErr.checkpointId) payload.checkpointId = stageErr.checkpointId;
     if (typeof stageErr.reason === "string" && stageErr.reason) payload.reason = stageErr.reason;
     if (typeof stageErr.timestamp === "string" && stageErr.timestamp) payload.timestamp = stageErr.timestamp;
     if (typeof stageErr.runId === "string" && stageErr.runId) payload.runId = stageErr.runId;
+
+    // P0: 保留错误分类与可重试性字段
+    if (typeof stageErr.code === "string" && stageErr.code) payload.code = stageErr.code;
+    if (typeof stageErr.status === "number" && Number.isFinite(stageErr.status)) payload.status = stageErr.status;
+    if (typeof stageErr.retryable === "boolean") payload.retryable = stageErr.retryable;
+    if (typeof stageErr.category === "string" && stageErr.category) payload.category = stageErr.category;
+
+    // P0: 保留错误上下文（限制大小）
+    if (stageErr.context && typeof stageErr.context === "object" && !Array.isArray(stageErr.context)) {
+      try {
+        const contextStr = JSON.stringify(stageErr.context);
+        if (contextStr.length <= 2000) {
+          payload.context = stageErr.context;
+        }
+      } catch {
+        // 忽略无法序列化的 context
+      }
+    }
+
     return payload;
   }
 

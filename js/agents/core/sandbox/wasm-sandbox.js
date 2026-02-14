@@ -362,7 +362,21 @@ export class WasmSandbox {
     if (result.ok) {
       // 执行 pending jobs（Promise 回调）
       const maxIterations = 1000;
+      const timeoutMs = 5000; // 5 second timeout
+      const startTime = Date.now();
+
       for (let i = 0; i < maxIterations; i++) {
+        // Check for timeout
+        if (Date.now() - startTime > timeoutMs) {
+          return {
+            ...result,
+            ok: false,
+            error: `[WasmSandbox] Async job polling timeout after ${timeoutMs}ms. ` +
+                   `Possible infinite Promise chain or excessive async operations. ` +
+                   `Consider simplifying async logic or increasing timeout.`,
+          };
+        }
+
         const pending = this._runtime.executePendingJobs();
         if (pending.error) {
           const error = this._vm.dump(pending.error);
@@ -374,6 +388,16 @@ export class WasmSandbox {
           };
         }
         if (pending.value === 0) break;
+
+        // Warn if approaching iteration limit
+        if (i === maxIterations - 1) {
+          return {
+            ...result,
+            ok: false,
+            error: `[WasmSandbox] Exceeded maximum async job iterations (${maxIterations}). ` +
+                   `Possible infinite Promise chain. Consider simplifying async logic.`,
+          };
+        }
       }
     }
 

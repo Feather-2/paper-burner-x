@@ -246,7 +246,11 @@ export function cancelBackpressureSchedule(backpressure) {
  */
 export function enqueueBackpressureEvent(backpressure, evt) {
   if (backpressure.queue.length >= backpressure.maxQueueSize) {
-    backpressure.queue.shift();
+    const dropped = backpressure.queue.shift();
+    // P1: Track dropped event for governance event emission
+    if (!backpressure.dropCount) backpressure.dropCount = 0;
+    backpressure.dropCount++;
+    backpressure.lastDroppedEvent = dropped;
   }
 
   const shouldCoalesce = regexTest(backpressure.coalescePattern, evt.name);
@@ -277,6 +281,7 @@ export function flushBackpressureQueue(backpressure, dispatch) {
   backpressure.scheduled = false;
   const queue = backpressure.queue;
   const coalesced = backpressure.coalesced;
+  const coalescedCount = coalesced.size;
 
   backpressure.queue = [];
   backpressure.coalesced = new Map();
@@ -290,6 +295,11 @@ export function flushBackpressureQueue(backpressure, dispatch) {
         dispatch(latest.evt);
       }
     }
+  }
+
+  // P1: Store coalesce stats for governance event
+  if (coalescedCount > 0) {
+    backpressure.lastCoalescedCount = coalescedCount;
   }
 }
 

@@ -1,8 +1,8 @@
 # Architecture Audit - js/agents
 
-Generated: 2026-02-07 (Phase 4 深度审计)
+Generated: 2026-02-07 (Phase 4 深度审计) | Updated: 2026-02-13 (代码质量补充)
 Scope: 14 modules (core/runtime/stages/plugins/vfs/mcp/skills/llm/ingest/retrieval/prompts/shared/sdk/cli)
-Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42 个问题
+Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42 个问题，2026-02-13 新增 3 个问题，AH1/AH2 已解决
 
 ## Summary
 
@@ -708,3 +708,61 @@ graph TD
 4. **Phase D** — 并行: C2 权限合并 + E4 Ingest DI + C7 pluginRegistry
 5. **Phase E** — C4 BaseAgentLoop mixin 拆分 (串行，影响面最大)
 6. **Phase F** — 并行: H1 + P1 + E10 + T1 跨文件批量治理
+
+---
+
+## 2026-02-13 代码质量审查补充
+
+### AH. 代码质量问题 (Code Quality Issues)
+
+#### AH1. ~~`.map(async)` 未正确处理 Promise 数组~~ — ✅ RESOLVED
+
+- **File**: eval/graders/content.js, eval/harness.js, mcp/mcp-client.js, mcp/resource-manager.js, prompts/prompt-loader.js, runtime/core/orchestrator.js, skills/user-store.js, stages/*/phases/execution-phase.js, stages/design/generators/batch-generator.js
+- **Description**: `Array.map()` 与 async 函数结合使用时，返回 Promise 数组而非结果数组。若未使用 `Promise.all()` 包裹，并发操作可能未完成即继续执行，导致竞态条件或错误被静默吞没。
+- **Resolution**: 审计确认所有实例均已正确使用 `await Promise.all()` 或 `await Promise.allSettled()` 包裹。
+
+#### AH2. ~~超大文件违反单一职责原则~~ — ✅ RESOLVED
+
+- **File**: core/sandbox/skill-executor.js (810 行), runtime/core/orchestrator.js (814 行)
+- **Description**: 文件超过 800 行，表明承担了多个职责，违反单一职责原则（SRP）。
+- **Resolution**:
+  - skill-executor.js (810 行) → 4 个文件：skill-validation.js (120 行)、skill-sandbox.js (480 行)、skill-executor-core.js (230 行)、skill-executor.js (21 行入口)
+  - orchestrator.js (814 行) → 4 个文件：scheduling-strategies.js (280 行)、agent-coordination.js (150 行)、orchestrator-core.js (410 行)、orchestrator.js (入口)
+  - ✅ 所有测试通过（80 个测试）
+  - ✅ 向后兼容性验证通过
+  - ✅ 无循环依赖
+
+---
+
+### 更新后的问题统计
+
+| 类别 | High | Medium | Low | 合计 |
+|------|------|--------|-----|------|
+| 数据完整性 | 1 | 0 | 0 | 1 |
+| 资源泄漏 | 0 | 2 | 0 | 2 |
+| 架构一致性 | 2 | 2 | 1 | 5 |
+| 错误处理 | 0 | 1 | 2 | 3 |
+| 跨运行时 | 0 | 3 | 3 | 6 |
+| 多设备/协同 | 0 | 0 | 2 | 2 |
+| 并发/竞态 | 0 | 2 | 1 | 3 |
+| 沙箱安全 | 2 | 1 | 0 | 3 |
+| 正则安全 | 1 | 0 | 0 | 1 |
+| Worker 通信 | 0 | 1 | 0 | 1 |
+| MCP 模块 | 0 | 1 | 0 | 1 |
+| VFS 并发 | 0 | 1 | 1 | 2 |
+| JSON 安全 | 0 | 1 | 0 | 1 |
+| API 设计 | 0 | 1 | 2 | 3 |
+| 日志安全 | 0 | 0 | 1 | 1 |
+| Ingest 安全 | 0 | 2 | 1 | 3 |
+| Storage/IDB | 0 | 0 | 3 | 3 |
+| Prompts | 0 | 0 | 0 | 0 |
+| Eval | 0 | 0 | 2 | 2 |
+| CLI | 0 | 0 | 1 | 1 |
+| SDK/注入检测 | 0 | 2 | 2 | 4 |
+| LLM 路由 | 0 | 1 | 2 | 3 |
+| Shared 工具 | 0 | 0 | 1 | 1 |
+| 事件/资源泄漏 | 0 | 1 | 2 | 3 |
+| VFS 原子写入 | 0 | 1 | 0 | 1 |
+| deprecated 单例 | 0 | 1 | 0 | 1 |
+| **代码质量** | **0** | **0** | **0** | **0** |
+| **合计** | **6** | **24** | **29** | **59** |

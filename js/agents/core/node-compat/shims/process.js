@@ -71,7 +71,26 @@ export function createProcess(options = {}) {
       if (options.onExit) options.onExit(code);
       throw new Error(`Process exited with code ${code}`);
     },
-    nextTick(fn, ...args) { queueMicrotask(() => fn(...args)); },
+    nextTick(fn, ...args) {
+      // nextTick should run before microtasks (Promise.then)
+      // Use a dedicated queue that drains before each event loop phase
+      if (!globalThis.__nextTickQueue) {
+        globalThis.__nextTickQueue = [];
+        globalThis.__drainingNextTick = false;
+      }
+      globalThis.__nextTickQueue.push({ fn, args });
+      if (!globalThis.__drainingNextTick) {
+        globalThis.__drainingNextTick = true;
+        queueMicrotask(() => {
+          const queue = globalThis.__nextTickQueue;
+          globalThis.__nextTickQueue = [];
+          globalThis.__drainingNextTick = false;
+          for (const { fn, args } of queue) {
+            try { fn(...args); } catch (err) { console.error('nextTick error:', err); }
+          }
+        });
+      }
+    },
     stdout: createProcessStream(true, (data) => { console.log(data); return true; }),
     stderr: createProcessStream(true, (data) => { console.error(data); return true; }),
     stdin: createProcessStream(false),

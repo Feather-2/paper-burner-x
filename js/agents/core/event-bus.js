@@ -575,6 +575,22 @@ export class EventBus {
       return;
     }
 
+    // P1: Emit backpressure drop event if events were dropped
+    if (bp.dropCount && bp.dropCount > 0) {
+      const dropCount = bp.dropCount;
+      bp.dropCount = 0;
+      try {
+        this._dispatch(createEventRecord({
+          name: 'eventbus:backpressure:drop',
+          actor: 'system',
+          payload: { dropCount, queueSize: bp.queue.length, maxQueueSize: bp.maxQueueSize },
+          runId: this._runId,
+        }));
+      } catch {
+        // ignore
+      }
+    }
+
     this._scheduleFlush();
   }
 
@@ -622,8 +638,36 @@ export class EventBus {
     queueMicrotask(() => {
       try {
         const result = this._persistenceAdapter.appendEvents(events);
-        if (result?.then) result.catch((err) => logger.warn("Event persistence error", { error: err.message }));
-      } catch (e) { logger.debug("Event persistence sync error", { error: e?.message }); }
+        if (result?.then) {
+          result.catch((err) => {
+            logger.warn("Event persistence error", { error: err.message });
+            // P1: Emit persistence failure event
+            try {
+              this._dispatch(createEventRecord({
+                name: 'eventbus:persist:failed',
+                actor: 'system',
+                payload: { error: err?.message || String(err), eventCount: events.length },
+                runId: this._runId,
+              }));
+            } catch {
+              // ignore
+            }
+          });
+        }
+      } catch (e) {
+        logger.debug("Event persistence sync error", { error: e?.message });
+        // P1: Emit persistence failure event
+        try {
+          this._dispatch(createEventRecord({
+            name: 'eventbus:persist:failed',
+            actor: 'system',
+            payload: { error: e?.message || String(e), eventCount: events.length },
+            runId: this._runId,
+          }));
+        } catch {
+          // ignore
+        }
+      }
     });
   }
 
@@ -634,6 +678,23 @@ export class EventBus {
    * @returns {void}
    */
   _handleError(err, evt, fn) {
+    // P1: Emit handler error event
+    try {
+      this._dispatch(createEventRecord({
+        name: 'eventbus:handler:error',
+        actor: 'system',
+        payload: {
+          error: err?.message || String(err),
+          eventName: evt?.name,
+          handlerName: fn?.name || 'anonymous',
+          stack: err?.stack,
+        },
+        runId: this._runId,
+      }));
+    } catch {
+      // ignore
+    }
+
     if (this._onListenerError) {
       try {
         this._onListenerError(err, evt, fn);

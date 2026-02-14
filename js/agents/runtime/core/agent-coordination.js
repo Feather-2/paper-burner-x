@@ -74,7 +74,8 @@ export const AgentCoordination = {
     this._ensureNotDisposed();
     if (this._runStarted) return;
     this._runStarted = true;
-    this.emit("run.started", {
+    // P0: 统一事件命名为 run:started
+    this.emit("run:started", {
       actor: ActorType.SYSTEM,
       status: "started",
       payload: {
@@ -93,7 +94,8 @@ export const AgentCoordination = {
     this._ensureNotDisposed();
     if (this._runCancelled) return;
     this._runCancelled = true;
-    this.emit("run.cancelled", {
+    // P0: 统一事件命名为 run:cancelled
+    this.emit("run:cancelled", {
       actor: ActorType.SYSTEM,
       status: "cancelled",
       payload: { reason: toNonEmptyString(reason) || "cancelled", runId: this.runId },
@@ -109,7 +111,8 @@ export const AgentCoordination = {
     if (this._runFailed) return;
     this._runFailed = true;
     const message = toNonEmptyString(error) || "Unknown error";
-    this.emit("run.failed", {
+    // P0: 统一事件命名为 run:failed
+    this.emit("run:failed", {
       actor: ActorType.SYSTEM,
       status: "failed",
       payload: {
@@ -129,8 +132,8 @@ export const AgentCoordination = {
     if (this._runCompleted) return;
     this._runCompleted = true;
     const r = toNonEmptyString(reason) || "completed";
-    // Compat: 일부旧 workflow 仍监听 run.completed
-    this.emit("run.completed", { actor: ActorType.SYSTEM, status: "completed", payload: { reason: r, runId: this.runId } });
+    // P0: 统一事件命名为 run:completed
+    this.emit("run:completed", { actor: ActorType.SYSTEM, status: "completed", payload: { reason: r, runId: this.runId } });
   },
 
   /**
@@ -142,7 +145,8 @@ export const AgentCoordination = {
     if (this._runEnded) return;
     this._runEnded = true;
     const r = toNonEmptyString(reason);
-    this.emit("run.ended", {
+    // P0: 统一事件命名为 run:ended
+    this.emit("run:ended", {
       actor: ActorType.SYSTEM,
       status: "ended",
       ...(r ? { payload: { reason: r, runId: this.runId } } : { payload: { runId: this.runId } }),

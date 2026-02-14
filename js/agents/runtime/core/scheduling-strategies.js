@@ -34,6 +34,13 @@ export const SchedulingStrategies = {
     }
 
     // Sequential mode: Force sequential execution (shared UI + persistence assumptions).
+    // P1: Emit stage:queued event
+    this.eventBus.emit("stage:queued", {
+      actor: "system",
+      status: "queued",
+      payload: { stage: name, mode: "sequential", runId: this.runId },
+    });
+
     this._queue = this._queue.then(
       () => this._runStageNow(name, input),
       () => this._runStageNow(name, input)
@@ -155,6 +162,12 @@ export const SchedulingStrategies = {
           }
 
           if (blockedBy) {
+            // P1: Emit stage:skipped event
+            this.eventBus.emit("stage:skipped", {
+              actor: "system",
+              status: "skipped",
+              payload: { stage: stageName, reason: "dependency_failed", blockedBy, runId: this.runId },
+            });
             results.set(stageName, { success: false, skipped: true, error: `dependency_failed:${blockedBy}` });
             continue;
           }
@@ -194,13 +207,33 @@ export const SchedulingStrategies = {
    */
   async _runStageParallel(stageName, input) {
     this._ensureNotDisposed();
+    // P1: Emit stage:queued event
+    this.eventBus.emit("stage:queued", {
+      actor: "system",
+      status: "queued",
+      payload: { stage: stageName, mode: "parallel", runId: this.runId, inFlight: this._inFlight },
+    });
+
     // Wait for slot - 每次唤醒后重新获取 limit（可能动态变化）
     while (true) {
       const limit = await this._getEffectiveConcurrencyLimit();
       if (this._inFlight < limit) break;
+      // P1: Emit concurrency wait event
+      this.eventBus.emit("orchestrator:concurrency:wait", {
+        actor: "system",
+        status: "waiting",
+        payload: { stage: stageName, inFlight: this._inFlight, limit, runId: this.runId },
+      });
       await this._waitForParallelSlot();
       if (this.signal.aborted) throw new Error("Run cancelled");
     }
+
+    // P1: Emit stage:dequeued event
+    this.eventBus.emit("stage:dequeued", {
+      actor: "system",
+      status: "dequeued",
+      payload: { stage: stageName, mode: "parallel", runId: this.runId, inFlight: this._inFlight },
+    });
 
     this._inFlight++;
     try {

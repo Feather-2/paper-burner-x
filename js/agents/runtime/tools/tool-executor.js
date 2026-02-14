@@ -283,7 +283,8 @@ export class ToolExecutor {
         const { valid, errors } = validateArgs(args, schema);
         if (!valid) {
           this._log("warn", `Schema validation failed for ${name}`, { errors });
-          this._emit("tool:validationFailed", { tool: name, args, errors });
+          // P0: 统一事件命名为 tool:call:error
+          this._emit("tool:call:error", { tool: name, args, errors, reason: "validation_failed" });
 
           if (strictMode) {
             return this._buildResult(false, null, `Validation failed: ${errors.join("; ")}`);
@@ -318,12 +319,14 @@ export class ToolExecutor {
       });
       if (decision && decision.allowed === false) {
         const reason = typeof decision.reason === "string" ? decision.reason : "denied";
-        this._emit("tool:denied", { tool: name, args: finalArgs, reason, policy: decision });
+        // P0: 统一事件命名为 tool:call:error
+        this._emit("tool:call:error", { tool: name, args: finalArgs, reason: "policy_denied", policy: decision });
         return this._buildResult(false, null, `Policy denied: ${reason}`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this._emit("tool:denied", { tool: name, args: finalArgs, reason: "policy_error", error: msg });
+      // P0: 统一事件命名为 tool:call:error
+      this._emit("tool:call:error", { tool: name, args: finalArgs, reason: "policy_error", error: msg });
       return this._buildResult(false, null, `Policy error: ${msg}`);
     }
 
@@ -337,6 +340,19 @@ export class ToolExecutor {
     const isolationMode = normalizeIsolationMode(options.isolation ?? tool.isolation ?? this.defaultIsolation);
     const startTime = Date.now();
 
+    // P0: 发射 tool:call:start 事件
+    const runId = context?.runId || context?.stageApi?.runId;
+    const stage = context?.stage || context?.stageName;
+    this._emit("tool:call:start", {
+      tool: name,
+      args: finalArgs,
+      runId,
+      stage,
+      isolationMode,
+      timeoutMs,
+      maxRetries: retries,
+    });
+
     let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
@@ -348,7 +364,17 @@ export class ToolExecutor {
         const duration = Date.now() - startTime;
 
         this._log("debug", `Tool ${name} completed`, { duration, attempt });
-        this._emit("tool:completed", { tool: name, args: finalArgs, result, duration });
+        // P0: 统一事件命名为 tool:call:end
+        this._emit("tool:call:end", {
+          tool: name,
+          args: finalArgs,
+          result,
+          duration,
+          attempt,
+          runId,
+          stage,
+          success: true,
+        });
 
         let normalized = this._normalizeResult(result);
 
@@ -376,7 +402,16 @@ export class ToolExecutor {
     }
 
     const duration = Date.now() - startTime;
-    this._emit("tool:failed", { tool: name, args, error: lastError?.message, duration });
+    // P0: 统一事件命名为 tool:call:error
+    this._emit("tool:call:error", {
+      tool: name,
+      args,
+      error: lastError?.message,
+      duration,
+      attempts: retries + 1,
+      runId,
+      stage,
+    });
     return this._buildResult(false, null, lastError?.message || "Unknown error");
   }
 

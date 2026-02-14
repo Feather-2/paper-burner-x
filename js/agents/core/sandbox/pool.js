@@ -25,8 +25,10 @@ export class SandboxPool {
    * @param {number} [options.maxConsecutiveFailures=8] - 等待队列连续初始化失败阈值
    * @param {string[]} [options.defaultCapabilities] - 默认能力
    * @param {Object} [options.defaultLimits] - 默认资源限制
-   * @param {number} [options.preWarmCount=0] - 预热实例数
+   * @param {number} [options.preWarmCount=2] - 预热实例数（默认 2，减少冷启动）
    * @param {boolean} [options.enableResourceLock=true] - 启用资源锁防护
+   * @param {boolean} [options.enableMemoryMonitoring=true] - 启用内存泄漏监控
+   * @param {number} [options.memoryCheckIntervalMs=30000] - 内存检查间隔
    */
   constructor(options = {}) {
     this.maxSize = options.maxSize || 4;
@@ -35,13 +37,13 @@ export class SandboxPool {
     this.acquireTimeoutMs = options.acquireTimeoutMs || 30000;
     this.defaultCapabilities = options.defaultCapabilities || SandboxPreset.SKILL;
     this.defaultLimits = options.defaultLimits || ResourceLimits.STANDARD;
-    this.preWarmCount = options.preWarmCount || 0;
+    this.preWarmCount = options.preWarmCount !== undefined ? options.preWarmCount : 2;
 
     // 按能力 key 分组的池
     this._pools = new Map();
     this._totalCount = 0;
     this._inUseCount = 0;
-    /** @type {Array<{ key: string, options: any, resolve: (sb: WasmSandbox) => void, reject: (err: any) => void }>} */
+    /** @type {Array<{ key: string, options: any, resolve: (sb: WasmSandbox) => void, reject: (err: any) => void, priority: number, timestamp: number }>} */
     this._waitQueue = [];
     this._draining = false;
     this._disposed = false;
@@ -55,6 +57,15 @@ export class SandboxPool {
     /** @type {Map<WasmSandbox, import('./resource-lock.js').LockHandle>} */
     this._sandboxLocks = new Map();
     this._sandboxIdCounter = 0;
+
+    // 内存监控
+    this._enableMemoryMonitoring = options.enableMemoryMonitoring !== false;
+    this._memoryCheckIntervalMs = options.memoryCheckIntervalMs || 30000;
+    this._memoryCheckTimer = null;
+    this._memoryBaseline = null;
+    if (this._enableMemoryMonitoring && typeof performance !== 'undefined' && performance.memory) {
+      this._startMemoryMonitoring();
+    }
 
     // 自动预热
     if (this.preWarmCount > 0) {
@@ -74,6 +85,7 @@ export class SandboxPool {
   /**
    * 获取沙箱
    * @param {Object} options
+   * @param {number} [options.priority=0] - 任务优先级（数值越大优先级越高）
    * @returns {Promise<WasmSandbox>}
    */
   async acquire(options = {}) {
@@ -82,6 +94,7 @@ export class SandboxPool {
     const capabilities = options.capabilities || this.defaultCapabilities;
     const limits = { ...this.defaultLimits, ...options.limits };
     const key = this._getCapabilityKey(capabilities);
+    const priority = typeof options.priority === 'number' ? options.priority : 0;
 
     // 尝试从池中获取
     const pool = this._pools.get(key);
@@ -110,7 +123,20 @@ export class SandboxPool {
             reject(new Error(`Sandbox acquire timeout after ${this.acquireTimeoutMs}ms`));
           }
         }, this.acquireTimeoutMs);
-        this._waitQueue.push({ key, options: { ...options, capabilities, limits }, resolve, reject, timeoutId });
+        this._waitQueue.push({
+          key,
+          options: { ...options, capabilities, limits },
+          resolve,
+          reject,
+          timeoutId,
+          priority,
+          timestamp: Date.now()
+        });
+        // 按优先级排序（高优先级在前，同优先级按时间戳 FIFO）
+        this._waitQueue.sort((a, b) => {
+          if (b.priority !== a.priority) return b.priority - a.priority;
+          return a.timestamp - b.timestamp;
+        });
         this._scheduleDrain();
       });
     }
@@ -462,12 +488,60 @@ export class SandboxPool {
   }
 
   /**
+   * 启动内存监控
+   * @private
+   */
+  _startMemoryMonitoring() {
+    if (!this._enableMemoryMonitoring || this._memoryCheckTimer) return;
+
+    // 记录基线内存
+    if (typeof performance !== 'undefined' && performance.memory) {
+      this._memoryBaseline = performance.memory.usedJSHeapSize;
+    }
+
+    this._memoryCheckTimer = setInterval(() => {
+      if (typeof performance === 'undefined' || !performance.memory) return;
+
+      const current = performance.memory.usedJSHeapSize;
+      const baseline = this._memoryBaseline || current;
+      const growth = current - baseline;
+      const growthRate = baseline > 0 ? growth / baseline : 0;
+
+      // 如果内存增长超过 50%，发出警告
+      if (growthRate > 0.5) {
+        logger.warn('Potential memory leak detected in sandbox pool', {
+          baseline: Math.round(baseline / 1024 / 1024) + 'MB',
+          current: Math.round(current / 1024 / 1024) + 'MB',
+          growth: Math.round(growth / 1024 / 1024) + 'MB',
+          growthRate: (growthRate * 100).toFixed(1) + '%',
+          poolStats: this.getStats()
+        });
+      }
+    }, this._memoryCheckIntervalMs);
+  }
+
+  /**
+   * 停止内存监控
+   * @private
+   */
+  _stopMemoryMonitoring() {
+    if (this._memoryCheckTimer) {
+      clearInterval(this._memoryCheckTimer);
+      this._memoryCheckTimer = null;
+    }
+  }
+
+  /**
    * 销毁池（带优雅超时）
    * @param {Object} [options]
    * @param {number} [options.disposeTimeoutMs=2000] - 单个沙箱清理超时
    */
   dispose(options = {}) {
     if (this._disposed) return;
+
+    // 停止内存监控
+    this._stopMemoryMonitoring();
+
     this.clear(options);
 
     // 清理所有剩余的锁
