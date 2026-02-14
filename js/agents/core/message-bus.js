@@ -167,28 +167,101 @@ function toAbortError(reason) {
  */
 export class MessageBus {
   /**
-   * @param {EventBus} [eventBus]
+   * @param {EventBus | { eventBus?: EventBus, archive?: any, runId?: string }} [eventBusOrOptions]
    */
-  constructor(eventBus) {
+  constructor(eventBusOrOptions) {
     /** @type {string} */
     this._agentId = createRpcId();
+
+    // 支持两种调用方式：new MessageBus(eventBus) 或 new MessageBus({ eventBus, archive, runId })
+    let eventBus = eventBusOrOptions;
+    let archive = null;
+    let runId = 'default';
+
+    if (eventBusOrOptions && typeof eventBusOrOptions === 'object' && !(eventBusOrOptions instanceof EventBus)) {
+      const options = /** @type {{ eventBus?: EventBus, archive?: any, runId?: string }} */ (eventBusOrOptions);
+      eventBus = options.eventBus;
+      archive = options.archive || null;
+      runId = options.runId || 'default';
+    }
 
     if (eventBus === undefined || eventBus === null) {
       /** @type {EventBus} */
       this.eventBus = new EventBus();
       /** @type {boolean} */
       this._ownsEventBus = true;
-      return;
+    } else {
+      if (!(eventBus instanceof EventBus)) {
+        throw new TypeError('MessageBus(eventBus): eventBus must be an EventBus');
+      }
+      this.eventBus = eventBus;
+      this._ownsEventBus = false;
     }
-    if (!(eventBus instanceof EventBus)) {
-      throw new TypeError('MessageBus(eventBus): eventBus must be an EventBus');
-    }
-    this.eventBus = eventBus;
-    this._ownsEventBus = false;
+
+    // Archive 集成（用于 RPC 历史持久化）
+    /** @type {any | null} */
+    this._archive = archive;
+    /** @type {string} */
+    this._runId = runId;
+    /** @type {Array<{ requestId: string, type: string, payload: unknown, response: unknown, timestamp: number, durationMs?: number }>} */
+    this._rpcHistory = [];
+    /** @type {number} */
+    this._maxRpcHistory = 1000;
+    /** @type {Promise<void> | null} */
+    this._initPromise = null;
   }
 
   /** @type {Map<string, Promise<any>>} */
   _inflightRequests = new Map();
+
+  /**
+   * 初始化 MessageBus，从 Archive 恢复 RPC 历史（如果可用）
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+    if (!this._archive) return;
+
+    this._initPromise = (async () => {
+      try {
+        const checkpoints = await this._archive.list(this._runId);
+        if (!Array.isArray(checkpoints) || checkpoints.length === 0) return;
+
+        // Hydrate RPC history from Archive to memory
+        for (const ckpt of checkpoints) {
+          if (!ckpt?.id) continue;
+
+          // 只恢复 rpc 类型的检查点
+          if (!ckpt.id.includes(':rpc:')) continue;
+
+          try {
+            const restored = await this._archive.load(ckpt.id);
+            if (restored?.records && Array.isArray(restored.records)) {
+              // 合并 RPC 历史到内存，去重
+              const existingIds = new Set(this._rpcHistory.map(r => r.requestId));
+              for (const record of restored.records) {
+                if (record?.requestId && !existingIds.has(record.requestId)) {
+                  this._rpcHistory.push(record);
+                  existingIds.add(record.requestId);
+                }
+              }
+
+              // 保持历史大小限制
+              if (this._rpcHistory.length > this._maxRpcHistory) {
+                this._rpcHistory.splice(0, this._rpcHistory.length - this._maxRpcHistory);
+              }
+            }
+          } catch (err) {
+            // 持久化失败不影响启动
+          }
+        }
+      } catch (err) {
+        // 持久化失败不影响启动
+      }
+    })();
+
+    return this._initPromise;
+  }
 
   /**
    * 释放资源
@@ -357,6 +430,7 @@ export class MessageBus {
 
     const requestId = createRpcId();
     const replyTo = createReplyToEventName();
+    const startTime = Date.now();
 
     const promise = new Promise((resolve, reject) => {
       if (signal && signal.aborted) {
@@ -404,12 +478,16 @@ export class MessageBus {
 
       /** @param {T} value */
       const finishResolve = (value) => {
+        const durationMs = Date.now() - startTime;
+        this._recordRpc(requestId, name, payload, { ok: true, data: value }, startTime, durationMs);
         cleanup();
         resolve(value);
       };
 
       /** @param {Error} error */
       const finishReject = (error) => {
+        const durationMs = Date.now() - startTime;
+        this._recordRpc(requestId, name, payload, { ok: false, error: error.message }, startTime, durationMs);
         cleanup();
         reject(error);
       };
@@ -460,6 +538,63 @@ export class MessageBus {
       promise.finally(() => this._inflightRequests.delete(idempotencyKey));
     }
     return promise;
+  }
+
+  /**
+   * 记录 RPC 调用到历史并触发异步持久化
+   * @private
+   * @param {string} requestId
+   * @param {string} type
+   * @param {unknown} payload
+   * @param {unknown} response
+   * @param {number} timestamp
+   * @param {number} durationMs
+   * @returns {void}
+   */
+  _recordRpc(requestId, type, payload, response, timestamp, durationMs) {
+    const record = {
+      requestId,
+      type,
+      payload,
+      response,
+      timestamp,
+      durationMs,
+    };
+
+    this._rpcHistory.push(record);
+
+    // 保持历史大小限制
+    if (this._rpcHistory.length > this._maxRpcHistory) {
+      this._rpcHistory.shift();
+    }
+
+    // 异步持久化到 Archive (dual-write pattern)
+    this._persistRpcAsync();
+  }
+
+  /**
+   * 异步持久化 RPC 历史到 Archive (dual-write pattern)
+   * @private
+   * @returns {void}
+   */
+  _persistRpcAsync() {
+    if (!this._archive || this._rpcHistory.length === 0) return;
+
+    queueMicrotask(() => {
+      (async () => {
+        try {
+          const checkpointId = `${this._runId}:rpc:${Date.now()}`;
+          await this._archive.save(checkpointId, {
+            schemaVersion: 1,
+            records: [...this._rpcHistory],
+            timestamp: Date.now(),
+            metadata: { runId: this._runId, recordCount: this._rpcHistory.length },
+          });
+        } catch (err) {
+          // 持久化失败不影响内存操作
+        }
+      })();
+    });
   }
 }
 
