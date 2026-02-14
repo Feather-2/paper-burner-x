@@ -32,6 +32,7 @@ export function defineL1Layer() {
       this._stats.l1Tokens += addedTokens;
       this._stats.tokenUsage += addedTokens;
       this._markDirty("L1");
+      this._persistL1Async();
       this._emit("memory:l1:add", { type: "message", role: message.role, tokenEstimate: addedTokens });
       this._checkCompress();
       return message;
@@ -57,6 +58,7 @@ export function defineL1Layer() {
       this._stats.l1Tokens += addedTokens;
       this._stats.tokenUsage += addedTokens;
       this._markDirty("L1");
+      this._persistL1Async();
       this._checkCompress();
       return added;
     }),
@@ -77,6 +79,7 @@ export function defineL1Layer() {
       this._L1.signals.push(entry);
       this._pruneArray(this._L1.signals, this.config.maxSignals);
       this._markDirty("L1");
+      this._persistL1Async();
       this._emit("memory:l1:add", { type: "signal", signalType: entry.type, id: entry.id });
       return entry;
     }),
@@ -86,6 +89,7 @@ export function defineL1Layer() {
       if (sig) {
         sig.acknowledged = true;
         this._markDirty("L1");
+        this._persistL1Async();
       }
       return sig;
     }),
@@ -108,6 +112,7 @@ export function defineL1Layer() {
       this._L1.decisions.push(entry);
       this._pruneArray(this._L1.decisions, this.config.maxDecisions);
       this._markDirty("L1");
+      this._persistL1Async();
       this._emit("memory:l1:add", { type: "decision", action: entry.action, id: entry.id });
       return entry;
     }),
@@ -132,12 +137,14 @@ export function defineL1Layer() {
         this._L1.scratchpad[safeKey] = value;
       }
       this._markDirty("L1");
+      this._persistL1Async();
       this._emitUpdate("scratchpad", { key, value });
     }),
 
     clearScratchpad: defineMethod(function () {
       this._L1.scratchpad = {};
       this._markDirty("L1");
+      this._persistL1Async();
       this._emitUpdate("scratchpad", { cleared: true });
     }),
 
@@ -149,6 +156,7 @@ export function defineL1Layer() {
       if (name in this._L1.flags) {
         this._L1.flags[name] = Boolean(value);
         this._markDirty("L1");
+        this._persistL1Async();
         this._emitUpdate("flags", { [name]: value });
       }
     }),
@@ -193,6 +201,7 @@ export function defineL1Layer() {
       }
       this._L1.syncTable.discoveries.set(id, entry);
       this._markDirty("L1");
+      this._persistL1Async();
       return entry;
     }),
 
@@ -226,6 +235,7 @@ export function defineL1Layer() {
       }
       this._L1.syncTable.subagents.set(id, entry);
       this._markDirty("L1");
+      this._persistL1Async();
       return entry;
     }),
 

@@ -56,6 +56,7 @@ export class MemoryStore extends DisposableBase {
     this.eventBus = options.eventBus || null;
     this.archiveAdapter = options.archiveAdapter || null;
     this._tokenCounter = options.tokenCounter === null ? null : options.tokenCounter || getGlobalTokenCounter();
+    this._persistencePending = false;
 
     this._embeddingService = options.embeddingService && typeof options.embeddingService === "object" ? options.embeddingService : null;
     this._vectorIndex = options.vectorIndex && typeof options.vectorIndex === "object" ? options.vectorIndex : null;
@@ -144,6 +145,131 @@ export class MemoryStore extends DisposableBase {
       L3: false,
     };
     this._lastSnapshotTs = 0;
+  }
+
+  /**
+   * 初始化：从 Archive 恢复 L0-L2 数据
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (!this.archiveAdapter) return;
+    try {
+      const [l0Data, l1Data, l2Data] = await Promise.all([
+        this.archiveAdapter.load(`${this.runId}:L0`).catch(() => null),
+        this.archiveAdapter.load(`${this.runId}:L1`).catch(() => null),
+        this.archiveAdapter.load(`${this.runId}:L2`).catch(() => null),
+      ]);
+
+      if (l0Data?.nodeStates) {
+        const l0 = l0Data.nodeStates;
+        if (l0.systemPrompt) this._L0.systemPrompt = l0.systemPrompt;
+        if (l0.taskGoal) this._L0.taskGoal = l0.taskGoal;
+        if (Array.isArray(l0.todos)) this._L0.todos = deepClone(l0.todos);
+      }
+
+      if (l1Data?.nodeStates) {
+        const l1 = l1Data.nodeStates;
+        if (Array.isArray(l1.messages)) this._L1.messages = deepClone(l1.messages);
+        if (Array.isArray(l1.signals)) this._L1.signals = deepClone(l1.signals);
+        if (Array.isArray(l1.decisions)) this._L1.decisions = deepClone(l1.decisions);
+        if (l1.syncTable) {
+          if (Array.isArray(l1.syncTable.discoveries)) {
+            this._L1.syncTable.discoveries = new Map(l1.syncTable.discoveries);
+          }
+          if (Array.isArray(l1.syncTable.subagents)) {
+            this._L1.syncTable.subagents = new Map(l1.syncTable.subagents);
+          }
+        }
+        if (isPlainObject(l1.scratchpad)) this._L1.scratchpad = deepClone(l1.scratchpad);
+        if (isPlainObject(l1.flags)) this._L1.flags = { ...this._L1.flags, ...l1.flags };
+      }
+
+      if (l2Data?.nodeStates) {
+        const l2 = l2Data.nodeStates;
+        if (l2.historySummary) this._L2.historySummary = l2.historySummary;
+        if (Array.isArray(l2.stageSummaries)) {
+          this._L2.stageSummaries = new Map(l2.stageSummaries);
+        }
+        if (Array.isArray(l2.claims)) this._L2.claims = deepClone(l2.claims);
+      }
+
+      this._updateTokenUsage();
+      this._clearDirty();
+    } catch (err) {
+      // 持久化失败不影响内存操作
+    }
+  }
+
+  /**
+   * 异步持久化 L0 数据
+   * @private
+   */
+  _persistL0Async() {
+    if (!this.archiveAdapter || this._persistencePending) return;
+    queueMicrotask(async () => {
+      try {
+        await this.archiveAdapter.save(`${this.runId}:L0`, {
+          nodeStates: {
+            systemPrompt: this._L0.systemPrompt,
+            taskGoal: this._L0.taskGoal,
+            todos: deepClone(this._L0.todos),
+          },
+          metadata: { layer: "L0", runId: this.runId },
+        });
+      } catch {
+        // 持久化失败不影响内存操作
+      }
+    });
+  }
+
+  /**
+   * 异步持久化 L1 数据
+   * @private
+   */
+  _persistL1Async() {
+    if (!this.archiveAdapter || this._persistencePending) return;
+    queueMicrotask(async () => {
+      try {
+        await this.archiveAdapter.save(`${this.runId}:L1`, {
+          nodeStates: {
+            messages: deepClone(this._L1.messages),
+            signals: deepClone(this._L1.signals),
+            decisions: deepClone(this._L1.decisions),
+            syncTable: {
+              discoveries: Array.from(this._L1.syncTable.discoveries.entries()),
+              subagents: Array.from(this._L1.syncTable.subagents.entries()),
+            },
+            scratchpad: deepClone(this._L1.scratchpad),
+            flags: { ...this._L1.flags },
+          },
+          metadata: { layer: "L1", runId: this.runId },
+        });
+      } catch {
+        // 持久化失败不影响内存操作
+      }
+    });
+  }
+
+  /**
+   * 异步持久化 L2 数据
+   * @private
+   */
+  _persistL2Async() {
+    if (!this.archiveAdapter || this._persistencePending) return;
+    queueMicrotask(async () => {
+      try {
+        await this.archiveAdapter.save(`${this.runId}:L2`, {
+          nodeStates: {
+            historySummary: this._L2.historySummary,
+            stageSummaries: Array.from(this._L2.stageSummaries.entries()),
+            claims: deepClone(this._L2.claims),
+          },
+          metadata: { layer: "L2", runId: this.runId },
+        });
+      } catch {
+        // 持久化失败不影响内存操作
+      }
+    });
   }
 
   // NOTE: L0/L1/L2/L3 methods are injected at runtime via defineL*Layer().

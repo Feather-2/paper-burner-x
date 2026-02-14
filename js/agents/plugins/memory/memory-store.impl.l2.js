@@ -22,6 +22,7 @@ export function defineL2Layer() {
       if (s) {
         this._L2.stageSummaries.set(s, toNonEmptyString(summary) || "");
         this._markDirty("L2");
+        this._persistL2Async();
       }
     }),
 
@@ -44,6 +45,7 @@ export function defineL2Layer() {
       };
       this._L2.claims.push(entry);
       this._markDirty("L2");
+      this._persistL2Async();
       return entry;
     }),
 
@@ -60,6 +62,7 @@ export function defineL2Layer() {
     replaceClaims: defineMethod(function (claims) {
       this._L2.claims = Array.isArray(claims) ? deepClone(claims) : [];
       this._markDirty("L2");
+      this._persistL2Async();
       return [...this._L2.claims];
     }),
   };

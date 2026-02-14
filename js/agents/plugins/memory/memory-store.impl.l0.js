@@ -29,11 +29,13 @@ export function defineL0Layer() {
       const delta = estimateTokens(next, this._tokenCounter) - estimateTokens(prev, this._tokenCounter);
       this._stats.l0Tokens += delta;
       this._stats.tokenUsage += delta;
+      this._persistL0Async();
     }),
 
     setTaskGoal: defineMethod(function (goal) {
       this._L0.taskGoal = toNonEmptyString(goal) || "";
       this._markDirty("L0");
+      this._persistL0Async();
     }),
 
     getTaskGoal: defineMethod(function () {
@@ -66,6 +68,7 @@ export function defineL0Layer() {
       this._stats.l0Tokens += addedTokens;
       this._stats.tokenUsage += addedTokens;
       this._markDirty("L0");
+      this._persistL0Async();
       return entry;
     }),
 
@@ -84,6 +87,7 @@ export function defineL0Layer() {
         this._stats.l0Tokens += delta;
         this._stats.tokenUsage += delta;
         this._markDirty("L0");
+        this._persistL0Async();
       }
       return todo || null;
     }),
@@ -98,6 +102,7 @@ export function defineL0Layer() {
         this._stats.l0Tokens -= removedTokens;
         this._stats.tokenUsage -= removedTokens;
         this._markDirty("L0");
+        this._persistL0Async();
         return removed;
       }
       return null;
@@ -153,6 +158,7 @@ export function defineL0Layer() {
       this._stats.l0Tokens += delta;
       this._stats.tokenUsage += delta;
       this._markDirty("L0");
+      this._persistL0Async();
       return [...this._L0.todos];
     }),
   };
