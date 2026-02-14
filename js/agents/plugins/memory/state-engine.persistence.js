@@ -15,6 +15,8 @@ import { cloneJson, buildStatePatch } from "./state-diff.js";
 import { L3_ADD_CHECKPOINT } from "./action-types.js";
 import { generateId } from "./state-engine.utils.js";
 
+const SNAPSHOT_VERSION = 1;
+
 /**
  * Create a snapshot of current state
  * @param {object} state
@@ -22,6 +24,7 @@ import { generateId } from "./state-engine.utils.js";
  */
 export function createSnapshot(state) {
   return {
+    version: SNAPSHOT_VERSION,
     state: cloneJson(state),
     clock: _currentSeq(null),
     ts: Date.now(),
@@ -36,6 +39,11 @@ export function createSnapshot(state) {
  */
 export function restoreSnapshot(engine, snapshot) {
   if (!snapshot?.state) return false;
+
+  if (snapshot.version !== SNAPSHOT_VERSION) {
+    console.warn(`Snapshot version mismatch: ${snapshot.version} vs ${SNAPSHOT_VERSION}`);
+    return false;
+  }
 
   engine._state = cloneJson(snapshot.state);
   if (typeof snapshot.clock === "number") {
