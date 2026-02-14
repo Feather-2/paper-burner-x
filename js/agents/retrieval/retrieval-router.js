@@ -20,6 +20,9 @@ export const DEFAULT_GREP_YIELD_EVERY = 200;
 /** @type {number} Default MMR lambda for diversity */
 export const DEFAULT_MMR_LAMBDA = 0.7;
 
+/** @type {number} BM25 persistence schema version */
+export const BM25_SCHEMA_VERSION = 1;
+
 function getGapId(gap) {
   if (!gap || !isPlainObject(gap)) return null;
   const id = gap.gapId || gap.id || null;
@@ -110,7 +113,9 @@ function bm25PersistKey(sourceIndex, chunks, bm25Options) {
   const sourceId = String(sourceIndex?.sourceId || "source_1");
   const textHash = typeof sourceIndex?.textHash === "string" ? sourceIndex.textHash.trim() : "";
   const base = bm25CacheKey(chunks, bm25Options);
-  return textHash ? `bm25|${sourceId}|${textHash}|${base}` : `bm25|${sourceId}|${base}`;
+  return textHash
+    ? `bm25|v${BM25_SCHEMA_VERSION}|${sourceId}|${textHash}|${base}`
+    : `bm25|v${BM25_SCHEMA_VERSION}|${sourceId}|${base}`;
 }
 
 function isCompatibleBm25Index(index, chunks) {
@@ -149,6 +154,20 @@ async function loadBm25IndexFromStore(store, key, { logger, maxSnapshotChars = D
       }
     }
     if (!snapshot || typeof snapshot !== "object") return null;
+    const bm25SchemaVersionRaw = snapshot.bm25SchemaVersion;
+    const bm25SchemaVersion =
+      typeof bm25SchemaVersionRaw === "number"
+        ? bm25SchemaVersionRaw
+        : typeof bm25SchemaVersionRaw === "string" && bm25SchemaVersionRaw.trim()
+          ? Number(bm25SchemaVersionRaw)
+          : null;
+    if (!Number.isFinite(bm25SchemaVersion) || bm25SchemaVersion !== BM25_SCHEMA_VERSION) {
+      logger?.warn?.("[retrieval] bm25 snapshot version mismatch; ignoring", {
+        expectedVersion: BM25_SCHEMA_VERSION,
+        actualVersion: bm25SchemaVersionRaw ?? null,
+      });
+      return null;
+    }
     const schemaVersion = typeof snapshot.schemaVersion === "string" ? snapshot.schemaVersion : "";
     if (schemaVersion !== "0.1") {
       logger?.warn?.("[retrieval] bm25 snapshot schema mismatch; ignoring", { schemaVersion });
@@ -163,7 +182,10 @@ async function loadBm25IndexFromStore(store, key, { logger, maxSnapshotChars = D
 async function saveBm25IndexToStore(store, key, index) {
   if (!store || typeof store.set !== "function") return false;
   try {
-    const snapshot = serializeBm25Index(index);
+    const serialized = serializeBm25Index(index);
+    const snapshot = isPlainObject(serialized)
+      ? { ...serialized, bm25SchemaVersion: BM25_SCHEMA_VERSION }
+      : { bm25SchemaVersion: BM25_SCHEMA_VERSION };
     await store.set(key, snapshot);
     return true;
   } catch {

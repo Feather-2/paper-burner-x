@@ -104,6 +104,7 @@ describe("ProcessCoordinator", () => {
     await Promise.all([coordinator.init(), coordinator.init()]);
 
     expect(clusterState.on).toHaveBeenCalledTimes(1);
+    expect(coordinator.isEnabled()).toBe(true);
   });
 
   it("logs and disables support when cluster module import fails", async () => {
@@ -175,6 +176,7 @@ describe("ProcessCoordinator", () => {
     const { ProcessCoordinator } = await loadModule();
     const coordinator = new ProcessCoordinator();
     const spy = vi.spyOn(coordinator, "_broadcast");
+    coordinator._enabled = true;
 
     coordinator.broadcastAccess(null);
     coordinator.broadcastAccess(undefined);
@@ -198,6 +200,7 @@ describe("ProcessCoordinator", () => {
     coordinator._cluster = { workers: { w: worker } };
     coordinator._isPrimary = true;
     coordinator._processId = Number.MAX_SAFE_INTEGER;
+    coordinator._enabled = true;
 
     coordinator._broadcast("session-accessed", "session-a");
     coordinator._processId = -1;
@@ -227,6 +230,7 @@ describe("ProcessCoordinator", () => {
     coordinator._isPrimary = true;
     coordinator._processId = null;
     coordinator._process = { pid: "nope" };
+    coordinator._enabled = true;
 
     coordinator._broadcast("session-accessed", "session-a");
 
@@ -424,12 +428,31 @@ describe("ProcessCoordinator", () => {
     coordinator._cluster = { workers: { w: worker } };
     coordinator._isPrimary = true;
     coordinator._processId = 1;
+    coordinator._enabled = true;
 
     for (let i = 0; i < 5; i++) {
       coordinator.broadcastAccess(`session-${i}`);
     }
 
     expect(worker.send).toHaveBeenCalledTimes(5);
+  });
+
+  it("degrades to no-op when coordinator is disabled", async () => {
+    const { ProcessCoordinator } = await loadModule();
+    const worker = { send: vi.fn(), isConnected: () => true };
+    const coordinator = new ProcessCoordinator();
+
+    coordinator._supported = true;
+    coordinator._cluster = { workers: { w: worker } };
+    coordinator._isPrimary = true;
+    coordinator._processId = 1;
+    coordinator._enabled = false;
+
+    coordinator.broadcastAccess("session-disabled");
+    coordinator.broadcastEviction("session-disabled");
+
+    expect(coordinator.isEnabled()).toBe(false);
+    expect(worker.send).not.toHaveBeenCalled();
   });
 });
 

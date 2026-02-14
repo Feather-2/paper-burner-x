@@ -34,7 +34,7 @@ vi.mock("../../../../js/agents/shared/index.js", () => ({
   checkCancelled: vi.fn(),
 }));
 
-import { retrieve, retrieveAsync, RetrievalRouter } from "../../../../js/agents/retrieval/retrieval-router.js";
+import { BM25_SCHEMA_VERSION, retrieve, retrieveAsync, RetrievalRouter } from "../../../../js/agents/retrieval/retrieval-router.js";
 import * as bm25 from "../../../../js/agents/retrieval/bm25.js";
 import * as grep from "../../../../js/agents/retrieval/grep.js";
 import * as readaround from "../../../../js/agents/retrieval/readaround.js";
@@ -335,7 +335,7 @@ describe("retrieve", () => {
     expect(store.get).not.toHaveBeenCalled();
     expect(cache.get).toHaveBeenCalledTimes(1);
     const key = cache.get.mock.calls[0][0];
-    expect(key).toContain("bm25|srcA|hash1|");
+    expect(key).toContain(`bm25|v${BM25_SCHEMA_VERSION}|srcA|hash1|`);
     expect(cache.set).toHaveBeenCalledWith(key, index);
     expect(result).toEqual([]);
   });
@@ -346,6 +346,36 @@ describe("retrieve", () => {
     const store = { get: vi.fn(), set: vi.fn() };
     const logger = { warn: vi.fn() };
     store.get.mockResolvedValue("a".repeat(2 * 1024 * 1024 + 1));
+
+    await retrieve(sourceIndex, [{ query: "q" }], {
+      bm25IndexStore: store,
+      logger,
+      useGrep: false,
+      windowSize: 0,
+    });
+
+    expect(logger.warn).toHaveBeenCalled();
+    expect(bm25.buildIndexAsync).toHaveBeenCalled();
+    expect(store.set).toHaveBeenCalled();
+  });
+
+  it("falls back when store snapshot version mismatches", async () => {
+    const chunks = [makeChunk("a", 0)];
+    const sourceIndex = makeSourceIndex(chunks);
+    const store = { get: vi.fn(), set: vi.fn() };
+    const logger = { warn: vi.fn() };
+
+    store.get.mockResolvedValue({
+      bm25SchemaVersion: BM25_SCHEMA_VERSION + 1,
+      schemaVersion: "0.1",
+      chunkIds: ["a"],
+      docLens: [1],
+      avgDocLen: 1,
+      df: [],
+      postings: [],
+      k1: 1.2,
+      b: 0.75,
+    });
 
     await retrieve(sourceIndex, [{ query: "q" }], {
       bm25IndexStore: store,

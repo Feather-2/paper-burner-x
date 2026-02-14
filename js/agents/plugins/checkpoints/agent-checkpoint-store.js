@@ -1,4 +1,5 @@
 import { StorageVfs } from "../../vfs/vfs.storage.js";
+import { acquireLock } from "../../vfs/file-lock.js";
 import { safeJsonParse } from "../../shared/index.js";
 import { createLogger } from "../../shared/index.js";
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/index.js";
@@ -12,9 +13,6 @@ const INDEX_KIND = "agent_checkpoint_index";
 const INDEX_FILE = "index.json";
 const INDEX_JSON_MAX_CHARS = 2_000_000;
 const CHECKPOINT_JSON_MAX_CHARS = 5_000_000;
-
-/** @type {Map<string, Promise<void>>} */
-const indexLocks = new Map();
 
 /**
  * @typedef {object} LoggerLike
@@ -56,28 +54,36 @@ const indexLocks = new Map();
  */
 
 /**
- * 简易互斥锁 - 保证同一 runId 的索引操作串行
+ * 索引锁（VFS 文件锁）- 保证同一 runId 的索引操作串行
+ * 并尽可能提供跨上下文安全性（best-effort）。
  * @param {string} runId
  * @param {() => Promise<T>} fn
  * @returns {Promise<T>}
  * @template T
  */
 async function withIndexLock(runId, fn) {
-  const key = runId || "__default__";
-  while (indexLocks.has(key)) {
-    await indexLocks.get(key);
-  }
-  /** @type {() => void} */
-  let release = () => {};
-  const lock = new Promise((resolve) => {
-    release = () => resolve();
-  });
-  indexLocks.set(key, lock);
+  /** @type {{ release?: () => void } | null} */
+  let lock = null;
+  let lockPath = "";
   try {
+    try {
+      lockPath = `${buildIndexPath(runId || "__default__")}.lock`;
+      lock = await acquireLock(lockPath, { type: "write" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err ?? "");
+      logger.warn(`[checkpoint-store] Failed to acquire index lock for "${runId}": ${msg}`);
+      lock = null;
+    }
     return await fn();
   } finally {
-    indexLocks.delete(key);
-    release();
+    if (lock && typeof lock.release === "function") {
+      try {
+        lock.release();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err ?? "");
+        logger.warn(`[checkpoint-store] Failed to release index lock "${lockPath}": ${msg}`);
+      }
+    }
   }
 }
 

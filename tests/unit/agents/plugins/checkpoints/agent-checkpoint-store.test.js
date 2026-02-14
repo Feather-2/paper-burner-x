@@ -8,6 +8,39 @@ const loggerMock = vi.hoisted(() => ({
 }));
 
 const storageVfsCtor = vi.hoisted(() => vi.fn());
+const lockState = vi.hoisted(() => ({
+  active: new Set(),
+  waiters: new Map(),
+}));
+
+const acquireLockMock = vi.hoisted(() =>
+  vi.fn(async (path) => {
+    const key = String(path || "");
+    if (lockState.active.has(key)) {
+      await new Promise((resolve) => {
+        const queue = lockState.waiters.get(key) || [];
+        queue.push(resolve);
+        lockState.waiters.set(key, queue);
+      });
+    }
+
+    lockState.active.add(key);
+
+    return {
+      release: () => {
+        if (!lockState.active.has(key)) return;
+        const queue = lockState.waiters.get(key);
+        if (queue && queue.length > 0) {
+          const next = queue.shift();
+          if (queue.length === 0) lockState.waiters.delete(key);
+          next?.();
+          return;
+        }
+        lockState.active.delete(key);
+      },
+    };
+  }),
+);
 
 vi.mock("../../../../../js/agents/shared/index.js", async () => {
   const actual = await vi.importActual("../../../../../js/agents/shared/index.js");
@@ -24,6 +57,10 @@ vi.mock("../../../../../js/agents/vfs/vfs.storage.js", () => ({
       return storageVfsCtor(adapter);
     }
   },
+}));
+
+vi.mock("../../../../../js/agents/vfs/file-lock.js", () => ({
+  acquireLock: acquireLockMock,
 }));
 
 import AgentCheckpointStore, {
@@ -107,6 +144,34 @@ beforeEach(() => {
   loggerMock.error.mockClear();
   loggerMock.debug.mockClear();
   storageVfsCtor.mockReset();
+  acquireLockMock.mockReset();
+  lockState.active.clear();
+  lockState.waiters.clear();
+  acquireLockMock.mockImplementation(async (path) => {
+    const key = String(path || "");
+    if (lockState.active.has(key)) {
+      await new Promise((resolve) => {
+        const queue = lockState.waiters.get(key) || [];
+        queue.push(resolve);
+        lockState.waiters.set(key, queue);
+      });
+    }
+
+    lockState.active.add(key);
+    return {
+      release: () => {
+        if (!lockState.active.has(key)) return;
+        const queue = lockState.waiters.get(key);
+        if (queue && queue.length > 0) {
+          const next = queue.shift();
+          if (queue.length === 0) lockState.waiters.delete(key);
+          next?.();
+          return;
+        }
+        lockState.active.delete(key);
+      },
+    };
+  });
   vi.mocked(makeSecureTimestampedId).mockReset();
   vi.mocked(makeSecureTimestampedId).mockImplementation((prefix) => `${prefix}_${idCounter++}`);
 });
@@ -293,6 +358,10 @@ describe("AgentCheckpointStore", () => {
           metadata: {},
         })
       );
+      expect(acquireLockMock).toHaveBeenCalledWith(
+        expect.stringContaining(".agents/runs/run_.._id/checkpoints/index.json.lock"),
+        { type: "write" },
+      );
     });
 
     it("rejects missing runId and traversal segments", async () => {
@@ -368,6 +437,19 @@ describe("AgentCheckpointStore", () => {
 
       const list = await store.listCheckpoints();
       expect(list).toHaveLength(3);
+    });
+
+    it("continues saving when index lock acquisition fails", async () => {
+      const vfs = makeMemoryVfs();
+      const store = new AgentCheckpointStore({ vfs, runId: "run_lock_fail" });
+      acquireLockMock.mockRejectedValueOnce(new Error("lock-fail"));
+
+      const saved = await store.saveCheckpoint({ step: 1, messages: [] });
+      const loaded = await store.loadCheckpoint({ checkpointId: saved.checkpointId });
+
+      expect(saved.checkpointId).toBeTruthy();
+      expect(loaded?.checkpointId).toBe(saved.checkpointId);
+      expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining("Failed to acquire index lock"));
     });
   });
 

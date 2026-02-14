@@ -29,8 +29,26 @@ const DESIGN_PREFIX = "design.";
 /** 危险 key，用于防止原型污染 */
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+/**
+ * @typedef {object} ArchiveLike
+ * @property {(runId: string, data: Record<string, any>) => Promise<string>|string} [save]
+ * @property {(key: string) => Promise<any>|any} [load]
+ * @property {(checkpointId: string) => Promise<any>|any} [restore]
+ * @property {(key: string) => Promise<any>|any} [get]
+ * @property {(key: string, value: any) => Promise<any>|any} [set]
+ */
+
 function logSilentError(context, err) {
   const message = err instanceof Error ? err.message : String(err);
+  logger.debug(`[design.blackboard] ${context} failed`, { error: message });
+}
+
+function logSilentWarning(context, err) {
+  const message = err instanceof Error ? err.message : String(err);
+  if (typeof logger.warn === "function") {
+    logger.warn(`[design.blackboard] ${context} failed`, { error: message });
+    return;
+  }
   logger.debug(`[design.blackboard] ${context} failed`, { error: message });
 }
 
@@ -46,9 +64,9 @@ function stripDesignPrefix(value) {
 
 export class DesignBlackboard extends DisposableBase {
   /**
-   * @param {{ runId?: string, limits?: Record<string, any>, memoryStore?: any, stateEngine?: any }} [options]
+   * @param {{ runId?: string, limits?: Record<string, any>, memoryStore?: any, stateEngine?: any, archive?: ArchiveLike|null }} [options]
    */
-  constructor({ runId, limits = {}, memoryStore = null, stateEngine = null } = {}) {
+  constructor({ runId, limits = {}, memoryStore = null, stateEngine = null, archive = null } = {}) {
     super();
     this.runId = toNonEmptyString(runId) || `design_${Date.now()}`;
     this.createdAt = new Date().toISOString();
@@ -63,6 +81,8 @@ export class DesignBlackboard extends DisposableBase {
     // 外部依赖
     this._memoryStore = memoryStore || null;
     this._stateEngine = stateEngine || null;
+    this._archive = archive || null;
+    this._lastCheckpointId = null;
     this._stateEngineUnsubscribe = null;
 
     // 本地存储（当无 MemoryStore 时使用）
@@ -84,6 +104,8 @@ export class DesignBlackboard extends DisposableBase {
       }
       this._stateEngine = null;
       this._memoryStore = null;
+      this._archive = null;
+      this._lastCheckpointId = null;
 
       try {
         this._summaries?.clear?.();
@@ -586,6 +608,211 @@ export class DesignBlackboard extends DisposableBase {
     }
   }
 
+  /**
+   * 保存当前黑板状态到 Archive（best-effort）。
+   *
+   * @returns {Promise<string|null>} checkpointId（如果 archive 返回）
+   */
+  async checkpoint() {
+    if (this.disposed) return null;
+
+    const archive = this._archive;
+    if (!archive) return null;
+
+    const snapshot = this._createArchiveSnapshot();
+    try {
+      if (typeof archive.save === "function") {
+        const checkpointId = await archive.save(this.runId, {
+          nodeStates: snapshot,
+          timestamp: new Date().toISOString(),
+          metadata: {
+            kind: "design.blackboard",
+            runId: this.runId,
+          },
+        });
+        const normalized = toNonEmptyString(checkpointId) || null;
+        if (normalized) this._lastCheckpointId = normalized;
+        return normalized;
+      }
+
+      if (typeof archive.set === "function") {
+        const key = `design.blackboard.${this.runId}`;
+        await archive.set(key, snapshot);
+        this._lastCheckpointId = key;
+        return key;
+      }
+    } catch (err) {
+      logSilentWarning("checkpoint.archive", err);
+      return null;
+    }
+
+    return null;
+  }
+
+  /**
+   * 从 Archive 恢复状态（best-effort）。
+   *
+   * @returns {Promise<boolean>} true 表示成功恢复
+   */
+  async init() {
+    if (this.disposed) return false;
+    const archive = this._archive;
+    if (!archive) return false;
+
+    /** @type {any} */
+    let restored = null;
+
+    if (!restored && typeof archive.load === "function") {
+      try {
+        restored = await archive.load(this.runId);
+      } catch (err) {
+        logSilentWarning("init.archive.load", err);
+      }
+    }
+
+    if (!restored && this._lastCheckpointId && typeof archive.restore === "function") {
+      try {
+        restored = await archive.restore(this._lastCheckpointId);
+      } catch (err) {
+        logSilentWarning("init.archive.restoreLast", err);
+      }
+    }
+
+    if (!restored && typeof archive.get === "function") {
+      try {
+        restored = await archive.get(`design.blackboard.${this.runId}`);
+        if (!restored) restored = await archive.get(this.runId);
+      } catch (err) {
+        logSilentWarning("init.archive.get", err);
+      }
+    }
+
+    if (!restored && typeof archive.restore === "function") {
+      try {
+        restored = await archive.restore(this.runId);
+      } catch (err) {
+        logSilentWarning("init.archive.restore", err);
+      }
+    }
+
+    const snapshot = this._extractArchiveSnapshot(restored);
+    if (!snapshot) return false;
+
+    try {
+      this._applyArchiveSnapshot(snapshot);
+    } catch (err) {
+      logSilentWarning("init.applySnapshot", err);
+      return false;
+    }
+
+    return true;
+  }
+
+  _createArchiveSnapshot() {
+    return {
+      runId: this.runId,
+      createdAt: this.createdAt,
+      summaries: this.getAllSummaries(),
+      signals: cloneValue(this._signals) || [],
+      decisions: cloneValue(this._decisions) || [],
+      versions: cloneValue(this._versions) || [],
+      deck: cloneValue(this.getDeck()),
+    };
+  }
+
+  _extractArchiveSnapshot(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    if (isPlainObject(raw.nodeStates)) return raw.nodeStates;
+    if (isPlainObject(raw.snapshot)) return raw.snapshot;
+    if (isPlainObject(raw.state)) return raw.state;
+    return isPlainObject(raw) ? raw : null;
+  }
+
+  _applyArchiveSnapshot(snapshot) {
+    const data = isPlainObject(snapshot) ? snapshot : {};
+
+    const restoredRunId = toNonEmptyString(data.runId);
+    if (restoredRunId) this.runId = restoredRunId;
+    const restoredCreatedAt = toNonEmptyString(data.createdAt);
+    if (restoredCreatedAt) this.createdAt = restoredCreatedAt;
+
+    this._summaries = new Map();
+    if (isPlainObject(data.summaries)) {
+      for (const [stage, summary] of Object.entries(data.summaries)) {
+        const key = toNonEmptyString(stage);
+        if (!key || DANGEROUS_KEYS.has(key)) continue;
+        this._summaries.set(key, String(summary ?? ""));
+      }
+    }
+    this._pruneMap(this._summaries, this.limits.summariesMax);
+
+    this._signals = Array.isArray(data.signals)
+      ? data.signals
+          .map((signal) => {
+            const raw = isPlainObject(signal) ? signal : {};
+            return {
+              id: toNonEmptyString(raw.id) || null,
+              type: toNonEmptyString(raw.type) || "unknown",
+              payload: cloneValue(isPlainObject(raw.payload) ? raw.payload : {}),
+              timestamp: typeof raw.timestamp === "number" ? raw.timestamp : Date.now(),
+            };
+          })
+          .filter(Boolean)
+      : [];
+    this._pruneArray(this._signals, this.limits.signalsMax);
+
+    this._decisions = Array.isArray(data.decisions)
+      ? data.decisions
+          .map((decision) => {
+            const raw = isPlainObject(decision) ? decision : {};
+            return {
+              ...cloneValue(raw),
+              action: toNonEmptyString(raw.action) || "unknown",
+              reason: toNonEmptyString(raw.reason) || "",
+              timestamp: typeof raw.timestamp === "number" ? raw.timestamp : Date.now(),
+            };
+          })
+          .filter(Boolean)
+      : [];
+    this._pruneArray(this._decisions, this.limits.decisionsMax);
+
+    this._versions = Array.isArray(data.versions)
+      ? data.versions
+          .map((version, index) => {
+            const raw = isPlainObject(version) ? version : {};
+            return {
+              label: toNonEmptyString(raw.label) || `v${index + 1}`,
+              snapshot: cloneValue(raw.snapshot),
+              timestamp: typeof raw.timestamp === "number" ? raw.timestamp : Date.now(),
+            };
+          })
+          .filter(Boolean)
+      : [];
+
+    if (Object.prototype.hasOwnProperty.call(data, "deck")) {
+      this._deck = cloneValue(data.deck);
+    }
+
+    const metadata = isPlainObject(data.metadata) ? data.metadata : null;
+    const restoredCheckpointId = toNonEmptyString(data.checkpointId) || toNonEmptyString(metadata?.checkpointId) || null;
+    if (restoredCheckpointId) this._lastCheckpointId = restoredCheckpointId;
+
+    if (this._memoryStore) {
+      try {
+        this.bindMemoryStore(this._memoryStore);
+      } catch (err) {
+        logSilentWarning("init.bindMemoryStore", err);
+      }
+    }
+    if (this._stateEngine) {
+      try {
+        this.bindStateEngine(this._stateEngine);
+      } catch (err) {
+        logSilentWarning("init.bindStateEngine", err);
+      }
+    }
+  }
+
   // ===== Versions =====
 
   saveVersion(label, snapshot) {
@@ -680,8 +907,8 @@ export class DesignBlackboard extends DisposableBase {
     };
   }
 
-  static fromJSON(data, { memoryStore = null } = {}) {
-    const bb = new DesignBlackboard({ runId: data?.runId, memoryStore });
+  static fromJSON(data, { memoryStore = null, archive = null } = {}) {
+    const bb = new DesignBlackboard({ runId: data?.runId, memoryStore, archive });
     if (data?.summaries) {
       for (const [k, v] of Object.entries(data.summaries)) {
         bb._summaries.set(k, v);

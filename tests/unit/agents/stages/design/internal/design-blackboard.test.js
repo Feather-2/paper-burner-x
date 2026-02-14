@@ -94,6 +94,16 @@ function makeMemoryStore() {
   return store;
 }
 
+function makeArchive() {
+  return {
+    save: vi.fn(async () => "design:checkpoint-1"),
+    load: vi.fn(async () => null),
+    restore: vi.fn(async () => null),
+    get: vi.fn(async () => null),
+    set: vi.fn(async () => undefined),
+  };
+}
+
 function createStateEngine(initialState = {}) {
   const state = {
     L1: { ...(initialState.L1 || {}) },
@@ -559,6 +569,78 @@ describe("DesignBlackboard", () => {
 
     restored.setSummary("new", "value");
     expect(memoryStore.setStageSummary).toHaveBeenCalledWith("design.new", "value");
+  });
+
+  it("checkpoint() persists to archive and tolerates archive errors", async () => {
+    const archive = makeArchive();
+    const bb = new DesignBlackboard({ runId: "run-archive", archive });
+
+    bb.setSummary("stage", "summary");
+    bb.pushSignal("notice", { message: "hi" });
+    bb.logDecision("act", "reason");
+    bb.setDeck({ id: "deck-1" });
+
+    const checkpointId = await bb.checkpoint();
+
+    expect(checkpointId).toBe("design:checkpoint-1");
+    expect(archive.save).toHaveBeenCalledWith(
+      "run-archive",
+      expect.objectContaining({
+        nodeStates: expect.objectContaining({
+          runId: "run-archive",
+          summaries: expect.objectContaining({ stage: "summary" }),
+          deck: { id: "deck-1" },
+        }),
+      }),
+    );
+
+    const failingArchive = makeArchive();
+    failingArchive.save.mockRejectedValueOnce(new Error("archive-fail"));
+    const bbFail = new DesignBlackboard({ runId: "run-fail", archive: failingArchive });
+    await expect(bbFail.checkpoint()).resolves.toBeNull();
+    expect(debugSpy).toHaveBeenCalled();
+  });
+
+  it("init() restores blackboard state from archive snapshot", async () => {
+    const archive = makeArchive();
+    archive.load.mockResolvedValueOnce({
+      nodeStates: {
+        runId: "run-restore",
+        summaries: { outline: "ready" },
+        signals: [{ id: "s1", type: "notice", payload: { message: "m1" }, timestamp: 1 }],
+        decisions: [{ action: "choose", reason: "why", timestamp: 2 }],
+        versions: [{ label: "v1", snapshot: { deck: 1 }, timestamp: 3 }],
+        deck: { restored: true },
+      },
+    });
+
+    const bb = new DesignBlackboard({ runId: "run-restore", archive });
+    const ok = await bb.init();
+
+    expect(ok).toBe(true);
+    expect(bb.getSummary("outline")).toBe("ready");
+    expect(bb.peekSignals(1)[0]).toEqual(expect.objectContaining({ id: "s1", type: "notice" }));
+    expect(bb.getRecentDecisions(1)[0]).toEqual(expect.objectContaining({ action: "choose" }));
+    expect(bb.getDeck()).toEqual({ restored: true });
+    expect(bb.getVersion("v1")).toEqual(expect.objectContaining({ label: "v1" }));
+  });
+
+  it("init() falls back to archive.get and remains tolerant on load failures", async () => {
+    const archive = makeArchive();
+    archive.load.mockRejectedValueOnce(new Error("load-fail"));
+    archive.get.mockResolvedValueOnce({
+      summaries: { fallback: "ok" },
+      signals: [],
+      decisions: [],
+    });
+
+    const bb = new DesignBlackboard({ runId: "run-fallback", archive });
+    const ok = await bb.init();
+
+    expect(ok).toBe(true);
+    expect(archive.get).toHaveBeenCalled();
+    expect(bb.getSummary("fallback")).toBe("ok");
+    expect(debugSpy).toHaveBeenCalled();
   });
 
   it("handles cloning fallbacks when structuredClone and JSON fail", () => {

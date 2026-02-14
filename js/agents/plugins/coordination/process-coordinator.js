@@ -197,6 +197,8 @@ export class ProcessCoordinator extends DisposableBase {
   _supported;
   /** @type {boolean} */
   _initialized;
+  /** @type {boolean} */
+  _enabled;
 
   /** @type {ClusterModuleLike | null} */
   _cluster;
@@ -228,6 +230,8 @@ export class ProcessCoordinator extends DisposableBase {
     this._supported = isClusterSupported();
     /** @type {boolean} */
     this._initialized = false;
+    /** @type {boolean} */
+    this._enabled = false;
 
     /** @type {ClusterModuleLike | null} */
     this._cluster = null;
@@ -252,6 +256,7 @@ export class ProcessCoordinator extends DisposableBase {
   async init() {
     if (this._initialized || this.disposed) return;
     this._initialized = true;
+    this._enabled = false;
 
     if (!this._supported) return;
 
@@ -260,12 +265,14 @@ export class ProcessCoordinator extends DisposableBase {
       cluster = await loadClusterModule();
     } catch (err) {
       this._supported = false;
+      this._enabled = false;
       this._logWarn("[ProcessCoordinator] Failed to load cluster module:", err);
       return;
     }
 
     if (!cluster) {
       this._supported = false;
+      this._enabled = false;
       return;
     }
 
@@ -278,6 +285,7 @@ export class ProcessCoordinator extends DisposableBase {
         cluster.on("message", this._handleClusterMessage);
         this._registerDisposable(() => removeListener(cluster, "message", this._handleClusterMessage));
       }
+      this._enabled = true;
       return;
     }
 
@@ -287,10 +295,20 @@ export class ProcessCoordinator extends DisposableBase {
         proc.on("message", this._handleProcessMessage);
         this._registerDisposable(() => removeListener(proc, "message", this._handleProcessMessage));
       }
+      this._enabled = true;
       return;
     }
 
     this._supported = false;
+    this._enabled = false;
+  }
+
+  /**
+   * Whether coordination is active.
+   * @returns {boolean}
+   */
+  isEnabled() {
+    return this._enabled === true;
   }
 
   /**
@@ -317,6 +335,7 @@ export class ProcessCoordinator extends DisposableBase {
    */
   _onDispose() {
     this._initialized = false;
+    this._enabled = false;
     this._cluster = null;
     this._isPrimary = false;
     this._isWorker = false;
@@ -328,6 +347,7 @@ export class ProcessCoordinator extends DisposableBase {
    * @returns {void}
    */
   _broadcastWithSession(type, sessionId) {
+    if (!this.isEnabled()) return;
     const resolved = toNonEmptyString(sessionId);
     if (!resolved) return;
     this._broadcast(type, resolved);
@@ -339,6 +359,7 @@ export class ProcessCoordinator extends DisposableBase {
    * @returns {void}
    */
   _broadcast(type, sessionId) {
+    if (!this.isEnabled()) return;
     if (!this._supported || this.disposed) return;
     if (!this._cluster) return;
     if (!MESSAGE_TYPES.has(type)) return;
