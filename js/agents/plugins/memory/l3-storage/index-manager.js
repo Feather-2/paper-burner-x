@@ -43,6 +43,15 @@ export function serializeIndexState(index, checkpointIndex, runId) {
 export function restoreIndexState(raw) {
   if (!raw || typeof raw !== "object") return null;
 
+  // Check data size (max 100MB)
+  const serialized = JSON.stringify(raw);
+  const sizeBytes = serialized.length * 2; // Approximate UTF-8 byte size
+  const maxBytes = 100 * 1024 * 1024; // 100MB
+  if (sizeBytes > maxBytes) {
+    console.warn(`[L3Storage] Index data too large: ${sizeBytes} bytes (max ${maxBytes})`);
+    return null;
+  }
+
   const timeline = Array.isArray(raw.timeline) ? raw.timeline : [];
   const keywordEntries = Array.isArray(raw.keywords) ? raw.keywords : [];
   const stageEntries = Array.isArray(raw.stages) ? raw.stages : [];
@@ -52,6 +61,22 @@ export function restoreIndexState(raw) {
     : Array.isArray(raw.checkpoints)
       ? raw.checkpoints
       : [];
+
+  // Validate timeline entries
+  for (const entry of timeline) {
+    if (!entry || typeof entry !== "object") {
+      console.warn("[L3Storage] Invalid timeline entry: not an object");
+      return null;
+    }
+    if (!entry.id || typeof entry.id !== "string") {
+      console.warn("[L3Storage] Invalid timeline entry: missing or invalid id");
+      return null;
+    }
+    if (typeof entry.ts !== "number" || !Number.isFinite(entry.ts)) {
+      console.warn("[L3Storage] Invalid timeline entry: missing or invalid ts");
+      return null;
+    }
+  }
 
   const index = createIndexState();
   index.timeline = timeline;
