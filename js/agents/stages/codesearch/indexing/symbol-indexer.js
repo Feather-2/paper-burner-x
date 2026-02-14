@@ -45,6 +45,8 @@ const LANGUAGE_WASM = Object.freeze({
   json: "tree-sitter-json.wasm",
 });
 
+const CACHE_VERSION = 1;
+
 function isBlankLine(line) {
   return !String(line || "").trim();
 }
@@ -333,7 +335,6 @@ export class SymbolIndexer {
     this._recordsCache = new Map(); // workspaceId -> { rev, rows }
     this._queryCacheMax = 50;
     this._queryCache = new LRUCache({ maxSize: this._queryCacheMax }); // key -> { rev, results }
-    this._cacheVersion = 1;
     this._disposed = false;
   }
 
@@ -347,8 +348,8 @@ export class SymbolIndexer {
       const stored = await this._archive.get(key);
       if (!stored || !isPlainObject(stored)) return;
 
-      if (stored.version !== this._cacheVersion) {
-        this._log("warn", "Cache version mismatch, skipping hydration", { stored: stored.version, current: this._cacheVersion });
+      if (stored.version !== CACHE_VERSION) {
+        this._log("warn", "Cache version mismatch, skipping hydration", { stored: stored.version, current: CACHE_VERSION });
         return;
       }
 
@@ -538,7 +539,7 @@ export class SymbolIndexer {
    */
   _buildArchiveCachePayload() {
     return {
-      version: this._cacheVersion,
+      version: CACHE_VERSION,
       indexRevision: this._indexRevision,
       recordsCache: Array.from(this._recordsCache.entries()),
       queryCache: this._collectQueryCacheEntries(),
