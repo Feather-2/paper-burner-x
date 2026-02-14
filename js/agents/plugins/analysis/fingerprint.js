@@ -160,7 +160,7 @@ export default createPlugin({
     });
 
     // 监听工具调用事件
-    ctx.on('tool.call.*', async (evt) => {
+    ctx.on('tool:call:*', async (evt) => {
       const data = toPlainObject(evt?.payload) || {};
       await ctx.services.call('fingerprint', 'analyze', [{
         type: 'tool_call',

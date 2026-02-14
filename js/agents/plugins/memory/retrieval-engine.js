@@ -131,7 +131,7 @@ export class RetrievalEngine {
     if (!this.eventBus || typeof this.eventBus.on !== "function") return;
     if (this._unsubscribeArchived) return;
 
-    this._unsubscribeArchived = this.eventBus.on("memory.archived", (evt) => {
+    this._unsubscribeArchived = this.eventBus.on("memory:archived", (evt) => {
       const payload = evt && typeof evt === "object" ? evt.payload : null;
       const id = toNonEmptyString(payload?.id);
       if (!id) return;

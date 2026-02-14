@@ -137,7 +137,7 @@ export async function initWatchdogManager({ loop, context, runContext, contentPa
 
   const offRefineWatchdog =
     eventBus && typeof eventBus.on === "function"
-      ? eventBus.on("design.refine.step", (evt) => {
+      ? eventBus.on("design:refine:step", (evt) => {
           if (evt?.runId && evt.runId !== runId) return;
           if (!watchdog) return;
 

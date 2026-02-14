@@ -36,7 +36,7 @@ export class CostAggregator {
     this.disposed = false;
 
     if (this._eventBus && typeof this._eventBus.on === 'function') {
-      this._unsubscribe = this._eventBus.on('llm.complete', (evt) => {
+      this._unsubscribe = this._eventBus.on('llm:complete', (evt) => {
         try {
           const p = evt?.payload ?? evt;
           const agentId = str(p?.agentId) || str(p?.actor) || 'unknown';

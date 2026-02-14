@@ -59,7 +59,7 @@ export default createPlugin({
       });
 
       if (usage > ctx.config.threshold && ctx.config.autoCompress) {
-        ctx.events.emit('watchdog:threshold.exceeded', { usage, threshold: ctx.config.threshold });
+        ctx.events.emit('watchdog:threshold:exceeded', { usage, threshold: ctx.config.threshold });
 
         // 触发压缩
         const messages = ctx.state.getGlobal('runtime.messages') || [];
@@ -107,7 +107,7 @@ export default createPlugin({
       // 订阅 token 更新事件（节流间隔 1s）
       /** @type {number} Token 事件节流间隔 (ms) */
       const TOKEN_EVENT_THROTTLE_MS = 1000;
-      unsubscribe = ctx.on('runtime.tokens.*', () => {
+      unsubscribe = ctx.on('runtime:tokens:*', () => {
         if (Date.now() - lastCheck > TOKEN_EVENT_THROTTLE_MS) {
           checkHealth().catch((err) => ctx.log?.error?.('Token event health check failed:', err));
         }
