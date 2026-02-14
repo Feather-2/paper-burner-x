@@ -227,6 +227,37 @@ export class VectorIndex {
     }
     return stats;
   }
+
+  /**
+   * Serialize the index to a JSON-compatible object.
+   * @returns {{dim:number|null, maxItems:number, rows:Array<[string, {vec:number[], meta:any}]>}}
+   */
+  serialize() {
+    const rows = [];
+    for (const [id, row] of this._rows.entries()) {
+      rows.push([id, { vec: Array.from(row.vec), meta: row.meta }]);
+    }
+    return { dim: this._dim, maxItems: this._maxItems, rows };
+  }
+
+  /**
+   * Deserialize and restore the index from a serialized object.
+   * @param {{dim:number|null, maxItems:number, rows:Array<[string, {vec:number[], meta:any}]>}} data
+   * @returns {void}
+   */
+  deserialize(data) {
+    if (!data || typeof data !== 'object') throw new TypeError('deserialize(data): data must be an object');
+    this._dim = typeof data.dim === 'number' ? data.dim : null;
+    this._maxItems = toPositiveInt(data.maxItems, 1000);
+    this._rows.clear();
+    if (Array.isArray(data.rows)) {
+      for (const [id, row] of data.rows) {
+        if (typeof id !== 'string' || !row || !Array.isArray(row.vec)) continue;
+        const vec = new Float32Array(row.vec);
+        this._rows.set(id, { vec, meta: row.meta });
+      }
+    }
+  }
 }
 
 export default { VectorIndex };
