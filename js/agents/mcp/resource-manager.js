@@ -232,7 +232,35 @@ export class McpResourceManager {
     this._providerNotifyUnsub = new Map(); // providerId -> unsubscribe()
     this._providerNotifyProvider = new Map(); // providerId -> provider instance
 
-    this._hydrationPromise = this._hydratePersistedCache();
+    this._initPromise = null;
+    this._ttlCleanupInterval = null;
+  }
+
+  /**
+   * Initialize the resource manager (hydrate cache, start TTL cleanup).
+   * Safe to call multiple times - only initializes once.
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+
+    this._initPromise = (async () => {
+      await this._hydratePersistedCache();
+      this._startTtlCleanup();
+    })();
+
+    return this._initPromise;
+  }
+
+  _startTtlCleanup() {
+    if (this._ttlCleanupInterval) return;
+    const intervalMs = Math.max(30_000, this.defaultTtlMs);
+    this._ttlCleanupInterval = setInterval(() => {
+      this._pruneContentCache();
+    }, intervalMs);
+    if (typeof this._ttlCleanupInterval.unref === "function") {
+      this._ttlCleanupInterval.unref();
+    }
   }
 
   _touchContentCache(cacheKey) {
@@ -442,7 +470,7 @@ export class McpResourceManager {
    * @returns {Promise<McpResourceDefinition[]>}
    */
   async listResources({ providerId, ttlMs } = {}) {
-    await this._hydrationPromise;
+    await this.init();
     const { providerId: id, provider } = this._getProvider(providerId);
     const ttl = normalizeTtlMs(ttlMs, this.defaultTtlMs);
     const cached = this._listCache.get(id);
@@ -461,7 +489,7 @@ export class McpResourceManager {
    * @returns {Promise<McpResourceTemplateDefinition[]>}
    */
   async listResourceTemplates({ providerId, ttlMs } = {}) {
-    await this._hydrationPromise;
+    await this.init();
     const { providerId: id, provider } = this._getProvider(providerId);
     const ttl = normalizeTtlMs(ttlMs, this.defaultTtlMs);
     const cached = this._templatesCache.get(id);
@@ -480,7 +508,7 @@ export class McpResourceManager {
    * @returns {Promise<McpResourceContent>}
    */
   async readResource({ providerId, uri, forceRefresh = false, ttlMs } = {}) {
-    await this._hydrationPromise;
+    await this.init();
     const { providerId: id, provider } = this._getProvider(providerId);
     const u = toNonEmptyString(uri);
     if (!u) throw new Error("readResource: uri is required");
@@ -542,7 +570,7 @@ export class McpResourceManager {
    * @returns {Promise<McpResourceSubscription>}
    */
   async subscribeResource(options = {}, callback) {
-    await this._hydrationPromise;
+    await this.init();
 
     // Support a few calling conventions:
     // - subscribeResource({ providerId, uri, callback })
@@ -754,6 +782,11 @@ export class McpResourceManager {
    * @returns {void}
    */
   dispose() {
+    if (this._ttlCleanupInterval) {
+      clearInterval(this._ttlCleanupInterval);
+      this._ttlCleanupInterval = null;
+    }
+
     for (const off of this._providerNotifyUnsub.values()) {
       try {
         off?.();
