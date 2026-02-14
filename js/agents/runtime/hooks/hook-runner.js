@@ -71,10 +71,24 @@ function sanitizeString(input, maxChars) {
   s = s.replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, `xox-...-${REDACTED}`);
   s = s.replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\b/g, REDACTED);
 
-  // Anthropic, AWS, Google Cloud token formats
+  // Anthropic, AWS, Google Cloud, Azure token formats
   s = s.replace(/\bsk-ant-[A-Za-z0-9_-]{16,}\b/g, `sk-ant-${REDACTED}`);
   s = s.replace(/\bAKIA[A-Z0-9]{16}\b/g, `AKIA${REDACTED}`);
+  s = s.replace(/\bASIA[A-Z0-9]{16}\b/g, `ASIA${REDACTED}`);
   s = s.replace(/\bgoog_[A-Za-z0-9_-]{20,}\b/g, `goog_${REDACTED}`);
+  s = s.replace(/\bya29\.[A-Za-z0-9_-]{20,}\b/g, `ya29.${REDACTED}`);
+
+  // Azure, Stripe, Twilio, SendGrid
+  s = s.replace(/\b[A-Za-z0-9]{8}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{12}\b/g, (m) => {
+    const lower = m.toLowerCase();
+    if (lower.includes('00000000') || lower.includes('11111111')) return m;
+    return REDACTED;
+  });
+  s = s.replace(/\b(sk|pk|rk)_(live|test)_[A-Za-z0-9]{20,}\b/g, (_m, prefix, env) => `${prefix}_${env}_${REDACTED}`);
+  s = s.replace(/\bAC[a-f0-9]{32}\b/g, `AC${REDACTED}`);
+  s = s.replace(/\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/g, `SG.${REDACTED}`);
+
+  // Generic long base64-like strings (conservative: only if very long)
   s = s.replace(/\b[A-Za-z0-9+/]{40,}={0,2}\b/g, (m) => m.length > 80 ? REDACTED : m);
 
   // Custom token patterns registered via registerTokenPatterns()

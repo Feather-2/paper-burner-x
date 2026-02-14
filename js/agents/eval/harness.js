@@ -555,26 +555,30 @@ export class EvalHarness {
     // Instrument toolExecutor if present (preferred for precise tool_call/tool_result pairs).
     if (agent && typeof agent === "object" && typeof agent.toolExecutor === "function") {
       // Z2: check property descriptor before monkey-patching
-      const desc = Object.getOwnPropertyDescriptor(agent, "toolExecutor") || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(agent) || {}, "toolExecutor");
-      if (desc && desc.writable === false) {
-        // Cannot patch — skip instrumentation silently
-      } else {
-      const original = agent.toolExecutor;
-      agent.toolExecutor = async (name, params, ctx) => {
-        record("tool_call", { name, args: params }, { taskId: task.id, trialIndex });
-        try {
-          const result = await original(name, params, ctx);
-          record("tool_result", { name, result }, { taskId: task.id, trialIndex });
-          return result;
-        } catch (err) {
-          record("tool_result", { name, error: toErrorObject(err) }, { taskId: task.id, trialIndex });
-          throw err;
-        }
-      };
-      restorers.push(() => {
-        agent.toolExecutor = original;
-      });
-      } // end else (writable check)
+      const ownDesc = Object.getOwnPropertyDescriptor(agent, "toolExecutor");
+      const protoDesc = !ownDesc ? Object.getOwnPropertyDescriptor(Object.getPrototypeOf(agent) || {}, "toolExecutor") : null;
+      const desc = ownDesc || protoDesc;
+
+      // Skip if property is non-configurable, non-writable, or is an accessor descriptor
+      const canPatch = !desc || (desc.configurable !== false && desc.writable !== false && !desc.get && !desc.set);
+
+      if (canPatch) {
+        const original = agent.toolExecutor;
+        agent.toolExecutor = async (name, params, ctx) => {
+          record("tool_call", { name, args: params }, { taskId: task.id, trialIndex });
+          try {
+            const result = await original(name, params, ctx);
+            record("tool_result", { name, result }, { taskId: task.id, trialIndex });
+            return result;
+          } catch (err) {
+            record("tool_result", { name, error: toErrorObject(err) }, { taskId: task.id, trialIndex });
+            throw err;
+          }
+        };
+        restorers.push(() => {
+          agent.toolExecutor = original;
+        });
+      }
     }
 
     // Best-effort event subscription (optional; can be noisy).

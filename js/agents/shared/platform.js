@@ -6,6 +6,10 @@
  * @module shared/platform
  */
 
+import { createLogger } from './utils/logger.js';
+
+const logger = createLogger({ stage: 'platform' });
+
 /** @typedef {"node"|"bun"|"deno"|"browser"|"unknown"} RuntimeType */
 
 /**
@@ -45,7 +49,7 @@ function detectRuntime() {
   // VFS falls back to browser paths (OPFS/Memory), Skills use browser loader,
   // MCP stdio transport is unavailable. Deno users get browser-grade functionality.
   if (typeof g.Deno !== "undefined") {
-    console.warn("[agents/platform] Deno detected but not fully supported; using browser-compatible fallbacks.");
+    logger.warn("Deno detected but not fully supported; using browser-compatible fallbacks.");
     Platform.isDeno = true;
     Platform.runtime = "deno";
     return;

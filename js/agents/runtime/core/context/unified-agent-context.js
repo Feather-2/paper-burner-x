@@ -247,9 +247,17 @@ export class UnifiedAgentContext {
     // D3: validate payload is serializable (prevent circular refs crashing checkpoint)
     let safePayload = payload;
     if (payload !== null && typeof payload === "object") {
-      try { JSON.stringify(payload); } catch {
-        logger.warn("UnifiedAgentContext.signal: payload not serializable, using shallow copy");
-        safePayload = { ...payload, _truncated: true };
+      // Detect circular references before attempting serialization
+      if (this._hasCircularRef(payload)) {
+        logger.warn("UnifiedAgentContext.signal: payload has circular reference, truncating");
+        safePayload = { _error: "circular_reference_detected", _truncated: true };
+      } else {
+        try {
+          JSON.stringify(payload);
+        } catch (err) {
+          logger.warn(`UnifiedAgentContext.signal: payload serialization failed: ${err?.message || err}`);
+          safePayload = { _error: "serialization_failed", _truncated: true };
+        }
       }
     }
     const release = await this._writeMutex.acquire();
@@ -260,6 +268,31 @@ export class UnifiedAgentContext {
     } finally {
       release();
     }
+  }
+
+  /**
+   * 检测对象是否包含循环引用
+   * @param {unknown} obj - 待检测对象
+   * @param {WeakSet<object>} [seen] - 已访问对象集合
+   * @returns {boolean} 是否包含循环引用
+   * @private
+   */
+  _hasCircularRef(obj, seen = new WeakSet()) {
+    if (obj === null || typeof obj !== "object") return false;
+    if (seen.has(obj)) return true;
+    seen.add(obj);
+
+    try {
+      for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          if (this._hasCircularRef(obj[key], seen)) return true;
+        }
+      }
+    } catch {
+      // Getter 抛出异常时视为安全
+      return false;
+    }
+    return false;
   }
 
   /**

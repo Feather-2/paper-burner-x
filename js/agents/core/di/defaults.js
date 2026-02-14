@@ -106,9 +106,7 @@ export function createAgentContainer(overrides = {}) {
           maxQueueSize: 10000,
         });
       } catch (error) {
-        if (typeof console !== "undefined" && typeof console.warn === "function") {
-          console.warn("[EventBus] Failed to enable backpressure", error);
-        }
+        logger.warn("Failed to enable backpressure", { error });
         const nodeEnv = typeof process?.env?.NODE_ENV === "string" ? process.env.NODE_ENV : "";
         if (nodeEnv && nodeEnv !== "production") {
           throw error;

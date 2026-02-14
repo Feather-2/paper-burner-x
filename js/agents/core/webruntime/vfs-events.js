@@ -6,6 +6,9 @@
  */
 
 import { normalizeVfsPath } from '../../vfs/path.js';
+import { createLogger } from '../../shared/utils/logger.js';
+
+const logger = createLogger({ stage: 'vfs-events' });
 
 /** @typedef {(path: string, data: unknown) => void} VfsChangeListener */
 /** @typedef {(path: string) => void} VfsDeleteListener */
@@ -44,7 +47,7 @@ export function withVfsEvents(vfs) {
     const s = listeners.get(event);
     if (!s) return;
     for (const fn of s) {
-      try { fn(...args); } catch (err) { console.error('VFS event listener error:', err); }
+      try { fn(...args); } catch (err) { logger.error('VFS event listener error', { error: err }); }
     }
   }
 
@@ -121,13 +124,13 @@ export function withVfsEvents(vfs) {
 export function createVfsEventBridge(eventVfs, target) {
   const onChange = async (path, data) => {
     try { await target.writeFile(path, data); }
-    catch (err) { console.error('VFS bridge change error:', err); }
+    catch (err) { logger.error('VFS bridge change error', { error: err }); }
   };
   const onDelete = async (path) => {
     try { await target.unlink(path); }
     catch (_) {
       try { await target.rmdir(path); }
-      catch (err) { console.error('VFS bridge delete error:', err); }
+      catch (err) { logger.error('VFS bridge delete error', { error: err }); }
     }
   };
 

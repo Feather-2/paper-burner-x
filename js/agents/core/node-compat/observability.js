@@ -3,6 +3,10 @@
  * Emits structured events for UI consumption.
  */
 
+import { createLogger } from '../../shared/utils/logger.js';
+
+const logger = createLogger({ stage: 'observability' });
+
 /**
  * @typedef {object} ObservabilityEvent
  * @property {string} type - Event type (fs:read/write, http:request, code:execute, etc.)
@@ -46,7 +50,7 @@ export class ObservabilityStream {
 
     // Broadcast to all listeners
     this._listeners.forEach(fn => {
-      try { fn(event); } catch (e) { console.error('Observability listener error:', e); }
+      try { fn(event); } catch (e) { logger.error('Observability listener error', { error: e }); }
     });
   }
 

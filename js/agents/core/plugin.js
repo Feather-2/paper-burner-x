@@ -8,6 +8,8 @@
  * - 配置验证
  */
 
+import { createLogger } from '../shared/utils/logger.js';
+
 /**
  * 插件状态
  */
@@ -124,13 +126,7 @@ export class PluginContext {
    * 创建日志器
    */
   _createLogger(pluginName) {
-    const prefix = `[${pluginName}]`;
-    return {
-      debug: (...args) => console.debug(prefix, ...args),
-      info: (...args) => console.info(prefix, ...args),
-      warn: (...args) => console.warn(prefix, ...args),
-      error: (...args) => console.error(prefix, ...args),
-    };
+    return createLogger({ stage: pluginName });
   }
 
   /**

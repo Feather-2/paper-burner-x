@@ -74,9 +74,16 @@ function mergeAbortSignals(a, b) {
         return controller.signal;
     }
     const controller = new AbortController();
-    const abort = () => controller.abort();
+    const cleanups = [];
+    const abort = () => {
+        if (controller.signal.aborted) return;
+        controller.abort();
+        for (const cleanup of cleanups) cleanup();
+        cleanups.length = 0;
+    };
     for (const s of signals) {
         s.addEventListener?.("abort", abort, { once: true });
+        cleanups.push(() => s.removeEventListener?.("abort", abort));
     }
     return controller.signal;
 }
