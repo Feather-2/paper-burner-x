@@ -76,6 +76,7 @@ export class WasmSandbox {
     this.onEmit = options.onEmit || (() => {});
     this.state = options.state || {};
     this.networkPolicy = options.networkPolicy || null;
+    this._logSeq = 0; // P1: 日志序列号，用于异步传输重排序
 
     if (this.networkPolicy) {
       for (const list of [this.networkPolicy.allowedDomains, this.networkPolicy.deniedDomains]) {
@@ -126,7 +127,8 @@ export class WasmSandbox {
       for (const level of ['log', 'warn', 'error', 'info', 'debug']) {
         const fn = vm.newFunction(level, (...args) => {
           const jsArgs = args.map(arg => vm.dump(arg));
-          this.onLog(level, jsArgs);
+          // P1: 附加序列号和时间戳，支持异步传输重排序
+          this.onLog(level, jsArgs, { seq: ++this._logSeq, ts: Date.now() });
         });
         vm.setProp(consoleObj, level, fn);
         fn.dispose();

@@ -565,6 +565,17 @@ export class StateBus {
             cb(change);
           } catch (err) {
             logger.error(`Subscriber error for "${pattern}":`, err);
+            // P1: Emit state:change:error event for observability
+            try {
+              this._emit('state:change:error', {
+                pattern,
+                path,
+                error: err?.message || String(err),
+                handlerName: cb?.name || 'anonymous',
+              });
+            } catch {
+              // ignore
+            }
           }
         }
       }

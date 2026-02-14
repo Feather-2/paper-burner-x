@@ -72,9 +72,10 @@ export class SkillExecutor {
     // 日志收集
     const logs = [];
     const emits = [];
+    let _logSeq = 0;
 
     const onLog = (level, args) => {
-      logs.push({ level, args, ts: Date.now() });
+      logs.push({ level, args, ts: Date.now(), seq: ++_logSeq });
 
       // 转发到 kernel
       if (this.kernel) {

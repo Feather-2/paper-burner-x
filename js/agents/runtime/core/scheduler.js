@@ -294,6 +294,23 @@ export class RuntimeScheduler {
         metrics.recentErrors.length = max;
       }
     }
+
+    // P1: Emit runtime call result event for observability
+    try {
+      this.eventBus?.emit?.("runtime:call:result", {
+        runtimeType,
+        success,
+        latencyMs: toFiniteNumber(latencyMs, null),
+        isProbe,
+        blocked: false,
+        consecutiveFailures: metrics.consecutiveFailures,
+        consecutiveSuccesses: metrics.consecutiveSuccesses,
+        totalCalls: metrics.totalCalls,
+        ts: this._time.now(),
+      });
+    } catch {
+      // ignore
+    }
   }
 
   _evaluateHealth(runtimeType) {
