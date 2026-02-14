@@ -158,13 +158,16 @@ export class DesignBlackboard extends DisposableBase {
    */
   bindStateEngine(stateEngine) {
     this._ensureNotDisposed();
-    if (this._stateEngineUnsubscribe) {
+
+    // 立即清理旧订阅（原子操作）
+    const oldUnsubscribe = this._stateEngineUnsubscribe;
+    this._stateEngineUnsubscribe = null;
+    if (oldUnsubscribe) {
       try {
-        this._stateEngineUnsubscribe();
+        oldUnsubscribe();
       } catch (err) {
         logSilentError("bindStateEngine.unsubscribe", err);
       }
-      this._stateEngineUnsubscribe = null;
     }
 
     this._stateEngine = stateEngine || null;
@@ -221,18 +224,21 @@ export class DesignBlackboard extends DisposableBase {
     // 初始同步
     this._syncFromStateEngine();
 
-    // 订阅变更
+    // 订阅变更（原子创建）
     if (typeof engine.subscribe === "function") {
-      const unsubs = [];
-      unsubs.push(engine.subscribe("L1", (_action, _prevL1, nextL1) => this._syncFromStateEngine(nextL1, null)));
-      unsubs.push(engine.subscribe("L2", (_action, _prevL2, nextL2) => this._syncFromStateEngine(null, nextL2)));
+      const unsub1 = engine.subscribe("L1", (_action, _prevL1, nextL1) => this._syncFromStateEngine(nextL1, null));
+      const unsub2 = engine.subscribe("L2", (_action, _prevL2, nextL2) => this._syncFromStateEngine(null, nextL2));
+
       this._stateEngineUnsubscribe = () => {
-        for (const u of unsubs) {
-          try {
-            u?.();
-          } catch (err) {
-            logSilentError("bindStateEngine.unsubscribeListener", err);
-          }
+        try {
+          unsub1?.();
+        } catch (err) {
+          logSilentError("bindStateEngine.unsubscribeL1", err);
+        }
+        try {
+          unsub2?.();
+        } catch (err) {
+          logSilentError("bindStateEngine.unsubscribeL2", err);
         }
       };
     }

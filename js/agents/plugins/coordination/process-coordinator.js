@@ -245,6 +245,9 @@ export class ProcessCoordinator extends DisposableBase {
     /** @type {boolean} */
     this._isWorker = false;
 
+    /** @type {Array<{ target: ClusterModuleLike | ProcessLike, event: string, handler: EventListenerLike }>} */
+    this._listeners = [];
+
     this._handleClusterMessage = this._handleClusterMessage.bind(this);
     this._handleProcessMessage = this._handleProcessMessage.bind(this);
   }
@@ -283,7 +286,7 @@ export class ProcessCoordinator extends DisposableBase {
     if (this._isPrimary) {
       if (typeof cluster.on === "function") {
         cluster.on("message", this._handleClusterMessage);
-        this._registerDisposable(() => removeListener(cluster, "message", this._handleClusterMessage));
+        this._listeners.push({ target: cluster, event: "message", handler: this._handleClusterMessage });
       }
       this._enabled = true;
       return;
@@ -293,7 +296,7 @@ export class ProcessCoordinator extends DisposableBase {
       const proc = this._process;
       if (proc && typeof proc.on === "function") {
         proc.on("message", this._handleProcessMessage);
-        this._registerDisposable(() => removeListener(proc, "message", this._handleProcessMessage));
+        this._listeners.push({ target: proc, event: "message", handler: this._handleProcessMessage });
       }
       this._enabled = true;
       return;
@@ -334,6 +337,10 @@ export class ProcessCoordinator extends DisposableBase {
    * @returns {void}
    */
   _onDispose() {
+    for (const { target, event, handler } of this._listeners) {
+      removeListener(target, event, handler);
+    }
+    this._listeners = [];
     this._initialized = false;
     this._enabled = false;
     this._cluster = null;
