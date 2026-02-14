@@ -24,6 +24,13 @@ Archived issues from security audits.
   - ✅ 无循环依赖
 - **Commit**: bdc40eae
 
+### [RESOLVED] E8. node-io.js 平台检测重复 platform.js 逻辑 — LOW
+*Archived: 2026-02-13*
+
+- **File**: ingest/adapters/node-io.js:14
+- **Resolution**: 已在提交 83858ef4 中修复，替换自定义 isNodeEnvironment() 为共享的 isNodeLike()，统一平台检测逻辑。
+- **Commit**: 83858ef4
+
 ---
 
 ## Archived: 2026-02-06 (Phase 3 — 协同基础)

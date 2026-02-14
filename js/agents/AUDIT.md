@@ -2,7 +2,7 @@
 
 Generated: 2026-02-07 (Phase 4 深度审计) | Updated: 2026-02-13 (代码质量补充)
 Scope: 14 modules (core/runtime/stages/plugins/vfs/mcp/skills/llm/ingest/retrieval/prompts/shared/sdk/cli)
-Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42 个问题，2026-02-13 新增 3 个问题，AH1/AH2 已解决
+Severity: **58 open issues** (6 High / 24 Medium / 28 Low) — Phase 4 新增 42 个问题，2026-02-13 新增 3 个问题，AH1/AH2/E8 已解决
 
 ## Summary
 
@@ -14,7 +14,7 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 | 资源泄漏 | 0 | 2 | 0 | 2 |
 | 架构一致性 | 2 | 2 | 1 | 5 |
 | 错误处理 | 0 | 1 | 2 | 3 |
-| 跨运行时 | 0 | 3 | 3 | 6 |
+| 跨运行时 | 0 | 3 | 2 | 5 |
 | 多设备/协同 | 0 | 0 | 2 | 2 |
 | **并发/竞态** | 0 | 2 | 1 | 3 |
 | **沙箱安全** | 2 | 1 | 0 | 3 |
@@ -230,12 +230,11 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 - **影响**: 首次创建失败被静默吞掉，Worker 为模块级懒单例——失败后永远走主线程。
 - **建议**: `canUseWorker()` 中加 Module Worker 能力探测。
 
-### [LOW] E8. node-io.js 平台检测重复 platform.js 逻辑
+#### E8. ~~node-io.js 平台检测重复 platform.js 逻辑~~ — ✅ RESOLVED
 
 - **File**: ingest/adapters/node-io.js:14
 - **Description**: 自己实现 `isNodeEnvironment()` 而非复用 `shared/platform.js` 的 `isNodeLike()`。两者逻辑不完全一致（Bun 处理差异）。
-- **Impact**: 维护时可能只改一处而忘另一处。
-- **Suggestion**: 改用 `import { isNodeLike } from '../../shared/index.js'`。
+- **Resolution**: 已在提交 83858ef4 中修复，替换自定义 isNodeEnvironment() 为共享的 isNodeLike()。
 
 ### [LOW] E10. console.log 散布——157 处跨 30 个文件
 
@@ -433,7 +432,7 @@ Severity: **59 open issues** (6 High / 24 Medium / 29 Low) — Phase 4 新增 42
 | 资源泄漏 | 0 | 2 | 0 | 2 |
 | 架构一致性 | 2 | 2 | 1 | 5 |
 | 错误处理 | 0 | 1 | 2 | 3 |
-| 跨运行时 | 0 | 3 | 3 | 6 |
+| 跨运行时 | 0 | 3 | 2 | 5 |
 | 多设备/协同 | 0 | 0 | 2 | 2 |
 | **并发/竞态** | 0 | 2 | 1 | 3 |
 | **沙箱安全** | 2 | 1 | 0 | 3 |
@@ -742,7 +741,7 @@ graph TD
 | 资源泄漏 | 0 | 2 | 0 | 2 |
 | 架构一致性 | 2 | 2 | 1 | 5 |
 | 错误处理 | 0 | 1 | 2 | 3 |
-| 跨运行时 | 0 | 3 | 3 | 6 |
+| 跨运行时 | 0 | 3 | 2 | 5 |
 | 多设备/协同 | 0 | 0 | 2 | 2 |
 | 并发/竞态 | 0 | 2 | 1 | 3 |
 | 沙箱安全 | 2 | 1 | 0 | 3 |
@@ -765,4 +764,4 @@ graph TD
 | VFS 原子写入 | 0 | 1 | 0 | 1 |
 | deprecated 单例 | 0 | 1 | 0 | 1 |
 | **代码质量** | **0** | **0** | **0** | **0** |
-| **合计** | **6** | **24** | **29** | **59** |
+| **合计** | **6** | **24** | **28** | **58** |
