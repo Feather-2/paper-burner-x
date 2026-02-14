@@ -12,7 +12,8 @@
 | `layout-protocol.js` | 布局类型/区域协议 |
 | `image-generator.js` | ImageGenerator - 图像生成/填充 |
 | `svg-generator.js` | SVGGenerator - SVG 生成/填充 |
-| `batch-generator.js` | 批量生成（system prompt 外置加载/缓存；模型输出 JSON 提取/解析；事件上报） |
+| `batch-generator.js` | 批量生成主编排（prompt 加载/缓存、模型调用、资源守卫、事件上报） |
+| `batch-generator-helpers.js` | 批量生成辅助（HTML 清洗、DSL 规范化、内容归一化、视觉槽位注入、样式描述） |
 
 ## 设计令牌
 
@@ -47,44 +48,44 @@ const system = await generateDesignSystem(
 - `designSystemOverrides` 使用深度合并（overrides 优先），并过滤 `__proto__`/`prototype`/`constructor` 键以避免原型污染。
 - `visualPreference` 支持 string（如 `'dark'`）或对象（如 `{ mode: 'dark' }`），内部会将 `mode` 规范化为小写。
 
-## 批量生成
+## 批量生成（主编排）
 
 - system prompt 通过 `loadPrompt('design/batch-generator-system')` 外置加载；内部做缓存：
-  - `_cachedSystemPrompt` 缓存已加载内容
-  - `_systemPromptLoadPromise` 缓存进行中的加载 Promise，避免并发重复加载
+  - `_cachedSystemPrompt`：缓存已加载内容
+  - `_systemPromptLoadPromise`：缓存进行中的加载 Promise，避免并发重复加载
 - 加载失败时回退到内置 `FALLBACK_SYSTEM_PROMPT`。
-- 为避免 prompt 过长，正文会按 `BATCH_GENERATOR_DEFAULTS.maxContentLength` 截断（默认 `800`）。
-- 模型输出为 JSON 数组（形如 `[{ slideIntentId, slideHtml }]`）；在进入 HTML/DSL 拼装与渲染前，务必：
-  - 校验结构（数组/字段类型/长度上限/必填字段）
-  - 过滤危险键（如 `__proto__`）与危险属性（如 `onload`）
-  - 对可渲染 HTML 做白名单清洗/转义，避免 XSS（模型输出也视为不可信输入）
-- 事件上报建议通过 `safeEmit(...)` 包装，避免观测代码影响主流程。
+- 主流程中建议用 `ResourceGuard` 包裹长耗时调用（模型生成/修复）以限制超时与资源占用。
+- 事件上报建议统一通过 `safeEmit(...)`，避免观测逻辑影响主路径。
 
-## 布局协议
+## 批量生成辅助（新增：`batch-generator-helpers.js`）
 
-```javascript
-import { resolveLayoutType, getRegion, regionToDslAttrs } from 'js/agents/stages/design/generators/layout-protocol.js';
+### 常量
+- `BATCH_GENERATOR_DEFAULTS.maxContentLength`：正文截断长度（默认 `800`）。
+- `ALLOWED_TAGS`：允许的 HTML/SVG 标签白名单。
+- `VOID_TAGS`：自闭合标签集合（如 `img`/`br`）。
 
-const layout = resolveLayoutType('agenda');
-const region = getRegion(layout, 'title');
-const attrs = regionToDslAttrs(region, { width: 960, height: 540 });
-```
+### 典型能力
+- 基础工具：`nowMs`、`chunkIndexes`
+- 结构判断：`looksLikeSlideHtml`、`extractSectionBlock`、`ensureSectionAttr`
+- 安全清洗：`sanitizeSlideHtml`
+- DSL 归一化：`normalizeDslRules`
+- 输入归一化：`normalizeSlideIntentContentForPrompt`、`normalizeSelectedIdeas`
+- 视觉提示注入：`applyVisualSlotHintsToSlideHtml`
+- 风格描述构建：`buildStyleDescription`
 
-## 图像生成
+## 安全与稳健性约束
 
-```javascript
-import { ImageGenerator, fillImagePlaceholders } from 'js/agents/stages/design/generators/image-generator.js';
-```
+- 模型输出视为不可信输入：先做 JSON 候选提取与结构校验，再进入 HTML/DSL 组装。
+- HTML/SVG 必须经过白名单清洗：
+  - 禁止事件属性（`on*`）
+  - 限制 `src`/`href`/`xlink:href` 协议
+  - 限制 style 内联中的危险 URL 形式
+- 对输入规模设置上限：文本长度、数组长度、属性数量均应可配置并有硬上限。
+- 对异常路径保留可观测性：记录错误类型与上下文，避免空 catch。
 
-说明：
-- `ImageGenerator` 负责生成/获取图像资源。
-- `fillImagePlaceholders` 用于扫描并填充 `slideHtml`/DSL 中的图片占位；具体入参/出参以 `image-generator.js` 实际导出为准。
+## 测试建议（本模块）
 
-## SVG 生成
-
-```javascript
-import { SVGGenerator } from 'js/agents/stages/design/generators/svg-generator.js';
-```
-
-说明：
-- `SVGGenerator` 负责生成/填充 SVG 资产；批量填充 API 以 `svg-generator.js` 实际导出为准。
+- 正常路径：批量生成 -> 解析 -> 清洗 -> 渲染 DSL。
+- 异常恢复：prompt 加载失败回退、模型返回非法 JSON、HTML 修复失败回退。
+- 边界输入：空内容、超长内容、恶意属性（`onload`/`javascript:`）、深层嵌套标签。
+- 稳定性：并发调用 `getSystemPrompt()`、快速连续批处理、超时中断与回滚。

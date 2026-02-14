@@ -8,6 +8,17 @@
 |------|------|
 | `handler.js` | 入口：参数校验与规范化、去重、gap 预算控制、引用格式化、关键词索引与 SharedContext 写入 |
 
+## 类型契约（JSDoc）
+
+| 类型 | 说明 |
+|------|------|
+| `FindingType` | 发现类型：`claim` / `gap` / `conflict` |
+| `FindingPriority` | 优先级：`high` / `medium` / `low` |
+| `FindingItem` | 输入项模型（支持单条与批量统一归一化） |
+| `Finding` | 持久化后的标准发现结构（含 `id`、`ref`、`createdAt` 等） |
+| `SharedContext` | 可选共享上下文接口：`hasSeen` / `markSeen` / `commit` / `search` |
+| `RecordFindingContext` | Handler 运行上下文：`state`、可选 `emit`、可选 `sharedContext` |
+
 ## 关键概念
 
 - 发现类型：`claim` / `gap` / `conflict`，分别支持 `confidence` / `priority` / `sources` 等字段。
@@ -20,6 +31,7 @@
 - Gap 预算：读取 `state.userConfig.gaps`，支持 `maxFindingGaps`/`maxGapFindings`/`maxGaps` 与 `maxNewGapFindingsPerCall`/`maxGapGrowthPerIteration`/`maxNewGapsPerCall`，超限返回 `gap_budget_exceeded`。
 - 关键词索引：从内容中抽取关键词并合并标签/类型/来源，便于后续检索。
 - 事件上报：`emit("deepsearch.finding.{type}")` 供外部监听。
+- 兼容降级：`emit` 与 `sharedContext` 为可选依赖，缺失时应保持主流程可执行。
 
 ## 常见任务
 

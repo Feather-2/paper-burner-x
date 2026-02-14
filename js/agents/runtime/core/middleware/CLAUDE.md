@@ -6,7 +6,7 @@ AgentLoop 横切关注点的统一中间件链，采用 Koa 风格洋葱圈模�
 
 | 文件 | 职责 |
 |------|------|
-| `middleware-chain.js` | `Stage` 常量 + `MiddlewareChain` + 内置中间件工厂 |
+| `middleware-chain.js` | `Stage` 常量 + `MiddlewareChain` 执行器 + 中间件注册能力（含 `useAll` 批量注册） |
 
 ## 设计理念
 
@@ -23,7 +23,7 @@ AgentLoop 横切关注点的统一中间件链，采用 Koa 风格洋葱圈模�
 
 ## 类型约定（建议）
 
-> 说明：这是文档里的约定；实际字段以运行时 ctx 结构为准。
+> 说明：这是文档里的约定；实际字段以运行时 `ctx` 结构为准。
 
 ```js
 /**
@@ -69,53 +69,46 @@ chain.use(async (ctx, next) => {
 });
 
 await chain.execute(ctx, async () => {
-  // 最终 handler（可选）
   return { ok: true };
 });
 ```
+
+### 批量注册
+
+```js
+chain.useAll([
+  async (ctx, next) => next(),
+  async (ctx, next) => next(),
+]);
+```
+
+`useAll` 内部复用 `use` 的参数校验逻辑，建议只传入中间件函数数组。
 
 ### API
 
 | 方法 | 说明 |
 |------|------|
-| `use(middleware)` | 添加中间件 |
-| `useAll(middlewares)` | 批量添加（要求数组） |
-| `insertAt(index, middleware)` | 指定位置插入 |
-| `remove(middleware)` | 按引用移除 |
-| `execute(ctx, finalHandler?)` | 执行中间件链 |
-| `clear()` | 清空所有中间件 |
-| `length` | 中间件数量 |
+| `use(middleware)` | 注册单个中间件；非函数参数抛出 `TypeError` |
+| `useAll(middlewares)` | 批量注册中间件（依次调用 `use`） |
+| `execute(ctx, handler?)` | 执行中间件链并在末端调用 `handler` |
 
-### 执行语义与约束
+## 执行语义与约束
 
-- `next()` 建议 `return await next()`，以保证 after 逻辑正常执行。
-- 禁止多次调用 `next()`（Koa 风格约束）；`execute()` 应防止重入并抛出明确错误。
-- 默认不吞异常：未捕获异常应向上传播；如需降级/兜底，请显式捕获并重新抛出带类型的错误。
-- 并发注意：若同一个 `MiddlewareChain` 实例会被并行 `execute()`，建议在 `execute()` 开始时对中间件列表做快照，避免执行期间被 `use/remove/insertAt` 影响。
+- 执行顺序遵循洋葱模型：`before` 正序进入，`after` 逆序返回。
+- 中间件应保持幂等、可组合、可观测（建议通过 `emit` 上报关键事件）。
+- `ctx.state` 建议仅存储可序列化数据，避免隐式共享复杂对象。
+- 中间件内部如需中断，应抛出明确错误类型并由上层统一处理。
 
-## 内置中间件
+## 安全与稳定性建议
 
-| 工厂函数 | 用途 |
-|----------|------|
-| `createLoggingMiddleware({ logger, prefix })` | 日志记录（建议脱敏） |
-| `createTelemetryMiddleware({ emit, actor, stageName })` | 遥测事件（事件名建议 `domain:action`） |
-| `createCancellationMiddleware()` | 取消检查（`AbortSignal`） |
-| `createTimeoutMiddleware({ timeout, onTimeout })` | 超时保护（应清理定时器） |
-| `createRetryMiddleware({ maxRetries, retryDelay, shouldRetry })` | 失败重试（应尊重取消） |
-| `createSnapshotMiddleware({ onBeforeSnapshot, onAfterSnapshot })` | 状态快照（注意内存与隐私） |
-| `createShadowSystemMiddleware({ getShadowHints })` | 影子系统注入（仅注入可信提示） |
-| `createBlackboardMiddleware({ blackboard, syncKeys })` | 黑板同步（必须校验 key，防原型污染） |
-| `createDefaultMiddlewareChain(options)` | 预配置链 |
-
-## 安全与兼容性注意
-
-- 禁止 `eval/new Function`，禁止把用户输入拼接进 `innerHTML`。
-- 黑板/状态同步的 key 必须是 allowlist，显式拒绝 `__proto__`/`constructor`/`prototype`。
-- 日志与遥测避免输出敏感信息（token、prompt、工具参数中的密钥等）。
-- Browser-first：避免使用 `fs/path/process/__dirname` 等 Node-only API。
+- 对批量注册输入做边界约束（类型、数量上限），避免异常迭代器导致阻塞。
+- 工具调用相关中间件应在进入 `beforeTool` 前完成参数白名单校验。
+- pre/post 钩子异常建议隔离处理并记录 telemetry，避免影响主链路可用性。
+- 长生命周期场景建议配合缓存回收策略，防止 `ctx.state` 持续膨胀。
 
 ## 测试建议
 
-- `execute()`：空链、单中间件、多中间件、抛错、重复 `next()`、finalHandler 缺省。
-- timeout/retry：快速连续调用、AbortSignal 中断、定时器是否清理。
-- blackboard/shadow：边界 key（空、超长、`__proto__`）、深层对象同步。
+- 工具调用边界：空参数、超长参数、类型错误参数。
+- Hook 异常处理：pre/post 抛错不应导致不可控崩溃。
+- 并发边界：并行请求下中间件顺序与上下文隔离性。
+- 内存压力：大输入与长链场景下回收行为。

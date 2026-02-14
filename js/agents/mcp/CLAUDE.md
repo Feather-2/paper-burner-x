@@ -9,12 +9,12 @@
 │                         McpClient                               │
 │  - 统一调用接口                                                  │
 │  - 多 Provider 路由                                              │
-│  - Circuit Breaker                                              │
+│  - Circuit Breaker / 超时控制                                    │
 ├─────────────────────────────────────────────────────────────────┤
 │                        Providers                                 │
 │  ├─ LocalMcpProvider (内置 HTTP/fetch)                          │
 │  ├─ McpNexusProvider (远程 HTTP)                                │
-│  └─ StdioMcpProvider (stdio 进程通信)                           │
+│  └─ StdioMcpProvider (stdio 进程通信，Node-only)                │
 ├─────────────────────────────────────────────────────────────────┤
 │                      Transport Layer                             │
 │  ├─ McpTransport (抽象基类)                                      │
@@ -23,51 +23,56 @@
 │  ├─ SseMcpTransport (跨平台)                                    │
 │  └─ createMcpTransport() (Factory)                              │
 ├─────────────────────────────────────────────────────────────────┤
-│                Content & Safety Utilities                         │
-│  - auditUrl()/filterUrlParams()                                  │
-│  - content-extractor / smart-content-extractor                    │
-│  - sanitizeExtractedText()/stripUrls()                            │
+│                   Protocol & Validation                          │
+│  ├─ TransportKind (jsonrpc/toolapi/rest)                        │
+│  ├─ isValidTransportKind()                                      │
+│  └─ normalizeTransportKind()                                    │
+├─────────────────────────────────────────────────────────────────┤
+│                Content & Safety Utilities                        │
+│  - auditUrl()/filterUrlParams()                                 │
+│  - content-extractor / smart-content-extractor                  │
+│  - sanitizeExtractedText()/stripUrls()                          │
+│  - isSensitiveQueryParamKey()                                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## 协议与传输
 
-- 传输层（Transport）：stdio / HTTP / SSE，决定消息如何到达对端。
-- 协议类型（TransportKind）：`jsonrpc` / `toolapi` / `rest`，决定消息体的语义与封装方式。
-- 约定：所有外部 URL 在出网前必须通过 `auditUrl()` 校验与净化，并使用 `safeUrl` 参与日志/错误信息。
-- 约定：任何外部网页/HTML 解析出的文本在进入日志、模型上下文或用户可见输出前，必须经过 `sanitizeExtractedText()`；按需使用 `stripUrls()` 以避免泄露敏感 query 参数。
+- 传输层（Transport）：`stdio` / `http` / `sse`，决定消息如何到达对端。
+- 协议类型（TransportKind）：`jsonrpc` / `toolapi` / `rest`，决定消息体语义与封装。
+- 约定：所有外部输入的协议类型先经 `normalizeTransportKind()` 归一化，再参与分发。
+- 约定：协议值校验必须通过 `isValidTransportKind()`，非法值应显式拒绝，不可静默降级。
+
+## URL 安全与隐私约定
+
+- 所有外部 URL 出网前必须通过 `auditUrl()` 校验，并使用 `safeUrl` 参与日志/错误信息。
+- URL query 进入日志、提示词、异常信息前，必须通过 `filterUrlParams()` 去敏。
+- 对敏感参数键（token/key/secret/auth/session/signature 等）使用 `isSensitiveQueryParamKey()` 识别并剥离。
+- 禁止记录原始凭据：包含凭据、hash、敏感 query 的 URL 不得原样输出。
 
 ## 内容提取与净化
 
-该模块在需要处理外部网页内容（例如搜索结果落地页、远程端点返回的 HTML/片段等）时，提供“抓取 → 提取 → 净化”的工具链。
+- `content-extractor` 负责页面内容抽取、摘要截断、结构化结果输出。
+- `smart-content-extractor` 负责正文识别与噪声过滤。
+- 所有提取文本在进入日志、模型上下文或用户可见输出前，必须执行：
+  1. `sanitizeExtractedText()`（去危险片段/控制字符）
+  2. 按需 `stripUrls()`（去除潜在敏感链接）
 
-- **抓取前**：对用户可控 URL 必须先 `auditUrl()`，并仅允许白名单协议/域名（禁止私网、localhost、内网 IP、非预期协议等）。
-- **提取**：`extractTextFromHtml()` 使用单次线性扫描提取文本，并对输入/输出做上限控制，降低 OOM/CPU 风险。
-- **净化**：`sanitizeExtractedText()` 清理危险/噪声内容；`stripUrls()` + `filterUrlParams()` 过滤敏感参数；日志/错误仅输出 `safeUrl`。
+## 浏览器兼容性
 
-> 注意：本模块输出应视为“不可信文本”。禁止将外部内容直接拼接进 `innerHTML`。
+- 模块默认 Browser-first，使用 ES Modules。
+- `StdioMcpTransport` 为 Node-only 能力，不得在浏览器路径直接加载。
+- 不使用 `require()`、`__dirname`、`__filename` 等 Node CJS 语法。
 
-## 核心文件
+## 开发约束
 
-| 文件 | 职责 |
-|------|------|
-| `mcp-client.js` | McpClient, McpProvider 接口 |
-| `constants.js` | TransportKind、isValidTransportKind、normalizeTransportKind 等基础枚举/工具 |
-| `local-mcp-provider.js` | 本地内置 MCP (HTTP/fetch) |
-| `mcp-nexus-provider.js` | MCP-Nexus 远程端点（注意 URL 白名单、超时、重试与脱敏日志） |
-| `stdio-mcp-provider.js` | Stdio 进程通信 Provider |
-| `mcp-transport.js` | Transport 抽象接口 |
-| `stdio-mcp-transport.js` | Stdio Transport 实现（Node.js only） |
-| `transport-factory.js` | createMcpTransport(), getSupportedTransports() |
-| `content-extractor.js` | 外部 HTML → 文本提取（有输入/输出上限） |
-| `smart-content-extractor.js` | 页面主内容抽取（启发式/结构化） |
-| `content-sanitizer.js` | 文本净化与 URL 脱敏（token/key 等） |
-| `url-whitelist.js` | URL 白名单、auditUrl()/filterUrlParams() |
+- MCP 消息（request/response/notification）必须进行 schema 校验。
+- 所有网络请求必须配置合理超时与重试上限，避免无限等待。
+- 错误处理必须保留可观测性（日志/错误码），但不得暴露敏感信息。
 
-## 测试重点（建议）
+## 测试重点
 
-- 协议兼容性：`TransportKind`/normalize 行为与非法值回退。
-- 网络异常：超时、DNS 失败、非 2xx、重试策略与熔断。
-- 认证流程：API key 脱敏（日志/错误中不出现明文）。
-- SSRF：对 `auditUrl()` 的白名单与私网/localhost 拦截测试。
-- 内容安全：`sanitizeExtractedText()`/`stripUrls()` 边界测试（空值、超长、深层嵌套 URL、含 token 参数）。
+- 协议兼容性：`jsonrpc/toolapi/rest` 的路由与回退行为。
+- 网络异常：超时、重试、断路器、代理失败。
+- 认证安全：API key/token 在日志、错误、上下文中的脱敏行为。
+- URL 审计：白名单命中、私网拦截、敏感 query 剥离。

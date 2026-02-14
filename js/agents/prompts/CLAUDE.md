@@ -4,17 +4,18 @@
 
 ## 目录结构
 
-```
+```text
 prompts/
-├── prompt-loader.js     # 提示词加载器（含缓存/manifest）
-├── prompt-template.js   # 模板渲染与格式化器管线
-├── prompt-registry.js   # 提示词注册表（内存）
-├── formatters/          # 内置格式化器
-├── codesearch/          # 代码搜索提示词
-├── deepsearch/          # 深度搜索提示词
-├── design/              # 设计阶段提示词
-├── dsl/                 # DSL 相关提示词
-└── ingest/              # 文档摄取提示词
+├── prompt-loader.js         # 提示词加载器（异步/同步、manifest、缓存）
+├── prompt-loader-helpers.js # 加载器辅助函数（路径/URL 校验、LRU、大小限制）
+├── prompt-template.js       # 模板渲染与格式化器管线
+├── prompt-registry.js       # 提示词注册表（内存）
+├── formatters/              # 内置格式化器
+├── codesearch/              # 代码搜索提示词
+├── deepsearch/              # 深度搜索提示词
+├── design/                  # 设计阶段提示词
+├── dsl/                     # DSL 相关提示词
+└── ingest/                  # 文档摄取提示词
 ```
 
 ## 提示词加载
@@ -27,6 +28,12 @@ const toolPrompt = await loadPrompt('codesearch/system', {
   manifestUrl: 'prompts/manifest.json'
 });
 ```
+
+### Key 约束
+
+- 仅接受非空字符串 key。
+- key 必须通过 `validateKey` 校验（防止非法路径片段）。
+- 加载前会统一归一化模板变量，避免异常类型输入。
 
 ## PromptLoader 实例与缓存
 
@@ -56,9 +63,18 @@ const cached = getCachedPromptNames();
 
 ### 缓存的跨环境行为
 
-- 浏览器主线程：优先使用 `localStorage` 做持久缓存（读取/写入失败时会自动降级）。
+- 浏览器主线程：优先使用 `localStorage` 做持久缓存（读取/写入失败自动降级）。
 - Web Worker / Service Worker：`localStorage` 不可用，自动降级为进程内 `Map` 内存缓存。
 - 内存缓存不持久化、不会跨页面刷新/跨 worker 共享。
+- 缓存键使用统一分隔符（`::`）生成，避免命名冲突。
+
+## 安全边界
+
+- Manifest/Prompt 文本读取均受 `maxManifestBytes` / `maxPromptBytes` 限制。
+- URL 加载路径需通过 `isSafeHttpUrl` 校验。
+- 本地路径读取需满足 `isPathInsideBase` 约束，防止路径穿越。
+- Manifest 解析使用 `protoSafeReviver`，降低原型污染风险。
+- 模板分隔符和正则相关输入会先做转义处理。
 
 ## 同步加载（Node.js）
 
@@ -67,6 +83,11 @@ import { loadPromptSync } from 'js/agents/prompts/prompt-loader.js';
 
 const prompt = loadPromptSync('dsl/ppt-html-dsl');
 ```
+
+说明：
+
+- 仅在 Node-like 环境启用同步文件读取。
+- 浏览器端应使用异步 `loadPrompt`。
 
 ## 模板渲染
 
@@ -80,42 +101,22 @@ const text = renderPromptTemplate('Hello {{name|upper}}', {
 });
 ```
 
-### 变量名规范化（大小写不敏感）
-
-渲染时 `vars` 的 key 会被规范化为 `trim().toLowerCase()`：
-
-- 建议在模板里统一使用小写变量名（如 `{{name}}`）。
-- 若同时传入 `Name` 与 `name` 这类仅大小写不同的 key，可能发生覆盖（以实现顺序为准）。
-
-```javascript
-import { renderPromptTemplate } from 'js/agents/prompts/prompt-template.js';
-
-const text = renderPromptTemplate('Hello {{name}}', {
-  vars: { Name: 'world' } // ✅ 可用
-});
-```
-
-## 提示词注册表（PromptRegistry）
-
-`prompt-registry.js` 提供简单的内存注册表，用于集中管理 `PromptTemplate`。
-
-- `register(name, template)`：注册单条模板（`name` 为空会抛 `TypeError`）。
-- `registerMany(templates)`：批量注册，支持：
-  - `Map<string, string|PromptTemplate>`
-  - `Array<[string, string|PromptTemplate]>`
-  - `Record<string, string|PromptTemplate>`
-- `get(name)`：获取模板，返回 `PromptTemplate | null`。
-- `has(name)`：判断模板是否存在。
+## PromptRegistry
 
 ```javascript
 import { PromptRegistry } from 'js/agents/prompts/prompt-registry.js';
 
 const registry = new PromptRegistry();
+registry.register('greeting', 'Hello {{name}}');
 
-registry.register('deepsearch/system', '# System prompt...\n');
-registry.registerMany({
-  'codesearch/system': '# Tool prompt...\n'
-});
-
-const tpl = registry.get('deepsearch/system');
+const output = registry.render('greeting', { name: 'Paper Burner' });
 ```
+
+- `PromptRegistry` 是轻量内存注册表，适合运行时快速覆盖模板。
+- 建议统一通过 `PromptTemplate` 渲染，确保 formatter 行为一致。
+
+## 维护约定
+
+- 保持 ES Modules + JSDoc（不引入 TypeScript 编译流程）。
+- 新增公共 API 时必须补齐 `@param` / `@returns` / `@throws`。
+- 任何缓存降级分支都应记录可观测日志（debug/warn），避免静默失败。

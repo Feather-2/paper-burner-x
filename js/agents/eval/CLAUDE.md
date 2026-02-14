@@ -36,14 +36,11 @@ js/agents/eval/
 import { EvalHarness } from 'js/agents/eval';
 
 const harness = new EvalHarness({
-  // 你提供一个创建 Agent 的函数（每次 trial 都应返回全新实例）
-  agentFactory: async ({ task, trialIndex }) => {
-    return {
-      async run(input) {
-        return `echo:${input}`;
-      },
-    };
-  },
+  agentFactory: async ({ task, trialIndex }) => ({
+    async run(input) {
+      return `echo:${input}`;
+    },
+  }),
   trialsPerTask: 3,
   concurrency: 4,
 });
@@ -56,7 +53,6 @@ const task = {
 };
 
 const result = await harness.runTask(task);
-// result: { taskId, trials, passRate, passAtK, passExpK, ... }
 ```
 
 ### 2) 运行 suite（并发）
@@ -64,7 +60,6 @@ const result = await harness.runTask(task);
 ```js
 const suite = { suiteId: 'demo', tasks: [task] };
 const suiteResult = await harness.runSuite(suite, { concurrency: 4 });
-// suiteResult: { suiteId, tasks, aggregated, ... }
 ```
 
 ## 核心数据结构（JSDoc）
@@ -73,26 +68,18 @@ const suiteResult = await harness.runSuite(suite, { concurrency: 4 });
 
 ## Transcript & TrialMetrics
 
-- `Transcript.entries` 是一个按时间顺序的数组，常见 `entry.type` 包括：
+- `Transcript.entries` 是按时间顺序的数组，常见 `entry.type` 包括：
   - `output`：模型/Agent 的输出（turn 统计基于该类型）
   - `tool_call`：工具调用（toolCalls 统计基于该类型）
-  - 其他类型以实现为准（例如 input/error 等）
-- 每条 entry 可带 `entry.metadata`，用于记录 token 统计/计时等附加信息。
-  - harness 会尝试从以下字段提取 token 计数并汇总到 `TrialMetrics.totalTokens`：
-    - `metadata.totalTokens` / `metadata.tokens` / `metadata.tokenCount`
-    - `metadata.usage.total_tokens`（兼容部分 LLM client 的 usage 结构）
-- `TrialMetrics` 当前实现会至少包含：`turns`, `toolCalls`, `totalTokens`（若无 metadata 则为 0）。
+  - 其他类型以实现为准（例如 input/error）
+- `computeTrialMetrics(transcript)` 的统计口径：
+  - `turns`：`entry.type === 'output'` 的数量
+  - `toolCalls`：`entry.type === 'tool_call'` 的数量
+  - `totalTokens`：从 `entry.metadata.totalTokens | tokens | tokenCount | usage.total_tokens` 聚合
 
-## Metrics（pass@k / pass^k）
+## 指标计算（metrics.js）
 
-- `passAtK(trials, k)`: 经验 passRate 估计下的 `pass@k = 1 - (1 - passRate)^k`
-- `passExpK(trials, k)`: 经验 passRate 估计下的 `pass^k = (passRate)^k`（语义：k 次全部成功）
-
-## Error 记录
-
-- trial 执行/grader 过程中抛出的异常会被 harness 记录并序列化为 plain object，便于存档与 JSON 序列化。
-- 当前序列化字段：
-  - `message`: 错误消息
-  - `name`: 错误类型（若可用）
-  - `stack`: 堆栈（若可用）
-- 如果评估结果会被展示给终端用户或写入外部系统，建议在输出层对 `stack` 做剥离或脱敏，避免泄露内部路径/实现细节。
+- `passAtK(trials, k)`：基于经验 `passRate` 估计「k 次中至少一次成功」概率。
+- `passExpK(trials, k)`：基于经验 `passRate` 估计「k 次全部成功」概率。
+- `aggregateResults(taskResults)`：聚合 suite 级统计指标。
+- 概率结果通过 `clamp01` 归一化到 `[0, 1]`。

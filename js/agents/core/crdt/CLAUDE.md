@@ -4,7 +4,7 @@
 
 ## 架构定位
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │            应用层                        │
 ├──────────────────┬──────────────────────┤
@@ -28,7 +28,7 @@
 | 集成 | 原生融入 EventBus/StateBus | 需要桥接层 |
 | 调试 | 状态透明可读 | 内部编码 |
 
-Agent 状态是结构化的键值/计数器/集合，LWW 语义足够；Yjs 的光标/选区/undo 栈对 Agent 是冗余。
+Agent 状态以结构化键值/计数器/集合为主，LWW + Counter + OR-Set 语义足够；Yjs 的光标/选区/undo 栈对 Agent 场景通常冗余。
 
 ## 设计原则
 
@@ -37,83 +37,76 @@ Agent 状态是结构化的键值/计数器/集合，LWW 语义足够；Yjs 的�
 - 支持离线操作 + 在线合并
 - 与四总线原生集成
 - 可选限制 op log 大小（`maxOpLogSize`）避免内存无限增长
+- 时钟服务可注入（`clockService`）以提升可测试性与可控性
 
 ## 与 Lamport Clock 的关系
 
-- `lamport-clock.js` 的 `nextTick()` 用于为本地操作生成递增时钟，并可用于默认推导 `nodeId`
-- 接收远端 op 时，`CRDTDocument` 通过 `syncClock(remoteClock)` 合并对端时钟，避免因果倒退（实现见 `document.js`）
-- 多副本同步场景强烈建议显式传入稳定的 `nodeId`（避免默认推导导致的碰撞/漂移）
+- `lamport-clock.js` 的 `nextTick()` 用于本地操作生成递增时钟
+- 接收远端 op 时，`CRDTDocument` 通过 `syncClock(remoteClock)` 合并对端时钟，避免因果倒退
+- `GCounter/PNCounter` 支持注入 `clockService.nextTick()`，便于测试与时钟统一
+- 多副本同步强烈建议显式传入稳定 `nodeId`，避免默认推导导致碰撞/漂移
 
-## 配置项（CRDTDocument）
+## 配置项
 
-`CRDTDocumentOptions`（见 `document.js`）：
+### `CRDTDocumentOptions`（`document.js`）
 
 - `docId?: string` - 文档 ID；多副本同步时必须一致
-- `nodeId?: string` - 当前副本节点 ID；建议显式传入稳定值（避免默认推导带来的碰撞/漂移）
-- `maxOpLogSize?: number` - 操作日志上限（限制内存占用；超过上限时实现应裁剪旧记录/配合快照，以 `document.js` 实现为准）
+- `nodeId?: string` - 当前副本节点 ID；建议显式传入稳定值
+- `maxOpLogSize?: number` - 操作日志上限；超过上限应配合裁剪/快照
+- `clockService?: { nextTick: () => LamportClockState }` - 可注入时钟服务（测试或统一时钟源）
+
+### `CounterOptions`（`counters.js`）
+
+- `nodeId?: string` - 计数器所属节点 ID
+- `clockService?: { nextTick: () => LamportClockState }` - 计数器时钟提供者
 
 ## 操作格式（Op）
 
-所有可同步的变更都以「op」表示，并要求：
+所有可同步变更都以 op 表示，并要求：
 
 - 可序列化（JSON safe）
 - 幂等重放（同一 op 重放不会破坏状态）
 - 尽量携带 `clock`（Lamport）用于因果排序与去重
 
-### Counter ops（counters.js）
+### Counter ops（`counters.js`）
 
 - `GCounterIncrementOp`: `{ type: 'increment', nodeId, value, clock }`
-- `PNCounterOp`: `{ type: 'pn-increment' | 'pn-decrement', op: GCounterIncrementOp }`
+- `PNCounterIncrementOp`: `{ type: 'pn-increment', op: GCounterIncrementOp }`
+- `PNCounterDecrementOp`: `{ type: 'pn-decrement', op: GCounterIncrementOp }`
 
-### Document op envelope（document.js）
+### Document op envelope（`document.js`）
 
-`CRDTDocumentOp` 是跨 primitive 的统一封装，固定字段：
+`CRDTDocumentOp` 是跨 primitive 的统一封装，固定同步元数据：
 
-- `field`: 字段名（文档内的命名空间）
-- `fieldType`: `'register' | 'map' | 'set' | 'counter'`
-- `version`: 文档版本（单调递增）
-- `docId`: 文档 ID
-- `clock?`: 文档级时钟
-- `op?`: 子 CRDT 的具体操作（可包含 `op.clock`）
+- `type: string`
+- `field: string`
+- `fieldType: 'register' | 'map' | 'set' | 'counter'`
+- `version: number`
+- `docId: string`
+- `clock?: LamportClockState`
+- `op?: { clock?: LamportClockState, ... }`
+- `nodeId?: string`
 
-说明：由于不同 primitive 的 op 结构不同，`CRDTDocumentOp` 在类型上保持宽松；实现侧必须对 `field/fieldType/op` 做运行时校验。
+## 序列化快照类型
 
-## 适用场景
+- `LWWRegisterJSON<T>`
+- `LWWMapJSON<V>` / `LWWMapEntry<V>`
+- `ORSetJSON`
+- `GCounterJSON`
+- `PNCounterJSON`
 
-| 场景 | CRDT 类型 | 说明 |
-|------|-----------|------|
-| Agent 当前阶段/状态码 | LWWRegister | 单值，最后写入生效 |
-| 共享配置/上下文 | LWWMap | 键值对状态 |
-| 任务列表/已处理文档 | ORSet | 集合，支持并发添加/删除 |
-| Token 计数/进度 | GCounter/PNCounter | 分布式计数 |
-| 复合文档状态 | CRDTDocument | 组合多种类型 |
+上述类型用于 UI 展示、存储持久化与跨端同步；反序列化时应做字段与边界校验。
 
-## 数据类型
+## 工程约束与建议
 
-| 类型 | 文件 | 用途 |
-|------|------|------|
-| `LWWRegister` | `lww-register.js` | Last-Writer-Wins 寄存器，简单值 |
-| `GCounter` | `counters.js` | 只增计数器（每节点独立计数，合并求和） |
-| `PNCounter` | `counters.js` | 正负计数器（positive - negative） |
-| `LWWMap` | `lww-map.js` | LWW 键值对，状态管理 |
-| `ORSet` | `or-set.js` | Observed-Remove 集合，TODO 列表/并发增删 |
-| `CRDTDocument` | `document.js` | 复合文档，维护 op log/快照/序列化 |
-| `CRDTDocumentOp` | `document.js` | 文档级 op 元数据（field/fieldType/version/docId/clock），同步传输单位 |
-| `CRDTDocumentSnapshot` | `document.js` | UI/存储快照（registers/maps/sets/counters 的可读视图） |
+- 外部输入（尤其远端 op）必须先做 schema 校验再应用
+- 对键名做危险字段过滤（如 `__proto__`、`constructor`、`prototype`）
+- 插件注入 `clockService` 时应保证只暴露必要能力
+- 为 `maxOpLogSize` 配置合理默认值并结合快照策略
 
-## 入口文件（index.js）
+## 测试建议（本模块）
 
-`index.js` 作为 public API 入口，按需导出核心类型（LWWRegister/LWWMap/ORSet/GCounter/PNCounter/CRDTDocument 等）。上层优先从入口导入，避免依赖内部文件结构。
-
-## 安全注意
-
-- 字段名/键名/元素值在多副本同步时可能来自外部输入；实现中避免使用普通对象直接 `obj[userKey] = ...` 写入
-- 推荐内部使用 `Map`/`Set` 存储；对外导出 JSON/快照时使用 `Object.create(null)` 或显式过滤 `__proto__`/`constructor`/`prototype`
-- 解析外部 JSON（如 `fromJSON`/`applyRemoteOp`）时必须做结构校验，遇到未知 `type`/`fieldType` 应拒绝（抛错或返回失败），避免静默分叉
-
-## 测试建议
-
-- 幂等：同一 op 重放 N 次结果不变
-- 收敛：不同顺序合并同一批 op 得到相同最终状态
-- 并发：多个 nodeId 同时更新同一 field 的冲突处理
-- 裁剪：达到 `maxOpLogSize` 后仍能正确同步（必要时依赖快照/压缩）
+- 状态机转换：不同 `fieldType` 的 op 应用/回放/幂等
+- 并发安全：乱序 op、重复 op、并行 merge
+- 插件生命周期：异常 `clockService` 注入下的容错
+- 边界条件：空 op、非法 version、超大 op log、异常 nodeId

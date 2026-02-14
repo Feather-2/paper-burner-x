@@ -2,7 +2,7 @@
 
 与外部二进制工具通信的传输层，Node.js 实现 + Browser fail-fast stub。
 
-> 安全提示：该模块具备启动外部进程的能力，相关配置应被视为“高权限输入”。如需从外部来源（用户配置/远端配置/插件）加载技能，必须启用并强制执行 allowlist 约束（见 BinarySkillProvider）。
+> 安全提示：该模块具备启动外部进程的能力，相关配置应被视为高权限输入。若技能配置来自用户配置、远端配置或插件输入，必须启用并强制执行 allowlist 约束（`command` / `cwd` / `env`）。
 
 ## 核心文件
 
@@ -10,13 +10,13 @@
 |------|------|
 | `process-transport.js` | Node.js stdio 通信（JSONL；可承载 JSON-RPC 2.0 envelope） |
 | `binary-skill-provider.js` | 二进制工具作为 Skills（ServiceBus 注册 + EventBus 广播；连接池/自动重连；命令/cwd/env allowlist 约束） |
-| `index.js` | 运行时分发（Node/Browser），统一导出 API（基于 `Platform.isNode` 的动态 `import()`；top-level `await`） |
+| `index.js` | 运行时异步分发门面（基于 `Platform.isNode` 的懒加载 `import()`） |
 | `index.node.js` | Node.js 实现导出 |
 | `index.browser.js` | Browser stub 导出（调用即抛错，避免打包 Node-only API） |
 
 ## 架构
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    BinarySkillProvider                       │
 │  - 管理多个二进制连接                                         │
@@ -33,62 +33,80 @@
               External Binaries (Codex, Playwright, etc.)
 ```
 
-## 运行时分发
+## 运行时分发（更新）
 
-`index.js` 通过 `Platform.isNode` 在运行时 `import()` 对应实现：
+`index.js` 通过 `Platform.isNode` 在运行时懒加载对应实现：
 
 - Node: `index.node.js`
 - Browser: `index.browser.js`（fail-fast stub）
 
-统一导出符号（Node 可用，Browser 为 stub）：
+当前实现采用异步门面，不再直接同步导出 `ProcessTransport` / `BinarySkillProvider`。调用方需通过异步 API 获取类或实例。
 
-- `ProcessTransport` / `createProcessTransport`
-- `BinarySkillProvider` / `createBinarySkillProvider`
+### 对外 API（`index.js`）
 
-Browser 端调用上述 API 会抛错，用于快速暴露不兼容用法，并避免 Browser bundle 直接解析/引入 `node:*` 模块（例如 `node:child_process`）。
+| API | 返回 | 说明 |
+|-----|------|------|
+| `getImpl()` | `Promise<Module>` | 获取当前运行时实现模块 |
+| `getProcessTransport()` | `Promise<typeof ProcessTransport>` | 获取 `ProcessTransport` 类 |
+| `createProcessTransport(...args)` | `Promise<ProcessTransport>` | 创建 `ProcessTransport` 实例 |
+| `getBinarySkillProvider()` | `Promise<typeof BinarySkillProvider>` | 获取 `BinarySkillProvider` 类 |
+| `createBinarySkillProvider(...args)` | `Promise<BinarySkillProvider>` | 创建 `BinarySkillProvider` 实例 |
 
-注意：该分发实现使用 top-level `await` 动态导入；在需要兼容较旧打包器/运行时的场景，优先考虑使用条件导出（`package.json` exports 的 `browser`/`node` 条件）来替代运行时分发。
+默认导出为门面对象：
+
+- `getImpl`
+- `getProcessTransport`
+- `createProcessTransport`
+- `getBinarySkillProvider`
+- `createBinarySkillProvider`
+
+> 兼容性注意：旧调用方式若依赖 `index.js` 的同步类导出，需要迁移到 `await createProcessTransport(...)` / `await createBinarySkillProvider(...)`。
+
+## Browser Stub
+
+`index.browser.js` 导出同名类和工厂函数，但调用即抛错：
+
+- `ProcessTransport`
+- `createProcessTransport`
+- `BinarySkillProvider`
+- `createBinarySkillProvider`
+
+目的：
+
+1. 在浏览器环境快速暴露不兼容调用；
+2. 防止 Browser bundle 误引入 `node:child_process` 等 Node-only API。
 
 ## ProcessTransport
 
-通过 stdio 与外部二进制通信，使用 JSONL（以换行分隔的 JSON）作为双向消息流。
+通过 stdio 与外部二进制通信，核心能力：
 
-### 数据流
-
-```
-js/agents (Node.js)
-    ↓ spawn
-┌─────────────────────────────────────┐
-│ ProcessTransport                    │
-│   stdin  →  JSON\n  →  Binary CLI   │
-│   stdout ←  JSON\n  ←               │
-│   stderr ←  logs    ←               │
-└─────────────────────────────────────┘
-    ↓ events
-transport:message / method:* / transport:stde
-```
+- 进程生命周期管理（启动 / 关闭 / 重连）
+- JSONL 消息收发（可承载 JSON-RPC envelope）
+- 请求-响应匹配与事件转发
+- 超时控制与错误传播
 
 ## BinarySkillProvider
 
-将外部二进制包装成 Skills：
+将外部二进制封装为 Skill 服务，核心能力：
 
-- 通过 ServiceBus 注册二进制服务
-- 通过 EventBus 广播工具事件
-- 支持连接池与自动重连
+- 多技能配置装配与生命周期管理
+- ServiceBus 注册（供 Agent 侧调用）
+- EventBus 广播（连接状态 / 执行事件）
+- 连接池复用与自动重连
+- allowlist 约束：`allowedCommands` / `allowedCwdRoots` / `allowedEnvKeys`
 
-### 配置与安全边界（必须阅读）
+默认超时常量：`DEFAULT_TIMEOUT_MS = 30000`。
 
-`BinarySkillConfig`（如 `command`/`args`/`env`/`cwd`）等价于“启动外部进程”的能力授予，必须当作高权限配置处理：
+## 安全基线
 
-- 不要直接接受不受信任的输入作为 `command`/`cwd`/`env`。
-- 如必须允许外部来源选择/配置技能，务必启用并强制执行 allowlist：
-  - `allowedCommands`：允许启动的命令名或绝对路径白名单
-  - `allowedCwdRoots`：允许的工作目录根路径（建议 realpath 后做前缀匹配，防止 `..`/符号链接逃逸）
-  - `allowedEnvKeys`：允许覆盖的环境变量键名（默认拒绝覆盖；避免 `PATH`/`NODE_OPTIONS` 等高风险键）
+- `command` 必须匹配 allowlist（命令名或绝对路径）
+- `cwd` 必须落在允许根目录内（规范化后校验）
+- `env` 仅允许白名单键覆盖
+- 外部输入场景建议 fail-closed（白名单缺失则拒绝执行）
+- 错误分级：日志保留细节，对用户输出友好错误
 
-实现/使用建议：
+## Browser / Node 兼容约定
 
-- 默认拒绝：allowlist 未配置时，不要“默认放行”任意 `command`。
-- 永远不要使用 `shell: true`；`args` 始终用数组传参。
-- 限制 `timeout` 的边界（下限/上限/NaN/Infinity），避免被极端值拖垮。
-- 日志中避免输出完整命令行、cwd、env 值（尤其是 token/key）。
+- Browser 入口不得静态依赖 Node-only API（`node:*`、`child_process`、`fs`、`path`）
+- Node 实现限定在 `index.node.js` 及其依赖
+- 跨端统一入口为 `index.js` 的异步门面 API

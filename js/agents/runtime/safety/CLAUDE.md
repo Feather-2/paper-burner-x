@@ -1,15 +1,15 @@
 # safety - 安全模块
 
-命令风险分类、工具权限和安全检查（Browser-first，Node.js compatible）。
+命令风险分类、工具权限评估与策略编排（Browser-first，Node.js compatible）。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `command-classifier.js` | Bash/OS 命令解析与风险分类（支持复合命令与敏感路径检测） |
-| `tool-restrictions.js` | 工具限制评估（工具名 + Bash 命令），底层策略与归一化 |
-| `tool-permissions.js` | 工具权限 API（高层封装），预置级别 + 链式配置 |
-| `index.js` | 入口导出 |
+| `command-classifier.js` | Bash/OS 命令解析、复合命令分段、风险等级判定（`safe/unknown/dangerous`）与敏感路径检测 |
+| `tool-restrictions.js` | 底层 restrictions 归一化与评估引擎（工具名 + Bash 命令） |
+| `tool-permissions.js` | 高层权限 API（预置级别、链式叠加、统一检查结果） |
+| `index.js` | 模块入口导出 |
 
 ## 入口导出
 
@@ -26,85 +26,84 @@ import {
 } from 'js/agents/runtime/safety';
 ```
 
-### 本次变更涉及的导出更新
+### 导出说明
 
 | 导出 | 说明 |
 |------|------|
-| `PermissionLevel` | 权限级别枚举对象（`PermissionLevel.READONLY` 等；值为 `'readonly'/'standard'/'elevated'/'custom'`） |
-| `getPresetRestrictions` | 获取某个权限级别对应的底层 restrictions（用于自定义叠加/调试） |
-| `mergeRestrictions` | 合并 restrictions（用于在预置基础上叠加 allow/block 规则） |
+| `PermissionLevel` | 权限级别枚举：`READONLY/STANDARD/ELEVATED/CUSTOM` |
+| `ToolPermissions` | 高层权限对象，支持预设构造与链式配置 |
+| `getPresetRestrictions` | 获取预置权限对应的底层 restrictions |
+| `mergeRestrictions` | 合并 restrictions（预设 + 业务自定义） |
+| `normalizeToolRestrictions` | restrictions 结构归一化 |
+| `evaluateToolRestrictions` | 评估工具/命令是否允许 |
+| `classifyCommand` | 单条命令风险分类与审批判定 |
+| `parseCompoundCommand` | 复合命令拆分（逐段审计） |
 
-## ToolPermissions API
+## Command Classifier（`command-classifier.js`）
 
-高层级工具权限管理，支持预定义级别和自定义配置。
+### 分类结果
 
-### 快速使用
+`classifyCommand()` 返回：
+
+- `level`: `safe | unknown | dangerous`
+- `requiresApproval`: 是否需要审批
+- `baseCommand`: 识别出的基础命令
+- `reasons`: 触发原因列表（如危险命令、敏感路径等）
+
+### 判定要点
+
+- 内置 `SAFE_COMMANDS` 与 `DANGEROUS_COMMANDS` 基线。
+- 支持复合命令解析并逐段检查，避免 `cmd1 && cmd2` 漏检。
+- 内置 `DEFAULT_SENSITIVE_PATH_PATTERNS`，覆盖系统账号、SSH、云凭证、容器配置等高风险路径。
+
+## Tool Restrictions（`tool-restrictions.js`）
+
+### 数据结构
 
 ```javascript
-import { ToolPermissions } from 'js/agents/runtime/safety';
-
-// 预定义级别
-const readonly = ToolPermissions.readonly();
-const standard = ToolPermissions.standard();
-const elevated = ToolPermissions.elevated();
-
-// 检查工具权限
-readonly.check('write', null);
-// → { allowed: false, reason: 'tool_blocked', policy: {...} }
-
-// 检查 Bash 命令（会解析复合命令并逐段评估）
-standard.check('bash', 'rm -rf /');
-// → { allowed: false, reason: 'command_blocked', policy: {...} }
+{
+  allowedTools?: (string|RegExp)[],
+  blockedTools?: (string|RegExp)[],
+  bash?: {
+    allowedCommands?: (string|RegExp)[],
+    blockedCommands?: (string|RegExp)[],
+    toolNames?: string[],
+  }
+}
 ```
 
-### 权限级别
+### 行为规则
+
+- 输入先归一化（字符串列表、数组列表、大小写统一）。
+- Bash 命令先拆分复合命令，再按段匹配策略。
+- 默认优先级：`blocked > allowed > fallback`。
+- `strict` 模式下未知工具/未知命令默认拒绝。
+
+## ToolPermissions API（`tool-permissions.js`）
+
+### 预置级别
 
 | 级别 | 说明 |
 |------|------|
-| `readonly` | 只读模式，禁止写入工具；Bash 仅允许只读/查询类命令 |
-| `standard` | 标准模式，默认阻止危险 Bash 命令（未知命令可按策略要求审批） |
-| `elevated` | 提升模式，仅阻止极端危险命令 |
-| `custom` | 自定义模式，无预设限制（由 restrictions/strict 决定） |
+| `readonly` | 禁止写入工具；Bash 只允许只读查询类命令 |
+| `standard` | 默认阻止高风险命令；未知命令按策略处理 |
+| `elevated` | 仅阻止极端危险命令 |
+| `custom` | 完全自定义 restrictions 与 strict 行为 |
 
-也可使用枚举：`PermissionLevel.READONLY / STANDARD / ELEVATED / CUSTOM`。
+### 常用方法
 
-### 链式配置
+- `ToolPermissions.readonly()/standard()/elevated()/custom()`
+- `allow()/block()/allowBash()/blockBash()`
+- `check(toolName, command?)` 统一返回 `{ allowed, reason, policy }`
 
-```javascript
-const permissions = ToolPermissions.standard()
-  .block(['delete_file', 'remove_file'])   // 额外禁止工具
-  .allow(['my_safe_tool'])                 // 额外允许工具
-  .blockBash(['curl', 'wget'])             // 额外禁止命令（支持字符串/通配符/RegExp）
-  .allowBash(['git log', 'git status']);   // 额外允许命令（按 base command 匹配）
-```
+## Browser 兼容性
 
-### strict（严格模式）
+- 使用 ES Modules + JSDoc，无 TypeScript 编译依赖。
+- 不依赖 `fs/path/child_process/__dirname/require`，可在浏览器策略层运行。
+- OS 命令执行仅为策略判定与审计能力，非浏览器内直接执行。
 
-当 `strict: true` 时，未知工具默认拒绝；用于保持“默认拒绝”的安全姿态。
+## 开发与测试建议
 
-## 低层 API
-
-当你希望直接操作 restrictions（例如做策略拼装、调试或复用）时：
-
-- `normalizeToolRestrictions(...)`：归一化输入（字符串/数组/RegExp 等）。
-- `evaluateToolRestrictions(...)`：评估某次工具调用是否允许（包含 Bash 命令评估）。
-- `getPresetRestrictions(level)`：获取预置级别对应的底层 restrictions。
-- `mergeRestrictions(a, b)`：合并两份 restrictions（推荐用于“预置 + 叠加”）。
-
-## 命令分类
-
-- `classifyCommand(commandString)`：返回命令安全级别（`safe | unknown | dangerous`）及原因。
-- `parseCompoundCommand(commandString)`：用于拆分复合命令并逐段评估。
-
-## 与 ToolRegistry 集成
-
-```javascript
-import { ToolRegistry } from 'js/agents/runtime/core';
-import { ToolPermissions } from 'js/agents/runtime/safety';
-
-const permissions = ToolPermissions.readonly();
-const registry = new ToolRegistry({ tools });
-
-// 方式 1: 使用 createHook()
-registry.useHook('before', permissions.createHook());
-```
+- 新增命令规则时同步补充：复合命令、重定向、通配符、敏感路径变体测试。
+- 覆盖边界：空输入、超长命令、混合大小写、并发连续检查。
+- 建议保持 safety 模块单测覆盖率 ≥ 90%。

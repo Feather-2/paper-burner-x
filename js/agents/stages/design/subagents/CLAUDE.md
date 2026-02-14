@@ -64,31 +64,13 @@ AssetRegistry 支持以下标准分类：
 
 - `uploaded`: 用户上传（同义：`upload` / `uploaded`）
 - `extracted`: 文档/PDF 抽取（同义：`pdf` / `extracted`）
-- `videoFrames`: 视频帧（同义：`video` / `videoframes` / `frames`）
+- `videoFrames`: 视频帧（显式 category 同义：`video` / `videoframes` / `frames`）
 - `generated`: 生成资产（同义：`generated` / `gen`；未识别时通常会落到该类）
 
-通常可通过 `asset.source` 自动推断分类；也可显式传入 `{ category }`（会做 normalize）。
+通常可通过 `asset.source` 自动推断分类；source 推断额外支持 `video_frame` / `video-frame` 归一到 `videoFrames`，其余未知来源默认归入 `generated`。
 
 ### 安全注意
 
 - slide 映射的 key 会对 `__proto__` / `constructor` / `prototype` 做防护，避免原型污染。
 - 资产 id 由内部安全的时间戳 id 生成器创建（如 `makeSecureTimestampedId('asset')`）。
-
-```javascript
-import { AssetRegistry } from 'js/agents/stages/design/subagents';
-
-const registry = new AssetRegistry();
-
-// 添加资产（可显式指定 category；未指定时会尝试从 asset.source 推断）
-const assetId = registry.addAsset(
-  { source: 'upload', name: 'logo.png', mime: 'image/png' },
-  { category: 'uploaded' }
-);
-
-// 关联到某页 slide
-registry.linkToSlide('slide:1', [assetId]);
-
-// 导出/恢复快照（用于回滚/重放）
-const snapshot = registry.snapshot();
-const restored = new AssetRegistry(snapshot);
-```
+- category/source 输入会先做非空字符串归一化与小写化，降低脏输入导致的分类异常风险。

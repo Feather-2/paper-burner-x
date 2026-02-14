@@ -6,14 +6,14 @@
 
 | 文件 | 职责 |
 |------|------|
-| `embedding-service.js` | EmbeddingService - 嵌入生成（含 endpoint 校验/SSRF 防护） |
-| `vector-index.js` | VectorIndex - 向量存储与检索（含维度校验/错误类型） |
-| `hnsw-lite.js` | HnswLiteIndex - 近似最近邻（分层图 + LSH），并导出索引错误类型 |
+| `embedding-service.js` | `EmbeddingService` - 嵌入生成、批量队列、endpoint/hostname 校验（含 SSRF 基础防护） |
+| `vector-index.js` | `VectorIndex` - 精确向量检索与分区过滤，维度校验与错误类型 |
+| `hnsw-lite.js` | `HnswLiteIndex` - 近似最近邻（LSH + 分层图），并导出索引错误类型 |
 
 ## EmbeddingService
 
 ```javascript
-import { EmbeddingService, createEmbeddingService } from 'js/agents/shared/embeddings';
+import { EmbeddingService, createEmbeddingService } from 'js/agents/retrieval/embeddings';
 
 const service = createEmbeddingService({
   endpoint: 'https://api.openai.com/v1/embeddings',
@@ -28,12 +28,10 @@ const service = createEmbeddingService({
 });
 
 const [embedding] = await service.embed('Hello world');
-// → [Float32Array(1536)]
-
 const embeddings = await service.embed(['Hello', 'World']);
 ```
 
-批处理/队列（可用于合并请求）：
+批处理/队列（用于合并请求）：
 
 ```javascript
 const pending = service.enqueue(['A', 'B']);
@@ -41,19 +39,20 @@ await service.flush();
 const vectors = await pending;
 ```
 
-### 安全与网络限制
+### endpoint 安全策略（基础防护）
 
-- `endpoint` 会做基础的 URL/参数校验。
-- 内部会识别并拒绝明显的本机/内网目标（降低 SSRF 风险），例如：
-  - 主机名：`localhost`、`.localhost`、`.local`
-  - IPv4：`0.x.x.x`、`127.x.x.x`、`10.x.x.x`、`169.254.x.x`、`192.168.x.x`、`172.16-31.x.x`
-  - IPv6：`::1`、`::`、`fe80:`（link-local 前缀）、`fc00::/7`（ULA，含 `fc*`/`fd*`）、以及 IPv4-mapped IPv6（如 `::ffff:192.168.0.1`）
-- 该策略是“明显内网/本机目标”拦截，并不能覆盖所有形式的网络风险（例如 DNS rebinding）；生产场景建议在上层做显式 allowlist 与风险隔离。
+- 对 `endpoint` 做 URL 与 host 合法性校验。
+- 拒绝明显本机/内网目标，包含：
+  - 主机名：`localhost`、`*.localhost`、`*.local`
+  - IPv4：`0.0.0.0/8`、`127.0.0.0/8`、`10.0.0.0/8`、`169.254.0.0/16`、`192.168.0.0/16`、`172.16.0.0/12`
+  - IPv6：`::1`、`::`、`fe80::/10`、`fc00::/7`（含 `fd*`）
+  - IPv4-mapped IPv6（含 `::ffff:a.b.c.d` 与 `ffff:xxxx:xxxx` 结尾形式）
+- 该策略用于降低 SSRF 风险，不等价于完整网络隔离；生产场景建议叠加 endpoint allowlist 与服务端出口控制。
 
 ## VectorIndex
 
 ```javascript
-import { VectorIndex } from 'js/agents/shared/embeddings';
+import { VectorIndex } from 'js/agents/retrieval/embeddings';
 
 const index = new VectorIndex({ maxItems: 1000 });
 index.upsert('doc-1', embedding1, { ts: Date.now() });
@@ -64,29 +63,34 @@ const results = index.search(queryEmbedding, {
   minScore: 0.2,
   partitions: ['hot', 'warm'],
 });
-// → [{ id: 'doc-1', score: 0.95, meta: { ... } }, ...]
 ```
 
-备注：维度不一致时会抛出 `vector-index.js` 导出的 `DimensionMismatchError`（建议调用方捕获并给出可读错误）。
+备注：维度不一致会抛出 `DimensionMismatchError`，建议调用方捕获并输出可读错误。
 
 ## HnswLiteIndex
 
-高效近似最近邻（LSH + 分层图导航），并支持与 `VectorIndex` 一致的分区策略（`meta.ts` → `hot/warm/cold`）。
+面向小规模向量集合（<10000）的近似检索实现：
+
+- LSH 快速缩小候选集
+- 分层图导航提升查询速度
+- 候选集上执行精确余弦相似度
+
+分区策略与 `VectorIndex` 保持一致：`meta.ts` 映射为 `hot/warm/cold`。
 
 ```javascript
-import { HnswLiteIndex } from 'js/agents/shared/embeddings';
+import { HnswLiteIndex } from 'js/agents/retrieval/embeddings';
 
-const hnsw = new HnswLiteIndex({
-  maxItems: 5000,
-  numHashBits: 8,
-  numProbes: 8,
-  seed: 42,
+const ann = new HnswLiteIndex({ maxItems: 10000 });
+ann.upsert('doc-1', embedding1, { ts: Date.now() });
+
+const hits = ann.search(queryEmbedding, {
+  topK: 5,
+  partitions: ['hot', 'warm'],
 });
 ```
 
-### 错误类型
+导出错误类型：
 
-- `hnsw-lite.js`：`HnswLiteIndexError`（基类）、`DimensionMismatchError`、`InvalidIndexError`
-- `vector-index.js`：`DimensionMismatchError`
-
-提示：如果公共入口同时 re-export 两个同名 `DimensionMismatchError`，建议在入口处使用别名导出或在文档/API 中明确区分来源模块。
+- `HnswLiteIndexError`
+- `DimensionMismatchError`
+- `InvalidIndexError`

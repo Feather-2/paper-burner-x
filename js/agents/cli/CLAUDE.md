@@ -9,7 +9,7 @@
 | 文件 | 用途 |
 |------|------|
 | `demo.js` | Agent CLI Demo（可选模型对话、列出技能/子代理、dry-run） |
-| `model-client.js` | CLI 模型路由与 AI API 适配器（读取 `config.json` + 环境变量覆盖） |
+| `model-client.js` | CLI 模型路由与 AI API 适配器（读取 `config.json` + 环境变量覆盖，包含 Token 溢出恢复） |
 | `test-deepsearch.js` | DeepSearch 交互测试（可传入 md 文件路径；默认 `docs/agents`） |
 | `test-memory.js` | 记忆系统测试 |
 | `config.example.json` | 配置示例（复制为 `config.json`） |
@@ -41,11 +41,13 @@ node js/agents/cli/test-deepsearch.js docs/agents/*.md
 
 配置优先级：环境变量 > `config.json` > 默认值。
 
-也可通过环境变量覆盖：
+可通过环境变量覆盖：
 
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`（默认 `https://api.deepseek.com/v1`）
 - `OPENAI_MODEL`（默认 `deepseek-chat`）
+
+模型项常用字段：`baseUrl`、`model`、`apiKey`、`contextWindow`、`maxOutputTokens`、`timeoutMs`。
 
 最小配置示例：
 
@@ -63,3 +65,9 @@ node js/agents/cli/test-deepsearch.js docs/agents/*.md
 ```
 
 如需角色映射（`tiers` / `roles`）、Agent/Memory/Report 等高级配置，按 `config.example.json` 扩展。
+
+## 安全与兼容性
+
+- `model-client.js` 使用 Node.js API（`node:fs`/`node:path`/`node:url`），仅限 CLI 使用。
+- 配置 JSON 解析使用原型安全 reviver（`protoSafeReviver`）。
+- 建议优先通过环境变量注入密钥，不在仓库提交真实 `config.json`。

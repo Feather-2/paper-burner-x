@@ -6,7 +6,8 @@
 - 以 `createPlugin` 封装服务并在 `install` 阶段注册
 - 插件名采用 `service/*`，服务名为短标识（`llm`/`mcp`/`scheduler`/`vfs`）
 - 通过事件与作用域状态对外暴露运行信息，支持自动连接与任务超时
-- 对关键配置做输入校验：MCP server `name` 防原型污染、`url` 仅允许 `http/https/ws/wss`
+- MCP 对关键配置做输入校验：server `name` 防原型污染、`url` 仅允许 `http/https/ws/wss`
+- 调度器在 Browser/Node 统一运行：优先使用 `setImmediate`，否则回退到微任务调度
 
 ## 核心文件
 
@@ -24,6 +25,11 @@
 - 作用域状态：`ctx.state` 自动带 `plugins.service/*` 前缀，LLM token 统计在 `tokens`，调度统计在 `stats`/`running`
 - 任务优先级：`TaskPriority.LOW|NORMAL|HIGH|CRITICAL`（数值越大优先级越高）
 
+## MCP 配置约束
+- `servers[].name` 必须是非空字符串，且不能是 `__proto__` / `constructor` / `prototype`
+- `servers[].url` 必须是合法 URL，协议白名单：`http:` / `https:` / `ws:` / `wss:`
+- 校验失败时立即抛出异常并阻止插件继续安装
+
 ## LLM 数据结构（约定）
 > 字段形状会随 provider 不同略有差异；这里是本模块对外的最小约定。
 
@@ -33,6 +39,8 @@
   - `name`：可选，通常用于 `tool` 角色标识工具名
   - `tool_call_id`：可选，用于串联工具调用
 - `ChatOptions`：`{ model?, maxTokens?, temperature?, system?, tools?, tool_choice? }`
+- `LlmUsage`：`{ input_tokens?, output_tokens? }`
+- `LlmResponse`：`{ model, content, usage?, stop_reason? }`
 
 ## 常见任务
 
@@ -57,54 +65,4 @@ await kernel.use('service/mcp', {
 
 await kernel.use('service/scheduler', { maxConcurrent: 3, defaultTimeout: 60000 });
 await kernel.use('service/vfs', { kind: 'auto', rootPath: '.' });
-
-await kernel.start();
-```
-
-### 调用 LLM
-```javascript
-const messages = [{ role: 'user', content: 'hi' }];
-const res = await kernel.services.call('llm', 'chat', [messages, { temperature: 0.2 }]);
-```
-
-### 使用 Tools（LLM）
-> `tools`/`tool_choice` 结构通常会透传给具体 provider（字段形状以 provider 为准）。
-
-```javascript
-const messages = [{ role: 'user', content: 'List 3 colors.' }];
-
-const tools = [
-  {
-    name: 'pick_color',
-    description: 'Pick a color',
-    input_schema: {
-      type: 'object',
-      properties: { color: { type: 'string', description: 'color name' } },
-      required: ['color'],
-    },
-  },
-];
-
-const res = await kernel.services.call('llm', 'chat', [
-  messages,
-  {
-    tools,
-    tool_choice: 'auto',
-  },
-]);
-```
-
-### 调用 MCP 工具
-```javascript
-const result = await kernel.services.call('mcp', 'callTool', ['local', 'toolName', { foo: 'bar' }]);
-```
-
-### 提交调度任务
-```javascript
-const id = await kernel.services.call('scheduler', 'enqueue', [
-  async () => {
-    // do work
-  },
-  { priority: TaskPriority.NORMAL, timeout: 30000 },
-]);
 ```

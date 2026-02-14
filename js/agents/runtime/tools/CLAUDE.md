@@ -14,8 +14,8 @@
 | `python-runtime-worker.js` | Pyodide Python 运行时 Worker |
 | `TaskTool.js` | 子任务分发工具 |
 | `RecallTool.js` | 记忆检索工具 |
-| `BacktrackTool.js` | 状态回溯工具 |
-| `DMailTool.js` | D-Mail 软回溯工具 (Steins;Gate 梗) |
+| `BacktrackTool.js` | 硬回溯工具（返回 `backtrack` 控制信号） |
+| `DMailTool.js` | 软回溯工具（标记 superseded 区间，返回 `dmail` 控制信号） |
 | `schema-validator.js` | 工具参数 Schema 验证与 hook |
 | `tool-quotas.js` | 工具配额管理与契约验证 |
 
@@ -33,20 +33,24 @@ import {
   createTaskTool,
   createRecallTool,
   createBacktrackTool,
+  createDMailTool,
   TASK_TOOL_DEFINITION,
   RECALL_TOOL_DEFINITION,
   BACKTRACK_TOOL_DEFINITION,
+  DMAIL_TOOL_DEFINITION,
 } from 'js/agents/runtime/tools';
 
 const taskTool = createTaskTool({ registry });
 const recallTool = createRecallTool({ compressor });
 const backtrackTool = createBacktrackTool({ backtrackManager });
+const dmailTool = createDMailTool();
 
 const executor = createToolExecutor({
   tools: {
     Task: { definition: TASK_TOOL_DEFINITION, handler: taskTool },
     Recall: { definition: RECALL_TOOL_DEFINITION, handler: recallTool },
     Backtrack: { definition: BACKTRACK_TOOL_DEFINITION, handler: backtrackTool },
+    DMail: { definition: DMAIL_TOOL_DEFINITION, handler: dmailTool },
   },
   hooks: hookRegistry,
 });
@@ -68,69 +72,54 @@ const result = await executor.execute('Task', {
 
 注意：
 
-- 内置工具可能会直接调用 `context.logger.*` / `context.emit`；ToolExecutor 应保证注入最小实现。
-- 如果你在测试/独立调用 handler，请传入最小 `context`（例如提供 no-op 的 `logger/emit`），或让缺失时抛出明确的配置错误。
+- 内置工具会调用 `context.logger.*` / `context.emit`；ToolExecutor 应保证注入最小实现。
+- 建议默认注入 no-op `logger/emit`，避免工具因上下文缺失而抛错。
+- 如果在测试/独立调用 handler，请显式传入最小 `context`（或在缺失时抛出明确配置错误）。
+
+## 参数契约（内置工具）
+
+- `Backtrack`
+  - `reason`：非空字符串，说明回溯原因。
+  - `checkpoint_id`：可选字符串，指定目标检查点。
+  - `hint`：可选字符串，提供修正提示。
+- `DMail`
+  - `correction`：非空字符串，修正信息。
+  - `supersede_from` / `supersede_to`：可选非负整数（turn 索引）。
+  - `severity`：`minor | major | critical`，默认 `minor`。
 
 ## 内置工具信号 (AgentLoop 约定)
 
-部分工具会返回控制流信号（signal），由上层 AgentLoop 捕获并执行对应动作，而不是把结果当成普通工具输出继续对话。
+部分工具会返回控制流信号（signal），由上层 AgentLoop 捕获并执行对应动作，而不是把结果当成普通工具输出继续。
 
-目前约定的信号形态：
-
-- Backtrack：`{ ok: true, backtrack: { checkpointId, state, reason, hint } }`
-- DMail：`{ ok: true, dmail: { correction, supersedeRange, severity, timestamp } }`
-
-失败时通常返回：`{ ok: false, error: '...' }`。
-
-## BacktrackTool
-
-用途：硬回溯到某个 Checkpoint（由 AgentLoop 执行真正的状态还原）。
-
-参数：
-
-- `reason`：为什么要回溯（必填）。
-- `checkpoint_id`：可选的特定回溯点 ID。
-- `hint`：给未来的自己/后续步骤的修正提示（可选）。
-
-事件：
-
-- `agent:backtrackRequested`：回溯请求已生成（payload 为 `backtrack` 对象）。
-- `agent:backtrackFailed`：回溯准备失败（payload 包含 `checkpoint_id` 与失败原因）。
-
-返回：
-
-- 成功：`{ ok: true, backtrack: { checkpointId, state, reason, hint } }`
-- 失败：`{ ok: false, error: 'Backtrack failed: ...' }`
-
-## DMailTool
-
-用途：软回溯（不删除历史），把一段 turn 标记为已被更正/作废（superseded）。
-
-参数：
-
-- `correction`：更正信息（必填）。
-- `supersede_from` / `supersede_to`：要标记为 superseded 的 turn 区间（可选，非负整数；闭区间）。
-- `severity`：严重级别（可选：`minor` / `major` / `critical`，默认 `minor`）。
-
-可选创建参数：
-
-- `now()`：注入时间戳提供器（返回 ms since epoch），便于测试。
-
-返回：
-
-- 成功：`{ ok: true, dmail: { correction, supersedeRange, severity, timestamp } }`
-- 失败：`{ ok: false, error: '...' }`
-
-## Worker 隔离执行
+- `Backtrack` 信号：
 
 ```javascript
-const tool = {
-  definition: SOME_TOOL_DEFINITION,
-  handler,
-  worker: {
-    moduleUrl: './tools/some-tool.js',
-    exportName: 'handler',
-    // ... 其他 worker 配置
+{
+  ok: true,
+  backtrack: {
+    checkpointId,
+    state,
+    reason,
+    hint,
   },
-};
+}
 ```
+
+- `DMail` 信号：
+
+```javascript
+{
+  ok: true,
+  dmail: {
+    correction,
+    supersedeRange: { from, to } | null,
+    severity: 'minor' | 'major' | 'critical',
+    timestamp,
+  },
+}
+```
+
+实现建议：
+
+- `backtrack.state` 可能较大且包含敏感上下文，避免在不可信日志/遥测通道中明文扩散。
+- 失败分支返回结构化错误对象，并保持 `ok: false` 契约一致。

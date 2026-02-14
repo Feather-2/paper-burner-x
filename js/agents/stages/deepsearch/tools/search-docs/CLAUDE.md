@@ -1,29 +1,34 @@
 # search-docs - 文档搜索工具
 
-在 DeepSearch 工具层中搜索已加载的文档，支持关键词/语义检索与 MMR 重排；优先使用外部检索器，失败或超时时降级为本地检索，并可写入 gap 证据。
+在 DeepSearch 工具层中搜索已加载文档，支持关键词检索、语义检索与 MMR 重排；优先调用外部检索器，失败或超时自动降级为本地检索，并可写入 gap 证据。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `handler.js` | 入口：参数校验、执行检索、MMR 重排、超时与降级逻辑 |
+| `handler.js` | 入口：参数校验、外部检索调用、超时控制、降级、本地检索、MMR 重排、事件上报 |
 | `SKILL.md` | 使用说明：能力、输入输出与适用场景 |
 
 ## 关键概念
 
-- SourceManager：同步 `state.L0.sources`，并执行本地 `search`/`semanticSearch`。
+- SourceManager：同步 `state.L0.sources`，并执行本地 `search` / `semanticSearch`。
 - 输入校验：
-  - `query` 必填字符串，长度 ≤ 2048。
-  - `sources`（可选）为文档 ID 列表，数量 ≤ 100。
-  - `limit` 范围 1-100。
-  - `semanticTimeoutMs` 上限 60000（仅作用于 `semanticSearch`）。
-  - `retrieverTimeoutMs` 默认 15000，上限 60000（用于外部检索器 `retriever.search`）。
-- 语义检索：优先使用 `context.embeddingService`；否则读取 `embedding`/`globalConfig.embedding` 配置并缓存到 `context._pbEmbeddingService`，可透传 `fetchImpl`。
-- 外部检索器：`retriever.search` 由熔断器包裹（registry 优先取 `context`/`stageApi`，无则使用全局），并受 `retrieverTimeoutMs` 约束；失败/熔断/超时时降级为本地检索。
-- 超时：内部使用超时包装器对外部检索与语义检索做时间上限控制；超时错误会标记 `code: 'TIMEOUT'`（供上层区分）。
-- MMR 重排：默认开启；`mmr: false` 关闭；`mmr` 支持 `{ topK, lambda, maxTokens }`。
-- 证据写入：带 `gapId` 时通过 `discoveryManager.addEvidence` 记录证据。
-- 事件上报：成功触发 `emit('deepsearch:search_completed')`（本地检索包含 `fallback: 'local'`）；本地检索失败触发 `emit('deepsearch:search_failed')`。
+  - `query` 必填字符串，长度 `<= 2048`。
+  - `sources`（可选）为文档 ID 列表，数量 `<= 100`。
+  - `limit` 范围 `1-100`。
+  - `semanticTimeoutMs` 上限 `60000`（仅作用于 `semanticSearch`）。
+  - `retrieverTimeoutMs` 默认 `15000`，上限 `60000`（作用于外部 `retriever.search`）。
+- 超时控制：统一通过 `withTimeout` 包装异步调用；超时错误会标记 `code: 'TIMEOUT'`，便于上层识别与分流。
+- 外部检索器：`retriever.search` 由熔断器包裹（registry 优先取 `context` / `stageApi`，无则使用全局），失败/熔断/超时均可降级到本地检索。
+- 语义检索：
+  - 优先使用 `context.embeddingService`。
+  - 否则读取 `embedding` / `globalConfig.embedding` 配置并缓存到 `context._pbEmbeddingService`。
+  - 支持透传 `fetchImpl`。
+- MMR 重排：默认开启；`mmr: false` 关闭；`mmr` 对象支持 `{ topK, lambda, maxTokens }` 并进行对象形态校验。
+- 证据写入：传入 `gapId` 时通过 `discoveryManager.addEvidence` 记录命中证据。
+- 事件上报：
+  - 成功触发 `emit('deepsearch:search_completed')`（本地降级会包含 `fallback: 'local'`）。
+  - 失败触发 `emit('deepsearch:search_failed')`。
 
 ## 返回值（SearchDocsResult）
 
@@ -31,9 +36,10 @@
 
 - `success: boolean`：是否成功
 - `results?: SearchHit[]`：命中列表（成功时）
-- `fallback?: string`：降级模式标识（如本地检索）
+- `fallback?: string`：降级模式标识（如 `local`）
 - `mmr?: { applied?: boolean, pool?: number }`：MMR 重排元数据
-- `error?: string` / `message?: string`：失败原因与用户可读提示
+- `error?: string`：错误摘要
+- `message?: string`：用户可读提示
 
 ## 常见任务
 
@@ -47,21 +53,26 @@
 ## 使用示例
 
 ```javascript
-const res = await handler(
+const result = await handler(
   {
     query: '关键术语',
     limit: 8,
     sources: ['doc-1'],
     retrieverTimeoutMs: 15000,
+    semanticTimeoutMs: 12000,
     mmr: { lambda: 0.7, topK: 24, maxTokens: 200 }
   },
   context
 );
 
-if (res.success) {
-  console.log(res.results);
+if (result.success) {
+  for (const hit of result.results ?? []) {
+    console.log(hit.sourceId ?? hit.docId ?? hit.id, hit.score, hit.snippet ?? hit.text);
+  }
+  if (result.fallback === 'local') {
+    console.warn('retriever unavailable, fallback to local search');
+  }
 } else {
-  // res.error / res.message
-  console.warn(res);
+  console.warn(result.message ?? result.error ?? 'search failed');
 }
 ```

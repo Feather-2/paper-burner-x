@@ -16,8 +16,8 @@
 | `vfs.storage.js` | StorageVfs (StorageAdapter / localStorage 等) |
 | `path.js` | VFS 路径规范化与校验 (`normalizeVfsPath`) |
 | `diff.js` | 文本 diff 与 unified diff 生成 |
-| `checkpoints.js` | VFS Checkpoint：快照、预览、摘要与 artifact 引用 |
-| `delta-sync.js` | 增量同步：chunk/rolling hash/patch |
+| `checkpoints.js` | VFS Checkpoint：快照、预览、摘要、artifact 引用；支持 `StorageAdapterLike` 与 `RunStoreLike`；使用安全时间戳 ID |
+| `delta-sync.js` | 增量同步：chunk/rolling hash/patch；默认 SHA-256，异常时降级 FNV-1a（兼容模式） |
 
 ## 条件导出
 
@@ -64,40 +64,38 @@ await vfs.write('/data/config.json', new TextEncoder().encode(json));
 const data = await vfs.read('/data/config.json');
 ```
 
-## 路径安全
+## 路径与对象安全
 
 - 所有对外暴露的 path 必须先经过 `normalizeVfsPath`，拒绝 `..`、反斜杠、空路径等非法形式。
 - 不要把用户传入的 path 直接拼接到底层 key/handle（尤其是 Storage/IndexedDB key、OPFS 目录句柄名）。
+- checkpoint 配置/元数据应使用 plain object（配合 `isPlainObject`）校验，避免异常原型链对象进入持久化层。
 
-## Checkpoint / Diff
+## Checkpoint / Diff / Artifact
 
 `checkpoints.js` 用于把一次 VFS 读写的“前/后”状态结构化记录下来（用于审计、回放、调试或对外展示）。
-常见信息包括：bytes、sha256、preview/text/base64（小内容内联）、payload 引用（大内容外置）、以及 unified diff（纯文本）。
+
+常见信息包括：`bytes`、`sha256`、`preview/text/base64`（小内容内联）、`payload` 引用（大内容外置）、以及 unified diff（纯文本）。
+
+数据模型要点：
+- `VfsCheckpointSide`：单侧快照（支持 `preview/text/base64/truncated/payload`）。
+- `VfsPayloadRef`：外置 payload 引用（`artifactId/type/encoding/bytes/sha256`）。
+- `RunStoreLike`：可选运行态 artifact 存储（`saveArtifact/listArtifacts/...`）。
 
 artifact 约定：
 - 本地 artifact key 使用固定前缀（例如 `pb_vfs_artifact|`）做命名空间隔离，避免与业务 key 冲突。
-- 大 payload 建议使用 RunStore/Artifact Store 保存，并在 checkpoint 中只存引用（`artifactId`、`bytes`、`sha256`、`encoding`）。
+- 建议使用安全时间戳 ID（如 `makeSecureTimestampedId`）生成 checkpoint/artifact 标识，降低碰撞与可预测性风险。
 
-安全约定：
-- diff/preview/text/base64 必须作为纯文本渲染（`textContent`），不要拼接到 `innerHTML`。
-- 不要在日志里输出完整 `text/base64`（可能含敏感信息）；只输出 bytes/sha256/前 N 字符摘要。
+## Delta Sync 说明
 
-兼容性约定：
-- Node 环境可用 `globalThis.Buffer` 做编码/解码；浏览器端必须提供无 Buffer 的实现，并在使用前显式检测（Buffer 不存在时不要访问其方法）。
+`delta-sync.js` 提供文件级增量同步能力：chunk 切分、哈希比对、补丁应用、冲突检测与断点续传。
 
-## Delta Sync（增量同步）
+- 默认哈希：Web Crypto `SHA-256`。
+- 兼容降级：当 `crypto.subtle` 不可用时，降级到 FNV-1a（仅兼容用途，不应作为强完整性保证）。
+- 默认 chunk 大小：`64 * 1024`（64KB）。
 
-`delta-sync.js` 提供基于 chunk 的增量同步能力，用于减少传输与写入量。
-- 默认 chunk size 为 64KiB（应集中在 `DEFAULT_CHUNK_SIZE` 常量/配置项中管理）
-- 用哈希做变更检测与冲突识别时，需明确哈希算法与输出格式（推荐 SHA-256 + hex，小写固定长度）
+## 测试重点
 
-安全约定：
-- 不要把弱哈希（如 FNV-1a）用于冲突判定或完整性校验；只能用于启发式/非安全场景，并且最终仍需用 SHA-256 校验。
-
-## 测试要点
-
-- 各后端一致性：Memory/OPFS/Storage 在 `read/write/exists/list/mkdir/delete` 的边界行为一致
-- 并发读写：同一路径并发写入/读取的冲突与可见性
-- 边界路径：`/`、重复斜杠、超长路径、Unicode、`.`/`..` 等
-- 原子写入：避免半写入（尤其是 OPFS/Storage 后端）
-- 配额管理：存储满额时的可恢复错误与优雅降级
+- 各后端一致性测试：Memory / OPFS / Storage 的读写、list、exists 语义一致。
+- 并发读写测试：高并发写入同一路径时确保原子性与最终一致。
+- 边界路径测试：空路径、`..`、反斜杠、超长路径、深层目录。
+- 配额与降级测试：Storage/OPFS 空间不足时错误可恢复、提示友好、行为可预期。

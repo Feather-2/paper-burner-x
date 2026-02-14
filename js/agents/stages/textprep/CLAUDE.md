@@ -8,9 +8,11 @@
 | 文件 | 职责 |
 |------|------|
 | `index.js` | 入口与流水线编排（TP1-TP6），含 trace/error boundary/降级逻辑 |
+| `textprep-stage.js` | Stage 主类与执行入口（TP1-TP6），默认分块配置与 errorBoundary 集成 |
+| `textprep-helpers.js` | TP1-TP6 细分步骤与降级/对齐/trace 帮助函数 |
 | `normalize.js` | TP1 文本规范化与哈希（稳定定位） |
 | `chunk.js` | TP2 分块与定位（fixed/semantic/markdown）；导出 `ChunkStrategy`、`detectChunkStrategy` 与 `smartChunk`（支持 `forceStrategy/maxSize`） |
-| `slideplan.js` | TP4 SlideIntent 规划（LLM/启发式） |
+| `slideplan.js` | TP4 SlideIntent 规划（LLM/启发式），导出兼容别名 `generateSlideIntents` |
 | `claims.js` | TP5 原子论点与证据抽取（硬约束 H1） |
 | `build-content-package.js` | TP6 组装 ContentPackage 并校验硬门槛（TextPrep H1-H4 / DeepSearch H5），并派生 summary/metrics 等 |
 | `constants.js` | PageType 枚举与合法性校验 |
@@ -18,7 +20,7 @@
 ## 关键概念
 
 - TP1-TP6：normalize → chunk → slideplan → claims → align → buildContentPackage。
-- ChunkStrategy：值为 `"markdown"|"semantic"|"fixed"`；`detectChunkStrategy(text)` 返回 `{ strategy, reason, headingCount?, paragraphCount? }`。
+- ChunkStrategy：值为 `markdown|semantic|fixed`；`detectChunkStrategy(text)` 返回 `{ strategy, reason, headingCount?, paragraphCount? }`。
   - 启发式：markdown（标题数≥2 且标题密度满足阈值）> semantic（有效段落数≥3，段落长度阈值过滤）> fixed。
   - 当前实现细节（可能随版本微调）：标题密度使用 `headingCount >= text.length / 5000`；段落过滤使用 `p.trim().length > 50`。
 - smartChunk：`smartChunk(text, { forceStrategy?, maxSize? })` 自动择优并返回 `{ strategy, reason, chunks, meta }`；`maxSize` 默认 2000。
@@ -26,6 +28,8 @@
 - Claims/Evidence：`extractClaims` 生成 `claimId/evidenceId` 并保证引用可解析。
 - Summary：`deriveSummary` 优先用 claims 文本派生摘要；缺失时回退到源文本截断摘要（当前实现约 280 字符上限）；摘要会做空白归一化以便展示/比对。DeepSearch 优先使用 `scanSummary.summaryText`（若提供）。
 - DeepSearch 打包：`mode=deepsearch` 时要求 `report` 与 citations（H5），并补齐 `scanSummary/gaps/todos/metrics`；可选附带 `condensedMemory`、`todoCompletionStats`、`completionReason` 等运行态字段。
+- 输入上限：原始文本最大 2MB，`sources` 最大 100 条（超出将截断）。
+- 默认分块：`chunkSize=2000`、`overlap=200`、`includeLineNumbers=true`。
 
 ## 常见任务
 

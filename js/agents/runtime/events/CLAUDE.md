@@ -18,6 +18,8 @@
 - `isValidEventName(name)`：事件名合法性校验
 - `matchPattern(pattern, eventName)`：事件名模式匹配
 
+> 兼容层导出已补充逐导出 JSDoc 签名，便于编辑器智能提示与静态检查。
+
 ### 类型提示（JSDoc，仅用于编辑器/类型检查）
 
 - `CreateEventRecordOptions`：`createEventRecord` 的 options 入参类型（来自 core 定义推导）
@@ -45,7 +47,6 @@ export const RuntimeEvents = Object.freeze({
   RUN_COMPLETED: 'run:completed',
   RUN_FAILED: 'run:failed',
   RUN_CANCELLED: 'run:cancelled',
-
   STAGE_STARTED: 'stage:started',
   STAGE_PROGRESS: 'stage:progress',
   STAGE_COMPLETED: 'stage:completed',
@@ -73,8 +74,7 @@ export const CompressionEvents = Object.freeze({
 export const ArchiveEvents = Object.freeze({
   CHECKPOINT_SAVED: 'archive:checkpoint:saved',
   CHECKPOINT_RESTORED: 'archive:checkpoint:restored',
-  CHECKPOINT_DELETED: 'archive:checkpoint:deleted',
 });
-
-// ... 其他 *Events 参见 events.js
 ```
+
+`events.js` 其余事件分组（工具、调度、缓存、诊断等）请直接以源码为准。

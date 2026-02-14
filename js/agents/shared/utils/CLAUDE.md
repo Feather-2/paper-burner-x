@@ -30,7 +30,7 @@
 | 文件 | 类/函数 | 用途 |
 |------|---------|------|
 | `circuit-breaker.js` | CircuitBreaker | 熔断器 |
-| `cancellation.js` | CancellationToken, checkCancelled, withCancellation, isAbortError | 取消令牌与 AbortSignal 取消支持 |
+| `cancellation.js` | CancellationToken, checkCancelled, withCancellation, isAbortError | 取消令牌与 AbortSignal 取消支持（含 reason 透传） |
 
 ## 存储
 
@@ -61,11 +61,16 @@
 |------|------|------|
 | `response-limits.js` | readTextWithLimit, readJsonWithLimit | 响应体大小限制 |
 
+## 预算与运行时控制
+
+| 文件 | 类/函数 | 用途 |
+|------|---------|------|
+| `budget.js` | BudgetManager, BudgetAction | Token 预算记账、阈值回调、降级/停止策略 |
+
 ## 其他
 
 | 文件 | 用途 |
 |------|------|
-| `budget.js` | 预算管理（BudgetManager, BudgetAction） |
 | `logger.js` | 日志 |
 | `message-utils.js` | 消息处理 |
 | `stage-api.js` | Stage API 创建 |

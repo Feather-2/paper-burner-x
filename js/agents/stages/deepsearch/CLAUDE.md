@@ -16,7 +16,7 @@
 | `source-manager.js` | 文档读取/检索与语义搜索 |
 | `internal/model-response-handler.js` | 模型输出解析与结构化处理 |
 | `tools/index.js` | 工具注册与执行 |
-| `capabilities-loader.js` | 动态能力加载：集中 optional/dynamic import + 缓存（_cached/_loading），通过 DI 注入可选能力 |
+| `capabilities-loader.js` | 动态能力加载：集中 optional/dynamic import + 缓存（`_cached`/`_loading`）+ 并发复用 + DI 注入 |
 
 ## 子目录
 
@@ -53,29 +53,15 @@
 
 ## 可选能力 (capabilities-loader.js)
 
-`loadDeepSearchCapabilities()` 以 best-effort 方式加载可选能力；加载失败时仅记录 warn 日志并继续（返回值字段为 `null`）。并发调用会复用同一个加载中的 Promise。
+`loadDeepSearchCapabilities()` 以 best-effort 方式加载可选能力；加载失败时仅记录 warn 日志并继续（返回值字段为 `null`）。并发调用会复用同一个加载中的 Promise（`_loading`）。
 
-- SkillsManager
-- BudgetManager
-- CheckpointManager
-- SharedContext
-- BacktrackManager
-- DiscoveryManager
-- MemoryStore
-- UnifiedAgentContext
-
-## 状态结构
-
-```javascript
-DeepSearchState {
-  runId: string,
-  taskGoal: string,
-  userConfig: object,
-  iteration: number,
-  maxIterations: number,
-  planningTree: object,
-  checkpoints: [],
-  trajectoryId?: string,
-  trajectoryConfig?: object,
-}
-```
+| 能力 | 字段 | 用途 |
+|------|------|------|
+| Skills | `SkillsManager` | Skills 指令加载与执行入口 |
+| Budget | `BudgetManager` | 预算与成本控制 |
+| Checkpoint | `CheckpointManager` | 阶段 checkpoint 保存/恢复 |
+| Shared Context | `SharedContext` | 多轮共享上下文 |
+| Backtrack | `BacktrackManager` | 回滚/重试策略 |
+| Discovery | `DiscoveryManager` | 发现与索引支持 |
+| Memory | `MemoryStore` | 过程记忆存储 |
+| Unified Context | `UnifiedAgentContext` | 统一代理上下文封装 |

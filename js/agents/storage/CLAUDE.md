@@ -1,6 +1,6 @@
 # storage - 存储抽象
 
-运行时数据持久化与归档。
+运行时数据持久化与归档（含导入/导出安全处理）。
 
 ## 核心文件
 
@@ -8,8 +8,8 @@
 |------|------|
 | `run-store.js` | RunStore - 运行记录/事件/附件持久化 |
 | `run-store-cache.js` | RunStoreCache - RunStore 缓存封装（可选） |
-| `run-exporter.js` | 运行数据导出/导入（zip，基于 JSZip） |
-| `artifact-manager.js` | Artifact manifest/序列化/类型工具 |
+| `run-exporter.js` | 运行数据导出/导入（zip，基于 JSZip；含 manifest 修复、类型白名单、安全文件名） |
+| `artifact-manager.js` | Artifact manifest/序列化/类型工具（类型归一化、别名映射、ID/seq 管理） |
 
 ## RunStore
 
@@ -30,6 +30,16 @@ const state = await store.loadState('run_1');
 const events = await store.getEvents('run_1');
 const artifacts = await store.listArtifactSummaries('run_1');
 ```
+
+## 导出/导入约束
+
+`run-exporter.js` 当前实现要点：
+
+- `toSafeFileName(value)`：将 zip 条目名限制为 `[a-zA-Z0-9._-]`，避免非法路径字符
+- `resolveZipPathForArtifact(item)`：统一落盘到 `artifacts/` 目录并做安全命名
+- `ensureManifest(runStore, runId)`：导出前合并并修复 manifest，过滤为 `SUPPORTED_ARTIFACT_TYPES`
+- `normalizeManifest(manifest, runId)`：校正 manifest 的 `runId` 一致性
+- 优先复用 `globalThis.JSZip`，否则动态 `import('jszip')`，兼容 Browser/Node-like 环境
 
 ## Artifact 管理
 
@@ -58,7 +68,7 @@ addArtifactToManifest(manifest, {
 `artifact-manager.js` 导出：
 
 - `SUPPORTED_ARTIFACT_TYPES`：允许写入 manifest/导出/导入的类型白名单
-- `ARTIFACT_TYPE_ALIASES`：简写别名映射（例如 `deepsearch_state` -> `deepsearch_state.json`）
+- `ARTIFACT_TYPE_ALIASES`：简写别名映射（如 `deepsearch_state` -> `deepsearch_state.json`）
 - `canonicalArtifactType(type)`：将别名归一化为 canonical type
 
 ```javascript
@@ -73,22 +83,8 @@ if (!SUPPORTED_ARTIFACT_TYPES.includes(type)) {
 }
 ```
 
-## 导出 / 导入（zip）
+## 安全建议（模块内）
 
-`run-exporter.js` 基于 JSZip 读写 zip：
-
-- 浏览器：优先使用 `globalThis.JSZip`（例如通过 `<script>` 引入），否则会尝试动态 `import('jszip')`（需要 bundler 支持）。
-- 导出：会对 zip 内文件名做安全归一化（仅保留 `a-zA-Z0-9._-`），并为缺少 `artifactId` 的条目生成稳定的 `artifacts/<type>_NNN` 路径。
-
-```javascript
-import { exportRunAsZip, importRunFromZip } from 'js/agents/storage/run-exporter.js';
-import { RunStore } from 'js/agents/storage/run-store.js';
-
-const store = new RunStore();
-
-// 导出（返回 Blob/二进制数据，以实现为准）
-const zipBlob = await exportRunAsZip('run_1', { runStore: store });
-
-// 导入（参数以源码导出签名为准）
-await importRunFromZip(zipBlob, { runStore: store });
-```
+- 导入外部 zip/manifest 时，优先使用 `safeJsonParse(..., protoSafeReviver)` 做原型安全解析
+- 对 `manifest.artifacts` 中的 `artifactId/type/storageKey` 做严格 schema 校验后再入库
+- 在高并发导入导出场景下，建议为 manifest 更新增加版本号或 CAS 保护

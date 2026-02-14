@@ -16,12 +16,12 @@ L3Storage 的索引、持久化、去重与跨标签页协调工具。供 `js/ag
 
 ## 索引结构
 
-- `timeline` - [{ id, ts, accessedAt, summary, stageKey, superseded, supersededBy }]
-- `keywords` - Map<string, Set<snapshotId>>
-- `stages` - Map<string, snapshotId>
-- `hashIndex` - Map<contentHash, snapshotId>
+- `timeline` - `[{ id, ts, accessedAt, summary, stageKey, superseded, supersededBy }]`
+- `keywords` - `Map<string, Set<snapshotId>>`
+- `stages` - `Map<string, snapshotId>`
+- `hashIndex` - `Map<contentHash, snapshotId>`
 
-`serializeIndexState` 将 Map 转换为数组以写入 JSON，`restoreIndexState` 负责恢复并过滤非法项。
+`serializeIndexState` 将 Map 转换为数组以写入 JSON，`restoreIndexState` 负责恢复 Map 结构并对非法容器做兜底处理。
 
 ## 序列化载荷
 
@@ -44,31 +44,37 @@ L3Storage 的索引、持久化、去重与跨标签页协调工具。供 `js/ag
   index.json.tmp
 ```
 
-`createStorageIO` 使用临时文件 + rename(若支持)进行原子写入，`recoverTempIndexFile` 用于崩溃恢复。
+`createStorageIO` 使用临时文件 + rename（若支持）进行原子写入，`recoverTempIndexFile` 用于崩溃恢复。
 
 ## 容量估算与逐出
 
 - `DEFAULT_MAX_SNAPSHOTS` 默认 `1000`，控制 snapshot 数量上限（逐出触发条件之一）。
 - `DEFAULT_MAX_STORAGE_BYTES` 默认 `100MB`，控制估算的总存储上限。
-- `BYTES_PER_CHAR` 默认 `2`，用于摘要等字符串的粗略字节估算（按 JS 字符串 UTF-16 code unit 近似；属于“估算值”）。
+- `BYTES_PER_CHAR` 默认 `2`，用于摘要等字符串的粗略字节估算（当前按 UTF-8 平均字节近似）。
 - `ENTRY_OVERHEAD_BYTES` 默认 `200`，用于每条 timeline/snapshot 元数据的固定开销估算。
 
 这些估算用于降低频繁读取真实文件大小的成本，因此是“近似值”，应配合实际逐出策略使用。
 
-## 关键词与摘要
+## 关键词、摘要与去重
 
 - `normalizeKeywords` 统一为小写并去重。
 - `getSummary` 优先使用 `data.summary`，否则 `JSON.stringify` 并截断至 200 字符。
 - `computeContentHash` 使用 cyrb53（非加密）用于去重；非字符串输入会先尝试 `JSON.stringify`，不可序列化时回退到 `String(data ?? "")`。
 
+说明：`computeContentHash` 对超大对象会有序列化成本，建议上游在写入前做尺寸限制或摘要化处理。
+
 ## 跨标签页协调
 
-`encodeTabCoordinatorSession`/`decodeTabCoordinatorSession` 将 `{ runId, snapshotId }` 编码为 JSON 字符串，`ensureTabCoordinatorHooks` 注入 eviction/access hook 用于同步 LRU。
+`encodeTabCoordinatorSession`/`decodeTabCoordinatorSession` 将 `{ runId, snapshotId }` 编码为 JSON 字符串，`ensureTabCoordinatorHooks` 负责：
 
-## 使用约定
+- 注入 `beforeEvict` 钩子，优先跳过当前标签页活跃 session 对应 snapshot；
+- 注入 `onAccess` 钩子，在访问命中时刷新跨标签页 session；
+- 在无协调器时返回 no-op hooks，保证主流程可用。
 
-- `runId` / `snapshotId` / `checkpointId` 必须是非空字符串；作为文件名使用时不得包含 `/`、`\`、`..` 等路径片段（避免路径穿越）。
-- `stageKey` 建议使用稳定的业务 key（如 `memory:stage`），不要直接使用用户输入。
-- `timeline` 的 `ts/accessedAt` 使用 `Date.now()`（毫秒）；`accessedAt` 仅用于 LRU 逐出。
-- 本模块的 hash（cyrb53/contentHash）仅用于去重与索引，不可用于安全/加密用途。
-- 外部传入或持久化恢复的载荷应有尺寸限制（timeline/keywords 等项数上限、summary 长度上限），避免大对象导致 stringify/parse 的性能问题。
+## 恢复与输入约束
+
+`restoreIndexState` 当前负责结构恢复（timeline/Map 容器转换与基础兜底），但不对每条 `timeline` 记录做强字段校验或硬裁剪。建议上游确保：
+
+- 载荷来源可信或已完成校验；
+- `timeline` 条目数量与字符串字段长度受控；
+- 异常/超大数据在进入 L3 前被拦截。

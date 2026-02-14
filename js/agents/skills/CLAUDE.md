@@ -6,7 +6,7 @@ Markdown 定义的指令包（SKILL.md），支持多路径加载、Catalog 展�
 
 | 文件 | 职责 |
 |------|------|
-| `index.js` | 统一导出（默认导出 SkillsManager；并导出 loader/render/sandbox API） |
+| `index.js` | 统一导出（默认导出 SkillsManager；并导出 SkillScope + loader/render/sandbox API） |
 | `manager.js` | SkillsManager 主类：注册/查询/执行入口 |
 | `loader.js` | 加载路由（Env Router）：Node 扫描目录 / Browser 读取 manifest；对外暴露 `loadSkills`/`loadSkillFromPath`/`loadSkillsFromNexus`/`loadAllSkills` |
 | `loader.browser.js` | Browser 加载实现：fetch manifest（默认 `skills/manifest.json`，fallback `public/skills/manifest.json`）+ 体积限制（manifest/skill）+ manifest 缓存（in-memory, TTL 30s）+ 元数据 key 防护 |

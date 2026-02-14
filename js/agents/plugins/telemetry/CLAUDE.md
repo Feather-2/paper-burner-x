@@ -1,14 +1,16 @@
 # telemetry - 遥测和追踪
 
-运行时状态、Token 追踪、分布式追踪和回放。
+运行时状态、Token/成本追踪、分布式追踪和回放。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
 | `index.js` | Telemetry 模块公共导出入口 |
-| `token-tracker.js` | TokenTracker - Token 使用统计 |
-| `trace-context.js` | TraceContext - 分布式追踪 (OpenTelemetry 兼容) |
+| `token-tracker.js` | TokenTracker - Token 使用统计与导出 |
+| `cost-aggregator.js` | CostAggregator - 跨 Agent Token 汇总与 EventBus 集成 |
+| `cost-formatter.js` | Cost 格式化工具（Token/延迟/汇总/表格） |
+| `trace-context.js` | TraceContext - 分布式追踪（OpenTelemetry 兼容） |
 | `loop-runtime-state.js` | LoopRuntimeState - 运行时状态管理 |
 | `replay-controller.js` | RunReplayController - 运行回放 |
 | `runstore-telemetry.js` | RunStore 遥测订阅 |
@@ -18,6 +20,7 @@
 `index.js` 聚合导出：
 
 - Token: `TokenTracker`, `getGlobalTokenTracker`, `trackTokenUsage`, `getTokenUsageSummary`, `exportTokenUsageJson`, `exportTokenUsageCsv`
+- Cost: `CostAggregator`, `formatTokenCount`, `formatLatency`, `formatCostSummary`, `formatBreakdownTable`, `formatAgentReport`, `calculateCostEstimate`
 - Tracing: `TraceContext`, `Span`, `SpanStatus`, `SpanKind`, `parseTraceparent`
 - Runtime State: `LoopRuntimeState`, `LoopRuntimeStatuses`, `LOOP_RUNTIME_TRANSITIONS`, `getRuntimeState`, `setRuntimeState`, `ensureRuntimeState`, `clearRuntimeState`
 - Replay/Storage: `RunReplayController`, `subscribeTelemetry`
@@ -25,7 +28,7 @@
 ## TokenTracker
 
 ```javascript
-import { TokenTracker } from 'js/agents/runtime';
+import { TokenTracker } from 'js/agents/plugins/telemetry';
 
 const tracker = new TokenTracker({ maxRecords: 500 });
 
@@ -50,77 +53,104 @@ console.log(summary.totalTokens); // 2300
 - `getTokenUsageSummary`：获取聚合摘要
 - `exportTokenUsageJson` / `exportTokenUsageCsv`：导出用量数据
 
+## CostAggregator
+
+用于跨 Agent/Stage 的轻量汇总（纯内存），与 TokenTracker 互补：
+
+```javascript
+import {
+  CostAggregator,
+  formatCostSummary,
+  formatBreakdownTable,
+} from 'js/agents/plugins/telemetry';
+
+const aggregator = new CostAggregator({ eventBus });
+
+aggregator.recordUsage('planner', {
+  promptTokens: 1200,
+  completionTokens: 600,
+  latencyMs: 950,
+  success: true,
+  provider: 'openai',
+  model: 'gpt-4o-mini',
+});
+
+const total = aggregator.getTotalCost();
+console.log(formatCostSummary(total));
+
+const breakdown = aggregator.getBreakdown();
+console.log(formatBreakdownTable(breakdown));
+```
+
+主要 API：
+
+- `recordUsage(agentId, usage)`：记录单次调用
+- `getAgentCost(agentId)`：查询单 Agent 汇总
+- `getTotalCost()`：查询全局汇总
+- `getBreakdown()`：获取按 Agent 分组报表
+- `getSnapshot()` / `restore(snapshot)`：快照与恢复
+- `dispose()`：释放 EventBus 订阅
+
+EventBus 集成：
+
+- 当前实现监听 `llm.complete` 事件，自动提取 `payload`/事件对象中的 token 字段并写入聚合器
+
+## Cost 格式化（cost-formatter）
+
+提供 UI/日志友好的格式化能力：
+
+- `formatTokenCount(n)`：Token 数量缩写（K/M/B/T）
+- `formatLatency(ms)`：延迟显示（ms/s/hm）
+- `formatCostSummary(total)`：总览摘要文本
+- `formatBreakdownTable(rows)`：分组表格文本
+- `formatAgentReport(agent)`：单 Agent 报告
+- `calculateCostEstimate(usage, pricing)`：费用估算
+
+```javascript
+import { formatTokenCount, formatLatency } from 'js/agents/plugins/telemetry';
+
+console.log(formatTokenCount(15320)); // 15.3K
+console.log(formatLatency(1250));     // 1.3s
+```
+
 ## TraceContext
 
 OpenTelemetry 兼容的分布式追踪与 W3C `traceparent` 解析：
 
 ```javascript
-import { TraceContext, SpanKind, SpanStatus, parseTraceparent } from 'js/agents/runtime';
+import {
+  TraceContext,
+  SpanKind,
+  SpanStatus,
+  parseTraceparent,
+} from 'js/agents/plugins/telemetry';
 
-const ctx = new TraceContext();
-
-// 解析 W3C traceparent（例如来自 HTTP 头部）
+const trace = new TraceContext();
 const parsed = parseTraceparent('00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01');
-console.log(parsed);
-
-// Span 的创建/结束与属性设置 API 以 `trace-context.js` 的实现与 JSDoc 为准；
-// 这里通常会结合 `SpanKind` / `SpanStatus` 来标记客户端/服务端调用与状态。
+console.log(parsed.traceId);
 ```
 
 还提供：
 
-- `parseTraceparent`：解析 W3C `traceparent` 头部
-- `Span` / `SpanKind` / `SpanStatus`：Span 基础类型与枚举
+- `Span`：Span 生命周期与属性管理
+- `SpanKind`：客户端/服务端等 Span 类型
+- `SpanStatus`：执行状态标记
 
-## LoopRuntimeState
+## Runtime State
 
-运行时状态常量与状态机迁移表（按 signal/context 维护）：
+`LoopRuntimeState` 管理 Agent Loop 状态流转，配套导出：
 
-```javascript
-import {
-  LoopRuntimeStatuses,
-  LOOP_RUNTIME_TRANSITIONS,
-  ensureRuntimeState,
-  getRuntimeState,
-  setRuntimeState,
-  clearRuntimeState,
-} from 'js/agents/runtime';
+- `LoopRuntimeStatuses`
+- `LOOP_RUNTIME_TRANSITIONS`
+- `getRuntimeState`, `setRuntimeState`, `ensureRuntimeState`, `clearRuntimeState`
 
-const signal = new AbortController().signal;
+## Replay / RunStore 遥测
 
-// 确保该 signal 对应的状态存在（默认 idle）
-ensureRuntimeState(signal);
+- `RunReplayController`：按运行记录进行回放控制
+- `subscribeTelemetry`：订阅 RunStore 事件并转发为遥测流
 
-// 更新状态（cursor 支持 string/array/object，详见实现）
-setRuntimeState(signal, { status: LoopRuntimeStatuses.RUNNING, cursor: 'step:1' });
+## 设计边界
 
-const state = getRuntimeState(signal);
-console.log(state?.status); // 'running'
-
-// 查看允许的状态迁移
-console.log(LOOP_RUNTIME_TRANSITIONS[LoopRuntimeStatuses.RUNNING]);
-// => ['paused', 'completed', 'failed', 'cancelled']
-
-clearRuntimeState(signal);
-```
-
-## RunReplayController
-
-运行回放控制器：从 `runStore.getEvents(runId)` 拉取事件并按序回放/定位（具体方法以类的 JSDoc 为准）。
-
-```javascript
-import { RunReplayController } from 'js/agents/runtime';
-
-const replay = new RunReplayController({
-  runStore: {
-    async getEvents(runId) {
-      // ReplayEvent = Record<string, unknown>
-      return [{ seq: 1, type: 'agent:step', ts: Date.now() }];
-    },
-  },
-});
-```
-
-## subscribeTelemetry
-
-RunStore 遥测订阅入口（签名与回调数据结构以 `runstore-telemetry.js` 的实现与 JSDoc 为准）。
+- `TokenTracker`：保留调用明细，支持导出
+- `CostAggregator`：聚合统计与报告，不做预算裁决
+- `BudgetManager`（外部模块）：负责限额与策略控制
