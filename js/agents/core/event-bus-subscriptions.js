@@ -225,6 +225,41 @@ export class EventBusSubscriptions {
   }
 
   /**
+   * 统计指定事件类型的订阅数量
+   * @param {string} eventType - 事件类型
+   * @returns {number} 订阅数量
+   */
+  count(eventType) {
+    let total = 0;
+
+    // 精确匹配 - 普通
+    const direct = this._listeners.get(eventType);
+    if (direct) total += direct.size;
+
+    // 精确匹配 - 优先级
+    const priorityMap = this._priorityListeners.get(eventType);
+    if (priorityMap) {
+      for (const set of priorityMap.values()) {
+        total += set.size;
+      }
+    }
+
+    // 通配符 - 普通
+    const wildcardSet = this._wildcardListeners.get(eventType);
+    if (wildcardSet) total += wildcardSet.size;
+
+    // 通配符 - 优先级
+    const wildcardPriorityMap = this._wildcardPriorityListeners.get(eventType);
+    if (wildcardPriorityMap) {
+      for (const set of wildcardPriorityMap.values()) {
+        total += set.size;
+      }
+    }
+
+    return total;
+  }
+
+  /**
    * @returns {void}
    */
   clear() {

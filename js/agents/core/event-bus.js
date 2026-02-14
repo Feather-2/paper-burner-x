@@ -245,13 +245,25 @@ export class EventBus {
 
   /**
    * 高级订阅（支持优先级和 AbortSignal）
+   *
+   * ⚠️ 内存泄漏风险：必须手动调用返回的 unsubscribe 函数以释放监听器。
+   * 未调用 unsubscribe 会导致监听器累积，造成内存泄漏。
+   *
    * @param {string} eventType - 事件类型
    * @param {EventHandler} handler - 处理函数
    * @param {{ priority?: number, signal?: AbortSignal }} [options] - { priority, signal }
    * @returns {() => void} 取消订阅函数
    */
   subscribe(eventType, handler, options = {}) {
-    return this._subscriptions.subscribe(eventType, handler, options);
+    const unsub = this._subscriptions.subscribe(eventType, handler, options);
+
+    // 监控订阅数，检测潜在泄漏
+    const count = this._subscriptions.count(eventType);
+    if (count > 100) {
+      logger.warn(`High subscription count for ${eventType}: ${count}. Potential memory leak - ensure unsubscribe is called.`);
+    }
+
+    return unsub;
   }
 
   /**
