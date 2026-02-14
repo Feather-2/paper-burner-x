@@ -203,10 +203,32 @@ export class CodeSearchIndexStore {
     const db = await this.open();
     if (!db) return this._mem.get(key) || null;
 
+    // Check memory cache first
+    const cached = this._mem.get(key);
+    if (cached) {
+      // Validate version against DB
+      const tx = db.transaction([STORE_SYMBOLS], "readonly");
+      const store = tx.objectStore(STORE_SYMBOLS);
+      const dbRecord = await promisifyRequest(store.get(key));
+      await promisifyTransaction(tx);
+
+      if (dbRecord && dbRecord.updatedAt !== cached.updatedAt) {
+        // Version mismatch, invalidate cache
+        this._mem.delete(key);
+        return dbRecord;
+      }
+      return cached;
+    }
+
+    // Cache miss, load from DB
     const tx = db.transaction([STORE_SYMBOLS], "readonly");
     const store = tx.objectStore(STORE_SYMBOLS);
     const rec = await promisifyRequest(store.get(key));
     await promisifyTransaction(tx);
+
+    if (rec) {
+      this._mem.set(key, rec);
+    }
     return rec || null;
   }
 
@@ -254,6 +276,7 @@ export class CodeSearchIndexStore {
     const store = tx.objectStore(STORE_SYMBOLS);
     store.put(record);
     await promisifyTransaction(tx);
+    this._mem.set(key, record);
     this._broadcastUpdate(key);
     return key;
   }
