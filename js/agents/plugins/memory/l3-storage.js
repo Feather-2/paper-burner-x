@@ -133,6 +133,9 @@ export class L3Storage extends DisposableBase {
 
     /** @private - pending eviction promise (for testing/await) */
     this._evictionPromise = null;
+
+    /** @private - whether TabCoordinator is successfully enabled */
+    this._tabCoordinatorEnabled = false;
   }
 
   /**
@@ -145,7 +148,18 @@ export class L3Storage extends DisposableBase {
 
     await this._io.ensureDirs();
     await this.restoreIndex();
-    await this._attachTabCoordinator();
+
+    // Attach TabCoordinator with error handling (graceful degradation)
+    if (this._tabCoordinator) {
+      try {
+        await this._attachTabCoordinator();
+        this._tabCoordinatorEnabled = true;
+      } catch (err) {
+        logger.warn("[L3Storage] Failed to attach TabCoordinator, continuing without cross-tab sync:", err);
+        this._tabCoordinatorEnabled = false;
+      }
+    }
+
     this._initialized = true;
   }
 
@@ -228,6 +242,7 @@ export class L3Storage extends DisposableBase {
    * @returns {void}
    */
   _broadcastEviction(snapshotId) {
+    if (!this._tabCoordinatorEnabled) return;
     const coordinator = this._tabCoordinator;
     if (!coordinator || typeof coordinator.broadcastEviction !== "function") return;
     const sessionId = this._buildTabCoordinatorSessionId(snapshotId);
@@ -241,6 +256,7 @@ export class L3Storage extends DisposableBase {
    * @returns {void}
    */
   _broadcastAccess(snapshotId) {
+    if (!this._tabCoordinatorEnabled) return;
     const coordinator = this._tabCoordinator;
     if (!coordinator || typeof coordinator.broadcastAccess !== "function") return;
     const sessionId = this._buildTabCoordinatorSessionId(snapshotId);
