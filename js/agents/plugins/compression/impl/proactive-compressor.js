@@ -16,6 +16,7 @@
 
 import { ContextPredictor } from "./context-predictor.js";
 import { AdaptiveZoneManager } from "./adaptive-zone-manager.js";
+import { CompressionQualityMonitor } from "./quality-monitor.js";
 import { estimateTokensCached } from "../../../shared/index.js";
 import { createLogger } from "../../../shared/index.js";
 
@@ -35,6 +36,7 @@ const logger = createLogger("runtime/compression/proactive-compressor");
  * @property {any} [eventBus]
  * @property {any} [memoryStore] - 用于 L3 归档
  * @property {any} [modelRouter] - 用于 LLM 摘要
+ * @property {CompressionQualityMonitor|boolean} [qualityMonitor] - 质量监控器实例，true 自动创建，false 禁用
  */
 
 /**
@@ -115,6 +117,7 @@ export class ProactiveCompressor {
     eventBus = null,
     memoryStore = null,
     modelRouter = null,
+    qualityMonitor = true,
   } = {}) {
     // 如果指定了 preset，应用预设值
     const presetConfig = preset && PRESETS[preset] ? PRESETS[preset] : null;
@@ -145,6 +148,15 @@ export class ProactiveCompressor {
 
     /** @type {number} 上次压缩的时间戳 */
     this._lastCompressTs = 0;
+
+    // QualityMonitor: true=自动创建, false=禁用, 实例=直接使用
+    if (qualityMonitor === false) {
+      this._qualityMonitor = null;
+    } else if (qualityMonitor instanceof CompressionQualityMonitor) {
+      this._qualityMonitor = qualityMonitor;
+    } else {
+      this._qualityMonitor = new CompressionQualityMonitor();
+    }
   }
 
   // ==========================================================================
@@ -229,6 +241,11 @@ export class ProactiveCompressor {
     this._lastCompressTs = Date.now();
     this._emit("compression:complete", result.stats);
 
+    // QualityMonitor 反馈循环
+    if (this._qualityMonitor) {
+      this._recordAndAdjust(result.stats);
+    }
+
     return result;
   }
 
@@ -271,6 +288,12 @@ export class ProactiveCompressor {
     if (options.memoryStore !== undefined) {
       this._memoryStore = options.memoryStore;
     }
+    // bypass 开关: configure({ qualityMonitor: false }) 关闭
+    if (options.qualityMonitor === false) {
+      this._qualityMonitor = null;
+    } else if (options.qualityMonitor instanceof CompressionQualityMonitor) {
+      this._qualityMonitor = options.qualityMonitor;
+    }
   }
 
   /**
@@ -283,6 +306,7 @@ export class ProactiveCompressor {
       boundaries: this._zoneManager.getBoundaries(),
       archiveCount: this._archives.length,
       hasSessionSummary: !!this._sessionSummary,
+      qualityMonitor: this._qualityMonitor ? this._qualityMonitor.checkHealth() : null,
       config: {
         compressThreshold: this._compressThreshold,
         targetFillRatio: this._targetFillRatio,
@@ -300,6 +324,14 @@ export class ProactiveCompressor {
   }
 
   /**
+   * 获取质量监控报告
+   * @returns {import('./quality-monitor.js').HealthCheckResult|null}
+   */
+  getQualityReport() {
+    return this._qualityMonitor ? this._qualityMonitor.checkHealth() : null;
+  }
+
+  /**
    * 重置状态
    */
   reset() {
@@ -308,6 +340,50 @@ export class ProactiveCompressor {
     this._sessionSummary = null;
     this._archives = [];
     this._lastCompressTs = 0;
+    if (this._qualityMonitor) this._qualityMonitor.reset();
+  }
+
+  // ==========================================================================
+  // QualityMonitor 反馈循环
+  // ==========================================================================
+
+  /**
+   * 记录压缩结果并根据健康检查自动调整参数
+   * @private
+   * @param {object} stats
+   */
+  _recordAndAdjust(stats) {
+    const beforeTokens = Number(stats.totalTokensBefore) || 0;
+    const afterTokens = Number(stats.totalTokensAfter) || 0;
+
+    this._qualityMonitor.record({
+      beforeTokens,
+      afterTokens,
+      keptMessages: stats.kept || 0,
+      summarizedMessages: stats.summarized || 0,
+      archivedMessages: stats.archived || 0,
+    });
+
+    const health = this._qualityMonitor.checkHealth();
+    if (!health.needsAdjustment) return;
+
+    if (health.status === "critical") {
+      // 保留率过低 → 增加 keepLastTurns，提高 targetFillRatio
+      this._keepLastTurns = Math.min(20, this._keepLastTurns + 2);
+      this._targetFillRatio = Math.min(0.70, this._targetFillRatio + 0.05);
+      logger.warn(`[ProactiveCompressor] Quality critical — keepLastTurns→${this._keepLastTurns}, targetFillRatio→${this._targetFillRatio.toFixed(2)}`);
+    } else if (health.status === "warning") {
+      this._keepLastTurns = Math.min(20, this._keepLastTurns + 1);
+      this._targetFillRatio = Math.min(0.70, this._targetFillRatio + 0.02);
+      logger.info(`[ProactiveCompressor] Quality warning — keepLastTurns→${this._keepLastTurns}, targetFillRatio→${this._targetFillRatio.toFixed(2)}`);
+    }
+
+    this._emit("compression:quality-adjusted", {
+      status: health.status,
+      recommendation: health.recommendation,
+      keepLastTurns: this._keepLastTurns,
+      targetFillRatio: this._targetFillRatio,
+    });
   }
 
   // ==========================================================================

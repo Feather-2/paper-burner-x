@@ -607,4 +607,213 @@ describe("ProactiveCompressor", () => {
     expect(secondTs).toBeGreaterThanOrEqual(firstTs);
     expect(result2.messages).not.toEqual(result1.messages);
   });
+
+  // ==========================================================================
+  // QualityMonitor 集成测试
+  // ==========================================================================
+
+  it("creates QualityMonitor by default and exposes getQualityReport", async () => {
+    const { ProactiveCompressor } = await import(modulePath);
+    const compressor = new ProactiveCompressor();
+
+    expect(compressor._qualityMonitor).not.toBeNull();
+    const report = compressor.getQualityReport();
+    expect(report).toEqual({
+      needsAdjustment: false,
+      recommendation: expect.any(String),
+      status: "healthy",
+    });
+  });
+
+  it("disables QualityMonitor with qualityMonitor: false", async () => {
+    const { ProactiveCompressor } = await import(modulePath);
+    const compressor = new ProactiveCompressor({ qualityMonitor: false });
+
+    expect(compressor._qualityMonitor).toBeNull();
+    expect(compressor.getQualityReport()).toBeNull();
+  });
+
+  it("accepts injected QualityMonitor instance", async () => {
+    const { ProactiveCompressor } = await import(modulePath);
+    const { CompressionQualityMonitor } = await import(
+      "../../../../../../js/agents/plugins/compression/impl/quality-monitor.js"
+    );
+    const monitor = new CompressionQualityMonitor({ minRetentionRatio: 0.5 });
+    const compressor = new ProactiveCompressor({ qualityMonitor: monitor });
+
+    expect(compressor._qualityMonitor).toBe(monitor);
+  });
+
+  it("records compression stats to QualityMonitor after compress()", async () => {
+    const { ProactiveCompressor } = await import(modulePath);
+    const compressor = new ProactiveCompressor({
+      contextWindow: 200,
+      targetFillRatio: 0.5,
+      keepLastTurns: 2,
+    });
+
+    compressor._predictor.predict.mockReturnValue({
+      shouldCompress: true,
+      fillRatio: 0.95,
+      zone: "active",
+    });
+
+    const messages = [
+      { content: "a", _tokens: 10 },
+      { content: "b", _tokens: 20 },
+      { content: "c", _tokens: 5 },
+      { content: "d", _tokens: 5 },
+    ];
+
+    await compressor.compress(messages, { force: true });
+
+    const samples = compressor._qualityMonitor.getSamples();
+    expect(samples).toHaveLength(1);
+    expect(samples[0].stats.beforeTokens).toBeGreaterThan(0);
+    expect(samples[0].stats.afterTokens).toBeGreaterThanOrEqual(0);
+  });
+
+  it("auto-adjusts parameters on critical quality degradation", async () => {
+    const { ProactiveCompressor } = await import(modulePath);
+    const { CompressionQualityMonitor } = await import(
+      "../../../../../../js/agents/plugins/compression/impl/quality-monitor.js"
+    );
+    const eventBus = { emit: vi.fn() };
+    // 设置极低的保留率阈值，使得正常压缩触发 critical
+    const monitor = new CompressionQualityMonitor({
+      minRetentionRatio: 0.99,
+      criticalThreshold: 0.3,
+    });
+    const compressor = new ProactiveCompressor({
+      contextWindow: 100,
+      targetFillRatio: 0.3,
+      keepLastTurns: 4,
+      qualityMonitor: monitor,
+      eventBus,
+    });
+
+    compressor._predictor.predict.mockReturnValue({
+      shouldCompress: true,
+      fillRatio: 0.95,
+      zone: "active",
+    });
+
+    const originalKeepLastTurns = compressor._keepLastTurns;
+    const originalTargetFillRatio = compressor._targetFillRatio;
+
+    // 多次压缩触发 critical
+    for (let i = 0; i < 3; i++) {
+      const messages = [
+        { content: "old", _tokens: 80 },
+        { content: "a", _tokens: 5 },
+        { content: "b", _tokens: 5 },
+        { content: "c", _tokens: 5 },
+        { content: "d", _tokens: 5 },
+      ];
+      await compressor.compress(messages, { force: true });
+    }
+
+    expect(compressor._keepLastTurns).toBeGreaterThan(originalKeepLastTurns);
+    expect(compressor._targetFillRatio).toBeGreaterThan(originalTargetFillRatio);
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      "compression:quality-adjusted",
+      expect.objectContaining({
+        actor: "proactive-compressor",
+        payload: expect.objectContaining({
+          status: expect.stringMatching(/critical|warning/),
+        }),
+      }),
+    );
+  });
+
+  it("does not adjust when quality is healthy", async () => {
+    const { ProactiveCompressor } = await import(modulePath);
+    const { CompressionQualityMonitor } = await import(
+      "../../../../../../js/agents/plugins/compression/impl/quality-monitor.js"
+    );
+    // 极低的保留率阈值，正常压缩不会触发
+    const monitor = new CompressionQualityMonitor({ minRetentionRatio: 0.01 });
+    const compressor = new ProactiveCompressor({
+      contextWindow: 200,
+      targetFillRatio: 0.5,
+      keepLastTurns: 6,
+      qualityMonitor: monitor,
+    });
+
+    compressor._predictor.predict.mockReturnValue({
+      shouldCompress: true,
+      fillRatio: 0.95,
+      zone: "active",
+    });
+
+    const originalKeepLastTurns = compressor._keepLastTurns;
+    const originalTargetFillRatio = compressor._targetFillRatio;
+
+    const messages = [
+      { content: "a", _tokens: 10 },
+      { content: "b", _tokens: 10 },
+      { content: "c", _tokens: 5 },
+      { content: "d", _tokens: 5 },
+      { content: "e", _tokens: 5 },
+      { content: "f", _tokens: 5 },
+      { content: "g", _tokens: 5 },
+    ];
+    await compressor.compress(messages, { force: true });
+
+    expect(compressor._keepLastTurns).toBe(originalKeepLastTurns);
+    expect(compressor._targetFillRatio).toBe(originalTargetFillRatio);
+  });
+
+  it("configure({ qualityMonitor: false }) disables monitor at runtime", async () => {
+    const { ProactiveCompressor } = await import(modulePath);
+    const compressor = new ProactiveCompressor();
+
+    expect(compressor._qualityMonitor).not.toBeNull();
+    compressor.configure({ qualityMonitor: false });
+    expect(compressor._qualityMonitor).toBeNull();
+    expect(compressor.getQualityReport()).toBeNull();
+  });
+
+  it("reset() also resets QualityMonitor", async () => {
+    const { ProactiveCompressor } = await import(modulePath);
+    const compressor = new ProactiveCompressor({
+      contextWindow: 100,
+      targetFillRatio: 0.5,
+      keepLastTurns: 2,
+    });
+
+    compressor._predictor.predict.mockReturnValue({
+      shouldCompress: true,
+      fillRatio: 0.95,
+      zone: "active",
+    });
+
+    await compressor.compress(
+      [
+        { content: "a", _tokens: 50 },
+        { content: "b", _tokens: 5 },
+        { content: "c", _tokens: 5 },
+      ],
+      { force: true },
+    );
+
+    expect(compressor._qualityMonitor.getSamples()).toHaveLength(1);
+    compressor.reset();
+    expect(compressor._qualityMonitor.getSamples()).toHaveLength(0);
+  });
+
+  it("getStats includes qualityMonitor health", async () => {
+    const { ProactiveCompressor } = await import(modulePath);
+    const compressor = new ProactiveCompressor();
+
+    const stats = compressor.getStats();
+    expect(stats.qualityMonitor).toEqual({
+      needsAdjustment: false,
+      recommendation: expect.any(String),
+      status: "healthy",
+    });
+
+    const disabled = new ProactiveCompressor({ qualityMonitor: false });
+    expect(disabled.getStats().qualityMonitor).toBeNull();
+  });
 });
