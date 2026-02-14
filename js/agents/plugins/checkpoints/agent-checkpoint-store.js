@@ -55,10 +55,14 @@ const CHECKPOINT_JSON_MAX_CHARS = 5_000_000;
 
 /**
  * 索引锁（VFS 文件锁）- 保证同一 runId 的索引操作串行
- * 并尽可能提供跨上下文安全性（best-effort）。
+ *
+ * **限制**: 仅提供单进程内互斥，不支持跨进程/跨标签页锁。
+ * 锁获取失败时将抛出错误，不会降级为无锁执行。
+ *
  * @param {string} runId
  * @param {() => Promise<T>} fn
  * @returns {Promise<T>}
+ * @throws {Error} 锁获取失败或超时
  * @template T
  */
 async function withIndexLock(runId, fn) {
@@ -66,13 +70,10 @@ async function withIndexLock(runId, fn) {
   let lock = null;
   let lockPath = "";
   try {
-    try {
-      lockPath = `${buildIndexPath(runId || "__default__")}.lock`;
-      lock = await acquireLock(lockPath, { type: "write" });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err ?? "");
-      logger.warn(`[checkpoint-store] Failed to acquire index lock for "${runId}": ${msg}`);
-      lock = null;
+    lockPath = `${buildIndexPath(runId || "__default__")}.lock`;
+    lock = await acquireLock(lockPath, { type: "write", timeout: 5000 });
+    if (!lock) {
+      throw new Error("Failed to acquire index lock");
     }
     return await fn();
   } finally {
