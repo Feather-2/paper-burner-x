@@ -19,6 +19,8 @@ import { LRUCache } from "../../../shared/index.js";
  * @property {string=} wasmBaseUrl
  * @property {SymbolIndexerLogger=} logger
  * @property {(eventName:string, payload:any)=>void=} emit
+ * @property {{get:(key:string)=>Promise<any>, set:(key:string, value:any)=>Promise<void>}=} archive
+ * @property {string=} runId
  */
 function extname(path) {
   const p = toNonEmptyString(path);
@@ -312,13 +314,15 @@ export class SymbolIndexer {
   /**
    * @param {SymbolIndexerOptions} [options]
    */
-  constructor({ vfs, store, workspaceId = "default", wasmBaseUrl, logger, emit } = {}) {
+  constructor({ vfs, store, workspaceId = "default", wasmBaseUrl, logger, emit, archive, runId } = {}) {
     this.vfs = vfs || null;
     this.store = store instanceof CodeSearchIndexStore ? store : new CodeSearchIndexStore();
     this.workspaceId = toNonEmptyString(workspaceId) || "default";
     this.wasmBaseUrl = wasmBaseUrl;
     this.logger = logger || null;
     this.emit = typeof emit === "function" ? emit : null;
+    this._archive = archive || null;
+    this._runId = toNonEmptyString(runId) || "default";
 
     this._langCache = new Map(); // lang -> Language
     this._treeSitterReady = false;
@@ -329,6 +333,50 @@ export class SymbolIndexer {
     this._recordsCache = new Map(); // workspaceId -> { rev, rows }
     this._queryCacheMax = 50;
     this._queryCache = new LRUCache({ maxSize: this._queryCacheMax }); // key -> { rev, results }
+    this._cacheVersion = 1;
+  }
+
+  /**
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (!this._archive) return;
+    try {
+      const key = `symbolIndexer:${this._runId}:cache`;
+      const stored = await this._archive.get(key);
+      if (!stored || !isPlainObject(stored)) return;
+
+      if (stored.version !== this._cacheVersion) {
+        this._log("warn", "Cache version mismatch, skipping hydration", { stored: stored.version, current: this._cacheVersion });
+        return;
+      }
+
+      if (typeof stored.indexRevision === "number") {
+        this._indexRevision = stored.indexRevision;
+      }
+
+      if (Array.isArray(stored.recordsCache)) {
+        this._recordsCache.clear();
+        for (const [ws, entry] of stored.recordsCache) {
+          if (entry && typeof entry.rev === "number" && Array.isArray(entry.rows)) {
+            this._recordsCache.set(ws, entry);
+          }
+        }
+      }
+
+      if (Array.isArray(stored.queryCache)) {
+        this._queryCache.clear();
+        for (const [k, entry] of stored.queryCache) {
+          if (entry && typeof entry.rev === "number" && Array.isArray(entry.results)) {
+            this._queryCache.set(k, entry);
+          }
+        }
+      }
+
+      this._log("debug", "Cache hydrated from Archive", { revision: this._indexRevision });
+    } catch (err) {
+      this._log("warn", "Failed to hydrate cache from Archive", { error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   /**
@@ -457,10 +505,32 @@ export class SymbolIndexer {
   /**
    * @returns {void}
    */
+  _persistCacheAsync() {
+    if (!this._archive) return;
+    queueMicrotask(async () => {
+      try {
+        const key = `symbolIndexer:${this._runId}:cache`;
+        const data = {
+          version: this._cacheVersion,
+          indexRevision: this._indexRevision,
+          recordsCache: Array.from(this._recordsCache.entries()),
+          queryCache: Array.from(this._queryCache.entries()),
+        };
+        await this._archive.set(key, data);
+      } catch (err) {
+        this._log("warn", "Failed to persist cache to Archive", { error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+  }
+
+  /**
+   * @returns {void}
+   */
   _bumpRevision() {
     this._indexRevision += 1;
     this._recordsCache.clear();
     this._queryCache.clear();
+    this._persistCacheAsync();
   }
 
   /**
@@ -482,6 +552,7 @@ export class SymbolIndexer {
     }
     const rows = await this.store.listSymbolRecords(ws);
     this._recordsCache.set(ws, { rev: this._indexRevision, rows: Array.isArray(rows) ? rows : [] });
+    this._persistCacheAsync();
     return Array.isArray(rows) ? rows : [];
   }
 
@@ -595,6 +666,7 @@ export class SymbolIndexer {
       }
     }
     this._queryCache.set(cacheKey, { rev: this._indexRevision, results: out });
+    this._persistCacheAsync();
     return out;
   }
 }

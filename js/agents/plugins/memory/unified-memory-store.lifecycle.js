@@ -30,6 +30,7 @@ export function applyLifecycleMethods(UnifiedMemoryStore) {
   };
 
   UnifiedMemoryStore.prototype.archive = async function archive(stageKey, data, keywords = []) {
+    await this.init();
     const l3Storage = await this._getL3Storage();
     if (l3Storage) {
       const id = await l3Storage.archive(stageKey, data, keywords);
@@ -65,6 +66,7 @@ export function applyLifecycleMethods(UnifiedMemoryStore) {
   };
 
   UnifiedMemoryStore.prototype.checkpoint = async function checkpoint(options) {
+    await this.init();
     const opts = isPlainObject(options) ? options : {};
     const incremental = opts.incremental ?? true;
     const fullSnapshotEvery = opts.fullSnapshotEvery ?? 5;
@@ -491,6 +493,9 @@ export function applyLifecycleMethods(UnifiedMemoryStore) {
 
     this._l3StoragePromise = (async () => {
       const created = new L3Storage({ vfs, runId: this.runId });
+      if (typeof created.init === "function") {
+        await created.init();
+      }
       this._l3Storage = created;
       return created;
     })();

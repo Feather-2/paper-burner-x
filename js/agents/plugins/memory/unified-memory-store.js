@@ -37,6 +37,7 @@ export class UnifiedMemoryStore {
     this._vfs = null;
     this._l3Storage = null;
     this._l3StoragePromise = null;
+    this._initPromise = null;
 
     const l3Storage = options.l3Storage;
     if (l3Storage && typeof l3Storage === "object") {
@@ -134,6 +135,23 @@ export class UnifiedMemoryStore {
   _getStateRef() {
     // @ts-expect-error - accessing internal StateEngine method
     return this._engine._getStateRef();
+  }
+
+  /**
+   * Initialize UnifiedMemoryStore and L3Storage if present.
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+
+    this._initPromise = (async () => {
+      const l3 = await this._getL3Storage();
+      if (l3 && typeof l3.init === "function") {
+        await l3.init();
+      }
+    })();
+
+    return this._initPromise;
   }
 
   /**
