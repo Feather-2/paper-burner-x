@@ -158,6 +158,12 @@ export class StateBus {
     /** @type {EventBus | null} */
     this._events = resolvedOptions.events || null;
 
+    /** @type {import('../archive/archive-core.js').Archive | null} */
+    this._archive = resolvedOptions.archive || null;
+
+    /** @type {string} */
+    this._runId = resolvedOptions.runId || `run_${Date.now()}`;
+
     /** @type {Record<string, any>} */
     this._state = createDefaultState();
 
@@ -206,6 +212,49 @@ export class StateBus {
 
     /** @type {number} */
     this._maxLog = resolvedOptions.maxLog || 500;
+
+    /** @type {Promise<void> | null} */
+    this._initPromise = null;
+  }
+
+  /**
+   * 初始化 StateBus，从 Archive 恢复快照（如果可用）
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+    if (!this._archive) return;
+
+    this._initPromise = (async () => {
+      try {
+        const checkpoints = await this._archive.list(this._runId);
+        if (!Array.isArray(checkpoints) || checkpoints.length === 0) return;
+
+        // Hydrate snapshots from Archive to memory
+        for (const ckpt of checkpoints) {
+          if (!ckpt?.id) continue;
+          const parts = ckpt.id.split(':');
+          if (parts.length < 2) continue;
+          const snapshotId = parts.slice(1).join(':');
+
+          // Skip if already in memory
+          if (this._snapshots.has(snapshotId)) continue;
+
+          try {
+            const restored = await this._archive.load(ckpt.id);
+            if (restored?.nodeStates) {
+              this._snapshots.set(snapshotId, restored.nodeStates);
+            }
+          } catch (err) {
+            logger.warn(`Failed to hydrate snapshot ${snapshotId}:`, err);
+          }
+        }
+      } catch (err) {
+        logger.warn('Failed to hydrate snapshots from Archive:', err);
+      }
+    })();
+
+    return this._initPromise;
   }
 
   /**
@@ -424,7 +473,7 @@ export class StateBus {
   /**
    * 创建快照
    * @param {string | null} [id]
-   * @returns {string}
+   * @returns {string | Promise<string>}
    */
   snapshot(id = null) {
     const snapshotId = id || `snap_${Date.now()}`;
@@ -443,6 +492,24 @@ export class StateBus {
     this._snapshots.set(snapshotId, data);
 
     this._emit('state.snapshot', { id: snapshotId });
+
+    // Persist to Archive if available (dual-write pattern)
+    if (this._archive) {
+      return (async () => {
+        try {
+          await this._archive.save(`${this._runId}:${snapshotId}`, {
+            schemaVersion: 1,
+            nodeStates: data,
+            timestamp: Date.now(),
+            metadata: { namespace: this._namespace },
+          });
+        } catch (err) {
+          logger.warn(`Failed to persist snapshot ${snapshotId} to Archive:`, err);
+        }
+        return snapshotId;
+      })();
+    }
+
     return snapshotId;
   }
 
@@ -469,10 +536,24 @@ export class StateBus {
   /**
    * 删除快照
    * @param {string} snapshotId
-   * @returns {boolean}
+   * @returns {boolean | Promise<boolean>}
    */
   deleteSnapshot(snapshotId) {
-    return this._snapshots.delete(snapshotId);
+    const deleted = this._snapshots.delete(snapshotId);
+
+    // Delete from Archive if available
+    if (this._archive && deleted) {
+      return (async () => {
+        try {
+          await this._archive.delete(`${this._runId}:${snapshotId}`);
+        } catch (err) {
+          logger.warn(`Failed to delete snapshot ${snapshotId} from Archive:`, err);
+        }
+        return deleted;
+      })();
+    }
+
+    return deleted;
   }
 
   /**
