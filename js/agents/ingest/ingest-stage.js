@@ -283,10 +283,45 @@ function sourceFromParsed(parsed, assetIds) {
 }
 
 export class IngestStage {
-  constructor({ defaultChunkOptions } = {}) {
+  /**
+   * @param {object} [options]
+   * @param {object} [options.defaultChunkOptions]
+   * @param {import('../core/archive/archive-core.js').Archive | null} [options.archive]
+   * @param {string} [options.runId]
+   */
+  constructor({ defaultChunkOptions, archive, runId } = {}) {
     this.defaultChunkOptions = isPlainObject(defaultChunkOptions)
       ? defaultChunkOptions
       : { chunkSize: 2000, overlap: 200, includeLineNumbers: true };
+
+    /** @type {import('../core/archive/archive-core.js').Archive | null} */
+    this._archive = archive || null;
+    /** @type {string} */
+    this._runId = runId || `ingest_${Date.now()}`;
+    /** @type {Promise<void> | null} */
+    this._initPromise = null;
+  }
+
+  /**
+   * 初始化：从 Archive 恢复处理状态
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+    if (!this._archive) return;
+
+    this._initPromise = (async () => {
+      try {
+        const checkpoints = await this._archive.listCheckpoints(this._runId);
+        const logger = { debug: console.debug, warn: console.warn };
+        logger?.debug?.(`[ingest-stage] Loaded ${checkpoints.length} checkpoint entries from Archive`);
+      } catch (err) {
+        const logger = { debug: console.debug, warn: console.warn };
+        logger?.warn?.(`[ingest-stage] Failed to load checkpoints from Archive: ${err.message}`);
+      }
+    })();
+
+    return this._initPromise;
   }
 
   /**
@@ -447,6 +482,31 @@ export class IngestStage {
         () => persistResume({ lastDoc }),
         () => persistResume({ lastDoc })
       );
+
+      // Persist to Archive (async, non-blocking)
+      if (this._archive) {
+        const timestamp = Date.now();
+        const checkpointId = `${this._runId}:doc:${key.replace(/[^a-zA-Z0-9_-]/g, '_')}:${timestamp}`;
+        const checkpointEntry = {
+          schemaVersion: 1,
+          origin: key,
+          status: lastDoc?.status || "unknown",
+          docId: lastDoc?.docId || null,
+          error: lastDoc?.error || null,
+          timestamp,
+          metadata: {
+            runId: this._runId,
+            processedCount: processedOrigins.size,
+          },
+        };
+
+        // Fire-and-forget: don't block document processing on persistence
+        this._archive.save(checkpointId, checkpointEntry).catch((err) => {
+          const logger = { warn: console.warn };
+          logger?.warn?.(`[ingest-stage] Failed to persist checkpoint: ${err.message}`);
+        });
+      }
+
       return persistQueue;
     };
 
