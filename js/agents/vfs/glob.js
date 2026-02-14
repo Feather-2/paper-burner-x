@@ -1,6 +1,9 @@
 import { isNodeLike } from "../shared/index.js";
 import { normalizeVfsPath } from "./path.js";
 import { isScanWorkerAvailable, scanOpfsAsync } from "./vfs-scan-async.js";
+import { createLogger } from "../shared/index.js";
+
+const logger = createLogger("vfs/glob");
 
 function escapeRegExp(s) {
   return s.replace(/[\\^$+?.()|[\]{}]/g, "\\$&");
@@ -19,7 +22,8 @@ function canUseWorker() {
     w.terminate();
     URL.revokeObjectURL(url);
     _moduleWorkerSupported = true;
-  } catch {
+  } catch (err) {
+    logger.debug("Module Worker not supported", { error: err?.message });
     _moduleWorkerSupported = false;
   }
   return _moduleWorkerSupported;
@@ -179,21 +183,22 @@ function getGlobWorker() {
       for (const pending of _globPending.values()) {
         try {
           pending.reject(err instanceof Error ? err : new Error(String(err?.message || err)));
-        } catch {
-          // ignore
+        } catch (e) {
+          logger.debug("Failed to reject pending glob request", { error: e?.message });
         }
       }
       _globPending.clear();
       try {
         worker.terminate();
-      } catch {
-        // ignore
+      } catch (e) {
+        logger.debug("Failed to terminate glob worker", { error: e?.message });
       }
       _globWorker = null;
     };
     _globWorker = worker;
     return worker;
-  } catch {
+  } catch (err) {
+    logger.debug("Failed to create glob worker", { error: err?.message });
     return null;
   }
 }

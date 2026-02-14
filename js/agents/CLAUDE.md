@@ -5,7 +5,8 @@
 ## 技术栈
 
 - **Language**: JavaScript + JSDoc (无 TypeScript 编译依赖，最大化跨端兼容)
-- **Runtime**: ES Modules (Browser / Node.js / Deno / Bun)
+- **Runtime**: ES Modules (Browser / Node.js / Bun)
+  - **Deno**: 可检测但不完全支持 — VFS 回退到浏览器路径 (OPFS/Memory)，Skills 使用浏览器加载器，MCP stdio transport 不可用
 - **Architecture**: Microkernel + Plugin + Event Bus
 - **Protocols**: MCP (Model Context Protocol)
 - **Storage**: VFS abstraction (Memory / OPFS / Storage)

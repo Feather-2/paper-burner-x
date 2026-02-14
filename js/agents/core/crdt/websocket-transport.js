@@ -1,4 +1,4 @@
-import { createLogger } from '../../shared/index.js';
+import { createLogger, protoSafeReviver } from '../../shared/index.js';
 const logger = createLogger('core/crdt/websocket-transport');
 const ConnectionState = { CONNECTING: 'CONNECTING', CONNECTED: 'CONNECTED', DISCONNECTING: 'DISCONNECTING', DISCONNECTED: 'DISCONNECTED' };
 /** @typedef {{ type: string, [key: string]: unknown }} CRDTSyncMessage */
@@ -130,7 +130,7 @@ export class WebSocketCrdtTransport {
       return;
     }
     /** @type {unknown} */ let parsed;
-    try { parsed = JSON.parse(text); } catch (error) {
+    try { parsed = JSON.parse(text, protoSafeReviver); } catch (error) {
       this._emit('transport:parse-error', { error: error?.message });
       logger.warn('Invalid JSON from peer', { error: error?.message });
       return;

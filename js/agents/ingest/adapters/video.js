@@ -2,6 +2,7 @@ import { BaseAdapter } from "./base.js";
 import { getVideoFrames } from "../tools/video-frames.js";
 import { SourceKind } from "../constants.js";
 import { basenameOfPath, fileLikeFromPath as nodeFileLikeFromPath } from "./node-io.js";
+import { resolveWhisperApi } from "./resolve-deps.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
@@ -19,14 +20,6 @@ function guessMimeType(filename) {
   if (name.endsWith(".mkv")) return "video/x-matroska";
   if (name.endsWith(".avi")) return "video/x-msvideo";
   return "application/octet-stream";
-}
-
-function resolveWhisperApi(stageApi, injected) {
-  const api = stageApi?.whisperApi || stageApi?.services?.whisperApi || injected;
-  if (!api) return null;
-  if (typeof api.transcribe === "function") return api;
-  if (typeof api.transcribeVideo === "function") return { transcribe: api.transcribeVideo.bind(api) };
-  return null;
 }
 
 function coerceNumber(v) {
@@ -134,7 +127,7 @@ export class VideoAdapter extends BaseAdapter {
       throw new TypeError("VideoAdapter.parse(input): input must be a path string or a file-like object");
     }
 
-    const whisperApi = resolveWhisperApi(stageApi, this.whisperApi);
+    const whisperApi = resolveWhisperApi(stageApi, this.whisperApi, 'video');
     if (!whisperApi) throw new Error("VideoAdapter.parse(input): whisperApi is required (stageApi.whisperApi or opts.whisperApi)");
 
     const warnings = [];

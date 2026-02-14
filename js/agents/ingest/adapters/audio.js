@@ -1,6 +1,7 @@
 import { BaseAdapter } from "./base.js";
 import { SourceKind } from "../constants.js";
 import { basenameOfPath, fileLikeFromPath as nodeFileLikeFromPath } from "./node-io.js";
+import { resolveWhisperApi } from "./resolve-deps.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 
@@ -30,14 +31,6 @@ function guessMimeType(filename) {
   if (name.endsWith(".ogg") || name.endsWith(".oga")) return "audio/ogg";
   if (name.endsWith(".webm")) return "audio/webm";
   return "application/octet-stream";
-}
-
-function resolveWhisperApi(stageApi, injected) {
-  const api = stageApi?.whisperApi || stageApi?.services?.whisperApi || injected;
-  if (!api) return null;
-  if (typeof api.transcribe === "function") return api;
-  if (typeof api.transcribeAudio === "function") return { transcribe: api.transcribeAudio.bind(api) };
-  return null;
 }
 
 function coerceNumber(v) {
@@ -149,7 +142,7 @@ export class AudioAdapter extends BaseAdapter {
       throw new Error(`AudioAdapter: file too large: ${size} bytes (max ${maxBytes})`);
     }
 
-    const whisperApi = resolveWhisperApi(stageApi, this.whisperApi);
+    const whisperApi = resolveWhisperApi(stageApi, this.whisperApi, 'audio');
     if (!whisperApi) throw new Error("AudioAdapter.parse(input): whisperApi is required (stageApi.whisperApi or opts.whisperApi)");
 
     const transcript = await whisperApi.transcribe(file, { kind: "audio", filename, mimeType });

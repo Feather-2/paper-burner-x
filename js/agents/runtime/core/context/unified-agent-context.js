@@ -217,12 +217,16 @@ export class UnifiedAgentContext {
         }
       }
       if (this._sharedContext?.addFinding) {
-        this._sharedContext.addFinding({
-          type: "claim",
-          content: claim?.text || claim?.content || "",
-          source: claim?.source,
-          confidence: claim?.confidence,
-        });
+        try {
+          this._sharedContext.addFinding({
+            type: "claim",
+            content: claim?.text || claim?.content || "",
+            source: claim?.source,
+            confidence: claim?.confidence,
+          });
+        } catch (err) {
+          logger.warn(`UnifiedAgentContext.addClaim: sharedContext.addFinding failed: ${err?.message || err}`);
+        }
       }
     } finally {
       release();

@@ -8,6 +8,7 @@
  */
 
 import { createLogger } from "./logger.js";
+import { protoSafeReviver } from "./safe-json.js";
 
 const logger = createLogger("shared/utils/robust-json");
 
@@ -132,7 +133,7 @@ export function parseJsonStrict(text, options = {}) {
 
   // 策略 1: 直接解析
   try {
-    const data = JSON.parse(preprocessed);
+    const data = JSON.parse(preprocessed, protoSafeReviver);
     return { ok: true, code: ParseResultCode.OK, data };
   } catch {
     // continue
@@ -142,7 +143,7 @@ export function parseJsonStrict(text, options = {}) {
   const extracted = extractJsonBlock(preprocessed);
   if (extracted) {
     try {
-      const data = JSON.parse(extracted);
+      const data = JSON.parse(extracted, protoSafeReviver);
       return { ok: true, code: ParseResultCode.OK, data };
     } catch (err) {
       return {

@@ -21,7 +21,8 @@ const IDB_STORE_NAME = "user_skills_kv";
 function hasLocalStorage() {
   try {
     return typeof localStorage !== "undefined" && !!localStorage && typeof localStorage.getItem === "function";
-  } catch {
+  } catch (err) {
+    logger.debug("localStorage not available", { error: err?.message });
     return false;
   }
 }
@@ -29,7 +30,8 @@ function hasLocalStorage() {
 function hasIndexedDB() {
   try {
     return typeof indexedDB !== "undefined" && indexedDB && typeof indexedDB.open === "function";
-  } catch {
+  } catch (err) {
+    logger.debug("IndexedDB not available", { error: err?.message });
     return false;
   }
 }
@@ -85,14 +87,14 @@ function openUserSkillsDb() {
         _idb.onversionchange = () => {
           try {
             _idb.close();
-          } catch {
-            // ignore
+          } catch (err) {
+            logger.debug("Failed to close IDB on version change", { error: err?.message });
           } finally {
             _idb = null;
           }
         };
-      } catch {
-        // ignore
+      } catch (err) {
+        logger.debug("Failed to set IDB onversionchange handler", { error: err?.message });
       }
       resolve(_idb);
     };
@@ -234,8 +236,8 @@ async function migrateLocalStorageToIndexedDB(db) {
         const k = localStorage.key(i);
         if (k && String(k).startsWith(BODY_PREFIX)) bodyKeys.push(String(k));
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      logger.debug("Failed to enumerate localStorage keys", { error: err?.message });
     }
   }
 
@@ -266,8 +268,8 @@ async function migrateLocalStorageToIndexedDB(db) {
   try {
     localStorage.removeItem(INDEX_KEY);
     for (const key of bodyKeys) localStorage.removeItem(key);
-  } catch {
-    // ignore
+  } catch (err) {
+    logger.debug("Failed to cleanup localStorage after migration", { error: err?.message });
   }
 
   return true;

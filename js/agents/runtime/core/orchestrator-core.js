@@ -57,8 +57,8 @@ export class AgentOrchestrator extends DisposableBase {
         const opts = isPlainObject(cfg) ? cfg : {};
         try {
           this.eventBus.enableBackpressure({ deferNonCoalesced: opts.deferNonCoalesced ?? false, ...opts });
-        } catch {
-          // ignore
+        } catch (err) {
+          logger.debug("Failed to enable backpressure", { error: err?.message });
         }
       }
     }
@@ -156,8 +156,8 @@ export class AgentOrchestrator extends DisposableBase {
           this._degradationMatrix = resolved;
           return resolved;
         }
-      } catch {
-        // ignore missing container services
+      } catch (err) {
+        logger.debug("Failed to resolve degradation matrix from container", { error: err?.message });
       }
     }
 
@@ -166,7 +166,8 @@ export class AgentOrchestrator extends DisposableBase {
       const { DegradationMatrix } = await import("../../plugins/resilience/degradation-matrix.js");
       this._degradationMatrix = new DegradationMatrix({ getMemoryUsage: defaultMemoryUsageRatio });
       return this._degradationMatrix;
-    } catch {
+    } catch (err) {
+      logger.debug("Failed to create degradation matrix", { error: err?.message });
       this._degradationMatrix = null;
       return null;
     }
@@ -342,8 +343,8 @@ export class AgentOrchestrator extends DisposableBase {
       if (degradationMatrix) {
         try {
           degradationMatrix.recordRequest({ latencyMs: durationMs, isError: stageFailed });
-        } catch {
-          // ignore
+        } catch (err) {
+          logger.debug("Failed to record degradation matrix request", { error: err?.message });
         }
 
         try {
@@ -367,16 +368,16 @@ export class AgentOrchestrator extends DisposableBase {
                 const metrics = degradationMatrix.getMetrics();
                 decisionContext.metrics = metrics;
               }
-            } catch {
-              // ignore
+            } catch (err) {
+              logger.debug("Failed to get degradation matrix metrics", { error: err?.message });
             }
 
             // Best-effort: add effective parameters
             try {
               const effectiveConcurrency = await this._getEffectiveConcurrencyLimit();
               decisionContext.effectiveConcurrency = effectiveConcurrency;
-            } catch {
-              // ignore
+            } catch (err) {
+              logger.debug("Failed to get effective concurrency limit", { error: err?.message });
             }
 
             this.eventBus.emit("system.degradation.level.changed", {
@@ -388,8 +389,8 @@ export class AgentOrchestrator extends DisposableBase {
               this.eventBus.emit(AgentLifecycleEvents.DEGRADED, { actor: ActorType.SYSTEM, status: "degraded", payload: decisionContext });
             }
           }
-        } catch {
-          // ignore
+        } catch (err) {
+          logger.debug("Failed to process degradation level change", { error: err?.message });
         }
 
         // Emit recommendations on stage failures or whenever system is degraded (best-effort).
@@ -403,8 +404,8 @@ export class AgentOrchestrator extends DisposableBase {
               payload: { recommendations, level, runId: this.runId, stage: stageName },
             });
           }
-        } catch {
-          // ignore
+        } catch (err) {
+          logger.debug("Failed to emit degradation recommendations", { error: err?.message });
         }
       }
 
@@ -451,8 +452,8 @@ export class AgentOrchestrator extends DisposableBase {
       if (!this.signal.aborted) {
         this._abortController.abort("disposed");
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      logger.debug("Failed to abort controller on dispose", { error: err?.message });
     }
 
     this._stages.clear();

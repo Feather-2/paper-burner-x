@@ -429,8 +429,8 @@ export class EventBus {
         const evt = createReplayEvent(raw, runId);
         this._dispatch(evt);
         result.push(evt);
-      } catch {
-        // Skip malformed events.
+      } catch (err) {
+        logger.debug("Skipping malformed replay event", { error: err?.message });
         skippedCount++;
       }
     }
@@ -444,8 +444,8 @@ export class EventBus {
           payload: { skippedCount, totalCount: events.length, runId },
           runId: this._runId,
         }));
-      } catch {
-        // ignore
+      } catch (err) {
+        logger.debug("Failed to emit replay skipped telemetry", { error: err?.message });
       }
     }
 
@@ -602,8 +602,8 @@ export class EventBus {
           payload: { dropCount, queueSize: bp.queue.length, maxQueueSize: bp.maxQueueSize },
           runId: this._runId,
         }));
-      } catch {
-        // ignore
+      } catch (err) {
+        logger.debug("Failed to emit backpressure drop telemetry", { error: err?.message });
       }
     }
 
@@ -654,8 +654,8 @@ export class EventBus {
           payload: { coalescedCount },
           runId: this._runId,
         }));
-      } catch {
-        // ignore
+      } catch (err) {
+        logger.debug("Failed to emit coalesce flush telemetry", { error: err?.message });
       }
     }
   }
@@ -681,8 +681,8 @@ export class EventBus {
                 payload: { error: err?.message || String(err), eventCount: events.length },
                 runId: this._runId,
               }));
-            } catch {
-              // ignore
+            } catch (e) {
+              logger.debug("Failed to emit persistence failure telemetry", { error: e?.message });
             }
           });
         }
@@ -696,8 +696,8 @@ export class EventBus {
             payload: { error: e?.message || String(e), eventCount: events.length },
             runId: this._runId,
           }));
-        } catch {
-          // ignore
+        } catch (err) {
+          logger.debug("Failed to emit persistence failure telemetry", { error: err?.message });
         }
       }
     });
@@ -723,8 +723,8 @@ export class EventBus {
         },
         runId: this._runId,
       }));
-    } catch {
-      // ignore
+    } catch (e) {
+      logger.debug("Failed to emit handler error telemetry", { error: e?.message });
     }
 
     if (this._onListenerError) {

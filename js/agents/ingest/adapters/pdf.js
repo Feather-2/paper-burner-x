@@ -5,15 +5,13 @@ import { basenameOfPath, fileLikeFromPath as nodeFileLikeFromPath } from "./node
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
 import { createLogger } from "../../shared/utils/logger.js";
+import { resolveOcrManager } from "./resolve-deps.js";
+
 const logger = createLogger("agents");
 function guessMimeType(filename) {
   const name = String(filename || "").toLowerCase();
   if (name.endsWith(".pdf")) return "application/pdf";
   return "application/octet-stream";
-}
-
-function hasProcessFile(v) {
-  return v && typeof v === "object" && typeof v.processFile === "function";
 }
 
 function normalizeMaxFileSize(value, fallback) {
@@ -88,30 +86,16 @@ export class PdfAdapter extends BaseAdapter {
   }
 
   resolveOcr(stageApi) {
-    // 1. 优先使用注入的 OCR 引擎
-    if (hasProcessFile(stageApi?.ocr)) return stageApi.ocr;
-
-    // 2. 优先使用构造函数注入的 OCR 管理器
+    // Use unified resolver from resolve-deps.js (AUDIT E4)
+    // Priority: constructor injection > stageApi > globalThis
     if (this._ocrManager !== null) return this._ocrManager;
 
-    // 3. 检测全局 OcrManager（浏览器环境）
-    const OcrManagerClass = globalThis?.OcrManager;
-    if (OcrManagerClass) {
-      // 如果是已实例化的对象
-      if (hasProcessFile(OcrManagerClass)) {
-        this._ocrManager = OcrManagerClass;
-        return this._ocrManager;
-      }
-
-      // 如果是类，缓存到实例字段，避免模块级全局单例
-      if (typeof OcrManagerClass === "function") {
-        this._ocrManager = new OcrManagerClass();
-        if (hasProcessFile(this._ocrManager)) return this._ocrManager;
-        this._ocrManager = null;
-      }
+    const resolved = resolveOcrManager(stageApi);
+    if (resolved) {
+      // Cache the resolved instance to avoid repeated resolution
+      this._ocrManager = resolved;
     }
-
-    return null;
+    return resolved;
   }
 
   /**
