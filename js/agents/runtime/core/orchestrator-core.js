@@ -460,6 +460,7 @@ export class AgentOrchestrator extends DisposableBase {
     this._queue = Promise.resolve();
     this._inFlight = 0;
     this._rejectParallelWaiters("Orchestrator disposed");
+    this._parallelWaiters = [];
   }
 }
 
