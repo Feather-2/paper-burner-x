@@ -1,75 +1,38 @@
 # node-compat - Node.js 兼容层
 
-提供浏览器沙箱中的 Node.js 运行时兼容能力（`require`/模块解析/内置模块 shim/npm 包管理/ToolExecutor 集成），并在 `createNodeEnv` 中统一接入配额控制与可观测性流。
+提供浏览器优先的 Node 兼容运行能力；`createNodeEnv` 是当前统一入口，负责把 VFS、可观测性、配额与 WASM 沙箱组装为可执行环境。
 
-## 模块拆分
+## createNodeEnv（最新实现）
 
-> 自 commit `03d6fab6` 起，原 `sandbox/` 的 Node 兼容相关能力拆分到 `node-compat/`，与隔离核心、浏览器运行时解耦。
+`create-node-env.js` 当前流程如下：
 
-| 模块 | 路径 | 职责 |
-|------|------|------|
-| **sandbox** | `../sandbox/` | WASM/System 沙箱核心与能力控制 |
-| **node-compat** | `./` | Node.js 兼容层（require/module-resolver/shims/npm/ToolExecutor） |
-| **webruntime** | `../webruntime/` | 浏览器运行时（DevServer/HMR/SW/Worker/VFS 工具） |
+1. 启动时调用 `setupErrorStackTracePolyfill()`（幂等，仅在缺失 `Error.captureStackTrace` 时生效）。
+2. 创建资源控制组件：可选 `QuotaEnforcer` + `ObservabilityStream`（可外部注入）。
+3. 组装 VFS 管线：`externalVfs || MemoryVfs` → `withVfsEvents` → `withObservability`。
+4. 自动确保 `cwd` 存在（`mkdir(..., { recursive: true })`）；失败仅记录 debug 日志，不中断启动。
+5. 调用 `../sandbox/wasm-sandbox.js` 的 `createSandbox()` 创建沙箱，并透传：
+   - `capabilities`
+   - `limits.timeoutMs`
+   - `state: { cwd, env }`
+   - `onLog`（由 `onConsole` 适配）
+6. 暴露便捷方法：
+   - `execute(code, filename?)`（附带 `__filename`）
+   - `runFile(path)`（先从 VFS `readText` 再执行）
+7. `dispose()` 幂等清理：释放沙箱并移除 VFS 监听器；返回对象包含 `terminated` getter。
 
-## 架构（createNodeEnv 流程）
+## 关键行为说明
 
-```text
-调用方 / ToolExecutor
-        │
-        ▼
-createSandboxTool() ──────────────┐
-        │                         │
-        ▼                         │
-createNodeEnv(config)             │
-  ├─ externalVfs || MemoryVfs     │
-  ├─ withVfsEvents(vfs)           │
-  ├─ withObservability(vfs, obs)  │
-  ├─ QuotaEnforcer(quota)         │
-  ├─ ensure cwd                   │
-  └─ createSandbox(...)           │
-        │                         │
-        ├────────► createBuiltinModules({ vfs, networkPolicy, violationStore, ... })
-        │                         │
-        ├────────► createRequire({ vfs, builtinModules, evaluate, globals })
-        │                         │
-        └────────► createCorsProxy() (optional, default disabled)
-                                  │
-                                  ▼
-                         require('./main.js')
-                                  │
-                                  ▼
-                    module-resolver + VFS + npm node_modules
-```
+- `sandboxLevel` 字段当前保留在类型定义中，但 `createNodeEnv` 现阶段固定走 WASM 沙箱实现。
+- 默认超时 `30000ms`，默认能力为 `['console']`。
+- 传入外部 `observability` 时复用该流；未传入时自动创建新流。
+- 生命周期由调用方负责：使用完毕后应调用 `dispose()`。
 
-## CORS Proxy（opt-in）
-
-- 默认不代理（secure by default）。
-- 推荐使用实例 API：`createCorsProxy(initialUrl?)`，每个环境独立维护状态。
-- 兼容 API `setCorsProxy/getCorsProxy/buildCorsProxyUrl/fetchWithCorsProxy` 保留但标记 `@deprecated`。
-- 代理 URL 与目标 URL 通过 `encodeURIComponent` 拼接；调用方需自行实施协议/域名/内网访问限制策略。
-
-## 核心文件
+## 相关文件
 
 | 文件 | 职责 |
 |------|------|
-| `index.js` | 模块聚合导出（shims/require/resolver/npm/polyfills 等） |
-| `create-node-env.js` | `createNodeEnv`：组装 VFS + 事件桥 + 配额 + 可观测性 + Wasm sandbox |
-| `quota.js` | `QuotaEnforcer`：资源配额控制（时间/IO/等） |
-| `observability.js` | `ObservabilityStream` 与 `withObservability`：指标、日志、事件追踪 |
-| `sandbox-tool.js` | `createSandboxTool`：`execute_code` 工具定义与处理器 |
-| `require.js` | VFS 绑定 CommonJS require（IIFE 包装、缓存、循环依赖处理） |
-| `module-resolver.js` | 模块解析（`exports`/`browser`/`main`/扩展名探测/node_modules 向上查找） |
-| `transform-esm.js` | `hasESMSyntax` 与 `transformESMtoCJS` |
-| `cors-proxy.js` | 可选 CORS 代理（实例 API + 兼容模块级 API） |
-| `repl.js` | 轻量 REPL 上下文（跨次执行保留变量） |
-| `vfs-adapter.js` | 将 VFS 适配为 Node 风格文件系统接口 |
-| `npm/index.js` | `PackageManager`（安装、依赖树、事件发射） |
-| `npm/registry.js` | npm registry 客户端（元数据与 tarball 拉取） |
-
-## 设计约束
-
-- Browser-first：默认可在浏览器运行，Node.js 仅为兼容运行时。
-- Secure-by-default：默认不启用代理，默认最小 capabilities。
-- Observability-first：环境创建时可注入外部观测流，未注入则创建默认流。
-- 生命周期完整：调用方必须执行 `dispose()` 释放监听器与运行时资源。
+| `create-node-env.js` | 统一环境装配（polyfill + VFS + quota/observability + sandbox） |
+| `polyfills/error-stack-trace.js` | `Error.captureStackTrace` 兼容层（Safari/Firefox） |
+| `quota.js` | 资源配额控制 |
+| `observability.js` | 观测流与 VFS 观测包装 |
+| `index.js` | node-compat 聚合导出 |

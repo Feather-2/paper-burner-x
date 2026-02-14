@@ -1,101 +1,55 @@
 # vfs - 虚拟文件系统
 
-跨平台文件系统抽象，支持内存、OPFS 和 Storage API。
-在基础读写之上，还提供（可选的）文本 diff、checkpoint 快照、以及 delta-sync 增量同步工具。
+跨平台文件系统抽象（Memory / OPFS / Storage / NodeFs），并提供快照、差量同步与 checkpoint 工具。
 
-## 实现
+## 主要文件
 
 | 文件 | 说明 |
 |------|------|
-| `index.node.js` | Node.js 入口 (含 NodeFsVfs) |
-| `index.browser.js` | 浏览器入口 (OPFS/Storage/Memory) |
-| `index.js` | 默认入口 (跨端转发) |
-| `vfs.node.js` | NodeFsVfs (Node.js `fs`) |
-| `vfs.memory.js` | MemoryVfs (测试/临时存储) |
-| `vfs.opfs.js` | OpfsVfs (浏览器 OPFS) |
-| `vfs.storage.js` | StorageVfs (StorageAdapter / localStorage 等) |
-| `path.js` | VFS 路径规范化与校验 (`normalizeVfsPath`) |
-| `diff.js` | 文本 diff 与 unified diff 生成 |
-| `checkpoints.js` | VFS Checkpoint：快照、预览、摘要、artifact 引用；支持 `StorageAdapterLike` 与 `RunStoreLike`；使用安全时间戳 ID |
-| `delta-sync.js` | 增量同步：chunk/rolling hash/patch；默认 SHA-256，异常时降级 FNV-1a（兼容模式） |
+| `vfs.memory.js` | 内存 VFS（测试/临时态） |
+| `vfs.opfs.js` | OPFS 后端 |
+| `vfs.storage.js` | StorageAdapter 后端 |
+| `vfs.node.js` | NodeFs 后端 |
+| `vfs-sync-protocol.js` | VFS 快照与增量同步协议 |
+| `checkpoints.js` | 快照审计与 artifact 引用 |
+| `delta-sync.js` | 文件级 chunk/patch 增量同步 |
 
-## 条件导出
+## MemoryVfs（最新变更）
 
-package.json 配置了条件导出，构建工具自动选择正确入口：
+`vfs.memory.js` 现支持符号链接语义：
 
-| 环境 | 入口文件 |
-|------|----------|
-| Node.js | `index.node.js` |
-| Browser | `index.browser.js` |
-| Default | `index.js` |
+- 新增 `symlink(target, path)`、`readlink(path)`、`lstat(path)`。
+- `stat(path)` 会跟随符号链接；`lstat(path)` 返回链接本体信息。
+- 内部节点解析支持 `followSymlinks`，并包含 `ELOOP` 防护（最大链深 8）。
+- `readdir(..., { withFileTypes: true })` 与 `list()` 现在可返回 `symlink` 类型。
+- `unlink(path)` 可删除普通文件与符号链接，目录仍报 `EISDIR`。
 
-```javascript
-// 使用 package.json exports
-import { createVfs } from 'paper-burner-root/agents/vfs';
-```
+## VfsSyncProtocol（新增）
 
-## 接口
+`vfs-sync-protocol.js` 提供主从同步能力：
 
-```javascript
-interface Vfs {
-  read(path: string): Promise<Uint8Array | null>;
-  write(path: string, data: Uint8Array): Promise<void>;
-  delete(path: string): Promise<void>;
-  exists(path: string): Promise<boolean>;
-  list(dir: string): Promise<string[]>;
-  mkdir(dir: string): Promise<void>;
-}
-```
+- `toSnapshot({ prefix })`
+  - 基于 `walkFiles()` 导出文件快照
+  - 文件内容使用 Base64 编码
+  - 返回 `{ files, timestamp, version: '1.0' }`
+- `fromSnapshot(snapshot, { clear })`
+  - 可选清空现有文件后恢复快照
+  - 对单文件写入错误采用 best-effort 跳过
+- `applyDelta(delta | delta[])`
+  - `content: null` 表示删除
+  - `content: string`（Base64）表示写入/更新
 
-## 使用示例
+事件模型：
 
-```javascript
-import { createVfs, MemoryVfs, OpfsVfs } from 'js/agents/vfs';
+- `change`：写入或恢复成功触发（快照恢复附带 `source: 'snapshot'`）。
+- `delete`：删除成功触发。
 
-// 自动选择最佳实现
-const vfs = await createVfs();
+编码兼容：
 
-// 或指定实现
-const memVfs = new MemoryVfs();
-const opfsVfs = await OpfsVfs.create();
+- Node 侧优先 `Buffer`。
+- 浏览器侧使用 `btoa/atob`。
 
-// 操作文件
-await vfs.write('/data/config.json', new TextEncoder().encode(json));
-const data = await vfs.read('/data/config.json');
-```
+## 使用说明
 
-## 路径与对象安全
-
-- 所有对外暴露的 path 必须先经过 `normalizeVfsPath`，拒绝 `..`、反斜杠、空路径等非法形式。
-- 不要把用户传入的 path 直接拼接到底层 key/handle（尤其是 Storage/IndexedDB key、OPFS 目录句柄名）。
-- checkpoint 配置/元数据应使用 plain object（配合 `isPlainObject`）校验，避免异常原型链对象进入持久化层。
-
-## Checkpoint / Diff / Artifact
-
-`checkpoints.js` 用于把一次 VFS 读写的“前/后”状态结构化记录下来（用于审计、回放、调试或对外展示）。
-
-常见信息包括：`bytes`、`sha256`、`preview/text/base64`（小内容内联）、`payload` 引用（大内容外置）、以及 unified diff（纯文本）。
-
-数据模型要点：
-- `VfsCheckpointSide`：单侧快照（支持 `preview/text/base64/truncated/payload`）。
-- `VfsPayloadRef`：外置 payload 引用（`artifactId/type/encoding/bytes/sha256`）。
-- `RunStoreLike`：可选运行态 artifact 存储（`saveArtifact/listArtifacts/...`）。
-
-artifact 约定：
-- 本地 artifact key 使用固定前缀（例如 `pb_vfs_artifact|`）做命名空间隔离，避免与业务 key 冲突。
-- 建议使用安全时间戳 ID（如 `makeSecureTimestampedId`）生成 checkpoint/artifact 标识，降低碰撞与可预测性风险。
-
-## Delta Sync 说明
-
-`delta-sync.js` 提供文件级增量同步能力：chunk 切分、哈希比对、补丁应用、冲突检测与断点续传。
-
-- 默认哈希：Web Crypto `SHA-256`。
-- 兼容降级：当 `crypto.subtle` 不可用时，降级到 FNV-1a（仅兼容用途，不应作为强完整性保证）。
-- 默认 chunk 大小：`64 * 1024`（64KB）。
-
-## 测试重点
-
-- 各后端一致性测试：Memory / OPFS / Storage 的读写、list、exists 语义一致。
-- 并发读写测试：高并发写入同一路径时确保原子性与最终一致。
-- 边界路径测试：空路径、`..`、反斜杠、超长路径、深层目录。
-- 配额与降级测试：Storage/OPFS 空间不足时错误可恢复、提示友好、行为可预期。
+- `VfsSyncProtocol` 当前未在 `index.js` 聚合导出，需按文件路径显式导入。
+- 对外路径继续统一走 `normalizeVfsPath`，避免 `..`、反斜杠和非法根路径输入。
