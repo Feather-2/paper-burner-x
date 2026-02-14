@@ -10,7 +10,7 @@
 // 动态部分匹配模式
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const TIMESTAMP_RE = /\b\d{13,}\b/g;
-const NUMERIC_ID_RE = /\b\d{6,}\b/g;
+const NUMERIC_ID_RE = /\b\d{8,}\b/g;
 const ABS_PATH_RE = /(?:\/[\w.-]+){3,}(?=[:\/])/g;
 const WIN_PATH_RE = /[A-Z]:\\(?:[\w.-]+\\){2,}/gi;
 

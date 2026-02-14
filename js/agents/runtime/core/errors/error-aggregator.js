@@ -76,9 +76,11 @@ export class ErrorAggregator {
     entry.count++;
     entry.lastSeen = now;
     entry.timestamps.push(now);
-    // 只保留最近 1h 的时间戳
-    const cutoff = now - ONE_HOUR_MS;
-    entry.timestamps = entry.timestamps.filter(t => t > cutoff);
+    // 惰性清理：仅当数组超过阈值时才 filter，避免每次 O(n)
+    if (entry.timestamps.length > 200) {
+      const cutoff = now - ONE_HOUR_MS;
+      entry.timestamps = entry.timestamps.filter(t => t > cutoff);
+    }
 
     if (context.runId) {
       entry.affectedRuns.add(context.runId);

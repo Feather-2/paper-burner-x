@@ -295,9 +295,10 @@ export class WasmSandbox {
    * 执行代码
    * @param {string} code - 要执行的代码
    * @param {Object} [context] - 额外的上下文变量
+   * @param {{ _lineOffset?: number }} [_internal] - 内部参数，不属于公开 API
    * @returns {Promise<SandboxResult>}
    */
-  async execute(code, context = {}) {
+  async execute(code, context = {}, _internal = {}) {
     if (!this._initialized) await this.init();
     if (this._disposed) throw new Error('Sandbox has been disposed');
 
@@ -325,10 +326,11 @@ export class WasmSandbox {
       this._runtime.setInterruptHandler(() => true);
     }, this.limits.timeoutMs);
 
-    // 注册 source map（同步执行无包装，偏移为 0）
+    // 注册 source map（使用调用方指定的偏移，默认 0 = 同步执行无包装）
     const scriptId = '<sandbox>';
     if (this._sourceMapRegistry) {
-      this._sourceMapRegistry.register(scriptId, code, getSyncWrapperOffset());
+      const offset = typeof _internal._lineOffset === 'number' ? _internal._lineOffset : getSyncWrapperOffset();
+      this._sourceMapRegistry.register(scriptId, code, offset);
     }
 
     try {
@@ -402,13 +404,8 @@ export class WasmSandbox {
       })()
     `;
 
-    // 注册 async 包装偏移（覆盖 execute 中的同步注册）
-    const scriptId = '<sandbox>';
-    if (this._sourceMapRegistry) {
-      this._sourceMapRegistry.register(scriptId, code, getAsyncWrapperOffset());
-    }
-
-    const result = await this.execute(wrappedCode, context);
+    // 通过 _internal 参数传递 async 偏移给 execute，避免被同步偏移覆盖
+    const result = await this.execute(wrappedCode, context, { _lineOffset: getAsyncWrapperOffset() });
 
     if (result.ok) {
       const timeoutMs = 5000;
@@ -416,6 +413,7 @@ export class WasmSandbox {
 
       if (_isAsyncModule) {
         // Asyncify 路径：await executePendingJobs，自动 yield 回事件循环
+        const perCallTimeout = 2000; // 单次 await 上限
         while (true) {
           if (Date.now() - startTime > timeoutMs) {
             return {
@@ -425,8 +423,24 @@ export class WasmSandbox {
             };
           }
           const pending = this._runtime.executePendingJobs();
-          // Asyncify 模块的 executePendingJobs 可能返回 Promise
-          const resolved = pending instanceof Promise ? await pending : pending;
+          // 对 Promise 加单次超时保护，防止永远不 resolve
+          let resolved;
+          if (pending instanceof Promise) {
+            const timer = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('executePendingJobs hung')), perCallTimeout)
+            );
+            try {
+              resolved = await Promise.race([pending, timer]);
+            } catch {
+              return {
+                ...result,
+                ok: false,
+                error: `[WasmSandbox] executePendingJobs did not resolve within ${perCallTimeout}ms.`,
+              };
+            }
+          } else {
+            resolved = pending;
+          }
           if (resolved.error) {
             const error = this._vm.dump(resolved.error);
             resolved.error.dispose();
