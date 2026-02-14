@@ -86,11 +86,17 @@ export class SkillsManager {
           }
         }
       } catch (err) {
-        logger.warn('Failed to hydrate cache from Archive:', err);
+        this._initPromise = null;
+        throw err;
       }
     })();
 
-    return this._initPromise;
+    try {
+      return await this._initPromise;
+    } catch (err) {
+      this._initPromise = null;
+      throw err;
+    }
   }
 
   /**

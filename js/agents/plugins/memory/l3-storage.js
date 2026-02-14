@@ -166,22 +166,32 @@ export class L3Storage extends DisposableBase {
     this._ensureNotDisposed();
     if (this._initialized) return;
 
-    await this._io.ensureDirs();
-    await this.restoreIndex();
-    this._scheduleIncrementalIndexRefresh();
+    const timeout = 30000; // 30秒
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('L3Storage init timeout after 30s')), timeout)
+    );
 
-    // Attach TabCoordinator with error handling (graceful degradation)
-    if (this._tabCoordinator) {
-      try {
-        await this._attachTabCoordinator();
-        this._tabCoordinatorEnabled = true;
-      } catch (err) {
-        logger.warn("[L3Storage] Failed to attach TabCoordinator, continuing without cross-tab sync:", err);
-        this._tabCoordinatorEnabled = false;
-      }
-    }
+    await Promise.race([
+      (async () => {
+        await this._io.ensureDirs();
+        await this.restoreIndex();
+        this._scheduleIncrementalIndexRefresh();
 
-    this._initialized = true;
+        // Attach TabCoordinator with error handling (graceful degradation)
+        if (this._tabCoordinator) {
+          try {
+            await this._attachTabCoordinator();
+            this._tabCoordinatorEnabled = true;
+          } catch (err) {
+            logger.warn("[L3Storage] Failed to attach TabCoordinator, continuing without cross-tab sync:", err);
+            this._tabCoordinatorEnabled = false;
+          }
+        }
+
+        this._initialized = true;
+      })(),
+      timeoutPromise
+    ]);
   }
 
   /**
