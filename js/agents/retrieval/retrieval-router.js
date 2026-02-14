@@ -484,6 +484,42 @@ export class RetrievalRouter {
     this.defaultConfig = isPlainObject(defaultConfig) ? { ...defaultConfig } : {};
   }
 
+  /**
+   * Hydrate BM25 indexes from persistent store to memory cache.
+   * @param {string[]} [keys] - Optional list of persist keys to preload. If omitted, no preloading occurs.
+   * @returns {Promise<void>}
+   */
+  async init(keys) {
+    const store = resolveBm25IndexStore(this.defaultConfig);
+    const cache = resolveBm25IndexCache(this.defaultConfig);
+    if (!store || !cache) return;
+
+    const logger =
+      this.defaultConfig.logger && typeof this.defaultConfig.logger.warn === "function"
+        ? this.defaultConfig.logger
+        : typeof console !== "undefined" && typeof console.warn === "function"
+          ? console
+          : null;
+
+    if (!Array.isArray(keys) || !keys.length) return;
+
+    try {
+      for (const key of keys) {
+        if (typeof key !== "string" || !key) continue;
+        try {
+          const existing = cache.get(key);
+          if (existing) continue;
+          const loaded = await loadBm25IndexFromStore(store, key, { logger });
+          if (loaded) cache.set(key, loaded);
+        } catch {
+          // Ignore per-key failures
+        }
+      }
+    } catch (err) {
+      logger?.warn?.("[retrieval] Failed to hydrate BM25 index from store:", err);
+    }
+  }
+
   async retrieve(sourceIndex, gaps, config = {}) {
     const cfg = isPlainObject(config) ? config : {};
     return retrieve(sourceIndex, gaps, { ...this.defaultConfig, ...cfg });
