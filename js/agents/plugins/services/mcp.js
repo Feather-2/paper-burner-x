@@ -96,7 +96,7 @@ export default createPlugin({
 
         clients.set(safeName, client);
         ctx.state.set(`servers.${safeName}`, { status: 'connected' });
-        ctx.events.emit('mcp.connected', { server: serverConfig.name });
+        ctx.events.emit('mcp:connected', { server: serverConfig.name });
 
         return client;
       },
@@ -123,9 +123,9 @@ export default createPlugin({
           throw new Error(`MCP server not connected: ${serverName}`);
         }
 
-        ctx.events.emit('mcp.tool.call', { server: serverName, tool: toolName });
+        ctx.events.emit('mcp:tool:call', { server: serverName, tool: toolName });
         const result = await client.callTool(toolName, args);
-        ctx.events.emit('mcp.tool.result', { server: serverName, tool: toolName, success: true });
+        ctx.events.emit('mcp:tool:result', { server: serverName, tool: toolName, success: true });
 
         return result;
       },

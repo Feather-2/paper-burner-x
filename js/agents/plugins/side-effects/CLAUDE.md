@@ -4,7 +4,7 @@
 
 ## 模块描述
 
-SideEffectJournal 以 WAL（write-ahead log）形式持久化可回滚副作用，监听 `vfs.write.*` 事件生成 `vfs_checkpoint` 记录，并在需要时回滚到指定游标。
+SideEffectJournal 以 WAL（write-ahead log）形式持久化可回滚副作用，监听 `vfs:write:*` 事件生成 `vfs_checkpoint` 记录，并在需要时回滚到指定游标。
 
 当前实现采用“编排层 + helper 层”拆分：
 - `side-effect-journal.js`：对外 API、生命周期管理、事件总线集成。
@@ -30,7 +30,7 @@ SideEffectJournal 以 WAL（write-ahead log）形式持久化可回滚副作用�
 | 游标归一化 | `normalizeCursor()` 将外部 cursor 输入归一化为非负整数 |
 | WAL 校验 | replay 时验证 `kind`/`ts`/`reversible` 等结构，非法记录跳过 |
 | 游标 (cursor) | 当前日志长度，`rollbackToCursor()` 以序号回退 |
-| vfs_checkpoint | 通过 `vfs.write.*` 事件生成的可回滚检查点记录 |
+| vfs_checkpoint | 通过 `vfs:write:*` 事件生成的可回滚检查点记录 |
 | 去重 | `eventId` 去重，忽略 `meta.replay` 事件，避免 replay 二次写入 |
 | 回滚依赖 | 通过 `resolveRollbackDeps()` 解析 `runStore`/`storageAdapter`/`restoreVfsCheckpoint()` 依赖 |
 | 回滚管线 | `rollbackEntries()` 执行逐条回滚，`applyRollbackResult()` 统一更新状态并触发事件 |

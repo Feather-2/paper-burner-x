@@ -140,8 +140,9 @@ export function createEventPayload(actor, status, data = {}) {
 - **File**: js/agents/runtime/events/events.js:22
 - **Description**: 事件常量使用 domain.action 点号格式，与约定的 domain:action 不一致，可能影响事件路由/过滤。
 - **Suggestion**: 统一改为 run:started 风格或在 EventBus 层提供兼容映射。
+- **Resolution**: 已将所有点分隔事件名统一改为冒号分隔格式。
 ```
-RUN_STARTED: "run.started",
+RUN_STARTED: "run:started",
 ```
 
 ### [RESOLVED] logging

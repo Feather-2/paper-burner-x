@@ -233,12 +233,12 @@ export class SideEffectJournal {
     this.eventBus = eventBus || null;
     if (!this.eventBus || typeof this.eventBus.subscribe !== "function") return;
 
-    this._unsub = this.eventBus.subscribe("vfs.write.*", (evt) => {
+    this._unsub = this.eventBus.subscribe("vfs:write:*", (evt) => {
       try {
         this._onVfsWriteEvent(evt);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.logger?.warn?.(`[SideEffectJournal] vfs.write.* handler failed: ${msg}`);
+        this.logger?.warn?.(`[SideEffectJournal] vfs:write:* handler failed: ${msg}`);
       }
     });
   }

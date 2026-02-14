@@ -284,10 +284,10 @@ export class Kernel {
       }
 
       this._setStatus(KernelStatus.RUNNING);
-      this.events.emit('kernel.started', { id: this.id });
+      this.events.emit('kernel:started', { id: this.id });
     } catch (error) {
       this._setStatus(KernelStatus.ERROR);
-      this.events.emit('kernel.error', { error });
+      this.events.emit('kernel:error', { error });
       throw error;
     }
 
@@ -326,7 +326,7 @@ export class Kernel {
 
       this._setStatus(KernelStatus.STOPPED);
       this.state.set('meta.stoppedAt', Date.now());
-      this.events.emit('kernel.stopped', { id: this.id });
+      this.events.emit('kernel:stopped', { id: this.id });
     } catch (error) {
       this._setStatus(KernelStatus.ERROR);
       throw error;

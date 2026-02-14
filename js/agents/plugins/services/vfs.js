@@ -98,7 +98,7 @@ export default createPlugin({
        */
       async writeFile(path, data, options) {
         const result = await vfs.writeFile(path, data, options);
-        ctx.events.emit('vfs.write', { path });
+        ctx.events.emit('vfs:write', { path });
         return result;
       },
 
@@ -123,7 +123,7 @@ export default createPlugin({
         }
 
         const result = await deleter(path);
-        ctx.events.emit('vfs.delete', { path });
+        ctx.events.emit('vfs:delete', { path });
         return result;
       },
 

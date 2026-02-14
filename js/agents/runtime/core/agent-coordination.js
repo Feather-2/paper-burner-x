@@ -85,7 +85,6 @@ export const AgentCoordination = {
       },
     };
     this.emit("run:started", startedRecord);
-    this.emit("run.started", startedRecord);
   },
 
   /**
@@ -103,7 +102,6 @@ export const AgentCoordination = {
       payload: { reason: toNonEmptyString(reason) || "cancelled", runId: this.runId },
     };
     this.emit("run:cancelled", cancelledRecord);
-    this.emit("run.cancelled", cancelledRecord);
   },
 
   /**
@@ -126,7 +124,6 @@ export const AgentCoordination = {
       },
     };
     this.emit("run:failed", failedRecord);
-    this.emit("run.failed", failedRecord);
   },
 
   /**
@@ -141,7 +138,6 @@ export const AgentCoordination = {
     // P0: 统一事件命名为 run:completed（兼容旧 run.completed）
     const completedRecord = { actor: ActorType.SYSTEM, status: "completed", payload: { reason: r, runId: this.runId } };
     this.emit("run:completed", completedRecord);
-    this.emit("run.completed", completedRecord);
   },
 
   /**
@@ -160,6 +156,5 @@ export const AgentCoordination = {
       ...(r ? { payload: { reason: r, runId: this.runId } } : { payload: { runId: this.runId } }),
     };
     this.emit("run:ended", endedRecord);
-    this.emit("run.ended", endedRecord);
   },
 };

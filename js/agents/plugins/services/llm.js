@@ -95,7 +95,7 @@ export default createPlugin({
           });
         }
 
-        ctx.events.emit('llm.response', {
+        ctx.events.emit('llm:response', {
           model: result.model,
           tokens: result.usage,
         });

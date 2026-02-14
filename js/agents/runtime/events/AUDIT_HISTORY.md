@@ -12,8 +12,9 @@ Archived issues from security audits.
 - **File**: js/agents/runtime/events/events.js:22
 - **Description**: 事件名值使用点分隔（如 run.started），与约定的 domain:action 格式不一致，且相关前缀/模式逻辑依赖 '.' 分隔。
 - **Suggestion**: 将事件名改为 domain:action（例如 run:started）并同步调整前缀/匹配逻辑，或更新项目约定与消费者以统一接受点分隔格式。
+- **Resolution**: 已将所有点分隔事件名统一改为冒号分隔格式。
 ```
-RUN_STARTED: "run.started",
+RUN_STARTED: "run:started",
 ```
 
 ### [RESOLVED] JSDoc missing types

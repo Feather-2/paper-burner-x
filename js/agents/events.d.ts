@@ -198,7 +198,7 @@ export interface UserActionEventMap {
 // ============================================================================
 
 export namespace RunEvents {
-  /** run.started - Run 启动 */
+  /** run:started - Run 启动 */
   export interface Started {
     runId?: string;
     mode?: string;
@@ -206,19 +206,19 @@ export namespace RunEvents {
     todos?: unknown;
   }
 
-  /** run.ended - Run 结束（可能是正常结束，也可能是由上层主动结束） */
+  /** run:ended - Run 结束（可能是正常结束，也可能是由上层主动结束） */
   export interface Ended {
     runId?: string;
     reason?: string;
   }
 
-  /** run.cancelled - Run 被取消 */
+  /** run:cancelled - Run 被取消 */
   export interface Cancelled {
     runId?: string;
     reason: string;
   }
 
-  /** run.failed - Run 失败（如果有上层聚合事件） */
+  /** run:failed - Run 失败（如果有上层聚合事件） */
   export interface Failed {
     runId?: string;
     error: string;
@@ -226,8 +226,8 @@ export namespace RunEvents {
   }
 
   /**
-   * run.completed - 兼容事件（部分旧 workflow 会监听）
-   * 建议新代码使用 run.ended。
+   * run:completed - 兼容事件（部分旧 workflow 会监听）
+   * 建议新代码使用 run:ended。
    */
   export interface Completed {
     runId?: string;
@@ -358,11 +358,11 @@ export interface VfsEventMap {
 }
 
 export interface RunEventMap {
-  "run.started": EventRecord<RunEvents.Started>;
-  "run.ended": EventRecord<RunEvents.Ended>;
-  "run.cancelled": EventRecord<RunEvents.Cancelled>;
-  "run.failed": EventRecord<RunEvents.Failed>;
-  "run.completed": EventRecord<RunEvents.Completed>;
+  "run:started": EventRecord<RunEvents.Started>;
+  "run:ended": EventRecord<RunEvents.Ended>;
+  "run:cancelled": EventRecord<RunEvents.Cancelled>;
+  "run:failed": EventRecord<RunEvents.Failed>;
+  "run:completed": EventRecord<RunEvents.Completed>;
 }
 
 export namespace IngestEvents {

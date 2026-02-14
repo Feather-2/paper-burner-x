@@ -21,7 +21,7 @@
 ## 关键概念
 - 服务注册：`ctx.registerService(name, service)` 将服务挂到 `kernel.services`
 - 统一调用：`kernel.services.call()` / `kernel.services.get()` / `kernel.invoke()`
-- 事件流：`llm.response`、`mcp.connected`、`mcp.tool.call`/`mcp.tool.result`、`scheduler.task.start/complete/error/cancelled`、`vfs.write`/`vfs.delete`
+- 事件流：`llm:response`、`mcp:connected`、`mcp:tool:call`/`mcp:tool:result`、`scheduler:task:start/complete/error/cancelled`、`vfs:write`/`vfs:delete`
 - 作用域状态：`ctx.state` 自动带 `plugins.service/*` 前缀，LLM token 统计在 `tokens`，调度统计在 `stats`/`running`
 - 任务优先级：`TaskPriority.LOW|NORMAL|HIGH|CRITICAL`（数值越大优先级越高）
 

@@ -70,7 +70,7 @@ export default createPlugin({
       ctx.state.set('running', running);
 
       try {
-        ctx.events.emit('scheduler.task.start', { id: task.id, priority: task.priority });
+        ctx.events.emit('scheduler:task:start', { id: task.id, priority: task.priority });
 
         // Issue #3: 保存 timeout 句柄并在任务完成后清理
         let timeoutHandle;
@@ -81,13 +81,13 @@ export default createPlugin({
         try {
           const result = await Promise.race([task.execute(), timeoutPromise]);
           task.resolve(result);
-          ctx.events.emit('scheduler.task.complete', { id: task.id });
+          ctx.events.emit('scheduler:task:complete', { id: task.id });
         } finally {
           clearTimeout(timeoutHandle);
         }
       } catch (error) {
         task.reject(error);
-        ctx.events.emit('scheduler.task.error', { id: task.id, error: error.message });
+        ctx.events.emit('scheduler:task:error', { id: task.id, error: error.message });
       } finally {
         running--;
         ctx.state.set('running', running);
@@ -130,7 +130,7 @@ export default createPlugin({
             queued: (ctx.state.get('stats.queued') || 0) + 1,
           });
 
-          ctx.events.emit('scheduler.task.queued', { id, priority });
+          ctx.events.emit('scheduler:task:queued', { id, priority });
           setImmediate(processQueue);
         });
       },
@@ -151,7 +151,7 @@ export default createPlugin({
           queue.splice(idx, 1);
           task.reject(new Error('Task cancelled'));
           tasks.delete(taskId);
-          ctx.events.emit('scheduler.task.cancelled', { id: taskId });
+          ctx.events.emit('scheduler:task:cancelled', { id: taskId });
           return true;
         }
 

@@ -380,7 +380,7 @@ export class AgentOrchestrator extends DisposableBase {
               logger.debug("Failed to get effective concurrency limit", { error: err?.message });
             }
 
-            this.eventBus.emit("system.degradation.level.changed", {
+            this.eventBus.emit("system:degradation:level:changed", {
               actor: ActorType.SYSTEM,
               status: "info",
               payload: decisionContext,
@@ -398,7 +398,7 @@ export class AgentOrchestrator extends DisposableBase {
           const level = degradationMatrix.currentLevel;
           const recommendations = degradationMatrix.getRecommendations();
           if ((stageFailed || level !== "normal") && Array.isArray(recommendations) && recommendations.length > 0) {
-            this.eventBus.emit("system.degradation.recommendations", {
+            this.eventBus.emit("system:degradation:recommendations", {
               actor: ActorType.SYSTEM,
               status: "info",
               payload: { recommendations, level, runId: this.runId, stage: stageName },
