@@ -499,3 +499,54 @@ throw err;
 - **Type**: empty_catch
 - **Resolution**: Fixed by adding logger.debug() or console.warn() to all empty catch blocks
 - **Description**: 空 catch 块静默吞没错误，不记录任何日志或上下文信息。已修复 10 处空 catch 块，为每个空 catch 块添加了适当的日志记录（logger.debug() 或 console.warn()），确保错误信息被记录以便调试。
+
+## Archived: 2026-02-14 (Agent Team 协作修复)
+
+### [RESOLVED] J1. sanitizeString 正则可能遗漏新 token 格式 — LOW
+*Archived: 2026-02-14*
+
+- **Files**: runtime/hooks/hook-runner.js:28
+- **Resolution**: 扩展敏感 token 规则并采用更通用匹配策略，覆盖新 token 格式脱敏场景。
+- **Commit**: 3b3ee416
+
+### [RESOLVED] E11. AbortSignal.any() fallback 边界 bug — LOW
+*Archived: 2026-02-14*
+
+- **Files**: cli/model-client.js:61
+- **Resolution**: 修复 mergeAbortSignals fallback 在“已中止信号”分支的合并逻辑，确保后续监听与清理行为正确。
+- **Commit**: 3b3ee416
+
+### [RESOLVED] C7. pluginRegistry 硬编码 — LOW
+*Archived: 2026-02-14*
+
+- **Files**: plugins/index.js
+- **Resolution**: 插件注册与加载路径改为支持非硬编码扩展方式，新增插件不再依赖静态映射修改。
+- **Commit**: 3b3ee416
+
+### [RESOLVED] D3. SharedContext signal payload 无 schema 验证 — LOW
+*Archived: 2026-02-14*
+
+- **Files**: runtime/core/context/unified-agent-context.js:211
+- **Resolution**: 在 signal payload 写入前增加结构与可序列化约束校验，避免循环引用等边界序列化崩溃。
+- **Commit**: 3b3ee416
+
+### [RESOLVED] Z2. EvalHarness monkey-patch 脆弱 — LOW
+*Archived: 2026-02-14*
+
+- **Files**: eval/harness.js:556
+- **Resolution**: transcript 注入机制改为避免直接覆写 `agent.toolExecutor` 的脆弱 monkey-patch 路径。
+- **Commit**: 3b3ee416
+
+### [RESOLVED] E10. console.log 散布 — LOW
+*Archived: 2026-02-14*
+
+- **Files**: 全局（30+ 文件）
+- **Resolution**: 将相关 `console.*` 输出收敛到统一 logger 体系，提升日志级别控制与一致性。
+- **Commit**: 3b3ee416
+
+### [RESOLVED] AA2. console.warn 而非 logger — LOW
+*Archived: 2026-02-14*
+
+- **Files**: cli/model-client.js:42, 251-252
+- **Resolution**: 将 `console.warn()` 告警输出切换为项目统一 logger 实现，符合日志规范。
+- **Commit**: 3b3ee416

@@ -61,3 +61,19 @@ const parsed = safeJsonParse(raw, { maxChars: 2_000_000 });
 
 ---
 
+## Archived: 2026-02-14
+
+### [RESOLVED] PathTraversal-校验需确认
+*Archived: 2026-02-14T06:05:50.000Z*
+
+- **File**: js/agents/plugins/checkpoints/agent-checkpoint-store.js:92
+- **Description**: 复核完整源码后确认 safeSegment 已对原始值与规范化结果分别拒绝 `.`/`..`，且 runId/checkpointId 的路径拼接均通过 `buildCheckpointDir/buildCheckpointPath` 统一进入 safeSegment。该问题最初由 diff 截断导致“需确认”，现已确认不成立。
+- **Suggestion**: 保持现有二次校验；后续若改动路径构造逻辑，补充包含 `.`/`..` 与异常字符输入的单测，防止回归。
+```
+function buildCheckpointPath(runId, checkpointId) {
+  const safeId = safeSegment(checkpointId, "ckpt");
+  return `${buildCheckpointDir(runId)}/${safeId}.json`;
+}
+```
+
+---

@@ -39,6 +39,8 @@ export default defineConfig({
       'tests/unit/**/*.test.js',
       // Integration tests (cross-module)
       'tests/integration/**/*.test.js',
+      // Colocated unit tests
+      'js/**/__tests__/**/*.test.js',
     ],
     coverage: {
       provider: 'v8',
