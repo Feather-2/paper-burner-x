@@ -50,6 +50,8 @@ export { normalizeToolResult };
  * @property {ToolDefinitions | null} [tools]
  * @property {{ before?: BeforeHook[], after?: AfterHook[] } | null} [hooks]
  * @property {LoggerLike | null} [logger]
+ * @property {import('../../core/archive/archive-core.js').Archive | null} [archive]
+ * @property {string} [runId]
  */
 
 /**
@@ -241,6 +243,13 @@ export class ToolRegistry {
     this._hooks = { before: [], after: [] };
     this._logger = options.logger || null;
 
+    /** @type {import('../../core/archive/archive-core.js').Archive | null} */
+    this._archive = options.archive || null;
+    /** @type {string} */
+    this._runId = options.runId || `run_${Date.now()}`;
+    /** @type {Promise<void> | null} */
+    this._initPromise = null;
+
     if (options.tools) {
       this.registerTools(options.tools);
     }
@@ -339,6 +348,26 @@ export class ToolRegistry {
   /** @param {string} name @returns {Function | undefined} */
   getTool(name) {
     return this.hasTool(name) ? this._tools[name] : undefined;
+  }
+
+  /**
+   * 初始化：从 Archive 恢复工具调用历史索引
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+    if (!this._archive) return;
+
+    this._initPromise = (async () => {
+      try {
+        const checkpoints = await this._archive.list(this._runId);
+        this._logger?.debug?.(`[tool-registry] Loaded ${checkpoints.length} tool call history entries from Archive`);
+      } catch (err) {
+        this._logger?.warn?.(`[tool-registry] Failed to load tool call history from Archive: ${err.message}`);
+      }
+    })();
+
+    return this._initPromise;
   }
 
   /**
@@ -544,6 +573,32 @@ export class ToolRegistry {
       } catch {
         // ignore non-extensible results
       }
+    }
+
+    // Persist tool call history to Archive (async, non-blocking)
+    if (this._archive) {
+      const timestamp = Date.now();
+      const callId = `${this._runId}:tool:${name}:${timestamp}`;
+      const historyEntry = {
+        schemaVersion: 1,
+        tool: name,
+        params: finalParams,
+        result: {
+          ok: result.ok,
+          error: result.error,
+          data: result.ok ? (typeof result.data === "string" ? result.data.slice(0, 1000) : "[data]") : undefined,
+        },
+        timestamp,
+        metadata: {
+          runId: this._runId,
+          actor: context?.actor || context?.agentId || "unknown",
+        },
+      };
+
+      // Fire-and-forget: don't block tool execution on persistence
+      this._archive.save(callId, historyEntry).catch((err) => {
+        this._logger?.warn?.(`[tool-registry] Failed to persist tool call history: ${err.message}`);
+      });
     }
 
     return result;
