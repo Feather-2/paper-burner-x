@@ -737,6 +737,80 @@ for (const [exportName] of functionExports) {
           }
         });
 
+        it("read resource: re-fetches when cached version mismatches latest etag", async () => {
+          const uri = "file:///project/README.md";
+          const { api: client } = createClientStub({
+            resources: [{ uri, name: "README.md", etag: "v1" }],
+            contents: [{ uri, mimeType: "text/markdown", text: "old", etag: "v1" }],
+          });
+          const storage = createStorageMock();
+
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+          });
+
+          const readMethod = findMethod(mgr, [/^readResource$/i, /resource.*read/i, /read.*resource/i]);
+          expect(readMethod).toBeTruthy();
+
+          const first = await callWithFallback(mgr[readMethod].bind(mgr), [[{ providerId: "p1", uri }], ["p1", uri], [uri]]);
+          expect(unwrapContents(first)?.[0]?.text).toBe("old");
+          expect(client.readResource).toHaveBeenCalledTimes(1);
+
+          client.listResources.mockResolvedValueOnce([{ uri, name: "README.md", etag: "v2" }]);
+          client.readResource.mockResolvedValueOnce({ contents: [{ uri, mimeType: "text/markdown", text: "new", etag: "v2" }] });
+
+          const second = await callWithFallback(mgr[readMethod].bind(mgr), [[{ providerId: "p1", uri }], ["p1", uri], [uri]]);
+          expect(unwrapContents(second)?.[0]?.text).toBe("new");
+          expect(client.readResource).toHaveBeenCalledTimes(2);
+        });
+
+        it("init hydration ignores persisted content cache when etag mismatches", async () => {
+          const uri = "file:///project/README.md";
+          const RESOURCES_CACHE_KEY = "pb_mcp_resources_cache_v1";
+          const persistedPayload = {
+            schemaVersion: "0.1",
+            ts: Date.now(),
+            providers: {
+              p1: {
+                ts: Date.now(),
+                ttlMs: 60_000,
+                resources: [{ uri, name: "README.md", etag: "v2" }],
+                contents: {
+                  [uri]: {
+                    ts: Date.now(),
+                    ttlMs: 60_000,
+                    etag: "v1",
+                    content: { contents: [{ uri, mimeType: "text/markdown", text: "stale", etag: "v1" }] },
+                  },
+                },
+              },
+            },
+          };
+          const storage = createStorageMock({ [RESOURCES_CACHE_KEY]: JSON.stringify(persistedPayload) });
+          const { api: client } = createClientStub({
+            resources: [{ uri, name: "README.md", etag: "v2" }],
+            contents: [{ uri, mimeType: "text/markdown", text: "fresh", etag: "v2" }],
+          });
+
+          const mod = await loadFresh();
+          const mgr = await instantiateMaybe(mod[exportName], {
+            client,
+            storage,
+            defaultTtlMs: 60_000,
+            maxPersistBytes: 1024 * 1024,
+          });
+          const readMethod = findMethod(mgr, [/^readResource$/i, /resource.*read/i, /read.*resource/i]);
+          expect(readMethod).toBeTruthy();
+
+          const result = await callWithFallback(mgr[readMethod].bind(mgr), [[{ providerId: "p1", uri }], ["p1", uri], [uri]]);
+          expect(unwrapContents(result)?.[0]?.text).toBe("fresh");
+          expect(client.readResource).toHaveBeenCalledTimes(1);
+        });
+
         it("read resource: error handling (client throws) surfaces an Error or returns an error-shaped result", async () => {
           const { api: client } = createClientStub();
           client.readResource.mockImplementation(async () => {

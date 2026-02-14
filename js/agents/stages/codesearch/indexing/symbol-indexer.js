@@ -334,6 +334,7 @@ export class SymbolIndexer {
     this._queryCacheMax = 50;
     this._queryCache = new LRUCache({ maxSize: this._queryCacheMax }); // key -> { rev, results }
     this._cacheVersion = 1;
+    this._disposed = false;
   }
 
   /**
@@ -503,24 +504,122 @@ export class SymbolIndexer {
   }
 
   /**
+   * @returns {Array<[string, any]>}
+   */
+  _collectQueryCacheEntries() {
+    if (!this._queryCache) return [];
+
+    if (typeof this._queryCache.keys === "function" && typeof this._queryCache.get === "function") {
+      const out = [];
+      for (const key of this._queryCache.keys()) {
+        const value = this._queryCache.get(key);
+        out.push([String(key), value]);
+      }
+      return out;
+    }
+
+    const rawMap = this._queryCache._cache instanceof Map
+      ? this._queryCache._cache
+      : this._queryCache.map instanceof Map
+        ? this._queryCache.map
+        : null;
+    if (!rawMap) return [];
+
+    const out = [];
+    for (const [key, value] of rawMap.entries()) {
+      const normalized = isPlainObject(value) && Object.prototype.hasOwnProperty.call(value, "value") ? value.value : value;
+      out.push([String(key), normalized]);
+    }
+    return out;
+  }
+
+  /**
+   * @returns {any}
+   */
+  _buildArchiveCachePayload() {
+    return {
+      version: this._cacheVersion,
+      indexRevision: this._indexRevision,
+      recordsCache: Array.from(this._recordsCache.entries()),
+      queryCache: this._collectQueryCacheEntries(),
+    };
+  }
+
+  /**
+   * @returns {Promise<boolean>}
+   */
+  async _persistCacheNow() {
+    if (!this._archive || typeof this._archive.set !== "function") return false;
+    try {
+      const key = `symbolIndexer:${this._runId}:cache`;
+      await this._archive.set(key, this._buildArchiveCachePayload());
+      return true;
+    } catch (err) {
+      this._log("warn", "Failed to persist cache to Archive", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+  }
+
+  /**
    * @returns {void}
    */
   _persistCacheAsync() {
     if (!this._archive) return;
     queueMicrotask(async () => {
-      try {
-        const key = `symbolIndexer:${this._runId}:cache`;
-        const data = {
-          version: this._cacheVersion,
-          indexRevision: this._indexRevision,
-          recordsCache: Array.from(this._recordsCache.entries()),
-          queryCache: Array.from(this._queryCache.entries()),
-        };
-        await this._archive.set(key, data);
-      } catch (err) {
-        this._log("warn", "Failed to persist cache to Archive", { error: err instanceof Error ? err.message : String(err) });
-      }
+      await this._persistCacheNow();
     });
+  }
+
+  /**
+   * Best-effort 将缓存记录刷新到持久化层。
+   * 1) 将本地 records cache 回写到索引存储（IndexedDB）
+   * 2) 将 query LRU cache 持久化到 archive（通常由 IndexedDB 适配器承载）
+   *
+   * @returns {Promise<boolean>}
+   */
+  async flush() {
+    if (this._disposed) return false;
+
+    let storeSynced = false;
+    const seen = new Set();
+
+    try {
+      for (const cached of this._recordsCache.values()) {
+        const rows = Array.isArray(cached?.rows) ? cached.rows : [];
+        for (const row of rows) {
+          const ws = toNonEmptyString(row?.workspaceId) || this.workspaceId || "default";
+          const path = toNonEmptyString(row?.path);
+          if (!path) continue;
+          const dedupeKey = `${ws}::${path}`;
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+
+          try {
+            await this.store.putSymbolRecord(ws, path, {
+              sha256: typeof row?.sha256 === "string" ? row.sha256 : undefined,
+              symbols: Array.isArray(row?.symbols) ? row.symbols : [],
+              updatedAt: typeof row?.updatedAt === "string" ? row.updatedAt : undefined,
+            });
+            storeSynced = true;
+          } catch (err) {
+            this._log("warn", "Failed to flush record cache entry to store", {
+              workspaceId: ws,
+              path,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      }
+    } catch (err) {
+      this._log("warn", "Failed to iterate record cache during flush", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    const archiveSynced = await this._persistCacheNow();
+    return storeSynced || archiveSynced;
   }
 
   /**
@@ -668,6 +767,29 @@ export class SymbolIndexer {
     this._queryCache.set(cacheKey, { rev: this._indexRevision, results: out });
     this._persistCacheAsync();
     return out;
+  }
+
+  /**
+   * 释放资源并在退出前尝试同步缓存。
+   *
+   * @returns {Promise<void>}
+   */
+  async dispose() {
+    if (this._disposed) return;
+    try {
+      await this.flush();
+    } catch (err) {
+      this._log("warn", "Flush failed during dispose", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    this._disposed = true;
+    this._langCache.clear();
+    this._recordsCache.clear();
+    this._queryCache.clear();
+    this._parserInstance = null;
+    this._parserPromise = null;
   }
 }
 

@@ -83,6 +83,8 @@ export class DesignBlackboard extends DisposableBase {
     this._stateEngine = stateEngine || null;
     this._archive = archive || null;
     this._lastCheckpointId = null;
+    this._lastCheckpointSnapshot = null;
+    this._checkpointPending = null;
     this._stateEngineUnsubscribe = null;
 
     // 本地存储（当无 MemoryStore 时使用）
@@ -106,6 +108,8 @@ export class DesignBlackboard extends DisposableBase {
       this._memoryStore = null;
       this._archive = null;
       this._lastCheckpointId = null;
+      this._lastCheckpointSnapshot = null;
+      this._checkpointPending = null;
 
       try {
         this._summaries?.clear?.();
@@ -608,6 +612,34 @@ export class DesignBlackboard extends DisposableBase {
     }
   }
 
+  _beginCheckpointTransaction(snapshot) {
+    const previous = {
+      lastCheckpointId: this._lastCheckpointId,
+      lastCheckpointSnapshot: cloneValue(this._lastCheckpointSnapshot),
+      checkpointPending: cloneValue(this._checkpointPending),
+    };
+    this._lastCheckpointSnapshot = cloneValue(snapshot);
+    this._checkpointPending = {
+      runId: this.runId,
+      startedAt: Date.now(),
+    };
+    return previous;
+  }
+
+  _rollbackCheckpointTransaction(previous) {
+    const prev = isPlainObject(previous) ? previous : {};
+    this._lastCheckpointId = toNonEmptyString(prev.lastCheckpointId) || null;
+    this._lastCheckpointSnapshot = cloneValue(prev.lastCheckpointSnapshot);
+    this._checkpointPending = cloneValue(prev.checkpointPending);
+  }
+
+  _finishCheckpointTransaction(checkpointId) {
+    const normalized = toNonEmptyString(checkpointId) || null;
+    if (normalized) this._lastCheckpointId = normalized;
+    this._checkpointPending = null;
+    return normalized;
+  }
+
   /**
    * 保存当前黑板状态到 Archive（best-effort）。
    *
@@ -620,6 +652,15 @@ export class DesignBlackboard extends DisposableBase {
     if (!archive) return null;
 
     const snapshot = this._createArchiveSnapshot();
+    let txState = null;
+
+    try {
+      txState = this._beginCheckpointTransaction(snapshot);
+    } catch (err) {
+      logSilentWarning("checkpoint.prepareMemory", err);
+      return null;
+    }
+
     try {
       if (typeof archive.save === "function") {
         const checkpointId = await archive.save(this.runId, {
@@ -630,20 +671,32 @@ export class DesignBlackboard extends DisposableBase {
             runId: this.runId,
           },
         });
-        const normalized = toNonEmptyString(checkpointId) || null;
-        if (normalized) this._lastCheckpointId = normalized;
-        return normalized;
+        return this._finishCheckpointTransaction(checkpointId);
       }
 
       if (typeof archive.set === "function") {
         const key = `design.blackboard.${this.runId}`;
         await archive.set(key, snapshot);
-        this._lastCheckpointId = key;
-        return key;
+        return this._finishCheckpointTransaction(key);
       }
     } catch (err) {
+      if (txState) {
+        try {
+          this._rollbackCheckpointTransaction(txState);
+        } catch (rollbackErr) {
+          logSilentWarning("checkpoint.rollback", rollbackErr);
+        }
+      }
       logSilentWarning("checkpoint.archive", err);
       return null;
+    }
+
+    if (txState) {
+      try {
+        this._rollbackCheckpointTransaction(txState);
+      } catch (rollbackErr) {
+        logSilentWarning("checkpoint.rollback.noop", rollbackErr);
+      }
     }
 
     return null;
@@ -796,6 +849,8 @@ export class DesignBlackboard extends DisposableBase {
     const metadata = isPlainObject(data.metadata) ? data.metadata : null;
     const restoredCheckpointId = toNonEmptyString(data.checkpointId) || toNonEmptyString(metadata?.checkpointId) || null;
     if (restoredCheckpointId) this._lastCheckpointId = restoredCheckpointId;
+    this._lastCheckpointSnapshot = cloneValue(this._createArchiveSnapshot());
+    this._checkpointPending = null;
 
     if (this._memoryStore) {
       try {

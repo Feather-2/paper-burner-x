@@ -39,6 +39,12 @@ vi.mock("../../../../../../js/agents/shared/index.js", () => {
   return {
     initTreeSitter: vi.fn(),
     loadTreeSitterLanguage: vi.fn(),
+    createLogger: vi.fn(() => ({
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    })),
     toNonEmptyString,
     isPlainObject,
     LRUCache,
@@ -505,6 +511,78 @@ describe("SymbolIndexer", () => {
     indexer.invalidateCaches();
     await indexer.query({ query: "", limit: 10 });
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("flush() persists records cache and archive cache payload", async () => {
+    const store = new CodeSearchIndexStore();
+    const archive = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => true),
+    };
+    const indexer = new SymbolIndexer({ store, archive, workspaceId: "default", runId: "run-flush" });
+
+    indexer._recordsCache.set("default", {
+      rev: 3,
+      rows: [
+        {
+          workspaceId: "default",
+          path: "src/a.js",
+          sha256: "sha-a",
+          symbols: [{ name: "Alpha", kind: "function" }],
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    indexer._queryCache.set("default::src/::alpha::10", { rev: 3, results: [{ name: "Alpha" }] });
+
+    const ok = await indexer.flush();
+    expect(ok).toBe(true);
+
+    const persistedRecord = await store.getSymbolRecord("default", "src/a.js");
+    expect(persistedRecord).toEqual(
+      expect.objectContaining({
+        workspaceId: "default",
+        path: "src/a.js",
+        sha256: "sha-a",
+      }),
+    );
+
+    expect(archive.set).toHaveBeenCalledTimes(1);
+    const [key, payload] = archive.set.mock.calls[0];
+    expect(key).toBe("symbolIndexer:run-flush:cache");
+    expect(payload).toEqual(
+      expect.objectContaining({
+        version: expect.any(Number),
+        recordsCache: expect.any(Array),
+        queryCache: expect.arrayContaining([
+          ["default::src/::alpha::10", expect.objectContaining({ rev: 3 })],
+        ]),
+      }),
+    );
+  });
+
+  it("dispose() auto-flushes cache before clearing state", async () => {
+    const store = new CodeSearchIndexStore();
+    const archive = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => true),
+    };
+    const indexer = new SymbolIndexer({ store, archive, workspaceId: "default", runId: "run-dispose" });
+    indexer._recordsCache.set("default", {
+      rev: 1,
+      rows: [{ workspaceId: "default", path: "src/b.js", sha256: "sha-b", symbols: [{ name: "Beta" }] }],
+    });
+
+    const flushSpy = vi.spyOn(indexer, "flush");
+    await indexer.dispose();
+
+    expect(flushSpy).toHaveBeenCalledTimes(1);
+    expect(indexer._disposed).toBe(true);
+    expect(indexer._recordsCache.size).toBe(0);
+    expect(indexer._queryCache.get("any")).toBeUndefined();
+
+    const persisted = await store.getSymbolRecord("default", "src/b.js");
+    expect(persisted?.sha256).toBe("sha-b");
   });
 
   it("query supports concurrent calls", async () => {

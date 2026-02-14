@@ -32,6 +32,12 @@ function normalizeStorageId(value) {
   return id;
 }
 
+function normalizePositiveInteger(value, fallback) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
 /**
  * @typedef {object} L3TimelineEntry
  * @property {string} id
@@ -60,6 +66,9 @@ export class L3Storage extends DisposableBase {
    * @param {number} [options.maxStorageBytes=104857600] - Max storage bytes before eviction (100MB)
    * @param {TabCoordinator} [options.tabCoordinator] - Optional TabCoordinator for cross-tab LRU sync
    * @param {object} [options.eventBus] - Optional EventBus for emitting l3:evicted events
+   * @param {boolean} [options.enableIncrementalIndex=true] - Enable incremental index refresh on init
+   * @param {number} [options.incrementalIndexWindowMs=3600000] - Recent modification window for incremental refresh
+   * @param {number} [options.incrementalIndexMaxEntries=64] - Max snapshots to load during incremental refresh
    */
   constructor(options) {
     super();
@@ -136,6 +145,17 @@ export class L3Storage extends DisposableBase {
 
     /** @private - whether TabCoordinator is successfully enabled */
     this._tabCoordinatorEnabled = false;
+
+    /** @private */
+    this._enableIncrementalIndex = o.enableIncrementalIndex !== false;
+    /** @private */
+    this._incrementalIndexWindowMs = normalizePositiveInteger(o.incrementalIndexWindowMs, 60 * 60 * 1000);
+    /** @private */
+    this._incrementalIndexMaxEntries = normalizePositiveInteger(o.incrementalIndexMaxEntries, 64);
+    /** @private */
+    this._indexUpdatedAt = 0;
+    /** @private */
+    this._incrementalRefreshPromise = null;
   }
 
   /**
@@ -148,6 +168,7 @@ export class L3Storage extends DisposableBase {
 
     await this._io.ensureDirs();
     await this.restoreIndex();
+    this._scheduleIncrementalIndexRefresh();
 
     // Attach TabCoordinator with error handling (graceful degradation)
     if (this._tabCoordinator) {
@@ -291,6 +312,223 @@ export class L3Storage extends DisposableBase {
     if (!id) return;
 
     updateSnapshotAccess(this._index, id, Date.now());
+  }
+
+  /**
+   * Schedule incremental index refresh in a microtask.
+   * Keeps init fast while still repairing stale/missing index entries.
+   * @private
+   * @returns {void}
+   */
+  _scheduleIncrementalIndexRefresh() {
+    if (!this._enableIncrementalIndex) return;
+    if (this._incrementalRefreshPromise) return;
+
+    this._incrementalRefreshPromise = new Promise((resolve) => {
+      queueMicrotask(async () => {
+        try {
+          await this._refreshIndexIncrementally();
+        } catch (err) {
+          logger.warn("[L3Storage] incremental index refresh failed:", err);
+        } finally {
+          this._incrementalRefreshPromise = null;
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * Wait for pending incremental index refresh.
+   * Useful for deterministic tests.
+   * @returns {Promise<void>}
+   */
+  async waitForIncrementalIndexRefresh() {
+    if (this._incrementalRefreshPromise) {
+      await this._incrementalRefreshPromise;
+    }
+  }
+
+  /**
+   * @private
+   * @param {string} path
+   * @returns {string|null}
+   */
+  _snapshotIdFromPath(path) {
+    const raw = toNonEmptyString(path);
+    if (!raw) return null;
+    const fileName = raw.split("/").pop() || "";
+    if (!fileName.endsWith(".json")) return null;
+    return normalizeStorageId(fileName.slice(0, -5));
+  }
+
+  /**
+   * @private
+   * @returns {Promise<string[]>}
+   */
+  async _listSnapshotFilePaths() {
+    const dir = this._io.snapshotsDir;
+
+    if (typeof this._vfs.listFiles === "function") {
+      try {
+        const files = await this._vfs.listFiles({ prefix: dir, recursive: false });
+        return Array.isArray(files) ? files.filter((path) => String(path).endsWith(".json")) : [];
+      } catch (err) {
+        logger.warn("[L3Storage] listFiles failed during incremental refresh:", err);
+      }
+    }
+
+    if (typeof this._vfs.readdir === "function") {
+      try {
+        const entries = await this._vfs.readdir(dir, { withFileTypes: true });
+        if (!Array.isArray(entries)) return [];
+        const files = [];
+        for (const entry of entries) {
+          const name = toNonEmptyString(entry?.name || entry);
+          if (!name || !name.endsWith(".json")) continue;
+          const isDirectory = typeof entry?.isDirectory === "function" ? entry.isDirectory() : false;
+          if (isDirectory) continue;
+          files.push(`${dir}/${name}`);
+        }
+        return files;
+      } catch (err) {
+        logger.warn("[L3Storage] readdir failed during incremental refresh:", err);
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * @private
+   * @param {string} path
+   * @returns {Promise<number>}
+   */
+  async _readMtime(path) {
+    if (typeof this._vfs.stat !== "function") return 0;
+    try {
+      const st = await this._vfs.stat(path);
+      const mtime = typeof st?.mtimeMs === "number" && Number.isFinite(st.mtimeMs) ? st.mtimeMs : 0;
+      return mtime > 0 ? Math.floor(mtime) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * @private
+   * @returns {Promise<Array<{ id: string, path: string, mtimeMs: number }>>}
+   */
+  async _collectIncrementalCandidates() {
+    const files = await this._listSnapshotFilePaths();
+    if (files.length === 0) return [];
+
+    const knownIds = new Set(
+      (Array.isArray(this._index.timeline) ? this._index.timeline : [])
+        .map((entry) => normalizeStorageId(entry?.id))
+        .filter(Boolean)
+    );
+    const now = Date.now();
+    const windowStart = Math.max(0, now - this._incrementalIndexWindowMs);
+    const baseUpdatedAt = this._indexUpdatedAt > 0 ? this._indexUpdatedAt : 0;
+    const cutoffTs = Math.max(windowStart, baseUpdatedAt > 0 ? baseUpdatedAt - 1000 : 0);
+    const coldStart = knownIds.size === 0;
+
+    const candidates = [];
+    for (const filePath of files) {
+      const id = this._snapshotIdFromPath(filePath);
+      if (!id) continue;
+      const mtimeMs = await this._readMtime(filePath);
+      const isKnown = knownIds.has(id);
+
+      let shouldLoad = false;
+      if (coldStart) {
+        shouldLoad = true;
+      } else if (!isKnown) {
+        shouldLoad = mtimeMs <= 0 || mtimeMs >= cutoffTs;
+      } else {
+        shouldLoad = mtimeMs > 0 && mtimeMs >= cutoffTs;
+      }
+      if (!shouldLoad) continue;
+
+      candidates.push({ id, path: filePath, mtimeMs });
+    }
+
+    candidates.sort((a, b) => {
+      const aTs = typeof a.mtimeMs === "number" ? a.mtimeMs : 0;
+      const bTs = typeof b.mtimeMs === "number" ? b.mtimeMs : 0;
+      if (bTs !== aTs) return bTs - aTs;
+      return String(a.id).localeCompare(String(b.id));
+    });
+
+    return candidates.slice(0, this._incrementalIndexMaxEntries);
+  }
+
+  /**
+   * @private
+   * @returns {Promise<void>}
+   */
+  async _refreshIndexIncrementally() {
+    if (!this._enableIncrementalIndex || this.disposed) return;
+
+    const candidates = await this._collectIncrementalCandidates();
+    if (candidates.length === 0) return;
+
+    let touched = false;
+    for (const candidate of candidates) {
+      try {
+        const snapshot = await this._io.readJson(candidate.path);
+        if (!snapshot || typeof snapshot !== "object") continue;
+
+        const snapshotId = normalizeStorageId(snapshot.id) || candidate.id;
+        if (!snapshotId) continue;
+
+        removeSnapshotFromIndex(this._index, snapshotId);
+
+        const stageKey = toNonEmptyString(snapshot.stageKey);
+        const keywords = normalizeKeywords(snapshot.keywords);
+        const ts = typeof snapshot.ts === "number" && Number.isFinite(snapshot.ts)
+          ? snapshot.ts
+          : candidate.mtimeMs > 0
+            ? candidate.mtimeMs
+            : Date.now();
+        const summary = toNonEmptyString(snapshot.summary) || getSummary(snapshot.data);
+        const contentHash = toNonEmptyString(snapshot.contentHash);
+
+        addSnapshotToIndex(this._index, {
+          id: snapshotId,
+          ts,
+          stageKey,
+          keywords,
+          summary,
+          ...(contentHash ? { contentHash } : {}),
+        });
+
+        const timelineEntry = Array.isArray(this._index.timeline)
+          ? this._index.timeline.find((entry) => entry?.id === snapshotId)
+          : null;
+        if (timelineEntry && snapshot.superseded === true) {
+          timelineEntry.superseded = true;
+          timelineEntry.supersededBy = toNonEmptyString(snapshot.supersededBy) || "";
+        }
+
+        this._snapshotCache.set(snapshotId, snapshot);
+        touched = true;
+      } catch (err) {
+        logger.warn("[L3Storage] failed to refresh incremental snapshot:", {
+          id: candidate.id,
+          error: err?.message || String(err),
+        });
+      }
+    }
+
+    if (!touched) return;
+
+    try {
+      await this.persistIndex();
+    } catch (err) {
+      logger.warn("[L3Storage] persistIndex failed after incremental refresh:", err);
+    }
   }
 
   /**
@@ -486,6 +724,9 @@ export class L3Storage extends DisposableBase {
     this._ensureNotDisposed();
     const data = serializeIndexState(this._index, this._checkpointIndex, this._runId);
     await this._io.persistIndex(data);
+    this._indexUpdatedAt = typeof data?.updatedAt === "number" && Number.isFinite(data.updatedAt)
+      ? data.updatedAt
+      : Date.now();
   }
 
   /**
@@ -501,6 +742,9 @@ export class L3Storage extends DisposableBase {
     if (!restored) return;
     this._index = restored.index;
     this._checkpointIndex = restored.checkpointIndex;
+    this._indexUpdatedAt = typeof raw.updatedAt === "number" && Number.isFinite(raw.updatedAt)
+      ? raw.updatedAt
+      : 0;
   }
 
   /**
@@ -711,6 +955,11 @@ export class L3Storage extends DisposableBase {
   async dispose() {
     if (this.disposed) return;
     this._detachTabCoordinator();
+    try {
+      await this.waitForIncrementalIndexRefresh();
+    } catch (err) {
+      logger.warn("[L3Storage] waitForIncrementalIndexRefresh() failed during dispose:", err);
+    }
     try {
       await this.persistIndex();
     } catch (err) {

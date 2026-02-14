@@ -82,6 +82,98 @@ describe("L3Storage", () => {
     ]);
   });
 
+  it("init() incrementally loads recently changed snapshots into index", async () => {
+    const runId = "run_incremental_refresh";
+    const vfs = new MemoryVfs();
+    const { indexPath, snapshotPath } = getPaths(runId);
+    const snapshotId = "snap_recent_1";
+
+    await vfs.writeText(
+      indexPath,
+      JSON.stringify({
+        schemaVersion: "0.1",
+        runId,
+        updatedAt: Date.now() - 1000,
+        timeline: [],
+        keywords: [],
+        stages: [],
+        checkpointIndex: [],
+      }),
+    );
+    await vfs.writeText(
+      snapshotPath(snapshotId),
+      JSON.stringify({
+        id: snapshotId,
+        runId,
+        ts: Date.now(),
+        stageKey: "stage-inc",
+        keywords: ["new", "inc"],
+        summary: "incremental snapshot",
+        data: { summary: "incremental snapshot" },
+      }),
+    );
+
+    const storage = new L3Storage({
+      vfs,
+      runId,
+      incrementalIndexWindowMs: 5 * 60 * 1000,
+      incrementalIndexMaxEntries: 8,
+    });
+    await storage.init();
+    await storage.waitForIncrementalIndexRefresh();
+
+    const timeline = storage.getTimeline();
+    expect(timeline.map((entry) => entry.id)).toContain(snapshotId);
+    expect(storage.searchByKeyword("new")).toContain(snapshotId);
+
+    const snap = await storage.getSnapshot(snapshotId);
+    expect(snap?.id).toBe(snapshotId);
+    expect(snap?.summary).toBe("incremental snapshot");
+  });
+
+  it("supports disabling incremental index refresh (backward compatibility)", async () => {
+    const runId = "run_incremental_disabled";
+    const vfs = new MemoryVfs();
+    const { indexPath, snapshotPath } = getPaths(runId);
+    const snapshotId = "snap_disabled_1";
+
+    await vfs.writeText(
+      indexPath,
+      JSON.stringify({
+        schemaVersion: "0.1",
+        runId,
+        updatedAt: Date.now() - 1000,
+        timeline: [],
+        keywords: [],
+        stages: [],
+        checkpointIndex: [],
+      }),
+    );
+    await vfs.writeText(
+      snapshotPath(snapshotId),
+      JSON.stringify({
+        id: snapshotId,
+        runId,
+        ts: Date.now(),
+        stageKey: "stage-disabled",
+        keywords: ["disabled"],
+        summary: "should not load",
+        data: { summary: "should not load" },
+      }),
+    );
+
+    const storage = new L3Storage({
+      vfs,
+      runId,
+      enableIncrementalIndex: false,
+    });
+    await storage.init();
+    await storage.waitForIncrementalIndexRefresh();
+
+    expect(storage.getTimeline()).toEqual([]);
+    expect(storage.searchByKeyword("disabled")).toEqual([]);
+  });
+
   it("archive() writes snapshot to VFS and updates index", async () => {
     const runId = "run_archive";
     const vfs = new MemoryVfs();
@@ -133,6 +225,7 @@ describe("L3Storage", () => {
       expect(fromVfs?.id).toBe(snapId);
       expect(spy.calls.filter((p) => p === snapshotPath(snapId)).length).toBe(1);
 
+      await storage2.waitForIncrementalIndexRefresh();
       spy.calls.length = 0;
       const cachedAgain = await storage2.getSnapshot(snapId);
       expect(cachedAgain?.id).toBe(snapId);

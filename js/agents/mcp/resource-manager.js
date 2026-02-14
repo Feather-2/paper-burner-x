@@ -178,6 +178,67 @@ function storeSetFireAndForget(store, key, value) {
   return false;
 }
 
+function normalizeVersionFieldValue(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const s = value.trim();
+    return s.length > 0 ? s : null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return String(Math.floor(value));
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString();
+  return null;
+}
+
+function readVersionField(obj, keys) {
+  if (!isPlainObject(obj)) return null;
+  for (const key of keys) {
+    const value = normalizeVersionFieldValue(obj[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function extractVersionInfo(value) {
+  if (!isPlainObject(value)) return { etag: null, lastModified: null };
+  const annotations = isPlainObject(value.annotations) ? value.annotations : null;
+  const meta = isPlainObject(value.meta) ? value.meta : null;
+  const firstContent =
+    Array.isArray(value.contents) && value.contents.length > 0 && isPlainObject(value.contents[0]) ? value.contents[0] : null;
+
+  const etag = readVersionField(value, ["etag", "eTag", "revision", "version"])
+    || readVersionField(annotations, ["etag", "eTag", "revision", "version"])
+    || readVersionField(meta, ["etag", "eTag", "revision", "version"])
+    || readVersionField(firstContent, ["etag", "eTag", "revision", "version"]);
+
+  const lastModified = readVersionField(value, ["lastModified", "last_modified", "updatedAt", "modifiedAt", "mtime", "ts"])
+    || readVersionField(annotations, ["lastModified", "last_modified", "updatedAt", "modifiedAt", "mtime", "ts"])
+    || readVersionField(meta, ["lastModified", "last_modified", "updatedAt", "modifiedAt", "mtime", "ts"])
+    || readVersionField(firstContent, ["lastModified", "last_modified", "updatedAt", "modifiedAt", "mtime", "ts"]);
+
+  return { etag, lastModified };
+}
+
+function hasVersionInfo(version) {
+  return Boolean(version && (toNonEmptyString(version.etag) || toNonEmptyString(version.lastModified)));
+}
+
+function isVersionConsistent(cachedVersion, latestVersion) {
+  if (!hasVersionInfo(cachedVersion)) return true;
+  if (!hasVersionInfo(latestVersion)) return true;
+
+  const cachedEtag = toNonEmptyString(cachedVersion.etag);
+  const latestEtag = toNonEmptyString(latestVersion.etag);
+  if (cachedEtag && latestEtag && cachedEtag !== latestEtag) return false;
+  if (!cachedEtag && latestEtag) return false;
+
+  const cachedLastModified = toNonEmptyString(cachedVersion.lastModified);
+  const latestLastModified = toNonEmptyString(latestVersion.lastModified);
+  if (cachedLastModified && latestLastModified && cachedLastModified !== latestLastModified) return false;
+  if (!cachedLastModified && latestLastModified && !cachedEtag) return false;
+
+  return true;
+}
+
 /**
  * McpResourceManager (browser-first)
  *
@@ -223,7 +284,7 @@ export class McpResourceManager {
 
     this._listCache = new Map(); // providerId -> { ts, ttlMs, resources }
     this._templatesCache = new Map(); // providerId -> { ts, ttlMs, templates }
-    this._contentCache = new Map(); // providerId:uri -> { ts, ttlMs, content, byteSize }
+    this._contentCache = new Map(); // providerId:uri -> { ts, ttlMs, content, byteSize, etag?, lastModified? }
     this._contentCacheTotalBytes = 0; // 当前缓存总字节数
 
     this._subs = new Map(); // subId -> { providerId, uri, callback }
@@ -263,6 +324,77 @@ export class McpResourceManager {
     }
   }
 
+  _deleteContentCacheEntry(cacheKey) {
+    const entry = this._contentCache.get(cacheKey);
+    if (!entry) return false;
+    this._contentCacheTotalBytes -= entry.byteSize || 0;
+    if (this._contentCacheTotalBytes < 0) this._contentCacheTotalBytes = 0;
+    this._contentCache.delete(cacheKey);
+    return true;
+  }
+
+  _extractCachedVersion(cachedEntry) {
+    const etag = normalizeVersionFieldValue(cachedEntry?.etag);
+    const lastModified = normalizeVersionFieldValue(cachedEntry?.lastModified);
+    if (etag || lastModified) return { etag, lastModified };
+    return extractVersionInfo(cachedEntry?.content);
+  }
+
+  _findResourceVersionInList(resources, uri) {
+    if (!Array.isArray(resources)) return null;
+    const target = toNonEmptyString(uri);
+    if (!target) return null;
+    const hit = resources.find((item) => toNonEmptyString(item?.uri) === target);
+    if (!hit) return null;
+    const version = extractVersionInfo(hit);
+    return hasVersionInfo(version) ? version : null;
+  }
+
+  async _loadResourceVersionHint(providerId, provider, uri) {
+    const pid = toNonEmptyString(providerId);
+    const targetUri = toNonEmptyString(uri);
+    if (!pid || !targetUri) return null;
+
+    const now = Date.now();
+    const cachedList = this._listCache.get(pid);
+    const cachedTtl = normalizeTtlMs(cachedList?.ttlMs, this.defaultTtlMs);
+    if (
+      cachedList &&
+      (cachedTtl <= 0 || now - cachedList.ts <= cachedTtl) &&
+      Array.isArray(cachedList.resources)
+    ) {
+      const version = this._findResourceVersionInList(cachedList.resources, targetUri);
+      if (version) return version;
+    }
+
+    if (!provider || typeof provider.listResources !== "function") return null;
+
+    try {
+      const fetched = await provider.listResources();
+      const resources = Array.isArray(fetched) ? fetched : [];
+      this._listCache.set(pid, { ts: Date.now(), ttlMs: this.defaultTtlMs, resources });
+      this._persistCache();
+      return this._findResourceVersionInList(resources, targetUri);
+    } catch (err) {
+      logger.warn("Resource version hint refresh failed", {
+        providerId: pid,
+        uri: targetUri,
+        error: err?.message || String(err),
+      });
+      return null;
+    }
+  }
+
+  async _isCachedEntryVersionConsistent(providerId, provider, uri, cachedEntry) {
+    const cachedVersion = this._extractCachedVersion(cachedEntry);
+    if (!hasVersionInfo(cachedVersion)) return true;
+
+    const latestVersion = await this._loadResourceVersionHint(providerId, provider, uri);
+    if (!hasVersionInfo(latestVersion)) return true;
+
+    return isVersionConsistent(cachedVersion, latestVersion);
+  }
+
   _touchContentCache(cacheKey) {
     const max = this.maxContentCacheEntries;
     if (max === 0 || max === Infinity) return;
@@ -289,8 +421,7 @@ export class McpResourceManager {
       const ts = typeof v?.ts === "number" && Number.isFinite(v.ts) ? v.ts : 0;
       const ttlMs = typeof v?.ttlMs === "number" && Number.isFinite(v.ttlMs) ? v.ttlMs : 0;
       if (ttlMs > 0 && nowMs - ts > ttlMs) {
-        this._contentCacheTotalBytes -= v.byteSize || 0;
-        this._contentCache.delete(k);
+        this._deleteContentCacheEntry(k);
       }
     }
 
@@ -298,9 +429,7 @@ export class McpResourceManager {
     while (this._contentCacheTotalBytes > limitBytes && this._contentCache.size > 0) {
       const oldest = this._contentCache.keys().next().value;
       if (!oldest) break;
-      const v = this._contentCache.get(oldest);
-      this._contentCacheTotalBytes -= v?.byteSize || 0;
-      this._contentCache.delete(oldest);
+      this._deleteContentCacheEntry(oldest);
     }
 
     // 3. 条目数限制
@@ -308,9 +437,7 @@ export class McpResourceManager {
       while (this._contentCache.size > limitEntries) {
         const oldest = this._contentCache.keys().next().value;
         if (!oldest) break;
-        const v = this._contentCache.get(oldest);
-        this._contentCacheTotalBytes -= v?.byteSize || 0;
-        this._contentCache.delete(oldest);
+        this._deleteContentCacheEntry(oldest);
       }
     }
   }
@@ -332,6 +459,7 @@ export class McpResourceManager {
     if (!isPlainObject(parsed) || !isPlainObject(parsed.providers)) return;
 
     const now = Date.now();
+    this._contentCacheTotalBytes = 0;
     for (const [providerId, entry] of Object.entries(parsed.providers)) {
       if (!isPlainObject(entry)) continue;
       const list = Array.isArray(entry.resources) ? entry.resources : null;
@@ -344,13 +472,40 @@ export class McpResourceManager {
       if (list) this._listCache.set(providerId, { ts, ttlMs, resources: list });
       if (templates) this._templatesCache.set(providerId, { ts, ttlMs, templates });
       if (contents) {
+        const versionByUri = new Map();
+        if (Array.isArray(list)) {
+          for (const resource of list) {
+            const uri = toNonEmptyString(resource?.uri);
+            if (!uri) continue;
+            const version = extractVersionInfo(resource);
+            if (!hasVersionInfo(version)) continue;
+            versionByUri.set(uri, version);
+          }
+        }
+
         for (const [uri, c] of Object.entries(contents)) {
           if (!isPlainObject(c)) continue;
           const cts = Number.isFinite(Number(c.ts)) ? Math.floor(Number(c.ts)) : ts;
           const cttl = normalizeTtlMs(c.ttlMs, ttlMs);
           if (cttl > 0 && now - cts > cttl) continue;
           if (!isPlainObject(c.content)) continue;
-          this._contentCache.set(keyOf(providerId, uri), { ts: cts, ttlMs: cttl, content: c.content });
+          const persistedVersion = {
+            etag: normalizeVersionFieldValue(c.etag) || extractVersionInfo(c.content).etag,
+            lastModified: normalizeVersionFieldValue(c.lastModified) || extractVersionInfo(c.content).lastModified,
+          };
+          const listVersion = versionByUri.get(uri) || null;
+          if (!isVersionConsistent(persistedVersion, listVersion)) continue;
+
+          const byteSize = this._estimateContentByteSize(c.content);
+          this._contentCache.set(keyOf(providerId, uri), {
+            ts: cts,
+            ttlMs: cttl,
+            content: c.content,
+            byteSize,
+            etag: persistedVersion.etag || null,
+            lastModified: persistedVersion.lastModified || null,
+          });
+          this._contentCacheTotalBytes += byteSize;
         }
       }
     }
@@ -365,9 +520,15 @@ export class McpResourceManager {
     this._pruneContentCache();
 
     const providers = {};
+    const contentProviderIds = new Set();
+    for (const cacheKey of this._contentCache.keys()) {
+      const idx = String(cacheKey).indexOf(":");
+      if (idx > 0) contentProviderIds.add(String(cacheKey).slice(0, idx));
+    }
     for (const providerId of new Set([
       ...Array.from(this._listCache.keys()),
       ...Array.from(this._templatesCache.keys()),
+      ...Array.from(contentProviderIds),
     ])) {
       const list = this._listCache.get(providerId);
       const templates = this._templatesCache.get(providerId);
@@ -383,8 +544,17 @@ export class McpResourceManager {
         const text = typeof content.text === "string" ? content.text : "";
         const approxBytes = text.length;
         if (approxBytes > this.maxPersistBytes) continue;
-
-        contents[uri] = { ts: v.ts, ttlMs: v.ttlMs, content };
+        const version = {
+          etag: normalizeVersionFieldValue(v?.etag) || extractVersionInfo(content).etag,
+          lastModified: normalizeVersionFieldValue(v?.lastModified) || extractVersionInfo(content).lastModified,
+        };
+        contents[uri] = {
+          ts: v.ts,
+          ttlMs: v.ttlMs,
+          content,
+          ...(version.etag ? { etag: version.etag } : {}),
+          ...(version.lastModified ? { lastModified: version.lastModified } : {}),
+        };
       }
 
       providers[providerId] = {
@@ -461,7 +631,7 @@ export class McpResourceManager {
     const { providerId: id } = this._getProvider(providerId);
     const u = toNonEmptyString(uri);
     if (!u) return;
-    this._contentCache.delete(keyOf(id, u));
+    this._deleteContentCacheEntry(keyOf(id, u));
     this._persistCache();
   }
 
@@ -519,8 +689,12 @@ export class McpResourceManager {
     this._pruneContentCache(now);
     const cached = this._contentCache.get(cacheKey);
     if (!forceRefresh && cached && (ttl <= 0 || now - cached.ts <= ttl)) {
-      this._touchContentCache(cacheKey);
-      return cached.content;
+      const versionOk = await this._isCachedEntryVersionConsistent(id, provider, u, cached);
+      if (versionOk) {
+        this._touchContentCache(cacheKey);
+        return cached.content;
+      }
+      this._deleteContentCacheEntry(cacheKey);
     }
 
     if (typeof provider.readResource !== "function") {
@@ -529,6 +703,7 @@ export class McpResourceManager {
 
     const content = await provider.readResource(u);
     const normalizedContent = isPlainObject(content) ? content : { uri: u };
+    const version = extractVersionInfo(normalizedContent);
 
     // 估算内容字节大小
     const byteSize = this._estimateContentByteSize(normalizedContent);
@@ -536,10 +711,17 @@ export class McpResourceManager {
     // 如果已有旧缓存，先减去旧大小
     const oldCached = this._contentCache.get(cacheKey);
     if (oldCached) {
-      this._contentCacheTotalBytes -= oldCached.byteSize || 0;
+      this._deleteContentCacheEntry(cacheKey);
     }
 
-    this._contentCache.set(cacheKey, { ts: Date.now(), ttlMs: ttl, content: normalizedContent, byteSize });
+    this._contentCache.set(cacheKey, {
+      ts: Date.now(),
+      ttlMs: ttl,
+      content: normalizedContent,
+      byteSize,
+      etag: version.etag,
+      lastModified: version.lastModified,
+    });
     this._contentCacheTotalBytes += byteSize;
 
     this._pruneContentCache();
@@ -754,7 +936,7 @@ export class McpResourceManager {
     if (method === "notifications/resources/updated") {
       const uri = toNonEmptyString(params.uri);
       if (!uri) return;
-      this._contentCache.delete(keyOf(pid, uri));
+      this._deleteContentCacheEntry(keyOf(pid, uri));
       this._persistCache();
 
       const subs = Array.from(this._subs.values()).filter((s) => s.providerId === pid && s.uri === uri);

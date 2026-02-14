@@ -583,6 +583,13 @@ describe("DesignBlackboard", () => {
     const checkpointId = await bb.checkpoint();
 
     expect(checkpointId).toBe("design:checkpoint-1");
+    expect(bb._checkpointPending).toBe(null);
+    expect(bb._lastCheckpointSnapshot).toEqual(
+      expect.objectContaining({
+        runId: "run-archive",
+        summaries: expect.objectContaining({ stage: "summary" }),
+      }),
+    );
     expect(archive.save).toHaveBeenCalledWith(
       "run-archive",
       expect.objectContaining({
@@ -597,7 +604,12 @@ describe("DesignBlackboard", () => {
     const failingArchive = makeArchive();
     failingArchive.save.mockRejectedValueOnce(new Error("archive-fail"));
     const bbFail = new DesignBlackboard({ runId: "run-fail", archive: failingArchive });
+    bbFail._lastCheckpointId = "checkpoint:old";
+    bbFail._lastCheckpointSnapshot = { keep: true };
     await expect(bbFail.checkpoint()).resolves.toBeNull();
+    expect(bbFail._lastCheckpointId).toBe("checkpoint:old");
+    expect(bbFail._lastCheckpointSnapshot).toEqual({ keep: true });
+    expect(bbFail._checkpointPending).toBe(null);
     expect(debugSpy).toHaveBeenCalled();
   });
 
