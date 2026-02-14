@@ -8,6 +8,7 @@ import { isPlainObject } from "../shared/index.js";
  * @property {number=} mtimeMs
  * @property {() => boolean} isFile
  * @property {() => boolean} isDirectory
+ * @property {() => boolean} isSymbolicLink
  */
 
 /**
@@ -15,6 +16,7 @@ import { isPlainObject } from "../shared/index.js";
  * @property {string} name
  * @property {() => boolean} isDirectory
  * @property {() => boolean} isFile
+ * @property {() => boolean} isSymbolicLink
  */
 
 /**
@@ -65,7 +67,7 @@ function bytesToText(bytes) {
  */
 function isVfsDirent(entry) {
   if (!entry || typeof entry !== "object") return false;
-  const e = /** @type {{ name?: unknown, isDirectory?: unknown, isFile?: unknown }} */ (entry);
+  const e = /** @type {{ name?: unknown, isDirectory?: unknown, isFile?: unknown, isSymbolicLink?: unknown }} */ (entry);
   return typeof e.name === "string" && typeof e.isDirectory === "function" && typeof e.isFile === "function";
 }
 
@@ -74,6 +76,7 @@ function makeDirent(entry) {
     name: entry.name,
     isDirectory: () => entry.kind === "dir",
     isFile: () => entry.kind === "file",
+    isSymbolicLink: () => entry.kind === "symlink",
   };
 }
 
@@ -89,6 +92,14 @@ class FileNode {
   constructor(bytes) {
     this.kind = "file";
     this.bytes = bytes instanceof Uint8Array ? bytes : dataToBytes(bytes);
+    this.updatedAt = Date.now();
+  }
+}
+
+class SymlinkNode {
+  constructor(target) {
+    this.kind = "symlink";
+    this.target = target;
     this.updatedAt = Date.now();
   }
 }
@@ -136,15 +147,29 @@ export class MemoryVfs {
     return node;
   }
 
-  _getNode(path) {
+  _getNode(path, { followSymlinks = true } = {}) {
     const p = normalizeVfsPath(path);
     if (!p) return this._root;
     const parts = toSegments(p);
     let node = this._root;
+    let depth = 0;
+    const maxDepth = 8;
+
     for (let i = 0; i < parts.length; i++) {
       const name = parts[i];
       const next = node.children.get(name);
       if (!next) return null;
+
+      if (next.kind === "symlink" && followSymlinks) {
+        if (++depth > maxDepth) throw new Error(`ELOOP: ${p}`);
+        const target = this._getNode(next.target, { followSymlinks: true });
+        if (!target) throw new Error(`ENOENT: ${next.target}`);
+        if (i === parts.length - 1) return target;
+        if (target.kind !== "dir") throw new Error(`ENOTDIR: ${p}`);
+        node = target;
+        continue;
+      }
+
       if (i === parts.length - 1) return next;
       if (next.kind !== "dir") throw new Error(`ENOTDIR: ${p}`);
       node = next;
@@ -160,6 +185,34 @@ export class MemoryVfs {
     const parentPath = parentParts.join("/");
     const parent = this._getDirNode(parentPath, { create });
     return { parent, name: parts[parts.length - 1], parentPath, fullPath: p };
+  }
+
+  /**
+   * @param {string} target
+   * @param {string} path
+   * @returns {Promise<boolean>}
+   */
+  async symlink(target, path) {
+    const { parent, name, fullPath } = this._getParentDirForPath(path, { create: true });
+    if (!parent) throw new Error(`ENOENT: ${fullPath}`);
+    const existing = parent.children.get(name);
+    if (existing) throw new Error(`EEXIST: ${fullPath}`);
+    parent.children.set(name, new SymlinkNode(target));
+    parent.updatedAt = Date.now();
+    return true;
+  }
+
+  /**
+   * @param {string} path
+   * @returns {Promise<string>}
+   */
+  async readlink(path) {
+    const p = normalizeVfsPath(path);
+    if (!p) throw new Error("EINVAL: /");
+    const node = this._getNode(p, { followSymlinks: false });
+    if (!node) throw new Error(`ENOENT: ${p}`);
+    if (node.kind !== "symlink") throw new Error(`EINVAL: ${p}`);
+    return node.target;
   }
 
   /**
@@ -212,6 +265,50 @@ export class MemoryVfs {
    * @param {string} path
    * @returns {Promise<VfsStat>}
    */
+  async lstat(path) {
+    const p = normalizeVfsPath(path);
+    if (!p) {
+      return {
+        size: 0,
+        mtimeMs: this._root.updatedAt,
+        isFile: () => false,
+        isDirectory: () => true,
+        isSymbolicLink: () => false,
+      };
+    }
+    const node = this._getNode(p, { followSymlinks: false });
+    if (!node) throw new Error(`ENOENT: ${p}`);
+    if (node.kind === "file") {
+      return {
+        size: node.bytes.byteLength,
+        mtimeMs: node.updatedAt,
+        isFile: () => true,
+        isDirectory: () => false,
+        isSymbolicLink: () => false,
+      };
+    }
+    if (node.kind === "symlink") {
+      return {
+        size: 0,
+        mtimeMs: node.updatedAt,
+        isFile: () => false,
+        isDirectory: () => false,
+        isSymbolicLink: () => true,
+      };
+    }
+    return {
+      size: 0,
+      mtimeMs: node.updatedAt,
+      isFile: () => false,
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    };
+  }
+
+  /**
+   * @param {string} path
+   * @returns {Promise<VfsStat>}
+   */
   async stat(path) {
     const p = normalizeVfsPath(path);
     if (!p) {
@@ -220,9 +317,10 @@ export class MemoryVfs {
         mtimeMs: this._root.updatedAt,
         isFile: () => false,
         isDirectory: () => true,
+        isSymbolicLink: () => false,
       };
     }
-    const node = this._getNode(p);
+    const node = this._getNode(p, { followSymlinks: true });
     if (!node) throw new Error(`ENOENT: ${p}`);
     if (node.kind === "file") {
       return {
@@ -230,10 +328,17 @@ export class MemoryVfs {
         mtimeMs: node.updatedAt,
         isFile: () => true,
         isDirectory: () => false,
+        isSymbolicLink: () => false,
       };
     }
 
-    return { size: 0, mtimeMs: node.updatedAt, isFile: () => false, isDirectory: () => true };
+    return {
+      size: 0,
+      mtimeMs: node.updatedAt,
+      isFile: () => false,
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    };
   }
 
   /**
@@ -249,7 +354,7 @@ export class MemoryVfs {
     if (node.kind !== "dir") throw new Error(`ENOTDIR: ${p}`);
 
     const entries = Array.from(node.children.entries())
-      .map(([name, child]) => ({ name, kind: child.kind === "dir" ? "dir" : "file" }))
+      .map(([name, child]) => ({ name, kind: child.kind }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
     if (!withFileTypes) return entries.map((e) => e.name);
@@ -259,14 +364,17 @@ export class MemoryVfs {
   /**
    * Legacy compatibility helper used by some runtimes.
    * @param {string} path
-   * @returns {Promise<Array<{ name: string, kind: "file" | "dir" }>>}
+   * @returns {Promise<Array<{ name: string, kind: "file" | "dir" | "symlink" }>>}
    */
   async list(path) {
     const dirents = await this.readdir(path, { withFileTypes: true });
     if (!Array.isArray(dirents)) return [];
     return dirents
       .filter(isVfsDirent)
-      .map((entry) => ({ name: entry.name, kind: entry.isDirectory() ? "dir" : "file" }));
+      .map((entry) => ({
+        name: entry.name,
+        kind: entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "dir" : "file",
+      }));
   }
 
   /**
@@ -350,7 +458,7 @@ export class MemoryVfs {
     if (!parent) throw new Error(`ENOENT: ${p}`);
     const node = parent.children.get(name);
     if (!node) throw new Error(`ENOENT: ${p}`);
-    if (node.kind !== "file") throw new Error(`EISDIR: ${p}`);
+    if (node.kind === "dir") throw new Error(`EISDIR: ${p}`);
 
     parent.children.delete(name);
     parent.updatedAt = Date.now();

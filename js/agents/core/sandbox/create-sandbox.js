@@ -156,6 +156,10 @@ async function createMainSandbox(cfg) {
     throw new Error('Main-thread sandbox disabled by config');
   }
 
+  if (cfg.vfs?._isRemote && cfg.mainThreadFallback !== false) {
+    throw new Error('Main-thread sandbox with remote VFS will cause synchronous IO deadlock. Use worker/iframe sandbox instead.');
+  }
+
   return wrapAsSandbox('main', cfg,
     async (code) => {
       // eslint-disable-next-line no-new-func

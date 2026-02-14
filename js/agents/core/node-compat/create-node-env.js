@@ -10,6 +10,7 @@ import { createSandbox } from '../sandbox/wasm-sandbox.js';
 import { QuotaEnforcer } from './quota.js';
 import { ObservabilityStream, withObservability } from './observability.js';
 import { createLogger } from '../../shared/utils/logger.js';
+import { setupErrorStackTracePolyfill } from './polyfills/error-stack-trace.js';
 
 const logger = createLogger('node-compat/create-node-env');
 
@@ -51,6 +52,9 @@ export async function createNodeEnv(config = {}) {
     quota,
     observability,
   } = config;
+
+  // 0. Setup polyfills
+  setupErrorStackTracePolyfill();
 
   // 1. Resource enforcement
   const quotaEnforcer = quota ? new QuotaEnforcer(quota) : null;
