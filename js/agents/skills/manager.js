@@ -86,17 +86,11 @@ export class SkillsManager {
           }
         }
       } catch (err) {
-        this._initPromise = null;
         throw err;
       }
     })();
 
-    try {
-      return await this._initPromise;
-    } catch (err) {
-      this._initPromise = null;
-      throw err;
-    }
+    return this._initPromise;
   }
 
   /**
