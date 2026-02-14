@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-01-24T09:47:04.577Z",
+  "generated": "2026-02-13T14:36:18.043Z",
   "root": "js/agents",
   "files": {
     "cli/demo.js": {
@@ -9,7 +9,10 @@
         "sdk/index.js"
       ],
       "importedBy": [],
-      "exports": []
+      "exports": [
+        "buildDemoAgent",
+        "createModelRouter"
+      ]
     },
     "cli/model-client.js": {
       "imports": [
@@ -36,7 +39,11 @@
         "stages/textprep/chunk.js"
       ],
       "importedBy": [],
-      "exports": []
+      "exports": [
+        "askQuestion",
+        "findMdFiles",
+        "loadSource"
+      ]
     },
     "cli/test-memory.js": {
       "imports": [
@@ -136,8 +143,61 @@
         "isServiceProvider"
       ]
     },
-    "core/contracts/disposable.js": {
+    "core/contracts/agent-coordinator.js": {
+      "imports": [
+        "core/contracts/agent-registry.js"
+      ],
+      "importedBy": [
+        "core/contracts/index.js"
+      ],
+      "exports": [
+        "AgentCoordinator",
+        "createAgentCoordinator"
+      ]
+    },
+    "core/contracts/agent-message.js": {
       "imports": [],
+      "importedBy": [
+        "core/contracts/index.js",
+        "core/contracts/shared-task-board.js"
+      ],
+      "exports": [
+        "AgentMessageKind",
+        "AgentRunStatus",
+        "TaskStatus",
+        "createKnowledgeShare",
+        "createStatusUpdate",
+        "createTaskRequest",
+        "createTaskResult",
+        "validateAgentMessage",
+        "validateKnowledgeShare",
+        "validateStatusUpdate",
+        "validateTaskRequest",
+        "validateTaskResult"
+      ]
+    },
+    "core/contracts/agent-registry.js": {
+      "imports": [],
+      "importedBy": [
+        "core/contracts/agent-coordinator.js",
+        "core/contracts/index.js"
+      ],
+      "exports": [
+        "AGENT_STATUSES",
+        "AGENT_TYPES",
+        "AgentRegistry",
+        "AgentStatus",
+        "AgentType",
+        "createAgentDescriptor",
+        "isValidAgentStatus",
+        "isValidAgentType",
+        "validateAgentDescriptor"
+      ]
+    },
+    "core/contracts/disposable.js": {
+      "imports": [
+        "shared/utils/logger.js"
+      ],
       "importedBy": [
         "shared/base/disposable-base.js"
       ],
@@ -151,19 +211,58 @@
     },
     "core/contracts/index.js": {
       "imports": [
+        "core/contracts/agent-coordinator.js",
+        "core/contracts/agent-message.js",
+        "core/contracts/agent-registry.js",
         "core/contracts/llm-response.js",
         "core/contracts/rpc-message.js",
-        "core/contracts/tool-result.js"
+        "core/contracts/shared-task-board.js",
+        "core/contracts/taskboard-orchestrator-bridge.js",
+        "core/contracts/tool-result.js",
+        "core/contracts/trace-propagator.js"
       ],
       "importedBy": [
         "core/index.js",
         "shared/index.js"
       ],
       "exports": [
+        "AgentCoordinator",
+        "AgentMessageKind",
+        "AgentRegistry",
+        "AgentRunStatus",
+        "AgentStatus",
+        "AgentType",
+        "SharedTaskBoard",
+        "TaskBoardEvents",
+        "TaskBoardOrchestratorBridge",
+        "TaskStatus",
+        "TraceContextPropagator",
+        "createAgentCoordinator",
+        "createAgentDescriptor",
+        "createKnowledgeShare",
+        "createStatusUpdate",
+        "createTaskBoardBridge",
+        "createTaskRequest",
+        "createTaskResult",
+        "createTracePropagator",
+        "extractTrace",
+        "formatTraceparent",
+        "generateSpanId",
+        "generateTraceId",
+        "injectTrace",
+        "isValidAgentStatus",
+        "isValidAgentType",
         "normalizeToolResult",
+        "parseTraceparent",
+        "validateAgentDescriptor",
+        "validateAgentMessage",
+        "validateKnowledgeShare",
         "validateLlmResponse",
         "validateRpcRequest",
         "validateRpcResponse",
+        "validateStatusUpdate",
+        "validateTaskRequest",
+        "validateTaskResult",
         "validateToolCall",
         "validateToolResult"
       ]
@@ -188,6 +287,28 @@
         "validateRpcResponse"
       ]
     },
+    "core/contracts/shared-task-board.js": {
+      "imports": [
+        "core/contracts/agent-message.js"
+      ],
+      "importedBy": [
+        "core/contracts/index.js"
+      ],
+      "exports": [
+        "SharedTaskBoard",
+        "TaskBoardEvents"
+      ]
+    },
+    "core/contracts/taskboard-orchestrator-bridge.js": {
+      "imports": [],
+      "importedBy": [
+        "core/contracts/index.js"
+      ],
+      "exports": [
+        "TaskBoardOrchestratorBridge",
+        "createTaskBoardBridge"
+      ]
+    },
     "core/contracts/tool-result.js": {
       "imports": [],
       "importedBy": [
@@ -196,6 +317,22 @@
       "exports": [
         "normalizeToolResult",
         "validateToolResult"
+      ]
+    },
+    "core/contracts/trace-propagator.js": {
+      "imports": [],
+      "importedBy": [
+        "core/contracts/index.js"
+      ],
+      "exports": [
+        "TraceContextPropagator",
+        "createTracePropagator",
+        "extractTrace",
+        "formatTraceparent",
+        "generateSpanId",
+        "generateTraceId",
+        "injectTrace",
+        "parseTraceparent"
       ]
     },
     "core/crdt/counters.js": {
@@ -236,7 +373,8 @@
         "core/crdt/lww-map.js",
         "core/crdt/lww-register.js",
         "core/crdt/or-set.js",
-        "core/crdt/sync-manager.js"
+        "core/crdt/sync-manager.js",
+        "core/crdt/websocket-transport.js"
       ],
       "importedBy": [
         "core/index.js"
@@ -250,8 +388,10 @@
         "ORSet",
         "OpType",
         "PNCounter",
+        "WebSocketCrdtTransport",
         "createMemoryTransport",
         "createOp",
+        "createWebSocketTransport",
         "default"
       ]
     },
@@ -296,7 +436,8 @@
     },
     "core/crdt/sync-manager.js": {
       "imports": [
-        "core/crdt/document.js"
+        "core/crdt/document.js",
+        "shared/index.js"
       ],
       "importedBy": [
         "core/crdt/index.js"
@@ -305,6 +446,18 @@
         "CRDTSyncManager",
         "createMemoryTransport",
         "default"
+      ]
+    },
+    "core/crdt/websocket-transport.js": {
+      "imports": [
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "core/crdt/index.js"
+      ],
+      "exports": [
+        "WebSocketCrdtTransport",
+        "createWebSocketTransport"
       ]
     },
     "core/di/container.js": {
@@ -330,15 +483,31 @@
         "core/message-bus.js",
         "llm/model-router.js",
         "mcp/mcp-client.js",
+        "plugins/compression/watchdog.js",
+        "plugins/deps/python-skill-executor.js",
+        "plugins/memory/memory-store.impl.core.js",
+        "plugins/memory/state-engine.js",
+        "plugins/policy/engine.js",
+        "plugins/policy/manager.js",
         "plugins/resilience/degradation-matrix.js",
         "plugins/telemetry/index.js",
+        "plugins/telemetry/replay-controller.js",
+        "retrieval/embeddings/hnsw-lite.js",
         "retrieval/retrieval-router.js",
         "retrieval/toc-builder.js",
         "runtime/core/error-boundary.js",
+        "runtime/core/js-adapter.js",
+        "runtime/core/python-adapter.js",
+        "runtime/core/scheduler.js",
+        "runtime/core/shared-memory.js",
+        "runtime/core/vfs-proxy.js",
+        "runtime/core/worker-pool.js",
         "runtime/hooks/event-bus-hooks.js",
+        "runtime/tools/tool-quotas.js",
         "sdk/SubagentRegistry.js",
         "sdk/injection-scanner.js",
         "shared/index.js",
+        "shared/retry-strategy.js",
         "shared/utils/budget.js",
         "shared/utils/schema-validator.js",
         "vfs/delta-sync.js",
@@ -392,6 +561,38 @@
         "createTestContainer"
       ]
     },
+    "core/event-bus-helpers.js": {
+      "imports": [
+        "core/event-bus-utils.js",
+        "core/event-record.js"
+      ],
+      "importedBy": [
+        "core/event-bus.js"
+      ],
+      "exports": [
+        "DEFAULT_BACKPRESSURE_BATCH_WINDOW_MS",
+        "DEFAULT_BACKPRESSURE_COALESCE_PATTERN",
+        "DEFAULT_BACKPRESSURE_DEFER_NON_COALESCED",
+        "DEFAULT_BACKPRESSURE_MAX_QUEUE_SIZE",
+        "appendEventsToRunStore",
+        "assertPersistenceAdapter",
+        "assertRunStoreEvents",
+        "assertRunStoreShape",
+        "cancelBackpressureSchedule",
+        "collectMatchingWaiters",
+        "createBackpressureState",
+        "createReplayEvent",
+        "deriveReplayClock",
+        "enqueueBackpressureEvent",
+        "extractEventDataFields",
+        "flushBackpressureQueue",
+        "isObject",
+        "normalizeBackpressureOptions",
+        "normalizeRunStore",
+        "regexTest",
+        "toWaitForResult"
+      ]
+    },
     "core/event-bus-subscriptions.js": {
       "imports": [
         "core/event-bus-utils.js"
@@ -406,6 +607,7 @@
     "core/event-bus-utils.js": {
       "imports": [],
       "importedBy": [
+        "core/event-bus-helpers.js",
         "core/event-bus-subscriptions.js",
         "core/event-bus.js",
         "core/event-record.js"
@@ -421,6 +623,7 @@
     },
     "core/event-bus.js": {
       "imports": [
+        "core/event-bus-helpers.js",
         "core/event-bus-subscriptions.js",
         "core/event-bus-utils.js",
         "core/event-record.js",
@@ -436,11 +639,12 @@
         "core/message-bus.js",
         "runtime/core/micro-kernel.js",
         "runtime/core/orchestrator.js",
+        "runtime/core/stage-rpc-bridge.js",
         "runtime/events/event-bus.js",
         "runtime/index.js",
         "sdk/agent-factory.js",
-        "sdk/index.js",
-        "stages/deepsearch/subagents.js"
+        "sdk/convenience.js",
+        "sdk/index.js"
       ],
       "exports": [
         "EventBus",
@@ -459,6 +663,7 @@
         "core/lamport-clock.js"
       ],
       "importedBy": [
+        "core/event-bus-helpers.js",
         "core/event-bus.js"
       ],
       "exports": [
@@ -489,6 +694,8 @@
         "index.js"
       ],
       "exports": [
+        "AgentMessageKind",
+        "AgentRunStatus",
         "Archive",
         "CRDTDocument",
         "CRDTSyncManager",
@@ -524,6 +731,7 @@
         "SkillExecutor",
         "StateBus",
         "TRANSIENT",
+        "TaskStatus",
         "WasmSandbox",
         "adaptProvider",
         "adaptProviders",
@@ -532,6 +740,7 @@
         "createCheckpoint",
         "createContainer",
         "createEventRecord",
+        "createKnowledgeShare",
         "createMemoryTransport",
         "createOp",
         "createPlugin",
@@ -539,6 +748,9 @@
         "createSandbox",
         "createSandboxPlugin",
         "createSkillExecutor",
+        "createStatusUpdate",
+        "createTaskRequest",
+        "createTaskResult",
         "createTestContainer",
         "createTimeoutProxy",
         "deepsearchKernel",
@@ -555,9 +767,14 @@
         "productionKernel",
         "quickKernel",
         "resolvePreset",
+        "validateAgentMessage",
+        "validateKnowledgeShare",
         "validateLlmResponse",
         "validateRpcRequest",
         "validateRpcResponse",
+        "validateStatusUpdate",
+        "validateTaskRequest",
+        "validateTaskResult",
         "validateToolCall",
         "validateToolResult"
       ]
@@ -583,7 +800,8 @@
         "core/presets.js",
         "core/service-bus.js",
         "core/state-bus.js",
-        "plugins/index.js"
+        "plugins/index.js",
+        "shared/utils/logger.js"
       ],
       "importedBy": [
         "core/di/defaults.js",
@@ -598,7 +816,7 @@
     },
     "core/lamport-clock.js": {
       "imports": [
-        "shared/index.js"
+        "shared/utils/secure-id.js"
       ],
       "importedBy": [
         "core/crdt/counters.js",
@@ -618,8 +836,10 @@
         "compare",
         "currentSeq",
         "default",
+        "getDefaultClockService",
         "nextTick",
         "resetClock",
+        "setDefaultClockService",
         "sortByLogicalOrder",
         "stampEvent",
         "sync"
@@ -632,11 +852,1202 @@
       "importedBy": [
         "core/di/defaults.js",
         "core/index.js",
-        "runtime/core/api/stage-api-factory.js"
+        "runtime/core/api/stage-api-helpers.js",
+        "runtime/core/stage-rpc-bridge.js"
       ],
       "exports": [
         "MessageBus",
         "default"
+      ]
+    },
+    "core/node-compat/cors-proxy.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/index.js"
+      ],
+      "exports": [
+        "buildProxyUrl",
+        "createCorsProxy",
+        "getCorsProxy",
+        "proxyFetch",
+        "setCorsProxy"
+      ]
+    },
+    "core/node-compat/create-node-env.js": {
+      "imports": [
+        "core/node-compat/observability.js",
+        "core/node-compat/quota.js",
+        "core/sandbox/wasm-sandbox.js",
+        "core/webruntime/vfs-events.js",
+        "vfs/vfs.memory.js"
+      ],
+      "importedBy": [
+        "core/node-compat/index.js",
+        "core/node-compat/sandbox-tool.js"
+      ],
+      "exports": [
+        "createNodeEnv"
+      ]
+    },
+    "core/node-compat/execution-strategy.js": {
+      "imports": [
+        "core/sandbox/wasm-sandbox.js"
+      ],
+      "importedBy": [
+        "core/node-compat/index.js"
+      ],
+      "exports": [
+        "createExecutionContext",
+        "detectAvailableModes",
+        "selectExecutionMode"
+      ]
+    },
+    "core/node-compat/index.js": {
+      "imports": [
+        "core/node-compat/cors-proxy.js",
+        "core/node-compat/create-node-env.js",
+        "core/node-compat/execution-strategy.js",
+        "core/node-compat/module-resolver.js",
+        "core/node-compat/npm/index.js",
+        "core/node-compat/observability.js",
+        "core/node-compat/polyfills/stack-trace.js",
+        "core/node-compat/polyfills/text-decoder.js",
+        "core/node-compat/quota.js",
+        "core/node-compat/repl.js",
+        "core/node-compat/require.js",
+        "core/node-compat/sandbox-tool.js",
+        "core/node-compat/shims/index.js",
+        "core/node-compat/transform-esm.js",
+        "core/node-compat/vfs-adapter.js"
+      ],
+      "importedBy": [
+        "core/sandbox/index.js"
+      ],
+      "exports": [
+        "BUILTIN_MODULE_NAMES",
+        "ExtendedTextDecoder",
+        "ModuleResolver",
+        "ObservabilityStream",
+        "PackageManager",
+        "QuotaEnforcer",
+        "RAW_STACK",
+        "SANDBOX_TOOL_DEFINITION",
+        "buildProxyUrl",
+        "createBuiltinModules",
+        "createCallSite",
+        "createCorsProxy",
+        "createExecutionContext",
+        "createNodeEnv",
+        "createREPL",
+        "createRequire",
+        "createResolver",
+        "createSandboxTool",
+        "createVfsAdapter",
+        "detectAvailableModes",
+        "getCorsProxy",
+        "hasESMSyntax",
+        "installPolyfill",
+        "installStackTracePolyfill",
+        "parseStack",
+        "proxyFetch",
+        "selectExecutionMode",
+        "setCorsProxy",
+        "transformESMtoCJS",
+        "withObservability"
+      ]
+    },
+    "core/node-compat/module-resolver.js": {
+      "imports": [
+        "vfs/path.js"
+      ],
+      "importedBy": [
+        "core/node-compat/index.js",
+        "core/node-compat/require.js"
+      ],
+      "exports": [
+        "BUILTIN_MODULE_NAMES",
+        "ModuleResolver",
+        "createResolver",
+        "resolveExportConditions",
+        "resolvePackageExports"
+      ]
+    },
+    "core/node-compat/npm/index.js": {
+      "imports": [
+        "core/node-compat/npm/registry.js",
+        "core/node-compat/npm/resolver.js",
+        "core/node-compat/npm/tarball.js",
+        "core/node-compat/package-compatibility.js",
+        "vfs/vfs.memory.js"
+      ],
+      "importedBy": [
+        "core/node-compat/index.js"
+      ],
+      "exports": [
+        "EventEmitter",
+        "PackageManager",
+        "default"
+      ]
+    },
+    "core/node-compat/npm/registry.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/npm/index.js"
+      ],
+      "exports": [
+        "Registry",
+        "default",
+        "encodePackageName",
+        "normalizeRegistryUrl"
+      ]
+    },
+    "core/node-compat/npm/resolver.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/npm/index.js"
+      ],
+      "exports": [
+        "DependencyResolver",
+        "compareVersions",
+        "default",
+        "parseSemver",
+        "satisfies"
+      ]
+    },
+    "core/node-compat/npm/tarball.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/npm/index.js"
+      ],
+      "exports": [
+        "TarballManager",
+        "default",
+        "parseTarHeaders"
+      ]
+    },
+    "core/node-compat/observability.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/create-node-env.js",
+        "core/node-compat/index.js"
+      ],
+      "exports": [
+        "ObservabilityStream",
+        "withObservability"
+      ]
+    },
+    "core/node-compat/package-compatibility.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/npm/index.js"
+      ],
+      "exports": [
+        "checkPackageCompatibility",
+        "formatCompatibilityReport",
+        "isLikelyCompatible"
+      ]
+    },
+    "core/node-compat/polyfills/stack-trace.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/index.js"
+      ],
+      "exports": [
+        "RAW_STACK",
+        "createCallSite",
+        "installStackTracePolyfill",
+        "parseStack"
+      ]
+    },
+    "core/node-compat/polyfills/text-decoder.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/index.js"
+      ],
+      "exports": [
+        "ExtendedTextDecoder",
+        "installPolyfill"
+      ]
+    },
+    "core/node-compat/quota.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/create-node-env.js",
+        "core/node-compat/index.js"
+      ],
+      "exports": [
+        "QuotaEnforcer"
+      ]
+    },
+    "core/node-compat/repl.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/index.js"
+      ],
+      "exports": [
+        "createREPL"
+      ]
+    },
+    "core/node-compat/require.js": {
+      "imports": [
+        "core/node-compat/module-resolver.js",
+        "core/node-compat/transform-esm.js"
+      ],
+      "importedBy": [
+        "core/node-compat/index.js",
+        "core/node-compat/sandbox-tool.js"
+      ],
+      "exports": [
+        "createRequire"
+      ]
+    },
+    "core/node-compat/sandbox-tool.js": {
+      "imports": [
+        "core/node-compat/create-node-env.js",
+        "core/node-compat/require.js",
+        "core/node-compat/shims/index.js",
+        "core/sandbox/iframe-eval-bridge.js"
+      ],
+      "importedBy": [
+        "core/node-compat/index.js"
+      ],
+      "exports": [
+        "SANDBOX_TOOL_DEFINITION",
+        "createSandboxTool"
+      ]
+    },
+    "core/node-compat/shims/assert.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "AssertionError",
+        "assert",
+        "default"
+      ]
+    },
+    "core/node-compat/shims/async_hooks.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "AsyncLocalStorage",
+        "AsyncResource",
+        "createHook",
+        "default",
+        "executionAsyncId",
+        "executionAsyncResource",
+        "triggerAsyncId"
+      ]
+    },
+    "core/node-compat/shims/buffer.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/crypto.js",
+        "core/node-compat/shims/http.js",
+        "core/node-compat/shims/index.js",
+        "core/node-compat/shims/stream.js"
+      ],
+      "exports": [
+        "Buffer",
+        "INSPECT_MAX_BYTES",
+        "SlowBuffer",
+        "constants",
+        "default",
+        "kMaxLength",
+        "transcode"
+      ]
+    },
+    "core/node-compat/shims/child-process.js": {
+      "imports": [
+        "vfs/path.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "createChildProcessShim"
+      ]
+    },
+    "core/node-compat/shims/child_process-browser.js": {
+      "imports": [
+        "core/node-compat/shims/events.js",
+        "core/node-compat/shims/stream.js"
+      ],
+      "importedBy": [],
+      "exports": [
+        "ChildProcess",
+        "default",
+        "exec",
+        "execFile",
+        "execSync",
+        "fork",
+        "initChildProcess",
+        "spawn",
+        "spawnSync"
+      ]
+    },
+    "core/node-compat/shims/chokidar.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "FSWatcher",
+        "default",
+        "setVFS",
+        "watch"
+      ]
+    },
+    "core/node-compat/shims/cluster.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "SCHED_NONE",
+        "SCHED_RR",
+        "Worker",
+        "default",
+        "disconnect",
+        "emit",
+        "fork",
+        "isMaster",
+        "isPrimary",
+        "isWorker",
+        "on",
+        "once",
+        "removeListener",
+        "schedulingPolicy",
+        "settings",
+        "setupMaster",
+        "setupPrimary",
+        "worker",
+        "workers"
+      ]
+    },
+    "core/node-compat/shims/crypto.js": {
+      "imports": [
+        "core/node-compat/shims/buffer.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "createCipheriv",
+        "createDecipheriv",
+        "createHash",
+        "createHmac",
+        "createSign",
+        "createVerify",
+        "default",
+        "getRandomValues",
+        "pbkdf2",
+        "pbkdf2Sync",
+        "randomBytes",
+        "randomFillSync",
+        "randomInt",
+        "randomUUID",
+        "webcrypto",
+        "wrapKey"
+      ]
+    },
+    "core/node-compat/shims/dgram.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "Socket",
+        "createSocket",
+        "default"
+      ]
+    },
+    "core/node-compat/shims/diagnostics_channel.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "Channel",
+        "TracingChannel",
+        "channel",
+        "default",
+        "hasSubscribers",
+        "subscribe",
+        "tracingChannel",
+        "unsubscribe"
+      ]
+    },
+    "core/node-compat/shims/dns.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "ADDRCONFIG",
+        "ALL",
+        "V4MAPPED",
+        "default",
+        "getDefaultResultOrder",
+        "getServers",
+        "lookup",
+        "options",
+        "promises",
+        "resolve",
+        "resolve4",
+        "resolve6",
+        "reverse",
+        "setDefaultResultOrder",
+        "setServers"
+      ]
+    },
+    "core/node-compat/shims/domain.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "Domain",
+        "active",
+        "create",
+        "default"
+      ]
+    },
+    "core/node-compat/shims/esbuild.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "build",
+        "default",
+        "initialize",
+        "transform",
+        "version"
+      ]
+    },
+    "core/node-compat/shims/events.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/child_process-browser.js",
+        "core/node-compat/shims/chokidar.js",
+        "core/node-compat/shims/cluster.js",
+        "core/node-compat/shims/dgram.js",
+        "core/node-compat/shims/domain.js",
+        "core/node-compat/shims/http.js",
+        "core/node-compat/shims/http2.js",
+        "core/node-compat/shims/index.js",
+        "core/node-compat/shims/inspector.js",
+        "core/node-compat/shims/net.js",
+        "core/node-compat/shims/process.js",
+        "core/node-compat/shims/readline.js",
+        "core/node-compat/shims/stream.js",
+        "core/node-compat/shims/tls.js",
+        "core/node-compat/shims/worker_threads.js",
+        "core/node-compat/shims/ws.js"
+      ],
+      "exports": [
+        "EventEmitter",
+        "default"
+      ]
+    },
+    "core/node-compat/shims/fs.js": {
+      "imports": [
+        "vfs/path.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "createFsShim"
+      ]
+    },
+    "core/node-compat/shims/fsevents.js": {
+      "imports": [],
+      "importedBy": [],
+      "exports": [
+        "constants",
+        "default",
+        "getInfo",
+        "watch"
+      ]
+    },
+    "core/node-compat/shims/http.js": {
+      "imports": [
+        "core/node-compat/shims/buffer.js",
+        "core/node-compat/shims/events.js",
+        "core/node-compat/shims/net.js",
+        "core/node-compat/shims/stream.js",
+        "core/sandbox/network-policy-utils.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/https.js",
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "IncomingMessage",
+        "METHODS",
+        "STATUS_CODES",
+        "ServerResponse",
+        "createHttpShim",
+        "default"
+      ]
+    },
+    "core/node-compat/shims/http2.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "ClientHttp2Session",
+        "Http2ServerRequest",
+        "Http2ServerResponse",
+        "Http2Session",
+        "Http2Stream",
+        "ServerHttp2Session",
+        "connect",
+        "constants",
+        "createSecureServer",
+        "createServer",
+        "default",
+        "getDefaultSettings",
+        "getPackedSettings",
+        "getUnpackedSettings",
+        "sensitiveHeaders"
+      ]
+    },
+    "core/node-compat/shims/https.js": {
+      "imports": [
+        "core/node-compat/shims/http.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "Agent",
+        "ClientRequest",
+        "IncomingMessage",
+        "METHODS",
+        "STATUS_CODES",
+        "Server",
+        "ServerResponse",
+        "createServer",
+        "default",
+        "get",
+        "getAllServers",
+        "getServer",
+        "globalAgent",
+        "request",
+        "setServerCloseCallback",
+        "setServerListenCallback"
+      ]
+    },
+    "core/node-compat/shims/index.js": {
+      "imports": [
+        "core/node-compat/shims/assert.js",
+        "core/node-compat/shims/async_hooks.js",
+        "core/node-compat/shims/buffer.js",
+        "core/node-compat/shims/child-process.js",
+        "core/node-compat/shims/chokidar.js",
+        "core/node-compat/shims/cluster.js",
+        "core/node-compat/shims/crypto.js",
+        "core/node-compat/shims/dgram.js",
+        "core/node-compat/shims/diagnostics_channel.js",
+        "core/node-compat/shims/dns.js",
+        "core/node-compat/shims/domain.js",
+        "core/node-compat/shims/esbuild.js",
+        "core/node-compat/shims/events.js",
+        "core/node-compat/shims/fs.js",
+        "core/node-compat/shims/http.js",
+        "core/node-compat/shims/http2.js",
+        "core/node-compat/shims/https.js",
+        "core/node-compat/shims/inspector.js",
+        "core/node-compat/shims/module.js",
+        "core/node-compat/shims/net.js",
+        "core/node-compat/shims/os.js",
+        "core/node-compat/shims/path.js",
+        "core/node-compat/shims/perf_hooks.js",
+        "core/node-compat/shims/process.js",
+        "core/node-compat/shims/querystring.js",
+        "core/node-compat/shims/readline.js",
+        "core/node-compat/shims/stream.js",
+        "core/node-compat/shims/string_decoder.js",
+        "core/node-compat/shims/timers.js",
+        "core/node-compat/shims/tls.js",
+        "core/node-compat/shims/tty.js",
+        "core/node-compat/shims/url.js",
+        "core/node-compat/shims/util.js",
+        "core/node-compat/shims/v8.js",
+        "core/node-compat/shims/vm.js",
+        "core/node-compat/shims/worker_threads.js",
+        "core/node-compat/shims/ws.js",
+        "core/node-compat/shims/zlib.js"
+      ],
+      "importedBy": [
+        "core/node-compat/index.js",
+        "core/node-compat/sandbox-tool.js"
+      ],
+      "exports": [
+        "BUILTIN_MODULE_NAMES",
+        "createBuiltinModules",
+        "default"
+      ]
+    },
+    "core/node-compat/shims/inspector.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "Session",
+        "close",
+        "console",
+        "default",
+        "open",
+        "url",
+        "waitForDebugger"
+      ]
+    },
+    "core/node-compat/shims/module.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "Module",
+        "_cache",
+        "_extensions",
+        "_pathCache",
+        "builtinModules",
+        "createRequire",
+        "default",
+        "isBuiltin",
+        "syncBuiltinESMExports"
+      ]
+    },
+    "core/node-compat/shims/net.js": {
+      "imports": [
+        "core/node-compat/shims/events.js",
+        "core/node-compat/shims/stream.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/http.js",
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "Server",
+        "Socket",
+        "connect",
+        "createConnection",
+        "createServer",
+        "default",
+        "isIP",
+        "isIPv4",
+        "isIPv6"
+      ]
+    },
+    "core/node-compat/shims/os.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "EOL",
+        "arch",
+        "constants",
+        "cpus",
+        "default",
+        "devNull",
+        "endianness",
+        "freemem",
+        "homedir",
+        "hostname",
+        "loadavg",
+        "networkInterfaces",
+        "platform",
+        "release",
+        "tmpdir",
+        "totalmem",
+        "type",
+        "uptime",
+        "userInfo"
+      ]
+    },
+    "core/node-compat/shims/path.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "basename",
+        "default",
+        "delimiter",
+        "dirname",
+        "extname",
+        "format",
+        "isAbsolute",
+        "join",
+        "normalize",
+        "parse",
+        "posix",
+        "relative",
+        "resolve",
+        "sep"
+      ]
+    },
+    "core/node-compat/shims/perf_hooks.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "Histogram",
+        "PerformanceObserver",
+        "createHistogram",
+        "default",
+        "monitorEventLoopDelay",
+        "performance"
+      ]
+    },
+    "core/node-compat/shims/process.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "createProcess",
+        "default"
+      ]
+    },
+    "core/node-compat/shims/querystring.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "decode",
+        "default",
+        "encode",
+        "escape",
+        "parse",
+        "stringify",
+        "unescape"
+      ]
+    },
+    "core/node-compat/shims/readdirp.js": {
+      "imports": [],
+      "importedBy": [],
+      "exports": [
+        "ReaddirpStream",
+        "default",
+        "readdirp",
+        "readdirpPromise",
+        "setVFS"
+      ]
+    },
+    "core/node-compat/shims/readline.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "Interface",
+        "clearLine",
+        "clearScreenDown",
+        "createInterface",
+        "cursorTo",
+        "default",
+        "emitKeypressEvents",
+        "moveCursor",
+        "promises"
+      ]
+    },
+    "core/node-compat/shims/rollup.js": {
+      "imports": [],
+      "importedBy": [],
+      "exports": [
+        "VERSION",
+        "default",
+        "getPackageBase",
+        "rollup",
+        "watch"
+      ]
+    },
+    "core/node-compat/shims/sentry.js": {
+      "imports": [],
+      "importedBy": [],
+      "exports": [
+        "Handlers",
+        "Hub",
+        "Integrations",
+        "Scope",
+        "_req",
+        "_res",
+        "addBreadcrumb",
+        "captureEvent",
+        "captureException",
+        "captureMessage",
+        "close",
+        "configureScope",
+        "default",
+        "flush",
+        "getCurrentHub",
+        "getHubFromCarrier",
+        "init",
+        "lastEventId",
+        "setContext",
+        "setExtra",
+        "setExtras",
+        "setTag",
+        "setTags",
+        "setUser",
+        "startTransaction",
+        "withScope"
+      ]
+    },
+    "core/node-compat/shims/stream.js": {
+      "imports": [
+        "core/node-compat/shims/buffer.js",
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/child_process-browser.js",
+        "core/node-compat/shims/http.js",
+        "core/node-compat/shims/index.js",
+        "core/node-compat/shims/net.js",
+        "core/node-compat/shims/tty.js"
+      ],
+      "exports": [
+        "Duplex",
+        "PassThrough",
+        "Readable",
+        "Stream",
+        "Transform",
+        "Writable",
+        "default",
+        "finished",
+        "pipeline"
+      ]
+    },
+    "core/node-compat/shims/string_decoder.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "StringDecoder",
+        "default"
+      ]
+    },
+    "core/node-compat/shims/timers.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "clearImmediate",
+        "clearInterval",
+        "clearTimeout",
+        "default",
+        "setImmediate",
+        "setInterval",
+        "setTimeout"
+      ]
+    },
+    "core/node-compat/shims/tls.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "DEFAULT_ECDH_CURVE",
+        "DEFAULT_MAX_VERSION",
+        "DEFAULT_MIN_VERSION",
+        "Server",
+        "TLSSocket",
+        "connect",
+        "createSecureContext",
+        "createServer",
+        "default",
+        "getCiphers",
+        "rootCertificates"
+      ]
+    },
+    "core/node-compat/shims/tty.js": {
+      "imports": [
+        "core/node-compat/shims/stream.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "ReadStream",
+        "WriteStream",
+        "default",
+        "isatty"
+      ]
+    },
+    "core/node-compat/shims/url.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "URL",
+        "URLSearchParams",
+        "default",
+        "format",
+        "parse",
+        "resolve"
+      ]
+    },
+    "core/node-compat/shims/util.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "callbackify",
+        "default",
+        "deprecate",
+        "format",
+        "inherits",
+        "inspect",
+        "promisify",
+        "types"
+      ]
+    },
+    "core/node-compat/shims/v8.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "DefaultDeserializer",
+        "DefaultSerializer",
+        "Deserializer",
+        "Serializer",
+        "default",
+        "deserialize",
+        "getHeapCodeStatistics",
+        "getHeapSnapshot",
+        "getHeapSpaceStatistics",
+        "getHeapStatistics",
+        "promiseHooks",
+        "serialize",
+        "setFlagsFromString",
+        "stopCoverage",
+        "takeCoverage",
+        "writeHeapSnapshot"
+      ]
+    },
+    "core/node-compat/shims/vfs-adapter.js": {
+      "imports": [],
+      "importedBy": [],
+      "exports": [
+        "VirtualFSAdapter",
+        "default"
+      ]
+    },
+    "core/node-compat/shims/vm.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "Module",
+        "Script",
+        "SourceTextModule",
+        "SyntheticModule",
+        "compileFunction",
+        "createContext",
+        "default",
+        "isContext",
+        "runInContext",
+        "runInNewContext",
+        "runInThisContext"
+      ]
+    },
+    "core/node-compat/shims/worker_threads.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "BroadcastChannel",
+        "MessageChannel",
+        "MessagePort",
+        "SHARE_ENV",
+        "Worker",
+        "default",
+        "getEnvironmentData",
+        "isMainThread",
+        "markAsUntransferable",
+        "moveMessagePortToContext",
+        "parentPort",
+        "receiveMessageOnPort",
+        "setEnvironmentData",
+        "threadId",
+        "workerData"
+      ]
+    },
+    "core/node-compat/shims/ws.js": {
+      "imports": [
+        "core/node-compat/shims/events.js"
+      ],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "WebSocket",
+        "WebSocketServer",
+        "default"
+      ]
+    },
+    "core/node-compat/shims/zlib.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/index.js"
+      ],
+      "exports": [
+        "BROTLI_DECODE",
+        "BROTLI_DEFAULT_QUALITY",
+        "BROTLI_DEFAULT_WINDOW",
+        "BROTLI_ENCODE",
+        "BROTLI_MAX_INPUT_BLOCK_BITS",
+        "BROTLI_MAX_QUALITY",
+        "BROTLI_MAX_WINDOW_BITS",
+        "BROTLI_MIN_INPUT_BLOCK_BITS",
+        "BROTLI_MIN_QUALITY",
+        "BROTLI_MIN_WINDOW_BITS",
+        "BROTLI_MODE_FONT",
+        "BROTLI_MODE_GENERIC",
+        "BROTLI_MODE_TEXT",
+        "BROTLI_OPERATION_EMIT_METADATA",
+        "BROTLI_OPERATION_FINISH",
+        "BROTLI_OPERATION_FLUSH",
+        "BROTLI_OPERATION_PROCESS",
+        "BROTLI_PARAM_LGBLOCK",
+        "BROTLI_PARAM_LGWIN",
+        "BROTLI_PARAM_MODE",
+        "BROTLI_PARAM_QUALITY",
+        "ZLIB_VERNUM",
+        "Z_BEST_COMPRESSION",
+        "Z_BEST_SPEED",
+        "Z_BLOCK",
+        "Z_BUF_ERROR",
+        "Z_DATA_ERROR",
+        "Z_DEFAULT_CHUNK",
+        "Z_DEFAULT_COMPRESSION",
+        "Z_DEFAULT_LEVEL",
+        "Z_DEFAULT_MEMLEVEL",
+        "Z_DEFAULT_STRATEGY",
+        "Z_DEFAULT_WINDOWBITS",
+        "Z_ERRNO",
+        "Z_FILTERED",
+        "Z_FINISH",
+        "Z_FIXED",
+        "Z_FULL_FLUSH",
+        "Z_HUFFMAN_ONLY",
+        "Z_MAX_CHUNK",
+        "Z_MAX_LEVEL",
+        "Z_MAX_MEMLEVEL",
+        "Z_MAX_WINDOWBITS",
+        "Z_MEM_ERROR",
+        "Z_MIN_CHUNK",
+        "Z_MIN_LEVEL",
+        "Z_MIN_MEMLEVEL",
+        "Z_MIN_WINDOWBITS",
+        "Z_NEED_DICT",
+        "Z_NO_COMPRESSION",
+        "Z_OK",
+        "Z_PARTIAL_FLUSH",
+        "Z_RLE",
+        "Z_STREAM_END",
+        "Z_STREAM_ERROR",
+        "Z_SYNC_FLUSH",
+        "Z_VERSION_ERROR",
+        "brotliCompress",
+        "brotliCompressSync",
+        "brotliDecompress",
+        "brotliDecompressSync",
+        "constants",
+        "createBrotliCompress",
+        "createBrotliDecompress",
+        "createDeflate",
+        "createDeflateRaw",
+        "createGunzip",
+        "createGzip",
+        "createInflate",
+        "createInflateRaw",
+        "default",
+        "deflate",
+        "deflateAsync",
+        "deflateRaw",
+        "deflateRawAsync",
+        "deflateRawSync",
+        "deflateSync",
+        "gunzip",
+        "gunzipAsync",
+        "gunzipSync",
+        "gzip",
+        "gzipAsync",
+        "gzipSync",
+        "inflate",
+        "inflateAsync",
+        "inflateRaw",
+        "inflateRawAsync",
+        "inflateRawSync",
+        "inflateSync"
+      ]
+    },
+    "core/node-compat/transform-esm.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/index.js",
+        "core/node-compat/require.js"
+      ],
+      "exports": [
+        "*",
+        "a",
+        "c",
+        "default",
+        "hasESMSyntax",
+        "transformESMtoCJS"
+      ]
+    },
+    "core/node-compat/vfs-adapter.js": {
+      "imports": [
+        "vfs/path.js"
+      ],
+      "importedBy": [
+        "core/node-compat/index.js"
+      ],
+      "exports": [
+        "createVfsAdapter"
       ]
     },
     "core/plugin.js": {
@@ -686,6 +2097,7 @@
         "core/sandbox/index.js",
         "core/sandbox/plugin.js",
         "core/sandbox/pool.js",
+        "core/sandbox/skill-executor-helpers.js",
         "core/sandbox/skill-executor.js",
         "core/sandbox/wasm-sandbox.js"
       ],
@@ -696,24 +2108,68 @@
         "default"
       ]
     },
+    "core/sandbox/create-sandbox.js": {
+      "imports": [
+        "core/sandbox/sandbox-interface.js",
+        "core/sandbox/skill-executor-helpers.js",
+        "core/sandbox/wasm-sandbox.js"
+      ],
+      "importedBy": [],
+      "exports": [
+        "createSandboxFactory"
+      ]
+    },
+    "core/sandbox/iframe-eval-bridge.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/sandbox-tool.js"
+      ],
+      "exports": [
+        "MSG_CONSOLE",
+        "MSG_EVAL",
+        "MSG_EVAL_RESULT",
+        "buildEvalGuestScript",
+        "createIframeEvalBridge",
+        "isBrowserWithDOM"
+      ]
+    },
+    "core/sandbox/iframe-sandbox.js": {
+      "imports": [
+        "vfs/path.js"
+      ],
+      "importedBy": [],
+      "exports": [
+        "buildGuestScript",
+        "createIframeSandbox"
+      ]
+    },
     "core/sandbox/index.js": {
       "imports": [
+        "core/node-compat/index.js",
         "core/sandbox/constants.js",
         "core/sandbox/plugin.js",
         "core/sandbox/pool.js",
         "core/sandbox/skill-executor.js",
         "core/sandbox/system/constants.js",
         "core/sandbox/system/index.js",
+        "core/sandbox/violation-store.js",
         "core/sandbox/wasm-sandbox.js",
+        "core/webruntime/index.js",
         "shared/index.js"
       ],
       "importedBy": [
         "core/index.js"
       ],
       "exports": [
+        "BUILTIN_MODULE_NAMES",
         "DefaultSandboxConfig",
+        "DevServer",
+        "HmrClient",
+        "MIME_TYPES",
+        "PackageManager",
         "Platform",
         "ResourceLimits",
+        "SANDBOX_TOOL_DEFINITION",
         "SandboxBackend",
         "SandboxCapability",
         "SandboxPolicy",
@@ -721,23 +2177,70 @@
         "SandboxPreset",
         "SkillExecutor",
         "SystemSandboxExecutor",
+        "ViolationStore",
         "WasmSandbox",
+        "base64ToUint8",
+        "buildProxyUrl",
         "createBubblewrapExecutor",
+        "createBuiltinModules",
+        "createCorsProxy",
         "createDockerExecutor",
+        "createFetchHandler",
+        "createHmrClient",
         "createInteractivePermissionHandler",
+        "createNodeEnv",
         "createPermissionExecutor",
+        "createREPL",
+        "createRequire",
+        "createResolver",
         "createSandbox",
         "createSandboxPlugin",
+        "createSandboxTool",
         "createSeatbeltExecutor",
+        "createServerBridge",
         "createSkillExecutor",
         "createSystemSandbox",
+        "createVfsAdapter",
+        "createVfsEventBridge",
+        "createViolationStore",
         "default",
         "detectAllBackends",
         "detectBestBackend",
+        "diffSnapshots",
         "execInSandbox",
+        "exposeApi",
+        "fromSnapshot",
+        "generateCspHeader",
+        "generateSandboxFiles",
+        "generateSwScript",
+        "getCorsProxy",
         "getPlatform",
+        "hasESMSyntax",
+        "installFetchHandler",
         "isWasmSupported",
-        "shellInSandbox"
+        "proxyFetch",
+        "setCorsProxy",
+        "shellInSandbox",
+        "toSnapshot",
+        "transformESMtoCJS",
+        "uint8ToBase64",
+        "withVfsEvents",
+        "wrapWorker"
+      ]
+    },
+    "core/sandbox/network-policy-utils.js": {
+      "imports": [],
+      "importedBy": [
+        "core/node-compat/shims/http.js",
+        "core/sandbox/system/network-manager.js",
+        "core/sandbox/wasm-sandbox.js"
+      ],
+      "exports": [
+        "isUrlAllowed",
+        "isUrlAllowedAsync",
+        "matchesDomainPattern",
+        "validateDomainPattern",
+        "validateNetworkPolicy"
       ]
     },
     "core/sandbox/plugin.js": {
@@ -758,6 +2261,7 @@
     "core/sandbox/pool.js": {
       "imports": [
         "core/sandbox/constants.js",
+        "core/sandbox/resource-lock.js",
         "core/sandbox/wasm-sandbox.js",
         "shared/index.js"
       ],
@@ -771,10 +2275,62 @@
         "default"
       ]
     },
+    "core/sandbox/resource-lock.js": {
+      "imports": [
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "core/sandbox/pool.js"
+      ],
+      "exports": [
+        "ResourceLock",
+        "default"
+      ]
+    },
+    "core/sandbox/sandbox-interface.js": {
+      "imports": [],
+      "importedBy": [
+        "core/sandbox/create-sandbox.js"
+      ],
+      "exports": [
+        "AUTO_PRIORITY",
+        "DEFAULT_CONFIG",
+        "SANDBOX_LEVELS",
+        "normalizeSystemResult",
+        "normalizeWasmResult",
+        "validateConfig"
+      ]
+    },
+    "core/sandbox/skill-executor-helpers.js": {
+      "imports": [
+        "core/sandbox/constants.js"
+      ],
+      "importedBy": [
+        "core/sandbox/create-sandbox.js",
+        "core/sandbox/skill-executor.js"
+      ],
+      "exports": [
+        "ALLOWED_CAPABILITIES",
+        "FALLBACK_ALLOWED_GLOBALS",
+        "FALLBACK_BLOCKED_GLOBALS",
+        "FALLBACK_BLOCKED_MEMBER_PROPS",
+        "FALLBACK_BLOCK_PATTERNS",
+        "createFallbackGlobals",
+        "createFallbackProxyGlobals",
+        "isAllowlistedSkill",
+        "isWasmSupported",
+        "normalizeCapabilityList",
+        "normalizeCapabilityName",
+        "normalizeFallbackAllowlist",
+        "normalizeFallbackMode",
+        "validateFallbackCode"
+      ]
+    },
     "core/sandbox/skill-executor.js": {
       "imports": [
         "core/sandbox/constants.js",
         "core/sandbox/pool.js",
+        "core/sandbox/skill-executor-helpers.js",
         "shared/index.js"
       ],
       "importedBy": [
@@ -801,7 +2357,9 @@
       "exports": [
         "createBubblewrapExecutor",
         "default",
-        "executeInBubblewrap"
+        "executeInBubblewrap",
+        "findSeccompBinary",
+        "generateSeccompCommand"
       ]
     },
     "core/sandbox/system/constants.js": {
@@ -821,6 +2379,7 @@
         "Platform",
         "SandboxBackend",
         "SandboxPolicy",
+        "SystemSandboxPreset",
         "default"
       ]
     },
@@ -844,7 +2403,8 @@
         "detectDocker",
         "detectSeatbelt",
         "execCommand",
-        "getPlatform"
+        "getPlatform",
+        "resetDockerCache"
       ]
     },
     "core/sandbox/system/docker.js": {
@@ -926,6 +2486,26 @@
         "shellInSandbox"
       ]
     },
+    "core/sandbox/system/network-manager.js": {
+      "imports": [
+        "core/sandbox/network-policy-utils.js",
+        "core/sandbox/system/network-proxy.js",
+        "core/sandbox/system/proxy-bridge.js"
+      ],
+      "importedBy": [],
+      "exports": [
+        "SandboxNetworkManager"
+      ]
+    },
+    "core/sandbox/system/network-proxy.js": {
+      "imports": [],
+      "importedBy": [
+        "core/sandbox/system/network-manager.js"
+      ],
+      "exports": [
+        "createNetworkProxy"
+      ]
+    },
     "core/sandbox/system/path-utils.js": {
       "imports": [],
       "importedBy": [
@@ -955,27 +2535,58 @@
         "executeWithPermission"
       ]
     },
+    "core/sandbox/system/proxy-bridge.js": {
+      "imports": [],
+      "importedBy": [
+        "core/sandbox/system/network-manager.js"
+      ],
+      "exports": [
+        "buildBridgedCommand",
+        "initBridge"
+      ]
+    },
     "core/sandbox/system/seatbelt.js": {
       "imports": [
         "core/sandbox/system/constants.js",
         "core/sandbox/system/detect.js",
-        "core/sandbox/system/path-utils.js"
+        "core/sandbox/system/path-utils.js",
+        "core/sandbox/violation-store.js"
       ],
       "importedBy": [
         "core/sandbox/system/executor.js",
         "core/sandbox/system/index.js"
       ],
       "exports": [
+        "LOG_STREAM_PREDICATE",
+        "NOISY_PROCESSES",
         "createSeatbeltExecutor",
         "default",
-        "executeInSeatbelt"
+        "executeInSeatbelt",
+        "parseLogLine",
+        "startViolationMonitor"
+      ]
+    },
+    "core/sandbox/violation-store.js": {
+      "imports": [],
+      "importedBy": [
+        "core/sandbox/index.js",
+        "core/sandbox/system/seatbelt.js"
+      ],
+      "exports": [
+        "ViolationStore",
+        "createViolationStore",
+        "default"
       ]
     },
     "core/sandbox/wasm-sandbox.js": {
       "imports": [
-        "core/sandbox/constants.js"
+        "core/sandbox/constants.js",
+        "core/sandbox/network-policy-utils.js"
       ],
       "importedBy": [
+        "core/node-compat/create-node-env.js",
+        "core/node-compat/execution-strategy.js",
+        "core/sandbox/create-sandbox.js",
         "core/sandbox/index.js",
         "core/sandbox/pool.js"
       ],
@@ -1014,7 +2625,8 @@
     },
     "core/state-bus.js": {
       "imports": [
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "core/index.js",
@@ -1023,6 +2635,138 @@
       "exports": [
         "StateBus",
         "default"
+      ]
+    },
+    "core/webruntime/dev-server.js": {
+      "imports": [
+        "vfs/path.js"
+      ],
+      "importedBy": [
+        "core/webruntime/index.js"
+      ],
+      "exports": [
+        "DevServer",
+        "MIME_TYPES"
+      ]
+    },
+    "core/webruntime/hmr.js": {
+      "imports": [],
+      "importedBy": [
+        "core/webruntime/index.js"
+      ],
+      "exports": [
+        "HmrClient",
+        "createHmrClient"
+      ]
+    },
+    "core/webruntime/index.js": {
+      "imports": [
+        "core/webruntime/dev-server.js",
+        "core/webruntime/hmr.js",
+        "core/webruntime/sandbox-deploy.js",
+        "core/webruntime/server-bridge.js",
+        "core/webruntime/sw-handler.js",
+        "core/webruntime/vfs-events.js",
+        "core/webruntime/vfs-snapshot.js",
+        "core/webruntime/worker-comlink.js"
+      ],
+      "importedBy": [
+        "core/sandbox/index.js"
+      ],
+      "exports": [
+        "DevServer",
+        "HmrClient",
+        "MIME_TYPES",
+        "MSG_CALL",
+        "MSG_CONSOLE",
+        "MSG_RETURN",
+        "base64ToUint8",
+        "createFetchHandler",
+        "createHmrClient",
+        "createServerBridge",
+        "createVfsEventBridge",
+        "diffSnapshots",
+        "exposeApi",
+        "fromSnapshot",
+        "generateCspHeader",
+        "generateSandboxFiles",
+        "generateSwScript",
+        "installFetchHandler",
+        "toSnapshot",
+        "uint8ToBase64",
+        "withVfsEvents",
+        "wrapWorker"
+      ]
+    },
+    "core/webruntime/sandbox-deploy.js": {
+      "imports": [],
+      "importedBy": [
+        "core/webruntime/index.js"
+      ],
+      "exports": [
+        "generateCspHeader",
+        "generateSandboxFiles",
+        "generateSwScript"
+      ]
+    },
+    "core/webruntime/server-bridge.js": {
+      "imports": [],
+      "importedBy": [
+        "core/webruntime/index.js"
+      ],
+      "exports": [
+        "createFetchHandler",
+        "createServerBridge"
+      ]
+    },
+    "core/webruntime/sw-handler.js": {
+      "imports": [],
+      "importedBy": [
+        "core/webruntime/index.js"
+      ],
+      "exports": [
+        "installFetchHandler"
+      ]
+    },
+    "core/webruntime/vfs-events.js": {
+      "imports": [
+        "vfs/path.js"
+      ],
+      "importedBy": [
+        "core/node-compat/create-node-env.js",
+        "core/webruntime/index.js"
+      ],
+      "exports": [
+        "createVfsEventBridge",
+        "withVfsEvents"
+      ]
+    },
+    "core/webruntime/vfs-snapshot.js": {
+      "imports": [
+        "vfs/vfs.memory.js"
+      ],
+      "importedBy": [
+        "core/webruntime/index.js"
+      ],
+      "exports": [
+        "base64ToUint8",
+        "diffSnapshots",
+        "fromSnapshot",
+        "toSnapshot",
+        "uint8ToBase64"
+      ]
+    },
+    "core/webruntime/worker-comlink.js": {
+      "imports": [],
+      "importedBy": [
+        "core/webruntime/index.js"
+      ],
+      "exports": [
+        "MSG_CALL",
+        "MSG_CONSOLE",
+        "MSG_RETURN",
+        "exposeApi",
+        "wrapWorker"
       ]
     },
     "eval/graders/composite.js": {
@@ -1049,7 +2793,9 @@
       ]
     },
     "eval/graders/deterministic.js": {
-      "imports": [],
+      "imports": [
+        "shared/utils/safe-regex.js"
+      ],
       "importedBy": [
         "eval/graders/index.js"
       ],
@@ -1153,6 +2899,8 @@
     "index.js": {
       "imports": [
         "core/index.js",
+        "plugins/compression/index.js",
+        "plugins/telemetry/index.js",
         "runtime/index.js",
         "sdk/AgentBuilder.js",
         "shared/index.js",
@@ -1171,6 +2919,7 @@
         "CicadaEvents",
         "CircuitBreaker",
         "CompressionCoordinator",
+        "CompressionQualityMonitor",
         "Container",
         "DeepSearchAgentLoop",
         "DeepSearchState",
@@ -1186,12 +2935,15 @@
         "PluginContext",
         "PluginManager",
         "PluginStatus",
+        "ProactiveCompressor",
         "RuntimeEventBus",
         "RuntimeEvents",
         "SchedulingMode",
         "ServiceBus",
         "ServiceId",
         "SkillsManager",
+        "SpanKind",
+        "SpanStatus",
         "StateBus",
         "StepStatus",
         "StorageVfs",
@@ -1298,6 +3050,7 @@
       "imports": [
         "ingest/adapters/base.js",
         "ingest/adapters/node-io.js",
+        "ingest/adapters/resolve-deps.js",
         "ingest/constants.js",
         "ingest/extract-assets.js",
         "shared/index.js"
@@ -1314,6 +3067,7 @@
       "imports": [
         "ingest/adapters/base.js",
         "ingest/adapters/node-io.js",
+        "ingest/adapters/resolve-deps.js",
         "ingest/constants.js",
         "ingest/extract-assets.js",
         "shared/index.js"
@@ -1343,6 +3097,7 @@
       "imports": [
         "ingest/adapters/base.js",
         "ingest/adapters/node-io.js",
+        "ingest/adapters/resolve-deps.js",
         "ingest/constants.js",
         "ingest/extract-assets.js",
         "shared/index.js"
@@ -1360,7 +3115,8 @@
         "extractEmbeddedDataUriImagesFromMarkdown",
         "importTurndownService",
         "parseDataUri",
-        "resolveTurndownService"
+        "resolveTurndownService",
+        "sanitizeHtml"
       ]
     },
     "ingest/adapters/markdown.js": {
@@ -1379,7 +3135,9 @@
       ]
     },
     "ingest/adapters/node-io.js": {
-      "imports": [],
+      "imports": [
+        "shared/index.js"
+      ],
       "importedBy": [
         "ingest/adapters/audio.js",
         "ingest/adapters/code.js",
@@ -1407,7 +3165,8 @@
         "ingest/adapters/node-io.js",
         "ingest/constants.js",
         "ingest/extract-assets.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/logger.js"
       ],
       "importedBy": [
         "ingest/index.js",
@@ -1421,6 +3180,7 @@
       "imports": [
         "ingest/adapters/base.js",
         "ingest/adapters/node-io.js",
+        "ingest/adapters/resolve-deps.js",
         "ingest/constants.js",
         "ingest/extract-assets.js",
         "shared/index.js"
@@ -1445,6 +3205,23 @@
       ],
       "exports": [
         "RawTextAdapter"
+      ]
+    },
+    "ingest/adapters/resolve-deps.js": {
+      "imports": [],
+      "importedBy": [
+        "ingest/adapters/docx.js",
+        "ingest/adapters/epub.js",
+        "ingest/adapters/html.js",
+        "ingest/adapters/pptx.js"
+      ],
+      "exports": [
+        "importMammoth",
+        "importTurndownService",
+        "resolveDOMParser",
+        "resolveMammoth",
+        "resolvePptxParser",
+        "resolveTurndownService"
       ]
     },
     "ingest/adapters/video.js": {
@@ -1479,7 +3256,8 @@
     },
     "ingest/asset-understanding.js": {
       "imports": [
-        "prompts/prompt-loader.js"
+        "prompts/prompt-loader.js",
+        "shared/utils/safe-json.js"
       ],
       "importedBy": [
         "ingest/ingest-stage.js"
@@ -1717,9 +3495,9 @@
       "imports": [
         "llm/internal/fallback.js",
         "llm/internal/provider-selection.js",
+        "llm/performance-router.js",
         "llm/provider.js",
         "plugins/telemetry/index.js",
-        "runtime/routing/performance-router.js",
         "shared/index.js"
       ],
       "importedBy": [
@@ -1735,10 +3513,10 @@
       "imports": [
         "llm/constants.js",
         "llm/model-events.js",
+        "llm/performance-router.js",
         "llm/provider.js",
-        "runtime/core/retry-strategy.js",
-        "runtime/routing/performance-router.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/retry-strategy.js"
       ],
       "importedBy": [
         "llm/model-router.js"
@@ -1879,6 +3657,24 @@
         "default",
         "executeWithOverflowRecovery",
         "parseContextOverflowError"
+      ]
+    },
+    "llm/performance-router.js": {
+      "imports": [
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "llm/internal/call-executor.js",
+        "llm/internal/config-parser.js",
+        "plugins/index.js"
+      ],
+      "exports": [
+        "EwmaTracker",
+        "ModelTier",
+        "PerformanceRouter",
+        "TaskComplexity",
+        "default",
+        "estimateComplexity"
       ]
     },
     "llm/ppt-model-bridge.js": {
@@ -2057,17 +3853,14 @@
         "McpToolDefinition",
         "McpToolResult",
         "McpTransport",
-        "StdioMcpProvider",
-        "StdioMcpTransport",
         "consumeSse",
         "consumeSseJson",
         "createLocalMcpProvider",
         "createMcpClient",
         "createMcpTransport",
         "createSseParser",
-        "createStdioMcpProvider",
-        "createStdioMcpTransport",
-        "getSupportedTransports"
+        "getSupportedTransports",
+        "loadStdioModules"
       ]
     },
     "mcp/local-mcp-provider.js": {
@@ -2094,6 +3887,7 @@
         "core/di/defaults.js",
         "mcp/index.js",
         "mcp/local-mcp-provider.js",
+        "mcp/mcp-nexus-helpers.js",
         "mcp/mcp-nexus-provider.js",
         "mcp/resource-manager.js",
         "mcp/stdio-mcp-provider.js",
@@ -2107,10 +3901,46 @@
         "default"
       ]
     },
+    "mcp/mcp-nexus-helpers.js": {
+      "imports": [
+        "mcp/mcp-client.js",
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "mcp/mcp-nexus-provider.js"
+      ],
+      "exports": [
+        "base64ToUint8Array",
+        "cryptoRandomInt",
+        "fetchJson",
+        "isIpv4Host",
+        "isPrivateHostname",
+        "isPrivateIpv4",
+        "isPrivateIpv6",
+        "isSuccessfulJsonRpc",
+        "jsonRpcErrorMessage",
+        "mergeHeaders",
+        "normalizeAllowedHosts",
+        "normalizeBaseUrl",
+        "normalizeHostname",
+        "normalizeResourceDef",
+        "normalizeResourceList",
+        "normalizeResourceReadResult",
+        "normalizeResourceTemplateDef",
+        "normalizeResourceTemplates",
+        "normalizeToolDef",
+        "normalizeToolList",
+        "normalizeToolListFromToolApi",
+        "normalizeToolResult",
+        "validateEndpointUrl",
+        "withTimeout"
+      ]
+    },
     "mcp/mcp-nexus-provider.js": {
       "imports": [
         "mcp/constants.js",
         "mcp/mcp-client.js",
+        "mcp/mcp-nexus-helpers.js",
         "mcp/mcp-transport.js",
         "mcp/sse.js",
         "shared/index.js"
@@ -2182,7 +4012,9 @@
       ]
     },
     "mcp/smart-content-extractor.js": {
-      "imports": [],
+      "imports": [
+        "mcp/smart-content-helpers.js"
+      ],
       "importedBy": [
         "mcp/content-extractor.js"
       ],
@@ -2191,6 +4023,29 @@
         "extractSmartContent",
         "htmlToMarkdown",
         "htmlToPlainText"
+      ]
+    },
+    "mcp/smart-content-helpers.js": {
+      "imports": [],
+      "importedBy": [
+        "mcp/smart-content-extractor.js"
+      ],
+      "exports": [
+        "BLOCK_TAGS",
+        "MAIN_CONTENT_SELECTORS",
+        "NOISE_SELECTORS",
+        "SKIP_PATTERNS",
+        "cleanText",
+        "contentQualityScore",
+        "decodeHtmlEntities",
+        "extractHeadings",
+        "extractImages",
+        "extractLinks",
+        "extractMetadata",
+        "findMainContent",
+        "isLikelyAdContainer",
+        "removeNoiseElements",
+        "shouldSkipText"
       ]
     },
     "mcp/sse-mcp-transport.js": {
@@ -2243,7 +4098,8 @@
     },
     "mcp/stdio-mcp-transport.js": {
       "imports": [
-        "mcp/mcp-transport.js"
+        "mcp/mcp-transport.js",
+        "plugins/transports/process-transport.js"
       ],
       "importedBy": [
         "mcp/index.js",
@@ -2405,6 +4261,7 @@
     },
     "plugins/compression/impl/cicada-compressor.js": {
       "imports": [
+        "plugins/compression/impl/cicada-helpers.js",
         "runtime/events/events.js",
         "shared/index.js"
       ],
@@ -2416,6 +4273,41 @@
         "CicadaCompressor",
         "CompressionLayer",
         "default"
+      ]
+    },
+    "plugins/compression/impl/cicada-helpers.js": {
+      "imports": [
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "plugins/compression/impl/cicada-compressor.js"
+      ],
+      "exports": [
+        "DANGEROUS_KEYS",
+        "IMPORTANT_KEYS",
+        "VERBOSE_KEYS",
+        "adjustStartForToolPairs",
+        "buildFallbackSummary",
+        "compressValue",
+        "containsCjk",
+        "estimateTokens",
+        "extractToolCallIds",
+        "extractToolMessageCallId",
+        "isAssistantToolCallMessage",
+        "isContextSummaryMessage",
+        "isMergeSafeMessage",
+        "isSmallValue",
+        "isThinkingMessage",
+        "isToolRoleMessage",
+        "normalizeLayerList",
+        "normalizeMessage",
+        "normalizeSummaryPayload",
+        "removeOrphanedToolMessages",
+        "safeStringify",
+        "summarizeMessages",
+        "summarizeThinkingMessage",
+        "toTitle",
+        "truncateText"
       ]
     },
     "plugins/compression/impl/compression-async.js": {
@@ -2501,7 +4393,8 @@
         "shared/index.js"
       ],
       "importedBy": [
-        "plugins/compression/index.js"
+        "plugins/compression/index.js",
+        "plugins/compression/watchdog.js"
       ],
       "exports": [
         "Watchdog",
@@ -2522,12 +4415,11 @@
         "plugins/compression/watchdog.js"
       ],
       "importedBy": [
-        "runtime/core/agent-loop.js",
+        "index.js",
         "runtime/core/message-manager.js",
-        "runtime/index.js",
         "sdk/agent-factory.js",
-        "sdk/index.js",
-        "stages/deepsearch/tools/watchdog/handler.js"
+        "stages/deepsearch/tools/watchdog/handler.js",
+        "stages/design/internal/deck-operations.js"
       ],
       "exports": [
         "AdaptiveZoneManager",
@@ -2547,13 +4439,17 @@
     },
     "plugins/compression/watchdog.js": {
       "imports": [
-        "core/plugin.js"
+        "core/plugin.js",
+        "plugins/compression/impl/watchdog.js"
       ],
       "importedBy": [
+        "core/di/defaults.js",
         "plugins/compression/index.js",
-        "plugins/index.js"
+        "plugins/index.js",
+        "stages/codesearch/codesearch-stage.js"
       ],
       "exports": [
+        "Watchdog",
         "default"
       ]
     },
@@ -2583,7 +4479,8 @@
     },
     "plugins/debug/inspector.js": {
       "imports": [
-        "core/plugin.js"
+        "core/plugin.js",
+        "shared/utils/logger.js"
       ],
       "importedBy": [
         "plugins/index.js"
@@ -2644,6 +4541,7 @@
         "skills/model.js"
       ],
       "importedBy": [
+        "core/di/defaults.js",
         "plugins/deps/index.js"
       ],
       "exports": [
@@ -2655,6 +4553,7 @@
     "plugins/index.js": {
       "imports": [
         "core/sandbox/plugin.js",
+        "llm/performance-router.js",
         "plugins/analysis/behavior-fingerprint.js",
         "plugins/analysis/convergence-detector.js",
         "plugins/analysis/fingerprint.js",
@@ -2666,7 +4565,7 @@
         "plugins/debug/inspector.js",
         "plugins/debug/logger.js",
         "plugins/deps/index.js",
-        "plugins/memory/memory-store.impl.js",
+        "plugins/memory/memory-store.impl.core.js",
         "plugins/memory/retrieval-engine.js",
         "plugins/memory/state-engine.js",
         "plugins/plan/plan-store.js",
@@ -2675,7 +4574,6 @@
         "plugins/policy/manager.js",
         "plugins/resilience/degradation-matrix.js",
         "plugins/resilience/retry.js",
-        "plugins/routing/performance-router.js",
         "plugins/services/llm.js",
         "plugins/services/mcp.js",
         "plugins/services/scheduler.js",
@@ -2693,10 +4591,14 @@
       "exports": [
         "createPluginLoader",
         "default",
+        "getPluginRegistry",
         "hasPlugin",
         "listAvailablePlugins",
         "loadPlugin",
-        "registerPlugin"
+        "registerPlugin",
+        "registerPluginsFromManifest",
+        "resetPluginRegistry",
+        "setPluginRegistry"
       ]
     },
     "plugins/memory/action-types.js": {
@@ -2789,7 +4691,7 @@
     "plugins/memory/index.js": {
       "imports": [
         "plugins/memory/action-types.js",
-        "plugins/memory/memory-store.impl.js",
+        "plugins/memory/memory-store.impl.core.js",
         "plugins/memory/retrieval-engine.js",
         "plugins/memory/state-engine.js",
         "plugins/memory/unified-memory-store.js"
@@ -2893,7 +4795,8 @@
     },
     "plugins/memory/l3-storage/storage-io.js": {
       "imports": [
-        "plugins/memory/l3-storage/utils.js"
+        "plugins/memory/l3-storage/utils.js",
+        "shared/utils/safe-json.js"
       ],
       "importedBy": [
         "plugins/memory/l3-storage.js"
@@ -2904,7 +4807,8 @@
     },
     "plugins/memory/l3-storage/tab-coordinator.js": {
       "imports": [
-        "plugins/memory/l3-storage/utils.js"
+        "plugins/memory/l3-storage/utils.js",
+        "shared/utils/safe-json.js"
       ],
       "importedBy": [
         "plugins/memory/l3-storage.js"
@@ -2941,23 +4845,14 @@
         "plugins/memory/memory-store.impl.l3.js",
         "plugins/memory/memory-store.impl.utils.js",
         "plugins/memory/todo-normalize.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
-        "plugins/memory/memory-store.impl.js"
-      ],
-      "exports": [
-        "MemoryStore",
-        "default"
-      ]
-    },
-    "plugins/memory/memory-store.impl.js": {
-      "imports": [
-        "plugins/memory/memory-store.impl.core.js"
-      ],
-      "importedBy": [
+        "core/di/defaults.js",
         "plugins/index.js",
-        "plugins/memory/index.js"
+        "plugins/memory/index.js",
+        "stages/deepsearch/capabilities-loader.js"
       ],
       "exports": [
         "MemoryStore",
@@ -2968,7 +4863,8 @@
       "imports": [
         "plugins/memory/memory-store.impl.utils.js",
         "plugins/memory/todo-normalize.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "plugins/memory/memory-store.impl.core.js"
@@ -2980,7 +4876,8 @@
     "plugins/memory/memory-store.impl.l1.js": {
       "imports": [
         "plugins/memory/memory-store.impl.utils.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "plugins/memory/memory-store.impl.core.js"
@@ -2992,7 +4889,8 @@
     "plugins/memory/memory-store.impl.l2.js": {
       "imports": [
         "plugins/memory/memory-store.impl.utils.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "plugins/memory/memory-store.impl.core.js"
@@ -3006,7 +4904,8 @@
         "plugins/memory/l3-storage.js",
         "plugins/memory/memory-store.impl.utils.js",
         "plugins/memory/retrieval-engine.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "plugins/memory/memory-store.impl.core.js"
@@ -3055,7 +4954,9 @@
       ]
     },
     "plugins/memory/state-diff.js": {
-      "imports": [],
+      "imports": [
+        "shared/utils/value-utils.js"
+      ],
       "importedBy": [
         "plugins/memory/state-engine.events.js",
         "plugins/memory/state-engine.js",
@@ -3100,6 +5001,7 @@
         "shared/index.js"
       ],
       "importedBy": [
+        "core/di/defaults.js",
         "plugins/index.js",
         "plugins/memory/index.js",
         "plugins/memory/unified-memory-store.js"
@@ -3138,7 +5040,8 @@
         "plugins/memory/state-diff.js",
         "plugins/memory/state-engine.utils.js",
         "plugins/memory/todo-normalize.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "plugins/memory/state-engine.js"
@@ -3219,7 +5122,8 @@
         "plugins/memory/action-types.js",
         "plugins/memory/l3-storage.js",
         "plugins/memory/unified-memory-store.utils.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "plugins/memory/unified-memory-store.js"
@@ -3232,7 +5136,8 @@
       "imports": [
         "plugins/memory/todo-normalize.js",
         "plugins/memory/unified-memory-store.utils.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "plugins/memory/unified-memory-store.js"
@@ -3265,7 +5170,8 @@
         "plugins/memory/action-types.js",
         "plugins/memory/todo-normalize.js",
         "plugins/memory/unified-memory-store.utils.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "plugins/memory/unified-memory-store.js"
@@ -3356,6 +5262,7 @@
         "shared/index.js"
       ],
       "importedBy": [
+        "core/di/defaults.js",
         "plugins/index.js",
         "plugins/policy/manager.js"
       ],
@@ -3372,6 +5279,7 @@
         "storage/artifact-manager.js"
       ],
       "importedBy": [
+        "core/di/defaults.js",
         "plugins/index.js"
       ],
       "exports": [
@@ -3434,23 +5342,6 @@
         "default"
       ]
     },
-    "plugins/routing/performance-router.js": {
-      "imports": [
-        "shared/index.js"
-      ],
-      "importedBy": [
-        "plugins/index.js",
-        "runtime/routing/performance-router.js"
-      ],
-      "exports": [
-        "EwmaTracker",
-        "ModelTier",
-        "PerformanceRouter",
-        "TaskComplexity",
-        "default",
-        "estimateComplexity"
-      ]
-    },
     "plugins/services/llm.js": {
       "imports": [
         "core/plugin.js",
@@ -3500,10 +5391,45 @@
         "default"
       ]
     },
-    "plugins/side-effects/side-effect-journal.js": {
+    "plugins/side-effects/side-effect-journal-helpers.js": {
       "imports": [
         "shared/index.js",
         "vfs/checkpoints.js"
+      ],
+      "importedBy": [
+        "plugins/side-effects/side-effect-journal.js"
+      ],
+      "exports": [
+        "MAX_WAL_FILE_SIZE",
+        "MAX_WAL_LINE_SIZE",
+        "appendTextToVfs",
+        "applyRollbackResult",
+        "applyWalReplayState",
+        "buildJournalEntry",
+        "bytesToText",
+        "createMemoryVfs",
+        "createStorageAdapter",
+        "isWalTextTooLarge",
+        "joinVfsPath",
+        "missingWalResult",
+        "normalizeCursor",
+        "parseWalEntries",
+        "readTextFromVfs",
+        "readWalReplayState",
+        "resolveRollbackDeps",
+        "rollbackEntries",
+        "sanitizeRunId",
+        "textToBytes",
+        "toIso",
+        "validateWalEntry",
+        "vfsExists",
+        "writeTextToVfs"
+      ]
+    },
+    "plugins/side-effects/side-effect-journal.js": {
+      "imports": [
+        "plugins/side-effects/side-effect-journal-helpers.js",
+        "shared/index.js"
       ],
       "importedBy": [
         "plugins/index.js"
@@ -3525,28 +5451,52 @@
         "default"
       ]
     },
+    "plugins/telemetry/cost-aggregator.js": {
+      "imports": [],
+      "importedBy": [
+        "plugins/telemetry/index.js"
+      ],
+      "exports": [
+        "CostAggregator"
+      ]
+    },
+    "plugins/telemetry/cost-formatter.js": {
+      "imports": [],
+      "importedBy": [
+        "plugins/telemetry/index.js"
+      ],
+      "exports": [
+        "calculateCostEstimate",
+        "formatAgentReport",
+        "formatBreakdownTable",
+        "formatCostSummary",
+        "formatLatency",
+        "formatTokenCount"
+      ]
+    },
     "plugins/telemetry/index.js": {
       "imports": [
-        "plugins/telemetry/loop-runtime-state.js",
+        "plugins/telemetry/cost-aggregator.js",
+        "plugins/telemetry/cost-formatter.js",
         "plugins/telemetry/replay-controller.js",
         "plugins/telemetry/runstore-telemetry.js",
         "plugins/telemetry/token-tracker.js",
-        "plugins/telemetry/trace-context.js"
+        "plugins/telemetry/trace-context.js",
+        "runtime/core/loop-runtime-state.js"
       ],
       "importedBy": [
         "core/di/defaults.js",
+        "index.js",
         "llm/internal/call-executor.js",
-        "runtime/core/agent-loop.js",
-        "runtime/core/api/stage-api-factory.js",
-        "runtime/core/status-controller.js",
-        "runtime/index.js",
+        "runtime/core/api/stage-api-helpers.js",
         "sdk/DefaultAgentLoop.js",
         "stages/deepsearch/deepsearch-helpers.js",
         "stages/design/design-helpers.js",
         "stages/design/internal/state-manager.js",
-        "stages/textprep/index.js"
+        "stages/textprep/textprep-helpers.js"
       ],
       "exports": [
+        "CostAggregator",
         "LOOP_RUNTIME_TRANSITIONS",
         "LoopRuntimeState",
         "LoopRuntimeStatuses",
@@ -3556,10 +5506,16 @@
         "SpanStatus",
         "TokenTracker",
         "TraceContext",
+        "calculateCostEstimate",
         "clearRuntimeState",
         "ensureRuntimeState",
         "exportTokenUsageCsv",
         "exportTokenUsageJson",
+        "formatAgentReport",
+        "formatBreakdownTable",
+        "formatCostSummary",
+        "formatLatency",
+        "formatTokenCount",
         "getGlobalTokenTracker",
         "getRuntimeState",
         "getTokenUsageSummary",
@@ -3569,26 +5525,10 @@
         "trackTokenUsage"
       ]
     },
-    "plugins/telemetry/loop-runtime-state.js": {
-      "imports": [
-        "shared/index.js"
-      ],
-      "importedBy": [
-        "plugins/telemetry/index.js"
-      ],
-      "exports": [
-        "LOOP_RUNTIME_TRANSITIONS",
-        "LoopRuntimeState",
-        "LoopRuntimeStatuses",
-        "clearRuntimeState",
-        "ensureRuntimeState",
-        "getRuntimeState",
-        "setRuntimeState"
-      ]
-    },
     "plugins/telemetry/replay-controller.js": {
       "imports": [],
       "importedBy": [
+        "core/di/defaults.js",
         "plugins/index.js",
         "plugins/telemetry/index.js"
       ],
@@ -3682,11 +5622,12 @@
         "plugins/index.js"
       ],
       "exports": [
-        "BinarySkillProvider",
-        "ProcessTransport",
         "createBinarySkillProvider",
         "createProcessTransport",
-        "default"
+        "default",
+        "getBinarySkillProvider",
+        "getImpl",
+        "getProcessTransport"
       ]
     },
     "plugins/transports/index.node.js": {
@@ -3698,12 +5639,18 @@
         "plugins/transports/index.js"
       ],
       "exports": [
-        "*"
+        "BinarySkillProvider",
+        "ProcessTransport",
+        "createBinarySkillProvider",
+        "createProcessTransport"
       ]
     },
     "plugins/transports/process-transport.js": {
-      "imports": [],
+      "imports": [
+        "shared/utils/safe-json.js"
+      ],
       "importedBy": [
+        "mcp/stdio-mcp-transport.js",
         "plugins/transports/binary-skill-provider.js",
         "plugins/transports/index.node.js"
       ],
@@ -3800,15 +5747,48 @@
         "formatUpper"
       ]
     },
+    "prompts/prompt-loader-helpers.js": {
+      "imports": [
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "prompts/prompt-loader.js"
+      ],
+      "exports": [
+        "createResponseTooLargeError",
+        "enforcePromptCacheLimit",
+        "escapeRegExp",
+        "escapeTemplateDelimiters",
+        "getBasePath",
+        "getCacheItem",
+        "getNodeProcess",
+        "getSyncNodeModules",
+        "isPathInsideBase",
+        "isSafeHttpUrl",
+        "lruGet",
+        "lruSet",
+        "makePromptCacheKey",
+        "normalizeMaxBytes",
+        "normalizeTemplateVars",
+        "resolvePromptCacheMaxEntries",
+        "resolvePromptManifestCacheTtlMs",
+        "resolveUrl",
+        "setCacheItem",
+        "tryGetHeader",
+        "tryReadTextWithLimit",
+        "validateKey"
+      ]
+    },
     "prompts/prompt-loader.js": {
       "imports": [
+        "prompts/prompt-loader-helpers.js",
         "shared/index.js"
       ],
       "importedBy": [
         "ingest/asset-understanding.js",
         "stages/codesearch/prompts.js",
         "stages/deepsearch/internal/writing-phase-handler.js",
-        "stages/deepsearch/phases/planning-phase.js",
+        "stages/deepsearch/phases/planning-phase-helpers.js",
         "stages/deepsearch/todos.js",
         "stages/design/dsl/dsl-rules.js",
         "stages/design/generators/batch-generator.js",
@@ -3857,9 +5837,12 @@
         "retrieval/retrieval-router.js"
       ],
       "exports": [
+        "DEFAULT_STOPWORDS",
         "buildIndex",
         "buildIndexAsync",
+        "deriveStopwords",
         "deserializeIndex",
+        "getDefaultStopwords",
         "search",
         "serializeIndex"
       ]
@@ -3883,6 +5866,7 @@
         "shared/utils/value-utils.js"
       ],
       "importedBy": [
+        "core/di/defaults.js",
         "shared/index.js"
       ],
       "exports": [
@@ -3934,12 +5918,16 @@
       ]
     },
     "retrieval/mmr.js": {
-      "imports": [],
+      "imports": [
+        "shared/index.js"
+      ],
       "importedBy": [
         "retrieval/retrieval-router.js",
         "stages/deepsearch/tools/search-docs/handler.js"
       ],
       "exports": [
+        "DEFAULT_MMR_LAMBDA",
+        "DEFAULT_MMR_MAX_TOKENS",
         "default",
         "mmrSelect"
       ]
@@ -3967,6 +5955,10 @@
         "core/di/defaults.js"
       ],
       "exports": [
+        "DEFAULT_GREP_ASYNC_THRESHOLD",
+        "DEFAULT_GREP_YIELD_EVERY",
+        "DEFAULT_MAX_BM25_SNAPSHOT_CHARS",
+        "DEFAULT_MMR_LAMBDA",
         "RetrievalRouter",
         "retrieve",
         "retrieveAsync"
@@ -3994,6 +5986,7 @@
         "retrieval/retrieval-router.js"
       ],
       "exports": [
+        "DEFAULT_SECTION_TARGET_SIZE",
         "buildToc",
         "buildTocAsync",
         "buildTocStreaming"
@@ -4036,17 +6029,6 @@
         "searchAsync"
       ]
     },
-    "runtime/api/stage-api-factory.js": {
-      "imports": [
-        "runtime/core/api/stage-api-factory.js"
-      ],
-      "importedBy": [],
-      "exports": [
-        "StageApiFactory",
-        "createStageApiFactory",
-        "default"
-      ]
-    },
     "runtime/core/agent-loop-lifecycle-hooks.js": {
       "imports": [
         "runtime/hooks/hook-runner.js"
@@ -4072,6 +6054,43 @@
         "initMessageHandling"
       ]
     },
+    "runtime/core/agent-loop-phase-mixin.js": {
+      "imports": [
+        "runtime/core/agent-status.js"
+      ],
+      "importedBy": [
+        "runtime/core/agent-loop.js"
+      ],
+      "exports": [
+        "attachPhaseMixin",
+        "isAllowedLoopStatusTransition"
+      ]
+    },
+    "runtime/core/agent-loop-status-mixin.js": {
+      "imports": [
+        "runtime/core/agent-status.js",
+        "runtime/core/status-controller.js"
+      ],
+      "importedBy": [
+        "runtime/core/agent-loop.js"
+      ],
+      "exports": [
+        "attachStatusMixin",
+        "initStatusMixin"
+      ]
+    },
+    "runtime/core/agent-loop-step-mixin.js": {
+      "imports": [
+        "shared/utils/cancellation.js"
+      ],
+      "importedBy": [
+        "runtime/core/agent-loop.js"
+      ],
+      "exports": [
+        "attachStepMixin",
+        "initStepMixin"
+      ]
+    },
     "runtime/core/agent-loop-tool-dispatch.js": {
       "imports": [
         "runtime/core/tool-registry.js"
@@ -4086,15 +6105,27 @@
         "resolveToolExecutor"
       ]
     },
+    "runtime/core/agent-loop-user-action-mixin.js": {
+      "imports": [],
+      "importedBy": [
+        "runtime/core/agent-loop.js"
+      ],
+      "exports": [
+        "attachUserActionMixin"
+      ]
+    },
     "runtime/core/agent-loop.js": {
       "imports": [
-        "plugins/compression/index.js",
-        "plugins/telemetry/index.js",
         "runtime/core/agent-loop-lifecycle-hooks.js",
         "runtime/core/agent-loop-message-handling.js",
+        "runtime/core/agent-loop-phase-mixin.js",
+        "runtime/core/agent-loop-status-mixin.js",
+        "runtime/core/agent-loop-step-mixin.js",
         "runtime/core/agent-loop-tool-dispatch.js",
+        "runtime/core/agent-loop-user-action-mixin.js",
         "runtime/core/agent-status.js",
         "runtime/core/context-config.js",
+        "runtime/core/loop-runtime-state.js",
         "runtime/core/message-manager.js",
         "runtime/core/stage-errors.js",
         "runtime/core/status-controller.js",
@@ -4104,8 +6135,7 @@
       "importedBy": [
         "runtime/index.js",
         "sdk/DefaultAgentLoop.js",
-        "sdk/agent-factory.js",
-        "sdk/index.js"
+        "sdk/agent-factory.js"
       ],
       "exports": [
         "BaseAgentLoop",
@@ -4118,6 +6148,7 @@
         "checkCancelledOrPaused",
         "checkPaused",
         "getEmitFn",
+        "isAllowedLoopStatusTransition",
         "mergeContextConfig",
         "normalizeToolResult",
         "resolveToolExecutor"
@@ -4127,6 +6158,8 @@
       "imports": [],
       "importedBy": [
         "plugins/plan/plan-store.js",
+        "runtime/core/agent-loop-phase-mixin.js",
+        "runtime/core/agent-loop-status-mixin.js",
         "runtime/core/agent-loop.js",
         "runtime/core/lifecycle.js",
         "runtime/core/status-controller.js",
@@ -4145,17 +6178,13 @@
     },
     "runtime/core/api/stage-api-factory.js": {
       "imports": [
-        "core/message-bus.js",
-        "plugins/telemetry/index.js",
-        "runtime/core/error-boundary.js",
-        "runtime/core/retry-strategy.js",
+        "runtime/core/api/stage-api-helpers.js",
         "runtime/tools/tool-quotas.js",
         "shared/index.js",
         "vfs/fs-adapter.js",
         "vfs/glob.js"
       ],
       "importedBy": [
-        "runtime/api/stage-api-factory.js",
         "runtime/index.js"
       ],
       "exports": [
@@ -4164,12 +6193,51 @@
         "default"
       ]
     },
-    "runtime/core/config-validator.js": {
+    "runtime/core/api/stage-api-helpers.js": {
       "imports": [
-        "shared/index.js"
+        "core/message-bus.js",
+        "plugins/telemetry/index.js",
+        "runtime/core/error-boundary.js",
+        "shared/index.js",
+        "shared/retry-strategy.js"
       ],
       "importedBy": [
-        "runtime/core/orchestrator.js"
+        "runtime/core/api/stage-api-factory.js"
+      ],
+      "exports": [
+        "createCircuitBreaker",
+        "ensureAiApiServiceRetry",
+        "ensureAiApiServiceTokenTracking",
+        "ensureEventBusBackpressure",
+        "ensureMcpClientRetry",
+        "extractTokenUsage",
+        "filterDefinedValues",
+        "isErrorBoundaryLike",
+        "isMessageBusLike",
+        "isRetryStrategyLike",
+        "isToolQuotaManagerLike",
+        "isTraceContextLike",
+        "recordTokenTrackingFailure",
+        "recordTokenTrackingSuccess",
+        "resolveErrorBoundary",
+        "resolveErrorBoundaryFromContainer",
+        "resolveMessageBus",
+        "resolveMessageBusFromContainer",
+        "resolveRetryStrategy",
+        "resolveRetryStrategyFromContainer",
+        "resolveToolQuotaManager",
+        "resolveToolQuotaManagerFromContainer",
+        "resolveTraceContext",
+        "resolveTraceContextFromContainer"
+      ]
+    },
+    "runtime/core/config-validator.js": {
+      "imports": [
+        "shared/index.js",
+        "shared/utils/value-utils.js"
+      ],
+      "importedBy": [
+        "runtime/core/orchestrator-helpers.js"
       ],
       "exports": [
         "CommonSchemas",
@@ -4181,6 +6249,7 @@
     "runtime/core/constants.js": {
       "imports": [],
       "importedBy": [
+        "runtime/core/orchestrator-helpers.js",
         "runtime/core/orchestrator.js",
         "runtime/index.js"
       ],
@@ -4287,10 +6356,12 @@
     },
     "runtime/core/context/unified-agent-context.js": {
       "imports": [
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
-        "runtime/index.js"
+        "runtime/index.js",
+        "stages/deepsearch/capabilities-loader.js"
       ],
       "exports": [
         "UnifiedAgentContext",
@@ -4304,7 +6375,7 @@
       ],
       "importedBy": [
         "core/di/defaults.js",
-        "runtime/core/api/stage-api-factory.js",
+        "runtime/core/api/stage-api-helpers.js",
         "runtime/index.js"
       ],
       "exports": [
@@ -4316,6 +6387,7 @@
         "createErrorInfo",
         "default",
         "getErrorBoundary",
+        "isRetryable",
         "withErrorBoundary"
       ]
     },
@@ -4392,10 +6464,13 @@
     },
     "runtime/core/index.js": {
       "imports": [
+        "runtime/core/stage-rpc-bridge.js",
         "runtime/core/worker-factory.js"
       ],
       "importedBy": [],
       "exports": [
+        "StageRpcBridge",
+        "createStageRpcBridge",
         "createWorker",
         "isWorkerSupported",
         "terminateWorker"
@@ -4406,7 +6481,9 @@
         "runtime/core/runtime-adapter.js",
         "shared/index.js"
       ],
-      "importedBy": [],
+      "importedBy": [
+        "core/di/defaults.js"
+      ],
       "exports": [
         "JSRuntimeAdapter"
       ]
@@ -4438,6 +6515,25 @@
         "createStatusChangePayload",
         "createStepPayload",
         "lifecycleEvent"
+      ]
+    },
+    "runtime/core/loop-runtime-state.js": {
+      "imports": [
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "plugins/telemetry/index.js",
+        "runtime/core/agent-loop.js",
+        "runtime/core/status-controller.js"
+      ],
+      "exports": [
+        "LOOP_RUNTIME_TRANSITIONS",
+        "LoopRuntimeState",
+        "LoopRuntimeStatuses",
+        "clearRuntimeState",
+        "ensureRuntimeState",
+        "getRuntimeState",
+        "setRuntimeState"
       ]
     },
     "runtime/core/manifest/manifest.js": {
@@ -4480,11 +6576,30 @@
         "loadMechanisms"
       ]
     },
+    "runtime/core/message-manager-helpers.js": {
+      "imports": [
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "runtime/core/message-manager.js"
+      ],
+      "exports": [
+        "SUMMARY_LONG_TOKENS",
+        "SUMMARY_MIN_TOKENS",
+        "computeContentHash",
+        "estimateTokens",
+        "generateBuiltinSummary",
+        "isAbortError",
+        "isThinkingMessage",
+        "shouldGenerateSummary"
+      ]
+    },
     "runtime/core/message-manager.js": {
       "imports": [
         "plugins/compression/index.js",
         "runtime/core/context-config.js",
         "runtime/core/errors/silent-error-reporter.js",
+        "runtime/core/message-manager-helpers.js",
         "runtime/core/persisted-output.js",
         "shared/index.js"
       ],
@@ -4532,14 +6647,40 @@
         "default"
       ]
     },
+    "runtime/core/orchestrator-helpers.js": {
+      "imports": [
+        "runtime/core/config-validator.js",
+        "runtime/core/constants.js",
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "runtime/core/orchestrator.js"
+      ],
+      "exports": [
+        "DEFAULT_USER_CONFIG_SCHEMA",
+        "buildDegradationContext",
+        "buildRunContext",
+        "createStageAbortSignal",
+        "defaultMemoryUsageRatio",
+        "deriveActorFromStageName",
+        "formatValidationErrors",
+        "isDegradationMatrixLike",
+        "isFailureStopReason",
+        "isPromiseLike",
+        "maybeAwait",
+        "normalizeTimeoutMs",
+        "prepareStageInputWithUserConfigValidation"
+      ]
+    },
     "runtime/core/orchestrator.js": {
       "imports": [
         "core/di/defaults.js",
         "core/event-bus.js",
         "plugins/resilience/degradation-matrix.js",
-        "runtime/core/config-validator.js",
         "runtime/core/constants.js",
+        "runtime/core/orchestrator-helpers.js",
         "runtime/core/parallel/task-graph.js",
+        "runtime/events/events.js",
         "runtime/hooks/event-bus-hooks.js",
         "shared/index.js"
       ],
@@ -4571,15 +6712,21 @@
         "runtime/index.js"
       ],
       "exports": [
+        "DEFAULT_KEEP_RECENT_OUTPUTS",
+        "DEFAULT_OUTPUT_THRESHOLD",
+        "DEFAULT_PREVIEW_SIZE",
         "KEEP_RECENT_OUTPUTS",
         "OUTPUT_THRESHOLD",
         "PERSISTED_OUTPUT_END",
         "PERSISTED_OUTPUT_START",
         "PREVIEW_SIZE",
         "cleanOldPersistedOutputs",
+        "configurePersistedOutput",
         "createPersistedOutputHook",
         "default",
+        "getPersistedOutputConfig",
         "isPersistedOutput",
+        "resetPersistedOutputConfig",
         "wrapPersistedOutput"
       ]
     },
@@ -4591,6 +6738,7 @@
         "shared/index.js"
       ],
       "importedBy": [
+        "core/di/defaults.js",
         "plugins/deps/python-skill-executor.js"
       ],
       "exports": [
@@ -4609,21 +6757,6 @@
         "default"
       ]
     },
-    "runtime/core/retry-strategy.js": {
-      "imports": [
-        "shared/index.js"
-      ],
-      "importedBy": [
-        "llm/internal/config-parser.js",
-        "runtime/core/api/stage-api-factory.js"
-      ],
-      "exports": [
-        "RetryStrategy",
-        "default",
-        "isRetryableError",
-        "withRetry"
-      ]
-    },
     "runtime/core/runtime-adapter.js": {
       "imports": [],
       "importedBy": [
@@ -4639,7 +6772,9 @@
       "imports": [
         "shared/index.js"
       ],
-      "importedBy": [],
+      "importedBy": [
+        "core/di/defaults.js"
+      ],
       "exports": [
         "RuntimeHealthStatus",
         "RuntimeScheduler",
@@ -4648,7 +6783,9 @@
     },
     "runtime/core/shared-memory.js": {
       "imports": [],
-      "importedBy": [],
+      "importedBy": [
+        "core/di/defaults.js"
+      ],
       "exports": [
         "MessagePortFallback",
         "SharedMemoryBridge",
@@ -4677,14 +6814,29 @@
         "toErrorPayload"
       ]
     },
+    "runtime/core/stage-rpc-bridge.js": {
+      "imports": [
+        "core/event-bus.js",
+        "core/message-bus.js",
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "runtime/core/index.js"
+      ],
+      "exports": [
+        "StageRpcBridge",
+        "createStageRpcBridge"
+      ]
+    },
     "runtime/core/status-controller.js": {
       "imports": [
-        "plugins/telemetry/index.js",
         "runtime/core/agent-status.js",
+        "runtime/core/loop-runtime-state.js",
         "runtime/core/stage-errors.js",
         "shared/index.js"
       ],
       "importedBy": [
+        "runtime/core/agent-loop-status-mixin.js",
         "runtime/core/agent-loop.js",
         "runtime/index.js"
       ],
@@ -4766,8 +6918,12 @@
       ]
     },
     "runtime/core/vfs-proxy.js": {
-      "imports": [],
-      "importedBy": [],
+      "imports": [
+        "shared/utils/safe-json.js"
+      ],
+      "importedBy": [
+        "core/di/defaults.js"
+      ],
       "exports": [
         "VfsProxy",
         "default"
@@ -4793,8 +6949,13 @@
         "runtime/core/worker-rpc.js",
         "shared/index.js"
       ],
-      "importedBy": [],
+      "importedBy": [
+        "core/di/defaults.js"
+      ],
       "exports": [
+        "DEFAULT_IDLE_TIMEOUT_MS",
+        "DEFAULT_MAX_WORKERS",
+        "DEFAULT_TASK_TIMEOUT_MS",
         "TaskPriority",
         "WorkerPool",
         "default"
@@ -4835,6 +6996,7 @@
       "importedBy": [
         "plugins/compression/impl/cicada-compressor.js",
         "plugins/compression/impl/watchdog.js",
+        "runtime/core/orchestrator.js",
         "runtime/index.js",
         "stages/deepsearch/internal/model-response-handler.js",
         "stages/deepsearch/internal/writing-phase-handler.js"
@@ -4907,10 +7069,12 @@
         "runtime/tools/tool-executor.js"
       ],
       "exports": [
+        "clearTokenPatterns",
         "createPostAgentHook",
         "createPreAgentHook",
         "createPreToolUseHook",
-        "default"
+        "default",
+        "registerTokenPatterns"
       ]
     },
     "runtime/hooks/hooks-config-loader.js": {
@@ -4954,8 +7118,6 @@
       "imports": [
         "core/di/index.js",
         "core/event-bus.js",
-        "plugins/compression/index.js",
-        "plugins/telemetry/index.js",
         "runtime/core/agent-loop.js",
         "runtime/core/agent-status.js",
         "runtime/core/api/stage-api-factory.js",
@@ -4987,7 +7149,8 @@
         "stages/deepsearch/phases/planning-phase.js",
         "stages/deepsearch/report/write-utils.js",
         "stages/deepsearch/states.js",
-        "stages/deepsearch/tools/index.js",
+        "stages/deepsearch/subagents.js",
+        "stages/deepsearch/tools/tool-executor-ds.js",
         "stages/design/agent-loop.js",
         "stages/design/design-helpers.js",
         "stages/design/design-tools.js",
@@ -4996,7 +7159,6 @@
         "stages/design/generators/image-generator.js",
         "stages/design/generators/svg-generator.js",
         "stages/design/image/visual-renderer.js",
-        "stages/design/internal/deck-operations.js",
         "stages/design/internal/design-context.js",
         "stages/design/internal/phases/generating-phase.js",
         "stages/design/internal/phases/layout-phase.js",
@@ -5006,7 +7168,8 @@
         "stages/design/internal/tool-handler.js",
         "stages/design/internal/visual-handler.js",
         "stages/design/states.js",
-        "stages/textprep/index.js"
+        "stages/textprep/textprep-helpers.js",
+        "stages/textprep/textprep-stage.js"
       ],
       "exports": [
         "AgentLifecycleEvents",
@@ -5014,11 +7177,8 @@
         "AgentStatus",
         "BaseAgentLoop",
         "BaseStage",
-        "CicadaCompressor",
         "CicadaEvents",
         "CodeSearchEvents",
-        "CompressionCoordinator",
-        "CompressionLayer",
         "Container",
         "DeepSearchEvents",
         "DesignEvents",
@@ -5042,12 +7202,9 @@
         "StepStatus",
         "TRANSIENT",
         "TaskGraph",
-        "TokenTracker",
         "ToolExecutor",
         "ToolRegistry",
-        "TraceContext",
         "UnifiedAgentContext",
-        "Watchdog",
         "WatchdogEvents",
         "checkCancelled",
         "checkPaused",
@@ -5080,18 +7237,6 @@
         "wrapPersistedOutput"
       ]
     },
-    "runtime/routing/performance-router.js": {
-      "imports": [
-        "plugins/routing/performance-router.js"
-      ],
-      "importedBy": [
-        "llm/internal/call-executor.js",
-        "llm/internal/config-parser.js"
-      ],
-      "exports": [
-        "*"
-      ]
-    },
     "runtime/safety/command-classifier.js": {
       "imports": [],
       "importedBy": [
@@ -5103,8 +7248,11 @@
       "exports": [
         "__internal",
         "classifyCommand",
+        "configureClassifier",
         "default",
+        "getClassifierConfig",
         "parseCompoundCommand",
+        "resetClassifierConfig",
         "toBaseName"
       ]
     },
@@ -5308,6 +7456,22 @@
         "validateToolSchema"
       ]
     },
+    "runtime/tools/tool-executor-helpers.js": {
+      "imports": [],
+      "importedBy": [
+        "runtime/tools/tool-executor.js"
+      ],
+      "exports": [
+        "createBlockedWorkerModuleUrlError",
+        "isRelativePathSpecifier",
+        "looksLikeUrlScheme",
+        "looksLikeWindowsAbsolutePath",
+        "normalizeAllowedOrigins",
+        "normalizeIsolationMode",
+        "normalizeWorkerModuleUrlPolicy",
+        "resolveAndValidateWorkerModuleUrl"
+      ]
+    },
     "runtime/tools/tool-executor-webworker.js": {
       "imports": [
         "runtime/tools/tool-executor-worker-shared.js"
@@ -5336,6 +7500,7 @@
       "imports": [
         "runtime/hooks/hook-runner.js",
         "runtime/tools/schema-validator.js",
+        "runtime/tools/tool-executor-helpers.js",
         "shared/index.js"
       ],
       "importedBy": [
@@ -5356,6 +7521,7 @@
         "shared/index.js"
       ],
       "importedBy": [
+        "core/di/defaults.js",
         "runtime/core/api/stage-api-factory.js",
         "runtime/tools/index.js"
       ],
@@ -5386,8 +7552,7 @@
     "sdk/AlertMonitor.js": {
       "imports": [],
       "importedBy": [
-        "sdk/agent-factory.js",
-        "sdk/index.js"
+        "sdk/agent-factory.js"
       ],
       "exports": [
         "AlertMonitor",
@@ -5396,7 +7561,7 @@
     },
     "sdk/BacktrackManager.js": {
       "imports": [
-        "shared/index.js"
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "runtime/core/mechanisms.js",
@@ -5513,7 +7678,8 @@
     },
     "sdk/config-loader.js": {
       "imports": [
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/logger.js"
       ],
       "importedBy": [
         "sdk/index.js"
@@ -5522,6 +7688,18 @@
         "default",
         "loadAgentConfig",
         "mergeConfigs"
+      ]
+    },
+    "sdk/convenience.js": {
+      "imports": [
+        "core/event-bus.js",
+        "stages/deepsearch/deepsearch-agent-loop.js",
+        "stages/design/agent-loop.js"
+      ],
+      "importedBy": [],
+      "exports": [
+        "runDeepSearch",
+        "runDesign"
       ]
     },
     "sdk/examples/backtrack-usage.js": {
@@ -5578,8 +7756,6 @@
       "imports": [
         "core/event-bus.js",
         "mcp/index.js",
-        "plugins/compression/index.js",
-        "runtime/core/agent-loop.js",
         "runtime/core/agent-status.js",
         "runtime/core/stage-errors.js",
         "runtime/tools/BacktrackTool.js",
@@ -5587,16 +7763,12 @@
         "runtime/tools/RecallTool.js",
         "runtime/tools/TaskTool.js",
         "sdk/AgentBuilder.js",
-        "sdk/AlertMonitor.js",
         "sdk/BacktrackManager.js",
         "sdk/DefaultAgentLoop.js",
         "sdk/SoftBacktrackManager.js",
         "sdk/SubagentRegistry.js",
         "sdk/config-loader.js",
-        "shared/index.js",
-        "stages/codesearch/codesearch-stage.js",
-        "stages/deepsearch/deepsearch-agent-loop.js",
-        "stages/design/agent-loop.js"
+        "shared/index.js"
       ],
       "importedBy": [
         "cli/demo.js",
@@ -5610,19 +7782,12 @@
         "AgentBuilder",
         "AgentInstance",
         "AgentStatus",
-        "AlertMonitor",
         "BACKTRACK_TOOL_DEFINITION",
         "BacktrackManager",
-        "BaseAgentLoop",
         "BudgetAction",
-        "CicadaCompressor",
-        "CodeSearchStage",
-        "CompressionLayer",
         "ContextMode",
         "DMAIL_TOOL_DEFINITION",
-        "DeepSearchAgentLoop",
         "DefaultAgentLoop",
-        "DesignAgentLoop",
         "EventBus",
         "McpClient",
         "McpProvider",
@@ -5634,7 +7799,6 @@
         "SubagentRegistry",
         "TASK_TOOL_DEFINITION",
         "VERSION",
-        "Watchdog",
         "createAgent",
         "createBacktrackTool",
         "createBudgetManager",
@@ -5647,6 +7811,7 @@
         "isAgentActive",
         "isAgentTerminal",
         "loadAgentConfig",
+        "loadStdioModules",
         "mergeConfigs",
         "trackToolCall"
       ]
@@ -5671,7 +7836,8 @@
     },
     "shared/base/disposable-base.js": {
       "imports": [
-        "core/contracts/disposable.js"
+        "core/contracts/disposable.js",
+        "shared/utils/logger.js"
       ],
       "importedBy": [
         "shared/index.js",
@@ -5691,6 +7857,7 @@
         "retrieval/embeddings/hnsw-lite.js",
         "retrieval/embeddings/vector-index.js",
         "shared/base/disposable-base.js",
+        "shared/parser/tree-sitter-wasm.js",
         "shared/platform.js",
         "shared/tokenizers/adaptive-token-counter.js",
         "shared/utils/budget.js",
@@ -5720,11 +7887,13 @@
       ],
       "importedBy": [
         "cli/model-client.js",
+        "core/crdt/sync-manager.js",
+        "core/crdt/websocket-transport.js",
         "core/di/defaults.js",
         "core/event-bus.js",
-        "core/lamport-clock.js",
         "core/sandbox/index.js",
         "core/sandbox/pool.js",
+        "core/sandbox/resource-lock.js",
         "core/sandbox/skill-executor.js",
         "core/sandbox/system/executor.js",
         "core/secure-plugin-loader.js",
@@ -5738,6 +7907,7 @@
         "ingest/adapters/history.js",
         "ingest/adapters/html.js",
         "ingest/adapters/markdown.js",
+        "ingest/adapters/node-io.js",
         "ingest/adapters/pdf.js",
         "ingest/adapters/pptx.js",
         "ingest/adapters/raw-text.js",
@@ -5754,6 +7924,7 @@
         "llm/mock-provider.js",
         "llm/model-router.js",
         "llm/overflow-recovery.js",
+        "llm/performance-router.js",
         "llm/ppt-model-bridge.js",
         "llm/provider.js",
         "llm/rate-limit.js",
@@ -5765,6 +7936,7 @@
         "mcp/index.js",
         "mcp/local-mcp-provider.js",
         "mcp/mcp-client.js",
+        "mcp/mcp-nexus-helpers.js",
         "mcp/mcp-nexus-provider.js",
         "mcp/mcp-transport.js",
         "mcp/nexus-skill-provider.js",
@@ -5777,6 +7949,7 @@
         "plugins/analysis/convergence-detector.js",
         "plugins/checkpoints/agent-checkpoint-store.js",
         "plugins/compression/impl/cicada-compressor.js",
+        "plugins/compression/impl/cicada-helpers.js",
         "plugins/compression/impl/compression-async.js",
         "plugins/compression/impl/compression.worker.js",
         "plugins/compression/impl/context-predictor.js",
@@ -5810,18 +7983,19 @@
         "plugins/policy/manager.js",
         "plugins/policy/store.js",
         "plugins/resilience/degradation-matrix.js",
-        "plugins/routing/performance-router.js",
+        "plugins/side-effects/side-effect-journal-helpers.js",
         "plugins/side-effects/side-effect-journal.js",
-        "plugins/telemetry/loop-runtime-state.js",
         "plugins/telemetry/runstore-telemetry.js",
         "plugins/telemetry/token-tracker.js",
         "plugins/telemetry/trace-context.js",
         "plugins/transports/index.js",
+        "prompts/prompt-loader-helpers.js",
         "prompts/prompt-loader.js",
         "prompts/prompt-template.js",
         "retrieval/bm25.js",
         "retrieval/grep.js",
         "retrieval/hybrid-retrieval.js",
+        "retrieval/mmr.js",
         "retrieval/retrieval-router.js",
         "retrieval/scope.js",
         "retrieval/toc-builder.js",
@@ -5830,20 +8004,24 @@
         "runtime/core/agent-loop-message-handling.js",
         "runtime/core/agent-loop.js",
         "runtime/core/api/stage-api-factory.js",
+        "runtime/core/api/stage-api-helpers.js",
         "runtime/core/config-validator.js",
         "runtime/core/context/unified-agent-context.js",
         "runtime/core/error-boundary.js",
         "runtime/core/exec/command-executor.node.js",
         "runtime/core/js-adapter.js",
+        "runtime/core/loop-runtime-state.js",
         "runtime/core/mechanisms.js",
+        "runtime/core/message-manager-helpers.js",
         "runtime/core/message-manager.js",
+        "runtime/core/orchestrator-helpers.js",
         "runtime/core/orchestrator.js",
         "runtime/core/parallel/task-graph.js",
         "runtime/core/python-adapter.js",
         "runtime/core/resource-guard.js",
-        "runtime/core/retry-strategy.js",
         "runtime/core/scheduler.js",
         "runtime/core/stage-errors.js",
+        "runtime/core/stage-rpc-bridge.js",
         "runtime/core/status-controller.js",
         "runtime/core/tool-output-persistence.js",
         "runtime/core/tool-registry.js",
@@ -5865,7 +8043,6 @@
         "runtime/tools/tool-executor.js",
         "runtime/tools/tool-quotas.js",
         "sdk/AgentBuilder.js",
-        "sdk/BacktrackManager.js",
         "sdk/DefaultAgentLoop.js",
         "sdk/DiscoveryManager.js",
         "sdk/SubagentRegistry.js",
@@ -5873,6 +8050,7 @@
         "sdk/agent-factory.js",
         "sdk/config-loader.js",
         "sdk/index.js",
+        "shared/retry-strategy.js",
         "skills/loader.browser.js",
         "skills/loader.js",
         "skills/render.js",
@@ -5903,6 +8081,7 @@
         "stages/deepsearch/model/caller.js",
         "stages/deepsearch/model/pricing.js",
         "stages/deepsearch/model/usage.js",
+        "stages/deepsearch/phases/planning-phase-helpers.js",
         "stages/deepsearch/phases/planning-phase.js",
         "stages/deepsearch/report/citations.js",
         "stages/deepsearch/report/report-generator.js",
@@ -5934,6 +8113,7 @@
         "stages/design/dsl/dsl-rules.js",
         "stages/design/edit-mode/history.js",
         "stages/design/edit-mode/tools.js",
+        "stages/design/generators/batch-generator-helpers.js",
         "stages/design/generators/batch-generator.js",
         "stages/design/generators/design-system-generator.js",
         "stages/design/generators/design-tokens.js",
@@ -5960,8 +8140,9 @@
         "stages/textprep/build-content-package.js",
         "stages/textprep/chunk.js",
         "stages/textprep/claims.js",
-        "stages/textprep/index.js",
         "stages/textprep/slideplan.js",
+        "stages/textprep/textprep-helpers.js",
+        "stages/textprep/textprep-stage.js",
         "storage/artifact-manager.js",
         "storage/run-exporter.js",
         "storage/run-store-cache.js",
@@ -5988,6 +8169,7 @@
         "CircuitBreaker",
         "CircuitBreakerRegistry",
         "CircuitState",
+        "DEFAULT_TREE_SITTER_WASM_BASE_URL",
         "Deque",
         "DisposableBase",
         "EmbeddingService",
@@ -6043,19 +8225,23 @@
         "getTokenCacheStats",
         "globToRegex",
         "hasLocalStorage",
+        "initTreeSitter",
         "injectSystemHint",
         "isAbortError",
         "isEncryptedString",
         "isNativeWatchSupported",
         "isNodeLike",
+        "isNonRecoverableDeepSearchError",
         "isNonRetryableError",
         "isPlainObject",
         "isPotentiallyDangerous",
         "isTimeoutError",
+        "loadTreeSitterLanguage",
         "logEvent",
         "makeSafe",
         "makeSecureId",
         "makeSecureTimestampedId",
+        "mergeSignals",
         "mergeStageApis",
         "migrateCheckpoint",
         "normalizeEmbeddingConfig",
@@ -6063,6 +8249,7 @@
         "normalizeMaxBytes",
         "normalizeRenderType",
         "normalizeToolResult",
+        "protoSafeReviver",
         "readJsonWithLimit",
         "readTextWithLimit",
         "robustParseJson",
@@ -6075,6 +8262,7 @@
         "sanitizeForJson",
         "stripThinkingTags",
         "toBoolean",
+        "toDeepSearchErrorMessage",
         "toErrorMessage",
         "toNonEmptyString",
         "toNonNegativeInt",
@@ -6104,7 +8292,9 @@
         "shared/platform.js",
         "shared/utils/wasm-support.js"
       ],
-      "importedBy": [],
+      "importedBy": [
+        "shared/index.js"
+      ],
       "exports": [
         "DEFAULT_TREE_SITTER_WASM_BASE_URL",
         "default",
@@ -6121,6 +8311,24 @@
       "exports": [
         "Platform",
         "isNodeLike"
+      ]
+    },
+    "shared/retry-strategy.js": {
+      "imports": [
+        "shared/index.js"
+      ],
+      "importedBy": [
+        "core/di/defaults.js",
+        "llm/internal/config-parser.js",
+        "runtime/core/api/stage-api-helpers.js"
+      ],
+      "exports": [
+        "RetryStrategy",
+        "default",
+        "getGlobalRetryStats",
+        "isRetryableError",
+        "resetGlobalRetryStats",
+        "withRetry"
       ]
     },
     "shared/tokenizers/adaptive-token-counter.js": {
@@ -6159,6 +8367,7 @@
         "shared/utils/error-utils.js"
       ],
       "importedBy": [
+        "runtime/core/agent-loop-step-mixin.js",
         "shared/index.js",
         "shared/utils/response-limits.js",
         "shared/utils/stage-api.js",
@@ -6168,6 +8377,7 @@
         "checkCancelled",
         "createLinkedSignal",
         "isAbortError",
+        "mergeSignals",
         "withCancellation"
       ]
     },
@@ -6215,7 +8425,9 @@
       ]
     },
     "shared/utils/error-utils-extended.js": {
-      "imports": [],
+      "imports": [
+        "shared/utils/logger.js"
+      ],
       "importedBy": [
         "shared/index.js"
       ],
@@ -6264,6 +8476,7 @@
     "shared/utils/file-watcher.js": {
       "imports": [
         "shared/base/disposable-base.js",
+        "shared/utils/logger.js",
         "shared/utils/value-utils.js"
       ],
       "importedBy": [
@@ -6290,11 +8503,22 @@
       "imports": [],
       "importedBy": [
         "core/archive/archive.js",
+        "core/contracts/disposable.js",
+        "core/kernel.js",
+        "ingest/adapters/pdf.js",
+        "plugins/debug/inspector.js",
+        "sdk/config-loader.js",
+        "shared/base/disposable-base.js",
         "shared/index.js",
+        "shared/utils/error-utils-extended.js",
         "shared/utils/error-utils.js",
         "shared/utils/event-emitter.js",
+        "shared/utils/file-watcher.js",
         "shared/utils/robust-json.js",
-        "shared/utils/stage-api.js"
+        "shared/utils/stage-api.js",
+        "stages/design/internal/deck-planner.js",
+        "stages/textprep/slideplan.js",
+        "stages/textprep/textprep-helpers.js"
       ],
       "exports": [
         "createLogger",
@@ -6328,6 +8552,7 @@
     "shared/utils/response-limits.js": {
       "imports": [
         "shared/utils/cancellation.js",
+        "shared/utils/safe-json.js",
         "shared/utils/value-utils.js"
       ],
       "importedBy": [
@@ -6363,20 +8588,33 @@
     "shared/utils/safe-json.js": {
       "imports": [],
       "importedBy": [
+        "ingest/asset-understanding.js",
+        "plugins/memory/l3-storage/storage-io.js",
+        "plugins/memory/l3-storage/tab-coordinator.js",
+        "plugins/transports/process-transport.js",
+        "runtime/core/vfs-proxy.js",
         "shared/index.js",
-        "shared/utils/storage-quota.js"
+        "shared/utils/response-limits.js",
+        "shared/utils/storage-crypto.js",
+        "shared/utils/storage-quota.js",
+        "stages/design/edit-mode/edit-loop.js"
       ],
       "exports": [
         "default",
+        "protoSafeReviver",
         "safeJsonParse"
       ]
     },
     "shared/utils/safe-regex.js": {
       "imports": [],
       "importedBy": [
-        "shared/index.js"
+        "eval/graders/deterministic.js",
+        "shared/index.js",
+        "stages/codesearch/phases/execution-phase.js"
       ],
       "exports": [
+        "DEFAULT_MAX_PATTERN_LENGTH",
+        "DEFAULT_TIMEOUT_MS",
         "createSafeRegex",
         "globToRegex",
         "isPotentiallyDangerous",
@@ -6405,6 +8643,7 @@
     "shared/utils/secure-id.js": {
       "imports": [],
       "importedBy": [
+        "core/lamport-clock.js",
         "shared/index.js"
       ],
       "exports": [
@@ -6436,6 +8675,7 @@
     },
     "shared/utils/storage-crypto.js": {
       "imports": [
+        "shared/utils/safe-json.js",
         "shared/utils/value-utils.js"
       ],
       "importedBy": [
@@ -6458,6 +8698,8 @@
         "shared/index.js"
       ],
       "exports": [
+        "DEFAULT_CRITICAL_THRESHOLD",
+        "DEFAULT_WARN_THRESHOLD",
         "cleanupLocalStorage",
         "default",
         "estimateLocalStorageQuota",
@@ -6479,7 +8721,9 @@
       "exports": [
         "clearTokenCache",
         "estimateTokensCached",
-        "getTokenCacheStats"
+        "getMaxCacheSize",
+        "getTokenCacheStats",
+        "setMaxCacheSize"
       ]
     },
     "shared/utils/value-utils.js": {
@@ -6489,9 +8733,23 @@
         "core/archive/archive.js",
         "core/archive/map-adapter.js",
         "core/archive/serialization.js",
+        "core/state-bus.js",
+        "plugins/memory/memory-store.impl.core.js",
+        "plugins/memory/memory-store.impl.l0.js",
+        "plugins/memory/memory-store.impl.l1.js",
+        "plugins/memory/memory-store.impl.l2.js",
+        "plugins/memory/memory-store.impl.l3.js",
+        "plugins/memory/state-diff.js",
+        "plugins/memory/state-engine.reducers.js",
+        "plugins/memory/unified-memory-store.lifecycle.js",
+        "plugins/memory/unified-memory-store.query.js",
+        "plugins/memory/unified-memory-store.write.js",
         "retrieval/embeddings/embedding-service.js",
         "retrieval/embeddings/hnsw-lite.js",
         "retrieval/embeddings/vector-index.js",
+        "runtime/core/config-validator.js",
+        "runtime/core/context/unified-agent-context.js",
+        "sdk/BacktrackManager.js",
         "shared/index.js",
         "shared/tokenizers/adaptive-token-counter.js",
         "shared/utils/circuit-breaker.js",
@@ -6502,7 +8760,12 @@
         "shared/utils/schema-validator.js",
         "shared/utils/stage-api.js",
         "shared/utils/storage-crypto.js",
-        "shared/utils/token-cache.js"
+        "shared/utils/token-cache.js",
+        "stages/deepsearch/internal/checkpoint.js",
+        "stages/design/edit-mode/tools.js",
+        "stages/design/internal/deck-operations.js",
+        "stages/design/internal/design-blackboard.js",
+        "stages/design/internal/state-manager.js"
       ],
       "exports": [
         "TOKEN_ESTIMATE_CONFIG",
@@ -6693,10 +8956,33 @@
         "upsertUserSkill"
       ]
     },
+    "stages/codesearch/code-tools-helpers.js": {
+      "imports": [],
+      "importedBy": [
+        "stages/codesearch/code-tools.js"
+      ],
+      "exports": [
+        "TOOL_DEFINITIONS",
+        "bufferToText",
+        "buildPaths",
+        "formatToolDefinitionsForLLM",
+        "isWindowsAbsolutePath",
+        "joinPaths",
+        "normalizeBaseRoot",
+        "normalizePathInput",
+        "normalizePosixPath",
+        "normalizeStringArray",
+        "normalizeWorkspaceId",
+        "readTextForIndexing",
+        "safeRelativePath",
+        "ts"
+      ]
+    },
     "stages/codesearch/code-tools.js": {
       "imports": [
         "retrieval/grep.js",
         "shared/index.js",
+        "stages/codesearch/code-tools-helpers.js",
         "stages/codesearch/indexing/symbol-indexer.js",
         "storage/artifact-manager.js",
         "vfs/operations.js"
@@ -6710,12 +8996,12 @@
       "exports": [
         "TOOL_DEFINITIONS",
         "createToolExecutor",
-        "formatToolDefinitionsForLLM",
-        "ts"
+        "formatToolDefinitionsForLLM"
       ]
     },
     "stages/codesearch/codesearch-stage.js": {
       "imports": [
+        "plugins/compression/watchdog.js",
         "runtime/index.js",
         "shared/index.js",
         "stages/codesearch/code-tools.js",
@@ -6725,7 +9011,6 @@
         "stages/deepsearch/model.js"
       ],
       "importedBy": [
-        "sdk/index.js",
         "stages/codesearch/index.js",
         "stages/codesearch/test-agent-loop.js"
       ],
@@ -6792,6 +9077,7 @@
     "stages/codesearch/phases/execution-phase.js": {
       "imports": [
         "shared/index.js",
+        "shared/utils/safe-regex.js",
         "stages/codesearch/phases/planning-phase.js",
         "stages/codesearch/prompts.js",
         "stages/codesearch/states.js"
@@ -6927,6 +9213,8 @@
     },
     "stages/deepsearch/capabilities-loader.js": {
       "imports": [
+        "plugins/memory/memory-store.impl.core.js",
+        "runtime/core/context/unified-agent-context.js",
         "sdk/DiscoveryManager.js",
         "shared/index.js",
         "shared/utils/budget.js",
@@ -7013,7 +9301,7 @@
       "importedBy": [
         "cli/test-memory.js",
         "plugins/stages/deepsearch.js",
-        "sdk/index.js",
+        "sdk/convenience.js",
         "stages/deepsearch/index.js",
         "stages/deepsearch/subagents.js"
       ],
@@ -7091,6 +9379,7 @@
     "stages/deepsearch/internal/checkpoint.js": {
       "imports": [
         "shared/index.js",
+        "shared/utils/value-utils.js",
         "stages/deepsearch/constants.js",
         "stages/deepsearch/utils/state-utils.js",
         "stages/deepsearch/utils/todo-utils.js"
@@ -7263,12 +9552,48 @@
         "executeDeepSearchDecision"
       ]
     },
-    "stages/deepsearch/phases/planning-phase.js": {
+    "stages/deepsearch/phases/planning-phase-helpers.js": {
       "imports": [
         "prompts/prompt-loader.js",
-        "runtime/index.js",
         "shared/index.js",
         "stages/deepsearch/tools/index.js"
+      ],
+      "importedBy": [
+        "stages/deepsearch/phases/planning-phase.js"
+      ],
+      "exports": [
+        "ALLOWED_MODES",
+        "DEFAULT_MIN_FINDINGS_BY_MODE",
+        "DEFAULT_MODEL_TIMEOUT_MS",
+        "EPHEMERAL_TAG",
+        "FALLBACK_SYSTEM_PROMPT",
+        "MAX_MODE_DESC_LEN",
+        "MAX_TASK_GOAL_LEN",
+        "REMINDER_AFTER_ITERATION",
+        "REMINDER_MAX_TODOS",
+        "REMINDER_TAIL",
+        "WRITE_PHASE_CUTOFF_RATIO",
+        "buildBudgetEphemeralMessage",
+        "buildConvergenceEphemeralMessages",
+        "buildEphemeralMessages",
+        "buildReminderEphemeralMessages",
+        "buildSkillsPrompt",
+        "createModelSignal",
+        "emitAgentEvent",
+        "fingerprintText",
+        "getFindingStats",
+        "getSystemPrompt",
+        "logSuppressedError",
+        "logger",
+        "resolveModeDescription",
+        "sanitizePromptInput"
+      ]
+    },
+    "stages/deepsearch/phases/planning-phase.js": {
+      "imports": [
+        "runtime/index.js",
+        "shared/index.js",
+        "stages/deepsearch/phases/planning-phase-helpers.js"
       ],
       "importedBy": [
         "stages/deepsearch/deepsearch-agent-loop.js"
@@ -7633,7 +9958,7 @@
     },
     "stages/deepsearch/subagents.js": {
       "imports": [
-        "core/event-bus.js",
+        "runtime/index.js",
         "sdk/SubagentRegistry.js",
         "stages/deepsearch/deepsearch-agent-loop.js"
       ],
@@ -7742,7 +10067,6 @@
     },
     "stages/deepsearch/tools/index.js": {
       "imports": [
-        "runtime/index.js",
         "stages/deepsearch/tools/advise-task/handler.js",
         "stages/deepsearch/tools/ask-user/handler.js",
         "stages/deepsearch/tools/cross-verify/handler.js",
@@ -7757,24 +10081,22 @@
         "stages/deepsearch/tools/search-docs/handler.js",
         "stages/deepsearch/tools/skill/handler.js",
         "stages/deepsearch/tools/task/handler.js",
+        "stages/deepsearch/tools/tool-catalog.js",
+        "stages/deepsearch/tools/tool-executor-ds.js",
         "stages/deepsearch/tools/watchdog/handler.js",
         "stages/deepsearch/tools/write-report/handler.js"
       ],
       "importedBy": [
         "stages/deepsearch/index.js",
         "stages/deepsearch/phases/execution-phase.js",
-        "stages/deepsearch/phases/planning-phase.js",
-        "stages/deepsearch/phases/writing-phase.js"
+        "stages/deepsearch/phases/planning-phase-helpers.js",
+        "stages/deepsearch/phases/writing-phase.js",
+        "stages/deepsearch/tools/tool-catalog.js",
+        "stages/deepsearch/tools/tool-executor-ds.js"
       ],
       "exports": [
-        "ToolExecutor",
-        "ToolPriority",
-        "createDeepSearchToolExecutor",
-        "createToolExecutor",
+        "*",
         "default",
-        "executeTool",
-        "getToolCatalogPrompt",
-        "getToolDefinitions",
         "tools"
       ]
     },
@@ -7896,6 +10218,34 @@
         "waitForTask"
       ]
     },
+    "stages/deepsearch/tools/tool-catalog.js": {
+      "imports": [
+        "stages/deepsearch/tools/index.js"
+      ],
+      "importedBy": [
+        "stages/deepsearch/tools/index.js"
+      ],
+      "exports": [
+        "ToolPriority",
+        "getToolCatalogPrompt",
+        "getToolDefinitions"
+      ]
+    },
+    "stages/deepsearch/tools/tool-executor-ds.js": {
+      "imports": [
+        "runtime/index.js",
+        "stages/deepsearch/tools/index.js"
+      ],
+      "importedBy": [
+        "stages/deepsearch/tools/index.js"
+      ],
+      "exports": [
+        "ToolExecutor",
+        "createDeepSearchToolExecutor",
+        "createToolExecutor",
+        "executeTool"
+      ]
+    },
     "stages/deepsearch/tools/watchdog/handler.js": {
       "imports": [
         "plugins/compression/index.js",
@@ -7911,11 +10261,25 @@
         "handler"
       ]
     },
+    "stages/deepsearch/tools/write-report/handler-helpers.js": {
+      "imports": [],
+      "importedBy": [
+        "stages/deepsearch/tools/write-report/handler.js"
+      ],
+      "exports": [
+        "DEFAULT_ANALYSIS_GATES",
+        "checkAnalysisGates",
+        "ensureReport",
+        "getAnalysisGates",
+        "recordHistory"
+      ]
+    },
     "stages/deepsearch/tools/write-report/handler.js": {
       "imports": [
         "shared/index.js",
         "stages/deepsearch/report/report-generator.js",
         "stages/deepsearch/report/report-postprocess.js",
+        "stages/deepsearch/tools/write-report/handler-helpers.js",
         "stages/deepsearch/tools/write-report/report-citations.js",
         "stages/deepsearch/tools/write-report/report-formatting.js",
         "stages/deepsearch/tools/write-report/report-template.js"
@@ -8041,7 +10405,7 @@
         "stages/design/states.js"
       ],
       "importedBy": [
-        "sdk/index.js",
+        "sdk/convenience.js",
         "stages/design/design-agent.js",
         "stages/design/index.js"
       ],
@@ -8072,7 +10436,7 @@
         "stages/design/dsl/dsl-builder.js",
         "stages/design/edit-mode/edit-loop.js",
         "stages/design/edit-mode/tools.js",
-        "stages/design/generators/batch-generator.js",
+        "stages/design/generators/batch-generator-helpers.js",
         "stages/design/generators/image-generator.js",
         "stages/design/generators/svg-generator.js",
         "stages/design/image/asset-resolver.js",
@@ -8249,6 +10613,7 @@
     },
     "stages/design/edit-mode/edit-loop.js": {
       "imports": [
+        "shared/utils/safe-json.js",
         "stages/design/constants.js",
         "stages/design/edit-mode/history.js",
         "stages/design/edit-mode/tools.js",
@@ -8294,6 +10659,7 @@
     "stages/design/edit-mode/tools.js": {
       "imports": [
         "shared/index.js",
+        "shared/utils/value-utils.js",
         "stages/design/constants.js"
       ],
       "importedBy": [
@@ -8305,16 +10671,54 @@
         "createEditToolExecutor"
       ]
     },
+    "stages/design/generators/batch-generator-helpers.js": {
+      "imports": [
+        "shared/index.js",
+        "stages/design/constants.js",
+        "stages/design/shared/html-parser.js"
+      ],
+      "importedBy": [
+        "stages/design/generators/batch-generator.js"
+      ],
+      "exports": [
+        "ALLOWED_TAGS",
+        "BATCH_GENERATOR_DEFAULTS",
+        "GLOBAL_ALLOWED_ATTRS",
+        "IMG_ALLOWED_ATTRS",
+        "SVG_ALLOWED_ATTRS",
+        "SVG_TAGS",
+        "VOID_TAGS",
+        "applyVisualSlotHintsToSlideHtml",
+        "buildPatchedPlaceholder",
+        "buildPlaceholderUrl",
+        "buildStyleDescription",
+        "chunkIndexes",
+        "ensureSectionAttr",
+        "escapeAttr",
+        "escapeAttrValue",
+        "extractSectionBlock",
+        "findImagePlaceholders",
+        "isAllowedAttr",
+        "isUrlAttr",
+        "looksLikeSlideHtml",
+        "normalizeDslRules",
+        "normalizeSelectedIdeas",
+        "normalizeSlideIntentContentForPrompt",
+        "nowMs",
+        "sanitizeAttrValue",
+        "sanitizeSlideHtml",
+        "stripHtmlFences"
+      ]
+    },
     "stages/design/generators/batch-generator.js": {
       "imports": [
         "prompts/prompt-loader.js",
         "runtime/index.js",
         "shared/index.js",
-        "stages/design/constants.js",
         "stages/design/dsl/dsl-builder.js",
+        "stages/design/generators/batch-generator-helpers.js",
         "stages/design/generators/layout-protocol.js",
         "stages/design/model.js",
-        "stages/design/shared/html-parser.js",
         "stages/design/shared/safe-emit.js"
       ],
       "importedBy": [
@@ -8594,8 +10998,9 @@
     },
     "stages/design/internal/deck-operations.js": {
       "imports": [
-        "runtime/index.js",
+        "plugins/compression/index.js",
         "shared/index.js",
+        "shared/utils/value-utils.js",
         "stages/design/design-helpers.js",
         "stages/design/internal/visual-handler.js"
       ],
@@ -8612,7 +11017,8 @@
     },
     "stages/design/internal/deck-planner.js": {
       "imports": [
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/logger.js"
       ],
       "importedBy": [
         "stages/design/internal/phases/planning-phase.js"
@@ -8630,7 +11036,8 @@
     "stages/design/internal/design-blackboard.js": {
       "imports": [
         "plugins/memory/index.js",
-        "shared/index.js"
+        "shared/index.js",
+        "shared/utils/value-utils.js"
       ],
       "importedBy": [
         "stages/design/agent-loop.js",
@@ -8838,6 +11245,7 @@
         "plugins/telemetry/index.js",
         "runtime/index.js",
         "shared/index.js",
+        "shared/utils/value-utils.js",
         "stages/design/design-helpers.js",
         "stages/design/internal/tool-handler.js",
         "stages/design/states.js"
@@ -8946,9 +11354,42 @@
         "validateSlide"
       ]
     },
+    "stages/design/refiner/react-refiner-helpers.js": {
+      "imports": [
+        "stages/design/shared/design-utils.js"
+      ],
+      "importedBy": [
+        "stages/design/refiner/react-refiner-tools.js"
+      ],
+      "exports": [
+        "SAFE_ATTR_NAMES",
+        "SAFE_ATTR_PREFIXES",
+        "SCREENSHOT_CONCURRENCY",
+        "TRANSPARENT_PNG_DATA_URL",
+        "URL_ATTR_NAMES",
+        "applyAttrChanges",
+        "buildSlideIndexError",
+        "clampPositiveInt",
+        "escapeAttrSelectorValue",
+        "getDomPurify",
+        "getSlideCounts",
+        "isAttrAllowed",
+        "isBrowserEnv",
+        "isDangerousStyle",
+        "isDangerousUrl",
+        "parseSectionDom",
+        "pickPptExportImage",
+        "safeIntLike",
+        "sanitizeElementTree",
+        "sanitizeHtmlFragment",
+        "setInnerHTMLSanitized",
+        "validateSlideIndex"
+      ]
+    },
     "stages/design/refiner/react-refiner-tools.js": {
       "imports": [
         "stages/design/internal/screenshot-stitcher.js",
+        "stages/design/refiner/react-refiner-helpers.js",
         "stages/design/shared/design-utils.js"
       ],
       "importedBy": [
@@ -9024,6 +11465,7 @@
         "stages/design/internal/deck-editor.js",
         "stages/design/internal/phases/generating-phase.js",
         "stages/design/model.js",
+        "stages/design/refiner/react-refiner-helpers.js",
         "stages/design/refiner/react-refiner-tools.js",
         "stages/design/refiner/react-refiner.js"
       ],
@@ -9057,7 +11499,7 @@
     "stages/design/shared/html-parser.js": {
       "imports": [],
       "importedBy": [
-        "stages/design/generators/batch-generator.js",
+        "stages/design/generators/batch-generator-helpers.js",
         "stages/design/generators/image-generator.js",
         "stages/design/generators/svg-generator.js",
         "stages/design/image/asset-resolver.js",
@@ -9204,7 +11646,7 @@
         "shared/index.js"
       ],
       "importedBy": [
-        "stages/textprep/index.js"
+        "stages/textprep/textprep-helpers.js"
       ],
       "exports": [
         "buildContentPackage",
@@ -9218,7 +11660,7 @@
       "importedBy": [
         "cli/test-deepsearch.js",
         "ingest/adapters/base.js",
-        "stages/textprep/index.js"
+        "stages/textprep/textprep-helpers.js"
       ],
       "exports": [
         "ChunkStrategy",
@@ -9234,7 +11676,7 @@
         "shared/index.js"
       ],
       "importedBy": [
-        "stages/textprep/index.js"
+        "stages/textprep/textprep-helpers.js"
       ],
       "exports": [
         "extractClaims"
@@ -9255,14 +11697,7 @@
     },
     "stages/textprep/index.js": {
       "imports": [
-        "plugins/telemetry/index.js",
-        "runtime/index.js",
-        "shared/index.js",
-        "stages/textprep/build-content-package.js",
-        "stages/textprep/chunk.js",
-        "stages/textprep/claims.js",
-        "stages/textprep/normalize.js",
-        "stages/textprep/slideplan.js"
+        "stages/textprep/textprep-stage.js"
       ],
       "importedBy": [],
       "exports": [
@@ -9277,7 +11712,7 @@
         "ingest/asset-manager.js",
         "ingest/extract-assets.js",
         "ingest/ingest-stage.js",
-        "stages/textprep/index.js"
+        "stages/textprep/textprep-helpers.js"
       ],
       "exports": [
         "normalizeText"
@@ -9286,14 +11721,66 @@
     "stages/textprep/slideplan.js": {
       "imports": [
         "shared/index.js",
+        "shared/utils/logger.js",
         "stages/textprep/constants.js"
+      ],
+      "importedBy": [
+        "stages/textprep/textprep-helpers.js"
+      ],
+      "exports": [
+        "generateSlideIntents",
+        "planSlides"
+      ]
+    },
+    "stages/textprep/textprep-helpers.js": {
+      "imports": [
+        "plugins/telemetry/index.js",
+        "runtime/index.js",
+        "shared/index.js",
+        "shared/utils/logger.js",
+        "stages/textprep/build-content-package.js",
+        "stages/textprep/chunk.js",
+        "stages/textprep/claims.js",
+        "stages/textprep/normalize.js",
+        "stages/textprep/slideplan.js"
+      ],
+      "importedBy": [
+        "stages/textprep/textprep-stage.js"
+      ],
+      "exports": [
+        "MAX_INPUT_TEXT_LEN",
+        "MAX_SOURCES_COUNT",
+        "alignClaimsHeuristic",
+        "alignClaimsToSlides",
+        "buildFallbackPackage",
+        "createShouldDegrade",
+        "createStageEmitter",
+        "createTracedAiApiService",
+        "ensureTraceContext",
+        "resolveErrorBoundary",
+        "resolveStageTraceContext",
+        "runAlignStep",
+        "runBuildPackageStep",
+        "runChunkStep",
+        "runClaimsStep",
+        "runNormalizeStep",
+        "runSlidePlanStep",
+        "toChunkOptions",
+        "toRawText"
+      ]
+    },
+    "stages/textprep/textprep-stage.js": {
+      "imports": [
+        "runtime/index.js",
+        "shared/index.js",
+        "stages/textprep/textprep-helpers.js"
       ],
       "importedBy": [
         "stages/textprep/index.js"
       ],
       "exports": [
-        "generateSlideIntents",
-        "planSlides"
+        "TextPrepStage",
+        "runTextPrepStage"
       ]
     },
     "storage/artifact-manager.js": {
@@ -9452,8 +11939,26 @@
         "STORE_RUNS"
       ]
     },
-    "testing/mock-suite.js": {
+    "testing/mock-suite-helpers.js": {
       "imports": [],
+      "importedBy": [
+        "testing/mock-suite.js"
+      ],
+      "exports": [
+        "DEFAULT_MOCK_BASE_URL",
+        "MockHeaders",
+        "MockResponse",
+        "createStageApiCompat",
+        "deepMatch",
+        "normalizeBody",
+        "normalizeMethod",
+        "normalizePath"
+      ]
+    },
+    "testing/mock-suite.js": {
+      "imports": [
+        "testing/mock-suite-helpers.js"
+      ],
       "importedBy": [],
       "exports": [
         "MockEventBus",
@@ -9473,7 +11978,7 @@
         "vfs/path.js"
       ],
       "importedBy": [
-        "plugins/side-effects/side-effect-journal.js",
+        "plugins/side-effects/side-effect-journal-helpers.js",
         "vfs/operations.js"
       ],
       "exports": [
@@ -9656,6 +12161,13 @@
     "vfs/path.js": {
       "imports": [],
       "importedBy": [
+        "core/node-compat/module-resolver.js",
+        "core/node-compat/shims/child-process.js",
+        "core/node-compat/shims/fs.js",
+        "core/node-compat/vfs-adapter.js",
+        "core/sandbox/iframe-sandbox.js",
+        "core/webruntime/dev-server.js",
+        "core/webruntime/vfs-events.js",
         "vfs/checkpoints.js",
         "vfs/glob.js",
         "vfs/operations.js",
@@ -9714,6 +12226,9 @@
         "vfs/path.js"
       ],
       "importedBy": [
+        "core/node-compat/create-node-env.js",
+        "core/node-compat/npm/index.js",
+        "core/webruntime/vfs-snapshot.js",
         "vfs/index.browser.js",
         "vfs/index.node.js"
       ],
@@ -9766,7 +12281,7 @@
     ".": {
       "files": 1,
       "inDegree": 0,
-      "outDegree": 7
+      "outDegree": 8
     },
     "cli": {
       "files": 4,
@@ -9774,8 +12289,8 @@
       "outDegree": 5
     },
     "core": {
-      "files": 52,
-      "inDegree": 9,
+      "files": 144,
+      "inDegree": 8,
       "outDegree": 8
     },
     "eval": {
@@ -9784,27 +12299,27 @@
       "outDegree": 1
     },
     "ingest": {
-      "files": 22,
+      "files": 23,
       "inDegree": 0,
       "outDegree": 5
     },
     "llm": {
-      "files": 17,
+      "files": 18,
       "inDegree": 3,
-      "outDegree": 3
+      "outDegree": 2
     },
     "mcp": {
-      "files": 20,
+      "files": 22,
       "inDegree": 4,
-      "outDegree": 1
+      "outDegree": 2
     },
     "plugins": {
-      "files": 84,
-      "inDegree": 5,
+      "files": 85,
+      "inDegree": 7,
       "outDegree": 9
     },
     "prompts": {
-      "files": 11,
+      "files": 12,
       "inDegree": 2,
       "outDegree": 1
     },
@@ -9814,17 +12329,17 @@
       "outDegree": 1
     },
     "runtime": {
-      "files": 81,
-      "inDegree": 6,
+      "files": 88,
+      "inDegree": 5,
       "outDegree": 7
     },
     "sdk": {
-      "files": 17,
+      "files": 18,
       "inDegree": 5,
       "outDegree": 6
     },
     "shared": {
-      "files": 30,
+      "files": 31,
       "inDegree": 16,
       "outDegree": 2
     },
@@ -9834,9 +12349,9 @@
       "outDegree": 2
     },
     "stages": {
-      "files": 145,
+      "files": 154,
       "inDegree": 6,
-      "outDegree": 10
+      "outDegree": 9
     },
     "storage": {
       "files": 7,
@@ -9844,7 +12359,7 @@
       "outDegree": 1
     },
     "testing": {
-      "files": 1,
+      "files": 2,
       "inDegree": 0,
       "outDegree": 0
     },
@@ -9886,14 +12401,6 @@
       "plugins",
       "runtime",
       "sdk",
-      "stages"
-    ],
-    [
-      "core",
-      "llm",
-      "plugins",
-      "runtime",
-      "sdk",
       "stages",
       "skills"
     ],
@@ -9908,6 +12415,10 @@
     ],
     [
       "llm",
+      "plugins"
+    ],
+    [
+      "mcp",
       "plugins"
     ],
     [

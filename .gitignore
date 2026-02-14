@@ -63,3 +63,4 @@ docs/ai4sci.txt
 js/agents/CODE_REVIEW_ISSUES.md
 /.checkpoints
 /.checkpoints
+/js/agents/docs
