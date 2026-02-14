@@ -6,6 +6,10 @@
 import { loadSkills } from "./loader.js";
 import { renderSkillsList } from "./render.js";
 
+const logger = {
+  warn: (...args) => console.warn("[SkillsManager]", ...args),
+};
+
 /**
  * @typedef {import("./model.js").SkillMetadata} SkillMetadata
  * @typedef {{ metadata: SkillMetadata, body: (string | null), supportFiles?: Record<string, string> }} SkillContent
@@ -38,6 +42,55 @@ export class SkillsManager {
     this.remoteProvider = options.remoteProvider || null; // NexusSkillProvider
     this.cacheTtlMs = Number.isFinite(Number(options.cacheTtlMs)) ? Math.max(0, Math.floor(Number(options.cacheTtlMs))) : 5 * 60_000;
     this.cacheMaxEntries = Number.isFinite(Number(options.cacheMaxEntries)) ? Math.max(1, Math.floor(Number(options.cacheMaxEntries))) : 32;
+
+    /** @type {import("../core/archive/archive-core.js").Archive | null} */
+    this._archive = options.archive || null;
+
+    /** @type {string} */
+    this._runId = options.runId || `skills_${Date.now()}`;
+
+    /** @type {Promise<void> | null} */
+    this._initPromise = null;
+  }
+
+  /**
+   * 初始化 SkillsManager，从 Archive 恢复缓存（如果可用）
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (this._initPromise) return this._initPromise;
+    if (!this._archive) return;
+
+    this._initPromise = (async () => {
+      try {
+        const checkpoints = await this._archive.list(this._runId);
+        if (!Array.isArray(checkpoints) || checkpoints.length === 0) return;
+
+        // Hydrate cache from Archive to memory
+        for (const ckpt of checkpoints) {
+          if (!ckpt?.id) continue;
+          const parts = ckpt.id.split(':');
+          if (parts.length < 2) continue;
+          const cacheKey = parts.slice(1).join(':');
+
+          // Skip if already in memory
+          if (this.cacheByDir.has(cacheKey)) continue;
+
+          try {
+            const restored = await this._archive.load(ckpt.id);
+            if (restored?.outcome && restored?.ts) {
+              this.cacheByDir.set(cacheKey, { outcome: restored.outcome, ts: restored.ts });
+            }
+          } catch (err) {
+            logger.warn(`Failed to hydrate cache for ${cacheKey}:`, err);
+          }
+        }
+      } catch (err) {
+        logger.warn('Failed to hydrate cache from Archive:', err);
+      }
+    })();
+
+    return this._initPromise;
   }
 
   /**
@@ -99,6 +152,23 @@ export class SkillsManager {
       const oldest = this.cacheByDir.keys().next().value;
       this.cacheByDir.delete(oldest);
     }
+
+    // Persist to Archive if available (dual-write pattern)
+    if (this._archive) {
+      (async () => {
+        try {
+          await this._archive.save(`${this._runId}:${cacheKey}`, {
+            schemaVersion: 1,
+            outcome,
+            ts: now,
+            metadata: { cacheKey },
+          });
+        } catch (err) {
+          logger.warn(`Failed to persist cache for ${cacheKey} to Archive:`, err);
+        }
+      })();
+    }
+
     return outcome;
   }
 
@@ -115,12 +185,46 @@ export class SkillsManager {
 
   /**
    * 清除缓存
+   * @param {string | null} [cwd=null]
+   * @returns {void | Promise<void>}
    */
   clearCache(cwd = null) {
     if (cwd) {
       this.cacheByDir.delete(cwd);
+      // Delete from Archive if available
+      if (this._archive) {
+        return (async () => {
+          try {
+            const cacheKey = typeof cwd === "string" && cwd ? cwd : "__default__";
+            await this._archive.delete(`${this._runId}:${cacheKey}`);
+          } catch (err) {
+            logger.warn(`Failed to delete cache for ${cwd} from Archive:`, err);
+          }
+        })();
+      }
     } else {
       this.cacheByDir.clear();
+      // Clear all from Archive if available
+      if (this._archive) {
+        return (async () => {
+          try {
+            const checkpoints = await this._archive.list(this._runId);
+            if (Array.isArray(checkpoints)) {
+              for (const ckpt of checkpoints) {
+                if (ckpt?.id) {
+                  try {
+                    await this._archive.delete(ckpt.id);
+                  } catch (err) {
+                    logger.warn(`Failed to delete checkpoint ${ckpt.id}:`, err);
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            logger.warn('Failed to clear cache from Archive:', err);
+          }
+        })();
+      }
     }
   }
 
