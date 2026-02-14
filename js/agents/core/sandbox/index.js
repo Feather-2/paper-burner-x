@@ -21,7 +21,7 @@
 import { isNodeLike } from '../../shared/index.js';
 
 // WASM Sandbox (跨平台可用)
-export { WasmSandbox, createSandbox } from './wasm-sandbox.js';
+export { WasmSandbox, createSandbox, isAsyncifyEnabled } from './wasm-sandbox.js';
 export { SandboxPool } from './pool.js';
 export { createSandboxPlugin } from './plugin.js';
 export { SkillExecutor, createSkillExecutor, isWasmSupported } from './skill-executor.js';

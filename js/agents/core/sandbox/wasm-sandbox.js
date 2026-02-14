@@ -7,32 +7,54 @@
 
 import { SandboxCapability, ResourceLimits } from './constants.js';
 import { validateDomainPattern, isUrlAllowed } from './network-policy-utils.js';
+import { SourceMapRegistry, getAsyncWrapperOffset, getSyncWrapperOffset } from './source-map-support.js';
 
 // 动态导入 quickjs-emscripten（支持 tree-shaking）
 let _quickjsModule = null;
+/** @type {boolean} */
+let _isAsyncModule = false;
 
 async function getQuickJS() {
   if (_quickjsModule) return _quickjsModule;
 
+  // 1) 优先尝试 Asyncify 变体
   try {
-    // 优先使用 quickjs-emscripten
-    /** @ts-ignore - quickjs-emscripten 是可选依赖，类型定义可能不存在 */
-    const { getQuickJS } = await import('quickjs-emscripten');
-    _quickjsModule = await getQuickJS();
+    /** @ts-ignore */
+    const { newQuickJSAsyncWASMModule } = await import('quickjs-emscripten');
+    _quickjsModule = await newQuickJSAsyncWASMModule();
+    _isAsyncModule = true;
     return _quickjsModule;
-  } catch (err) {
-    // 回退到 quickjs-emscripten-core（更轻量）
-    try {
-      /** @ts-ignore - quickjs-emscripten-core 是可选依赖，类型定义可能不存在 */
-      const { newQuickJSWASMModule } = await import('quickjs-emscripten-core');
-      _quickjsModule = await newQuickJSWASMModule();
-      return _quickjsModule;
-    } catch (err2) {
-      throw new Error(
-        'WASM sandbox requires quickjs-emscripten. Install with: npm install quickjs-emscripten'
-      );
-    }
+  } catch (_) { /* fall through */ }
+
+  // 2) 降级到同步版本
+  try {
+    /** @ts-ignore */
+    const { getQuickJS: getSyncQJS } = await import('quickjs-emscripten');
+    _quickjsModule = await getSyncQJS();
+    _isAsyncModule = false;
+    return _quickjsModule;
+  } catch (_) { /* fall through */ }
+
+  // 3) 最终降级到 quickjs-emscripten-core
+  try {
+    /** @ts-ignore */
+    const { newQuickJSWASMModule } = await import('quickjs-emscripten-core');
+    _quickjsModule = await newQuickJSWASMModule();
+    _isAsyncModule = false;
+    return _quickjsModule;
+  } catch (_) {
+    throw new Error(
+      'WASM sandbox requires quickjs-emscripten. Install with: npm install quickjs-emscripten'
+    );
   }
+}
+
+/**
+ * 查询是否成功加载了 Asyncify 变体
+ * @returns {boolean}
+ */
+export function isAsyncifyEnabled() {
+  return _isAsyncModule;
 }
 
 function tryJsonStringify(value) {
@@ -89,6 +111,13 @@ export class WasmSandbox {
     this._quickjs = null;
     this._initialized = false;
     this._disposed = false;
+
+    // SourceMap 支持：降级安全，初始化失败不影响沙箱功能
+    try {
+      this._sourceMapRegistry = new SourceMapRegistry();
+    } catch {
+      this._sourceMapRegistry = null;
+    }
   }
 
   /**
@@ -296,6 +325,12 @@ export class WasmSandbox {
       this._runtime.setInterruptHandler(() => true);
     }, this.limits.timeoutMs);
 
+    // 注册 source map（同步执行无包装，偏移为 0）
+    const scriptId = '<sandbox>';
+    if (this._sourceMapRegistry) {
+      this._sourceMapRegistry.register(scriptId, code, getSyncWrapperOffset());
+    }
+
     try {
       // 执行代码
       const result = vm.evalCode(code);
@@ -306,10 +341,11 @@ export class WasmSandbox {
         const error = vm.dump(result.error);
         result.error.dispose();
 
+        const errorStr = interrupted ? 'Execution timeout' : String(error);
         return {
           ok: false,
           value: null,
-          error: interrupted ? 'Execution timeout' : String(error),
+          error: this._mapError(errorStr, scriptId),
           durationMs: duration,
         };
       }
@@ -332,7 +368,7 @@ export class WasmSandbox {
       return {
         ok: false,
         value: null,
-        error: err.message,
+        error: this._mapError(err.message, scriptId),
         durationMs: performance.now() - startTime,
       };
     } finally {
@@ -343,6 +379,14 @@ export class WasmSandbox {
         // ignore
       }
     }
+  }
+
+  /**
+   * 当前异步执行模式
+   * @returns {'asyncify' | 'polling'}
+   */
+  get asyncMode() {
+    return _isAsyncModule ? 'asyncify' : 'polling';
   }
 
   /**
@@ -358,47 +402,66 @@ export class WasmSandbox {
       })()
     `;
 
+    // 注册 async 包装偏移（覆盖 execute 中的同步注册）
+    const scriptId = '<sandbox>';
+    if (this._sourceMapRegistry) {
+      this._sourceMapRegistry.register(scriptId, code, getAsyncWrapperOffset());
+    }
+
     const result = await this.execute(wrappedCode, context);
 
-    // 如果返回了 Promise，需要轮询 pending jobs
     if (result.ok) {
-      // 执行 pending jobs（Promise 回调）
-      const maxIterations = 1000;
-      const timeoutMs = 5000; // 5 second timeout
+      const timeoutMs = 5000;
       const startTime = Date.now();
 
-      for (let i = 0; i < maxIterations; i++) {
-        // Check for timeout
-        if (Date.now() - startTime > timeoutMs) {
-          return {
-            ...result,
-            ok: false,
-            error: `[WasmSandbox] Async job polling timeout after ${timeoutMs}ms. ` +
-                   `Possible infinite Promise chain or excessive async operations. ` +
-                   `Consider simplifying async logic or increasing timeout.`,
-          };
+      if (_isAsyncModule) {
+        // Asyncify 路径：await executePendingJobs，自动 yield 回事件循环
+        while (true) {
+          if (Date.now() - startTime > timeoutMs) {
+            return {
+              ...result,
+              ok: false,
+              error: `[WasmSandbox] Async job timeout after ${timeoutMs}ms (asyncify mode).`,
+            };
+          }
+          const pending = this._runtime.executePendingJobs();
+          // Asyncify 模块的 executePendingJobs 可能返回 Promise
+          const resolved = pending instanceof Promise ? await pending : pending;
+          if (resolved.error) {
+            const error = this._vm.dump(resolved.error);
+            resolved.error.dispose();
+            return { ...result, ok: false, error: String(error) };
+          }
+          if (resolved.value === 0) break;
         }
-
-        const pending = this._runtime.executePendingJobs();
-        if (pending.error) {
-          const error = this._vm.dump(pending.error);
-          pending.error.dispose();
-          return {
-            ...result,
-            ok: false,
-            error: String(error),
-          };
-        }
-        if (pending.value === 0) break;
-
-        // Warn if approaching iteration limit
-        if (i === maxIterations - 1) {
-          return {
-            ...result,
-            ok: false,
-            error: `[WasmSandbox] Exceeded maximum async job iterations (${maxIterations}). ` +
-                   `Possible infinite Promise chain. Consider simplifying async logic.`,
-          };
+      } else {
+        // 降级路径：同步轮询（向后兼容）
+        const maxIterations = 1000;
+        for (let i = 0; i < maxIterations; i++) {
+          if (Date.now() - startTime > timeoutMs) {
+            return {
+              ...result,
+              ok: false,
+              error: `[WasmSandbox] Async job polling timeout after ${timeoutMs}ms. ` +
+                     `Possible infinite Promise chain or excessive async operations. ` +
+                     `Consider simplifying async logic or increasing timeout.`,
+            };
+          }
+          const pending = this._runtime.executePendingJobs();
+          if (pending.error) {
+            const error = this._vm.dump(pending.error);
+            pending.error.dispose();
+            return { ...result, ok: false, error: String(error) };
+          }
+          if (pending.value === 0) break;
+          if (i === maxIterations - 1) {
+            return {
+              ...result,
+              ok: false,
+              error: `[WasmSandbox] Exceeded maximum async job iterations (${maxIterations}). ` +
+                     `Possible infinite Promise chain. Consider simplifying async logic.`,
+            };
+          }
         }
       }
     }
@@ -466,6 +529,21 @@ export class WasmSandbox {
   }
 
   /**
+   * 映射错误字符串中的堆栈行号（降级安全）
+   * @param {string} errorStr
+   * @param {string} [scriptId]
+   * @returns {string}
+   */
+  _mapError(errorStr, scriptId) {
+    if (!this._sourceMapRegistry || !errorStr) return errorStr;
+    try {
+      return this._sourceMapRegistry.mapStackTrace(errorStr, scriptId);
+    } catch {
+      return errorStr;
+    }
+  }
+
+  /**
    * 销毁沙箱（带超时保护）
    * @param {Object} [options]
    * @param {number} [options.timeoutMs=2000] - 清理超时时间
@@ -490,6 +568,7 @@ export class WasmSandbox {
 
       this._disposed = true;
       this._initialized = false;
+      if (this._sourceMapRegistry) this._sourceMapRegistry.clear();
     } catch (err) {
       // 清理失败，强制标记为已销毁
       const elapsed = Date.now() - startTime;
@@ -500,6 +579,7 @@ export class WasmSandbox {
         this._runtime = null;
         this._disposed = true;
         this._initialized = false;
+        if (this._sourceMapRegistry) this._sourceMapRegistry.clear();
         throw new Error(`Sandbox dispose timeout after ${timeoutMs}ms: ${err.message}`);
       }
 
@@ -508,6 +588,7 @@ export class WasmSandbox {
       this._runtime = null;
       this._disposed = true;
       this._initialized = false;
+      if (this._sourceMapRegistry) this._sourceMapRegistry.clear();
       throw err;
     }
   }
