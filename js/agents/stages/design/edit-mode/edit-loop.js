@@ -386,7 +386,7 @@ export class EditModeAgentLoop {
       if (context.state) context.state.editSessionStatus = session.status;
       if (typeof context.onSessionTransition === "function") context.onSessionTransition(from, to);
       if (typeof context.emit === "function") {
-        context.emit("edit:session.transition", { from, to });
+        context.emit("edit:session:transition", { from, to });
       }
     }
     return ok;

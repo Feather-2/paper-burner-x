@@ -110,9 +110,9 @@ export function buildDemoAgent(router) {
             handler: async ({ prompt, system, role = "worker" }, ctx) => {
                 try {
                     const client = router.getClient(role);
-                    ctx.emit("demo:llm.start", { prompt, model: client.model });
+                    ctx.emit("demo:llm:start", { prompt, model: client.model });
                     const content = await client.ask(prompt, system);
-                    ctx.emit("demo:llm.done", { length: content.length });
+                    ctx.emit("demo:llm:done", { length: content.length });
                     return { content };
                 } catch (err) {
                     return { error: err.message };
@@ -153,7 +153,7 @@ export function buildDemoAgent(router) {
             handler: async ({ text, depth = "shallow" }, ctx) => {
                 const wordCount = text.split(/\s+/).length;
                 const charCount = text.length;
-                ctx.emit("demo:analyze.done", { wordCount, charCount, depth });
+                ctx.emit("demo:analyze:done", { wordCount, charCount, depth });
                 return {
                     wordCount,
                     charCount,

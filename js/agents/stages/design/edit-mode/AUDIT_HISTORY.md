@@ -70,7 +70,7 @@ const intent = await this._interpretIntent({
 
 - **File**: js/agents/stages/design/edit-mode/edit-loop.js:123
 - **Description**: 事件名使用点号分隔（edit.element.selected/edit.session.transition），不符合 domain:action 约定，监听方可能收不到事件。
-- **Suggestion**: 改为 domain:action 命名（如 "edit:element.selected"/"edit:session.transition"），并同步更新监听端。
+- **Suggestion**: 改为 domain:action 命名（如 "edit:element.selected"/"edit:session:transition"），并同步更新监听端。
 ```
 if (typeof emit === "function") emit("edit.element.selected", { elementId: selectedElement });
 ```

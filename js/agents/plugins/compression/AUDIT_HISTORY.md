@@ -61,7 +61,7 @@ try { this._behaviorFingerprint = new BehaviorFingerprint(cfg); } catch { this._
 
 - **File**: js/agents/plugins/compression/cicada.js:86
 - **Description**: 事件名使用点号（compression.done/compression.warning 等），不符合 domain:action 约定。
-- **Suggestion**: 统一改为 compression:done / compression:warning / watchdog:threshold.exceeded 并同步更新监听与文档。
+- **Suggestion**: 统一改为 compression:done / compression:warning / watchdog:threshold:exceeded 并同步更新监听与文档。
 ```
 ctx.events.emit('compression.done', {
 ```

@@ -32,7 +32,7 @@
 - 事件（建议统一采用 `domain:action` 形式）：
   - `compression:done`
   - `compression:warning`
-  - `watchdog:threshold.exceeded`（仅 `autoCompress=true` 时触发）
+  - `watchdog:threshold:exceeded`（仅 `autoCompress=true` 时触发）
 - 运行时数据：读取 `runtime.tokens` 与 `runtime.messages`，写入 `state.health` 与 `state.lastCompression`
 - 监控触发：`checkInterval` 定时检查 + `runtime.tokens.*` 事件触发（约 1s 节流）
 - 清理机制：Watchdog 在上下文挂载 `ctx._watchdogCleanup`，用于重复安装或卸载时释放资源

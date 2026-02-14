@@ -77,7 +77,7 @@ import { readFileSync, existsSync } from "node:fs";
 
 - **File**: js/agents/cli/demo.js:103
 - **Description**: 事件名采用点分隔（例如 demo.llm.start），未遵守约定的 domain:action 格式，导致事件命名规范不一致。
-- **Suggestion**: 改为 demo:llm.start / demo:echo 等 domain:action 格式，并同步更新 .onEvent 订阅模式。
+- **Suggestion**: 改为 demo:llm:start / demo:echo 等 domain:action 格式，并同步更新 .onEvent 订阅模式。
 ```
 ctx.emit("demo.llm.start", { prompt, model: client.model });
 ```
