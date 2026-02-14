@@ -30,7 +30,7 @@
 
 export class ServiceBus {
   /**
-   * @param {{ events?: EventBus }} [options]
+   * @param {{ events?: EventBus, archive?: any, runId?: string }} [options]
    */
   constructor(options = {}) {
     /** @type {EventBus | null} */
@@ -47,6 +47,49 @@ export class ServiceBus {
 
     /** @type {Map<string, ServiceStats>} */
     this._stats = new Map();
+
+    /** @type {any | null} */
+    this._archive = options.archive || null;
+
+    /** @type {string} */
+    this._runId = options.runId || 'default';
+  }
+
+  /**
+   * 初始化 ServiceBus，从 Archive 恢复统计（如果可用）
+   * @returns {Promise<void>}
+   */
+  async init() {
+    if (!this._archive) return;
+
+    try {
+      const checkpoints = await this._archive.list(this._runId);
+      if (!Array.isArray(checkpoints) || checkpoints.length === 0) return;
+
+      for (const ckpt of checkpoints) {
+        if (!ckpt?.id || !ckpt.id.includes(':servicebus:stats:')) continue;
+
+        try {
+          const restored = await this._archive.load(ckpt.id);
+          if (restored?.stats && typeof restored.stats === 'object') {
+            for (const [name, stat] of Object.entries(restored.stats)) {
+              if (stat && typeof stat === 'object') {
+                this._stats.set(name, {
+                  name,
+                  calls: stat.calls || 0,
+                  errors: stat.errors || 0,
+                  totalTime: stat.totalTime || 0,
+                });
+              }
+            }
+          }
+        } catch (err) {
+          // 持久化失败不影响内存统计
+        }
+      }
+    } catch (err) {
+      // Archive 不可用时静默失败
+    }
   }
 
   /**
@@ -346,6 +389,7 @@ export class ServiceBus {
     if (stats) {
       stats.calls++;
       stats.totalTime += duration;
+      this._persistStatsAsync();
     }
   }
 
@@ -359,7 +403,37 @@ export class ServiceBus {
     if (stats) {
       stats.calls++;
       stats.errors++;
+      this._persistStatsAsync();
     }
+  }
+
+  /**
+   * 异步持久化统计到 Archive (dual-write pattern)
+   * @private
+   * @returns {void}
+   */
+  _persistStatsAsync() {
+    if (!this._archive || this._stats.size === 0) return;
+
+    queueMicrotask(() => {
+      (async () => {
+        try {
+          const checkpointId = `${this._runId}:servicebus:stats:${Date.now()}`;
+          const statsObj = {};
+          for (const [name, stat] of this._stats) {
+            statsObj[name] = { ...stat };
+          }
+          await this._archive.save(checkpointId, {
+            schemaVersion: 1,
+            stats: statsObj,
+            timestamp: Date.now(),
+            metadata: { runId: this._runId, serviceCount: this._stats.size },
+          });
+        } catch (err) {
+          // 持久化失败不影响内存统计
+        }
+      })();
+    });
   }
 
   /**
