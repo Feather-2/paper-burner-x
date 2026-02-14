@@ -4,6 +4,31 @@ Archived issues from security audits.
 
 ---
 
+## Archived: 2026-02-14 (代码质量补充修复)
+
+### [RESOLVED] E4. Ingest 适配器全局依赖注入不统一 — MEDIUM
+*Archived: 2026-02-14*
+
+- **Files**: ingest/adapters/docx.js, epub.js, html.js, pptx.js, pdf.js, audio.js, video.js, resolve-deps.js
+- **Resolution**: 在 resolve-deps.js 中实现统一的依赖解析器（resolveOcrManager、resolveWhisperApi、resolveTurndownService、resolveMammoth、resolvePptxParser），所有 7 个适配器已迁移使用统一解析函数。解析优先级：stageApi 注入 → globalThis → 动态 import。
+- **Commit**: 4a0967c7
+
+### [RESOLVED] H1. 空 catch 继续蔓延（部分） — MEDIUM
+*Archived: 2026-02-14*
+
+- **Files**: event-bus.js (8处), orchestrator-core.js (10处), user-store.js (6处), glob.js (4处), pool.js (1处)
+- **Resolution**: 修复 29 处空 catch 块，改为 `logger.debug()` 记录错误信息。剩余空 catch 块主要在 Python 代码字符串中（dependency-manager.js）或特殊沙箱场景。
+- **Commit**: 4a0967c7
+
+### [RESOLVED] P1. JSON.parse 无 reviver 验证（部分） — MEDIUM
+*Archived: 2026-02-14*
+
+- **Files**: robust-json.js, websocket-transport.js
+- **Resolution**: 在高风险路径添加 protoSafeReviver 防止原型污染。robust-json.js 的两处 JSON.parse 和 websocket-transport.js 的 CRDT 消息解析已修复。
+- **Commit**: 4a0967c7
+
+---
+
 ## Archived: 2026-02-13 (代码质量审查)
 
 ### [RESOLVED] AH1. `.map(async)` 未正确处理 Promise 数组 — MEDIUM

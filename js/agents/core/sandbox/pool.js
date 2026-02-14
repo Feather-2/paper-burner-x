@@ -275,7 +275,9 @@ export class SandboxPool {
         if (sandbox && isNewSandbox) {
           try {
             sandbox.dispose();
-          } catch {}
+          } catch (err) {
+            logger.debug("Failed to dispose sandbox", { error: err?.message });
+          }
           this._totalCount = Math.max(0, this._totalCount - 1);
         }
         if (this._consecutiveFailures >= this._maxConsecutiveFailures) {

@@ -196,12 +196,11 @@ Severity: **58 open issues** (6 High / 24 Medium / 28 Low) — Phase 4 新增 42
 - **Impact**: Deno 用户被当作浏览器处理，无法使用文件系统和 stdio 能力。
 - **Suggestion**: 要么做 Deno 适配（`Deno.readTextFile` 等），要么从文档中移除"支持 Deno"的宣称。
 
-### [MEDIUM] E4. Ingest 适配器全局依赖注入不统一
+#### E4. ~~Ingest 适配器全局依赖注入不统一~~ — ✅ RESOLVED
 
-- **File**: ingest/adapters/docx.js:81, epub.js:83, html.js:55, pptx.js:153, pdf.js:177
+- **File**: ingest/adapters/docx.js:81, epub.js:83, html.js:55, pptx.js:153, pdf.js:177, audio.js, video.js
 - **Description**: 6 个适配器通过 `globalThis.XXX` 检测依赖（mammoth/TurndownService/PPTXSlideParser/OcrManager）。假设浏览器通过 `<script>` 标签全局注入。
-- **Impact**: ESM bundler（Vite/esbuild）用户不会有这些全局变量，必须手动挂载；Node 端依赖缺失时静默返回 null 而非抛明确错误。
-- **Suggestion**: 引入统一的"adapter dependency registry"，支持显式注入和缺失检测。
+- **Resolution**: 已在 resolve-deps.js 中实现统一的依赖解析器（resolveOcrManager、resolveWhisperApi、resolveTurndownService、resolveMammoth、resolvePptxParser），所有适配器已迁移使用统一解析函数。
 
 #### E5. ~~structuredClone 兼容——至少 4 种不同 fallback 写法~~ — ✅ RESOLVED
 
