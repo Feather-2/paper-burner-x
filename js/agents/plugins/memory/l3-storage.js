@@ -534,6 +534,8 @@ export class L3Storage extends DisposableBase {
 
     if (!touched) return;
 
+    this._indexUpdatedAt = Date.now();
+
     try {
       await this.persistIndex();
     } catch (err) {
