@@ -76,15 +76,38 @@ function scoreFromGrepMatchCount(matchCount) {
   return Math.log(1 + Math.max(0, matchCount));
 }
 
-function safeFiniteNumber(v) {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
+/**
+ * Safely extract a finite number from a value, with optional Infinity support.
+ * @param {any} v - Value to check
+ * @param {boolean} [allowInfinity=false] - Whether to accept Infinity as valid
+ * @returns {number|null} The number if valid, null otherwise
+ */
+function safeFiniteNumber(v, allowInfinity = false) {
+  if (typeof v !== "number") return null;
+  if (Number.isNaN(v)) return null;
+  if (!allowInfinity && !Number.isFinite(v)) return null;
+  return v;
 }
 
-function normalizeScoreMergeConfig(config) {
+function normalizeScoreMergeConfig(config, logger) {
   const cfg = isPlainObject(config) ? config : {};
-  const wGrep = safeFiniteNumber(cfg.wGrep ?? cfg.grepWeight ?? cfg.grep) ?? 0.7;
-  const wBm25 = safeFiniteNumber(cfg.wBm25 ?? cfg.bm25Weight ?? cfg.bm25) ?? 0.3;
-  const grepBase = safeFiniteNumber(cfg.grepBase ?? cfg.grepBonus ?? cfg.grepMatchBase) ?? 1.0;
+  const rawWGrep = cfg.wGrep ?? cfg.grepWeight ?? cfg.grep;
+  const rawWBm25 = cfg.wBm25 ?? cfg.bm25Weight ?? cfg.bm25;
+  const rawGrepBase = cfg.grepBase ?? cfg.grepBonus ?? cfg.grepMatchBase;
+
+  const wGrep = safeFiniteNumber(rawWGrep) ?? 0.7;
+  const wBm25 = safeFiniteNumber(rawWBm25) ?? 0.3;
+  const grepBase = safeFiniteNumber(rawGrepBase) ?? 1.0;
+
+  if (rawWGrep !== undefined && safeFiniteNumber(rawWGrep) === null) {
+    logger?.warn?.("[retrieval] Invalid wGrep value (NaN/Infinity), using default", { value: rawWGrep, default: 0.7 });
+  }
+  if (rawWBm25 !== undefined && safeFiniteNumber(rawWBm25) === null) {
+    logger?.warn?.("[retrieval] Invalid wBm25 value (NaN/Infinity), using default", { value: rawWBm25, default: 0.3 });
+  }
+  if (rawGrepBase !== undefined && safeFiniteNumber(rawGrepBase) === null) {
+    logger?.warn?.("[retrieval] Invalid grepBase value (NaN/Infinity), using default", { value: rawGrepBase, default: 1.0 });
+  }
 
   const sum = wGrep + wBm25;
   const normGrep = sum > 0 ? wGrep / sum : 0.7;
@@ -226,8 +249,22 @@ function sleep0() {
  *
  * @param {{sourceId:string,chunks:Array<{chunkId:string,text:string,locator:any}>,toc?:any[],fullText?:string}} sourceIndex
  * @param {Array<any>} gaps
- * @param {object=} config
+ * @param {object=} config - Retrieval configuration
+ * @param {number=} config.topK - Max results per gap (default: 8). Must be finite positive integer.
+ * @param {number=} config.windowSize - Context window size (default: 1). Must be finite non-negative integer.
+ * @param {boolean=} config.useBm25 - Enable BM25 search (default: true)
+ * @param {boolean=} config.useGrep - Enable grep search (default: true)
+ * @param {number=} config.grepAsyncThreshold - Async threshold for grep (default: 2000). Must be finite non-negative integer.
+ * @param {number=} config.grepYieldEvery - Yield interval for async grep (default: 200). Must be finite positive integer.
+ * @param {number=} config.minGrepHits - Min grep hits before using BM25 (default: 15). Must be finite non-negative integer.
+ * @param {number=} config.bm25MinScore - Min BM25 score threshold (default: 0.5). Must be finite non-negative number.
+ * @param {object=} config.mmr - MMR diversity config
+ * @param {number=} config.mmr.topK - MMR selection size. Must be finite positive integer.
+ * @param {number=} config.mmr.lambda - MMR diversity weight (default: 0.7). Must be finite number in [0,1].
+ * @param {AbortSignal=} config.signal - Cancellation signal
+ * @param {object=} config.logger - Logger instance
  * @returns {Promise<Array<{chunkId:string,sourceId:string,locator:any,text:string,score?:number,relevance?:string,matchedGapIds?:string[]}>>}
+ * @note All numeric parameters reject NaN and Infinity (except where explicitly documented). Invalid values fall back to defaults.
  */
 export async function retrieve(sourceIndex, gaps, config = {}) {
   if (!isPlainObject(sourceIndex)) throw new TypeError("retrieve(sourceIndex, gaps, config): sourceIndex must be an object");
@@ -356,7 +393,7 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
       }
     }
 
-    const scoring = normalizeScoreMergeConfig(config.scoreMerge || config.scoring);
+    const scoring = normalizeScoreMergeConfig(config.scoreMerge || config.scoring, logger);
     let maxGrepMatch = 0;
     for (const c of grepCounts.values()) maxGrepMatch = Math.max(maxGrepMatch, c || 0);
     const maxGrepScore = maxGrepMatch > 0 ? scoreFromGrepMatchCount(maxGrepMatch) : 0;
