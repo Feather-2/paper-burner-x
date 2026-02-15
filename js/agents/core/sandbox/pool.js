@@ -63,6 +63,8 @@ export class SandboxPool {
     this._memoryCheckIntervalMs = options.memoryCheckIntervalMs || 30000;
     this._memoryCheckTimer = null;
     this._memoryBaseline = null;
+    /** @type {Set<ReturnType<typeof setTimeout>>} tracks all pending timers for leak-safe disposal */
+    this._pendingTimers = new Set();
     if (this._enableMemoryMonitoring && typeof performance !== 'undefined' && performance.memory) {
       this._startMemoryMonitoring();
     }
@@ -80,6 +82,24 @@ export class SandboxPool {
    */
   _getCapabilityKey(capabilities) {
     return [...capabilities].sort().join(',');
+  }
+
+  /** @private track a setTimeout and auto-remove on fire */
+  _tracked(fn, ms) {
+    const id = setTimeout(() => {
+      this._pendingTimers.delete(id);
+      fn();
+    }, ms);
+    this._pendingTimers.add(id);
+    return id;
+  }
+
+  /** @private cancel a tracked timer */
+  _cancelTracked(id) {
+    if (id != null) {
+      clearTimeout(id);
+      this._pendingTimers.delete(id);
+    }
   }
 
   /**
@@ -100,7 +120,7 @@ export class SandboxPool {
     const pool = this._pools.get(key);
     if (pool && pool.length > 0) {
       const entry = pool.pop();
-      clearTimeout(entry.timeoutId);
+      this._cancelTracked(entry.timeoutId);
       entry.sandbox.recycle({
         state: options.state || {},
         onLog: options.onLog || (() => {}),
@@ -116,7 +136,7 @@ export class SandboxPool {
     // 并发限制：等待释放后再创建/获取
     if (this._inUseCount >= this.maxActive) {
       return await new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
+        const timeoutId = this._tracked(() => {
           const idx = this._waitQueue.findIndex(w => w.timeoutId === timeoutId);
           if (idx !== -1) {
             this._waitQueue.splice(idx, 1);
@@ -200,6 +220,7 @@ export class SandboxPool {
     const error = err instanceof Error ? err : new Error(err ? String(err) : "SandboxPool drain failed");
     for (const waiter of waiters) {
       try {
+        this._cancelTracked(waiter?.timeoutId);
         waiter?.reject?.(error);
       } catch {
         // ignore
@@ -213,7 +234,7 @@ export class SandboxPool {
       if (!waiter) break;
 
       const { key, options, resolve, reject, timeoutId } = waiter;
-      if (timeoutId) clearTimeout(timeoutId);
+      this._cancelTracked(timeoutId);
 
       let sandbox = null;
       let lockHandle = null;
@@ -225,7 +246,7 @@ export class SandboxPool {
         const pool = this._pools.get(key);
         if (pool && pool.length > 0) {
           const entry = pool.pop();
-          clearTimeout(entry.timeoutId);
+          this._cancelTracked(entry.timeoutId);
           sandbox = entry.sandbox;
         }
 
@@ -317,7 +338,7 @@ export class SandboxPool {
     const waiterIndex = this._waitQueue.findIndex((w) => w && w.key === key);
     if (waiterIndex !== -1) {
       const waiter = this._waitQueue.splice(waiterIndex, 1)[0];
-      if (waiter.timeoutId) clearTimeout(waiter.timeoutId);
+      this._cancelTracked(waiter.timeoutId);
       sandbox.recycle({
         state: waiter?.options?.state || {},
         onLog: waiter?.options?.onLog || (() => {}),
@@ -355,7 +376,7 @@ export class SandboxPool {
     sandbox.recycle({ state: {}, onLog: () => {}, onEmit: () => {}, limits: this.defaultLimits });
 
     // 设置空闲超时
-    const timeoutId = setTimeout(() => {
+    const timeoutId = this._tracked(() => {
       const idx = pool.findIndex(e => e.sandbox === sandbox);
       if (idx !== -1) {
         pool.splice(idx, 1);
@@ -410,7 +431,7 @@ export class SandboxPool {
     }
 
     for (const sandbox of sandboxes) {
-      const timeoutId = setTimeout(() => {
+      const timeoutId = this._tracked(() => {
         const idx = pool.findIndex(e => e.sandbox === sandbox);
         if (idx !== -1) {
           pool.splice(idx, 1);
@@ -468,7 +489,7 @@ export class SandboxPool {
 
     for (const pool of this._pools.values()) {
       for (const entry of pool) {
-        clearTimeout(entry.timeoutId);
+        this._cancelTracked(entry.timeoutId);
 
         // 释放锁
         if (this._sandboxLocks.has(entry.sandbox)) {
@@ -554,13 +575,20 @@ export class SandboxPool {
 
     const waiters = this._waitQueue.splice(0, this._waitQueue.length);
     for (const waiter of waiters) {
-      if (waiter.timeoutId) clearTimeout(waiter.timeoutId);
+      this._cancelTracked(waiter.timeoutId);
       try {
         waiter.reject(new Error("Pool has been disposed"));
       } catch {
         // ignore
       }
     }
+
+    // sweep any orphaned timers as safety net
+    for (const id of this._pendingTimers) {
+      clearTimeout(id);
+    }
+    this._pendingTimers.clear();
+
     this._disposed = true;
   }
 }

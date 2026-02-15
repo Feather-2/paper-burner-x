@@ -118,6 +118,8 @@ export class MessageManager {
     this._pendingSummaries = new WeakSet();
     /** @type {Map<string, Promise<void>>} 进行中的摘要 Promise，用于压缩前等待 */
     this._pendingSummaryPromises = new Map();
+    /** @type {Map<string, (reason?: any) => void>} 摘要 Promise 的 reject 回调 */
+    this._pendingSummaryRejects = new Map();
     /** @type {AbortController|null} 摘要生成的取消控制器 */
     this._summaryAbortController = null;
     /** @type {number} 摘要 ID 计数器 */
@@ -296,7 +298,7 @@ export class MessageManager {
     this._lastCompressionAtMs = 0;
     if (clearHistory) this._compressionHistory = [];
 
-    // 清理摘要追踪（不取消，等待自然完成后 Map 自动清空）
+    // 取消并拒绝所有进行中的摘要 Promise
     this._abortPendingSummaries("reset");
     this._pendingSummaries = new WeakSet();
   }
@@ -549,11 +551,8 @@ export class MessageManager {
   async _waitForPendingSummaries() {
     if (this._pendingSummaryPromises.size === 0) return;
     const promises = Array.from(this._pendingSummaryPromises.values());
-    try {
-      await Promise.all(promises);
-    } catch (e) {
-      silentReporter.report(e, "_waitForPendingSummaries");
-    }
+    // 使用 allSettled 确保即使部分 Promise 被拒绝也能收敛
+    await Promise.allSettled(promises);
   }
 
   /**
@@ -658,20 +657,26 @@ export class MessageManager {
     }
     const signal = this._summaryAbortController.signal;
 
-    // 创建可追踪的 Promise
-    const summaryPromise = Promise.resolve().then(async () => {
-      if (this._disposed || signal.aborted) return;
-      try {
+    // 创建可追踪且可外部取消的 Promise
+    let rejectHandle;
+    const summaryPromise = new Promise((resolve, reject) => {
+      rejectHandle = reject;
+      Promise.resolve().then(async () => {
+        if (this._disposed || signal.aborted) return;
         await this._generateSummaryAsync(message, signal);
-      } catch (e) {
+      }).then(resolve, (e) => {
         silentReporter.report(e, "_scheduleSummaryGeneration");
-      } finally {
-        // 完成后从 Map 移除
-        this._pendingSummaryPromises.delete(summaryId);
-      }
+        resolve();
+      });
+    }).finally(() => {
+      this._pendingSummaryPromises.delete(summaryId);
+      this._pendingSummaryRejects.delete(summaryId);
     });
 
     this._pendingSummaryPromises.set(summaryId, summaryPromise);
+    this._pendingSummaryRejects.set(summaryId, rejectHandle);
+    // 抑制外部 abort 导致的 unhandled rejection
+    summaryPromise.catch(() => {});
   }
 
   /**
@@ -781,6 +786,7 @@ export class MessageManager {
     this._clearCooldownTimer();
     this._abortActiveCompression("disposed");
     this._abortPendingSummaries("disposed");
+    this._pendingSummaries = new WeakSet();
     this._compressionPending = false;
   }
 
@@ -803,7 +809,17 @@ export class MessageManager {
       }
       this._summaryAbortController = null;
     }
-    // 清空追踪 Map（Promise 会自行完成或被取消）
+    // 拒绝所有进行中的 Promise，确保等待方能及时收敛
+    const rejectError = new Error(reason);
+    rejectError.name = "AbortError";
+    for (const reject of this._pendingSummaryRejects.values()) {
+      try {
+        reject(rejectError);
+      } catch {
+        // ignore
+      }
+    }
+    this._pendingSummaryRejects.clear();
     this._pendingSummaryPromises.clear();
   }
 }
