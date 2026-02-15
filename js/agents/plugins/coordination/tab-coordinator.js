@@ -162,7 +162,7 @@ export class TabCoordinator {
    * @returns {Promise<void>}
    */
   async init() {
-    if (this._initialized || this._disposed) return;
+    if (this._initialized || this._disposed || this._channel) return;
     this._initialized = true;
 
     if (!this._supported) return;
