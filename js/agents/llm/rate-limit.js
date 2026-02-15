@@ -116,6 +116,8 @@ export class TokenBucketRateLimiter {
     this._pumping = false;
     this._pumpRequested = false;
     this._pumpScheduled = false;
+    this._pumpStartedAt = 0;
+    this._pumpDeadlockMs = 60_000;
   }
 
   getState() {
@@ -213,7 +215,13 @@ export class TokenBucketRateLimiter {
   _requestPump() {
     if (this._pumping) {
       this._pumpRequested = true;
-      return;
+      if (this._pumpStartedAt > 0 && (this._time.now() - this._pumpStartedAt) > this._pumpDeadlockMs) {
+        logger.warn("Pump deadlock detected, forcing reset");
+        this._pumping = false;
+        this._pumpStartedAt = 0;
+      } else {
+        return;
+      }
     }
     this._pump().catch((err) => logger.warn("Pump error", { error: err.message }));
   }
@@ -270,23 +278,28 @@ export class TokenBucketRateLimiter {
     }
     this._pumping = true;
     this._pumpRequested = false;
+    this._pumpStartedAt = this._time.now();
 
     try {
       while (true) {
+        this._pumpStartedAt = this._time.now();
+
         if (this._queue.length === 0) return;
 
         const now = this._time.now();
         this._refill(now);
 
         if (now < this._blockedUntilMs) {
-          await this._time.sleep(Math.max(0, this._blockedUntilMs - now));
+          const sleepMs = Math.min(Math.max(0, this._blockedUntilMs - now), this._pumpDeadlockMs);
+          await this._time.sleep(sleepMs);
           continue;
         }
 
         if (this._inFlight >= this._concurrency) return;
 
         if (this._rps !== Infinity && this._tokens < 1) {
-          await this._time.sleep(this._msUntilToken(now));
+          const sleepMs = Math.min(this._msUntilToken(now), this._pumpDeadlockMs);
+          await this._time.sleep(sleepMs);
           continue;
         }
 
@@ -323,7 +336,8 @@ export class TokenBucketRateLimiter {
       }
     } finally {
       this._pumping = false;
-      if (this._pumpRequested) {
+      this._pumpStartedAt = 0;
+      if (this._pumpRequested || this._queue.length > 0) {
         this._pumpRequested = false;
         this._requestPumpSoon();
       }
