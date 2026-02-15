@@ -23,6 +23,7 @@ const RPC_KIND_REQUEST = 'rpc_request';
 const RPC_KIND_RESPONSE = 'rpc_response';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_ABORT_MESSAGE = 'Request aborted';
+const INIT_TIMEOUT_MS = 30_000;
 
 /**
  * @typedef {{ kind: string, requestId: string, replyTo: string }} RpcRequestMeta
@@ -163,6 +164,38 @@ function toAbortError(reason) {
 }
 
 /**
+ * @template T
+ * @param {Promise<T> | T} value
+ * @param {number} timeoutMs
+ * @returns {Promise<T>}
+ */
+function withTimeout(value, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timerId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`Operation timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    Promise.resolve(value).then(
+      (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timerId);
+        resolve(result);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timerId);
+        reject(err);
+      }
+    );
+  });
+}
+
+/**
  * MessageBus - RPC over EventBus
  */
 export class MessageBus {
@@ -222,43 +255,46 @@ export class MessageBus {
     if (this._initPromise) return this._initPromise;
     if (!this._archive) return;
 
-    this._initPromise = (async () => {
-      try {
-        const checkpoints = await this._archive.list(this._runId);
-        if (!Array.isArray(checkpoints) || checkpoints.length === 0) return;
+    this._initPromise = withTimeout(
+      (async () => {
+        try {
+          const checkpoints = await this._archive.list(this._runId);
+          if (!Array.isArray(checkpoints) || checkpoints.length === 0) return;
 
-        // Hydrate RPC history from Archive to memory
-        for (const ckpt of checkpoints) {
-          if (!ckpt?.id) continue;
+          // Hydrate RPC history from Archive to memory
+          for (const ckpt of checkpoints) {
+            if (!ckpt?.id) continue;
 
-          // 只恢复 rpc 类型的检查点
-          if (!ckpt.id.includes(':rpc:')) continue;
+            // 只恢复 rpc 类型的检查点
+            if (!ckpt.id.includes(':rpc:')) continue;
 
-          try {
-            const restored = await this._archive.load(ckpt.id);
-            if (restored?.records && Array.isArray(restored.records)) {
-              // 合并 RPC 历史到内存，去重
-              const existingIds = new Set(this._rpcHistory.map(r => r.requestId));
-              for (const record of restored.records) {
-                if (record?.requestId && !existingIds.has(record.requestId)) {
-                  this._rpcHistory.push(record);
-                  existingIds.add(record.requestId);
+            try {
+              const restored = await this._archive.load(ckpt.id);
+              if (restored?.records && Array.isArray(restored.records)) {
+                // 合并 RPC 历史到内存，去重
+                const existingIds = new Set(this._rpcHistory.map(r => r.requestId));
+                for (const record of restored.records) {
+                  if (record?.requestId && !existingIds.has(record.requestId)) {
+                    this._rpcHistory.push(record);
+                    existingIds.add(record.requestId);
+                  }
+                }
+
+                // 保持历史大小限制
+                if (this._rpcHistory.length > this._maxRpcHistory) {
+                  this._rpcHistory.splice(0, this._rpcHistory.length - this._maxRpcHistory);
                 }
               }
-
-              // 保持历史大小限制
-              if (this._rpcHistory.length > this._maxRpcHistory) {
-                this._rpcHistory.splice(0, this._rpcHistory.length - this._maxRpcHistory);
-              }
+            } catch (err) {
+              // 持久化失败不影响启动
             }
-          } catch (err) {
-            // 持久化失败不影响启动
           }
+        } catch (err) {
+          // 持久化失败不影响启动
         }
-      } catch (err) {
-        // 持久化失败不影响启动
-      }
-    })();
+      })(),
+      INIT_TIMEOUT_MS
+    ).catch(() => {});
 
     return this._initPromise;
   }
@@ -535,7 +571,10 @@ export class MessageBus {
     // Cache in-flight promise for idempotency dedup
     if (idempotencyKey) {
       this._inflightRequests.set(idempotencyKey, promise);
-      promise.finally(() => this._inflightRequests.delete(idempotencyKey));
+      const clearInflight = () => {
+        this._inflightRequests.delete(idempotencyKey);
+      };
+      void promise.then(clearInflight, clearInflight);
     }
     return promise;
   }

@@ -139,6 +139,23 @@ describe('MessageBus', () => {
     });
   });
 
+  describe('init', () => {
+    it('settles init when archive hydrate hangs', async () => {
+      vi.useFakeTimers();
+      const archive = {
+        list: vi.fn(() => new Promise(() => {})),
+        load: vi.fn(),
+      };
+      const bus = new MessageBus({ eventBus: new EventBus(), archive, runId: 'run-1' });
+
+      const initPromise = bus.init();
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await expect(initPromise).resolves.toBeUndefined();
+      expect(archive.list).toHaveBeenCalledWith('run-1');
+    });
+  });
+
   describe('emit', () => {
     it('emits payloads and forwards null/undefined/empty array/object', () => {
       const bus = new MessageBus(new EventBus());
@@ -549,6 +566,33 @@ describe('MessageBus', () => {
       );
 
       await expect(Promise.all(requests)).resolves.toEqual([0, 1, 2, 3, 4]);
+    });
+
+    it('cleans in-flight idempotency cache on timeout rejection', async () => {
+      vi.useFakeTimers();
+      const client = new MessageBus(new EventBus());
+
+      const promise = client.request('rpc:cleanup-timeout', {}, { timeoutMs: 10, idempotencyKey: 'cleanup-key' });
+      expect(client._inflightRequests.has('cleanup-key')).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(10);
+      await expect(promise).rejects.toThrow('Request timeout after 10ms: rpc:cleanup-timeout');
+      expect(client._inflightRequests.has('cleanup-key')).toBe(false);
+    });
+
+    it('cleans in-flight idempotency cache on pre-abort rejection', async () => {
+      const client = new MessageBus(new EventBus());
+      const controller = new AbortController();
+      controller.abort();
+
+      const promise = client.request('rpc:cleanup-abort', {}, {
+        signal: controller.signal,
+        idempotencyKey: 'cleanup-abort-key',
+      });
+      expect(client._inflightRequests.has('cleanup-abort-key')).toBe(true);
+
+      await expect(promise).rejects.toThrow('Request aborted');
+      expect(client._inflightRequests.has('cleanup-abort-key')).toBe(false);
     });
   });
 });
