@@ -539,6 +539,48 @@ describe("SseMcpTransport", () => {
     expect(postCalls.length).toBe(2);
   });
 
+  it("close rejects pending receive and clears listeners", async () => {
+    const fetchImpl = vi.fn(async (_input, init = {}) => {
+      if (init.method === "GET") return createResponse({ body: "STREAM" });
+      return createResponse({ ok: true, status: 204, contentType: "", body: "" });
+    });
+
+    const t = new SseMcpTransport({
+      url: "https://example.com/mcp",
+      sseUrl: "https://example.com/sse",
+      fetchImpl,
+    });
+
+    await t.connect();
+    const receivePromise = t.receive();
+
+    await t.close();
+
+    await expect(receivePromise).rejects.toThrow(/transport disconnected/i);
+    expect(t._events?.size ?? 0).toBe(0);
+  });
+
+  it("dispose aliases close and clears listeners", async () => {
+    const fetchImpl = vi.fn(async (_input, init = {}) => {
+      if (init.method === "GET") return createResponse({ body: "STREAM" });
+      return createResponse({ ok: true, status: 204, contentType: "", body: "" });
+    });
+
+    const t = new SseMcpTransport({
+      url: "https://example.com/mcp",
+      sseUrl: "https://example.com/sse",
+      fetchImpl,
+    });
+
+    t.on("message", vi.fn());
+    await t.connect();
+
+    await t.dispose();
+
+    expect(t.isConnected()).toBe(false);
+    expect(t._events?.size ?? 0).toBe(0);
+  });
+
   it("close/disconnect is idempotent and aborts SSE + inflight POSTs (concurrency/resource cleanup boundary)", async () => {
     /** @type {AbortSignal[]} */
     const postSignals = [];

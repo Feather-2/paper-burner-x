@@ -349,11 +349,48 @@ export class SseMcpTransport extends McpTransport {
   }
 
   /**
+   * 清理当前 transport 上注册的所有事件监听器（错误容忍）
+   * @private
+   */
+  _clearEventListeners() {
+    try {
+      if (typeof this.clear === "function") {
+        this.clear();
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (typeof this.off === "function") {
+        this.off("message");
+        this.off("error");
+        this.off("disconnect");
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
    * 兼容别名：close() -> disconnect()
    * @returns {Promise<void>}
    */
   async close() {
-    return this.disconnect();
+    try {
+      await this.disconnect();
+    } finally {
+      this._clearEventListeners();
+    }
+  }
+
+  /**
+   * 兼容别名：dispose() -> close()
+   * @returns {Promise<void>}
+   */
+  async dispose() {
+    return this.close();
   }
 }
 

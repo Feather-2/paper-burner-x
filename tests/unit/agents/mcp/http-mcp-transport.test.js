@@ -475,6 +475,28 @@ describe("HttpMcpTransport", () => {
     await expect(receivePromise).rejects.toThrow(expected);
   });
 
+  it("close rejects pending receive and clears listeners", async () => {
+    const transport = new HttpMcpTransport({ url: "http://example.test", fetchImpl: vi.fn() });
+    await transport.connect();
+
+    const receivePromise = transport.receive();
+    await transport.close();
+
+    await expect(receivePromise).rejects.toThrow(/transport disconnected/i);
+    expect(transport._events?.size ?? 0).toBe(0);
+  });
+
+  it("dispose aliases close and clears listeners", async () => {
+    const transport = new HttpMcpTransport({ url: "http://example.test", fetchImpl: vi.fn() });
+    transport.on("message", vi.fn());
+    await transport.connect();
+
+    await transport.dispose();
+
+    expect(transport.isConnected()).toBe(false);
+    expect(transport._events?.size ?? 0).toBe(0);
+  });
+
   it("close delegates to disconnect", async () => {
     const transport = new HttpMcpTransport({ url: "http://example.test", fetchImpl: vi.fn() });
     const onDisconnect = vi.fn();
