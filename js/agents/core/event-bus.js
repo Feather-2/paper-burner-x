@@ -83,6 +83,7 @@ import {
  */
 
 const logger = createLogger('core/event-bus');
+const PERSIST_DEBOUNCE_MS = 500;
 
 // ============================================================
 // 持久化适配器
@@ -161,6 +162,9 @@ export class EventBus {
 
     /** @type {Promise<void> | null} */
     this._initPromise = null;
+
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    this._persistHistoryTimerId = null;
   }
 
   // ============================================================
@@ -562,6 +566,11 @@ export class EventBus {
    * @returns {void}
    */
   clear() {
+    if (this._persistHistoryTimerId !== null) {
+      clearTimeout(this._persistHistoryTimerId);
+      this._persistHistoryTimerId = null;
+      this._flushHistory();
+    }
     this._subscriptions.clear();
     this._waiters.clear();
     if (this._history) this._history.length = 0;
@@ -815,22 +824,38 @@ export class EventBus {
    */
   _persistHistoryAsync() {
     if (!this._archive || !this._history || this._history.length === 0) return;
+    if (this._persistHistoryTimerId !== null) {
+      clearTimeout(this._persistHistoryTimerId);
+    }
+    this._persistHistoryTimerId = setTimeout(() => {
+      this._persistHistoryTimerId = null;
+      this._flushHistory();
+    }, PERSIST_DEBOUNCE_MS);
+  }
 
-    queueMicrotask(() => {
-      (async () => {
-        try {
-          const checkpointId = `${this.runId}:history:${Date.now()}`;
-          await this._archive.save(checkpointId, {
-            schemaVersion: 1,
-            events: [...this._history],
-            timestamp: Date.now(),
-            metadata: { runId: this.runId, eventCount: this._history.length },
-          });
-        } catch (err) {
-          logger.warn('Failed to persist history to Archive:', err);
-        }
-      })();
-    });
+  /**
+   * 立即执行历史持久化写入（fire-and-forget）
+   * @private
+   * @returns {void}
+   */
+  _flushHistory() {
+    if (!this._archive || !this._history || this._history.length === 0) return;
+    const archive = this._archive;
+    const runId = this.runId;
+    const snapshot = [...this._history];
+    (async () => {
+      try {
+        const checkpointId = `${runId}:history:${Date.now()}`;
+        await archive.save(checkpointId, {
+          schemaVersion: 1,
+          events: snapshot,
+          timestamp: Date.now(),
+          metadata: { runId, eventCount: snapshot.length },
+        });
+      } catch (err) {
+        logger.warn('Failed to persist history to Archive:', err);
+      }
+    })();
   }
 
   /**

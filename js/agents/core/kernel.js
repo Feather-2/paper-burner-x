@@ -348,28 +348,7 @@ export class Kernel {
    * @returns {ServiceEntry[]}
    */
   getServices() {
-    /** @type {ServiceEntry[]} */
-    const entries = [];
-
-    for (const [name, entry] of this.services._services) {
-      entries.push({
-        name,
-        registeredAt: entry.registeredAt,
-        options: entry.options || {},
-      });
-    }
-
-    for (const [name, entry] of this.services._factories) {
-      if (!this.services._services.has(name)) {
-        entries.push({
-          name,
-          registeredAt: 0,
-          options: entry.options || {},
-        });
-      }
-    }
-
-    return entries;
+    return this.services.listAll();
   }
 
   /**
@@ -465,8 +444,7 @@ export class Kernel {
    * @returns {Plugin | null}
    */
   _getPlugin(name) {
-    const entry = this._pluginManager._plugins.get(name);
-    return entry?.plugin || null;
+    return this._pluginManager.getPlugin(name);
   }
 
   /**

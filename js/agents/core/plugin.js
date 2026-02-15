@@ -307,6 +307,16 @@ export class PluginManager {
   }
 
   /**
+   * 获取已注册的插件对象
+   * @param {string} name
+   * @returns {Object | null}
+   */
+  getPlugin(name) {
+    const entry = this._plugins.get(name);
+    return entry?.plugin || null;
+  }
+
+  /**
    * 拓扑排序
    */
   _topologicalSort() {
