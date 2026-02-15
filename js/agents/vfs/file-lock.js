@@ -270,15 +270,19 @@ export class FileLock {
       }
       waiters.push(waiter);
 
+      // Abort + Timeout shared state
+      let onAbort;
+
       // Timeout
       const timer = setTimeout(() => {
+        if (signal && onAbort) signal.removeEventListener("abort", onAbort);
         this._removeWaiter(path, waiter);
         reject(new Error(`Lock acquire timeout for ${path}`));
       }, timeoutMs);
 
       // Abort
       if (signal) {
-        const onAbort = () => {
+        onAbort = () => {
           clearTimeout(timer);
           this._removeWaiter(path, waiter);
           reject(new Error("Aborted"));
@@ -286,10 +290,15 @@ export class FileLock {
         signal.addEventListener("abort", onAbort, { once: true });
       }
 
-      // Wrap resolve to clear timeout
+      const cleanup = () => {
+        clearTimeout(timer);
+        if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+      };
+
+      // Wrap resolve to clear timeout + abort listener
       const originalResolve = waiter.resolve;
       waiter.resolve = (result) => {
-        clearTimeout(timer);
+        cleanup();
         originalResolve(result);
       };
     });

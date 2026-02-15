@@ -76,6 +76,9 @@ export class WebSocketCrdtTransport {
       this._socket = null;
       this._setState(ConnectionState.DISCONNECTED);
     }
+    this._handlers.clear();
+    this._receiveHandlers.clear();
+    this._queue.length = 0;
   }
   _openSocket() {
     if (this._state === ConnectionState.CONNECTING || this._state === ConnectionState.CONNECTED) return;
@@ -206,6 +209,7 @@ export class WebSocketCrdtTransport {
       clearInterval(this._heartbeatTimer);
       this._heartbeatTimer = null;
     }
+    this._clearReconnectTimer();
   }
   _scheduleReconnect() {
     if (!this._shouldReconnect || this._reconnectTimer !== null) return;
