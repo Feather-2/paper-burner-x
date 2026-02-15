@@ -10,8 +10,6 @@ import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 import { isNodeLike } from "../shared/index.js";
 import {
   enforcePromptCacheLimit,
-  escapeRegExp,
-  escapeTemplateDelimiters,
   getBasePath,
   getSyncNodeModules,
   isPathInsideBase,
@@ -20,13 +18,13 @@ import {
   lruSet,
   makePromptCacheKey,
   normalizeMaxBytes,
-  normalizeTemplateVars,
   resolvePromptCacheMaxEntries,
   resolvePromptManifestCacheTtlMs,
   resolveUrl,
   tryReadTextWithLimit,
   validateKey,
 } from "./prompt-loader-helpers.js";
+import { renderPromptTemplate } from "./prompt-template.js";
 const logger = createLogger("prompts/prompt-loader");
 
 /**
@@ -67,21 +65,6 @@ const logger = createLogger("prompts/prompt-loader");
  * @typedef {object} LoadPromptOptions
  * @property {boolean=} cache
  * @property {string=} manifestUrl
- */
-
-/**
- * @typedef {Map<string, unknown> | Record<string, unknown>} PromptTemplateVars
- */
-
-/**
- * @typedef {object} RenderPromptTemplateOptions
- * @property {PromptTemplateVars=} vars
- * @property {Record<string, string>=} appendIfMissing
- * @property {boolean=} keepUnresolved
- * @property {boolean=} warnOnUnresolved
- * @property {boolean=} failOnUnresolved
- * @property {(names: string[]) => void=} onUnresolved
- * @property {boolean=} escapeVars
  */
 
 /**
@@ -522,89 +505,7 @@ export function getCachedPromptNames() {
   return _defaultPromptLoader.getCachedPromptNames();
 }
 
-/**
- * Render a prompt template using {{VAR}} placeholders.
- *
- * Notes:
- * - Placeholder matching is case-insensitive (by lowercasing both sides).
- * - Only exact keys are supported (including dotted keys like "minWords.quick").
- * - Unresolved placeholders are kept by default to make missing variables visible.
- *
- * @param {string} template - The template string containing `{{VAR}}` placeholders
- * @param {RenderPromptTemplateOptions} [options] - Rendering options
- * @returns {string} The rendered template with placeholders replaced
- */
-export function renderPromptTemplate(
-  template,
-  /** @type {RenderPromptTemplateOptions} */ {
-    vars,
-    appendIfMissing,
-    keepUnresolved = true,
-    warnOnUnresolved = false,
-    failOnUnresolved = false,
-    onUnresolved,
-    escapeVars = true,
-  } = {}
-) {
-  const input = typeof template === "string" ? template : String(template ?? "");
-  const varMap = normalizeTemplateVars(vars);
-  const unresolved = warnOnUnresolved || failOnUnresolved || typeof onUnresolved === "function" ? new Set() : null;
-
-  let rendered = input.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, rawName) => {
-    const key = String(rawName || "").trim().toLowerCase();
-    if (!key) return keepUnresolved ? match : "";
-    if (!varMap.has(key)) {
-      unresolved?.add(key);
-      return keepUnresolved ? match : "";
-    }
-
-    const value = varMap.get(key);
-    if (value === null || value === undefined) return "";
-    if (typeof value === "string") return escapeVars ? escapeTemplateDelimiters(value) : value;
-    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-      const out = String(value);
-      return escapeVars ? escapeTemplateDelimiters(out) : out;
-    }
-    return keepUnresolved ? match : "";
-  });
-
-  const extra = [];
-  const append = appendIfMissing && typeof appendIfMissing === "object" ? appendIfMissing : null;
-  if (append) {
-    for (const [name, value] of Object.entries(append)) {
-      const placeholderName = typeof name === "string" ? name.trim() : "";
-      const content = typeof value === "string" ? value.trim() : String(value ?? "").trim();
-      if (!placeholderName || !content) continue;
-      const re = new RegExp(`\\{\\{\\s*${escapeRegExp(placeholderName)}\\s*\\}\\}`, "i");
-      if (re.test(input)) continue;
-      extra.push(content);
-    }
-  }
-
-  if (extra.length) {
-    rendered = `${rendered}\n\n${extra.join("\n\n")}`;
-  }
-
-  if (unresolved && unresolved.size) {
-    const list = Array.from(unresolved).slice(0, 20);
-    if (typeof onUnresolved === "function") {
-      try {
-        onUnresolved(list);
-      } catch {
-        // ignore
-      }
-    } else if (warnOnUnresolved) {
-      logger.warn(`[prompt-loader] Unresolved placeholders: ${list.join(", ")}${unresolved.size > list.length ? ", ..." : ""}`);
-    }
-    if (failOnUnresolved) {
-      throw new Error(
-        `[prompt-loader] Unresolved placeholders: ${list.join(", ")}${unresolved.size > list.length ? ", ..." : ""}`
-      );
-    }
-  }
-
-  return rendered;
-}
+export { renderPromptTemplate };
 
 export default {
   loadPrompt,

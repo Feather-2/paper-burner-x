@@ -25,146 +25,162 @@ import { getLimit } from "./constants/limits.js";
 /**
  * @param {any} loop
  * @param {InitMessageHandlingOptions} [options]
+ * @returns {MessageHandling}
  */
-export function initMessageHandling(
-  loop,
-  { contextConfig, tokenCounter, logger, emit, stageName, actor, maxUserInputs } = {}
-) {
-  loop._messageManager = new MessageManager({
-    contextConfig,
-    tokenCounter,
-    logger,
-    emit,
-    stageName,
-    actor,
-  });
-
-  /** @type {Deque<UserInputEntry>} */
-  loop._userInputs = new Deque();
-  loop._maxUserInputs = getLimit("MAX_USER_INPUTS", maxUserInputs);
-  loop._userInputUnsub = null;
-  loop._userInputBus = null;
-  loop._userInputEvent = "user.input";
-  loop._pauseListenerUnsub = null;
+function ensureMessageHandling(loop, options = {}) {
+  if (!loop || typeof loop !== "object") {
+    throw new Error("MessageHandling requires a loop instance");
+  }
+  if (loop._messageHandling instanceof MessageHandling) return loop._messageHandling;
+  const component = new MessageHandling(loop, options);
+  loop._messageHandling = component;
+  return component;
 }
 
-class AgentLoopMessageHandling {
-  /** @type {MessageManager} */
-  _messageManager;
+/**
+ * @param {(loop: any) => MessageHandling} ensureComponent
+ * @param {PropertyDescriptorMap} descriptors
+ * @returns {PropertyDescriptorMap}
+ */
+function createDelegatedDescriptors(ensureComponent, descriptors) {
+  /** @type {PropertyDescriptorMap} */
+  const delegated = {};
+  for (const [name, descriptor] of Object.entries(descriptors)) {
+    if (name === "constructor") continue;
+    /** @type {PropertyDescriptor} */
+    const next = {
+      configurable: true,
+      enumerable: descriptor.enumerable ?? false,
+    };
+    if (typeof descriptor.get === "function") {
+      next.get = function delegatedGetter() {
+        const component = ensureComponent(this);
+        return descriptor.get.call(component);
+      };
+    }
+    if (typeof descriptor.set === "function") {
+      next.set = function delegatedSetter(value) {
+        const component = ensureComponent(this);
+        descriptor.set.call(component, value);
+      };
+    }
+    if (typeof descriptor.value === "function") {
+      next.writable = true;
+      next.value = function delegatedMethod(...args) {
+        const component = ensureComponent(this);
+        return descriptor.value.apply(component, args);
+      };
+    }
+    delegated[name] = next;
+  }
+  return delegated;
+}
 
-  /** @type {Deque<UserInputEntry>} */
-  _userInputs;
+export class MessageHandling {
+  /**
+   * @param {any} loop
+   * @param {InitMessageHandlingOptions} [options]
+   */
+  constructor(loop, { contextConfig, tokenCounter, logger, emit, stageName, actor, maxUserInputs } = {}) {
+    this._loop = loop;
+    this._loop._messageManager = new MessageManager({
+      contextConfig,
+      tokenCounter,
+      logger,
+      emit,
+      stageName,
+      actor,
+    });
 
-  /** @type {number} */
-  _maxUserInputs;
-
-  /** @type {(() => void) | null} */
-  _userInputUnsub;
-
-  /** @type {EventBusLike | null} */
-  _userInputBus;
-
-  /** @type {string} */
-  _userInputEvent;
-
-  /** @type {(() => void) | null} */
-  _pauseListenerUnsub;
-
-  /** @type {EmitFn | null | undefined} */
-  emit;
-
-  /** @type {EventBusLike | null | undefined} */
-  eventBus;
-
-  /** @type {string} */
-  stageName;
-
-  /** @type {string} */
-  actor;
-
-  /** @type {(reason?: string) => void} */
-  pause;
+    /** @type {Deque<UserInputEntry>} */
+    this._loop._userInputs = new Deque();
+    this._loop._maxUserInputs = getLimit("MAX_USER_INPUTS", maxUserInputs);
+    this._loop._userInputUnsub = null;
+    this._loop._userInputBus = null;
+    this._loop._userInputEvent = "user.input";
+    this._loop._pauseListenerUnsub = null;
+  }
 
   // ===== Message handling (delegates to MessageManager) =====
 
   /** @returns {any[]} */
   get messages() {
-    return this._messageManager.messages;
+    return this._loop._messageManager.messages;
   }
 
   /** @returns {any} */
   get _contextConfig() {
-    return this._messageManager._contextConfig;
+    return this._loop._messageManager._contextConfig;
   }
 
   /** @param {any} value */
   set _contextConfig(value) {
-    this._messageManager._contextConfig = value;
+    this._loop._messageManager._contextConfig = value;
   }
 
   /** @returns {{ input: number, output: number, total: number }} */
   get _tokenUsage() {
-    return this._messageManager._tokenUsage;
+    return this._loop._messageManager._tokenUsage;
   }
 
   /** @returns {any[]} */
   get _compressionHistory() {
-    return this._messageManager._compressionHistory;
+    return this._loop._messageManager._compressionHistory;
   }
 
   /** @returns {Promise<void> | null} */
   get _compressionPromise() {
-    return this._messageManager._compressionPromise;
+    return this._loop._messageManager._compressionPromise;
   }
 
   /** @returns {boolean} */
   get _compressionPending() {
-    return this._messageManager._compressionPending;
+    return this._loop._messageManager._compressionPending;
   }
 
   /** @param {any} message */
   addMessage(message) {
-    return this._messageManager.addMessage(message);
+    return this._loop._messageManager.addMessage(message);
   }
 
   /** @param {any[]} messages */
   addMessages(messages) {
-    return this._messageManager.addMessages(messages);
+    return this._loop._messageManager.addMessages(messages);
   }
 
   /** @param {{ clearCompressionHistory?: boolean } | null | undefined} [options] */
   async resetMessages(options = {}) {
-    return this._messageManager.reset(options);
+    return this._loop._messageManager.reset(options);
   }
 
   /** @returns {boolean} */
   _shouldCompress() {
-    return this._messageManager._shouldCompress();
+    return this._loop._messageManager._shouldCompress();
   }
 
   /** @param {{ force?: boolean } | null | undefined} [options] */
   _scheduleCompression(options) {
-    return this._messageManager._scheduleCompression(options);
+    return this._loop._messageManager._scheduleCompression(options);
   }
 
   /** @param {{ maxRounds?: number } | null | undefined} [options] */
   async flushCompression(options) {
-    return this._messageManager.flushCompression(options);
+    return this._loop._messageManager.flushCompression(options);
   }
 
   /** @returns {Promise<void>} */
   async _compressMessages() {
-    return this._messageManager._compress();
+    return this._loop._messageManager._compress();
   }
 
   /** @returns {any} */
   getContextStatus() {
-    return this._messageManager.getStatus();
+    return this._loop._messageManager.getStatus();
   }
 
   /** @param {AnyRecord} config */
   setContextConfig(config) {
-    return this._messageManager.setContextConfig(config);
+    return this._loop._messageManager.setContextConfig(config);
   }
 
   // ===== User input handling =====
@@ -175,12 +191,13 @@ class AgentLoopMessageHandling {
    */
   _attachUserInputListener(eventBus, { eventName, signal } = {}) {
     if (!eventBus || typeof eventBus.subscribe !== "function") return;
-    const resolvedEvent = typeof eventName === "string" && eventName ? eventName : this._userInputEvent;
-    if (this._userInputBus === eventBus && this._userInputEvent === resolvedEvent) return;
-    if (typeof this._userInputUnsub === "function") this._userInputUnsub();
-    this._userInputBus = eventBus;
-    this._userInputEvent = resolvedEvent;
-    this._userInputUnsub = eventBus.subscribe(
+    const loop = this._loop;
+    const resolvedEvent = typeof eventName === "string" && eventName ? eventName : loop._userInputEvent;
+    if (loop._userInputBus === eventBus && loop._userInputEvent === resolvedEvent) return;
+    if (typeof loop._userInputUnsub === "function") loop._userInputUnsub();
+    loop._userInputBus = eventBus;
+    loop._userInputEvent = resolvedEvent;
+    loop._userInputUnsub = eventBus.subscribe(
       resolvedEvent,
       (evt) => {
         const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
@@ -196,13 +213,14 @@ class AgentLoopMessageHandling {
    */
   _attachPauseListener(eventBus, { signal } = {}) {
     if (!eventBus || typeof eventBus.subscribe !== "function") return;
-    if (this._pauseListenerUnsub) return;
-    this._pauseListenerUnsub = eventBus.subscribe(
+    const loop = this._loop;
+    if (loop._pauseListenerUnsub) return;
+    loop._pauseListenerUnsub = eventBus.subscribe(
       "user.action.pause",
       (evt) => {
         const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
         const reason = payload?.reason || payload?.message || payload;
-        this.pause(typeof reason === "string" ? reason : "user_requested");
+        loop.pause(typeof reason === "string" ? reason : "user_requested");
       },
       { ...(signal ? { signal } : {}) }
     );
@@ -210,24 +228,25 @@ class AgentLoopMessageHandling {
 
   /** @returns {void} */
   _detachEventBusListeners() {
-    if (typeof this._userInputUnsub === "function") {
+    const loop = this._loop;
+    if (typeof loop._userInputUnsub === "function") {
       try {
-        this._userInputUnsub();
+        loop._userInputUnsub();
       } catch {
         // ignore
       }
     }
-    this._userInputUnsub = null;
-    this._userInputBus = null;
+    loop._userInputUnsub = null;
+    loop._userInputBus = null;
 
-    if (typeof this._pauseListenerUnsub === "function") {
+    if (typeof loop._pauseListenerUnsub === "function") {
       try {
-        this._pauseListenerUnsub();
+        loop._pauseListenerUnsub();
       } catch {
         // ignore
       }
     }
-    this._pauseListenerUnsub = null;
+    loop._pauseListenerUnsub = null;
   }
 
   /**
@@ -235,20 +254,21 @@ class AgentLoopMessageHandling {
    * @returns {UserInputEntry}
    */
   recordUserInput(payload) {
+    const loop = this._loop;
     const entry = {
       payload,
       ts: Date.now(),
     };
-    this._userInputs.push(entry);
-    const limit = this._maxUserInputs;
+    loop._userInputs.push(entry);
+    const limit = loop._maxUserInputs;
     if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
-      while (this._userInputs.size > limit) {
-        this._userInputs.shift();
+      while (loop._userInputs.size > limit) {
+        loop._userInputs.shift();
       }
     }
-    const emit = this.emit || this.eventBus?.emit;
+    const emit = loop.emit || loop.eventBus?.emit;
     if (typeof emit === "function") {
-      emit(`${this.stageName}.user.input`, { actor: this.actor, status: "info", payload: entry });
+      emit(`${loop.stageName}.user.input`, { actor: loop.actor, status: "info", payload: entry });
     }
     return entry;
   }
@@ -258,8 +278,8 @@ class AgentLoopMessageHandling {
    * @returns {UserInputEntry[]}
    */
   consumeUserInputs({ clear = true } = {}) {
-    const items = this._userInputs.toArray();
-    if (clear) this._userInputs.clear();
+    const items = this._loop._userInputs.toArray();
+    if (clear) this._loop._userInputs.clear();
     return items;
   }
 
@@ -292,7 +312,7 @@ class AgentLoopMessageHandling {
 
   /** @returns {boolean} */
   hasPendingUserInputs() {
-    return this._userInputs && this._userInputs.size > 0;
+    return this._loop._userInputs && this._loop._userInputs.size > 0;
   }
 
   /**
@@ -327,9 +347,26 @@ class AgentLoopMessageHandling {
   }
 }
 
-/** @param {new (...args: any[]) => any} BaseAgentLoop */
+/**
+ * @deprecated Use `new MessageHandling(loop, options)` instead.
+ * @param {any} loop
+ * @param {InitMessageHandlingOptions} [options]
+ * @returns {MessageHandling}
+ */
+export function initMessageHandling(loop, options = {}) {
+  const component = new MessageHandling(loop, options);
+  loop._messageHandling = component;
+  return component;
+}
+
+/**
+ * @deprecated BaseAgentLoop now delegates explicitly; this exists for legacy callers.
+ * @param {new (...args: any[]) => any} BaseAgentLoop
+ */
 export function attachMessageHandling(BaseAgentLoop) {
-  const descriptors = Object.getOwnPropertyDescriptors(AgentLoopMessageHandling.prototype);
-  delete descriptors.constructor;
+  const descriptors = createDelegatedDescriptors(
+    (loop) => ensureMessageHandling(loop),
+    Object.getOwnPropertyDescriptors(MessageHandling.prototype)
+  );
   Object.defineProperties(BaseAgentLoop.prototype, descriptors);
 }

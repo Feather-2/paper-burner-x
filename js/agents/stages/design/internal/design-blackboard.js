@@ -1,33 +1,17 @@
 /**
- * DesignBlackboard - 设计阶段的黑板机制
+ * DesignBlackboard - 设计阶段黑板（Facade）
  *
- * 重构：支持可选 MemoryStore 集成
- * - 有 MemoryStore 时：数据同步到 L1/L2
- * - 无 MemoryStore 时：使用本地存储（向后兼容）
- * - 可选 StateEngine 集成：使用统一的状态引擎作为 SSOT（与 DeepSearch/CodeSearch 保持一致）
- *
- * 映射关系：
- * - summaries → MemoryStore.L1.stageSummaries
- * - signals → MemoryStore.L1.signals
- * - decisions → MemoryStore.recordDecision()
+ * 通过组合拆分职责：
+ * - DesignState: summaries/signals/decisions/deck
+ * - DesignCheckpoints: versions
  */
 
-import { toNonEmptyString, isPlainObject, createLogger } from "../../../shared/index.js";
+import { toNonEmptyString, isPlainObject, createLogger, DisposableBase } from "../../../shared/index.js";
 import { deepClone } from "../../../shared/utils/value-utils.js";
-import { DisposableBase } from "../../../shared/index.js";
-import {
-  L1_ADD_SIGNAL,
-  L1_ACKNOWLEDGE_SIGNAL,
-  L1_SET_DECK,
-  L2_ADD_SUMMARY,
-  L2_RECORD_DECISION,
-} from "../../../plugins/memory/index.js";
+import { DesignState } from "./design-state.js";
+import { DesignCheckpoints } from "./design-checkpoints.js";
 
 const logger = createLogger("stages/design/blackboard");
-const DESIGN_PREFIX = "design.";
-
-/** 危险 key，用于防止原型污染 */
-const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 /**
  * @typedef {object} ArchiveLike
@@ -57,11 +41,6 @@ function cloneValue(value) {
   return deepClone(value);
 }
 
-function stripDesignPrefix(value) {
-  const s = String(value || "");
-  return s.startsWith(DESIGN_PREFIX) ? s.slice(DESIGN_PREFIX.length) : s;
-}
-
 export class DesignBlackboard extends DisposableBase {
   /**
    * @param {{ runId?: string, limits?: Record<string, any>, memoryStore?: any, stateEngine?: any, archive?: ArchiveLike|null }} [options]
@@ -70,7 +49,6 @@ export class DesignBlackboard extends DisposableBase {
     super();
     this.runId = toNonEmptyString(runId) || `design_${Date.now()}`;
     this.createdAt = new Date().toISOString();
-
     this.limits = {
       summariesMax: 20,
       signalsMax: 50,
@@ -78,544 +56,207 @@ export class DesignBlackboard extends DisposableBase {
       ...limits,
     };
 
-    // 外部依赖
-    this._memoryStore = memoryStore || null;
-    this._stateEngine = stateEngine || null;
     this._archive = archive || null;
     this._lastCheckpointId = null;
     this._lastCheckpointSnapshot = null;
     this._checkpointPending = null;
-    this._stateEngineUnsubscribe = null;
+    this._currentVersion = null;
 
-    // 本地存储（当无 MemoryStore 时使用）
-    this._summaries = new Map();
-    this._signals = [];
-    this._decisions = [];
-    this._versions = [];
-    this._deck = null;
+    this._state = new DesignState({
+      limits: this.limits,
+      memoryStore,
+      stateEngine,
+    });
+    this._checkpoints = new DesignCheckpoints({ designState: this._state });
 
-    // Register cleanup for all subscriptions/resources
+    this._installLegacyAliases();
+
     this._registerDisposable(() => {
-      if (this._stateEngineUnsubscribe) {
-        try {
-          this._stateEngineUnsubscribe();
-        } catch (err) {
-          logSilentError("dispose.unsubscribe", err);
-        }
-        this._stateEngineUnsubscribe = null;
-      }
-      this._stateEngine = null;
-      this._memoryStore = null;
       this._archive = null;
       this._lastCheckpointId = null;
       this._lastCheckpointSnapshot = null;
       this._checkpointPending = null;
+      this._currentVersion = null;
 
       try {
-        this._summaries?.clear?.();
+        this._checkpoints.versions = [];
       } catch (err) {
-        logSilentError("dispose.clearSummaries", err);
+        logSilentError("dispose.clearVersions", err);
       }
-      if (Array.isArray(this._signals)) this._signals.length = 0;
-      if (Array.isArray(this._decisions)) this._decisions.length = 0;
-      if (Array.isArray(this._versions)) this._versions.length = 0;
-      this._deck = null;
+      try {
+        this._state.dispose();
+      } catch (err) {
+        logSilentError("dispose.state", err);
+      }
     });
-
-    if (stateEngine) this.bindStateEngine(stateEngine);
   }
 
+  _installLegacyAliases() {
+    const defineAlias = (name, getter, setter) => {
+      Object.defineProperty(this, name, {
+        configurable: true,
+        enumerable: false,
+        get: getter,
+        set: setter,
+      });
+    };
+
+    defineAlias("_summaries", () => this._state.summaries, (value) => {
+      this._state.summaries = value;
+    });
+    defineAlias("_signals", () => this._state.signals, (value) => {
+      this._state.signals = value;
+    });
+    defineAlias("_decisions", () => this._state.decisions, (value) => {
+      this._state.decisions = value;
+    });
+    defineAlias("_deck", () => this._state.deck, (value) => {
+      this._state.deck = value;
+    });
+    defineAlias("_versions", () => this._checkpoints.versions, (value) => {
+      this._checkpoints.versions = value;
+    });
+    defineAlias("_memoryStore", () => this._state.memoryStore, (value) => {
+      this._state.bindMemoryStore(value);
+    });
+    defineAlias("_stateEngine", () => this._state.stateEngine, (value) => {
+      this._state._stateEngine = value || null;
+    });
+    defineAlias("_stateEngineUnsubscribe", () => this._state._stateEngineUnsubscribe, (value) => {
+      this._state._stateEngineUnsubscribe = typeof value === "function" ? value : null;
+    });
+  }
+
+  // ===== Dependencies =====
+
   /**
-   * 绑定 MemoryStore
+   * @param {any} memoryStore
    */
   bindMemoryStore(memoryStore) {
     this._ensureNotDisposed();
-    this._memoryStore = memoryStore || null;
-    if (!memoryStore) return;
-
-    // 同步现有数据到 MemoryStore
-    if (this._summaries.size > 0) {
-      for (const [stage, summary] of this._summaries) {
-        this._syncSummaryToMemory(stage, summary);
-      }
-    }
-
-    if (this._signals.length > 0) {
-      for (const signal of this._signals) {
-        this._syncSignalToMemory(signal);
-      }
-    }
-
-    if (this._decisions.length > 0) {
-      for (const decision of this._decisions) {
-        this._syncDecisionToMemory(decision);
-      }
-    }
+    this._state.bindMemoryStore(memoryStore);
   }
 
   /**
-   * 绑定 StateEngine
+   * @param {any} stateEngine
    */
   bindStateEngine(stateEngine) {
     this._ensureNotDisposed();
-
-    // 立即清理旧订阅（原子操作）
-    const oldUnsubscribe = this._stateEngineUnsubscribe;
-    this._stateEngineUnsubscribe = null;
-    if (oldUnsubscribe) {
-      try {
-        oldUnsubscribe();
-      } catch (err) {
-        logSilentError("bindStateEngine.unsubscribe", err);
-      }
-    }
-
-    this._stateEngine = stateEngine || null;
-    const engine = this._stateEngine;
-    if (!engine) return;
-
-    // Seed engine from current effective values (only when engine lacks Design entries).
-    try {
-      const snap = typeof engine._getStateRef === "function" ? engine._getStateRef() : engine.getState?.();
-      const l1 = snap?.L1 || null;
-      const l2 = snap?.L2 || null;
-
-      const hasDesignSummaries = isPlainObject(l2?.stageSummaries)
-        ? Object.keys(l2.stageSummaries).some((k) => String(k).startsWith(DESIGN_PREFIX))
-        : false;
-      if (!hasDesignSummaries) {
-        const seed = this.getAllSummaries();
-        const actions = Object.entries(seed).map(([stage, summary]) => ({
-          type: L2_ADD_SUMMARY,
-          payload: { summary: { stage: `${DESIGN_PREFIX}${stage}`, summary: String(summary ?? "") } },
-        }));
-        if (actions.length > 0) {
-          if (typeof engine.dispatchBatchSync === "function") engine.dispatchBatchSync(actions);
-          else if (typeof engine.dispatchSync === "function") actions.forEach((a) => engine.dispatchSync(a));
-        }
-      }
-
-      const hasDeck = Object.prototype.hasOwnProperty.call(l1 || {}, "deck") && l1.deck != null;
-      if (!hasDeck && this._deck != null && typeof engine.dispatchSync === "function") {
-        engine.dispatchSync({ type: L1_SET_DECK, payload: { deck: cloneValue(this._deck) } });
-      }
-
-      const hasDesignSignals = Array.isArray(l1?.signals)
-        ? l1.signals.some((s) => String(s?.type || "").startsWith(DESIGN_PREFIX))
-        : false;
-      if (!hasDesignSignals && this._signals.length > 0 && typeof engine.dispatchSync === "function") {
-        for (const sig of this._signals) {
-          this._syncSignalToStateEngine(sig);
-        }
-      }
-
-      const hasDesignDecisions = Array.isArray(l2?.decisions)
-        ? l2.decisions.some((d) => String(d?.action || "").startsWith(DESIGN_PREFIX))
-        : false;
-      if (!hasDesignDecisions && this._decisions.length > 0 && typeof engine.dispatchSync === "function") {
-        for (const decision of this._decisions) {
-          this._syncDecisionToStateEngine(decision);
-        }
-      }
-    } catch (err) {
-      logSilentError("bindStateEngine.seed", err);
-    }
-
-    // 初始同步
-    this._syncFromStateEngine();
-
-    // 订阅变更（原子创建）
-    if (typeof engine.subscribe === "function") {
-      const unsub1 = engine.subscribe("L1", (_action, _prevL1, nextL1) => this._syncFromStateEngine(nextL1, null));
-      const unsub2 = engine.subscribe("L2", (_action, _prevL2, nextL2) => this._syncFromStateEngine(null, nextL2));
-
-      this._stateEngineUnsubscribe = () => {
-        try {
-          unsub1?.();
-        } catch (err) {
-          logSilentError("bindStateEngine.unsubscribeL1", err);
-        }
-        try {
-          unsub2?.();
-        } catch (err) {
-          logSilentError("bindStateEngine.unsubscribeL2", err);
-        }
-      };
-    }
-  }
-
-  _syncFromStateEngine(nextL1 = null, nextL2 = null) {
-    const engine = this._stateEngine;
-    if (!engine) return;
-
-    let l1 = nextL1;
-    let l2 = nextL2;
-
-    if (!l1 || !l2) {
-      try {
-        const snap = typeof engine._getStateRef === "function" ? engine._getStateRef() : engine.getState?.();
-        if (!l1) l1 = snap?.L1 || null;
-        if (!l2) l2 = snap?.L2 || null;
-      } catch (err) {
-        logSilentError("syncFromStateEngine.read", err);
-      }
-    }
-
-    if (l1) {
-      if (Object.prototype.hasOwnProperty.call(l1, "deck")) {
-        this._deck = cloneValue(l1.deck);
-      }
-
-      if (Array.isArray(l1.signals)) {
-        const nextSignals = [];
-        for (const s of l1.signals) {
-          const kind = String(s?.type || "");
-          if (!kind.startsWith(DESIGN_PREFIX)) continue;
-          if (s?.acknowledged === true) continue;
-
-          nextSignals.push({
-            id: toNonEmptyString(s?.id) || null,
-            type: stripDesignPrefix(kind) || "unknown",
-            payload: cloneValue(isPlainObject(s?.payload) ? s.payload : {}),
-            timestamp: typeof s?.ts === "number" ? s.ts : Date.now(),
-          });
-        }
-        this._signals = nextSignals;
-        this._pruneArray(this._signals, this.limits.signalsMax);
-      }
-    }
-
-    if (l2) {
-      if (isPlainObject(l2.stageSummaries)) {
-        const entries = Object.entries(l2.stageSummaries).filter(([k]) => String(k).startsWith(DESIGN_PREFIX));
-        this._summaries = new Map(entries.map(([k, v]) => [stripDesignPrefix(k), String(v ?? "")]));
-        this._pruneMap(this._summaries, this.limits.summariesMax);
-      }
-
-      if (Array.isArray(l2.decisions)) {
-        const nextDecisions = l2.decisions
-          .filter((d) => String(d?.action || "").startsWith(DESIGN_PREFIX))
-          .map((d) => {
-            const raw = isPlainObject(d) ? d : { action: String(d ?? "unknown") };
-            const action = stripDesignPrefix(raw.action) || "unknown";
-            return { ...cloneValue(raw), action };
-          });
-        this._decisions = nextDecisions;
-        this._pruneArray(this._decisions, this.limits.decisionsMax);
-      }
-    }
+    this._state.bindStateEngine(stateEngine);
   }
 
   // ===== Deck =====
 
   setDeck(deck) {
     this._ensureNotDisposed();
-    this._deck = deck ?? null;
-    this._syncDeckToStateEngine(this._deck);
-    return this._deck;
+    return this._state.setDeck(deck);
   }
 
   getDeck() {
-    // 优先从 StateEngine 读取
-    if (this._stateEngine) {
-      try {
-        const snap = this._stateEngine.getState?.() || this._stateEngine._getStateRef?.();
-        if (snap && snap.L1 && Object.prototype.hasOwnProperty.call(snap.L1, "deck")) {
-          return snap.L1.deck;
-        }
-      } catch (err) {
-        logSilentError("getDeck.stateEngine", err);
-      }
-    }
-    return this._deck;
+    return this._state.getDeck();
   }
 
-  // ===== L1: Summaries =====
+  // ===== Summaries =====
 
   setSummary(stage, summary) {
     this._ensureNotDisposed();
-    const s = toNonEmptyString(stage);
-    if (!s) return;
-    const text = String(summary || "");
-
-    this._summaries.set(s, text);
-    this._pruneMap(this._summaries, this.limits.summariesMax);
-
-    this._syncSummaryToMemory(s, text);
-    this._syncSummaryToStateEngine(s, text);
-  }
-
-  _syncSummaryToMemory(stage, summary) {
-    if (!this._memoryStore) return;
-
-    try {
-      // 使用 L2 stageSummary（更合适的层级）
-      if (typeof this._memoryStore.setStageSummary === "function") {
-        this._memoryStore.setStageSummary(`design.${stage}`, summary);
-      } else if (this._memoryStore.L2) {
-        if (!isPlainObject(this._memoryStore.L2.stageSummaries)) {
-          this._memoryStore.L2.stageSummaries = {};
-        }
-        this._memoryStore.L2.stageSummaries[`design.${stage}`] = summary;
-      }
-    } catch (err) {
-      logSilentError("syncSummaryToMemory", err);
-    }
+    this._state.setSummary(stage, summary);
   }
 
   getSummary(stage) {
-    const key = String(stage || "");
-
-    // 优先从 StateEngine 读取
-    if (this._stateEngine) {
-      try {
-        const snap = this._stateEngine.getState?.() || this._stateEngine._getStateRef?.();
-        const summaries = snap?.L2?.stageSummaries;
-        const fullKey = `${DESIGN_PREFIX}${key}`;
-        if (isPlainObject(summaries) && Object.prototype.hasOwnProperty.call(summaries, fullKey)) {
-          return summaries[fullKey];
-        }
-      } catch (err) {
-        logSilentError("getSummary.stateEngine", err);
-      }
-    }
-
-    // 优先从 MemoryStore 读取
-    if (this._memoryStore) {
-      try {
-        const memSummaries = this._memoryStore.L2?.stageSummaries;
-        const fullKey = `${DESIGN_PREFIX}${key}`;
-        if (isPlainObject(memSummaries) && Object.prototype.hasOwnProperty.call(memSummaries, fullKey)) {
-          return memSummaries[fullKey];
-        }
-      } catch (err) {
-        logSilentError("getSummary.memoryStore", err);
-      }
-    }
-
-    return this._summaries.get(key) || null;
+    return this._state.getSummary(stage);
   }
 
   getAllSummaries() {
-    /** @type {Record<string, string>} */
-    const out = Object.create(null);
-
-    // 合并 StateEngine 和 MemoryStore 和本地
-    if (this._stateEngine) {
-      try {
-        const snap = this._stateEngine.getState?.() || this._stateEngine._getStateRef?.();
-        const stageSummaries = snap?.L2?.stageSummaries;
-        if (isPlainObject(stageSummaries)) {
-          for (const [k, v] of Object.entries(stageSummaries)) {
-            const key = String(k).slice(DESIGN_PREFIX.length);
-            if (String(k).startsWith(DESIGN_PREFIX) && !DANGEROUS_KEYS.has(key)) {
-              out[key] = v;
-            }
-          }
-        }
-      } catch (err) {
-        logSilentError("getAllSummaries.stateEngine", err);
-      }
-    }
-
-    // 合并 MemoryStore 和本地
-    if (this._memoryStore?.L2?.stageSummaries) {
-      for (const [k, v] of Object.entries(this._memoryStore.L2.stageSummaries)) {
-        const key = String(k).slice(DESIGN_PREFIX.length);
-        if (String(k).startsWith(DESIGN_PREFIX) && !DANGEROUS_KEYS.has(key)) {
-          if (!Object.prototype.hasOwnProperty.call(out, key)) out[key] = v;
-        }
-      }
-    }
-
-    for (const [k, v] of this._summaries) {
-      if (!DANGEROUS_KEYS.has(k) && !out[k]) out[k] = v;
-    }
-
-    return out;
+    return this._state.getAllSummaries();
   }
 
   // ===== Signals =====
 
   pushSignal(type, payload = {}) {
     this._ensureNotDisposed();
-    const signal = {
-      type: toNonEmptyString(type) || "unknown",
-      payload,
-      timestamp: Date.now(),
-    };
-    this._signals.push(signal);
-    this._pruneArray(this._signals, this.limits.signalsMax);
-
-    this._syncSignalToMemory(signal);
-    this._syncSignalToStateEngine(signal);
-    return signal;
-  }
-
-  _syncSignalToMemory(signal) {
-    if (!this._memoryStore) return;
-
-    try {
-      if (typeof this._memoryStore.addSignal === "function") {
-        this._memoryStore.addSignal({
-          kind: `design.${signal.type}`,
-          message: signal.payload?.message || JSON.stringify(signal.payload),
-          ts: signal.timestamp,
-          source: "design-blackboard",
-        });
-      }
-    } catch (err) {
-      logSilentError("syncSignalToMemory", err);
-    }
+    return this._state.addSignal(type, payload);
   }
 
   popSignal() {
-    const signal = this._signals.shift() || null;
-
-    // 同步到 StateEngine（acknowledge）
-    const engine = this._stateEngine;
-    const id = toNonEmptyString(signal?.id);
-    if (engine && id && typeof engine.dispatchSync === "function") {
-      try {
-        engine.dispatchSync({ type: L1_ACKNOWLEDGE_SIGNAL, payload: { id } });
-      } catch (err) {
-        logSilentError("popSignal.ack", err);
-      }
-    }
-
-    return signal;
+    return this._state.popSignal();
   }
 
   peekSignals(count = 5) {
-    return this._signals.slice(0, count);
+    return this._state.peekSignals(count);
   }
 
   hasSignal(type) {
-    return this._signals.some((s) => s.type === type);
+    return this._state.hasSignal(type);
   }
 
   clearSignals(type) {
-    const engine = this._stateEngine;
-    const toClear = type ? this._signals.filter((s) => s.type === type) : [...this._signals];
-
-    if (type) this._signals = this._signals.filter((s) => s.type !== type);
-    else this._signals = [];
-
-    // 同步到 StateEngine（acknowledge all cleared）
-    if (engine && toClear.length > 0) {
-      const ids = toClear.map((s) => toNonEmptyString(s?.id)).filter(Boolean);
-      if (ids.length > 0) {
-        const actions = ids.map((id) => ({ type: L1_ACKNOWLEDGE_SIGNAL, payload: { id } }));
-        try {
-          if (typeof engine.dispatchBatchSync === "function") engine.dispatchBatchSync(actions);
-          else if (typeof engine.dispatchSync === "function") actions.forEach((a) => engine.dispatchSync(a));
-        } catch (err) {
-          logSilentError("clearSignals.ack", err);
-        }
-      }
-    }
+    this._state.clearSignals(type);
   }
 
   // ===== Decisions =====
 
   logDecision(action, reason, meta = {}) {
     this._ensureNotDisposed();
-    const decision = {
-      action: toNonEmptyString(action) || "unknown",
-      reason: toNonEmptyString(reason) || "",
-      ...meta,
-      timestamp: Date.now(),
-    };
-    this._decisions.push(decision);
-    this._pruneArray(this._decisions, this.limits.decisionsMax);
-
-    this._syncDecisionToMemory(decision);
-    this._syncDecisionToStateEngine(decision);
-    return decision;
-  }
-
-  _syncDecisionToMemory(decision) {
-    if (!this._memoryStore) return;
-
-    try {
-      if (typeof this._memoryStore.recordDecision === "function") {
-        this._memoryStore.recordDecision({
-          action: `design.${decision.action}`,
-          reason: decision.reason,
-          meta: decision,
-        });
-      }
-    } catch (err) {
-      logSilentError("syncDecisionToMemory", err);
-    }
+    return this._state.logDecision(action, reason, meta);
   }
 
   getRecentDecisions(count = 5) {
-    return this._decisions.slice(-count);
+    return this._state.getRecentDecisions(count);
   }
 
-  // ===== StateEngine Sync Helpers =====
+  // ===== Versions =====
 
-  _syncDeckToStateEngine(deck) {
-    const engine = this._stateEngine;
-    if (!engine || typeof engine.dispatchSync !== "function") return;
+  saveVersion(label, snapshot) {
+    return this._checkpoints.saveVersion(this._state, label, snapshot);
+  }
 
-    try {
-      engine.dispatchSync({ type: L1_SET_DECK, payload: { deck: cloneValue(deck) } });
-    } catch (err) {
-      logSilentError("syncDeckToStateEngine", err);
+  getVersion(label) {
+    return this._checkpoints.getVersion(label);
+  }
+
+  listVersions() {
+    return this._checkpoints.listVersions();
+  }
+
+  restoreVersion(versionId) {
+    const label = toNonEmptyString(versionId);
+    if (!label) return null;
+    const version = this.getVersion(label);
+    if (!version) return null;
+    this._currentVersion = version.label;
+    return this._checkpoints.restoreVersion(label, null);
+  }
+
+  // ===== Blackboard Prompt =====
+
+  buildBlackboardPrompt({ maxSignals = 5, maxDecisions = 3 } = {}) {
+    const sections = [];
+
+    const allSummaries = this.getAllSummaries();
+    const summaryLines = Object.entries(allSummaries)
+      .filter(([, value]) => value)
+      .map(([stage, summary]) => `[${stage}] ${summary}`);
+    if (summaryLines.length > 0) {
+      sections.push(`## 设计摘要\n${summaryLines.join("\n")}`);
     }
-  }
 
-  _syncSummaryToStateEngine(stage, summary) {
-    const engine = this._stateEngine;
-    if (!engine || typeof engine.dispatchSync !== "function") return;
-
-    try {
-      engine.dispatchSync({
-        type: L2_ADD_SUMMARY,
-        payload: { summary: { stage: `${DESIGN_PREFIX}${stage}`, summary: String(summary ?? "") } },
+    const pendingSignals = this._state.getSignals().slice(0, maxSignals);
+    if (pendingSignals.length > 0) {
+      const signalLines = pendingSignals.map((signal) => {
+        const msg = signal.payload?.message || signal.payload?.reason || JSON.stringify(signal.payload);
+        return `- [${signal.type}] ${msg}`;
       });
-    } catch (err) {
-      logSilentError("syncSummaryToStateEngine", err);
+      sections.push(`## 待处理信号\n${signalLines.join("\n")}`);
     }
-  }
 
-  _syncSignalToStateEngine(signal) {
-    const engine = this._stateEngine;
-    if (!engine || typeof engine.dispatchSync !== "function") return;
-
-    try {
-      const payload = isPlainObject(signal?.payload) ? signal.payload : {};
-      const message = toNonEmptyString(payload.message) || toNonEmptyString(payload.reason) || "";
-
-      engine.dispatchSync({
-        type: L1_ADD_SIGNAL,
-        payload: {
-          signal: {
-            type: `${DESIGN_PREFIX}${signal?.type || "unknown"}`,
-            message,
-            payload: cloneValue(payload),
-          },
-        },
-      });
-    } catch (err) {
-      logSilentError("syncSignalToStateEngine", err);
+    const recentDecisions = this._state.getDecisions().slice(-maxDecisions);
+    if (recentDecisions.length > 0) {
+      const decisionLines = recentDecisions.map((decision) => `- ${decision.action}${decision.reason ? `: ${decision.reason}` : ""}`);
+      sections.push(`## 最近决策\n${decisionLines.join("\n")}`);
     }
-  }
 
-  _syncDecisionToStateEngine(decision) {
-    const engine = this._stateEngine;
-    if (!engine || typeof engine.dispatchSync !== "function") return;
-
-    try {
-      engine.dispatchSync({
-        type: L2_RECORD_DECISION,
-        payload: { decision: { ...cloneValue(decision), action: `${DESIGN_PREFIX}${decision?.action || "unknown"}` } },
-      });
-    } catch (err) {
-      logSilentError("syncDecisionToStateEngine", err);
-    }
+    return sections.join("\n\n");
   }
 
   _beginCheckpointTransaction(snapshot) {
@@ -648,14 +289,11 @@ export class DesignBlackboard extends DisposableBase {
 
   /**
    * 保存当前黑板状态到 Archive（best-effort）。
-   *
-   * @returns {Promise<string|null>} checkpointId（如果 archive 返回）
+   * @returns {Promise<string|null>}
    */
   async checkpoint() {
     if (this.disposed) return null;
-
-    const archive = this._archive;
-    if (!archive) return null;
+    if (!this._archive) return null;
 
     const snapshot = this._createArchiveSnapshot();
     let txState = null;
@@ -668,21 +306,18 @@ export class DesignBlackboard extends DisposableBase {
     }
 
     try {
-      if (typeof archive.save === "function") {
-        const checkpointId = await archive.save(this.runId, {
+      if (typeof this._archive.save === "function") {
+        const checkpointId = await this._archive.save(this.runId, {
           nodeStates: snapshot,
           timestamp: new Date().toISOString(),
-          metadata: {
-            kind: "design.blackboard",
-            runId: this.runId,
-          },
+          metadata: { kind: "design.blackboard", runId: this.runId },
         });
         return this._finishCheckpointTransaction(checkpointId);
       }
 
-      if (typeof archive.set === "function") {
+      if (typeof this._archive.set === "function") {
         const key = `design.blackboard.${this.runId}`;
-        await archive.set(key, snapshot);
+        await this._archive.set(key, snapshot);
         return this._finishCheckpointTransaction(key);
       }
     } catch (err) {
@@ -704,51 +339,48 @@ export class DesignBlackboard extends DisposableBase {
         logSilentWarning("checkpoint.rollback.noop", rollbackErr);
       }
     }
-
     return null;
   }
 
   /**
    * 从 Archive 恢复状态（best-effort）。
-   *
-   * @returns {Promise<boolean>} true 表示成功恢复
+   * @returns {Promise<boolean>}
    */
   async init() {
     if (this.disposed) return false;
-    const archive = this._archive;
-    if (!archive) return false;
+    if (!this._archive) return false;
 
     /** @type {any} */
     let restored = null;
 
-    if (!restored && typeof archive.load === "function") {
+    if (!restored && typeof this._archive.load === "function") {
       try {
-        restored = await archive.load(this.runId);
+        restored = await this._archive.load(this.runId);
       } catch (err) {
         logSilentWarning("init.archive.load", err);
       }
     }
 
-    if (!restored && this._lastCheckpointId && typeof archive.restore === "function") {
+    if (!restored && this._lastCheckpointId && typeof this._archive.restore === "function") {
       try {
-        restored = await archive.restore(this._lastCheckpointId);
+        restored = await this._archive.restore(this._lastCheckpointId);
       } catch (err) {
         logSilentWarning("init.archive.restoreLast", err);
       }
     }
 
-    if (!restored && typeof archive.get === "function") {
+    if (!restored && typeof this._archive.get === "function") {
       try {
-        restored = await archive.get(`design.blackboard.${this.runId}`);
-        if (!restored) restored = await archive.get(this.runId);
+        restored = await this._archive.get(`design.blackboard.${this.runId}`);
+        if (!restored) restored = await this._archive.get(this.runId);
       } catch (err) {
         logSilentWarning("init.archive.get", err);
       }
     }
 
-    if (!restored && typeof archive.restore === "function") {
+    if (!restored && typeof this._archive.restore === "function") {
       try {
-        restored = await archive.restore(this.runId);
+        restored = await this._archive.restore(this.runId);
       } catch (err) {
         logSilentWarning("init.archive.restore", err);
       }
@@ -768,17 +400,22 @@ export class DesignBlackboard extends DisposableBase {
   }
 
   _createArchiveSnapshot() {
+    const stateJson = this._state.toJSON();
     return {
       runId: this.runId,
       createdAt: this.createdAt,
-      summaries: this.getAllSummaries(),
-      signals: cloneValue(this._signals) || [],
-      decisions: cloneValue(this._decisions) || [],
-      versions: cloneValue(this._versions) || [],
-      deck: cloneValue(this.getDeck()),
+      summaries: stateJson.summaries,
+      signals: stateJson.signals,
+      decisions: stateJson.decisions,
+      versions: cloneValue(this._checkpoints.toJSON().versions) || [],
+      deck: stateJson.deck,
     };
   }
 
+  /**
+   * @param {any} raw
+   * @returns {any}
+   */
   _extractArchiveSnapshot(raw) {
     if (!raw || typeof raw !== "object") return null;
     if (isPlainObject(raw.nodeStates)) return raw.nodeStates;
@@ -787,6 +424,9 @@ export class DesignBlackboard extends DisposableBase {
     return isPlainObject(raw) ? raw : null;
   }
 
+  /**
+   * @param {any} snapshot
+   */
   _applyArchiveSnapshot(snapshot) {
     const data = isPlainObject(snapshot) ? snapshot : {};
 
@@ -795,192 +435,58 @@ export class DesignBlackboard extends DisposableBase {
     const restoredCreatedAt = toNonEmptyString(data.createdAt);
     if (restoredCreatedAt) this.createdAt = restoredCreatedAt;
 
-    this._summaries = new Map();
-    if (isPlainObject(data.summaries)) {
-      for (const [stage, summary] of Object.entries(data.summaries)) {
-        const key = toNonEmptyString(stage);
-        if (!key || DANGEROUS_KEYS.has(key)) continue;
-        this._summaries.set(key, String(summary ?? ""));
-      }
-    }
-    this._pruneMap(this._summaries, this.limits.summariesMax);
-
-    this._signals = Array.isArray(data.signals)
-      ? data.signals
-          .map((signal) => {
-            const raw = isPlainObject(signal) ? signal : {};
-            return {
-              id: toNonEmptyString(raw.id) || null,
-              type: toNonEmptyString(raw.type) || "unknown",
-              payload: cloneValue(isPlainObject(raw.payload) ? raw.payload : {}),
-              timestamp: typeof raw.timestamp === "number" ? raw.timestamp : Date.now(),
-            };
-          })
-          .filter(Boolean)
-      : [];
-    this._pruneArray(this._signals, this.limits.signalsMax);
-
-    this._decisions = Array.isArray(data.decisions)
-      ? data.decisions
-          .map((decision) => {
-            const raw = isPlainObject(decision) ? decision : {};
-            return {
-              ...cloneValue(raw),
-              action: toNonEmptyString(raw.action) || "unknown",
-              reason: toNonEmptyString(raw.reason) || "",
-              timestamp: typeof raw.timestamp === "number" ? raw.timestamp : Date.now(),
-            };
-          })
-          .filter(Boolean)
-      : [];
-    this._pruneArray(this._decisions, this.limits.decisionsMax);
-
-    this._versions = Array.isArray(data.versions)
-      ? data.versions
-          .map((version, index) => {
-            const raw = isPlainObject(version) ? version : {};
-            return {
-              label: toNonEmptyString(raw.label) || `v${index + 1}`,
-              snapshot: cloneValue(raw.snapshot),
-              timestamp: typeof raw.timestamp === "number" ? raw.timestamp : Date.now(),
-            };
-          })
-          .filter(Boolean)
-      : [];
-
-    if (Object.prototype.hasOwnProperty.call(data, "deck")) {
-      this._deck = cloneValue(data.deck);
-    }
+    this._state.fromJSON(data);
+    this._checkpoints.fromJSON({ versions: data.versions });
 
     const metadata = isPlainObject(data.metadata) ? data.metadata : null;
     const restoredCheckpointId = toNonEmptyString(data.checkpointId) || toNonEmptyString(metadata?.checkpointId) || null;
     if (restoredCheckpointId) this._lastCheckpointId = restoredCheckpointId;
     this._lastCheckpointSnapshot = cloneValue(this._createArchiveSnapshot());
     this._checkpointPending = null;
-
-    if (this._memoryStore) {
-      try {
-        this.bindMemoryStore(this._memoryStore);
-      } catch (err) {
-        logSilentWarning("init.bindMemoryStore", err);
-      }
-    }
-    if (this._stateEngine) {
-      try {
-        this.bindStateEngine(this._stateEngine);
-      } catch (err) {
-        logSilentWarning("init.bindStateEngine", err);
-      }
-    }
-  }
-
-  // ===== Versions =====
-
-  saveVersion(label, snapshot) {
-    const version = {
-      label: toNonEmptyString(label) || `v${this._versions.length + 1}`,
-      snapshot,
-      timestamp: Date.now(),
-    };
-    this._versions.push(version);
-    return version;
-  }
-
-  getVersion(label) {
-    return this._versions.find((v) => v.label === label) || null;
-  }
-
-  listVersions() {
-    return this._versions.map((v) => ({ label: v.label, timestamp: v.timestamp }));
-  }
-
-  restoreVersion(versionId) {
-    const label = toNonEmptyString(versionId);
-    if (!label) return null;
-    const version = this.getVersion(label);
-    if (!version) return null;
-    this._currentVersion = version.label;
-    return version.snapshot ?? null;
-  }
-
-  // ===== Blackboard Prompt =====
-
-  buildBlackboardPrompt({ maxSignals = 5, maxDecisions = 3 } = {}) {
-    const sections = [];
-
-    // L1 摘要
-    const allSummaries = this.getAllSummaries();
-    const summaryLines = Object.entries(allSummaries)
-      .filter(([_, v]) => v)
-      .map(([stage, summary]) => `[${stage}] ${summary}`);
-
-    if (summaryLines.length > 0) {
-      sections.push(`## 设计摘要\n${summaryLines.join("\n")}`);
-    }
-
-    // 待处理信号
-    const pendingSignals = this._signals.slice(0, maxSignals);
-    if (pendingSignals.length > 0) {
-      const signalLines = pendingSignals.map((s) => {
-        const msg = s.payload?.message || s.payload?.reason || JSON.stringify(s.payload);
-        return `- [${s.type}] ${msg}`;
-      });
-      sections.push(`## 待处理信号\n${signalLines.join("\n")}`);
-    }
-
-    // 最近决策
-    const recentDecisions = this._decisions.slice(-maxDecisions);
-    if (recentDecisions.length > 0) {
-      const decisionLines = recentDecisions.map((d) => {
-        return `- ${d.action}${d.reason ? `: ${d.reason}` : ""}`;
-      });
-      sections.push(`## 最近决策\n${decisionLines.join("\n")}`);
-    }
-
-    return sections.join("\n\n");
-  }
-
-  // ===== Helpers =====
-
-  _pruneArray(arr, max) {
-    const cap = Number.isFinite(max) ? Math.max(0, Math.floor(max)) : 0;
-    while (arr.length > cap) arr.shift();
-  }
-
-  _pruneMap(map, max) {
-    const cap = Number.isFinite(max) ? Math.max(0, Math.floor(max)) : 0;
-    while (map.size > cap) {
-      const firstKey = map.keys().next().value;
-      map.delete(firstKey);
-    }
   }
 
   // ===== Serialization =====
 
   toJSON() {
+    const stateJson = this._state.toJSON();
     return {
       runId: this.runId,
       createdAt: this.createdAt,
-      summaries: this.getAllSummaries(),
-      signals: [...this._signals],
-      decisions: [...this._decisions],
-      versions: this._versions.map((v) => ({ label: v.label, timestamp: v.timestamp })),
+      summaries: stateJson.summaries,
+      signals: cloneValue(stateJson.signals) || [],
+      decisions: cloneValue(stateJson.decisions) || [],
+      versions: this._checkpoints.listVersions(),
     };
   }
 
-  static fromJSON(data, { memoryStore = null, archive = null } = {}) {
-    const bb = new DesignBlackboard({ runId: data?.runId, memoryStore, archive });
-    if (data?.summaries) {
-      for (const [k, v] of Object.entries(data.summaries)) {
-        bb._summaries.set(k, v);
-      }
-    }
-    if (Array.isArray(data?.signals)) {
-      bb._signals = data.signals;
-    }
-    if (Array.isArray(data?.decisions)) {
-      bb._decisions = data.decisions;
-    }
-    return bb;
+  /**
+   * 从 JSON 恢复黑板状态（实例方法）。
+   * @param {any} data
+   * @returns {DesignBlackboard}
+   */
+  fromJSON(data) {
+    const source = isPlainObject(data) ? data : {};
+    const restoredRunId = toNonEmptyString(source.runId);
+    if (restoredRunId) this.runId = restoredRunId;
+    const restoredCreatedAt = toNonEmptyString(source.createdAt);
+    if (restoredCreatedAt) this.createdAt = restoredCreatedAt;
+    this._state.fromJSON(source);
+    this._checkpoints.fromJSON({ versions: source.versions });
+    return this;
+  }
+
+  /**
+   * @param {any} data
+   * @param {{ memoryStore?: any, stateEngine?: any, archive?: ArchiveLike|null }} [options]
+   * @returns {DesignBlackboard}
+   */
+  static fromJSON(data, { memoryStore = null, stateEngine = null, archive = null } = {}) {
+    return new DesignBlackboard({
+      runId: data?.runId,
+      memoryStore,
+      stateEngine,
+      archive,
+    }).fromJSON(data);
   }
 }
+

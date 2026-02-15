@@ -187,5 +187,101 @@ export class HookRegistry {
   }
 }
 
+// ===== Stage -> HookEvent mapping =====
+
+/**
+ * MiddlewareChain Stage value -> HookEvent name mapping.
+ * Uses string literals to avoid hooks <-> middleware circular dependency.
+ * @type {Readonly<Record<string, string>>}
+ */
+const STAGE_TO_HOOK_EVENT = Object.freeze({
+  beforeAgent: HookEvent.PRE_AGENT,
+  afterAgent: HookEvent.POST_AGENT,
+  beforeTool: HookEvent.PRE_TOOL_USE,
+  afterTool: HookEvent.POST_TOOL_USE,
+  beforeModel: HookEvent.PRE_LLM_CALL,
+  afterModel: HookEvent.POST_LLM_CALL,
+});
+
+const BEFORE_STAGES = new Set(["beforeAgent", "beforeTool", "beforeModel"]);
+
+/**
+ * Convert a HookRegistry into a MiddlewareChain-compatible middleware function.
+ *
+ * Maps ctx.phase (or ctx.stage) to the corresponding HookEvent,
+ * then executes matching handler-based hooks.
+ *
+ * before stages: blocking hook handler returning { skip: true } short-circuits (next() not called).
+ * after stages: next() runs first, then handlers execute (errors logged, not blocking).
+ *
+ * Expected ctx fields:
+ * - phase / stage: lifecycle stage (Stage value, e.g. 'beforeTool')
+ * - toolName: tool name (for tool stages, supports wildcard matching)
+ * - eventBus: EventBus instance (for emit diagnostics)
+ *
+ * @param {HookRegistry} hookRegistry
+ * @returns {(ctx: object, next: () => Promise<unknown>) => Promise<unknown>}
+ */
+export function createHookMiddleware(hookRegistry) {
+  if (!(hookRegistry instanceof HookRegistry)) {
+    throw new TypeError("createHookMiddleware: argument must be a HookRegistry instance");
+  }
+
+  return async (ctx, next) => {
+    const stage = toNonEmptyString(ctx?.phase) || toNonEmptyString(ctx?.stage) || "";
+    const hookEvent = STAGE_TO_HOOK_EVENT[stage];
+
+    // No matching hook event for this stage, pass through
+    if (!hookEvent) return next();
+
+    const toolName = toNonEmptyString(ctx?.toolName) || "";
+    const isBefore = BEFORE_STAGES.has(stage);
+
+    // Tool stages filter by tool name, others list all
+    const hooks = (stage === "beforeTool" || stage === "afterTool")
+      ? hookRegistry.match(hookEvent, toolName)
+      : hookRegistry.list(hookEvent);
+
+    if (!hooks.length) return next();
+
+    if (isBefore) {
+      for (const hook of hooks) {
+        if (typeof hook.handler !== "function") continue;
+        const blocking = hook.blocking !== false;
+        try {
+          const result = await hook.handler(ctx);
+          if (result && result.skip && blocking) {
+            const reason = toNonEmptyString(result.reason) || "Hook denied";
+            ctx.eventBus?.emit?.("hook:denied", { stage, hookEvent, toolName, reason });
+            return result.value ?? { ok: false, error: reason };
+          }
+        } catch (err) {
+          ctx.eventBus?.emit?.("hook:error", {
+            stage, hookEvent, toolName,
+            error: err?.message || String(err),
+          });
+          if (blocking) throw err;
+        }
+      }
+      return next();
+    }
+
+    // after stage: run next() first, then execute handlers
+    const result = await next();
+    for (const hook of hooks) {
+      if (typeof hook.handler !== "function") continue;
+      try {
+        await hook.handler({ ...ctx, result });
+      } catch (err) {
+        ctx.eventBus?.emit?.("hook:error", {
+          stage, hookEvent, toolName,
+          error: err?.message || String(err),
+        });
+      }
+    }
+    return result;
+  };
+}
+
 export default HookRegistry;
 

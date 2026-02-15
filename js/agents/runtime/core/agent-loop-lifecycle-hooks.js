@@ -1,3 +1,6 @@
+// NOTE: Direct hook invocation is preserved for backward compatibility.
+// Preferred approach: use createHookMiddleware(hookRegistry) from hook-registry.js
+// to integrate hooks into the MiddlewareChain pipeline instead.
 import { createPreAgentHook, createPostAgentHook } from "../hooks/hook-runner.js";
 
 /**

@@ -84,6 +84,7 @@ export class AgentOrchestrator extends DisposableBase {
     this._parallelWaiters = [];
 
     this._degradationMatrix = isDegradationMatrixLike(degradationMatrix) ? degradationMatrix : null;
+    this._degradationMatrixPromise = null;
     this._lastOperationLevel = null;
 
     const globalCfg = isPlainObject(configValidation)
@@ -140,37 +141,41 @@ export class AgentOrchestrator extends DisposableBase {
     this._ensureNotDisposed();
     if (isDegradationMatrixLike(this._degradationMatrix)) return this._degradationMatrix;
 
-    const fromServices = this._services?.degradationMatrix;
-    if (isDegradationMatrixLike(fromServices)) {
-      this._degradationMatrix = fromServices;
-      return fromServices;
-    }
-
-    const container = this._services?.container;
-    if (container && typeof container.get === "function") {
-      try {
-        const resolved = await maybeAwait(
-          typeof container.tryGet === "function" ? container.tryGet(ServiceId.DEGRADATION_MATRIX) : container.get(ServiceId.DEGRADATION_MATRIX)
-        );
-        if (isDegradationMatrixLike(resolved)) {
-          this._degradationMatrix = resolved;
-          return resolved;
-        }
-      } catch (err) {
-        logger.debug("Failed to resolve degradation matrix from container", { error: err?.message });
+    this._degradationMatrixPromise ??= (async () => {
+      const fromServices = this._services?.degradationMatrix;
+      if (isDegradationMatrixLike(fromServices)) {
+        this._degradationMatrix = fromServices;
+        return fromServices;
       }
-    }
 
-    // Best-effort fallback: create an isolated matrix for this orchestrator.
-    try {
-      const { DegradationMatrix } = await import("../../plugins/resilience/degradation-matrix.js");
-      this._degradationMatrix = new DegradationMatrix({ getMemoryUsage: defaultMemoryUsageRatio });
-      return this._degradationMatrix;
-    } catch (err) {
-      logger.debug("Failed to create degradation matrix", { error: err?.message });
-      this._degradationMatrix = null;
-      return null;
-    }
+      const container = this._services?.container;
+      if (container && typeof container.get === "function") {
+        try {
+          const resolved = await maybeAwait(
+            typeof container.tryGet === "function" ? container.tryGet(ServiceId.DEGRADATION_MATRIX) : container.get(ServiceId.DEGRADATION_MATRIX)
+          );
+          if (isDegradationMatrixLike(resolved)) {
+            this._degradationMatrix = resolved;
+            return resolved;
+          }
+        } catch (err) {
+          logger.debug("Failed to resolve degradation matrix from container", { error: err?.message });
+        }
+      }
+
+      // Best-effort fallback: create an isolated matrix for this orchestrator.
+      try {
+        const { DegradationMatrix } = await import("../../plugins/resilience/degradation-matrix.js");
+        this._degradationMatrix = new DegradationMatrix({ getMemoryUsage: defaultMemoryUsageRatio });
+        return this._degradationMatrix;
+      } catch (err) {
+        logger.debug("Failed to create degradation matrix", { error: err?.message });
+        this._degradationMatrix = null;
+        return null;
+      }
+    })();
+
+    return this._degradationMatrixPromise;
   }
 
   /**

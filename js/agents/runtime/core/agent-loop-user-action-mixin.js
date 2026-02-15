@@ -1,20 +1,37 @@
 const USER_ACTION_PREFIX = "user.action";
 
 /**
- * Attach user-action and event-listener stubs to BaseAgentLoop.
- * @param {Function} BaseAgentLoop
+ * @param {any} loop
+ * @param {Record<string, any>} [options]
+ * @returns {UserActionMixin}
  */
-export function attachUserActionMixin(BaseAgentLoop) {
-  const proto = BaseAgentLoop.prototype;
+function ensureUserActionMixin(loop, options = {}) {
+  if (!loop || typeof loop !== "object") {
+    throw new Error("UserActionMixin requires a loop instance");
+  }
+  if (loop._userActionMixin instanceof UserActionMixin) return loop._userActionMixin;
+  const component = new UserActionMixin(loop, options);
+  loop._userActionMixin = component;
+  return component;
+}
+
+export class UserActionMixin {
+  /**
+   * @param {any} loop
+   * @param {Record<string, any>} [_options]
+   */
+  constructor(loop, _options = {}) {
+    this._loop = loop;
+  }
 
   /** @param {any} _eventBus @param {{ eventName?: string, signal?: AbortSignal }} [_options] */
-  proto._attachUserInputListener = proto._attachUserInputListener || function _attachUserInputListener(_eventBus, _options = {}) {};
+  _attachUserInputListener(_eventBus, _options = {}) {}
 
   /** @param {any} _eventBus @param {{ signal?: AbortSignal }} [_options] */
-  proto._attachPauseListener = proto._attachPauseListener || function _attachPauseListener(_eventBus, _options = {}) {};
+  _attachPauseListener(_eventBus, _options = {}) {}
 
   /** Detach all event bus listeners. */
-  proto._detachEventBusListeners = proto._detachEventBusListeners || function _detachEventBusListeners() {};
+  _detachEventBusListeners() {}
 
   /**
    * Wait for a user action event on the event bus.
@@ -22,8 +39,9 @@ export function attachUserActionMixin(BaseAgentLoop) {
    * @param {{ timeout?: number, eventBus?: any, signal?: AbortSignal }} [options]
    * @returns {Promise<any>}
    */
-  proto.waitForUserAction = async function waitForUserAction(actionName, { timeout = 300000, eventBus, signal } = {}) {
-    const bus = eventBus || this.eventBus;
+  async waitForUserAction(actionName, { timeout = 300000, eventBus, signal } = {}) {
+    const loop = this._loop;
+    const bus = eventBus || loop.eventBus;
     if (!bus || typeof bus.subscribe !== "function") {
       throw new Error("waitForUserAction: eventBus with subscribe() is required");
     }
@@ -59,5 +77,35 @@ export function attachUserActionMixin(BaseAgentLoop) {
         finish(null, payload);
       });
     });
+  }
+}
+
+/**
+ * @deprecated BaseAgentLoop now delegates explicitly; this exists for legacy callers.
+ * @param {Function} BaseAgentLoop
+ */
+export function attachUserActionMixin(BaseAgentLoop) {
+  const proto = BaseAgentLoop.prototype;
+
+  if (!proto._attachUserInputListener) {
+    proto._attachUserInputListener = function _attachUserInputListener(_eventBus, _options = {}) {
+      return ensureUserActionMixin(this)._attachUserInputListener(_eventBus, _options);
+    };
+  }
+
+  if (!proto._attachPauseListener) {
+    proto._attachPauseListener = function _attachPauseListener(_eventBus, _options = {}) {
+      return ensureUserActionMixin(this)._attachPauseListener(_eventBus, _options);
+    };
+  }
+
+  if (!proto._detachEventBusListeners) {
+    proto._detachEventBusListeners = function _detachEventBusListeners() {
+      return ensureUserActionMixin(this)._detachEventBusListeners();
+    };
+  }
+
+  proto.waitForUserAction = function waitForUserAction(actionName, options = {}) {
+    return ensureUserActionMixin(this).waitForUserAction(actionName, options);
   };
 }

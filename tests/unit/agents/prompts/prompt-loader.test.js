@@ -15,7 +15,7 @@ const modulePath = "../../../../js/agents/prompts/prompt-loader.js";
 const sharedPath = "../../../../js/agents/shared/index.js";
 
 let isNodeLikeValue = true;
-let lastLogger = null;
+let createdLoggers = [];
 
 const toNonEmptyStringImpl = (value) => {
   if (value === null || value === undefined) return "";
@@ -59,12 +59,13 @@ beforeEach(async () => {
   vi.resetModules();
   vi.clearAllMocks();
   isNodeLikeValue = true;
-  lastLogger = null;
+  createdLoggers = [];
 
   const shared = await import(sharedPath);
-  shared.createLogger.mockImplementation(() => {
-    lastLogger = { debug: vi.fn(), warn: vi.fn() };
-    return lastLogger;
+  shared.createLogger.mockImplementation((name) => {
+    const logger = { debug: vi.fn(), warn: vi.fn() };
+    createdLoggers.push({ name, logger });
+    return logger;
   });
   shared.isPlainObject.mockImplementation(isPlainObjectImpl);
   shared.toNonEmptyString.mockImplementation(toNonEmptyStringImpl);
@@ -337,7 +338,7 @@ describe("renderPromptTemplate", () => {
     expect(result).toContain("42");
     expect(result).toContain("false");
     expect(result).toContain(long);
-    expect(result).toContain("{\u200B{inject}\u200B}");
+    expect(result).toContain("{{inject}}");
   });
 
   it("flattens nested vars, respects depth limits, and can drop unresolved", async () => {
@@ -374,7 +375,8 @@ describe("renderPromptTemplate", () => {
     const output = renderPromptTemplate("Hi {{missing}}", { warnOnUnresolved: true });
 
     expect(output).toBe("Hi {{missing}}");
-    expect(lastLogger.warn).toHaveBeenCalledWith(expect.stringContaining("missing"));
+    const warnCalls = createdLoggers.flatMap(({ logger }) => logger.warn.mock.calls);
+    expect(warnCalls.some(([msg]) => String(msg).includes("missing"))).toBe(true);
   });
 
   it("calls onUnresolved and throws when failOnUnresolved is set", async () => {

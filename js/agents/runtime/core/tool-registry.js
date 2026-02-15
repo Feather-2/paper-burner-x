@@ -52,6 +52,10 @@ export { normalizeToolResult };
  * @property {LoggerLike | null} [logger]
  * @property {import('../../core/archive/archive-core.js').Archive | null} [archive]
  * @property {string} [runId]
+ * @property {EmitFn | null} [emit] - Injected emit function (falls back to resolveEmit at call time)
+ * @property {ToolQuotaManagerLike | null} [quotaManager] - Injected quota manager (falls back to resolveToolQuotaManager at call time)
+ * @property {"off" | "warn" | "block"} [quotaMode] - Injected quota mode (falls back to resolveToolQuotaMode at call time)
+ * @property {TraceContextLike | null} [traceContext] - Injected trace context (falls back to resolveTraceContext at call time)
  */
 
 /**
@@ -102,6 +106,7 @@ function resolveToolSchema(name, context, registry, tool) {
 }
 
 /**
+ * @deprecated Use ToolRegistryOptions.emit instead. Kept as internal fallback.
  * @param {any} context
  * @returns {EmitFn | null}
  */
@@ -120,6 +125,7 @@ function resolveEmit(context) {
 }
 
 /**
+ * @deprecated Use ToolRegistryOptions.quotaManager instead. Kept as internal fallback.
  * @param {any} context
  * @returns {ToolQuotaManagerLike | null}
  */
@@ -153,6 +159,7 @@ function resolveToolQuotaManager(context) {
 }
 
 /**
+ * @deprecated Use ToolRegistryOptions.quotaMode instead. Kept as internal fallback.
  * @param {any} context
  * @returns {"off" | "warn" | "block"}
  */
@@ -201,6 +208,9 @@ function isToolResult(value) {
   return !!value && typeof value === "object" && typeof value.ok === "boolean";
 }
 
+/**
+ * @deprecated Use ToolRegistryOptions.traceContext instead. Kept as internal fallback.
+ */
 function resolveTraceContext(context) {
   const direct = context?.traceContext;
   if (isTraceContextLike(direct)) {
@@ -249,6 +259,16 @@ export class ToolRegistry {
     this._runId = options.runId || `run_${Date.now()}`;
     /** @type {Promise<void> | null} */
     this._initPromise = null;
+
+    // DI: explicit dependency injection (fall back to resolver functions when null)
+    /** @type {EmitFn | null} */
+    this._emit = options.emit || null;
+    /** @type {ToolQuotaManagerLike | null} */
+    this._quotaManager = options.quotaManager || null;
+    /** @type {"off" | "warn" | "block"} */
+    this._quotaMode = options.quotaMode || "off";
+    /** @type {TraceContextLike | null} */
+    this._traceContext = options.traceContext || null;
 
     if (options.tools) {
       this.registerTools(options.tools);
@@ -395,7 +415,7 @@ export class ToolRegistry {
    * @returns {Promise<ToolResult>}
    */
   async callTool(name, params, context) {
-    const traceContext = resolveTraceContext(context);
+    const traceContext = this._traceContext || resolveTraceContext(context);
     if (!traceContext) {
       return await this._callTool(name, params, context);
     }
@@ -443,7 +463,7 @@ export class ToolRegistry {
     const tool = this._tools[name];
     const schema = resolveToolSchema(name, context, this, tool);
     if (schema) {
-      const emit = resolveEmit(context);
+      const emit = this._emit || resolveEmit(context);
       if (!finalParams || typeof finalParams !== "object" || Array.isArray(finalParams)) {
         const errors = ["params: expected object"];
         // P0: 统一事件命名为 tool:call:error
@@ -489,8 +509,8 @@ export class ToolRegistry {
       }
     }
 
-    const quotaManager = resolveToolQuotaManager(context);
-    const quotaMode = quotaManager ? resolveToolQuotaMode(context) : "off";
+    const quotaManager = this._quotaManager || resolveToolQuotaManager(context);
+    const quotaMode = quotaManager ? (this._quotaManager ? this._quotaMode : resolveToolQuotaMode(context)) : "off";
 
     let quotaSnapshot = null;
     if (quotaManager && quotaMode !== "off") {
@@ -498,7 +518,7 @@ export class ToolRegistry {
       quotaSnapshot = q;
       if (!q.allowed) {
         const stats = typeof quotaManager.getToolStats === "function" ? quotaManager.getToolStats(name) : null;
-        const emit = resolveEmit(context);
+        const emit = this._emit || resolveEmit(context);
         // P0: 统一事件命名为 tool:quota:exceeded
         emit?.("tool:quota:exceeded", {
           tool: name,

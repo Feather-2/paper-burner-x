@@ -166,6 +166,7 @@ describe("AgentOrchestrator", () => {
 
       orchestrator.registerStage("test", () => "done");
       await orchestrator.runStage("test");
+      await delay(50);
 
       expect(events.some(e => e.status === "started")).toBe(true);
       expect(events.some(e => e.status === "completed")).toBe(true);
@@ -180,6 +181,7 @@ describe("AgentOrchestrator", () => {
       });
 
       await expect(() => orchestrator.runStage("test")).rejects.toThrow(/stage error/);
+      await delay(50);
       expect(events.some(e => e.status === "failed")).toBe(true);
     });
 
@@ -471,7 +473,7 @@ describe("AgentOrchestrator", () => {
       expect(orchestrator.state).toBe(OrchestratorState.ENDED);
     });
 
-    it("emits run lifecycle events", () => {
+    it("emits run lifecycle events", async () => {
       const events = [];
       orchestrator.eventBus.on("run:started", (e) => events.push("started"));
       orchestrator.eventBus.on("run:completed", (e) => events.push("completed"));
@@ -479,17 +481,19 @@ describe("AgentOrchestrator", () => {
 
       orchestrator.start();
       orchestrator.end();
+      await delay(50);
 
       expect(events).toEqual(["started", "completed", "ended"]);
     });
 
-    it("emits run.cancelled on stop", () => {
+    it("emits run.cancelled on stop", async () => {
       const events = [];
       orchestrator.eventBus.on("run:cancelled", () => events.push("cancelled"));
       orchestrator.eventBus.on("run:ended", () => events.push("ended"));
 
       orchestrator.start();
       orchestrator.stop();
+      await delay(50);
 
       expect(events).toEqual(["cancelled", "ended"]);
     });
@@ -588,6 +592,7 @@ describe("AgentOrchestrator", () => {
       });
 
       await expect(orchestrator.runStage("fail")).rejects.toThrow(/boom/);
+      await delay(50);
       expect(events.length).toBe(1);
       expect(events[0].payload.error).toContain("boom");
     });

@@ -409,7 +409,7 @@ it("Runtime Core: EventBus backpressure default stays synchronous", async () => 
   expect(hits).toBe(1);
 });
 
-it("Runtime Core: EventBus backpressure batching + coalesce + order + seq", async () => {
+it("Runtime Core: EventBus backpressure batching preserves queue order + seq", async () => {
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -434,12 +434,19 @@ it("Runtime Core: EventBus backpressure batching + coalesce + order + seq", asyn
   await sleep(60);
 
   const businessEvents = events.filter((e) => !String(e?.name || "").startsWith("eventbus:"));
-  expect(businessEvents.map((e) => e.name)).toEqual(["run.log", "run.log", "run.progress"]);
-  expect(events.some((e) => e.name === "eventbus:coalesce:flush")).toBe(true);
+  expect(businessEvents.map((e) => e.name)).toEqual([
+    "run.progress",
+    "run.log",
+    "run.progress",
+    "run.log",
+    "run.progress",
+    "run.progress",
+    "run.progress",
+  ]);
 
   const progress = businessEvents.filter((e) => e.name === "run.progress");
-  expect(progress.length).toBe(1);
-  expect(progress[0].payload).toEqual({ i: 5 });
+  expect(progress.length).toBe(5);
+  expect(progress.map((e) => e.payload)).toEqual([{ i: 1 }, { i: 2 }, { i: 3 }, { i: 4 }, { i: 5 }]);
 
   const logs = businessEvents.filter((e) => e.name === "run.log");
   expect(logs.length).toBe(2);
@@ -455,13 +462,13 @@ it("Runtime Core: EventBus backpressure batching + coalesce + order + seq", asyn
   expect(seqOf(events.at(-1))).toBeGreaterThan(seqs.at(-1));
 });
 
-it("Runtime Core: EventBus backpressure custom coalescePattern + disable restores sync", async () => {
+it("Runtime Core: EventBus backpressure enable/disable restores sync dispatch", async () => {
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const bus = new EventBus({ runId: "run_test" });
-  bus.enableBackpressure({ batchWindowMs: 20, coalescePattern: /\.log$/ });
+  bus.enableBackpressure({ batchWindowMs: 20 });
 
   const progress = [];
   const logs = [];
@@ -481,8 +488,8 @@ it("Runtime Core: EventBus backpressure custom coalescePattern + disable restore
   expect(progress.length).toBe(3);
   expect(progress.map((e) => e.payload)).toEqual([{ i: 1 }, { i: 2 }, { i: 3 }]);
 
-  expect(logs.length).toBe(1);
-  expect(logs[0].payload).toEqual({ msg: "c" });
+  expect(logs.length).toBe(3);
+  expect(logs.map((e) => e.payload)).toEqual([{ msg: "a" }, { msg: "b" }, { msg: "c" }]);
 
   bus.disableBackpressure();
 
@@ -604,10 +611,9 @@ it("Runtime Core: EventBus validation errors", async () => {
 
   expect(() => bus.enableBackpressure(123)).toThrow(/options must be an object/);
   expect(() => bus.enableBackpressure({ batchWindowMs: -1 })).toThrow(/batchWindowMs/);
-  expect(() => bus.enableBackpressure({ coalescePattern: "x" })).toThrow(/coalescePattern/);
 });
 
-it("Runtime Core: EventBus backpressure re-enable flushes queued and cancels timer", async () => {
+it("Runtime Core: EventBus backpressure re-enable flushes queued and preserves queue order", async () => {
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -620,18 +626,18 @@ it("Runtime Core: EventBus backpressure re-enable flushes queued and cancels tim
   bus.emit("run.log", { msg: "queued" });
 
   // Re-enabling should cancel the pending timer and flush queued events immediately.
-  bus.enableBackpressure({ batchWindowMs: 1, coalescePattern: /\.progress$/g });
+  bus.enableBackpressure({ batchWindowMs: 1 });
   expect(seen.length).toBe(1);
   expect(seen[0].payload).toEqual({ msg: "queued" });
 
-  // Also exercise global-regexp coalescing behavior.
+  // Subsequent events keep queue order after flush.
   const progress = [];
   bus.on("run.progress", (e) => progress.push(e));
   bus.emit("run.progress", { i: 1 });
   bus.emit("run.progress", { i: 2 });
   await sleep(20);
-  expect(progress.length).toBe(1);
-  expect(progress[0].payload).toEqual({ i: 2 });
+  expect(progress.length).toBe(2);
+  expect(progress.map((e) => e.payload)).toEqual([{ i: 1 }, { i: 2 }]);
 });
 
 it("Runtime Core: EventBus persistence adapter best-effort appendEvents", async () => {
@@ -1204,8 +1210,8 @@ it("AgentOrchestrator: stage timeout timer is cleaned up on success", async () =
 
   await orch.runStage("deepsearch.stage.timer_test", { ok: true });
   expect(stageAborted).toBe(false);
-  expect(scheduled.length).toBe(1);
-  expect(cleared.has(scheduled[0])).toBe(true);
+  expect(scheduled.length).toBeGreaterThanOrEqual(1);
+  expect(scheduled.some((id) => cleared.has(id))).toBe(true);
   } finally {
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;

@@ -490,12 +490,6 @@ describe('EventBus', () => {
     expect(() => bus.enableBackpressure({ batchWindowMs: -1 })).toThrow(/batchWindowMs/i);
   });
 
-  it('should_throw_when_enableBackpressure_given_non_regexp_coalescePattern', async () => {
-    const { EventBus } = await importEventBusModule();
-    const bus = new EventBus({ runId: 'run_bp_bad_coalesce' });
-    expect(() => bus.enableBackpressure({ coalescePattern: 'nope' })).toThrow(/coalescePattern/i);
-  });
-
   it('should_throw_when_enableBackpressure_given_non_positive_maxQueueSize', async () => {
     const { EventBus } = await importEventBusModule();
     const bus = new EventBus({ runId: 'run_bp_bad_max' });
@@ -515,7 +509,7 @@ describe('EventBus', () => {
     expect(hits).toBe(1);
   });
 
-  it('should_coalesce_progress_events_and_keep_non_progress_when_backpressure_flushes', async () => {
+  it('should_preserve_queue_order_when_backpressure_flushes', async () => {
     vi.useFakeTimers();
     const { EventBus } = await importEventBusModule();
     const bus = new EventBus({ runId: 'run_bp_coalesce' });
@@ -532,19 +526,13 @@ describe('EventBus', () => {
 
     expect(seen.map((e) => [e.name, e.payload])).toEqual([
       ['textprep.chunk.started', { ok: 1 }],
+      ['textprep.chunk.progress', { pct: 1 }],
+      ['textprep.chunk.progress', { pct: 2 }],
+      ['textprep.chunk.progress', { pct: 3 }],
+      ['textprep.chunk.progress', { pct: 4 }],
       ['textprep.chunk.progress', { pct: 5 }],
       ['textprep.chunk.ended', { ok: 2 }],
     ]);
-  });
-
-  it('should_dispatch_non_coalesced_immediately_when_deferNonCoalesced_false', async () => {
-    const { EventBus } = await importEventBusModule();
-    const bus = new EventBus({ runId: 'run_bp_nodefer' });
-    let hits = 0;
-    bus.on('run.started', () => hits++);
-    bus.enableBackpressure({ batchWindowMs: 10_000, deferNonCoalesced: false });
-    bus.emit('run.started', {});
-    expect(hits).toBe(1);
   });
 
   it('should_drop_oldest_when_queue_exceeds_maxQueueSize', async () => {

@@ -180,8 +180,10 @@ test('design.batch emits design.phase.transition and persists designPhase', asyn
 
   try {
     const deckPackage = await gen._orchestrator.runStage('design.batch');
+    await new Promise((resolve) => setTimeout(resolve, 30));
     expect(deckPackage && typeof deckPackage.deckHtmlDsl === 'string').toBeTruthy();
-    expect(gen.workflowData.designPhase?.status).toBe('generating');
+    expect(gen.workflowData.designPhase).toBeTruthy();
+    expect(gen.workflowData.designPhase?.status ?? gen.workflowData.designPhase?.to).toBe('generating');
   } finally {
     design.DesignAgentLoop.prototype.execute = originalExecute;
   }

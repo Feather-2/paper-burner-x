@@ -15,122 +15,190 @@ import { StatusController } from "./status-controller.js";
  */
 
 /**
- * Initialize status mixin state on the loop instance.
  * @param {any} loop
  * @param {{ strictLoopStatus?: boolean, logger?: any, emit?: any, stageName?: string, actor?: string }} [options]
+ * @returns {StatusMixin}
  */
-export function initStatusMixin(loop, { strictLoopStatus, logger, emit, stageName, actor } = {}) {
-  loop._statusController = new StatusController({
-    status: AgentStatus.IDLE,
-    machine: null,
-    eventName: null,
-    strict: strictLoopStatus,
-    logger,
-    emit,
-    stageName,
-    actor,
-  });
+function ensureStatusMixin(loop, options = {}) {
+  if (!loop || typeof loop !== "object") {
+    throw new Error("StatusMixin requires a loop instance");
+  }
+  if (loop._statusMixin instanceof StatusMixin) return loop._statusMixin;
+  const component = new StatusMixin(loop, options);
+  loop._statusMixin = component;
+  return component;
 }
 
 /**
- * @internal Mixin class — methods are copied to BaseAgentLoop.prototype via attachStatusMixin().
+ * @param {(loop: any) => StatusMixin} ensureComponent
+ * @param {PropertyDescriptorMap} descriptors
+ * @returns {PropertyDescriptorMap}
  */
-class AgentLoopStatusMixin {
+function createDelegatedDescriptors(ensureComponent, descriptors) {
+  /** @type {PropertyDescriptorMap} */
+  const delegated = {};
+  for (const [name, descriptor] of Object.entries(descriptors)) {
+    if (name === "constructor") continue;
+    /** @type {PropertyDescriptor} */
+    const next = {
+      configurable: true,
+      enumerable: descriptor.enumerable ?? false,
+    };
+    if (typeof descriptor.get === "function") {
+      next.get = function delegatedGetter() {
+        const component = ensureComponent(this);
+        return descriptor.get.call(component);
+      };
+    }
+    if (typeof descriptor.set === "function") {
+      next.set = function delegatedSetter(value) {
+        const component = ensureComponent(this);
+        descriptor.set.call(component, value);
+      };
+    }
+    if (typeof descriptor.value === "function") {
+      next.writable = true;
+      next.value = function delegatedMethod(...args) {
+        const component = ensureComponent(this);
+        return descriptor.value.apply(component, args);
+      };
+    }
+    delegated[name] = next;
+  }
+  return delegated;
+}
+
+export class StatusMixin {
+  /**
+   * @param {any} loop
+   * @param {{ strictLoopStatus?: boolean, logger?: any, emit?: any, stageName?: string, actor?: string }} [options]
+   */
+  constructor(loop, { strictLoopStatus, logger, emit, stageName, actor } = {}) {
+    this._loop = loop;
+    this._loop._statusController = new StatusController({
+      status: AgentStatus.IDLE,
+      machine: null,
+      eventName: null,
+      strict: strictLoopStatus,
+      logger,
+      emit,
+      stageName,
+      actor,
+    });
+  }
+
   /** @returns {string} */
   get loopStatus() {
-    return this._statusController.status;
+    return this._loop._statusController.status;
   }
 
   /** @returns {string} */
   get _loopStatus() {
-    return this._statusController._loopStatus;
+    return this._loop._statusController._loopStatus;
   }
 
   /** @param {string} value */
   set _loopStatus(value) {
-    this._statusController._loopStatus = value;
+    this._loop._statusController._loopStatus = value;
   }
 
   /** @returns {boolean} */
   get isPaused() {
-    return this._statusController.isPaused;
+    return this._loop._statusController.isPaused;
   }
 
   /** @returns {boolean} */
   get _pauseRequested() {
-    return this._statusController._pauseRequested;
+    return this._loop._statusController._pauseRequested;
   }
 
   /** @param {boolean} value */
   set _pauseRequested(value) {
-    this._statusController._pauseRequested = value;
+    this._loop._statusController._pauseRequested = value;
   }
 
   /** @returns {string | null} */
   get _pauseReason() {
-    return this._statusController._pauseReason;
+    return this._loop._statusController._pauseReason;
   }
 
   /** @param {string | null} value */
   set _pauseReason(value) {
-    this._statusController._pauseReason = value;
+    this._loop._statusController._pauseReason = value;
   }
 
   /** @returns {any[]} */
   get statusHistory() {
-    return this._statusController.statusHistory;
+    return this._loop._statusController.statusHistory;
   }
 
   /** @returns {any[]} */
   get _statusHistory() {
-    return this._statusController._statusHistory;
+    return this._loop._statusController._statusHistory;
   }
 
   /** @param {{ status?: string, machine?: any, eventName?: string, strict?: boolean } | null | undefined} [options] */
   initLoopStatus({ status, machine, eventName, strict } = {}) {
-    this._statusController.init({ status, machine, eventName, strict });
+    this._loop._statusController.init({ status, machine, eventName, strict });
   }
 
   /** @param {string} [reason] */
   pause(reason = "user_requested") {
-    this._statusController.pause(reason);
-    this._abortActiveStep(reason);
+    this._loop._statusController.pause(reason);
+    this._loop._abortActiveStep(reason);
   }
 
   /** @returns {void} */
   resume() {
-    this._statusController.resume();
+    this._loop._statusController.resume();
   }
 
   /** @param {string} newStatus @param {LoopStatusTransitionMeta} [metadata] */
   _transitionLoopStatus(newStatus, metadata = {}) {
-    return this._statusController.transition(newStatus, metadata);
+    return this._loop._statusController.transition(newStatus, metadata);
   }
 
   /** @param {AbortSignal | null | undefined} signal */
   _checkPaused(signal) {
-    return this._statusController.checkPaused(signal);
+    return this._loop._statusController.checkPaused(signal);
   }
 
   /** @param {{ signal?: AbortSignal, runId?: string | null } | null | undefined} [options] */
   _createPauseError(options) {
-    return this._statusController.createPauseError(options);
+    return this._loop._statusController.createPauseError(options);
   }
 
   /** @param {any} err @param {AbortSignal | null | undefined} signal */
   _shouldPauseFromError(err, signal) {
-    return this._statusController.shouldPauseFromError(err, signal);
+    return this._loop._statusController.shouldPauseFromError(err, signal);
   }
 
   /** @param {any} err @param {AbortSignal | null | undefined} signal */
   _isAbortError(err, signal) {
-    return this._statusController._isAbortError(err, signal);
+    return this._loop._statusController._isAbortError(err, signal);
   }
 }
 
-/** @param {new (...args: any[]) => any} BaseAgentLoop */
+/**
+ * @deprecated Use `new StatusMixin(loop, options)` instead.
+ * @param {any} loop
+ * @param {{ strictLoopStatus?: boolean, logger?: any, emit?: any, stageName?: string, actor?: string }} [options]
+ * @returns {StatusMixin}
+ */
+export function initStatusMixin(loop, options = {}) {
+  const component = new StatusMixin(loop, options);
+  loop._statusMixin = component;
+  return component;
+}
+
+/**
+ * @deprecated BaseAgentLoop now delegates explicitly; this exists for legacy callers.
+ * @param {new (...args: any[]) => any} BaseAgentLoop
+ */
 export function attachStatusMixin(BaseAgentLoop) {
-  const descriptors = Object.getOwnPropertyDescriptors(AgentLoopStatusMixin.prototype);
-  delete descriptors.constructor;
+  const descriptors = createDelegatedDescriptors(
+    (loop) => ensureStatusMixin(loop),
+    Object.getOwnPropertyDescriptors(StatusMixin.prototype)
+  );
   Object.defineProperties(BaseAgentLoop.prototype, descriptors);
 }

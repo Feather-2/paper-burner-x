@@ -143,7 +143,6 @@ export class EventBus {
 
     // 背压控制
     this._backpressure = null;
-    this._backpressureGen = 0;
 
     // 持久化
     const adapter = options.persistenceAdapter ?? null;
@@ -427,14 +426,14 @@ export class EventBus {
 
   /**
    * 启用背压控制
-   * @param {{ batchWindowMs?: number, coalescePattern?: RegExp, deferNonCoalesced?: boolean, maxQueueSize?: number }} [options]
+   * @param {{ batchWindowMs?: number, maxQueueSize?: number, dropPolicy?: 'oldest' | 'newest' }} [options]
    * @returns {this}
    */
   enableBackpressure(options = {}) {
     if (this._backpressure?.enabled) {
       this.disableBackpressure();
     }
-    this._backpressure = createBackpressureState(options, ++this._backpressureGen);
+    this._backpressure = createBackpressureState(options);
 
     return this;
   }
@@ -699,14 +698,9 @@ export class EventBus {
     const bp = this._backpressure;
     if (!bp) return;
 
-    const mode = enqueueBackpressureEvent(bp, evt);
-    if (mode === 'dispatch') {
-      this._dispatch(evt);
-      return;
-    }
+    enqueueBackpressureEvent(bp, evt);
 
-    // P1: Emit backpressure drop event if events were dropped
-    if (bp.dropCount && bp.dropCount > 0) {
+    if (bp.dropCount > 0) {
       const dropCount = bp.dropCount;
       bp.dropCount = 0;
       try {
@@ -732,13 +726,12 @@ export class EventBus {
     if (!bp?.enabled || bp.scheduled) return;
 
     bp.scheduled = true;
-    const gen = bp.generation;
+    const ref = bp;
 
     const flush = () => {
-      const current = this._backpressure;
-      if (!current || current.generation !== gen) return;
-      current.rafId = null;
-      current.timeoutId = null;
+      if (this._backpressure !== ref) return;
+      ref.rafId = null;
+      ref.timeoutId = null;
       this._flushBackpressure();
     };
 
@@ -756,22 +749,6 @@ export class EventBus {
     const bp = this._backpressure;
     if (!bp) return;
     flushBackpressureQueue(bp, (queuedEvent) => this._dispatch(queuedEvent));
-
-    // P1: Emit coalesce flush telemetry
-    if (bp.lastCoalescedCount && bp.lastCoalescedCount > 0) {
-      const coalescedCount = bp.lastCoalescedCount;
-      bp.lastCoalescedCount = 0;
-      try {
-        this._dispatch(createEventRecord({
-          name: 'eventbus:coalesce:flush',
-          actor: 'system',
-          payload: { coalescedCount },
-          runId: this._runId,
-        }));
-      } catch (err) {
-        logger.debug("Failed to emit coalesce flush telemetry", { error: err?.message });
-      }
-    }
   }
 
   /**

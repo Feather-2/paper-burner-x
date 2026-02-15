@@ -152,6 +152,28 @@ class WorkerPool {
       }
     }
   }
+
+  /**
+   * Dispose the pool: terminate all workers, reject pending waiters, clear state.
+   * Idempotent — safe to call multiple times.
+   */
+  dispose() {
+    // Reject all pending waiters
+    while (this._waiters.length) {
+      const waiter = this._waiters.shift();
+      waiter?.reject?.(new Error("WorkerPool disposed"));
+    }
+
+    // Terminate all workers (idle + busy)
+    for (const pooled of this._all) {
+      pooled.destroyed = true;
+      pooled.busy = false;
+      try { pooled.terminate(); } catch { /* ignore */ }
+    }
+    this._all.clear();
+    this._idle.length = 0;
+    this._pendingCreates = 0;
+  }
 }
 
 class PooledWorker {
@@ -425,6 +447,20 @@ export class ToolExecutor {
         .catch(err => ({ tool: item.action || item.name, success: false, error: err.message }))
     );
     return Promise.all(promises);
+  }
+
+  /**
+   * Dispose this executor: tear down all cached WorkerPool instances.
+   * Idempotent — safe to call multiple times.
+   */
+  dispose() {
+    const pools = globalPools();
+    for (const [key, pool] of pools) {
+      if (pool && typeof pool.dispose === "function") {
+        try { pool.dispose(); } catch { /* ignore */ }
+      }
+      pools.delete(key);
+    }
   }
 
   async _authorizeToolCall(name, args, context, /** @type {{ tool?: unknown, options?: AnyRecord }} */ { tool, options } = {}) {

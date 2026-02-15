@@ -10,9 +10,8 @@ import { matchPattern } from './event-bus-utils.js';
  */
 
 export const DEFAULT_BACKPRESSURE_BATCH_WINDOW_MS = 16;
-export const DEFAULT_BACKPRESSURE_COALESCE_PATTERN = /\.progress$/;
-export const DEFAULT_BACKPRESSURE_DEFER_NON_COALESCED = true;
 export const DEFAULT_BACKPRESSURE_MAX_QUEUE_SIZE = 1000;
+export const DEFAULT_BACKPRESSURE_DROP_POLICY = 'oldest';
 
 /**
  * @param {unknown} value
@@ -143,8 +142,10 @@ export function toWaitForResult(evt) {
 }
 
 /**
- * @param {{ batchWindowMs?: number, coalescePattern?: RegExp, deferNonCoalesced?: boolean, maxQueueSize?: number }} [options]
- * @returns {{ batchWindowMs: number, coalescePattern: RegExp, deferNonCoalesced: boolean, maxQueueSize: number }}
+ * Normalize backpressure options.
+ * Legacy fields (coalescePattern, deferNonCoalesced) are silently ignored for backward compatibility.
+ * @param {{ batchWindowMs?: number, maxQueueSize?: number, dropPolicy?: 'oldest' | 'newest' }} [options]
+ * @returns {{ batchWindowMs: number, maxQueueSize: number, dropPolicy: 'oldest' | 'newest' }}
  */
 export function normalizeBackpressureOptions(options = {}) {
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
@@ -153,59 +154,47 @@ export function normalizeBackpressureOptions(options = {}) {
 
   const {
     batchWindowMs = DEFAULT_BACKPRESSURE_BATCH_WINDOW_MS,
-    coalescePattern = DEFAULT_BACKPRESSURE_COALESCE_PATTERN,
-    deferNonCoalesced = DEFAULT_BACKPRESSURE_DEFER_NON_COALESCED,
     maxQueueSize = DEFAULT_BACKPRESSURE_MAX_QUEUE_SIZE,
+    dropPolicy = DEFAULT_BACKPRESSURE_DROP_POLICY,
   } = options;
 
   if (typeof batchWindowMs !== 'number' || !Number.isFinite(batchWindowMs) || batchWindowMs < 0) {
     throw new TypeError('EventBus.enableBackpressure: batchWindowMs must be a non-negative finite number');
   }
-  if (!(coalescePattern instanceof RegExp)) {
-    throw new TypeError('EventBus.enableBackpressure: coalescePattern must be a RegExp');
-  }
   if (typeof maxQueueSize !== 'number' || !Number.isFinite(maxQueueSize) || maxQueueSize <= 0) {
     throw new TypeError('EventBus.enableBackpressure: maxQueueSize must be a positive finite number');
   }
+  if (dropPolicy !== 'oldest' && dropPolicy !== 'newest') {
+    throw new TypeError('EventBus.enableBackpressure: dropPolicy must be "oldest" or "newest"');
+  }
 
-  return {
-    batchWindowMs,
-    coalescePattern,
-    deferNonCoalesced,
-    maxQueueSize,
-  };
+  return { batchWindowMs, maxQueueSize, dropPolicy };
 }
 
 /**
- * @param {{ batchWindowMs?: number, coalescePattern?: RegExp, deferNonCoalesced?: boolean, maxQueueSize?: number }} options
- * @param {number} generation
+ * @param {Record<string, unknown>} options
  * @returns {{
  *   enabled: boolean,
  *   batchWindowMs: number,
- *   coalescePattern: RegExp,
- *   deferNonCoalesced: boolean,
  *   maxQueueSize: number,
+ *   dropPolicy: 'oldest' | 'newest',
  *   queue: any[],
- *   coalesced: Map<string, { token: number, evt: any }>,
- *   token: number,
+ *   dropCount: number,
  *   scheduled: boolean,
  *   rafId: number | null,
  *   timeoutId: ReturnType<typeof setTimeout> | null,
- *   generation: number,
  * }}
  */
-export function createBackpressureState(options, generation) {
+export function createBackpressureState(options) {
   const normalized = normalizeBackpressureOptions(options);
   return {
     enabled: true,
     ...normalized,
     queue: [],
-    coalesced: new Map(),
-    token: 0,
+    dropCount: 0,
     scheduled: false,
     rafId: null,
     timeoutId: null,
-    generation,
   };
 }
 
@@ -233,73 +222,36 @@ export function cancelBackpressureSchedule(backpressure) {
 }
 
 /**
- * @param {{
- *   queue: any[],
- *   maxQueueSize: number,
- *   coalescePattern: RegExp,
- *   coalesced: Map<string, { token: number, evt: any }>,
- *   token: number,
- *   deferNonCoalesced: boolean,
- * }} backpressure
- * @param {{ name: string }} evt
- * @returns {'queued' | 'dispatch'}
+ * @param {{ queue: any[], maxQueueSize: number, dropPolicy: 'oldest' | 'newest', dropCount: number }} backpressure
+ * @param {any} evt
+ * @returns {'queued'}
  */
 export function enqueueBackpressureEvent(backpressure, evt) {
   if (backpressure.queue.length >= backpressure.maxQueueSize) {
-    const dropped = backpressure.queue.shift();
-    // P1: Track dropped event for governance event emission
-    if (!backpressure.dropCount) backpressure.dropCount = 0;
+    if (backpressure.dropPolicy === 'newest') {
+      backpressure.dropCount++;
+      return 'queued';
+    }
+    // 'oldest': drop head
+    backpressure.queue.shift();
     backpressure.dropCount++;
-    backpressure.lastDroppedEvent = dropped;
   }
-
-  const shouldCoalesce = regexTest(backpressure.coalescePattern, evt.name);
-  if (shouldCoalesce) {
-    backpressure.coalesced.set(evt.name, { token: ++backpressure.token, evt });
-    backpressure.queue.push({ kind: 'coalesce', name: evt.name, token: backpressure.token });
-    return 'queued';
-  }
-
-  if (backpressure.deferNonCoalesced) {
-    backpressure.queue.push({ kind: 'event', evt });
-    return 'queued';
-  }
-
-  return 'dispatch';
+  backpressure.queue.push(evt);
+  return 'queued';
 }
 
 /**
- * @param {{
- *   scheduled: boolean,
- *   queue: any[],
- *   coalesced: Map<string, { token: number, evt: any }>,
- * }} backpressure
+ * @param {{ scheduled: boolean, queue: any[] }} backpressure
  * @param {(evt: any) => void} dispatch
  * @returns {void}
  */
 export function flushBackpressureQueue(backpressure, dispatch) {
   backpressure.scheduled = false;
   const queue = backpressure.queue;
-  const coalesced = backpressure.coalesced;
-  const coalescedCount = coalesced.size;
-
   backpressure.queue = [];
-  backpressure.coalesced = new Map();
 
-  for (const item of queue) {
-    if (item.kind === 'event') {
-      dispatch(item.evt);
-    } else if (item.kind === 'coalesce') {
-      const latest = coalesced.get(item.name);
-      if (latest && latest.token === item.token) {
-        dispatch(latest.evt);
-      }
-    }
-  }
-
-  // P1: Store coalesce stats for governance event
-  if (coalescedCount > 0) {
-    backpressure.lastCoalescedCount = coalescedCount;
+  for (const evt of queue) {
+    dispatch(evt);
   }
 }
 

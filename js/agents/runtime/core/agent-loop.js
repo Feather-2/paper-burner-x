@@ -1,17 +1,16 @@
 import { createStageApi } from "../../shared/index.js";
 import { checkCancelled, mergeSignals } from "../../shared/index.js";
 import { StagePausedError } from "./stage-errors.js";
-import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "./loop-runtime-state.js";
 import { estimateTokensCached } from "../../shared/index.js";
 import { getGlobalTokenCounter } from "../../shared/index.js";
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
-import { initMessageHandling, attachMessageHandling } from "./agent-loop-message-handling.js";
-import { initToolDispatch, attachToolDispatch } from "./agent-loop-tool-dispatch.js";
-import { initStatusMixin, attachStatusMixin } from "./agent-loop-status-mixin.js";
-import { initStepMixin, attachStepMixin } from "./agent-loop-step-mixin.js";
-import { attachPhaseMixin } from "./agent-loop-phase-mixin.js";
-import { attachUserActionMixin } from "./agent-loop-user-action-mixin.js";
+import { MessageHandling } from "./agent-loop-message-handling.js";
+import { ToolDispatch } from "./agent-loop-tool-dispatch.js";
+import { StatusMixin } from "./agent-loop-status-mixin.js";
+import { StepMixin } from "./agent-loop-step-mixin.js";
+import { PhaseMixin } from "./agent-loop-phase-mixin.js";
+import { UserActionMixin } from "./agent-loop-user-action-mixin.js";
 import { runWithAgentLifecycleHooks } from "./agent-loop-lifecycle-hooks.js";
 
 /**
@@ -295,7 +294,7 @@ export class BaseAgentLoop {
     this.stageName = stageName || actor || "agent";
     this.emit = typeof emit === "function" ? emit : null;
 
-    initMessageHandling(this, {
+    this._messageHandling = new MessageHandling(this, {
       contextConfig,
       tokenCounter,
       logger,
@@ -305,9 +304,9 @@ export class BaseAgentLoop {
       maxUserInputs,
     });
 
-    initToolDispatch(this, { tools, hooks, logger });
+    this._toolDispatch = new ToolDispatch(this, { tools, hooks, logger });
 
-    initStatusMixin(this, {
+    this._statusMixin = new StatusMixin(this, {
       strictLoopStatus,
       logger,
       emit: this.emit,
@@ -315,7 +314,9 @@ export class BaseAgentLoop {
       actor: this.actor,
     });
 
-    initStepMixin(this);
+    this._stepMixin = new StepMixin(this);
+    this._phaseMixin = new PhaseMixin(this);
+    this._userActionMixin = new UserActionMixin(this);
     this._executeAbortController = null;
   }
 
@@ -387,11 +388,340 @@ export class BaseAgentLoop {
     }
   }
 
-}
+  // ===== MessageHandling delegates =====
 
-attachMessageHandling(BaseAgentLoop);
-attachToolDispatch(BaseAgentLoop);
-attachStatusMixin(BaseAgentLoop);
-attachStepMixin(BaseAgentLoop);
-attachPhaseMixin(BaseAgentLoop);
-attachUserActionMixin(BaseAgentLoop);
+  /** @returns {any[]} */
+  get messages() {
+    return this._messageHandling.messages;
+  }
+
+  /** @returns {any} */
+  get _contextConfig() {
+    return this._messageHandling._contextConfig;
+  }
+
+  /** @param {any} value */
+  set _contextConfig(value) {
+    this._messageHandling._contextConfig = value;
+  }
+
+  /** @returns {{ input: number, output: number, total: number }} */
+  get _tokenUsage() {
+    return this._messageHandling._tokenUsage;
+  }
+
+  /** @returns {any[]} */
+  get _compressionHistory() {
+    return this._messageHandling._compressionHistory;
+  }
+
+  /** @returns {Promise<void> | null} */
+  get _compressionPromise() {
+    return this._messageHandling._compressionPromise;
+  }
+
+  /** @returns {boolean} */
+  get _compressionPending() {
+    return this._messageHandling._compressionPending;
+  }
+
+  /** @param {any} message */
+  addMessage(message) {
+    return this._messageHandling.addMessage(message);
+  }
+
+  /** @param {any[]} messages */
+  addMessages(messages) {
+    return this._messageHandling.addMessages(messages);
+  }
+
+  /** @param {{ clearCompressionHistory?: boolean } | null | undefined} [options] */
+  async resetMessages(options = {}) {
+    return this._messageHandling.resetMessages(options);
+  }
+
+  /** @returns {boolean} */
+  _shouldCompress() {
+    return this._messageHandling._shouldCompress();
+  }
+
+  /** @param {{ force?: boolean } | null | undefined} [options] */
+  _scheduleCompression(options) {
+    return this._messageHandling._scheduleCompression(options);
+  }
+
+  /** @param {{ maxRounds?: number } | null | undefined} [options] */
+  async flushCompression(options) {
+    return this._messageHandling.flushCompression(options);
+  }
+
+  /** @returns {Promise<void>} */
+  async _compressMessages() {
+    return this._messageHandling._compressMessages();
+  }
+
+  /** @returns {any} */
+  getContextStatus() {
+    return this._messageHandling.getContextStatus();
+  }
+
+  /** @param {AnyRecord} config */
+  setContextConfig(config) {
+    return this._messageHandling.setContextConfig(config);
+  }
+
+  /**
+   * @param {EventBusLike} eventBus
+   * @param {AttachListenerOptions} [options]
+   */
+  _attachUserInputListener(eventBus, options = {}) {
+    return this._messageHandling._attachUserInputListener(eventBus, options);
+  }
+
+  /**
+   * @param {EventBusLike} eventBus
+   * @param {{ signal?: AbortSignal }} [options]
+   */
+  _attachPauseListener(eventBus, options = {}) {
+    return this._messageHandling._attachPauseListener(eventBus, options);
+  }
+
+  /** @returns {void} */
+  _detachEventBusListeners() {
+    return this._messageHandling._detachEventBusListeners();
+  }
+
+  /**
+   * @param {any} payload
+   * @returns {UserInputEntry}
+   */
+  recordUserInput(payload) {
+    return this._messageHandling.recordUserInput(payload);
+  }
+
+  /**
+   * @param {ConsumeUserInputsOptions} [options]
+   * @returns {UserInputEntry[]}
+   */
+  consumeUserInputs(options = {}) {
+    return this._messageHandling.consumeUserInputs(options);
+  }
+
+  /**
+   * @param {DrainUserInputsOptions} [options]
+   * @returns {{ items: UserInputEntry[], text: string }}
+   */
+  drainUserInputsAsText(options = {}) {
+    return this._messageHandling.drainUserInputsAsText(options);
+  }
+
+  /**
+   * @param {AnyRecord} userConfig
+   * @param {ApplyUserInputsOptions} [options]
+   * @returns {AnyRecord}
+   */
+  applyUserInputsToConfig(userConfig, options = {}) {
+    return this._messageHandling.applyUserInputsToConfig(userConfig, options);
+  }
+
+  /** @returns {boolean} */
+  hasPendingUserInputs() {
+    return this._messageHandling.hasPendingUserInputs();
+  }
+
+  /**
+   * @param {Array<UserInputEntry | any>} items
+   * @returns {string}
+   */
+  formatUserInputs(items) {
+    return this._messageHandling.formatUserInputs(items);
+  }
+
+  // ===== ToolDispatch delegates =====
+
+  /** @param {any} tools */
+  registerTools(tools) {
+    return this._toolDispatch.registerTools(tools);
+  }
+
+  /** @param {string} name @param {Function} fn */
+  registerTool(name, fn) {
+    return this._toolDispatch.registerTool(name, fn);
+  }
+
+  /** @param {"before"|"after"} phase @param {(ctx: any) => any} fn @returns {this} */
+  useHook(phase, fn) {
+    this._toolDispatch.useHook(phase, fn);
+    return this;
+  }
+
+  /** @param {string} name @param {any} params @param {any} context @returns {Promise<ToolResult>} */
+  async _callTool(name, params, context) {
+    return this._toolDispatch._callTool(name, params, context);
+  }
+
+  // ===== StatusMixin delegates =====
+
+  /** @returns {string} */
+  get loopStatus() {
+    return this._statusMixin.loopStatus;
+  }
+
+  /** @returns {string} */
+  get _loopStatus() {
+    return this._statusMixin._loopStatus;
+  }
+
+  /** @param {string} value */
+  set _loopStatus(value) {
+    this._statusMixin._loopStatus = value;
+  }
+
+  /** @returns {boolean} */
+  get isPaused() {
+    return this._statusMixin.isPaused;
+  }
+
+  /** @returns {boolean} */
+  get _pauseRequested() {
+    return this._statusMixin._pauseRequested;
+  }
+
+  /** @param {boolean} value */
+  set _pauseRequested(value) {
+    this._statusMixin._pauseRequested = value;
+  }
+
+  /** @returns {string | null} */
+  get _pauseReason() {
+    return this._statusMixin._pauseReason;
+  }
+
+  /** @param {string | null} value */
+  set _pauseReason(value) {
+    this._statusMixin._pauseReason = value;
+  }
+
+  /** @returns {any[]} */
+  get statusHistory() {
+    return this._statusMixin.statusHistory;
+  }
+
+  /** @returns {any[]} */
+  get _statusHistory() {
+    return this._statusMixin._statusHistory;
+  }
+
+  /** @param {{ status?: string, machine?: any, eventName?: string, strict?: boolean } | null | undefined} [options] */
+  initLoopStatus(options = {}) {
+    this._statusMixin.initLoopStatus(options);
+  }
+
+  /** @param {string} [reason] */
+  pause(reason = "user_requested") {
+    this._statusMixin.pause(reason);
+  }
+
+  /** @returns {void} */
+  resume() {
+    this._statusMixin.resume();
+  }
+
+  /** @param {string} newStatus @param {LoopStatusTransitionMeta} [metadata] */
+  _transitionLoopStatus(newStatus, metadata = {}) {
+    return this._statusMixin._transitionLoopStatus(newStatus, metadata);
+  }
+
+  /** @param {AbortSignal | null | undefined} signal */
+  _checkPaused(signal) {
+    return this._statusMixin._checkPaused(signal);
+  }
+
+  /** @param {{ signal?: AbortSignal, runId?: string | null } | null | undefined} [options] */
+  _createPauseError(options) {
+    return this._statusMixin._createPauseError(options);
+  }
+
+  /** @param {any} err @param {AbortSignal | null | undefined} signal */
+  _shouldPauseFromError(err, signal) {
+    return this._statusMixin._shouldPauseFromError(err, signal);
+  }
+
+  /** @param {any} err @param {AbortSignal | null | undefined} signal */
+  _isAbortError(err, signal) {
+    return this._statusMixin._isAbortError(err, signal);
+  }
+
+  // ===== StepMixin delegates =====
+
+  /**
+   * @param {StepMeta} [stepMeta]
+   * @param {AnyRecord} [context]
+   * @returns {{ step: StepInfo, context: AnyRecord }}
+   */
+  _beginStep(stepMeta = {}, context = {}) {
+    return this._stepMixin._beginStep(stepMeta, context);
+  }
+
+  /**
+   * @param {{ step?: StepInfo } | null | undefined} stepInfo
+   * @param {EndStepOptions} [options]
+   */
+  _endStep(stepInfo, options = {}) {
+    this._stepMixin._endStep(stepInfo, options);
+  }
+
+  /**
+   * @param {string} status
+   * @param {AnyRecord} payload
+   */
+  _emitStepEvent(status, payload) {
+    this._stepMixin._emitStepEvent(status, payload);
+  }
+
+  /** @param {string | null | undefined} reason */
+  _abortActiveStep(reason) {
+    this._stepMixin._abortActiveStep(reason);
+  }
+
+  /**
+   * @param {AbortSignal | null | undefined} parentSignal
+   * @returns {{ signal: AbortSignal, controller: AbortController }}
+   */
+  _createStepSignal(parentSignal) {
+    return this._stepMixin._createStepSignal(parentSignal);
+  }
+
+  // ===== PhaseMixin delegates =====
+
+  /**
+   * @param {string} serviceId
+   * @param {any} context
+   * @param {any} fallback
+   * @returns {Promise<any>}
+   */
+  _resolveDependency(serviceId, context, fallback) {
+    return this._phaseMixin._resolveDependency(serviceId, context, fallback);
+  }
+
+  /**
+   * @param {any} state
+   * @param {string} next
+   * @param {TransitionPhaseOptions} [options]
+   * @returns {string}
+   */
+  _transitionPhase(state, next, options = {}) {
+    return this._phaseMixin._transitionPhase(state, next, options);
+  }
+
+  // ===== UserActionMixin delegates =====
+
+  /**
+   * @param {string} actionName
+   * @param {WaitForUserActionOptions} [options]
+   * @returns {Promise<any>}
+   */
+  waitForUserAction(actionName, options = {}) {
+    return this._userActionMixin.waitForUserAction(actionName, options);
+  }
+}

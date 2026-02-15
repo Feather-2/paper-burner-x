@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert';
 import { computeErrorFingerprint, normalizeMessage, extractTopFrames } from '../error-fingerprint.js';
 import { classifyError, ErrorTaxonomy } from '../error-taxonomy.js';

@@ -26,11 +26,67 @@ export function isAllowedLoopStatusTransition(from, to, meta = {}) {
 }
 
 /**
- * Attach phase transition and DI resolution methods to BaseAgentLoop.
- * @param {Function} BaseAgentLoop
+ * @param {any} loop
+ * @param {Record<string, any>} [options]
+ * @returns {PhaseMixin}
  */
-export function attachPhaseMixin(BaseAgentLoop) {
-  const proto = BaseAgentLoop.prototype;
+function ensurePhaseMixin(loop, options = {}) {
+  if (!loop || typeof loop !== "object") {
+    throw new Error("PhaseMixin requires a loop instance");
+  }
+  if (loop._phaseMixin instanceof PhaseMixin) return loop._phaseMixin;
+  const component = new PhaseMixin(loop, options);
+  loop._phaseMixin = component;
+  return component;
+}
+
+/**
+ * @param {(loop: any) => PhaseMixin} ensureComponent
+ * @param {PropertyDescriptorMap} descriptors
+ * @returns {PropertyDescriptorMap}
+ */
+function createDelegatedDescriptors(ensureComponent, descriptors) {
+  /** @type {PropertyDescriptorMap} */
+  const delegated = {};
+  for (const [name, descriptor] of Object.entries(descriptors)) {
+    if (name === "constructor") continue;
+    /** @type {PropertyDescriptor} */
+    const next = {
+      configurable: true,
+      enumerable: descriptor.enumerable ?? false,
+    };
+    if (typeof descriptor.get === "function") {
+      next.get = function delegatedGetter() {
+        const component = ensureComponent(this);
+        return descriptor.get.call(component);
+      };
+    }
+    if (typeof descriptor.set === "function") {
+      next.set = function delegatedSetter(value) {
+        const component = ensureComponent(this);
+        descriptor.set.call(component, value);
+      };
+    }
+    if (typeof descriptor.value === "function") {
+      next.writable = true;
+      next.value = function delegatedMethod(...args) {
+        const component = ensureComponent(this);
+        return descriptor.value.apply(component, args);
+      };
+    }
+    delegated[name] = next;
+  }
+  return delegated;
+}
+
+export class PhaseMixin {
+  /**
+   * @param {any} loop
+   * @param {Record<string, any>} [_options]
+   */
+  constructor(loop, _options = {}) {
+    this._loop = loop;
+  }
 
   /**
    * Resolve a dependency: DI container first, then context property, then fallback.
@@ -39,7 +95,7 @@ export function attachPhaseMixin(BaseAgentLoop) {
    * @param {any} fallback
    * @returns {Promise<any>}
    */
-  proto._resolveDependency = async function _resolveDependency(serviceId, context, fallback) {
+  async _resolveDependency(serviceId, context, fallback) {
     const container = context?.container;
     if (container && typeof container.tryGet === "function") {
       const fromContainer = await container.tryGet(serviceId);
@@ -50,7 +106,7 @@ export function attachPhaseMixin(BaseAgentLoop) {
       if (fromContext !== undefined) return fromContext;
     }
     return fallback;
-  };
+  }
 
   /**
    * Transition phase state and emit event.
@@ -59,11 +115,12 @@ export function attachPhaseMixin(BaseAgentLoop) {
    * @param {{ emit?: Function, runId?: string|null, payload?: any, eventName?: string|null }} [options]
    * @returns {string}
    */
-  proto._transitionPhase = function _transitionPhase(state, next, { emit, runId, payload, eventName } = {}) {
+  _transitionPhase(state, next, { emit, runId, payload, eventName } = {}) {
+    const loop = this._loop;
     const from = state?.status ?? state?.state;
     let ok = true;
-    if (this.stateMachine && typeof this.stateMachine.transition === "function") {
-      ok = this.stateMachine.transition(state, next, { runId, from, to: next, ...payload });
+    if (loop.stateMachine && typeof loop.stateMachine.transition === "function") {
+      ok = loop.stateMachine.transition(state, next, { runId, from, to: next, ...payload });
     } else if (state && typeof state === "object") {
       if ("status" in state) state.status = next;
       else if ("state" in state) state.state = next;
@@ -71,18 +128,30 @@ export function attachPhaseMixin(BaseAgentLoop) {
     }
 
     if (!ok) {
-      throw new Error(`${this.stageName} phase transition rejected: ${from} -> ${next}`);
+      throw new Error(`${loop.stageName} phase transition rejected: ${from} -> ${next}`);
     }
 
-    const emitFn = emit || this.emit || this.eventBus?.emit;
+    const emitFn = emit || loop.emit || loop.eventBus?.emit;
     if (typeof emitFn === "function") {
-      emitFn(eventName || `${this.stageName}.phase.transition`, {
-        actor: this.actor,
+      emitFn(eventName || `${loop.stageName}.phase.transition`, {
+        actor: loop.actor,
         status: "progress",
         payload: { runId, from, to: next, ...payload },
       });
     }
 
     return next;
-  };
+  }
+}
+
+/**
+ * @deprecated BaseAgentLoop now delegates explicitly; this exists for legacy callers.
+ * @param {Function} BaseAgentLoop
+ */
+export function attachPhaseMixin(BaseAgentLoop) {
+  const descriptors = createDelegatedDescriptors(
+    (loop) => ensurePhaseMixin(loop),
+    Object.getOwnPropertyDescriptors(PhaseMixin.prototype)
+  );
+  Object.defineProperties(BaseAgentLoop.prototype, descriptors);
 }
