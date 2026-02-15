@@ -223,6 +223,116 @@ describe("executeWithOverflowRecovery", () => {
     });
   });
 
+  it("resumes from archived in-progress retry state", async () => {
+    let snapshot = {
+      nodeStates: {
+        overflowRecovery: {
+          version: 1,
+          inProgress: true,
+          attempt: 1,
+          currentMaxTokens: 333,
+          updatedAt: Date.now(),
+        },
+      },
+    };
+
+    const archive = {
+      load: vi.fn(async () => snapshot),
+      save: vi.fn(async (_runId, payload) => {
+        snapshot = payload;
+      }),
+    };
+
+    const fn = vi.fn(async (maxTokens) => maxTokens);
+    const out = await executeWithOverflowRecovery(fn, {
+      initialMaxTokens: 500,
+      maxRetries: 2,
+      archive,
+      archiveKey: "overflow:case1",
+    });
+
+    expect(out).toBe(333);
+    expect(fn.mock.calls.map((call) => call[0])).toEqual([333]);
+    expect(archive.load).toHaveBeenCalledWith("overflow:case1");
+    expect(archive.save).toHaveBeenCalled();
+    const lastCall = archive.save.mock.calls[archive.save.mock.calls.length - 1];
+    expect(lastCall[0]).toBe("overflow:case1");
+    expect(lastCall[1]).toMatchObject({
+      nodeStates: {
+        overflowRecovery: {
+          inProgress: false,
+          attempt: 0,
+          currentMaxTokens: 333,
+        },
+      },
+    });
+  });
+
+  it("persists retry state when overflow happens and clears it after success", async () => {
+    const store = new Map();
+    const archive = {
+      get: vi.fn(async (key) => store.get(key) ?? null),
+      set: vi.fn(async (key, value) => {
+        store.set(key, value);
+      }),
+      delete: vi.fn(async (key) => {
+        store.delete(key);
+      }),
+    };
+
+    const overflowErr = makeOpenAiError(1000, 1200, 900, 300);
+    const fn = vi.fn(async (maxTokens) => {
+      if (fn.mock.calls.length === 1) throw overflowErr;
+      return maxTokens;
+    });
+
+    const out = await executeWithOverflowRecovery(fn, {
+      initialMaxTokens: 600,
+      maxRetries: 1,
+      archive,
+      archiveKey: "overflow:case2",
+    });
+
+    expect(out).toBe(256);
+    expect(archive.set).toHaveBeenCalledWith(
+      "overflow:case2",
+      expect.objectContaining({
+        inProgress: true,
+        attempt: 1,
+        currentMaxTokens: 256,
+      })
+    );
+    expect(archive.delete).toHaveBeenCalledWith("overflow:case2");
+    expect(store.has("overflow:case2")).toBe(false);
+  });
+
+  it("tolerates archive read/write failures", async () => {
+    const archive = {
+      load: vi.fn(async () => {
+        throw new Error("load failed");
+      }),
+      save: vi.fn(async () => {
+        throw new Error("save failed");
+      }),
+    };
+
+    const overflowErr = makeOpenAiError(1000, 1200, 900, 300);
+    const fn = vi.fn(async (maxTokens) => {
+      if (fn.mock.calls.length === 1) throw overflowErr;
+      return maxTokens;
+    });
+
+    const out = await executeWithOverflowRecovery(fn, {
+      initialMaxTokens: 500,
+      maxRetries: 1,
+      archive,
+      archiveKey: "overflow:case3",
+    });
+
+    expect(out).toBe(256);
+    expect(fn.mock.calls.map((call) => call[0])).toEqual([500, 256]);
+  });
+
   it("ensures progress when computed nextMaxTokens would not reduce", async () => {
     const overflowErr = new Error("maximum context length is 8192 tokens");
 

@@ -150,6 +150,30 @@ describe("CircuitBreaker", () => {
     expect(breaker.state).toBe(CircuitState.HALF_OPEN);
   });
 
+  it("ignores stale timeout transition when state changes during check", () => {
+    const b = new CircuitBreaker({
+      openDurationMs: 1,
+      time: mockTime,
+    });
+
+    b.trip("manual");
+    now = 10;
+
+    let openedAt = b._openedAt;
+    Object.defineProperty(b, "_openedAt", {
+      configurable: true,
+      get() {
+        b._state = CircuitState.CLOSED;
+        return openedAt;
+      },
+      set(value) {
+        openedAt = value;
+      },
+    });
+
+    expect(b.state).toBe(CircuitState.CLOSED);
+  });
+
   it("trip opens and records openedAt with reason", () => {
     const events = [];
     const b = new CircuitBreaker({

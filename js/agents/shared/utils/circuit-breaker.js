@@ -193,14 +193,19 @@ export class CircuitBreaker {
   // --- 内部方法 ---
 
   _checkStateTransition() {
-    const now = this._time.now();
+    if (this._state !== CircuitState.OPEN) return;
 
-    if (this._state === CircuitState.OPEN) {
-      const elapsed = now - this._openedAt;
-      if (elapsed >= this.openDurationMs) {
-        this._transitionTo(CircuitState.HALF_OPEN, "timeout_elapsed");
-      }
-    }
+    const expectedState = this._state;
+    const expectedOpenedAt = this._openedAt;
+    const now = this._time.now();
+    const elapsed = now - expectedOpenedAt;
+
+    if (elapsed < this.openDurationMs) return;
+
+    this._transitionTo(CircuitState.HALF_OPEN, "timeout_elapsed", {
+      expectedState,
+      expectedOpenedAt,
+    });
   }
 
   _onSuccess() {
@@ -238,8 +243,10 @@ export class CircuitBreaker {
     }
   }
 
-  _transitionTo(newState, reason) {
+  _transitionTo(newState, reason, guard = null) {
     const prevState = this._state;
+    if (guard && guard.expectedState !== undefined && prevState !== guard.expectedState) return;
+    if (guard && guard.expectedOpenedAt !== undefined && this._openedAt !== guard.expectedOpenedAt) return;
     if (prevState === newState) return;
 
     this._state = newState;
