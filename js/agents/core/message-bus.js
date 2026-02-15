@@ -24,6 +24,7 @@ const RPC_KIND_RESPONSE = 'rpc_response';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_ABORT_MESSAGE = 'Request aborted';
 const INIT_TIMEOUT_MS = 30_000;
+const PERSIST_DEBOUNCE_MS = 500;
 
 /**
  * @typedef {{ kind: string, requestId: string, replyTo: string }} RpcRequestMeta
@@ -242,6 +243,11 @@ export class MessageBus {
     this._maxRpcHistory = 1000;
     /** @type {Promise<void> | null} */
     this._initPromise = null;
+    /** @type {boolean} */
+    this._disposed = false;
+
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    this._persistRpcTimerId = null;
   }
 
   /** @type {Map<string, Promise<any>>} */
@@ -304,6 +310,26 @@ export class MessageBus {
    * @returns {void}
    */
   dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+
+    // 清空 inflight requests Map（promise 通过 .then 自清理，这里释放 Map 引用）
+    this._inflightRequests.clear();
+
+    // Flush pending debounce timer before clearing history
+    if (this._persistRpcTimerId !== null) {
+      clearTimeout(this._persistRpcTimerId);
+      this._persistRpcTimerId = null;
+      this._flushRpc();
+    }
+
+    // 清空 RPC 历史（释放内存）
+    this._rpcHistory.length = 0;
+
+    // 释放 archive 引用
+    this._archive = null;
+
+    // 最后处理 owned EventBus
     if (this._ownsEventBus && typeof this.eventBus?.dispose === 'function') {
       try {
         this.eventBus.dispose();
@@ -321,6 +347,9 @@ export class MessageBus {
    * @returns {EventRecord}
    */
   emit(type, payload, options = {}) {
+    if (this._disposed) {
+      throw new Error('MessageBus.emit(): bus is disposed');
+    }
     const name = toNonEmptyString(type);
     if (!name || !isValidEventName(name)) {
       throw new Error('MessageBus.emit(type, payload): type must be a valid event name');
@@ -447,6 +476,9 @@ export class MessageBus {
    * @returns {Promise<T>}
    */
   request(type, payload, options = {}) {
+    if (this._disposed) {
+      return Promise.reject(new Error('MessageBus.request(): bus is disposed'));
+    }
     const name = toNonEmptyString(type);
     if (!name || !isValidEventName(name)) {
       throw new Error('MessageBus.request(type, payload): type must be a valid event name');
@@ -618,22 +650,38 @@ export class MessageBus {
    */
   _persistRpcAsync() {
     if (!this._archive || this._rpcHistory.length === 0) return;
+    if (this._persistRpcTimerId !== null) {
+      clearTimeout(this._persistRpcTimerId);
+    }
+    this._persistRpcTimerId = setTimeout(() => {
+      this._persistRpcTimerId = null;
+      this._flushRpc();
+    }, PERSIST_DEBOUNCE_MS);
+  }
 
-    queueMicrotask(() => {
-      (async () => {
-        try {
-          const checkpointId = `${this._runId}:rpc:${Date.now()}`;
-          await this._archive.save(checkpointId, {
-            schemaVersion: 1,
-            records: [...this._rpcHistory],
-            timestamp: Date.now(),
-            metadata: { runId: this._runId, recordCount: this._rpcHistory.length },
-          });
-        } catch (err) {
-          // 持久化失败不影响内存操作
-        }
-      })();
-    });
+  /**
+   * 立即执行 RPC 历史持久化写入（fire-and-forget）
+   * @private
+   * @returns {void}
+   */
+  _flushRpc() {
+    if (!this._archive || this._rpcHistory.length === 0) return;
+    const archive = this._archive;
+    const runId = this._runId;
+    const snapshot = [...this._rpcHistory];
+    (async () => {
+      try {
+        const checkpointId = `${runId}:rpc:${Date.now()}`;
+        await archive.save(checkpointId, {
+          schemaVersion: 1,
+          records: snapshot,
+          timestamp: Date.now(),
+          metadata: { runId, recordCount: snapshot.length },
+        });
+      } catch (err) {
+        // 持久化失败不影响内存操作
+      }
+    })();
   }
 }
 

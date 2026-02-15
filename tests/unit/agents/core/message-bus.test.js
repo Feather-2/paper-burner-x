@@ -621,46 +621,79 @@ describe('MessageBus', () => {
       expect(disposeSpy).not.toHaveBeenCalled();
     });
 
-    it('allows repeated dispose on owned EventBus', () => {
+    it('is idempotent - second dispose is no-op', () => {
       const bus = new MessageBus();
       const disposeSpy = vi.spyOn(bus.eventBus, 'dispose');
 
       bus.dispose();
       bus.dispose();
 
-      expect(disposeSpy).toHaveBeenCalledTimes(2);
+      expect(disposeSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('clears owned EventBus handlers on dispose', () => {
+    it('prevents emit after dispose on owned EventBus', () => {
       const bus = new MessageBus();
       const handler = vi.fn();
       bus.on('test:event', handler);
 
       bus.dispose();
-      bus.emit('test:event', { ok: true });
-
+      expect(() => bus.emit('test:event', { ok: true })).toThrow('MessageBus.emit(): bus is disposed');
       expect(handler).not.toHaveBeenCalled();
     });
 
-    it('keeps emit usable after dispose for non-owned EventBus', () => {
+    it('throws on emit after dispose', () => {
       const eventBus = new EventBus();
       const bus = new MessageBus(eventBus);
-      const handler = vi.fn();
-      bus.on('test:event', handler);
       bus.dispose();
 
-      expect(() => bus.emit('test:event', { value: 1 })).not.toThrow();
-      expect(handler).toHaveBeenCalledWith({ value: 1 }, expect.objectContaining({ type: 'test:event' }));
+      expect(() => bus.emit('test:event', { value: 1 })).toThrow('MessageBus.emit(): bus is disposed');
     });
 
-    it('keeps request usable after dispose when responder exists', async () => {
+    it('rejects request after dispose', async () => {
       const client = new MessageBus();
       const server = new MessageBus(client.eventBus);
 
       client.dispose();
       server.on('test:rpc', () => 'ok');
 
-      await expect(client.request('test:rpc', {}, { timeoutMs: 50 })).resolves.toBe('ok');
+      await expect(client.request('test:rpc', {}, { timeoutMs: 50 })).rejects.toThrow('MessageBus.request(): bus is disposed');
+    });
+
+    it('clears _inflightRequests on dispose', () => {
+      const bus = new MessageBus();
+      bus._inflightRequests.set('key1', Promise.resolve());
+      bus.dispose();
+      expect(bus._inflightRequests.size).toBe(0);
+    });
+
+    it('clears _rpcHistory on dispose', () => {
+      const bus = new MessageBus();
+      bus._rpcHistory.push({ requestId: 'r1', type: 'test', payload: null, response: null, timestamp: Date.now() });
+      bus.dispose();
+      expect(bus._rpcHistory.length).toBe(0);
+    });
+
+    it('nullifies _archive on dispose', () => {
+      const bus = new MessageBus({ archive: { list: vi.fn(), load: vi.fn(), save: vi.fn() }, runId: 'test' });
+      expect(bus._archive).not.toBeNull();
+      bus.dispose();
+      expect(bus._archive).toBeNull();
+    });
+
+    it('flushes and clears debounce timer on dispose', () => {
+      const saveFn = vi.fn().mockResolvedValue(undefined);
+      const bus = new MessageBus({ archive: { list: vi.fn(), load: vi.fn(), save: saveFn }, runId: 'test' });
+      bus._rpcHistory.push({ requestId: 'r1', type: 'test', payload: null, response: null, timestamp: Date.now() });
+      bus._persistRpcAsync();
+      expect(bus._persistRpcTimerId).not.toBeNull();
+      bus.dispose();
+      expect(bus._persistRpcTimerId).toBeNull();
+    });
+
+    it('is idempotent - double dispose does not throw', () => {
+      const bus = new MessageBus();
+      bus.dispose();
+      expect(() => bus.dispose()).not.toThrow();
     });
   });
 });
