@@ -313,7 +313,7 @@ describe("watchdogPlugin", () => {
     await ctx._services.watchdog.check();
 
     expect(ctx.log.error).toHaveBeenCalledWith("Auto-compression failed:", expect.any(Error));
-    expect(ctx.events.emit).toHaveBeenCalledWith("watchdog:threshold.exceeded", {
+    expect(ctx.events.emit).toHaveBeenCalledWith("watchdog:threshold:exceeded", {
       usage: 0.8,
       threshold: 0.5,
     });

@@ -375,14 +375,14 @@ describe('Event-driven plugins', () => {
     kernel.state.set('runtime.tokens', { input: 60, output: 0 });
     kernel.state.set('runtime.messages', [{ role: 'user', content: 'hello' }]);
 
-    const exceededPromise = kernel.events.waitFor('watchdog:threshold.exceeded', 500);
+    const exceededPromise = kernel.events.waitFor('watchdog:threshold:exceeded', 500);
     const compressionDonePromise = kernel.events.waitFor('compression:done', 500);
 
     // Event reaction: watchdog listens to runtime.tokens.* and reads global state
     kernel.events.emitSync('runtime.tokens.updated', { total: 60 });
 
     const exceeded = await exceededPromise;
-    expect(exceeded.event).toBe('watchdog:threshold.exceeded');
+    expect(exceeded.event).toBe('watchdog:threshold:exceeded');
     expect(exceeded.data.usage).toBeCloseTo(0.6);
 
     const done = await compressionDonePromise;

@@ -42,8 +42,8 @@ vi.mock('../../../../../../js/agents/shared/index.js', () => {
 vi.mock('../../../../../../js/agents/runtime/events/events.js', () => {
   return {
     CicadaEvents: {
-      LAYER_COMPLETED: "cicada.layer.completed",
-      SHED_COMPLETED: "cicada.shed.completed",
+      LAYER_COMPLETED: "cicada:layer:completed",
+      SHED_COMPLETED: "cicada:shed:completed",
     },
   };
 });
@@ -599,8 +599,8 @@ describe("CicadaCompressor", () => {
     );
 
     const emittedNames = eventBus.emit.mock.calls.map((row) => row[0]);
-    expect(emittedNames).toContain("cicada.layer.completed");
-    expect(emittedNames).toContain("cicada.shed.completed");
+    expect(emittedNames).toContain("cicada:layer:completed");
+    expect(emittedNames).toContain("cicada:shed:completed");
     expect(eventBus.emit).toHaveBeenCalledTimes(4);
   });
 

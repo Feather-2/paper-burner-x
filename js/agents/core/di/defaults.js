@@ -106,6 +106,7 @@ export function createAgentContainer(overrides = {}) {
           maxQueueSize: 10000,
         });
       } catch (error) {
+        const logger = console;
         logger.warn("Failed to enable backpressure", { error });
         const nodeEnv = typeof process?.env?.NODE_ENV === "string" ? process.env.NODE_ENV : "";
         if (nodeEnv && nodeEnv !== "production") {

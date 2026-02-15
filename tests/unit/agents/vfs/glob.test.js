@@ -7,7 +7,15 @@ const { isNodeLikeMock, normalizeVfsPathMock, isScanWorkerAvailableMock, scanOpf
   scanOpfsAsyncMock: vi.fn(async () => []),
 }));
 
-vi.mock("../../../../js/agents/shared/index.js", () => ({ isNodeLike: isNodeLikeMock }));
+vi.mock("../../../../js/agents/shared/index.js", () => ({
+  isNodeLike: isNodeLikeMock,
+  createLogger: vi.fn(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  })),
+}));
 
 vi.mock("../../../../js/agents/vfs/path.js", () => ({ normalizeVfsPath: normalizeVfsPathMock }));
 

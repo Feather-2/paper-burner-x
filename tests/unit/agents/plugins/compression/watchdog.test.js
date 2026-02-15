@@ -110,7 +110,7 @@ describe('default', () => {
     const health = ctx._services.watchdog.getHealth();
     expect(health.status).toBe('warning');
     expect(health.usage).toBeCloseTo(0.8);
-    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold.exceeded', {
+    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold:exceeded', {
       usage: 0.8,
       threshold: 0.75,
     });
@@ -192,7 +192,7 @@ describe('default', () => {
     await watchdogPlugin.install(ctx);
     await ctx._services.watchdog.check();
 
-    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold.exceeded', {
+    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold:exceeded', {
       usage: 0.8,
       threshold: 0.75,
     });
@@ -233,7 +233,7 @@ describe('default', () => {
     await watchdogPlugin.install(ctx);
     await ctx._services.watchdog.check();
 
-    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold.exceeded', {
+    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold:exceeded', {
       usage: 0.8,
       threshold: 0.75,
     });
@@ -258,7 +258,7 @@ describe('default', () => {
 
     const health = ctx._services.watchdog.getHealth();
     expect(health.usage).toBeCloseTo(0.6);
-    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold.exceeded', {
+    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold:exceeded', {
       usage: 0.6,
       threshold: '0.5',
     });
@@ -282,7 +282,7 @@ describe('default', () => {
     await ctx._services.watchdog.check();
 
     expect(ctx._watchdogInterval).toBeNull();
-    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold.exceeded', {
+    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold:exceeded', {
       usage: 0.01,
       threshold: ' ',
     });
@@ -332,7 +332,7 @@ describe('default', () => {
     await watchdogPlugin.install(ctx);
     await ctx._services.watchdog.check();
 
-    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold.exceeded', {
+    expect(ctx.events.emit).toHaveBeenCalledWith('watchdog:threshold:exceeded', {
       usage: 1,
       threshold: 0.75,
     });

@@ -94,8 +94,8 @@ describe('Kernel', () => {
 
       const history = kernel.events.getHistory();
       const types = history.map(e => e.type);
-      expect(types).toContain('kernel.started');
-      expect(types).toContain('kernel.stopped');
+      expect(types).toContain('kernel:started');
+      expect(types).toContain('kernel:stopped');
     });
 
     it('start() should be idempotent when already RUNNING', async () => {
@@ -184,7 +184,7 @@ describe('Kernel', () => {
       expect(kernel.status).toBe(KernelStatus.ERROR);
 
       const types = kernel.events.getHistory().map(e => e.type);
-      expect(types).toContain('kernel.error');
+      expect(types).toContain('kernel:error');
     });
 
     it('should enter ERROR state when onStop throws', async () => {

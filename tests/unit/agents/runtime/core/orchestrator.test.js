@@ -296,7 +296,7 @@ describe("AgentOrchestrator", () => {
       expect(sharedMocks.createStageApi).toHaveBeenCalled();
 
       const names = getEmitNames(orchestrator.eventBus);
-      expect(names).toContain("run.started");
+      expect(names).toContain("run:started");
       expect(names).toContain("design.step.started");
       expect(names).toContain("design.step.progress");
       expect(names).toContain("design.step.completed");
@@ -322,8 +322,8 @@ describe("AgentOrchestrator", () => {
 
       await expect(orchestrator.runStage("boom")).rejects.toThrow(/boom/);
       expect(orchestrator.state).toBe(OrchestratorState.FAILED);
-      expect(getEmitNames(orchestrator.eventBus)).toContain("run.failed");
-      expect(getEmitNames(orchestrator.eventBus)).toContain("run.ended");
+      expect(getEmitNames(orchestrator.eventBus)).toContain("run:failed");
+      expect(getEmitNames(orchestrator.eventBus)).toContain("run:ended");
     });
 
     it("runs sequentially with rapid consecutive calls", async () => {
@@ -516,14 +516,14 @@ describe("AgentOrchestrator", () => {
       orchCancel.stop("   ");
 
       expect(orchCancel.state).toBe(OrchestratorState.CANCELLED);
-      expect(getEmitRecord(orchCancel.eventBus, "run.cancelled").payload.reason).toBe("cancelled");
+      expect(getEmitRecord(orchCancel.eventBus, "run:cancelled").payload.reason).toBe("cancelled");
       await expect(orchCancel.runStage("test")).rejects.toThrow(/Run cancelled/);
 
       const orchFail = new AgentOrchestrator();
       orchFail.start();
       orchFail.stop("stage_failed");
       expect(orchFail.state).toBe(OrchestratorState.FAILED);
-      expect(getEmitRecord(orchFail.eventBus, "run.failed").payload.error).toBe("stage_failed");
+      expect(getEmitRecord(orchFail.eventBus, "run:failed").payload.error).toBe("stage_failed");
 
       const orchIdleEnd = new AgentOrchestrator();
       orchIdleEnd.end("done");
@@ -534,8 +534,8 @@ describe("AgentOrchestrator", () => {
       orchRunEnd.start();
       orchRunEnd.end("done");
       const names = getEmitNames(orchRunEnd.eventBus);
-      expect(names).toContain("run.completed");
-      expect(names).toContain("run.ended");
+      expect(names).toContain("run:completed");
+      expect(names).toContain("run:ended");
 
 await Promise.all([orchCancel.dispose(), orchFail.dispose(), orchIdleEnd.dispose(), orchRunEnd.dispose()]);
     });

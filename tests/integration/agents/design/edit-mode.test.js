@@ -382,7 +382,7 @@ it("edit loop handles clarification, quick actions, and parsing errors", async (
   });
 
   expect(chatMessages).toEqual(expect.arrayContaining([expect.stringContaining("clarify")]));
-  expect(emits).toEqual(expect.arrayContaining([expect.objectContaining({ name: "edit:session.transition" })]));
+  expect(emits).toEqual(expect.arrayContaining([expect.objectContaining({ name: "edit:session:transition" })]));
 });
 
 it("EditModeAgentLoop intent parsing fallback and JSON errors", async () => {

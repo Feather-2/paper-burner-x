@@ -78,7 +78,7 @@ describe("plugins/compression/cicada.js default export", () => {
         getStats: expect.any(Function),
       }),
     );
-    expect(ctx.on).toHaveBeenCalledWith("runtime.tokens.updated", expect.any(Function));
+    expect(ctx.on).toHaveBeenCalledWith("runtime:tokens:updated", expect.any(Function));
     expect(ctx.log.info).toHaveBeenCalledWith("Cicada compression plugin installed");
   });
 

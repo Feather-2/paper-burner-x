@@ -473,9 +473,9 @@ describe("AgentOrchestrator", () => {
 
     it("emits run lifecycle events", () => {
       const events = [];
-      orchestrator.eventBus.on("run.started", (e) => events.push("started"));
-      orchestrator.eventBus.on("run.completed", (e) => events.push("completed"));
-      orchestrator.eventBus.on("run.ended", (e) => events.push("ended"));
+      orchestrator.eventBus.on("run:started", (e) => events.push("started"));
+      orchestrator.eventBus.on("run:completed", (e) => events.push("completed"));
+      orchestrator.eventBus.on("run:ended", (e) => events.push("ended"));
 
       orchestrator.start();
       orchestrator.end();
@@ -485,8 +485,8 @@ describe("AgentOrchestrator", () => {
 
     it("emits run.cancelled on stop", () => {
       const events = [];
-      orchestrator.eventBus.on("run.cancelled", () => events.push("cancelled"));
-      orchestrator.eventBus.on("run.ended", () => events.push("ended"));
+      orchestrator.eventBus.on("run:cancelled", () => events.push("cancelled"));
+      orchestrator.eventBus.on("run:ended", () => events.push("ended"));
 
       orchestrator.start();
       orchestrator.stop();
@@ -581,7 +581,7 @@ describe("AgentOrchestrator", () => {
 
     it("emits run.failed on stage error", async () => {
       const events = [];
-      orchestrator.eventBus.on("run.failed", (e) => events.push(e));
+      orchestrator.eventBus.on("run:failed", (e) => events.push(e));
 
       orchestrator.registerStage("fail", () => {
         throw new Error("boom");

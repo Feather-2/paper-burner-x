@@ -244,7 +244,7 @@ describe("EditModeAgentLoop", () => {
       expect(ok).toBe(true);
       expect(state.editSessionStatus).toBe(EditSessionStatus.AWAITING_INPUT);
       expect(onSessionTransition).toHaveBeenCalledWith(EditSessionStatus.IDLE, EditSessionStatus.AWAITING_INPUT);
-      expect(emit).toHaveBeenCalledWith("edit:session.transition", {
+      expect(emit).toHaveBeenCalledWith("edit:session:transition", {
         from: EditSessionStatus.IDLE,
         to: EditSessionStatus.AWAITING_INPUT,
       });

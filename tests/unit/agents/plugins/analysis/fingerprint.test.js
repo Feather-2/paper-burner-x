@@ -213,7 +213,7 @@ describe("default", () => {
 
   it("should_register_tool_call_listener_when_install_called", async () => {
     const { ctx } = await createFingerprintHarness();
-    expect(ctx.on).toHaveBeenCalledWith("tool.call.*", expect.any(Function));
+    expect(ctx.on).toHaveBeenCalledWith("tool:call:*", expect.any(Function));
   });
 
   it("should_log_install_message_when_install_called", async () => {

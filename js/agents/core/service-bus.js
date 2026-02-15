@@ -28,6 +28,8 @@
  * @typedef {{ ttl?: number, maxSize?: number, keyFn?: (context: CallContext) => string }} CacheProxyOptions
  */
 
+const PERSIST_DEBOUNCE_MS = 500;
+
 export class ServiceBus {
   /**
    * @param {{ events?: EventBus, archive?: any, runId?: string }} [options]
@@ -53,6 +55,9 @@ export class ServiceBus {
 
     /** @type {string} */
     this._runId = options.runId || 'default';
+
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    this._persistStatsTimerId = null;
   }
 
   /**
@@ -291,6 +296,27 @@ export class ServiceBus {
   }
 
   /**
+   * 获取完整服务列表（含未实例化的工厂）
+   * @returns {ServiceEntry[]}
+   */
+  listAll() {
+    /** @type {ServiceEntry[]} */
+    const entries = this.list();
+    const registeredNames = new Set(entries.map(e => e.name));
+
+    for (const [name, entry] of this._factories) {
+      if (!registeredNames.has(name)) {
+        entries.push({
+          name,
+          registeredAt: 0,
+          options: entry.options || {},
+        });
+      }
+    }
+    return entries;
+  }
+
+  /**
    * 健康检查
    * @param {string} serviceName
    * @returns {Promise<ServiceHealthResult>}
@@ -372,6 +398,11 @@ export class ServiceBus {
    * @returns {void}
    */
   clear() {
+    if (this._persistStatsTimerId !== null) {
+      clearTimeout(this._persistStatsTimerId);
+      this._persistStatsTimerId = null;
+      this._flushStats();
+    }
     this._services.clear();
     this._factories.clear();
     this._proxies.length = 0;
@@ -414,26 +445,42 @@ export class ServiceBus {
    */
   _persistStatsAsync() {
     if (!this._archive || this._stats.size === 0) return;
+    if (this._persistStatsTimerId !== null) {
+      clearTimeout(this._persistStatsTimerId);
+    }
+    this._persistStatsTimerId = setTimeout(() => {
+      this._persistStatsTimerId = null;
+      this._flushStats();
+    }, PERSIST_DEBOUNCE_MS);
+  }
 
-    queueMicrotask(() => {
-      (async () => {
-        try {
-          const checkpointId = `${this._runId}:servicebus:stats:${Date.now()}`;
-          const statsObj = {};
-          for (const [name, stat] of this._stats) {
-            statsObj[name] = { ...stat };
-          }
-          await this._archive.save(checkpointId, {
-            schemaVersion: 1,
-            stats: statsObj,
-            timestamp: Date.now(),
-            metadata: { runId: this._runId, serviceCount: this._stats.size },
-          });
-        } catch (err) {
-          // 持久化失败不影响内存统计
-        }
-      })();
-    });
+  /**
+   * 立即执行统计持久化写入（fire-and-forget）
+   * @private
+   * @returns {void}
+   */
+  _flushStats() {
+    if (!this._archive || this._stats.size === 0) return;
+    const archive = this._archive;
+    const runId = this._runId;
+    const statsObj = {};
+    for (const [name, stat] of this._stats) {
+      statsObj[name] = { ...stat };
+    }
+    const serviceCount = this._stats.size;
+    (async () => {
+      try {
+        const checkpointId = `${runId}:servicebus:stats:${Date.now()}`;
+        await archive.save(checkpointId, {
+          schemaVersion: 1,
+          stats: statsObj,
+          timestamp: Date.now(),
+          metadata: { runId, serviceCount },
+        });
+      } catch (err) {
+        // 持久化失败不影响内存统计
+      }
+    })();
   }
 
   /**
@@ -527,12 +574,33 @@ export function createTimeoutProxy(options = {}) {
   proxy.invoke = async (context, next) => {
     const timeoutMs = typeof context.options?.timeout === 'number' ? context.options.timeout : timeout;
 
-    return Promise.race([
-      next(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`Service call timeout: ${context.service}.${context.method}`)), timeoutMs)
-      ),
-    ]);
+    let timerId;
+    let settled = false;
+    return new Promise((resolve, reject) => {
+      timerId = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          reject(new Error(`Service call timeout: ${context.service}.${context.method}`));
+        }
+      }, timeoutMs);
+
+      next().then(
+        (value) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timerId);
+            resolve(value);
+          }
+        },
+        (err) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timerId);
+            reject(err);
+          }
+        }
+      );
+    });
   };
 
   return proxy;

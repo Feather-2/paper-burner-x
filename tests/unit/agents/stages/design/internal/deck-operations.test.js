@@ -284,7 +284,7 @@ describe("initWatchdogManager", () => {
     });
     expect(loop._watchdog).toBe(result.watchdog);
     expect(loop._resolveDependency).toHaveBeenCalledWith("watchdog", { userConfig: { source: "context" } }, null);
-    expect(eventBus.on).toHaveBeenCalledWith("design.refine.step", expect.any(Function));
+    expect(eventBus.on).toHaveBeenCalledWith("design:refine:step", expect.any(Function));
     expect(result.offRefineWatchdog).toBe(offFn);
   });
 
