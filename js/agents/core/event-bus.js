@@ -443,6 +443,7 @@ export class EventBus {
     if (!this._backpressure?.enabled) return this;
 
     const bp = this._backpressure;
+    bp.enabled = false;
     cancelBackpressureSchedule(bp);
 
     this._flushBackpressure();
