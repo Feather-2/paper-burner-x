@@ -225,7 +225,7 @@ describe('Service/proxy plugins (PLUG-02)', () => {
     }));
 
     const starts = [];
-    kernel.events.on('scheduler.task.start', (evt) => starts.push({ id: evt.payload.id, priority: evt.payload.priority }));
+    kernel.events.on('scheduler:task:start', (evt) => starts.push({ id: evt.payload.id, priority: evt.payload.priority }));
 
     const low = scheduler.schedule(() => 'low', TaskPriority.LOW);
     const high = scheduler.schedule(() => 'high', TaskPriority.HIGH);
@@ -260,7 +260,7 @@ describe('Service/proxy plugins (PLUG-02)', () => {
     }, TaskPriority.NORMAL);
 
     let secondId = null;
-    kernel.events.on('scheduler.task.queued', (evt) => {
+    kernel.events.on('scheduler:task:queued', (evt) => {
       if (evt.payload.id !== 1) secondId = evt.payload.id;
     });
 
@@ -271,7 +271,7 @@ describe('Service/proxy plugins (PLUG-02)', () => {
     expect(scheduler.getQueueLength()).toBe(1);
 
     const cancelledEvt = vi.fn();
-    kernel.events.on('scheduler.task.cancelled', cancelledEvt);
+    kernel.events.on('scheduler:task:cancelled', cancelledEvt);
 
     expect(scheduler.cancel(secondId)).toBe(true);
     await expect(second).rejects.toThrow(/cancelled/i);
@@ -291,7 +291,7 @@ describe('Service/proxy plugins (PLUG-02)', () => {
     const scheduler = await kernel.services.get('scheduler');
 
     const errors = [];
-    kernel.events.on('scheduler.task.error', (evt) => errors.push(evt.payload));
+    kernel.events.on('scheduler:task:error', (evt) => errors.push(evt.payload));
 
     const boom = scheduler.schedule(() => {
       throw new Error('boom');
@@ -324,8 +324,8 @@ describe('Service/proxy plugins (PLUG-02)', () => {
 
     const writeSpy = vi.fn();
     const deleteSpy = vi.fn();
-    kernel.events.on('vfs.write', writeSpy);
-    kernel.events.on('vfs.delete', deleteSpy);
+    kernel.events.on('vfs:write', writeSpy);
+    kernel.events.on('vfs:delete', deleteSpy);
 
     await expect(vfs.mkdir('dir')).resolves.toBe(true);
     await expect(vfs.writeFile('dir/a.txt', 'hello')).resolves.toBe(true);

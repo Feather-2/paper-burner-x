@@ -499,11 +499,10 @@ export class ToolRegistry {
       if (!q.allowed) {
         const stats = typeof quotaManager.getToolStats === "function" ? quotaManager.getToolStats(name) : null;
         const emit = resolveEmit(context);
-        // P0: 统一事件命名为 tool:call:error
-        emit?.("tool:call:error", {
+        // P0: 统一事件命名为 tool:quota:exceeded
+        emit?.("tool:quota:exceeded", {
           tool: name,
-          reason: "quota_exceeded",
-          quotaReason: q.reason,
+          reason: q.reason,
           stats,
         });
 

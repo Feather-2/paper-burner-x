@@ -247,8 +247,8 @@ describe("createAgentContainer", () => {
 
     await expect(container.get(ServiceId.EVENT_BUS)).rejects.toThrow(error);
     expect(warnSpy).toHaveBeenCalledWith(
-      "[EventBus] Failed to enable backpressure",
-      error
+      "Failed to enable backpressure",
+      { error }
     );
   });
 
@@ -266,8 +266,8 @@ describe("createAgentContainer", () => {
 
     expect(eventBus).toBe(mocks.eventBusInstances[0]);
     expect(warnSpy).toHaveBeenCalledWith(
-      "[EventBus] Failed to enable backpressure",
-      error
+      "Failed to enable backpressure",
+      { error }
     );
   });
 

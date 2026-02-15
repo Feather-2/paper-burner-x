@@ -259,7 +259,7 @@ describe("cli/demo.js CLI", () => {
     expect(logSpy.mock.calls.some((args) => args[0] === "reply:hello")).toBe(true);
 
     const eventNames = mockState.emittedEvents.map((evt) => evt.name);
-    expect(eventNames).toEqual(expect.arrayContaining(["demo:llm.start", "demo:llm.done"]));
+    expect(eventNames).toEqual(expect.arrayContaining(["demo:llm:start", "demo:llm:done"]));
 
     const toolNames = mockState.toolCalls.map((call) => call.name);
     expect(toolNames).toEqual(expect.arrayContaining(["llm_chat"]));
@@ -303,7 +303,7 @@ describe("llm_chat capability", () => {
     expect(routerState.getClient).toHaveBeenCalledWith("reviewer");
 
     const eventNames = mockState.emittedEvents.map((evt) => evt.name);
-    expect(eventNames).toEqual(expect.arrayContaining(["demo:llm.start", "demo:llm.done"]));
+    expect(eventNames).toEqual(expect.arrayContaining(["demo:llm:start", "demo:llm:done"]));
   });
 
   it("returns error when prompt is not a string", async () => {

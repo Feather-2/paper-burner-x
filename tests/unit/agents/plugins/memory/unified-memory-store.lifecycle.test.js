@@ -235,6 +235,7 @@ const createStore = (options = {}) => {
   store.cloneL1 = vi.fn(() => deepCloneMock(store._state.L1));
   store.cloneL2 = vi.fn(() => deepCloneMock(store._state.L2));
   store.getClockValue = vi.fn(() => 42);
+  store.init = vi.fn().mockResolvedValue(undefined);
 
   return store;
 };

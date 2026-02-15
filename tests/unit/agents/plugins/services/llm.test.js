@@ -82,7 +82,7 @@ describe('service/llm plugin', () => {
       kernel.state.set('runtime.tokens', { input: 5, output: 6 });
 
       const events = [];
-      kernel.events.on('llm.response', (evt) => events.push(evt.payload));
+      kernel.events.on('llm:response', (evt) => events.push(evt.payload));
 
       const messages = [{ role: 'user', content: 'hi' }];
 
@@ -226,7 +226,7 @@ describe('service/llm plugin', () => {
       await expect(kernel.services.call('llm', 'getStats', [])).resolves.toEqual({});
 
       const events = [];
-      kernel.events.on('llm.response', (evt) => events.push(evt.payload));
+      kernel.events.on('llm:response', (evt) => events.push(evt.payload));
 
       const messages = [{ role: 'user', content: 'hello' }];
       await kernel.services.call('llm', 'chat', [messages]);
@@ -293,7 +293,7 @@ describe('service/llm plugin', () => {
 
     try {
       const events = [];
-      kernel.events.on('llm.response', (evt) => events.push(evt.payload));
+      kernel.events.on('llm:response', (evt) => events.push(evt.payload));
 
       const messages = [{ role: 'user', content: 'hi' }];
       await expect(kernel.services.call('llm', 'chat', [messages, {}]))

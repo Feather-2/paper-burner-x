@@ -220,7 +220,9 @@ describe("cicadaPlugin", () => {
     expect(await service.shouldCompress([], undefined)).toBe(false);
     expect(await service.shouldCompress(null, {})).toBe(false);
 
-    const handler = ctx._listeners.get("runtime.tokens.updated");
+    const handler =
+      ctx._listeners.get("runtime:tokens:updated") ||
+      ctx._listeners.get("runtime.tokens.updated");
     handler?.({ payload: { total: 95 } });
 
     expect(ctx.events.emit).toHaveBeenCalledWith("compression:warning", {

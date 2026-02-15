@@ -57,6 +57,7 @@ describe('core/sandbox/pool', () => {
       maxActive: 1,
       idleTimeoutMs: 1000,
       defaultCapabilities: ['console'],
+      preWarmCount: 0,
     });
 
     const sb1 = await pool.acquire({ capabilities: ['console'] });
@@ -84,6 +85,7 @@ describe('core/sandbox/pool', () => {
       maxActive: 1,
       idleTimeoutMs: 1000,
       defaultCapabilities: ['console'],
+      preWarmCount: 0,
     });
 
     const sb1 = await pool.acquire({ capabilities: ['console'] });
@@ -113,6 +115,7 @@ describe('core/sandbox/pool', () => {
       maxActive: 2,
       idleTimeoutMs: 1000,
       defaultCapabilities: ['console'],
+      preWarmCount: 0,
     });
 
     const sb1 = await pool.acquire({ capabilities: ['console'] });
@@ -144,6 +147,7 @@ describe('core/sandbox/pool', () => {
       maxActive: 1,
       idleTimeoutMs: 10,
       defaultCapabilities: ['console'],
+      preWarmCount: 0,
     });
 
     const sb1 = await pool.acquire({ capabilities: ['console'] });
@@ -170,6 +174,7 @@ describe('core/sandbox/pool', () => {
       maxActive: 1,
       idleTimeoutMs: 1000,
       defaultCapabilities: ['console'],
+      preWarmCount: 0,
     });
 
     const sb1 = await pool.acquire({ capabilities: ['console'] });

@@ -48,6 +48,7 @@ const createStore = ({ historySummary = 'summary', stageSummaries, claims } = {}
       claims: claims ?? [],
     },
     _markDirty: vi.fn(),
+    _persistL2Async: vi.fn(),
   };
 
   Object.defineProperties(store, defineL2Layer());

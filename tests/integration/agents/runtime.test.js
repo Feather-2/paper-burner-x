@@ -433,18 +433,19 @@ it("Runtime Core: EventBus backpressure batching + coalesce + order + seq", asyn
 
   await sleep(60);
 
-  expect(events.map((e) => e.name)).toEqual(["run.log", "run.log", "run.progress"]
-  );
+  const businessEvents = events.filter((e) => !String(e?.name || "").startsWith("eventbus:"));
+  expect(businessEvents.map((e) => e.name)).toEqual(["run.log", "run.log", "run.progress"]);
+  expect(events.some((e) => e.name === "eventbus:coalesce:flush")).toBe(true);
 
-  const progress = events.filter((e) => e.name === "run.progress");
+  const progress = businessEvents.filter((e) => e.name === "run.progress");
   expect(progress.length).toBe(1);
   expect(progress[0].payload).toEqual({ i: 5 });
 
-  const logs = events.filter((e) => e.name === "run.log");
+  const logs = businessEvents.filter((e) => e.name === "run.log");
   expect(logs.length).toBe(2);
   expect(logs.map((e) => e.payload)).toEqual([{ msg: "a" }, { msg: "b" }]);
 
-  const seqs = events.map(seqOf);
+  const seqs = businessEvents.map(seqOf);
   expect(seqs[0]).toBeLessThan(seqs[1]);
   expect(seqs[1]).toBeLessThan(seqs[2]);
 
@@ -724,7 +725,9 @@ it("Runtime Core: EventBus replay loads events and marks meta.replay", async () 
   expect(out.length).toBe(1);
   expect(out[0].meta.replay).toBe(true);
   expect(out[0].meta.foo).toBe("bar");
-  expect(replayed.length).toBe(1);
+  expect(replayed.filter((e) => e.name === "run.started").length).toBe(1);
+  const skippedTelemetry = replayed.find((e) => e.name === "eventbus:replay:skipped");
+  expect(skippedTelemetry?.payload?.skippedCount).toBe(1);
 
   // replay should not persist events.
   expect(appendCalls).toBe(0);

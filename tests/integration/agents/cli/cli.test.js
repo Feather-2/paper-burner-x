@@ -756,11 +756,17 @@ it("CliModelClient: respects abort signal", async () => {
     // Check if signal is passed
     if (init.signal) {
       return new Promise((_, reject) => {
+        if (init.signal.aborted) {
+          const err = new Error("Aborted");
+          err.name = "AbortError";
+          reject(err);
+          return;
+        }
         init.signal.addEventListener("abort", () => {
           const err = new Error("Aborted");
           err.name = "AbortError";
           reject(err);
-        });
+        }, { once: true });
       });
     }
     return { ok: true, json: async () => ({ choices: [], model: "m", usage: {} }) };

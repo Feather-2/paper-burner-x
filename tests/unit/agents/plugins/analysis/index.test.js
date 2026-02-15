@@ -371,7 +371,7 @@ describe('fingerprintPlugin', () => {
 
     await fingerprintPlugin.install(ctx);
 
-    const handlerEntry = ctx._handlers.find((entry) => entry.event === 'tool.call.*');
+    const handlerEntry = ctx._handlers.find((entry) => entry.event === 'tool:call:*');
     expect(handlerEntry).toBeTruthy();
 
     await handlerEntry.handler({ payload: { name: 'fetch', args: { url: 'http://x' } } });

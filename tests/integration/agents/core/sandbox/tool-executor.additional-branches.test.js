@@ -213,11 +213,11 @@ describe('runtime/tools/tool-executor: additional branches', () => {
 	    await executor.execute('fail', {}, {}, { retries: 0 });
 	
 	    expect(emit).toHaveBeenCalledWith(
-	      'tool:completed',
-	      expect.objectContaining({ tool: 'ok', args: {}, result: 1, duration: expect.any(Number) })
+	      'tool:call:end',
+	      expect.objectContaining({ tool: 'ok', args: {}, result: 1, duration: expect.any(Number), success: true })
 	    );
 	    expect(emit).toHaveBeenCalledWith(
-	      'tool:failed',
+	      'tool:call:error',
 	      expect.objectContaining({ tool: 'fail', args: {}, error: 'boom', duration: expect.any(Number) })
 	    );
 	  });

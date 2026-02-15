@@ -172,7 +172,7 @@ describe("RetrievalEngine", () => {
 
       new RetrievalEngineNamed({ memoryStore: store });
       expect(eventBus.on).toHaveBeenCalledTimes(1);
-      expect(eventBus.on).toHaveBeenCalledWith("memory.archived", expect.any(Function));
+      expect(eventBus.on).toHaveBeenCalledWith("memory:archived", expect.any(Function));
 
       const storeNoSub = createMemoryStore({ eventBus: createEventBus() });
       new RetrievalEngineNamed({ memoryStore: storeNoSub, subscribe: false });
@@ -192,7 +192,7 @@ describe("RetrievalEngine", () => {
 
       expect(eventBus.on).toHaveBeenCalledTimes(1);
 
-      const handler = eventBus.handlers.get("memory.archived");
+      const handler = eventBus.handlers.get("memory:archived");
       handler({ payload: { id: "archive-1" } });
       handler({ payload: { id: "" } });
 

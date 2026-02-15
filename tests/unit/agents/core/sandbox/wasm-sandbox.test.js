@@ -145,7 +145,11 @@ describe('WasmSandbox', () => {
     const arg2 = createHandle(42);
     quickjsMock.functionHandles.log.fn(arg1, arg2);
 
-    expect(onLog).toHaveBeenCalledWith('log', ['hello', 42]);
+    expect(onLog).toHaveBeenCalledWith(
+      'log',
+      ['hello', 42],
+      expect.objectContaining({ seq: 1, ts: expect.any(Number) })
+    );
     expect(quickjsMock.functionHandles.log.dispose).toHaveBeenCalledTimes(1);
 
     sb.dispose();

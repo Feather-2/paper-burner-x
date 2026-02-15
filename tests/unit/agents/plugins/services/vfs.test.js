@@ -133,8 +133,8 @@ describe('vfs plugin (default export)', () => {
       ]);
 
       expect(vfs.writeFile).toHaveBeenCalledTimes(2);
-      expect(events.emit).toHaveBeenCalledWith('vfs.write', { path: 'a.txt' });
-      expect(events.emit).toHaveBeenCalledWith('vfs.write', { path: 'b.txt' });
+      expect(events.emit).toHaveBeenCalledWith('vfs:write', { path: 'a.txt' });
+      expect(events.emit).toHaveBeenCalledWith('vfs:write', { path: 'b.txt' });
     });
 
     it('handles large data, long strings, and deep nested options', async () => {
@@ -172,7 +172,7 @@ describe('vfs plugin (default export)', () => {
       await service.deleteFile('a.txt');
 
       expect(vfs.deleteFile).toHaveBeenCalledWith('a.txt');
-      expect(events.emit).toHaveBeenCalledWith('vfs.delete', { path: 'a.txt' });
+      expect(events.emit).toHaveBeenCalledWith('vfs:delete', { path: 'a.txt' });
     });
 
     it('falls back to unlink when deleteFile is missing', async () => {

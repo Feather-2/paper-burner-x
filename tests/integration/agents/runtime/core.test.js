@@ -164,10 +164,10 @@ describe('runtime/core ToolRegistry', () => {
     expect(toolFn).toHaveBeenCalledTimes(1);
     expect(quotaManager.recordCall).toHaveBeenCalledWith('ping');
 
-    expect(emit).toHaveBeenCalledWith('tool.quota.exceeded', {
-      actor: 'system',
-      status: 'exceeded',
-      payload: { tool: 'ping', reason: 'too_many_calls', stats: { limit: 1, used: 99 } },
+    expect(emit).toHaveBeenCalledWith('tool:quota:exceeded', {
+      tool: 'ping',
+      reason: 'too_many_calls',
+      stats: { limit: 1, used: 99 },
     });
   });
 

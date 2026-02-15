@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResourceLimits, SandboxCapability, SandboxPreset } from '../../../../../js/agents/core/sandbox/constants.js';
 
 const SKILL_EXECUTOR_PATH = '../../../../../js/agents/core/sandbox/skill-executor.js';
+const SKILL_SANDBOX_PATH = '../../../../../js/agents/core/sandbox/skill-sandbox.js';
+const SKILL_VALIDATION_PATH = '../../../../../js/agents/core/sandbox/skill-validation.js';
 
 const sharedMocks = vi.hoisted(() => ({
   createLogger: vi.fn(),
@@ -169,36 +171,66 @@ describe('SkillExecutor', () => {
 
   it('trusts only system-scoped skills by default', async () => {
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const { defaultTrustChecker } = await import(SKILL_VALIDATION_PATH);
     const executor = new SkillExecutor({ logger: createSilentLogger() });
 
-    expect(executor._defaultTrustChecker({ metadata: { scope: 'system' } })).toBe(true);
-    expect(executor._defaultTrustChecker({ metadata: { scope: 'user' } })).toBe(false);
-    expect(executor._defaultTrustChecker({ metadata: {} })).toBe(false);
+    expect(executor.trustChecker).toBe(defaultTrustChecker);
+    expect(executor.trustChecker({ metadata: { scope: 'system' } })).toBe(true);
+    expect(executor.trustChecker({ metadata: { scope: 'user' } })).toBe(false);
+    expect(executor.trustChecker({ metadata: {} })).toBe(false);
   });
 
   it('evaluates fallback allowlist and trust flags correctly', async () => {
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const { isFallbackAllowed } = await import(SKILL_VALIDATION_PATH);
     const logger = createSilentLogger();
 
     const trusted = new SkillExecutor({ logger, trustChecker: () => true });
-    expect(trusted._isFallbackAllowed({})).toBe(true);
+    expect(isFallbackAllowed({}, undefined, trusted.trustChecker, trusted.fallbackAllowlist, logger)).toBe(true);
 
     const contextTrusted = new SkillExecutor({ logger, trustChecker: () => false });
-    expect(contextTrusted._isFallbackAllowed({ metadata: { name: 'x' } }, { trusted: true })).toBe(true);
+    expect(
+      isFallbackAllowed(
+        { metadata: { name: 'x' } },
+        { trusted: true },
+        contextTrusted.trustChecker,
+        contextTrusted.fallbackAllowlist,
+        logger
+      )
+    ).toBe(true);
 
     const allowlisted = new SkillExecutor({
       logger,
       trustChecker: () => false,
       fallbackAllowlist: ['allow'],
     });
-    expect(allowlisted._isFallbackAllowed({ id: 'allow' })).toBe(true);
-    expect(allowlisted._isFallbackAllowed({ metadata: { name: 'allow' } })).toBe(true);
+    expect(
+      isFallbackAllowed(
+        { id: 'allow' },
+        undefined,
+        allowlisted.trustChecker,
+        allowlisted.fallbackAllowlist,
+        logger
+      )
+    ).toBe(true);
+    expect(
+      isFallbackAllowed(
+        { metadata: { name: 'allow' } },
+        undefined,
+        allowlisted.trustChecker,
+        allowlisted.fallbackAllowlist,
+        logger
+      )
+    ).toBe(true);
 
     const contextAllowlist = new SkillExecutor({ logger, trustChecker: () => false });
     expect(
-      contextAllowlist._isFallbackAllowed(
+      isFallbackAllowed(
         { id: 'set-allowed' },
-        { fallbackAllowlist: new Set(['set-allowed']) }
+        { fallbackAllowlist: new Set(['set-allowed']) },
+        contextAllowlist.trustChecker,
+        contextAllowlist.fallbackAllowlist,
+        logger
       )
     ).toBe(true);
 
@@ -207,31 +239,62 @@ describe('SkillExecutor', () => {
       trustChecker: () => false,
       fallbackAllowlist: [],
     });
-    expect(emptyAllowlist._isFallbackAllowed({ id: 'allow' })).toBe(false);
+    expect(
+      isFallbackAllowed(
+        { id: 'allow' },
+        undefined,
+        emptyAllowlist.trustChecker,
+        emptyAllowlist.fallbackAllowlist,
+        logger
+      )
+    ).toBe(false);
 
     const invalidAllowlist = new SkillExecutor({
       logger,
       trustChecker: () => false,
       fallbackAllowlist: { 0: 'allow' },
     });
-    expect(invalidAllowlist._isFallbackAllowed({ id: 'allow' })).toBe(false);
-    expect(invalidAllowlist._isFallbackAllowed({ id: 0 })).toBe(false);
+    expect(
+      isFallbackAllowed(
+        { id: 'allow' },
+        undefined,
+        invalidAllowlist.trustChecker,
+        invalidAllowlist.fallbackAllowlist,
+        logger
+      )
+    ).toBe(false);
+    expect(
+      isFallbackAllowed(
+        { id: 0 },
+        undefined,
+        invalidAllowlist.trustChecker,
+        invalidAllowlist.fallbackAllowlist,
+        logger
+      )
+    ).toBe(false);
   });
 
   it('grants all capabilities to trusted skills', async () => {
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const { determineCapabilities } = await import(SKILL_VALIDATION_PATH);
     const executor = new SkillExecutor({
       logger: createSilentLogger(),
       trustChecker: () => true,
     });
 
-    const caps = executor._determineCapabilities({ metadata: { name: 'trusted' } }, {});
+    const caps = determineCapabilities(
+      { metadata: { name: 'trusted' } },
+      {},
+      executor.trustChecker,
+      executor.logger
+    );
 
     expect(caps).toStrictEqual(SandboxPreset.TRUSTED);
   });
 
   it('grants only approved declared capabilities and warns on unknown entries', async () => {
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const { determineCapabilities } = await import(SKILL_VALIDATION_PATH);
     const logger = createSilentLogger();
     const executor = new SkillExecutor({
       logger,
@@ -247,9 +310,12 @@ describe('SkillExecutor', () => {
       body: 'return 1;',
     };
 
-    const caps = executor._determineCapabilities(skill, {
-      approvedCapabilities: 'fetch,unknown2,network',
-    });
+    const caps = determineCapabilities(
+      skill,
+      { approvedCapabilities: 'fetch,unknown2,network' },
+      executor.trustChecker,
+      executor.logger
+    );
 
     expect(caps).toEqual(expect.arrayContaining(SandboxPreset.SKILL));
     expect(caps).toContain(SandboxCapability.FETCH);
@@ -258,19 +324,24 @@ describe('SkillExecutor', () => {
 
   it('ignores malformed capability lists and unapproved declarations', async () => {
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const { determineCapabilities } = await import(SKILL_VALIDATION_PATH);
     const logger = createSilentLogger();
     const executor = new SkillExecutor({
       logger,
       trustChecker: () => false,
     });
 
-    const capsFromObject = executor._determineCapabilities(
+    const capsFromObject = determineCapabilities(
       { metadata: { name: 'caps', capabilities: { 0: 'fetch' } } },
-      { approvedCapabilities: { 0: 'fetch' } }
+      { approvedCapabilities: { 0: 'fetch' } },
+      executor.trustChecker,
+      executor.logger
     );
-    const capsFromEmpty = executor._determineCapabilities(
+    const capsFromEmpty = determineCapabilities(
       { metadata: { name: 'caps', capabilities: '   ' } },
-      { approvedCapabilities: 'fetch' }
+      { approvedCapabilities: 'fetch' },
+      executor.trustChecker,
+      executor.logger
     );
 
     expect(capsFromObject).toStrictEqual(SandboxPreset.SKILL);
@@ -279,19 +350,19 @@ describe('SkillExecutor', () => {
   });
 
   it('selects limits based on weight and defaults for edge values', async () => {
-    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
+    const { determineLimits } = await import(SKILL_VALIDATION_PATH);
 
-    expect(executor._determineLimits({ metadata: { weight: 'light' } })).toStrictEqual(ResourceLimits.LIGHT);
-    expect(executor._determineLimits({ metadata: { weight: 'heavy' } })).toStrictEqual(ResourceLimits.HEAVY);
-    expect(executor._determineLimits({ metadata: { weight: 'extra' } })).toStrictEqual(ResourceLimits.STANDARD);
-    expect(executor._determineLimits({ metadata: { weight: 0 } })).toStrictEqual(ResourceLimits.STANDARD);
-    expect(executor._determineLimits({ metadata: { weight: -1 } })).toStrictEqual(ResourceLimits.STANDARD);
-    expect(executor._determineLimits({})).toStrictEqual(ResourceLimits.STANDARD);
+    expect(determineLimits({ metadata: { weight: 'light' } })).toStrictEqual(ResourceLimits.LIGHT);
+    expect(determineLimits({ metadata: { weight: 'heavy' } })).toStrictEqual(ResourceLimits.HEAVY);
+    expect(determineLimits({ metadata: { weight: 'extra' } })).toStrictEqual(ResourceLimits.STANDARD);
+    expect(determineLimits({ metadata: { weight: 0 } })).toStrictEqual(ResourceLimits.STANDARD);
+    expect(determineLimits({ metadata: { weight: -1 } })).toStrictEqual(ResourceLimits.STANDARD);
+    expect(determineLimits({})).toStrictEqual(ResourceLimits.STANDARD);
   });
 
   it('initializes a single pool for concurrent callers', async () => {
     const module = await import(SKILL_EXECUTOR_PATH);
+    const { ensurePool } = await import(SKILL_SANDBOX_PATH);
     let resolveCompile;
     const compilePromise = new Promise(resolve => {
       resolveCompile = resolve;
@@ -299,8 +370,8 @@ describe('SkillExecutor', () => {
     const compileSpy = vi.spyOn(WebAssembly, 'compile').mockReturnValue(compilePromise);
     const executor = new module.SkillExecutor({ logger: createSilentLogger() });
 
-    const p1 = executor._ensurePool();
-    const p2 = executor._ensurePool();
+    const p1 = ensurePool(executor, executor.logger);
+    const p2 = ensurePool(executor, executor.logger);
 
     expect(compileSpy).toHaveBeenCalledTimes(1);
     resolveCompile({});
@@ -319,12 +390,13 @@ describe('SkillExecutor', () => {
 
   it('warns once when WASM is unavailable', async () => {
     const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const { ensurePool } = await import(SKILL_SANDBOX_PATH);
     const logger = createSilentLogger();
     const executor = new SkillExecutor({ logger });
     executor.wasmSupported = false;
 
-    const first = await executor._ensurePool();
-    const second = await executor._ensurePool();
+    const first = await ensurePool(executor, executor.logger);
+    const second = await ensurePool(executor, executor.logger);
 
     expect(first).toBeNull();
     expect(second).toBeNull();
@@ -615,33 +687,33 @@ describe('SkillExecutor', () => {
   });
 
   it('handles timeout boundaries and max safe integers in main-thread fallback', async () => {
-    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
+    const { executeFallbackInMainThread } = await import(SKILL_SANDBOX_PATH);
+    const logger = createSilentLogger();
 
-    const resZero = await executor._executeFallbackInMainThread({
+    const resZero = await executeFallbackInMainThread({
       code: 'return maxValue;',
       state: null,
       globals: { maxValue: Number.MAX_SAFE_INTEGER },
       timeoutMs: 0,
       onLog: vi.fn(),
       onEmit: vi.fn(),
-    });
-    const resNegative = await executor._executeFallbackInMainThread({
+    }, logger);
+    const resNegative = await executeFallbackInMainThread({
       code: 'return 1;',
       state: {},
       globals: {},
       timeoutMs: -1,
       onLog: vi.fn(),
       onEmit: vi.fn(),
-    });
-    const resString = await executor._executeFallbackInMainThread({
+    }, logger);
+    const resString = await executeFallbackInMainThread({
       code: 'return typeof missing;',
       state: {},
       globals: {},
       timeoutMs: '5',
       onLog: vi.fn(),
       onEmit: vi.fn(),
-    });
+    }, logger);
 
     expect(resZero.ok).toBe(true);
     expect(resZero.value).toBe(Number.MAX_SAFE_INTEGER);
@@ -666,19 +738,19 @@ describe('SkillExecutor', () => {
     }
     vi.stubGlobal('Worker', WorkerMock);
 
-    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
+    const { executeFallbackInWorker } = await import(SKILL_SANDBOX_PATH);
+    const logger = createSilentLogger();
     const onLog = vi.fn();
     const onEmit = vi.fn();
 
-    const res = await executor._executeFallbackInWorker('worker.js', {
+    const res = await executeFallbackInWorker('worker.js', {
       code: 'return 1;',
       state: {},
       globals: {},
       timeoutMs: 0,
       onLog,
       onEmit,
-    });
+    }, logger);
 
     expect(onLog).toHaveBeenCalledWith('info', ['hello']);
     expect(onEmit).toHaveBeenCalledWith('ping', { ok: true });
@@ -688,17 +760,16 @@ describe('SkillExecutor', () => {
   });
 
   it('executes fallback via node worker when available', async () => {
-    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
-    const executor = new SkillExecutor({ logger: createSilentLogger() });
+    const { executeFallbackInNodeWorker } = await import(SKILL_SANDBOX_PATH);
 
-    const res = await executor._executeFallbackInNodeWorker({
+    const res = await executeFallbackInNodeWorker({
       code: 'return 1;',
       state: {},
       globals: {},
       timeoutMs: 0,
       onLog: vi.fn(),
       onEmit: vi.fn(),
-    });
+    }, createSilentLogger());
 
     expect(res.ok).toBe(true);
     expect(res.value).toBe(7);

@@ -948,18 +948,15 @@ describe('PluginContext', () => {
   });
 
   it('should provide logger methods', async () => {
-    const originalDebug = console.debug;
-    const originalInfo = console.info;
+    const originalLog = console.log;
     const originalWarn = console.warn;
     const originalError = console.error;
 
-    const debugCalls = [];
-    const infoCalls = [];
+    const logCalls = [];
     const warnCalls = [];
     const errorCalls = [];
 
-    console.debug = (...args) => debugCalls.push(args);
-    console.info = (...args) => infoCalls.push(args);
+    console.log = (...args) => logCalls.push(args);
     console.warn = (...args) => warnCalls.push(args);
     console.error = (...args) => errorCalls.push(args);
 
@@ -974,13 +971,11 @@ describe('PluginContext', () => {
       ctx.log.warn('w');
       ctx.log.error('e');
 
-      expect(debugCalls.length).toBeGreaterThan(0);
-      expect(infoCalls.length).toBeGreaterThan(0);
+      expect(logCalls.length).toBeGreaterThanOrEqual(2);
       expect(warnCalls.length).toBeGreaterThan(0);
       expect(errorCalls.length).toBeGreaterThan(0);
     } finally {
-      console.debug = originalDebug;
-      console.info = originalInfo;
+      console.log = originalLog;
       console.warn = originalWarn;
       console.error = originalError;
     }

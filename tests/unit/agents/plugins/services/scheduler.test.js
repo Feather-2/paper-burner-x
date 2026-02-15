@@ -219,16 +219,16 @@ describe('default (scheduler plugin)', () => {
         const p = service.schedule(() => 123, undefined);
         expect(ctx.stateData.stats?.queued).toBe(1);
 
-        const queuedCalls = emitted(ctx, 'scheduler.task.queued');
+        const queuedCalls = emitted(ctx, 'scheduler:task:queued');
         expect(queuedCalls).toHaveLength(1);
         expect(queuedCalls[0][1]).toMatchObject({ id: 1, priority: mod.TaskPriority.NORMAL });
 
         await flushImmediate();
         await expect(p).resolves.toBe(123);
 
-        const startCalls = emitted(ctx, 'scheduler.task.start');
-        const completeCalls = emitted(ctx, 'scheduler.task.complete');
-        const errorCalls = emitted(ctx, 'scheduler.task.error');
+        const startCalls = emitted(ctx, 'scheduler:task:start');
+        const completeCalls = emitted(ctx, 'scheduler:task:complete');
+        const errorCalls = emitted(ctx, 'scheduler:task:error');
 
         expect(startCalls).toHaveLength(1);
         expect(startCalls[0][1]).toMatchObject({ id: 1, priority: mod.TaskPriority.NORMAL });
@@ -270,7 +270,7 @@ describe('default (scheduler plugin)', () => {
         await flushImmediate();
         expect(seen[0]).toBe('CRITICAL');
 
-        const starts = emitted(ctx, 'scheduler.task.start');
+        const starts = emitted(ctx, 'scheduler:task:start');
         expect(starts).toHaveLength(1);
         expect(starts[0][1]).toMatchObject({ id: 2, priority: mod.TaskPriority.CRITICAL });
 
@@ -310,7 +310,7 @@ describe('default (scheduler plugin)', () => {
 
         await flushImmediate();
         expect(seen).toEqual(['first']);
-        expect(emitted(ctx, 'scheduler.task.start')[0][1]).toMatchObject({ id: 1, priority: mod.TaskPriority.NORMAL });
+        expect(emitted(ctx, 'scheduler:task:start')[0][1]).toMatchObject({ id: 1, priority: mod.TaskPriority.NORMAL });
 
         d1.resolve('ok1');
         await flushImmediate();
@@ -321,7 +321,7 @@ describe('default (scheduler plugin)', () => {
         await expect(p1).resolves.toBe('ok1');
         await expect(p2).resolves.toBe('ok2');
 
-        const starts = emitted(ctx, 'scheduler.task.start');
+        const starts = emitted(ctx, 'scheduler:task:start');
         expect(starts).toHaveLength(2);
         expect(starts[0][1]).toMatchObject({ id: 1 });
         expect(starts[1][1]).toMatchObject({ id: 2 });
@@ -346,7 +346,7 @@ describe('default (scheduler plugin)', () => {
 
         await flushImmediate();
 
-        const started = emitted(ctx, 'scheduler.task.start');
+        const started = emitted(ctx, 'scheduler:task:start');
         expect(started).toHaveLength(2);
         expect(maxSeen).toBe(2);
         expect(current).toBe(2);
@@ -390,8 +390,8 @@ describe('default (scheduler plugin)', () => {
 
           // eslint-disable-next-line no-await-in-loop
           await expect(service.schedule(() => 1, prio)).rejects.toBeInstanceOf(Error);
-          expect(emitted(ctx, 'scheduler.task.queued')).toHaveLength(0);
-          expect(emitted(ctx, 'scheduler.task.start')).toHaveLength(0);
+          expect(emitted(ctx, 'scheduler:task:queued')).toHaveLength(0);
+          expect(emitted(ctx, 'scheduler:task:start')).toHaveLength(0);
         }
       });
     });
@@ -406,11 +406,11 @@ describe('default (scheduler plugin)', () => {
         await flushImmediate();
         await rejected;
 
-        const errors = emitted(ctx, 'scheduler.task.error');
+        const errors = emitted(ctx, 'scheduler:task:error');
         expect(errors).toHaveLength(1);
         expect(errors[0][1]).toMatchObject({ id: 1, error: 'boom' });
 
-        const completes = emitted(ctx, 'scheduler.task.complete');
+        const completes = emitted(ctx, 'scheduler:task:complete');
         expect(completes).toHaveLength(0);
       });
     });
@@ -423,7 +423,7 @@ describe('default (scheduler plugin)', () => {
         await flushImmediate();
         await rejected;
 
-        const errors = emitted(ctx, 'scheduler.task.error');
+        const errors = emitted(ctx, 'scheduler:task:error');
         expect(errors).toHaveLength(1);
         expect(errors[0][1]).toMatchObject({ id: 1, error: 'nope' });
       });
@@ -444,7 +444,7 @@ describe('default (scheduler plugin)', () => {
 
         await rejected;
 
-        const errors = emitted(ctx, 'scheduler.task.error');
+        const errors = emitted(ctx, 'scheduler:task:error');
         expect(errors).toHaveLength(1);
         expect(errors[0][1]).toMatchObject({ id: 1, error: 'Task timeout' });
 
@@ -458,13 +458,13 @@ describe('default (scheduler plugin)', () => {
         await flushImmediate();
         await expect(p).resolves.toBe('ok');
 
-        const errorsBefore = emitted(ctx, 'scheduler.task.error').length;
+        const errorsBefore = emitted(ctx, 'scheduler:task:error').length;
 
         await vi.advanceTimersByTimeAsync(10);
         await Promise.resolve();
         await Promise.resolve();
 
-        const errorsAfter = emitted(ctx, 'scheduler.task.error').length;
+        const errorsAfter = emitted(ctx, 'scheduler:task:error').length;
         expect(errorsAfter).toBe(errorsBefore);
       });
     });
@@ -480,7 +480,7 @@ describe('default (scheduler plugin)', () => {
 
         await expect(p).rejects.toThrow('Task cancelled');
 
-        const cancelled = emitted(ctx, 'scheduler.task.cancelled');
+        const cancelled = emitted(ctx, 'scheduler:task:cancelled');
         expect(cancelled).toHaveLength(1);
         expect(cancelled[0][1]).toMatchObject({ id: 1 });
       });
@@ -493,7 +493,7 @@ describe('default (scheduler plugin)', () => {
         for (const id of cases) {
           ctx.events.emit.mockClear();
           expect(service.cancel(id)).toBe(false);
-          expect(emitted(ctx, 'scheduler.task.cancelled')).toHaveLength(0);
+          expect(emitted(ctx, 'scheduler:task:cancelled')).toHaveLength(0);
         }
       });
     });
@@ -505,10 +505,10 @@ describe('default (scheduler plugin)', () => {
         const p = service.schedule(() => d.promise);
 
         await flushImmediate();
-        expect(emitted(ctx, 'scheduler.task.start')).toHaveLength(1);
+        expect(emitted(ctx, 'scheduler:task:start')).toHaveLength(1);
 
         expect(service.cancel(1)).toBe(false);
-        expect(emitted(ctx, 'scheduler.task.cancelled')).toHaveLength(0);
+        expect(emitted(ctx, 'scheduler:task:cancelled')).toHaveLength(0);
 
         d.resolve('done');
         await flushImmediate();

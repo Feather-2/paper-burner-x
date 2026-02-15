@@ -102,16 +102,16 @@ describe('CostAggregator', () => {
   });
 
   describe('EventBus integration', () => {
-    it('auto-records from llm.complete events', () => {
+    it('auto-records from llm:complete events', () => {
       const handlers = new Map();
       const eventBus = {
         on: (name, handler) => { handlers.set(name, handler); return () => handlers.delete(name); },
       };
       const aggWithBus = new CostAggregator({ eventBus });
-      const handler = handlers.get('llm.complete');
-      expect(handler).toBeDefined();
+      const llmCompleteHandler = handlers.get('llm:complete');
+      expect(typeof llmCompleteHandler).toBe('function');
 
-      handler({ payload: { agentId: 'agent-1', promptTokens: 100, completionTokens: 50, model: 'gpt-4' } });
+      llmCompleteHandler({ payload: { agentId: 'agent-1', promptTokens: 100, completionTokens: 50, model: 'gpt-4' } });
       expect(aggWithBus.getAgentCost('agent-1').calls).toBe(1);
       aggWithBus.dispose();
     });
@@ -122,7 +122,9 @@ describe('CostAggregator', () => {
         on: (name, handler) => { handlers.set(name, handler); return () => handlers.delete(name); },
       };
       const aggWithBus = new CostAggregator({ eventBus });
-      handlers.get('llm.complete')({ payload: { actor: 'design', promptTokens: 50 } });
+      const llmCompleteHandler = handlers.get('llm:complete');
+      expect(typeof llmCompleteHandler).toBe('function');
+      llmCompleteHandler({ payload: { actor: 'design', promptTokens: 50 } });
       expect(aggWithBus.getAgentCost('design')).not.toBeNull();
       aggWithBus.dispose();
     });

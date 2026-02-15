@@ -56,6 +56,7 @@ function makeStore(overrides = {}) {
       maxDecisions: 3,
     },
     _markDirty: vi.fn(),
+    _persistL1Async: vi.fn(),
     _emit: vi.fn(),
     _emitUpdate: vi.fn(),
     _checkCompress: vi.fn(),

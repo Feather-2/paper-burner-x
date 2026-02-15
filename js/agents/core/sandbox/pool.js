@@ -117,24 +117,7 @@ export class SandboxPool {
     const key = this._getCapabilityKey(capabilities);
     const priority = typeof options.priority === 'number' ? options.priority : 0;
 
-    // 尝试从池中获取
-    const pool = this._pools.get(key);
-    if (pool && pool.length > 0) {
-      const entry = pool.pop();
-      this._cancelTracked(entry.timeoutId);
-      entry.sandbox.recycle({
-        state: options.state || {},
-        onLog: options.onLog || (() => {}),
-        onEmit: options.onEmit || (() => {}),
-        limits,
-      });
-      await entry.sandbox.init();
-      this._consecutiveFailures = 0;
-      this._inUseCount++;
-      return entry.sandbox;
-    }
-
-    // 并发限制：等待释放后再创建/获取
+    // 并发限制：达到上限时统一进入等待队列（无论池中是否有空闲实例）
     if (this._inUseCount >= this.maxActive) {
       return await new Promise((resolve, reject) => {
         const timeoutId = this._tracked(() => {
@@ -160,6 +143,23 @@ export class SandboxPool {
         });
         this._scheduleDrain();
       });
+    }
+
+    // 尝试从池中获取
+    const pool = this._pools.get(key);
+    if (pool && pool.length > 0) {
+      const entry = pool.pop();
+      this._cancelTracked(entry.timeoutId);
+      entry.sandbox.recycle({
+        state: options.state || {},
+        onLog: options.onLog || (() => {}),
+        onEmit: options.onEmit || (() => {}),
+        limits,
+      });
+      await entry.sandbox.init();
+      this._consecutiveFailures = 0;
+      this._inUseCount++;
+      return entry.sandbox;
     }
 
     // 创建新沙箱

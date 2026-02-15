@@ -552,7 +552,12 @@ export class MessageManager {
     if (this._pendingSummaryPromises.size === 0) return;
     const promises = Array.from(this._pendingSummaryPromises.values());
     // 使用 allSettled 确保即使部分 Promise 被拒绝也能收敛
-    await Promise.allSettled(promises);
+    const settled = await Promise.allSettled(promises);
+    for (const item of settled) {
+      if (item.status === "rejected") {
+        silentReporter.report(item.reason, "_waitForPendingSummaries");
+      }
+    }
   }
 
   /**

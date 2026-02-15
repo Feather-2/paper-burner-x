@@ -529,7 +529,7 @@ describe("default", () => {
     const { listeners } = await createFingerprintHarness({
       servicesCallImpl: (name, method, args) => callSpy(name, method, args),
     });
-    const handler = listeners.get("tool.call.*");
+    const handler = listeners.get("tool:call:*");
     await handler({ payload: { name: "fetch", args: { q: "test" } } });
     expect(callSpy).toHaveBeenCalledWith("fingerprint", "analyze", [
       { type: "tool_call", name: "fetch", args: { q: "test" } },
@@ -541,7 +541,7 @@ describe("default", () => {
     const { listeners } = await createFingerprintHarness({
       servicesCallImpl: (name, method, args) => callSpy(name, method, args),
     });
-    const handler = listeners.get("tool.call.*");
+    const handler = listeners.get("tool:call:*");
     await handler({ payload: [] });
     expect(callSpy).toHaveBeenCalledWith("fingerprint", "analyze", [
       { type: "tool_call", name: undefined, args: undefined },

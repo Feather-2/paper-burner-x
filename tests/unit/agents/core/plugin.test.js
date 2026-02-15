@@ -321,10 +321,10 @@ describe('Event-driven plugins', () => {
     const warningHandler = vi.fn();
     kernel.events.on('compression:warning', warningHandler);
 
-    kernel.events.emitSync('runtime.tokens.updated', { total: 50 });
+    kernel.events.emitSync('runtime:tokens:updated', { total: 50 });
     expect(warningHandler).toHaveBeenCalledTimes(0);
 
-    kernel.events.emitSync('runtime.tokens.updated', { total: 95 });
+    kernel.events.emitSync('runtime:tokens:updated', { total: 95 });
     expect(warningHandler).toHaveBeenCalledTimes(1);
     expect(warningHandler.mock.calls[0][0].payload).toEqual({ current: 95, threshold: 100 });
 
@@ -359,7 +359,7 @@ describe('Event-driven plugins', () => {
     expect(stats.lastCompression).toEqual(expect.objectContaining({ before: 3, after: 1 }));
   });
 
-  it('compression/watchdog: install + service + runtime.tokens.* reaction + scoped state', async () => {
+  it('compression/watchdog: install + service + runtime:tokens:* reaction + scoped state', async () => {
     kernel = await createKernel();
     await kernel.use(cicadaPlugin, { maxContextTokens: 100 });
     await kernel.use(watchdogPlugin, {
@@ -378,8 +378,8 @@ describe('Event-driven plugins', () => {
     const exceededPromise = kernel.events.waitFor('watchdog:threshold:exceeded', 500);
     const compressionDonePromise = kernel.events.waitFor('compression:done', 500);
 
-    // Event reaction: watchdog listens to runtime.tokens.* and reads global state
-    kernel.events.emitSync('runtime.tokens.updated', { total: 60 });
+    // Event reaction: watchdog listens to runtime:tokens:* and reads global state
+    kernel.events.emitSync('runtime:tokens:updated', { total: 60 });
 
     const exceeded = await exceededPromise;
     expect(exceeded.event).toBe('watchdog:threshold:exceeded');
@@ -410,7 +410,7 @@ describe('Event-driven plugins', () => {
     expect(console.error).toHaveBeenCalled();
   });
 
-  it('analysis/fingerprint: install + service + tool.call.* reaction + scoped state', async () => {
+  it('analysis/fingerprint: install + service + tool:call:* reaction + scoped state', async () => {
     kernel = await createKernel();
     await kernel.use(fingerprintPlugin, {
       windowSize: 3,
@@ -437,8 +437,8 @@ describe('Event-driven plugins', () => {
       });
     });
 
-    // Event reaction: tool.call.* handler should read evt.payload.{name,args}
-    kernel.events.emit('tool.call.search', { name: 'search', args: { q: 'y' } });
+    // Event reaction: tool:call:* handler should read evt.payload.{name,args}
+    kernel.events.emit('tool:call:search', { name: 'search', args: { q: 'y' } });
     await analysisPromise;
 
     expect(kernel.state.get('plugins.analysis/fingerprint.lastAnalysis.fingerprint')).toBe('tool_call:search:q');

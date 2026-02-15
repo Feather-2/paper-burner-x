@@ -153,6 +153,7 @@ const buildStore = (overrides = {}) => {
     },
     _tokenCounter: overrides._tokenCounter || { name: "counter" },
     _markDirty: vi.fn(),
+    _persistL0Async: vi.fn(),
   };
   Object.defineProperties(store, layer);
   return store;

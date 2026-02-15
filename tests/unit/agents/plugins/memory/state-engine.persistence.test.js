@@ -142,7 +142,7 @@ describe('restoreSnapshot', () => {
     const engine = makeEngine({ runId: 'run-1', L3: { checkpoints: [] }, value: 1 });
     const snapshotState = { runId: 'run-2', value: { count: 2 } };
 
-    const result = restoreSnapshot(engine, { state: snapshotState, clock: 9 });
+    const result = restoreSnapshot(engine, { version: 1, state: snapshotState, clock: 9 });
 
     expect(result).toBe(true);
     expect(engine._state).toEqual(snapshotState);
@@ -166,7 +166,7 @@ describe('restoreSnapshot', () => {
   it('restores empty object state without syncing when clock is missing', () => {
     const engine = makeEngine({ runId: 'run-1', L3: { checkpoints: [] } });
 
-    const result = restoreSnapshot(engine, { state: {} });
+    const result = restoreSnapshot(engine, { version: 1, state: {} });
 
     expect(result).toBe(true);
     expect(engine._state).toEqual({});
@@ -177,7 +177,7 @@ describe('restoreSnapshot', () => {
     const engine = makeEngine({ runId: 'run-1', L3: { checkpoints: [] } });
     engine._actorId = 'actor-keep';
 
-    const result = restoreSnapshot(engine, { state: '   ', clock: '12' });
+    const result = restoreSnapshot(engine, { version: 1, state: '   ', clock: '12' });
 
     expect(result).toBe(true);
     expect(engine._state).toBe('   ');
@@ -187,8 +187,8 @@ describe('restoreSnapshot', () => {
 
   it('handles rapid consecutive restores with numeric clocks', async () => {
     const engine = makeEngine({ runId: 'run-1', L3: { checkpoints: [] } });
-    const first = { state: { runId: 'run-a', value: 1 }, clock: 1 };
-    const second = { state: { runId: 'run-b', value: 2 }, clock: 2 };
+    const first = { version: 1, state: { runId: 'run-a', value: 1 }, clock: 1 };
+    const second = { version: 1, state: { runId: 'run-b', value: 2 }, clock: 2 };
 
     await Promise.all([
       Promise.resolve().then(() => restoreSnapshot(engine, first)),

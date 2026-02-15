@@ -71,8 +71,12 @@ describe('stage/deepsearch plugin', () => {
     expect(kernel.services.has('deepsearchStage')).toBe(true);
     await expect(kernel.services.call('deepsearchStage', 'getStatus', [])).resolves.toEqual({ status: 'idle' });
 
-    // install() logs a message via ctx.log.info
-    expect(console.info).toHaveBeenCalled();
+    // install() logs via ctx.log.info -> shared logger -> console.log
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('[agent:stage/deepsearch]'),
+      'DeepSearch stage plugin installed',
+      {}
+    );
   });
 
   it('run emits start/complete, passes config, updates scoped state, and caches AgentLoop', async () => {

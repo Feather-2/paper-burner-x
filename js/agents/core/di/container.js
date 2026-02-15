@@ -145,7 +145,8 @@ export class Container {
     const shouldWarn = shouldWarnOnTryGetFailure();
     const reportError = (error) => {
       if (!shouldWarn) return;
-      logger.warn(`tryGet("${id}") failed`, { error });
+      const logger = console;
+      logger.warn(`[Container] tryGet("${id}") failed`, error);
     };
     try {
       const result = this.get(id);

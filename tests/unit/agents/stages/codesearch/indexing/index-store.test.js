@@ -17,6 +17,12 @@ vi.mock("../../../../../../js/agents/shared/index.js", () => {
   });
 
   return {
+    createLogger: vi.fn(() => ({
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    })),
     isPlainObject,
     toNonEmptyString,
   };

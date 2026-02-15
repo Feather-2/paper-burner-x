@@ -247,8 +247,12 @@ describe("ToolRegistry", () => {
     expect(afterHook).toHaveBeenCalledTimes(invalidParams.length);
     expect(emit).toHaveBeenCalledTimes(invalidParams.length);
     expect(emit).toHaveBeenCalledWith(
-      "tool.validation.failed",
-      expect.objectContaining({ tool: "ping", errors: ["params: expected object"] })
+      "tool:call:error",
+      expect.objectContaining({
+        tool: "ping",
+        errors: ["params: expected object"],
+        reason: "validation_failed",
+      })
     );
     expect(validateArgs).not.toHaveBeenCalled();
   });
@@ -277,7 +281,10 @@ describe("ToolRegistry", () => {
 
     expect(result).toMatchObject({ ok: false, error: "Invalid tool params for typed" });
     expect(result.validationErrors).toEqual(expect.arrayContaining(["count: expected number", "items: expected array"]));
-    expect(emit).toHaveBeenCalledWith("tool.validation.failed", expect.objectContaining({ tool: "typed" }));
+    expect(emit).toHaveBeenCalledWith(
+      "tool:call:error",
+      expect.objectContaining({ tool: "typed", reason: "validation_failed" })
+    );
     expect(toolFn).not.toHaveBeenCalled();
   });
 
@@ -305,9 +312,11 @@ describe("ToolRegistry", () => {
     expect(quotaManager.tryCall).toHaveBeenCalledWith("ping");
     expect(quotaManager.recordCall).toHaveBeenCalledWith("ping");
     expect(eventBus.emit).toHaveBeenCalledWith(
-      "tool.quota.exceeded",
+      "tool:quota:exceeded",
       expect.objectContaining({
-        payload: { tool: "ping", reason: "over", stats: { limit: 1, used: 2 } },
+        tool: "ping",
+        reason: "over",
+        stats: { limit: 1, used: 2 },
       })
     );
   });

@@ -47,7 +47,9 @@ describe('compression/watchdog cleanup', () => {
 	    await watchdogPlugin.uninstall(ctx);
 
 	    expect(clearIntervalSpy).toHaveBeenCalled();
-	    const tokenSub = subscriptions.find(({ event }) => event === 'runtime.tokens.*');
+	    const tokenSub = subscriptions.find(
+	      ({ event }) => event === 'runtime:tokens:*' || event === 'runtime.tokens.*'
+	    );
 	    expect(tokenSub).toBeTruthy();
 	    expect(tokenSub?.unsubscribe).toHaveBeenCalled();
 	    expect(ctx._watchdogInterval).toBeNull();

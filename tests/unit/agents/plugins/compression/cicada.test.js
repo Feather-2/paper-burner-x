@@ -183,7 +183,7 @@ describe("plugins/compression/cicada.js default export", () => {
 
     await cicadaPlugin.install(ctx);
 
-    const handler = ctx._listeners.get("runtime.tokens.updated");
+    const handler = ctx._listeners.get("runtime:tokens:updated");
     expect(handler).toEqual(expect.any(Function));
 
     handler({ payload: { total: 89 } });

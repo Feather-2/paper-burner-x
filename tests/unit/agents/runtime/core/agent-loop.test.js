@@ -321,8 +321,12 @@ describe("ToolRegistry", () => {
     expect(arrayResult.ok).toBe(false);
     expect(arrayResult.validationErrors).toEqual(["params: expected object"]);
     expect(emit).toHaveBeenCalledWith(
-      "tool.validation.failed",
-      expect.objectContaining({ tool: "t", errors: ["params: expected object"] })
+      "tool:call:error",
+      expect.objectContaining({
+        tool: "t",
+        errors: ["params: expected object"],
+        reason: "validation_failed",
+      })
     );
 
     validateArgs.mockReturnValueOnce({ valid: false, errors: ["bad"] });
@@ -350,8 +354,8 @@ describe("ToolRegistry", () => {
     expect(blocked.ok).toBe(false);
     expect(blocked.error).toContain("quota");
     expect(emit).toHaveBeenCalledWith(
-      "tool.quota.exceeded",
-      expect.objectContaining({ payload: expect.objectContaining({ tool: "t" }) })
+      "tool:quota:exceeded",
+      expect.objectContaining({ tool: "t", reason: "quota" })
     );
     expect(after).toHaveBeenCalled();
 

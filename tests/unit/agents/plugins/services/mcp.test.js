@@ -124,9 +124,9 @@ describe('default', () => {
     const connectedEvents = [];
     const callEvents = [];
     const resultEvents = [];
-    kernel.events.on('mcp.connected', (evt) => connectedEvents.push(evt.payload));
-    kernel.events.on('mcp.tool.call', (evt) => callEvents.push(evt.payload));
-    kernel.events.on('mcp.tool.result', (evt) => resultEvents.push(evt.payload));
+    kernel.events.on('mcp:connected', (evt) => connectedEvents.push(evt.payload));
+    kernel.events.on('mcp:tool:call', (evt) => callEvents.push(evt.payload));
+    kernel.events.on('mcp:tool:result', (evt) => resultEvents.push(evt.payload));
 
     const serverConfig = { name: 'local', url: 'http://localhost:1234', options: {} };
     const client = await kernel.services.call('mcp', 'connect', [serverConfig]);
@@ -251,7 +251,7 @@ describe('default', () => {
     expect(mockState.disconnectImpl).toHaveBeenCalledTimes(2);
     expect(kernel.state.get('plugins.service/mcp.servers.good')).toEqual({ status: 'disconnected' });
     expect(kernel.state.get('plugins.service/mcp.servers.bad')).toEqual({ status: 'connected' });
-    expect(console.warn).toHaveBeenCalledWith('[service/mcp]', 'Failed to disconnect bad:', 'boom');
+    expect(console.warn).toHaveBeenCalledWith('[agent:service/mcp]', 'Failed to disconnect bad:', 'boom');
 
     const status = await kernel.services.call('mcp', 'getStatus', []);
     expect(status).toEqual({ connectedServers: [], count: 0 });
@@ -274,7 +274,7 @@ describe('default', () => {
     });
 
     expect(mockState.connectImpl).toHaveBeenCalledTimes(2);
-    expect(console.warn).toHaveBeenCalledWith('[service/mcp]', 'Auto-connect failed for bad:', 'nope');
+    expect(console.warn).toHaveBeenCalledWith('[agent:service/mcp]', 'Auto-connect failed for bad:', 'nope');
 
     const status = await kernel.services.call('mcp', 'getStatus', []);
     expect(status.connectedServers).toContain('good');

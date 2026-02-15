@@ -347,8 +347,8 @@ describe("ToolExecutor", () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain("Validation failed: bad");
       expect(emit).toHaveBeenCalledWith(
-        "tool:validationFailed",
-        expect.objectContaining({ tool: "t" })
+        "tool:call:error",
+        expect.objectContaining({ tool: "t", reason: "validation_failed" })
       );
     });
 
@@ -537,8 +537,12 @@ describe("ToolExecutor", () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain("Policy denied: nope");
       expect(emit).toHaveBeenCalledWith(
-        "tool:denied",
-        expect.objectContaining({ tool: "t", reason: "nope" })
+        "tool:call:error",
+        expect.objectContaining({
+          tool: "t",
+          reason: "policy_denied",
+          policy: expect.objectContaining({ reason: "nope" }),
+        })
       );
     });
 
@@ -560,7 +564,7 @@ describe("ToolExecutor", () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain("Policy error: policy boom");
       expect(emit).toHaveBeenCalledWith(
-        "tool:denied",
+        "tool:call:error",
         expect.objectContaining({ tool: "t", reason: "policy_error" })
       );
     });
