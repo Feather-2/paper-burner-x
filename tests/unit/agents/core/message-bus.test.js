@@ -126,8 +126,11 @@ describe('MessageBus', () => {
       expect(disposeSpy).not.toHaveBeenCalled();
     });
 
-    it('throws for invalid EventBus values', () => {
-      expect(() => new MessageBus(/** @type {any} */ ({}))).toThrow(TypeError);
+    it('creates default EventBus when options object has no eventBus', () => {
+      const bus = new MessageBus(/** @type {any} */ ({}));
+      expect(bus.eventBus).toBeInstanceOf(EventBus);
+      expect(bus._ownsEventBus).toBe(true);
+      bus.dispose();
     });
 
     it('swallows EventBus.dispose errors when owning', () => {
@@ -593,6 +596,112 @@ describe('MessageBus', () => {
 
       await expect(promise).rejects.toThrow('Request aborted');
       expect(client._inflightRequests.has('cleanup-abort-key')).toBe(false);
+    });
+  });
+
+  describe('dispose', () => {
+    it('clears _inflightRequests on dispose', () => {
+      const bus = new MessageBus(new EventBus());
+      bus._inflightRequests.set('key1', Promise.resolve());
+      bus._inflightRequests.set('key2', Promise.resolve());
+      expect(bus._inflightRequests.size).toBe(2);
+
+      bus.dispose();
+      expect(bus._inflightRequests.size).toBe(0);
+    });
+
+    it('clears _rpcHistory on dispose', () => {
+      const bus = new MessageBus(new EventBus());
+      bus._rpcHistory.push({ requestId: 'r1', type: 'test', payload: null, response: null, timestamp: Date.now() });
+      bus._rpcHistory.push({ requestId: 'r2', type: 'test', payload: null, response: null, timestamp: Date.now() });
+      expect(bus._rpcHistory.length).toBe(2);
+
+      bus.dispose();
+      expect(bus._rpcHistory.length).toBe(0);
+    });
+
+    it('nullifies _archive on dispose', () => {
+      const archive = { save: vi.fn(), load: vi.fn(), list: vi.fn() };
+      const bus = new MessageBus({ eventBus: new EventBus(), archive, runId: 'run-1' });
+      expect(bus._archive).toBe(archive);
+
+      bus.dispose();
+      expect(bus._archive).toBeNull();
+    });
+
+    it('clears debounce timer if _persistRpcTimerId exists', () => {
+      const bus = new MessageBus(new EventBus());
+      const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+      // Simulate a debounce timer set by task #2
+      bus._persistRpcTimerId = setTimeout(() => {}, 10000);
+      bus.dispose();
+
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+      expect(bus._persistRpcTimerId).toBeNull();
+    });
+
+    it('skips timer cleanup when no debounce is pending', () => {
+      const bus = new MessageBus(new EventBus());
+      const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+      // _persistRpcTimerId is null (no pending debounce)
+      expect(bus._persistRpcTimerId).toBeNull();
+      bus.dispose();
+
+      expect(clearTimeoutSpy).not.toHaveBeenCalled();
+    });
+
+    it('disposes owned EventBus after clearing other resources', () => {
+      const bus = new MessageBus();
+      bus._rpcHistory.push({ requestId: 'r1', type: 'test', payload: null, response: null, timestamp: Date.now() });
+
+      const disposeSpy = vi.spyOn(bus.eventBus, 'dispose');
+      bus.dispose();
+
+      expect(bus._rpcHistory.length).toBe(0);
+      expect(bus._archive).toBeNull();
+      expect(disposeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not dispose non-owned EventBus', () => {
+      const eventBus = new EventBus();
+      const bus = new MessageBus(eventBus);
+      const disposeSpy = vi.spyOn(eventBus, 'dispose');
+
+      bus.dispose();
+
+      expect(bus._inflightRequests.size).toBe(0);
+      expect(bus._rpcHistory.length).toBe(0);
+      expect(bus._archive).toBeNull();
+      expect(disposeSpy).not.toHaveBeenCalled();
+    });
+
+    it('sets _disposed flag and prevents double dispose', () => {
+      const bus = new MessageBus();
+      const disposeSpy = vi.spyOn(bus.eventBus, 'dispose');
+
+      expect(bus._disposed).toBe(false);
+      bus.dispose();
+      expect(bus._disposed).toBe(true);
+
+      // Second dispose is a no-op
+      bus.dispose();
+      expect(disposeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws on emit after dispose', () => {
+      const bus = new MessageBus(new EventBus());
+      bus.dispose();
+
+      expect(() => bus.emit('test:event', {})).toThrow('bus is disposed');
+    });
+
+    it('rejects request after dispose', async () => {
+      const bus = new MessageBus(new EventBus());
+      bus.dispose();
+
+      await expect(bus.request('test:rpc', {})).rejects.toThrow('bus is disposed');
     });
   });
 });
