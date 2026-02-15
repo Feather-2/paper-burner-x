@@ -79,6 +79,7 @@ async function withVfsPathLock(vfs, path, fn, { signal } = {}) {
   const prevTail = lockMap.get(key) || Promise.resolve();
   /** @type {(() => void) | null} */
   let release = null;
+  let hasLock = false;
   const tail = new Promise((resolve) => {
     release = () => resolve();
   });
@@ -86,6 +87,7 @@ async function withVfsPathLock(vfs, path, fn, { signal } = {}) {
 
   try {
     await waitFor(prevTail, { signal });
+    hasLock = true;
     return await fn();
   } finally {
     try {
@@ -94,7 +96,16 @@ async function withVfsPathLock(vfs, path, fn, { signal } = {}) {
       // ignore
     }
     if (lockMap.get(key) === tail) {
-      lockMap.delete(key);
+      if (hasLock) {
+        lockMap.delete(key);
+      } else {
+        lockMap.set(key, prevTail);
+        Promise.resolve(prevTail).catch(() => {}).finally(() => {
+          if (lockMap.get(key) === prevTail) {
+            lockMap.delete(key);
+          }
+        });
+      }
     }
   }
 }

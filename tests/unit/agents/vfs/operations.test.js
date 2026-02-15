@@ -299,6 +299,57 @@ describe("js/agents/vfs/operations.js", () => {
   });
 });
 
+describe("withVfsPathLock behavior via writeTextFileWithPolicy", () => {
+  it("preserves serialization when a queued waiter aborts", async () => {
+    vi.resetModules();
+    const { writeTextFileWithPolicy } = await import(MODULE_PATH);
+    const vfs = createMemoryVfs(seedFilesForPath("/locked.txt", "init"));
+    const gate = deferred();
+    const originalWriteText = vfs.writeText;
+    let writeCount = 0;
+
+    vfs.writeText = vi.fn(async (path, text) => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        await gate.promise;
+      }
+      return await originalWriteText(path, text);
+    });
+
+    const first = writeTextFileWithPolicy({ vfs, path: "/locked.txt", text: "first" });
+
+    for (let i = 0; i < 8 && writeCount === 0; i += 1) {
+      await Promise.resolve();
+    }
+    expect(writeCount).toBe(1);
+
+    const controller = new AbortController();
+    const second = writeTextFileWithPolicy({
+      vfs,
+      path: "/locked.txt",
+      text: "second",
+      signal: controller.signal,
+    });
+    controller.abort("cancelled");
+    await expect(second).rejects.toHaveProperty("message", "cancelled");
+
+    const third = writeTextFileWithPolicy({ vfs, path: "/locked.txt", text: "third" });
+    let thirdSettled = false;
+    third.finally(() => {
+      thirdSettled = true;
+    });
+    for (let i = 0; i < 8; i += 1) {
+      await Promise.resolve();
+    }
+    expect(thirdSettled).toBe(false);
+
+    gate.resolve();
+    await expect(first).resolves.toMatchObject({ ok: true, path: "/locked.txt" });
+    await expect(third).resolves.toMatchObject({ ok: true, path: "/locked.txt" });
+    await expect(vfs.readText("/locked.txt")).resolves.toBe("third");
+  });
+});
+
 for (const [exportName, exportedValue] of EXPORT_ENTRIES) {
   const exportType = typeof exportedValue;
   const fnName = exportType === "function" ? exportedValue.name : "";

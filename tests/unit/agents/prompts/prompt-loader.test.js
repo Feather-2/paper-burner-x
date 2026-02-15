@@ -5,6 +5,7 @@ import os from "node:os";
 
 vi.mock("../../../../js/agents/shared/index.js", () => ({
   createLogger: vi.fn(),
+  protoSafeReviver: (key, value) => value,
   isPlainObject: vi.fn(),
   toNonEmptyString: vi.fn(),
   isNodeLike: vi.fn(),
@@ -40,6 +41,18 @@ const writePrompt = (dir, name, content) => {
 
 const removeDir = (dir) => {
   fs.rmSync(dir, { recursive: true, force: true });
+};
+
+const deferred = () => {
+  /** @type {(v?: any) => void} */
+  let resolve;
+  /** @type {(e?: any) => void} */
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 };
 
 beforeEach(async () => {
@@ -140,6 +153,41 @@ describe("PromptLoader", () => {
     await expect(loader._fetchJson("https://example.com/manifest.json")).rejects.toThrow(
       /Prompt manifest exceeds limit/
     );
+  });
+
+  it("deduplicates concurrent manifest loads for the same URL", async () => {
+    isNodeLikeValue = false;
+    const { PromptLoader } = await import(modulePath);
+    const gate = deferred();
+    const manifestUrl = "https://example.com/prompts/manifest.json";
+    const fetchImpl = vi.fn(async () => {
+      await gate.promise;
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ prompts: [{ name: "demo", path: "demo.md" }] }),
+      };
+    });
+
+    const loader = new PromptLoader({ fetchImpl, manifestTtlMs: 60_000 });
+    const first = loader._loadPromptManifest(manifestUrl);
+    const second = loader._loadPromptManifest(manifestUrl);
+
+    await Promise.resolve();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    gate.resolve();
+    const [m1, m2] = await Promise.all([first, second]);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(m1?.url).toBe(manifestUrl);
+    expect(m2).toBe(m1);
+    expect(m1?.byName.get("demo")).toEqual({ name: "demo", path: "demo.md" });
+
+    const cached = await loader._loadPromptManifest(manifestUrl);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(cached).toBe(m1);
   });
 });
 

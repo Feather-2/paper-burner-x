@@ -108,6 +108,7 @@ export class PromptLoader {
     this._promptManifestCacheTtlMs =
       manifestTtlMs !== undefined ? this._normalizeManifestTtlMs(manifestTtlMs) : resolvePromptManifestCacheTtlMs();
     this._manifestCacheByUrl = new Map(); // url -> { url, ts, byName: Map }
+    this._manifestLoadPromiseByUrl = new Map(); // url -> Promise<PromptManifest>
     this._maxManifestBytes = normalizeMaxBytes(maxManifestBytes, DEFAULT_MAX_MANIFEST_BYTES);
     this._maxPromptBytes = normalizeMaxBytes(maxPromptBytes, DEFAULT_MAX_PROMPT_BYTES);
     this._basePathOverride = toNonEmptyString(basePath) || null;
@@ -230,19 +231,32 @@ export class PromptLoader {
       const cached = this._manifestCacheByUrl.get(url);
       if (cached && now - cached.ts < this._promptManifestCacheTtlMs) return cached;
       try {
-        const data = await this._fetchJson(url);
-        const list = Array.isArray(data?.prompts) ? data.prompts : Array.isArray(data?.files) ? data.files : [];
-        const byName = new Map();
-        for (const entry of list) {
-          const row = isPlainObject(entry) ? entry : null;
-          const name = toNonEmptyString(row?.name || row?.key);
-          const path = toNonEmptyString(row?.path || row?.file || row?.url);
-          if (!name || !path) continue;
-          byName.set(name.replace(/\.md$/i, ""), { name: name.replace(/\.md$/i, ""), path });
+        let pending = this._manifestLoadPromiseByUrl.get(url);
+        if (!pending) {
+          pending = (async () => {
+            const data = await this._fetchJson(url);
+            const list = Array.isArray(data?.prompts) ? data.prompts : Array.isArray(data?.files) ? data.files : [];
+            const byName = new Map();
+            for (const entry of list) {
+              const row = isPlainObject(entry) ? entry : null;
+              const name = toNonEmptyString(row?.name || row?.key);
+              const path = toNonEmptyString(row?.path || row?.file || row?.url);
+              if (!name || !path) continue;
+              byName.set(name.replace(/\.md$/i, ""), { name: name.replace(/\.md$/i, ""), path });
+            }
+            const manifest = { url, ts: Date.now(), byName };
+            this._manifestCacheByUrl.set(url, manifest);
+            return manifest;
+          })();
+          this._manifestLoadPromiseByUrl.set(url, pending);
         }
-        const manifest = { url, ts: now, byName };
-        this._manifestCacheByUrl.set(url, manifest);
-        return manifest;
+        try {
+          return await pending;
+        } finally {
+          if (this._manifestLoadPromiseByUrl.get(url) === pending) {
+            this._manifestLoadPromiseByUrl.delete(url);
+          }
+        }
       } catch (err) {
         logger.debug(`[prompt-loader] Failed to load prompt manifest from "${url}": ${err?.message || String(err)}`);
       }
