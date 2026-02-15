@@ -499,6 +499,32 @@ describe("WorkerRpcClient", () => {
     expect(client._pending.size).toBe(0);
   });
 
+  it("cleans AbortSignal listeners on successful completion", async () => {
+    const worker = createBrowserWorker();
+    const client = new WorkerRpcClient({ createWorker: async () => worker, timeoutMs: 500 });
+
+    /** @type {{ aborted: boolean, reason: any, addEventListener: ReturnType<typeof vi.fn>, removeEventListener: ReturnType<typeof vi.fn> }} */
+    const signal = {
+      aborted: false,
+      reason: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    const { promise, id } = await startRpcCall(client, {
+      method: "echo",
+      params: [],
+      options: { signal },
+    });
+
+    const requestMsg = worker.postMessage.mock.calls[0]?.[0];
+    await deliverResponse({ client, worker, id, result: "ok", requestMsg });
+
+    await expect(promise).resolves.toBe("ok");
+    expect(signal.addEventListener).toHaveBeenCalledWith("abort", expect.any(Function), { once: true });
+    expect(signal.removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
   it("passes Transferables as postMessage transferList", async () => {
     const worker = createBrowserWorker();
     const client = new WorkerRpcClient({ createWorker: async () => worker, timeoutMs: 500 });
@@ -548,6 +574,20 @@ describe("WorkerRpcClient", () => {
 
     await expect(p).rejects.toThrow(/DataCloneError/);
     expect(client._pending.size).toBe(0);
+  });
+
+  it("destroy() detaches listeners and rejects pending calls", async () => {
+    const worker = createBrowserWorker();
+    const client = new WorkerRpcClient({ worker, timeoutMs: 500 });
+
+    const { promise } = await startRpcCall(client, { method: "hang", params: [] });
+    client.destroy("destroyed");
+
+    await expect(promise).rejects.toThrow(/destroyed/i);
+    expect(worker.removeEventListener).toHaveBeenCalledWith("message", expect.any(Function));
+    expect(worker.removeEventListener).toHaveBeenCalledWith("error", expect.any(Function));
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(client.worker).toBe(null);
   });
 
   it("rejects pending calls on worker error and recreates worker on next call", async () => {

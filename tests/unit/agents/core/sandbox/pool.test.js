@@ -51,6 +51,10 @@ vi.mock('../../../../../js/agents/shared/index.js', () => ({
 
 import { SandboxPool } from '../../../../../js/agents/core/sandbox/pool.js';
 
+function createPool(options = {}) {
+  return new SandboxPool({ preWarmCount: 0, ...options });
+}
+
 beforeEach(() => {
   hoisted.sandboxInstances.length = 0;
   hoisted.wasmSandboxInit.mockReset().mockResolvedValue(undefined);
@@ -63,7 +67,7 @@ beforeEach(() => {
 
 describe('SandboxPool', () => {
   it('sets defaults when options omitted (undefined)', () => {
-    const pool = new SandboxPool();
+    const pool = createPool();
 
     expect(pool.maxSize).toBe(4);
     expect(pool.maxActive).toBe(4);
@@ -76,7 +80,7 @@ describe('SandboxPool', () => {
     const customCaps = [];
     const customLimits = {};
 
-    const poolA = new SandboxPool({
+    const poolA = createPool({
       maxSize: 0,
       maxActive: -1,
       idleTimeoutMs: 0,
@@ -90,17 +94,17 @@ describe('SandboxPool', () => {
     expect(poolA.defaultCapabilities).toBe(customCaps);
     expect(poolA.defaultLimits).toBe(customLimits);
 
-    const poolB = new SandboxPool({ maxSize: '2' });
+    const poolB = createPool({ maxSize: '2' });
     expect(poolB.maxSize).toBe('2');
     expect(poolB.maxActive).toBe(2);
 
-    const poolC = new SandboxPool({ maxSize: Number.MAX_SAFE_INTEGER });
+    const poolC = createPool({ maxSize: Number.MAX_SAFE_INTEGER });
     expect(poolC.maxSize).toBe(Number.MAX_SAFE_INTEGER);
     expect(poolC.maxActive).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it('_getCapabilityKey returns a stable sorted key and handles empty/whitespace inputs', () => {
-    const pool = new SandboxPool();
+    const pool = createPool();
 
     expect(pool._getCapabilityKey(['b', 'a'])).toBe('a,b');
     expect(pool._getCapabilityKey(['b', 'a', 'a'])).toBe('a,a,b');
@@ -112,21 +116,21 @@ describe('SandboxPool', () => {
   });
 
   it('acquire rejects after pool is disposed', async () => {
-    const pool = new SandboxPool();
+    const pool = createPool();
     pool._disposed = true;
 
     await expect(pool.acquire()).rejects.toThrow('Pool has been disposed');
   });
 
   it('acquire rejects on null options and non-iterable capabilities object', async () => {
-    const pool = new SandboxPool();
+    const pool = createPool();
 
     await expect(pool.acquire(null)).rejects.toThrow();
     await expect(pool.acquire({ capabilities: {} })).rejects.toThrow();
   });
 
   it('acquire resolves capability defaults and empty arrays correctly', async () => {
-    const pool = new SandboxPool({
+    const pool = createPool({
       defaultCapabilities: ['a', 'b'],
       defaultLimits: { cpuMs: 1, memoryMb: 2 },
     });
@@ -146,7 +150,7 @@ describe('SandboxPool', () => {
 
   it('acquire creates a new sandbox with merged limits and forwards deep state/handlers', async () => {
     const defaultLimits = { cpuMs: 1, memoryMb: 2 };
-    const pool = new SandboxPool({
+    const pool = createPool({
       defaultCapabilities: ['capX'],
       defaultLimits,
     });
@@ -184,7 +188,7 @@ describe('SandboxPool', () => {
   });
 
   it('acquire reuses an idle sandbox, clears timeout, and applies safe recycle defaults', async () => {
-    const pool = new SandboxPool({
+    const pool = createPool({
       defaultCapabilities: ['a', 'b'],
       defaultLimits: { cpuMs: 10, memoryMb: 64 },
     });
@@ -222,7 +226,7 @@ describe('SandboxPool', () => {
   });
 
   it('queues concurrent acquires at maxActive and drains FIFO once capacity is free', async () => {
-    const pool = new SandboxPool({
+    const pool = createPool({
       maxActive: 1,
       defaultCapabilities: ['a'],
       defaultLimits: { cpuMs: 1 },
@@ -274,7 +278,7 @@ describe('SandboxPool', () => {
   });
 
   it('_scheduleDrain logs and rejects all waiters when drain fails', async () => {
-    const pool = new SandboxPool({ maxActive: 1 });
+    const pool = createPool({ maxActive: 1 });
 
     await pool.acquire();
 
@@ -292,7 +296,7 @@ describe('SandboxPool', () => {
   });
 
   it('_rejectAllWaiters clears the queue and normalizes non-Error reasons', () => {
-    const pool = new SandboxPool();
+    const pool = createPool();
 
     const reject1 = vi.fn();
     const reject2 = vi.fn();
@@ -310,7 +314,7 @@ describe('SandboxPool', () => {
   });
 
   it('warmUp pre-creates sandboxes and adds them to pool', async () => {
-    const pool = new SandboxPool({ maxSize: 5, defaultCapabilities: ['a', 'b'] });
+    const pool = createPool({ maxSize: 5, defaultCapabilities: ['a', 'b'] });
 
     await pool.warmUp(3);
 
@@ -328,7 +332,7 @@ describe('SandboxPool', () => {
   });
 
   it('warmUp respects maxSize limit', async () => {
-    const pool = new SandboxPool({ maxSize: 2 });
+    const pool = createPool({ maxSize: 2 });
 
     await pool.warmUp(5);
 
@@ -337,7 +341,7 @@ describe('SandboxPool', () => {
   });
 
   it('warmUp rejects when pool is disposed', async () => {
-    const pool = new SandboxPool();
+    const pool = createPool();
     pool._disposed = true;
 
     await expect(pool.warmUp(2)).rejects.toThrow('Pool has been disposed');
@@ -354,7 +358,7 @@ describe('SandboxPool', () => {
   });
 
   it('updateConfig changes default capabilities', async () => {
-    const pool = new SandboxPool({ defaultCapabilities: ['a'] });
+    const pool = createPool({ defaultCapabilities: ['a'] });
     expect(pool.defaultCapabilities).toEqual(['a']);
 
     pool.updateConfig({ defaultCapabilities: ['b', 'c'] });
@@ -365,10 +369,37 @@ describe('SandboxPool', () => {
   });
 
   it('updateConfig merges default limits', async () => {
-    const pool = new SandboxPool({ defaultLimits: { cpuMs: 100, memoryMb: 64 } });
+    const pool = createPool({ defaultLimits: { cpuMs: 100, memoryMb: 64 } });
     expect(pool.defaultLimits).toEqual({ cpuMs: 100, memoryMb: 64 });
 
     pool.updateConfig({ defaultLimits: { memoryMb: 128 } });
     expect(pool.defaultLimits).toEqual({ cpuMs: 100, memoryMb: 128 });
+  });
+
+  it('_stopMemoryMonitoring is idempotent', () => {
+    const pool = createPool({ enableMemoryMonitoring: false });
+    const clearSpy = vi.spyOn(globalThis, 'clearInterval');
+
+    pool._memoryCheckTimer = setInterval(() => {}, 1000);
+    pool._stopMemoryMonitoring();
+    pool._stopMemoryMonitoring();
+
+    expect(pool._memoryCheckTimer).toBe(null);
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+    clearSpy.mockRestore();
+  });
+
+  it('dispose prevents new timers from being created', () => {
+    const pool = createPool({ enableMemoryMonitoring: false });
+
+    pool.dispose();
+
+    const timeoutId = pool._tracked(() => {}, 10);
+    pool._enableMemoryMonitoring = true;
+    pool._startMemoryMonitoring();
+
+    expect(timeoutId).toBe(null);
+    expect(pool._pendingTimers.size).toBe(0);
+    expect(pool._memoryCheckTimer).toBe(null);
   });
 });

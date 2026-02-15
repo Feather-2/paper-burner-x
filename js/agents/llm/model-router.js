@@ -130,6 +130,8 @@ export class ModelRouter {
   _circuitBreakers;
   /** @type {number | null} */
   _lastCircuitBreakerCleanupMs;
+  /** @type {number} */
+  _stateSyncVersion;
 
   /**
    * @param {ModelRouterOptions} [options]
@@ -188,7 +190,11 @@ export class ModelRouter {
   }
 
   resetUnhealthy(modelId) {
-    resetUnhealthyInternal({ healthMap: this._health, modelId });
+    this._applyHealthAndBreakerState(
+      modelId,
+      (id) => resetUnhealthyInternal({ healthMap: this._health, modelId: id }),
+      { resetBreaker: true },
+    );
   }
 
   isAvailable(modelId) {
@@ -204,15 +210,62 @@ export class ModelRouter {
     });
   }
 
+  _bumpStateSyncVersion() {
+    this._stateSyncVersion = (this._stateSyncVersion || 0) + 1;
+    return this._stateSyncVersion;
+  }
+
+  /**
+   * @param {string} modelId
+   * @param {{ reset?: boolean, nowMs?: number }} [options]
+   */
+  _syncCircuitBreakerHealthState(modelId, { reset = false, nowMs = this._time.now() } = {}) {
+    const record = this._circuitBreakers.get(modelId);
+    if (!record || typeof record !== "object") return;
+    record.lastUsedMs = nowMs;
+    if (!reset || !record.breaker || typeof record.breaker.reset !== "function") return;
+    try {
+      record.breaker.reset();
+    } catch (err) {
+      this._logger.debug(`[ModelRouter] breaker reset failed for ${modelId}: ${err?.message || String(err)}`);
+    }
+  }
+
+  /**
+   * @param {string} modelId
+   * @param {(id: string) => any} updater
+   * @param {{ resetBreaker?: boolean }} [options]
+   * @returns {any | null}
+   */
+  _applyHealthAndBreakerState(modelId, updater, { resetBreaker = false } = {}) {
+    const id = toNonEmptyString(modelId);
+    if (!id) return null;
+    const hadPrev = this._health.has(id);
+    const prevHealth = this._health.get(id);
+    const nowMs = this._time.now();
+    try {
+      const next = updater(id);
+      this._syncCircuitBreakerHealthState(id, { reset: resetBreaker, nowMs });
+      this._bumpStateSyncVersion();
+      return next;
+    } catch (err) {
+      if (hadPrev) this._health.set(id, prevHealth);
+      else this._health.delete(id);
+      throw err;
+    }
+  }
+
   markUnhealthy(modelId, error) {
-    return markUnhealthyInternal({
-      healthMap: this._health,
-      time: this._time,
-      modelId,
-      error,
-      baseCooldownMs: this._baseCooldownMs,
-      maxCooldownMs: this._maxCooldownMs,
-      backoffMultiplier: this._backoffMultiplier,
+    return this._applyHealthAndBreakerState(modelId, (id) => {
+      return markUnhealthyInternal({
+        healthMap: this._health,
+        time: this._time,
+        modelId: id,
+        error,
+        baseCooldownMs: this._baseCooldownMs,
+        maxCooldownMs: this._maxCooldownMs,
+        backoffMultiplier: this._backoffMultiplier,
+      });
     });
   }
 
@@ -222,11 +275,19 @@ export class ModelRouter {
    * @param {{ reason?: string }} [options]
    */
   disableModel(modelId, error, { reason } = {}) {
-    return disableModelInternal({ healthMap: this._health, modelId, error, reason });
+    return this._applyHealthAndBreakerState(
+      modelId,
+      (id) => disableModelInternal({ healthMap: this._health, modelId: id, error, reason }),
+      { resetBreaker: true },
+    );
   }
 
   markHealthy(modelId) {
-    return markHealthyInternal({ healthMap: this._health, modelId });
+    return this._applyHealthAndBreakerState(
+      modelId,
+      (id) => markHealthyInternal({ healthMap: this._health, modelId: id }),
+      { resetBreaker: true },
+    );
   }
 
   _getProvider(providerId) {
@@ -282,6 +343,10 @@ export class ModelRouter {
    */
   resetCircuitBreaker(modelId) {
     resetCircuitBreakerInternal({ modelId, circuitBreakers: this._circuitBreakers, time: this._time });
+    const id = toNonEmptyString(modelId);
+    if (!id) return;
+    this._syncCircuitBreakerHealthState(id, { nowMs: this._time.now() });
+    this._bumpStateSyncVersion();
   }
 
   /**

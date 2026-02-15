@@ -1208,6 +1208,40 @@ describe("agents/llm/model-router", () => {
     expect(router._resolveEndpointTier("any", { tags: ["cheap"] })).toBe(ModelTier.FAST);
   });
 
+  it("synchronizes health and circuit-breaker state updates", async () => {
+    const time = createFakeTime(1000);
+    const { provider } = createMockProvider({
+      time,
+      behaviors: { m1: [{ content: "ok" }] },
+    });
+    const router = new ModelRouter({
+      models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+      usageConfig: { worker: ["m1"] },
+      providers: { mock: provider },
+      time,
+    });
+
+    const breakerReset = vi.fn();
+    router._circuitBreakers.set("m1", { breaker: { reset: breakerReset }, lastUsedMs: 0 });
+
+    const unhealthy = router.markUnhealthy("m1", new Error("boom"));
+    expect(unhealthy?.failures).toBe(1);
+    expect(router._circuitBreakers.get("m1")?.lastUsedMs).toBe(1000);
+
+    time.advance(50);
+    router.markHealthy("m1");
+    expect(router.getHealth("m1")?.failures).toBe(0);
+    expect(breakerReset).toHaveBeenCalledTimes(1);
+    expect(router._circuitBreakers.get("m1")?.lastUsedMs).toBe(1050);
+
+    time.advance(50);
+    router.disableModel("m1", new Error("auth"), { reason: "auth" });
+    expect(router.getHealth("m1")?.disabled).toBe(true);
+    expect(breakerReset).toHaveBeenCalledTimes(2);
+    expect(router._circuitBreakers.get("m1")?.lastUsedMs).toBe(1100);
+    expect(router._stateSyncVersion).toBeGreaterThan(0);
+  });
+
   it("cleans up stale circuit breakers and evicts LRU when pool grows beyond limit", async () => {
     const time = createFakeTime(0);
     const router = new ModelRouter({
@@ -1801,6 +1835,20 @@ describe("agents/llm/model-router", () => {
 
     expect(out).toBe("ok");
     expect(startedAt).toStrictEqual([1000]);
+  });
+
+  it("TokenBucketRateLimiter: deadlock recovery resets stale pumping state", async () => {
+    const time = createFakeTime(10_000);
+    const limiter = new TokenBucketRateLimiter({ rps: Infinity, burst: 1, concurrency: 1, time });
+
+    limiter._pumping = true;
+    limiter._activePumpGeneration = 1;
+    limiter._pumpStartedAt = time.now();
+    time.advance(limiter._pumpDeadlockMs + 1);
+
+    await expect(limiter.schedule(() => "ok")).resolves.toBe("ok");
+    expect(limiter._pumping).toBe(false);
+    expect(limiter._activePumpGeneration).toBe(0);
   });
 
   it("TokenBucketRateLimiter: rejects when queue full (maxQueue=0)", async () => {

@@ -86,6 +86,7 @@ export class SandboxPool {
 
   /** @private track a setTimeout and auto-remove on fire */
   _tracked(fn, ms) {
+    if (this._disposed) return null;
     const id = setTimeout(() => {
       this._pendingTimers.delete(id);
       fn();
@@ -515,7 +516,7 @@ export class SandboxPool {
    * @private
    */
   _startMemoryMonitoring() {
-    if (!this._enableMemoryMonitoring || this._memoryCheckTimer) return;
+    if (this._disposed || !this._enableMemoryMonitoring || this._memoryCheckTimer) return;
 
     // 记录基线内存
     if (typeof performance !== 'undefined' && performance.memory) {
@@ -523,6 +524,10 @@ export class SandboxPool {
     }
 
     this._memoryCheckTimer = setInterval(() => {
+      if (this._disposed) {
+        this._stopMemoryMonitoring();
+        return;
+      }
       if (typeof performance === 'undefined' || !performance.memory) return;
 
       const current = performance.memory.usedJSHeapSize;
@@ -548,10 +553,11 @@ export class SandboxPool {
    * @private
    */
   _stopMemoryMonitoring() {
-    if (this._memoryCheckTimer) {
-      clearInterval(this._memoryCheckTimer);
-      this._memoryCheckTimer = null;
-    }
+    const timer = this._memoryCheckTimer;
+    this._memoryCheckTimer = null;
+    this._memoryBaseline = null;
+    if (!timer) return;
+    clearInterval(timer);
   }
 
   /**
@@ -561,6 +567,7 @@ export class SandboxPool {
    */
   dispose(options = {}) {
     if (this._disposed) return;
+    this._disposed = true;
 
     // 停止内存监控
     this._stopMemoryMonitoring();
@@ -588,8 +595,6 @@ export class SandboxPool {
       clearTimeout(id);
     }
     this._pendingTimers.clear();
-
-    this._disposed = true;
   }
 }
 

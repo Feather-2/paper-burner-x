@@ -39,6 +39,10 @@ function createTimeoutError(ms) {
   return err;
 }
 
+function isAbortSignalLike(signal) {
+  return !!signal && typeof signal === "object" && typeof signal.aborted === "boolean" && typeof signal.addEventListener === "function";
+}
+
 function normalizeRemoteError(raw) {
   if (!raw) return new Error("Unknown error");
   if (typeof raw === "string") return new Error(raw);
@@ -180,9 +184,7 @@ export class WorkerRpcClient {
     if (typeof worker.addEventListener === "function") {
       worker.addEventListener("message", this._boundOnMessage);
       worker.addEventListener("error", this._boundOnError);
-      if (typeof worker.addEventListener === "function") {
-        worker.addEventListener("exit", this._boundOnExit);
-      }
+      worker.addEventListener("exit", this._boundOnExit);
       return;
     }
 
@@ -190,9 +192,7 @@ export class WorkerRpcClient {
     if (typeof worker.on === "function") {
       worker.on("message", this._boundOnMessage);
       worker.on("error", this._boundOnError);
-      if (typeof worker.on === "function") {
-        worker.on("exit", this._boundOnExit);
-      }
+      worker.on("exit", this._boundOnExit);
       return;
     } else {
       // Fallback to onmessage/onerror
@@ -301,8 +301,11 @@ export class WorkerRpcClient {
     }
 
     // Clear worker reference for recreation
-    this._detachListeners(this._workerInstance);
-    this._workerInstance = null;
+    const worker = this._workerInstance;
+    this._detachListeners(worker);
+    if (this._workerInstance === worker) {
+      this._workerInstance = null;
+    }
 
     // Reject all pending calls
     for (const [id, pending] of this._pending) {
@@ -321,8 +324,11 @@ export class WorkerRpcClient {
     logger.error("Worker exit", { code, message });
 
     // Clear worker reference for recreation
-    this._detachListeners(this._workerInstance);
-    this._workerInstance = null;
+    const worker = this._workerInstance;
+    this._detachListeners(worker);
+    if (this._workerInstance === worker) {
+      this._workerInstance = null;
+    }
 
     // Reject all pending calls
     for (const [id, pending] of this._pending) {
@@ -369,6 +375,7 @@ export class WorkerRpcClient {
     }
 
     const { timeoutMs = this._timeoutMs, signal, transferables, eventBus, runId, stage } = options;
+    const abortSignal = isAbortSignalLike(signal) ? signal : null;
 
     // Validate method
     if (!method) {
@@ -376,8 +383,8 @@ export class WorkerRpcClient {
     }
 
     // Check abort before getting worker
-    if (signal?.aborted) {
-      const reason = signal.reason || "aborted";
+    if (abortSignal?.aborted) {
+      const reason = abortSignal.reason || "aborted";
       return Promise.reject(createAbortError(typeof reason === "string" ? reason : "aborted"));
     }
 
@@ -390,6 +397,7 @@ export class WorkerRpcClient {
       const id = generateId();
       const workerId = this._workerInstance?._workerId || "unknown";
       const taskStartTime = Date.now();
+      let abortListenerAttached = false;
 
       // P0: 发射 worker:task:start 事件
       if (eventBus && typeof eventBus.emit === "function") {
@@ -414,7 +422,13 @@ export class WorkerRpcClient {
       const cleanup = () => {
         this._pending.delete(id);
         if (timer) clearTimeout(timer);
-        if (signal) signal.removeEventListener("abort", onAbort);
+        if (!abortListenerAttached || !abortSignal || typeof abortSignal.removeEventListener !== "function") return;
+        abortListenerAttached = false;
+        try {
+          abortSignal.removeEventListener("abort", onAbort);
+        } catch {
+          // ignore cleanup errors
+        }
       };
 
       // Setup timeout
@@ -442,7 +456,7 @@ export class WorkerRpcClient {
       // Setup abort listener
       const onAbort = () => {
         cleanup();
-        const reason = signal.reason || "aborted";
+        const reason = abortSignal?.reason || "aborted";
         this._sendCancel(id, "aborted");
         const error = createAbortError(typeof reason === "string" ? reason : "aborted");
         // P0: 发射 worker:task:error 事件
@@ -462,8 +476,13 @@ export class WorkerRpcClient {
         reject(error);
       };
 
-      if (signal) {
-        signal.addEventListener("abort", onAbort, { once: true });
+      if (abortSignal) {
+        try {
+          abortSignal.addEventListener("abort", onAbort, { once: true });
+          abortListenerAttached = true;
+        } catch {
+          // ignore invalid abort signal implementations
+        }
       }
 
       // Store pending
@@ -514,7 +533,7 @@ export class WorkerRpcClient {
         if (!this._pending.has(id)) return;
 
         // Double-check abort before sending
-        if (signal?.aborted) {
+        if (abortSignal?.aborted) {
           onAbort();
           return;
         }
@@ -540,7 +559,7 @@ export class WorkerRpcClient {
           if (!this._pending.has(id)) return;
 
           // Double-check abort after async worker creation
-          if (signal?.aborted) {
+          if (abortSignal?.aborted) {
             onAbort();
             return;
           }
@@ -621,6 +640,14 @@ export class WorkerRpcClient {
       pending.reject(new Error(errorMessage));
     }
     this._pending.clear();
+  }
+
+  /**
+   * Backward-compatible alias for terminate()
+   * @param {string} [reason]
+   */
+  destroy(reason) {
+    this.terminate(reason || "Worker destroyed");
   }
 }
 

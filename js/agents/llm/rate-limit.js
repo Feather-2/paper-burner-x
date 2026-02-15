@@ -118,6 +118,8 @@ export class TokenBucketRateLimiter {
     this._pumpScheduled = false;
     this._pumpStartedAt = 0;
     this._pumpDeadlockMs = 60_000;
+    this._pumpGeneration = 0;
+    this._activePumpGeneration = 0;
   }
 
   getState() {
@@ -213,17 +215,19 @@ export class TokenBucketRateLimiter {
   }
 
   _requestPump() {
+    const now = this._time.now();
     if (this._pumping) {
       this._pumpRequested = true;
-      if (this._pumpStartedAt > 0 && (this._time.now() - this._pumpStartedAt) > this._pumpDeadlockMs) {
+      if (this._pumpStartedAt > 0 && (now - this._pumpStartedAt) > this._pumpDeadlockMs) {
         logger.warn("Pump deadlock detected, forcing reset");
+        this._activePumpGeneration = 0;
         this._pumping = false;
         this._pumpStartedAt = 0;
       } else {
         return;
       }
     }
-    this._pump().catch((err) => logger.warn("Pump error", { error: err.message }));
+    this._pump().catch((err) => logger.warn("Pump error", { error: err?.message || String(err) }));
   }
 
   _requestPumpSoon() {
@@ -276,12 +280,16 @@ export class TokenBucketRateLimiter {
       this._pumpRequested = true;
       return;
     }
+
+    const generation = ++this._pumpGeneration;
+    this._activePumpGeneration = generation;
     this._pumping = true;
     this._pumpRequested = false;
     this._pumpStartedAt = this._time.now();
 
     try {
       while (true) {
+        if (this._activePumpGeneration !== generation) return;
         this._pumpStartedAt = this._time.now();
 
         if (this._queue.length === 0) return;
@@ -335,9 +343,11 @@ export class TokenBucketRateLimiter {
           });
       }
     } finally {
+      if (this._activePumpGeneration !== generation) return;
       this._pumping = false;
       this._pumpStartedAt = 0;
-      if (this._pumpRequested || this._queue.length > 0) {
+      this._activePumpGeneration = 0;
+      if (this._pumpRequested || (this._queue.length > 0 && this._inFlight < this._concurrency)) {
         this._pumpRequested = false;
         this._requestPumpSoon();
       }

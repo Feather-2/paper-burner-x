@@ -260,6 +260,7 @@ export function applyModelRouterConfig(
   router._rateLimiters = new Map(); // modelId -> TokenBucketRateLimiter
   router._circuitBreakers = new Map(); // modelId -> { breaker: CircuitBreaker, lastUsedMs: number }
   router._lastCircuitBreakerCleanupMs = null;
+  router._stateSyncVersion = 0;
 
   if (router._persistRoundRobin && router._roundRobinStorage) {
     try {
