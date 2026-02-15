@@ -496,6 +496,45 @@ describe("shared/utils/lru-cache.js", () => {
       vi.useRealTimers();
     }
   });
+
+  it("createAutoPruningCache auto-stops when weak cache reference is gone", () => {
+    vi.useFakeTimers();
+    try {
+      let isReachable = true;
+      class WeakRefMock {
+        constructor(value) {
+          this.value = value;
+        }
+
+        deref() {
+          return isReachable ? this.value : undefined;
+        }
+      }
+      vi.stubGlobal("WeakRef", WeakRefMock);
+
+      const clearSpy = vi.spyOn(globalThis, "clearInterval");
+      const { cache } = createAutoPruningCache({ ttlMs: 1, pruneIntervalMs: 10 });
+      const pruneSpy = vi.spyOn(cache, "prune");
+
+      vi.advanceTimersByTime(10);
+      expect(pruneSpy).toHaveBeenCalledTimes(1);
+
+      isReachable = false;
+      pruneSpy.mockClear();
+      clearSpy.mockClear();
+
+      vi.advanceTimersByTime(10);
+      expect(clearSpy).toHaveBeenCalledTimes(1);
+      expect(pruneSpy).not.toHaveBeenCalled();
+
+      clearSpy.mockClear();
+      vi.advanceTimersByTime(20);
+      expect(clearSpy).not.toHaveBeenCalled();
+      expect(pruneSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("shared/utils/token-cache.js", () => {

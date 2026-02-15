@@ -92,9 +92,10 @@ export async function _maybeWarnQuota({ upcomingBytes = 0, runId, type } = {}) {
   const nowMs = Date.now();
   const minIntervalMs = Math.max(10_000, this._quotaCheckIntervalMs || 0);
   if (nowMs - this._lastCleanupMs < minIntervalMs) return;
-  if (this._cleanupPromise) return;
+  const runningCleanup = this._cleanupPromise;
+  if (runningCleanup) return;
 
-  this._cleanupPromise = Promise.resolve()
+  const cleanupPromise = Promise.resolve()
     .then(() =>
       this.cleanupRuns({
         retention: auto,
@@ -102,11 +103,14 @@ export async function _maybeWarnQuota({ upcomingBytes = 0, runId, type } = {}) {
         reason: "quota_low",
       })
     )
-    .catch((err) => logger.warn("Store cleanup error", { error: err.message }))
+    .catch((err) => logger.warn("Store cleanup error", { error: err?.message || String(err) }))
     .finally(() => {
-      this._cleanupPromise = null;
-      this._lastCleanupMs = Date.now();
+      if (this._cleanupPromise === cleanupPromise) {
+        this._cleanupPromise = null;
+        this._lastCleanupMs = Date.now();
+      }
     });
+  this._cleanupPromise = cleanupPromise;
 }
 
 /**

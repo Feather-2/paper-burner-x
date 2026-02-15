@@ -230,18 +230,44 @@ export class LRUCache {
  * @param {number} [options.ttlMs=60000]
  * @param {number} [options.pruneIntervalMs=30000]
  * @param {((key:any,value:any)=>void)=} options.onEvict
+ * @description 使用完成后应调用 stop() 释放定时器；在支持 WeakRef 的环境中，当 cache 被 GC 后会自动停止定时器（best-effort）。
  * @returns {{cache: LRUCache, stop: () => void}}
  */
 export function createAutoPruningCache({ maxSize = 100, ttlMs = 60000, pruneIntervalMs = 30000, onEvict } = {}) {
   const cache = new LRUCache({ maxSize, ttlMs, onEvict });
+  let stopped = false;
+  let intervalId = null;
 
-  const intervalId = setInterval(() => {
-    cache.prune();
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    if (intervalId !== null) clearInterval(intervalId);
+  };
+
+  let pruneTick;
+  if (typeof WeakRef === "function") {
+    const weakCacheRef = new WeakRef(cache);
+    pruneTick = () => {
+      const activeCache = weakCacheRef.deref();
+      if (!activeCache) {
+        stop();
+        return;
+      }
+      activeCache.prune();
+    };
+  } else {
+    pruneTick = () => {
+      cache.prune();
+    };
+  }
+
+  intervalId = setInterval(() => {
+    pruneTick();
   }, pruneIntervalMs);
 
   return {
     cache,
-    stop: () => clearInterval(intervalId),
+    stop,
   };
 }
 

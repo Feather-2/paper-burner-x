@@ -292,6 +292,39 @@ describe("_maybeWarnQuota", () => {
     await cleanupPromise;
     expect(ctx._cleanupPromise).toBeNull();
   });
+
+  it("does not clear a newer cleanup promise when older cleanup settles", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(70_000));
+
+    let resolveCleanup;
+    const cleanupRuns = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCleanup = resolve;
+        })
+    );
+
+    const ctx = createQuotaContext({
+      _quotaWarnRatio: 0.4,
+      estimateQuota: vi.fn().mockResolvedValue({ supported: true, quota: 100, usage: 90 }),
+      _autoCleanup: { enabled: true, maxRuns: 1 },
+      cleanupRuns,
+      _lastCleanupMs: 0,
+    });
+
+    await _maybeWarnQuota.call(ctx, { runId: "run-atomic" });
+    const firstCleanupPromise = ctx._cleanupPromise;
+
+    const newerCleanupPromise = Promise.resolve({ from: "newer" });
+    ctx._cleanupPromise = newerCleanupPromise;
+
+    resolveCleanup({});
+    await firstCleanupPromise;
+
+    expect(ctx._cleanupPromise).toBe(newerCleanupPromise);
+    expect(ctx._lastCleanupMs).toBe(0);
+  });
 });
 
 describe("setRetentionPolicy", () => {
