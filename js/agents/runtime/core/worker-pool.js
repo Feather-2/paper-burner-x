@@ -220,10 +220,11 @@ export class WorkerPool {
     if (task.signal && task.abortListener && typeof task.signal.removeEventListener === "function") {
       try {
         task.signal.removeEventListener("abort", task.abortListener);
+        task.abortListener = null;
       } catch {
-        // ignore
+        // Removal failed — listener stays registered but we keep the reference
+        // so drain()/close() can retry cleanup
       }
-      task.abortListener = null;
     }
 
     // Skip if already aborted
@@ -384,6 +385,13 @@ export class WorkerPool {
     this._workers.clear();
 
     logger.info("Pool drained");
+  }
+
+  /**
+   * Dispose the pool (alias for close, matches codebase dispose() convention)
+   */
+  dispose() {
+    this.close();
   }
 
   /**
