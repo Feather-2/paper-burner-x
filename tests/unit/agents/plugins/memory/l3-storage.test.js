@@ -874,6 +874,7 @@ describe("L3Storage eviction", () => {
     const vfs = createMemoryVfs();
     const tabCoordinator = { broadcastEviction: vi.fn() };
     const storage = createStorage({ vfs, maxSnapshots: 1, tabCoordinator });
+    storage._tabCoordinatorEnabled = true;
     storage._index.timeline = [
       { id: "snap_old", ts: 1, accessedAt: 1 },
       { id: "snap_new", ts: 2, accessedAt: 2 },

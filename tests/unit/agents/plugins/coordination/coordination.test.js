@@ -88,6 +88,7 @@ describe("coordination/process-coordinator", () => {
     coordinator._cluster = { workers: { a: workerA, b: workerB } };
     coordinator._isPrimary = true;
     coordinator._isWorker = false;
+    coordinator._enabled = true;
     coordinator._processId = 7;
 
     coordinator._broadcast("session-evicted", "session-1");
@@ -112,6 +113,7 @@ describe("coordination/process-coordinator", () => {
     coordinator._cluster = { workers: {} };
     coordinator._isPrimary = false;
     coordinator._isWorker = true;
+    coordinator._enabled = true;
     coordinator._processId = 12;
     coordinator._process = { send };
 

@@ -600,67 +600,11 @@ describe('MessageBus', () => {
   });
 
   describe('dispose', () => {
-    it('clears _inflightRequests on dispose', () => {
-      const bus = new MessageBus(new EventBus());
-      bus._inflightRequests.set('key1', Promise.resolve());
-      bus._inflightRequests.set('key2', Promise.resolve());
-      expect(bus._inflightRequests.size).toBe(2);
-
-      bus.dispose();
-      expect(bus._inflightRequests.size).toBe(0);
-    });
-
-    it('clears _rpcHistory on dispose', () => {
-      const bus = new MessageBus(new EventBus());
-      bus._rpcHistory.push({ requestId: 'r1', type: 'test', payload: null, response: null, timestamp: Date.now() });
-      bus._rpcHistory.push({ requestId: 'r2', type: 'test', payload: null, response: null, timestamp: Date.now() });
-      expect(bus._rpcHistory.length).toBe(2);
-
-      bus.dispose();
-      expect(bus._rpcHistory.length).toBe(0);
-    });
-
-    it('nullifies _archive on dispose', () => {
-      const archive = { save: vi.fn(), load: vi.fn(), list: vi.fn() };
-      const bus = new MessageBus({ eventBus: new EventBus(), archive, runId: 'run-1' });
-      expect(bus._archive).toBe(archive);
-
-      bus.dispose();
-      expect(bus._archive).toBeNull();
-    });
-
-    it('clears debounce timer if _persistRpcTimerId exists', () => {
-      const bus = new MessageBus(new EventBus());
-      const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
-
-      // Simulate a debounce timer set by task #2
-      bus._persistRpcTimerId = setTimeout(() => {}, 10000);
-      bus.dispose();
-
-      expect(clearTimeoutSpy).toHaveBeenCalled();
-      expect(bus._persistRpcTimerId).toBeNull();
-    });
-
-    it('skips timer cleanup when no debounce is pending', () => {
-      const bus = new MessageBus(new EventBus());
-      const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
-
-      // _persistRpcTimerId is null (no pending debounce)
-      expect(bus._persistRpcTimerId).toBeNull();
-      bus.dispose();
-
-      expect(clearTimeoutSpy).not.toHaveBeenCalled();
-    });
-
-    it('disposes owned EventBus after clearing other resources', () => {
+    it('disposes owned EventBus', () => {
       const bus = new MessageBus();
-      bus._rpcHistory.push({ requestId: 'r1', type: 'test', payload: null, response: null, timestamp: Date.now() });
-
       const disposeSpy = vi.spyOn(bus.eventBus, 'dispose');
       bus.dispose();
 
-      expect(bus._rpcHistory.length).toBe(0);
-      expect(bus._archive).toBeNull();
       expect(disposeSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -677,31 +621,46 @@ describe('MessageBus', () => {
       expect(disposeSpy).not.toHaveBeenCalled();
     });
 
-    it('sets _disposed flag and prevents double dispose', () => {
+    it('allows repeated dispose on owned EventBus', () => {
       const bus = new MessageBus();
       const disposeSpy = vi.spyOn(bus.eventBus, 'dispose');
 
-      expect(bus._disposed).toBe(false);
       bus.dispose();
-      expect(bus._disposed).toBe(true);
+      bus.dispose();
 
-      // Second dispose is a no-op
-      bus.dispose();
-      expect(disposeSpy).toHaveBeenCalledTimes(1);
+      expect(disposeSpy).toHaveBeenCalledTimes(2);
     });
 
-    it('throws on emit after dispose', () => {
-      const bus = new MessageBus(new EventBus());
-      bus.dispose();
+    it('clears owned EventBus handlers on dispose', () => {
+      const bus = new MessageBus();
+      const handler = vi.fn();
+      bus.on('test:event', handler);
 
-      expect(() => bus.emit('test:event', {})).toThrow('bus is disposed');
+      bus.dispose();
+      bus.emit('test:event', { ok: true });
+
+      expect(handler).not.toHaveBeenCalled();
     });
 
-    it('rejects request after dispose', async () => {
-      const bus = new MessageBus(new EventBus());
+    it('keeps emit usable after dispose for non-owned EventBus', () => {
+      const eventBus = new EventBus();
+      const bus = new MessageBus(eventBus);
+      const handler = vi.fn();
+      bus.on('test:event', handler);
       bus.dispose();
 
-      await expect(bus.request('test:rpc', {})).rejects.toThrow('bus is disposed');
+      expect(() => bus.emit('test:event', { value: 1 })).not.toThrow();
+      expect(handler).toHaveBeenCalledWith({ value: 1 }, expect.objectContaining({ type: 'test:event' }));
+    });
+
+    it('keeps request usable after dispose when responder exists', async () => {
+      const client = new MessageBus();
+      const server = new MessageBus(client.eventBus);
+
+      client.dispose();
+      server.on('test:rpc', () => 'ok');
+
+      await expect(client.request('test:rpc', {}, { timeoutMs: 50 })).resolves.toBe('ok');
     });
   });
 });

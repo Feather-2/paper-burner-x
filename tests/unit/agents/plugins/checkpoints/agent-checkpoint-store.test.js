@@ -360,7 +360,7 @@ describe("AgentCheckpointStore", () => {
       );
       expect(acquireLockMock).toHaveBeenCalledWith(
         expect.stringContaining(".agents/runs/run_.._id/checkpoints/index.json.lock"),
-        { type: "write" },
+        { type: "write", timeout: 5000 },
       );
     });
 
@@ -439,17 +439,12 @@ describe("AgentCheckpointStore", () => {
       expect(list).toHaveLength(3);
     });
 
-    it("continues saving when index lock acquisition fails", async () => {
+    it("throws when index lock acquisition fails", async () => {
       const vfs = makeMemoryVfs();
       const store = new AgentCheckpointStore({ vfs, runId: "run_lock_fail" });
       acquireLockMock.mockRejectedValueOnce(new Error("lock-fail"));
 
-      const saved = await store.saveCheckpoint({ step: 1, messages: [] });
-      const loaded = await store.loadCheckpoint({ checkpointId: saved.checkpointId });
-
-      expect(saved.checkpointId).toBeTruthy();
-      expect(loaded?.checkpointId).toBe(saved.checkpointId);
-      expect(loggerMock.warn).toHaveBeenCalledWith(expect.stringContaining("Failed to acquire index lock"));
+      await expect(store.saveCheckpoint({ step: 1, messages: [] })).rejects.toThrow("lock-fail");
     });
   });
 

@@ -43,7 +43,7 @@ const sharedMocks = vi.hoisted(() => {
     }
   };
 
-  const mockLogger = { warn: vi.fn() };
+  const mockLogger = { info: vi.fn(), warn: vi.fn() };
   const createLogger = vi.fn(() => mockLogger);
 
   const toNonEmptyString = vi.fn(defaultToNonEmptyString);
@@ -170,6 +170,7 @@ beforeEach(() => {
   sharedMocks.state.idCounter = 0;
 
   sharedMocks.createLogger.mockClear();
+  sharedMocks.mockLogger.info.mockClear();
   sharedMocks.mockLogger.warn.mockClear();
   sharedMocks.toNonEmptyString.mockClear();
   sharedMocks.safeInt.mockClear();
