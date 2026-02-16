@@ -31,8 +31,7 @@ vi.mock("../../../../../js/agents/runtime/core/tool-registry.js", () => {
 });
 
 import {
-  initToolDispatch,
-  attachToolDispatch,
+  ToolDispatch,
   normalizeToolResult,
   resolveToolExecutor,
 } from "../../../../../js/agents/runtime/core/agent-loop-tool-dispatch.js";
@@ -42,11 +41,11 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-const createLoopWithRegistry = () => {
-  class BaseAgentLoop {}
-  attachToolDispatch(BaseAgentLoop);
-  const loop = new BaseAgentLoop();
+const createDispatchWithRegistry = () => {
+  const loop = {};
   const registry = {
+    _tools: {},
+    _hooks: { before: [], after: [] },
     registerTools: vi.fn(),
     registerTool: vi.fn(),
     useHook: vi.fn(),
@@ -56,20 +55,22 @@ const createLoopWithRegistry = () => {
     })),
   };
   loop._toolRegistry = registry;
-  return { loop, registry };
+  const dispatch = new ToolDispatch(loop, { reuseExistingRegistry: true });
+  return { loop, registry, dispatch };
 };
 
-describe("initToolDispatch", () => {
+describe("ToolDispatch constructor", () => {
   it("initializes ToolRegistry and exposes tools/hooks", () => {
     const loop = {};
     const tools = { ping: vi.fn() };
     const hooks = { before: [vi.fn()], after: [] };
     const logger = { info: vi.fn() };
 
-    initToolDispatch(loop, { tools, hooks, logger });
+    const dispatch = new ToolDispatch(loop, { tools, hooks, logger });
 
     expect(toolRegistryInstances).toHaveLength(1);
     const instance = toolRegistryInstances[0];
+    expect(dispatch).toBeInstanceOf(ToolDispatch);
     expect(instance.options).toEqual({ tools, hooks, logger });
     expect(loop._toolRegistry).toBe(instance);
     expect(loop._tools).toBe(instance._tools);
@@ -86,7 +87,7 @@ describe("initToolDispatch", () => {
 
     for (const options of cases) {
       const loop = {};
-      initToolDispatch(loop, options);
+      new ToolDispatch(loop, options);
       const instance = toolRegistryInstances[toolRegistryInstances.length - 1];
       expect(instance.options).toEqual({
         tools: options.tools,
@@ -99,29 +100,29 @@ describe("initToolDispatch", () => {
     }
 
     const loop = {};
-    initToolDispatch(loop);
+    new ToolDispatch(loop);
     const instance = toolRegistryInstances[toolRegistryInstances.length - 1];
     expect(instance.options).toEqual({ tools: undefined, hooks: undefined, logger: undefined });
   });
 
   it("throws when loop is null or undefined", () => {
-    expect(() => initToolDispatch(null)).toThrow();
-    expect(() => initToolDispatch(undefined)).toThrow();
+    expect(() => new ToolDispatch(null)).toThrow();
+    expect(() => new ToolDispatch(undefined)).toThrow();
   });
 });
 
-describe("attachToolDispatch", () => {
+describe("ToolDispatch methods", () => {
   it("adds dispatch methods and forwards to the registry", async () => {
-    const { loop, registry } = createLoopWithRegistry();
+    const { loop, registry, dispatch } = createDispatchWithRegistry();
     const tools = { ping: vi.fn() };
     const toolFn = vi.fn();
     const hook = vi.fn();
     const context = { trace: true };
 
-    loop.registerTools(tools);
-    loop.registerTool("ping", toolFn);
-    const returned = loop.useHook("before", hook);
-    const result = await loop._callTool("ping", { n: 1 }, context);
+    dispatch.registerTools(tools);
+    dispatch.registerTool("ping", toolFn);
+    const returned = dispatch.useHook("before", hook);
+    const result = await dispatch._callTool("ping", { n: 1 }, context);
 
     expect(registry.registerTools).toHaveBeenCalledWith(tools);
     expect(registry.registerTool).toHaveBeenCalledWith("ping", toolFn);
@@ -132,7 +133,7 @@ describe("attachToolDispatch", () => {
   });
 
   it("forwards boundary and resource-heavy inputs", async () => {
-    const { loop, registry } = createLoopWithRegistry();
+    const { dispatch, registry } = createDispatchWithRegistry();
     const emptyArray = [];
     const emptyObject = {};
     const objectAsArray = { 0: "a", 1: "b", length: 2 };
@@ -140,13 +141,13 @@ describe("attachToolDispatch", () => {
     const largeBuffer = Buffer.alloc(1024 * 1024);
     const deepNested = { level1: { level2: { level3: { level4: { level5: { value: longString } } } } } };
 
-    loop.registerTools(null);
-    loop.registerTools(undefined);
-    loop.registerTools(emptyArray);
-    loop.registerTools(emptyObject);
-    loop.registerTools(objectAsArray);
-    loop.registerTool("", vi.fn());
-    loop.registerTool("   ", vi.fn());
+    dispatch.registerTools(null);
+    dispatch.registerTools(undefined);
+    dispatch.registerTools(emptyArray);
+    dispatch.registerTools(emptyObject);
+    dispatch.registerTools(objectAsArray);
+    dispatch.registerTool("", vi.fn());
+    dispatch.registerTool("   ", vi.fn());
 
     const params = {
       value: 0,
@@ -159,7 +160,7 @@ describe("attachToolDispatch", () => {
       file: largeBuffer,
     };
 
-    await loop._callTool("process", params, { listLike: objectAsArray });
+    await dispatch._callTool("process", params, { listLike: objectAsArray });
 
     expect(registry.registerTools).toHaveBeenCalledWith(null);
     expect(registry.registerTools).toHaveBeenCalledWith(undefined);
@@ -172,16 +173,16 @@ describe("attachToolDispatch", () => {
   });
 
   it("supports concurrent and rapid successive calls", async () => {
-    const { loop, registry } = createLoopWithRegistry();
+    const { dispatch, registry } = createDispatchWithRegistry();
     registry.callTool.mockImplementation(async (name, params, context) => ({
       ok: true,
       data: { name, params, context },
     }));
 
     const concurrent = await Promise.all([
-      loop._callTool("t1", { id: 0 }, { seq: 1 }),
-      loop._callTool("t2", { id: -1 }, { seq: 2 }),
-      loop._callTool("t3", { id: Number.MAX_SAFE_INTEGER }, { seq: 3 }),
+      dispatch._callTool("t1", { id: 0 }, { seq: 1 }),
+      dispatch._callTool("t2", { id: -1 }, { seq: 2 }),
+      dispatch._callTool("t3", { id: Number.MAX_SAFE_INTEGER }, { seq: 3 }),
     ]);
 
     expect(concurrent).toHaveLength(3);
@@ -189,27 +190,22 @@ describe("attachToolDispatch", () => {
     expect(registry.callTool).toHaveBeenCalledWith("t2", { id: -1 }, { seq: 2 });
     expect(registry.callTool).toHaveBeenCalledWith("t3", { id: Number.MAX_SAFE_INTEGER }, { seq: 3 });
 
-    await loop._callTool("t4", { id: "4" }, { seq: 4 });
-    await loop._callTool("t5", { id: "5" }, { seq: 5 });
+    await dispatch._callTool("t4", { id: "4" }, { seq: 4 });
+    await dispatch._callTool("t5", { id: "5" }, { seq: 5 });
 
     expect(registry.callTool).toHaveBeenCalledWith("t4", { id: "4" }, { seq: 4 });
     expect(registry.callTool).toHaveBeenCalledWith("t5", { id: "5" }, { seq: 5 });
   });
 
   it("bubbles registry errors", async () => {
-    const { loop, registry } = createLoopWithRegistry();
+    const { dispatch, registry } = createDispatchWithRegistry();
     registry.registerTool.mockImplementation(() => {
       throw new Error("register-failed");
     });
     registry.callTool.mockRejectedValue(new Error("call-failed"));
 
-    expect(() => loop.registerTool("fail", () => {})).toThrow("register-failed");
-    await expect(loop._callTool("fail", {}, {})).rejects.toThrow("call-failed");
-  });
-
-  it("throws when BaseAgentLoop is invalid", () => {
-    expect(() => attachToolDispatch(null)).toThrow();
-    expect(() => attachToolDispatch({})).toThrow();
+    expect(() => dispatch.registerTool("fail", () => {})).toThrow("register-failed");
+    await expect(dispatch._callTool("fail", {}, {})).rejects.toThrow("call-failed");
   });
 });
 

@@ -71,8 +71,8 @@ export const AnalysisMode = Object.freeze({
 
 export class DeepSearchAgentLoop extends BaseAgentLoop {
   /**
-   * Message handling helpers are mixed into `BaseAgentLoop` at runtime via
-   * `attachMessageHandling()`. `checkJs` can't see those prototype extensions,
+   * Message handling helpers are provided by `MessageHandling` composed in
+   * `BaseAgentLoop`. `checkJs` can't infer those class-level methods,
    * so we redeclare thin wrappers here to satisfy TS.
    *
    * @param {any} message

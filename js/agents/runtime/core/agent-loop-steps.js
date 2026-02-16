@@ -3,8 +3,6 @@
  *
  * Extracted from BaseAgentLoop (C4 audit) to support Interface Segregation.
  * Manages step lifecycle: begin, end, emit events, abort, signal creation.
- *
- * Pattern: initStepMixin(this) in constructor + attachStepMixin(Class) after class.
  */
 
 /**
@@ -27,60 +25,6 @@ function buildStepId(prefix) {
   _stepSeq += 1;
   const base = prefix && typeof prefix === "string" ? prefix : "step";
   return `${base}_${Date.now().toString(36)}_${_stepSeq}`;
-}
-
-/**
- * @param {any} loop
- * @param {Record<string, any>} [options]
- * @returns {StepRunner}
- */
-function ensureStepRunner(loop, options = {}) {
-  if (!loop || typeof loop !== "object") {
-    throw new Error("StepRunner requires a loop instance");
-  }
-  if (loop._stepMixin instanceof StepRunner) return loop._stepMixin;
-  const component = new StepRunner(loop, options);
-  loop._stepMixin = component;
-  return component;
-}
-
-/**
- * @param {(loop: any) => StepRunner} ensureComponent
- * @param {PropertyDescriptorMap} descriptors
- * @returns {PropertyDescriptorMap}
- */
-function createDelegatedDescriptors(ensureComponent, descriptors) {
-  /** @type {PropertyDescriptorMap} */
-  const delegated = {};
-  for (const [name, descriptor] of Object.entries(descriptors)) {
-    if (name === "constructor") continue;
-    /** @type {PropertyDescriptor} */
-    const next = {
-      configurable: true,
-      enumerable: descriptor.enumerable ?? false,
-    };
-    if (typeof descriptor.get === "function") {
-      next.get = function delegatedGetter() {
-        const component = ensureComponent(this);
-        return descriptor.get.call(component);
-      };
-    }
-    if (typeof descriptor.set === "function") {
-      next.set = function delegatedSetter(value) {
-        const component = ensureComponent(this);
-        descriptor.set.call(component, value);
-      };
-    }
-    if (typeof descriptor.value === "function") {
-      next.writable = true;
-      next.value = function delegatedMethod(...args) {
-        const component = ensureComponent(this);
-        return descriptor.value.apply(component, args);
-      };
-    }
-    delegated[name] = next;
-  }
-  return delegated;
 }
 
 export class StepRunner {
@@ -164,28 +108,4 @@ export class StepRunner {
     const signal = mergeSignals(parentSignal, controller.signal) || controller.signal;
     return { signal, controller };
   }
-}
-
-/**
- * @deprecated Use `new StepRunner(loop)` instead.
- * @param {any} loop
- * @param {Record<string, any>} [options]
- * @returns {StepRunner}
- */
-export function initStepMixin(loop, options = {}) {
-  const component = new StepRunner(loop, options);
-  loop._stepMixin = component;
-  return component;
-}
-
-/**
- * @deprecated BaseAgentLoop now delegates explicitly; this exists for legacy callers.
- * @param {new (...args: any[]) => any} BaseAgentLoop
- */
-export function attachStepMixin(BaseAgentLoop) {
-  const descriptors = createDelegatedDescriptors(
-    (loop) => ensureStepRunner(loop),
-    Object.getOwnPropertyDescriptors(StepRunner.prototype)
-  );
-  Object.defineProperties(BaseAgentLoop.prototype, descriptors);
 }

@@ -240,7 +240,7 @@ function resolveCheckpointStore(api, /** @type {StoreOptions} */ { runId, logger
  */
 
 /**
- * Note: Message-handling is mixed into BaseAgentLoop at runtime via attachMessageHandling().
+ * Note: Message-handling is provided by `MessageHandling` composed in `BaseAgentLoop`.
  * These declarations keep `tsc --checkJs` happy without altering runtime behavior.
  *
  * @property {any[]} messages

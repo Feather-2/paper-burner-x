@@ -25,60 +25,6 @@ export function isAllowedLoopStatusTransition(from, to, meta = {}) {
   return allowed.includes(to);
 }
 
-/**
- * @param {any} loop
- * @param {Record<string, any>} [options]
- * @returns {PhaseRunner}
- */
-function ensurePhaseRunner(loop, options = {}) {
-  if (!loop || typeof loop !== "object") {
-    throw new Error("PhaseRunner requires a loop instance");
-  }
-  if (loop._phaseMixin instanceof PhaseRunner) return loop._phaseMixin;
-  const component = new PhaseRunner(loop, options);
-  loop._phaseMixin = component;
-  return component;
-}
-
-/**
- * @param {(loop: any) => PhaseRunner} ensureComponent
- * @param {PropertyDescriptorMap} descriptors
- * @returns {PropertyDescriptorMap}
- */
-function createDelegatedDescriptors(ensureComponent, descriptors) {
-  /** @type {PropertyDescriptorMap} */
-  const delegated = {};
-  for (const [name, descriptor] of Object.entries(descriptors)) {
-    if (name === "constructor") continue;
-    /** @type {PropertyDescriptor} */
-    const next = {
-      configurable: true,
-      enumerable: descriptor.enumerable ?? false,
-    };
-    if (typeof descriptor.get === "function") {
-      next.get = function delegatedGetter() {
-        const component = ensureComponent(this);
-        return descriptor.get.call(component);
-      };
-    }
-    if (typeof descriptor.set === "function") {
-      next.set = function delegatedSetter(value) {
-        const component = ensureComponent(this);
-        descriptor.set.call(component, value);
-      };
-    }
-    if (typeof descriptor.value === "function") {
-      next.writable = true;
-      next.value = function delegatedMethod(...args) {
-        const component = ensureComponent(this);
-        return descriptor.value.apply(component, args);
-      };
-    }
-    delegated[name] = next;
-  }
-  return delegated;
-}
-
 export class PhaseRunner {
   /**
    * @param {any} loop
@@ -142,16 +88,4 @@ export class PhaseRunner {
 
     return next;
   }
-}
-
-/**
- * @deprecated BaseAgentLoop now delegates explicitly; this exists for legacy callers.
- * @param {Function} BaseAgentLoop
- */
-export function attachPhaseMixin(BaseAgentLoop) {
-  const descriptors = createDelegatedDescriptors(
-    (loop) => ensurePhaseRunner(loop),
-    Object.getOwnPropertyDescriptors(PhaseRunner.prototype)
-  );
-  Object.defineProperties(BaseAgentLoop.prototype, descriptors);
 }

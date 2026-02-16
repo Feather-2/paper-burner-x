@@ -1,20 +1,5 @@
 const USER_ACTION_PREFIX = "user.action";
 
-/**
- * @param {any} loop
- * @param {Record<string, any>} [options]
- * @returns {UserActionHandler}
- */
-function ensureUserActionHandler(loop, options = {}) {
-  if (!loop || typeof loop !== "object") {
-    throw new Error("UserActionHandler requires a loop instance");
-  }
-  if (loop._userActionMixin instanceof UserActionHandler) return loop._userActionMixin;
-  const component = new UserActionHandler(loop, options);
-  loop._userActionMixin = component;
-  return component;
-}
-
 export class UserActionHandler {
   /**
    * @param {any} loop
@@ -78,34 +63,4 @@ export class UserActionHandler {
       });
     });
   }
-}
-
-/**
- * @deprecated BaseAgentLoop now delegates explicitly; this exists for legacy callers.
- * @param {Function} BaseAgentLoop
- */
-export function attachUserActionMixin(BaseAgentLoop) {
-  const proto = BaseAgentLoop.prototype;
-
-  if (!proto._attachUserInputListener) {
-    proto._attachUserInputListener = function _attachUserInputListener(_eventBus, _options = {}) {
-      return ensureUserActionHandler(this)._attachUserInputListener(_eventBus, _options);
-    };
-  }
-
-  if (!proto._attachPauseListener) {
-    proto._attachPauseListener = function _attachPauseListener(_eventBus, _options = {}) {
-      return ensureUserActionHandler(this)._attachPauseListener(_eventBus, _options);
-    };
-  }
-
-  if (!proto._detachEventBusListeners) {
-    proto._detachEventBusListeners = function _detachEventBusListeners() {
-      return ensureUserActionHandler(this)._detachEventBusListeners();
-    };
-  }
-
-  proto.waitForUserAction = function waitForUserAction(actionName, options = {}) {
-    return ensureUserActionHandler(this).waitForUserAction(actionName, options);
-  };
 }

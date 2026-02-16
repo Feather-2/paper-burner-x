@@ -18,7 +18,7 @@ vi.mock("../../../../../js/agents/runtime/core/constants/limits.js", () => {
   };
 });
 
-import { initMessageHandling } from "../../../../../js/agents/runtime/core/agent-loop-message-handling.js";
+import { MessageHandling } from "../../../../../js/agents/runtime/core/agent-loop-message-handling.js";
 import { Deque } from "../../../../../js/agents/shared/index.js";
 import { MessageManager } from "../../../../../js/agents/runtime/core/message-manager.js";
 import { getLimit } from "../../../../../js/agents/runtime/core/constants/limits.js";
@@ -30,7 +30,7 @@ function setDefaultMockImplementations() {
 
   vi.mocked(MessageManager).mockImplementation(function MessageManagerCtor(opts) {
     this.opts = opts;
-    // Minimal surface area (even if unused by initMessageHandling)
+    // Minimal surface area for MessageHandling delegation tests.
     this.messages = [];
     this._contextConfig = opts?.contextConfig ?? null;
     this._tokenUsage = { input: 0, output: 0, total: 0 };
@@ -51,7 +51,7 @@ function setDefaultMockImplementations() {
   vi.mocked(getLimit).mockImplementation((_, override) => override);
 }
 
-describe("initMessageHandling", () => {
+describe("MessageHandling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setDefaultMockImplementations();
@@ -70,7 +70,7 @@ describe("initMessageHandling", () => {
     const limitSentinel = 1234;
     vi.mocked(getLimit).mockReturnValueOnce(limitSentinel);
 
-    initMessageHandling(loop, { contextConfig, tokenCounter, logger, emit, stageName, actor, maxUserInputs });
+    new MessageHandling(loop, { contextConfig, tokenCounter, logger, emit, stageName, actor, maxUserInputs });
 
     expect(MessageManager).toHaveBeenCalledTimes(1);
     expect(MessageManager).toHaveBeenCalledWith({
@@ -104,7 +104,7 @@ describe("initMessageHandling", () => {
     const limitSentinel = 99;
     vi.mocked(getLimit).mockReturnValueOnce(limitSentinel);
 
-    initMessageHandling(loop);
+    new MessageHandling(loop);
 
     expect(MessageManager).toHaveBeenCalledTimes(1);
     expect(MessageManager).toHaveBeenCalledWith({
@@ -138,7 +138,7 @@ describe("initMessageHandling", () => {
     const sentinel = Symbol(String(_label));
     vi.mocked(getLimit).mockReturnValueOnce(sentinel);
 
-    initMessageHandling(loop, { stageName: "s", actor: "a", maxUserInputs: value });
+    new MessageHandling(loop, { stageName: "s", actor: "a", maxUserInputs: value });
 
     expect(getLimit).toHaveBeenCalledWith("MAX_USER_INPUTS", value);
     expect(loop._maxUserInputs).toBe(sentinel);
@@ -152,7 +152,7 @@ describe("initMessageHandling", () => {
     const loop = {};
     vi.mocked(getLimit).mockReturnValueOnce("limit");
 
-    expect(() => initMessageHandling(loop, options)).not.toThrow();
+    expect(() => new MessageHandling(loop, options)).not.toThrow();
     expect(MessageManager).toHaveBeenCalledTimes(1);
     expect(getLimit).toHaveBeenCalledWith("MAX_USER_INPUTS", undefined);
     expect(loop._userInputEvent).toBe("user.input");
@@ -177,7 +177,7 @@ describe("initMessageHandling", () => {
     vi.mocked(getLimit).mockReturnValueOnce(limitSentinel);
 
     expect(() =>
-      initMessageHandling(loop, {
+      new MessageHandling(loop, {
         contextConfig,
         stageName,
         actor,
@@ -211,7 +211,7 @@ describe("initMessageHandling", () => {
     };
 
     vi.mocked(getLimit).mockReturnValueOnce(1);
-    initMessageHandling(loop, { stageName: "s1", actor: "a1", maxUserInputs: 1 });
+    new MessageHandling(loop, { stageName: "s1", actor: "a1", maxUserInputs: 1 });
 
     const firstMgr = loop._messageManager;
     const firstDeque = loop._userInputs;
@@ -224,7 +224,7 @@ describe("initMessageHandling", () => {
     loop._maxUserInputs = 123;
 
     vi.mocked(getLimit).mockReturnValueOnce(2);
-    initMessageHandling(loop, { stageName: "s2", actor: "a2", maxUserInputs: 2 });
+    new MessageHandling(loop, { stageName: "s2", actor: "a2", maxUserInputs: 2 });
 
     expect(loop._messageManager).not.toBe(firstMgr);
     expect(loop._userInputs).not.toBe(firstDeque);
@@ -245,8 +245,8 @@ describe("initMessageHandling", () => {
     vi.mocked(getLimit).mockImplementation((_, override) => (override === "A" ? limitA : limitB));
 
     await Promise.all([
-      Promise.resolve().then(() => initMessageHandling(loopA, { stageName: "sA", actor: "aA", maxUserInputs: "A" })),
-      Promise.resolve().then(() => initMessageHandling(loopB, { stageName: "sB", actor: "aB", maxUserInputs: "B" })),
+      Promise.resolve().then(() => new MessageHandling(loopA, { stageName: "sA", actor: "aA", maxUserInputs: "A" })),
+      Promise.resolve().then(() => new MessageHandling(loopB, { stageName: "sB", actor: "aB", maxUserInputs: "B" })),
     ]);
 
     expect(loopA._messageManager).toBeDefined();
@@ -265,12 +265,12 @@ describe("initMessageHandling", () => {
   });
 
   it("throws when loop is null or undefined (cannot assign properties)", () => {
-    expect(() => initMessageHandling(null, { stageName: "s", actor: "a" })).toThrow(TypeError);
-    expect(() => initMessageHandling(undefined, { stageName: "s", actor: "a" })).toThrow(TypeError);
+    expect(() => new MessageHandling(null, { stageName: "s", actor: "a" })).toThrow(TypeError);
+    expect(() => new MessageHandling(undefined, { stageName: "s", actor: "a" })).toThrow(TypeError);
   });
 
   it("throws when options is null (cannot destructure)", () => {
-    expect(() => initMessageHandling({}, null)).toThrow(TypeError);
+    expect(() => new MessageHandling({}, null)).toThrow(TypeError);
   });
 
   it("propagates errors from MessageManager constructor and does not proceed", () => {
@@ -279,7 +279,7 @@ describe("initMessageHandling", () => {
     });
 
     const loop = {};
-    expect(() => initMessageHandling(loop, { stageName: "s", actor: "a" })).toThrow("mm boom");
+    expect(() => new MessageHandling(loop, { stageName: "s", actor: "a" })).toThrow("mm boom");
 
     expect(Deque).not.toHaveBeenCalled();
     expect(getLimit).not.toHaveBeenCalled();
@@ -291,7 +291,7 @@ describe("initMessageHandling", () => {
     });
 
     const loop = {};
-    expect(() => initMessageHandling(loop, { stageName: "s", actor: "a" })).toThrow("deque boom");
+    expect(() => new MessageHandling(loop, { stageName: "s", actor: "a" })).toThrow("deque boom");
 
     expect(MessageManager).toHaveBeenCalledTimes(1);
     expect(getLimit).not.toHaveBeenCalled();
@@ -303,7 +303,7 @@ describe("initMessageHandling", () => {
     });
 
     const loop = {};
-    expect(() => initMessageHandling(loop, { stageName: "s", actor: "a" })).toThrow("limit boom");
+    expect(() => new MessageHandling(loop, { stageName: "s", actor: "a" })).toThrow("limit boom");
 
     expect(MessageManager).toHaveBeenCalledTimes(1);
     expect(Deque).toHaveBeenCalledTimes(1);

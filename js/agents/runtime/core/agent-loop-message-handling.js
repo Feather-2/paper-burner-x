@@ -22,60 +22,6 @@ import { getLimit } from "./constants/limits.js";
  * @property {number} [maxUserInputs]
  */
 
-/**
- * @param {any} loop
- * @param {InitMessageHandlingOptions} [options]
- * @returns {MessageHandling}
- */
-function ensureMessageHandling(loop, options = {}) {
-  if (!loop || typeof loop !== "object") {
-    throw new Error("MessageHandling requires a loop instance");
-  }
-  if (loop._messageHandling instanceof MessageHandling) return loop._messageHandling;
-  const component = new MessageHandling(loop, options);
-  loop._messageHandling = component;
-  return component;
-}
-
-/**
- * @param {(loop: any) => MessageHandling} ensureComponent
- * @param {PropertyDescriptorMap} descriptors
- * @returns {PropertyDescriptorMap}
- */
-function createDelegatedDescriptors(ensureComponent, descriptors) {
-  /** @type {PropertyDescriptorMap} */
-  const delegated = {};
-  for (const [name, descriptor] of Object.entries(descriptors)) {
-    if (name === "constructor") continue;
-    /** @type {PropertyDescriptor} */
-    const next = {
-      configurable: true,
-      enumerable: descriptor.enumerable ?? false,
-    };
-    if (typeof descriptor.get === "function") {
-      next.get = function delegatedGetter() {
-        const component = ensureComponent(this);
-        return descriptor.get.call(component);
-      };
-    }
-    if (typeof descriptor.set === "function") {
-      next.set = function delegatedSetter(value) {
-        const component = ensureComponent(this);
-        descriptor.set.call(component, value);
-      };
-    }
-    if (typeof descriptor.value === "function") {
-      next.writable = true;
-      next.value = function delegatedMethod(...args) {
-        const component = ensureComponent(this);
-        return descriptor.value.apply(component, args);
-      };
-    }
-    delegated[name] = next;
-  }
-  return delegated;
-}
-
 export class MessageHandling {
   /**
    * @param {any} loop
@@ -345,28 +291,4 @@ export class MessageHandling {
     }
     return lines.filter(Boolean).join("\n");
   }
-}
-
-/**
- * @deprecated Use `new MessageHandling(loop, options)` instead.
- * @param {any} loop
- * @param {InitMessageHandlingOptions} [options]
- * @returns {MessageHandling}
- */
-export function initMessageHandling(loop, options = {}) {
-  const component = new MessageHandling(loop, options);
-  loop._messageHandling = component;
-  return component;
-}
-
-/**
- * @deprecated BaseAgentLoop now delegates explicitly; this exists for legacy callers.
- * @param {new (...args: any[]) => any} BaseAgentLoop
- */
-export function attachMessageHandling(BaseAgentLoop) {
-  const descriptors = createDelegatedDescriptors(
-    (loop) => ensureMessageHandling(loop),
-    Object.getOwnPropertyDescriptors(MessageHandling.prototype)
-  );
-  Object.defineProperties(BaseAgentLoop.prototype, descriptors);
 }

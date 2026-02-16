@@ -3,8 +3,6 @@
  *
  * Extracted from BaseAgentLoop (C4 audit) to support Interface Segregation.
  * Delegates all status management to StatusController.
- *
- * Pattern: initStatusMixin(this, {...}) in constructor + attachStatusMixin(Class) after class.
  */
 
 import { AgentStatus } from "./agent-status.js";
@@ -13,60 +11,6 @@ import { StatusController } from "./status-controller.js";
 /**
  * @typedef {import("./agent-loop.js").LoopStatusTransitionMeta} LoopStatusTransitionMeta
  */
-
-/**
- * @param {any} loop
- * @param {{ strictLoopStatus?: boolean, logger?: any, emit?: any, stageName?: string, actor?: string }} [options]
- * @returns {LoopStatusController}
- */
-function ensureLoopStatusController(loop, options = {}) {
-  if (!loop || typeof loop !== "object") {
-    throw new Error("LoopStatusController requires a loop instance");
-  }
-  if (loop._statusMixin instanceof LoopStatusController) return loop._statusMixin;
-  const component = new LoopStatusController(loop, options);
-  loop._statusMixin = component;
-  return component;
-}
-
-/**
- * @param {(loop: any) => LoopStatusController} ensureComponent
- * @param {PropertyDescriptorMap} descriptors
- * @returns {PropertyDescriptorMap}
- */
-function createDelegatedDescriptors(ensureComponent, descriptors) {
-  /** @type {PropertyDescriptorMap} */
-  const delegated = {};
-  for (const [name, descriptor] of Object.entries(descriptors)) {
-    if (name === "constructor") continue;
-    /** @type {PropertyDescriptor} */
-    const next = {
-      configurable: true,
-      enumerable: descriptor.enumerable ?? false,
-    };
-    if (typeof descriptor.get === "function") {
-      next.get = function delegatedGetter() {
-        const component = ensureComponent(this);
-        return descriptor.get.call(component);
-      };
-    }
-    if (typeof descriptor.set === "function") {
-      next.set = function delegatedSetter(value) {
-        const component = ensureComponent(this);
-        descriptor.set.call(component, value);
-      };
-    }
-    if (typeof descriptor.value === "function") {
-      next.writable = true;
-      next.value = function delegatedMethod(...args) {
-        const component = ensureComponent(this);
-        return descriptor.value.apply(component, args);
-      };
-    }
-    delegated[name] = next;
-  }
-  return delegated;
-}
 
 export class LoopStatusController {
   /**
@@ -177,28 +121,4 @@ export class LoopStatusController {
   _isAbortError(err, signal) {
     return this._loop._statusController._isAbortError(err, signal);
   }
-}
-
-/**
- * @deprecated Use `new LoopStatusController(loop, options)` instead.
- * @param {any} loop
- * @param {{ strictLoopStatus?: boolean, logger?: any, emit?: any, stageName?: string, actor?: string }} [options]
- * @returns {LoopStatusController}
- */
-export function initStatusMixin(loop, options = {}) {
-  const component = new LoopStatusController(loop, options);
-  loop._statusMixin = component;
-  return component;
-}
-
-/**
- * @deprecated BaseAgentLoop now delegates explicitly; this exists for legacy callers.
- * @param {new (...args: any[]) => any} BaseAgentLoop
- */
-export function attachStatusMixin(BaseAgentLoop) {
-  const descriptors = createDelegatedDescriptors(
-    (loop) => ensureLoopStatusController(loop),
-    Object.getOwnPropertyDescriptors(LoopStatusController.prototype)
-  );
-  Object.defineProperties(BaseAgentLoop.prototype, descriptors);
 }
