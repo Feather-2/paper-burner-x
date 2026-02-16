@@ -80,9 +80,11 @@ export class CRDTSyncManager {
     /** @type {Map<string, CRDTDocument>} */
     this._documents = new Map(); // docId → CRDTDocument
 
-    // NOTE: version vector 未实现。当前同步依赖 CRDTDocument.getOps(sinceVersion) 的单一版本号。
-    // 多节点 (>2) 场景需要真正的 version vector 来区分已见/未见 op。
-    // 参见 AUDIT.md A3。
+    /**
+     * @limitation Single version number sync only supports 2-node topology.
+     * For 3+ nodes, implement version vectors (per-node Lamport clocks).
+     * See docs/agents-code-audit.md BUG-CRDT2 for details.
+     */
 
     // 待发送操作队列
     /** @type {CRDTOpMessage[]} */
@@ -365,7 +367,7 @@ export class CRDTSyncManager {
     }
 
     const ops = doc.getOps(message.sinceVersion);
-    const complete = this._isSyncResponseComplete(message.sinceVersion, ops, doc.version);
+    const complete = this._isSyncResponseComplete(message.sinceVersion, ops, doc.version, doc.prunedUpToVersion);
     if (complete === false) {
       this._sendSyncResponse(message.from, message.docId, ops, false);
       return;
@@ -541,14 +543,18 @@ export class CRDTSyncManager {
    * @param {number | string | null | undefined} sinceVersion
    * @param {unknown[]} ops
    * @param {number} latestVersion
+   * @param {number} [prunedUpToVersion=0] 文档 opLog 已裁剪掉的最高 version
    * @returns {boolean}
    */
-  _isSyncResponseComplete(sinceVersion, ops, latestVersion) {
+  _isSyncResponseComplete(sinceVersion, ops, latestVersion, prunedUpToVersion = 0) {
     if (!Array.isArray(ops)) return false;
     if (sinceVersion === null || sinceVersion === undefined) return false;
 
     const numericSince = typeof sinceVersion === 'number' ? sinceVersion : Number(sinceVersion);
     if (!Number.isFinite(numericSince)) return true;
+
+    // 请求的版本在裁剪水位之前，说明存在不可恢复的缺口
+    if (numericSince < prunedUpToVersion) return false;
 
     if (ops.length === 0) {
       return numericSince >= latestVersion;

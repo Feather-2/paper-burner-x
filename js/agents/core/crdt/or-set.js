@@ -22,7 +22,7 @@ import { nextTick } from '../lamport-clock.js';
  * @template T
  * @typedef {ORSetAddOp<T> | ORSetRemoveOp<T> | { type: string, [key: string]: unknown }} ORSetOp
  */
-/** @typedef {{ type: 'ORSet', nodeId: string, elements: Record<string, string[]>, tombstones: string[] }} ORSetJSON */
+/** @typedef {{ type: 'ORSet', nodeId: string, entries?: Array<{element: *, tags: string[]}>, elements?: Record<string, string[]>, tombstones: string[] }} ORSetJSON */
 
 /**
  * Observed-Remove Set (OR-Set)
@@ -281,15 +281,15 @@ export class ORSet {
    * @returns {ORSetJSON}
    */
   toJSON() {
-    /** @type {Record<string, string[]>} */
-    const elements = {};
+    /** @type {Array<{element: T, tags: string[]}>} */
+    const entries = [];
     for (const [element, tags] of this._elements) {
-      elements[String(element)] = Array.from(tags);
+      entries.push({ element, tags: Array.from(tags) });
     }
     return {
       type: 'ORSet',
       nodeId: this._nodeId,
-      elements,
+      entries,
       tombstones: Array.from(this._tombstones),
     };
   }
@@ -305,11 +305,23 @@ export class ORSet {
       throw new Error('Invalid ORSet JSON');
     }
     const set = new ORSet({ nodeId: json.nodeId });
-    for (const [element, tags] of Object.entries(json.elements || {})) {
-      const tagList = /** @type {string[]} */ (tags);
-      set._elements.set(/** @type {U} */ (element), new Set(tagList));
-      for (const tag of tagList) {
-        set._tagToElement.set(tag, /** @type {U} */ (element));
+    if (json.entries) {
+      // New format: array of {element, tags} — preserves original types
+      for (const { element, tags } of json.entries) {
+        const tagList = /** @type {string[]} */ (tags);
+        set._elements.set(/** @type {U} */ (element), new Set(tagList));
+        for (const tag of tagList) {
+          set._tagToElement.set(tag, /** @type {U} */ (element));
+        }
+      }
+    } else if (json.elements) {
+      // Legacy format: object keys (string-only)
+      for (const [key, tags] of Object.entries(json.elements)) {
+        const tagList = /** @type {string[]} */ (tags);
+        set._elements.set(/** @type {U} */ (key), new Set(tagList));
+        for (const tag of tagList) {
+          set._tagToElement.set(tag, /** @type {U} */ (key));
+        }
       }
     }
     set._tombstones = new Set(json.tombstones || []);

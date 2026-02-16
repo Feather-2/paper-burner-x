@@ -28,7 +28,9 @@ export const DEFAULT_TREE_SITTER_WASM_BASE_URL = "wasm/tree-sitter/";
  * @returns {Promise<{Parser:any,Language:any,wasmBaseUrl:string}|null>}
  */
 export async function initTreeSitter({ wasmBaseUrl = DEFAULT_TREE_SITTER_WASM_BASE_URL } = {}) {
-  if (!isWebRuntime()) return null;
+  if (!isWebRuntime()) {
+    throw new Error('Tree-sitter WASM requires browser runtime; use native tree-sitter package for Node.js');
+  }
   if (!isWasmSupported()) throw new Error("Tree-sitter requires WebAssembly support");
   if (_parserMod) return _parserMod; // Already initialized successfully
   if (_initPromise) return _initPromise;

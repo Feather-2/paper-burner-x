@@ -208,7 +208,7 @@ describe('ORSet', () => {
     expect(set._tagToElement.has(first.tag)).toBe(false);
   });
 
-  it('serializes and restores JSON snapshots with stringified keys', () => {
+  it('serializes and restores JSON snapshots preserving element types', () => {
     const set = new ORSet({ nodeId: 'json' });
     set.add('alpha');
     const numeric = 0;
@@ -218,8 +218,8 @@ describe('ORSet', () => {
 
     const json = set.toJSON();
     expect(json).toMatchObject({ type: 'ORSet', nodeId: 'json' });
-    expect(json.elements).toHaveProperty('alpha');
-    expect(json.elements).toHaveProperty('0');
+    expect(json.entries).toBeDefined();
+    expect(json.entries.some(e => e.element === 'alpha')).toBe(true);
     expect(json.tombstones).toEqual(expect.arrayContaining(deleteOp.tags));
 
     const restored = ORSet.fromJSON(json);

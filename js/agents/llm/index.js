@@ -65,9 +65,11 @@ export {
 export async function createProvider(config = {}) {
   const { ModelRouter } = await import("./model-router.js");
 
+  const { models, providers, ...rest } = config;
   const router = new ModelRouter({
-    models: config.models || [],
-    providers: config.providers,
+    models: models || [],
+    providers,
+    ...rest,
   });
 
   return {

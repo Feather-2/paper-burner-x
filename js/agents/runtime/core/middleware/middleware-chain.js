@@ -252,24 +252,31 @@ export function createTimeoutMiddleware(options = {}) {
       : baseTimeout;
 
     return new Promise((resolve, reject) => {
-		      const timer = setTimeout(() => {
-		        /** @type {Error & { code?: string, cause?: Error }} */
-		        const err = /** @type {Error & { code?: string, cause?: Error }} */ (new Error(`Step timeout after ${stepTimeout}ms`));
-		        err.code = "TIMEOUT";
-		        try {
-		          onTimeout?.(ctx, err);
-		        } catch (callbackErr) {
-	          err.cause = /** @type {Error} */ (callbackErr);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        /** @type {Error & { code?: string, cause?: Error }} */
+        const err = /** @type {Error & { code?: string, cause?: Error }} */ (new Error(`Step timeout after ${stepTimeout}ms`));
+        err.code = "TIMEOUT";
+        try {
+          onTimeout?.(ctx, err);
+        } catch (callbackErr) {
+          err.cause = /** @type {Error} */ (callbackErr);
         }
         reject(err);
       }, stepTimeout);
 
       Promise.resolve(next())
         .then(result => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timer);
           resolve(result);
         })
         .catch(err => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timer);
           reject(err);
         });

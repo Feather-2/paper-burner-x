@@ -89,6 +89,14 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     this.worker = new Worker(workerUrl, { type: 'module' });
     this.vfsProxyHost = new VfsProxyHost(null, this.worker);
 
+    this.worker.onerror = (event) => {
+      const err = new Error(`Python worker error: ${event?.message || 'unknown'}`);
+      for (const [, req] of this.pendingRequests) {
+        req.reject(err);
+      }
+      this.pendingRequests.clear();
+    };
+
     this.worker.onmessage = async (evt) => {
       const { type, id, data, error, text, files } = evt.data;
 
@@ -144,9 +152,18 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
    * @returns {Promise<any>}
    */
   _send(type, payload, vfs = null) {
+    if (!this.worker) throw new Error('Python worker not initialized');
     const id = ++this._requestId;
     return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject, vfs });
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`Python worker request timeout after 60s (id=${id}, type=${type})`));
+      }, 60_000);
+      this.pendingRequests.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+        vfs,
+      });
       this.worker.postMessage({ type, payload, id });
     });
   }

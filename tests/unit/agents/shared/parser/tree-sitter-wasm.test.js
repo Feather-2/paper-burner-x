@@ -95,13 +95,13 @@ describe('DEFAULT_TREE_SITTER_WASM_BASE_URL', () => {
 });
 
 describe('initTreeSitter', () => {
-  it('returns null in node-like runtime', async () => {
+  it('throws in node-like runtime', async () => {
     runtimeState.nodeLike = true;
 
     const restoreFetch = setGlobalProperty('fetch', vi.fn());
     try {
       const { initTreeSitter } = await importSubject();
-      await expect(initTreeSitter()).resolves.toBeNull();
+      await expect(initTreeSitter()).rejects.toThrow('Tree-sitter WASM requires browser runtime');
 
       const wasmSupport = await import('../../../../../js/agents/shared/utils/wasm-support.js');
       expect(wasmSupport.isWasmSupported).not.toHaveBeenCalled();
@@ -111,11 +111,11 @@ describe('initTreeSitter', () => {
     }
   });
 
-  it('returns null when fetch is unavailable', async () => {
+  it('throws when fetch is unavailable', async () => {
     const restoreFetch = setGlobalProperty('fetch', undefined);
     try {
       const { initTreeSitter } = await importSubject();
-      await expect(initTreeSitter()).resolves.toBeNull();
+      await expect(initTreeSitter()).rejects.toThrow('Tree-sitter WASM requires browser runtime');
 
       const wasmSupport = await import('../../../../../js/agents/shared/utils/wasm-support.js');
       expect(wasmSupport.isWasmSupported).not.toHaveBeenCalled();
@@ -341,13 +341,13 @@ describe('initTreeSitter', () => {
 });
 
   describe('loadTreeSitterLanguage', () => {
-    it('returns null in node-like runtime (does not validate wasmFileName)', async () => {
+    it('throws in node-like runtime (does not validate wasmFileName)', async () => {
     runtimeState.nodeLike = true;
 
     const restoreFetch = setGlobalProperty('fetch', vi.fn());
     try {
       const { loadTreeSitterLanguage } = await importSubject();
-      await expect(loadTreeSitterLanguage('')).resolves.toBeNull();
+      await expect(loadTreeSitterLanguage('')).rejects.toThrow('Tree-sitter WASM requires browser runtime');
 
       expect(mockLanguage.load).not.toHaveBeenCalled();
       expect(mockParser.init).not.toHaveBeenCalled();
@@ -356,11 +356,11 @@ describe('initTreeSitter', () => {
     }
   });
 
-  it('returns null when fetch is unavailable (does not validate wasmFileName)', async () => {
+  it('throws when fetch is unavailable (does not validate wasmFileName)', async () => {
     const restoreFetch = setGlobalProperty('fetch', undefined);
     try {
       const { loadTreeSitterLanguage } = await importSubject();
-      await expect(loadTreeSitterLanguage('', { wasmBaseUrl: 'https://cdn.example.com/ts/' })).resolves.toBeNull();
+      await expect(loadTreeSitterLanguage('', { wasmBaseUrl: 'https://cdn.example.com/ts/' })).rejects.toThrow('Tree-sitter WASM requires browser runtime');
 
       expect(mockLanguage.load).not.toHaveBeenCalled();
       expect(mockParser.init).not.toHaveBeenCalled();

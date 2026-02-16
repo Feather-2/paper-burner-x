@@ -125,6 +125,8 @@ export class CRDTDocument {
     this._maxOpLogSize = options.maxOpLogSize || 1000;
     /** @type {number} */
     this._version = 0;
+    /** @type {number} 被裁剪掉的 op 的最高 version，用于同步缺口检测 */
+    this._prunedUpToVersion = 0;
   }
 
   /** Common options for child CRDT construction (forwards clockService). */
@@ -167,6 +169,14 @@ export class CRDTDocument {
    */
   get version() {
     return this._version;
+  }
+
+  /**
+   * 被裁剪掉的 op 的最高 version（用于同步缺口检测）
+   * @returns {number}
+   */
+  get prunedUpToVersion() {
+    return this._prunedUpToVersion;
   }
 
   // ===== Register 操作 =====
@@ -338,9 +348,12 @@ export class CRDTDocument {
       docId: this._docId,
     }));
 
-    // 限制日志大小
+    // 限制日志大小，同时跟踪裁剪水位以便同步缺口检测
     while (this._opLog.length > this._maxOpLogSize) {
-      this._opLog.shift();
+      const removed = this._opLog.shift();
+      if (removed?.version != null) {
+        this._prunedUpToVersion = Math.max(this._prunedUpToVersion, removed.version);
+      }
     }
   }
 
