@@ -8,7 +8,7 @@
  * - 可配置重试条件
  */
 
-import { createLogger } from "./index.js";
+import { createLogger } from "./utils/logger.js";
 
 const logger = createLogger("runtime/core/retry-strategy");
 

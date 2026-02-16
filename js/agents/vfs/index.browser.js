@@ -69,3 +69,6 @@ export { MemoryVfs } from "./vfs.memory.js";
 export { OpfsVfs, supportsOpfs } from "./vfs.opfs.js";
 export { StorageVfs } from "./vfs.storage.js";
 export { createVfsGlobFn, matchGlob, globToRegExp, expandBraces } from "./glob.js";
+
+// Checkpoints
+export { VFS_CHECKPOINT_TYPE, VFS_PAYLOAD_TYPE, recordVfsCheckpoint, listVfsCheckpoints, restoreVfsCheckpoint } from "./checkpoints.js";

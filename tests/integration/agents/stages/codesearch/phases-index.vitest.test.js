@@ -25,6 +25,7 @@ const hoisted = vi.hoisted(() => {
     "MapAdapter",
     "PB_ENCRYPTED_PREFIX",
     "Platform",
+    "RetryStrategy",
     "StageApiSpec",
     "ValidationErrorCode",
     "VectorIndex",
@@ -63,6 +64,7 @@ const hoisted = vi.hoisted(() => {
     "extractServices",
     "getCircuitBreaker",
     "getGlobalCircuitBreakerRegistry",
+    "getGlobalRetryStats",
     "getGlobalTokenCounter",
     "getIndexedDBQuotaStatus",
     "getLocalStorageQuotaStatus",
@@ -79,7 +81,10 @@ const hoisted = vi.hoisted(() => {
     "isNonRetryableError",
     "isPlainObject",
     "isPotentiallyDangerous",
+    "isRetryableError",
     "isTimeoutError",
+    "isWasmSupported",
+    "isWasmThreadsSupported",
     "loadTreeSitterLanguage",
     "logEvent",
     "makeSafe",
@@ -96,6 +101,7 @@ const hoisted = vi.hoisted(() => {
     "protoSafeReviver",
     "readJsonWithLimit",
     "readTextWithLimit",
+    "resetGlobalRetryStats",
     "robustParseJson",
     "safeExec",
     "safeInt",
@@ -128,6 +134,7 @@ const hoisted = vi.hoisted(() => {
     "validateToolResult",
     "withCancellation",
     "withCircuitBreaker",
+    "withRetry",
     "wrapError",
   ];
 
@@ -144,6 +151,7 @@ const hoisted = vi.hoisted(() => {
     "HnswLiteIndex",
     "LRUCache",
     "MapAdapter",
+    "RetryStrategy",
     "VectorIndex",
   ];
 
@@ -362,6 +370,17 @@ vi.mock("../../../../../js/agents/shared/utils/circuit-breaker.js", () => ({
   getGlobalCircuitBreakerRegistry: hoisted.getGlobalCircuitBreakerRegistry,
   getCircuitBreaker: hoisted.getCircuitBreaker,
   withCircuitBreaker: hoisted.withCircuitBreaker,
+}));
+vi.mock("../../../../../js/agents/shared/retry-strategy.js", () => ({
+  RetryStrategy: hoisted.RetryStrategy,
+  isRetryableError: hoisted.isRetryableError,
+  getGlobalRetryStats: hoisted.getGlobalRetryStats,
+  resetGlobalRetryStats: hoisted.resetGlobalRetryStats,
+  withRetry: hoisted.withRetry,
+}));
+vi.mock("../../../../../js/agents/shared/utils/wasm-support.js", () => ({
+  isWasmSupported: hoisted.isWasmSupported,
+  isWasmThreadsSupported: hoisted.isWasmThreadsSupported,
 }));
 
 vi.mock("../../../../../js/agents/core/archive/archive.js", () => ({

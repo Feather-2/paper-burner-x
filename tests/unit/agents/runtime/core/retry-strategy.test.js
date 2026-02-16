@@ -14,7 +14,7 @@ const { mockLogger, mockCreateLogger } = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../../../../js/agents/shared/index.js', () => ({
+vi.mock('../../../../../js/agents/shared/utils/logger.js', () => ({
   createLogger: mockCreateLogger,
 }));
 

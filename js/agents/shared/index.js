@@ -87,5 +87,11 @@ export { EmbeddingService, createEmbeddingService, normalizeEmbeddingConfig } fr
 export { VectorIndex } from "../retrieval/embeddings/vector-index.js";
 export { HnswLiteIndex } from "../retrieval/embeddings/hnsw-lite.js";
 
+// Retry & Resilience
+export { RetryStrategy, isRetryableError, getGlobalRetryStats, resetGlobalRetryStats, withRetry } from "./retry-strategy.js";
+
+// WASM detection
+export { isWasmSupported, isWasmThreadsSupported } from "./utils/wasm-support.js";
+
 // Tokenizers
 export { createAdaptiveTokenCounter, getGlobalTokenCounter } from "./tokenizers/adaptive-token-counter.js";
