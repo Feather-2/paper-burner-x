@@ -102,6 +102,10 @@ export const SchedulingStrategies = {
       await Promise.allSettled(executing);
     }
 
+    if (allErrors.length > 0) {
+      console.warn(`[runStagesParallel] ${allErrors.length} stage(s) failed silently`);
+    }
+
     return results;
   },
 

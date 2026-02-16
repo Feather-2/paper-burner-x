@@ -47,6 +47,9 @@ export class Container {
   /** @type {Map<string, unknown>} */
   #singletons = new Map();
 
+  /** @type {Set<string>} */
+  #resolving = new Set();
+
   /** @type {Container|null} */
   #parent = null;
 
@@ -117,11 +120,19 @@ export class Container {
     // Check local factory
     const entry = this.#factories.get(id);
     if (entry) {
-      const instance = entry.factory(this);
-      if (entry.scope === SINGLETON) {
-        this.#singletons.set(id, instance);
+      if (this.#resolving.has(id)) {
+        throw new Error(`Circular dependency detected: ${id}`);
       }
-      return instance;
+      this.#resolving.add(id);
+      try {
+        const instance = entry.factory(this);
+        if (entry.scope === SINGLETON) {
+          this.#singletons.set(id, instance);
+        }
+        return instance;
+      } finally {
+        this.#resolving.delete(id);
+      }
     }
 
     // Delegate to parent

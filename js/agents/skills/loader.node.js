@@ -61,6 +61,7 @@ const FORBIDDEN_METADATA_KEYS = new Set(["__proto__", "prototype", "constructor"
 
 // 指纹缓存：path -> { fingerprint, skill, mtime }
 const _fingerprintCache = new Map();
+const MAX_FINGERPRINT_CACHE = 500;
 
 /**
  * 解析 YAML Frontmatter
@@ -259,7 +260,11 @@ async function parseSkillFile(filePath, scope) {
     body,
   };
 
-  // 缓存结果
+  // 缓存结果（FIFO 淘汰防止无限增长）
+  if (_fingerprintCache.size >= MAX_FINGERPRINT_CACHE) {
+    const firstKey = _fingerprintCache.keys().next().value;
+    _fingerprintCache.delete(firstKey);
+  }
   _fingerprintCache.set(filePath, { fingerprint, skill });
   return skill;
 }

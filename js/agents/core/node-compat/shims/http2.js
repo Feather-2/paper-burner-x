@@ -69,7 +69,7 @@ export function getDefaultSettings() {
 }
 
 export function getPackedSettings(_settings) {
-  return Buffer.from('');
+  return new Uint8Array(0);
 }
 
 export function getUnpackedSettings(_buf) {

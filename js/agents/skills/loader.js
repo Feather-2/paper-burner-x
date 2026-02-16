@@ -30,9 +30,13 @@ let _implPromise = null;
 
 async function getImpl() {
   if (_implPromise) return _implPromise;
-  _implPromise = isNodeLike()
+  _implPromise = (isNodeLike()
     ? import("./loader.node.js")
-    : import("./loader.browser.js");
+    : import("./loader.browser.js")
+  ).catch(err => {
+    _implPromise = null;
+    throw err;
+  });
   return _implPromise;
 }
 

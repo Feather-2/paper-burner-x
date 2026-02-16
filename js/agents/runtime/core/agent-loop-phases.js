@@ -20,7 +20,7 @@ export function isAllowedLoopStatusTransition(from, to, meta = {}) {
     if (meta.force) return true;
     if (meta.allowReset && to === AgentStatus.IDLE) return true;
   }
-  if (!isValidAgentStatus(from) || !isValidAgentStatus(to)) return true;
+  if (!isValidAgentStatus(from) || !isValidAgentStatus(to)) return false;
   const allowed = DEFAULT_LOOP_STATUS_TRANSITIONS[from] || [];
   return allowed.includes(to);
 }

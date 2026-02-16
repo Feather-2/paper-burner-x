@@ -34,7 +34,7 @@ export class EventBusSubscriptions {
       return this.subscribe(name, handler, { priority });
     }
 
-    if (name.includes('*')) {
+    if (name.includes('*') || name.includes('?')) {
       let set = this._wildcardListeners.get(name);
       if (!set) {
         set = new Set();
@@ -113,7 +113,7 @@ export class EventBusSubscriptions {
 
     // 优先级订阅
     if (priority !== 0) {
-      const isWildcard = eventType.includes('*');
+      const isWildcard = eventType.includes('*') || eventType.includes('?');
       const map = isWildcard ? this._wildcardPriorityListeners : this._priorityListeners;
 
       let priorityMap = map.get(eventType);
@@ -147,7 +147,7 @@ export class EventBusSubscriptions {
    */
   off(name, handler) {
     // 检查普通监听器
-    const set = name.includes('*')
+    const set = (name.includes('*') || name.includes('?'))
       ? this._wildcardListeners.get(name)
       : this._listeners.get(name);
 
@@ -156,7 +156,7 @@ export class EventBusSubscriptions {
         if (fn === handler || fn._original === handler) {
           set.delete(fn);
           if (set.size === 0) {
-            (name.includes('*') ? this._wildcardListeners : this._listeners).delete(name);
+            ((name.includes('*') || name.includes('?')) ? this._wildcardListeners : this._listeners).delete(name);
           }
           return true;
         }

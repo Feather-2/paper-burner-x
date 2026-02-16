@@ -164,20 +164,22 @@ function createLogFn(options) {
 }
 
 /**
- * 注册事件监听
  * @param {PluginContext} ctx
  * @param {(level: string, event: string, data: unknown) => void} log
+ * @returns {{ unsubEvents: Function|undefined, unsubState: Function|undefined }}
  */
 function registerEventListeners(ctx, log) {
-  ctx.on('*', (evt) => {
+  const unsubEvents = ctx.on('*', (evt) => {
     const event = typeof evt?.name === 'string' ? evt.name : '';
     const data = evt?.payload;
     log(classifyEventLevel(event), event, data);
   });
 
-  ctx.state.subscribe('*', (newValue, oldValue, path) => {
+  const unsubState = ctx.state.subscribe('*', (newValue, oldValue, path) => {
     log('debug', `state.change:${path}`, { old: oldValue, new: newValue });
   });
+
+  return { unsubEvents, unsubState };
 }
 
 export default createPlugin({
@@ -234,7 +236,21 @@ export default createPlugin({
 
     ctx.registerService('logger', loggerService);
     ctx.state.set('installedAt', Date.now());
-    registerEventListeners(ctx, log);
+    const { unsubEvents, unsubState } = registerEventListeners(ctx, log);
+    ctx._loggerUnsubs = { unsubEvents, unsubState };
     ctx.log.info('Debug logger plugin installed');
+  },
+
+  /**
+   * @param {PluginContext} ctx
+   * @returns {void}
+   */
+  uninstall(ctx) {
+    if (ctx._loggerUnsubs) {
+      if (ctx._loggerUnsubs.unsubEvents) ctx._loggerUnsubs.unsubEvents();
+      if (ctx._loggerUnsubs.unsubState) ctx._loggerUnsubs.unsubState();
+      ctx._loggerUnsubs = null;
+    }
+    ctx.log.info('Debug logger plugin uninstalled');
   },
 });

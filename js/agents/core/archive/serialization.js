@@ -190,8 +190,15 @@ export function applyJsonPatch(base, ops) {
       if (Array.isArray(parent)) {
         const idx = Number(leaf);
         if (!Number.isFinite(idx) || idx < 0) continue;
-        if (idx >= parent.length) parent.push(deepClone(op.value));
-        else parent[idx] = deepClone(op.value);
+        if (kind === "add") {
+          // RFC 6902: add to array index splices/inserts, not overwrites
+          if (idx >= parent.length) parent.push(deepClone(op.value));
+          else parent.splice(idx, 0, deepClone(op.value));
+        } else {
+          // replace: overwrite existing element
+          if (idx >= parent.length) parent.push(deepClone(op.value));
+          else parent[idx] = deepClone(op.value);
+        }
       } else {
         parent[leaf] = deepClone(op.value);
       }

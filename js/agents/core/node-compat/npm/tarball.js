@@ -310,6 +310,7 @@ export class TarballManager {
    * @returns {Promise<ArrayBuffer>}
    */
   async download(url) {
+    // SECURITY: shasum verification not implemented — downloads are not integrity-checked
     const targetUrl = this.corsProxy
       ? `${this.corsProxy}${encodeURIComponent(url)}`
       : url;
@@ -352,21 +353,33 @@ export class TarballManager {
     let written = 0;
     let packageJson = null;
 
+    const normalizedDest = destPath.replace(/\/+$/, '') + '/';
+
     for (const header of headers) {
       if (header.type === '5') continue;
       if (!header.name) continue;
 
+      // SECURITY: sanitize path traversal from untrusted tar archive
+      const safeName = header.name
+        .split('/')
+        .filter((seg) => seg !== '..' && seg !== '.' && seg.length > 0)
+        .join('/');
+      if (!safeName) continue;
+
       const start = header.offset;
       const end = start + header.size;
       const content = tarBytes.slice(start, end);
-      const filePath = joinPath(destPath, header.name);
+      const filePath = joinPath(destPath, safeName);
+
+      // SECURITY: verify resolved path stays within destination directory
+      if (!filePath.startsWith(normalizedDest) && filePath !== normalizedDest.slice(0, -1)) continue;
       const slashIndex = filePath.lastIndexOf('/');
       if (slashIndex > 0 && typeof vfs.mkdir === 'function') {
         const dirPath = filePath.slice(0, slashIndex);
         await vfs.mkdir(dirPath, { recursive: true });
       }
       await vfs.writeFile(filePath, content);
-      if (header.name === 'package.json') {
+      if (safeName === 'package.json') {
         packageJson = parseJsonBytes(content);
       }
       written += 1;

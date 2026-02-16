@@ -419,6 +419,15 @@ export class Archive {
     const cutoffMs = Date.now() - n * DAY_MS;
     const keys = await this.storage.keys("*");
 
+    // Collect base references from all snapshots to protect diff chain integrity
+    const referencedBases = new Set();
+    for (const key of keys) {
+      const snap = await this.storage.get(key);
+      if (snap && typeof snap.base === "string" && snap.base) {
+        referencedBases.add(snap.base);
+      }
+    }
+
     let deleted = 0;
     for (const key of keys) {
       const parsed = splitCheckpointId(key);
@@ -427,6 +436,9 @@ export class Archive {
       const tsMs = toEpochMs(parsed.timestamp);
       if (tsMs === null) continue;
       if (tsMs >= cutoffMs) continue;
+
+      // Skip snapshots referenced as base by diff snapshots to prevent chain breakage
+      if (referencedBases.has(key)) continue;
 
       await this.storage.delete(key);
       this._restoreCache.delete(key);

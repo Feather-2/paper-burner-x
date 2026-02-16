@@ -197,6 +197,10 @@ export class PluginManager {
       return; // 已安装
     }
 
+    if (entry.status === PluginStatus.INSTALLING) {
+      throw new Error(`Plugin circular dependency detected during install: ${pluginName}`);
+    }
+
     const { plugin, config } = entry;
 
     // 检查依赖
@@ -321,11 +325,15 @@ export class PluginManager {
    */
   _topologicalSort() {
     const visited = new Set();
+    const visiting = new Set();
     const result = [];
 
     const visit = (name) => {
       if (visited.has(name)) return;
-      visited.add(name);
+      if (visiting.has(name)) {
+        throw new Error(`Plugin circular dependency detected: ${name}`);
+      }
+      visiting.add(name);
 
       const entry = this._plugins.get(name);
       if (entry) {
@@ -334,6 +342,9 @@ export class PluginManager {
         }
         result.push(name);
       }
+
+      visiting.delete(name);
+      visited.add(name);
     };
 
     for (const name of this._plugins.keys()) {

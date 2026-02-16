@@ -321,13 +321,9 @@ export function isPathInsideBase(resolvedPath, basePath, pathModule) {
   return rel && !rel.startsWith("..") && !pathModule.isAbsolute(rel);
 }
 
-export function escapeTemplateDelimiters(value) {
-  const s = typeof value === "string" ? value : String(value ?? "");
-  if (!s) return s;
-  // Prevent user-controlled content from injecting new {{...}} placeholders into subsequent renders.
-  // Use split/join for broader browser compatibility (replaceAll requires ES2021+).
-  return s.split("{{").join(`{\u200B{`).split("}}").join(`}\u200B}`);
-}
+// Re-export the canonical backslash-based escape so callers that import from
+// this module get the same implementation used by prompt-template.js's unescape.
+export { escapeTemplateDelimiters } from "./formatters/escape-template-delimiters.js";
 
 /**
  * 获取 Node.js 模块（安全处理 ESM/CJS 兼容性）

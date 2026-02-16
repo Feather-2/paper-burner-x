@@ -393,9 +393,6 @@ export class McpClient {
     let last = null;
     for (const name of preferred) {
       let r = await this.callTool(name, args, { providerId });
-      if (r && r.error && String(r.error).toLowerCase().includes("circuit open")) {
-        r = await this.callTool(name, args, { providerId, skipCircuit: true });
-      }
       last = r;
       if (r && r.success) return r;
     }
@@ -412,9 +409,6 @@ export class McpClient {
     let last = null;
     for (const name of preferred) {
       let r = await this.callTool(name, args, { providerId });
-      if (r && r.error && String(r.error).toLowerCase().includes("circuit open")) {
-        r = await this.callTool(name, args, { providerId, skipCircuit: true });
-      }
       last = r;
       if (r && r.success) return r;
     }

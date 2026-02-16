@@ -198,13 +198,14 @@ export function joinPaths(base, rel) {
 }
 
 /**
+ * @param {object} ctx - Helper context with baseRootIsAbs, baseRoot, baseRootForVfs
  * @param {any} inputPath
  * @returns {string}
  */
-export function safeRelativePath(inputPath) {
-  const baseRootIsAbs = Boolean(this?.baseRootIsAbs);
-  const baseRoot = String(this?.baseRoot || "");
-  const baseRootForVfs = String(this?.baseRootForVfs || "");
+export function safeRelativePath(ctx, inputPath) {
+  const baseRootIsAbs = Boolean(ctx?.baseRootIsAbs);
+  const baseRoot = String(ctx?.baseRoot || "");
+  const baseRootForVfs = String(ctx?.baseRootForVfs || "");
 
   const raw = String(inputPath ?? "").trim();
   if (!raw) return "";
@@ -237,15 +238,15 @@ export function safeRelativePath(inputPath) {
 }
 
 /**
+ * @param {object} ctx - Helper context with baseRootForFs, baseRootForVfs, and safeRelativePath fields
  * @param {any} inputPath
  * @returns {{ rel: string, fsPath: string, vfsPath: string, displayPath: string }}
  */
-export function buildPaths(inputPath) {
-  const baseRootForFs = String(this?.baseRootForFs || "");
-  const baseRootForVfs = String(this?.baseRootForVfs || "");
-  const safeRelativePathFn = typeof this?.safeRelativePath === "function" ? this.safeRelativePath : safeRelativePath;
+export function buildPaths(ctx, inputPath) {
+  const baseRootForFs = String(ctx?.baseRootForFs || "");
+  const baseRootForVfs = String(ctx?.baseRootForVfs || "");
 
-  const rel = safeRelativePathFn(inputPath);
+  const rel = safeRelativePath(ctx, inputPath);
   const fsPath = joinPaths(baseRootForFs, rel);
   const vfsPath = joinPaths(baseRootForVfs, rel);
   const displayPath = joinPaths(baseRootForVfs, rel) || ".";
@@ -277,23 +278,24 @@ export function normalizeStringArray(value) {
 }
 
 /**
+ * @param {object} ctx - Helper context with workspaceId
  * @param {any} input
  * @returns {string}
  */
-export function normalizeWorkspaceId(input) {
+export function normalizeWorkspaceId(ctx, input) {
   const s = String(input || "").trim();
-  return s || String(this?.workspaceId || "").trim() || "default";
+  return s || String(ctx?.workspaceId || "").trim() || "default";
 }
 
 /**
+ * @param {object} ctx - Helper context with vfs, fs, and fields needed by buildPaths
  * @param {string} filePath
  * @returns {Promise<string>}
  */
-export async function readTextForIndexing(filePath) {
-  const buildPathsFn = typeof this?.buildPaths === "function" ? this.buildPaths : buildPaths;
-  const { fsPath, vfsPath } = buildPathsFn(filePath);
-  const vfs = this?.vfs;
-  const fs = this?.fs;
+export async function readTextForIndexing(ctx, filePath) {
+  const { fsPath, vfsPath } = buildPaths(ctx, filePath);
+  const vfs = ctx?.vfs;
+  const fs = ctx?.fs;
 
   if (vfs && typeof vfs.readText === "function") return vfs.readText(vfsPath);
   if (vfs && typeof vfs.readFile === "function") {

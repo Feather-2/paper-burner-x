@@ -64,6 +64,7 @@ function loadPptConfig(type) {
   try {
     const key = STORAGE_KEYS[type] || (Object.values(STORAGE_KEYS).includes(type) ? type : null);
     if (!key) return null;
+    if (typeof localStorage === 'undefined') return null;
     const raw = localStorage.getItem(key);
     return safeJsonParse(raw, { maxChars: 200_000 });
   } catch {

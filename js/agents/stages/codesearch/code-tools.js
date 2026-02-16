@@ -134,8 +134,6 @@ export function createToolExecutor(options = {}) {
    * workspaceId: string|undefined,
    * fs: FileSystemLike|undefined,
    * vfs: VfsLike|undefined,
-   * safeRelativePath?: (inputPath:any)=>string,
-   * buildPaths?: (inputPath:any)=>{ rel: string, fsPath: string, vfsPath: string, displayPath: string }
    * }} */
   const helperContext = {
     baseRootIsAbs,
@@ -146,12 +144,14 @@ export function createToolExecutor(options = {}) {
     fs,
     vfs,
   };
-  const safeRelativePath = safeRelativePathHelper.bind(helperContext);
-  helperContext.safeRelativePath = safeRelativePath;
-  const buildPaths = buildPathsHelper.bind(helperContext);
-  helperContext.buildPaths = buildPaths;
-  const normalizeWorkspaceId = normalizeWorkspaceIdHelper.bind(helperContext);
-  const readTextForIndexing = readTextForIndexingHelper.bind(helperContext);
+  /** @param {any} inputPath */
+  const safeRelativePath = (inputPath) => safeRelativePathHelper(helperContext, inputPath);
+  /** @param {any} inputPath */
+  const buildPaths = (inputPath) => buildPathsHelper(helperContext, inputPath);
+  /** @param {any=} input */
+  const normalizeWorkspaceId = (input) => normalizeWorkspaceIdHelper(helperContext, input);
+  /** @param {string} filePath */
+  const readTextForIndexing = (filePath) => readTextForIndexingHelper(helperContext, filePath);
 
   const symbolIndexer = new SymbolIndexer({
     vfs:

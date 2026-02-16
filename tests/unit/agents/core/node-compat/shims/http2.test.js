@@ -66,7 +66,7 @@ describe('http2 shim', () => {
 
     expect(getDefaultSettings()).toEqual({});
     const packed = getPackedSettings({});
-    expect(Buffer.isBuffer(packed)).toBe(true);
+    expect(packed).toBeInstanceOf(Uint8Array);
     expect(packed.length).toBe(0);
     expect(getUnpackedSettings(packed)).toEqual({});
     expect(typeof sensitiveHeaders).toBe('symbol');

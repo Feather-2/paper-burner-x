@@ -385,7 +385,7 @@ describe("McpClient", () => {
     expect(shared.CircuitBreaker.instances[0].execute).toHaveBeenCalledTimes(4);
   });
 
-  it("search passes args, retries on circuit open, and supports boundaries", async () => {
+  it("search passes args, falls back on circuit open, and supports boundaries", async () => {
     const client = new McpClient();
     const callSpy = vi.spyOn(client, "callTool");
     const circuit = new McpToolResult({ success: false, error: "Circuit open" });
@@ -403,11 +403,12 @@ describe("McpClient", () => {
       { query: "  q ", domain: "", time_range: "7d", limit: 0, filters },
       { providerId: undefined }
     );
+    // Circuit open → falls back to legacy "search" tool name (no skipCircuit retry)
     expect(callSpy).toHaveBeenNthCalledWith(
       2,
-      "search.query",
+      "search",
       { query: "  q ", domain: "", time_range: "7d", limit: 0, filters },
-      { providerId: undefined, skipCircuit: true }
+      { providerId: undefined }
     );
   });
 
@@ -435,7 +436,7 @@ describe("McpClient", () => {
     }
   });
 
-  it("fetch passes url, retries on circuit open, and falls back", async () => {
+  it("fetch passes url, falls back on circuit open and tool names", async () => {
     const client = new McpClient();
     const callSpy = vi.spyOn(client, "callTool");
     const fail = new McpToolResult({ success: false, error: "nope" });
@@ -453,8 +454,9 @@ describe("McpClient", () => {
     const out = await client.fetch({ url: longUrl }, { providerId: "p1" });
     expect(out).toBe(ok);
 
+    // Circuit open on search.fetch → falls back to fetch_content (no skipCircuit retry)
     expect(callSpy).toHaveBeenNthCalledWith(1, "search.fetch", { url: longUrl }, { providerId: "p1" });
-    expect(callSpy).toHaveBeenNthCalledWith(2, "search.fetch", { url: longUrl }, { providerId: "p1", skipCircuit: true });
+    expect(callSpy).toHaveBeenNthCalledWith(2, "fetch_content", { url: longUrl }, { providerId: "p1" });
 
     const out2 = await client.fetch({ url: "https://fallback.test" });
     expect(out2).toBe(ok);

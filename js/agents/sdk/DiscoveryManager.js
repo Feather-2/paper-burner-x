@@ -131,8 +131,10 @@ export class DiscoveryManager {
         // 简单启发式冲突检测
         const sourceIds = new Set(evidences.map(e => e.sourceId).filter(Boolean));
         if (sourceIds.size > 1) {
+            // TODO: implement actual conflict detection logic
             // 标记为存疑，提醒模型进行交叉验证
-            // 注意：具体判定仍由 evaluate-gaps skill 或模型逻辑决定
+            // 具体判定仍由 evaluate-gaps skill 或模型逻辑决定
+            // Placeholder: no-op until conflict semantics are defined
         }
     }
 
@@ -141,6 +143,7 @@ export class DiscoveryManager {
      * @returns {DiscoveryRecord | null}
      */
     getDiscovery(id) {
+        if (!this.sharedContext) return null;
         const signals = this.sharedContext.getSignals(s => s.payload?._syncKey === `discovery:${id}`);
         return signals[0]?.payload || null;
     }

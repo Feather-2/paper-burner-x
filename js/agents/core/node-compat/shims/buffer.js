@@ -12,8 +12,9 @@ export class Buffer extends Uint8Array {
   static from(input, encoding) {
     if (typeof input === 'string') {
       const enc = (encoding || 'utf8').toLowerCase();
-      if (enc === 'base64') {
-        const bin = atob(input);
+      if (enc === 'base64' || enc === 'base64url') {
+        const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+        const bin = atob(normalized);
         const arr = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
         return Object.setPrototypeOf(arr, Buffer.prototype);
@@ -97,7 +98,7 @@ export class Buffer extends Uint8Array {
     if (typeof string !== 'string') return string.length || 0;
     const enc = (encoding || 'utf8').toLowerCase();
     if (enc === 'hex') return string.length / 2;
-    if (enc === 'base64') {
+    if (enc === 'base64' || enc === 'base64url') {
       let padding = 0;
       if (string.endsWith('==')) padding = 2;
       else if (string.endsWith('=')) padding = 1;
@@ -113,7 +114,7 @@ export class Buffer extends Uint8Array {
    */
   static isEncoding(enc) {
     return [
-      'utf8', 'utf-8', 'hex', 'base64', 'ascii',
+      'utf8', 'utf-8', 'hex', 'base64', 'base64url', 'ascii',
       'latin1', 'binary', 'ucs2', 'ucs-2', 'utf16le', 'utf-16le',
     ].includes((enc || '').toLowerCase());
   }

@@ -119,7 +119,7 @@ it("Design model-caller: logger injection, debug gating, hard timeout, and clean
     const callModel = getDesignModelCaller(stageApi, { usage: "designer", timeoutMs: 5_000 });
     const out = await callModel([{ role: "user", content: "hi" }], { timeoutMs: 5_000 });
     expect(out.content).toBe("ok");
-    expect(injectedCalls.some(c => String(c.msg).includes("[design.model] call via ModelRouter")));
+    expect(injectedCalls.some(c => String(c.msg).includes("[design.model] call via ModelRouter"))).toBe(true);
 
     setLogger(null);
     const consoleCalls = [];
@@ -132,7 +132,7 @@ it("Design model-caller: logger injection, debug gating, hard timeout, and clean
         expect(out2.content).toBe("ok");
       }
     );
-    expect(consoleCalls.some(c => String(c.msg).includes("[design.model] call via ModelRouter")));
+    expect(consoleCalls.some(c => String(c.msg).includes("[design.model] call via ModelRouter"))).toBe(true);
   }).finally(() => setLogger(null));
 
   // Production env: debug logs are suppressed even if DEBUG_DESIGN_MODEL is set.

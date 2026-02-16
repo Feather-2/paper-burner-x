@@ -33,7 +33,7 @@ describe('tls shim', () => {
     expect(server.listen(443)).toBe(server);
     expect(server.close()).toBe(server);
     expect(server.address()).toBeNull();
-    expect(server.getTicketKeys()).toEqual(Buffer.from(''));
+    expect(server.getTicketKeys()).toBeInstanceOf(Uint8Array);
     expect(() => server.setTicketKeys(Buffer.from('abc'))).not.toThrow();
     expect(() => server.setSecureContext({ cert: 'x', key: 'y' })).not.toThrow();
   });

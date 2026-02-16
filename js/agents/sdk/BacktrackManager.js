@@ -14,7 +14,7 @@ export class BacktrackManager {
         this.compressor = options.compressor || null;
         this.maxBacktracks = options.maxBacktracks ?? 3;
         this._backtrackCount = 0;
-        this._logger = options.logger || createLogger("sdk/backtrack-manager");
+        this._logger = options.logger || { info() {}, warn() {}, error() {}, debug() {} };
     }
 
     get backtrackCount() {

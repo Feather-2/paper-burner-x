@@ -130,7 +130,7 @@ export function renderSkillsSection(skills, options = {}) {
 - Safety and fallback: If a skill can't be applied cleanly (missing files, unclear instructions), state the issue, pick the next-best approach, and continue.
 `.trim());
 
-  return lines.join("\\n");
+  return lines.join("\n");
 }
 
 /**
@@ -155,7 +155,7 @@ export function renderSkillsList(skills) {
     lines.push(`- ${priorityTag}$${meta.name}: ${meta.shortDescription || meta.description}`);
   }
 
-  return lines.join("\\n");
+  return lines.join("\n");
 }
 
 /**
@@ -167,11 +167,11 @@ export function renderSkillsList(skills) {
  * @returns {string}
  */
 export function renderUnifiedCatalog({ capabilities = [], skills = [] } = {}) {
-  const lines = ["## 可用能力和技能\\n"];
+  const lines = ["## 可用能力和技能\n"];
 
   // Capabilities (硬技能 - 可执行)
   if (capabilities.length > 0) {
-    lines.push("### 🛠️ 可执行能力 (Capabilities)\\n");
+    lines.push("### 🛠️ 可执行能力 (Capabilities)\n");
 
     const capGroups = { critical: [], important: [], optional: [] };
     for (const cap of capabilities) {
@@ -191,7 +191,7 @@ export function renderUnifiedCatalog({ capabilities = [], skills = [] } = {}) {
 
   // Skills (软技能 - Prompt 注入)
   if (skills.length > 0) {
-    lines.push("### 📚 知识技能 (Skills)\\n");
+    lines.push("### 📚 知识技能 (Skills)\n");
 
     const { critical, important, optional } = groupSkillsByPriority(skills);
     const ordered = [...critical, ...important, ...optional];
@@ -205,7 +205,7 @@ export function renderUnifiedCatalog({ capabilities = [], skills = [] } = {}) {
     lines.push("");
   }
 
-  return lines.join("\\n");
+  return lines.join("\n");
 }
 
 export default {

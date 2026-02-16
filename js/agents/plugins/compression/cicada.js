@@ -146,8 +146,8 @@ export default createPlugin({
       },
     });
 
-    // 监听 token 阈值
-    ctx.on('runtime:tokens:updated', (evt) => {
+    // 监听 token 阈值（保留取消订阅句柄）
+    const unsub = ctx.on('runtime:tokens:updated', (evt) => {
       const data = evt?.payload;
       if (data?.total > ctx.config.maxContextTokens * WARNING_RATIO) {
         ctx.events.emit('compression:warning', {
@@ -156,6 +156,7 @@ export default createPlugin({
         });
       }
     });
+    ctx._cicadaUnsub = unsub;
 
     ctx.log.info('Cicada compression plugin installed');
   },
@@ -165,6 +166,10 @@ export default createPlugin({
    * @returns {Promise<void>}
    */
   async uninstall(ctx) {
+    if (ctx._cicadaUnsub) {
+      ctx._cicadaUnsub();
+      ctx._cicadaUnsub = null;
+    }
     ctx.log.info('Cicada compression plugin uninstalled');
   },
 });

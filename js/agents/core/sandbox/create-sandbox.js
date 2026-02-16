@@ -5,6 +5,14 @@
  * and main-thread execution backends.  `level: 'auto'` probes in priority
  * order and falls back to the first available backend.
  *
+ * WARNING -- SECURITY NOTICE:
+ * These sandboxes provide **execution isolation** (separate thread or scope)
+ * but do **NOT** provide security isolation. Code executed in the Worker
+ * backend has access to Worker globals (self, fetch, importScripts). Code
+ * executed in the main-thread backend has full access to globalThis and the
+ * DOM. Only the WASM backend (QuickJS) offers meaningful capability
+ * restriction. Do NOT use non-WASM sandboxes to execute untrusted code.
+ *
  * @module create-sandbox
  */
 
@@ -88,6 +96,14 @@ async function createWasmSandbox(cfg) {
 }
 
 /**
+ * Create a Worker-based sandbox.
+ *
+ * @security This backend uses bare `eval()` inside a Web Worker. Workers
+ * provide thread isolation (separate event loop, no DOM access) but NOT
+ * security isolation -- the Worker global scope exposes `self`, `fetch`,
+ * `importScripts`, `WebSocket`, `XMLHttpRequest`, and other network APIs.
+ * Do NOT execute untrusted code through this backend.
+ *
  * @param {import('./sandbox-interface.js').SandboxConfig} cfg
  * @returns {Promise<import('./sandbox-interface.js').Sandbox>}
  */
@@ -167,6 +183,14 @@ async function createIframeSandbox(cfg) {
 }
 
 /**
+ * Create a main-thread sandbox (least isolation).
+ *
+ * @security This backend uses `new Function()` which executes with full
+ * access to globalThis, the DOM, and all browser/Node.js APIs. It provides
+ * scope separation only (no closure over local variables) but ZERO security
+ * isolation. This is strictly a convenience fallback for trusted code.
+ * Do NOT execute untrusted code through this backend.
+ *
  * @param {import('./sandbox-interface.js').SandboxConfig} cfg
  * @returns {Promise<import('./sandbox-interface.js').Sandbox>}
  */

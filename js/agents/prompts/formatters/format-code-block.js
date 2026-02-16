@@ -9,6 +9,8 @@
 export function formatCodeBlock(value, { lang = "" } = {}) {
   const content = value == null ? "" : String(value);
   const language = typeof lang === "string" ? lang.trim() : "";
-  return `\`\`\`${language}\n${content}\n\`\`\``;
+  // Use a longer fence when content contains triple backticks to prevent fence escape
+  const fence = content.includes("```") ? "````" : "```";
+  return `${fence}${language}\n${content}\n${fence}`;
 }
 

@@ -110,7 +110,7 @@ it("SDK: AgentInstance.dispose unsubscribes + rejects further use", async () => 
   unsubscribe();
 
   expect(() => agent.run({ tool: "Echo", args: { text: "hi" } }, { state: {}, signal: null })).toThrow(/disposed/i);
-  expect(() => agent.on("x", () => {}), /disposed/i);
+  expect(() => agent.on("x", () => {})).toThrow(/disposed/i);
   expect(() => agent.getCapabilityDefinitions()).toThrow(/disposed/i);
-  expect(() => agent.toolExecutor, /disposed/i).toThrow();
+  expect(() => agent.toolExecutor).toThrow(/disposed/i);
 });

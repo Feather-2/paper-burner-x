@@ -206,10 +206,10 @@ describe('DiscoveryManager', () => {
     expect(manager.getDiscovery('missing')).toBeNull();
   });
 
-  it('getDiscovery throws when sharedContext is null', () => {
+  it('getDiscovery returns null when sharedContext is null', () => {
     const manager = new DiscoveryManager({ sharedContext: null });
 
-    expect(() => manager.getDiscovery('gap-1')).toThrow(TypeError);
+    expect(manager.getDiscovery('gap-1')).toBeNull();
   });
 
   it('getAllDiscoveries returns empty array without sharedContext', () => {

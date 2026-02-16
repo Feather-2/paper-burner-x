@@ -152,14 +152,10 @@ describe("StatusController", () => {
     const reset = controller.transition(AgentStatus.IDLE, { allowReset: true });
     expect(reset).toMatchObject({ from: AgentStatus.RUNNING, to: AgentStatus.IDLE });
 
-    const emptyStatus = controller.transition("", { strict: true });
-    expect(emptyStatus).toMatchObject({ from: AgentStatus.IDLE, to: "" });
-
-    const nullStatus = controller.transition(null);
-    expect(nullStatus).toMatchObject({ from: "", to: null });
-
-    const undefinedStatus = controller.transition(undefined);
-    expect(undefinedStatus).toMatchObject({ from: null, to: undefined });
+    // Invalid statuses should now be rejected (BUG 20 fix)
+    expect(() => controller.transition("", { strict: true })).toThrow(/loopStatus transition rejected/i);
+    expect(() => controller.transition(null)).toThrow(/loopStatus transition rejected/i);
+    expect(() => controller.transition(undefined)).toThrow(/loopStatus transition rejected/i);
   });
 
   it("records timestamps with boundary numbers and falls back for string inputs", () => {

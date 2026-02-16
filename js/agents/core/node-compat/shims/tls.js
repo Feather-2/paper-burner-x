@@ -49,7 +49,7 @@ export class Server extends EventEmitter {
   }
 
   getTicketKeys() {
-    return Buffer.from('');
+    return new Uint8Array(0);
   }
 
   setTicketKeys(_keys) {}

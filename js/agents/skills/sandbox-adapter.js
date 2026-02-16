@@ -126,8 +126,11 @@ export async function createSandboxedSkillsManager(options = {}) {
 }
 
 /**
- * Heuristic risk analysis — NOT a security boundary.
- * Regex patterns can be trivially bypassed (bracket notation, string concatenation, etc.).
+ * @security This is a heuristic pattern scanner, NOT a security boundary.
+ * It catches obvious dangerous patterns but can be trivially bypassed
+ * via string concatenation, indirect eval, etc.
+ * Do NOT rely on this as the sole security gate for untrusted code.
+ *
  * The actual security boundary is the WASM sandbox (SkillExecutor).
  * This function only influences the capability set granted to the sandbox.
  *
@@ -151,6 +154,8 @@ export function analyzeSkillRisk(skillBody) {
     { pattern: /WebSocket/, risk: 'medium', desc: 'Uses WebSocket' },
     { pattern: /__proto__|prototype\s*=/, risk: 'high', desc: 'Prototype manipulation' },
     { pattern: /constructor\s*\[/, risk: 'high', desc: 'Constructor access' },
+    // Bracket notation access to dangerous globals (catches indirect eval/Function/constructor)
+    { pattern: /\[\s*['"](?:eval|Function|constructor)['"]\s*\]/, risk: 'high', desc: 'Bracket notation access to dangerous global' },
   ];
 
   for (const { pattern, risk, desc } of dangerousPatterns) {
