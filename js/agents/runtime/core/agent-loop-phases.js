@@ -28,20 +28,20 @@ export function isAllowedLoopStatusTransition(from, to, meta = {}) {
 /**
  * @param {any} loop
  * @param {Record<string, any>} [options]
- * @returns {PhaseMixin}
+ * @returns {PhaseRunner}
  */
-function ensurePhaseMixin(loop, options = {}) {
+function ensurePhaseRunner(loop, options = {}) {
   if (!loop || typeof loop !== "object") {
-    throw new Error("PhaseMixin requires a loop instance");
+    throw new Error("PhaseRunner requires a loop instance");
   }
-  if (loop._phaseMixin instanceof PhaseMixin) return loop._phaseMixin;
-  const component = new PhaseMixin(loop, options);
+  if (loop._phaseMixin instanceof PhaseRunner) return loop._phaseMixin;
+  const component = new PhaseRunner(loop, options);
   loop._phaseMixin = component;
   return component;
 }
 
 /**
- * @param {(loop: any) => PhaseMixin} ensureComponent
+ * @param {(loop: any) => PhaseRunner} ensureComponent
  * @param {PropertyDescriptorMap} descriptors
  * @returns {PropertyDescriptorMap}
  */
@@ -79,7 +79,7 @@ function createDelegatedDescriptors(ensureComponent, descriptors) {
   return delegated;
 }
 
-export class PhaseMixin {
+export class PhaseRunner {
   /**
    * @param {any} loop
    * @param {Record<string, any>} [_options]
@@ -150,8 +150,8 @@ export class PhaseMixin {
  */
 export function attachPhaseMixin(BaseAgentLoop) {
   const descriptors = createDelegatedDescriptors(
-    (loop) => ensurePhaseMixin(loop),
-    Object.getOwnPropertyDescriptors(PhaseMixin.prototype)
+    (loop) => ensurePhaseRunner(loop),
+    Object.getOwnPropertyDescriptors(PhaseRunner.prototype)
   );
   Object.defineProperties(BaseAgentLoop.prototype, descriptors);
 }

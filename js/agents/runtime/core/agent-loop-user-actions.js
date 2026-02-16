@@ -3,19 +3,19 @@ const USER_ACTION_PREFIX = "user.action";
 /**
  * @param {any} loop
  * @param {Record<string, any>} [options]
- * @returns {UserActionMixin}
+ * @returns {UserActionHandler}
  */
-function ensureUserActionMixin(loop, options = {}) {
+function ensureUserActionHandler(loop, options = {}) {
   if (!loop || typeof loop !== "object") {
-    throw new Error("UserActionMixin requires a loop instance");
+    throw new Error("UserActionHandler requires a loop instance");
   }
-  if (loop._userActionMixin instanceof UserActionMixin) return loop._userActionMixin;
-  const component = new UserActionMixin(loop, options);
+  if (loop._userActionMixin instanceof UserActionHandler) return loop._userActionMixin;
+  const component = new UserActionHandler(loop, options);
   loop._userActionMixin = component;
   return component;
 }
 
-export class UserActionMixin {
+export class UserActionHandler {
   /**
    * @param {any} loop
    * @param {Record<string, any>} [_options]
@@ -89,23 +89,23 @@ export function attachUserActionMixin(BaseAgentLoop) {
 
   if (!proto._attachUserInputListener) {
     proto._attachUserInputListener = function _attachUserInputListener(_eventBus, _options = {}) {
-      return ensureUserActionMixin(this)._attachUserInputListener(_eventBus, _options);
+      return ensureUserActionHandler(this)._attachUserInputListener(_eventBus, _options);
     };
   }
 
   if (!proto._attachPauseListener) {
     proto._attachPauseListener = function _attachPauseListener(_eventBus, _options = {}) {
-      return ensureUserActionMixin(this)._attachPauseListener(_eventBus, _options);
+      return ensureUserActionHandler(this)._attachPauseListener(_eventBus, _options);
     };
   }
 
   if (!proto._detachEventBusListeners) {
     proto._detachEventBusListeners = function _detachEventBusListeners() {
-      return ensureUserActionMixin(this)._detachEventBusListeners();
+      return ensureUserActionHandler(this)._detachEventBusListeners();
     };
   }
 
   proto.waitForUserAction = function waitForUserAction(actionName, options = {}) {
-    return ensureUserActionMixin(this).waitForUserAction(actionName, options);
+    return ensureUserActionHandler(this).waitForUserAction(actionName, options);
   };
 }

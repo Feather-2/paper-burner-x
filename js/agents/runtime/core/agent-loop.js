@@ -7,10 +7,10 @@ import { getGlobalTokenCounter } from "../../shared/index.js";
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
 import { MessageHandling } from "./agent-loop-message-handling.js";
 import { ToolDispatch } from "./agent-loop-tool-dispatch.js";
-import { StatusMixin } from "./agent-loop-status-mixin.js";
-import { StepMixin } from "./agent-loop-step-mixin.js";
-import { PhaseMixin } from "./agent-loop-phase-mixin.js";
-import { UserActionMixin } from "./agent-loop-user-action-mixin.js";
+import { LoopStatusController } from "./agent-loop-status.js";
+import { StepRunner } from "./agent-loop-steps.js";
+import { PhaseRunner } from "./agent-loop-phases.js";
+import { UserActionHandler } from "./agent-loop-user-actions.js";
 import { runWithAgentLifecycleHooks } from "./agent-loop-lifecycle-hooks.js";
 
 /**
@@ -169,8 +169,8 @@ function resolveStrictLoopStatusTransitions(explicit) {
   return true;
 }
 
-// isAllowedLoopStatusTransition moved to agent-loop-phase-mixin.js
-export { isAllowedLoopStatusTransition } from "./agent-loop-phase-mixin.js";
+// isAllowedLoopStatusTransition moved to agent-loop-phases.js
+export { isAllowedLoopStatusTransition } from "./agent-loop-phases.js";
 
 /**
  * @param {any} ctx
@@ -306,7 +306,7 @@ export class BaseAgentLoop {
 
     this._toolDispatch = new ToolDispatch(this, { tools, hooks, logger });
 
-    this._statusMixin = new StatusMixin(this, {
+    this._statusMixin = new LoopStatusController(this, {
       strictLoopStatus,
       logger,
       emit: this.emit,
@@ -314,9 +314,9 @@ export class BaseAgentLoop {
       actor: this.actor,
     });
 
-    this._stepMixin = new StepMixin(this);
-    this._phaseMixin = new PhaseMixin(this);
-    this._userActionMixin = new UserActionMixin(this);
+    this._stepMixin = new StepRunner(this);
+    this._phaseMixin = new PhaseRunner(this);
+    this._userActionMixin = new UserActionHandler(this);
     this._executeAbortController = null;
   }
 
@@ -560,7 +560,7 @@ export class BaseAgentLoop {
     return this._toolDispatch._callTool(name, params, context);
   }
 
-  // ===== StatusMixin delegates =====
+  // ===== LoopStatusController delegates =====
 
   /** @returns {string} */
   get loopStatus() {
@@ -652,7 +652,7 @@ export class BaseAgentLoop {
     return this._statusMixin._isAbortError(err, signal);
   }
 
-  // ===== StepMixin delegates =====
+  // ===== StepRunner delegates =====
 
   /**
    * @param {StepMeta} [stepMeta]
@@ -692,7 +692,7 @@ export class BaseAgentLoop {
     return this._stepMixin._createStepSignal(parentSignal);
   }
 
-  // ===== PhaseMixin delegates =====
+  // ===== PhaseRunner delegates =====
 
   /**
    * @param {string} serviceId
@@ -714,7 +714,7 @@ export class BaseAgentLoop {
     return this._phaseMixin._transitionPhase(state, next, options);
   }
 
-  // ===== UserActionMixin delegates =====
+  // ===== UserActionHandler delegates =====
 
   /**
    * @param {string} actionName

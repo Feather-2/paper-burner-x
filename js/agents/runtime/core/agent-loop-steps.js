@@ -1,5 +1,5 @@
 /**
- * Step Mixin for BaseAgentLoop
+ * Step Runner for BaseAgentLoop
  *
  * Extracted from BaseAgentLoop (C4 audit) to support Interface Segregation.
  * Manages step lifecycle: begin, end, emit events, abort, signal creation.
@@ -32,20 +32,20 @@ function buildStepId(prefix) {
 /**
  * @param {any} loop
  * @param {Record<string, any>} [options]
- * @returns {StepMixin}
+ * @returns {StepRunner}
  */
-function ensureStepMixin(loop, options = {}) {
+function ensureStepRunner(loop, options = {}) {
   if (!loop || typeof loop !== "object") {
-    throw new Error("StepMixin requires a loop instance");
+    throw new Error("StepRunner requires a loop instance");
   }
-  if (loop._stepMixin instanceof StepMixin) return loop._stepMixin;
-  const component = new StepMixin(loop, options);
+  if (loop._stepMixin instanceof StepRunner) return loop._stepMixin;
+  const component = new StepRunner(loop, options);
   loop._stepMixin = component;
   return component;
 }
 
 /**
- * @param {(loop: any) => StepMixin} ensureComponent
+ * @param {(loop: any) => StepRunner} ensureComponent
  * @param {PropertyDescriptorMap} descriptors
  * @returns {PropertyDescriptorMap}
  */
@@ -83,7 +83,7 @@ function createDelegatedDescriptors(ensureComponent, descriptors) {
   return delegated;
 }
 
-export class StepMixin {
+export class StepRunner {
   /**
    * @param {any} loop
    * @param {Record<string, any>} [_options]
@@ -167,13 +167,13 @@ export class StepMixin {
 }
 
 /**
- * @deprecated Use `new StepMixin(loop)` instead.
+ * @deprecated Use `new StepRunner(loop)` instead.
  * @param {any} loop
  * @param {Record<string, any>} [options]
- * @returns {StepMixin}
+ * @returns {StepRunner}
  */
 export function initStepMixin(loop, options = {}) {
-  const component = new StepMixin(loop, options);
+  const component = new StepRunner(loop, options);
   loop._stepMixin = component;
   return component;
 }
@@ -184,8 +184,8 @@ export function initStepMixin(loop, options = {}) {
  */
 export function attachStepMixin(BaseAgentLoop) {
   const descriptors = createDelegatedDescriptors(
-    (loop) => ensureStepMixin(loop),
-    Object.getOwnPropertyDescriptors(StepMixin.prototype)
+    (loop) => ensureStepRunner(loop),
+    Object.getOwnPropertyDescriptors(StepRunner.prototype)
   );
   Object.defineProperties(BaseAgentLoop.prototype, descriptors);
 }

@@ -1,5 +1,5 @@
 /**
- * Status Mixin for BaseAgentLoop
+ * Loop Status Controller for BaseAgentLoop
  *
  * Extracted from BaseAgentLoop (C4 audit) to support Interface Segregation.
  * Delegates all status management to StatusController.
@@ -17,20 +17,20 @@ import { StatusController } from "./status-controller.js";
 /**
  * @param {any} loop
  * @param {{ strictLoopStatus?: boolean, logger?: any, emit?: any, stageName?: string, actor?: string }} [options]
- * @returns {StatusMixin}
+ * @returns {LoopStatusController}
  */
-function ensureStatusMixin(loop, options = {}) {
+function ensureLoopStatusController(loop, options = {}) {
   if (!loop || typeof loop !== "object") {
-    throw new Error("StatusMixin requires a loop instance");
+    throw new Error("LoopStatusController requires a loop instance");
   }
-  if (loop._statusMixin instanceof StatusMixin) return loop._statusMixin;
-  const component = new StatusMixin(loop, options);
+  if (loop._statusMixin instanceof LoopStatusController) return loop._statusMixin;
+  const component = new LoopStatusController(loop, options);
   loop._statusMixin = component;
   return component;
 }
 
 /**
- * @param {(loop: any) => StatusMixin} ensureComponent
+ * @param {(loop: any) => LoopStatusController} ensureComponent
  * @param {PropertyDescriptorMap} descriptors
  * @returns {PropertyDescriptorMap}
  */
@@ -68,7 +68,7 @@ function createDelegatedDescriptors(ensureComponent, descriptors) {
   return delegated;
 }
 
-export class StatusMixin {
+export class LoopStatusController {
   /**
    * @param {any} loop
    * @param {{ strictLoopStatus?: boolean, logger?: any, emit?: any, stageName?: string, actor?: string }} [options]
@@ -180,13 +180,13 @@ export class StatusMixin {
 }
 
 /**
- * @deprecated Use `new StatusMixin(loop, options)` instead.
+ * @deprecated Use `new LoopStatusController(loop, options)` instead.
  * @param {any} loop
  * @param {{ strictLoopStatus?: boolean, logger?: any, emit?: any, stageName?: string, actor?: string }} [options]
- * @returns {StatusMixin}
+ * @returns {LoopStatusController}
  */
 export function initStatusMixin(loop, options = {}) {
-  const component = new StatusMixin(loop, options);
+  const component = new LoopStatusController(loop, options);
   loop._statusMixin = component;
   return component;
 }
@@ -197,8 +197,8 @@ export function initStatusMixin(loop, options = {}) {
  */
 export function attachStatusMixin(BaseAgentLoop) {
   const descriptors = createDelegatedDescriptors(
-    (loop) => ensureStatusMixin(loop),
-    Object.getOwnPropertyDescriptors(StatusMixin.prototype)
+    (loop) => ensureLoopStatusController(loop),
+    Object.getOwnPropertyDescriptors(LoopStatusController.prototype)
   );
   Object.defineProperties(BaseAgentLoop.prototype, descriptors);
 }
