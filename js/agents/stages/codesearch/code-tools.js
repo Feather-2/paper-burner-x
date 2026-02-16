@@ -206,6 +206,54 @@ export function createToolExecutor(options = {}) {
     }
   }
 
+  // ── ripgrep 快速路径 (Node.js only) ──────────────────────────
+  /** @type {Promise<((args: string[]) => Promise<{success:boolean, stdout:string}>)|null>|null} */
+  let _rgLoaderPromise = null;
+
+  /**
+   * Lazy-load ripgrep executor. Returns null if unavailable (browser / rg not installed).
+   * @returns {Promise<((args: string[]) => Promise<{success:boolean, stdout:string}>)|null>}
+   */
+  function loadRgExecutor() {
+    if (_rgLoaderPromise) return _rgLoaderPromise;
+    if (!fs) { _rgLoaderPromise = Promise.resolve(null); return _rgLoaderPromise; }
+    _rgLoaderPromise = import(/* @vite-ignore */ "child_process").then(cp => {
+      /** @param {string[]} args */
+      return (args) => new Promise((resolve) => {
+        const proc = cp.execFile("rg", args, { maxBuffer: 2 * 1024 * 1024, timeout: 30000 }, (err, stdout) => {
+          resolve({ success: !err || proc?.exitCode === 0, stdout: stdout || "" });
+        });
+      });
+    }).catch(() => null);
+    return _rgLoaderPromise;
+  }
+
+  /**
+   * Parse ripgrep output into codesearch match format.
+   * @param {string} stdout
+   * @returns {Array<{file:string, matchCount:number, spans:Array<{start:number,end:number}>}>}
+   */
+  function parseRgMatches(stdout) {
+    /** @type {Map<string, {count:number, spans:Array<{start:number,end:number}>}>} */
+    const byFile = new Map();
+    for (const line of stdout.split("\n")) {
+      if (!line) continue;
+      const m = line.match(/^(.+?):(\d+):/);
+      if (!m) continue;
+      const file = m[1];
+      const lineNum = parseInt(m[2], 10);
+      let entry = byFile.get(file);
+      if (!entry) { entry = { count: 0, spans: [] }; byFile.set(file, entry); }
+      entry.count++;
+      if (entry.spans.length < 5) entry.spans.push({ start: lineNum, end: lineNum });
+    }
+    return [...byFile.entries()].map(([file, e]) => ({
+      file,
+      matchCount: e.count,
+      spans: e.spans,
+    }));
+  }
+
   // grep 工具
   /**
    * @param {{ pattern: string, path?: string, regex?: boolean, caseSensitive?: boolean }} args
@@ -214,16 +262,49 @@ export function createToolExecutor(options = {}) {
   async function grep({ pattern, path, regex = false, caseSensitive = false }) {
     if (!pattern) throw new Error("grep: pattern is required");
 
-    // 如果提供了 path，先 glob 找文件，再搜索
+    // ── Node.js 快速路径：ripgrep ──
+    if (fs) {
+      const rgExec = await loadRgExecutor();
+      if (rgExec) {
+        try {
+          const searchDir = path
+            ? joinPaths(baseRootForFs, safeRelativePath(path))
+            : baseRootForFs;
+          const rgArgs = [
+            regex ? "-e" : "-F",
+            pattern,
+            "--line-number",
+            "--no-heading",
+            `--max-count=${maxResults}`,
+            caseSensitive ? "" : "-i",
+            searchDir,
+          ].filter(Boolean);
+          const result = await rgExec(rgArgs);
+          if (result.success && result.stdout) {
+            const matches = parseRgMatches(result.stdout);
+            return {
+              matches: matches.slice(0, maxResults),
+              total: matches.length,
+              truncated: matches.length >= maxResults,
+            };
+          }
+        } catch (err) {
+          logger?.debug?.("grep: ripgrep failed, falling back to JS", {
+            error: String(err?.message || err),
+          });
+        }
+      }
+    }
+
+    // ── 降级路径：纯 JS grepChunks (浏览器 / rg 不可用) ──
     let targetFiles = [];
     if (path) {
       const globResult = await glob({ pattern: "**/*", path });
       targetFiles = globResult.files || [];
     }
 
-    // 读取文件内容构建 chunks
     const chunks = [];
-    for (const file of targetFiles.slice(0, 50)) { // 限制文件数
+    for (const file of targetFiles.slice(0, 50)) {
       try {
         const content = await read_file({ path: file });
         if (content.content) {
@@ -247,7 +328,7 @@ export function createToolExecutor(options = {}) {
         matches: matches.slice(0, maxResults).map(m => ({
           file: m.chunkId,
           matchCount: m.matchCount,
-          spans: m.spans.slice(0, 5), // 每个文件最多 5 个匹配位置
+          spans: m.spans.slice(0, 5),
         })),
         total: matches.length,
         truncated: matches.length > maxResults,

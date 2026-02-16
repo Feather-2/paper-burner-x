@@ -17,7 +17,7 @@
 ```
                js/agents 质量分布
 
-  5 ★★★★★  ┃████████████████████████████████████████┃  28 模块
+  5 ★★★★★  ┃████████████████████████████████████████┃  30 模块
            ┃ llm/ vfs/ retrieval/ ingest/ mcp/      ┃
            ┃ storage/ eval/ runtime/safety/           ┃
            ┃ runtime/hooks/ runtime/tools/ runtime/core/┃
@@ -25,11 +25,11 @@
            ┃ core/archive/ core/node-compat/          ┃
            ┃ core/sandbox/ core/webruntime/            ┃
            ┃ core/kernel+buses/ stages/textprep/       ┃
-           ┃ stages/design/ plugins/ sdk/ skills/      ┃
+           ┃ stages/design/ stages/deepsearch/          ┃
+           ┃ stages/codesearch/ plugins/ sdk/ skills/   ┃
            ┃ prompts/ shared/ testing/                 ┃
            ┃                                           ┃
-  4 ★★★★☆  ┃██████████                               ┃   2 模块
-           ┃ stages/deepsearch/ stages/codesearch/     ┃
+  4 ★★★★☆  ┃                                            0 模块
            ┃                                           ┃
   3 ★★★☆☆  ┃                                            0 模块
            ┃                                           ┃
@@ -56,9 +56,9 @@
 | runtime/hooks | 5 | 1484 | ★★★★★ | 20+ token 净化规则 + 3 种 Hook 类型 | 无 |
 | sdk | 17 | 3709 | ★★★★★ | dispose guard、injection scanner、分层导出完整 | 无 |
 | plugins (12) | ~30 | ~7500 | ★★★★★ | 12 个生产级插件全部可用，无空目录 | 无 |
-| stages/deepsearch | 66 | ~15000 | ★★★★ | 完整 3 阶段循环 + 16 工具 | 部分大文件 |
+| stages/deepsearch | 66 | ~15000 | ★★★★★ | 完整 3 阶段循环 + 16 工具，最大文件 <800 行 | 无 |
 | stages/design | 64 | ~19600 | ★★★★★ | 7 阶段流水线 + Style Lock + Facade 模式拆分 | 无 |
-| stages/codesearch | 15 | ~3500 | ★★★★ | Tree-sitter 符号索引 + 3 阶段（规划/执行/总结） | 正则回退路径 |
+| stages/codesearch | 15 | ~3500 | ★★★★★ | Tree-sitter 符号索引 + 3 阶段 + ripgrep 快速路径 | 无 |
 | stages/textprep | 7 | ~1500 | ★★★★★ | TP1-TP6 流水线 + Hard Gates 质量门禁 | 无 |
 | llm | 18 | ~2400 | ★★★★★ | 多模型路由 + 熔断器 + 速率限制 | 无 |
 | vfs | 21 | ~3500 | ★★★★★ | 跨平台 + 符号链接 + Web Locks 并发控制 | 无 |
@@ -74,7 +74,7 @@
 
 ## agentsdk-go 对比
 
-Go SDK 约 60 个文件，整体均匀分布在 **4 stars**。没有模块低于 4 星，但也没有模块达到 5 星——这与 Go 版本范围较小、功能子集有限有关。JS 版本经过 Phase 1-4 + 熵扫描 + 升星评估后，28/30 个模块达到 5 星生产级水准，仅 2 个大型 Stage 模块保持 4 星。
+Go SDK 约 60 个文件，整体均匀分布在 **4 stars**。没有模块低于 4 星，但也没有模块达到 5 星——这与 Go 版本范围较小、功能子集有限有关。JS 版本经过 Phase 1-4 + 熵扫描 + 升星评估后，30/30 个模块全部达到 5 星生产级水准。
 
 ## 修复后实际
 
@@ -92,10 +92,10 @@ Go SDK 约 60 个文件，整体均匀分布在 **4 stars**。没有模块低于
 
 ```
   修复前                          修复后（实际）
-  5★  18 模块                     5★  28 模块
-  4★  10 模块          →          4★   2 模块
+  5★  18 模块                     5★  30 模块
+  4★  10 模块          →          4★   0 模块
   3★   2 模块                     3★   0 模块
   2★   1 模块                     2★   0 模块
 ```
 
-所有模块已提升至 4 星及以上。28 个模块达到 5 星生产级水准，仅 `stages/deepsearch` 和 `stages/codesearch` 保持 4 星（大文件/正则回退待优化）。
+所有 30 个模块全部达到 5 星生产级水准。
