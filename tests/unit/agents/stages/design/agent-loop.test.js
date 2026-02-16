@@ -45,6 +45,45 @@ const runtimeMocks = vi.hoisted(() => {
       this._statusHistory = ["seed"];
       this._activeStep = null;
       this._loopStatus = "idle";
+      this._pauseRequested = false;
+      this._pauseReason = null;
+      this.statusController = {
+        get _loopStatus() {
+          return this._owner._loopStatus;
+        },
+        set _loopStatus(value) {
+          this._owner._loopStatus = value;
+        },
+        get _statusHistory() {
+          return this._owner._statusHistory;
+        },
+        set _statusHistory(value) {
+          this._owner._statusHistory = value;
+        },
+        get _pauseRequested() {
+          return this._owner._pauseRequested;
+        },
+        set _pauseRequested(value) {
+          this._owner._pauseRequested = value;
+        },
+        get _pauseReason() {
+          return this._owner._pauseReason;
+        },
+        set _pauseReason(value) {
+          this._owner._pauseReason = value;
+        },
+        _shouldPauseFromError: (...args) => this._shouldPauseFromError(...args),
+        _createPauseError: (...args) => this._createPauseError(...args),
+        _owner: this,
+      };
+      this.phaseRunner = {
+        _resolveDependency: (...args) => this._resolveDependency(...args),
+        _transitionPhase: (...args) => this._transitionPhase(...args),
+      };
+      this.stepRunner = {
+        _beginStep: (...args) => this._beginStep(...args),
+        _endStep: (...args) => this._endStep(...args),
+      };
     }
   }
 
@@ -500,7 +539,7 @@ describe("DesignAgentLoop", () => {
       const loop = new DesignAgentLoop({ container: { get: vi.fn() } });
       const context = { memoryStore: "context-store" };
 
-      const result = await loop._resolveDependency("memoryStore", context, "fallback");
+      const result = await loop.phaseRunner._resolveDependency("memoryStore", context, "fallback");
 
       expect(result).toBe("context-store");
       expect(loop._container.get).not.toHaveBeenCalled();
@@ -510,7 +549,7 @@ describe("DesignAgentLoop", () => {
       const container = { get: vi.fn().mockResolvedValue("container-store") };
       const loop = new DesignAgentLoop({ container });
 
-      const result = await loop._resolveDependency("memoryStore", {}, "fallback");
+      const result = await loop.phaseRunner._resolveDependency("memoryStore", {}, "fallback");
 
       expect(result).toBe("container-store");
       expect(container.get).toHaveBeenCalledWith("memoryStore");
@@ -520,7 +559,7 @@ describe("DesignAgentLoop", () => {
       const container = { get: vi.fn().mockRejectedValue(new Error("missing")) };
       const loop = new DesignAgentLoop({ container });
 
-      const result = await loop._resolveDependency("memoryStore", null, "fallback");
+      const result = await loop.phaseRunner._resolveDependency("memoryStore", null, "fallback");
 
       expect(result).toBe("fallback");
       expect(container.get).toHaveBeenCalledWith("memoryStore");

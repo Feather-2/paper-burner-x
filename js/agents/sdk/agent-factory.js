@@ -18,7 +18,7 @@ import { isPlainObject, toNonEmptyString } from "../shared/index.js";
  * so some members are not present in the static class declaration.
  *
  * @typedef {BaseAgentLoop & {
- *   _detachEventBusListeners?: () => void,
+ *   messageHandling?: { _detachEventBusListeners?: () => void },
  *   dispose?: () => void | Promise<void>,
  * }} DisposableAgentLoop
  *
@@ -185,7 +185,7 @@ export class AgentInstance extends DisposableBase {
       }
 
       try {
-        loop._detachEventBusListeners?.();
+        loop.messageHandling?._detachEventBusListeners?.();
       } catch {
         // ignore
       }

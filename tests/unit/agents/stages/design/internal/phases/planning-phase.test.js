@@ -65,8 +65,8 @@ const makeLoop = (overrides = {}) => ({
     slideIntents: [],
     designSystem: null,
   },
-  _transitionPhase: vi.fn(),
-  waitForUserAction: vi.fn(),
+  phaseRunner: { _transitionPhase: vi.fn() },
+  userActionHandler: { waitForUserAction: vi.fn() },
   _blackboard: {
     logDecision: vi.fn(),
     setSummary: vi.fn(),
@@ -149,19 +149,19 @@ describe('runPlanningPhase', () => {
       { runId: 0, slideCount: 2 },
       expect.any(Function)
     );
-    expect(loop._transitionPhase).toHaveBeenNthCalledWith(
+    expect(loop.phaseRunner._transitionPhase).toHaveBeenNthCalledWith(
       1,
       loop.phase,
       mockedStates.DesignPhase.DECK_PLANNING,
       { emit, runId: 0 }
     );
-    expect(loop._transitionPhase).toHaveBeenNthCalledWith(
+    expect(loop.phaseRunner._transitionPhase).toHaveBeenNthCalledWith(
       2,
       loop.phase,
       mockedStates.DesignPhase.PLAN_CONFIRMING,
       { emit, runId: 0 }
     );
-    expect(loop.waitForUserAction).not.toHaveBeenCalled();
+    expect(loop.userActionHandler.waitForUserAction).not.toHaveBeenCalled();
     expect(mockedHelpers.emitStage).toHaveBeenNthCalledWith(
       1,
       emit,
@@ -227,7 +227,7 @@ describe('runPlanningPhase', () => {
 
     expect(mockedPlanner.planDeck).toHaveBeenCalledWith([], { theme: 'state-theme' });
     expect(mockedRuntime.checkCancelled).toHaveBeenCalledWith(null);
-    expect(loop.waitForUserAction).not.toHaveBeenCalled();
+    expect(loop.userActionHandler.waitForUserAction).not.toHaveBeenCalled();
     expect(mockedHelpers.emitStage).toHaveBeenNthCalledWith(
       1,
       emit,
@@ -288,7 +288,7 @@ describe('runPlanningPhase', () => {
     ];
 
     const loop = makeLoop();
-    loop.waitForUserAction.mockResolvedValue({ edits });
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({ edits });
 
     const emit = vi.fn();
     const context = {
@@ -319,7 +319,7 @@ describe('runPlanningPhase', () => {
       { slideIntentId: 'a', keyMessage: 'nested' },
     ];
 
-    expect(loop.waitForUserAction).toHaveBeenCalledWith('confirm_plan', {
+    expect(loop.userActionHandler.waitForUserAction).toHaveBeenCalledWith('confirm_plan', {
       eventBus: context.eventBus,
       signal: context.signal,
     });
@@ -352,7 +352,7 @@ describe('runPlanningPhase', () => {
     mockedPlanner.planDeck.mockReturnValue({ plans, summary: 'summary' });
 
     const loop = makeLoop();
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       edits: {},
       plans: [
         { slideIntentId: 'a' },
@@ -396,7 +396,7 @@ describe('runPlanningPhase', () => {
     mockedPlanner.applyUserEdits.mockReturnValue(updatedPlans);
 
     const loop = makeLoop();
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       plans: [
         { slideIntentId: 'a', visualIntent: 'V'.repeat(205) },
         { slideIntentId: 'b', layoutHint: ' layout ', keyMessage: '   ' },
@@ -439,7 +439,7 @@ describe('runPlanningPhase', () => {
     }));
 
     const loop = makeLoop();
-    loop.waitForUserAction.mockResolvedValue({ edits });
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({ edits });
 
     await runPlanningPhase(loop, {
       slideIntents: [{ slideIntentId: 'a' }],
@@ -479,7 +479,7 @@ describe('runPlanningPhase', () => {
       })
     ).rejects.toThrow('cancelled');
 
-    expect(loop._transitionPhase).toHaveBeenCalledTimes(1);
+    expect(loop.phaseRunner._transitionPhase).toHaveBeenCalledTimes(1);
     expect(mockedPlanner.planDeck).not.toHaveBeenCalled();
     expect(mockedHelpers.emitStage).not.toHaveBeenCalled();
   });

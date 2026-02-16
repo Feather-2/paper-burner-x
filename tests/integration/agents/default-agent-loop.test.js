@@ -117,7 +117,7 @@ it("recordUserInput stores entries with timestamp", async () => {
   const loop = await createTestLoop({ stageName: "test", actor: "test" });
 
   const before = Date.now();
-  const entry = loop.recordUserInput({ text: "hello" });
+  const entry = loop.messageHandling.recordUserInput({ text: "hello" });
   const after = Date.now();
 
   expect(entry.payload).toEqual({ text: "hello" });
@@ -131,7 +131,7 @@ it("recordUserInput emits user.input event", async () => {
   const emit = (name, record) => events.push({ name, record });
 
   const loop = await createTestLoop({ stageName: "demo", actor: "demo", emit });
-  loop.recordUserInput("test message");
+  loop.messageHandling.recordUserInput("test message");
 
   expect(events.length).toBe(1);
   expect(events[0].name).toBe("demo.user.input");
@@ -143,14 +143,14 @@ it("recordUserInput emits user.input event", async () => {
 it("recordUserInput respects maxUserInputs limit", async () => {
   const loop = await createTestLoop({ maxUserInputs: 3 });
 
-  loop.recordUserInput("first");
-  loop.recordUserInput("second");
-  loop.recordUserInput("third");
-  loop.recordUserInput("fourth");
-  loop.recordUserInput("fifth");
+  loop.messageHandling.recordUserInput("first");
+  loop.messageHandling.recordUserInput("second");
+  loop.messageHandling.recordUserInput("third");
+  loop.messageHandling.recordUserInput("fourth");
+  loop.messageHandling.recordUserInput("fifth");
 
   expect(loop._userInputs.size).toBe(3);
-  const items = loop.consumeUserInputs({ clear: false });
+  const items = loop.messageHandling.consumeUserInputs({ clear: false });
   expect(items[0].payload).toBe("third");
   expect(items[1].payload).toBe("fourth");
   expect(items[2].payload).toBe("fifth");
@@ -159,9 +159,9 @@ it("recordUserInput respects maxUserInputs limit", async () => {
 it("recordUserInput handles invalid maxUserInputs", async () => {
   const loop = await createTestLoop({ maxUserInputs: -1 });
 
-  loop.recordUserInput("a");
-  loop.recordUserInput("b");
-  loop.recordUserInput("c");
+  loop.messageHandling.recordUserInput("a");
+  loop.messageHandling.recordUserInput("b");
+  loop.messageHandling.recordUserInput("c");
 
   // 负数或无效值不应限制队列
   expect(loop._userInputs.size).toBe(3);
@@ -170,10 +170,10 @@ it("recordUserInput handles invalid maxUserInputs", async () => {
 it("consumeUserInputs returns all entries and clears by default", async () => {
   const loop = await createTestLoop();
 
-  loop.recordUserInput("one");
-  loop.recordUserInput("two");
+  loop.messageHandling.recordUserInput("one");
+  loop.messageHandling.recordUserInput("two");
 
-  const items = loop.consumeUserInputs();
+  const items = loop.messageHandling.consumeUserInputs();
 
   expect(items.length).toBe(2);
   expect(items[0].payload).toBe("one");
@@ -184,10 +184,10 @@ it("consumeUserInputs returns all entries and clears by default", async () => {
 it("consumeUserInputs with clear=false preserves entries", async () => {
   const loop = await createTestLoop();
 
-  loop.recordUserInput("one");
-  loop.recordUserInput("two");
+  loop.messageHandling.recordUserInput("one");
+  loop.messageHandling.recordUserInput("two");
 
-  const items = loop.consumeUserInputs({ clear: false });
+  const items = loop.messageHandling.consumeUserInputs({ clear: false });
 
   expect(items.length).toBe(2);
   expect(loop._userInputs.size).toBe(2);
@@ -196,10 +196,10 @@ it("consumeUserInputs with clear=false preserves entries", async () => {
 it("drainUserInputsAsText returns items and formatted text", async () => {
   const loop = await createTestLoop();
 
-  loop.recordUserInput("first line");
-  loop.recordUserInput("second line");
+  loop.messageHandling.recordUserInput("first line");
+  loop.messageHandling.recordUserInput("second line");
 
-  const result = loop.drainUserInputsAsText();
+  const result = loop.messageHandling.drainUserInputsAsText();
 
   expect(result.items.length).toBe(2);
   expect(result.text).toBe("first line\nsecond line");
@@ -209,8 +209,8 @@ it("drainUserInputsAsText returns items and formatted text", async () => {
 it("drainUserInputsAsText with clear=false preserves entries", async () => {
   const loop = await createTestLoop();
 
-  loop.recordUserInput("test");
-  const result = loop.drainUserInputsAsText({ clear: false });
+  loop.messageHandling.recordUserInput("test");
+  const result = loop.messageHandling.drainUserInputsAsText({ clear: false });
 
   expect(result.items.length).toBe(1);
   expect(loop._userInputs.size).toBe(1);
@@ -219,44 +219,44 @@ it("drainUserInputsAsText with clear=false preserves entries", async () => {
 it("hasPendingUserInputs returns correct status", async () => {
   const loop = await createTestLoop();
 
-  expect(loop.hasPendingUserInputs()).toBe(false);
+  expect(loop.messageHandling.hasPendingUserInputs()).toBe(false);
 
-  loop.recordUserInput("test");
-  expect(loop.hasPendingUserInputs()).toBe(true);
+  loop.messageHandling.recordUserInput("test");
+  expect(loop.messageHandling.hasPendingUserInputs()).toBe(true);
 
-  loop.consumeUserInputs();
-  expect(loop.hasPendingUserInputs()).toBe(false);
+  loop.messageHandling.consumeUserInputs();
+  expect(loop.messageHandling.hasPendingUserInputs()).toBe(false);
 });
 
 it("formatUserInputs handles various payload types", async () => {
   const loop = await createTestLoop();
 
   // 字符串
-  expect(loop.formatUserInputs([{ payload: "  hello  " }])).toBe("hello");
+  expect(loop.messageHandling.formatUserInputs([{ payload: "  hello  " }])).toBe("hello");
 
   // 带 text 属性的对象
-  expect(loop.formatUserInputs([{ payload: { text: "  world  " } }])).toBe("world");
+  expect(loop.messageHandling.formatUserInputs([{ payload: { text: "  world  " } }])).toBe("world");
 
   // 带 message 属性的对象
-  expect(loop.formatUserInputs([{ payload: { message: "  msg  " } }])).toBe("msg");
+  expect(loop.messageHandling.formatUserInputs([{ payload: { message: "  msg  " } }])).toBe("msg");
 
   // 普通对象 (JSON 序列化)
-  expect(loop.formatUserInputs([{ payload: { foo: "bar" } }])).toBe('{"foo":"bar"}');
+  expect(loop.messageHandling.formatUserInputs([{ payload: { foo: "bar" } }])).toBe('{"foo":"bar"}');
 
   // null payload 会回退到 item 本身并序列化
-  expect(loop.formatUserInputs([{ payload: null }, { payload: "valid" }])).toBe('{"payload":null}\nvalid');
+  expect(loop.messageHandling.formatUserInputs([{ payload: null }, { payload: "valid" }])).toBe('{"payload":null}\nvalid');
 
   // 纯 null 作为 item 会跳过
-  expect(loop.formatUserInputs([null, "direct"])).toBe("direct");
+  expect(loop.messageHandling.formatUserInputs([null, "direct"])).toBe("direct");
 
   // 空数组
-  expect(loop.formatUserInputs([])).toBe("");
+  expect(loop.messageHandling.formatUserInputs([])).toBe("");
 
   // 非数组输入
-  expect(loop.formatUserInputs(null)).toBe("");
+  expect(loop.messageHandling.formatUserInputs(null)).toBe("");
 
   // 多行组合
-  const multiResult = loop.formatUserInputs([{ payload: "line1" }, { payload: { text: "line2" } }, { payload: { message: "line3" } }]);
+  const multiResult = loop.messageHandling.formatUserInputs([{ payload: "line1" }, { payload: { text: "line2" } }, { payload: { message: "line3" } }]);
   expect(multiResult).toBe("line1\nline2\nline3");
 });
 
@@ -267,18 +267,18 @@ it("formatUserInputs handles circular reference objects", async () => {
   circular.self = circular;
 
   // 应该优雅处理循环引用，回退到 String()
-  const result = loop.formatUserInputs([{ payload: circular }]);
+  const result = loop.messageHandling.formatUserInputs([{ payload: circular }]);
   expect(result).toContain("object"); // should contain string representation
 });
 
 it("applyUserInputsToConfig merges inputs into config", async () => {
   const loop = await createTestLoop();
 
-  loop.recordUserInput("note 1");
-  loop.recordUserInput("note 2");
+  loop.messageHandling.recordUserInput("note 1");
+  loop.messageHandling.recordUserInput("note 2");
 
   const config = { existingKey: "value" };
-  const result = loop.applyUserInputsToConfig(config);
+  const result = loop.messageHandling.applyUserInputsToConfig(config);
 
   expect(result.existingKey).toBe("value");
   expect(result.userNotes).toEqual(["note 1\nnote 2"]);
@@ -291,9 +291,9 @@ it("applyUserInputsToConfig merges inputs into config", async () => {
 it("applyUserInputsToConfig with custom key", async () => {
   const loop = await createTestLoop();
 
-  loop.recordUserInput("custom note");
+  loop.messageHandling.recordUserInput("custom note");
 
-  const result = loop.applyUserInputsToConfig({}, { key: "customNotes" });
+  const result = loop.messageHandling.applyUserInputsToConfig({}, { key: "customNotes" });
 
   expect(result.customNotes).toEqual(["custom note"]);
 });
@@ -301,10 +301,10 @@ it("applyUserInputsToConfig with custom key", async () => {
 it("applyUserInputsToConfig appends to existing array", async () => {
   const loop = await createTestLoop();
 
-  loop.recordUserInput("new note");
+  loop.messageHandling.recordUserInput("new note");
 
   const config = { userNotes: ["existing note"] };
-  const result = loop.applyUserInputsToConfig(config);
+  const result = loop.messageHandling.applyUserInputsToConfig(config);
 
   expect(result.userNotes).toEqual(["existing note", "new note"]);
 });
@@ -312,10 +312,10 @@ it("applyUserInputsToConfig appends to existing array", async () => {
 it("applyUserInputsToConfig converts existing string to array", async () => {
   const loop = await createTestLoop();
 
-  loop.recordUserInput("second");
+  loop.messageHandling.recordUserInput("second");
 
   const config = { userNotes: "first" };
-  const result = loop.applyUserInputsToConfig(config);
+  const result = loop.messageHandling.applyUserInputsToConfig(config);
 
   expect(result.userNotes).toEqual(["first", "second"]);
 });
@@ -324,7 +324,7 @@ it("applyUserInputsToConfig returns original config if no inputs", async () => {
   const loop = await createTestLoop();
 
   const config = { key: "value" };
-  const result = loop.applyUserInputsToConfig(config);
+  const result = loop.messageHandling.applyUserInputsToConfig(config);
 
   expect(result).toBe(config);
 });
@@ -332,13 +332,13 @@ it("applyUserInputsToConfig returns original config if no inputs", async () => {
 it("applyUserInputsToConfig handles null/undefined config", async () => {
   const loop = await createTestLoop();
 
-  loop.recordUserInput("test");
+  loop.messageHandling.recordUserInput("test");
 
-  const result1 = loop.applyUserInputsToConfig(null);
+  const result1 = loop.messageHandling.applyUserInputsToConfig(null);
   expect(result1.userNotes).toEqual(["test"]);
 
-  loop.recordUserInput("test2");
-  const result2 = loop.applyUserInputsToConfig(undefined);
+  loop.messageHandling.recordUserInput("test2");
+  const result2 = loop.messageHandling.applyUserInputsToConfig(undefined);
   expect(result2.userNotes).toEqual(["test2"]);
 });
 
@@ -353,7 +353,7 @@ it("_beginStep creates step with metadata and emits started event", async () => 
   const loop = await createTestLoop({ stageName: "lifecycle", actor: "lifecycle", emit });
 
   const before = Date.now();
-  const { step, context } = loop._beginStep({ name: "test-step", runId: "run_1", iteration: 0 });
+  const { step, context } = loop.stepRunner._beginStep({ name: "test-step", runId: "run_1", iteration: 0 });
   const after = Date.now();
 
   expect(step.stepId).toMatch(/^lifecycle_/);
@@ -372,7 +372,7 @@ it("_beginStep creates step with metadata and emits started event", async () => 
 it("_beginStep uses stepId from meta if provided", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  const { step } = loop._beginStep({ stepId: "custom_step_123" });
+  const { step } = loop.stepRunner._beginStep({ stepId: "custom_step_123" });
 
   expect(step.stepId).toBe("custom_step_123");
 });
@@ -380,7 +380,7 @@ it("_beginStep uses stepId from meta if provided", async () => {
 it("_beginStep uses step field as fallback for name", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  const { step } = loop._beginStep({ step: "fallback-name" });
+  const { step } = loop.stepRunner._beginStep({ step: "fallback-name" });
 
   expect(step.name).toBe("fallback-name");
 });
@@ -388,7 +388,7 @@ it("_beginStep uses step field as fallback for name", async () => {
 it("_beginStep defaults name to 'step' if not provided", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  const { step } = loop._beginStep({});
+  const { step } = loop.stepRunner._beginStep({});
 
   expect(step.name).toBe("step");
 });
@@ -398,7 +398,7 @@ it("_beginStep sets _activeStep", async () => {
 
   expect(loop._activeStep).toBe(null);
 
-  loop._beginStep({ name: "active" });
+  loop.stepRunner._beginStep({ name: "active" });
 
   expect(loop._activeStep).toEqual(expect.any(Object));
   expect(loop._activeStep.name).toBe("active");
@@ -412,10 +412,10 @@ it("_endStep emits completed event by default", async () => {
 
   const loop = await createTestLoop({ stageName: "lifecycle", emit });
 
-  const { step } = loop._beginStep({ name: "test" });
+  const { step } = loop.stepRunner._beginStep({ name: "test" });
   events.length = 0; // 清除 started 事件
 
-  loop._endStep({ step });
+  loop.stepRunner._endStep({ step });
 
   expect(events.length).toBe(1);
   expect(events[0].name).toBe("lifecycle.step.completed");
@@ -428,10 +428,10 @@ it("_endStep emits custom status", async () => {
 
   const loop = await createTestLoop({ stageName: "lifecycle", emit });
 
-  const { step } = loop._beginStep({ name: "test" });
+  const { step } = loop.stepRunner._beginStep({ name: "test" });
   events.length = 0;
 
-  loop._endStep({ step }, { status: "failed", error: "boom" });
+  loop.stepRunner._endStep({ step }, { status: "failed", error: "boom" });
 
   expect(events[0].name).toBe("lifecycle.step.failed");
   expect(events[0].record.status).toBe("failed");
@@ -444,10 +444,10 @@ it("_endStep includes result in payload", async () => {
 
   const loop = await createTestLoop({ stageName: "lifecycle", emit });
 
-  const { step } = loop._beginStep({ name: "test" });
+  const { step } = loop.stepRunner._beginStep({ name: "test" });
   events.length = 0;
 
-  loop._endStep({ step }, { result: { data: "success" } });
+  loop.stepRunner._endStep({ step }, { result: { data: "success" } });
 
   expect(events[0].record.payload.result).toEqual({ data: "success" });
 });
@@ -455,24 +455,24 @@ it("_endStep includes result in payload", async () => {
 it("_endStep clears _activeStep when matching", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  const { step } = loop._beginStep({ name: "test" });
+  const { step } = loop.stepRunner._beginStep({ name: "test" });
   expect(loop._activeStep).toEqual(expect.any(Object));
 
-  loop._endStep({ step });
+  loop.stepRunner._endStep({ step });
   expect(loop._activeStep).toBe(null);
 });
 
 it("_endStep does not clear _activeStep when not matching", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  loop._beginStep({ name: "first" });
+  loop.stepRunner._beginStep({ name: "first" });
   const firstStep = { ...loop._activeStep };
 
-  loop._beginStep({ name: "second" });
+  loop.stepRunner._beginStep({ name: "second" });
   expect(loop._activeStep.stepId).not.toBe(firstStep.stepId);
 
   // 结束第一个 step 不应清除当前活跃的第二个 step
-  loop._endStep({ step: firstStep });
+  loop.stepRunner._endStep({ step: firstStep });
   expect(loop._activeStep).toEqual(expect.any(Object));
   expect(loop._activeStep.name).toBe("second");
 });
@@ -483,10 +483,10 @@ it("_endStep uses _activeStep if step not provided", async () => {
 
   const loop = await createTestLoop({ stageName: "lifecycle", emit });
 
-  loop._beginStep({ name: "implicit" });
+  loop.stepRunner._beginStep({ name: "implicit" });
   events.length = 0;
 
-  loop._endStep(null);
+  loop.stepRunner._endStep(null);
 
   expect(events[0].record.payload.name).toBe("implicit");
 });
@@ -495,20 +495,20 @@ it("_endStep handles null stepInfo gracefully", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   // 没有活跃 step 时调用不应抛出
-  expect(() => loop._endStep(null)).not.toThrow();
-  expect(() => loop._endStep(undefined)).not.toThrow();
-  expect(() => loop._endStep({})).not.toThrow();
+  expect(() => loop.stepRunner._endStep(null)).not.toThrow();
+  expect(() => loop.stepRunner._endStep(undefined)).not.toThrow();
+  expect(() => loop.stepRunner._endStep({})).not.toThrow();
 });
 
 it("_abortActiveStep aborts the active step controller", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  loop._beginStep({ name: "to-abort" });
+  loop.stepRunner._beginStep({ name: "to-abort" });
   const controller = loop._activeStep.controller;
 
   expect(controller.signal.aborted).toBe(false);
 
-  loop._abortActiveStep("test reason");
+  loop.stepRunner._abortActiveStep("test reason");
 
   expect(controller.signal.aborted).toBe(true);
 });
@@ -516,9 +516,9 @@ it("_abortActiveStep aborts the active step controller", async () => {
 it("_abortActiveStep uses default reason if not provided", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  loop._beginStep({ name: "to-abort" });
+  loop.stepRunner._beginStep({ name: "to-abort" });
 
-  loop._abortActiveStep();
+  loop.stepRunner._abortActiveStep();
 
   expect(loop._activeStep.controller.signal.aborted).toBe(true);
 });
@@ -526,22 +526,22 @@ it("_abortActiveStep uses default reason if not provided", async () => {
 it("_abortActiveStep does nothing if no active step", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  expect(() => loop._abortActiveStep("reason")).not.toThrow();
+  expect(() => loop.stepRunner._abortActiveStep("reason")).not.toThrow();
 });
 
 it("_abortActiveStep does nothing if already aborted", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  loop._beginStep({ name: "already-aborted" });
+  loop.stepRunner._beginStep({ name: "already-aborted" });
   loop._activeStep.controller.abort("first");
 
-  expect(() => loop._abortActiveStep("second")).not.toThrow();
+  expect(() => loop.stepRunner._abortActiveStep("second")).not.toThrow();
 });
 
 it("_createStepSignal creates independent signal", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  const { signal, controller } = loop._createStepSignal(null);
+  const { signal, controller } = loop.stepRunner._createStepSignal(null);
 
   expect(signal).toBeInstanceOf(AbortSignal);
   expect(controller).toBeInstanceOf(AbortController);
@@ -555,7 +555,7 @@ it("_createStepSignal merges with parent signal", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   const parentController = new AbortController();
-  const { signal } = loop._createStepSignal(parentController.signal);
+  const { signal } = loop.stepRunner._createStepSignal(parentController.signal);
 
   expect(signal.aborted).toBe(false);
 
@@ -570,7 +570,7 @@ it("_emitStepEvent does nothing if no emit function", async () => {
   loop.emit = null;
   loop.eventBus = null;
 
-  expect(() => loop._emitStepEvent("test", { data: "value" })).not.toThrow();
+  expect(() => loop.stepRunner._emitStepEvent("test", { data: "value" })).not.toThrow();
 });
 
 // ============================================================================
@@ -581,7 +581,7 @@ it("_transitionPhase updates state.status", async () => {
   const loop = await createTestLoop({ stageName: "transition" });
 
   const state = { status: "idle" };
-  loop._transitionPhase(state, "running");
+  loop.phaseRunner._transitionPhase(state, "running");
 
   expect(state.status).toBe("running");
 });
@@ -590,7 +590,7 @@ it("_transitionPhase updates state.state when status not present", async () => {
   const loop = await createTestLoop({ stageName: "transition" });
 
   const state = { state: "idle" };
-  loop._transitionPhase(state, "running");
+  loop.phaseRunner._transitionPhase(state, "running");
 
   expect(state.state).toBe("running");
 });
@@ -599,7 +599,7 @@ it("_transitionPhase adds status to empty state object", async () => {
   const loop = await createTestLoop({ stageName: "transition" });
 
   const state = {};
-  loop._transitionPhase(state, "running");
+  loop.phaseRunner._transitionPhase(state, "running");
 
   expect(state.status).toBe("running");
 });
@@ -613,7 +613,7 @@ it("_transitionPhase throws when state machine rejects transition", async () => 
 
   const state = { status: "idle" };
 
-  expect(() => loop._transitionPhase(state, "invalid")).toThrow(/phase transition rejected/);
+  expect(() => loop.phaseRunner._transitionPhase(state, "invalid")).toThrow(/phase transition rejected/);
 });
 
 it("_transitionPhase emits event with payload", async () => {
@@ -623,7 +623,7 @@ it("_transitionPhase emits event with payload", async () => {
   const loop = await createTestLoop({ stageName: "transition" });
 
   const state = { status: "idle" };
-  loop._transitionPhase(state, "running", { emit, runId: "run_1", payload: { extra: "data" } });
+  loop.phaseRunner._transitionPhase(state, "running", { emit, runId: "run_1", payload: { extra: "data" } });
 
   expect(events.length).toBe(1);
   expect(events[0].name).toBe("transition.phase.transition");
@@ -640,7 +640,7 @@ it("_transitionPhase uses custom eventName", async () => {
   const loop = await createTestLoop({ stageName: "transition" });
 
   const state = { status: "idle" };
-  loop._transitionPhase(state, "running", { emit, eventName: "custom.transition" });
+  loop.phaseRunner._transitionPhase(state, "running", { emit, eventName: "custom.transition" });
 
   expect(events[0].name).toBe("custom.transition");
 });
@@ -652,7 +652,7 @@ it("_transitionPhase uses loop emit when no emit provided", async () => {
   const loop = await createTestLoop({ stageName: "transition", emit });
 
   const state = { status: "idle" };
-  loop._transitionPhase(state, "running", { runId: "run_2" });
+  loop.phaseRunner._transitionPhase(state, "running", { runId: "run_2" });
 
   expect(events.length).toBe(1);
   expect(events[0].name).toBe("transition.phase.transition");
@@ -806,7 +806,7 @@ it("waitForUserAction resolves with payload", async () => {
   const eventBus = new EventBus({ runId: "wait" });
   const loop = await createTestLoop({ eventBus });
 
-  const promise = loop.waitForUserAction("confirm", { eventBus, timeout: 200 });
+  const promise = loop.userActionHandler.waitForUserAction("confirm", { eventBus, timeout: 200 });
   eventBus.emit("user.action.confirm", { payload: { ok: true } });
 
   const result = await promise;
@@ -819,7 +819,7 @@ it("waitForUserAction rejects on timeout", async () => {
   const eventBus = new EventBus({ runId: "timeout" });
   const loop = await createTestLoop({ eventBus });
 
-  await expect(loop.waitForUserAction("idle", { eventBus, timeout: 20 })).rejects.toThrow(
+  await expect(loop.userActionHandler.waitForUserAction("idle", { eventBus, timeout: 20 })).rejects.toThrow(
     /Timeout waiting for user action: idle/
   );
 });
@@ -831,7 +831,7 @@ it("waitForUserAction rejects on abort", async () => {
   const loop = await createTestLoop({ eventBus });
   const controller = new AbortController();
 
-  const promise = loop.waitForUserAction("cancel", { eventBus, signal: controller.signal, timeout: 200 });
+  const promise = loop.userActionHandler.waitForUserAction("cancel", { eventBus, signal: controller.signal, timeout: 200 });
   controller.abort("stop");
 
   await expect(promise).rejects.toThrow(/Run cancelled/);
@@ -840,7 +840,7 @@ it("waitForUserAction rejects on abort", async () => {
 it("waitForUserAction requires an eventBus with subscribe", async () => {
   const loop = await createTestLoop();
 
-  await expect(loop.waitForUserAction("missing")).rejects.toThrow(/eventBus with subscribe/);
+  await expect(loop.userActionHandler.waitForUserAction("missing")).rejects.toThrow(/eventBus with subscribe/);
 });
 
 // ============================================================================
@@ -886,28 +886,28 @@ it("pause sets status to PAUSED and aborts active step", async () => {
   const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
   const loop = await createTestLoop({ stageName: "pausable" });
 
-  loop._transitionLoopStatus(AgentStatus.RUNNING, { force: true });
+  loop.statusController._transitionLoopStatus(AgentStatus.RUNNING, { force: true });
 
-  loop._beginStep({ name: "active" });
+  loop.stepRunner._beginStep({ name: "active" });
   const stepController = loop._activeStep.controller;
 
-  loop.pause("test reason");
+  loop.statusController.pause("test reason");
 
   expect(loop.isPaused).toBe(true);
-  expect(loop._pauseReason).toBe("test reason");
+  expect(loop.statusController._pauseReason).toBe("test reason");
   expect(stepController.signal.aborted).toBe(true);
 });
 
 it("resume sets status to RUNNING from PAUSED", async () => {
   const loop = await createTestLoop({ stageName: "pausable" });
 
-  loop.pause("hold");
+  loop.statusController.pause("hold");
   expect(loop.isPaused).toBe(true);
 
-  loop.resume();
+  loop.statusController.resume();
 
   expect(loop.isPaused).toBe(false);
-  expect(loop._pauseReason).toBe(null);
+  expect(loop.statusController._pauseReason).toBe(null);
 });
 
 // ============================================================================
@@ -923,7 +923,7 @@ it("_callTool catches synchronous errors", async () => {
     },
   });
 
-  const result = await loop._callTool("syncFail", {}, {});
+  const result = await loop.toolDispatch._callTool("syncFail", {}, {});
 
   expect(result.ok).toBe(false);
   expect(result.error).toBe("sync error");
@@ -936,7 +936,7 @@ it("_callTool handles tool returning undefined", async () => {
     },
   });
 
-  const result = await loop._callTool("noReturn", {}, {});
+  const result = await loop.toolDispatch._callTool("noReturn", {}, {});
 
   expect(result.ok).toBe(true);
   expect(result.data).toBe(undefined);
@@ -949,7 +949,7 @@ it("_callTool handles tool returning null", async () => {
     },
   });
 
-  const result = await loop._callTool("nullReturn", {}, {});
+  const result = await loop.toolDispatch._callTool("nullReturn", {}, {});
 
   expect(result.ok).toBe(true);
   expect(result.data).toBe(null);
@@ -965,7 +965,7 @@ it("_attachUserInputListener subscribes to user.input event", async () => {
   const eventBus = new EventBus({ runId: "test" });
   const loop = await createTestLoop({ stageName: "input" });
 
-  loop._attachUserInputListener(eventBus);
+  loop.messageHandling._attachUserInputListener(eventBus);
 
   eventBus.emit("user.input", { payload: "test input" });
 
@@ -976,8 +976,8 @@ it("_attachUserInputListener subscribes to user.input event", async () => {
 it("_attachUserInputListener does nothing without eventBus", async () => {
   const loop = await createTestLoop({ stageName: "input" });
 
-  expect(() => loop._attachUserInputListener(null)).not.toThrow();
-  expect(() => loop._attachUserInputListener(undefined)).not.toThrow();
+  expect(() => loop.messageHandling._attachUserInputListener(null)).not.toThrow();
+  expect(() => loop.messageHandling._attachUserInputListener(undefined)).not.toThrow();
 });
 
 it("_attachPauseListener subscribes once and pauses with reason", async () => {
@@ -992,14 +992,14 @@ it("_attachPauseListener subscribes once and pauses with reason", async () => {
     },
   };
 
-  loop._attachPauseListener(eventBus);
-  loop._attachPauseListener(eventBus);
+  loop.messageHandling._attachPauseListener(eventBus);
+  loop.messageHandling._attachPauseListener(eventBus);
 
   expect(calls.length).toBe(1);
   calls[0].handler({ payload: { reason: "coffee" } });
 
   expect(loop.isPaused).toBe(true);
-  expect(loop._pauseReason).toBe("coffee");
+  expect(loop.statusController._pauseReason).toBe("coffee");
 });
 
 it("_detachEventBusListeners unsubscribes pause listener", async () => {
@@ -1012,8 +1012,8 @@ it("_detachEventBusListeners unsubscribes pause listener", async () => {
 
   const loop = await createTestLoop({ stageName: "cleanup" });
 
-  loop._attachPauseListener(eventBus);
-  loop._detachEventBusListeners();
+  loop.messageHandling._attachPauseListener(eventBus);
+  loop.messageHandling._detachEventBusListeners();
 
   expect(unsubCalls).toBe(1);
 });
@@ -1024,13 +1024,13 @@ it("_detachEventBusListeners cleans up subscriptions", async () => {
   const eventBus = new EventBus({ runId: "test" });
   const loop = await createTestLoop({ stageName: "cleanup" });
 
-  loop._attachUserInputListener(eventBus);
-  loop._attachPauseListener(eventBus);
+  loop.messageHandling._attachUserInputListener(eventBus);
+  loop.messageHandling._attachPauseListener(eventBus);
 
   expect(typeof loop._userInputUnsub).toBe("function");
   expect(typeof loop._pauseListenerUnsub).toBe("function");
 
-  loop._detachEventBusListeners();
+  loop.messageHandling._detachEventBusListeners();
 
   expect(loop._userInputUnsub).toBe(null);
   expect(loop._userInputBus).toBe(null);
@@ -1048,7 +1048,7 @@ it("getContextStatus returns context information", async () => {
 
   loop.addMessage({ role: "user", content: "hello" });
 
-  const status = loop.getContextStatus();
+  const status = loop.messageHandling.getContextStatus();
 
   expect(typeof status.tokenUsage.total).toBe("number");
   expect(typeof status.fillRatio).toBe("number");
@@ -1105,7 +1105,7 @@ it("registerTool adds tool to registry", async () => {
 
   loop.registerTool("custom", async () => "result");
 
-  const result = await loop._callTool("custom", {}, {});
+  const result = await loop.toolDispatch._callTool("custom", {}, {});
 
   expect(result.ok).toBe(true);
   expect(result.data).toBe("result");
@@ -1153,7 +1153,7 @@ it("hooks are called during tool execution", async () => {
     },
   });
 
-  await loop._callTool("myTool", { value: 5 }, {});
+  await loop.toolDispatch._callTool("myTool", { value: 5 }, {});
 
   expect(beforeCalls.length).toBe(1);
   expect(beforeCalls[0].tool).toBe("myTool");
@@ -1259,7 +1259,7 @@ it("_isAbortError detects abort errors", async () => {
   const abortError = new Error("AbortError");
   abortError.name = "AbortError";
 
-  expect(loop._isAbortError(abortError, controller.signal)).toBe(true);
+  expect(loop.statusController._isAbortError(abortError, controller.signal)).toBe(true);
 });
 
 it("_isAbortError returns false for non-abort errors", async () => {
@@ -1268,5 +1268,5 @@ it("_isAbortError returns false for non-abort errors", async () => {
   const regularError = new Error("regular");
   const controller = new AbortController();
 
-  expect(loop._isAbortError(regularError, controller.signal)).toBe(false);
+  expect(loop.statusController._isAbortError(regularError, controller.signal)).toBe(false);
 });

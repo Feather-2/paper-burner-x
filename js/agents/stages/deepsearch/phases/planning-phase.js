@@ -291,7 +291,7 @@ export async function runPlanningPhaseIteration({
 }) {
   const plannedIteration = iteration + 1;
 
-  const contextStatus = agent.getContextStatus?.() || {};
+  const contextStatus = agent.messageHandling?.getContextStatus?.() || {};
   const totalTokens = contextStatus.tokenUsage?.total || 0;
   const tokenPct = contextStatus.contextWindow
     ? Math.round((totalTokens / contextStatus.contextWindow) * 100)
@@ -318,7 +318,7 @@ export async function runPlanningPhaseIteration({
   });
 
   // Fail-safe: ensure any scheduled compression has applied before the model call.
-  await agent.flushCompression?.();
+  await agent.messageHandling?.flushCompression?.();
 
   const { baseMessages, ephemeralMessages } = buildEphemeralMessages({
     agent,

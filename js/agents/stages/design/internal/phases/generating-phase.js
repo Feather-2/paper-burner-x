@@ -98,9 +98,9 @@ export async function runGeneratingPhase(loop, {
   const constraints = providedConstraints ?? state.constraints ?? {};
   let userConfig = providedUserConfig ?? state.userConfig ?? {};
 
-  const canApplyUserInputs = typeof loop.applyUserInputsToConfig === "function";
+  const canApplyUserInputs = typeof loop.messageHandling?.applyUserInputsToConfig === "function";
   if (canApplyUserInputs) {
-    userConfig = loop.applyUserInputsToConfig(userConfig);
+    userConfig = loop.messageHandling.applyUserInputsToConfig(userConfig);
   }
   state.userConfig = userConfig;
 
@@ -161,7 +161,7 @@ export async function runGeneratingPhase(loop, {
     const timeoutMs = Math.max(0, Math.floor(timeoutCandidate));
     const spawnSignal = timeoutMs > 0 ? createLinkedSignal(generatingContext.signal, timeoutMs) : generatingContext.signal;
 
-    const genResult = await loop._callTool(
+    const genResult = await loop.toolDispatch._callTool(
       "spawn_slide_agent",
       {
         slideIntents,
@@ -195,7 +195,7 @@ export async function runGeneratingPhase(loop, {
     // Perform Health Check (Initial QA + Style Alignment Check)
     // Only transition to REVIEWING phase if skipReview is false
     if (!skipReview) {
-      loop._transitionPhase(loop.phase, DesignPhase.REVIEWING, { emit, runId });
+      loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.REVIEWING, { emit, runId });
     }
 
     // Update state with generated HTMLs for the tools to see
@@ -308,7 +308,7 @@ export async function runGeneratingPhase(loop, {
   state.degradedCount = genOut.degradedCount;
 
   if (canApplyUserInputs) {
-    state.userConfig = loop.applyUserInputsToConfig(state.userConfig);
+    state.userConfig = loop.messageHandling.applyUserInputsToConfig(state.userConfig);
   }
 
   return genOut;

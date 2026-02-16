@@ -142,7 +142,9 @@ it("other design tools: basic handler contract sanity", async () => {
       userConfig,
       ok: true,
     }),
-    waitForUserAction: async (actionName) => ({ actionName, ok: true }),
+    userActionHandler: {
+      waitForUserAction: async (actionName) => ({ actionName, ok: true }),
+    },
     _renderVisuals: async () => ({ deckHtmlDsl: "", pendingImages: [] }),
   };
 

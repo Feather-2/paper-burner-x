@@ -87,7 +87,7 @@ export async function runLayoutPhase(loop, {
       : [];
 
   const runPhase = async () => {
-    loop._transitionPhase(loop.phase, DesignPhase.LAYOUT_DEVELOPING, { emit, runId });
+    loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.LAYOUT_DEVELOPING, { emit, runId });
     checkCancelled(context.signal);
 
     // 生成布局
@@ -106,10 +106,10 @@ export async function runLayoutPhase(loop, {
     loop._blackboard?.logDecision("layout_generated", `Generated ${layouts.length} layout wireframes`);
 
     // 等待用户确认
-    loop._transitionPhase(loop.phase, DesignPhase.LAYOUT_CONFIRMING, { emit, runId });
+    loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.LAYOUT_CONFIRMING, { emit, runId });
 
     if (context?.interactionMode?.layoutConfirm && context.interactionMode.layoutConfirm !== "skip") {
-      const layoutConfirmResult = await loop.waitForUserAction("confirm_layout", {
+      const layoutConfirmResult = await loop.userActionHandler.waitForUserAction("confirm_layout", {
         eventBus: context.eventBus,
         signal: context.signal,
       });

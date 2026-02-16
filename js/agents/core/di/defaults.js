@@ -51,6 +51,12 @@ export const ServiceId = {
   WORKER_POOL: "workerPool",
   KERNEL: "kernel",
   MESSAGE_BUS: "messageBus",
+  LOOP_MESSAGE_HANDLING: "loopMessageHandling",
+  LOOP_TOOL_DISPATCH: "loopToolDispatch",
+  LOOP_STATUS_CONTROLLER: "loopStatusController",
+  LOOP_STEP_RUNNER: "loopStepRunner",
+  LOOP_PHASE_RUNNER: "loopPhaseRunner",
+  LOOP_USER_ACTION_HANDLER: "loopUserActionHandler",
   // P6.4: Runtime Adapters
   JS_ADAPTER: "jsAdapter",
   PYTHON_ADAPTER: "pythonAdapter",
@@ -101,8 +107,6 @@ export function createAgentContainer(overrides = {}) {
     if (typeof eventBus.enableBackpressure === "function") {
       try {
         eventBus.enableBackpressure({
-          coalescePattern: /\.progress$/,
-          deferNonCoalesced: false,
           maxQueueSize: 10000,
         });
       } catch (error) {

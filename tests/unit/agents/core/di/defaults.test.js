@@ -227,11 +227,8 @@ describe("createAgentContainer", () => {
 
     const [options] = mocks.eventBusEnableBackpressureImpl.mock.calls[0];
     expect(options).toMatchObject({
-      deferNonCoalesced: false,
       maxQueueSize: 10000,
     });
-    expect(options.coalescePattern).toBeInstanceOf(RegExp);
-    expect(options.coalescePattern.source).toBe("\\.progress$");
   });
 
   it("rethrows backpressure errors in non-production and warns", async () => {

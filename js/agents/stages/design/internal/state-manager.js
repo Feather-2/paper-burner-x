@@ -38,7 +38,7 @@ const stateManagerMethods = {
     if (!this._blackboard) return null;
     const snapshot = {
       phase: this.phase?.status,
-      loopStatus: this._loopStatus,
+      loopStatus: this.statusController._loopStatus,
       state: deepClone(this.state),
       timestamp: Date.now(),
     };
@@ -72,7 +72,7 @@ const stateManagerMethods = {
     if (!version) throw new Error(`Cannot backtrack: version "${label}" not found`);
     const targetPhase = version.snapshot?.phase || DesignPhase.IDLE;
     if (version.snapshot?.phase) this.phase.status = version.snapshot.phase;
-    if (version.snapshot?.loopStatus) this._loopStatus = version.snapshot.loopStatus;
+    if (version.snapshot?.loopStatus) this.statusController._loopStatus = version.snapshot.loopStatus;
 
     if (version.snapshot?.state) {
       this.state = deepClone(version.snapshot.state);
@@ -194,7 +194,7 @@ const stateManagerMethods = {
    * @returns {Promise<string|null>}
    */
   async _transitionTo(newStatus, metadata = {}) {
-    const oldStatus = this._loopStatus;
+    const oldStatus = this.statusController._loopStatus;
     if (oldStatus === newStatus) return null;
 
     const validTransitions = {
@@ -226,14 +226,14 @@ const stateManagerMethods = {
       if (runtimeState && checkpointId) runtimeState.lastCheckpointId = checkpointId;
     }
 
-    const shouldPause = this._pauseRequested || runtimePauseRequested;
+    const shouldPause = this.statusController._pauseRequested || runtimePauseRequested;
     if (shouldPause && newStatus === AgentStatus.RUNNING) {
-      const reason = runtimeState?.pausedReason || this._pauseReason || null;
+      const reason = runtimeState?.pausedReason || this.statusController._pauseReason || null;
       const resolvedCheckpointId = checkpointId ?? historyMeta.checkpointId ?? runtimeState?.lastCheckpointId ?? null;
       if (runtimeState && resolvedCheckpointId) runtimeState.lastCheckpointId = resolvedCheckpointId;
 
-      this._loopStatus = AgentStatus.PAUSED;
-      this._statusHistory.push({
+      this.statusController._loopStatus = AgentStatus.PAUSED;
+      this.statusController._statusHistory.push({
         from: oldStatus,
         to: AgentStatus.PAUSED,
         timestamp,
@@ -252,8 +252,8 @@ const stateManagerMethods = {
       });
     }
 
-    this._loopStatus = newStatus;
-    this._statusHistory.push({
+    this.statusController._loopStatus = newStatus;
+    this.statusController._statusHistory.push({
       from: oldStatus,
       to: newStatus,
       timestamp,
@@ -291,8 +291,8 @@ const stateManagerMethods = {
     };
     const state = {
       phase: this.phase?.status,
-      loopStatus: this._loopStatus,
-      statusHistory: this._statusHistory.map((entry) => ({ ...entry })),
+      loopStatus: this.statusController._loopStatus,
+      statusHistory: this.statusController._statusHistory.map((entry) => ({ ...entry })),
       ...mergedNodeStates,
     };
 
@@ -308,12 +308,12 @@ const stateManagerMethods = {
 const stateManagerAccessors = {
   loopStatus: {
     get() {
-      return this._loopStatus;
+      return this.statusController._loopStatus;
     },
   },
   statusHistory: {
     get() {
-      return [...this._statusHistory];
+      return [...this.statusController._statusHistory];
     },
   },
 };
@@ -346,15 +346,15 @@ export async function resumeDesignAgentLoop(
   const restoredLoopStatus = nodeStates.loopStatus || AgentStatus.IDLE;
   const restoredPhase = nodeStates.phase || DesignPhase.IDLE;
 
-  agentLoop._loopStatus = AgentStatus.IDLE;
+  agentLoop.statusController._loopStatus = AgentStatus.IDLE;
   agentLoop.phase = { status: DesignPhase.IDLE };
   if (Array.isArray(nodeStates.statusHistory)) {
-    agentLoop._statusHistory.length = 0;
-    for (const entry of nodeStates.statusHistory) agentLoop._statusHistory.push({ ...entry });
+    agentLoop.statusController._statusHistory.length = 0;
+    for (const entry of nodeStates.statusHistory) agentLoop.statusController._statusHistory.push({ ...entry });
   }
 
-  agentLoop._pauseRequested = false;
-  agentLoop._pauseReason = null;
+  agentLoop.statusController._pauseRequested = false;
+  agentLoop.statusController._pauseReason = null;
 
   agentLoop.hydrateFromNodeStates(nodeStates);
 

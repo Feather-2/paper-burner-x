@@ -5,7 +5,7 @@ const runtimeMocks = vi.hoisted(() => {
     constructor(options = {}) {
       this.options = options;
       this.emit = vi.fn();
-      this.waitForUserAction = vi.fn();
+      this.userActionHandler = { waitForUserAction: vi.fn() };
     }
   }
 
@@ -288,7 +288,7 @@ describe("EditAgentLoop", () => {
       selection: {},
     };
 
-    loop.waitForUserAction
+    loop.userActionHandler.waitForUserAction
       .mockResolvedValueOnce(request)
       .mockResolvedValueOnce({ action: "done" });
 
@@ -305,7 +305,7 @@ describe("EditAgentLoop", () => {
     });
 
     expect(runtimeMocks.checkCancelled).toHaveBeenCalledWith(signal);
-    expect(loop.waitForUserAction).toHaveBeenCalledWith(
+    expect(loop.userActionHandler.waitForUserAction).toHaveBeenCalledWith(
       "edit_command",
       expect.objectContaining({ eventBus: { id: "bus" }, timeout: 0, signal })
     );
@@ -340,10 +340,10 @@ describe("EditAgentLoop", () => {
     runtimeMocks.getEmitFn.mockReturnValue(emit);
     const processSpy = vi.spyOn(loop, "_processEditRequest");
 
-    loop.waitForUserAction.mockResolvedValueOnce({ action: "done" });
+    loop.userActionHandler.waitForUserAction.mockResolvedValueOnce({ action: "done" });
     await loop.run({ runId: "run-2" });
 
-    expect(loop.waitForUserAction).toHaveBeenCalledTimes(1);
+    expect(loop.userActionHandler.waitForUserAction).toHaveBeenCalledTimes(1);
     expect(processSpy).not.toHaveBeenCalled();
     expect(loop.getState()).toBe(EditState.COMPLETED);
   });
@@ -352,7 +352,7 @@ describe("EditAgentLoop", () => {
     const loop = new EditAgentLoop();
     runtimeMocks.getEmitFn.mockReturnValue(undefined);
 
-    loop.waitForUserAction.mockResolvedValueOnce({ action: "done" });
+    loop.userActionHandler.waitForUserAction.mockResolvedValueOnce({ action: "done" });
     await loop.run({ runId: "run-3" });
 
     expect(loop.emit).toHaveBeenCalled();
@@ -363,7 +363,7 @@ describe("EditAgentLoop", () => {
     const emit = vi.fn();
     runtimeMocks.getEmitFn.mockReturnValue(emit);
 
-    loop.waitForUserAction.mockResolvedValueOnce({
+    loop.userActionHandler.waitForUserAction.mockResolvedValueOnce({
       type: EditRequestType.VERBAL,
       action: "edit",
       command: "boom",

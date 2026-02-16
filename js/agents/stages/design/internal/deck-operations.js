@@ -104,7 +104,7 @@ export async function initWatchdogManager({ loop, context, runContext, contentPa
     (context && typeof context === "object" ? context.userConfig : undefined) ||
     {};
   const watchdogSettings = resolveWatchdogSettings(initialUserConfig);
-  let watchdog = await loop._resolveDependency("watchdog", context, null);
+  let watchdog = await loop.phaseRunner._resolveDependency("watchdog", context, null);
   if (watchdog && typeof watchdog.reset === "function") watchdog.reset();
   if (!watchdog) {
     watchdog = new Watchdog({

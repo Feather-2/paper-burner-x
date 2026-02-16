@@ -101,6 +101,6 @@ export async function runWritingPhaseIfNeeded({
     addMessage: (msg) => agent.addMessage(msg),
     messages: () => agent.messages,
     signal,
-    flushMessages: () => agent.flushCompression?.(),
+    flushMessages: () => agent.messageHandling?.flushCompression?.(),
   });
 }

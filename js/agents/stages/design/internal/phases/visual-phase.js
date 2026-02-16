@@ -166,7 +166,7 @@ export async function runVisualPhase(loop, {
     // deferredVisuals: 延迟生图模式，只生成占位符不实际渲染
     const deferredVisuals = context?.deferredVisuals === true;
 
-    loop._transitionPhase(loop.phase, DesignPhase.VISUAL_FILLING, { emit, runId });
+    loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.VISUAL_FILLING, { emit, runId });
 
     const { loopIteration, stepInfo } = await startExecution("visual_filling", {
       contentPackage,
@@ -217,7 +217,7 @@ export async function runVisualPhase(loop, {
       })
       .map((s) => s.slotId);
 
-    const fillResult = await loop._callTool(
+    const fillResult = await loop.toolDispatch._callTool(
       "fill_visual",
       {
         visualSlotsForRender,

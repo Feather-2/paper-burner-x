@@ -76,6 +76,19 @@ vi.mock("../../../../../js/agents/runtime/index.js", () => {
       this.stageName = stageName;
       this.eventBus = eventBus || null;
       this.loopStatus = AgentStatus.IDLE;
+      this.statusController = {
+        initLoopStatus: (...args) => this.initLoopStatus(...args),
+        _transitionLoopStatus: (...args) => this._transitionLoopStatus(...args),
+        _shouldPauseFromError: (...args) => this._shouldPauseFromError(...args),
+        _createPauseError: (...args) => this._createPauseError(...args),
+      };
+      this.phaseRunner = {
+        _resolveDependency: (...args) => this._resolveDependency(...args),
+      };
+      this.stepRunner = {
+        _beginStep: (...args) => this._beginStep(...args),
+        _endStep: (...args) => this._endStep(...args),
+      };
     }
 
     initLoopStatus({ status } = {}) {

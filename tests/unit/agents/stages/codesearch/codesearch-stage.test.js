@@ -298,7 +298,7 @@ describe("CodeSearchStage", () => {
     const deepConfig = { maxQueueSize: 1, deep: { nested: { value: true } } };
 
     const stage = new CodeSearchStage();
-    vi.spyOn(stage, "_resolveDependency").mockImplementation(async (serviceId, _context, fallback) => {
+    vi.spyOn(stage.phaseRunner, "_resolveDependency").mockImplementation(async (serviceId, _context, fallback) => {
       if (serviceId === "eventBus") return eventBus;
       return fallback;
     });
@@ -386,17 +386,17 @@ describe("CodeSearchStage", () => {
       .mockResolvedValueOnce("fromContainer")
       .mockResolvedValueOnce(undefined);
 
-    const fromContext = await stage._resolveDependency(
+    const fromContext = await stage.phaseRunner._resolveDependency(
       "eventBus",
       { eventBus: "fromContext", container: { tryGet } },
       "fallback"
     );
-    const fromContainer = await stage._resolveDependency(
+    const fromContainer = await stage.phaseRunner._resolveDependency(
       "eventBus",
       { container: { tryGet } },
       "fallback"
     );
-    const fromFallback = await stage._resolveDependency(
+    const fromFallback = await stage.phaseRunner._resolveDependency(
       "missing",
       { container: { tryGet } },
       "fallback"

@@ -93,17 +93,21 @@ it("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ended"
     batchSize: 2,
     batchConcurrency: 1,
     phase: { status: DesignPhase.GENERATING },
-    _transitionPhase() {
-      throw new Error("runGeneratingPhase should not transition phases");
+    phaseRunner: {
+      _transitionPhase() {
+        throw new Error("runGeneratingPhase should not transition phases");
+      },
     },
-    async _callTool(name) {
-      if (name !== "spawn_slide_agent") return { ok: false, error: `Unexpected tool: ${name}` };
-      return {
-        ok: true,
-        data: {
-          generated: [{ slideHtml: '<section data-layout="test"></section>', source: "mock" }],
-        },
-      };
+    toolDispatch: {
+      async _callTool(name) {
+        if (name !== "spawn_slide_agent") return { ok: false, error: `Unexpected tool: ${name}` };
+        return {
+          ok: true,
+          data: {
+            generated: [{ slideHtml: '<section data-layout="test"></section>', source: "mock" }],
+          },
+        };
+      },
     },
   };
 
@@ -150,9 +154,11 @@ it("runVisualPhase supports deferredVisuals fast-path", async () => {
   const phase = { status: DesignPhase.REPAIR };
   const loop = {
     phase,
-    _transitionPhase(_state, next) {
-      phase.status = next;
-      return next;
+    phaseRunner: {
+      _transitionPhase(_state, next) {
+        phase.status = next;
+        return next;
+      },
     },
   };
 

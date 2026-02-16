@@ -89,7 +89,7 @@ export class LoopStatusController {
   /** @param {string} [reason] */
   pause(reason = "user_requested") {
     this._loop._statusController.pause(reason);
-    this._loop._abortActiveStep(reason);
+    this._loop.stepRunner._abortActiveStep(reason);
   }
 
   /** @returns {void} */

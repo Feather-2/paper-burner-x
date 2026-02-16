@@ -46,7 +46,7 @@ function makeAgentLoop(overrides = {}) {
     batchConcurrency: 2,
     _initDesignSystem: vi.fn(),
     _renderVisuals: vi.fn(),
-    waitForUserAction: vi.fn(),
+    userActionHandler: { waitForUserAction: vi.fn() },
     state: {
       deckHtmlDsl: '<section>base</section>',
       designSystem: { theme: 'default' },
@@ -626,7 +626,7 @@ describe('createDesignToolHandlers', () => {
     it('should_emit_progress_event_when_called', async () => {
       const emit = vi.fn();
       mockedRuntime.getEmitFn.mockReturnValue(emit);
-      agentLoop.waitForUserAction.mockResolvedValue({ ok: true });
+      agentLoop.userActionHandler.waitForUserAction.mockResolvedValue({ ok: true });
 
       const message = 'y'.repeat(10000);
       await handlers.chat_ask(
@@ -646,11 +646,11 @@ describe('createDesignToolHandlers', () => {
 
     it('should_call_waitForUserAction_when_actionName_is_truthy', async () => {
       mockedRuntime.getEmitFn.mockReturnValue(vi.fn());
-      agentLoop.waitForUserAction.mockResolvedValue({ ok: true });
+      agentLoop.userActionHandler.waitForUserAction.mockResolvedValue({ ok: true });
 
       await handlers.chat_ask({ message: 'ok', actionName: 'confirm' }, context);
 
-      expect(agentLoop.waitForUserAction).toHaveBeenCalledWith('confirm', {
+      expect(agentLoop.userActionHandler.waitForUserAction).toHaveBeenCalledWith('confirm', {
         eventBus: context.eventBus,
         signal: context.signal,
       });
@@ -658,7 +658,7 @@ describe('createDesignToolHandlers', () => {
 
     it('should_return_payload_when_waitForUserAction_resolves', async () => {
       mockedRuntime.getEmitFn.mockReturnValue(vi.fn());
-      agentLoop.waitForUserAction.mockResolvedValue({ ok: true });
+      agentLoop.userActionHandler.waitForUserAction.mockResolvedValue({ ok: true });
 
       const result = await handlers.chat_ask({ message: 'ok', actionName: 'confirm' }, context);
 
@@ -679,7 +679,7 @@ describe('createDesignToolHandlers', () => {
 
       await handlers.chat_ask({ message: 'ok', actionName: '' }, context);
 
-      expect(agentLoop.waitForUserAction).not.toHaveBeenCalled();
+      expect(agentLoop.userActionHandler.waitForUserAction).not.toHaveBeenCalled();
     });
 
     it('should_emit_default_payload_actionName_when_actionName_is_falsy', async () => {
@@ -699,14 +699,14 @@ describe('createDesignToolHandlers', () => {
     it('should_call_waitForUserAction_when_actionName_is_whitespace', async () => {
       const emit = vi.fn();
       mockedRuntime.getEmitFn.mockReturnValue(emit);
-      agentLoop.waitForUserAction.mockResolvedValue({ ok: true });
+      agentLoop.userActionHandler.waitForUserAction.mockResolvedValue({ ok: true });
 
       await handlers.chat_ask(
         { message: 'ok', actionName: '  ' },
         context
       );
 
-      expect(agentLoop.waitForUserAction).toHaveBeenCalledWith('  ', {
+      expect(agentLoop.userActionHandler.waitForUserAction).toHaveBeenCalledWith('  ', {
         eventBus: context.eventBus,
         signal: context.signal,
       });
@@ -723,7 +723,7 @@ describe('createDesignToolHandlers', () => {
     it('should_call_waitForUserAction_for_each_parallel_invocation_when_concurrent', async () => {
       const emit = vi.fn();
       mockedRuntime.getEmitFn.mockReturnValue(emit);
-      agentLoop.waitForUserAction.mockImplementation((action) =>
+      agentLoop.userActionHandler.waitForUserAction.mockImplementation((action) =>
         Promise.resolve({ action })
       );
 
@@ -732,12 +732,12 @@ describe('createDesignToolHandlers', () => {
         handlers.chat_ask({ message: 'b', actionName: 'two' }, context),
       ]);
 
-      expect(agentLoop.waitForUserAction).toHaveBeenCalledTimes(2);
+      expect(agentLoop.userActionHandler.waitForUserAction).toHaveBeenCalledTimes(2);
     });
 
     it('should_return_distinct_results_when_concurrent', async () => {
       mockedRuntime.getEmitFn.mockReturnValue(vi.fn());
-      agentLoop.waitForUserAction.mockImplementation((action) =>
+      agentLoop.userActionHandler.waitForUserAction.mockImplementation((action) =>
         Promise.resolve({ action })
       );
 
@@ -755,7 +755,7 @@ describe('createDesignToolHandlers', () => {
     it('should_reject_when_waitForUserAction_rejects', async () => {
       const emit = vi.fn();
       mockedRuntime.getEmitFn.mockReturnValue(emit);
-      agentLoop.waitForUserAction.mockRejectedValue(new Error('wait failed'));
+      agentLoop.userActionHandler.waitForUserAction.mockRejectedValue(new Error('wait failed'));
 
       await expect(
         handlers.chat_ask({ message: 'fail', actionName: 'bad' }, context)

@@ -920,31 +920,31 @@ describe('runtime/core agent-loop', () => {
 
     const loop = new DemoLoop({ stageName: 'demo', actor: 'bob', emit });
 
-    loop.recordUserInput('  hello  ');
-    loop.recordUserInput({ text: ' world ' });
-    loop.recordUserInput({ message: '!' });
+    loop.messageHandling.recordUserInput('  hello  ');
+    loop.messageHandling.recordUserInput({ text: ' world ' });
+    loop.messageHandling.recordUserInput({ message: '!' });
 
-    expect(loop.hasPendingUserInputs()).toBe(true);
-    const drained = loop.drainUserInputsAsText();
+    expect(loop.messageHandling.hasPendingUserInputs()).toBe(true);
+    const drained = loop.messageHandling.drainUserInputsAsText();
     expect(drained.text).toBe('hello\nworld\n!');
-    expect(loop.hasPendingUserInputs()).toBe(false);
+    expect(loop.messageHandling.hasPendingUserInputs()).toBe(false);
 
-    loop.recordUserInput('note');
-    const merged = loop.applyUserInputsToConfig({ userNotes: 'first' });
+    loop.messageHandling.recordUserInput('note');
+    const merged = loop.messageHandling.applyUserInputsToConfig({ userNotes: 'first' });
     expect(merged.userNotes).toEqual(['first', 'note']);
     expect(merged._lastUserNote).toBe('note');
     expect(Array.isArray(merged._rawUserInputs)).toBe(true);
 
     const parent = new AbortController();
-    const started = loop._beginStep({ name: 'work' }, { signal: parent.signal });
+    const started = loop.stepRunner._beginStep({ name: 'work' }, { signal: parent.signal });
     expect(started.step.stepId.startsWith('demo_')).toBe(true);
     expect(loop.isPaused).toBe(false);
 
-    loop.pause('user_requested');
+    loop.statusController.pause('user_requested');
     expect(loop.isPaused).toBe(true);
     expect(started.context.signal.aborted).toBe(true);
 
-    loop._endStep({ step: started.step }, { status: 'failed', error: 'oops' });
+    loop.stepRunner._endStep({ step: started.step }, { status: 'failed', error: 'oops' });
     expect(emit).toHaveBeenCalledWith('demo.step.started', {
       actor: 'bob',
       status: 'started',
@@ -957,13 +957,13 @@ describe('runtime/core agent-loop', () => {
     });
 
     const bus = createTestEventBus();
-    const waitPromise = loop.waitForUserAction('confirm', { eventBus: bus, timeout: 1000 });
+    const waitPromise = loop.userActionHandler.waitForUserAction('confirm', { eventBus: bus, timeout: 1000 });
     bus.emit('user.action.confirm', { payload: { ok: true } });
     await expect(waitPromise).resolves.toEqual({ ok: true });
 
     vi.useFakeTimers();
     try {
-      const timeoutPromise = loop.waitForUserAction('slow', { eventBus: bus, timeout: 10 });
+      const timeoutPromise = loop.userActionHandler.waitForUserAction('slow', { eventBus: bus, timeout: 10 });
       vi.advanceTimersByTime(10);
       await expect(timeoutPromise).rejects.toThrow(/Timeout waiting/);
     } finally {
@@ -995,9 +995,9 @@ describe('runtime/core agent-loop', () => {
     expect(unsubs[0]).toHaveBeenCalledTimes(1);
     expect(unsubs[1]).toHaveBeenCalledTimes(1);
 
-    const inputs = loop.consumeUserInputs();
+    const inputs = loop.messageHandling.consumeUserInputs();
     expect(inputs.map((i) => i.payload)).toEqual(['hi']);
     expect(loop.isPaused).toBe(true);
-    expect(loop._pauseReason).toBe('break');
+    expect(loop.statusController._pauseReason).toBe('break');
   });
 });

@@ -258,7 +258,7 @@ describe("initWatchdogManager", () => {
     const offFn = vi.fn();
     const eventBus = { on: vi.fn(() => offFn) };
     const loop = {
-      _resolveDependency: vi.fn().mockResolvedValue(null),
+      phaseRunner: { _resolveDependency: vi.fn().mockResolvedValue(null) },
       eventBus,
       _blackboard: { logDecision: vi.fn() },
     };
@@ -283,7 +283,7 @@ describe("initWatchdogManager", () => {
       oscillationThreshold: settings.similarityThreshold,
     });
     expect(loop._watchdog).toBe(result.watchdog);
-    expect(loop._resolveDependency).toHaveBeenCalledWith("watchdog", { userConfig: { source: "context" } }, null);
+    expect(loop.phaseRunner._resolveDependency).toHaveBeenCalledWith("watchdog", { userConfig: { source: "context" } }, null);
     expect(eventBus.on).toHaveBeenCalledWith("design:refine:step", expect.any(Function));
     expect(result.offRefineWatchdog).toBe(offFn);
   });
@@ -300,7 +300,7 @@ describe("initWatchdogManager", () => {
 
     const existingWatchdog = createWatchdog();
     const loop = {
-      _resolveDependency: vi.fn().mockResolvedValue(existingWatchdog),
+      phaseRunner: { _resolveDependency: vi.fn().mockResolvedValue(existingWatchdog) },
       eventBus: {},
       phase: { status: "phase-1" },
       _blackboard: { logDecision: vi.fn() },
@@ -364,7 +364,7 @@ describe("initWatchdogManager", () => {
     });
     const eventBus = { on: vi.fn() };
     const loop = {
-      _resolveDependency: vi.fn().mockResolvedValue(watchdog),
+      phaseRunner: { _resolveDependency: vi.fn().mockResolvedValue(watchdog) },
       eventBus,
       phase: { status: "visual" },
       _blackboard: { logDecision: vi.fn() },
@@ -425,7 +425,7 @@ describe("initWatchdogManager", () => {
 
   it("returns null offRefineWatchdog when eventBus lacks a listener", async () => {
     const loop = {
-      _resolveDependency: vi.fn().mockResolvedValue(null),
+      phaseRunner: { _resolveDependency: vi.fn().mockResolvedValue(null) },
       eventBus: {},
     };
 
@@ -444,7 +444,7 @@ describe("initWatchdogManager", () => {
 
   it("propagates dependency resolution errors", async () => {
     const loop = {
-      _resolveDependency: vi.fn().mockRejectedValue(new Error("dependency failed")),
+      phaseRunner: { _resolveDependency: vi.fn().mockRejectedValue(new Error("dependency failed")) },
       eventBus: {},
     };
 

@@ -166,7 +166,7 @@ export class MessageHandling {
       (evt) => {
         const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
         const reason = payload?.reason || payload?.message || payload;
-        loop.pause(typeof reason === "string" ? reason : "user_requested");
+        loop.statusController.pause(typeof reason === "string" ? reason : "user_requested");
       },
       { ...(signal ? { signal } : {}) }
     );

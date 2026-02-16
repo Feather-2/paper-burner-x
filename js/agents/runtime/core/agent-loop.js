@@ -52,6 +52,12 @@ import { runWithAgentLifecycleHooks } from "./agent-loop-lifecycle-hooks.js";
  * @property {boolean} [strictLoopStatus]
  * @property {TokenCounterLike | null} [tokenCounter]
  * @property {number} [maxUserInputs]
+ * @property {typeof MessageHandling} [MessageHandlingClass]
+ * @property {typeof ToolDispatch} [ToolDispatchClass]
+ * @property {typeof LoopStatusController} [StatusControllerClass]
+ * @property {typeof StepRunner} [StepRunnerClass]
+ * @property {typeof PhaseRunner} [PhaseRunnerClass]
+ * @property {typeof UserActionHandler} [UserActionHandlerClass]
  *
  * @typedef {{ timeout?: number, eventBus?: EventBusLike | null, signal?: AbortSignal }} WaitForUserActionOptions
  * @typedef {{ eventName?: string, signal?: AbortSignal }} AttachListenerOptions
@@ -273,20 +279,28 @@ export class BaseAgentLoop {
   /**
    * @param {BaseAgentLoopOptions} [options]
    */
-  constructor({
-    eventBus,
-    stateMachine,
-    tools,
-    actor,
-    stageName,
-    emit,
-    hooks,
-    contextConfig,
-    logger,
-    strictLoopStatus,
-    tokenCounter,
-    maxUserInputs,
-  } = {}) {
+  constructor(options = {}) {
+    const {
+      eventBus,
+      stateMachine,
+      tools,
+      actor,
+      stageName,
+      emit,
+      hooks,
+      contextConfig,
+      logger,
+      strictLoopStatus,
+      tokenCounter,
+      maxUserInputs,
+      MessageHandlingClass = MessageHandling,
+      ToolDispatchClass = ToolDispatch,
+      StatusControllerClass = LoopStatusController,
+      StepRunnerClass = StepRunner,
+      PhaseRunnerClass = PhaseRunner,
+      UserActionHandlerClass = UserActionHandler,
+    } = options || {};
+
     this.eventBus = eventBus || null;
     this.logger = logger || null;
     this.stateMachine = stateMachine || null;
@@ -294,7 +308,7 @@ export class BaseAgentLoop {
     this.stageName = stageName || actor || "agent";
     this.emit = typeof emit === "function" ? emit : null;
 
-    this._messageHandling = new MessageHandling(this, {
+    this._messageHandling = new MessageHandlingClass(this, {
       contextConfig,
       tokenCounter,
       logger,
@@ -304,9 +318,9 @@ export class BaseAgentLoop {
       maxUserInputs,
     });
 
-    this._toolDispatch = new ToolDispatch(this, { tools, hooks, logger });
+    this._toolDispatch = new ToolDispatchClass(this, { tools, hooks, logger });
 
-    this._statusMixin = new LoopStatusController(this, {
+    this._statusMixin = new StatusControllerClass(this, {
       strictLoopStatus,
       logger,
       emit: this.emit,
@@ -314,9 +328,9 @@ export class BaseAgentLoop {
       actor: this.actor,
     });
 
-    this._stepMixin = new StepRunner(this);
-    this._phaseMixin = new PhaseRunner(this);
-    this._userActionMixin = new UserActionHandler(this);
+    this._stepMixin = new StepRunnerClass(this);
+    this._phaseMixin = new PhaseRunnerClass(this);
+    this._userActionMixin = new UserActionHandlerClass(this);
     this._executeAbortController = null;
   }
 
@@ -358,8 +372,8 @@ export class BaseAgentLoop {
     this.emit = getEmitFn(base) || this.emit || this.eventBus?.emit || null;
 
     if (this.eventBus) {
-      this._attachUserInputListener(this.eventBus, { signal: combinedSignal });
-      this._attachPauseListener(this.eventBus, { signal: combinedSignal });
+      this._messageHandling._attachUserInputListener(this.eventBus, { signal: combinedSignal });
+      this._messageHandling._attachPauseListener(this.eventBus, { signal: combinedSignal });
     }
 
     // 生成 runId 用于追踪
@@ -383,46 +397,44 @@ export class BaseAgentLoop {
       } catch {
         // ignore
       }
-      this._detachEventBusListeners();
+      this._messageHandling._detachEventBusListeners();
       if (this._executeAbortController === executeController) this._executeAbortController = null;
     }
   }
 
-  // ===== MessageHandling delegates =====
+  /** @returns {MessageHandling} */
+  get messageHandling() {
+    return this._messageHandling;
+  }
+
+  /** @returns {ToolDispatch} */
+  get toolDispatch() {
+    return this._toolDispatch;
+  }
+
+  /** @returns {LoopStatusController} */
+  get statusController() {
+    return this._statusMixin;
+  }
+
+  /** @returns {StepRunner} */
+  get stepRunner() {
+    return this._stepMixin;
+  }
+
+  /** @returns {PhaseRunner} */
+  get phaseRunner() {
+    return this._phaseMixin;
+  }
+
+  /** @returns {UserActionHandler} */
+  get userActionHandler() {
+    return this._userActionMixin;
+  }
 
   /** @returns {any[]} */
   get messages() {
     return this._messageHandling.messages;
-  }
-
-  /** @returns {any} */
-  get _contextConfig() {
-    return this._messageHandling._contextConfig;
-  }
-
-  /** @param {any} value */
-  set _contextConfig(value) {
-    this._messageHandling._contextConfig = value;
-  }
-
-  /** @returns {{ input: number, output: number, total: number }} */
-  get _tokenUsage() {
-    return this._messageHandling._tokenUsage;
-  }
-
-  /** @returns {any[]} */
-  get _compressionHistory() {
-    return this._messageHandling._compressionHistory;
-  }
-
-  /** @returns {Promise<void> | null} */
-  get _compressionPromise() {
-    return this._messageHandling._compressionPromise;
-  }
-
-  /** @returns {boolean} */
-  get _compressionPending() {
-    return this._messageHandling._compressionPending;
   }
 
   /** @param {any} message */
@@ -440,104 +452,15 @@ export class BaseAgentLoop {
     return this._messageHandling.resetMessages(options);
   }
 
-  /** @returns {boolean} */
-  _shouldCompress() {
-    return this._messageHandling._shouldCompress();
-  }
-
-  /** @param {{ force?: boolean } | null | undefined} [options] */
-  _scheduleCompression(options) {
-    return this._messageHandling._scheduleCompression(options);
-  }
-
-  /** @param {{ maxRounds?: number } | null | undefined} [options] */
-  async flushCompression(options) {
-    return this._messageHandling.flushCompression(options);
-  }
-
-  /** @returns {Promise<void>} */
-  async _compressMessages() {
-    return this._messageHandling._compressMessages();
-  }
-
-  /** @returns {any} */
-  getContextStatus() {
-    return this._messageHandling.getContextStatus();
-  }
-
-  /** @param {AnyRecord} config */
-  setContextConfig(config) {
-    return this._messageHandling.setContextConfig(config);
-  }
-
-  /**
-   * @param {EventBusLike} eventBus
-   * @param {AttachListenerOptions} [options]
-   */
-  _attachUserInputListener(eventBus, options = {}) {
-    return this._messageHandling._attachUserInputListener(eventBus, options);
-  }
-
-  /**
-   * @param {EventBusLike} eventBus
-   * @param {{ signal?: AbortSignal }} [options]
-   */
-  _attachPauseListener(eventBus, options = {}) {
-    return this._messageHandling._attachPauseListener(eventBus, options);
-  }
-
-  /** @returns {void} */
-  _detachEventBusListeners() {
-    return this._messageHandling._detachEventBusListeners();
-  }
-
-  /**
-   * @param {any} payload
-   * @returns {UserInputEntry}
-   */
-  recordUserInput(payload) {
-    return this._messageHandling.recordUserInput(payload);
-  }
-
-  /**
-   * @param {ConsumeUserInputsOptions} [options]
-   * @returns {UserInputEntry[]}
-   */
-  consumeUserInputs(options = {}) {
-    return this._messageHandling.consumeUserInputs(options);
-  }
-
-  /**
-   * @param {DrainUserInputsOptions} [options]
-   * @returns {{ items: UserInputEntry[], text: string }}
-   */
-  drainUserInputsAsText(options = {}) {
-    return this._messageHandling.drainUserInputsAsText(options);
-  }
-
-  /**
-   * @param {AnyRecord} userConfig
-   * @param {ApplyUserInputsOptions} [options]
-   * @returns {AnyRecord}
-   */
-  applyUserInputsToConfig(userConfig, options = {}) {
-    return this._messageHandling.applyUserInputsToConfig(userConfig, options);
+  /** @returns {string} */
+  get loopStatus() {
+    return this._statusMixin.loopStatus;
   }
 
   /** @returns {boolean} */
-  hasPendingUserInputs() {
-    return this._messageHandling.hasPendingUserInputs();
+  get isPaused() {
+    return this._statusMixin.isPaused;
   }
-
-  /**
-   * @param {Array<UserInputEntry | any>} items
-   * @returns {string}
-   */
-  formatUserInputs(items) {
-    return this._messageHandling.formatUserInputs(items);
-  }
-
-  // ===== ToolDispatch delegates =====
 
   /** @param {any} tools */
   registerTools(tools) {
@@ -547,181 +470,5 @@ export class BaseAgentLoop {
   /** @param {string} name @param {Function} fn */
   registerTool(name, fn) {
     return this._toolDispatch.registerTool(name, fn);
-  }
-
-  /** @param {"before"|"after"} phase @param {(ctx: any) => any} fn @returns {this} */
-  useHook(phase, fn) {
-    this._toolDispatch.useHook(phase, fn);
-    return this;
-  }
-
-  /** @param {string} name @param {any} params @param {any} context @returns {Promise<ToolResult>} */
-  async _callTool(name, params, context) {
-    return this._toolDispatch._callTool(name, params, context);
-  }
-
-  // ===== LoopStatusController delegates =====
-
-  /** @returns {string} */
-  get loopStatus() {
-    return this._statusMixin.loopStatus;
-  }
-
-  /** @returns {string} */
-  get _loopStatus() {
-    return this._statusMixin._loopStatus;
-  }
-
-  /** @param {string} value */
-  set _loopStatus(value) {
-    this._statusMixin._loopStatus = value;
-  }
-
-  /** @returns {boolean} */
-  get isPaused() {
-    return this._statusMixin.isPaused;
-  }
-
-  /** @returns {boolean} */
-  get _pauseRequested() {
-    return this._statusMixin._pauseRequested;
-  }
-
-  /** @param {boolean} value */
-  set _pauseRequested(value) {
-    this._statusMixin._pauseRequested = value;
-  }
-
-  /** @returns {string | null} */
-  get _pauseReason() {
-    return this._statusMixin._pauseReason;
-  }
-
-  /** @param {string | null} value */
-  set _pauseReason(value) {
-    this._statusMixin._pauseReason = value;
-  }
-
-  /** @returns {any[]} */
-  get statusHistory() {
-    return this._statusMixin.statusHistory;
-  }
-
-  /** @returns {any[]} */
-  get _statusHistory() {
-    return this._statusMixin._statusHistory;
-  }
-
-  /** @param {{ status?: string, machine?: any, eventName?: string, strict?: boolean } | null | undefined} [options] */
-  initLoopStatus(options = {}) {
-    this._statusMixin.initLoopStatus(options);
-  }
-
-  /** @param {string} [reason] */
-  pause(reason = "user_requested") {
-    this._statusMixin.pause(reason);
-  }
-
-  /** @returns {void} */
-  resume() {
-    this._statusMixin.resume();
-  }
-
-  /** @param {string} newStatus @param {LoopStatusTransitionMeta} [metadata] */
-  _transitionLoopStatus(newStatus, metadata = {}) {
-    return this._statusMixin._transitionLoopStatus(newStatus, metadata);
-  }
-
-  /** @param {AbortSignal | null | undefined} signal */
-  _checkPaused(signal) {
-    return this._statusMixin._checkPaused(signal);
-  }
-
-  /** @param {{ signal?: AbortSignal, runId?: string | null } | null | undefined} [options] */
-  _createPauseError(options) {
-    return this._statusMixin._createPauseError(options);
-  }
-
-  /** @param {any} err @param {AbortSignal | null | undefined} signal */
-  _shouldPauseFromError(err, signal) {
-    return this._statusMixin._shouldPauseFromError(err, signal);
-  }
-
-  /** @param {any} err @param {AbortSignal | null | undefined} signal */
-  _isAbortError(err, signal) {
-    return this._statusMixin._isAbortError(err, signal);
-  }
-
-  // ===== StepRunner delegates =====
-
-  /**
-   * @param {StepMeta} [stepMeta]
-   * @param {AnyRecord} [context]
-   * @returns {{ step: StepInfo, context: AnyRecord }}
-   */
-  _beginStep(stepMeta = {}, context = {}) {
-    return this._stepMixin._beginStep(stepMeta, context);
-  }
-
-  /**
-   * @param {{ step?: StepInfo } | null | undefined} stepInfo
-   * @param {EndStepOptions} [options]
-   */
-  _endStep(stepInfo, options = {}) {
-    this._stepMixin._endStep(stepInfo, options);
-  }
-
-  /**
-   * @param {string} status
-   * @param {AnyRecord} payload
-   */
-  _emitStepEvent(status, payload) {
-    this._stepMixin._emitStepEvent(status, payload);
-  }
-
-  /** @param {string | null | undefined} reason */
-  _abortActiveStep(reason) {
-    this._stepMixin._abortActiveStep(reason);
-  }
-
-  /**
-   * @param {AbortSignal | null | undefined} parentSignal
-   * @returns {{ signal: AbortSignal, controller: AbortController }}
-   */
-  _createStepSignal(parentSignal) {
-    return this._stepMixin._createStepSignal(parentSignal);
-  }
-
-  // ===== PhaseRunner delegates =====
-
-  /**
-   * @param {string} serviceId
-   * @param {any} context
-   * @param {any} fallback
-   * @returns {Promise<any>}
-   */
-  _resolveDependency(serviceId, context, fallback) {
-    return this._phaseMixin._resolveDependency(serviceId, context, fallback);
-  }
-
-  /**
-   * @param {any} state
-   * @param {string} next
-   * @param {TransitionPhaseOptions} [options]
-   * @returns {string}
-   */
-  _transitionPhase(state, next, options = {}) {
-    return this._phaseMixin._transitionPhase(state, next, options);
-  }
-
-  // ===== UserActionHandler delegates =====
-
-  /**
-   * @param {string} actionName
-   * @param {WaitForUserActionOptions} [options]
-   * @returns {Promise<any>}
-   */
-  waitForUserAction(actionName, options = {}) {
-    return this._userActionMixin.waitForUserAction(actionName, options);
   }
 }

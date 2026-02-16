@@ -31,16 +31,17 @@ function createLoop(overrides = {}) {
   const loop = {
     phase: "idle",
     state: {},
-    _transitionPhase: vi.fn(),
-    _callTool: vi.fn(),
-    waitForUserAction: vi.fn(),
+    phaseRunner: { _transitionPhase: vi.fn() },
+    toolDispatch: { _callTool: vi.fn() },
+    userActionHandler: { waitForUserAction: vi.fn() },
+    messageHandling: {},
     _blackboard: {
       logDecision: vi.fn(),
       setSummary: vi.fn(),
     },
     ...overrides,
   };
-  loop._transitionPhase.mockImplementation((_from, to) => {
+  loop.phaseRunner._transitionPhase.mockImplementation((_from, to) => {
     loop.phase = to;
   });
   return loop;
@@ -81,7 +82,7 @@ describe("runPreparationPhase", () => {
     styleSignal = {},
   } = {}) {
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: parsedContentPackage, slideIntents: parsedContentPackage.slideIntents } };
       }
@@ -139,7 +140,7 @@ describe("runPreparationPhase", () => {
   it("should_transition_phases_in_expected_order_when_phase_runs", async () => {
     const { loop } = await runHappyPath();
 
-    expect(loop._transitionPhase.mock.calls.map((call) => call[1])).toEqual([
+    expect(loop.phaseRunner._transitionPhase.mock.calls.map((call) => call[1])).toEqual([
       DesignPhase.OUTLINE_PARSING,
       DesignPhase.OUTLINE_CONFIRMING,
       DesignPhase.STYLE_EXTRACTING,
@@ -212,7 +213,7 @@ describe("runPreparationPhase", () => {
   it("should_wait_for_user_outline_confirmation_when_outlineConfirm_not_skip", async () => {
     const parsedContentPackage = { slideIntents: [{ id: "one" }] };
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: parsedContentPackage, slideIntents: parsedContentPackage.slideIntents } };
       }
@@ -221,7 +222,7 @@ describe("runPreparationPhase", () => {
       }
       throw new Error("unexpected tool");
     });
-    loop.waitForUserAction.mockResolvedValue({ slideIntents: [{ id: "a" }, { id: "b" }, { id: "c" }] });
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({ slideIntents: [{ id: "a" }, { id: "b" }, { id: "c" }] });
     const { startExecution, finishExecution } = createExecution();
     const emit = vi.fn();
     const context = {
@@ -241,14 +242,14 @@ describe("runPreparationPhase", () => {
       traceContext: null,
     });
 
-    expect(loop.waitForUserAction).toHaveBeenCalledWith("confirm_outline", { eventBus: context.eventBus, signal: context.signal });
+    expect(loop.userActionHandler.waitForUserAction).toHaveBeenCalledWith("confirm_outline", { eventBus: context.eventBus, signal: context.signal });
   });
 
   it("should_use_outline_confirmed_slideIntents_when_user_provides_slideIntents", async () => {
     const parsedContentPackage = { slideIntents: [{ id: "one" }] };
     const confirmedSlideIntents = [{ id: "a" }, { id: "b" }, { id: "c" }];
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: parsedContentPackage, slideIntents: parsedContentPackage.slideIntents } };
       }
@@ -257,7 +258,7 @@ describe("runPreparationPhase", () => {
       }
       throw new Error("unexpected tool");
     });
-    loop.waitForUserAction.mockResolvedValue({ slideIntents: confirmedSlideIntents });
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({ slideIntents: confirmedSlideIntents });
     const { startExecution, finishExecution } = createExecution();
     const emit = vi.fn();
     const context = {
@@ -282,7 +283,7 @@ describe("runPreparationPhase", () => {
   it("should_emit_style_preview_with_slideCount_from_outline_confirmation", async () => {
     const parsedContentPackage = { slideIntents: [{ id: "one" }] };
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: parsedContentPackage, slideIntents: parsedContentPackage.slideIntents } };
       }
@@ -291,7 +292,7 @@ describe("runPreparationPhase", () => {
       }
       throw new Error("unexpected tool");
     });
-    loop.waitForUserAction.mockResolvedValue({ slideIntents: [{ id: "a" }, { id: "b" }, { id: "c" }] });
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({ slideIntents: [{ id: "a" }, { id: "b" }, { id: "c" }] });
     const { startExecution, finishExecution } = createExecution();
     const emit = vi.fn();
     const context = {
@@ -330,7 +331,7 @@ describe("runPreparationPhase", () => {
     const expectedFontFamily = longFontFamily.slice(0, 100);
     const expectedColorScheme = longColorScheme.trim().slice(0, 40);
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: { slideIntents: [{ id: 1 }] }, slideIntents: [{ id: 1 }] } };
       }
@@ -339,7 +340,7 @@ describe("runPreparationPhase", () => {
       }
       throw new Error("unexpected tool");
     });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       theme: " Dark ",
       colorScheme: longColorScheme,
       fontFamily: longFontFamily,
@@ -389,7 +390,7 @@ describe("runPreparationPhase", () => {
       accentColor: "rgba(0, 128, 255, 0.5)",
     };
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: { slideIntents: [{ id: 1 }] }, slideIntents: [{ id: 1 }] } };
       }
@@ -398,7 +399,7 @@ describe("runPreparationPhase", () => {
       }
       throw new Error("unexpected tool");
     });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       theme: " Dark ",
       colorScheme: longColorScheme,
       fontFamily: longFontFamily,
@@ -437,7 +438,7 @@ describe("runPreparationPhase", () => {
       accentColor: "#000000",
     };
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: { slideIntents: [{ id: 1 }] }, slideIntents: [{ id: 1 }] } };
       }
@@ -446,7 +447,7 @@ describe("runPreparationPhase", () => {
       }
       throw new Error("unexpected tool");
     });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       theme: 123,
       colorScheme: "!!!",
       fontFamily: "   ",
@@ -481,7 +482,7 @@ describe("runPreparationPhase", () => {
       accentColor: "#000000",
     };
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: { slideIntents: [{ id: 1 }] }, slideIntents: [{ id: 1 }] } };
       }
@@ -490,7 +491,7 @@ describe("runPreparationPhase", () => {
       }
       throw new Error("unexpected tool");
     });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       theme: 123,
       colorScheme: "!!!",
       fontFamily: "   ",
@@ -519,7 +520,7 @@ describe("runPreparationPhase", () => {
 
   it("should_throw_when_parse_outline_returns_not_ok", async () => {
     const loop = createLoop();
-    loop._callTool.mockResolvedValue({ ok: false, error: "parse fail" });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: false, error: "parse fail" });
     const { startExecution, finishExecution } = createExecution();
     const context = { signal: {}, interactionMode: {}, eventBus: {} };
 
@@ -538,7 +539,7 @@ describe("runPreparationPhase", () => {
 
   it("should_not_start_execution_when_parse_outline_returns_not_ok", async () => {
     const loop = createLoop();
-    loop._callTool.mockResolvedValue({ ok: false, error: "parse fail" });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: false, error: "parse fail" });
     const { startExecution, finishExecution } = createExecution();
     const context = { signal: {}, interactionMode: {}, eventBus: {} };
 
@@ -561,7 +562,7 @@ describe("runPreparationPhase", () => {
 
   it("should_throw_when_extract_style_returns_not_ok", async () => {
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: { slideIntents: [{ id: 1 }] }, slideIntents: [{ id: 1 }] } };
       }
@@ -588,7 +589,7 @@ describe("runPreparationPhase", () => {
 
   it("should_not_finish_execution_when_extract_style_returns_not_ok", async () => {
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: { slideIntents: [{ id: 1 }] }, slideIntents: [{ id: 1 }] } };
       }
@@ -619,7 +620,7 @@ describe("runPreparationPhase", () => {
 
   it("should_throw_when_slideIntents_is_empty_array", async () => {
     const loop = createLoop();
-    loop._callTool.mockResolvedValue({ ok: true, data: { contentPackage: { slideIntents: [] }, slideIntents: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { contentPackage: { slideIntents: [] }, slideIntents: [] } });
     const { startExecution, finishExecution } = createExecution();
     const context = { signal: {}, interactionMode: {}, eventBus: {} };
 
@@ -638,7 +639,7 @@ describe("runPreparationPhase", () => {
 
   it("should_throw_when_slideIntents_is_not_an_array", async () => {
     const loop = createLoop();
-    loop._callTool.mockResolvedValue({ ok: true, data: { contentPackage: { slideIntents: {} }, slideIntents: {} } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { contentPackage: { slideIntents: {} }, slideIntents: {} } });
     const { startExecution, finishExecution } = createExecution();
     const context = { signal: {}, interactionMode: {}, eventBus: {} };
 
@@ -658,9 +659,11 @@ describe("runPreparationPhase", () => {
   async function runUserConfigScenario() {
     const loop = createLoop({
       state: { contentPackage: { slideIntents: [{ id: 1 }], userConfig: null } },
-      applyUserInputsToConfig: vi.fn((config) => ({ ...config, applied: true })),
+      messageHandling: {
+        applyUserInputsToConfig: vi.fn((config) => ({ ...config, applied: true })),
+      },
     });
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return {
           ok: true,
@@ -691,13 +694,13 @@ describe("runPreparationPhase", () => {
   it("should_fall_back_to_loop_state_contentPackage_when_contentPackage_is_undefined", async () => {
     const { loop, context } = await runUserConfigScenario();
 
-    expect(loop._callTool).toHaveBeenCalledWith("parse_outline", { contentPackage: loop.state.contentPackage }, context);
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith("parse_outline", { contentPackage: loop.state.contentPackage }, context);
   });
 
   it("should_apply_user_inputs_to_userConfig_when_applyUserInputsToConfig_is_provided", async () => {
     const { loop } = await runUserConfigScenario();
 
-    expect(loop.applyUserInputsToConfig).toHaveBeenCalledWith({ fromContext: true });
+    expect(loop.messageHandling.applyUserInputsToConfig).toHaveBeenCalledWith({ fromContext: true });
   });
 
   it("should_pass_transformed_userConfig_to_startExecution_when_applyUserInputsToConfig_transforms_userConfig", async () => {
@@ -714,7 +717,7 @@ describe("runPreparationPhase", () => {
     const deepPackage = { slideIntents: [{ id: "x" }], meta: { nested: { level: { value: "deep" } } } };
 
     const loopA = createLoop();
-    loopA._callTool.mockImplementation(async (tool) => {
+    loopA.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: { slideIntents: largeSlideIntents }, slideIntents: largeSlideIntents } };
       }
@@ -724,7 +727,7 @@ describe("runPreparationPhase", () => {
       throw new Error("unexpected tool");
     });
     const loopB = createLoop();
-    loopB._callTool.mockImplementation(async (tool) => {
+    loopB.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === "parse_outline") {
         return { ok: true, data: { contentPackage: deepPackage, slideIntents: deepPackage.slideIntents } };
       }
@@ -769,7 +772,7 @@ describe("runPreparationPhase", () => {
       { tool: "parse_outline", result: { ok: true, data: { contentPackage: { slideIntents: [{ id: 2 }, { id: 3 }] }, slideIntents: [{ id: 2 }, { id: 3 }] } } },
       { tool: "extract_style", result: { ok: true, data: { designSystem: { theme: "dark" } } } },
     ];
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       const next = toolQueue.shift();
       if (!next || next.tool !== tool) {
         throw new Error("unexpected tool order");

@@ -113,11 +113,11 @@ const createLoop = (overrides = {}) => ({
   state: {},
   batchSize: 2,
   batchConcurrency: 1,
-  _transitionPhase: vi.fn(),
-  _callTool: vi.fn(),
-  waitForUserAction: vi.fn(),
+  phaseRunner: { _transitionPhase: vi.fn() },
+  toolDispatch: { _callTool: vi.fn() },
+  userActionHandler: { waitForUserAction: vi.fn() },
   _buildVisualSlots: vi.fn(() => []),
-  applyUserInputsToConfig: vi.fn((config) => config),
+  messageHandling: { applyUserInputsToConfig: vi.fn((config) => config) },
   _blackboard: {
     logDecision: vi.fn(),
     setSummary: vi.fn(),
@@ -180,7 +180,7 @@ describe('runPreparationPhase', () => {
       accentColor: '#123456',
     };
     const loop = createLoop();
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === 'parse_outline') {
         return { ok: true, data: { contentPackage, slideIntents } };
       }
@@ -189,7 +189,7 @@ describe('runPreparationPhase', () => {
       }
       return { ok: false, error: 'unexpected tool' };
     });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       theme: 'Dark',
       colorScheme: ' #fff ',
       fontFamily: 'Helvetica',
@@ -214,8 +214,8 @@ describe('runPreparationPhase', () => {
     expect(result.designSystem.fontFamily).toBe('Helvetica');
     expect(result.designSystem.accentColor).toBe('rgba(255, 0, 0, 0.5)');
     expect(loop.state.slideIntents).toHaveLength(2);
-    expect(loop._callTool).toHaveBeenCalledWith('parse_outline', { contentPackage }, context);
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith('parse_outline', { contentPackage }, context);
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       'extract_style',
       { contentPackage, constraints: {}, userConfig: {} },
       stepContext
@@ -241,7 +241,7 @@ describe('runPreparationPhase', () => {
     const longColorScheme = 'c'.repeat(80);
     const longFontFamily = `Font ${'A'.repeat(150)}`;
     const loop = createLoop({ state: { contentPackage: baseContentPackage } });
-    loop._callTool.mockImplementation(async (tool) => {
+    loop.toolDispatch._callTool.mockImplementation(async (tool) => {
       if (tool === 'parse_outline') {
         return { ok: true, data: { contentPackage: baseContentPackage, slideIntents } };
       }
@@ -250,7 +250,7 @@ describe('runPreparationPhase', () => {
       }
       return { ok: false, error: 'unexpected tool' };
     });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       theme: 0,
       colorScheme: longColorScheme,
       fontFamily: longFontFamily,
@@ -279,7 +279,7 @@ describe('runPreparationPhase', () => {
 
   it('throws when slide intents are missing', async () => {
     const loop = createLoop();
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: { contentPackage: { slideIntents: [] }, slideIntents: [] },
     });
@@ -297,7 +297,7 @@ describe('runPreparationPhase', () => {
       })
     ).rejects.toThrow('contentPackage.slideIntents is required');
 
-    expect(loop._callTool).toHaveBeenCalledTimes(1);
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -313,7 +313,7 @@ describe('runPlanningPhase', () => {
       })
     );
     const loop = createLoop();
-    loop.waitForUserAction.mockResolvedValue({ edits: [{ slideIntentId: 's1', layoutHint: 'hero' }] });
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({ edits: [{ slideIntentId: 's1', layoutHint: 'hero' }] });
     const context = createContext({ interactionMode: { planConfirm: 'manual' } });
 
     const result = await runPlanningPhase(loop, {
@@ -341,7 +341,7 @@ describe('runPlanningPhase', () => {
       })
     );
     const loop = createLoop({ state: { slideIntents } });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       edits: [
         { slideIndex: 0, layoutHint: 'valid' },
         { slideIndex: -1, layoutHint: 'bad' },
@@ -451,7 +451,7 @@ describe('runLayoutPhase', () => {
     const layouts = makeLayouts(slideIntents);
     generateLayoutBatch.mockReturnValue(layouts);
     const loop = createLoop({ state: { slideIntents, plans } });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       layouts: [
         { slideIntentId: 's1', layoutHtml: '<script>alert(1)</script>' },
         { slideIntentId: 's2', layoutHtml: `<div>${'a'.repeat(20001)}</div>` },
@@ -511,7 +511,7 @@ describe('runGeneratingPhase', () => {
       { slotId: 'img-2', style: 'basic', slideIndex: 1 },
     ]);
     const loop = createLoop();
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: {
         generated: [{ slideHtml: '<section>1</section>' }, { slideHtml: '<section>2</section>' }],
@@ -538,7 +538,7 @@ describe('runGeneratingPhase', () => {
     expect(designSystem.styleLock).toEqual(expect.objectContaining({ theme: 'dark', colors: expect.any(Object) }));
     expect(createLinkedSignal).toHaveBeenCalledWith(stepContext.signal, 5000);
     expect(emitStage.mock.calls.some((call) => call[1] === 'design.image.planning.completed')).toBe(true);
-    expect(loop._transitionPhase).toHaveBeenCalledTimes(1);
+    expect(loop.phaseRunner._transitionPhase).toHaveBeenCalledTimes(1);
   });
 
   it('handles QA degradation, deep content, and large timeouts', async () => {
@@ -548,7 +548,7 @@ describe('runGeneratingPhase', () => {
     const constraints = { imageBudget: 0 };
     ImagePlanner.plan.mockReturnValue([{ slotId: 'img-1', style: 'basic', slideIndex: 0 }]);
     const loop = createLoop();
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: '<section>bad</section>' }] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: '<section>bad</section>' }] } });
     validateSlide
       .mockImplementationOnce(() => ({ pass: false, issues: ['bad'] }))
       .mockImplementationOnce(() => ({ pass: true, issues: [] }));
@@ -571,8 +571,8 @@ describe('runGeneratingPhase', () => {
 
     expect(result.degradedCount).toBe(1);
     expect(result.slidesMeta[0].degraded).toBe(true);
-    expect(loop._transitionPhase).not.toHaveBeenCalled();
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.phaseRunner._transitionPhase).not.toHaveBeenCalled();
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       'spawn_slide_agent',
       expect.objectContaining({ contentPackage: deepContentPackage }),
       stepContext
@@ -583,7 +583,7 @@ describe('runGeneratingPhase', () => {
 
   it('throws when spawn_slide_agent fails', async () => {
     const loop = createLoop();
-    loop._callTool.mockResolvedValue({ ok: false, error: 'spawn failed' });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: false, error: 'spawn failed' });
     const { startExecution, finishExecution } = createExecutionFns();
     const context = createContext();
 
@@ -620,7 +620,7 @@ describe('runBatchRepairPhase', () => {
     });
 
     expect(result.deckHtmlDsl).toBe('<section/>');
-    expect(loop._callTool).not.toHaveBeenCalled();
+    expect(loop.toolDispatch._callTool).not.toHaveBeenCalled();
     expect(emitStage.mock.calls.some((call) => call[1] === 'design.repair.skipped')).toBe(true);
   });
 
@@ -635,7 +635,7 @@ describe('runBatchRepairPhase', () => {
     };
     runAutoReview.mockResolvedValue({ pass: false, score: 50, issues: ['style'], fixes: [], summary: 'needs-fix' });
     const loop = createLoop();
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: {
         finalDeck: { deckHtmlDsl: '<fixed/>', slidesMeta: [{ slideNo: 1, qa: { pass: true } }] },
@@ -665,7 +665,7 @@ describe('runBatchRepairPhase', () => {
       },
     });
     runAutoReview.mockResolvedValue({ pass: false, score: 20, issues: ['style'], fixes: [] });
-    loop._callTool.mockResolvedValue({ ok: false, error: 'repair failed' });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: false, error: 'repair failed' });
 
     const result = await runBatchRepairPhase(loop, {
       context: { signal: {} },
@@ -688,7 +688,7 @@ describe('runVisualPhase', () => {
       { slotId: 'img-2', renderType: 'svg' },
     ];
     const loop = createLoop({ _buildVisualSlots: vi.fn(() => [{ slotId: 'img-1' }]) });
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: {
         deckHtmlDsl: '<deck/>',
@@ -722,7 +722,7 @@ describe('runVisualPhase', () => {
       emitDeckUpdate,
     });
 
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       'fill_visual',
       expect.objectContaining({ aiImageSlotIds: ['img-1'] }),
       expect.any(Object)
@@ -758,7 +758,7 @@ describe('runVisualPhase', () => {
       emitDeckUpdate,
     });
 
-    expect(loop._callTool).not.toHaveBeenCalled();
+    expect(loop.toolDispatch._callTool).not.toHaveBeenCalled();
     expect(result.imageReport).toEqual({ deferred: true, slotCount: 0 });
     expect(result.pendingImages).toEqual([]);
   });
@@ -769,7 +769,7 @@ describe('runVisualPhase', () => {
     const slidesMeta = [{ slideNo: 1, qa: { pass: true } }];
     const imageSlots = [{ slotId: 'img-1', renderType: 'image' }];
     const loop = createLoop({ _buildVisualSlots: vi.fn(() => []) });
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: { deckHtmlDsl: '<deck/>', finalImageSlots: imageSlots, pendingImages: [] },
     });
@@ -807,7 +807,7 @@ describe('runVisualPhase', () => {
 
   it('throws when fill_visual fails', async () => {
     const loop = createLoop();
-    loop._callTool.mockResolvedValue({ ok: false, error: 'fill failed' });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: false, error: 'fill failed' });
     const { startExecution, finishExecution } = createExecutionFns();
     const context = createContext();
 

@@ -91,7 +91,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     const loop = new DemoLoop({ stageName: "demo", actor: "bob", emit });
     const state = { status: "idle" };
 
-    const next = loop._transitionPhase(state, "running", { runId: "r1", payload: { x: 1 } });
+    const next = loop.phaseRunner._transitionPhase(state, "running", { runId: "r1", payload: { x: 1 } });
     expect(next).toBe("running");
     expect(state.status).toBe("running");
 
@@ -118,7 +118,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
       stateMachine: { transition: vi.fn(() => false) },
     });
 
-    expect(() => loop._transitionPhase({ status: "idle" }, "running", { runId: "r1" })).toThrow(
+    expect(() => loop.phaseRunner._transitionPhase({ status: "idle" }, "running", { runId: "r1" })).toThrow(
       "demo phase transition rejected: idle -> running"
     );
     expect(emit).not.toHaveBeenCalled();
@@ -132,18 +132,18 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     }
 
     const loop = new DemoLoop({ stageName: "demo", actor: "bob" });
-    const started = loop._beginStep({ name: "work" }, { signal: new AbortController().signal });
+    const started = loop.stepRunner._beginStep({ name: "work" }, { signal: new AbortController().signal });
     expect(loop.isPaused).toBe(false);
     expect(started.context.signal.aborted).toBe(false);
 
-    loop.pause("user_requested");
+    loop.statusController.pause("user_requested");
     expect(loop.isPaused).toBe(true);
-    expect(loop._pauseReason).toBe("user_requested");
+    expect(loop.statusController._pauseReason).toBe("user_requested");
     expect(started.context.signal.aborted).toBe(true);
 
-    loop.resume();
+    loop.statusController.resume();
     expect(loop.isPaused).toBe(false);
-    expect(loop._pauseReason).toBe(null);
+    expect(loop.statusController._pauseReason).toBe(null);
   });
 
   it("waitForUserAction() rejects when no eventBus.subscribe() is available", async () => {
@@ -154,7 +154,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     }
 
     const loop = new DemoLoop();
-    await expect(loop.waitForUserAction("confirm")).rejects.toThrow(/eventBus.*subscribe/i);
+    await expect(loop.userActionHandler.waitForUserAction("confirm")).rejects.toThrow(/eventBus.*subscribe/i);
   });
 
   it("waitForUserAction() rejects on abort signal and cleans up subscription", async () => {
@@ -168,7 +168,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     const bus = createTestEventBus();
     const controller = new AbortController();
 
-    const promise = loop.waitForUserAction("confirm", { eventBus: bus, signal: controller.signal, timeout: 1000 });
+    const promise = loop.userActionHandler.waitForUserAction("confirm", { eventBus: bus, signal: controller.signal, timeout: 1000 });
     controller.abort("stop");
 
     await expect(promise).rejects.toThrow(/Run cancelled/);
@@ -194,7 +194,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
 
     vi.useFakeTimers();
     try {
-      const promise = loop.waitForUserAction("confirm", { eventBus: bus, signal, timeout: 20 });
+      const promise = loop.userActionHandler.waitForUserAction("confirm", { eventBus: bus, signal, timeout: 20 });
       const expectation = expect(promise).rejects.toThrow(/Timeout waiting for user action: confirm/);
       await vi.advanceTimersByTimeAsync(20);
       await expectation;
@@ -221,7 +221,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
 
     vi.useFakeTimers();
     try {
-      const promise = loop.waitForUserAction("confirm", { timeout: 10 });
+      const promise = loop.userActionHandler.waitForUserAction("confirm", { timeout: 10 });
       const expectation = expect(promise).rejects.toThrow(/Timeout waiting for user action: confirm/);
       await vi.advanceTimersByTimeAsync(10);
       await expectation;
@@ -308,7 +308,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     // @ts-expect-error: simulate attached listener state
     loop._userInputBus = {};
 
-    expect(() => loop._detachEventBusListeners()).not.toThrow();
+    expect(() => loop.messageHandling._detachEventBusListeners()).not.toThrow();
     expect(loop._userInputUnsub).toBe(null);
     expect(loop._pauseListenerUnsub).toBe(null);
     expect(loop._userInputBus).toBe(null);
@@ -324,7 +324,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     const loop = new DemoLoop({ stageName: "demo", actor: "bob" });
     const bus = createTestEventBus();
 
-    const promise = loop.waitForUserAction("confirm", { eventBus: bus, timeout: 50 });
+    const promise = loop.userActionHandler.waitForUserAction("confirm", { eventBus: bus, timeout: 50 });
     await expect(promise).rejects.toThrow(/Timeout waiting for user action: confirm/);
   });
 
@@ -338,7 +338,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     const loop = new DemoLoop({ stageName: "demo", actor: "bob" });
     const bus = createTestEventBus();
 
-    const promise = loop.waitForUserAction("confirm", { eventBus: bus, timeout: 1000 });
+    const promise = loop.userActionHandler.waitForUserAction("confirm", { eventBus: bus, timeout: 1000 });
     // Emit the action event after a short delay
     setTimeout(() => {
       bus.emit("user.action.confirm", { payload: { confirmed: true } });
@@ -358,13 +358,13 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     const emit = vi.fn();
     const loop = new DemoLoop({ stageName: "demo", actor: "bob", emit, maxUserInputs: 3 });
 
-    loop.recordUserInput("first");
-    loop.recordUserInput("second");
-    loop.recordUserInput("third");
-    loop.recordUserInput("fourth");
-    loop.recordUserInput("fifth");
+    loop.messageHandling.recordUserInput("first");
+    loop.messageHandling.recordUserInput("second");
+    loop.messageHandling.recordUserInput("third");
+    loop.messageHandling.recordUserInput("fourth");
+    loop.messageHandling.recordUserInput("fifth");
 
-    const inputs = loop.consumeUserInputs();
+    const inputs = loop.messageHandling.consumeUserInputs();
     expect(inputs.length).toBe(3);
     expect(inputs.map((i) => i.payload)).toEqual(["third", "fourth", "fifth"]);
   });
@@ -388,7 +388,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
       "raw string item",
     ];
 
-    const result = loop.formatUserInputs(items);
+    const result = loop.messageHandling.formatUserInputs(items);
     expect(result).toContain("plain string");
     expect(result).toContain("text property");
     expect(result).toContain("message property");
@@ -406,15 +406,15 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     const loop = new DemoLoop({ stageName: "demo", actor: "bob" });
     const bus = createTestEventBus();
 
-    loop._attachUserInputListener(bus, {});
+    loop.messageHandling._attachUserInputListener(bus, {});
     expect(bus.subscribe).toHaveBeenCalledTimes(1);
 
     // Attach again with same bus - should skip
-    loop._attachUserInputListener(bus, {});
+    loop.messageHandling._attachUserInputListener(bus, {});
     expect(bus.subscribe).toHaveBeenCalledTimes(1);
 
     // Attach with different event name - should re-subscribe
-    loop._attachUserInputListener(bus, { eventName: "custom.input" });
+    loop.messageHandling._attachUserInputListener(bus, { eventName: "custom.input" });
     expect(bus.subscribe).toHaveBeenCalledTimes(2);
   });
 
@@ -428,12 +428,12 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     const loop = new DemoLoop({ stageName: "demo", actor: "bob" });
     const bus = createTestEventBus();
 
-    loop._attachPauseListener(bus, {});
+    loop.messageHandling._attachPauseListener(bus, {});
     expect(loop.isPaused).toBe(false);
 
     bus.emit("user.action.pause", { payload: { reason: "budget_exceeded" } });
     expect(loop.isPaused).toBe(true);
-    expect(loop._pauseReason).toBe("budget_exceeded");
+    expect(loop.statusController._pauseReason).toBe("budget_exceeded");
   });
 
   it("applyUserInputsToConfig() merges user inputs into config", () => {
@@ -444,11 +444,11 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     }
 
     const loop = new DemoLoop({ stageName: "demo", actor: "bob" });
-    loop.recordUserInput("note one");
-    loop.recordUserInput({ text: "note two" });
+    loop.messageHandling.recordUserInput("note one");
+    loop.messageHandling.recordUserInput({ text: "note two" });
 
     const config = { existing: "value", userNotes: ["old note"] };
-    const result = loop.applyUserInputsToConfig(config, { key: "userNotes" });
+    const result = loop.messageHandling.applyUserInputsToConfig(config, { key: "userNotes" });
 
     expect(result.existing).toBe("value");
     expect(result.userNotes).toContain("old note");
@@ -468,7 +468,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     const loop = new DemoLoop({ stageName: "demo", actor: "bob", emit });
     const state = { state: "init" };
 
-    loop._transitionPhase(state, "active", {});
+    loop.phaseRunner._transitionPhase(state, "active", {});
     expect(state.state).toBe("active");
   });
 
@@ -483,7 +483,7 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
     const loop = new DemoLoop({ stageName: "demo", actor: "bob", emit });
 
     expect(loop._activeStep).toBe(null);
-    loop._endStep();
+    loop.stepRunner._endStep();
 
     expect(emit).not.toHaveBeenCalled();
     expect(loop._activeStep).toBe(null);
@@ -498,9 +498,9 @@ describe("runtime/core/stage-manager (agent-loop)", () => {
 
     const emit = vi.fn();
     const loop = new DemoLoop({ stageName: "demo", actor: "bob", emit });
-    const { step } = loop._beginStep({ name: "testStep" }, {});
+    const { step } = loop.stepRunner._beginStep({ name: "testStep" }, {});
 
-    loop._endStep({ step }, { status: "failed", error: "something went wrong", result: { partial: true } });
+    loop.stepRunner._endStep({ step }, { status: "failed", error: "something went wrong", result: { partial: true } });
 
     expect(emit).toHaveBeenCalledWith(
       "demo.step.failed",

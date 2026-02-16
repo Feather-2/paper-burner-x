@@ -206,7 +206,7 @@ export function createDesignToolHandlers(agentLoop) {
         actionName: params.actionName || "chat_reply",
       });
       if (!params.actionName) return { actionName: "chat_reply" };
-      const payload = await agentLoop.waitForUserAction(params.actionName, {
+      const payload = await agentLoop.userActionHandler.waitForUserAction(params.actionName, {
         eventBus: context.eventBus,
         signal: context.signal,
       });

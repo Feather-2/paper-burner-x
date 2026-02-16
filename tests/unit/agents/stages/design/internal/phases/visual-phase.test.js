@@ -54,9 +54,9 @@ function buildLoop(overrides = {}) {
   return {
     phase: "init",
     state: {},
-    _transitionPhase: vi.fn(),
+    phaseRunner: { _transitionPhase: vi.fn() },
     _buildVisualSlots: vi.fn(() => [{ slotId: "visual-1" }]),
-    _callTool: vi.fn(async () => ({ ok: true, data: {} })),
+    toolDispatch: { _callTool: vi.fn(async () => ({ ok: true, data: {} })) },
     ...overrides,
   };
 }
@@ -130,16 +130,18 @@ describe("runVisualPhase", () => {
 
     const loop = buildLoop({
       _buildVisualSlots: vi.fn(() => [{ slotId: "render-1" }]),
-      _callTool: vi.fn(async () => ({
-        ok: true,
-        data: {
-          deckHtmlDsl: "<deck>filled</deck>",
-          finalImageSlots: [{ slotId: "slot-final" }],
-          imageReport: { total: 2 },
-          visualReport: { ok: true },
-          pendingImages: ["slot-final"],
-        },
-      })),
+      toolDispatch: {
+        _callTool: vi.fn(async () => ({
+          ok: true,
+          data: {
+            deckHtmlDsl: "<deck>filled</deck>",
+            finalImageSlots: [{ slotId: "slot-final" }],
+            imageReport: { total: 2 },
+            visualReport: { ok: true },
+            pendingImages: ["slot-final"],
+          },
+        })),
+      },
     });
 
     const params = buildParams({
@@ -169,7 +171,7 @@ describe("runVisualPhase", () => {
       { runId: "run-1", slideCount: params.slideHtmls.length },
       expect.any(Function)
     );
-    expect(loop._transitionPhase).toHaveBeenCalledWith("init", "visual_filling", {
+    expect(loop.phaseRunner._transitionPhase).toHaveBeenCalledWith("init", "visual_filling", {
       emit,
       runId: "run-1",
     });
@@ -195,7 +197,7 @@ describe("runVisualPhase", () => {
       true
     );
     expect(mocks.normalizeRenderType).toHaveBeenCalledTimes(2);
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       "fill_visual",
       expect.objectContaining({
         visualSlotsForRender: [{ slotId: "render-1" }],
@@ -288,7 +290,7 @@ describe("runVisualPhase", () => {
     expect(startInput.pendingImages).toEqual([]);
     expect(startInput.deferredVisuals).toBe(true);
     expect(loop._buildVisualSlots).not.toHaveBeenCalled();
-    expect(loop._callTool).not.toHaveBeenCalled();
+    expect(loop.toolDispatch._callTool).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledWith("design.visual.deferred", {
       runId: "run-1",
       imageSlotCount: 1,
@@ -344,16 +346,18 @@ describe("runVisualPhase", () => {
 
     const stepContext = { id: "visual-context" };
     const loop = buildLoop({
-      _callTool: vi.fn(async () => ({
-        ok: true,
-        data: {
-          deckHtmlDsl: "<deck>filled</deck>",
-          finalImageSlots: [{ slotId: "slot-final" }],
-          imageReport: { total: 1 },
-          visualReport: { ok: true },
-          pendingImages: [],
-        },
-      })),
+      toolDispatch: {
+        _callTool: vi.fn(async () => ({
+          ok: true,
+          data: {
+            deckHtmlDsl: "<deck>filled</deck>",
+            finalImageSlots: [{ slotId: "slot-final" }],
+            imageReport: { total: 1 },
+            visualReport: { ok: true },
+            pendingImages: [],
+          },
+        })),
+      },
     });
 
     const emitDeckUpdate = vi.fn();
@@ -421,7 +425,9 @@ describe("runVisualPhase", () => {
 
   it("throws when fill_visual fails", async () => {
     const loop = buildLoop({
-      _callTool: vi.fn(async () => ({ ok: false, error: "nope" })),
+      toolDispatch: {
+        _callTool: vi.fn(async () => ({ ok: false, error: "nope" })),
+      },
     });
     const finishExecution = vi.fn(async () => {});
     const params = buildParams({
@@ -447,16 +453,18 @@ describe("runVisualPhase", () => {
     const stepContext = { id: "visual-context" };
     const startExecution = buildStartExecution(stepContext);
     const loop = buildLoop({
-      _callTool: vi.fn(async () => ({
-        ok: true,
-        data: {
-          deckHtmlDsl: "<deck>filled</deck>",
-          finalImageSlots: [{ slotId: "slot-final" }],
-          imageReport: { total: 1 },
-          visualReport: { ok: true },
-          pendingImages: [],
-        },
-      })),
+      toolDispatch: {
+        _callTool: vi.fn(async () => ({
+          ok: true,
+          data: {
+            deckHtmlDsl: "<deck>filled</deck>",
+            finalImageSlots: [{ slotId: "slot-final" }],
+            imageReport: { total: 1 },
+            visualReport: { ok: true },
+            pendingImages: [],
+          },
+        })),
+      },
     });
 
     const params = buildParams({
@@ -475,7 +483,7 @@ describe("runVisualPhase", () => {
     expect(startInput.slideIntents).toBe(largeArray);
     expect(startInput.deckHtmlDsl.length).toBe(longString.length);
     expect(startInput.slideHtmls[0].length).toBe(longString.length);
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       "fill_visual",
       expect.objectContaining({
         contentPackage: largeFileLike,
@@ -488,16 +496,18 @@ describe("runVisualPhase", () => {
   it("supports concurrent calls", async () => {
     const scenarios = [1, 2, 3].map((id) => {
       const loop = buildLoop({
-        _callTool: vi.fn(async () => ({
-          ok: true,
-          data: {
-            deckHtmlDsl: `deck-${id}`,
-            finalImageSlots: [{ slotId: `slot-${id}` }],
-            imageReport: { id },
-            visualReport: { id },
-            pendingImages: [],
-          },
-        })),
+        toolDispatch: {
+          _callTool: vi.fn(async () => ({
+            ok: true,
+            data: {
+              deckHtmlDsl: `deck-${id}`,
+              finalImageSlots: [{ slotId: `slot-${id}` }],
+              imageReport: { id },
+              visualReport: { id },
+              pendingImages: [],
+            },
+          })),
+        },
       });
       const params = buildParams({
         runContext: { runId: `run-${id}` },
@@ -515,7 +525,7 @@ describe("runVisualPhase", () => {
       "deck-3",
     ]);
     scenarios.forEach(({ loop }) => {
-      expect(loop._callTool).toHaveBeenCalledTimes(1);
+      expect(loop.toolDispatch._callTool).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -524,16 +534,18 @@ describe("runVisualPhase", () => {
 
     for (let i = 0; i < 10; i += 1) {
       const loop = buildLoop({
-        _callTool: vi.fn(async () => ({
-          ok: true,
-          data: {
-            deckHtmlDsl: `deck-${i}`,
-            finalImageSlots: [{ slotId: `slot-${i}` }],
-            imageReport: { id: i },
-            visualReport: { id: i },
-            pendingImages: [],
-          },
-        })),
+        toolDispatch: {
+          _callTool: vi.fn(async () => ({
+            ok: true,
+            data: {
+              deckHtmlDsl: `deck-${i}`,
+              finalImageSlots: [{ slotId: `slot-${i}` }],
+              imageReport: { id: i },
+              visualReport: { id: i },
+              pendingImages: [],
+            },
+          })),
+        },
       });
       const params = buildParams({
         runContext: { runId: `run-${i}` },

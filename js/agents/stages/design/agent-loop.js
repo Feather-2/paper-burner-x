@@ -80,8 +80,8 @@ export class DesignAgentLoop extends BaseAgentLoop {
     /** @type {DesignPhaseState} */
     this.phase = { status: DesignPhase.IDLE };
     /** @type {string} */
-    this._loopStatus = AgentStatus.IDLE;
-    if (Array.isArray(this._statusHistory)) this._statusHistory.length = 0;
+    this.statusController._loopStatus = AgentStatus.IDLE;
+    if (Array.isArray(this.statusController._statusHistory)) this.statusController._statusHistory.length = 0;
     this.archive = archive || null;
     // Blackboard for cross-phase communication (支持 MemoryStore 集成)
     this._blackboard = new DesignBlackboard({ memoryStore, stateEngine });
@@ -120,7 +120,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
    * @returns {string}
    */
   getStatus() {
-    return this._loopStatus || AgentStatus.IDLE;
+    return this.statusController._loopStatus || AgentStatus.IDLE;
   }
 
   /**
@@ -304,8 +304,8 @@ export class DesignAgentLoop extends BaseAgentLoop {
 	      /** @type {DesignPhaseState} */
 	      this.phase = { status: DesignPhase.IDLE };
 	      // 从容器或 context 获取 memoryStore 并绑定到 Blackboard
-	      const memoryStore = await this._resolveDependency("memoryStore", context, this._memoryStore);
-	      const stateEngine = await this._resolveDependency("stateEngine", context, this._stateEngine);
+	      const memoryStore = await this.phaseRunner._resolveDependency("memoryStore", context, this._memoryStore);
+	      const stateEngine = await this.phaseRunner._resolveDependency("stateEngine", context, this._stateEngine);
 	      this._blackboard = new DesignBlackboard({ runId, memoryStore, stateEngine });
 	      this._memoryStore = memoryStore;
 	      this._stateEngine = stateEngine;
@@ -325,7 +325,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
       watchdog?.tick?.();
       // 用事件替代复杂状态转换
       emitStage(emit, "design.step.started", "progress", { runId, step, iteration: loopIteration });
-      const stepInfo = this._beginStep({
+      const stepInfo = this.stepRunner._beginStep({
         name: step,
         runId,
         iteration: loopIteration,
@@ -335,7 +335,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
     };
     const finishExecution = async (step, loopIteration, stepInfo) => {
       emitStage(emit, "design.step.completed", "progress", { runId, step, iteration: loopIteration });
-      this._endStep(stepInfo, { status: "completed" });
+      this.stepRunner._endStep(stepInfo, { status: "completed" });
     };
     const emitDeckUpdate = createDeckUpdateEmitter({
       loop: this,
@@ -389,7 +389,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
         });
       }
 
-      this._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
+      this.phaseRunner._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
 
       // Compute skipReview flag for generating phase (skips REVIEWING transition)
       const skipReview = context?.skipReview === true || context?.interactionMode?.finalReview === "skip";
@@ -428,7 +428,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
         // --- 7. Final Review Phase (Optional final audit) ---
         // skipReview already computed above
         if (context?.enableFinalReview === true && !skipReview) {
-          this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runId });
+          this.phaseRunner._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runId });
           await runReviewPhase(this, {
             context,
             runContext,
@@ -437,7 +437,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
           });
         }
 
-        this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
+        this.phaseRunner._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
         await this._transitionTo(AgentStatus.COMPLETED, {
           runId,
           iteration,
@@ -484,16 +484,16 @@ export class DesignAgentLoop extends BaseAgentLoop {
       if (err instanceof BacktrackError) {
         throw err;
       }
-	      const pauseLike = this._shouldPauseFromError(err, context.signal);
+	      const pauseLike = this.statusController._shouldPauseFromError(err, context.signal);
 	      if (this._activeStep) {
 	        const message = err instanceof Error ? err.message : String(err);
-	        this._endStep(null, { status: pauseLike ? "paused" : "failed", error: message });
+	        this.stepRunner._endStep(null, { status: pauseLike ? "paused" : "failed", error: message });
 	      }
       if (err instanceof StagePausedError) {
         throw err;
       }
       if (pauseLike) {
-        throw this._createPauseError({ signal: context.signal, runId });
+        throw this.statusController._createPauseError({ signal: context.signal, runId });
       }
 
       try {

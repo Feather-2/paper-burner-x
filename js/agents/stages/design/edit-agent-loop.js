@@ -169,7 +169,7 @@ export class EditAgentLoop extends BaseAgentLoop {
         this._state = EditState.WAITING;
         emitStage(emit, "edit.waiting", "waiting", { runId });
 
-        const request = await this.waitForUserAction("edit_command", {
+        const request = await this.userActionHandler.waitForUserAction("edit_command", {
           eventBus: context.eventBus,
           signal,
           timeout: context.timeout || 0, // 0 = 无超时

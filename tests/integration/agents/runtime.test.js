@@ -1094,7 +1094,7 @@ it("Runtime Compression: anchors preserve initial system prompts across repeated
     loop.addMessage({ role: "assistant", content: `a${i}` });
   }
 
-  await loop._compressMessages();
+  await loop.messageHandling._compressMessages();
 
   expect(loop.messages[0].content).toBe(anchor1);
   expect(loop.messages[1].content).toBe(anchor2);
@@ -1107,7 +1107,7 @@ it("Runtime Compression: anchors preserve initial system prompts across repeated
     loop.addMessage({ role: "assistant", content: `a${i}` });
   }
 
-  await loop._compressMessages();
+  await loop.messageHandling._compressMessages();
 
   expect(loop.messages[0].content).toBe(anchor1);
   expect(loop.messages[1].content).toBe(anchor2);
@@ -1141,7 +1141,7 @@ it("Runtime Compression: title-only mode trims old messages aggressively", async
     loop.addMessage({ role: "assistant", content: "ok" });
   }
 
-  await loop._compressMessages();
+  await loop.messageHandling._compressMessages();
 
   const summaryMsg = loop.messages.find((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]"));
   expect(summaryMsg).toBeDefined();
@@ -1162,17 +1162,17 @@ it("Runtime Compression: _scheduleCompression is idempotent and flushCompression
 
   loop.addMessage({ role: "user", content: "x".repeat(8000) });
   loop.addMessage({ role: "assistant", content: "ok" });
-  expect(loop.getContextStatus().needsCompression).toBe(true);
-  expect(loop.getContextStatus().compressionPending).toBe(true);
+  expect(loop.messageHandling.getContextStatus().needsCompression).toBe(true);
+  expect(loop.messageHandling.getContextStatus().compressionPending).toBe(true);
 
-  const p1 = loop._compressionPromise;
+  const p1 = loop.messageHandling._compressionPromise;
   expect(p1).toBeInstanceOf(Promise);
-  loop._scheduleCompression();
-  expect(loop._compressionPromise).toBe(p1);
+  loop.messageHandling._scheduleCompression();
+  expect(loop.messageHandling._compressionPromise).toBe(p1);
 
-  await loop.flushCompression();
-  expect(loop.getContextStatus().compressionPending).toBe(false);
-  expect(loop.getContextStatus().needsCompression).toBe(false);
+  await loop.messageHandling.flushCompression();
+  expect(loop.messageHandling.getContextStatus().compressionPending).toBe(false);
+  expect(loop.messageHandling.getContextStatus().needsCompression).toBe(false);
 });
 
 it("AgentOrchestrator: stage timeout timer is cleaned up on success", async () => {
@@ -1476,22 +1476,22 @@ it("BaseAgentLoop: strict loopStatus transitions reject illegal jumps", async ()
   const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
 
   const strictLoop = new BaseAgentLoop({ actor: "test", stageName: "test", strictLoopStatus: true });
-  strictLoop.initLoopStatus({ status: AgentStatus.IDLE });
-  strictLoop._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" });
-  strictLoop._transitionLoopStatus(AgentStatus.COMPLETED, { runId: "run_test" });
+  strictLoop.statusController.initLoopStatus({ status: AgentStatus.IDLE });
+  strictLoop.statusController._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" });
+  strictLoop.statusController._transitionLoopStatus(AgentStatus.COMPLETED, { runId: "run_test" });
 
-  expect(() => strictLoop._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" })).toThrow(/loopStatus transition rejected/);
+  expect(() => strictLoop.statusController._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" })).toThrow(/loopStatus transition rejected/);
 
   // Explicit reset is allowed even in strict mode.
-  strictLoop._transitionLoopStatus(AgentStatus.IDLE, { runId: "run_test", allowReset: true });
+  strictLoop.statusController._transitionLoopStatus(AgentStatus.IDLE, { runId: "run_test", allowReset: true });
   expect(strictLoop.loopStatus).toBe(AgentStatus.IDLE);
 
   const originalWarn = console.warn;
   console.warn = () => {};
   try {
     const warnOnlyLoop = new BaseAgentLoop({ actor: "test", stageName: "test", strictLoopStatus: false });
-    warnOnlyLoop.initLoopStatus({ status: AgentStatus.COMPLETED });
-    warnOnlyLoop._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" });
+    warnOnlyLoop.statusController.initLoopStatus({ status: AgentStatus.COMPLETED });
+    warnOnlyLoop.statusController._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" });
     expect(warnOnlyLoop.loopStatus).toBe(AgentStatus.RUNNING);
   } finally {
     console.warn = originalWarn;

@@ -21,7 +21,7 @@ const mockedDefaultAgentLoop = vi.hoisted(() => {
       });
       this.dispose = vi.fn(async () => {});
       this._executeAbortController = { abort: vi.fn() };
-      this._detachEventBusListeners = vi.fn();
+      this.messageHandling = { _detachEventBusListeners: vi.fn() };
       instances.push(this);
     }
   }
@@ -358,7 +358,7 @@ describe("AgentInstance", () => {
 
     const loop = {
       _executeAbortController: { abort: vi.fn() },
-      _detachEventBusListeners: vi.fn(),
+      messageHandling: { _detachEventBusListeners: vi.fn() },
       dispose: vi.fn(async () => {}),
     };
 
@@ -368,7 +368,7 @@ describe("AgentInstance", () => {
     await instance.dispose();
 
     expect(loop._executeAbortController.abort).toHaveBeenCalledWith("disposed");
-    expect(loop._detachEventBusListeners).toHaveBeenCalledTimes(1);
+    expect(loop.messageHandling._detachEventBusListeners).toHaveBeenCalledTimes(1);
     expect(loop.dispose).toHaveBeenCalledTimes(1);
     expect(compressor.dispose).toHaveBeenCalledTimes(1);
     expect(instance._loop).toBeNull();

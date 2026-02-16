@@ -101,8 +101,9 @@ function makeLoop(overrides = {}) {
     batchSize: 2,
     batchConcurrency: 1,
     phase: "generating",
-    _callTool: vi.fn(),
-    _transitionPhase: vi.fn(),
+    toolDispatch: { _callTool: vi.fn() },
+    phaseRunner: { _transitionPhase: vi.fn() },
+    messageHandling: {},
     _blackboard: { logDecision: vi.fn() },
     ...overrides,
   };
@@ -164,7 +165,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution({ id: "sig" });
 
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: { generated: [{ slideHtml: "<s1/>" }] },
     });
@@ -196,7 +197,7 @@ describe("runGeneratingPhase", () => {
     const constraints = { imagePolicy: "balanced" };
     const userConfig = { mode: "demo" };
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(
       loop,
@@ -225,7 +226,7 @@ describe("runGeneratingPhase", () => {
     const designSystem = { theme: "light" };
     const constraints = { imagePolicy: "balanced" };
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(loop, makeParams(exec, { slideIntents, designSystem, constraints }));
 
@@ -236,7 +237,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(
       loop,
@@ -257,7 +258,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: { generated: [] },
     });
@@ -285,7 +286,7 @@ describe("runGeneratingPhase", () => {
       })
     );
 
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       "spawn_slide_agent",
       expect.objectContaining({
         selectedIdeas: [
@@ -310,7 +311,7 @@ describe("runGeneratingPhase", () => {
       { slotId: "img-1", style: "3d", slideIndex: 0 },
       { slotId: "img-2", style: "flat", slideIndex: 1 },
     ]);
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: { generated: [] },
     });
@@ -335,7 +336,7 @@ describe("runGeneratingPhase", () => {
   it("should_not_emit_image_planning_completed_when_constraints_has_no_image_policy_or_budget", async () => {
     const loop = makeLoop();
     const exec = makeExecution();
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(loop, makeParams(exec, { constraints: {} }));
 
@@ -347,11 +348,11 @@ describe("runGeneratingPhase", () => {
     const exec = makeExecution();
     const modelRouter = { id: "router" };
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(loop, makeParams(exec, { context: { modelRouter } }));
 
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       "spawn_slide_agent",
       expect.objectContaining({ modelRouter }),
       exec.stepInfo.context
@@ -363,11 +364,11 @@ describe("runGeneratingPhase", () => {
     const exec = makeExecution();
     const modelRouter = { id: "router-from-runContext" };
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(loop, makeParams(exec, { context: { runContext: { modelRouter } } }));
 
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       "spawn_slide_agent",
       expect.objectContaining({ modelRouter }),
       exec.stepInfo.context
@@ -379,11 +380,11 @@ describe("runGeneratingPhase", () => {
     const exec = makeExecution();
 
     mockedDslRules.getDslRules.mockResolvedValue({ rules: "dsl" });
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(loop, makeParams(exec));
 
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       "spawn_slide_agent",
       expect.objectContaining({ dslRules: { rules: "dsl" } }),
       exec.stepInfo.context
@@ -394,7 +395,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution({ id: "sig" });
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(loop, makeParams(exec, { runContext: { runId: "run-timeout", timeoutMs: 500 } }));
 
@@ -405,11 +406,11 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution({ id: "sig" });
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(loop, makeParams(exec, { runContext: { runId: "run-timeout", timeoutMs: 0 } }));
 
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       "spawn_slide_agent",
       expect.objectContaining({ signal: exec.stepInfo.context.signal }),
       exec.stepInfo.context
@@ -420,7 +421,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(
       loop,
@@ -437,7 +438,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({ ok: true, data: [{ slideHtml: "<a/>" }] });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: [{ slideHtml: "<a/>" }] });
 
     const out = await runGeneratingPhase(loop, makeParams(exec));
 
@@ -448,7 +449,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: { generated: [{ slideHtml: "<s1/>" }, { slideHtml: "<s2/>" }] },
     });
@@ -467,7 +468,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: { generated: [{ slideHtml: "<s1/>" }, { slideHtml: "<s2/>" }] },
     });
@@ -487,7 +488,7 @@ describe("runGeneratingPhase", () => {
     const exec = makeExecution();
     const emit = vi.fn();
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(
       loop,
@@ -498,7 +499,7 @@ describe("runGeneratingPhase", () => {
       })
     );
 
-    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, mockedStates.DesignPhase.REVIEWING, {
+    expect(loop.phaseRunner._transitionPhase).toHaveBeenCalledWith(loop.phase, mockedStates.DesignPhase.REVIEWING, {
       emit,
       runId: "run-review",
     });
@@ -508,11 +509,11 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(loop, makeParams(exec, { skipReview: true }));
 
-    expect(loop._transitionPhase).not.toHaveBeenCalled();
+    expect(loop.phaseRunner._transitionPhase).not.toHaveBeenCalled();
   });
 
   it("should_build_safe_html_when_initial_QA_fails", async () => {
@@ -526,7 +527,7 @@ describe("runGeneratingPhase", () => {
     mockedQaValidator.validateSlide
       .mockReturnValueOnce({ pass: false }) // initial HTML fails
       .mockReturnValueOnce({ pass: true }); // safe HTML passes
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
 
     await runGeneratingPhase(
       loop,
@@ -554,7 +555,7 @@ describe("runGeneratingPhase", () => {
     const exec = makeExecution();
 
     mockedQaValidator.validateSlide.mockReturnValueOnce({ pass: false }).mockReturnValueOnce({ pass: true });
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
 
     await runGeneratingPhase(
       loop,
@@ -571,7 +572,7 @@ describe("runGeneratingPhase", () => {
     const exec = makeExecution();
 
     mockedQaValidator.validateSlide.mockReturnValue({ pass: false });
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
 
     await runGeneratingPhase(
       loop,
@@ -589,7 +590,7 @@ describe("runGeneratingPhase", () => {
     const longTitle = "T".repeat(10000);
 
     mockedQaValidator.validateSlide.mockReturnValue({ pass: false });
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
 
     await runGeneratingPhase(
       loop,
@@ -606,7 +607,7 @@ describe("runGeneratingPhase", () => {
     const exec = makeExecution();
 
     mockedQaValidator.validateSlide.mockReturnValue({ pass: false });
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [{ slideHtml: "<bad/>" }] } });
 
     const out = await runGeneratingPhase(
       loop,
@@ -623,7 +624,7 @@ describe("runGeneratingPhase", () => {
     const exec = makeExecution();
     const designSystem = { colors: { primary: "#111" } };
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     const out = await runGeneratingPhase(loop, makeParams(exec, { designSystem }));
 
@@ -635,7 +636,7 @@ describe("runGeneratingPhase", () => {
     const exec = makeExecution();
     const designSystem = { colors: { background: "#fff", text: "#000" } };
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     const out = await runGeneratingPhase(loop, makeParams(exec, { designSystem }));
 
@@ -646,7 +647,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: { generated: [{ slideHtml: "<s1/>" }] },
     });
@@ -663,11 +664,11 @@ describe("runGeneratingPhase", () => {
 
   it("should_reapply_userConfig_after_run_when_applyUserInputsToConfig_is_available", async () => {
     const loop = makeLoop({
-      applyUserInputsToConfig: vi.fn((cfg) => ({ normalized: true, source: cfg })),
+      messageHandling: { applyUserInputsToConfig: vi.fn((cfg) => ({ normalized: true, source: cfg })) },
     });
     const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: true, data: { generated: [] } });
 
     await runGeneratingPhase(
       loop,
@@ -676,13 +677,13 @@ describe("runGeneratingPhase", () => {
       })
     );
 
-    expect(loop.applyUserInputsToConfig).toHaveBeenCalledTimes(2);
+    expect(loop.messageHandling.applyUserInputsToConfig).toHaveBeenCalledTimes(2);
   });
 
   it("should_throw_when_spawn_slide_agent_returns_ok_false_with_error", async () => {
     const loop = makeLoop();
     const exec = makeExecution();
-    loop._callTool.mockResolvedValue({ ok: false, error: "boom" });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: false, error: "boom" });
 
     await expect(runGeneratingPhase(loop, makeParams(exec))).rejects.toThrow("boom");
   });
@@ -690,7 +691,7 @@ describe("runGeneratingPhase", () => {
   it("should_throw_default_error_message_when_spawn_slide_agent_returns_ok_false_without_error", async () => {
     const loop = makeLoop();
     const exec = makeExecution();
-    loop._callTool.mockResolvedValue({ ok: false });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: false });
 
     await expect(runGeneratingPhase(loop, makeParams(exec))).rejects.toThrow("spawn_slide_agent failed");
   });
@@ -698,7 +699,7 @@ describe("runGeneratingPhase", () => {
   it("should_not_finishExecution_when_spawn_slide_agent_fails", async () => {
     const loop = makeLoop();
     const exec = makeExecution();
-    loop._callTool.mockResolvedValue({ ok: false, error: "boom" });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: false, error: "boom" });
 
     try {
       await runGeneratingPhase(loop, makeParams(exec));
@@ -719,11 +720,11 @@ describe("runGeneratingPhase", () => {
       intents.map((intent, idx) => ({ slotId: `${intent.slideIntentId}-slot`, style: "flat", slideIndex: idx }))
     );
 
-    loopA._callTool.mockImplementation(async (_name, payload) => ({
+    loopA.toolDispatch._callTool.mockImplementation(async (_name, payload) => ({
       ok: true,
       data: { generated: payload.slideIntents.map((intent) => ({ slideHtml: `<${intent.slideIntentId}/>` })) },
     }));
-    loopB._callTool.mockImplementation(async (_name, payload) => ({
+    loopB.toolDispatch._callTool.mockImplementation(async (_name, payload) => ({
       ok: true,
       data: { generated: payload.slideIntents.map((intent) => ({ slideHtml: `<${intent.slideIntentId}/>` })) },
     }));
@@ -762,7 +763,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution();
 
-    loop._callTool.mockImplementation(async (_name, payload) => ({
+    loop.toolDispatch._callTool.mockImplementation(async (_name, payload) => ({
       ok: true,
       data: { generated: payload.slideIntents.map((intent) => ({ slideHtml: `<${intent.slideIntentId}/>` })) },
     }));
@@ -790,7 +791,7 @@ describe("runGeneratingPhase", () => {
     const loop = makeLoop();
     const exec = makeExecution();
 
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: { generated: [{ slideHtml: "<big/>" }] },
     });

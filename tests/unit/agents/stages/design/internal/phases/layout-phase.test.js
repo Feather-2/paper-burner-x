@@ -36,8 +36,8 @@ const createLoop = (overrides = {}) => ({
     slideIntents: [],
     plans: [],
   },
-  _transitionPhase: vi.fn(),
-  waitForUserAction: vi.fn(),
+  phaseRunner: { _transitionPhase: vi.fn() },
+  userActionHandler: { waitForUserAction: vi.fn() },
   _blackboard: {
     logDecision: vi.fn(),
     setSummary: vi.fn(),
@@ -97,8 +97,8 @@ describe("runLayoutPhase", () => {
     );
     expect(checkCancelled).toHaveBeenCalledWith(null);
     expect(generateLayoutBatch).toHaveBeenCalledWith(slideIntents, plans);
-    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, DesignPhase.LAYOUT_DEVELOPING, { emit, runId: 0 });
-    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, DesignPhase.LAYOUT_CONFIRMING, { emit, runId: 0 });
+    expect(loop.phaseRunner._transitionPhase).toHaveBeenCalledWith(loop.phase, DesignPhase.LAYOUT_DEVELOPING, { emit, runId: 0 });
+    expect(loop.phaseRunner._transitionPhase).toHaveBeenCalledWith(loop.phase, DesignPhase.LAYOUT_CONFIRMING, { emit, runId: 0 });
 
     expect(emitStage).toHaveBeenNthCalledWith(
       1,
@@ -145,7 +145,7 @@ describe("runLayoutPhase", () => {
     ];
 
     const loop = createLoop({ state: { slideIntents: makeSlideIntents(), plans: [] } });
-    loop.waitForUserAction.mockResolvedValue({ layouts: overrides });
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({ layouts: overrides });
 
     const emit = vi.fn();
     const context = {
@@ -163,7 +163,7 @@ describe("runLayoutPhase", () => {
       traceContext: {},
     });
 
-    expect(loop.waitForUserAction).toHaveBeenCalledWith("confirm_layout", {
+    expect(loop.userActionHandler.waitForUserAction).toHaveBeenCalledWith("confirm_layout", {
       eventBus: context.eventBus,
       signal: context.signal,
     });
@@ -182,7 +182,7 @@ describe("runLayoutPhase", () => {
     generateLayoutBatch.mockReturnValue(layouts);
 
     const loop = createLoop({ state: { slideIntents: makeSlideIntents(), plans: [] } });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       layouts: [
         { slideIntentId: "s1", layoutHtml: "" },
         { slideIntentId: "s2", layoutHtml: "<div class=\"layout\" data-slide-id=\"s2\"></div>" },
@@ -212,7 +212,7 @@ describe("runLayoutPhase", () => {
     generateLayoutBatch.mockReturnValue(layouts);
 
     const loop = createLoop({ state: { slideIntents: makeSlideIntents(), plans: [] } });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       layouts: [
         { slideIntentId: "s1", layoutHtml: "   " },
         { slideIntentId: "s2", layoutHtml: "<div class=\"layout\" data-slide-id=\"s2\"></div>" },
@@ -243,7 +243,7 @@ describe("runLayoutPhase", () => {
 
     const longHtml = `<div class=\"layout\" data-slide-id=\"s1\">${"a".repeat(20001)}</div>`;
     const loop = createLoop({ state: { slideIntents: makeSlideIntents(), plans: [] } });
-    loop.waitForUserAction.mockResolvedValue({
+    loop.userActionHandler.waitForUserAction.mockResolvedValue({
       layouts: [
         { slideIntentId: "s1", layoutHtml: longHtml },
         { slideIntentId: "s2", layoutHtml: "<div class=\"layout\" data-slide-id=\"s2\"></div>" },

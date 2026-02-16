@@ -34,7 +34,7 @@ export async function runBatchRepairPhase(loop, stateOrParams, maybeParams) {
     : slideHtmls.join("\n\n");
 
   const runPhase = async () => {
-    loop._transitionPhase(loop.phase, DesignPhase.REPAIR, { emit, runId });
+    loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.REPAIR, { emit, runId });
 
     // 1. 运行全局风格审计
     const reviewResult = await runAutoReview({ deckHtmlDsl: baseDeckHtmlDsl, slidesMeta }, designSystem, { signal: context.signal });
@@ -59,7 +59,7 @@ export async function runBatchRepairPhase(loop, stateOrParams, maybeParams) {
       consistencyScore: reviewResult.score,
     });
 
-    const repairResult = await loop._callTool(
+    const repairResult = await loop.toolDispatch._callTool(
       "orchestrate_batch_repair",
       {
         deckPackage: { deckHtmlDsl: baseDeckHtmlDsl, slidesMeta },

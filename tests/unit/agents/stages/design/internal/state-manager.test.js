@@ -161,6 +161,35 @@ beforeEach(() => {
   globalThis.indexedDB = originalIndexedDB;
 });
 
+function attachStatusController(target) {
+  target.statusController = {
+    get _loopStatus() {
+      return target._loopStatus;
+    },
+    set _loopStatus(value) {
+      target._loopStatus = value;
+    },
+    get _statusHistory() {
+      return target._statusHistory;
+    },
+    set _statusHistory(value) {
+      target._statusHistory = value;
+    },
+    get _pauseRequested() {
+      return target._pauseRequested;
+    },
+    set _pauseRequested(value) {
+      target._pauseRequested = value;
+    },
+    get _pauseReason() {
+      return target._pauseReason;
+    },
+    set _pauseReason(value) {
+      target._pauseReason = value;
+    },
+  };
+}
+
 class TestLoop {
   constructor(overrides = {}) {
     this.state = stateManager.createEmptyDesignLoopState();
@@ -181,6 +210,7 @@ class TestLoop {
     this._pauseReason = null;
     this._traceContext = null;
     this._lifecycle = null;
+    attachStatusController(this);
     Object.assign(this, overrides);
   }
 }
@@ -230,6 +260,7 @@ const createResumeCtor = (options = {}) => {
     this.state = options.initialState ? sharedMocks.deepClone(options.initialState) : {};
     this.run = run;
     this.hydrateFromNodeStates = hydrateFromNodeStates;
+    attachStatusController(this);
   }
 
   return {
@@ -303,6 +334,7 @@ describe("installStateManager", () => {
       constructor() {
         this._loopStatus = runtimeMocks.AgentStatus.IDLE;
         this._statusHistory = [];
+        attachStatusController(this);
       }
     }
 

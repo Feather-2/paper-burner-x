@@ -42,8 +42,8 @@ function makeLoop(state, overrides = {}) {
   return {
     state,
     phase: "layout_generating",
-    _transitionPhase: vi.fn(),
-    _callTool: vi.fn(),
+    phaseRunner: { _transitionPhase: vi.fn() },
+    toolDispatch: { _callTool: vi.fn() },
     ...overrides,
   };
 }
@@ -102,7 +102,7 @@ describe("runBatchRepairPhase", () => {
       score: 0.4,
     });
 
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: {
         finalDeck: {
@@ -122,13 +122,13 @@ describe("runBatchRepairPhase", () => {
 	      { runId: "run_1", slideCount: 1 },
 	      expect.any(Function),
 	    );
-	    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, "repair", { emit: params.emit, runId: "run_1" });
+	    expect(loop.phaseRunner._transitionPhase).toHaveBeenCalledWith(loop.phase, "repair", { emit: params.emit, runId: "run_1" });
 	    expect(mockedAutoReviewer.runAutoReview).toHaveBeenCalledWith(
 	      { deckHtmlDsl: "<section>One</section>", slidesMeta: initialSlidesMeta },
 	      state.designSystem,
 	      { signal: params.context.signal },
 	    );
-	    expect(loop._callTool).toHaveBeenCalledWith(
+	    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
 	      "orchestrate_batch_repair",
 	      {
 	        deckPackage: { deckHtmlDsl: "<section>One</section>", slidesMeta: initialSlidesMeta },
@@ -189,7 +189,7 @@ describe("runBatchRepairPhase", () => {
     const expectedDeck = state.slideHtmls.join("\n\n");
 
     expect(result).toEqual({ deckHtmlDsl: expectedDeck, slidesMeta: state.slidesMeta });
-    expect(loop._callTool).not.toHaveBeenCalled();
+    expect(loop.toolDispatch._callTool).not.toHaveBeenCalled();
     expect(mockedDesignHelpers.emitStage).toHaveBeenCalledTimes(1);
     expect(mockedDesignHelpers.emitStage).toHaveBeenCalledWith(
       params.emit,
@@ -214,11 +214,11 @@ describe("runBatchRepairPhase", () => {
     const params = makeParams({ runContext: { runId: "run_fail" } });
 
     mockedAutoReviewer.runAutoReview.mockResolvedValue({ pass: true, issues: [], score: 1 });
-    loop._callTool.mockResolvedValue({ ok: false, error: "tool-failed" });
+    loop.toolDispatch._callTool.mockResolvedValue({ ok: false, error: "tool-failed" });
 
     const result = await runBatchRepairPhase(loop, params);
 
-    expect(loop._callTool).toHaveBeenCalledTimes(1);
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledTimes(1);
     expect(mockedDesignHelpers.emitStage).toHaveBeenCalledTimes(2);
     expect(mockedDesignHelpers.emitStage).toHaveBeenNthCalledWith(
       2,
@@ -255,7 +255,7 @@ describe("runBatchRepairPhase", () => {
       issues: ["style"],
       score: 0.2,
     });
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: {
         deckHtmlDsl: "legacy-final",
@@ -267,13 +267,13 @@ describe("runBatchRepairPhase", () => {
 
 	    const result = await runBatchRepairPhase(loop, state, params);
 
-	    expect(loop._transitionPhase).toHaveBeenCalledWith(loop.phase, "repair", { emit: params.emit, runId: "run_legacy" });
+	    expect(loop.phaseRunner._transitionPhase).toHaveBeenCalledWith(loop.phase, "repair", { emit: params.emit, runId: "run_legacy" });
 	    expect(mockedAutoReviewer.runAutoReview).toHaveBeenCalledWith(
 	      { deckHtmlDsl: "   ", slidesMeta: initialSlidesMeta },
 	      state.designSystem,
 	      { signal: params.context.signal },
 	    );
-	    expect(loop._callTool).toHaveBeenCalledWith(
+	    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
 	      "orchestrate_batch_repair",
 	      {
 	        deckPackage: { deckHtmlDsl: "   ", slidesMeta: initialSlidesMeta },
@@ -316,7 +316,7 @@ describe("runBatchRepairPhase", () => {
       undefined,
       { signal: params.context.signal },
     );
-    expect(loop._callTool).not.toHaveBeenCalled();
+    expect(loop.toolDispatch._callTool).not.toHaveBeenCalled();
     expect(mockedDesignHelpers.emitStage).toHaveBeenCalledWith(
       params.emit,
       "design.repair.skipped",
@@ -356,7 +356,7 @@ describe("runBatchRepairPhase", () => {
       state.designSystem,
       { signal: params.context.signal },
     );
-    expect(loop._callTool).not.toHaveBeenCalled();
+    expect(loop.toolDispatch._callTool).not.toHaveBeenCalled();
     expect(mockedPhaseUtils.runWithPhaseSpan).toHaveBeenCalledWith(
       params.traceContext,
       "design.phase.repair",
@@ -396,7 +396,7 @@ describe("runBatchRepairPhase", () => {
       issues: ["style"],
       score: 0.1,
     });
-    loop._callTool.mockResolvedValue({
+    loop.toolDispatch._callTool.mockResolvedValue({
       ok: true,
       data: {
         finalDeck: {
@@ -415,7 +415,7 @@ describe("runBatchRepairPhase", () => {
       designSystem,
       { signal: params.context.signal },
     );
-    expect(loop._callTool).toHaveBeenCalledWith(
+    expect(loop.toolDispatch._callTool).toHaveBeenCalledWith(
       "orchestrate_batch_repair",
       expect.objectContaining({
         deckPackage: { deckHtmlDsl: longString, slidesMeta },
@@ -453,8 +453,8 @@ describe("runBatchRepairPhase", () => {
 	    expect(loopB.state.baseDeckHtmlDsl).toBe(resultB.deckHtmlDsl);
 	    expect(mockedDesignHelpers.emitStage).toHaveBeenCalledTimes(2);
 	    expect(mockedAutoReviewer.runAutoReview).toHaveBeenCalledTimes(2);
-	    expect(loopA._callTool).not.toHaveBeenCalled();
-	    expect(loopB._callTool).not.toHaveBeenCalled();
+	    expect(loopA.toolDispatch._callTool).not.toHaveBeenCalled();
+	    expect(loopB.toolDispatch._callTool).not.toHaveBeenCalled();
 	    const emitCalls = mockedDesignHelpers.emitStage.mock.calls.map((call) => call[0]);
 	    expect(emitCalls).toEqual(expect.arrayContaining([paramsA.emit, paramsB.emit]));
 	  });
@@ -476,7 +476,7 @@ describe("runBatchRepairPhase", () => {
 
     expect(lastResult.deckHtmlDsl).toBe("<section>Fast</section>");
     expect(mockedPhaseUtils.runWithPhaseSpan).toHaveBeenCalledTimes(20);
-    expect(loop._transitionPhase).toHaveBeenCalledTimes(20);
+    expect(loop.phaseRunner._transitionPhase).toHaveBeenCalledTimes(20);
     expect(mockedDesignHelpers.emitStage).toHaveBeenCalledTimes(20);
   });
 });

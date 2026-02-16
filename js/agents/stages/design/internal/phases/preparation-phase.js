@@ -91,10 +91,10 @@ export async function runPreparationPhase(loop, {
 
   const runPhase = async () => {
     // Outline parsing
-    loop._transitionPhase(loop.phase, DesignPhase.OUTLINE_PARSING, { emit, runId });
+    loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.OUTLINE_PARSING, { emit, runId });
     checkCancelled(context.signal);
 
-    const outlineResult = await loop._callTool("parse_outline", { contentPackage: resolvedContentPackage }, context);
+    const outlineResult = await loop.toolDispatch._callTool("parse_outline", { contentPackage: resolvedContentPackage }, context);
     if (!outlineResult.ok) throw new Error(outlineResult.error || "parse_outline failed");
     const outlineData = outlineResult.data || {};
     const parsedContentPackage = outlineData.contentPackage || resolvedContentPackage;
@@ -105,16 +105,16 @@ export async function runPreparationPhase(loop, {
         : [];
 
     // Outline confirmation
-    loop._transitionPhase(loop.phase, DesignPhase.OUTLINE_CONFIRMING, { emit, runId });
+    loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.OUTLINE_CONFIRMING, { emit, runId });
     if (context?.interactionMode?.outlineConfirm && context.interactionMode.outlineConfirm !== "skip") {
-      const outlineConfirm = await loop.waitForUserAction("confirm_outline", { eventBus: context.eventBus, signal: context.signal });
+      const outlineConfirm = await loop.userActionHandler.waitForUserAction("confirm_outline", { eventBus: context.eventBus, signal: context.signal });
       if (Array.isArray(outlineConfirm?.slideIntents)) slideIntents = outlineConfirm.slideIntents;
     }
 
     if (slideIntents.length === 0) throw new Error("DesignAgentLoop: contentPackage.slideIntents is required");
 
     // Style extraction
-    loop._transitionPhase(loop.phase, DesignPhase.STYLE_EXTRACTING, { emit, runId });
+    loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.STYLE_EXTRACTING, { emit, runId });
     checkCancelled(context.signal);
 
     const constraints = runContext?.constraints || {};
@@ -123,8 +123,8 @@ export async function runPreparationPhase(loop, {
       (resolvedContentPackage && typeof resolvedContentPackage === "object" ? resolvedContentPackage.userConfig : undefined) ||
       (context && typeof context === "object" ? context.userConfig : undefined) ||
       {};
-    if (typeof loop.applyUserInputsToConfig === "function") {
-      userConfig = loop.applyUserInputsToConfig(userConfig);
+    if (typeof loop.messageHandling?.applyUserInputsToConfig === "function") {
+      userConfig = loop.messageHandling.applyUserInputsToConfig(userConfig);
     }
 
     const { loopIteration: styleIteration, stepInfo: styleStep } = await startExecution("style_extracting", {
@@ -134,7 +134,7 @@ export async function runPreparationPhase(loop, {
       userConfig,
     });
     const styleContext = styleStep.context;
-    const styleResult = await loop._callTool("extract_style", { contentPackage: parsedContentPackage, constraints, userConfig }, styleContext);
+    const styleResult = await loop.toolDispatch._callTool("extract_style", { contentPackage: parsedContentPackage, constraints, userConfig }, styleContext);
     if (!styleResult.ok) throw new Error(styleResult.error || "extract_style failed");
     const designSystem = styleResult.data?.designSystem || styleResult.data;
 
@@ -144,7 +144,7 @@ export async function runPreparationPhase(loop, {
     await finishExecution("style_extracting", styleIteration, styleStep);
 
     // Style confirmation with full designTokens preview
-    loop._transitionPhase(loop.phase, DesignPhase.STYLE_CONFIRMING, { emit, runId });
+    loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.STYLE_CONFIRMING, { emit, runId });
 
     // Emit style preview for UI
     emitStage(emit, "design.style.preview", "awaiting_confirm", {
@@ -160,7 +160,7 @@ export async function runPreparationPhase(loop, {
     });
 
     if (context?.interactionMode?.styleConfirm && context.interactionMode.styleConfirm !== "skip") {
-      const styleConfirmResult = await loop.waitForUserAction("confirm_style", { eventBus: context.eventBus, signal: context.signal });
+      const styleConfirmResult = await loop.userActionHandler.waitForUserAction("confirm_style", { eventBus: context.eventBus, signal: context.signal });
 
       // Apply user overrides if provided
       if (styleConfirmResult && typeof styleConfirmResult === "object") {

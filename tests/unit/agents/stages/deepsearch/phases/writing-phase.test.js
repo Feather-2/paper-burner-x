@@ -49,7 +49,7 @@ const makeAgent = (overrides = {}) => ({
   sharedContext: {},
   addMessage: vi.fn(),
   messages: [],
-  flushCompression: vi.fn(),
+  messageHandling: { flushCompression: vi.fn() },
   ...overrides,
 });
 
@@ -249,7 +249,7 @@ describe("runWritingPhaseIfNeeded", () => {
     expect(agent.addMessage).toHaveBeenCalledWith({ role: "user", content: "ping" });
     expect(runArgs.messages()).toBe(agent.messages);
     runArgs.flushMessages();
-    expect(agent.flushCompression).toHaveBeenCalled();
+    expect(agent.messageHandling.flushCompression).toHaveBeenCalled();
   });
 
   it("syncs sources before executing tools", async () => {

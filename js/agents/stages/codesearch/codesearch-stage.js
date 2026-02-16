@@ -119,7 +119,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     this._container = options.container || null;
     this._watchdog = null;
 
-    this.initLoopStatus({
+    this.statusController.initLoopStatus({
       status: AgentStatus.IDLE,
       eventName: "codesearch:agent:status:changed",
     });
@@ -148,9 +148,9 @@ export class CodeSearchStage extends BaseAgentLoop {
     const userConfig = isPlainObject(input?.userConfig) ? input.userConfig : {};
 
     // 解析依赖（统一仅走 DI 容器，避免双路径实例化）
-    const memoryStore = await this._resolveDependency(ServiceId.MEMORY_STORE, null, null);
-    const stateEngine = await this._resolveDependency(ServiceId.STATE_ENGINE, null, null);
-    const eventBus = await this._resolveDependency(ServiceId.EVENT_BUS, null, null);
+    const memoryStore = await this.phaseRunner._resolveDependency(ServiceId.MEMORY_STORE, null, null);
+    const stateEngine = await this.phaseRunner._resolveDependency(ServiceId.STATE_ENGINE, null, null);
+    const eventBus = await this.phaseRunner._resolveDependency(ServiceId.EVENT_BUS, null, null);
     this.eventBus = eventBus || null;
 
     // P4.6: Enable backpressure for high-frequency events (best-effort).
@@ -199,7 +199,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     initMechanisms(this, { stageApi, emit: stageApi?.emit, logger, runId });
 
     // 初始化预算（尝试从容器获取）
-    let budgetManager = await this._resolveDependency(ServiceId.BUDGET_MANAGER, stageApi, null);
+    let budgetManager = await this.phaseRunner._resolveDependency(ServiceId.BUDGET_MANAGER, stageApi, null);
     if (!budgetManager) {
       budgetManager = createBudgetManager(userConfig);
     }
@@ -225,7 +225,7 @@ export class CodeSearchStage extends BaseAgentLoop {
 
     // 初始化 Watchdog（用于循环/震荡检测）
     const watchdogSettings = resolveWatchdogSettings(userConfig);
-    let watchdog = await this._resolveDependency(ServiceId.WATCHDOG, stageApi, null);
+    let watchdog = await this.phaseRunner._resolveDependency(ServiceId.WATCHDOG, stageApi, null);
     if (watchdog && typeof watchdog.reset === "function") {
       watchdog.reset();
     }
@@ -263,7 +263,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     });
 
     // 开始执行
-    this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: 0 });
+    this.statusController._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: 0 });
     logger.info("CodeSearch started", { data: { query, maxSteps: this.maxSteps } });
     lifecycle.started(runId, { query, maxSteps: this.maxSteps });
 
@@ -310,14 +310,14 @@ export class CodeSearchStage extends BaseAgentLoop {
       step++;
       watchdog?.tick?.();
       let stopRequested = false;
-      const { step: stepMeta, context: stepContext } = this._beginStep(
+      const { step: stepMeta, context: stepContext } = this.stepRunner._beginStep(
         { name: "codesearch.step", runId, iteration: step },
         stageApi
       );
 
       try {
         checkStop(stepContext.signal);
-        await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
+        await this.statusController._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
 
         const stepResult = await runExecutionStep({
           state: this.state,
@@ -371,25 +371,25 @@ export class CodeSearchStage extends BaseAgentLoop {
           }
         }
 
-        this._endStep({ step: stepMeta }, { status: "completed" });
+        this.stepRunner._endStep({ step: stepMeta }, { status: "completed" });
 
         if (stopRequested) break;
         if (stepResult.done) break;
       } catch (err) {
         if (err instanceof StagePausedError) throw err;
 
-        const pauseLike = this._shouldPauseFromError(err, stepContext.signal);
-        this._endStep({ step: stepMeta }, { status: pauseLike ? "paused" : "failed", error: err?.message });
+        const pauseLike = this.statusController._shouldPauseFromError(err, stepContext.signal);
+        this.stepRunner._endStep({ step: stepMeta }, { status: pauseLike ? "paused" : "failed", error: err?.message });
 
         if (pauseLike) {
-          await this._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: step, reason: err?.message });
-          throw this._createPauseError({ signal: stepContext.signal, runId });
+          await this.statusController._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: step, reason: err?.message });
+          throw this.statusController._createPauseError({ signal: stepContext.signal, runId });
         }
 
         logger.error("Execution step failed", { error: err?.message });
         emit("codesearch.step.failed", { step, error: err?.message });
         aborted = true;
-        await this._transitionLoopStatus(AgentStatus.FAILED, { runId, iteration: step, error: err?.message });
+        await this.statusController._transitionLoopStatus(AgentStatus.FAILED, { runId, iteration: step, error: err?.message });
         break;
       }
     }
@@ -429,7 +429,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     if (!aborted) {
       lifecycle.phaseTransition(this.state.phase, CodeSearchPhase.COMPLETED, runId);
       this.state.phase = CodeSearchPhase.COMPLETED;
-      this._transitionLoopStatus(AgentStatus.COMPLETED, { runId, iteration: step });
+      this.statusController._transitionLoopStatus(AgentStatus.COMPLETED, { runId, iteration: step });
     }
 
     return result;
@@ -449,9 +449,9 @@ export class CodeSearchStage extends BaseAgentLoop {
     if (this.loopStatus !== AgentStatus.PAUSED) {
       // 如果还在 IDLE，需要先转到 RUNNING 再到 PAUSED
       if (this.loopStatus === AgentStatus.IDLE) {
-        await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: 0 });
+        await this.statusController._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: 0 });
       }
-      await this._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: 0, reason });
+      await this.statusController._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: 0, reason });
     }
     const err = new StagePausedError("Run paused", { runId, reason });
     /** @type {StagePausedError & { awaitUserFeedback: boolean }} */ (err).awaitUserFeedback = true;

@@ -91,7 +91,7 @@ export async function runPlanningPhase(loop, {
   const designSystem = providedDesignSystem ?? loop.state?.designSystem ?? null;
 
   const runPhase = async () => {
-    loop._transitionPhase(loop.phase, DesignPhase.DECK_PLANNING, { emit, runId });
+    loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.DECK_PLANNING, { emit, runId });
     checkCancelled(context.signal);
 
     // 生成规划
@@ -115,10 +115,10 @@ export async function runPlanningPhase(loop, {
     });
 
     // 等待用户确认/调整
-    loop._transitionPhase(loop.phase, DesignPhase.PLAN_CONFIRMING, { emit, runId });
+    loop.phaseRunner._transitionPhase(loop.phase, DesignPhase.PLAN_CONFIRMING, { emit, runId });
 
     if (context?.interactionMode?.planConfirm && context.interactionMode.planConfirm !== "skip") {
-      const planConfirmResult = await loop.waitForUserAction("confirm_plan", {
+      const planConfirmResult = await loop.userActionHandler.waitForUserAction("confirm_plan", {
         eventBus: context.eventBus,
         signal: context.signal,
       });
