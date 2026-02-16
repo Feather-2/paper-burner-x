@@ -137,11 +137,11 @@ describe('createSandboxFactory', () => {
     ).rejects.toThrow('Main-thread sandbox disabled');
   });
 
-  // 9. iframe stub throws
-  it('iframe level throws not-implemented', async () => {
+  // 9. iframe requires DOM (connected to real iframe-sandbox.js)
+  it('iframe level throws without DOM', async () => {
     await expect(
       createSandboxFactory({ level: 'iframe' })
-    ).rejects.toThrow('iframe sandbox not yet implemented');
+    ).rejects.toThrow('iframe sandbox requires a DOM environment');
   });
 
   // 10. double terminate is idempotent

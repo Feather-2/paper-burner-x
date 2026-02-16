@@ -4,14 +4,23 @@ let GCounter;
 let PNCounter;
 let nextTick;
 let tickSeq = 0;
+let cryptoHexSeq = 0;
 
 vi.mock('../../../../../js/agents/core/lamport-clock.js', () => ({
   nextTick: vi.fn(),
 }));
 
+vi.mock('../../../../../js/agents/shared/index.js', () => ({
+  cryptoRandomHex: vi.fn(() => {
+    cryptoHexSeq += 1;
+    return `hex${String(cryptoHexSeq).padStart(16, '0')}`;
+  }),
+}));
+
 beforeEach(async () => {
   vi.resetModules();
   tickSeq = 0;
+  cryptoHexSeq = 0;
 
   const lamport = await import('../../../../../js/agents/core/lamport-clock.js');
   nextTick = lamport.nextTick;
@@ -43,19 +52,17 @@ describe('GCounter', () => {
     });
   });
 
-  it('defaults nodeId from clock when nodeId is missing or empty', () => {
-    nextTick
-      .mockImplementationOnce(() => ({ seq: 1, ts: 10, id: 'auto_1' }))
-      .mockImplementationOnce(() => ({ seq: 2, ts: 20, id: 'empty_2' }));
-
+  it('defaults nodeId via cryptoRandomHex when nodeId is missing or empty', () => {
     const counterA = new GCounter();
     const counterB = new GCounter({ nodeId: '' });
 
-    expect(counterA.toJSON().nodeId).toBe('auto');
-    expect(counterB.toJSON().nodeId).toBe('empty');
-    expect(counterA.toJSON().counts).toEqual({ auto: 0 });
-    expect(counterB.toJSON().counts).toEqual({ empty: 0 });
-    expect(nextTick).toHaveBeenCalledTimes(2);
+    // cryptoRandomHex mock returns sequential hex strings
+    expect(counterA.toJSON().nodeId).toBe('hex0000000000000001');
+    expect(counterB.toJSON().nodeId).toBe('hex0000000000000002');
+    expect(counterA.toJSON().counts).toEqual({ hex0000000000000001: 0 });
+    expect(counterB.toJSON().counts).toEqual({ hex0000000000000002: 0 });
+    // nextTick is NOT called during construction anymore
+    expect(nextTick).not.toHaveBeenCalled();
   });
 
   it('increment updates value and returns op with clock; delta 0 preserves count', () => {

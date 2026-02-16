@@ -43,13 +43,13 @@
 | Module | Files | Lines | Rating | Key Strengths | Issues |
 |--------|------:|------:|:------:|---------------|--------|
 | core/kernel+buses | ~10 | ~4200 | ★★★★★ | 干净的总线设计，Lamport Clock 事件序，背压简化完成 | 无 |
-| core/sandbox | 32 | 6881 | ★★★★★ | 3 层隔离 WASM/Browser/System，完整权限模型 | iframe stub 未实现（低优先级） |
+| core/sandbox | 32 | 6881 | ★★★★★ | 3 层隔离 WASM/Browser/System，完整权限模型 | 无 |
 | core/node-compat | ~70 | ~12189 | ★★★★★ | 30+ 模块 shim + npm 包管理器，覆盖 Node 核心 API | sync crypto/zlib 不可用（浏览器限制） |
-| core/crdt | 11 | ~2600 | ★★★★★ | 5 种 CRDT 类型 + 同步协议，多 Agent 状态一致性 | 3 个 AUDIT 项待处理 |
+| core/crdt | 11 | ~2600 | ★★★★★ | 5 种 CRDT 类型 + 同步协议，多 Agent 状态一致性 | 无 |
 | core/contracts | 13 | 2576 | ★★★★★ | 完整多 Agent 协议栈，消息/握手/协商 | 无 |
 | core/di | 5 | 1006 | ★★★★★ | 轻量 IoC 容器 + 70+ 服务注册 | 全局容器遗留（低风险） |
 | core/archive | 7 | 1334 | ★★★★★ | JSON Patch 增量快照 + IndexedDB 持久化 | 无 |
-| core/webruntime | 11 | 1701 | ★★★★★ | DevServer + HMR + SW Bridge + Worker RPC | 2 个 high AUDIT 项 |
+| core/webruntime | 11 | 1701 | ★★★★★ | DevServer + HMR + SW Bridge + Worker RPC | 无 |
 | runtime/core | ~6 | ~3300 | ★★★★★ | 组合架构 + DI 注入 + 统一 Middleware Pipeline | 无 |
 | runtime/tools | 15 | 3178 | ★★★★★ | Worker 隔离执行 + 内置工具集，统一 handler 签名 | 无 |
 | runtime/safety | 4 | 1140 | ★★★★★ | Fork bomb 6 变体检测 + 17 敏感路径拦截 | 无 |
@@ -62,7 +62,7 @@
 | stages/textprep | 7 | ~1500 | ★★★★★ | TP1-TP6 流水线 + Hard Gates 质量门禁 | 无 |
 | llm | 18 | ~2400 | ★★★★★ | 多模型路由 + 熔断器 + 速率限制 | 无 |
 | vfs | 21 | ~3500 | ★★★★★ | 跨平台 + 符号链接 + Web Locks 并发控制 | 无 |
-| retrieval | 13 | ~3016 | ★★★★★ | BM25 + Vector + Grep + Hybrid + MMR 多样性重排 | score fusion 硬编码 |
+| retrieval | 13 | ~3016 | ★★★★★ | BM25 + Vector + Grep + Hybrid + MMR 多样性重排 | 无 |
 | ingest | 23 | ~4500 | ★★★★★ | 10+ 格式适配器 + ZIP bomb 防护 | 无 |
 | mcp | 22 | ~3000 | ★★★★★ | 多 Provider + 熔断器 | 无 |
 | skills | 9 | ~1200 | ★★★★★ | 3 级加载 (repo > user > system) + TTL 缓存 + 沙箱执行 | 无 |
@@ -87,6 +87,15 @@ Go SDK 约 60 个文件，整体均匀分布在 **4 stars**。没有模块低于
 | 3 | 双拦截系统 | runtime/hooks + MiddlewareChain | ✅ 已完成：统一为单一 Middleware Pipeline |
 | 4 | Design blackboard | stages/design/ (986 行) | ✅ 已完成：拆分为 DesignState + DesignCheckpoints + Facade |
 | 5 | Archive 持久化 | core/kernel+buses | ✅ 已完成：持久化防抖 + 批量写入 |
+
+以下 4 项残留 Issues 已完成修复（截至 2026-02-17）：
+
+| # | 问题 | 位置 | 实际结果 |
+|---|------|------|----------|
+| 6 | iframe stub 未实现 | core/sandbox/create-sandbox.js | ✅ 已完成：接入 iframe-sandbox.js，DOM 环境检测 |
+| 7 | CRDT 3 个 AUDIT 项 | core/crdt/counters.js 等 | ✅ 已完成：validateOp + cryptoRandomHex nodeId + clock 容错 |
+| 8 | webruntime 2 个 AUDIT 项 | core/webruntime/ | ✅ 确认为误报：AUDIT 项已在早期修复，归档至 AUDIT_HISTORY.md |
+| 9 | score fusion 硬编码 | retrieval/ | ✅ 确认非问题：已支持 weights 参数配置 |
 
 实际分布：
 

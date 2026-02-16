@@ -63,6 +63,34 @@ import { GCounter, PNCounter } from './counters.js';
  */
 /** @typedef {{ type: 'CRDTDocument', docId: string, nodeId: string, version: number, registers: Record<string, unknown>, maps: Record<string, unknown>, sets: Record<string, unknown>, counters: Record<string, unknown> }} CRDTDocumentJSON */
 
+const VALID_FIELD_TYPES = new Set(['register', 'map', 'set', 'counter']);
+const DANGEROUS_FIELDS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * Validate a remote op before applying. Returns null if valid, error string otherwise.
+ * @param {unknown} op
+ * @returns {string | null}
+ */
+function validateOp(op) {
+  if (!op || typeof op !== 'object') return 'op must be a non-null object';
+  const o = /** @type {Record<string, unknown>} */ (op);
+  if (typeof o.field !== 'string' || o.field === '') return 'op.field must be a non-empty string';
+  if (DANGEROUS_FIELDS.has(o.field)) return `op.field "${o.field}" is forbidden`;
+  if (!VALID_FIELD_TYPES.has(/** @type {string} */ (o.fieldType))) {
+    return `op.fieldType must be one of ${[...VALID_FIELD_TYPES].join(', ')}`;
+  }
+  return null;
+}
+
+/**
+ * Check whether a field name is safe to use as a Map key (prototype pollution guard).
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isSafeFieldName(name) {
+  return typeof name === 'string' && name !== '' && !DANGEROUS_FIELDS.has(name);
+}
+
 /**
  * CRDT Document - 组合多个 CRDT 类型的文档
  *
@@ -331,7 +359,8 @@ export class CRDTDocument {
    * @returns {boolean}
    */
   applyOp(op) {
-    if (!op || !op.field || !op.fieldType) return false;
+    const err = validateOp(op);
+    if (err) return false;
 
     // 同步时钟
     const remoteSeq = op.clock?.seq ?? op.op?.clock?.seq;
@@ -426,6 +455,7 @@ export class CRDTDocument {
 
     // 合并 registers
     for (const [name, reg] of other._registers) {
+      if (!isSafeFieldName(name)) continue;
       if (!this._registers.has(name)) {
         this._registers.set(
           name,
@@ -439,6 +469,7 @@ export class CRDTDocument {
 
     // 合并 maps
     for (const [name, map] of other._maps) {
+      if (!isSafeFieldName(name)) continue;
       if (!this._maps.has(name)) {
         this._maps.set(name, new LWWMap(this._childOpts()));
       }
@@ -449,6 +480,7 @@ export class CRDTDocument {
 
     // 合并 sets
     for (const [name, set] of other._sets) {
+      if (!isSafeFieldName(name)) continue;
       if (!this._sets.has(name)) {
         this._sets.set(name, new ORSet(this._childOpts()));
       }
@@ -459,6 +491,7 @@ export class CRDTDocument {
 
     // 合并 counters
     for (const [name, counter] of other._counters) {
+      if (!isSafeFieldName(name)) continue;
       if (!this._counters.has(name)) {
         this._counters.set(name,
           counter instanceof GCounter

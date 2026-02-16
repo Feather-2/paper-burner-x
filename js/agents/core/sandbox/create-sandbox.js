@@ -140,11 +140,30 @@ async function createWorkerSandbox(cfg) {
 }
 
 /**
- * @param {import('./sandbox-interface.js').SandboxConfig} _cfg
- * @returns {Promise<never>}
+ * @param {import('./sandbox-interface.js').SandboxConfig} cfg
+ * @returns {Promise<import('./sandbox-interface.js').Sandbox>}
  */
-async function createIframeSandbox(_cfg) {
-  throw new Error('iframe sandbox not yet implemented');
+async function createIframeSandbox(cfg) {
+  if (typeof document === 'undefined') {
+    throw new Error('iframe sandbox requires a DOM environment');
+  }
+
+  const { createIframeSandbox: createIframe } = await import('./iframe-sandbox.js');
+  const iframe = createIframe({
+    timeout: cfg.timeout,
+    vfs:     cfg.vfs,
+  });
+
+  return wrapAsSandbox('iframe', cfg,
+    async (code, filename) => {
+      const r = await iframe.execute(code, filename);
+      if (r.ok) return r.value;
+      const err = new Error(r.error || 'iframe execution failed');
+      if (r.stack) err.stack = r.stack;
+      throw err;
+    },
+    () => { iframe.terminate(); },
+  );
 }
 
 /**

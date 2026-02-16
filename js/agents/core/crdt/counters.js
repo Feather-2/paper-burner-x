@@ -6,6 +6,7 @@
  */
 
 import { nextTick } from '../lamport-clock.js';
+import { cryptoRandomHex } from '../../shared/index.js';
 
 /** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
 /** @typedef {{ nextTick: () => LamportClockState }} ClockServiceLike */
@@ -29,7 +30,12 @@ export class GCounter {
     /** @type {ClockServiceLike | null} */
     this._clockService = options.clockService || null;
     /** @type {string} */
-    this._nodeId = options.nodeId || this._nextTick().id.split('_')[0];
+    if (options.nodeId) {
+      this._nodeId = options.nodeId;
+    } else {
+      try { this._nodeId = cryptoRandomHex(8); } catch (_) { this._nodeId = Math.random().toString(36).slice(2, 10); }
+      if (typeof console !== 'undefined' && console.warn) console.warn('GCounter: nodeId not provided, generated fallback:', this._nodeId);
+    }
     /** @type {Map<string, number>} */
     this._counts = new Map(); // nodeId → count
     this._counts.set(this._nodeId, 0);
@@ -40,7 +46,11 @@ export class GCounter {
    * @returns {LamportClockState}
    */
   _nextTick() {
-    return this._clockService ? this._clockService.nextTick() : nextTick();
+    const tick = this._clockService ? this._clockService.nextTick() : nextTick();
+    if (!tick || typeof tick.id !== 'string' || typeof tick.seq !== 'number') {
+      return nextTick();
+    }
+    return tick;
   }
 
   /**
@@ -148,7 +158,12 @@ export class PNCounter {
     /** @type {ClockServiceLike | null} */
     this._clockService = options.clockService || null;
     /** @type {string} */
-    this._nodeId = options.nodeId || this._nextTick().id.split('_')[0];
+    if (options.nodeId) {
+      this._nodeId = options.nodeId;
+    } else {
+      try { this._nodeId = cryptoRandomHex(8); } catch (_) { this._nodeId = Math.random().toString(36).slice(2, 10); }
+      if (typeof console !== 'undefined' && console.warn) console.warn('PNCounter: nodeId not provided, generated fallback:', this._nodeId);
+    }
     /** @type {GCounter} */
     this._positive = new GCounter({ nodeId: this._nodeId, clockService: this._clockService });
     /** @type {GCounter} */
@@ -160,7 +175,11 @@ export class PNCounter {
    * @returns {LamportClockState}
    */
   _nextTick() {
-    return this._clockService ? this._clockService.nextTick() : nextTick();
+    const tick = this._clockService ? this._clockService.nextTick() : nextTick();
+    if (!tick || typeof tick.id !== 'string' || typeof tick.seq !== 'number') {
+      return nextTick();
+    }
+    return tick;
   }
 
   /**
