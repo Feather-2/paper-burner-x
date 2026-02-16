@@ -43,6 +43,7 @@ function resolveUrl(pathOrUrl) {
   try {
     return new URL(raw, globalThis.location?.href).toString();
   } catch {
+    /* intentional: parse failure returns raw text */
     return raw;
   }
 }

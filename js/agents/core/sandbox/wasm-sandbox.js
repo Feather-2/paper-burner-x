@@ -64,6 +64,7 @@ function tryJsonStringify(value) {
       json: JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? v.toString() : v)),
     };
   } catch {
+    /* intentional: WASM unavailable returns failure */
     return { ok: false, json: "" };
   }
 }
@@ -553,6 +554,7 @@ export class WasmSandbox {
     try {
       return this._sourceMapRegistry.mapStackTrace(errorStr, scriptId);
     } catch {
+      /* intentional: JSON.parse failure returns raw string */
       return errorStr;
     }
   }

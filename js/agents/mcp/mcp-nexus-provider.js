@@ -657,6 +657,7 @@ export class McpNexusProvider extends McpProvider {
       );
       return isSuccessfulJsonRpc(resp);
     } catch {
+      /* intentional: health check failure */
       return false;
     }
   }

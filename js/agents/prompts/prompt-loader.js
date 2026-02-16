@@ -266,6 +266,7 @@ export class PromptLoader {
       const url = new URL(entry.path, manifest.url).toString();
       return isSafeHttpUrl(url) ? url : "";
     } catch {
+      /* intentional: missing prompt returns empty */
       return "";
     }
   }

@@ -535,6 +535,7 @@ export class ToolExecutor {
         ? structuredClone(snapshot)
         : JSON.parse(JSON.stringify(snapshot));
     } catch {
+      /* intentional: metadata extraction failure */
       return {};
     }
   }

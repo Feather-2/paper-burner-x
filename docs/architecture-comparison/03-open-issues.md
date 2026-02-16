@@ -13,7 +13,7 @@
 
 - 4-10 号问题已完成修复与收尾，见下方“已修复的问题（供参考）”表格。
 - 重命名与收尾提交：`dd8530fe`。
-- 9 号“空 catch 块”为持续治理项，当前状态保持 `PARTIALLY FIXED`。
+- 9 号"空 catch 块"已全部标注完成，状态 `FIXED`。
 
 ## 已修复的问题（供参考）
 
@@ -29,7 +29,7 @@ The following issues were found during initial audit but have been FIXED in rece
 | 6. Kernel 封装破坏 (kernel.js) | d25aa0a8 | FIXED |
 | 7. WorkerPool 全局单例 (tool-executor.js) | d25aa0a8 | FIXED |
 | 8. DegradationMatrix 竞态 (orchestrator-core.js) | d25aa0a8 | FIXED |
-| 9. 空 catch 块 (43 files) | db24b54c, 4a0967c7, d25aa0a8 | PARTIALLY FIXED |
+| 9. 空 catch 块 (43 files) | db24b54c, 4a0967c7, d25aa0a8 | FIXED |
 | 10. renderPromptTemplate 重复 | dd8530fe | FIXED |
 | EventBus waitFor memory leak | d3ab7d17 | FIXED |
 | EventBus backpressure timer leak | a04de971 | FIXED |

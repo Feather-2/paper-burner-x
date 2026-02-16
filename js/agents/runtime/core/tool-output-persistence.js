@@ -95,6 +95,7 @@ export async function maybePersistJsonArtifact({
   try {
     sha256 = await computeSha256(json);
   } catch {
+    /* intentional: hash unavailable in browser */
     sha256 = undefined;
   }
 

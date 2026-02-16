@@ -254,6 +254,7 @@ function extractTitleFromXhtml(xhtml) {
     const t = safeTextContent(doc.querySelector("title"));
     return t;
   } catch {
+    /* intentional: malformed HTML returns empty */
     return "";
   }
 }

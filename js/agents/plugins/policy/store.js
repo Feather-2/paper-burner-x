@@ -23,6 +23,7 @@ function hasLocalStorage() {
   try {
     return typeof localStorage !== "undefined" && !!localStorage && typeof localStorage.getItem === "function";
   } catch {
+    /* intentional: localStorage unavailable */
     return false;
   }
 }

@@ -58,6 +58,7 @@ function cloneValue(value) {
   try {
     return JSON.parse(JSON.stringify(value));
   } catch {
+    /* intentional: clone failure returns original */
     return value;
   }
 }

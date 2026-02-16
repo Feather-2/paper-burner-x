@@ -115,6 +115,7 @@ function supportsEncoding(Decoder, encoding) {
     instance.decode(new Uint8Array(0));
     return true;
   } catch {
+    /* intentional: encoding probe */
     return false;
   }
 }

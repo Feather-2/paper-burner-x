@@ -336,6 +336,7 @@ export class StorageVfs {
       await this.stat(p);
       return true;
     } catch {
+      /* intentional: storage probe may fail */
       return false;
     }
   }

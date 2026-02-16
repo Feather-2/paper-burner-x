@@ -44,6 +44,7 @@ function safeJsonStringify(value) {
     try {
       return String(value);
     } catch {
+      /* intentional: stringify failure */
       return "[unserializable payload]";
     }
   }

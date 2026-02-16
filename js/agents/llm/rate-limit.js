@@ -91,6 +91,7 @@ export function loadRateLimitConfig({ storageKey = "paperburner_llm_rate_limit_v
     const parsed = safeJsonParse(raw, { maxChars: 200_000 });
     return normalizeRateLimitConfig(parsed);
   } catch {
+    /* intentional: malformed config falls back to defaults */
     return normalizeRateLimitConfig({});
   }
 }
