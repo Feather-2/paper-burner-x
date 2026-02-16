@@ -58,3 +58,9 @@ export { scanForInjection, InjectionScanner, sanitizeOutput, isCleanOutput } fro
 
 // Version
 export const VERSION = "1.0.0";
+
+// ============================================================
+// L3 - HTTP API Server
+// ============================================================
+export { createAgentServer } from "./http/index.js";
+export { STREAM_EVENT_TYPES } from "./http/stream-events.js";

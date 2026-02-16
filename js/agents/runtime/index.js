@@ -78,6 +78,11 @@ export { StageApiFactory } from "./core/api/stage-api-factory.js";
 export { UnifiedAgentContext } from "./core/context/unified-agent-context.js";
 
 // ============================================
+// Session Gate (per-session concurrency control)
+// ============================================
+export { SessionGate, ErrConcurrentExecution } from "./session-gate.js";
+
+// ============================================
 // Re-exports for backward compatibility
 // ============================================
 
