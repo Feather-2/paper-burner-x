@@ -48,5 +48,13 @@ export { createMcpClient, McpClient, McpProvider, loadStdioModules } from "../mc
 // Config
 export { loadAgentConfig, mergeConfigs } from "./config-loader.js";
 
+// Discovery and monitoring
+export { DiscoveryManager } from "./DiscoveryManager.js";
+export { AlertMonitor } from "./AlertMonitor.js";
+
+// Internal configuration
+export { AgentConfig } from "./agent-config.js";
+export { scanForInjection, InjectionScanner, sanitizeOutput, isCleanOutput } from "./injection-scanner.js";
+
 // Version
 export const VERSION = "1.0.0";
