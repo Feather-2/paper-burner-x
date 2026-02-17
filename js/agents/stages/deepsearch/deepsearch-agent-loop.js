@@ -15,6 +15,7 @@ import { createLogger } from "../../shared/index.js";
 import { robustParseJson } from "../../shared/index.js";
 import { checkCancelled, shouldDegrade as shouldDegradeCheck } from "../../shared/index.js";
 import { isPlainObject, toPositiveInt } from "../../shared/index.js";
+import { enableBackpressureIfNeeded } from "../../shared/utils/backpressure-init.js";
 import { classifyDeepSearchError } from "../../shared/index.js";
 import { ModelResponseHandler } from "./internal/model-response-handler.js";
 import SourceManager from "./source-manager.js";
@@ -256,23 +257,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     if (!this.emit && typeof stageApi?.emit === "function") this.emit = stageApi.emit;
 
     // P4.6: Enable backpressure for high-frequency events (best-effort).
-    const eventBus = /** @type {EventBusWithBackpressure | null} */ (/** @type {unknown} */ (this.eventBus));
-    if (eventBus && typeof eventBus.enableBackpressure === "function" && !eventBus?._backpressure?.enabled) {
-      const cfg = stageApi?.eventBusBackpressure ?? stageApi?.backpressure;
-      if (cfg !== false) {
-        const opts = isPlainObject(cfg) ? cfg : {};
-        try {
-          eventBus.enableBackpressure({
-            coalescePattern: /\.progress$/,
-            deferNonCoalesced: false,
-            maxQueueSize: 10000,
-            ...opts,
-          });
-        } catch {
-          // ignore
-        }
-      }
-    }
+    enableBackpressureIfNeeded(this.eventBus, stageApi?.eventBusBackpressure ?? stageApi?.backpressure);
 
     const traceContext = resolveStageTraceContext(stageApi);
     try {

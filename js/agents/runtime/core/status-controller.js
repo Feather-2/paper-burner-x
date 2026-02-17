@@ -8,6 +8,7 @@
  */
 
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
+import { isAllowedLoopStatusTransition } from "./agent-loop-phases.js";
 import { StagePausedError } from "./stage-errors.js";
 import { getRuntimeState } from "./loop-runtime-state.js";
 import { createLogger } from "../../shared/index.js";
@@ -59,31 +60,6 @@ import { createLogger } from "../../shared/index.js";
  */
 
 const logger = createLogger("runtime/core/status-controller");
-
-/** @type {Record<string, readonly string[]>} */
-const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({
-  [AgentStatus.IDLE]: [AgentStatus.RUNNING, AgentStatus.COMPLETED, AgentStatus.FAILED],
-  [AgentStatus.RUNNING]: [AgentStatus.PAUSED, AgentStatus.COMPLETED, AgentStatus.FAILED],
-  [AgentStatus.PAUSED]: [AgentStatus.RUNNING, AgentStatus.COMPLETED, AgentStatus.FAILED],
-  [AgentStatus.COMPLETED]: [AgentStatus.IDLE],
-  [AgentStatus.FAILED]: [AgentStatus.IDLE],
-});
-
-/**
- * @param {string} from
- * @param {string} to
- * @param {LoopStatusTransitionMeta} [meta]
- * @returns {boolean}
- */
-function isAllowedLoopStatusTransition(from, to, meta = /** @type {LoopStatusTransitionMeta} */ ({})) {
-  if (meta && typeof meta === "object") {
-    if (meta.force) return true;
-    if (meta.allowReset && to === AgentStatus.IDLE) return true;
-  }
-  if (!isValidAgentStatus(from) || !isValidAgentStatus(to)) return false;
-  const allowed = DEFAULT_LOOP_STATUS_TRANSITIONS[from] || [];
-  return allowed.includes(to);
-}
 
 /**
  * @param {unknown} value

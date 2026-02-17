@@ -1,3 +1,4 @@
+import { enableBackpressureIfNeeded } from "../../shared/utils/backpressure-init.js";
 import { AgentStatus, BaseAgentLoop, StagePausedError, createLifecycleEmitter, getEmitFn } from "../../runtime/index.js";
 import { DesignPhase } from "./states.js";
 import {
@@ -246,8 +247,6 @@ export class DesignAgentLoop extends BaseAgentLoop {
 	    const traceContext =
 	      context?.traceContext && typeof context.traceContext.withSpan === "function" ? context.traceContext : null;
 	    this.eventBus = context.eventBus || this.eventBus || null;
-	    const eventBus = this.eventBus;
-	    const backpressureBus = /** @type {BackpressureCapableEventBus | null} */ (eventBus);
 	    let emit = getEmitFn(context);
 	    if ((!emit || emit === this.eventBus?.emit) && this.eventBus?.emit) {
 	      emit = this.eventBus.emit.bind(this.eventBus);
@@ -256,22 +255,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
 	    this._emit = this.emit;
 
 	    // P4.6: Enable backpressure for high-frequency events (best-effort).
-	    if (backpressureBus && typeof backpressureBus.enableBackpressure === "function" && !backpressureBus?._backpressure?.enabled) {
-	      const cfg = context?.eventBusBackpressure ?? context?.backpressure;
-	      if (cfg !== false) {
-	        const opts = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg : {};
-	        try {
-	          backpressureBus.enableBackpressure({
-	            coalescePattern: /\.progress$/,
-	            deferNonCoalesced: false,
-	            maxQueueSize: 10000,
-	            ...opts,
-	          });
-        } catch {
-          // ignore
-        }
-      }
-    }
+	    enableBackpressureIfNeeded(this.eventBus, context?.eventBusBackpressure ?? context?.backpressure);
 
     const lifecycle = createLifecycleEmitter({
       actor: "design",
@@ -287,7 +271,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
       contentPackage,
       runId,
       emit,
-      eventBus,
+      eventBus: this.eventBus,
     });
 
 	    // 仅在初始运行时初始化状态，回溯重启时保留已恢复的状态

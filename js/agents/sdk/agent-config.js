@@ -127,106 +127,35 @@ export class AgentConfig {
   }
 
   /**
-   * Configure MCP integration.
-   * @param {Object|null} config
+   * @param {string} field - config field name (e.g. 'mcpConfig')
+   * @param {string} label - human-readable label for error messages
+   * @param {Object|null} [config]
    * @returns {AgentConfig}
    */
-  useMcp(config) {
+  _useConfig(field, label, config) {
     if (config === null || config === undefined) {
-      this.mcpConfig = null;
+      this[field] = null;
       return this;
     }
     if (typeof config !== "object") {
-      throw new Error("MCP config must be an object");
+      throw new Error(`${label} config must be an object`);
     }
-    this.mcpConfig = config;
+    this[field] = config;
     return this;
   }
 
-  /**
-   * Configure Cicada compression.
-   * @param {Object|null} config
-   * @returns {AgentConfig}
-   */
-  useCicada(config) {
-    if (config === null || config === undefined) {
-      this.cicadaConfig = null;
-      return this;
-    }
-    if (typeof config !== "object") {
-      throw new Error("Cicada config must be an object");
-    }
-    this.cicadaConfig = config;
-    return this;
-  }
-
-  /**
-   * Configure Backtrack.
-   * @param {Object} config
-   * @returns {AgentConfig}
-   */
-  useBacktrack(config = {}) {
-    if (config === null || config === undefined) {
-      this.backtrackConfig = null;
-      return this;
-    }
-    if (typeof config !== "object") {
-      throw new Error("Backtrack config must be an object");
-    }
-    this.backtrackConfig = config;
-    return this;
-  }
-
-  /**
-   * Configure watchdog (reserved for runtime integration).
-   * @param {Object} config
-   * @returns {AgentConfig}
-   */
-  useWatchdog(config = {}) {
-    if (config === null || config === undefined) {
-      this.watchdogConfig = null;
-      return this;
-    }
-    if (typeof config !== "object") {
-      throw new Error("Watchdog config must be an object");
-    }
-    this.watchdogConfig = config;
-    return this;
-  }
-
-  /**
-   * Configure discovery manager.
-   * @param {Object} config
-   * @returns {AgentConfig}
-   */
-  useDiscovery(config = {}) {
-    if (config === null || config === undefined) {
-      this.discoveryConfig = null;
-      return this;
-    }
-    if (typeof config !== "object") {
-      throw new Error("Discovery config must be an object");
-    }
-    this.discoveryConfig = config;
-    return this;
-  }
-
-  /**
-   * Configure alert monitor.
-   * @param {Object} config
-   * @returns {AgentConfig}
-   */
-  useAlertMonitor(config = {}) {
-    if (config === null || config === undefined) {
-      this.alertMonitorConfig = null;
-      return this;
-    }
-    if (typeof config !== "object") {
-      throw new Error("AlertMonitor config must be an object");
-    }
-    this.alertMonitorConfig = config;
-    return this;
-  }
+  /** @param {Object|null} config  @returns {AgentConfig} */
+  useMcp(config) { return this._useConfig("mcpConfig", "MCP", config); }
+  /** @param {Object|null} config  @returns {AgentConfig} */
+  useCicada(config) { return this._useConfig("cicadaConfig", "Cicada", config); }
+  /** @param {Object} [config]  @returns {AgentConfig} */
+  useBacktrack(config = {}) { return this._useConfig("backtrackConfig", "Backtrack", config); }
+  /** @param {Object} [config]  @returns {AgentConfig} */
+  useWatchdog(config = {}) { return this._useConfig("watchdogConfig", "Watchdog", config); }
+  /** @param {Object} [config]  @returns {AgentConfig} */
+  useDiscovery(config = {}) { return this._useConfig("discoveryConfig", "Discovery", config); }
+  /** @param {Object} [config]  @returns {AgentConfig} */
+  useAlertMonitor(config = {}) { return this._useConfig("alertMonitorConfig", "AlertMonitor", config); }
 
   /**
    * Subscribe event handler (pattern supported).
