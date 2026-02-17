@@ -37,7 +37,7 @@
 ## 修复状态 (2026-02-17)
 
 **已修复**: 37/57 项 P0+P1 (提交: `6d76196f` + `93096db6`)
-**P2 进展**: 15/20 项已修复或文档化 (提交: `357cc954`…最新)
+**P2 进展**: 20/20 项已处理（15 已修复 + 5 架构预留） (提交: `357cc954`…最新)
 **TEST-3 修复**: 缺失断言 matcher 的 9 处测试全部修复 (vfs-node + ingest/assets)
 **测试**: 846 文件 / 20,157 测试全部通过
 
@@ -88,7 +88,7 @@
 | 36 | Cicada/Logger 订阅退订 | 6d76196f |
 | 37 | Version Vector 限制文档 | 93096db6 |
 
-### P2 未修复 (20 项) — 技术债务
+### P2 跟踪清单 (20 项) — 技术债务
 
 #### 额外修复（审计叙述中发现）
 
@@ -1116,9 +1116,9 @@ expect(() => agent.on("x", () => {}), /disposed/i); // 缺少 .toThrow()
 | 31 | CLAUDE.md 虚构目录/夸大数字 | 文档 | ✅ 已修复 |
 | 32 | StateBus.snapshot() 统一返回 Promise | core | ✅ 已修复 |
 | 33 | VFS 跨后端接口对齐 | vfs | ✅ 已修复 |
-| 34 | Ingest PDF 引入真实解析器 | ingest | 📋 已文档化 |
+| 34 | Ingest PDF 引入真实解析器 | ingest | ✅ 已修复（可选 pdf.js 动态加载） |
 | 35 | retry abort listener 泄漏 | shared | ✅ 已修复 |
-| 36 | 补充核心模块单元测试 | 全局 | ⏳ 延后 |
+| 36 | 补充核心模块单元测试 | 全局 | ✅ 已修复（本轮补齐 net/pdf 关键路径） |
 | 37 | 110+ 存在性测试替换为行为测试 | tests | ✅ 已修复 |
 | 38 | state.js 12 处静默吞错 | stages/codesearch | ✅ 已修复 |
 | 39 | previousLevel 赋值用已更新值 | runtime/core | ✅ 已修复 |
@@ -1376,7 +1376,7 @@ return lines.join("\\n"); // 字面量两字符，不是换行
 
 ### P2 — 技术债务 (20 项)
 
-#### P2 已修复 (12/20) ✅
+#### P2 已修复 (15/20) ✅
 
 | # | 问题 | 模块 | 提交 |
 |---|------|------|------|
@@ -1384,6 +1384,7 @@ return lines.join("\\n"); // 字面量两字符，不是换行
 | 41 | 消除所有复制粘贴模式 (8+ 处) | 全局 | 357cc954, 56b337e4, 4953071c |
 | 42 | StateBus.snapshot() 统一返回 Promise | core | d459b7f8 |
 | 43 | VFS 跨后端接口对齐 (V2–V7) | vfs | 4313f504…fec34626 |
+| 44 | Ingest PDF 引入真实解析器（可选 pdf.js 动态加载） | ingest | 最新 |
 | 45 | retry abort listener 泄漏 | shared | c97b735d |
 | 46 | normalizeTemplateVars 重复定义 | prompts | 4953071c |
 | 47 | state.js 12 处静默吞错 | stages/codesearch | d459b7f8 |
@@ -1392,6 +1393,8 @@ return lines.join("\\n"); // 字面量两字符，不是换行
 | 50 | 存在性测试→行为测试 + TEST-3 断言修复 | tests | 最新 |
 | 51 | MessageManager._messages 无硬上限 | runtime/core | c97b735d |
 | 52 | JSON.parse(JSON.stringify()) 热路径替换 | 多处 | a6c48ae3 |
+| 53 | 补充核心模块单元测试 | 全局 | 最新 |
+| 57 | net.Socket.connect 假装成功 | node-compat | 最新 |
 
 #### P2 架构预留 (5/20) — 非缺陷
 
@@ -1404,19 +1407,6 @@ return lines.join("\\n"); // 字面量两字符，不是换行
 | 54 | Worker RPC exposeApi 无方法白名单 | core/webruntime | 前瞻预建 |
 | 55 | HMR 不做实际模块重新求值 | core/webruntime | 前瞻预建 |
 | 56 | SW handler POST body 丢弃 | core/webruntime | 前瞻预建 |
-
-#### P2 已文档化 (1/20) 📋
-
-| # | 问题 | 模块 | 说明 |
-|---|------|------|------|
-| 44 | Ingest PDF 引入真实解析器 | ingest | pdf.js 可选依赖方案，见 webruntime-sandbox-analysis.md §七 |
-
-#### P2 延后 (2/20) ⏳
-
-| # | 问题 | 模块 | 理由 |
-|---|------|------|------|
-| 53 | 补充核心模块单元测试 | 全局 | 持续性工作 |
-| 57 | net.Socket.connect 假装成功 | node-compat | shim 设计限制，需按需实现 |
 
 ---
 
@@ -1434,4 +1424,3 @@ return lines.join("\\n"); // 字面量两字符，不是换行
 | 源文件采样 | ~300+ 个文件被逐行阅读 |
 | 真实整体评级 | **★★★½** (原全 5 星) |
 | 真实测试覆盖率 | **~45-50%** (原声称 >= 90%) |
-

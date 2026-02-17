@@ -4,35 +4,106 @@ import {
   isIP, isIPv4, isIPv6,
 } from '../../../../../../js/agents/core/node-compat/shims/net.js';
 
+const waitTick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 describe('net shim', () => {
   it('Socket constructor does not throw', () => {
     expect(() => new Socket()).not.toThrow();
   });
 
-  it('Socket.connect emits error (not supported in browser shim)', async () => {
+  it('Socket.connect emits ECONNREFUSED when no server is listening', async () => {
     const s = new Socket();
     const errFn = vi.fn();
     s.on('error', errFn);
     s.connect(8080, 'localhost');
-    await new Promise(r => setTimeout(r, 10));
+    await waitTick();
     expect(errFn).toHaveBeenCalled();
-    expect(errFn.mock.calls[0][0].code).toBe('ERR_NOT_SUPPORTED');
+    expect(errFn.mock.calls[0][0].code).toBe('ECONNREFUSED');
     expect(s.readyState).toBe('closed');
   });
 
-  it('Socket.connect with options object emits error', async () => {
+  it('Socket.connect with options object returns error in callback on failure', async () => {
     const s = new Socket();
     const fn = vi.fn();
     s.on('error', () => {}); // prevent unhandled error throw
     s.connect({ port: 3000, host: '10.0.0.1' }, fn);
-    await new Promise(r => setTimeout(r, 10));
+    await waitTick();
     expect(fn).toHaveBeenCalled();
     expect(fn.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(fn.mock.calls[0][0].code).toBe('ECONNREFUSED');
   });
 
-  it('Socket.address returns null (connect not supported)', () => {
+  it('Socket.connect succeeds when server is listening', async () => {
+    const srv = new Server();
+    srv.listen(0, '127.0.0.1');
+    await waitTick();
+    const port = srv.address().port;
+
+    const s = new Socket();
+    const onConnect = vi.fn();
+    s.on('connect', onConnect);
+    s.on('error', () => {});
+    s.connect(port, '127.0.0.1');
+    await waitTick();
+
+    expect(onConnect).toHaveBeenCalledTimes(1);
+    expect(s.readyState).toBe('open');
+    expect(s.address()).toEqual(expect.objectContaining({ family: 'IPv4', address: '127.0.0.1' }));
+    await new Promise((resolve) => srv.close(resolve));
+  });
+
+  it('Socket.address returns null before connect', () => {
     const s = new Socket();
     expect(s.address()).toBeNull();
+  });
+
+  it('Socket read/write round-trip works through in-memory server', async () => {
+    const srv = new Server();
+    let accepted = null;
+    srv.on('connection', (socket) => {
+      accepted = socket;
+      socket.on('data', (chunk) => socket.write(chunk));
+    });
+    srv.listen(0, '127.0.0.1');
+    await waitTick();
+    const port = srv.address().port;
+
+    const client = new Socket();
+    const received = [];
+    client.on('data', (chunk) => received.push(Buffer.from(chunk).toString('utf8')));
+    client.on('error', () => {});
+    client.connect(port, '127.0.0.1');
+    await waitTick();
+
+    client.write('ping');
+    await waitTick();
+
+    expect(accepted).toBeInstanceOf(Socket);
+    expect(received.join('')).toBe('ping');
+
+    client.end();
+    await waitTick();
+    await new Promise((resolve) => srv.close(resolve));
+  });
+
+  it('Socket chainable methods return this', async () => {
+    const srv = new Server();
+    srv.listen(0, '127.0.0.1');
+    await waitTick();
+    const port = srv.address().port;
+
+    const s = new Socket();
+    s.on('error', () => {});
+    s.connect(port, '127.0.0.1');
+    await waitTick();
+
+    expect(s.setEncoding()).toBe(s);
+    expect(s.setTimeout(1000)).toBe(s);
+    expect(s.setNoDelay()).toBe(s);
+    expect(s.setKeepAlive()).toBe(s);
+    expect(s.ref()).toBe(s);
+    expect(s.unref()).toBe(s);
+    await new Promise((resolve) => srv.close(resolve));
   });
 
   it('Socket.destroy triggers close event', async () => {
@@ -40,7 +111,7 @@ describe('net shim', () => {
     const fn = vi.fn();
     s.on('close', fn);
     s.destroy();
-    await new Promise(r => queueMicrotask(r));
+    await waitTick();
     expect(fn).toHaveBeenCalledWith(false);
     expect(s.destroyed).toBe(true);
     expect(s.readyState).toBe('closed');
@@ -55,7 +126,7 @@ describe('net shim', () => {
     const err = new Error('boom');
     s.destroy(err);
     expect(errFn).toHaveBeenCalledWith(err);
-    await new Promise(r => queueMicrotask(r));
+    await waitTick();
     expect(closeFn).toHaveBeenCalledWith(true);
   });
 
@@ -65,18 +136,8 @@ describe('net shim', () => {
     s.on('close', fn);
     s.destroy();
     s.destroy();
-    await new Promise(r => queueMicrotask(r));
+    await waitTick();
     expect(fn).toHaveBeenCalledTimes(1);
-  });
-
-  it('Socket chainable methods return this', () => {
-    const s = new Socket();
-    expect(s.setEncoding()).toBe(s);
-    expect(s.setTimeout(1000)).toBe(s);
-    expect(s.setNoDelay()).toBe(s);
-    expect(s.setKeepAlive()).toBe(s);
-    expect(s.ref()).toBe(s);
-    expect(s.unref()).toBe(s);
   });
 
   it('Server.listen triggers listening event', async () => {
@@ -84,9 +145,29 @@ describe('net shim', () => {
     const fn = vi.fn();
     srv.on('listening', fn);
     srv.listen(9090);
-    await new Promise(r => queueMicrotask(r));
+    await waitTick();
     expect(fn).toHaveBeenCalled();
     expect(srv.listening).toBe(true);
+    await new Promise((resolve) => srv.close(resolve));
+  });
+
+  it('Server.listen emits EADDRINUSE for duplicate host/port binding', async () => {
+    const srvA = new Server();
+    const srvB = new Server();
+
+    srvA.listen(9100, '127.0.0.1');
+    await waitTick();
+
+    const errFn = vi.fn();
+    srvB.on('error', errFn);
+    srvB.listen(9100, '127.0.0.1');
+    await waitTick();
+
+    expect(errFn).toHaveBeenCalledTimes(1);
+    expect(errFn.mock.calls[0][0].code).toBe('EADDRINUSE');
+
+    await new Promise((resolve) => srvA.close(resolve));
+    await new Promise((resolve) => srvB.close(resolve));
   });
 
   it('Server.address returns port and host', () => {
@@ -95,6 +176,7 @@ describe('net shim', () => {
     const addr = srv.address();
     expect(addr.port).toBe(4000);
     expect(addr.family).toBe('IPv4');
+    srv.close();
   });
 
   it('Server.close triggers close event', async () => {
@@ -103,7 +185,7 @@ describe('net shim', () => {
     const fn = vi.fn();
     srv.on('close', fn);
     srv.close();
-    await new Promise(r => queueMicrotask(r));
+    await waitTick();
     expect(fn).toHaveBeenCalled();
     expect(srv.listening).toBe(false);
   });
@@ -146,10 +228,19 @@ describe('net shim', () => {
     expect(srv).toBeInstanceOf(Server);
   });
 
-  it('createConnection returns a Socket', () => {
-    const s = createConnection(8080);
-    s.on('error', () => {}); // suppress expected shim error
+  it('createConnection returns a Socket and can connect to a listening server', async () => {
+    const srv = createServer();
+    srv.listen(0, '127.0.0.1');
+    await waitTick();
+    const port = srv.address().port;
+
+    const s = createConnection(port, '127.0.0.1');
+    s.on('error', () => {});
     expect(s).toBeInstanceOf(Socket);
+    await waitTick();
+    expect(s.readyState).toBe('open');
+
+    await new Promise((resolve) => srv.close(resolve));
   });
 
   it('connect is an alias for createConnection', () => {

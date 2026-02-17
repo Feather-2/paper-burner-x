@@ -3,15 +3,98 @@
  */
 
 import { EventEmitter } from './events.js';
+import { Buffer } from './buffer.js';
 import { Duplex } from './stream.js';
 
+const LISTEN_ANY_IPV4 = '0.0.0.0';
+const DEFAULT_HOST = '127.0.0.1';
+const LOCALHOST = 'localhost';
+const MIN_SERVER_PORT = 3000;
+const MAX_SERVER_PORT = 65535;
+const MIN_CLIENT_PORT = 40000;
+const MAX_CLIENT_PORT = 60999;
+
+const LISTENERS = new Map();
+let NEXT_SERVER_PORT = MIN_SERVER_PORT;
+let NEXT_CLIENT_PORT = MIN_CLIENT_PORT;
+
+function normalizeHost(host) {
+  const raw = String(host || '').trim();
+  if (!raw) return DEFAULT_HOST;
+  if (raw === LOCALHOST) return DEFAULT_HOST;
+  return raw;
+}
+
+function endpointKey(host, port) {
+  return `${normalizeHost(host)}:${Number(port)}`;
+}
+
+function canBind(host, port) {
+  const normalizedHost = normalizeHost(host);
+  const exact = endpointKey(normalizedHost, port);
+  const wildcard = endpointKey(LISTEN_ANY_IPV4, port);
+  if (LISTENERS.has(exact)) return false;
+  if (normalizedHost === LISTEN_ANY_IPV4) {
+    for (const key of LISTENERS.keys()) {
+      const parts = key.split(':');
+      const existingPort = Number(parts[parts.length - 1]);
+      if (existingPort === Number(port)) return false;
+    }
+    return true;
+  }
+  return !LISTENERS.has(wildcard);
+}
+
+function allocateServerPort(host) {
+  const maxAttempts = MAX_SERVER_PORT - MIN_SERVER_PORT + 1;
+  for (let i = 0; i < maxAttempts; i++) {
+    const candidate = NEXT_SERVER_PORT++;
+    if (NEXT_SERVER_PORT > MAX_SERVER_PORT) NEXT_SERVER_PORT = MIN_SERVER_PORT;
+    if (canBind(host, candidate)) return candidate;
+  }
+  return 0;
+}
+
+function allocateClientPort() {
+  const candidate = NEXT_CLIENT_PORT++;
+  if (NEXT_CLIENT_PORT > MAX_CLIENT_PORT) NEXT_CLIENT_PORT = MIN_CLIENT_PORT;
+  return candidate;
+}
+
+function findListeningServer(host, port) {
+  const exact = LISTENERS.get(endpointKey(host, port));
+  if (exact) return exact;
+  return LISTENERS.get(endpointKey(LISTEN_ANY_IPV4, port)) || null;
+}
+
+function createConnectError(host, port) {
+  const err = new Error(`connect ECONNREFUSED ${host}:${port}`);
+  err.code = 'ECONNREFUSED';
+  err.errno = 'ECONNREFUSED';
+  err.syscall = 'connect';
+  err.address = host;
+  err.port = port;
+  return err;
+}
+
+function createAddrInUseError(host, port) {
+  const err = new Error(`listen EADDRINUSE ${host}:${port}`);
+  err.code = 'EADDRINUSE';
+  err.errno = 'EADDRINUSE';
+  err.syscall = 'listen';
+  err.address = host;
+  err.port = port;
+  return err;
+}
+
 export class Socket extends Duplex {
-  constructor(options) {
-    super();
+  constructor(options = {}) {
+    super(options);
     this._connecting = false;
     this._connected = false;
     this._destroyed = false;
-    this.localAddress = '127.0.0.1';
+    this._peer = null;
+    this.localAddress = DEFAULT_HOST;
     this.localPort = 0;
     this.remoteAddress = undefined;
     this.remotePort = undefined;
@@ -22,33 +105,110 @@ export class Socket extends Duplex {
   }
 
   connect(portOrOptions, hostOrCallback, callback) {
-    let port, host = '127.0.0.1', cb;
+    let port;
+    let host = DEFAULT_HOST;
+    let cb;
+
     if (typeof portOrOptions === 'number') {
       port = portOrOptions;
       if (typeof hostOrCallback === 'string') { host = hostOrCallback; cb = callback; }
       else cb = hostOrCallback;
-    } else {
+    } else if (portOrOptions && typeof portOrOptions === 'object') {
       port = portOrOptions.port;
-      host = portOrOptions.host || '127.0.0.1';
+      host = portOrOptions.host || DEFAULT_HOST;
       cb = typeof hostOrCallback === 'function' ? hostOrCallback : callback;
+    } else {
+      const err = new TypeError('Socket.connect(port[, host][, callback]): invalid arguments');
+      queueMicrotask(() => {
+        this.emit('error', err);
+        if (typeof cb === 'function') cb(err);
+      });
+      return this;
     }
+
+    const normalizedHost = normalizeHost(host);
+    const normalizedPort = Number(port);
 
     this._connecting = true;
     this.connecting = true;
-    this.remoteAddress = host;
-    this.remotePort = port;
-    this.remoteFamily = 'IPv4';
+    this.remoteAddress = normalizedHost;
+    this.remotePort = normalizedPort;
+    this.remoteFamily = isIPv6(normalizedHost) ? 'IPv6' : 'IPv4';
     this.readyState = 'opening';
 
     queueMicrotask(() => {
+      if (this._destroyed) return;
+      const server = findListeningServer(normalizedHost, normalizedPort);
+      if (!server || !server.listening) {
+        const err = createConnectError(normalizedHost, normalizedPort);
+        this._connecting = false;
+        this.connecting = false;
+        this._connected = false;
+        this.readyState = 'closed';
+        this.emit('error', err);
+        if (typeof cb === 'function') cb(err);
+        return;
+      }
+
       this._connecting = false;
       this.connecting = false;
-      this.readyState = 'closed';
-      const err = new Error('net.Socket.connect() is not supported in browser shim');
-      err.code = 'ERR_NOT_SUPPORTED';
-      this.emit('error', err);
-      if (cb) cb(err);
+      this._connected = true;
+      this.readyState = 'open';
+      this.destroyed = false;
+      this.localPort = allocateClientPort();
+
+      const serverSocket = new Socket();
+      serverSocket._connected = true;
+      serverSocket.readyState = 'open';
+      serverSocket.destroyed = false;
+      serverSocket.localAddress = server._address?.address || LISTEN_ANY_IPV4;
+      serverSocket.localPort = normalizedPort;
+      serverSocket.remoteAddress = this.localAddress;
+      serverSocket.remotePort = this.localPort;
+      serverSocket.remoteFamily = 'IPv4';
+
+      this._peer = serverSocket;
+      serverSocket._peer = this;
+
+      server._handleConnection(serverSocket);
+      this.emit('connect');
+      if (typeof cb === 'function') cb();
     });
+    return this;
+  }
+
+  _write(chunk, encoding, cb) {
+    if (this._destroyed || !this.writable) {
+      const err = new Error('This socket is closed');
+      err.code = 'ERR_SOCKET_CLOSED';
+      if (typeof cb === 'function') cb(err);
+      return;
+    }
+
+    const peer = this._peer;
+    if (!peer || peer._destroyed) {
+      const err = new Error('Socket is not connected');
+      err.code = 'ENOTCONN';
+      if (typeof cb === 'function') cb(err);
+      return;
+    }
+
+    const payload = typeof chunk === 'string'
+      ? Buffer.from(chunk, encoding || 'utf8')
+      : (chunk instanceof Uint8Array ? Buffer.from(chunk) : Buffer.from(String(chunk ?? '')));
+
+    queueMicrotask(() => {
+      if (!peer._destroyed) peer._receiveData(payload);
+    });
+    if (typeof cb === 'function') cb();
+  }
+
+  end(chunk, encoding, cb) {
+    super.end(chunk, encoding, cb);
+    const peer = this._peer;
+    if (peer && !peer._destroyed) {
+      queueMicrotask(() => peer._receiveEnd());
+    }
     return this;
   }
 
@@ -70,6 +230,14 @@ export class Socket extends Duplex {
     this._connected = false;
     this.destroyed = true;
     this.readyState = 'closed';
+
+    const peer = this._peer;
+    this._peer = null;
+    if (peer && !peer._destroyed) {
+      peer._peer = null;
+      queueMicrotask(() => peer._receiveEnd());
+    }
+
     if (error) this.emit('error', error);
     queueMicrotask(() => this.emit('close', !!error));
     return this;
@@ -79,7 +247,11 @@ export class Socket extends Duplex {
     this.push(typeof data === 'string' ? Buffer.from(data) : data);
   }
 
-  _receiveEnd() { this.push(null); }
+  _receiveEnd() {
+    this._connected = false;
+    this.readyState = 'closed';
+    this.push(null);
+  }
 }
 
 export class Server extends EventEmitter {
@@ -88,6 +260,7 @@ export class Server extends EventEmitter {
     this._listening = false;
     this._address = null;
     this._connections = new Set();
+    this._listenKey = null;
     this.listening = false;
     const listener = typeof optionsOrListener === 'function'
       ? optionsOrListener : connectionListener;
@@ -95,7 +268,10 @@ export class Server extends EventEmitter {
   }
 
   listen(portOrOptions, hostOrCallback, backlogOrCallback, callback) {
-    let port = 0, host = '0.0.0.0', cb;
+    let port = 0;
+    let host = LISTEN_ANY_IPV4;
+    let cb;
+
     if (typeof portOrOptions === 'number') {
       port = portOrOptions;
       if (typeof hostOrCallback === 'string') {
@@ -106,28 +282,63 @@ export class Server extends EventEmitter {
       } else {
         cb = typeof backlogOrCallback === 'function' ? backlogOrCallback : callback;
       }
-    } else if (portOrOptions) {
+    } else if (portOrOptions && typeof portOrOptions === 'object') {
       port = portOrOptions.port || 0;
-      host = portOrOptions.host || '0.0.0.0';
+      host = portOrOptions.host || LISTEN_ANY_IPV4;
       cb = typeof hostOrCallback === 'function' ? hostOrCallback : callback;
     }
-    if (port === 0) port = 3000 + Math.floor(Math.random() * 1000);
 
-    this._address = { address: host, family: 'IPv4', port };
+    if (port === 0) {
+      port = allocateServerPort(host);
+      if (port === 0) {
+        const err = new Error('No free ephemeral ports available for net.Server.listen(0)');
+        err.code = 'EADDRNOTAVAIL';
+        queueMicrotask(() => {
+          this.emit('error', err);
+          if (typeof cb === 'function') cb(err);
+        });
+        return this;
+      }
+    }
+
+    const normalizedHost = normalizeHost(host);
+    if (!canBind(normalizedHost, port)) {
+      const err = createAddrInUseError(normalizedHost, port);
+      queueMicrotask(() => {
+        this.emit('error', err);
+        if (typeof cb === 'function') cb(err);
+      });
+      return this;
+    }
+
+    this._listenKey = endpointKey(normalizedHost, port);
+    LISTENERS.set(this._listenKey, this);
+    this._address = { address: normalizedHost, family: isIPv6(normalizedHost) ? 'IPv6' : 'IPv4', port };
     this._listening = true;
     this.listening = true;
-    queueMicrotask(() => { this.emit('listening'); if (cb) cb(); });
+
+    queueMicrotask(() => {
+      this.emit('listening');
+      if (typeof cb === 'function') cb();
+    });
     return this;
   }
 
   address() { return this._address; }
 
   close(cb) {
+    if (this._listenKey) {
+      LISTENERS.delete(this._listenKey);
+      this._listenKey = null;
+    }
     this._listening = false;
     this.listening = false;
     for (const s of this._connections) s.destroy();
     this._connections.clear();
-    queueMicrotask(() => { this.emit('close'); if (cb) cb(); });
+    queueMicrotask(() => {
+      this.emit('close');
+      if (typeof cb === 'function') cb();
+    });
     return this;
   }
 

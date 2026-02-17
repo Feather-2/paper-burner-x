@@ -251,4 +251,44 @@ describe("PdfAdapter", () => {
     expect(docB.metadata.title).toBe("b.pdf");
     expect(docC.metadata.title).toBe("c.pdf");
   });
+
+  it("uses injected pdfParser when OCR is unavailable", async () => {
+    const parser = vi.fn(async () => "中文内容 A");
+    const file = makeFileLike({ name: "cn.pdf", buffer: Uint8Array.from([0x00]) });
+
+    const adapter = new PdfAdapter({ pdfParser: parser });
+    const parsed = await adapter.parse(file);
+
+    expect(parser).toHaveBeenCalledTimes(1);
+    expect(parsed.markdown).toContain("中文内容 A");
+    expect(parsed.metadata.engine).toBe("pdf-parser");
+  });
+
+  it("stageApi.pdfParser overrides constructor parser", async () => {
+    const ctorParser = vi.fn(async () => "ctor");
+    const stageParser = vi.fn(async () => "stage");
+    const file = makeFileLike({ name: "override.pdf", buffer: "x" });
+
+    const adapter = new PdfAdapter({ pdfParser: ctorParser });
+    const parsed = await adapter.parse(file, { pdfParser: stageParser });
+
+    expect(stageParser).toHaveBeenCalledTimes(1);
+    expect(ctorParser).not.toHaveBeenCalled();
+    expect(parsed.markdown).toContain("stage");
+    expect(parsed.metadata.engine).toBe("pdf-parser");
+  });
+
+  it("falls back to embedded strings when injected pdfParser throws", async () => {
+    const parser = vi.fn(async () => {
+      throw new Error("parser failed");
+    });
+    const file = makeFileLike({ name: "fallback.pdf", buffer: "Hello Parser Fallback" });
+
+    const adapter = new PdfAdapter({ pdfParser: parser });
+    const parsed = await adapter.parse(file);
+
+    expect(parser).toHaveBeenCalledTimes(1);
+    expect(parsed.markdown).toContain("Hello Parser Fallback");
+    expect(parsed.metadata.engine).toBe("fallback");
+  });
 });
