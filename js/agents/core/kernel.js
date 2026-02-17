@@ -464,7 +464,6 @@ export class Kernel {
    * @returns {PluginEntry[]}
    */
   _getUninstallOrder(plugins) {
-    const pluginMap = new Map(plugins.map(p => [p.name, p]));
     const visited = new Set();
     const order = [];
 

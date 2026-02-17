@@ -54,7 +54,7 @@ export class AlertMonitor {
         /** @type {AgentLike | null | undefined} */
         this.agent = options.agent; // 相关联的 AgentInstance
         /** @type {LoggerLike} */
-        this.logger = options.logger;
+        this.logger = options.logger || { info() {}, warn() {}, error() {}, debug() {} };
         /** @type {string} */
         this.auditorModel = options.model || "haiku"; // 仅在启发式不足时备用
         /** @type {string} */

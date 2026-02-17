@@ -355,11 +355,8 @@ export class ServiceBus {
    * @returns {Promise<ServiceHealthResult[]>}
    */
   async healthCheckAll() {
-    const results = [];
-    for (const [name] of this._services) {
-      results.push(await this.healthCheck(name));
-    }
-    return results;
+    const names = [...this._services.keys()];
+    return Promise.all(names.map((name) => this.healthCheck(name)));
   }
 
   /**

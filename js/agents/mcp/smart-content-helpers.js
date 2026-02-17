@@ -80,10 +80,12 @@ export const NOISE_SELECTORS = [
 ];
 
 const _unsupportedNoiseSelectorWarned = new Set();
+const MAX_WARNED_SELECTORS = 200;
 function warnUnsupportedNoiseSelectorOnce(selector, err) {
   const key = typeof selector === "string" ? selector : String(selector ?? "");
   if (!key) return;
   if (_unsupportedNoiseSelectorWarned.has(key)) return;
+  if (_unsupportedNoiseSelectorWarned.size >= MAX_WARNED_SELECTORS) return;
   _unsupportedNoiseSelectorWarned.add(key);
 
   const message = err instanceof Error ? err.message : String(err);

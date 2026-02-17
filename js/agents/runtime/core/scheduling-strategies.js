@@ -63,7 +63,7 @@ export const SchedulingStrategies = {
     if (this.signal.aborted) throw new Error("Run cancelled");
 
     const results = new Map();
-    const concurrencyLimit = await this._getEffectiveConcurrencyLimit();
+    const concurrencyLimit = Math.max(1, await this._getEffectiveConcurrencyLimit());
     const pending = [...stages];
     const executing = new Set();
     const allErrors = [];
