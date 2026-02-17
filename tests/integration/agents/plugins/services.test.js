@@ -462,7 +462,7 @@ describe('Service/proxy plugins (PLUG-02)', () => {
     inspector.state.set('local.flag', true);
     expect(kernel.state.get('plugins.debug/inspector.local.flag')).toBe(true);
 
-    const snapId = inspector.state.snapshot('s1');
+    const snapId = await inspector.state.snapshot('s1');
     kernel.state.set('x.y', 2);
     inspector.state.rollback(snapId);
     expect(kernel.state.get('x.y')).toBe(1);

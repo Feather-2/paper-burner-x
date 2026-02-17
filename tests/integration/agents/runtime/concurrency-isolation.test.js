@@ -16,15 +16,15 @@ describe("concurrency-isolation", () => {
       expect(bus2.get("runtime.iteration")).toBe(20);
     });
 
-    it("StateBus snapshots are isolated between instances", () => {
+    it("StateBus snapshots are isolated between instances", async () => {
       const bus1 = new StateBus();
       const bus2 = new StateBus();
 
       bus1.set("meta.status", "running");
-      const snapId1 = bus1.snapshot("snap1");
+      const snapId1 = await bus1.snapshot("snap1");
 
       bus2.set("meta.status", "idle");
-      const snapId2 = bus2.snapshot("snap1"); // same ID, different bus
+      const snapId2 = await bus2.snapshot("snap1"); // same ID, different bus
 
       expect(bus1.listSnapshots()).toContain(snapId1);
       expect(bus2.listSnapshots()).toContain(snapId2);
@@ -403,7 +403,7 @@ describe("concurrency-isolation", () => {
       await Promise.all(
         Array.from({ length: 20 }, async (_, i) => {
           bus.set("runtime.iteration", i);
-          const id = bus.snapshot(`snap-${i}`);
+          const id = await bus.snapshot(`snap-${i}`);
           snapshots.push(id);
           await Promise.resolve();
         })
@@ -541,10 +541,10 @@ describe("concurrency-isolation", () => {
       const bus = new StateBus();
 
       bus.set("value", 1);
-      const snap1 = bus.snapshot("s1");
+      const snap1 = await bus.snapshot("s1");
 
       bus.set("value", 2);
-      const snap2 = bus.snapshot("s2");
+      const snap2 = await bus.snapshot("s2");
 
       bus.set("value", 3);
 

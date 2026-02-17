@@ -473,9 +473,9 @@ export class StateBus {
   /**
    * 创建快照
    * @param {string | null} [id]
-   * @returns {string | Promise<string>}
+   * @returns {Promise<string>}
    */
-  snapshot(id = null) {
+  async snapshot(id = null) {
     const snapshotId = id || `snap_${Date.now()}`;
     const data = deepClone(this._state);
 
@@ -536,9 +536,9 @@ export class StateBus {
   /**
    * 删除快照
    * @param {string} snapshotId
-   * @returns {boolean | Promise<boolean>}
+   * @returns {Promise<boolean>}
    */
-  deleteSnapshot(snapshotId) {
+  async deleteSnapshot(snapshotId) {
     const deleted = this._snapshots.delete(snapshotId);
 
     // Delete from Archive if available

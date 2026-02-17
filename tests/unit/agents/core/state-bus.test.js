@@ -344,9 +344,9 @@ describe("StateBus", () => {
   });
 
   describe("snapshot/rollback", () => {
-    it("creates snapshots, emits events, and restores on rollback", () => {
+    it("creates snapshots, emits events, and restores on rollback", async () => {
       state.set("snapshot.value", { deep: { n: 1 } });
-      const snapshotId = state.snapshot("snap1");
+      const snapshotId = await state.snapshot("snap1");
       state.set("snapshot.value.deep.n", 2);
 
       const cb = vi.fn();
@@ -368,16 +368,16 @@ describe("StateBus", () => {
       expect(state.listSnapshots()).toContain("snap1");
     });
 
-    it("evicts oldest snapshots using LRU semantics", () => {
+    it("evicts oldest snapshots using LRU semantics", async () => {
       const bus = new StateBus({ maxSnapshots: 2 });
 
-      bus.snapshot("one");
-      bus.snapshot("two");
-      bus.snapshot("three");
+      await bus.snapshot("one");
+      await bus.snapshot("two");
+      await bus.snapshot("three");
 
       expect(bus.listSnapshots()).toEqual(["two", "three"]);
 
-      bus.snapshot("two");
+      await bus.snapshot("two");
       expect(bus.listSnapshots()).toEqual(["three", "two"]);
     });
 
@@ -386,11 +386,11 @@ describe("StateBus", () => {
       expect(() => bus.rollback("missing")).toThrow("Snapshot not found");
     });
 
-    it("deletes snapshots by id", () => {
+    it("deletes snapshots by id", async () => {
       const bus = new StateBus();
-      bus.snapshot("toDelete");
-      expect(bus.deleteSnapshot("toDelete")).toBe(true);
-      expect(bus.deleteSnapshot("toDelete")).toBe(false);
+      await bus.snapshot("toDelete");
+      expect(await bus.deleteSnapshot("toDelete")).toBe(true);
+      expect(await bus.deleteSnapshot("toDelete")).toBe(false);
     });
   });
 
@@ -524,14 +524,12 @@ describe("StateBus", () => {
   });
 
   describe("events integration", () => {
-    it("works without an EventBus", () => {
+    it("works without an EventBus", async () => {
       const bus = new StateBus();
 
-      expect(() => {
-        bus.set("value", 1);
-        bus.snapshot("no-events");
-        bus.reset();
-      }).not.toThrow();
+      bus.set("value", 1);
+      await bus.snapshot("no-events");
+      bus.reset();
     });
   });
 });

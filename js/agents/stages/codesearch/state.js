@@ -57,8 +57,8 @@ function cloneValue(value) {
   if (value === null || value === undefined) return value;
   try {
     return JSON.parse(JSON.stringify(value));
-  } catch {
-    /* intentional: clone failure returns original */
+  } catch (err) {
+    console.debug('[CodeSearchState] clone failed, using original:', err?.message);
     return value;
   }
 }
@@ -131,14 +131,14 @@ export class CodeSearchState {
         const snap = this._stateEngine.getState?.() || this._stateEngine._getStateRef?.();
         const engineGoal = toNonEmptyString(snap?.L0?.taskGoal);
         if (engineGoal) return engineGoal;
-      } catch { /* fallback */ }
+      } catch (err) { console.debug('[CodeSearchState] taskGoal read from engine failed:', err?.message); }
     }
     // 次优先从 MemoryStore 读取
     if (this._memoryStore) {
       try {
         const memGoal = toNonEmptyString(this._memoryStore.L0?.taskGoal);
         if (memGoal) return memGoal;
-      } catch { /* fallback */ }
+      } catch (err) { console.debug('[CodeSearchState] taskGoal read from memoryStore failed:', err?.message); }
     }
     return this._taskGoal;
   }
@@ -151,7 +151,7 @@ export class CodeSearchState {
     if (this._stateEngine && typeof this._stateEngine.dispatchSync === "function") {
       try {
         this._stateEngine.dispatchSync({ type: L0_SET_TASK_GOAL, payload: { taskGoal: next } });
-      } catch { /* intentional */ }
+      } catch (err) { console.debug('[CodeSearchState] taskGoal dispatch failed:', err?.message); }
     }
 
     // 同步到 MemoryStore
@@ -162,7 +162,7 @@ export class CodeSearchState {
         } else if (this._memoryStore.L0) {
           this._memoryStore.L0.taskGoal = next;
         }
-      } catch { /* intentional */ }
+      } catch (err) { console.debug('[CodeSearchState] taskGoal memoryStore sync failed:', err?.message); }
     }
   }
 
@@ -178,14 +178,14 @@ export class CodeSearchState {
     if (this._stateEngine && typeof this._stateEngine.dispatchSync === "function") {
       try {
         this._stateEngine.dispatchSync({ type: L0_REPLACE_TODOS, payload: { todos: cloneValue(next) } });
-      } catch { /* intentional */ }
+      } catch (err) { console.debug('[CodeSearchState] todos dispatch failed:', err?.message); }
     }
 
     // 同步到 MemoryStore
     if (this._memoryStore && typeof this._memoryStore.replaceTodos === "function") {
       try {
         this._memoryStore.replaceTodos(cloneValue(next));
-      } catch { /* intentional */ }
+      } catch (err) { console.debug('[CodeSearchState] todos memoryStore sync failed:', err?.message); }
     }
   }
 
@@ -200,7 +200,7 @@ export class CodeSearchState {
     if (this._stateEngine && typeof this._stateEngine.dispatchSync === "function") {
       try {
         this._stateEngine.dispatchSync({ type: L0_ADD_TODO, payload: { todo: cloneValue(todo) } });
-      } catch { /* intentional */ }
+      } catch (err) { console.debug('[CodeSearchState] addTodo dispatch failed:', err?.message); }
     }
 
     return todo;
@@ -239,7 +239,7 @@ export class CodeSearchState {
     if (this._stateEngine && typeof this._stateEngine.dispatchSync === "function") {
       try {
         this._stateEngine.dispatchSync({ type: L0_UPDATE_TODO, payload: { todoId, updates } });
-      } catch { /* intentional */ }
+      } catch (err) { console.debug('[CodeSearchState] updateTodo dispatch failed:', err?.message); }
     }
 
     return updated;
@@ -296,7 +296,7 @@ export class CodeSearchState {
     if (this._stateEngineUnsubscribe) {
       try {
         this._stateEngineUnsubscribe();
-      } catch { /* ignore */ }
+      } catch (err) { console.debug('[CodeSearchState] unsubscribe failed:', err?.message); }
       this._stateEngineUnsubscribe = null;
     }
 
@@ -326,7 +326,8 @@ export class CodeSearchState {
       try {
         const snap = engine.getState?.() || engine._getStateRef?.();
         return snap?.L0 || null;
-      } catch {
+      } catch (err) {
+        console.debug('[CodeSearchState] getState from engine failed:', err?.message);
         return null;
       }
     })();
@@ -356,13 +357,13 @@ export class CodeSearchState {
     if (goal && typeof memoryStore.setTaskGoal === "function") {
       try {
         memoryStore.setTaskGoal(goal);
-      } catch { /* intentional */ }
+      } catch (err) { console.debug('[CodeSearchState] memoryStore setTaskGoal failed:', err?.message); }
     }
 
     if (this._todos.length > 0 && typeof memoryStore.replaceTodos === "function") {
       try {
         memoryStore.replaceTodos(cloneValue(this._todos));
-      } catch { /* intentional */ }
+      } catch (err) { console.debug('[CodeSearchState] memoryStore replaceTodos failed:', err?.message); }
     }
   }
 
