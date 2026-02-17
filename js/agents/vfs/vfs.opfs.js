@@ -409,10 +409,14 @@ export class OpfsVfs {
    * @returns {Promise<boolean>}
    */
   async copy(src, dest) {
-    const bytes = await this.readFile(src);
-    if (bytes == null) throw new Error(`ENOENT: ${normalizeVfsPath(src)}`);
-    await this.writeFile(dest, bytes);
-    return true;
+    const s = normalizeVfsPath(src);
+    const d = normalizeVfsPath(dest);
+    return withOpfsPathLocks([s, d], async () => {
+      const bytes = await this.readFile(s);
+      if (bytes == null) throw new Error(`ENOENT: ${s}`);
+      await this.writeFile(d, bytes);
+      return true;
+    });
   }
 
   /**
@@ -421,9 +425,15 @@ export class OpfsVfs {
    * @returns {Promise<boolean>}
    */
   async move(src, dest) {
-    await this.copy(src, dest);
-    await this.unlink(src);
-    return true;
+    const s = normalizeVfsPath(src);
+    const d = normalizeVfsPath(dest);
+    return withOpfsPathLocks([s, d], async () => {
+      const bytes = await this.readFile(s);
+      if (bytes == null) throw new Error(`ENOENT: ${s}`);
+      await this.writeFile(d, bytes);
+      await this.unlink(s);
+      return true;
+    });
   }
 
   /**
