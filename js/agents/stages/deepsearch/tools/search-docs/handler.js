@@ -14,18 +14,7 @@ const MAX_SOURCE_COUNT = 100;
 const DEFAULT_RETRIEVER_TIMEOUT_MS = 15_000;
 const MAX_RETRIEVER_TIMEOUT_MS = 60_000;
 
-function withTimeout(promise, timeoutMs, label = "operation") {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      const err = /** @type {Error & { code?: string }} */ (new Error(`${label} timed out`));
-      err.code = "TIMEOUT";
-      reject(err);
-    }, timeoutMs);
-  });
-  return Promise.race([Promise.resolve(promise).finally(() => clearTimeout(timer)), timeout]);
-}
+import { withTimeout } from '../../../../shared/utils/with-timeout.js';
 
 /**
  * @typedef {object} ApplyMmrOptions

@@ -67,17 +67,7 @@ function safeJsonStringify(value, maxChars = 600) {
   }
 }
 
-function withTimeout(promise, timeoutMs, label) {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
-  let timeoutId;
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      const error = Object.assign(new Error(`${label} timed out after ${timeoutMs}ms`), { code: "timeout" });
-      reject(error);
-    }, timeoutMs);
-  });
-  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
-}
+import { withTimeout } from '../../../shared/utils/with-timeout.js';
 
 function clampNumber(value, { min = -Infinity, max = Infinity, fallback = 0 } = {}) {
   const num = Number(value);
@@ -500,7 +490,7 @@ export async function runExecutionStep({
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const errorCode = err && typeof err === "object" && err.code === "timeout" ? "model_timeout" : "model_error";
+    const errorCode = err && typeof err === "object" && String(err.code).toLowerCase() === "timeout" ? "model_timeout" : "model_error";
     logger.warn("Execution step failed: model error", { step, error: message, code: errorCode });
     state.addObservation(`[Step ${step}] Model error: ${message}`);
     return {

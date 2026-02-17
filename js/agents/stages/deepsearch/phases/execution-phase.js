@@ -21,17 +21,7 @@ const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
  * @param {string} toolName - 用于错误消息
  * @returns {Promise<T>}
  */
-function withTimeout(promise, timeoutMs, toolName) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`Tool "${toolName}" timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    promise.then(
-      (result) => { clearTimeout(timer); resolve(result); },
-      (err) => { clearTimeout(timer); reject(err); }
-    );
-  });
-}
+import { withTimeout } from '../../../shared/utils/with-timeout.js';
 
 function safeStringify(value, { space = 0 } = {}) {
   const seen = new WeakSet();
