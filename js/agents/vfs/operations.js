@@ -95,16 +95,13 @@ async function withVfsPathLock(vfs, path, fn, { signal } = {}) {
     } catch {
       // ignore
     }
+    // Clean up only if no subsequent writer has chained onto the lock
     if (lockMap.get(key) === tail) {
       if (hasLock) {
         lockMap.delete(key);
       } else {
+        // Abort path: restore previous tail so next writer waits for actual holder
         lockMap.set(key, prevTail);
-        Promise.resolve(prevTail).catch(() => {}).finally(() => {
-          if (lockMap.get(key) === prevTail) {
-            lockMap.delete(key);
-          }
-        });
       }
     }
   }
