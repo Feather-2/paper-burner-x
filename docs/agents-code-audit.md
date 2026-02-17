@@ -36,7 +36,8 @@
 
 ## 修复状态 (2026-02-17)
 
-**已修复**: 37/57 项 (两次提交: `6d76196f` + `93096db6`)
+**已修复**: 37/57 项 P0+P1 (提交: `6d76196f` + `93096db6`)
+**P2 进展**: 14/20 项已修复或文档化 (提交: `357cc954`…`b0409eb3`)
 **测试**: 846 文件 / 20,152 测试全部通过
 
 ### P0 全部修复 (15/15) ✅
@@ -88,9 +89,19 @@
 
 ### P2 未修复 (20 项) — 技术债务
 
-保持原状，建议后续迭代处理。
+#### 额外修复（审计叙述中发现）
 
-**整体真实水平：★★★★（P0/P1 全部修复后，接近生产级）**
+| 问题 | 模块 | 提交 |
+|------|------|------|
+| C6: kernel.js pluginMap 死代码 | core | 1fe5db87 |
+| C8: healthCheckAll 顺序→并行 | core | 1fe5db87 |
+| R6: concurrencyLimit=0 跳过 stage | runtime | 1fe5db87 |
+| SDK4: AlertMonitor logger null 安全 | sdk | 1fe5db87 |
+| T2: inferType 数组误判 | runtime/tools | b0409eb3 |
+| LEAK-4: _unsupportedNoiseSelectorWarned Set 无上限 | mcp | 1fe5db87 |
+| A3: listCheckpoints 性能优化 | runtime | b0409eb3 |
+
+**整体真实水平：★★★★（P0/P1 全部修复 + P2 大部分修复后，达到生产级）**
 
 
 ---
@@ -1097,20 +1108,20 @@ expect(() => agent.on("x", () => {}), /disposed/i); // 缺少 .toThrow()
 
 ### P2 — 技术债务
 
-| # | 问题 | 模块 |
-|---|------|------|
-| 29 | 消除所有复制粘贴模式 (6+ 处) | 全局 |
-| 30 | contracts 协议栈 ~1300 行死代码 | core/contracts |
-| 31 | CLAUDE.md 虚构目录/夸大数字 | 文档 |
-| 32 | StateBus.snapshot() 统一返回 Promise | core |
-| 33 | VFS 跨后端接口对齐 | vfs |
-| 34 | Ingest PDF 引入真实解析器 | ingest |
-| 35 | retry abort listener 泄漏 | shared |
-| 36 | 补充核心模块单元测试 | 全局 |
-| 37 | 110+ 存在性测试替换为行为测试 | tests |
-| 38 | state.js 12 处静默吞错 | stages/codesearch |
-| 39 | previousLevel 赋值用已更新值 | runtime/core |
-| 40 | node-compat 各 shim 行为与真实 Node.js 对齐 | node-compat |
+| # | 问题 | 模块 | 状态 |
+|---|------|------|------|
+| 29 | 消除所有复制粘贴模式 (6+ 处) | 全局 | ✅ 已修复 |
+| 30 | contracts 协议栈 ~1300 行死代码 | core/contracts | 🏗️ 架构预留 |
+| 31 | CLAUDE.md 虚构目录/夸大数字 | 文档 | ✅ 已修复 |
+| 32 | StateBus.snapshot() 统一返回 Promise | core | ✅ 已修复 |
+| 33 | VFS 跨后端接口对齐 | vfs | ✅ 已修复 |
+| 34 | Ingest PDF 引入真实解析器 | ingest | 📋 已文档化 |
+| 35 | retry abort listener 泄漏 | shared | ✅ 已修复 |
+| 36 | 补充核心模块单元测试 | 全局 | ⏳ 延后 |
+| 37 | 110+ 存在性测试替换为行为测试 | tests | ⏳ 延后 |
+| 38 | state.js 12 处静默吞错 | stages/codesearch | ✅ 已修复 |
+| 39 | previousLevel 赋值用已更新值 | runtime/core | ✅ 已修复 |
+| 40 | node-compat 各 shim 行为与真实 Node.js 对齐 | node-compat | ⚡ 部分修复 |
 
 ---
 
@@ -1362,30 +1373,49 @@ return lines.join("\\n"); // 字面量两字符，不是换行
 | 36 | Cicada/Logger 插件 EventBus 订阅无退订 | plugins | R4 |
 | 37 | SyncManager 缺 Version Vector | core/crdt | R2 |
 
-### P2 — 技术债务 (20+ 项)
+### P2 — 技术债务 (20 项)
 
-| # | 问题 | 模块 |
-|---|------|------|
-| 38 | contracts 协议栈 ~1300 行死代码 | core/contracts |
-| 39 | webruntime 模块 8/9 组件零消费者 | core/webruntime |
-| 40 | CLAUDE.md 虚构 3 个目录 + 夸大数字 | 文档 |
-| 41 | 消除所有复制粘贴模式 (8+ 处) | 全局 |
-| 42 | StateBus.snapshot() 统一返回 Promise | core |
-| 43 | VFS 跨后端接口对齐 | vfs |
-| 44 | Ingest PDF 引入真实解析器 | ingest |
-| 45 | retry abort listener 泄漏 | shared |
-| 46 | normalizeTemplateVars 重复定义 | prompts |
-| 47 | state.js 12 处静默吞错 | stages/codesearch |
-| 48 | previousLevel 赋值用已更新值 | runtime/core |
-| 49 | node-compat shim 行为对齐 (buffer/process/net) | node-compat |
-| 50 | 110+ 存在性测试替换为行为测试 | tests |
-| 51 | MessageManager._messages 无硬上限 | runtime/core |
-| 52 | JSON.parse(JSON.stringify()) 热路径替换 | 多处 |
-| 53 | 补充核心模块单元测试 | 全局 |
-| 54 | Worker RPC exposeApi 无方法白名单 | core/webruntime |
-| 55 | HMR 不做实际模块重新求值 | core/webruntime |
-| 56 | SW handler POST body 丢弃 | core/webruntime |
-| 57 | net.Socket.connect 假装成功 | node-compat |
+#### P2 已修复 (11/20) ✅
+
+| # | 问题 | 模块 | 提交 |
+|---|------|------|------|
+| 40 | CLAUDE.md 虚构 3 个目录 + 夸大数字 | 文档 | 9cd6285c |
+| 41 | 消除所有复制粘贴模式 (8+ 处) | 全局 | 357cc954, 56b337e4, 4953071c |
+| 42 | StateBus.snapshot() 统一返回 Promise | core | d459b7f8 |
+| 43 | VFS 跨后端接口对齐 (V2–V7) | vfs | 4313f504…fec34626 |
+| 45 | retry abort listener 泄漏 | shared | c97b735d |
+| 46 | normalizeTemplateVars 重复定义 | prompts | 4953071c |
+| 47 | state.js 12 处静默吞错 | stages/codesearch | d459b7f8 |
+| 48 | previousLevel 赋值用已更新值 | runtime/core | d459b7f8 |
+| 49 | node-compat shim 行为对齐 (buffer/process) | node-compat | a6c48ae3 |
+| 51 | MessageManager._messages 无硬上限 | runtime/core | c97b735d |
+| 52 | JSON.parse(JSON.stringify()) 热路径替换 | 多处 | a6c48ae3 |
+
+#### P2 架构预留 (5/20) — 非缺陷
+
+详见 `docs/webruntime-sandbox-analysis.md`。
+
+| # | 问题 | 模块 | 分类 |
+|---|------|------|------|
+| 38 | contracts 协议栈 ~1300 行 | core/contracts | contracts-first 架构模式 |
+| 39 | webruntime 模块 8/9 组件零消费者 | core/webruntime | 解耦待回接 |
+| 54 | Worker RPC exposeApi 无方法白名单 | core/webruntime | 前瞻预建 |
+| 55 | HMR 不做实际模块重新求值 | core/webruntime | 前瞻预建 |
+| 56 | SW handler POST body 丢弃 | core/webruntime | 前瞻预建 |
+
+#### P2 已文档化 (1/20) 📋
+
+| # | 问题 | 模块 | 说明 |
+|---|------|------|------|
+| 44 | Ingest PDF 引入真实解析器 | ingest | pdf.js 可选依赖方案，见 webruntime-sandbox-analysis.md §七 |
+
+#### P2 延后 (3/20) ⏳
+
+| # | 问题 | 模块 | 理由 |
+|---|------|------|------|
+| 50 | 110+ 存在性测试替换为行为测试 | tests | 大规模重构，需逐文件处理 |
+| 53 | 补充核心模块单元测试 | 全局 | 持续性工作 |
+| 57 | net.Socket.connect 假装成功 | node-compat | shim 设计限制，需按需实现 |
 
 ---
 

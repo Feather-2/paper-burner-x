@@ -386,17 +386,21 @@ export class Archive {
       const timestamp = parsed?.timestamp ?? "";
       const counter = Number.isFinite(parsed?.counter) ? parsed.counter : 0;
 
-      // Only read full snapshot if timestamp cannot be extracted from key
+      // Only read full snapshot if timestamp cannot be reliably extracted from key.
+      // Small numbers (< 1e10) are likely counters/sequence IDs, not epoch-ms.
       let nodeStates = {};
-      if (!timestamp) {
+      let effectiveTimestamp = timestamp;
+      const tsMs = toEpochMs(timestamp);
+      if (!timestamp || (tsMs !== null && tsMs < 1e10)) {
         const snapshot = await this.storage.get(key);
         if (!snapshot) continue;
         nodeStates = snapshot.nodeStates ?? {};
+        if (snapshot.timestamp !== undefined) effectiveTimestamp = snapshot.timestamp;
       }
 
       checkpoints.push({
         checkpointId: key,
-        timestamp,
+        timestamp: effectiveTimestamp,
         nodeStates,
         counter,
       });

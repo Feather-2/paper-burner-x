@@ -425,7 +425,8 @@ describe("L3Storage", () => {
     const { indexPath } = getPaths(runId);
     const tempPath = indexPath + ".tmp";
 
-    // MemoryVfs has unlink but not rename - use fallback path
+    // Remove rename so the fallback path (write+unlink) is exercised
+    vfs.rename = undefined;
     // Track unlink calls
     const originalUnlink = vfs.unlink.bind(vfs);
     let unlinkCalled = false;
