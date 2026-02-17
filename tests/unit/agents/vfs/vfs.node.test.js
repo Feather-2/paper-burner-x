@@ -347,7 +347,7 @@ describe('NodeFsVfs - list (legacy)', () => {
 });
 
 describe('NodeFsVfs - listFiles', () => {
-  it('lists files recursively by default, excludes dotfiles, and returns sorted paths', async () => {
+  it('lists files recursively by default, includes dotfiles, and returns sorted paths', async () => {
     const tree = new Map([
       [
         'ROOT/base',
@@ -369,7 +369,7 @@ describe('NodeFsVfs - listFiles', () => {
 
     const files = await vfs.listFiles({ prefix: 'base' });
 
-    expect(files).toEqual(['base/a.txt', 'base/b.txt', 'base/sub/c.txt', 'base/sub/deep/d.txt']);
+    expect(files).toEqual(['base/.hidden', 'base/a.txt', 'base/b.txt', 'base/sub/c.txt', 'base/sub/deep/d.txt']);
   });
 
   it('does not recurse when recursive=false', async () => {
@@ -420,7 +420,7 @@ describe('NodeFsVfs - walkFiles', () => {
     expect(fsMock.readdir).not.toHaveBeenCalled();
   });
 
-  it('walks directories recursively, excludes dotfiles, and yields sorted paths', async () => {
+  it('walks directories recursively, includes dotfiles, and yields sorted paths', async () => {
     const tree = new Map([
       ['ROOT/walk', [createDirent('b.txt', false), createDirent('sub', true), createDirent('.dot', false), createDirent('a.txt', false)]],
       ['ROOT/walk/sub', [createDirent('d.txt', false), createDirent('c.txt', false)]],
@@ -434,7 +434,7 @@ describe('NodeFsVfs - walkFiles', () => {
 
     const files = await collectAsync(vfs.walkFiles({ prefix: 'walk' }));
 
-    expect(files).toEqual(['walk/a.txt', 'walk/b.txt', 'walk/sub/c.txt', 'walk/sub/d.txt']);
+    expect(files).toEqual(['walk/.dot', 'walk/a.txt', 'walk/b.txt', 'walk/sub/c.txt', 'walk/sub/d.txt']);
     expect(files).toEqual([...files].sort((a, b) => a.localeCompare(b)));
   });
 

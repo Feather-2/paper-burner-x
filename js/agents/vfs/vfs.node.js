@@ -99,8 +99,6 @@ export class NodeFsVfs {
     const walk = async (dir, relDir) => {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       for (const e of entries) {
-        // NOTE: NodeFsVfs filters hidden files (dotfiles) unlike other VFS backends
-        if (e.name.startsWith(".")) continue;
         const relPath = relDir ? `${relDir}/${e.name}` : e.name;
         const abs = `${dir}/${e.name}`;
         if (e.isDirectory()) {
@@ -130,8 +128,6 @@ export class NodeFsVfs {
       entries.sort((a, b) => a.name.localeCompare(b.name));
       for (const e of entries) {
         if (signal?.aborted) throw new Error("walkFiles: aborted");
-        // NOTE: NodeFsVfs filters hidden files (dotfiles) unlike other VFS backends
-        if (e.name.startsWith(".")) continue;
         const relPath = relDir ? `${relDir}/${e.name}` : e.name;
         const abs = `${dir}/${e.name}`;
         if (e.isDirectory()) {
