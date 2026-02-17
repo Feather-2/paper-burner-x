@@ -8,7 +8,7 @@ function escapeRegExp(s) {
   return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function normalizeTemplateVars(vars) {
+export function normalizeTemplateVars(vars) {
   const map = new Map();
 
   if (!vars) return map;

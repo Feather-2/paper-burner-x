@@ -57,6 +57,7 @@ const agent = await createAgent({ model: 'gpt-4o', skills: ['search'] });
 
 ### core/
 - `crdt/CLAUDE.md` - CRDT 共识层
+- `di/CLAUDE.md` - 依赖注入
 - `sandbox/CLAUDE.md` - 沙箱隔离 (WASM + System)
 
 ### runtime/
@@ -66,13 +67,9 @@ const agent = await createAgent({ model: 'gpt-4o', skills: ['search'] });
 - `memory/CLAUDE.md` - 记忆系统
 - `hooks/CLAUDE.md` - 钩子系统 (HookRegistry)
 - `middleware/CLAUDE.md` - 中间件链 (MiddlewareChain + Stage)
-- `di/CLAUDE.md` - 依赖注入
 - `tools/CLAUDE.md` - 内置工具
-- `parallel/CLAUDE.md` - 并行任务
-- `deps/CLAUDE.md` - Python 依赖
 - `events/CLAUDE.md` - 事件类型
 - `safety/CLAUDE.md` - 安全检查
-- `analysis/CLAUDE.md` - 行为分析
 
 ### stages/
 - `deepsearch/CLAUDE.md` - 深度搜索
@@ -130,24 +127,24 @@ const myPlugin = createPlugin({
 
 | 模块 | 文件数 | 入口 |
 |------|--------|------|
-| **stages** | 148 | `stages/index.js` |
-| **runtime** | 138 | `runtime/index.js` |
-| **core** | 52 | `core/index.js` |
-| **plugins** | 38 | `plugins/index.js` |
-| **shared** | 35 | `shared/index.js` |
-| **ingest** | 21 | `ingest/index.js` |
-| **vfs** | 20 | `vfs/index.js` |
-| **mcp** | 19 | `mcp/index.js` |
-| **llm** | 11 | `llm/index.js` |
-| **prompts** | 11 | `prompts/index.js` |
-| **retrieval** | 10 | `retrieval/index.js` |
-| **skills** | 9 | `skills/index.js` |
-| **eval** | 9 | `eval/index.js` |
-| **sdk** | 7 | `sdk/index.js` |
-| **cli** | 5 | `cli/index.js` |
-| **storage** | 3 | `storage/index.js` |
-| **testing** | 1 | `testing/index.js` |
-| **合计** | **544** | `index.js` |
+| **stages** | 250 | `stages/index.js` |
+| **core** | 186 | `core/index.js` |
+| **runtime** | 143 | `runtime/index.js` |
+| **plugins** | 137 | `plugins/index.js` |
+| **shared** | 40 | `shared/index.js` |
+| **prompts** | 36 | `prompts/index.js` |
+| **sdk** | 32 | `sdk/index.js` |
+| **ingest** | 29 | `ingest/index.js` |
+| **mcp** | 25 | `mcp/index.js` |
+| **vfs** | 24 | `vfs/index.js` |
+| **llm** | 24 | `llm/index.js` |
+| **retrieval** | 19 | `retrieval/index.js` |
+| **eval** | 15 | `eval/index.js` |
+| **skills** | 12 | `skills/index.js` |
+| **storage** | 10 | `storage/index.js` |
+| **cli** | 8 | `cli/index.js` |
+| **testing** | 5 | `testing/index.js` |
+| **合计** | **~1006** | `index.js` |
 
 - 类型定义：`events.d.ts`, `core/types.d.ts` (JSDoc 生成的 `.d.ts`)
 
