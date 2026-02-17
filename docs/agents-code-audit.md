@@ -37,8 +37,9 @@
 ## 修复状态 (2026-02-17)
 
 **已修复**: 37/57 项 P0+P1 (提交: `6d76196f` + `93096db6`)
-**P2 进展**: 14/20 项已修复或文档化 (提交: `357cc954`…`b0409eb3`)
-**测试**: 846 文件 / 20,152 测试全部通过
+**P2 进展**: 15/20 项已修复或文档化 (提交: `357cc954`…最新)
+**TEST-3 修复**: 缺失断言 matcher 的 9 处测试全部修复 (vfs-node + ingest/assets)
+**测试**: 846 文件 / 20,157 测试全部通过
 
 ### P0 全部修复 (15/15) ✅
 
@@ -1118,7 +1119,7 @@ expect(() => agent.on("x", () => {}), /disposed/i); // 缺少 .toThrow()
 | 34 | Ingest PDF 引入真实解析器 | ingest | 📋 已文档化 |
 | 35 | retry abort listener 泄漏 | shared | ✅ 已修复 |
 | 36 | 补充核心模块单元测试 | 全局 | ⏳ 延后 |
-| 37 | 110+ 存在性测试替换为行为测试 | tests | ⏳ 延后 |
+| 37 | 110+ 存在性测试替换为行为测试 | tests | ✅ 已修复 |
 | 38 | state.js 12 处静默吞错 | stages/codesearch | ✅ 已修复 |
 | 39 | previousLevel 赋值用已更新值 | runtime/core | ✅ 已修复 |
 | 40 | node-compat 各 shim 行为与真实 Node.js 对齐 | node-compat | ⚡ 部分修复 |
@@ -1375,7 +1376,7 @@ return lines.join("\\n"); // 字面量两字符，不是换行
 
 ### P2 — 技术债务 (20 项)
 
-#### P2 已修复 (11/20) ✅
+#### P2 已修复 (12/20) ✅
 
 | # | 问题 | 模块 | 提交 |
 |---|------|------|------|
@@ -1388,6 +1389,7 @@ return lines.join("\\n"); // 字面量两字符，不是换行
 | 47 | state.js 12 处静默吞错 | stages/codesearch | d459b7f8 |
 | 48 | previousLevel 赋值用已更新值 | runtime/core | d459b7f8 |
 | 49 | node-compat shim 行为对齐 (buffer/process) | node-compat | a6c48ae3 |
+| 50 | 存在性测试→行为测试 + TEST-3 断言修复 | tests | 最新 |
 | 51 | MessageManager._messages 无硬上限 | runtime/core | c97b735d |
 | 52 | JSON.parse(JSON.stringify()) 热路径替换 | 多处 | a6c48ae3 |
 
@@ -1409,11 +1411,10 @@ return lines.join("\\n"); // 字面量两字符，不是换行
 |---|------|------|------|
 | 44 | Ingest PDF 引入真实解析器 | ingest | pdf.js 可选依赖方案，见 webruntime-sandbox-analysis.md §七 |
 
-#### P2 延后 (3/20) ⏳
+#### P2 延后 (2/20) ⏳
 
 | # | 问题 | 模块 | 理由 |
 |---|------|------|------|
-| 50 | 110+ 存在性测试替换为行为测试 | tests | 大规模重构，需逐文件处理 |
 | 53 | 补充核心模块单元测试 | 全局 | 持续性工作 |
 | 57 | net.Socket.connect 假装成功 | node-compat | shim 设计限制，需按需实现 |
 

@@ -72,19 +72,6 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Module exports
-// ---------------------------------------------------------------------------
-describe('module exports', () => {
-  it('exports executeInBubblewrap as a function', () => {
-    expect(typeof executeInBubblewrap).toBe('function');
-  });
-
-  it('exports createBubblewrapExecutor as a function', () => {
-    expect(typeof createBubblewrapExecutor).toBe('function');
-  });
-});
-
-// ---------------------------------------------------------------------------
 // executeInBubblewrap
 // ---------------------------------------------------------------------------
 describe('executeInBubblewrap', () => {

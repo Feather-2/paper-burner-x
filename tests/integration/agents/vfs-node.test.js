@@ -339,7 +339,7 @@ describe("NodeFsVfs", () => {
     });
 
     it("throws on non-existent source", async () => {
-      await expect(() => vfs.copy("missing.txt", "dest.txt"), /ENOENT/);
+      await expect(() => vfs.copy("missing.txt", "dest.txt")).rejects.toThrow(/ENOENT/);
     });
   });
 
@@ -359,7 +359,7 @@ describe("NodeFsVfs", () => {
     });
 
     it("throws on non-existent source", async () => {
-      await expect(() => vfs.move("missing.txt", "dest.txt"), /ENOENT/);
+      await expect(() => vfs.move("missing.txt", "dest.txt")).rejects.toThrow(/ENOENT/);
     });
 
     it("handles EXDEV by copy+unlink fallback", async () => {
@@ -404,7 +404,7 @@ describe("NodeFsVfs", () => {
           },
         };
       };
-      await expect(() => vfs.move("rethrow_src.txt", "rethrow_dest.txt"), /EACCES/);
+      await expect(() => vfs.move("rethrow_src.txt", "rethrow_dest.txt")).rejects.toThrow(/EACCES/);
       vfs._fs = origFs;
     });
   });

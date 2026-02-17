@@ -125,10 +125,6 @@ describe('engine module', () => {
 });
 
 function addGenericFunctionTests(name, fn) {
-  it('is a function export', () => {
-    expect(typeof fn).toBe('function');
-  });
-
   it('handles empty/nullish inputs (error handling)', async () => {
     const invalidArgSets = [
       [],

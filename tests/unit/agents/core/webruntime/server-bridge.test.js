@@ -152,8 +152,29 @@ describe('server-bridge', () => {
 });
 
 describe('sw-handler', () => {
-  it('exports installFetchHandler', () => {
-    expect(typeof installFetchHandler).toBe('function');
+  it('installs listeners and ignores non-virtual requests', () => {
+    /** @type {Record<string, any>} */
+    const listeners = {};
+    const sw = {
+      addEventListener: vi.fn((type, handler) => {
+        listeners[type] = handler;
+      }),
+      clients: {
+        get: vi.fn(),
+        matchAll: vi.fn(),
+      },
+    };
+
+    expect(() => installFetchHandler(sw)).not.toThrow();
+    expect(sw.addEventListener).toHaveBeenCalledWith('fetch', expect.any(Function));
+    expect(sw.addEventListener).toHaveBeenCalledWith('message', expect.any(Function));
+
+    const respondWith = vi.fn();
+    listeners.fetch({
+      request: new Request('https://example.test/not-virtual/path'),
+      respondWith,
+    });
+    expect(respondWith).not.toHaveBeenCalled();
   });
 
   it('resolves the initiating client via resultingClientId/clientId instead of clients[0]', async () => {

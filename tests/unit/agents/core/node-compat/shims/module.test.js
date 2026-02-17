@@ -108,11 +108,7 @@ describe('module shim', () => {
   });
 
   describe('syncBuiltinESMExports()', () => {
-    it('is a function', () => {
-      expect(typeof syncBuiltinESMExports).toBe('function');
-    });
-
-    it('does not throw when called', () => {
+    it('is callable and does not throw', () => {
       expect(() => syncBuiltinESMExports()).not.toThrow();
     });
   });

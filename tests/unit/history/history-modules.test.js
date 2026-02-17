@@ -22,10 +22,6 @@ import {
 
 describe('js/history/utils.js', () => {
     describe('debounce', () => {
-        it('should be a function', () => {
-            expect(typeof debounce).toBe('function');
-        });
-
         it('should return a function', () => {
             const debounced = debounce(() => {}, 100);
             expect(typeof debounced).toBe('function');

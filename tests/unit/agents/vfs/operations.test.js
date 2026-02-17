@@ -415,10 +415,6 @@ for (const [exportName, exportedValue] of EXPORT_ENTRIES) {
       return;
     }
 
-    it("is a function", () => {
-      expect(typeof exported).toBe("function");
-    });
-
     if (isWaitFor) {
       it("resolves immediate values and thenables without a signal", async () => {
         await expect(exported(123)).resolves.toBe(123);

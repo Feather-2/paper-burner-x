@@ -93,18 +93,84 @@ describe('js/app/state.js', () => {
     });
 
     describe('State Setters', () => {
-        it('should export all setter functions', () => {
-            expect(typeof setPdfFiles).toBe('function');
-            expect(typeof setAllResults).toBe('function');
-            expect(typeof setProcessedFilesRecord).toBe('function');
-            expect(typeof setIsProcessing).toBe('function');
-            expect(typeof setActiveProcessingCount).toBe('function');
-            expect(typeof setBatchModeEnabled).toBe('function');
-            expect(typeof setBatchModeTemplate).toBe('function');
-            expect(typeof setBatchModeFormats).toBe('function');
-            expect(typeof setBatchModeZipEnabled).toBe('function');
-            expect(typeof setBatchConfigCollapsed).toBe('function');
-            expect(typeof setActiveBatchSession).toBe('function');
+        it('setPdfFiles should update pdfFiles', () => {
+            const files = [{ name: 'test.pdf' }];
+            setPdfFiles(files);
+            expect(pdfFiles).toBe(files);
+            setPdfFiles([]);
+        });
+
+        it('setAllResults should update allResults', () => {
+            const results = [{ id: 1 }];
+            setAllResults(results);
+            expect(allResults).toBe(results);
+            setAllResults([]);
+        });
+
+        it('setProcessedFilesRecord should update processedFilesRecord', () => {
+            const record = { 'test.pdf': true };
+            setProcessedFilesRecord(record);
+            expect(processedFilesRecord).toBe(record);
+            setProcessedFilesRecord({});
+        });
+
+        it('setIsProcessing should update isProcessing', () => {
+            setIsProcessing(true);
+            expect(isProcessing).toBe(true);
+            setIsProcessing(false);
+        });
+
+        it('setActiveProcessingCount should update activeProcessingCount', () => {
+            setActiveProcessingCount(3);
+            expect(activeProcessingCount).toBe(3);
+            setActiveProcessingCount(0);
+        });
+
+        it('setBatchModeEnabled should update batchModeEnabled', () => {
+            setBatchModeEnabled(true);
+            expect(batchModeEnabled).toBe(true);
+            setBatchModeEnabled(false);
+        });
+
+        it('setBatchModeTemplate should update batchModeTemplate', () => {
+            const template = '{name}.md';
+            setBatchModeTemplate(template);
+            expect(batchModeTemplate).toBe(template);
+            setBatchModeTemplate(DEFAULT_BATCH_TEMPLATE);
+        });
+
+        it('setBatchModeFormats should update batchModeFormats', () => {
+            const formats = ['original'];
+            setBatchModeFormats(formats);
+            expect(batchModeFormats).toBe(formats);
+            setBatchModeFormats(['original', 'markdown']);
+        });
+
+        it('setBatchModeZipEnabled should update batchModeZipEnabled', () => {
+            setBatchModeZipEnabled(true);
+            expect(batchModeZipEnabled).toBe(true);
+            setBatchModeZipEnabled(false);
+        });
+
+        it('setBatchConfigCollapsed should update batchConfigCollapsed', () => {
+            setBatchConfigCollapsed(false);
+            expect(batchConfigCollapsed).toBe(false);
+            setBatchConfigCollapsed(true);
+        });
+
+        it('setActiveBatchSession should update activeBatchSession', () => {
+            const session = {
+                id: 'session-1',
+                total: 1,
+                template: '{name}.md',
+                formats: ['original'],
+                outputLanguage: 'en',
+                startedAt: new Date().toISOString(),
+                counter: 0
+            };
+            setActiveBatchSession(session);
+            expect(activeBatchSession).toBe(session);
+            setActiveBatchSession(null);
         });
     });
 });
@@ -188,15 +254,21 @@ describe('js/app/concurrency.js', () => {
 
 describe('js/app/key-provider.js', () => {
     describe('KeyProvider', () => {
-        it('should be a class', () => {
-            expect(typeof KeyProvider).toBe('function');
+        it('should construct an instance', () => {
+            const instance = new KeyProvider('test-model');
+            expect(instance).toBeInstanceOf(KeyProvider);
         });
 
-        it('should have expected instance methods', () => {
+        it('should report no available keys by default', () => {
             const instance = new KeyProvider('test-model');
-            expect(typeof instance.getNextKey).toBe('function');
-            expect(typeof instance.hasAvailableKeys).toBe('function');
-            expect(typeof instance.loadAndPrepareKeys).toBe('function');
+            const hasKeys = instance.hasAvailableKeys();
+            expect(typeof hasKeys).toBe('boolean');
+            expect(hasKeys).toBe(false);
+        });
+
+        it('should return null when no keys are available', () => {
+            const instance = new KeyProvider('test-model');
+            expect(instance.getNextKey()).toBeNull();
         });
     });
 });
