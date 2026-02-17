@@ -582,6 +582,15 @@ export class MemoryVfs {
   }
 
   /**
+   * @param {string} oldPath
+   * @param {string} newPath
+   * @returns {Promise<boolean>}
+   */
+  async rename(oldPath, newPath) {
+    return this.move(oldPath, newPath);
+  }
+
+  /**
    * @param {string} path
    * @param {string} text
    * @returns {Promise<boolean>}
