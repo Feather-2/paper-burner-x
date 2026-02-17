@@ -480,6 +480,21 @@ export class StorageVfs {
     if (st?.isDirectory?.()) return this.rmdir(p, { recursive });
     return this.unlink(p);
   }
+
+  /** @param {string} _target  @param {string} _linkPath */
+  async symlink(_target, _linkPath) {
+    throw new Error("symlink() not supported by StorageVfs backend");
+  }
+
+  /** @param {string} _linkPath */
+  async readlink(_linkPath) {
+    throw new Error("readlink() not supported by StorageVfs backend");
+  }
+
+  /** @param {string} path */
+  async lstat(path) {
+    return this.stat(path);
+  }
 }
 
 export default StorageVfs;

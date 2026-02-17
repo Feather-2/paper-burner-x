@@ -110,6 +110,7 @@ const hoisted = vi.hoisted(() => {
     "safeMatch",
     "safeNumber",
     "sanitizeForJson",
+    "shouldDegrade",
     "stripThinkingTags",
     "toBoolean",
     "toDeepSearchErrorMessage",
@@ -376,6 +377,9 @@ vi.mock("../../../../js/agents/shared/retry-strategy.js", () => ({
 vi.mock("../../../../js/agents/shared/utils/wasm-support.js", () => ({
   isWasmSupported: hoisted.isWasmSupported,
   isWasmThreadsSupported: hoisted.isWasmThreadsSupported,
+}));
+vi.mock("../../../../js/agents/shared/utils/should-degrade.js", () => ({
+  shouldDegrade: hoisted.shouldDegrade,
 }));
 
 vi.mock("../../../../js/agents/shared/parser/tree-sitter-wasm.js", () => ({

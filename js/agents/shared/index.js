@@ -90,6 +90,9 @@ export { HnswLiteIndex } from "../retrieval/embeddings/hnsw-lite.js";
 // Retry & Resilience
 export { RetryStrategy, isRetryableError, getGlobalRetryStats, resetGlobalRetryStats, withRetry } from "./retry-strategy.js";
 
+// Error-boundary degrade check
+export { shouldDegrade } from "./utils/should-degrade.js";
+
 // WASM detection
 export { isWasmSupported, isWasmThreadsSupported } from "./utils/wasm-support.js";
 

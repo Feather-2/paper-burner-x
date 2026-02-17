@@ -536,6 +536,21 @@ export class OpfsVfs {
 
     yield* walk(startDir, base);
   }
+
+  /** @param {string} _target  @param {string} _linkPath */
+  async symlink(_target, _linkPath) {
+    throw new Error("symlink() not supported by OpfsVfs backend");
+  }
+
+  /** @param {string} _linkPath */
+  async readlink(_linkPath) {
+    throw new Error("readlink() not supported by OpfsVfs backend");
+  }
+
+  /** @param {string} path */
+  async lstat(path) {
+    return this.stat(path);
+  }
 }
 
 /**

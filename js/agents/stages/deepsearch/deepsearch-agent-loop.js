@@ -13,7 +13,7 @@ import { DeepSearchState } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { createLogger } from "../../shared/index.js";
 import { robustParseJson } from "../../shared/index.js";
-import { checkCancelled } from "../../shared/index.js";
+import { checkCancelled, shouldDegrade as shouldDegradeCheck } from "../../shared/index.js";
 import { isPlainObject, toPositiveInt } from "../../shared/index.js";
 import { classifyDeepSearchError } from "../../shared/index.js";
 import { ModelResponseHandler } from "./internal/model-response-handler.js";
@@ -281,18 +281,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       // ignore (non-extensible stageApi)
     }
 
-    const shouldDegrade = () => {
-      const cfg =
-        (stageApi && typeof stageApi === "object" && stageApi.errorBoundaryConfig && typeof stageApi.errorBoundaryConfig === "object")
-          ? stageApi.errorBoundaryConfig
-          : null;
-      if (cfg?.degrade === true) return true;
-      if (stageApi?.errorBoundaryDegrade === true || stageApi?.degradeOnError === true) return true;
-      if (this.state?.userConfig?.errorBoundary?.degrade === true) return true;
-      if (this.state?.userConfig?.degradeOnError === true) return true;
-      if (this.globalConfig?.errorBoundary?.degrade === true) return true;
-      return false;
-    };
+    const shouldDegrade = () => shouldDegradeCheck({ stageApi, configs: [this.state?.userConfig, this.globalConfig] });
 
     return await errorBoundary.wrap(
       async () =>

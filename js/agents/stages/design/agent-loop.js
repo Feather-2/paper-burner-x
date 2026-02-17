@@ -20,6 +20,7 @@ import {
   loadDesignConcurrencyConfig,
   BacktrackError,
 } from "./design-helpers.js";
+import { shouldDegrade as shouldDegradeCheck } from "../../shared/index.js";
 import { DeckOperations, createDeckUpdateEmitter, finalizeDeck, initWatchdogManager, installDeckOperations } from "./internal/deck-operations.js";
 import { createEmptyDesignLoopState, installStateManager, resumeDesignAgentLoop as resumeDesignAgentLoopInternal } from "./internal/state-manager.js";
 import { initDesignTooling, installToolHandler } from "./internal/tool-handler.js";
@@ -162,17 +163,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
     const prevTraceContext = this._traceContext;
     this._traceContext = traceContext;
     try {
-      const shouldDegrade = () => {
-        const cfg =
-          stageApi && typeof stageApi === "object" && stageApi.errorBoundaryConfig && typeof stageApi.errorBoundaryConfig === "object"
-            ? stageApi.errorBoundaryConfig
-            : null;
-        if (cfg?.degrade === true) return true;
-        if (stageApi?.errorBoundaryDegrade === true || stageApi?.degradeOnError === true) return true;
-        if (runContext?.userConfig?.errorBoundary?.degrade === true) return true;
-        if (contentPackage?.userConfig?.errorBoundary?.degrade === true) return true;
-        return false;
-      };
+      const shouldDegrade = () => shouldDegradeCheck({ stageApi, configs: [runContext?.userConfig, contentPackage?.userConfig] });
 
       const fallbackFactory = () => {
         return {
