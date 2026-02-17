@@ -176,7 +176,32 @@ sandbox/
 
 ---
 
-## 七、参考
+## 七、Ingest PDF 适配器（#44）
+
+当前 `js/agents/ingest/adapters/pdf.js` 无真实 PDF 解析能力，完全依赖外部 `OcrManager`。无 OCR 时回退到 `extractAsciiStrings`（逐字节扫描可打印 ASCII），**对中文 PDF 完全无用**。
+
+### 引入方案
+
+- **库**: [pdf.js](https://mozilla.github.io/pdf.js/)（Mozilla 维护，浏览器原生运行）
+- **定位**: **可选依赖（optional dependency）**，分包时独立 chunk
+- **理由**: pdf.js 体积 ~2MB+，不应打入核心 bundle；仅在用户实际处理 PDF 时按需加载
+
+### 集成要点
+
+```
+ingest/adapters/pdf.js
+  ├── 检测 pdf.js 是否可用（dynamic import）
+  ├── 可用 → pdf.js 提取文本 → 走正常 pipeline
+  └── 不可用 → 降级到 OcrManager 或 ASCII fallback（现状）
+```
+
+- 分包时 pdf.js 作为 optional peer dependency，`import('pdfjs-dist')` 动态加载
+- 不影响无 PDF 需求的用户的 bundle 体积
+- 与现有 `OcrManager` 互补而非替代：pdf.js 处理文本层 PDF，OCR 处理扫描件 PDF
+
+---
+
+## 八、参考
 
 - `js/agents/core/webruntime/` — WebRuntime 源码
 - `js/agents/core/contracts/` — Contracts 源码
