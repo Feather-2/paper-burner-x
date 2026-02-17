@@ -56,7 +56,9 @@ const STATE_SCHEMA_VERSION = "0.1";
 function cloneValue(value) {
   if (value === null || value === undefined) return value;
   try {
-    return JSON.parse(JSON.stringify(value));
+    return typeof structuredClone === 'function'
+      ? structuredClone(value)
+      : JSON.parse(JSON.stringify(value));
   } catch (err) {
     console.debug('[CodeSearchState] clone failed, using original:', err?.message);
     return value;

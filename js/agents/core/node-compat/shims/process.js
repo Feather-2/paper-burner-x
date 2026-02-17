@@ -99,7 +99,12 @@ export function createProcess(options = {}) {
         const now = performance.now();
         const s = Math.floor(now / 1000);
         const ns = Math.floor((now % 1000) * 1e6);
-        if (time) return [s - time[0], ns - time[1]];
+        if (time) {
+          let ds = s - time[0];
+          let dn = ns - time[1];
+          if (dn < 0) { ds -= 1; dn += 1e9; }
+          return [ds, dn];
+        }
         return [s, ns];
       },
       { bigint: () => BigInt(Math.floor(performance.now() * 1e6)) }

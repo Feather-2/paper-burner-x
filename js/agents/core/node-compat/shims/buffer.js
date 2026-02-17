@@ -51,7 +51,7 @@ export class Buffer extends Uint8Array {
    */
   static alloc(size, fill, encoding) {
     const buf = Object.setPrototypeOf(new Uint8Array(size), Buffer.prototype);
-    if (fill !== undefined) buf.fill(typeof fill === 'string' ? fill.charCodeAt(0) : fill);
+    if (fill !== undefined) buf.fill(fill);
     return buf;
   }
 
@@ -211,8 +211,19 @@ export class Buffer extends Uint8Array {
    * @returns {this}
    */
   fill(value, offset = 0, end = this.length) {
-    const v = typeof value === 'string' ? value.charCodeAt(0) : value;
-    for (let i = offset; i < end; i++) this[i] = v & 0xff;
+    if (typeof value === 'string') {
+      if (value.length === 0) return this;
+      if (value.length === 1) {
+        const v = value.charCodeAt(0) & 0xff;
+        for (let i = offset; i < end; i++) this[i] = v;
+      } else {
+        const bytes = new TextEncoder().encode(value);
+        for (let i = offset; i < end; i++) this[i] = bytes[(i - offset) % bytes.length];
+      }
+    } else {
+      const v = value & 0xff;
+      for (let i = offset; i < end; i++) this[i] = v;
+    }
     return this;
   }
 
