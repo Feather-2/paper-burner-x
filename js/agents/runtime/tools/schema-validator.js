@@ -178,7 +178,7 @@ function inferType(key, description) {
   const desc = description.toLowerCase();
   const keyLower = key.toLowerCase();
 
-  if (desc.includes("数组") || desc.includes("array") || desc.includes("列表") || keyLower.endsWith("s") || keyLower.endsWith("ids")) {
+  if (desc.includes("数组") || desc.includes("array") || desc.includes("列表") || keyLower.endsWith("ids") || keyLower.endsWith("list")) {
     return "array";
   }
   if (desc.includes("数字") || desc.includes("number") || desc.includes("位置") || desc.includes("行号") || desc.includes("长度")) {

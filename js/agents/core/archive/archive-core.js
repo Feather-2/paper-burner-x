@@ -382,17 +382,22 @@ export class Archive {
     const checkpoints = [];
 
     for (const key of keys) {
-      const snapshot = await this.storage.get(key);
-      if (!snapshot) continue;
-
       const parsed = splitCheckpointId(key);
-      const timestamp = snapshot.timestamp ?? parsed?.timestamp ?? "";
+      const timestamp = parsed?.timestamp ?? "";
       const counter = Number.isFinite(parsed?.counter) ? parsed.counter : 0;
+
+      // Only read full snapshot if timestamp cannot be extracted from key
+      let nodeStates = {};
+      if (!timestamp) {
+        const snapshot = await this.storage.get(key);
+        if (!snapshot) continue;
+        nodeStates = snapshot.nodeStates ?? {};
+      }
 
       checkpoints.push({
         checkpointId: key,
         timestamp,
-        nodeStates: snapshot.nodeStates ?? {},
+        nodeStates,
         counter,
       });
     }
