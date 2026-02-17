@@ -101,6 +101,9 @@ function dataToWritableChunk(data) {
   return String(data);
 }
 
+/** @type {Map<string, Promise<any>>} */
+const _fallbackLocks = new Map();
+
 /**
  * @template T
  * @param {string[]} lockPaths
@@ -117,16 +120,27 @@ async function withOpfsPathLocks(lockPaths, task) {
   ).sort((a, b) => a.localeCompare(b));
 
   if (!paths.length) return task();
-  if (typeof navigator === "undefined" || typeof navigator?.locks?.request !== "function") {
-    return task();
+
+  // Use Web Locks API when available
+  if (typeof navigator !== "undefined" && typeof navigator?.locks?.request === "function") {
+    const run = async (index) => {
+      if (index >= paths.length) return task();
+      return navigator.locks.request(paths[index], { mode: "exclusive" }, async () => run(index + 1));
+    };
+    return run(0);
   }
 
-  const run = async (index) => {
+  // Fallback: promise-chain mutex (single-tab concurrency control)
+  const acquire = (index) => {
     if (index >= paths.length) return task();
-    return navigator.locks.request(paths[index], { mode: "exclusive" }, async () => run(index + 1));
+    const key = paths[index];
+    const prev = _fallbackLocks.get(key) || Promise.resolve();
+    let resolve;
+    const next = new Promise((r) => { resolve = r; });
+    _fallbackLocks.set(key, next);
+    return prev.then(() => acquire(index + 1)).finally(resolve);
   };
-
-  return run(0);
+  return acquire(0);
 }
 
 /**
