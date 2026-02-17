@@ -120,22 +120,43 @@ export class AgentBuilder {
   }
 
   /**
+   * Subscribe to an event pattern.
    * @param {string} pattern
    * @param {Function} handler
    * @returns {AgentBuilder}
    */
-  onEvent(pattern, handler) {
+  useEvent(pattern, handler) {
     this._config.onEvent(pattern, handler);
     return this;
   }
 
   /**
+   * @deprecated Use {@link useEvent} instead.
+   * @param {string} pattern
+   * @param {Function} handler
+   * @returns {AgentBuilder}
+   */
+  onEvent(pattern, handler) {
+    return this.useEvent(pattern, handler);
+  }
+
+  /**
+   * Set the actor (identity) name for this agent.
+   * @param {string} name
+   * @returns {AgentBuilder}
+   */
+  useActor(name) {
+    this._config.setActor(name);
+    return this;
+  }
+
+  /**
+   * @deprecated Use {@link useActor} instead.
    * @param {string} name
    * @returns {AgentBuilder}
    */
   actor(name) {
-    this._config.setActor(name);
-    return this;
+    return this.useActor(name);
   }
 
   /**

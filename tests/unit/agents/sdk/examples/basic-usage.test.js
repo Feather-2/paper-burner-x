@@ -123,9 +123,12 @@ vi.mock('../../../../../js/agents/sdk/index.js', () => {
                 state.hooks[stage].push(handler);
                 return builder;
             },
-            onEvent(pattern, handler) {
+            useEvent(pattern, handler) {
                 state.events.push({ pattern, handler });
                 return builder;
+            },
+            onEvent(pattern, handler) {
+                return builder.useEvent(pattern, handler);
             },
             build() {
                 return buildAgent(state);

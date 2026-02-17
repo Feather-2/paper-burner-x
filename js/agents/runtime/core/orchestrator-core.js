@@ -140,42 +140,62 @@ export class AgentOrchestrator extends DisposableBase {
   async _getDegradationMatrix() {
     this._ensureNotDisposed();
     if (isDegradationMatrixLike(this._degradationMatrix)) return this._degradationMatrix;
-
-    this._degradationMatrixPromise ??= (async () => {
-      const fromServices = this._services?.degradationMatrix;
-      if (isDegradationMatrixLike(fromServices)) {
-        this._degradationMatrix = fromServices;
-        return fromServices;
-      }
-
-      const container = this._services?.container;
-      if (container && typeof container.get === "function") {
-        try {
-          const resolved = await maybeAwait(
-            typeof container.tryGet === "function" ? container.tryGet(ServiceId.DEGRADATION_MATRIX) : container.get(ServiceId.DEGRADATION_MATRIX)
-          );
-          if (isDegradationMatrixLike(resolved)) {
-            this._degradationMatrix = resolved;
-            return resolved;
-          }
-        } catch (err) {
-          logger.debug("Failed to resolve degradation matrix from container", { error: err?.message });
-        }
-      }
-
-      // Best-effort fallback: create an isolated matrix for this orchestrator.
-      try {
-        const { DegradationMatrix } = await import("../../plugins/resilience/degradation-matrix.js");
-        this._degradationMatrix = new DegradationMatrix({ getMemoryUsage: defaultMemoryUsageRatio });
-        return this._degradationMatrix;
-      } catch (err) {
-        logger.debug("Failed to create degradation matrix", { error: err?.message });
-        this._degradationMatrix = null;
-        return null;
-      }
-    })();
-
+    this._degradationMatrixPromise ??= this._resolveDegradationMatrix();
     return this._degradationMatrixPromise;
+  }
+
+  /**
+   * Resolve degradation matrix from services, DI container, or fallback.
+   * @returns {Promise<any|null>}
+   */
+  async _resolveDegradationMatrix() {
+    const fromServices = this._services?.degradationMatrix;
+    if (isDegradationMatrixLike(fromServices)) {
+      this._degradationMatrix = fromServices;
+      return fromServices;
+    }
+
+    const fromContainer = await this._resolveMatrixFromContainer();
+    if (fromContainer) return fromContainer;
+
+    return this._createFallbackMatrix();
+  }
+
+  /**
+   * Attempt to resolve degradation matrix from the DI container.
+   * @returns {Promise<any|null>}
+   */
+  async _resolveMatrixFromContainer() {
+    const container = this._services?.container;
+    if (!container || typeof container.get !== "function") return null;
+
+    try {
+      const resolved = await maybeAwait(
+        typeof container.tryGet === "function" ? container.tryGet(ServiceId.DEGRADATION_MATRIX) : container.get(ServiceId.DEGRADATION_MATRIX)
+      );
+      if (!isDegradationMatrixLike(resolved)) return null;
+      this._degradationMatrix = resolved;
+      return resolved;
+    } catch (err) {
+      logger.debug("Failed to resolve degradation matrix from container", { error: err?.message });
+      return null;
+    }
+  }
+
+  /**
+   * Best-effort fallback: create an isolated matrix for this orchestrator.
+   * @returns {Promise<any|null>}
+   */
+  async _createFallbackMatrix() {
+    try {
+      const { DegradationMatrix } = await import("../../plugins/resilience/degradation-matrix.js");
+      this._degradationMatrix = new DegradationMatrix({ getMemoryUsage: defaultMemoryUsageRatio });
+      return this._degradationMatrix;
+    } catch (err) {
+      logger.debug("Failed to create degradation matrix", { error: err?.message });
+      this._degradationMatrix = null;
+      return null;
+    }
   }
 
   /**
@@ -346,76 +366,82 @@ export class AgentOrchestrator extends DisposableBase {
     } finally {
       const durationMs = Math.max(0, Date.now() - stageStartMs);
       if (degradationMatrix) {
-        try {
-          degradationMatrix.recordRequest({ latencyMs: durationMs, isError: stageFailed });
-        } catch (err) {
-          logger.debug("Failed to record degradation matrix request", { error: err?.message });
-        }
-
-        try {
-          const level = degradationMatrix.currentLevel;
-          if (toNonEmptyString(level) && level !== this._lastOperationLevel) {
-            const previousLevel = this._lastOperationLevel || "normal";
-            this._lastOperationLevel = level;
-
-            // P1: Emit degradation decision context
-            const decisionContext = {
-              level,
-              previousLevel,
-              runId: this.runId,
-              stage: stageName,
-              durationMs,
-              stageFailed,
-            };
-
-            // Best-effort: add decision metrics
-            try {
-              if (typeof degradationMatrix.getMetrics === "function") {
-                const metrics = degradationMatrix.getMetrics();
-                decisionContext.metrics = metrics;
-              }
-            } catch (err) {
-              logger.debug("Failed to get degradation matrix metrics", { error: err?.message });
-            }
-
-            // Best-effort: add effective parameters
-            try {
-              const effectiveConcurrency = await this._getEffectiveConcurrencyLimit();
-              decisionContext.effectiveConcurrency = effectiveConcurrency;
-            } catch (err) {
-              logger.debug("Failed to get effective concurrency limit", { error: err?.message });
-            }
-
-            this.eventBus.emit("system:degradation:level:changed", {
-              actor: ActorType.SYSTEM,
-              status: "info",
-              payload: decisionContext,
-            });
-            if (level !== "normal") {
-              this.eventBus.emit(AgentLifecycleEvents.DEGRADED, { actor: ActorType.SYSTEM, status: "degraded", payload: decisionContext });
-            }
-          }
-        } catch (err) {
-          logger.debug("Failed to process degradation level change", { error: err?.message });
-        }
-
-        // Emit recommendations on stage failures or whenever system is degraded (best-effort).
-        try {
-          const level = degradationMatrix.currentLevel;
-          const recommendations = degradationMatrix.getRecommendations();
-          if ((stageFailed || level !== "normal") && Array.isArray(recommendations) && recommendations.length > 0) {
-            this.eventBus.emit("system:degradation:recommendations", {
-              actor: ActorType.SYSTEM,
-              status: "info",
-              payload: { recommendations, level, runId: this.runId, stage: stageName },
-            });
-          }
-        } catch (err) {
-          logger.debug("Failed to emit degradation recommendations", { error: err?.message });
-        }
+        await this._recordAndEmitDegradation(degradationMatrix, { stageName, durationMs, stageFailed });
       }
-
       cleanup();
+    }
+  }
+
+  /**
+   * Record a request to the degradation matrix and emit level-change / recommendation events.
+   * Extracted from `_runStageNow` finally-block to keep nesting shallow.
+   *
+   * @param {object} matrix - DegradationMatrix instance.
+   * @param {{ stageName: string, durationMs: number, stageFailed: boolean }} info
+   */
+  async _recordAndEmitDegradation(matrix, { stageName, durationMs, stageFailed }) {
+    try {
+      matrix.recordRequest({ latencyMs: durationMs, isError: stageFailed });
+    } catch (err) {
+      logger.debug("Failed to record degradation matrix request", { error: err?.message });
+    }
+
+    this._emitDegradationLevelChange(matrix, { stageName, durationMs, stageFailed });
+    this._emitDegradationRecommendations(matrix, { stageName, stageFailed });
+  }
+
+  /**
+   * Emit `system:degradation:level:changed` (and optionally `DEGRADED`) when the
+   * degradation level transitions.
+   *
+   * @param {object} matrix
+   * @param {{ stageName: string, durationMs: number, stageFailed: boolean }} info
+   */
+  async _emitDegradationLevelChange(matrix, { stageName, durationMs, stageFailed }) {
+    try {
+      const level = matrix.currentLevel;
+      if (!toNonEmptyString(level) || level === this._lastOperationLevel) return;
+
+      const previousLevel = this._lastOperationLevel || "normal";
+      this._lastOperationLevel = level;
+
+      const decisionContext = { level, previousLevel, runId: this.runId, stage: stageName, durationMs, stageFailed };
+
+      try { if (typeof matrix.getMetrics === "function") decisionContext.metrics = matrix.getMetrics(); }
+      catch (err) { logger.debug("Failed to get degradation matrix metrics", { error: err?.message }); }
+
+      try { decisionContext.effectiveConcurrency = await this._getEffectiveConcurrencyLimit(); }
+      catch (err) { logger.debug("Failed to get effective concurrency limit", { error: err?.message }); }
+
+      this.eventBus.emit("system:degradation:level:changed", {
+        actor: ActorType.SYSTEM, status: "info", payload: decisionContext,
+      });
+      if (level !== "normal") {
+        this.eventBus.emit(AgentLifecycleEvents.DEGRADED, { actor: ActorType.SYSTEM, status: "degraded", payload: decisionContext });
+      }
+    } catch (err) {
+      logger.debug("Failed to process degradation level change", { error: err?.message });
+    }
+  }
+
+  /**
+   * Emit `system:degradation:recommendations` when the system is degraded or a stage failed.
+   *
+   * @param {object} matrix
+   * @param {{ stageName: string, stageFailed: boolean }} info
+   */
+  _emitDegradationRecommendations(matrix, { stageName, stageFailed }) {
+    try {
+      const level = matrix.currentLevel;
+      const recommendations = matrix.getRecommendations();
+      if (!(stageFailed || level !== "normal") || !Array.isArray(recommendations) || recommendations.length === 0) return;
+
+      this.eventBus.emit("system:degradation:recommendations", {
+        actor: ActorType.SYSTEM, status: "info",
+        payload: { recommendations, level, runId: this.runId, stage: stageName },
+      });
+    } catch (err) {
+      logger.debug("Failed to emit degradation recommendations", { error: err?.message });
     }
   }
 

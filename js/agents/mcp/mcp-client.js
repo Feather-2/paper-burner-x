@@ -58,16 +58,41 @@ function toErrorMessage(err) {
   return String(err?.message || err || "");
 }
 
+/**
+ * Classify whether an error should trip the provider circuit breaker.
+ *
+ * The goal is to avoid tripping the breaker on caller-side mistakes
+ * (wrong tool name, bad arguments) that don't indicate provider failure.
+ *
+ * Classification order:
+ * 1. Structural checks — err.name / err.code / err.type (fast, reliable)
+ * 2. Message-based fallback — regex with word boundaries (for plain Error objects)
+ *
+ * @param {unknown} err
+ * @returns {boolean} true = count as provider failure, false = caller issue
+ */
 function shouldTripProviderCircuit(err) {
   if (!err) return true;
+
+  // --- Structural checks (prefer these over string matching) ---
   if (err?.name === "AbortError") return false;
+
+  const code = err?.code || err?.type || "";
+  if (code) {
+    const c = String(code).toLowerCase();
+    if (c === "tool_not_found" || c === "unknown_tool" || c === "invalid_arguments"
+        || c === "method_not_found" || c === "invalid_params") {
+      return false;
+    }
+  }
+
+  // --- Message-based fallback (for errors without structured codes) ---
   const msg = toErrorMessage(err).toLowerCase();
   if (!msg) return true;
-  // Don't trip the provider circuit on likely caller/tooling issues.
-  if (msg.includes("unknown tool")) return false;
-  if (msg.includes("tool not found")) return false;
-  if (msg.includes("no such tool")) return false;
-  if (msg.includes("invalid arguments")) return false;
+  if (/\bunknown\s+tool\b/.test(msg)) return false;
+  if (/\btool\s+not\s+found\b/.test(msg)) return false;
+  if (/\bno\s+such\s+tool\b/.test(msg)) return false;
+  if (/\binvalid\s+arguments?\b/.test(msg)) return false;
   return true;
 }
 

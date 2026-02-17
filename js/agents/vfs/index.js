@@ -6,6 +6,26 @@ export * from "./index.browser.js";
 /** @typedef {import("./index.browser.js").CreateBrowserVfsOptions} CreateBrowserVfsOptions */
 /** @typedef {import("./index.node.js").CreateNodeVfsOptions} CreateNodeVfsOptions */
 
+/**
+ * Unified VFS interface shared by all backends (Memory, OPFS, Storage, NodeFs).
+ *
+ * @typedef {object} VfsInterface
+ * @property {(path: string) => Promise<Uint8Array>} readFile
+ * @property {(path: string) => Promise<string>} readText
+ * @property {(path: string, data: unknown) => Promise<boolean>} writeFile
+ * @property {(path: string, text: string) => Promise<boolean>} writeText
+ * @property {(path: string) => Promise<import('./vfs.memory.js').VfsStat>} stat
+ * @property {(path: string, options?: import('./vfs.memory.js').ReaddirOptions) => Promise<string[] | import('./vfs.memory.js').VfsDirent[]>} readdir
+ * @property {(path: string, options?: import('./vfs.memory.js').MkdirOptions) => Promise<boolean>} mkdir
+ * @property {(path: string, options?: import('./vfs.memory.js').RmdirOptions) => Promise<boolean>} rmdir
+ * @property {(path: string) => Promise<boolean>} unlink
+ * @property {(path: string) => Promise<boolean>} exists
+ * @property {(src: string, dest: string) => Promise<boolean>} copy
+ * @property {(src: string, dest: string) => Promise<boolean>} move
+ * @property {(options?: import('./vfs.memory.js').ListFilesOptions) => Promise<string[]>} listFiles
+ * @property {(options?: import('./vfs.memory.js').WalkFilesOptions) => AsyncGenerator<string, void, void>} walkFiles
+ */
+
 /** @type {Promise<any> | null} */
 let _nodeModulePromise = null;
 
@@ -36,7 +56,7 @@ async function importNodeModule() {
  * - Node: defaults to MemoryVfs unless explicitly requested
  *
  * @param {CreateVfsOptions} [options] - VFS configuration options
- * @returns {Promise<import('./vfs.memory.js').default | import('./vfs.opfs.js').OpfsVfs | import('./vfs.storage.js').StorageVfs | import('./vfs.node.js').NodeFsVfs>}
+ * @returns {Promise<VfsInterface>}
  */
 export async function createVfs(options = {}) {
   if (!isNodeLike()) {

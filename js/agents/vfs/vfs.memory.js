@@ -161,7 +161,7 @@ export class MemoryVfs {
       if (!next) return null;
 
       if (next.kind === "symlink" && followSymlinks) {
-        if (++depth > maxDepth) throw new Error(`ELOOP: ${p}`);
+        if (++depth > maxDepth) throw new Error(`ELOOP: too many symlinks (depth ${depth}) resolving '${p}'`);
         const target = this._getNode(next.target, { followSymlinks: true });
         if (!target) throw new Error(`ENOENT: ${next.target}`);
         if (i === parts.length - 1) return target;
@@ -216,6 +216,12 @@ export class MemoryVfs {
   }
 
   /**
+   * Read file contents as bytes.
+   *
+   * Note: readFile('/') throws EISDIR because the root is a directory,
+   * not a regular file. Use {@link stat}('/') to inspect root metadata
+   * — this follows standard POSIX semantics (stat works on dirs, read does not).
+   *
    * @param {string} path
    * @returns {Promise<Uint8Array>}
    */
@@ -306,6 +312,11 @@ export class MemoryVfs {
   }
 
   /**
+   * Get file/directory metadata (follows symlinks).
+   *
+   * stat('/') returns a valid directory result — the root always exists.
+   * This is consistent with POSIX: you can stat any directory, including root.
+   *
    * @param {string} path
    * @returns {Promise<VfsStat>}
    */

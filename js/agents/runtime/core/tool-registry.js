@@ -46,6 +46,8 @@ export { normalizeToolResult };
  *
  * @typedef {{ startSpan: Function, endSpan: Function, withSpan: (name: string, fn: Function, options?: any) => any }} TraceContextLike
  *
+ * @typedef {"warn" | "skip" | "fail"} HookFailurePolicy
+ *
  * @typedef {object} ToolRegistryOptions
  * @property {ToolDefinitions | null} [tools]
  * @property {{ before?: BeforeHook[], after?: AfterHook[] } | null} [hooks]
@@ -56,6 +58,7 @@ export { normalizeToolResult };
  * @property {ToolQuotaManagerLike | null} [quotaManager] - Injected quota manager (falls back to resolveToolQuotaManager at call time)
  * @property {"off" | "warn" | "block"} [quotaMode] - Injected quota mode (falls back to resolveToolQuotaMode at call time)
  * @property {TraceContextLike | null} [traceContext] - Injected trace context (falls back to resolveTraceContext at call time)
+ * @property {HookFailurePolicy} [hookFailurePolicy] - How to handle hook errors: 'warn' (log + continue, default), 'skip' (silent continue), 'fail' (abort tool call)
  */
 
 /**
@@ -269,6 +272,8 @@ export class ToolRegistry {
     this._quotaMode = options.quotaMode || "off";
     /** @type {TraceContextLike | null} */
     this._traceContext = options.traceContext || null;
+    /** @type {HookFailurePolicy} */
+    this._hookFailurePolicy = options.hookFailurePolicy || "warn";
 
     if (options.tools) {
       this.registerTools(options.tools);
@@ -443,184 +448,213 @@ export class ToolRegistry {
    * @returns {Promise<ToolResult>}
    */
   async _callTool(name, params, context) {
-    let finalParams = params;
+    const beforeResult = await this._runBeforeHooks(name, params, context);
+    if (beforeResult?.skip) return normalizeToolResult(beforeResult.value);
+    const finalParams = beforeResult?.params || params;
 
-    // Before hooks
+    const tool = this._tools[name];
+    const validationError = this._validateSchema(name, finalParams, context, tool);
+    if (validationError) {
+      return await this._runAfterHooks(name, finalParams, validationError, context);
+    }
+
+    const quota = this._checkQuota(name, finalParams, context);
+    if (quota.blocked) {
+      return await this._runAfterHooks(name, finalParams, quota.result, context);
+    }
+
+    let result = await this._executeTool(name, finalParams, context, tool);
+    result = await this._runAfterHooks(name, finalParams, result, context);
+
+    if (quota.snapshot && isToolResult(result)) {
+      try { result.quota = result.quota || quota.snapshot; } catch { /* non-extensible */ }
+    }
+
+    this._persistToolCall(name, finalParams, result, context);
+    return result;
+  }
+
+  /**
+   * Run all before-hooks, applying hook failure policy on errors.
+   * @private
+   * @param {string} name - Tool name
+   * @param {any} params - Original params
+   * @param {any} context - Call context
+   * @returns {Promise<BeforeHookResult | null>} Aggregated hook result or null
+   */
+  async _runBeforeHooks(name, params, context) {
+    let finalParams = params;
     for (const hook of this._hooks.before) {
       try {
         const hookResult = await hook({ tool: name, params: finalParams, context });
-        if (hookResult?.skip) {
-          return normalizeToolResult(hookResult.value);
-        }
-        if (hookResult?.params) {
-          finalParams = hookResult.params;
-        }
+        if (hookResult?.skip) return hookResult;
+        if (hookResult?.params) finalParams = hookResult.params;
       } catch (e) {
-        this._logger?.warn?.(`[tool-registry] BeforeHook failed for ${name}: ${e.message}`);
+        const abort = this._onHookError("BeforeHook", name, e);
+        if (abort) return { skip: true, value: abort };
       }
     }
+    return finalParams !== params ? { params: finalParams } : null;
+  }
 
-    const tool = this._tools[name];
+  /**
+   * Validate tool params against schema. Returns an error ToolResult or null on success.
+   * @private
+   * @param {string} name - Tool name
+   * @param {any} params - Params to validate
+   * @param {any} context - Call context
+   * @param {Function | undefined} tool - Resolved tool handler
+   * @returns {ToolResult | null} Error result if validation fails, null otherwise
+   */
+  _validateSchema(name, params, context, tool) {
     const schema = resolveToolSchema(name, context, this, tool);
-    if (schema) {
-      const emit = this._emit || resolveEmit(context);
-      if (!finalParams || typeof finalParams !== "object" || Array.isArray(finalParams)) {
-        const errors = ["params: expected object"];
-        // P0: 统一事件命名为 tool:call:error
-        emit?.("tool:call:error", { tool: name, args: finalParams, errors, reason: "validation_failed" });
-        let result = /** @type {ToolResult} */ ({
-          ok: false,
-          error: `Invalid tool params for ${name}`,
-          validationErrors: errors,
-        });
-        for (const hook of this._hooks.after) {
-          try {
-            const hookResult = await hook({ tool: name, params: finalParams, result, context });
-            if (hookResult !== undefined) {
-              result = normalizeToolResult(hookResult);
-            }
-          } catch (e) {
-            this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
-          }
-        }
-        return result;
-      }
+    if (!schema) return null;
 
-      const validation = validateArgs(finalParams, schema);
-      if (!validation.valid) {
-        // P0: 统一事件命名为 tool:call:error
-        emit?.("tool:call:error", { tool: name, args: finalParams, errors: validation.errors, reason: "validation_failed" });
-        let result = /** @type {ToolResult} */ ({
-          ok: false,
-          error: `Invalid tool params for ${name}`,
-          validationErrors: validation.errors,
-        });
-        for (const hook of this._hooks.after) {
-          try {
-            const hookResult = await hook({ tool: name, params: finalParams, result, context });
-            if (hookResult !== undefined) {
-              result = normalizeToolResult(hookResult);
-            }
-          } catch (e) {
-            this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
-          }
-        }
-        return result;
-      }
+    const emit = this._emit || resolveEmit(context);
+    if (!params || typeof params !== "object" || Array.isArray(params)) {
+      const errors = ["params: expected object"];
+      emit?.("tool:call:error", { tool: name, args: params, errors, reason: "validation_failed" });
+      return /** @type {ToolResult} */ ({ ok: false, error: `Invalid tool params for ${name}`, validationErrors: errors });
     }
 
+    const validation = validateArgs(params, schema);
+    if (!validation.valid) {
+      emit?.("tool:call:error", { tool: name, args: params, errors: validation.errors, reason: "validation_failed" });
+      return /** @type {ToolResult} */ ({ ok: false, error: `Invalid tool params for ${name}`, validationErrors: validation.errors });
+    }
+    return null;
+  }
+
+  /**
+   * Check tool quota and emit events when exceeded.
+   * @private
+   * @param {string} name - Tool name
+   * @param {any} params - Tool params (unused, kept for consistency)
+   * @param {any} context - Call context
+   * @returns {{ blocked: boolean, result?: ToolResult, snapshot: QuotaDecision | null }}
+   */
+  _checkQuota(name, params, context) {
     const quotaManager = this._quotaManager || resolveToolQuotaManager(context);
-    const quotaMode = quotaManager ? (this._quotaManager ? this._quotaMode : resolveToolQuotaMode(context)) : "off";
+    const quotaMode = quotaManager
+      ? (this._quotaManager ? this._quotaMode : resolveToolQuotaMode(context))
+      : "off";
 
-    let quotaSnapshot = null;
-    if (quotaManager && quotaMode !== "off") {
-      const q = quotaManager.tryCall(name);
-      quotaSnapshot = q;
-      if (!q.allowed) {
-        const stats = typeof quotaManager.getToolStats === "function" ? quotaManager.getToolStats(name) : null;
-        const emit = this._emit || resolveEmit(context);
-        // P0: 统一事件命名为 tool:quota:exceeded
-        emit?.("tool:quota:exceeded", {
-          tool: name,
-          reason: q.reason,
-          stats,
-        });
+    if (!quotaManager || quotaMode === "off") return { blocked: false, snapshot: null };
 
-        if (quotaMode === "block") {
-          // Block execution, but still allow after-hooks to inspect the result.
-          let result = /** @type {ToolResult} */ ({ ok: false, error: q.reason || `Quota exceeded for ${name}` });
-          if (stats) result.quota = stats;
-          for (const hook of this._hooks.after) {
-            try {
-              const hookResult = await hook({ tool: name, params: finalParams, result, context });
-              if (hookResult !== undefined) {
-                result = normalizeToolResult(hookResult);
-              }
-            } catch (e) {
-              this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
-            }
-          }
-          return result;
-        }
+    const q = quotaManager.tryCall(name);
+    if (q.allowed) return { blocked: false, snapshot: q };
 
-        // warn-only: keep going, but keep accounting so callers can observe persistent overuse.
-        if (typeof quotaManager.recordCall === "function") {
-          try {
-            quotaManager.recordCall(name);
-          } catch {
-            // ignore
-          }
-        }
-      }
+    const stats = typeof quotaManager.getToolStats === "function" ? quotaManager.getToolStats(name) : null;
+    const emit = this._emit || resolveEmit(context);
+    emit?.("tool:quota:exceeded", { tool: name, reason: q.reason, stats });
+
+    if (quotaMode === "block") {
+      /** @type {ToolResult} */
+      const result = { ok: false, error: q.reason || `Quota exceeded for ${name}` };
+      if (stats) result.quota = stats;
+      return { blocked: true, result, snapshot: q };
     }
 
-    // Execute tool
+    // warn-only: keep accounting so callers can observe persistent overuse
+    if (typeof quotaManager.recordCall === "function") {
+      try { quotaManager.recordCall(name); } catch { /* ignore */ }
+    }
+    return { blocked: false, snapshot: q };
+  }
+
+  /**
+   * Execute the tool via external executor or direct invocation.
+   * @private
+   * @param {string} name - Tool name
+   * @param {any} params - Validated params
+   * @param {any} context - Call context
+   * @param {Function | undefined} tool - Resolved tool handler
+   * @returns {Promise<ToolResult>}
+   */
+  async _executeTool(name, params, context, tool) {
     const executor = resolveToolExecutor(context);
-    /** @type {ToolResult} */
-    let result;
-    if (executor) {
-      result = normalizeToolResult(await executor(name, finalParams, context));
-    } else {
-      if (!tool) {
-        result = { ok: false, error: `Unknown tool: ${name}` };
-      } else {
-        try {
-          const data = await tool(finalParams, context);
-          result = { ok: true, data };
-        } catch (err) {
-          result = { ok: false, error: err instanceof Error ? err.message : String(err) };
-        }
-      }
+    if (executor) return normalizeToolResult(await executor(name, params, context));
+    if (!tool) return { ok: false, error: `Unknown tool: ${name}` };
+    try {
+      const data = await tool(params, context);
+      return { ok: true, data };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  }
 
-    // After hooks
+  /**
+   * Run all after-hooks, applying hook failure policy on errors.
+   * @private
+   * @param {string} name - Tool name
+   * @param {any} params - Final params
+   * @param {ToolResult} result - Current result (may be mutated by hooks)
+   * @param {any} context - Call context
+   * @returns {Promise<ToolResult>} Possibly modified result
+   */
+  async _runAfterHooks(name, params, result, context) {
+    let current = result;
     for (const hook of this._hooks.after) {
       try {
-        const hookResult = await hook({ tool: name, params: finalParams, result, context });
-        if (hookResult !== undefined) {
-          result = normalizeToolResult(hookResult);
-        }
+        const hookResult = await hook({ tool: name, params, result: current, context });
+        if (hookResult !== undefined) current = normalizeToolResult(hookResult);
       } catch (e) {
-        this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
+        this._onHookError("AfterHook", name, e);
       }
     }
+    return current;
+  }
 
-    // Attach quota diagnostics (best-effort)
-    if (quotaSnapshot && isToolResult(result)) {
-      try {
-        result.quota = result.quota || quotaSnapshot;
-      } catch {
-        // ignore non-extensible results
-      }
+  /**
+   * Handle a hook error according to the configured failure policy.
+   * @private
+   * @param {string} phase - Hook phase label ("BeforeHook" | "AfterHook")
+   * @param {string} name - Tool name
+   * @param {Error} error - The caught error
+   * @returns {ToolResult | null} Error result when policy is 'fail', null otherwise
+   */
+  _onHookError(phase, name, error) {
+    const msg = `[tool-registry] ${phase} failed for ${name}: ${error.message}`;
+    if (this._hookFailurePolicy === "fail") {
+      this._logger?.error?.(msg);
+      return { ok: false, error: `${phase} failed: ${error.message}` };
     }
-
-    // Persist tool call history to Archive (async, non-blocking)
-    if (this._archive) {
-      const timestamp = Date.now();
-      const callId = `${this._runId}:tool:${name}:${timestamp}`;
-      const historyEntry = {
-        schemaVersion: 1,
-        tool: name,
-        params: finalParams,
-        result: {
-          ok: result.ok,
-          error: result.error,
-          data: result.ok ? (typeof result.data === "string" ? result.data.slice(0, 1000) : "[data]") : undefined,
-        },
-        timestamp,
-        metadata: {
-          runId: this._runId,
-          actor: context?.actor || context?.agentId || "unknown",
-        },
-      };
-
-      // Fire-and-forget: don't block tool execution on persistence
-      this._archive.save(callId, historyEntry).catch((err) => {
-        this._logger?.warn?.(`[tool-registry] Failed to persist tool call history: ${err.message}`);
-      });
+    if (this._hookFailurePolicy === "warn") {
+      this._logger?.warn?.(msg);
     }
+    return null;
+  }
 
-    return result;
+  /**
+   * Persist tool call history to Archive (fire-and-forget).
+   * @private
+   * @param {string} name - Tool name
+   * @param {any} params - Final params
+   * @param {ToolResult} result - Execution result
+   * @param {any} context - Call context
+   */
+  _persistToolCall(name, params, result, context) {
+    if (!this._archive) return;
+    const timestamp = Date.now();
+    const callId = `${this._runId}:tool:${name}:${timestamp}`;
+    const historyEntry = {
+      schemaVersion: 1,
+      tool: name,
+      params,
+      result: {
+        ok: result.ok,
+        error: result.error,
+        data: result.ok ? (typeof result.data === "string" ? result.data.slice(0, 1000) : "[data]") : undefined,
+      },
+      timestamp,
+      metadata: {
+        runId: this._runId,
+        actor: context?.actor || context?.agentId || "unknown",
+      },
+    };
+    this._archive.save(callId, historyEntry).catch((err) => {
+      this._logger?.warn?.(`[tool-registry] Failed to persist tool call history: ${err.message}`);
+    });
   }
 
   /**

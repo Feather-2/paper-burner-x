@@ -15,17 +15,24 @@ const logger = createLogger("core/state-bus");
 const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
 /**
- * @param {string} path
- * @returns {string[] | null}
+ * Validates and splits a dot-separated state path into segments.
+ * Throws on invalid or unsafe paths so bugs surface immediately.
+ *
+ * @param {string} path - Dot-separated state path (e.g. 'runtime.tokens.input')
+ * @returns {string[]} Non-empty array of path segments
+ * @throws {TypeError}  If path is not a non-empty string
+ * @throws {Error}      If path contains an unsafe segment (__proto__, prototype, constructor)
  */
-function getSafePathSegments(path) {
-  const raw = typeof path === 'string' ? path : '';
-  if (!raw) return null;
-  const segments = raw.split('.');
+function validatePathSegments(path) {
+  if (typeof path !== 'string' || path === '') {
+    throw new TypeError(
+      `StateBus: path must be a non-empty string, got ${typeof path === 'string' ? '""' : typeof path}`,
+    );
+  }
+  const segments = path.split('.');
   for (const segment of segments) {
     if (UNSAFE_PATH_SEGMENTS.has(segment)) {
-      logger.warn('StateBus blocked unsafe path segment', { path, segment });
-      return null;
+      throw new Error(`StateBus: path "${path}" contains unsafe segment "${segment}"`);
     }
   }
   return segments;
@@ -168,23 +175,18 @@ export class StateBus {
     this._state = createDefaultState();
 
     if (this._namespace) {
-      const nsKeys = getSafePathSegments(this._namespace);
-      if (!nsKeys) {
-        this._namespace = '';
-        this._namespacePrefix = '';
-      } else {
-        const lastKey = nsKeys.pop();
-        if (lastKey) {
-          let current = this._state;
-          for (const key of nsKeys) {
-            if (current[key] == null || typeof current[key] !== 'object') {
-              current[key] = {};
-            }
-            current = current[key];
+      const nsKeys = validatePathSegments(this._namespace);
+      const lastKey = nsKeys.pop();
+      if (lastKey) {
+        let current = this._state;
+        for (const key of nsKeys) {
+          if (current[key] == null || typeof current[key] !== 'object') {
+            current[key] = {};
           }
-          if (current[lastKey] == null || typeof current[lastKey] !== 'object') {
-            current[lastKey] = createDefaultState();
-          }
+          current = current[key];
+        }
+        if (current[lastKey] == null || typeof current[lastKey] !== 'object') {
+          current[lastKey] = createDefaultState();
         }
       }
     }
@@ -293,8 +295,7 @@ export class StateBus {
    */
   set(path, value, meta = {}) {
     const resolvedPath = this._resolvePath(path);
-    const keys = getSafePathSegments(resolvedPath);
-    if (!keys) return;
+    const keys = validatePathSegments(resolvedPath);
     const oldValue = this.get(path);
     if (oldValue === value) return;
     const lastKey = keys.pop();
@@ -322,8 +323,7 @@ export class StateBus {
    * @returns {void}
    */
   merge(path, updates, meta = {}) {
-    const keys = getSafePathSegments(path);
-    if (!keys) return;
+    validatePathSegments(path);
     const current = this.get(path) || {};
     if (current == null || typeof current !== 'object' || updates == null || typeof updates !== 'object') {
       this.set(path, updates, meta);
@@ -341,8 +341,7 @@ export class StateBus {
    */
   delete(path) {
     const resolvedPath = this._resolvePath(path);
-    const keys = getSafePathSegments(resolvedPath);
-    if (!keys) return false;
+    const keys = validatePathSegments(resolvedPath);
     const oldValue = this.get(path);
     if (oldValue === undefined) return false;
     const lastKey = keys.pop();
@@ -767,8 +766,7 @@ export class StateBus {
    * @returns {unknown}
    */
   _getByPath(path) {
-    const keys = getSafePathSegments(path);
-    if (!keys) return undefined;
+    const keys = validatePathSegments(path);
 
     let current = this._state;
     for (const key of keys) {
@@ -785,8 +783,7 @@ export class StateBus {
    */
   _touchUpdatedAt() {
     const resolvedPath = this._resolvePath('meta.updatedAt');
-    const keys = getSafePathSegments(resolvedPath);
-    if (!keys) return;
+    const keys = validatePathSegments(resolvedPath);
 
     const lastKey = keys.pop();
     if (!lastKey) return;

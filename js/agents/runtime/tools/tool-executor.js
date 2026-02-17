@@ -547,6 +547,134 @@ export class ToolExecutor {
     return this._executeInWebWorker(moduleUrl, exportName, args, context, timeoutMs);
   }
 
+  /**
+   * Acquire or create a WorkerPool from the global cache.
+   * @param {string} poolKey - Unique key for global pool lookup.
+   * @param {() => Promise<unknown>} createWorker - Factory for new workers.
+   * @returns {WorkerPool}
+   */
+  _getOrCreatePool(poolKey, createWorker) {
+    const pools = globalPools();
+    let pool = pools.get(poolKey);
+    if (!pool) {
+      pool = new WorkerPool({ maxWorkers: this._workerPoolMax, createWorker });
+      pools.set(poolKey, pool);
+    } else if (typeof pool?.setMaxWorkers === "function") {
+      pool.setMaxWorkers(this._workerPoolMax);
+    }
+    return pool;
+  }
+
+  /**
+   * Run a tool handler inside a pooled worker with timeout protection.
+   *
+   * Platform-specific behaviour is injected via `platformOps`:
+   * - subscribe/unsubscribe: attach/detach event listeners on the raw worker
+   * - extractMessage: unwrap the platform message envelope
+   * - asyncCleanup: whether cleanup/settle chains through Promises (Node) or is sync (Web)
+   * - unrefTimer: optional, call timer.unref() on Node to avoid keeping the process alive
+   *
+   * @param {object} params
+   * @param {WorkerPool} params.pool
+   * @param {string} params.resolvedModuleUrl
+   * @param {string|null} params.exportName
+   * @param {unknown} params.args
+   * @param {unknown} params.context
+   * @param {number} params.timeoutMs
+   * @param {{ subscribe: Function, unsubscribe: Function, extractMessage: Function, asyncCleanup?: boolean, unrefTimer?: boolean }} params.platformOps
+   * @returns {Promise<unknown>}
+   */
+  async _executePooledWorker({ pool, resolvedModuleUrl, exportName, args, context, timeoutMs, platformOps }) {
+    const pooled = await pool.acquire();
+    const worker = pooled.worker;
+    const workerContext = this._createWorkerContextSnapshot(context);
+    const { subscribe, unsubscribe, extractMessage, asyncCleanup, unrefTimer } = platformOps;
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const doCleanup = (destroy) => {
+        if (settled) return;
+        settled = true;
+        unsubscribe(worker, handlers);
+        if (destroy) {
+          return pool.destroy(pooled);
+        }
+        pool.release(pooled);
+      };
+
+      const settle = (cleanupResult, fn) => {
+        if (asyncCleanup && cleanupResult && typeof cleanupResult.finally === "function") {
+          cleanupResult.finally(fn);
+        } else {
+          fn();
+        }
+      };
+
+      const handlers = {};
+
+      handlers.message = (raw) => {
+        if (settled) return;
+        const msg = extractMessage(raw);
+        const type = msg?.type;
+
+        if (type === "result") {
+          clearTimeout(timer);
+          settle(doCleanup(false), () => resolve(msg.result));
+          return;
+        }
+        if (type === "error") {
+          clearTimeout(timer);
+          const err = new Error(msg?.error?.message || "Tool worker error");
+          if (msg?.error?.name) err.name = msg.error.name;
+          if (msg?.error?.stack) err.stack = msg.error.stack;
+          settle(doCleanup(true), () => reject(err));
+        }
+      };
+
+      handlers.error = (err) => {
+        if (settled) return;
+        clearTimeout(timer);
+        settle(doCleanup(true), () => reject(err));
+      };
+
+      handlers.exit = (code) => {
+        if (settled) return;
+        if (code === 0) return;
+        clearTimeout(timer);
+        settle(doCleanup(true), () => reject(new Error(`Tool worker exited with code ${code}`)));
+      };
+
+      const timer = /** @type {TimeoutHandle} */ (setTimeout(() => {
+        settle(doCleanup(true), () => {
+          const err = /** @type {Error & { code?: string }} */ (new Error(`Tool execution timed out after ${timeoutMs}ms`));
+          err.name = "TimeoutError";
+          err.code = "ETIMEDOUT";
+          reject(err);
+        });
+      }, timeoutMs));
+
+      if (unrefTimer && timer && typeof timer.unref === "function") {
+        try { timer.unref(); } catch { /* ignore */ }
+      }
+
+      subscribe(worker, handlers);
+
+      try {
+        worker.postMessage({
+          type: "execute",
+          moduleUrl: resolvedModuleUrl,
+          exportName,
+          args,
+          context: workerContext,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        settle(doCleanup(true), () => reject(err));
+      }
+    });
+  }
+
   async _executeInNodeWorker(moduleUrl, exportName, args, context, timeoutMs) {
     const { Worker } = await import(/* @vite-ignore */ /** @type {string} */ ("node:worker_threads"));
     const { fileURLToPath } = await import(/* @vite-ignore */ /** @type {string} */ ("node:url"));
@@ -555,105 +683,17 @@ export class ToolExecutor {
     // (e.g. Vite) from treating this Node worker entry as a web worker and trying to bundle node:* imports.
     const metaPath = fileURLToPath(import.meta.url);
     const workerPath = metaPath.replace(/tool-executor\.js$/i, "tool-executor-worker.js");
-    const pools = globalPools();
-    const poolKey = `node:${workerPath}`;
-    let pool = pools.get(poolKey);
-    if (!pool) {
-      pool = new WorkerPool({
-        maxWorkers: this._workerPoolMax,
-        createWorker: async () => new Worker(workerPath, { type: "module" }),
-      });
-      pools.set(poolKey, pool);
-    } else if (typeof pool?.setMaxWorkers === "function") {
-      pool.setMaxWorkers(this._workerPoolMax);
-    }
+    const pool = this._getOrCreatePool(`node:${workerPath}`, async () => new Worker(workerPath, { type: "module" }));
 
-    const pooled = await pool.acquire();
-    const worker = pooled.worker;
-    const workerContext = this._createWorkerContextSnapshot(context);
-
-    return new Promise((resolve, reject) => {
-      let settled = false;
-
-      const cleanup = async ({ destroy = false } = {}) => {
-        if (settled) return;
-        settled = true;
-
-        worker.off?.("message", onMessage);
-        worker.off?.("error", onError);
-        worker.off?.("exit", onExit);
-
-        if (destroy) {
-          await pool.destroy(pooled);
-        } else {
-          pool.release(pooled);
-        }
-      };
-
-      const timer = /** @type {TimeoutHandle} */ (setTimeout(() => {
-        cleanup({ destroy: true }).finally(() => {
-          const err = /** @type {Error & { code?: string }} */ (new Error(`Tool execution timed out after ${timeoutMs}ms`));
-          err.name = "TimeoutError";
-          err.code = "ETIMEDOUT";
-          reject(err);
-        });
-      }, timeoutMs));
-      if (timer && typeof timer.unref === "function") {
-        try {
-          timer.unref();
-        } catch {
-          // ignore
-        }
-      }
-
-      const onMessage = (msg) => {
-        if (settled) return;
-        const type = msg?.type;
-
-        if (type === "result") {
-          clearTimeout(timer);
-          cleanup({ destroy: false }).finally(() => resolve(msg.result));
-          return;
-        }
-
-        if (type === "error") {
-          clearTimeout(timer);
-          const err = new Error(msg?.error?.message || "Tool worker error");
-          if (msg?.error?.name) err.name = msg.error.name;
-          if (msg?.error?.stack) err.stack = msg.error.stack;
-          cleanup({ destroy: true }).finally(() => reject(err));
-        }
-      };
-
-      const onError = (err) => {
-        if (settled) return;
-        clearTimeout(timer);
-        cleanup({ destroy: true }).finally(() => reject(err));
-      };
-
-      const onExit = (code) => {
-        if (settled) return;
-        if (code === 0) return;
-        clearTimeout(timer);
-        cleanup({ destroy: true }).finally(() => reject(new Error(`Tool worker exited with code ${code}`)));
-      };
-
-      worker.on?.("message", onMessage);
-      worker.on?.("error", onError);
-      worker.on?.("exit", onExit);
-
-      try {
-        worker.postMessage({
-          type: "execute",
-          moduleUrl,
-          exportName,
-          args,
-          context: workerContext,
-        });
-      } catch (err) {
-        clearTimeout(timer);
-        cleanup({ destroy: true }).finally(() => reject(err));
-      }
+    return this._executePooledWorker({
+      pool, resolvedModuleUrl: moduleUrl, exportName, args, context, timeoutMs,
+      platformOps: {
+        subscribe: (w, h) => { w.on?.("message", h.message); w.on?.("error", h.error); w.on?.("exit", h.exit); },
+        unsubscribe: (w, h) => { w.off?.("message", h.message); w.off?.("error", h.error); w.off?.("exit", h.exit); },
+        extractMessage: (msg) => msg,
+        asyncCleanup: true,
+        unrefTimer: true,
+      },
     });
   }
 
@@ -669,94 +709,18 @@ export class ToolExecutor {
       // keep as-is
     }
 
-    const pools = globalPools();
     const workerEntryUrl = new URL("./tool-executor-webworker.js", import.meta.url).toString();
-    const poolKey = `web:${workerEntryUrl}`;
-    let pool = pools.get(poolKey);
-    if (!pool) {
-      pool = new WorkerPool({
-        maxWorkers: this._workerPoolMax,
-        createWorker: async () => new Worker(new URL("./tool-executor-webworker.js", import.meta.url), { type: "module" }),
-      });
-      pools.set(poolKey, pool);
-    } else if (typeof pool?.setMaxWorkers === "function") {
-      pool.setMaxWorkers(this._workerPoolMax);
-    }
+    const pool = this._getOrCreatePool(`web:${workerEntryUrl}`, async () => new Worker(new URL("./tool-executor-webworker.js", import.meta.url), { type: "module" }));
 
-    const pooled = await pool.acquire();
-    const worker = pooled.worker;
-    const workerContext = this._createWorkerContextSnapshot(context);
-
-    return new Promise((resolve, reject) => {
-      let settled = false;
-
-      const cleanup = ({ destroy = false } = {}) => {
-        if (settled) return;
-        settled = true;
-
-        worker.removeEventListener?.("message", onMessage);
-        worker.removeEventListener?.("error", onError);
-
-        if (destroy) {
-          void pool.destroy(pooled);
-        } else {
-          pool.release(pooled);
-        }
-      };
-
-      const timer = setTimeout(() => {
-        cleanup({ destroy: true });
-        const err = /** @type {Error & { code?: string }} */ (new Error(`Tool execution timed out after ${timeoutMs}ms`));
-        err.name = "TimeoutError";
-        err.code = "ETIMEDOUT";
-        reject(err);
-      }, timeoutMs);
-
-      const onMessage = (evt) => {
-        if (settled) return;
-        const msg = evt?.data;
-        const type = msg?.type;
-
-        if (type === "result") {
-          clearTimeout(timer);
-          cleanup({ destroy: false });
-          resolve(msg.result);
-          return;
-        }
-
-        if (type === "error") {
-          clearTimeout(timer);
-          const err = new Error(msg?.error?.message || "Tool worker error");
-          if (msg?.error?.name) err.name = msg.error.name;
-          if (msg?.error?.stack) err.stack = msg.error.stack;
-          cleanup({ destroy: true });
-          reject(err);
-        }
-      };
-
-      const onError = (err) => {
-        if (settled) return;
-        clearTimeout(timer);
-        cleanup({ destroy: true });
-        reject(err);
-      };
-
-      worker.addEventListener?.("message", onMessage);
-      worker.addEventListener?.("error", onError);
-
-      try {
-        worker.postMessage({
-          type: "execute",
-          moduleUrl: resolvedModuleUrl,
-          exportName,
-          args,
-          context: workerContext,
-        });
-      } catch (err) {
-        clearTimeout(timer);
-        cleanup({ destroy: true });
-        reject(err);
-      }
+    return this._executePooledWorker({
+      pool, resolvedModuleUrl, exportName, args, context, timeoutMs,
+      platformOps: {
+        subscribe: (w, h) => { w.addEventListener?.("message", h.message); w.addEventListener?.("error", h.error); },
+        unsubscribe: (w, h) => { w.removeEventListener?.("message", h.message); w.removeEventListener?.("error", h.error); },
+        extractMessage: (evt) => evt?.data,
+        asyncCleanup: false,
+        unrefTimer: false,
+      },
     });
   }
 

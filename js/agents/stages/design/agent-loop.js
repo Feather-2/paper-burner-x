@@ -238,259 +238,262 @@ export class DesignAgentLoop extends BaseAgentLoop {
    * @returns {Promise<any>}
    */
   async _runCore(contentPackage, context = {}) {
+    const rt = await this._initCoreRuntime(contentPackage, context);
+
+    try {
+      await this._transitionTo(AgentStatus.RUNNING, {
+        runId: rt.runId, stageApi: rt.stageApi, state: rt.buildLoopState("run_start"),
+      });
+      rt.lifecycle.started(rt.runId, {
+        slideCount: Array.isArray(this.state.contentPackage?.slideIntents) ? this.state.contentPackage.slideIntents.length : 0,
+      });
+
+      // --- Sequential phase orchestration ---
+      await this._phasePreparation(rt);
+      await this._phasePlanning(rt);
+      await this._phaseLayout(rt);
+
+      this.phaseRunner._transitionPhase(this.phase, DesignPhase.GENERATING, { emit: rt.emit, runId: rt.runContext.runId });
+
+      if (this.phase.status === DesignPhase.GENERATING) {
+        await this._phaseGenerating(rt);
+        await this._phaseBatchRepair(rt);
+        await this._phaseVisual(rt);
+        await this._phaseReview(rt);
+
+        this.phaseRunner._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit: rt.emit, runId: rt.runContext.runId });
+        await this._transitionTo(AgentStatus.COMPLETED, {
+          runId: rt.runId, iteration: rt.iter.count, stageApi: rt.stageApi, state: rt.buildLoopState("completed"),
+        });
+        finalizeDeck(this);
+        rt.lifecycle.completed(rt.runId, { slides: this.state.slideHtmls.length, degradedCount: this.state.degradedCount });
+        return this._buildDeckResult(rt);
+      }
+
+      await this._transitionTo(AgentStatus.COMPLETED, {
+        runId: rt.runId, iteration: rt.iter.count, stageApi: rt.stageApi, state: rt.buildLoopState("completed"),
+      });
+      return { schemaVersion: SCHEMA_VERSION, runId: rt.runContext.runId, designSystem: null, deckHtmlDsl: "", slidesMeta: [] };
+    } catch (err) {
+      await this._handleCoreError(err, rt);
+    } finally {
+      try { rt.offRefineWatchdog?.(); } catch { /* ignore */ }
+    }
+  }
+
+  /**
+   * Initialize core runtime context for a _runCore execution.
+   * @private
+   * @param {any} contentPackage
+   * @param {DesignStageApi} context
+   * @returns {Promise<{runContext: object, runId: string, emit: Function, lifecycle: object, watchdog: object|null, watchdogSettings: object|null, handleWatchdogHealth: Function|null, offRefineWatchdog: Function|null, stageApi: object, iter: {count: number}, traceContext: object|null, skipReview: boolean, startExecution: Function, finishExecution: Function, emitDeckUpdate: Function, context: DesignStageApi}>}
+   */
+  async _initCoreRuntime(contentPackage, context = {}) {
     const runContext = context.runContext || {
       runId: contentPackage?.runId || "run_unknown",
       constraints: contentPackage?.constraints || {},
       userConfig: context?.userConfig || contentPackage?.userConfig || {},
     };
     const runId = runContext.runId || contentPackage?.runId || "run_unknown";
-	    const traceContext =
-	      context?.traceContext && typeof context.traceContext.withSpan === "function" ? context.traceContext : null;
-	    this.eventBus = context.eventBus || this.eventBus || null;
-	    let emit = getEmitFn(context);
-	    if ((!emit || emit === this.eventBus?.emit) && this.eventBus?.emit) {
-	      emit = this.eventBus.emit.bind(this.eventBus);
-	    }
+    const traceContext =
+      context?.traceContext && typeof context.traceContext.withSpan === "function" ? context.traceContext : null;
+    this.eventBus = context.eventBus || this.eventBus || null;
+    let emit = getEmitFn(context);
+    if ((!emit || emit === this.eventBus?.emit) && this.eventBus?.emit) {
+      emit = this.eventBus.emit.bind(this.eventBus);
+    }
     this.emit = emit || this.emit || null;
-	    this._emit = this.emit;
+    this._emit = this.emit;
 
-	    // P4.6: Enable backpressure for high-frequency events (best-effort).
-	    enableBackpressureIfNeeded(this.eventBus, context?.eventBusBackpressure ?? context?.backpressure);
+    enableBackpressureIfNeeded(this.eventBus, context?.eventBusBackpressure ?? context?.backpressure);
 
-    const lifecycle = createLifecycleEmitter({
-      actor: "design",
-      emit: this.emit,
-      eventBus: this.eventBus,
-    });
+    const lifecycle = createLifecycleEmitter({ actor: "design", emit: this.emit, eventBus: this.eventBus });
     this._lifecycle = lifecycle;
 
     const { watchdog, watchdogSettings, handleWatchdogHealth, offRefineWatchdog } = await initWatchdogManager({
-      loop: this,
-      context,
-      runContext,
-      contentPackage,
-      runId,
-      emit,
-      eventBus: this.eventBus,
+      loop: this, context, runContext, contentPackage, runId, emit, eventBus: this.eventBus,
     });
 
-	    // 仅在初始运行时初始化状态，回溯重启时保留已恢复的状态
-	    if (!context.resumed && !this._isBacktracking) {
-	      /** @type {DesignPhaseState} */
-	      this.phase = { status: DesignPhase.IDLE };
-	      // 从容器或 context 获取 memoryStore 并绑定到 Blackboard
-	      const memoryStore = await this.phaseRunner._resolveDependency("memoryStore", context, this._memoryStore);
-	      const stateEngine = await this.phaseRunner._resolveDependency("stateEngine", context, this._stateEngine);
-	      this._blackboard = new DesignBlackboard({ runId, memoryStore, stateEngine });
-	      this._memoryStore = memoryStore;
-	      this._stateEngine = stateEngine;
-	      this._iteration = 0;
-	      this.state.contentPackage = contentPackage;
-	    }
+    if (!context.resumed && !this._isBacktracking) {
+      this.phase = { status: DesignPhase.IDLE };
+      const memoryStore = await this.phaseRunner._resolveDependency("memoryStore", context, this._memoryStore);
+      const stateEngine = await this.phaseRunner._resolveDependency("stateEngine", context, this._stateEngine);
+      this._blackboard = new DesignBlackboard({ runId, memoryStore, stateEngine });
+      this._memoryStore = memoryStore;
+      this._stateEngine = stateEngine;
+      this._iteration = 0;
+      this.state.contentPackage = contentPackage;
+    }
     this._isBacktracking = false;
 
     const stageApi = { signal: context.signal };
-    let iteration = 0;
-    const buildLoopState = (step) => ({
-      phase: this.phase?.status,
-      step,
-    });
+    const iter = { count: 0 };
+    const skipReview = context?.skipReview === true || context?.interactionMode?.finalReview === "skip";
+
+    const buildLoopState = (step) => ({ phase: this.phase?.status, step });
+
     const startExecution = async (step, nodeStates) => {
-      const loopIteration = ++iteration;
+      const loopIteration = ++iter.count;
       watchdog?.tick?.();
-      // 用事件替代复杂状态转换
       emitStage(emit, "design.step.started", "progress", { runId, step, iteration: loopIteration });
-      const stepInfo = this.stepRunner._beginStep({
-        name: step,
-        runId,
-        iteration: loopIteration,
-        meta: nodeStates,
-      }, context);
+      const stepInfo = this.stepRunner._beginStep({ name: step, runId, iteration: loopIteration, meta: nodeStates }, context);
       return { loopIteration, stepInfo };
     };
+
     const finishExecution = async (step, loopIteration, stepInfo) => {
       emitStage(emit, "design.step.completed", "progress", { runId, step, iteration: loopIteration });
       this.stepRunner._endStep(stepInfo, { status: "completed" });
     };
-    const emitDeckUpdate = createDeckUpdateEmitter({
-      loop: this,
-      emit,
-      runId,
-      watchdog,
-      watchdogSettings,
-      handleWatchdogHealth,
+
+    const emitDeckUpdate = createDeckUpdateEmitter({ loop: this, emit, runId, watchdog, watchdogSettings, handleWatchdogHealth });
+
+    return {
+      runContext, runId, emit, lifecycle, watchdog, watchdogSettings, handleWatchdogHealth,
+      offRefineWatchdog, stageApi, iter, traceContext, skipReview,
+      startExecution, finishExecution, emitDeckUpdate, buildLoopState, context,
+    };
+  }
+
+  /**
+   * Run preparation phase if applicable.
+   * @private
+   * @param {object} rt - Core runtime context from _initCoreRuntime.
+   */
+  async _phasePreparation(rt) {
+    if (!this.phase.status || this.phase.status === DesignPhase.IDLE || this.phase.status === DesignPhase.OUTLINE_PARSING) {
+      await runPreparationPhase(this, {
+        context: rt.context, runContext: rt.runContext, emit: rt.emit,
+        startExecution: rt.startExecution, finishExecution: rt.finishExecution, traceContext: rt.traceContext,
+      });
+    }
+  }
+
+  /**
+   * Run planning phase if enabled and needed.
+   * @private
+   * @param {object} rt - Core runtime context.
+   */
+  async _phasePlanning(rt) {
+    if (rt.context?.enablePlanning !== false && (!this.state.plans || this.phase.status === DesignPhase.DECK_PLANNING)) {
+      await runPlanningPhase(this, {
+        context: rt.context, runContext: rt.runContext, emit: rt.emit, traceContext: rt.traceContext,
+      });
+    }
+  }
+
+  /**
+   * Run layout phase if enabled and needed.
+   * @private
+   * @param {object} rt - Core runtime context.
+   */
+  async _phaseLayout(rt) {
+    if (rt.context?.enableLayout !== false && (!this.state.layoutData || this.phase.status === DesignPhase.LAYOUT_DEVELOPING)) {
+      await runLayoutPhase(this, {
+        context: rt.context, runContext: rt.runContext, emit: rt.emit, traceContext: rt.traceContext,
+      });
+    }
+  }
+
+  /**
+   * Run slide generation phase.
+   * @private
+   * @param {object} rt - Core runtime context.
+   */
+  async _phaseGenerating(rt) {
+    await runGeneratingPhase(this, {
+      context: rt.context, runContext: rt.runContext, emit: rt.emit,
+      startExecution: rt.startExecution, finishExecution: rt.finishExecution,
+      traceContext: rt.traceContext, skipReview: rt.skipReview,
     });
+  }
+
+  /**
+   * Run batch repair phase (health check and fix).
+   * @private
+   * @param {object} rt - Core runtime context.
+   */
+  async _phaseBatchRepair(rt) {
+    await runBatchRepairPhase(this, {
+      context: rt.context, runContext: rt.runContext, emit: rt.emit, traceContext: rt.traceContext,
+    });
+  }
+
+  /**
+   * Run visual filling phase.
+   * @private
+   * @param {object} rt - Core runtime context.
+   */
+  async _phaseVisual(rt) {
+    await runVisualPhase(this, {
+      context: rt.context, runContext: rt.runContext, emit: rt.emit,
+      startExecution: rt.startExecution, finishExecution: rt.finishExecution,
+      emitDeckUpdate: rt.emitDeckUpdate, traceContext: rt.traceContext,
+    });
+  }
+
+  /**
+   * Run optional final review phase.
+   * @private
+   * @param {object} rt - Core runtime context.
+   */
+  async _phaseReview(rt) {
+    if (rt.context?.enableFinalReview !== true || rt.skipReview) return;
+    this.phaseRunner._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit: rt.emit, runId: rt.runId });
+    await runReviewPhase(this, {
+      context: rt.context, runContext: rt.runContext, emit: rt.emit, traceContext: rt.traceContext,
+    });
+  }
+
+  /**
+   * Build the full deck result package on successful completion.
+   * @private
+   * @param {object} rt - Core runtime context.
+   * @returns {object}
+   */
+  _buildDeckResult(rt) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      runId: rt.runContext.runId,
+      designSystem: this.state.designSystem,
+      deckHtmlDsl: this.state.deckHtmlDsl,
+      slidesMeta: this.state.slidesMeta,
+      editHints: { degradedCount: this.state.degradedCount },
+      imageSlots: this.state.finalImageSlots,
+      imageReport: this.state.imageReport,
+      visualReport: this.state.visualReport,
+      pendingImages: this.state.pendingImages,
+      refineReport: this.state.refineResult || null,
+      reviewReport: this.state.reviewResult || null,
+    };
+  }
+
+  /**
+   * Handle errors from the core execution try block.
+   * Re-throws after emitting lifecycle events and transitioning status.
+   * @private
+   * @param {Error} err
+   * @param {object} rt - Core runtime context.
+   */
+  async _handleCoreError(err, rt) {
+    if (err instanceof BacktrackError) throw err;
+
+    const pauseLike = this.statusController._shouldPauseFromError(err, rt.context.signal);
+    if (this._activeStep) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.stepRunner._endStep(null, { status: pauseLike ? "paused" : "failed", error: message });
+    }
+    if (err instanceof StagePausedError) throw err;
+    if (pauseLike) throw this.statusController._createPauseError({ signal: rt.context.signal, runId: rt.runId });
 
     try {
-      await this._transitionTo(AgentStatus.RUNNING, {
-        runId,
-        stageApi,
-        state: buildLoopState("run_start"),
+      await this._transitionTo(AgentStatus.FAILED, {
+        runId: rt.runId, stageApi: rt.stageApi, state: rt.buildLoopState("failed"), error: err?.message,
       });
-
-      lifecycle.started(runId, {
-        slideCount: Array.isArray(this.state.contentPackage?.slideIntents) ? this.state.contentPackage.slideIntents.length : 0,
-      });
-
-      // --- 1. Preparation Phase (Outline + Style) ---
-      if (!this.phase.status || this.phase.status === DesignPhase.IDLE || this.phase.status === DesignPhase.OUTLINE_PARSING) {
-        await runPreparationPhase(this, {
-          context,
-          runContext,
-          emit,
-          startExecution,
-          finishExecution,
-          traceContext,
-        });
-      }
-
-      // --- 2. Planning Phase ---
-      if (context?.enablePlanning !== false && (!this.state.plans || this.phase.status === DesignPhase.DECK_PLANNING)) {
-        await runPlanningPhase(this, {
-          context,
-          runContext,
-          emit,
-          traceContext,
-        });
-      }
-
-      // --- 3. Layout Phase (New!) ---
-      if (context?.enableLayout !== false && (!this.state.layoutData || this.phase.status === DesignPhase.LAYOUT_DEVELOPING)) {
-        await runLayoutPhase(this, {
-          context,
-          runContext,
-          emit,
-          traceContext,
-        });
-      }
-
-      this.phaseRunner._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
-
-      // Compute skipReview flag for generating phase (skips REVIEWING transition)
-      const skipReview = context?.skipReview === true || context?.interactionMode?.finalReview === "skip";
-
-      // --- 4. Generating Phase ---
-      if (this.phase.status === DesignPhase.GENERATING) {
-        await runGeneratingPhase(this, {
-          context,
-          runContext,
-          emit,
-          startExecution,
-          finishExecution,
-          traceContext,
-          skipReview,
-        });
-
-        // --- 5. Batch Repair Phase (Orchestrated Health Check & Fix) ---
-        await runBatchRepairPhase(this, {
-          context,
-          runContext,
-          emit,
-          traceContext,
-        });
-
-        // --- 6. Visual Filling Phase ---
-        await runVisualPhase(this, {
-          context,
-          runContext,
-          emit,
-          startExecution,
-          finishExecution,
-          emitDeckUpdate,
-          traceContext,
-        });
-
-        // --- 7. Final Review Phase (Optional final audit) ---
-        // skipReview already computed above
-        if (context?.enableFinalReview === true && !skipReview) {
-          this.phaseRunner._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runId });
-          await runReviewPhase(this, {
-            context,
-            runContext,
-            emit,
-            traceContext,
-          });
-        }
-
-        this.phaseRunner._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
-        await this._transitionTo(AgentStatus.COMPLETED, {
-          runId,
-          iteration,
-          stageApi,
-          state: buildLoopState("completed"),
-        });
-
-        finalizeDeck(this);
-
-        lifecycle.completed(runId, { slides: this.state.slideHtmls.length, degradedCount: this.state.degradedCount });
-
-        return {
-          schemaVersion: SCHEMA_VERSION,
-          runId: runContext.runId,
-          designSystem: this.state.designSystem,
-          deckHtmlDsl: this.state.deckHtmlDsl,
-          slidesMeta: this.state.slidesMeta,
-          editHints: { degradedCount: this.state.degradedCount },
-          imageSlots: this.state.finalImageSlots,
-          imageReport: this.state.imageReport,
-          visualReport: this.state.visualReport,
-          pendingImages: this.state.pendingImages,
-          refineReport: this.state.refineResult || null,
-          reviewReport: this.state.reviewResult || null,
-        };
-      }
-
-      await this._transitionTo(AgentStatus.COMPLETED, {
-        runId,
-        iteration,
-        stageApi,
-        state: buildLoopState("completed"),
-      });
-
-      return {
-        schemaVersion: SCHEMA_VERSION,
-        runId: runContext.runId,
-        designSystem: null,
-        deckHtmlDsl: "",
-        slidesMeta: [],
-      };
-    } catch (err) {
-      // BacktrackError: 重新抛出让外层 while 循环处理
-      if (err instanceof BacktrackError) {
-        throw err;
-      }
-	      const pauseLike = this.statusController._shouldPauseFromError(err, context.signal);
-	      if (this._activeStep) {
-	        const message = err instanceof Error ? err.message : String(err);
-	        this.stepRunner._endStep(null, { status: pauseLike ? "paused" : "failed", error: message });
-	      }
-      if (err instanceof StagePausedError) {
-        throw err;
-      }
-      if (pauseLike) {
-        throw this.statusController._createPauseError({ signal: context.signal, runId });
-      }
-
-      try {
-        await this._transitionTo(AgentStatus.FAILED, {
-          runId,
-          stageApi,
-          state: buildLoopState("failed"),
-          error: err?.message,
-        });
-      } catch {
-        // ignore secondary transition failures
-      }
-
-      lifecycle.failed(runId, err);
-      throw err;
-    } finally {
-      try {
-        offRefineWatchdog?.();
-      } catch {
-        // ignore
-      }
+    } catch {
+      // ignore secondary transition failures
     }
+    rt.lifecycle.failed(rt.runId, err);
+    throw err;
   }
 }
 

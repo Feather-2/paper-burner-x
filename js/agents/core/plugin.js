@@ -197,10 +197,6 @@ export class PluginManager {
       return; // 已安装
     }
 
-    if (entry.status === PluginStatus.INSTALLING) {
-      throw new Error(`Plugin circular dependency detected during install: ${pluginName}`);
-    }
-
     const { plugin, config } = entry;
 
     // 检查依赖
@@ -321,7 +317,8 @@ export class PluginManager {
   }
 
   /**
-   * 拓扑排序
+   * 拓扑排序 — 唯一的循环依赖检测点。
+   * install() 无需重复检测：INSTALLING 状态在依赖解析之后才设置，无法捕获递归环。
    */
   _topologicalSort() {
     const visited = new Set();

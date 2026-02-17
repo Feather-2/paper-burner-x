@@ -45,9 +45,12 @@ vi.mock("../../../../js/agents/sdk/index.js", () => {
         builder.discovery = { type: "DiscoveryManager", options };
         return builder;
       },
-      onEvent(pattern, handler) {
+      useEvent(pattern, handler) {
         mockState.eventHandlers.push({ pattern, handler });
         return builder;
+      },
+      onEvent(pattern, handler) {
+        return builder.useEvent(pattern, handler);
       },
       build() {
         const skills = new Map();

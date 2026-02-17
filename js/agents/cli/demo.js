@@ -175,7 +175,7 @@ export function buildDemoAgent(router) {
         // 配置 Watchdog
         .useWatchdog({ maxIterations: 20, maxTimeMs: 60000 })
         // 订阅事件
-        .onEvent("demo:*", (payload, meta) => {
+        .useEvent("demo:*", (payload, meta) => {
             // Avoid leaking secrets from tool payloads / model outputs.
             console.log(`[Event] ${meta?.name || "demo.*"}:`, safeStringify(payload?.payload || payload));
         })

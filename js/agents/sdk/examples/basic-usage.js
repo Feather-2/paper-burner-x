@@ -38,7 +38,7 @@ const basicAgent = createAgent({ actor: "demo" })
             };
         },
     })
-    .onEvent("demo:*", (event) => {
+    .useEvent("demo:*", (event) => {
         console.log("[Event]", event);
     })
     .build();

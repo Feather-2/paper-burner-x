@@ -252,11 +252,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     const stageApi = context?.stageApi && typeof context.stageApi === "object" ? context.stageApi : context;
     const errorBoundary = resolveErrorBoundary(stageApi);
 
-    // When run() is invoked directly (not via BaseAgentLoop.execute), keep instance wiring in sync.
     this.eventBus = stageApi?.eventBus || this.eventBus || null;
     if (!this.emit && typeof stageApi?.emit === "function") this.emit = stageApi.emit;
 
-    // P4.6: Enable backpressure for high-frequency events (best-effort).
     enableBackpressureIfNeeded(this.eventBus, stageApi?.eventBusBackpressure ?? stageApi?.backpressure);
 
     const traceContext = resolveStageTraceContext(stageApi);
@@ -273,384 +271,52 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         await traceContext.withSpan(
           "deepsearch.run",
           async (runSpan) => {
-        const { signal } = stageApi;
-        checkCancelled(signal);
-
-        const lifecycle = createLifecycleEmitter({
-          actor: "deepsearch",
-          emit: stageApi?.emit,
-          eventBus: this.eventBus,
-        });
-
-        const capabilities = await traceContext.withSpan("deepsearch.capabilities.load", async (span) => {
-          const out = await loadDeepSearchCapabilities();
-          span.setAttribute("capabilities.loaded", true);
-          return out;
-        });
-        checkCancelled(signal);
-
-        this.state = this._ensureState(input);
-
-        if (!this.sourceManager) this.sourceManager = new SourceManager(this.state?.L0?.sources || []);
-        else this.sourceManager.syncSources(this.state?.L0?.sources);
-
-        if (!this.state.userConfig) this.state.userConfig = {};
-        this.state.userConfig.mode = this.mode;
-        if (this.globalConfig) this.state.globalConfig = this.globalConfig;
-
-        runSpan.setAttributes({
-          runId: this.state?.runId,
-          mode: this.mode,
-        });
-
-        let currentPhase = "idle";
-        const transitionPhase = (next) => {
-          const to = typeof next === "string" && next ? next : "unknown";
-          if (currentPhase === to) return;
-          const span = traceContext.startSpan("deepsearch.phase.transition", {
-            attributes: { from: currentPhase, to, runId: this.state?.runId },
-          });
-          try {
-            lifecycle.phaseTransition(currentPhase, to, this.state?.runId);
-          } finally {
-            traceContext.endSpan(span);
-          }
-          currentPhase = to;
-        };
-
-        const fromStatus = this.status;
-        this.status = AgentStatus.RUNNING;
-        lifecycle.statusChanged(fromStatus, AgentStatus.RUNNING, this.state.runId);
-        this._failureReported = false;
-        await this.resetMessages();
-
-        try {
-          // ===== Optional mechanisms (DI) =====
-          const {
-            SkillsManager,
-            BudgetManager,
-            CheckpointManager,
-            SharedContext,
-            BacktrackManager,
-            DiscoveryManager,
-            MemoryStore,
-            UnifiedAgentContext,
-          } = capabilities;
-
-      if (BudgetManager && !this.budget) this.budget = new BudgetManager(this.state);
-      if (SharedContext && !this.sharedContext) this.sharedContext = new SharedContext();
-
-      if (CheckpointManager && !this.checkpoint && stageApi.archive) {
-        this.checkpoint = new CheckpointManager({
-          archive: stageApi.archive,
-          emit: (n, p) => this._emit(n, p),
-          logger: this._logger,
-        });
-      }
-
-      if (BacktrackManager && !this.backtrackManager) {
-        this.backtrackManager = new BacktrackManager({
-          archive: stageApi.archive,
-          maxBacktracks: this.maxBacktracks,
-          emit: (n, p) => this._emit(n, p),
-          logger: this._logger,
-          sideEffects: stageApi?.sideEffects || null,
-        });
-      }
-
-      if (DiscoveryManager && !this.discoveryManager) {
-        this.discoveryManager = new DiscoveryManager({
-          sharedContext: this.sharedContext,
-          runId: this.state.runId,
-          logger: this._logger,
-        });
-      }
-
-      const memoryConfig = this.memoryConfig || this.state?.userConfig?.memory || null;
-      if (MemoryStore && !this.memory) {
-        this.memory = new MemoryStore({
-          runId: this.state.runId,
-          config: memoryConfig,
-          eventBus: this.eventBus,
-          sharedContext: this.sharedContext,
-          discoveryManager: this.discoveryManager,
-        });
-      } else if (this.memory) {
-        this.memory.bind?.({ sharedContext: this.sharedContext, discoveryManager: this.discoveryManager });
-      }
-
-      if (this.state && typeof this.state.bindMemoryStore === "function") {
-        this.state.bindMemoryStore(this.memory);
-      }
-
-      if (UnifiedAgentContext && !this.context) {
-        this.context = new UnifiedAgentContext({ runId: this.state.runId, eventBus: this.eventBus });
-        this.context.bind?.({ state: this.state, memory: this.memory, sharedContext: this.sharedContext });
-      }
-
-          lifecycle.started(this.state.runId, { mode: this.mode });
-          transitionPhase("planning");
-
-          const modeConfig = getModeConfig(this.mode, this.globalConfig);
-          await traceContext.withSpan("deepsearch.messages.bootstrap", async (span) => {
-            span.setAttributes({ mode: this.mode, runId: this.state?.runId });
-            return await addInitialDeepSearchMessages({
-              agent: this,
-              stageApi,
-              SkillsManager,
-              modeDescription: modeConfig.description || this.mode,
-            });
-          });
-
-	          const baseCallModel = getModelCaller(stageApi, { usage: "agent", state: this.state });
-	          if (!baseCallModel) throw new Error("No model available");
-	          const callModel = async (messages, opts = {}) => {
-            const model = typeof opts?.model === "string" ? opts.model : undefined;
-            const tier = typeof stageApi?.modelTier === "string" ? stageApi.modelTier : undefined;
-            const messageCount = Array.isArray(messages) ? messages.length : 0;
-            return await traceContext.withSpan("deepsearch.llm.call", async (span) => {
-              span.setAttributes({
-                runId: this.state?.runId,
-                ...(tier ? { modelTier: tier } : {}),
-                ...(model ? { model } : {}),
-                messageCount,
-              });
-              return await baseCallModel(messages, opts);
-            });
-          };
-
-          const responseHandler = new ModelResponseHandler({
-            logger: this._logger,
-            emit: (n, p) => this._emit(n, p),
-            parseDecision: (content) => this._parseDecision(content),
-            maxRetries: 5,
-          });
-
-      let iteration = 0;
-      let toolCallCount = 0;
-      let systemRetryCount = 0;
-      const maxSystemRetriesPerIteration = (() => {
-        const raw = this.state?.userConfig?.budget?.maxSystemRetriesPerIteration ?? this.state?.userConfig?.maxSystemRetriesPerIteration;
-        const n = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : null;
-        return n !== null && n >= 1 ? n : 3;
-      })();
-
-          const convergencePolicy = getGapConvergencePolicy(this.state);
-          const { convergence, initBaselines, emitIterationCompleted } = createIterationConvergenceTracker({ agent: this, convergencePolicy });
-          initBaselines();
-
-      const reportConvergenceConfig = normalizeReportConvergenceConfig(
-        this.state?.userConfig?.convergenceDetector ??
-          this.state?.userConfig?.reportConvergenceDetector ??
-          this.state?.userConfig?.reportConvergence ??
-          this.globalConfig?.convergenceDetector
-      );
-      const reportConvergenceDetector = reportConvergenceConfig.enabled
-        ? new ConvergenceDetector({
-            windowSize: reportConvergenceConfig.windowSize,
-            ...(reportConvergenceConfig.entropyThreshold !== undefined
-              ? { entropyThreshold: reportConvergenceConfig.entropyThreshold }
-              : {}),
-            ...(reportConvergenceConfig.similarityThreshold !== undefined
-              ? { similarityThreshold: reportConvergenceConfig.similarityThreshold }
-              : {}),
-          })
-        : null;
-
-      const updateReportConvergence = (plannedIteration) => {
-        if (!reportConvergenceDetector) return null;
-        if (plannedIteration < reportConvergenceConfig.minIterations) return null;
-
-        const report = this.context?.report || this.state?.L1?.report || null;
-        const markdown = typeof report?.markdown === "string" ? report.markdown : "";
-        const compactLen = markdown.replace(/\s+/g, "").length;
-        if (compactLen < reportConvergenceConfig.minReportChars) return null;
-
-        const gaps = Array.isArray(this.state?.L1?.gaps) ? this.state.L1.gaps : [];
-        const sample = buildConvergenceSample({
-          reportMarkdown: markdown,
-          gaps,
-          maxChars: reportConvergenceConfig.sampleMaxChars,
-        });
-        const { metrics } = reportConvergenceDetector.addSample(sample);
-        const suggestion = reportConvergenceDetector.getSuggestion();
-        this._emit?.("convergence.suggested", {
-          iteration: plannedIteration,
-          action: suggestion.action,
-          reason: suggestion.reason,
-          metrics,
-        });
-        return { suggestion, metrics };
-      };
-
-      const afterIterationCompleted = (plannedIteration) => {
-        emitIterationCompleted(plannedIteration);
-        const reportConvergence = updateReportConvergence(plannedIteration);
-        if (reportConvergenceConfig.stopOnConvergence && reportConvergence?.suggestion?.action === "stop") {
-          return { shouldStop: true, reportConvergence };
-        }
-        return { shouldStop: false, reportConvergence };
-      };
-
-          while (iteration < this.maxIterations) {
-        const plannedIteration = iteration + 1;
-
-        if (toolCallCount >= this.maxToolCalls) {
-          this._logger.info?.(`工具调用次数达到上限 (${toolCallCount}/${this.maxToolCalls})，强制进入写作阶段`);
-          break;
-        }
-
-        checkCancelled(signal);
-
-        if (this.budget?.isExhausted?.()) {
-          this._logger.warn?.("Budget exhausted");
-          break;
-        }
+            const { signal, lifecycle, capabilities, transitionPhase } =
+              await this._initRunCore(input, stageApi, traceContext, runSpan);
 
             try {
-              const outcome = await traceContext.withSpan("deepsearch.iteration", async (span) => {
-                span.setAttributes({
-                  runId: this.state?.runId,
-                  iteration: plannedIteration,
-                  toolCallCount,
-                  systemRetryCount,
-                });
+              const SkillsManager = capabilities.SkillsManager;
+              this._wireCapabilities(capabilities, stageApi);
 
-                transitionPhase("planning");
-                const planned = await traceContext.withSpan("deepsearch.planning", async (planningSpan) => {
-                  planningSpan.setAttributes({ runId: this.state?.runId, iteration: plannedIteration });
-                  return await runPlanningPhaseIteration({
-                    agent: this,
-                    stageApi,
-                    context,
-                    callModel,
-                    responseHandler,
-                    iteration,
-                    toolCallCount,
-                    systemRetryCount,
-                    maxSystemRetriesPerIteration,
-                    convergencePolicy,
-                    convergence,
-                  });
-                });
+              lifecycle.started(this.state.runId, { mode: this.mode });
+              transitionPhase("planning");
 
-                if (planned.status === "retry") return { action: "retry" };
-                if (planned.status === "skip") {
-                  iteration = plannedIteration;
-                  if (this.context) this.context.iteration = iteration;
-                  else this.state.iteration = iteration;
-                  systemRetryCount = 0;
-                  const { shouldStop } = afterIterationCompleted(plannedIteration);
-                  return { action: shouldStop ? "break" : "continue" };
-                }
-                if (planned.status === "stop") return { action: "break" };
-                if (planned.status !== "success") return { action: "break" };
+              const { callModel, responseHandler } =
+                await this._bootstrapModel(stageApi, traceContext, SkillsManager);
 
-                const { decision } = planned;
-
-                if (decision?.action === "complete") {
-                  await traceContext.withSpan("deepsearch.complete", async (completeSpan) => {
-                    completeSpan.setAttributes({ runId: this.state?.runId, iteration: plannedIteration });
-                    return await ensureReportOnComplete({ agent: this, stageApi });
-                  });
-                  iteration = plannedIteration;
-                  systemRetryCount = 0;
-                  afterIterationCompleted(plannedIteration);
-                  return { action: "break" };
-                }
-
-                transitionPhase("execution");
-                const executed = await traceContext.withSpan("deepsearch.execution", async (execSpan) => {
-                  execSpan.setAttributes({
-                    runId: this.state?.runId,
-                    iteration: plannedIteration,
-                    ...(typeof decision?.action === "string" ? { action: decision.action } : {}),
-                    ...(Array.isArray(decision?.actions) ? { actionCount: decision.actions.length } : {}),
-                  });
-                  return await executeDeepSearchDecision({
-                    agent: this,
-                    stageApi,
-                    decision,
-                    plannedIteration,
-                  });
-                });
-                toolCallCount += typeof executed?.toolCalls === "number" ? executed.toolCalls : 0;
-
-                iteration = plannedIteration;
-                systemRetryCount = 0;
-                const { shouldStop } = afterIterationCompleted(plannedIteration);
-                return { action: shouldStop ? "break" : "continue" };
+              const loopCtx = this._setupConvergenceTracking(traceContext);
+              Object.assign(loopCtx, {
+                signal, lifecycle, transitionPhase, traceContext,
+                stageApi, callModel, responseHandler, context,
               });
-              if (outcome?.action === "retry") continue;
-              if (outcome?.action === "break") break;
+
+              await this._runIterationLoop(loopCtx);
+
+              transitionPhase("writing");
+              await traceContext.withSpan("deepsearch.writing", async (span) => {
+                span.setAttributes({ runId: this.state?.runId, iteration: loopCtx.iteration, toolCallCount: loopCtx.toolCallCount });
+                return await runWritingPhaseIfNeeded({
+                  agent: this, stageApi, callModel,
+                  iteration: loopCtx.iteration, toolCallCount: loopCtx.toolCallCount, signal,
+                });
+              });
+
+              lifecycle.statusChanged(this.status, AgentStatus.COMPLETED, this.state.runId);
+              this.status = AgentStatus.COMPLETED;
+              lifecycle.completed(this.state.runId, { iterations: loopCtx.iteration });
+              return this._buildOutput();
             } catch (err) {
-          const info = classifyDeepSearchError(err);
-          this._logger.error?.("Iteration error", {
-            error: info.message,
-            category: info.category,
-            recoverable: info.recoverable,
-            ...(typeof info.statusCode === "number" ? { statusCode: info.statusCode } : {}),
-            ...(typeof info.code === "string" && info.code ? { code: info.code } : {}),
-          });
-
-          if (!info.recoverable) {
-            this.addMessage({ role: "user", content: `致命错误: ${info.message}\n\n请检查配置/权限/网络后重试。` });
-            this._markFailed(err, info, lifecycle);
-            throw err;
-          }
-
-          this.addMessage({ role: "user", content: `错误: ${info.message}\n\n请尝试其他方法。` });
-          systemRetryCount += 1;
-
-          // System errors do not consume iteration budget by default.
-          if (this.context) this.context.iteration = iteration;
-          else this.state.iteration = iteration;
-
-          if (systemRetryCount >= maxSystemRetriesPerIteration) {
-            iteration = plannedIteration;
-            if (this.context) this.context.iteration = iteration;
-            else this.state.iteration = iteration;
-            systemRetryCount = 0;
-            this.addMessage({
-              role: "user",
-              content: `系统错误已连续发生 ${maxSystemRetriesPerIteration} 次，为避免卡死，已计入 1 轮迭代并继续。`,
-            });
-            afterIterationCompleted(plannedIteration);
-          }
+              const info = classifyDeepSearchError(err);
+              this._logger.error?.("DeepSearch run failed", {
+                error: info.message, category: info.category, recoverable: info.recoverable,
+                ...(typeof info.statusCode === "number" ? { statusCode: info.statusCode } : {}),
+                ...(typeof info.code === "string" && info.code ? { code: info.code } : {}),
+              });
+              this._markFailed(err, info, lifecycle);
+              throw err;
             }
-          }
-
-          transitionPhase("writing");
-          await traceContext.withSpan("deepsearch.writing", async (span) => {
-            span.setAttributes({ runId: this.state?.runId, iteration, toolCallCount });
-            return await runWritingPhaseIfNeeded({
-              agent: this,
-              stageApi,
-              callModel,
-              iteration,
-              toolCallCount,
-              signal,
-            });
-          });
-
-          lifecycle.statusChanged(this.status, AgentStatus.COMPLETED, this.state.runId);
-          this.status = AgentStatus.COMPLETED;
-          lifecycle.completed(this.state.runId, { iterations: iteration });
-          return this._buildOutput();
-        } catch (err) {
-          const info = classifyDeepSearchError(err);
-          this._logger.error?.("DeepSearch run failed", {
-            error: info.message,
-            category: info.category,
-            recoverable: info.recoverable,
-            ...(typeof info.statusCode === "number" ? { statusCode: info.statusCode } : {}),
-            ...(typeof info.code === "string" && info.code ? { code: info.code } : {}),
-          });
-          this._markFailed(err, info, lifecycle);
-          throw err;
-        }
-      },
-      { attributes: { stage: "deepsearch" } }
+          },
+          { attributes: { stage: "deepsearch" } }
         ),
       {
         context: {
@@ -665,6 +331,404 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     );
   }
 
+  /**
+   * Initialize run core: signal, lifecycle, capabilities, state, status.
+   * @param {any} input
+   * @param {any} stageApi
+   * @param {any} traceContext
+   * @param {any} runSpan
+   * @returns {Promise<{signal: any, lifecycle: any, capabilities: any, transitionPhase: Function}>}
+   */
+  async _initRunCore(input, stageApi, traceContext, runSpan) {
+    const { signal } = stageApi;
+    checkCancelled(signal);
+
+    const lifecycle = createLifecycleEmitter({
+      actor: "deepsearch",
+      emit: stageApi?.emit,
+      eventBus: this.eventBus,
+    });
+
+    const capabilities = await traceContext.withSpan("deepsearch.capabilities.load", async (span) => {
+      const out = await loadDeepSearchCapabilities();
+      span.setAttribute("capabilities.loaded", true);
+      return out;
+    });
+    checkCancelled(signal);
+
+    this.state = this._ensureState(input);
+
+    if (!this.sourceManager) this.sourceManager = new SourceManager(this.state?.L0?.sources || []);
+    else this.sourceManager.syncSources(this.state?.L0?.sources);
+
+    if (!this.state.userConfig) this.state.userConfig = {};
+    this.state.userConfig.mode = this.mode;
+    if (this.globalConfig) this.state.globalConfig = this.globalConfig;
+
+    runSpan.setAttributes({
+      runId: this.state?.runId,
+      mode: this.mode,
+    });
+
+    let currentPhase = "idle";
+    const transitionPhase = (next) => {
+      const to = typeof next === "string" && next ? next : "unknown";
+      if (currentPhase === to) return;
+      const span = traceContext.startSpan("deepsearch.phase.transition", {
+        attributes: { from: currentPhase, to, runId: this.state?.runId },
+      });
+      try {
+        lifecycle.phaseTransition(currentPhase, to, this.state?.runId);
+      } finally {
+        traceContext.endSpan(span);
+      }
+      currentPhase = to;
+    };
+
+    const fromStatus = this.status;
+    this.status = AgentStatus.RUNNING;
+    lifecycle.statusChanged(fromStatus, AgentStatus.RUNNING, this.state.runId);
+    this._failureReported = false;
+    await this.resetMessages();
+
+    return { signal, lifecycle, capabilities, transitionPhase };
+  }
+
+  /**
+   * Wire optional capabilities via DI.
+   * @param {any} capabilities
+   * @param {any} stageApi
+   */
+  _wireCapabilities(capabilities, stageApi) {
+    const {
+      BudgetManager, CheckpointManager, SharedContext,
+      BacktrackManager, DiscoveryManager, MemoryStore, UnifiedAgentContext,
+    } = capabilities;
+
+    if (BudgetManager && !this.budget) this.budget = new BudgetManager(this.state);
+    if (SharedContext && !this.sharedContext) this.sharedContext = new SharedContext();
+
+    if (CheckpointManager && !this.checkpoint && stageApi.archive) {
+      this.checkpoint = new CheckpointManager({
+        archive: stageApi.archive,
+        emit: (n, p) => this._emit(n, p),
+        logger: this._logger,
+      });
+    }
+
+    if (BacktrackManager && !this.backtrackManager) {
+      this.backtrackManager = new BacktrackManager({
+        archive: stageApi.archive,
+        maxBacktracks: this.maxBacktracks,
+        emit: (n, p) => this._emit(n, p),
+        logger: this._logger,
+        sideEffects: stageApi?.sideEffects || null,
+      });
+    }
+
+    if (DiscoveryManager && !this.discoveryManager) {
+      this.discoveryManager = new DiscoveryManager({
+        sharedContext: this.sharedContext,
+        runId: this.state.runId,
+        logger: this._logger,
+      });
+    }
+
+    const memoryConfig = this.memoryConfig || this.state?.userConfig?.memory || null;
+    if (MemoryStore && !this.memory) {
+      this.memory = new MemoryStore({
+        runId: this.state.runId,
+        config: memoryConfig,
+        eventBus: this.eventBus,
+        sharedContext: this.sharedContext,
+        discoveryManager: this.discoveryManager,
+      });
+    } else if (this.memory) {
+      this.memory.bind?.({ sharedContext: this.sharedContext, discoveryManager: this.discoveryManager });
+    }
+
+    if (this.state && typeof this.state.bindMemoryStore === "function") {
+      this.state.bindMemoryStore(this.memory);
+    }
+
+    if (UnifiedAgentContext && !this.context) {
+      this.context = new UnifiedAgentContext({ runId: this.state.runId, eventBus: this.eventBus });
+      this.context.bind?.({ state: this.state, memory: this.memory, sharedContext: this.sharedContext });
+    }
+  }
+
+  /**
+   * Bootstrap initial messages and create model caller + response handler.
+   * @param {any} stageApi
+   * @param {any} traceContext
+   * @param {any} SkillsManager
+   * @returns {Promise<{callModel: Function, responseHandler: any}>}
+   */
+  async _bootstrapModel(stageApi, traceContext, SkillsManager) {
+    const modeConfig = getModeConfig(this.mode, this.globalConfig);
+    await traceContext.withSpan("deepsearch.messages.bootstrap", async (span) => {
+      span.setAttributes({ mode: this.mode, runId: this.state?.runId });
+      return await addInitialDeepSearchMessages({
+        agent: this,
+        stageApi,
+        SkillsManager,
+        modeDescription: modeConfig.description || this.mode,
+      });
+    });
+
+    const baseCallModel = getModelCaller(stageApi, { usage: "agent", state: this.state });
+    if (!baseCallModel) throw new Error("No model available");
+    const callModel = async (messages, opts = {}) => {
+      const model = typeof opts?.model === "string" ? opts.model : undefined;
+      const tier = typeof stageApi?.modelTier === "string" ? stageApi.modelTier : undefined;
+      const messageCount = Array.isArray(messages) ? messages.length : 0;
+      return await traceContext.withSpan("deepsearch.llm.call", async (span) => {
+        span.setAttributes({
+          runId: this.state?.runId,
+          ...(tier ? { modelTier: tier } : {}),
+          ...(model ? { model } : {}),
+          messageCount,
+        });
+        return await baseCallModel(messages, opts);
+      });
+    };
+
+    const responseHandler = new ModelResponseHandler({
+      logger: this._logger,
+      emit: (n, p) => this._emit(n, p),
+      parseDecision: (content) => this._parseDecision(content),
+      maxRetries: 5,
+    });
+
+    return { callModel, responseHandler };
+  }
+
+  /**
+   * Set up convergence tracking, report convergence detector, and iteration helpers.
+   * @param {any} traceContext
+   * @returns {{ iteration: number, toolCallCount: number, systemRetryCount: number, maxSystemRetriesPerIteration: number, convergencePolicy: any, convergence: any, afterIterationCompleted: Function }}
+   */
+  _setupConvergenceTracking(traceContext) {
+    const maxSystemRetriesPerIteration = (() => {
+      const raw = this.state?.userConfig?.budget?.maxSystemRetriesPerIteration ?? this.state?.userConfig?.maxSystemRetriesPerIteration;
+      const n = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : null;
+      return n !== null && n >= 1 ? n : 3;
+    })();
+
+    const convergencePolicy = getGapConvergencePolicy(this.state);
+    const { convergence, initBaselines, emitIterationCompleted } = createIterationConvergenceTracker({ agent: this, convergencePolicy });
+    initBaselines();
+
+    const reportConvergenceConfig = normalizeReportConvergenceConfig(
+      this.state?.userConfig?.convergenceDetector ??
+        this.state?.userConfig?.reportConvergenceDetector ??
+        this.state?.userConfig?.reportConvergence ??
+        this.globalConfig?.convergenceDetector
+    );
+    const reportConvergenceDetector = reportConvergenceConfig.enabled
+      ? new ConvergenceDetector({
+          windowSize: reportConvergenceConfig.windowSize,
+          ...(reportConvergenceConfig.entropyThreshold !== undefined
+            ? { entropyThreshold: reportConvergenceConfig.entropyThreshold }
+            : {}),
+          ...(reportConvergenceConfig.similarityThreshold !== undefined
+            ? { similarityThreshold: reportConvergenceConfig.similarityThreshold }
+            : {}),
+        })
+      : null;
+
+    const updateReportConvergence = (plannedIteration) => {
+      if (!reportConvergenceDetector) return null;
+      if (plannedIteration < reportConvergenceConfig.minIterations) return null;
+
+      const report = this.context?.report || this.state?.L1?.report || null;
+      const markdown = typeof report?.markdown === "string" ? report.markdown : "";
+      const compactLen = markdown.replace(/\s+/g, "").length;
+      if (compactLen < reportConvergenceConfig.minReportChars) return null;
+
+      const gaps = Array.isArray(this.state?.L1?.gaps) ? this.state.L1.gaps : [];
+      const sample = buildConvergenceSample({
+        reportMarkdown: markdown,
+        gaps,
+        maxChars: reportConvergenceConfig.sampleMaxChars,
+      });
+      const { metrics } = reportConvergenceDetector.addSample(sample);
+      const suggestion = reportConvergenceDetector.getSuggestion();
+      this._emit?.("convergence.suggested", {
+        iteration: plannedIteration,
+        action: suggestion.action,
+        reason: suggestion.reason,
+        metrics,
+      });
+      return { suggestion, metrics };
+    };
+
+    const afterIterationCompleted = (plannedIteration) => {
+      emitIterationCompleted(plannedIteration);
+      const reportConvergence = updateReportConvergence(plannedIteration);
+      if (reportConvergenceConfig.stopOnConvergence && reportConvergence?.suggestion?.action === "stop") {
+        return { shouldStop: true, reportConvergence };
+      }
+      return { shouldStop: false, reportConvergence };
+    };
+
+    return {
+      iteration: 0,
+      toolCallCount: 0,
+      systemRetryCount: 0,
+      maxSystemRetriesPerIteration,
+      convergencePolicy,
+      convergence,
+      afterIterationCompleted,
+    };
+  }
+
+  /**
+   * Execute the main iteration loop (planning + execution per iteration).
+   * @param {object} ctx - Loop context containing all shared state and dependencies.
+   */
+  async _runIterationLoop(ctx) {
+    const {
+      signal, lifecycle, transitionPhase, traceContext,
+      stageApi, callModel, responseHandler, context,
+      convergencePolicy, convergence, afterIterationCompleted,
+      maxSystemRetriesPerIteration,
+    } = ctx;
+
+    while (ctx.iteration < this.maxIterations) {
+      const plannedIteration = ctx.iteration + 1;
+
+      if (ctx.toolCallCount >= this.maxToolCalls) {
+        this._logger.info?.(`工具调用次数达到上限 (${ctx.toolCallCount}/${this.maxToolCalls})，强制进入写作阶段`);
+        break;
+      }
+
+      checkCancelled(signal);
+
+      if (this.budget?.isExhausted?.()) {
+        this._logger.warn?.("Budget exhausted");
+        break;
+      }
+
+      try {
+        const outcome = await traceContext.withSpan("deepsearch.iteration", async (span) => {
+          span.setAttributes({
+            runId: this.state?.runId,
+            iteration: plannedIteration,
+            toolCallCount: ctx.toolCallCount,
+            systemRetryCount: ctx.systemRetryCount,
+          });
+
+          transitionPhase("planning");
+          const planned = await traceContext.withSpan("deepsearch.planning", async (planningSpan) => {
+            planningSpan.setAttributes({ runId: this.state?.runId, iteration: plannedIteration });
+            return await runPlanningPhaseIteration({
+              agent: this, stageApi, context,
+              callModel, responseHandler,
+              iteration: ctx.iteration, toolCallCount: ctx.toolCallCount,
+              systemRetryCount: ctx.systemRetryCount, maxSystemRetriesPerIteration,
+              convergencePolicy, convergence,
+            });
+          });
+
+          if (planned.status === "retry") return { action: "retry" };
+          if (planned.status === "skip") {
+            ctx.iteration = plannedIteration;
+            if (this.context) this.context.iteration = ctx.iteration;
+            else this.state.iteration = ctx.iteration;
+            ctx.systemRetryCount = 0;
+            const { shouldStop } = afterIterationCompleted(plannedIteration);
+            return { action: shouldStop ? "break" : "continue" };
+          }
+          if (planned.status === "stop") return { action: "break" };
+          if (planned.status !== "success") return { action: "break" };
+
+          const { decision } = planned;
+
+          if (decision?.action === "complete") {
+            await traceContext.withSpan("deepsearch.complete", async (completeSpan) => {
+              completeSpan.setAttributes({ runId: this.state?.runId, iteration: plannedIteration });
+              return await ensureReportOnComplete({ agent: this, stageApi });
+            });
+            ctx.iteration = plannedIteration;
+            ctx.systemRetryCount = 0;
+            afterIterationCompleted(plannedIteration);
+            return { action: "break" };
+          }
+
+          transitionPhase("execution");
+          const executed = await traceContext.withSpan("deepsearch.execution", async (execSpan) => {
+            execSpan.setAttributes({
+              runId: this.state?.runId,
+              iteration: plannedIteration,
+              ...(typeof decision?.action === "string" ? { action: decision.action } : {}),
+              ...(Array.isArray(decision?.actions) ? { actionCount: decision.actions.length } : {}),
+            });
+            return await executeDeepSearchDecision({
+              agent: this, stageApi, decision, plannedIteration,
+            });
+          });
+          ctx.toolCallCount += typeof executed?.toolCalls === "number" ? executed.toolCalls : 0;
+
+          ctx.iteration = plannedIteration;
+          ctx.systemRetryCount = 0;
+          const { shouldStop } = afterIterationCompleted(plannedIteration);
+          return { action: shouldStop ? "break" : "continue" };
+        });
+        if (outcome?.action === "retry") continue;
+        if (outcome?.action === "break") break;
+      } catch (err) {
+        this._handleIterationError(err, ctx, plannedIteration, lifecycle, afterIterationCompleted);
+      }
+    }
+  }
+
+  /**
+   * Handle a recoverable or fatal iteration error.
+   * @param {Error} err
+   * @param {object} ctx - Loop context
+   * @param {number} plannedIteration
+   * @param {any} lifecycle
+   * @param {Function} afterIterationCompleted
+   */
+  _handleIterationError(err, ctx, plannedIteration, lifecycle, afterIterationCompleted) {
+    const info = classifyDeepSearchError(err);
+    this._logger.error?.("Iteration error", {
+      error: info.message,
+      category: info.category,
+      recoverable: info.recoverable,
+      ...(typeof info.statusCode === "number" ? { statusCode: info.statusCode } : {}),
+      ...(typeof info.code === "string" && info.code ? { code: info.code } : {}),
+    });
+
+    if (!info.recoverable) {
+      this.addMessage({ role: "user", content: `致命错误: ${info.message}\n\n请检查配置/权限/网络后重试。` });
+      this._markFailed(err, info, lifecycle);
+      throw err;
+    }
+
+    this.addMessage({ role: "user", content: `错误: ${info.message}\n\n请尝试其他方法。` });
+    ctx.systemRetryCount += 1;
+
+    // System errors do not consume iteration budget by default.
+    if (this.context) this.context.iteration = ctx.iteration;
+    else this.state.iteration = ctx.iteration;
+
+    if (ctx.systemRetryCount >= ctx.maxSystemRetriesPerIteration) {
+      ctx.iteration = plannedIteration;
+      if (this.context) this.context.iteration = ctx.iteration;
+      else this.state.iteration = ctx.iteration;
+      ctx.systemRetryCount = 0;
+      this.addMessage({
+        role: "user",
+        content: `系统错误已连续发生 ${ctx.maxSystemRetriesPerIteration} 次，为避免卡死，已计入 1 轮迭代并继续。`,
+      });
+      afterIterationCompleted(plannedIteration);
+    }
+  }
+
+
+  /** @private */
   _parseDecision(content) {
     try {
       const parsed = robustParseJson(content);

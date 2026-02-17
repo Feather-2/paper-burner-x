@@ -32,15 +32,11 @@ describe("StateBus", () => {
       expect(state.get("")).toBe(root);
     });
 
-    it("returns undefined for missing or unsafe paths", () => {
+    it("throws for unsafe paths", () => {
       expect(state.get("missing.path")).toBeUndefined();
 
-      const value = state.get("safe.__proto__.polluted");
-      expect(value).toBeUndefined();
-      expect(mockedLogger.warn).toHaveBeenCalledTimes(1);
-      expect(mockedLogger.warn).toHaveBeenCalledWith(
-        "StateBus blocked unsafe path segment",
-        expect.objectContaining({ path: "safe.__proto__.polluted", segment: "__proto__" })
+      expect(() => state.get("safe.__proto__.polluted")).toThrow(
+        /unsafe segment/
       );
     });
 
@@ -109,14 +105,13 @@ describe("StateBus", () => {
       nowSpy.mockRestore();
     });
 
-    it("ignores empty or unsafe paths", () => {
-      state.set("", 123);
+    it("throws on empty or unsafe paths", () => {
+      expect(() => state.set("", 123)).toThrow(/non-empty string/);
       expect(state.get("meta.updatedAt")).toBeNull();
       expect(events.emitSync).not.toHaveBeenCalled();
 
-      state.set("unsafe.__proto__.polluted", "yes");
+      expect(() => state.set("unsafe.__proto__.polluted", "yes")).toThrow(/unsafe segment/);
       expect(state.get("unsafe")).toBeUndefined();
-      expect(mockedLogger.warn).toHaveBeenCalledTimes(1);
       expect({}.polluted).toBeUndefined();
       expect(events.emitSync).not.toHaveBeenCalled();
     });
@@ -196,11 +191,10 @@ describe("StateBus", () => {
       expect(change.newValue).toBeUndefined();
     });
 
-    it("returns false for missing, empty, or unsafe paths", () => {
+    it("returns false for missing paths, throws on empty or unsafe", () => {
       expect(state.delete("missing.path")).toBe(false);
-      expect(state.delete("")).toBe(false);
-      expect(state.delete("safe.__proto__.x")).toBe(false);
-      expect(mockedLogger.warn).toHaveBeenCalledTimes(1);
+      expect(() => state.delete("")).toThrow(/non-empty string/);
+      expect(() => state.delete("safe.__proto__.x")).toThrow(/unsafe segment/);
     });
 
     it("returns false when parent path is non-object", () => {
