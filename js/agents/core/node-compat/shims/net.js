@@ -42,11 +42,12 @@ export class Socket extends Duplex {
 
     queueMicrotask(() => {
       this._connecting = false;
-      this._connected = true;
       this.connecting = false;
-      this.readyState = 'open';
-      this.emit('connect');
-      if (cb) cb();
+      this.readyState = 'closed';
+      const err = new Error('net.Socket.connect() is not supported in browser shim');
+      err.code = 'ERR_NOT_SUPPORTED';
+      this.emit('error', err);
+      if (cb) cb(err);
     });
     return this;
   }

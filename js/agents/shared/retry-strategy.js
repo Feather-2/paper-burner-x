@@ -294,13 +294,17 @@ export class RetryStrategy {
         return;
       }
 
-      const timer = setTimeout(resolve, ms);
+      const timer = setTimeout(() => {
+        if (signal) signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new Error("Aborted"));
+      };
 
       if (signal) {
-        const onAbort = () => {
-          clearTimeout(timer);
-          reject(new Error("Aborted"));
-        };
         signal.addEventListener("abort", onAbort, { once: true });
       }
     });

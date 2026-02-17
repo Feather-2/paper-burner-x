@@ -161,6 +161,11 @@ export class MessageManager {
   addMessage(message) {
     if (this._disposed) return message;
     this._messages.push(message);
+    // Hard cap to prevent unbounded memory growth
+    const MAX_MESSAGES = 500;
+    while (this._messages.length > MAX_MESSAGES) {
+      this._messages.shift();
+    }
     if (message && typeof message === "object" && message._superseded === true) {
       this._supersededCount += 1;
     }

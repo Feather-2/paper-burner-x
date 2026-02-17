@@ -95,11 +95,11 @@ export function exposeApi(api, self = globalThis) {
     const d = e.data;
     if (!d || d.type !== MSG_CALL) return;
     const { id, method, args } = d;
-    const fn = api[method];
-    if (!fn) {
+    if (!Object.hasOwn(api, method) || typeof api[method] !== 'function') {
       self.postMessage({ type: MSG_RETURN, id, ok: false, error: `Unknown method: ${method}` });
       return;
     }
+    const fn = api[method];
     try {
       const value = await fn(...(args || []));
       self.postMessage({ type: MSG_RETURN, id, ok: true, value });

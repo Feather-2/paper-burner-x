@@ -53,20 +53,26 @@ export function installFetchHandler(sw) {
           ? sw.clients.get(clientId)
           : sw.clients.matchAll().then((clients) => clients[0]);
 
-        clientPromise.then((client) => {
+        const bodyPromise = event.request.method !== 'GET' && event.request.method !== 'HEAD'
+          ? event.request.arrayBuffer().then((buf) => buf.byteLength > 0 ? buf : null).catch(() => null)
+          : Promise.resolve(null);
+
+        Promise.all([clientPromise, bodyPromise]).then(([client, body]) => {
           if (!client) {
             settle(new Response('No client', { status: 503 }));
             return;
           }
+          const transfer = [mc.port2];
+          if (body instanceof ArrayBuffer) transfer.push(body);
           client.postMessage({
             type: 'virtual-request',
             port,
             method: event.request.method,
             url: path,
             headers: Object.fromEntries(event.request.headers.entries()),
-            body: null,
+            body,
             requestId: Date.now() + '-' + Math.random(),
-          }, [mc.port2]);
+          }, transfer);
         }).catch(() => {
           settle(new Response('Client error', { status: 503 }));
         });

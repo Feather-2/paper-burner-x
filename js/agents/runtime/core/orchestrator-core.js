@@ -355,12 +355,13 @@ export class AgentOrchestrator extends DisposableBase {
         try {
           const level = degradationMatrix.currentLevel;
           if (toNonEmptyString(level) && level !== this._lastOperationLevel) {
+            const previousLevel = this._lastOperationLevel || "normal";
             this._lastOperationLevel = level;
 
             // P1: Emit degradation decision context
             const decisionContext = {
               level,
-              previousLevel: this._lastOperationLevel || "normal",
+              previousLevel,
               runId: this.runId,
               stage: stageName,
               durationMs,

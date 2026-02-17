@@ -9,36 +9,30 @@ describe('net shim', () => {
     expect(() => new Socket()).not.toThrow();
   });
 
-  it('Socket.connect triggers connect event', async () => {
+  it('Socket.connect emits error (not supported in browser shim)', async () => {
     const s = new Socket();
-    const fn = vi.fn();
-    s.on('connect', fn);
+    const errFn = vi.fn();
+    s.on('error', errFn);
     s.connect(8080, 'localhost');
-    expect(s.connecting).toBe(true);
-    await new Promise(r => queueMicrotask(r));
-    expect(fn).toHaveBeenCalled();
-    expect(s.connecting).toBe(false);
-    expect(s.readyState).toBe('open');
+    await new Promise(r => setTimeout(r, 10));
+    expect(errFn).toHaveBeenCalled();
+    expect(errFn.mock.calls[0][0].code).toBe('ERR_NOT_SUPPORTED');
+    expect(s.readyState).toBe('closed');
   });
 
-  it('Socket.connect with options object', async () => {
+  it('Socket.connect with options object emits error', async () => {
     const s = new Socket();
     const fn = vi.fn();
+    s.on('error', () => {}); // prevent unhandled error throw
     s.connect({ port: 3000, host: '10.0.0.1' }, fn);
-    await new Promise(r => queueMicrotask(r));
+    await new Promise(r => setTimeout(r, 10));
     expect(fn).toHaveBeenCalled();
-    expect(s.remoteAddress).toBe('10.0.0.1');
-    expect(s.remotePort).toBe(3000);
+    expect(fn.mock.calls[0][0]).toBeInstanceOf(Error);
   });
 
-  it('Socket.address returns address after connect', async () => {
+  it('Socket.address returns null (connect not supported)', () => {
     const s = new Socket();
     expect(s.address()).toBeNull();
-    s.connect(8080);
-    await new Promise(r => queueMicrotask(r));
-    const addr = s.address();
-    expect(addr).toHaveProperty('address', '127.0.0.1');
-    expect(addr).toHaveProperty('family', 'IPv4');
   });
 
   it('Socket.destroy triggers close event', async () => {
@@ -154,6 +148,7 @@ describe('net shim', () => {
 
   it('createConnection returns a Socket', () => {
     const s = createConnection(8080);
+    s.on('error', () => {}); // suppress expected shim error
     expect(s).toBeInstanceOf(Socket);
   });
 
