@@ -14,18 +14,32 @@ const logger = createLogger("deepsearch/tools/task");
 
 // 延迟注册子代理，避免循环依赖
 let _subagentsRegistered = false;
+let _subagentsRegistering = null;
 /** @private */
 async function ensureSubagentsRegistered() {
-  if (_subagentsRegistered) return;
-  try {
-    const mod = await import("../../subagents.js");
-    if (typeof mod?.registerDeepSearchSubagents === "function") {
-      mod.registerDeepSearchSubagents(globalSubagentRegistry, { force: false });
+  if (_subagentsRegistered) return true;
+  if (_subagentsRegistering) return _subagentsRegistering;
+
+  _subagentsRegistering = (async () => {
+    try {
+      const mod = await import("../../subagents.js");
+      const register = mod?.registerDeepSearchSubagents;
+      if (typeof register !== "function") {
+        logger.warn("subagents registration skipped: registerDeepSearchSubagents not found");
+        return false;
+      }
+      register(globalSubagentRegistry, { force: false });
+      _subagentsRegistered = true;
+      return true;
+    } catch (e) {
+      logger.warn("subagents registration failed", { error: e?.message || String(e) });
+      return false;
+    } finally {
+      _subagentsRegistering = null;
     }
-    _subagentsRegistered = true;
-  } catch (e) {
-    logger.warn("subagents registration failed", { error: e?.message || String(e) });
-  }
+  })();
+
+  return _subagentsRegistering;
 }
 import SourceManager from "../../source-manager.js";
 import { makeSecureTimestampedId } from "../../../../shared/index.js";

@@ -24,6 +24,9 @@ const isPlainObject = vi.hoisted(() =>
     return proto === Object.prototype || proto === null;
   })
 );
+const makeSecureTimestampedId = vi.hoisted(() =>
+  vi.fn((prefix) => `${prefix}-secure-id`)
+);
 
 vi.mock("../../../../../../js/agents/stages/design/constants.js", () => ({
   EditOperationType,
@@ -31,6 +34,7 @@ vi.mock("../../../../../../js/agents/stages/design/constants.js", () => ({
 
 vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   isPlainObject,
+  makeSecureTimestampedId,
 }));
 
 import { EditModeTools, createEditToolExecutor } from "../../../../../../js/agents/stages/design/edit-mode/tools.js";
@@ -96,6 +100,7 @@ describe("EditModeTools", () => {
 describe("createEditToolExecutor", () => {
   beforeEach(() => {
     isPlainObject.mockClear();
+    makeSecureTimestampedId.mockClear();
   });
 
   it("returns error for unknown tools and empty names", async () => {
@@ -629,5 +634,32 @@ describe("createEditToolExecutor", () => {
       "fast-3",
       "fast-4",
     ]);
+  });
+
+  it("uses idFactory for slide/element ids and falls back to secure defaults", async () => {
+    const state = makeState({ slides: [makeSlide("s1")] });
+    const idFactory = vi
+      .fn()
+      .mockImplementation(({ kind }) => (kind === "slide" ? "slide-custom" : "el-custom"));
+    const exec = createEditToolExecutor({ state, idFactory });
+
+    const addSlide = await exec(EditOperationType.ADD_SLIDE, {});
+    const addElement = await exec(EditOperationType.ADD_ELEMENT, { slideIndex: 0 });
+
+    expect(addSlide.success).toBe(true);
+    expect(addSlide.data.slide.id).toBe("slide-custom");
+    expect(addElement.success).toBe(true);
+    expect(addElement.data.element.id).toBe("el-custom");
+    expect(idFactory).toHaveBeenCalledWith(expect.objectContaining({ kind: "slide", prefix: "slide" }));
+    expect(idFactory).toHaveBeenCalledWith(expect.objectContaining({ kind: "element", prefix: "el" }));
+    expect(makeSecureTimestampedId).not.toHaveBeenCalled();
+
+    idFactory.mockReturnValueOnce("").mockReturnValueOnce("");
+    const fallbackSlide = await exec(EditOperationType.ADD_SLIDE, {});
+    const fallbackElement = await exec(EditOperationType.ADD_ELEMENT, { slideIndex: 0 });
+    expect(fallbackSlide.data.slide.id).toBe("slide-secure-id");
+    expect(fallbackElement.data.element.id).toBe("el-secure-id");
+    expect(makeSecureTimestampedId).toHaveBeenCalledWith("slide", { allowInsecureFallback: true });
+    expect(makeSecureTimestampedId).toHaveBeenCalledWith("el", { allowInsecureFallback: true });
   });
 });

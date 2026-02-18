@@ -1,6 +1,6 @@
 import { EditOperationType } from "../constants.js";
 
-import { isPlainObject } from "../../../shared/index.js";
+import { isPlainObject, makeSecureTimestampedId } from "../../../shared/index.js";
 import { deepClone } from "../../../shared/utils/value-utils.js";
 export const EditModeTools = Object.freeze({
   [EditOperationType.ADD_SLIDE]: {
@@ -163,16 +163,54 @@ function replaceArrayContents(target, source) {
   target.splice(0, target.length, ...source);
 }
 
+function normalizeGeneratedId(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  return trimmed || "";
+}
+
+function generateFallbackId(prefix, counter) {
+  try {
+    return makeSecureTimestampedId(prefix, { allowInsecureFallback: true });
+  } catch {
+    return `${prefix}_${counter}`;
+  }
+}
+
 function generateElementId(context) {
-  if (typeof context?.idGenerator === "function") return context.idGenerator();
+  if (typeof context?.idGenerator === "function") {
+    const fromLegacyGenerator = normalizeGeneratedId(context.idGenerator());
+    if (fromLegacyGenerator) return fromLegacyGenerator;
+  }
+  if (typeof context?.idFactory === "function") {
+    const fromFactory = normalizeGeneratedId(
+      context.idFactory({ kind: "element", prefix: "el", timestamp: Date.now() })
+    );
+    if (fromFactory) return fromFactory;
+  }
   elementCounter += 1;
-  return `el_${Date.now()}_${elementCounter}`;
+  return generateFallbackId("el", elementCounter);
 }
 
 function generateSlideId(context) {
-  if (typeof context?.slideIdGenerator === "function") return context.slideIdGenerator();
+  if (typeof context?.slideIdGenerator === "function") {
+    const fromLegacyGenerator = normalizeGeneratedId(context.slideIdGenerator());
+    if (fromLegacyGenerator) return fromLegacyGenerator;
+  }
+  if (typeof context?.slideIdFactory === "function") {
+    const fromSlideFactory = normalizeGeneratedId(
+      context.slideIdFactory({ kind: "slide", prefix: "slide", timestamp: Date.now() })
+    );
+    if (fromSlideFactory) return fromSlideFactory;
+  }
+  if (typeof context?.idFactory === "function") {
+    const fromFactory = normalizeGeneratedId(
+      context.idFactory({ kind: "slide", prefix: "slide", timestamp: Date.now() })
+    );
+    if (fromFactory) return fromFactory;
+  }
   slideCounter += 1;
-  return `slide_${Date.now()}_${slideCounter}`;
+  return generateFallbackId("slide", slideCounter);
 }
 
 function ensureElements(slide) {

@@ -14,6 +14,7 @@ const STANDARD_ENCODING_ALIASES = new Map([
 ]);
 
 const NativeTextDecoder = globalThis.TextDecoder;
+const installedDecoderTargets = new WeakMap();
 
 /**
  * @param {string} [encoding='utf-8']
@@ -193,10 +194,19 @@ ExtendedTextDecoder.__polyfill = true;
 /**
  * Install the ExtendedTextDecoder as global TextDecoder when needed.
  *
+ * @param {{ target?: any }} [options]
  * @returns {boolean} true when global TextDecoder was replaced
  */
-export function installPolyfill() {
-  const CurrentDecoder = globalThis.TextDecoder;
+export function installPolyfill(options = {}) {
+  const target = options && typeof options === 'object' && options.target
+    ? options.target
+    : globalThis;
+
+  if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
+    throw new TypeError('installPolyfill target must be an object');
+  }
+
+  const CurrentDecoder = target.TextDecoder;
   if (CurrentDecoder === ExtendedTextDecoder) {
     return false;
   }
@@ -209,6 +219,39 @@ export function installPolyfill() {
     return false;
   }
 
-  globalThis.TextDecoder = ExtendedTextDecoder;
+  if (!installedDecoderTargets.has(target)) {
+    installedDecoderTargets.set(target, CurrentDecoder);
+  }
+  target.TextDecoder = ExtendedTextDecoder;
+  return true;
+}
+
+/**
+ * Restore previously installed TextDecoder for a given target.
+ *
+ * @param {{ target?: any }} [options]
+ * @returns {boolean} true when a restore happened
+ */
+export function uninstallPolyfill(options = {}) {
+  const target = options && typeof options === 'object' && options.target
+    ? options.target
+    : globalThis;
+  if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
+    throw new TypeError('uninstallPolyfill target must be an object');
+  }
+  if (target.TextDecoder !== ExtendedTextDecoder) {
+    return false;
+  }
+  if (!installedDecoderTargets.has(target)) {
+    return false;
+  }
+
+  const previous = installedDecoderTargets.get(target);
+  if (previous === undefined) {
+    delete target.TextDecoder;
+  } else {
+    target.TextDecoder = previous;
+  }
+  installedDecoderTargets.delete(target);
   return true;
 }

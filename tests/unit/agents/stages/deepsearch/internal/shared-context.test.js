@@ -5,6 +5,7 @@ vi.mock('../../../../../../js/agents/shared/index.js', async () => {
   return {
     ...actual,
     cryptoRandomHex: vi.fn(() => 'deadbeef'),
+    makeSecureTimestampedId: vi.fn(() => 'ctx_secure_id'),
   };
 });
 
@@ -36,7 +37,7 @@ describe('SharedContext', () => {
       maxL2Entries: 0,
     });
 
-    expect(ctx.runId).toMatch(/^ctx_\d+$/);
+    expect(ctx.runId).toBe('ctx_secure_id');
     expect(new Date(ctx.createdAt).toISOString()).toBe(ctx.createdAt);
     expect(ctx.limits.summariesMax).toBe(4);
     expect(ctx.limits.indexKeywordsMax).toBe(3);
@@ -48,6 +49,20 @@ describe('SharedContext', () => {
   it('constructs with invalid limits input', () => {
     const ctx = new SharedContext({ limits: 'not-an-object' });
     expect(ctx.limits).toEqual(expect.objectContaining({ storeMax: 50, signalsMax: 200 }));
+  });
+
+  it('supports custom runIdFactory and idFactory', () => {
+    const runIdFactory = vi.fn(() => 'ctx_custom_run');
+    const idFactory = vi.fn(({ prefix, sequence }) => `${prefix}_custom_${sequence}`);
+    const ctx = new SharedContext({ runIdFactory, idFactory });
+
+    const signal = ctx.signal('note', { message: 'hello' });
+    expect(ctx.runId).toBe('ctx_custom_run');
+    expect(runIdFactory).toHaveBeenCalledWith(expect.objectContaining({ prefix: 'ctx' }));
+    expect(signal.id).toBe('sig_custom_1');
+    expect(idFactory).toHaveBeenCalledWith(
+      expect.objectContaining({ prefix: 'sig', sequence: 1, instanceId: 'deadbeef' })
+    );
   });
 
   it('manages summaries and prunes with limits', () => {

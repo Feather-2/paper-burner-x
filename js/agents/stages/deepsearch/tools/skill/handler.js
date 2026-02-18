@@ -29,21 +29,41 @@ import { loadSkills, loadSkillFromPath } from "../../../../skills/loader.js";
  * @property {() => string} [cwd]
  */
 
-// 缓存已加载的 Skills
-let _skillsCache = null;
-let _cacheTime = 0;
+// 缓存已加载的 Skills（按 cwd 分区）
+const _skillsCache = new Map(); // cwd -> { outcome, ts }
+const _skillsLoading = new Map(); // cwd -> Promise<outcome>
 const CACHE_TTL = 60000; // 1 分钟
 
+function normalizeCwd(cwd) {
+  if (typeof cwd !== "string") return "";
+  return cwd.trim();
+}
+
 async function getSkillsCache(cwd) {
+  const normalizedCwd = normalizeCwd(cwd);
+  if (!normalizedCwd) return { skills: [] };
+
   const now = Date.now();
-  if (_skillsCache && now - _cacheTime < CACHE_TTL) {
-    return _skillsCache;
+  const cached = _skillsCache.get(normalizedCwd);
+  if (cached && now - cached.ts < CACHE_TTL) {
+    return cached.outcome;
   }
 
-  const outcome = await loadSkills({ cwd });
-  _skillsCache = outcome;
-  _cacheTime = now;
-  return outcome;
+  const inflight = _skillsLoading.get(normalizedCwd);
+  if (inflight) return inflight;
+
+  const loading = (async () => {
+    const outcome = await loadSkills({ cwd: normalizedCwd });
+    _skillsCache.set(normalizedCwd, { outcome, ts: Date.now() });
+    return outcome;
+  })();
+
+  _skillsLoading.set(normalizedCwd, loading);
+  try {
+    return await loading;
+  } finally {
+    _skillsLoading.delete(normalizedCwd);
+  }
 }
 
 export const definition = {

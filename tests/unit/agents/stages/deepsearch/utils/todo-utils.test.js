@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const sharedMocks = vi.hoisted(() => {
   const logger = { warn: vi.fn() };
   const createLogger = vi.fn(() => logger);
+  const makeSecureTimestampedId = vi.fn((prefix = "todo") => `${prefix}_secure_id`);
   const isPlainObject = (v) => {
     if (v === null || typeof v !== "object") return false;
     if (Array.isArray(v)) return false;
@@ -14,7 +15,7 @@ const sharedMocks = vi.hoisted(() => {
     const s = String(v).trim();
     return s.length ? s : undefined;
   };
-  return { logger, createLogger, isPlainObject, toNonEmptyString };
+  return { logger, createLogger, isPlainObject, toNonEmptyString, makeSecureTimestampedId };
 });
 
 const stateMocks = vi.hoisted(() => {
@@ -33,6 +34,7 @@ vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   isPlainObject: sharedMocks.isPlainObject,
   toNonEmptyString: sharedMocks.toNonEmptyString,
   createLogger: sharedMocks.createLogger,
+  makeSecureTimestampedId: sharedMocks.makeSecureTimestampedId,
 }));
 
 vi.mock("../../../../../../js/agents/stages/deepsearch/states.js", () => ({
@@ -56,6 +58,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(FIXED_DATE);
   vi.clearAllMocks();
+  sharedMocks.makeSecureTimestampedId.mockClear();
 });
 
 afterEach(() => {
@@ -201,10 +204,18 @@ describe("createTodo", () => {
 
   it("handles non-object params safely", () => {
     const todo = createTodo(null);
-    expect(todo.todoId).toMatch(/^todo_/);
+    expect(todo.todoId).toBe("todo_secure_id");
     expect(todo.text).toBe("");
     expect(todo.status).toBe("open");
     expect(sharedMocks.logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports custom idFactory for deterministic todo ids", () => {
+    const idFactory = vi.fn(() => "todo_custom_id");
+    const todo = createTodo({}, { idFactory });
+    expect(todo.todoId).toBe("todo_custom_id");
+    expect(idFactory).toHaveBeenCalledTimes(1);
+    expect(sharedMocks.makeSecureTimestampedId).not.toHaveBeenCalled();
   });
 });
 

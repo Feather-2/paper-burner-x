@@ -5,6 +5,7 @@ const createLoggerMock = vi.hoisted(() => vi.fn(() => loggerMock));
 const renderReportTemplateMock = vi.hoisted(() => vi.fn(() => "REPORT_TEMPLATE"));
 const generateReportMock = vi.hoisted(() => vi.fn());
 const toNonEmptyStringMock = vi.hoisted(() => vi.fn());
+const makeSecureTimestampedIdMock = vi.hoisted(() => vi.fn((prefix) => `${prefix}_secure_id`));
 const getReportProgressMock = vi.hoisted(() => vi.fn());
 const prepareReportForSubmitMock = vi.hoisted(() => vi.fn());
 const reviewReportMarkdownMock = vi.hoisted(() => vi.fn());
@@ -21,6 +22,7 @@ vi.mock("../../../../../../../js/agents/stages/deepsearch/report/report-generato
 vi.mock("../../../../../../../js/agents/shared/index.js", () => ({
   toNonEmptyString: toNonEmptyStringMock,
   createLogger: createLoggerMock,
+  makeSecureTimestampedId: makeSecureTimestampedIdMock,
 }));
 
 vi.mock("../../../../../../../js/agents/stages/deepsearch/report/report-postprocess.js", () => ({
@@ -116,6 +118,7 @@ beforeEach(() => {
 
   generateReportMock.mockReset();
   toNonEmptyStringMock.mockReset();
+  makeSecureTimestampedIdMock.mockReset();
   getReportProgressMock.mockReset();
   prepareReportForSubmitMock.mockReset();
   reviewReportMarkdownMock.mockReset();
@@ -130,6 +133,7 @@ beforeEach(() => {
     const str = String(value).trim();
     return str.length ? str : undefined;
   });
+  makeSecureTimestampedIdMock.mockImplementation((prefix) => `${prefix}_secure_id`);
 
   getReportProgressMock.mockImplementation((report) => ({
     wordCount: report?.markdown ? report.markdown.length : 0,
@@ -620,6 +624,7 @@ describe("handler", () => {
     expect(result.success).toBe(true);
     expect(state.L1.report.sections).toHaveLength(1);
     expect(state.L1.report.sections[0].title).toBe("New Section");
+    expect(state.L1.report.sections[0].sectionId).toBe("sec_secure_id");
   });
 
   it.each([
@@ -726,6 +731,21 @@ describe("handler", () => {
     expect(result.success).toBe(true);
     expect(result.section.title).toBe("章节");
     expect(state.L1.report.sections).toHaveLength(1);
+    expect(result.section.sectionId).toBe("sec_secure_id");
+  });
+
+  it("supports stageApi.sectionIdFactory for deterministic section ids", async () => {
+    const report = makeReport();
+    const state = makeState({ L1: { report } });
+    const sectionIdFactory = vi.fn(() => "sec_custom_id");
+    const context = makeContext({ state, stageApi: { sectionIdFactory } });
+
+    const result = await handler({ action: "sections", sections: [{ title: "A", content: "B" }] }, context);
+
+    expect(result.success).toBe(true);
+    expect(state.L1.report.sections[0].sectionId).toBe("sec_custom_id");
+    expect(sectionIdFactory).toHaveBeenCalledWith(expect.objectContaining({ prefix: "sec" }));
+    expect(makeSecureTimestampedIdMock).not.toHaveBeenCalled();
   });
 
   it("generates full report when action is inferred", async () => {

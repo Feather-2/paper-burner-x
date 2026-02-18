@@ -401,10 +401,10 @@ describe("handler", () => {
     const callA = handler({ name: "Alpha" }, { stageApi: { cwd: "/tmp" } });
     const callB = handler({ name: "Alpha" }, { stageApi: { cwd: "/tmp" } });
 
-    expect(loadSkills).toHaveBeenCalledTimes(2);
-    expect(resolvers).toHaveLength(2);
+    expect(loadSkills).toHaveBeenCalledTimes(1);
+    expect(resolvers).toHaveLength(1);
 
-    resolvers.forEach(resolve => resolve({ skills: [skill] }));
+    resolvers[0]({ skills: [skill] });
 
     const [resultA, resultB] = await Promise.all([callA, callB]);
 
@@ -440,6 +440,27 @@ describe("handler", () => {
     expect(loadSkills).toHaveBeenCalledTimes(2);
     expect(first.success).toBe(true);
     expect(second.success).toBe(true);
+  });
+
+  it("partitions cache by cwd to avoid cross-workspace cache pollution", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1000);
+    loadSkills
+      .mockResolvedValueOnce({
+        skills: [{ body: "Body-A", metadata: { name: "Alpha" } }],
+      })
+      .mockResolvedValueOnce({
+        skills: [{ body: "Body-B", metadata: { name: "Beta" } }],
+      });
+    const { handler } = await loadModule();
+
+    const resultA = await handler({ name: "Alpha" }, { stageApi: { cwd: "/repo/a" } });
+    const resultB = await handler({ name: "Beta" }, { stageApi: { cwd: "/repo/b" } });
+
+    expect(loadSkills).toHaveBeenCalledTimes(2);
+    expect(loadSkills).toHaveBeenNthCalledWith(1, { cwd: "/repo/a" });
+    expect(loadSkills).toHaveBeenNthCalledWith(2, { cwd: "/repo/b" });
+    expect(resultA.success).toBe(true);
+    expect(resultB.success).toBe(true);
   });
 });
 

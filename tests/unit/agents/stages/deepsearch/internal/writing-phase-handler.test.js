@@ -675,6 +675,34 @@ describe('WritingPhaseHandler', () => {
       expect(secondOptions.warnOnUnresolved).toBeUndefined();
     });
 
+    it('keeps unresolved-warning state isolated across handler instances', async () => {
+      loadPromptMock.mockResolvedValue('template');
+      const handlerA = createHandler({ maxIterations: 1 });
+      const handlerB = createHandler({ maxIterations: 1 });
+
+      await handlerA.run({
+        state: { userConfig: { mode: 'quick' }, globalConfig: {}, todos: [] },
+        stageApi: {},
+        sharedContext: null,
+        callModel: async () => ({ content: '{"action":"complete"}' }),
+        addMessage: () => {},
+        messages: () => [],
+      });
+      await handlerB.run({
+        state: { userConfig: { mode: 'quick' }, globalConfig: {}, todos: [] },
+        stageApi: {},
+        sharedContext: null,
+        callModel: async () => ({ content: '{"action":"complete"}' }),
+        addMessage: () => {},
+        messages: () => [],
+      });
+
+      const first = renderPromptTemplateMock.mock.calls[0][1];
+      const second = renderPromptTemplateMock.mock.calls[1][1];
+      expect(first.warnOnUnresolved).toBe(true);
+      expect(second.warnOnUnresolved).toBe(true);
+    });
+
     it('renders prompt with failOnUnresolved when configured', async () => {
       loadPromptMock.mockResolvedValue('template');
       const handler = createHandler({ maxIterations: 1 });

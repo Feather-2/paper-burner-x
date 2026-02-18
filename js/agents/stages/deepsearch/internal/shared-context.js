@@ -9,6 +9,7 @@
 
 import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
 import { cryptoRandomHex } from "../../../shared/index.js";
+import { makeSecureTimestampedId } from "../../../shared/index.js";
 
 /**
  * 生成内容指纹（用于去重）
@@ -50,12 +51,28 @@ function safeJsonStringify(value) {
   }
 }
 
+function resolveSharedContextRunId(runId, runIdFactory) {
+  const provided = toNonEmptyString(runId);
+  if (provided) return provided;
+
+  if (typeof runIdFactory === "function") {
+    try {
+      const custom = toNonEmptyString(runIdFactory({ prefix: "ctx", timestamp: Date.now() }));
+      if (custom) return custom;
+    } catch {
+      // ignore custom factory failures and fall back
+    }
+  }
+
+  return makeSecureTimestampedId("ctx", { allowInsecureFallback: true });
+}
+
 export class SharedContext {
   /**
-   * @param {{ runId?: string, limits?: any, maxL1Entries?: number, maxL2Entries?: number }=} options
+   * @param {{ runId?: string, runIdFactory?: (meta: { prefix: string, timestamp: number }) => string|null|undefined, idFactory?: (meta: { prefix: string, sequence: number, instanceId: string }) => string|null|undefined, limits?: any, maxL1Entries?: number, maxL2Entries?: number }=} options
    */
-  constructor({ runId, limits, maxL1Entries, maxL2Entries } = {}) {
-    this.runId = toNonEmptyString(runId) || `ctx_${Date.now()}`;
+  constructor({ runId, runIdFactory, idFactory, limits, maxL1Entries, maxL2Entries } = {}) {
+    this.runId = resolveSharedContextRunId(runId, runIdFactory);
     this.createdAt = new Date().toISOString();
 
     const providedLimits = limits && typeof limits === "object" ? limits : {};
@@ -108,13 +125,23 @@ export class SharedContext {
 
     // Per-instance salt to avoid cross-context collisions when rehydrating/merging.
     this._instanceId = cryptoRandomHex(4);
+    this._idFactory = typeof idFactory === "function" ? idFactory : null;
   }
 
   _nextId(prefix) {
     this._seq += 1;
     const base = sanitizeIdPart(prefix) || "id";
-    const ts = Date.now().toString(36);
-    return `${base}_${this._instanceId}_${ts}_${this._seq}`;
+    if (this._idFactory) {
+      try {
+        const custom = toNonEmptyString(
+          this._idFactory({ prefix: base, sequence: this._seq, instanceId: this._instanceId })
+        );
+        if (custom) return custom;
+      } catch {
+        // ignore custom id factory errors and use deterministic fallback
+      }
+    }
+    return `${base}_${this._instanceId}_${this._seq}`;
   }
 
   _recordAction(kind, payload) {

@@ -4,6 +4,7 @@ import { finalizeCitationsInMarkdown } from "./citations.js";
 import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
 import { safeJsonParse } from "../../../shared/index.js";
 import { clampInt, mapConcurrent, normalizeStringArray, resolveMaxParallelSections } from "./write-utils.js";
+import { createTodoId } from "../utils/todo-utils.js";
 
 function clampProgress(progress) {
   if (typeof progress !== "number" || !Number.isFinite(progress)) return 0;
@@ -53,7 +54,7 @@ function createTodoFromGap(gap) {
   const text = toNonEmptyString(gap?.question) || (gapId ? `Gap: ${gapId}` : "Research task");
   const status = resolveTodoStatusFromGapStatus(gap?.status);
   return {
-    todoId: todoId || `todo_${Date.now().toString(36)}`,
+    todoId: todoId || createTodoId(),
     text,
     priority: gap?.priority,
     status,

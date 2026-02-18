@@ -116,7 +116,40 @@ let _systemSubagentsPromptTemplate = null;
 const _modePromptTemplates = new Map(); // mode -> template
 let _systemPromptWarnedUnresolved = false;
 
-export async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider" } = {}) {
+function resolvePromptCacheKey({ cacheKey, config } = {}) {
+  const direct = typeof cacheKey === "string" ? cacheKey.trim() : "";
+  if (direct) return direct;
+  const fromConfig =
+    typeof config?.prompts?.cacheKey === "string"
+      ? config.prompts.cacheKey.trim()
+      : typeof config?.promptCacheKey === "string"
+        ? config.promptCacheKey.trim()
+        : "";
+  return fromConfig || "default";
+}
+
+function resetSystemPromptCacheInternal() {
+  _systemCorePromptTemplate = null;
+  _systemLegacyPromptTemplate = null;
+  _systemSubagentsPromptTemplate = null;
+  _modePromptTemplates.clear();
+  _systemPromptWarnedUnresolved = false;
+}
+
+let _activePromptCacheKey = "default";
+
+export function resetSystemPromptCache() {
+  _activePromptCacheKey = "default";
+  resetSystemPromptCacheInternal();
+}
+
+export async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider", cacheKey } = {}) {
+  const resolvedCacheKey = resolvePromptCacheKey({ cacheKey, config });
+  if (resolvedCacheKey !== _activePromptCacheKey) {
+    _activePromptCacheKey = resolvedCacheKey;
+    resetSystemPromptCacheInternal();
+  }
+
   const normalizedMode = typeof mode === "string" && mode ? mode : "wider";
 
   // Load core prompt module (preferred). Fall back to legacy system.md when missing.

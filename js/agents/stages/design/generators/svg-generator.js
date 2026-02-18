@@ -213,6 +213,7 @@ function buildStyleDescription(designSystem) {
 
 // 缓存的 SVG system prompt
 let _svgSystemPrompt = null;
+let _svgPromptLoadWarned = false;
 
 // Fallback prompt (minimal version)
 const FALLBACK_SVG_PROMPT = `You are an SVG artist for presentation slides.
@@ -225,11 +226,16 @@ Use provided colors, keep designs modern and clean.`;
 async function getSvgSystemPrompt() {
   if (_svgSystemPrompt) return _svgSystemPrompt;
   try {
-    _svgSystemPrompt = await loadPrompt("design/svg-generator");
+    const loaded = await loadPrompt("design/svg-generator");
+    _svgSystemPrompt = typeof loaded === "string" && loaded.trim() ? loaded : FALLBACK_SVG_PROMPT;
     return _svgSystemPrompt;
   } catch (e) {
-    logger.warn("[svg-generator] Failed to load svg-generator.md:", { error: e?.message });
-    return FALLBACK_SVG_PROMPT;
+    if (!_svgPromptLoadWarned) {
+      _svgPromptLoadWarned = true;
+      logger.warn("[svg-generator] Failed to load svg-generator.md:", { error: e?.message });
+    }
+    _svgSystemPrompt = FALLBACK_SVG_PROMPT;
+    return _svgSystemPrompt;
   }
 }
 

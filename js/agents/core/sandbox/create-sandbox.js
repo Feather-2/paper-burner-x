@@ -122,9 +122,10 @@ async function createWorkerSandbox(cfg) {
 
   const workerCode = [
     'self.onmessage=function(e){',
-    '  var d=e.data;',
-    '  try{var r=(0,eval)(d.code);self.postMessage({ok:true,value:r})}',
-    '  catch(err){self.postMessage({ok:false,error:err.message,stack:err.stack})}',
+    '  var d=e.data||{};',
+    '  var id=d.id;',
+    '  try{var r=(0,eval)(d.code);self.postMessage({id:id,ok:true,value:r})}',
+    '  catch(err){self.postMessage({id:id,ok:false,error:err.message,stack:err.stack})}',
     '};',
   ].join('');
   const blob = new Blob([workerCode], { type: 'application/javascript' });
@@ -132,26 +133,73 @@ async function createWorkerSandbox(cfg) {
   const worker = new Worker(url);
   URL.revokeObjectURL(url);
 
+  let requestSeq = 0;
+  /** @type {Map<number, { resolve: (value:any)=>void, reject: (err: Error)=>void, timer: ReturnType<typeof setTimeout> | null }>} */
+  const pending = new Map();
+  let workerUnavailableReason = null;
+
+  const clearPending = (id) => {
+    const entry = pending.get(id);
+    if (!entry) return null;
+    if (entry.timer) clearTimeout(entry.timer);
+    pending.delete(id);
+    return entry;
+  };
+
+  const invalidateWorker = (message) => {
+    if (!workerUnavailableReason) {
+      workerUnavailableReason = String(message || 'Worker sandbox unavailable');
+    }
+    for (const [id, entry] of pending.entries()) {
+      if (entry.timer) clearTimeout(entry.timer);
+      entry.reject(new Error(workerUnavailableReason));
+      pending.delete(id);
+    }
+    try {
+      worker.terminate();
+    } catch {
+      /* ignore terminate failure */
+    }
+  };
+
+  worker.onmessage = (evt) => {
+    const data = evt?.data || {};
+    const id = Number(data.id);
+    const entry = clearPending(id);
+    if (!entry) return;
+    if (data.ok) entry.resolve(data.value);
+    else entry.reject(new Error(data.error || 'Worker execution failed'));
+  };
+
+  worker.onerror = (err) => {
+    invalidateWorker(err?.message || 'Worker error');
+  };
+
   return wrapAsSandbox('worker', cfg,
     (code) => new Promise((resolve, reject) => {
+      if (workerUnavailableReason) {
+        reject(new Error(workerUnavailableReason));
+        return;
+      }
+
+      requestSeq += 1;
+      const requestId = requestSeq;
       const timeoutMs = cfg.timeout || 30000;
       const timer = setTimeout(() => {
-        worker.terminate();
+        clearPending(requestId);
+        invalidateWorker('Worker sandbox timed out and has been terminated');
         reject(new Error('Worker execution timeout'));
       }, timeoutMs);
 
-      worker.onmessage = (evt) => {
-        clearTimeout(timer);
-        if (evt.data.ok) resolve(evt.data.value);
-        else reject(new Error(evt.data.error || 'Worker execution failed'));
-      };
-      worker.onerror = (err) => {
-        clearTimeout(timer);
-        reject(new Error(err?.message || 'Worker error'));
-      };
-      worker.postMessage({ code });
+      pending.set(requestId, { resolve, reject, timer });
+      worker.postMessage({ id: requestId, code });
     }),
-    () => { worker.terminate(); },
+    () => {
+      for (const [id] of pending) {
+        clearPending(id);
+      }
+      worker.terminate();
+    },
   );
 }
 

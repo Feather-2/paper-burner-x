@@ -261,6 +261,21 @@ describe("loadDeepSearchCapabilities", () => {
     expect(second).toBe(first);
   });
 
+  it("should_reset_cache_when_reset_api_is_called", async () => {
+    const subject = await loadSubject();
+    const first = await subject.loadDeepSearchCapabilities();
+    subject.resetDeepSearchCapabilitiesCache();
+    const second = await subject.loadDeepSearchCapabilities();
+    expect(second).not.toBe(first);
+  });
+
+  it("should_force_reload_when_option_forceReload_is_true", async () => {
+    const subject = await loadSubject();
+    const first = await subject.loadDeepSearchCapabilities();
+    const second = await subject.loadDeepSearchCapabilities({ forceReload: true });
+    expect(second).not.toBe(first);
+  });
+
   it("should_warn_when_memory_store_module_is_missing", async () => {
     const subject = await loadSubject();
     await subject.loadDeepSearchCapabilities();

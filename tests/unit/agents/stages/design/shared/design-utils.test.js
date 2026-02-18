@@ -155,6 +155,17 @@ describe('clearParseCache', () => {
     expect(cache._map.size).toBe(0);
     expect(cache.clear).toHaveBeenCalledTimes(3);
   });
+
+  it('clears only the specified cache scope when provided', () => {
+    const cache = getCacheInstance();
+    parseSections('<section>A</section>', { cacheScope: 'run-a' });
+    parseSections('<section>B</section>', { cacheScope: 'run-b' });
+
+    expect(cache._map.size).toBe(2);
+    clearParseCache('run-a');
+    expect(cache._map.size).toBe(1);
+    expect(Array.from(cache._map.keys())).toEqual(['run-b::<section>B</section>']);
+  });
 });
 
 describe('parseSections', () => {
@@ -187,6 +198,25 @@ describe('parseSections', () => {
     expect(second).toEqual(['<section>One</section>', '<section>Two</section>']);
     expect(cache.set).toHaveBeenCalledTimes(1);
     expect(cache.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('supports cache scopes and custom cache keys', () => {
+    const html = '<section>One</section>';
+    const cache = getCacheInstance();
+
+    const scopedA = parseSections(html, { cacheScope: 'run-a' });
+    const scopedB = parseSections(html, { cacheScope: 'run-b' });
+    const custom = parseSections(html, { cacheScope: 'run-a', cacheKey: 'custom-1' });
+
+    expect(scopedA).toEqual(['<section>One</section>']);
+    expect(scopedB).toEqual(['<section>One</section>']);
+    expect(custom).toEqual(['<section>One</section>']);
+    expect(cache._map.size).toBe(3);
+    expect(Array.from(cache._map.keys()).sort()).toEqual([
+      'run-a::<section>One</section>',
+      'run-a::custom-1',
+      'run-b::<section>One</section>',
+    ]);
   });
 
   it('stops parsing when a section is incomplete', () => {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   ExtendedTextDecoder,
   installPolyfill,
+  uninstallPolyfill,
 } from '../../../../../../js/agents/core/node-compat/polyfills/text-decoder.js';
 
 const OriginalTextDecoder = globalThis.TextDecoder;
@@ -139,5 +140,41 @@ describe('installPolyfill', () => {
 
     expect(installed).toBe(true);
     expect(globalThis.TextDecoder).toBe(ExtendedTextDecoder);
+  });
+
+  it('supports scoped installation without mutating globalThis', () => {
+    const localScope = {
+      TextDecoder: class {
+        constructor(encoding = 'utf-8') {
+          if (encoding !== 'utf-8') throw new RangeError('unsupported');
+          this.encoding = encoding;
+        }
+        decode() {
+          return '';
+        }
+      },
+    };
+
+    const installed = installPolyfill({ target: localScope });
+    expect(installed).toBe(true);
+    expect(localScope.TextDecoder).toBe(ExtendedTextDecoder);
+    expect(globalThis.TextDecoder).toBe(OriginalTextDecoder);
+
+    const restored = uninstallPolyfill({ target: localScope });
+    expect(restored).toBe(true);
+    expect(localScope.TextDecoder).not.toBe(ExtendedTextDecoder);
+  });
+
+  it('returns false when uninstalling without prior installation', () => {
+    class Decoder {
+      constructor(encoding = 'utf-8') {
+        this.encoding = encoding;
+      }
+      decode() {
+        return '';
+      }
+    }
+    const scope = { TextDecoder: Decoder };
+    expect(uninstallPolyfill({ target: scope })).toBe(false);
   });
 });

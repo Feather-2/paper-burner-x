@@ -24,12 +24,16 @@ import {
   wrapPersistedOutput,
   cleanOldPersistedOutputs,
   createPersistedOutputHook,
+  configurePersistedOutput,
+  getPersistedOutputConfig,
+  resetPersistedOutputConfig,
   default as persistedOutputDefault,
 } from '../../../../../js/agents/runtime/core/persisted-output.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  resetPersistedOutputConfig();
 });
 
 function buildDeepObject(depth) {
@@ -111,8 +115,8 @@ describe('wrapPersistedOutput', () => {
     expect(wrapPersistedOutput(value, { threshold: 100 })).toBe('circular');
   });
 
-  it('throws for undefined input because JSON.stringify returns undefined', () => {
-    expect(() => wrapPersistedOutput(undefined)).toThrow(TypeError);
+  it('handles undefined input by coercing to an empty string', () => {
+    expect(wrapPersistedOutput(undefined)).toBe('');
   });
 
   it('wraps large output and includes preview and tags', () => {
@@ -135,6 +139,13 @@ describe('wrapPersistedOutput', () => {
     const expectedChars = content.length.toLocaleString();
 
     expect(result).toContain(`[Total: ${expectedBytes} bytes / ${expectedChars} characters]`);
+  });
+
+  it('uses byte threshold semantics for multi-byte content', () => {
+    const content = '你好'; // 2 chars, 6 bytes in UTF-8
+    const result = wrapPersistedOutput(content, { threshold: 4, previewSize: 2 });
+    expect(result).toContain(PERSISTED_OUTPUT_START);
+    expect(result).toContain('[Total: 6 bytes / 2 characters]');
   });
 
   it('accepts numeric strings for threshold and previewSize', () => {
@@ -188,6 +199,25 @@ describe('wrapPersistedOutput', () => {
       expect(result).toContain(PERSISTED_OUTPUT_START);
       expect(result).toContain(inputs[index].repeat(5).slice(0, 3));
     });
+  });
+});
+
+describe('scoped config', () => {
+  it('supports scope-specific persisted output config isolation', () => {
+    configurePersistedOutput({ outputThreshold: 10 }, { scope: 'run-a' });
+    configurePersistedOutput({ outputThreshold: 20 }, { scope: 'run-b' });
+
+    expect(getPersistedOutputConfig({ scope: 'run-a' }).outputThreshold).toBe(10);
+    expect(getPersistedOutputConfig({ scope: 'run-b' }).outputThreshold).toBe(20);
+    expect(getPersistedOutputConfig().outputThreshold).toBe(OUTPUT_THRESHOLD);
+
+    const wrappedA = wrapPersistedOutput('x'.repeat(15), { scope: 'run-a' });
+    const wrappedB = wrapPersistedOutput('x'.repeat(15), { scope: 'run-b' });
+    expect(wrappedA).toContain(PERSISTED_OUTPUT_START);
+    expect(wrappedB).toBe('x'.repeat(15));
+
+    resetPersistedOutputConfig({ scope: 'run-a' });
+    expect(getPersistedOutputConfig({ scope: 'run-a' }).outputThreshold).toBe(OUTPUT_THRESHOLD);
   });
 });
 

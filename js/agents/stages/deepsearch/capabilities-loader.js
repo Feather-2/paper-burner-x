@@ -39,7 +39,11 @@ function warn(name, err) {
  * Load DeepSearch capabilities asynchronously
  * @returns {Promise<DeepSearchCapabilities>}
  */
-export async function loadDeepSearchCapabilities() {
+export async function loadDeepSearchCapabilities(options = {}) {
+  if (options?.forceReload === true) {
+    resetDeepSearchCapabilitiesCache();
+  }
+
   if (_cached) return _cached;
   if (_loading) return _loading;
 
@@ -114,7 +118,20 @@ export async function loadDeepSearchCapabilities() {
     return capabilities;
   })();
 
-  _cached = await _loading;
+  try {
+    _cached = await _loading;
+    return _cached;
+  } finally {
+    _loading = null;
+  }
+}
+
+/**
+ * Reset cached DeepSearch capabilities.
+ * Useful for tests, HMR and capability hot-reload scenarios.
+ * @returns {void}
+ */
+export function resetDeepSearchCapabilitiesCache() {
+  _cached = null;
   _loading = null;
-  return _cached;
 }

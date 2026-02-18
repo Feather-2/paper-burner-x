@@ -5,6 +5,7 @@ import {
   getCorsProxy,
   buildProxyUrl,
   proxyFetch,
+  resetCorsProxy,
 } from '../../../../../js/agents/core/node-compat/cors-proxy.js';
 
 describe('cors-proxy', () => {
@@ -12,6 +13,8 @@ describe('cors-proxy', () => {
   describe('legacy module-level API', () => {
     beforeEach(() => {
       setCorsProxy(null);
+      resetCorsProxy({ scope: 'tenant-a' });
+      resetCorsProxy({ scope: 'tenant-b' });
     });
 
     it('getCorsProxy returns null by default', () => {
@@ -27,6 +30,18 @@ describe('cors-proxy', () => {
       setCorsProxy('https://corsproxy.io/?');
       setCorsProxy(null);
       expect(getCorsProxy()).toBeNull();
+    });
+
+    it('supports scoped legacy proxies without cross-scope leakage', () => {
+      setCorsProxy('https://tenant-a.proxy/?', { scope: 'tenant-a' });
+      setCorsProxy('https://tenant-b.proxy/?', { scope: 'tenant-b' });
+
+      expect(getCorsProxy({ scope: 'tenant-a' })).toBe('https://tenant-a.proxy/?');
+      expect(getCorsProxy({ scope: 'tenant-b' })).toBe('https://tenant-b.proxy/?');
+      expect(getCorsProxy()).toBeNull();
+      expect(buildProxyUrl('https://example.com', { scope: 'tenant-a' })).toBe(
+        'https://tenant-a.proxy/?' + encodeURIComponent('https://example.com'),
+      );
     });
 
     it('buildProxyUrl returns original URL when no proxy', () => {
@@ -60,6 +75,15 @@ describe('cors-proxy', () => {
         const expected =
           'https://corsproxy.io/?' + encodeURIComponent('https://example.com');
         expect(mockFetch).toHaveBeenCalledWith(expected, { method: 'POST' });
+      });
+
+      it('uses scoped proxy options when provided', async () => {
+        setCorsProxy('https://scope.proxy/?', { scope: 'scoped' });
+        await proxyFetch('https://example.com', { method: 'GET' }, { scope: 'scoped' });
+        expect(mockFetch).toHaveBeenCalledWith(
+          'https://scope.proxy/?' + encodeURIComponent('https://example.com'),
+          { method: 'GET' },
+        );
       });
     });
   });

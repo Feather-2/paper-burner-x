@@ -15,45 +15,105 @@ export const DEFAULT_PREVIEW_SIZE = 2000;
 export const DEFAULT_KEEP_RECENT_OUTPUTS = 3;
 
 // Mutable config for runtime adjustment
-let _config = {
+let _defaultConfig = {
   outputThreshold: DEFAULT_OUTPUT_THRESHOLD,
   previewSize: DEFAULT_PREVIEW_SIZE,
   keepRecentOutputs: DEFAULT_KEEP_RECENT_OUTPUTS,
 };
+const _scopedConfigs = new Map();
+
+function normalizeScope(scope) {
+  if (typeof scope !== "string") return "default";
+  const trimmed = scope.trim();
+  return trimmed || "default";
+}
+
+function toFiniteNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function resolveConfig(scope = "default") {
+  const key = normalizeScope(scope);
+  if (key === "default") return { ..._defaultConfig };
+  const scoped = _scopedConfigs.get(key);
+  return scoped ? { ...scoped } : { ..._defaultConfig };
+}
+
+function setConfig(scope, nextConfig) {
+  const key = normalizeScope(scope);
+  if (key === "default") {
+    _defaultConfig = { ...nextConfig };
+    return;
+  }
+  _scopedConfigs.set(key, { ...nextConfig });
+}
+
+function getByteLength(content) {
+  const text = typeof content === "string" ? content : String(content ?? "");
+  if (typeof globalThis.TextEncoder === "function") {
+    try {
+      return new globalThis.TextEncoder().encode(text).length;
+    } catch {
+      // ignore and continue with other strategies
+    }
+  }
+  if (typeof globalThis.Buffer !== "undefined" && typeof globalThis.Buffer.byteLength === "function") {
+    try {
+      return globalThis.Buffer.byteLength(text, "utf8");
+    } catch {
+      // ignore and continue with fallback
+    }
+  }
+  return text.length;
+}
 
 /**
  * Configure persisted output settings
  * @param {{ outputThreshold?: number, previewSize?: number, keepRecentOutputs?: number }} config
+ * @param {{ scope?: string }=} [options]
  */
-export function configurePersistedOutput(config) {
-  if (Number.isFinite(config.outputThreshold) && config.outputThreshold > 0) {
-    _config.outputThreshold = Math.floor(config.outputThreshold);
+export function configurePersistedOutput(config, options = {}) {
+  const input = config && typeof config === "object" ? config : {};
+  const scope = normalizeScope(options.scope);
+  const next = resolveConfig(scope);
+  if (Number.isFinite(input.outputThreshold) && input.outputThreshold > 0) {
+    next.outputThreshold = Math.floor(input.outputThreshold);
   }
-  if (Number.isFinite(config.previewSize) && config.previewSize > 0) {
-    _config.previewSize = Math.floor(config.previewSize);
+  if (Number.isFinite(input.previewSize) && input.previewSize > 0) {
+    next.previewSize = Math.floor(input.previewSize);
   }
-  if (Number.isFinite(config.keepRecentOutputs) && config.keepRecentOutputs >= 0) {
-    _config.keepRecentOutputs = Math.floor(config.keepRecentOutputs);
+  if (Number.isFinite(input.keepRecentOutputs) && input.keepRecentOutputs >= 0) {
+    next.keepRecentOutputs = Math.floor(input.keepRecentOutputs);
   }
+  setConfig(scope, next);
 }
 
 /**
  * Get current config
+ * @param {{ scope?: string }=} [options]
  * @returns {{ outputThreshold: number, previewSize: number, keepRecentOutputs: number }}
  */
-export function getPersistedOutputConfig() {
-  return { ..._config };
+export function getPersistedOutputConfig(options = {}) {
+  return resolveConfig(options.scope);
 }
 
 /**
  * Reset to defaults
+ * @param {{ scope?: string }=} [options]
  */
-export function resetPersistedOutputConfig() {
-  _config = {
-    outputThreshold: DEFAULT_OUTPUT_THRESHOLD,
-    previewSize: DEFAULT_PREVIEW_SIZE,
-    keepRecentOutputs: DEFAULT_KEEP_RECENT_OUTPUTS,
-  };
+export function resetPersistedOutputConfig(options = {}) {
+  const scope = normalizeScope(options.scope);
+  if (scope === "default") {
+    _defaultConfig = {
+      outputThreshold: DEFAULT_OUTPUT_THRESHOLD,
+      previewSize: DEFAULT_PREVIEW_SIZE,
+      keepRecentOutputs: DEFAULT_KEEP_RECENT_OUTPUTS,
+    };
+    _scopedConfigs.clear();
+    return;
+  }
+  _scopedConfigs.delete(scope);
 }
 
 // Backward compatibility aliases
@@ -90,15 +150,19 @@ export function wrapPersistedOutput(content, options = {}) {
     } catch {
       content = String(content ?? "");
     }
+    if (typeof content !== "string") {
+      content = String(content ?? "");
+    }
   }
 
-  const threshold = options.threshold ?? _config.outputThreshold;
-  const previewSize = options.previewSize ?? _config.previewSize;
+  const scopeConfig = resolveConfig(options.scope);
+  const threshold = toFiniteNumber(options.threshold, scopeConfig.outputThreshold);
+  const previewSize = Math.max(0, Math.floor(toFiniteNumber(options.previewSize, scopeConfig.previewSize)));
+  const totalBytes = getByteLength(content);
 
-  if (content.length <= threshold) return content;
+  if (totalBytes <= threshold) return content;
 
   const preview = content.slice(0, previewSize);
-  const totalBytes = new TextEncoder().encode(content).length;
 
   return `${PERSISTED_OUTPUT_START}
 [Large output truncated - showing first ${previewSize} characters]
@@ -118,8 +182,16 @@ ${PERSISTED_OUTPUT_END}`;
  * @param {number} [keepRecent] - 保留数量
  * @returns {Array} - 清理后的消息数组
  */
-export function cleanOldPersistedOutputs(messages, keepRecent = _config.keepRecentOutputs) {
+export function cleanOldPersistedOutputs(messages, keepRecent = undefined) {
   if (!Array.isArray(messages)) return messages;
+  const scopeConfig = resolveConfig(
+    typeof keepRecent === "object" && keepRecent !== null ? keepRecent.scope : undefined
+  );
+  const keepRecentValue =
+    typeof keepRecent === "object" && keepRecent !== null
+      ? keepRecent.keepRecent
+      : keepRecent;
+  const keepRecentResolved = toFiniteNumber(keepRecentValue, scopeConfig.keepRecentOutputs);
 
   const persistedIndices = [];
 
@@ -133,9 +205,9 @@ export function cleanOldPersistedOutputs(messages, keepRecent = _config.keepRece
     }
   }
 
-  if (persistedIndices.length <= keepRecent) return messages;
+  if (persistedIndices.length <= keepRecentResolved) return messages;
 
-  const toClean = new Set(persistedIndices.slice(0, -keepRecent));
+  const toClean = new Set(persistedIndices.slice(0, -keepRecentResolved));
 
   return messages.map((msg, idx) => {
     if (!toClean.has(idx)) return msg;

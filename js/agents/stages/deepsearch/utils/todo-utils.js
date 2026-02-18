@@ -1,5 +1,6 @@
 import { isPlainObject, toNonEmptyString } from "../../../shared/index.js";
 import { createLogger } from "../../../shared/index.js";
+import { makeSecureTimestampedId } from "../../../shared/index.js";
 import { TodoStatus, isValidTodoStatus } from "../states.js";
 
 const logger = createLogger("stages/deepsearch/utils/todo-utils");
@@ -103,16 +104,33 @@ function isIsoString(value) {
 }
 
 /** @private */
-function deriveTodoIdFromGapId(gapId) {
-  if (!gapId) return `todo_${Date.now().toString(36)}`;
+function deriveTodoIdFromGapId(gapId, options = {}) {
+  if (!gapId) return createTodoId(options);
   const m = String(gapId).match(/^gap_(\d+)$/);
   if (m) return `todo_${m[1]}`;
   return `todo_${String(gapId)}`;
 }
 
+/**
+ * Create a default todo id.
+ * @param {{ idFactory?: (() => string|null|undefined)|null }=} options
+ * @returns {string}
+ */
+export function createTodoId(options = {}) {
+  if (typeof options?.idFactory === "function") {
+    try {
+      const custom = toNonEmptyString(options.idFactory());
+      if (custom) return custom;
+    } catch {
+      // ignore custom id factory errors and fall back
+    }
+  }
+  return makeSecureTimestampedId("todo", { allowInsecureFallback: true });
+}
+
 /** @private */
-function resolveTodoId(raw) {
-  return toNonEmptyString(raw.todoId) || toNonEmptyString(raw.id) || `todo_${Date.now().toString(36)}`;
+function resolveTodoId(raw, options = {}) {
+  return toNonEmptyString(raw.todoId) || toNonEmptyString(raw.id) || createTodoId(options);
 }
 
 /** @private */
@@ -151,12 +169,13 @@ function resolveTodoHistory(raw, status, createdAt) {
 /**
  * Create a normalized todo record (best-effort, tolerant of legacy field names).
  * @param {Partial<DeepSearchTodo> & Record<string, unknown>} [params] - Partial todo fields with legacy aliases.
+ * @param {{ idFactory?: (() => string|null|undefined)|null }=} [options]
  * @returns {DeepSearchTodo}
  */
-export function createTodo(params = {}) {
+export function createTodo(params = {}, options = {}) {
   const raw = isPlainObject(params) ? params : {};
   const now = new Date().toISOString();
-  const todoId = resolveTodoId(raw);
+  const todoId = resolveTodoId(raw, options);
   const text = resolveTodoText(raw, todoId);
 
   const priority = normalizePriority(raw.priority);
@@ -280,7 +299,7 @@ export function transitionTodoStatus(todo, newStatus, emit) {
  * @param {any} gap
  * @returns {DeepSearchTodo|null}
  */
-export function migratGapToTodo(gap) {
+export function migratGapToTodo(gap, options = {}) {
   if (!isPlainObject(gap)) return null;
   const gapId = toNonEmptyString(gap.gapId);
   const question = toNonEmptyString(gap.question);
@@ -295,7 +314,7 @@ export function migratGapToTodo(gap) {
   })();
 
   return createTodo({
-    todoId: deriveTodoIdFromGapId(gapId),
+    todoId: deriveTodoIdFromGapId(gapId, options),
     text,
     priority: normalizePriority(gap.priority),
     status,
@@ -303,7 +322,7 @@ export function migratGapToTodo(gap) {
     source: "system",
     relatedGapId: gapId,
     createdAt: toNonEmptyString(gap.createdAt),
-  });
+  }, options);
 }
 
 /**

@@ -28,6 +28,10 @@ vi.mock("../../../../../../js/agents/stages/deepsearch/report/write-utils.js", (
   resolveMaxParallelSections: vi.fn(),
 }));
 
+vi.mock("../../../../../../js/agents/stages/deepsearch/utils/todo-utils.js", () => ({
+  createTodoId: vi.fn(() => "todo_secure"),
+}));
+
 import { generatePlaceholderReport } from "../../../../../../js/agents/stages/deepsearch/report/report-generator.js";
 
 beforeEach(() => {

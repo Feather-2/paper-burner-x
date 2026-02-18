@@ -57,6 +57,19 @@ export function safeInt(n) {
 const PARSE_SECTIONS_CACHE_LIMIT = 32;
 const parseSectionsCache = new LRUCache({ maxSize: PARSE_SECTIONS_CACHE_LIMIT });
 
+function normalizeCacheScope(scope) {
+    if (typeof scope !== "string") return "global";
+    const trimmed = scope.trim();
+    return trimmed || "global";
+}
+
+function composeParseSectionsCacheKey(html, options = {}) {
+    const scope = normalizeCacheScope(options.cacheScope ?? options.scope);
+    const customCacheKey = typeof options.cacheKey === "string" ? options.cacheKey : "";
+    const rawKey = customCacheKey || html;
+    return `${scope}::${rawKey}`;
+}
+
 /**
  * Clears the internal parseSections cache.
  *
@@ -64,21 +77,40 @@ const parseSectionsCache = new LRUCache({ maxSize: PARSE_SECTIONS_CACHE_LIMIT })
  * frequently regenerated (to avoid holding old deck strings in memory).
  * @returns {void}
  */
-export function clearParseCache() {
-    parseSectionsCache.clear();
+export function clearParseCache(scope = null) {
+    const normalizedScope = typeof scope === "string" ? normalizeCacheScope(scope) : null;
+    if (!normalizedScope) {
+        parseSectionsCache.clear();
+        return;
+    }
+
+    const entries = parseSectionsCache._map;
+    if (!(entries instanceof Map)) {
+        parseSectionsCache.clear();
+        return;
+    }
+
+    const prefix = `${normalizedScope}::`;
+    for (const key of entries.keys()) {
+        if (String(key).startsWith(prefix)) {
+            entries.delete(key);
+        }
+    }
 }
 
 /**
  * Parses deckHtmlDsl into an array of <section> HTML strings.
  * Results are cached (LRU, max 32 entries) and shallow-copied on return.
  * @param {string} deckHtmlDsl - Full deck DSL HTML string.
+ * @param {{ cacheScope?: string, scope?: string, cacheKey?: string }=} options
  * @returns {string[]} Array of section HTML strings.
  */
-export function parseSections(deckHtmlDsl) {
+export function parseSections(deckHtmlDsl, options = {}) {
     const html = typeof deckHtmlDsl === "string" ? deckHtmlDsl : "";
     if (!html) return [];
 
-    const cached = parseSectionsCache.get(html);
+    const cacheKey = composeParseSectionsCacheKey(html, options);
+    const cached = parseSectionsCache.get(cacheKey);
     if (cached) return cached.slice();
 
     const lower = html.toLowerCase();
@@ -99,7 +131,7 @@ export function parseSections(deckHtmlDsl) {
     // Store the parsed array in cache, but always return a shallow copy so
     // callers can freely mutate their returned array (e.g., edit workflows)
     // without corrupting cache entries.
-    parseSectionsCache.set(html, sections);
+    parseSectionsCache.set(cacheKey, sections);
 
     return sections.slice();
 }

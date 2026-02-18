@@ -22,6 +22,7 @@
 import { generateReport } from "../../report/report-generator.js";
 import { toNonEmptyString } from "../../../../shared/index.js";
 import { createLogger } from "../../../../shared/index.js";
+import { makeSecureTimestampedId } from "../../../../shared/index.js";
 import { getReportProgress, prepareReportForSubmit, reviewReportMarkdown } from "../../report/report-postprocess.js";
 import { handleGetSource, syncReportCitations } from "./report-citations.js";
 import { buildReportOutline, countContentChars, renderSectionsMarkdown } from "./report-formatting.js";
@@ -29,6 +30,30 @@ import { renderReportTemplate } from "./report-template.js";
 import { checkAnalysisGates, ensureReport, recordHistory } from "./handler-helpers.js";
 
 const logger = createLogger("stages/deepsearch/tools/write-report/handler");
+
+function resolveSectionId(argsSectionId, context = {}) {
+  const provided = toNonEmptyString(argsSectionId);
+  if (provided) return provided;
+
+  const factory =
+    typeof context?.sectionIdFactory === "function"
+      ? context.sectionIdFactory
+      : typeof context?.stageApi?.sectionIdFactory === "function"
+        ? context.stageApi.sectionIdFactory
+        : typeof context?.stageApi?.idFactory === "function"
+          ? context.stageApi.idFactory
+          : null;
+  if (factory) {
+    try {
+      const custom = toNonEmptyString(factory({ prefix: "sec", timestamp: Date.now() }));
+      if (custom) return custom;
+    } catch {
+      // ignore custom id factory failures and fall back
+    }
+  }
+
+  return makeSecureTimestampedId("sec", { allowInsecureFallback: true });
+}
 
 export const definition = {
   name: "write-report",
@@ -345,7 +370,7 @@ function handleAppend(args, report, mode, state, emit) {
 /**
  * update: 更新章节
  */
-function handleUpdate(args, report, emit) {
+function handleUpdate(args, report, emit, context = {}) {
   const sectionId = toNonEmptyString(args.sectionId);
   const title = toNonEmptyString(args.title);
   const content = toNonEmptyString(args.content) || "";
@@ -365,7 +390,7 @@ function handleUpdate(args, report, emit) {
     recordHistory(report, "update", { sectionId, old: oldContent.slice(0, 50), new: content.slice(0, 50) });
   } else {
     const section = {
-      sectionId: sectionId || `sec_${Date.now()}`,
+      sectionId: resolveSectionId(sectionId, context),
       title: title || "未命名章节",
       content,
       createdAt: Date.now(),
@@ -440,7 +465,7 @@ function handleDirect(args, action, report, mode, state, emit) {
 /**
  * sections: 批量添加章节
  */
-function handleSections(args, report, state, emit) {
+function handleSections(args, report, state, emit, context = {}) {
   const sections = Array.isArray(args.sections) ? args.sections : [];
 
   for (const sec of sections) {
@@ -453,7 +478,7 @@ function handleSections(args, report, state, emit) {
       report.sections[existingIndex].updatedAt = Date.now();
     } else {
       report.sections.push({
-        sectionId: `sec_${Date.now()}_${report.sections.length}`,
+        sectionId: resolveSectionId(sec.sectionId, context),
         title: title || `Section ${report.sections.length + 1}`,
         content,
         createdAt: Date.now(),
@@ -472,12 +497,12 @@ function handleSections(args, report, state, emit) {
 /**
  * section: 添加单个章节
  */
-function handleSection(args, report, emit) {
+function handleSection(args, report, emit, context = {}) {
   const title = toNonEmptyString(args.title) || "章节";
   const content = toNonEmptyString(args.content) || "";
 
   const section = {
-    sectionId: `sec_${Date.now()}`,
+    sectionId: resolveSectionId(args.sectionId, context),
     title,
     content,
     createdAt: Date.now(),
@@ -693,7 +718,7 @@ export async function handler(args, context) {
   }
 
   if (action === "update") {
-    return handleUpdate(args, report, emit);
+    return handleUpdate(args, report, emit, context);
   }
 
   if (action === "patch") {
@@ -705,11 +730,11 @@ export async function handler(args, context) {
   }
 
   if (action === "sections" || Array.isArray(args.sections)) {
-    return handleSections(args, report, state, emit);
+    return handleSections(args, report, state, emit, context);
   }
 
   if (action === "section") {
-    return handleSection(args, report, emit);
+    return handleSection(args, report, emit, context);
   }
 
   if (action === "full") {

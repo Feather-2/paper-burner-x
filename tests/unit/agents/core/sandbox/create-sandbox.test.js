@@ -56,6 +56,76 @@ const { createSandboxFactory } = await import(
   '../../../../../js/agents/core/sandbox/create-sandbox.js'
 );
 
+const ORIGINAL_PROCESS = globalThis.process;
+const ORIGINAL_WORKER = globalThis.Worker;
+const ORIGINAL_BLOB = globalThis.Blob;
+const ORIGINAL_URL = globalThis.URL;
+
+function withBrowserWorkerEnv() {
+  const setGlobal = (key, value) => {
+    try {
+      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    } catch {
+      globalThis[key] = value;
+    }
+  };
+  const workers = [];
+  class MockWorker {
+    constructor(url) {
+      this.url = url;
+      this.onmessage = null;
+      this.onerror = null;
+      this.terminated = false;
+      this.posts = [];
+      workers.push(this);
+    }
+
+    postMessage(payload) {
+      this.posts.push(payload);
+    }
+
+    terminate() {
+      this.terminated = true;
+    }
+  }
+
+  class MockBlob {
+    constructor(parts, options) {
+      this.parts = parts;
+      this.options = options;
+    }
+  }
+
+  const mockUrlApi = {
+    createObjectURL: vi.fn(() => 'blob:mock'),
+    revokeObjectURL: vi.fn(),
+  };
+
+  const browserLikeProcess = ORIGINAL_PROCESS
+    ? {
+        nextTick: typeof ORIGINAL_PROCESS.nextTick === 'function'
+          ? ORIGINAL_PROCESS.nextTick.bind(ORIGINAL_PROCESS)
+          : undefined,
+        env: ORIGINAL_PROCESS.env,
+        versions: {},
+      }
+    : { versions: {} };
+  setGlobal('process', browserLikeProcess);
+  setGlobal('Worker', MockWorker);
+  setGlobal('Blob', MockBlob);
+  setGlobal('URL', mockUrlApi);
+
+  return {
+    workers,
+    restore() {
+      setGlobal('process', ORIGINAL_PROCESS);
+      setGlobal('Worker', ORIGINAL_WORKER);
+      setGlobal('Blob', ORIGINAL_BLOB);
+      setGlobal('URL', ORIGINAL_URL);
+    },
+  };
+}
+
 describe('createSandboxFactory', () => {
   beforeEach(() => {
     wasmSupported = false;
@@ -150,5 +220,48 @@ describe('createSandboxFactory', () => {
     await sb.terminate();
     await sb.terminate(); // should not throw
     expect(sb.terminated).toBe(true);
+  });
+
+  it('worker backend resolves concurrent execute calls by request id', async () => {
+    const env = withBrowserWorkerEnv();
+    try {
+      const sb = await createSandboxFactory({ level: 'worker', timeout: 1000 });
+      const p1 = sb.execute('1 + 1');
+      const p2 = sb.execute('2 + 2');
+
+      const worker = env.workers[0];
+      expect(worker.posts).toHaveLength(2);
+      const [firstMsg, secondMsg] = worker.posts;
+      worker.onmessage?.({ data: { id: secondMsg.id, ok: true, value: 4 } });
+      worker.onmessage?.({ data: { id: firstMsg.id, ok: true, value: 2 } });
+
+      const r1 = await p1;
+      const r2 = await p2;
+      expect(r1).toEqual(expect.objectContaining({ ok: true, value: 2 }));
+      expect(r2).toEqual(expect.objectContaining({ ok: true, value: 4 }));
+    } finally {
+      env.restore();
+    }
+  });
+
+  it('worker timeout terminates backend and marks subsequent execute as unavailable', async () => {
+    vi.useFakeTimers();
+    const env = withBrowserWorkerEnv();
+    try {
+      const sb = await createSandboxFactory({ level: 'worker', timeout: 10 });
+
+      const first = sb.execute('while(true){}');
+      await vi.advanceTimersByTimeAsync(20);
+      const firstResult = await first;
+      expect(firstResult.ok).toBe(false);
+      expect(firstResult.error).toContain('timeout');
+
+      const secondResult = await sb.execute('1');
+      expect(secondResult.ok).toBe(false);
+      expect(secondResult.error).toContain('timed out and has been terminated');
+    } finally {
+      env.restore();
+      vi.useRealTimers();
+    }
   });
 });

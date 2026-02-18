@@ -6,7 +6,7 @@
  * - DesignCheckpoints: versions
  */
 
-import { toNonEmptyString, isPlainObject, createLogger, DisposableBase } from "../../../shared/index.js";
+import { toNonEmptyString, isPlainObject, createLogger, DisposableBase, makeSecureTimestampedId } from "../../../shared/index.js";
 import { deepClone } from "../../../shared/utils/value-utils.js";
 import { DesignState } from "./design-state.js";
 import { DesignCheckpoints } from "./design-checkpoints.js";
@@ -41,13 +41,29 @@ function cloneValue(value) {
   return deepClone(value);
 }
 
+function resolveRunId(runId, runIdFactory) {
+  const provided = toNonEmptyString(runId);
+  if (provided) return provided;
+
+  if (typeof runIdFactory === "function") {
+    try {
+      const custom = toNonEmptyString(runIdFactory({ prefix: "design", timestamp: Date.now() }));
+      if (custom) return custom;
+    } catch (err) {
+      logSilentError("resolveRunId.factory", err);
+    }
+  }
+
+  return makeSecureTimestampedId("design", { allowInsecureFallback: true });
+}
+
 export class DesignBlackboard extends DisposableBase {
   /**
-   * @param {{ runId?: string, limits?: Record<string, any>, memoryStore?: any, stateEngine?: any, archive?: ArchiveLike|null }} [options]
+   * @param {{ runId?: string, runIdFactory?: (meta: { prefix: string, timestamp: number }) => string|null|undefined, limits?: Record<string, any>, memoryStore?: any, stateEngine?: any, archive?: ArchiveLike|null }} [options]
    */
-  constructor({ runId, limits = {}, memoryStore = null, stateEngine = null, archive = null } = {}) {
+  constructor({ runId, runIdFactory, limits = {}, memoryStore = null, stateEngine = null, archive = null } = {}) {
     super();
-    this.runId = toNonEmptyString(runId) || `design_${Date.now()}`;
+    this.runId = resolveRunId(runId, runIdFactory);
     this.createdAt = new Date().toISOString();
     this.limits = {
       summariesMax: 20,
@@ -489,4 +505,3 @@ export class DesignBlackboard extends DisposableBase {
     }).fromJSON(data);
   }
 }
-

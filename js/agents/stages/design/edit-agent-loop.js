@@ -10,6 +10,7 @@
  */
 
 import { BaseAgentLoop, checkCancelled, getEmitFn, AgentStatus } from "../../runtime/index.js";
+import { makeSecureTimestampedId, toNonEmptyString } from "../../shared/index.js";
 import { createDeckAnalyzer } from "./internal/deck-analyzer.js";
 import { createDeckEditor } from "./internal/deck-editor.js";
 import { createScreenshotStitcher } from "./internal/screenshot-stitcher.js";
@@ -110,6 +111,10 @@ export class EditAgentLoop extends BaseAgentLoop {
 
     // 黑板
     this._blackboard = new DesignBlackboard({ runId: options.runId });
+    this._baseRunId = toNonEmptyString(options.runId) || "";
+    this._runIdFactory = typeof options.runIdFactory === "function" ? options.runIdFactory : null;
+    this._versionIdFactory = typeof options.versionIdFactory === "function" ? options.versionIdFactory : null;
+    this._versionSeq = 0;
 
     // 状态
     this._state = EditState.IDLE;
@@ -156,7 +161,7 @@ export class EditAgentLoop extends BaseAgentLoop {
   async run(context = {}) {
     const emit = getEmitFn(context) || this.emit;
     const signal = context.signal;
-    const runId = context.runId || `edit_${Date.now()}`;
+    const runId = this._resolveRunId(context);
 
     this._state = EditState.WAITING;
     emitStage(emit, "edit.started", "started", { runId });
@@ -187,7 +192,7 @@ export class EditAgentLoop extends BaseAgentLoop {
         const result = await this._processEditRequest(request, { emit, signal, runId });
 
         // 保存版本
-        this._blackboard.saveVersion(`edit_${Date.now()}`, {
+        this._blackboard.saveVersion(this._nextVersionId(runId), {
           deckHtmlDsl: this._editor.getDeckHtmlDsl(),
           request,
           result,
@@ -217,6 +222,51 @@ export class EditAgentLoop extends BaseAgentLoop {
       });
       throw err;
     }
+  }
+
+  _resolveRunId(context = {}) {
+    const contextRunId = toNonEmptyString(context?.runId);
+    if (contextRunId) return contextRunId;
+
+    if (this._runIdFactory) {
+      try {
+        const custom = toNonEmptyString(
+          this._runIdFactory({ prefix: "edit", timestamp: Date.now(), context })
+        );
+        if (custom) return custom;
+      } catch {
+        // ignore custom factory errors and fall back
+      }
+    }
+
+    if (this._baseRunId) return this._baseRunId;
+    return makeSecureTimestampedId("edit", { allowInsecureFallback: true });
+  }
+
+  _nextVersionId(runId) {
+    this._versionSeq += 1;
+    const normalizedRunId = String(runId || "")
+      .replace(/[^a-zA-Z0-9_-]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 64) || "edit";
+
+    if (this._versionIdFactory) {
+      try {
+        const custom = toNonEmptyString(
+          this._versionIdFactory({
+            runId,
+            normalizedRunId,
+            sequence: this._versionSeq,
+            timestamp: Date.now(),
+          })
+        );
+        if (custom) return custom;
+      } catch {
+        // ignore custom factory errors and fall back
+      }
+    }
+
+    return `edit_${normalizedRunId}_v${this._versionSeq}`;
   }
 
   /**

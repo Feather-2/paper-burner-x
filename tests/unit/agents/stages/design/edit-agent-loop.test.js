@@ -20,6 +20,14 @@ const runtimeMocks = vi.hoisted(() => {
 const analyzerMocks = vi.hoisted(() => ({ createDeckAnalyzer: vi.fn() }));
 const editorMocks = vi.hoisted(() => ({ createDeckEditor: vi.fn() }));
 const stitcherMocks = vi.hoisted(() => ({ createScreenshotStitcher: vi.fn() }));
+const sharedMocks = vi.hoisted(() => ({
+  makeSecureTimestampedId: vi.fn(() => "edit-secure-id"),
+  toNonEmptyString: vi.fn((value) => {
+    if (value === undefined || value === null) return undefined;
+    const trimmed = String(value).trim();
+    return trimmed || undefined;
+  }),
+}));
 
 const blackboardMocks = vi.hoisted(() => {
   const instances = [];
@@ -65,6 +73,10 @@ vi.mock("../../../../../js/agents/stages/design/refiner/react-refiner-tools.js",
 }));
 vi.mock("../../../../../js/agents/stages/design/edit-mode/edit-loop.js", () => ({
   EditModeAgentLoop: editModeMocks.EditModeAgentLoop,
+}));
+vi.mock("../../../../../js/agents/shared/index.js", () => ({
+  makeSecureTimestampedId: sharedMocks.makeSecureTimestampedId,
+  toNonEmptyString: sharedMocks.toNonEmptyString,
 }));
 
 import {
@@ -118,6 +130,8 @@ beforeEach(() => {
   runtimeMocks.checkCancelled.mockImplementation(() => {});
   blackboardMocks.instances.length = 0;
   editModeMocks.instances.length = 0;
+  sharedMocks.makeSecureTimestampedId.mockClear();
+  sharedMocks.toNonEmptyString.mockClear();
 });
 
 describe("EditRequestType", () => {
@@ -356,6 +370,49 @@ describe("EditAgentLoop", () => {
     await loop.run({ runId: "run-3" });
 
     expect(loop.emit).toHaveBeenCalled();
+  });
+
+  it("generates run/version ids via factories when context runId is absent", async () => {
+    const runIdFactory = vi.fn(() => "run-custom");
+    const versionIdFactory = vi.fn(({ sequence }) => `ver-${sequence}`);
+    const loop = new EditAgentLoop({ runIdFactory, versionIdFactory });
+    const emit = vi.fn();
+    runtimeMocks.getEmitFn.mockReturnValue(emit);
+
+    loop.userActionHandler.waitForUserAction
+      .mockResolvedValueOnce({
+        type: EditRequestType.VERBAL,
+        action: "edit",
+        command: "adjust",
+        selection: {},
+      })
+      .mockResolvedValueOnce({ action: "done" });
+    vi.spyOn(loop, "_processEditRequest").mockResolvedValue({ success: true });
+
+    await loop.run({});
+
+    expect(runIdFactory).toHaveBeenCalled();
+    expect(versionIdFactory).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "run-custom", sequence: 1 })
+    );
+    expect(blackboardMocks.instances[0].saveVersion).toHaveBeenCalledWith(
+      "ver-1",
+      expect.any(Object)
+    );
+    expect(sharedMocks.makeSecureTimestampedId).not.toHaveBeenCalled();
+  });
+
+  it("falls back to secure runId when factories/context are unavailable", async () => {
+    const loop = new EditAgentLoop();
+    const emit = vi.fn();
+    runtimeMocks.getEmitFn.mockReturnValue(emit);
+
+    loop.userActionHandler.waitForUserAction.mockResolvedValueOnce({ action: "done" });
+    await loop.run({});
+
+    const started = emit.mock.calls.find((call) => call[0] === "edit.started");
+    expect(started[1].payload.runId).toBe("edit-secure-id");
+    expect(sharedMocks.makeSecureTimestampedId).toHaveBeenCalledWith("edit", { allowInsecureFallback: true });
   });
 
   it("run handles errors and resets state", async () => {

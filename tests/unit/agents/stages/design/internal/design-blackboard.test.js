@@ -63,6 +63,7 @@ const deepCloneImpl = vi.hoisted(
     }
   },
 );
+const makeSecureTimestampedIdMock = vi.hoisted(() => vi.fn(() => "design_secure_id"));
 
 vi.mock("../../../../../../js/agents/shared/utils/value-utils.js", () => ({
   deepClone: deepCloneImpl,
@@ -73,6 +74,7 @@ vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   isPlainObject: isPlainObjectImpl,
   createLogger: createLoggerMock,
   DisposableBase: DisposableBaseMock,
+  makeSecureTimestampedId: makeSecureTimestampedIdMock,
 }));
 
 vi.mock("../../../../../../js/agents/plugins/memory/index.js", () => MEMORY_CONSTANTS);
@@ -176,9 +178,9 @@ function getDispatchedTypes(dispatchMock) {
 }
 
 describe("DesignBlackboard", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
   afterEach(() => {
     debugSpy.mockClear();
@@ -194,7 +196,16 @@ describe("DesignBlackboard", () => {
     expect(bb.limits.decisionsMax).toBe(100);
 
     const fallback = new DesignBlackboard({ runId: null });
-    expect(fallback.runId.startsWith("design_")).toBe(true);
+    expect(fallback.runId).toBe("design_secure_id");
+    expect(makeSecureTimestampedIdMock).toHaveBeenCalledWith("design", { allowInsecureFallback: true });
+  });
+
+  it("uses runIdFactory when runId is not provided", () => {
+    const runIdFactory = vi.fn(() => "design_factory_run");
+    const bb = new DesignBlackboard({ runIdFactory });
+    expect(bb.runId).toBe("design_factory_run");
+    expect(runIdFactory).toHaveBeenCalledWith(expect.objectContaining({ prefix: "design" }));
+    expect(makeSecureTimestampedIdMock).not.toHaveBeenCalled();
   });
 
   it("ignores empty stage names and supports numeric stage keys", () => {

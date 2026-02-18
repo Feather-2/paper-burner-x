@@ -39,34 +39,51 @@ export function createCorsProxy(initialUrl = null) {
 }
 
 /** Default instance for backward-compatible module-level API. */
-const _default = createCorsProxy();
+const _legacyScopes = new Map();
+
+function normalizeScopeKey(options = {}) {
+  const raw = typeof options === "string" ? options : options?.scope;
+  const key = typeof raw === "string" ? raw.trim() : "";
+  return key || "default";
+}
+
+function getLegacyProxy(options = {}) {
+  const scope = normalizeScopeKey(options);
+  if (!_legacyScopes.has(scope)) {
+    _legacyScopes.set(scope, createCorsProxy());
+  }
+  return _legacyScopes.get(scope);
+}
 
 /**
  * @deprecated Use createCorsProxy() instead.
  * Set the CORS proxy URL prefix.
  * @param {string|null} url
+ * @param {{ scope?: string }=} [options]
  */
-export function setCorsProxy(url) {
-  _default.set(url);
+export function setCorsProxy(url, options = {}) {
+  getLegacyProxy(options).set(url);
 }
 
 /**
  * @deprecated Use createCorsProxy() instead.
  * Get the current proxy URL.
+ * @param {{ scope?: string }=} [options]
  * @returns {string|null}
  */
-export function getCorsProxy() {
-  return _default.get();
+export function getCorsProxy(options = {}) {
+  return getLegacyProxy(options).get();
 }
 
 /**
  * @deprecated Use createCorsProxy() instead.
  * Build a proxied URL (no request sent).
  * @param {string} url
+ * @param {{ scope?: string }=} [options]
  * @returns {string}
  */
-export function buildProxyUrl(url) {
-  return _default.buildUrl(url);
+export function buildProxyUrl(url, options = {}) {
+  return getLegacyProxy(options).buildUrl(url);
 }
 
 /**
@@ -74,8 +91,19 @@ export function buildProxyUrl(url) {
  * Fetch through the proxy.
  * @param {string} url
  * @param {RequestInit} [options]
+ * @param {{ scope?: string }=} [proxyOptions]
  * @returns {Promise<Response>}
  */
-export async function proxyFetch(url, options) {
-  return _default.fetch(url, options);
+export async function proxyFetch(url, options, proxyOptions = {}) {
+  return getLegacyProxy(proxyOptions).fetch(url, options);
+}
+
+/**
+ * Reset legacy module-scope proxy state.
+ * @param {{ scope?: string }=} [options]
+ * @returns {void}
+ */
+export function resetCorsProxy(options = {}) {
+  const scope = normalizeScopeKey(options);
+  _legacyScopes.delete(scope);
 }

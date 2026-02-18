@@ -204,6 +204,24 @@ describe("SVGGenerator", () => {
     expect(result.report.errors).toHaveLength(1);
   });
 
+  it("caches fallback system prompt when prompt loading fails", async () => {
+    const { SVGGenerator } = await import(modulePath);
+    const model = await import(modelPath);
+    const prompt = await import(promptPath);
+    const shared = await import(sharedPath);
+
+    prompt.loadPrompt.mockRejectedValue(new Error("missing prompt"));
+    model.getDesignModelCaller.mockReturnValue(buildPromptAwareModelCaller());
+
+    const generator = new SVGGenerator();
+    await generator.generate([{ slotId: "slot-1" }], {});
+    await generator.generate([{ slotId: "slot-2" }], {});
+
+    expect(prompt.loadPrompt).toHaveBeenCalledTimes(1);
+    const logger = shared.createLogger.mock.results[0]?.value;
+    expect(logger?.warn).toHaveBeenCalledTimes(1);
+  });
+
   it("returns fallback when circuit breaker is open", async () => {
     const { SVGGenerator } = await import(modulePath);
     const breaker = await import(breakerPath);

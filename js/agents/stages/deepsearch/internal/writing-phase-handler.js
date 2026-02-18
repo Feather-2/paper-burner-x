@@ -88,9 +88,6 @@ import { loadPrompt, renderPromptTemplate } from "../../../prompts/prompt-loader
  * @property {number} iterations
  */
 
-let _writingPhasePromptTemplate = null;
-let _writingPhaseWarnedUnresolved = false;
-
 export class WritingPhaseHandler {
   /**
    * @param {WritingPhaseHandlerOptions} options
@@ -102,6 +99,8 @@ export class WritingPhaseHandler {
     this._executeTool = executeTool;
     this.maxIterations = maxIterations;
     this.maxParseFailures = maxParseFailures;
+    this._writingPhasePromptTemplate = null;
+    this._writingPhaseWarnedUnresolved = false;
   }
 
   /**
@@ -165,15 +164,15 @@ export class WritingPhaseHandler {
     });
 
     // 按需注入写作模块（拆分自 system prompt）
-    if (_writingPhasePromptTemplate === null) {
+    if (this._writingPhasePromptTemplate === null) {
       try {
-        _writingPhasePromptTemplate = await loadPrompt("deepsearch/system-writing");
+        this._writingPhasePromptTemplate = await loadPrompt("deepsearch/system-writing");
       } catch {
-        _writingPhasePromptTemplate = "";
+        this._writingPhasePromptTemplate = "";
       }
     }
 
-    if (_writingPhasePromptTemplate) {
+    if (this._writingPhasePromptTemplate) {
       try {
         const report = state?.globalConfig?.report || {};
         const vars = {
@@ -188,16 +187,16 @@ export class WritingPhaseHandler {
 
         const baseOptions = { vars, keepUnresolved: false };
         const rendered = failOnUnresolved
-          ? renderPromptTemplate(_writingPhasePromptTemplate, { ...baseOptions, failOnUnresolved: true })
-          : !_writingPhaseWarnedUnresolved
-            ? renderPromptTemplate(_writingPhasePromptTemplate, {
+          ? renderPromptTemplate(this._writingPhasePromptTemplate, { ...baseOptions, failOnUnresolved: true })
+          : !this._writingPhaseWarnedUnresolved
+            ? renderPromptTemplate(this._writingPhasePromptTemplate, {
               ...baseOptions,
               warnOnUnresolved: true,
               onUnresolved: () => {
-                _writingPhaseWarnedUnresolved = true;
+                this._writingPhaseWarnedUnresolved = true;
               },
             })
-            : renderPromptTemplate(_writingPhasePromptTemplate, baseOptions);
+            : renderPromptTemplate(this._writingPhasePromptTemplate, baseOptions);
         addMessage({ role: "user", content: rendered });
       } catch {
         // ignore prompt injection failures
