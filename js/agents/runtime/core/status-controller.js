@@ -36,6 +36,7 @@ import { createLogger } from "../../shared/index.js";
  * @property {EmitFn | null} [emit]
  * @property {string} [stageName]
  * @property {string} [actor]
+ * @property {number} [maxStatusHistory]
  *
  * @typedef {object} StatusTransitionEntry
  * @property {string} from
@@ -96,6 +97,18 @@ function resolveStrictLoopStatusTransitions(explicit) {
   return true;
 }
 
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function normalizeHistoryLimit(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const normalized = Math.floor(n);
+  return normalized > 0 ? normalized : fallback;
+}
+
 export class StatusController {
   /**
    * @param {StatusControllerOptions} [options]
@@ -106,6 +119,7 @@ export class StatusController {
     this._loopEventName = options.eventName || null;
     this._strictLoopStatusTransitions = resolveStrictLoopStatusTransitions(options.strict);
     this._statusHistory = [];
+    this._maxStatusHistory = normalizeHistoryLimit(options.maxStatusHistory, 200);
     this._pauseRequested = false;
     this._pauseReason = null;
     this._logger = options.logger || null;
@@ -135,13 +149,14 @@ export class StatusController {
   }
 
   /**
-   * @param {{ status?: string, machine?: LoopStatusMachine, eventName?: string | null, strict?: boolean } | null | undefined} [options]
+   * @param {{ status?: string, machine?: LoopStatusMachine, eventName?: string | null, strict?: boolean, maxStatusHistory?: number } | null | undefined} [options]
    */
-  init({ status, machine, eventName, strict } = {}) {
+  init({ status, machine, eventName, strict, maxStatusHistory } = {}) {
     if (machine) this._loopMachine = machine;
     if (eventName) this._loopEventName = eventName;
     if (status) this._loopStatus = status;
     if (typeof strict === "boolean") this._strictLoopStatusTransitions = strict;
+    if (maxStatusHistory !== undefined) this._maxStatusHistory = normalizeHistoryLimit(maxStatusHistory, this._maxStatusHistory || 200);
     if (!Array.isArray(this._statusHistory)) this._statusHistory = [];
   }
 
@@ -209,6 +224,9 @@ export class StatusController {
     const ts = typeof timestamp === "number" ? timestamp : Date.now();
     const entry = { from, to, timestamp: ts, ...meta };
     this._statusHistory.push(entry);
+    if (this._statusHistory.length > this._maxStatusHistory) {
+      this._statusHistory.splice(0, this._statusHistory.length - this._maxStatusHistory);
+    }
     this._loopStatus = to;
     this._emitStatusChanged(entry);
     return entry;

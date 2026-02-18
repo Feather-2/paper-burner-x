@@ -76,6 +76,24 @@ describe("StatusController", () => {
     });
   });
 
+  it("caps status history to maxStatusHistory", () => {
+    const controller = new StatusController({
+      strict: true,
+      maxStatusHistory: 3,
+    });
+
+    controller.transition(AgentStatus.RUNNING);
+    controller.transition(AgentStatus.PAUSED);
+    controller.transition(AgentStatus.RUNNING);
+    controller.transition(AgentStatus.PAUSED);
+    controller.transition(AgentStatus.RUNNING);
+
+    const history = controller.statusHistory;
+    expect(history).toHaveLength(3);
+    expect(history[0]).toMatchObject({ from: AgentStatus.PAUSED, to: AgentStatus.RUNNING });
+    expect(history[2]).toMatchObject({ from: AgentStatus.PAUSED, to: AgentStatus.RUNNING });
+  });
+
   it("init handles nullish inputs, arrays, and repairs non-array history", () => {
     const emit = vi.fn();
     const controller = new StatusController({ emit, stageName: "demo" });

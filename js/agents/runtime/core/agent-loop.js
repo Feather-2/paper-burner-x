@@ -58,6 +58,7 @@ import { runWithAgentLifecycleHooks } from "./agent-loop-lifecycle-hooks.js";
  * @property {typeof StepRunner} [StepRunnerClass]
  * @property {typeof PhaseRunner} [PhaseRunnerClass]
  * @property {typeof UserActionHandler} [UserActionHandlerClass]
+ * @property {(meta: { loop: BaseAgentLoop, runContext: any, input: any, context: AnyRecord, sequence: number }) => string | null | undefined} [runIdFactory]
  *
  * @typedef {{ timeout?: number, eventBus?: EventBusLike | null, signal?: AbortSignal }} WaitForUserActionOptions
  * @typedef {{ eventName?: string, signal?: AbortSignal }} AttachListenerOptions
@@ -173,6 +174,28 @@ function resolveStrictLoopStatusTransitions(explicit) {
 
   // Default: enforce everywhere (illegal transitions are bugs).
   return true;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function sanitizeIdPart(value, fallback) {
+  const raw = typeof value === "string" ? value : String(value ?? "");
+  const cleaned = raw.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+  return cleaned || fallback;
+}
+
+/**
+ * @returns {string}
+ */
+function createLoopInstanceId() {
+  const uuid = typeof globalThis?.crypto?.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : null;
+  if (uuid) return uuid.replace(/-/g, "").slice(0, 8);
+  return Date.now().toString(36);
 }
 
 // isAllowedLoopStatusTransition moved to agent-loop-phases.js
@@ -332,6 +355,9 @@ export class BaseAgentLoop {
     this._phaseMixin = new PhaseRunnerClass(this);
     this._userActionMixin = new UserActionHandlerClass(this);
     this._executeAbortController = null;
+    this._runSequence = 0;
+    this._loopInstanceId = createLoopInstanceId();
+    this._runIdFactory = typeof options.runIdFactory === "function" ? options.runIdFactory : null;
   }
 
   /**
@@ -376,8 +402,17 @@ export class BaseAgentLoop {
       this._messageHandling._attachPauseListener(this.eventBus, { signal: combinedSignal });
     }
 
-    // 生成 runId 用于追踪
-    const runId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    // 生成 runId 用于追踪（稳定前缀 + 单实例序号，可注入工厂覆盖）
+    const sequence = ++this._runSequence;
+    const customRunId = this._runIdFactory
+      ? this._runIdFactory({ loop: this, runContext, input, context, sequence })
+      : null;
+    const externalRunId = runContext?.runId || runContext?.traceId || runContext?.id || null;
+    const runId = (typeof customRunId === "string" && customRunId.trim())
+      ? customRunId.trim()
+      : ((typeof externalRunId === "string" && externalRunId.trim())
+        ? externalRunId.trim()
+        : `run_${sanitizeIdPart(this.stageName, "stage")}_${sanitizeIdPart(this.actor, "agent")}_${this._loopInstanceId}_${sequence.toString(36)}_${Date.now().toString(36)}`);
     const startTime = Date.now();
     const sessionId = runContext?.sessionId || runContext?.id || null;
 

@@ -35,6 +35,15 @@ function normalizePositiveInt(value, fallback) {
 }
 
 /**
+ * @param {unknown} path
+ * @returns {string}
+ */
+function normalizeWirePath(path) {
+  if (path === null || path === undefined || path === "") return "";
+  return String(path).replace(/^\/+/, "");
+}
+
+/**
  * @param {any} err
  * @returns {boolean}
  */
@@ -327,7 +336,7 @@ export class VfsProxyClient {
       type: VFS_REQUEST,
       id,
       op,
-      path: String(path || "/"),
+      path: normalizeWirePath(path),
       args,
       mode: "sync",
       buffer: sharedBuffer,
@@ -515,6 +524,7 @@ export class VfsProxyClient {
     }
 
     const id = ++this._nextId;
+    const wirePath = normalizeWirePath(path);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!this._pending.has(id)) return;
@@ -530,7 +540,7 @@ export class VfsProxyClient {
           type: VFS_REQUEST,
           id,
           op,
-          path: String(path || "/"),
+          path: wirePath,
           args,
           mode: "async",
         });

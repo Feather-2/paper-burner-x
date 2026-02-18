@@ -136,14 +136,15 @@ describe("VfsProxyClient", () => {
     expect(client.supportsSync).toBe(false);
   });
 
-  it("normalizes falsy paths to '/' and preserves truthy paths", async () => {
+  it("normalizes wire paths by removing leading slashes", async () => {
     const postMessage = vi.fn();
     const client = new VfsProxyClient({ postMessage, target: new FakeTarget() });
     const cases = [
-      { input: null, expected: "/" },
-      { input: undefined, expected: "/" },
-      { input: "", expected: "/" },
-      { input: 0, expected: "/" },
+      { input: null, expected: "" },
+      { input: undefined, expected: "" },
+      { input: "", expected: "" },
+      { input: 0, expected: "0" },
+      { input: "/tmp/a", expected: "tmp/a" },
       { input: "   ", expected: "   " },
       { input: -1, expected: "-1" },
     ];
@@ -415,7 +416,7 @@ describe("VfsProxyClient", () => {
     expect(target.postMessageCalls[0][0]).toMatchObject({
       type: VFS_REQUEST,
       op: VFS_OPS.READ,
-      path: "/file",
+      path: "file",
       mode: "sync",
     });
     expect(target.postMessageCalls[0][0].buffer).toBeInstanceOf(SharedArrayBuffer);

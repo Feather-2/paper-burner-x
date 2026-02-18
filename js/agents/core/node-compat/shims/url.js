@@ -4,8 +4,10 @@
  * legacy `url.parse()`, `url.format()`, `url.resolve()` helpers.
  */
 
-// Re-export browser-native constructors
-export { URL, URLSearchParams };
+// Re-export browser-native constructors via local bindings (ESM-safe)
+const URLCtor = globalThis.URL;
+const URLSearchParamsCtor = globalThis.URLSearchParams;
+export { URLCtor as URL, URLSearchParamsCtor as URLSearchParams };
 
 /**
  * Parse a URL string into its component parts (legacy Node API).
@@ -13,7 +15,7 @@ export { URL, URLSearchParams };
  * @returns {object}
  */
 export function parse(urlString) {
-  const u = new URL(urlString, 'http://localhost');
+  const u = new URLCtor(urlString, 'http://localhost');
   return {
     protocol: u.protocol,
     hostname: u.hostname,
@@ -53,7 +55,7 @@ export function format(urlObj) {
  * @returns {string}
  */
 export function resolve(from, to) {
-  return new URL(to, from).href;
+  return new URLCtor(to, from).href;
 }
 
-export default { parse, format, resolve, URL, URLSearchParams };
+export default { parse, format, resolve, URL: URLCtor, URLSearchParams: URLSearchParamsCtor };

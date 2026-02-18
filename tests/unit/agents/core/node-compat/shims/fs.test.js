@@ -235,6 +235,16 @@ describe('createFsShim', () => {
       fs.mkdirSync('newdir', { recursive: true });
       expect(fs.existsSync('newdir')).toBe(true);
     });
+
+    it('respects recursive=false semantics', () => {
+      expect(() => fs.mkdirSync('a/b', { recursive: false })).toThrow(/ENOENT/);
+
+      fs.mkdirSync('a', { recursive: false });
+      expect(fs.existsSync('a')).toBe(true);
+      fs.mkdirSync('a/b', { recursive: false });
+      expect(fs.existsSync('a/b')).toBe(true);
+      expect(() => fs.mkdirSync('a/b', { recursive: false })).toThrow(/EEXIST/);
+    });
   });
 
   describe('readdirSync', () => {

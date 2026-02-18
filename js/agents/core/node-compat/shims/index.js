@@ -20,31 +20,71 @@ import cryptoShim from './crypto.js';
 import { createProcess } from './process.js';
 import assertShim from './assert.js';
 import moduleShim from './module.js';
-import chokidarShim from './chokidar.js';
-import httpsShim from './https.js';
-import wsShim from './ws.js';
-import esbuildShim from './esbuild.js';
-import dnsShim from './dns.js';
-import readlineShim from './readline.js';
-import tlsShim from './tls.js';
-import ttyShim from './tty.js';
-import vmShim from './vm.js';
-import workerThreadsShim from './worker_threads.js';
-import http2Shim from './http2.js';
-import perfHooksShim from './perf_hooks.js';
-import v8Shim from './v8.js';
-import inspectorShim from './inspector.js';
-import dgramShim from './dgram.js';
-import domainShim from './domain.js';
-import clusterShim from './cluster.js';
-import asyncHooksShim from './async_hooks.js';
-import diagnosticsChannelShim from './diagnostics_channel.js';
-import stringDecoderShim from './string_decoder.js';
-import timersShim from './timers.js';
 
 // Stub modules — minimal objects that don't throw on require
 const noop = () => {};
 const noopStub = new Proxy({}, { get: () => noop });
+
+/**
+ * Best-effort optional shim loader to avoid one broken shim taking down all builtins.
+ * @param {string} modulePath
+ * @param {any} fallback
+ * @returns {Promise<any>}
+ */
+async function loadOptionalDefault(modulePath, fallback = noopStub) {
+  try {
+    const mod = await import(modulePath);
+    return mod?.default ?? mod;
+  } catch {
+    return fallback;
+  }
+}
+
+const [
+  chokidarShim,
+  httpsShim,
+  wsShim,
+  esbuildShim,
+  dnsShim,
+  readlineShim,
+  tlsShim,
+  ttyShim,
+  vmShim,
+  workerThreadsShim,
+  http2Shim,
+  perfHooksShim,
+  v8Shim,
+  inspectorShim,
+  dgramShim,
+  domainShim,
+  clusterShim,
+  asyncHooksShim,
+  diagnosticsChannelShim,
+  stringDecoderShim,
+  timersShim,
+] = await Promise.all([
+  loadOptionalDefault('./chokidar.js'),
+  loadOptionalDefault('./https.js'),
+  loadOptionalDefault('./ws.js'),
+  loadOptionalDefault('./esbuild.js'),
+  loadOptionalDefault('./dns.js'),
+  loadOptionalDefault('./readline.js'),
+  loadOptionalDefault('./tls.js'),
+  loadOptionalDefault('./tty.js'),
+  loadOptionalDefault('./vm.js'),
+  loadOptionalDefault('./worker_threads.js'),
+  loadOptionalDefault('./http2.js'),
+  loadOptionalDefault('./perf_hooks.js'),
+  loadOptionalDefault('./v8.js'),
+  loadOptionalDefault('./inspector.js'),
+  loadOptionalDefault('./dgram.js'),
+  loadOptionalDefault('./domain.js'),
+  loadOptionalDefault('./cluster.js'),
+  loadOptionalDefault('./async_hooks.js'),
+  loadOptionalDefault('./diagnostics_channel.js'),
+  loadOptionalDefault('./string_decoder.js'),
+  loadOptionalDefault('./timers.js'),
+]);
 
 const STUB_MODULES = {
   assert: assertShim,

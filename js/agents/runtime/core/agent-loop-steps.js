@@ -15,16 +15,30 @@
 
 import { mergeSignals } from "../../shared/utils/cancellation.js";
 
-let _stepSeq = 0;
+/**
+ * @returns {string}
+ */
+function createStepInstanceId() {
+  const uuid = typeof globalThis?.crypto?.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : null;
+  if (uuid) return uuid.replace(/-/g, "").slice(0, 8);
+  return `${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
+}
 
 /**
  * @param {string | null | undefined} prefix
+ * @param {string} instanceId
+ * @param {number} sequence
+ * @param {string | null | undefined} runId
  * @returns {string}
  */
-function buildStepId(prefix) {
-  _stepSeq += 1;
+function buildStepId(prefix, instanceId, sequence, runId) {
   const base = prefix && typeof prefix === "string" ? prefix : "step";
-  return `${base}_${Date.now().toString(36)}_${_stepSeq}`;
+  const runScope = runId && typeof runId === "string"
+    ? runId.replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || instanceId
+    : instanceId;
+  return `${base}_${runScope}_${sequence}`;
 }
 
 export class StepRunner {
@@ -35,6 +49,8 @@ export class StepRunner {
   constructor(loop, _options = {}) {
     this._loop = loop;
     this._loop._activeStep = null;
+    this._stepSeq = 0;
+    this._stepInstanceId = createStepInstanceId();
   }
 
   /**
@@ -45,7 +61,8 @@ export class StepRunner {
   _beginStep(stepMeta = {}, context = {}) {
     const loop = this._loop;
     const meta = stepMeta && typeof stepMeta === "object" ? stepMeta : {};
-    const stepId = meta.stepId || buildStepId(loop.stageName);
+    this._stepSeq += 1;
+    const stepId = meta.stepId || buildStepId(loop.stageName, this._stepInstanceId, this._stepSeq, meta.runId);
     const startedAt = Date.now();
     const { signal, controller } = this._createStepSignal(context.signal);
     const step = {

@@ -2,9 +2,19 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   IncomingMessage, ServerResponse, METHODS, STATUS_CODES,
   createHttpShim,
+  Agent,
+  globalAgent,
+  _createClientRequest,
 } from '../../../../../../js/agents/core/node-compat/shims/http.js';
 
 describe('http shim', () => {
+  it('exports Agent/globalAgent and client-request helper', () => {
+    const agent = new Agent({ keepAlive: true });
+    expect(agent.keepAlive).toBe(true);
+    expect(globalAgent).toBeInstanceOf(Agent);
+    expect(typeof _createClientRequest).toBe('function');
+  });
+
   it('IncomingMessage has default properties', () => {
     const msg = new IncomingMessage();
     expect(msg.httpVersion).toBe('1.1');

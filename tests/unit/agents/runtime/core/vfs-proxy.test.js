@@ -132,18 +132,22 @@ describe('VfsProxy', () => {
       ).resolves.toBe(false);
     });
 
-    it('returns true for non-shared buffers without touching VFS', async () => {
+    it('returns false for non-shared buffers and reports protocol errors', async () => {
       const getVfs = vi.fn();
-      const proxy = new VfsProxy({ role: 'server', getVfs });
+      const onProtocolError = vi.fn();
+      const proxy = new VfsProxy({ role: 'server', getVfs, onProtocolError });
       const handled = await proxy.handleServerMessage({
         type: 'vfs:request',
         op: 'readFile',
         runId: 1,
-        path: '/file.txt',
+        path: 'file.txt',
         buffer: new ArrayBuffer(32),
       });
-      expect(handled).toBe(true);
+      expect(handled).toBe(false);
       expect(getVfs).not.toHaveBeenCalled();
+      expect(onProtocolError).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'ERR_VFS_PROTOCOL_BUFFER' })
+      );
     });
 
     it('writes error when VFS is unavailable', async () => {
@@ -153,7 +157,7 @@ describe('VfsProxy', () => {
         type: 'vfs:request',
         op: 'readFile',
         runId: 99,
-        path: '/missing.txt',
+        path: 'missing.txt',
         buffer: shared,
       });
       expect(handled).toBe(true);
@@ -162,9 +166,30 @@ describe('VfsProxy', () => {
       expect(text).toContain('VFS unavailable');
     });
 
-    it('handles readFile and strips leading slashes', async () => {
+    it('rejects absolute paths by default for explicit semantics', async () => {
       const readFile = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
       const proxy = new VfsProxy({ role: 'server', getVfs: () => ({ readFile }) });
+      const shared = new SharedArrayBuffer(16 + 128);
+      await proxy.handleServerMessage({
+        type: 'vfs:request',
+        op: 'readFile',
+        runId: 1,
+        path: '/foo/bar',
+        buffer: shared,
+      });
+      expect(readFile).not.toHaveBeenCalled();
+      const { status, text } = readSharedResponse(shared);
+      expect(status).toBe(-1);
+      expect(text).toContain('Absolute VFS paths are not allowed');
+    });
+
+    it('handles readFile with strip mode for legacy absolute paths', async () => {
+      const readFile = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
+      const proxy = new VfsProxy({
+        role: 'server',
+        getVfs: () => ({ readFile }),
+        absolutePathMode: 'strip',
+      });
       const shared = new SharedArrayBuffer(16 + 8);
       await proxy.handleServerMessage({
         type: 'vfs:request',
@@ -191,14 +216,14 @@ describe('VfsProxy', () => {
         type: VFS_REQUEST,
         op: VFS_OPS.READ,
         runId: 1,
-        path: '/doc.txt',
+        path: 'doc.txt',
         buffer: sharedRead,
       });
       await proxy.handleServerMessage({
         type: VFS_REQUEST,
         op: VFS_OPS.LIST,
         runId: 1,
-        path: '/dir',
+        path: 'dir',
         buffer: sharedList,
       });
 
@@ -221,7 +246,7 @@ describe('VfsProxy', () => {
         type: 'vfs:request',
         op: 'readFile',
         runId: 1,
-        path: '/large.bin',
+        path: 'large.bin',
         buffer: shared,
       });
       const { status, requiredBytes, text } = readSharedResponse(shared);
@@ -265,7 +290,7 @@ describe('VfsProxy', () => {
         type: 'vfs:request',
         op: 'stat',
         runId: 1,
-        path: '/missing.txt',
+        path: 'missing.txt',
         buffer: sharedMissing,
       });
       const { status: missStatus, text: missText } = readSharedResponse(sharedMissing);
@@ -288,7 +313,7 @@ describe('VfsProxy', () => {
         type: 'vfs:request',
         op: 'readdir',
         runId: 1,
-        path: '/root',
+        path: 'root',
         buffer: shared,
       });
       const { status, text } = readSharedResponse(shared);
@@ -311,7 +336,7 @@ describe('VfsProxy', () => {
         type: 'vfs:request',
         op: 'readdir',
         runId: 1,
-        path: '/missing',
+        path: 'missing',
         buffer: sharedMissing,
       });
       const { status: missStatus, text: missText } = readSharedResponse(sharedMissing);
@@ -326,7 +351,7 @@ describe('VfsProxy', () => {
         type: 'vfs:request',
         op: 'nope',
         runId: 1,
-        path: '/file',
+        path: 'file',
         buffer: shared,
       });
       const { status, text } = readSharedResponse(shared);
@@ -359,14 +384,14 @@ describe('VfsProxy', () => {
           type: 'vfs:request',
           op: 'readFile',
           runId: 1,
-          path: '/a',
+          path: 'a',
           buffer: sharedA,
         }),
         proxy.handleServerMessage({
           type: 'vfs:request',
           op: 'readFile',
           runId: 1,
-          path: '/b',
+          path: 'b',
           buffer: sharedB,
         }),
       ]);

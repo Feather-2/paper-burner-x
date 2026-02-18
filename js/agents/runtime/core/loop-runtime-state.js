@@ -13,6 +13,7 @@ import { toNonEmptyString } from "../../shared/index.js";
  * @property {unknown} [pausedReason]
  * @property {unknown} [lastCheckpointId]
  * @property {Array<unknown>} [statusHistory]
+ * @property {unknown} [maxStatusHistory]
  */
 
 const runtimeStateBySignal = new WeakMap();
@@ -72,6 +73,13 @@ function normalizeHistoryItem(item) {
   return { from, to, timestamp };
 }
 
+function normalizeHistoryLimit(value, fallback = 200) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const normalized = Math.floor(n);
+  return normalized > 0 ? normalized : fallback;
+}
+
 export class LoopRuntimeState {
   /**
    * @param {object} [param0]
@@ -80,13 +88,18 @@ export class LoopRuntimeState {
    * @param {unknown=} param0.pausedReason
    * @param {unknown=} param0.lastCheckpointId
    * @param {Array<unknown>=} param0.statusHistory
+   * @param {unknown=} param0.maxStatusHistory
    */
-  constructor({ status, cursor, pausedReason, lastCheckpointId, statusHistory } = {}) {
+  constructor({ status, cursor, pausedReason, lastCheckpointId, statusHistory, maxStatusHistory } = {}) {
     this.status = normalizeStatus(status);
     this.cursor = normalizeCursor(cursor);
     this.pausedReason = toNonEmptyString(pausedReason) ?? null;
     this.lastCheckpointId = toNonEmptyString(lastCheckpointId) ?? null;
+    this._maxStatusHistory = normalizeHistoryLimit(maxStatusHistory, 200);
     this.statusHistory = Array.isArray(statusHistory) ? statusHistory.map(normalizeHistoryItem) : [];
+    if (this.statusHistory.length > this._maxStatusHistory) {
+      this.statusHistory = this.statusHistory.slice(-this._maxStatusHistory);
+    }
   }
 
   /**
@@ -117,6 +130,9 @@ export class LoopRuntimeState {
     ts = toNonEmptyString(ts) ?? new Date().toISOString();
 
     this.statusHistory.push({ from: this.status, to: target, timestamp: ts });
+    if (this.statusHistory.length > this._maxStatusHistory) {
+      this.statusHistory.splice(0, this.statusHistory.length - this._maxStatusHistory);
+    }
     this.status = target;
     return target;
   }
@@ -148,6 +164,7 @@ export class LoopRuntimeState {
       pausedReason: raw.pausedReason,
       lastCheckpointId: raw.lastCheckpointId,
       statusHistory: raw.statusHistory,
+      maxStatusHistory: raw.maxStatusHistory,
     });
   }
 }

@@ -47,6 +47,8 @@ export { normalizeToolResult };
  * @typedef {{ startSpan: Function, endSpan: Function, withSpan: (name: string, fn: Function, options?: any) => any }} TraceContextLike
  *
  * @typedef {"warn" | "skip" | "fail"} HookFailurePolicy
+ * @typedef {"sync" | "background"} ToolPersistMode
+ * @typedef {"warn" | "fail"} ToolPersistFailurePolicy
  *
  * @typedef {object} ToolRegistryOptions
  * @property {ToolDefinitions | null} [tools]
@@ -58,7 +60,12 @@ export { normalizeToolResult };
  * @property {ToolQuotaManagerLike | null} [quotaManager] - Injected quota manager (falls back to resolveToolQuotaManager at call time)
  * @property {"off" | "warn" | "block"} [quotaMode] - Injected quota mode (falls back to resolveToolQuotaMode at call time)
  * @property {TraceContextLike | null} [traceContext] - Injected trace context (falls back to resolveTraceContext at call time)
- * @property {HookFailurePolicy} [hookFailurePolicy] - How to handle hook errors: 'warn' (log + continue, default), 'skip' (silent continue), 'fail' (abort tool call)
+ * @property {HookFailurePolicy} [hookFailurePolicy] - Legacy shared hook policy for before/after hooks
+ * @property {HookFailurePolicy} [beforeHookFailurePolicy] - Before-hook failure policy (default: "fail")
+ * @property {HookFailurePolicy} [afterHookFailurePolicy] - After-hook failure policy (default: "warn")
+ * @property {ToolPersistMode} [persistMode] - Tool call history persistence mode (default: "sync")
+ * @property {ToolPersistFailurePolicy} [persistFailurePolicy] - Persistence failure policy (default: "warn")
+ * @property {number} [persistRetries] - Retry count when persistence fails (default: 1)
  */
 
 /**
@@ -212,6 +219,29 @@ function isToolResult(value) {
 }
 
 /**
+ * @param {unknown} value
+ * @param {HookFailurePolicy} fallback
+ * @returns {HookFailurePolicy}
+ */
+function normalizeHookFailurePolicy(value, fallback) {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (raw === "warn" || raw === "skip" || raw === "fail") return raw;
+  return fallback;
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function normalizePositiveInt(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const normalized = Math.floor(n);
+  return normalized >= 0 ? normalized : fallback;
+}
+
+/**
  * @deprecated Use ToolRegistryOptions.traceContext instead. Kept as internal fallback.
  */
 function resolveTraceContext(context) {
@@ -272,8 +302,23 @@ export class ToolRegistry {
     this._quotaMode = options.quotaMode || "off";
     /** @type {TraceContextLike | null} */
     this._traceContext = options.traceContext || null;
+    const sharedHookPolicy = normalizeHookFailurePolicy(options.hookFailurePolicy, "warn");
     /** @type {HookFailurePolicy} */
-    this._hookFailurePolicy = options.hookFailurePolicy || "warn";
+    this._beforeHookFailurePolicy = normalizeHookFailurePolicy(options.beforeHookFailurePolicy, sharedHookPolicy || "fail");
+    /** @type {HookFailurePolicy} */
+    this._afterHookFailurePolicy = normalizeHookFailurePolicy(options.afterHookFailurePolicy, sharedHookPolicy || "warn");
+    if (!options.beforeHookFailurePolicy && !options.hookFailurePolicy) {
+      this._beforeHookFailurePolicy = "fail";
+    }
+    if (!options.afterHookFailurePolicy && !options.hookFailurePolicy) {
+      this._afterHookFailurePolicy = "warn";
+    }
+    /** @type {ToolPersistMode} */
+    this._persistMode = options.persistMode === "background" ? "background" : "sync";
+    /** @type {ToolPersistFailurePolicy} */
+    this._persistFailurePolicy = options.persistFailurePolicy === "fail" ? "fail" : "warn";
+    /** @type {number} */
+    this._persistRetries = normalizePositiveInt(options.persistRetries, 1);
 
     if (options.tools) {
       this.registerTools(options.tools);
@@ -470,7 +515,32 @@ export class ToolRegistry {
       try { result.quota = result.quota || quota.snapshot; } catch { /* non-extensible */ }
     }
 
-    this._persistToolCall(name, finalParams, result, context);
+    const persistPromise = this._persistToolCall(name, finalParams, result, context);
+    if (this._persistMode === "background") {
+      void persistPromise;
+      return result;
+    }
+
+    const persisted = await persistPromise;
+    if (!persisted.ok) {
+      if (this._persistFailurePolicy === "fail") {
+        return {
+          ok: false,
+          error: `Tool history persistence failed: ${persisted.error}`,
+          cause: result,
+        };
+      }
+      if (isToolResult(result)) {
+        try {
+          result.audit = {
+            persisted: false,
+            error: persisted.error,
+          };
+        } catch {
+          // ignore mutation failure
+        }
+      }
+    }
     return result;
   }
 
@@ -490,7 +560,7 @@ export class ToolRegistry {
         if (hookResult?.skip) return hookResult;
         if (hookResult?.params) finalParams = hookResult.params;
       } catch (e) {
-        const abort = this._onHookError("BeforeHook", name, e);
+        const abort = this._onHookError("BeforeHook", name, e, this._beforeHookFailurePolicy);
         if (abort) return { skip: true, value: abort };
       }
     }
@@ -599,7 +669,8 @@ export class ToolRegistry {
         const hookResult = await hook({ tool: name, params, result: current, context });
         if (hookResult !== undefined) current = normalizeToolResult(hookResult);
       } catch (e) {
-        this._onHookError("AfterHook", name, e);
+        const abort = this._onHookError("AfterHook", name, e, this._afterHookFailurePolicy);
+        if (abort) return abort;
       }
     }
     return current;
@@ -611,30 +682,32 @@ export class ToolRegistry {
    * @param {string} phase - Hook phase label ("BeforeHook" | "AfterHook")
    * @param {string} name - Tool name
    * @param {Error} error - The caught error
+   * @param {HookFailurePolicy} policy
    * @returns {ToolResult | null} Error result when policy is 'fail', null otherwise
    */
-  _onHookError(phase, name, error) {
+  _onHookError(phase, name, error, policy) {
     const msg = `[tool-registry] ${phase} failed for ${name}: ${error.message}`;
-    if (this._hookFailurePolicy === "fail") {
+    if (policy === "fail") {
       this._logger?.error?.(msg);
       return { ok: false, error: `${phase} failed: ${error.message}` };
     }
-    if (this._hookFailurePolicy === "warn") {
+    if (policy === "warn") {
       this._logger?.warn?.(msg);
     }
     return null;
   }
 
   /**
-   * Persist tool call history to Archive (fire-and-forget).
+   * Persist tool call history to Archive.
    * @private
    * @param {string} name - Tool name
    * @param {any} params - Final params
    * @param {ToolResult} result - Execution result
    * @param {any} context - Call context
+   * @returns {Promise<{ ok: true, callId?: string } | { ok: false, error: string, callId?: string }>}
    */
-  _persistToolCall(name, params, result, context) {
-    if (!this._archive) return;
+  async _persistToolCall(name, params, result, context) {
+    if (!this._archive) return { ok: true };
     const timestamp = Date.now();
     const callId = `${this._runId}:tool:${name}:${timestamp}`;
     const historyEntry = {
@@ -652,9 +725,33 @@ export class ToolRegistry {
         actor: context?.actor || context?.agentId || "unknown",
       },
     };
-    this._archive.save(callId, historyEntry).catch((err) => {
-      this._logger?.warn?.(`[tool-registry] Failed to persist tool call history: ${err.message}`);
+
+    /** @type {any} */
+    let lastError = null;
+    const maxAttempts = this._persistRetries + 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        await this._archive.save(callId, historyEntry);
+        return { ok: true, callId };
+      } catch (err) {
+        lastError = err;
+        if (attempt < maxAttempts) {
+          await Promise.resolve();
+        }
+      }
+    }
+
+    const message = lastError instanceof Error ? lastError.message : String(lastError || "unknown error");
+    this._logger?.warn?.(`[tool-registry] Failed to persist tool call history: ${message}`);
+    const emit = this._emit || resolveEmit(context);
+    emit?.("tool:persist:error", {
+      tool: name,
+      runId: this._runId,
+      callId,
+      error: message,
+      attempts: maxAttempts,
     });
+    return { ok: false, error: message, callId };
   }
 
   /**

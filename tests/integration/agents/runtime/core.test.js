@@ -112,6 +112,7 @@ describe('runtime/core ToolRegistry', () => {
     const registry = new ToolRegistry({
       tools: { double: toolFn },
       logger,
+      hookFailurePolicy: 'warn',
     });
 
     registry.useHook('before', async ({ params }) => ({ params: { value: params.value + 1 } }));

@@ -376,7 +376,11 @@ describe("ToolRegistry", () => {
   it("logs hook failures but continues execution", async () => {
     const logger = { warn: vi.fn() };
     const toolFn = vi.fn(async () => "pong");
-    const registry = new ToolRegistry({ tools: { ping: toolFn }, logger });
+    const registry = new ToolRegistry({
+      tools: { ping: toolFn },
+      logger,
+      hookFailurePolicy: "warn",
+    });
 
     registry.useHook("before", async () => {
       throw new Error("before-fail");
@@ -390,6 +394,46 @@ describe("ToolRegistry", () => {
     expect(result).toMatchObject({ ok: true, data: "pong" });
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("BeforeHook failed for ping: before-fail"));
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("AfterHook failed for ping: after-fail"));
+  });
+
+  it("fails closed for before-hook errors by default", async () => {
+    const logger = { error: vi.fn() };
+    const toolFn = vi.fn(async () => "pong");
+    const registry = new ToolRegistry({ tools: { ping: toolFn }, logger });
+    registry.useHook("before", async () => {
+      throw new Error("guard-failed");
+    });
+
+    const result = await registry.callTool("ping", {}, {});
+    expect(result).toMatchObject({ ok: false, error: "BeforeHook failed: guard-failed" });
+    expect(toolFn).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("BeforeHook failed for ping: guard-failed"));
+  });
+
+  it("persists tool history synchronously and reports persistence failures in result audit", async () => {
+    const archive = {
+      save: vi.fn(async () => {}),
+    };
+    const toolFn = vi.fn(async () => "pong");
+    const registry = new ToolRegistry({
+      tools: { ping: toolFn },
+      archive,
+      runId: "run-test",
+    });
+
+    const okResult = await registry.callTool("ping", { a: 1 }, { actor: "agent-x" });
+    expect(okResult).toMatchObject({ ok: true, data: "pong" });
+    expect(archive.save).toHaveBeenCalledTimes(1);
+
+    archive.save.mockRejectedValueOnce(new Error("archive-down"));
+    archive.save.mockRejectedValueOnce(new Error("archive-down"));
+    const failedPersist = await registry.callTool("ping", { b: 2 }, { actor: "agent-x" });
+    expect(failedPersist.ok).toBe(true);
+    expect(failedPersist.audit).toMatchObject({
+      persisted: false,
+      error: "archive-down",
+    });
+    expect(archive.save).toHaveBeenCalledTimes(3);
   });
 
   it("blocks execution when PolicyManager denies", async () => {

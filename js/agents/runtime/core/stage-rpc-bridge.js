@@ -17,6 +17,82 @@ import { EventBus } from "../../core/event-bus.js";
 import { toNonEmptyString } from "../../shared/index.js";
 
 const DEFAULT_RPC_TIMEOUT_MS = 30_000;
+const STAGE_RPC_META_VERSION = 1;
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function normalizePositiveTimeout(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const normalized = Math.floor(n);
+  return normalized > 0 ? normalized : fallback;
+}
+
+/**
+ * @param {string} endpoint
+ * @param {string | null} targetStageId
+ * @returns {string}
+ */
+function resolveEndpoint(endpoint, targetStageId) {
+  if (endpoint.includes(":")) return endpoint;
+  const target = toNonEmptyString(targetStageId);
+  return target ? `${target}:${endpoint}` : endpoint;
+}
+
+/**
+ * @param {unknown} err
+ * @returns {{ message: string, code?: string, name?: string }}
+ */
+function serializeRpcError(err) {
+  if (err instanceof Error) {
+    const out = {
+      message: err.message || "Unknown RPC error",
+      name: err.name || undefined,
+      code: typeof err.code === "string" ? err.code : undefined,
+    };
+    return out;
+  }
+  if (err && typeof err === "object") {
+    const raw = /** @type {{ message?: unknown, code?: unknown, name?: unknown, error?: unknown }} */ (err);
+    const message = toNonEmptyString(raw.message) || toNonEmptyString(raw.error) || "Unknown RPC error";
+    return {
+      message,
+      code: typeof raw.code === "string" ? raw.code : undefined,
+      name: typeof raw.name === "string" ? raw.name : undefined,
+    };
+  }
+  return { message: String(err ?? "Unknown RPC error") };
+}
+
+/**
+ * @param {unknown} incoming
+ * @returns {{ payload: unknown, meta: { v?: number, from?: string, to?: string, requestId?: string } | null }}
+ */
+function unwrapStagePayload(incoming) {
+  if (!incoming || typeof incoming !== "object") return { payload: incoming, meta: null };
+  const record = /** @type {{ __stageRpc?: any, payload?: unknown }} */ (incoming);
+  if (!record.__stageRpc || typeof record.__stageRpc !== "object") return { payload: incoming, meta: null };
+  return { payload: record.payload, meta: record.__stageRpc };
+}
+
+/**
+ * @param {unknown} response
+ * @returns {{ ok: true, data: unknown } | { ok: false, error: { message: string, code?: string, name?: string } } | null}
+ */
+function unwrapStageResponseEnvelope(response) {
+  const direct = response && typeof response === "object" && response.__stageRpcResponse
+    ? response
+    : (response && typeof response === "object" && response.data && response.data.__stageRpcResponse
+      ? response.data
+      : null);
+  if (!direct || typeof direct !== "object") return null;
+  if (direct.ok === true) return { ok: true, data: direct.data };
+  if (direct.ok === false) return { ok: false, error: serializeRpcError(direct.error) };
+  return null;
+}
 
 /**
  * @typedef {Object} StageRpcBridgeOptions
@@ -44,6 +120,7 @@ export class StageRpcBridge {
     this._defaultTimeoutMs = typeof options?.defaultTimeoutMs === 'number' && options.defaultTimeoutMs > 0
       ? options.defaultTimeoutMs
       : DEFAULT_RPC_TIMEOUT_MS;
+    this._requestSeq = 0;
 
     /** @type {Map<string, Function>} endpoint -> unsubscribe */
     this._handlers = new Map();
@@ -56,7 +133,7 @@ export class StageRpcBridge {
   /**
    * Register an RPC handler for an endpoint.
    * @param {string} endpoint - Format: stageName:action
-   * @param {(payload: unknown, meta: { from: string }) => Promise<unknown>} handler
+   * @param {(payload: unknown, meta: { from: string, to: string, endpoint: string, requestId: string | null }) => Promise<unknown>} handler
    * @returns {{ ok: true } | { ok: false, error: string }}
    */
   registerHandler(endpoint, handler) {
@@ -70,8 +147,35 @@ export class StageRpcBridge {
       this._handlers.delete(name);
     }
 
-    const off = this._messageBus.on(`rpc.${name}`, async (payload) => {
-      return await handler(payload, { from: this._stageId });
+    const off = this._messageBus.on(`rpc.${name}`, async (incomingPayload) => {
+      const unwrapped = unwrapStagePayload(incomingPayload);
+      const from = toNonEmptyString(unwrapped.meta?.from) || "unknown";
+      const requestId = toNonEmptyString(unwrapped.meta?.requestId) || null;
+      try {
+        const data = await handler(unwrapped.payload, {
+          from,
+          to: this._stageId,
+          endpoint: name,
+          requestId,
+        });
+        return {
+          __stageRpcResponse: true,
+          ok: true,
+          data,
+          from: this._stageId,
+          requestId,
+          v: STAGE_RPC_META_VERSION,
+        };
+      } catch (err) {
+        return {
+          __stageRpcResponse: true,
+          ok: false,
+          error: serializeRpcError(err),
+          from: this._stageId,
+          requestId,
+          v: STAGE_RPC_META_VERSION,
+        };
+      }
     });
 
     this._handlers.set(name, off);
@@ -82,26 +186,48 @@ export class StageRpcBridge {
    * Send an RPC request to another stage's endpoint.
    * @param {string} endpoint - Format: stageName:action
    * @param {unknown} payload
-   * @param {{ timeoutMs?: number, signal?: AbortSignal }} [options]
-   * @returns {Promise<{ ok: true, data: unknown } | { ok: false, error: string }>}
+   * @param {{ timeoutMs?: number, signal?: AbortSignal, targetStageId?: string }} [options]
+   * @returns {Promise<{ ok: true, data: unknown } | { ok: false, error: string, errorInfo?: { message: string, code?: string, name?: string } }>}
    */
   async request(endpoint, payload, options = {}) {
     if (this.disposed) return { ok: false, error: 'Bridge disposed' };
     const name = toNonEmptyString(endpoint);
     if (!name) return { ok: false, error: 'endpoint required' };
 
-    const timeoutMs = typeof options?.timeoutMs === 'number' && options.timeoutMs > 0
-      ? options.timeoutMs
-      : this._defaultTimeoutMs;
+    const timeoutMs = normalizePositiveTimeout(options?.timeoutMs, this._defaultTimeoutMs);
+    const targetStageId = toNonEmptyString(options?.targetStageId) || null;
+    const resolvedEndpoint = resolveEndpoint(name, targetStageId);
+    const requestId = `${this._stageId}:${Date.now().toString(36)}:${++this._requestSeq}`;
+    const wrappedPayload = {
+      __stageRpc: {
+        v: STAGE_RPC_META_VERSION,
+        from: this._stageId,
+        to: targetStageId,
+        endpoint: resolvedEndpoint,
+        requestId,
+        timestamp: Date.now(),
+      },
+      payload,
+    };
 
     try {
-      const result = await this._messageBus.request(`rpc.${name}`, payload, {
+      const result = await this._messageBus.request(`rpc.${resolvedEndpoint}`, wrappedPayload, {
         timeoutMs,
         signal: options?.signal,
       });
+      const envelope = unwrapStageResponseEnvelope(result);
+      if (envelope?.ok === true) return { ok: true, data: envelope.data };
+      if (envelope?.ok === false) {
+        return {
+          ok: false,
+          error: envelope.error.message,
+          errorInfo: envelope.error,
+        };
+      }
       return { ok: true, data: result?.data ?? result };
     } catch (err) {
-      return { ok: false, error: err?.message || String(err) };
+      const errorInfo = serializeRpcError(err);
+      return { ok: false, error: errorInfo.message, errorInfo };
     }
   }
 
@@ -120,11 +246,13 @@ export class StageRpcBridge {
    * @returns {{ request: Function }}
    */
   createClient(stageId, options = {}) {
+    const targetStageId = toNonEmptyString(stageId) || null;
     const signal = options?.signal;
     return {
       request: (endpoint, payload, reqOptions = {}) => {
         return this.request(endpoint, payload, {
           ...reqOptions,
+          targetStageId: reqOptions.targetStageId || targetStageId,
           signal: reqOptions.signal || signal,
         });
       },

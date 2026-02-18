@@ -196,6 +196,7 @@ export function createHttpShim(options = {}) {
   function setServerListenCallback(cb) { _serverListenCallback = cb; }
   function setServerCloseCallback(cb) { _serverCloseCallback = cb; }
   function getServer(port) { return _servers.get(port); }
+  function getAllServers() { return Array.from(_servers.values()); }
 
   class ClientRequest extends Writable {
     constructor(opts, callback) {
@@ -405,9 +406,108 @@ export function createHttpShim(options = {}) {
     IncomingMessage, ServerResponse,
     ClientRequest, Server, createServer,
     request, get, METHODS, STATUS_CODES,
-    setServerListenCallback, setServerCloseCallback, getServer,
+    setServerListenCallback, setServerCloseCallback, getServer, getAllServers,
     setNetworkPolicy,
   };
 }
 
-export default { createHttpShim, IncomingMessage, ServerResponse, METHODS, STATUS_CODES };
+/**
+ * Minimal Agent shim (compatible shape for https/http callers).
+ */
+export class Agent {
+  constructor(options = {}) {
+    this.options = { ...options };
+    this.keepAlive = !!options.keepAlive;
+    this.maxSockets = Number.isFinite(options.maxSockets) ? options.maxSockets : Infinity;
+    this.maxFreeSockets = Number.isFinite(options.maxFreeSockets) ? options.maxFreeSockets : 256;
+  }
+  addRequest() {}
+  createConnection() {
+    return new Socket();
+  }
+  destroy() {}
+}
+
+export const globalAgent = new Agent({ keepAlive: true });
+
+const __defaultHttpShim = createHttpShim();
+
+export const Server = __defaultHttpShim.Server;
+export const ClientRequest = __defaultHttpShim.ClientRequest;
+export const createServer = __defaultHttpShim.createServer;
+
+export function setServerListenCallback(cb) {
+  return __defaultHttpShim.setServerListenCallback(cb);
+}
+
+export function setServerCloseCallback(cb) {
+  return __defaultHttpShim.setServerCloseCallback(cb);
+}
+
+export function getServer(port) {
+  return __defaultHttpShim.getServer(port);
+}
+
+export function getAllServers() {
+  return typeof __defaultHttpShim.getAllServers === "function" ? __defaultHttpShim.getAllServers() : [];
+}
+
+function withProtocol(urlOrOptions, protocol) {
+  if (!protocol) return urlOrOptions;
+  if (typeof urlOrOptions === "string") {
+    try {
+      const parsed = new URL(urlOrOptions);
+      parsed.protocol = `${protocol}:`;
+      return parsed.toString();
+    } catch {
+      return urlOrOptions;
+    }
+  }
+  if (urlOrOptions instanceof URL) {
+    const cloned = new URL(urlOrOptions.toString());
+    cloned.protocol = `${protocol}:`;
+    return cloned;
+  }
+  if (urlOrOptions && typeof urlOrOptions === "object") {
+    return {
+      ...urlOrOptions,
+      protocol: `${protocol}:`,
+    };
+  }
+  return urlOrOptions;
+}
+
+export function _createClientRequest(urlOrOptions, optionsOrCallback, callback, protocol = "http") {
+  const input = withProtocol(urlOrOptions, protocol);
+  return __defaultHttpShim.request(input, optionsOrCallback, callback);
+}
+
+export function request(urlOrOptions, optionsOrCallback, callback) {
+  return _createClientRequest(urlOrOptions, optionsOrCallback, callback, "http");
+}
+
+export function get(urlOrOptions, optionsOrCallback, callback) {
+  const req = _createClientRequest(urlOrOptions, optionsOrCallback, callback, "http");
+  req.end();
+  return req;
+}
+
+export default {
+  createHttpShim,
+  IncomingMessage,
+  ServerResponse,
+  Server,
+  ClientRequest,
+  createServer,
+  request,
+  get,
+  METHODS,
+  STATUS_CODES,
+  setServerListenCallback,
+  setServerCloseCallback,
+  getServer,
+  getAllServers,
+  Agent,
+  globalAgent,
+  _createClientRequest,
+};

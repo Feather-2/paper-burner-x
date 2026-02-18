@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parse, format, resolve } from '../../../../../../js/agents/core/node-compat/shims/url.js';
+import { parse, format, resolve, URL, URLSearchParams } from '../../../../../../js/agents/core/node-compat/shims/url.js';
 
 describe('url shim', () => {
   it('parse returns correct fields', () => {
@@ -30,5 +30,12 @@ describe('url shim', () => {
   it('resolve resolves relative URL', () => {
     expect(resolve('https://example.com/a/', './b')).toBe('https://example.com/a/b');
     expect(resolve('https://example.com/a/c', '../d')).toBe('https://example.com/d');
+  });
+
+  it('re-exports URL constructors with valid bindings', () => {
+    const u = new URL('https://example.com/path?a=1');
+    expect(u.hostname).toBe('example.com');
+    const params = new URLSearchParams('a=1&b=2');
+    expect(params.get('b')).toBe('2');
   });
 });

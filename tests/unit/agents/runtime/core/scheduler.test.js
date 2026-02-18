@@ -291,6 +291,18 @@ describe("RuntimeScheduler", () => {
     expect(eventBus.emit).toHaveBeenCalledWith("runtime.event", { code: "return 1;" });
   });
 
+  it("returns structured failure instead of throwing when runtime is not registered", async () => {
+    const scheduler = new RuntimeScheduler();
+    const result = await scheduler.dispatch("missing", "return 1;", {}, {});
+
+    expect(result).toMatchObject({
+      success: false,
+      code: "ERR_RUNTIME_NOT_REGISTERED",
+    });
+    expect(result.error).toMatch(/not registered/i);
+    expect(result.metrics?.queued).toBe(false);
+  });
+
   it("dispatch accepts empty/nullish inputs without crashing", async () => {
     const scheduler = new RuntimeScheduler();
     const runtime = {
@@ -402,6 +414,35 @@ describe("RuntimeScheduler", () => {
     await Promise.resolve();
     await first;
     await second;
+  });
+
+  it("drops queued tasks that are aborted before execution", async () => {
+    const scheduler = new RuntimeScheduler({
+      scheduling: { maxConcurrentPerRuntime: 1, maxQueueSize: 5 },
+    });
+    const firstDeferred = createDeferred();
+    const runtime = {
+      execute: vi.fn(() => firstDeferred.promise),
+    };
+    scheduler.registerRuntime("js", runtime);
+
+    const first = scheduler.dispatch("js", "A", {}, {});
+    const controller = new AbortController();
+    const second = scheduler.dispatch("js", "B", {}, { signal: controller.signal });
+
+    expect(scheduler.getQueueStats("js").queueSize).toBe(1);
+    controller.abort();
+
+    await expect(second).resolves.toMatchObject({
+      success: false,
+      cancelled: true,
+      code: "ERR_TASK_ABORTED",
+    });
+    expect(scheduler.getQueueStats("js").queueSize).toBe(0);
+    expect(runtime.execute).toHaveBeenCalledTimes(1);
+
+    firstDeferred.resolve({ success: true });
+    await expect(first).resolves.toMatchObject({ success: true });
   });
 
   it("blocks dispatch when runtime is isolated", async () => {

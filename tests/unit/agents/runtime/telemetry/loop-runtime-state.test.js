@@ -121,6 +121,31 @@ it("LoopRuntimeState validates transitions", async () => {
   expect(state.status).toBe(LoopRuntimeStatuses.COMPLETED);
 });
 
+it("LoopRuntimeState trims statusHistory with maxStatusHistory", async () => {
+  const { LoopRuntimeState, LoopRuntimeStatuses } = await import(
+    "../../../../../js/agents/runtime/core/loop-runtime-state.js"
+  );
+
+  const state = new LoopRuntimeState({
+    status: LoopRuntimeStatuses.IDLE,
+    maxStatusHistory: 2,
+  });
+
+  state.transitionTo(LoopRuntimeStatuses.RUNNING);
+  state.transitionTo(LoopRuntimeStatuses.PAUSED);
+  state.transitionTo(LoopRuntimeStatuses.RUNNING);
+
+  expect(state.statusHistory).toHaveLength(2);
+  expect(state.statusHistory[0]).toMatchObject({
+    from: LoopRuntimeStatuses.RUNNING,
+    to: LoopRuntimeStatuses.PAUSED,
+  });
+  expect(state.statusHistory[1]).toMatchObject({
+    from: LoopRuntimeStatuses.PAUSED,
+    to: LoopRuntimeStatuses.RUNNING,
+  });
+});
+
 it("getRuntimeState/setRuntimeState isolate per signal", async () => {
   const {
     getRuntimeState,

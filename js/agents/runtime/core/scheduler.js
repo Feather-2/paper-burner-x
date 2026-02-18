@@ -40,6 +40,10 @@ export const TaskPriority = Object.freeze({
   LOW: 2,
 });
 
+function isAbortSignalLike(signal) {
+  return !!signal && typeof signal === "object" && typeof signal.aborted === "boolean" && typeof signal.addEventListener === "function";
+}
+
 export class RuntimeScheduler {
   constructor(options = {}) {
     this.runtimes = new Map();
@@ -363,6 +367,40 @@ export class RuntimeScheduler {
   }
 
   /**
+   * @param {string} type
+   * @param {string} error
+   * @param {{ duration?: number, queued?: boolean, cancelled?: boolean, code?: string }} [meta]
+   * @returns {{ success: false, error: string, code?: string, metrics: { duration: number, queued?: boolean }, cancelled?: boolean }}
+   */
+  _dispatchFailure(type, error, meta = {}) {
+    const result = {
+      success: false,
+      error,
+      metrics: {
+        duration: typeof meta.duration === "number" ? meta.duration : 0,
+      },
+    };
+    if (typeof meta.queued === "boolean") result.metrics.queued = meta.queued;
+    if (typeof meta.cancelled === "boolean") result.cancelled = meta.cancelled;
+    if (typeof meta.code === "string" && meta.code) result.code = meta.code;
+
+    try {
+      this.eventBus?.emit?.("runtime:dispatch:failed", {
+        runtimeType: type,
+        error,
+        code: result.code,
+        cancelled: result.cancelled === true,
+        queued: result.metrics.queued === true,
+        ts: this._time.now(),
+      });
+    } catch {
+      // ignore
+    }
+
+    return result;
+  }
+
+  /**
    * 调度执行任务（带队列和优先级）
    * @param {string} type 运行时类型
    * @param {string} code 代码内容
@@ -374,9 +412,20 @@ export class RuntimeScheduler {
    * @param {Object} [options.dependencies]
    */
   async dispatch(type, code, inputState, options = {}) {
+    if (isAbortSignalLike(options?.signal) && options.signal.aborted) {
+      return this._dispatchFailure(type, `Task cancelled before dispatch: ${type}`, {
+        queued: false,
+        cancelled: true,
+        code: "ERR_TASK_ABORTED",
+      });
+    }
+
     const runtime = this.runtimes.get(type);
     if (!runtime) {
-      throw new Error(`Runtime not registered: ${type}`);
+      return this._dispatchFailure(type, `Runtime not registered: ${type}`, {
+        queued: false,
+        code: "ERR_RUNTIME_NOT_REGISTERED",
+      });
     }
 
     this._ensureHealthEntry(type);
@@ -405,12 +454,49 @@ export class RuntimeScheduler {
     // 需要排队
     const queue = this._taskQueues.get(type);
     if (queue.length >= this._maxQueueSize) {
-      return { success: false, error: `Queue full for runtime: ${type}`, metrics: { duration: 0, queued: false } };
+      return this._dispatchFailure(type, `Queue full for runtime: ${type}`, {
+        queued: false,
+        code: "ERR_RUNTIME_QUEUE_FULL",
+      });
     }
 
     // 创建排队任务
     return new Promise((resolve) => {
-      const task = { type, runtime, code, inputState, options, priority, seq, resolve };
+      const task = {
+        type,
+        runtime,
+        code,
+        inputState,
+        options,
+        priority,
+        seq,
+        resolve,
+        cleanupAbort: null,
+      };
+
+      const signal = options?.signal;
+      if (isAbortSignalLike(signal)) {
+        const onAbort = () => {
+          const idx = queue.indexOf(task);
+          if (idx >= 0) queue.splice(idx, 1);
+          if (typeof task.cleanupAbort === "function") task.cleanupAbort();
+          resolve(this._dispatchFailure(type, `Task cancelled while queued: ${type}`, {
+            queued: true,
+            cancelled: true,
+            code: "ERR_TASK_ABORTED",
+          }));
+        };
+
+        signal.addEventListener("abort", onAbort, { once: true });
+        task.cleanupAbort = () => {
+          try {
+            signal.removeEventListener("abort", onAbort);
+          } catch {
+            // ignore
+          }
+          task.cleanupAbort = null;
+        };
+      }
 
       // 按优先级插入（priority 小的在前，相同优先级按 seq）
       let inserted = false;
@@ -504,6 +590,19 @@ export class RuntimeScheduler {
     // 取队首任务执行
     const task = queue.shift();
     if (!task) return;
+    if (typeof task.cleanupAbort === "function") {
+      task.cleanupAbort();
+    }
+
+    if (isAbortSignalLike(task.options?.signal) && task.options.signal.aborted) {
+      task.resolve(this._dispatchFailure(type, `Task cancelled while queued: ${type}`, {
+        queued: true,
+        cancelled: true,
+        code: "ERR_TASK_ABORTED",
+      }));
+      this._drainQueue(type);
+      return;
+    }
 
     this._executeTask(task.type, task.runtime, task.code, task.inputState, task.options)
       .then(task.resolve)

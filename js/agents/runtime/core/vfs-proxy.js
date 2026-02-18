@@ -40,6 +40,8 @@ import { VFS_REQUEST, VFS_OPS } from "./vfs-proxy-protocol.js";
  * @property {number} [timeoutMs] - client-only; Atomics.wait timeout
  * @property {number} [maxJsonBytes] - client-only; response buffer size for JSON ops
  * @property {SharedArrayBuffer} [sharedBuffer] - client-only; reusable sync response buffer
+ * @property {"strip" | "reject" | "preserve"} [absolutePathMode] - server path handling policy for absolute paths (default: reject)
+ * @property {(error: { message: string, code?: string, op?: string, path?: string, runId?: number }) => void} [onProtocolError]
  */
 
 /**
@@ -68,6 +70,37 @@ function normalizeProxyOp(op) {
 
 function stripLeadingSlashes(path) {
   return String(path ?? '').replace(/^\/+/, '');
+}
+
+/**
+ * @param {unknown} value
+ * @returns {"strip" | "reject" | "preserve"}
+ */
+function normalizeAbsolutePathMode(value) {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (raw === "strip" || raw === "reject" || raw === "preserve") return raw;
+  return "reject";
+}
+
+/**
+ * @param {unknown} path
+ * @param {"strip" | "reject" | "preserve"} mode
+ * @returns {{ ok: true, path: string, absolute: boolean } | { ok: false, error: string, code: string }}
+ */
+function normalizeServerPath(path, mode) {
+  const raw = String(path ?? "");
+  const absolute = /^\/+/.test(raw);
+  if (absolute && mode === "reject") {
+    return {
+      ok: false,
+      error: `Absolute VFS paths are not allowed: ${raw}`,
+      code: "ERR_VFS_ABSOLUTE_PATH",
+    };
+  }
+  if (absolute && mode === "strip") {
+    return { ok: true, path: stripLeadingSlashes(raw), absolute: true };
+  }
+  return { ok: true, path: raw, absolute };
 }
 
 function toDirEntries(entries) {
@@ -197,7 +230,24 @@ export class VfsProxy {
     this.timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : 30_000;
     this.maxJsonBytes = typeof options.maxJsonBytes === 'number' ? options.maxJsonBytes : 256 * 1024;
     this._sharedBuffer = isSharedArrayBuffer(options.sharedBuffer) ? options.sharedBuffer : null;
+    this.absolutePathMode = normalizeAbsolutePathMode(options.absolutePathMode);
+    this.onProtocolError = typeof options.onProtocolError === "function" ? options.onProtocolError : null;
     this._runId = null;
+  }
+
+  /**
+   * @param {string} message
+   * @param {{ code?: string, op?: string, path?: string, runId?: number }} [meta]
+   */
+  _reportProtocolError(message, meta = {}) {
+    try {
+      this.onProtocolError?.({
+        message,
+        ...meta,
+      });
+    } catch {
+      // ignore observer failures
+    }
   }
 
   setRunId(runId) {
@@ -220,7 +270,14 @@ export class VfsProxy {
     if (this.role !== 'server') return false;
 
     const sharedBuffer = msg.buffer;
-    if (!isSharedArrayBuffer(sharedBuffer)) return true;
+    if (!isSharedArrayBuffer(sharedBuffer)) {
+      this._reportProtocolError("VfsProxy: SharedArrayBuffer is required for server requests", {
+        code: "ERR_VFS_PROTOCOL_BUFFER",
+        op: String(msg.op || ''),
+        runId: typeof msg.runId === 'number' ? msg.runId : Number(msg.runId),
+      });
+      return false;
+    }
 
     const runId = typeof msg.runId === 'number' ? msg.runId : Number(msg.runId);
     const vfs = typeof this.getVfs === 'function' ? this.getVfs(runId) : null;
@@ -231,8 +288,26 @@ export class VfsProxy {
 
     const opRaw = String(msg.op || '');
     const op = normalizeProxyOp(opRaw);
-    const path = String(msg.path || '');
-    const vfsPath = stripLeadingSlashes(path);
+    const pathInfo = normalizeServerPath(msg.path, this.absolutePathMode);
+    if (!pathInfo.ok) {
+      writeSharedResponse(sharedBuffer, { ok: false, error: pathInfo.error });
+      this._reportProtocolError(pathInfo.error, {
+        code: pathInfo.code,
+        op: opRaw,
+        path: String(msg.path ?? ''),
+        runId,
+      });
+      return true;
+    }
+    const vfsPath = pathInfo.path;
+    if (pathInfo.absolute && this.absolutePathMode === "strip") {
+      this._reportProtocolError("VfsProxy: absolute path normalized to relative path", {
+        code: "WARN_VFS_PATH_STRIPPED",
+        op: opRaw,
+        path: String(msg.path ?? ''),
+        runId,
+      });
+    }
 
     try {
       if (op === VFS_OPS.READ) {
@@ -348,7 +423,7 @@ export class VfsProxy {
       type: VFS_REQUEST,
       op: normalizedOp,
       runId,
-      path,
+      path: stripLeadingSlashes(path),
       buffer: sharedBuffer,
     });
 

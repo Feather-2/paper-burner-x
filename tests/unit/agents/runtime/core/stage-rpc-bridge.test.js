@@ -93,13 +93,46 @@ describe('StageRpcBridge', () => {
       expect(result.ok).toBe(false);
       expect(result.error).toContain('No handler');
     });
+
+    it('preserves structured handler errors', async () => {
+      bridge.registerHandler('codesearch:search', async () => {
+        const err = new Error('denied');
+        err.code = 'E_POLICY';
+        throw err;
+      });
+      const result = await bridge.request('codesearch:search', { query: 'x' });
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('denied');
+      expect(result.errorInfo).toMatchObject({ code: 'E_POLICY' });
+    });
+
+    it('passes caller stageId as meta.from to handler', async () => {
+      const server = new StageRpcBridge({ stageId: 'server' });
+      const client = new StageRpcBridge({ stageId: 'client', messageBus: server.messageBus });
+      const observed = [];
+      server.registerHandler('search:ping', async (_payload, meta) => {
+        observed.push(meta);
+        return 'pong';
+      });
+
+      const result = await client.request('search:ping', { x: 1 });
+      expect(result.ok).toBe(true);
+      expect(observed[0]).toMatchObject({
+        from: 'client',
+        to: 'server',
+        endpoint: 'search:ping',
+      });
+
+      server.dispose();
+      client.dispose();
+    });
   });
 
   describe('createClient', () => {
     it('creates scoped client', async () => {
       bridge.registerHandler('deepsearch:query', async (p) => ({ answer: p }));
       const client = bridge.createClient('deepsearch');
-      const result = await client.request('deepsearch:query', 'test');
+      const result = await client.request('query', 'test');
       expect(result.ok).toBe(true);
     });
   });

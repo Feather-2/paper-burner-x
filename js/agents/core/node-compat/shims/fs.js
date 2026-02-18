@@ -309,7 +309,39 @@ export function createFsShim(vfs, options = {}) {
     const p = normPath(path);
     guardWrite(p, 'mkdirSync');
     try {
-      vfs._getDirNode(p, { create: recursive || true });
+      if (recursive) {
+        vfs._getDirNode(p, { create: true });
+        return;
+      }
+
+      const parts = p.split('/').filter(Boolean);
+      if (parts.length === 0) {
+        const e = new Error(`EEXIST: ${p}`);
+        e.code = 'EEXIST';
+        e.path = p;
+        throw e;
+      }
+
+      const parentPath = parts.slice(0, -1).join('/');
+      const name = parts[parts.length - 1];
+      const parent = vfs._getDirNode(parentPath, { create: false });
+      if (!parent) {
+        const e = new Error(`ENOENT: ${p}`);
+        e.code = 'ENOENT';
+        e.path = p;
+        throw e;
+      }
+
+      const existing = parent.children.get(name);
+      if (existing) {
+        const e = new Error(`EEXIST: ${p}`);
+        e.code = 'EEXIST';
+        e.path = p;
+        throw e;
+      }
+
+      parent.children.set(name, { kind: 'dir', children: new Map(), updatedAt: Date.now() });
+      parent.updatedAt = Date.now();
     } catch (err) {
       throw makeErrno(err, p);
     }
