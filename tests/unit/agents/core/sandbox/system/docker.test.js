@@ -175,6 +175,14 @@ describe("executeInDocker", () => {
     expect(execCommand).not.toHaveBeenCalled();
   });
 
+  it("throws when workDir is missing and process.cwd is unavailable", async () => {
+    vi.stubGlobal("process", undefined);
+    await expect(executeInDocker("cmd", [], {}))
+      .rejects
+      .toThrow("workDir is required for Docker sandbox");
+    vi.unstubAllGlobals();
+  });
+
   it("keeps long and deeply nested inputs intact", async () => {
     execCommand.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
 
@@ -361,5 +369,27 @@ describe("createDockerExecutor", () => {
 
     await expect(executor.execute("echo", ["hi"])).rejects.toThrow("docker down");
     expect(execCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("rechecks and recovers image when runtime reports missing image drift", async () => {
+    execCommand
+      // initial ensureImage inspect
+      .mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" })
+      // first docker run fails because image disappeared
+      .mockResolvedValueOnce({ code: 125, stdout: "", stderr: "Unable to find image 'default:1'" })
+      // recovery ensureImage inspect -> miss
+      .mockResolvedValueOnce({ code: 1, stdout: "", stderr: "" })
+      // pull succeeds
+      .mockResolvedValueOnce({ code: 0, stdout: "pulled", stderr: "" })
+      // retry run succeeds
+      .mockResolvedValueOnce({ code: 0, stdout: "ok", stderr: "" });
+
+    const executor = createDockerExecutor({ image: "default:1" });
+    const result = await executor.execute("echo", ["heal"]);
+
+    expect(result.code).toBe(0);
+    expect(getCallsByArgsPrefix("image", "inspect")).toHaveLength(2);
+    expect(getCallsByArgsPrefix("pull")).toHaveLength(1);
+    expect(getCallsByArgsPrefix("run")).toHaveLength(2);
   });
 });

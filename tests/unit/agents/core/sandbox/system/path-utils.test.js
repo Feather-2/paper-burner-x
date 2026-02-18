@@ -53,11 +53,17 @@ describe('normalizeSandboxPath', () => {
     expect(normalizeSandboxPath('../etc/passwd', base)).toBeNull();
   });
 
-  it('handles absolute paths and blocks traversal', () => {
+  it('rejects absolute paths by default and blocks traversal', () => {
     const base = `${tmpdir()}/sandbox`;
 
-    expect(normalizeSandboxPath('/var/log/app.log', base)).toBe('/var/log/app.log');
+    expect(normalizeSandboxPath('/var/log/app.log', base)).toBeNull();
     expect(normalizeSandboxPath('/var/../etc/passwd', base)).toBeNull();
+  });
+
+  it('allows absolute paths only when allowAbsolute=true', () => {
+    const base = `${tmpdir()}/sandbox`;
+    expect(normalizeSandboxPath('/var/log/app.log', base, { allowAbsolute: true })).toBe('/var/log/app.log');
+    expect(normalizeSandboxPath('/var/../etc/passwd', base, { allowAbsolute: true })).toBeNull();
   });
 
   it('handles deep nesting and large filenames', () => {
@@ -92,7 +98,22 @@ describe('normalizeSandboxPath', () => {
       inputs.map((input) => Promise.resolve(normalizeSandboxPath(input, base)))
     );
 
-    expect(results).toEqual(['/tmp/sandbox/a', '/tmp/sandbox/b/c', null, '/abs/path']);
+    expect(results).toEqual(['/tmp/sandbox/a', '/tmp/sandbox/b/c', null, null]);
+  });
+
+  it('rejects symlink-escaped relative paths when resolveSymlinks is enabled', () => {
+    const base = `${tmpdir()}/sandbox/root`;
+    const realpath = vi.fn((path) => {
+      if (path === '/tmp/sandbox/root') return '/tmp/sandbox/root';
+      if (path === '/tmp/sandbox/root/link') return '/outside';
+      throw new Error('ENOENT');
+    });
+
+    const resolved = normalizeSandboxPath('link/file.txt', base, {
+      resolveSymlinks: true,
+      realpath,
+    });
+    expect(resolved).toBeNull();
   });
 
   it('remains stable under rapid consecutive calls', () => {

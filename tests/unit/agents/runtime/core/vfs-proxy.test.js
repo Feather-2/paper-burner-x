@@ -7,6 +7,7 @@ vi.mock('node:util', async () => {
 
 import { TextDecoder as UtilTextDecoder, TextEncoder as UtilTextEncoder } from 'node:util';
 import { VfsProxy, default as VfsProxyDefault } from '../../../../../js/agents/runtime/core/vfs-proxy.js';
+import { VFS_OPS, VFS_REQUEST } from '../../../../../js/agents/runtime/core/vfs-proxy-protocol.js';
 
 const encoder = new UtilTextEncoder();
 const decoder = new UtilTextDecoder();
@@ -177,6 +178,37 @@ describe('VfsProxy', () => {
       expect(status).toBe(1);
       expect(len).toBe(3);
       expect(Array.from(payload)).toEqual([1, 2, 3]);
+    });
+
+    it('accepts protocol op names for read/list operations', async () => {
+      const readFile = vi.fn().mockResolvedValue(encoder.encode('ok'));
+      const readdir = vi.fn().mockResolvedValue([{ name: 'a.txt', isFile: () => true }]);
+      const proxy = new VfsProxy({ role: 'server', getVfs: () => ({ readFile, readdir }) });
+      const sharedRead = new SharedArrayBuffer(16 + 64);
+      const sharedList = new SharedArrayBuffer(16 + 128);
+
+      await proxy.handleServerMessage({
+        type: VFS_REQUEST,
+        op: VFS_OPS.READ,
+        runId: 1,
+        path: '/doc.txt',
+        buffer: sharedRead,
+      });
+      await proxy.handleServerMessage({
+        type: VFS_REQUEST,
+        op: VFS_OPS.LIST,
+        runId: 1,
+        path: '/dir',
+        buffer: sharedList,
+      });
+
+      expect(readFile).toHaveBeenCalledWith('doc.txt');
+      expect(readdir).toHaveBeenCalledWith('dir', { withFileTypes: true });
+      expect(readSharedResponse(sharedRead).status).toBe(1);
+      expect(JSON.parse(readSharedResponse(sharedList).text)).toEqual({
+        exists: true,
+        entries: [{ name: 'a.txt', kind: 'file' }],
+      });
     });
 
     it('handles readFile overflow with requiredBytes', async () => {
@@ -456,6 +488,25 @@ describe('VfsProxy', () => {
       expect(first).toBe('first');
       expect(second).toBe('second');
     });
+
+    it('reuses SharedArrayBuffer across sync calls when capacity is sufficient', () => {
+      const responses = [
+        { status: 1, bytes: encoder.encode('one') },
+        { status: 1, bytes: encoder.encode('two') },
+      ];
+      stubAtomicsWithResponses(responses);
+      const postMessage = vi.fn();
+      const proxy = new VfsProxy({ role: 'client', postMessage });
+      proxy.setRunId(1);
+
+      proxy._requestBytesSync(VFS_OPS.STAT, '/a', { payloadBytes: 16 });
+      proxy._requestBytesSync(VFS_OPS.STAT, '/b', { payloadBytes: 8 });
+
+      expect(postMessage).toHaveBeenCalledTimes(2);
+      const firstBuffer = postMessage.mock.calls[0][0].buffer;
+      const secondBuffer = postMessage.mock.calls[1][0].buffer;
+      expect(firstBuffer).toBe(secondBuffer);
+    });
   });
 
   describe('statSync', () => {
@@ -536,14 +587,14 @@ describe('VfsProxy', () => {
       const spy = vi.spyOn(proxy, '_requestBytesSync').mockReturnValue(new Uint8Array([1]));
       const result = proxy.readFileSync('/file', { sizeHint: 0 });
       expect(Array.from(result)).toEqual([1]);
-      expect(spy).toHaveBeenCalledWith('readFile', '/file', { payloadBytes: 64 });
+      expect(spy).toHaveBeenCalledWith(VFS_OPS.READ, '/file', { payloadBytes: 64 });
     });
 
     it('defaults sizeHint when provided a string', () => {
       const proxy = new VfsProxy({ role: 'client', postMessage: () => {} });
       const spy = vi.spyOn(proxy, '_requestBytesSync').mockReturnValue(new Uint8Array([2]));
       proxy.readFileSync('/file', { sizeHint: '1024' });
-      expect(spy).toHaveBeenCalledWith('readFile', '/file', { payloadBytes: 4 * 1024 * 1024 });
+      expect(spy).toHaveBeenCalledWith(VFS_OPS.READ, '/file', { payloadBytes: 4 * 1024 * 1024 });
     });
 
     it('retries on EOVERFLOW and succeeds with larger buffer', () => {

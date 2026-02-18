@@ -10,7 +10,8 @@
 import { SandboxBackend, DefaultSandboxConfig } from './constants.js';
 import { execCommand } from './detect.js';
 import { normalizeSandboxPath, isSafeForSBPL } from './path-utils.js';
-import { statSync } from 'node:fs';
+import { statSync, mkdtempSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 
 /**
@@ -128,6 +129,8 @@ function getMandatoryDenyPaths(workDir) {
  * @property {boolean} [disableMandatoryDeny] - 禁用自动 mandatory deny paths（默认 false）
  * @property {string[]} [extraMachServices] - 额外的 mach-lookup 服务白名单
  * @property {string[]} [extraSysctlNames] - 额外的 sysctl-read 名称白名单
+ * @property {number} [profileInlineThresholdBytes] - 使用 `-p` 内联 profile 的长度阈值，超过则写临时文件走 `-f`
+ * @property {string} [profileTempDir] - profile 临时文件目录
  */
 
 /**
@@ -170,10 +173,46 @@ export async function executeInSeatbelt(command, args, options) {
     logTag,
   });
 
-  // sandbox-exec -p <profile> <command> [args...]
-  const sandboxArgs = ['-p', profile, command, ...args];
+  const threshold = Number.isFinite(options.profileInlineThresholdBytes)
+    ? Math.max(0, Math.floor(options.profileInlineThresholdBytes))
+    : 64 * 1024;
+  const preferProfileFile = profile.length > threshold;
 
-  const result = await execCommand('sandbox-exec', sandboxArgs, { timeout: timeoutMs });
+  /** @type {string | null} */
+  let profileTempPath = null;
+  /** @type {string[] | null} */
+  let sandboxArgs = null;
+
+  if (preferProfileFile) {
+    const parentDir = typeof options.profileTempDir === 'string' && options.profileTempDir
+      ? options.profileTempDir
+      : tmpdir();
+    const tempDir = mkdtempSync(join(parentDir, 'pb-seatbelt-'));
+    profileTempPath = join(tempDir, 'sandbox.sb');
+    writeFileSync(profileTempPath, profile, 'utf8');
+    sandboxArgs = ['-f', profileTempPath, command, ...args];
+  } else {
+    // sandbox-exec -p <profile> <command> [args...]
+    sandboxArgs = ['-p', profile, command, ...args];
+  }
+
+  let result;
+  try {
+    result = await execCommand('sandbox-exec', sandboxArgs, { timeout: timeoutMs });
+  } finally {
+    if (profileTempPath) {
+      try {
+        rmSync(profileTempPath, { force: true });
+      } catch {
+        // ignore cleanup failures
+      }
+      try {
+        rmSync(resolve(profileTempPath, '..'), { recursive: true, force: true });
+      } catch {
+        // ignore cleanup failures
+      }
+    }
+  }
 
   return {
     ...result,
@@ -281,8 +320,13 @@ function generateSBPLProfile(options) {
     lines.push('');
     lines.push('; 额外读取路径');
     for (const p of allowedReadPaths) {
-      if (p.startsWith('/') && isSafeForSBPL(p)) {
-        lines.push(`(allow file-read* (subpath "${escapeForSBPL(p)}"))`);
+      const absPath = normalizeSandboxPath(p, workDir, {
+        allowAbsolute: true,
+        resolveSymlinks: true,
+        realpath: realpathSync,
+      });
+      if (absPath && isSafeForSBPL(absPath)) {
+        lines.push(`(allow file-read* (subpath "${escapeForSBPL(absPath)}"))`);
       }
     }
   }
@@ -292,7 +336,11 @@ function generateSBPLProfile(options) {
     lines.push('');
     lines.push('; 额外写入路径');
     for (const p of allowedWritePaths) {
-      const absPath = normalizeSandboxPath(p, workDir);
+      const absPath = normalizeSandboxPath(p, workDir, {
+        allowAbsolute: true,
+        resolveSymlinks: true,
+        realpath: realpathSync,
+      });
       if (absPath && isSafeForSBPL(absPath)) {
         lines.push(`(allow file-write* (subpath "${escapeForSBPL(absPath)}"))`);
       }
@@ -389,7 +437,15 @@ export function parseLogLine(line) {
 
   // Extract path or target after operation
   const afterOp = line.slice(opMatch.index + opMatch[0].length).trim();
-  const path = afterOp.length > 0 ? afterOp.split(/\s+/)[0] : null;
+  let path = null;
+  if (afterOp.length > 0) {
+    const quoted = afterOp.match(/^"([^"]+)"/);
+    if (quoted) {
+      path = quoted[1];
+    } else {
+      path = afterOp.replace(/\s+\([^)]+\)\s*$/, '').trim() || null;
+    }
+  }
 
   // Extract process name: processName[pid] format (standard macOS log)
   const procMatch = line.match(/(\w[\w.-]*)\[\d+]/);

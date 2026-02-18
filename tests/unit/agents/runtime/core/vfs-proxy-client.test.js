@@ -172,6 +172,40 @@ describe("VfsProxyClient", () => {
     expect(client._pending.size).toBe(0);
   });
 
+  it("times out async requests that never receive a response", async () => {
+    vi.useFakeTimers();
+    try {
+      const postMessage = vi.fn();
+      const client = new VfsProxyClient({ postMessage, target: new FakeTarget(), timeoutMs: 10 });
+
+      const pending = client._requestAsync(VFS_OPS.READ, "/slow", {});
+      const asserted = expect(pending).rejects.toMatchObject({ code: "ERR_VFS_PROXY_TIMEOUT" });
+      await vi.advanceTimersByTimeAsync(15);
+      await asserted;
+      expect(client._pending.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies async backpressure when pending queue reaches limit", async () => {
+    const postMessage = vi.fn();
+    const client = new VfsProxyClient({
+      postMessage,
+      target: new FakeTarget(),
+      maxPendingAsync: 1,
+    });
+
+    const first = client._requestAsync(VFS_OPS.READ, "/a", {});
+    await expect(client._requestAsync(VFS_OPS.READ, "/b", {}))
+      .rejects
+      .toMatchObject({ code: "ERR_VFS_PROXY_BACKPRESSURE" });
+
+    const firstId = postMessage.mock.calls[0][0].id;
+    client._handleMessageEvent({ data: { type: VFS_RESPONSE, id: firstId, ok: true, data: { bytes: new Uint8Array([1]) } } });
+    await expect(first).resolves.toEqual({ bytes: new Uint8Array([1]) });
+  });
+
   it("handles concurrent async responses out of order", async () => {
     const postMessage = vi.fn();
     const client = new VfsProxyClient({ postMessage, target: new FakeTarget() });
@@ -502,6 +536,47 @@ describe("VfsProxyClient", () => {
 
     const payload = client._requestJsonSync(VFS_OPS.EXISTS, "/ok", {});
     expect(payload).toEqual({ exists: true });
+  });
+
+  it("_requestJsonSync resizes buffer on EOVERFLOW and retries", () => {
+    const client = new VfsProxyClient({
+      postMessage: vi.fn(),
+      target: new FakeTarget(),
+      maxJsonBytes: 64,
+      maxJsonResizeBytes: 4096,
+    });
+    const overflow = new Error("overflow");
+    overflow.code = "EOVERFLOW";
+    overflow.requiredBytes = 256;
+    client._requestBytesSync = vi.fn()
+      .mockImplementationOnce(() => {
+        throw overflow;
+      })
+      .mockReturnValueOnce(encoder.encode(JSON.stringify({ exists: true })));
+
+    const payload = client._requestJsonSync(VFS_OPS.EXISTS, "/grow", {});
+    expect(payload).toEqual({ exists: true });
+    expect(client._requestBytesSync).toHaveBeenCalledTimes(2);
+    expect(client._requestBytesSync.mock.calls[0][3]).toEqual({ payloadBytes: 64 });
+    expect(client._requestBytesSync.mock.calls[1][3]).toEqual({ payloadBytes: 256 });
+  });
+
+  it("_requestJsonSync fails when overflow exceeds maxJsonResizeBytes", () => {
+    const client = new VfsProxyClient({
+      postMessage: vi.fn(),
+      target: new FakeTarget(),
+      maxJsonBytes: 64,
+      maxJsonResizeBytes: 128,
+    });
+    const overflow = new Error("overflow");
+    overflow.code = "EOVERFLOW";
+    overflow.requiredBytes = 1024;
+    client._requestBytesSync = vi.fn(() => {
+      throw overflow;
+    });
+
+    expect(() => client._requestJsonSync(VFS_OPS.EXISTS, "/too-big", {}))
+      .toThrow(/maxJsonResizeBytes/);
   });
 
   it("sync wrappers forward ops and arguments", () => {

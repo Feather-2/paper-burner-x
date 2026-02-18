@@ -28,6 +28,10 @@ vi.mock('node:fs', () => ({
   statSync: vi.fn(),
   existsSync: vi.fn(),
   lstatSync: vi.fn(),
+  mkdtempSync: vi.fn((prefix) => `${prefix}test`),
+  writeFileSync: vi.fn(),
+  rmSync: vi.fn(),
+  realpathSync: vi.fn((p) => p),
 }));
 
 vi.mock('node:child_process', () => ({
@@ -56,7 +60,7 @@ import {
   DefaultSandboxConfig,
   SandboxBackend,
 } from '../../../../../../js/agents/core/sandbox/system/constants.js';
-import { statSync } from 'node:fs';
+import { statSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { spawn as mockSpawnFn } from 'node:child_process';
 
 const BASE_RESULT = { code: 0, stdout: 'ok', stderr: '' };
@@ -129,10 +133,24 @@ describe('executeInSeatbelt', () => {
     expect(profile).toContain('(allow file-read* (subpath "/work"))');
     expect(profile).toContain('(allow file-write* (subpath "/work"))');
     expect(profile).toContain('(allow file-read* (subpath "/default-read"))');
-    expect(profile).not.toContain('relative-read');
+    expect(profile).toContain('(allow file-read* (subpath "/work/relative-read"))');
 
-    expect(normalizeSandboxPath).toHaveBeenCalledWith('./default-write', workDir);
-    expect(normalizeSandboxPath).toHaveBeenCalledWith('/abs-write', workDir);
+    expect(normalizeSandboxPath).toHaveBeenCalledWith(
+      './default-write',
+      workDir,
+      expect.objectContaining({
+        allowAbsolute: true,
+        resolveSymlinks: true,
+      })
+    );
+    expect(normalizeSandboxPath).toHaveBeenCalledWith(
+      '/abs-write',
+      workDir,
+      expect.objectContaining({
+        allowAbsolute: true,
+        resolveSymlinks: true,
+      })
+    );
     expect(profile).toContain('(allow file-write* (subpath "/work/default-write"))');
     expect(profile).toContain('(allow file-write* (subpath "/abs-write"))');
     expect(profile).toContain('(deny network*)');
@@ -241,7 +259,7 @@ describe('executeInSeatbelt', () => {
     const profile = getProfileFromCall();
     expect(profile).toContain('(allow file-read* (subpath "/safe-read"))');
     expect(profile).not.toContain('/unsafe-read');
-    expect(profile).not.toContain('relative-read');
+    expect(profile).toContain('(allow file-read* (subpath "/work/relative-read"))');
     expect(profile).toContain('(allow file-write* (subpath "/work/safe-write"))');
     expect(profile).not.toContain('/unsafe-write');
   });
@@ -292,6 +310,22 @@ describe('executeInSeatbelt', () => {
     expect(profile).toContain(hugePath);
     expect(profile).toContain(`/work/${deepPath}`);
     expect(args).toContain(longCommand);
+  });
+
+  it('falls back to -f profile file when inline profile is too long', async () => {
+    await executeInSeatbelt('echo', ['hi'], {
+      workDir: '/work',
+      allowedReadPaths: [`/${'x'.repeat(5000)}`],
+      profileInlineThresholdBytes: 32,
+      profileTempDir: '/tmp',
+    });
+
+    const args = execCommand.mock.calls[0][1];
+    expect(args[0]).toBe('-f');
+    expect(args[1]).toContain('/tmp/pb-seatbelt-');
+    expect(mkdtempSync).toHaveBeenCalledTimes(1);
+    expect(writeFileSync).toHaveBeenCalledTimes(1);
+    expect(rmSync).toHaveBeenCalled();
   });
 });
 
@@ -504,8 +538,19 @@ describe('createSeatbeltExecutor', () => {
     expect(profile).toContain('(allow network*)');
     expect(profile).toContain('(allow file-write* (subpath "/base/override-write"))');
     expect(profile).not.toContain('/base/base-write');
-    expect(normalizeSandboxPath).toHaveBeenCalledWith('./override-write', '/base');
-    expect(normalizeSandboxPath).not.toHaveBeenCalledWith('./base-write', '/base');
+    expect(normalizeSandboxPath).toHaveBeenCalledWith(
+      './override-write',
+      '/base',
+      expect.objectContaining({
+        allowAbsolute: true,
+        resolveSymlinks: true,
+      })
+    );
+    expect(normalizeSandboxPath).not.toHaveBeenCalledWith(
+      './base-write',
+      '/base',
+      expect.any(Object)
+    );
     expect(execCommand).toHaveBeenCalledWith('sandbox-exec', expect.any(Array), {
       timeout: 321,
     });
@@ -584,6 +629,13 @@ describe('parseLogLine', () => {
     const result = parseLogLine(line);
     expect(result.operation).toBe('file-write-data');
     expect(result.path).toBe('/tmp/foo');
+  });
+
+  it('preserves paths containing spaces', () => {
+    const line = '2025-01-15 10:30:45.000 node[1] Sandbox: deny(1) file-read-data /Users/me/My Folder/secret.txt (No such file or directory)';
+    const result = parseLogLine(line);
+    expect(result.operation).toBe('file-read-data');
+    expect(result.path).toBe('/Users/me/My Folder/secret.txt');
   });
 
   it('returns null timestamp when not present', () => {

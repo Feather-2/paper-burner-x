@@ -1,5 +1,16 @@
 const USER_ACTION_PREFIX = "user.action";
 
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function normalizeUserActionTimeout(value, fallback) {
+  if (!Number.isFinite(value)) return fallback;
+  const timeout = Math.floor(Number(value));
+  return timeout > 0 ? timeout : fallback;
+}
+
 export class UserActionHandler {
   /**
    * @param {any} loop
@@ -30,6 +41,11 @@ export class UserActionHandler {
     if (!bus || typeof bus.subscribe !== "function") {
       throw new Error("waitForUserAction: eventBus with subscribe() is required");
     }
+    if (signal?.aborted) {
+      throw new Error("Run cancelled");
+    }
+
+    const timeoutMs = normalizeUserActionTimeout(timeout, 300000);
 
     return new Promise((resolve, reject) => {
       let done = false;
@@ -55,7 +71,7 @@ export class UserActionHandler {
 
       const timeoutId = setTimeout(() => {
         finish(new Error(`Timeout waiting for user action: ${actionName}`));
-      }, timeout);
+      }, timeoutMs);
 
       const off = bus.subscribe(`${USER_ACTION_PREFIX}.${actionName}`, (evt) => {
         const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;

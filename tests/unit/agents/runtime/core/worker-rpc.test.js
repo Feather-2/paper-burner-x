@@ -12,7 +12,7 @@ vi.mock("../../../../../js/agents/shared/index.js", () => {
   };
 });
 
-import { WorkerRpcClient } from "../../../../../js/agents/runtime/core/worker-rpc.js";
+import { WorkerRpcClient, createRpcHandler } from "../../../../../js/agents/runtime/core/worker-rpc.js";
 import { validateRpcResponse } from "../../../../../js/agents/shared/index.js";
 
 function createBrowserWorker() {
@@ -480,6 +480,33 @@ describe("WorkerRpcClient", () => {
     expect(client._pending.size).toBe(0);
   });
 
+  it("normalizes invalid timeout values to fallback timeout", async () => {
+    vi.useFakeTimers();
+    const worker = createBrowserWorker();
+    const client = new WorkerRpcClient({ createWorker: async () => worker, timeoutMs: 5 });
+
+    const invalidTimeouts = [0, -1, NaN, Infinity];
+    for (const timeoutMs of invalidTimeouts) {
+      const { promise, id } = await startRpcCall(client, {
+        method: "neverResponds",
+        params: [],
+        options: { timeoutMs },
+      });
+
+      await vi.advanceTimersByTimeAsync(4);
+      expect(client._pending.has(id)).toBe(true);
+      const asserted = expect(promise).rejects.toMatchObject({ name: "TimeoutError" });
+      await vi.advanceTimersByTimeAsync(2);
+      await asserted;
+      expect(client._pending.has(id)).toBe(false);
+    }
+  });
+
+  it("normalizes constructor timeoutMs when non-positive", () => {
+    const client = new WorkerRpcClient({ worker: createBrowserWorker(), timeoutMs: 0 });
+    expect(client._timeoutMs).toBe(30000);
+  });
+
   it("cancels with AbortError via AbortSignal", async () => {
     const worker = createBrowserWorker();
     const client = new WorkerRpcClient({ createWorker: async () => worker, timeoutMs: 500 });
@@ -733,5 +760,60 @@ describe("WorkerRpcClient", () => {
     await asserted;
     expect(vi.mocked(validateRpcResponse)).toHaveBeenCalled();
     expect(client._pending.size).toBe(0);
+  });
+});
+
+describe("createRpcHandler", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("supports injected postMessage target (portable across runtimes)", async () => {
+    const postMessage = vi.fn();
+    const methods = {
+      echo: vi.fn(async (params) => params),
+    };
+    const handler = createRpcHandler(methods, { postMessage });
+
+    await handler({ type: "rpc:request", id: "req-1", method: "echo", params: { ok: true } });
+
+    expect(methods.echo).toHaveBeenCalledWith({ ok: true }, expect.objectContaining({
+      id: "req-1",
+      method: "echo",
+      signal: expect.any(Object),
+    }));
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "rpc:response",
+      id: "req-1",
+      ok: true,
+      result: { ok: true },
+    });
+  });
+
+  it("emits noncooperative cancellation signal when task ignores abort", async () => {
+    vi.useFakeTimers();
+    const postMessage = vi.fn();
+    const methods = {
+      busy: vi.fn(() => new Promise((resolve) => setTimeout(() => resolve("done"), 50))),
+    };
+    const handler = createRpcHandler(methods, {
+      postMessage,
+      cancelWatchdogMs: 10,
+    });
+
+    const requestPromise = handler({ data: { type: "rpc:request", id: "req-2", method: "busy", params: null } });
+    await Promise.resolve();
+    await handler({ data: { type: "rpc:cancel", id: "req-2", reason: "user" } });
+
+    await vi.advanceTimersByTimeAsync(15);
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "rpc:cancel:noncooperative",
+      id: "req-2",
+      method: "busy",
+    }));
+
+    await vi.advanceTimersByTimeAsync(60);
+    await requestPromise;
+    expect(postMessage.mock.calls.some((call) => call[0]?.type === "rpc:response" && call[0]?.id === "req-2")).toBe(false);
   });
 });

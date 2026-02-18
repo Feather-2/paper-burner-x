@@ -18,7 +18,7 @@
 import { SandboxBackend, DefaultSandboxConfig } from './constants.js';
 import { execCommand } from './detect.js';
 import { normalizeSandboxPath } from './path-utils.js';
-import { existsSync, statSync, lstatSync, unlinkSync, rmdirSync } from 'node:fs';
+import { existsSync, statSync, lstatSync, unlinkSync, rmdirSync, realpathSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 /**
@@ -223,12 +223,13 @@ function findSymlinkInPath(targetPath, allowedWritePaths) {
  * These should be cleaned up after execution.
  * 参考 ASRT linux-sandbox-utils.ts:330-357
  * @param {string} workDir
- * @param {string[]} denyPaths - deny paths that may have created mount artifacts
+ * @param {string[]} cleanupCandidates - mount destinations created for non-existent deny paths
  */
-function cleanupBwrapMountPoints(workDir, denyPaths) {
-  for (const dp of denyPaths) {
+function cleanupBwrapMountPoints(workDir, cleanupCandidates) {
+  const uniqueCandidates = [...new Set(Array.isArray(cleanupCandidates) ? cleanupCandidates : [])];
+  for (const dp of uniqueCandidates) {
     // Only clean up paths within workDir
-    if (!dp.startsWith(workDir + '/') && dp !== workDir) continue;
+    if (!dp || (!dp.startsWith(workDir + '/') && dp !== workDir)) continue;
     try {
       const stats = lstatSync(dp);
       // Remove empty files created by --ro-bind /dev/null
@@ -267,6 +268,14 @@ function annotateStderr(stderr, exitCode) {
 }
 
 /**
+ * @param {string} value
+ * @returns {string}
+ */
+function shellQuoteArg(value) {
+  return `'${String(value || '').replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * Build read-only mount plan.
  *
  * Semantics:
@@ -281,7 +290,11 @@ function annotateStderr(stderr, exitCode) {
 function buildReadOnlyMountPlan(workDir, allowedReadPaths) {
   const normalizedAllowed = Array.isArray(allowedReadPaths)
     ? allowedReadPaths
-      .map((path) => normalizeSandboxPath(path, workDir))
+      .map((path) => normalizeSandboxPath(path, workDir, {
+        allowAbsolute: true,
+        resolveSymlinks: true,
+        realpath: realpathSync,
+      }))
       .filter(Boolean)
     : [];
 
@@ -320,7 +333,7 @@ export async function executeInBubblewrap(command, args, options) {
     throw new Error('workDir is required for Bubblewrap sandbox');
   }
 
-  const bwrapArgs = buildBubblewrapArgs({
+  const { args: bwrapArgs, cleanupCandidates } = buildBubblewrapArgs({
     workDir,
     allowedReadPaths,
     allowedWritePaths,
@@ -341,12 +354,31 @@ export async function executeInBubblewrap(command, args, options) {
   if (!options.disableMandatoryDeny) {
     allDenyPaths.push(...getMandatoryDenyPaths(workDir));
   }
-  cleanupBwrapMountPoints(workDir, allDenyPaths);
+  cleanupBwrapMountPoints(workDir, cleanupCandidates);
 
-  // 如果命令失败且有 onViolation 回调，注入违规信息到 stderr
-  const stderr = result.code !== 0 && options.onViolation
+  // 如果命令失败，注入违规注释并触发 onViolation 回调
+  const stderr = result.code !== 0
     ? annotateStderr(result.stderr, result.code)
     : result.stderr;
+  if (result.code !== 0 && typeof options.onViolation === 'function') {
+    try {
+      options.onViolation({
+        backend: SandboxBackend.BUBBLEWRAP,
+        code: result.code,
+        command,
+        args: Array.isArray(args) ? [...args] : [],
+        workDir,
+        allowNetwork,
+        allowedReadPaths,
+        allowedWritePaths,
+        stderr,
+        rawStderr: result.stderr,
+        denyPaths: allDenyPaths,
+      });
+    } catch {
+      // ignore violation reporter failures
+    }
+  }
 
   return {
     ...result,
@@ -359,7 +391,7 @@ export async function executeInBubblewrap(command, args, options) {
 /**
  * 构建 Bubblewrap 参数
  * @param {Object} options
- * @returns {string[]}
+ * @returns {{ args: string[], cleanupCandidates: string[] }}
  */
 function buildBubblewrapArgs(options) {
   const {
@@ -410,7 +442,11 @@ function buildBubblewrapArgs(options) {
 
   // 额外的写入路径
   for (const p of allowedWritePaths) {
-    const absPath = normalizeSandboxPath(p, workDir);
+    const absPath = normalizeSandboxPath(p, workDir, {
+      allowAbsolute: true,
+      resolveSymlinks: true,
+      realpath: realpathSync,
+    });
     if (absPath && absPath !== workDir) {
       args.push('--bind-try', absPath, absPath);
     }
@@ -418,10 +454,18 @@ function buildBubblewrapArgs(options) {
 
   // Mandatory deny paths — 自动保护敏感文件/目录（参考 ASRT）
   const allDenyPaths = [...(denyPaths || [])];
+  const cleanupCandidates = [];
   if (!disableMandatoryDeny) {
     allDenyPaths.push(...getMandatoryDenyPaths(workDir));
   }
-  const resolvedWritePaths = [workDir, ...allowedWritePaths.map(p => normalizeSandboxPath(p, workDir)).filter(Boolean)];
+  const resolvedWritePaths = [
+    workDir,
+    ...allowedWritePaths.map((p) => normalizeSandboxPath(p, workDir, {
+      allowAbsolute: true,
+      resolveSymlinks: true,
+      realpath: realpathSync,
+    })).filter(Boolean),
+  ];
   for (const dp of [...new Set(allDenyPaths)]) {
     // Symlink 攻击检测
     const symlink = findSymlinkInPath(dp, resolvedWritePaths);
@@ -437,6 +481,7 @@ function buildBubblewrapArgs(options) {
       const missing = findFirstNonExistentComponent(dp);
       if (missing) {
         args.push('--ro-bind', '/dev/null', missing);
+        cleanupCandidates.push(missing);
       }
     }
   }
@@ -471,9 +516,10 @@ function buildBubblewrapArgs(options) {
 
   if (networkProxy?.httpSocketPath) {
     // 将用户命令包装为 shell 脚本：socat 桥接 + 代理环境变量 + 用户命令
-    const userCmd = [command, ...commandArgs].map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+    const userCmd = [command, ...commandArgs].map((a) => shellQuoteArg(a)).join(' ');
+    const socketTarget = shellQuoteArg(`UNIX-CONNECT:${networkProxy.httpSocketPath}`);
     const bridgedScript = [
-      `socat TCP-LISTEN:3128,fork,reuseaddr UNIX-CONNECT:${networkProxy.httpSocketPath} &`,
+      `socat TCP-LISTEN:3128,fork,reuseaddr ${socketTarget} &`,
       'SOCAT_PID=$!',
       'trap "kill $SOCAT_PID 2>/dev/null" EXIT',
       'export http_proxy=http://127.0.0.1:3128',
@@ -494,7 +540,7 @@ function buildBubblewrapArgs(options) {
     args.push('--', finalCommand, ...finalArgs);
   }
 
-  return args;
+  return { args, cleanupCandidates };
 }
 
 /**

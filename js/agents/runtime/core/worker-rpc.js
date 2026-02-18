@@ -43,6 +43,19 @@ function isAbortSignalLike(signal) {
   return !!signal && typeof signal === "object" && typeof signal.aborted === "boolean" && typeof signal.addEventListener === "function";
 }
 
+/**
+ * @param {unknown} timeoutMs
+ * @param {number} fallback
+ * @returns {number}
+ */
+function normalizeTimeoutMs(timeoutMs, fallback) {
+  const parsed = Number(timeoutMs);
+  if (!Number.isFinite(parsed)) return fallback;
+  const normalized = Math.floor(parsed);
+  if (normalized <= 0) return fallback;
+  return normalized;
+}
+
 function normalizeRemoteError(raw) {
   if (!raw) return new Error("Unknown error");
   if (typeof raw === "string") return new Error(raw);
@@ -114,7 +127,7 @@ export class WorkerRpcClient {
     this._workerInstance = worker || null;
     this._createWorker = typeof createWorker === "function" ? createWorker : null;
     this._workerPromise = null;
-    this._timeoutMs = timeoutMs;
+    this._timeoutMs = normalizeTimeoutMs(timeoutMs, 30_000);
     this._eventBus = eventBus || null;
     this._pending = new Map(); // id → { resolve, reject, timer }
     this._disposed = false;
@@ -374,7 +387,8 @@ export class WorkerRpcClient {
       return Promise.reject(new Error("WorkerRpcClient is disposed"));
     }
 
-    const { timeoutMs = this._timeoutMs, signal, transferables, eventBus, runId, stage } = options;
+    const normalizedTimeoutMs = normalizeTimeoutMs(options.timeoutMs, this._timeoutMs);
+    const { signal, transferables, eventBus, runId, stage } = options;
     const abortSignal = isAbortSignalLike(signal) ? signal : null;
 
     // Validate method
@@ -435,7 +449,7 @@ export class WorkerRpcClient {
       const timer = setTimeout(() => {
         cleanup();
         this._sendCancel(id, "timeout");
-        const error = createTimeoutError(timeoutMs);
+        const error = createTimeoutError(normalizedTimeoutMs);
         // P0: 发射 worker:task:error 事件
         if (eventBus && typeof eventBus.emit === "function") {
           eventBus.emit("worker:task:error", {
@@ -451,7 +465,7 @@ export class WorkerRpcClient {
           });
         }
         reject(error);
-      }, timeoutMs);
+      }, normalizedTimeoutMs);
 
       // Setup abort listener
       const onAbort = () => {
@@ -658,28 +672,72 @@ export class WorkerRpcClient {
 /**
  * Create RPC handler for worker side
  * @param {Object<string, function>} methods - Method implementations
+ * @param {{
+ *   postMessage?: (message: any) => void,
+ *   target?: { postMessage?: (message: any) => void } | null,
+ *   cancelWatchdogMs?: number,
+ *   onNonCooperativeCancel?: (info: { id: string, method: string, elapsedMs: number }) => void
+ * }} [options]
  * @returns {function} Message handler
  */
-export function createRpcHandler(methods) {
-  const inFlight = new Map(); // id -> AbortController
+export function createRpcHandler(methods, options = {}) {
+  /** @type {Map<string, { controller: AbortController, method: string, cancelledAt?: number, watchdogTimer?: ReturnType<typeof setTimeout> | null }>} */
+  const inFlight = new Map();
+  const cancelWatchdogMs = normalizeTimeoutMs(options.cancelWatchdogMs, 1000);
+  const postMessageFn = typeof options.postMessage === "function"
+    ? options.postMessage
+    : (typeof options?.target?.postMessage === "function"
+      ? options.target.postMessage.bind(options.target)
+      : (typeof self !== "undefined" && typeof self.postMessage === "function"
+        ? self.postMessage.bind(self)
+        : (typeof globalThis?.postMessage === "function" ? globalThis.postMessage.bind(globalThis) : null)));
+
+  const safePost = (message) => {
+    if (typeof postMessageFn !== "function") return false;
+    try {
+      postMessageFn(message);
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   return async function handleMessage(event) {
-    const data = event.data;
+    const data = event?.data ?? event;
     if (!data) return;
 
     if (data.type === "rpc:cancel") {
       const id = typeof data.id === "string" ? data.id : "";
       if (!id) return;
 
-      const controller = inFlight.get(id);
-      if (!controller) return;
+      const inflight = inFlight.get(id);
+      if (!inflight) return;
 
       try {
-        controller.abort(data.reason || "cancelled");
+        inflight.controller.abort(data.reason || "cancelled");
       } catch {
-        controller.abort();
-      } finally {
-        inFlight.delete(id);
+        inflight.controller.abort();
+      }
+
+      if (!inflight.watchdogTimer && cancelWatchdogMs > 0) {
+        inflight.cancelledAt = Date.now();
+        inflight.watchdogTimer = setTimeout(() => {
+          const current = inFlight.get(id);
+          if (!current) return;
+          const elapsedMs = Date.now() - (current.cancelledAt || Date.now());
+          const info = { id, method: current.method, elapsedMs };
+          try {
+            options.onNonCooperativeCancel?.(info);
+          } catch {
+            // ignore monitor hook failures
+          }
+          safePost({
+            type: "rpc:cancel:noncooperative",
+            id,
+            method: current.method,
+            elapsedMs,
+          });
+        }, cancelWatchdogMs);
       }
       return;
     }
@@ -692,7 +750,7 @@ export function createRpcHandler(methods) {
     if (!id || !method) return;
 
     const controller = new AbortController();
-    inFlight.set(id, controller);
+    inFlight.set(id, { controller, method, cancelledAt: undefined, watchdogTimer: null });
 
     try {
       const fn = methods[method];
@@ -703,7 +761,7 @@ export function createRpcHandler(methods) {
       const result = await fn(params, { signal: controller.signal, id, method });
       if (controller.signal.aborted) return;
 
-      self.postMessage({
+      safePost({
         type: "rpc:response",
         id,
         ok: true,
@@ -712,13 +770,17 @@ export function createRpcHandler(methods) {
     } catch (err) {
       if (controller.signal.aborted) return;
 
-      self.postMessage({
+      safePost({
         type: "rpc:response",
         id,
         ok: false,
         error: err?.message || String(err),
       });
     } finally {
+      const inflight = inFlight.get(id);
+      if (inflight?.watchdogTimer) {
+        clearTimeout(inflight.watchdogTimer);
+      }
       inFlight.delete(id);
     }
   };

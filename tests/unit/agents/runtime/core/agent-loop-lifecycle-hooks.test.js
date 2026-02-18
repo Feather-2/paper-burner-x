@@ -299,4 +299,64 @@ describe("runWithAgentLifecycleHooks", () => {
 
     dateSpy.mockRestore();
   });
+
+  it("isolates pre-hook errors by default and continues main run", async () => {
+    const preErr = new Error("pre hook failed");
+    preHook.mockRejectedValue(preErr);
+    const loop = buildLoop({ emit: vi.fn(), run: vi.fn().mockResolvedValue({ ok: true }) });
+
+    const result = await runWithAgentLifecycleHooks({
+      loop,
+      runId: "run-pre-err",
+      sessionId: "sess-pre-err",
+      input: "x",
+      context: {},
+      stageApi: {},
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(loop.run).toHaveBeenCalledTimes(1);
+    expect(loop.emit).toHaveBeenCalledWith("stage.hook.error", expect.objectContaining({
+      actor: "actor",
+      status: "warning",
+      payload: expect.objectContaining({ runId: "run-pre-err", phase: "pre", error: "pre hook failed" }),
+    }));
+  });
+
+  it("throws pre-hook errors when strictHookErrors is enabled", async () => {
+    const preErr = new Error("strict pre fail");
+    preHook.mockRejectedValue(preErr);
+    const loop = buildLoop({ strictHookErrors: true });
+
+    await expect(
+      runWithAgentLifecycleHooks({
+        loop,
+        runId: "run-pre-strict",
+        sessionId: "sess",
+        input: "x",
+        context: {},
+        stageApi: {},
+      }),
+    ).rejects.toBe(preErr);
+    expect(loop.run).not.toHaveBeenCalled();
+  });
+
+  it("isolates post-hook errors by default and preserves run result", async () => {
+    postHook.mockRejectedValue(new Error("post hook failed"));
+    const loop = buildLoop({ emit: vi.fn(), run: vi.fn().mockResolvedValue({ ok: true, id: 1 }) });
+
+    const result = await runWithAgentLifecycleHooks({
+      loop,
+      runId: "run-post-err",
+      sessionId: "sess-post-err",
+      input: "x",
+      context: {},
+      stageApi: {},
+    });
+
+    expect(result).toEqual({ ok: true, id: 1 });
+    expect(loop.emit).toHaveBeenCalledWith("stage.hook.error", expect.objectContaining({
+      payload: expect.objectContaining({ phase: "post", error: "post hook failed" }),
+    }));
+  });
 });

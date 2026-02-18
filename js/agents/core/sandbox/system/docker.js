@@ -10,9 +10,7 @@
 import { SandboxBackend, DefaultSandboxConfig } from './constants.js';
 import { execCommand } from './detect.js';
 import { normalizeSandboxPath } from './path-utils.js';
-
-/** @type {typeof globalThis.process} */
-const process = globalThis.process;
+import { realpathSync } from 'node:fs';
 
 /**
  * Docker 执行选项
@@ -31,6 +29,44 @@ const process = globalThis.process;
 const DEFAULT_IMAGE = 'alpine:latest';
 
 /**
+ * @returns {string|null}
+ */
+function getProcessCwd() {
+  try {
+    if (typeof globalThis !== 'undefined'
+      && globalThis.process
+      && typeof globalThis.process.cwd === 'function') {
+      return globalThis.process.cwd();
+    }
+  } catch {
+    // ignore runtime access errors
+  }
+  return null;
+}
+
+/**
+ * @param {unknown} workDir
+ * @returns {string}
+ */
+function resolveDockerWorkDir(workDir) {
+  if (typeof workDir === 'string' && workDir.length > 0) return workDir;
+  const cwd = getProcessCwd();
+  if (typeof cwd === 'string' && cwd.length > 0) return cwd;
+  throw new Error('workDir is required for Docker sandbox when process.cwd() is unavailable');
+}
+
+/**
+ * @param {{ code?: number, stderr?: string, stdout?: string }} result
+ * @returns {boolean}
+ */
+function looksLikeMissingDockerImage(result) {
+  const code = typeof result?.code === 'number' ? result.code : 0;
+  if (code === 0) return false;
+  const text = `${result?.stderr || ''}\n${result?.stdout || ''}`;
+  return /(Unable to find image|No such image|pull access denied|manifest for .* not found)/i.test(text);
+}
+
+/**
  * 在 Docker 容器中执行命令
  * @param {string} command - 要执行的命令
  * @param {string[]} args - 命令参数
@@ -38,8 +74,8 @@ const DEFAULT_IMAGE = 'alpine:latest';
  * @returns {Promise<import('./bubblewrap.js').ExecutionResult>}
  */
 export async function executeInDocker(command, args, options) {
+  const workDir = resolveDockerWorkDir(options?.workDir);
   const {
-    workDir = process.cwd(),
     image = DEFAULT_IMAGE,
     allowedReadPaths = [],
     allowedWritePaths = [],
@@ -122,12 +158,20 @@ function buildDockerArgs(options) {
   }
 
   // 可写挂载 (跳过工作目录本身，已挂载)
-  const normalizedWorkDir = normalizeSandboxPath(workDir, workDir) || workDir;
+  const normalizedWorkDir = normalizeSandboxPath(workDir, workDir, {
+    allowAbsolute: true,
+    resolveSymlinks: true,
+    realpath: realpathSync,
+  }) || workDir;
   for (const p of allowedWritePaths) {
     // 跳过 '.' 和工作目录本身
     if (p === '.' || p === workDir) continue;
 
-    const absPath = normalizeSandboxPath(p, workDir);
+    const absPath = normalizeSandboxPath(p, workDir, {
+      allowAbsolute: true,
+      resolveSymlinks: true,
+      realpath: realpathSync,
+    });
     if (!absPath) continue;
     // 跳过已被工作目录覆盖的子路径
     if (!p.startsWith('/') && absPath.startsWith(normalizedWorkDir + '/')) continue;
@@ -172,20 +216,34 @@ export async function ensureImage(image = DEFAULT_IMAGE) {
  * @returns {Object}
  */
 export function createDockerExecutor(defaultOptions = /** @type {DockerOptions} */ ({})) {
-  let imageReady = false;
+  /** @type {Map<string, boolean>} */
+  const imageReadyByName = new Map();
 
   return {
     backend: SandboxBackend.DOCKER,
 
     async execute(command, args = [], options = {}) {
       const merged = { ...defaultOptions, ...options };
+      const image = merged.image || DEFAULT_IMAGE;
 
-      // 确保镜像存在 (首次执行时)
-      if (!imageReady) {
-        imageReady = await ensureImage(merged.image || DEFAULT_IMAGE);
+      // 确保镜像存在
+      if (!imageReadyByName.get(image)) {
+        imageReadyByName.set(image, await ensureImage(image));
       }
 
-      return executeInDocker(command, args, merged);
+      let result = await executeInDocker(command, args, merged);
+      if (!looksLikeMissingDockerImage(result)) {
+        return result;
+      }
+
+      // 自愈：镜像漂移/删除后重拉一次并重试执行
+      imageReadyByName.set(image, false);
+      const recovered = await ensureImage(image);
+      imageReadyByName.set(image, recovered);
+      if (!recovered) return result;
+
+      result = await executeInDocker(command, args, merged);
+      return result;
     },
 
     async shell(shellCommand, options = {}) {

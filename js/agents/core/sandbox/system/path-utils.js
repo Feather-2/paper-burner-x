@@ -11,32 +11,44 @@
  *
  * @param {string} inputPath - 输入路径（相对或绝对）
  * @param {string} baseDir - 基准目录
+ * @param {{
+ *   allowAbsolute?: boolean,
+ *   resolveSymlinks?: boolean,
+ *   realpath?: (path: string) => string
+ * }} [options]
  * @returns {string|null} 规范化后的绝对路径，如果路径穿越则返回 null
  */
-export function normalizeSandboxPath(inputPath, baseDir) {
+export function normalizeSandboxPath(inputPath, baseDir, options = {}) {
   if (!inputPath || !baseDir) {
     return null;
   }
+  if (typeof inputPath !== 'string' || typeof baseDir !== 'string') {
+    throw new TypeError('normalizeSandboxPath: inputPath/baseDir must be strings');
+  }
+
+  const allowAbsolute = options?.allowAbsolute === true;
+  const resolveSymlinks = options?.resolveSymlinks === true;
+  const realpath = typeof options?.realpath === 'function' ? options.realpath : null;
 
   // 跨运行时的 path.resolve 实现
   const resolved = resolvePath(baseDir, inputPath);
+  const canonicalBase = resolveSymlinks ? resolveCanonicalPath(normalizePath(baseDir), realpath) : normalizePath(baseDir);
+  const canonicalResolved = resolveSymlinks ? resolveCanonicalPath(resolved, realpath) : resolved;
 
-  // 绝对路径检查：如果输入是绝对路径，直接返回（允许显式白名单）
+  // 绝对路径检查：默认拒绝，调用方需显式 allowAbsolute=true
   if (inputPath.startsWith('/')) {
-    // 检查是否含有 .. 组件
     if (containsTraversal(inputPath)) {
       return null;
     }
-    return resolved;
+    return allowAbsolute ? canonicalResolved : null;
   }
 
   // 相对路径必须在 baseDir 内
-  const normalizedBase = normalizePath(baseDir);
-  if (!resolved.startsWith(normalizedBase + '/') && resolved !== normalizedBase) {
+  if (!canonicalResolved.startsWith(canonicalBase + '/') && canonicalResolved !== canonicalBase) {
     return null;
   }
 
-  return resolved;
+  return canonicalResolved;
 }
 
 /**
@@ -80,6 +92,37 @@ function resolvePath(base, target) {
     return normalizePath(target);
   }
   return normalizePath(base + '/' + target);
+}
+
+/**
+ * Resolve path through canonical realpath (best-effort).
+ * For non-existing target, resolve existing parent then append suffix.
+ * @param {string} path
+ * @param {((path: string) => string) | null} realpath
+ * @returns {string}
+ */
+function resolveCanonicalPath(path, realpath) {
+  if (typeof realpath !== 'function') return path;
+  try {
+    return normalizePath(realpath(path));
+  } catch {
+    // fall through to parent-based canonicalization
+  }
+
+  const normalized = normalizePath(path);
+  const segments = normalized.split('/').filter(Boolean);
+  for (let i = segments.length; i >= 1; i -= 1) {
+    const parent = `/${segments.slice(0, i).join('/')}`;
+    try {
+      const canonicalParent = normalizePath(realpath(parent));
+      const suffix = segments.slice(i).join('/');
+      return suffix ? normalizePath(`${canonicalParent}/${suffix}`) : canonicalParent;
+    } catch {
+      // keep searching upper parent
+    }
+  }
+
+  return normalized;
 }
 
 /**

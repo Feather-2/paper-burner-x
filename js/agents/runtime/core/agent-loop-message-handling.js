@@ -45,6 +45,7 @@ export class MessageHandling {
     this._loop._userInputBus = null;
     this._loop._userInputEvent = "user.input";
     this._loop._pauseListenerUnsub = null;
+    this._loop._pauseListenerBus = null;
   }
 
   // ===== Message handling (delegates to MessageManager) =====
@@ -160,7 +161,15 @@ export class MessageHandling {
   _attachPauseListener(eventBus, { signal } = {}) {
     if (!eventBus || typeof eventBus.subscribe !== "function") return;
     const loop = this._loop;
-    if (loop._pauseListenerUnsub) return;
+    if (loop._pauseListenerBus === eventBus && typeof loop._pauseListenerUnsub === "function") return;
+    if (typeof loop._pauseListenerUnsub === "function") {
+      try {
+        loop._pauseListenerUnsub();
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+    loop._pauseListenerBus = eventBus;
     loop._pauseListenerUnsub = eventBus.subscribe(
       "user.action.pause",
       (evt) => {
@@ -193,6 +202,7 @@ export class MessageHandling {
       }
     }
     loop._pauseListenerUnsub = null;
+    loop._pauseListenerBus = null;
   }
 
   /**

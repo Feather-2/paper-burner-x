@@ -1,4 +1,5 @@
 import { protoSafeReviver } from "../../shared/utils/safe-json.js";
+import { VFS_REQUEST, VFS_OPS } from "./vfs-proxy-protocol.js";
 /**
  * VfsProxy
  *
@@ -38,6 +39,7 @@ import { protoSafeReviver } from "../../shared/utils/safe-json.js";
  * @property {(runId:number)=>any} [getVfs] - server-only; maps runId -> VFS
  * @property {number} [timeoutMs] - client-only; Atomics.wait timeout
  * @property {number} [maxJsonBytes] - client-only; response buffer size for JSON ops
+ * @property {SharedArrayBuffer} [sharedBuffer] - client-only; reusable sync response buffer
  */
 
 /**
@@ -46,6 +48,22 @@ import { protoSafeReviver } from "../../shared/utils/safe-json.js";
 
 function isSharedArrayBuffer(value) {
   return typeof SharedArrayBuffer !== 'undefined' && value instanceof SharedArrayBuffer;
+}
+
+/**
+ * @param {string} op
+ * @returns {string|null}
+ */
+function normalizeProxyOp(op) {
+  const raw = String(op || '');
+  if (raw === VFS_OPS.READ || raw === 'readFile') return VFS_OPS.READ;
+  if (raw === VFS_OPS.LIST || raw === 'readdir') return VFS_OPS.LIST;
+  if (raw === VFS_OPS.STAT) return VFS_OPS.STAT;
+  if (raw === VFS_OPS.WRITE) return VFS_OPS.WRITE;
+  if (raw === VFS_OPS.MKDIR) return VFS_OPS.MKDIR;
+  if (raw === VFS_OPS.DELETE) return VFS_OPS.DELETE;
+  if (raw === VFS_OPS.EXISTS) return VFS_OPS.EXISTS;
+  return null;
 }
 
 function stripLeadingSlashes(path) {
@@ -178,6 +196,7 @@ export class VfsProxy {
     this.getVfs = options.getVfs;
     this.timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : 30_000;
     this.maxJsonBytes = typeof options.maxJsonBytes === 'number' ? options.maxJsonBytes : 256 * 1024;
+    this._sharedBuffer = isSharedArrayBuffer(options.sharedBuffer) ? options.sharedBuffer : null;
     this._runId = null;
   }
 
@@ -197,7 +216,7 @@ export class VfsProxy {
    */
   async handleServerMessage(message) {
     const msg = message && typeof message === 'object' ? message : null;
-    if (!msg || msg.type !== 'vfs:request') return false;
+    if (!msg || msg.type !== VFS_REQUEST) return false;
     if (this.role !== 'server') return false;
 
     const sharedBuffer = msg.buffer;
@@ -210,18 +229,19 @@ export class VfsProxy {
       return true;
     }
 
-    const op = String(msg.op || '');
+    const opRaw = String(msg.op || '');
+    const op = normalizeProxyOp(opRaw);
     const path = String(msg.path || '');
     const vfsPath = stripLeadingSlashes(path);
 
     try {
-      if (op === 'readFile') {
+      if (op === VFS_OPS.READ) {
         const bytes = await vfs.readFile(vfsPath);
         writeSharedResponse(sharedBuffer, { ok: true, bytes });
         return true;
       }
 
-      if (op === 'stat') {
+      if (op === VFS_OPS.STAT) {
         try {
           const st = await vfs.stat(vfsPath);
           const payload = {
@@ -244,7 +264,7 @@ export class VfsProxy {
         return true;
       }
 
-      if (op === 'readdir') {
+      if (op === VFS_OPS.LIST) {
         try {
           const entries = await vfs.readdir(vfsPath, { withFileTypes: true });
           const payload = { exists: true, entries: toDirEntries(entries) };
@@ -261,7 +281,7 @@ export class VfsProxy {
         return true;
       }
 
-      writeSharedResponse(sharedBuffer, { ok: false, error: `Unsupported VFS op: ${op}` });
+      writeSharedResponse(sharedBuffer, { ok: false, error: `Unsupported VFS op: ${opRaw}` });
       return true;
     } catch (err) {
       writeSharedResponse(sharedBuffer, { ok: false, error: err?.message || String(err) });
@@ -272,6 +292,21 @@ export class VfsProxy {
   // ───────────────────────────────────────────────────────────────────────────
   // Client side (sync RPC via SAB + Atomics.wait)
   // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * @param {number} payloadBytes
+   * @returns {SharedArrayBuffer}
+   */
+  _ensureSharedBuffer(payloadBytes) {
+    const bytesCap = typeof payloadBytes === 'number' && payloadBytes > 0 ? Math.floor(payloadBytes) : 1024;
+    const desired = 16 + bytesCap;
+    if (this._sharedBuffer && this._sharedBuffer.byteLength >= desired) {
+      return this._sharedBuffer;
+    }
+    const next = new SharedArrayBuffer(desired);
+    this._sharedBuffer = next;
+    return next;
+  }
 
   _assertClientSyncSupport() {
     if (this.role !== 'client') {
@@ -295,8 +330,13 @@ export class VfsProxy {
       throw new Error('VfsProxy: runId not set (call setRunId(runId) first)');
     }
 
+    const normalizedOp = normalizeProxyOp(op);
+    if (!normalizedOp) {
+      throw new Error(`VfsProxy: unsupported op ${op}`);
+    }
+
     const bytesCap = typeof payloadBytes === 'number' && payloadBytes > 0 ? Math.floor(payloadBytes) : 1024;
-    const sharedBuffer = new SharedArrayBuffer(16 + bytesCap);
+    const sharedBuffer = this._ensureSharedBuffer(bytesCap);
     const header = new Int32Array(sharedBuffer, 0, 4);
 
     Atomics.store(header, 0, 0);
@@ -305,8 +345,8 @@ export class VfsProxy {
     Atomics.store(header, 3, 0);
 
     this.postMessage({
-      type: 'vfs:request',
-      op,
+      type: VFS_REQUEST,
+      op: normalizedOp,
       runId,
       path,
       buffer: sharedBuffer,
@@ -314,7 +354,7 @@ export class VfsProxy {
 
     const res = Atomics.wait(header, 0, 0, this.timeoutMs);
     if (res === 'timed-out') {
-      throw new Error(`VfsProxy: ${op} timed out for ${path}`);
+      throw new Error(`VfsProxy: ${normalizedOp} timed out for ${path}`);
     }
 
     const status = Atomics.load(header, 0);
@@ -325,7 +365,7 @@ export class VfsProxy {
     if (status !== 1) {
       const msg = new TextDecoder().decode(payload.subarray(0, Math.max(0, len)));
       /** @type {VfsProxyError} */
-      const err = new Error(msg || `VfsProxy: ${op} failed for ${path}`);
+      const err = new Error(msg || `VfsProxy: ${normalizedOp} failed for ${path}`);
       err.code = required > 0 ? 'EOVERFLOW' : 'EVFS';
       err.requiredBytes = required > 0 ? required : undefined;
       throw err;
@@ -335,7 +375,7 @@ export class VfsProxy {
   }
 
   statSync(path) {
-    const bytes = this._requestBytesSync('stat', path, { payloadBytes: this.maxJsonBytes });
+    const bytes = this._requestBytesSync(VFS_OPS.STAT, path, { payloadBytes: this.maxJsonBytes });
     const text = new TextDecoder().decode(bytes);
     let payload;
     try {
@@ -351,7 +391,7 @@ export class VfsProxy {
   }
 
   readdirSync(path) {
-    const bytes = this._requestBytesSync('readdir', path, { payloadBytes: this.maxJsonBytes });
+    const bytes = this._requestBytesSync(VFS_OPS.LIST, path, { payloadBytes: this.maxJsonBytes });
     const text = new TextDecoder().decode(bytes);
     let payload;
     try {
@@ -377,7 +417,7 @@ export class VfsProxy {
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        return this._requestBytesSync('readFile', path, { payloadBytes: cap });
+        return this._requestBytesSync(VFS_OPS.READ, path, { payloadBytes: cap });
       } catch (err) {
         if (String(err?.code || '') === 'EOVERFLOW' && typeof err.requiredBytes === 'number' && err.requiredBytes > cap) {
           cap = err.requiredBytes;

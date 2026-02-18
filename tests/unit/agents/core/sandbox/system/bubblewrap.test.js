@@ -31,6 +31,7 @@ vi.mock('node:fs', () => ({
   lstatSync: vi.fn(() => { throw new Error('ENOENT'); }),
   unlinkSync: vi.fn(),
   rmdirSync: vi.fn(),
+  realpathSync: vi.fn((p) => p),
 }));
 
 import {
@@ -45,7 +46,7 @@ import {
   DefaultSandboxConfig,
   SandboxBackend,
 } from '../../../../../../js/agents/core/sandbox/system/constants.js';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, unlinkSync } from 'node:fs';
 
 const BASE_RESULT = { code: 0, stdout: 'ok', stderr: '' };
 
@@ -111,7 +112,14 @@ describe('executeInBubblewrap', () => {
     // With global readonly root, allowedReadPaths are already covered — no separate --ro-bind-try
     expect(bwrapArgs).not.toContain('relative-read');
 
-    expect(normalizeSandboxPath).toHaveBeenCalledWith('./default-write', workDir);
+    expect(normalizeSandboxPath).toHaveBeenCalledWith(
+      './default-write',
+      workDir,
+      expect.objectContaining({
+        allowAbsolute: true,
+        resolveSymlinks: true,
+      })
+    );
     expect(bwrapArgs).toContain(`${workDir}/default-write`);
 
     expect(bwrapArgs).toContain('--unshare-net');
@@ -182,7 +190,14 @@ describe('executeInBubblewrap', () => {
       return token === '--ro-bind' && args[index + 1] === '/' && args[index + 2] === '/';
     });
     expect(hasReadonlyRoot).toBe(false);
-    expect(normalizeSandboxPath).toHaveBeenCalledWith('./src', '/work');
+    expect(normalizeSandboxPath).toHaveBeenCalledWith(
+      './src',
+      '/work',
+      expect.objectContaining({
+        allowAbsolute: true,
+        resolveSymlinks: true,
+      })
+    );
     expect(args).toContain('/work/src');
     expect(args).toContain('/etc/ssl');
   });
@@ -240,6 +255,28 @@ describe('executeInBubblewrap', () => {
     const killedByTimeout = await executeInBubblewrap('echo', [], { workDir: '/work' });
     expect(killedByTimeout.killed).toBe(true);
     expect(killedByTimeout.backend).toBe(SandboxBackend.BUBBLEWRAP);
+  });
+
+  it('calls onViolation callback with annotated failure details', async () => {
+    const onViolation = vi.fn();
+    execCommand.mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'Permission denied' });
+
+    const result = await executeInBubblewrap('cat', ['/secret'], {
+      workDir: '/work',
+      onViolation,
+      disableMandatoryDeny: true,
+      allowedWritePaths: [],
+    });
+
+    expect(onViolation).toHaveBeenCalledTimes(1);
+    expect(onViolation.mock.calls[0][0]).toMatchObject({
+      backend: SandboxBackend.BUBBLEWRAP,
+      code: 1,
+      command: 'cat',
+      args: ['/secret'],
+      workDir: '/work',
+    });
+    expect(result.stderr).toContain('[sandbox] Permission denied');
   });
 
   it('does not set killed for normal exit codes', async () => {
@@ -334,6 +371,21 @@ describe('executeInBubblewrap', () => {
     expect(first.stdout).toBe('one');
     expect(second.stdout).toBe('two');
     expect(execCommand).toHaveBeenCalledTimes(2);
+  });
+
+  it('quotes network proxy socket path in bridged shell script', async () => {
+    await executeInBubblewrap('node', ['index.js'], {
+      workDir: '/work',
+      networkProxy: { httpSocketPath: '/tmp/socket path;rm -rf /' },
+      disableMandatoryDeny: true,
+      allowedWritePaths: [],
+    });
+
+    const args = execCommand.mock.calls[0][1];
+    const sepIdx = args.indexOf('--');
+    const script = args[sepIdx + 3];
+    expect(script).toContain("'UNIX-CONNECT:/tmp/socket path;rm -rf /'");
+    expect(script).not.toContain('UNIX-CONNECT:/tmp/socket path;rm -rf / &');
   });
 
   it('handles large inputs and deep env nesting', async () => {
@@ -432,6 +484,26 @@ describe('non-existent deny path protection', () => {
     existsSync.mockReset();
     existsSync.mockReturnValue(false);
   });
+
+  it('does not remove pre-existing empty deny targets during mount cleanup', async () => {
+    existsSync.mockImplementation((p) => p === '/work/existing-empty');
+    lstatSync.mockImplementation(() => ({
+      isFile: () => true,
+      size: 0,
+      isDirectory: () => false,
+    }));
+
+    await executeInBubblewrap('echo', [], {
+      workDir: '/work',
+      denyPaths: ['/work/existing-empty'],
+      disableMandatoryDeny: true,
+      allowedWritePaths: [],
+    });
+
+    expect(unlinkSync).not.toHaveBeenCalled();
+    existsSync.mockReset();
+    existsSync.mockReturnValue(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -478,8 +550,19 @@ describe('createBubblewrapExecutor', () => {
     const args = execCommand.mock.calls[0][1];
     expect(args).toContain('--share-net');
     expect(args).toContain('/base');
-    expect(normalizeSandboxPath).toHaveBeenCalledWith('./override-write', '/base');
-    expect(normalizeSandboxPath).not.toHaveBeenCalledWith('./base-write', '/base');
+    expect(normalizeSandboxPath).toHaveBeenCalledWith(
+      './override-write',
+      '/base',
+      expect.objectContaining({
+        allowAbsolute: true,
+        resolveSymlinks: true,
+      })
+    );
+    expect(normalizeSandboxPath).not.toHaveBeenCalledWith(
+      './base-write',
+      '/base',
+      expect.any(Object)
+    );
 
     const envMap = extractEnvMap(args);
     expect(envMap.FOO).toBe('override');

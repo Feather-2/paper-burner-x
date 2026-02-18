@@ -24,6 +24,17 @@ function isSharedArrayBuffer(value) {
 }
 
 /**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function normalizePositiveInt(value, fallback) {
+  if (!Number.isFinite(value)) return fallback;
+  const n = Math.floor(Number(value));
+  return n > 0 ? n : fallback;
+}
+
+/**
  * @param {any} err
  * @returns {boolean}
  */
@@ -130,6 +141,8 @@ function validateJsonPayload(op, payload) {
  * @property {EventTarget & { postMessage?: Function }} [target] - defaults to `self` in worker
  * @property {number} [timeoutMs]
  * @property {number} [maxJsonBytes]
+ * @property {number} [maxPendingAsync]
+ * @property {number} [maxJsonResizeBytes]
  * @property {SharedArrayBuffer} [sharedBuffer] - optional reusable response buffer for sync mode
  */
 
@@ -151,15 +164,17 @@ export class VfsProxyClient {
         else pm.call(this._target, msg);
       });
 
-    this.timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : 30_000;
-    this.maxJsonBytes = typeof options.maxJsonBytes === "number" ? options.maxJsonBytes : 256 * 1024;
+    this.timeoutMs = normalizePositiveInt(options.timeoutMs, 30_000);
+    this.maxJsonBytes = normalizePositiveInt(options.maxJsonBytes, 256 * 1024);
+    this.maxPendingAsync = normalizePositiveInt(options.maxPendingAsync, 1024);
+    this.maxJsonResizeBytes = normalizePositiveInt(options.maxJsonResizeBytes, 8 * 1024 * 1024);
 
     this._supportsSync = isSharedArrayBufferAvailable() && hasAtomicsWait();
 
     /** @type {SharedArrayBuffer | null} */
     this._sharedBuffer = isSharedArrayBuffer(options.sharedBuffer) ? options.sharedBuffer : null;
 
-    /** @type {Map<number, { resolve: (value:any)=>void, reject: (err:any)=>void }>} */
+    /** @type {Map<number, { resolve: (value:any)=>void, reject: (err:any)=>void, timer?: ReturnType<typeof setTimeout> | null }>} */
     this._pending = new Map();
     this._nextId = 0;
 
@@ -182,6 +197,7 @@ export class VfsProxyClient {
       logger.warn("[VfsProxyClient] dispose() failed", { error: err?.message || String(err) });
     }
     for (const [id, pending] of this._pending) {
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(new Error("VfsProxyClient disposed"));
       this._pending.delete(id);
     }
@@ -345,19 +361,37 @@ export class VfsProxyClient {
    * @returns {any}
    */
   _requestJsonSync(op, path, args) {
-    const bytes = this._requestBytesSync(op, path, args, { payloadBytes: this.maxJsonBytes });
-    const text = new TextDecoder().decode(bytes);
-    let payload;
-    try {
-      payload = JSON.parse(text, protoSafeReviver);
-    } catch (err) {
-      throw new Error(`VfsProxyClient: invalid JSON response for ${op}(${path}): ${err?.message || String(err)}`);
+    let cap = this.maxJsonBytes;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let bytes;
+      try {
+        bytes = this._requestBytesSync(op, path, args, { payloadBytes: cap });
+      } catch (err) {
+        if (String(err?.code || "") === "EOVERFLOW" && typeof err.requiredBytes === "number" && err.requiredBytes > cap) {
+          if (err.requiredBytes > this.maxJsonResizeBytes) {
+            throw new Error(`VfsProxyClient: ${op} payload exceeds maxJsonResizeBytes (${this.maxJsonResizeBytes})`);
+          }
+          cap = err.requiredBytes;
+          continue;
+        }
+        throw err;
+      }
+
+      const text = new TextDecoder().decode(bytes);
+      let payload;
+      try {
+        payload = JSON.parse(text, protoSafeReviver);
+      } catch (err) {
+        throw new Error(`VfsProxyClient: invalid JSON response for ${op}(${path}): ${err?.message || String(err)}`);
+      }
+      try {
+        return validateJsonPayload(op, payload);
+      } catch (err) {
+        throw new Error(`VfsProxyClient: invalid ${op} payload for ${path}: ${err?.message || String(err)}`);
+      }
     }
-    try {
-      return validateJsonPayload(op, payload);
-    } catch (err) {
-      throw new Error(`VfsProxyClient: invalid ${op} payload for ${path}: ${err?.message || String(err)}`);
-    }
+
+    throw new Error(`VfsProxyClient: ${op} exceeded max JSON resize attempts for ${path}`);
   }
 
   /**
@@ -461,6 +495,7 @@ export class VfsProxyClient {
     const pending = this._pending.get(id);
     if (!pending) return;
     this._pending.delete(id);
+    if (pending.timer) clearTimeout(pending.timer);
     if (msg.ok) pending.resolve(msg.data);
     else pending.reject(new Error(msg.error || "VFS request failed"));
   }
@@ -473,9 +508,23 @@ export class VfsProxyClient {
    * @returns {Promise<any>}
    */
   _requestAsync(op, path, args) {
+    if (this._pending.size >= this.maxPendingAsync) {
+      const err = new Error(`VfsProxyClient: async queue full (${this.maxPendingAsync})`);
+      err.code = "ERR_VFS_PROXY_BACKPRESSURE";
+      return Promise.reject(err);
+    }
+
     const id = ++this._nextId;
     return new Promise((resolve, reject) => {
-      this._pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        if (!this._pending.has(id)) return;
+        this._pending.delete(id);
+        const err = new Error(`VfsProxyClient: ${op} timed out for ${path}`);
+        err.code = "ERR_VFS_PROXY_TIMEOUT";
+        reject(err);
+      }, this.timeoutMs);
+
+      this._pending.set(id, { resolve, reject, timer });
       try {
         this._postMessage({
           type: VFS_REQUEST,
@@ -487,6 +536,7 @@ export class VfsProxyClient {
         });
       } catch (err) {
         this._pending.delete(id);
+        clearTimeout(timer);
         reject(err);
       }
     });

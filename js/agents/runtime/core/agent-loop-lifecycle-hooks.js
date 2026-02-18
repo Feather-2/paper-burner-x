@@ -25,17 +25,33 @@ import { createPreAgentHook, createPostAgentHook } from "../hooks/hook-runner.js
  */
 export async function runWithAgentLifecycleHooks({ loop, runId, sessionId, input, context, stageApi, startTime }) {
   const startedAt = typeof startTime === "number" ? startTime : Date.now();
+  const strictHookErrors = loop?.strictHookErrors === true || loop?.hookFailureMode === "throw";
+  const emit = loop?.emit || loop?.eventBus?.emit;
+  const reportHookError = (phase, error) => {
+    if (typeof emit !== "function") return;
+    const message = error instanceof Error ? error.message : String(error);
+    emit(`${loop.stageName}.hook.error`, {
+      actor: loop.actor,
+      status: "warning",
+      payload: { runId, phase, error: message, timestamp: Date.now() },
+    });
+  };
 
   const preAgentHook = createPreAgentHook();
-  const preResult = await preAgentHook({
-    sessionId,
-    runId,
-    input,
-    context: { eventBus: loop?.eventBus ?? null, stageApi, signal: context?.signal },
-  });
+  let preResult = null;
+  try {
+    preResult = await preAgentHook({
+      sessionId,
+      runId,
+      input,
+      context: { eventBus: loop?.eventBus ?? null, stageApi, signal: context?.signal },
+    });
+  } catch (hookErr) {
+    reportHookError("pre", hookErr);
+    if (strictHookErrors) throw hookErr;
+  }
 
   if (preResult?.skip) {
-    const emit = loop?.emit || loop?.eventBus?.emit;
     if (typeof emit === "function") {
       emit(`${loop.stageName}.agent.skipped`, {
         actor: loop.actor,
@@ -46,30 +62,30 @@ export async function runWithAgentLifecycleHooks({ loop, runId, sessionId, input
     return preResult.value ?? { ok: false, error: preResult.reason };
   }
 
+  let result = null;
+  let runError = null;
   try {
-    const result = await loop.run(input, context);
-    const postAgentHook = createPostAgentHook();
-    await postAgentHook({
-      sessionId,
-      runId,
-      input,
-      result,
-      error: null,
-      duration: Date.now() - startedAt,
-      context: { eventBus: loop?.eventBus ?? null, stageApi },
-    });
-    return result;
+    result = await loop.run(input, context);
   } catch (err) {
-    const postAgentHook = createPostAgentHook();
+    runError = err;
+  }
+
+  const postAgentHook = createPostAgentHook();
+  try {
     await postAgentHook({
       sessionId,
       runId,
       input,
-      result: null,
-      error: err,
+      result: runError ? null : result,
+      error: runError,
       duration: Date.now() - startedAt,
       context: { eventBus: loop?.eventBus ?? null, stageApi },
     });
-    throw err;
+  } catch (hookErr) {
+    reportHookError("post", hookErr);
+    if (strictHookErrors && !runError) throw hookErr;
   }
+
+  if (runError) throw runError;
+  return result;
 }
