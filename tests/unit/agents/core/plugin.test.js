@@ -287,6 +287,7 @@ describe('core/plugin exports', () => {
       await manager.install('gone');
       await manager.uninstall('gone');
       expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.uninstalled', { name: 'gone' });
+      expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin:uninstalled', { name: 'gone' });
     });
   });
 });

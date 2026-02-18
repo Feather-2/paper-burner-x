@@ -223,7 +223,9 @@ export class PluginManager {
       plugin._context = ctx;
       plugin._config = config;
 
-      this._kernel.events.emitSync('plugin.installed', { name: pluginName });
+      const payload = { name: pluginName };
+      this._kernel.events.emitSync('plugin.installed', payload);
+      this._kernel.events.emitSync('plugin:installed', payload);
     } catch (error) {
       entry.status = PluginStatus.ERROR;
       ctx.dispose();
@@ -273,7 +275,9 @@ export class PluginManager {
       entry.status = PluginStatus.UNINSTALLED;
       plugin._status = PluginStatus.UNINSTALLED;
 
-      this._kernel.events.emitSync('plugin.uninstalled', { name: pluginName });
+      const payload = { name: pluginName };
+      this._kernel.events.emitSync('plugin.uninstalled', payload);
+      this._kernel.events.emitSync('plugin:uninstalled', payload);
     }
 
     return true;

@@ -10,6 +10,7 @@ const { moduleInitCount, throwOnImport } = vi.hoisted(() => ({
     sdk: 0,
     shared: 0,
     vfs: 0,
+    storage: 0,
   },
   throwOnImport: {
     core: false,
@@ -20,6 +21,7 @@ const { moduleInitCount, throwOnImport } = vi.hoisted(() => ({
     sdk: false,
     shared: false,
     vfs: false,
+    storage: false,
   },
 }));
 
@@ -204,6 +206,11 @@ const deepsearchExports = {
   DeepSearchState: '',
   runDeepSearchAgent: makeFn('runDeepSearchAgent'),
   runDeepSearchStage: makeFn('runDeepSearchStage'),
+  DesignAgentLoop: makeClass('DesignAgentLoop'),
+  runDesignStage: makeFn('runDesignStage'),
+  CodeSearchStage: makeClass('CodeSearchStage'),
+  TextPrepStage: makeClass('TextPrepStage'),
+  runTextPrepStage: makeFn('runTextPrepStage'),
 };
 
 const sdkExports = {
@@ -220,6 +227,42 @@ const sharedExports = {
   safeExec: makeFn('safeExec'),
   CircuitBreaker: makeClass('CircuitBreaker'),
   getCircuitBreaker: makeFn('getCircuitBreaker'),
+};
+
+const storageExports = {
+  RunStore: makeClass('RunStore'),
+  RunStoreConstants: { VERSION: 1 },
+  saveTask: makeFn('saveTask'),
+  saveState: makeFn('saveState'),
+  createRun: makeFn('createRun'),
+  updateRunContext: makeFn('updateRunContext'),
+  deleteRun: makeFn('deleteRun'),
+  appendEvent: makeFn('appendEvent'),
+  appendEvents: makeFn('appendEvents'),
+  saveArtifact: makeFn('saveArtifact'),
+  updateManifest: makeFn('updateManifest'),
+  loadTask: makeFn('loadTask'),
+  loadState: makeFn('loadState'),
+  listRunRecords: makeFn('listRunRecords'),
+  listRuns: makeFn('listRuns'),
+  getRun: makeFn('getRun'),
+  getEvents: makeFn('getEvents'),
+  getArtifact: makeFn('getArtifact'),
+  getArtifactRecord: makeFn('getArtifactRecord'),
+  getArtifactById: makeFn('getArtifactById'),
+  loadArtifact: makeFn('loadArtifact'),
+  listArtifacts: makeFn('listArtifacts'),
+  listArtifactSummaries: makeFn('listArtifactSummaries'),
+  getLatestArtifactSummary: makeFn('getLatestArtifactSummary'),
+  getManifest: makeFn('getManifest'),
+  estimateQuota: makeFn('estimateQuota'),
+  cleanupRuns: makeFn('cleanupRuns'),
+  setRetentionPolicy: makeFn('setRetentionPolicy'),
+  exportRunAsZip: makeFn('exportRunAsZip'),
+  importRunFromZip: makeFn('importRunFromZip'),
+  canonicalArtifactType: makeFn('canonicalArtifactType'),
+  isSupportedArtifactType: makeFn('isSupportedArtifactType'),
+  generateArtifactId: makeFn('generateArtifactId'),
 };
 
 // Mock VFS to prevent environment-specific side effects during barrel import
@@ -261,7 +304,7 @@ function registerDependencyMocks() {
     return telemetryExports;
   });
 
-  vi.doMock('../../../js/agents/stages/deepsearch/index.js', () => {
+  vi.doMock('../../../js/agents/stages/index.js', () => {
     moduleInitCount.deepsearch += 1;
     if (throwOnImport.deepsearch) throw new Error('deepsearch import failed');
     return deepsearchExports;
@@ -283,6 +326,12 @@ function registerDependencyMocks() {
     moduleInitCount.vfs += 1;
     if (throwOnImport.vfs) throw new Error('vfs import failed');
     return vfsExports;
+  });
+
+  vi.doMock('../../../js/agents/storage/index.js', () => {
+    moduleInitCount.storage += 1;
+    if (throwOnImport.storage) throw new Error('storage import failed');
+    return storageExports;
   });
 }
 
@@ -582,6 +631,11 @@ describeValueExport('DeepSearchState', deepsearchExports.DeepSearchState, (agent
 });
 describeFunctionExport('runDeepSearchAgent', deepsearchExports.runDeepSearchAgent);
 describeFunctionExport('runDeepSearchStage', deepsearchExports.runDeepSearchStage);
+describeClassExport('DesignAgentLoop', deepsearchExports.DesignAgentLoop);
+describeFunctionExport('runDesignStage', deepsearchExports.runDesignStage);
+describeClassExport('CodeSearchStage', deepsearchExports.CodeSearchStage);
+describeClassExport('TextPrepStage', deepsearchExports.TextPrepStage);
+describeFunctionExport('runTextPrepStage', deepsearchExports.runTextPrepStage);
 
 // ------------------------------
 // SDK exports
@@ -600,6 +654,18 @@ describeFunctionExport('createLogger', sharedExports.createLogger);
 describeFunctionExport('safeExec', sharedExports.safeExec);
 describeClassExport('CircuitBreaker', sharedExports.CircuitBreaker);
 describeFunctionExport('getCircuitBreaker', sharedExports.getCircuitBreaker);
+
+// ------------------------------
+// Storage exports
+// ------------------------------
+describeClassExport('RunStore', storageExports.RunStore);
+describeValueExport('RunStoreConstants', storageExports.RunStoreConstants, (agents) => {
+  expect(agents.RunStoreConstants).toEqual({ VERSION: 1 });
+});
+describeFunctionExport('saveTask', storageExports.saveTask);
+describeFunctionExport('listRuns', storageExports.listRuns);
+describeFunctionExport('exportRunAsZip', storageExports.exportRunAsZip);
+describeFunctionExport('canonicalArtifactType', storageExports.canonicalArtifactType);
 
 // ------------------------------
 // Import/runtime error handling + concurrency boundary
@@ -631,6 +697,7 @@ describe('js/agents/index.js (module behavior)', () => {
     expect(moduleInitCount.deepsearch).toBe(1);
     expect(moduleInitCount.sdk).toBe(1);
     expect(moduleInitCount.shared).toBe(1);
+    expect(moduleInitCount.storage).toBe(1);
   });
 
   it('keeps exports stable across repeated imports (rapid consecutive imports)', async () => {

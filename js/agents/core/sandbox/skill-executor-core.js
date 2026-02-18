@@ -25,7 +25,7 @@ export class SkillExecutor {
    * @param {import('./pool.js').SandboxPool} [options.pool] - 沙箱池（可选，会自动创建）
    * @param {Function} [options.trustChecker] - 检查 Skill 是否可信
    * @param {Iterable<string>} [options.fallbackAllowlist] - 允许使用 fallback eval 的 skill id/name 列表
-   * @param {'eval'|'none'} [options.fallbackMode='none'] - WASM 不可用时的降级策略
+   * @param {'eval'|'none'} [options.fallbackMode='none'] - WASM 不可用时的降级策略（`eval` 当前受 deny-all 策略约束，默认不执行任意代码）
    * @param {{ debug?: Function, info?: Function, warn?: Function, error?: Function }} [options.logger] - 日志实例
    */
   constructor(options = {}) {

@@ -146,14 +146,17 @@ function emitStyleWarning(context, deviations) {
   const emit = context?.emit;
   if (typeof emit !== 'function') return;
 
-  emit('edit:style.deviation', {
+  const payload = {
     actor: 'design',
     status: 'warning',
     payload: {
       deviations,
       message: `Style edit deviates from locked design system. Consider using: ${deviations.map(d => `${d.key}=${d.locked}`).join(', ')}`,
     },
-  });
+  };
+
+  emit('edit:style.deviation', payload); // legacy
+  emit('edit:style:deviation', payload); // canonical
 }
 
 function replaceArrayContents(target, source) {

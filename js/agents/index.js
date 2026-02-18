@@ -132,7 +132,12 @@ export {
   DeepSearchState,
   runDeepSearchAgent,
   runDeepSearchStage,
-} from './stages/deepsearch/index.js';
+  DesignAgentLoop,
+  runDesignStage,
+  CodeSearchStage,
+  TextPrepStage,
+  runTextPrepStage,
+} from './stages/index.js';
 
 // ============================================================
 // SDK - 高层 API
@@ -175,6 +180,46 @@ export {
   loadAllSkills,
   renderSkillsSection,
 } from './skills/index.js';
+
+// ============================================================
+// Storage - 运行存储
+// ============================================================
+
+export {
+  RunStore,
+  RunStoreConstants,
+  saveTask,
+  saveState,
+  createRun,
+  updateRunContext,
+  deleteRun,
+  appendEvent,
+  appendEvents,
+  saveArtifact,
+  updateManifest,
+  loadTask,
+  loadState,
+  listRunRecords,
+  listRuns,
+  getRun,
+  getEvents,
+  getArtifact,
+  getArtifactRecord,
+  getArtifactById,
+  loadArtifact,
+  listArtifacts,
+  listArtifactSummaries,
+  getLatestArtifactSummary,
+  getManifest,
+  estimateQuota,
+  cleanupRuns,
+  setRetentionPolicy,
+  exportRunAsZip,
+  importRunFromZip,
+  canonicalArtifactType,
+  isSupportedArtifactType,
+  generateArtifactId,
+} from './storage/index.js';
 
 // ============================================================
 // 默认导出 - 新 Kernel

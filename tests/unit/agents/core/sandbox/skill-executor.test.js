@@ -507,7 +507,26 @@ describe('SkillExecutor', () => {
     );
 
     expect(res.ok).toBe(false);
-    expect(String(res.error)).toMatch(/^Security: Blocked pattern:/);
+    expect(String(res.error)).toMatch(
+      /^Security: (Blocked pattern:|Fallback eval is disabled by policy)/
+    );
+    expect(res.blocked).toBe(true);
+  });
+
+  it('returns explicit deny-all policy message when fallback eval is configured', async () => {
+    sharedMocks.isNodeLike.mockReturnValue(false);
+    vi.stubGlobal('Worker', undefined);
+    const { SkillExecutor } = await import(SKILL_EXECUTOR_PATH);
+    const executor = new SkillExecutor({ logger: createSilentLogger(), fallbackMode: 'eval' });
+    executor.wasmSupported = false;
+
+    const res = await executor.execute(
+      { metadata: { name: 'policy', scope: 'system' }, body: 'return 1;' },
+      {}
+    );
+
+    expect(res.ok).toBe(false);
+    expect(String(res.error)).toBe('Security: Fallback eval is disabled by policy (deny-all)');
     expect(res.blocked).toBe(true);
   });
 

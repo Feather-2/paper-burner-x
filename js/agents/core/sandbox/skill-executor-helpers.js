@@ -35,6 +35,7 @@ export function isAllowlistedSkill(allowlist, skill) {
 }
 
 // Fallback eval 的基础防护（best-effort；不是强安全边界）
+// 默认 deny-all：仅保留显式策略位，避免在无强隔离时误执行任意代码。
 /** @type {RegExp[]} */
 export const FALLBACK_BLOCK_PATTERNS = [
   /[\s\S]/, // SECURITY: deny-all — non-empty code is always blocked (effectively disables fallback eval)
@@ -197,6 +198,9 @@ export function normalizeFallbackMode(value) {
 export function validateFallbackCode(code) {
   for (const pattern of FALLBACK_BLOCK_PATTERNS) {
     if (pattern.test(code)) {
+      if (pattern.source === '[\\s\\S]') {
+        return { valid: false, reason: 'Fallback eval is disabled by policy (deny-all)' };
+      }
       return { valid: false, reason: `Blocked pattern: ${pattern.source}` };
     }
   }

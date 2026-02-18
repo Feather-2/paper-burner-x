@@ -194,7 +194,6 @@ export class ServiceBus {
     };
 
     this._emit('service.call.start', callContext);
-    this._emit('service:call:start', callContext);
 
     try {
       // 获取服务
@@ -222,14 +221,12 @@ export class ServiceBus {
       this._recordSuccess(serviceName, Date.now() - startTime);
       const successPayload = { ...callContext, result, duration: Date.now() - startTime };
       this._emit('service.call.success', successPayload);
-      this._emit('service:call:success', successPayload);
 
       return /** @type {T} */ (result);
     } catch (error) {
       this._recordError(serviceName);
       const errorPayload = { ...callContext, error, duration: Date.now() - startTime };
       this._emit('service.call.error', errorPayload);
-      this._emit('service:call:error', errorPayload);
       throw error;
     }
   }
@@ -494,6 +491,12 @@ export class ServiceBus {
   _emit(event, data) {
     if (this._events) {
       this._events.emitSync(event, data);
+      if (event.includes('.')) {
+        const alias = event.replace(/\./g, ':');
+        if (alias !== event) {
+          this._events.emitSync(alias, data);
+        }
+      }
     }
   }
 }
