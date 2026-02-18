@@ -157,6 +157,17 @@ describe("RunStore", () => {
 
       expect(store2._quotaWarnRatio).toBe(Number.MAX_SAFE_INTEGER);
       expect(store2._quotaCheckIntervalMs).toBe(123);
+      expect(store2._blockedOpenTimeoutMs).toBe(5000);
+    });
+
+    it("normalizes blockedOpenTimeoutMs boundaries", () => {
+      const a = new RunStore({ blockedOpenTimeoutMs: 2500.9 });
+      const b = new RunStore({ blockedOpenTimeoutMs: -1 });
+      const c = new RunStore({ blockedOpenTimeoutMs: "abc" });
+
+      expect(a._blockedOpenTimeoutMs).toBe(2500);
+      expect(b._blockedOpenTimeoutMs).toBe(0);
+      expect(c._blockedOpenTimeoutMs).toBe(5000);
     });
   });
 
@@ -255,6 +266,27 @@ describe("RunStore", () => {
       const [db1, db2] = await Promise.all([p1, p2]);
       expect(db1).toBe(db);
       expect(db2).toBe(db);
+    });
+
+    it("supports disabling blocked-open timeout", async () => {
+      vi.useFakeTimers();
+      try {
+        utilsMocks.hasIndexedDB.mockReturnValue(true);
+        const { req, db } = makeOpenRequest();
+        const openSpy = vi.fn(() => req);
+        vi.stubGlobal("indexedDB", { open: openSpy });
+
+        const store = new RunStore({ blockedOpenTimeoutMs: 0 });
+        const openPromise = store.open();
+
+        req.onblocked();
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        req.onsuccess();
+        await expect(openPromise).resolves.toBe(db);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("clears cached promise on open failure and allows retry", async () => {

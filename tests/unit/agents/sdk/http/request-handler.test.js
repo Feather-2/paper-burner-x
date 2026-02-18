@@ -49,7 +49,7 @@ describe('createRequestHandler', () => {
       const data = JSON.parse(res.body);
       expect(data.output).toBe('Hello world');
       expect(data.stop_reason).toBe('end_turn');
-      expect(data.session_id).toMatch(/^session-/);
+      expect(data.session_id).toMatch(/^session[-_]/);
       expect(data.usage).toEqual({ input_tokens: 10, output_tokens: 5 });
       expect(mockRun).toHaveBeenCalledWith('hi', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     });
@@ -108,6 +108,35 @@ describe('createRequestHandler', () => {
       expect(JSON.parse(res.body).error).toContain('Invalid JSON');
     });
 
+    it('parses JSON with proto-safe reviver and rejects invalid session_id', async () => {
+      const polluted = '{"prompt":"hi","session_id":"","__proto__":{"polluted":true}}';
+      const res = await handler({
+        method: 'POST',
+        pathname: '/v1/run',
+        headers: {},
+        body: polluted,
+      });
+      expect(res.status).toBe(400);
+      expect(JSON.parse(res.body).error).toContain('session_id');
+      expect({}.polluted).toBeUndefined();
+    });
+
+    it('uses injected sessionIdFactory when session_id is missing', async () => {
+      const customHandler = createRequestHandler(
+        vi.fn(async () => ({ run: mockRun })),
+        { sessionIdFactory: () => 'custom-session-id' }
+      );
+
+      const res = await customHandler({
+        method: 'POST',
+        pathname: '/v1/run',
+        headers: {},
+        body: JSON.stringify({ prompt: 'hi' }),
+      });
+      expect(res.status).toBe(200);
+      expect(JSON.parse(res.body).session_id).toBe('custom-session-id');
+    });
+
     it('rejects array body', async () => {
       const res = await handler({
         method: 'POST',
@@ -148,6 +177,32 @@ describe('createRequestHandler', () => {
       });
       expect(res.status).toBe(502);
       expect(JSON.parse(res.body).error).toContain('LLM failed');
+    });
+
+    it('returns 504 on timeout even if downstream ignores abort', async () => {
+      vi.useFakeTimers();
+      try {
+        const never = new Promise(() => {});
+        const timeoutHandler = createRequestHandler(
+          vi.fn(async () => ({ run: vi.fn(() => never), eventBus: null })),
+          { defaultTimeoutMs: 10 }
+        );
+
+        const pending = timeoutHandler({
+          method: 'POST',
+          pathname: '/v1/run',
+          headers: {},
+          body: JSON.stringify({ prompt: 'timeout me' }),
+        });
+
+        await vi.advanceTimersByTimeAsync(20);
+        const res = await pending;
+
+        expect(res.status).toBe(504);
+        expect(JSON.parse(res.body).error).toContain('may continue');
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

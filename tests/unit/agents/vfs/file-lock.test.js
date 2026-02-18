@@ -1,7 +1,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { FileLock, LockType } from "../../../../js/agents/vfs/file-lock.js";
+import { FileLock, LockType, getFileLock, acquireLock } from "../../../../js/agents/vfs/file-lock.js";
 
 describe("vfs/file-lock", () => {
   /** @type {FileLock} */
@@ -320,6 +320,29 @@ describe("vfs/file-lock", () => {
       expect(events).toContain("w2-acquired");
 
       writer2.release();
+    });
+  });
+
+  describe("scoped global locks", () => {
+    it("reuses same global lock within default scope", () => {
+      const a = getFileLock();
+      const b = getFileLock();
+      expect(a).toBe(b);
+    });
+
+    it("isolates lock domains by scope", async () => {
+      const scopedA = getFileLock("scope-a");
+      const scopedB = getFileLock("scope-b");
+      expect(scopedA).not.toBe(scopedB);
+
+      const a = await acquireLock("/same-file.txt", { scope: "scope-a", timeoutMs: 200 });
+      const b = await acquireLock("/same-file.txt", { scope: "scope-b", timeoutMs: 200 });
+
+      expect(a.holder).toMatch(/^lock_/);
+      expect(b.holder).toMatch(/^lock_/);
+
+      a.release();
+      b.release();
     });
   });
 });

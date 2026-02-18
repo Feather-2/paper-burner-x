@@ -28,7 +28,14 @@ export { StagePausedError, StageCancelledError } from "../runtime/core/stage-err
 // ============================================================
 
 // Multi-agent and backtrack
-export { SubagentRegistry, globalSubagentRegistry } from "./SubagentRegistry.js";
+export {
+  SubagentRegistry,
+  createSubagentRegistry,
+  getGlobalSubagentRegistry,
+  setGlobalSubagentRegistry,
+  resetGlobalSubagentRegistry,
+  globalSubagentRegistry,
+} from "./SubagentRegistry.js";
 export { BacktrackManager } from "./BacktrackManager.js";
 export { SoftBacktrackManager } from "./SoftBacktrackManager.js";
 

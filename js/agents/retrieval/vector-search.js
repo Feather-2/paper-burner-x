@@ -27,6 +27,56 @@ function normalizeChunkId(chunk, idx) {
   return cid || `chunk_${idx + 1}`;
 }
 
+function normalizeRate(value) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n < 0 || n > 1) return null;
+  return n;
+}
+
+function reportUpsertFailure(error, meta, options) {
+  const onUpsertError = typeof options?.onUpsertError === "function" ? options.onUpsertError : null;
+  const logger = options?.logger && typeof options.logger.warn === "function" ? options.logger : null;
+  try {
+    onUpsertError?.(error, meta);
+  } catch {
+    // ignore observer failure
+  }
+  try {
+    logger?.warn?.("[vector-search] upsert failed", {
+      chunkId: meta?.chunkId,
+      index: meta?.index,
+      error: error?.message || String(error),
+    });
+  } catch {
+    // ignore logger failure
+  }
+}
+
+function enforceUpsertThreshold({ mode, attempted, failed }, options) {
+  const failOnUpsertError = options?.failOnUpsertError === true;
+  if (failOnUpsertError && failed > 0) {
+    const err = new Error(`${mode}: failed to upsert ${failed}/${attempted} vectors`);
+    err.code = "ERR_VECTOR_UPSERT_FAILED";
+    err.failedUpserts = failed;
+    err.attemptedUpserts = attempted;
+    throw err;
+  }
+
+  const minSuccessRate = normalizeRate(options?.minSuccessRate);
+  if (minSuccessRate === null || attempted <= 0) return;
+  const successRate = (attempted - failed) / attempted;
+  if (successRate < minSuccessRate) {
+    const err = new Error(`${mode}: upsert success rate ${successRate.toFixed(4)} below threshold ${minSuccessRate}`);
+    err.code = "ERR_VECTOR_UPSERT_RATE_LOW";
+    err.successRate = successRate;
+    err.minSuccessRate = minSuccessRate;
+    err.failedUpserts = failed;
+    err.attemptedUpserts = attempted;
+    throw err;
+  }
+}
+
 /**
  * @typedef {object} VectorSearchIndex
  * @property {string[]} chunkIds
@@ -54,6 +104,9 @@ export function buildIndex(chunks, options = {}) {
   const vectorIndex = injected || new VectorIndex({ maxItems });
   const getEmbedding = typeof options.getEmbedding === "function" ? options.getEmbedding : (c) => c?.embedding;
 
+  let attemptedUpserts = 0;
+  let failedUpserts = 0;
+
   for (let i = 0; i < chunks.length; i++) {
     const c = chunks[i];
     const chunkId = normalizeChunkId(c, i);
@@ -61,14 +114,26 @@ export function buildIndex(chunks, options = {}) {
 
     const emb = getEmbedding(c, i);
     if (!emb) continue;
+    attemptedUpserts += 1;
     try {
       vectorIndex.upsert(chunkId, emb, { chunkId, docIndex: i });
-    } catch {
-      // Dimension mismatch / invalid vector; skip.
+    } catch (error) {
+      failedUpserts += 1;
+      reportUpsertFailure(error, { chunkId, index: i, phase: "buildIndex" }, options);
     }
   }
 
-  return { chunkIds, vectorIndex };
+  enforceUpsertThreshold({ mode: "buildIndex", attempted: attemptedUpserts, failed: failedUpserts }, options);
+
+  return {
+    chunkIds,
+    vectorIndex,
+    stats: {
+      attemptedUpserts,
+      successfulUpserts: attemptedUpserts - failedUpserts,
+      failedUpserts,
+    },
+  };
 }
 
 /**
@@ -105,17 +170,31 @@ export async function buildIndexAsync(chunks, options = {}) {
   const vectors = await svc.embed(texts, { ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}), ...(options.signal ? { signal: options.signal } : {}) });
   const arr = Array.isArray(vectors) ? vectors : [];
 
+  let attemptedUpserts = 0;
+  let failedUpserts = 0;
   for (let i = 0; i < chunkIds.length; i++) {
     const v = arr[i];
     if (!v) continue;
+    attemptedUpserts += 1;
     try {
       vectorIndex.upsert(chunkIds[i], v, { chunkId: chunkIds[i], docIndex: i });
-    } catch {
-      // ignore dimension mismatch / index failure
+    } catch (error) {
+      failedUpserts += 1;
+      reportUpsertFailure(error, { chunkId: chunkIds[i], index: i, phase: "buildIndexAsync" }, options);
     }
   }
 
-  return { chunkIds, vectorIndex };
+  enforceUpsertThreshold({ mode: "buildIndexAsync", attempted: attemptedUpserts, failed: failedUpserts }, options);
+
+  return {
+    chunkIds,
+    vectorIndex,
+    stats: {
+      attemptedUpserts,
+      successfulUpserts: attemptedUpserts - failedUpserts,
+      failedUpserts,
+    },
+  };
 }
 
 /**
@@ -188,4 +267,3 @@ export default {
   search,
   searchAsync,
 };
-

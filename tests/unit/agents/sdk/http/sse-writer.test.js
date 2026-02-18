@@ -24,6 +24,19 @@ describe('SseWriter', () => {
     expect(parsed.id).toBe('123');
   });
 
+  it('serializes circular payloads without throwing', () => {
+    const writer = new SseWriter(target, { autoHeartbeat: false });
+    const payload = { id: '123' };
+    payload.self = payload;
+
+    expect(() => writer.writeEvent('message_start', payload)).not.toThrow();
+
+    const parsed = JSON.parse(target.chunks[0].replace('data: ', '').trim());
+    expect(parsed.type).toBe('message_start');
+    expect(parsed.id).toBe('123');
+    expect(parsed.self).toMatchObject({ id: '123', self: '[Circular]' });
+  });
+
   it('writes ping events', () => {
     const writer = new SseWriter(target, { autoHeartbeat: false });
     writer.writePing();

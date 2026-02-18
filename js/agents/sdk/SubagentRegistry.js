@@ -274,9 +274,61 @@ export class SubagentRegistry {
 
 export { validateOutput, quarantineOutput, DEFAULT_OUTPUT_SCHEMA };
 /**
- * Global registry singleton (compatibility layer).
+ * Create an isolated SubagentRegistry instance.
+ *
+ * @param {{ injectionScanner?: InjectionScanner }} [options]
+ * @returns {SubagentRegistry}
+ */
+export function createSubagentRegistry(options) {
+  return new SubagentRegistry(options);
+}
+
+/** @type {SubagentRegistry | null} */
+let _globalSubagentRegistry = null;
+
+/**
+ * Resolve process-level registry singleton (compatibility layer).
+ *
+ * Prefer DI/container-scoped registry in new code.
+ *
+ * @returns {SubagentRegistry}
+ */
+export function getGlobalSubagentRegistry() {
+  if (!_globalSubagentRegistry) {
+    _globalSubagentRegistry = createSubagentRegistry();
+  }
+  return _globalSubagentRegistry;
+}
+
+/**
+ * Replace global registry singleton (primarily for tests / isolation).
+ *
+ * @param {SubagentRegistry} registry
+ * @returns {SubagentRegistry}
+ */
+export function setGlobalSubagentRegistry(registry) {
+  if (registry instanceof SubagentRegistry) {
+    _globalSubagentRegistry = registry;
+  } else {
+    _globalSubagentRegistry = createSubagentRegistry();
+  }
+  globalSubagentRegistry = _globalSubagentRegistry;
+  return _globalSubagentRegistry;
+}
+
+/**
+ * Reset global registry singleton to a fresh instance.
+ *
+ * @returns {SubagentRegistry}
+ */
+export function resetGlobalSubagentRegistry() {
+  return setGlobalSubagentRegistry(createSubagentRegistry());
+}
+
+/**
+ * Global registry singleton (compatibility export).
  *
  * @deprecated Prefer resolving via DI container (`ServiceId.SUBAGENT_REGISTRY`) or passing an explicit registry instance.
  */
-export const globalSubagentRegistry = new SubagentRegistry();
+export let globalSubagentRegistry = getGlobalSubagentRegistry();
 export default SubagentRegistry;

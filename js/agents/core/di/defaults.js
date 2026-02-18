@@ -279,8 +279,8 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.SUBAGENT_REGISTRY,
     async () => {
-      const { globalSubagentRegistry } = await import("../../sdk/SubagentRegistry.js");
-      return globalSubagentRegistry;
+      const { createSubagentRegistry } = await import("../../sdk/SubagentRegistry.js");
+      return createSubagentRegistry();
     },
     { scope: SINGLETON }
   );

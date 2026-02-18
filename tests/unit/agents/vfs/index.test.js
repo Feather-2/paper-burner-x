@@ -25,6 +25,10 @@ async function importCreateVfs() {
   return mod.createVfs;
 }
 
+async function importVfsModule() {
+  return await import("../../../../js/agents/vfs/index.js");
+}
+
 function makeDeepNested(depth) {
   let root = { level: 0 };
   let cur = root;
@@ -288,6 +292,27 @@ describe("createVfs", () => {
       expect(b.opts).toEqual({ id: 2 });
       expect(c.opts).toEqual({ id: 3 });
       expect(d.opts).toEqual({ id: 4 });
+    });
+
+    it("clears failed node module import cache and allows retry", async () => {
+      const mod = await importVfsModule();
+      let attempts = 0;
+      mod.setNodeModuleImporter(async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("transient import failure");
+        }
+        return { createVfs: mocks.createNodeVfs };
+      });
+      mocks.createNodeVfs.mockReturnValue("node-ok");
+
+      await expect(mod.createVfs({ id: "first" })).rejects.toThrow("transient import failure");
+      await expect(mod.createVfs({ id: "second" })).resolves.toBe("node-ok");
+      expect(attempts).toBe(2);
+      expect(mocks.createNodeVfs).toHaveBeenCalledWith({ id: "second" });
+
+      mod.restoreDefaultNodeModuleImporter();
+      mod.resetNodeModuleImportCache();
     });
   });
 

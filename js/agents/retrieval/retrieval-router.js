@@ -23,6 +23,8 @@ export const DEFAULT_MMR_LAMBDA = 0.7;
 /** @type {number} BM25 persistence schema version */
 export const BM25_SCHEMA_VERSION = 1;
 
+const _bm25PersistQueues = new WeakMap();
+
 function getGapId(gap) {
   if (!gap || !isPlainObject(gap)) return null;
   const id = gap.gapId || gap.id || null;
@@ -158,7 +160,31 @@ function isCompatibleBm25Index(index, chunks) {
  * @param {string} key
  * @param {{ logger?: any, maxSnapshotChars?: number }} [options]
  */
-async function loadBm25IndexFromStore(store, key, { logger, maxSnapshotChars = DEFAULT_MAX_BM25_SNAPSHOT_CHARS } = {}) {
+async function loadBm25IndexFromStore(
+  store,
+  key,
+  {
+    logger,
+    maxSnapshotChars = DEFAULT_MAX_BM25_SNAPSHOT_CHARS,
+    snapshotStats = null,
+    onSnapshotIssue = null,
+  } = {}
+) {
+  const stats = snapshotStats && isPlainObject(snapshotStats) ? snapshotStats : null;
+  const onIssue = typeof onSnapshotIssue === "function" ? onSnapshotIssue : null;
+
+  const recordIssue = (reason, details = {}) => {
+    if (stats) {
+      const prev = Number(stats[reason] || 0);
+      stats[reason] = Number.isFinite(prev) ? prev + 1 : 1;
+    }
+    try {
+      onIssue?.({ reason, key, ...details });
+    } catch {
+      // ignore observer failure
+    }
+  };
+
   if (!store || typeof store.get !== "function") return null;
   try {
     const raw = await store.get(key);
@@ -166,12 +192,14 @@ async function loadBm25IndexFromStore(store, key, { logger, maxSnapshotChars = D
     let snapshot = raw;
     if (typeof raw === "string") {
       if (raw.length > maxSnapshotChars) {
+        recordIssue("snapshot_too_large", { size: raw.length, maxSnapshotChars });
         logger?.warn?.("[retrieval] bm25 snapshot too large; ignoring", { size: raw.length, max: maxSnapshotChars });
         return null;
       }
       try {
         snapshot = JSON.parse(raw, protoSafeReviver);
       } catch (err) {
+        recordIssue("snapshot_parse_failed", { error: err?.message || String(err) });
         logger?.warn?.("[retrieval] bm25 snapshot parse failed; ignoring", { error: err?.message || String(err) });
         return null;
       }
@@ -185,6 +213,10 @@ async function loadBm25IndexFromStore(store, key, { logger, maxSnapshotChars = D
           ? Number(bm25SchemaVersionRaw)
           : null;
     if (!Number.isFinite(bm25SchemaVersion) || bm25SchemaVersion !== BM25_SCHEMA_VERSION) {
+      recordIssue("snapshot_version_mismatch", {
+        expectedVersion: BM25_SCHEMA_VERSION,
+        actualVersion: bm25SchemaVersionRaw ?? null,
+      });
       logger?.warn?.("[retrieval] bm25 snapshot version mismatch; ignoring", {
         expectedVersion: BM25_SCHEMA_VERSION,
         actualVersion: bm25SchemaVersionRaw ?? null,
@@ -193,11 +225,13 @@ async function loadBm25IndexFromStore(store, key, { logger, maxSnapshotChars = D
     }
     const schemaVersion = typeof snapshot.schemaVersion === "string" ? snapshot.schemaVersion : "";
     if (schemaVersion !== "0.1") {
+      recordIssue("snapshot_schema_mismatch", { schemaVersion });
       logger?.warn?.("[retrieval] bm25 snapshot schema mismatch; ignoring", { schemaVersion });
       return null;
     }
     return deserializeBm25Index(snapshot);
-  } catch {
+  } catch (error) {
+    recordIssue("snapshot_load_failed", { error: error?.message || String(error) });
     return null;
   }
 }
@@ -213,6 +247,29 @@ async function saveBm25IndexToStore(store, key, index) {
     return true;
   } catch {
     return false;
+  }
+}
+
+function enqueueBm25Persist(store, task) {
+  if (!store || typeof task !== "function") return Promise.resolve(false);
+  const prev = _bm25PersistQueues.get(store) || Promise.resolve();
+  const next = prev.catch(() => undefined).then(() => task());
+  _bm25PersistQueues.set(store, next);
+  next.finally(() => {
+    if (_bm25PersistQueues.get(store) === next) {
+      _bm25PersistQueues.delete(store);
+    }
+  });
+  return next;
+}
+
+async function flushBm25PersistQueue(store) {
+  const pending = store ? _bm25PersistQueues.get(store) : null;
+  if (!pending) return;
+  try {
+    await pending;
+  } catch {
+    // ignore flush errors
   }
 }
 
@@ -273,12 +330,9 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
   if (!isPlainObject(config)) throw new TypeError("retrieve(sourceIndex, gaps, config): config must be an object");
 
   const signal = config.signal;
-  const logger =
-    config.logger && typeof config.logger.warn === "function"
-      ? config.logger
-      : typeof console !== "undefined" && typeof console.warn === "function"
-        ? console
-        : null;
+  const logger = config.logger && typeof config.logger.warn === "function" ? config.logger : null;
+  const bm25SnapshotStats = isPlainObject(config.bm25SnapshotStats) ? config.bm25SnapshotStats : null;
+  const onBm25SnapshotIssue = typeof config.onBm25SnapshotIssue === "function" ? config.onBm25SnapshotIssue : null;
   checkCancelled(signal);
 
   const sourceId = String(sourceIndex.sourceId || "source_1");
@@ -308,7 +362,11 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
     }
 
     if (!bm25Index && store && persistKey) {
-      const loaded = await loadBm25IndexFromStore(store, persistKey, { logger });
+      const loaded = await loadBm25IndexFromStore(store, persistKey, {
+        logger,
+        snapshotStats: bm25SnapshotStats,
+        onSnapshotIssue: onBm25SnapshotIssue,
+      });
       if (loaded && isCompatibleBm25Index(loaded, allChunks)) {
         bm25Index = loaded;
       }
@@ -317,7 +375,16 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
     if (!bm25Index) {
       bm25Index = await buildBm25IndexAsync(allChunks, { ...(config.bm25 || {}), signal, yieldEveryDocs: 80 });
       if (store && persistKey && config.persistBm25Index !== false) {
-        await saveBm25IndexToStore(store, persistKey, bm25Index);
+        const persistTask = enqueueBm25Persist(store, async () => {
+          const ok = await saveBm25IndexToStore(store, persistKey, bm25Index);
+          if (!ok) {
+            logger?.warn?.("[retrieval] bm25 snapshot persist failed", { key: persistKey });
+          }
+          return ok;
+        });
+        if (config.awaitPersistBm25 === true) {
+          await persistTask;
+        }
       }
     }
 
@@ -553,12 +620,7 @@ export class RetrievalRouter {
     const cache = resolveBm25IndexCache(this.defaultConfig);
     if (!store || !cache) return;
 
-    const logger =
-      this.defaultConfig.logger && typeof this.defaultConfig.logger.warn === "function"
-        ? this.defaultConfig.logger
-        : typeof console !== "undefined" && typeof console.warn === "function"
-          ? console
-          : null;
+    const logger = this.defaultConfig.logger && typeof this.defaultConfig.logger.warn === "function" ? this.defaultConfig.logger : null;
 
     if (!Array.isArray(keys) || !keys.length) return;
 
@@ -586,5 +648,10 @@ export class RetrievalRouter {
 
   async retrieveAsync(sourceIndex, gaps, config = {}) {
     return this.retrieve(sourceIndex, gaps, config);
+  }
+
+  async flushPersist() {
+    const store = resolveBm25IndexStore(this.defaultConfig);
+    await flushBm25PersistQueue(store);
   }
 }

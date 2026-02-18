@@ -15,7 +15,13 @@ vi.mock("../../../../js/agents/storage/run-store-utils.js", () => ({
   promisifyTransaction: vi.fn(),
 }));
 
-import { estimateQuota, _maybeWarnQuota, setRetentionPolicy, _estimateRunBytes } from "../../../../js/agents/storage/run-store-cache.js";
+import {
+  estimateQuota,
+  _maybeWarnQuota,
+  setRetentionPolicy,
+  _estimateRunBytes,
+  cleanupRuns,
+} from "../../../../js/agents/storage/run-store-cache.js";
 import * as shared from "../../../../js/agents/shared/index.js";
 import * as utils from "../../../../js/agents/storage/run-store-utils.js";
 
@@ -481,5 +487,70 @@ describe("_estimateRunBytes", () => {
     expect(first).toBe(expected);
     expect(second).toBe(expected);
     expect(open).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("cleanupRuns", () => {
+  it("estimates run sizes with bounded concurrency", async () => {
+    shared.isPlainObject.mockImplementation((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+      const proto = Object.getPrototypeOf(value);
+      return proto === Object.prototype || proto === null;
+    });
+    utils.normalizeRetentionConfig.mockImplementation((config) => ({
+      enabled: true,
+      maxRuns: null,
+      maxAgeDays: null,
+      maxTotalBytes: 1024,
+      keepPinned: false,
+      pinnedKey: "pinned",
+      ...(config || {}),
+    }));
+    utils.parseIsoMs.mockImplementation((value) => Date.parse(value));
+    utils.isPinnedRunContext.mockReturnValue(false);
+
+    vi.useFakeTimers();
+    try {
+      let inFlight = 0;
+      let maxInFlight = 0;
+
+      const ctx = {
+        _retention: { enabled: true, maxTotalBytes: 1024 },
+        listRunRecords: vi.fn().mockResolvedValue([
+          { runId: "r3", createdAt: "2024-01-03T00:00:00.000Z", manifest: null },
+          { runId: "r2", createdAt: "2024-01-02T00:00:00.000Z", manifest: null },
+          { runId: "r1", createdAt: "2024-01-01T00:00:00.000Z", manifest: null },
+        ]),
+        _estimateRunBytesFromManifest: vi.fn(() => null),
+        _estimateRunBytes: vi.fn(async () => {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((resolve) =>
+            setTimeout(() => {
+              inFlight -= 1;
+              resolve();
+            }, 20)
+          );
+          return 10;
+        }),
+        deleteRun: vi.fn(async () => true),
+      };
+
+      const pending = cleanupRuns.call(ctx, {
+        retention: { enabled: true, maxTotalBytes: 1024 },
+        estimateConcurrency: 2,
+        dryRun: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(maxInFlight).toBe(2);
+
+      await vi.runAllTimersAsync();
+      const result = await pending;
+      expect(result.deletedRunIds).toEqual([]);
+      expect(ctx._estimateRunBytes).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -61,6 +61,7 @@ export class RunStore {
     onQuotaWarning,
     retention,
     autoCleanup,
+    blockedOpenTimeoutMs = 5000,
   } = {}) {
     this.dbName = dbName;
     this.dbVersion = dbVersion;
@@ -79,6 +80,10 @@ export class RunStore {
     this._autoCleanup = normalizeRetentionConfig(autoCleanup);
     this._lastCleanupMs = 0;
     this._cleanupPromise = null;
+    this._blockedOpenTimeoutMs =
+      typeof blockedOpenTimeoutMs === "number" && Number.isFinite(blockedOpenTimeoutMs)
+        ? Math.max(0, Math.floor(blockedOpenTimeoutMs))
+        : 5000;
   }
 
   async open() {
@@ -116,7 +121,7 @@ export class RunStore {
       };
 
       let blockedTimer = null;
-      const blockedOpenTimeoutMs = 5000;
+      const blockedOpenTimeoutMs = this._blockedOpenTimeoutMs;
 
       req.onsuccess = () => {
         if (blockedTimer !== null) {
@@ -132,7 +137,7 @@ export class RunStore {
           // ignore
         }
 
-        if (blockedTimer === null) {
+        if (blockedOpenTimeoutMs > 0 && blockedTimer === null) {
           blockedTimer = setTimeout(() => {
             reject(new Error(`[RunStore] IndexedDB open blocked timeout after ${blockedOpenTimeoutMs}ms for ${this.dbName}@v${this.dbVersion}`));
           }, blockedOpenTimeoutMs);

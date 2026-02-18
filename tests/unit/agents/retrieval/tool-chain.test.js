@@ -16,6 +16,7 @@ import {
   search,
   clearGlobCache,
   getGlobCacheStats,
+  setGlobCacheMaxEntries,
   __test,
 } from "../../../../js/agents/retrieval/tool-chain.js";
 
@@ -61,6 +62,7 @@ const buildMatches = (chunks, keyword, options = {}) => {
 
 beforeEach(() => {
   clearGlobCache();
+  setGlobCacheMaxEntries(256);
   grepMocks.grepChunks.mockReset();
   grepMocks.grepChunksAsync.mockReset();
   grepMocks.grepChunks.mockImplementation(buildMatches);
@@ -275,6 +277,7 @@ describe("search", () => {
       expect(result.ok).toBe(true);
       expect(result.strategy).toBe(ToolChainStrategy.GREP_ONLY);
       expect(result.fallbackReason).toBe("glob_failed:timeout");
+      expect(result.stats.globBackgroundPending).toBe(1);
     } finally {
       vi.useRealTimers();
     }
@@ -424,5 +427,18 @@ describe("getGlobCacheStats", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("enforces cache capacity with LRU-style eviction", () => {
+    setGlobCacheMaxEntries(2);
+    __test.setCachedGlob("**/*.a", "base", ["a"]);
+    __test.setCachedGlob("**/*.b", "base", ["b"]);
+    __test.setCachedGlob("**/*.c", "base", ["c"]);
+
+    const stats = getGlobCacheStats();
+    expect(stats.size).toBe(2);
+    expect(stats.keys).toEqual(expect.arrayContaining(["**/*.b::base", "**/*.c::base"]));
+    expect(stats.keys).not.toContain("**/*.a::base");
+    expect(stats.maxEntries).toBe(2);
   });
 });

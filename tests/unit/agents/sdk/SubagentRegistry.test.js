@@ -34,6 +34,8 @@ import SubagentRegistryDefault, {
   quarantineOutput,
   DEFAULT_OUTPUT_SCHEMA,
   globalSubagentRegistry,
+  setGlobalSubagentRegistry,
+  resetGlobalSubagentRegistry,
 } from "../../../../js/agents/sdk/SubagentRegistry.js";
 import { InjectionScanner } from "../../../../js/agents/sdk/injection-scanner.js";
 
@@ -444,12 +446,20 @@ describe("SubagentRegistry", () => {
 
 describe("globalSubagentRegistry", () => {
   beforeEach(() => {
-    globalSubagentRegistry._subagents.clear();
+    resetGlobalSubagentRegistry();
   });
 
   it("is a SubagentRegistry singleton", () => {
     expect(globalSubagentRegistry).toBeInstanceOf(SubagentRegistry);
     expect(globalSubagentRegistry.getAvailableTypes()).toEqual([]);
+  });
+
+  it("can be replaced for test isolation", () => {
+    const isolated = new SubagentRegistry({ injectionScanner: new InjectionScanner() });
+    isolated.register("one", async () => ({ run: async () => ({ ok: true }) }));
+
+    setGlobalSubagentRegistry(isolated);
+    expect(globalSubagentRegistry.getAvailableTypes()).toEqual([{ type: "one", description: "" }]);
   });
 });
 

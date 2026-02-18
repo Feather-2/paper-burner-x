@@ -45,9 +45,31 @@ async function waitFor(promise, { signal } = {}) {
   if (!signal) return await p;
   if (signal.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "aborted");
 
+  const cancellable =
+    maybeThenable && typeof maybeThenable === "object"
+      ? typeof maybeThenable.abort === "function"
+        ? /** @type {(reason?: any) => any} */ (maybeThenable.abort).bind(maybeThenable)
+        : typeof maybeThenable.cancel === "function"
+          ? /** @type {(reason?: any) => any} */ (maybeThenable.cancel).bind(maybeThenable)
+          : null
+      : null;
+
   let onAbort = null;
   const abortPromise = new Promise((_, reject) => {
-    onAbort = () => reject(new Error(typeof signal.reason === "string" ? signal.reason : "aborted"));
+    onAbort = () => {
+      const reason = typeof signal.reason === "string" ? signal.reason : "aborted";
+      if (cancellable) {
+        try {
+          cancellable(signal.reason);
+        } catch {
+          // ignore cancellation hook failure
+        }
+      }
+      const error = new Error(reason);
+      error.code = "ERR_VFS_WAIT_ABORTED";
+      error.cancelAttempted = Boolean(cancellable);
+      reject(error);
+    };
     signal.addEventListener?.("abort", onAbort, { once: true });
   });
 

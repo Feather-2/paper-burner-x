@@ -109,6 +109,14 @@ export function normalizeToolChainStrategy(value) {
 // 全局 glob 缓存（避免重复扫描）
 const globCache = new Map();
 const GLOB_CACHE_TTL = 60000; // 60s
+const DEFAULT_GLOB_CACHE_MAX_ENTRIES = 256;
+let globCacheMaxEntries = DEFAULT_GLOB_CACHE_MAX_ENTRIES;
+
+function normalizeCacheCapacity(value) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_GLOB_CACHE_MAX_ENTRIES;
+  return Math.max(1, Math.floor(n));
+}
 
 /**
  * 清理过期的 glob 缓存
@@ -120,6 +128,17 @@ function pruneGlobCache() {
       globCache.delete(key);
     }
   }
+
+  if (globCache.size <= globCacheMaxEntries) return;
+  const overflow = globCache.size - globCacheMaxEntries;
+  if (overflow <= 0) return;
+
+  const oldestKeys = Array.from(globCache.entries())
+    .sort((a, b) => (a[1]?.timestamp || 0) - (b[1]?.timestamp || 0))
+    .slice(0, overflow)
+    .map(([key]) => key);
+
+  for (const key of oldestKeys) globCache.delete(key);
 }
 
 /**
@@ -141,6 +160,7 @@ function getCachedGlob(pattern, path) {
 function setCachedGlob(pattern, path, files) {
   const key = `${pattern}::${path || ""}`;
   globCache.set(key, { files, timestamp: Date.now() });
+  pruneGlobCache();
 }
 
 /**
@@ -157,6 +177,7 @@ async function executeGlob(pattern, options = {}) {
   const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : 200;
   const globTool = options.globTool;
   const signal = options.signal;
+  const logger = options.logger && typeof options.logger.warn === "function" ? options.logger : null;
 
   // 检查缓存
   const cached = getCachedGlob(pattern, basePath);
@@ -175,11 +196,16 @@ async function executeGlob(pattern, options = {}) {
   if (signal && controller) signal.addEventListener?.("abort", abort, { once: true });
 
   let timeoutId = null;
+  let settled = false;
+  let timedOut = false;
   try {
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => {
+        timedOut = true;
         controller?.abort();
-        reject(new Error("glob_timeout"));
+        const error = new Error("glob_timeout");
+        error.code = "ERR_GLOB_TIMEOUT";
+        reject(error);
       }, timeoutMs);
     });
 
@@ -190,7 +216,15 @@ async function executeGlob(pattern, options = {}) {
         ...(controller?.signal ? { signal: controller.signal } : signal ? { signal } : {}),
       });
       return result;
-    })();
+    })()
+      .then((result) => {
+        settled = true;
+        return result;
+      })
+      .catch((err) => {
+        settled = true;
+        throw err;
+      });
 
     const result = await Promise.race([globPromise, timeoutPromise]);
     if (!Array.isArray(result)) {
@@ -204,8 +238,20 @@ async function executeGlob(pattern, options = {}) {
     return { files, fromCache: false };
   } catch (err) {
     const msg = err?.message || String(err);
-    if (msg.includes("timeout")) {
-      return { files: [], fromCache: false, error: "timeout" };
+    if (timedOut || err?.code === "ERR_GLOB_TIMEOUT" || msg.includes("timeout")) {
+      const backgroundPending = !settled;
+      if (backgroundPending) {
+        try {
+          logger?.warn?.("[retrieval/tool-chain] glob timed out and may still be running", {
+            pattern,
+            basePath,
+            timeoutMs,
+          });
+        } catch {
+          // ignore logger failure
+        }
+      }
+      return { files: [], fromCache: false, error: "timeout", backgroundPending };
     }
     if (msg.includes("aborted")) {
       return { files: [], fromCache: false, error: "aborted" };
@@ -287,7 +333,7 @@ async function executeGrepAsync(chunks, keyword, tools = {}) {
  */
 async function strategyGlobThenGrep(chunks, { patterns = [], keywords = [] }, tools = {}) {
   const results = [];
-  const stats = { globCalls: 0, grepCalls: 0, cached: 0, hits: 0 };
+  const stats = { globCalls: 0, grepCalls: 0, cached: 0, hits: 0, globBackgroundPending: 0 };
 
   // 1. Glob 阶段：定位文件范围
   const fileFilter = new Set();
@@ -299,9 +345,10 @@ async function strategyGlobThenGrep(chunks, { patterns = [], keywords = [] }, to
     hadPatterns = true;
 
     stats.globCalls++;
-    const { files, fromCache, error } = await executeGlob(p, tools);
+    const { files, fromCache, error, backgroundPending } = await executeGlob(p, tools);
 
     if (error) {
+      if (backgroundPending) stats.globBackgroundPending += 1;
       // glob 失败，降级到 grep-only
       return { results: [], stats, fallbackReason: `glob_failed:${error}` };
     }
@@ -475,8 +522,16 @@ export async function search(chunks, query = {}, tools = {}) {
     // 如果 glob-then-grep 失败，降级到 grep-only
     if (result.fallbackReason) {
       const fallbackResult = await strategyGrepOnly(validatedChunks, { keywords }, tools);
+      const globStats = result.stats && typeof result.stats === "object" ? result.stats : {};
+      const grepStats = fallbackResult.stats && typeof fallbackResult.stats === "object" ? fallbackResult.stats : {};
       return {
         ...fallbackResult,
+        stats: {
+          ...grepStats,
+          globCalls: globStats.globCalls || 0,
+          cached: globStats.cached || 0,
+          globBackgroundPending: globStats.globBackgroundPending || 0,
+        },
         ok: true,
         strategy: ToolChainStrategy.GREP_ONLY,
         originalStrategy: ToolChainStrategy.GLOB_THEN_GREP,
@@ -507,7 +562,19 @@ export function getGlobCacheStats() {
   return {
     size: globCache.size,
     keys: Array.from(globCache.keys()),
+    maxEntries: globCacheMaxEntries,
   };
+}
+
+/**
+ * Override glob cache capacity (mainly for tests/tuning).
+ * @param {number} maxEntries
+ * @returns {number}
+ */
+export function setGlobCacheMaxEntries(maxEntries) {
+  globCacheMaxEntries = normalizeCacheCapacity(maxEntries);
+  pruneGlobCache();
+  return globCacheMaxEntries;
 }
 
 export const __test = {
@@ -519,4 +586,5 @@ export const __test = {
   getCachedGlob,
   setCachedGlob,
   pruneGlobCache,
+  setGlobCacheMaxEntries,
 };

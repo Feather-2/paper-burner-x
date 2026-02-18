@@ -375,19 +375,42 @@ export class FileLock {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const FILE_LOCK_SERVICE_ID = "fileLock";
+const DEFAULT_FILE_LOCK_SCOPE = "default";
+
+function normalizeFileLockScope(optionsOrScope) {
+  if (typeof optionsOrScope === "string") {
+    const scope = optionsOrScope.trim();
+    return scope || DEFAULT_FILE_LOCK_SCOPE;
+  }
+  if (optionsOrScope && typeof optionsOrScope === "object") {
+    const scope = typeof optionsOrScope.scope === "string" ? optionsOrScope.scope.trim() : "";
+    return scope || DEFAULT_FILE_LOCK_SCOPE;
+  }
+  return DEFAULT_FILE_LOCK_SCOPE;
+}
+
+function stripScopeFromOptions(options) {
+  if (!options || typeof options !== "object" || Array.isArray(options)) return options;
+  if (!Object.prototype.hasOwnProperty.call(options, "scope")) return options;
+  const { scope, ...rest } = options;
+  return rest;
+}
 
 /**
  * Get global file lock instance
+ * @param {string|{scope?: string}} [optionsOrScope]
  * @returns {FileLock}
  *
  * @deprecated Prefer resolving via DI container (`ServiceId.FILE_LOCK`) or passing an explicit FileLock instance.
  */
-export function getFileLock() {
+export function getFileLock(optionsOrScope) {
+  const scope = normalizeFileLockScope(optionsOrScope);
+  const serviceId = `${FILE_LOCK_SERVICE_ID}:${scope}`;
   const container = getGlobalContainer();
-  if (!container.has(FILE_LOCK_SERVICE_ID)) {
-    container.register(FILE_LOCK_SERVICE_ID, () => new FileLock());
+  if (!container.has(serviceId)) {
+    container.register(serviceId, () => new FileLock());
   }
-  return container.get(FILE_LOCK_SERVICE_ID);
+  return container.get(serviceId);
 }
 
 /**
@@ -397,7 +420,9 @@ export function getFileLock() {
  * @returns {Promise<{ release: Function, holder: string }>}
  */
 export function acquireLock(path, options) {
-  return getFileLock().acquire(path, options);
+  const scope = normalizeFileLockScope(options);
+  const lockOptions = stripScopeFromOptions(options);
+  return getFileLock(scope).acquire(path, lockOptions);
 }
 
 /**

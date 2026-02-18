@@ -24,7 +24,7 @@ vi.mock("../../../../js/agents/vfs/vfs-scan-async.js", () => ({
   scanOpfsAsync: scanOpfsAsyncMock,
 }));
 
-import { expandBraces, globToRegExp, matchGlob } from "../../../../js/agents/vfs/glob.js";
+import { expandBraces, globToRegExp, matchGlob, createVfsGlobFn } from "../../../../js/agents/vfs/glob.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -240,5 +240,78 @@ describe("matchGlob", () => {
 
     expect(matchGlob("**/file.txt", deepPath)).toBe(true);
     expect(matchGlob("root/*.txt", longPath)).toBe(true);
+  });
+});
+
+describe("createVfsGlobFn worker fallbacks", () => {
+  it("reports scan worker fallback when scan worker fails", async () => {
+    isScanWorkerAvailableMock.mockReturnValue(true);
+    scanOpfsAsyncMock.mockRejectedValueOnce(new Error("scan-failed"));
+
+    const onWorkerFallback = vi.fn();
+    const vfs = {
+      listFiles: vi.fn(async () => ["src/a.js", "src/b.ts"]),
+    };
+
+    const globFn = createVfsGlobFn(vfs, {
+      useScanWorker: true,
+      useWorker: false,
+      opfsRootDirName: "root",
+      onWorkerFallback,
+    });
+    const result = await globFn({ pattern: "**/*.js", path: "src" });
+
+    expect(result).toEqual(["src/a.js"]);
+    expect(onWorkerFallback).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "scan_worker_failed" })
+    );
+  });
+
+  it("falls back to main-thread filtering when worker transfer caps are exceeded", async () => {
+    const originalWorker = globalThis.Worker;
+    const originalCreateObjectURL = globalThis.URL?.createObjectURL;
+    const originalRevokeObjectURL = globalThis.URL?.revokeObjectURL;
+
+    class FakeWorker {
+      constructor() {
+        this.onmessage = null;
+        this.onerror = null;
+        this.postMessage = vi.fn();
+        this.terminate = vi.fn();
+      }
+    }
+
+    try {
+      isNodeLikeMock.mockReturnValue(false);
+      if (globalThis.URL) {
+        globalThis.URL.createObjectURL = vi.fn(() => "blob:mock-url");
+        globalThis.URL.revokeObjectURL = vi.fn(() => {});
+      }
+      globalThis.Worker = /** @type {any} */ (FakeWorker);
+
+      const onWorkerFallback = vi.fn();
+      const vfs = {
+        listFiles: vi.fn(async () => ["src/a.js", "src/b.js", "src/c.ts"]),
+      };
+      const globFn = createVfsGlobFn(vfs, {
+        useWorker: true,
+        workerThresholdFiles: 1,
+        maxWorkerTransferFiles: 1,
+        onWorkerFallback,
+      });
+
+      const result = await globFn({ pattern: "**/*.js", path: "src" });
+      expect(result).toEqual(["src/a.js", "src/b.js"]);
+      expect(onWorkerFallback).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: "worker_transfer_cap_exceeded" })
+      );
+    } finally {
+      isNodeLikeMock.mockReturnValue(true);
+      globalThis.Worker = originalWorker;
+      if (globalThis.URL) {
+        globalThis.URL.createObjectURL = originalCreateObjectURL;
+        globalThis.URL.revokeObjectURL = originalRevokeObjectURL;
+      }
+    }
   });
 });

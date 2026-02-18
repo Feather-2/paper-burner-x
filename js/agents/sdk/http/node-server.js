@@ -99,16 +99,35 @@ export async function createNodeServer(agentFactory, options = {}) {
       };
 
       if (isStream && method === 'POST') {
-        // SSE: write headers immediately, pass res as stream target
-        res.writeHead(200, SSE_HEADERS);
-
+        let startedStreaming = false;
         /** @type {import('./sse-writer.js').WritableTarget} */
         const target = {
-          write: (chunk) => { res.write(chunk); },
-          end: () => { if (!res.writableEnded) res.end(); },
+          write: (chunk) => {
+            if (!res.headersSent) {
+              res.writeHead(200, SSE_HEADERS);
+            }
+            startedStreaming = true;
+            res.write(chunk);
+          },
+          end: () => {
+            if (!res.headersSent) {
+              res.writeHead(200, SSE_HEADERS);
+            }
+            if (!res.writableEnded) res.end();
+          },
         };
 
-        await handler(parsed, target);
+        const result = await handler(parsed, target);
+        if (result.status !== 200 && !startedStreaming && !res.headersSent) {
+          res.writeHead(result.status, result.headers);
+          if (result.body) res.write(result.body);
+          res.end();
+          return;
+        }
+
+        if (!res.headersSent) {
+          res.writeHead(200, SSE_HEADERS);
+        }
         if (!res.writableEnded) res.end();
         return;
       }

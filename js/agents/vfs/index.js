@@ -28,14 +28,48 @@ export * from "./index.browser.js";
 
 /** @type {Promise<any> | null} */
 let _nodeModulePromise = null;
+let _nodeModuleImporter = () => import(/* @vite-ignore */ "./index.node.js");
 
 async function importNodeModule() {
   // Keep Node.js code paths isolated from browser bundlers.
   // Also de-duplicate concurrent dynamic imports (helps test runners and avoids extra microtasks).
   if (!_nodeModulePromise) {
-    _nodeModulePromise = import(/* @vite-ignore */ "./index.node.js");
+    _nodeModulePromise = Promise.resolve()
+      .then(() => _nodeModuleImporter())
+      .catch((error) => {
+        _nodeModulePromise = null;
+        throw error;
+      });
   }
   return _nodeModulePromise;
+}
+
+/**
+ * Reset cached node-module import promise.
+ * Mainly for tests/recovery paths.
+ */
+export function resetNodeModuleImportCache() {
+  _nodeModulePromise = null;
+}
+
+/**
+ * Override node-module importer (tests only).
+ * @param {() => Promise<any>} importer
+ */
+export function setNodeModuleImporter(importer) {
+  if (typeof importer !== "function") {
+    throw new TypeError("setNodeModuleImporter(importer): importer must be a function");
+  }
+  _nodeModuleImporter = importer;
+  _nodeModulePromise = null;
+}
+
+/**
+ * Restore default importer (tests only).
+ */
+export function restoreDefaultNodeModuleImporter() {
+  _nodeModuleImporter = () => import(/* @vite-ignore */ "./index.node.js");
+  _nodeModulePromise = null;
 }
 
 /**

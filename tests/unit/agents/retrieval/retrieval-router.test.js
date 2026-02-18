@@ -352,6 +352,7 @@ describe("retrieve", () => {
       logger,
       useGrep: false,
       windowSize: 0,
+      awaitPersistBm25: true,
     });
 
     expect(logger.warn).toHaveBeenCalled();
@@ -382,6 +383,7 @@ describe("retrieve", () => {
       logger,
       useGrep: false,
       windowSize: 0,
+      awaitPersistBm25: true,
     });
 
     expect(logger.warn).toHaveBeenCalled();
@@ -411,6 +413,42 @@ describe("retrieve", () => {
     expect(result).toEqual([]);
     const queries = grep.grepChunks.mock.calls.map((call) => call[1]);
     expect(queries).toEqual(["[object Object]", longQuery]);
+  });
+
+  it("records bm25 snapshot issue stats and callback on version mismatch", async () => {
+    const chunks = [makeChunk("a", 0)];
+    const sourceIndex = makeSourceIndex(chunks);
+    const store = { get: vi.fn(), set: vi.fn() };
+    const stats = {};
+    const onIssue = vi.fn();
+
+    store.get.mockResolvedValue({
+      bm25SchemaVersion: BM25_SCHEMA_VERSION + 1,
+      schemaVersion: "0.1",
+      chunkIds: ["a"],
+      docLens: [1],
+      avgDocLen: 1,
+      df: [],
+      postings: [],
+      k1: 1.2,
+      b: 0.75,
+    });
+
+    await retrieve(sourceIndex, [{ query: "q" }], {
+      bm25IndexStore: store,
+      bm25SnapshotStats: stats,
+      onBm25SnapshotIssue: onIssue,
+      useGrep: false,
+      windowSize: 0,
+      awaitPersistBm25: true,
+    });
+
+    expect(stats.snapshot_version_mismatch).toBe(1);
+    expect(onIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "snapshot_version_mismatch",
+      })
+    );
   });
 
   it("handles concurrent calls independently", async () => {
@@ -489,5 +527,37 @@ describe("RetrievalRouter", () => {
 
     expect(result).toEqual([]);
     expect(grep.grepChunks).not.toHaveBeenCalled();
+  });
+
+  it("flushPersist waits for queued bm25 persistence", async () => {
+    const chunks = [makeChunk("a", 0)];
+    const sourceIndex = makeSourceIndex(chunks);
+    let resolvePersist;
+    const persistPromise = new Promise((resolve) => {
+      resolvePersist = resolve;
+    });
+    const store = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn(() => persistPromise),
+    };
+    const router = new RetrievalRouter({
+      bm25IndexStore: store,
+      useGrep: false,
+      windowSize: 0,
+    });
+
+    await router.retrieve(sourceIndex, [{ query: "q" }], {});
+    expect(store.set).toHaveBeenCalledTimes(1);
+
+    let flushed = false;
+    const flush = router.flushPersist().then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+    expect(flushed).toBe(false);
+
+    resolvePersist(true);
+    await flush;
+    expect(flushed).toBe(true);
   });
 });

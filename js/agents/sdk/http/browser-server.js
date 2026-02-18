@@ -114,7 +114,14 @@ export async function createBrowserServer(agentFactory, options = {}) {
             write: (chunk) => { chunks.push(chunk); },
             end: () => {},
           };
-          await handler(parsed, target);
+          const result = await handler(parsed, target);
+          if (result.status !== 200) {
+            return {
+              status: result.status,
+              headers: result.headers,
+              body: result.body || '',
+            };
+          }
           return {
             status: 200,
             headers: { ...SSE_HEADERS },

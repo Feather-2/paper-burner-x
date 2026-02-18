@@ -213,6 +213,16 @@ function normalizeAbortError(err) {
   return err instanceof Error ? err : new Error(msg || "glob error");
 }
 
+function estimateCandidateChars(files, limit = Number.POSITIVE_INFINITY) {
+  if (!Array.isArray(files) || files.length === 0) return 0;
+  let total = 0;
+  for (const file of files) {
+    total += String(file ?? "").length;
+    if (total >= limit) return total;
+  }
+  return total;
+}
+
 /**
  * Create a simple glob function compatible with CodeSearch tools.
  *
@@ -224,8 +234,24 @@ function normalizeAbortError(err) {
  * @param {number} [options.yieldEvery=0] Yield to event loop every N scanned files (helps UI responsiveness).
  * @param {boolean} [options.useScanWorker=true] Use WebWorker for OPFS directory scanning (browser-only).
  * @param {string} [options.opfsRootDirName] OPFS root directory name (required for scan worker).
+ * @param {number} [options.maxWorkerTransferFiles=25000] Max candidate file count allowed for main->worker transfer.
+ * @param {number} [options.maxWorkerTransferChars=2000000] Max candidate total chars allowed for main->worker transfer.
+ * @param {(event:{reason:string,message?:string,error?:string,scanned?:number,candidates?:number})=>void} [options.onWorkerFallback]
  */
-export function createVfsGlobFn(vfs, { maxScanFiles = 20000, useWorker = true, workerThresholdFiles = 4000, yieldEvery = 0, useScanWorker = true, opfsRootDirName } = {}) {
+export function createVfsGlobFn(
+  vfs,
+  {
+    maxScanFiles = 20000,
+    useWorker = true,
+    workerThresholdFiles = 4000,
+    yieldEvery = 0,
+    useScanWorker = true,
+    opfsRootDirName,
+    maxWorkerTransferFiles = 25000,
+    maxWorkerTransferChars = 2_000_000,
+    onWorkerFallback,
+  } = {}
+) {
   if (!vfs) return null;
   const hasList = typeof vfs.listFiles === "function";
   const hasWalk = typeof vfs.walkFiles === "function";
@@ -293,7 +319,22 @@ export function createVfsGlobFn(vfs, { maxScanFiles = 20000, useWorker = true, w
           // Worker 失败，回退到主线程扫描
           const msg = err instanceof Error ? err.message : String(err);
           if (msg.includes("aborted")) throw err;
-          // 静默回退，不中断流程
+          try {
+            logger.warn("OPFS scan worker failed, fallback to main thread", { error: msg, prefix: scanPrefix });
+          } catch {
+            // ignore logger failure
+          }
+          try {
+            onWorkerFallback?.({
+              reason: "scan_worker_failed",
+              message: "OPFS scan worker failed, fallback to main thread",
+              error: msg,
+              scanned,
+              candidates: candidates.length,
+            });
+          } catch {
+            // ignore callback failure
+          }
         }
       }
 
@@ -326,24 +367,57 @@ export function createVfsGlobFn(vfs, { maxScanFiles = 20000, useWorker = true, w
           : 0;
       const worker = useWorker !== false ? getGlobWorker() : null;
       if (worker && candidates.length >= threshold) {
-        const id = `glob_${Date.now().toString(36)}_${++_globWorkerSeq}`;
-        const promise = new Promise((resolve, reject) => {
-          _globPending.set(id, { resolve, reject });
-        });
+        const transferFileCap =
+          typeof maxWorkerTransferFiles === "number" && Number.isFinite(maxWorkerTransferFiles) && maxWorkerTransferFiles > 0
+            ? Math.floor(maxWorkerTransferFiles)
+            : 25000;
+        const transferCharCap =
+          typeof maxWorkerTransferChars === "number" && Number.isFinite(maxWorkerTransferChars) && maxWorkerTransferChars > 0
+            ? Math.floor(maxWorkerTransferChars)
+            : 2_000_000;
 
-        const abort = () => {
-          const pending = _globPending.get(id);
-          if (!pending) return;
-          _globPending.delete(id);
-          pending.reject(new Error("glob: aborted"));
-        };
+        const candidateChars = estimateCandidateChars(candidates, transferCharCap + 1);
+        if (candidates.length > transferFileCap || candidateChars > transferCharCap) {
+          try {
+            logger.warn("glob worker transfer skipped due candidate size", {
+              candidates: candidates.length,
+              candidateChars,
+              transferFileCap,
+              transferCharCap,
+            });
+          } catch {
+            // ignore logger failure
+          }
+          try {
+            onWorkerFallback?.({
+              reason: "worker_transfer_cap_exceeded",
+              message: "glob worker transfer skipped due candidate size",
+              scanned,
+              candidates: candidates.length,
+            });
+          } catch {
+            // ignore callback failure
+          }
+        } else {
+          const id = `glob_${Date.now().toString(36)}_${++_globWorkerSeq}`;
+          const promise = new Promise((resolve, reject) => {
+            _globPending.set(id, { resolve, reject });
+          });
 
-        if (signal) signal.addEventListener?.("abort", abort, { once: true });
-        try {
-          worker.postMessage({ id, pattern, base, files: candidates });
-          return await promise;
-        } finally {
-          if (signal) signal.removeEventListener?.("abort", abort);
+          const abort = () => {
+            const pending = _globPending.get(id);
+            if (!pending) return;
+            _globPending.delete(id);
+            pending.reject(new Error("glob: aborted"));
+          };
+
+          if (signal) signal.addEventListener?.("abort", abort, { once: true });
+          try {
+            worker.postMessage({ id, pattern, base, files: candidates });
+            return await promise;
+          } finally {
+            if (signal) signal.removeEventListener?.("abort", abort);
+          }
         }
       }
 

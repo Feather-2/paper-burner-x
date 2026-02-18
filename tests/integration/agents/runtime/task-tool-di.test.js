@@ -6,9 +6,18 @@ import { SubagentRegistry, globalSubagentRegistry } from '../../../../js/agents/
 
 describe('TaskTool DI', () => {
   it('registers SubagentRegistry in default DI container', async () => {
-    const container = createAgentContainer();
-    const registry = await container.get(ServiceId.SUBAGENT_REGISTRY);
-    expect(registry).toBe(globalSubagentRegistry);
+    const containerA = createAgentContainer();
+    const containerB = createAgentContainer();
+
+    const [registryA, registryB] = await Promise.all([
+      containerA.get(ServiceId.SUBAGENT_REGISTRY),
+      containerB.get(ServiceId.SUBAGENT_REGISTRY),
+    ]);
+
+    expect(registryA).toBeInstanceOf(SubagentRegistry);
+    expect(registryB).toBeInstanceOf(SubagentRegistry);
+    expect(registryA).not.toBe(registryB);
+    expect(registryA).not.toBe(globalSubagentRegistry);
   });
 
   it('resolves registry from provided DI container when not explicitly injected', async () => {

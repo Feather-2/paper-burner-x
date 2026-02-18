@@ -9,6 +9,26 @@
 
 import { STREAM_EVENT_TYPES } from './stream-events.js';
 
+/**
+ * @param {any} value
+ * @returns {string}
+ */
+function safeJsonStringify(value) {
+  const seen = new WeakSet();
+  try {
+    return JSON.stringify(value, (_key, current) => {
+      if (typeof current === 'bigint') return String(current);
+      if (current && typeof current === 'object') {
+        if (seen.has(current)) return '[Circular]';
+        seen.add(current);
+      }
+      return current;
+    });
+  } catch {
+    return JSON.stringify({ type: STREAM_EVENT_TYPES.ERROR, error: 'sse_serialize_failed' });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -58,8 +78,8 @@ export class SseWriter {
   writeEvent(type, data) {
     if (this._closed) return;
     const payload = data !== undefined
-      ? JSON.stringify({ type, ...( typeof data === 'object' && data !== null ? data : { data }) })
-      : JSON.stringify({ type });
+      ? safeJsonStringify({ type, ...( typeof data === 'object' && data !== null ? data : { data }) })
+      : safeJsonStringify({ type });
     this._target.write(`data: ${payload}\n\n`);
   }
 

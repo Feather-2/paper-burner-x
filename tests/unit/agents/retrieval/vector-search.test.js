@@ -112,6 +112,26 @@ describe("buildIndex", () => {
     expect(index.vectorIndex.items.has("missing")).toBe(false);
     expect(index.vectorIndex.size).toBe(4);
     expect(index.vectorIndex.upsert).toHaveBeenCalledTimes(5);
+    expect(index.stats).toEqual({
+      attemptedUpserts: 5,
+      successfulUpserts: 4,
+      failedUpserts: 1,
+    });
+  });
+
+  it("reports upsert failures via callback and logger", async () => {
+    const { buildIndex } = await import(modulePath);
+    const onUpsertError = vi.fn();
+    const logger = { warn: vi.fn() };
+
+    const index = buildIndex(
+      [{ chunkId: "bad", embedding: { throwOnUpsert: true } }],
+      { onUpsertError, logger }
+    );
+
+    expect(index.stats.failedUpserts).toBe(1);
+    expect(onUpsertError).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
   });
 
   it("uses an injected vector index instance", async () => {
@@ -192,6 +212,49 @@ describe("buildIndexAsync", () => {
     expect(injected.upsert).toHaveBeenCalledTimes(2);
     expect(injected.upsert).toHaveBeenCalledWith("a", [1], { chunkId: "a", docIndex: 0 });
     expect(injected.upsert).toHaveBeenCalledWith("c", { throwOnUpsert: true }, { chunkId: "c", docIndex: 2 });
+    expect(index.stats).toEqual({
+      attemptedUpserts: 2,
+      successfulUpserts: 1,
+      failedUpserts: 1,
+    });
+  });
+
+  it("throws when failOnUpsertError is enabled", async () => {
+    const { buildIndexAsync } = await import(modulePath);
+    const embeddingService = {
+      embed: vi.fn().mockResolvedValue([{ throwOnUpsert: true }]),
+    };
+    const injected = {
+      upsert: vi.fn(() => {
+        throw new Error("bad vector");
+      }),
+      search: vi.fn(),
+    };
+
+    await expect(
+      buildIndexAsync([{ chunkId: "a", text: "t1" }], {
+        embeddingService,
+        vectorIndex: injected,
+        failOnUpsertError: true,
+      })
+    ).rejects.toMatchObject({ code: "ERR_VECTOR_UPSERT_FAILED" });
+  });
+
+  it("throws when minSuccessRate is not met", async () => {
+    const { buildIndex } = await import(modulePath);
+    const injected = {
+      upsert: vi.fn(() => {
+        throw new Error("boom");
+      }),
+      search: vi.fn(),
+    };
+
+    expect(() =>
+      buildIndex([{ chunkId: "a", embedding: [1] }], {
+        vectorIndex: injected,
+        minSuccessRate: 1,
+      })
+    ).toThrow(/success rate/i);
   });
 
   it("treats non-array embedding responses as empty", async () => {

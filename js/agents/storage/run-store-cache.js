@@ -11,6 +11,45 @@ import {
   promisifyTransaction,
 } from "./run-store-utils.js";
 
+function normalizeConcurrency(value, fallback = 4) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, Math.floor(n));
+}
+
+async function mapWithConcurrency(items, mapper, concurrency = 4) {
+  const arr = Array.isArray(items) ? items : [];
+  if (!arr.length) return [];
+  const limit = normalizeConcurrency(concurrency, 4);
+  if (limit <= 1 || arr.length === 1) {
+    const out = new Array(arr.length);
+    for (let i = 0; i < arr.length; i += 1) {
+      out[i] = await mapper(arr[i], i);
+    }
+    return out;
+  }
+
+  const out = new Array(arr.length);
+  let cursor = 0;
+
+  const worker = async () => {
+    while (true) {
+      const idx = cursor;
+      cursor += 1;
+      if (idx >= arr.length) return;
+      out[idx] = await mapper(arr[idx], idx);
+    }
+  };
+
+  const workers = [];
+  const workerCount = Math.min(limit, arr.length);
+  for (let i = 0; i < workerCount; i += 1) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+  return out;
+}
+
 export async function estimateQuota() {
   try {
     const estimate = globalThis?.navigator?.storage?.estimate;
@@ -279,12 +318,20 @@ export async function cleanupRuns(options = {}) {
     // Compute sizes for kept (including pinned + protected) and for deletable candidates, oldest-first pruning.
     const allKeepIds = new Set([...pinned, ...keepRunIds]);
     const keepCandidates = records.map((r) => String(r.runId)).filter(Boolean);
+    const estimateConcurrency = normalizeConcurrency(opts.estimateConcurrency, 4);
 
     const sizes = new Map();
-    for (const runId of keepCandidates) {
+    const idsToEstimate = keepCandidates.filter((runId) => runId && !deleteSet.has(runId));
+    const estimated = await mapWithConcurrency(
+      idsToEstimate,
+      async (runId) => [runId, await estimateBytes(runId)],
+      estimateConcurrency
+    );
+    for (const pair of estimated) {
+      const runId = Array.isArray(pair) ? pair[0] : null;
+      const size = Array.isArray(pair) ? pair[1] : 0;
       if (!runId) continue;
-      if (deleteSet.has(runId)) continue;
-      sizes.set(runId, await estimateBytes(runId));
+      sizes.set(runId, typeof size === "number" && Number.isFinite(size) ? size : 0);
     }
 
     bytesBefore = 0;

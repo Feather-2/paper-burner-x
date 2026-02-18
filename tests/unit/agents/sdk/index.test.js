@@ -45,6 +45,10 @@ const mocked = vi.hoisted(() => {
   const AgentInstance = makeMockClass('AgentInstance');
   const SubagentRegistry = makeMockClass('SubagentRegistry');
   const globalSubagentRegistry = { id: 'globalSubagentRegistry' };
+  const createSubagentRegistry = makeMockFunction('createSubagentRegistry');
+  const getGlobalSubagentRegistry = makeMockFunction('getGlobalSubagentRegistry');
+  const setGlobalSubagentRegistry = makeMockFunction('setGlobalSubagentRegistry');
+  const resetGlobalSubagentRegistry = makeMockFunction('resetGlobalSubagentRegistry');
   const DefaultAgentLoop = makeMockClass('DefaultAgentLoop');
   const BaseAgentLoop = makeMockClass('BaseAgentLoop');
   const EventBus = makeMockClass('EventBus');
@@ -89,6 +93,10 @@ const mocked = vi.hoisted(() => {
     AgentInstance,
     SubagentRegistry,
     globalSubagentRegistry,
+    createSubagentRegistry,
+    getGlobalSubagentRegistry,
+    setGlobalSubagentRegistry,
+    resetGlobalSubagentRegistry,
     DefaultAgentLoop,
     BaseAgentLoop,
     EventBus,
@@ -138,6 +146,10 @@ vi.mock('../../../../js/agents/sdk/AgentBuilder.js', () => ({
 vi.mock('../../../../js/agents/sdk/SubagentRegistry.js', () => ({
   SubagentRegistry: mocked.SubagentRegistry,
   globalSubagentRegistry: mocked.globalSubagentRegistry,
+  createSubagentRegistry: mocked.createSubagentRegistry,
+  getGlobalSubagentRegistry: mocked.getGlobalSubagentRegistry,
+  setGlobalSubagentRegistry: mocked.setGlobalSubagentRegistry,
+  resetGlobalSubagentRegistry: mocked.resetGlobalSubagentRegistry,
 }));
 
 vi.mock('../../../../js/agents/sdk/DefaultAgentLoop.js', () => ({
