@@ -162,6 +162,7 @@ describe("Archive", () => {
     expect(archive._saveCounter).toBe(0);
     expect(archive._restoreCache).toBeInstanceOf(Map);
     expect(archive._restoreCacheMax).toBe(200);
+    expect(archive._restoreMaxDepth).toBe(50);
     expect(archive._diff).toEqual(
       expect.objectContaining({
         enabled: true,
@@ -191,6 +192,19 @@ describe("Archive", () => {
     expect(new Archive(storage, { restoreCacheMax: Number.MAX_SAFE_INTEGER })._restoreCacheMax).toBe(
       Number.MAX_SAFE_INTEGER,
     );
+  });
+
+  it("normalizes restoreMaxDepth edge cases and allows explicit override", () => {
+    const storage = createMemoryStorage();
+
+    expect(new Archive(storage, {}). _restoreMaxDepth).toBe(50);
+    expect(new Archive(storage, { restoreMaxDepth: null })._restoreMaxDepth).toBe(50);
+    expect(new Archive(storage, { restoreMaxDepth: undefined })._restoreMaxDepth).toBe(50);
+    expect(new Archive(storage, { restoreMaxDepth: 3 })._restoreMaxDepth).toBe(3);
+    expect(new Archive(storage, { restoreMaxDepth: "  4  " })._restoreMaxDepth).toBe(4);
+    expect(new Archive(storage, { restoreMaxDepth: 0 })._restoreMaxDepth).toBe(50);
+    expect(new Archive(storage, { restoreMaxDepth: -1 })._restoreMaxDepth).toBe(50);
+    expect(new Archive(storage, { restoreMaxDepth: "bad" })._restoreMaxDepth).toBe(50);
   });
 
   it("normalizes diff config edge cases (enabled coercion, positive ints, fallbacks)", () => {
@@ -487,6 +501,43 @@ describe("Archive", () => {
     }
 
     await expect(archive._restoreCheckpointInternal(`run:${chainLen}`)).rejects.toThrow(/max depth exceeded/i);
+  });
+
+  it("_restoreCheckpointInternal respects custom restoreMaxDepth overrides", async () => {
+    const storage = createMemoryStorage();
+    const archive = new Archive(storage, { restoreMaxDepth: 2 });
+
+    storage.map.set("run:0", {
+      schemaVersion: 1,
+      nodeStates: { a: 0 },
+      timestamp: 0,
+      metadata: {},
+    });
+    storage.map.set("run:1", {
+      encoding: "diff",
+      timestamp: 1,
+      metadata: {},
+      base: "run:0",
+      patch: [{ op: "replace", path: "/a", value: 1 }],
+    });
+    storage.map.set("run:2", {
+      encoding: "diff",
+      timestamp: 2,
+      metadata: {},
+      base: "run:1",
+      patch: [{ op: "replace", path: "/a", value: 2 }],
+    });
+    storage.map.set("run:3", {
+      encoding: "diff",
+      timestamp: 3,
+      metadata: {},
+      base: "run:2",
+      patch: [{ op: "replace", path: "/a", value: 3 }],
+    });
+
+    await expect(archive._restoreCheckpointInternal("run:3")).rejects.toThrow(
+      "Checkpoint restore max depth exceeded (2): run:0",
+    );
   });
 
   it("_restoreCheckpointInternal handles concurrent restores without corrupting cache", async () => {

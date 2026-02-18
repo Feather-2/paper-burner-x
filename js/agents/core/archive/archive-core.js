@@ -24,6 +24,11 @@ function normalizeCacheMax(value, fallback) {
   return Math.floor(n);
 }
 
+function normalizeRestoreMaxDepth(value, fallback) {
+  if (value === null || value === undefined) return fallback;
+  return toPositiveInt(value, fallback);
+}
+
 function normalizeDiffConfig(diff) {
   if (!diff || typeof diff !== "object") return { ...DEFAULT_DIFF_CONFIG };
   return {
@@ -94,9 +99,9 @@ function compareTimestampDesc(a, b) {
 export class Archive {
   /**
    * @param {Object} storage - 存储适配器，需实现 get/set/delete/keys 方法
-   * @param {{ diff?: any, restoreCacheMax?: number }} [options]
+   * @param {{ diff?: any, restoreCacheMax?: number, restoreMaxDepth?: number }} [options]
    */
-  constructor(storage, { diff, restoreCacheMax } = {}) {
+  constructor(storage, { diff, restoreCacheMax, restoreMaxDepth } = {}) {
     this.storage = assertStorageAdapter(storage);
     this._saveCounter = 0;
     this._diff = normalizeDiffConfig(diff);
@@ -104,6 +109,7 @@ export class Archive {
     this._diffSinceFullByRunId = new Map(); // runId -> number
     this._saveLocks = new Map(); // runId -> Promise
     this._restoreCacheMax = normalizeCacheMax(restoreCacheMax, DEFAULT_RESTORE_CACHE_MAX);
+    this._restoreMaxDepth = normalizeRestoreMaxDepth(restoreMaxDepth, DEFAULT_RESTORE_MAX_DEPTH);
     this._restoreCache = new Map(); // checkpointId -> {schemaVersion?,nodeStates,timestamp,metadata}
   }
 
@@ -151,8 +157,8 @@ export class Archive {
       throw new Error(`Circular checkpoint reference detected: ${id}`);
     }
     // Guard: max depth
-    if (depth > DEFAULT_RESTORE_MAX_DEPTH) {
-      throw new Error(`Checkpoint restore max depth exceeded (${DEFAULT_RESTORE_MAX_DEPTH}): ${id}`);
+    if (depth > this._restoreMaxDepth) {
+      throw new Error(`Checkpoint restore max depth exceeded (${this._restoreMaxDepth}): ${id}`);
     }
 
     const cached = this._restoreCache.get(id);
