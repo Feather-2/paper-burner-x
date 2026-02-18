@@ -151,12 +151,17 @@ export class HmrClient {
     this._onFullReload = typeof onFullReload === 'function' ? onFullReload : null;
     this._hotStates = new Map();
     this._vfsChangeHandler = null;
+    this._vfsDeleteHandler = null;
 
     if (this._vfs && typeof this._vfs.on === 'function') {
       this._vfsChangeHandler = (path, content) => {
         void this.handleFileChange(path, content);
       };
+      this._vfsDeleteHandler = (path) => {
+        void this.handleFileDelete(path);
+      };
       this._vfs.on('change', this._vfsChangeHandler);
+      this._vfs.on('delete', this._vfsDeleteHandler);
     }
   }
 
@@ -235,6 +240,19 @@ export class HmrClient {
   }
 
   /**
+   * Handles deleted or removed files from VFS and triggers a full reload.
+   *
+   * @param {string} path
+   * @returns {Promise<HmrUpdate>}
+   */
+  async handleFileDelete(path) {
+    const normalizedPath = normalizeModuleId(path);
+    const update = this._createUpdate('full-reload', normalizedPath || String(path || ''));
+    await this.applyUpdate(update);
+    return update;
+  }
+
+  /**
    * Applies a precomputed update and triggers HMR hooks.
    *
    * @param {HmrUpdate} update
@@ -289,7 +307,11 @@ export class HmrClient {
     if (this._vfs && this._vfsChangeHandler && typeof this._vfs.off === 'function') {
       this._vfs.off('change', this._vfsChangeHandler);
     }
+    if (this._vfs && this._vfsDeleteHandler && typeof this._vfs.off === 'function') {
+      this._vfs.off('delete', this._vfsDeleteHandler);
+    }
     this._vfsChangeHandler = null;
+    this._vfsDeleteHandler = null;
     this._hotStates.clear();
     this._listeners.clear();
   }

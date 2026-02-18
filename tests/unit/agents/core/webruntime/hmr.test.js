@@ -199,6 +199,22 @@ describe('HmrClient', () => {
     expect(fullReloadSpy).toHaveBeenCalledOnce();
   });
 
+  it('delete event forces full reload even for self-accepted modules', async () => {
+    const onFullReload = vi.fn();
+    const client = new HmrClient({ moduleCache, vfs, onFullReload });
+    const fullReloadSpy = vi.fn();
+
+    client.createHotContext('/delete-me.js').accept(() => {});
+    client.on('hmr:full-reload', fullReloadSpy);
+
+    const update = await client.handleFileDelete('/delete-me.js?x=1#h');
+
+    expect(update.type).toBe('full-reload');
+    expect(update.path).toBe('/delete-me.js');
+    expect(fullReloadSpy).toHaveBeenCalledOnce();
+    expect(onFullReload).toHaveBeenCalledOnce();
+  });
+
   it('off removes event listener', async () => {
     const client = new HmrClient({ moduleCache, vfs });
     const updateSpy = vi.fn();
@@ -242,24 +258,34 @@ describe('HmrClient', () => {
     expect(String(errorSpy.mock.calls[0][0].error.message)).toContain('Unsupported update type');
   });
 
-  it('auto-listens to vfs change events and dispose detaches listener', async () => {
+  it('auto-listens to vfs change/delete events and dispose detaches listeners', async () => {
     const client = new HmrClient({ moduleCache, vfs });
     const updateSpy = vi.fn();
+    const reloadSpy = vi.fn();
 
     client.createHotContext('/vfs.js').accept(() => {});
     client.on('hmr:update', updateSpy);
+    client.on('hmr:full-reload', reloadSpy);
 
     expect(vfs.listenerCount('change')).toBe(1);
+    expect(vfs.listenerCount('delete')).toBe(1);
 
     vfs.emit('change', '/vfs.js', 'export const v = 1;');
     await Promise.resolve();
     expect(updateSpy).toHaveBeenCalledOnce();
 
+    vfs.emit('delete', '/vfs.js');
+    await Promise.resolve();
+    expect(reloadSpy).toHaveBeenCalledOnce();
+
     client.dispose();
     expect(vfs.listenerCount('change')).toBe(0);
+    expect(vfs.listenerCount('delete')).toBe(0);
 
     vfs.emit('change', '/vfs.js', 'export const v = 2;');
+    vfs.emit('delete', '/vfs.js');
     await Promise.resolve();
     expect(updateSpy).toHaveBeenCalledTimes(1);
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
   });
 });
