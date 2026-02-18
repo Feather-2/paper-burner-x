@@ -12,6 +12,13 @@ export { validateRpcRequest, validateRpcResponse } from "./rpc-message.js";
 export { validateLlmResponse, validateToolCall } from "./llm-response.js";
 export { validateToolResult, normalizeToolResult } from "./tool-result.js";
 export {
+  isDisposable,
+  safeDispose,
+  disposeAll,
+  using,
+  createCompositeDisposable,
+} from "./disposable.js";
+export {
   AgentMessageKind,
   TaskStatus,
   AgentRunStatus,

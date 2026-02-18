@@ -181,6 +181,46 @@ describe('AgentCoordinator', () => {
     );
   });
 
+  it('reconciles BUSY workers back to IDLE after their running tasks are completed', () => {
+    const registry = new AgentRegistry();
+    const board = new SharedTaskBoard();
+    const events = { emit: vi.fn() };
+
+    registerAgent(registry, {
+      agentId: 'worker-1',
+      type: AgentType.WORKER,
+      status: AgentStatus.IDLE,
+      capabilities: ['search'],
+    });
+
+    const coordinator = new AgentCoordinator({
+      agentId: 'coord-1',
+      registry,
+      taskBoard: board,
+      events,
+      heartbeatMs: 1000,
+      electionTimeoutMs: 3000,
+      assignIntervalMs: 1000,
+    });
+
+    coordinator.start();
+    const { task } = board.addTask({ taskType: 'search:execute', createdBy: 'user-1' });
+    expect(coordinator.assignPendingTasks()).toBe(1);
+    expect(registry.lookup('worker-1')?.status).toBe(AgentStatus.BUSY);
+
+    const completed = board.complete(task.id, { ok: true });
+    expect(completed.ok).toBe(true);
+    expect(coordinator.assignPendingTasks()).toBe(0);
+
+    expect(registry.lookup('worker-1')?.status).toBe(AgentStatus.IDLE);
+    expect(events.emit).toHaveBeenCalledWith(
+      'coordinator:worker-idle',
+      expect.objectContaining({
+        payload: expect.objectContaining({ workerId: 'worker-1' }),
+      })
+    );
+  });
+
   it('handles leader failover and reclaims stale worker tasks', () => {
     const registry = new AgentRegistry();
     const board = new SharedTaskBoard();

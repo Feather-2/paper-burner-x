@@ -114,6 +114,7 @@ export class AgentCoordinator {
   /** @returns {number} */
   assignPendingTasks() {
     if (!this._started || !this.isLeader || !this._taskBoard) return 0;
+    this._syncWorkerStatuses();
     const pending = this._taskBoard.listPending();
     if (pending.length === 0) return 0;
 
@@ -195,6 +196,25 @@ export class AgentCoordinator {
     this._assignTimer = setInterval(() => {
       if (this._started && this.isLeader) this.assignPendingTasks();
     }, this.assignIntervalMs);
+  }
+
+  /** @returns {number} */
+  _syncWorkerStatuses() {
+    if (!this._taskBoard) return 0;
+    const workers = this._registry.list({ type: AgentType.WORKER, status: AgentStatus.BUSY });
+    if (workers.length === 0) return 0;
+
+    let recovered = 0;
+    for (const worker of workers) {
+      const tasks = this._taskBoard.listByAgent(worker.agentId);
+      const hasRunningTask = tasks.some((task) => task.status === 'running');
+      if (hasRunningTask) continue;
+      this._registry.updateStatus(worker.agentId, AgentStatus.IDLE);
+      this._emit('coordinator:worker-idle', { workerId: worker.agentId });
+      recovered++;
+    }
+
+    return recovered;
   }
 
   /** @param {string[]} staleAgentIds @returns {number} */

@@ -48,7 +48,13 @@ import {
   validateToolCall,
   validateToolResult,
   normalizeToolResult,
+  isDisposable,
+  safeDispose,
+  disposeAll,
+  using,
+  createCompositeDisposable,
 } from "../../../../../js/agents/core/contracts/index.js";
+import * as disposableExports from "../../../../../js/agents/core/contracts/disposable.js";
 
 const LONG_TEXT = "x".repeat(120000);
 const LARGE_TEXT = "y".repeat(300000);
@@ -431,5 +437,15 @@ describe("normalizeToolResult", () => {
       expect(result.success).toBe(true);
       expect(result.data.length).toBe(LARGE_TEXT.length);
     }
+  });
+});
+
+describe("contracts index disposable re-exports", () => {
+  it("re-exports disposable helpers from canonical index entry", () => {
+    expect(isDisposable).toBe(disposableExports.isDisposable);
+    expect(safeDispose).toBe(disposableExports.safeDispose);
+    expect(disposeAll).toBe(disposableExports.disposeAll);
+    expect(using).toBe(disposableExports.using);
+    expect(createCompositeDisposable).toBe(disposableExports.createCompositeDisposable);
   });
 });
