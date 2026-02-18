@@ -13,7 +13,7 @@ describe('dgram shim', () => {
     await new Promise((resolve) => socket.close(resolve));
     await new Promise((resolve) => socket.send('msg', 0, 3, 1234, '127.0.0.1', (_err, bytes) => {
       expect(_err).toBeNull();
-      expect(bytes).toBe(0);
+      expect(bytes).toBe(3);
       resolve();
     }));
 
@@ -35,6 +35,17 @@ describe('dgram shim', () => {
 
   it('createSocket returns a Socket instance', () => {
     expect(createSocket('udp4')).toBeInstanceOf(Socket);
+  });
+
+  it('send short signature reports message bytes', async () => {
+    const socket = new Socket();
+    await new Promise((resolve) => {
+      socket.send('hello', 1234, '127.0.0.1', (_err, bytes) => {
+        expect(_err).toBeNull();
+        expect(bytes).toBe(5);
+        resolve();
+      });
+    });
   });
 
   it('default export mirrors named exports', () => {

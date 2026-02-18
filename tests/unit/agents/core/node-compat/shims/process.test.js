@@ -16,6 +16,24 @@ describe('process shim', () => {
     expect(proc.cwd()).toBe('/tmp');
   });
 
+  it('process.chdir normalizes relative paths and dot segments', () => {
+    const proc = createProcess({ cwd: '/workspace/app' });
+    proc.chdir('./src/../tests//unit');
+    expect(proc.cwd()).toBe('/workspace/app/tests/unit');
+    proc.chdir('..');
+    expect(proc.cwd()).toBe('/workspace/app/tests');
+  });
+
+  it('process.chdir validates path existence when pathExists is provided', () => {
+    const proc = createProcess({
+      cwd: '/workspace',
+      pathExists: (path) => path === '/workspace' || path === '/workspace/src',
+    });
+    proc.chdir('/workspace/src');
+    expect(proc.cwd()).toBe('/workspace/src');
+    expect(() => proc.chdir('/missing')).toThrow(/ENOENT/);
+  });
+
   it('process.env contains NODE_ENV', () => {
     expect(processShim.env.NODE_ENV).toBe('development');
   });
@@ -65,9 +83,13 @@ describe('process shim', () => {
     expect(typeof processShim.uptime()).toBe('number');
   });
 
-  it('process.exit throws', () => {
+  it('process.exit emits event and sets exitCode without throwing', () => {
     const proc = createProcess();
-    expect(() => proc.exit(1)).toThrow('Process exited with code 1');
+    const fn = vi.fn();
+    proc.on('exit', fn);
+    expect(() => proc.exit(1)).not.toThrow();
+    expect(proc.exitCode).toBe(1);
+    expect(fn).toHaveBeenCalledWith(1);
   });
 
   it('multiple nextTick calls execute in order', async () => {
@@ -89,5 +111,21 @@ describe('process shim', () => {
     await new Promise(r => globalThis.setTimeout(r, 20));
     expect(fn).toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  it('nextTick queue is isolated per process instance', async () => {
+    const procA = createProcess();
+    const procB = createProcess();
+    const orderA = [];
+    const orderB = [];
+
+    procA.nextTick(() => orderA.push('a1'));
+    procB.nextTick(() => orderB.push('b1'));
+    procA.nextTick(() => orderA.push('a2'));
+    procB.nextTick(() => orderB.push('b2'));
+
+    await new Promise(r => globalThis.setTimeout(r, 20));
+    expect(orderA).toEqual(['a1', 'a2']);
+    expect(orderB).toEqual(['b1', 'b2']);
   });
 });

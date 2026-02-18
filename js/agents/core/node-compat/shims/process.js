@@ -38,10 +38,56 @@ function createProcessStream(isWritable, writeImpl) {
  * @param {string} [options.cwd]
  * @param {Record<string, string>} [options.env]
  * @param {Function} [options.onExit]
+ * @param {(path: string) => boolean} [options.pathExists]
  * @returns {object}
  */
 export function createProcess(options = {}) {
-  let cwd = options.cwd || '/';
+  /**
+   * @param {string} input
+   * @param {string} base
+   * @returns {string}
+   */
+  function normalizeCwd(input, base) {
+    if (typeof input !== 'string') {
+      throw new TypeError('The "directory" argument must be of type string.');
+    }
+    if (input.length === 0) {
+      const e = new Error('ENOENT: no such file or directory, chdir');
+      e.code = 'ENOENT';
+      throw e;
+    }
+    if (input.includes('\u0000')) {
+      const e = new Error('EINVAL: path must not contain null bytes');
+      e.code = 'EINVAL';
+      throw e;
+    }
+
+    const absolute = input.startsWith('/');
+    const merged = absolute ? input : `${base}/${input}`;
+    const out = [];
+    for (const part of merged.split('/')) {
+      if (!part || part === '.') continue;
+      if (part === '..') {
+        if (out.length > 0) out.pop();
+        continue;
+      }
+      out.push(part);
+    }
+    return '/' + out.join('/');
+  }
+
+  const pathExists = typeof options.pathExists === 'function' ? options.pathExists : null;
+  let cwd = '/';
+  try {
+    cwd = normalizeCwd(options.cwd || '/', '/');
+    if (pathExists && !pathExists(cwd)) {
+      const e = new Error(`ENOENT: no such file or directory, chdir '${cwd}'`);
+      e.code = 'ENOENT';
+      throw e;
+    }
+  } catch {
+    cwd = '/';
+  }
   const env = options.env || {
     NODE_ENV: 'development',
     PATH: '/usr/local/bin:/usr/bin:/bin',
@@ -49,13 +95,20 @@ export function createProcess(options = {}) {
   };
   const emitter = new EventEmitter();
   const startTime = Date.now();
+  const nextTickQueue = [];
+  let drainingNextTick = false;
 
   const proc = {
     env,
     cwd: () => cwd,
     chdir(dir) {
-      if (!dir.startsWith('/')) dir = cwd + '/' + dir;
-      cwd = dir;
+      const next = normalizeCwd(dir, cwd);
+      if (pathExists && !pathExists(next)) {
+        const e = new Error(`ENOENT: no such file or directory, chdir '${next}'`);
+        e.code = 'ENOENT';
+        throw e;
+      }
+      cwd = next;
     },
     platform: 'linux',
     version: 'v20.0.0',
@@ -66,28 +119,32 @@ export function createProcess(options = {}) {
     execArgv: [],
     pid: 1,
     ppid: 0,
+    exitCode: undefined,
     exit(code = 0) {
-      emitter.emit('exit', code);
-      if (options.onExit) options.onExit(code);
-      throw new Error(`Process exited with code ${code}`);
+      const normalizedCode = Number.isFinite(Number(code)) ? Number(code) : 0;
+      proc.exitCode = normalizedCode;
+      emitter.emit('exit', normalizedCode);
+      if (options.onExit) options.onExit(normalizedCode);
     },
     nextTick(fn, ...args) {
+      if (typeof fn !== 'function') {
+        throw new TypeError('process.nextTick callback must be a function');
+      }
       // nextTick should run before microtasks (Promise.then)
       // Use a dedicated queue that drains before each event loop phase
-      if (!globalThis.__nextTickQueue) {
-        globalThis.__nextTickQueue = [];
-        globalThis.__drainingNextTick = false;
-      }
-      globalThis.__nextTickQueue.push({ fn, args });
-      if (!globalThis.__drainingNextTick) {
-        globalThis.__drainingNextTick = true;
+      nextTickQueue.push({ fn, args });
+      if (!drainingNextTick) {
+        drainingNextTick = true;
         queueMicrotask(() => {
-          const queue = globalThis.__nextTickQueue;
-          globalThis.__nextTickQueue = [];
-          globalThis.__drainingNextTick = false;
-          for (const { fn, args } of queue) {
-            try { fn(...args); } catch (err) { console.error('nextTick error:', err); }
+          while (nextTickQueue.length > 0) {
+            const task = nextTickQueue.shift();
+            try {
+              task.fn(...task.args);
+            } catch (err) {
+              console.error('nextTick error:', err);
+            }
           }
+          drainingNextTick = false;
         });
       }
     },

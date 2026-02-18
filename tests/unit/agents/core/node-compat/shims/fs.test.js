@@ -154,9 +154,14 @@ describe('createFsShim', () => {
   });
 
   describe('promises.realpath', () => {
-    it('normalizes path', async () => {
+    it('normalizes path for existing entries', async () => {
+      await vfs.writeFile('foo/bar', 'x');
       const rp = await fs.promises.realpath('foo/bar');
       expect(rp).toBe('/foo/bar');
+    });
+
+    it('rejects ENOENT for missing entries', async () => {
+      await expect(fs.promises.realpath('missing/path')).rejects.toMatchObject({ code: 'ENOENT' });
     });
   });
 
@@ -306,8 +311,13 @@ describe('createFsShim', () => {
   });
 
   describe('realpathSync', () => {
-    it('returns normalized path', () => {
+    it('returns normalized path for existing entries', async () => {
+      await vfs.writeFile('foo/bar', 'x');
       expect(fs.realpathSync('foo/bar')).toBe('/foo/bar');
+    });
+
+    it('throws ENOENT for missing entries', () => {
+      expect(() => fs.realpathSync('missing/path')).toThrow(/ENOENT/);
     });
   });
 
@@ -317,6 +327,12 @@ describe('createFsShim', () => {
       await vfs.writeFile('rmdir/sub/f.txt', 'x');
       fs.rmSync('rmdir', { recursive: true });
       expect(fs.existsSync('rmdir')).toBe(false);
+    });
+
+    it('removes regular files', async () => {
+      await vfs.writeFile('rm-file.txt', 'x');
+      fs.rmSync('rm-file.txt');
+      expect(fs.existsSync('rm-file.txt')).toBe(false);
     });
   });
 
@@ -342,6 +358,31 @@ describe('createFsShim', () => {
       expect(data).toBe('write via fd');
     });
 
+    it('openSync validates flags and file existence', () => {
+      expect(() => fs.openSync('missing.txt', 'r')).toThrow(/ENOENT/);
+      expect(() => fs.openSync('missing.txt', 'r+')).toThrow(/ENOENT/);
+      expect(() => fs.openSync('missing.txt', 'invalid')).toThrow(/EINVAL/);
+    });
+
+    it('writeSync supports explicit position without moving fd cursor', async () => {
+      await vfs.writeFile('fd-pos.txt', 'abcde');
+      const fd = fs.openSync('fd-pos.txt', 'r+');
+      fs.writeSync(fd, 'Z', 2);
+      const out = new Uint8Array(5);
+      const n = fs.readSync(fd, out, 0, 5);
+      fs.closeSync(fd);
+      expect(n).toBe(5);
+      expect(new TextDecoder().decode(out)).toBe('abZde');
+    });
+
+    it('append mode writes to end even when position is provided', async () => {
+      await vfs.writeFile('fd-append.txt', 'ab');
+      const fd = fs.openSync('fd-append.txt', 'a');
+      fs.writeSync(fd, 'c', 0);
+      fs.closeSync(fd);
+      expect(await vfs.readText('fd-append.txt')).toBe('abc');
+    });
+
     it('closeSync throws for bad fd', () => {
       expect(() => fs.closeSync(999)).toThrow(/EBADF/);
     });
@@ -360,6 +401,19 @@ describe('createFsShim', () => {
         stream.on('error', reject);
       });
       expect(chunks.join('')).toBe('stream data');
+    });
+
+    it('supports chunked reads via highWaterMark', async () => {
+      await vfs.writeFile('chunk.txt', 'abcdefghij');
+      const stream = fs.createReadStream('chunk.txt', { encoding: 'utf-8', highWaterMark: 3 });
+      const chunks = [];
+      await new Promise((resolve, reject) => {
+        stream.on('data', chunk => chunks.push(chunk));
+        stream.on('end', resolve);
+        stream.on('error', reject);
+      });
+      expect(chunks.length).toBeGreaterThan(1);
+      expect(chunks.join('')).toBe('abcdefghij');
     });
   });
 
@@ -380,19 +434,19 @@ describe('createFsShim', () => {
   // --- watch ---
 
   describe('watch', () => {
-    it('returns an EventEmitter-like object', () => {
-      const watcher = fs.watch('somedir');
-      expect(typeof watcher.on).toBe('function');
-      expect(typeof watcher.close).toBe('function');
+    it('fails fast when VFS backend has no watch support', () => {
+      expect(() => fs.watch('somedir')).toThrow(/ENOSYS/);
     });
+  });
+});
 
-    it('emits close on close()', () => {
-      const watcher = fs.watch('somedir');
-      let closed = false;
-      watcher.on('close', () => { closed = true; });
-      watcher.close();
-      expect(closed).toBe(true);
-    });
+describe('createFsShim > existsSync backend capabilities', () => {
+  it('throws on async-only backends to avoid false negatives', () => {
+    const asyncOnlyVfs = {
+      exists: async () => true,
+    };
+    const shim = createFsShim(asyncOnlyVfs);
+    expect(() => shim.existsSync('foo.txt')).toThrow(/Sync fs API requires/);
   });
 });
 

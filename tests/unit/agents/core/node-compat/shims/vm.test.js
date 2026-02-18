@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import vm, {
   Script,
+  VM_SHIM_ISOLATION,
+  VM_SHIM_WARNING,
   createContext,
   isContext,
   runInThisContext,
@@ -13,13 +15,21 @@ import vm, {
 } from '../../../../../../js/agents/core/node-compat/shims/vm.js';
 
 describe('vm shim', () => {
+  it('declares non-isolated security boundary', () => {
+    expect(VM_SHIM_ISOLATION).toBe('none');
+    expect(VM_SHIM_WARNING).toMatch(/no sandbox isolation/i);
+  });
+
   it('Script runs code in this context and new context', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const localScript = new Script('1 + 2');
     expect(localScript.runInThisContext()).toBe(3);
 
     const contextualScript = new Script('a + b');
     expect(contextualScript.runInNewContext({ a: 2, b: 3 })).toBe(5);
     expect(contextualScript.runInContext({ a: 4, b: 6 })).toBe(10);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it('Script.createCachedData returns empty buffer', () => {
@@ -69,6 +79,8 @@ describe('vm shim', () => {
 
   it('default export mirrors named exports', () => {
     expect(vm.Script).toBe(Script);
+    expect(vm.VM_SHIM_ISOLATION).toBe(VM_SHIM_ISOLATION);
+    expect(vm.VM_SHIM_WARNING).toBe(VM_SHIM_WARNING);
     expect(vm.createContext).toBe(createContext);
     expect(vm.isContext).toBe(isContext);
     expect(vm.runInThisContext).toBe(runInThisContext);

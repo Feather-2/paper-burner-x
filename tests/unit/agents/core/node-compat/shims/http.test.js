@@ -8,6 +8,10 @@ import {
 } from '../../../../../../js/agents/core/node-compat/shims/http.js';
 
 describe('http shim', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('exports Agent/globalAgent and client-request helper', () => {
     const agent = new Agent({ keepAlive: true });
     expect(agent.keepAlive).toBe(true);
@@ -235,6 +239,39 @@ describe('http shim', () => {
     expect(req._aborted).toBe(true);
   });
 
+  it('ClientRequest.abort cancels an in-flight fetch', async () => {
+    const shim = createHttpShim();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      return new Promise((resolve, reject) => {
+        if (init.signal.aborted) {
+          const abortErr = new Error('aborted');
+          abortErr.name = 'AbortError';
+          reject(abortErr);
+          return;
+        }
+        init.signal.addEventListener('abort', () => {
+          const abortErr = new Error('aborted');
+          abortErr.name = 'AbortError';
+          reject(abortErr);
+        });
+      });
+    });
+
+    const req = new shim.ClientRequest({ hostname: 'localhost', path: '/slow' });
+    const abortFn = vi.fn();
+    const errFn = vi.fn();
+    req.on('abort', abortFn);
+    req.on('error', errFn);
+    req.end();
+    req.abort();
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(abortFn).toHaveBeenCalled();
+    expect(errFn).toHaveBeenCalled();
+    expect(errFn.mock.calls[0][0].code).toBe('ABORT_ERR');
+  });
+
   it('ClientRequest.write accumulates body', () => {
     const shim = createHttpShim();
     const req = new shim.ClientRequest({ hostname: 'localhost', method: 'POST' });
@@ -249,6 +286,14 @@ describe('http shim', () => {
     const fn = vi.fn();
     req.setTimeout(5000, fn);
     expect(req._timeout).toBe(5000);
+  });
+
+  it('ClientRequest.setTimeout validates timeout input', () => {
+    const shim = createHttpShim();
+    const req = new shim.ClientRequest({ hostname: 'localhost' });
+    expect(() => req.setTimeout(-1)).toThrow(/out of range/i);
+    expect(() => req.setTimeout(NaN)).toThrow(/out of range/i);
+    expect(() => req.setTimeout(Infinity)).toThrow(/out of range/i);
   });
 
   it('STATUS_CODES includes common codes', () => {
@@ -279,6 +324,17 @@ describe('http shim', () => {
     const srv = shim.createServer();
     srv.listen(5050);
     expect(shim.getServer(5050)).toBe(srv);
+    srv.close();
+  });
+
+  it('listen(0) uses allocated port consistently for address/getServer', () => {
+    const shim = createHttpShim();
+    const srv = shim.createServer();
+    srv.listen(0);
+    const assigned = srv.address().port;
+    expect(assigned).toBeGreaterThan(0);
+    expect(shim.getServer(assigned)).toBe(srv);
+    expect(shim.getServer(0)).toBeUndefined();
     srv.close();
   });
 });

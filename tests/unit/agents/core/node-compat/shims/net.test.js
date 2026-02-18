@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  NET_SHIM_CAPABILITIES,
+  isRealNetworkSupported,
   Socket, Server, createServer, createConnection, connect,
   isIP, isIPv4, isIPv6,
 } from '../../../../../../js/agents/core/node-compat/shims/net.js';
@@ -7,6 +9,12 @@ import {
 const waitTick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('net shim', () => {
+  it('exports explicit in-memory transport capabilities', () => {
+    expect(NET_SHIM_CAPABILITIES.transport).toBe('in-memory');
+    expect(NET_SHIM_CAPABILITIES.supportsRealTcp).toBe(false);
+    expect(isRealNetworkSupported()).toBe(false);
+  });
+
   it('Socket constructor does not throw', () => {
     expect(() => new Socket()).not.toThrow();
   });
@@ -104,6 +112,22 @@ describe('net shim', () => {
     expect(s.ref()).toBe(s);
     expect(s.unref()).toBe(s);
     await new Promise((resolve) => srv.close(resolve));
+  });
+
+  it('Socket.setTimeout emits timeout on idle sockets', async () => {
+    const s = new Socket();
+    const fn = vi.fn();
+    s.setTimeout(5, fn);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(fn).toHaveBeenCalled();
+    s.destroy();
+  });
+
+  it('Socket.setTimeout validates invalid timeout input', () => {
+    const s = new Socket();
+    expect(() => s.setTimeout(-1)).toThrow(/out of range/i);
+    expect(() => s.setTimeout(Infinity)).toThrow(/out of range/i);
+    expect(() => s.setTimeout(NaN)).toThrow(/out of range/i);
   });
 
   it('Socket.destroy triggers close event', async () => {

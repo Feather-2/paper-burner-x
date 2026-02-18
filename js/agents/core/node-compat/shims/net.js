@@ -18,6 +18,16 @@ const LISTENERS = new Map();
 let NEXT_SERVER_PORT = MIN_SERVER_PORT;
 let NEXT_CLIENT_PORT = MIN_CLIENT_PORT;
 
+export const NET_SHIM_CAPABILITIES = Object.freeze({
+  transport: 'in-memory',
+  supportsRealTcp: false,
+  supportsDnsResolution: false,
+});
+
+export function isRealNetworkSupported() {
+  return false;
+}
+
 function normalizeHost(host) {
   const raw = String(host || '').trim();
   if (!raw) return DEFAULT_HOST;
@@ -102,6 +112,29 @@ export class Socket extends Duplex {
     this.connecting = false;
     this.destroyed = false;
     this.readyState = 'closed';
+    this._timeoutMs = 0;
+    this._timeoutHandle = null;
+    this.isVirtualSocket = true;
+  }
+
+  _clearTimeoutHandle() {
+    if (this._timeoutHandle) {
+      clearTimeout(this._timeoutHandle);
+      this._timeoutHandle = null;
+    }
+  }
+
+  _scheduleTimeout() {
+    this._clearTimeoutHandle();
+    if (!this._timeoutMs || this._destroyed) return;
+    this._timeoutHandle = setTimeout(() => {
+      this.emit('timeout');
+    }, this._timeoutMs);
+  }
+
+  _touchActivity() {
+    if (!this._timeoutMs) return;
+    this._scheduleTimeout();
   }
 
   connect(portOrOptions, hostOrCallback, callback) {
@@ -172,6 +205,7 @@ export class Socket extends Duplex {
 
       server._handleConnection(serverSocket);
       this.emit('connect');
+      this._touchActivity();
       if (typeof cb === 'function') cb();
     });
     return this;
@@ -197,6 +231,7 @@ export class Socket extends Duplex {
       ? Buffer.from(chunk, encoding || 'utf8')
       : (chunk instanceof Uint8Array ? Buffer.from(chunk) : Buffer.from(String(chunk ?? '')));
 
+    this._touchActivity();
     queueMicrotask(() => {
       if (!peer._destroyed) peer._receiveData(payload);
     });
@@ -218,7 +253,24 @@ export class Socket extends Duplex {
   }
 
   setEncoding() { return this; }
-  setTimeout(timeout, cb) { if (cb) this.once('timeout', cb); return this; }
+  setTimeout(timeout, cb) {
+    const value = Number(timeout);
+    if (!Number.isFinite(value) || value < 0) {
+      const err = new RangeError(
+        `The value of "msecs" is out of range. It must be a non-negative finite number. Received ${timeout}`
+      );
+      err.code = 'ERR_OUT_OF_RANGE';
+      throw err;
+    }
+    this._timeoutMs = Math.floor(value);
+    if (cb) this.once('timeout', cb);
+    if (this._timeoutMs === 0) {
+      this._clearTimeoutHandle();
+    } else {
+      this._scheduleTimeout();
+    }
+    return this;
+  }
   setNoDelay() { return this; }
   setKeepAlive() { return this; }
   ref() { return this; }
@@ -230,6 +282,7 @@ export class Socket extends Duplex {
     this._connected = false;
     this.destroyed = true;
     this.readyState = 'closed';
+    this._clearTimeoutHandle();
 
     const peer = this._peer;
     this._peer = null;
@@ -244,12 +297,14 @@ export class Socket extends Duplex {
   }
 
   _receiveData(data) {
+    this._touchActivity();
     this.push(typeof data === 'string' ? Buffer.from(data) : data);
   }
 
   _receiveEnd() {
     this._connected = false;
     this.readyState = 'closed';
+    this._clearTimeoutHandle();
     this.push(null);
   }
 }
@@ -367,6 +422,8 @@ export function isIPv4(input) { return isIP(input) === 4; }
 export function isIPv6(input) { return isIP(input) === 6; }
 
 export default {
+  NET_SHIM_CAPABILITIES,
+  isRealNetworkSupported,
   Socket, Server, createServer, createConnection, connect,
   isIP, isIPv4, isIPv6,
 };

@@ -16,7 +16,7 @@ import dns, {
 } from '../../../../../../js/agents/core/node-compat/shims/dns.js';
 
 describe('dns shim', () => {
-  it('lookup resolves localhost and unknown host via callbacks', async () => {
+  it('lookup resolves localhost and fails unknown host via callbacks', async () => {
     await new Promise((done) => {
       lookup('localhost', (err, address, family) => {
         expect(err).toBeNull();
@@ -28,9 +28,10 @@ describe('dns shim', () => {
 
     await new Promise((done) => {
       lookup('example.com', (err, address, family) => {
-        expect(err).toBeNull();
-        expect(address).toBe('0.0.0.0');
-        expect(family).toBe(4);
+        expect(err).toBeDefined();
+        expect(err.code).toBe('ENOTFOUND');
+        expect(address).toBeUndefined();
+        expect(family).toBeUndefined();
         done();
       });
     });
@@ -46,27 +47,27 @@ describe('dns shim', () => {
     });
   });
 
-  it('resolve APIs return browser-safe defaults', async () => {
+  it('resolve APIs return loopback results and fail unsupported hostnames', async () => {
     expect(() => resolve('example.com')).not.toThrow();
 
     await new Promise((done) => {
-      resolve('example.com', (err, addresses) => {
+      resolve('localhost', (err, addresses) => {
         expect(err).toBeNull();
-        expect(addresses).toEqual(['0.0.0.0']);
+        expect(addresses).toEqual(['127.0.0.1']);
         done();
       });
     });
 
     await new Promise((done) => {
-      resolve4('example.com', (err, addresses) => {
+      resolve4('localhost', (err, addresses) => {
         expect(err).toBeNull();
-        expect(addresses).toEqual(['0.0.0.0']);
+        expect(addresses).toEqual(['127.0.0.1']);
         done();
       });
     });
 
     await new Promise((done) => {
-      resolve6('example.com', (err, addresses) => {
+      resolve6('localhost', (err, addresses) => {
         expect(err).toBeNull();
         expect(addresses).toEqual(['::1']);
         done();
@@ -77,6 +78,15 @@ describe('dns shim', () => {
       reverse('127.0.0.1', (err, hostnames) => {
         expect(err).toBeNull();
         expect(hostnames).toEqual(['localhost']);
+        done();
+      });
+    });
+
+    await new Promise((done) => {
+      resolve('example.com', (err, addresses) => {
+        expect(err).toBeDefined();
+        expect(err.code).toBe('ENOTFOUND');
+        expect(addresses).toBeUndefined();
         done();
       });
     });
@@ -97,10 +107,12 @@ describe('dns shim', () => {
     await expect(promises.lookup('localhost', { all: true })).resolves.toEqual([
       { address: '127.0.0.1', family: 4 },
     ]);
-    await expect(promises.resolve('example.com')).resolves.toEqual(['0.0.0.0']);
-    await expect(promises.resolve4('example.com')).resolves.toEqual(['0.0.0.0']);
-    await expect(promises.resolve6('example.com')).resolves.toEqual(['::1']);
+    await expect(promises.resolve('localhost')).resolves.toEqual(['127.0.0.1']);
+    await expect(promises.resolve4('localhost')).resolves.toEqual(['127.0.0.1']);
+    await expect(promises.resolve6('localhost')).resolves.toEqual(['::1']);
     await expect(promises.reverse('127.0.0.1')).resolves.toEqual(['localhost']);
+    await expect(promises.lookup('example.com')).rejects.toMatchObject({ code: 'ENOTFOUND' });
+    await expect(promises.resolve('example.com')).rejects.toMatchObject({ code: 'ENOTFOUND' });
     expect(promises.getServers()).toEqual([]);
     expect(() => promises.setServers(['1.1.1.1'])).not.toThrow();
   });

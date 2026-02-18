@@ -241,21 +241,58 @@ export function createFsShim(vfs, options = {}) {
   }
 
   function realpath(path, callback) {
-    try {
-      const p = normPath(path);
+    const p = normPath(path);
+    const done = (ok) => {
+      if (!ok) {
+        const e = new Error(`ENOENT: ${p}`);
+        e.code = 'ENOENT';
+        e.path = p;
+        callback(e);
+        return;
+      }
       callback(null, '/' + p);
+    };
+
+    try {
+      if (typeof vfs.exists === 'function') {
+        Promise.resolve(vfs.exists(p))
+          .then(exists => done(Boolean(exists)))
+          .catch(err => callback(makeErrno(err, p)));
+        return;
+      }
+      if (typeof vfs._getNode === 'function') {
+        done(Boolean(vfs._getNode(p)));
+        return;
+      }
+      done(false);
     } catch (err) {
       callback(makeErrno(err, String(path)));
     }
   }
 
   function existsSync(path) {
-    try {
-      const p = normPath(path);
-      return !!vfs._getNode(p);
-    } catch {
-      return false;
+    const p = normPath(path);
+    if (typeof vfs.existsSync === 'function') {
+      return !!vfs.existsSync(p);
     }
+    if (typeof vfs._getNode === 'function') {
+      try {
+        return !!vfs._getNode(p);
+      } catch {
+        return false;
+      }
+    }
+    if (typeof vfs.exists === 'function') {
+      const maybe = vfs.exists(p);
+      if (typeof maybe === 'boolean') return maybe;
+      if (maybe && typeof maybe.then === 'function') {
+        const e = new Error(SYNC_ERR_MSG);
+        e.code = 'ERR_FS_SYNC_UNAVAILABLE';
+        throw e;
+      }
+      return !!maybe;
+    }
+    return false;
   }
 
   // --- sync APIs (direct tree access for MemoryVfs) ---
@@ -386,7 +423,7 @@ export function createFsShim(vfs, options = {}) {
     if (!parent) { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; e.path = p; throw e; }
     const node = parent.children.get(name);
     if (!node) { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; e.path = p; throw e; }
-    if (node.kind !== 'file') { const e = new Error(`EISDIR: ${p}`); e.code = 'EISDIR'; e.path = p; throw e; }
+    if (node.kind === 'dir') { const e = new Error(`EISDIR: ${p}`); e.code = 'EISDIR'; e.path = p; throw e; }
     parent.children.delete(name);
     parent.updatedAt = Date.now();
   }
@@ -454,15 +491,37 @@ export function createFsShim(vfs, options = {}) {
   }
 
   function realpathSync(path) {
+    requireSyncVfs(vfs);
     const p = normPath(path);
+    const node = vfs._getNode(p);
+    if (!node) {
+      const e = new Error(`ENOENT: ${p}`);
+      e.code = 'ENOENT';
+      e.path = p;
+      throw e;
+    }
     return '/' + p;
   }
 
   function rmSync(path, options) {
+    requireSyncVfs(vfs);
     const recursive = typeof options === 'object' ? !!options.recursive : false;
     const force = typeof options === 'object' ? !!options.force : false;
+    const p = normPath(path);
     try {
-      rmdirSync(path, { recursive });
+      const node = vfs._getNode(p, { followSymlinks: false });
+      if (!node) {
+        if (force) return;
+        const e = new Error(`ENOENT: ${p}`);
+        e.code = 'ENOENT';
+        e.path = p;
+        throw e;
+      }
+      if (node.kind === 'dir') {
+        rmdirSync(p, { recursive });
+      } else {
+        unlinkSync(p);
+      }
     } catch (err) {
       if (force && err.code === 'ENOENT') return;
       throw err;
@@ -474,10 +533,64 @@ export function createFsShim(vfs, options = {}) {
   const _fdTable = new Map();
   let _fdCounter = 10;
 
+  /**
+   * @param {string | undefined} flags
+   */
+  function parseOpenFlags(flags) {
+    const f = flags == null ? 'r' : String(flags);
+    switch (f) {
+      case 'r':
+        return { flags: f, readable: true, writable: false, create: false, truncate: false, append: false };
+      case 'r+':
+        return { flags: f, readable: true, writable: true, create: false, truncate: false, append: false };
+      case 'w':
+        return { flags: f, readable: false, writable: true, create: true, truncate: true, append: false };
+      case 'w+':
+        return { flags: f, readable: true, writable: true, create: true, truncate: true, append: false };
+      case 'a':
+        return { flags: f, readable: false, writable: true, create: true, truncate: false, append: true };
+      case 'a+':
+        return { flags: f, readable: true, writable: true, create: true, truncate: false, append: true };
+      default: {
+        const e = new Error(`EINVAL: unsupported open flag '${f}'`);
+        e.code = 'EINVAL';
+        throw e;
+      }
+    }
+  }
+
   function openSync(path, flags) {
+    requireSyncVfs(vfs);
     const p = normPath(path);
+    const spec = parseOpenFlags(flags);
+    const existing = vfs._getNode(p);
+    if (!existing) {
+      if (!spec.create) {
+        const e = new Error(`ENOENT: ${p}`);
+        e.code = 'ENOENT';
+        e.path = p;
+        throw e;
+      }
+      writeFileSync(p, new Uint8Array(0));
+    } else if (existing.kind === 'dir') {
+      const e = new Error(`EISDIR: ${p}`);
+      e.code = 'EISDIR';
+      e.path = p;
+      throw e;
+    } else if (spec.truncate) {
+      writeFileSync(p, new Uint8Array(0));
+    }
+
+    const initialBytes = readFileSync(p);
     const fd = _fdCounter++;
-    _fdTable.set(fd, { path: p, flags: flags || 'r', pos: 0 });
+    _fdTable.set(fd, {
+      path: p,
+      flags: spec.flags,
+      readable: spec.readable,
+      writable: spec.writable,
+      append: spec.append,
+      pos: spec.append ? (initialBytes?.byteLength || 0) : 0,
+    });
     return fd;
   }
 
@@ -486,48 +599,172 @@ export function createFsShim(vfs, options = {}) {
     _fdTable.delete(fd);
   }
 
-  function readSync(fd, buffer, offset, length) {
+  function readSync(fd, buffer, offset, length, position) {
     const entry = _fdTable.get(fd);
     if (!entry) throw new Error(`EBADF: bad file descriptor ${fd}`);
+    if (!entry.readable) {
+      const e = new Error(`EBADF: fd ${fd} is not readable`);
+      e.code = 'EBADF';
+      throw e;
+    }
     const data = readFileSync(entry.path);
     const src = data instanceof Uint8Array ? data : new TextEncoder().encode(String(data));
-    const count = Math.min(length, src.length - entry.pos);
+    const off = Number.isFinite(offset) ? Math.max(0, Number(offset)) : 0;
+    const len = Number.isFinite(length) ? Math.max(0, Number(length)) : Math.max(0, buffer.length - off);
+    const explicitPos = Number.isFinite(position) ? Math.max(0, Number(position)) : null;
+    const readPos = explicitPos == null ? entry.pos : explicitPos;
+    const count = Math.min(len, Math.max(0, src.length - readPos));
     if (count <= 0) return 0;
-    buffer.set(src.subarray(entry.pos, entry.pos + count), offset);
-    entry.pos += count;
+    buffer.set(src.subarray(readPos, readPos + count), off);
+    if (explicitPos == null) entry.pos = readPos + count;
     return count;
   }
 
-  function writeSync(fd, buffer, offset, length) {
+  function writeSync(fd, buffer, offset, length, position) {
     const entry = _fdTable.get(fd);
     if (!entry) throw new Error(`EBADF: bad file descriptor ${fd}`);
-    const chunk = typeof buffer === 'string'
-      ? buffer
-      : buffer.subarray(offset || 0, (offset || 0) + (length || buffer.length));
-    writeFileSync(entry.path, chunk);
-    return typeof chunk === 'string' ? chunk.length : chunk.byteLength;
+    if (!entry.writable) {
+      const e = new Error(`EBADF: fd ${fd} is not writable`);
+      e.code = 'EBADF';
+      throw e;
+    }
+
+    const current = readFileSync(entry.path);
+    const source = current instanceof Uint8Array ? current : toBytes(current);
+
+    let chunk;
+    let explicitPosition = null;
+
+    if (typeof buffer === 'string') {
+      chunk = toBytes(buffer);
+      if (offset === null || Number.isFinite(offset)) {
+        explicitPosition = offset == null ? null : Number(offset);
+      }
+    } else {
+      const view = buffer instanceof Uint8Array ? buffer : toBytes(buffer);
+      const off = Number.isFinite(offset) ? Math.max(0, Number(offset)) : 0;
+      const len = Number.isFinite(length) ? Math.max(0, Number(length)) : Math.max(0, view.byteLength - off);
+      chunk = view.subarray(off, off + len);
+      if (position === null || Number.isFinite(position)) {
+        explicitPosition = position == null ? null : Number(position);
+      }
+    }
+
+    const writePos = entry.append
+      ? source.byteLength
+      : (explicitPosition == null ? entry.pos : Math.max(0, explicitPosition));
+    const endPos = writePos + chunk.byteLength;
+    const out = new Uint8Array(Math.max(source.byteLength, endPos));
+    out.set(source, 0);
+    out.set(chunk, writePos);
+    writeFileSync(entry.path, out);
+
+    if (entry.append || explicitPosition == null) {
+      entry.pos = endPos;
+    }
+    return chunk.byteLength;
   }
 
   // --- createReadStream / createWriteStream ---
 
   function createReadStream(path, options) {
     const p = normPath(path);
-    const encoding = typeof options === 'string' ? options : options?.encoding;
+    const opts = typeof options === 'object' && options !== null ? options : {};
+    const encoding = typeof options === 'string' ? options : opts.encoding;
+    const highWaterMark = Number.isFinite(opts.highWaterMark) && opts.highWaterMark > 0
+      ? Math.floor(opts.highWaterMark)
+      : 64 * 1024;
+    const start = Number.isFinite(opts.start) ? Math.max(0, Math.floor(opts.start)) : 0;
+    const end = Number.isFinite(opts.end) ? Math.max(start, Math.floor(opts.end)) : null;
+
     const listeners = {};
+    let destroyed = false;
+    let paused = false;
+    let started = false;
+
+    function on(evt, fn, once = false) {
+      (listeners[evt] = listeners[evt] || []).push({ fn, once });
+      if (evt === 'data' && !started) {
+        started = true;
+        queueMicrotask(pump);
+      }
+      return stream;
+    }
+
+    function emit(evt, ...args) {
+      const current = listeners[evt] || [];
+      const next = [];
+      for (const item of current) {
+        try { item.fn(...args); } catch { /* ignore listener errors */ }
+        if (!item.once) next.push(item);
+      }
+      listeners[evt] = next;
+    }
+
+    let bytes = null;
+    let cursor = 0;
+
+    const pump = async () => {
+      if (destroyed) return;
+      try {
+        if (!bytes) {
+          const raw = await vfs.readFile(p);
+          const src = raw instanceof Uint8Array ? raw : toBytes(raw);
+          const endExclusive = end == null ? src.byteLength : Math.min(src.byteLength, end + 1);
+          bytes = src.subarray(start, endExclusive);
+        }
+
+        const pushNext = () => {
+          if (destroyed) return;
+          if (paused) {
+            queueMicrotask(pushNext);
+            return;
+          }
+          if (cursor >= bytes.byteLength) {
+            emit('end');
+            emit('close');
+            return;
+          }
+          const chunk = bytes.subarray(cursor, Math.min(bytes.byteLength, cursor + highWaterMark));
+          cursor += chunk.byteLength;
+          emit('data', encoding ? new TextDecoder().decode(chunk) : chunk);
+          queueMicrotask(pushNext);
+        };
+
+        pushNext();
+      } catch (err) {
+        emit('error', makeErrno(err, p));
+      }
+    };
+
     const stream = {
-      on(evt, fn) { (listeners[evt] = listeners[evt] || []).push(fn); return stream; },
-      once(evt, fn) { stream.on(evt, fn); return stream; },
-      emit(evt, ...args) { (listeners[evt] || []).forEach(fn => fn(...args)); },
+      on(evt, fn) { return on(evt, fn, false); },
+      once(evt, fn) { return on(evt, fn, true); },
+      emit,
       pipe(dest) {
         stream.on('data', chunk => { if (dest.write) dest.write(chunk); });
         stream.on('end', () => { if (dest.end) dest.end(); });
         return dest;
       },
-      destroy() { stream.emit('close'); },
+      pause() { paused = true; return stream; },
+      resume() {
+        paused = false;
+        if (!started) {
+          started = true;
+          queueMicrotask(pump);
+        }
+        return stream;
+      },
+      destroy(err) {
+        if (destroyed) return stream;
+        destroyed = true;
+        if (err) emit('error', err);
+        emit('close');
+        return stream;
+      },
     };
-    (encoding ? vfs.readText(p) : vfs.readFile(p))
-      .then(data => { stream.emit('data', data); stream.emit('end'); stream.emit('close'); })
-      .catch(err => stream.emit('error', makeErrno(err, p)));
+
+    if (!started) queueMicrotask(pump);
     return stream;
   }
 
@@ -553,14 +790,46 @@ export function createFsShim(vfs, options = {}) {
 
   // --- watch ---
 
-  function watch(path) {
+  function watch(path, options, listener) {
+    if (typeof options === 'function') {
+      listener = options;
+      options = {};
+    }
+
+    const p = normPath(path);
+    if (typeof vfs.watch !== 'function') {
+      const e = new Error(`ENOSYS: fs.watch is not supported by current VFS backend (${vfs?.constructor?.name || 'unknown'})`);
+      e.code = 'ENOSYS';
+      e.path = p;
+      throw e;
+    }
+
     const listeners = {};
-    return {
-      on(evt, fn) { (listeners[evt] = listeners[evt] || []).push(fn); return this; },
-      once(evt, fn) { this.on(evt, fn); return this; },
+    const watcher = {
+      on(evt, fn) { (listeners[evt] = listeners[evt] || []).push(fn); return watcher; },
+      once(evt, fn) {
+        const wrap = (...args) => {
+          watcher.off(evt, wrap);
+          fn(...args);
+        };
+        return watcher.on(evt, wrap);
+      },
+      off(evt, fn) {
+        const list = listeners[evt] || [];
+        listeners[evt] = list.filter(item => item !== fn);
+        return watcher;
+      },
       emit(evt, ...args) { (listeners[evt] || []).forEach(fn => fn(...args)); },
-      close() { this.emit('close'); },
+      close() {
+        if (typeof unsubscribe === 'function') unsubscribe();
+        else if (unsubscribe && typeof unsubscribe.close === 'function') unsubscribe.close();
+        watcher.emit('close');
+      },
     };
+
+    if (typeof listener === 'function') watcher.on('change', listener);
+    const unsubscribe = vfs.watch(p, options || {}, (...args) => watcher.emit('change', ...args));
+    return watcher;
   }
 
   // --- promises API ---
@@ -683,6 +952,15 @@ export function createFsShim(vfs, options = {}) {
     },
     async realpath(path) {
       const p = normPath(path);
+      const ok = typeof vfs.exists === 'function'
+        ? await vfs.exists(p)
+        : (typeof vfs._getNode === 'function' ? !!vfs._getNode(p) : false);
+      if (!ok) {
+        const e = new Error(`ENOENT: ${p}`);
+        e.code = 'ENOENT';
+        e.path = p;
+        throw e;
+      }
       return '/' + p;
     },
   };

@@ -164,6 +164,7 @@ export function createHttpShim(options = {}) {
   let _serverListenCallback = null;
   let _serverCloseCallback = null;
   let _servers = new Map();
+  let _nextServerPort = 3000;
   const _quotaEnforcer = options.quotaEnforcer || null;
   const _observability = options.observability || null;
 
@@ -195,8 +196,44 @@ export function createHttpShim(options = {}) {
 
   function setServerListenCallback(cb) { _serverListenCallback = cb; }
   function setServerCloseCallback(cb) { _serverCloseCallback = cb; }
-  function getServer(port) { return _servers.get(port); }
+  function getServer(port) { return _servers.get(Number(port)); }
   function getAllServers() { return Array.from(_servers.values()); }
+
+  function normalizeTimeout(ms) {
+    const value = Number(ms);
+    if (!Number.isFinite(value) || value < 0) {
+      const err = new RangeError(
+        `The value of "msecs" is out of range. It must be a non-negative finite number. Received ${ms}`
+      );
+      err.code = 'ERR_OUT_OF_RANGE';
+      throw err;
+    }
+    return Math.floor(value);
+  }
+
+  function createAbortError() {
+    const err = new Error('Request aborted');
+    err.code = 'ABORT_ERR';
+    return err;
+  }
+
+  function allocateServerPort() {
+    const min = 3000;
+    const max = 65535;
+    const attempts = max - min + 1;
+    for (let i = 0; i < attempts; i++) {
+      const candidate = _nextServerPort++;
+      if (_nextServerPort > max) _nextServerPort = min;
+      if (!_servers.has(candidate)) return candidate;
+    }
+    return 0;
+  }
+
+  function createAddrInUseError(port) {
+    const err = new Error(`listen EADDRINUSE 0.0.0.0:${port}`);
+    err.code = 'EADDRINUSE';
+    return err;
+  }
 
   class ClientRequest extends Writable {
     constructor(opts, callback) {
@@ -207,6 +244,8 @@ export function createHttpShim(options = {}) {
       this._method = this._options.method || 'GET';
       this._aborted = false;
       this._timeout = null;
+      this._timeoutHandle = null;
+      this._abortController = null;
 
       if (this._options instanceof URL) {
         this._url = this._options.href;
@@ -232,13 +271,30 @@ export function createHttpShim(options = {}) {
     removeHeader(name) { delete this._headers[name.toLowerCase()]; }
 
     setTimeout(ms, cb) {
-      this._timeout = ms;
+      this._timeout = normalizeTimeout(ms);
       if (cb) this.once('timeout', cb);
+      if (this._abortController) {
+        if (this._timeoutHandle) clearTimeout(this._timeoutHandle);
+        if (this._timeout > 0) {
+          this._timeoutHandle = setTimeout(() => {
+            if (this._abortController) this._abortController.abort();
+            this.emit('timeout');
+          }, this._timeout);
+        }
+      }
       return this;
     }
 
     abort() {
+      if (this._aborted) return;
       this._aborted = true;
+      if (this._timeoutHandle) {
+        clearTimeout(this._timeoutHandle);
+        this._timeoutHandle = null;
+      }
+      if (this._abortController) {
+        this._abortController.abort();
+      }
       this.emit('abort');
     }
 
@@ -259,15 +315,25 @@ export function createHttpShim(options = {}) {
       if (typeof encoding === 'function') cb = encoding;
 
       this._doFetch().then(
-        (resp) => { if (cb) cb(); this.emit('response', resp); },
-        (err) => this.emit('error', err)
+        (resp) => {
+          if (this._aborted) return;
+          if (cb) cb();
+          this.emit('response', resp);
+        },
+        (err) => {
+          if (this._aborted && (!err || err.code !== 'ABORT_ERR')) {
+            this.emit('error', createAbortError());
+            return;
+          }
+          this.emit('error', err);
+        }
       );
       return this;
     }
 
     /** @private */
     async _doFetch() {
-      if (this._aborted) throw new Error('Request aborted');
+      if (this._aborted) throw createAbortError();
 
       const allowed = await isRequestAllowedAsync(this._url, this._method);
       if (!allowed) {
@@ -289,11 +355,16 @@ export function createHttpShim(options = {}) {
       }
 
       const controller = new AbortController();
+      this._abortController = controller;
       fetchOptions.signal = controller.signal;
+      if (this._aborted) controller.abort();
 
-      let timer;
-      if (this._timeout) {
-        timer = setTimeout(() => {
+      if (this._timeoutHandle) {
+        clearTimeout(this._timeoutHandle);
+        this._timeoutHandle = null;
+      }
+      if (this._timeout > 0) {
+        this._timeoutHandle = setTimeout(() => {
           controller.abort();
           this.emit('timeout');
         }, this._timeout);
@@ -301,7 +372,10 @@ export function createHttpShim(options = {}) {
 
       try {
         const fetchResp = await fetch(this._url, fetchOptions);
-        if (timer) clearTimeout(timer);
+        if (this._timeoutHandle) {
+          clearTimeout(this._timeoutHandle);
+          this._timeoutHandle = null;
+        }
 
         const msg = IncomingMessage.fromFetchResponse(fetchResp);
 
@@ -328,8 +402,16 @@ export function createHttpShim(options = {}) {
 
         return msg;
       } catch (err) {
-        if (timer) clearTimeout(timer);
+        if (this._timeoutHandle) {
+          clearTimeout(this._timeoutHandle);
+          this._timeoutHandle = null;
+        }
+        if (this._aborted || err?.name === 'AbortError') {
+          throw createAbortError();
+        }
         throw err;
+      } finally {
+        this._abortController = null;
       }
     }
   }
@@ -346,10 +428,41 @@ export function createHttpShim(options = {}) {
     listen(port, host, backlog, cb) {
       if (typeof host === 'function') { cb = host; host = '0.0.0.0'; }
       if (typeof backlog === 'function') { cb = backlog; }
-      this._address = { port: port || 3000, address: host || '0.0.0.0', family: 'IPv4' };
+
+      let requestedPort = Number.isFinite(Number(port)) ? Number(port) : 0;
+      if (requestedPort < 0 || requestedPort > 65535) {
+        const err = new RangeError(`Invalid port: ${port}`);
+        err.code = 'ERR_SOCKET_BAD_PORT';
+        queueMicrotask(() => {
+          this.emit('error', err);
+          if (cb) cb(err);
+        });
+        return this;
+      }
+      if (requestedPort === 0) {
+        requestedPort = allocateServerPort();
+        if (requestedPort === 0) {
+          const err = createAddrInUseError(0);
+          queueMicrotask(() => {
+            this.emit('error', err);
+            if (cb) cb(err);
+          });
+          return this;
+        }
+      }
+      if (_servers.has(requestedPort) && _servers.get(requestedPort) !== this) {
+        const err = createAddrInUseError(requestedPort);
+        queueMicrotask(() => {
+          this.emit('error', err);
+          if (cb) cb(err);
+        });
+        return this;
+      }
+
+      this._address = { port: requestedPort, address: host || '0.0.0.0', family: 'IPv4' };
       this._listening = true;
-      _servers.set(port, this);
-      if (_serverListenCallback) _serverListenCallback(port, this);
+      _servers.set(requestedPort, this);
+      if (_serverListenCallback) _serverListenCallback(requestedPort, this);
       queueMicrotask(() => { this.emit('listening'); if (cb) cb(); });
       return this;
     }
