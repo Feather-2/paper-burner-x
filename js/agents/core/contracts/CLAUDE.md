@@ -34,6 +34,7 @@ import {
   validateToolCall,
   validateToolResult,
   normalizeToolResult,
+  createCompositeDisposable,
   validateAgentMessage,
   createTaskRequest,
   createTaskResult,
@@ -68,6 +69,9 @@ const toolRes = validateToolResult(rawToolResult);
 if (!toolRes.ok) return;
 const safeToolRes = normalizeToolResult(toolRes.value);
 
+// Disposable helper
+const bag = createCompositeDisposable([]);
+
 // Coordinator（registry/taskBoard/events 由外部注入）
 const coordinator = new AgentCoordinator({
   agentId: 'coordinator-1',
@@ -78,8 +82,8 @@ const coordinator = new AgentCoordinator({
   assignIntervalMs: 2000,
 });
 
-await coordinator.start();
-await coordinator.stop();
+coordinator.start();
+coordinator.stop();
 ```
 
 ## 校验返回约定
@@ -89,7 +93,7 @@ await coordinator.stop();
 ```javascript
 { ok: true, value: ... }
 // 或
-{ ok: false, error: { code, message, path? } }
+{ ok: false, error: '...' } // error 为字符串
 ```
 
 ## 边界与职责
