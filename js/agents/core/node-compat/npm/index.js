@@ -9,6 +9,7 @@ import { checkPackageCompatibility } from '../package-compatibility.js';
  * @property {string} [version] semver range, default 'latest'
  * @property {boolean} [includeDeps] install dependencies, default true
  * @property {number} [compatibilityThreshold] warning threshold in [0, 1], default 0.3
+ * @property {boolean} [strictCompatibility] when true, blockers/low score fail installation
  */
 
 /**
@@ -59,11 +60,14 @@ import { checkPackageCompatibility } from '../package-compatibility.js';
  * @property {number} [concurrency] per-layer install concurrency, default 4
  * @property {(input: any) => Promise<any>} [compatibilityChecker]
  * @property {number} [compatibilityThreshold] warning threshold in [0, 1], default 0.3
+ * @property {boolean} [strictCompatibility] when true, blockers/low score fail installation
+ * @property {number} [retryBackoffMs] retry base backoff in ms, default 100
  */
 
 const DEFAULT_INSTALL_CONCURRENCY = 4;
 const MAX_INSTALL_RETRIES = 2;
 const DEFAULT_COMPATIBILITY_THRESHOLD = 0.3;
+const DEFAULT_RETRY_BACKOFF_MS = 100;
 
 /**
  * @param {number|undefined} value
@@ -85,6 +89,51 @@ function normalizeConcurrency(value, fallback) {
 function normalizeThreshold(value, fallback) {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(0, Math.min(1, Number(value)));
+}
+
+/**
+ * @param {number|undefined} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+function normalizeBackoff(value, fallback) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.floor(Number(value)));
+}
+
+/**
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function delay(ms) {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * @param {any} packageJson
+ * @param {string} packageName
+ * @returns {string[]}
+ */
+function collectBinCommands(packageJson, packageName) {
+  if (!packageJson || typeof packageJson !== 'object') return [];
+  const commands = [];
+  const normalizedName = String(packageName || '').trim();
+  const defaultCommand = normalizedName.startsWith('@')
+    ? normalizedName.split('/')[1] || ''
+    : normalizedName;
+  const bin = packageJson.bin;
+  if (typeof bin === 'string') {
+    if (defaultCommand) commands.push(defaultCommand);
+    return commands;
+  }
+  if (bin && typeof bin === 'object' && !Array.isArray(bin)) {
+    for (const key of Object.keys(bin)) {
+      const name = String(key || '').trim().replace(/^\/+/, '');
+      if (name) commands.push(name);
+    }
+  }
+  return commands;
 }
 
 /**
@@ -207,6 +256,8 @@ export class PackageManager extends EventEmitter {
     concurrency,
     compatibilityChecker,
     compatibilityThreshold,
+    strictCompatibility,
+    retryBackoffMs,
   } = {}) {
     super();
     this._integrityFailureReported = new Set();
@@ -232,6 +283,8 @@ export class PackageManager extends EventEmitter {
       compatibilityThreshold,
       DEFAULT_COMPATIBILITY_THRESHOLD,
     );
+    this.strictCompatibility = strictCompatibility === true;
+    this.retryBackoffMs = normalizeBackoff(retryBackoffMs, DEFAULT_RETRY_BACKOFF_MS);
   }
 
   /**
@@ -247,6 +300,7 @@ export class PackageManager extends EventEmitter {
       options.compatibilityThreshold,
       this.compatibilityThreshold,
     );
+    const strictCompatibility = options.strictCompatibility === true || this.strictCompatibility;
     this.emit('install:start', { name: packageName, version: requestedVersion });
 
     try {
@@ -255,6 +309,7 @@ export class PackageManager extends EventEmitter {
         packageName,
         resolvedVersion,
         compatibilityThreshold,
+        strictCompatibility,
       );
       const installTargets = includeDeps
         ? await this.resolver.buildDependencyTree(packageName, resolvedVersion)
@@ -324,27 +379,77 @@ export class PackageManager extends EventEmitter {
     if (!exists) {
       throw new Error(`Package ${name} is not installed`);
     }
+    await this._cleanupBinStubs(name, pkgPath);
+    await this._removePath(pkgPath);
+  }
+
+  /**
+   * @private
+   * @param {string} packageName
+   * @param {string} pkgPath
+   * @returns {Promise<void>}
+   */
+  async _cleanupBinStubs(packageName, pkgPath) {
+    let packageJson = null;
+    try {
+      if (typeof this.vfs.readText === 'function') {
+        packageJson = JSON.parse(await this.vfs.readText(`${pkgPath}/package.json`));
+      } else if (typeof this.vfs.readFile === 'function') {
+        const bytes = await this.vfs.readFile(`${pkgPath}/package.json`);
+        const content = typeof TextDecoder === 'function'
+          ? new TextDecoder().decode(bytes)
+          : String.fromCharCode(...bytes);
+        packageJson = JSON.parse(content);
+      }
+    } catch {
+      packageJson = null;
+    }
+
+    const commands = collectBinCommands(packageJson, packageName);
+    for (const command of commands) {
+      await this._removePath(`/node_modules/.bin/${command}`).catch(() => {});
+    }
+  }
+
+  /**
+   * @private
+   * @param {string} path
+   * @returns {Promise<void>}
+   */
+  async _removePath(path) {
     if (typeof this.vfs.rm === 'function') {
-      await this.vfs.rm(pkgPath, { recursive: true });
+      await this.vfs.rm(path, { recursive: true, force: true });
       return;
+    }
+    if (typeof this.vfs.unlink === 'function') {
+      try {
+        await this.vfs.unlink(path);
+        return;
+      } catch {
+        // fallthrough
+      }
     }
     if (typeof this.vfs.rmdir === 'function') {
-      await this.vfs.rmdir(pkgPath, { recursive: true });
+      await this.vfs.rmdir(path, { recursive: true });
       return;
     }
-    throw new Error('VFS does not support recursive removal');
+    if (typeof this.vfs.remove === 'function') {
+      await this.vfs.remove(path);
+      return;
+    }
+    throw new Error(`VFS does not support recursive removal: ${path}`);
   }
 
   /**
    * Run package compatibility check and emit install:compatibility.
-   * A low score only emits warning and never blocks installation.
    * @private
    * @param {string} name
    * @param {string} version
    * @param {number} threshold
+   * @param {boolean} strictCompatibility
    * @returns {Promise<any|null>}
    */
-  async _checkCompatibility(name, version, threshold) {
+  async _checkCompatibility(name, version, threshold, strictCompatibility) {
     let metadata = null;
     try {
       metadata = await this.registry.fetchPackageMetadata(name);
@@ -377,7 +482,25 @@ export class PackageManager extends EventEmitter {
         warnings,
         blockers,
       });
+
+      if (strictCompatibility && blockers.length > 0) {
+        const error = new Error(
+          `Compatibility blockers detected for ${name}@${version}: ${blockers.join(', ')}`,
+        );
+        error.code = 'ERR_COMPATIBILITY_BLOCKED';
+        throw error;
+      }
+      if (strictCompatibility && score < threshold) {
+        const error = new Error(
+          `Compatibility score ${score.toFixed(2)} is below threshold ${threshold.toFixed(2)} for ${name}@${version}`,
+        );
+        error.code = 'ERR_COMPATIBILITY_SCORE';
+        throw error;
+      }
     } catch (error) {
+      if (error?.code === 'ERR_COMPATIBILITY_BLOCKED' || error?.code === 'ERR_COMPATIBILITY_SCORE') {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.emit('install:compatibility', {
         name,
@@ -470,6 +593,9 @@ export class PackageManager extends EventEmitter {
     }
 
     for (let attempt = 0; attempt <= this.maxInstallRetries; attempt += 1) {
+      if (attempt > 0) {
+        await this._removePath(`/node_modules/${target.name}`).catch(() => {});
+      }
       try {
         const tarballBuffer = await this.tarball.download(target.tarballUrl, {
           expectedShasum: target.shasum,
@@ -495,6 +621,8 @@ export class PackageManager extends EventEmitter {
         }
         if (error?.code === 'ERR_TARBALL_SHASUM_INVALID') throw error;
         if (attempt >= this.maxInstallRetries) throw error;
+        const backoffMs = this.retryBackoffMs * (2 ** attempt);
+        await delay(backoffMs);
       }
     }
   }
@@ -678,7 +806,22 @@ export class PackageManager extends EventEmitter {
       if (entries.length === 0) return [];
       const sample = entries[0];
       if (typeof sample === 'string') {
-        return entries.map((name) => ({ name, kind: 'dir' }));
+        const typedEntries = [];
+        for (const name of entries) {
+          const normalizedName = String(name);
+          const statPath = `${path.replace(/\/$/, '')}/${normalizedName}`;
+          let kind = 'dir';
+          try {
+            if (typeof this.vfs.stat === 'function') {
+              const stat = await this.vfs.stat(statPath);
+              kind = stat?.isDirectory?.() ? 'dir' : 'file';
+            }
+          } catch {
+            kind = 'dir';
+          }
+          typedEntries.push({ name: normalizedName, kind });
+        }
+        return typedEntries;
       }
       return entries.map((entry) => ({
         name: entry.name,

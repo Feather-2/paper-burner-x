@@ -82,6 +82,7 @@ export class SystemSandboxExecutor {
    */
   _registerCleanup() {
     if (this._cleanupRegistered) return;
+    if (typeof process === 'undefined' || typeof process.on !== 'function') return;
     this._cleanupRegistered = true;
 
     const cleanup = () => {
@@ -93,8 +94,8 @@ export class SystemSandboxExecutor {
 
     // Use process.on() instead of process.once() to allow multiple handlers
     process.on('exit', cleanup);
-    process.on('SIGINT', () => { cleanup(); process.exit(130); });
-    process.on('SIGTERM', () => { cleanup(); process.exit(143); });
+    process.on('SIGINT', () => { cleanup(); process.exit?.(130); });
+    process.on('SIGTERM', () => { cleanup(); process.exit?.(143); });
   }
 
   /**
@@ -102,6 +103,7 @@ export class SystemSandboxExecutor {
    * @param {import('child_process').ChildProcess} proc
    */
   trackProcess(proc) {
+    if (!proc || typeof proc.once !== 'function') return;
     this._registerCleanup();
     this._activeProcesses.add(proc);
     proc.once('exit', () => this._activeProcesses.delete(proc));
@@ -116,7 +118,10 @@ export class SystemSandboxExecutor {
       return this._initPromise;
     }
 
-    this._initPromise = this._doInit();
+    this._initPromise = this._doInit().catch((error) => {
+      this._initPromise = null;
+      throw error;
+    });
     return this._initPromise;
   }
 
@@ -253,7 +258,9 @@ export class SystemSandboxExecutor {
    */
   async execute(command, args = [], options = {}) {
     await this.init();
-    return this.executor.execute(command, args, options);
+    const result = await this.executor.execute(command, args, options);
+    this._trackProcessFromResult(result);
+    return result;
   }
 
   /**
@@ -264,7 +271,19 @@ export class SystemSandboxExecutor {
    */
   async shell(shellCommand, options = {}) {
     await this.init();
-    return this.executor.shell(shellCommand, options);
+    const result = await this.executor.shell(shellCommand, options);
+    this._trackProcessFromResult(result);
+    return result;
+  }
+
+  /**
+   * @private
+   * @param {any} result
+   */
+  _trackProcessFromResult(result) {
+    const proc = result?.process || result?.childProcess;
+    if (!proc) return;
+    this.trackProcess(proc);
   }
 
   /**

@@ -275,6 +275,40 @@ describe('npm/tarball', () => {
     expect(vfs.writeFile).toHaveBeenCalledTimes(1);
   });
 
+  it('extract skips unsupported tar entry types (e.g. symlink)', async () => {
+    const tar = createTar([
+      { name: 'package/symlink', type: '2', content: 'target' },
+      { name: 'package/lib/a.js', content: 'ok' },
+    ]);
+    const vfs = {
+      mkdir: vi.fn().mockResolvedValue(true),
+      writeFile: vi.fn().mockResolvedValue(true),
+    };
+    const manager = new TarballManager({ fetchFn });
+
+    const written = await manager.extract(toArrayBuffer(tar), vfs, '/node_modules/demo');
+    expect(written).toBe(1);
+    expect(vfs.writeFile).toHaveBeenCalledWith('/node_modules/demo/lib/a.js', expect.any(Uint8Array));
+    expect(vfs.writeFile).not.toHaveBeenCalledWith('/node_modules/demo/symlink', expect.anything());
+  });
+
+  it('extract rejects traversal paths instead of sanitizing them', async () => {
+    const tar = createTar([
+      { name: 'package/../escape.js', content: 'oops' },
+      { name: 'package/safe.js', content: 'ok' },
+    ]);
+    const vfs = {
+      mkdir: vi.fn().mockResolvedValue(true),
+      writeFile: vi.fn().mockResolvedValue(true),
+    };
+    const manager = new TarballManager({ fetchFn });
+
+    const written = await manager.extract(toArrayBuffer(tar), vfs, '/node_modules/demo');
+    expect(written).toBe(1);
+    expect(vfs.writeFile).toHaveBeenCalledWith('/node_modules/demo/safe.js', expect.any(Uint8Array));
+    expect(vfs.writeFile).not.toHaveBeenCalledWith('/node_modules/demo/escape.js', expect.anything());
+  });
+
   it('extract creates parent directories when vfs.mkdir exists', async () => {
     const tar = createTar([{ name: 'package/lib/nested/a.js', content: 'ok' }]);
     const vfs = {
@@ -378,8 +412,26 @@ describe('npm/tarball', () => {
     expect(written).toBe(1);
   });
 
-  it('extract falls back to raw tar when pako.inflate fails', async () => {
+  it('extract does not attempt pako inflate when source is not gzip', async () => {
     const rawTar = createTar([{ name: 'package/fallback.js', content: 'ok' }]);
+    const inflate = vi.fn(() => {
+      throw new Error('bad gzip');
+    });
+    globalThis.pako = { inflate };
+    const vfs = {
+      mkdir: vi.fn().mockResolvedValue(true),
+      writeFile: vi.fn().mockResolvedValue(true),
+    };
+    const manager = new TarballManager({ fetchFn });
+
+    const written = await manager.extract(toArrayBuffer(rawTar), vfs, '/node_modules/fallback');
+    expect(written).toBe(1);
+    expect(inflate).not.toHaveBeenCalled();
+    expect(vfs.writeFile).toHaveBeenCalledWith('/node_modules/fallback/fallback.js', expect.any(Uint8Array));
+  });
+
+  it('extract fails fast on invalid gzip payload', async () => {
+    const invalidGzipBytes = new Uint8Array([31, 139, 8, 0, 1, 2, 3, 4]);
     globalThis.pako = {
       inflate: vi.fn(() => {
         throw new Error('bad gzip');
@@ -391,9 +443,10 @@ describe('npm/tarball', () => {
     };
     const manager = new TarballManager({ fetchFn });
 
-    const written = await manager.extract(toArrayBuffer(rawTar), vfs, '/node_modules/fallback');
-    expect(written).toBe(1);
-    expect(vfs.writeFile).toHaveBeenCalledWith('/node_modules/fallback/fallback.js', expect.any(Uint8Array));
+    await expect(manager.extract(toArrayBuffer(invalidGzipBytes), vfs, '/node_modules/bad-gzip'))
+      .rejects
+      .toMatchObject({ code: 'ERR_TARBALL_GZIP_INVALID' });
+    expect(vfs.writeFile).not.toHaveBeenCalled();
   });
 
   it('extract can decompress gzip tarball via DecompressionStream when available', async () => {

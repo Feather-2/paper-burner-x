@@ -14,6 +14,7 @@
 /**
  * @typedef {object} QuotaStats
  * @property {number} memoryMB - Current memory usage estimate
+ * @property {number} memoryPeakMB - Peak memory usage estimate
  * @property {number} networkRequests - Network requests made
  * @property {number} fileWrites - File writes performed
  * @property {number} fileReadsMB - Total file reads in MB
@@ -33,6 +34,7 @@ export class QuotaEnforcer {
 
     this.stats = {
       memoryMB: 0,
+      memoryPeakMB: 0,
       networkRequests: 0,
       fileWrites: 0,
       fileReadsMB: 0,
@@ -44,7 +46,9 @@ export class QuotaEnforcer {
    * @throws {Error} if quota exceeded
    */
   trackMemory(bytes) {
-    this.stats.memoryMB += bytes / (1024 * 1024);
+    const deltaMB = bytes / (1024 * 1024);
+    this.stats.memoryMB = Math.max(0, this.stats.memoryMB + deltaMB);
+    this.stats.memoryPeakMB = Math.max(this.stats.memoryPeakMB, this.stats.memoryMB);
     if (this.stats.memoryMB > this.limits.maxMemoryMB) {
       throw new Error(`Memory quota exceeded: ${this.stats.memoryMB.toFixed(1)}MB > ${this.limits.maxMemoryMB}MB`);
     }
@@ -87,6 +91,12 @@ export class QuotaEnforcer {
   }
 
   reset() {
-    this.stats = { memoryMB: 0, networkRequests: 0, fileWrites: 0, fileReadsMB: 0 };
+    this.stats = {
+      memoryMB: 0,
+      memoryPeakMB: 0,
+      networkRequests: 0,
+      fileWrites: 0,
+      fileReadsMB: 0,
+    };
   }
 }

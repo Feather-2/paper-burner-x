@@ -223,6 +223,17 @@ describe('SystemSandboxExecutor', () => {
     await expect(executor.init()).rejects.toThrow('boom');
   });
 
+  it('resets init promise after failure so init can be retried', async () => {
+    detectBestBackend
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ backend: SandboxBackend.PERMISSION_ONLY });
+
+    const executor = new SystemSandboxExecutor();
+    await expect(executor.init()).rejects.toThrow('boom');
+    await expect(executor.init()).resolves.toBeUndefined();
+    expect(detectBestBackend).toHaveBeenCalledTimes(2);
+  });
+
   it('shares init promise across concurrent calls', async () => {
     let resolveBest;
     detectBestBackend.mockImplementation(
@@ -284,6 +295,31 @@ describe('SystemSandboxExecutor', () => {
     await executor.shell('   ', { cwd: '/tmp' });
 
     expect(mockExecutor.shell).toHaveBeenCalledWith('   ', { cwd: '/tmp' });
+  });
+
+  it('tracks process handles returned by execute and shell results', async () => {
+    const processHandle = {
+      kill: vi.fn(),
+      once: vi.fn((event, cb) => {
+        if (event === 'exit') {
+          processHandle._onExit = cb;
+        }
+      }),
+    };
+    mockExecutor.execute.mockResolvedValueOnce({ ok: true, process: processHandle });
+    mockExecutor.shell.mockResolvedValueOnce({ ok: true, childProcess: processHandle });
+
+    const executor = new SystemSandboxExecutor({
+      preferredBackend: SandboxBackend.PERMISSION_ONLY,
+    });
+
+    await executor.execute('node', []);
+    await executor.shell('echo ok');
+
+    expect(processHandle.once).toHaveBeenCalledWith('exit', expect.any(Function));
+    expect(executor._activeProcesses.has(processHandle)).toBe(true);
+    processHandle._onExit?.();
+    expect(executor._activeProcesses.has(processHandle)).toBe(false);
   });
 
   it('returns null before init and active backend after init', async () => {

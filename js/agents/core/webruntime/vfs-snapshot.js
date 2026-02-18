@@ -59,9 +59,18 @@ function assertSnapshotEntries(input, label) {
  * @returns {string}
  */
 export function uint8ToBase64(bytes) {
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
+  if (typeof Buffer === 'function') {
+    return Buffer.from(bytes).toString('base64');
+  }
+
+  // Avoid O(n^2) string concatenation for large payloads.
+  const chunkSize = 0x8000;
+  const chunks = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    chunks.push(String.fromCharCode(...chunk));
+  }
+  return btoa(chunks.join(''));
 }
 
 /**
@@ -157,17 +166,25 @@ export function diffSnapshots(a, b) {
   const entriesB = assertSnapshotEntries(b, 'snapshotB');
 
   const filesA = new Map();
-  for (const e of entriesA) if (e.type === 'file') filesA.set(e.path, e.content ?? '');
+  for (const e of entriesA) filesA.set(e.path, { type: e.type, content: e.content ?? '' });
   const filesB = new Map();
-  for (const e of entriesB) if (e.type === 'file') filesB.set(e.path, e.content ?? '');
+  for (const e of entriesB) filesB.set(e.path, { type: e.type, content: e.content ?? '' });
 
   const added = [];
   const modified = [];
   const deleted = [];
 
-  for (const [path, content] of filesB) {
+  for (const [path, current] of filesB) {
     if (!filesA.has(path)) { added.push(path); continue; }
-    if (filesA.get(path) !== content) modified.push(path);
+    const previous = filesA.get(path);
+    if (!previous) continue;
+    if (previous.type !== current.type) {
+      modified.push(path);
+      continue;
+    }
+    if (current.type === 'file' && previous.content !== current.content) {
+      modified.push(path);
+    }
   }
   for (const path of filesA.keys()) {
     if (!filesB.has(path)) deleted.push(path);

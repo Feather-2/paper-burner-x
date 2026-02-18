@@ -77,6 +77,37 @@ async function inflateWithDecompressionStream(gzipBytes) {
   return new Uint8Array(output);
 }
 
+/**
+ * @param {Uint8Array} bytes
+ * @returns {boolean}
+ */
+function looksLikeGzip(bytes) {
+  return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+}
+
+/**
+ * @param {unknown} cause
+ * @returns {Error}
+ */
+function createInvalidGzipError(cause) {
+  const error = new Error('Failed to decompress gzip tarball');
+  error.code = 'ERR_TARBALL_GZIP_INVALID';
+  error.cause = cause;
+  return error;
+}
+
+/**
+ * @param {string} name
+ * @returns {string|null}
+ */
+function normalizeArchiveEntryPath(name) {
+  const normalized = String(name || '').replace(/\\/g, '/');
+  if (!normalized || normalized.startsWith('/')) return null;
+  const segments = normalized.split('/');
+  if (segments.some((seg) => seg === '' || seg === '.' || seg === '..')) return null;
+  return segments.join('/');
+}
+
 const textDecoder = new TextDecoder();
 
 /**
@@ -436,18 +467,24 @@ export class TarballManager {
     const source = toUint8Array(buffer);
     let tarBytes = source;
 
-    if (globalThis.pako && typeof globalThis.pako.inflate === 'function') {
-      try {
-        const inflated = globalThis.pako.inflate(source);
-        tarBytes = toUint8Array(inflated);
-      } catch {
-        tarBytes = source;
-      }
-    } else if (typeof DecompressionStream === 'function') {
-      try {
-        tarBytes = await inflateWithDecompressionStream(source);
-      } catch {
-        tarBytes = source;
+    if (looksLikeGzip(source)) {
+      if (globalThis.pako && typeof globalThis.pako.inflate === 'function') {
+        try {
+          const inflated = globalThis.pako.inflate(source);
+          tarBytes = toUint8Array(inflated);
+        } catch (error) {
+          throw createInvalidGzipError(error);
+        }
+      } else if (typeof DecompressionStream === 'function') {
+        try {
+          tarBytes = await inflateWithDecompressionStream(source);
+        } catch (error) {
+          throw createInvalidGzipError(error);
+        }
+      } else {
+        const unsupported = new Error('No gzip decompressor available in this runtime');
+        unsupported.code = 'ERR_TARBALL_GZIP_UNSUPPORTED';
+        throw unsupported;
       }
     }
 
@@ -458,14 +495,13 @@ export class TarballManager {
     const normalizedDest = destPath.replace(/\/+$/, '') + '/';
 
     for (const header of headers) {
-      if (header.type === '5') continue;
+      const entryType = header.type === '\0' ? '0' : header.type;
+      if (entryType === '5') continue;
+      if (entryType !== '0') continue;
       if (!header.name) continue;
 
-      // SECURITY: sanitize path traversal from untrusted tar archive
-      const safeName = header.name
-        .split('/')
-        .filter((seg) => seg !== '..' && seg !== '.' && seg.length > 0)
-        .join('/');
+      // SECURITY: reject traversal/absolute/colliding paths from untrusted tar archive
+      const safeName = normalizeArchiveEntryPath(header.name);
       if (!safeName) continue;
 
       const start = header.offset;

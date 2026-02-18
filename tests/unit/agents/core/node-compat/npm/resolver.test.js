@@ -41,11 +41,23 @@ const semverPackages = {
 
 describe('npm/resolver semver helpers', () => {
   it('parseSemver parses standard version', () => {
-    expect(parseSemver('1.2.3')).toEqual({ major: 1, minor: 2, patch: 3 });
+    expect(parseSemver('1.2.3')).toEqual({
+      major: 1,
+      minor: 2,
+      patch: 3,
+      prerelease: [],
+      build: [],
+    });
   });
 
-  it('parseSemver strips v prefix and prerelease/build tags', () => {
-    expect(parseSemver('v1.2.3-beta.1+build.5')).toEqual({ major: 1, minor: 2, patch: 3 });
+  it('parseSemver keeps prerelease/build metadata', () => {
+    expect(parseSemver('v1.2.3-beta.1+build.5')).toEqual({
+      major: 1,
+      minor: 2,
+      patch: 3,
+      prerelease: ['beta', '1'],
+      build: ['build', '5'],
+    });
   });
 
   it('parseSemver returns null for invalid input', () => {
@@ -57,6 +69,12 @@ describe('npm/resolver semver helpers', () => {
     expect(compareVersions('1.2.3', '1.2.4')).toBe(-1);
     expect(compareVersions('2.0.0', '1.9.9')).toBe(1);
     expect(compareVersions('1.0.0', '1.0.0')).toBe(0);
+  });
+
+  it('compareVersions handles prerelease precedence', () => {
+    expect(compareVersions('1.0.0-beta.1', '1.0.0-beta.2')).toBe(-1);
+    expect(compareVersions('1.0.0-beta.2', '1.0.0')).toBe(-1);
+    expect(compareVersions('1.0.0+build.1', '1.0.0+build.2')).toBe(0);
   });
 
   it('satisfies exact version range', () => {
@@ -97,6 +115,11 @@ describe('npm/resolver semver helpers', () => {
     expect(satisfies('1.5.0', '1.0.0 - 2.0.0')).toBe(true);
     expect(satisfies('2.1.0', '1.0.0 - 2.0.0')).toBe(false);
   });
+
+  it('satisfies prerelease ranges', () => {
+    expect(satisfies('1.0.0-beta.2', '^1.0.0-0')).toBe(true);
+    expect(satisfies('1.0.0-alpha.1', '^1.0.0-beta.1')).toBe(false);
+  });
 });
 
 describe('npm/resolver resolve + dependency tree', () => {
@@ -134,6 +157,18 @@ describe('npm/resolver resolve + dependency tree', () => {
     const registry = createRegistry(semverPackages);
     const resolver = new DependencyResolver({ registry });
     await expect(resolver.resolve('demo', '<0.1.0')).rejects.toThrow('No matching version');
+  });
+
+  it('resolve throws explicit error for unsupported range protocols', async () => {
+    const registry = createRegistry(semverPackages);
+    const resolver = new DependencyResolver({ registry });
+
+    await expect(resolver.resolve('demo', 'file:../demo'))
+      .rejects
+      .toMatchObject({ code: 'ERR_UNSUPPORTED_VERSION_RANGE_PROTOCOL', protocol: 'file' });
+    await expect(resolver.resolve('demo', 'workspace:*'))
+      .rejects
+      .toMatchObject({ code: 'ERR_UNSUPPORTED_VERSION_RANGE_PROTOCOL', protocol: 'workspace' });
   });
 
   it('buildDependencyTree returns flat transitive list', async () => {
@@ -218,6 +253,33 @@ describe('npm/resolver resolve + dependency tree', () => {
     const deps = await resolver.buildDependencyTree('alpha', '1.0.0');
     expect(deps).toHaveLength(2);
     expect(deps.map((item) => item.name).sort()).toEqual(['alpha', 'beta']);
+  });
+
+  it('buildDependencyTree handles deep chains without recursive overflow', async () => {
+    const depth = 500;
+    /** @type {Record<string, any>} */
+    const packages = {};
+    for (let index = 0; index < depth; index += 1) {
+      const name = `pkg-${index}`;
+      const next = index + 1 < depth ? `pkg-${index + 1}` : null;
+      packages[name] = {
+        name,
+        versions: {
+          '1.0.0': {
+            dist: { tarball: `https://cdn/${name}.tgz`, shasum: 'x' },
+            dependencies: next ? { [next]: '1.0.0' } : {},
+          },
+        },
+        'dist-tags': { latest: '1.0.0' },
+      };
+    }
+    const registry = createRegistry(packages);
+    const resolver = new DependencyResolver({ registry });
+
+    const deps = await resolver.buildDependencyTree('pkg-0', '1.0.0');
+    expect(deps).toHaveLength(depth);
+    expect(deps[0].name).toBe('pkg-0');
+    expect(deps[depth - 1].name).toBe(`pkg-${depth - 1}`);
   });
 
   it('buildDependencyTree throws when tarball is missing', async () => {

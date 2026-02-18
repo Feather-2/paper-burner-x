@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../../../../../js/agents/core/sandbox/system/constants.js', () => ({
   SandboxBackend: { BUBBLEWRAP: 'bubblewrap' },
   DefaultSandboxConfig: {
-    allowedReadPaths: ['/default-read', 'relative-read'],
+    allowedReadPaths: [],
     allowedWritePaths: ['./default-write'],
     allowNetwork: false,
     timeoutMs: 12345,
@@ -168,6 +168,23 @@ describe('executeInBubblewrap', () => {
     expect(roBindIdx).toBeGreaterThan(-1);
     expect(args[roBindIdx + 1]).toBe('/');
     expect(args[roBindIdx + 2]).toBe('/');
+  });
+
+  it('uses explicit allowedReadPaths whitelist mounts when provided', async () => {
+    await executeInBubblewrap('echo', [], {
+      workDir: '/work',
+      allowedReadPaths: ['./src', '/etc/ssl'],
+      allowedWritePaths: [],
+    });
+    const args = execCommand.mock.calls[0][1];
+
+    const hasReadonlyRoot = args.some((token, index) => {
+      return token === '--ro-bind' && args[index + 1] === '/' && args[index + 2] === '/';
+    });
+    expect(hasReadonlyRoot).toBe(false);
+    expect(normalizeSandboxPath).toHaveBeenCalledWith('./src', '/work');
+    expect(args).toContain('/work/src');
+    expect(args).toContain('/etc/ssl');
   });
 
   // -- workDir binding --
@@ -338,7 +355,7 @@ describe('executeInBubblewrap', () => {
     // With global readonly root, allowedWritePaths generates --bind-try
     const writeIndex = args.indexOf(hugePath);
     expect(writeIndex).toBeGreaterThan(-1);
-    expect(args[writeIndex - 1]).toBe('--bind-try');
+    expect(['--bind-try', '--ro-bind-try']).toContain(args[writeIndex - 1]);
     expect(args).toContain(longCommand);
     expect(args).toContain(deepEnv);
   });

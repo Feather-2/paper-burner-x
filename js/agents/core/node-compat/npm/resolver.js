@@ -12,24 +12,67 @@
  * @property {number} major
  * @property {number} minor
  * @property {number} patch
+ * @property {string[]} prerelease
+ * @property {string[]} build
  */
 
 /**
  * Parse strict semver string.
- * Accepts `v1.2.3` and strips pre-release/build metadata.
+ * Accepts `v1.2.3` with optional pre-release/build metadata.
  * @param {string} str
  * @returns {ParsedSemver|null}
  */
 export function parseSemver(str) {
   if (typeof str !== 'string') return null;
-  const normalized = str.trim().replace(/^v/, '').split('+')[0].split('-')[0];
-  const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  const normalized = str.trim().replace(/^v/, '');
+  const match = normalized.match(
+    /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$/,
+  );
   if (!match) return null;
   return {
     major: Number(match[1]),
     minor: Number(match[2]),
     patch: Number(match[3]),
+    prerelease: match[4] ? match[4].split('.') : [],
+    build: match[5] ? match[5].split('.') : [],
   };
+}
+
+/**
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isNumericIdentifier(value) {
+  return /^\d+$/.test(value);
+}
+
+/**
+ * @param {string[]} left
+ * @param {string[]} right
+ * @returns {-1|0|1}
+ */
+function comparePrerelease(left, right) {
+  const max = Math.max(left.length, right.length);
+  for (let index = 0; index < max; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (a === undefined && b === undefined) return 0;
+    if (a === undefined) return -1;
+    if (b === undefined) return 1;
+    if (a === b) continue;
+
+    const aIsNumber = isNumericIdentifier(a);
+    const bIsNumber = isNumericIdentifier(b);
+    if (aIsNumber && bIsNumber) {
+      const diff = Number(a) - Number(b);
+      if (diff !== 0) return diff > 0 ? 1 : -1;
+      continue;
+    }
+    if (aIsNumber && !bIsNumber) return -1;
+    if (!aIsNumber && bIsNumber) return 1;
+    return a > b ? 1 : -1;
+  }
+  return 0;
 }
 
 /**
@@ -48,7 +91,41 @@ export function compareVersions(a, b) {
   if (pa.major !== pb.major) return pa.major > pb.major ? 1 : -1;
   if (pa.minor !== pb.minor) return pa.minor > pb.minor ? 1 : -1;
   if (pa.patch !== pb.patch) return pa.patch > pb.patch ? 1 : -1;
+  if (pa.prerelease.length === 0 && pb.prerelease.length > 0) return 1;
+  if (pa.prerelease.length > 0 && pb.prerelease.length === 0) return -1;
+  if (pa.prerelease.length > 0 || pb.prerelease.length > 0) {
+    return comparePrerelease(pa.prerelease, pb.prerelease);
+  }
   return 0;
+}
+
+/**
+ * @param {string} range
+ * @returns {string|null}
+ */
+function detectUnsupportedProtocol(range) {
+  const trimmed = String(range || '').trim();
+  const match = trimmed.match(/^([a-z][a-z0-9+.-]*):/i);
+  if (!match) return null;
+  const protocol = match[1].toLowerCase();
+  if (['file', 'link', 'workspace', 'npm'].includes(protocol)) return protocol;
+  return null;
+}
+
+/**
+ * @param {string} name
+ * @param {string} range
+ * @throws {Error}
+ */
+function throwUnsupportedRangeProtocol(name, range) {
+  const protocol = detectUnsupportedProtocol(range);
+  if (!protocol) return;
+  const error = new Error(
+    `Unsupported version range protocol "${protocol}:" for "${name}" with range "${range}"`,
+  );
+  error.code = 'ERR_UNSUPPORTED_VERSION_RANGE_PROTOCOL';
+  error.protocol = protocol;
+  throw error;
 }
 
 /**
@@ -119,9 +196,10 @@ export function satisfies(version, range) {
   }
 
   if (normalizedRange.startsWith('^')) {
-    const base = parseSemver(normalizedRange.slice(1));
+    const baseRange = normalizedRange.slice(1).trim().replace(/^v/, '');
+    const base = parseSemver(baseRange);
     if (!base) return false;
-    if (compareVersions(version, `${base.major}.${base.minor}.${base.patch}`) < 0) return false;
+    if (compareVersions(version, baseRange) < 0) return false;
     if (base.major > 0) {
       return compareVersions(version, `${base.major + 1}.0.0`) < 0;
     }
@@ -132,9 +210,10 @@ export function satisfies(version, range) {
   }
 
   if (normalizedRange.startsWith('~')) {
-    const base = parseSemver(normalizedRange.slice(1));
+    const baseRange = normalizedRange.slice(1).trim().replace(/^v/, '');
+    const base = parseSemver(baseRange);
     if (!base) return false;
-    return compareVersions(version, `${base.major}.${base.minor}.${base.patch}`) >= 0
+    return compareVersions(version, baseRange) >= 0
       && compareVersions(version, `${base.major}.${base.minor + 1}.0`) < 0;
   }
 
@@ -196,6 +275,7 @@ export class DependencyResolver {
 
     const distTags = metadata['dist-tags'] || {};
     const range = versionRange || 'latest';
+    throwUnsupportedRangeProtocol(name, range);
 
     if (range === 'latest') {
       const latest = distTags.latest;
@@ -229,30 +309,31 @@ export class DependencyResolver {
     /** @type {Set<string>} */
     const visited = new Set();
 
-    /**
-     * @param {string} depName
-     * @param {string} depRange
-     * @returns {Promise<void>}
-     */
-    const visit = async (depName, depRange) => {
-      const depVersion = await this.resolve(depName, depRange);
-      const visitKey = `${depName}@${depVersion}`;
-      if (visited.has(visitKey)) return;
+    /** @type {Array<{ depName: string, depRange: string }>} */
+    const stack = [{ depName: name, depRange: version }];
+
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) continue;
+
+      const depVersion = await this.resolve(current.depName, current.depRange);
+      const visitKey = `${current.depName}@${depVersion}`;
+      if (visited.has(visitKey)) continue;
       visited.add(visitKey);
 
-      const metadata = await this.registry.fetchPackageMetadata(depName);
+      const metadata = await this.registry.fetchPackageMetadata(current.depName);
       const versionInfo = metadata.versions?.[depVersion];
       const tarball = versionInfo?.dist?.tarball;
       const shasum = versionInfo?.dist?.shasum;
       if (!tarball) {
-        throw new Error(`Missing tarball URL for "${depName}@${depVersion}"`);
+        throw new Error(`Missing tarball URL for "${current.depName}@${depVersion}"`);
       }
       if (!shasum) {
-        throw new Error(`Missing tarball shasum for "${depName}@${depVersion}"`);
+        throw new Error(`Missing tarball shasum for "${current.depName}@${depVersion}"`);
       }
 
       resolved.push({
-        name: depName,
+        name: current.depName,
         version: depVersion,
         tarballUrl: tarball,
         shasum,
@@ -260,12 +341,12 @@ export class DependencyResolver {
 
       const dependencies = versionInfo.dependencies || {};
       const entries = Object.entries(dependencies);
-      for (const [childName, childRange] of entries) {
-        await visit(childName, childRange);
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const [childName, childRange] = entries[index];
+        stack.push({ depName: childName, depRange: childRange });
       }
-    };
+    }
 
-    await visit(name, version);
     return resolved;
   }
 }

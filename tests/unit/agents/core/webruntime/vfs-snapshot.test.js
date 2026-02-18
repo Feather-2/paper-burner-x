@@ -40,6 +40,14 @@ describe('vfs-snapshot', () => {
       const restored = base64ToUint8(b64);
       expect(restored).toEqual(original);
     });
+
+    it('round-trips large payloads', () => {
+      const original = new Uint8Array(200_000);
+      for (let i = 0; i < original.length; i += 1) original[i] = i % 256;
+      const b64 = uint8ToBase64(original);
+      const restored = base64ToUint8(b64);
+      expect(restored).toEqual(original);
+    });
   });
 
   // --- empty VFS snapshot ---
@@ -164,6 +172,21 @@ describe('vfs-snapshot', () => {
       await expect(fromSnapshot({ files: [{ path: 'x', type: 'file', content: 123 }] }))
         .rejects
         .toThrow(/snapshot\.files\[0\]\.content: expected base64 string/);
+    });
+
+    it('reports directory-level add/delete changes', async () => {
+      await vfs.mkdir('docs', { recursive: true });
+      await vfs.writeText('docs/a.md', '# a');
+      const snapA = await toSnapshot(vfs);
+
+      await vfs.unlink('docs/a.md');
+      await vfs.rmdir('docs');
+      await vfs.mkdir('assets', { recursive: true });
+      const snapB = await toSnapshot(vfs);
+
+      const diff = diffSnapshots(snapA, snapB);
+      expect(diff.added).toContain('assets');
+      expect(diff.deleted).toContain('docs');
     });
   });
 });

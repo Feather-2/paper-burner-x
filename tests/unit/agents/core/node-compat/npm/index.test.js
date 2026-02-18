@@ -232,6 +232,35 @@ describe('npm/index PackageManager install/list', () => {
     expect(tarball.extract).toHaveBeenCalled();
   });
 
+  it('install fails in strictCompatibility mode when blockers exist', async () => {
+    compatibilityChecker.mockResolvedValueOnce({
+      score: 0.95,
+      warnings: [],
+      blockers: ['child_process.spawn'],
+    });
+
+    await expect(manager.install('demo', { strictCompatibility: true }))
+      .rejects
+      .toMatchObject({ code: 'ERR_COMPATIBILITY_BLOCKED' });
+    expect(tarball.download).not.toHaveBeenCalled();
+  });
+
+  it('install fails in strictCompatibility mode when score is below threshold', async () => {
+    compatibilityChecker.mockResolvedValueOnce({
+      score: 0.1,
+      warnings: ['legacy api'],
+      blockers: [],
+    });
+
+    await expect(manager.install('demo', {
+      strictCompatibility: true,
+      compatibilityThreshold: 0.5,
+    }))
+      .rejects
+      .toMatchObject({ code: 'ERR_COMPATIBILITY_SCORE' });
+    expect(tarball.download).not.toHaveBeenCalled();
+  });
+
   it('install continues when compatibility checker throws', async () => {
     compatibilityChecker.mockRejectedValue(new Error('checker failed'));
     const onCompatibility = vi.fn();
@@ -453,6 +482,32 @@ describe('npm/index PackageManager install/list', () => {
     expect(tarball.extract).toHaveBeenCalledTimes(1);
   });
 
+  it('install retry cleans partial target and applies exponential backoff', async () => {
+    vi.useFakeTimers();
+    const transient = new Error('temporary network error');
+    tarball.download
+      .mockRejectedValueOnce(transient)
+      .mockRejectedValueOnce(transient)
+      .mockResolvedValue(new ArrayBuffer(0));
+    vfs.rm = vi.fn().mockResolvedValue(undefined);
+    const retryingManager = new PackageManager({
+      registry,
+      resolver,
+      tarball,
+      vfs,
+      retryBackoffMs: 25,
+    });
+
+    const installPromise = retryingManager.install('demo', { includeDeps: false, version: '1.0.0' });
+    await vi.advanceTimersByTimeAsync(25 + 50);
+    await installPromise;
+
+    expect(vfs.rm).toHaveBeenCalledTimes(2);
+    expect(vfs.rm).toHaveBeenNthCalledWith(1, '/node_modules/demo', { recursive: true, force: true });
+    expect(vfs.rm).toHaveBeenNthCalledWith(2, '/node_modules/demo', { recursive: true, force: true });
+    vi.useRealTimers();
+  });
+
   it('install hard-fails on tarball integrity mismatch and emits audit event once', async () => {
     const integrityError = new Error('checksum mismatch');
     integrityError.code = 'ERR_TARBALL_INTEGRITY_MISMATCH';
@@ -544,6 +599,19 @@ describe('npm/index PackageManager install/list', () => {
     await expect(manager.list()).resolves.toEqual(['alpha', 'zeta']);
   });
 
+  it('list infers file/dir from stat when readdir returns string entries', async () => {
+    delete vfs.list;
+    vfs.readdir.mockResolvedValueOnce(['@scope', 'demo', 'README.md']);
+    vfs.readdir.mockResolvedValueOnce(['pkg']);
+    vfs.stat = vi.fn(async (path) => ({
+      isDirectory: () => !path.endsWith('README.md'),
+    }));
+
+    await expect(manager.list()).resolves.toEqual(['@scope/pkg', 'demo']);
+    expect(vfs.stat).toHaveBeenCalledWith('/node_modules/@scope');
+    expect(vfs.stat).toHaveBeenCalledWith('/node_modules/README.md');
+  });
+
   it('uninstall removes package from vfs', async () => {
     vfs.exists = vi.fn().mockResolvedValue(true);
     vfs.rm = vi.fn().mockResolvedValue(undefined);
@@ -551,7 +619,7 @@ describe('npm/index PackageManager install/list', () => {
 
     await manager.uninstall('demo');
     expect(vfs.exists).toHaveBeenCalledWith('/node_modules/demo');
-    expect(vfs.rm).toHaveBeenCalledWith('/node_modules/demo', { recursive: true });
+    expect(vfs.rm).toHaveBeenCalledWith('/node_modules/demo', { recursive: true, force: true });
     expect(vfs.rmdir).not.toHaveBeenCalled();
   });
 
@@ -589,7 +657,25 @@ describe('npm/index PackageManager install/list', () => {
 
     await manager.uninstall('@scope/pkg');
     expect(vfs.exists).toHaveBeenCalledWith('/node_modules/@scope/pkg');
-    expect(vfs.rm).toHaveBeenCalledWith('/node_modules/@scope/pkg', { recursive: true });
+    expect(vfs.rm).toHaveBeenCalledWith('/node_modules/@scope/pkg', { recursive: true, force: true });
     expect(vfs.rmdir).not.toHaveBeenCalled();
+  });
+
+  it('uninstall removes generated .bin stubs from package.json bin metadata', async () => {
+    vfs.exists = vi.fn().mockResolvedValue(true);
+    vfs.rm = vi.fn().mockResolvedValue(undefined);
+    vfs.readText = vi.fn().mockResolvedValue(JSON.stringify({
+      name: '@scope/tool',
+      version: '1.0.0',
+      bin: {
+        tool: './bin/tool.js',
+        tk: './bin/tk.js',
+      },
+    }));
+
+    await manager.uninstall('@scope/tool');
+    expect(vfs.rm).toHaveBeenCalledWith('/node_modules/.bin/tool', { recursive: true, force: true });
+    expect(vfs.rm).toHaveBeenCalledWith('/node_modules/.bin/tk', { recursive: true, force: true });
+    expect(vfs.rm).toHaveBeenCalledWith('/node_modules/@scope/tool', { recursive: true, force: true });
   });
 });

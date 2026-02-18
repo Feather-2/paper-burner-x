@@ -21,6 +21,7 @@ export class ObservabilityStream {
     this._listeners = new Set();
     this._buffer = [];
     this._maxBuffer = 1000;
+    this._replayBatchSize = 100;
   }
 
   /**
@@ -28,10 +29,37 @@ export class ObservabilityStream {
    * @returns {() => void} unsubscribe function
    */
   subscribe(listener) {
+    const snapshot = this._buffer.slice();
     this._listeners.add(listener);
-    // Send buffered events to new subscriber
-    this._buffer.forEach(e => listener(e));
+    // Replay buffered events asynchronously in batches to avoid blocking subscribe()
+    this._replayBufferedEvents(listener, snapshot);
     return () => this._listeners.delete(listener);
+  }
+
+  /**
+   * @private
+   * @param {(event: ObservabilityEvent) => void} listener
+   * @param {ObservabilityEvent[]} events
+   */
+  _replayBufferedEvents(listener, events) {
+    if (!events.length) return;
+    let cursor = 0;
+    const batchSize = this._replayBatchSize;
+    const flush = () => {
+      if (!this._listeners.has(listener)) return;
+      const end = Math.min(cursor + batchSize, events.length);
+      for (; cursor < end; cursor += 1) {
+        try {
+          listener(events[cursor]);
+        } catch (error) {
+          logger.error('Observability replay listener error', { error });
+        }
+      }
+      if (cursor < events.length) {
+        setTimeout(flush, 0);
+      }
+    };
+    setTimeout(flush, 0);
   }
 
   /**
@@ -67,20 +95,38 @@ export class ObservabilityStream {
  * @returns {object} Wrapped VFS
  */
 export function withObservability(vfs, stream, quotaEnforcer) {
+  const observedMethods = new Set([
+    'readFile',
+    'readText',
+    'readdir',
+    'stat',
+    'writeFile',
+    'writeText',
+    'appendText',
+    'mkdir',
+    'unlink',
+    'rmdir',
+    'copy',
+    'move',
+    'rename',
+  ]);
+
   return new Proxy(vfs, {
     get(target, prop) {
       const original = target[prop];
       if (typeof original !== 'function') return original;
 
       // Intercept async methods
-      if (['readFile', 'readText', 'writeFile', 'mkdir', 'unlink', 'rmdir'].includes(prop)) {
+      if (typeof prop === 'string' && observedMethods.has(prop)) {
         return async function(...args) {
           const path = args[0];
           const start = Date.now();
 
           // Quota enforcement
           if (quotaEnforcer) {
-            if (prop === 'writeFile') quotaEnforcer.trackFileWrite();
+            if (['writeFile', 'writeText', 'appendText', 'copy', 'move', 'rename'].includes(prop)) {
+              quotaEnforcer.trackFileWrite();
+            }
           }
 
           try {
@@ -89,7 +135,9 @@ export function withObservability(vfs, stream, quotaEnforcer) {
 
             // Track read size for quota
             if (quotaEnforcer && (prop === 'readFile' || prop === 'readText')) {
-              const bytes = result instanceof Uint8Array ? result.length : new Blob([result]).size;
+              const bytes = result instanceof Uint8Array
+                ? result.length
+                : new Blob([result ?? '']).size;
               quotaEnforcer.trackFileRead(bytes);
             }
 

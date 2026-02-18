@@ -267,6 +267,39 @@ function annotateStderr(stderr, exitCode) {
 }
 
 /**
+ * Build read-only mount plan.
+ *
+ * Semantics:
+ * - `allowedReadPaths` empty: backward-compatible full read-only root (`--ro-bind / /`)
+ * - `allowedReadPaths` includes `/`: full read-only root
+ * - otherwise: explicit read whitelist (plus minimal runtime system paths)
+ *
+ * @param {string} workDir
+ * @param {string[]} allowedReadPaths
+ * @returns {{ bindReadonlyRoot: boolean, readOnlyPaths: string[] }}
+ */
+function buildReadOnlyMountPlan(workDir, allowedReadPaths) {
+  const normalizedAllowed = Array.isArray(allowedReadPaths)
+    ? allowedReadPaths
+      .map((path) => normalizeSandboxPath(path, workDir))
+      .filter(Boolean)
+    : [];
+
+  const bindReadonlyRoot = normalizedAllowed.length === 0 || normalizedAllowed.includes('/');
+  if (bindReadonlyRoot) {
+    return { bindReadonlyRoot: true, readOnlyPaths: [] };
+  }
+
+  const minimalSystemReadPaths = ['/usr', '/lib', '/lib64', '/bin', '/sbin', '/etc', '/opt'];
+  const readOnlyPaths = [...new Set([
+    ...minimalSystemReadPaths,
+    ...normalizedAllowed,
+    workDir,
+  ])];
+  return { bindReadonlyRoot: false, readOnlyPaths };
+}
+
+/**
  * 在 Bubblewrap 沙箱中执行命令
  * @param {string} command - 要执行的命令
  * @param {string[]} args - 命令参数
@@ -353,14 +386,23 @@ function buildBubblewrapArgs(options) {
     '--unshare-pid',
     '--proc', '/proc',
 
-    // 全局只读根 — 比逐个挂载更安全（不会遗漏路径）
-    // 参考 ASRT linux-sandbox-utils.ts:647
-    '--ro-bind', '/', '/',
-
     // 覆盖 /dev 和 /tmp（需要可写）
     '--dev', '/dev',
     '--tmpfs', '/tmp',
   ];
+
+  const { bindReadonlyRoot, readOnlyPaths } = buildReadOnlyMountPlan(workDir, allowedReadPaths);
+  if (bindReadonlyRoot) {
+    // 全局只读根 — 比逐个挂载更安全（不会遗漏路径）
+    // 参考 ASRT linux-sandbox-utils.ts:647
+    args.push('--ro-bind', '/', '/');
+  } else {
+    // 显式只读白名单（当 allowedReadPaths 提供具体路径时）
+    for (const readPath of readOnlyPaths) {
+      if (!readPath || readPath === workDir) continue;
+      args.push('--ro-bind-try', readPath, readPath);
+    }
+  }
 
   // 工作目录 (可写) — 覆盖全局只读根中的对应路径
   args.push('--bind', workDir, workDir);
