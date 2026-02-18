@@ -98,6 +98,7 @@ describe('chokidar shim', () => {
   beforeEach(() => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
 
     vfs = new MockVFS();
     vfs.addDir('/workspace');
@@ -235,5 +236,42 @@ describe('chokidar shim', () => {
     expect(chokidar.watch).toBe(watch);
     expect(chokidar.FSWatcher).toBe(FSWatcher);
     expect(chokidar.setVFS).toBe(setVFS);
+  });
+
+  it('supports per-instance VFS to avoid global singleton leakage', async () => {
+    const vfsA = new MockVFS();
+    vfsA.addDir('/a');
+    vfsA.addFile('/a/a.txt');
+
+    const vfsB = new MockVFS();
+    vfsB.addDir('/b');
+    vfsB.addFile('/b/b.txt');
+
+    const watcherA = new FSWatcher({ vfs: vfsA });
+    const watcherB = new FSWatcher({ vfs: vfsB });
+    watcherA.add('/a/a.txt');
+    watcherB.add('/b/b.txt');
+    await nextTick();
+
+    expect(watcherA.getWatched()).toEqual({ '/a': ['a.txt'] });
+    expect(watcherB.getWatched()).toEqual({ '/b': ['b.txt'] });
+
+    await watcherA.close();
+    await watcherB.close();
+  });
+
+  it('is silent by default and only emits debug logs when debug=true', async () => {
+    const watcher = new FSWatcher();
+    watcher.add('/workspace/file.txt');
+    await nextTick();
+    expect(console.debug).not.toHaveBeenCalled();
+
+    const debugWatcher = new FSWatcher({ debug: true });
+    debugWatcher.add('/workspace/file.txt');
+    await nextTick();
+    expect(console.debug).toHaveBeenCalled();
+
+    await watcher.close();
+    await debugWatcher.close();
   });
 });

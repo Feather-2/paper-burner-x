@@ -32,6 +32,9 @@ export function setVFS(vfs) {
  * @property {boolean | { stabilityThreshold?: number; pollInterval?: number }} [awaitWriteFinish]
  * @property {boolean} [ignorePermissionErrors]
  * @property {boolean | number} [atomic]
+ * @property {import('../vfs/types.js').VirtualFS} [vfs]
+ * @property {boolean} [debug]
+ * @property {{ debug?: (...args: unknown[]) => void, warn?: (...args: unknown[]) => void }} [logger]
  */
 
 export class FSWatcher extends EventEmitter {
@@ -40,21 +43,49 @@ export class FSWatcher extends EventEmitter {
    */
   constructor(options = {}) {
     super();
-    if (!globalVFS) {
+    /** @type {ChokidarOptions} */
+    this.options = options;
+
+    /** @type {import('../vfs/types.js').VirtualFS | null | undefined} */
+    const selectedVfs = options?.vfs || globalVFS;
+    if (!selectedVfs) {
       throw new Error('chokidar: VirtualFS not initialized. Call setVFS first.');
     }
     /** @type {import('../vfs/types.js').VirtualFS} */
-    this.vfs = globalVFS;
+    this.vfs = selectedVfs;
     /** @type {Map<string, import('../vfs/types.js').FSWatcher>} */
     this.watched = new Map();
-    /** @type {ChokidarOptions} */
-    this.options = options;
     /** @type {boolean} */
     this.closed = false;
     /** @type {boolean} */
     this.ready = false;
     /** @type {Map<string, number> | undefined} */
     this._eventCounts = undefined;
+    this._debug = !!this.options.debug;
+    this._logger = this.options.logger || null;
+  }
+
+  /**
+   * @param {...unknown} args
+   */
+  _logDebug(...args) {
+    if (!this._debug) return;
+    if (this._logger && typeof this._logger.debug === 'function') {
+      this._logger.debug(...args);
+      return;
+    }
+    console.debug(...args);
+  }
+
+  /**
+   * @param {...unknown} args
+   */
+  _logWarn(...args) {
+    if (this._logger && typeof this._logger.warn === 'function') {
+      this._logger.warn(...args);
+      return;
+    }
+    if (this._debug) console.warn(...args);
   }
 
   /**
@@ -106,7 +137,7 @@ export class FSWatcher extends EventEmitter {
     const pathArray = Array.isArray(paths) ? paths : [paths];
     /** @type {Array<() => void>} */
     const pendingEmits = [];
-    console.log('[chokidar] add:', pathArray);
+    this._logDebug('[chokidar] add:', pathArray);
 
     for (const p of pathArray) {
       const normalized = this.normalizePath(p);
@@ -210,10 +241,10 @@ export class FSWatcher extends EventEmitter {
       const count = (this._eventCounts.get(eventKey) || 0) + 1;
       this._eventCounts.set(eventKey, count);
       if (count === 5) {
-        console.warn(`[chokidar] Repeated event: ${eventType} on ${fullPath} (${count}+ times)`);
+        this._logWarn(`[chokidar] Repeated event: ${eventType} on ${fullPath} (${count}+ times)`);
       }
 
-      console.log('[chokidar] event:', eventType, fullPath);
+      this._logDebug('[chokidar] event:', eventType, fullPath);
 
       // If we're watching for a specific path, only emit for that
       if (watchFor && fullPath !== watchFor && !fullPath.startsWith(watchFor + '/')) {
@@ -221,7 +252,7 @@ export class FSWatcher extends EventEmitter {
       }
 
       if (this.shouldIgnore(fullPath)) {
-        console.log('[chokidar] ignored:', fullPath);
+        this._logDebug('[chokidar] ignored:', fullPath);
         return;
       }
 
@@ -231,24 +262,24 @@ export class FSWatcher extends EventEmitter {
           try {
             const stats = this.vfs.statSync(fullPath);
             if (stats.isDirectory()) {
-              console.log('[chokidar] emit addDir:', fullPath);
+              this._logDebug('[chokidar] emit addDir:', fullPath);
               this.emit('addDir', fullPath, stats);
             } else {
-              console.log('[chokidar] emit add:', fullPath);
+              this._logDebug('[chokidar] emit add:', fullPath);
               this.emit('add', fullPath, stats);
             }
           } catch {
             // Race condition - file may have been deleted
           }
         } else {
-          console.log('[chokidar] emit unlink:', fullPath);
+          this._logDebug('[chokidar] emit unlink:', fullPath);
           this.emit('unlink', fullPath);
         }
       } else if (eventType === 'change') {
         // File was modified
         try {
           const stats = this.vfs.statSync(fullPath);
-          console.log('[chokidar] emit change:', fullPath);
+          this._logDebug('[chokidar] emit change:', fullPath);
           this.emit('change', fullPath, stats);
         } catch {
           // File may have been deleted

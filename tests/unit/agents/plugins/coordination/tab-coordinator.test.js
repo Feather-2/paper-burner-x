@@ -136,6 +136,17 @@ describe("TabCoordinator", () => {
     expect(negativeCoordinator._heartbeatMs).toBe(5000);
   });
 
+  it("supports configurable stale grace and leader selection strategy", () => {
+    globalThis.BroadcastChannel = undefined;
+    const coordinator = new TabCoordinator({
+      heartbeatMs: 1000,
+      staleGraceMs: 500,
+      leaderSelection: "lexicographic",
+    });
+    expect(coordinator._staleGraceMs).toBe(500);
+    expect(coordinator._leaderSelection).toBe("lexicographic");
+  });
+
   it("no-ops on init when BroadcastChannel is unsupported", async () => {
     globalThis.BroadcastChannel = undefined;
 
@@ -351,6 +362,26 @@ describe("TabCoordinator", () => {
     });
 
     expect(coordinator.activeTabCount).toBeGreaterThan(1);
+  });
+
+  it("detects split-brain heartbeat and steps down when peer is preferred", () => {
+    const coordinator = new TabCoordinator({ leaderSelection: "last-seen" });
+    coordinator._tabId = "tab-b";
+    coordinator._isLeader = true;
+    coordinator._tabSeen = new Map([["tab-b", 10]]);
+    const reelectionSpy = vi.spyOn(coordinator, "_triggerReelection");
+
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1);
+    try {
+      coordinator._handleMessage({
+        data: { type: "heartbeat", tabId: "tab-a", ts: 20, isLeader: true },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(coordinator._splitBrainCount).toBe(1);
+    expect(reelectionSpy).toHaveBeenCalled();
   });
 
   it("refreshes presence, prunes stale tabs, and elects leader", () => {

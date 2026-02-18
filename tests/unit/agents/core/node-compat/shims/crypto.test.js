@@ -37,12 +37,22 @@ describe('crypto shim', () => {
     }
   });
 
+  it('randomInt validates invalid boundaries', () => {
+    expect(() => randomInt(5, 5)).toThrow();
+    expect(() => randomInt(10, 5)).toThrow();
+    expect(() => randomInt(0.5, 10)).toThrow();
+  });
+
   it('Hash.digest throws with migration guidance', () => {
     expect(() => createHash('sha256').update('hello').digest('hex')).toThrow(
       '[crypto shim] Hash.digest() is not supported in browser environment. ' +
       'Synchronous hashing cannot be implemented securely without Web Crypto API. ' +
       'Use digestAsync() instead for cryptographically correct results.'
     );
+  });
+
+  it('createHash rejects md5 for WebCrypto compatibility', () => {
+    expect(() => createHash('md5')).toThrow(/MD5 is not supported/i);
   });
 
   it('createHash(sha256).update(hello).digestAsync(hex) returns SHA-256', async () => {

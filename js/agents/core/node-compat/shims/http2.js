@@ -1,55 +1,167 @@
 /**
- * http2 shim - HTTP/2 is not available in browser
+ * http2 shim - HTTP/2 transport is not available in browser runtimes.
+ * This module exposes API-compatible stubs with explicit capability flags.
  */
 
 import { EventEmitter } from './events.js';
 
+function createUnsupportedError(api) {
+  const err = new Error(`[http2 shim] ${api} is not supported in browser runtime`);
+  err.code = 'ERR_HTTP2_UNSUPPORTED';
+  return err;
+}
+
+export const HTTP2_SHIM_CAPABILITIES = Object.freeze({
+  clientSession: false,
+  serverSession: false,
+  stream: false,
+  server: false,
+  secureServer: false,
+});
+
+export function isHttp2Supported() {
+  return false;
+}
+
 export class Http2Session extends EventEmitter {
-  close(_callback) {
-    if (_callback) setTimeout(_callback, 0);
+  constructor() {
+    super();
+    this._destroyed = false;
+    this._closed = false;
+    this.isStub = true;
+    this.supported = false;
   }
-  destroy(_error, _code) {}
-  get destroyed() { return false; }
+
+  close(callback) {
+    this._closed = true;
+    queueMicrotask(() => {
+      this.emit('close');
+      if (typeof callback === 'function') callback();
+    });
+  }
+
+  destroy(error, _code) {
+    this._destroyed = true;
+    this._closed = true;
+    if (error && this.listenerCount('error') > 0) this.emit('error', error);
+    this.emit('close');
+  }
+
+  get destroyed() { return this._destroyed; }
   get encrypted() { return false; }
-  get closed() { return false; }
-  ping(_callback) {
+  get closed() { return this._closed; }
+
+  ping(callback) {
+    const err = createUnsupportedError('Http2Session.ping');
+    if (typeof callback === 'function') queueMicrotask(() => callback(err));
     return false;
   }
-  ref() {}
-  unref() {}
-  setTimeout(_msecs, _callback) {}
+
+  ref() { return this; }
+  unref() { return this; }
+
+  setTimeout(_msecs, callback) {
+    if (typeof callback === 'function') this.once('timeout', callback);
+    return this;
+  }
 }
 
 export class ClientHttp2Session extends Http2Session {}
 export class ServerHttp2Session extends Http2Session {}
 
 export class Http2Stream extends EventEmitter {
-  close(_code, _callback) {}
+  constructor() {
+    super();
+    this._destroyed = false;
+    this._closed = false;
+    this.isStub = true;
+    this.supported = false;
+  }
+
+  close(_code, callback) {
+    this._closed = true;
+    queueMicrotask(() => {
+      this.emit('close');
+      if (typeof callback === 'function') callback();
+    });
+  }
+
   get id() { return 0; }
   get pending() { return false; }
-  get destroyed() { return false; }
-  get closed() { return false; }
-  priority(_options) {}
-  setTimeout(_msecs, _callback) {}
-  end(_data, _encoding, _callback) {}
+  get destroyed() { return this._destroyed; }
+  get closed() { return this._closed; }
+  priority(_options) { return this; }
+  setTimeout(_msecs, callback) {
+    if (typeof callback === 'function') this.once('timeout', callback);
+    return this;
+  }
+
+  end(_data, _encoding, callback) {
+    this._closed = true;
+    queueMicrotask(() => {
+      this.emit('finish');
+      if (typeof callback === 'function') callback();
+    });
+    return this;
+  }
 }
 
-export class Http2ServerRequest extends EventEmitter {}
+export class Http2ServerRequest extends EventEmitter {
+  constructor() {
+    super();
+    this.isStub = true;
+  }
+}
+
 export class Http2ServerResponse extends EventEmitter {
+  constructor() {
+    super();
+    this.isStub = true;
+  }
+
   writeHead(_statusCode, _headers) { return this; }
-  end(_data) {}
+  end(_data) {
+    this.emit('finish');
+  }
+}
+
+function createUnsupportedServer(kind) {
+  const server = new EventEmitter();
+  server.isStub = true;
+  server.supported = false;
+  server.listen = function listen(...args) {
+    const cb = args.find((arg) => typeof arg === 'function');
+    const err = createUnsupportedError(`${kind}.listen`);
+    queueMicrotask(() => {
+      this.emit('error', err);
+      if (cb) cb(err);
+    });
+    return this;
+  };
+  server.close = function close(callback) {
+    queueMicrotask(() => {
+      this.emit('close');
+      if (typeof callback === 'function') callback();
+    });
+    return this;
+  };
+  return server;
 }
 
 export function createServer(_options, _onRequestHandler) {
-  return new EventEmitter();
+  return createUnsupportedServer('http2.createServer');
 }
 
 export function createSecureServer(_options, _onRequestHandler) {
-  return new EventEmitter();
+  return createUnsupportedServer('http2.createSecureServer');
 }
 
-export function connect(_authority, _options, _listener) {
-  return new ClientHttp2Session();
+export function connect(_authority, _options, listener) {
+  const session = new ClientHttp2Session();
+  if (typeof listener === 'function') {
+    queueMicrotask(() => listener(session, createUnsupportedError('http2.connect')));
+  }
+  return session;
 }
 
 export const constants = {
@@ -79,6 +191,8 @@ export function getUnpackedSettings(_buf) {
 export const sensitiveHeaders = Symbol('sensitiveHeaders');
 
 export default {
+  HTTP2_SHIM_CAPABILITIES,
+  isHttp2Supported,
   Http2Session,
   ClientHttp2Session,
   ServerHttp2Session,

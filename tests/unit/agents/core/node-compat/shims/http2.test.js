@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from '../../../../../../js/agents/core/node-compat/shims/events.js';
 import http2, {
+  HTTP2_SHIM_CAPABILITIES,
+  isHttp2Supported,
   Http2Session,
   ClientHttp2Session,
   ServerHttp2Session,
@@ -18,6 +20,12 @@ import http2, {
 } from '../../../../../../js/agents/core/node-compat/shims/http2.js';
 
 describe('http2 shim', () => {
+  it('declares explicit non-support capabilities', () => {
+    expect(isHttp2Supported()).toBe(false);
+    expect(HTTP2_SHIM_CAPABILITIES.server).toBe(false);
+    expect(HTTP2_SHIM_CAPABILITIES.clientSession).toBe(false);
+  });
+
   it('Http2Session exposes safe default session state', async () => {
     const session = new Http2Session();
     expect(session.destroyed).toBe(false);
@@ -57,6 +65,15 @@ describe('http2 shim', () => {
     expect(connect('https://example.com')).toBeInstanceOf(ClientHttp2Session);
   });
 
+  it('server stubs fail-fast on listen with explicit unsupported error', async () => {
+    const server = createServer();
+    const errFn = vi.fn();
+    server.on('error', errFn);
+    await new Promise((resolve) => server.listen(8443, resolve));
+    expect(errFn).toHaveBeenCalled();
+    expect(errFn.mock.calls[0][0].code).toBe('ERR_HTTP2_UNSUPPORTED');
+  });
+
   it('settings/constants exports return compatibility defaults', () => {
     expect(constants.NGHTTP2_SESSION_SERVER).toBe(0);
     expect(constants.NGHTTP2_SESSION_CLIENT).toBe(1);
@@ -74,6 +91,8 @@ describe('http2 shim', () => {
 
   it('default export mirrors named exports', () => {
     expect(http2.Http2Session).toBe(Http2Session);
+    expect(http2.HTTP2_SHIM_CAPABILITIES).toBe(HTTP2_SHIM_CAPABILITIES);
+    expect(http2.isHttp2Supported).toBe(isHttp2Supported);
     expect(http2.ClientHttp2Session).toBe(ClientHttp2Session);
     expect(http2.ServerHttp2Session).toBe(ServerHttp2Session);
     expect(http2.Http2Stream).toBe(Http2Stream);

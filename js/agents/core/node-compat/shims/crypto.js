@@ -41,9 +41,28 @@ export function randomUUID() { return crypto.randomUUID(); }
  */
 export function randomInt(min, max) {
   if (max === undefined) { max = min; min = 0; }
+  min = Number(min);
+  max = Number(max);
+  if (!Number.isInteger(min) || !Number.isInteger(max)) {
+    const err = new TypeError('randomInt() min and max must be integers');
+    err.code = 'ERR_INVALID_ARG_TYPE';
+    throw err;
+  }
+  if (!(max > min)) {
+    const err = new RangeError('randomInt() max must be greater than min');
+    err.code = 'ERR_OUT_OF_RANGE';
+    throw err;
+  }
+  const range = max - min;
+  const maxUint32 = 0x1_0000_0000;
+  const limit = Math.floor(maxUint32 / range) * range;
   const arr = new Uint32Array(1);
-  crypto.getRandomValues(arr);
-  return min + (arr[0] % (max - min));
+  let value = 0;
+  do {
+    crypto.getRandomValues(arr);
+    value = arr[0];
+  } while (value >= limit);
+  return min + (value % range);
 }
 
 /**
@@ -56,8 +75,14 @@ export function getRandomValues(arr) { return crypto.getRandomValues(arr); }
 
 /** @param {string} alg */
 function normalizeAlgorithm(alg) {
-  const map = { sha1: 'SHA-1', sha256: 'SHA-256', sha384: 'SHA-384', sha512: 'SHA-512', md5: 'MD5' };
-  return map[alg.toLowerCase().replace('-', '')] || alg;
+  const normalized = String(alg || '').toLowerCase().replace(/-/g, '');
+  const map = { sha1: 'SHA-1', sha256: 'SHA-256', sha384: 'SHA-384', sha512: 'SHA-512' };
+  if (normalized === 'md5') {
+    const err = new Error('[crypto shim] MD5 is not supported by WebCrypto digest APIs.');
+    err.code = 'ERR_CRYPTO_UNSUPPORTED_ALGORITHM';
+    throw err;
+  }
+  return map[normalized] || alg;
 }
 
 

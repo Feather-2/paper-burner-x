@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { platform, arch, homedir, tmpdir, hostname, type, release, uptime, totalmem, freemem, cpus, networkInterfaces, userInfo, loadavg, endianness, EOL, devNull, constants } from '../../../../../../js/agents/core/node-compat/shims/os.js';
+import { platform, arch, homedir, tmpdir, hostname, type, release, uptime, totalmem, freemem, cpus, networkInterfaces, userInfo, loadavg, endianness, getResourceModel, EOL, devNull, constants } from '../../../../../../js/agents/core/node-compat/shims/os.js';
 
 describe('os shim', () => {
   it('platform returns browser', () => {
@@ -64,5 +64,13 @@ describe('os shim', () => {
   it('constants has signals and errno', () => {
     expect(constants).toHaveProperty('signals');
     expect(constants).toHaveProperty('errno');
+  });
+
+  it('getResourceModel declares estimated stub source', () => {
+    const model = getResourceModel();
+    expect(model.source).toBe('browser-stub');
+    expect(model.estimated).toBe(true);
+    expect(model.totalmem).toBeGreaterThan(0);
+    expect(model.cpuCount).toBeGreaterThan(0);
   });
 });

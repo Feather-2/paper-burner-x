@@ -170,11 +170,12 @@ describe('stream shim', () => {
     expect(w._chunks).toEqual(['a', 'b']);
   });
 
-  it('Writable.end emits finish', () => {
+  it('Writable.end emits finish', async () => {
     const w = new Writable();
     const fn = vi.fn();
     w.on('finish', fn);
     w.end();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fn).toHaveBeenCalled();
     expect(w.writable).toBe(false);
   });
@@ -193,10 +194,11 @@ describe('stream shim', () => {
     expect(w.writable).toBe(false);
   });
 
-  it('Writable.end with callback only', () => {
+  it('Writable.end with callback only', async () => {
     const w = new Writable();
     const cb = vi.fn();
     w.end(cb);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(cb).toHaveBeenCalled();
   });
 
@@ -245,6 +247,20 @@ describe('stream shim', () => {
     EventEmitter_on(pt, 'data', (c) => chunks.push(c));
     pt.resume();
     expect(chunks.length).toBe(1);
+  });
+
+  it('Transform executes _transform chain and emits transformed data', async () => {
+    const upper = new Transform({
+      transform(chunk, _encoding, cb) {
+        cb(null, String(chunk).toUpperCase());
+      },
+    });
+    const chunks = [];
+    upper.on('data', (chunk) => chunks.push(String(chunk)));
+    upper.write('hello');
+    upper.end();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(chunks).toEqual(['HELLO']);
   });
 
   // ── destroy ──
@@ -351,6 +367,24 @@ describe('stream shim', () => {
     w.write(Buffer.alloc(16));
     await new Promise(r => globalThis.setTimeout(r, 20));
     expect(drainFn).toHaveBeenCalled();
+  });
+
+  it('Writable.finish waits for async _write completion', async () => {
+    const order = [];
+    const w = new Writable({
+      write(_chunk, _enc, cb) {
+        order.push('write:start');
+        setTimeout(() => {
+          order.push('write:done');
+          cb();
+        }, 10);
+      },
+    });
+    w.on('finish', () => order.push('finish'));
+    w.write('x');
+    w.end();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(order).toEqual(['write:start', 'write:done', 'finish']);
   });
 });
 

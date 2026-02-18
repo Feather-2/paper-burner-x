@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import path, {
   join, resolve, normalize, dirname, basename, extname,
   isAbsolute, relative, parse, format, sep, delimiter,
@@ -73,6 +73,15 @@ describe('path shim', () => {
       const r = resolve('a', 'b');
       expect(r.startsWith('/')).toBe(true);
       expect(r.endsWith('a/b')).toBe(true);
+    });
+
+    it('uses process.cwd() semantics for relative resolution', () => {
+      const spy = vi.spyOn(process, 'cwd').mockReturnValue('/workspace');
+      try {
+        expect(resolve('a', 'b')).toBe('/workspace/a/b');
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

@@ -6,6 +6,18 @@
 export const sep = '/';
 export const delimiter = ':';
 
+function getCurrentWorkingDirectory() {
+  try {
+    if (globalThis.process && typeof globalThis.process.cwd === 'function') {
+      const cwd = globalThis.process.cwd();
+      if (typeof cwd === 'string' && cwd) return cwd;
+    }
+  } catch {
+    // Ignore and fallback to root.
+  }
+  return '/';
+}
+
 /**
  * Normalize a path string, resolving '.' and '..' segments.
  * @param {string} p
@@ -54,17 +66,30 @@ export function join(...segments) {
  * @returns {string}
  */
 export function resolve(...segments) {
-  let resolved = '';
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const seg = segments[i];
-    if (typeof seg !== 'string' || seg.length === 0) continue;
-    resolved = seg + (resolved ? '/' + resolved : '');
-    if (seg.charCodeAt(0) === 47) break;
+  let resolvedPath = '';
+  let resolvedAbsolute = false;
+
+  for (let i = segments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
+    let segment;
+    if (i >= 0) {
+      segment = segments[i];
+      if (typeof segment !== 'string') {
+        throw new TypeError('Path must be a string');
+      }
+      if (!segment) continue;
+    } else {
+      segment = getCurrentWorkingDirectory();
+    }
+
+    resolvedPath = segment + (resolvedPath ? `/${resolvedPath}` : '');
+    resolvedAbsolute = segment.charCodeAt(0) === 47;
   }
-  if (!resolved || resolved.charCodeAt(0) !== 47) {
-    resolved = '/' + resolved;
+
+  if (!resolvedAbsolute) {
+    resolvedPath = `/${resolvedPath}`;
   }
-  return normalize(resolved);
+
+  return normalize(resolvedPath);
 }
 
 /**

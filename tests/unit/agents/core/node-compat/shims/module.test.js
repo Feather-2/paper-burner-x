@@ -26,6 +26,18 @@ describe('module shim', () => {
       const require = createRequire('/path/to/file.js');
       expect(() => require('test')).toThrow("from '/path/to/file.js'");
     });
+
+    it('returns builtin fallback modules instead of throwing', () => {
+      const require = createRequire('/path/to/file.js');
+      const pathModule = require('path');
+      expect(pathModule).toBeDefined();
+      expect(typeof pathModule.join).toBe('function');
+    });
+
+    it('supports node: builtin specifiers', () => {
+      const require = createRequire('/path/to/file.js');
+      expect(require('node:path')).toBe(require('path'));
+    });
   });
 
   describe('builtinModules', () => {

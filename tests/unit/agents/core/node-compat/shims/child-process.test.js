@@ -31,6 +31,18 @@ describe('createChildProcessShim', () => {
     expect(stdout).toBe('foo bar\n');
   });
 
+  it('parseCommand supports quoted arguments', async () => {
+    const { err, stdout } = await run('echo "hello world" tail');
+    expect(err).toBeNull();
+    expect(stdout).toBe('hello world tail\n');
+  });
+
+  it('parseCommand supports escaped whitespace', async () => {
+    const parsed = cp._parseCommand('echo path\\ with\\ space');
+    expect(parsed.name).toBe('echo');
+    expect(parsed.args).toEqual(['path with space']);
+  });
+
   it('cat reads a VFS file', async () => {
     const { err, stdout } = await run('cat hello.txt');
     expect(err).toBeNull();

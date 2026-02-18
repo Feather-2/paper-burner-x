@@ -367,6 +367,9 @@ export class ProcessTransport extends EventEmitter {
     this.args = normalizeArgs(options.args);
     this.env = sanitizeEnv(options.env, options.allowedEnvKeys);
     this.timeout = options.timeout || 30000;
+    this.connectTimeout = Number.isFinite(Number(options.connectTimeout)) && Number(options.connectTimeout) > 0
+      ? Number(options.connectTimeout)
+      : Math.max(Number(this.timeout) || 0, 1000);
     this.signal = options.signal || null;
 
     this.process = null;
@@ -379,6 +382,7 @@ export class ProcessTransport extends EventEmitter {
     this._requestId = 0;
     /** @type {Map<string|number, PendingRequest>} */
     this._pending = new Map();
+    this._protocolIssues = 0;
   }
 
   /**
@@ -404,6 +408,13 @@ export class ProcessTransport extends EventEmitter {
         else reject(error);
       };
 
+      const markConnected = () => {
+        if (settled || this.connected) return;
+        this.connected = true;
+        this.emit("transport:connected");
+        settle(true);
+      };
+
       try {
         this.process = spawn(this.command, this.args, {
           cwd: this.cwd,
@@ -418,6 +429,10 @@ export class ProcessTransport extends EventEmitter {
           settle(false, err);
         });
 
+        this.process.on("spawn", () => {
+          markConnected();
+        });
+
         this.process.on("exit", (code, signal) => {
           this.connected = false;
           this._rejectAllPending(new Error(`Process exited: code=${code}, signal=${signal}`));
@@ -429,26 +444,32 @@ export class ProcessTransport extends EventEmitter {
         this.process.stdout?.on("data", (chunk) => {
           this.buffer += chunk.toString();
           this._processBuffer();
-          // 首次收到有效数据即视为就绪
-          if (!settled && !this.connected) {
-            this.connected = true;
-            this.emit("transport:connected");
-            settle(true);
-          }
+          // 兼容旧行为: 首次 stdout 数据也可视作就绪
+          if (!settled) markConnected();
         });
 
         this.process.stderr?.on("data", (chunk) => {
           this.emit("transport:stderr", chunk.toString());
         });
 
-        // 超时保底: 若 spawn 成功且未退出，也视为连接就绪
-        connectTimer = setTimeout(() => {
-          if (!settled && this.process && !this.process.killed) {
-            this.connected = true;
-            this.emit("transport:connected");
-            settle(true);
+        // Some mocked/embedded runtimes may not emit "spawn".
+        // If a pid is already available, treat process creation as connected.
+        queueMicrotask(() => {
+          if (!settled && this.process && typeof this.process.pid === "number") {
+            markConnected();
           }
-        }, 100);
+        });
+
+        // 连接超时: 必须出现 spawn/stdout 才会视为连接成功
+        connectTimer = setTimeout(() => {
+          if (!settled) {
+            const err = new Error(
+              `ProcessTransport connect timeout after ${this.connectTimeout}ms (command: ${this.command})`
+            );
+            err.code = "ERR_PROCESS_TRANSPORT_CONNECT_TIMEOUT";
+            settle(false, err);
+          }
+        }, this.connectTimeout);
       } catch (err) {
         settle(false, err);
       }
@@ -484,7 +505,13 @@ export class ProcessTransport extends EventEmitter {
       }, this.timeout);
 
       this._pending.set(id, { resolve, reject, timer });
-      this.send(message);
+      try {
+        this.send(message);
+      } catch (err) {
+        clearTimeout(timer);
+        this._pending.delete(id);
+        reject(err);
+      }
     });
   }
 
@@ -502,13 +529,21 @@ export class ProcessTransport extends EventEmitter {
    * @private
    */
   _processBuffer() {
-    // 防止 DoS: 超过阈值时截断并告警
+    // 防止 DoS: 超过阈值时按换行边界恢复，避免半包截断导致持续解析失败
     if (this.buffer.length > this._maxBufferSize) {
+      const originalSize = this.buffer.length;
+      const tail = this.buffer.slice(-this._maxBufferSize);
+      const firstNewline = tail.indexOf("\n");
+      const recovered = firstNewline >= 0 ? tail.slice(firstNewline + 1) : "";
+      const dropped = originalSize - recovered.length;
+      this.buffer = recovered;
+      this._protocolIssues += 1;
       this.emit("transport:buffer_overflow", {
-        size: this.buffer.length,
+        size: originalSize,
         limit: this._maxBufferSize,
+        dropped,
+        strategy: firstNewline >= 0 ? "trim_to_first_newline" : "drop_all",
       });
-      this.buffer = this.buffer.slice(-this._maxBufferSize / 2);
     }
 
     const lines = this.buffer.split("\n");
@@ -529,11 +564,13 @@ export class ProcessTransport extends EventEmitter {
         const message = JSON.parse(trimmed, protoSafeReviver);
         const validation = validateJsonRpcMessage(message);
         if (!validation.ok) {
+          this._protocolIssues += 1;
           this.emit("transport:invalid_message", { reason: validation.reason });
           continue;
         }
         this._handleMessage(validation.message);
       } catch (err) {
+        this._protocolIssues += 1;
         this.emit("transport:parse_error", { line: trimmed, error: err });
       }
     }
@@ -546,17 +583,27 @@ export class ProcessTransport extends EventEmitter {
    */
   _handleMessage(message) {
     // 响应消息 (有 id)
-    if (message.id !== undefined && this._pending.has(message.id)) {
-      const { resolve, reject, timer } = this._pending.get(message.id);
-      this._pending.delete(message.id);
-      clearTimeout(timer);
+    if (message.id !== undefined) {
+      if (this._pending.has(message.id)) {
+        const { resolve, reject, timer } = this._pending.get(message.id);
+        this._pending.delete(message.id);
+        clearTimeout(timer);
 
-      if (message.error) {
-        reject(new Error(message.error.message || "Unknown error"));
-      } else {
-        resolve(message.result);
+        if (message.error) {
+          reject(new Error(message.error.message || "Unknown error"));
+        } else {
+          resolve(message.result);
+        }
+        return;
       }
-      return;
+
+      if (message.result !== undefined || message.error !== undefined) {
+        this.emit("transport:orphan_response", {
+          id: message.id,
+          pending: this._pending.size,
+          message,
+        });
+      }
     }
 
     // 通知/事件消息

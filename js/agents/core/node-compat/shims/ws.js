@@ -5,6 +5,12 @@
 
 import { EventEmitter } from './events.js';
 
+function createUnsupportedServerError(api) {
+  const err = new Error(`[ws shim] ${api} is not supported in browser runtime`);
+  err.code = 'ERR_WS_SERVER_UNSUPPORTED';
+  return err;
+}
+
 /**
  * WebSocket class wrapping native WebSocket
  */
@@ -131,15 +137,38 @@ export class WebSocketServer extends EventEmitter {
     super();
     this.options = options || {};
     this.clients = new Set();
+    this.supported = false;
+    this.isStub = true;
+    this._closed = false;
   }
 
   close(callback) {
+    this._closed = true;
     this.clients.clear();
     if (callback) callback();
+    this.emit('close');
   }
 
-  handleUpgrade() {}
-  shouldHandle() { return false; }
+  handleUpgrade(_request, _socket, _head, callback) {
+    const err = createUnsupportedServerError('WebSocketServer.handleUpgrade');
+    this.emit('error', err);
+    if (typeof callback === 'function') callback(err);
+  }
+
+  shouldHandle(request) {
+    if (this._closed) return false;
+    const configuredPath = typeof this.options?.path === 'string' ? this.options.path : '';
+    if (!configuredPath) return true;
+
+    const url = typeof request?.url === 'string' ? request.url : '';
+    if (!url) return false;
+    try {
+      const parsed = new URL(url, 'ws://localhost');
+      return parsed.pathname === configuredPath;
+    } catch {
+      return url === configuredPath;
+    }
+  }
 }
 
 export default WebSocket;

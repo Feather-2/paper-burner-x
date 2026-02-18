@@ -39,6 +39,8 @@ import { Platform } from "../../shared/index.js";
  * @typedef {object} ProcessCoordinatorOptions
  * @property {(sessionId: string) => void} [onEviction]
  * @property {(sessionId: string) => void} [onAccess]
+ * @property {(info: { message: ProcessCoordinatorMessage, failed: number, sent: number }) => void} [onForwardError]
+ * @property {(info: { raw: unknown, error?: unknown }) => void} [onMalformedMessage]
  * @property {LoggerLike} [logger]
  */
 
@@ -192,6 +194,10 @@ export class ProcessCoordinator extends DisposableBase {
   _onAccess;
   /** @type {LoggerLike | null} */
   _logger;
+  /** @type {((info: { message: ProcessCoordinatorMessage, failed: number, sent: number }) => void) | null} */
+  _onForwardError;
+  /** @type {((info: { raw: unknown, error?: unknown }) => void) | null} */
+  _onMalformedMessage;
 
   /** @type {boolean} */
   _supported;
@@ -225,6 +231,10 @@ export class ProcessCoordinator extends DisposableBase {
     this._onAccess = typeof opts.onAccess === "function" ? opts.onAccess : null;
     /** @type {LoggerLike | null} */
     this._logger = opts.logger || null;
+    /** @type {((info: { message: ProcessCoordinatorMessage, failed: number, sent: number }) => void) | null} */
+    this._onForwardError = typeof opts.onForwardError === "function" ? opts.onForwardError : null;
+    /** @type {((info: { raw: unknown, error?: unknown }) => void) | null} */
+    this._onMalformedMessage = typeof opts.onMalformedMessage === "function" ? opts.onMalformedMessage : null;
 
     /** @type {boolean} */
     this._supported = isClusterSupported();
@@ -378,7 +388,10 @@ export class ProcessCoordinator extends DisposableBase {
     const message = { type, sessionId, source };
 
     if (this._isPrimary) {
-      this._broadcastToWorkers(message);
+      const result = this._broadcastToWorkers(message) || { sent: 0, failed: 0 };
+      if (result.failed > 0) {
+        this._safeCall(this._onForwardError, { message, failed: result.failed, sent: result.sent }, "onForwardError");
+      }
     } else if (this._isWorker) {
       this._sendToPrimary(message);
     }
@@ -386,21 +399,29 @@ export class ProcessCoordinator extends DisposableBase {
 
   /**
    * @param {ProcessCoordinatorMessage} message
-   * @returns {void}
+   * @param {{ excludeWorker?: unknown }} [options]
+   * @returns {{ sent: number, failed: number }}
    */
-  _broadcastToWorkers(message) {
+  _broadcastToWorkers(message, options = {}) {
     const cluster = this._cluster;
-    if (!cluster || !cluster.workers) return;
+    if (!cluster || !cluster.workers) return { sent: 0, failed: 0 };
     const workers = Object.values(cluster.workers || {});
+    const excludeWorker = options.excludeWorker || null;
+    let sent = 0;
+    let failed = 0;
     for (const worker of workers) {
       if (!worker || typeof worker.send !== "function") continue;
+      if (excludeWorker && worker === excludeWorker) continue;
       if (typeof worker.isConnected === "function" && !worker.isConnected()) continue;
       try {
         worker.send(message);
+        sent += 1;
       } catch (err) {
+        failed += 1;
         this._logWarn("[ProcessCoordinator] Failed to send message to worker:", err);
       }
     }
+    return { sent, failed };
   }
 
   /**
@@ -426,7 +447,27 @@ export class ProcessCoordinator extends DisposableBase {
     if (this.disposed) return;
     const parsed = this._handleIncomingMessage(message);
     if (!parsed) return;
-    this._broadcastToWorkers(parsed);
+    const result = (
+      _worker
+        ? this._broadcastToWorkers(parsed, { excludeWorker: _worker })
+        : this._broadcastToWorkers(parsed)
+    ) || { sent: 0, failed: 0 };
+    if (result.failed > 0) {
+      this._safeCall(this._onForwardError, { message: parsed, failed: result.failed, sent: result.sent }, "onForwardError");
+      if (_worker && typeof _worker.send === "function") {
+        try {
+          _worker.send({
+            type: "coordination-forward-error",
+            event: parsed.type,
+            sessionId: parsed.sessionId,
+            failed: result.failed,
+            sent: result.sent,
+          });
+        } catch (err) {
+          this._logWarn("[ProcessCoordinator] Failed to report forwarding error to source worker:", err);
+        }
+      }
+    }
   }
 
   /**
@@ -470,12 +511,16 @@ export class ProcessCoordinator extends DisposableBase {
       try {
         data = JSON.parse(data, protoSafeReviver);
       } catch (err) {
+        this._safeCall(this._onMalformedMessage, { raw, error: err }, "onMalformedMessage");
         this._logWarn("[ProcessCoordinator] Failed to parse message:", err);
         return null;
       }
     }
 
-    if (!isPlainObject(data)) return null;
+    if (!isPlainObject(data)) {
+      this._safeCall(this._onMalformedMessage, { raw }, "onMalformedMessage");
+      return null;
+    }
 
     const obj = /** @type {Record<string, unknown>} */ (data);
 
@@ -483,23 +528,32 @@ export class ProcessCoordinator extends DisposableBase {
     const sessionId = toNonEmptyString(obj.sessionId);
     const source = toProcessId(obj.source);
 
-    if (!type || !MESSAGE_TYPES.has(type)) return null;
-    if (!sessionId) return null;
-    if (source === null) return null;
+    if (!type || !MESSAGE_TYPES.has(type)) {
+      this._safeCall(this._onMalformedMessage, { raw }, "onMalformedMessage");
+      return null;
+    }
+    if (!sessionId) {
+      this._safeCall(this._onMalformedMessage, { raw }, "onMalformedMessage");
+      return null;
+    }
+    if (source === null) {
+      this._safeCall(this._onMalformedMessage, { raw }, "onMalformedMessage");
+      return null;
+    }
 
     return { type: /** @type {ProcessCoordinatorMessageType} */ (type), sessionId, source };
   }
 
   /**
    * @param {Function | null} handler
-   * @param {string} sessionId
+   * @param {unknown} payload
    * @param {string} label
    * @returns {void}
    */
-  _safeCall(handler, sessionId, label) {
+  _safeCall(handler, payload, label) {
     if (typeof handler !== "function") return;
     try {
-      handler(sessionId);
+      handler(payload);
     } catch (err) {
       this._logWarn(`[ProcessCoordinator] ${label} handler failed:`, err);
     }

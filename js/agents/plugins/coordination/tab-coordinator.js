@@ -35,6 +35,9 @@ import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../../shared/i
  * @typedef {Object} TabCoordinatorOptions
  * @property {string} [channelName]
  * @property {number} [heartbeatMs]
+ * @property {number} [staleMultiplier]
+ * @property {number} [staleGraceMs]
+ * @property {"lexicographic" | "last-seen"} [leaderSelection]
  * @property {(sessionId: string) => void} [onEviction]
  * @property {(sessionId: string) => void} [onAccess]
  * @property {LoggerLike} [logger]
@@ -43,6 +46,7 @@ import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../../shared/i
 const DEFAULT_CHANNEL_NAME = "agent-sessions";
 const DEFAULT_HEARTBEAT_MS = 5000;
 const STALE_MULTIPLIER = 3;
+const DEFAULT_STALE_GRACE_MS = 0;
 const MESSAGE_TYPES = new Set(["session-evicted", "session-accessed", "leader-election", "heartbeat"]);
 
 /**
@@ -83,6 +87,14 @@ function compareTabIds(a, b) {
   return a < b ? -1 : 1;
 }
 
+/**
+ * @param {string} strategy
+ * @returns {"lexicographic" | "last-seen"}
+ */
+function normalizeLeaderSelection(strategy) {
+  return strategy === "lexicographic" ? "lexicographic" : "last-seen";
+}
+
 export class TabCoordinator {
   /** @type {string} */
   _channelName;
@@ -92,6 +104,12 @@ export class TabCoordinator {
 
   /** @type {number} */
   _staleMs;
+
+  /** @type {number} */
+  _staleGraceMs;
+
+  /** @type {"lexicographic" | "last-seen"} */
+  _leaderSelection;
 
   /** @type {((sessionId: string) => void) | null} */
   _onEviction;
@@ -129,6 +147,9 @@ export class TabCoordinator {
   /** @type {number} */
   _activeTabCount;
 
+  /** @type {number} */
+  _splitBrainCount;
+
   /** @type {ReturnType<typeof setInterval> | null} */
   _heartbeatTimer;
 
@@ -139,7 +160,10 @@ export class TabCoordinator {
     const opts = isPlainObject(options) ? options : {};
     this._channelName = toNonEmptyString(opts.channelName) || DEFAULT_CHANNEL_NAME;
     this._heartbeatMs = toPositiveNumber(opts.heartbeatMs, DEFAULT_HEARTBEAT_MS);
-    this._staleMs = this._heartbeatMs * STALE_MULTIPLIER;
+    const staleMultiplier = toPositiveNumber(opts.staleMultiplier, STALE_MULTIPLIER);
+    this._staleMs = this._heartbeatMs * staleMultiplier;
+    this._staleGraceMs = toPositiveNumber(opts.staleGraceMs, DEFAULT_STALE_GRACE_MS);
+    this._leaderSelection = normalizeLeaderSelection(toNonEmptyString(opts.leaderSelection)?.toLowerCase());
     this._onEviction = typeof opts.onEviction === "function" ? opts.onEviction : null;
     this._onAccess = typeof opts.onAccess === "function" ? opts.onAccess : null;
     this._logger = opts.logger || null;
@@ -154,6 +178,7 @@ export class TabCoordinator {
     this._leaderId = this._tabId;
     this._isLeader = true;
     this._activeTabCount = 1;
+    this._splitBrainCount = 0;
     this._heartbeatTimer = null;
     this._handleMessage = this._handleMessage.bind(this);
   }
@@ -239,6 +264,7 @@ export class TabCoordinator {
     this._leaderId = this._tabId;
     this._isLeader = true;
     this._activeTabCount = 1;
+    this._splitBrainCount = 0;
   }
 
   /**
@@ -319,8 +345,18 @@ export class TabCoordinator {
     }
 
     if (message.type === "heartbeat") {
+      if (message.isLeader && !this._tabSeen.has(message.tabId)) {
+        this._leaderId = message.tabId;
+      }
       if (message.isLeader && this._isLeader) {
-        if (compareTabIds(message.tabId, this._tabId) < 0) {
+        const remoteIsPreferred = this._isCandidatePreferred(
+          message.tabId,
+          message.ts,
+          this._tabId,
+          this._tabSeen.get(this._tabId) || 0
+        );
+        if (remoteIsPreferred) {
+          this._splitBrainCount += 1;
           this._logWarn("[TabCoordinator] Split-brain detected, stepping down");
           this._isLeader = false;
           this._triggerReelection();
@@ -362,11 +398,13 @@ export class TabCoordinator {
     if (!Number.isFinite(ts)) return null;
 
     const sessionId = toNonEmptyString(obj.sessionId);
+    const isLeader = typeof obj.isLeader === "boolean" ? obj.isLeader : undefined;
 
     return {
       type: /** @type {TabCoordinatorMessageType} */ (type),
       tabId,
       ts,
+      ...(isLeader === undefined ? {} : { isLeader }),
       ...(sessionId ? { sessionId } : {}),
     };
   }
@@ -389,7 +427,7 @@ export class TabCoordinator {
 
     for (const [tabId, lastSeen] of this._tabSeen.entries()) {
       if (tabId === this._tabId) continue;
-      if (now - lastSeen > this._staleMs) {
+      if (now - lastSeen > (this._staleMs + this._staleGraceMs)) {
         this._tabSeen.delete(tabId);
       }
     }
@@ -400,15 +438,32 @@ export class TabCoordinator {
 
   _updateLeader() {
     let leaderId = null;
+    let leaderSeen = -Infinity;
     for (const tabId of this._tabSeen.keys()) {
-      if (!leaderId || compareTabIds(tabId, leaderId) < 0) {
+      const seen = this._tabSeen.get(tabId) || 0;
+      if (!leaderId || this._isCandidatePreferred(tabId, seen, leaderId, leaderSeen)) {
         leaderId = tabId;
+        leaderSeen = seen;
       }
     }
 
     if (!leaderId) leaderId = this._tabId;
     this._leaderId = leaderId;
     this._isLeader = leaderId === this._tabId;
+  }
+
+  /**
+   * @param {string} candidateId
+   * @param {number} candidateSeen
+   * @param {string} incumbentId
+   * @param {number} incumbentSeen
+   * @returns {boolean}
+   */
+  _isCandidatePreferred(candidateId, candidateSeen, incumbentId, incumbentSeen) {
+    if (this._leaderSelection === "last-seen") {
+      if (candidateSeen !== incumbentSeen) return candidateSeen > incumbentSeen;
+    }
+    return compareTabIds(candidateId, incumbentId) < 0;
   }
 
   _triggerReelection() {

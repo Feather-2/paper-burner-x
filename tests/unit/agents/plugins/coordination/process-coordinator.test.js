@@ -275,6 +275,37 @@ describe("ProcessCoordinator", () => {
     );
   });
 
+  it("reports forwarding failures via onForwardError callback", async () => {
+    const { ProcessCoordinator } = await loadModule();
+    const onForwardError = vi.fn();
+    const coordinator = new ProcessCoordinator({ onForwardError });
+
+    coordinator._supported = true;
+    coordinator._enabled = true;
+    coordinator._isPrimary = true;
+    coordinator._processId = 1;
+    coordinator._cluster = {
+      workers: {
+        ok: { send: vi.fn(), isConnected: () => true },
+        bad: {
+          send: () => {
+            throw new Error("boom");
+          },
+          isConnected: () => true,
+        },
+      },
+    };
+
+    coordinator._broadcast("session-accessed", "session-fail");
+    expect(onForwardError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failed: 1,
+        sent: 1,
+        message: expect.objectContaining({ sessionId: "session-fail" }),
+      }),
+    );
+  });
+
   it("sendToPrimary logs failures", async () => {
     const { ProcessCoordinator } = await loadModule();
     const warn = vi.fn();
@@ -417,6 +448,56 @@ describe("ProcessCoordinator", () => {
       sessionId: longSession,
       source: Number.MAX_SAFE_INTEGER,
     });
+  });
+
+  it("invokes onMalformedMessage callback for malformed frames", async () => {
+    const { ProcessCoordinator } = await loadModule();
+    const onMalformedMessage = vi.fn();
+    const coordinator = new ProcessCoordinator({ onMalformedMessage });
+
+    expect(coordinator._parseMessage("not-json")).toBeNull();
+    expect(coordinator._parseMessage({ type: "unknown", sessionId: "x", source: 1 })).toBeNull();
+    expect(onMalformedMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("cluster forwarding excludes source worker and reports forward errors to source", async () => {
+    const { ProcessCoordinator } = await loadModule();
+    const warn = vi.fn();
+    const coordinator = new ProcessCoordinator({ logger: { warn } });
+    const sourceWorker = {
+      send: vi.fn(),
+      isConnected: () => true,
+    };
+    const targetWorker = { send: vi.fn(), isConnected: () => true };
+    const failingWorker = {
+      send: vi.fn(() => {
+        throw new Error("forward-fail");
+      }),
+      isConnected: () => true,
+    };
+    coordinator._cluster = {
+      workers: { sourceWorker, targetWorker, failingWorker },
+    };
+
+    coordinator._handleClusterMessage(sourceWorker, {
+      type: "session-accessed",
+      sessionId: "s1",
+      source: 999,
+    });
+
+    expect(targetWorker.send).toHaveBeenCalledWith({
+      type: "session-accessed",
+      sessionId: "s1",
+      source: 999,
+    });
+    expect(failingWorker.send).toHaveBeenCalled();
+    expect(sourceWorker.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "coordination-forward-error" }),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "[ProcessCoordinator] Failed to send message to worker:",
+      expect.any(Error),
+    );
   });
 
   it("broadcastAccess handles rapid consecutive calls", async () => {

@@ -100,6 +100,19 @@ describe("ProcessTransport", () => {
     expect(transport.isConnected()).toBe(true);
   });
 
+  it("connect rejects when readiness signal is not received before connectTimeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = new ProcessTransport({ command: "echo", connectTimeout: 5 });
+      const connectPromise = transport.connect();
+      vi.advanceTimersByTime(6);
+      await expect(connectPromise).rejects.toThrow("connect timeout");
+      expect(transport.isConnected()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("handles concurrent requests and out-of-order responses", async () => {
     const transport = new ProcessTransport({ command: "echo" });
     transport.connected = true;
@@ -125,6 +138,15 @@ describe("ProcessTransport", () => {
     transport._handleMessage({ id: 1, error: { message: "boom" } });
 
     await expect(promise).rejects.toThrow("boom");
+  });
+
+  it("request clears pending entry when send fails immediately", async () => {
+    const transport = new ProcessTransport({ command: "echo" });
+    transport.connected = true;
+    transport.process = { stdin: null };
+
+    await expect(transport.request("broken", { value: 1 })).rejects.toThrow("not connected");
+    expect(transport._pending.size).toBe(0);
   });
 
   it("times out requests when timeout is a string", async () => {
@@ -198,6 +220,37 @@ describe("ProcessTransport", () => {
 
     expect(tooLargeSpy).toHaveBeenCalledWith(
       expect.objectContaining({ size: largeLine.length }),
+    );
+  });
+
+  it("emits orphan_response for unmatched response ids", () => {
+    const transport = new ProcessTransport({ command: "echo" });
+    const orphanSpy = vi.fn();
+    transport.on("transport:orphan_response", orphanSpy);
+
+    transport._handleMessage({ id: 999, result: "late" });
+    expect(orphanSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 999, pending: 0 }),
+    );
+  });
+
+  it("buffer overflow recovery keeps complete newline-delimited trailing frames", () => {
+    const transport = new ProcessTransport({ command: "echo" });
+    const overflowSpy = vi.fn();
+    const messageSpy = vi.fn();
+    transport.on("transport:buffer_overflow", overflowSpy);
+    transport.on("transport:message", messageSpy);
+
+    const hugePrefix = "x".repeat(transport._maxBufferSize + 64);
+    const frame = JSON.stringify({ jsonrpc: "2.0", method: "ping", params: { ok: true } });
+    transport.buffer = `${hugePrefix}\n${frame}\n`;
+    transport._processBuffer();
+
+    expect(overflowSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ strategy: "trim_to_first_newline" }),
+    );
+    expect(messageSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ method: "ping" }),
     );
   });
 

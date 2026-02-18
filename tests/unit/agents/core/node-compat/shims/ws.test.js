@@ -210,9 +210,25 @@ describe('ws shim', () => {
       expect(typeof wss.handleUpgrade).toBe('function');
     });
 
-    it('has shouldHandle stub method', () => {
+    it('shouldHandle defaults to true when no path restriction is configured', () => {
       const wss = new WebSocketServer();
-      expect(wss.shouldHandle()).toBe(false);
+      expect(wss.shouldHandle()).toBe(true);
+    });
+
+    it('shouldHandle respects configured path restriction', () => {
+      const wss = new WebSocketServer({ path: '/socket' });
+      expect(wss.shouldHandle({ url: '/socket' })).toBe(true);
+      expect(wss.shouldHandle({ url: '/other' })).toBe(false);
+    });
+
+    it('handleUpgrade fail-fast emits unsupported error', () => {
+      const wss = new WebSocketServer();
+      const errFn = vi.fn();
+      const cb = vi.fn();
+      wss.on('error', errFn);
+      wss.handleUpgrade({ url: '/socket' }, {}, Buffer.from(''), cb);
+      expect(errFn).toHaveBeenCalled();
+      expect(cb).toHaveBeenCalledWith(expect.objectContaining({ code: 'ERR_WS_SERVER_UNSUPPORTED' }));
     });
   });
 });

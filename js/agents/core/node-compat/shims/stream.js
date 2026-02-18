@@ -177,11 +177,22 @@ export class Writable extends Stream {
       needDrain: false,
       writing: false
     };
+    this._pendingWrites = 0;
+    this._ending = false;
+    this._finished = false;
+    this._endingCallbacks = [];
     if (opts && typeof opts.write === 'function') this._write = opts.write;
   }
 
   write(chunk, encoding, cb) {
     if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+    if (!this.writable || this._ending) {
+      const err = new Error('write after end');
+      err.code = 'ERR_STREAM_WRITE_AFTER_END';
+      if (typeof cb === 'function') cb(err);
+      this.emit('error', err);
+      return false;
+    }
     if (this._corked > 0) {
       this._corkBuffer.push({ chunk, encoding, cb });
       return false;
@@ -189,38 +200,69 @@ export class Writable extends Stream {
 
     const len = chunk.length || 0;
     this._writableState.length += len;
-
-    if (this._write) {
-      this._write(chunk, encoding || 'utf8', (err) => {
-        this._writableState.length -= len;
-        if (err) this.emit('error', err);
-        if (typeof cb === 'function') cb(err);
-
-        // Emit drain if buffer was full and now below highWaterMark
-        if (this._writableState.needDrain && this._writableState.length < this._writableState.highWaterMark) {
-          this._writableState.needDrain = false;
-          this.emit('drain');
-        }
-      });
-    } else {
-      this._chunks.push(chunk);
-      this._writableState.length -= len;
-      if (typeof cb === 'function') cb();
-    }
-
-    // Return false if buffer exceeds highWaterMark (backpressure signal)
+    this._pendingWrites += 1;
     const shouldContinue = this._writableState.length < this._writableState.highWaterMark;
     if (!shouldContinue) this._writableState.needDrain = true;
+
+    let doneCalled = false;
+    const done = (err) => {
+      if (doneCalled) return;
+      doneCalled = true;
+      this._pendingWrites = Math.max(0, this._pendingWrites - 1);
+      this._writableState.length = Math.max(0, this._writableState.length - len);
+      if (err) this.emit('error', err);
+      if (typeof cb === 'function') cb(err);
+
+      // Emit drain if buffer was full and now below highWaterMark
+      if (this._writableState.needDrain && this._writableState.length < this._writableState.highWaterMark) {
+        this._writableState.needDrain = false;
+        this.emit('drain');
+      }
+
+      this._maybeFinish();
+    };
+
+    if (this._write) {
+      try {
+        this._write(chunk, encoding || 'utf8', done);
+      } catch (err) {
+        done(err);
+      }
+    } else {
+      this._chunks.push(chunk);
+      done();
+    }
     return shouldContinue;
   }
 
   end(chunk, encoding, cb) {
     if (typeof chunk === 'function') { cb = chunk; chunk = null; }
     else if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+    if (typeof cb === 'function') this._endingCallbacks.push(cb);
     if (chunk != null) this.write(chunk, encoding);
+    this._ending = true;
     this.writable = false;
-    this.emit('finish');
-    if (typeof cb === 'function') cb();
+    if (this._corked === 0 && this._corkBuffer.length > 0) {
+      this.uncork();
+    }
+    this._maybeFinish();
+    return this;
+  }
+
+  _maybeFinish() {
+    if (!this._ending || this._finished) return;
+    if (this._pendingWrites > 0) return;
+    if (this._corked > 0) return;
+    if (this._corkBuffer.length > 0) {
+      this.uncork();
+      if (this._pendingWrites > 0) return;
+    }
+    this._finished = true;
+    queueMicrotask(() => {
+      this.emit('finish');
+      const callbacks = this._endingCallbacks.splice(0);
+      for (const callback of callbacks) callback();
+    });
   }
 
   cork() { this._corked++; }
@@ -255,11 +297,22 @@ export class Duplex extends Readable {
       needDrain: false,
       writing: false
     };
+    this._pendingWrites = 0;
+    this._ending = false;
+    this._finished = false;
+    this._endingCallbacks = [];
     if (opts && typeof opts.write === 'function') this._write = opts.write;
   }
 
   write(chunk, encoding, cb) {
     if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+    if (!this.writable || this._ending) {
+      const err = new Error('write after end');
+      err.code = 'ERR_STREAM_WRITE_AFTER_END';
+      if (typeof cb === 'function') cb(err);
+      this.emit('error', err);
+      return false;
+    }
     if (this._corked > 0) {
       this._corkBuffer.push({ chunk, encoding, cb });
       return false;
@@ -267,36 +320,67 @@ export class Duplex extends Readable {
 
     const len = chunk.length || 0;
     this._writableState.length += len;
-
-    if (this._write) {
-      this._write(chunk, encoding || 'utf8', (err) => {
-        this._writableState.length -= len;
-        if (err) this.emit('error', err);
-        if (typeof cb === 'function') cb(err);
-
-        if (this._writableState.needDrain && this._writableState.length < this._writableState.highWaterMark) {
-          this._writableState.needDrain = false;
-          this.emit('drain');
-        }
-      });
-    } else {
-      this._chunks.push(chunk);
-      this._writableState.length -= len;
-      if (typeof cb === 'function') cb();
-    }
-
+    this._pendingWrites += 1;
     const shouldContinue = this._writableState.length < this._writableState.highWaterMark;
     if (!shouldContinue) this._writableState.needDrain = true;
+
+    let doneCalled = false;
+    const done = (err) => {
+      if (doneCalled) return;
+      doneCalled = true;
+      this._pendingWrites = Math.max(0, this._pendingWrites - 1);
+      this._writableState.length = Math.max(0, this._writableState.length - len);
+      if (err) this.emit('error', err);
+      if (typeof cb === 'function') cb(err);
+
+      if (this._writableState.needDrain && this._writableState.length < this._writableState.highWaterMark) {
+        this._writableState.needDrain = false;
+        this.emit('drain');
+      }
+      this._maybeFinish();
+    };
+
+    if (this._write) {
+      try {
+        this._write(chunk, encoding || 'utf8', done);
+      } catch (err) {
+        done(err);
+      }
+    } else {
+      this._chunks.push(chunk);
+      done();
+    }
     return shouldContinue;
   }
 
   end(chunk, encoding, cb) {
     if (typeof chunk === 'function') { cb = chunk; chunk = null; }
     else if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+    if (typeof cb === 'function') this._endingCallbacks.push(cb);
     if (chunk != null) this.write(chunk, encoding);
+    this._ending = true;
     this.writable = false;
-    this.emit('finish');
-    if (typeof cb === 'function') cb();
+    if (this._corked === 0 && this._corkBuffer.length > 0) {
+      this.uncork();
+    }
+    this._maybeFinish();
+    return this;
+  }
+
+  _maybeFinish() {
+    if (!this._ending || this._finished) return;
+    if (this._pendingWrites > 0) return;
+    if (this._corked > 0) return;
+    if (this._corkBuffer.length > 0) {
+      this.uncork();
+      if (this._pendingWrites > 0) return;
+    }
+    this._finished = true;
+    queueMicrotask(() => {
+      this.emit('finish');
+      const callbacks = this._endingCallbacks.splice(0);
+      for (const callback of callbacks) callback();
+    });
   }
 
   cork() { this._corked++; }
@@ -311,8 +395,43 @@ export class Duplex extends Readable {
 }
 
 export class Transform extends Duplex {
+  constructor(opts = {}) {
+    super(opts);
+    if (typeof opts.transform === 'function') {
+      this._transform = opts.transform;
+    }
+    if (typeof opts.flush === 'function') {
+      this._flush = opts.flush;
+    }
+  }
+
   _transform(chunk, encoding, cb) { cb(null, chunk); }
   _flush(cb) { cb(); }
+
+  _write(chunk, encoding, cb) {
+    let settled = false;
+    const done = (err, output) => {
+      if (settled) return;
+      settled = true;
+      if (err) {
+        cb(err);
+        return;
+      }
+      if (output !== undefined && output !== null) {
+        this.push(output);
+      }
+      cb();
+    };
+
+    try {
+      const maybe = this._transform(chunk, encoding, done);
+      if (maybe && typeof maybe.then === 'function') {
+        maybe.then((output) => done(null, output), done);
+      }
+    } catch (err) {
+      done(err);
+    }
+  }
 }
 
 export class PassThrough extends Transform {}

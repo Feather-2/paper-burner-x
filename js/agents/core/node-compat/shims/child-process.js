@@ -37,8 +37,56 @@ export function createChildProcessShim(config) {
   }
 
   function parseCommand(cmd) {
-    const parts = cmd.trim().split(/\s+/);
-    return { name: parts[0], args: parts.slice(1) };
+    const source = String(cmd || '').trim();
+    /** @type {string[]} */
+    const parts = [];
+    let current = '';
+    let quote = '';
+    let escaping = false;
+
+    for (let i = 0; i < source.length; i++) {
+      const ch = source[i];
+
+      if (escaping) {
+        current += ch;
+        escaping = false;
+        continue;
+      }
+
+      if (ch === '\\') {
+        escaping = true;
+        continue;
+      }
+
+      if (quote) {
+        if (ch === quote) {
+          quote = '';
+        } else {
+          current += ch;
+        }
+        continue;
+      }
+
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        continue;
+      }
+
+      if (/\s/.test(ch)) {
+        if (current.length > 0) {
+          parts.push(current);
+          current = '';
+        }
+        continue;
+      }
+
+      current += ch;
+    }
+
+    if (escaping) current += '\\';
+    if (current.length > 0 || quote) parts.push(current);
+
+    return { name: parts[0] || '', args: parts.slice(1) };
   }
 
   /**
