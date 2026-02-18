@@ -475,6 +475,28 @@ describe('npm/index PackageManager install/list', () => {
       actualShasum: 'deadbeef',
       tarballUrl: 'https://cdn/demo-1.0.0.tgz',
     });
+    expect(onIntegrity).toHaveBeenCalledTimes(1);
+  });
+
+  it('install does not retry malformed expected shasum errors', async () => {
+    const invalidShasumError = new Error('bad shasum');
+    invalidShasumError.code = 'ERR_TARBALL_SHASUM_INVALID';
+    tarball.download.mockRejectedValueOnce(invalidShasumError);
+
+    await expect(manager.install('demo', { includeDeps: false, version: '1.0.0' }))
+      .rejects
+      .toThrow('bad shasum');
+    expect(tarball.download).toHaveBeenCalledTimes(1);
+    expect(tarball.extract).not.toHaveBeenCalled();
+  });
+
+  it('install fails fast when dependency target has missing shasum', async () => {
+    resolver.buildDependencyTree.mockResolvedValueOnce([
+      { name: 'demo', version: '1.0.0', tarballUrl: 'https://cdn/demo-1.0.0.tgz' },
+    ]);
+
+    await expect(manager.install('demo')).rejects.toThrow('Missing tarball shasum');
+    expect(tarball.download).not.toHaveBeenCalled();
   });
 
   it('list returns empty array when node_modules is missing', async () => {

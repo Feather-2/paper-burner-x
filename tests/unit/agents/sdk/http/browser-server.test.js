@@ -17,7 +17,25 @@ describe('sdk/http/browser-server normalizeVirtualRequestBody', () => {
     expect(normalizeVirtualRequestBody(bytes)).toBe('{"prompt":"hello"}');
   });
 
+  it('decodes typed-array views with non-zero byte offsets', () => {
+    const raw = new TextEncoder().encode('xx{"prompt":"offset"}yy');
+    const view = new Uint8Array(raw.buffer, 2, raw.byteLength - 4);
+    expect(normalizeVirtualRequestBody(view)).toBe('{"prompt":"offset"}');
+  });
+
   it('falls back to JSON serialization for plain objects', () => {
     expect(normalizeVirtualRequestBody({ prompt: 'hi' })).toBe('{"prompt":"hi"}');
+  });
+
+  it('returns empty string when object serialization fails', () => {
+    const circular = {};
+    circular.self = circular;
+    expect(normalizeVirtualRequestBody(circular)).toBe('');
+  });
+
+  it('coerces primitive non-string bodies to string', () => {
+    expect(normalizeVirtualRequestBody(42)).toBe('42');
+    expect(normalizeVirtualRequestBody(true)).toBe('true');
+    expect(normalizeVirtualRequestBody(null)).toBe('');
   });
 });

@@ -254,6 +254,8 @@ describe('core/plugin exports', () => {
       manager.register(createPlugin({ name: 'ok', install: async () => {} }));
       await manager.install('ok');
       expect(manager.getStatus('ok')).toBe(PluginStatus.ACTIVE);
+      expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin.installed', { name: 'ok' });
+      expect(kernel.events.emitSync).toHaveBeenCalledWith('plugin:installed', { name: 'ok' });
     });
 
     it('should_set_status_error_when_install_fails', async () => {

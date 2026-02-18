@@ -519,13 +519,19 @@ describe('ServiceBus', () => {
   describe('events integration', () => {
     it('should emit service.registered event', async () => {
       let emitted = null;
+      let aliasEmitted = null;
       events.on('service.registered', (e) => { emitted = e; });
+      events.on('service:registered', (e) => { aliasEmitted = e; });
 
       bus.register('eventSvc', {});
 
       await new Promise(r => setTimeout(r, 0));
       expect(emitted).toMatchObject({
         type: 'service.registered',
+        payload: { name: 'eventSvc' },
+      });
+      expect(aliasEmitted).toMatchObject({
+        type: 'service:registered',
         payload: { name: 'eventSvc' },
       });
     });
@@ -567,7 +573,9 @@ describe('ServiceBus', () => {
 
     it('should emit service.unregistered event', async () => {
       let emitted = null;
+      let aliasEmitted = null;
       events.on('service.unregistered', (e) => { emitted = e; });
+      events.on('service:unregistered', (e) => { aliasEmitted = e; });
 
       bus.register('toUnregister', {});
       bus.unregister('toUnregister');
@@ -577,17 +585,27 @@ describe('ServiceBus', () => {
         type: 'service.unregistered',
         payload: { name: 'toUnregister' },
       });
+      expect(aliasEmitted).toMatchObject({
+        type: 'service:unregistered',
+        payload: { name: 'toUnregister' },
+      });
     });
 
     it('should emit service.factory.registered event', async () => {
       let emitted = null;
+      let aliasEmitted = null;
       events.on('service.factory.registered', (e) => { emitted = e; });
+      events.on('service:factory:registered', (e) => { aliasEmitted = e; });
 
       bus.registerFactory('factoryEventSvc', () => ({}));
 
       await new Promise(r => setTimeout(r, 0));
       expect(emitted).toMatchObject({
         type: 'service.factory.registered',
+        payload: { name: 'factoryEventSvc' },
+      });
+      expect(aliasEmitted).toMatchObject({
+        type: 'service:factory:registered',
         payload: { name: 'factoryEventSvc' },
       });
     });
