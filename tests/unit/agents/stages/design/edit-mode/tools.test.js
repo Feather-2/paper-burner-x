@@ -289,7 +289,11 @@ describe("createEditToolExecutor", () => {
     expect(result.success).toBe(true);
     expect(result.data.colors.primary).toBe("#000");
     expect(result.data.styleDeviations).toHaveLength(1);
-    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls.map((call) => call[0])).toEqual([
+      "edit:style.deviation",
+      "edit:style:deviation",
+    ]);
 
     const op = historyManager.push.mock.calls[0][0];
     op.undo();
