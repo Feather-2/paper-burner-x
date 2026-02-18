@@ -138,7 +138,7 @@ export {
 // SDK - 高层 API
 // ============================================================
 
-export { AgentBuilder, createAgent } from './sdk/AgentBuilder.js';
+export { AgentBuilder, createAgent, createAgentBuilder } from './sdk/AgentBuilder.js';
 
 // ============================================================
 // Shared - 工具库

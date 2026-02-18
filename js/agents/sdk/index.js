@@ -16,7 +16,7 @@
 // ============================================================
 // L1 - Primary SDK API
 // ============================================================
-export { createAgent, AgentBuilder, AgentInstance } from "./AgentBuilder.js";
+export { createAgent, createAgentBuilder, AgentBuilder, AgentInstance } from "./AgentBuilder.js";
 export { DefaultAgentLoop } from "./DefaultAgentLoop.js";
 
 export { EventBus } from "../core/event-bus.js";

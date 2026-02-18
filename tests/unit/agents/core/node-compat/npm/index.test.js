@@ -37,8 +37,8 @@ function createMocks() {
   const resolver = {
     resolve: vi.fn().mockResolvedValue('1.0.0'),
     buildDependencyTree: vi.fn().mockResolvedValue([
-      { name: 'demo', version: '1.0.0', tarballUrl: 'https://cdn/demo-1.0.0.tgz' },
-      { name: 'dep', version: '2.0.0', tarballUrl: 'https://cdn/dep-2.0.0.tgz' },
+      { name: 'demo', version: '1.0.0', tarballUrl: 'https://cdn/demo-1.0.0.tgz', shasum: 'x' },
+      { name: 'dep', version: '2.0.0', tarballUrl: 'https://cdn/dep-2.0.0.tgz', shasum: 'x' },
     ]),
   };
   const tarball = {
@@ -270,8 +270,14 @@ describe('npm/index PackageManager install/list', () => {
   it('install downloads and extracts each dependency', async () => {
     await manager.install('demo');
     expect(tarball.download).toHaveBeenCalledTimes(2);
-    expect(tarball.download).toHaveBeenNthCalledWith(1, 'https://cdn/demo-1.0.0.tgz');
-    expect(tarball.download).toHaveBeenNthCalledWith(2, 'https://cdn/dep-2.0.0.tgz');
+    expect(tarball.download).toHaveBeenNthCalledWith(1, 'https://cdn/demo-1.0.0.tgz', {
+      expectedShasum: 'x',
+      auditContext: { packageName: 'demo', packageVersion: '1.0.0' },
+    });
+    expect(tarball.download).toHaveBeenNthCalledWith(2, 'https://cdn/dep-2.0.0.tgz', {
+      expectedShasum: 'x',
+      auditContext: { packageName: 'dep', packageVersion: '2.0.0' },
+    });
     expect(tarball.extract).toHaveBeenNthCalledWith(
       1,
       expect.any(ArrayBuffer),
@@ -292,7 +298,7 @@ describe('npm/index PackageManager install/list', () => {
         name: 'demo',
         versions: {
           '1.0.0': {
-            dist: { tarball: 'https://cdn/demo-1.0.0.tgz' },
+            dist: { tarball: 'https://cdn/demo-1.0.0.tgz', shasum: 'x' },
             dependencies: {
               'dep-a': '^1.0.0',
               'dep-b': '^1.0.0',
@@ -305,7 +311,7 @@ describe('npm/index PackageManager install/list', () => {
         name: 'dep-a',
         versions: {
           '1.0.0': {
-            dist: { tarball: 'https://cdn/dep-a-1.0.0.tgz' },
+            dist: { tarball: 'https://cdn/dep-a-1.0.0.tgz', shasum: 'x' },
             dependencies: {},
           },
         },
@@ -315,7 +321,7 @@ describe('npm/index PackageManager install/list', () => {
         name: 'dep-b',
         versions: {
           '1.0.0': {
-            dist: { tarball: 'https://cdn/dep-b-1.0.0.tgz' },
+            dist: { tarball: 'https://cdn/dep-b-1.0.0.tgz', shasum: 'x' },
             dependencies: {},
           },
         },
@@ -332,9 +338,9 @@ describe('npm/index PackageManager install/list', () => {
     const layeredResolver = {
       resolve: vi.fn().mockResolvedValue('1.0.0'),
       buildDependencyTree: vi.fn().mockResolvedValue([
-        { name: 'demo', version: '1.0.0', tarballUrl: 'https://cdn/demo-1.0.0.tgz' },
-        { name: 'dep-a', version: '1.0.0', tarballUrl: 'https://cdn/dep-a-1.0.0.tgz' },
-        { name: 'dep-b', version: '1.0.0', tarballUrl: 'https://cdn/dep-b-1.0.0.tgz' },
+        { name: 'demo', version: '1.0.0', tarballUrl: 'https://cdn/demo-1.0.0.tgz', shasum: 'x' },
+        { name: 'dep-a', version: '1.0.0', tarballUrl: 'https://cdn/dep-a-1.0.0.tgz', shasum: 'x' },
+        { name: 'dep-b', version: '1.0.0', tarballUrl: 'https://cdn/dep-b-1.0.0.tgz', shasum: 'x' },
       ]),
     };
     const installOrder = [];
@@ -371,10 +377,10 @@ describe('npm/index PackageManager install/list', () => {
     const limitedResolver = {
       resolve: vi.fn().mockResolvedValue('1.0.0'),
       buildDependencyTree: vi.fn().mockResolvedValue([
-        { name: 'demo', version: '1.0.0', tarballUrl: 'https://cdn/demo-1.0.0.tgz' },
-        { name: 'dep-a', version: '1.0.0', tarballUrl: 'https://cdn/dep-a-1.0.0.tgz' },
-        { name: 'dep-b', version: '1.0.0', tarballUrl: 'https://cdn/dep-b-1.0.0.tgz' },
-        { name: 'dep-c', version: '1.0.0', tarballUrl: 'https://cdn/dep-c-1.0.0.tgz' },
+        { name: 'demo', version: '1.0.0', tarballUrl: 'https://cdn/demo-1.0.0.tgz', shasum: 'x' },
+        { name: 'dep-a', version: '1.0.0', tarballUrl: 'https://cdn/dep-a-1.0.0.tgz', shasum: 'x' },
+        { name: 'dep-b', version: '1.0.0', tarballUrl: 'https://cdn/dep-b-1.0.0.tgz', shasum: 'x' },
+        { name: 'dep-c', version: '1.0.0', tarballUrl: 'https://cdn/dep-c-1.0.0.tgz', shasum: 'x' },
       ]),
     };
     let activeJobs = 0;
@@ -445,6 +451,30 @@ describe('npm/index PackageManager install/list', () => {
     await manager.install('demo', { includeDeps: false, version: '1.0.0' });
     expect(tarball.download).toHaveBeenCalledTimes(3);
     expect(tarball.extract).toHaveBeenCalledTimes(1);
+  });
+
+  it('install hard-fails on tarball integrity mismatch and emits audit event once', async () => {
+    const integrityError = new Error('checksum mismatch');
+    integrityError.code = 'ERR_TARBALL_INTEGRITY_MISMATCH';
+    integrityError.details = {
+      expectedShasum: 'x',
+      actualShasum: 'deadbeef',
+    };
+    tarball.download.mockRejectedValueOnce(integrityError);
+    const onIntegrity = vi.fn();
+    manager.on('install:integrity-failed', onIntegrity);
+
+    await expect(manager.install('demo', { includeDeps: false, version: '1.0.0' }))
+      .rejects
+      .toThrow('checksum mismatch');
+    expect(tarball.download).toHaveBeenCalledTimes(1);
+    expect(onIntegrity).toHaveBeenCalledWith({
+      name: 'demo',
+      version: '1.0.0',
+      expectedShasum: 'x',
+      actualShasum: 'deadbeef',
+      tarballUrl: 'https://cdn/demo-1.0.0.tgz',
+    });
   });
 
   it('list returns empty array when node_modules is missing', async () => {

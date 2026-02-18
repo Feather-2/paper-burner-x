@@ -530,27 +530,37 @@ describe('ServiceBus', () => {
       });
     });
 
-    it('should emit service.call.start and service.call.success', async () => {
+    it('should emit both legacy dot and canonical colon call events', async () => {
       const emittedEvents = [];
       events.on('service.call.start', (e) => emittedEvents.push(e.type));
       events.on('service.call.success', (e) => emittedEvents.push(e.type));
+      events.on('service:call:start', (e) => emittedEvents.push(e.type));
+      events.on('service:call:success', (e) => emittedEvents.push(e.type));
 
       bus.register('eventSvc', { fn: () => 'ok' });
       await bus.call('eventSvc', 'fn', []);
 
       expect(emittedEvents).toContain('service.call.start');
       expect(emittedEvents).toContain('service.call.success');
+      expect(emittedEvents).toContain('service:call:start');
+      expect(emittedEvents).toContain('service:call:success');
     });
 
-    it('should emit service.call.error', async () => {
+    it('should emit service.call.error aliases', async () => {
       let emitted = null;
+      let colonEmitted = null;
       events.on('service.call.error', (e) => { emitted = e; });
+      events.on('service:call:error', (e) => { colonEmitted = e; });
 
       bus.register('errorSvc', { fn: () => { throw new Error('fail'); } });
       await expect(bus.call('errorSvc', 'fn', [])).rejects.toThrow();
 
       expect(emitted).toMatchObject({
         type: 'service.call.error',
+        payload: expect.objectContaining({ service: 'errorSvc', method: 'fn' }),
+      });
+      expect(colonEmitted).toMatchObject({
+        type: 'service:call:error',
         payload: expect.objectContaining({ service: 'errorSvc', method: 'fn' }),
       });
     });

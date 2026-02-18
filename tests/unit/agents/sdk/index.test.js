@@ -40,6 +40,7 @@ const mocked = vi.hoisted(() => {
   };
 
   const createAgent = makeMockFunction('createAgent');
+  const createAgentBuilder = makeMockFunction('createAgentBuilder');
   const AgentBuilder = makeMockClass('AgentBuilder');
   const AgentInstance = makeMockClass('AgentInstance');
   const SubagentRegistry = makeMockClass('SubagentRegistry');
@@ -83,6 +84,7 @@ const mocked = vi.hoisted(() => {
 
   return {
     createAgent,
+    createAgentBuilder,
     AgentBuilder,
     AgentInstance,
     SubagentRegistry,
@@ -128,6 +130,7 @@ const mocked = vi.hoisted(() => {
 
 vi.mock('../../../../js/agents/sdk/AgentBuilder.js', () => ({
   createAgent: mocked.createAgent,
+  createAgentBuilder: mocked.createAgentBuilder,
   AgentBuilder: mocked.AgentBuilder,
   AgentInstance: mocked.AgentInstance,
 }));
@@ -282,6 +285,12 @@ const functionCases = [
     name: 'createAgent',
     getExport: () => sdk.createAgent,
     getMock: () => mocked.createAgent,
+    boundary: (samples) => [samples.nullValue, samples.undefinedValue, samples.emptyString, samples.emptyArray, samples.emptyObject],
+  },
+  {
+    name: 'createAgentBuilder',
+    getExport: () => sdk.createAgentBuilder,
+    getMock: () => mocked.createAgentBuilder,
     boundary: (samples) => [samples.nullValue, samples.undefinedValue, samples.emptyString, samples.emptyArray, samples.emptyObject],
   },
   {

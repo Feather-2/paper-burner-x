@@ -300,11 +300,26 @@ describe("createAgent", () => {
   });
 });
 
+describe("createAgentBuilder", () => {
+  it("returns AgentBuilder and mirrors createAgent semantics", async () => {
+    const { AgentBuilder, createAgentBuilder } = await loadModule();
+
+    const builderDefault = createAgentBuilder();
+    const builderNull = createAgentBuilder(null);
+
+    expect(builderDefault).toBeInstanceOf(AgentBuilder);
+    expect(builderNull).toBeInstanceOf(AgentBuilder);
+    expect(mockedAgentConfig.ctor).toHaveBeenCalledWith({});
+    expect(mockedAgentConfig.ctor).toHaveBeenCalledWith(null);
+  });
+});
+
 describe("AgentInstance", () => {
   it("re-exports AgentInstance from agent-factory", async () => {
     const module = await loadModule();
 
     expect(module.AgentInstance).toBe(mockedAgentFactory.AgentInstance);
     expect(module.default.AgentInstance).toBe(mockedAgentFactory.AgentInstance);
+    expect(module.default.createAgentBuilder).toBe(module.createAgentBuilder);
   });
 });

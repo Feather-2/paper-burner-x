@@ -186,6 +186,7 @@ describe('npm/resolver resolve + dependency tree', () => {
     const deps = await resolver.buildDependencyTree('app', '1.0.0');
     expect(deps.map((item) => item.name)).toEqual(['app', 'depA', 'depC', 'depB']);
     expect(deps[0].tarballUrl).toBe('https://cdn/app-1.0.0.tgz');
+    expect(deps[0].shasum).toBe('x');
   });
 
   it('buildDependencyTree handles circular dependencies via visited set', async () => {
@@ -237,6 +238,26 @@ describe('npm/resolver resolve + dependency tree', () => {
     await expect(resolver.buildDependencyTree('bad', '1.0.0'))
       .rejects
       .toThrow('Missing tarball URL');
+  });
+
+  it('buildDependencyTree throws when shasum is missing', async () => {
+    const packages = {
+      bad: {
+        name: 'bad',
+        versions: {
+          '1.0.0': {
+            dist: { tarball: 'https://cdn/bad-1.0.0.tgz' },
+          },
+        },
+        'dist-tags': { latest: '1.0.0' },
+      },
+    };
+    const registry = createRegistry(packages);
+    const resolver = new DependencyResolver({ registry });
+
+    await expect(resolver.buildDependencyTree('bad', '1.0.0'))
+      .rejects
+      .toThrow('Missing tarball shasum');
   });
 
   it('constructor throws when registry is invalid', () => {

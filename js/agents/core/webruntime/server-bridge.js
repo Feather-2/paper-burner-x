@@ -17,7 +17,7 @@
  * @property {string} method
  * @property {string} url
  * @property {Record<string, string>} headers
- * @property {string|null} body
+ * @property {string|ArrayBuffer|Uint8Array|null} body
  */
 
 /**

@@ -31,6 +31,13 @@ import { checkPackageCompatibility } from '../package-compatibility.js';
  * }} ['install:compatibility']
  * @property {{ name: string, version: string, index: number, total: number }} ['install:progress']
  * @property {{ name: string, version: string, deps: number }} ['install:complete']
+ * @property {{
+ *   name: string,
+ *   version: string,
+ *   expectedShasum: string,
+ *   actualShasum: string,
+ *   tarballUrl: string
+ * }} ['install:integrity-failed']
  * @property {{ name: string, error: unknown }} ['install:error']
  */
 
@@ -39,6 +46,7 @@ import { checkPackageCompatibility } from '../package-compatibility.js';
  * @property {string} name
  * @property {string} version
  * @property {string} tarballUrl
+ * @property {string} shasum
  */
 
 /**
@@ -201,9 +209,21 @@ export class PackageManager extends EventEmitter {
     compatibilityThreshold,
   } = {}) {
     super();
+    this._integrityFailureReported = new Set();
     this.registry = registry || new Registry();
     this.resolver = resolver || new DependencyResolver({ registry: this.registry });
-    this.tarball = tarball || new TarballManager({ corsProxy });
+    this.tarball = tarball || new TarballManager({
+      corsProxy,
+      onIntegrityFailure: (details) => {
+        this._emitIntegrityFailure({
+          name: details.packageName || 'unknown',
+          version: details.packageVersion || 'unknown',
+          expectedShasum: details.expectedShasum,
+          actualShasum: details.actualShasum,
+          tarballUrl: details.url,
+        });
+      },
+    });
     this.vfs = vfs || new MemoryVfs();
     this.concurrency = normalizeConcurrency(concurrency, DEFAULT_INSTALL_CONCURRENCY);
     this.maxInstallRetries = MAX_INSTALL_RETRIES;
@@ -426,18 +446,54 @@ export class PackageManager extends EventEmitter {
   }
 
   /**
+   * Emit integrity-failed once per package@version.
+   * @private
+   * @param {{ name: string, version: string, expectedShasum: string, actualShasum: string, tarballUrl: string }} payload
+   * @returns {void}
+   */
+  _emitIntegrityFailure(payload) {
+    const key = `${payload.name}@${payload.version}`;
+    if (this._integrityFailureReported.has(key)) return;
+    this._integrityFailureReported.add(key);
+    this.emit('install:integrity-failed', payload);
+  }
+
+  /**
    * Install one target with retry for transient failures.
    * @private
    * @param {InstallTarget} target
    * @returns {Promise<void>}
    */
   async _installTargetWithRetry(target) {
+    if (!target.shasum) {
+      throw new Error(`Missing tarball shasum for "${target.name}@${target.version}"`);
+    }
+
     for (let attempt = 0; attempt <= this.maxInstallRetries; attempt += 1) {
       try {
-        const tarballBuffer = await this.tarball.download(target.tarballUrl);
+        const tarballBuffer = await this.tarball.download(target.tarballUrl, {
+          expectedShasum: target.shasum,
+          auditContext: {
+            packageName: target.name,
+            packageVersion: target.version,
+          },
+        });
         await this.tarball.extract(tarballBuffer, this.vfs, `/node_modules/${target.name}`);
         return;
       } catch (error) {
+        if (error?.code === 'ERR_TARBALL_INTEGRITY_MISMATCH') {
+          const expectedShasum = error?.details?.expectedShasum || target.shasum;
+          const actualShasum = error?.details?.actualShasum || 'unknown';
+          this._emitIntegrityFailure({
+            name: target.name,
+            version: target.version,
+            expectedShasum,
+            actualShasum,
+            tarballUrl: target.tarballUrl,
+          });
+          throw error;
+        }
+        if (error?.code === 'ERR_TARBALL_SHASUM_INVALID') throw error;
         if (attempt >= this.maxInstallRetries) throw error;
       }
     }
@@ -585,16 +641,20 @@ export class PackageManager extends EventEmitter {
    * @param {string} name
    * @param {string} version
    * @param {any} [metadata]
-   * @returns {Promise<{ name: string, version: string, tarballUrl: string }>}
+   * @returns {Promise<{ name: string, version: string, tarballUrl: string, shasum: string }>}
    */
   async _resolveSingle(name, version, metadata) {
     const resolvedMetadata = metadata || await this.registry.fetchPackageMetadata(name);
     const info = resolvedMetadata.versions?.[version];
     const tarballUrl = info?.dist?.tarball;
+    const shasum = info?.dist?.shasum;
     if (!tarballUrl) {
       throw new Error(`Missing tarball URL for "${name}@${version}"`);
     }
-    return { name, version, tarballUrl };
+    if (!shasum) {
+      throw new Error(`Missing tarball shasum for "${name}@${version}"`);
+    }
+    return { name, version, tarballUrl, shasum };
   }
 
   /**

@@ -182,6 +182,8 @@ export { AgentInstance };
 
 /**
  * Convenience factory for {@link AgentBuilder}.
+ * NOTE: despite the name, this returns an AgentBuilder (not a running AgentInstance).
+ * Prefer {@link createAgentBuilder} in new code for clearer intent.
  * @param {AgentBuilderOptions} [options]
  * @returns {AgentBuilder}
  */
@@ -189,4 +191,13 @@ export function createAgent(options = {}) {
   return new AgentBuilder(options);
 }
 
-export default { createAgent, AgentBuilder, AgentInstance };
+/**
+ * Explicit alias for {@link createAgent}.
+ * @param {AgentBuilderOptions} [options]
+ * @returns {AgentBuilder}
+ */
+export function createAgentBuilder(options = {}) {
+  return createAgent(options);
+}
+
+export default { createAgent, createAgentBuilder, AgentBuilder, AgentInstance };

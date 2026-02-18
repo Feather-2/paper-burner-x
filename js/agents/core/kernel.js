@@ -11,6 +11,7 @@
 import { EventBus } from './event-bus.js';
 import { StateBus } from './state-bus.js';
 import { ServiceBus, createRetryProxy, createTimeoutProxy } from './service-bus.js';
+import { MessageBus } from './message-bus.js';
 import { PluginManager, PluginStatus } from './plugin.js';
 import { resolvePreset, mergePresetConfig } from './presets.js';
 import { isServiceProvider, adaptProvider } from './compat.js';
@@ -105,6 +106,8 @@ export class Kernel {
     this.services = new ServiceBus({
       events: /** @type {import('./types.d.ts').EventBus} */ (/** @type {unknown} */ (this.events)),
     });
+    /** @type {MessageBus | null} */
+    this._messageBus = null;
 
     // 插件管理器
     this._pluginManager = new PluginManager(this);
@@ -137,6 +140,20 @@ export class Kernel {
    */
   get status() {
     return this._status;
+  }
+
+  /**
+   * Lazy MessageBus accessor (the 4th bus).
+   * @returns {MessageBus}
+   */
+  get messageBus() {
+    if (!this._messageBus) {
+      this._messageBus = new MessageBus({
+        eventBus: this.events,
+        runId: this.id,
+      });
+    }
+    return this._messageBus;
   }
 
   /**
@@ -191,7 +208,9 @@ export class Kernel {
       }
     }
 
-    this.events.emitSync('kernel.preset.loaded', { preset: presetName, plugins: resolved.plugins });
+    const presetPayload = { preset: presetName, plugins: resolved.plugins };
+    this.events.emitSync('kernel.preset.loaded', presetPayload);
+    this.events.emitSync('kernel:preset:loaded', presetPayload);
     return this;
   }
 
@@ -322,6 +341,15 @@ export class Kernel {
       const uninstallOrder = this._getUninstallOrder(plugins);
       for (const entry of uninstallOrder) {
         await this._pluginManager.uninstall(entry.name);
+      }
+
+      if (this._messageBus) {
+        try {
+          this._messageBus.dispose();
+        } catch {
+          // ignore cleanup failure
+        }
+        this._messageBus = null;
       }
 
       this._setStatus(KernelStatus.STOPPED);

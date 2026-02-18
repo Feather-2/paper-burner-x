@@ -209,6 +209,7 @@ const deepsearchExports = {
 const sdkExports = {
   AgentBuilder: makeClass('AgentBuilder'),
   createAgent: makeFn('createAgent'),
+  createAgentBuilder: makeFn('createAgentBuilder'),
 };
 
 const sharedExports = {
@@ -587,6 +588,7 @@ describeFunctionExport('runDeepSearchStage', deepsearchExports.runDeepSearchStag
 // ------------------------------
 describeClassExport('AgentBuilder', sdkExports.AgentBuilder);
 describeFunctionExport('createAgent', sdkExports.createAgent);
+describeFunctionExport('createAgentBuilder', sdkExports.createAgentBuilder);
 
 // ------------------------------
 // Shared exports

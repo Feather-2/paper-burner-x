@@ -64,7 +64,7 @@ export function createRequire(config) {
     // ESM transform
     let finalCode = code;
     if (hasESMSyntax(code)) {
-      finalCode = transformESMtoCJS(code, resolved.path);
+      finalCode = await transformESMtoCJS(code, resolved.path);
     }
 
     const module = { exports: {} };

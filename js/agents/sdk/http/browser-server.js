@@ -27,6 +27,47 @@ import { SSE_HEADERS } from './sse-writer.js';
  * @property {() => void} close
  */
 
+/**
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+function decodeUtf8Bytes(bytes) {
+  if (typeof TextDecoder === 'function') {
+    return new TextDecoder().decode(bytes);
+  }
+  if (typeof Buffer === 'function') {
+    return Buffer.from(bytes).toString('utf8');
+  }
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 1) out += String.fromCharCode(bytes[i]);
+  return out;
+}
+
+/**
+ * Normalize SW/Bridge request body to request-handler's string contract.
+ * @param {unknown} body
+ * @returns {string}
+ */
+export function normalizeVirtualRequestBody(body) {
+  if (typeof body === 'string') return body;
+  if (body == null) return '';
+  if (body instanceof ArrayBuffer) {
+    return decodeUtf8Bytes(new Uint8Array(body));
+  }
+  if (ArrayBuffer.isView(body)) {
+    const view = /** @type {ArrayBufferView} */ (body);
+    return decodeUtf8Bytes(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+  }
+  if (typeof body === 'object') {
+    try {
+      return JSON.stringify(body);
+    } catch {
+      return '';
+    }
+  }
+  return String(body);
+}
+
 // ---------------------------------------------------------------------------
 // Public
 // ---------------------------------------------------------------------------
@@ -63,7 +104,7 @@ export async function createBrowserServer(agentFactory, options = {}) {
           method,
           pathname,
           headers: swReq.headers || {},
-          body: typeof swReq.body === 'string' ? swReq.body : JSON.stringify(swReq.body || ''),
+          body: normalizeVirtualRequestBody(swReq.body),
         };
 
         if (isStream && method === 'POST') {

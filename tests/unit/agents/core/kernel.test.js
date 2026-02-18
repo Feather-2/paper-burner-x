@@ -15,6 +15,7 @@ import {
   EventBus,
   StateBus,
   ServiceBus,
+  MessageBus,
 } from '../../../../js/agents/core/index.js';
 
 /**
@@ -64,6 +65,15 @@ describe('Kernel', () => {
       expect(kernel.events).toBeInstanceOf(EventBus);
       expect(kernel.state).toBeInstanceOf(StateBus);
       expect(kernel.services).toBeInstanceOf(ServiceBus);
+    });
+
+    it('should lazy initialize message bus and reuse instance', () => {
+      kernel = new Kernel();
+      const first = kernel.messageBus;
+      const second = kernel.messageBus;
+      expect(first).toBeInstanceOf(MessageBus);
+      expect(second).toBe(first);
+      expect(first.eventBus).toBe(kernel.events);
     });
 
     it('should set initial meta state', () => {
@@ -507,7 +517,9 @@ describe('Kernel', () => {
 
       const history = kernel.events.getHistory();
       const loadedEvent = history.find(e => e.type === 'kernel.preset.loaded');
+      const canonicalEvent = history.find(e => e.type === 'kernel:preset:loaded');
       expect(loadedEvent).toBeDefined();
+      expect(canonicalEvent).toBeDefined();
       expect(loadedEvent.payload.preset).toBe('minimal');
     });
 

@@ -242,6 +242,70 @@ async function writeBinStubs(vfs, destPath, packageJson) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+function normalizeShasum(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return /^[a-f0-9]{40}$/.test(normalized) ? normalized : null;
+}
+
+/**
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+function bytesToHex(bytes) {
+  let hex = '';
+  for (let i = 0; i < bytes.length; i += 1) {
+    hex += bytes[i].toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
+/**
+ * @param {Uint8Array} bytes
+ * @returns {Promise<string>}
+ */
+async function computeSha1Hex(bytes) {
+  if (globalThis.crypto?.subtle?.digest) {
+    const digest = await globalThis.crypto.subtle.digest('SHA-1', bytes);
+    return bytesToHex(new Uint8Array(digest));
+  }
+
+  if (typeof Buffer === 'function') {
+    const cryptoMod = await import('node:crypto');
+    return cryptoMod.createHash('sha1').update(Buffer.from(bytes)).digest('hex');
+  }
+
+  throw new Error('SHA-1 digest is not available in this runtime');
+}
+
+/**
+ * @typedef {object} TarballIntegrityDetails
+ * @property {string} url
+ * @property {string} expectedShasum
+ * @property {string} actualShasum
+ * @property {string} [packageName]
+ * @property {string} [packageVersion]
+ */
+
+export class TarballIntegrityError extends Error {
+  /**
+   * @param {TarballIntegrityDetails} details
+   */
+  constructor(details) {
+    super(
+      `Tarball integrity check failed for ${details.packageName || details.url}`
+      + `: expected ${details.expectedShasum}, got ${details.actualShasum}`,
+    );
+    this.name = 'TarballIntegrityError';
+    this.code = 'ERR_TARBALL_INTEGRITY_MISMATCH';
+    this.details = details;
+  }
+}
+
+/**
  * Parse POSIX tar headers.
  * @param {ArrayBuffer|Uint8Array} buffer
  * @returns {TarHeader[]}
@@ -294,23 +358,33 @@ export function parseTarHeaders(buffer) {
  */
 export class TarballManager {
   /**
-   * @param {{ fetchFn?: typeof fetch, corsProxy?: string }} [options]
+   * @param {{
+   *   fetchFn?: typeof fetch,
+   *   corsProxy?: string,
+   *   onIntegrityFailure?: (details: TarballIntegrityDetails) => void
+   * }} [options]
    */
-  constructor({ fetchFn = fetch, corsProxy } = {}) {
+  constructor({ fetchFn = fetch, corsProxy, onIntegrityFailure } = {}) {
     if (typeof fetchFn !== 'function') {
       throw new TypeError('TarballManager fetchFn must be a function');
     }
     this.fetchFn = fetchFn;
     this.corsProxy = corsProxy;
+    this.onIntegrityFailure = typeof onIntegrityFailure === 'function'
+      ? onIntegrityFailure
+      : null;
   }
 
   /**
    * Download tarball as ArrayBuffer.
    * @param {string} url
+   * @param {{
+   *   expectedShasum?: string,
+   *   auditContext?: { packageName?: string, packageVersion?: string }
+   * }} [options]
    * @returns {Promise<ArrayBuffer>}
    */
-  async download(url) {
-    // SECURITY: shasum verification not implemented — downloads are not integrity-checked
+  async download(url, options = {}) {
     const targetUrl = this.corsProxy
       ? `${this.corsProxy}${encodeURIComponent(url)}`
       : url;
@@ -320,7 +394,35 @@ export class TarballManager {
       const status = response ? response.status : 'unknown';
       throw new Error(`Failed to download tarball: HTTP ${status}`);
     }
-    return response.arrayBuffer();
+
+    const buffer = await response.arrayBuffer();
+    const expectedShasum = options.expectedShasum;
+    if (expectedShasum !== undefined && expectedShasum !== null) {
+      const normalizedExpected = normalizeShasum(expectedShasum);
+      if (!normalizedExpected) {
+        const invalidShasumError = new TypeError(`Invalid expected shasum for ${url}`);
+        invalidShasumError.code = 'ERR_TARBALL_SHASUM_INVALID';
+        throw invalidShasumError;
+      }
+      const actualShasum = await computeSha1Hex(toUint8Array(buffer));
+      if (actualShasum !== normalizedExpected) {
+        const details = {
+          url,
+          expectedShasum: normalizedExpected,
+          actualShasum,
+          packageName: options.auditContext?.packageName,
+          packageVersion: options.auditContext?.packageVersion,
+        };
+        try {
+          this.onIntegrityFailure?.(details);
+        } catch {
+          // ignore reporter failures
+        }
+        throw new TarballIntegrityError(details);
+      }
+    }
+
+    return buffer;
   }
 
   /**

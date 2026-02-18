@@ -3,6 +3,7 @@
  * @property {string} name
  * @property {string} version
  * @property {string} tarballUrl
+ * @property {string} shasum
  */
 
 /**
@@ -242,14 +243,19 @@ export class DependencyResolver {
       const metadata = await this.registry.fetchPackageMetadata(depName);
       const versionInfo = metadata.versions?.[depVersion];
       const tarball = versionInfo?.dist?.tarball;
+      const shasum = versionInfo?.dist?.shasum;
       if (!tarball) {
         throw new Error(`Missing tarball URL for "${depName}@${depVersion}"`);
+      }
+      if (!shasum) {
+        throw new Error(`Missing tarball shasum for "${depName}@${depVersion}"`);
       }
 
       resolved.push({
         name: depName,
         version: depVersion,
         tarballUrl: tarball,
+        shasum,
       });
 
       const dependencies = versionInfo.dependencies || {};

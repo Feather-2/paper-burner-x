@@ -116,6 +116,14 @@ describe('createRequire', () => {
     expect(result).toEqual({ type: 'file', path: 'lib.js' });
   });
 
+  it('awaits ESM transform before wrapping module code', async () => {
+    await vfs.writeText('esm.js', 'export const value = 7;');
+    const evaluate = vi.fn(async (code) => new Function('return ' + code)());
+    const { require: req } = createRequire({ vfs, builtinModules: {}, evaluate });
+    const mod = await req('./esm');
+    expect(mod.value).toBe(7);
+  });
+
   it('circular dependency does not cause infinite loop', async () => {
     await vfs.writeText('a.js', 'const b = require("./b"); module.exports = { fromA: true };');
     await vfs.writeText('b.js', 'const a = require("./a"); module.exports = { fromB: true };');

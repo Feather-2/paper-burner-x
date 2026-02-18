@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { gzipSync } from 'node:zlib';
 import {
   TarballManager,
+  TarballIntegrityError,
   parseTarHeaders,
 } from '../../../../../../js/agents/core/node-compat/npm/tarball.js';
 
@@ -113,6 +114,54 @@ describe('npm/tarball', () => {
     const buffer = await manager.download('https://registry.npmjs.org/react.tgz');
     expect(fetchFn).toHaveBeenCalledWith('https://registry.npmjs.org/react.tgz');
     expect(new Uint8Array(buffer)).toEqual(bytes);
+  });
+
+  it('download verifies dist.shasum when expectedShasum is provided', async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    fetchFn.mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(toArrayBuffer(bytes)),
+    });
+    const manager = new TarballManager({ fetchFn });
+
+    await expect(manager.download('https://registry.npmjs.org/react.tgz', {
+      expectedShasum: '7037807198c22a7d2b0807371d763779a84fdfcf',
+    })).resolves.toBeInstanceOf(ArrayBuffer);
+  });
+
+  it('download throws TarballIntegrityError and reports audit details on shasum mismatch', async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    fetchFn.mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(toArrayBuffer(bytes)),
+    });
+    const onIntegrityFailure = vi.fn();
+    const manager = new TarballManager({ fetchFn, onIntegrityFailure });
+
+    await expect(manager.download('https://registry.npmjs.org/react.tgz', {
+      expectedShasum: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      auditContext: { packageName: 'react', packageVersion: '1.0.0' },
+    })).rejects.toBeInstanceOf(TarballIntegrityError);
+
+    expect(onIntegrityFailure).toHaveBeenCalledWith({
+      url: 'https://registry.npmjs.org/react.tgz',
+      expectedShasum: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      actualShasum: '7037807198c22a7d2b0807371d763779a84fdfcf',
+      packageName: 'react',
+      packageVersion: '1.0.0',
+    });
+  });
+
+  it('download throws ERR_TARBALL_SHASUM_INVALID for malformed expected shasum', async () => {
+    fetchFn.mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+    });
+    const manager = new TarballManager({ fetchFn });
+
+    await expect(manager.download('https://registry.npmjs.org/react.tgz', {
+      expectedShasum: 'not-a-shasum',
+    })).rejects.toMatchObject({ code: 'ERR_TARBALL_SHASUM_INVALID' });
   });
 
   it('download prepends corsProxy and encodes target URL', async () => {
