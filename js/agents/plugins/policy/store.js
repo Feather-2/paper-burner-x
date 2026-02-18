@@ -1,4 +1,7 @@
 import { safeJsonParse } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
+
+const logger = createLogger("runtime/policy/store");
 
 /**
  * @typedef {object} PolicyRule
@@ -82,8 +85,15 @@ export class PolicyRuleStore {
       return true;
     }
 
-    localStorage.setItem(this.storageKey, JSON.stringify({ schemaVersion: "0.1", rules: next }));
-    return true;
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify({ schemaVersion: "0.1", rules: next }));
+      return true;
+    } catch (err) {
+      MEMORY.rules = [...next];
+      const msg = err instanceof Error ? err.message : String(err ?? "");
+      logger.warn(`[policy-store] setItem failed, fell back to memory: ${msg}`);
+      return false;
+    }
   }
 
   /**
@@ -95,8 +105,15 @@ export class PolicyRuleStore {
       MEMORY.rules = [];
       return true;
     }
-    localStorage.removeItem(this.storageKey);
-    return true;
+    try {
+      localStorage.removeItem(this.storageKey);
+      return true;
+    } catch (err) {
+      MEMORY.rules = [];
+      const msg = err instanceof Error ? err.message : String(err ?? "");
+      logger.warn(`[policy-store] removeItem failed, cleared memory only: ${msg}`);
+      return false;
+    }
   }
 }
 

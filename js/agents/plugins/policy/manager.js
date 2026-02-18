@@ -4,7 +4,6 @@ import { PolicyRuleStore } from "./store.js";
 import { makeSecureTimestampedId } from "../../shared/index.js";
 import { createLogger } from "../../shared/index.js";
 
-import { isNodeLike } from "../../shared/index.js";
 import { toNonEmptyString } from "../../shared/index.js";
 
 const logger = createLogger("runtime/policy/manager");
@@ -45,6 +44,7 @@ const logger = createLogger("runtime/policy/manager");
  * @typedef {object} WaitForApprovalOptions
  * @property {number=} timeoutMs
  * @property {AbortSignal=} signal
+ * @property {"allow"|"deny"=} timeoutDecision
  */
 
 /**
@@ -96,11 +96,40 @@ function defaultDeriveRuleFromRequest(req) {
 
 /**
  * @param {EventBusLike | null} eventBus
+ * @returns {boolean}
+ */
+function hasApprovalProvider(eventBus) {
+  return Boolean(eventBus && typeof eventBus.subscribe === "function");
+}
+
+/**
+ * @param {unknown} value
+ * @param {"allow"|"deny"} [fallback]
+ * @returns {"allow"|"deny"}
+ */
+function normalizeBinaryDecision(value, fallback = "deny") {
+  const normalized = toNonEmptyString(value)?.toLowerCase();
+  if (normalized === "allow" || normalized === "deny") return normalized;
+  return fallback;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {"auto"|"always"|"never"}
+ */
+function normalizeInteractiveMode(value) {
+  const normalized = toNonEmptyString(value)?.toLowerCase();
+  if (normalized === "always" || normalized === "never" || normalized === "auto") return normalized;
+  return "auto";
+}
+
+/**
+ * @param {EventBusLike | null} eventBus
  * @param {string} requestId
  * @param {WaitForApprovalOptions} [options]
  * @returns {Promise<ApprovalResponsePayload | null>}
  */
-async function waitForApprovalResponse(eventBus, requestId, { timeoutMs = 300000, signal } = {}) {
+async function waitForApprovalResponse(eventBus, requestId, { timeoutMs = 300000, signal, timeoutDecision = "deny" } = {}) {
   if (!eventBus || typeof eventBus.subscribe !== "function") return null;
   const id = toNonEmptyString(requestId);
   if (!id) return null;
@@ -132,7 +161,10 @@ async function waitForApprovalResponse(eventBus, requestId, { timeoutMs = 300000
       signal.addEventListener("abort", onAbort, { once: true });
     }
 
-    timeoutId = setTimeout(() => finish({ decision: "deny", remember: "none", reason: "timeout" }), timeoutMs);
+    timeoutId = setTimeout(
+      () => finish({ decision: timeoutDecision === "allow" ? "allow" : "deny", remember: "none", reason: "timeout" }),
+      timeoutMs
+    );
 
     off = eventBus.subscribe("policy.approval.response", (evt) => {
       const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
@@ -171,8 +203,11 @@ export class PolicyManager {
    * @param {RunStoreLike | null} [options.runStore]
    * @param {string | null} [options.runId]
    * @param {boolean} [options.interactive]
+   * @param {"auto"|"always"|"never"} [options.interactiveMode]
    * @param {number} [options.approvalTimeoutMs]
    * @param {string} [options.onMissingApprovalProvider]
+   * @param {boolean} [options.allowUnsafeNonInteractiveAllow]
+   * @param {"allow"|"deny"} [options.onApprovalTimeout]
    * @param {string} [options.defaultEffect]
    */
   constructor(options = {}) {
@@ -182,9 +217,19 @@ export class PolicyManager {
     this.runStore = options.runStore || null;
     this.runId = options.runId || null;
 
-    this.interactive = typeof options.interactive === "boolean" ? options.interactive : !isNodeLike();
+    this.interactiveMode = normalizeInteractiveMode(options.interactiveMode);
+    this._interactiveExplicit = typeof options.interactive === "boolean";
+    this.interactive = this._interactiveExplicit
+      ? options.interactive
+      : this.interactiveMode === "always"
+        ? true
+        : this.interactiveMode === "never"
+          ? false
+          : hasApprovalProvider(this.eventBus);
     this.approvalTimeoutMs = Number.isFinite(options.approvalTimeoutMs) ? Math.max(1000, Math.floor(options.approvalTimeoutMs)) : 300000;
-    this.onMissingApprovalProvider = toNonEmptyString(options.onMissingApprovalProvider) || "deny";
+    this.onMissingApprovalProvider = normalizeBinaryDecision(options.onMissingApprovalProvider, "deny");
+    this.onApprovalTimeout = normalizeBinaryDecision(options.onApprovalTimeout, "deny");
+    this.allowUnsafeNonInteractiveAllow = options.allowUnsafeNonInteractiveAllow === true;
 
     this._loaded = false;
   }
@@ -196,6 +241,9 @@ export class PolicyManager {
     if (eventBus) this.eventBus = eventBus;
     if (runStore) this.runStore = runStore;
     if (runId) this.runId = runId;
+    if (!this._interactiveExplicit && this.interactiveMode === "auto") {
+      this.interactive = hasApprovalProvider(this.eventBus);
+    }
   }
 
   load() {
@@ -275,8 +323,24 @@ export class PolicyManager {
     }
 
     if (!this.interactive) {
-      const fallbackAllowed = this.onMissingApprovalProvider === "allow";
-      const fallback = { allowed: fallbackAllowed, requiresApproval: false, reason: `non_interactive_${fallbackAllowed ? "allow" : "deny"}` };
+      const providerAvailable = hasApprovalProvider(this.eventBus);
+      const allowConfigured = this.onMissingApprovalProvider === "allow";
+      const fallbackAllowed = allowConfigured && (providerAvailable || this.allowUnsafeNonInteractiveAllow);
+      const reason = !providerAvailable && allowConfigured && !this.allowUnsafeNonInteractiveAllow
+        ? "non_interactive_missing_provider_deny"
+        : `non_interactive_${fallbackAllowed ? "allow" : "deny"}`;
+
+      if (!providerAvailable) {
+        this._emit("policy.warning", {
+          requestId: enriched.requestId,
+          code: "missing_approval_provider",
+          nonInteractive: true,
+          configuredFallback: this.onMissingApprovalProvider,
+          appliedFallback: fallbackAllowed ? "allow" : "deny",
+        });
+      }
+
+      const fallback = { allowed: fallbackAllowed, requiresApproval: false, reason };
       this._emit("policy.decided", { requestId: enriched.requestId, ...fallback });
       return { request: enriched, ...fallback };
     }
@@ -290,10 +354,14 @@ export class PolicyManager {
       ...(enriched.argsSummary ? { argsSummary: enriched.argsSummary } : {}),
     });
 
-    const response = await waitForApprovalResponse(this.eventBus, enriched.requestId, { timeoutMs: this.approvalTimeoutMs, signal });
+    const response = await waitForApprovalResponse(this.eventBus, enriched.requestId, {
+      timeoutMs: this.approvalTimeoutMs,
+      signal,
+      timeoutDecision: this.onApprovalTimeout,
+    });
 
-    const decisionText = toNonEmptyString(response?.decision).toLowerCase();
-    const remember = toNonEmptyString(response?.remember).toLowerCase(); // "none" | "always"
+    const decisionText = (toNonEmptyString(response?.decision) || "").toLowerCase();
+    const remember = (toNonEmptyString(response?.remember) || "").toLowerCase(); // "none" | "always"
     const allowed = decisionText === "allow";
 
     this._emit("policy.approval.responded", {

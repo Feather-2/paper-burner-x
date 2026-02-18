@@ -322,6 +322,58 @@ describe("TokenTracker", () => {
     expect(tracker.getRecords()).toEqual(tracker.getAllRecords());
     expect(tracker.getTotalTokens()).toBe(5);
   });
+
+  it("flushes scheduled archive persistence and exposes persistence status", async () => {
+    const archive = {
+      list: vi.fn().mockResolvedValue([]),
+      load: vi.fn(),
+      save: vi.fn().mockResolvedValue(undefined),
+    };
+    const tracker = new TokenTracker({ archive, runId: "run-flush" });
+
+    tracker.record(baseParams({ promptTokens: 2, completionTokens: 3 }));
+    await tracker.flush();
+
+    expect(archive.save).toHaveBeenCalledTimes(1);
+    expect(archive.save).toHaveBeenCalledWith("run-flush", expect.objectContaining({
+      stats: expect.objectContaining({ totalTokens: 5 }),
+    }));
+    expect(tracker.getPersistenceStatus()).toEqual(expect.objectContaining({
+      enabled: true,
+      runId: "run-flush",
+      successCount: 1,
+      failureCount: 0,
+    }));
+  });
+
+  it("reports hydrate and persist errors via onPersistenceError callback", async () => {
+    const onPersistenceError = vi.fn();
+    const archive = {
+      list: vi.fn().mockRejectedValue(new Error("hydrate-fail")),
+      load: vi.fn(),
+      save: vi.fn().mockRejectedValue(new Error("persist-fail")),
+    };
+    const tracker = new TokenTracker({ archive, runId: "run-errors", onPersistenceError });
+
+    await tracker.init();
+    tracker.record(baseParams());
+    await tracker.flush({ throwOnError: false });
+
+    expect(onPersistenceError).toHaveBeenCalledWith(expect.objectContaining({
+      phase: "hydrate",
+      runId: "run-errors",
+      error: expect.objectContaining({ message: "hydrate-fail" }),
+    }));
+    expect(onPersistenceError).toHaveBeenCalledWith(expect.objectContaining({
+      phase: "persist",
+      runId: "run-errors",
+      error: expect.objectContaining({ message: "persist-fail" }),
+    }));
+    expect(tracker.getPersistenceStatus()).toEqual(expect.objectContaining({
+      failureCount: 1,
+      lastError: "persist-fail",
+    }));
+  });
 });
 
 describe("getGlobalTokenTracker", () => {

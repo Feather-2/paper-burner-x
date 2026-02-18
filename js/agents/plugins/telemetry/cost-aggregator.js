@@ -14,6 +14,10 @@
  * - 与 BudgetManager 互补（Budget 控制限额，Aggregator 只读报告）
  */
 
+import { createLogger } from "../../shared/index.js";
+
+const logger = createLogger("runtime/telemetry/cost-aggregator");
+
 /** @param {unknown} v @returns {number} */
 function safeInt(v) {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
@@ -26,7 +30,7 @@ function str(v) {
 
 export class CostAggregator {
   /**
-   * @param {{ eventBus?: { on?: Function, emit?: Function }, archive?: import("../../core/archive/archive-core.js").Archive, runId?: string }} [options]
+   * @param {{ eventBus?: { on?: Function, emit?: Function }, archive?: import("../../core/archive/archive-core.js").Archive, runId?: string, onPersistenceError?: (payload: { phase: "hydrate" | "persist", error: Error, runId: string }) => void }} [options]
    */
   constructor(options = {}) {
     /** @type {Map<string, object>} */
@@ -39,6 +43,13 @@ export class CostAggregator {
     this._archive = options?.archive ?? null;
     this._runId = options?.runId ?? `cost_aggregator_${Date.now()}`;
     this._initPromise = null;
+    this._onPersistenceError = typeof options?.onPersistenceError === "function" ? options.onPersistenceError : null;
+    this._persistPending = Promise.resolve();
+    this._persistScheduled = false;
+    this._persistDirty = false;
+    this._persistLastError = null;
+    this._persistFailureCount = 0;
+    this._persistSuccessCount = 0;
 
     if (this._eventBus && typeof this._eventBus.on === 'function') {
       this._unsubscribe = this._eventBus.on('llm:complete', (evt) => {
@@ -49,6 +60,24 @@ export class CostAggregator {
         } catch { /* best-effort */ }
       });
     }
+  }
+
+  /**
+   * @private
+   * @param {"hydrate"|"persist"} phase
+   * @param {unknown} error
+   */
+  _reportPersistenceError(phase, error) {
+    const err = error instanceof Error ? error : new Error(String(error ?? "unknown"));
+    logger.warn(`[CostAggregator] ${phase} failed`, { runId: this._runId, error: err.message });
+    if (this._onPersistenceError) {
+      try {
+        this._onPersistenceError({ phase, error: err, runId: this._runId });
+      } catch {
+        // ignore callback errors
+      }
+    }
+    return err;
   }
 
   /**
@@ -74,8 +103,7 @@ export class CostAggregator {
         // 使用已有的 restore 方法恢复数据
         this.restore(restored);
       } catch (err) {
-        // 持久化失败不影响内存操作
-        console.warn('[CostAggregator] Failed to hydrate from Archive:', err);
+        this._persistLastError = this._reportPersistenceError("hydrate", err);
       }
     })();
 
@@ -88,15 +116,32 @@ export class CostAggregator {
    */
   _persistToArchive() {
     if (!this._archive) return;
+    this._persistDirty = true;
+    if (this._persistScheduled) return;
+    this._persistScheduled = true;
 
-    queueMicrotask(async () => {
-      try {
-        const snapshot = this.getSnapshot();
-        await this._archive.save(this._runId, snapshot);
-      } catch (err) {
-        // 持久化失败不影响内存操作
-        console.warn('[CostAggregator] Failed to persist to Archive:', err);
-      }
+    queueMicrotask(() => {
+      this._persistScheduled = false;
+      this._persistPending = this._persistPending
+        .then(async () => {
+          if (!this._archive || !this._persistDirty) return;
+          this._persistDirty = false;
+          try {
+            const snapshot = this.getSnapshot();
+            await this._archive.save(this._runId, snapshot);
+            this._persistSuccessCount++;
+            this._persistLastError = null;
+          } catch (err) {
+            this._persistFailureCount++;
+            this._persistLastError = this._reportPersistenceError("persist", err);
+          }
+          if (this._persistDirty) {
+            this._persistToArchive();
+          }
+        })
+        .catch(() => {
+          // keep chain alive
+        });
     });
   }
 
@@ -263,6 +308,39 @@ export class CostAggregator {
       count++;
     }
     return { ok: true, count };
+  }
+
+  getPersistenceStatus() {
+    return {
+      enabled: Boolean(this._archive),
+      runId: this._runId,
+      pending: this._persistScheduled || this._persistDirty,
+      successCount: this._persistSuccessCount,
+      failureCount: this._persistFailureCount,
+      lastError: this._persistLastError ? this._persistLastError.message : null,
+    };
+  }
+
+  /**
+   * @param {{ throwOnError?: boolean }} [options]
+   */
+  async flush({ throwOnError = true } = {}) {
+    if (!this._archive) return;
+    await this.init();
+    if (this._persistScheduled) {
+      await Promise.resolve();
+    }
+    await this._persistPending;
+    if (this._persistDirty) {
+      this._persistToArchive();
+      await Promise.resolve();
+      await this._persistPending;
+    }
+    if (throwOnError && this._persistLastError) {
+      const err = this._persistLastError;
+      this._persistLastError = null;
+      throw err;
+    }
   }
 
   /** @returns {number} */

@@ -80,13 +80,29 @@ export function subscribeTelemetry(eventBus, runStore, options = {}) {
   const store = ensureRunStore(runStore);
 
   const maxTimelineEntriesRaw = typeof options?.maxTimelineEntries === "number" ? options.maxTimelineEntries : null;
+  const allowUnlimitedTimeline = options?.allowUnlimitedTimeline === true;
   const maxTimelineEntries =
-    maxTimelineEntriesRaw === null || !Number.isFinite(maxTimelineEntriesRaw) ? 2000 : maxTimelineEntriesRaw <= 0 ? Infinity : Math.floor(maxTimelineEntriesRaw);
+    maxTimelineEntriesRaw === null || !Number.isFinite(maxTimelineEntriesRaw)
+      ? 2000
+      : maxTimelineEntriesRaw <= 0
+        ? allowUnlimitedTimeline
+          ? Infinity
+          : 2000
+        : Math.max(1, Math.floor(maxTimelineEntriesRaw));
+  if (maxTimelineEntriesRaw !== null && Number.isFinite(maxTimelineEntriesRaw) && maxTimelineEntriesRaw <= 0 && !allowUnlimitedTimeline) {
+    logger.warn("maxTimelineEntries<=0 is unsafe; fallback to default", {
+      requested: maxTimelineEntriesRaw,
+      applied: maxTimelineEntries,
+    });
+  }
 
   const timeline = [];
   const todosById = new Map();
   let pending = Promise.resolve();
   let lastError = null;
+  let appendFailureCount = 0;
+  let appendSuccessCount = 0;
+  const recentAppendErrors = [];
 
   const handler = (evt) => {
     if (evt?.meta?.replay) return;
@@ -100,10 +116,24 @@ export function subscribeTelemetry(eventBus, runStore, options = {}) {
     const runId = toNonEmptyString(evt?.runId) || toNonEmptyString(bus?.runId);
     if (!runId) return;
     pending = pending
-      .then(() => store.appendEvent(runId, evt))
+      .then(async () => {
+        await store.appendEvent(runId, evt);
+        appendSuccessCount++;
+      })
       .catch((err) => {
         lastError = err;
-        logger.warn("Telemetry append error", { error: err.message });
+        appendFailureCount++;
+        const message = err instanceof Error ? err.message : String(err ?? "");
+        recentAppendErrors.push({ ts: Date.now(), message, runId, name: evt?.name });
+        if (recentAppendErrors.length > 20) {
+          recentAppendErrors.splice(0, recentAppendErrors.length - 20);
+        }
+        logger.warn("Telemetry append error", {
+          error: message,
+          runId,
+          name: evt?.name,
+          appendFailureCount,
+        });
       });
   };
 
@@ -121,12 +151,22 @@ export function subscribeTelemetry(eventBus, runStore, options = {}) {
       throw err;
     }
   };
-  const snapshot = () => ({ timeline: timeline.slice(), todos: [...todosById.values()] });
+  const diagnostics = () => ({
+    appendSuccessCount,
+    appendFailureCount,
+    lastError: lastError ? (lastError instanceof Error ? lastError.message : String(lastError)) : null,
+    recentAppendErrors: recentAppendErrors.slice(),
+    maxTimelineEntries,
+  });
+  const snapshot = () => ({ timeline: timeline.slice(), todos: [...todosById.values()], diagnostics: diagnostics() });
 
   return {
     timeline,
     get todos() {
       return [...todosById.values()];
+    },
+    get diagnostics() {
+      return diagnostics();
     },
     flush,
     snapshot,

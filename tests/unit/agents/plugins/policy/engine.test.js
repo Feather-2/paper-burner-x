@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const mockLogger = vi.hoisted(() => ({
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+}));
+
 vi.mock('../../../../../js/agents/plugins/policy/match.js', () => {
   const toList = (value) => (Array.isArray(value) ? value : value ? [value] : []);
   const toStr = (value) => (typeof value === 'string' ? value : '');
@@ -48,6 +55,7 @@ vi.mock('../../../../../js/agents/shared/index.js', () => {
     toNonEmptyString,
     isPlainObject,
     makeSecureTimestampedId: vi.fn(() => 'mock-id-0'),
+    createLogger: vi.fn(() => mockLogger),
   };
 });
 
@@ -516,5 +524,39 @@ describe('external dependency mocks', () => {
     const id2 = shared.makeSecureTimestampedId();
     expect(id1).toBe('mock-id-1');
     expect(id2).toBe('mock-id-2');
+  });
+});
+
+describe('PolicyEngine behavior specifics', () => {
+  it('does not short-circuit to missing_type when tool/resource are present', () => {
+    const e = new engine.PolicyEngine({
+      rules: [],
+      defaultEffect: 'prompt',
+    });
+
+    const decision = e.evaluate({ tool: 'fs.readFile', resource: '/tmp/a.txt' });
+    expect(decision).toEqual(expect.objectContaining({
+      allowed: false,
+      requiresApproval: true,
+      reason: 'missing_type_no_matching_rule',
+    }));
+  });
+
+  it('warns on invalid defaultEffect and falls back to prompt behavior', () => {
+    const e = new engine.PolicyEngine({
+      rules: [],
+      defaultEffect: 'invalid_effect',
+    });
+
+    const decision = e.evaluate({ type: 'tool.call', tool: 'fs.readFile' });
+    expect(decision).toEqual(expect.objectContaining({
+      allowed: false,
+      requiresApproval: true,
+      reason: 'no_matching_rule',
+    }));
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Invalid policy defaultEffect; falling back to prompt',
+      expect.objectContaining({ received: 'invalid_effect' }),
+    );
   });
 });

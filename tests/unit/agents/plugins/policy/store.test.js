@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+const warnMock = vi.hoisted(() => vi.fn());
+
 vi.mock("../../../../../js/agents/shared/index.js", () => ({
   safeJsonParse: vi.fn(),
+  createLogger: vi.fn(() => ({ warn: warnMock })),
 }));
 
 const STORE_MODULE_PATH = "../../../../../js/agents/plugins/policy/store.js";
@@ -99,6 +102,7 @@ async function importFreshStoreModule() {
 beforeEach(() => {
   restoreLocalStorage();
   vi.clearAllMocks();
+  warnMock.mockReset();
 });
 
 afterEach(() => {
@@ -269,6 +273,22 @@ describe("PolicyRuleStore", () => {
     expect(store.load()).toEqual([{ effect: " " }, {}, [], { effect: "allow", priority: -1 }]);
   });
 
+  it("save() catches localStorage setItem failures and falls back without throwing", async () => {
+    const storageKey = "paperburner_policy_rules_v1";
+    const storage = createLocalStorageStub();
+    storage.setItem.mockImplementation(() => {
+      throw new Error("quota-exceeded");
+    });
+    installLocalStorage(storage);
+
+    const { PolicyRuleStore } = await importFreshStoreModule();
+    const store = new PolicyRuleStore({ storageKey });
+
+    expect(store.save([{ effect: "allow" }])).toBe(false);
+    expect(warnMock).toHaveBeenCalledWith(expect.stringContaining("setItem failed"));
+    expect(store.load()).toEqual([{ effect: "allow" }]);
+  });
+
   it("save() treats non-array inputs as [] (null/undefined/object/string)", async () => {
     const storageKey = "paperburner_policy_rules_v1";
     const storage = createLocalStorageStub();
@@ -312,6 +332,22 @@ describe("PolicyRuleStore", () => {
 
     const store2 = new PolicyRuleStore();
     expect(store2.load()).toEqual([]);
+  });
+
+  it("clear() catches localStorage removeItem failures", async () => {
+    const storage = createLocalStorageStub();
+    storage.removeItem.mockImplementation(() => {
+      throw new Error("remove-failed");
+    });
+    installLocalStorage(storage);
+
+    const { PolicyRuleStore } = await importFreshStoreModule();
+    const store = new PolicyRuleStore();
+
+    store.save([{ effect: "allow" }]);
+    expect(store.clear()).toBe(false);
+    expect(warnMock).toHaveBeenCalledWith(expect.stringContaining("removeItem failed"));
+    expect(store.load()).toEqual([]);
   });
 
   it("falls back to in-memory store when localStorage is unavailable", async () => {

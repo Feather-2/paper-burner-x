@@ -75,6 +75,9 @@ export default createPlugin({
     const { createVfs } = await import('../../vfs/index.js');
     /** @type {VfsLike} */
     const vfs = await createVfs(ctx.config);
+    /** @type {((request: VfsGlobRequest) => Promise<string[]>) | null} */
+    let fallbackGlobFn = null;
+    let fallbackGlobInitialized = false;
 
     ctx.registerService('vfs', {
       /**
@@ -199,25 +202,36 @@ export default createPlugin({
       async glob(pattern, options) {
         if (typeof vfs.glob === 'function') {
           return vfs.glob(pattern, options);
-	        }
-	        // Fallback
-	        const { createVfsGlobFn } = await import('../../vfs/glob.js');
-	        const globFn = createVfsGlobFn(vfs);
-	        if (typeof globFn !== 'function') return [];
+        }
 
-	        const request = /** @type {VfsGlobRequest} */ (
-	          /** @type {unknown} */ (
-	            pattern && typeof pattern === 'object'
-	              ? { ...(pattern || {}), ...(options || {}) }
-	              : { pattern, ...(options || {}) }
-	          )
-	        );
+        if (!fallbackGlobInitialized) {
+          fallbackGlobInitialized = true;
+          try {
+            const { createVfsGlobFn } = await import('../../vfs/glob.js');
+            const maybeGlobFn = typeof createVfsGlobFn === 'function' ? createVfsGlobFn(vfs) : null;
+            fallbackGlobFn = typeof maybeGlobFn === 'function' ? maybeGlobFn : null;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            ctx.log.warn(`VFS glob fallback unavailable: ${message}`);
+            fallbackGlobFn = null;
+          }
+        }
 
-	        return globFn(request);
-	      },
+        if (typeof fallbackGlobFn !== 'function') return [];
 
-	      /**
-	       * 获取底层 VFS 实例
+        const request = /** @type {VfsGlobRequest} */ (
+          /** @type {unknown} */ (
+            pattern && typeof pattern === 'object'
+              ? { ...(pattern || {}), ...(options || {}) }
+              : { pattern, ...(options || {}) }
+          )
+        );
+
+        return fallbackGlobFn(request);
+      },
+
+      /**
+       * 获取底层 VFS 实例
        * @returns {VfsLike}
        */
       getInstance() {

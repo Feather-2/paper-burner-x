@@ -127,7 +127,16 @@ export default createPlugin({
        * @returns {{tokens?: {input: number, output: number}}}
        */
       getStats() {
-        return ctx.state.get('') || {};
+        const stateTokens = ctx.state.get('tokens');
+        const runtimeTokens = typeof ctx.state.getGlobal === 'function' ? ctx.state.getGlobal('runtime.tokens') : null;
+        const source = stateTokens && typeof stateTokens === 'object' ? stateTokens : runtimeTokens;
+        if (!source || typeof source !== 'object') return {};
+        return {
+          tokens: {
+            input: Number.isFinite(source.input) ? source.input : 0,
+            output: Number.isFinite(source.output) ? source.output : 0,
+          },
+        };
       },
     });
 

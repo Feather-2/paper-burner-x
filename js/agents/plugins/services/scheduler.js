@@ -24,6 +24,7 @@ export default createPlugin({
   defaultConfig: {
     maxConcurrent: 5,
     defaultTimeout: 60000,
+    maxQueueSize: 10000,
   },
 
   /**
@@ -39,6 +40,8 @@ export default createPlugin({
     };
 
     const validPriorities = new Set(Object.values(TaskPriority));
+    const maxQueueSizeRaw = Number.isFinite(ctx.config.maxQueueSize) ? ctx.config.maxQueueSize : 10000;
+    const maxQueueSize = Math.max(0, Math.floor(maxQueueSizeRaw));
 
     let running = 0;
     let taskId = 0;
@@ -51,6 +54,22 @@ export default createPlugin({
       typeof globalWithSetImmediate.setImmediate === 'function'
         ? /** @type {(callback: (...args: unknown[]) => void, ...args: unknown[]) => unknown} */ (globalWithSetImmediate.setImmediate)
         : (callback, ...args) => setTimeout(callback, 0, ...args);
+
+    const getQueuedCount = () => Object.values(queues).reduce((sum, q) => sum + q.length, 0);
+
+    const updateQueuedStats = ({ incrementTotal = false, incrementRejected = false } = {}) => {
+      const current = ctx.state.get('stats') || {};
+      const next = {
+        queued: getQueuedCount(),
+        totalQueued: (current.totalQueued || 0) + (incrementTotal ? 1 : 0),
+      };
+      if (incrementRejected) {
+        next.rejected = (current.rejected || 0) + 1;
+      } else if (typeof current.rejected === 'number') {
+        next.rejected = current.rejected;
+      }
+      ctx.state.merge('stats', next);
+    };
 
     const processQueue = async () => {
       if (running >= ctx.config.maxConcurrent) return;
@@ -65,6 +84,7 @@ export default createPlugin({
       }
 
       if (!task) return;
+      updateQueuedStats();
 
       running++;
       ctx.state.set('running', running);
@@ -74,8 +94,19 @@ export default createPlugin({
 
         // Issue #3: 保存 timeout 句柄并在任务完成后清理
         let timeoutHandle;
+        const timeoutError = new Error('Task timeout');
+        timeoutError.code = 'SCHEDULER_TASK_TIMEOUT';
         const timeoutPromise = new Promise((_, reject) => {
-          timeoutHandle = setTimeout(() => reject(new Error('Task timeout')), task.timeout);
+          timeoutHandle = setTimeout(() => {
+            if (task.controller && typeof task.controller.abort === 'function') {
+              try {
+                task.controller.abort(timeoutError);
+              } catch {
+                task.controller.abort();
+              }
+            }
+            reject(timeoutError);
+          }, task.timeout);
         });
 
         try {
@@ -87,6 +118,9 @@ export default createPlugin({
         }
       } catch (error) {
         task.reject(error);
+        if (error?.code === 'SCHEDULER_TASK_TIMEOUT') {
+          ctx.events.emit('scheduler:task:timeout', { id: task.id, timeout: task.timeout });
+        }
         ctx.events.emit('scheduler:task:error', { id: task.id, error: error.message });
       } finally {
         running--;
@@ -110,25 +144,36 @@ export default createPlugin({
           return Promise.reject(new Error('Invalid priority'));
         }
 
+        const queued = getQueuedCount();
+        if (queued >= maxQueueSize) {
+          updateQueuedStats({ incrementRejected: true });
+          ctx.events.emit('scheduler:task:rejected', {
+            reason: 'queue_full',
+            priority,
+            maxQueueSize,
+          });
+          return Promise.reject(new Error(`Task queue overflow (maxQueueSize=${maxQueueSize})`));
+        }
+
         const id = ++taskId;
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
 
         return new Promise((resolve, reject) => {
           const task = {
             id,
             priority,
             timeout: ctx.config.defaultTimeout,
-            execute: typeof taskFn === 'function' ? taskFn : () => taskFn,
+            execute: () => (typeof taskFn === 'function' ? taskFn(controller?.signal) : taskFn),
             resolve,
             reject,
             createdAt: Date.now(),
+            controller,
           };
 
           tasks.set(id, task);
           queues[priority].push(task);
 
-          ctx.state.merge('stats', {
-            queued: (ctx.state.get('stats.queued') || 0) + 1,
-          });
+          updateQueuedStats({ incrementTotal: true });
 
           ctx.events.emit('scheduler:task:queued', { id, priority });
           setImmediate(processQueue);
@@ -151,6 +196,7 @@ export default createPlugin({
           queue.splice(idx, 1);
           task.reject(new Error('Task cancelled'));
           tasks.delete(taskId);
+          updateQueuedStats();
           ctx.events.emit('scheduler:task:cancelled', { id: taskId });
           return true;
         }
@@ -160,13 +206,14 @@ export default createPlugin({
 
       /**
        * 获取状态
-       * @returns {{ running: number, queued: number, maxConcurrent: number }}
+       * @returns {{ running: number, queued: number, maxConcurrent: number, maxQueueSize: number }}
        */
       getStatus() {
         return {
           running,
-          queued: Object.values(queues).reduce((sum, q) => sum + q.length, 0),
+          queued: getQueuedCount(),
           maxConcurrent: ctx.config.maxConcurrent,
+          maxQueueSize,
         };
       },
 
@@ -179,7 +226,7 @@ export default createPlugin({
         if (priority !== undefined) {
           return queues[priority]?.length || 0;
         }
-        return Object.values(queues).reduce((sum, q) => sum + q.length, 0);
+        return getQueuedCount();
       },
     });
 

@@ -73,7 +73,7 @@ function createMockCtx(configOverrides = {}) {
   });
 
   return {
-    config: { maxConcurrent: 5, defaultTimeout: 60000, ...configOverrides },
+    config: { maxConcurrent: 5, defaultTimeout: 60000, maxQueueSize: 10000, ...configOverrides },
     state,
     stateData,
     events,
@@ -149,7 +149,7 @@ describe('default (scheduler plugin)', () => {
       name: 'service/scheduler',
       version: '1.0.0',
       description: '任务调度器',
-      defaultConfig: { maxConcurrent: 5, defaultTimeout: 60000 },
+      defaultConfig: { maxConcurrent: 5, defaultTimeout: 60000, maxQueueSize: 10000 },
     });
     expect(typeof plugin.install).toBe('function');
 
@@ -218,6 +218,7 @@ describe('default (scheduler plugin)', () => {
 
         const p = service.schedule(() => 123, undefined);
         expect(ctx.stateData.stats?.queued).toBe(1);
+        expect(ctx.stateData.stats?.totalQueued).toBe(1);
 
         const queuedCalls = emitted(ctx, 'scheduler:task:queued');
         expect(queuedCalls).toHaveLength(1);
@@ -445,10 +446,31 @@ describe('default (scheduler plugin)', () => {
         await rejected;
 
         const errors = emitted(ctx, 'scheduler:task:error');
+        const timeouts = emitted(ctx, 'scheduler:task:timeout');
         expect(errors).toHaveLength(1);
         expect(errors[0][1]).toMatchObject({ id: 1, error: 'Task timeout' });
+        expect(timeouts).toHaveLength(1);
+        expect(timeouts[0][1]).toMatchObject({ id: 1, timeout: 50 });
 
         expect(clearSpy).toHaveBeenCalled();
+      });
+    });
+
+    it('passes AbortSignal to task and aborts it on timeout', async () => {
+      await withScheduler({ maxConcurrent: 1, defaultTimeout: 30 }, async ({ service }) => {
+        const onAbort = vi.fn();
+        const p = service.schedule((signal) => {
+          signal?.addEventListener?.('abort', onAbort, { once: true });
+          return new Promise(() => {});
+        });
+        const rejected = expect(p).rejects.toThrow('Task timeout');
+
+        await flushImmediate();
+        await vi.advanceTimersByTimeAsync(30);
+        await Promise.resolve();
+
+        await rejected;
+        expect(onAbort).toHaveBeenCalledTimes(1);
       });
     });
 
@@ -466,6 +488,28 @@ describe('default (scheduler plugin)', () => {
 
         const errorsAfter = emitted(ctx, 'scheduler:task:error').length;
         expect(errorsAfter).toBe(errorsBefore);
+      });
+    });
+
+    it('rejects when queue exceeds maxQueueSize and tracks rejected stats', async () => {
+      await withScheduler({ maxConcurrent: 1, defaultTimeout: 1000, maxQueueSize: 1 }, async ({ ctx, service }) => {
+        const d = deferred();
+        const p1 = service.schedule(() => d.promise);
+        await flushImmediate();
+
+        const p2 = service.schedule(() => 'queued');
+        const p3 = service.schedule(() => 'overflow');
+        await expect(p3).rejects.toThrow('Task queue overflow');
+
+        expect(ctx.stateData.stats?.queued).toBe(1);
+        expect(ctx.stateData.stats?.totalQueued).toBe(2);
+        expect(ctx.stateData.stats?.rejected).toBe(1);
+        expect(emitted(ctx, 'scheduler:task:rejected')).toHaveLength(1);
+
+        d.resolve('done');
+        await flushImmediate();
+        await expect(p1).resolves.toBe('done');
+        await expect(p2).resolves.toBe('queued');
       });
     });
   });

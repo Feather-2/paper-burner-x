@@ -223,7 +223,9 @@ describe('service/llm plugin', () => {
     const kernel = await setupKernel({ model: 'unit-test-no-usage' });
 
     try {
-      await expect(kernel.services.call('llm', 'getStats', [])).resolves.toEqual({});
+      await expect(kernel.services.call('llm', 'getStats', [])).resolves.toEqual({
+        tokens: { input: 0, output: 0 },
+      });
 
       const events = [];
       kernel.events.on('llm:response', (evt) => events.push(evt.payload));
@@ -233,6 +235,31 @@ describe('service/llm plugin', () => {
 
       expect(kernel.state.get('plugins.service/llm.tokens')).toBeUndefined();
       expect(events).toEqual([{ model: 'unit-test-no-usage', tokens: undefined }]);
+    } finally {
+      await cleanupKernel(kernel);
+    }
+  });
+
+  it('getStats reads explicit token paths and falls back to runtime tokens', async () => {
+    const provider = {
+      chat: vi.fn(async () => ({ model: 'unit-test-stats' })),
+      stream: vi.fn(async () => 'stream-ok'),
+    };
+
+    createProviderImpl = vi.fn(async () => provider);
+
+    const kernel = await setupKernel({ model: 'unit-test-stats' });
+
+    try {
+      kernel.state.set('runtime.tokens', { input: 9, output: 8 });
+      await expect(kernel.services.call('llm', 'getStats', [])).resolves.toEqual({
+        tokens: { input: 9, output: 8 },
+      });
+
+      kernel.state.set('plugins.service/llm.tokens', { input: 1, output: 2 });
+      await expect(kernel.services.call('llm', 'getStats', [])).resolves.toEqual({
+        tokens: { input: 1, output: 2 },
+      });
     } finally {
       await cleanupKernel(kernel);
     }

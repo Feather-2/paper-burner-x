@@ -451,6 +451,97 @@ if (exportedFunctionNames.includes("waitForApprovalResponse")) {
   });
 }
 
+describe("PolicyManager class behavior", () => {
+  function createRuleStore() {
+    return {
+      load: vi.fn(() => []),
+      save: vi.fn(() => true),
+      clear: vi.fn(() => true),
+    };
+  }
+
+  function createApprovalEngine() {
+    return {
+      setRules: vi.fn(),
+      getRules: vi.fn(() => []),
+      evaluate: vi.fn(() => ({ allowed: false, requiresApproval: true, reason: "needs_approval" })),
+    };
+  }
+
+  it("auto interactive mode depends on approval provider presence (not platform flag)", async () => {
+    const { manager } = await freshImports();
+
+    const withProvider = new manager.PolicyManager({
+      ruleStore: createRuleStore(),
+      engine: createApprovalEngine(),
+      eventBus: { subscribe: vi.fn(() => vi.fn()), emit: vi.fn() },
+    });
+    expect(withProvider.interactive).toBe(true);
+
+    const withoutProvider = new manager.PolicyManager({
+      ruleStore: createRuleStore(),
+      engine: createApprovalEngine(),
+      eventBus: { emit: vi.fn() },
+    });
+    expect(withoutProvider.interactive).toBe(false);
+
+    const explicit = new manager.PolicyManager({
+      ruleStore: createRuleStore(),
+      engine: createApprovalEngine(),
+      interactive: true,
+      eventBus: null,
+    });
+    expect(explicit.interactive).toBe(true);
+  });
+
+  it("non-interactive allow fallback denies by default when provider is missing", async () => {
+    const { manager } = await freshImports();
+    const bus = { emit: vi.fn() };
+    const pm = new manager.PolicyManager({
+      ruleStore: createRuleStore(),
+      engine: createApprovalEngine(),
+      eventBus: bus,
+      interactive: false,
+      onMissingApprovalProvider: "allow",
+    });
+
+    const result = await pm.authorize({ type: "tool.call", tool: "fs.read" });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toBe("non_interactive_missing_provider_deny");
+    expect(bus.emit).toHaveBeenCalledWith(
+      "policy.warning",
+      expect.objectContaining({ code: "missing_approval_provider", appliedFallback: "deny" })
+    );
+  });
+
+  it("supports configurable timeout decision when waiting for approval", async () => {
+    const { manager } = await freshImports();
+    vi.useFakeTimers();
+
+    const bus = createEventBus();
+    const pm = new manager.PolicyManager({
+      ruleStore: createRuleStore(),
+      engine: createApprovalEngine(),
+      eventBus: bus,
+      interactive: true,
+      approvalTimeoutMs: 1000,
+      onApprovalTimeout: "allow",
+    });
+
+    const pending = pm.authorize({ type: "tool.call", tool: "fs.write" });
+    vi.advanceTimersByTime(1000);
+    await flushPromises();
+
+    await expect(pending).resolves.toEqual(expect.objectContaining({
+      allowed: true,
+      requiresApproval: false,
+      reason: "approved",
+    }));
+
+    vi.useRealTimers();
+  });
+});
+
 const covered = new Set([
   "summarizeArgs",
   "sha256OfJson",

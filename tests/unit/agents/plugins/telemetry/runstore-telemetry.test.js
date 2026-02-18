@@ -156,6 +156,23 @@ describe("subscribeTelemetry", () => {
     }
   );
 
+  it("supports explicit unlimited timeline when allowUnlimitedTimeline=true", async () => {
+    const bus = createEventBus("run-unlimited");
+    const appendEvent = vi.fn().mockResolvedValue();
+    const sub = subscribeTelemetry(bus, { appendEvent }, { maxTimelineEntries: 0, allowUnlimitedTimeline: true });
+
+    bus.emit({ name: "run.progress", runId: "run-unlimited", payload: { i: 1 } });
+    bus.emit({ name: "run.progress", runId: "run-unlimited", payload: { i: 2 } });
+    bus.emit({ name: "run.progress", runId: "run-unlimited", payload: { i: 3 } });
+    await sub.flush();
+
+    expect(sub.timeline.map((row) => row.payload?.i)).toEqual([1, 2, 3]);
+    expect(mockState.warnMock).not.toHaveBeenCalledWith(
+      "maxTimelineEntries<=0 is unsafe; fallback to default",
+      expect.anything(),
+    );
+  });
+
   it.each(["2", "   ", { length: 2 }])(
     "ignores non-number maxTimelineEntries values: %s",
     async (limit) => {
@@ -303,9 +320,34 @@ describe("subscribeTelemetry", () => {
     bus.emit({ name: "run.progress", runId: "run-error", payload: { i: 2 } });
 
     await expect(sub.flush()).rejects.toThrow("append failed");
-    expect(mockState.warnMock).toHaveBeenCalledWith("Telemetry append error", { error: "append failed" });
+    expect(mockState.warnMock).toHaveBeenCalledWith(
+      "Telemetry append error",
+      expect.objectContaining({ error: "append failed", appendFailureCount: 1 }),
+    );
 
     await expect(sub.flush()).resolves.toBeUndefined();
+  });
+
+  it("tracks append diagnostics across failures", async () => {
+    const bus = createEventBus("run-diagnostics");
+    const appendEvent = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("broken-1"))
+      .mockResolvedValueOnce()
+      .mockRejectedValueOnce(new Error("broken-2"));
+    const sub = subscribeTelemetry(bus, { appendEvent });
+
+    bus.emit({ name: "run.progress", runId: "run-diagnostics", payload: { i: 1 } });
+    bus.emit({ name: "run.progress", runId: "run-diagnostics", payload: { i: 2 } });
+    bus.emit({ name: "run.progress", runId: "run-diagnostics", payload: { i: 3 } });
+
+    await expect(sub.flush()).rejects.toThrow(/broken-2|broken-1/);
+
+    const diagnostics = sub.diagnostics;
+    expect(diagnostics.appendFailureCount).toBe(2);
+    expect(diagnostics.appendSuccessCount).toBe(1);
+    expect(Array.isArray(diagnostics.recentAppendErrors)).toBe(true);
+    expect(diagnostics.recentAppendErrors.length).toBeGreaterThan(0);
   });
 
   it("serializes appendEvent for rapid consecutive events", async () => {

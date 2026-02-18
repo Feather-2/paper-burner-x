@@ -17,6 +17,9 @@ const logger = createLogger("runtime/telemetry/trace-context");
 
 const TRACE_VERSION = "00"; // W3C Trace Context version
 const FORBIDDEN_ATTRIBUTE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+let fallbackPrngState = ((Date.now() ^ 0x9e3779b9) >>> 0) || 1;
+let fallbackCounter = 0;
+let insecureRandomWarned = false;
 
 function isSafeAttributeKey(key) {
   return typeof key === "string" && !FORBIDDEN_ATTRIBUTE_KEYS.has(key);
@@ -46,10 +49,29 @@ function randomHex(bytes) {
     crypto.getRandomValues(arr);
     return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
   }
-  // Fallback
+  // Fallback (deterministic PRNG + monotonic counter; avoids Math.random collisions)
+  if (!insecureRandomWarned) {
+    insecureRandomWarned = true;
+    logger.warn("WebCrypto unavailable, trace IDs use reduced-entropy fallback", {
+      mode: "xorshift32-counter",
+      recommendation: "enable globalThis.crypto.getRandomValues",
+    });
+  }
+
+  const nowPart = (Date.now() & 0xff) >>> 0;
+  const perfPart =
+    typeof performance !== "undefined" && typeof performance.now === "function"
+      ? (Math.floor(performance.now() * 1000) & 0xff) >>> 0
+      : 0;
+
   let hex = "";
   for (let i = 0; i < bytes; i++) {
-    hex += Math.floor(Math.random() * 256).toString(16).padStart(2, "0");
+    fallbackCounter = (fallbackCounter + 1) >>> 0;
+    fallbackPrngState ^= (fallbackPrngState << 13) >>> 0;
+    fallbackPrngState ^= fallbackPrngState >>> 17;
+    fallbackPrngState ^= (fallbackPrngState << 5) >>> 0;
+    const mixed = (fallbackPrngState + fallbackCounter + nowPart + perfPart + i) >>> 0;
+    hex += (mixed & 0xff).toString(16).padStart(2, "0");
   }
   return hex;
 }

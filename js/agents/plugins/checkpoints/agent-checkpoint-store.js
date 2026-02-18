@@ -13,6 +13,8 @@ const INDEX_KIND = "agent_checkpoint_index";
 const INDEX_FILE = "index.json";
 const INDEX_JSON_MAX_CHARS = 2_000_000;
 const CHECKPOINT_JSON_MAX_CHARS = 5_000_000;
+const DEFAULT_INDEX_LOCK_TIMEOUT_MS = 5000;
+let fallbackCheckpointCounter = 0;
 
 /**
  * @typedef {object} LoggerLike
@@ -36,6 +38,7 @@ const CHECKPOINT_JSON_MAX_CHARS = 5_000_000;
  * @property {import('../../vfs/storage-adapter.js').StorageAdapter} [storageAdapter] - StorageAdapter fallback (used to build StorageVfs)
  * @property {string} [runId] - Default run id
  * @property {LoggerLike} [logger] - Custom logger
+ * @property {number} [indexLockTimeoutMs] - 索引锁超时时间（毫秒，默认 5000）
  */
 
 /**
@@ -61,17 +64,19 @@ const CHECKPOINT_JSON_MAX_CHARS = 5_000_000;
  *
  * @param {string} runId
  * @param {() => Promise<T>} fn
+ * @param {{ timeoutMs?: number }} [options]
  * @returns {Promise<T>}
  * @throws {Error} 锁获取失败或超时
  * @template T
  */
-async function withIndexLock(runId, fn) {
+async function withIndexLock(runId, fn, { timeoutMs = DEFAULT_INDEX_LOCK_TIMEOUT_MS } = {}) {
   /** @type {{ release?: () => void } | null} */
   let lock = null;
   let lockPath = "";
   try {
     lockPath = `${buildIndexPath(runId || "__default__")}.lock`;
-    lock = await acquireLock(lockPath, { type: "write", timeout: 5000 });
+    const normalizedTimeout = Number.isFinite(timeoutMs) ? Math.max(100, Math.floor(timeoutMs)) : DEFAULT_INDEX_LOCK_TIMEOUT_MS;
+    lock = await acquireLock(lockPath, { type: "write", timeout: normalizedTimeout });
     if (!lock) {
       throw new Error("Failed to acquire index lock");
     }
@@ -160,8 +165,13 @@ function makeCheckpointId() {
     const msg = err instanceof Error ? err.message : String(err ?? "");
     logger.warn(`[checkpoint-store] Failed to generate secure checkpoint id: ${msg}`);
     const ts = Date.now().toString(36);
-    const rand = Math.random().toString(16).slice(2, 10);
-    return `ckpt_${ts}_${rand}`;
+    const perfPart =
+      typeof performance !== "undefined" && typeof performance.now === "function"
+        ? Math.floor(performance.now() * 1000).toString(36)
+        : "";
+    fallbackCheckpointCounter = (fallbackCheckpointCounter + 1) >>> 0;
+    const counter = fallbackCheckpointCounter.toString(36).padStart(6, "0");
+    return `ckpt_${ts}_${perfPart}${counter}`;
   }
 }
 
@@ -309,10 +319,13 @@ export class AgentCheckpointStore {
   /**
    * @param {CheckpointStoreOptions} [options] - 配置选项
    */
-  constructor({ vfs, storageAdapter, runId, logger: customLogger } = /** @type {CheckpointStoreOptions} */ ({})) {
+  constructor({ vfs, storageAdapter, runId, logger: customLogger, indexLockTimeoutMs } = /** @type {CheckpointStoreOptions} */ ({})) {
     this._logger = customLogger || logger;
     this._vfs = ensureVfs({ vfs, storageAdapter });
     this._runId = toNonEmptyString(runId) || null;
+    this._indexLockTimeoutMs = Number.isFinite(indexLockTimeoutMs)
+      ? Math.max(100, Math.floor(indexLockTimeoutMs))
+      : DEFAULT_INDEX_LOCK_TIMEOUT_MS;
   }
 
   get runId() {
@@ -396,18 +409,22 @@ export class AgentCheckpointStore {
     await writeText(vfs, buildCheckpointPath(id, checkpointId), safeJsonStringify(checkpoint));
 
     // 使用锁保护索引读写，防止并发竞态
-    await withIndexLock(id, async () => {
-      const index = await loadIndex(vfs, id);
-      const entry = normalizeIndexEntry({
-        checkpointId,
-        ts,
-        step: stepValue ?? undefined,
-        iteration: iterationValue ?? undefined,
-        metadata: checkpoint.metadata,
-      });
-      if (entry) index.push(entry);
-      await saveIndex(vfs, id, index);
-    });
+    await withIndexLock(
+      id,
+      async () => {
+        const index = await loadIndex(vfs, id);
+        const entry = normalizeIndexEntry({
+          checkpointId,
+          ts,
+          step: stepValue ?? undefined,
+          iteration: iterationValue ?? undefined,
+          metadata: checkpoint.metadata,
+        });
+        if (entry) index.push(entry);
+        await saveIndex(vfs, id, index);
+      },
+      { timeoutMs: this._indexLockTimeoutMs }
+    );
 
     return { checkpointId, checkpoint };
   }

@@ -378,6 +378,7 @@ describe("AgentCheckpointStore", () => {
 
     it("falls back when secure id generation fails", async () => {
       const vfs = makeMemoryVfs();
+      const randomSpy = vi.spyOn(Math, "random");
       vi.mocked(makeSecureTimestampedId).mockImplementationOnce(() => {
         throw new Error("nope");
       });
@@ -386,8 +387,22 @@ describe("AgentCheckpointStore", () => {
       const { checkpointId } = await store.saveCheckpoint({ messages: [] });
 
       expect(checkpointId).toMatch(/^ckpt_/);
+      expect(randomSpy).not.toHaveBeenCalled();
       expect(loggerMock.warn).toHaveBeenCalledWith(
         expect.stringContaining("Failed to generate secure checkpoint id")
+      );
+      randomSpy.mockRestore();
+    });
+
+    it("uses configurable index lock timeout", async () => {
+      const vfs = makeMemoryVfs();
+      const store = new AgentCheckpointStore({ vfs, runId: "run_timeout", indexLockTimeoutMs: 12345 });
+
+      await store.saveCheckpoint({ step: 1, messages: [] });
+
+      expect(acquireLockMock).toHaveBeenCalledWith(
+        expect.stringContaining(".agents/runs/run_timeout/checkpoints/index.json.lock"),
+        { type: "write", timeout: 12345 },
       );
     });
 

@@ -2,6 +2,9 @@ import { matchAnyWildcard, matchAnyGlob } from "./match.js";
 import { makeSecureTimestampedId } from "../../shared/index.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
+
+const logger = createLogger("runtime/policy/engine");
 
 /**
  * @typedef {"allow" | "deny"} PolicyEffect
@@ -62,6 +65,18 @@ function normalizeEffect(effect) {
   const e = raw.toLowerCase();
   if (e === "allow" || e === "deny") return e;
   return null;
+}
+
+function normalizeDefaultEffect(effect) {
+  const raw = toNonEmptyString(effect);
+  if (!raw) return "prompt";
+  const normalized = raw.toLowerCase();
+  if (normalized === "allow" || normalized === "deny" || normalized === "prompt") return normalized;
+  logger.warn("Invalid policy defaultEffect; falling back to prompt", {
+    received: raw,
+    expected: ["allow", "deny", "prompt"],
+  });
+  return "prompt";
 }
 
 function normalizeTypeList(type) {
@@ -325,7 +340,7 @@ export class PolicyEngine {
    */
   constructor({ rules = [], defaultEffect = "prompt" } = {}) {
     /** @type {PolicyDefaultEffect | string} */
-    this.defaultEffect = defaultEffect;
+    this.defaultEffect = normalizeDefaultEffect(defaultEffect);
     /** @type {NormalizedPolicyRule[]} */
     this.rules = [];
     this.setRules(rules);
@@ -354,8 +369,8 @@ export class PolicyEngine {
    */
   evaluate(request) {
     const req = normalizeRequest(request);
-    const type = req.type;
-    if (!type) {
+    const hasRoutingInput = Boolean(req.type || req.tool || req.resource || req.path);
+    if (!hasRoutingInput) {
       return { allowed: false, requiresApproval: true, reason: "missing_type" };
     }
 
@@ -381,7 +396,11 @@ export class PolicyEngine {
       return { allowed: false, requiresApproval: false, effect: "deny", reason: "default_deny" };
     }
 
-    return { allowed: false, requiresApproval: true, reason: "no_matching_rule" };
+    return {
+      allowed: false,
+      requiresApproval: true,
+      reason: req.type ? "no_matching_rule" : "missing_type_no_matching_rule",
+    };
   }
 }
 

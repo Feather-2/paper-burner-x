@@ -69,6 +69,16 @@ async function setupKernel(configOverrides = {}) {
   return kernel;
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createDeepObject(depth) {
   let current = { level: depth };
   for (let i = depth - 1; i >= 0; i -= 1) {
@@ -109,6 +119,7 @@ describe('default', () => {
     expect(mcpPlugin.defaultConfig).toEqual({
       servers: [],
       autoConnect: true,
+      autoConnectConcurrency: 4,
     });
     expect(typeof mcpPlugin.install).toBe('function');
     expect(typeof mcpPlugin.onStop).toBe('function');
@@ -280,6 +291,47 @@ describe('default', () => {
     expect(status.connectedServers).toContain('good');
     expect(status.connectedServers).not.toContain('bad');
     expect(status.count).toBe(1);
+  });
+
+  it('autoConnect uses configured concurrency instead of strict serial mode', async () => {
+    const gate = deferred();
+    const started = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    mockState.connectImpl = vi.fn(async (config) => {
+      started.push(config.name);
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      if (config.name === 's1' || config.name === 's2') {
+        await gate.promise;
+      }
+      inFlight--;
+    });
+
+    const setupPromise = setupKernel({
+      autoConnect: true,
+      autoConnectConcurrency: 2,
+      servers: [
+        { name: 's1', url: 'http://s1' },
+        { name: 's2', url: 'http://s2' },
+        { name: 's3', url: 'http://s3' },
+      ],
+    });
+
+    for (let i = 0; i < 20 && started.length < 2; i++) {
+      // let kernel start and workers enter connect()
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(started).toEqual(expect.arrayContaining(['s1', 's2']));
+    expect(started).not.toContain('s3');
+    expect(maxInFlight).toBe(2);
+
+    gate.resolve();
+    await setupPromise;
+
+    expect(started).toEqual(expect.arrayContaining(['s1', 's2', 's3']));
   });
 
   it('onStop triggers disconnectAll', async () => {

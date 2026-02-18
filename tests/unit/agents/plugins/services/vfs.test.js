@@ -39,7 +39,7 @@ const makeVfs = (overrides = {}) => {
 const installWithVfs = async (vfs, config = { kind: 'memory', rootPath: '.' }) => {
   createVfsMock.mockResolvedValue(vfs);
   const events = { emit: vi.fn() };
-  const log = { info: vi.fn() };
+  const log = { info: vi.fn(), warn: vi.fn() };
   let service;
   const ctx = {
     config,
@@ -371,6 +371,30 @@ describe('vfs plugin (default export)', () => {
       const out = await service.glob('**/*');
 
       expect(out).toEqual([]);
+    });
+
+    it('initializes fallback helper once and reuses it', async () => {
+      const globFn = vi.fn().mockResolvedValue(['first']);
+      createVfsGlobFnMock.mockReturnValue(globFn);
+      const vfs = makeVfs({ glob: undefined });
+      const { service } = await installWithVfs(vfs);
+
+      await service.glob('**/*.js');
+      await service.glob('**/*.md');
+
+      expect(createVfsGlobFnMock).toHaveBeenCalledTimes(1);
+      expect(globFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns empty list and logs warning when fallback import setup throws', async () => {
+      createVfsGlobFnMock.mockImplementation(() => {
+        throw new Error('fallback-init-failed');
+      });
+      const vfs = makeVfs({ glob: undefined });
+      const { service, log } = await installWithVfs(vfs);
+
+      await expect(service.glob('**/*.js')).resolves.toEqual([]);
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('VFS glob fallback unavailable'));
     });
   });
 

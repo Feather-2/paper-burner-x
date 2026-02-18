@@ -144,4 +144,60 @@ describe('CostAggregator', () => {
       expect(agg.agentCount).toBe(0);
     });
   });
+
+  describe('archive persistence', () => {
+    it('flushes queued archive saves and reports persistence status', async () => {
+      const archive = {
+        list: vi.fn().mockResolvedValue([]),
+        load: vi.fn(),
+        save: vi.fn().mockResolvedValue(undefined),
+      };
+      const persisted = new CostAggregator({ archive, runId: 'cost-run' });
+
+      persisted.recordUsage('a', { promptTokens: 3, completionTokens: 2, latencyMs: 9, model: 'm' });
+      await persisted.flush();
+
+      expect(archive.save).toHaveBeenCalledTimes(1);
+      expect(archive.save).toHaveBeenCalledWith('cost-run', expect.objectContaining({
+        agents: expect.any(Array),
+      }));
+      expect(persisted.getPersistenceStatus()).toEqual(expect.objectContaining({
+        enabled: true,
+        runId: 'cost-run',
+        successCount: 1,
+        failureCount: 0,
+      }));
+      persisted.dispose();
+    });
+
+    it('reports hydrate and persist failures via callback', async () => {
+      const onPersistenceError = vi.fn();
+      const archive = {
+        list: vi.fn().mockRejectedValue(new Error('hydrate-fail')),
+        load: vi.fn(),
+        save: vi.fn().mockRejectedValue(new Error('persist-fail')),
+      };
+      const persisted = new CostAggregator({ archive, runId: 'cost-fail', onPersistenceError });
+
+      await persisted.init();
+      persisted.recordUsage('a', { promptTokens: 1 });
+      await persisted.flush({ throwOnError: false });
+
+      expect(onPersistenceError).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'hydrate',
+        runId: 'cost-fail',
+        error: expect.objectContaining({ message: 'hydrate-fail' }),
+      }));
+      expect(onPersistenceError).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'persist',
+        runId: 'cost-fail',
+        error: expect.objectContaining({ message: 'persist-fail' }),
+      }));
+      expect(persisted.getPersistenceStatus()).toEqual(expect.objectContaining({
+        failureCount: 1,
+        lastError: 'persist-fail',
+      }));
+      persisted.dispose();
+    });
+  });
 });

@@ -1,8 +1,10 @@
 import { cryptoRandomHex } from "../../shared/index.js";
 import { toNonNegativeInt } from "../../shared/index.js";
+import { createLogger } from "../../shared/index.js";
 import { getGlobalContainer } from "../../core/di/global-container.js";
 
 const MAX_RECORDS = 500;
+const logger = createLogger("runtime/telemetry/token-tracker");
 
 /**
  * Token Tracker - LLM 调用 Token 使用率实时追踪
@@ -45,8 +47,9 @@ export class TokenTracker {
    * @param {function} [options.onRecord] - 记录回调
    * @param {import("../../core/archive/archive-core.js").Archive} [options.archive] - Archive 实例（可选）
    * @param {string} [options.runId] - 运行 ID（可选）
+   * @param {(payload: { phase: "hydrate" | "persist", error: Error, runId: string }) => void} [options.onPersistenceError] - 持久化错误回调
    */
-  constructor({ maxRecords = MAX_RECORDS, onRecord = null, archive = null, runId = null } = {}) {
+  constructor({ maxRecords = MAX_RECORDS, onRecord = null, archive = null, runId = null, onPersistenceError = null } = {}) {
     this.maxRecords = Math.min(toNonNegativeInt(maxRecords, MAX_RECORDS), MAX_RECORDS);
     this.onRecord = typeof onRecord === "function" ? onRecord : null;
 
@@ -73,6 +76,55 @@ export class TokenTracker {
     this._archive = archive || null;
     this._runId = runId || `token_tracker_${Date.now()}`;
     this._initPromise = null;
+    this._onPersistenceError = typeof onPersistenceError === "function" ? onPersistenceError : null;
+    this._persistPending = Promise.resolve();
+    this._persistScheduled = false;
+    this._persistDirty = false;
+    this._persistLastError = null;
+    this._persistFailureCount = 0;
+    this._persistSuccessCount = 0;
+  }
+
+  /**
+   * @private
+   * @param {"hydrate"|"persist"} phase
+   * @param {unknown} error
+   */
+  _reportPersistenceError(phase, error) {
+    const err = error instanceof Error ? error : new Error(String(error ?? "unknown"));
+    logger.warn(`[TokenTracker] ${phase} failed`, { runId: this._runId, error: err.message });
+    if (this._onPersistenceError) {
+      try {
+        this._onPersistenceError({ phase, error: err, runId: this._runId });
+      } catch {
+        // ignore callback errors
+      }
+    }
+    return err;
+  }
+
+  /**
+   * @private
+   */
+  _buildArchiveSnapshot() {
+    return {
+      records: this.getAllRecords(),
+      head: this._head,
+      size: this._size,
+      stats: {
+        totalCalls: this._stats.totalCalls,
+        successCalls: this._stats.successCalls,
+        failedCalls: this._stats.failedCalls,
+        totalPromptTokens: this._stats.totalPromptTokens,
+        totalCompletionTokens: this._stats.totalCompletionTokens,
+        totalTokens: this._stats.totalTokens,
+        totalLatencyMs: this._stats.totalLatencyMs,
+        byModel: Object.fromEntries(this._stats.byModel),
+        byUsage: Object.fromEntries(this._stats.byUsage),
+        byProvider: Object.fromEntries(this._stats.byProvider),
+      },
+      timestamp: Date.now(),
+    };
   }
 
   /**
@@ -125,8 +177,7 @@ export class TokenTracker {
           }
         }
       } catch (err) {
-        // 持久化失败不影响内存操作
-        console.warn('[TokenTracker] Failed to hydrate from Archive:', err);
+        this._persistLastError = this._reportPersistenceError("hydrate", err);
       }
     })();
 
@@ -134,38 +185,39 @@ export class TokenTracker {
   }
 
   /**
-   * 持久化当前状态到 Archive（异步，不阻塞）
+   * 持久化当前状态到 Archive（异步调度，可通过 flush() 强制落盘）
    * @private
    */
   _persistToArchive() {
     if (!this._archive) return;
+    this._persistDirty = true;
+    if (this._persistScheduled) return;
+    this._persistScheduled = true;
 
-    queueMicrotask(async () => {
-      try {
-        const snapshot = {
-          records: this.getAllRecords(),
-          head: this._head,
-          size: this._size,
-          stats: {
-            totalCalls: this._stats.totalCalls,
-            successCalls: this._stats.successCalls,
-            failedCalls: this._stats.failedCalls,
-            totalPromptTokens: this._stats.totalPromptTokens,
-            totalCompletionTokens: this._stats.totalCompletionTokens,
-            totalTokens: this._stats.totalTokens,
-            totalLatencyMs: this._stats.totalLatencyMs,
-            byModel: Object.fromEntries(this._stats.byModel),
-            byUsage: Object.fromEntries(this._stats.byUsage),
-            byProvider: Object.fromEntries(this._stats.byProvider),
-          },
-          timestamp: Date.now(),
-        };
+    queueMicrotask(() => {
+      this._persistScheduled = false;
+      this._persistPending = this._persistPending
+        .then(async () => {
+          if (!this._archive || !this._persistDirty) return;
+          this._persistDirty = false;
+          try {
+            const snapshot = this._buildArchiveSnapshot();
+            await this._archive.save(this._runId, snapshot);
+            this._persistSuccessCount++;
+            this._persistLastError = null;
+          } catch (err) {
+            this._persistFailureCount++;
+            this._persistLastError = this._reportPersistenceError("persist", err);
+          }
 
-        await this._archive.save(this._runId, snapshot);
-      } catch (err) {
-        // 持久化失败不影响内存操作
-        console.warn('[TokenTracker] Failed to persist to Archive:', err);
-      }
+          // Flush once more if updates arrived while persisting.
+          if (this._persistDirty) {
+            this._persistToArchive();
+          }
+        })
+        .catch(() => {
+          // _persistPending should never reject to keep chain alive.
+        });
     });
   }
 
@@ -323,7 +375,46 @@ export class TokenTracker {
       byModel: Object.fromEntries(s.byModel),
       byUsage: Object.fromEntries(s.byUsage),
       byProvider: Object.fromEntries(s.byProvider),
+      persistence: this.getPersistenceStatus(),
     };
+  }
+
+  /**
+   * 获取持久化状态
+   */
+  getPersistenceStatus() {
+    return {
+      enabled: Boolean(this._archive),
+      runId: this._runId,
+      pending: this._persistScheduled || this._persistDirty,
+      successCount: this._persistSuccessCount,
+      failureCount: this._persistFailureCount,
+      lastError: this._persistLastError ? this._persistLastError.message : null,
+    };
+  }
+
+  /**
+   * 强制刷新 Archive 持久化队列
+   * @param {{ throwOnError?: boolean }} [options]
+   * @returns {Promise<void>}
+   */
+  async flush({ throwOnError = true } = {}) {
+    if (!this._archive) return;
+    await this.init();
+    if (this._persistScheduled) {
+      await Promise.resolve();
+    }
+    await this._persistPending;
+    if (this._persistDirty) {
+      this._persistToArchive();
+      await Promise.resolve();
+      await this._persistPending;
+    }
+    if (throwOnError && this._persistLastError) {
+      const err = this._persistLastError;
+      this._persistLastError = null;
+      throw err;
+    }
   }
 
   /**

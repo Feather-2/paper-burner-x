@@ -67,6 +67,7 @@ export default createPlugin({
   defaultConfig: {
     servers: [],
     autoConnect: true,
+    autoConnectConcurrency: 4,
   },
 
   /**
@@ -75,6 +76,34 @@ export default createPlugin({
    */
   async install(ctx) {
     const clients = new Map();
+    const autoConnectConcurrency = Number.isFinite(ctx.config.autoConnectConcurrency)
+      ? Math.max(1, Math.floor(ctx.config.autoConnectConcurrency))
+      : 4;
+    const mcpClientModulePromise = import('../../mcp/mcp-client.js');
+
+    /**
+     * @param {McpServerConfig} serverConfig
+     * @returns {Promise<any>}
+     */
+    const connectServer = async (serverConfig) => {
+      validateUrl(serverConfig.url);
+      const safeName = sanitizeName(serverConfig.name || serverConfig.url);
+
+      const { McpClient } = await mcpClientModulePromise;
+      const client = /** @type {InstanceType<typeof McpClient> & { connect: () => Promise<void> }} */ (
+        new McpClient(/** @type {ConstructorParameters<typeof McpClient>[0]} */ (serverConfig))
+      );
+      if (!client || typeof client.connect !== 'function') {
+        throw new Error('MCP client.connect is not available');
+      }
+      await client.connect();
+
+      clients.set(safeName, client);
+      ctx.state.set(`servers.${safeName}`, { status: 'connected' });
+      ctx.events.emit('mcp:connected', { server: serverConfig.name });
+
+      return client;
+    };
 
     ctx.registerService('mcp', {
       /**
@@ -83,22 +112,7 @@ export default createPlugin({
        * @returns {Promise<any>}
        */
       async connect(serverConfig) {
-        // Issue #1: 校验 URL 协议防止 SSRF
-        validateUrl(serverConfig.url);
-        // Issue #2: 校验 name 防止原型污染
-        const safeName = sanitizeName(serverConfig.name || serverConfig.url);
-
-        const { McpClient } = await import('../../mcp/mcp-client.js');
-        const client = /** @type {InstanceType<typeof McpClient> & { connect: () => Promise<void> }} */ (
-          new McpClient(/** @type {ConstructorParameters<typeof McpClient>[0]} */ (serverConfig))
-        );
-        await client.connect();
-
-        clients.set(safeName, client);
-        ctx.state.set(`servers.${safeName}`, { status: 'connected' });
-        ctx.events.emit('mcp:connected', { server: serverConfig.name });
-
-        return client;
+        return connectServer(serverConfig);
       },
 
       /**
@@ -169,15 +183,32 @@ export default createPlugin({
       },
     });
 
+    const autoConnectServers = async (servers) => {
+      const list = Array.isArray(servers) ? servers : [];
+      if (list.length === 0) return;
+
+      let cursor = 0;
+      const workerCount = Math.min(autoConnectConcurrency, list.length);
+      const workers = Array.from({ length: workerCount }, async () => {
+        while (true) {
+          const index = cursor++;
+          if (index >= list.length) return;
+
+          const server = list[index];
+          try {
+            await connectServer(server);
+          } catch (err) {
+            ctx.log.warn(`Auto-connect failed for ${server.name}:`, err.message);
+          }
+        }
+      });
+
+      await Promise.all(workers);
+    };
+
     // 自动连接配置的服务器
     if (ctx.config.autoConnect && ctx.config.servers.length > 0) {
-      for (const server of ctx.config.servers) {
-        try {
-          await ctx.services.call('mcp', 'connect', [server]);
-        } catch (err) {
-          ctx.log.warn(`Auto-connect failed for ${server.name}:`, err.message);
-        }
-      }
+      await autoConnectServers(ctx.config.servers);
     }
 
     ctx.log.info('MCP service plugin installed');
