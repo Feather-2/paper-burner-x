@@ -7,6 +7,7 @@
 import { MemoryVfs } from '../../vfs/vfs.memory.js';
 import { withVfsEvents } from '../webruntime/vfs-events.js';
 import { createSandbox } from '../sandbox/wasm-sandbox.js';
+import { createSandboxFactory } from '../sandbox/create-sandbox.js';
 import { QuotaEnforcer } from './quota.js';
 import { ObservabilityStream, withObservability } from './observability.js';
 import { createLogger } from '../../shared/utils/logger.js';
@@ -19,7 +20,7 @@ const logger = createLogger('node-compat/create-node-env');
  * @property {string} [cwd='/'] - Working directory
  * @property {Record<string, string>} [env] - Environment variables
  * @property {(method: string, args: unknown[]) => void} [onConsole] - console callback
- * @property {'wasm'|'worker'|'iframe'|'main'|'auto'} [sandboxLevel='auto']
+ * @property {'wasm'|'worker'|'iframe'|'main'|'auto'|'eval'} [sandboxLevel='wasm']
  * @property {string[]} [capabilities]
  * @property {number} [timeout=30000]
  * @property {object} [vfs] - External VFS instance; creates MemoryVfs if omitted
@@ -46,6 +47,7 @@ export async function createNodeEnv(config = {}) {
     cwd = '/',
     env = {},
     onConsole,
+    sandboxLevel = 'wasm',
     capabilities = ['console'],
     timeout = 30000,
     vfs: externalVfs,
@@ -80,22 +82,50 @@ export async function createNodeEnv(config = {}) {
     ? (level, args) => onConsole(level, args)
     : undefined;
 
-  const sandbox = await createSandbox({
-    capabilities,
-    limits: { timeoutMs: timeout },
-    onLog,
-    state: { cwd, env },
-  });
+  /** @type {'wasm'|'worker'|'iframe'|'main'|'auto'} */
+  const normalizedSandboxLevel = (() => {
+    const value = typeof sandboxLevel === 'string' ? sandboxLevel.trim().toLowerCase() : '';
+    if (value === 'eval') return 'main';
+    if (value === 'wasm' || value === 'worker' || value === 'iframe' || value === 'main' || value === 'auto') {
+      return value;
+    }
+    return 'wasm';
+  })();
+
+  const sandbox = normalizedSandboxLevel === 'wasm'
+    ? await createSandbox({
+      capabilities,
+      limits: { timeoutMs: timeout },
+      onLog,
+      state: { cwd, env },
+    })
+    : await createSandboxFactory({
+      level: normalizedSandboxLevel,
+      vfs,
+      capabilities,
+      timeout,
+      cwd,
+      env,
+      onConsole,
+      mainThreadFallback: normalizedSandboxLevel === 'main',
+    });
 
   // Mark terminated state for dispose tracking
   let terminated = false;
 
   // 4. Convenience methods
-  const execute = (code, filename) =>
-    sandbox.execute(code, filename ? { __filename: filename } : {});
+  const execute = async (code, filename) => {
+    if (typeof sandbox?.terminate === 'function') {
+      return sandbox.execute(code, filename);
+    }
+    return sandbox.execute(code, filename ? { __filename: filename } : {});
+  };
 
   const runFile = async (path) => {
     const content = await vfs.readText(path);
+    if (typeof sandbox?.terminate === 'function') {
+      return sandbox.execute(content, path);
+    }
     return sandbox.execute(content, { __filename: path });
   };
 
@@ -103,8 +133,14 @@ export async function createNodeEnv(config = {}) {
   const dispose = async () => {
     if (terminated) return;
     terminated = true;
-    sandbox.dispose();
-    vfs.removeAllListeners();
+    if (typeof sandbox?.terminate === 'function') {
+      await sandbox.terminate();
+    } else {
+      sandbox.dispose();
+    }
+    if (typeof vfs?.removeAllListeners === 'function') {
+      vfs.removeAllListeners();
+    }
   };
 
   return {

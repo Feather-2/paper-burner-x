@@ -8,12 +8,27 @@ const mockSandbox = {
   _disposed: false,
 };
 
+const mockFactorySandbox = {
+  level: 'main',
+  execute: vi.fn().mockResolvedValue({ ok: true, value: 7, durationMs: 1 }),
+  terminate: vi.fn().mockResolvedValue(undefined),
+};
+
+const createSandboxFactoryMock = vi.fn().mockResolvedValue(mockFactorySandbox);
+
 vi.mock(
   '../../../../../js/agents/core/sandbox/wasm-sandbox.js',
   () => ({
     createSandbox: vi.fn().mockResolvedValue(mockSandbox),
     WasmSandbox: class {},
     default: class {},
+  }),
+);
+
+vi.mock(
+  '../../../../../js/agents/core/sandbox/create-sandbox.js',
+  () => ({
+    createSandboxFactory: createSandboxFactoryMock,
   }),
 );
 
@@ -26,6 +41,8 @@ describe('create-node-env', () => {
     vi.clearAllMocks();
     mockSandbox.execute.mockResolvedValue({ success: true, data: 42, metrics: {} });
     mockSandbox._disposed = false;
+    mockFactorySandbox.execute.mockResolvedValue({ ok: true, value: 7, durationMs: 1 });
+    createSandboxFactoryMock.mockResolvedValue(mockFactorySandbox);
   });
 
   // 1. Default config returns all expected properties
@@ -82,5 +99,34 @@ describe('create-node-env', () => {
       'console.log("hi")',
       { __filename: 'script.js' },
     );
+  });
+
+  it('uses createSandboxFactory when sandboxLevel is non-wasm', async () => {
+    const env = await createNodeEnv({ sandboxLevel: 'main', timeout: 1234 });
+
+    expect(createSandboxFactoryMock).toHaveBeenCalledWith(expect.objectContaining({
+      level: 'main',
+      timeout: 1234,
+      mainThreadFallback: true,
+    }));
+
+    const result = await env.execute('1 + 2', 'main.js');
+    expect(result).toEqual({ ok: true, value: 7, durationMs: 1 });
+    expect(mockFactorySandbox.execute).toHaveBeenCalledWith('1 + 2', 'main.js');
+
+    await env.dispose();
+    expect(mockFactorySandbox.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps sandboxLevel=eval alias to main strategy', async () => {
+    await createNodeEnv({ sandboxLevel: 'eval' });
+    expect(createSandboxFactoryMock).toHaveBeenCalledWith(expect.objectContaining({
+      level: 'main',
+    }));
+  });
+
+  it('falls back to wasm when sandboxLevel is invalid', async () => {
+    await createNodeEnv({ sandboxLevel: 'not-real-level' });
+    expect(createSandboxFactoryMock).not.toHaveBeenCalled();
   });
 });
