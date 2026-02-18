@@ -501,21 +501,63 @@ export class ToolExecutor {
       }
     }
 
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error(`Tool execution timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+    const baseContext = context && typeof context === "object" ? context : {};
+    const parentSignal = baseContext.signal || baseContext.stageApi?.signal || null;
+    const hasAbortController = typeof AbortController === "function";
+    const timeoutErrorMessage = `Tool execution timed out after ${timeoutMs}ms (handler may continue if AbortSignal is ignored)`;
 
-      Promise.resolve(handler(args, context))
-        .then(result => {
-          clearTimeout(timer);
-          resolve(result);
-        })
-        .catch(err => {
-          clearTimeout(timer);
-          reject(err);
-        });
+    /** @type {Record<string, unknown>} */
+    const executionContext = { ...baseContext };
+    const timeoutController = hasAbortController ? new AbortController() : null;
+    let timeoutId = null;
+    let onParentAbort = null;
+
+    if (timeoutController) {
+      executionContext.signal = timeoutController.signal;
+      onParentAbort = () => {
+        try {
+          timeoutController.abort(parentSignal?.reason);
+        } catch {
+          timeoutController.abort();
+        }
+      };
+
+      if (parentSignal && typeof parentSignal.addEventListener === "function") {
+        if (parentSignal.aborted) {
+          onParentAbort();
+        } else {
+          parentSignal.addEventListener("abort", onParentAbort, { once: true });
+        }
+      }
+    }
+
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        const timeoutErr = /** @type {Error & { code?: string }} */ (new Error(timeoutErrorMessage));
+        timeoutErr.name = "TimeoutError";
+        timeoutErr.code = "ETIMEDOUT";
+        if (timeoutController) {
+          try {
+            timeoutController.abort(timeoutErr);
+          } catch {
+            timeoutController.abort();
+          }
+        }
+        reject(timeoutErr);
+      }, timeoutMs);
     });
+
+    try {
+      return await Promise.race([
+        Promise.resolve(handler(args, executionContext)),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (parentSignal && onParentAbort && typeof parentSignal.removeEventListener === "function") {
+        parentSignal.removeEventListener("abort", onParentAbort);
+      }
+    }
   }
 
   _createWorkerContextSnapshot(context) {

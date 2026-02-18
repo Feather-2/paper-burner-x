@@ -374,26 +374,26 @@ describe("MicroKernel", () => {
     vi.useFakeTimers();
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
-    // missing handler -> uses timeoutMs directly
-    const p0 = kernel.request("t0", null, { timeoutMs: 0 });
+    // missing handler in legacy mode -> uses timeoutMs directly
+    const p0 = kernel.request("t0", null, { timeoutMs: 0, waitForHandler: true });
     const e0 = expect(p0).rejects.toBeInstanceOf(MicroKernelError);
     expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(0);
     await vi.runOnlyPendingTimersAsync();
     await e0;
 
-    const p1 = kernel.request("t1", null, { timeout: -1 });
+    const p1 = kernel.request("t1", null, { timeout: -1, waitForHandler: true });
     const e1 = expect(p1).rejects.toMatchObject({ name: "MicroKernelError", code: "TIMEOUT" });
     expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(30_000);
     await vi.advanceTimersByTimeAsync(30_000);
     await e1;
 
-    const p2 = kernel.request("t2", null, { timeoutMs: "123.9" });
+    const p2 = kernel.request("t2", null, { timeoutMs: "123.9", waitForHandler: true });
     const e2 = expect(p2).rejects.toMatchObject({ name: "MicroKernelError", code: "TIMEOUT" });
     expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(123);
     await vi.advanceTimersByTimeAsync(123);
     await e2;
 
-    const p3 = kernel.request("t3", null, { timeoutMs: {} });
+    const p3 = kernel.request("t3", null, { timeoutMs: {}, waitForHandler: true });
     const e3 = expect(p3).rejects.toMatchObject({ name: "MicroKernelError", code: "TIMEOUT" });
     expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(30_000);
     await vi.advanceTimersByTimeAsync(30_000);
@@ -428,6 +428,16 @@ describe("MicroKernel", () => {
     const e2 = expect(p2).rejects.toMatchObject({ name: "MicroKernelError", code: "TIMEOUT" });
     await vi.advanceTimersByTimeAsync(1);
     await e2;
+  });
+
+  it("request() fails fast with NO_HANDLER when no handler is registered", async () => {
+    const { MicroKernel } = await loadSubject();
+    const kernel = new MicroKernel();
+
+    await expect(kernel.request("missing", { q: 1 })).rejects.toMatchObject({
+      name: "MicroKernelError",
+      code: "NO_HANDLER",
+    });
   });
 
   it("request() rejects invalid eventType (null/undefined/empty string) (boundary)", async () => {

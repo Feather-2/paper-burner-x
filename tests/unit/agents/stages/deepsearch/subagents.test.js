@@ -346,14 +346,32 @@ describe("registerDeepSearchSubagents", () => {
 });
 
 describe("globalSubagentRegistry", () => {
-  it("re-exports the global registry and auto-registers on import", async () => {
+  it("re-exports the global registry without implicit side effects", async () => {
     const mod = await loadModule();
 
     expect(mod.globalSubagentRegistry).toBe(mockState.registry);
-    expect(mockState.registry.register).toHaveBeenCalledTimes(2);
-    expect(mockState.registry.register.mock.calls.map(([type]) => type)).toEqual([
-      "researcher",
-      "analyzer",
-    ]);
+    expect(mockState.registry.register).not.toHaveBeenCalled();
+  });
+
+  it("registerDeepSearchSubagents is idempotent by default and can force re-register", async () => {
+    const mod = await loadModule();
+    const registry = {
+      register: vi.fn(),
+      getFactory: vi.fn((type) => (type === "researcher" ? vi.fn() : null)),
+    };
+
+    const first = mod.registerDeepSearchSubagents(registry);
+    expect(first).toEqual({
+      registered: ["analyzer"],
+      skipped: ["researcher"],
+    });
+    expect(registry.register).toHaveBeenCalledTimes(1);
+
+    const second = mod.registerDeepSearchSubagents(registry, { force: true });
+    expect(second).toEqual({
+      registered: ["researcher", "analyzer"],
+      skipped: [],
+    });
+    expect(registry.register).toHaveBeenCalledTimes(3);
   });
 });

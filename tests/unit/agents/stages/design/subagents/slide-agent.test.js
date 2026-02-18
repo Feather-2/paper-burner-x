@@ -105,6 +105,62 @@ describe("setLinkedFilesRoot", () => {
     }
   });
 
+  it("captures linkedFiles root per instance to avoid cross-run global interference", async () => {
+    const dir1 = await makeTempDir();
+    const dir2 = await makeTempDir();
+    try {
+      const file1 = await writeTempFile(dir1, "one.txt", "root-one");
+      const file2 = await writeTempFile(dir2, "two.txt", "root-two");
+
+      setLinkedFilesRoot(dir1);
+      const agent1 = new SlideSubAgent({
+        slideIntent: makeSlideIntent({ linkedFiles: [file1] }),
+        designSystem: makeDesignSystem(),
+      });
+
+      setLinkedFilesRoot(dir2);
+      const agent2 = new SlideSubAgent({
+        slideIntent: makeSlideIntent({ linkedFiles: [file2] }),
+        designSystem: makeDesignSystem(),
+      });
+
+      await agent1.run();
+      await agent2.run();
+
+      const [firstIntent] = mockedBatchGenerator.generateSingleSlide.mock.calls[0];
+      const [secondIntent] = mockedBatchGenerator.generateSingleSlide.mock.calls[1];
+      expect(firstIntent.content).toContain("--- one.txt ---\nroot-one");
+      expect(secondIntent.content).toContain("--- two.txt ---\nroot-two");
+    } finally {
+      await fs.rm(dir1, { recursive: true, force: true });
+      await fs.rm(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it("denies symlink paths escaping linkedFiles root", async () => {
+    const rootDir = await makeTempDir();
+    const outsideDir = await makeTempDir();
+    try {
+      const outsideFile = await writeTempFile(outsideDir, "secret.txt", "outside");
+      const linkPath = path.join(rootDir, "linked-secret.txt");
+      await fs.symlink(outsideFile, linkPath);
+
+      setLinkedFilesRoot(rootDir);
+      const agent = new SlideSubAgent({
+        slideIntent: makeSlideIntent({ linkedFiles: [linkPath] }),
+        designSystem: makeDesignSystem(),
+      });
+      await agent.run();
+
+      const [enrichedSlideIntent] = mockedBatchGenerator.generateSingleSlide.mock.calls.at(-1);
+      expect(enrichedSlideIntent.content).toContain("[access denied: path outside allowed root]");
+      expect(enrichedSlideIntent.content).toContain(`--- ${linkPath} ---`);
+    } finally {
+      await fs.rm(rootDir, { recursive: true, force: true });
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
   it("blocks reads when root is non-string or whitespace", async () => {
     const dir = await makeTempDir();
     try {

@@ -336,6 +336,14 @@ export class SymbolIndexer {
     this._queryCacheMax = 50;
     this._queryCache = new LRUCache({ maxSize: this._queryCacheMax }); // key -> { rev, results }
     this._disposed = false;
+    this._persistQueue = Promise.resolve(true);
+    this._persistStats = {
+      enqueued: 0,
+      completed: 0,
+      failed: 0,
+      lastPersistAt: null,
+      lastError: null,
+    };
   }
 
   /**
@@ -554,23 +562,58 @@ export class SymbolIndexer {
     try {
       const key = `symbolIndexer:${this._runId}:cache`;
       await this._archive.set(key, this._buildArchiveCachePayload());
+      this._persistStats.completed += 1;
+      this._persistStats.lastPersistAt = Date.now();
+      this._persistStats.lastError = null;
       return true;
     } catch (err) {
       this._log("warn", "Failed to persist cache to Archive", {
         error: err instanceof Error ? err.message : String(err),
       });
+      this._persistStats.failed += 1;
+      this._persistStats.lastError = err instanceof Error ? err.message : String(err);
       return false;
     }
   }
 
   /**
-   * @returns {void}
+   * @returns {Promise<boolean>}
    */
   _persistCacheAsync() {
-    if (!this._archive) return;
-    queueMicrotask(async () => {
-      await this._persistCacheNow();
-    });
+    if (!this._archive || this._disposed) return this._persistQueue;
+    this._persistStats.enqueued += 1;
+
+    this._persistQueue = this._persistQueue
+      .catch(() => false)
+      .then(async () => await this._persistCacheNow());
+
+    return this._persistQueue;
+  }
+
+  /**
+   * 等待所有排队中的持久化任务完成。
+   * @returns {Promise<boolean>}
+   */
+  async flushPersist() {
+    try {
+      return await this._persistQueue;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * @returns {{ enqueued: number, completed: number, failed: number, pending: number, lastPersistAt: number | null, lastError: string | null }}
+   */
+  getPersistStats() {
+    return {
+      enqueued: this._persistStats.enqueued,
+      completed: this._persistStats.completed,
+      failed: this._persistStats.failed,
+      pending: Math.max(0, this._persistStats.enqueued - (this._persistStats.completed + this._persistStats.failed)),
+      lastPersistAt: this._persistStats.lastPersistAt,
+      lastError: this._persistStats.lastError,
+    };
   }
 
   /**
@@ -582,6 +625,8 @@ export class SymbolIndexer {
    */
   async flush() {
     if (this._disposed) return false;
+
+    await this.flushPersist();
 
     let storeSynced = false;
     const seen = new Set();

@@ -521,6 +521,49 @@ describe("DeepSearchAgentLoop", () => {
     });
   });
 
+  it("_buildOutput includes degrade metadata when fallback output is requested", async () => {
+    const { DeepSearchAgentLoop, AgentStatus } = await import(
+      "../../../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js"
+    );
+
+    const agent = new DeepSearchAgentLoop();
+    agent.status = AgentStatus.FAILED;
+    agent.state = { runId: "run_degrade", iteration: 3, todos: ["t"], L1: { claims: ["c"], report: { markdown: "partial" } } };
+
+    const output = agent._buildOutput({
+      degraded: true,
+      reason: "error_boundary",
+      error: new Error("timeout"),
+      errorInfo: {
+        message: "timeout",
+        category: "timeout",
+        recoverable: true,
+        code: "ETIMEDOUT",
+      },
+    });
+
+    expect(output.status).toBe("degraded");
+    expect(output.degraded).toBe(true);
+    expect(output.degrade).toEqual(expect.objectContaining({
+      stage: "deepsearch",
+      reason: "error_boundary",
+      message: "timeout",
+      category: "timeout",
+      recoverable: true,
+      code: "ETIMEDOUT",
+    }));
+    expect(output.recovery).toEqual(expect.objectContaining({
+      canResume: true,
+      state: expect.objectContaining({
+        status: AgentStatus.FAILED,
+        iteration: 3,
+        todoCount: 1,
+        claimCount: 1,
+        hasReport: true,
+      }),
+    }));
+  });
+
   it("getAgentContextStatus falls back to state counts", async () => {
     const { DeepSearchAgentLoop } = await import("../../../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js");
 

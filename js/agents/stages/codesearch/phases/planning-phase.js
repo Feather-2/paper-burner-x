@@ -6,7 +6,7 @@
  * - 构建系统 prompt
  */
 
-import { isPlainObject, toNonEmptyString, protoSafeReviver} from "../../../shared/index.js";
+import { isPlainObject, toNonEmptyString, protoSafeReviver, makeSecureTimestampedId } from "../../../shared/index.js";
 import { createLogger } from "../../../shared/index.js";
 import { checkCancelled } from "../../../shared/index.js";
 import { TodoStatus } from "../states.js";
@@ -76,6 +76,7 @@ const ALLOWED_TODO_PRIORITIES = new Set(["low", "medium", "high"]);
  * @property {BudgetManagerLike=} budgetManager
  * @property {EmitFn=} emit
  * @property {AbortSignal|null=} signal
+ * @property {(() => string)=} todoIdFactory
  *
  * @typedef {object} PlanningPhaseResult
  * @property {boolean} success
@@ -199,17 +200,21 @@ function normalizeTodoPriority(value) {
 /**
  * 规范化 Todo 输入
  * @param {any} item
+ * @param {{ idFactory?: (() => string) | null }} [options]
  * @returns {CodeSearchTodoLike|null}
  */
-function normalizeTodoInput(item) {
+function normalizeTodoInput(item, options = {}) {
   if (typeof item === "string") return { text: item };
   if (!isPlainObject(item)) return null;
 
   const text = toNonEmptyString(item.text || item.todo || item.title);
   if (!text) return null;
 
+  const idFactory = typeof options?.idFactory === "function" ? options.idFactory : null;
+  const generatedId = idFactory?.() || makeSecureTimestampedId("todo", { allowInsecureFallback: true });
+
   return {
-    todoId: toNonEmptyString(item.todoId) || `todo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    todoId: toNonEmptyString(item.todoId) || generatedId,
     text,
     priority: toNonEmptyString(item.priority) || "medium",
     status: TodoStatus.OPEN,
@@ -231,6 +236,7 @@ export async function runPlanningPhase({
   budgetManager,
   emit,
   signal,
+  todoIdFactory,
 }) {
   checkCancelled(signal);
 
@@ -276,9 +282,42 @@ export async function runPlanningPhase({
   }
 
   const createdTodos = [];
+  const resolvedTodoIdFactory = typeof state?.createTodoId === "function"
+    ? state.createTodoId.bind(state)
+    : (typeof todoIdFactory === "function" ? todoIdFactory : null);
+  const seenTodoIds = new Set(
+    Array.isArray(state?.todos)
+      ? state.todos
+        .map((todo) => toNonEmptyString(todo?.todoId))
+        .filter(Boolean)
+      : []
+  );
+
+  const createCandidateTodoId = () =>
+    (typeof resolvedTodoIdFactory === "function" ? resolvedTodoIdFactory() : null) ||
+    makeSecureTimestampedId("todo", { allowInsecureFallback: true });
+
+  const ensureUniqueTodoId = (candidate) => {
+    let normalized = toNonEmptyString(candidate) || toNonEmptyString(createCandidateTodoId());
+    const maxAttempts = 32;
+    let attempts = 0;
+    while (normalized && seenTodoIds.has(normalized) && attempts < maxAttempts) {
+      normalized = toNonEmptyString(createCandidateTodoId());
+      attempts += 1;
+    }
+    if (!normalized || seenTodoIds.has(normalized)) {
+      let seq = seenTodoIds.size + 1;
+      while (seenTodoIds.has(`todo_${seq}`)) seq += 1;
+      normalized = `todo_${seq}`;
+    }
+    seenTodoIds.add(normalized);
+    return normalized;
+  };
+
   for (const item of planned) {
-    const normalized = normalizeTodoInput(item);
+    const normalized = normalizeTodoInput(item, { idFactory: createCandidateTodoId });
     if (normalized) {
+      normalized.todoId = ensureUniqueTodoId(normalized.todoId);
       state.addTodo(normalized);
       createdTodos.push(normalized);
     }

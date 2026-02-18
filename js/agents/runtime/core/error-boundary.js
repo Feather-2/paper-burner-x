@@ -8,7 +8,7 @@
  * - 错误恢复
  */
 
-import { createLogger } from "../../shared/index.js";
+import { createLogger, makeSecureTimestampedId } from "../../shared/index.js";
 import { getGlobalContainer } from "../../core/di/global-container.js";
 
 const logger = createLogger("runtime/core/error-boundary");
@@ -141,9 +141,27 @@ export function isRetryable(error) {
  * @param {object} [context]
  * @returns {ErrorInfo}
  */
-export function createErrorInfo(error, context = {}) {
+export function createErrorInfo(error, context = {}, options = {}) {
+  const idFactory = typeof options?.idFactory === "function" ? options.idFactory : null;
+  const normalizeId = (value) => {
+    if (value === null || value === undefined) return null;
+    const s = String(value).trim();
+    return s ? s : null;
+  };
+  let errorId = null;
+  if (idFactory) {
+    try {
+      errorId = normalizeId(idFactory({ error, context }));
+    } catch {
+      errorId = null;
+    }
+  }
+  if (!errorId) {
+    errorId = makeSecureTimestampedId("err", { allowInsecureFallback: true });
+  }
+
   return {
-    id: `err_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    id: errorId,
     category: categorizeError(error),
     message: error?.message || String(error),
     name: error?.name,
@@ -172,11 +190,13 @@ export class ErrorBoundary {
     onRecovery,
     fallbacks = {},
     maxErrors = 100,
+    errorIdFactory,
   } = {}) {
     this._onError = typeof onError === "function" ? onError : null;
     this._onRecovery = typeof onRecovery === "function" ? onRecovery : null;
     this._fallbacks = fallbacks;
     this._maxErrors = maxErrors;
+    this._errorIdFactory = typeof errorIdFactory === "function" ? errorIdFactory : null;
 
     /** @type {ErrorInfo[]} */
     this._errors = [];
@@ -305,7 +325,7 @@ export class ErrorBoundary {
    * @private
    */
   _recordError(error, context) {
-    const info = createErrorInfo(error, context);
+    const info = createErrorInfo(error, context, { idFactory: this._errorIdFactory });
     this._errors.push(info);
 
     // Trim old errors

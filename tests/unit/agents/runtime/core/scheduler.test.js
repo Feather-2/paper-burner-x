@@ -445,6 +445,34 @@ describe("RuntimeScheduler", () => {
     await expect(first).resolves.toMatchObject({ success: true });
   });
 
+  it("fails queued tasks when queue timeout is reached", async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = new RuntimeScheduler({
+        scheduling: { maxConcurrentPerRuntime: 1, maxQueueSize: 5, queueTimeoutMs: 10 },
+      });
+      const firstDeferred = createDeferred();
+      const runtime = {
+        execute: vi.fn(() => firstDeferred.promise),
+      };
+      scheduler.registerRuntime("js", runtime);
+
+      const first = scheduler.dispatch("js", "A", {}, {});
+      const second = scheduler.dispatch("js", "B", {}, {});
+
+      await vi.advanceTimersByTimeAsync(11);
+      await expect(second).resolves.toMatchObject({
+        success: false,
+        code: "ERR_RUNTIME_QUEUE_TIMEOUT",
+      });
+
+      firstDeferred.resolve({ success: true });
+      await expect(first).resolves.toMatchObject({ success: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("blocks dispatch when runtime is isolated", async () => {
     const scheduler = new RuntimeScheduler();
     const runtime = { execute: vi.fn() };

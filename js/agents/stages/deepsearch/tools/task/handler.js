@@ -17,9 +17,12 @@ let _subagentsRegistered = false;
 /** @private */
 async function ensureSubagentsRegistered() {
   if (_subagentsRegistered) return;
-  _subagentsRegistered = true;
   try {
-    await import("../../subagents.js");
+    const mod = await import("../../subagents.js");
+    if (typeof mod?.registerDeepSearchSubagents === "function") {
+      mod.registerDeepSearchSubagents(globalSubagentRegistry, { force: false });
+    }
+    _subagentsRegistered = true;
   } catch (e) {
     logger.warn("subagents registration failed", { error: e?.message || String(e) });
   }
@@ -56,6 +59,7 @@ import { toPositiveInt } from "../../../../shared/index.js";
  * @property {number} [completedAt] - 完成时间戳
  * @property {number} [expiresAt] - 过期时间戳
  * @property {Promise<TaskRecord>} [promise] - 任务 Promise（仅运行中）
+ * @property {(reason?: unknown) => void} [abort] - 主动中断任务
  * @property {TaskExecutionResult | TaskResult} [result] - 任务结果（完整或压缩预览）
  * @property {boolean} [compacted] - 是否已压缩
  */
@@ -136,19 +140,9 @@ class TaskManager extends DisposableBase {
     /** @type {IntervalHandle | null} */
     this._timer = null;
     this._maxRunningTasks = toPositiveInt(config.maxRunningTasks, DEFAULT_MAX_RUNNING_TASKS);
-    const cleanupInterval = toPositiveInt(config.cleanupIntervalMs, DEFAULT_CLEANUP_INTERVAL_MS);
-
-    // 启动定时清理
-    if (typeof setInterval === "function" && cleanupInterval > 0) {
-      this._timer = setInterval(() => this._prune(), cleanupInterval);
-      const timer = this._timer;
-      if (timer !== null && typeof timer === "object") {
-        (/** @type {IntervalHandle} */ (timer)).unref?.();
-      }
-      this._registerDisposable(() => {
-        if (this._timer) clearInterval(this._timer);
-      });
-    }
+    this._cleanupIntervalMs = toPositiveInt(config.cleanupIntervalMs, DEFAULT_CLEANUP_INTERVAL_MS);
+    this._startCleanupTimer();
+    this._registerDisposable(() => this._stopCleanupTimer());
   }
 
   get size() {
@@ -169,6 +163,49 @@ class TaskManager extends DisposableBase {
 
   set(taskId, task) {
     this._runningTasks.set(taskId, task);
+  }
+
+  /**
+   * @param {{ maxRunningTasks?: number, cleanupIntervalMs?: number }} [config]
+   * @returns {void}
+   */
+  updateConfig(config = {}) {
+    const nextMaxRunningTasks = toPositiveInt(config.maxRunningTasks, this._maxRunningTasks);
+    const nextCleanupIntervalMs = toPositiveInt(config.cleanupIntervalMs, this._cleanupIntervalMs);
+    this._maxRunningTasks = nextMaxRunningTasks;
+
+    if (nextCleanupIntervalMs !== this._cleanupIntervalMs) {
+      this._cleanupIntervalMs = nextCleanupIntervalMs;
+      this._startCleanupTimer();
+    }
+  }
+
+  /**
+   * @returns {{ maxRunningTasks: number, cleanupIntervalMs: number }}
+   */
+  getConfig() {
+    return {
+      maxRunningTasks: this._maxRunningTasks,
+      cleanupIntervalMs: this._cleanupIntervalMs,
+    };
+  }
+
+  _stopCleanupTimer() {
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
+  }
+
+  _startCleanupTimer() {
+    this._stopCleanupTimer();
+    const cleanupInterval = toPositiveInt(this._cleanupIntervalMs, DEFAULT_CLEANUP_INTERVAL_MS);
+    if (typeof setInterval !== "function" || cleanupInterval <= 0) return;
+    this._timer = setInterval(() => this._prune(), cleanupInterval);
+    const timer = this._timer;
+    if (timer !== null && typeof timer === "object") {
+      (/** @type {IntervalHandle} */ (timer)).unref?.();
+    }
   }
 
   _prune(options = {}) {
@@ -211,11 +248,15 @@ let _taskManager = null;
 
 /**
  * 获取 TaskManager 单例（懒加载）
+ * @param {{ maxRunningTasks?: number, cleanupIntervalMs?: number } | null} [config]
  * @returns {TaskManager}
  */
-export function getTaskManager() {
+export function getTaskManager(config = null) {
+  const normalizedConfig = config && typeof config === "object" ? config : null;
   if (!_taskManager) {
-    _taskManager = new TaskManager();
+    _taskManager = new TaskManager(normalizedConfig || {});
+  } else if (normalizedConfig) {
+    _taskManager.updateConfig(normalizedConfig);
   }
   return _taskManager;
 }
@@ -236,8 +277,8 @@ export async function resetTaskManager() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** @private */
-function pruneRunningTasks(options) {
-  getTaskManager().prune(options);
+function pruneRunningTasks(options, config) {
+  getTaskManager(config).prune(options);
 }
 
 /**
@@ -245,7 +286,7 @@ function pruneRunningTasks(options) {
  * @private
  */
 function canAcceptNewTask(config = {}) {
-  const mgr = getTaskManager();
+  const mgr = getTaskManager(config);
   const maxTasks = toPositiveInt(config.maxRunningTasks, DEFAULT_MAX_RUNNING_TASKS);
   if (mgr.runningCount >= maxTasks) {
     return {
@@ -261,7 +302,7 @@ function canAcceptNewTask(config = {}) {
  * @private
  */
 function reserveRunningTaskSlot(config = {}) {
-  pruneRunningTasks();
+  pruneRunningTasks(undefined, config);
   return canAcceptNewTask(config);
 }
 
@@ -404,7 +445,14 @@ export async function handler(args, context) {
       ? state.L0.sources
       : [];
 
-  const reservation = reserveRunningTaskSlot({ maxRunningTasks: taskConfig.maxRunningTasks });
+  const taskManager = getTaskManager({
+    maxRunningTasks: taskConfig.maxRunningTasks,
+    cleanupIntervalMs: taskConfig.cleanupIntervalMs,
+  });
+  const reservation = reserveRunningTaskSlot({
+    maxRunningTasks: taskConfig.maxRunningTasks,
+    cleanupIntervalMs: taskConfig.cleanupIntervalMs,
+  });
   if (!reservation.ok) {
     return {
       success: false,
@@ -419,13 +467,14 @@ export async function handler(args, context) {
 
   emit?.("deepsearch:subagent.started", { taskId, type: subagentType, prompt, sourceCount: targetSources.length, async: isAsync });
 
+  const taskAbortController = new AbortController();
+
   // 创建执行函数
   const executeTask = async () => {
     // ─────────────────────────────────────────────────────────────────────────────
     // Issue #2 Fix: 创建带超时的 AbortController
     // ─────────────────────────────────────────────────────────────────────────────
     const taskTimeoutMs = toPositiveInt(stageApi?.env?.DEEPSEARCH_TASK_TIMEOUT_MS, DEFAULT_TASK_TIMEOUT_MS);
-    const taskAbortController = new AbortController();
     const timeoutId = setTimeout(() => {
       taskAbortController.abort(new Error(`Task timeout after ${taskTimeoutMs}ms`));
     }, taskTimeoutMs);
@@ -483,8 +532,8 @@ export async function handler(args, context) {
       }
 
       // 更新任务注册表
-      getTaskManager().set(taskId, compactTaskRecord(taskResult, { resultPreviewChars: taskConfig.resultPreviewChars }));
-      pruneRunningTasks({ now: completedAt });
+      taskManager.set(taskId, compactTaskRecord(taskResult, { resultPreviewChars: taskConfig.resultPreviewChars }));
+      pruneRunningTasks({ now: completedAt }, taskConfig);
 
       emit?.("deepsearch:subagent.completed", { taskId, type: subagentType, ok: result?.ok !== false });
 
@@ -515,8 +564,8 @@ export async function handler(args, context) {
         expiresAt: completedAt + taskConfig.completedTaskTtlMs,
       };
 
-      getTaskManager().set(taskId, compactTaskRecord(taskResult, { resultPreviewChars: taskConfig.resultPreviewChars }));
-      pruneRunningTasks({ now: completedAt });
+      taskManager.set(taskId, compactTaskRecord(taskResult, { resultPreviewChars: taskConfig.resultPreviewChars }));
+      pruneRunningTasks({ now: completedAt }, taskConfig);
       if (sharedContext?.store) {
         sharedContext.store(taskId, taskResult);
       }
@@ -534,12 +583,19 @@ export async function handler(args, context) {
   };
 
   const taskPromise = executeTask();
-  getTaskManager().set(taskId, {
+  taskManager.set(taskId, {
     taskId,
     type: subagentType,
     prompt,
     status: "running",
     promise: taskPromise,
+    abort: (reason) => {
+      try {
+        taskAbortController.abort(reason ?? new Error("Task aborted by wait timeout"));
+      } catch {
+        taskAbortController.abort();
+      }
+    },
     startedAt,
   });
 
@@ -579,10 +635,11 @@ export function getTaskStatus(taskId) {
  * 等待任务完成
  * @param {string} taskId - 任务唯一标识符
  * @param {number} [timeout=DEFAULT_WAIT_TIMEOUT_MS] - 超时时间（毫秒），默认 60 秒
+ * @param {{ abortOnTimeout?: boolean }} [options]
  * @returns {Promise<TaskRecord | null>} 任务记录，若不存在返回 null，超时返回带 timeout 状态的记录
  * @throws {never} 不抛出异常，超时通过返回值体现
  */
-export async function waitForTask(taskId, timeout = DEFAULT_WAIT_TIMEOUT_MS) {
+export async function waitForTask(taskId, timeout = DEFAULT_WAIT_TIMEOUT_MS, options = {}) {
   pruneRunningTasks();
   const task = getTaskManager().get(taskId);
   if (!task) return null;
@@ -592,7 +649,7 @@ export async function waitForTask(taskId, timeout = DEFAULT_WAIT_TIMEOUT_MS) {
   }
 
   if (task.promise) {
-    // Issue #3 Fix: 保存 timerId 并在任务完成时清理
+    const abortOnTimeout = options?.abortOnTimeout !== false;
     let timerId;
     const timeoutPromise = new Promise((_, reject) => {
       timerId = setTimeout(() => reject(new Error("Task timeout")), timeout);
@@ -603,7 +660,21 @@ export async function waitForTask(taskId, timeout = DEFAULT_WAIT_TIMEOUT_MS) {
       return result;
     } catch (err) {
       clearTimeout(timerId);
-      return { ...task, status: "timeout", error: err.message };
+      if (abortOnTimeout && typeof task.abort === "function") {
+        try {
+          task.abort(new Error(`Task wait timeout after ${timeout}ms`));
+        } catch {
+          // ignore abort errors
+        }
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        ...task,
+        status: "timeout",
+        error: message,
+        timeoutMs: timeout,
+        abortRequested: abortOnTimeout,
+      };
     }
   }
 

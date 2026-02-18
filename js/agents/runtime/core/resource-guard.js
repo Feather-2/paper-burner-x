@@ -51,6 +51,7 @@ export class ResourceGuard {
     this._taskCountWindow = []; // timestamps of recent tasks
     this._checkTimer = null;
     this._paused = false;
+    this._waiters = new Set();
   }
 
   /**
@@ -124,6 +125,7 @@ export class ResourceGuard {
   release() {
     if (this._currentConcurrent > 0) {
       this._currentConcurrent--;
+      this._notifyWaiters();
     }
   }
 
@@ -137,6 +139,8 @@ export class ResourceGuard {
   async waitForSlot(options = {}) {
     const { timeoutMs = 30000, signal } = options;
     const startTime = Date.now();
+    const timeoutLimit = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 30000;
+    const deadline = startTime + timeoutLimit;
 
     while (true) {
       if (signal?.aborted) {
@@ -147,14 +151,14 @@ export class ResourceGuard {
         return;
       }
 
-      if (Date.now() - startTime > timeoutMs) {
+      const now = Date.now();
+      if (now >= deadline) {
         throw new Error("ResourceGuard timeout waiting for slot");
       }
 
-      // Wait a bit before retry
-      const intervalMs = Number(this._checkIntervalMs);
-      const delayMs = Number.isFinite(intervalMs) && intervalMs >= 0 ? Math.floor(intervalMs) : 50;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      const check = this.canAcquire();
+      const delayMs = Math.min(this._nextWaitDelay(check?.reason), Math.max(0, deadline - now));
+      await this._waitForNotification(delayMs, signal);
     }
   }
 
@@ -187,6 +191,65 @@ export class ResourceGuard {
   resume() {
     this._paused = false;
     logger.info("ResourceGuard resumed");
+    this._notifyWaiters();
+  }
+
+  _nextWaitDelay(reason) {
+    if (reason === "rate_limit" && this._taskCountWindow.length > 0) {
+      const earliest = Math.min(...this._taskCountWindow);
+      const untilWindowClears = earliest + 1000 - Date.now();
+      if (Number.isFinite(untilWindowClears) && untilWindowClears > 0) {
+        return Math.max(1, Math.floor(untilWindowClears));
+      }
+    }
+    const intervalMs = Number(this._checkIntervalMs);
+    return Number.isFinite(intervalMs) && intervalMs >= 0 ? Math.floor(intervalMs) : 50;
+  }
+
+  _notifyWaiters() {
+    if (!this._waiters.size) return;
+    const waiters = Array.from(this._waiters);
+    this._waiters.clear();
+    for (const waiter of waiters) {
+      try {
+        waiter();
+      } catch {
+        // ignore waiter callback errors
+      }
+    }
+  }
+
+  async _waitForNotification(delayMs, signal) {
+    const ms = Number.isFinite(delayMs) ? Math.max(0, Math.floor(delayMs)) : 0;
+    return await new Promise((resolve, reject) => {
+      let settled = false;
+      const onWake = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error("Aborted"));
+      };
+      const timer = setTimeout(onWake, ms);
+      this._waiters.add(onWake);
+
+      if (signal?.addEventListener) {
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        this._waiters.delete(onWake);
+        if (signal?.removeEventListener) {
+          signal.removeEventListener("abort", onAbort);
+        }
+      };
+    });
   }
 
   /**

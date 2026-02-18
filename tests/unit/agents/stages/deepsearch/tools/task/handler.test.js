@@ -150,6 +150,21 @@ describe("getTaskManager", () => {
     expect(mgr2.size).toBe(2);
     expect(mgr2.runningCount).toBe(1);
   });
+
+  it("supports runtime config updates on the singleton", () => {
+    const mgr1 = getTaskManager({ maxRunningTasks: 1, cleanupIntervalMs: 1000 });
+    expect(mgr1.getConfig()).toEqual({
+      maxRunningTasks: 1,
+      cleanupIntervalMs: 1000,
+    });
+
+    const mgr2 = getTaskManager({ maxRunningTasks: 7, cleanupIntervalMs: 2000 });
+    expect(mgr2).toBe(mgr1);
+    expect(mgr2.getConfig()).toEqual({
+      maxRunningTasks: 7,
+      cleanupIntervalMs: 2000,
+    });
+  });
 });
 
 describe("resetTaskManager", () => {
@@ -516,11 +531,13 @@ describe("waitForTask", () => {
   });
 
   it("times out running tasks when timeout is 0", async () => {
+    const abort = vi.fn();
     const running = {
       taskId: "task_timeout",
       status: "running",
       startedAt: Date.now(),
       promise: new Promise(() => {}),
+      abort,
     };
     getTaskManager().set(running.taskId, running);
 
@@ -530,6 +547,29 @@ describe("waitForTask", () => {
     const result = await waitPromise;
     expect(result.status).toBe("timeout");
     expect(result.error).toBe("Task timeout");
+    expect(result.abortRequested).toBe(true);
+    expect(result.timeoutMs).toBe(0);
+    expect(abort).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports wait timeout without aborting underlying task", async () => {
+    const abort = vi.fn();
+    const running = {
+      taskId: "task_timeout_no_abort",
+      status: "running",
+      startedAt: Date.now(),
+      promise: new Promise(() => {}),
+      abort,
+    };
+    getTaskManager().set(running.taskId, running);
+
+    const waitPromise = waitForTask(running.taskId, 0, { abortOnTimeout: false });
+    await vi.advanceTimersByTimeAsync(1);
+
+    const result = await waitPromise;
+    expect(result.status).toBe("timeout");
+    expect(result.abortRequested).toBe(false);
+    expect(abort).not.toHaveBeenCalled();
   });
 });
 

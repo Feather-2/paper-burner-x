@@ -338,6 +338,26 @@ describe("ResourceGuard", () => {
       expect(guard.stats.concurrent).toBe(1);
     });
 
+    it("wakes queued waiters on release without waiting full check interval", async () => {
+      const guard = new ResourceGuard({
+        maxConcurrent: 1,
+        maxTasksPerSecond: 1000,
+        maxMemoryMB: 1000,
+        checkIntervalMs: 10_000,
+      });
+      guard._getMemoryUsageMB = () => 0;
+
+      await guard.waitForSlot({ timeoutMs: 1000 });
+      const queued = guard.waitForSlot({ timeoutMs: 1000 });
+      const queuedExpectation = expect(queued).resolves.toBeUndefined();
+
+      guard.release();
+      await Promise.resolve();
+
+      await queuedExpectation;
+      expect(guard.stats.concurrent).toBe(1);
+    });
+
     it("rejects if the AbortSignal is already aborted (error handling)", async () => {
       const guard = new ResourceGuard({ checkIntervalMs: 10 });
       guard._getMemoryUsageMB = () => 0;

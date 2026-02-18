@@ -193,21 +193,36 @@ function createAnalyzerFactory() {
 /**
  * 注册所有 DeepSearch 子代理
  */
-export function registerDeepSearchSubagents(registry = globalSubagentRegistry) {
-  registry.register(
+export function registerDeepSearchSubagents(registry = globalSubagentRegistry, options = {}) {
+  const force = options?.force === true;
+  const hasFactory = (type) => (typeof registry?.getFactory === "function" ? registry.getFactory(type) : null);
+  const result = {
+    registered: [],
+    skipped: [],
+  };
+
+  const registerIfNeeded = (type, factory, description) => {
+    if (!force && hasFactory(type)) {
+      result.skipped.push(type);
+      return;
+    }
+    registry.register(type, factory, description);
+    result.registered.push(type);
+  };
+
+  registerIfNeeded(
     "researcher",
     createResearcherFactory(),
     "专项文档研究，快速提取关键信息（10轮迭代）"
   );
 
-  registry.register(
+  registerIfNeeded(
     "analyzer",
     createAnalyzerFactory(),
     "深度分析，适合复杂问题（15轮迭代）"
   );
-}
 
-// 自动注册
-registerDeepSearchSubagents();
+  return result;
+}
 
 export { globalSubagentRegistry };

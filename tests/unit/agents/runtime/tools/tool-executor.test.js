@@ -262,6 +262,33 @@ describe("ToolExecutor", () => {
       }
     });
 
+    it("propagates AbortSignal to non-worker handlers and aborts on timeout", async () => {
+      let observedSignal = null;
+      const handler = vi.fn((_args, context) => new Promise((_resolve, reject) => {
+        observedSignal = context?.signal || null;
+        if (observedSignal?.aborted) {
+          reject(observedSignal.reason || new Error("aborted"));
+          return;
+        }
+        observedSignal?.addEventListener?.("abort", () => {
+          reject(observedSignal.reason || new Error("aborted"));
+        });
+      }));
+
+      const executor = new ToolExecutor({
+        tools: { slow: { handler } },
+        timeoutMs: 5,
+        maxRetries: 0,
+      });
+
+      const result = await executor.execute("slow", {}, {}, { retries: 0 });
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(observedSignal).toBeTruthy();
+      expect(observedSignal.aborted).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("timed out");
+    });
+
     it("supports concurrent executions", async () => {
       let inFlight = 0;
       let maxInFlight = 0;

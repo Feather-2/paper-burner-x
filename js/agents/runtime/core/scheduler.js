@@ -61,6 +61,11 @@ export class RuntimeScheduler {
     this._inFlightCounts = new Map();  // runtimeType -> number
     this._maxConcurrent = toPositiveInt(scheduling.maxConcurrentPerRuntime, 3);
     this._maxQueueSize = toPositiveInt(scheduling.maxQueueSize, 100);
+    const queueTimeoutCandidate = Number(scheduling.queueTimeoutMs);
+    this._queueTimeoutMs =
+      Number.isFinite(queueTimeoutCandidate) && queueTimeoutCandidate >= 0
+        ? Math.floor(queueTimeoutCandidate)
+        : 30_000;
     this._taskSeq = 0;                 // tie-breaker for equal priorities
 
     const health = options.health && typeof options.health === "object" ? options.health : {};
@@ -349,6 +354,7 @@ export class RuntimeScheduler {
         inFlight,
         maxConcurrent: this._maxConcurrent,
         maxQueueSize: this._maxQueueSize,
+        queueTimeoutMs: this._queueTimeoutMs,
       };
     };
 
@@ -462,6 +468,10 @@ export class RuntimeScheduler {
 
     // 创建排队任务
     return new Promise((resolve) => {
+      const queueTimeoutOverride = Number(options?.queueTimeoutMs);
+      const queueTimeoutMs = Number.isFinite(queueTimeoutOverride) && queueTimeoutOverride >= 0
+        ? Math.floor(queueTimeoutOverride)
+        : this._queueTimeoutMs;
       const task = {
         type,
         runtime,
@@ -472,6 +482,7 @@ export class RuntimeScheduler {
         seq,
         resolve,
         cleanupAbort: null,
+        cleanupQueueTimeout: null,
       };
 
       const signal = options?.signal;
@@ -479,6 +490,7 @@ export class RuntimeScheduler {
         const onAbort = () => {
           const idx = queue.indexOf(task);
           if (idx >= 0) queue.splice(idx, 1);
+          if (typeof task.cleanupQueueTimeout === "function") task.cleanupQueueTimeout();
           if (typeof task.cleanupAbort === "function") task.cleanupAbort();
           resolve(this._dispatchFailure(type, `Task cancelled while queued: ${type}`, {
             queued: true,
@@ -495,6 +507,24 @@ export class RuntimeScheduler {
             // ignore
           }
           task.cleanupAbort = null;
+        };
+      }
+
+      if (queueTimeoutMs > 0) {
+        const queueTimer = setTimeout(() => {
+          const idx = queue.indexOf(task);
+          if (idx >= 0) queue.splice(idx, 1);
+          if (typeof task.cleanupAbort === "function") task.cleanupAbort();
+          if (typeof task.cleanupQueueTimeout === "function") task.cleanupQueueTimeout();
+          resolve(this._dispatchFailure(type, `Task queue timeout: ${type}`, {
+            queued: true,
+            code: "ERR_RUNTIME_QUEUE_TIMEOUT",
+          }));
+        }, queueTimeoutMs);
+
+        task.cleanupQueueTimeout = () => {
+          clearTimeout(queueTimer);
+          task.cleanupQueueTimeout = null;
         };
       }
 
@@ -592,6 +622,9 @@ export class RuntimeScheduler {
     if (!task) return;
     if (typeof task.cleanupAbort === "function") {
       task.cleanupAbort();
+    }
+    if (typeof task.cleanupQueueTimeout === "function") {
+      task.cleanupQueueTimeout();
     }
 
     if (isAbortSignalLike(task.options?.signal) && task.options.signal.aborted) {

@@ -217,18 +217,15 @@ export async function buildSkillsPrompt({ agent, stageApi, SkillsManager }) {
 
   try {
     const skillsManager = new SkillsManager();
-    const nodeProcess = (/** @type {{ process?: { cwd?: () => string } }} */ (globalThis)).process;
-    const cwd =
-      stageApi?.cwd ||
-      (typeof nodeProcess?.cwd === "function" ? nodeProcess.cwd() : "");
+    const { cwd, source } = resolveSkillsCatalogCwd({ agent, stageApi });
     if (!cwd) {
-      agent._logger?.info?.("[Skills] Skipping skills catalog: cwd unavailable");
+      agent._logger?.info?.("[Skills] Skipping skills catalog: cwd unavailable", { source });
       return "";
     }
     if (typeof skillsManager.getCatalogPrompt === "function") {
       const prompt = await skillsManager.getCatalogPrompt(cwd);
       if (prompt) {
-        agent._logger?.info?.("[Skills] Included skills catalog");
+        agent._logger?.info?.("[Skills] Included skills catalog", { source });
         return prompt;
       }
     }
@@ -236,6 +233,40 @@ export async function buildSkillsPrompt({ agent, stageApi, SkillsManager }) {
     agent._logger?.warn?.(`[Skills] Failed to build catalog: ${err?.message || err}`);
   }
   return "";
+}
+
+export function resolveSkillsCatalogCwd({ agent, stageApi } = {}) {
+  const fromStageApiCwd = sanitizePromptInput(stageApi?.cwd, "", 4096);
+  if (fromStageApiCwd) return { cwd: fromStageApiCwd, source: "stageApi.cwd" };
+
+  if (typeof stageApi?.getCwd === "function") {
+    try {
+      const fromGetter = sanitizePromptInput(stageApi.getCwd(), "", 4096);
+      if (fromGetter) return { cwd: fromGetter, source: "stageApi.getCwd" };
+    } catch {
+      // ignore getter failures
+    }
+  }
+
+  const allowProcessFallback = resolveProcessCwdFallbackPolicy(agent, stageApi);
+  if (!allowProcessFallback) return { cwd: "", source: "disabled" };
+
+  const nodeProcess = (/** @type {{ process?: { cwd?: () => string } }} */ (globalThis)).process;
+  const fromProcess = typeof nodeProcess?.cwd === "function" ? sanitizePromptInput(nodeProcess.cwd(), "", 4096) : "";
+  if (fromProcess) return { cwd: fromProcess, source: "process.cwd" };
+  return { cwd: "", source: "unavailable" };
+}
+
+function resolveProcessCwdFallbackPolicy(agent, stageApi) {
+  if (stageApi?.allowProcessCwdForSkills === true) return true;
+  if (stageApi?.allowProcessCwdForSkills === false) return false;
+  const stageSetting = stageApi?.skills?.allowProcessCwdFallback;
+  if (typeof stageSetting === "boolean") return stageSetting;
+  const userSetting = agent?.state?.userConfig?.skills?.allowProcessCwdFallback;
+  if (typeof userSetting === "boolean") return userSetting;
+  const globalSetting = agent?.globalConfig?.skills?.allowProcessCwdFallback;
+  if (typeof globalSetting === "boolean") return globalSetting;
+  return true;
 }
 
 export function logSuppressedError(agent, context, err) {

@@ -209,6 +209,25 @@ describe('js-sandbox-worker.node (worker entry script)', () => {
     expect(result?.error).toBeTypeOf('string');
   });
 
+  it('enforces hard timeout for synchronous infinite loops', async () => {
+    const { listeners, messages } = sharedPort;
+    await importFresh();
+    expect(typeof listeners.message).toBe('function');
+
+    messages.length = 0;
+    await execute(listeners, {
+      type: 'execute',
+      id: 7,
+      code: 'while (true) {}',
+      timeout: 5,
+    });
+
+    const result = findLast(messages, 'result');
+    expect(result?.success).toBe(false);
+    expect(result?.metrics?.timedOut).toBe(true);
+    expect(String(result?.error || '')).toMatch(/timed?\s*out/i);
+  });
+
   it('forwards console logs and emit events to the host', async () => {
     const { port, listeners, messages } = sharedPort;
     await importFresh();

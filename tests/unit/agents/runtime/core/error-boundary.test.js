@@ -1,14 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { loggerError, createLoggerMock, getGlobalContainerMock } = vi.hoisted(() => {
+const { loggerError, createLoggerMock, getGlobalContainerMock, makeSecureTimestampedIdMock } = vi.hoisted(() => {
   const loggerError = vi.fn();
   const createLoggerMock = vi.fn(() => ({ error: loggerError }));
   const getGlobalContainerMock = vi.fn();
-  return { loggerError, createLoggerMock, getGlobalContainerMock };
+  const makeSecureTimestampedIdMock = vi.fn(() => "err_secure_001");
+  return { loggerError, createLoggerMock, getGlobalContainerMock, makeSecureTimestampedIdMock };
 });
 
 vi.mock("../../../../../js/agents/shared/index.js", () => ({
   createLogger: createLoggerMock,
+  makeSecureTimestampedId: makeSecureTimestampedIdMock,
+  toNonEmptyString: (value) => {
+    if (value === undefined || value === null) return undefined;
+    const s = String(value).trim();
+    return s ? s : undefined;
+  },
 }));
 
 vi.mock("../../../../../js/agents/core/di/global-container.js", () => ({
@@ -42,6 +49,8 @@ beforeEach(() => {
   loggerError.mockClear();
   createLoggerMock.mockClear();
   getGlobalContainerMock.mockReset();
+  makeSecureTimestampedIdMock.mockReset();
+  makeSecureTimestampedIdMock.mockReturnValue("err_secure_001");
 });
 
 describe("ErrorCategory", () => {
@@ -119,7 +128,6 @@ describe("categorizeError", () => {
 describe("createErrorInfo", () => {
   it("creates info with defaults for null errors", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0);
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.123456);
 
     const info = createErrorInfo(null);
 
@@ -128,10 +136,10 @@ describe("createErrorInfo", () => {
     expect(info.ts).toBe(0);
     expect(info.context).toEqual({});
     expect(info.recovered).toBe(false);
-    expect(info.id).toMatch(/^err_0_[0-9a-z]{4}$/);
+    expect(info.id).toBe("err_secure_001");
+    expect(makeSecureTimestampedIdMock).toHaveBeenCalledWith("err", { allowInsecureFallback: true });
 
     nowSpy.mockRestore();
-    randomSpy.mockRestore();
   });
 
   it("preserves deep nested context objects", () => {
@@ -164,6 +172,14 @@ describe("createErrorInfo", () => {
 
     expect(info.message).toBe("boom");
     expect(info.category).toBe(ErrorCategory.UNKNOWN);
+  });
+
+  it("supports custom idFactory and falls back when custom value is empty", () => {
+    const custom = createErrorInfo(new Error("boom"), {}, { idFactory: () => "custom-id" });
+    expect(custom.id).toBe("custom-id");
+
+    const fallback = createErrorInfo(new Error("boom"), {}, { idFactory: () => "   " });
+    expect(fallback.id).toBe("err_secure_001");
   });
 });
 
@@ -364,6 +380,15 @@ describe("ErrorBoundary", () => {
     boundary.clear();
 
     expect(boundary.errors).toHaveLength(0);
+  });
+
+  it("uses ErrorBoundary-level errorIdFactory when recording errors", () => {
+    const boundary = new ErrorBoundary({
+      errorIdFactory: () => "boundary-id",
+    });
+
+    boundary.report(new Error("boom"));
+    expect(boundary.errors[0].id).toBe("boundary-id");
   });
 
   it("handles concurrent wrap calls", async () => {

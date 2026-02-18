@@ -6,10 +6,9 @@
  */
 
 // @ts-ignore
-import { parentPort, workerData } from 'node:worker_threads';
-
-// eslint-disable-next-line no-new-func
-const UnsafeFunction = Function;
+import { parentPort } from 'node:worker_threads';
+// @ts-ignore
+import * as vm from 'node:vm';
 
 /** @type {Set<string>} */
 const ALLOWED_GLOBALS = new Set([
@@ -175,6 +174,37 @@ function createRestrictedGlobals(state, audit, globals) {
 }
 
 /**
+ * Execute sandbox code with Node VM timeout for synchronous hard-stop.
+ * @param {string} code
+ * @param {any} sandbox
+ * @param {number} timeout
+ * @returns {Promise<any>}
+ */
+async function executeWithVmTimeout(code, sandbox, timeout) {
+  const wrappedCode = `
+    (function () {
+      with (sandbox) {
+        return (async function () {
+          ${code}
+        }).call(sandbox);
+      }
+    })()
+  `;
+
+  const script = new vm.Script(wrappedCode, {
+    filename: "js-sandbox-worker.node.js",
+  });
+
+  const context = vm.createContext({ sandbox });
+  const exec = script.runInContext(context, {
+    timeout: Math.max(1, timeout),
+    microtaskMode: 'afterEvaluate',
+  });
+
+  return await Promise.resolve(exec);
+}
+
+/**
  * @param {Object} data
  */
 async function handleExecute(data) {
@@ -214,44 +244,39 @@ async function handleExecute(data) {
       return;
     }
 
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error('Execution timeout')), timeout);
-    });
-
+    const timeoutMs = Math.max(0, Number(timeout) || 0);
     const sandbox = createRestrictedGlobals(state, audit, globals);
+    const timeoutPromise = timeoutMs > 0
+      ? new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error(`Execution timeout after ${timeoutMs}ms`));
+          }, timeoutMs);
+        })
+      : null;
 
-    const wrappedCode = `
-      with (sandbox) {
-        return (async function () {
-          ${code}
-        }).call(this);
-      }
-    `;
+    const execPromise = executeWithVmTimeout(String(code || ''), sandbox, timeoutMs || 1);
+    const result = timeoutPromise ? await Promise.race([execPromise, timeoutPromise]) : await execPromise;
 
-    // eslint-disable-next-line no-new-func
-    const fn = new UnsafeFunction('sandbox', wrappedCode);
-    const execPromise = fn.call(sandbox, sandbox);
-
-    const result = await Promise.race([execPromise, timeoutPromise]);
-
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
 
     postToHost({
       type: 'result',
       id,
       success: true,
       data: result,
-      metrics: { duration: Date.now() - startTime },
+      metrics: { duration: Date.now() - startTime, timeoutMs },
     });
   } catch (err) {
     if (timeoutId) clearTimeout(timeoutId);
+    const message = err instanceof Error ? err.message : String(err);
+    const timedOut = /timed?\s*out|execution timeout/i.test(message);
 
     postToHost({
       type: 'result',
       id,
       success: false,
-      error: err.message,
-      metrics: { duration: Date.now() - startTime },
+      error: timedOut ? message : message,
+      metrics: { duration: Date.now() - startTime, timedOut },
     });
   } finally {
     postToHost({

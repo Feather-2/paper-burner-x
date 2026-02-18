@@ -323,7 +323,13 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           stage: "deepsearch",
           runId: stageApi?.runContext?.runId || input?.runId || this.state?.runId,
           shouldDegrade,
-          fallbackFactory: () => this._buildOutput(),
+          fallbackFactory: (error, info) =>
+            this._buildOutput({
+              degraded: true,
+              reason: "error_boundary",
+              error,
+              errorInfo: info,
+            }),
           emit: typeof stageApi?.emit === "function" ? stageApi.emit : null,
         },
         rethrow: true,
@@ -743,14 +749,54 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     }
   }
 
-  _buildOutput() {
+  _buildOutput(options = {}) {
+    const degraded = options?.degraded === true;
+    const degradeReason = typeof options?.reason === "string" && options.reason ? options.reason : "fallback";
+    const degradedAt = degraded ? new Date().toISOString() : null;
+    const classified = options?.errorInfo || (options?.error ? classifyDeepSearchError(options.error) : null);
+    const iteration =
+      typeof this.context?.iteration === "number"
+        ? this.context.iteration
+        : (typeof this.state?.iteration === "number" ? this.state.iteration : 0);
+
     const ctx = this.context;
+    const todos = ctx?.todos || this.state?.todos || [];
+    const claims = ctx?.claims || this.state?.L1?.claims || [];
+    const report = ctx?.report || this.state?.L1?.report || null;
+
+    const base = {
+      runId: ctx?.runId || this.state?.runId,
+      status: degraded ? "degraded" : this.status,
+      report,
+      todos,
+      claims,
+    };
+
+    if (!degraded) return base;
+
     return {
-      runId: ctx?.runId || this.state.runId,
-      status: this.status,
-      report: ctx?.report || this.state.L1?.report || null,
-      todos: ctx?.todos || this.state.todos || [],
-      claims: ctx?.claims || this.state.L1?.claims || [],
+      ...base,
+      degraded: true,
+      degrade: {
+        stage: "deepsearch",
+        reason: degradeReason,
+        at: degradedAt,
+        message: classified?.message || options?.error?.message || null,
+        category: classified?.category || null,
+        recoverable: typeof classified?.recoverable === "boolean" ? classified.recoverable : null,
+        ...(typeof classified?.statusCode === "number" ? { statusCode: classified.statusCode } : {}),
+        ...(typeof classified?.code === "string" && classified.code ? { code: classified.code } : {}),
+      },
+      recovery: {
+        canResume: true,
+        state: {
+          status: this.status,
+          iteration,
+          todoCount: Array.isArray(todos) ? todos.length : 0,
+          claimCount: Array.isArray(claims) ? claims.length : 0,
+          hasReport: !!report,
+        },
+      },
     };
   }
 

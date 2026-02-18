@@ -5,6 +5,7 @@
  */
 
 import { EventBus } from "../core/event-bus.js";
+import { makeSecureTimestampedId, toNonEmptyString } from "../shared/index.js";
 
 /**
  * @callback EventCallback
@@ -19,6 +20,7 @@ import { EventBus } from "../core/event-bus.js";
  * @property {number} [maxIterations] - Optional max iteration override.
  * @property {AbortSignal} [signal] - Optional cancellation signal.
  * @property {EventCallback} [onEvent] - Optional event stream callback.
+ * @property {(meta: { prefix: string }) => string} [runIdFactory] - Optional runId factory.
  */
 
 /**
@@ -84,8 +86,20 @@ function bindEventCallback(eventBus, onEvent) {
  * @param {string} prefix
  * @returns {string}
  */
-function createRunId(prefix) {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+export function createRunId(prefix, options = {}) {
+  const normalizedPrefix = toNonEmptyString(prefix) || "run";
+  const runIdFactory = typeof options?.runIdFactory === "function" ? options.runIdFactory : null;
+
+  if (runIdFactory) {
+    try {
+      const custom = toNonEmptyString(runIdFactory({ prefix: normalizedPrefix }));
+      if (custom) return custom;
+    } catch {
+      // ignore factory errors and fallback to secure default
+    }
+  }
+
+  return makeSecureTimestampedId(normalizedPrefix, { allowInsecureFallback: true });
 }
 
 /**
@@ -140,7 +154,7 @@ export async function runDeepSearch(taskGoal, options = {}) {
 
   try {
     const { DeepSearchAgentLoop } = await import("../stages/deepsearch/deepsearch-agent-loop.js");
-    const runId = createRunId("deepsearch");
+    const runId = createRunId("deepsearch", { runIdFactory: options?.runIdFactory });
     const maxIterations = toPositiveInt(options?.maxIterations);
     const sources = Array.isArray(options?.sources) ? options.sources : [];
     const userConfig = maxIterations ? { maxIterations } : {};
@@ -198,7 +212,7 @@ export async function runDesign(taskGoal, options = {}) {
 
   try {
     const { DesignAgentLoop } = await import("../stages/design/agent-loop.js");
-    const runId = createRunId("design");
+    const runId = createRunId("design", { runIdFactory: options?.runIdFactory });
     const maxIterations = toPositiveInt(options?.maxIterations);
     const sources = Array.isArray(options?.sources) ? options.sources : [];
     const normalizedTaskGoal = typeof taskGoal === "string" ? taskGoal : String(taskGoal || "");

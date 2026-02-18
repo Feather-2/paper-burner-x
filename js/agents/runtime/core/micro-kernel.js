@@ -90,6 +90,7 @@ function toFiniteTimeoutMs(value, fallback) {
  * @typedef {object} RequestOptions
  * @property {number} [timeoutMs] - Timeout in milliseconds
  * @property {number} [timeout] - Alternative to timeoutMs
+ * @property {boolean} [waitForHandler] - Legacy mode: wait full timeout when handler is missing
  */
 
 export class MicroKernel {
@@ -232,10 +233,14 @@ export class MicroKernel {
     const timeoutMs = toFiniteTimeoutMs(options?.timeoutMs ?? options?.timeout, DEFAULT_REQUEST_TIMEOUT_MS);
     const handlers = this._handlerWrappers.get(name);
     const handler = handlers ? handlers.keys().next().value : null;
+    const waitForHandler = options?.waitForHandler === true;
 
     if (typeof handler !== "function") {
-      await new Promise((resolve) => setTimeout(resolve, timeoutMs));
-      throw new MicroKernelError(`Request timeout: ${name}`, { code: "TIMEOUT" });
+      if (waitForHandler) {
+        await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+        throw new MicroKernelError(`Request timeout: ${name}`, { code: "TIMEOUT" });
+      }
+      throw new MicroKernelError(`No handler registered for request: ${name}`, { code: "NO_HANDLER" });
     }
 
     let timer = null;

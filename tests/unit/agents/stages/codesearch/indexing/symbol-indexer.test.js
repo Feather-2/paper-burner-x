@@ -561,6 +561,30 @@ describe("SymbolIndexer", () => {
     );
   });
 
+  it("queues async persist operations and flushPersist waits for completion", async () => {
+    const archive = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => true),
+    };
+    const indexer = new SymbolIndexer({ archive, workspaceId: "default", runId: "run-queue" });
+
+    indexer._persistCacheAsync();
+    indexer._persistCacheAsync();
+    const flushed = await indexer.flushPersist();
+
+    expect(flushed).toBe(true);
+    expect(archive.set).toHaveBeenCalledTimes(2);
+    expect(indexer.getPersistStats()).toEqual(
+      expect.objectContaining({
+        enqueued: 2,
+        completed: 2,
+        failed: 0,
+        pending: 0,
+        lastError: null,
+      }),
+    );
+  });
+
   it("dispose() auto-flushes cache before clearing state", async () => {
     const store = new CodeSearchIndexStore();
     const archive = {

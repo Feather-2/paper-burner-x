@@ -1,11 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { isNodeLikeMock } = vi.hoisted(() => ({
+const { isNodeLikeMock, makeSecureTimestampedIdMock } = vi.hoisted(() => ({
   isNodeLikeMock: vi.fn(),
+  makeSecureTimestampedIdMock: vi.fn(() => "worker_secure_default"),
 }));
 
 vi.mock("../../../../../js/agents/shared/index.js", () => ({
   isNodeLike: isNodeLikeMock,
+  makeSecureTimestampedId: makeSecureTimestampedIdMock,
+  toNonEmptyString: (value) => {
+    if (value === undefined || value === null) return undefined;
+    const s = String(value).trim();
+    return s ? s : undefined;
+  },
 }));
 
 import {
@@ -27,6 +34,8 @@ const restoreWorker = () => {
 beforeEach(() => {
   isNodeLikeMock.mockReset();
   isNodeLikeMock.mockReturnValue(false);
+  makeSecureTimestampedIdMock.mockReset();
+  makeSecureTimestampedIdMock.mockReturnValue("worker_secure_default");
   restoreWorker();
 });
 
@@ -104,6 +113,41 @@ describe("createWorker", () => {
     await createWorker("browser-worker.js");
 
     expect(BrowserWorkerMock).toHaveBeenCalledWith("browser-worker.js", { type: "module" });
+  });
+
+  it("uses workerIdFactory when workerId is not provided", async () => {
+    isNodeLikeMock.mockReturnValue(false);
+    const BrowserWorkerMock = vi.fn(function WorkerMock(url, options) {
+      this.url = url;
+      this.options = options;
+    });
+    globalThis.Worker = BrowserWorkerMock;
+
+    const workerIdFactory = vi.fn(() => "worker_custom_id");
+    const worker = await createWorker("browser-worker.js", { workerIdFactory });
+
+    expect(workerIdFactory).toHaveBeenCalledWith({
+      scriptUrl: "browser-worker.js",
+      runId: undefined,
+    });
+    expect(worker._workerId).toBe("worker_custom_id");
+  });
+
+  it("falls back to secure-id generator when custom factory fails", async () => {
+    isNodeLikeMock.mockReturnValue(false);
+    const BrowserWorkerMock = vi.fn(function WorkerMock(url, options) {
+      this.url = url;
+      this.options = options;
+    });
+    globalThis.Worker = BrowserWorkerMock;
+
+    const workerIdFactory = vi.fn(() => {
+      throw new Error("boom");
+    });
+    const worker = await createWorker("browser-worker.js", { workerIdFactory });
+
+    expect(makeSecureTimestampedIdMock).toHaveBeenCalledWith("worker", { allowInsecureFallback: true });
+    expect(worker._workerId).toBe("worker_secure_default");
   });
 
   it("rejects when options is null in node-like environments", async () => {

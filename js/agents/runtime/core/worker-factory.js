@@ -4,7 +4,13 @@
  * 自动选择 Web Worker (Browser) 或 Worker Threads (Node.js/Bun)
  */
 
-import { isNodeLike } from "../../shared/index.js";
+import { isNodeLike, makeSecureTimestampedId } from "../../shared/index.js";
+
+function toNonEmptyString(value) {
+  if (value === undefined || value === null) return undefined;
+  const s = String(value).trim();
+  return s.length ? s : undefined;
+}
 
 /**
  * 检测 Worker 是否可用
@@ -19,6 +25,30 @@ export function isWorkerSupported() {
 }
 
 /**
+ * @param {string|URL} scriptUrl
+ * @param {object} options
+ * @returns {string}
+ */
+function resolveWorkerId(scriptUrl, options = {}) {
+  const explicitWorkerId = toNonEmptyString(options.workerId);
+  if (explicitWorkerId) return explicitWorkerId;
+
+  if (typeof options.workerIdFactory === "function") {
+    try {
+      const generated = toNonEmptyString(options.workerIdFactory({
+        scriptUrl: String(scriptUrl),
+        runId: options.runId,
+      }));
+      if (generated) return generated;
+    } catch {
+      // ignore and fallback to secure-id
+    }
+  }
+
+  return makeSecureTimestampedId("worker", { allowInsecureFallback: true });
+}
+
+/**
  * 创建 Worker
  * @param {string|URL} scriptUrl - Worker 脚本路径
  * @param {object} options - Worker 选项
@@ -28,7 +58,7 @@ export function isWorkerSupported() {
  * @returns {Promise<Worker>}
  */
 export async function createWorker(scriptUrl, options = {}) {
-  const workerId = options.workerId || `worker_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  const workerId = resolveWorkerId(scriptUrl, options);
   const { eventBus, runId } = options;
 
   // P0: 发射 worker:lifecycle:creating 事件

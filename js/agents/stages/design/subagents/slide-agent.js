@@ -9,15 +9,21 @@ const MAX_LINKED_FILE_CHARS = 1200;
 const isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined";
 let fsPromises = null;
 let pathModule = null;
-/** @type {string|null} - 受控根目录，null 表示禁止文件读取 */
-let linkedFilesRootDir = null;
+/** @type {string|null} - 默认受控根目录，null 表示禁止文件读取 */
+let defaultLinkedFilesRootDir = null;
+
+function normalizeLinkedFilesRoot(rootDir) {
+  if (typeof rootDir !== "string") return null;
+  const trimmed = rootDir.trim();
+  return trimmed ? trimmed : null;
+}
 
 /**
  * 设置 linkedFiles 允许读取的根目录（路径前缀白名单）
  * @param {string|null} rootDir - 绝对路径根目录，null 禁止读取
  */
 export function setLinkedFilesRoot(rootDir) {
-  linkedFilesRootDir = typeof rootDir === "string" ? rootDir : null;
+  defaultLinkedFilesRootDir = normalizeLinkedFilesRoot(rootDir);
 }
 
 /**
@@ -48,16 +54,35 @@ async function ensureNodeModules() {
  * @param {string} filePath
  * @returns {boolean}
  */
-function isPathAllowed(filePath) {
-  if (!linkedFilesRootDir || !pathModule) return false;
-  const resolved = pathModule.resolve(filePath);
-  const root = pathModule.resolve(linkedFilesRootDir);
-  return resolved === root || resolved.startsWith(root + pathModule.sep);
+async function resolveRealPathSafe(path) {
+  if (!pathModule) return "";
+  const resolved = pathModule.resolve(path);
+  if (!fsPromises?.realpath) return resolved;
+  try {
+    return await fsPromises.realpath(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
-async function readLinkedFiles(linkedFiles = []) {
+async function isPathAllowed(filePath, linkedFilesRootDir) {
+  if (!linkedFilesRootDir || !pathModule) return false;
+  const rootResolved = pathModule.resolve(linkedFilesRootDir);
+  const candidateResolved = pathModule.resolve(filePath);
+  const [rootReal, candidateReal] = await Promise.all([
+    resolveRealPathSafe(rootResolved),
+    resolveRealPathSafe(candidateResolved),
+  ]);
+
+  const inResolvedScope = candidateResolved === rootResolved || candidateResolved.startsWith(rootResolved + pathModule.sep);
+  const inRealScope = candidateReal === rootReal || candidateReal.startsWith(rootReal + pathModule.sep);
+  return inResolvedScope && inRealScope;
+}
+
+async function readLinkedFiles(linkedFiles = [], options = {}) {
   const files = Array.isArray(linkedFiles) ? linkedFiles : [];
   const sections = [];
+  const linkedFilesRootDir = normalizeLinkedFilesRoot(options?.linkedFilesRootDir);
 
   if (!files.length) return "";
   const ready = await ensureNodeModules();
@@ -66,7 +91,7 @@ async function readLinkedFiles(linkedFiles = []) {
   for (const filePath of files) {
     const file = toNonEmptyString(filePath);
     if (!file) continue;
-    if (!isPathAllowed(file)) {
+    if (!(await isPathAllowed(file, linkedFilesRootDir))) {
       sections.push(`--- ${file} ---\n[access denied: path outside allowed root]`);
       continue;
     }
@@ -102,7 +127,7 @@ function describeAsset(asset) {
   return parts.join("; ") || "asset";
 }
 
-async function buildSupplementalMarkdown(slideIntent, assetRegistry) {
+async function buildSupplementalMarkdown(slideIntent, assetRegistry, options = {}) {
   const parts = [];
   const userNotes = toNonEmptyString(slideIntent?.userNotes);
   if (userNotes) parts.push(`User notes: ${userNotes}`);
@@ -119,7 +144,9 @@ async function buildSupplementalMarkdown(slideIntent, assetRegistry) {
     if (assetLines.length) parts.push(`Linked assets:\n${assetLines.join("\n")}`);
   }
 
-  const linkedFiles = await readLinkedFiles(slideIntent?.linkedFiles);
+  const linkedFiles = await readLinkedFiles(slideIntent?.linkedFiles, {
+    linkedFilesRootDir: options?.linkedFilesRootDir,
+  });
   if (linkedFiles) parts.push(`Linked files:\n${linkedFiles}`);
 
   return parts.join("\n\n");
@@ -204,6 +231,7 @@ export class SlideSubAgent {
     this.designSystem = designSystem || null;
     this.assetRegistry = assetRegistry || null;
     this.options = { ...options };
+    this.linkedFilesRootDir = normalizeLinkedFilesRoot(options?.linkedFilesRoot ?? options?.linkedFilesRootDir) || defaultLinkedFilesRootDir;
     this.state = { status: SlideStatus.PENDING };
     this.statusLog = [];
   }
@@ -265,7 +293,9 @@ export class SlideSubAgent {
     this._transition(SlideStatus.GENERATING, { slideIntentId, slideIndex });
 
     try {
-      const supplemental = await buildSupplementalMarkdown(slideIntent, assetRegistry);
+      const supplemental = await buildSupplementalMarkdown(slideIntent, assetRegistry, {
+        linkedFilesRootDir: normalizeLinkedFilesRoot(options?.linkedFilesRoot ?? options?.linkedFilesRootDir) || this.linkedFilesRootDir,
+      });
       const enrichedSlideIntent = withSupplementalContent(slideIntent, supplemental);
       const dslRules = options.dslRules || this.options.dslRules || await getDslRules();
       const contentPackage = options.contentPackage || {};

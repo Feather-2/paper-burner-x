@@ -166,8 +166,30 @@ describe("MessagePortFallback", () => {
         throw new Error("nope");
       },
     }, () => {
-      const packet = fallback.pack(new Uint8Array([1]));
-      expect(packet.id).toMatch(/^sm_[a-z0-9]+_[a-z0-9]+$/);
+      const ids = new Set();
+      for (let i = 0; i < 5; i += 1) {
+        const packet = fallback.pack(new Uint8Array([1]));
+        expect(packet.id).toMatch(/^sm_[a-z0-9]+_[a-z0-9]+_[a-z0-9]+$/);
+        ids.add(packet.id);
+      }
+      expect(ids.size).toBe(5);
+    });
+  });
+
+  it("supports custom idFactory for transfer ids", () => {
+    const messages = [];
+    const port = {
+      postMessage: vi.fn((data) => messages.push(data)),
+    };
+    const idFactory = vi.fn(() => "custom_transfer_id");
+    const fallback = new MessagePortFallback(port, { idFactory });
+
+    const packet = fallback.pack(new Uint8Array([1, 2]));
+    expect(packet.id).toBe("custom_transfer_id");
+    expect(idFactory).toHaveBeenCalledTimes(1);
+    expect(messages[0]).toMatchObject({
+      type: "shared-memory:port-fallback:start",
+      id: "custom_transfer_id",
     });
   });
 

@@ -36,6 +36,7 @@
 
 const DEFAULT_CHUNK_BYTES = 256 * 1024; // 256KB
 const DEFAULT_MAX_TRANSFER_BYTES = 64 * 1024 * 1024; // 64MB
+let transferIdSequence = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Support Detection
@@ -70,14 +71,31 @@ function isSharedArrayBufferAvailable() {
 // ID Generation
 // ─────────────────────────────────────────────────────────────────────────────
 
-function makeTransferId() {
+function makeFallbackTransferId() {
+  transferIdSequence = (transferIdSequence + 1) >>> 0;
+  const now = Date.now().toString(36);
+  const perfNow =
+    typeof performance !== "undefined" && typeof performance.now === "function"
+      ? Math.floor(performance.now() * 1000).toString(36)
+      : "0";
+  return `sm_${now}_${perfNow}_${transferIdSequence.toString(36)}`;
+}
+
+function makeTransferId(idFactory = null) {
+  if (typeof idFactory === "function") {
+    try {
+      const custom = String(idFactory() || "").trim();
+      if (custom) return custom;
+    } catch {
+      // ignore custom id factory errors and fallback
+    }
+  }
   try {
     const arr = new Uint8Array(8);
     crypto.getRandomValues(arr);
     return "sm_" + Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
   } catch {
-    // Fallback when crypto unavailable
-    return "sm_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10);
+    return makeFallbackTransferId();
   }
 }
 
@@ -91,6 +109,7 @@ export class MessagePortFallback {
    * @param {object} [options]
    * @param {number} [options.chunkBytes=256*1024]
    * @param {number} [options.maxByteLength=64*1024*1024]
+   * @param {() => string} [options.idFactory]
    */
   constructor(port, options = {}) {
     if (!port) {
@@ -99,6 +118,7 @@ export class MessagePortFallback {
     this._port = port;
     this._chunkBytes = options.chunkBytes ?? DEFAULT_CHUNK_BYTES;
     this._maxByteLength = options.maxByteLength ?? DEFAULT_MAX_TRANSFER_BYTES;
+    this._idFactory = typeof options.idFactory === "function" ? options.idFactory : null;
     this._transfers = new Map(); // id → { byteLength, buffer?, received, resolve?, reject?, error?, result? }
     this._boundOnMessage = this._handleMessage.bind(this);
 
@@ -235,7 +255,7 @@ export class MessagePortFallback {
    */
   pack(data) {
     const bytes = toUint8View(data);
-    const id = makeTransferId();
+    const id = makeTransferId(this._idFactory);
     const byteLength = bytes.length;
 
     // Send start message

@@ -208,6 +208,36 @@ describe("runPlanningPhase", () => {
     expect(state.addObservation).toHaveBeenCalledTimes(2);
     expect(callModel).toHaveBeenCalledTimes(2);
   });
+
+  it("supports injectable todoIdFactory and resolves collisions", async () => {
+    const callModel = vi.fn(async () => ({
+      content: JSON.stringify([{ text: "A" }, { text: "B" }, { text: "C" }]),
+    }));
+    const state = createStateStub({ query: "Q_ids" });
+    const factory = vi.fn(() => "fixed-id");
+
+    const res = await runPlanningPhase({ state, callModel, signal: null, todoIdFactory: factory });
+
+    expect(res.success).toBe(true);
+    expect(res.todos).toHaveLength(3);
+    expect(new Set(res.todos.map((todo) => todo.todoId)).size).toBe(3);
+    expect(factory).toHaveBeenCalled();
+    expect(res.todos.some((todo) => todo.todoId === "fixed-id")).toBe(true);
+  });
+
+  it("uses state.createTodoId when provided", async () => {
+    const callModel = vi.fn(async () => ({
+      content: JSON.stringify([{ text: "A" }]),
+    }));
+    const createTodoId = vi.fn(() => "state-id");
+    const state = createStateStub({ createTodoId });
+
+    const res = await runPlanningPhase({ state, callModel, signal: null });
+
+    expect(res.success).toBe(true);
+    expect(res.todos[0].todoId).toBe("state-id");
+    expect(createTodoId).toHaveBeenCalled();
+  });
 });
 
 describe("buildSystemPrompt", () => {
