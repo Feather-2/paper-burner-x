@@ -44,6 +44,14 @@ export const AgentRunStatus = /** @type {const} */ ([
 
 const TASK_TYPE_PATTERN = /^[a-z][a-zA-Z0-9]*:[a-z][a-zA-Z0-9]*$/;
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isValidTaskType(value) {
+  return typeof value === 'string' && TASK_TYPE_PATTERN.test(value.trim());
+}
+
 // ─── 类型定义 ───────────────────────────────────────────
 
 /**
@@ -193,7 +201,7 @@ export function validateTaskRequest(msg) {
 
   const taskType = str(o.taskType);
   if (!taskType) return { ok: false, error: 'TaskRequest.taskType: required non-empty string' };
-  if (!TASK_TYPE_PATTERN.test(taskType)) {
+  if (!isValidTaskType(taskType)) {
     return { ok: false, error: 'TaskRequest.taskType: must be domain:action format (e.g. "search:execute")' };
   }
 
@@ -208,6 +216,7 @@ export function validateTaskRequest(msg) {
   }
 
   const traceInfo = normalizeTrace(o.trace, 'TaskRequest');
+  if (traceInfo.error) return { ok: false, error: traceInfo.error };
 
   return {
     ok: true,
@@ -223,7 +232,6 @@ export function validateTaskRequest(msg) {
       ...(traceInfo.trace ? { trace: traceInfo.trace } : {}),
       ts: num(o.ts, Date.now()),
     },
-    ...(traceInfo.error ? { error: traceInfo.error } : {}),
   };
 }
 
@@ -248,6 +256,7 @@ export function validateTaskResult(msg) {
   }
 
   const traceInfo = normalizeTrace(o.trace, 'TaskResult');
+  if (traceInfo.error) return { ok: false, error: traceInfo.error };
 
   return {
     ok: true,
@@ -262,7 +271,6 @@ export function validateTaskResult(msg) {
       ...(traceInfo.trace ? { trace: traceInfo.trace } : {}),
       ts: num(o.ts, Date.now()),
     },
-    ...(traceInfo.error ? { error: traceInfo.error } : {}),
   };
 }
 
@@ -289,6 +297,7 @@ export function validateStatusUpdate(msg) {
   }
 
   const traceInfo = normalizeTrace(o.trace, 'StatusUpdate');
+  if (traceInfo.error) return { ok: false, error: traceInfo.error };
 
   return {
     ok: true,
@@ -302,7 +311,6 @@ export function validateStatusUpdate(msg) {
       ...(traceInfo.trace ? { trace: traceInfo.trace } : {}),
       ts: num(o.ts, Date.now()),
     },
-    ...(traceInfo.error ? { error: traceInfo.error } : {}),
   };
 }
 
@@ -331,6 +339,7 @@ export function validateKnowledgeShare(msg) {
   }
 
   const traceInfo = normalizeTrace(o.trace, 'KnowledgeShare');
+  if (traceInfo.error) return { ok: false, error: traceInfo.error };
 
   return {
     ok: true,
@@ -345,7 +354,6 @@ export function validateKnowledgeShare(msg) {
       ...(traceInfo.trace ? { trace: traceInfo.trace } : {}),
       ts: num(o.ts, Date.now()),
     },
-    ...(traceInfo.error ? { error: traceInfo.error } : {}),
   };
 }
 
@@ -357,8 +365,6 @@ export function validateKnowledgeShare(msg) {
 export function validateAgentMessage(msg) {
   const o = obj(msg);
   if (!o) return { ok: false, error: 'AgentMessage: expected object' };
-
-  const traceInfo = normalizeTrace(o.trace, 'AgentMessage');
 
   const kind = str(o.kind);
   if (!kind || !AgentMessageKind.includes(/** @type {any} */ (kind))) {
@@ -376,9 +382,6 @@ export function validateAgentMessage(msg) {
     }
   })();
 
-  if (result.ok && traceInfo.error && !result.error) {
-    return { ...result, error: traceInfo.error };
-  }
   return result;
 }
 

@@ -11,6 +11,11 @@ import { nextTick } from '../lamport-clock.js';
 /** @typedef {{ nextTick: () => LamportClockState }} ClockServiceLike */
 /** @typedef {{ nodeId?: string, clockService?: ClockServiceLike }} ORSetOptions */
 /**
+ * @typedef {object} ORSetGcOptions
+ * @property {boolean} [offline=false] - 离线维护窗口（可安全清理 tombstone）
+ * @property {(tag: string) => boolean} [isCausallyStable] - 因果稳定性判定（返回 true 才可清理 tombstone）
+ */
+/**
  * @template T
  * @typedef {{ type: 'set-add', element: T, tag: string, clock: LamportClockState, nodeId: string }} ORSetAddOp
  */
@@ -249,9 +254,16 @@ export class ORSet {
 
   /**
    * 垃圾回收（删除已完全删除的元素）
+   *
+   * 默认仅清理 element/tag 索引，不会删除 tombstone，避免在线同步窗口出现“复活”。
+   * 如需回收 tombstone，必须满足以下其一：
+   * - 明确离线窗口：`gc({ offline: true })`
+   * - 提供因果稳定判定：`gc({ isCausallyStable: (tag) => ... })`
+   *
+   * @param {ORSetGcOptions} [options]
    * @returns {number}
    */
-  gc() {
+  gc(options = {}) {
     const toDelete = [];
     for (const [element, tags] of this._elements) {
       let allDeleted = true;
@@ -269,9 +281,24 @@ export class ORSet {
       const tags = this._elements.get(element);
       for (const tag of tags) {
         this._tagToElement.delete(tag);
-        this._tombstones.delete(tag);
+        const canPruneTombstone = options.offline === true
+          || (typeof options.isCausallyStable === 'function' && options.isCausallyStable(tag) === true);
+        if (canPruneTombstone) {
+          this._tombstones.delete(tag);
+        }
       }
       this._elements.delete(element);
+    }
+
+    // 离线窗口可进一步清理“孤儿 tombstone”（无 tag 索引引用）
+    const allowPrune = options.offline === true || typeof options.isCausallyStable === 'function';
+    if (allowPrune) {
+      for (const tag of Array.from(this._tombstones)) {
+        if (this._tagToElement.has(tag)) continue;
+        if (options.offline === true || options.isCausallyStable?.(tag) === true) {
+          this._tombstones.delete(tag);
+        }
+      }
     }
     return toDelete.length;
   }

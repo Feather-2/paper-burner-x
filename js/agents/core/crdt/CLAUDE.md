@@ -60,6 +60,18 @@ Agent 状态以结构化键值/计数器/集合为主，LWW + Counter + OR-Set �
 - `nodeId?: string` - 计数器所属节点 ID
 - `clockService?: { nextTick: () => LamportClockState }` - 计数器时钟提供者
 
+### `CRDTSyncManagerOptions`（`sync-manager.js`）
+
+- `nodeId?: string`
+- `transport?: CRDTTransport`
+- `events?: EventBusLike`
+- `maxPendingOps?: number`
+- `maxOpsPerSync?: number`
+- `maxOpSize?: number`
+- `topologyMode?: 'two-node' | 'multi-node-experimental'`
+  - 默认 `two-node`：硬约束最多 1 个远端 peer（即 2 节点拓扑）
+  - 若需 3+ 节点，请显式设置 `multi-node-experimental`（仍建议后续升级 version vector）
+
 ## 操作格式（Op）
 
 所有可同步变更都以 op 表示，并要求：
@@ -103,6 +115,7 @@ Agent 状态以结构化键值/计数器/集合为主，LWW + Counter + OR-Set �
 - 对键名做危险字段过滤（如 `__proto__`、`constructor`、`prototype`）
 - 插件注入 `clockService` 时应保证只暴露必要能力
 - 为 `maxOpLogSize` 配置合理默认值并结合快照策略
+- OR-Set 的 `gc()` 默认不会删除 tombstone（避免在线同步窗口“复活”）；仅在离线窗口或因果稳定证明下回收 tombstone
 
 ## 测试建议（本模块）
 

@@ -171,6 +171,8 @@ describe('CRDT primitives', () => {
       expect(gcSet.has('x')).toBe(false);
       expect(gcSet.gc()).toBe(1);
       expect(gcSet._elements.has('x')).toBe(false);
+      expect(gcSet._tombstones.has(addX.tag)).toBe(true);
+      expect(gcSet.gc({ offline: true })).toBe(0);
       expect(gcSet._tombstones.has(addX.tag)).toBe(false);
 
       const clearSet = new ORSet({ nodeId: 'A' });

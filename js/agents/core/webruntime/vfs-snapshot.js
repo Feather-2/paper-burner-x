@@ -22,6 +22,38 @@
  */
 
 /**
+ * @param {unknown} input
+ * @param {string} label
+ * @returns {VfsSnapshotEntry[]}
+ */
+function assertSnapshotEntries(input, label) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new TypeError(`${label}: expected snapshot object`);
+  }
+  const files = /** @type {{ files?: unknown }} */ (input).files;
+  if (!Array.isArray(files)) {
+    throw new TypeError(`${label}.files: expected array`);
+  }
+
+  return files.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new TypeError(`${label}.files[${index}]: expected object`);
+    }
+    const e = /** @type {Record<string, unknown>} */ (entry);
+    if (typeof e.path !== 'string' || e.path.trim().length === 0) {
+      throw new TypeError(`${label}.files[${index}].path: expected non-empty string`);
+    }
+    if (e.type !== 'file' && e.type !== 'directory') {
+      throw new TypeError(`${label}.files[${index}].type: expected "file" or "directory"`);
+    }
+    if (e.type === 'file' && e.content !== undefined && typeof e.content !== 'string') {
+      throw new TypeError(`${label}.files[${index}].content: expected base64 string`);
+    }
+    return /** @type {VfsSnapshotEntry} */ (e);
+  });
+}
+
+/**
  * Uint8Array to base64 (browser-safe).
  * @param {Uint8Array} bytes
  * @returns {string}
@@ -94,7 +126,8 @@ export async function fromSnapshot(snapshot, vfs) {
     vfs = new MemoryVfs();
   }
 
-  const sorted = [...snapshot.files].sort((a, b) => {
+  const entries = assertSnapshotEntries(snapshot, 'snapshot');
+  const sorted = [...entries].sort((a, b) => {
     const da = a.path.split('/').length;
     const db = b.path.split('/').length;
     if (da !== db) return da - db;
@@ -120,10 +153,13 @@ export async function fromSnapshot(snapshot, vfs) {
  * @returns {SnapshotDiff}
  */
 export function diffSnapshots(a, b) {
+  const entriesA = assertSnapshotEntries(a, 'snapshotA');
+  const entriesB = assertSnapshotEntries(b, 'snapshotB');
+
   const filesA = new Map();
-  for (const e of a.files) if (e.type === 'file') filesA.set(e.path, e.content ?? '');
+  for (const e of entriesA) if (e.type === 'file') filesA.set(e.path, e.content ?? '');
   const filesB = new Map();
-  for (const e of b.files) if (e.type === 'file') filesB.set(e.path, e.content ?? '');
+  for (const e of entriesB) if (e.type === 'file') filesB.set(e.path, e.content ?? '');
 
   const added = [];
   const modified = [];

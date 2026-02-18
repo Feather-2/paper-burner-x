@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../../js/agents/shared/index.js', () => ({
-  isPlainObject: vi.fn(),
-  toNonEmptyString: vi.fn(),
   makeSecureTimestampedId: vi.fn(),
 }));
 
@@ -119,7 +117,7 @@ describe('DiscoveryManager', () => {
       confidence: 0,
       query: '   ',
     });
-    expect(stored.ts).toBe(NOW);
+    expect(stored.ts).toBe(123);
     expect(sharedContext.addToIndex).toHaveBeenCalledWith('evidence:gap-1', 'ev-1');
     expect(conflictSpy).toHaveBeenCalledWith('gap-1');
   });
@@ -168,6 +166,70 @@ describe('DiscoveryManager', () => {
     expect(indexKeys).toHaveLength(3);
     expect(indexKeys.every((key) => key === 'evidence:gap-rapid')).toBe(true);
     expect(indexIds).toEqual(expect.arrayContaining(ids));
+  });
+
+  it('marks discovery as contradicted when evidence conflicts by source/time/confidence', () => {
+    const sharedContext = createSharedContext();
+    const manager = new DiscoveryManager({
+      sharedContext,
+      conflictMaxTimeDriftMs: 60_000,
+      conflictMinConfidenceDelta: 0.4,
+    });
+    makeSecureTimestampedId
+      .mockImplementationOnce(() => 'ev-a')
+      .mockImplementationOnce(() => 'ev-b');
+
+    manager.addEvidence('gap-conflict', {
+      sourceId: 'paper-a',
+      snippet: 'Result A',
+      confidence: 0.95,
+      ts: 1_000,
+    });
+    manager.addEvidence('gap-conflict', {
+      sourceId: 'paper-b',
+      snippet: 'Result B',
+      confidence: 0.10,
+      ts: 3_600_000,
+    });
+
+    const conflictCalls = sharedContext.upsertSignal.mock.calls
+      .map((call) => call[0])
+      .filter((record) => record.id === 'gap-conflict' && record.status === DiscoveryStatus.CONTRADICTED);
+
+    expect(conflictCalls).toHaveLength(1);
+    expect(conflictCalls[0].conflicts).toEqual({
+      sourceConflict: true,
+      confidenceConflict: true,
+      temporalConflict: true,
+      evidenceCount: 2,
+    });
+  });
+
+  it('keeps discovery unchanged when evidence does not cross conflict thresholds', () => {
+    const sharedContext = createSharedContext();
+    const manager = new DiscoveryManager({
+      sharedContext,
+      conflictMaxTimeDriftMs: 10_000,
+      conflictMinConfidenceDelta: 0.5,
+    });
+    makeSecureTimestampedId
+      .mockImplementationOnce(() => 'ev-1')
+      .mockImplementationOnce(() => 'ev-2');
+
+    manager.addEvidence('gap-safe', {
+      sourceId: 'same-source',
+      snippet: 'Consistent finding',
+      confidence: 0.7,
+      ts: 1_000,
+    });
+    manager.addEvidence('gap-safe', {
+      sourceId: 'same-source',
+      snippet: 'Consistent finding',
+      confidence: 0.8,
+      ts: 5_000,
+    });
+
+    expect(sharedContext.upsertSignal).not.toHaveBeenCalled();
   });
 
   it('getEvidences filters out nullish details', () => {

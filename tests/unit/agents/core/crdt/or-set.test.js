@@ -203,9 +203,13 @@ describe('ORSet', () => {
     expect(set.gc()).toBe(1);
     expect(set.has('keep')).toBe(false);
     expect(set._elements.has('keep')).toBe(false);
+    expect(set._tombstones.has(first.tag)).toBe(true);
+    expect(set._tombstones.has(second.tag)).toBe(true);
+    expect(set._tagToElement.has(first.tag)).toBe(false);
+
+    expect(set.gc({ offline: true })).toBe(0);
     expect(set._tombstones.has(first.tag)).toBe(false);
     expect(set._tombstones.has(second.tag)).toBe(false);
-    expect(set._tagToElement.has(first.tag)).toBe(false);
   });
 
   it('serializes and restores JSON snapshots preserving element types', () => {

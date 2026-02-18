@@ -37,6 +37,8 @@
   - `onViolation`：策略违规回调
   - `seccomp`：二阶段 BPF 过滤（`applySeccompPath` + `bpfPath`）
   - `networkProxy`：`--unshare-net` + Unix socket 代理桥接
+  - `managedNetwork`：执行器托管网络代理生命周期（内部创建 `SandboxNetworkManager`）
+  - `networkPolicy` / `networkAskCallback` / `networkOnViolation`：托管网络模式策略与审计钩子
 - **路径规范化**：`normalizeSandboxPath()` 约束相对路径必须位于 `workDir` 内；`isSafeForSBPL()` 拒绝控制字符注入
 - **Permission-only**：通过 `permissionHandler` 交互审批，支持 `allowPattern()` 缓存规则与 `clearPermissions()` 清理
 

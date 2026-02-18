@@ -36,7 +36,8 @@ const logger = createLogger('core/crdt/sync-manager');
 /** @typedef {{ type: 'crdt:peer-join', from: string, ts: number }} CRDTPeerJoinMessage */
 /** @typedef {{ type: 'crdt:peer-leave', from: string, ts: number }} CRDTPeerLeaveMessage */
 /** @typedef {CRDTOpMessage | CRDTSyncRequestMessage | CRDTSyncResponseMessage | CRDTSnapshotRequestMessage | CRDTSnapshotResponseMessage | CRDTPeerJoinMessage | CRDTPeerLeaveMessage} CRDTSyncMessage */
-/** @typedef {{ nodeId?: string, transport?: CRDTTransport, events?: CRDTEventBusLike, maxPendingOps?: number, maxOpsPerSync?: number, maxOpSize?: number }} CRDTSyncManagerOptions */
+/** @typedef {'two-node' | 'multi-node-experimental'} CRDTTopologyMode */
+/** @typedef {{ nodeId?: string, transport?: CRDTTransport, events?: CRDTEventBusLike, maxPendingOps?: number, maxOpsPerSync?: number, maxOpSize?: number, topologyMode?: CRDTTopologyMode }} CRDTSyncManagerOptions */
 /**
  * @typedef {{
  *   nodeId: string,
@@ -44,7 +45,8 @@ const logger = createLogger('core/crdt/sync-manager');
  *   peerCount: number,
  *   peers: string[],
  *   documentCount: number,
- *   pendingOps: number
+ *   pendingOps: number,
+ *   topologyMode: CRDTTopologyMode
  * }} CRDTSyncStatus
  */
 
@@ -75,6 +77,10 @@ export class CRDTSyncManager {
     this._maxOpsPerSync = options.maxOpsPerSync || 200;
     /** @type {number} */
     this._maxOpSize = options.maxOpSize || 65536; // 64KB per op
+    /** @type {CRDTTopologyMode} */
+    this._topologyMode = options.topologyMode === 'multi-node-experimental'
+      ? 'multi-node-experimental'
+      : 'two-node';
 
     // 文档注册表
     /** @type {Map<string, CRDTDocument>} */
@@ -439,6 +445,17 @@ export class CRDTSyncManager {
    * @returns {void}
    */
   _handlePeerJoin(message) {
+    if (!message?.from || message.from === this._nodeId) return;
+    if (this._topologyMode === 'two-node' && !this._peers.has(message.from) && this._peers.size >= 1) {
+      logger.warn(`Rejected peer ${message.from}: topologyMode=two-node supports only one remote peer`);
+      this._emit('topologyRejected', {
+        nodeId: message.from,
+        mode: this._topologyMode,
+        maxPeers: 1,
+      });
+      return;
+    }
+
     this._peers.add(message.from);
     this._emit('peerJoin', { nodeId: message.from });
 
@@ -463,6 +480,10 @@ export class CRDTSyncManager {
    */
   _startPeerSync() {
     if (typeof this._transport?.on !== 'function') return;
+    if (typeof this._transport?.onReceive === 'function') {
+      // Prefer onReceive pipeline to avoid duplicate processing when transport supports both APIs.
+      return;
+    }
 
     this._boundSyncResponseHandler = (data) => {
       const payload = /** @type {{ docId?: string, ops?: unknown[], complete?: boolean }} */ (data || {});
@@ -713,6 +734,7 @@ export class CRDTSyncManager {
       peers: Array.from(this._peers),
       documentCount: this._documents.size,
       pendingOps: this._pendingOps.length,
+      topologyMode: this._topologyMode,
     };
   }
 }

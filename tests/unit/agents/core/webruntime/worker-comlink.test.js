@@ -60,6 +60,7 @@ describe('worker-comlink', () => {
       expect(typeof api.clearCache).toBe('function');
       expect(typeof api.terminate).toBe('function');
       expect(api.terminated).toBe(false);
+      expect(api.clearCache()).toBeInstanceOf(Promise);
       api.terminate();
     });
 
@@ -151,6 +152,24 @@ describe('worker-comlink', () => {
       await new Promise((r) => setTimeout(r, 10));
       expect(mockSelf._posted[0].ok).toBe(false);
       expect(mockSelf._posted[0].error).toContain('Unknown method');
+    });
+
+    it('serializes non-Error throws with String(err)', async () => {
+      const mockSelf = createMockSelf();
+      exposeApi({
+        fail: () => {
+          throw 'boom-string';
+        },
+      }, mockSelf);
+
+      mockSelf._receive({ type: MSG_CALL, id: 1, method: 'fail', args: [] });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockSelf._posted[0]).toEqual({
+        type: MSG_RETURN,
+        id: 1,
+        ok: false,
+        error: 'boom-string',
+      });
     });
   });
 });

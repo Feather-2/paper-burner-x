@@ -40,6 +40,10 @@ vi.mock('../../../../../../js/agents/core/sandbox/system/permission.js', () => (
   createPermissionExecutor: vi.fn(),
 }));
 
+vi.mock('../../../../../../js/agents/core/sandbox/system/network-manager.js', () => ({
+  SandboxNetworkManager: vi.fn(),
+}));
+
 import { SandboxBackend, DefaultSandboxConfig } from '../../../../../../js/agents/core/sandbox/system/constants.js';
 import { detectBestBackend, detectAllBackends, getPlatform } from '../../../../../../js/agents/core/sandbox/system/detect.js';
 import { createBubblewrapExecutor } from '../../../../../../js/agents/core/sandbox/system/bubblewrap.js';
@@ -49,6 +53,7 @@ import { createPermissionExecutor } from '../../../../../../js/agents/core/sandb
 import { SystemSandboxExecutor, createSystemSandbox } from '../../../../../../js/agents/core/sandbox/system/executor.js';
 
 let mockExecutor;
+let mockNetworkManager;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -65,6 +70,11 @@ beforeEach(() => {
   createSeatbeltExecutor.mockReturnValue(mockExecutor);
   createDockerExecutor.mockReturnValue(mockExecutor);
   createPermissionExecutor.mockReturnValue(mockExecutor);
+  mockNetworkManager = {
+    initialize: vi.fn().mockResolvedValue(undefined),
+    getSocketPath: vi.fn().mockReturnValue('/tmp/managed-network.sock'),
+    shutdown: vi.fn().mockResolvedValue(undefined),
+  };
 });
 
 describe('SystemSandboxExecutor', () => {
@@ -121,6 +131,37 @@ describe('SystemSandboxExecutor', () => {
     expect(onBackendSelected).toHaveBeenCalledWith(SandboxBackend.BUBBLEWRAP);
     expect(detectBestBackend).not.toHaveBeenCalled();
     expect(loggerMocks.warn).not.toHaveBeenCalled();
+  });
+
+  it('wires managed network mode through SandboxNetworkManager for bubblewrap backend', async () => {
+    detectAllBackends.mockResolvedValue([
+      { backend: SandboxBackend.BUBBLEWRAP, available: true },
+    ]);
+    const networkManagerFactory = vi.fn(() => mockNetworkManager);
+
+    const executor = new SystemSandboxExecutor({
+      preferredBackend: SandboxBackend.BUBBLEWRAP,
+      allowNetwork: true,
+      managedNetwork: true,
+      networkPolicy: { allowedDomains: ['api.example.com'] },
+      networkManagerFactory,
+    });
+
+    await executor.init();
+
+    expect(networkManagerFactory).toHaveBeenCalledWith({
+      policy: { allowedDomains: ['api.example.com'] },
+      askCallback: undefined,
+      onViolation: undefined,
+    });
+    expect(mockNetworkManager.initialize).toHaveBeenCalledTimes(1);
+    expect(createBubblewrapExecutor).toHaveBeenCalledWith(expect.objectContaining({
+      allowNetwork: true,
+      networkProxy: { httpSocketPath: '/tmp/managed-network.sock' },
+    }));
+
+    await executor.dispose();
+    expect(mockNetworkManager.shutdown).toHaveBeenCalledTimes(1);
   });
 
   it('falls back when preferred backend unavailable and logs warning', async () => {

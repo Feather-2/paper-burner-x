@@ -7,7 +7,6 @@
  * 3. 协调交叉验证任务。
  */
 
-import { isPlainObject, toNonEmptyString } from "../shared/index.js";
 import { makeSecureTimestampedId } from "../shared/index.js";
 
 /**
@@ -37,7 +36,30 @@ import { makeSecureTimestampedId } from "../shared/index.js";
  * @property {string} [runId]
  * @property {LoggerLike} [logger]
  * @property {EmitFn} [emit]
+ * @property {number} [conflictMaxTimeDriftMs]
+ * @property {number} [conflictMinConfidenceDelta]
+*/
+
+const DEFAULT_CONFLICT_MAX_TIME_DRIFT_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_CONFLICT_MIN_CONFIDENCE_DELTA = 0.45;
+
+/**
+ * @param {unknown} value
+ * @returns {string | undefined}
  */
+function nonEmptyString(value) {
+    if (typeof value !== "string") return undefined;
+    const out = value.trim();
+    return out.length > 0 ? out : undefined;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+function finiteNumber(value) {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
 
 /** @type {Readonly<{ OPEN: DiscoveryStatusType, PARTIAL: DiscoveryStatusType, SATISFIED: DiscoveryStatusType, CONTRADICTED: DiscoveryStatusType, VERIFYING: DiscoveryStatusType, BLOCKED: DiscoveryStatusType }>} */
 export const DiscoveryStatus = Object.freeze({
@@ -62,6 +84,14 @@ export class DiscoveryManager {
         this.logger = options.logger;
         /** @type {EmitFn | undefined} */
         this.emit = options.emit;
+        /** @type {number} */
+        this.conflictMaxTimeDriftMs = Number.isFinite(options.conflictMaxTimeDriftMs)
+            ? Math.max(0, Number(options.conflictMaxTimeDriftMs))
+            : DEFAULT_CONFLICT_MAX_TIME_DRIFT_MS;
+        /** @type {number} */
+        this.conflictMinConfidenceDelta = Number.isFinite(options.conflictMinConfidenceDelta)
+            ? Math.max(0, Number(options.conflictMinConfidenceDelta))
+            : DEFAULT_CONFLICT_MIN_CONFIDENCE_DELTA;
     }
 
     /**
@@ -93,10 +123,11 @@ export class DiscoveryManager {
         if (!this.sharedContext) return;
 
         const evidenceId = makeSecureTimestampedId("ev");
+        const evidenceTs = finiteNumber(evidence?.ts) ?? Date.now();
         this.sharedContext.store(evidenceId, {
             discoveryId,
             ...evidence,
-            ts: Date.now()
+            ts: evidenceTs
         });
 
         // 更新索引，方便查找
@@ -128,14 +159,59 @@ export class DiscoveryManager {
         const evidences = this.getEvidences(discoveryId);
         if (evidences.length < 2) return;
 
-        // 简单启发式冲突检测
-        const sourceIds = new Set(evidences.map(e => e.sourceId).filter(Boolean));
-        if (sourceIds.size > 1) {
-            // TODO: implement actual conflict detection logic
-            // 标记为存疑，提醒模型进行交叉验证
-            // 具体判定仍由 evaluate-gaps skill 或模型逻辑决定
-            // Placeholder: no-op until conflict semantics are defined
+        const sourceIds = new Set(
+            evidences
+                .map(e => nonEmptyString(e?.sourceId))
+                .filter(Boolean)
+        );
+        const snippets = new Set(
+            evidences
+                .map(e => nonEmptyString(e?.snippet))
+                .filter(Boolean)
+        );
+
+        const sourceConflict = sourceIds.size > 1 && snippets.size > 1;
+
+        const confidenceValues = evidences
+            .map(e => finiteNumber(e?.confidence))
+            .filter((n) => n !== null);
+        let confidenceConflict = false;
+        if (confidenceValues.length >= 2) {
+            const minConfidence = Math.min(...confidenceValues);
+            const maxConfidence = Math.max(...confidenceValues);
+            confidenceConflict = (maxConfidence - minConfidence) >= this.conflictMinConfidenceDelta;
         }
+
+        const timeValues = evidences
+            .map(e => finiteNumber(e?.ts))
+            .filter((n) => n !== null);
+        let temporalConflict = false;
+        if (timeValues.length >= 2) {
+            const minTs = Math.min(...timeValues);
+            const maxTs = Math.max(...timeValues);
+            temporalConflict = (maxTs - minTs) > this.conflictMaxTimeDriftMs;
+        }
+
+        const hasConflict = sourceConflict || confidenceConflict || temporalConflict;
+        if (!hasConflict) return;
+
+        this.upsertDiscovery(discoveryId, {
+            status: DiscoveryStatus.CONTRADICTED,
+            conflicts: {
+                sourceConflict,
+                confidenceConflict,
+                temporalConflict,
+                evidenceCount: evidences.length,
+            }
+        });
+
+        this.logger?.warn?.("[DiscoveryManager] Conflict detected", {
+            discoveryId,
+            sourceConflict,
+            confidenceConflict,
+            temporalConflict,
+            evidenceCount: evidences.length,
+        });
     }
 
     /**

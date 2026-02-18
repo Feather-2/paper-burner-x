@@ -156,5 +156,14 @@ describe('vfs-snapshot', () => {
       expect(diff.modified).toEqual([]);
       expect(diff.deleted).toEqual(['gone.txt']);
     });
+
+    it('throws structured errors for invalid snapshot shapes', async () => {
+      expect(() => diffSnapshots({}, { files: [] })).toThrow(/snapshotA\.files: expected array/);
+      expect(() => diffSnapshots({ files: [] }, { files: [{ path: '', type: 'file' }] }))
+        .toThrow(/snapshotB\.files\[0\]\.path: expected non-empty string/);
+      await expect(fromSnapshot({ files: [{ path: 'x', type: 'file', content: 123 }] }))
+        .rejects
+        .toThrow(/snapshot\.files\[0\]\.content: expected base64 string/);
+    });
   });
 });

@@ -52,6 +52,30 @@ const makeTransport = () => {
   };
 };
 
+const makeHybridTransport = () => {
+  const onMap = new Map();
+  let receiveHandler;
+  return {
+    send: vi.fn(),
+    onReceive: vi.fn((handler) => {
+      receiveHandler = handler;
+    }),
+    on: vi.fn((event, handler) => {
+      onMap.set(event, handler);
+    }),
+    off: vi.fn((event, handler) => {
+      if (onMap.get(event) === handler) onMap.delete(event);
+    }),
+    close: vi.fn(),
+    triggerReceive(message) {
+      receiveHandler?.(message);
+    },
+    emit(event, payload) {
+      onMap.get(event)?.(payload);
+    },
+  };
+};
+
 const makeValidOp = (overrides = {}) => ({
   field: 'field',
   fieldType: 'register',
@@ -79,6 +103,28 @@ describe('CRDTSyncManager', () => {
     handler({ type: 'crdt:peer-join', from: 'peer', ts: 1 });
     expect(manager.peerCount).toBe(1);
     expect(bus.emit).toHaveBeenCalledWith('crdt:peerJoin', { nodeId: 'peer' });
+  });
+
+  it('prefers onReceive channel and skips EventEmitter sync bindings when both are available', () => {
+    const transport = makeHybridTransport();
+    const manager = new CRDTSyncManager({ nodeId: 'node-a', transport });
+    const doc = manager.createDocument('doc');
+    doc._applyOps = vi.fn().mockReturnValue([]);
+
+    expect(transport.onReceive).toHaveBeenCalledTimes(1);
+    expect(transport.on).not.toHaveBeenCalled();
+
+    transport.triggerReceive({
+      type: 'crdt:sync-response',
+      from: 'peer',
+      to: 'node-a',
+      docId: 'doc',
+      ops: [makeValidOp()],
+      ts: 1,
+    });
+
+    expect(doc._applyOps).toHaveBeenCalledTimes(1);
+    manager.dispose();
   });
 
   it('registerDocument accepts CRDTDocument and rejects invalid inputs', () => {
@@ -459,6 +505,34 @@ describe('CRDTSyncManager', () => {
     manager._handlePeerLeave({ type: 'crdt:peer-leave', from: 'peer', ts: 2 });
     expect(manager.peerCount).toBe(0);
     expect(bus.emit).toHaveBeenCalledWith('crdt:peerLeave', { nodeId: 'peer' });
+  });
+
+  it('enforces two-node topology by rejecting second remote peer', () => {
+    const bus = makeEventBus();
+    const manager = new CRDTSyncManager({ nodeId: 'node-a', events: bus });
+
+    manager._handlePeerJoin({ type: 'crdt:peer-join', from: 'peer-1', ts: 1 });
+    manager._handlePeerJoin({ type: 'crdt:peer-join', from: 'peer-2', ts: 2 });
+
+    expect(manager.getStatus().peers).toEqual(['peer-1']);
+    expect(bus.emit).toHaveBeenCalledWith('crdt:topologyRejected', {
+      nodeId: 'peer-2',
+      mode: 'two-node',
+      maxPeers: 1,
+    });
+  });
+
+  it('allows more than one peer in multi-node experimental mode', () => {
+    const manager = new CRDTSyncManager({
+      nodeId: 'node-a',
+      topologyMode: 'multi-node-experimental',
+    });
+
+    manager._handlePeerJoin({ type: 'crdt:peer-join', from: 'peer-1', ts: 1 });
+    manager._handlePeerJoin({ type: 'crdt:peer-join', from: 'peer-2', ts: 2 });
+
+    expect(manager.getStatus().peerCount).toBe(2);
+    expect(manager.getStatus().topologyMode).toBe('multi-node-experimental');
   });
 
   it('connects, flushes pending ops, requests sync, and disconnects', () => {

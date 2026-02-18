@@ -12,6 +12,7 @@ import {
   createTaskResult,
   createStatusUpdate,
   createKnowledgeShare,
+  isValidTaskType,
 } from '../../../../../js/agents/core/contracts/agent-message.js';
 
 // ─── Constants ──────────────────────────────────────────
@@ -116,6 +117,18 @@ describe('validateTaskRequest', () => {
     expect(r.ok).toBe(true);
     expect(r.value.priority).toBe(5);
   });
+
+  it('rejects invalid trace payload as a hard validation error', () => {
+    expect(validateTaskRequest({
+      agentId: 'a1',
+      taskType: 'search:execute',
+      payload: null,
+      trace: { spanId: 'missing-trace-id' },
+    })).toEqual({
+      ok: false,
+      error: 'TaskRequest.trace.traceId: required non-empty string',
+    });
+  });
 });
 
 // ─── validateTaskResult ─────────────────────────────────
@@ -168,6 +181,18 @@ describe('validateTaskResult', () => {
     expect(r.value.error).toBe('partial');
     expect(r.value.durationMs).toBe(150);
     expect(r.value.ts).toBe(2000);
+  });
+
+  it('rejects invalid trace payload', () => {
+    expect(validateTaskResult({
+      agentId: 'a1',
+      correlationId: 'c1',
+      status: 'completed',
+      trace: 'oops',
+    })).toEqual({
+      ok: false,
+      error: 'TaskResult.trace: expected object',
+    });
   });
 });
 
@@ -223,6 +248,17 @@ describe('validateStatusUpdate', () => {
     expect(r.value.currentTask).toBe('Analyzing documents');
     expect(r.value.progress).toBe(75);
     expect(r.value.meta).toEqual({ tokensUsed: 1234 });
+  });
+
+  it('rejects invalid trace payload', () => {
+    expect(validateStatusUpdate({
+      agentId: 'a1',
+      status: 'idle',
+      trace: { traceId: '' },
+    })).toEqual({
+      ok: false,
+      error: 'StatusUpdate.trace.traceId: required non-empty string',
+    });
   });
 });
 
@@ -282,6 +318,18 @@ describe('validateKnowledgeShare', () => {
     expect(r.value.targetAgentId).toBe('b2');
     expect(r.value.correlationId).toBe('c1');
     expect(r.value.content).toEqual({ key: 'value' });
+  });
+
+  it('rejects invalid trace payload', () => {
+    expect(validateKnowledgeShare({
+      agentId: 'a1',
+      topic: 'x',
+      content: 'y',
+      trace: 123,
+    })).toEqual({
+      ok: false,
+      error: 'KnowledgeShare.trace: expected object',
+    });
   });
 });
 
@@ -349,6 +397,26 @@ describe('validateAgentMessage', () => {
     });
     expect(r.ok).toBe(false);
     expect(r.error).toContain('domain:action');
+  });
+
+  it('never returns ok:true with an error field when trace is invalid', () => {
+    const r = validateAgentMessage({
+      kind: 'task-result',
+      agentId: 'a1',
+      correlationId: 'c1',
+      status: 'completed',
+      trace: { spanId: 'missing' },
+    });
+    expect(r.ok).toBe(false);
+    expect(r).not.toHaveProperty('value');
+  });
+});
+
+describe('isValidTaskType', () => {
+  it('validates domain:action format', () => {
+    expect(isValidTaskType('search:execute')).toBe(true);
+    expect(isValidTaskType('search:Execute')).toBe(false);
+    expect(isValidTaskType('invalid')).toBe(false);
   });
 });
 

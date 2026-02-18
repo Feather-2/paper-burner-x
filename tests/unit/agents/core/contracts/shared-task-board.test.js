@@ -37,6 +37,12 @@ describe('SharedTaskBoard', () => {
       expect(board.addTask({}).ok).toBe(false);
     });
 
+    it('rejects non domain:action taskType even when createdBy is provided', () => {
+      const result = board.addTask({ taskType: 'invalid-format', createdBy: 'agent-1' });
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('domain:action');
+    });
+
     it('clamps priority to 0-10', () => {
       const r1 = board.addTask({ taskType: 'a:b', createdBy: 'x', priority: -5 });
       const r2 = board.addTask({ taskType: 'a:b', createdBy: 'x', priority: 99 });
@@ -253,6 +259,47 @@ describe('SharedTaskBoard', () => {
       expect(board.restore(null).ok).toBe(false);
       expect(board.restore({}).ok).toBe(false);
       expect(board.restore({ tasks: 'bad' }).ok).toBe(false);
+    });
+
+    it('restore skips invalid tasks and normalizes valid entries', () => {
+      const snapshot = {
+        boardId: 'restored-board',
+        tasks: [
+          {
+            id: 'task-ok',
+            taskType: 'search:execute',
+            status: 'pending',
+            priority: 999,
+            createdBy: 'agent-1',
+            createdAt: 1000,
+          },
+          {
+            id: 'task-bad-type',
+            taskType: 'not-valid',
+            status: 'pending',
+            createdBy: 'agent-2',
+            createdAt: 1001,
+          },
+          {
+            id: 'task-bad-status',
+            taskType: 'search:execute',
+            status: 'unknown',
+            createdBy: 'agent-3',
+            createdAt: 1002,
+          },
+        ],
+      };
+
+      const result = board.restore(snapshot);
+      expect(result).toEqual({ ok: true, count: 1 });
+      expect(board.boardId).toBe('restored-board');
+
+      const task = board.getTask('task-ok');
+      expect(task).toBeTruthy();
+      expect(task.priority).toBe(10);
+      expect(task.status).toBe('pending');
+      expect(board.getTask('task-bad-type')).toBeNull();
+      expect(board.getTask('task-bad-status')).toBeNull();
     });
   });
 

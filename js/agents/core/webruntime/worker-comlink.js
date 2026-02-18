@@ -7,7 +7,7 @@
 /** @typedef {object} WorkerApi
  * @property {(code: string, filename?: string) => Promise<*>} execute
  * @property {(path: string) => Promise<*>} runFile
- * @property {() => void} clearCache */
+ * @property {() => Promise<*>} clearCache */
 
 /** @typedef {object} ComlinkWorkerConfig
  * @property {Worker|object} worker
@@ -104,7 +104,8 @@ export function exposeApi(api, self = globalThis) {
       const value = await fn(...(args || []));
       self.postMessage({ type: MSG_RETURN, id, ok: true, value });
     } catch (err) {
-      self.postMessage({ type: MSG_RETURN, id, ok: false, error: err.message });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      self.postMessage({ type: MSG_RETURN, id, ok: false, error: errorMessage });
     }
   });
 }

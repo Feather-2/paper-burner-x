@@ -17,7 +17,7 @@
  * - 与 agent-message.js 的 TaskStatus 复用状态枚举
  */
 
-import { TaskStatus } from './agent-message.js';
+import { TaskStatus, isValidTaskType } from './agent-message.js';
 import { deepClone } from '../../shared/utils/value-utils.js';
 
 // ─── 常量 ───────────────────────────────────────────────
@@ -52,6 +52,89 @@ function cloneTask(task) {
 /** @param {BoardTask[]} tasks @returns {BoardTask[]} */
 function cloneTasks(tasks) {
   return tasks.map((task) => cloneTask(task));
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+function finiteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {typeof TaskStatus[number] | null}
+ */
+function normalizeTaskStatus(value) {
+  const normalized = str(value);
+  if (!normalized) return null;
+  return TaskStatus.includes(/** @type {any} */ (normalized))
+    ? /** @type {typeof TaskStatus[number]} */ (normalized)
+    : null;
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} [fallback=5]
+ * @returns {number}
+ */
+function normalizePriority(value, fallback = 5) {
+  const numeric = finiteNumber(value);
+  if (numeric === null) return fallback;
+  return Math.max(0, Math.min(10, Math.floor(numeric)));
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number | undefined}
+ */
+function normalizeOptionalTimestamp(value) {
+  const ts = finiteNumber(value);
+  if (ts === null || ts < 0) return undefined;
+  return ts;
+}
+
+/**
+ * @param {unknown} input
+ * @returns {BoardTask | null}
+ */
+function normalizeSnapshotTask(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+
+  const raw = /** @type {Record<string, unknown>} */ (input);
+  const id = str(raw.id);
+  const taskType = str(raw.taskType);
+  const createdBy = str(raw.createdBy);
+  const status = normalizeTaskStatus(raw.status);
+  if (!id || !taskType || !createdBy || !status || !isValidTaskType(taskType)) return null;
+
+  const createdAt = normalizeOptionalTimestamp(raw.createdAt) ?? Date.now();
+  const claimedBy = str(raw.claimedBy) || null;
+  const error = str(raw.error) || null;
+
+  /** @type {BoardTask} */
+  const task = {
+    id,
+    taskType,
+    payload: raw.payload ?? null,
+    status,
+    priority: normalizePriority(raw.priority),
+    createdBy,
+    claimedBy,
+    error,
+    createdAt,
+  };
+
+  const claimedAt = normalizeOptionalTimestamp(raw.claimedAt);
+  if (claimedAt !== undefined) task.claimedAt = claimedAt;
+
+  const completedAt = normalizeOptionalTimestamp(raw.completedAt);
+  if (completedAt !== undefined) task.completedAt = completedAt;
+
+  if (raw.result !== undefined) task.result = raw.result;
+
+  return task;
 }
 
 // ─── 类型定义 ───────────────────────────────────────────
@@ -101,12 +184,13 @@ export class SharedTaskBoard {
     if (this.disposed) return { ok: false, error: 'Board disposed' };
     const taskType = str(params?.taskType);
     if (!taskType) return { ok: false, error: 'taskType required' };
+    if (!isValidTaskType(taskType)) {
+      return { ok: false, error: 'taskType must be domain:action format' };
+    }
     const createdBy = str(params?.createdBy);
     if (!createdBy) return { ok: false, error: 'createdBy required' };
 
-    const priority = typeof params?.priority === 'number' && Number.isFinite(params.priority)
-      ? Math.max(0, Math.min(10, Math.floor(params.priority)))
-      : 5;
+    const priority = normalizePriority(params?.priority);
 
     /** @type {BoardTask} */
     const task = {
@@ -286,10 +370,10 @@ export class SharedTaskBoard {
     this._tasks.clear();
     let count = 0;
     for (const task of snapshot.tasks) {
-      if (task && typeof task === 'object' && str(task.id)) {
-        this._tasks.set(task.id, cloneTask(task));
-        count++;
-      }
+      const normalized = normalizeSnapshotTask(task);
+      if (!normalized) continue;
+      this._tasks.set(normalized.id, cloneTask(normalized));
+      count++;
     }
     if (str(snapshot.boardId)) this.boardId = snapshot.boardId;
     return { ok: true, count };

@@ -13,6 +13,7 @@ import { createBubblewrapExecutor } from './bubblewrap.js';
 import { createSeatbeltExecutor } from './seatbelt.js';
 import { createDockerExecutor } from './docker.js';
 import { createPermissionExecutor } from './permission.js';
+import { SandboxNetworkManager } from './network-manager.js';
 import { createLogger } from '../../../shared/index.js';
 
 const logger = createLogger('core/sandbox/system/executor');
@@ -32,6 +33,11 @@ const logger = createLogger('core/sandbox/system/executor');
  * @property {number} [timeoutMs] - 超时
  * @property {PermissionHandler} [permissionHandler] - 权限处理器 (permission-only 模式)
  * @property {Function} [onBackendSelected] - 后端选择回调
+ * @property {boolean} [managedNetwork] - 托管网络模式（自动注入 networkProxy）
+ * @property {{ allowedDomains?: string[], deniedDomains?: string[] }} [networkPolicy] - 域名策略
+ * @property {(info: { host: string, port: number }) => Promise<boolean>} [networkAskCallback] - 动态放行回调
+ * @property {(violation: object) => void} [networkOnViolation] - 违规回调
+ * @property {(config: object) => SandboxNetworkManager} [networkManagerFactory] - 测试注入工厂
  */
 
 /**
@@ -61,6 +67,13 @@ export class SystemSandboxExecutor {
 
     /** @type {boolean} */
     this._cleanupRegistered = false;
+
+    /** @type {SandboxNetworkManager | null} */
+    this._managedNetworkManager = null;
+    /** @type {(config: object) => SandboxNetworkManager} */
+    this._networkManagerFactory = typeof this.config.networkManagerFactory === 'function'
+      ? this.config.networkManagerFactory
+      : (cfg) => new SandboxNetworkManager(cfg);
   }
 
   /**
@@ -151,6 +164,8 @@ export class SystemSandboxExecutor {
       timeoutMs: this.config.timeoutMs,
     };
 
+    await this._prepareManagedNetwork(backend, executorOptions);
+
     switch (backend) {
       case SandboxBackend.BUBBLEWRAP:
         this.executor = createBubblewrapExecutor(executorOptions);
@@ -182,6 +197,51 @@ export class SystemSandboxExecutor {
     }
 
     return true;
+  }
+
+  /**
+   * @param {string} backend
+   * @param {Record<string, unknown>} executorOptions
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _prepareManagedNetwork(backend, executorOptions) {
+    const managedEnabled = this.config.managedNetwork === true
+      && this.config.allowNetwork !== false
+      && backend === SandboxBackend.BUBBLEWRAP;
+
+    if (!managedEnabled) {
+      await this._shutdownManagedNetwork();
+      return;
+    }
+
+    if (!this._managedNetworkManager) {
+      this._managedNetworkManager = this._networkManagerFactory({
+        policy: this.config.networkPolicy,
+        askCallback: this.config.networkAskCallback,
+        onViolation: this.config.networkOnViolation,
+      });
+      await this._managedNetworkManager.initialize();
+    }
+
+    const socketPath = this._managedNetworkManager.getSocketPath();
+    if (socketPath) {
+      executorOptions.networkProxy = { httpSocketPath: socketPath };
+      executorOptions.allowNetwork = true;
+    }
+  }
+
+  /**
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _shutdownManagedNetwork() {
+    if (!this._managedNetworkManager) return;
+    try {
+      await this._managedNetworkManager.shutdown();
+    } finally {
+      this._managedNetworkManager = null;
+    }
   }
 
   /**
@@ -228,6 +288,14 @@ export class SystemSandboxExecutor {
       availableBackends: allBackends.filter((b) => b.available).map((b) => b.backend),
       allBackends,
     };
+  }
+
+  /**
+   * 释放托管资源（网络代理等）。
+   * @returns {Promise<void>}
+   */
+  async dispose() {
+    await this._shutdownManagedNetwork();
   }
 }
 
