@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { warnSpy, toNonEmptyStringMock, deepCloneMock } = vi.hoisted(() => ({
+const { warnSpy, toNonEmptyStringMock, deepCloneMock, makeSecureTimestampedIdMock } = vi.hoisted(() => ({
   warnSpy: vi.fn(),
   toNonEmptyStringMock: vi.fn(),
   deepCloneMock: vi.fn(),
+  makeSecureTimestampedIdMock: vi.fn(),
 }));
 
 vi.mock("../../../../../../js/agents/shared/index.js", () => ({
   toNonEmptyString: (value) => toNonEmptyStringMock(value),
+  makeSecureTimestampedId: (...args) => makeSecureTimestampedIdMock(...args),
   createLogger: vi.fn(() => ({
     log: vi.fn(),
     debug: vi.fn(),
@@ -50,6 +52,7 @@ beforeEach(() => {
   warnSpy.mockReset();
   toNonEmptyStringMock.mockReset();
   deepCloneMock.mockReset();
+  makeSecureTimestampedIdMock.mockReset();
 
   toNonEmptyStringMock.mockImplementation((value) => {
     if (value === undefined || value === null) return undefined;
@@ -58,6 +61,7 @@ beforeEach(() => {
   });
 
   deepCloneMock.mockImplementation((value) => JSON.parse(JSON.stringify(value)));
+  makeSecureTimestampedIdMock.mockImplementation((prefix) => `${prefix}_mocked_id`);
 });
 
 describe("UnifiedAgentContext", () => {
@@ -69,18 +73,25 @@ describe("UnifiedAgentContext", () => {
 
     const dateSpy = vi.spyOn(Date, "now").mockReturnValue(12345);
     const ctxEmpty = new UnifiedAgentContext({ runId: "   " });
-    expect(ctxEmpty.runId).toBe("ctx_12345");
+    expect(ctxEmpty.runId).toBe("ctx_mocked_id");
     expect(ctxEmpty.eventBus).toBeNull();
 
     const ctxNull = new UnifiedAgentContext({ runId: null });
-    expect(ctxNull.runId).toBe("ctx_12345");
+    expect(ctxNull.runId).toBe("ctx_mocked_id");
 
     const ctxUndefined = new UnifiedAgentContext({ runId: undefined });
-    expect(ctxUndefined.runId).toBe("ctx_12345");
+    expect(ctxUndefined.runId).toBe("ctx_mocked_id");
 
     const ctxZero = new UnifiedAgentContext({ runId: 0 });
     expect(ctxZero.runId).toBe("0");
     dateSpy.mockRestore();
+  });
+
+  it("supports injected runIdFactory when runId is not provided", () => {
+    const runIdFactory = vi.fn(() => "ctx_custom");
+    const ctx = new UnifiedAgentContext({ runIdFactory });
+    expect(ctx.runId).toBe("ctx_custom");
+    expect(runIdFactory).toHaveBeenCalledTimes(1);
   });
 
   it("binds dependencies and returns success", () => {

@@ -11,6 +11,7 @@ import { VFS_REQUEST } from "./vfs-proxy-protocol.js";
  * @property {string} [id]
  * @property {string} [indexUrl]
  * @property {string[]} [watchPaths]
+ * @property {number} [requestTimeoutMs=60000]
  *
  * @typedef {object} VfsDirEntry
  * @property {string} name
@@ -43,6 +44,9 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     this.pendingRequests = new Map();
     this._requestId = 0;
     this.watchPaths = options.watchPaths || ['/mnt/workspace'];
+    this.requestTimeoutMs = Number.isFinite(options.requestTimeoutMs)
+      ? Math.max(0, Number(options.requestTimeoutMs))
+      : 60_000;
     /** @type {VfsProxyHost | null} */
     this.vfsProxyHost = null;
     /** @type {SharedArrayBuffer | null} */
@@ -152,19 +156,84 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
    * @returns {Promise<any>}
    */
   _send(type, payload, vfs = null) {
+    return this._sendWithOptions(type, payload, vfs, {});
+  }
+
+  /**
+   * @param {string} type
+   * @param {any} payload
+   * @param {VfsLike | null | undefined} [vfs]
+   * @param {{ timeoutMs?: number, signal?: AbortSignal }} [options]
+   * @returns {Promise<any>}
+   */
+  _sendWithOptions(type, payload, vfs = null, options = {}) {
     if (!this.worker) throw new Error('Python worker not initialized');
     const id = ++this._requestId;
+    const timeoutMs = Number.isFinite(options?.timeoutMs)
+      ? Math.max(0, Number(options.timeoutMs))
+      : this.requestTimeoutMs;
+    const signal = options?.signal;
+
+    if (signal?.aborted) {
+      const reason = typeof signal.reason === "string" ? signal.reason : "Python worker request aborted";
+      const err = new Error(reason);
+      err.name = "AbortError";
+      return Promise.reject(err);
+    }
+
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let settled = false;
+      const clearAbort = () => {
+        if (!signal) return;
+        try {
+          signal.removeEventListener("abort", onAbort);
+        } catch {
+          // ignore
+        }
+      };
+      const finishResolve = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearAbort();
+        resolve(value);
+      };
+      const finishReject = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearAbort();
+        reject(error);
+      };
+      const onAbort = () => {
         this.pendingRequests.delete(id);
-        reject(new Error(`Python worker request timeout after 60s (id=${id}, type=${type})`));
-      }, 60_000);
+        const reason = typeof signal?.reason === "string" ? signal.reason : `Python worker request aborted (id=${id}, type=${type})`;
+        const err = new Error(reason);
+        err.name = "AbortError";
+        finishReject(err);
+      };
+
+      const timer = timeoutMs > 0
+        ? setTimeout(() => {
+            this.pendingRequests.delete(id);
+            finishReject(new Error(`Python worker request timeout after ${timeoutMs}ms (id=${id}, type=${type})`));
+          }, timeoutMs)
+        : null;
+
+      if (signal) {
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
       this.pendingRequests.set(id, {
-        resolve: (v) => { clearTimeout(timer); resolve(v); },
-        reject: (e) => { clearTimeout(timer); reject(e); },
+        resolve: (v) => { finishResolve(v); },
+        reject: (e) => { finishReject(e); },
         vfs,
       });
-      this.worker.postMessage({ type, payload, id });
+      try {
+        this.worker.postMessage({ type, payload, id });
+      } catch (err) {
+        this.pendingRequests.delete(id);
+        finishReject(err);
+      }
     });
   }
 
@@ -176,7 +245,7 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     await this.initialize();
     if (dependencies && dependencies.length > 0) {
       logger.debug(`[PythonRuntime] Loading packages in worker: ${dependencies.join(', ')}`);
-      await this._send('preload', { dependencies, indexUrl: this.indexUrl });
+      await this._sendWithOptions('preload', { dependencies, indexUrl: this.indexUrl });
     }
   }
 
@@ -191,7 +260,7 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
       (Array.isArray(loadPlan?.micropip) && loadPlan.micropip.length > 0) ||
       (Array.isArray(loadPlan?.wheels) && loadPlan.wheels.length > 0);
     if (!hasWork) return;
-    await this._send("preload", { loadPlan, indexUrl: this.indexUrl });
+    await this._sendWithOptions("preload", { loadPlan, indexUrl: this.indexUrl });
   }
 
   /**
@@ -362,7 +431,7 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
       }
 
       // 3. 发送执行请求
-      const result = await this._send('execute', { 
+      const result = await this._sendWithOptions('execute', {
         code, 
         state: context.state,
         files,
@@ -372,7 +441,10 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
           ? { enabled: true, sharedBuffer, aliases: this._getVfsProxyAliases() }
           : { enabled: false },
         indexUrl: this.indexUrl
-      }, context.vfs);
+      }, context.vfs, {
+        timeoutMs: context?.timeoutMs ?? context?.timeout,
+        signal: context?.signal,
+      });
 
       return {
         success: true,
@@ -393,6 +465,16 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
    * @returns {Promise<void>}
    */
   async terminate() {
+    const pendingEntries = Array.from(this.pendingRequests.entries());
+    this.pendingRequests.clear();
+    for (const [id, req] of pendingEntries) {
+      try {
+        req.reject(new Error(`Python runtime terminated (pending request ${id})`));
+      } catch {
+        // ignore
+      }
+    }
+
     if (this.vfsProxyHost) {
       this.vfsProxyHost.dispose();
       this.vfsProxyHost = null;
@@ -401,6 +483,5 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
       this.worker.terminate();
       this.worker = null;
     }
-    this.pendingRequests.clear();
   }
 }

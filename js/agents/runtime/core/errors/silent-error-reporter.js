@@ -198,8 +198,40 @@ export class SilentErrorReporter {
   }
 }
 
-/** Global singleton instance */
-export const silentErrors = new SilentErrorReporter();
+/** Global singleton instance (replaceable for run-level isolation). */
+export let silentErrors = new SilentErrorReporter();
+
+/**
+ * Create a new standalone reporter instance.
+ * @param {SilentErrorReporterOptions} [options]
+ * @returns {SilentErrorReporter}
+ */
+export function createSilentErrorReporter(options = {}) {
+  return new SilentErrorReporter(options);
+}
+
+/**
+ * Replace global reporter instance.
+ * @param {SilentErrorReporter} reporter
+ * @returns {SilentErrorReporter}
+ */
+export function setGlobalSilentErrorReporter(reporter) {
+  if (!(reporter instanceof SilentErrorReporter)) {
+    throw new TypeError("setGlobalSilentErrorReporter: reporter must be a SilentErrorReporter");
+  }
+  silentErrors = reporter;
+  return silentErrors;
+}
+
+/**
+ * Reset global reporter instance.
+ * @param {SilentErrorReporterOptions} [options]
+ * @returns {SilentErrorReporter}
+ */
+export function resetGlobalSilentErrorReporter(options = {}) {
+  silentErrors = new SilentErrorReporter(options);
+  return silentErrors;
+}
 
 /**
  * Convenience function for reporting silent errors
@@ -217,10 +249,24 @@ export function reportSilentError(error, location, category = ErrorCategory.RECO
  * @returns {{ report: (error: unknown, method: string, category?: string) => void }} Scoped reporter API.
  */
 export function createScopedReporter(moduleName) {
+  return createScopedReporterWithOptions(moduleName);
+}
+
+/**
+ * Create a scoped reporter with explicit reporter/run scope.
+ * @param {string} moduleName
+ * @param {{ reporter?: SilentErrorReporter, runId?: string }} [options]
+ * @returns {{ report: (error: unknown, method: string, category?: string) => void }}
+ */
+export function createScopedReporterWithOptions(moduleName, options = {}) {
+  const reporter = options?.reporter instanceof SilentErrorReporter ? options.reporter : silentErrors;
+  const runId = typeof options?.runId === "string" && options.runId.trim() ? options.runId.trim() : "";
   return {
     report(error, method, category = ErrorCategory.RECOVERABLE) {
-      silentErrors.report(error, {
-        location: `${moduleName}.${method}`,
+      const baseLocation = `${moduleName}.${method}`;
+      const location = runId ? `${runId}:${baseLocation}` : baseLocation;
+      reporter.report(error, {
+        location,
         category,
       });
     },

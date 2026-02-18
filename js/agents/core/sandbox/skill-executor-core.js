@@ -3,7 +3,7 @@
  */
 
 import { createLogger } from '../../shared/index.js';
-import { normalizeFallbackMode, normalizeFallbackAllowlist } from './skill-executor-helpers.js';
+import { normalizeFallbackMode, normalizeFallbackAllowlist, getFallbackPolicyStatus } from './skill-executor-helpers.js';
 import {
   defaultTrustChecker,
   isFallbackAllowed as checkFallbackAllowed,
@@ -36,9 +36,18 @@ export class SkillExecutor {
     this.logger = options.logger || createLogger('core/sandbox/skill-executor');
     this.trustChecker = options.trustChecker || defaultTrustChecker;
     this.fallbackAllowlist = normalizeFallbackAllowlist(options.fallbackAllowlist);
+    this.fallbackPolicy = getFallbackPolicyStatus();
+    this._fallbackPolicyWarned = false;
     this._ownPool = !options.pool;
     this._poolInitPromise = null;
     this._fallbackWarned = false;
+
+    if (this.fallbackMode === "eval" && this.fallbackPolicy?.enabled === false) {
+      this.logger.warn(
+        `fallbackMode "eval" configured but blocked by policy: ${this.fallbackPolicy.reason || "unknown reason"}`,
+      );
+      this._fallbackPolicyWarned = true;
+    }
   }
 
   /**
@@ -124,6 +133,13 @@ export class SkillExecutor {
           throw new Error('WASM sandbox unavailable and fallback disabled');
         }
 
+        if (this.fallbackPolicy?.enabled === false && !this._fallbackPolicyWarned) {
+          this._fallbackPolicyWarned = true;
+          this.logger.warn(
+            `fallbackMode "eval" is unavailable under current policy: ${this.fallbackPolicy.reason || "unknown reason"}`
+          );
+        }
+
         const isFallbackAllowedFn = (s, c) => checkFallbackAllowed(
           s,
           c,
@@ -139,6 +155,9 @@ export class SkillExecutor {
           isFallbackAllowedFn,
           this.logger
         );
+        if (this.fallbackPolicy?.enabled === false && result?.blocked) {
+          result.configError = `fallbackMode "eval" is blocked by policy: ${this.fallbackPolicy.reason || "unknown reason"}`;
+        }
         return {
           ...result,
           logs,
@@ -191,6 +210,9 @@ export class SkillExecutor {
           isFallbackAllowedFn,
           this.logger
         );
+        if (this.fallbackPolicy?.enabled === false && fallbackResult?.blocked) {
+          fallbackResult.configError = `fallbackMode "eval" is blocked by policy: ${this.fallbackPolicy.reason || "unknown reason"}`;
+        }
         return {
           ...fallbackResult,
           logs,

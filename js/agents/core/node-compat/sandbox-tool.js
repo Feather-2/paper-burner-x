@@ -56,6 +56,13 @@ function formatConsoleOutput(args) {
 export const SANDBOX_TOOL_DEFINITION = {
   name: 'execute_code',
   description: 'Execute JavaScript code in an isolated Node.js-compatible sandbox with npm support.',
+  runtime: {
+    browserRequired: true,
+    node: {
+      supported: false,
+      reason: 'Host-side eval is disabled in Node.js; use browser iframe sandbox.',
+    },
+  },
   parameters: {
     type: 'object',
     properties: {
@@ -93,6 +100,9 @@ export function createSandboxTool(config = {}) {
 
   const hostConsole = typeof console !== 'undefined' ? console : null;
   const captureConsole = {};
+  const runtimeAvailable = isBrowserWithDOM();
+  const runtimeUnavailableError =
+    'execute_code is unavailable in this runtime: browser sandbox (iframe) is required and Node.js host-side eval is disabled for security.';
 
   const emitConsole = (method, args) => {
     if (_activeOutput) {
@@ -167,6 +177,16 @@ export function createSandboxTool(config = {}) {
     _activeOutput = output;
 
     try {
+      if (!runtimeAvailable) {
+        return {
+          success: false,
+          output: output.join('\n'),
+          error: runtimeUnavailableError,
+          unavailable: true,
+          runtime: 'node',
+        };
+      }
+
       const { env: nodeEnv, require: req } = await getEnv();
 
       if (install && install.length > 0 && packageManager) {
@@ -214,5 +234,7 @@ export function createSandboxTool(config = {}) {
     handler,
     description: SANDBOX_TOOL_DEFINITION.description,
     parameters: SANDBOX_TOOL_DEFINITION.parameters,
+    available: runtimeAvailable,
+    unavailableReason: runtimeAvailable ? undefined : runtimeUnavailableError,
   };
 }

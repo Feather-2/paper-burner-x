@@ -77,9 +77,9 @@ export function resolvePackageExports(exports, subpath) {
 
   // Exports is an object
   if (typeof exports === 'object' && exports !== null) {
-    // Check if keys start with '.' (path-mapped exports)
+    // Check if any key starts with '.' (path-mapped exports)
     const keys = Object.keys(exports);
-    const isPathMap = keys.length > 0 && keys[0].startsWith('.');
+    const isPathMap = keys.some((key) => typeof key === 'string' && key.startsWith('.'));
 
     if (isPathMap) {
       // Direct match
@@ -272,6 +272,10 @@ async function resolveNodeModules(specifier, fromDir, vfs, pkgCache, cacheMetric
               const resolved = await resolveFile(fullPath, vfs, pkgCache, cacheMetrics);
               if (resolved) return resolved;
             }
+
+            // Package explicitly declares exports but subpath is not exported.
+            // Do NOT bypass exports by direct file resolution.
+            return null;
           }
 
           // If there's a subpath but no exports match, try direct file resolution

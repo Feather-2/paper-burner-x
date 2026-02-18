@@ -9,7 +9,10 @@ const hoisted = vi.hoisted(() => {
 
   const createLogger = vi.fn(() => mockLogger);
 
-  const VfsProxyHost = vi.fn(function VfsProxyHost() {});
+  const VfsProxyHost = vi.fn(function VfsProxyHost() {
+    this.dispose = vi.fn();
+    this.setVfs = vi.fn();
+  });
   const VFS_REQUEST = 'VFS_REQUEST';
 
   class RuntimeAdapter {
@@ -55,6 +58,7 @@ describe('PythonRuntimeAdapter', () => {
       this.url = url;
       this.options = options;
       this.postMessage = vi.fn();
+      this.terminate = vi.fn();
       this.onmessage = null;
       this.emit = async (data) => {
         if (this.onmessage) await this.onmessage({ data });
@@ -514,6 +518,66 @@ describe('PythonRuntimeAdapter', () => {
       await worker.emit({ type: 'error', id: 999999, error: 'x' });
 
       expect(adapter.pendingRequests.size).toBe(0);
+    });
+
+    it('supports per-request timeout overrides via _sendWithOptions', async () => {
+      vi.useFakeTimers();
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
+      const adapter = new PythonRuntimeAdapter({ requestTimeoutMs: 1000 });
+      const worker = await initAdapter(adapter);
+
+      const pending = adapter._sendWithOptions('slow', { code: '...' }, null, { timeoutMs: 5 });
+      const outcome = pending.then(
+        (value) => ({ status: 'fulfilled', value }),
+        (err) => ({ status: 'rejected', err }),
+      );
+      await vi.advanceTimersByTimeAsync(5);
+      const result = await outcome;
+
+      expect(result.status).toBe('rejected');
+      expect(String(result.err?.message)).toContain('timeout after 5ms');
+      const lastMsg = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+      expect(adapter.pendingRequests.has(lastMsg.id)).toBe(false);
+      vi.useRealTimers();
+    });
+
+    it('supports abort signal in _sendWithOptions and clears pending request immediately', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
+      const adapter = new PythonRuntimeAdapter();
+      const worker = await initAdapter(adapter);
+
+      const controller = new AbortController();
+      const pending = adapter._sendWithOptions('abortable', { code: '...' }, null, {
+        signal: controller.signal,
+      });
+      const msg = worker.postMessage.mock.calls[worker.postMessage.mock.calls.length - 1][0];
+      expect(adapter.pendingRequests.has(msg.id)).toBe(true);
+
+      controller.abort('cancelled-by-test');
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      expect(adapter.pendingRequests.has(msg.id)).toBe(false);
+    });
+  });
+
+  describe('terminate', () => {
+    it('rejects pending requests immediately when runtime terminates', async () => {
+      vi.stubGlobal('SharedArrayBuffer', undefined);
+
+      const adapter = new PythonRuntimeAdapter();
+      await initAdapter(adapter);
+
+      const pending = adapter._send('long', { code: '...' }).then(
+        () => ({ status: 'fulfilled' }),
+        (err) => ({ status: 'rejected', err }),
+      );
+      await expect(adapter.terminate()).resolves.toBeUndefined();
+      const result = await pending;
+      expect(result.status).toBe('rejected');
+      expect(String(result.err?.message)).toMatch(/terminated/);
+      expect(adapter.pendingRequests.size).toBe(0);
+      expect(adapter.worker).toBe(null);
     });
   });
 });

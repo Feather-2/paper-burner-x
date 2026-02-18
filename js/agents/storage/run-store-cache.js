@@ -17,6 +17,12 @@ function normalizeConcurrency(value, fallback = 4) {
   return Math.max(1, Math.floor(n));
 }
 
+function normalizeNonNegativeInt(value, fallback = 0) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.floor(n));
+}
+
 async function mapWithConcurrency(items, mapper, concurrency = 4) {
   const arr = Array.isArray(items) ? items : [];
   if (!arr.length) return [];
@@ -386,20 +392,97 @@ export async function cleanupRuns(options = {}) {
   }
 
   const deletedRunIds = [];
-  for (const runId of plannedDeleteRunIds) {
-    try {
-      await this.deleteRun(runId);
-      deletedRunIds.push(runId);
-    } catch (err) {
+  const failedDeleteRunIds = [];
+  const deleteErrorByRunId = Object.create(null);
+  const deleteAttempts = Object.create(null);
+  const deleteConcurrency = normalizeConcurrency(opts.deleteConcurrency, 4);
+  const deleteRetries = normalizeNonNegativeInt(opts.deleteRetries, 0);
+  const deleteRetryDelayMs = normalizeNonNegativeInt(opts.deleteRetryDelayMs, 0);
+  const failOnDeleteError = opts.failOnDeleteError === true;
+  const onDeleteError = typeof opts.onDeleteError === "function" ? opts.onDeleteError : null;
+  const onDeleteSuccess = typeof opts.onDeleteSuccess === "function" ? opts.onDeleteSuccess : null;
+
+  const sleep = (ms) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
+  const deleteResults = await mapWithConcurrency(
+    plannedDeleteRunIds,
+    async (runId, index) => {
+      let attempts = 0;
+      /** @type {any} */
+      let lastErr = null;
+      while (attempts <= deleteRetries) {
+        attempts += 1;
+        try {
+          await this.deleteRun(runId);
+          return { ok: true, runId, attempts, index };
+        } catch (err) {
+          lastErr = err;
+          if (attempts > deleteRetries) break;
+          if (deleteRetryDelayMs > 0) {
+            await sleep(deleteRetryDelayMs);
+          }
+        }
+      }
+
+      const msg = lastErr?.message || String(lastErr);
       try {
         logger.warn("[RunStore] Failed to delete run during cleanup", {
           runId,
-          error: err?.message || String(err),
+          error: msg,
+          attempts,
+          retryBudget: deleteRetries,
+          index,
         });
       } catch {
         // ignore
       }
+      return { ok: false, runId, attempts, error: msg, index };
+    },
+    deleteConcurrency
+  );
+
+  for (const result of deleteResults) {
+    if (!result || !result.runId) continue;
+    deleteAttempts[result.runId] = result.attempts;
+    if (result.ok) {
+      deletedRunIds.push(result.runId);
+      if (onDeleteSuccess) {
+        try {
+          onDeleteSuccess({
+            runId: result.runId,
+            attempts: result.attempts,
+            index: result.index,
+          });
+        } catch {
+          // ignore observer errors
+        }
+      }
+      continue;
     }
+
+    failedDeleteRunIds.push(result.runId);
+    deleteErrorByRunId[result.runId] = result.error || "Unknown delete error";
+    if (onDeleteError) {
+      try {
+        onDeleteError({
+          runId: result.runId,
+          error: result.error,
+          attempts: result.attempts,
+          index: result.index,
+        });
+      } catch {
+        // ignore observer errors
+      }
+    }
+  }
+
+  if (failOnDeleteError && failedDeleteRunIds.length > 0) {
+    const firstRunId = failedDeleteRunIds[0];
+    const firstError = deleteErrorByRunId[firstRunId] || "Unknown delete error";
+    throw new Error(`RunStore cleanup failed to delete ${failedDeleteRunIds.length} runs (first: ${firstRunId}, error: ${firstError})`);
   }
 
   const deletedSet = new Set(deletedRunIds);
@@ -407,6 +490,9 @@ export async function cleanupRuns(options = {}) {
     deletedRunIds,
     keptRunIds: records.map((r) => String(r.runId)).filter(Boolean).filter((id) => !deletedSet.has(id)),
     plannedDeleteRunIds,
+    ...(failedDeleteRunIds.length > 0 ? { failedDeleteRunIds } : {}),
+    ...(failedDeleteRunIds.length > 0 ? { deleteErrorByRunId } : {}),
+    ...(Object.keys(deleteAttempts).length > 0 ? { deleteAttempts } : {}),
     ...(bytesBefore !== undefined ? { bytesBefore } : {}),
     ...(bytesAfter !== undefined ? { bytesAfter } : {}),
     ...(opts.reason ? { reason: String(opts.reason) } : {}),

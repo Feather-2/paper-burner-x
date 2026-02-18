@@ -208,6 +208,20 @@ export function validateFallbackCode(code) {
 }
 
 /**
+ * 获取 fallback eval 策略状态（用于配置层显式暴露语义）。
+ * @returns {{ enabled: boolean, reason?: string, mode: "eval" }}
+ */
+export function getFallbackPolicyStatus() {
+  const probe = validateFallbackCode("__fallback_policy_probe__");
+  if (probe.valid) return { enabled: true, mode: "eval" };
+  return {
+    enabled: false,
+    mode: "eval",
+    reason: probe.reason || "Fallback eval blocked by policy",
+  };
+}
+
+/**
  * 创建受限 globals（用于 fallback eval）。
  *
  * 注意：这是 best-effort 方案；无法提供 WASM 沙箱同等的内存隔离与强安全边界。

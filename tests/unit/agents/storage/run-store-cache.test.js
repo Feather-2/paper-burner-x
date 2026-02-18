@@ -553,4 +553,108 @@ describe("cleanupRuns", () => {
       vi.useRealTimers();
     }
   });
+
+  it("deletes runs with bounded concurrency and reports failed deletions", async () => {
+    shared.isPlainObject.mockImplementation((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+      const proto = Object.getPrototypeOf(value);
+      return proto === Object.prototype || proto === null;
+    });
+    utils.normalizeRetentionConfig.mockImplementation((config) => ({
+      enabled: true,
+      maxRuns: 1,
+      maxAgeDays: 0,
+      maxTotalBytes: 0,
+      keepPinned: false,
+      pinnedKey: "pinned",
+      ...(config || {}),
+    }));
+    utils.parseIsoMs.mockImplementation((value) => Date.parse(value));
+
+    vi.useFakeTimers();
+    try {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const deleteRun = vi.fn(async (runId) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) =>
+          setTimeout(() => {
+            inFlight -= 1;
+            resolve();
+          }, 10)
+        );
+        if (runId === "r2") throw new Error("delete-fail");
+      });
+
+      const ctx = {
+        _retention: { enabled: true, maxRuns: 1, maxAgeDays: 0, maxTotalBytes: 0 },
+        listRunRecords: vi.fn().mockResolvedValue([
+          { runId: "r1", createdAt: "2024-01-01T00:00:00.000Z" },
+          { runId: "r2", createdAt: "2023-12-31T00:00:00.000Z" },
+          { runId: "r3", createdAt: "2023-12-30T00:00:00.000Z" },
+        ]),
+        deleteRun,
+      };
+
+      const pending = cleanupRuns.call(ctx, {
+        retention: { maxRuns: 1, maxAgeDays: 0, maxTotalBytes: 0, enabled: true },
+        deleteConcurrency: 2,
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(maxInFlight).toBe(2);
+
+      await vi.runAllTimersAsync();
+      const result = await pending;
+
+      expect(result.deletedRunIds).toEqual(["r3"]);
+      expect(result.failedDeleteRunIds).toEqual(["r2"]);
+      expect(result.deleteErrorByRunId.r2).toContain("delete-fail");
+      expect(result.deleteAttempts).toMatchObject({ r2: 1, r3: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries failed deletions before marking as failed", async () => {
+    shared.isPlainObject.mockImplementation((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+      const proto = Object.getPrototypeOf(value);
+      return proto === Object.prototype || proto === null;
+    });
+    utils.normalizeRetentionConfig.mockImplementation((config) => ({
+      enabled: true,
+      maxRuns: 1,
+      maxAgeDays: 0,
+      maxTotalBytes: 0,
+      keepPinned: false,
+      pinnedKey: "pinned",
+      ...(config || {}),
+    }));
+    utils.parseIsoMs.mockImplementation((value) => Date.parse(value));
+
+    const attempts = new Map();
+    const ctx = {
+      _retention: { enabled: true, maxRuns: 1, maxAgeDays: 0, maxTotalBytes: 0 },
+      listRunRecords: vi.fn().mockResolvedValue([
+        { runId: "r1", createdAt: "2024-01-02T00:00:00.000Z" },
+        { runId: "r2", createdAt: "2024-01-01T00:00:00.000Z" },
+      ]),
+      deleteRun: vi.fn(async (runId) => {
+        const n = (attempts.get(runId) || 0) + 1;
+        attempts.set(runId, n);
+        if (n < 2) throw new Error("transient");
+      }),
+    };
+
+    const result = await cleanupRuns.call(ctx, {
+      retention: { enabled: true, maxRuns: 1, maxAgeDays: 0, maxTotalBytes: 0 },
+      deleteRetries: 1,
+    });
+
+    expect(result.deletedRunIds).toEqual(["r2"]);
+    expect(result.failedDeleteRunIds).toBeUndefined();
+    expect(result.deleteAttempts.r2).toBe(2);
+  });
 });

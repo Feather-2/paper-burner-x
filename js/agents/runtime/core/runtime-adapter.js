@@ -4,6 +4,8 @@
  * 定义统一的运行时抽象，支持 JS, Python (Pyodide) 等。
  */
 
+import { makeSecureTimestampedId, toNonEmptyString } from "../../shared/index.js";
+
 export const RuntimeType = {
   JS: 'js',
   PYTHON: 'python',
@@ -30,7 +32,31 @@ export const RuntimeType = {
 export class RuntimeAdapter {
   constructor(options = {}) {
     this.type = options.type || RuntimeType.JS;
-    this.id = options.id || `${this.type}_${Date.now()}`;
+    const providedId = options.id;
+    if (providedId !== undefined && providedId !== null && !(typeof providedId === "string" && providedId.trim() === "")) {
+      this.id = providedId;
+      return;
+    }
+
+    const idFactory = typeof options.idFactory === "function" ? options.idFactory : null;
+    if (idFactory) {
+      try {
+        const custom = idFactory({
+          type: this.type,
+          timestamp: Date.now(),
+        });
+        const normalized = toNonEmptyString(custom);
+        if (normalized) {
+          this.id = normalized;
+          return;
+        }
+      } catch {
+        // ignore and fall back to default generator
+      }
+    }
+
+    const prefix = toNonEmptyString(this.type) || RuntimeType.JS;
+    this.id = makeSecureTimestampedId(prefix, { allowInsecureFallback: true });
   }
 
   /**

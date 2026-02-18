@@ -10,9 +10,13 @@ import { getLargePayload } from "virtual:silent-error-reporter-fixtures";
 import {
   ErrorCategory,
   SilentErrorReporter,
+  createSilentErrorReporter,
   silentErrors,
   reportSilentError,
   createScopedReporter,
+  createScopedReporterWithOptions,
+  resetGlobalSilentErrorReporter,
+  setGlobalSilentErrorReporter,
 } from "../../../../../../js/agents/runtime/core/errors/silent-error-reporter.js";
 
 const FIXED_TIME = new Date("2024-01-01T00:00:00.000Z");
@@ -48,6 +52,13 @@ describe("ErrorCategory", () => {
 });
 
 describe("SilentErrorReporter", () => {
+  it("creates standalone reporter via factory", () => {
+    const reporter = createSilentErrorReporter({ enabled: false, maxSamples: 5 });
+    expect(reporter).toBeInstanceOf(SilentErrorReporter);
+    expect(reporter.isEnabled()).toBe(false);
+    expect(reporter._maxSamples).toBe(5);
+  });
+
   it("initializes defaults and validates maxSamples boundaries", () => {
     const reporter = new SilentErrorReporter();
     expect(reporter.isEnabled()).toBe(true);
@@ -326,5 +337,35 @@ describe("createScopedReporter", () => {
       location: "MyModule.doWork",
       category: ErrorCategory.DEGRADED,
     });
+  });
+
+  it("supports custom reporter and runId scope", () => {
+    const local = new SilentErrorReporter();
+    const scoped = createScopedReporterWithOptions("MyModule", {
+      reporter: local,
+      runId: "run-42",
+    });
+
+    scoped.report("oops", "doWork");
+
+    const entries = local.export();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].location).toBe("run-42:MyModule.doWork");
+  });
+});
+
+describe("global reporter lifecycle", () => {
+  it("allows replacing and resetting global reporter", () => {
+    const replacement = new SilentErrorReporter({ maxSamples: 2 });
+    const current = setGlobalSilentErrorReporter(replacement);
+    expect(current).toBe(replacement);
+
+    reportSilentError("x", "Loc");
+    expect(replacement.size).toBe(1);
+
+    const reset = resetGlobalSilentErrorReporter({ maxSamples: 3 });
+    expect(reset).toBeInstanceOf(SilentErrorReporter);
+    expect(reset).not.toBe(replacement);
+    expect(reset._maxSamples).toBe(3);
   });
 });

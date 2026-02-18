@@ -704,6 +704,26 @@ describe("createTimeoutMiddleware", () => {
 
     expect(message).toBe("Step timeout after 300000ms");
   });
+
+  it("should_allow_ctx_timeout_zero_to_disable_step_timeout", async () => {
+    vi.useFakeTimers();
+
+    const middleware = createTimeoutMiddleware({ timeout: 5 });
+    const pending = middleware({ timeout: 0 }, async () => new Promise((resolve) => setTimeout(() => resolve("ok"), 10)));
+
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(pending).resolves.toBe("ok");
+  });
+
+  it("should_allow_base_timeout_zero_to_disable_timeout_guard", async () => {
+    vi.useFakeTimers();
+
+    const middleware = createTimeoutMiddleware({ timeout: 0 });
+    const pending = middleware({}, async () => new Promise((resolve) => setTimeout(() => resolve("ok"), 10)));
+
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(pending).resolves.toBe("ok");
+  });
 });
 
 describe("createRetryMiddleware", () => {

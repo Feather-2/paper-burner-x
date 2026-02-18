@@ -104,6 +104,20 @@ export class SandboxPool {
   }
 
   /**
+   * 释放某个 sandbox 绑定的资源锁（若存在）。
+   * @param {WasmSandbox} sandbox
+   */
+  _releaseSandboxLock(sandbox) {
+    if (!sandbox) return;
+    const lockHandle = this._sandboxLocks.get(sandbox);
+    if (!lockHandle) return;
+    this._sandboxLocks.delete(sandbox);
+    Promise.resolve(lockHandle.release()).catch((err) => {
+      logger.debug("Failed to release sandbox lock", { error: err?.message });
+    });
+  }
+
+  /**
    * 获取沙箱
    * @param {Object} options
    * @param {number} [options.priority=0] - 任务优先级（数值越大优先级越高）
@@ -354,6 +368,7 @@ export class SandboxPool {
           waiter.resolve(sandbox);
         })
         .catch((err) => {
+          this._releaseSandboxLock(sandbox);
           try {
             sandbox.dispose();
           } catch {
@@ -368,6 +383,7 @@ export class SandboxPool {
 
     // 检查池容量
     if (pool.length >= this.maxSize) {
+      this._releaseSandboxLock(sandbox);
       sandbox.dispose();
       this._totalCount = Math.max(0, this._totalCount - 1);
       return;
@@ -381,6 +397,7 @@ export class SandboxPool {
       const idx = pool.findIndex(e => e.sandbox === sandbox);
       if (idx !== -1) {
         pool.splice(idx, 1);
+        this._releaseSandboxLock(sandbox);
         sandbox.dispose();
         this._totalCount = Math.max(0, this._totalCount - 1);
       }
@@ -494,9 +511,7 @@ export class SandboxPool {
 
         // 释放锁
         if (this._sandboxLocks.has(entry.sandbox)) {
-          const lockHandle = this._sandboxLocks.get(entry.sandbox);
-          this._sandboxLocks.delete(entry.sandbox);
-          lockHandle.release().catch(() => {});
+          this._releaseSandboxLock(entry.sandbox);
         }
 
         // 使用带超时的 dispose

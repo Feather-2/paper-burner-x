@@ -7,7 +7,7 @@
  */
 
 import { createPreToolUseHook } from "../hooks/hook-runner.js";
-import { normalizeToolResult } from "../../shared/index.js";
+import { makeSecureTimestampedId, normalizeToolResult, toNonEmptyString } from "../../shared/index.js";
 import { validateArgs } from "../tools/schema-validator.js";
 
 // Re-export for backward compatibility
@@ -56,6 +56,7 @@ export { normalizeToolResult };
  * @property {LoggerLike | null} [logger]
  * @property {import('../../core/archive/archive-core.js').Archive | null} [archive]
  * @property {string} [runId]
+ * @property {(meta: { prefix: string, timestamp: number }) => string | null | undefined} [runIdFactory]
  * @property {EmitFn | null} [emit] - Injected emit function (falls back to resolveEmit at call time)
  * @property {ToolQuotaManagerLike | null} [quotaManager] - Injected quota manager (falls back to resolveToolQuotaManager at call time)
  * @property {"off" | "warn" | "block"} [quotaMode] - Injected quota mode (falls back to resolveToolQuotaMode at call time)
@@ -242,6 +243,28 @@ function normalizePositiveInt(value, fallback) {
 }
 
 /**
+ * @param {ToolRegistryOptions} options
+ * @returns {string}
+ */
+function resolveRunId(options) {
+  const provided = toNonEmptyString(options?.runId);
+  if (provided) return provided;
+
+  if (typeof options?.runIdFactory === "function") {
+    try {
+      const custom = toNonEmptyString(
+        options.runIdFactory({ prefix: "run", timestamp: Date.now() })
+      );
+      if (custom) return custom;
+    } catch {
+      // ignore and fall back
+    }
+  }
+
+  return makeSecureTimestampedId("run", { allowInsecureFallback: true });
+}
+
+/**
  * @deprecated Use ToolRegistryOptions.traceContext instead. Kept as internal fallback.
  */
 function resolveTraceContext(context) {
@@ -289,7 +312,7 @@ export class ToolRegistry {
     /** @type {import('../../core/archive/archive-core.js').Archive | null} */
     this._archive = options.archive || null;
     /** @type {string} */
-    this._runId = options.runId || `run_${Date.now()}`;
+    this._runId = resolveRunId(options);
     /** @type {Promise<void> | null} */
     this._initPromise = null;
 

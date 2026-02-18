@@ -137,6 +137,22 @@ describe("getDslRules", () => {
     expect(result).toBe(deepNested);
     expect(result.a.b.c.d.e[0]).toBe("deep");
   });
+
+  it("supports scoped caches via cacheKey", async () => {
+    promptLoaderMocks.loadPrompt
+      .mockResolvedValueOnce("RULES-A")
+      .mockResolvedValueOnce("RULES-B");
+    const { getDslRules } = await importDslRules();
+
+    const a = await getDslRules({ cacheKey: "tenant:a" });
+    const b = await getDslRules({ cacheKey: "tenant:b" });
+    const aAgain = await getDslRules({ cacheKey: "tenant:a" });
+
+    expect(a).toBe("RULES-A");
+    expect(b).toBe("RULES-B");
+    expect(aAgain).toBe("RULES-A");
+    expect(promptLoaderMocks.loadPrompt).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("getDslRulesSync", () => {
@@ -200,6 +216,25 @@ describe("clearDslRulesCache", () => {
 
     expect(result).toBe("SECOND");
     expect(promptLoaderMocks.loadPrompt).toHaveBeenCalledTimes(2);
+  });
+
+  it("can clear a specific scoped cache key only", async () => {
+    promptLoaderMocks.loadPrompt
+      .mockResolvedValueOnce("RULES-A")
+      .mockResolvedValueOnce("RULES-B")
+      .mockResolvedValueOnce("RULES-A2");
+    const { getDslRules, clearDslRulesCache } = await importDslRules();
+
+    await getDslRules({ cacheKey: "tenant:a" });
+    await getDslRules({ cacheKey: "tenant:b" });
+    clearDslRulesCache({ cacheKey: "tenant:a" });
+
+    const aReloaded = await getDslRules({ cacheKey: "tenant:a" });
+    const bCached = await getDslRules({ cacheKey: "tenant:b" });
+
+    expect(aReloaded).toBe("RULES-A2");
+    expect(bCached).toBe("RULES-B");
+    expect(promptLoaderMocks.loadPrompt).toHaveBeenCalledTimes(3);
   });
 });
 

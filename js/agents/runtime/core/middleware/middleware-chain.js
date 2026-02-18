@@ -241,15 +241,23 @@ export function createTimeoutMiddleware(options = {}) {
   const { timeout = 30000, onTimeout } = options;
   const MIN_STEP_TIMEOUT_MS = 1;
   const MAX_STEP_TIMEOUT_MS = 5 * 60 * 1000;
-  const baseTimeout = Number.isFinite(timeout) && timeout > 0
-    ? Math.min(Math.max(timeout, MIN_STEP_TIMEOUT_MS), MAX_STEP_TIMEOUT_MS)
-    : 30000;
+  const normalizeTimeout = (value, fallback) => {
+    if (value === null || value === undefined) return fallback;
+    if (!Number.isFinite(value)) return fallback;
+    const numeric = Number(value);
+    if (numeric <= 0) return 0;
+    return Math.min(Math.max(numeric, MIN_STEP_TIMEOUT_MS), MAX_STEP_TIMEOUT_MS);
+  };
+  const baseTimeout = normalizeTimeout(timeout, 30000);
 
   return async (ctx, next) => {
-    const rawTimeout = ctx.timeout || baseTimeout;
-    const stepTimeout = Number.isFinite(rawTimeout) && rawTimeout > 0
-      ? Math.min(Math.max(rawTimeout, MIN_STEP_TIMEOUT_MS), MAX_STEP_TIMEOUT_MS)
-      : baseTimeout;
+    const rawTimeout = ctx?.timeout ?? baseTimeout;
+    const stepTimeout = normalizeTimeout(rawTimeout, baseTimeout);
+
+    // 显式 0 表示禁用该步骤超时保护。
+    if (stepTimeout === 0) {
+      return next();
+    }
 
     return new Promise((resolve, reject) => {
       let settled = false;

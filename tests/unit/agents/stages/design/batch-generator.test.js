@@ -193,6 +193,7 @@ describe("batch-generator exports", () => {
       expect.objectContaining({
         generateBatch: expect.any(Function),
         generateSingleSlide: expect.any(Function),
+        clearBatchGeneratorPromptCache: expect.any(Function),
       })
     );
   });
@@ -517,6 +518,42 @@ describe("generateSingleSlide", () => {
     });
 
     expect(seen.system.includes("CRITICAL: Match the exact visual style")).toBe(true);
+  });
+
+  it("should_isolate_system_prompt_cache_by_promptCacheKey", async () => {
+    const mod = await importSubject();
+
+    mocks.loadPrompt.mockResolvedValue("PROMPT-A");
+    const slideIntent = makeSlideIntent("s1", "Cache Key A", "overview");
+    const modelCaller = vi.fn(async () => ({
+      content: JSON.stringify([
+        { slideIntentId: "s1", slideHtml: '<section data-type="freeform"><div data-el="text">OK</div></section>' },
+      ]),
+    }));
+
+    await mod.generateSingleSlide(slideIntent, makeDesignSystem(), "", {
+      contentPackage: makeContentPackage([slideIntent]),
+      modelCaller,
+      promptCacheKey: "tenant:a",
+    });
+
+    mocks.loadPrompt.mockResolvedValue("PROMPT-B");
+    await mod.generateSingleSlide(slideIntent, makeDesignSystem(), "", {
+      contentPackage: makeContentPackage([slideIntent]),
+      modelCaller,
+      promptCacheKey: "tenant:b",
+    });
+
+    expect(mocks.loadPrompt).toHaveBeenCalledTimes(2);
+
+    mod.clearBatchGeneratorPromptCache("tenant:a");
+    mocks.loadPrompt.mockResolvedValue("PROMPT-A2");
+    await mod.generateSingleSlide(slideIntent, makeDesignSystem(), "", {
+      contentPackage: makeContentPackage([slideIntent]),
+      modelCaller,
+      promptCacheKey: "tenant:a",
+    });
+    expect(mocks.loadPrompt).toHaveBeenCalledTimes(3);
   });
 });
 

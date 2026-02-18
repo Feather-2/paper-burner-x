@@ -11,61 +11,92 @@ import { createLogger } from "../../../shared/index.js";
 
 const logger = createLogger("stages/design/dsl/dsl-rules");
 
-// 缓存的 DSL 规则
-let _cachedDslRules = null;
-let _loadPromise = null;
+const DEFAULT_CACHE_KEY = "default";
+/** @type {Map<string, string>} */
+const _dslRulesCache = new Map();
+/** @type {Map<string, Promise<string>>} */
+const _dslRulesLoadPromises = new Map();
+
+function resolveDslRulesCacheKey(options = {}) {
+  const direct = typeof options === "string" ? options : options?.cacheKey || options?.scopeKey || options?.tenantId;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  return DEFAULT_CACHE_KEY;
+}
 
 /**
  * 异步获取 DSL 规则 (推荐方式)
  * @returns {Promise<string>}
  */
-export async function getDslRules() {
-  if (_cachedDslRules !== null) {
-    return _cachedDslRules;
+export async function getDslRules(options = {}) {
+  const cacheKey = resolveDslRulesCacheKey(options);
+  if (_dslRulesCache.has(cacheKey)) {
+    return _dslRulesCache.get(cacheKey);
   }
 
-  if (_loadPromise) {
-    return _loadPromise;
+  if (_dslRulesLoadPromises.has(cacheKey)) {
+    return _dslRulesLoadPromises.get(cacheKey);
   }
 
-  _loadPromise = loadPrompt("dsl/ppt-html-dsl")
+  const loadPromise = loadPrompt("dsl/ppt-html-dsl")
     .then((content) => {
-      _cachedDslRules = content;
+      _dslRulesCache.set(cacheKey, content);
+      _dslRulesLoadPromises.delete(cacheKey);
       return content;
     })
     .catch((err) => {
       logger.warn("[dsl-rules] Failed to load from file, using fallback:", { error: err?.message });
       // 返回一个最小化的 fallback
-      _cachedDslRules = FALLBACK_DSL_RULES;
-      return _cachedDslRules;
+      _dslRulesCache.set(cacheKey, FALLBACK_DSL_RULES);
+      _dslRulesLoadPromises.delete(cacheKey);
+      return FALLBACK_DSL_RULES;
     });
 
-  return _loadPromise;
+  _dslRulesLoadPromises.set(cacheKey, loadPromise);
+  return loadPromise;
 }
 
 /**
  * 同步获取 DSL 规则 (需要先调用 initDslRules)
  * @returns {string|null}
  */
-export function getDslRulesSync() {
-  return _cachedDslRules;
+export function getDslRulesSync(options = {}) {
+  const cacheKey = resolveDslRulesCacheKey(options);
+  return _dslRulesCache.has(cacheKey) ? _dslRulesCache.get(cacheKey) : null;
 }
 
 /**
  * 预初始化 DSL 规则
  * @returns {Promise<string>}
  */
-export async function initDslRules() {
-  return getDslRules();
+export async function initDslRules(options = {}) {
+  return getDslRules(options);
 }
 
 /**
  * 清除缓存 (用于测试或热更新)
  * @returns {void}
  */
-export function clearDslRulesCache() {
-  _cachedDslRules = null;
-  _loadPromise = null;
+export function clearDslRulesCache(options = {}) {
+  const cacheKey = resolveDslRulesCacheKey(options);
+  if (cacheKey !== DEFAULT_CACHE_KEY || (typeof options === "string" && options.trim())) {
+    _dslRulesCache.delete(cacheKey);
+    _dslRulesLoadPromises.delete(cacheKey);
+    return;
+  }
+
+  // 默认行为保持兼容：不传参时清空全部缓存
+  if (
+    options === undefined ||
+    options === null ||
+    (typeof options === "object" && Object.keys(options).length === 0)
+  ) {
+    _dslRulesCache.clear();
+    _dslRulesLoadPromises.clear();
+    return;
+  }
+
+  _dslRulesCache.delete(cacheKey);
+  _dslRulesLoadPromises.delete(cacheKey);
 }
 
 // Fallback: 最小化的 DSL 规则，用于加载失败时
@@ -98,12 +129,12 @@ const FALLBACK_DSL_RULES = `
 export const DSL_RULES = /** @type {string & { length: number }} */ (new Proxy({}, {
   get(target, prop) {
     if (prop === Symbol.toPrimitive || prop === "toString" || prop === "valueOf") {
-      return () => _cachedDslRules || FALLBACK_DSL_RULES;
+      return () => getDslRulesSync(DEFAULT_CACHE_KEY) || FALLBACK_DSL_RULES;
     }
     if (prop === "length") {
-      return (_cachedDslRules || FALLBACK_DSL_RULES).length;
+      return (getDslRulesSync(DEFAULT_CACHE_KEY) || FALLBACK_DSL_RULES).length;
     }
-    return (_cachedDslRules || FALLBACK_DSL_RULES)[prop];
+    return (getDslRulesSync(DEFAULT_CACHE_KEY) || FALLBACK_DSL_RULES)[prop];
   },
   ownKeys() {
     return [];

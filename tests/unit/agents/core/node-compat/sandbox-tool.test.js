@@ -37,6 +37,8 @@ describe('sandbox-tool', () => {
     expect(typeof tool.handler).toBe('function');
     expect(tool.description).toBe(SANDBOX_TOOL_DEFINITION.description);
     expect(tool.parameters).toBe(SANDBOX_TOOL_DEFINITION.parameters);
+    expect(tool.available).toBe(false);
+    expect(tool.unavailableReason).toContain('browser sandbox (iframe)');
   });
 
   it('handler has dispose method', () => {
@@ -54,6 +56,7 @@ describe('sandbox-tool', () => {
     const fakePM = { install: vi.fn() };
     const tool = createSandboxTool({ packageManager: fakePM });
     expect(tool).toBeDefined();
+    expect(tool.definition.runtime.node.supported).toBe(false);
   });
 
   describe('iframe bridge integration', () => {
@@ -90,16 +93,22 @@ describe('sandbox-tool', () => {
     });
 
     it('parses scoped package install spec correctly', async () => {
+      const { __test } = await import('../../../../../js/agents/core/sandbox/iframe-eval-bridge.js');
+      __test.setBrowser(true);
       const fakePM = {
         install: vi.fn().mockResolvedValue({ name: '@babel/core', version: '7.24.0', deps: 0 }),
       };
       const tool = createSandboxTool({ packageManager: fakePM });
-      await tool.handler({
-        code: 'module.exports = true;',
-        install: ['@babel/core@7.24.0'],
-      });
-      expect(fakePM.install).toHaveBeenCalledWith('@babel/core', { version: '7.24.0' });
-      await tool.handler.dispose();
+      try {
+        await tool.handler({
+          code: 'module.exports = true;',
+          install: ['@babel/core@7.24.0'],
+        });
+        expect(fakePM.install).toHaveBeenCalledWith('@babel/core', { version: '7.24.0' });
+      } finally {
+        await tool.handler.dispose();
+        __test.setBrowser(false);
+      }
     });
 
     it('captures console output into result.output', async () => {

@@ -402,4 +402,69 @@ describe('SandboxPool', () => {
     expect(pool._pendingTimers.size).toBe(0);
     expect(pool._memoryCheckTimer).toBe(null);
   });
+
+  it('releases resource lock when sandbox is disposed because pool is full', async () => {
+    const pool = createPool({ maxSize: 1, enableMemoryMonitoring: false });
+    const key = pool._getCapabilityKey(['capA']);
+    const parked = {
+      sandbox: { capabilities: ['capA'] },
+      timeoutId: undefined,
+    };
+    pool._pools.set(key, [parked]);
+
+    const lockHandle = { release: vi.fn().mockResolvedValue(undefined) };
+    const sandbox = {
+      capabilities: ['capA'],
+      recycle: vi.fn(),
+      dispose: vi.fn(),
+      _disposed: false,
+    };
+    pool._sandboxLocks.set(sandbox, lockHandle);
+    pool._inUseCount = 1;
+    pool._totalCount = 2;
+
+    pool.release(sandbox);
+    await Promise.resolve();
+
+    expect(sandbox.dispose).toHaveBeenCalledTimes(1);
+    expect(lockHandle.release).toHaveBeenCalledTimes(1);
+    expect(pool._sandboxLocks.has(sandbox)).toBe(false);
+  });
+
+  it('releases resource lock when handover init fails in release path', async () => {
+    const pool = createPool({ enableMemoryMonitoring: false });
+    const key = pool._getCapabilityKey(['capA']);
+    const waiterResolve = vi.fn();
+    const waiterReject = vi.fn();
+    pool._waitQueue.push({
+      key,
+      options: { state: {} },
+      resolve: waiterResolve,
+      reject: waiterReject,
+      timeoutId: undefined,
+      priority: 0,
+      timestamp: Date.now(),
+    });
+
+    const lockHandle = { release: vi.fn().mockResolvedValue(undefined) };
+    const sandbox = {
+      capabilities: ['capA'],
+      recycle: vi.fn(),
+      init: vi.fn().mockRejectedValue(new Error('handover-init-fail')),
+      dispose: vi.fn(),
+      _disposed: false,
+    };
+    pool._sandboxLocks.set(sandbox, lockHandle);
+    pool._inUseCount = 1;
+    pool._totalCount = 1;
+
+    pool.release(sandbox);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(waiterReject).toHaveBeenCalledTimes(1);
+    expect(sandbox.dispose).toHaveBeenCalledTimes(1);
+    expect(lockHandle.release).toHaveBeenCalledTimes(1);
+    expect(pool._sandboxLocks.has(sandbox)).toBe(false);
+  });
 });

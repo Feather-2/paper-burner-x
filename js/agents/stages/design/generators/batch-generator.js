@@ -29,29 +29,60 @@ const logger = createLogger("stages/design/generators/batch-generator");
  */
 
 // === Prompt Centralization: External system prompt loading ===
-let _cachedSystemPrompt = null;
-let _systemPromptLoadPromise = null;
+/** @type {Map<string, string>} */
+const _systemPromptCache = new Map();
+/** @type {Map<string, Promise<string>>} */
+const _systemPromptLoadPromises = new Map();
+
+function resolvePromptCacheKey(options = {}) {
+  const direct = toNonEmptyString(
+    options?.systemPromptCacheKey ||
+    options?.promptCacheKey ||
+    options?.cacheKey
+  );
+  if (direct) return direct;
+
+  const tenant = toNonEmptyString(options?.tenantId) || "default";
+  const locale = toNonEmptyString(options?.locale) || "default";
+  const mode = toNonEmptyString(options?.mode) || "default";
+  return `${tenant}|${locale}|${mode}`;
+}
 
 /**
  * Load external system prompt for batch generation.
  * Falls back to a minimal inline prompt if loading fails.
  */
-async function getSystemPrompt() {
-  if (_cachedSystemPrompt !== null) return _cachedSystemPrompt;
-  if (_systemPromptLoadPromise) return _systemPromptLoadPromise;
+async function getSystemPrompt(options = {}) {
+  const cacheKey = resolvePromptCacheKey(options);
+  if (_systemPromptCache.has(cacheKey)) return _systemPromptCache.get(cacheKey);
+  if (_systemPromptLoadPromises.has(cacheKey)) return _systemPromptLoadPromises.get(cacheKey);
 
-  _systemPromptLoadPromise = loadPrompt("design/batch-generator-system")
-    .then(content => {
-      _cachedSystemPrompt = content;
+  const loadPromise = loadPrompt("design/batch-generator-system")
+    .then((content) => {
+      _systemPromptCache.set(cacheKey, content);
+      _systemPromptLoadPromises.delete(cacheKey);
       return content;
     })
-    .catch(err => {
+    .catch((err) => {
       logger.warn("[batch-generator] Failed to load external prompt, using fallback:", { error: err?.message });
-      _cachedSystemPrompt = FALLBACK_SYSTEM_PROMPT;
-      return _cachedSystemPrompt;
+      _systemPromptCache.set(cacheKey, FALLBACK_SYSTEM_PROMPT);
+      _systemPromptLoadPromises.delete(cacheKey);
+      return FALLBACK_SYSTEM_PROMPT;
     });
 
-  return _systemPromptLoadPromise;
+  _systemPromptLoadPromises.set(cacheKey, loadPromise);
+  return loadPromise;
+}
+
+export function clearBatchGeneratorPromptCache(cacheKey) {
+  if (typeof cacheKey === "string" && cacheKey.trim()) {
+    const key = cacheKey.trim();
+    _systemPromptCache.delete(key);
+    _systemPromptLoadPromises.delete(key);
+    return;
+  }
+  _systemPromptCache.clear();
+  _systemPromptLoadPromises.clear();
 }
 
 const FALLBACK_SYSTEM_PROMPT = `You are a PPT slide generator. Output JSON: [{"slideIntentId":string,"slideHtml":string}]
@@ -266,7 +297,7 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
     const prompt = makePrompt([si], designSystem, contentPackage, imageSlotsForSlide, dslRules, selectedIdeas, dslExamples);
 
     // Load external system prompt (with style lock suffix if applicable)
-    const baseSystemPrompt = await getSystemPrompt();
+    const baseSystemPrompt = await getSystemPrompt(options);
     const styleLockSuffix = dslExamples.length > 0
       ? '\n\nCRITICAL: Match the exact visual style of the provided example slides.'
       : '';

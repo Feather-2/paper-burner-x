@@ -93,6 +93,13 @@ describe("normalizeToolResult", () => {
 });
 
 describe("ToolRegistry", () => {
+  it("uses runIdFactory when runId is not provided", () => {
+    const runIdFactory = vi.fn(() => "run_custom");
+    const registry = new ToolRegistry({ runIdFactory });
+    expect(runIdFactory).toHaveBeenCalledTimes(1);
+    expect(registry._runId).toBe("run_custom");
+  });
+
   it("injects pre-tool hook and preserves before-hook ordering", async () => {
     const order = [];
     const localPreHook = vi.fn(async () => {

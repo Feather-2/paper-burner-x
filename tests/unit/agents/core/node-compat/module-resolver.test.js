@@ -239,7 +239,7 @@ describe('createResolver exports integration', () => {
     expect(r2.path).toBe('node_modules/@tanstack/react-query/build/modern/devtools.js');
   });
 
-  it('falls back to direct file when exports has no match', async () => {
+  it('does not bypass package exports when subpath is not exported', async () => {
     await vfs.writeText('node_modules/pkg/package.json', JSON.stringify({
       exports: { '.': './dist/index.js' },
     }));
@@ -247,7 +247,7 @@ describe('createResolver exports integration', () => {
     await vfs.writeText('node_modules/pkg/utils/helper.js', '');
 
     const result = await resolver.resolve('pkg/utils/helper', '');
-    expect(result.path).toBe('node_modules/pkg/utils/helper.js');
+    expect(result).toBeNull();
   });
 
   it('exports["."] takes priority over main field', async () => {
@@ -281,6 +281,22 @@ describe('createResolver exports integration', () => {
 
     const result = await resolver.resolve('icons/icons/arrow', '');
     expect(result.path).toBe('node_modules/icons/dist/icons/arrow.js');
+  });
+
+  it('resolves path-mapped exports independent of object key order', async () => {
+    const exportsA = {
+      '.': './dist/index.js',
+      './client': './dist/client.js',
+      browser: './dist/browser.js',
+    };
+    const exportsB = {
+      browser: './dist/browser.js',
+      './client': './dist/client.js',
+      '.': './dist/index.js',
+    };
+
+    expect(resolvePackageExports(exportsA, './client')).toBe('./dist/client.js');
+    expect(resolvePackageExports(exportsB, './client')).toBe('./dist/client.js');
   });
 });
 

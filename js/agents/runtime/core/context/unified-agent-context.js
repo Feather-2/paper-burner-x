@@ -12,7 +12,7 @@
  * - 统一 Checkpoint
  */
 
-import { toNonEmptyString } from "../../../shared/index.js";
+import { makeSecureTimestampedId, toNonEmptyString } from "../../../shared/index.js";
 import { deepClone } from "../../../shared/utils/value-utils.js";
 import { createLogger } from "../../../shared/index.js";
 
@@ -43,7 +43,26 @@ class AsyncMutex {
 
 export class UnifiedAgentContext {
   constructor(options = {}) {
-    this.runId = toNonEmptyString(options.runId) || `ctx_${Date.now()}`;
+    const providedRunId = toNonEmptyString(options.runId);
+    if (providedRunId) {
+      this.runId = providedRunId;
+    } else {
+      const runIdFactory = typeof options.runIdFactory === "function" ? options.runIdFactory : null;
+      if (runIdFactory) {
+        try {
+          const custom = toNonEmptyString(runIdFactory({ prefix: "ctx", timestamp: Date.now() }));
+          if (custom) {
+            this.runId = custom;
+          } else {
+            this.runId = makeSecureTimestampedId("ctx", { allowInsecureFallback: true });
+          }
+        } catch {
+          this.runId = makeSecureTimestampedId("ctx", { allowInsecureFallback: true });
+        }
+      } else {
+        this.runId = makeSecureTimestampedId("ctx", { allowInsecureFallback: true });
+      }
+    }
     this.eventBus = options.eventBus || null;
 
     // 委托层：持有底层组件引用

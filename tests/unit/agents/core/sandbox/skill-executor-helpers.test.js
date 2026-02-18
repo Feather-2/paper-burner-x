@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   normalizeFallbackAllowlist,
   validateFallbackCode,
+  getFallbackPolicyStatus,
   createFallbackProxyGlobals,
   createFallbackGlobals,
 } from '../../../../../js/agents/core/sandbox/skill-executor-helpers.js';
@@ -16,6 +17,14 @@ describe('core/sandbox/skill-executor-helpers', () => {
 
   it('validateFallbackCode keeps empty code as valid input', () => {
     expect(validateFallbackCode('')).toEqual({ valid: true });
+  });
+
+  it('getFallbackPolicyStatus exposes deny-all policy explicitly', () => {
+    expect(getFallbackPolicyStatus()).toEqual({
+      enabled: false,
+      mode: 'eval',
+      reason: 'Fallback eval is disabled by policy (deny-all)',
+    });
   });
 
   it('normalizeFallbackAllowlist filters non-string/blank entries', () => {

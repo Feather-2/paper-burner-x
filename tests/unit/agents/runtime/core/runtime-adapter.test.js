@@ -58,15 +58,16 @@ describe('RuntimeAdapter', () => {
     await withFixedNow(() => {
       const adapterDefault = new RuntimeAdapter();
       expect(adapterDefault.type).toBe(RuntimeType.JS);
-      expect(adapterDefault.id).toBe(`js_${FIXED_NOW}`);
+      expect(String(adapterDefault.id)).toMatch(/^js_/);
 
       const adapterEmpty = new RuntimeAdapter({});
       expect(adapterEmpty.type).toBe(RuntimeType.JS);
-      expect(adapterEmpty.id).toBe(`js_${FIXED_NOW}`);
+      expect(String(adapterEmpty.id)).toMatch(/^js_/);
+      expect(adapterEmpty.id).not.toBe(adapterDefault.id);
 
       const adapterFalsy = new RuntimeAdapter({ type: '', id: 0 });
       expect(adapterFalsy.type).toBe(RuntimeType.JS);
-      expect(adapterFalsy.id).toBe(`js_${FIXED_NOW}`);
+      expect(adapterFalsy.id).toBe(0);
     });
   });
 
@@ -82,7 +83,7 @@ describe('RuntimeAdapter', () => {
       const whitespaceType = '   ';
       const adapterWhitespace = new RuntimeAdapter({ type: whitespaceType });
       expect(adapterWhitespace.type).toBe(whitespaceType);
-      expect(adapterWhitespace.id).toBe(`${whitespaceType}_${FIXED_NOW}`);
+      expect(String(adapterWhitespace.id)).toMatch(/^js_/);
 
       const adapterNegative = new RuntimeAdapter({ type: RuntimeType.R, id: -1 });
       expect(adapterNegative.type).toBe(RuntimeType.R);
@@ -97,6 +98,14 @@ describe('RuntimeAdapter', () => {
 
       expect(mockedCrypto.randomUUID).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('supports idFactory for deterministic ids', () => {
+    const idFactory = vi.fn(() => 'custom-id');
+    const adapter = new RuntimeAdapter({ type: RuntimeType.PYTHON, idFactory });
+    expect(adapter.id).toBe('custom-id');
+    expect(idFactory).toHaveBeenCalledTimes(1);
+    expect(idFactory).toHaveBeenCalledWith(expect.objectContaining({ type: RuntimeType.PYTHON }));
   });
 
   it('throws when constructed with null options', () => {

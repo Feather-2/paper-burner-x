@@ -167,6 +167,10 @@ describe('SkillExecutor', () => {
     expect(executor.fallbackAllowlist).toBeInstanceOf(Set);
     expect(executor.fallbackAllowlist.has('skill-a')).toBe(true);
     expect(executor.fallbackAllowlist.has('  ')).toBe(false);
+    expect(executor.fallbackPolicy).toMatchObject({
+      enabled: false,
+      mode: 'eval',
+    });
   });
 
   it('trusts only system-scoped skills by default', async () => {
