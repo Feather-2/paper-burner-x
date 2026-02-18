@@ -281,6 +281,23 @@ describe("using", () => {
 });
 
 describe("createCompositeDisposable", () => {
+  it("defaults to empty list when called without args", async () => {
+    const composite = createCompositeDisposable();
+    await expect(composite.dispose()).resolves.toBeUndefined();
+    expect(composite.disposed).toBe(true);
+  });
+
+  it("accepts iterable inputs (e.g. Set)", async () => {
+    const calls = [];
+    const fnA = vi.fn(() => calls.push("a"));
+    const fnB = vi.fn(() => calls.push("b"));
+    const composite = createCompositeDisposable(new Set([fnA, fnB]));
+
+    await composite.dispose();
+
+    expect(calls).toEqual(["b", "a"]);
+  });
+
   it("disposes in reverse order for functions and disposables", async () => {
     const calls = [];
     const first = { dispose: vi.fn(async () => calls.push("first")) };

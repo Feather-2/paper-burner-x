@@ -31,7 +31,7 @@
  * @returns {ValidationResult<ToolResult>}
  */
 export function validateToolResult(result) {
-  if (!result || typeof result !== "object") {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
     return { ok: false, error: "ToolResult: expected object" };
   }
 

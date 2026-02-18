@@ -160,14 +160,17 @@ describe('validateRpcResponse', () => {
     expect(validateRpcResponse(Number.MAX_SAFE_INTEGER)).toEqual({ ok: false, error: 'RpcResponse: expected object' });
   });
 
-  it('defaults ok to true and tolerates empty object/array', () => {
+  it('defaults ok to true and accepts empty object', () => {
     expect(validateRpcResponse({})).toEqual({
       ok: true,
       value: { ok: true, data: undefined, error: undefined, requestId: undefined },
     });
+  });
+
+  it('rejects array responses to avoid loose object-like coercion', () => {
     expect(validateRpcResponse([])).toEqual({
-      ok: true,
-      value: { ok: true, data: undefined, error: undefined, requestId: undefined },
+      ok: false,
+      error: 'RpcResponse: expected object',
     });
   });
 
@@ -222,8 +225,8 @@ describe('validateRpcResponse', () => {
       value: { ok: true, data: { ok: true }, error: undefined, requestId: undefined },
     });
     expect(results[2]).toEqual({
-      ok: true,
-      value: { ok: true, data: undefined, error: undefined, requestId: undefined },
+      ok: false,
+      error: 'RpcResponse: expected object',
     });
     expect(results[3]).toEqual({ ok: false, error: 'RpcResponse: expected object' });
   });

@@ -71,7 +71,7 @@ export function validateRpcRequest(msg) {
  * @returns {ValidationResult<RpcResponse>} Validation result with normalized response.
  */
 export function validateRpcResponse(msg) {
-  if (!msg || typeof msg !== "object") {
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
     return { ok: false, error: "RpcResponse: expected object" };
   }
 

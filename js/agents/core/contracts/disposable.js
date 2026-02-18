@@ -111,10 +111,11 @@ export async function using(resource, fn) {
 
 /**
  * 创建复合 Disposable（组合多个资源）
- * @param {Array<Disposable | (() => void | Promise<void>)>} disposables
+ * @param {Array<Disposable | (() => void | Promise<void>)> | Iterable<Disposable | (() => void | Promise<void>)>} [disposables=[]]
  * @returns {CompositeDisposable}
  */
-export function createCompositeDisposable(disposables) {
+export function createCompositeDisposable(disposables = []) {
+  const bucket = Array.isArray(disposables) ? disposables : Array.from(disposables ?? []);
   let disposed = false;
 
   return {
@@ -127,8 +128,8 @@ export function createCompositeDisposable(disposables) {
       disposed = true;
 
       // 倒序释放
-      for (let i = disposables.length - 1; i >= 0; i--) {
-        const d = disposables[i];
+      for (let i = bucket.length - 1; i >= 0; i--) {
+        const d = bucket[i];
         try {
           if (typeof d === "function") {
             await d();
@@ -147,7 +148,7 @@ export function createCompositeDisposable(disposables) {
      */
     add(d) {
       if (!disposed) {
-        disposables.push(d);
+        bucket.push(d);
       }
     },
   };

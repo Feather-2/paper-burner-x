@@ -44,17 +44,14 @@ describe("validateToolResult", () => {
     });
   });
 
-  it("should_return_default_failure_when_input_is_array_without_ok_or_success", () => {
+  it("should_return_invalid_when_input_is_array", () => {
     // Arrange
 
     // Act
     const result = validateToolResult([]);
 
     // Assert
-    expect(result).toEqual({
-      ok: true,
-      value: { ok: false, success: false, data: undefined, error: undefined, meta: undefined },
-    });
+    expect(result).toEqual({ ok: false, error: "ToolResult: expected object" });
   });
 
   it("should_return_success_when_input_ok_is_true", () => {
@@ -205,7 +202,7 @@ describe("validateToolResult", () => {
       { ok: true, value: { ok: true, success: true, data: "ok", error: undefined, meta: undefined } },
       { ok: true, value: { ok: false, success: false, data: undefined, error: "fail", meta: undefined } },
       { ok: true, value: { ok: false, success: false, data: undefined, error: undefined, meta: undefined } },
-      { ok: true, value: { ok: false, success: false, data: undefined, error: undefined, meta: undefined } },
+      { ok: false, error: "ToolResult: expected object" },
       { ok: false, error: "ToolResult: expected object" },
     ]);
   });

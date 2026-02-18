@@ -187,11 +187,11 @@ describe("validateRpcResponse", () => {
     }
   });
 
-  it("accepts empty array as an object-like response", () => {
+  it("rejects array responses to enforce object-only contract", () => {
     const result = validateRpcResponse([]);
 
-    expect(result.ok).toBe(true);
-    expect(result.value.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("RpcResponse: expected object");
   });
 });
 
