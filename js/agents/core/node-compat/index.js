@@ -38,5 +38,5 @@ export { detectAvailableModes, selectExecutionMode, createExecutionContext } fro
 export { PackageManager } from './npm/index.js';
 
 // Polyfills
-export { parseStack, createCallSite, installStackTracePolyfill, RAW_STACK } from './polyfills/stack-trace.js';
+export { parseStack, createCallSite, installStackTracePolyfill, setupErrorStackTracePolyfill, RAW_STACK } from './polyfills/stack-trace.js';
 export { ExtendedTextDecoder, installPolyfill } from './polyfills/text-decoder.js';

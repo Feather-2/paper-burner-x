@@ -220,7 +220,7 @@ export class SubagentBudgetManager {
     }
 
     // 更新使用量
-    if (actualUsed !== undefined && actualUsed >= 0) {
+    if (actualUsed !== undefined && Number.isFinite(actualUsed) && actualUsed >= 0) {
       const delta = actualUsed - record.used;
       record.used = actualUsed;
       this._totalUsed += delta;
@@ -228,7 +228,7 @@ export class SubagentBudgetManager {
 
     // 计算退还
     const refunded = Math.max(0, record.allocated - record.used);
-    this._totalAllocated -= refunded;
+    this._totalAllocated = Math.max(0, this._totalAllocated - record.allocated);
 
     // 更新状态并保留记录（用于统计/调试）
     record.status = "completed";
@@ -252,8 +252,7 @@ export class SubagentBudgetManager {
     }
 
     // 释放全部未使用的预算
-    const unused = Math.max(0, record.allocated - record.used);
-    this._totalAllocated -= unused;
+    this._totalAllocated = Math.max(0, this._totalAllocated - record.allocated);
 
     record.status = "aborted";
     record.endTime = Date.now();

@@ -240,6 +240,31 @@ describe("createBrowserTools", () => {
     expect(result.files).toContain("root/level1/level2/level3/leaf.txt");
   });
 
+  it("glob fallback detects directories via stat instead of filename heuristics", async () => {
+    const tree = new Map([
+      ["root", ["dir.with.dot", "README"]],
+      ["root/dir.with.dot", ["nested.txt"]],
+    ]);
+    const stats = new Map([
+      ["root/dir.with.dot", true],
+      ["root/README", false],
+      ["root/dir.with.dot/nested.txt", false],
+    ]);
+    const vfs = {
+      list: vi.fn(async (path) => {
+        if (!tree.has(path)) throw new Error("not a directory");
+        return tree.get(path);
+      }),
+      stat: vi.fn(async (path) => ({
+        isDirectory: () => stats.get(path) === true,
+      })),
+    };
+    const tools = createBrowserTools({ vfs, basePath: "root" });
+
+    const result = await tools.glob({ pattern: "**/*.txt", path: "." });
+    expect(result.files).toEqual(["root/dir.with.dot/nested.txt"]);
+  });
+
   it("glob fallback caps results at 100", async () => {
     const many = Array.from({ length: 120 }, (_, i) => `file${i}.log`);
     const tree = new Map([["root", many]]);

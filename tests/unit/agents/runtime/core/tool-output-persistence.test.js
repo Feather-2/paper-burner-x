@@ -206,6 +206,29 @@ describe('maybePersistJsonArtifact', () => {
     const ids = new Set([first.inline.artifactId, second.inline.artifactId]);
     expect(ids.size).toBe(2);
   });
+
+  it('falls back to inline preview when saveArtifact throws', async () => {
+    const runStore = {
+      saveArtifact: vi.fn(async () => {
+        throw new Error('disk offline');
+      }),
+    };
+
+    const result = await maybePersistJsonArtifact({
+      runStore,
+      runId: 'run-save-fail',
+      data: makeLongString(9000, 'z'),
+      maxInlineChars: 10,
+      previewChars: 40,
+    });
+
+    expect(runStore.saveArtifact).toHaveBeenCalledTimes(1);
+    expect(result.persisted).toBe(false);
+    expect(result.inline.persisted).toBe(false);
+    expect(result.inline.preview.endsWith('\n...(truncated)')).toBe(true);
+    expect(result.inline.note).toContain('persistence failed');
+    expect(result.inline.persistenceError).toBe('disk offline');
+  });
 });
 
 describe('maybePersistToolOutput', () => {

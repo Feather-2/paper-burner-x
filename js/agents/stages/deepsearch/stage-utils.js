@@ -3,9 +3,7 @@
  * 从 state.js 拆分出的 emit/stage 相关工具
  */
 import { EVENT_SCHEMA_VERSION, EventStatus } from "./utils/state-utils.js";
-
-let nodeIdLastTs = 0;
-let nodeIdCounter = 0;
+import { makeSecureTimestampedId, toNonEmptyString } from "../../shared/index.js";
 
 /**
  * 创建带限流的 stage 事件发射器
@@ -57,22 +55,38 @@ export function makeStageEmitter(stageApi, actor = "deepsearch", getContext) {
 /**
  * @param {string} runId
  * @param {string} kind
- * @param {{ stage?: string, iteration?: number, trajectoryId?: string }=} options
+ * @param {{ stage?: string, iteration?: number, trajectoryId?: string, idFactory?: ((meta: { prefix: string, runId: string, kind: string, stage?: string, iteration?: number, trajectoryId?: string, timestamp: number }) => string|null|undefined)|null }=} options
  * @returns {string}
  */
-export function generateNodeId(runId, kind, { stage, iteration, trajectoryId } = {}) {
-  const parts = [runId || "run", kind];
+export function generateNodeId(runId, kind, { stage, iteration, trajectoryId, idFactory } = {}) {
+  const safeRunId = toNonEmptyString(runId) || "run";
+  const safeKind = toNonEmptyString(kind) || "node";
+  const parts = [safeRunId, safeKind];
   if (stage) parts.push(stage);
   if (typeof iteration === "number") parts.push(`i${iteration}`);
   if (trajectoryId) parts.push(trajectoryId);
-  const now = Date.now();
-  if (now > nodeIdLastTs) {
-    nodeIdLastTs = now;
-    nodeIdCounter = 0;
-  } else {
-    nodeIdCounter += 1;
+
+  const prefix = parts.join("_");
+  const ts = Date.now();
+
+  if (typeof idFactory === "function") {
+    try {
+      const custom = toNonEmptyString(idFactory({
+        prefix,
+        runId: safeRunId,
+        kind: safeKind,
+        ...(stage ? { stage } : {}),
+        ...(typeof iteration === "number" ? { iteration } : {}),
+        ...(trajectoryId ? { trajectoryId } : {}),
+        timestamp: ts,
+      }));
+      if (custom) return custom;
+    } catch {
+      // ignore custom id factory failures and fallback to secure id.
+    }
   }
-  return `${parts.join("_")}_${nodeIdLastTs.toString(36)}_${nodeIdCounter.toString(36)}`;
+
+  return makeSecureTimestampedId(prefix, { allowInsecureFallback: true });
 }
 
 /**

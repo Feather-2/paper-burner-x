@@ -25,6 +25,22 @@ export const definition = {
   },
 };
 
+const TERMINAL_STATUSES = new Set(["completed", "failed", "timeout", "cancelled", "aborted"]);
+
+function normalizeTaskStatus(value) {
+  if (typeof value !== "string") return "unknown";
+  const normalized = value.trim().toLowerCase();
+  return normalized || "unknown";
+}
+
+function isTaskDone(status) {
+  return TERMINAL_STATUSES.has(normalizeTaskStatus(status));
+}
+
+function isTaskSuccessful(status) {
+  return normalizeTaskStatus(status) === "completed";
+}
+
 /**
  * @param {Object} args
  * @param {string} args.taskId - Task 返回的结果 ID
@@ -33,8 +49,10 @@ export const definition = {
  * @param {Object} context - { state, emit, sharedContext }
  */
 export async function handler(args, context) {
-  const { sharedContext } = context;
-  const { taskId, wait = false, timeout = 60000 } = args;
+  const ctx = context && typeof context === "object" ? context : {};
+  const { sharedContext } = ctx;
+  const params = args && typeof args === "object" ? args : {};
+  const { taskId, wait = false, timeout = 60000 } = params;
 
   if (!taskId || typeof taskId !== "string") {
     return { success: false, error: "taskId is required" };
@@ -53,10 +71,15 @@ export async function handler(args, context) {
     // 如果 runningTasks 里是压缩结果，优先用 sharedContext 里的完整数据补全
     const detail = sharedContext?.getDetail?.(taskId);
     const merged = detail && typeof detail === "object" ? { ...task, ...detail } : task;
+    const status = normalizeTaskStatus(merged.status);
+    const done = isTaskDone(status);
+    const taskSuccess = isTaskSuccessful(status);
     return {
-      success: merged.status === "completed",
+      success: true,
       taskId,
-      status: merged.status,
+      status,
+      done,
+      taskSuccess,
       summary: merged.summary,
       result: merged.result,
       error: merged.error,
@@ -69,10 +92,15 @@ export async function handler(args, context) {
   if (sharedContext) {
     const detail = sharedContext.getDetail?.(taskId);
     if (detail) {
+      const status = normalizeTaskStatus(detail.status || "completed");
+      const done = isTaskDone(status);
+      const taskSuccess = isTaskSuccessful(status);
       return {
-        success: detail.status === "completed",
+        success: true,
         taskId,
-        status: detail.status || "completed",
+        status,
+        done,
+        taskSuccess,
         summary: detail.summary,
         result: detail.result,
         data: detail,

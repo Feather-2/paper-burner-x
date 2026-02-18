@@ -10,6 +10,12 @@ function cloneValue(value) {
   return deepClone(value);
 }
 
+function normalizeMaxVersions(value, fallback = 200) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(1, Math.floor(n));
+}
+
 /**
  * @param {any} snapshot
  * @returns {boolean}
@@ -26,10 +32,11 @@ function isDesignStateSnapshot(snapshot) {
 
 export class DesignCheckpoints {
   /**
-   * @param {{ designState?: any }} [options]
+   * @param {{ designState?: any, maxVersions?: number }} [options]
    */
-  constructor({ designState = null } = {}) {
+  constructor({ designState = null, maxVersions } = {}) {
     this._designState = designState || null;
+    this._maxVersions = normalizeMaxVersions(maxVersions, 200);
     this._versions = [];
     this._currentVersion = null;
   }
@@ -43,6 +50,7 @@ export class DesignCheckpoints {
    */
   set versions(versions) {
     this._versions = this._normalizeVersions(versions);
+    this._trimToLimit();
   }
 
   /**
@@ -67,6 +75,7 @@ export class DesignCheckpoints {
       timestamp: Date.now(),
     };
     this._versions.push(version);
+    this._trimToLimit();
     return version;
   }
 
@@ -128,6 +137,7 @@ export class DesignCheckpoints {
   fromJSON(data) {
     const source = Array.isArray(data) ? data : data?.versions;
     this._versions = this._normalizeVersions(source);
+    this._trimToLimit();
     return this;
   }
 
@@ -149,5 +159,13 @@ export class DesignCheckpoints {
           .filter(Boolean)
       : [];
   }
-}
 
+  _trimToLimit() {
+    if (this._versions.length <= this._maxVersions) return;
+    const extra = this._versions.length - this._maxVersions;
+    this._versions.splice(0, extra);
+    if (this._currentVersion && !this._versions.some((v) => v.label === this._currentVersion)) {
+      this._currentVersion = this._versions.length ? this._versions[this._versions.length - 1].label : null;
+    }
+  }
+}

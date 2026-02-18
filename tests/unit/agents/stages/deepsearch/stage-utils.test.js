@@ -21,17 +21,6 @@ const loadModule = async () => {
   return import(MODULE_PATH);
 };
 
-const splitNodeId = (value) => {
-  const parts = value.split('_');
-  const counter = parts.pop();
-  const ts = parts.pop();
-  return {
-    prefix: parts.join('_'),
-    ts,
-    counter: Number.parseInt(counter, 36),
-  };
-};
-
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
@@ -162,68 +151,38 @@ describe('makeStageEmitter', () => {
 });
 
 describe('generateNodeId', () => {
-  it('builds ids with optional parts and stable suffixes', async () => {
+  it('builds ids using custom idFactory when provided', async () => {
     const { generateNodeId } = await loadModule();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2024-02-01T00:00:00.000Z'));
+    const id = generateNodeId('run1', 'node', {
+      stage: 'stage',
+      iteration: 0,
+      trajectoryId: 'traj',
+      idFactory: vi.fn(({ prefix }) => `${prefix}__custom`),
+    });
 
-    const tsBase36 = Date.now().toString(36);
-    const id = generateNodeId('run1', 'node', { stage: 'stage', iteration: 0, trajectoryId: 'traj' });
-
-    expect(id).toBe(`run1_node_stage_i0_traj_${tsBase36}_0`);
+    expect(id).toBe('run1_node_stage_i0_traj__custom');
   });
 
-  it('includes numeric iteration boundaries and preserves whitespace stage', async () => {
+  it('generates secure timestamped ids by default', async () => {
     const { generateNodeId } = await loadModule();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2024-02-01T00:00:00.000Z'));
+    const first = generateNodeId('run', 'node', { stage: 'stage', iteration: 1 });
+    const second = generateNodeId('run', 'node', { stage: 'stage', iteration: 1 });
 
-    const iterations = [-1, Number.MAX_SAFE_INTEGER];
-    for (const value of iterations) {
-      const id = generateNodeId('run', 'node', { stage: '   ', iteration: value });
-      expect(id.startsWith(`run_node_   _i${value}_`)).toBe(true);
-    }
+    expect(first.startsWith('run_node_stage_i1_')).toBe(true);
+    expect(second.startsWith('run_node_stage_i1_')).toBe(true);
+    expect(first).not.toBe(second);
   });
 
-  it('defaults runId and ignores non-number iteration with array options', async () => {
+  it('defaults runId/kind and ignores non-number iteration', async () => {
     const { generateNodeId } = await loadModule();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2024-02-01T00:00:00.000Z'));
 
-    const idEmpty = generateNodeId('', 'kind', { iteration: '3' });
-    const emptyParts = splitNodeId(idEmpty);
-    expect(idEmpty.startsWith('run_kind_')).toBe(true);
-    expect(emptyParts.prefix.includes('_i3')).toBe(false);
-
-    const idUndefined = generateNodeId(undefined, 'kind', []);
-    expect(idUndefined.startsWith('run_kind_')).toBe(true);
-  });
-
-  it('increments counter for rapid calls and resets when time advances', async () => {
-    const { generateNodeId } = await loadModule();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2024-02-01T00:00:00.000Z'));
-
-    const first = generateNodeId('run', 'node');
-    const second = generateNodeId('run', 'node');
-    const firstParts = splitNodeId(first);
-    const secondParts = splitNodeId(second);
-
-    expect(secondParts.ts).toBe(firstParts.ts);
-    expect(secondParts.counter).toBe(firstParts.counter + 1);
-
-    vi.setSystemTime(new Date('2024-02-01T00:00:00.001Z'));
-    const third = generateNodeId('run', 'node');
-    const thirdParts = splitNodeId(third);
-
-    expect(thirdParts.ts).not.toBe(firstParts.ts);
-    expect(thirdParts.counter).toBe(0);
+    const idEmpty = generateNodeId('', '', { iteration: '3' });
+    expect(idEmpty.startsWith('run_node_')).toBe(true);
+    expect(idEmpty.includes('_i3_')).toBe(false);
   });
 
   it('supports very long runId and kind strings', async () => {
     const { generateNodeId } = await loadModule();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2024-02-01T00:00:00.000Z'));
 
     const longRunId = 'r'.repeat(5000);
     const longKind = 'k'.repeat(4000);

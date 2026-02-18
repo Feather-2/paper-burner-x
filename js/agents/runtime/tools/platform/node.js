@@ -293,7 +293,7 @@ export async function createNodeTools(options = {}) {
 
       const rgResult = await execCommand('rg', rgArgs, { timeout: 30000 });
       if (rgResult.success) {
-        const matches = parseRgOutput(rgResult.stdout);
+        const matches = parseRgOutput(rgResult.stdout, dir);
         return { matches };
       }
 
@@ -312,13 +312,26 @@ export async function createNodeTools(options = {}) {
   /**
    * 解析 ripgrep 输出
    */
-  function parseRgOutput(stdout) {
+  function normalizeMatchFile(filePath, rootDir) {
+    const raw = toNonEmptyString(filePath) || '';
+    if (!raw) return '';
+    try {
+      const absolute = path.isAbsolute(raw) ? raw : path.resolve(rootDir, raw);
+      const relative = path.relative(rootDir, absolute).replace(/\\/g, '/');
+      if (relative && !relative.startsWith('..')) return relative;
+      return raw.replace(/\\/g, '/');
+    } catch {
+      return raw.replace(/\\/g, '/');
+    }
+  }
+
+  function parseRgOutput(stdout, rootDir) {
     const lines = stdout.split('\n').filter(Boolean);
     return lines.slice(0, 100).map(line => {
       const match = line.match(/^(.+?):(\d+):(.*)$/);
       if (match) {
         return {
-          file: match[1],
+          file: normalizeMatchFile(match[1], rootDir),
           line: parseInt(match[2], 10),
           content: match[3].slice(0, 200),
         };

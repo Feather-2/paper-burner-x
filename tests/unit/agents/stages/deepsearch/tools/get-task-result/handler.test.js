@@ -184,6 +184,24 @@ describe("handler", () => {
     expect(result.status).toBe("completed");
   });
 
+  it("distinguishes done/failed task status from request success", async () => {
+    const { handler } = await loadModule();
+    const taskId = "task_failed";
+
+    mockedTaskHandler.getTaskStatus.mockReturnValue({
+      status: "failed",
+      summary: "failed-summary",
+      error: "boom",
+    });
+
+    const result = await handler({ taskId }, makeContext());
+    expect(result.success).toBe(true);
+    expect(result.status).toBe("failed");
+    expect(result.done).toBe(true);
+    expect(result.taskSuccess).toBe(false);
+    expect(result.error).toBe("boom");
+  });
+
   it("does not wait when task registry has no entry", async () => {
     const { handler } = await loadModule();
     const taskId = "task_missing_wait";
@@ -209,8 +227,10 @@ describe("handler", () => {
     const result = await handler({ taskId, wait: false }, makeContext());
 
     expect(mockedTaskHandler.waitForTask).not.toHaveBeenCalled();
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
     expect(result.status).toBe("running");
+    expect(result.done).toBe(false);
+    expect(result.taskSuccess).toBe(false);
     expect(result.summary).toBe("partial");
   });
 
@@ -242,6 +262,8 @@ describe("handler", () => {
       success: true,
       taskId,
       status: "completed",
+      done: true,
+      taskSuccess: true,
       summary: "full",
       result: { value: "detail" },
       startedAt: 10,
@@ -268,6 +290,8 @@ describe("handler", () => {
       success: true,
       taskId,
       status: "completed",
+      done: true,
+      taskSuccess: true,
       summary: "base",
       result: { value: "base" },
     });
@@ -291,6 +315,8 @@ describe("handler", () => {
       success: true,
       taskId,
       status: "completed",
+      done: true,
+      taskSuccess: true,
       summary: "cached",
       result: { value: 5 },
       data: detail,
@@ -306,8 +332,10 @@ describe("handler", () => {
     const sharedContext = { getDetail: vi.fn(() => ({})) };
     const result = await handler({ taskId }, makeContext(sharedContext));
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
     expect(result.status).toBe("completed");
+    expect(result.done).toBe(true);
+    expect(result.taskSuccess).toBe(true);
     expect(result.data).toEqual({});
   });
 
@@ -371,7 +399,9 @@ describe("handler", () => {
     const second = await handler({ taskId }, makeContext());
 
     expect(first.status).toBe("running");
-    expect(first.success).toBe(false);
+    expect(first.success).toBe(true);
+    expect(first.done).toBe(false);
+    expect(first.taskSuccess).toBe(false);
     expect(second.status).toBe("completed");
     expect(second.success).toBe(true);
   });

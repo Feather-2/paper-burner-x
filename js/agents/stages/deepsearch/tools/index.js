@@ -22,6 +22,15 @@ import skill from "./skill/handler.js";
 import recordFinding from "./record-finding/handler.js";
 import getArtifact from "./get-artifact/handler.js";
 
+export const TOOL_NAME_ALIASES = Object.freeze({
+  Task: "task",
+});
+
+export function resolveToolName(name) {
+  const raw = typeof name === "string" ? name : String(name ?? "");
+  return TOOL_NAME_ALIASES[raw] || raw;
+}
+
 export const tools = {
   "list-docs": listDocs,
   "read-doc": readDoc,

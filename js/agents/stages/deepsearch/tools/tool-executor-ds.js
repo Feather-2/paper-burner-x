@@ -2,7 +2,7 @@
  * DeepSearch Tool Executor
  */
 
-import { tools } from "./index.js";
+import { tools, resolveToolName } from "./index.js";
 
 function resolveToolQuotaManager(context) {
   const ctx = context && typeof context === "object" ? context : null;
@@ -49,9 +49,11 @@ function resolveToolQuotaMode(context) {
  * 执行 tool (简单版本，向后兼容)
  */
 export async function executeTool(name, args, context) {
-  const tool = tools[name];
+  const requestedName = typeof name === "string" ? name : String(name ?? "");
+  const canonicalName = resolveToolName(requestedName);
+  const tool = tools[canonicalName];
   if (!tool) {
-    return { success: false, error: `Unknown tool: ${name}` };
+    return { success: false, error: `Unknown tool: ${requestedName}` };
   }
 
   const quotaManager = resolveToolQuotaManager(context);
@@ -60,19 +62,25 @@ export async function executeTool(name, args, context) {
 
   const run = async (span) => {
     if (quotaManager && quotaMode !== "off") {
-      const q = quotaManager.tryCall(name);
+      const q = quotaManager.tryCall(canonicalName);
       if (!q.allowed) {
-        const stats = typeof quotaManager.getToolStats === "function" ? quotaManager.getToolStats(name) : null;
-        emit?.("tool.quota.exceeded", { tool: name, reason: q.reason, stats, mode: quotaMode });
+        const stats = typeof quotaManager.getToolStats === "function" ? quotaManager.getToolStats(canonicalName) : null;
+        emit?.("tool.quota.exceeded", {
+          tool: canonicalName,
+          requestedTool: requestedName,
+          reason: q.reason,
+          stats,
+          mode: quotaMode,
+        });
         if (span && typeof span.setStatus === "function") {
           span.setStatus("error", typeof q.reason === "string" ? q.reason : "tool quota exceeded");
         }
         if (quotaMode === "block") {
-          return { success: false, error: q.reason || `Quota exceeded for ${name}`, ...(stats ? { quota: stats } : {}) };
+          return { success: false, error: q.reason || `Quota exceeded for ${canonicalName}`, ...(stats ? { quota: stats } : {}) };
         }
         if (typeof quotaManager.recordCall === "function") {
           try {
-            quotaManager.recordCall(name);
+            quotaManager.recordCall(canonicalName);
           } catch {
             // ignore
           }
@@ -108,7 +116,7 @@ export async function executeTool(name, args, context) {
   const traceContext = context?.traceContext || context?.stageApi?.traceContext;
   if (traceContext && typeof traceContext.withSpan === "function") {
     return await traceContext.withSpan(
-      `deepsearch.tool.${name}`,
+      `deepsearch.tool.${canonicalName}`,
       async (span) => {
         const runId =
           (context?.stageApi?.runContext && context.stageApi.runContext.runId) ||
@@ -116,14 +124,15 @@ export async function executeTool(name, args, context) {
           context?.stageApi?.runId ||
           null;
         span.setAttributes({
-          tool: name,
+          tool: canonicalName,
+          requestedTool: requestedName,
           ...(runId ? { runId } : {}),
           argKeys: args && typeof args === "object" ? Object.keys(args).length : 0,
         });
 
         return await run(span);
       },
-      { attributes: { tool: name } }
+      { attributes: { tool: canonicalName, requestedTool: requestedName } }
     );
   }
 
@@ -141,4 +150,3 @@ export { BaseToolExecutor as ToolExecutor };
 export function createDeepSearchToolExecutor(options = {}) {
   return new BaseToolExecutor({ tools, ...options });
 }
-

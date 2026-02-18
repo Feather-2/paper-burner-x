@@ -11,7 +11,7 @@ import { createSandboxFactory } from '../sandbox/create-sandbox.js';
 import { QuotaEnforcer } from './quota.js';
 import { ObservabilityStream, withObservability } from './observability.js';
 import { createLogger } from '../../shared/utils/logger.js';
-import { setupErrorStackTracePolyfill } from './polyfills/error-stack-trace.js';
+import { setupErrorStackTracePolyfill } from './polyfills/stack-trace.js';
 
 const logger = createLogger('node-compat/create-node-env');
 

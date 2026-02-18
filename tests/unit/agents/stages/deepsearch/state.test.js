@@ -287,8 +287,7 @@ describe("generateNodeId", () => {
 
     vi.setSystemTime(new Date("2100-01-01T00:00:01.000Z"));
     const id3 = generateNodeId("run", "gap");
-    const counter = id3.split("_").pop();
-    expect(counter).toBe("0");
+    expect(id3.startsWith("run_gap_")).toBe(true);
   });
 });
 

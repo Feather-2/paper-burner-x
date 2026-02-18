@@ -280,7 +280,6 @@ describe("DeckEditor", () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
-    globalThis.safeId = 'el1';
 
     const rawStyle =
       "color: red; background: url(javascript:alert(1)); position: absolute; cursor: pointer;";
@@ -300,7 +299,6 @@ describe("DeckEditor", () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
-    globalThis.safeId = 'el1';
 
     const result = await editor.editElement(0, 'el1', { text: 'Hello', style: '   ' });
 
@@ -316,7 +314,6 @@ describe("DeckEditor", () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
-    globalThis.safeId = 'el1';
 
     const result = await editor.editElement(0, 'el1', {
       text: 'Hello',
@@ -335,7 +332,6 @@ describe("DeckEditor", () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
-    globalThis.safeId = 'el1';
 
     const longStyle = 'color: red;'.repeat(500) + 'font-size: 12px;';
     const result = await editor.editElement(0, 'el1', { text: 'Hello', style: longStyle });
@@ -351,13 +347,23 @@ describe("DeckEditor", () => {
     const { DeckEditor } = await loadModule();
     const deckHtmlDsl = '<section><div data-el="el1">Hello</div></section>';
     const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
-    globalThis.safeId = 'el1';
 
     const result = await editor.editElement(0, 'el1', { text: 'Hello', style: 'color: red' });
 
     expect(result.success).toBe(true);
     expect(editor.getDeckHtmlDsl()).toContain('<div data-el="el1">');
     expect(editor.getDeckHtmlDsl()).not.toContain('style="color: red"');
+  });
+
+  it('direct editElement supports style-only edits without throwing', async () => {
+    const { DeckEditor } = await loadModule();
+    const deckHtmlDsl = '<section><div data-el="el1" style="color: blue">Hello</div></section>';
+    const editor = new DeckEditor({ deckPackage: { deckHtmlDsl } });
+
+    const result = await editor.editElement(0, 'el1', { style: 'color: red' });
+
+    expect(result.success).toBe(true);
+    expect(editor.getDeckHtmlDsl()).toContain('style="color: red"');
   });
 
   it('direct editSlide sanitizes html and layout while accepting string slideIndex', async () => {

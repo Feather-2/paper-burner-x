@@ -75,6 +75,29 @@ function resolveSourceText(source, { preferNormalized = true } = {}) {
   return direct || "";
 }
 
+function normalizeHeadingText(value) {
+  const raw = String(value || "");
+  return raw
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function isWordBoundaryChar(ch) {
+  if (!ch) return true;
+  return /[\s\-_:：;；,.，。!?！？/\\()[\]{}"'`~]/.test(ch);
+}
+
+function matchHeadingByBoundary(heading, wanted) {
+  if (!heading || !wanted) return false;
+  const idx = heading.indexOf(wanted);
+  if (idx === -1) return false;
+  const before = idx > 0 ? heading[idx - 1] : "";
+  const after = heading[idx + wanted.length] || "";
+  return isWordBoundaryChar(before) && isWordBoundaryChar(after);
+}
+
 function computeLineStarts(text) {
   const s = typeof text === "string" ? text : "";
   const starts = [0];
@@ -203,26 +226,33 @@ function cosineSimilarity(a, b) {
 }
 
 function findSectionRange(text, starts, section) {
-  const wanted = String(section || "").trim().toLowerCase();
+  const wanted = normalizeHeadingText(section);
   if (!wanted) return null;
-  const wantedNoHash = wanted.replace(/^#+\s*/, "");
 
   const lineCount = starts.length || 1;
-  let startIndex = -1;
-  let foundHeader = "";
+  /** @type {Array<{ index:number, raw:string, normalized:string }>} */
+  const headers = [];
 
   for (let i = 0; i < lineCount; i++) {
-    const line = sliceLine(text, starts, i).trim();
+    const rawLine = sliceLine(text, starts, i);
+    const line = rawLine.trim();
     if (!line.startsWith("#")) continue;
-    const lower = line.toLowerCase();
-    if (lower === wanted || lower.includes(wantedNoHash)) {
-      startIndex = i;
-      foundHeader = sliceLine(text, starts, i);
-      break;
-    }
+    headers.push({
+      index: i,
+      raw: rawLine,
+      normalized: normalizeHeadingText(line),
+    });
   }
 
-  if (startIndex === -1) return null;
+  const exact = headers.find((h) => h.normalized === wanted) || null;
+  const fuzzy = exact
+    ? null
+    : headers.find((h) => matchHeadingByBoundary(h.normalized, wanted)) || null;
+  const matched = exact || fuzzy;
+  if (!matched) return null;
+
+  const startIndex = matched.index;
+  const foundHeader = matched.raw;
 
   let endIndex = -1;
   for (let j = startIndex + 1; j < lineCount; j++) {
@@ -238,7 +268,7 @@ function findSectionRange(text, starts, section) {
   return {
     section: String(section),
     foundHeader,
-    isFuzzy: !foundHeader.toLowerCase().includes(wanted),
+    isFuzzy: !exact,
     lineStart,
     lineEnd,
   };
@@ -256,6 +286,8 @@ export class SourceManager {
 
     this._sourcesRef = null;
     this._sourcesLength = 0;
+    this._sourceRefs = [];
+    this._sourceIds = [];
     this._sourcesById = new Map();
 
     this._lineStartsCache = new LRUCache({ maxSize: this.maxCachedLineIndexes }); // sourceId -> { text, starts }
@@ -271,6 +303,8 @@ export class SourceManager {
     const rows = Array.isArray(sources) ? sources : [];
     this._sourcesRef = rows;
     this._sourcesLength = rows.length;
+    this._sourceRefs = rows.slice();
+    this._sourceIds = rows.map((s) => resolveSourceId(s) || "");
     this._sourcesById.clear();
     this._lineStartsCache.clear();
 
@@ -287,7 +321,20 @@ export class SourceManager {
    */
   syncSources(sources) {
     const rows = Array.isArray(sources) ? sources : [];
-    if (rows === this._sourcesRef && rows.length === this._sourcesLength) return false;
+    if (rows === this._sourcesRef && rows.length === this._sourcesLength) {
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i] !== this._sourceRefs[i]) {
+          this.setSources(rows);
+          return true;
+        }
+        const currentId = resolveSourceId(rows[i]) || "";
+        if (currentId !== this._sourceIds[i]) {
+          this.setSources(rows);
+          return true;
+        }
+      }
+      return false;
+    }
     this.setSources(rows);
     return true;
   }
@@ -528,10 +575,11 @@ export class SourceManager {
       ? targetIds.map((id) => this._sourcesById.get(id)).filter(Boolean)
       : Array.from(this._sourcesById.values());
 
-    const results = [];
+    const groupedResults = [];
     const queryLower = trimmed.toLowerCase();
     const keywords = queryLower.split(/\s+/).filter((w) => w.length >= 2).slice(0, 50);
     const maxResults = Math.max(1, toPositiveInt(limit, 10));
+    const perSourceCap = Math.min(200, Math.max(maxResults, Math.ceil(maxResults * 1.5)));
 
     for (const source of targetSources) {
       if (!source) continue;
@@ -542,6 +590,7 @@ export class SourceManager {
 
       const starts = this.getLineStarts(sourceId);
       const lineCount = starts?.length || 1;
+      const sourceMatches = [];
 
       for (let i = 0; i < lineCount; i++) {
         const lineText = sliceLine(text, starts || [0], i);
@@ -553,7 +602,7 @@ export class SourceManager {
         const snippetEnd = Math.min(lineCount, i + 1 + 1);
         const snippet = renderLineRange(text, starts || [0], { startLine: snippetStart, endLine: snippetEnd, maxLength: 800 }).content;
 
-        results.push({
+        sourceMatches.push({
           sourceId,
           sourceName: resolveSourceName(source) || sourceId,
           line: i + 1,
@@ -561,11 +610,29 @@ export class SourceManager {
           score: 1.0,
         });
 
-        if (results.length >= maxResults) return results;
+        if (sourceMatches.length >= perSourceCap) break;
       }
+      if (sourceMatches.length) groupedResults.push(sourceMatches);
     }
 
-    return results.slice(0, maxResults);
+    if (!groupedResults.length) return [];
+
+    const merged = [];
+    let row = 0;
+    while (merged.length < maxResults) {
+      let added = false;
+      for (const bucket of groupedResults) {
+        if (row < bucket.length) {
+          merged.push(bucket[row]);
+          added = true;
+          if (merged.length >= maxResults) break;
+        }
+      }
+      if (!added) break;
+      row += 1;
+    }
+
+    return merged.slice(0, maxResults);
   }
 
   /**

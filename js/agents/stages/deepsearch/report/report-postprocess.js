@@ -28,6 +28,7 @@ import { createSafeRegex } from "../../../shared/index.js";
  * @property {string[]} issues
  * @property {string[]} warnings
  * @property {number} wordCount
+ * @property {number} charCount
  * @property {number} referenceCount
  * @property {string} mode
  * @property {ReportRequirements} requirements
@@ -69,6 +70,76 @@ const DEFAULT_REPORT_REQUIREMENTS = Object.freeze({
 
 const REFERENCE_PATTERN = /\[([^\]]+)[:：]([^\]]+)\]/g;
 const REFERENCE_TEST_PATTERN = /\[([^\]]+)[:：]([^\]]+)\]/;
+const CJK_CHAR_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
+const WORD_TOKEN_PATTERN = /[\p{L}\p{N}]+(?:['’_-][\p{L}\p{N}]+)*/gu;
+
+function normalizeHeadingText(value) {
+  return String(value || "")
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^\d+(?:\.\d+)*[.)、\s-]*/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function isBoundaryChar(ch) {
+  if (!ch) return true;
+  return /[\s\-_:：;；,.，。!?！？/\\()[\]{}"'`~]/.test(ch);
+}
+
+function matchHeadingText(headingText, wantedSection) {
+  const heading = normalizeHeadingText(headingText);
+  const wanted = normalizeHeadingText(wantedSection);
+  if (!heading || !wanted) return false;
+  if (heading === wanted) return true;
+
+  const idx = heading.indexOf(wanted);
+  if (idx === -1) return false;
+  const before = idx > 0 ? heading[idx - 1] : "";
+  const after = heading[idx + wanted.length] || "";
+  return isBoundaryChar(before) && isBoundaryChar(after);
+}
+
+function extractHeadings(markdown) {
+  const src = typeof markdown === "string" ? markdown : "";
+  if (!src) return [];
+  const rows = [];
+  const regex = /^(#{1,6})\s+(.+)$/gm;
+  let match;
+  while ((match = regex.exec(src)) !== null) {
+    rows.push({
+      level: match[1].length,
+      raw: match[0],
+      text: match[2].trim(),
+      normalized: normalizeHeadingText(match[2]),
+      index: match.index,
+    });
+  }
+  return rows;
+}
+
+function hasSectionHeading(markdown, section) {
+  const headings = extractHeadings(markdown);
+  return headings.some((h) => matchHeadingText(h.text, section));
+}
+
+function hasGapCoverage(markdown) {
+  const src = typeof markdown === "string" ? markdown : "";
+  if (!src) return false;
+
+  const headings = extractHeadings(src);
+  const gapHeadingKeywords = ["信息缺口", "研究缺口", "knowledge gap", "research gap", "limitations", "局限", "未覆盖", "不足"];
+  for (const h of headings) {
+    if (gapHeadingKeywords.some((kw) => matchHeadingText(h.text, kw))) return true;
+  }
+
+  const normalized = src.toLowerCase();
+  const narrativePatterns = [
+    /(?:信息缺口|研究缺口|knowledge gap|research gap)[：:\-]\s*\S+/i,
+    /(?:局限性|limitations?|未覆盖|不足)[：:\-]\s*\S+/i,
+  ];
+  return narrativePatterns.some((p) => p.test(normalized));
+}
 
 /**
  * Resolve report requirements by mode (defaults merged with global/state config).
@@ -103,6 +174,27 @@ export function getReportConfig(state, mode) {
 export function countNonWhitespaceChars(text) {
   const src = typeof text === "string" ? text : "";
   return src.replace(/\s+/g, "").length;
+}
+
+/**
+ * Count semantic words/chars:
+ * - CJK chars count as 1 each
+ * - Latin/number tokens count as 1 each
+ * @param {string} text
+ * @returns {number}
+ */
+export function countSemanticWords(text) {
+  const src = typeof text === "string" ? text : "";
+  if (!src) return 0;
+  try {
+    const cjk = src.match(CJK_CHAR_PATTERN) || [];
+    const rest = src.replace(CJK_CHAR_PATTERN, " ");
+    const tokens = rest.match(WORD_TOKEN_PATTERN) || [];
+    return cjk.length + tokens.length;
+  } catch {
+    // Runtime may not support Unicode property escapes; degrade to char count.
+    return countNonWhitespaceChars(src);
+  }
 }
 
 /**
@@ -248,31 +340,33 @@ export function reviewReportMarkdown(markdown) {
  * @returns {ReportValidationResult}
  */
 export function validateReport(markdown, mode = "wider", state = null) {
+  const src = typeof markdown === "string" ? markdown : "";
   const requirements = getReportConfig(state, mode);
   const issues = [];
   const warnings = [];
 
-  const wordCount = countNonWhitespaceChars(markdown);
+  const wordCount = countSemanticWords(src);
+  const charCount = countNonWhitespaceChars(src);
   if (wordCount < requirements.minWords) {
-    issues.push(`字数不足：当前 ${wordCount} 字，${mode} 模式要求至少 ${requirements.minWords} 字`);
+    issues.push(`内容不足：当前约 ${wordCount} 词/字（非空白字符 ${charCount}），${mode} 模式要求至少 ${requirements.minWords}`);
   }
 
   for (const section of requirements.requiredSections) {
-    if (!markdown.includes(section)) issues.push(`缺少必需章节：${section}`);
+    if (!hasSectionHeading(src, section)) issues.push(`缺少必需章节：${section}`);
   }
 
   for (const section of requirements.recommendedSections) {
-    if (!markdown.includes(section)) warnings.push(`建议添加章节：${section}`);
+    if (!hasSectionHeading(src, section)) warnings.push(`建议添加章节：${section}`);
   }
 
-  const references = markdown.match(REFERENCE_PATTERN) || [];
+  const references = src.match(REFERENCE_PATTERN) || [];
   const minReferences = requirements.minReferences || { quick: 1, wider: 3, deeper: 5 }[mode] || 3;
   if (references.length < minReferences) {
     issues.push(`引用不足：当前 ${references.length} 处引用，${mode} 模式要求至少 ${minReferences} 处 [来源:页码] 格式引用`);
   }
 
   const highConfidencePattern = /🟢[^🟢🟡🔴\n]{0,200}/g;
-  const highConfidenceMatches = markdown.match(highConfidencePattern) || [];
+  const highConfidenceMatches = src.match(highConfidencePattern) || [];
   for (const match of highConfidenceMatches) {
     if (!REFERENCE_TEST_PATTERN.test(match)) {
       issues.push("空洞断言：标注了 🟢高置信度 但没有引用支撑");
@@ -280,8 +374,7 @@ export function validateReport(markdown, mode = "wider", state = null) {
     }
   }
 
-  const hasGapSection =
-    markdown.includes("缺口") || markdown.includes("gap") || markdown.includes("未覆盖") || markdown.includes("不足") || markdown.includes("❓");
+  const hasGapSection = hasGapCoverage(src);
   if (!hasGapSection) {
     if (mode === "quick") warnings.push("建议明确标注信息缺口");
     else issues.push(`缺少信息缺口：${mode} 模式必须包含信息缺口章节`);
@@ -292,6 +385,7 @@ export function validateReport(markdown, mode = "wider", state = null) {
     issues,
     warnings,
     wordCount,
+    charCount,
     referenceCount: references.length,
     mode,
     requirements,
@@ -309,9 +403,9 @@ export function getReportProgress(report, mode, state) {
   const markdown = typeof report?.markdown === "string" ? report.markdown : "";
   const requirements = getReportConfig(state, mode);
 
-  const wordCount = countNonWhitespaceChars(markdown);
+  const wordCount = countSemanticWords(markdown);
   const referenceCount = countReferences(markdown);
-  const missingSections = requirements.requiredSections.filter((s) => !markdown.includes(s));
+  const missingSections = requirements.requiredSections.filter((s) => !hasSectionHeading(markdown, s));
 
   const wordProgress = Math.min(100, Math.round((wordCount / requirements.minWords) * 100));
   const refProgress = Math.min(100, Math.round((referenceCount / (requirements.minReferences || 3)) * 100));
@@ -374,5 +468,6 @@ export default {
   getReportProgress,
   prepareReportForSubmit,
   countNonWhitespaceChars,
+  countSemanticWords,
   countReferences,
 };

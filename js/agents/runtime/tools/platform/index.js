@@ -74,6 +74,40 @@ export function getPlatformType() {
 }
 
 /**
+ * @returns {{ python?: boolean, js_sandbox?: boolean } | null}
+ */
+function getCapabilityOverrides() {
+  const caps = globalThis.__AGENT_RUNTIME_CAPABILITIES__;
+  if (!caps || typeof caps !== "object") return null;
+  return caps;
+}
+
+function probePythonCapability() {
+  const overrides = getCapabilityOverrides();
+  if (typeof overrides?.python === "boolean") return overrides.python;
+
+  if (isNodeLike()) {
+    const env = globalThis?.process?.env || {};
+    if (typeof env.PYTHON === "string" && env.PYTHON.trim()) return true;
+    if (typeof env.PYTHON_PATH === "string" && env.PYTHON_PATH.trim()) return true;
+    return false;
+  }
+
+  return (
+    typeof globalThis.loadPyodide === "function" ||
+    !!globalThis.pyodide ||
+    !!globalThis.Pyodide
+  );
+}
+
+function probeJsSandboxCapability() {
+  const overrides = getCapabilityOverrides();
+  if (typeof overrides?.js_sandbox === "boolean") return overrides.js_sandbox;
+
+  return !!globalThis.QuickJS || !!globalThis.quickjs || globalThis.__AGENT_JS_SANDBOX_READY__ === true;
+}
+
+/**
  * 检查特定能力是否可用
  *
  * @param {'bash' | 'python' | 'js_sandbox'} capability
@@ -86,9 +120,9 @@ export function hasCapability(capability) {
     case 'bash':
       return isNode; // 只有 Node 端有 bash
     case 'python':
-      return true; // Browser: Pyodide, Node: python3
+      return probePythonCapability();
     case 'js_sandbox':
-      return true; // 两端都有 QuickJS
+      return probeJsSandboxCapability();
     default:
       return false;
   }

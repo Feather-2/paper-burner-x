@@ -637,4 +637,18 @@ describe("deepsearch/tools/index executeTool()", () => {
     // Assert
     expect(out.success).toBe(true);
   });
+
+  it("should_use_canonical_tool_name_for_quota_when_alias_is_Task", async () => {
+    const { executeTool } = toolIndex;
+    const quotaManager = {
+      tryCall: vi.fn(() => ({ allowed: false, reason: "blocked" })),
+      getToolStats: vi.fn(() => ({ used: 1, limit: 1 })),
+    };
+
+    const out = await executeTool("Task", {}, { toolQuotaManager: quotaManager, toolQuotaConfig: { mode: "block" } });
+
+    expect(quotaManager.tryCall).toHaveBeenCalledWith("task");
+    expect(quotaManager.getToolStats).toHaveBeenCalledWith("task");
+    expect(out).toEqual({ success: false, error: "blocked", quota: { used: 1, limit: 1 } });
+  });
 });

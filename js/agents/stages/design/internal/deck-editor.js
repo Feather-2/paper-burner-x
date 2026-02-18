@@ -524,11 +524,11 @@ export class DeckEditor {
     }
 
     let appliedChanges = changes;
+    const safeId = escapeRegExp(elementId);
 
     // 简单的文本替换（转义防 XSS）
     if (changes.text !== undefined) {
       const safeText = escapeHtml(String(changes.text).slice(0, 10000));
-      const safeId = escapeRegExp(elementId);
       const regex = new RegExp(`(data-el="${safeId}"[^>]*>)[^<]*(<)`, "g");
       sectionHtml = sectionHtml.replace(regex, `$1${safeText}$2`);
       appliedChanges = { ...appliedChanges, text: safeText };

@@ -43,6 +43,13 @@ beforeEach(() => {
   mockCreateNodeTools.mockReset();
   mockCreateBrowserTools.mockReset();
   mockPlatform.runtime = "node";
+  delete globalThis.__AGENT_RUNTIME_CAPABILITIES__;
+  delete globalThis.pyodide;
+  delete globalThis.Pyodide;
+  delete globalThis.loadPyodide;
+  delete globalThis.quickjs;
+  delete globalThis.QuickJS;
+  delete globalThis.__AGENT_JS_SANDBOX_READY__;
 });
 
 describe("createPlatformTools", () => {
@@ -207,9 +214,22 @@ describe("getPlatformType", () => {
 });
 
 describe("hasCapability", () => {
-  it("returns true for python and js_sandbox regardless of platform", () => {
+  it("probes python/js_sandbox capabilities from runtime state", () => {
     mockIsNodeLike.mockReturnValue(false);
 
+    delete globalThis.__AGENT_RUNTIME_CAPABILITIES__;
+    delete globalThis.pyodide;
+    delete globalThis.Pyodide;
+    delete globalThis.loadPyodide;
+    delete globalThis.quickjs;
+    delete globalThis.QuickJS;
+    delete globalThis.__AGENT_JS_SANDBOX_READY__;
+
+    expect(hasCapability("python")).toBe(false);
+    expect(hasCapability("js_sandbox")).toBe(false);
+
+    globalThis.loadPyodide = () => Promise.resolve();
+    globalThis.__AGENT_JS_SANDBOX_READY__ = true;
     expect(hasCapability("python")).toBe(true);
     expect(hasCapability("js_sandbox")).toBe(true);
   });
@@ -243,6 +263,14 @@ describe("hasCapability", () => {
     invalidValues.forEach((value) => {
       expect(hasCapability(value)).toBe(false);
     });
+  });
+
+  it("allows explicit capability overrides", () => {
+    mockIsNodeLike.mockReturnValue(true);
+    globalThis.__AGENT_RUNTIME_CAPABILITIES__ = { python: true, js_sandbox: false };
+
+    expect(hasCapability("python")).toBe(true);
+    expect(hasCapability("js_sandbox")).toBe(false);
   });
 
   it("uses the latest node-like status for rapid calls", () => {

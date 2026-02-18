@@ -115,6 +115,10 @@ describe("SourceManager", () => {
 
     expect(manager.syncSources(sources)).toBe(false);
 
+    sources[0] = makeBasicSource({ sourceId: "sync1", sourceText: "updated text" });
+    expect(manager.syncSources(sources)).toBe(true);
+    expect(manager.getSource("sync1").sourceText).toBe("updated text");
+
     sources.push(makeBasicSource({ sourceId: "sync2" }));
     expect(manager.syncSources(sources)).toBe(true);
 
@@ -228,7 +232,7 @@ describe("SourceManager", () => {
 
     expect(fuzzy.success).toBe(true);
     expect(fuzzy.readMode).toBe("section");
-    expect(fuzzy.isFuzzy).toBe(true);
+    expect(fuzzy.isFuzzy).toBe(false);
     expect(fuzzy.foundHeader).toContain("Intro");
     expect(fuzzy.lineStart).toBe(1);
     expect(fuzzy.lineEnd).toBe(3);
@@ -240,6 +244,26 @@ describe("SourceManager", () => {
     expect(missing.success).toBe(false);
     expect(missing.error).toContain("Section not found");
     expect(missing.hint).toContain("Intro");
+  });
+
+  it("read section mode prefers exact heading matches over substring candidates", () => {
+    const text = [
+      "# 方法补充",
+      "extra",
+      "## 方法",
+      "exact",
+      "## 结论",
+      "done",
+    ].join("\n");
+    const manager = new SourceManager([
+      makeBasicSource({ sourceId: "sec", sourceText: text }),
+    ], { preferNormalized: false });
+
+    const result = manager.read("sec", { section: "方法", maxLength: 200 });
+    expect(result.success).toBe(true);
+    expect(result.foundHeader.trim()).toBe("## 方法");
+    expect(result.content).toContain("exact");
+    expect(result.content).not.toContain("extra");
   });
 
   it("read lines mode clamps line numbers and handles boundaries", () => {
@@ -326,6 +350,27 @@ describe("SourceManager", () => {
     const onlyFirst = manager.search("keyword", { sources: ["s1"] });
     expect(onlyFirst).toHaveLength(1);
     expect(onlyFirst.every((row) => row.sourceId === "s1")).toBe(true);
+  });
+
+  it("search interleaves results across sources when limit is tight", () => {
+    const manager = new SourceManager([
+      {
+        sourceId: "a",
+        name: "A",
+        sourceText: ["keyword a1", "keyword a2", "keyword a3"].join("\n"),
+      },
+      {
+        sourceId: "b",
+        name: "B",
+        sourceText: ["keyword b1", "keyword b2", "keyword b3"].join("\n"),
+      },
+    ], { preferNormalized: false });
+
+    const hits = manager.search("keyword", { limit: 4 });
+    expect(hits).toHaveLength(4);
+    expect(hits[0].sourceId).toBe("a");
+    expect(hits[1].sourceId).toBe("b");
+    expect(new Set(hits.map((row) => row.sourceId))).toEqual(new Set(["a", "b"]));
   });
 
   it("search handles concurrent calls", async () => {

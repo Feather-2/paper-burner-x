@@ -9,6 +9,12 @@
  */
 
 import { UnifiedAgentContext } from "../../../runtime/index.js";
+import { deepClone } from "../../../shared/index.js";
+
+function cloneValue(value) {
+  if (value === null || value === undefined) return value;
+  return deepClone(value);
+}
 
 /**
  * @typedef {object} DesignContextOptions
@@ -156,13 +162,13 @@ export class DesignContext extends UnifiedAgentContext {
   toSnapshot() {
     return {
       runId: this.runId,
-      slideIntents: this._slideIntents,
-      designSystem: this._designSystem,
-      imageSlots: this._imageSlots,
+      slideIntents: cloneValue(this._slideIntents),
+      designSystem: cloneValue(this._designSystem),
+      imageSlots: cloneValue(this._imageSlots),
       deckHtmlDsl: this._deckHtmlDsl,
-      slidesMeta: this._slidesMeta,
-      constraints: this._constraints,
-      userConfig: this._userConfig,
+      slidesMeta: cloneValue(this._slidesMeta),
+      constraints: cloneValue(this._constraints),
+      userConfig: cloneValue(this._userConfig),
     };
   }
 
@@ -175,13 +181,13 @@ export class DesignContext extends UnifiedAgentContext {
     return new DesignContext({
       ...options,
       runId: snapshot.runId,
-      slideIntents: snapshot.slideIntents,
-      designSystem: snapshot.designSystem,
-      imageSlots: snapshot.imageSlots,
+      slideIntents: cloneValue(snapshot.slideIntents),
+      designSystem: cloneValue(snapshot.designSystem),
+      imageSlots: cloneValue(snapshot.imageSlots),
       deckHtmlDsl: snapshot.deckHtmlDsl,
-      slidesMeta: snapshot.slidesMeta,
-      constraints: snapshot.constraints,
-      userConfig: snapshot.userConfig,
+      slidesMeta: cloneValue(snapshot.slidesMeta),
+      constraints: cloneValue(snapshot.constraints),
+      userConfig: cloneValue(snapshot.userConfig),
     });
   }
 }

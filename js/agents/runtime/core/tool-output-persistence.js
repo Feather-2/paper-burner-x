@@ -99,11 +99,29 @@ export async function maybePersistJsonArtifact({
     sha256 = undefined;
   }
 
-  const artifactId = await runStore.saveArtifact(runId, type, json, {
-    mime: "application/json",
-    bytes,
-    ...(sha256 ? { sha256 } : {}),
-  });
+  let artifactId;
+  try {
+    artifactId = await runStore.saveArtifact(runId, type, json, {
+      mime: "application/json",
+      bytes,
+      ...(sha256 ? { sha256 } : {}),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err ?? "Unknown persistence error");
+    return {
+      persisted: false,
+      inline: {
+        persisted: false,
+        truncated: true,
+        preview,
+        totalChars: typeof json === "string" ? json.length : undefined,
+        bytes,
+        ...(sha256 ? { sha256 } : {}),
+        note: "Result too large and persistence failed; returning inline preview fallback.",
+        persistenceError: message,
+      },
+    };
+  }
 
   return {
     persisted: true,

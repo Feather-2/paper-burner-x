@@ -141,4 +141,12 @@ function installStackTracePolyfill(target = globalThis) {
   ErrorCtor.captureStackTrace.__polyfill = true;
 }
 
-export { parseStack, createCallSite, installStackTracePolyfill, RAW_STACK };
+/**
+ * Backward-compatible alias used by older imports.
+ * @param {object} [target]
+ */
+function setupErrorStackTracePolyfill(target = globalThis) {
+  installStackTracePolyfill(target);
+}
+
+export { parseStack, createCallSite, installStackTracePolyfill, setupErrorStackTracePolyfill, RAW_STACK };

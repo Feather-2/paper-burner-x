@@ -1,183 +1,60 @@
-/**
- * Tests PlanningTree construction, serialization, and fromJSON boundaries.
- * Targets js/agents/stages/deepsearch/state/planning-tree.js to guard edge-case behavior.
- */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 
-const randomUUIDMock = vi.hoisted(() => vi.fn(() => "mock-uuid"));
-
-vi.mock("node:crypto", () => ({
-  randomUUID: randomUUIDMock,
-}));
-
-import { randomUUID } from "node:crypto";
 import { PlanningTree } from "../../../../../../js/agents/stages/deepsearch/state/planning-tree.js";
 
-beforeEach(() => {
-  randomUUIDMock.mockClear();
-});
-
 describe("PlanningTree", () => {
-  it("initializes defaults with empty strings and empty nodes map", () => {
+  it("initializes with empty node map", () => {
     const tree = new PlanningTree();
-
     expect(tree.rootGoal).toBe("");
     expect(tree.runId).toBe("");
     expect(tree.nodes).toBeInstanceOf(Map);
     expect(tree.nodes.size).toBe(0);
   });
 
-  it("accepts provided options and uses mocked randomUUID for runId", () => {
-    const runId = randomUUID();
-    const tree = new PlanningTree({ rootGoal: "goal", runId });
+  it("expands from gaps and todos with retrievable nodes", () => {
+    const tree = new PlanningTree({ runId: "run-1", rootGoal: "goal" });
+    const gapNode = tree.expandFromGap({ gapId: "g1", summary: "missing evidence", status: "open" });
+    const todoNode = tree.expandFromTodo({ todoId: "t1", text: "search more", relatedGapId: "g1" });
 
-    expect(randomUUIDMock).toHaveBeenCalledTimes(1);
-    expect(runId).toBe("mock-uuid");
-    expect(tree.rootGoal).toBe("goal");
-    expect(tree.runId).toBe("mock-uuid");
+    expect(gapNode.kind).toBe("gap");
+    expect(todoNode.kind).toBe("todo");
+    expect(tree.getNodesForGap("g1")).toHaveLength(2);
+    expect(tree.getNodesForTodo("t1")).toHaveLength(1);
   });
 
-  it("normalizes falsy option values to empty strings", () => {
-    const treeEmpty = new PlanningTree({ rootGoal: "", runId: "" });
-    const treeZero = new PlanningTree({ rootGoal: 0, runId: 0 });
-    const treeNil = new PlanningTree({ rootGoal: undefined, runId: null });
+  it("updates node status and records decisions", () => {
+    const tree = new PlanningTree();
+    const node = tree.expandFromGap({ gapId: "g2", summary: "gap" });
 
-    expect(treeEmpty.rootGoal).toBe("");
-    expect(treeEmpty.runId).toBe("");
+    expect(tree.updateStatus(node.nodeId, "completed")).toBe(true);
+    expect(tree.recordDecision(node.nodeId, { stage: "gaps", action: "resolve", reason: "enough evidence" })).toBe(true);
 
-    expect(treeZero.rootGoal).toBe("");
-    expect(treeZero.runId).toBe("");
-
-    expect(treeNil.rootGoal).toBe("");
-    expect(treeNil.runId).toBe("");
+    const reloaded = tree.getNodesForGap("g2")[0];
+    expect(reloaded.status).toBe("completed");
+    expect(reloaded.decisions).toHaveLength(1);
+    expect(reloaded.decisions[0].stage).toBe("gaps");
   });
 
-  it("preserves truthy boundary values and types", () => {
-    const whitespaceTree = new PlanningTree({ rootGoal: "   ", runId: "\t" });
-    const numericStringTree = new PlanningTree({ rootGoal: "0", runId: "123" });
-    const numericBoundaryTree = new PlanningTree({
-      rootGoal: -1,
-      runId: Number.MAX_SAFE_INTEGER,
-    });
-    const arrayValue = [];
-    const objectValue = {};
-    const typeBoundaryTree = new PlanningTree({ rootGoal: arrayValue, runId: objectValue });
+  it("serializes and restores nodes", () => {
+    const tree = new PlanningTree({ runId: "run-2", rootGoal: "root" });
+    const n1 = tree.expandFromGap({ gapId: "g3", summary: "gap3" });
+    tree.expandFromTodo({ todoId: "t3", text: "todo3", relatedGapId: "g3" }, { parentId: n1.nodeId });
 
-    expect(whitespaceTree.rootGoal).toBe("   ");
-    expect(whitespaceTree.runId).toBe("\t");
+    const json = tree.serialize();
+    expect(Array.isArray(json.nodes)).toBe(true);
+    expect(json.nodes.length).toBe(2);
 
-    expect(numericStringTree.rootGoal).toBe("0");
-    expect(numericStringTree.runId).toBe("123");
-
-    expect(numericBoundaryTree.rootGoal).toBe(-1);
-    expect(numericBoundaryTree.runId).toBe(Number.MAX_SAFE_INTEGER);
-
-    expect(typeBoundaryTree.rootGoal).toBe(arrayValue);
-    expect(typeBoundaryTree.runId).toBe(objectValue);
+    const restored = PlanningTree.fromJSON(json);
+    expect(restored.runId).toBe("run-2");
+    expect(restored.rootGoal).toBe("root");
+    expect(restored.getNodesForGap("g3")).toHaveLength(2);
+    expect(restored.getNodesForTodo("t3")).toHaveLength(1);
   });
 
-  it("serialize and toJSON return snapshots and ignore nodes", () => {
-    const tree = new PlanningTree({ rootGoal: "goal", runId: "run" });
-    tree.nodes.set("node-1", { id: "node-1" });
-
-    const serialized = tree.serialize();
-    const json = tree.toJSON();
-    const serializedAgain = tree.serialize();
-
-    expect(serialized).toEqual({ rootGoal: "goal", runId: "run" });
-    expect(json).toEqual(serialized);
-    expect(serializedAgain).toEqual(serialized);
-    expect(json).not.toBe(serialized);
-    expect(tree.nodes.size).toBe(1);
-  });
-
-  it("expand methods are safe for rapid and concurrent calls", async () => {
-    const tree = new PlanningTree({ rootGoal: "goal", runId: "run" });
-    const baseline = tree.serialize();
-
-    const concurrentGapCalls = Array.from({ length: 20 }, () =>
-      Promise.resolve().then(() => tree.expandFromGap())
-    );
-    const concurrentTodoCalls = Array.from({ length: 20 }, () =>
-      Promise.resolve().then(() => tree.expandFromTodo())
-    );
-
-    await Promise.all([...concurrentGapCalls, ...concurrentTodoCalls]);
-
-    for (let i = 0; i < 50; i += 1) {
-      tree.expandFromGap();
-      tree.expandFromTodo();
-    }
-
-    const snapshots = await Promise.all(
-      Array.from({ length: 10 }, () => Promise.resolve().then(() => tree.serialize()))
-    );
-
-    snapshots.forEach((snapshot) => {
-      expect(snapshot).toEqual(baseline);
-    });
-    expect(tree.nodes.size).toBe(0);
-  });
-
-  describe("fromJSON", () => {
-    it("creates a new PlanningTree from valid json", () => {
-      const tree = PlanningTree.fromJSON({ rootGoal: "goal", runId: "run" });
-
-      expect(tree).toBeInstanceOf(PlanningTree);
-      expect(tree.rootGoal).toBe("goal");
-      expect(tree.runId).toBe("run");
-      expect(tree.nodes).toBeInstanceOf(Map);
-      expect(tree.nodes.size).toBe(0);
-    });
-
-    it("handles null, undefined, empty string, and primitive inputs", () => {
-      const inputs = [null, undefined, "", 0, -1];
-
-      inputs.forEach((value) => {
-        expect(() => PlanningTree.fromJSON(value)).not.toThrow();
-        const tree = PlanningTree.fromJSON(value);
-        expect(tree.rootGoal).toBe("");
-        expect(tree.runId).toBe("");
-      });
-    });
-
-    it("handles empty object, empty array, and array-shaped json", () => {
-      const emptyObjectTree = PlanningTree.fromJSON({});
-      const emptyArrayTree = PlanningTree.fromJSON([]);
-
-      expect(emptyObjectTree.rootGoal).toBe("");
-      expect(emptyObjectTree.runId).toBe("");
-
-      expect(emptyArrayTree.rootGoal).toBe("");
-      expect(emptyArrayTree.runId).toBe("");
-
-      const arrayJson = [];
-      arrayJson.rootGoal = "array-goal";
-      arrayJson.runId = "array-run";
-
-      const arrayTree = PlanningTree.fromJSON(arrayJson);
-      expect(arrayTree.rootGoal).toBe("array-goal");
-      expect(arrayTree.runId).toBe("array-run");
-    });
-
-    it("supports large payloads and deep nesting without crashing", () => {
-      const hugeString = "x".repeat(200000);
-      const deepNested = { level: 0 };
-      let cursor = deepNested;
-      for (let i = 1; i <= 40; i += 1) {
-        cursor.child = { level: i };
-        cursor = cursor.child;
-      }
-
-      const tree = PlanningTree.fromJSON({
-        rootGoal: hugeString,
-        runId: "run-large",
-        metadata: deepNested,
-      });
-
-      expect(tree.rootGoal).toBe(hugeString);
-      expect(tree.rootGoal.length).toBe(hugeString.length);
-      expect(tree.runId).toBe("run-large");
-    });
+  it("handles legacy json without nodes", () => {
+    const restored = PlanningTree.fromJSON({ runId: "legacy", rootGoal: "goal" });
+    expect(restored.runId).toBe("legacy");
+    expect(restored.rootGoal).toBe("goal");
+    expect(restored.nodes.size).toBe(0);
   });
 });

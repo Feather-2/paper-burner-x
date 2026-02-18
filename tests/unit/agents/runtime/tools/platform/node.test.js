@@ -584,6 +584,53 @@ describe('createNodeTools', () => {
     await expect(tools.glob(null)).rejects.toThrow();
   });
 
+  it('normalizes grep file paths to base-relative form for rg output', async () => {
+    addFile('/base/a.txt', 'hello');
+    hoisted.exec.mockResolvedValueOnce({
+      success: true,
+      stdout: '/base/a.txt:2:hello world\n',
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const createNodeTools = await importSubject();
+    const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
+    const result = await tools.grep({ pattern: 'hello', path: '.' });
+
+    expect(result.error).toBeUndefined();
+    expect(result.matches).toEqual([
+      { file: 'a.txt', line: 2, content: 'hello world' },
+    ]);
+  });
+
+  it('keeps grep file field consistent between rg and manual fallback', async () => {
+    addFile('/base/sub/a.txt', 'hello\nneedle');
+
+    const createNodeTools = await importSubject();
+    const tools = await createNodeTools({ basePath: '/base', allowedCommands: ['echo'] });
+
+    hoisted.exec.mockResolvedValueOnce({
+      success: true,
+      stdout: '/base/sub/a.txt:2:needle\n',
+      stderr: '',
+      exitCode: 0,
+    });
+    const fromRg = await tools.grep({ pattern: 'needle', path: '.' });
+
+    hoisted.exec.mockResolvedValueOnce({
+      success: false,
+      stdout: '',
+      stderr: 'rg missing',
+      exitCode: 127,
+    });
+    hoisted.globToRegex.mockImplementation(() => /.*/);
+    const fromFallback = await tools.grep({ pattern: 'needle', path: '.', regex: false });
+
+    expect(fromFallback.error).toBeUndefined();
+    expect(fromRg.matches[0].file).toBe('sub/a.txt');
+    expect(fromFallback.matches[0].file).toBe('sub/a.txt');
+  });
+
   it('bash parses quoting/escapes, enforces allowedCommands, validates inputs, clamps timeouts, and supports concurrency', async () => {
     hoisted.exec.mockResolvedValue({ stdout: 'ok', stderr: '', exitCode: 0 });
 

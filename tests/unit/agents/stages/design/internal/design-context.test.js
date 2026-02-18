@@ -240,6 +240,33 @@ describe("DesignContext", () => {
     });
   });
 
+  it("keeps snapshot data isolated from later context mutations", () => {
+    const context = new DesignContext({
+      runId: "snapshot-isolation",
+      slideIntents: [{ id: "s1" }],
+      designSystem: { theme: "light" },
+      imageSlots: [{ slotId: "img-1", url: "a" }],
+      slidesMeta: [{ title: "S1" }],
+      constraints: { maxSlides: 5 },
+      userConfig: { locale: "zh" },
+    });
+
+    const snapshot = context.toSnapshot();
+    context.slideIntents[0].id = "mutated";
+    context.designSystem.theme = "dark";
+    context.imageSlots[0].url = "b";
+    context.slidesMeta[0].title = "mutated-title";
+    context.constraints.maxSlides = 99;
+    context.userConfig.locale = "en";
+
+    expect(snapshot.slideIntents).toEqual([{ id: "s1" }]);
+    expect(snapshot.designSystem).toEqual({ theme: "light" });
+    expect(snapshot.imageSlots).toEqual([{ slotId: "img-1", url: "a" }]);
+    expect(snapshot.slidesMeta).toEqual([{ title: "S1" }]);
+    expect(snapshot.constraints).toEqual({ maxSlides: 5 });
+    expect(snapshot.userConfig).toEqual({ locale: "zh" });
+  });
+
   it("builds from snapshot with snapshot taking precedence over options", () => {
     const snapshot = {
       runId: "snap-1",
@@ -265,6 +292,34 @@ describe("DesignContext", () => {
     expect(context.designSystem).toEqual({ theme: "dark" });
     expect(context.imageSlots).toEqual([{ slotId: 2 }]);
     expect(context.deckHtmlDsl).toBe("dsl");
+    expect(context.slidesMeta).toEqual([{ id: "meta" }]);
+    expect(context.constraints).toEqual({ max: 1 });
+    expect(context.userConfig).toEqual({ locale: "fr" });
+  });
+
+  it("fromSnapshot clones snapshot payload to avoid shared references", () => {
+    const snapshot = {
+      runId: "snap-clone",
+      slideIntents: [{ id: 1 }],
+      designSystem: { theme: "dark" },
+      imageSlots: [{ slotId: "1", url: "a" }],
+      deckHtmlDsl: "dsl",
+      slidesMeta: [{ id: "meta" }],
+      constraints: { max: 1 },
+      userConfig: { locale: "fr" },
+    };
+
+    const context = DesignContext.fromSnapshot(snapshot);
+    snapshot.slideIntents[0].id = 999;
+    snapshot.designSystem.theme = "light";
+    snapshot.imageSlots[0].url = "b";
+    snapshot.slidesMeta[0].id = "changed";
+    snapshot.constraints.max = 2;
+    snapshot.userConfig.locale = "en";
+
+    expect(context.slideIntents).toEqual([{ id: 1 }]);
+    expect(context.designSystem).toEqual({ theme: "dark" });
+    expect(context.imageSlots).toEqual([{ slotId: "1", url: "a" }]);
     expect(context.slidesMeta).toEqual([{ id: "meta" }]);
     expect(context.constraints).toEqual({ max: 1 });
     expect(context.userConfig).toEqual({ locale: "fr" });

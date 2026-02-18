@@ -95,9 +95,39 @@ export function createBrowserTools(options = {}) {
     const results = [];
     const regex = globToRegex(pattern);
 
-    async function walk(currentPath) {
+    async function listDirectoryEntries(targetPath) {
+      if (!vfs || typeof vfs.list !== "function") return null;
       try {
-        const entries = await vfs.list(currentPath);
+        const rows = await vfs.list(targetPath);
+        return Array.isArray(rows) ? rows : null;
+      } catch (err) {
+        logger?.debug?.('[platform/browser] list failed', {
+          path: targetPath,
+          error: err?.message,
+        });
+        return null;
+      }
+    }
+
+    async function isDirectory(targetPath) {
+      if (vfs && typeof vfs.stat === "function") {
+        try {
+          const stat = await vfs.stat(targetPath);
+          if (typeof stat?.isDirectory === "function") return stat.isDirectory();
+          if (typeof stat?.isDirectory === "boolean") return stat.isDirectory;
+          if (typeof stat?.type === "string") return stat.type.toLowerCase() === "directory";
+        } catch {
+          // ignore and fallback to list() probing
+        }
+      }
+      const nested = await listDirectoryEntries(targetPath);
+      return Array.isArray(nested);
+    }
+
+    async function walk(currentPath, preloadedEntries = null) {
+      try {
+        const entries = Array.isArray(preloadedEntries) ? preloadedEntries : await listDirectoryEntries(currentPath);
+        if (!Array.isArray(entries)) return;
         for (const entry of entries || []) {
           const fullPath = `${currentPath}/${entry}`.replace(/\/+/g, '/');
 
@@ -106,10 +136,11 @@ export function createBrowserTools(options = {}) {
             results.push(fullPath);
           }
 
-          // 递归子目录 (简化：假设无 . 开头的是目录)
-          if (!entry.includes('.') && entry !== '.' && entry !== '..') {
+          // 递归子目录（基于 stat/list 探测，避免文件名规则误判）
+          if (entry !== '.' && entry !== '..' && await isDirectory(fullPath)) {
             try {
-              await walk(fullPath);
+              const childEntries = await listDirectoryEntries(fullPath);
+              await walk(fullPath, childEntries);
             } catch (err) {
               logger?.debug?.('[platform/browser] walk skip non-directory', {
                 path: fullPath,

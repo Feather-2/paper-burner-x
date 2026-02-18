@@ -30,6 +30,20 @@ export class ErrorAggregator {
   }
 
   /**
+   * @param {AggregatedError} entry
+   * @param {number} now
+   * @returns {number}
+   * @private
+   */
+  _pruneTimestamps(entry, now) {
+    const cutoff = now - ONE_HOUR_MS;
+    while (entry.timestamps.length > 0 && entry.timestamps[0] <= cutoff) {
+      entry.timestamps.shift();
+    }
+    return entry.timestamps.length;
+  }
+
+  /**
    * 记录一个错误
    * @param {Error | unknown} error
    * @param {{ runId?: string }} [context]
@@ -76,11 +90,7 @@ export class ErrorAggregator {
     entry.count++;
     entry.lastSeen = now;
     entry.timestamps.push(now);
-    // 惰性清理：仅当数组超过阈值时才 filter，避免每次 O(n)
-    if (entry.timestamps.length > 200) {
-      const cutoff = now - ONE_HOUR_MS;
-      entry.timestamps = entry.timestamps.filter(t => t > cutoff);
-    }
+    this._pruneTimestamps(entry, now);
 
     if (context.runId) {
       entry.affectedRuns.add(context.runId);
@@ -95,11 +105,10 @@ export class ErrorAggregator {
    */
   getStats() {
     const now = Date.now();
-    const cutoff = now - ONE_HOUR_MS;
     const result = [];
 
     for (const entry of this._entries.values()) {
-      const recentCount = entry.timestamps.filter(t => t > cutoff).length;
+      const recentCount = this._pruneTimestamps(entry, now);
       result.push({
         fingerprint: entry.fingerprint,
         taxonomy: entry.taxonomy,

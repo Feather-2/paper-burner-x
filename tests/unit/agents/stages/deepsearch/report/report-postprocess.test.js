@@ -9,8 +9,11 @@ vi.mock('../../../../../../js/agents/shared/index.js', () => ({
 import {
   getReportConfig,
   countNonWhitespaceChars,
+  countSemanticWords,
   countReferences,
   reorderReportSections,
+  validateReport,
+  getReportProgress,
 } from '../../../../../../js/agents/stages/deepsearch/report/report-postprocess.js';
 import { isPlainObject, toNonEmptyString, createSafeRegex } from '../../../../../../js/agents/shared/index.js';
 
@@ -181,6 +184,19 @@ describe('countNonWhitespaceChars', () => {
   });
 });
 
+describe('countSemanticWords', () => {
+  it('counts mixed CJK chars and latin tokens', () => {
+    const input = '中文测试 deep search v2';
+    expect(countSemanticWords(input)).toBe(4 + 3);
+  });
+
+  it('returns 0 for non-string input', () => {
+    expect(countSemanticWords(null)).toBe(0);
+    expect(countSemanticWords(undefined)).toBe(0);
+    expect(countSemanticWords(0)).toBe(0);
+  });
+});
+
 describe('countReferences', () => {
   it('counts reference markers in markdown', () => {
     const markdown = 'Intro [src:1] text.\nMore [ref:2] data.';
@@ -315,5 +331,75 @@ describe('reorderReportSections', () => {
     for (let i = 0; i < 10; i++) {
       expect(reorderReportSections('## A\nX\n## References\n- r')).toContain('## References');
     }
+  });
+});
+
+describe('validateReport & progress semantics', () => {
+  it('does not treat body mentions as section coverage (heading-based check)', () => {
+    const markdown = [
+      '# 报告',
+      '正文提到摘要、发现、信息缺口，但并没有对应标题。',
+      '[来源:1]',
+    ].join('\n');
+
+    const validation = validateReport(markdown, 'quick', {
+      reportConfig: {
+        quick: {
+          minWords: 1,
+          minReferences: 1,
+          requiredSections: ['摘要', '发现'],
+          recommendedSections: ['信息缺口'],
+        },
+      },
+    });
+
+    expect(validation.valid).toBe(false);
+    expect(validation.issues.some((msg) => msg.includes('缺少必需章节：摘要'))).toBe(true);
+    expect(validation.issues.some((msg) => msg.includes('缺少必需章节：发现'))).toBe(true);
+  });
+
+  it('accepts explicit gap coverage via gap headings and uses semantic word count', () => {
+    const markdown = [
+      '## 摘要',
+      '中文内容 English words here',
+      '## 发现',
+      '发现内容 [来源:1]',
+      '## 信息缺口',
+      '当前证据不足，仍需补充实验数据。',
+    ].join('\n\n');
+
+    const validation = validateReport(markdown, 'quick', {
+      reportConfig: {
+        quick: {
+          minWords: 5,
+          minReferences: 1,
+          requiredSections: ['摘要', '发现'],
+          recommendedSections: ['信息缺口'],
+        },
+      },
+    });
+
+    expect(validation.valid).toBe(true);
+    expect(validation.wordCount).toBeGreaterThanOrEqual(5);
+    expect(validation.charCount).toBeGreaterThan(validation.wordCount);
+  });
+
+  it('progress missingSections checks headings instead of substring mentions', () => {
+    const markdown = [
+      '正文里有“摘要”和“发现”这两个词，但无标题。',
+      '[来源:1]',
+    ].join('\n');
+
+    const progress = getReportProgress({ markdown }, 'quick', {
+      reportConfig: {
+        quick: {
+          minWords: 1,
+          minReferences: 1,
+          requiredSections: ['摘要', '发现'],
+        },
+      },
+    });
+
+    expect(progress.missingSections).toEqual(['摘要', '发现']);
   });
 });
