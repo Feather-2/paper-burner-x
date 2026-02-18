@@ -201,13 +201,29 @@ describe('SharedTaskBoard', () => {
   });
 
   describe('getTask', () => {
-    it('returns task by id', () => {
+    it('returns cloned task by id', () => {
       const { task } = board.addTask({ taskType: 'a:b', createdBy: 'x' });
-      expect(board.getTask(task.id)).toBe(task);
+      const stored = board.getTask(task.id);
+      expect(stored).toEqual(task);
+      expect(stored).not.toBe(task);
     });
 
     it('returns null for unknown id', () => {
       expect(board.getTask('nope')).toBeNull();
+    });
+
+    it('does not allow external mutation through returned task objects', () => {
+      const { task } = board.addTask({
+        taskType: 'a:b',
+        createdBy: 'x',
+        payload: { nested: { value: 1 } },
+      });
+
+      const view = board.getTask(task.id);
+      view.payload.nested.value = 999;
+
+      const fresh = board.getTask(task.id);
+      expect(fresh.payload.nested.value).toBe(1);
     });
   });
 
@@ -220,6 +236,10 @@ describe('SharedTaskBoard', () => {
       expect(snapshot.boardId).toBe('test-board');
       expect(snapshot.tasks).toHaveLength(2);
       expect(snapshot.ts).toBeGreaterThan(0);
+
+      snapshot.tasks[0].status = 'failed';
+      const fresh = board.getTask(snapshot.tasks[0].id);
+      expect(fresh.status).toBe('pending');
 
       const board2 = new SharedTaskBoard();
       const result = board2.restore(snapshot);

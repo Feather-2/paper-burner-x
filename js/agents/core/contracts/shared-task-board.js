@@ -18,6 +18,7 @@
  */
 
 import { TaskStatus } from './agent-message.js';
+import { deepClone } from '../../shared/utils/value-utils.js';
 
 // ─── 常量 ───────────────────────────────────────────────
 
@@ -41,6 +42,16 @@ function createTaskId() {
   const c = globalThis?.crypto;
   if (typeof c?.randomUUID === 'function') return c.randomUUID();
   return `task_${Date.now().toString(36)}_${(++_counter).toString(36)}`;
+}
+
+/** @param {BoardTask} task @returns {BoardTask} */
+function cloneTask(task) {
+  return deepClone(task);
+}
+
+/** @param {BoardTask[]} tasks @returns {BoardTask[]} */
+function cloneTasks(tasks) {
+  return tasks.map((task) => cloneTask(task));
 }
 
 // ─── 类型定义 ───────────────────────────────────────────
@@ -112,7 +123,7 @@ export class SharedTaskBoard {
 
     this._tasks.set(task.id, task);
     this._emit(TaskBoardEvents.TASK_ADDED, { task });
-    return { ok: true, task };
+    return { ok: true, task: cloneTask(task) };
   }
 
   /**
@@ -136,7 +147,7 @@ export class SharedTaskBoard {
     task.claimedAt = Date.now();
 
     this._emit(TaskBoardEvents.TASK_CLAIMED, { task });
-    return { ok: true, task };
+    return { ok: true, task: cloneTask(task) };
   }
 
   /**
@@ -159,7 +170,7 @@ export class SharedTaskBoard {
     task.completedAt = Date.now();
 
     this._emit(TaskBoardEvents.TASK_COMPLETED, { task });
-    return { ok: true, task };
+    return { ok: true, task: cloneTask(task) };
   }
 
   /**
@@ -182,7 +193,7 @@ export class SharedTaskBoard {
     task.completedAt = Date.now();
 
     this._emit(TaskBoardEvents.TASK_FAILED, { task });
-    return { ok: true, task };
+    return { ok: true, task: cloneTask(task) };
   }
 
   /**
@@ -207,7 +218,7 @@ export class SharedTaskBoard {
     task.completedAt = Date.now();
 
     this._emit(TaskBoardEvents.TASK_CANCELLED, { task });
-    return { ok: true, task };
+    return { ok: true, task: cloneTask(task) };
   }
 
   /**
@@ -219,7 +230,8 @@ export class SharedTaskBoard {
     for (const task of this._tasks.values()) {
       if (task.status === 'pending') pending.push(task);
     }
-    return pending.sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
+    pending.sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
+    return cloneTasks(pending);
   }
 
   /**
@@ -234,7 +246,7 @@ export class SharedTaskBoard {
     for (const task of this._tasks.values()) {
       if (task.claimedBy === agent) result.push(task);
     }
-    return result;
+    return cloneTasks(result);
   }
 
   /**
@@ -243,7 +255,8 @@ export class SharedTaskBoard {
    * @returns {BoardTask | null}
    */
   getTask(taskId) {
-    return this._tasks.get(taskId) ?? null;
+    const task = this._tasks.get(taskId);
+    return task ? cloneTask(task) : null;
   }
 
   /** @returns {number} */
@@ -256,7 +269,7 @@ export class SharedTaskBoard {
   getSnapshot() {
     return {
       boardId: this.boardId,
-      tasks: Array.from(this._tasks.values()),
+      tasks: cloneTasks(Array.from(this._tasks.values())),
       ts: Date.now(),
     };
   }
@@ -274,7 +287,7 @@ export class SharedTaskBoard {
     let count = 0;
     for (const task of snapshot.tasks) {
       if (task && typeof task === 'object' && str(task.id)) {
-        this._tasks.set(task.id, { ...task });
+        this._tasks.set(task.id, cloneTask(task));
         count++;
       }
     }
@@ -289,10 +302,11 @@ export class SharedTaskBoard {
   _emit(eventName, payload) {
     if (!this._eventBus || typeof this._eventBus.emit !== 'function') return;
     try {
+      const safePayload = deepClone(payload);
       this._eventBus.emit(eventName, {
         actor: 'taskboard',
         status: 'info',
-        payload: { ...payload, boardId: this.boardId },
+        payload: { ...safePayload, boardId: this.boardId },
       });
     } catch {
       // best-effort
