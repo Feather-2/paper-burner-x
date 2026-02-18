@@ -3,18 +3,50 @@
  * Install in SW: importScripts('sw-handler.js') or import.
  */
 
-const SCOPE = '/__virtual__/';
+/**
+ * @typedef {object} SwFetchHandlerOptions
+ * @property {string} [scope='/__virtual__/']
+ * @property {number} [requestTimeoutMs=60000]
+ * @property {boolean} [allowFirstClientFallback=false]
+ */
+
+/**
+ * @param {string | undefined} scope
+ * @returns {string}
+ */
+function normalizeScope(scope) {
+  if (typeof scope !== 'string' || !scope.trim()) return '/__virtual__/';
+  const trimmed = scope.trim();
+  const withLeading = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return withLeading.endsWith('/') ? withLeading : `${withLeading}/`;
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /**
  * Install fetch interceptor in a Service Worker context.
  * @param {ServiceWorkerGlobalScope} sw
+ * @param {SwFetchHandlerOptions} [options]
  */
-export function installFetchHandler(sw) {
+export function installFetchHandler(sw, options = {}) {
+  const scope = normalizeScope(options.scope);
+  const requestTimeoutMs = typeof options.requestTimeoutMs === 'number' && Number.isFinite(options.requestTimeoutMs)
+    ? Math.max(1000, Math.floor(options.requestTimeoutMs))
+    : 60000;
+  const allowFirstClientFallback = options.allowFirstClientFallback === true;
+  const scopePattern = new RegExp(`^${escapeRegex(scope)}(\\d+)(\\/.*)?$`);
+
   sw.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
-    if (!url.pathname.startsWith(SCOPE)) return;
+    if (!url.pathname.startsWith(scope)) return;
 
-    const match = url.pathname.match(/\/__virtual__\/(\d+)(\/.*)?/);
+    const match = url.pathname.match(scopePattern);
     if (!match) return;
 
     const port = parseInt(match[1], 10);
@@ -40,7 +72,7 @@ export function installFetchHandler(sw) {
 
         const timeoutId = setTimeout(() => {
           settle(new Response('Timeout', { status: 504 }));
-        }, 60000);
+        }, requestTimeoutMs);
 
         mc.port1.onmessage = (e) => {
           if (settled) return;
@@ -51,7 +83,9 @@ export function installFetchHandler(sw) {
         const clientId = event.resultingClientId || event.clientId;
         const clientPromise = clientId
           ? sw.clients.get(clientId)
-          : sw.clients.matchAll().then((clients) => clients[0]);
+          : allowFirstClientFallback
+            ? sw.clients.matchAll().then((clients) => clients[0] || null)
+            : Promise.resolve(null);
 
         const bodyPromise = event.request.method !== 'GET' && event.request.method !== 'HEAD'
           ? event.request.arrayBuffer().then((buf) => buf.byteLength > 0 ? buf : null).catch(() => null)

@@ -15,6 +15,7 @@
  * @property {Map<string, unknown>} [moduleCache]
  * @property {{ on?: (event: string, callback: Function) => void, off?: (event: string, callback: Function) => void }} [vfs]
  * @property {(update: HmrUpdate) => void|Promise<void>} [onFullReload]
+ * @property {boolean} [throwOnError=false]
  */
 
 /**
@@ -149,6 +150,8 @@ export class HmrClient {
     this._moduleCache = moduleCache instanceof Map ? moduleCache : new Map();
     this._vfs = vfs;
     this._onFullReload = typeof onFullReload === 'function' ? onFullReload : null;
+    this._throwOnError = options.throwOnError === true;
+    this._lastError = null;
     this._hotStates = new Map();
     this._vfsChangeHandler = null;
     this._vfsDeleteHandler = null;
@@ -256,12 +259,15 @@ export class HmrClient {
    * Applies a precomputed update and triggers HMR hooks.
    *
    * @param {HmrUpdate} update
-   * @returns {Promise<void>}
+   * @returns {Promise<boolean>} true when update path completed, false when failed
    */
   async applyUpdate(update) {
     if (!update || typeof update !== 'object') {
-      this.emit('hmr:error', { error: new TypeError('update must be an object'), update });
-      return;
+      const error = new TypeError('update must be an object');
+      this._lastError = error;
+      this.emit('hmr:error', { error, update });
+      if (this._throwOnError) throw error;
+      return false;
     }
 
     const moduleId = normalizeModuleId(update.path);
@@ -274,12 +280,14 @@ export class HmrClient {
     try {
       if (patch.type === 'css-update') {
         this.emit('hmr:css-update', patch);
-        return;
+        this._lastError = null;
+        return true;
       }
 
       if (patch.type === 'update') {
         await this._applyModuleUpdate(patch);
-        return;
+        this._lastError = null;
+        return true;
       }
 
       if (patch.type !== 'full-reload') {
@@ -291,12 +299,17 @@ export class HmrClient {
       if (this._onFullReload) {
         await this._onFullReload(patch);
       }
+      this._lastError = null;
+      return true;
     } catch (error) {
+      this._lastError = /** @type {Error} */ (error);
       this.emit('hmr:error', {
         error,
         update: patch,
         phase: 'applyUpdate',
       });
+      if (this._throwOnError) throw error;
+      return false;
     }
   }
 
@@ -447,7 +460,7 @@ export class HmrClient {
    * @returns {Function[]}
    */
   _collectDependencyAcceptCallbacks(moduleId) {
-    const callbacks = [];
+    const callbackSet = new Set();
 
     for (const state of this._hotStates.values()) {
       if (state.declined) continue;
@@ -455,11 +468,11 @@ export class HmrClient {
       if (!handlers || handlers.size === 0) continue;
 
       for (const callback of handlers) {
-        callbacks.push(callback);
+        callbackSet.add(callback);
       }
     }
 
-    return callbacks;
+    return Array.from(callbackSet);
   }
 
   /**
@@ -524,6 +537,11 @@ export class HmrClient {
       content,
       timestamp: Date.now(),
     };
+  }
+
+  /** @returns {Error | null} */
+  get lastError() {
+    return this._lastError;
   }
 }
 

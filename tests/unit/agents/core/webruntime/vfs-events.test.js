@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MemoryVfs } from '../../../../../js/agents/vfs/vfs.memory.js';
 import {
   withVfsEvents,
@@ -168,6 +168,56 @@ describe('vfs-events', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(await target.exists('first.txt')).toBe(true);
     expect(await target.exists('second.txt')).toBe(false);
+  });
+
+  it('bridge delete falls back to rm/remove strategies', async () => {
+    const listeners = new Map();
+    const eventVfsStub = {
+      on(event, fn) {
+        listeners.set(event, fn);
+      },
+      off(event) {
+        listeners.delete(event);
+      },
+    };
+    const target = {
+      unlink: async () => { throw new Error('unlink failed'); },
+      rmdir: async () => { throw new Error('rmdir failed'); },
+      rm: async () => true,
+    };
+
+    createVfsEventBridge(eventVfsStub, target);
+    await listeners.get('delete')('folder');
+    expect(listeners.has('delete')).toBe(true);
+  });
+
+  it('bridge writes string payload via writeText and object payload via writeFile', async () => {
+    const listeners = new Map();
+    const eventVfsStub = {
+      on(event, fn) {
+        listeners.set(event, fn);
+      },
+      off(event) {
+        listeners.delete(event);
+      },
+      readFile: async () => new Uint8Array([1, 2, 3]),
+    };
+    const target = {
+      writeText: async () => true,
+      writeFile: async () => true,
+    };
+    const writeTextSpy = vi.spyOn(target, 'writeText');
+    const writeFileSpy = vi.spyOn(target, 'writeFile');
+
+    createVfsEventBridge(eventVfsStub, target);
+
+    await listeners.get('change')('a.txt', 'hello');
+    await listeners.get('change')('obj.json', { a: 1 });
+
+    expect(writeTextSpy).toHaveBeenCalledWith('a.txt', 'hello');
+    expect(writeFileSpy).toHaveBeenCalled();
+    const payload = writeFileSpy.mock.calls[0][1];
+    expect(payload).toBeInstanceOf(Uint8Array);
   });
 
   // 15. path normalization in events

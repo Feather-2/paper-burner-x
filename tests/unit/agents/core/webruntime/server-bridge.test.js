@@ -21,7 +21,7 @@ describe('server-bridge', () => {
     it('accepts custom config', () => {
       const custom = createServerBridge({
         swUrl: '/custom-sw.js',
-        scope: '/__custom__/',
+        scope: '__custom__',
         keepaliveInterval: 10000,
       });
       expect(custom._swUrl).toBe('/custom-sw.js');
@@ -65,6 +65,11 @@ describe('server-bridge', () => {
       const resp = await fetch(new Request('http://localhost/__virtual__/4000/'));
       expect(resp.status).toBe(404);
     });
+
+    it('throws on duplicate port registration', () => {
+      bridge.listen(4123);
+      expect(() => bridge.listen(4123)).toThrow(/already exists/);
+    });
   });
 
   describe('createFetchHandler', () => {
@@ -94,6 +99,21 @@ describe('server-bridge', () => {
       const fetch = createFetchHandler(bridge);
       const resp = await fetch(new Request('http://localhost/other/path'));
       expect(resp.status).toBe(404);
+    });
+
+    it('respects bridge scope instead of hardcoded /__virtual__/', async () => {
+      const scopedBridge = createServerBridge({ scope: '/__agent__/' });
+      scopedBridge.listen(6100).onRequest(async () => ({
+        status: 200,
+        headers: {},
+        body: 'scoped-ok',
+      }));
+
+      const fetch = createFetchHandler(scopedBridge);
+      const okResp = await fetch(new Request('http://localhost/__agent__/6100/hi'));
+      const missResp = await fetch(new Request('http://localhost/__virtual__/6100/hi'));
+      expect(await okResp.text()).toBe('scoped-ok');
+      expect(missResp.status).toBe(404);
     });
 
     it('forwards custom status and body', async () => {
@@ -128,6 +148,15 @@ describe('server-bridge', () => {
       expect(bridge._servers.size).toBe(0);
       expect(bridge.ready).toBe(false);
     });
+
+    it('optionally unregisters service worker registration on stop', async () => {
+      const unregisterBridge = createServerBridge({ unregisterOnStop: true });
+      const unregister = vi.fn().mockResolvedValue(true);
+      unregisterBridge._registration = { unregister };
+      await unregisterBridge.stop();
+      expect(unregister).toHaveBeenCalledOnce();
+      expect(unregisterBridge._registration).toBeNull();
+    });
   });
 
   describe('multiple ports', () => {
@@ -147,6 +176,75 @@ describe('server-bridge', () => {
 
       expect(await r1.text()).toBe('a:/x');
       expect(await r2.text()).toBe('b:/y');
+    });
+  });
+
+  describe('message forwarding errors', () => {
+    it('hides internal handler errors by default', async () => {
+      /** @type {Record<string, any>} */
+      const listeners = {};
+      const serviceWorker = {
+        controller: { postMessage: vi.fn() },
+        register: vi.fn().mockResolvedValue({}),
+        ready: Promise.resolve({}),
+        addEventListener: vi.fn((event, handler) => {
+          listeners[event] = handler;
+        }),
+        removeEventListener: vi.fn(),
+      };
+      vi.stubGlobal('navigator', { serviceWorker });
+
+      const scopedBridge = createServerBridge({ scope: '/__virtual__/' });
+      await scopedBridge.start();
+      scopedBridge.listen(3210).onRequest(async () => {
+        throw new Error('sensitive-details');
+      });
+
+      const replyPort = { postMessage: vi.fn() };
+      listeners.message({
+        data: {
+          type: 'virtual-request',
+          requestId: 'req-x',
+          port: 3210,
+          method: 'GET',
+          url: '/',
+          headers: {},
+          body: null,
+        },
+        ports: [replyPort],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(replyPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'virtual-response',
+        requestId: 'req-x',
+        status: 500,
+        body: 'Internal server error',
+      }));
+
+      await scopedBridge.stop();
+      vi.unstubAllGlobals();
+    });
+
+    it('start fails fast when service worker controller is unavailable', async () => {
+      /** @type {Record<string, any>} */
+      const listeners = {};
+      const serviceWorker = {
+        controller: null,
+        register: vi.fn().mockResolvedValue({}),
+        ready: Promise.resolve({}),
+        addEventListener: vi.fn((event, handler) => {
+          listeners[event] = handler;
+        }),
+        removeEventListener: vi.fn(),
+      };
+      vi.stubGlobal('navigator', { serviceWorker });
+
+      const scopedBridge = createServerBridge({
+        scope: '/__virtual__/',
+        controllerReadyTimeoutMs: 1,
+      });
+      await expect(scopedBridge.start()).rejects.toThrow(/controller unavailable/);
+      vi.unstubAllGlobals();
     });
   });
 });
@@ -218,6 +316,71 @@ describe('sw-handler', () => {
     expect(rightClient.postMessage).toHaveBeenCalledOnce();
     expect(wrongClient.postMessage).not.toHaveBeenCalled();
     expect(await response.text()).toBe('right-client');
+  });
+
+  it('returns 503 when no clientId and fallback is disabled', async () => {
+    /** @type {Record<string, any>} */
+    const listeners = {};
+    const sw = {
+      addEventListener: vi.fn((type, handler) => {
+        listeners[type] = handler;
+      }),
+      clients: {
+        get: vi.fn().mockResolvedValue(null),
+        matchAll: vi.fn().mockResolvedValue([]),
+      },
+    };
+
+    installFetchHandler(sw);
+
+    /** @type {Promise<Response> | undefined} */
+    let responsePromise;
+    listeners.fetch({
+      request: new Request('https://example.test/__virtual__/3000/hello'),
+      respondWith: (promise) => {
+        responsePromise = promise;
+      },
+    });
+
+    const response = await responsePromise;
+    expect(sw.clients.matchAll).not.toHaveBeenCalled();
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe('No client');
+  });
+
+  it('supports custom scope and timeout options', async () => {
+    vi.useFakeTimers();
+    try {
+      /** @type {Record<string, any>} */
+      const listeners = {};
+      const sw = {
+        addEventListener: vi.fn((type, handler) => {
+          listeners[type] = handler;
+        }),
+        clients: {
+          get: vi.fn().mockResolvedValue({
+            postMessage: vi.fn(),
+          }),
+          matchAll: vi.fn().mockResolvedValue([]),
+        },
+      };
+
+      installFetchHandler(sw, { scope: '/__agent__/', requestTimeoutMs: 1234 });
+      let responsePromise;
+      listeners.fetch({
+        request: new Request('https://example.test/__agent__/4000/slow'),
+        clientId: 'client-timeout',
+        respondWith: (promise) => {
+          responsePromise = promise;
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(1234);
+      const response = await responsePromise;
+      expect(response.status).toBe(504);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('closes port1 when request times out', async () => {

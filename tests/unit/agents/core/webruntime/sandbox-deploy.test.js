@@ -12,6 +12,8 @@ describe('sandbox-deploy', () => {
       expect(csp).toContain("default-src 'none'");
       expect(csp).toContain("script-src 'self' 'unsafe-inline'");
       expect(csp).toContain("frame-ancestors 'self'");
+      expect(csp).toContain("connect-src 'self'");
+      expect(csp).not.toContain('http:');
     });
 
     it('includes normalized parent origin in frame-ancestors', () => {
@@ -38,6 +40,13 @@ describe('sandbox-deploy', () => {
       const swScript = generateSwScript();
       expect(swScript).toContain("self.addEventListener('message'");
       expect(swScript).toContain("sw:skip-waiting");
+    });
+
+    it('contains old-cache cleanup logic during activate', () => {
+      const swScript = generateSwScript();
+      expect(swScript).toContain('CACHE_PREFIX');
+      expect(swScript).toContain('caches.keys()');
+      expect(swScript).toContain('caches.delete');
     });
   });
 
@@ -73,6 +82,14 @@ describe('sandbox-deploy', () => {
       expect(files.indexHtml).toContain('sandbox:ready');
       expect(files.indexHtml).toContain('sandbox:ping');
       expect(files.indexHtml).toContain('sandbox:pong');
+      expect(files.indexHtml).not.toContain("|| '*'");
+    });
+
+    it('supports explicit connect-src allowlist', () => {
+      const files = generateSandboxFiles({
+        connectSrc: ['https://api.example.com/v1', 'https://api.example.com'],
+      });
+      expect(files.indexHtml).toContain("connect-src &#39;self&#39; https://api.example.com");
     });
 
     it('injects module script tags from scripts option', () => {

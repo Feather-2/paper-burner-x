@@ -122,16 +122,72 @@ export function withVfsEvents(vfs) {
  * @returns {VfsEventBridge} Object with dispose() to detach listeners.
  */
 export function createVfsEventBridge(eventVfs, target) {
-  const onChange = async (path, data) => {
-    try { await target.writeFile(path, data); }
-    catch (err) { logger.error('VFS bridge change error', { error: err }); }
-  };
-  const onDelete = async (path) => {
-    try { await target.unlink(path); }
-    catch (_) {
-      try { await target.rmdir(path); }
-      catch (err) { logger.error('VFS bridge delete error', { error: err }); }
+  const toBytes = (data) => {
+    if (data instanceof Uint8Array) return data;
+    if (data instanceof ArrayBuffer) return new Uint8Array(data);
+    if (ArrayBuffer.isView(data)) {
+      return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     }
+    if (typeof data === 'string') {
+      if (typeof TextEncoder === 'function') return new TextEncoder().encode(data);
+      return null;
+    }
+    if (data == null) return null;
+    try {
+      const json = JSON.stringify(data);
+      if (typeof json === 'string') {
+        return typeof TextEncoder === 'function' ? new TextEncoder().encode(json) : null;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  };
+
+  const onChange = async (path, data) => {
+    try {
+      if (typeof data === 'string' && typeof target.writeText === 'function') {
+        await target.writeText(path, data);
+        return;
+      }
+
+      const bytes = toBytes(data) || (typeof eventVfs.readFile === 'function'
+        ? await eventVfs.readFile(path).catch(() => null)
+        : null);
+      if (bytes) {
+        await target.writeFile(path, bytes);
+        return;
+      }
+
+      await target.writeFile(path, data);
+    } catch (err) {
+      logger.error('VFS bridge change error', { error: err });
+    }
+  };
+
+  const onDelete = async (path) => {
+    const attempts = [
+      async () => { if (typeof target.unlink === 'function') await target.unlink(path); },
+      async () => { if (typeof target.rmdir === 'function') await target.rmdir(path, { recursive: true }); },
+      async () => { if (typeof target.rm === 'function') await target.rm(path, { recursive: true, force: true }); },
+      async () => { if (typeof target.remove === 'function') await target.remove(path); },
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        await attempt();
+        if (typeof target.exists === 'function') {
+          const exists = await target.exists(path);
+          if (!exists) return;
+          continue;
+        }
+        return;
+      } catch {
+        // try next strategy
+      }
+    }
+
+    logger.error('VFS bridge delete error', { error: new Error(`Failed to delete ${path}`) });
   };
 
   eventVfs.on('change', onChange);

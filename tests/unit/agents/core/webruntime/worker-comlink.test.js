@@ -36,6 +36,9 @@ function createMockSelf() {
       if (!listeners.has(event)) listeners.set(event, new Set());
       listeners.get(event).add(fn);
     },
+    removeEventListener(event, fn) {
+      listeners.get(event)?.delete(fn);
+    },
     postMessage(data) { posted.push(data); },
     _receive(data) {
       const fns = listeners.get('message');
@@ -130,33 +133,46 @@ describe('worker-comlink', () => {
       await expect(p).rejects.toThrow('Worker call timeout');
       api.terminate();
     });
+
+    it('supports per-method timeout overrides', async () => {
+      const api = wrapWorker({
+        worker,
+        timeout: 1000,
+        methodTimeouts: { execute: 10 },
+      });
+      const p = api.execute('slow-method');
+      await expect(p).rejects.toThrow('Worker call timeout: execute');
+      api.terminate();
+    });
   });
 
   describe('exposeApi', () => {
     it('registers message listener and dispatches calls', async () => {
       const mockSelf = createMockSelf();
       const api = { add: vi.fn().mockResolvedValue(3) };
-      exposeApi(api, mockSelf);
+      const dispose = exposeApi(api, mockSelf);
       mockSelf._receive({ type: MSG_CALL, id: 1, method: 'add', args: [1, 2] });
       await new Promise((r) => setTimeout(r, 10));
       expect(api.add).toHaveBeenCalledWith(1, 2);
       expect(mockSelf._posted).toEqual([
         { type: MSG_RETURN, id: 1, ok: true, value: 3 },
       ]);
+      dispose();
     });
 
     it('returns error for unknown method', async () => {
       const mockSelf = createMockSelf();
-      exposeApi({}, mockSelf);
+      const dispose = exposeApi({}, mockSelf);
       mockSelf._receive({ type: MSG_CALL, id: 1, method: 'nope', args: [] });
       await new Promise((r) => setTimeout(r, 10));
       expect(mockSelf._posted[0].ok).toBe(false);
       expect(mockSelf._posted[0].error).toContain('Unknown method');
+      dispose();
     });
 
     it('serializes non-Error throws with String(err)', async () => {
       const mockSelf = createMockSelf();
-      exposeApi({
+      const dispose = exposeApi({
         fail: () => {
           throw 'boom-string';
         },
@@ -170,6 +186,18 @@ describe('worker-comlink', () => {
         ok: false,
         error: 'boom-string',
       });
+      dispose();
+    });
+
+    it('dispose handle removes the message listener', async () => {
+      const mockSelf = createMockSelf();
+      const fn = vi.fn().mockResolvedValue('ok');
+      const dispose = exposeApi({ ping: fn }, mockSelf);
+      dispose();
+      mockSelf._receive({ type: MSG_CALL, id: 1, method: 'ping', args: [] });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(fn).not.toHaveBeenCalled();
+      expect(mockSelf._posted).toHaveLength(0);
     });
   });
 });

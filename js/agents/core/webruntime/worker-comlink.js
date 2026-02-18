@@ -12,6 +12,7 @@
 /** @typedef {object} ComlinkWorkerConfig
  * @property {Worker|object} worker
  * @property {number} [timeout=30000]
+ * @property {Record<string, number>} [methodTimeouts]
  * @property {(method: string, args: unknown[]) => void} [onConsole] */
 
 const MSG_CALL = 'comlink:call';
@@ -24,7 +25,7 @@ const MSG_CONSOLE = 'comlink:console';
  * @returns {WorkerApi & { terminate: () => void, terminated: boolean }}
  */
 export function wrapWorker(config) {
-  const { worker, timeout = 30000, onConsole } = config;
+  const { worker, timeout = 30000, methodTimeouts = {}, onConsole } = config;
   let terminated = false;
   let nextId = 1;
   const pending = new Map();
@@ -52,12 +53,16 @@ export function wrapWorker(config) {
       p.catch(() => {}); // prevent unhandled rejection
       return p;
     }
+    const methodTimeout = Number.isFinite(methodTimeouts?.[method])
+      ? Math.max(1, Number(methodTimeouts[method]))
+      : timeout;
+
     const id = nextId++;
     const promise = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`Worker call timeout: ${method}`));
-      }, timeout);
+      }, methodTimeout);
       pending.set(id, { resolve, reject, timer });
       worker.postMessage({ type: MSG_CALL, id, method, args });
     });
@@ -89,9 +94,10 @@ export function wrapWorker(config) {
  * Expose API on the Worker side.
  * @param {Record<string, Function>} api
  * @param {object} [self=globalThis]
+ * @returns {() => void} dispose listener
  */
 export function exposeApi(api, self = globalThis) {
-  self.addEventListener('message', async (e) => {
+  const messageHandler = async (e) => {
     const d = e.data;
     if (!d || d.type !== MSG_CALL) return;
     const { id, method, args } = d;
@@ -107,7 +113,12 @@ export function exposeApi(api, self = globalThis) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       self.postMessage({ type: MSG_RETURN, id, ok: false, error: errorMessage });
     }
-  });
+  };
+
+  self.addEventListener('message', messageHandler);
+  return () => {
+    self.removeEventListener?.('message', messageHandler);
+  };
 }
 
 export { MSG_CALL, MSG_RETURN, MSG_CONSOLE };

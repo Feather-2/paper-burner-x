@@ -15,6 +15,34 @@ import { normalizeVfsPath } from '../../vfs/path.js';
  */
 
 /**
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+function createWeakEtag(bytes) {
+  let hash = 5381;
+  for (let i = 0; i < bytes.byteLength; i += 1) {
+    hash = ((hash << 5) + hash) ^ bytes[i];
+  }
+  return `W/"${bytes.byteLength.toString(16)}-${(hash >>> 0).toString(16)}"`;
+}
+
+/**
+ * @param {Record<string, string> | undefined} headers
+ * @param {string} name
+ * @returns {string | undefined}
+ */
+function getHeader(headers, name) {
+  if (!headers || typeof headers !== 'object') return undefined;
+  const lower = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === lower && typeof value === 'string') {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
  * @typedef {object} HmrEvent
  * @property {'update'|'full-reload'} type
  * @property {string} path
@@ -57,9 +85,10 @@ export class DevServer {
   /**
    * Handle a request and return a response.
    * @param {string} urlPath - Request path (e.g. '/index.html')
+   * @param {Record<string, string>} [requestHeaders]
    * @returns {Promise<ServerResponse>}
    */
-  async handleRequest(urlPath) {
+  async handleRequest(urlPath, requestHeaders) {
     try {
       let filePath = urlPath.startsWith('/') ? urlPath.slice(1) : urlPath;
       filePath = this._root ? `${this._root}/${filePath}` : filePath;
@@ -84,12 +113,26 @@ export class DevServer {
       const body = await this._vfs.readFile(filePath);
       const ext = this._getExtension(filePath);
       const contentType = this._mimeTypes[ext] || 'application/octet-stream';
+      const etag = createWeakEtag(body);
+      const ifNoneMatch = getHeader(requestHeaders, 'if-none-match');
+      if (ifNoneMatch && ifNoneMatch.split(',').map((token) => token.trim()).includes(etag)) {
+        return {
+          status: 304,
+          headers: {
+            ETag: etag,
+            'Cache-Control': 'no-cache',
+          },
+          body: '',
+        };
+      }
 
       return {
         status: 200,
         headers: {
           'Content-Type': contentType,
           'Content-Length': String(body.byteLength),
+          ETag: etag,
+          'Cache-Control': 'no-cache',
         },
         body,
       };
@@ -147,11 +190,11 @@ export class DevServer {
   }
 
   _notFound(path) {
-    return { status: 404, headers: { 'Content-Type': 'text/plain' }, body: `Not Found: ${path}` };
+    return { status: 404, headers: { 'Content-Type': 'text/plain' }, body: 'Not Found' };
   }
 
   _serverError(err) {
-    return { status: 500, headers: { 'Content-Type': 'text/plain' }, body: `Internal Server Error: ${err.message}` };
+    return { status: 500, headers: { 'Content-Type': 'text/plain' }, body: 'Internal Server Error' };
   }
 }
 

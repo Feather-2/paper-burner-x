@@ -33,15 +33,42 @@
  * @property {string} [scope='/__virtual__/']
  * @property {number} [keepaliveInterval=25000]
  * @property {number} [maxReconnects=5]
+ * @property {boolean} [exposeErrorDetails=false]
+ * @property {boolean} [unregisterOnStop=false]
+ * @property {number} [controllerReadyTimeoutMs=5000]
  */
+
+/**
+ * @param {string | undefined} scope
+ * @returns {string}
+ */
+function normalizeScope(scope) {
+  if (typeof scope !== 'string' || !scope.trim()) return '/__virtual__/';
+  const trimmed = scope.trim();
+  const withLeading = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return withLeading.endsWith('/') ? withLeading : `${withLeading}/`;
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 class ServerBridge {
   /** @param {ServerBridgeConfig} config */
   constructor(config) {
-    this._scope = config.scope || '/__virtual__/';
+    this._scope = normalizeScope(config.scope);
     this._swUrl = config.swUrl || '/sw.js';
     this._keepaliveInterval = config.keepaliveInterval || 25000;
     this._maxReconnects = config.maxReconnects || 5;
+    this._exposeErrorDetails = config.exposeErrorDetails === true;
+    this._unregisterOnStop = config.unregisterOnStop === true;
+    this._controllerReadyTimeoutMs = typeof config.controllerReadyTimeoutMs === 'number' && Number.isFinite(config.controllerReadyTimeoutMs)
+      ? Math.max(0, Math.floor(config.controllerReadyTimeoutMs))
+      : 5000;
     /** @type {Map<number, (req: VirtualRequest) => Promise<VirtualResponse>>} */
     this._servers = new Map();
     this._swReady = false;
@@ -49,6 +76,7 @@ class ServerBridge {
     this._keepaliveTimer = null;
     this._controllerChangeHandler = null;
     this._reconnectCount = 0;
+    this._registration = null;
   }
 
   /** Register Service Worker and begin listening. */
@@ -56,13 +84,44 @@ class ServerBridge {
     if (typeof navigator === 'undefined' || !navigator.serviceWorker) {
       throw new Error('Service Worker not available');
     }
-    await navigator.serviceWorker.register(this._swUrl, { scope: this._scope });
+    this._registration = await navigator.serviceWorker.register(this._swUrl, { scope: this._scope });
     await navigator.serviceWorker.ready;
+    await this._ensureController();
     this._swReady = true;
 
     this._attachMessageHandler();
     this._startKeepalive();
     this._attachControllerChange();
+  }
+
+  /**
+   * Ensure SW controller is available after start.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _ensureController() {
+    if (navigator.serviceWorker.controller) return;
+    if (this._controllerReadyTimeoutMs <= 0) return;
+
+    await new Promise((resolve, reject) => {
+      let done = false;
+      const cleanup = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+      };
+      const onControllerChange = () => {
+        if (!navigator.serviceWorker.controller) return;
+        cleanup();
+        resolve(undefined);
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Service Worker controller unavailable after ${this._controllerReadyTimeoutMs}ms`));
+      }, this._controllerReadyTimeoutMs);
+      navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+    });
   }
 
   /** @private */
@@ -85,7 +144,9 @@ class ServerBridge {
         .then(resp => event.ports?.[0]?.postMessage({ type: 'virtual-response', requestId, ...resp }))
         .catch(err => event.ports?.[0]?.postMessage({
           type: 'virtual-response', requestId,
-          status: 500, headers: {}, body: err.message,
+          status: 500,
+          headers: {},
+          body: this._exposeErrorDetails ? String(err?.message || err) : 'Internal server error',
         }));
     };
     navigator.serviceWorker.addEventListener('message', this._messageHandler);
@@ -119,6 +180,9 @@ class ServerBridge {
    * @returns {VirtualServer}
    */
   listen(port) {
+    if (this._servers.has(port)) {
+      throw new Error(`Virtual server already exists on port ${port}`);
+    }
     let handler = null;
     this._servers.set(port, (req) => {
       if (handler) return handler(req);
@@ -139,6 +203,14 @@ class ServerBridge {
     this._servers.clear();
     this._swReady = false;
     this._reconnectCount = 0;
+    if (this._unregisterOnStop && typeof this._registration?.unregister === 'function') {
+      try {
+        await this._registration.unregister();
+      } catch {
+        // best-effort
+      }
+    }
+    this._registration = null;
   }
 
   /** @returns {boolean} */
@@ -160,9 +232,12 @@ export function createServerBridge(config = {}) {
  * @returns {(request: Request) => Promise<Response>}
  */
 export function createFetchHandler(bridge) {
+  const scope = normalizeScope(bridge?._scope);
+  const scopePattern = new RegExp(`^${escapeRegex(scope)}(\\d+)(\\/.*)?$`);
+
   return async (request) => {
     const url = new URL(request.url);
-    const match = url.pathname.match(/\/__virtual__\/(\d+)(\/.*)?/);
+    const match = url.pathname.match(scopePattern);
     if (!match) return new Response('Not a virtual request', { status: 404 });
     const port = parseInt(match[1]);
     const path = match[2] || '/';

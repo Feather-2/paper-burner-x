@@ -248,14 +248,32 @@ describe('HmrClient', () => {
     const errorSpy = vi.fn();
     client.on('hmr:error', errorSpy);
 
-    await client.applyUpdate({
+    const ok = await client.applyUpdate({
       type: 'bad-update-type',
       path: '/bad.js',
       timestamp: Date.now(),
     });
 
+    expect(ok).toBe(false);
     expect(errorSpy).toHaveBeenCalledOnce();
     expect(String(errorSpy.mock.calls[0][0].error.message)).toContain('Unsupported update type');
+    expect(client.lastError).toBeInstanceOf(Error);
+  });
+
+  it('deduplicates dependency accept callbacks across dependency graph', async () => {
+    const client = new HmrClient({ moduleCache, vfs });
+    const sharedCallback = vi.fn();
+
+    client.createHotContext('/a.js').accept('/dep.js', sharedCallback);
+    client.createHotContext('/b.js').accept('/dep.js', sharedCallback);
+
+    await client.handleFileChange('/dep.js', 'export const dep = 1;');
+    expect(sharedCallback).toHaveBeenCalledTimes(1);
+  });
+
+  it('can throw update errors when throwOnError is enabled', async () => {
+    const client = new HmrClient({ moduleCache, vfs, throwOnError: true });
+    await expect(client.applyUpdate({ type: 'bad-update-type', path: '/x.js' })).rejects.toThrow(/Unsupported update type/);
   });
 
   it('auto-listens to vfs change/delete events and dispose detaches listeners', async () => {

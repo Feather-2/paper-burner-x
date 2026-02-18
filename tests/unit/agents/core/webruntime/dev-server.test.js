@@ -41,6 +41,8 @@ describe('DevServer', () => {
   it('returns 404 for non-existent files', async () => {
     const res = await server.handleRequest('/missing.txt');
     expect(res.status).toBe(404);
+    expect(res.body).toBe('Not Found');
+    expect(String(res.body)).not.toContain('missing.txt');
   });
 
   it('auto-resolves index.html for root path', async () => {
@@ -73,6 +75,15 @@ describe('DevServer', () => {
     const body = res.body;
     const len = typeof body === 'string' ? new TextEncoder().encode(body).byteLength : body.byteLength;
     expect(res.headers['Content-Length']).toBe(String(len));
+    expect(res.headers['Cache-Control']).toBe('no-cache');
+    expect(res.headers.ETag).toMatch(/^W\/"/);
+  });
+
+  it('returns 304 when If-None-Match matches ETag', async () => {
+    const first = await server.handleRequest('/app.js');
+    const second = await server.handleRequest('/app.js', { 'If-None-Match': first.headers.ETag });
+    expect(second.status).toBe(304);
+    expect(second.headers.ETag).toBe(first.headers.ETag);
   });
 
   it('onHmr / emitHmr triggers listener', () => {
@@ -121,6 +132,17 @@ describe('DevServer', () => {
     await vfs.mkdir('empty');
     const res = await server.handleRequest('/empty');
     expect(res.status).toBe(404);
+  });
+
+  it('does not leak internal error details in 500 response body', async () => {
+    const brokenVfs = {
+      exists: vi.fn().mockRejectedValue(new Error('disk exploded')),
+    };
+    const brokenServer = new DevServer({ vfs: brokenVfs });
+    const res = await brokenServer.handleRequest('/x');
+    expect(res.status).toBe(500);
+    expect(res.body).toBe('Internal Server Error');
+    expect(String(res.body)).not.toContain('disk exploded');
   });
 
   it('MIME_TYPES export includes common types', () => {

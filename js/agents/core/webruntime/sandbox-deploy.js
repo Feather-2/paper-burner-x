@@ -3,6 +3,7 @@
  * @property {string} [parentOrigin]
  * @property {string} [title='Sandbox']
  * @property {string[]} [scripts]
+ * @property {string[]} [connectSrc]
  */
 
 /**
@@ -45,13 +46,20 @@ function normalizeOrigin(origin) {
  * Build CSP header for sandbox iframe page.
  *
  * @param {string} [parentOrigin]
+ * @param {{ connectSrc?: string[] }} [options]
  * @returns {string}
  */
-export function generateCspHeader(parentOrigin) {
+export function generateCspHeader(parentOrigin, options = {}) {
   const normalizedOrigin = normalizeOrigin(parentOrigin);
   const frameAncestors = normalizedOrigin
     ? `'self' ${normalizedOrigin}`
     : `'self'`;
+  const extraConnectSrc = Array.isArray(options.connectSrc)
+    ? options.connectSrc
+      .map((entry) => normalizeOrigin(entry))
+      .filter(Boolean)
+    : [];
+  const connectSrcList = [`'self'`, ...new Set(extraConnectSrc)].join(' ');
 
   return [
     `default-src 'none'`,
@@ -59,7 +67,7 @@ export function generateCspHeader(parentOrigin) {
     `style-src 'self' 'unsafe-inline'`,
     `img-src 'self' data: blob:`,
     `font-src 'self' data:`,
-    `connect-src 'self' https: http:`,
+    `connect-src ${connectSrcList}`,
     `worker-src 'self' blob:`,
     `frame-ancestors ${frameAncestors}`,
     `base-uri 'none'`,
@@ -74,14 +82,23 @@ export function generateCspHeader(parentOrigin) {
  * @returns {string}
  */
 export function generateSwScript() {
-  return `const CACHE_NAME = 'paper-burner-sandbox-v1';
+  return `const CACHE_PREFIX = 'paper-burner-sandbox';
+const CACHE_NAME = \`\${CACHE_PREFIX}-v2\`;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+        .map((key) => caches.delete(key))
+    );
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', (event) => {
@@ -129,10 +146,11 @@ export function generateSandboxFiles(options = {}) {
     parentOrigin,
     title = 'Sandbox',
     scripts = [],
+    connectSrc = [],
   } = options;
 
   const normalizedOrigin = normalizeOrigin(parentOrigin);
-  const cspHeader = generateCspHeader(normalizedOrigin);
+  const cspHeader = generateCspHeader(normalizedOrigin, { connectSrc });
   const safeTitle = escapeHtml(title);
   const safeScripts = Array.isArray(scripts)
     ? scripts.filter((item) => typeof item === 'string' && item.trim())
@@ -155,21 +173,30 @@ export function generateSandboxFiles(options = {}) {
 ${scriptTags}
   <script type="module">
     const ALLOWED_PARENT_ORIGIN = ${JSON.stringify(normalizedOrigin)};
+    const SAME_ORIGIN = window.location.origin;
+    const SAFE_TARGET_ORIGIN = ALLOWED_PARENT_ORIGIN || SAME_ORIGIN;
 
     window.addEventListener('message', (event) => {
       if (ALLOWED_PARENT_ORIGIN && event.origin !== ALLOWED_PARENT_ORIGIN) {
+        return;
+      }
+      if (!ALLOWED_PARENT_ORIGIN && event.origin && event.origin !== SAME_ORIGIN) {
         return;
       }
 
       const payload = event.data || {};
 
       if (payload.type === 'sandbox:ping') {
+        const replyTarget = ALLOWED_PARENT_ORIGIN || (event.origin || SAME_ORIGIN);
+        if (!replyTarget || replyTarget === '*' || replyTarget === 'null') {
+          return;
+        }
         event.source?.postMessage(
           {
             type: 'sandbox:pong',
             payload: { timestamp: Date.now() },
           },
-          ALLOWED_PARENT_ORIGIN || event.origin || '*'
+          replyTarget
         );
       }
 
@@ -183,7 +210,7 @@ ${scriptTags}
         type: 'sandbox:ready',
         payload: { href: window.location.href },
       },
-      ALLOWED_PARENT_ORIGIN || '*'
+      SAFE_TARGET_ORIGIN
     );
   </script>
 </body>
