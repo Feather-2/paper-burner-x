@@ -52,6 +52,7 @@ export {
 export {
   WasmSandbox,
   createSandbox,
+  createSandboxFactory,
   SandboxPool,
   createSandboxPlugin,
   SkillExecutor,

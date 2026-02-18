@@ -1,6 +1,6 @@
 # runtime - Agent 运行时
 
-Agent Loop 基础设施，包括生命周期、工具执行、压缩、遥测和依赖注入。
+Agent Loop 基础设施，包括生命周期、工具执行、编排调度、Hook 和依赖注入。
 
 > **文件统计**: 127 个 JS 文件，28 个子目录
 
@@ -25,9 +25,9 @@ Agent Loop 基础设施，包括生命周期、工具执行、压缩、遥测和
 | **core** | `core/CLAUDE.md` | AgentLoop, ToolRegistry, MessageManager, StatusController |
 | **tools** | `tools/CLAUDE.md` | 工具执行器 + 内置工具 + 平台适配器 |
 | **tools/platform** | `tools/platform/CLAUDE.md` | 跨平台工具 (Browser VFS / Node fs) |
-| **compression** | `compression/` | Watchdog + CicadaCompressor + Coordinator |
-| **telemetry** | `telemetry/` | TokenTracker, TraceContext, Replay |
-| **memory** | `memory/` | MemoryStore, StateEngine, RetrievalEngine |
+| **compression** | `plugins/compression/` | 已迁移到 plugins 层（不再位于 runtime/） |
+| **telemetry** | `plugins/telemetry/` | 已迁移到 plugins 层（不再位于 runtime/） |
+| **memory** | `plugins/memory/` | 已迁移到 plugins 层（不再位于 runtime/） |
 | **parallel** | `parallel/` | TaskGraph 并行任务图 |
 | **hooks** | `hooks/CLAUDE.md` | 钩子系统 (HookRegistry + HookEvent) |
 | **middleware** | `middleware/CLAUDE.md` | 中间件链 (MiddlewareChain + Stage + 内置中间件) |
@@ -54,7 +54,7 @@ StepStatus:  PENDING → RUNNING → COMPLETED/FAILED/SKIPPED
 import { AgentOrchestrator, SchedulingMode } from 'js/agents/runtime';
 
 const orchestrator = new AgentOrchestrator({
-  mode: SchedulingMode.PARALLEL,  // SERIAL | PARALLEL | PRIORITY
+  mode: SchedulingMode.PARALLEL,  // SEQUENTIAL | PARALLEL
 });
 ```
 
@@ -128,4 +128,3 @@ if (isClusterSupported()) {
   await coordinator.init();
 }
 ```
-

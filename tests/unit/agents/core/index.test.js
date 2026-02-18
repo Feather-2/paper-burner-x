@@ -63,6 +63,7 @@ const adaptProviderMock = vi.fn();
 const adaptProvidersMock = vi.fn();
 const WasmSandboxMock = class WasmSandboxMock {};
 const createSandboxMock = vi.fn();
+const createSandboxFactoryMock = vi.fn();
 const SandboxPoolMock = class SandboxPoolMock {};
 const createSandboxPluginMock = vi.fn();
 const SkillExecutorMock = class SkillExecutorMock {};
@@ -160,6 +161,7 @@ vi.mock('../../../../js/agents/core/compat.js', () => ({
 vi.mock('../../../../js/agents/core/sandbox/index.js', () => ({
   WasmSandbox: WasmSandboxMock,
   createSandbox: createSandboxMock,
+  createSandboxFactory: createSandboxFactoryMock,
   SandboxPool: SandboxPoolMock,
   createSandboxPlugin: createSandboxPluginMock,
   SkillExecutor: SkillExecutorMock,
@@ -259,6 +261,7 @@ const reExportCases = [
   ['adaptProviders', adaptProvidersMock],
   ['WasmSandbox', WasmSandboxMock],
   ['createSandbox', createSandboxMock],
+  ['createSandboxFactory', createSandboxFactoryMock],
   ['SandboxPool', SandboxPoolMock],
   ['createSandboxPlugin', createSandboxPluginMock],
   ['SkillExecutor', SkillExecutorMock],
